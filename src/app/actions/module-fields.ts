@@ -1,0 +1,110 @@
+"use server";
+
+import * as z from "zod";
+import { revalidatePath } from "next/cache";
+import prisma from "@/lib/prisma";
+import { verifySession, getCurrentUser } from "@/lib/dal";
+import { logAudit } from "@/lib/audit";
+import { ModuleFieldSchema, type ActionState } from "@/lib/definitions";
+
+const PATH = "/config/modulos";
+
+export async function createModuleField(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  await verifySession();
+  const parsed = ModuleFieldSchema.safeParse({
+    moduleId: formData.get("moduleId"),
+    key: formData.get("key"),
+    label: formData.get("label"),
+    type: formData.get("type"),
+    required: formData.get("required") === "on",
+    hint: (formData.get("hint") as string) ?? "",
+  });
+  if (!parsed.success) {
+    return { ok: false, errors: z.flattenError(parsed.error).fieldErrors };
+  }
+  const { moduleId, key, label, type, required, hint } = parsed.data;
+
+  const dup = await prisma.moduleField.findUnique({
+    where: { moduleId_key: { moduleId, key } },
+  });
+  if (dup) return { ok: false, message: "Ya existe un campo con esa clave en el módulo." };
+
+  const order = await prisma.moduleField.count({ where: { moduleId } });
+  await prisma.moduleField.create({
+    data: { moduleId, key, label, type, required, hint: hint?.trim() || null, order },
+  });
+
+  const user = await getCurrentUser();
+  await logAudit({
+    user: user?.name ?? "Sistema",
+    action: "AGREGÓ CAMPO",
+    entity: `Módulo ${moduleId}`,
+    detail: `${key} · ${label}`,
+  });
+  revalidatePath(PATH);
+  return { ok: true };
+}
+
+export async function updateModuleField(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  await verifySession();
+  const id = formData.get("id") as string;
+  if (!id) return { ok: false, message: "Campo inexistente." };
+
+  const parsed = ModuleFieldSchema.safeParse({
+    moduleId: formData.get("moduleId"),
+    key: formData.get("key"),
+    label: formData.get("label"),
+    type: formData.get("type"),
+    required: formData.get("required") === "on",
+    hint: (formData.get("hint") as string) ?? "",
+  });
+  if (!parsed.success) {
+    return { ok: false, errors: z.flattenError(parsed.error).fieldErrors };
+  }
+  const { key, label, type, required, hint } = parsed.data;
+
+  await prisma.moduleField.update({
+    where: { id },
+    data: { key, label, type, required, hint: hint?.trim() || null },
+  });
+  revalidatePath(PATH);
+  return { ok: true };
+}
+
+export async function deleteModuleField(formData: FormData): Promise<void> {
+  await verifySession();
+  const id = formData.get("id") as string;
+  if (id) {
+    await prisma.moduleField.delete({ where: { id } });
+    revalidatePath(PATH);
+  }
+}
+
+export async function moveModuleField(formData: FormData): Promise<void> {
+  await verifySession();
+  const id = formData.get("id") as string;
+  const dir = formData.get("dir") as string; // "up" | "down"
+  const field = await prisma.moduleField.findUnique({ where: { id } });
+  if (!field) return;
+
+  const neighbor = await prisma.moduleField.findFirst({
+    where: {
+      moduleId: field.moduleId,
+      order: dir === "up" ? { lt: field.order } : { gt: field.order },
+    },
+    orderBy: { order: dir === "up" ? "desc" : "asc" },
+  });
+  if (!neighbor) return;
+
+  await prisma.$transaction([
+    prisma.moduleField.update({ where: { id: field.id }, data: { order: neighbor.order } }),
+    prisma.moduleField.update({ where: { id: neighbor.id }, data: { order: field.order } }),
+  ]);
+  revalidatePath(PATH);
+}
