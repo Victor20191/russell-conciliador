@@ -12,15 +12,29 @@ datasource db {
 
 // ===== Autenticación =====
 model User {
+  id                 String    @id @default(cuid())
+  email              String    @unique
+  password           String // hash bcrypt
+  name               String
+  role               String    @default("Consulta")
+  initials           String
+  active             Boolean   @default(true)
+  sessionVersion     Int       @default(0)
+  mustChangePassword Boolean   @default(false)
+  lastLoginAt        DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+}
+
+model LoginAttempt {
   id        String   @id @default(cuid())
-  email     String   @unique
-  password  String // hash bcrypt
-  name      String
-  role      String   @default("Auditor Junior")
-  initials  String
-  active    Boolean  @default(true)
+  email     String
+  ip        String
+  success   Boolean
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+
+  @@index([email, createdAt])
+  @@index([ip, createdAt])
 }
 
 // ===== Clientes y módulos =====

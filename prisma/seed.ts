@@ -47,8 +47,8 @@ async function main() {
   const passwordHash = await bcrypt.hash("Russell2026*", 10);
   await prisma.user.createMany({
     data: [
-      { email: "admin@russellbedford.co", password: passwordHash, name: "Manuela Gutiérrez", role: "Auditor Senior", initials: "MG" },
-      { email: "juliana@russellbedford.co", password: passwordHash, name: "Juliana Rincón", role: "Auditor Junior", initials: "JR" },
+      { email: "admin@russellbedford.co", password: passwordHash, name: "Manuela Gutiérrez", role: "Administrador", initials: "MG" },
+      { email: "juliana@russellbedford.co", password: passwordHash, name: "Juliana Rincón", role: "Auditor", initials: "JR" },
     ],
   });
 
