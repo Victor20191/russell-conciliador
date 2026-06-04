@@ -1,4 +1,5 @@
 import type { IconName } from "@/components/icons";
+import type { Role } from "@/lib/roles";
 
 export type NavChild = { label: string; href: string; count?: number };
 export type NavItem = {
@@ -7,6 +8,7 @@ export type NavItem = {
   icon: IconName;
   count?: number;
   children?: NavChild[];
+  minRole?: Role;
 };
 
 // Estructura del menú — rutas reales (App Router) que reemplazan el enrutado por estado del prototipo
@@ -44,11 +46,12 @@ export const workNav: NavItem[] = [
     ],
   },
   { label: "Calendario", href: "/calendario", icon: "calendar" },
-  { label: "Auditoría", href: "/auditoria", icon: "log" },
+  { label: "Auditoría", href: "/auditoria", icon: "log", minRole: "Líder" },
 ];
 
 export const configNav: NavItem[] = [
-  { label: "Módulos y campos", href: "/config/modulos", icon: "settings" },
-  { label: "Clientes", href: "/config/clientes", icon: "users" },
-  { label: "Mapeos DIAN", href: "/config/dian", icon: "doc" },
+  { label: "Módulos y campos", href: "/config/modulos", icon: "settings", minRole: "Líder" },
+  { label: "Clientes", href: "/config/clientes", icon: "users", minRole: "Líder" },
+  { label: "Mapeos DIAN", href: "/config/dian", icon: "doc", minRole: "Líder" },
+  { label: "Usuarios", href: "/config/usuarios", icon: "users", minRole: "Administrador" },
 ];

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icon, BrandMark } from "@/components/icons";
 import { workNav, configNav, type NavItem } from "@/lib/nav";
+import { can } from "@/lib/roles";
 import { logout } from "@/app/actions/auth";
 
 function isChildActive(pathname: string, href: string) {
@@ -26,6 +27,10 @@ export default function Sidebar({
   user: { name: string; role: string; initials: string } | null;
 }) {
   const pathname = usePathname();
+
+  const role = user?.role ?? "";
+  const visibleWork = workNav.filter((it) => !it.minRole || can(role, it.minRole));
+  const visibleConfig = configNav.filter((it) => !it.minRole || can(role, it.minRole));
 
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
     const init: Record<string, boolean> = {};
@@ -69,7 +74,7 @@ export default function Sidebar({
       <div className="flex-1 overflow-y-auto pb-2">
         <SectionLabel>Trabajo</SectionLabel>
         <nav className="flex flex-col px-2">
-          {workNav.map((it) => {
+          {visibleWork.map((it) => {
             const active = isGroupActive(pathname, it);
             const open = openGroups[it.href] ?? false;
             if (!it.children) {
@@ -126,7 +131,7 @@ export default function Sidebar({
 
         <SectionLabel>Configuración</SectionLabel>
         <nav className="flex flex-col px-2">
-          {configNav.map((it) => (
+          {visibleConfig.map((it) => (
             <TopLink key={it.href} item={it} active={pathname === it.href} />
           ))}
         </nav>
