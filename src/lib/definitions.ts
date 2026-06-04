@@ -62,3 +62,25 @@ export const ChangePasswordSchema = z.object({
   current: z.string().min(1, { error: "Ingresa tu contraseña actual." }),
   next: PasswordSchema,
 });
+
+const RoleEnum = z.enum(["Consulta", "Auditor", "Líder", "Administrador"]);
+
+export const UserCreateSchema = z.object({
+  email: z.email({ error: "Correo inválido." }).trim(),
+  name: z.string().min(1, { error: "El nombre es obligatorio." }).trim(),
+  role: RoleEnum,
+  initials: z.string().min(1).max(3, { error: "Máximo 3 caracteres." }).trim(),
+  password: PasswordSchema,
+});
+
+export const UserUpdateSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1, { error: "El nombre es obligatorio." }).trim(),
+  role: RoleEnum,
+  active: z.boolean(),
+});
+
+export const UserResetSchema = z.object({
+  id: z.string().min(1),
+  password: PasswordSchema,
+});
