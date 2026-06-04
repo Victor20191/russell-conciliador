@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Icon } from "@/components/icons";
-import { Card, Chip, EmptyState } from "@/components/ui";
+import { Card, EmptyState } from "@/components/ui";
 import { Modal } from "@/components/modal";
 import { saveDianMapping } from "@/app/actions/dian";
 
