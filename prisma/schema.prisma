@@ -269,3 +269,77 @@ model RussellOption {
   name   String
   module String? // Caja, Bancos, Cartera, DIAN... (null = no participa en conciliaciones)
 }
+
+// ===== Requerimientos de información =====
+model ClientContact {
+  id         String  @id @default(cuid())
+  clientName String
+  name       String
+  role       String
+  email      String
+  primary    Boolean @default(false)
+  order      Int     @default(0)
+}
+
+model ReqTemplate {
+  id            String           @id // TPL-CIERRE
+  code          String // RFA-CIERRE
+  name          String
+  description   String
+  activeVersion String
+  families      Int              @default(0)
+  items         Int              @default(0)
+  timesUsed     Int              @default(0)
+  lastUpdated   String
+  lastUpdatedBy String
+  header        ReqTemplateHeader?
+  familyList    ReqFamily[]
+}
+
+model ReqTemplateHeader {
+  id                String      @id @default(cuid())
+  template          ReqTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  templateId        String      @unique
+  firmName          String
+  city              String
+  asunto            String
+  intro             String
+  noteGeneric       String
+  closing           String
+  signatoryName     String
+  signatoryRole     String
+  signatoryFooter   String
+  consecutivePrefix String
+  contactEmails     String[]
+}
+
+model ReqFamily {
+  id         String      @id @default(cuid())
+  template   ReqTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  templateId String
+  name       String
+  order      Int         @default(0)
+  itemList   ReqItem[]
+}
+
+model ReqItem {
+  id       String    @id @default(cuid())
+  family   ReqFamily @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  familyId String
+  text     String
+  order    Int       @default(0)
+}
+
+model ReqSubmission {
+  id              String   @id // REQ-2026-014
+  consec          String
+  templateCode    String
+  templateVersion String
+  clientName      String
+  period          String
+  recipients      Int      @default(0)
+  status          String // Enviado | Borrador
+  date            String
+  sentBy          String
+  createdAt       DateTime @default(now())
+}
