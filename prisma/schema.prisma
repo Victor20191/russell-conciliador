@@ -134,6 +134,10 @@ model Balance {
   validations Json? // reglas de validación
   breakdown   Json? // desglose por nivel 2 con items
   meta        Json? // metadatos del cargue (file, rows, accounts...)
+  versionHistory Json? // historial de versiones (v3/v2/v1) con metadatos
+  diff           Json? // comparativo de la versión oficial vs. la anterior
+  auditLog       Json? // bitácora de cargues/congelados por cliente
+  lastUpload     String? // fecha-hora de la última carga (display)
   createdAt   DateTime @default(now())
 
   @@unique([clientName, period, version])
