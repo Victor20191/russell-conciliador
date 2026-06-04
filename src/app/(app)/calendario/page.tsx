@@ -1,19 +1,17 @@
-import { PageHeader, ModulePlaceholder } from "@/components/ui";
+import prisma from "@/lib/prisma";
+import { PageHeader } from "@/components/ui";
+import CalendarioClient, { type Evt } from "./calendario-client";
 
-export default function CalendarioPage() {
+export default async function CalendarioPage() {
+  const events = await prisma.calendarEvent.findMany({ orderBy: { date: "asc" } });
+  const evts: Evt[] = events.map((e) => {
+    const d = new Date(e.date);
+    return { id: e.id, day: d.getDate(), month: d.getMonth(), year: d.getFullYear(), type: e.type, title: e.title, subtitle: e.subtitle, clientId: e.clientId };
+  });
   return (
     <div>
-      <PageHeader title="Calendario" subtitle="Vencimientos tributarios y cierres por cliente" />
-      <ModulePlaceholder
-        icon="calendar"
-        title="Calendario tributario y de cierres"
-        description="Visualiza vencimientos DIAN, fechas de cierre contable y entregables por cliente en una vista de calendario consolidada."
-        bullets={[
-          "Vencimientos de formatos DIAN (IVA, Retefuente, ICA…)",
-          "Fechas de cierre contable por cliente y período",
-          "Recordatorios de entregables y asignaciones",
-        ]}
-      />
+      <PageHeader title="Calendario" subtitle="Requerimientos por cliente, vencimientos tributarios DIAN y declaraciones ICA municipales en una sola vista." />
+      <CalendarioClient events={evts} />
     </div>
   );
 }
