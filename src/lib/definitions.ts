@@ -51,3 +51,14 @@ export const ClientSchema = z.object({
   erp: z.string().min(1, { error: "El ERP es obligatorio." }).trim(),
   sector: z.string().min(1, { error: "El sector es obligatorio." }).trim(),
 });
+
+export const PasswordSchema = z
+  .string()
+  .min(10, { error: "La contraseña debe tener al menos 10 caracteres." })
+  .regex(/[A-Za-z]/, { error: "Debe incluir al menos una letra." })
+  .regex(/[0-9]/, { error: "Debe incluir al menos un número." });
+
+export const ChangePasswordSchema = z.object({
+  current: z.string().min(1, { error: "Ingresa tu contraseña actual." }),
+  next: PasswordSchema,
+});
