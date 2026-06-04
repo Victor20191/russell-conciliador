@@ -20,7 +20,7 @@ export default function GenerarClient({
   const router = useRouter();
   const [clientIdx, setClientIdx] = useState(0);
   const client = clients[clientIdx];
-  const contacts = contactsByClient[client.name] ?? [];
+  const contacts = useMemo(() => contactsByClient[client.name] ?? [], [contactsByClient, client.name]);
   const [period, setPeriod] = useState("Cierre 2025");
   const [yearC, setYearC] = useState("2025");
   const [cutoff, setCutoff] = useState("31 de diciembre de 2025");
