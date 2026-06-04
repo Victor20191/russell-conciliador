@@ -33,7 +33,15 @@ export const workNav: NavItem[] = [
     ],
   },
   { label: "Impuestos · DIAN", href: "/dian", icon: "doc", count: 2 },
-  { label: "Requerimientos", href: "/requerimientos", icon: "folder" },
+  {
+    label: "Requerimientos",
+    href: "/requerimientos",
+    icon: "folder",
+    children: [
+      { label: "Plantillas", href: "/requerimientos" },
+      { label: "Repositorios", href: "/requerimientos/repositorios" },
+    ],
+  },
   { label: "Calendario", href: "/calendario", icon: "calendar" },
   { label: "Auditoría", href: "/auditoria", icon: "log" },
 ];
