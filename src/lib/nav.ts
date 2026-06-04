@@ -40,6 +40,7 @@ export const workNav: NavItem[] = [
     children: [
       { label: "Plantillas", href: "/requerimientos" },
       { label: "Repositorios", href: "/requerimientos/repositorios" },
+      { label: "Presentaciones", href: "/requerimientos/presentaciones" },
     ],
   },
   { label: "Calendario", href: "/calendario", icon: "calendar" },
