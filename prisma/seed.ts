@@ -10,6 +10,7 @@ async function main() {
   console.log("🌱 Seeding…");
 
   // ---- Limpieza idempotente ----
+  await prisma.reqPresentation.deleteMany();
   await prisma.reqRepoActivity.deleteMany();
   await prisma.reqRepoItem.deleteMany();
   await prisma.reqRepoFamily.deleteMany();
@@ -631,6 +632,48 @@ async function main() {
       { repositoryId: "REPO-2026-014", at: "25/Ene/2026 09:15", actor: "Manuela Gutiérrez", role: "Auditor", action: "Envió recordatorio", detail: "a Sandra Paniagua, Sandra Carrillo", order: 7 },
     ],
   });
+
+  // ---- Contenido estándar de la presentación (Aspectos legales y tributarios) ----
+  const presEvaluated = {
+    mercantil: ["RUT vs CERL", "Estatutos vs CERL", "Actas de asamblea", "Libros oficiales", "Reporte Supersociedades", "Marca", "Contratos con terceros"],
+    tributario: ["Perfil tributario", "Resolución de facturación y documento soporte", "Requisitos de factura electrónica", "Consecutivo numérico y cronológico de facturas", "Transmisión de nómina electrónica", "Periodicidad de declaraciones de IVA", "Ingresos brutos en Renta vs IVA e ICA", "Oportunidad de pago y presentación", "Certificados de retención", "Medios magnéticos", "Estado de cuenta DIAN", "Contenedor DIAN"],
+    otros: ["Cumplimiento sector alimentos", "SAGRILAFT", "Terceros ficticios e insolventes", "Política de protección de datos y RNBD", "Rama judicial y BDME", "SENA y cuota de aprendices", "SGSST", "RIT"],
+  };
+  const presPositives = [
+    "Se observa integridad entre la información reportada en cámara de comercio frente al RUT.",
+    "La compañía cuenta con una resolución de facturación electrónica de contingencia vigente.",
+    "Cuenta con la marca registrada en la Superintendencia de Industria y Comercio.",
+    "La nómina electrónica se presentó de manera oportuna.",
+    "El Impuesto a las Ventas se presenta con periodicidad bimestral, adecuada para la compañía.",
+    "De acuerdo con el perfil tributario y obligaciones fiscales, se da cumplimiento al 100% de éstas.",
+    "No se tienen registradas transacciones con clientes y proveedores calificados como ficticios.",
+    "La compañía cumple con los requisitos de formato de la factura electrónica de venta.",
+    "Los EE.FF. fueron reportados dentro de los plazos establecidos por la Superintendencia de Sociedades.",
+    "Se evidencia adecuada conciliación de ingresos entre contabilidad vs. DIAN.",
+    "Los ingresos declarados en IVA son consistentes con los declarados en Renta e ICA.",
+    "La compañía realiza el pago oportuno de la seguridad social de sus empleados.",
+    "La política de tratamiento de datos personales se encuentra publicada y registrada en el RNBD.",
+    "Las retenciones en la fuente y de IVA se practican y certifican conforme a la normativa.",
+    "El Sistema de Gestión de Seguridad y Salud en el Trabajo (SGSST) se encuentra implementado.",
+    "La compañía no figura en el boletín de deudores morosos del Estado (BDME).",
+  ];
+  const presObserved = [
+    { title: "Consecutivos de facturación", shortTitle: "CONSECUTIVOS DE FACTURACIÓN", summary: "Se presentan saltos en el orden cronológico de la facturación emitida por la compañía. La administración indicó que obedece a errores en la transmisión de algunas facturas a la DIAN, las cuales son reprocesadas y validadas dentro del mismo periodo contable.", riesgos: ["Riesgo de cumplimiento tributario formal: la pérdida de secuencia puede ser considerada una irregularidad formal ante la DIAN (art. 617 E.T. y reglamentación de facturación electrónica).", "Riesgo operativo y de control interno: la falla en la transmisión automática evidencia debilidades en los controles tecnológicos y de supervisión (NIA 315)."], oportunidades: ["Reforzar la conectividad y confiabilidad del sistema de facturación.", "Implementar alertas/tableros de facturas no procesadas.", "Conservar evidencia del reproceso en el archivo tributario.", "Validar diariamente la correlatividad al cierre."] },
+    { title: "Medios magnéticos", shortTitle: "MEDIOS MAGNÉTICOS", summary: "En los medios magnéticos correspondientes al año 2024 se presentaron formatos con error.", riesgos: ["Sanciones por errores/omisiones/extemporaneidad de la exógena (art. 651 E.T.).", "Sanción de 0,5 UVT por dato incorrecto sin exceder 7.500 UVT.", "Inconsistencias cruzadas en los sistemas de la DIAN que deriven en requerimientos o auditorías.", "Afectación de la percepción de cumplimiento ante terceros."], oportunidades: ["Establecer controles de revisión y validación interna con conciliación cruzada.", "Usar herramientas de prevalidación de la DIAN o software especializado."] },
+    { title: "Provisión de renta", shortTitle: "PROVISIÓN DE RENTA", summary: "Se evidencia que la compañía no realiza la provisión del impuesto de renta de manera mensual al corte de la revisión, incumpliendo el principio de acumulación (devengo) del marco técnico normativo contable.", riesgos: ["Posible error material en el estado de situación financiera.", "Debilidad en el cierre contable mensual y en el cumplimiento tributario."], oportunidades: ["Reconocer mensualmente la provisión dentro del cronograma de cierres.", "Documentar el cálculo estimado mes a mes.", "Formalizar una política contable de provisiones tributarias periódicas."] },
+  ];
+
+  const presHistory: [string, string, string, string, string, number, string][] = [
+    ["PRES-2025-009", "El Zarzal S.A", "Aspectos legales y tributarios 2025", "15/Jul/2025", "Carlos Aristizábal", 18, "Enviada"],
+    ["PRES-2025-008", "Inversiones del Pacífico S.A.S", "Aspectos legales y tributarios 2025", "02/Jul/2025", "María Posada", 16, "Enviada"],
+    ["PRES-2025-007", "Comercializadora Andina Ltda", "Cierre fiscal 2024", "28/Jun/2025", "Juliana Rincón", 22, "Borrador"],
+    ["PRES-2025-006", "Distribuciones del Valle S.A.S", "Aspectos legales y tributarios 2025", "20/Jun/2025", "Andrés Patiño", 15, "Enviada"],
+  ];
+  for (const [id, clientName, title, date, author, slides, status] of presHistory) {
+    await prisma.reqPresentation.create({
+      data: { id, clientName, nit: "900.451.227-3", title, year: "2025", presented: "Julio de 2025", preparedBy: "Russell Bedford Colombia", slides, author, date, status, positives: presPositives, observed: presObserved, evaluated: presEvaluated },
+    });
+  }
 
   console.log("✅ Seed completo.");
 }
