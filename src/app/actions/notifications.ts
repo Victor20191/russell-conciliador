@@ -6,6 +6,7 @@ import { verifySession } from "@/lib/dal";
 
 export async function markAllNotificationsRead(): Promise<void> {
   await verifySession();
+  // Notificaciones globales del sistema (el modelo Notification no tiene dueño): se marcan todas.
   await prisma.notification.updateMany({
     where: { unread: true },
     data: { unread: false },

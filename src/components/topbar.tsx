@@ -105,6 +105,7 @@ export default function Topbar({
                   <form action={markAllNotificationsRead} className="ml-auto">
                     <button
                       type="submit"
+                      onClick={() => setBellOpen(false)}
                       className="text-[11px] font-medium text-blue-500 hover:underline"
                     >
                       Marcar todo leído
