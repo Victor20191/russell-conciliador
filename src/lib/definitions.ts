@@ -23,3 +23,30 @@ export type SessionPayload = {
   role: string;
   expiresAt: string; // ISO
 };
+
+// Estado genérico de las Server Actions usadas con useActionState.
+export type ActionState = {
+  ok?: boolean;
+  errors?: Record<string, string[]>;
+  message?: string;
+};
+
+export const ModuleFieldSchema = z.object({
+  moduleId: z.string().min(1),
+  key: z
+    .string()
+    .min(1, { error: "La clave es obligatoria." })
+    .regex(/^[a-z0-9_]+$/, { error: "Solo minúsculas, números y guion bajo." }),
+  label: z.string().min(1, { error: "La etiqueta es obligatoria." }),
+  type: z.enum(["string", "number", "date"]),
+  required: z.boolean(),
+  hint: z.string().optional(),
+});
+
+export const ClientSchema = z.object({
+  id: z.string().min(1, { error: "El código es obligatorio." }).trim(),
+  name: z.string().min(1, { error: "El nombre es obligatorio." }).trim(),
+  nit: z.string().min(1, { error: "El NIT es obligatorio." }).trim(),
+  erp: z.string().min(1, { error: "El ERP es obligatorio." }).trim(),
+  sector: z.string().min(1, { error: "El sector es obligatorio." }).trim(),
+});
