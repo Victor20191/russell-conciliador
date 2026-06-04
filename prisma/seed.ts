@@ -10,6 +10,10 @@ async function main() {
   console.log("🌱 Seeding…");
 
   // ---- Limpieza idempotente ----
+  await prisma.reqRepoActivity.deleteMany();
+  await prisma.reqRepoItem.deleteMany();
+  await prisma.reqRepoFamily.deleteMany();
+  await prisma.reqRepository.deleteMany();
   await prisma.reqItem.deleteMany();
   await prisma.reqFamily.deleteMany();
   await prisma.reqTemplateHeader.deleteMany();
@@ -555,6 +559,76 @@ async function main() {
       { id: "REQ-2026-012", consec: "RFA 002 – 2026 IP", templateCode: "RFA-CIERRE", templateVersion: "v3.2", clientName: "Inversiones del Pacífico S.A.S", period: "Cierre 2025", recipients: 4, status: "Enviado", date: "08/Ene/2026", sentBy: "Carlos Aristizábal" },
       { id: "REQ-2026-011", consec: "RFA 022 – 2026 CA", templateCode: "RFA-INTERIM", templateVersion: "v1.4", clientName: "Comercializadora Andina Ltda", period: "Q3 2026", recipients: 2, status: "Borrador", date: "15/Oct/2026", sentBy: "Andrea Gómez" },
       { id: "REQ-2026-010", consec: "RFA 028 – 2026 MS", templateCode: "RFA-PRECIERRE", templateVersion: "v1.1", clientName: "Manufacturas del Sur S.A", period: "Pre-cierre Oct 2026", recipients: 5, status: "Enviado", date: "05/Nov/2026", sentBy: "Manuela Gutiérrez" },
+    ],
+  });
+
+  // ---- Repositorios (lista) ----
+  await prisma.reqRepository.createMany({
+    data: [
+      { id: "REPO-2026-014", consec: "RFA 001 – 2026 ZZ", templateCode: "RFA-CIERRE v3.2", clientName: "El Zarzal S.A", nit: "890.345.872-1", period: "Cierre 2025", cutoff: "31/Dic/2025", sentAt: "06/Ene/2026 09:14", sentBy: "Manuela Gutiérrez", deadline: "23/Ene/2026", daysLeft: -2, total: 78, received: 64, pending: 11, overdue: 3, progress: 82, status: "Vencido parcial" },
+      { id: "REPO-2026-013", consec: "RFA 006 – 2026 ZZ", templateCode: "RFA-LEGALES v2.1", clientName: "El Zarzal S.A", nit: "890.345.872-1", period: "Abril 2026", cutoff: "30/Abr/2026", sentAt: "22/Abr/2026 11:08", sentBy: "Manuela Gutiérrez", deadline: "08/May/2026", daysLeft: 0, total: 38, received: 35, pending: 3, overdue: 0, progress: 92, status: "En recepción" },
+      { id: "REPO-2026-012", consec: "RFA 002 – 2026 IP", templateCode: "RFA-CIERRE v3.2", clientName: "Inversiones del Pacífico S.A.S", nit: "900.451.227-3", period: "Cierre 2025", cutoff: "31/Dic/2025", sentAt: "08/Ene/2026 14:30", sentBy: "Carlos Aristizábal", deadline: "25/Ene/2026", daysLeft: -2, total: 78, received: 78, pending: 0, overdue: 0, progress: 100, status: "Completo" },
+      { id: "REPO-2026-010", consec: "RFA 028 – 2026 MS", templateCode: "RFA-PRECIERRE v1.1", clientName: "Manufacturas del Sur S.A", nit: "830.502.118-9", period: "Pre-cierre Oct 2026", cutoff: "31/Oct/2026", sentAt: "05/Nov/2026 13:02", sentBy: "Manuela Gutiérrez", deadline: "19/Nov/2026", daysLeft: 11, total: 54, received: 18, pending: 36, overdue: 0, progress: 33, status: "En recepción" },
+    ],
+  });
+
+  // ---- Detalle de REPO-2026-014: familias + ítems ----
+  type RItem = [number, string, string, string | null, string | null, string | null, string | null]; // idx, doc, status, file, size, by, at
+  const repoFams: { code: string; name: string; total: number; received: number; pending: number; items: RItem[] }[] = [
+    { code: "F1", name: "Información General", total: 12, received: 12, pending: 0, items: [
+      [1, "Políticas contables NIIF actualizadas", "received", "Politicas_NIIF_2025.pdf", "1.2 MB", "Sandra Paniagua", "08/Ene/2026 10:14"],
+      [2, "Balance de comprobación oct/nov/dic 2025 (Excel por cuenta y terceros)", "received", "Balance ZARZAL Dic-2025_v3.xlsx", "284 KB", "Sandra Paniagua", "06/Ene/2026 09:14"],
+      [4, "RUT actualizado", "received", "RUT_Zarzal_2026.pdf", "212 KB", "Sandra Carrillo", "07/Ene/2026 16:42"],
+      [5, "Certificado de Cámara de Comercio actualizado", "received", "CCC_Zarzal_2026.pdf", "487 KB", "Sandra Carrillo", "07/Ene/2026 16:42"],
+    ] },
+    { code: "F2", name: "Efectivo y Equivalentes de Efectivo", total: 4, received: 4, pending: 0, items: [
+      [1, "Extractos bancarios oct-dic 2025 (PDF)", "received", "Extractos_Q4_2025.zip", "8.4 MB", "Sandra Paniagua", "10/Ene/2026 09:30"],
+      [2, "Conciliaciones bancarias oct-dic 2025", "received", "Conciliaciones_Q4_2025.xlsx", "412 KB", "Sandra Paniagua", "10/Ene/2026 09:35"],
+      [4, "Políticas de manejo y custodia del fondo de cajas", "received", "Politica_Caja.pdf", "320 KB", "Sandra Carrillo", "08/Ene/2026 11:02"],
+    ] },
+    { code: "F3", name: "Cuentas Comerciales por Cobrar", total: 8, received: 6, pending: 0, items: [
+      [2, "Estado de cartera por clientes y edades", "received", "Cartera_Edades_Dic25.xlsx", "680 KB", "Sandra Paniagua", "12/Ene/2026 14:12"],
+      [3, "Detalle cartera castigada vigencia 2025", "overdue", null, null, null, null],
+      [6, "Cuentas pendientes de cobro a empleados", "received", "CxC_Empleados.xlsx", "68 KB", "Alejandra Henao", "14/Ene/2026 10:08"],
+      [7, "Cuentas por cobrar a particulares", "overdue", null, null, null, null],
+    ] },
+    { code: "F4", name: "Inventarios", total: 5, received: 3, pending: 2, items: [
+      [1, "Estado de existencias al corte (costo y unidades)", "received", "Inventario_Dic25.xlsx", "1.4 MB", "Sandra Paniagua", "13/Ene/2026 16:18"],
+      [3, "Conciliación módulo inventarios vs contabilidad oct-dic", "pending", null, null, null, null],
+      [5, "Reporte de ajustes de inventario realizados en el año", "pending", null, null, null, null],
+    ] },
+    { code: "F5", name: "Propiedad, Planta y Equipo", total: 7, received: 5, pending: 2, items: [
+      [1, "Conciliación módulo PPE vs contabilidad — diciembre 2025", "received", "Conc_PPE_Dic25.xlsx", "258 KB", "Sandra Paniagua", "14/Ene/2026 09:14"],
+      [3, "Carpeta física con facturas de compra y venta", "pending", null, null, null, null],
+      [7, "Registro en sistema del avalúo por activo", "pending", null, null, null, null],
+    ] },
+    { code: "F11", name: "Asientos Diarios (JE)", total: 1, received: 0, pending: 0, items: [
+      [1, "Excel de Journal Entries 01/Ene–31/Dic 2025", "overdue", null, null, null, null],
+    ] },
+    { code: "F13", name: "Provisión de Renta", total: 30, received: 18, pending: 12, items: [
+      [1, "Declaración de renta 2024 + recibo de pago", "received", "DR_2024.pdf", "1.1 MB", "Sandra Paniagua", "16/Ene/2026 11:05"],
+      [2, "Balance enero–diciembre 2025 por terceros NIIF y Fiscal", "pending", null, null, null, null],
+      [4, "Anexo activos fijos fiscal y NIIF", "received", "AF_Fiscal_NIIF.xlsx", "412 KB", "Sandra Paniagua", "16/Ene/2026 11:08"],
+    ] },
+  ];
+  for (let fi = 0; fi < repoFams.length; fi++) {
+    const f = repoFams[fi];
+    await prisma.reqRepoFamily.create({
+      data: { repositoryId: "REPO-2026-014", code: f.code, name: f.name, total: f.total, received: f.received, pending: f.pending, order: fi,
+        items: { create: f.items.map(([idx, doc, status, file, size, by, at], i) => ({ idx, doc, due: "23/Ene/2026", status, file, size, by, at, order: i })) } },
+    });
+  }
+
+  await prisma.reqRepoActivity.createMany({
+    data: [
+      { repositoryId: "REPO-2026-014", at: "06/Ene/2026 09:14", actor: "Manuela Gutiérrez", role: "Auditor", action: "Envió requerimiento y creó repositorio", detail: "78 ítems · vencimiento 23/Ene/2026", order: 0 },
+      { repositoryId: "REPO-2026-014", at: "06/Ene/2026 09:14", actor: "Sandra Paniagua", role: "Cliente", action: "Cargó Balance v3", detail: "F1 · ítem 2 · 284 KB", order: 1 },
+      { repositoryId: "REPO-2026-014", at: "07/Ene/2026 16:42", actor: "Sandra Carrillo", role: "Cliente", action: "Cargó 2 documentos", detail: "F1 · RUT, CCC", order: 2 },
+      { repositoryId: "REPO-2026-014", at: "08/Ene/2026 10:14", actor: "Sandra Paniagua", role: "Cliente", action: "Cargó políticas NIIF", detail: "F1 · ítem 1", order: 3 },
+      { repositoryId: "REPO-2026-014", at: "12/Ene/2026 14:08", actor: "Sandra Paniagua", role: "Cliente", action: "Cargó 2 documentos de cartera", detail: "F3 · ítems 1, 2", order: 4 },
+      { repositoryId: "REPO-2026-014", at: "15/Ene/2026 11:30", actor: "Sandra Paniagua", role: "Cliente", action: "Cargó 4 documentos", detail: "F3 · ítems 4, 5, 8 + F4", order: 5 },
+      { repositoryId: "REPO-2026-014", at: "24/Ene/2026 08:00", actor: "Sistema", role: "Auto", action: "3 ítems vencidos", detail: "F3 ítems 3, 7 · F11 ítem 1", order: 6 },
+      { repositoryId: "REPO-2026-014", at: "25/Ene/2026 09:15", actor: "Manuela Gutiérrez", role: "Auditor", action: "Envió recordatorio", detail: "a Sandra Paniagua, Sandra Carrillo", order: 7 },
     ],
   });
 
