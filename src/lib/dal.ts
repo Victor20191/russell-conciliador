@@ -13,7 +13,28 @@ export const verifySession = cache(async () => {
     redirect("/login");
   }
 
-  return { isAuth: true, userId: session.userId, role: session.role };
+  const user = await prisma.user.findUnique({
+    where: { id: session.userId },
+    select: {
+      id: true,
+      active: true,
+      role: true,
+      sessionVersion: true,
+      mustChangePassword: true,
+    },
+  });
+
+  // Revocación: el usuario debe existir, estar activo y la versión de sesión coincidir.
+  if (!user || !user.active || user.sessionVersion !== session.sessionVersion) {
+    redirect("/login");
+  }
+
+  return {
+    isAuth: true as const,
+    userId: user.id,
+    role: user.role,
+    mustChangePassword: user.mustChangePassword,
+  };
 });
 
 export const getCurrentUser = cache(async () => {
