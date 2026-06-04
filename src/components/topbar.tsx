@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { usePathname } from "next/navigation";
 import { Icon } from "@/components/icons";
+import { markAllNotificationsRead } from "@/app/actions/notifications";
 
 export type NotificationDTO = {
   id: string;
@@ -100,6 +101,16 @@ export default function Topbar({
                 <span className="rounded-full bg-ai-100 px-1.5 py-0.5 text-[10px] font-semibold text-ai-700">
                   {unread} sin leer
                 </span>
+                {unread > 0 && (
+                  <form action={markAllNotificationsRead} className="ml-auto">
+                    <button
+                      type="submit"
+                      className="text-[11px] font-medium text-blue-500 hover:underline"
+                    >
+                      Marcar todo leído
+                    </button>
+                  </form>
+                )}
               </div>
               <div className="max-h-96 overflow-y-auto">
                 {notifications.map((n) => (
@@ -139,6 +150,14 @@ export default function Topbar({
             </div>
           )}
         </div>
+        <button
+          type="button"
+          aria-label="Ayuda"
+          title="Ayuda"
+          className="rounded-md border border-ink-200 bg-white p-2 text-ink-600 transition hover:bg-ink-50"
+        >
+          <Icon name="doc" size={16} />
+        </button>
       </div>
     </div>
   );
