@@ -1,6 +1,7 @@
 import Sidebar from "@/components/sidebar";
 import Topbar from "@/components/topbar";
-import { getCurrentUser } from "@/lib/dal";
+import { redirect } from "next/navigation";
+import { getCurrentUser, verifySession } from "@/lib/dal";
 import prisma from "@/lib/prisma";
 
 export default async function AppLayout({
@@ -8,6 +9,9 @@ export default async function AppLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const session = await verifySession();
+  if (session.mustChangePassword) redirect("/cambiar-contrasena");
+
   // verifySession() (dentro de getCurrentUser) redirige a /login si no hay sesión
   const user = await getCurrentUser();
   const notifications = await prisma.notification.findMany({

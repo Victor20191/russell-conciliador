@@ -72,7 +72,7 @@ export async function logout() {
 }
 
 export async function changePassword(
-  _prev: ActionState,
+  _prev: ActionState | undefined,
   formData: FormData,
 ): Promise<ActionState> {
   const session = await verifySession();
