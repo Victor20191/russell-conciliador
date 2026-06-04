@@ -1,71 +1,35 @@
 import prisma from "@/lib/prisma";
-import { PageHeader, Card, Chip } from "@/components/ui";
-import { Icon } from "@/components/icons";
+import { PageHeader } from "@/components/ui";
+import ClientesClient, { type ClientRow, type ModuleRef } from "./clientes-client";
 
 export default async function ClientesPage() {
-  const clients = await prisma.client.findMany({
-    include: { modules: { include: { module: true } } },
-    orderBy: { name: "asc" },
-  });
+  const [clients, modules] = await Promise.all([
+    prisma.client.findMany({
+      orderBy: { name: "asc" },
+      include: { modules: true },
+    }),
+    prisma.module.findMany({ orderBy: { name: "asc" } }),
+  ]);
+
+  const rows: ClientRow[] = clients.map((c) => ({
+    id: c.id,
+    name: c.name,
+    nit: c.nit,
+    erp: c.erp,
+    sector: c.sector,
+    modules: c.modules.map((m) => ({ moduleId: m.moduleId, status: m.status })),
+  }));
+  const mods: ModuleRef[] = modules.map((m) => ({ id: m.id, name: m.name }));
+  const erps = [...new Set(clients.map((c) => c.erp))].sort();
+  const sectors = [...new Set(clients.map((c) => c.sector))].sort();
 
   return (
     <div>
       <PageHeader
-        title="Clientes"
-        subtitle="Catálogo de clientes y estado de parametrización por módulo"
-        actions={
-          <button className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-2 text-[12.5px] font-semibold text-white transition hover:bg-navy-600">
-            <Icon name="plus" size={14} /> Nuevo cliente
-          </button>
-        }
+        title="Clientes y parametrizaciones"
+        subtitle="Estado de parametrización por cliente y módulo. Los módulos en gris requieren configuración."
       />
-
-      <Card>
-        <div className="overflow-x-auto">
-          <table className="w-full text-[12.5px]">
-            <thead>
-              <tr className="border-b border-ink-100 text-left text-[11px] uppercase tracking-wider text-ink-500">
-                <th className="px-4 py-2.5 font-semibold">Código</th>
-                <th className="px-4 py-2.5 font-semibold">Cliente</th>
-                <th className="px-4 py-2.5 font-semibold">NIT</th>
-                <th className="px-4 py-2.5 font-semibold">ERP</th>
-                <th className="px-4 py-2.5 font-semibold">Sector</th>
-                <th className="px-4 py-2.5 font-semibold">Módulos</th>
-              </tr>
-            </thead>
-            <tbody>
-              {clients.map((c) => {
-                const configured = c.modules.filter((m) => m.status === "configured");
-                const pending = c.modules.filter((m) => m.status === "pending");
-                return (
-                  <tr key={c.id} className="border-b border-ink-50 last:border-0 align-top hover:bg-ink-50">
-                    <td className="px-4 py-3 font-mono text-[11.5px] text-ink-500">{c.id}</td>
-                    <td className="px-4 py-3 font-medium text-ink-800">{c.name}</td>
-                    <td className="px-4 py-3 font-mono text-ink-600">{c.nit}</td>
-                    <td className="px-4 py-3 text-ink-600">{c.erp}</td>
-                    <td className="px-4 py-3 text-ink-600">{c.sector}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap gap-1.5">
-                        {configured.map((m) => (
-                          <Chip key={m.id} label={m.module.name} tone="ok" />
-                        ))}
-                        {pending.map((m) => (
-                          <Chip key={m.id} label={m.module.name} tone="warn" />
-                        ))}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </Card>
-
-      <div className="mt-3 flex items-center gap-4 text-[11.5px] text-ink-500">
-        <span className="flex items-center gap-1.5"><Chip label="módulo" tone="ok" /> Parametrizado</span>
-        <span className="flex items-center gap-1.5"><Chip label="módulo" tone="warn" /> Pendiente</span>
-      </div>
+      <ClientesClient clients={rows} modules={mods} erps={erps} sectors={sectors} />
     </div>
   );
 }
