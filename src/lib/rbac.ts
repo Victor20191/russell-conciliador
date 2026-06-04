@@ -10,6 +10,7 @@ export type AuthzResult =
 // Para Server Actions que devuelven ActionState: no lanza, devuelve el resultado.
 export async function authorizeAction(min: Role): Promise<AuthzResult> {
   const session = await verifySession();
+  if (session.mustChangePassword) redirect("/cambiar-contrasena");
   if (!can(session.role, min)) {
     return { ok: false, message: "No tienes permisos para esta acción." };
   }
@@ -19,6 +20,7 @@ export async function authorizeAction(min: Role): Promise<AuthzResult> {
 // Para páginas/layouts y Server Actions void: redirige si no cumple.
 export async function requireRole(min: Role): Promise<void> {
   const session = await verifySession();
+  if (session.mustChangePassword) redirect("/cambiar-contrasena");
   if (!can(session.role, min)) {
     redirect("/dashboard");
   }
