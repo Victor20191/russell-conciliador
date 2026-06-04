@@ -184,7 +184,12 @@ model DianForm {
   code        String // F-300
   periodicity String
   icon        String
+  objective   String?
+  conclusion  String?
   periods     DianPeriod[]
+  sections    DianSection[]
+  mappings    DianMapping[]
+  comments    DianComment[]
 }
 
 model DianPeriod {
@@ -197,6 +202,53 @@ model DianPeriod {
   formId    String
 
   @@unique([formId, periodKey])
+}
+
+model DianSection {
+  id     String     @id @default(cuid())
+  form   DianForm   @relation(fields: [formId], references: [id], onDelete: Cascade)
+  formId String
+  title  String
+  side   String     @default("L") // L | R (lado visual)
+  note   String?
+  order  Int        @default(0)
+  lines  DianLine[]
+}
+
+model DianLine {
+  id        String      @id @default(cuid())
+  section   DianSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  sectionId String
+  k         String // casilla: GEN-19, DES-CBG...
+  label     String
+  decl      Float       @default(0)
+  cont      Float       @default(0)
+  diff      Float       @default(0)
+  order     Int         @default(0)
+}
+
+model DianMapping {
+  id      String   @id @default(cuid())
+  form    DianForm @relation(fields: [formId], references: [id], onDelete: Cascade)
+  formId  String
+  lineKey String // k del renglón
+  account String
+  desc    String
+  sign    String // + | -
+  order   Int      @default(0)
+}
+
+model DianComment {
+  id        String   @id @default(cuid())
+  form      DianForm @relation(fields: [formId], references: [id], onDelete: Cascade)
+  formId    String
+  lineKey   String
+  who       String
+  initials  String
+  text      String
+  time      String
+  isAI      Boolean  @default(false)
+  createdAt DateTime @default(now())
 }
 
 // ===== Mapeo cuenta-cliente → Russell (Balance · Mapeo plan estándar) =====
