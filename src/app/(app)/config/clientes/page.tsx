@@ -1,8 +1,10 @@
 import prisma from "@/lib/prisma";
 import { PageHeader } from "@/components/ui";
 import ClientesClient, { type ClientRow, type ModuleRef } from "./clientes-client";
+import { requireRole } from "@/lib/rbac";
 
 export default async function ClientesPage() {
+  await requireRole("Líder");
   const [clients, modules] = await Promise.all([
     prisma.client.findMany({
       orderBy: { name: "asc" },
