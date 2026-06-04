@@ -1,19 +1,23 @@
-import { PageHeader, ModulePlaceholder } from "@/components/ui";
+import prisma from "@/lib/prisma";
+import { PageHeader } from "@/components/ui";
+import ConfigDianClient, { type DianFormData } from "./config-dian-client";
 
-export default function ConfigDianPage() {
+export default async function ConfigDianPage() {
+  const forms = await prisma.dianForm.findMany({
+    include: { sections: { orderBy: { order: "asc" }, include: { lines: { orderBy: { order: "asc" } } } }, mappings: true },
+    orderBy: { code: "asc" },
+  });
+
+  const data: DianFormData[] = forms.map((f) => ({
+    id: f.id, name: f.name, code: f.code,
+    sections: f.sections.map((s) => ({ id: s.id, title: s.title, lines: s.lines.map((l) => ({ k: l.k, label: l.label })) })),
+    mappings: f.mappings.map((m) => ({ lineKey: m.lineKey, account: m.account, desc: m.desc, sign: m.sign })),
+  }));
+
   return (
     <div>
-      <PageHeader title="Mapeos DIAN" subtitle="Configuración de renglones de formularios tributarios" />
-      <ModulePlaceholder
-        icon="doc"
-        title="Mapeos DIAN"
-        description="Define cómo se mapean las cuentas y renglones de cada formato DIAN (IVA, Retención, ICA) contra la contabilidad para la conciliación tributaria."
-        bullets={[
-          "Renglones del formato 300 (IVA), 350 (Retención) y otros",
-          "Reglas de mapeo cuenta contable → renglón declarado",
-          "Plantillas reutilizables por tipo de contribuyente",
-        ]}
-      />
+      <PageHeader title="Mapeos DIAN" subtitle="Configura qué cuentas contables suman o restan al saldo de cada renglón de los formatos DIAN. Plantilla estándar reutilizable por cliente." />
+      <ConfigDianClient forms={data} />
     </div>
   );
 }
