@@ -10,6 +10,8 @@ async function main() {
   console.log("🌱 Seeding…");
 
   // ---- Limpieza idempotente ----
+  await prisma.clientAccount.deleteMany();
+  await prisma.russellOption.deleteMany();
   await prisma.dianPeriod.deleteMany();
   await prisma.dianForm.deleteMany();
   await prisma.balance.deleteMany();
@@ -280,6 +282,50 @@ async function main() {
         periods: { create: f.periods.map((p) => ({ periodKey: p.periodKey, label: p.label, status: p.status, filed: p.filed })) } },
     });
   }
+
+  // ---- Catálogo de cuentas Russell (selector del mapeo) ----
+  await prisma.russellOption.createMany({
+    data: [
+      { code: "1105", name: "Caja", module: "Caja" },
+      { code: "1110", name: "Bancos", module: "Bancos" },
+      { code: "1115", name: "Cuentas de ahorro", module: "Bancos" },
+      { code: "1305", name: "Clientes", module: "Cartera" },
+      { code: "1330", name: "Anticipos y avances", module: "Cartera" },
+      { code: "1355", name: "Anticipos de impuestos", module: "DIAN" },
+      { code: "1399", name: "Provisiones", module: "Cartera" },
+      { code: "14", name: "Inventarios", module: "Inventarios" },
+      { code: "15", name: "Propiedades, planta y equipo", module: "Activos fijos" },
+      { code: "1592", name: "Depreciación acumulada", module: "Activos fijos" },
+      { code: "21", name: "Obligaciones financieras", module: "Cuentas por pagar" },
+      { code: "22", name: "Proveedores", module: "Cuentas por pagar" },
+      { code: "23", name: "Cuentas por pagar", module: "Cuentas por pagar" },
+      { code: "24", name: "Impuestos, gravámenes y tasas", module: "DIAN" },
+      { code: "25", name: "Obligaciones laborales", module: "Nómina" },
+      { code: "41", name: "Ingresos operacionales", module: "Ingresos" },
+      { code: "51", name: "Operacionales de admón", module: null },
+      { code: "52", name: "Operacionales de ventas", module: null },
+    ],
+  });
+
+  // ---- PUC del cliente El Zarzal (árbol N4/N6/N8) ----
+  const elZarzalTree: [string, number, string, string | null][] = [
+    ["1105", 4, "Caja", "1105"], ["110505", 6, "Caja general", "1105"], ["11050501", 8, "Caja Bogotá", "1105"], ["11050502", 8, "Caja Medellín", "1105"], ["11050503", 8, "Caja Cali", "1105"], ["110510", 6, "Caja menor administración", "1105"], ["11051001", 8, "Caja menor — Recepción", "1105"], ["11051002", 8, "Caja menor — Logística", "1105"],
+    ["1110", 4, "Bancos", "1110"], ["111005", 6, "Bancolombia", "1110"], ["11100501", 8, "Bancol. cta cte 4178-99201-32", "1110"], ["11100502", 8, "Bancol. cta cte 4178-99201-99", "1110"], ["111010", 6, "BBVA", "1110"], ["11101001", 8, "BBVA cta corriente 0013-0042-19", "1110"], ["111505", 6, "Davivienda — ahorros", "1115"], ["11150501", 8, "Davivienda 04200145887", "1115"],
+    ["1305", 4, "Clientes", "1305"], ["130505", 6, "Clientes nacionales", "1305"], ["13050501", 8, "Grandes superficies", "1305"], ["13050502", 8, "Mayoristas", "1305"], ["13050503", 8, "Minoristas", "1305"], ["130510", 6, "Clientes exterior", "1305"], ["133005", 6, "Anticipos a proveedores", "1330"], ["139905", 6, "Provisión cartera deudora", "1399"],
+    ["14", 4, "Inventarios", "14"], ["143505", 6, "Mercancías no fabricadas", "14"], ["14350501", 8, "Bodega principal", "14"], ["14350502", 8, "Bodega satélite norte", "14"], ["143510", 6, "Mercancías en tránsito", "14"], ["149905", 6, "Provisión obsolescencia", "14"],
+    ["15", 4, "Propiedades, planta y equipo", "15"], ["152405", 6, "Equipo de oficina", "15"], ["152805", 6, "Equipo de cómputo", "15"], ["159205", 6, "Depreciación acum. equipo oficina", "1592"],
+    ["21", 4, "Obligaciones financieras", "21"], ["210505", 6, "Bancos nacionales — CP", "21"], ["212010", 6, "Bancos nacionales — LP", "21"],
+    ["22", 4, "Proveedores", "22"], ["220505", 6, "Proveedores nacionales", "22"], ["22050501", 8, "Materias primas", "22"], ["22050502", 8, "Servicios contratados", "22"], ["220510", 6, "Proveedores del exterior", "22"],
+    ["24", 4, "Impuestos, gravámenes y tasas", "24"], ["240805", 6, "IVA generado", "24"], ["240810", 6, "IVA descontable", "24"], ["236501", 6, "Retención en la fuente", "24"],
+    ["25", 4, "Obligaciones laborales", "25"], ["251005", 6, "Cesantías consolidadas", "25"], ["252005", 6, "Intereses sobre cesantías", "25"],
+    ["4135", 4, "Ventas — comercio al por mayor", "41"], ["413505", 6, "Mercancía nacional", "41"], ["413510", 6, "Mercancía exportación", "41"],
+    ["189965", 6, "Diversos — nuevo cliente", null],
+  ];
+  await prisma.clientAccount.createMany({
+    data: elZarzalTree.map(([code, level, name, russell], i) => ({
+      clientName: "El Zarzal S.A", code, level, name, russellCode: russell, order: i,
+    })),
+  });
 
   console.log("✅ Seed completo.");
 }
