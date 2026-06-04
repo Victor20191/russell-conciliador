@@ -17,6 +17,7 @@ async function main() {
   await prisma.auditEntry.deleteMany();
   await prisma.notification.deleteMany();
   await prisma.reconciliation.deleteMany();
+  await prisma.moduleField.deleteMany();
   await prisma.clientModule.deleteMany();
   await prisma.module.deleteMany();
   await prisma.client.deleteMany();
@@ -41,6 +42,32 @@ async function main() {
     { id: "ING", name: "Ingresos", icon: "chart" },
   ];
   await prisma.module.createMany({ data: modules });
+
+  // ---- Campos estándar (solo Inventarios en el prototipo) ----
+  const invFields: { key: string; label: string; type: string; required: boolean; hint: string | null }[] = [
+    { key: "cuenta", label: "Cuenta contable", type: "string", required: true, hint: "Código PUC del cliente" },
+    { key: "descripcion_cuenta", label: "Descripción cuenta", type: "string", required: true, hint: null },
+    { key: "codigo_item", label: "Código del ítem", type: "string", required: true, hint: null },
+    { key: "descripcion_item", label: "Descripción del ítem", type: "string", required: true, hint: null },
+    { key: "unidad", label: "Unidad de medida", type: "string", required: false, hint: null },
+    { key: "cantidad", label: "Cantidad en existencia", type: "number", required: true, hint: null },
+    { key: "costo_unitario", label: "Costo unitario", type: "number", required: true, hint: null },
+    { key: "valor_total", label: "Valor total", type: "number", required: true, hint: null },
+    { key: "bodega", label: "Bodega", type: "string", required: false, hint: null },
+    { key: "fecha_corte", label: "Fecha de corte", type: "date", required: true, hint: null },
+  ];
+  await prisma.moduleField.createMany({
+    data: invFields.map((f, i) => ({
+      moduleId: "INV",
+      key: f.key,
+      label: f.label,
+      type: f.type,
+      required: f.required,
+      hint: f.hint,
+      order: i,
+    })),
+  });
+
   const nameToModuleId: Record<string, string> = {
     Inventarios: "INV", Cartera: "CAR", "Nómina": "NOM",
     "Activos fijos": "AFI", "Cuentas por pagar": "CXP", Ingresos: "ING",
