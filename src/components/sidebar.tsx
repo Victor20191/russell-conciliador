@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icon, BrandMark } from "@/components/icons";
@@ -37,6 +37,17 @@ export default function Sidebar({
 
   const toggle = (href: string) =>
     setOpenGroups((o) => ({ ...o, [href]: !o[href] }));
+
+  // Auto-expandir el grupo activo cuando cambia la ruta (sin colapsar lo que el usuario abrió).
+  useEffect(() => {
+    setOpenGroups((prev) => {
+      const next = { ...prev };
+      workNav.forEach((it) => {
+        if (it.children && isGroupActive(pathname, it)) next[it.href] = true;
+      });
+      return next;
+    });
+  }, [pathname]);
 
   return (
     <aside className="sticky top-0 flex h-screen w-[232px] shrink-0 flex-col border-r border-navy-900 bg-navy-800 text-[#C9D4E2]">
