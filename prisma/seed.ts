@@ -12,6 +12,10 @@ async function main() {
   // ---- Limpieza idempotente ----
   await prisma.clientAccount.deleteMany();
   await prisma.russellOption.deleteMany();
+  await prisma.dianComment.deleteMany();
+  await prisma.dianMapping.deleteMany();
+  await prisma.dianLine.deleteMany();
+  await prisma.dianSection.deleteMany();
   await prisma.dianPeriod.deleteMany();
   await prisma.dianForm.deleteMany();
   await prisma.balance.deleteMany();
@@ -300,6 +304,10 @@ async function main() {
     });
   }
 
+  const dianObjective = "Validar que las declaraciones del año fueron presentadas y pagadas oportunamente, y que las cifras declaradas crucen con las cifras contables al cierre.";
+  await prisma.dianForm.update({ where: { id: "IVA" }, data: { objective: dianObjective, conclusion: "Se evidencian diferencias en el IVA descontable de $795.709 y diferencias menores no materiales en otros renglones. Las diferencias en ingresos están explicadas por devoluciones y refacturación de septiembre." } });
+  await prisma.dianForm.update({ where: { id: "RETEFUENTE" }, data: { objective: dianObjective, conclusion: "No se evidencian diferencias materiales entre los valores declarados en retención en la fuente vs. contabilidad. Diferencias menores explicadas por redondeo." } });
+
   // ---- Catálogo de cuentas Russell (selector del mapeo) ----
   await prisma.russellOption.createMany({
     data: [
@@ -371,6 +379,108 @@ async function main() {
         ],
       },
     },
+  });
+
+  // ---- Secciones y renglones IVA (Bimestre 5) ----
+  type LineT = [string, string, number, number, number]; // k, label, decl, cont, diff
+  const ivaSections: { id: string; title: string; side: string; note?: string; lines: LineT[] }[] = [
+    { id: "GEN", title: "Impuesto generado", side: "L", lines: [
+      ["GEN-5", "A la tarifa del 5%", 1050000, 1050000, 0],
+      ["GEN-19", "A la tarifa general", 20469000, 20468700, 300],
+      ["GEN-AIU", "Sobre A.I.U. en operaciones gravadas", 0, 0, 0],
+      ["GEN-JUE", "En juegos de suerte y azar", 0, 0, 0],
+      ["GEN-CER", "En venta de cerveza nacional o importada", 0, 0, 0],
+      ["GEN-LIC", "En venta de licores, aperitivos, vinos y similares", 0, 0, 0],
+      ["GEN-RIN", "En retiro de inventario para activos fijos, consumo o donaciones", 0, 0, 0],
+      ["GEN-DEV", "IVA recuperado en devoluciones en compras anuladas o resueltas", 16138000, 16138543.9, -543.9],
+    ] },
+    { id: "DESC", title: "Impuesto descontable", side: "R", note: "Prorrateo de la DIAN que no registra en el mismo NIT", lines: [
+      ["DES-IM5", "Por importaciones gravadas a la tarifa del 5%", 1520000, 1606737, -86737],
+      ["DES-IMG", "Por importaciones gravadas a la tarifa general", 12783000, 13135915, -352915],
+      ["DES-ZF", "De bienes y servicios gravados provenientes de Zomac", 0, 0, 0],
+      ["DES-CB5", "Por compra de bienes gravados a la tarifa del 5%", 1244900000, 1245056428, -156428],
+      ["DES-CBG", "Por compra de bienes gravados a la tarifa general", 1314520000, 1314669595, -149595],
+      ["DES-CS5", "Por servicios gravados a la tarifa del 5%", 0, 0, 0],
+      ["DES-CSG", "Por servicios gravados a la tarifa general", 185532000, 185582283, -50283],
+      ["DES-EXP", "Descuento IVA explotación hidrocarburos Art 485-2 ET", 0, 0, 0],
+      ["DES-NRE", "IVA retenido por servicios de no domiciliados ni residentes", 0, 0, 0],
+      ["DES-DEV", "IVA resultante por devoluciones en ventas anuladas", 1183000, 1182750, 250],
+      ["DES-AJU", "Menor: Ajuste impuestos descontables (pérdidas, hurto, castigo)", 0, 0, 0],
+    ] },
+    { id: "RET", title: "Retención de IVA", side: "R", lines: [
+      ["RET-PRA", "Retenciones por IVA que le practicaron", 2892000, 2892893, -893],
+    ] },
+    { id: "ING", title: "Ingresos", side: "L", lines: [
+      ["ING-G5", "Por operaciones gravadas al 5%", 21000000, 34500000, -13500000],
+      ["ING-GG", "Por operaciones gravadas a la tarifa general", 107730000, 107730000, 0],
+      ["ING-AIU", "A.I.U. por operaciones gravadas", 0, 0, 0],
+      ["ING-EXB", "Por exportación de bienes", 0, 0, 0],
+      ["ING-EXS", "Por exportación de servicios", 0, 0, 0],
+      ["ING-COM", "Por venta a sociedades de comercialización internacional", 0, 0, 0],
+      ["ING-ZF", "Por venta a zona franca", 0, 0, 0],
+      ["ING-JUE", "Por juegos de suerte y azar", 0, 0, 0],
+      ["ING-EXC", "Por venta exenta (Arts. 477, 478 y 481 del E.T.)", 89520619000, 89520618327, 673],
+      ["ING-CER", "Por venta de cerveza nacional o importada", 0, 0, 0],
+      ["ING-LIC", "Por venta de licores, aperitivos, vinos y similares", 1755162000, 1741662027, 13499973],
+      ["ING-EXC2", "Por operaciones excluidas", 2753163000, 2753155544, 7456],
+      ["ING-BRU", "Total ingresos brutos", 94257194000, 94257665898, -3949],
+      ["ING-NET", "Total ingresos netos recibidos durante el período", 74085031000, 74085502236, -3711],
+    ] },
+  ];
+
+  const reteSections: { id: string; title: string; side: string; lines: LineT[] }[] = [
+    { id: "RTA", title: "A título de renta y complementarios", side: "L", lines: [
+      ["R-TRAB", "Rentas de trabajo", 28003000, 28002944, 56],
+      ["R-HON", "Honorarios", 32850000, 32843821, 6179],
+      ["R-SER", "Servicios", 42147000, 42145796, 1204],
+      ["R-RFI", "Rendimientos financieros", 5443000, 5445160, -3160],
+      ["R-ARR", "Arrendamientos (muebles e inmuebles)", 1235000, 1236726, -1726],
+      ["R-COMP", "Compras", 177533000, 177533438.83, -438.83],
+      ["R-EXO", "Contribuyentes exonerados de aportes (art 114-1 E.T.)", 678684000, 678681954.83, 2045.17],
+    ] },
+    { id: "IVAV", title: "Ventas I.V.A.", side: "R", lines: [
+      ["V-RES", "A responsables del impuesto sobre las ventas", 2380000, 2380251, -251],
+      ["V-NRE", "Practicadas por servicios a no residentes o no domiciliados", 0, 0, 0],
+      ["V-EXC", "Menos: Retenciones practicadas en exceso o indebidas", 0, 0, 0],
+    ] },
+  ];
+
+  async function seedDianForm(formId: string, secs: { id: string; title: string; side: string; note?: string; lines: LineT[] }[]) {
+    for (let si = 0; si < secs.length; si++) {
+      const s = secs[si];
+      await prisma.dianSection.create({
+        data: {
+          id: `${formId}-${s.id}`, formId, title: s.title, side: s.side, note: s.note ?? null, order: si,
+          lines: { create: s.lines.map(([k, label, decl, cont, diff], i) => ({ k, label, decl, cont, diff, order: i })) },
+        },
+      });
+    }
+  }
+  await seedDianForm("IVA", ivaSections);
+  await seedDianForm("RETEFUENTE", reteSections);
+
+  // ---- Mapeos de renglón → cuentas (IVA) ----
+  await prisma.dianMapping.createMany({
+    data: [
+      { formId: "IVA", lineKey: "GEN-19", account: "240801", desc: "IVA generado tarifa general", sign: "+", order: 0 },
+      { formId: "IVA", lineKey: "GEN-19", account: "240802", desc: "IVA generado en devoluciones", sign: "-", order: 1 },
+      { formId: "IVA", lineKey: "DES-CBG", account: "240810", desc: "IVA descontable bienes tarifa general", sign: "+", order: 0 },
+      { formId: "IVA", lineKey: "DES-CBG", account: "240811", desc: "IVA descontable importaciones", sign: "+", order: 1 },
+      { formId: "IVA", lineKey: "ING-GG", account: "413505", desc: "Comercio al por mayor — gravados general", sign: "+", order: 0 },
+      { formId: "IVA", lineKey: "ING-GG", account: "417500", desc: "Devoluciones en ventas", sign: "-", order: 1 },
+      { formId: "IVA", lineKey: "ING-EXC", account: "413515", desc: "Ventas exentas Arts. 477-481 E.T.", sign: "+", order: 0 },
+    ],
+  });
+
+  // ---- Comentarios por renglón (IVA) ----
+  await prisma.dianComment.createMany({
+    data: [
+      { formId: "IVA", lineKey: "DES-IMG", who: "IA", initials: "IA", isAI: true, time: "sugerencia automática", text: "La diferencia de $352.915 representa el 0,03% del valor declarado. Posibles causas: IVA descontable de importaciones del cierre de octubre con DIAN del primer día hábil de noviembre, o reclasificación de tarifa entre 5% y general. Verificar la planilla de importaciones del último decadario." },
+      { formId: "IVA", lineKey: "DES-CB5", who: "IA", initials: "IA", isAI: true, time: "sugerencia automática", text: "Diferencia material ($156.428). Patrón típico: facturas de proveedores recibidas después del corte pero registradas dentro del bimestre. Validar con el reporte de causación posterior." },
+      { formId: "IVA", lineKey: "ING-G5", who: "Carlos Aristizábal", initials: "CA", time: "hace 1 día", text: "Esta diferencia corresponde a facturación de septiembre que ya causó IVA; se realizó devolución y se refacturó." },
+      { formId: "IVA", lineKey: "ING-G5", who: "Juliana Rincón", initials: "JR", time: "hace 6 h", text: "Confirmado con comercial. La devolución NC-2026-1842 explica los $13.500.000. Se reclasifica como diferencia de oportunidad — no implica ajuste a la declaración." },
+      { formId: "IVA", lineKey: "ING-LIC", who: "IA", initials: "IA", isAI: true, time: "sugerencia automática", text: "Diferencia de $13.499.973. Mismo patrón que el renglón al 5% — probablemente comparten origen (devolución y refacturación de septiembre). Validar trazabilidad." },
+    ],
   });
 
   console.log("✅ Seed completo.");
