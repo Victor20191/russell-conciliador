@@ -18,6 +18,6 @@ export type AuditInput = {
 // Registro inmutable en la bitácora del sistema. Lo invocan las Server Actions de negocio.
 export async function logAudit({ user, action, entity, detail }: AuditInput): Promise<void> {
   await prisma.auditEntry.create({
-    data: { ts: stamp(), user, action, entity, detail },
+    data: { ts: stamp(), user, action, entity, detail, ip: "interno" },
   });
 }
