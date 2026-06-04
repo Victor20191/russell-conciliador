@@ -1,0 +1,35 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import prisma from "@/lib/prisma";
+import { verifySession, getCurrentUser } from "@/lib/dal";
+import { logAudit } from "@/lib/audit";
+
+export async function freezeBalance(formData: FormData): Promise<void> {
+  await verifySession();
+  const id = formData.get("id") as string;
+  if (!id) return;
+
+  const balance = await prisma.balance.findUnique({ where: { id } });
+  if (!balance || balance.isFrozen) return;
+
+  // La versión oficial es única por (cliente, período): se desmarca cualquier otra.
+  await prisma.balance.updateMany({
+    where: { clientName: balance.clientName, period: balance.period, isOfficial: true },
+    data: { isOfficial: false },
+  });
+  await prisma.balance.update({
+    where: { id },
+    data: { isOfficial: true, isFrozen: true, status: "Congelado" },
+  });
+
+  const user = await getCurrentUser();
+  await logAudit({
+    user: user?.name ?? "Sistema",
+    action: "CONGELÓ BALANCE",
+    entity: `${balance.clientName} · ${balance.period}`,
+    detail: `Versión ${balance.version} marcada como oficial`,
+  });
+  revalidatePath("/balance");
+  revalidatePath(`/balance/${id}`);
+}
