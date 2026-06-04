@@ -10,6 +10,12 @@ async function main() {
   console.log("🌱 Seeding…");
 
   // ---- Limpieza idempotente ----
+  await prisma.reqItem.deleteMany();
+  await prisma.reqFamily.deleteMany();
+  await prisma.reqTemplateHeader.deleteMany();
+  await prisma.reqTemplate.deleteMany();
+  await prisma.reqSubmission.deleteMany();
+  await prisma.clientContact.deleteMany();
   await prisma.clientAccount.deleteMany();
   await prisma.russellOption.deleteMany();
   await prisma.dianComment.deleteMany();
@@ -480,6 +486,75 @@ async function main() {
       { formId: "IVA", lineKey: "ING-G5", who: "Carlos Aristizábal", initials: "CA", time: "hace 1 día", text: "Esta diferencia corresponde a facturación de septiembre que ya causó IVA; se realizó devolución y se refacturó." },
       { formId: "IVA", lineKey: "ING-G5", who: "Juliana Rincón", initials: "JR", time: "hace 6 h", text: "Confirmado con comercial. La devolución NC-2026-1842 explica los $13.500.000. Se reclasifica como diferencia de oportunidad — no implica ajuste a la declaración." },
       { formId: "IVA", lineKey: "ING-LIC", who: "IA", initials: "IA", isAI: true, time: "sugerencia automática", text: "Diferencia de $13.499.973. Mismo patrón que el renglón al 5% — probablemente comparten origen (devolución y refacturación de septiembre). Validar trazabilidad." },
+    ],
+  });
+
+  // ---- Contactos por cliente ----
+  const contacts: [string, string, string, string, boolean][] = [
+    ["El Zarzal S.A", "Santiago Jaramillo", "Gerente General", "sjaramillo@elzarzal.com.co", true],
+    ["El Zarzal S.A", "Sandra J. Carrillo Agudelo", "Gerente Administrativa y Financiera", "scarrillo@elzarzal.com.co", false],
+    ["El Zarzal S.A", "Sandra Liliana Paniagua Rios", "Contadora", "spaniagua@elzarzal.com.co", false],
+    ["El Zarzal S.A", "Alejandra Henao", "Jefe de Gestión Humana", "ahenao@elzarzal.com.co", false],
+    ["Inversiones del Pacífico S.A.S", "Roberto Mejía", "Gerente General", "rmejia@invpacifico.co", true],
+    ["Inversiones del Pacífico S.A.S", "Laura Restrepo", "CFO", "lrestrepo@invpacifico.co", false],
+    ["Comercializadora Andina Ltda", "Felipe Vargas", "Gerente", "fvargas@andina.co", true],
+  ];
+  await prisma.clientContact.createMany({ data: contacts.map(([clientName, name, role, email, primary], i) => ({ clientName, name, role, email, primary, order: i })) });
+
+  // ---- Plantillas ----
+  await prisma.reqTemplate.createMany({
+    data: [
+      { id: "TPL-CIERRE", code: "RFA-CIERRE", name: "Auditoría financiera — Cierre", description: "Solicitud de información para auditoría de estados financieros con corte al cierre del año.", activeVersion: "v3.2", families: 13, items: 78, timesUsed: 47, lastUpdated: "06/Nov/2026", lastUpdatedBy: "Manuela Gutiérrez" },
+      { id: "TPL-LEGALES", code: "RFA-LEGALES", name: "Aspectos legales, laborales y tributarios", description: "Solicitud para evaluación general de control — auditoría de revisoría fiscal.", activeVersion: "v2.1", families: 4, items: 38, timesUsed: 32, lastUpdated: "22/Abr/2026", lastUpdatedBy: "Manuela Gutiérrez" },
+      { id: "TPL-INTERIM", code: "RFA-INTERIM", name: "Auditoría intermedia", description: "Solicitud para revisión intermedia trimestral o semestral.", activeVersion: "v1.4", families: 8, items: 42, timesUsed: 18, lastUpdated: "15/Jul/2026", lastUpdatedBy: "Andrea Gómez" },
+      { id: "TPL-PRECIERRE", code: "RFA-PRECIERRE", name: "Pre-cierre — Octubre", description: "Solicitud de información para preparación del cierre anual (corte octubre).", activeVersion: "v1.1", families: 10, items: 54, timesUsed: 12, lastUpdated: "20/Sep/2026", lastUpdatedBy: "Manuela Gutiérrez" },
+    ],
+  });
+
+  // ---- Header de CIERRE ----
+  await prisma.reqTemplateHeader.create({
+    data: {
+      templateId: "TPL-CIERRE", firmName: "Russell Bedford GCT S.A.S.", city: "Medellín",
+      asunto: "Requerimiento de Información, Auditoría financiera Cierre con corte a {{fecha_corte}}.",
+      intro: "El propósito de una auditoría es incrementar el grado de confianza de los usuarios en los estados financieros. Esto se logra con la expresión de una opinión por el auditor sobre si los estados financieros están elaborados, y están presentados, razonablemente, respecto de todo lo importante, de acuerdo con el marco de referencia de información financiera aplicable.\n\nNuestra auditoría es conducida de acuerdo con las Normas Internacionales de Auditoría (NIA) y los requisitos éticos relevantes.",
+      noteGeneric: "De acuerdo con la importancia de este análisis es indispensable que se suministre la información requerida que a continuación se detalla (si no se maneja algún rubro citado, omitir el ítem).",
+      closing: "El éxito de nuestra auditoría dependerá de la información suministrada y la calidad de ella; agradecemos nos informen si tienen alguna inquietud con lo solicitado.",
+      signatoryName: "Manuela Gutiérrez Ossa", signatoryRole: "Senior de Auditoría y Revisoría Fiscal", signatoryFooter: "En representación de Russell Bedford GCT S.A.S",
+      consecutivePrefix: "RFA", contactEmails: ["manuelagutierrez@rbcol.co", "andreagomez@rbcol.co"],
+    },
+  });
+
+  // ---- Familias e ítems de CIERRE (representativos) ----
+  const famData: { name: string; items: string[] }[] = [
+    { name: "Información General", items: ["Políticas contables NIIF actualizadas.", "Balance de comprobación en Excel por cuenta y por terceros (oct., nov. y dic. de {{año_corte}}).", "RUT actualizado.", "Actas de Junta directiva y de asamblea desde 30.Sep.{{año_corte}} a la fecha."] },
+    { name: "Efectivo y Equivalentes de Efectivo", items: ["Extractos bancarios al corte (octubre a diciembre {{año_corte}}).", "Conciliaciones bancarias (octubre a diciembre {{año_corte}}).", "Último reembolso de caja menor de diciembre {{año_corte}}.", "Políticas de manejo y custodia del fondo de cajas."] },
+    { name: "Cuentas Comerciales por Cobrar", items: ["Estado de cartera por clientes y por edades (0-90, 91-180, 181-360, 361+).", "Detalle de la cartera castigada durante la vigencia {{año_corte}}.", "Detalle del deterioro de la cartera al corte auditado."] },
+    { name: "Inventarios", items: ["Estado de existencias al corte auditado, por costo y unidades.", "VNR al corte auditado.", "Reporte de todos los ajustes de inventario realizados en el año."] },
+    { name: "Propiedad, Planta y Equipo", items: ["Conciliación del módulo con contabilidad (Excel) — diciembre {{año_corte}}.", "Reporte de compras y retiros realizados durante el año (Excel).", "Reporte de la depreciación generada durante el año por activo (Excel)."] },
+    { name: "Intangibles y Diferidos", items: ["Amortización de licencias al 31.dic.{{año_corte}}.", "Conciliación de intangibles al 31.dic.{{año_corte}}.", "Cálculo del impuesto diferido."] },
+    { name: "Pasivos Financieros y Cuentas por Pagar", items: ["Extracto con el saldo de la deuda a la fecha de corte (a diciembre {{año_corte}}).", "Relación de pasivos con particulares.", "Cuentas por pagar por edades (0-90, 91-180, 181-360, 361+)."] },
+    { name: "Nómina", items: ["Conciliación del módulo con contabilidad de enero a diciembre del {{año_corte}} (Excel).", "Reporte de empleados activos y retirados al corte auditado.", "Cálculo por empleado de las prestaciones sociales (Excel)."] },
+    { name: "Patrimonio y Otros Pasivos", items: ["Soporte de las provisiones reconocidas.", "Explicación del movimiento del patrimonio por concepto y tercero.", "Si hubo capitalización, soporte del origen de la transacción."] },
+    { name: "Ingresos, Gastos y Costo", items: ["Conciliación de ingresos con el módulo de facturación — enero a diciembre {{año_corte}} (Excel).", "Reporte de facturación y notas crédito a la DIAN (Excel) de enero a diciembre de {{año_corte}}.", "Conciliación del costo entre el módulo y la contabilidad."] },
+    { name: "Asientos Diarios (JE)", items: ["Archivo en Excel de los registros contables (Journal Entries) del 1 de enero al 31 de diciembre de {{año_corte}}, con campos: Código, Nombre, Descripción, Fechas, ID Journal, Usuario, Valor, Naturaleza (D/C), Forma de ingreso."] },
+    { name: "Otros Conceptos Tributarios", items: ["Impuesto diferido al 31 de diciembre del {{año_corte}}.", "Retención de Industria y Comercio.", "Cálculo del impuesto diferido al corte auditado (Excel)."] },
+    { name: "Provisión de Renta", items: ["Declaración de renta presentada y recibo de pago — año gravable {{año_anterior}}.", "Balance de enero a diciembre {{año_corte}}, por terceros NIIF y Fiscal.", "Anexo de activos fijos fiscal y NIIF.", "Papel de trabajo de provisión de renta de la compañía."] },
+  ];
+  for (let fi = 0; fi < famData.length; fi++) {
+    const f = famData[fi];
+    await prisma.reqFamily.create({
+      data: { templateId: "TPL-CIERRE", name: f.name, order: fi, itemList: { create: f.items.map((text, i) => ({ text, order: i })) } },
+    });
+  }
+
+  // ---- Historial de envíos ----
+  await prisma.reqSubmission.createMany({
+    data: [
+      { id: "REQ-2026-014", consec: "RFA 001 – 2026 ZZ", templateCode: "RFA-CIERRE", templateVersion: "v3.2", clientName: "El Zarzal S.A", period: "Cierre 2025", recipients: 3, status: "Enviado", date: "06/Ene/2026", sentBy: "Manuela Gutiérrez" },
+      { id: "REQ-2026-013", consec: "RFA 006 – 2026 ZZ", templateCode: "RFA-LEGALES", templateVersion: "v2.1", clientName: "El Zarzal S.A", period: "Abril 2026", recipients: 3, status: "Enviado", date: "22/Abr/2026", sentBy: "Manuela Gutiérrez" },
+      { id: "REQ-2026-012", consec: "RFA 002 – 2026 IP", templateCode: "RFA-CIERRE", templateVersion: "v3.2", clientName: "Inversiones del Pacífico S.A.S", period: "Cierre 2025", recipients: 4, status: "Enviado", date: "08/Ene/2026", sentBy: "Carlos Aristizábal" },
+      { id: "REQ-2026-011", consec: "RFA 022 – 2026 CA", templateCode: "RFA-INTERIM", templateVersion: "v1.4", clientName: "Comercializadora Andina Ltda", period: "Q3 2026", recipients: 2, status: "Borrador", date: "15/Oct/2026", sentBy: "Andrea Gómez" },
+      { id: "REQ-2026-010", consec: "RFA 028 – 2026 MS", templateCode: "RFA-PRECIERRE", templateVersion: "v1.1", clientName: "Manufacturas del Sur S.A", period: "Pre-cierre Oct 2026", recipients: 5, status: "Enviado", date: "05/Nov/2026", sentBy: "Manuela Gutiérrez" },
     ],
   });
 
