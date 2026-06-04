@@ -405,3 +405,21 @@ model ReqRepoActivity {
   detail       String
   order        Int           @default(0)
 }
+
+model ReqPresentation {
+  id         String   @id // PRES-2025-009
+  clientName String
+  nit        String
+  title      String
+  year       String
+  presented  String
+  preparedBy String
+  slides     Int      @default(0)
+  author     String
+  date       String
+  status     String // Enviada | Borrador
+  positives  String[]
+  observed   Json? // [{title, shortTitle, summary, riesgos[], oportunidades[]}]
+  evaluated  Json? // {mercantil[], tributario[], otros[]}
+  createdAt  DateTime @default(now())
+}
