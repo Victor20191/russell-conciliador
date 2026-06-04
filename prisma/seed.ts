@@ -18,6 +18,8 @@ async function main() {
   await prisma.standardAccount.deleteMany();
   await prisma.auditEntry.deleteMany();
   await prisma.notification.deleteMany();
+  await prisma.reconciliationComment.deleteMany();
+  await prisma.reconciliationRow.deleteMany();
   await prisma.reconciliation.deleteMany();
   await prisma.moduleField.deleteMany();
   await prisma.clientModule.deleteMany();
@@ -102,9 +104,9 @@ async function main() {
   await prisma.reconciliation.createMany({
     data: [
       { id: "REC-2026-0418", clientName: "Distribuciones El Roble S.A.", module: "Inventarios", period: "Feb 2026", erp: "SIIGO", status: "OK", diff: "$ 0", items: 0, date: "22/Abr/2026", owner: "M. Bermúdez" },
-      { id: "REC-2026-0412", clientName: "Agroindustrias del Cauca Ltda.", module: "Cartera", period: "Mar 2026", erp: "SIIGO", status: "DIFF", diff: "$ 4.218.500", items: 7, date: "21/Abr/2026", owner: "J. Rincón" },
-      { id: "REC-2026-0407", clientName: "Logística Andina Express S.A.", module: "Cuentas por pagar", period: "Mar 2026", erp: "SAP", status: "DIFF", diff: "$ 12.044.180", items: 18, date: "20/Abr/2026", owner: "C. Aristizábal" },
-      { id: "REC-2026-0403", clientName: "Inversiones del Pacífico S.A.S", module: "Cartera", period: "Mar 2026", erp: "SIESA", status: "REVIEW", diff: "$ 805.220", items: 3, date: "18/Abr/2026", owner: "J. Rincón" },
+      { id: "REC-2026-0412", clientName: "Agroindustrias del Cauca Ltda.", module: "Cartera", period: "Mar 2026", erp: "SIIGO", status: "DIFF", diff: "$ 4.218.500", items: 7, date: "21/Abr/2026", owner: "J. Rincón", lastActivity: "hace 2 h" },
+      { id: "REC-2026-0407", clientName: "Logística Andina Express S.A.", module: "Cuentas por pagar", period: "Mar 2026", erp: "SAP", status: "DIFF", diff: "$ 12.044.180", items: 18, date: "20/Abr/2026", owner: "C. Aristizábal", lastActivity: "hoy 09:40" },
+      { id: "REC-2026-0403", clientName: "Inversiones del Pacífico S.A.S", module: "Cartera", period: "Mar 2026", erp: "SIESA", status: "REVIEW", diff: "$ 805.220", items: 3, date: "18/Abr/2026", owner: "J. Rincón", lastActivity: "ayer 17:12" },
       { id: "REC-2026-0398", clientName: "Servicios Médicos Vital IPS", module: "Nómina", period: "Mar 2026", erp: "SIESA", status: "OK", diff: "$ 0", items: 0, date: "16/Abr/2026", owner: "M. Bermúdez" },
       { id: "REC-2026-0394", clientName: "Constructora Río Verde S.A.S", module: "Activos fijos", period: "Feb 2026", erp: "OFIMATICA", status: "DIFF", diff: "$ 1.450.000", items: 2, date: "15/Abr/2026", owner: "C. Aristizábal" },
     ],
@@ -340,6 +342,35 @@ async function main() {
     data: elZarzalTree.map(([code, level, name, russell], i) => ({
       clientName: "El Zarzal S.A", code, level, name, russellCode: russell, order: i,
     })),
+  });
+
+  // ---- Cruce detallado REC-2026-0431 (Inventarios · Inversiones del Pacífico) ----
+  const crossRows: [string, string, number, number, number, number][] = [
+    ["143505", "Mercancías no fabricadas por la empresa", 412580450, 412580450, 0, 124],
+    ["143510", "Materias primas", 188204000, 188204000, 0, 86],
+    ["143515", "Productos en proceso", 74215300, 72850450, -1364850, 41],
+    ["143520", "Materiales, repuestos y accesorios", 56118200, 56340800, 222600, 33],
+    ["143524", "Producto terminado", 245118400, 240218400, -4900000, 58],
+    ["143530", "Envases y empaques", 18445000, 18445000, 0, 22],
+    ["143599", "Otros inventarios", 9120000, 10845200, 1725200, 14],
+    ["148015", "Provisión obsolescencia", -12450000, -12450000, 0, 1],
+    ["143580", "Inventarios en tránsito", 31200000, 29420000, -1780000, 6],
+  ];
+  await prisma.reconciliation.create({
+    data: {
+      id: "REC-2026-0431", clientName: "Inversiones del Pacífico S.A.S", module: "Inventarios",
+      period: "Marzo 2026", erp: "SIESA", status: "REVIEW", diff: "-$ 6.097.050", items: 4,
+      date: "03/May/2026", owner: "J. Rincón", cutoff: "31/Mar/2026", runAt: "03/May/2026 09:14",
+      runBy: "Juliana Rincón", materiality: 2000000, lastActivity: "hace 12 min",
+      rows: { create: crossRows.map(([cuenta, desc, cont, mod, diff, items], i) => ({ cuenta, desc, cont, mod, diff, items, order: i })) },
+      comments: {
+        create: [
+          { cuenta: "143515", who: "Carlos Aristizábal", initials: "CA", time: "hace 38 min", text: "La diferencia de $ 1.364.850 corresponde a una orden de producción que el ERP cerró el 01/Abr pero en contabilidad quedó del período. Verificar con planta." },
+          { cuenta: "143515", who: "Juliana Rincón", initials: "JR", time: "hace 21 min", text: "Confirmado con Andrea (planta). Se reclasifica para abril. Marco como observación cerrada al recibir el ajuste contable." },
+          { cuenta: "143524", who: "Juliana Rincón", initials: "JR", time: "hace 8 min", text: "Diferencia material — $ 4.900.000. Pendiente conciliar con kárdex de bodega 02 (sur). Solicito a María revisión." },
+        ],
+      },
+    },
   });
 
   console.log("✅ Seed completo.");
