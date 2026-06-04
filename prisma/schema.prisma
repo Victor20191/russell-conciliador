@@ -40,6 +40,22 @@ model Module {
   name    String
   icon    String
   clients ClientModule[]
+  fields  ModuleField[]
+}
+
+// ===== Campos estándar por módulo (Config · Módulos y campos) =====
+model ModuleField {
+  id       String  @id @default(cuid())
+  module   Module  @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  moduleId String
+  key      String // clave técnica: cuenta, codigo_item...
+  label    String
+  type     String // string | number | date
+  required Boolean @default(false)
+  hint     String?
+  order    Int     @default(0)
+
+  @@unique([moduleId, key])
 }
 
 model ClientModule {
