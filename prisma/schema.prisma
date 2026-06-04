@@ -164,3 +164,22 @@ model DianPeriod {
 
   @@unique([formId, periodKey])
 }
+
+// ===== Mapeo cuenta-cliente → Russell (Balance · Mapeo plan estándar) =====
+model ClientAccount {
+  id          String  @id @default(cuid())
+  clientName  String
+  code        String
+  level       Int // 4 | 6 | 8
+  name        String
+  russellCode String? // FK lógica a RussellOption.code
+  order       Int     @default(0)
+
+  @@unique([clientName, code])
+}
+
+model RussellOption {
+  code   String  @id // 1105, 1110, 41...
+  name   String
+  module String? // Caja, Bancos, Cartera, DIAN... (null = no participa en conciliaciones)
+}
