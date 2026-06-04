@@ -1,5 +1,7 @@
+import Link from "next/link";
 import prisma from "@/lib/prisma";
 import { PageHeader, Card } from "@/components/ui";
+import { Icon } from "@/components/icons";
 import { statusChip } from "@/lib/format";
 
 export default async function ResultadosPage() {
@@ -27,6 +29,7 @@ export default async function ResultadosPage() {
                 <th className="px-4 py-2.5 text-right font-semibold">Partidas</th>
                 <th className="px-4 py-2.5 font-semibold">Estado</th>
                 <th className="px-4 py-2.5 font-semibold">Responsable</th>
+                <th className="px-4 py-2.5"></th>
               </tr>
             </thead>
             <tbody>
@@ -45,6 +48,9 @@ export default async function ResultadosPage() {
                     </span>
                   </td>
                   <td className="px-4 py-2.5 text-ink-600">{r.owner}</td>
+                  <td className="px-4 py-2.5 text-right">
+                    <Link href={`/conciliacion/resultados/${r.id}`} className="inline-flex items-center gap-1 text-[12px] font-medium text-blue-500 hover:underline">Ver <Icon name="chev-r" size={12} /></Link>
+                  </td>
                 </tr>
               ))}
             </tbody>
