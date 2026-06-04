@@ -25,7 +25,7 @@ export const pct = (x: number): string => `${Math.round(x * 100)}%`;
 export const confidenceClass = (c: number): "ok" | "warn" | "err" =>
   c >= 0.9 ? "ok" : c >= 0.7 ? "warn" : "err";
 
-const MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+export const MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 
 export const fmtDate = (input: Date | string | null | undefined): string => {
   if (input == null) return "—";

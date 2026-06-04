@@ -1,0 +1,146 @@
+// Schema Prisma 7 — Russell Bedford · Conciliador/Diagnóstico LFM
+// Modelos derivados de los datos demo del prototipo original (data*.jsx)
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ===== Autenticación =====
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String // hash bcrypt
+  name      String
+  role      String   @default("Auditor Junior")
+  initials  String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ===== Clientes y módulos =====
+model Client {
+  id              String           @id // p.ej. C-1042
+  name            String
+  nit             String
+  erp             String
+  sector          String
+  modules         ClientModule[]
+  reconciliations Reconciliation[]
+  createdAt       DateTime         @default(now())
+}
+
+model Module {
+  id      String         @id // INV, CAR, NOM...
+  name    String
+  icon    String
+  clients ClientModule[]
+}
+
+model ClientModule {
+  id       String @id @default(cuid())
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  clientId String
+  module   Module @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  moduleId String
+  status   String // configured | pending
+
+  @@unique([clientId, moduleId])
+}
+
+// ===== Conciliaciones =====
+model Reconciliation {
+  id         String   @id // REC-2026-0418
+  client     Client?  @relation(fields: [clientId], references: [id])
+  clientId   String?
+  clientName String
+  module     String
+  period     String
+  erp        String
+  status     String // OK | DIFF | REVIEW
+  diff       String
+  items      Int      @default(0)
+  date       String
+  owner      String
+  createdAt  DateTime @default(now())
+}
+
+// ===== Notificaciones =====
+model Notification {
+  id        String   @id @default(cuid())
+  kind      String // assign | comment | system
+  who       String
+  text      String
+  target    String
+  time      String
+  unread    Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+// ===== Auditoría =====
+model AuditEntry {
+  id        String   @id @default(cuid())
+  ts        String
+  user      String
+  action    String
+  entity    String
+  detail    String
+  createdAt DateTime @default(now())
+}
+
+// ===== Plan de cuentas estándar (Balance) =====
+model StandardAccount {
+  code     String  @id
+  name     String
+  level    Int
+  nature   String // D | C
+  parent   String?
+  critical Boolean @default(false)
+}
+
+// ===== Balance de comprobación =====
+model Balance {
+  id          String   @id @default(cuid())
+  clientName  String
+  clientNit   String?
+  period      String
+  version     String
+  isOfficial  Boolean  @default(false)
+  isFrozen    Boolean  @default(false)
+  status      String   @default("Única")
+  complete    Int      @default(100)
+  sums        Json? // activo, pasivo, patrimonio, ingresos, gastos, costos, utilidad
+  validations Json? // reglas de validación
+  breakdown   Json? // desglose por nivel 2 con items
+  meta        Json? // metadatos del cargue (file, rows, accounts...)
+  createdAt   DateTime @default(now())
+
+  @@unique([clientName, period, version])
+}
+
+// ===== Impuestos · DIAN =====
+model DianForm {
+  id          String       @id // IVA, RETEFUENTE...
+  name        String
+  code        String // F-300
+  periodicity String
+  icon        String
+  periods     DianPeriod[]
+}
+
+model DianPeriod {
+  id        String   @id @default(cuid())
+  periodKey String // 2026-B5
+  label     String
+  status    String // OK | DIFF | PEND
+  filed     String?
+  form      DianForm @relation(fields: [formId], references: [id], onDelete: Cascade)
+  formId    String
+
+  @@unique([formId, periodKey])
+}

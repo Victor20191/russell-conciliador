@@ -1,7 +1,6 @@
 import "server-only";
 import prisma from "@/lib/prisma";
-
-const MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+import { MESES } from "@/lib/format";
 
 // Sello "DD/MMM/AAAA HH:MM:SS" consistente con el seed (AuditEntry.ts es String).
 function stamp(d: Date = new Date()): string {

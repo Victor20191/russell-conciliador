@@ -1,0 +1,40 @@
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { jwtVerify } from "jose";
+
+const encodedKey = new TextEncoder().encode(process.env.SESSION_SECRET);
+const PUBLIC_ROUTES = ["/login"];
+
+// Verificación optimista: solo valida la firma del JWT desde la cookie.
+// La verificación segura (DB) ocurre en el DAL (verifySession/getCurrentUser).
+export default async function proxy(req: NextRequest) {
+  const path = req.nextUrl.pathname;
+  const isPublic = PUBLIC_ROUTES.includes(path);
+
+  const token = req.cookies.get("session")?.value;
+  let authenticated = false;
+  if (token) {
+    try {
+      await jwtVerify(token, encodedKey, { algorithms: ["HS256"] });
+      authenticated = true;
+    } catch {
+      authenticated = false;
+    }
+  }
+
+  if (!isPublic && !authenticated) {
+    return NextResponse.redirect(new URL("/login", req.nextUrl));
+  }
+
+  if (isPublic && authenticated) {
+    return NextResponse.redirect(new URL("/dashboard", req.nextUrl));
+  }
+
+  return NextResponse.next();
+}
+
+export const config = {
+  matcher: [
+    "/((?!api|_next/static|_next/image|favicon.ico|.*\\.svg$|.*\\.png$).*)",
+  ],
+};

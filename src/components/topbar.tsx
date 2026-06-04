@@ -1,0 +1,145 @@
+"use client";
+
+import { useState } from "react";
+import { usePathname } from "next/navigation";
+import { Icon } from "@/components/icons";
+
+export type NotificationDTO = {
+  id: string;
+  kind: string;
+  who: string;
+  text: string;
+  target: string;
+  time: string;
+  unread: boolean;
+};
+
+const CRUMB_LABELS: Record<string, string> = {
+  dashboard: "Inicio",
+  balance: "Balance de comprobación",
+  mapeo: "Mapeo plan estándar",
+  "estado-resultado": "Estado de Resultado",
+  razonabilidad: "Razonabilidad",
+  conciliacion: "Conciliación",
+  nueva: "Nueva",
+  "en-proceso": "En proceso",
+  resultados: "Resultados",
+  dian: "Impuestos · DIAN",
+  requerimientos: "Requerimientos de información",
+  calendario: "Calendario",
+  auditoria: "Auditoría",
+  config: "Configuración",
+  modulos: "Módulos y campos",
+  clientes: "Clientes",
+};
+
+export default function Topbar({
+  notifications,
+}: {
+  notifications: NotificationDTO[];
+}) {
+  const pathname = usePathname();
+  const [bellOpen, setBellOpen] = useState(false);
+  const unread = notifications.filter((n) => n.unread).length;
+
+  const crumbs = pathname
+    .split("/")
+    .filter(Boolean)
+    .map((seg) => {
+      if (CRUMB_LABELS[seg]) return CRUMB_LABELS[seg];
+      // Segmento dinámico (id cuid): mostrar etiqueta legible
+      if (/^[a-z0-9]{16,}$/i.test(seg)) return "Detalle";
+      return seg.charAt(0).toUpperCase() + seg.slice(1);
+    });
+  if (crumbs.length === 0) crumbs.push("Inicio");
+
+  return (
+    <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-ink-150 bg-white/90 px-5 py-2.5 backdrop-blur">
+      {/* Breadcrumbs */}
+      <div className="flex min-w-0 items-center gap-1.5 text-[12.5px] text-ink-500">
+        {crumbs.map((c, i) => (
+          <span key={i} className="flex items-center gap-1.5">
+            {i > 0 && <Icon name="chev-r" size={11} className="text-ink-300" />}
+            {i === crumbs.length - 1 ? (
+              <b className="truncate text-ink-800">{c}</b>
+            ) : (
+              <span className="truncate">{c}</span>
+            )}
+          </span>
+        ))}
+      </div>
+
+      <div className="ml-auto flex items-center gap-2.5">
+        <div className="hidden items-center gap-2 rounded-md border border-ink-200 bg-ink-50 px-2.5 py-1.5 text-ink-400 md:flex">
+          <Icon name="search" size={14} />
+          <input
+            placeholder="Buscar cliente, conciliación, partida…"
+            className="w-56 bg-transparent text-[12.5px] text-ink-700 outline-none placeholder:text-ink-400"
+          />
+          <kbd className="rounded border border-ink-200 bg-white px-1 text-[10px] text-ink-400">
+            ⌘K
+          </kbd>
+        </div>
+
+        <div className="relative">
+          <button
+            onClick={() => setBellOpen((o) => !o)}
+            aria-label="Notificaciones"
+            className="relative rounded-md border border-ink-200 bg-white p-2 text-ink-600 transition hover:bg-ink-50"
+          >
+            <Icon name="bell" size={16} />
+            {unread > 0 && (
+              <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-err-500" />
+            )}
+          </button>
+
+          {bellOpen && (
+            <div className="absolute right-0 mt-2 w-80 overflow-hidden rounded-lg border border-ink-150 bg-white shadow-lg">
+              <div className="flex items-center gap-2 border-b border-ink-100 px-4 py-2.5">
+                <b className="text-[13px] text-ink-800">Notificaciones</b>
+                <span className="rounded-full bg-ai-100 px-1.5 py-0.5 text-[10px] font-semibold text-ai-700">
+                  {unread} sin leer
+                </span>
+              </div>
+              <div className="max-h-96 overflow-y-auto">
+                {notifications.map((n) => (
+                  <div
+                    key={n.id}
+                    className={`flex gap-2.5 border-b border-ink-100 px-4 py-2.5 last:border-0 ${
+                      n.unread ? "bg-blue-50" : ""
+                    }`}
+                  >
+                    <div
+                      className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${
+                        n.kind === "assign"
+                          ? "bg-blue-100 text-navy-700"
+                          : n.kind === "comment"
+                            ? "bg-ai-100 text-ai-700"
+                            : "bg-ink-100 text-ink-700"
+                      }`}
+                    >
+                      <Icon
+                        name={
+                          n.kind === "assign"
+                            ? "users"
+                            : n.kind === "comment"
+                              ? "msg"
+                              : "settings"
+                        }
+                        size={12}
+                      />
+                    </div>
+                    <div className="text-[12px] leading-snug text-ink-700">
+                      <b>{n.who}</b> {n.text} <b>{n.target}</b>
+                      <div className="mt-0.5 text-[11px] text-ink-400">{n.time}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

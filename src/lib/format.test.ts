@@ -1,12 +1,10 @@
 import { test, expect } from "vitest";
-import { pct } from "./format";
+import { pct, fmtDate, timeAgo } from "./format";
 
 test("pct redondea a porcentaje entero", () => {
   expect(pct(0.5)).toBe("50%");
   expect(pct(0.823)).toBe("82%");
 });
-
-import { fmtDate, timeAgo } from "./format";
 
 test("fmtDate formatea como DD/MMM/AAAA en español", () => {
   expect(fmtDate(new Date(2026, 4, 3))).toBe("03/May/2026");
