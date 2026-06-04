@@ -343,3 +343,65 @@ model ReqSubmission {
   sentBy          String
   createdAt       DateTime @default(now())
 }
+
+model ReqRepository {
+  id           String          @id // REPO-2026-014
+  consec       String
+  templateCode String
+  clientName   String
+  nit          String
+  period       String
+  cutoff       String
+  sentAt       String
+  sentBy       String
+  deadline     String
+  daysLeft     Int             @default(0)
+  total        Int             @default(0)
+  received     Int             @default(0)
+  pending      Int             @default(0)
+  overdue      Int             @default(0)
+  progress     Int             @default(0)
+  status       String // Completo | Vencido parcial | En recepción
+  families     ReqRepoFamily[]
+  activity     ReqRepoActivity[]
+}
+
+model ReqRepoFamily {
+  id           String        @id @default(cuid())
+  repository   ReqRepository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  repositoryId String
+  code         String // F1
+  name         String
+  total        Int           @default(0)
+  received     Int           @default(0)
+  pending      Int           @default(0)
+  order        Int           @default(0)
+  items        ReqRepoItem[]
+}
+
+model ReqRepoItem {
+  id       String        @id @default(cuid())
+  family   ReqRepoFamily @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  familyId String
+  idx      Int
+  doc      String
+  due      String
+  status   String // received | pending | overdue
+  file     String?
+  size     String?
+  by       String?
+  at       String?
+  order    Int           @default(0)
+}
+
+model ReqRepoActivity {
+  id           String        @id @default(cuid())
+  repository   ReqRepository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  repositoryId String
+  at           String
+  actor        String
+  role         String // Cliente | Auditor | Auto
+  action       String
+  detail       String
+  order        Int           @default(0)
+}
