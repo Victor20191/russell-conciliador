@@ -4,5 +4,8 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["src/**/*.test.ts"],
+    env: {
+      SESSION_SECRET: "test-session-secret-test-session-secret",
+    },
   },
 });

@@ -21,6 +21,7 @@ export type LoginState =
 export type SessionPayload = {
   userId: string;
   role: string;
+  sessionVersion: number;
   expiresAt: string; // ISO
 };
 

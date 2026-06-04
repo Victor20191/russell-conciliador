@@ -2,7 +2,7 @@ import "server-only";
 import { cache } from "react";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { decrypt } from "@/lib/session";
+import { decrypt } from "@/lib/jwt";
 import prisma from "@/lib/prisma";
 
 export const verifySession = cache(async () => {
