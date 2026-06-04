@@ -2,11 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 import prisma from "@/lib/prisma";
-import { verifySession, getCurrentUser } from "@/lib/dal";
+import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
+import { requireRole, authorizeAction } from "@/lib/rbac";
 
 export async function addDianComment(formData: FormData): Promise<void> {
-  await verifySession();
+  await requireRole("Auditor");
   const formId = formData.get("formId") as string;
   const lineKey = formData.get("lineKey") as string;
   const periodId = formData.get("periodId") as string;
@@ -23,7 +24,7 @@ export async function addDianComment(formData: FormData): Promise<void> {
 
 // IA simulada: genera una observación heurística sobre la diferencia del renglón.
 export async function requestDianAiAnalysis(formData: FormData): Promise<void> {
-  await verifySession();
+  await requireRole("Auditor");
   const formId = formData.get("formId") as string;
   const lineKey = formData.get("lineKey") as string;
   const periodId = formData.get("periodId") as string;
@@ -50,7 +51,8 @@ export async function saveDianMapping(
   lineKey: string,
   rows: { account: string; desc: string; sign: string }[],
 ): Promise<void> {
-  await verifySession();
+  const authz = await authorizeAction("Líder");
+  if (!authz.ok) return;
   if (!formId || !lineKey) return;
   const clean = rows.filter((r) => r.account.trim());
   await prisma.dianMapping.deleteMany({ where: { formId, lineKey } });

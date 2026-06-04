@@ -3,9 +3,10 @@
 import * as z from "zod";
 import { revalidatePath } from "next/cache";
 import prisma from "@/lib/prisma";
-import { verifySession, getCurrentUser } from "@/lib/dal";
+import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
 import { ClientSchema, type ActionState } from "@/lib/definitions";
+import { requireRole, authorizeAction } from "@/lib/rbac";
 
 const PATH = "/config/clientes";
 
@@ -13,7 +14,8 @@ export async function createClient(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  await verifySession();
+  const authz = await authorizeAction("Líder");
+  if (!authz.ok) return { ok: false, message: authz.message };
   const parsed = ClientSchema.safeParse({
     id: formData.get("id"),
     name: formData.get("name"),
@@ -46,7 +48,8 @@ export async function updateClient(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  await verifySession();
+  const authz = await authorizeAction("Líder");
+  if (!authz.ok) return { ok: false, message: authz.message };
   const parsed = ClientSchema.safeParse({
     id: formData.get("id"),
     name: formData.get("name"),
@@ -64,7 +67,7 @@ export async function updateClient(
 }
 
 export async function deleteClient(formData: FormData): Promise<void> {
-  await verifySession();
+  await requireRole("Líder");
   const id = formData.get("id") as string;
   if (!id) return;
   await prisma.client.delete({ where: { id } });
@@ -79,7 +82,7 @@ export async function deleteClient(formData: FormData): Promise<void> {
 }
 
 export async function setClientModuleStatus(formData: FormData): Promise<void> {
-  await verifySession();
+  await requireRole("Líder");
   const clientId = formData.get("clientId") as string;
   const moduleId = formData.get("moduleId") as string;
   const next = formData.get("next") as string; // configured | pending | none

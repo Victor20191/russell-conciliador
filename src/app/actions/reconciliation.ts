@@ -3,11 +3,12 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import prisma from "@/lib/prisma";
-import { verifySession, getCurrentUser } from "@/lib/dal";
+import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
+import { requireRole } from "@/lib/rbac";
 
 export async function addReconciliationComment(formData: FormData): Promise<void> {
-  await verifySession();
+  await requireRole("Auditor");
   const reconciliationId = formData.get("reconciliationId") as string;
   const cuenta = formData.get("cuenta") as string;
   const text = ((formData.get("text") as string) ?? "").trim();
@@ -27,7 +28,7 @@ export async function addReconciliationComment(formData: FormData): Promise<void
 }
 
 export async function setRowStatus(formData: FormData): Promise<void> {
-  await verifySession();
+  await requireRole("Auditor");
   const rowId = formData.get("rowId") as string;
   const status = formData.get("status") as string; // conciliada | excepcion | ajuste
   const reconciliationId = formData.get("reconciliationId") as string;
@@ -41,7 +42,7 @@ export async function setRowStatus(formData: FormData): Promise<void> {
 }
 
 export async function sendToReviewer(formData: FormData): Promise<void> {
-  await verifySession();
+  await requireRole("Auditor");
   const id = formData.get("id") as string;
   if (!id) return;
   await prisma.reconciliation.update({ where: { id }, data: { status: "REVIEW" } });
@@ -64,7 +65,7 @@ const DEMO_CROSS_ROWS: [string, string, number, number, number, number][] = [
 ];
 
 export async function executeReconciliation(formData: FormData): Promise<void> {
-  await verifySession();
+  await requireRole("Auditor");
   const clientId = formData.get("clientId") as string;
   const moduleId = formData.get("moduleId") as string;
   const period = formData.get("period") as string;

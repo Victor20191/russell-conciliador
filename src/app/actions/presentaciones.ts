@@ -3,11 +3,12 @@
 import { redirect } from "next/navigation";
 import { Prisma } from "@/generated/prisma/client";
 import prisma from "@/lib/prisma";
-import { verifySession, getCurrentUser } from "@/lib/dal";
+import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
+import { requireRole } from "@/lib/rbac";
 
 export async function createPresentation(): Promise<void> {
-  await verifySession();
+  await requireRole("Auditor");
   const base = await prisma.reqPresentation.findUnique({ where: { id: "PRES-2025-009" } });
   if (!base) return;
   const count = await prisma.reqPresentation.count();

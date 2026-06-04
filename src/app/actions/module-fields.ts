@@ -3,9 +3,10 @@
 import * as z from "zod";
 import { revalidatePath } from "next/cache";
 import prisma from "@/lib/prisma";
-import { verifySession, getCurrentUser } from "@/lib/dal";
+import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
 import { ModuleFieldSchema, type ActionState } from "@/lib/definitions";
+import { requireRole, authorizeAction } from "@/lib/rbac";
 
 const PATH = "/config/modulos";
 
@@ -13,7 +14,8 @@ export async function createModuleField(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  await verifySession();
+  const authz = await authorizeAction("Líder");
+  if (!authz.ok) return { ok: false, message: authz.message };
   const parsed = ModuleFieldSchema.safeParse({
     moduleId: formData.get("moduleId"),
     key: formData.get("key"),
@@ -52,7 +54,8 @@ export async function updateModuleField(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  await verifySession();
+  const authz = await authorizeAction("Líder");
+  if (!authz.ok) return { ok: false, message: authz.message };
   const id = formData.get("id") as string;
   if (!id) return { ok: false, message: "Campo inexistente." };
 
@@ -78,7 +81,7 @@ export async function updateModuleField(
 }
 
 export async function deleteModuleField(formData: FormData): Promise<void> {
-  await verifySession();
+  await requireRole("Líder");
   const id = formData.get("id") as string;
   if (id) {
     await prisma.moduleField.delete({ where: { id } });
@@ -87,7 +90,7 @@ export async function deleteModuleField(formData: FormData): Promise<void> {
 }
 
 export async function moveModuleField(formData: FormData): Promise<void> {
-  await verifySession();
+  await requireRole("Líder");
   const id = formData.get("id") as string;
   const dir = formData.get("dir") as string; // "up" | "down"
   const field = await prisma.moduleField.findUnique({ where: { id } });

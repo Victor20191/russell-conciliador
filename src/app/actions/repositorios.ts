@@ -2,11 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 import prisma from "@/lib/prisma";
-import { verifySession, getCurrentUser } from "@/lib/dal";
+import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
+import { requireRole } from "@/lib/rbac";
 
 export async function markRepoItemReceived(formData: FormData): Promise<void> {
-  await verifySession();
+  await requireRole("Auditor");
   const itemId = formData.get("itemId") as string;
   const repositoryId = formData.get("repositoryId") as string;
   if (!itemId || !repositoryId) return;
@@ -35,7 +36,7 @@ export async function markRepoItemReceived(formData: FormData): Promise<void> {
 }
 
 export async function sendRepoReminder(formData: FormData): Promise<void> {
-  await verifySession();
+  await requireRole("Auditor");
   const repositoryId = formData.get("repositoryId") as string;
   if (!repositoryId) return;
   const user = await getCurrentUser();

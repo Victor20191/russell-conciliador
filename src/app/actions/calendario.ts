@@ -2,11 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 import prisma from "@/lib/prisma";
-import { verifySession, getCurrentUser } from "@/lib/dal";
+import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
+import { requireRole } from "@/lib/rbac";
 
 export async function createCalendarEvent(formData: FormData): Promise<void> {
-  await verifySession();
+  await requireRole("Auditor");
   const dateStr = formData.get("date") as string; // YYYY-MM-DD
   const type = (formData.get("type") as string) || "req";
   const title = ((formData.get("title") as string) ?? "").trim();

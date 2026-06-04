@@ -2,11 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 import prisma from "@/lib/prisma";
-import { verifySession, getCurrentUser } from "@/lib/dal";
+import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
+import { requireRole } from "@/lib/rbac";
 
 export async function freezeBalance(formData: FormData): Promise<void> {
-  await verifySession();
+  await requireRole("Auditor");
   const id = formData.get("id") as string;
   if (!id) return;
 
