@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
-import { requireRole, authorizeAction } from "@/lib/rbac";
+import { requireRole } from "@/lib/rbac";
 
 export async function addDianComment(formData: FormData): Promise<void> {
   await requireRole("Auditor");
@@ -51,8 +51,7 @@ export async function saveDianMapping(
   lineKey: string,
   rows: { account: string; desc: string; sign: string }[],
 ): Promise<void> {
-  const authz = await authorizeAction("Líder");
-  if (!authz.ok) return;
+  await requireRole("Líder");
   if (!formId || !lineKey) return;
   const clean = rows.filter((r) => r.account.trim());
   await prisma.dianMapping.deleteMany({ where: { formId, lineKey } });
