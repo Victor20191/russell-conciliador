@@ -71,19 +71,52 @@ model ClientModule {
 
 // ===== Conciliaciones =====
 model Reconciliation {
-  id         String   @id // REC-2026-0418
-  client     Client?  @relation(fields: [clientId], references: [id])
-  clientId   String?
-  clientName String
-  module     String
-  period     String
-  erp        String
-  status     String // OK | DIFF | REVIEW
-  diff       String
-  items      Int      @default(0)
-  date       String
-  owner      String
-  createdAt  DateTime @default(now())
+  id           String   @id // REC-2026-0418
+  client       Client?  @relation(fields: [clientId], references: [id])
+  clientId     String?
+  clientName   String
+  module       String
+  period       String
+  erp          String
+  status       String // OK | DIFF | REVIEW
+  diff         String
+  items        Int      @default(0)
+  date         String
+  owner        String
+  cutoff       String?
+  runAt        String?
+  runBy        String?
+  lastActivity String?
+  materiality  Int      @default(2000000)
+  rows         ReconciliationRow[]
+  comments     ReconciliationComment[]
+  createdAt    DateTime @default(now())
+}
+
+model ReconciliationRow {
+  id               String         @id @default(cuid())
+  reconciliation   Reconciliation @relation(fields: [reconciliationId], references: [id], onDelete: Cascade)
+  reconciliationId String
+  cuenta           String
+  desc             String
+  cont             Int // saldo contabilidad
+  mod              Int // saldo módulo
+  diff             Int
+  items            Int            @default(0)
+  manualStatus     String? // conciliada | excepcion | ajuste (override del estado por materialidad)
+  order            Int            @default(0)
+}
+
+model ReconciliationComment {
+  id               String         @id @default(cuid())
+  reconciliation   Reconciliation @relation(fields: [reconciliationId], references: [id], onDelete: Cascade)
+  reconciliationId String
+  cuenta           String
+  who              String
+  initials         String
+  text             String
+  time             String
+  createdAt        DateTime       @default(now())
 }
 
 // ===== Notificaciones =====
