@@ -139,6 +139,7 @@ model AuditEntry {
   action    String
   entity    String
   detail    String
+  ip        String?
   createdAt DateTime @default(now())
 }
 
@@ -422,4 +423,14 @@ model ReqPresentation {
   observed   Json? // [{title, shortTitle, summary, riesgos[], oportunidades[]}]
   evaluated  Json? // {mercantil[], tributario[], otros[]}
   createdAt  DateTime @default(now())
+}
+
+model CalendarEvent {
+  id       String   @id @default(cuid())
+  date     DateTime
+  type     String // dian | ica | req
+  title    String
+  subtitle String
+  clientId String? // id de cliente de calendario: zarzal, pacif...
+  order    Int      @default(0)
 }
