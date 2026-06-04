@@ -45,18 +45,6 @@ export default function LoginPage() {
           </p>
 
           <LoginForm />
-
-          <div className="mt-8 rounded-md border border-ink-150 bg-white p-3.5 text-xs text-ink-500">
-            <p className="font-semibold text-ink-700">Credenciales de demostración</p>
-            <p className="mt-1.5">
-              <span className="font-mono text-ink-700">admin@russellbedford.co</span>
-              {" · "}
-              <span className="font-mono text-ink-700">juliana@russellbedford.co</span>
-            </p>
-            <p className="mt-0.5">
-              Contraseña: <span className="font-mono text-ink-700">Russell2026*</span>
-            </p>
-          </div>
         </div>
       </div>
     </div>
