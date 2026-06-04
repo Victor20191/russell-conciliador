@@ -47,6 +47,12 @@ export const timeAgo = (input: Date | string, now: Date = new Date()): string =>
   return `hace ${days} día${days === 1 ? "" : "s"}`;
 };
 
+export const fmtPct = (n: number | null | undefined): string => {
+  if (n == null) return "—";
+  const sign = n >= 0 ? "+" : "-";
+  return `${sign}${Math.abs(n).toFixed(1).replace(".", ",")}%`;
+};
+
 // Clases Tailwind para chips de estado
 export const statusChip = (status: string): string => {
   switch (status.toUpperCase()) {

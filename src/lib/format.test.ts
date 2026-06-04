@@ -1,5 +1,6 @@
 import { test, expect } from "vitest";
 import { pct, fmtDate, timeAgo } from "./format";
+import { fmtPct } from "./format";
 
 test("pct redondea a porcentaje entero", () => {
   expect(pct(0.5)).toBe("50%");
@@ -22,4 +23,14 @@ test("timeAgo expresa la diferencia relativa con un ahora fijo", () => {
   expect(timeAgo(new Date(2026, 0, 1, 10, 30, 0), now)).toBe("hace 2 h");
   expect(timeAgo(new Date(2025, 11, 30, 12, 30, 0), now)).toBe("hace 2 días");
   expect(timeAgo(new Date(2026, 0, 1, 12, 29, 30), now)).toBe("hace un momento");
+});
+
+test("fmtPct formatea con signo y 1 decimal", () => {
+  expect(fmtPct(26.49)).toBe("+26,5%");
+  expect(fmtPct(-18.1)).toBe("-18,1%");
+  expect(fmtPct(0)).toBe("+0,0%");
+});
+
+test("fmtPct devuelve guion para null", () => {
+  expect(fmtPct(null)).toBe("—");
 });
