@@ -10,6 +10,7 @@ async function main() {
   console.log("🌱 Seeding…");
 
   // ---- Limpieza idempotente ----
+  await prisma.calendarEvent.deleteMany();
   await prisma.reqPresentation.deleteMany();
   await prisma.reqRepoActivity.deleteMany();
   await prisma.reqRepoItem.deleteMany();
@@ -141,12 +142,12 @@ async function main() {
   // ---- Auditoría ----
   await prisma.auditEntry.createMany({
     data: [
-      { ts: "03/May/2026 09:14:22", user: "Juliana Rincón", action: "EJECUTÓ", entity: "Cruce REC-2026-0431", detail: "Inventarios · Inversiones del Pacífico · Marzo 2026" },
-      { ts: "03/May/2026 09:13:48", user: "Juliana Rincón", action: "GUARDÓ MAPEO", entity: "Cuentas (Inventarios)", detail: "7 cuentas auto, 1 reasignada por similitud, 1 sin mapeo" },
-      { ts: "03/May/2026 09:11:02", user: "Juliana Rincón", action: "GUARDÓ MAPEO", entity: "Campos (Inventarios)", detail: "10 de 10 campos requeridos cubiertos" },
-      { ts: "03/May/2026 09:08:17", user: "Juliana Rincón", action: "CARGÓ ARCHIVO", entity: "INV_PACIFICO_MAR2026.xlsx", detail: "4.821 filas · 12 columnas · 1,4 MB" },
-      { ts: "03/May/2026 09:07:55", user: "Juliana Rincón", action: "INICIÓ", entity: "Parametrización", detail: "Cliente C-1042 · Módulo Inventarios" },
-      { ts: "02/May/2026 17:41:09", user: "María Bermúdez", action: "ASIGNÓ", entity: "REC-2026-0431", detail: "Asignado a Juliana Rincón con prioridad media" },
+      { ts: "03/May/2026 09:14:22", user: "Juliana Rincón", action: "EJECUTÓ", entity: "Cruce REC-2026-0431", detail: "Inventarios · Inversiones del Pacífico · Marzo 2026", ip: "190.85.241.18" },
+      { ts: "03/May/2026 09:13:48", user: "Juliana Rincón", action: "GUARDÓ MAPEO", entity: "Cuentas (Inventarios)", detail: "7 cuentas auto, 1 reasignada por similitud, 1 sin mapeo", ip: "190.85.241.18" },
+      { ts: "03/May/2026 09:11:02", user: "Juliana Rincón", action: "GUARDÓ MAPEO", entity: "Campos (Inventarios)", detail: "10 de 10 campos requeridos cubiertos", ip: "190.85.241.18" },
+      { ts: "03/May/2026 09:08:17", user: "Juliana Rincón", action: "CARGÓ ARCHIVO", entity: "INV_PACIFICO_MAR2026.xlsx", detail: "4.821 filas · 12 columnas · 1,4 MB", ip: "190.85.241.18" },
+      { ts: "03/May/2026 09:07:55", user: "Juliana Rincón", action: "INICIÓ", entity: "Parametrización", detail: "Cliente C-1042 · Módulo Inventarios", ip: "190.85.241.18" },
+      { ts: "02/May/2026 17:41:09", user: "María Bermúdez", action: "ASIGNÓ", entity: "REC-2026-0431", detail: "Asignado a Juliana Rincón con prioridad media", ip: "interno" },
     ],
   });
 
@@ -674,6 +675,32 @@ async function main() {
       data: { id, clientName, nit: "900.451.227-3", title, year: "2025", presented: "Julio de 2025", preparedBy: "Russell Bedford Colombia", slides, author, date, status, positives: presPositives, observed: presObserved, evaluated: presEvaluated },
     });
   }
+
+  // ---- Calendario (Mayo 2026) ----
+  const calEvents: [number, string, string, string | null, string][] = [
+    [8, "dian", "IVA Bimestre 2", null, "NITs terminados en 1-2"],
+    [9, "dian", "IVA Bimestre 2", null, "NITs 3-4"],
+    [12, "dian", "Retención en la fuente Abr", null, "NITs 1-2"],
+    [13, "dian", "Retención en la fuente Abr", null, "NITs 3-4"],
+    [14, "dian", "Retención en la fuente Abr", null, "NITs 5-6"],
+    [21, "dian", "Información exógena", null, "Grandes contribuyentes"],
+    [15, "ica", "ICA Bogotá Bim 2", null, "Régimen común"],
+    [18, "ica", "ICA Medellín Bim 2", null, "Anticipo bimestral"],
+    [26, "ica", "ICA Cali anual", null, "Última cuota"],
+    [5, "req", "RFA-INTERIM Q1", "zarzal", "Cierre marzo"],
+    [5, "req", "Cierre mensual abril", "pacif", "Inventarios + cartera"],
+    [7, "req", "Cuentas por pagar", "andina", "Conciliación con proveedores"],
+    [12, "req", "Nómina abril", "valle", "Soporte planilla"],
+    [15, "req", "RFA-CIERRE jun", "agrocol", "Documentos preliminares"],
+    [19, "req", "Activos fijos", "zarzal", "Inventario físico"],
+    [20, "req", "Conciliación bancaria", "andina", "Abril 2026"],
+    [22, "req", "Estados financieros", "pacif", "Borrador trimestre"],
+    [27, "req", "Cierre mayo", "zarzal", "Preparación de cuentas"],
+    [28, "req", "Impuestos consolidado", "valle", "Provisión mensual"],
+  ];
+  await prisma.calendarEvent.createMany({
+    data: calEvents.map(([day, type, title, clientId, subtitle], i) => ({ date: new Date(2026, 4, day), type, title, clientId, subtitle, order: i })),
+  });
 
   console.log("✅ Seed completo.");
 }
