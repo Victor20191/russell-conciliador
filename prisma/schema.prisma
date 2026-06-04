@@ -137,6 +137,7 @@ model Balance {
   versionHistory Json? // historial de versiones (v3/v2/v1) con metadatos
   diff           Json? // comparativo de la versión oficial vs. la anterior
   auditLog       Json? // bitácora de cargues/congelados por cliente
+  incomeStatement Json? // líneas del estado de resultado (concepto, 2025, 2024, presupuesto)
   lastUpload     String? // fecha-hora de la última carga (display)
   createdAt   DateTime @default(now())
 
