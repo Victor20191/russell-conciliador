@@ -78,6 +78,10 @@ export async function updateUser(
   if (!parsed.success)
     return { ok: false, errors: z.flattenError(parsed.error).fieldErrors };
 
+  if (parsed.data.id === authz.userId && (!parsed.data.active || parsed.data.role !== "Administrador")) {
+    return { ok: false, message: "No puedes desactivar ni cambiar el rol de tu propia cuenta de administrador." };
+  }
+
   const before = await prisma.user.findUnique({
     where: { id: parsed.data.id },
     select: { active: true },

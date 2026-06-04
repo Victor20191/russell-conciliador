@@ -172,8 +172,16 @@ function UserRowForm({ u }: { u: UserRow }) {
         </form>
       </div>
       {(editState?.message || resetState?.message) && (
+        <p className="mt-1 text-[11px] text-err-700">{editState?.message ?? resetState?.message}</p>
+      )}
+      {(editState?.errors || resetState?.errors) && (
         <p className="mt-1 text-[11px] text-err-700">
-          {editState?.message ?? resetState?.message}
+          {Object.values({ ...editState?.errors, ...resetState?.errors }).flat().filter(Boolean)[0]}
+        </p>
+      )}
+      {(editState?.ok || resetState?.ok) && (
+        <p className="mt-1 text-[11px] text-ok-700">
+          {editState?.ok ? "Cambios guardados." : "Contraseña reseteada."}
         </p>
       )}
     </div>
