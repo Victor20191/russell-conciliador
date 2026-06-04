@@ -235,6 +235,21 @@ async function main() {
       { date: "08/Ene/2026 11:32", actor: "Manuela Gutiérrez", role: "Auditor senior", action: "Congeló v3 como oficial", ip: "interno", details: "Versión auditada para cierre 2025" },
       { date: "12/Ene/2026 09:02", actor: "Sistema", role: "Auditor", action: "Publicó balance a DIAN y Razonabilidad", ip: "interno", details: "Disponible para módulos downstream" },
     ],
+    incomeStatement: [
+      { concept: "Ingresos por ventas", current: 28940, prior: 25740, budget: 28000, bold: true, sep: false },
+      { concept: "Devoluciones y descuentos", current: -1240, prior: -980, budget: -1200, bold: false, sep: false },
+      { concept: "Costo de ventas", current: -16280, prior: -14620, budget: -16500, bold: false, sep: false },
+      { concept: "Utilidad bruta", current: 11420, prior: 10140, budget: 10300, bold: true, sep: true },
+      { concept: "Gastos de administración", current: -3680, prior: -3420, budget: -3700, bold: false, sep: false },
+      { concept: "Gastos de ventas", current: -2940, prior: -2680, budget: -3100, bold: false, sep: false },
+      { concept: "Depreciaciones y amortizaciones", current: -620, prior: -580, budget: -650, bold: false, sep: false },
+      { concept: "Utilidad operacional", current: 4180, prior: 3460, budget: 2850, bold: true, sep: true },
+      { concept: "Ingresos no operacionales", current: 420, prior: 380, budget: 300, bold: false, sep: false },
+      { concept: "Gastos financieros", current: -680, prior: -620, budget: -700, bold: false, sep: false },
+      { concept: "Diferencia en cambio", current: -180, prior: 140, budget: 0, bold: false, sep: false },
+      { concept: "Impuesto de renta", current: -900, prior: -820, budget: -850, bold: false, sep: false },
+      { concept: "Utilidad neta del ejercicio", current: 2840, prior: 2540, budget: 1600, bold: true, sep: true },
+    ],
   };
 
   await prisma.balance.create({
