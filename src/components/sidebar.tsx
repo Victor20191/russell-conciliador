@@ -66,7 +66,7 @@ export default function Sidebar({
         <div className="font-serif text-sm font-medium leading-tight text-white">
           Russell Bedford
           <small className="block font-sans text-[9.5px] font-medium uppercase tracking-[0.18em] text-[#7C8DA3]">
-            Conciliador LFM
+            Conciliador
           </small>
         </div>
       </div>

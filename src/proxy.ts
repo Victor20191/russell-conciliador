@@ -23,7 +23,10 @@ export default async function proxy(req: NextRequest) {
   }
 
   if (!isPublic && !authenticated) {
-    return NextResponse.redirect(new URL("/login", req.nextUrl));
+    const res = NextResponse.redirect(new URL("/login", req.nextUrl));
+    // Si venía una cookie pero su firma no es válida (expirada/corrupta), limpiarla.
+    if (token) res.cookies.delete("session");
+    return res;
   }
 
   if (isPublic && authenticated) {

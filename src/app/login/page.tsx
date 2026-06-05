@@ -11,7 +11,7 @@ export default function LoginPage() {
           <div className="font-serif text-lg leading-tight">
             Russell Bedford
             <small className="block font-sans text-[10px] font-medium uppercase tracking-[0.18em] text-[#7C8DA3]">
-              Conciliador LFM
+              Conciliador
             </small>
           </div>
         </div>

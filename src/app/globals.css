@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-/* ===== Sistema visual Russell Bedford LFM — portado a Tailwind v4 ===== */
+/* ===== Sistema visual Russell Bedford — portado a Tailwind v4 ===== */
 @theme {
   /* Navy institucional */
   --color-navy-900: #091628;

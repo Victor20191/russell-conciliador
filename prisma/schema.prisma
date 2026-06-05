@@ -1,4 +1,4 @@
-// Schema Prisma 7 — Russell Bedford · Conciliador/Diagnóstico LFM
+// Schema Prisma 7 — Russell Bedford · Conciliador/Diagnóstico
 // Modelos derivados de los datos demo del prototipo original (data*.jsx)
 //
 // Convención: la base de datos física está en ESPAÑOL.
@@ -44,6 +44,164 @@ model LoginAttempt {
   @@index([email, createdAt])
   @@index([ip, createdAt])
   @@map("intentos_inicio_sesion")
+}
+
+// ============================================================
+// ===== Control de acceso y organización · Roles, permisos,
+//       equipos de trabajo y cartera de clientes =====
+//
+// Parametrización derivada de "RB_GCT Roles y Responsabilidades –
+// Área de Revisoría Fiscal" (Russell Bedford, 04-jun-2026).
+//
+// BLOQUE SOLO-ESQUEMA: define los modelos pero NO se genera
+// migración todavía. Es estrictamente ADITIVO (solo CREATE TABLE
+// de tablas nuevas; no toca `usuarios` ni `clientes`).
+//
+// Convención del repo (OBLIGATORIA):
+//   - Identificadores Prisma en inglés; tablas/columnas físicas en
+//     ESPAÑOL snake_case vía @@map / @map.
+//   - Catálogos con id NATURAL (como Client "C-1042", Module "INV",
+//     DianForm "IVA", RussellOption.code). Transaccionales con cuid().
+//   - FK SUAVES hacia User y Client: solo el id String mapeado, SIN
+//     @relation. Replica el patrón ya usado en el repo
+//     (ClientAccount.russellCode -> RussellOption.code: relación
+//     lógica sin FK física). Así no se agregan relaciones inversas
+//     en User/Client y la migración futura queda 100% aditiva.
+//   - Coexiste con usuarios.rol:String @default("Consulta") y can()
+//     (src/lib/roles.ts). usuarios.rol se reinterpreta como FK
+//     LÓGICA a Role.code (mismo valor), sin migrar datos todavía.
+//
+// NOTA sobre la jerarquía: el PDF separa jerarquía organizacional
+// de capacidad operativa. Socio/Gerente/Senior tienen rango alto
+// pero son de CONSULTA; el Staff es el ÚNICO que escribe pese a su
+// rango bajo. Un can() puramente jerárquico NO captura esto: la
+// verdad operativa vive en la matriz RolePermission (y, por
+// conveniencia, en Role.isOperative). Role.rank se conserva solo
+// para alimentar can()/ROLE_RANK durante la transición.
+// ============================================================
+
+/// Catálogo de ROLES (los 5 del PDF + roles legado para no dejar
+/// usuarios huérfanos). Editable por el Administrador sin desplegar
+/// código. `code` es la llave natural en español que vive en
+/// usuarios.rol, reinterpretada como FK lógica.
+model Role {
+  code        String           @id @map("codigo") // socio | gerente | senior | staff | administrador (+ legado: Consulta/Auditor/Líder)
+  name        String           @map("nombre") // etiqueta visible: "Socio", "Senior"...
+  description String?          @map("descripcion") // responsabilidad según el PDF
+  rank        Int              @default(0) @map("rango") // jerarquía: alimenta ROLE_RANK/can() durante la transición
+  isOperative Boolean          @default(false) @map("es_operativo") // true SOLO para Staff (único que escribe/ejecuta)
+  isSystem    Boolean          @default(false) @map("es_sistema") // roles base no borrables desde la UI
+  active      Boolean          @default(true) @map("activo")
+  permissions RolePermission[]
+  teamMembers TeamMember[]
+  createdAt   DateTime         @default(now()) @map("creado_en")
+  updatedAt   DateTime         @updatedAt @map("actualizado_en")
+
+  @@index([rank])
+  @@map("roles")
+}
+
+/// Catálogo de PERMISOS atómicos. `code` es la llave canónica
+/// "<modulo>:<accion>" usada por los gates en código (p.ej.
+/// "conciliaciones:ejecutar", "clientes:configurar"). Las columnas
+/// module/action/label permiten al Administrador entender y filtrar
+/// la matriz en una futura UI.
+model Permission {
+  code        String           @id @map("codigo") // <modulo>:<accion>
+  module      String           @map("modulo") // conciliaciones | balance | dian | requerimientos | clientes | usuarios | equipos | auditoria...
+  action      String           @map("accion") // ver | crear | editar | eliminar | ejecutar | revisar | supervisar | asignar | configurar
+  label       String           @map("etiqueta") // texto legible para la matriz del Administrador
+  description String?          @map("descripcion")
+  active      Boolean          @default(true) @map("activo")
+  roles       RolePermission[]
+  createdAt   DateTime         @default(now()) @map("creado_en")
+
+  @@unique([module, action])
+  @@index([module])
+  @@map("permisos")
+}
+
+/// MATRIZ rol × permiso (concesión). La tabla que el Administrador
+/// edita para conceder/revocar permisos sin desplegar código.
+/// Fila presente = permiso concedido (sin flag de denegación).
+model RolePermission {
+  id             String     @id @default(cuid())
+  role           Role       @relation(fields: [roleCode], references: [code], onDelete: Cascade)
+  roleCode       String     @map("rol_codigo")
+  permission     Permission @relation(fields: [permissionCode], references: [code], onDelete: Cascade)
+  permissionCode String     @map("permiso_codigo")
+  createdAt      DateTime   @default(now()) @map("creado_en")
+
+  @@unique([roleCode, permissionCode])
+  @@index([permissionCode])
+  @@map("roles_permisos")
+}
+
+/// EQUIPO DE TRABAJO (cuadrilla de auditoría). El Senior lo arma.
+/// leadUserId es FK SUAVE a User.id (sin relación inversa en User).
+model Team {
+  id          String             @id @default(cuid())
+  name        String             @map("nombre")
+  description String?            @map("descripcion")
+  leadUserId  String?            @map("lider_usuario_id") // Senior responsable (FK lógica a User.id)
+  active      Boolean            @default(true) @map("activo")
+  members     TeamMember[]
+  assignments ClientAssignment[]
+  createdAt   DateTime           @default(now()) @map("creado_en")
+  updatedAt   DateTime           @updatedAt @map("actualizado_en")
+
+  @@index([leadUserId])
+  @@map("equipos")
+}
+
+/// INTEGRANTE de un equipo. userId es FK SUAVE a User.id. roleCode
+/// (opcional) referencia el catálogo Role para registrar el cargo
+/// funcional dentro del equipo. Un usuario puede estar en varios
+/// equipos (p.ej. un Senior con 2 carteras).
+model TeamMember {
+  id        String   @id @default(cuid())
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  teamId    String   @map("equipo_id")
+  userId    String   @map("usuario_id") // FK lógica a User.id
+  role      Role?    @relation(fields: [roleCode], references: [code], onDelete: SetNull)
+  roleCode  String?  @map("rol_codigo") // rol funcional dentro del equipo
+  active    Boolean  @default(true) @map("activo")
+  createdAt DateTime @default(now()) @map("creado_en")
+
+  @@unique([teamId, userId]) // un usuario una sola vez por equipo
+  @@index([userId])
+  @@map("integrantes_equipo")
+}
+
+/// CARTERA DE CLIENTES + ALCANCE (read/write) por cliente. Vincula
+/// un cliente con el equipo y/o usuario que lo atiende y define el
+/// alcance a nivel de DATO: readScope=ve / writeScope=escribe. Aquí
+/// se materializa la segregación de funciones del PDF: Staff recibe
+/// writeScope=true; Senior/Gerente/Socio writeScope=false (consulta).
+/// El Senior (assignedById) delega. Los campos de alcance quedan
+/// sembrados pero INERTES hasta activar la autorización por dato.
+///
+/// clientId, userId y assignedById son FK SUAVES (a Client.id y
+/// User.id): no se toca Client ni User. Solo teamId es FK dura,
+/// hacia el modelo NUEVO Team.
+model ClientAssignment {
+  id           String   @id @default(cuid())
+  clientId     String   @map("cliente_id") // FK lógica a Client.id (no se toca Client)
+  team         Team?    @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  teamId       String?  @map("equipo_id")
+  userId       String?  @map("usuario_id") // responsable individual (FK lógica a User.id), opcional
+  readScope    Boolean  @default(true) @map("alcance_lectura") // ve este cliente
+  writeScope   Boolean  @default(false) @map("alcance_escritura") // escribe/ejecuta (solo Staff)
+  assignedById String?  @map("asignado_por_id") // Senior que realizó la asignación (FK lógica a User.id)
+  active       Boolean  @default(true) @map("activo")
+  createdAt    DateTime @default(now()) @map("creado_en")
+  updatedAt    DateTime @updatedAt @map("actualizado_en")
+
+  @@unique([clientId, teamId, userId]) // evita duplicados de cartera (ver nota NULL más abajo)
+  @@index([clientId])
+  @@index([teamId])
+  @@index([userId, active])
+  @@map("asignaciones_cliente")
 }
 
 // ===== Clientes y módulos =====

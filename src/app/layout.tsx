@@ -21,7 +21,7 @@ const newsreader = Newsreader({
 });
 
 export const metadata: Metadata = {
-  title: "Russell Bedford · Conciliador LFM",
+  title: "Russell Bedford · Conciliador",
   description:
     "Plataforma de conciliación y diagnóstico contable y tributario — Russell Bedford",
 };

@@ -1,0 +1,223 @@
+// ============================================================
+// Catálogo RBAC — Roles, permisos y matriz rol×permiso.
+//
+// FUENTE ÚNICA DE VERDAD, compartida por:
+//   - el seed de BD            (prisma/seed-rbac.ts)
+//   - las pruebas de permisos  (src/lib/rbac/permisos.test.ts)
+// Así la validación refleja EXACTAMENTE lo que se siembra.
+//
+// Derivado de:
+//   - "RB_GCT Roles y Responsabilidades – Área de Revisoría Fiscal"
+//     (Russell Bedford, 04-jun-2026): los 5 roles y su segregación.
+//   - La navegación real de la plataforma (src/lib/nav.ts): de ahí
+//     salen los módulos protegibles (balance, conciliaciones, dian,
+//     requerimientos, calendario, auditoría, clientes, usuarios…).
+//
+// Convención de `code` de rol: respeta los valores ya usados en
+// usuarios.rol (capitalizados). "Administrador" es compartido por el
+// PDF y el sistema legado → una sola fila.
+// ============================================================
+
+export type RolCatalogo = {
+  code: string;
+  name: string;
+  description: string;
+  rank: number; // legado/transición: alimenta ROLE_RANK/can(). La autoridad real es la MATRIZ.
+  isOperative: boolean; // true SOLO para Staff (único que escribe/ejecuta)
+  isSystem: boolean;
+  legacy?: boolean;
+};
+
+export const ROLES: RolCatalogo[] = [
+  // ----- Roles del PDF (Área de Revisoría Fiscal) -----
+  {
+    code: "Socio", name: "Socio", rank: 5, isOperative: false, isSystem: true,
+    description: "Consulta global. Vela por la calidad y la promesa de valor al cliente.",
+  },
+  {
+    code: "Gerente", name: "Gerente", rank: 4, isOperative: false, isSystem: true,
+    description: "Consulta y supervisión del cumplimiento de su cartera (Senior y Staff).",
+  },
+  {
+    code: "Senior", name: "Senior", rank: 3, isOperative: false, isSystem: true,
+    description: "Consulta y revisión. Valida la info del cliente, delega, revisa al Staff, configura clientes y arma equipos/cartera.",
+  },
+  {
+    code: "Staff", name: "Staff", rank: 2, isOperative: true, isSystem: true,
+    description: "Único rol operativo. Ejecuta pruebas y conciliaciones, sube información, elabora papeles de trabajo y documenta diferencias.",
+  },
+  {
+    code: "Administrador", name: "Administrador", rank: 4, isOperative: false, isSystem: true,
+    description: "Administra la herramienta: parámetros, adecuaciones, actualizaciones y ajustes del sistema.",
+  },
+  // ----- Roles legado (compatibilidad: no dejar usuarios huérfanos) -----
+  // Su mapeo a los roles del PDF está PENDIENTE de confirmación del
+  // usuario; por eso NO reciben filas en la matriz (siguen con can()).
+  {
+    code: "Consulta", name: "Consulta (legado)", rank: 1, isOperative: false, isSystem: true, legacy: true,
+    description: "Rol legado. Mapeo a los roles del PDF pendiente de confirmación.",
+  },
+  {
+    code: "Auditor", name: "Auditor (legado)", rank: 2, isOperative: false, isSystem: true, legacy: true,
+    description: "Rol legado. Mapeo a los roles del PDF pendiente de confirmación.",
+  },
+  {
+    code: "Líder", name: "Líder (legado)", rank: 3, isOperative: false, isSystem: true, legacy: true,
+    description: "Rol legado. Mapeo a los roles del PDF pendiente de confirmación.",
+  },
+];
+
+export const ROLES_PDF = ["Socio", "Gerente", "Senior", "Staff", "Administrador"] as const;
+export const ROLES_LEGADO = ["Consulta", "Auditor", "Líder"] as const;
+
+export type Permiso = {
+  code: string; // "<modulo>:<accion>" — llave canónica usada por los gates en código
+  module: string;
+  action: string;
+  label: string;
+  description?: string;
+  roles: string[]; // roles del PDF que tienen el permiso (fuente de la MATRIZ)
+};
+
+// ----- Grupos de roles para legibilidad de la matriz -----
+const TODOS = ["Socio", "Gerente", "Senior", "Staff", "Administrador"];
+const CONSULTA_Y_ADMIN = ["Socio", "Gerente", "Senior", "Administrador"]; // todos menos Staff
+const SUPERVISORES = ["Gerente", "Socio"];
+const SOLO_STAFF = ["Staff"];
+const SOLO_SENIOR = ["Senior"];
+const SOLO_ADMIN = ["Administrador"];
+
+export const PERMISOS: Permiso[] = [
+  // ===== Lectura (consulta) — módulos derivados de nav.ts =====
+  { code: "dashboard:ver", module: "dashboard", action: "ver", label: "Ver inicio", roles: TODOS },
+  { code: "balance:ver", module: "balance", action: "ver", label: "Ver balance de comprobación", roles: TODOS },
+  { code: "mapeo:ver", module: "mapeo", action: "ver", label: "Ver mapeo del plan estándar", roles: TODOS },
+  { code: "razonabilidad:ver", module: "razonabilidad", action: "ver", label: "Ver razonabilidad", roles: TODOS },
+  { code: "conciliaciones:ver", module: "conciliaciones", action: "ver", label: "Ver conciliaciones", roles: TODOS },
+  { code: "dian:ver", module: "dian", action: "ver", label: "Ver Impuestos · DIAN", roles: TODOS },
+  { code: "requerimientos:ver", module: "requerimientos", action: "ver", label: "Ver requerimientos", roles: TODOS },
+  { code: "presentaciones:ver", module: "presentaciones", action: "ver", label: "Ver presentaciones", roles: TODOS },
+  { code: "calendario:ver", module: "calendario", action: "ver", label: "Ver calendario", roles: TODOS },
+  { code: "clientes:ver", module: "clientes", action: "ver", label: "Ver clientes", roles: TODOS },
+  { code: "equipos:ver", module: "equipos", action: "ver", label: "Ver equipos de trabajo", roles: CONSULTA_Y_ADMIN },
+  { code: "auditoria:ver", module: "auditoria", action: "ver", label: "Ver registro de auditoría", roles: CONSULTA_Y_ADMIN },
+  { code: "usuarios:ver", module: "usuarios", action: "ver", label: "Ver usuarios", roles: SOLO_ADMIN },
+  { code: "modulos:ver", module: "modulos", action: "ver", label: "Ver módulos y campos", roles: SOLO_ADMIN },
+  { code: "mapeos_dian:ver", module: "mapeos_dian", action: "ver", label: "Ver mapeos DIAN", roles: ["Senior", "Administrador"] },
+
+  // ===== Operativo (crear/editar/ejecutar) — SOLO Staff =====
+  { code: "balance:crear", module: "balance", action: "crear", label: "Cargar balance", roles: SOLO_STAFF },
+  { code: "balance:editar", module: "balance", action: "editar", label: "Editar balance", roles: SOLO_STAFF },
+  { code: "mapeo:editar", module: "mapeo", action: "editar", label: "Editar mapeo del plan estándar", roles: SOLO_STAFF },
+  { code: "conciliaciones:crear", module: "conciliaciones", action: "crear", label: "Crear conciliación", roles: SOLO_STAFF },
+  { code: "conciliaciones:editar", module: "conciliaciones", action: "editar", label: "Editar conciliación", roles: SOLO_STAFF },
+  { code: "conciliaciones:ejecutar", module: "conciliaciones", action: "ejecutar", label: "Ejecutar conciliación", roles: SOLO_STAFF },
+  { code: "dian:editar", module: "dian", action: "editar", label: "Editar declaración DIAN", roles: SOLO_STAFF },
+  { code: "requerimientos:crear", module: "requerimientos", action: "crear", label: "Crear requerimiento", roles: SOLO_STAFF },
+  { code: "requerimientos:ejecutar", module: "requerimientos", action: "ejecutar", label: "Enviar requerimiento", roles: SOLO_STAFF },
+  { code: "presentaciones:crear", module: "presentaciones", action: "crear", label: "Crear presentación", roles: SOLO_STAFF },
+  { code: "calendario:crear", module: "calendario", action: "crear", label: "Crear evento de calendario", roles: SOLO_STAFF },
+
+  // ===== Revisión — SOLO Senior (revisa el trabajo del Staff) =====
+  { code: "balance:revisar", module: "balance", action: "revisar", label: "Revisar balance", roles: SOLO_SENIOR },
+  { code: "conciliaciones:revisar", module: "conciliaciones", action: "revisar", label: "Revisar conciliación", roles: SOLO_SENIOR },
+  { code: "requerimientos:revisar", module: "requerimientos", action: "revisar", label: "Revisar requerimiento", roles: SOLO_SENIOR },
+
+  // ===== Supervisión — Gerente y Socio =====
+  { code: "clientes:supervisar", module: "clientes", action: "supervisar", label: "Supervisar cartera de clientes", roles: SUPERVISORES },
+
+  // ===== Configuración de negocio — SOLO Senior =====
+  { code: "clientes:crear", module: "clientes", action: "crear", label: "Crear cliente", roles: SOLO_SENIOR },
+  { code: "clientes:editar", module: "clientes", action: "editar", label: "Editar cliente", roles: SOLO_SENIOR },
+  { code: "clientes:configurar", module: "clientes", action: "configurar", label: "Configurar parámetros del cliente", roles: SOLO_SENIOR },
+  { code: "equipos:crear", module: "equipos", action: "crear", label: "Crear equipo de trabajo", roles: SOLO_SENIOR },
+  { code: "equipos:asignar", module: "equipos", action: "asignar", label: "Asignar equipos y cartera", roles: SOLO_SENIOR },
+  { code: "mapeos_dian:configurar", module: "mapeos_dian", action: "configurar", label: "Configurar mapeos DIAN", roles: ["Senior", "Administrador"] },
+
+  // ===== Administración de la herramienta — SOLO Administrador =====
+  { code: "usuarios:crear", module: "usuarios", action: "crear", label: "Crear usuario", roles: SOLO_ADMIN },
+  { code: "usuarios:editar", module: "usuarios", action: "editar", label: "Editar usuario", roles: SOLO_ADMIN },
+  { code: "usuarios:eliminar", module: "usuarios", action: "eliminar", label: "Desactivar usuario", roles: SOLO_ADMIN },
+  { code: "modulos:configurar", module: "modulos", action: "configurar", label: "Configurar módulos y campos", roles: SOLO_ADMIN },
+  { code: "dian:configurar", module: "dian", action: "configurar", label: "Configurar formularios DIAN", roles: SOLO_ADMIN },
+];
+
+// ----- MATRIZ rol×permiso derivada del catálogo (solo roles del PDF) -----
+export type Matriz = Record<string, string[]>;
+
+export const MATRIZ: Matriz = (() => {
+  const m: Matriz = {};
+  for (const r of ROLES_PDF) m[r] = [];
+  for (const p of PERMISOS) {
+    for (const r of p.roles) {
+      (m[r] ??= []).push(p.code);
+    }
+  }
+  return m;
+})();
+
+// ============================================================
+// Mapeo de roles LEGADO → rol del PDF.
+//
+// El sistema actual usa Consulta/Auditor/Líder/Administrador. El PDF
+// define Socio/Gerente/Senior/Staff/Administrador. Esta es la
+// equivalencia recomendada (el usuario confirma el caso ambiguo).
+//
+// Se realiza como HERENCIA DE PERMISOS en la matriz (ver
+// matrizConLegado): cada rol legado obtiene los permisos de su rol
+// del PDF, SIN reescribir usuarios.rol y SIN tocar nav.ts/can(). Es la
+// vía segura: los usuarios existentes conservan su rol y ranking, y la
+// matriz queda completa para cuando la app autorice por permisos.
+//
+// La conversión real de usuarios.rol (Auditor→Staff, Líder→Senior) es
+// opcional y se deja lista en prisma/backfill-roles.ts (dry-run).
+// ============================================================
+
+export type MapeoLegado = {
+  legacy: string;
+  pdf: string | null; // rol del PDF equivalente (null = sin equivalente directo → solo lectura)
+  confidence: "alta" | "media";
+  rationale: string;
+};
+
+export const MAPEO_LEGADO_PDF: MapeoLegado[] = [
+  {
+    legacy: "Administrador", pdf: "Administrador", confidence: "alta",
+    rationale: "Mismo rol: administra la herramienta. Identidad (misma columna, no cambia).",
+  },
+  {
+    legacy: "Auditor", pdf: "Staff", confidence: "alta",
+    rationale: "Es quien ejecuta el trabajo operativo de auditoría → único rol operativo del PDF.",
+  },
+  {
+    legacy: "Líder", pdf: "Senior", confidence: "alta",
+    rationale: "Configura clientes, arma equipos/cartera y revisa al Staff; coincide con los gates minRole:'Líder' de nav.ts.",
+  },
+  {
+    legacy: "Consulta", pdf: null, confidence: "media",
+    rationale: "Solo-lectura y rol por defecto de usuarios nuevos. Sin equivalente 'viewer junior' en el PDF: se trata como lectura general. Reasignar caso por caso (¿Socio/Gerente/Senior?).",
+  },
+];
+
+// Permisos de "lectura general": los `:ver` disponibles para todos los
+// roles del PDF (marcados porque incluso el Staff los tiene). Es el
+// conjunto que hereda "Consulta" al no tener equivalente en el PDF.
+export const PERMISOS_LECTURA_GENERAL: string[] = PERMISOS
+  .filter((p) => p.action === "ver" && p.roles.includes("Staff"))
+  .map((p) => p.code);
+
+/**
+ * Matriz rol×permiso COMPLETA: los 5 roles del PDF + los roles legado,
+ * a los que se les hereda el conjunto de permisos de su rol del PDF
+ * (o la lectura general si no hay equivalente). Es la que siembra
+ * prisma/seed-rbac.ts para que NINGÚN rol quede sin permisos.
+ */
+export function matrizConLegado(): Matriz {
+  const m: Matriz = {};
+  for (const r of ROLES_PDF) m[r] = [...(MATRIZ[r] ?? [])];
+  for (const map of MAPEO_LEGADO_PDF) {
+    if (map.legacy === map.pdf) continue; // identidad (Administrador): ya está
+    m[map.legacy] = map.pdf ? [...(MATRIZ[map.pdf] ?? [])] : [...PERMISOS_LECTURA_GENERAL];
+  }
+  return m;
+}

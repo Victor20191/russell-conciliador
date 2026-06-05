@@ -10,7 +10,8 @@ export const verifySession = cache(async () => {
   const session = await decrypt(cookie);
 
   if (!session?.userId) {
-    redirect("/login");
+    // Cookie ausente o ilegible: limpiarla y enviar al login.
+    redirect("/sesion-expirada");
   }
 
   const user = await prisma.user.findUnique({
@@ -25,8 +26,11 @@ export const verifySession = cache(async () => {
   });
 
   // Revocación: el usuario debe existir, estar activo y la versión de sesión coincidir.
+  // Si la cookie tiene firma válida pero ya no corresponde a una sesión válida en
+  // la BD, hay que LIMPIARLA (vía /sesion-expirada); de lo contrario el proxy
+  // optimista la seguiría tratando como autenticada y se forma un bucle infinito.
   if (!user || !user.active || user.sessionVersion !== session.sessionVersion) {
-    redirect("/login");
+    redirect("/sesion-expirada");
   }
 
   return {

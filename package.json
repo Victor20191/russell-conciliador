@@ -12,6 +12,8 @@
     "postinstall": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
+    "db:seed:rbac": "tsx prisma/seed-rbac.ts",
+    "db:backfill:roles": "tsx prisma/backfill-roles.ts",
     "db:studio": "prisma studio"
   },
   "dependencies": {

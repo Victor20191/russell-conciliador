@@ -1,4 +1,4 @@
-# Russell Bedford · Conciliador / Diagnóstico LFM
+# Russell Bedford · Conciliador / Diagnóstico
 
 Plataforma de conciliación y diagnóstico contable y tributario, migrada del prototipo
 original (React sobre Babel en el navegador) a una aplicación **Next.js 16** completa con
