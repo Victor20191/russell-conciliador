@@ -1,5 +1,11 @@
 // Schema Prisma 7 — Russell Bedford · Conciliador/Diagnóstico LFM
 // Modelos derivados de los datos demo del prototipo original (data*.jsx)
+//
+// Convención: la base de datos física está en ESPAÑOL.
+//   - Tablas: @@map("nombre_en_espanol")
+//   - Columnas: @map("columna_en_espanol")  (snake_case)
+// Los identificadores del modelo Prisma se mantienen para no romper el código,
+// pero el objeto real en PostgreSQL siempre queda en español.
 
 generator client {
   provider = "prisma-client"
@@ -13,438 +19,498 @@ datasource db {
 // ===== Autenticación =====
 model User {
   id                 String    @id @default(cuid())
-  email              String    @unique
-  password           String // hash bcrypt
-  name               String
-  role               String    @default("Consulta")
-  initials           String
-  active             Boolean   @default(true)
-  sessionVersion     Int       @default(0)
-  mustChangePassword Boolean   @default(false)
-  lastLoginAt        DateTime?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  email              String    @unique @map("correo")
+  password           String    @map("contrasena") // hash bcrypt
+  name               String    @map("nombre")
+  role               String    @default("Consulta") @map("rol")
+  initials           String    @map("iniciales")
+  active             Boolean   @default(true) @map("activo")
+  sessionVersion     Int       @default(0) @map("version_sesion")
+  mustChangePassword Boolean   @default(false) @map("debe_cambiar_contrasena")
+  lastLoginAt        DateTime? @map("ultimo_inicio_sesion")
+  createdAt          DateTime  @default(now()) @map("creado_en")
+  updatedAt          DateTime  @updatedAt @map("actualizado_en")
+
+  @@map("usuarios")
 }
 
 model LoginAttempt {
   id        String   @id @default(cuid())
-  email     String
-  ip        String
-  success   Boolean
-  createdAt DateTime @default(now())
+  email     String   @map("correo")
+  ip        String   @map("ip")
+  success   Boolean  @map("exitoso")
+  createdAt DateTime @default(now()) @map("creado_en")
 
   @@index([email, createdAt])
   @@index([ip, createdAt])
+  @@map("intentos_inicio_sesion")
 }
 
 // ===== Clientes y módulos =====
 model Client {
   id              String           @id // p.ej. C-1042
-  name            String
-  nit             String
-  erp             String
-  sector          String
+  name            String           @map("nombre")
+  nit             String           @map("nit")
+  erp             String           @map("erp")
+  sector          String           @map("sector")
   modules         ClientModule[]
   reconciliations Reconciliation[]
-  createdAt       DateTime         @default(now())
+  createdAt       DateTime         @default(now()) @map("creado_en")
+
+  @@map("clientes")
 }
 
 model Module {
   id      String         @id // INV, CAR, NOM...
-  name    String
-  icon    String
+  name    String         @map("nombre")
+  icon    String         @map("icono")
   clients ClientModule[]
   fields  ModuleField[]
+
+  @@map("modulos")
 }
 
 // ===== Campos estándar por módulo (Config · Módulos y campos) =====
 model ModuleField {
   id       String  @id @default(cuid())
   module   Module  @relation(fields: [moduleId], references: [id], onDelete: Cascade)
-  moduleId String
-  key      String // clave técnica: cuenta, codigo_item...
-  label    String
-  type     String // string | number | date
-  required Boolean @default(false)
-  hint     String?
-  order    Int     @default(0)
+  moduleId String  @map("modulo_id")
+  key      String  @map("clave") // clave técnica: cuenta, codigo_item...
+  label    String  @map("etiqueta")
+  type     String  @map("tipo") // string | number | date
+  required Boolean @default(false) @map("requerido")
+  hint     String? @map("ayuda")
+  order    Int     @default(0) @map("orden")
 
   @@unique([moduleId, key])
+  @@map("campos_modulo")
 }
 
 model ClientModule {
   id       String @id @default(cuid())
   client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  clientId String
+  clientId String @map("cliente_id")
   module   Module @relation(fields: [moduleId], references: [id], onDelete: Cascade)
-  moduleId String
-  status   String // configured | pending
+  moduleId String @map("modulo_id")
+  status   String @map("estado") // configured | pending
 
   @@unique([clientId, moduleId])
+  @@map("modulos_cliente")
 }
 
 // ===== Conciliaciones =====
 model Reconciliation {
-  id           String   @id // REC-2026-0418
-  client       Client?  @relation(fields: [clientId], references: [id])
-  clientId     String?
-  clientName   String
-  module       String
-  period       String
-  erp          String
-  status       String // OK | DIFF | REVIEW
-  diff         String
-  items        Int      @default(0)
-  date         String
-  owner        String
-  cutoff       String?
-  runAt        String?
-  runBy        String?
-  lastActivity String?
-  materiality  Int      @default(2000000)
+  id           String                  @id // REC-2026-0418
+  client       Client?                 @relation(fields: [clientId], references: [id])
+  clientId     String?                 @map("cliente_id")
+  clientName   String                  @map("nombre_cliente")
+  module       String                  @map("modulo")
+  period       String                  @map("periodo")
+  erp          String                  @map("erp")
+  status       String                  @map("estado") // OK | DIFF | REVIEW
+  diff         String                  @map("diferencia")
+  items        Int                     @default(0) @map("items")
+  date         String                  @map("fecha")
+  owner        String                  @map("responsable")
+  cutoff       String?                 @map("corte")
+  runAt        String?                 @map("ejecutado_en")
+  runBy        String?                 @map("ejecutado_por")
+  lastActivity String?                 @map("ultima_actividad")
+  materiality  Int                     @default(2000000) @map("materialidad")
   rows         ReconciliationRow[]
   comments     ReconciliationComment[]
-  createdAt    DateTime @default(now())
+  createdAt    DateTime                @default(now()) @map("creado_en")
+
+  @@map("conciliaciones")
 }
 
 model ReconciliationRow {
   id               String         @id @default(cuid())
   reconciliation   Reconciliation @relation(fields: [reconciliationId], references: [id], onDelete: Cascade)
-  reconciliationId String
-  cuenta           String
-  desc             String
-  cont             Int // saldo contabilidad
-  mod              Int // saldo módulo
-  diff             Int
-  items            Int            @default(0)
-  manualStatus     String? // conciliada | excepcion | ajuste (override del estado por materialidad)
-  order            Int            @default(0)
+  reconciliationId String         @map("conciliacion_id")
+  cuenta           String         @map("cuenta")
+  desc             String         @map("descripcion")
+  cont             Int            @map("saldo_contabilidad") // saldo contabilidad
+  mod              Int            @map("saldo_modulo") // saldo módulo
+  diff             Int            @map("diferencia")
+  items            Int            @default(0) @map("items")
+  manualStatus     String?        @map("estado_manual") // conciliada | excepcion | ajuste (override del estado por materialidad)
+  order            Int            @default(0) @map("orden")
+
+  @@map("filas_conciliacion")
 }
 
 model ReconciliationComment {
   id               String         @id @default(cuid())
   reconciliation   Reconciliation @relation(fields: [reconciliationId], references: [id], onDelete: Cascade)
-  reconciliationId String
-  cuenta           String
-  who              String
-  initials         String
-  text             String
-  time             String
-  createdAt        DateTime       @default(now())
+  reconciliationId String         @map("conciliacion_id")
+  cuenta           String         @map("cuenta")
+  who              String         @map("autor")
+  initials         String         @map("iniciales")
+  text             String         @map("texto")
+  time             String         @map("hora")
+  createdAt        DateTime       @default(now()) @map("creado_en")
+
+  @@map("comentarios_conciliacion")
 }
 
 // ===== Notificaciones =====
 model Notification {
   id        String   @id @default(cuid())
-  kind      String // assign | comment | system
-  who       String
-  text      String
-  target    String
-  time      String
-  unread    Boolean  @default(true)
-  createdAt DateTime @default(now())
+  kind      String   @map("tipo") // assign | comment | system
+  who       String   @map("autor")
+  text      String   @map("texto")
+  target    String   @map("destino")
+  time      String   @map("hora")
+  unread    Boolean  @default(true) @map("no_leida")
+  createdAt DateTime @default(now()) @map("creado_en")
+
+  @@map("notificaciones")
 }
 
 // ===== Auditoría =====
 model AuditEntry {
   id        String   @id @default(cuid())
-  ts        String
-  user      String
-  action    String
-  entity    String
-  detail    String
-  ip        String?
-  createdAt DateTime @default(now())
+  ts        String   @map("marca_tiempo")
+  user      String   @map("usuario")
+  action    String   @map("accion")
+  entity    String   @map("entidad")
+  detail    String   @map("detalle")
+  ip        String?  @map("ip")
+  createdAt DateTime @default(now()) @map("creado_en")
+
+  @@map("registros_auditoria")
 }
 
 // ===== Plan de cuentas estándar (Balance) =====
 model StandardAccount {
-  code     String  @id
-  name     String
-  level    Int
-  nature   String // D | C
-  parent   String?
-  critical Boolean @default(false)
+  code     String  @id @map("codigo")
+  name     String  @map("nombre")
+  level    Int     @map("nivel")
+  nature   String  @map("naturaleza") // D | C
+  parent   String? @map("padre")
+  critical Boolean @default(false) @map("critica")
+
+  @@map("cuentas_estandar")
 }
 
 // ===== Balance de comprobación =====
 model Balance {
-  id          String   @id @default(cuid())
-  clientName  String
-  clientNit   String?
-  period      String
-  version     String
-  isOfficial  Boolean  @default(false)
-  isFrozen    Boolean  @default(false)
-  status      String   @default("Única")
-  complete    Int      @default(100)
-  sums        Json? // activo, pasivo, patrimonio, ingresos, gastos, costos, utilidad
-  validations Json? // reglas de validación
-  breakdown   Json? // desglose por nivel 2 con items
-  meta        Json? // metadatos del cargue (file, rows, accounts...)
-  versionHistory Json? // historial de versiones (v3/v2/v1) con metadatos
-  diff           Json? // comparativo de la versión oficial vs. la anterior
-  auditLog       Json? // bitácora de cargues/congelados por cliente
-  incomeStatement Json? // líneas del estado de resultado (concepto, 2025, 2024, presupuesto)
-  lastUpload     String? // fecha-hora de la última carga (display)
-  createdAt   DateTime @default(now())
+  id              String   @id @default(cuid())
+  clientName      String   @map("nombre_cliente")
+  clientNit       String?  @map("nit_cliente")
+  period          String   @map("periodo")
+  version         String   @map("version")
+  isOfficial      Boolean  @default(false) @map("es_oficial")
+  isFrozen        Boolean  @default(false) @map("esta_congelado")
+  status          String   @default("Única") @map("estado")
+  complete        Int      @default(100) @map("completitud")
+  sums            Json?    @map("sumas") // activo, pasivo, patrimonio, ingresos, gastos, costos, utilidad
+  validations     Json?    @map("validaciones") // reglas de validación
+  breakdown       Json?    @map("desglose") // desglose por nivel 2 con items
+  meta            Json?    @map("metadatos") // metadatos del cargue (file, rows, accounts...)
+  versionHistory  Json?    @map("historial_versiones") // historial de versiones (v3/v2/v1) con metadatos
+  diff            Json?    @map("comparativo") // comparativo de la versión oficial vs. la anterior
+  auditLog        Json?    @map("bitacora") // bitácora de cargues/congelados por cliente
+  incomeStatement Json?    @map("estado_resultado") // líneas del estado de resultado (concepto, 2025, 2024, presupuesto)
+  lastUpload      String?  @map("ultima_carga") // fecha-hora de la última carga (display)
+  createdAt       DateTime @default(now()) @map("creado_en")
 
   @@unique([clientName, period, version])
+  @@map("balances")
 }
 
 // ===== Impuestos · DIAN =====
 model DianForm {
-  id          String       @id // IVA, RETEFUENTE...
-  name        String
-  code        String // F-300
-  periodicity String
-  icon        String
-  objective   String?
-  conclusion  String?
+  id          String        @id // IVA, RETEFUENTE...
+  name        String        @map("nombre")
+  code        String        @map("codigo") // F-300
+  periodicity String        @map("periodicidad")
+  icon        String        @map("icono")
+  objective   String?       @map("objetivo")
+  conclusion  String?       @map("conclusion")
   periods     DianPeriod[]
   sections    DianSection[]
   mappings    DianMapping[]
   comments    DianComment[]
+
+  @@map("formularios_dian")
 }
 
 model DianPeriod {
   id        String   @id @default(cuid())
-  periodKey String // 2026-B5
-  label     String
-  status    String // OK | DIFF | PEND
-  filed     String?
+  periodKey String   @map("clave_periodo") // 2026-B5
+  label     String   @map("etiqueta")
+  status    String   @map("estado") // OK | DIFF | PEND
+  filed     String?  @map("presentado")
   form      DianForm @relation(fields: [formId], references: [id], onDelete: Cascade)
-  formId    String
+  formId    String   @map("formulario_id")
 
   @@unique([formId, periodKey])
+  @@map("periodos_dian")
 }
 
 model DianSection {
   id     String     @id @default(cuid())
   form   DianForm   @relation(fields: [formId], references: [id], onDelete: Cascade)
-  formId String
-  title  String
-  side   String     @default("L") // L | R (lado visual)
-  note   String?
-  order  Int        @default(0)
+  formId String     @map("formulario_id")
+  title  String     @map("titulo")
+  side   String     @default("L") @map("lado") // L | R (lado visual)
+  note   String?    @map("nota")
+  order  Int        @default(0) @map("orden")
   lines  DianLine[]
+
+  @@map("secciones_dian")
 }
 
 model DianLine {
   id        String      @id @default(cuid())
   section   DianSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
-  sectionId String
-  k         String // casilla: GEN-19, DES-CBG...
-  label     String
-  decl      Float       @default(0)
-  cont      Float       @default(0)
-  diff      Float       @default(0)
-  order     Int         @default(0)
+  sectionId String      @map("seccion_id")
+  k         String      @map("casilla") // casilla: GEN-19, DES-CBG...
+  label     String      @map("etiqueta")
+  decl      Float       @default(0) @map("declarado")
+  cont      Float       @default(0) @map("contabilidad")
+  diff      Float       @default(0) @map("diferencia")
+  order     Int         @default(0) @map("orden")
+
+  @@map("renglones_dian")
 }
 
 model DianMapping {
   id      String   @id @default(cuid())
   form    DianForm @relation(fields: [formId], references: [id], onDelete: Cascade)
-  formId  String
-  lineKey String // k del renglón
-  account String
-  desc    String
-  sign    String // + | -
-  order   Int      @default(0)
+  formId  String   @map("formulario_id")
+  lineKey String   @map("clave_renglon") // k del renglón
+  account String   @map("cuenta")
+  desc    String   @map("descripcion")
+  sign    String   @map("signo") // + | -
+  order   Int      @default(0) @map("orden")
+
+  @@map("mapeos_dian")
 }
 
 model DianComment {
   id        String   @id @default(cuid())
   form      DianForm @relation(fields: [formId], references: [id], onDelete: Cascade)
-  formId    String
-  lineKey   String
-  who       String
-  initials  String
-  text      String
-  time      String
-  isAI      Boolean  @default(false)
-  createdAt DateTime @default(now())
+  formId    String   @map("formulario_id")
+  lineKey   String   @map("clave_renglon")
+  who       String   @map("autor")
+  initials  String   @map("iniciales")
+  text      String   @map("texto")
+  time      String   @map("hora")
+  isAI      Boolean  @default(false) @map("es_ia")
+  createdAt DateTime @default(now()) @map("creado_en")
+
+  @@map("comentarios_dian")
 }
 
 // ===== Mapeo cuenta-cliente → Russell (Balance · Mapeo plan estándar) =====
 model ClientAccount {
   id          String  @id @default(cuid())
-  clientName  String
-  code        String
-  level       Int // 4 | 6 | 8
-  name        String
-  russellCode String? // FK lógica a RussellOption.code
-  order       Int     @default(0)
+  clientName  String  @map("nombre_cliente")
+  code        String  @map("codigo")
+  level       Int     @map("nivel") // 4 | 6 | 8
+  name        String  @map("nombre")
+  russellCode String? @map("codigo_russell") // FK lógica a RussellOption.code
+  order       Int     @default(0) @map("orden")
 
   @@unique([clientName, code])
+  @@map("cuentas_cliente")
 }
 
 model RussellOption {
-  code   String  @id // 1105, 1110, 41...
-  name   String
-  module String? // Caja, Bancos, Cartera, DIAN... (null = no participa en conciliaciones)
+  code   String  @id @map("codigo") // 1105, 1110, 41...
+  name   String  @map("nombre")
+  module String? @map("modulo") // Caja, Bancos, Cartera, DIAN... (null = no participa en conciliaciones)
+
+  @@map("opciones_russell")
 }
 
 // ===== Requerimientos de información =====
 model ClientContact {
   id         String  @id @default(cuid())
-  clientName String
-  name       String
-  role       String
-  email      String
-  primary    Boolean @default(false)
-  order      Int     @default(0)
+  clientName String  @map("nombre_cliente")
+  name       String  @map("nombre")
+  role       String  @map("rol")
+  email      String  @map("correo")
+  primary    Boolean @default(false) @map("principal")
+  order      Int     @default(0) @map("orden")
+
+  @@map("contactos_cliente")
 }
 
 model ReqTemplate {
-  id            String           @id // TPL-CIERRE
-  code          String // RFA-CIERRE
-  name          String
-  description   String
-  activeVersion String
-  families      Int              @default(0)
-  items         Int              @default(0)
-  timesUsed     Int              @default(0)
-  lastUpdated   String
-  lastUpdatedBy String
+  id            String             @id // TPL-CIERRE
+  code          String             @map("codigo") // RFA-CIERRE
+  name          String             @map("nombre")
+  description   String             @map("descripcion")
+  activeVersion String             @map("version_activa")
+  families      Int                @default(0) @map("familias")
+  items         Int                @default(0) @map("items")
+  timesUsed     Int                @default(0) @map("veces_usada")
+  lastUpdated   String             @map("actualizado_en")
+  lastUpdatedBy String             @map("actualizado_por")
   header        ReqTemplateHeader?
   familyList    ReqFamily[]
+
+  @@map("plantillas_requerimiento")
 }
 
 model ReqTemplateHeader {
   id                String      @id @default(cuid())
   template          ReqTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  templateId        String      @unique
-  firmName          String
-  city              String
-  asunto            String
-  intro             String
-  noteGeneric       String
-  closing           String
-  signatoryName     String
-  signatoryRole     String
-  signatoryFooter   String
-  consecutivePrefix String
-  contactEmails     String[]
+  templateId        String      @unique @map("plantilla_id")
+  firmName          String      @map("nombre_firma")
+  city              String      @map("ciudad")
+  asunto            String      @map("asunto")
+  intro             String      @map("introduccion")
+  noteGeneric       String      @map("nota_generica")
+  closing           String      @map("cierre")
+  signatoryName     String      @map("nombre_firmante")
+  signatoryRole     String      @map("rol_firmante")
+  signatoryFooter   String      @map("pie_firmante")
+  consecutivePrefix String      @map("prefijo_consecutivo")
+  contactEmails     String[]    @map("correos_contacto")
+
+  @@map("encabezados_plantilla_requerimiento")
 }
 
 model ReqFamily {
   id         String      @id @default(cuid())
   template   ReqTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  templateId String
-  name       String
-  order      Int         @default(0)
+  templateId String      @map("plantilla_id")
+  name       String      @map("nombre")
+  order      Int         @default(0) @map("orden")
   itemList   ReqItem[]
+
+  @@map("familias_requerimiento")
 }
 
 model ReqItem {
   id       String    @id @default(cuid())
   family   ReqFamily @relation(fields: [familyId], references: [id], onDelete: Cascade)
-  familyId String
-  text     String
-  order    Int       @default(0)
+  familyId String    @map("familia_id")
+  text     String    @map("texto")
+  order    Int       @default(0) @map("orden")
+
+  @@map("items_requerimiento")
 }
 
 model ReqSubmission {
   id              String   @id // REQ-2026-014
-  consec          String
-  templateCode    String
-  templateVersion String
-  clientName      String
-  period          String
-  recipients      Int      @default(0)
-  status          String // Enviado | Borrador
-  date            String
-  sentBy          String
-  createdAt       DateTime @default(now())
+  consec          String   @map("consecutivo")
+  templateCode    String   @map("codigo_plantilla")
+  templateVersion String   @map("version_plantilla")
+  clientName      String   @map("nombre_cliente")
+  period          String   @map("periodo")
+  recipients      Int      @default(0) @map("destinatarios")
+  status          String   @map("estado") // Enviado | Borrador
+  date            String   @map("fecha")
+  sentBy          String   @map("enviado_por")
+  createdAt       DateTime @default(now()) @map("creado_en")
+
+  @@map("envios_requerimiento")
 }
 
 model ReqRepository {
-  id           String          @id // REPO-2026-014
-  consec       String
-  templateCode String
-  clientName   String
-  nit          String
-  period       String
-  cutoff       String
-  sentAt       String
-  sentBy       String
-  deadline     String
-  daysLeft     Int             @default(0)
-  total        Int             @default(0)
-  received     Int             @default(0)
-  pending      Int             @default(0)
-  overdue      Int             @default(0)
-  progress     Int             @default(0)
-  status       String // Completo | Vencido parcial | En recepción
+  id           String            @id // REPO-2026-014
+  consec       String            @map("consecutivo")
+  templateCode String            @map("codigo_plantilla")
+  clientName   String            @map("nombre_cliente")
+  nit          String            @map("nit")
+  period       String            @map("periodo")
+  cutoff       String            @map("corte")
+  sentAt       String            @map("enviado_en")
+  sentBy       String            @map("enviado_por")
+  deadline     String            @map("fecha_limite")
+  daysLeft     Int               @default(0) @map("dias_restantes")
+  total        Int               @default(0) @map("total")
+  received     Int               @default(0) @map("recibidos")
+  pending      Int               @default(0) @map("pendientes")
+  overdue      Int               @default(0) @map("vencidos")
+  progress     Int               @default(0) @map("progreso")
+  status       String            @map("estado") // Completo | Vencido parcial | En recepción
   families     ReqRepoFamily[]
   activity     ReqRepoActivity[]
+
+  @@map("repositorios_requerimiento")
 }
 
 model ReqRepoFamily {
   id           String        @id @default(cuid())
   repository   ReqRepository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
-  repositoryId String
-  code         String // F1
-  name         String
-  total        Int           @default(0)
-  received     Int           @default(0)
-  pending      Int           @default(0)
-  order        Int           @default(0)
+  repositoryId String        @map("repositorio_id")
+  code         String        @map("codigo") // F1
+  name         String        @map("nombre")
+  total        Int           @default(0) @map("total")
+  received     Int           @default(0) @map("recibidos")
+  pending      Int           @default(0) @map("pendientes")
+  order        Int           @default(0) @map("orden")
   items        ReqRepoItem[]
+
+  @@map("familias_repositorio")
 }
 
 model ReqRepoItem {
   id       String        @id @default(cuid())
   family   ReqRepoFamily @relation(fields: [familyId], references: [id], onDelete: Cascade)
-  familyId String
-  idx      Int
-  doc      String
-  due      String
-  status   String // received | pending | overdue
-  file     String?
-  size     String?
-  by       String?
-  at       String?
-  order    Int           @default(0)
+  familyId String        @map("familia_id")
+  idx      Int           @map("indice")
+  doc      String        @map("documento")
+  due      String        @map("vencimiento")
+  status   String        @map("estado") // received | pending | overdue
+  file     String?       @map("archivo")
+  size     String?       @map("tamano")
+  by       String?       @map("por")
+  at       String?       @map("en")
+  order    Int           @default(0) @map("orden")
+
+  @@map("items_repositorio")
 }
 
 model ReqRepoActivity {
   id           String        @id @default(cuid())
   repository   ReqRepository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
-  repositoryId String
-  at           String
-  actor        String
-  role         String // Cliente | Auditor | Auto
-  action       String
-  detail       String
-  order        Int           @default(0)
+  repositoryId String        @map("repositorio_id")
+  at           String        @map("en")
+  actor        String        @map("actor")
+  role         String        @map("rol") // Cliente | Auditor | Auto
+  action       String        @map("accion")
+  detail       String        @map("detalle")
+  order        Int           @default(0) @map("orden")
+
+  @@map("actividades_repositorio")
 }
 
 model ReqPresentation {
   id         String   @id // PRES-2025-009
-  clientName String
-  nit        String
-  title      String
-  year       String
-  presented  String
-  preparedBy String
-  slides     Int      @default(0)
-  author     String
-  date       String
-  status     String // Enviada | Borrador
-  positives  String[]
-  observed   Json? // [{title, shortTitle, summary, riesgos[], oportunidades[]}]
-  evaluated  Json? // {mercantil[], tributario[], otros[]}
-  createdAt  DateTime @default(now())
+  clientName String   @map("nombre_cliente")
+  nit        String   @map("nit")
+  title      String   @map("titulo")
+  year       String   @map("anio")
+  presented  String   @map("presentado")
+  preparedBy String   @map("preparado_por")
+  slides     Int      @default(0) @map("diapositivas")
+  author     String   @map("autor")
+  date       String   @map("fecha")
+  status     String   @map("estado") // Enviada | Borrador
+  positives  String[] @map("positivos")
+  observed   Json?    @map("observado") // [{title, shortTitle, summary, riesgos[], oportunidades[]}]
+  evaluated  Json?    @map("evaluado") // {mercantil[], tributario[], otros[]}
+  createdAt  DateTime @default(now()) @map("creado_en")
+
+  @@map("presentaciones_requerimiento")
 }
 
 model CalendarEvent {
   id       String   @id @default(cuid())
-  date     DateTime
-  type     String // dian | ica | req
-  title    String
-  subtitle String
-  clientId String? // id de cliente de calendario: zarzal, pacif...
-  order    Int      @default(0)
+  date     DateTime @map("fecha")
+  type     String   @map("tipo") // dian | ica | req
+  title    String   @map("titulo")
+  subtitle String   @map("subtitulo")
+  clientId String?  @map("cliente_id") // id de cliente de calendario: zarzal, pacif...
+  order    Int      @default(0) @map("orden")
+
+  @@map("eventos_calendario")
 }
