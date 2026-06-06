@@ -1,5 +1,4 @@
 import prisma from "@/lib/prisma";
-import { PageHeader } from "@/components/ui";
 import { requireRole } from "@/lib/rbac";
 import UsuariosClient, { type UserRow } from "./usuarios-client";
 
@@ -18,10 +17,6 @@ export default async function UsuariosPage() {
 
   return (
     <div>
-      <PageHeader
-        title="Usuarios"
-        subtitle="Crea, edita y desactiva cuentas. Solo administradores."
-      />
       <UsuariosClient rows={rows} />
     </div>
   );

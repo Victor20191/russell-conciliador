@@ -5,9 +5,12 @@ import { Icon } from "@/components/icons";
 import { fmtCompact, fmtPct } from "@/lib/format";
 import { sendToReviewer } from "@/app/actions/reconciliation";
 import CruceClient, { type Row, type Comment } from "./cruce-client";
+import { parseId } from "@/lib/ids";
 
 export default async function CruceDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
+  const { id: rawId } = await params;
+  const id = parseId(rawId);
+  if (!id) notFound();
   const rec = await prisma.reconciliation.findUnique({
     where: { id },
     include: { rows: { orderBy: { order: "asc" } }, comments: { orderBy: { createdAt: "asc" } } },
@@ -26,7 +29,7 @@ export default async function CruceDetailPage({ params }: { params: Promise<{ id
       <div className="mb-3"><BackLink href="/conciliacion/resultados" label="Resultados de conciliación" /></div>
       <PageHeader
         title={`${rec.clientName} · ${rec.module}`}
-        subtitle={`Resultado del cruce ${rec.id} · Período ${rec.period}${rec.cutoff ? ` · Corte ${rec.cutoff}` : ""} · ERP ${rec.erp}${rec.runAt ? ` · Ejecutado ${rec.runAt} por ${rec.runBy}` : ""}`}
+        subtitle={`Resultado del cruce #${rec.id} · ${rec.code} · Período ${rec.period}${rec.cutoff ? ` · Corte ${rec.cutoff}` : ""} · ERP ${rec.erp}${rec.runAt ? ` · Ejecutado ${rec.runAt} por ${rec.runBy}` : ""}`}
         actions={
           <div className="flex items-center gap-2">
             <button disabled title="Exportación — fase posterior" className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-md bg-ink-100 px-2.5 py-2 text-[12px] font-semibold text-ink-400"><Icon name="download" size={13} /> Excel</button>

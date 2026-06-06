@@ -7,8 +7,8 @@ import { Stepper } from "@/components/stepper";
 import { confidenceClass } from "@/lib/format";
 import { executeReconciliation } from "@/app/actions/reconciliation";
 
-export type ClientOpt = { id: string; name: string; nit: string; erp: string; sector: string; configured: string[] };
-export type ModuleOpt = { id: string; name: string; icon: string };
+export type ClientOpt = { id: number; name: string; nit: string; erp: string; sector: string; configured: number[] };
+export type ModuleOpt = { id: number; code: string; name: string; icon: string };
 export type StdField = { key: string; label: string; type: string; required: boolean };
 
 // IA simulada — columnas del archivo del cliente y su inferencia.
@@ -41,12 +41,12 @@ const STEPS = ["Archivo", "Campos", "Cuentas", "Confirmar"];
 export default function NuevaClient({
   clients, modules, fieldsByModule,
 }: {
-  clients: ClientOpt[]; modules: ModuleOpt[]; fieldsByModule: Record<string, StdField[]>;
+  clients: ClientOpt[]; modules: ModuleOpt[]; fieldsByModule: Record<number, StdField[]>;
 }) {
   const [phase, setPhase] = useState<"scope" | "wizard">("scope");
   const [step, setStep] = useState(0);
-  const [clientId, setClientId] = useState(clients[0]?.id ?? "");
-  const [moduleId, setModuleId] = useState("INV");
+  const [clientId, setClientId] = useState(clients[0]?.id ?? 0);
+  const [moduleId, setModuleId] = useState(modules.find((m) => m.code === "INV")?.id ?? modules[0]?.id ?? 0);
   const [period, setPeriod] = useState("2026-03");
   const [cutoff, setCutoff] = useState("2026-03-31");
 
@@ -87,8 +87,8 @@ export default function NuevaClient({
 function ScopeStep({
   clients, modules, clientId, setClientId, moduleId, setModuleId, period, setPeriod, cutoff, setCutoff, isConfigured, onContinue,
 }: {
-  clients: ClientOpt[]; modules: ModuleOpt[]; clientId: string; setClientId: (v: string) => void;
-  moduleId: string; setModuleId: (v: string) => void; period: string; setPeriod: (v: string) => void;
+  clients: ClientOpt[]; modules: ModuleOpt[]; clientId: number; setClientId: (v: number) => void;
+  moduleId: number; setModuleId: (v: number) => void; period: string; setPeriod: (v: string) => void;
   cutoff: string; setCutoff: (v: string) => void; isConfigured: boolean; onContinue: () => void;
 }) {
   const client = clients.find((c) => c.id === clientId);
@@ -97,7 +97,7 @@ function ScopeStep({
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <label className="flex flex-col gap-1">
           <span className="text-[11.5px] font-medium text-ink-600">Cliente</span>
-          <select value={clientId} onChange={(e) => setClientId(e.target.value)} className="rounded-md border border-ink-200 px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400">
+          <select value={clientId} onChange={(e) => setClientId(Number(e.target.value))} className="rounded-md border border-ink-200 px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400">
             {clients.map((c) => <option key={c.id} value={c.id}>{c.name} — {c.nit} — {c.erp}</option>)}
           </select>
         </label>
@@ -283,7 +283,7 @@ function AccountsStep({ onBack, onNext }: { onBack: () => void; onNext: () => vo
 function ConfirmStep({
   clientId, moduleId, period, cutoff, clientName, moduleName, onBack,
 }: {
-  clientId: string; moduleId: string; period: string; cutoff: string; clientName: string; moduleName: string; onBack: () => void;
+  clientId: number; moduleId: number; period: string; cutoff: string; clientName: string; moduleName: string; onBack: () => void;
 }) {
   return (
     <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">

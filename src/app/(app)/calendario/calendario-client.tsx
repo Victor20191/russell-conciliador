@@ -6,7 +6,7 @@ import { Card, Chip } from "@/components/ui";
 import { Modal } from "@/components/modal";
 import { createCalendarEvent } from "@/app/actions/calendario";
 
-export type Evt = { id: string; day: number; month: number; year: number; type: string; title: string; subtitle: string; clientId: string | null };
+export type Evt = { id: number; day: number; month: number; year: number; type: string; title: string; subtitle: string; clientKey: string | null };
 
 const CAL_CLIENTS: { id: string; name: string; nit: string; color: string }[] = [
   { id: "zarzal", name: "El Zarzal S.A", nit: "900.451.227-3", color: "#1f6feb" },
@@ -21,7 +21,7 @@ const MONTHS = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", 
 const DAYNAMES = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 
 function clientOf(id: string | null) { return CAL_CLIENTS.find((c) => c.id === id) ?? null; }
-function colorOf(e: Evt) { return e.type === "req" ? clientOf(e.clientId)?.color ?? "#1f6feb" : TYPE_COLOR[e.type]; }
+function colorOf(e: Evt) { return e.type === "req" ? clientOf(e.clientKey)?.color ?? "#1f6feb" : TYPE_COLOR[e.type]; }
 
 export default function CalendarioClient({ events }: { events: Evt[] }) {
   const [my, setMy] = useState({ y: 2026, m: 4 });
@@ -33,7 +33,7 @@ export default function CalendarioClient({ events }: { events: Evt[] }) {
   const monthEvents = useMemo(() => events.filter((e) => e.year === my.y && e.month === my.m), [events, my]);
   const visible = useMemo(() => monthEvents.filter((e) => {
     if (!filter[e.type as "dian" | "ica" | "req"]) return false;
-    if (filter.client !== "all") { if (!e.clientId) return false; if (e.clientId !== filter.client) return false; }
+    if (filter.client !== "all") { if (!e.clientKey) return false; if (e.clientKey !== filter.client) return false; }
     return true;
   }), [monthEvents, filter]);
 
@@ -141,7 +141,7 @@ export default function CalendarioClient({ events }: { events: Evt[] }) {
                 <div className="mb-2 text-[12px] font-semibold text-ink-700">{d}</div>
                 <div className="flex flex-col gap-1.5">
                   {(eventsByDay[d] ?? []).map((e) => (
-                    <div key={e.id} className="rounded px-2 py-1 text-[11px] text-ink-700" style={{ background: colorOf(e) + "1f", borderLeft: `3px solid ${colorOf(e)}` }}><div className="font-medium">{e.title}</div>{e.type === "req" && <div className="text-[10px] text-ink-500">{clientOf(e.clientId)?.name}</div>}</div>
+                    <div key={e.id} className="rounded px-2 py-1 text-[11px] text-ink-700" style={{ background: colorOf(e) + "1f", borderLeft: `3px solid ${colorOf(e)}` }}><div className="font-medium">{e.title}</div>{e.type === "req" && <div className="text-[10px] text-ink-500">{clientOf(e.clientKey)?.name}</div>}</div>
                   ))}
                 </div>
               </div>
@@ -156,7 +156,7 @@ export default function CalendarioClient({ events }: { events: Evt[] }) {
               {(eventsByDay[selectedDay] ?? []).length === 0 && <div className="text-[12.5px] text-ink-400">Sin eventos programados para este día.</div>}
               {(eventsByDay[selectedDay] ?? []).map((e) => (
                 <div key={e.id} className="flex items-center gap-3 rounded-md border border-ink-150 px-3 py-2.5" style={{ borderLeft: `4px solid ${colorOf(e)}` }}>
-                  <div className="flex-1"><div className="text-[13px] font-semibold text-ink-800">{e.title}</div><div className="text-[11.5px] text-ink-500">{e.type === "req" ? `${clientOf(e.clientId)?.name} · NIT ${clientOf(e.clientId)?.nit}` : e.subtitle}</div></div>
+                  <div className="flex-1"><div className="text-[13px] font-semibold text-ink-800">{e.title}</div><div className="text-[11.5px] text-ink-500">{e.type === "req" ? `${clientOf(e.clientKey)?.name} · NIT ${clientOf(e.clientKey)?.nit}` : e.subtitle}</div></div>
                   <Chip label={TYPE_LABEL[e.type]} tone="ink" />
                 </div>
               ))}
@@ -178,7 +178,7 @@ export default function CalendarioClient({ events }: { events: Evt[] }) {
                     <td className="px-4 py-2 font-mono text-ink-600">{String(e.day).padStart(2, "0")}/{MONTHS[my.m].slice(0, 3)}</td>
                     <td className="px-4 py-2"><span className="rounded-full px-1.5 py-0.5 text-[10px] font-semibold" style={{ background: TYPE_COLOR[e.type] + "1f", color: TYPE_COLOR[e.type] }}>{TYPE_LABEL[e.type]}</span></td>
                     <td className="px-4 py-2 text-ink-800">{e.title}</td>
-                    <td className="px-4 py-2 text-ink-500">{e.type === "req" ? clientOf(e.clientId)?.name : e.subtitle}</td>
+                    <td className="px-4 py-2 text-ink-500">{e.type === "req" ? clientOf(e.clientKey)?.name : e.subtitle}</td>
                     <td className="px-4 py-2"><Chip label={e.day <= 12 ? "Próximo" : "Programado"} tone={e.day <= 12 ? "warn" : "ink"} /></td>
                   </tr>
                 ))}
@@ -191,7 +191,7 @@ export default function CalendarioClient({ events }: { events: Evt[] }) {
           <div className="border-b border-ink-100 px-4 py-3 text-[13px] font-semibold text-ink-800">Asignación por cliente · {MONTHS[my.m]}</div>
           <div className="divide-y divide-ink-50">
             {CAL_CLIENTS.map((c) => {
-              const n = monthEvents.filter((e) => e.clientId === c.id).length;
+              const n = monthEvents.filter((e) => e.clientKey === c.id).length;
               return (
                 <div key={c.id} className="flex items-center gap-3 px-4 py-2.5">
                   <span className="h-8 w-2 rounded" style={{ background: c.color }} />
@@ -211,7 +211,7 @@ export default function CalendarioClient({ events }: { events: Evt[] }) {
             <label className="flex flex-col gap-1"><span className="text-[11.5px] font-medium text-ink-600">Tipo</span><select name="type" defaultValue="req" className="rounded-md border border-ink-200 px-2.5 py-1.5 text-[12.5px] outline-none"><option value="req">Requerimiento</option><option value="dian">DIAN</option><option value="ica">ICA</option></select></label>
             <label className="flex flex-col gap-1"><span className="text-[11.5px] font-medium text-ink-600">Título</span><input name="title" placeholder="Título del evento" className="rounded-md border border-ink-200 px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400" /></label>
             <label className="flex flex-col gap-1"><span className="text-[11.5px] font-medium text-ink-600">Subtítulo / detalle</span><input name="subtitle" className="rounded-md border border-ink-200 px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400" /></label>
-            <label className="flex flex-col gap-1"><span className="text-[11.5px] font-medium text-ink-600">Cliente (si es requerimiento)</span><select name="clientId" defaultValue="zarzal" className="rounded-md border border-ink-200 px-2.5 py-1.5 text-[12.5px] outline-none">{CAL_CLIENTS.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
+            <label className="flex flex-col gap-1"><span className="text-[11.5px] font-medium text-ink-600">Cliente (si es requerimiento)</span><select name="clientKey" defaultValue="zarzal" className="rounded-md border border-ink-200 px-2.5 py-1.5 text-[12.5px] outline-none">{CAL_CLIENTS.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
             <div className="mt-1 flex justify-end gap-2"><button type="button" onClick={() => setCreating(false)} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] text-ink-600 hover:bg-ink-50">Cancelar</button><button type="submit" className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600">Crear evento</button></div>
           </form>
         </Modal>

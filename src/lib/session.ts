@@ -5,7 +5,7 @@ import { encrypt } from "@/lib/jwt";
 const COOKIE = "session";
 
 export async function createSession(
-  userId: string,
+  userId: number,
   role: string,
   sessionVersion: number,
 ) {

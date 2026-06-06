@@ -7,9 +7,12 @@ import { freezeBalance } from "@/app/actions/balance";
 import BalanceDetailClient, {
   type Sums, type Validation, type BreakdownGroup, type Meta, type Version,
 } from "./balance-detail-client";
+import { parseId } from "@/lib/ids";
 
 export default async function BalanceDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
+  const { id: rawId } = await params;
+  const id = parseId(rawId);
+  if (!id) notFound();
   const balance = await prisma.balance.findUnique({ where: { id } });
   if (!balance) notFound();
 

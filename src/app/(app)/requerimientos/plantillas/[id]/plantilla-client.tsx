@@ -3,12 +3,12 @@
 import { useState } from "react";
 import { Card, Chip, EmptyState } from "@/components/ui";
 
-export type Family = { id: string; name: string; items: string[] };
+export type Family = { id: number; name: string; items: string[] };
 export type Header = { firmName: string; city: string; asunto: string; intro: string; noteGeneric: string; closing: string; signatoryName: string; signatoryRole: string; signatoryFooter: string; consecutivePrefix: string; contactEmails: string[] };
 
 export default function PlantillaClient({ families, header }: { families: Family[]; header: Header | null }) {
   const [section, setSection] = useState<"families" | "header">("families");
-  const [activeFam, setActiveFam] = useState(families[0]?.id ?? "");
+  const [activeFam, setActiveFam] = useState(families[0]?.id ?? 0);
   const fam = families.find((f) => f.id === activeFam) ?? families[0];
 
   return (

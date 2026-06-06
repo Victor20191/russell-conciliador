@@ -6,7 +6,7 @@ import { Icon, BrandMark } from "@/components/icons";
 
 export type Observed = { title: string; shortTitle: string; summary: string; riesgos: string[]; oportunidades: string[] };
 export type Evaluated = { mercantil: string[]; tributario: string[]; otros: string[] };
-export type PresData = { id: string; clientName: string; nit: string; title: string; year: string; presented: string; preparedBy: string; positives: string[]; observed: Observed[]; evaluated: Evaluated };
+export type PresData = { id: number; clientName: string; nit: string; title: string; year: string; presented: string; preparedBy: string; positives: string[]; observed: Observed[]; evaluated: Evaluated };
 
 type Slide =
   | { type: "cover" }

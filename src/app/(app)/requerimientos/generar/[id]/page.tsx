@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { PageHeader, BackLink } from "@/components/ui";
 import GenerarClient, { type GenFamily, type GenHeader, type Contact } from "./generar-client";
+import { parseId } from "@/lib/ids";
 
 const CLIENTS: { name: string; nit: string; code: string }[] = [
   { name: "El Zarzal S.A", nit: "890.345.872-1", code: "ZZ" },
@@ -10,7 +11,9 @@ const CLIENTS: { name: string; nit: string; code: string }[] = [
 ];
 
 export default async function GenerarPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
+  const { id: rawId } = await params;
+  const id = parseId(rawId);
+  if (!id) notFound();
   const t = await prisma.reqTemplate.findUnique({
     where: { id },
     include: { header: true, familyList: { orderBy: { order: "asc" }, include: { itemList: { orderBy: { order: "asc" } } } } },

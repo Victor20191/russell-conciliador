@@ -18,7 +18,7 @@ datasource db {
 
 // ===== Autenticación =====
 model User {
-  id                 String    @id @default(cuid())
+  id                 Int       @id @default(autoincrement()) @map("id")
   email              String    @unique @map("correo")
   password           String    @map("contrasena") // hash bcrypt
   name               String    @map("nombre")
@@ -35,7 +35,7 @@ model User {
 }
 
 model LoginAttempt {
-  id        String   @id @default(cuid())
+  id        Int      @id @default(autoincrement()) @map("id")
   email     String   @map("correo")
   ip        String   @map("ip")
   success   Boolean  @map("exitoso")
@@ -53,25 +53,22 @@ model LoginAttempt {
 // Parametrización derivada de "RB_GCT Roles y Responsabilidades –
 // Área de Revisoría Fiscal" (Russell Bedford, 04-jun-2026).
 //
-// BLOQUE ADITIVO YA MIGRADO: migración
-// 20260605235129_rbac_control_acceso. Es estrictamente ADITIVO
-// (solo CREATE TABLE de tablas nuevas; no toca `usuarios` ni
-// `clientes`). FK suaves a User/Client como columnas TEXT sin
-// FOREIGN KEY; solo hay FK duras entre las tablas nuevas.
+// El bloque nació en la migración aditiva
+// 20260605235129_rbac_control_acceso. La migración posterior de IDs
+// convirtió también sus claves y referencias a INTEGER.
 //
 // Convención del repo (OBLIGATORIA):
 //   - Identificadores Prisma en inglés; tablas/columnas físicas en
 //     ESPAÑOL snake_case vía @@map / @map.
-//   - Catálogos con id NATURAL (como Client "C-1042", Module "INV",
-//     DianForm "IVA", RussellOption.code). Transaccionales con cuid().
-//   - FK SUAVES hacia User y Client: solo el id String mapeado, SIN
+//   - Todos los modelos usan id numérico autoincremental. Los códigos de
+//     negocio (C-1042, INV, IVA...) se conservan como columnas únicas.
+//   - FK SUAVES hacia User y Client: solo el id Int mapeado, SIN
 //     @relation. Replica el patrón ya usado en el repo
-//     (ClientAccount.russellCode -> RussellOption.code: relación
-//     lógica sin FK física). Así no se agregan relaciones inversas
-//     en User/Client y la migración futura queda 100% aditiva.
+//     (Team.leadUserId -> User.id: relación lógica sin FK física).
+//     Así no se agregan relaciones inversas en User/Client.
 //   - Coexiste con usuarios.rol:String @default("Consulta") y can()
 //     (src/lib/roles.ts). usuarios.rol se reinterpreta como FK
-//     LÓGICA a Role.code (mismo valor), sin migrar datos todavía.
+//     LÓGICA a Role.code (mismo valor), sin migrar esa columna todavía.
 //
 // NOTA sobre la jerarquía: el PDF separa jerarquía organizacional
 // de capacidad operativa. Socio/Gerente/Senior tienen rango alto
@@ -87,7 +84,8 @@ model LoginAttempt {
 /// código. `code` es la llave natural en español que vive en
 /// usuarios.rol, reinterpretada como FK lógica.
 model Role {
-  code        String           @id @map("codigo") // socio | gerente | senior | staff | administrador (+ legado: Consulta/Auditor/Líder)
+  id          Int              @id @default(autoincrement()) @map("id")
+  code        String           @unique @map("codigo") // socio | gerente | senior | staff | administrador (+ legado: Consulta/Auditor/Líder)
   name        String           @map("nombre") // etiqueta visible: "Socio", "Senior"...
   description String?          @map("descripcion") // responsabilidad según el PDF
   rank        Int              @default(0) @map("rango") // jerarquía: alimenta ROLE_RANK/can() durante la transición
@@ -109,7 +107,8 @@ model Role {
 /// module/action/label permiten al Administrador entender y filtrar
 /// la matriz en una futura UI.
 model Permission {
-  code        String           @id @map("codigo") // <modulo>:<accion>
+  id          Int              @id @default(autoincrement()) @map("id")
+  code        String           @unique @map("codigo") // <modulo>:<accion>
   module      String           @map("modulo") // conciliaciones | balance | dian | requerimientos | clientes | usuarios | equipos | auditoria...
   action      String           @map("accion") // ver | crear | editar | eliminar | ejecutar | revisar | supervisar | asignar | configurar
   label       String           @map("etiqueta") // texto legible para la matriz del Administrador
@@ -127,25 +126,25 @@ model Permission {
 /// edita para conceder/revocar permisos sin desplegar código.
 /// Fila presente = permiso concedido (sin flag de denegación).
 model RolePermission {
-  id             String     @id @default(cuid())
-  role           Role       @relation(fields: [roleCode], references: [code], onDelete: Cascade)
-  roleCode       String     @map("rol_codigo")
-  permission     Permission @relation(fields: [permissionCode], references: [code], onDelete: Cascade)
-  permissionCode String     @map("permiso_codigo")
-  createdAt      DateTime   @default(now()) @map("creado_en")
+  id           Int        @id @default(autoincrement()) @map("id")
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  roleId       Int        @map("rol_id")
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  permissionId Int        @map("permiso_id")
+  createdAt    DateTime   @default(now()) @map("creado_en")
 
-  @@unique([roleCode, permissionCode])
-  @@index([permissionCode])
+  @@unique([roleId, permissionId])
+  @@index([permissionId])
   @@map("roles_permisos")
 }
 
 /// EQUIPO DE TRABAJO (cuadrilla de auditoría). El Senior lo arma.
 /// leadUserId es FK SUAVE a User.id (sin relación inversa en User).
 model Team {
-  id          String             @id @default(cuid())
+  id          Int                @id @default(autoincrement()) @map("id")
   name        String             @map("nombre")
   description String?            @map("descripcion")
-  leadUserId  String?            @map("lider_usuario_id") // Senior responsable (FK lógica a User.id)
+  leadUserId  Int?               @map("lider_usuario_id") // Senior responsable (FK lógica a User.id)
   active      Boolean            @default(true) @map("activo")
   members     TeamMember[]
   assignments ClientAssignment[]
@@ -156,17 +155,17 @@ model Team {
   @@map("equipos")
 }
 
-/// INTEGRANTE de un equipo. userId es FK SUAVE a User.id. roleCode
+/// INTEGRANTE de un equipo. userId es FK SUAVE a User.id. roleId
 /// (opcional) referencia el catálogo Role para registrar el cargo
 /// funcional dentro del equipo. Un usuario puede estar en varios
 /// equipos (p.ej. un Senior con 2 carteras).
 model TeamMember {
-  id        String   @id @default(cuid())
+  id        Int      @id @default(autoincrement()) @map("id")
   team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  teamId    String   @map("equipo_id")
-  userId    String   @map("usuario_id") // FK lógica a User.id
-  role      Role?    @relation(fields: [roleCode], references: [code], onDelete: SetNull)
-  roleCode  String?  @map("rol_codigo") // rol funcional dentro del equipo
+  teamId    Int      @map("equipo_id")
+  userId    Int      @map("usuario_id") // FK lógica a User.id
+  role      Role?    @relation(fields: [roleId], references: [id], onDelete: SetNull)
+  roleId    Int?     @map("rol_id") // rol funcional dentro del equipo
   active    Boolean  @default(true) @map("activo")
   createdAt DateTime @default(now()) @map("creado_en")
 
@@ -183,18 +182,17 @@ model TeamMember {
 /// El Senior (assignedById) delega. Los campos de alcance quedan
 /// sembrados pero INERTES hasta activar la autorización por dato.
 ///
-/// clientId, userId y assignedById son FK SUAVES (a Client.id y
-/// User.id): no se toca Client ni User. Solo teamId es FK dura,
-/// hacia el modelo NUEVO Team.
+/// clientId, userId y assignedById son FK SUAVES numéricas (a
+/// Client.id y User.id). Solo teamId es FK dura hacia Team.
 model ClientAssignment {
-  id           String   @id @default(cuid())
-  clientId     String   @map("cliente_id") // FK lógica a Client.id (no se toca Client)
+  id           Int      @id @default(autoincrement()) @map("id")
+  clientId     Int      @map("cliente_id") // FK lógica a Client.id
   team         Team?    @relation(fields: [teamId], references: [id], onDelete: SetNull)
-  teamId       String?  @map("equipo_id")
-  userId       String?  @map("usuario_id") // responsable individual (FK lógica a User.id), opcional
+  teamId       Int?     @map("equipo_id")
+  userId       Int?     @map("usuario_id") // responsable individual (FK lógica a User.id), opcional
   readScope    Boolean  @default(true) @map("alcance_lectura") // ve este cliente
   writeScope   Boolean  @default(false) @map("alcance_escritura") // escribe/ejecuta (solo Staff)
-  assignedById String?  @map("asignado_por_id") // Senior que realizó la asignación (FK lógica a User.id)
+  assignedById Int?     @map("asignado_por_id") // Senior que realizó la asignación (FK lógica a User.id)
   active       Boolean  @default(true) @map("activo")
   createdAt    DateTime @default(now()) @map("creado_en")
   updatedAt    DateTime @updatedAt @map("actualizado_en")
@@ -208,7 +206,8 @@ model ClientAssignment {
 
 // ===== Clientes y módulos =====
 model Client {
-  id              String           @id // p.ej. C-1042
+  id              Int              @id @default(autoincrement()) @map("id")
+  code            String           @unique @map("codigo") // p.ej. C-1042
   name            String           @map("nombre")
   nit             String           @map("nit")
   erp             String           @map("erp")
@@ -221,7 +220,8 @@ model Client {
 }
 
 model Module {
-  id      String         @id // INV, CAR, NOM...
+  id      Int            @id @default(autoincrement()) @map("id")
+  code    String         @unique @map("codigo") // INV, CAR, NOM...
   name    String         @map("nombre")
   icon    String         @map("icono")
   clients ClientModule[]
@@ -232,9 +232,9 @@ model Module {
 
 // ===== Campos estándar por módulo (Config · Módulos y campos) =====
 model ModuleField {
-  id       String  @id @default(cuid())
+  id       Int     @id @default(autoincrement()) @map("id")
   module   Module  @relation(fields: [moduleId], references: [id], onDelete: Cascade)
-  moduleId String  @map("modulo_id")
+  moduleId Int     @map("modulo_id")
   key      String  @map("clave") // clave técnica: cuenta, codigo_item...
   label    String  @map("etiqueta")
   type     String  @map("tipo") // string | number | date
@@ -247,11 +247,11 @@ model ModuleField {
 }
 
 model ClientModule {
-  id       String @id @default(cuid())
+  id       Int    @id @default(autoincrement()) @map("id")
   client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  clientId String @map("cliente_id")
+  clientId Int    @map("cliente_id")
   module   Module @relation(fields: [moduleId], references: [id], onDelete: Cascade)
-  moduleId String @map("modulo_id")
+  moduleId Int    @map("modulo_id")
   status   String @map("estado") // configured | pending
 
   @@unique([clientId, moduleId])
@@ -260,9 +260,10 @@ model ClientModule {
 
 // ===== Conciliaciones =====
 model Reconciliation {
-  id           String                  @id // REC-2026-0418
+  id           Int                     @id @default(autoincrement()) @map("id")
+  code         String                  @unique @map("codigo") // REC-2026-0418
   client       Client?                 @relation(fields: [clientId], references: [id])
-  clientId     String?                 @map("cliente_id")
+  clientId     Int?                    @map("cliente_id")
   clientName   String                  @map("nombre_cliente")
   module       String                  @map("modulo")
   period       String                  @map("periodo")
@@ -285,9 +286,9 @@ model Reconciliation {
 }
 
 model ReconciliationRow {
-  id               String         @id @default(cuid())
+  id               Int            @id @default(autoincrement()) @map("id")
   reconciliation   Reconciliation @relation(fields: [reconciliationId], references: [id], onDelete: Cascade)
-  reconciliationId String         @map("conciliacion_id")
+  reconciliationId Int            @map("conciliacion_id")
   cuenta           String         @map("cuenta")
   desc             String         @map("descripcion")
   cont             Int            @map("saldo_contabilidad") // saldo contabilidad
@@ -301,9 +302,9 @@ model ReconciliationRow {
 }
 
 model ReconciliationComment {
-  id               String         @id @default(cuid())
+  id               Int            @id @default(autoincrement()) @map("id")
   reconciliation   Reconciliation @relation(fields: [reconciliationId], references: [id], onDelete: Cascade)
-  reconciliationId String         @map("conciliacion_id")
+  reconciliationId Int            @map("conciliacion_id")
   cuenta           String         @map("cuenta")
   who              String         @map("autor")
   initials         String         @map("iniciales")
@@ -316,7 +317,7 @@ model ReconciliationComment {
 
 // ===== Notificaciones =====
 model Notification {
-  id        String   @id @default(cuid())
+  id        Int      @id @default(autoincrement()) @map("id")
   kind      String   @map("tipo") // assign | comment | system
   who       String   @map("autor")
   text      String   @map("texto")
@@ -330,7 +331,7 @@ model Notification {
 
 // ===== Auditoría =====
 model AuditEntry {
-  id        String   @id @default(cuid())
+  id        Int      @id @default(autoincrement()) @map("id")
   ts        String   @map("marca_tiempo")
   user      String   @map("usuario")
   action    String   @map("accion")
@@ -344,7 +345,8 @@ model AuditEntry {
 
 // ===== Plan de cuentas estándar (Balance) =====
 model StandardAccount {
-  code     String  @id @map("codigo")
+  id       Int     @id @default(autoincrement()) @map("id")
+  code     String  @unique @map("codigo")
   name     String  @map("nombre")
   level    Int     @map("nivel")
   nature   String  @map("naturaleza") // D | C
@@ -356,7 +358,7 @@ model StandardAccount {
 
 // ===== Balance de comprobación =====
 model Balance {
-  id              String   @id @default(cuid())
+  id              Int      @id @default(autoincrement()) @map("id")
   clientName      String   @map("nombre_cliente")
   clientNit       String?  @map("nit_cliente")
   period          String   @map("periodo")
@@ -382,7 +384,8 @@ model Balance {
 
 // ===== Impuestos · DIAN =====
 model DianForm {
-  id          String        @id // IVA, RETEFUENTE...
+  id          Int           @id @default(autoincrement()) @map("id")
+  key         String        @unique @map("clave") // IVA, RETEFUENTE...
   name        String        @map("nombre")
   code        String        @map("codigo") // F-300
   periodicity String        @map("periodicidad")
@@ -398,22 +401,23 @@ model DianForm {
 }
 
 model DianPeriod {
-  id        String   @id @default(cuid())
+  id        Int      @id @default(autoincrement()) @map("id")
   periodKey String   @map("clave_periodo") // 2026-B5
   label     String   @map("etiqueta")
   status    String   @map("estado") // OK | DIFF | PEND
   filed     String?  @map("presentado")
   form      DianForm @relation(fields: [formId], references: [id], onDelete: Cascade)
-  formId    String   @map("formulario_id")
+  formId    Int      @map("formulario_id")
 
   @@unique([formId, periodKey])
   @@map("periodos_dian")
 }
 
 model DianSection {
-  id     String     @id @default(cuid())
+  id     Int        @id @default(autoincrement()) @map("id")
+  key    String     @unique @map("clave")
   form   DianForm   @relation(fields: [formId], references: [id], onDelete: Cascade)
-  formId String     @map("formulario_id")
+  formId Int        @map("formulario_id")
   title  String     @map("titulo")
   side   String     @default("L") @map("lado") // L | R (lado visual)
   note   String?    @map("nota")
@@ -424,9 +428,9 @@ model DianSection {
 }
 
 model DianLine {
-  id        String      @id @default(cuid())
+  id        Int         @id @default(autoincrement()) @map("id")
   section   DianSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
-  sectionId String      @map("seccion_id")
+  sectionId Int         @map("seccion_id")
   k         String      @map("casilla") // casilla: GEN-19, DES-CBG...
   label     String      @map("etiqueta")
   decl      Float       @default(0) @map("declarado")
@@ -438,9 +442,9 @@ model DianLine {
 }
 
 model DianMapping {
-  id      String   @id @default(cuid())
+  id      Int      @id @default(autoincrement()) @map("id")
   form    DianForm @relation(fields: [formId], references: [id], onDelete: Cascade)
-  formId  String   @map("formulario_id")
+  formId  Int      @map("formulario_id")
   lineKey String   @map("clave_renglon") // k del renglón
   account String   @map("cuenta")
   desc    String   @map("descripcion")
@@ -451,9 +455,9 @@ model DianMapping {
 }
 
 model DianComment {
-  id        String   @id @default(cuid())
+  id        Int      @id @default(autoincrement()) @map("id")
   form      DianForm @relation(fields: [formId], references: [id], onDelete: Cascade)
-  formId    String   @map("formulario_id")
+  formId    Int      @map("formulario_id")
   lineKey   String   @map("clave_renglon")
   who       String   @map("autor")
   initials  String   @map("iniciales")
@@ -467,29 +471,32 @@ model DianComment {
 
 // ===== Mapeo cuenta-cliente → Russell (Balance · Mapeo plan estándar) =====
 model ClientAccount {
-  id          String  @id @default(cuid())
-  clientName  String  @map("nombre_cliente")
-  code        String  @map("codigo")
-  level       Int     @map("nivel") // 4 | 6 | 8
-  name        String  @map("nombre")
-  russellCode String? @map("codigo_russell") // FK lógica a RussellOption.code
-  order       Int     @default(0) @map("orden")
+  id              Int            @id @default(autoincrement()) @map("id")
+  clientName      String         @map("nombre_cliente")
+  code            String         @map("codigo")
+  level           Int            @map("nivel") // 4 | 6 | 8
+  name            String         @map("nombre")
+  russellOption   RussellOption? @relation(fields: [russellOptionId], references: [id], onDelete: SetNull)
+  russellOptionId Int?           @map("opcion_russell_id")
+  order           Int            @default(0) @map("orden")
 
   @@unique([clientName, code])
   @@map("cuentas_cliente")
 }
 
 model RussellOption {
-  code   String  @id @map("codigo") // 1105, 1110, 41...
-  name   String  @map("nombre")
-  module String? @map("modulo") // Caja, Bancos, Cartera, DIAN... (null = no participa en conciliaciones)
+  id       Int             @id @default(autoincrement()) @map("id")
+  code     String          @unique @map("codigo") // 1105, 1110, 41...
+  name     String          @map("nombre")
+  module   String?         @map("modulo") // Caja, Bancos, Cartera, DIAN... (null = no participa en conciliaciones)
+  accounts ClientAccount[]
 
   @@map("opciones_russell")
 }
 
 // ===== Requerimientos de información =====
 model ClientContact {
-  id         String  @id @default(cuid())
+  id         Int     @id @default(autoincrement()) @map("id")
   clientName String  @map("nombre_cliente")
   name       String  @map("nombre")
   role       String  @map("rol")
@@ -501,7 +508,8 @@ model ClientContact {
 }
 
 model ReqTemplate {
-  id            String             @id // TPL-CIERRE
+  id            Int                @id @default(autoincrement()) @map("id")
+  key           String             @unique @map("clave") // TPL-CIERRE
   code          String             @map("codigo") // RFA-CIERRE
   name          String             @map("nombre")
   description   String             @map("descripcion")
@@ -518,9 +526,9 @@ model ReqTemplate {
 }
 
 model ReqTemplateHeader {
-  id                String      @id @default(cuid())
+  id                Int         @id @default(autoincrement()) @map("id")
   template          ReqTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  templateId        String      @unique @map("plantilla_id")
+  templateId        Int         @unique @map("plantilla_id")
   firmName          String      @map("nombre_firma")
   city              String      @map("ciudad")
   asunto            String      @map("asunto")
@@ -537,9 +545,9 @@ model ReqTemplateHeader {
 }
 
 model ReqFamily {
-  id         String      @id @default(cuid())
+  id         Int         @id @default(autoincrement()) @map("id")
   template   ReqTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  templateId String      @map("plantilla_id")
+  templateId Int         @map("plantilla_id")
   name       String      @map("nombre")
   order      Int         @default(0) @map("orden")
   itemList   ReqItem[]
@@ -548,9 +556,9 @@ model ReqFamily {
 }
 
 model ReqItem {
-  id       String    @id @default(cuid())
+  id       Int       @id @default(autoincrement()) @map("id")
   family   ReqFamily @relation(fields: [familyId], references: [id], onDelete: Cascade)
-  familyId String    @map("familia_id")
+  familyId Int       @map("familia_id")
   text     String    @map("texto")
   order    Int       @default(0) @map("orden")
 
@@ -558,7 +566,8 @@ model ReqItem {
 }
 
 model ReqSubmission {
-  id              String   @id // REQ-2026-014
+  id              Int      @id @default(autoincrement()) @map("id")
+  code            String   @unique @map("codigo") // REQ-2026-014
   consec          String   @map("consecutivo")
   templateCode    String   @map("codigo_plantilla")
   templateVersion String   @map("version_plantilla")
@@ -574,7 +583,8 @@ model ReqSubmission {
 }
 
 model ReqRepository {
-  id           String            @id // REPO-2026-014
+  id           Int               @id @default(autoincrement()) @map("id")
+  code         String            @unique @map("codigo") // REPO-2026-014
   consec       String            @map("consecutivo")
   templateCode String            @map("codigo_plantilla")
   clientName   String            @map("nombre_cliente")
@@ -598,9 +608,9 @@ model ReqRepository {
 }
 
 model ReqRepoFamily {
-  id           String        @id @default(cuid())
+  id           Int           @id @default(autoincrement()) @map("id")
   repository   ReqRepository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
-  repositoryId String        @map("repositorio_id")
+  repositoryId Int           @map("repositorio_id")
   code         String        @map("codigo") // F1
   name         String        @map("nombre")
   total        Int           @default(0) @map("total")
@@ -613,9 +623,9 @@ model ReqRepoFamily {
 }
 
 model ReqRepoItem {
-  id       String        @id @default(cuid())
+  id       Int           @id @default(autoincrement()) @map("id")
   family   ReqRepoFamily @relation(fields: [familyId], references: [id], onDelete: Cascade)
-  familyId String        @map("familia_id")
+  familyId Int           @map("familia_id")
   idx      Int           @map("indice")
   doc      String        @map("documento")
   due      String        @map("vencimiento")
@@ -630,9 +640,9 @@ model ReqRepoItem {
 }
 
 model ReqRepoActivity {
-  id           String        @id @default(cuid())
+  id           Int           @id @default(autoincrement()) @map("id")
   repository   ReqRepository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
-  repositoryId String        @map("repositorio_id")
+  repositoryId Int           @map("repositorio_id")
   at           String        @map("en")
   actor        String        @map("actor")
   role         String        @map("rol") // Cliente | Auditor | Auto
@@ -644,7 +654,8 @@ model ReqRepoActivity {
 }
 
 model ReqPresentation {
-  id         String   @id // PRES-2025-009
+  id         Int      @id @default(autoincrement()) @map("id")
+  code       String   @unique @map("codigo") // PRES-2025-009
   clientName String   @map("nombre_cliente")
   nit        String   @map("nit")
   title      String   @map("titulo")
@@ -664,13 +675,13 @@ model ReqPresentation {
 }
 
 model CalendarEvent {
-  id       String   @id @default(cuid())
-  date     DateTime @map("fecha")
-  type     String   @map("tipo") // dian | ica | req
-  title    String   @map("titulo")
-  subtitle String   @map("subtitulo")
-  clientId String?  @map("cliente_id") // id de cliente de calendario: zarzal, pacif...
-  order    Int      @default(0) @map("orden")
+  id        Int      @id @default(autoincrement()) @map("id")
+  date      DateTime @map("fecha")
+  type      String   @map("tipo") // dian | ica | req
+  title     String   @map("titulo")
+  subtitle  String   @map("subtitulo")
+  clientKey String?  @map("cliente_clave") // clave de UI: zarzal, pacif...
+  order     Int      @default(0) @map("orden")
 
   @@map("eventos_calendario")
 }

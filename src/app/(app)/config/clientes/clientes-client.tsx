@@ -12,17 +12,18 @@ import {
 } from "@/app/actions/clients";
 import type { ActionState } from "@/lib/definitions";
 
-export type ModuleRef = { id: string; name: string };
+export type ModuleRef = { id: number; name: string };
 export type ClientRow = {
-  id: string;
+  id: number;
+  code: string;
   name: string;
   nit: string;
   erp: string;
   sector: string;
-  modules: { moduleId: string; status: string }[];
+  modules: { moduleId: number; status: string }[];
 };
 
-function statusOf(c: ClientRow, moduleId: string): "configured" | "pending" | "none" {
+function statusOf(c: ClientRow, moduleId: number): "configured" | "pending" | "none" {
   const m = c.modules.find((x) => x.moduleId === moduleId);
   return (m?.status as "configured" | "pending") ?? "none";
 }
@@ -176,8 +177,8 @@ function ModuleCell({
   moduleId,
   status,
 }: {
-  clientId: string;
-  moduleId: string;
+  clientId: number;
+  moduleId: number;
   status: "configured" | "pending" | "none";
 }) {
   const visual =
@@ -231,15 +232,13 @@ function ClientModal({
   return (
     <Modal open onClose={onClose} title={title}>
       <form action={formAction} className="flex flex-col gap-3">
-        <CField label="Código" error={state?.errors?.id}>
+        {isEdit && <input type="hidden" name="id" value={client.id} />}
+        <CField label="Código" error={state?.errors?.code}>
           <input
-            name="id"
-            defaultValue={client?.id ?? ""}
-            readOnly={isEdit}
+            name="code"
+            defaultValue={client?.code ?? ""}
             placeholder="C-1042"
-            className={`w-full rounded-md border border-ink-200 px-2.5 py-1.5 font-mono text-[12.5px] outline-none focus:border-blue-400 ${
-              isEdit ? "bg-ink-50 text-ink-400" : ""
-            }`}
+            className="w-full rounded-md border border-ink-200 px-2.5 py-1.5 font-mono text-[12.5px] outline-none focus:border-blue-400"
           />
         </CField>
         <CField label="Razón social" error={state?.errors?.name}>
@@ -311,7 +310,7 @@ function ClientModal({
   );
 }
 
-function DeleteClientButton({ id, onDone }: { id: string; onDone: () => void }) {
+function DeleteClientButton({ id, onDone }: { id: number; onDone: () => void }) {
   return (
     <form
       action={deleteClient}

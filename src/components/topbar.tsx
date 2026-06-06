@@ -6,7 +6,7 @@ import { Icon } from "@/components/icons";
 import { markAllNotificationsRead } from "@/app/actions/notifications";
 
 export type NotificationDTO = {
-  id: string;
+  id: number;
   kind: string;
   who: string;
   text: string;
@@ -48,8 +48,8 @@ export default function Topbar({
     .filter(Boolean)
     .map((seg) => {
       if (CRUMB_LABELS[seg]) return CRUMB_LABELS[seg];
-      // Segmento dinámico (id cuid): mostrar etiqueta legible
-      if (/^[a-z0-9]{16,}$/i.test(seg)) return "Detalle";
+      // Los segmentos numéricos son IDs internos de detalle.
+      if (/^[1-9]\d*$/.test(seg)) return "Detalle";
       return seg.charAt(0).toUpperCase() + seg.slice(1);
     });
   if (crumbs.length === 0) crumbs.push("Inicio");

@@ -5,9 +5,9 @@ import { Icon } from "@/components/icons";
 import { Card, Chip } from "@/components/ui";
 import { markRepoItemReceived } from "@/app/actions/repositorios";
 
-export type Item = { id: string; idx: number; doc: string; due: string; status: string; file: string | null; size: string | null; by: string | null; at: string | null };
-export type Family = { id: string; code: string; name: string; total: number; received: number; pending: number; items: Item[] };
-export type Activity = { id: string; at: string; actor: string; role: string; action: string; detail: string };
+export type Item = { id: number; idx: number; doc: string; due: string; status: string; file: string | null; size: string | null; by: string | null; at: string | null };
+export type Family = { id: number; code: string; name: string; total: number; received: number; pending: number; items: Item[] };
+export type Activity = { id: number; at: string; actor: string; role: string; action: string; detail: string };
 
 function itemStatus(s: string): { label: string; tone: "ok" | "warn" | "err" } {
   if (s === "received") return { label: "Recibido", tone: "ok" };
@@ -15,11 +15,11 @@ function itemStatus(s: string): { label: string; tone: "ok" | "warn" | "err" } {
   return { label: "Pendiente", tone: "warn" };
 }
 
-export default function RepoClient({ repositoryId, families, activity }: { repositoryId: string; families: Family[]; activity: Activity[] }) {
+export default function RepoClient({ repositoryId, families, activity }: { repositoryId: number; families: Family[]; activity: Activity[] }) {
   const [tab, setTab] = useState<"docs" | "activity">("docs");
   const [filter, setFilter] = useState<"all" | "received" | "pending" | "overdue">("all");
-  const [open, setOpen] = useState<string[]>(families.map((f) => f.id));
-  const toggle = (id: string) => setOpen((o) => (o.includes(id) ? o.filter((x) => x !== id) : [...o, id]));
+  const [open, setOpen] = useState<number[]>(families.map((f) => f.id));
+  const toggle = (id: number) => setOpen((o) => (o.includes(id) ? o.filter((x) => x !== id) : [...o, id]));
 
   return (
     <div className="mt-5">

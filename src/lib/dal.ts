@@ -9,7 +9,7 @@ export const verifySession = cache(async () => {
   const cookie = (await cookies()).get("session")?.value;
   const session = await decrypt(cookie);
 
-  if (!session?.userId) {
+  if (!session?.userId || !Number.isSafeInteger(session.userId)) {
     // Cookie ausente o ilegible: limpiarla y enviar al login.
     redirect("/sesion-expirada");
   }

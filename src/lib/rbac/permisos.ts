@@ -21,11 +21,13 @@ import type { Matriz } from "./catalogo";
 
 export type { Matriz };
 
+type Identificador = string | number;
+
 /** Asignación cliente↔usuario/equipo con su alcance (forma mínima para resolver). */
 export type Asignacion = {
-  clientId: string;
-  userId?: string | null;
-  teamId?: string | null;
+  clientId: Identificador;
+  userId?: Identificador | null;
+  teamId?: Identificador | null;
   readScope: boolean;
   writeScope: boolean;
   active?: boolean;
@@ -52,10 +54,10 @@ export function tienePermiso(matriz: Matriz, roleCode: string, permiso: string):
  */
 export function alcanzaCliente(
   asignaciones: Asignacion[],
-  userId: string,
-  clientId: string,
+  userId: Identificador,
+  clientId: Identificador,
   modo: "lectura" | "escritura",
-  equiposDelUsuario: string[] = [],
+  equiposDelUsuario: Identificador[] = [],
 ): boolean {
   const relevantes = asignaciones.filter(
     (a) =>
@@ -71,11 +73,11 @@ export function alcanzaCliente(
 export type ContextoCliente = {
   matriz: Matriz;
   roleCode: string;
-  userId: string;
+  userId: Identificador;
   permiso: string; // p.ej. "conciliaciones:ejecutar"
-  clientId: string;
+  clientId: Identificador;
   asignaciones: Asignacion[];
-  equiposDelUsuario?: string[];
+  equiposDelUsuario?: Identificador[];
 };
 
 /**

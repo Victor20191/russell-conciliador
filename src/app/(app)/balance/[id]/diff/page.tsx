@@ -3,9 +3,12 @@ import prisma from "@/lib/prisma";
 import { PageHeader, StatCard, BackLink } from "@/components/ui";
 import { fmtCompact } from "@/lib/format";
 import BalanceDiffClient, { type DiffData } from "./balance-diff-client";
+import { parseId } from "@/lib/ids";
 
 export default async function BalanceDiffPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
+  const { id: rawId } = await params;
+  const id = parseId(rawId);
+  if (!id) notFound();
   const balance = await prisma.balance.findUnique({ where: { id } });
   if (!balance || balance.diff == null) notFound();
 

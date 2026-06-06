@@ -1,9 +1,12 @@
 import { notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
 import VisorClient, { type PresData, type Observed, type Evaluated } from "./visor-client";
+import { parseId } from "@/lib/ids";
 
 export default async function VisorPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
+  const { id: rawId } = await params;
+  const id = parseId(rawId);
+  if (!id) notFound();
   const p = await prisma.reqPresentation.findUnique({ where: { id } });
   if (!p) notFound();
 

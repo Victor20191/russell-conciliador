@@ -4,9 +4,12 @@ import { PageHeader, StatCard, BackLink } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { sendRepoReminder } from "@/app/actions/repositorios";
 import RepoClient, { type Family, type Activity } from "./repo-client";
+import { parseId } from "@/lib/ids";
 
 export default async function RepoDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
+  const { id: rawId } = await params;
+  const id = parseId(rawId);
+  if (!id) notFound();
   const repo = await prisma.reqRepository.findUnique({
     where: { id },
     include: { families: { orderBy: { order: "asc" }, include: { items: { orderBy: { order: "asc" } } } }, activity: { orderBy: { order: "asc" } } },

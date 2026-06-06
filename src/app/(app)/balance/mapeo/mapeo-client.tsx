@@ -6,7 +6,7 @@ import { Icon } from "@/components/icons";
 import { Card, Chip, StatCard, EmptyState } from "@/components/ui";
 import { updateAccountMapping, suggestMappingsAI } from "@/app/actions/mapping";
 
-export type Account = { id: string; code: string; level: number; name: string; russellCode: string | null };
+export type Account = { id: number; code: string; level: number; name: string; russellCode: string | null };
 export type RussellOpt = { code: string; name: string; module: string | null };
 
 // Estado de parametrización por módulo (metadata demo; el conteo se deriva de los mapeos).

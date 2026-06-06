@@ -5,11 +5,12 @@ import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
 import { requireRole } from "@/lib/rbac";
+import { parseId } from "@/lib/ids";
 
 export async function markRepoItemReceived(formData: FormData): Promise<void> {
   await requireRole("Auditor");
-  const itemId = formData.get("itemId") as string;
-  const repositoryId = formData.get("repositoryId") as string;
+  const itemId = parseId(formData.get("itemId"));
+  const repositoryId = parseId(formData.get("repositoryId"));
   if (!itemId || !repositoryId) return;
 
   const item = await prisma.reqRepoItem.findUnique({ where: { id: itemId }, include: { family: true } });
@@ -30,17 +31,17 @@ export async function markRepoItemReceived(formData: FormData): Promise<void> {
   }
 
   await prisma.reqRepoActivity.create({ data: { repositoryId, at: "ahora", actor: user?.name ?? "Cliente", role: "Cliente", action: "Cargó un documento", detail: `${item.family.code} · ${item.doc.slice(0, 50)}`, order: 999 } });
-  await logAudit({ user: user?.name ?? "Sistema", action: "RECIBIÓ DOCUMENTO", entity: repositoryId, detail: item.doc.slice(0, 60) });
+  await logAudit({ user: user?.name ?? "Sistema", action: "RECIBIÓ DOCUMENTO", entity: String(repositoryId), detail: item.doc.slice(0, 60) });
   revalidatePath(`/requerimientos/repositorios/${repositoryId}`);
   revalidatePath("/requerimientos/repositorios");
 }
 
 export async function sendRepoReminder(formData: FormData): Promise<void> {
   await requireRole("Auditor");
-  const repositoryId = formData.get("repositoryId") as string;
+  const repositoryId = parseId(formData.get("repositoryId"));
   if (!repositoryId) return;
   const user = await getCurrentUser();
   await prisma.reqRepoActivity.create({ data: { repositoryId, at: "ahora", actor: user?.name ?? "Auditor", role: "Auditor", action: "Envió recordatorio", detail: "a los contactos con documentos pendientes", order: 999 } });
-  await logAudit({ user: user?.name ?? "Sistema", action: "ENVIÓ RECORDATORIO", entity: repositoryId, detail: "Documentos pendientes" });
+  await logAudit({ user: user?.name ?? "Sistema", action: "ENVIÓ RECORDATORIO", entity: String(repositoryId), detail: "Documentos pendientes" });
   revalidatePath(`/requerimientos/repositorios/${repositoryId}`);
 }

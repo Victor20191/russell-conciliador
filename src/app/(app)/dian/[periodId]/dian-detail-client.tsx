@@ -7,9 +7,9 @@ import { fmt } from "@/lib/format";
 import { addDianComment, requestDianAiAnalysis } from "@/app/actions/dian";
 
 export type Line = { k: string; label: string; decl: number; cont: number; diff: number };
-export type Section = { id: string; title: string; side: string; note: string | null; lines: Line[] };
+export type Section = { id: number; key: string; title: string; side: string; note: string | null; lines: Line[] };
 export type Mapping = { lineKey: string; account: string; desc: string; sign: string };
-export type Comment = { id: string; lineKey: string; who: string; initials: string; text: string; time: string; isAI: boolean };
+export type Comment = { id: number; lineKey: string; who: string; initials: string; text: string; time: string; isAI: boolean };
 
 function lineStatus(l: Line, hasMapping: boolean): { label: string; tone: "ok" | "warn" | "err" } {
   if (!hasMapping) return { label: "Sin mapeo", tone: "warn" };
@@ -20,9 +20,9 @@ function lineStatus(l: Line, hasMapping: boolean): { label: string; tone: "ok" |
 export default function DianDetailClient({
   formId, formName, periodId, sections, mappings, comments,
 }: {
-  formId: string; formName: string; periodId: string; sections: Section[]; mappings: Mapping[]; comments: Comment[];
+  formId: number; formName: string; periodId: number; sections: Section[]; mappings: Mapping[]; comments: Comment[];
 }) {
-  const [activeSection, setActiveSection] = useState(sections[0]?.id ?? "");
+  const [activeSection, setActiveSection] = useState(sections[0]?.id ?? 0);
   const allLines = sections.flatMap((s) => s.lines);
   const [selectedKey, setSelectedKey] = useState(allLines.find((l) => l.diff !== 0)?.k ?? allLines[0]?.k ?? "");
 
