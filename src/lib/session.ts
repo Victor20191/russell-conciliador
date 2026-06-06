@@ -1,8 +1,22 @@
 import "server-only";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { encrypt } from "@/lib/jwt";
 
 const COOKIE = "session";
+
+// Atributo `Secure` de la cookie de sesión:
+//   - COOKIE_SECURE definido  → se respeta ("true"/"false"); útil detrás de un
+//     proxy TLS que termina HTTPS pero reenvía en HTTP.
+//   - Sin definir             → sigue el protocolo real de la petición
+//     (`x-forwarded-proto`): Secure solo sobre HTTPS. Por HTTP plano la cookie
+//     NO es Secure, para que la sesión funcione sin TLS.
+async function cookieSecure(): Promise<boolean> {
+  if (process.env.COOKIE_SECURE !== undefined) {
+    return process.env.COOKIE_SECURE === "true";
+  }
+  const proto = (await headers()).get("x-forwarded-proto");
+  return proto === "https";
+}
 
 export async function createSession(
   userId: number,
@@ -20,7 +34,7 @@ export async function createSession(
 
   cookieStore.set(COOKIE, session, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: await cookieSecure(),
     expires: expiresAt,
     sameSite: "lax",
     path: "/",
