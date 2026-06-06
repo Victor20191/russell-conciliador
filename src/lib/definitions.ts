@@ -19,7 +19,7 @@ export type LoginState =
   | undefined;
 
 export type SessionPayload = {
-  userId: string;
+  userId: number;
   role: string;
   sessionVersion: number;
   expiresAt: string; // ISO
@@ -33,7 +33,7 @@ export type ActionState = {
 };
 
 export const ModuleFieldSchema = z.object({
-  moduleId: z.string().min(1),
+  moduleId: z.coerce.number().int().positive(),
   key: z
     .string()
     .min(1, { error: "La clave es obligatoria." })
@@ -45,7 +45,7 @@ export const ModuleFieldSchema = z.object({
 });
 
 export const ClientSchema = z.object({
-  id: z.string().min(1, { error: "El código es obligatorio." }).trim(),
+  code: z.string().min(1, { error: "El código es obligatorio." }).trim(),
   name: z.string().min(1, { error: "El nombre es obligatorio." }).trim(),
   nit: z.string().min(1, { error: "El NIT es obligatorio." }).trim(),
   erp: z.string().min(1, { error: "El ERP es obligatorio." }).trim(),
@@ -74,13 +74,13 @@ export const UserCreateSchema = z.object({
 });
 
 export const UserUpdateSchema = z.object({
-  id: z.string().min(1),
+  id: z.coerce.number().int().positive(),
   name: z.string().min(1, { error: "El nombre es obligatorio." }).trim(),
   role: RoleEnum,
   active: z.boolean(),
 });
 
 export const UserResetSchema = z.object({
-  id: z.string().min(1),
+  id: z.coerce.number().int().positive(),
   password: PasswordSchema,
 });

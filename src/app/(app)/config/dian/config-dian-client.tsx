@@ -7,14 +7,14 @@ import { Modal } from "@/components/modal";
 import { saveDianMapping } from "@/app/actions/dian";
 
 export type DianFormData = {
-  id: string; name: string; code: string;
-  sections: { id: string; title: string; lines: { k: string; label: string }[] }[];
+  id: number; name: string; code: string;
+  sections: { id: number; title: string; lines: { k: string; label: string }[] }[];
   mappings: { lineKey: string; account: string; desc: string; sign: string }[];
 };
 type Row = { account: string; desc: string; sign: string };
 
 export default function ConfigDianClient({ forms }: { forms: DianFormData[] }) {
-  const [activeId, setActiveId] = useState(forms[0]?.id ?? "");
+  const [activeId, setActiveId] = useState(forms[0]?.id ?? 0);
   const [editing, setEditing] = useState<{ lineKey: string; label: string; rows: Row[] } | null>(null);
   const active = forms.find((f) => f.id === activeId) ?? forms[0];
   if (!active) return <EmptyState icon="doc" title="Sin formatos DIAN" description="No hay formatos cargados." />;
@@ -83,7 +83,7 @@ export default function ConfigDianClient({ forms }: { forms: DianFormData[] }) {
 function MappingEditor({
   formId, lineKey, label, initialRows, onClose,
 }: {
-  formId: string; lineKey: string; label: string; initialRows: Row[]; onClose: () => void;
+  formId: number; lineKey: string; label: string; initialRows: Row[]; onClose: () => void;
 }) {
   const [rows, setRows] = useState<Row[]>(initialRows.length ? initialRows : [{ account: "", desc: "", sign: "+" }]);
   const [saving, setSaving] = useState(false);

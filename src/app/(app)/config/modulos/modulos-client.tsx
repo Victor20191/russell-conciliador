@@ -13,7 +13,7 @@ import {
 import type { ActionState } from "@/lib/definitions";
 
 export type ModuleField = {
-  id: string;
+  id: number;
   key: string;
   label: string;
   type: string;
@@ -22,7 +22,8 @@ export type ModuleField = {
   order: number;
 };
 export type ModuleWithFields = {
-  id: string;
+  id: number;
+  code: string;
   name: string;
   icon: string;
   fields: ModuleField[];
@@ -41,7 +42,7 @@ function validationFor(type: string): string {
 }
 
 export default function ModulosClient({ modules }: { modules: ModuleWithFields[] }) {
-  const [activeId, setActiveId] = useState(modules[0]?.id ?? "");
+  const [activeId, setActiveId] = useState(modules[0]?.id ?? 0);
   const [editing, setEditing] = useState<ModuleField | null>(null);
   const [creating, setCreating] = useState(false);
 
@@ -227,7 +228,7 @@ function FieldModal({
   field,
 }: {
   onClose: () => void;
-  moduleId: string;
+  moduleId: number;
   title: string;
   action: (prev: ActionState, fd: FormData) => Promise<ActionState>;
   field?: ModuleField | null;

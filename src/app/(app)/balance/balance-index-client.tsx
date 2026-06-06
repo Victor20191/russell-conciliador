@@ -6,7 +6,7 @@ import { Icon } from "@/components/icons";
 import { Card, Chip } from "@/components/ui";
 
 export type PeriodRow = {
-  period: string; versions: number; official: string | null; officialId: string | null;
+  period: string; versions: number; official: string | null; officialId: number | null;
   status: string; complete: number; lastUpload: string;
 };
 export type ClientGroup = {

@@ -5,10 +5,11 @@ import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
 import { requireRole } from "@/lib/rbac";
+import { parseId } from "@/lib/ids";
 
 export async function freezeBalance(formData: FormData): Promise<void> {
   await requireRole("Auditor");
-  const id = formData.get("id") as string;
+  const id = parseId(formData.get("id"));
   if (!id) return;
 
   const balance = await prisma.balance.findUnique({ where: { id } });

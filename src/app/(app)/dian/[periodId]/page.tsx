@@ -4,9 +4,12 @@ import { PageHeader, StatCard, BackLink, EmptyState } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { fmtCompact, fmtPct } from "@/lib/format";
 import DianDetailClient, { type Section, type Mapping, type Comment } from "./dian-detail-client";
+import { parseId } from "@/lib/ids";
 
 export default async function DianDetailPage({ params }: { params: Promise<{ periodId: string }> }) {
-  const { periodId } = await params;
+  const { periodId: rawPeriodId } = await params;
+  const periodId = parseId(rawPeriodId);
+  if (!periodId) notFound();
   const period = await prisma.dianPeriod.findUnique({ where: { id: periodId } });
   if (!period) notFound();
 
@@ -17,14 +20,14 @@ export default async function DianDetailPage({ params }: { params: Promise<{ per
   if (!form) notFound();
 
   const sections: Section[] = form.sections.map((s) => ({
-    id: s.id, title: s.title, side: s.side, note: s.note,
+    id: s.id, key: s.key, title: s.title, side: s.side, note: s.note,
     lines: s.lines.map((l) => ({ k: l.k, label: l.label, decl: l.decl, cont: l.cont, diff: l.diff })),
   }));
   const mappings: Mapping[] = form.mappings.map((m) => ({ lineKey: m.lineKey, account: m.account, desc: m.desc, sign: m.sign }));
   const comments: Comment[] = form.comments.map((c) => ({ id: c.id, lineKey: c.lineKey, who: c.who, initials: c.initials, text: c.text, time: c.time, isAI: c.isAI }));
 
   // KPIs: totales excluyendo la sección de Ingresos (ID terminada en "-ING"), igual que el prototipo.
-  const totalsSecs = sections.filter((s) => !s.id.endsWith("-ING") && s.id !== "ING");
+  const totalsSecs = sections.filter((s) => !s.key.endsWith("-ING") && s.key !== "ING");
   const totalDecl = totalsSecs.reduce((t, s) => t + s.lines.reduce((a, l) => a + l.decl, 0), 0);
   const totalCont = totalsSecs.reduce((t, s) => t + s.lines.reduce((a, l) => a + l.cont, 0), 0);
   const totalDiff = totalDecl - totalCont;

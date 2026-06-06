@@ -6,10 +6,11 @@ import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
 import { requireRole } from "@/lib/rbac";
+import { parseId } from "@/lib/ids";
 
 export async function addReconciliationComment(formData: FormData): Promise<void> {
   await requireRole("Auditor");
-  const reconciliationId = formData.get("reconciliationId") as string;
+  const reconciliationId = parseId(formData.get("reconciliationId"));
   const cuenta = formData.get("cuenta") as string;
   const text = ((formData.get("text") as string) ?? "").trim();
   if (!reconciliationId || !cuenta || !text) return;
@@ -29,9 +30,9 @@ export async function addReconciliationComment(formData: FormData): Promise<void
 
 export async function setRowStatus(formData: FormData): Promise<void> {
   await requireRole("Auditor");
-  const rowId = formData.get("rowId") as string;
+  const rowId = parseId(formData.get("rowId"));
   const status = formData.get("status") as string; // conciliada | excepcion | ajuste
-  const reconciliationId = formData.get("reconciliationId") as string;
+  const reconciliationId = parseId(formData.get("reconciliationId"));
   if (!rowId || !["conciliada", "excepcion", "ajuste"].includes(status)) return;
 
   const row = await prisma.reconciliationRow.update({ where: { id: rowId }, data: { manualStatus: status } });
@@ -43,7 +44,7 @@ export async function setRowStatus(formData: FormData): Promise<void> {
 
 export async function sendToReviewer(formData: FormData): Promise<void> {
   await requireRole("Auditor");
-  const id = formData.get("id") as string;
+  const id = parseId(formData.get("id"));
   if (!id) return;
   await prisma.reconciliation.update({ where: { id }, data: { status: "REVIEW" } });
   const user = await getCurrentUser();
@@ -66,8 +67,8 @@ const DEMO_CROSS_ROWS: [string, string, number, number, number, number][] = [
 
 export async function executeReconciliation(formData: FormData): Promise<void> {
   await requireRole("Auditor");
-  const clientId = formData.get("clientId") as string;
-  const moduleId = formData.get("moduleId") as string;
+  const clientId = parseId(formData.get("clientId"));
+  const moduleId = parseId(formData.get("moduleId"));
   const period = formData.get("period") as string;
   const cutoff = (formData.get("cutoff") as string) || "";
   if (!clientId || !moduleId || !period) return;
@@ -80,13 +81,13 @@ export async function executeReconciliation(formData: FormData): Promise<void> {
   if (!client || !mod) return;
 
   const n = await prisma.reconciliation.count();
-  const id = `REC-2026-${5000 + n}`;
+  const code = `REC-2026-${5000 + n}`;
   const totalDiff = DEMO_CROSS_ROWS.reduce((s, r) => s + r[4], 0);
   const itemsDiff = DEMO_CROSS_ROWS.filter((r) => r[4] !== 0).length;
 
-  await prisma.reconciliation.create({
+  const reconciliation = await prisma.reconciliation.create({
     data: {
-      id, clientName: client.name, clientId: client.id, module: mod.name, period,
+      code, clientName: client.name, clientId: client.id, module: mod.name, period,
       erp: client.erp, status: "REVIEW", diff: fmtSigned(totalDiff), items: itemsDiff,
       date: "hoy", owner: user?.name ?? "Auditor", cutoff, runAt: "hoy", runBy: user?.name ?? "Auditor",
       materiality: 2000000, lastActivity: "ahora",
@@ -101,8 +102,8 @@ export async function executeReconciliation(formData: FormData): Promise<void> {
     update: { status: "configured" },
   });
 
-  await logAudit({ user: user?.name ?? "Sistema", action: "EJECUTÓ", entity: `Cruce ${id}`, detail: `${mod.name} · ${client.name} · ${period}` });
-  redirect(`/conciliacion/resultados/${id}`);
+  await logAudit({ user: user?.name ?? "Sistema", action: "EJECUTÓ", entity: `Cruce ${code}`, detail: `${mod.name} · ${client.name} · ${period}` });
+  redirect(`/conciliacion/resultados/${reconciliation.id}`);
 }
 
 function fmtSigned(n: number): string {

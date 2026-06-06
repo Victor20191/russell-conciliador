@@ -6,6 +6,7 @@ import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
 import { ClientSchema, type ActionState } from "@/lib/definitions";
+import { parseId } from "@/lib/ids";
 import { requireRole, authorizeAction } from "@/lib/rbac";
 
 const PATH = "/config/clientes";
@@ -17,7 +18,7 @@ export async function createClient(
   const authz = await authorizeAction("Líder");
   if (!authz.ok) return { ok: false, message: authz.message };
   const parsed = ClientSchema.safeParse({
-    id: formData.get("id"),
+    code: formData.get("code"),
     name: formData.get("name"),
     nit: formData.get("nit"),
     erp: formData.get("erp"),
@@ -28,7 +29,7 @@ export async function createClient(
   }
   const data = parsed.data;
 
-  const dup = await prisma.client.findUnique({ where: { id: data.id } });
+  const dup = await prisma.client.findUnique({ where: { code: data.code } });
   if (dup) return { ok: false, message: "Ya existe un cliente con ese código." };
 
   await prisma.client.create({ data });
@@ -37,7 +38,7 @@ export async function createClient(
   await logAudit({
     user: user?.name ?? "Sistema",
     action: "CREÓ CLIENTE",
-    entity: data.id,
+    entity: data.code,
     detail: `${data.name} · ${data.nit}`,
   });
   revalidatePath(PATH);
@@ -51,7 +52,7 @@ export async function updateClient(
   const authz = await authorizeAction("Líder");
   if (!authz.ok) return { ok: false, message: authz.message };
   const parsed = ClientSchema.safeParse({
-    id: formData.get("id"),
+    code: formData.get("code"),
     name: formData.get("name"),
     nit: formData.get("nit"),
     erp: formData.get("erp"),
@@ -60,22 +61,26 @@ export async function updateClient(
   if (!parsed.success) {
     return { ok: false, errors: z.flattenError(parsed.error).fieldErrors };
   }
-  const { id, name, nit, erp, sector } = parsed.data;
-  await prisma.client.update({ where: { id }, data: { name, nit, erp, sector } });
+  const id = parseId(formData.get("id"));
+  if (!id) return { ok: false, message: "Cliente inexistente." };
+  const { code, name, nit, erp, sector } = parsed.data;
+  const dup = await prisma.client.findFirst({ where: { code, NOT: { id } } });
+  if (dup) return { ok: false, message: "Ya existe un cliente con ese código." };
+  await prisma.client.update({ where: { id }, data: { code, name, nit, erp, sector } });
   revalidatePath(PATH);
   return { ok: true };
 }
 
 export async function deleteClient(formData: FormData): Promise<void> {
   await requireRole("Líder");
-  const id = formData.get("id") as string;
+  const id = parseId(formData.get("id"));
   if (!id) return;
   await prisma.client.delete({ where: { id } });
   const user = await getCurrentUser();
   await logAudit({
     user: user?.name ?? "Sistema",
     action: "ELIMINÓ CLIENTE",
-    entity: id,
+    entity: String(id),
     detail: "Cliente y sus parametrizaciones",
   });
   revalidatePath(PATH);
@@ -83,8 +88,8 @@ export async function deleteClient(formData: FormData): Promise<void> {
 
 export async function setClientModuleStatus(formData: FormData): Promise<void> {
   await requireRole("Líder");
-  const clientId = formData.get("clientId") as string;
-  const moduleId = formData.get("moduleId") as string;
+  const clientId = parseId(formData.get("clientId"));
+  const moduleId = parseId(formData.get("moduleId"));
   const next = formData.get("next") as string; // configured | pending | none
   if (!clientId || !moduleId) return;
 

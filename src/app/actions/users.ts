@@ -104,7 +104,7 @@ export async function updateUser(
   await logAudit({
     user: actor?.name ?? "Sistema",
     action: "EDITÓ USUARIO",
-    entity: parsed.data.id,
+    entity: String(parsed.data.id),
     detail: `${parsed.data.role} · ${parsed.data.active ? "activo" : "inactivo"}`,
   });
   revalidatePath(PATH);
@@ -139,7 +139,7 @@ export async function resetUserPassword(
   await logAudit({
     user: actor?.name ?? "Sistema",
     action: "RESETEÓ CONTRASEÑA",
-    entity: parsed.data.id,
+    entity: String(parsed.data.id),
     detail: "Forzar cambio en próximo ingreso",
   });
   revalidatePath(PATH);

@@ -15,9 +15,9 @@ import {
 // usando el email como id de usuario (en BD será el id real; la lógica
 // es idéntica).
 const asignaciones: Asignacion[] = DEMO_ASIGNACIONES.map((a) => ({
-  clientId: a.clientId,
+  clientId: a.clientCode,
   userId: a.userEmail ?? null,
-  teamId: a.team ? DEMO_EQUIPO.id : null,
+  teamId: a.team ? DEMO_EQUIPO.key : null,
   readScope: a.readScope,
   writeScope: a.writeScope,
   active: true,
@@ -25,7 +25,7 @@ const asignaciones: Asignacion[] = DEMO_ASIGNACIONES.map((a) => ({
 
 const rolDe = (email: string) => DEMO_USUARIOS.find((u) => u.email === email)!.role;
 const equiposDe = (email: string) =>
-  DEMO_MIEMBROS_EQUIPO.includes(email) ? [DEMO_EQUIPO.id] : [];
+  DEMO_MIEMBROS_EQUIPO.includes(email) ? [DEMO_EQUIPO.key] : [];
 
 // Atajo: ¿este usuario puede realizar la acción sobre el cliente?
 function puede(email: string, permiso: string, clientId: string) {

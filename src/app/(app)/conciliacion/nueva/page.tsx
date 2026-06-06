@@ -13,8 +13,8 @@ export default async function NuevaConciliacionPage() {
     id: c.id, name: c.name, nit: c.nit, erp: c.erp, sector: c.sector,
     configured: c.modules.filter((m) => m.status === "configured").map((m) => m.moduleId),
   }));
-  const moduleOpts: ModuleOpt[] = modules.map((m) => ({ id: m.id, name: m.name, icon: m.icon }));
-  const fieldsByModule: Record<string, StdField[]> = {};
+  const moduleOpts: ModuleOpt[] = modules.map((m) => ({ id: m.id, code: m.code, name: m.name, icon: m.icon }));
+  const fieldsByModule: Record<number, StdField[]> = {};
   for (const f of fields) {
     (fieldsByModule[f.moduleId] ??= []).push({ key: f.key, label: f.label, type: f.type, required: f.required });
   }

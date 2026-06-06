@@ -3,7 +3,7 @@ import { ModuleFieldSchema, ClientSchema, PasswordSchema } from "./definitions";
 
 test("ModuleFieldSchema acepta un campo válido", () => {
   const r = ModuleFieldSchema.safeParse({
-    moduleId: "INV",
+    moduleId: 1,
     key: "codigo_item",
     label: "Código del ítem",
     type: "string",
@@ -15,7 +15,7 @@ test("ModuleFieldSchema acepta un campo válido", () => {
 
 test("ModuleFieldSchema rechaza clave con mayúsculas o espacios", () => {
   const r = ModuleFieldSchema.safeParse({
-    moduleId: "INV",
+    moduleId: 1,
     key: "Codigo Item",
     label: "X",
     type: "string",
@@ -26,7 +26,7 @@ test("ModuleFieldSchema rechaza clave con mayúsculas o espacios", () => {
 
 test("ModuleFieldSchema rechaza un tipo no permitido", () => {
   const r = ModuleFieldSchema.safeParse({
-    moduleId: "INV",
+    moduleId: 1,
     key: "x",
     label: "X",
     type: "boolean",
@@ -38,7 +38,7 @@ test("ModuleFieldSchema rechaza un tipo no permitido", () => {
 test("ClientSchema exige código, nombre, nit, erp y sector", () => {
   expect(
     ClientSchema.safeParse({
-      id: "C-9001",
+      code: "C-9001",
       name: "Demo S.A.S",
       nit: "900.000.000-1",
       erp: "SIESA",
@@ -46,7 +46,7 @@ test("ClientSchema exige código, nombre, nit, erp y sector", () => {
     }).success,
   ).toBe(true);
   expect(
-    ClientSchema.safeParse({ id: "", name: "", nit: "", erp: "", sector: "" }).success,
+    ClientSchema.safeParse({ code: "", name: "", nit: "", erp: "", sector: "" }).success,
   ).toBe(false);
 });
 

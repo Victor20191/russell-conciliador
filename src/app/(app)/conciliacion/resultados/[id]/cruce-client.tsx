@@ -6,8 +6,8 @@ import { Card, Chip } from "@/components/ui";
 import { fmt, fmtPct } from "@/lib/format";
 import { addReconciliationComment, setRowStatus } from "@/app/actions/reconciliation";
 
-export type Row = { id: string; cuenta: string; desc: string; cont: number; mod: number; diff: number; items: number; manualStatus: string | null };
-export type Comment = { id: string; cuenta: string; who: string; initials: string; text: string; time: string };
+export type Row = { id: number; cuenta: string; desc: string; cont: number; mod: number; diff: number; items: number; manualStatus: string | null };
+export type Comment = { id: number; cuenta: string; who: string; initials: string; text: string; time: string };
 
 function statusOf(diff: number, materiality: number, manual: string | null): { label: string; tone: "ok" | "warn" | "err" | "ink" } {
   if (manual === "conciliada") return { label: "Conciliada", tone: "ok" };
@@ -21,7 +21,7 @@ function statusOf(diff: number, materiality: number, manual: string | null): { l
 export default function CruceClient({
   reconciliationId, materiality, rows, comments,
 }: {
-  reconciliationId: string; materiality: number; rows: Row[]; comments: Comment[];
+  reconciliationId: number; materiality: number; rows: Row[]; comments: Comment[];
   totals: { cont: number; mod: number; diff: number }; diffPct: number;
 }) {
   const [filter, setFilter] = useState<"all" | "diff">("all");
@@ -155,7 +155,7 @@ export default function CruceClient({
   );
 }
 
-function RowAction({ reconciliationId, rowId, status, icon, label, danger }: { reconciliationId: string; rowId: string; status: string; icon: "check" | "warn" | "x"; label: string; danger?: boolean }) {
+function RowAction({ reconciliationId, rowId, status, icon, label, danger }: { reconciliationId: number; rowId: number; status: string; icon: "check" | "warn" | "x"; label: string; danger?: boolean }) {
   return (
     <form action={setRowStatus}>
       <input type="hidden" name="reconciliationId" value={reconciliationId} />

@@ -17,7 +17,7 @@
 // ============================================================
 
 export const DEMO_EQUIPO = {
-  id: "team-demo-pacifico",
+  key: "team-demo-pacifico",
   name: "Equipo Demo · Cartera Pacífico",
   description: "Equipo de prueba para validar roles, permisos y alcance por cliente.",
   leadEmail: "senior.demo@russellbedford.co",
@@ -49,7 +49,7 @@ export const DEMO_CLIENTE_B = "C-0871"; // Agroindustrias del Cauca Ltda.
 export const DEMO_CLIENTE_FUERA = "C-1308"; // Servicios Médicos Vital IPS (NO asignado)
 
 export type DemoAsignacion = {
-  clientId: string;
+  clientCode: string;
   userEmail?: string; // asignación individual
   team?: boolean; // true → asignación a nivel de equipo (hereda a sus integrantes)
   readScope: boolean;
@@ -58,14 +58,14 @@ export type DemoAsignacion = {
 
 export const DEMO_ASIGNACIONES: DemoAsignacion[] = [
   // Cartera del equipo: todos sus integrantes pueden LEER ambos clientes.
-  { clientId: DEMO_CLIENTE_A, team: true, readScope: true, writeScope: false },
-  { clientId: DEMO_CLIENTE_B, team: true, readScope: true, writeScope: false },
+  { clientCode: DEMO_CLIENTE_A, team: true, readScope: true, writeScope: false },
+  { clientCode: DEMO_CLIENTE_B, team: true, readScope: true, writeScope: false },
   // Staff: ESCRITURA solo sobre su cliente asignado (segregación por dato).
-  { clientId: DEMO_CLIENTE_A, userEmail: "staff1.demo@russellbedford.co", readScope: true, writeScope: true },
-  { clientId: DEMO_CLIENTE_B, userEmail: "staff2.demo@russellbedford.co", readScope: true, writeScope: true },
+  { clientCode: DEMO_CLIENTE_A, userEmail: "staff1.demo@russellbedford.co", readScope: true, writeScope: true },
+  { clientCode: DEMO_CLIENTE_B, userEmail: "staff2.demo@russellbedford.co", readScope: true, writeScope: true },
   // Supervisión (Gerente y Socio): LECTURA de la cartera, sin escritura.
-  { clientId: DEMO_CLIENTE_A, userEmail: "gerente.demo@russellbedford.co", readScope: true, writeScope: false },
-  { clientId: DEMO_CLIENTE_B, userEmail: "gerente.demo@russellbedford.co", readScope: true, writeScope: false },
-  { clientId: DEMO_CLIENTE_A, userEmail: "socio.demo@russellbedford.co", readScope: true, writeScope: false },
-  { clientId: DEMO_CLIENTE_B, userEmail: "socio.demo@russellbedford.co", readScope: true, writeScope: false },
+  { clientCode: DEMO_CLIENTE_A, userEmail: "gerente.demo@russellbedford.co", readScope: true, writeScope: false },
+  { clientCode: DEMO_CLIENTE_B, userEmail: "gerente.demo@russellbedford.co", readScope: true, writeScope: false },
+  { clientCode: DEMO_CLIENTE_A, userEmail: "socio.demo@russellbedford.co", readScope: true, writeScope: false },
+  { clientCode: DEMO_CLIENTE_B, userEmail: "socio.demo@russellbedford.co", readScope: true, writeScope: false },
 ];

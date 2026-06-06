@@ -54,14 +54,18 @@ async function main() {
 
   // ---- Módulos ----
   const modules = [
-    { id: "INV", name: "Inventarios", icon: "box" },
-    { id: "CAR", name: "Cartera", icon: "wallet" },
-    { id: "NOM", name: "Nómina", icon: "users" },
-    { id: "AFI", name: "Activos fijos", icon: "chip" },
-    { id: "CXP", name: "Cuentas por pagar", icon: "doc" },
-    { id: "ING", name: "Ingresos", icon: "chart" },
+    { code: "INV", name: "Inventarios", icon: "box" },
+    { code: "CAR", name: "Cartera", icon: "wallet" },
+    { code: "NOM", name: "Nómina", icon: "users" },
+    { code: "AFI", name: "Activos fijos", icon: "chip" },
+    { code: "CXP", name: "Cuentas por pagar", icon: "doc" },
+    { code: "ING", name: "Ingresos", icon: "chart" },
   ];
   await prisma.module.createMany({ data: modules });
+  const moduleIdByCode = new Map(
+    (await prisma.module.findMany({ select: { id: true, code: true } }))
+      .map((module) => [module.code, module.id]),
+  );
 
   // ---- Campos estándar (solo Inventarios en el prototipo) ----
   const invFields: { key: string; label: string; type: string; required: boolean; hint: string | null }[] = [
@@ -78,7 +82,7 @@ async function main() {
   ];
   await prisma.moduleField.createMany({
     data: invFields.map((f, i) => ({
-      moduleId: "INV",
+      moduleId: moduleIdByCode.get("INV")!,
       key: f.key,
       label: f.label,
       type: f.type,
@@ -88,24 +92,28 @@ async function main() {
     })),
   });
 
-  const nameToModuleId: Record<string, string> = {
-    Inventarios: "INV", Cartera: "CAR", "Nómina": "NOM",
-    "Activos fijos": "AFI", "Cuentas por pagar": "CXP", Ingresos: "ING",
+  const nameToModuleId: Record<string, number> = {
+    Inventarios: moduleIdByCode.get("INV")!,
+    Cartera: moduleIdByCode.get("CAR")!,
+    "Nómina": moduleIdByCode.get("NOM")!,
+    "Activos fijos": moduleIdByCode.get("AFI")!,
+    "Cuentas por pagar": moduleIdByCode.get("CXP")!,
+    Ingresos: moduleIdByCode.get("ING")!,
   };
 
   // ---- Clientes ----
   const clients = [
-    { id: "C-1042", name: "Inversiones del Pacífico S.A.S", nit: "900.451.227-3", erp: "SIESA", sector: "Comercio", configured: ["Cartera", "Cuentas por pagar", "Ingresos"], pending: ["Inventarios"] },
-    { id: "C-0871", name: "Agroindustrias del Cauca Ltda.", nit: "830.118.044-1", erp: "SIIGO", sector: "Agroindustria", configured: ["Nómina", "Cartera", "Ingresos", "Inventarios"], pending: [] },
-    { id: "C-1233", name: "Logística Andina Express S.A.", nit: "901.220.553-9", erp: "SAP", sector: "Transporte", configured: ["Activos fijos", "Cuentas por pagar", "Cartera", "Ingresos", "Nómina"], pending: ["Inventarios"] },
-    { id: "C-0950", name: "Constructora Río Verde S.A.S", nit: "900.667.319-4", erp: "OFIMATICA", sector: "Construcción", configured: ["Cartera", "Activos fijos"], pending: ["Inventarios", "Nómina", "Ingresos"] },
-    { id: "C-1101", name: "Distribuciones El Roble S.A.", nit: "830.554.221-7", erp: "SIIGO", sector: "Distribución", configured: ["Inventarios", "Cartera", "Ingresos", "Cuentas por pagar"], pending: [] },
-    { id: "C-1308", name: "Servicios Médicos Vital IPS", nit: "901.044.102-2", erp: "SIESA", sector: "Salud", configured: ["Nómina", "Cartera"], pending: ["Ingresos", "Cuentas por pagar"] },
+    { code: "C-1042", name: "Inversiones del Pacífico S.A.S", nit: "900.451.227-3", erp: "SIESA", sector: "Comercio", configured: ["Cartera", "Cuentas por pagar", "Ingresos"], pending: ["Inventarios"] },
+    { code: "C-0871", name: "Agroindustrias del Cauca Ltda.", nit: "830.118.044-1", erp: "SIIGO", sector: "Agroindustria", configured: ["Nómina", "Cartera", "Ingresos", "Inventarios"], pending: [] },
+    { code: "C-1233", name: "Logística Andina Express S.A.", nit: "901.220.553-9", erp: "SAP", sector: "Transporte", configured: ["Activos fijos", "Cuentas por pagar", "Cartera", "Ingresos", "Nómina"], pending: ["Inventarios"] },
+    { code: "C-0950", name: "Constructora Río Verde S.A.S", nit: "900.667.319-4", erp: "OFIMATICA", sector: "Construcción", configured: ["Cartera", "Activos fijos"], pending: ["Inventarios", "Nómina", "Ingresos"] },
+    { code: "C-1101", name: "Distribuciones El Roble S.A.", nit: "830.554.221-7", erp: "SIIGO", sector: "Distribución", configured: ["Inventarios", "Cartera", "Ingresos", "Cuentas por pagar"], pending: [] },
+    { code: "C-1308", name: "Servicios Médicos Vital IPS", nit: "901.044.102-2", erp: "SIESA", sector: "Salud", configured: ["Nómina", "Cartera"], pending: ["Ingresos", "Cuentas por pagar"] },
   ];
   for (const c of clients) {
     await prisma.client.create({
       data: {
-        id: c.id, name: c.name, nit: c.nit, erp: c.erp, sector: c.sector,
+        code: c.code, name: c.name, nit: c.nit, erp: c.erp, sector: c.sector,
         modules: {
           create: [
             ...c.configured.map((m) => ({ moduleId: nameToModuleId[m], status: "configured" })),
@@ -119,12 +127,12 @@ async function main() {
   // ---- Conciliaciones recientes ----
   await prisma.reconciliation.createMany({
     data: [
-      { id: "REC-2026-0418", clientName: "Distribuciones El Roble S.A.", module: "Inventarios", period: "Feb 2026", erp: "SIIGO", status: "OK", diff: "$ 0", items: 0, date: "22/Abr/2026", owner: "M. Bermúdez" },
-      { id: "REC-2026-0412", clientName: "Agroindustrias del Cauca Ltda.", module: "Cartera", period: "Mar 2026", erp: "SIIGO", status: "DIFF", diff: "$ 4.218.500", items: 7, date: "21/Abr/2026", owner: "J. Rincón", lastActivity: "hace 2 h" },
-      { id: "REC-2026-0407", clientName: "Logística Andina Express S.A.", module: "Cuentas por pagar", period: "Mar 2026", erp: "SAP", status: "DIFF", diff: "$ 12.044.180", items: 18, date: "20/Abr/2026", owner: "C. Aristizábal", lastActivity: "hoy 09:40" },
-      { id: "REC-2026-0403", clientName: "Inversiones del Pacífico S.A.S", module: "Cartera", period: "Mar 2026", erp: "SIESA", status: "REVIEW", diff: "$ 805.220", items: 3, date: "18/Abr/2026", owner: "J. Rincón", lastActivity: "ayer 17:12" },
-      { id: "REC-2026-0398", clientName: "Servicios Médicos Vital IPS", module: "Nómina", period: "Mar 2026", erp: "SIESA", status: "OK", diff: "$ 0", items: 0, date: "16/Abr/2026", owner: "M. Bermúdez" },
-      { id: "REC-2026-0394", clientName: "Constructora Río Verde S.A.S", module: "Activos fijos", period: "Feb 2026", erp: "OFIMATICA", status: "DIFF", diff: "$ 1.450.000", items: 2, date: "15/Abr/2026", owner: "C. Aristizábal" },
+      { code: "REC-2026-0418", clientName: "Distribuciones El Roble S.A.", module: "Inventarios", period: "Feb 2026", erp: "SIIGO", status: "OK", diff: "$ 0", items: 0, date: "22/Abr/2026", owner: "M. Bermúdez" },
+      { code: "REC-2026-0412", clientName: "Agroindustrias del Cauca Ltda.", module: "Cartera", period: "Mar 2026", erp: "SIIGO", status: "DIFF", diff: "$ 4.218.500", items: 7, date: "21/Abr/2026", owner: "J. Rincón", lastActivity: "hace 2 h" },
+      { code: "REC-2026-0407", clientName: "Logística Andina Express S.A.", module: "Cuentas por pagar", period: "Mar 2026", erp: "SAP", status: "DIFF", diff: "$ 12.044.180", items: 18, date: "20/Abr/2026", owner: "C. Aristizábal", lastActivity: "hoy 09:40" },
+      { code: "REC-2026-0403", clientName: "Inversiones del Pacífico S.A.S", module: "Cartera", period: "Mar 2026", erp: "SIESA", status: "REVIEW", diff: "$ 805.220", items: 3, date: "18/Abr/2026", owner: "J. Rincón", lastActivity: "ayer 17:12" },
+      { code: "REC-2026-0398", clientName: "Servicios Médicos Vital IPS", module: "Nómina", period: "Mar 2026", erp: "SIESA", status: "OK", diff: "$ 0", items: 0, date: "16/Abr/2026", owner: "M. Bermúdez" },
+      { code: "REC-2026-0394", clientName: "Constructora Río Verde S.A.S", module: "Activos fijos", period: "Feb 2026", erp: "OFIMATICA", status: "DIFF", diff: "$ 1.450.000", items: 2, date: "15/Abr/2026", owner: "C. Aristizábal" },
     ],
   });
 
@@ -287,38 +295,42 @@ async function main() {
 
   // ---- DIAN ----
   const forms = [
-    { id: "IVA", name: "IVA", code: "F-300", periodicity: "Bimestral", icon: "doc", periods: [
+    { key: "IVA", name: "IVA", code: "F-300", periodicity: "Bimestral", icon: "doc", periods: [
       { periodKey: "2026-B5", label: "Bimestre 5 · Sep-Oct 2026", status: "DIFF", filed: "15/Nov/2026" },
       { periodKey: "2026-B4", label: "Bimestre 4 · Jul-Ago 2026", status: "OK", filed: "15/Sep/2026" },
       { periodKey: "2026-B3", label: "Bimestre 3 · May-Jun 2026", status: "OK", filed: "15/Jul/2026" },
       { periodKey: "2026-B2", label: "Bimestre 2 · Mar-Abr 2026", status: "DIFF", filed: "15/May/2026" },
       { periodKey: "2026-B1", label: "Bimestre 1 · Ene-Feb 2026", status: "OK", filed: "15/Mar/2026" },
     ] },
-    { id: "RETEFUENTE", name: "Retención en la fuente", code: "F-350", periodicity: "Mensual", icon: "wallet", periods: [
+    { key: "RETEFUENTE", name: "Retención en la fuente", code: "F-350", periodicity: "Mensual", icon: "wallet", periods: [
       { periodKey: "2026-10", label: "Octubre 2026", status: "OK", filed: "08/Nov/2026" },
       { periodKey: "2026-09", label: "Septiembre 2026", status: "OK", filed: "08/Oct/2026" },
       { periodKey: "2026-08", label: "Agosto 2026", status: "OK", filed: "08/Sep/2026" },
       { periodKey: "2026-07", label: "Julio 2026", status: "DIFF", filed: "08/Ago/2026" },
       { periodKey: "2026-06", label: "Junio 2026", status: "OK", filed: "08/Jul/2026" },
     ] },
-    { id: "SALUDABLE", name: "Impuesto Saludable", code: "F-310", periodicity: "Mensual", icon: "chip", periods: [
+    { key: "SALUDABLE", name: "Impuesto Saludable", code: "F-310", periodicity: "Mensual", icon: "chip", periods: [
       { periodKey: "2026-10", label: "Octubre 2026", status: "PEND", filed: null },
       { periodKey: "2026-09", label: "Septiembre 2026", status: "OK", filed: "18/Oct/2026" },
     ] },
-    { id: "ICA", name: "ICA Bogotá", code: "F-CHIP", periodicity: "Bimestral", icon: "chart", periods: [
+    { key: "ICA", name: "ICA Bogotá", code: "F-CHIP", periodicity: "Bimestral", icon: "chart", periods: [
       { periodKey: "2026-B5", label: "Bimestre 5 · Sep-Oct 2026", status: "PEND", filed: null },
     ] },
   ];
   for (const f of forms) {
     await prisma.dianForm.create({
-      data: { id: f.id, name: f.name, code: f.code, periodicity: f.periodicity, icon: f.icon,
+      data: { key: f.key, name: f.name, code: f.code, periodicity: f.periodicity, icon: f.icon,
         periods: { create: f.periods.map((p) => ({ periodKey: p.periodKey, label: p.label, status: p.status, filed: p.filed })) } },
     });
   }
+  const formIdByKey = new Map<string, number>(
+    (await prisma.dianForm.findMany({ select: { id: true, key: true } }))
+      .map((form) => [form.key, form.id]),
+  );
 
   const dianObjective = "Validar que las declaraciones del año fueron presentadas y pagadas oportunamente, y que las cifras declaradas crucen con las cifras contables al cierre.";
-  await prisma.dianForm.update({ where: { id: "IVA" }, data: { objective: dianObjective, conclusion: "Se evidencian diferencias en el IVA descontable de $795.709 y diferencias menores no materiales en otros renglones. Las diferencias en ingresos están explicadas por devoluciones y refacturación de septiembre." } });
-  await prisma.dianForm.update({ where: { id: "RETEFUENTE" }, data: { objective: dianObjective, conclusion: "No se evidencian diferencias materiales entre los valores declarados en retención en la fuente vs. contabilidad. Diferencias menores explicadas por redondeo." } });
+  await prisma.dianForm.update({ where: { key: "IVA" }, data: { objective: dianObjective, conclusion: "Se evidencian diferencias en el IVA descontable de $795.709 y diferencias menores no materiales en otros renglones. Las diferencias en ingresos están explicadas por devoluciones y refacturación de septiembre." } });
+  await prisma.dianForm.update({ where: { key: "RETEFUENTE" }, data: { objective: dianObjective, conclusion: "No se evidencian diferencias materiales entre los valores declarados en retención en la fuente vs. contabilidad. Diferencias menores explicadas por redondeo." } });
 
   // ---- Catálogo de cuentas Russell (selector del mapeo) ----
   await prisma.russellOption.createMany({
@@ -343,6 +355,10 @@ async function main() {
       { code: "52", name: "Operacionales de ventas", module: null },
     ],
   });
+  const russellOptionIdByCode = new Map<string, number>(
+    (await prisma.russellOption.findMany({ select: { id: true, code: true } }))
+      .map((option) => [option.code, option.id]),
+  );
 
   // ---- PUC del cliente El Zarzal (árbol N4/N6/N8) ----
   const elZarzalTree: [string, number, string, string | null][] = [
@@ -360,7 +376,12 @@ async function main() {
   ];
   await prisma.clientAccount.createMany({
     data: elZarzalTree.map(([code, level, name, russell], i) => ({
-      clientName: "El Zarzal S.A", code, level, name, russellCode: russell, order: i,
+      clientName: "El Zarzal S.A",
+      code,
+      level,
+      name,
+      russellOptionId: russell ? russellOptionIdByCode.get(russell) ?? null : null,
+      order: i,
     })),
   });
 
@@ -378,7 +399,7 @@ async function main() {
   ];
   await prisma.reconciliation.create({
     data: {
-      id: "REC-2026-0431", clientName: "Inversiones del Pacífico S.A.S", module: "Inventarios",
+      code: "REC-2026-0431", clientName: "Inversiones del Pacífico S.A.S", module: "Inventarios",
       period: "Marzo 2026", erp: "SIESA", status: "REVIEW", diff: "-$ 6.097.050", items: 4,
       date: "03/May/2026", owner: "J. Rincón", cutoff: "31/Mar/2026", runAt: "03/May/2026 09:14",
       runBy: "Juliana Rincón", materiality: 2000000, lastActivity: "hace 12 min",
@@ -457,12 +478,14 @@ async function main() {
     ] },
   ];
 
-  async function seedDianForm(formId: string, secs: { id: string; title: string; side: string; note?: string; lines: LineT[] }[]) {
+  async function seedDianForm(formKey: string, secs: { id: string; title: string; side: string; note?: string; lines: LineT[] }[]) {
+    const formId = formIdByKey.get(formKey);
+    if (!formId) throw new Error(`Formulario DIAN inexistente: ${formKey}`);
     for (let si = 0; si < secs.length; si++) {
       const s = secs[si];
       await prisma.dianSection.create({
         data: {
-          id: `${formId}-${s.id}`, formId, title: s.title, side: s.side, note: s.note ?? null, order: si,
+          key: `${formKey}-${s.id}`, formId, title: s.title, side: s.side, note: s.note ?? null, order: si,
           lines: { create: s.lines.map(([k, label, decl, cont, diff], i) => ({ k, label, decl, cont, diff, order: i })) },
         },
       });
@@ -474,24 +497,24 @@ async function main() {
   // ---- Mapeos de renglón → cuentas (IVA) ----
   await prisma.dianMapping.createMany({
     data: [
-      { formId: "IVA", lineKey: "GEN-19", account: "240801", desc: "IVA generado tarifa general", sign: "+", order: 0 },
-      { formId: "IVA", lineKey: "GEN-19", account: "240802", desc: "IVA generado en devoluciones", sign: "-", order: 1 },
-      { formId: "IVA", lineKey: "DES-CBG", account: "240810", desc: "IVA descontable bienes tarifa general", sign: "+", order: 0 },
-      { formId: "IVA", lineKey: "DES-CBG", account: "240811", desc: "IVA descontable importaciones", sign: "+", order: 1 },
-      { formId: "IVA", lineKey: "ING-GG", account: "413505", desc: "Comercio al por mayor — gravados general", sign: "+", order: 0 },
-      { formId: "IVA", lineKey: "ING-GG", account: "417500", desc: "Devoluciones en ventas", sign: "-", order: 1 },
-      { formId: "IVA", lineKey: "ING-EXC", account: "413515", desc: "Ventas exentas Arts. 477-481 E.T.", sign: "+", order: 0 },
+      { formId: formIdByKey.get("IVA")!, lineKey: "GEN-19", account: "240801", desc: "IVA generado tarifa general", sign: "+", order: 0 },
+      { formId: formIdByKey.get("IVA")!, lineKey: "GEN-19", account: "240802", desc: "IVA generado en devoluciones", sign: "-", order: 1 },
+      { formId: formIdByKey.get("IVA")!, lineKey: "DES-CBG", account: "240810", desc: "IVA descontable bienes tarifa general", sign: "+", order: 0 },
+      { formId: formIdByKey.get("IVA")!, lineKey: "DES-CBG", account: "240811", desc: "IVA descontable importaciones", sign: "+", order: 1 },
+      { formId: formIdByKey.get("IVA")!, lineKey: "ING-GG", account: "413505", desc: "Comercio al por mayor — gravados general", sign: "+", order: 0 },
+      { formId: formIdByKey.get("IVA")!, lineKey: "ING-GG", account: "417500", desc: "Devoluciones en ventas", sign: "-", order: 1 },
+      { formId: formIdByKey.get("IVA")!, lineKey: "ING-EXC", account: "413515", desc: "Ventas exentas Arts. 477-481 E.T.", sign: "+", order: 0 },
     ],
   });
 
   // ---- Comentarios por renglón (IVA) ----
   await prisma.dianComment.createMany({
     data: [
-      { formId: "IVA", lineKey: "DES-IMG", who: "IA", initials: "IA", isAI: true, time: "sugerencia automática", text: "La diferencia de $352.915 representa el 0,03% del valor declarado. Posibles causas: IVA descontable de importaciones del cierre de octubre con DIAN del primer día hábil de noviembre, o reclasificación de tarifa entre 5% y general. Verificar la planilla de importaciones del último decadario." },
-      { formId: "IVA", lineKey: "DES-CB5", who: "IA", initials: "IA", isAI: true, time: "sugerencia automática", text: "Diferencia material ($156.428). Patrón típico: facturas de proveedores recibidas después del corte pero registradas dentro del bimestre. Validar con el reporte de causación posterior." },
-      { formId: "IVA", lineKey: "ING-G5", who: "Carlos Aristizábal", initials: "CA", time: "hace 1 día", text: "Esta diferencia corresponde a facturación de septiembre que ya causó IVA; se realizó devolución y se refacturó." },
-      { formId: "IVA", lineKey: "ING-G5", who: "Juliana Rincón", initials: "JR", time: "hace 6 h", text: "Confirmado con comercial. La devolución NC-2026-1842 explica los $13.500.000. Se reclasifica como diferencia de oportunidad — no implica ajuste a la declaración." },
-      { formId: "IVA", lineKey: "ING-LIC", who: "IA", initials: "IA", isAI: true, time: "sugerencia automática", text: "Diferencia de $13.499.973. Mismo patrón que el renglón al 5% — probablemente comparten origen (devolución y refacturación de septiembre). Validar trazabilidad." },
+      { formId: formIdByKey.get("IVA")!, lineKey: "DES-IMG", who: "IA", initials: "IA", isAI: true, time: "sugerencia automática", text: "La diferencia de $352.915 representa el 0,03% del valor declarado. Posibles causas: IVA descontable de importaciones del cierre de octubre con DIAN del primer día hábil de noviembre, o reclasificación de tarifa entre 5% y general. Verificar la planilla de importaciones del último decadario." },
+      { formId: formIdByKey.get("IVA")!, lineKey: "DES-CB5", who: "IA", initials: "IA", isAI: true, time: "sugerencia automática", text: "Diferencia material ($156.428). Patrón típico: facturas de proveedores recibidas después del corte pero registradas dentro del bimestre. Validar con el reporte de causación posterior." },
+      { formId: formIdByKey.get("IVA")!, lineKey: "ING-G5", who: "Carlos Aristizábal", initials: "CA", time: "hace 1 día", text: "Esta diferencia corresponde a facturación de septiembre que ya causó IVA; se realizó devolución y se refacturó." },
+      { formId: formIdByKey.get("IVA")!, lineKey: "ING-G5", who: "Juliana Rincón", initials: "JR", time: "hace 6 h", text: "Confirmado con comercial. La devolución NC-2026-1842 explica los $13.500.000. Se reclasifica como diferencia de oportunidad — no implica ajuste a la declaración." },
+      { formId: formIdByKey.get("IVA")!, lineKey: "ING-LIC", who: "IA", initials: "IA", isAI: true, time: "sugerencia automática", text: "Diferencia de $13.499.973. Mismo patrón que el renglón al 5% — probablemente comparten origen (devolución y refacturación de septiembre). Validar trazabilidad." },
     ],
   });
 
@@ -510,17 +533,21 @@ async function main() {
   // ---- Plantillas ----
   await prisma.reqTemplate.createMany({
     data: [
-      { id: "TPL-CIERRE", code: "RFA-CIERRE", name: "Auditoría financiera — Cierre", description: "Solicitud de información para auditoría de estados financieros con corte al cierre del año.", activeVersion: "v3.2", families: 13, items: 78, timesUsed: 47, lastUpdated: "06/Nov/2026", lastUpdatedBy: "Manuela Gutiérrez" },
-      { id: "TPL-LEGALES", code: "RFA-LEGALES", name: "Aspectos legales, laborales y tributarios", description: "Solicitud para evaluación general de control — auditoría de revisoría fiscal.", activeVersion: "v2.1", families: 4, items: 38, timesUsed: 32, lastUpdated: "22/Abr/2026", lastUpdatedBy: "Manuela Gutiérrez" },
-      { id: "TPL-INTERIM", code: "RFA-INTERIM", name: "Auditoría intermedia", description: "Solicitud para revisión intermedia trimestral o semestral.", activeVersion: "v1.4", families: 8, items: 42, timesUsed: 18, lastUpdated: "15/Jul/2026", lastUpdatedBy: "Andrea Gómez" },
-      { id: "TPL-PRECIERRE", code: "RFA-PRECIERRE", name: "Pre-cierre — Octubre", description: "Solicitud de información para preparación del cierre anual (corte octubre).", activeVersion: "v1.1", families: 10, items: 54, timesUsed: 12, lastUpdated: "20/Sep/2026", lastUpdatedBy: "Manuela Gutiérrez" },
+      { key: "TPL-CIERRE", code: "RFA-CIERRE", name: "Auditoría financiera — Cierre", description: "Solicitud de información para auditoría de estados financieros con corte al cierre del año.", activeVersion: "v3.2", families: 13, items: 78, timesUsed: 47, lastUpdated: "06/Nov/2026", lastUpdatedBy: "Manuela Gutiérrez" },
+      { key: "TPL-LEGALES", code: "RFA-LEGALES", name: "Aspectos legales, laborales y tributarios", description: "Solicitud para evaluación general de control — auditoría de revisoría fiscal.", activeVersion: "v2.1", families: 4, items: 38, timesUsed: 32, lastUpdated: "22/Abr/2026", lastUpdatedBy: "Manuela Gutiérrez" },
+      { key: "TPL-INTERIM", code: "RFA-INTERIM", name: "Auditoría intermedia", description: "Solicitud para revisión intermedia trimestral o semestral.", activeVersion: "v1.4", families: 8, items: 42, timesUsed: 18, lastUpdated: "15/Jul/2026", lastUpdatedBy: "Andrea Gómez" },
+      { key: "TPL-PRECIERRE", code: "RFA-PRECIERRE", name: "Pre-cierre — Octubre", description: "Solicitud de información para preparación del cierre anual (corte octubre).", activeVersion: "v1.1", families: 10, items: 54, timesUsed: 12, lastUpdated: "20/Sep/2026", lastUpdatedBy: "Manuela Gutiérrez" },
     ],
+  });
+  const cierreTemplate = await prisma.reqTemplate.findUniqueOrThrow({
+    where: { key: "TPL-CIERRE" },
+    select: { id: true },
   });
 
   // ---- Header de CIERRE ----
   await prisma.reqTemplateHeader.create({
     data: {
-      templateId: "TPL-CIERRE", firmName: "Russell Bedford GCT S.A.S.", city: "Medellín",
+      templateId: cierreTemplate.id, firmName: "Russell Bedford GCT S.A.S.", city: "Medellín",
       asunto: "Requerimiento de Información, Auditoría financiera Cierre con corte a {{fecha_corte}}.",
       intro: "El propósito de una auditoría es incrementar el grado de confianza de los usuarios en los estados financieros. Esto se logra con la expresión de una opinión por el auditor sobre si los estados financieros están elaborados, y están presentados, razonablemente, respecto de todo lo importante, de acuerdo con el marco de referencia de información financiera aplicable.\n\nNuestra auditoría es conducida de acuerdo con las Normas Internacionales de Auditoría (NIA) y los requisitos éticos relevantes.",
       noteGeneric: "De acuerdo con la importancia de este análisis es indispensable que se suministre la información requerida que a continuación se detalla (si no se maneja algún rubro citado, omitir el ítem).",
@@ -549,29 +576,33 @@ async function main() {
   for (let fi = 0; fi < famData.length; fi++) {
     const f = famData[fi];
     await prisma.reqFamily.create({
-      data: { templateId: "TPL-CIERRE", name: f.name, order: fi, itemList: { create: f.items.map((text, i) => ({ text, order: i })) } },
+      data: { templateId: cierreTemplate.id, name: f.name, order: fi, itemList: { create: f.items.map((text, i) => ({ text, order: i })) } },
     });
   }
 
   // ---- Historial de envíos ----
   await prisma.reqSubmission.createMany({
     data: [
-      { id: "REQ-2026-014", consec: "RFA 001 – 2026 ZZ", templateCode: "RFA-CIERRE", templateVersion: "v3.2", clientName: "El Zarzal S.A", period: "Cierre 2025", recipients: 3, status: "Enviado", date: "06/Ene/2026", sentBy: "Manuela Gutiérrez" },
-      { id: "REQ-2026-013", consec: "RFA 006 – 2026 ZZ", templateCode: "RFA-LEGALES", templateVersion: "v2.1", clientName: "El Zarzal S.A", period: "Abril 2026", recipients: 3, status: "Enviado", date: "22/Abr/2026", sentBy: "Manuela Gutiérrez" },
-      { id: "REQ-2026-012", consec: "RFA 002 – 2026 IP", templateCode: "RFA-CIERRE", templateVersion: "v3.2", clientName: "Inversiones del Pacífico S.A.S", period: "Cierre 2025", recipients: 4, status: "Enviado", date: "08/Ene/2026", sentBy: "Carlos Aristizábal" },
-      { id: "REQ-2026-011", consec: "RFA 022 – 2026 CA", templateCode: "RFA-INTERIM", templateVersion: "v1.4", clientName: "Comercializadora Andina Ltda", period: "Q3 2026", recipients: 2, status: "Borrador", date: "15/Oct/2026", sentBy: "Andrea Gómez" },
-      { id: "REQ-2026-010", consec: "RFA 028 – 2026 MS", templateCode: "RFA-PRECIERRE", templateVersion: "v1.1", clientName: "Manufacturas del Sur S.A", period: "Pre-cierre Oct 2026", recipients: 5, status: "Enviado", date: "05/Nov/2026", sentBy: "Manuela Gutiérrez" },
+      { code: "REQ-2026-014", consec: "RFA 001 – 2026 ZZ", templateCode: "RFA-CIERRE", templateVersion: "v3.2", clientName: "El Zarzal S.A", period: "Cierre 2025", recipients: 3, status: "Enviado", date: "06/Ene/2026", sentBy: "Manuela Gutiérrez" },
+      { code: "REQ-2026-013", consec: "RFA 006 – 2026 ZZ", templateCode: "RFA-LEGALES", templateVersion: "v2.1", clientName: "El Zarzal S.A", period: "Abril 2026", recipients: 3, status: "Enviado", date: "22/Abr/2026", sentBy: "Manuela Gutiérrez" },
+      { code: "REQ-2026-012", consec: "RFA 002 – 2026 IP", templateCode: "RFA-CIERRE", templateVersion: "v3.2", clientName: "Inversiones del Pacífico S.A.S", period: "Cierre 2025", recipients: 4, status: "Enviado", date: "08/Ene/2026", sentBy: "Carlos Aristizábal" },
+      { code: "REQ-2026-011", consec: "RFA 022 – 2026 CA", templateCode: "RFA-INTERIM", templateVersion: "v1.4", clientName: "Comercializadora Andina Ltda", period: "Q3 2026", recipients: 2, status: "Borrador", date: "15/Oct/2026", sentBy: "Andrea Gómez" },
+      { code: "REQ-2026-010", consec: "RFA 028 – 2026 MS", templateCode: "RFA-PRECIERRE", templateVersion: "v1.1", clientName: "Manufacturas del Sur S.A", period: "Pre-cierre Oct 2026", recipients: 5, status: "Enviado", date: "05/Nov/2026", sentBy: "Manuela Gutiérrez" },
     ],
   });
 
   // ---- Repositorios (lista) ----
   await prisma.reqRepository.createMany({
     data: [
-      { id: "REPO-2026-014", consec: "RFA 001 – 2026 ZZ", templateCode: "RFA-CIERRE v3.2", clientName: "El Zarzal S.A", nit: "890.345.872-1", period: "Cierre 2025", cutoff: "31/Dic/2025", sentAt: "06/Ene/2026 09:14", sentBy: "Manuela Gutiérrez", deadline: "23/Ene/2026", daysLeft: -2, total: 78, received: 64, pending: 11, overdue: 3, progress: 82, status: "Vencido parcial" },
-      { id: "REPO-2026-013", consec: "RFA 006 – 2026 ZZ", templateCode: "RFA-LEGALES v2.1", clientName: "El Zarzal S.A", nit: "890.345.872-1", period: "Abril 2026", cutoff: "30/Abr/2026", sentAt: "22/Abr/2026 11:08", sentBy: "Manuela Gutiérrez", deadline: "08/May/2026", daysLeft: 0, total: 38, received: 35, pending: 3, overdue: 0, progress: 92, status: "En recepción" },
-      { id: "REPO-2026-012", consec: "RFA 002 – 2026 IP", templateCode: "RFA-CIERRE v3.2", clientName: "Inversiones del Pacífico S.A.S", nit: "900.451.227-3", period: "Cierre 2025", cutoff: "31/Dic/2025", sentAt: "08/Ene/2026 14:30", sentBy: "Carlos Aristizábal", deadline: "25/Ene/2026", daysLeft: -2, total: 78, received: 78, pending: 0, overdue: 0, progress: 100, status: "Completo" },
-      { id: "REPO-2026-010", consec: "RFA 028 – 2026 MS", templateCode: "RFA-PRECIERRE v1.1", clientName: "Manufacturas del Sur S.A", nit: "830.502.118-9", period: "Pre-cierre Oct 2026", cutoff: "31/Oct/2026", sentAt: "05/Nov/2026 13:02", sentBy: "Manuela Gutiérrez", deadline: "19/Nov/2026", daysLeft: 11, total: 54, received: 18, pending: 36, overdue: 0, progress: 33, status: "En recepción" },
+      { code: "REPO-2026-014", consec: "RFA 001 – 2026 ZZ", templateCode: "RFA-CIERRE v3.2", clientName: "El Zarzal S.A", nit: "890.345.872-1", period: "Cierre 2025", cutoff: "31/Dic/2025", sentAt: "06/Ene/2026 09:14", sentBy: "Manuela Gutiérrez", deadline: "23/Ene/2026", daysLeft: -2, total: 78, received: 64, pending: 11, overdue: 3, progress: 82, status: "Vencido parcial" },
+      { code: "REPO-2026-013", consec: "RFA 006 – 2026 ZZ", templateCode: "RFA-LEGALES v2.1", clientName: "El Zarzal S.A", nit: "890.345.872-1", period: "Abril 2026", cutoff: "30/Abr/2026", sentAt: "22/Abr/2026 11:08", sentBy: "Manuela Gutiérrez", deadline: "08/May/2026", daysLeft: 0, total: 38, received: 35, pending: 3, overdue: 0, progress: 92, status: "En recepción" },
+      { code: "REPO-2026-012", consec: "RFA 002 – 2026 IP", templateCode: "RFA-CIERRE v3.2", clientName: "Inversiones del Pacífico S.A.S", nit: "900.451.227-3", period: "Cierre 2025", cutoff: "31/Dic/2025", sentAt: "08/Ene/2026 14:30", sentBy: "Carlos Aristizábal", deadline: "25/Ene/2026", daysLeft: -2, total: 78, received: 78, pending: 0, overdue: 0, progress: 100, status: "Completo" },
+      { code: "REPO-2026-010", consec: "RFA 028 – 2026 MS", templateCode: "RFA-PRECIERRE v1.1", clientName: "Manufacturas del Sur S.A", nit: "830.502.118-9", period: "Pre-cierre Oct 2026", cutoff: "31/Oct/2026", sentAt: "05/Nov/2026 13:02", sentBy: "Manuela Gutiérrez", deadline: "19/Nov/2026", daysLeft: 11, total: 54, received: 18, pending: 36, overdue: 0, progress: 33, status: "En recepción" },
     ],
+  });
+  const repository = await prisma.reqRepository.findUniqueOrThrow({
+    where: { code: "REPO-2026-014" },
+    select: { id: true },
   });
 
   // ---- Detalle de REPO-2026-014: familias + ítems ----
@@ -616,21 +647,21 @@ async function main() {
   for (let fi = 0; fi < repoFams.length; fi++) {
     const f = repoFams[fi];
     await prisma.reqRepoFamily.create({
-      data: { repositoryId: "REPO-2026-014", code: f.code, name: f.name, total: f.total, received: f.received, pending: f.pending, order: fi,
+      data: { repositoryId: repository.id, code: f.code, name: f.name, total: f.total, received: f.received, pending: f.pending, order: fi,
         items: { create: f.items.map(([idx, doc, status, file, size, by, at], i) => ({ idx, doc, due: "23/Ene/2026", status, file, size, by, at, order: i })) } },
     });
   }
 
   await prisma.reqRepoActivity.createMany({
     data: [
-      { repositoryId: "REPO-2026-014", at: "06/Ene/2026 09:14", actor: "Manuela Gutiérrez", role: "Auditor", action: "Envió requerimiento y creó repositorio", detail: "78 ítems · vencimiento 23/Ene/2026", order: 0 },
-      { repositoryId: "REPO-2026-014", at: "06/Ene/2026 09:14", actor: "Sandra Paniagua", role: "Cliente", action: "Cargó Balance v3", detail: "F1 · ítem 2 · 284 KB", order: 1 },
-      { repositoryId: "REPO-2026-014", at: "07/Ene/2026 16:42", actor: "Sandra Carrillo", role: "Cliente", action: "Cargó 2 documentos", detail: "F1 · RUT, CCC", order: 2 },
-      { repositoryId: "REPO-2026-014", at: "08/Ene/2026 10:14", actor: "Sandra Paniagua", role: "Cliente", action: "Cargó políticas NIIF", detail: "F1 · ítem 1", order: 3 },
-      { repositoryId: "REPO-2026-014", at: "12/Ene/2026 14:08", actor: "Sandra Paniagua", role: "Cliente", action: "Cargó 2 documentos de cartera", detail: "F3 · ítems 1, 2", order: 4 },
-      { repositoryId: "REPO-2026-014", at: "15/Ene/2026 11:30", actor: "Sandra Paniagua", role: "Cliente", action: "Cargó 4 documentos", detail: "F3 · ítems 4, 5, 8 + F4", order: 5 },
-      { repositoryId: "REPO-2026-014", at: "24/Ene/2026 08:00", actor: "Sistema", role: "Auto", action: "3 ítems vencidos", detail: "F3 ítems 3, 7 · F11 ítem 1", order: 6 },
-      { repositoryId: "REPO-2026-014", at: "25/Ene/2026 09:15", actor: "Manuela Gutiérrez", role: "Auditor", action: "Envió recordatorio", detail: "a Sandra Paniagua, Sandra Carrillo", order: 7 },
+      { repositoryId: repository.id, at: "06/Ene/2026 09:14", actor: "Manuela Gutiérrez", role: "Auditor", action: "Envió requerimiento y creó repositorio", detail: "78 ítems · vencimiento 23/Ene/2026", order: 0 },
+      { repositoryId: repository.id, at: "06/Ene/2026 09:14", actor: "Sandra Paniagua", role: "Cliente", action: "Cargó Balance v3", detail: "F1 · ítem 2 · 284 KB", order: 1 },
+      { repositoryId: repository.id, at: "07/Ene/2026 16:42", actor: "Sandra Carrillo", role: "Cliente", action: "Cargó 2 documentos", detail: "F1 · RUT, CCC", order: 2 },
+      { repositoryId: repository.id, at: "08/Ene/2026 10:14", actor: "Sandra Paniagua", role: "Cliente", action: "Cargó políticas NIIF", detail: "F1 · ítem 1", order: 3 },
+      { repositoryId: repository.id, at: "12/Ene/2026 14:08", actor: "Sandra Paniagua", role: "Cliente", action: "Cargó 2 documentos de cartera", detail: "F3 · ítems 1, 2", order: 4 },
+      { repositoryId: repository.id, at: "15/Ene/2026 11:30", actor: "Sandra Paniagua", role: "Cliente", action: "Cargó 4 documentos", detail: "F3 · ítems 4, 5, 8 + F4", order: 5 },
+      { repositoryId: repository.id, at: "24/Ene/2026 08:00", actor: "Sistema", role: "Auto", action: "3 ítems vencidos", detail: "F3 ítems 3, 7 · F11 ítem 1", order: 6 },
+      { repositoryId: repository.id, at: "25/Ene/2026 09:15", actor: "Manuela Gutiérrez", role: "Auditor", action: "Envió recordatorio", detail: "a Sandra Paniagua, Sandra Carrillo", order: 7 },
     ],
   });
 
@@ -670,9 +701,9 @@ async function main() {
     ["PRES-2025-007", "Comercializadora Andina Ltda", "Cierre fiscal 2024", "28/Jun/2025", "Juliana Rincón", 22, "Borrador"],
     ["PRES-2025-006", "Distribuciones del Valle S.A.S", "Aspectos legales y tributarios 2025", "20/Jun/2025", "Andrés Patiño", 15, "Enviada"],
   ];
-  for (const [id, clientName, title, date, author, slides, status] of presHistory) {
+  for (const [code, clientName, title, date, author, slides, status] of presHistory) {
     await prisma.reqPresentation.create({
-      data: { id, clientName, nit: "900.451.227-3", title, year: "2025", presented: "Julio de 2025", preparedBy: "Russell Bedford Colombia", slides, author, date, status, positives: presPositives, observed: presObserved, evaluated: presEvaluated },
+      data: { code, clientName, nit: "900.451.227-3", title, year: "2025", presented: "Julio de 2025", preparedBy: "Russell Bedford Colombia", slides, author, date, status, positives: presPositives, observed: presObserved, evaluated: presEvaluated },
     });
   }
 
@@ -699,7 +730,7 @@ async function main() {
     [28, "req", "Impuestos consolidado", "valle", "Provisión mensual"],
   ];
   await prisma.calendarEvent.createMany({
-    data: calEvents.map(([day, type, title, clientId, subtitle], i) => ({ date: new Date(2026, 4, day), type, title, clientId, subtitle, order: i })),
+    data: calEvents.map(([day, type, title, clientKey, subtitle], i) => ({ date: new Date(2026, 4, day), type, title, clientKey, subtitle, order: i })),
   });
 
   console.log("✅ Seed completo.");

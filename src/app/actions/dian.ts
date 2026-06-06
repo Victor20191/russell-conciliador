@@ -5,12 +5,13 @@ import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
 import { requireRole } from "@/lib/rbac";
+import { parseId } from "@/lib/ids";
 
 export async function addDianComment(formData: FormData): Promise<void> {
   await requireRole("Auditor");
-  const formId = formData.get("formId") as string;
+  const formId = parseId(formData.get("formId"));
   const lineKey = formData.get("lineKey") as string;
-  const periodId = formData.get("periodId") as string;
+  const periodId = parseId(formData.get("periodId"));
   const text = ((formData.get("text") as string) ?? "").trim();
   if (!formId || !lineKey || !text) return;
 
@@ -25,9 +26,9 @@ export async function addDianComment(formData: FormData): Promise<void> {
 // IA simulada: genera una observación heurística sobre la diferencia del renglón.
 export async function requestDianAiAnalysis(formData: FormData): Promise<void> {
   await requireRole("Auditor");
-  const formId = formData.get("formId") as string;
+  const formId = parseId(formData.get("formId"));
   const lineKey = formData.get("lineKey") as string;
-  const periodId = formData.get("periodId") as string;
+  const periodId = parseId(formData.get("periodId"));
   const diff = Number(formData.get("diff") ?? 0);
   if (!formId || !lineKey) return;
 
@@ -47,7 +48,7 @@ export async function requestDianAiAnalysis(formData: FormData): Promise<void> {
 }
 
 export async function saveDianMapping(
-  formId: string,
+  formId: number,
   lineKey: string,
   rows: { account: string; desc: string; sign: string }[],
 ): Promise<void> {

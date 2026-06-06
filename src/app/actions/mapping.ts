@@ -5,13 +5,20 @@ import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
 import { requireRole } from "@/lib/rbac";
+import { parseId } from "@/lib/ids";
 
 export async function updateAccountMapping(formData: FormData): Promise<void> {
   await requireRole("Auditor");
-  const id = formData.get("id") as string;
+  const id = parseId(formData.get("id"));
   const russell = (formData.get("russell") as string) || null;
   if (!id) return;
-  await prisma.clientAccount.update({ where: { id }, data: { russellCode: russell } });
+  const option = russell
+    ? await prisma.russellOption.findUnique({ where: { code: russell }, select: { id: true } })
+    : null;
+  await prisma.clientAccount.update({
+    where: { id },
+    data: { russellOptionId: option?.id ?? null },
+  });
   revalidatePath("/balance/mapeo");
 }
 
@@ -23,7 +30,7 @@ export async function suggestMappingsAI(formData: FormData): Promise<void> {
   if (!clientName) return;
 
   const [accounts, options] = await Promise.all([
-    prisma.clientAccount.findMany({ where: { clientName, russellCode: null } }),
+    prisma.clientAccount.findMany({ where: { clientName, russellOptionId: null } }),
     prisma.russellOption.findMany(),
   ]);
   const codes = options.map((o) => o.code).sort((a, b) => b.length - a.length); // más largo primero
@@ -32,7 +39,12 @@ export async function suggestMappingsAI(formData: FormData): Promise<void> {
   for (const a of accounts) {
     const match = codes.find((c) => a.code.startsWith(c));
     if (match) {
-      await prisma.clientAccount.update({ where: { id: a.id }, data: { russellCode: match } });
+      const option = options.find((o) => o.code === match);
+      if (!option) continue;
+      await prisma.clientAccount.update({
+        where: { id: a.id },
+        data: { russellOptionId: option.id },
+      });
       suggested += 1;
     }
   }

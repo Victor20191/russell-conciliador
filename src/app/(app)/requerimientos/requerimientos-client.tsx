@@ -5,8 +5,8 @@ import Link from "next/link";
 import { Icon } from "@/components/icons";
 import { Card, Chip } from "@/components/ui";
 
-export type Template = { id: string; code: string; name: string; description: string; activeVersion: string; families: number; items: number; timesUsed: number; lastUpdated: string; lastUpdatedBy: string };
-export type Submission = { id: string; consec: string; templateCode: string; templateVersion: string; clientName: string; period: string; recipients: number; status: string; date: string };
+export type Template = { id: number; code: string; name: string; description: string; activeVersion: string; families: number; items: number; timesUsed: number; lastUpdated: string; lastUpdatedBy: string };
+export type Submission = { id: number; consec: string; templateCode: string; templateVersion: string; clientName: string; period: string; recipients: number; status: string; date: string };
 
 export default function RequerimientosClient({ templates, history }: { templates: Template[]; history: Submission[] }) {
   const [tab, setTab] = useState<"templates" | "history">("templates");

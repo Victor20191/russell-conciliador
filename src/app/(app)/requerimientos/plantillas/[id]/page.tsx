@@ -4,9 +4,12 @@ import prisma from "@/lib/prisma";
 import { PageHeader, BackLink, Chip } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import PlantillaClient, { type Family, type Header } from "./plantilla-client";
+import { parseId } from "@/lib/ids";
 
 export default async function PlantillaPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
+  const { id: rawId } = await params;
+  const id = parseId(rawId);
+  if (!id) notFound();
   const t = await prisma.reqTemplate.findUnique({
     where: { id },
     include: { header: true, familyList: { orderBy: { order: "asc" }, include: { itemList: { orderBy: { order: "asc" } } } } },

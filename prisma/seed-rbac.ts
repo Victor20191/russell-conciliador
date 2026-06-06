@@ -61,14 +61,32 @@ async function main() {
   //    (Auditor≈Staff, Líder≈Senior, Administrador identidad, Consulta=lectura).
   //    Así ningún rol queda sin permisos y no hay que reescribir usuarios.rol.
   const matriz = matrizConLegado();
-  const filas = Object.entries(matriz).flatMap(([roleCode, codes]) =>
-    codes.map((permissionCode) => ({ roleCode, permissionCode })),
+  const roles = await prisma.role.findMany({
+    where: { code: { in: Object.keys(matriz) } },
+    select: { id: true, code: true },
+  });
+  const permisos = await prisma.permission.findMany({
+    where: { code: { in: PERMISOS.map((permiso) => permiso.code) } },
+    select: { id: true, code: true },
+  });
+  const roleIdByCode = new Map(roles.map((role) => [role.code, role.id]));
+  const permissionIdByCode = new Map(
+    permisos.map((permission) => [permission.code, permission.id]),
   );
+  const filas = Object.entries(matriz).flatMap(([roleCode, codes]) =>
+    codes.map((permissionCode) => ({
+      roleId: roleIdByCode.get(roleCode)!,
+      permissionId: permissionIdByCode.get(permissionCode)!,
+    })),
+  );
+  if (filas.some((fila) => !fila.roleId || !fila.permissionId)) {
+    throw new Error("No fue posible resolver todos los roles y permisos a IDs numéricos.");
+  }
   await prisma.rolePermission.createMany({ data: filas });
 
   // 5) Usuarios de prueba (upsert por email: NO borra usuarios reales).
   const passwordHash = await bcrypt.hash("Russell2026*", 10);
-  const idPorEmail = new Map<string, string>();
+  const idPorEmail = new Map<string, number>();
   for (const u of DEMO_USUARIOS) {
     const user = await prisma.user.upsert({
       where: { email: u.email },
@@ -80,23 +98,33 @@ async function main() {
 
   // 6) Equipo de trabajo demo + integrantes.
   const liderId = idPorEmail.get(DEMO_EQUIPO.leadEmail) ?? null;
-  await prisma.team.create({
+  const equipo = await prisma.team.create({
     data: {
-      id: DEMO_EQUIPO.id,
       name: DEMO_EQUIPO.name,
       description: DEMO_EQUIPO.description,
       leadUserId: liderId,
       members: {
-        create: DEMO_INTEGRANTES.map((m) => ({ userId: idPorEmail.get(m.email)!, roleCode: m.roleCode })),
+        create: DEMO_INTEGRANTES.map((m) => ({
+          userId: idPorEmail.get(m.email)!,
+          role: { connect: { code: m.roleCode } },
+        })),
       },
     },
   });
 
   // 7) Cartera + alcance (asignaciones_cliente) sobre clientes reales del seed.
+  const clientes = await prisma.client.findMany({
+    where: { code: { in: DEMO_ASIGNACIONES.map((asignacion) => asignacion.clientCode) } },
+    select: { id: true, code: true },
+  });
+  const clientIdByCode = new Map(clientes.map((client) => [client.code, client.id]));
+  if (clientIdByCode.size !== new Set(DEMO_ASIGNACIONES.map((a) => a.clientCode)).size) {
+    throw new Error("Faltan clientes del escenario RBAC. Ejecuta primero el seed principal.");
+  }
   await prisma.clientAssignment.createMany({
     data: DEMO_ASIGNACIONES.map((a) => ({
-      clientId: a.clientId,
-      teamId: a.team ? DEMO_EQUIPO.id : null,
+      clientId: clientIdByCode.get(a.clientCode)!,
+      teamId: a.team ? equipo.id : null,
       userId: a.userEmail ? idPorEmail.get(a.userEmail)! : null,
       readScope: a.readScope,
       writeScope: a.writeScope,
