@@ -2,6 +2,7 @@
 
 import { useActionState } from "react";
 import { changePassword } from "@/app/actions/auth";
+import { PasswordInput } from "@/components/password-input";
 
 export default function CambiarContrasenaForm() {
   const [state, action, pending] = useActionState(changePassword, undefined);
@@ -12,7 +13,7 @@ export default function CambiarContrasenaForm() {
         <label htmlFor="current" className="text-xs font-semibold uppercase tracking-wider text-ink-500">
           Contraseña actual
         </label>
-        <input id="current" name="current" type="password" autoComplete="current-password"
+        <PasswordInput id="current" name="current" autoComplete="current-password"
           className="rounded-md border border-ink-200 bg-white px-3.5 py-2.5 text-[13px] text-ink-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
         {state?.errors?.current && <p className="text-xs text-err-700">{state.errors.current[0]}</p>}
       </div>
@@ -21,7 +22,7 @@ export default function CambiarContrasenaForm() {
         <label htmlFor="next" className="text-xs font-semibold uppercase tracking-wider text-ink-500">
           Nueva contraseña
         </label>
-        <input id="next" name="next" type="password" autoComplete="new-password"
+        <PasswordInput id="next" name="next" autoComplete="new-password"
           className="rounded-md border border-ink-200 bg-white px-3.5 py-2.5 text-[13px] text-ink-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
         {state?.errors?.next && <p className="text-xs text-err-700">{state.errors.next[0]}</p>}
       </div>

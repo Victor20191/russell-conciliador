@@ -4,7 +4,7 @@ import * as z from "zod";
 import { revalidatePath } from "next/cache";
 import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
-import { authorizeAction } from "@/lib/rbac";
+import { authorizePermiso } from "@/lib/rbac";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
 import {
@@ -20,7 +20,7 @@ export async function createUser(
   _prev: ActionState | undefined,
   formData: FormData,
 ): Promise<ActionState> {
-  const authz = await authorizeAction("Administrador");
+  const authz = await authorizePermiso("usuarios:crear");
   if (!authz.ok) return { ok: false, message: authz.message };
 
   const parsed = UserCreateSchema.safeParse({
@@ -32,6 +32,12 @@ export async function createUser(
   });
   if (!parsed.success)
     return { ok: false, errors: z.flattenError(parsed.error).fieldErrors };
+
+  const rol = await prisma.role.findFirst({
+    where: { code: parsed.data.role, active: true },
+    select: { code: true },
+  });
+  if (!rol) return { ok: false, message: "El rol seleccionado no existe." };
 
   const dup = await prisma.user.findUnique({
     where: { email: parsed.data.email },
@@ -65,7 +71,7 @@ export async function updateUser(
   _prev: ActionState | undefined,
   formData: FormData,
 ): Promise<ActionState> {
-  const authz = await authorizeAction("Administrador");
+  const authz = await authorizePermiso("usuarios:editar");
   if (!authz.ok) return { ok: false, message: authz.message };
 
   const parsed = UserUpdateSchema.safeParse({
@@ -77,6 +83,12 @@ export async function updateUser(
   });
   if (!parsed.success)
     return { ok: false, errors: z.flattenError(parsed.error).fieldErrors };
+
+  const rol = await prisma.role.findFirst({
+    where: { code: parsed.data.role, active: true },
+    select: { code: true },
+  });
+  if (!rol) return { ok: false, message: "El rol seleccionado no existe." };
 
   if (parsed.data.id === authz.userId && (!parsed.data.active || parsed.data.role !== "Administrador")) {
     return { ok: false, message: "No puedes desactivar ni cambiar el rol de tu propia cuenta de administrador." };
@@ -115,7 +127,7 @@ export async function resetUserPassword(
   _prev: ActionState | undefined,
   formData: FormData,
 ): Promise<ActionState> {
-  const authz = await authorizeAction("Administrador");
+  const authz = await authorizePermiso("usuarios:editar");
   if (!authz.ok) return { ok: false, message: authz.message };
 
   const parsed = UserResetSchema.safeParse({

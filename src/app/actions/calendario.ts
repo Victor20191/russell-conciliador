@@ -4,10 +4,10 @@ import { revalidatePath } from "next/cache";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
-import { requireRole } from "@/lib/rbac";
+import { requirePermiso } from "@/lib/rbac";
 
 export async function createCalendarEvent(formData: FormData): Promise<void> {
-  await requireRole("Auditor");
+  await requirePermiso("calendario:crear");
   const dateStr = formData.get("date") as string; // YYYY-MM-DD
   const type = (formData.get("type") as string) || "req";
   const title = ((formData.get("title") as string) ?? "").trim();

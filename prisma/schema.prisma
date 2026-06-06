@@ -159,18 +159,29 @@ model Team {
 /// (opcional) referencia el catálogo Role para registrar el cargo
 /// funcional dentro del equipo. Un usuario puede estar en varios
 /// equipos (p.ej. un Senior con 2 carteras).
+///
+/// Vigencia temporal: validFrom/validUntil delimitan la ventana en la
+/// que la membresía AUTORIZA. validUntil = null → permanente. Permite
+/// asignar a un usuario a OTRO equipo de forma temporal (cubrimientos,
+/// refuerzos): al expirar, deja de alcanzar la cartera del equipo SIN
+/// necesidad de un job (se filtra por fecha al leer en
+/// getAsignacionesUsuario).
 model TeamMember {
-  id        Int      @id @default(autoincrement()) @map("id")
-  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  teamId    Int      @map("equipo_id")
-  userId    Int      @map("usuario_id") // FK lógica a User.id
-  role      Role?    @relation(fields: [roleId], references: [id], onDelete: SetNull)
-  roleId    Int?     @map("rol_id") // rol funcional dentro del equipo
-  active    Boolean  @default(true) @map("activo")
-  createdAt DateTime @default(now()) @map("creado_en")
+  id           Int       @id @default(autoincrement()) @map("id")
+  team         Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  teamId       Int       @map("equipo_id")
+  userId       Int       @map("usuario_id") // FK lógica a User.id
+  role         Role?     @relation(fields: [roleId], references: [id], onDelete: SetNull)
+  roleId       Int?      @map("rol_id") // rol funcional dentro del equipo
+  active       Boolean   @default(true) @map("activo")
+  validFrom    DateTime  @default(now()) @map("vigente_desde") // inicio de vigencia
+  validUntil   DateTime? @map("vigente_hasta") // fin de vigencia; null = permanente
+  reason       String?   @map("motivo") // p.ej. "cubrimiento vacaciones"
+  assignedById Int?      @map("asignado_por_id") // quién delegó (FK lógica a User.id)
+  createdAt    DateTime  @default(now()) @map("creado_en")
 
   @@unique([teamId, userId]) // un usuario una sola vez por equipo
-  @@index([userId])
+  @@index([userId, active, validUntil])
   @@map("integrantes_equipo")
 }
 
@@ -185,22 +196,25 @@ model TeamMember {
 /// clientId, userId y assignedById son FK SUAVES numéricas (a
 /// Client.id y User.id). Solo teamId es FK dura hacia Team.
 model ClientAssignment {
-  id           Int      @id @default(autoincrement()) @map("id")
-  clientId     Int      @map("cliente_id") // FK lógica a Client.id
-  team         Team?    @relation(fields: [teamId], references: [id], onDelete: SetNull)
-  teamId       Int?     @map("equipo_id")
-  userId       Int?     @map("usuario_id") // responsable individual (FK lógica a User.id), opcional
-  readScope    Boolean  @default(true) @map("alcance_lectura") // ve este cliente
-  writeScope   Boolean  @default(false) @map("alcance_escritura") // escribe/ejecuta (solo Staff)
-  assignedById Int?     @map("asignado_por_id") // Senior que realizó la asignación (FK lógica a User.id)
-  active       Boolean  @default(true) @map("activo")
-  createdAt    DateTime @default(now()) @map("creado_en")
-  updatedAt    DateTime @updatedAt @map("actualizado_en")
+  id           Int       @id @default(autoincrement()) @map("id")
+  clientId     Int       @map("cliente_id") // FK lógica a Client.id
+  team         Team?     @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  teamId       Int?      @map("equipo_id")
+  userId       Int?      @map("usuario_id") // responsable individual (FK lógica a User.id), opcional
+  readScope    Boolean   @default(true) @map("alcance_lectura") // ve este cliente
+  writeScope   Boolean   @default(false) @map("alcance_escritura") // escribe/ejecuta (solo Staff)
+  assignedById Int?      @map("asignado_por_id") // Senior que realizó la asignación (FK lógica a User.id)
+  active       Boolean   @default(true) @map("activo")
+  validFrom    DateTime  @default(now()) @map("vigente_desde") // inicio de vigencia de la cartera
+  validUntil   DateTime? @map("vigente_hasta") // fin de vigencia; null = permanente
+  reason       String?   @map("motivo") // p.ej. "asignación temporal de cartera"
+  createdAt    DateTime  @default(now()) @map("creado_en")
+  updatedAt    DateTime  @updatedAt @map("actualizado_en")
 
   @@unique([clientId, teamId, userId]) // evita duplicados de cartera (ver nota NULL más abajo)
   @@index([clientId])
   @@index([teamId])
-  @@index([userId, active])
+  @@index([userId, active, validUntil])
   @@map("asignaciones_cliente")
 }
 

@@ -4,11 +4,11 @@ import { revalidatePath } from "next/cache";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
-import { requireRole } from "@/lib/rbac";
+import { requirePermiso } from "@/lib/rbac";
 import { parseId } from "@/lib/ids";
 
 export async function freezeBalance(formData: FormData): Promise<void> {
-  await requireRole("Auditor");
+  await requirePermiso("balance:editar");
   const id = parseId(formData.get("id"));
   if (!id) return;
 

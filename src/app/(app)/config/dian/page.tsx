@@ -1,10 +1,10 @@
 import prisma from "@/lib/prisma";
 import { PageHeader } from "@/components/ui";
 import ConfigDianClient, { type DianFormData } from "./config-dian-client";
-import { requireRole } from "@/lib/rbac";
+import { requirePermiso } from "@/lib/rbac";
 
 export default async function ConfigDianPage() {
-  await requireRole("Líder");
+  await requirePermiso("mapeos_dian:ver");
   const forms = await prisma.dianForm.findMany({
     include: { sections: { orderBy: { order: "asc" }, include: { lines: { orderBy: { order: "asc" } } } }, mappings: true },
     orderBy: { code: "asc" },

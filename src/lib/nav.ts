@@ -1,5 +1,4 @@
 import type { IconName } from "@/components/icons";
-import type { Role } from "@/lib/roles";
 
 export type NavChild = { label: string; href: string; count?: number };
 export type NavItem = {
@@ -8,7 +7,10 @@ export type NavItem = {
   icon: IconName;
   count?: number;
   children?: NavChild[];
-  minRole?: Role;
+  // Permiso canónico requerido para VER el ítem. Debe coincidir con el guard
+  // de la página (requirePermiso) para que el menú no muestre enlaces que la
+  // página luego deniega, ni oculte pantallas a las que el usuario sí entra.
+  permiso?: string;
 };
 
 // Estructura del menú — rutas reales (App Router) que reemplazan el enrutado por estado del prototipo
@@ -46,12 +48,14 @@ export const workNav: NavItem[] = [
     ],
   },
   { label: "Calendario", href: "/calendario", icon: "calendar" },
-  { label: "Auditoría", href: "/auditoria", icon: "log", minRole: "Líder" },
+  { label: "Auditoría", href: "/auditoria", icon: "log", permiso: "auditoria:ver" },
 ];
 
 export const configNav: NavItem[] = [
-  { label: "Módulos y campos", href: "/config/modulos", icon: "settings", minRole: "Líder" },
-  { label: "Clientes", href: "/config/clientes", icon: "users", minRole: "Líder" },
-  { label: "Mapeos DIAN", href: "/config/dian", icon: "doc", minRole: "Líder" },
-  { label: "Usuarios", href: "/config/usuarios", icon: "users", minRole: "Administrador" },
+  { label: "Módulos y campos", href: "/config/modulos", icon: "settings", permiso: "modulos:ver" },
+  { label: "Clientes", href: "/config/clientes", icon: "users", permiso: "clientes:configurar" },
+  { label: "Mapeos DIAN", href: "/config/dian", icon: "doc", permiso: "mapeos_dian:ver" },
+  { label: "Equipos", href: "/config/equipos", icon: "users", permiso: "equipos:asignar" },
+  { label: "Usuarios", href: "/config/usuarios", icon: "users", permiso: "usuarios:ver" },
+  { label: "Permisos por rol", href: "/config/permisos", icon: "settings", permiso: "roles:configurar" },
 ];

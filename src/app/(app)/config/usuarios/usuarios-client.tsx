@@ -2,6 +2,7 @@
 
 import { useActionState, useEffect, useState } from "react";
 import { Card, PageHeader } from "@/components/ui";
+import { PasswordInput } from "@/components/password-input";
 import { Modal } from "@/components/modal";
 import { createUser, updateUser, resetUserPassword } from "@/app/actions/users";
 
@@ -15,9 +16,9 @@ export type UserRow = {
   lastLoginAt: string | null;
 };
 
-const ROLES = ["Consulta", "Auditor", "Líder", "Administrador"];
+export type RoleOption = { code: string; name: string };
 
-export default function UsuariosClient({ rows }: { rows: UserRow[] }) {
+export default function UsuariosClient({ rows, roles }: { rows: UserRow[]; roles: RoleOption[] }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [editUser, setEditUser] = useState<UserRow | null>(null);
   const [passwordUser, setPasswordUser] = useState<UserRow | null>(null);
@@ -107,7 +108,7 @@ export default function UsuariosClient({ rows }: { rows: UserRow[] }) {
         onClose={() => setCreateOpen(false)}
         title="Crear nuevo usuario"
       >
-        <CreateUserForm onSuccess={() => setCreateOpen(false)} onCancel={() => setCreateOpen(false)} />
+        <CreateUserForm roles={roles} onSuccess={() => setCreateOpen(false)} onCancel={() => setCreateOpen(false)} />
       </Modal>
 
       <Modal
@@ -118,6 +119,7 @@ export default function UsuariosClient({ rows }: { rows: UserRow[] }) {
         {editUser && (
           <EditUserForm
             user={editUser}
+            roles={roles}
             onSuccess={() => setEditUser(null)}
             onCancel={() => setEditUser(null)}
           />
@@ -141,7 +143,7 @@ export default function UsuariosClient({ rows }: { rows: UserRow[] }) {
   );
 }
 
-function CreateUserForm({ onSuccess, onCancel }: { onSuccess: () => void; onCancel: () => void }) {
+function CreateUserForm({ roles, onSuccess, onCancel }: { roles: RoleOption[]; onSuccess: () => void; onCancel: () => void }) {
   const [state, action, pending] = useActionState(createUser, undefined);
 
   useEffect(() => {
@@ -184,21 +186,24 @@ function CreateUserForm({ onSuccess, onCancel }: { onSuccess: () => void; onCanc
           <label className="text-[12px] font-medium text-ink-700">Rol</label>
           <select
             name="role"
-            defaultValue="Consulta"
+            required
+            defaultValue=""
             className="rounded-md border border-ink-200 px-3 py-2 text-[13px]"
           >
-            {ROLES.map((r) => (
-              <option key={r} value={r}>
-                {r}
+            <option value="" disabled>
+              — Selecciona un rol —
+            </option>
+            {roles.map((r) => (
+              <option key={r.code} value={r.code}>
+                {r.name}
               </option>
             ))}
           </select>
         </div>
         <div className="flex flex-col gap-1.5 sm:col-span-2">
           <label className="text-[12px] font-medium text-ink-700">Contraseña temporal</label>
-          <input
+          <PasswordInput
             name="password"
-            type="password"
             placeholder="Mínimo 8 caracteres"
             required
             className="rounded-md border border-ink-200 px-3 py-2 text-[13px]"
@@ -236,7 +241,7 @@ function CreateUserForm({ onSuccess, onCancel }: { onSuccess: () => void; onCanc
   );
 }
 
-function EditUserForm({ user, onSuccess, onCancel }: { user: UserRow; onSuccess: () => void; onCancel: () => void }) {
+function EditUserForm({ user, roles, onSuccess, onCancel }: { user: UserRow; roles: RoleOption[]; onSuccess: () => void; onCancel: () => void }) {
   const [state, action, pending] = useActionState(updateUser, undefined);
 
   useEffect(() => {
@@ -264,9 +269,9 @@ function EditUserForm({ user, onSuccess, onCancel }: { user: UserRow; onSuccess:
           defaultValue={user.role}
           className="rounded-md border border-ink-200 px-3 py-2 text-[13px]"
         >
-          {ROLES.map((r) => (
-            <option key={r} value={r}>
-              {r}
+          {roles.map((r) => (
+            <option key={r.code} value={r.code}>
+              {r.name}
             </option>
           ))}
         </select>
@@ -326,9 +331,8 @@ function ResetPasswordForm({ user, onSuccess, onCancel }: { user: UserRow; onSuc
 
       <div className="flex flex-col gap-1.5">
         <label className="text-[12px] font-medium text-ink-700">Nueva contraseña</label>
-        <input
+        <PasswordInput
           name="password"
-          type="password"
           placeholder="Mínimo 8 caracteres"
           required
           className="rounded-md border border-ink-200 px-3 py-2 text-[13px]"

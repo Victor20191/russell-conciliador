@@ -1,10 +1,10 @@
 import prisma from "@/lib/prisma";
 import { PageHeader } from "@/components/ui";
 import ModulosClient, { type ModuleWithFields } from "./modulos-client";
-import { requireRole } from "@/lib/rbac";
+import { requirePermiso } from "@/lib/rbac";
 
 export default async function ModulosPage() {
-  await requireRole("Líder");
+  await requirePermiso("modulos:ver");
   const modules = await prisma.module.findMany({
     orderBy: { name: "asc" },
     include: { fields: { orderBy: { order: "asc" } } },

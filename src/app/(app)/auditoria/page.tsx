@@ -1,10 +1,10 @@
 import prisma from "@/lib/prisma";
 import { PageHeader, Card } from "@/components/ui";
 import AuditoriaFilters from "./auditoria-filters";
-import { requireRole } from "@/lib/rbac";
+import { requirePermiso } from "@/lib/rbac";
 
 export default async function AuditoriaPage({ searchParams }: { searchParams: Promise<{ q?: string; user?: string; action?: string }> }) {
-  await requireRole("Líder");
+  await requirePermiso("auditoria:ver");
   const sp = await searchParams;
   const all = await prisma.auditEntry.findMany({ orderBy: { ts: "desc" } });
 

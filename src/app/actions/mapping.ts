@@ -4,11 +4,11 @@ import { revalidatePath } from "next/cache";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
-import { requireRole } from "@/lib/rbac";
+import { requirePermiso } from "@/lib/rbac";
 import { parseId } from "@/lib/ids";
 
 export async function updateAccountMapping(formData: FormData): Promise<void> {
-  await requireRole("Auditor");
+  await requirePermiso("mapeo:editar");
   const id = parseId(formData.get("id"));
   const russell = (formData.get("russell") as string) || null;
   if (!id) return;
@@ -25,7 +25,7 @@ export async function updateAccountMapping(formData: FormData): Promise<void> {
 // IA simulada: asigna a las cuentas sin mapear el RussellOption cuyo código sea
 // el prefijo más largo del código de la cuenta (similitud por plan de cuentas).
 export async function suggestMappingsAI(formData: FormData): Promise<void> {
-  await requireRole("Auditor");
+  await requirePermiso("mapeo:editar");
   const clientName = formData.get("clientName") as string;
   if (!clientName) return;
 

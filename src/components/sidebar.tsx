@@ -5,7 +5,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icon, BrandMark } from "@/components/icons";
 import { workNav, configNav, type NavItem } from "@/lib/nav";
-import { can } from "@/lib/roles";
 import { logout } from "@/app/actions/auth";
 
 function isChildActive(pathname: string, href: string) {
@@ -23,14 +22,18 @@ function isGroupActive(pathname: string, item: NavItem) {
 
 export default function Sidebar({
   user,
+  permisos,
 }: {
   user: { name: string; role: string; initials: string } | null;
+  permisos: string[];
 }) {
   const pathname = usePathname();
 
-  const role = user?.role ?? "";
-  const visibleWork = workNav.filter((it) => !it.minRole || can(role, it.minRole));
-  const visibleConfig = configNav.filter((it) => !it.minRole || can(role, it.minRole));
+  // Visibilidad por PERMISO (matriz RBAC), no por jerarquía legado: el menú
+  // muestra exactamente lo que la página deja entrar (mismo permiso del guard).
+  const permset = new Set(permisos);
+  const visibleWork = workNav.filter((it) => !it.permiso || permset.has(it.permiso));
+  const visibleConfig = configNav.filter((it) => !it.permiso || permset.has(it.permiso));
 
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
     const init: Record<string, boolean> = {};

@@ -7,7 +7,7 @@ import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
 import { ModuleFieldSchema, type ActionState } from "@/lib/definitions";
 import { parseId } from "@/lib/ids";
-import { requireRole, authorizeAction } from "@/lib/rbac";
+import { requirePermiso, authorizePermiso } from "@/lib/rbac";
 
 const PATH = "/config/modulos";
 
@@ -15,7 +15,7 @@ export async function createModuleField(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  const authz = await authorizeAction("Líder");
+  const authz = await authorizePermiso("modulos:configurar");
   if (!authz.ok) return { ok: false, message: authz.message };
   const parsed = ModuleFieldSchema.safeParse({
     moduleId: formData.get("moduleId"),
@@ -55,7 +55,7 @@ export async function updateModuleField(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  const authz = await authorizeAction("Líder");
+  const authz = await authorizePermiso("modulos:configurar");
   if (!authz.ok) return { ok: false, message: authz.message };
   const id = parseId(formData.get("id"));
   if (!id) return { ok: false, message: "Campo inexistente." };
@@ -82,7 +82,7 @@ export async function updateModuleField(
 }
 
 export async function deleteModuleField(formData: FormData): Promise<void> {
-  await requireRole("Líder");
+  await requirePermiso("modulos:configurar");
   const id = parseId(formData.get("id"));
   if (id) {
     await prisma.moduleField.delete({ where: { id } });
@@ -91,7 +91,7 @@ export async function deleteModuleField(formData: FormData): Promise<void> {
 }
 
 export async function moveModuleField(formData: FormData): Promise<void> {
-  await requireRole("Líder");
+  await requirePermiso("modulos:configurar");
   const id = parseId(formData.get("id"));
   if (!id) return;
   const dir = formData.get("dir") as string; // "up" | "down"

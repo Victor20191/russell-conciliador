@@ -4,11 +4,11 @@ import { revalidatePath } from "next/cache";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
-import { requireRole } from "@/lib/rbac";
+import { requirePermiso } from "@/lib/rbac";
 import { parseId } from "@/lib/ids";
 
 export async function addDianComment(formData: FormData): Promise<void> {
-  await requireRole("Auditor");
+  await requirePermiso("dian:editar");
   const formId = parseId(formData.get("formId"));
   const lineKey = formData.get("lineKey") as string;
   const periodId = parseId(formData.get("periodId"));
@@ -25,7 +25,7 @@ export async function addDianComment(formData: FormData): Promise<void> {
 
 // IA simulada: genera una observación heurística sobre la diferencia del renglón.
 export async function requestDianAiAnalysis(formData: FormData): Promise<void> {
-  await requireRole("Auditor");
+  await requirePermiso("dian:editar");
   const formId = parseId(formData.get("formId"));
   const lineKey = formData.get("lineKey") as string;
   const periodId = parseId(formData.get("periodId"));
@@ -52,7 +52,7 @@ export async function saveDianMapping(
   lineKey: string,
   rows: { account: string; desc: string; sign: string }[],
 ): Promise<void> {
-  await requireRole("Líder");
+  await requirePermiso("mapeos_dian:configurar");
   if (!formId || !lineKey) return;
   const clean = rows.filter((r) => r.account.trim());
   await prisma.dianMapping.deleteMany({ where: { formId, lineKey } });

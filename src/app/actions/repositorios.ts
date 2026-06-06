@@ -4,11 +4,11 @@ import { revalidatePath } from "next/cache";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
-import { requireRole } from "@/lib/rbac";
+import { requirePermiso } from "@/lib/rbac";
 import { parseId } from "@/lib/ids";
 
 export async function markRepoItemReceived(formData: FormData): Promise<void> {
-  await requireRole("Auditor");
+  await requirePermiso("requerimientos:crear");
   const itemId = parseId(formData.get("itemId"));
   const repositoryId = parseId(formData.get("repositoryId"));
   if (!itemId || !repositoryId) return;
@@ -37,7 +37,7 @@ export async function markRepoItemReceived(formData: FormData): Promise<void> {
 }
 
 export async function sendRepoReminder(formData: FormData): Promise<void> {
-  await requireRole("Auditor");
+  await requirePermiso("requerimientos:ejecutar");
   const repositoryId = parseId(formData.get("repositoryId"));
   if (!repositoryId) return;
   const user = await getCurrentUser();

@@ -5,10 +5,10 @@ import { Prisma } from "@/generated/prisma/client";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
-import { requireRole } from "@/lib/rbac";
+import { requirePermiso } from "@/lib/rbac";
 
 export async function createPresentation(): Promise<void> {
-  await requireRole("Auditor");
+  await requirePermiso("presentaciones:crear");
   const base = await prisma.reqPresentation.findUnique({ where: { code: "PRES-2025-009" } });
   if (!base) return;
   const count = await prisma.reqPresentation.count();

@@ -2,6 +2,7 @@ import Sidebar from "@/components/sidebar";
 import Topbar from "@/components/topbar";
 import { redirect } from "next/navigation";
 import { getCurrentUser, verifySession } from "@/lib/dal";
+import { getMatriz } from "@/lib/rbac/contexto";
 import prisma from "@/lib/prisma";
 
 export default async function AppLayout({
@@ -14,13 +15,16 @@ export default async function AppLayout({
 
   // verifySession() (dentro de getCurrentUser) redirige a /login si no hay sesión
   const user = await getCurrentUser();
+  // Permisos efectivos del rol (matriz RBAC) para filtrar el menú lateral.
+  const matriz = await getMatriz();
+  const permisos = user ? matriz[user.role] ?? [] : [];
   const notifications = await prisma.notification.findMany({
     orderBy: { createdAt: "desc" },
   });
 
   return (
     <div className="flex min-h-screen">
-      <Sidebar user={user} />
+      <Sidebar user={user} permisos={permisos} />
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar notifications={notifications} />
         <main className="flex-1 p-6">{children}</main>

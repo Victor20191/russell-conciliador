@@ -63,12 +63,15 @@ export const ChangePasswordSchema = z.object({
   next: PasswordSchema,
 });
 
-const RoleEnum = z.enum(["Consulta", "Auditor", "Líder", "Administrador"]);
+// El rol se valida como texto y se contrasta contra el catálogo `roles` de la
+// BD en la propia Server Action (acepta los 5 roles del PDF y los legado, y
+// cualquier rol nuevo que cree el Administrador).
+const RoleField = z.string().trim().min(1, { error: "El rol es obligatorio." });
 
 export const UserCreateSchema = z.object({
   email: z.email({ error: "Correo inválido." }).trim(),
   name: z.string().min(1, { error: "El nombre es obligatorio." }).trim(),
-  role: RoleEnum,
+  role: RoleField,
   initials: z.string().min(1).max(3, { error: "Máximo 3 caracteres." }).trim(),
   password: PasswordSchema,
 });
@@ -76,7 +79,7 @@ export const UserCreateSchema = z.object({
 export const UserUpdateSchema = z.object({
   id: z.coerce.number().int().positive(),
   name: z.string().min(1, { error: "El nombre es obligatorio." }).trim(),
-  role: RoleEnum,
+  role: RoleField,
   active: z.boolean(),
 });
 

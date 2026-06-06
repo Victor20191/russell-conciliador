@@ -38,21 +38,36 @@ export const getMatriz = cache(async (): Promise<Matriz> => {
 });
 
 /**
- * Asignaciones de cartera ACTIVAS que alcanzan al usuario: directas
+ * Asignaciones de cartera VIGENTES que alcanzan al usuario: directas
  * (`userId`) y heredadas por equipo (`teamId` ∈ sus equipos). La forma
  * coincide con la que espera `puedeSobreCliente`.
+ *
+ * Vigencia temporal (membresía y cartera): además de `active`, una fila
+ * solo cuenta si ya inició (`vigente_desde <= ahora`) y no ha expirado
+ * (`vigente_hasta` null = permanente, o >= ahora). Así una asignación
+ * temporal a OTRO equipo deja de autorizar al expirar SIN un job: se
+ * filtra por fecha en este único punto de lectura, y las funciones puras
+ * de `permisos.ts` no necesitan saber de fechas (fail-safe).
  */
 export const getAsignacionesUsuario = cache(
   async (userId: number): Promise<{ asignaciones: Asignacion[]; equipos: number[] }> => {
+    const ahora = new Date();
+    // "Aún vigente": permanente (validUntil null) o no expirada.
+    const noExpirada = [{ validUntil: null }, { validUntil: { gte: ahora } }];
+
     const miembros = await prisma.teamMember.findMany({
-      where: { userId, active: true },
+      where: { userId, active: true, validFrom: { lte: ahora }, OR: noExpirada },
       select: { teamId: true },
     });
     const equipos = miembros.map((m) => m.teamId);
+
     const asignaciones = await prisma.clientAssignment.findMany({
       where: {
         active: true,
-        OR: [{ userId }, { teamId: { in: equipos } }],
+        validFrom: { lte: ahora },
+        // Dos condiciones OR distintas (vigencia + alcance) se combinan con
+        // AND explícito para no colisionar la misma clave `OR`.
+        AND: [{ OR: noExpirada }, { OR: [{ userId }, { teamId: { in: equipos } }] }],
       },
       select: {
         clientId: true,

@@ -1,10 +1,17 @@
 import prisma from "@/lib/prisma";
-import { requireRole } from "@/lib/rbac";
-import UsuariosClient, { type UserRow } from "./usuarios-client";
+import { requirePermiso } from "@/lib/rbac";
+import UsuariosClient, { type UserRow, type RoleOption } from "./usuarios-client";
 
 export default async function UsuariosPage() {
-  await requireRole("Administrador");
-  const users = await prisma.user.findMany({ orderBy: { name: "asc" } });
+  await requirePermiso("usuarios:ver");
+  const [users, roles] = await Promise.all([
+    prisma.user.findMany({ orderBy: { name: "asc" } }),
+    prisma.role.findMany({
+      where: { active: true },
+      orderBy: { rank: "desc" },
+      select: { code: true, name: true },
+    }),
+  ]);
   const rows: UserRow[] = users.map((u) => ({
     id: u.id,
     email: u.email,
@@ -14,10 +21,11 @@ export default async function UsuariosPage() {
     active: u.active,
     lastLoginAt: u.lastLoginAt ? u.lastLoginAt.toISOString() : null,
   }));
+  const roleOptions: RoleOption[] = roles.map((r) => ({ code: r.code, name: r.name }));
 
   return (
     <div>
-      <UsuariosClient rows={rows} />
+      <UsuariosClient rows={rows} roles={roleOptions} />
     </div>
   );
 }

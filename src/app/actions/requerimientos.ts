@@ -4,12 +4,12 @@ import { revalidatePath } from "next/cache";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
-import { requireRole } from "@/lib/rbac";
+import { requirePermiso } from "@/lib/rbac";
 
 export async function generateRequirement(input: {
   templateCode: string; templateVersion: string; clientName: string; clientCode: string; period: string; recipients: number;
 }): Promise<{ id: number; consec: string }> {
-  await requireRole("Auditor");
+  await requirePermiso("requerimientos:ejecutar");
   const count = await prisma.reqSubmission.count();
   const code = `REQ-2026-${100 + count}`;
   const consec = `RFA ${String(count + 1).padStart(3, "0")} – 2026 ${input.clientCode || "XX"}`;

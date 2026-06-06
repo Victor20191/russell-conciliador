@@ -138,6 +138,8 @@ export const PERMISOS: Permiso[] = [
   { code: "usuarios:crear", module: "usuarios", action: "crear", label: "Crear usuario", roles: SOLO_ADMIN },
   { code: "usuarios:editar", module: "usuarios", action: "editar", label: "Editar usuario", roles: SOLO_ADMIN },
   { code: "usuarios:eliminar", module: "usuarios", action: "eliminar", label: "Desactivar usuario", roles: SOLO_ADMIN },
+  { code: "roles:ver", module: "roles", action: "ver", label: "Ver matriz de roles y permisos", roles: SOLO_ADMIN },
+  { code: "roles:configurar", module: "roles", action: "configurar", label: "Editar permisos por rol", roles: SOLO_ADMIN },
   { code: "modulos:configurar", module: "modulos", action: "configurar", label: "Configurar módulos y campos", roles: SOLO_ADMIN },
   { code: "dian:configurar", module: "dian", action: "configurar", label: "Configurar formularios DIAN", roles: SOLO_ADMIN },
 ];

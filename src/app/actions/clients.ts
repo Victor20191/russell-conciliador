@@ -7,7 +7,7 @@ import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
 import { ClientSchema, type ActionState } from "@/lib/definitions";
 import { parseId } from "@/lib/ids";
-import { requireRole, authorizeAction } from "@/lib/rbac";
+import { requirePermiso, authorizePermiso } from "@/lib/rbac";
 
 const PATH = "/config/clientes";
 
@@ -15,7 +15,7 @@ export async function createClient(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  const authz = await authorizeAction("Líder");
+  const authz = await authorizePermiso("clientes:crear");
   if (!authz.ok) return { ok: false, message: authz.message };
   const parsed = ClientSchema.safeParse({
     code: formData.get("code"),
@@ -49,7 +49,7 @@ export async function updateClient(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  const authz = await authorizeAction("Líder");
+  const authz = await authorizePermiso("clientes:editar");
   if (!authz.ok) return { ok: false, message: authz.message };
   const parsed = ClientSchema.safeParse({
     code: formData.get("code"),
@@ -72,7 +72,7 @@ export async function updateClient(
 }
 
 export async function deleteClient(formData: FormData): Promise<void> {
-  await requireRole("Líder");
+  await requirePermiso("clientes:configurar");
   const id = parseId(formData.get("id"));
   if (!id) return;
   await prisma.client.delete({ where: { id } });
@@ -87,7 +87,7 @@ export async function deleteClient(formData: FormData): Promise<void> {
 }
 
 export async function setClientModuleStatus(formData: FormData): Promise<void> {
-  await requireRole("Líder");
+  await requirePermiso("clientes:configurar");
   const clientId = parseId(formData.get("clientId"));
   const moduleId = parseId(formData.get("moduleId"));
   const next = formData.get("next") as string; // configured | pending | none
