@@ -53,9 +53,11 @@ model LoginAttempt {
 // Parametrización derivada de "RB_GCT Roles y Responsabilidades –
 // Área de Revisoría Fiscal" (Russell Bedford, 04-jun-2026).
 //
-// BLOQUE SOLO-ESQUEMA: define los modelos pero NO se genera
-// migración todavía. Es estrictamente ADITIVO (solo CREATE TABLE
-// de tablas nuevas; no toca `usuarios` ni `clientes`).
+// BLOQUE ADITIVO YA MIGRADO: migración
+// 20260605235129_rbac_control_acceso. Es estrictamente ADITIVO
+// (solo CREATE TABLE de tablas nuevas; no toca `usuarios` ni
+// `clientes`). FK suaves a User/Client como columnas TEXT sin
+// FOREIGN KEY; solo hay FK duras entre las tablas nuevas.
 //
 // Convención del repo (OBLIGATORIA):
 //   - Identificadores Prisma en inglés; tablas/columnas físicas en
