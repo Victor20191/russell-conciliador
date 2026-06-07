@@ -136,16 +136,7 @@ async function main() {
     ],
   });
 
-  // ---- Notificaciones ----
-  await prisma.notification.createMany({
-    data: [
-      { kind: "assign", who: "María Bermúdez", text: "te asignó la conciliación de", target: "Inversiones del Pacífico — Inventarios Marzo 2026", time: "hace 12 min", unread: true },
-      { kind: "comment", who: "Carlos Aristizábal", text: "comentó en la cuenta", target: "143515 — Productos en proceso", time: "hace 38 min", unread: true },
-      { kind: "system", who: "Sistema", text: "Parametrización pendiente para", target: "Constructora Río Verde — Inventarios", time: "hoy, 08:30", unread: false },
-      { kind: "comment", who: "María Bermúdez", text: "resolvió la observación en", target: "REC-2026-0398", time: "ayer, 16:22", unread: false },
-      { kind: "assign", who: "Daniela Páez", text: "te asignó la revisión de", target: "Logística Andina Express — Cartera", time: "ayer, 11:05", unread: false },
-    ],
-  });
+  // Las notificaciones no se siembran: se crean solo desde acciones de proceso reales.
 
   // ---- Auditoría ----
   await prisma.auditEntry.createMany({

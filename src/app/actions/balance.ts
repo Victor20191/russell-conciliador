@@ -6,6 +6,7 @@ import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
 import { requirePermiso } from "@/lib/rbac";
 import { parseId } from "@/lib/ids";
+import { createProcessNotification } from "@/lib/notifications";
 
 export async function freezeBalance(formData: FormData): Promise<void> {
   await requirePermiso("balance:editar");
@@ -32,6 +33,12 @@ export async function freezeBalance(formData: FormData): Promise<void> {
     entity: `${balance.clientName} · ${balance.period}`,
     detail: `Versión ${balance.version} marcada como oficial`,
   });
+  await createProcessNotification({
+    actor: user?.name,
+    text: "congeló el balance oficial de",
+    target: `${balance.clientName} · ${balance.period} · ${balance.version}`,
+  });
+  revalidatePath("/", "layout");
   revalidatePath("/balance");
   revalidatePath(`/balance/${id}`);
 }

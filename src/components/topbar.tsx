@@ -42,6 +42,7 @@ export default function Topbar({
   const pathname = usePathname();
   const [bellOpen, setBellOpen] = useState(false);
   const unread = notifications.filter((n) => n.unread).length;
+  const hasNotifications = notifications.length > 0;
 
   const crumbs = pathname
     .split("/")
@@ -84,9 +85,16 @@ export default function Topbar({
 
         <div className="relative">
           <button
-            onClick={() => setBellOpen((o) => !o)}
-            aria-label="Notificaciones"
-            className="relative rounded-md border border-ink-200 bg-white p-2 text-ink-600 transition hover:bg-ink-50"
+            type="button"
+            onClick={() => {
+              if (hasNotifications) setBellOpen((o) => !o);
+            }}
+            disabled={!hasNotifications}
+            aria-label={hasNotifications ? "Notificaciones" : "Sin procesos activos"}
+            title={hasNotifications ? "Notificaciones" : "Sin procesos activos"}
+            className={`relative rounded-md border border-ink-200 bg-white p-2 text-ink-600 transition ${
+              hasNotifications ? "hover:bg-ink-50" : "cursor-default opacity-45"
+            }`}
           >
             <Icon name="bell" size={16} />
             {unread > 0 && (
@@ -94,7 +102,7 @@ export default function Topbar({
             )}
           </button>
 
-          {bellOpen && (
+          {bellOpen && hasNotifications && (
             <div className="absolute right-0 mt-2 w-80 overflow-hidden rounded-lg border border-ink-150 bg-white shadow-lg">
               <div className="flex items-center gap-2 border-b border-ink-100 px-4 py-2.5">
                 <b className="text-[13px] text-ink-800">Notificaciones</b>

@@ -5,6 +5,7 @@ import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
 import { requirePermiso } from "@/lib/rbac";
+import { createProcessNotification } from "@/lib/notifications";
 
 export async function generateRequirement(input: {
   templateCode: string; templateVersion: string; clientName: string; clientCode: string; period: string; recipients: number;
@@ -18,6 +19,12 @@ export async function generateRequirement(input: {
     data: { code, consec, templateCode: input.templateCode, templateVersion: input.templateVersion, clientName: input.clientName, period: input.period, recipients: input.recipients, status: "Enviado", date: "hoy", sentBy: user?.name ?? "Auditor" },
   });
   await logAudit({ user: user?.name ?? "Sistema", action: "ENVIÓ REQUERIMIENTO", entity: consec, detail: `${input.clientName} · ${input.recipients} destinatario(s)` });
+  await createProcessNotification({
+    actor: user?.name,
+    text: "generó el requerimiento",
+    target: `${consec} · ${input.clientName}`,
+  });
+  revalidatePath("/", "layout");
   revalidatePath("/requerimientos");
   return { id: submission.id, consec };
 }

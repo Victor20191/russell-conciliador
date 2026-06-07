@@ -19,7 +19,9 @@ export default async function AppLayout({
   const matriz = await getMatriz();
   const permisos = user ? matriz[user.role] ?? [] : [];
   const notifications = await prisma.notification.findMany({
+    where: { unread: true },
     orderBy: { createdAt: "desc" },
+    take: 20,
   });
 
   return (

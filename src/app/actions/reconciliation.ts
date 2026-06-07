@@ -7,6 +7,7 @@ import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
 import { requirePermiso } from "@/lib/rbac";
 import { parseId } from "@/lib/ids";
+import { createProcessNotification } from "@/lib/notifications";
 
 export async function addReconciliationComment(formData: FormData): Promise<void> {
   await requirePermiso("conciliaciones:editar");
@@ -103,6 +104,12 @@ export async function executeReconciliation(formData: FormData): Promise<void> {
   });
 
   await logAudit({ user: user?.name ?? "Sistema", action: "EJECUTÓ", entity: `Cruce ${code}`, detail: `${mod.name} · ${client.name} · ${period}` });
+  await createProcessNotification({
+    actor: user?.name,
+    text: "ejecutó el proceso de conciliación de",
+    target: `${client.name} · ${mod.name} · ${period}`,
+  });
+  revalidatePath("/", "layout");
   redirect(`/conciliacion/resultados/${reconciliation.id}`);
 }
 
