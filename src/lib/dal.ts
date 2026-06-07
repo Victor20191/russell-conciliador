@@ -10,10 +10,10 @@ export const verifySession = cache(async () => {
   const session = await decrypt(cookie);
 
   if (!session?.userId || !Number.isSafeInteger(session.userId)) {
-    // Cookie ausente o ilegible: limpiarla y enviar al login.
     redirect("/sesion-expirada");
   }
 
+  // Una sola query trae todos los campos necesarios para verifySession y getCurrentUser.
   const user = await prisma.user.findUnique({
     where: { id: session.userId },
     select: {
@@ -22,13 +22,13 @@ export const verifySession = cache(async () => {
       role: true,
       sessionVersion: true,
       mustChangePassword: true,
+      name: true,
+      email: true,
+      initials: true,
     },
   });
 
   // Revocación: el usuario debe existir, estar activo y la versión de sesión coincidir.
-  // Si la cookie tiene firma válida pero ya no corresponde a una sesión válida en
-  // la BD, hay que LIMPIARLA (vía /sesion-expirada); de lo contrario el proxy
-  // optimista la seguiría tratando como autenticada y se forma un bucle infinito.
   if (!user || !user.active || user.sessionVersion !== session.sessionVersion) {
     redirect("/sesion-expirada");
   }
@@ -38,17 +38,22 @@ export const verifySession = cache(async () => {
     userId: user.id,
     role: user.role,
     mustChangePassword: user.mustChangePassword,
+    name: user.name,
+    email: user.email,
+    initials: user.initials,
   };
 });
 
 export const getCurrentUser = cache(async () => {
-  const session = await verifySession();
   try {
-    const user = await prisma.user.findUnique({
-      where: { id: session.userId },
-      select: { id: true, name: true, email: true, role: true, initials: true },
-    });
-    return user;
+    const session = await verifySession();
+    return {
+      id: session.userId,
+      name: session.name,
+      email: session.email,
+      role: session.role,
+      initials: session.initials,
+    };
   } catch {
     return null;
   }

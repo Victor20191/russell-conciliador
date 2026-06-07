@@ -1,10 +1,11 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
 import { authorizePermiso } from "@/lib/rbac";
+import { RBAC_CACHE_TAG } from "@/lib/rbac/contexto";
 
 export type ToggleResult = { ok: boolean; message?: string };
 
@@ -48,6 +49,7 @@ export async function toggleRolePermiso(
     entity: `${role.name} · ${permiso.code}`,
     detail: conceder ? "Permiso habilitado para el rol" : "Permiso retirado del rol",
   });
+  updateTag(RBAC_CACHE_TAG); // expiración inmediata de la matriz cacheada (read-your-own-writes)
   revalidatePath("/config/permisos");
   return { ok: true };
 }

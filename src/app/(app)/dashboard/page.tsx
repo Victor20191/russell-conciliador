@@ -14,12 +14,12 @@ function initials(name: string): string {
 export default async function DashboardPage() {
   const user = await getCurrentUser();
   const [recs, diffSum, configuredCount, pendingCount, activity, pendingClients] = await Promise.all([
-    prisma.reconciliation.findMany({ orderBy: { createdAt: "desc" } }),
+    prisma.reconciliation.findMany({ orderBy: { createdAt: "desc" }, take: 50 }),
     prisma.reconciliationRow.aggregate({ _sum: { diff: true } }),
     prisma.clientModule.count({ where: { status: "configured" } }),
     prisma.clientModule.count({ where: { status: "pending" } }),
     prisma.auditEntry.findMany({ orderBy: { createdAt: "desc" }, take: 6 }),
-    prisma.client.findMany({ where: { modules: { some: { status: "pending" } } }, include: { modules: { where: { status: "pending" }, include: { module: true } } } }),
+    prisma.client.findMany({ where: { modules: { some: { status: "pending" } } }, take: 20, include: { modules: { where: { status: "pending" }, include: { module: true } } } }),
   ]);
 
   const inProcess = recs.filter((r) => r.status === "DIFF" || r.status === "REVIEW").length;

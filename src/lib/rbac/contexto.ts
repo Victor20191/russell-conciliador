@@ -5,32 +5,48 @@
 // cargan, desde la base, la matriz rol×permiso y las asignaciones de
 // cliente del usuario, que `src/lib/rbac.ts` usa para decidir el acceso.
 //
-// Funciones cacheadas por request (`cache()` de React): se evalúan una
-// sola vez por petición aunque varios guards las invoquen.
+// getMatriz usa unstable_cache (Data Cache de Next.js) con el tag
+// "rbac-matriz": persiste entre requests y se invalida solo cuando el
+// administrador edita permisos (revalidateTag desde la server action).
+// Las demás funciones usan React.cache() (memoización por request).
 // ============================================================
 import "server-only";
 import { cache } from "react";
+import { unstable_cache } from "next/cache";
 import prisma from "@/lib/prisma";
 import { matrizConLegado } from "@/lib/rbac/catalogo";
 import type { Matriz, Asignacion } from "@/lib/rbac/permisos";
 
+export const RBAC_CACHE_TAG = "rbac-matriz";
+
+// La función interna que lee de BD (sin cache layer).
+async function leerMatrizDeBD(): Promise<Matriz> {
+  const filas = await prisma.rolePermission.findMany({
+    select: {
+      role: { select: { code: true } },
+      permission: { select: { code: true } },
+    },
+  });
+  if (filas.length === 0) return matrizConLegado();
+  const m: Matriz = {};
+  for (const f of filas) (m[f.role.code] ??= []).push(f.permission.code);
+  return m;
+}
+
+// unstable_cache: persiste entre requests hasta que revalidateTag(RBAC_CACHE_TAG)
+// sea llamado. Se combina con cache() para deduplicar dentro del mismo request.
+const getMatrizCached = unstable_cache(leerMatrizDeBD, ["rbac-matriz"], {
+  tags: [RBAC_CACHE_TAG],
+  revalidate: 3600, // revalidación máxima: 1 hora (fallback si no hay tag invalidation)
+});
+
 /**
- * Matriz rol×permiso EFECTIVA, leída de `roles_permisos` (editable por el
- * Administrador). Si la tabla está vacía (BD sin sembrar) cae al catálogo
- * en memoria (`matrizConLegado`) para no dejar la app sin autorización.
+ * Matriz rol×permiso EFECTIVA. Cacheada en el Data Cache de Next.js;
+ * se invalida con revalidateTag(RBAC_CACHE_TAG) cuando el admin edita.
  */
 export const getMatriz = cache(async (): Promise<Matriz> => {
   try {
-    const filas = await prisma.rolePermission.findMany({
-      select: {
-        role: { select: { code: true } },
-        permission: { select: { code: true } },
-      },
-    });
-    if (filas.length === 0) return matrizConLegado();
-    const m: Matriz = {};
-    for (const f of filas) (m[f.role.code] ??= []).push(f.permission.code);
-    return m;
+    return await getMatrizCached();
   } catch {
     // Si la BD no responde, no abrir el acceso: usar el catálogo conocido.
     return matrizConLegado();

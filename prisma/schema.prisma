@@ -296,6 +296,7 @@ model Reconciliation {
   comments     ReconciliationComment[]
   createdAt    DateTime                @default(now()) @map("creado_en")
 
+  @@index([createdAt])
   @@map("conciliaciones")
 }
 
@@ -312,6 +313,7 @@ model ReconciliationRow {
   manualStatus     String?        @map("estado_manual") // conciliada | excepcion | ajuste (override del estado por materialidad)
   order            Int            @default(0) @map("orden")
 
+  @@index([reconciliationId])
   @@map("filas_conciliacion")
 }
 
@@ -354,6 +356,7 @@ model AuditEntry {
   ip        String?  @map("ip")
   createdAt DateTime @default(now()) @map("creado_en")
 
+  @@index([createdAt])
   @@map("registros_auditoria")
 }
 
