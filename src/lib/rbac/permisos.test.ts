@@ -122,10 +122,13 @@ describe("Revisión y supervisión", () => {
 });
 
 describe("Permisos globales (sin alcance de cliente)", () => {
-  test("configurar clientes y armar equipos/cartera es SOLO del Senior", () => {
-    expect(tienePermiso(MATRIZ, "Senior", "clientes:configurar")).toBe(true);
-    expect(tienePermiso(MATRIZ, "Senior", "equipos:asignar")).toBe(true);
-    for (const r of ["Socio", "Gerente", "Staff", "Administrador"]) {
+  test("configurar clientes y armar equipos/cartera: Senior (negocio) y Administrador (plataforma)", () => {
+    for (const r of ["Senior", "Administrador"]) {
+      expect(tienePermiso(MATRIZ, r, "clientes:configurar")).toBe(true);
+      expect(tienePermiso(MATRIZ, r, "equipos:asignar")).toBe(true);
+    }
+    // El resto (consulta/operación) no arma cartera.
+    for (const r of ["Socio", "Gerente", "Staff"]) {
       expect(tienePermiso(MATRIZ, r, "equipos:asignar")).toBe(false);
     }
   });

@@ -5,6 +5,7 @@ import { Icon } from "@/components/icons";
 import { fmtCompact, fmtPct } from "@/lib/format";
 import { sendToReviewer } from "@/app/actions/reconciliation";
 import CruceClient, { type Row, type Comment } from "./cruce-client";
+import Conversacion from "@/components/conversacion";
 import { parseId } from "@/lib/ids";
 
 export default async function CruceDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -55,6 +56,14 @@ export default async function CruceDetailPage({ params }: { params: Promise<{ id
           <CruceClient reconciliationId={rec.id} materiality={rec.materiality} rows={rows} comments={comments} totals={totals} diffPct={diffPct} />
         </>
       )}
+
+      <div className="mt-6">
+        <Conversacion
+          tipo="conciliaciones"
+          entityId={rec.id}
+          titulo={`Conversación · ${rec.clientName} · cruce #${rec.id}`}
+        />
+      </div>
     </div>
   );
 }

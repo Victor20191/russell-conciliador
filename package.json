@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --webpack",
     "prebuild": "prisma generate",
     "build": "next build",
     "start": "next start",
@@ -14,6 +14,8 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
     "db:seed:rbac": "tsx prisma/seed-rbac.ts",
+    "db:seed:comentar": "tsx prisma/seed-comentar.ts",
+    "db:seed:admin-negocio": "tsx prisma/seed-admin-negocio.ts",
     "db:backfill:roles": "tsx prisma/backfill-roles.ts",
     "db:studio": "prisma studio"
   },

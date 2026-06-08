@@ -28,6 +28,8 @@ model User {
   sessionVersion     Int       @default(0) @map("version_sesion")
   mustChangePassword Boolean   @default(false) @map("debe_cambiar_contrasena")
   lastLoginAt        DateTime? @map("ultimo_inicio_sesion")
+  comments           Comment[]        @relation("ComentariosAutor")
+  mentions           CommentMention[] @relation("MencionesUsuario")
   createdAt          DateTime  @default(now()) @map("creado_en")
   updatedAt          DateTime  @updatedAt @map("actualizado_en")
 
@@ -341,6 +343,54 @@ model Notification {
   createdAt DateTime @default(now()) @map("creado_en")
 
   @@map("notificaciones")
+}
+
+// ===== Conversaciones (comentarios polimórficos + menciones) =====
+
+/// Comentario de una CONVERSACIÓN anclada de forma POLIMÓRFICA a
+/// cualquier registro de negocio mediante (entidad_tipo, entidad_id).
+/// `entidad_tipo` reutiliza los códigos de módulo del RBAC
+/// (conciliaciones | dian | clientes | requerimientos | balance…), de
+/// modo que el mismo código identifica el módulo del permiso, el ítem
+/// de navegación y la entidad conversable. `ancla` ubica el comentario
+/// dentro del registro cuando aplica (p.ej. la cuenta en una
+/// conciliación o el renglón en un formulario DIAN).
+model Comment {
+  id         Int              @id @default(autoincrement()) @map("id")
+  entityType String           @map("entidad_tipo")
+  entityId   Int              @map("entidad_id")
+  anchor     String?          @map("ancla")
+  author     User             @relation("ComentariosAutor", fields: [authorId], references: [id], onDelete: Cascade)
+  authorId   Int              @map("autor_id")
+  body       String           @map("texto")
+  parent     Comment?         @relation("ComentarioHilo", fields: [parentId], references: [id], onDelete: Cascade)
+  parentId   Int?             @map("comentario_padre_id")
+  replies    Comment[]        @relation("ComentarioHilo")
+  isAI       Boolean          @default(false) @map("es_ia")
+  editedAt   DateTime?        @map("editado_en")
+  createdAt  DateTime         @default(now()) @map("creado_en")
+  mentions   CommentMention[]
+
+  @@index([entityType, entityId])
+  @@index([authorId])
+  @@map("comentarios")
+}
+
+/// Mención (@usuario) dentro de un comentario. Tabla propia para poder
+/// consultar "mis menciones", marcarlas leídas y disparar la
+/// notificación al usuario arrobado.
+model CommentMention {
+  id        Int       @id @default(autoincrement()) @map("id")
+  comment   Comment   @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  commentId Int       @map("comentario_id")
+  user      User      @relation("MencionesUsuario", fields: [userId], references: [id], onDelete: Cascade)
+  userId    Int       @map("usuario_mencionado_id")
+  readAt    DateTime? @map("leido_en")
+  createdAt DateTime  @default(now()) @map("creado_en")
+
+  @@unique([commentId, userId])
+  @@index([userId])
+  @@map("menciones_comentario")
 }
 
 // ===== Auditoría =====
