@@ -6,6 +6,9 @@ const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 function buildClient() {
   const adapter = new PrismaPg({
     connectionString: process.env.DATABASE_URL!,
+    // keepAlive detecta sockets muertos (p. ej. tras un cambio de red/VPN)
+    // en vez de entregarlos colgados desde el pool de conexiones.
+    keepAlive: true,
     // Configuración explícita del pool de node-postgres.
     // max: número máximo de conexiones simultáneas a la BD.
     // Ajustar según el plan del servidor de BD (ej. Postgres con max_connections=100

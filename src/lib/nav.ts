@@ -56,6 +56,7 @@ export const configNav: NavItem[] = [
   { label: "Clientes", href: "/config/clientes", icon: "users", permiso: "clientes:configurar" },
   { label: "Mapeos DIAN", href: "/config/dian", icon: "doc", permiso: "mapeos_dian:ver" },
   { label: "Equipos", href: "/config/equipos", icon: "users", permiso: "equipos:asignar" },
+  { label: "Carteras", href: "/config/carteras", icon: "folder", permiso: "equipos:asignar" },
   { label: "Usuarios", href: "/config/usuarios", icon: "users", permiso: "usuarios:ver" },
   { label: "Permisos por rol", href: "/config/permisos", icon: "settings", permiso: "roles:configurar" },
 ];

@@ -86,6 +86,9 @@ const SUPERVISORES = ["Gerente", "Socio"];
 const SOLO_STAFF = ["Staff"];
 const SOLO_SENIOR = ["Senior"];
 const SOLO_ADMIN = ["Administrador"];
+// El Senior arma la cartera (PDF); el Administrador, como administrador de la
+// plataforma, también gestiona la configuración de negocio (clientes/equipos).
+const SENIOR_Y_ADMIN = ["Senior", "Administrador"];
 
 export const PERMISOS: Permiso[] = [
   // ===== Lectura (consulta) — módulos derivados de nav.ts =====
@@ -104,6 +107,16 @@ export const PERMISOS: Permiso[] = [
   { code: "usuarios:ver", module: "usuarios", action: "ver", label: "Ver usuarios", roles: SOLO_ADMIN },
   { code: "modulos:ver", module: "modulos", action: "ver", label: "Ver módulos y campos", roles: SOLO_ADMIN },
   { code: "mapeos_dian:ver", module: "mapeos_dian", action: "ver", label: "Ver mapeos DIAN", roles: ["Senior", "Administrador"] },
+
+  // ===== Conversación (comentar) — participar en las conversaciones del
+  // módulo. Lectura+colaboración: todos los roles del PDF pueden comentar
+  // (la supervisión de Socio/Gerente/Senior se ejerce vía conversación).
+  // Para datos de cliente exige, además, ALCANCE de lectura (cartera). =====
+  { code: "balance:comentar", module: "balance", action: "comentar", label: "Comentar en balance", roles: TODOS },
+  { code: "conciliaciones:comentar", module: "conciliaciones", action: "comentar", label: "Comentar en conciliaciones", roles: TODOS },
+  { code: "dian:comentar", module: "dian", action: "comentar", label: "Comentar en Impuestos · DIAN", roles: TODOS },
+  { code: "requerimientos:comentar", module: "requerimientos", action: "comentar", label: "Comentar en requerimientos", roles: TODOS },
+  { code: "clientes:comentar", module: "clientes", action: "comentar", label: "Comentar en clientes", roles: TODOS },
 
   // ===== Operativo (crear/editar/ejecutar) — SOLO Staff =====
   { code: "balance:crear", module: "balance", action: "crear", label: "Cargar balance", roles: SOLO_STAFF },
@@ -127,11 +140,11 @@ export const PERMISOS: Permiso[] = [
   { code: "clientes:supervisar", module: "clientes", action: "supervisar", label: "Supervisar cartera de clientes", roles: SUPERVISORES },
 
   // ===== Configuración de negocio — SOLO Senior =====
-  { code: "clientes:crear", module: "clientes", action: "crear", label: "Crear cliente", roles: SOLO_SENIOR },
-  { code: "clientes:editar", module: "clientes", action: "editar", label: "Editar cliente", roles: SOLO_SENIOR },
-  { code: "clientes:configurar", module: "clientes", action: "configurar", label: "Configurar parámetros del cliente", roles: SOLO_SENIOR },
-  { code: "equipos:crear", module: "equipos", action: "crear", label: "Crear equipo de trabajo", roles: SOLO_SENIOR },
-  { code: "equipos:asignar", module: "equipos", action: "asignar", label: "Asignar equipos y cartera", roles: SOLO_SENIOR },
+  { code: "clientes:crear", module: "clientes", action: "crear", label: "Crear cliente", roles: SENIOR_Y_ADMIN },
+  { code: "clientes:editar", module: "clientes", action: "editar", label: "Editar cliente", roles: SENIOR_Y_ADMIN },
+  { code: "clientes:configurar", module: "clientes", action: "configurar", label: "Configurar parámetros del cliente", roles: SENIOR_Y_ADMIN },
+  { code: "equipos:crear", module: "equipos", action: "crear", label: "Crear equipo de trabajo", roles: SENIOR_Y_ADMIN },
+  { code: "equipos:asignar", module: "equipos", action: "asignar", label: "Asignar equipos y cartera", roles: SENIOR_Y_ADMIN },
   { code: "mapeos_dian:configurar", module: "mapeos_dian", action: "configurar", label: "Configurar mapeos DIAN", roles: ["Senior", "Administrador"] },
 
   // ===== Administración de la herramienta — SOLO Administrador =====
