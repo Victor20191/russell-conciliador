@@ -212,7 +212,7 @@ export default function CalendarioClient({ events }: { events: Evt[] }) {
             <label className="flex flex-col gap-1"><span className="text-[11.5px] font-medium text-ink-600">Título</span><input name="title" placeholder="Título del evento" className="rounded-md border border-ink-200 px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400" /></label>
             <label className="flex flex-col gap-1"><span className="text-[11.5px] font-medium text-ink-600">Subtítulo / detalle</span><input name="subtitle" className="rounded-md border border-ink-200 px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400" /></label>
             <label className="flex flex-col gap-1"><span className="text-[11.5px] font-medium text-ink-600">Cliente (si es requerimiento)</span><select name="clientKey" defaultValue="zarzal" className="rounded-md border border-ink-200 px-2.5 py-1.5 text-[12.5px] outline-none">{CAL_CLIENTS.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
-            <div className="mt-1 flex justify-end gap-2"><button type="button" onClick={() => setCreating(false)} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] text-ink-600 hover:bg-ink-50">Cancelar</button><button type="submit" className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600">Crear evento</button></div>
+            <div className="mt-1 flex justify-end gap-2"><button type="submit" className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600">Crear evento</button></div>
           </form>
         </Modal>
       )}

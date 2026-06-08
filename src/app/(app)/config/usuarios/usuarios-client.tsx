@@ -108,7 +108,7 @@ export default function UsuariosClient({ rows, roles }: { rows: UserRow[]; roles
         onClose={() => setCreateOpen(false)}
         title="Crear nuevo usuario"
       >
-        <CreateUserForm roles={roles} onSuccess={() => setCreateOpen(false)} onCancel={() => setCreateOpen(false)} />
+        <CreateUserForm roles={roles} onSuccess={() => setCreateOpen(false)} />
       </Modal>
 
       <Modal
@@ -121,7 +121,6 @@ export default function UsuariosClient({ rows, roles }: { rows: UserRow[]; roles
             user={editUser}
             roles={roles}
             onSuccess={() => setEditUser(null)}
-            onCancel={() => setEditUser(null)}
           />
         )}
       </Modal>
@@ -135,7 +134,6 @@ export default function UsuariosClient({ rows, roles }: { rows: UserRow[]; roles
           <ResetPasswordForm
             user={passwordUser}
             onSuccess={() => setPasswordUser(null)}
-            onCancel={() => setPasswordUser(null)}
           />
         )}
       </Modal>
@@ -143,7 +141,7 @@ export default function UsuariosClient({ rows, roles }: { rows: UserRow[]; roles
   );
 }
 
-function CreateUserForm({ roles, onSuccess, onCancel }: { roles: RoleOption[]; onSuccess: () => void; onCancel: () => void }) {
+function CreateUserForm({ roles, onSuccess }: { roles: RoleOption[]; onSuccess: () => void }) {
   const [state, action, pending] = useActionState(createUser, undefined);
 
   useEffect(() => {
@@ -223,13 +221,6 @@ function CreateUserForm({ roles, onSuccess, onCancel }: { roles: RoleOption[]; o
 
       <div className="mt-2 flex justify-end gap-3">
         <button
-          type="button"
-          onClick={onCancel}
-          className="rounded-md px-4 py-2 text-[13px] font-medium text-ink-600 hover:bg-ink-50"
-        >
-          Cancelar
-        </button>
-        <button
           type="submit"
           disabled={pending}
           className="rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-60"
@@ -241,7 +232,7 @@ function CreateUserForm({ roles, onSuccess, onCancel }: { roles: RoleOption[]; o
   );
 }
 
-function EditUserForm({ user, roles, onSuccess, onCancel }: { user: UserRow; roles: RoleOption[]; onSuccess: () => void; onCancel: () => void }) {
+function EditUserForm({ user, roles, onSuccess }: { user: UserRow; roles: RoleOption[]; onSuccess: () => void }) {
   const [state, action, pending] = useActionState(updateUser, undefined);
 
   useEffect(() => {
@@ -296,13 +287,6 @@ function EditUserForm({ user, roles, onSuccess, onCancel }: { user: UserRow; rol
 
       <div className="mt-2 flex justify-end gap-3">
         <button
-          type="button"
-          onClick={onCancel}
-          className="rounded-md px-4 py-2 text-[13px] font-medium text-ink-600 hover:bg-ink-50"
-        >
-          Cancelar
-        </button>
-        <button
           type="submit"
           disabled={pending}
           className="rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-60"
@@ -314,7 +298,7 @@ function EditUserForm({ user, roles, onSuccess, onCancel }: { user: UserRow; rol
   );
 }
 
-function ResetPasswordForm({ user, onSuccess, onCancel }: { user: UserRow; onSuccess: () => void; onCancel: () => void }) {
+function ResetPasswordForm({ user, onSuccess }: { user: UserRow; onSuccess: () => void }) {
   const [state, action, pending] = useActionState(resetUserPassword, undefined);
 
   useEffect(() => {
@@ -347,13 +331,6 @@ function ResetPasswordForm({ user, onSuccess, onCancel }: { user: UserRow; onSuc
       )}
 
       <div className="mt-2 flex justify-end gap-3">
-        <button
-          type="button"
-          onClick={onCancel}
-          className="rounded-md px-4 py-2 text-[13px] font-medium text-ink-600 hover:bg-ink-50"
-        >
-          Cancelar
-        </button>
         <button
           type="submit"
           disabled={pending}

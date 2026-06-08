@@ -118,7 +118,6 @@ function MappingEditor({
       <button onClick={add} className="mt-2 inline-flex items-center gap-1.5 text-[12px] font-medium text-blue-500 hover:underline"><Icon name="plus" size={13} /> Agregar cuenta</button>
 
       <div className="mt-4 flex items-center justify-end gap-2">
-        <button onClick={onClose} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] text-ink-600 hover:bg-ink-50">Cancelar</button>
         <button onClick={save} disabled={saving} className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"><Icon name="check" size={13} /> {saving ? "Guardando…" : "Guardar mapeo"}</button>
       </div>
     </Modal>

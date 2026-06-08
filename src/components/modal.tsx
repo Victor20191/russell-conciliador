@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect } from "react";
 import { Icon } from "@/components/icons";
 
 export function Modal({
@@ -16,26 +15,14 @@ export function Modal({
   children: React.ReactNode;
   footer?: React.ReactNode;
 }) {
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
-
+  // Por convención del proyecto, el modal SOLO se cierra con el botón X.
+  // No se cierra por tecla Escape ni por clic en el backdrop, para evitar
+  // cierres accidentales que descarten datos del formulario.
   if (!open) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-navy-900/40 p-4 pt-[8vh] backdrop-blur-sm"
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-lg overflow-hidden rounded-lg border border-ink-150 bg-white shadow-lg"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-navy-900/40 p-4 pt-[8vh] backdrop-blur-sm">
+      <div className="w-full max-w-lg overflow-hidden rounded-lg border border-ink-150 bg-white shadow-lg">
         <div className="flex items-center justify-between border-b border-ink-100 px-4 py-3">
           <h2 className="text-[13.5px] font-semibold text-ink-800">{title}</h2>
           <button

@@ -166,7 +166,7 @@ export default function CarterasClient({
       </div>
 
       <Modal open={crear} onClose={() => setCrear(false)} title="Nueva cartera">
-        <CrearCarteraForm users={users} onSuccess={() => setCrear(false)} onCancel={() => setCrear(false)} />
+        <CrearCarteraForm users={users} onSuccess={() => setCrear(false)} />
       </Modal>
 
       <Modal
@@ -179,7 +179,6 @@ export default function CarterasClient({
             cartera={asignarA}
             clients={clients}
             onSuccess={() => setAsignarA(null)}
-            onCancel={() => setAsignarA(null)}
           />
         )}
       </Modal>
@@ -189,7 +188,6 @@ export default function CarterasClient({
           <EditarForm
             asig={editar.asig}
             onSuccess={() => setEditar(null)}
-            onCancel={() => setEditar(null)}
           />
         )}
       </Modal>
@@ -197,17 +195,13 @@ export default function CarterasClient({
   );
 }
 
-function FormFooter({ pending, submitLabel, pendingLabel, onCancel }: {
+function FormFooter({ pending, submitLabel, pendingLabel }: {
   pending: boolean;
   submitLabel: string;
   pendingLabel: string;
-  onCancel: () => void;
 }) {
   return (
     <div className="mt-2 flex justify-end gap-3">
-      <button type="button" onClick={onCancel} className="rounded-md px-4 py-2 text-[13px] font-medium text-ink-600 hover:bg-ink-50">
-        Cancelar
-      </button>
       <button type="submit" disabled={pending} className="rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-60">
         {pending ? pendingLabel : submitLabel}
       </button>
@@ -236,10 +230,9 @@ function ScopeFields({ readDefault, writeDefault }: { readDefault: boolean; writ
   );
 }
 
-function CrearCarteraForm({ users, onSuccess, onCancel }: {
+function CrearCarteraForm({ users, onSuccess }: {
   users: UserOption[];
   onSuccess: () => void;
-  onCancel: () => void;
 }) {
   const [state, action, pending] = useActionState(crearCartera, undefined);
   useEffect(() => {
@@ -266,16 +259,15 @@ function CrearCarteraForm({ users, onSuccess, onCancel }: {
         </select>
       </div>
       <ErrorMsg message={state?.message} />
-      <FormFooter pending={pending} submitLabel="Crear cartera" pendingLabel="Creando…" onCancel={onCancel} />
+      <FormFooter pending={pending} submitLabel="Crear cartera" pendingLabel="Creando…" />
     </form>
   );
 }
 
-function AsignarForm({ cartera, clients, onSuccess, onCancel }: {
+function AsignarForm({ cartera, clients, onSuccess }: {
   cartera: CarteraRow;
   clients: ClientOption[];
   onSuccess: () => void;
-  onCancel: () => void;
 }) {
   const [state, action, pending] = useActionState(asignarClientes, undefined);
   const [q, setQ] = useState("");
@@ -345,15 +337,14 @@ function AsignarForm({ cartera, clients, onSuccess, onCancel }: {
       </div>
 
       <ErrorMsg message={state?.message} />
-      <FormFooter pending={pending} submitLabel="Asignar a la cartera" pendingLabel="Asignando…" onCancel={onCancel} />
+      <FormFooter pending={pending} submitLabel="Asignar a la cartera" pendingLabel="Asignando…" />
     </form>
   );
 }
 
-function EditarForm({ asig, onSuccess, onCancel }: {
+function EditarForm({ asig, onSuccess }: {
   asig: AsignacionRow;
   onSuccess: () => void;
-  onCancel: () => void;
 }) {
   const [state, action, pending] = useActionState(editarAsignacionCartera, undefined);
   useEffect(() => {
@@ -378,7 +369,7 @@ function EditarForm({ asig, onSuccess, onCancel }: {
         </div>
       </div>
       <ErrorMsg message={state?.message} />
-      <FormFooter pending={pending} submitLabel="Guardar cambios" pendingLabel="Guardando…" onCancel={onCancel} />
+      <FormFooter pending={pending} submitLabel="Guardar cambios" pendingLabel="Guardando…" />
     </form>
   );
 }

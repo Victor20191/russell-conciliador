@@ -160,7 +160,7 @@ export default function EquiposClient({
       </div>
 
       <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="Crear nuevo equipo">
-        <CrearEquipoForm users={users} onSuccess={() => setCreateOpen(false)} onCancel={() => setCreateOpen(false)} />
+        <CrearEquipoForm users={users} onSuccess={() => setCreateOpen(false)} />
       </Modal>
 
       <Modal open={!!addToTeam} onClose={() => setAddToTeam(null)} title={`Agregar integrante${addToTeam ? " · " + addToTeam.name : ""}`}>
@@ -170,7 +170,6 @@ export default function EquiposClient({
             users={users}
             roles={roles}
             onSuccess={() => setAddToTeam(null)}
-            onCancel={() => setAddToTeam(null)}
           />
         )}
       </Modal>
@@ -180,7 +179,6 @@ export default function EquiposClient({
           <EditarVigenciaForm
             member={editMember}
             onSuccess={() => setEditMember(null)}
-            onCancel={() => setEditMember(null)}
           />
         )}
       </Modal>
@@ -188,18 +186,13 @@ export default function EquiposClient({
   );
 }
 
-function FormFooter({ pending, cancelLabel = "Cancelar", submitLabel, pendingLabel, onCancel }: {
+function FormFooter({ pending, submitLabel, pendingLabel }: {
   pending: boolean;
-  cancelLabel?: string;
   submitLabel: string;
   pendingLabel: string;
-  onCancel: () => void;
 }) {
   return (
     <div className="mt-2 flex justify-end gap-3">
-      <button type="button" onClick={onCancel} className="rounded-md px-4 py-2 text-[13px] font-medium text-ink-600 hover:bg-ink-50">
-        {cancelLabel}
-      </button>
       <button type="submit" disabled={pending} className="rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-60">
         {pending ? pendingLabel : submitLabel}
       </button>
@@ -212,7 +205,7 @@ function ErrorMsg({ message }: { message?: string }) {
   return <p className="text-[12px] text-err-700">{message}</p>;
 }
 
-function CrearEquipoForm({ users, onSuccess, onCancel }: { users: UserOption[]; onSuccess: () => void; onCancel: () => void }) {
+function CrearEquipoForm({ users, onSuccess }: { users: UserOption[]; onSuccess: () => void }) {
   const [state, action, pending] = useActionState(crearEquipo, undefined);
   useEffect(() => {
     if (state?.ok) onSuccess();
@@ -238,17 +231,16 @@ function CrearEquipoForm({ users, onSuccess, onCancel }: { users: UserOption[]; 
         </select>
       </div>
       <ErrorMsg message={state?.message} />
-      <FormFooter pending={pending} submitLabel="Crear equipo" pendingLabel="Creando…" onCancel={onCancel} />
+      <FormFooter pending={pending} submitLabel="Crear equipo" pendingLabel="Creando…" />
     </form>
   );
 }
 
-function AgregarIntegranteForm({ team, users, roles, onSuccess, onCancel }: {
+function AgregarIntegranteForm({ team, users, roles, onSuccess }: {
   team: TeamRow;
   users: UserOption[];
   roles: RoleOption[];
   onSuccess: () => void;
-  onCancel: () => void;
 }) {
   const [state, action, pending] = useActionState(agregarIntegrante, undefined);
   useEffect(() => {
@@ -288,12 +280,12 @@ function AgregarIntegranteForm({ team, users, roles, onSuccess, onCancel }: {
         </div>
       </div>
       <ErrorMsg message={state?.message} />
-      <FormFooter pending={pending} submitLabel="Agregar integrante" pendingLabel="Agregando…" onCancel={onCancel} />
+      <FormFooter pending={pending} submitLabel="Agregar integrante" pendingLabel="Agregando…" />
     </form>
   );
 }
 
-function EditarVigenciaForm({ member, onSuccess, onCancel }: { member: MemberRow; onSuccess: () => void; onCancel: () => void }) {
+function EditarVigenciaForm({ member, onSuccess }: { member: MemberRow; onSuccess: () => void }) {
   const [state, action, pending] = useActionState(editarVigencia, undefined);
   useEffect(() => {
     if (state?.ok) onSuccess();
@@ -316,7 +308,7 @@ function EditarVigenciaForm({ member, onSuccess, onCancel }: { member: MemberRow
         </div>
       </div>
       <ErrorMsg message={state?.message} />
-      <FormFooter pending={pending} submitLabel="Guardar vigencia" pendingLabel="Guardando…" onCancel={onCancel} />
+      <FormFooter pending={pending} submitLabel="Guardar vigencia" pendingLabel="Guardando…" />
     </form>
   );
 }

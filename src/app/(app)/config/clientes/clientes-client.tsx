@@ -291,16 +291,9 @@ function ClientModal({
             <DeleteClientButton id={client!.id} onDone={onClose} />
           )}
           <button
-            type="button"
-            onClick={onClose}
-            className="ml-auto rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] text-ink-600 hover:bg-ink-50"
-          >
-            Cancelar
-          </button>
-          <button
             type="submit"
             disabled={pending}
-            className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
+            className="ml-auto rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
           >
             {pending ? "Guardando…" : "Guardar"}
           </button>
