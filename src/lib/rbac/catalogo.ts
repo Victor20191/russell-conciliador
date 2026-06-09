@@ -76,6 +76,17 @@ export const ROLES_PDF = ["Socio", "Gerente", "Senior", "Staff", "Administrador"
 export const ROLES_MATRIZ = ["Superadministrador", ...ROLES_PDF] as const;
 export const ROLES_LEGADO = ["Consulta", "Auditor", "Líder"] as const;
 
+// Roles que pueden ser LÍDER de un equipo. El líder es el "Senior responsable"
+// (PDF: el Senior arma equipos/cartera). Se incluye el rol legado "Líder", que
+// mapea a Senior (ver MAPEO_LEGADO_PDF). Lo comparten el selector de la UI y la
+// validación de la server action (defensa en profundidad).
+export const ROLES_LIDER_EQUIPO = ["Senior", "Líder"] as const;
+
+// Roles que pueden ser INTEGRANTE de un equipo. La cuadrilla la conforma el
+// Staff (único rol operativo que ejecuta el trabajo de campo). Se incluye el
+// rol legado "Auditor", que mapea a Staff (ver MAPEO_LEGADO_PDF).
+export const ROLES_INTEGRANTE_EQUIPO = ["Staff", "Auditor"] as const;
+
 export type Permiso = {
   code: string; // "<modulo>:<accion>" — llave canónica usada por los gates en código
   module: string;

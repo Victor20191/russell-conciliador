@@ -13,6 +13,24 @@ import { mensajeErrorBD, registrarError } from "@/lib/errores";
 
 const PATH = "/config/clientes";
 
+function parseModuleIds(formData: FormData): { ok: true; moduleIds: number[] } | { ok: false } {
+  const parsedModuleIds = formData.getAll("moduleIds").map(parseId);
+  if (parsedModuleIds.some((id) => id == null)) return { ok: false };
+  return {
+    ok: true,
+    moduleIds: [...new Set(parsedModuleIds.filter((id): id is number => id != null))],
+  };
+}
+
+async function moduleIdsExist(moduleIds: number[]): Promise<boolean> {
+  if (moduleIds.length === 0) return true;
+  const existingModules = await prisma.module.findMany({
+    where: { id: { in: moduleIds } },
+    select: { id: true },
+  });
+  return existingModules.length === moduleIds.length;
+}
+
 export async function createClient(
   _prev: ActionState,
   formData: FormData,
@@ -37,8 +55,28 @@ export async function createClient(
       return { ok: false, errors: z.flattenError(parsed.error).fieldErrors };
     }
     const data = parsed.data;
+    const modulesResult = parseModuleIds(formData);
+    if (!modulesResult.ok) {
+      return { ok: false, message: "Selecciona módulos válidos." };
+    }
+    const moduleIds = modulesResult.moduleIds;
+    if (!(await moduleIdsExist(moduleIds))) {
+      return { ok: false, message: "Selecciona módulos válidos." };
+    }
 
-    await prisma.client.create({ data });
+    await prisma.client.create({
+      data: {
+        ...data,
+        modules: moduleIds.length
+          ? {
+              create: moduleIds.map((moduleId) => ({
+                moduleId,
+                status: "pending",
+              })),
+            }
+          : undefined,
+      },
+    });
 
     const user = await getCurrentUser();
     await logAudit({
@@ -79,7 +117,49 @@ export async function updateClient(
       return { ok: false, errors: z.flattenError(parsed.error).fieldErrors };
     }
     const { name, nit, erp, sector } = parsed.data;
-    await prisma.client.update({ where: { id }, data: { name, nit, erp, sector } });
+    const shouldSyncModules = formData.get("syncModules") === "1";
+    let moduleIds: number[] | null = null;
+    if (shouldSyncModules) {
+      const configAuthz = await authorizePermiso("clientes:configurar");
+      if (!configAuthz.ok) return { ok: false, message: configAuthz.message };
+
+      const modulesResult = parseModuleIds(formData);
+      if (!modulesResult.ok) {
+        return { ok: false, message: "Selecciona módulos válidos." };
+      }
+      moduleIds = modulesResult.moduleIds;
+      if (!(await moduleIdsExist(moduleIds))) {
+        return { ok: false, message: "Selecciona módulos válidos." };
+      }
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.client.update({ where: { id }, data: { name, nit, erp, sector } });
+
+      if (moduleIds == null) return;
+
+      await tx.clientModule.deleteMany({
+        where: {
+          clientId: id,
+          ...(moduleIds.length > 0 ? { moduleId: { notIn: moduleIds } } : {}),
+        },
+      });
+      for (const moduleId of moduleIds) {
+        await tx.clientModule.upsert({
+          where: { clientId_moduleId: { clientId: id, moduleId } },
+          create: { clientId: id, moduleId, status: "pending" },
+          update: {},
+        });
+      }
+    });
+
+    const user = await getCurrentUser();
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: "ACTUALIZÓ CLIENTE",
+      entity: current.code,
+      detail: `${name} · ${nit}${moduleIds != null ? ` · módulos asignados: ${moduleIds.length}` : ""}`,
+    });
     revalidatePath(PATH);
     return { ok: true };
   } catch (e) {

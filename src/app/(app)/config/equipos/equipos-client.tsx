@@ -32,7 +32,6 @@ export type TeamRow = {
 };
 
 export type UserOption = { id: number; name: string; email: string };
-export type RoleOption = { code: string; name: string };
 
 const ESTADO_CHIP: Record<MemberRow["estado"], { label: string; tone: "ok" | "blue" | "err" | "ink" }> = {
   vigente: { label: "Vigente", tone: "ok" },
@@ -47,11 +46,11 @@ const labelCls = "text-[12px] font-medium text-ink-700";
 export default function EquiposClient({
   teams,
   users,
-  roles,
+  leaders,
 }: {
   teams: TeamRow[];
   users: UserOption[];
-  roles: RoleOption[];
+  leaders: UserOption[];
 }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [addToTeam, setAddToTeam] = useState<TeamRow | null>(null);
@@ -113,7 +112,7 @@ export default function EquiposClient({
                   <thead>
                     <tr className="border-b border-ink-100 bg-ink-50 text-[11px] uppercase tracking-wider text-ink-500">
                       <th className="px-4 py-2.5 font-semibold">Integrante</th>
-                      <th className="px-4 py-2.5 font-semibold">Rol en el equipo</th>
+                      <th className="px-4 py-2.5 font-semibold">Rol</th>
                       <th className="px-4 py-2.5 font-semibold">Vigencia</th>
                       <th className="px-4 py-2.5 font-semibold">Estado</th>
                       <th className="px-4 py-2.5 text-right font-semibold">Acciones</th>
@@ -160,7 +159,7 @@ export default function EquiposClient({
       </div>
 
       <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="Crear nuevo equipo">
-        <CrearEquipoForm users={users} onSuccess={() => setCreateOpen(false)} />
+        <CrearEquipoForm leaders={leaders} onSuccess={() => setCreateOpen(false)} />
       </Modal>
 
       <Modal open={!!addToTeam} onClose={() => setAddToTeam(null)} title={`Agregar integrante${addToTeam ? " · " + addToTeam.name : ""}`}>
@@ -168,7 +167,6 @@ export default function EquiposClient({
           <AgregarIntegranteForm
             team={addToTeam}
             users={users}
-            roles={roles}
             onSuccess={() => setAddToTeam(null)}
           />
         )}
@@ -205,7 +203,7 @@ function ErrorMsg({ message }: { message?: string }) {
   return <p className="text-[12px] text-err-700">{message}</p>;
 }
 
-function CrearEquipoForm({ users, onSuccess }: { users: UserOption[]; onSuccess: () => void }) {
+function CrearEquipoForm({ leaders, onSuccess }: { leaders: UserOption[]; onSuccess: () => void }) {
   const [state, action, pending] = useActionState(crearEquipo, undefined);
   useEffect(() => {
     if (state?.ok) onSuccess();
@@ -225,10 +223,15 @@ function CrearEquipoForm({ users, onSuccess }: { users: UserOption[]; onSuccess:
         <label className={labelCls}>Líder (Senior responsable, opcional)</label>
         <select name="leadUserId" defaultValue="" className={inputCls}>
           <option value="">— Sin líder —</option>
-          {users.map((u) => (
+          {leaders.map((u) => (
             <option key={u.id} value={u.id}>{u.name} · {u.email}</option>
           ))}
         </select>
+        {leaders.length === 0 && (
+          <p className="text-[11px] text-ink-500">
+            No hay usuarios con rol Senior disponibles para asignar como líder.
+          </p>
+        )}
       </div>
       <ErrorMsg message={state?.message} />
       <FormFooter pending={pending} submitLabel="Crear equipo" pendingLabel="Creando…" />
@@ -236,10 +239,9 @@ function CrearEquipoForm({ users, onSuccess }: { users: UserOption[]; onSuccess:
   );
 }
 
-function AgregarIntegranteForm({ team, users, roles, onSuccess }: {
+function AgregarIntegranteForm({ team, users, onSuccess }: {
   team: TeamRow;
   users: UserOption[];
-  roles: RoleOption[];
   onSuccess: () => void;
 }) {
   const [state, action, pending] = useActionState(agregarIntegrante, undefined);
@@ -258,15 +260,11 @@ function AgregarIntegranteForm({ team, users, roles, onSuccess }: {
             <option key={u.id} value={u.id}>{u.name} · {u.email}</option>
           ))}
         </select>
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <label className={labelCls}>Rol funcional en el equipo (opcional)</label>
-        <select name="roleCode" defaultValue="" className={inputCls}>
-          <option value="">— Sin rol específico —</option>
-          {roles.map((r) => (
-            <option key={r.code} value={r.code}>{r.name}</option>
-          ))}
-        </select>
+        {users.length === 0 && (
+          <p className="text-[11px] text-ink-500">
+            No hay usuarios con rol Staff disponibles para agregar.
+          </p>
+        )}
       </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="flex flex-col gap-1.5">

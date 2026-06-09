@@ -1,13 +1,13 @@
 import prisma from "@/lib/prisma";
 import { requirePermiso } from "@/lib/rbac";
+import { ROLES_LIDER_EQUIPO, ROLES_INTEGRANTE_EQUIPO } from "@/lib/rbac/catalogo";
 import EquiposClient, {
   type TeamRow,
   type MemberRow,
   type UserOption,
-  type RoleOption,
 } from "./equipos-client";
 
-type UsuarioRef = { id: number; name: string; email: string };
+type UsuarioRef = { id: number; name: string; email: string; role: string };
 type TeamConMiembros = {
   id: number;
   name: string;
@@ -17,7 +17,6 @@ type TeamConMiembros = {
   members: {
     id: number;
     userId: number;
-    role: { code: string; name: string } | null;
     validFrom: Date;
     validUntil: Date | null;
     active: boolean;
@@ -28,7 +27,11 @@ type TeamConMiembros = {
 // Construye las filas con el estado de vigencia. Vive a nivel de módulo (no en
 // el cuerpo del componente) porque depende de la hora actual (Date.now), que
 // es impura para el render de un Server Component.
-function construirFilas(teams: TeamConMiembros[], allUsers: UsuarioRef[]): TeamRow[] {
+function construirFilas(
+  teams: TeamConMiembros[],
+  allUsers: UsuarioRef[],
+  roleNameByCode: Map<string, string>,
+): TeamRow[] {
   const userById = new Map(allUsers.map((u) => [u.id, u] as const));
   const ahora = Date.now();
   const estadoDe = (active: boolean, validFrom: Date, validUntil: Date | null): MemberRow["estado"] => {
@@ -48,13 +51,16 @@ function construirFilas(teams: TeamConMiembros[], allUsers: UsuarioRef[]): TeamR
       leadName: lead?.name ?? null,
       members: t.members.map((m): MemberRow => {
         const u = userById.get(m.userId);
+        // El rol del integrante es SIEMPRE su rol del sistema (con el que fue
+        // creado). Se deriva en vivo de User.role, no de un valor almacenado.
+        const roleCode = u?.role ?? null;
         return {
           id: m.id,
           userId: m.userId,
           userName: u?.name ?? `Usuario #${m.userId}`,
           userEmail: u?.email ?? null,
-          roleCode: m.role?.code ?? null,
-          roleName: m.role?.name ?? null,
+          roleCode,
+          roleName: roleCode ? roleNameByCode.get(roleCode) ?? roleCode : null,
           validUntil: m.validUntil ? m.validUntil.toISOString().slice(0, 10) : null,
           reason: m.reason,
           estado: estadoDe(m.active, m.validFrom, m.validUntil),
@@ -64,6 +70,9 @@ function construirFilas(teams: TeamConMiembros[], allUsers: UsuarioRef[]): TeamR
   });
 }
 
+const ROLES_LIDER = new Set<string>(ROLES_LIDER_EQUIPO);
+const ROLES_INTEGRANTE = new Set<string>(ROLES_INTEGRANTE_EQUIPO);
+
 export default async function EquiposPage() {
   // La gestión de equipos y cartera es competencia del Senior (PDF).
   await requirePermiso("equipos:asignar");
@@ -72,30 +81,31 @@ export default async function EquiposPage() {
     prisma.team.findMany({
       orderBy: { name: "asc" },
       include: {
-        members: {
-          include: { role: { select: { code: true, name: true } } },
-          orderBy: { createdAt: "asc" },
-        },
+        members: { orderBy: { createdAt: "asc" } },
       },
     }),
     // userId/leadUserId son FK lógicas: traemos todos para resolver nombres,
     // y filtramos los activos para el selector de "agregar integrante".
+    // role se usa para mostrar el rol del sistema de cada integrante.
     prisma.user.findMany({
       orderBy: { name: "asc" },
-      select: { id: true, name: true, email: true, active: true },
+      select: { id: true, name: true, email: true, active: true, role: true },
     }),
-    prisma.role.findMany({
-      where: { active: true },
-      orderBy: { rank: "desc" },
-      select: { code: true, name: true },
-    }),
+    // Sin filtro `active`: necesitamos también nombres de roles inactivos/legado
+    // para resolver el rol del sistema de cualquier integrante.
+    prisma.role.findMany({ select: { code: true, name: true } }),
   ]);
 
-  const rows = construirFilas(teams, allUsers);
+  const roleNameByCode = new Map(roles.map((r) => [r.code, r.name] as const));
+  const rows = construirFilas(teams, allUsers, roleNameByCode);
+  // Integrantes: solo el Staff (rol operativo) puede agregarse a la cuadrilla.
   const userOptions: UserOption[] = allUsers
-    .filter((u) => u.active)
+    .filter((u) => u.active && ROLES_INTEGRANTE.has(u.role))
     .map((u) => ({ id: u.id, name: u.name, email: u.email }));
-  const roleOptions: RoleOption[] = roles.map((r) => ({ code: r.code, name: r.name }));
+  // Solo los Senior (responsables) pueden quedar como líder del equipo.
+  const leaderOptions: UserOption[] = allUsers
+    .filter((u) => u.active && ROLES_LIDER.has(u.role))
+    .map((u) => ({ id: u.id, name: u.name, email: u.email }));
 
-  return <EquiposClient teams={rows} users={userOptions} roles={roleOptions} />;
+  return <EquiposClient teams={rows} users={userOptions} leaders={leaderOptions} />;
 }

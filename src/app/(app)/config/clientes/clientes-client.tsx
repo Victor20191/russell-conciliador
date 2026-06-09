@@ -8,7 +8,6 @@ import {
   createClient,
   updateClient,
   deleteClient,
-  setClientModuleStatus,
 } from "@/app/actions/clients";
 import type { ActionState } from "@/lib/definitions";
 
@@ -27,10 +26,6 @@ function statusOf(c: ClientRow, moduleId: number): "configured" | "pending" | "n
   const m = c.modules.find((x) => x.moduleId === moduleId);
   return (m?.status as "configured" | "pending") ?? "none";
 }
-function cycle(s: string): string {
-  return s === "none" ? "pending" : s === "pending" ? "configured" : "none";
-}
-
 export default function ClientesClient({
   clients,
   modules,
@@ -124,7 +119,7 @@ export default function ClientesClient({
                 <td className="px-4 py-2.5 text-ink-600">{c.sector}</td>
                 {modules.map((m) => (
                   <td key={m.id} className="px-2 py-2 text-center">
-                    <ModuleCell clientId={c.id} moduleId={m.id} status={statusOf(c, m.id)} />
+                    <ModuleCell status={statusOf(c, m.id)} />
                   </td>
                 ))}
                 <td className="px-2 py-2 text-right">
@@ -158,6 +153,7 @@ export default function ClientesClient({
           erps={erps}
           sectors={sectors}
           nextCode={nextCode}
+          modules={modules}
         />
       )}
       {editing && (
@@ -170,6 +166,7 @@ export default function ClientesClient({
           erps={erps}
           sectors={sectors}
           nextCode={nextCode}
+          modules={modules}
         />
       )}
     </Card>
@@ -177,37 +174,25 @@ export default function ClientesClient({
 }
 
 function ModuleCell({
-  clientId,
-  moduleId,
   status,
 }: {
-  clientId: number;
-  moduleId: number;
   status: "configured" | "pending" | "none";
 }) {
-  const visual =
+  return (
     status === "configured" ? (
-      <span className="inline-flex items-center rounded-full bg-ok-100 px-1.5 py-0.5 text-ok-700">
+      <span className="inline-flex min-w-[72px] items-center justify-center gap-1 rounded-full bg-ok-100 px-2 py-0.5 text-[10px] font-semibold text-ok-700">
         <Icon name="check" size={11} />
+        Param.
       </span>
     ) : status === "pending" ? (
-      <span className="rounded-full bg-warn-100 px-2 py-0.5 text-[10px] font-semibold text-warn-700">
+      <span className="inline-flex min-w-[72px] items-center justify-center rounded-full bg-warn-100 px-2 py-0.5 text-[10px] font-semibold text-warn-700">
         Pendiente
       </span>
     ) : (
-      <span className="rounded-full bg-ink-100 px-2 py-0.5 text-[10px] font-semibold text-ink-400">
+      <span className="inline-flex min-w-[72px] items-center justify-center rounded-full bg-ink-100 px-2 py-0.5 text-[10px] font-semibold text-ink-400">
         N/A
       </span>
-    );
-  return (
-    <form action={setClientModuleStatus} className="inline">
-      <input type="hidden" name="clientId" value={clientId} />
-      <input type="hidden" name="moduleId" value={moduleId} />
-      <input type="hidden" name="next" value={cycle(status)} />
-      <button type="submit" title="Cambiar estado">
-        {visual}
-      </button>
-    </form>
+    )
   );
 }
 
@@ -219,6 +204,7 @@ function ClientModal({
   erps,
   sectors,
   nextCode,
+  modules,
 }: {
   onClose: () => void;
   title: string;
@@ -227,9 +213,23 @@ function ClientModal({
   erps: string[];
   sectors: string[];
   nextCode: string;
+  modules?: ModuleRef[];
 }) {
   const [state, formAction, pending] = useActionState<ActionState, FormData>(action, {});
   const isEdit = client != null;
+  // Los módulos nunca se preseleccionan al crear: la asignación es una decisión
+  // explícita del usuario. Al editar se marcan solo los ya asignados en BD.
+  const [selectedModuleIds, setSelectedModuleIds] = useState<number[]>(
+    () => (isEdit ? client.modules.map((module) => module.moduleId) : []),
+  );
+
+  function toggleModule(moduleId: number) {
+    setSelectedModuleIds((current) =>
+      current.includes(moduleId)
+        ? current.filter((id) => id !== moduleId)
+        : [...current, moduleId],
+    );
+  }
 
   useEffect(() => {
     if (state?.ok) onClose();
@@ -291,6 +291,52 @@ function ClientModal({
             </datalist>
           </CField>
         </div>
+
+        {modules && modules.length > 0 && (
+          <div className="rounded-md border border-ink-150 bg-ink-50/60 p-3">
+            <input type="hidden" name="syncModules" value="1" />
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <span className="text-[11.5px] font-medium text-ink-600">Módulos del cliente</span>
+              <span className="text-[11px] font-medium text-ink-400">
+                {selectedModuleIds.length}/{modules.length}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {modules.map((module) => {
+                const checked = selectedModuleIds.includes(module.id);
+                return (
+                  <label
+                    key={module.id}
+                    className={`flex min-h-9 cursor-pointer items-center gap-2 rounded-md border px-2.5 py-2 text-[12px] font-medium transition ${
+                      checked
+                        ? "border-ok-100 bg-white text-ink-800"
+                        : "border-ink-150 bg-ink-100 text-ink-500"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      name="moduleIds"
+                      value={module.id}
+                      checked={checked}
+                      onChange={() => toggleModule(module.id)}
+                      className="sr-only"
+                    />
+                    <span
+                      className={`grid h-4 w-4 shrink-0 place-items-center rounded border ${
+                        checked
+                          ? "border-ok-500 bg-ok-500 text-white"
+                          : "border-ink-300 bg-white text-transparent"
+                      }`}
+                    >
+                      <Icon name="check" size={11} stroke={2} />
+                    </span>
+                    <span className="truncate">{module.name}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {state?.message && <p className="text-[12px] text-err-700">{state.message}</p>}
 

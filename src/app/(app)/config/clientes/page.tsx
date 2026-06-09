@@ -32,7 +32,7 @@ export default async function ClientesPage() {
     <div>
       <PageHeader
         title="Clientes y parametrizaciones"
-        subtitle="Estado de parametrización por cliente y módulo. Los módulos en gris requieren configuración."
+        subtitle="Estado por cliente y módulo: parametrizado, pendiente o no activo."
       />
       <ClientesClient
         clients={rows}
