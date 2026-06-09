@@ -112,6 +112,20 @@ export function nivelActual(perms: PermisoLite[], grantedIds: Set<number>): Nive
   return mejor;
 }
 
+/**
+ * ¿La concesión de una celda es PARCIAL respecto del nivel que muestra? Es decir:
+ * el rol tiene al menos un permiso del módulo (nivelActual ≠ "ninguno") pero le
+ * falta alguna acción de rango ≤ a ese nivel. Una celda parcial NO concede todo
+ * lo que su badge sugiere (p. ej. un rol con solo `supervisar` se muestra como
+ * "Administrar" sin tener `configurar`/`crear`/`editar`). Al guardar ese nivel se
+ * completa el paquete acumulativo (normalización). Se usa para señalizarlo en la UI.
+ */
+export function esNivelParcial(perms: PermisoLite[], grantedIds: Set<number>): boolean {
+  const nivel = nivelActual(perms, grantedIds);
+  if (nivel === "ninguno") return false;
+  return permisosDeNivel(perms, nivel).some((id) => !grantedIds.has(id));
+}
+
 // ----- Árbol de presentación (filas de la matriz) -----
 // Etiquetas y orden tomados de la navegación real (src/lib/nav.ts). Los
 // submódulos con permiso propio (mapeo, razonabilidad, presentaciones)

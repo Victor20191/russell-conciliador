@@ -96,3 +96,18 @@ export const UserUnlockSchema = z.object({
 export const UserDeleteSchema = z.object({
   id: z.coerce.number().int().positive(),
 });
+
+// Matriz de permisos (/config/permisos): cada cambio fija el NIVEL de una celda
+// (rol × módulo). El `nivel` se valida contra el dominio cerrado de
+// src/lib/rbac/niveles.ts; el `roleId`/`module` se contrastan además contra el
+// catálogo (ROLES_MATRIZ y permisos sembrados) en la propia Server Action.
+export const CambioNivelSchema = z.object({
+  roleId: z.number().int().positive(),
+  module: z.string().trim().min(1),
+  nivel: z.enum(["ninguno", "ver", "comentar", "operar", "administrar"]),
+});
+
+export const GuardarNivelesSchema = z
+  .array(CambioNivelSchema)
+  .min(1, { error: "No hay cambios para guardar." })
+  .max(2000, { error: "Demasiados cambios en una sola operación." });

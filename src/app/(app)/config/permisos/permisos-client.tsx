@@ -42,10 +42,12 @@ export default function PermisosClient({
   roles,
   grupos,
   valores,
+  parciales,
 }: {
   roles: RoleCol[];
   grupos: GrupoMatriz[];
   valores: Record<string, Nivel>;
+  parciales: Record<string, true>;
 }) {
   // `base` = verdad del servidor; `pending` = cambios sin guardar.
   const [base, setBase] = useState<Record<string, Nivel>>(valores);
@@ -57,6 +59,14 @@ export default function PermisosClient({
   const valor = (roleId: number, module: string): Nivel => {
     const k = key(roleId, module);
     return pending[k] ?? base[k] ?? "ninguno";
+  };
+
+  // Una celda es "Parcial" si su concesión real (servidor) no cubre todo su nivel
+  // Y el usuario no la ha cambiado: al elegir un nivel nuevo, al guardar se
+  // materializa completo, dejando de ser parcial.
+  const esParcialCelda = (roleId: number, module: string): boolean => {
+    const k = key(roleId, module);
+    return !!parciales[k] && pending[k] === undefined;
   };
 
   const sucios = useMemo(
@@ -121,7 +131,10 @@ export default function PermisosClient({
     for (const g of grupos) {
       for (const f of g.filas) {
         const etiqueta = (f.depth === 1 ? "— " : "") + f.label;
-        const celdas = roles.map((r) => NIVEL_META[valor(r.id, f.module)].label);
+        const celdas = roles.map((r) => {
+          const lvl = NIVEL_META[valor(r.id, f.module)].label;
+          return esParcialCelda(r.id, f.module) ? `${lvl} (parcial)` : lvl;
+        });
         lines.push([etiqueta, ...celdas].map(esc).join(sep));
       }
     }
@@ -184,6 +197,15 @@ export default function PermisosClient({
             </span>
           );
         })}
+        <span
+          className="inline-flex items-center gap-1.5 text-[12px] text-ink-600"
+          title="La concesión real no cubre todas las acciones de este nivel. Al guardar el nivel se completará."
+        >
+          <span className="inline-flex items-center gap-1 rounded-full border border-warn-100 bg-warn-100 px-2 py-0.5 text-[11px] font-semibold text-warn-700">
+            <Icon name="warn" size={11} /> Parcial
+          </span>
+          <span>Concesión incompleta para su nivel; se completa al guardar.</span>
+        </span>
       </div>
 
       <div className="mb-4 flex items-start gap-2 rounded-md bg-blue-50 px-3 py-2.5 text-[12px] text-navy-700">
@@ -234,6 +256,7 @@ export default function PermisosClient({
                   onToggleItem={toggleItem}
                   valor={valor}
                   setCelda={setCelda}
+                  esParcial={esParcialCelda}
                   cols={roles.length + 1}
                 />
               ))}
@@ -252,6 +275,7 @@ function Grupo({
   onToggleItem,
   valor,
   setCelda,
+  esParcial,
   cols,
 }: {
   grupo: GrupoMatriz;
@@ -260,6 +284,7 @@ function Grupo({
   onToggleItem: (module: string) => void;
   valor: (roleId: number, module: string) => Nivel;
   setCelda: (roleId: number, module: string, nivel: Nivel) => void;
+  esParcial: (roleId: number, module: string) => boolean;
   cols: number;
 }) {
   const items = useMemo(() => aItems(grupo.filas), [grupo.filas]);
@@ -283,13 +308,21 @@ function Grupo({
             roles={roles}
             valor={valor}
             setCelda={setCelda}
+            esParcial={esParcial}
             tieneHijos={tieneHijos}
             abierto={abierto}
             onToggle={() => onToggleItem(it.padre.module)}
             extra={
               tieneHijos && abierto
                 ? it.hijos.map((h) => (
-                    <FilaModulo key={h.module} fila={h} roles={roles} valor={valor} setCelda={setCelda} />
+                    <FilaModulo
+                      key={h.module}
+                      fila={h}
+                      roles={roles}
+                      valor={valor}
+                      setCelda={setCelda}
+                      esParcial={esParcial}
+                    />
                   ))
                 : null
             }
@@ -305,6 +338,7 @@ function FilaModulo({
   roles,
   valor,
   setCelda,
+  esParcial,
   tieneHijos = false,
   abierto = false,
   onToggle,
@@ -314,6 +348,7 @@ function FilaModulo({
   roles: RoleCol[];
   valor: (roleId: number, module: string) => Nivel;
   setCelda: (roleId: number, module: string, nivel: Nivel) => void;
+  esParcial: (roleId: number, module: string) => boolean;
   tieneHijos?: boolean;
   abierto?: boolean;
   onToggle?: () => void;
@@ -344,6 +379,7 @@ function FilaModulo({
             <CeldaNivel
               value={valor(r.id, fila.module)}
               niveles={fila.niveles}
+              parcial={esParcial(r.id, fila.module)}
               onChange={(n) => setCelda(r.id, fila.module, n)}
               aria-label={`${r.name}: ${fila.label}`}
             />
@@ -368,11 +404,13 @@ function NivelBadge({ nivel }: { nivel: Nivel }) {
 function CeldaNivel({
   value,
   niveles,
+  parcial = false,
   onChange,
   "aria-label": ariaLabel,
 }: {
   value: Nivel;
   niveles: Nivel[];
+  parcial?: boolean;
   onChange: (n: Nivel) => void;
   "aria-label": string;
 }) {
@@ -380,27 +418,37 @@ function CeldaNivel({
   // Si el valor actual no está entre las opciones del módulo, lo añade para no perderlo.
   const opciones = niveles.includes(value) ? niveles : [value, ...niveles];
   return (
-    <div className="relative mx-auto w-full max-w-[150px]">
-      {/* Icono del nivel actual (a la izquierda del texto del select) */}
-      <span className="pointer-events-none absolute left-2.5 top-1/2 flex -translate-y-1/2 items-center">
-        {m.icon ? <Icon name={m.icon} size={13} /> : <span className="text-[12px] font-bold leading-none">—</span>}
-      </span>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value as Nivel)}
-        aria-label={ariaLabel}
-        className={`w-full cursor-pointer appearance-none rounded-md border py-1.5 pl-8 pr-7 text-[12px] font-semibold focus:outline-none focus:ring-2 focus:ring-navy-600 ${TONO[m.tone]}`}
-      >
-        {opciones.map((n) => (
-          <option key={n} value={n}>
-            {NIVEL_META[n].label}
-          </option>
-        ))}
-      </select>
-      {/* Flecha propia (la nativa se oculta con appearance-none) */}
-      <span className="pointer-events-none absolute right-2 top-1/2 flex -translate-y-1/2 items-center opacity-70">
-        <Icon name="chev-d" size={12} />
-      </span>
+    <div className="mx-auto w-full max-w-[150px]">
+      <div className="relative">
+        {/* Icono del nivel actual (a la izquierda del texto del select) */}
+        <span className="pointer-events-none absolute left-2.5 top-1/2 flex -translate-y-1/2 items-center">
+          {m.icon ? <Icon name={m.icon} size={13} /> : <span className="text-[12px] font-bold leading-none">—</span>}
+        </span>
+        <select
+          value={value}
+          onChange={(e) => onChange(e.target.value as Nivel)}
+          aria-label={ariaLabel}
+          className={`w-full cursor-pointer appearance-none rounded-md border py-1.5 pl-8 pr-7 text-[12px] font-semibold focus:outline-none focus:ring-2 focus:ring-navy-600 ${TONO[m.tone]}`}
+        >
+          {opciones.map((n) => (
+            <option key={n} value={n}>
+              {NIVEL_META[n].label}
+            </option>
+          ))}
+        </select>
+        {/* Flecha propia (la nativa se oculta con appearance-none) */}
+        <span className="pointer-events-none absolute right-2 top-1/2 flex -translate-y-1/2 items-center opacity-70">
+          <Icon name="chev-d" size={12} />
+        </span>
+      </div>
+      {parcial && (
+        <div
+          className="mt-1 flex items-center justify-center gap-1 text-[10px] font-medium text-warn-700"
+          title="Concesión parcial: este rol no tiene todas las acciones de este nivel. Si guardas este nivel, se completarán todas."
+        >
+          <Icon name="warn" size={10} /> Parcial
+        </div>
+      )}
     </div>
   );
 }

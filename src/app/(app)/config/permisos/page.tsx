@@ -1,9 +1,11 @@
 import prisma from "@/lib/prisma";
 import { requirePermiso } from "@/lib/rbac";
+import { ROLES_MATRIZ } from "@/lib/rbac/catalogo";
 import {
   ARBOL_MODULOS,
   nivelActual,
   nivelesDeModulo,
+  esNivelParcial,
   type Nivel,
   type PermisoLite,
 } from "@/lib/rbac/niveles";
@@ -18,8 +20,10 @@ export default async function PermisosPage() {
   await requirePermiso("roles:configurar");
 
   const [roles, permisos, concesiones] = await Promise.all([
+    // Solo los roles canónicos de la matriz se editan aquí; los legado
+    // (Consulta/Auditor/Líder) quedan fuera de la pantalla (la action lo refuerza).
     prisma.role.findMany({
-      where: { active: true },
+      where: { active: true, code: { in: [...ROLES_MATRIZ] } },
       orderBy: { rank: "desc" },
       select: { id: true, code: true, name: true },
     }),
@@ -51,6 +55,8 @@ export default async function PermisosPage() {
   // módulos sin permisos sembrados.
   const grupos: GrupoMatriz[] = [];
   const valores: Record<string, Nivel> = {};
+  // Celdas cuya concesión real no cubre todo su nivel (se señalizan como "Parcial").
+  const parciales: Record<string, true> = {};
 
   const filaDe = (module: string, label: string, depth: 0 | 1): ModuloRow | null => {
     const perms = porModulo.get(module);
@@ -58,7 +64,9 @@ export default async function PermisosPage() {
     const niveles = nivelesDeModulo(perms);
     for (const r of roleCols) {
       const granted = grantsPorRol.get(r.id) ?? new Set<number>();
-      valores[`${r.id}:${module}`] = nivelActual(perms, granted);
+      const k = `${r.id}:${module}`;
+      valores[k] = nivelActual(perms, granted);
+      if (esNivelParcial(perms, granted)) parciales[k] = true;
     }
     return { module, label, depth, niveles };
   };
@@ -76,5 +84,5 @@ export default async function PermisosPage() {
     if (filas.length > 0) grupos.push({ titulo: g.grupo, filas });
   }
 
-  return <PermisosClient roles={roleCols} grupos={grupos} valores={valores} />;
+  return <PermisosClient roles={roleCols} grupos={grupos} valores={valores} parciales={parciales} />;
 }
