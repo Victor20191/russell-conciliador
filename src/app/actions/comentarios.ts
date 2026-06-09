@@ -7,6 +7,7 @@ import { getMatriz } from "@/lib/rbac/contexto";
 import { tienePermiso } from "@/lib/rbac/permisos";
 import { esEntidadComentable, etiquetaEntidad } from "@/lib/comentarios";
 import { MESES } from "@/lib/format";
+import { mensajeErrorBD, registrarError } from "@/lib/errores";
 
 // ============================================================
 // Server actions de CONVERSACIONES (comentarios polimórficos).
@@ -69,37 +70,41 @@ export async function listarComentarios(
   if (!ver.ok) return { ok: false, message: ver.message };
   const comentar = await authorizePermiso(`${tipo}:comentar`);
 
-  const rows = await prisma.comment.findMany({
-    where: {
-      entityType: tipo,
-      entityId,
-      ...(anchor != null ? { anchor } : { anchor: null }),
-    },
-    orderBy: { createdAt: "asc" },
-    select: {
-      id: true,
-      body: true,
-      authorId: true,
-      isAI: true,
-      createdAt: true,
-      author: { select: { name: true, initials: true } },
-      mentions: { select: { userId: true, user: { select: { name: true } } } },
-    },
-  });
+  try {
+    const rows = await prisma.comment.findMany({
+      where: {
+        entityType: tipo,
+        entityId,
+        ...(anchor != null ? { anchor } : { anchor: null }),
+      },
+      orderBy: { createdAt: "asc" },
+      select: {
+        id: true,
+        body: true,
+        authorId: true,
+        isAI: true,
+        createdAt: true,
+        author: { select: { name: true, initials: true } },
+        mentions: { select: { userId: true, user: { select: { name: true } } } },
+      },
+    });
 
-  const comentarios: ComentarioDTO[] = rows.map((r) => ({
-    id: r.id,
-    body: r.body,
-    authorId: r.authorId,
-    authorName: r.author.name,
-    authorInitials: r.author.initials,
-    isAI: r.isAI,
-    createdAt: stamp(r.createdAt),
-    mine: r.authorId === ver.userId,
-    mentions: r.mentions.map((m) => ({ userId: m.userId, name: m.user.name })),
-  }));
+    const comentarios: ComentarioDTO[] = rows.map((r) => ({
+      id: r.id,
+      body: r.body,
+      authorId: r.authorId,
+      authorName: r.author.name,
+      authorInitials: r.author.initials,
+      isAI: r.isAI,
+      createdAt: stamp(r.createdAt),
+      mine: r.authorId === ver.userId,
+      mentions: r.mentions.map((m) => ({ userId: m.userId, name: m.user.name })),
+    }));
 
-  return { ok: true, comentarios, puedeComentar: comentar.ok };
+    return { ok: true, comentarios, puedeComentar: comentar.ok };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("listarComentarios", e) };
+  }
 }
 
 /** Candidatos a mención (@) para la conversación, excluyendo al autor. */
@@ -107,8 +112,14 @@ export async function usuariosMencionables(tipo: string): Promise<UsuarioMencion
   if (!esEntidadComentable(tipo)) return [];
   const ver = await authorizePermiso(`${tipo}:ver`);
   if (!ver.ok) return [];
-  const lista = await mencionablesInternos(tipo);
-  return lista.filter((u) => u.id !== ver.userId);
+  try {
+    const lista = await mencionablesInternos(tipo);
+    return lista.filter((u) => u.id !== ver.userId);
+  } catch (e) {
+    // Degradación elegante: si la BD falla, el selector de menciones queda vacío.
+    registrarError("usuariosMencionables", e);
+    return [];
+  }
 }
 
 /** Publica un comentario y registra sus menciones (+ notificación). */
@@ -130,61 +141,65 @@ export async function publicarComentario(input: {
   if (!body) return { ok: false, message: "El comentario está vacío." };
   if (body.length > 5000) return { ok: false, message: "El comentario es demasiado largo." };
 
-  // Solo se puede arrobar a quien puede ver el módulo (y no a uno mismo).
-  const idsValidos = new Set((await mencionablesInternos(tipo)).map((u) => u.id));
-  const menciones = [...new Set(input.menciones ?? [])].filter(
-    (id) => idsValidos.has(id) && id !== authz.userId,
-  );
+  try {
+    // Solo se puede arrobar a quien puede ver el módulo (y no a uno mismo).
+    const idsValidos = new Set((await mencionablesInternos(tipo)).map((u) => u.id));
+    const menciones = [...new Set(input.menciones ?? [])].filter(
+      (id) => idsValidos.has(id) && id !== authz.userId,
+    );
 
-  const actor = await getCurrentUser();
+    const actor = await getCurrentUser();
 
-  const creado = await prisma.comment.create({
-    data: {
-      entityType: tipo,
-      entityId,
-      anchor: input.anchor ?? null,
-      authorId: authz.userId,
-      body,
-      mentions: menciones.length ? { create: menciones.map((userId) => ({ userId })) } : undefined,
-    },
-    select: {
-      id: true,
-      body: true,
-      authorId: true,
-      isAI: true,
-      createdAt: true,
-      author: { select: { name: true, initials: true } },
-      mentions: { select: { userId: true, user: { select: { name: true } } } },
-    },
-  });
-
-  // Rastro en el feed de notificaciones por cada mención.
-  if (menciones.length) {
-    const etiqueta = etiquetaEntidad(tipo);
-    const quien = actor?.name ?? "Alguien";
-    await prisma.notification.createMany({
-      data: menciones.map(() => ({
-        kind: "comment",
-        who: quien,
-        text: `${quien} te mencionó en ${etiqueta} #${entityId}`,
-        target: `${tipo}:${entityId}`,
-        time: stamp(creado.createdAt),
-      })),
+    const creado = await prisma.comment.create({
+      data: {
+        entityType: tipo,
+        entityId,
+        anchor: input.anchor ?? null,
+        authorId: authz.userId,
+        body,
+        mentions: menciones.length ? { create: menciones.map((userId) => ({ userId })) } : undefined,
+      },
+      select: {
+        id: true,
+        body: true,
+        authorId: true,
+        isAI: true,
+        createdAt: true,
+        author: { select: { name: true, initials: true } },
+        mentions: { select: { userId: true, user: { select: { name: true } } } },
+      },
     });
-  }
 
-  return {
-    ok: true,
-    comentario: {
-      id: creado.id,
-      body: creado.body,
-      authorId: creado.authorId,
-      authorName: creado.author.name,
-      authorInitials: creado.author.initials,
-      isAI: creado.isAI,
-      createdAt: stamp(creado.createdAt),
-      mine: true,
-      mentions: creado.mentions.map((m) => ({ userId: m.userId, name: m.user.name })),
-    },
-  };
+    // Rastro en el feed de notificaciones por cada mención.
+    if (menciones.length) {
+      const etiqueta = etiquetaEntidad(tipo);
+      const quien = actor?.name ?? "Alguien";
+      await prisma.notification.createMany({
+        data: menciones.map(() => ({
+          kind: "comment",
+          who: quien,
+          text: `${quien} te mencionó en ${etiqueta} #${entityId}`,
+          target: `${tipo}:${entityId}`,
+          time: stamp(creado.createdAt),
+        })),
+      });
+    }
+
+    return {
+      ok: true,
+      comentario: {
+        id: creado.id,
+        body: creado.body,
+        authorId: creado.authorId,
+        authorName: creado.author.name,
+        authorInitials: creado.author.initials,
+        isAI: creado.isAI,
+        createdAt: stamp(creado.createdAt),
+        mine: true,
+        mentions: creado.mentions.map((m) => ({ userId: m.userId, name: m.user.name })),
+      },
+    };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("publicarComentario", e) };
+  }
 }

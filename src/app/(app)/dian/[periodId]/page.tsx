@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
+import { requirePermiso } from "@/lib/rbac";
 import { PageHeader, StatCard, BackLink, EmptyState } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { fmtCompact, fmtPct } from "@/lib/format";
@@ -7,6 +8,7 @@ import DianDetailClient, { type Section, type Mapping, type Comment } from "./di
 import { parseId } from "@/lib/ids";
 
 export default async function DianDetailPage({ params }: { params: Promise<{ periodId: string }> }) {
+  await requirePermiso("dian:ver");
   const { periodId: rawPeriodId } = await params;
   const periodId = parseId(rawPeriodId);
   if (!periodId) notFound();

@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icon, BrandMark } from "@/components/icons";
-import { workNav, configNav, type NavItem } from "@/lib/nav";
+import { workNav, configNav, type NavChild, type NavItem } from "@/lib/nav";
 import { logout } from "@/app/actions/auth";
 
 function isChildActive(pathname: string, href: string) {
@@ -23,17 +23,35 @@ function isGroupActive(pathname: string, item: NavItem) {
 export default function Sidebar({
   user,
   permisos,
+  modulosVisibles,
+  modulosEnDesarrollo,
 }: {
   user: { name: string; role: string; initials: string } | null;
   permisos: string[];
+  modulosVisibles: string[];
+  modulosEnDesarrollo: string[];
 }) {
   const pathname = usePathname();
 
   // Visibilidad por PERMISO (matriz RBAC), no por jerarquía legado: el menú
   // muestra exactamente lo que la página deja entrar (mismo permiso del guard).
   const permset = new Set(permisos);
-  const visibleWork = workNav.filter((it) => !it.permiso || permset.has(it.permiso));
-  const visibleConfig = configNav.filter((it) => !it.permiso || permset.has(it.permiso));
+  const moduleset = new Set(modulosVisibles);
+  const developmentSet = new Set(modulosEnDesarrollo);
+  const puedeVer = (item: NavItem | NavChild) =>
+    (!item.permiso || permset.has(item.permiso)) &&
+    (!item.modulo || moduleset.has(item.modulo));
+  const filtrarNav = (items: NavItem[]) =>
+    items.flatMap((it) => {
+      const children = it.children?.filter(puedeVer);
+      if (it.children) {
+        if (children?.length) return [{ ...it, children }];
+        return puedeVer(it) ? [{ ...it, children: undefined }] : [];
+      }
+      return puedeVer(it) ? [it] : [];
+    });
+  const visibleWork = filtrarNav(workNav);
+  const visibleConfig = filtrarNav(configNav);
 
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
     const init: Record<string, boolean> = {};
@@ -81,8 +99,9 @@ export default function Sidebar({
             const active = isGroupActive(pathname, it);
             const open = openGroups[it.href] ?? false;
             if (!it.children) {
-              return <TopLink key={it.href} item={it} active={active} />;
+              return <TopLink key={it.href} item={it} active={active} developmentSet={developmentSet} />;
             }
+            const inDevelopment = !!it.modulo && developmentSet.has(it.modulo);
             return (
               <div key={it.href}>
                 <button
@@ -93,6 +112,7 @@ export default function Sidebar({
                 >
                   <span className="text-current"><Icon name={it.icon} /></span>
                   <span className="truncate">{it.label}</span>
+                  {inDevelopment && <DevBadge />}
                   {it.count != null && <Count n={it.count} />}
                   <span
                     className="ml-auto opacity-50 transition-transform"
@@ -121,6 +141,7 @@ export default function Sidebar({
                             }`}
                           />
                           <span className="truncate">{ch.label}</span>
+                          {ch.modulo && developmentSet.has(ch.modulo) && <DevBadge />}
                           {ch.count != null && <Count n={ch.count} />}
                         </Link>
                       );
@@ -135,7 +156,7 @@ export default function Sidebar({
         <SectionLabel>Configuración</SectionLabel>
         <nav className="flex flex-col px-2">
           {visibleConfig.map((it) => (
-            <TopLink key={it.href} item={it} active={pathname === it.href} />
+            <TopLink key={it.href} item={it} active={pathname === it.href} developmentSet={developmentSet} />
           ))}
         </nav>
       </div>
@@ -167,7 +188,16 @@ export default function Sidebar({
   );
 }
 
-function TopLink({ item, active }: { item: NavItem; active: boolean }) {
+function TopLink({
+  item,
+  active,
+  developmentSet,
+}: {
+  item: NavItem;
+  active: boolean;
+  developmentSet: Set<string>;
+}) {
+  const inDevelopment = !!item.modulo && developmentSet.has(item.modulo);
   return (
     <Link
       href={item.href}
@@ -177,8 +207,17 @@ function TopLink({ item, active }: { item: NavItem; active: boolean }) {
     >
       <span><Icon name={item.icon} /></span>
       <span className="truncate">{item.label}</span>
+      {inDevelopment && <DevBadge />}
       {item.count != null && <Count n={item.count} />}
     </Link>
+  );
+}
+
+function DevBadge() {
+  return (
+    <span className="shrink-0 rounded-full bg-warn-100 px-1.5 py-0.5 text-[9.5px] font-semibold text-warn-700">
+      Dev
+    </span>
   );
 }
 

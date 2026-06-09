@@ -12,6 +12,8 @@ import { redirect } from "next/navigation";
 import { verifySession } from "@/lib/dal";
 import { tienePermiso, puedeSobreCliente } from "@/lib/rbac/permisos";
 import { getMatriz, getAsignacionesUsuario } from "@/lib/rbac/contexto";
+import { moduloDelPermiso } from "@/lib/rbac/modulos-plataforma";
+import { moduloDisponibleParaRol } from "@/lib/rbac/publicacion";
 import { can, type Role } from "@/lib/roles";
 
 export type AuthzResult =
@@ -29,6 +31,11 @@ export type AuthzOpts = {
 async function decidir(permiso: string, opts: AuthzOpts): Promise<AuthzResult> {
   const session = await verifySession();
   if (session.mustChangePassword) redirect("/cambiar-contrasena");
+
+  const modulo = moduloDelPermiso(permiso);
+  if (!(await moduloDisponibleParaRol(session.role, modulo))) {
+    return { ok: false, message: "Este módulo no está habilitado para tu rol." };
+  }
 
   const matriz = await getMatriz();
   if (!tienePermiso(matriz, session.role, permiso)) {

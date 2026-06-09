@@ -7,6 +7,7 @@ import { logAudit } from "@/lib/audit";
 import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import { type ActionState } from "@/lib/definitions";
 import { parseId } from "@/lib/ids";
+import { mensajeErrorBD, registrarError } from "@/lib/errores";
 
 const PATH = "/config/equipos";
 
@@ -33,19 +34,24 @@ export async function crearEquipo(
   const leadUserId = parseId(formData.get("leadUserId"));
   if (!name) return { ok: false, message: "El nombre del equipo es obligatorio." };
 
-  await prisma.team.create({
-    data: { name, description: description || null, leadUserId: leadUserId ?? null },
-  });
+  try {
+    await prisma.team.create({
+      data: { name, description: description || null, leadUserId: leadUserId ?? null },
+    });
 
-  const actor = await getCurrentUser();
-  await logAudit({
-    user: actor?.name ?? "Sistema",
-    action: "CREÓ EQUIPO",
-    entity: name,
-    detail: leadUserId ? `Líder: usuario #${leadUserId}` : "Sin líder asignado",
-  });
-  revalidatePath(PATH);
-  return { ok: true };
+    const actor = await getCurrentUser();
+    await logAudit({
+      user: actor?.name ?? "Sistema",
+      action: "CREÓ EQUIPO",
+      entity: name,
+      detail: leadUserId ? `Líder: usuario #${leadUserId}` : "Sin líder asignado",
+    });
+    revalidatePath(PATH);
+    return { ok: true };
+  } catch (e) {
+    // Cualquier fallo de base de datos se traduce a un mensaje claro para el usuario.
+    return { ok: false, message: mensajeErrorBD("crearEquipo", e) };
+  }
 }
 
 export async function agregarIntegrante(
@@ -64,30 +70,35 @@ export async function agregarIntegrante(
   const validUntil = parseVigencia(formData.get("validUntil"));
   if (validUntil === undefined) return { ok: false, message: "Fecha de vigencia inválida." };
 
-  const role = roleCode
-    ? await prisma.role.findUnique({ where: { code: roleCode }, select: { id: true } })
-    : null;
+  try {
+    const role = roleCode
+      ? await prisma.role.findUnique({ where: { code: roleCode }, select: { id: true } })
+      : null;
 
-  // Upsert por [equipo, usuario]: re-asignar al MISMO equipo actualiza la
-  // vigencia (no rompe el UNIQUE). Para asignar a OTRO equipo de forma
-  // temporal, basta crear una fila en ese otro equipo con validUntil.
-  await prisma.teamMember.upsert({
-    where: { teamId_userId: { teamId, userId } },
-    update: { roleId: role?.id ?? null, validUntil, reason, active: true, assignedById: authz.userId },
-    create: { teamId, userId, roleId: role?.id ?? null, validUntil, reason, assignedById: authz.userId },
-  });
+    // Upsert por [equipo, usuario]: re-asignar al MISMO equipo actualiza la
+    // vigencia (no rompe el UNIQUE). Para asignar a OTRO equipo de forma
+    // temporal, basta crear una fila en ese otro equipo con validUntil.
+    await prisma.teamMember.upsert({
+      where: { teamId_userId: { teamId, userId } },
+      update: { roleId: role?.id ?? null, validUntil, reason, active: true, assignedById: authz.userId },
+      create: { teamId, userId, roleId: role?.id ?? null, validUntil, reason, assignedById: authz.userId },
+    });
 
-  const actor = await getCurrentUser();
-  await logAudit({
-    user: actor?.name ?? "Sistema",
-    action: "ASIGNÓ INTEGRANTE",
-    entity: `Equipo #${teamId}`,
-    detail: validUntil
-      ? `Usuario #${userId} · vigente hasta ${iso(validUntil)}`
-      : `Usuario #${userId} · permanente`,
-  });
-  revalidatePath(PATH);
-  return { ok: true };
+    const actor = await getCurrentUser();
+    await logAudit({
+      user: actor?.name ?? "Sistema",
+      action: "ASIGNÓ INTEGRANTE",
+      entity: `Equipo #${teamId}`,
+      detail: validUntil
+        ? `Usuario #${userId} · vigente hasta ${iso(validUntil)}`
+        : `Usuario #${userId} · permanente`,
+    });
+    revalidatePath(PATH);
+    return { ok: true };
+  } catch (e) {
+    // Cualquier fallo de base de datos se traduce a un mensaje claro para el usuario.
+    return { ok: false, message: mensajeErrorBD("agregarIntegrante", e) };
+  }
 }
 
 export async function editarVigencia(
@@ -103,30 +114,41 @@ export async function editarVigencia(
   const validUntil = parseVigencia(formData.get("validUntil"));
   if (validUntil === undefined) return { ok: false, message: "Fecha de vigencia inválida." };
 
-  await prisma.teamMember.update({ where: { id }, data: { validUntil, reason } });
+  try {
+    await prisma.teamMember.update({ where: { id }, data: { validUntil, reason } });
 
-  const actor = await getCurrentUser();
-  await logAudit({
-    user: actor?.name ?? "Sistema",
-    action: "EDITÓ VIGENCIA",
-    entity: `Integrante #${id}`,
-    detail: validUntil ? `Vigente hasta ${iso(validUntil)}` : "Permanente",
-  });
-  revalidatePath(PATH);
-  return { ok: true };
+    const actor = await getCurrentUser();
+    await logAudit({
+      user: actor?.name ?? "Sistema",
+      action: "EDITÓ VIGENCIA",
+      entity: `Integrante #${id}`,
+      detail: validUntil ? `Vigente hasta ${iso(validUntil)}` : "Permanente",
+    });
+    revalidatePath(PATH);
+    return { ok: true };
+  } catch (e) {
+    // Cualquier fallo de base de datos se traduce a un mensaje claro para el usuario.
+    return { ok: false, message: mensajeErrorBD("editarVigencia", e) };
+  }
 }
 
 export async function quitarIntegrante(formData: FormData): Promise<void> {
   await requirePermiso("equipos:asignar");
   const id = parseId(formData.get("id"));
   if (!id) return;
-  await prisma.teamMember.delete({ where: { id } });
-  const actor = await getCurrentUser();
-  await logAudit({
-    user: actor?.name ?? "Sistema",
-    action: "QUITÓ INTEGRANTE",
-    entity: `Integrante #${id}`,
-    detail: "Removido del equipo",
-  });
-  revalidatePath(PATH);
+  try {
+    await prisma.teamMember.delete({ where: { id } });
+    const actor = await getCurrentUser();
+    await logAudit({
+      user: actor?.name ?? "Sistema",
+      action: "QUITÓ INTEGRANTE",
+      entity: `Integrante #${id}`,
+      detail: "Removido del equipo",
+    });
+    revalidatePath(PATH);
+  } catch (e) {
+    // Acción void: registramos el error en el servidor y lo relanzamos al error boundary.
+    registrarError("quitarIntegrante", e);
+    throw e;
+  }
 }

@@ -1,8 +1,10 @@
 import prisma from "@/lib/prisma";
+import { requirePermiso } from "@/lib/rbac";
 import { PageHeader } from "@/components/ui";
 import NuevaClient, { type ClientOpt, type ModuleOpt, type StdField } from "./nueva-client";
 
 export default async function NuevaConciliacionPage() {
+  await requirePermiso("conciliaciones:crear");
   const [clients, modules, fields] = await Promise.all([
     prisma.client.findMany({ orderBy: { name: "asc" }, include: { modules: true } }),
     prisma.module.findMany({ orderBy: { name: "asc" } }),

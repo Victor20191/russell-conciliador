@@ -1,8 +1,10 @@
 import prisma from "@/lib/prisma";
+import { requirePermiso } from "@/lib/rbac";
 import { PageHeader } from "@/components/ui";
 import MapeoClient, { type Account, type RussellOpt } from "./mapeo-client";
 
 export default async function MapeoPage({ searchParams }: { searchParams: Promise<{ cliente?: string }> }) {
+  await requirePermiso("mapeo:ver");
   const sp = await searchParams;
   const balances = await prisma.balance.findMany({ select: { clientName: true }, distinct: ["clientName"], orderBy: { clientName: "asc" } });
   const clientNames = balances.map((b) => b.clientName);

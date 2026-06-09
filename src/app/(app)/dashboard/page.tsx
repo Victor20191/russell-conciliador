@@ -1,6 +1,7 @@
 import Link from "next/link";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
+import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import { PageHeader, Card, CardHeader, StatCard, Chip } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { statusChip, fmtCompact } from "@/lib/format";
@@ -12,7 +13,9 @@ function initials(name: string): string {
 }
 
 export default async function DashboardPage() {
+  await requirePermiso("dashboard:ver");
   const user = await getCurrentUser();
+  const puedeCrearConciliacion = (await authorizePermiso("conciliaciones:crear")).ok;
   const [recs, diffSum, configuredCount, pendingCount, activity, pendingClients] = await Promise.all([
     prisma.reconciliation.findMany({ orderBy: { createdAt: "desc" }, take: 50 }),
     prisma.reconciliationRow.aggregate({ _sum: { diff: true } }),
@@ -31,7 +34,7 @@ export default async function DashboardPage() {
       <PageHeader
         title={`Hola, ${user?.name?.split(" ")[0] ?? ""}`}
         subtitle="Resumen de tu trabajo de conciliación y diagnóstico"
-        actions={<Link href="/conciliacion/nueva" className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-2 text-[12.5px] font-semibold text-white hover:bg-navy-600"><Icon name="play" size={14} /> Nueva conciliación</Link>}
+        actions={puedeCrearConciliacion ? <Link href="/conciliacion/nueva" className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-2 text-[12.5px] font-semibold text-white hover:bg-navy-600"><Icon name="play" size={14} /> Nueva conciliación</Link> : null}
       />
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">

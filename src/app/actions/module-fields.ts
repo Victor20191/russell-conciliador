@@ -8,6 +8,7 @@ import { logAudit } from "@/lib/audit";
 import { ModuleFieldSchema, type ActionState } from "@/lib/definitions";
 import { parseId } from "@/lib/ids";
 import { requirePermiso, authorizePermiso } from "@/lib/rbac";
+import { mensajeErrorBD, registrarError } from "@/lib/errores";
 
 const PATH = "/config/modulos";
 
@@ -30,25 +31,30 @@ export async function createModuleField(
   }
   const { moduleId, key, label, type, required, hint } = parsed.data;
 
-  const dup = await prisma.moduleField.findUnique({
-    where: { moduleId_key: { moduleId, key } },
-  });
-  if (dup) return { ok: false, message: "Ya existe un campo con esa clave en el módulo." };
+  // Operaciones de base de datos envueltas en try-catch
+  try {
+    const dup = await prisma.moduleField.findUnique({
+      where: { moduleId_key: { moduleId, key } },
+    });
+    if (dup) return { ok: false, message: "Ya existe un campo con esa clave en el módulo." };
 
-  const order = await prisma.moduleField.count({ where: { moduleId } });
-  await prisma.moduleField.create({
-    data: { moduleId, key, label, type, required, hint: hint?.trim() || null, order },
-  });
+    const order = await prisma.moduleField.count({ where: { moduleId } });
+    await prisma.moduleField.create({
+      data: { moduleId, key, label, type, required, hint: hint?.trim() || null, order },
+    });
 
-  const user = await getCurrentUser();
-  await logAudit({
-    user: user?.name ?? "Sistema",
-    action: "AGREGÓ CAMPO",
-    entity: `Módulo ${moduleId}`,
-    detail: `${key} · ${label}`,
-  });
-  revalidatePath(PATH);
-  return { ok: true };
+    const user = await getCurrentUser();
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: "AGREGÓ CAMPO",
+      entity: `Módulo ${moduleId}`,
+      detail: `${key} · ${label}`,
+    });
+    revalidatePath(PATH);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("createModuleField", e) };
+  }
 }
 
 export async function updateModuleField(
@@ -73,20 +79,30 @@ export async function updateModuleField(
   }
   const { key, label, type, required, hint } = parsed.data;
 
-  await prisma.moduleField.update({
-    where: { id },
-    data: { key, label, type, required, hint: hint?.trim() || null },
-  });
-  revalidatePath(PATH);
-  return { ok: true };
+  // Operaciones de base de datos envueltas en try-catch
+  try {
+    await prisma.moduleField.update({
+      where: { id },
+      data: { key, label, type, required, hint: hint?.trim() || null },
+    });
+    revalidatePath(PATH);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("updateModuleField", e) };
+  }
 }
 
 export async function deleteModuleField(formData: FormData): Promise<void> {
   await requirePermiso("modulos:configurar");
   const id = parseId(formData.get("id"));
-  if (id) {
+  if (!id) return;
+  // Operaciones de base de datos envueltas en try-catch
+  try {
     await prisma.moduleField.delete({ where: { id } });
     revalidatePath(PATH);
+  } catch (e) {
+    registrarError("deleteModuleField", e);
+    throw e;
   }
 }
 
@@ -95,21 +111,27 @@ export async function moveModuleField(formData: FormData): Promise<void> {
   const id = parseId(formData.get("id"));
   if (!id) return;
   const dir = formData.get("dir") as string; // "up" | "down"
-  const field = await prisma.moduleField.findUnique({ where: { id } });
-  if (!field) return;
+  // Operaciones de base de datos envueltas en try-catch
+  try {
+    const field = await prisma.moduleField.findUnique({ where: { id } });
+    if (!field) return;
 
-  const neighbor = await prisma.moduleField.findFirst({
-    where: {
-      moduleId: field.moduleId,
-      order: dir === "up" ? { lt: field.order } : { gt: field.order },
-    },
-    orderBy: { order: dir === "up" ? "desc" : "asc" },
-  });
-  if (!neighbor) return;
+    const neighbor = await prisma.moduleField.findFirst({
+      where: {
+        moduleId: field.moduleId,
+        order: dir === "up" ? { lt: field.order } : { gt: field.order },
+      },
+      orderBy: { order: dir === "up" ? "desc" : "asc" },
+    });
+    if (!neighbor) return;
 
-  await prisma.$transaction([
-    prisma.moduleField.update({ where: { id: field.id }, data: { order: neighbor.order } }),
-    prisma.moduleField.update({ where: { id: neighbor.id }, data: { order: field.order } }),
-  ]);
-  revalidatePath(PATH);
+    await prisma.$transaction([
+      prisma.moduleField.update({ where: { id: field.id }, data: { order: neighbor.order } }),
+      prisma.moduleField.update({ where: { id: neighbor.id }, data: { order: field.order } }),
+    ]);
+    revalidatePath(PATH);
+  } catch (e) {
+    registrarError("moveModuleField", e);
+    throw e;
+  }
 }

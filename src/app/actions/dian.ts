@@ -6,6 +6,7 @@ import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
 import { requirePermiso } from "@/lib/rbac";
 import { parseId } from "@/lib/ids";
+import { registrarError } from "@/lib/errores";
 
 export async function addDianComment(formData: FormData): Promise<void> {
   await requirePermiso("dian:editar");
@@ -15,12 +16,17 @@ export async function addDianComment(formData: FormData): Promise<void> {
   const text = ((formData.get("text") as string) ?? "").trim();
   if (!formId || !lineKey || !text) return;
 
-  const user = await getCurrentUser();
-  await prisma.dianComment.create({
-    data: { formId, lineKey, who: user?.name ?? "Usuario", initials: user?.initials ?? "··", text, time: "ahora" },
-  });
-  await logAudit({ user: user?.name ?? "Sistema", action: "COMENTÓ", entity: `Renglón ${lineKey}`, detail: `DIAN ${formId}` });
-  if (periodId) revalidatePath(`/dian/${periodId}`);
+  try {
+    const user = await getCurrentUser();
+    await prisma.dianComment.create({
+      data: { formId, lineKey, who: user?.name ?? "Usuario", initials: user?.initials ?? "··", text, time: "ahora" },
+    });
+    await logAudit({ user: user?.name ?? "Sistema", action: "COMENTÓ", entity: `Renglón ${lineKey}`, detail: `DIAN ${formId}` });
+    if (periodId) revalidatePath(`/dian/${periodId}`);
+  } catch (e) {
+    registrarError("addDianComment", e);
+    throw e;
+  }
 }
 
 // IA simulada: genera una observación heurística sobre la diferencia del renglón.
@@ -39,12 +45,17 @@ export async function requestDianAiAnalysis(formData: FormData): Promise<void> {
       ? `Diferencia material de $${abs.toLocaleString("es-CO")}. Patrón típico: documentos registrados fuera del corte o reclasificación de tarifa. Recomiendo validar la causación posterior y confirmar inclusión en la próxima declaración.`
       : `Diferencia menor de $${abs.toLocaleString("es-CO")} (no material). Probable redondeo o ajuste de oportunidad. Documentar y monitorear en el siguiente período.`;
 
-  await prisma.dianComment.create({
-    data: { formId, lineKey, who: "IA", initials: "IA", isAI: true, time: "sugerencia automática", text },
-  });
-  const user = await getCurrentUser();
-  await logAudit({ user: user?.name ?? "Sistema", action: "PIDIÓ ANÁLISIS IA", entity: `Renglón ${lineKey}`, detail: `DIAN ${formId}` });
-  if (periodId) revalidatePath(`/dian/${periodId}`);
+  try {
+    await prisma.dianComment.create({
+      data: { formId, lineKey, who: "IA", initials: "IA", isAI: true, time: "sugerencia automática", text },
+    });
+    const user = await getCurrentUser();
+    await logAudit({ user: user?.name ?? "Sistema", action: "PIDIÓ ANÁLISIS IA", entity: `Renglón ${lineKey}`, detail: `DIAN ${formId}` });
+    if (periodId) revalidatePath(`/dian/${periodId}`);
+  } catch (e) {
+    registrarError("requestDianAiAnalysis", e);
+    throw e;
+  }
 }
 
 export async function saveDianMapping(
@@ -55,14 +66,19 @@ export async function saveDianMapping(
   await requirePermiso("mapeos_dian:configurar");
   if (!formId || !lineKey) return;
   const clean = rows.filter((r) => r.account.trim());
-  await prisma.dianMapping.deleteMany({ where: { formId, lineKey } });
-  if (clean.length) {
-    await prisma.dianMapping.createMany({
-      data: clean.map((r, i) => ({ formId, lineKey, account: r.account.trim(), desc: r.desc.trim(), sign: r.sign === "-" ? "-" : "+", order: i })),
-    });
+  try {
+    await prisma.dianMapping.deleteMany({ where: { formId, lineKey } });
+    if (clean.length) {
+      await prisma.dianMapping.createMany({
+        data: clean.map((r, i) => ({ formId, lineKey, account: r.account.trim(), desc: r.desc.trim(), sign: r.sign === "-" ? "-" : "+", order: i })),
+      });
+    }
+    const user = await getCurrentUser();
+    await logAudit({ user: user?.name ?? "Sistema", action: "GUARDÓ MAPEO DIAN", entity: `Renglón ${lineKey}`, detail: `${clean.length} cuenta(s) · ${formId}` });
+    revalidatePath("/config/dian");
+    revalidatePath("/dian/[periodId]", "page");
+  } catch (e) {
+    registrarError("saveDianMapping", e);
+    throw e;
   }
-  const user = await getCurrentUser();
-  await logAudit({ user: user?.name ?? "Sistema", action: "GUARDÓ MAPEO DIAN", entity: `Renglón ${lineKey}`, detail: `${clean.length} cuenta(s) · ${formId}` });
-  revalidatePath("/config/dian");
-  revalidatePath("/dian/[periodId]", "page");
 }

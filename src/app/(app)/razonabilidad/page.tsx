@@ -1,6 +1,8 @@
 import { PageHeader, ModulePlaceholder } from "@/components/ui";
+import { requirePermiso } from "@/lib/rbac";
 
-export default function RazonabilidadPage() {
+export default async function RazonabilidadPage() {
+  await requirePermiso("razonabilidad:ver");
   return (
     <div>
       <PageHeader title="Razonabilidad" subtitle="Análisis de razonabilidad de cuentas con hallazgos y memorando IA" />

@@ -1,5 +1,5 @@
 import { test, expect, describe } from "vitest";
-import { MATRIZ, PERMISOS, ROLES, ROLES_PDF } from "./catalogo";
+import { MATRIZ, PERMISOS, ROLES, ROLES_MATRIZ, ROLES_PDF } from "./catalogo";
 import { puedeSobreCliente, tienePermiso, type Asignacion } from "./permisos";
 import {
   DEMO_EQUIPO,
@@ -47,8 +47,8 @@ const STAFF1 = "staff1.demo@russellbedford.co";
 const STAFF2 = "staff2.demo@russellbedford.co";
 
 describe("Integridad del catálogo RBAC", () => {
-  test("todos los permisos referencian roles válidos del PDF", () => {
-    const validos = new Set<string>(ROLES_PDF);
+  test("todos los permisos referencian roles válidos del catálogo", () => {
+    const validos = new Set<string>(ROLES.map((r) => r.code));
     for (const p of PERMISOS) {
       for (const r of p.roles) expect(validos.has(r)).toBe(true);
     }
@@ -59,13 +59,13 @@ describe("Integridad del catálogo RBAC", () => {
     expect(new Set(codes).size).toBe(codes.length);
   });
 
-  test("cada rol del PDF tiene al menos un permiso en la matriz", () => {
-    for (const r of ROLES_PDF) expect((MATRIZ[r] ?? []).length).toBeGreaterThan(0);
+  test("cada rol de la matriz tiene al menos un permiso", () => {
+    for (const r of ROLES_MATRIZ) expect((MATRIZ[r] ?? []).length).toBeGreaterThan(0);
   });
 
   test("los roles legado siguen presentes (no se huerfanan usuarios)", () => {
     const codes = new Set(ROLES.map((r) => r.code));
-    for (const legado of ["Consulta", "Auditor", "Líder", "Administrador"]) {
+    for (const legado of ["Consulta", "Auditor", "Líder", "Administrador", "Superadministrador"]) {
       expect(codes.has(legado)).toBe(true);
     }
   });
@@ -133,11 +133,16 @@ describe("Permisos globales (sin alcance de cliente)", () => {
     }
   });
 
-  test("administrar la herramienta (usuarios/módulos) es SOLO del Administrador", () => {
-    expect(tienePermiso(MATRIZ, "Administrador", "usuarios:crear")).toBe(true);
-    expect(tienePermiso(MATRIZ, "Administrador", "modulos:configurar")).toBe(true);
+  test("administrar la herramienta (usuarios/módulos) es de roles administrativos", () => {
+    for (const r of ["Administrador", "Superadministrador"]) {
+      expect(tienePermiso(MATRIZ, r, "usuarios:crear")).toBe(true);
+      expect(tienePermiso(MATRIZ, r, "modulos:configurar")).toBe(true);
+    }
+    expect(tienePermiso(MATRIZ, "Superadministrador", "publicacion_modulos:configurar")).toBe(true);
+    expect(tienePermiso(MATRIZ, "Administrador", "publicacion_modulos:configurar")).toBe(false);
     for (const r of ["Socio", "Gerente", "Senior", "Staff"]) {
       expect(tienePermiso(MATRIZ, r, "usuarios:crear")).toBe(false);
+      expect(tienePermiso(MATRIZ, r, "publicacion_modulos:configurar")).toBe(false);
     }
   });
 

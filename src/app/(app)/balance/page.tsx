@@ -1,4 +1,5 @@
 import prisma from "@/lib/prisma";
+import { requirePermiso } from "@/lib/rbac";
 import { PageHeader } from "@/components/ui";
 import BalanceIndexClient, {
   type ClientGroup,
@@ -10,6 +11,7 @@ import BalanceIndexClient, {
 type AuditEntry = { date: string; actor: string; role: string; action: string; ip: string; details: string };
 
 export default async function BalancePage() {
+  await requirePermiso("balance:ver");
   const [balances, standard] = await Promise.all([
     prisma.balance.findMany({ orderBy: [{ clientName: "asc" }, { createdAt: "desc" }] }),
     prisma.standardAccount.findMany({ orderBy: { code: "asc" } }),

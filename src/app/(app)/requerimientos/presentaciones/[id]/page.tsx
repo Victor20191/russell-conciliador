@@ -1,9 +1,11 @@
 import { notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
+import { requirePermiso } from "@/lib/rbac";
 import VisorClient, { type PresData, type Observed, type Evaluated } from "./visor-client";
 import { parseId } from "@/lib/ids";
 
 export default async function VisorPage({ params }: { params: Promise<{ id: string }> }) {
+  await requirePermiso("presentaciones:ver");
   const { id: rawId } = await params;
   const id = parseId(rawId);
   if (!id) notFound();

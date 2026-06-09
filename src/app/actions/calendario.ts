@@ -5,6 +5,7 @@ import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
 import { requirePermiso } from "@/lib/rbac";
+import { registrarError } from "@/lib/errores";
 
 export async function createCalendarEvent(formData: FormData): Promise<void> {
   await requirePermiso("calendario:crear");
@@ -15,9 +16,15 @@ export async function createCalendarEvent(formData: FormData): Promise<void> {
   const clientKey = (formData.get("clientKey") as string) || null;
   if (!dateStr || !title) return;
 
-  const [y, m, d] = dateStr.split("-").map(Number);
-  await prisma.calendarEvent.create({ data: { date: new Date(y, m - 1, d), type, title, subtitle, clientKey: type === "req" ? clientKey : null, order: 999 } });
-  const user = await getCurrentUser();
-  await logAudit({ user: user?.name ?? "Sistema", action: "CREÓ EVENTO", entity: title, detail: `${type} · ${dateStr}` });
-  revalidatePath("/calendario");
+  try {
+    const [y, m, d] = dateStr.split("-").map(Number);
+    await prisma.calendarEvent.create({ data: { date: new Date(y, m - 1, d), type, title, subtitle, clientKey: type === "req" ? clientKey : null, order: 999 } });
+    const user = await getCurrentUser();
+    await logAudit({ user: user?.name ?? "Sistema", action: "CREÓ EVENTO", entity: title, detail: `${type} · ${dateStr}` });
+    revalidatePath("/calendario");
+  } catch (e) {
+    // Registra el error en el servidor y lo propaga al error boundary.
+    registrarError("createCalendarEvent", e);
+    throw e;
+  }
 }

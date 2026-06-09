@@ -1,8 +1,10 @@
 import prisma from "@/lib/prisma";
+import { requirePermiso } from "@/lib/rbac";
 import { PageHeader } from "@/components/ui";
 import CalendarioClient, { type Evt } from "./calendario-client";
 
 export default async function CalendarioPage() {
+  await requirePermiso("calendario:ver");
   const events = await prisma.calendarEvent.findMany({ orderBy: { date: "asc" } });
   const evts: Evt[] = events.map((e) => {
     const d = new Date(e.date);

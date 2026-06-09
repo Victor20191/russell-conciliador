@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
+import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import { PageHeader, StatCard, BackLink } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { sendRepoReminder } from "@/app/actions/repositorios";
@@ -7,6 +8,8 @@ import RepoClient, { type Family, type Activity } from "./repo-client";
 import { parseId } from "@/lib/ids";
 
 export default async function RepoDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  await requirePermiso("requerimientos:ver");
+  const puedeEnviarRecordatorio = (await authorizePermiso("requerimientos:ejecutar")).ok;
   const { id: rawId } = await params;
   const id = parseId(rawId);
   if (!id) notFound();
@@ -27,7 +30,7 @@ export default async function RepoDetailPage({ params }: { params: Promise<{ id:
         subtitle={`${repo.clientName} · ${repo.period} · Enviado ${repo.sentAt} por ${repo.sentBy} · Vencimiento ${repo.deadline} · ${repo.templateCode}`}
         actions={
           <div className="flex items-center gap-2">
-            <form action={sendRepoReminder}><input type="hidden" name="repositoryId" value={repo.id} /><button type="submit" className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 px-3 py-2 text-[12.5px] font-medium text-ink-700 hover:bg-ink-50"><Icon name="send" size={14} /> Enviar recordatorio</button></form>
+            {puedeEnviarRecordatorio && <form action={sendRepoReminder}><input type="hidden" name="repositoryId" value={repo.id} /><button type="submit" className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 px-3 py-2 text-[12.5px] font-medium text-ink-700 hover:bg-ink-50"><Icon name="send" size={14} /> Enviar recordatorio</button></form>}
             <button disabled title="Descarga — fase posterior" className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-md bg-ink-100 px-3 py-2 text-[12px] font-semibold text-ink-400"><Icon name="download" size={14} /> Descargar todo</button>
             <button disabled title="Presentaciones — Fase 6C" className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-md bg-ink-100 px-3 py-2 text-[12px] font-semibold text-ink-400"><Icon name="play" size={14} /> Generar presentación</button>
           </div>

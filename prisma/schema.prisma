@@ -274,6 +274,27 @@ model ClientModule {
   @@map("modulos_cliente")
 }
 
+// ===== Superadministración · publicación visual de módulos =====
+/// Catálogo de módulos funcionales de la plataforma. Controla si un
+/// módulo se publica para usuarios NO superadministradores. No concede permisos:
+/// la autorización final sigue siendo la matriz RolePermission.
+model PlatformModule {
+  id                         Int      @id @default(autoincrement()) @map("id")
+  key                        String   @unique @map("clave") // balance | dian | requerimientos...
+  label                      String   @map("etiqueta")
+  description                String?  @map("descripcion")
+  group                      String   @map("grupo") // Trabajo | Configuración
+  icon                       String   @map("icono")
+  order                      Int      @default(0) @map("orden")
+  enabledForNonAdmins        Boolean  @default(true) @map("habilitado_no_administradores")
+  configurableForNonAdmins   Boolean  @default(true) @map("bloqueable_no_administradores")
+  createdAt                  DateTime @default(now()) @map("creado_en")
+  updatedAt                  DateTime @updatedAt @map("actualizado_en")
+
+  @@index([group, order])
+  @@map("modulos_plataforma")
+}
+
 // ===== Conciliaciones =====
 model Reconciliation {
   id           Int                     @id @default(autoincrement()) @map("id")

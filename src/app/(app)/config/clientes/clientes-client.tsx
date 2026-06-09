@@ -36,11 +36,13 @@ export default function ClientesClient({
   modules,
   erps,
   sectors,
+  nextCode,
 }: {
   clients: ClientRow[];
   modules: ModuleRef[];
   erps: string[];
   sectors: string[];
+  nextCode: string;
 }) {
   const [q, setQ] = useState("");
   const [erp, setErp] = useState("");
@@ -155,6 +157,7 @@ export default function ClientesClient({
           action={createClient}
           erps={erps}
           sectors={sectors}
+          nextCode={nextCode}
         />
       )}
       {editing && (
@@ -166,6 +169,7 @@ export default function ClientesClient({
           client={editing}
           erps={erps}
           sectors={sectors}
+          nextCode={nextCode}
         />
       )}
     </Card>
@@ -214,6 +218,7 @@ function ClientModal({
   client,
   erps,
   sectors,
+  nextCode,
 }: {
   onClose: () => void;
   title: string;
@@ -221,6 +226,7 @@ function ClientModal({
   client?: ClientRow | null;
   erps: string[];
   sectors: string[];
+  nextCode: string;
 }) {
   const [state, formAction, pending] = useActionState<ActionState, FormData>(action, {});
   const isEdit = client != null;
@@ -236,9 +242,11 @@ function ClientModal({
         <CField label="Código" error={state?.errors?.code}>
           <input
             name="code"
-            defaultValue={client?.code ?? ""}
+            defaultValue={client?.code ?? nextCode}
+            disabled
             placeholder="C-1042"
-            className="w-full rounded-md border border-ink-200 px-2.5 py-1.5 font-mono text-[12.5px] outline-none focus:border-blue-400"
+            title="El código se asigna automáticamente."
+            className="w-full cursor-not-allowed rounded-md border border-ink-200 bg-ink-50 px-2.5 py-1.5 font-mono text-[12.5px] text-ink-400 outline-none"
           />
         </CField>
         <CField label="Razón social" error={state?.errors?.name}>

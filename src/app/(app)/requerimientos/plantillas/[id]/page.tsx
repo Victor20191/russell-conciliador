@@ -1,12 +1,15 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import prisma from "@/lib/prisma";
+import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import { PageHeader, BackLink, Chip } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import PlantillaClient, { type Family, type Header } from "./plantilla-client";
 import { parseId } from "@/lib/ids";
 
 export default async function PlantillaPage({ params }: { params: Promise<{ id: string }> }) {
+  await requirePermiso("requerimientos:ver");
+  const puedeGenerar = (await authorizePermiso("requerimientos:crear")).ok;
   const { id: rawId } = await params;
   const id = parseId(rawId);
   if (!id) notFound();
@@ -31,7 +34,7 @@ export default async function PlantillaPage({ params }: { params: Promise<{ id: 
         actions={
           <div className="flex items-center gap-2">
             <Chip label={`${t.activeVersion} activa`} tone="ok" />
-            {t.header && <Link href={`/requerimientos/generar/${t.id}`} className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-2 text-[12.5px] font-semibold text-white hover:bg-navy-600"><Icon name="send" size={14} /> Generar requerimiento</Link>}
+            {t.header && puedeGenerar && <Link href={`/requerimientos/generar/${t.id}`} className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-2 text-[12.5px] font-semibold text-white hover:bg-navy-600"><Icon name="send" size={14} /> Generar requerimiento</Link>}
           </div>
         }
       />

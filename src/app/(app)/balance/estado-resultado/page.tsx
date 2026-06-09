@@ -1,5 +1,6 @@
 import Link from "next/link";
 import prisma from "@/lib/prisma";
+import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import { PageHeader, Card, StatCard, EmptyState } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { fmtNum, fmtPct } from "@/lib/format";
@@ -18,6 +19,8 @@ export default async function EstadoResultadoPage({
 }: {
   searchParams: Promise<{ cliente?: string; periodo?: string }>;
 }) {
+  await requirePermiso("balance:ver");
+  const puedeVerMapeo = (await authorizePermiso("mapeo:ver")).ok;
   const sp = await searchParams;
   // Balances oficiales con estado de resultado cargado (filtrado en memoria; pocos registros)
   const officials = (
@@ -49,11 +52,11 @@ export default async function EstadoResultadoPage({
       <PageHeader
         title="Estado de Resultado"
         subtitle="Consolidación del Estado de Resultado por período bajo el plan estándar. Comparativo vs. año anterior y presupuesto."
-        actions={
+        actions={puedeVerMapeo ? (
           <Link href="/balance/mapeo" className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-2 text-[12.5px] font-semibold text-white hover:bg-navy-600">
             <Icon name="settings" size={14} /> Ajustar mapeo
           </Link>
-        }
+        ) : null}
       />
 
       {lines.length === 0 ? (

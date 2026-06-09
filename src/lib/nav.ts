@@ -1,6 +1,12 @@
 import type { IconName } from "@/components/icons";
 
-export type NavChild = { label: string; href: string; count?: number };
+export type NavChild = {
+  label: string;
+  href: string;
+  count?: number;
+  permiso?: string;
+  modulo?: string;
+};
 export type NavItem = {
   label: string;
   href: string;
@@ -11,52 +17,61 @@ export type NavItem = {
   // de la página (requirePermiso) para que el menú no muestre enlaces que la
   // página luego deniega, ni oculte pantallas a las que el usuario sí entra.
   permiso?: string;
+  modulo?: string;
 };
 
 // Estructura del menú — rutas reales (App Router) que reemplazan el enrutado por estado del prototipo
 export const workNav: NavItem[] = [
-  { label: "Inicio", href: "/dashboard", icon: "home" },
+  { label: "Inicio", href: "/dashboard", icon: "home", permiso: "dashboard:ver", modulo: "dashboard" },
   {
     label: "Balance de comprobación",
     href: "/balance",
     icon: "doc",
+    permiso: "balance:ver",
+    modulo: "balance",
     children: [
-      { label: "Mapeo plan estándar", href: "/balance/mapeo" },
-      { label: "Estado de Resultado", href: "/balance/estado-resultado" },
-      { label: "Balance", href: "/balance" },
-      { label: "Razonabilidad", href: "/razonabilidad", count: 9 },
+      { label: "Mapeo plan estándar", href: "/balance/mapeo", permiso: "mapeo:ver", modulo: "mapeo" },
+      { label: "Estado de Resultado", href: "/balance/estado-resultado", permiso: "balance:ver", modulo: "balance" },
+      { label: "Balance", href: "/balance", permiso: "balance:ver", modulo: "balance" },
+      { label: "Razonabilidad", href: "/razonabilidad", count: 9, permiso: "razonabilidad:ver", modulo: "razonabilidad" },
     ],
   },
   {
-    label: "Nueva conciliación",
+    label: "Conciliaciones",
     href: "/conciliacion/nueva",
     icon: "play",
+    permiso: "conciliaciones:ver",
+    modulo: "conciliaciones",
     children: [
-      { label: "En proceso", href: "/conciliacion/en-proceso", count: 4 },
-      { label: "Resultados", href: "/conciliacion/resultados" },
+      { label: "Nueva conciliación", href: "/conciliacion/nueva", permiso: "conciliaciones:crear", modulo: "conciliaciones" },
+      { label: "En proceso", href: "/conciliacion/en-proceso", count: 4, permiso: "conciliaciones:ver", modulo: "conciliaciones" },
+      { label: "Resultados", href: "/conciliacion/resultados", permiso: "conciliaciones:ver", modulo: "conciliaciones" },
     ],
   },
-  { label: "Impuestos · DIAN", href: "/dian", icon: "doc", count: 2 },
+  { label: "Impuestos · DIAN", href: "/dian", icon: "doc", count: 2, permiso: "dian:ver", modulo: "dian" },
   {
     label: "Requerimientos",
     href: "/requerimientos",
     icon: "folder",
+    permiso: "requerimientos:ver",
+    modulo: "requerimientos",
     children: [
-      { label: "Plantillas", href: "/requerimientos" },
-      { label: "Repositorios", href: "/requerimientos/repositorios" },
-      { label: "Presentaciones", href: "/requerimientos/presentaciones" },
+      { label: "Plantillas", href: "/requerimientos", permiso: "requerimientos:ver", modulo: "requerimientos" },
+      { label: "Repositorios", href: "/requerimientos/repositorios", permiso: "requerimientos:ver", modulo: "requerimientos" },
+      { label: "Presentaciones", href: "/requerimientos/presentaciones", permiso: "presentaciones:ver", modulo: "presentaciones" },
     ],
   },
-  { label: "Calendario", href: "/calendario", icon: "calendar" },
-  { label: "Auditoría", href: "/auditoria", icon: "log", permiso: "auditoria:ver" },
+  { label: "Calendario", href: "/calendario", icon: "calendar", permiso: "calendario:ver", modulo: "calendario" },
+  { label: "Auditoría", href: "/auditoria", icon: "log", permiso: "auditoria:ver", modulo: "auditoria" },
 ];
 
 export const configNav: NavItem[] = [
-  { label: "Módulos y campos", href: "/config/modulos", icon: "settings", permiso: "modulos:ver" },
-  { label: "Clientes", href: "/config/clientes", icon: "users", permiso: "clientes:configurar" },
-  { label: "Mapeos DIAN", href: "/config/dian", icon: "doc", permiso: "mapeos_dian:ver" },
-  { label: "Equipos", href: "/config/equipos", icon: "users", permiso: "equipos:asignar" },
-  { label: "Carteras", href: "/config/carteras", icon: "folder", permiso: "equipos:asignar" },
-  { label: "Usuarios", href: "/config/usuarios", icon: "users", permiso: "usuarios:ver" },
-  { label: "Permisos por rol", href: "/config/permisos", icon: "settings", permiso: "roles:configurar" },
+  { label: "Publicación de módulos", href: "/config/publicacion-modulos", icon: "eye", permiso: "publicacion_modulos:ver", modulo: "publicacion_modulos" },
+  { label: "Módulos y campos", href: "/config/modulos", icon: "settings", permiso: "modulos:ver", modulo: "modulos" },
+  { label: "Clientes", href: "/config/clientes", icon: "users", permiso: "clientes:configurar", modulo: "clientes" },
+  { label: "Mapeos DIAN", href: "/config/dian", icon: "doc", permiso: "mapeos_dian:ver", modulo: "mapeos_dian" },
+  { label: "Equipos", href: "/config/equipos", icon: "users", permiso: "equipos:asignar", modulo: "equipos" },
+  { label: "Cartera clientes", href: "/config/carteras", icon: "folder", permiso: "equipos:asignar", modulo: "equipos" },
+  { label: "Usuarios", href: "/config/usuarios", icon: "users", permiso: "usuarios:ver", modulo: "usuarios" },
+  { label: "Permisos por rol", href: "/config/permisos", icon: "settings", permiso: "roles:configurar", modulo: "roles" },
 ];

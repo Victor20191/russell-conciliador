@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
+import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import { PageHeader, StatCard, Chip, BackLink } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { fmtCompact } from "@/lib/format";
@@ -10,6 +11,8 @@ import BalanceDetailClient, {
 import { parseId } from "@/lib/ids";
 
 export default async function BalanceDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  await requirePermiso("balance:ver");
+  const puedeEditar = (await authorizePermiso("balance:editar")).ok;
   const { id: rawId } = await params;
   const id = parseId(rawId);
   if (!id) notFound();
@@ -39,7 +42,7 @@ export default async function BalanceDetailPage({ params }: { params: Promise<{ 
                 <Icon name="log" size={14} /> Diff de versiones
               </a>
             )}
-            {!balance.isFrozen && (
+            {!balance.isFrozen && puedeEditar && (
               <form action={freezeBalance}>
                 <input type="hidden" name="id" value={id} />
                 <button type="submit" className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-2 text-[12.5px] font-semibold text-white hover:bg-navy-600">

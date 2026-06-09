@@ -1,9 +1,11 @@
 import Link from "next/link";
 import prisma from "@/lib/prisma";
+import { requirePermiso } from "@/lib/rbac";
 import { PageHeader, Card, Chip } from "@/components/ui";
 import { Icon, type IconName } from "@/components/icons";
 
 export default async function DianPage() {
+  await requirePermiso("dian:ver");
   const forms = await prisma.dianForm.findMany({ include: { periods: { orderBy: { periodKey: "desc" } } } });
   const tone = (s: string) => (s === "OK" ? "ok" : s === "DIFF" ? "err" : "warn");
   const label = (s: string) => (s === "OK" ? "Conciliado" : s === "DIFF" ? "Diferencia" : "Pendiente");

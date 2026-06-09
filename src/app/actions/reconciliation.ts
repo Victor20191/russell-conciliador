@@ -8,6 +8,7 @@ import { logAudit } from "@/lib/audit";
 import { requirePermiso } from "@/lib/rbac";
 import { parseId } from "@/lib/ids";
 import { createProcessNotification } from "@/lib/notifications";
+import { registrarError } from "@/lib/errores";
 
 export async function addReconciliationComment(formData: FormData): Promise<void> {
   await requirePermiso("conciliaciones:editar");
@@ -16,17 +17,22 @@ export async function addReconciliationComment(formData: FormData): Promise<void
   const text = ((formData.get("text") as string) ?? "").trim();
   if (!reconciliationId || !cuenta || !text) return;
 
-  const user = await getCurrentUser();
-  await prisma.reconciliationComment.create({
-    data: {
-      reconciliationId, cuenta,
-      who: user?.name ?? "Usuario",
-      initials: user?.initials ?? "··",
-      text, time: "ahora",
-    },
-  });
-  await logAudit({ user: user?.name ?? "Sistema", action: "COMENTÓ", entity: `Cuenta ${cuenta}`, detail: `Cruce ${reconciliationId}` });
-  revalidatePath(`/conciliacion/resultados/${reconciliationId}`);
+  try {
+    const user = await getCurrentUser();
+    await prisma.reconciliationComment.create({
+      data: {
+        reconciliationId, cuenta,
+        who: user?.name ?? "Usuario",
+        initials: user?.initials ?? "··",
+        text, time: "ahora",
+      },
+    });
+    await logAudit({ user: user?.name ?? "Sistema", action: "COMENTÓ", entity: `Cuenta ${cuenta}`, detail: `Cruce ${reconciliationId}` });
+    revalidatePath(`/conciliacion/resultados/${reconciliationId}`);
+  } catch (e) {
+    registrarError("addReconciliationComment", e);
+    throw e;
+  }
 }
 
 export async function setRowStatus(formData: FormData): Promise<void> {
@@ -36,21 +42,31 @@ export async function setRowStatus(formData: FormData): Promise<void> {
   const reconciliationId = parseId(formData.get("reconciliationId"));
   if (!rowId || !["conciliada", "excepcion", "ajuste"].includes(status)) return;
 
-  const row = await prisma.reconciliationRow.update({ where: { id: rowId }, data: { manualStatus: status } });
-  const user = await getCurrentUser();
-  const labels: Record<string, string> = { conciliada: "marcó como conciliada", excepcion: "marcó como excepción", ajuste: "solicitó ajuste contable" };
-  await logAudit({ user: user?.name ?? "Sistema", action: "ACTUALIZÓ PARTIDA", entity: `Cuenta ${row.cuenta}`, detail: labels[status] });
-  if (reconciliationId) revalidatePath(`/conciliacion/resultados/${reconciliationId}`);
+  try {
+    const row = await prisma.reconciliationRow.update({ where: { id: rowId }, data: { manualStatus: status } });
+    const user = await getCurrentUser();
+    const labels: Record<string, string> = { conciliada: "marcó como conciliada", excepcion: "marcó como excepción", ajuste: "solicitó ajuste contable" };
+    await logAudit({ user: user?.name ?? "Sistema", action: "ACTUALIZÓ PARTIDA", entity: `Cuenta ${row.cuenta}`, detail: labels[status] });
+    if (reconciliationId) revalidatePath(`/conciliacion/resultados/${reconciliationId}`);
+  } catch (e) {
+    registrarError("setRowStatus", e);
+    throw e;
+  }
 }
 
 export async function sendToReviewer(formData: FormData): Promise<void> {
   await requirePermiso("conciliaciones:editar");
   const id = parseId(formData.get("id"));
   if (!id) return;
-  await prisma.reconciliation.update({ where: { id }, data: { status: "REVIEW" } });
-  const user = await getCurrentUser();
-  await logAudit({ user: user?.name ?? "Sistema", action: "ENVIÓ A REVISOR", entity: `Cruce ${id}`, detail: "Marcado en revisión" });
-  revalidatePath(`/conciliacion/resultados/${id}`);
+  try {
+    await prisma.reconciliation.update({ where: { id }, data: { status: "REVIEW" } });
+    const user = await getCurrentUser();
+    await logAudit({ user: user?.name ?? "Sistema", action: "ENVIÓ A REVISOR", entity: `Cruce ${id}`, detail: "Marcado en revisión" });
+    revalidatePath(`/conciliacion/resultados/${id}`);
+  } catch (e) {
+    registrarError("sendToReviewer", e);
+    throw e;
+  }
 }
 
 // Partidas demo del cruce de Inventarios (mismas que el cruce de referencia).
@@ -74,43 +90,53 @@ export async function executeReconciliation(formData: FormData): Promise<void> {
   const cutoff = (formData.get("cutoff") as string) || "";
   if (!clientId || !moduleId || !period) return;
 
-  const [client, mod, user] = await Promise.all([
-    prisma.client.findUnique({ where: { id: clientId } }),
-    prisma.module.findUnique({ where: { id: moduleId } }),
-    getCurrentUser(),
-  ]);
-  if (!client || !mod) return;
+  // El id se captura dentro del try; el redirect() se ejecuta DESPUÉS, porque
+  // redirect() funciona lanzando una excepción especial que NO debe capturarse.
+  let reconciliationId: number | null = null;
+  try {
+    const [client, mod, user] = await Promise.all([
+      prisma.client.findUnique({ where: { id: clientId } }),
+      prisma.module.findUnique({ where: { id: moduleId } }),
+      getCurrentUser(),
+    ]);
+    if (!client || !mod) return;
 
-  const n = await prisma.reconciliation.count();
-  const code = `REC-2026-${5000 + n}`;
-  const totalDiff = DEMO_CROSS_ROWS.reduce((s, r) => s + r[4], 0);
-  const itemsDiff = DEMO_CROSS_ROWS.filter((r) => r[4] !== 0).length;
+    const n = await prisma.reconciliation.count();
+    const code = `REC-2026-${5000 + n}`;
+    const totalDiff = DEMO_CROSS_ROWS.reduce((s, r) => s + r[4], 0);
+    const itemsDiff = DEMO_CROSS_ROWS.filter((r) => r[4] !== 0).length;
 
-  const reconciliation = await prisma.reconciliation.create({
-    data: {
-      code, clientName: client.name, clientId: client.id, module: mod.name, period,
-      erp: client.erp, status: "REVIEW", diff: fmtSigned(totalDiff), items: itemsDiff,
-      date: "hoy", owner: user?.name ?? "Auditor", cutoff, runAt: "hoy", runBy: user?.name ?? "Auditor",
-      materiality: 2000000, lastActivity: "ahora",
-      rows: { create: DEMO_CROSS_ROWS.map(([cuenta, desc, cont, modBal, diff, items], i) => ({ cuenta, desc, cont, mod: modBal, diff, items, order: i })) },
-    },
-  });
+    const reconciliation = await prisma.reconciliation.create({
+      data: {
+        code, clientName: client.name, clientId: client.id, module: mod.name, period,
+        erp: client.erp, status: "REVIEW", diff: fmtSigned(totalDiff), items: itemsDiff,
+        date: "hoy", owner: user?.name ?? "Auditor", cutoff, runAt: "hoy", runBy: user?.name ?? "Auditor",
+        materiality: 2000000, lastActivity: "ahora",
+        rows: { create: DEMO_CROSS_ROWS.map(([cuenta, desc, cont, modBal, diff, items], i) => ({ cuenta, desc, cont, mod: modBal, diff, items, order: i })) },
+      },
+    });
 
-  // Marca el módulo del cliente como parametrizado
-  await prisma.clientModule.upsert({
-    where: { clientId_moduleId: { clientId, moduleId } },
-    create: { clientId, moduleId, status: "configured" },
-    update: { status: "configured" },
-  });
+    // Marca el módulo del cliente como parametrizado
+    await prisma.clientModule.upsert({
+      where: { clientId_moduleId: { clientId, moduleId } },
+      create: { clientId, moduleId, status: "configured" },
+      update: { status: "configured" },
+    });
 
-  await logAudit({ user: user?.name ?? "Sistema", action: "EJECUTÓ", entity: `Cruce ${code}`, detail: `${mod.name} · ${client.name} · ${period}` });
-  await createProcessNotification({
-    actor: user?.name,
-    text: "ejecutó el proceso de conciliación de",
-    target: `${client.name} · ${mod.name} · ${period}`,
-  });
-  revalidatePath("/", "layout");
-  redirect(`/conciliacion/resultados/${reconciliation.id}`);
+    await logAudit({ user: user?.name ?? "Sistema", action: "EJECUTÓ", entity: `Cruce ${code}`, detail: `${mod.name} · ${client.name} · ${period}` });
+    await createProcessNotification({
+      actor: user?.name,
+      text: "ejecutó el proceso de conciliación de",
+      target: `${client.name} · ${mod.name} · ${period}`,
+    });
+    revalidatePath("/", "layout");
+    reconciliationId = reconciliation.id;
+  } catch (e) {
+    registrarError("executeReconciliation", e);
+    throw e;
+  }
+
+  if (reconciliationId !== null) redirect(`/conciliacion/resultados/${reconciliationId}`);
 }
 
 function fmtSigned(n: number): string {

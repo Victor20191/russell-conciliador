@@ -1,10 +1,13 @@
 import Link from "next/link";
 import prisma from "@/lib/prisma";
+import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import { PageHeader, Card, Chip, StatCard } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { createPresentation } from "@/app/actions/presentaciones";
 
 export default async function PresentacionesPage() {
+  await requirePermiso("presentaciones:ver");
+  const puedeCrear = (await authorizePermiso("presentaciones:crear")).ok;
   const list = await prisma.reqPresentation.findMany({ orderBy: { id: "desc" } });
   const enviadas = list.filter((p) => p.status === "Enviada").length;
   const borradores = list.filter((p) => p.status === "Borrador").length;
@@ -14,7 +17,7 @@ export default async function PresentacionesPage() {
       <PageHeader
         title="Presentaciones a cliente"
         subtitle="Genera el informe ejecutivo en formato presentación a partir de los aspectos evaluados. Salida navegable y exportable."
-        actions={<form action={createPresentation}><button type="submit" className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-2 text-[12.5px] font-semibold text-white hover:bg-navy-600"><Icon name="plus" size={14} /> Nueva presentación</button></form>}
+        actions={puedeCrear ? <form action={createPresentation}><button type="submit" className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-2 text-[12.5px] font-semibold text-white hover:bg-navy-600"><Icon name="plus" size={14} /> Nueva presentación</button></form> : null}
       />
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard label="Generadas (2025)" value={String(list.length)} hint="Aspectos legales y tributarios" tone="blue" />

@@ -29,6 +29,11 @@ export type RolCatalogo = {
 };
 
 export const ROLES: RolCatalogo[] = [
+  // ----- Roles de plataforma -----
+  {
+    code: "Superadministrador", name: "Superadministrador", rank: 6, isOperative: false, isSystem: true,
+    description: "Controla la publicación visual de módulos y conserva acceso completo a la administración de la plataforma.",
+  },
   // ----- Roles del PDF (Área de Revisoría Fiscal) -----
   {
     code: "Socio", name: "Socio", rank: 5, isOperative: false, isSystem: true,
@@ -68,6 +73,7 @@ export const ROLES: RolCatalogo[] = [
 ];
 
 export const ROLES_PDF = ["Socio", "Gerente", "Senior", "Staff", "Administrador"] as const;
+export const ROLES_MATRIZ = ["Superadministrador", ...ROLES_PDF] as const;
 export const ROLES_LEGADO = ["Consulta", "Auditor", "Líder"] as const;
 
 export type Permiso = {
@@ -80,15 +86,17 @@ export type Permiso = {
 };
 
 // ----- Grupos de roles para legibilidad de la matriz -----
-const TODOS = ["Socio", "Gerente", "Senior", "Staff", "Administrador"];
-const CONSULTA_Y_ADMIN = ["Socio", "Gerente", "Senior", "Administrador"]; // todos menos Staff
+const SOLO_SUPERADMIN = ["Superadministrador"];
+const ADMIN_PLATAFORMA = ["Superadministrador", "Administrador"];
+const TODOS = ["Socio", "Gerente", "Senior", "Staff", "Administrador", "Superadministrador"];
+const CONSULTA_Y_ADMIN = ["Socio", "Gerente", "Senior", "Administrador", "Superadministrador"]; // todos menos Staff
 const SUPERVISORES = ["Gerente", "Socio"];
 const SOLO_STAFF = ["Staff"];
 const SOLO_SENIOR = ["Senior"];
-const SOLO_ADMIN = ["Administrador"];
+const SOLO_ADMIN = ADMIN_PLATAFORMA;
 // El Senior arma la cartera (PDF); el Administrador, como administrador de la
 // plataforma, también gestiona la configuración de negocio (clientes/equipos).
-const SENIOR_Y_ADMIN = ["Senior", "Administrador"];
+const SENIOR_Y_ADMIN = ["Senior", "Administrador", "Superadministrador"];
 
 export const PERMISOS: Permiso[] = [
   // ===== Lectura (consulta) — módulos derivados de nav.ts =====
@@ -155,6 +163,8 @@ export const PERMISOS: Permiso[] = [
   { code: "roles:configurar", module: "roles", action: "configurar", label: "Editar permisos por rol", roles: SOLO_ADMIN },
   { code: "modulos:configurar", module: "modulos", action: "configurar", label: "Configurar módulos y campos", roles: SOLO_ADMIN },
   { code: "dian:configurar", module: "dian", action: "configurar", label: "Configurar formularios DIAN", roles: SOLO_ADMIN },
+  { code: "publicacion_modulos:ver", module: "publicacion_modulos", action: "ver", label: "Ver publicación de módulos", roles: SOLO_SUPERADMIN },
+  { code: "publicacion_modulos:configurar", module: "publicacion_modulos", action: "configurar", label: "Configurar publicación de módulos", roles: SOLO_SUPERADMIN },
 ];
 
 // ----- MATRIZ rol×permiso derivada del catálogo (solo roles del PDF) -----
@@ -162,7 +172,7 @@ export type Matriz = Record<string, string[]>;
 
 export const MATRIZ: Matriz = (() => {
   const m: Matriz = {};
-  for (const r of ROLES_PDF) m[r] = [];
+  for (const r of ROLES_MATRIZ) m[r] = [];
   for (const p of PERMISOS) {
     for (const r of p.roles) {
       (m[r] ??= []).push(p.code);
@@ -229,7 +239,7 @@ export const PERMISOS_LECTURA_GENERAL: string[] = PERMISOS
  */
 export function matrizConLegado(): Matriz {
   const m: Matriz = {};
-  for (const r of ROLES_PDF) m[r] = [...(MATRIZ[r] ?? [])];
+  for (const r of ROLES_MATRIZ) m[r] = [...(MATRIZ[r] ?? [])];
   for (const map of MAPEO_LEGADO_PDF) {
     if (map.legacy === map.pdf) continue; // identidad (Administrador): ya está
     m[map.legacy] = map.pdf ? [...(MATRIZ[map.pdf] ?? [])] : [...PERMISOS_LECTURA_GENERAL];

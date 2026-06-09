@@ -1,5 +1,6 @@
 import Link from "next/link";
 import prisma from "@/lib/prisma";
+import { requirePermiso } from "@/lib/rbac";
 import { PageHeader, Card, Chip } from "@/components/ui";
 import { Icon } from "@/components/icons";
 
@@ -9,6 +10,7 @@ const PROCESS_LABEL: Record<string, { label: string; tone: "warn" | "err" }> = {
 };
 
 export default async function EnProcesoPage() {
+  await requirePermiso("conciliaciones:ver");
   const recs = await prisma.reconciliation.findMany({
     where: { status: { in: ["DIFF", "REVIEW"] } },
     orderBy: { createdAt: "desc" },

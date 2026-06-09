@@ -1,8 +1,10 @@
 import prisma from "@/lib/prisma";
+import { requirePermiso } from "@/lib/rbac";
 import { PageHeader } from "@/components/ui";
 import RequerimientosClient, { type Template, type Submission } from "./requerimientos-client";
 
 export default async function RequerimientosPage() {
+  await requirePermiso("requerimientos:ver");
   const [templates, history] = await Promise.all([
     prisma.reqTemplate.findMany({ orderBy: { timesUsed: "desc" } }),
     prisma.reqSubmission.findMany({ orderBy: { createdAt: "desc" } }),

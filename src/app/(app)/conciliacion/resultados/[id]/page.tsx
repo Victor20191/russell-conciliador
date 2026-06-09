@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
+import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import { PageHeader, StatCard, BackLink, EmptyState } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { fmtCompact, fmtPct } from "@/lib/format";
@@ -9,6 +10,8 @@ import Conversacion from "@/components/conversacion";
 import { parseId } from "@/lib/ids";
 
 export default async function CruceDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  await requirePermiso("conciliaciones:ver");
+  const puedeEditar = (await authorizePermiso("conciliaciones:editar")).ok;
   const { id: rawId } = await params;
   const id = parseId(rawId);
   if (!id) notFound();
@@ -35,10 +38,10 @@ export default async function CruceDetailPage({ params }: { params: Promise<{ id
           <div className="flex items-center gap-2">
             <button disabled title="Exportación — fase posterior" className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-md bg-ink-100 px-2.5 py-2 text-[12px] font-semibold text-ink-400"><Icon name="download" size={13} /> Excel</button>
             <button disabled title="Exportación — fase posterior" className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-md bg-ink-100 px-2.5 py-2 text-[12px] font-semibold text-ink-400"><Icon name="download" size={13} /> PDF</button>
-            <form action={sendToReviewer}>
+            {puedeEditar && <form action={sendToReviewer}>
               <input type="hidden" name="id" value={rec.id} />
               <button type="submit" className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-2 text-[12.5px] font-semibold text-white hover:bg-navy-600"><Icon name="send" size={14} /> Enviar a revisor</button>
-            </form>
+            </form>}
           </div>
         }
       />

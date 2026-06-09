@@ -1,5 +1,5 @@
 import { test, expect } from "vitest";
-import { ModuleFieldSchema, ClientSchema, PasswordSchema } from "./definitions";
+import { ModuleFieldSchema, ClientSchema, PasswordSchema, UserUpdateSchema } from "./definitions";
 
 test("ModuleFieldSchema acepta un campo válido", () => {
   const r = ModuleFieldSchema.safeParse({
@@ -58,4 +58,17 @@ test("PasswordSchema rechaza contraseñas cortas o sin letra/dígito", () => {
   expect(PasswordSchema.safeParse("corta1").success).toBe(false);       // < 10 chars
   expect(PasswordSchema.safeParse("sololetrasaqui").success).toBe(false); // sin dígito
   expect(PasswordSchema.safeParse("1234567890").success).toBe(false);     // sin letra
+});
+
+test("UserUpdateSchema exige un correo válido al editar usuarios", () => {
+  const base = {
+    id: 1,
+    email: "usuario@russellbedford.co",
+    name: "Usuario Demo",
+    role: "Senior",
+    active: true,
+  };
+
+  expect(UserUpdateSchema.safeParse(base).success).toBe(true);
+  expect(UserUpdateSchema.safeParse({ ...base, email: "correo-invalido" }).success).toBe(false);
 });

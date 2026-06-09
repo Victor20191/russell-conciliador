@@ -18,7 +18,15 @@ export type UserRow = {
 
 export type RoleOption = { code: string; name: string };
 
-export default function UsuariosClient({ rows, roles }: { rows: UserRow[]; roles: RoleOption[] }) {
+export default function UsuariosClient({
+  rows,
+  roles,
+  canManageSuperadmins,
+}: {
+  rows: UserRow[];
+  roles: RoleOption[];
+  canManageSuperadmins: boolean;
+}) {
   const [createOpen, setCreateOpen] = useState(false);
   const [editUser, setEditUser] = useState<UserRow | null>(null);
   const [passwordUser, setPasswordUser] = useState<UserRow | null>(null);
@@ -76,18 +84,24 @@ export default function UsuariosClient({ rows, roles }: { rows: UserRow[]; roles
                     )}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <button
-                      onClick={() => setEditUser(u)}
-                      className="mr-4 text-blue-500 hover:underline"
-                    >
-                      Editar
-                    </button>
-                    <button
-                      onClick={() => setPasswordUser(u)}
-                      className="text-blue-500 hover:underline"
-                    >
-                      Contraseña
-                    </button>
+                    {u.role === "Superadministrador" && !canManageSuperadmins ? (
+                      <span className="text-[12px] text-ink-400">Reservado</span>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => setEditUser(u)}
+                          className="mr-4 text-blue-500 hover:underline"
+                        >
+                          Editar
+                        </button>
+                        <button
+                          onClick={() => setPasswordUser(u)}
+                          className="text-blue-500 hover:underline"
+                        >
+                          Contraseña
+                        </button>
+                      </>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -248,6 +262,17 @@ function EditUserForm({ user, roles, onSuccess }: { user: UserRow; roles: RoleOp
         <input
           name="name"
           defaultValue={user.name}
+          required
+          className="rounded-md border border-ink-200 px-3 py-2 text-[13px]"
+        />
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <label className="text-[12px] font-medium text-ink-700">Correo electrónico</label>
+        <input
+          name="email"
+          type="email"
+          defaultValue={user.email}
           required
           className="rounded-md border border-ink-200 px-3 py-2 text-[13px]"
         />

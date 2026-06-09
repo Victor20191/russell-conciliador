@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
 import { authorizePermiso } from "@/lib/rbac";
+import { ROL_SUPERADMINISTRADOR } from "@/lib/rbac/modulos-plataforma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
 import {
@@ -13,6 +14,7 @@ import {
   UserResetSchema,
   type ActionState,
 } from "@/lib/definitions";
+import { mensajeErrorBD } from "@/lib/errores";
 
 const PATH = "/config/usuarios";
 
@@ -33,38 +35,45 @@ export async function createUser(
   if (!parsed.success)
     return { ok: false, errors: z.flattenError(parsed.error).fieldErrors };
 
-  const rol = await prisma.role.findFirst({
-    where: { code: parsed.data.role, active: true },
-    select: { code: true },
-  });
-  if (!rol) return { ok: false, message: "El rol seleccionado no existe." };
+  try {
+    const rol = await prisma.role.findFirst({
+      where: { code: parsed.data.role, active: true },
+      select: { code: true },
+    });
+    if (!rol) return { ok: false, message: "El rol seleccionado no existe." };
+    if (parsed.data.role === ROL_SUPERADMINISTRADOR && authz.role !== ROL_SUPERADMINISTRADOR) {
+      return { ok: false, message: "Solo un Superadministrador puede asignar ese rol." };
+    }
 
-  const dup = await prisma.user.findUnique({
-    where: { email: parsed.data.email },
-  });
-  if (dup) return { ok: false, message: "Ya existe un usuario con ese correo." };
+    const dup = await prisma.user.findUnique({
+      where: { email: parsed.data.email },
+    });
+    if (dup) return { ok: false, message: "Ya existe un usuario con ese correo." };
 
-  const password = await bcrypt.hash(parsed.data.password, 10);
-  await prisma.user.create({
-    data: {
-      email: parsed.data.email,
-      name: parsed.data.name,
-      role: parsed.data.role,
-      initials: parsed.data.initials.toUpperCase(),
-      password,
-      mustChangePassword: true,
-    },
-  });
+    const password = await bcrypt.hash(parsed.data.password, 10);
+    await prisma.user.create({
+      data: {
+        email: parsed.data.email,
+        name: parsed.data.name,
+        role: parsed.data.role,
+        initials: parsed.data.initials.toUpperCase(),
+        password,
+        mustChangePassword: true,
+      },
+    });
 
-  const actor = await getCurrentUser();
-  await logAudit({
-    user: actor?.name ?? "Sistema",
-    action: "CREÓ USUARIO",
-    entity: parsed.data.email,
-    detail: parsed.data.role,
-  });
-  revalidatePath(PATH);
-  return { ok: true };
+    const actor = await getCurrentUser();
+    await logAudit({
+      user: actor?.name ?? "Sistema",
+      action: "CREÓ USUARIO",
+      entity: parsed.data.email,
+      detail: parsed.data.role,
+    });
+    revalidatePath(PATH);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("createUser", e) };
+  }
 }
 
 export async function updateUser(
@@ -76,6 +85,7 @@ export async function updateUser(
 
   const parsed = UserUpdateSchema.safeParse({
     id: formData.get("id"),
+    email: formData.get("email"),
     name: formData.get("name"),
     role: formData.get("role"),
     active:
@@ -84,43 +94,69 @@ export async function updateUser(
   if (!parsed.success)
     return { ok: false, errors: z.flattenError(parsed.error).fieldErrors };
 
-  const rol = await prisma.role.findFirst({
-    where: { code: parsed.data.role, active: true },
-    select: { code: true },
-  });
-  if (!rol) return { ok: false, message: "El rol seleccionado no existe." };
+  try {
+    const rol = await prisma.role.findFirst({
+      where: { code: parsed.data.role, active: true },
+      select: { code: true },
+    });
+    if (!rol) return { ok: false, message: "El rol seleccionado no existe." };
+    if (parsed.data.role === ROL_SUPERADMINISTRADOR && authz.role !== ROL_SUPERADMINISTRADOR) {
+      return { ok: false, message: "Solo un Superadministrador puede asignar ese rol." };
+    }
 
-  if (parsed.data.id === authz.userId && (!parsed.data.active || parsed.data.role !== "Administrador")) {
-    return { ok: false, message: "No puedes desactivar ni cambiar el rol de tu propia cuenta de administrador." };
+    if (
+      parsed.data.id === authz.userId &&
+      (!parsed.data.active || parsed.data.role !== authz.role)
+    ) {
+      return { ok: false, message: "No puedes desactivar ni cambiar el rol de tu propia cuenta." };
+    }
+
+    const before = await prisma.user.findUnique({
+      where: { id: parsed.data.id },
+      select: { active: true, role: true },
+    });
+    if (before?.role === ROL_SUPERADMINISTRADOR && authz.role !== ROL_SUPERADMINISTRADOR) {
+      return { ok: false, message: "Solo un Superadministrador puede editar esa cuenta." };
+    }
+
+    const emailDup = await prisma.user.findFirst({
+      where: {
+        email: parsed.data.email,
+        NOT: { id: parsed.data.id },
+      },
+      select: { id: true },
+    });
+    if (emailDup) return { ok: false, message: "Ya existe un usuario con ese correo." };
+
+    const bump =
+      before?.active && !parsed.data.active
+        ? { sessionVersion: { increment: 1 } }
+        : {};
+    await prisma.user.update({
+      where: { id: parsed.data.id },
+      data: {
+        email: parsed.data.email,
+        name: parsed.data.name,
+        role: parsed.data.role,
+        active: parsed.data.active,
+        ...bump,
+      },
+    });
+
+    const actor = await getCurrentUser();
+    await logAudit({
+      user: actor?.name ?? "Sistema",
+      action: "EDITÓ USUARIO",
+      entity: String(parsed.data.id),
+      detail: `${parsed.data.email} · ${parsed.data.role} · ${
+        parsed.data.active ? "activo" : "inactivo"
+      }`,
+    });
+    revalidatePath(PATH);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("updateUser", e) };
   }
-
-  const before = await prisma.user.findUnique({
-    where: { id: parsed.data.id },
-    select: { active: true },
-  });
-  const bump =
-    before?.active && !parsed.data.active
-      ? { sessionVersion: { increment: 1 } }
-      : {};
-  await prisma.user.update({
-    where: { id: parsed.data.id },
-    data: {
-      name: parsed.data.name,
-      role: parsed.data.role,
-      active: parsed.data.active,
-      ...bump,
-    },
-  });
-
-  const actor = await getCurrentUser();
-  await logAudit({
-    user: actor?.name ?? "Sistema",
-    action: "EDITÓ USUARIO",
-    entity: String(parsed.data.id),
-    detail: `${parsed.data.role} · ${parsed.data.active ? "activo" : "inactivo"}`,
-  });
-  revalidatePath(PATH);
-  return { ok: true };
 }
 
 export async function resetUserPassword(
@@ -137,23 +173,35 @@ export async function resetUserPassword(
   if (!parsed.success)
     return { ok: false, errors: z.flattenError(parsed.error).fieldErrors };
 
-  const password = await bcrypt.hash(parsed.data.password, 10);
-  await prisma.user.update({
-    where: { id: parsed.data.id },
-    data: {
-      password,
-      mustChangePassword: true,
-      sessionVersion: { increment: 1 },
-    },
-  });
+  try {
+    const target = await prisma.user.findUnique({
+      where: { id: parsed.data.id },
+      select: { role: true },
+    });
+    if (target?.role === ROL_SUPERADMINISTRADOR && authz.role !== ROL_SUPERADMINISTRADOR) {
+      return { ok: false, message: "Solo un Superadministrador puede resetear esa cuenta." };
+    }
 
-  const actor = await getCurrentUser();
-  await logAudit({
-    user: actor?.name ?? "Sistema",
-    action: "RESETEÓ CONTRASEÑA",
-    entity: String(parsed.data.id),
-    detail: "Forzar cambio en próximo ingreso",
-  });
-  revalidatePath(PATH);
-  return { ok: true };
+    const password = await bcrypt.hash(parsed.data.password, 10);
+    await prisma.user.update({
+      where: { id: parsed.data.id },
+      data: {
+        password,
+        mustChangePassword: true,
+        sessionVersion: { increment: 1 },
+      },
+    });
+
+    const actor = await getCurrentUser();
+    await logAudit({
+      user: actor?.name ?? "Sistema",
+      action: "RESETEÓ CONTRASEÑA",
+      entity: String(parsed.data.id),
+      detail: "Forzar cambio en próximo ingreso",
+    });
+    revalidatePath(PATH);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("resetUserPassword", e) };
+  }
 }

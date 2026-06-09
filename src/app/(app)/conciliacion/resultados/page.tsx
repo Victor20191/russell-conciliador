@@ -1,10 +1,12 @@
 import Link from "next/link";
 import prisma from "@/lib/prisma";
+import { requirePermiso } from "@/lib/rbac";
 import { PageHeader, Card } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { statusChip } from "@/lib/format";
 
 export default async function ResultadosPage() {
+  await requirePermiso("conciliaciones:ver");
   const recs = await prisma.reconciliation.findMany({
     orderBy: { createdAt: "desc" },
   });

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import prisma from "@/lib/prisma";
+import { requirePermiso } from "@/lib/rbac";
 import { PageHeader, Card, Chip, StatCard } from "@/components/ui";
 import { Icon } from "@/components/icons";
 
@@ -11,6 +12,7 @@ function deadlineHint(daysLeft: number): { text: string; cls: string } {
 function statusTone(s: string): "ok" | "err" | "blue" { return s === "Completo" ? "ok" : s === "Vencido parcial" ? "err" : "blue"; }
 
 export default async function RepositoriosPage() {
+  await requirePermiso("requerimientos:ver");
   const repos = await prisma.reqRepository.findMany({ orderBy: { id: "desc" } });
   const sum = (k: "received" | "pending" | "overdue") => repos.reduce((a, r) => a + r[k], 0);
 

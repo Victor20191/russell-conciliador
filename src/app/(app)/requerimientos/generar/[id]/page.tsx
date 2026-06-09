@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
+import { requirePermiso } from "@/lib/rbac";
 import { PageHeader, BackLink } from "@/components/ui";
 import GenerarClient, { type GenFamily, type GenHeader, type Contact } from "./generar-client";
 import { parseId } from "@/lib/ids";
@@ -11,6 +12,7 @@ const CLIENTS: { name: string; nit: string; code: string }[] = [
 ];
 
 export default async function GenerarPage({ params }: { params: Promise<{ id: string }> }) {
+  await requirePermiso("requerimientos:crear");
   const { id: rawId } = await params;
   const id = parseId(rawId);
   if (!id) notFound();

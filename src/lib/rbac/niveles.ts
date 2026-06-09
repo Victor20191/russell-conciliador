@@ -161,6 +161,7 @@ export const ARBOL_MODULOS: GrupoModulos[] = [
       { module: "usuarios", label: "Usuarios", icon: "users" },
       { module: "modulos", label: "Módulos y campos", icon: "box" },
       { module: "roles", label: "Permisos por rol", icon: "settings" },
+      { module: "publicacion_modulos", label: "Publicación de módulos", icon: "eye" },
     ],
   },
 ];

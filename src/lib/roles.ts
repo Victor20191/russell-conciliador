@@ -1,10 +1,11 @@
-export type Role = "Consulta" | "Auditor" | "Líder" | "Administrador";
+export type Role = "Consulta" | "Auditor" | "Líder" | "Administrador" | "Superadministrador";
 
 export const ROLE_RANK: Record<Role, number> = {
   Consulta: 1,
   Auditor: 2,
   "Líder": 3,
   Administrador: 4,
+  Superadministrador: 5,
 };
 
 export function roleRank(role: string): number {

@@ -78,6 +78,7 @@ export const UserCreateSchema = z.object({
 
 export const UserUpdateSchema = z.object({
   id: z.coerce.number().int().positive(),
+  email: z.email({ error: "Correo inválido." }).trim(),
   name: z.string().min(1, { error: "El nombre es obligatorio." }).trim(),
   role: RoleField,
   active: z.boolean(),
