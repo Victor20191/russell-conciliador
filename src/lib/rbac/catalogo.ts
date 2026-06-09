@@ -11,7 +11,7 @@
 //     (Russell Bedford, 04-jun-2026): los 5 roles y su segregación.
 //   - La navegación real de la plataforma (src/lib/nav.ts): de ahí
 //     salen los módulos protegibles (balance, conciliaciones, dian,
-//     requerimientos, calendario, auditoría, clientes, usuarios…).
+//     auditoría, clientes, usuarios…).
 //
 // Convención de `code` de rol: respeta los valores ya usados en
 // usuarios.rol (capitalizados). "Administrador" es compartido por el
@@ -103,12 +103,8 @@ export const PERMISOS: Permiso[] = [
   { code: "dashboard:ver", module: "dashboard", action: "ver", label: "Ver inicio", roles: TODOS },
   { code: "balance:ver", module: "balance", action: "ver", label: "Ver balance de comprobación", roles: TODOS },
   { code: "mapeo:ver", module: "mapeo", action: "ver", label: "Ver mapeo del plan estándar", roles: TODOS },
-  { code: "razonabilidad:ver", module: "razonabilidad", action: "ver", label: "Ver razonabilidad", roles: TODOS },
   { code: "conciliaciones:ver", module: "conciliaciones", action: "ver", label: "Ver conciliaciones", roles: TODOS },
   { code: "dian:ver", module: "dian", action: "ver", label: "Ver Impuestos · DIAN", roles: TODOS },
-  { code: "requerimientos:ver", module: "requerimientos", action: "ver", label: "Ver requerimientos", roles: TODOS },
-  { code: "presentaciones:ver", module: "presentaciones", action: "ver", label: "Ver presentaciones", roles: TODOS },
-  { code: "calendario:ver", module: "calendario", action: "ver", label: "Ver calendario", roles: TODOS },
   { code: "clientes:ver", module: "clientes", action: "ver", label: "Ver clientes", roles: TODOS },
   { code: "equipos:ver", module: "equipos", action: "ver", label: "Ver equipos de trabajo", roles: CONSULTA_Y_ADMIN },
   { code: "auditoria:ver", module: "auditoria", action: "ver", label: "Ver registro de auditoría", roles: CONSULTA_Y_ADMIN },
@@ -123,7 +119,6 @@ export const PERMISOS: Permiso[] = [
   { code: "balance:comentar", module: "balance", action: "comentar", label: "Comentar en balance", roles: TODOS },
   { code: "conciliaciones:comentar", module: "conciliaciones", action: "comentar", label: "Comentar en conciliaciones", roles: TODOS },
   { code: "dian:comentar", module: "dian", action: "comentar", label: "Comentar en Impuestos · DIAN", roles: TODOS },
-  { code: "requerimientos:comentar", module: "requerimientos", action: "comentar", label: "Comentar en requerimientos", roles: TODOS },
   { code: "clientes:comentar", module: "clientes", action: "comentar", label: "Comentar en clientes", roles: TODOS },
 
   // ===== Operativo (crear/editar/ejecutar) — SOLO Staff =====
@@ -134,15 +129,10 @@ export const PERMISOS: Permiso[] = [
   { code: "conciliaciones:editar", module: "conciliaciones", action: "editar", label: "Editar conciliación", roles: SOLO_STAFF },
   { code: "conciliaciones:ejecutar", module: "conciliaciones", action: "ejecutar", label: "Ejecutar conciliación", roles: SOLO_STAFF },
   { code: "dian:editar", module: "dian", action: "editar", label: "Editar declaración DIAN", roles: SOLO_STAFF },
-  { code: "requerimientos:crear", module: "requerimientos", action: "crear", label: "Crear requerimiento", roles: SOLO_STAFF },
-  { code: "requerimientos:ejecutar", module: "requerimientos", action: "ejecutar", label: "Enviar requerimiento", roles: SOLO_STAFF },
-  { code: "presentaciones:crear", module: "presentaciones", action: "crear", label: "Crear presentación", roles: SOLO_STAFF },
-  { code: "calendario:crear", module: "calendario", action: "crear", label: "Crear evento de calendario", roles: SOLO_STAFF },
 
   // ===== Revisión — SOLO Senior (revisa el trabajo del Staff) =====
   { code: "balance:revisar", module: "balance", action: "revisar", label: "Revisar balance", roles: SOLO_SENIOR },
   { code: "conciliaciones:revisar", module: "conciliaciones", action: "revisar", label: "Revisar conciliación", roles: SOLO_SENIOR },
-  { code: "requerimientos:revisar", module: "requerimientos", action: "revisar", label: "Revisar requerimiento", roles: SOLO_SENIOR },
 
   // ===== Supervisión — Gerente y Socio =====
   { code: "clientes:supervisar", module: "clientes", action: "supervisar", label: "Supervisar cartera de clientes", roles: SUPERVISORES },

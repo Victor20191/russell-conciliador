@@ -114,7 +114,7 @@ model Role {
 model Permission {
   id          Int              @id @default(autoincrement()) @map("id")
   code        String           @unique @map("codigo") // <modulo>:<accion>
-  module      String           @map("modulo") // conciliaciones | balance | dian | requerimientos | clientes | usuarios | equipos | auditoria...
+  module      String           @map("modulo") // conciliaciones | balance | dian | clientes | usuarios | equipos | auditoria...
   action      String           @map("accion") // ver | crear | editar | eliminar | ejecutar | revisar | supervisar | asignar | configurar
   label       String           @map("etiqueta") // texto legible para la matriz del Administrador
   description String?          @map("descripcion")
@@ -283,7 +283,7 @@ model ClientModule {
 /// la autorización final sigue siendo la matriz RolePermission.
 model PlatformModule {
   id                         Int      @id @default(autoincrement()) @map("id")
-  key                        String   @unique @map("clave") // balance | dian | requerimientos...
+  key                        String   @unique @map("clave") // balance | dian | conciliaciones...
   label                      String   @map("etiqueta")
   description                String?  @map("descripcion")
   group                      String   @map("grupo") // Trabajo | Configuración
@@ -376,7 +376,7 @@ model Notification {
 /// Comentario de una CONVERSACIÓN anclada de forma POLIMÓRFICA a
 /// cualquier registro de negocio mediante (entidad_tipo, entidad_id).
 /// `entidad_tipo` reutiliza los códigos de módulo del RBAC
-/// (conciliaciones | dian | clientes | requerimientos | balance…), de
+/// (conciliaciones | dian | clientes | balance…), de
 /// modo que el mismo código identifica el módulo del permiso, el ítem
 /// de navegación y la entidad conversable. `ancla` ubica el comentario
 /// dentro del registro cuando aplica (p.ej. la cuenta en una
@@ -583,196 +583,4 @@ model RussellOption {
   accounts ClientAccount[]
 
   @@map("opciones_russell")
-}
-
-// ===== Requerimientos de información =====
-model ClientContact {
-  id         Int     @id @default(autoincrement()) @map("id")
-  clientName String  @map("nombre_cliente")
-  name       String  @map("nombre")
-  role       String  @map("rol")
-  email      String  @map("correo")
-  primary    Boolean @default(false) @map("principal")
-  order      Int     @default(0) @map("orden")
-
-  @@map("contactos_cliente")
-}
-
-model ReqTemplate {
-  id            Int                @id @default(autoincrement()) @map("id")
-  key           String             @unique @map("clave") // TPL-CIERRE
-  code          String             @map("codigo") // RFA-CIERRE
-  name          String             @map("nombre")
-  description   String             @map("descripcion")
-  activeVersion String             @map("version_activa")
-  families      Int                @default(0) @map("familias")
-  items         Int                @default(0) @map("items")
-  timesUsed     Int                @default(0) @map("veces_usada")
-  lastUpdated   String             @map("actualizado_en")
-  lastUpdatedBy String             @map("actualizado_por")
-  header        ReqTemplateHeader?
-  familyList    ReqFamily[]
-
-  @@map("plantillas_requerimiento")
-}
-
-model ReqTemplateHeader {
-  id                Int         @id @default(autoincrement()) @map("id")
-  template          ReqTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  templateId        Int         @unique @map("plantilla_id")
-  firmName          String      @map("nombre_firma")
-  city              String      @map("ciudad")
-  asunto            String      @map("asunto")
-  intro             String      @map("introduccion")
-  noteGeneric       String      @map("nota_generica")
-  closing           String      @map("cierre")
-  signatoryName     String      @map("nombre_firmante")
-  signatoryRole     String      @map("rol_firmante")
-  signatoryFooter   String      @map("pie_firmante")
-  consecutivePrefix String      @map("prefijo_consecutivo")
-  contactEmails     String[]    @map("correos_contacto")
-
-  @@map("encabezados_plantilla_requerimiento")
-}
-
-model ReqFamily {
-  id         Int         @id @default(autoincrement()) @map("id")
-  template   ReqTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  templateId Int         @map("plantilla_id")
-  name       String      @map("nombre")
-  order      Int         @default(0) @map("orden")
-  itemList   ReqItem[]
-
-  @@map("familias_requerimiento")
-}
-
-model ReqItem {
-  id       Int       @id @default(autoincrement()) @map("id")
-  family   ReqFamily @relation(fields: [familyId], references: [id], onDelete: Cascade)
-  familyId Int       @map("familia_id")
-  text     String    @map("texto")
-  order    Int       @default(0) @map("orden")
-
-  @@map("items_requerimiento")
-}
-
-model ReqSubmission {
-  id              Int      @id @default(autoincrement()) @map("id")
-  code            String   @unique @map("codigo") // REQ-2026-014
-  consec          String   @map("consecutivo")
-  templateCode    String   @map("codigo_plantilla")
-  templateVersion String   @map("version_plantilla")
-  clientName      String   @map("nombre_cliente")
-  period          String   @map("periodo")
-  recipients      Int      @default(0) @map("destinatarios")
-  status          String   @map("estado") // Enviado | Borrador
-  date            String   @map("fecha")
-  sentBy          String   @map("enviado_por")
-  createdAt       DateTime @default(now()) @map("creado_en")
-
-  @@map("envios_requerimiento")
-}
-
-model ReqRepository {
-  id           Int               @id @default(autoincrement()) @map("id")
-  code         String            @unique @map("codigo") // REPO-2026-014
-  consec       String            @map("consecutivo")
-  templateCode String            @map("codigo_plantilla")
-  clientName   String            @map("nombre_cliente")
-  nit          String            @map("nit")
-  period       String            @map("periodo")
-  cutoff       String            @map("corte")
-  sentAt       String            @map("enviado_en")
-  sentBy       String            @map("enviado_por")
-  deadline     String            @map("fecha_limite")
-  daysLeft     Int               @default(0) @map("dias_restantes")
-  total        Int               @default(0) @map("total")
-  received     Int               @default(0) @map("recibidos")
-  pending      Int               @default(0) @map("pendientes")
-  overdue      Int               @default(0) @map("vencidos")
-  progress     Int               @default(0) @map("progreso")
-  status       String            @map("estado") // Completo | Vencido parcial | En recepción
-  families     ReqRepoFamily[]
-  activity     ReqRepoActivity[]
-
-  @@map("repositorios_requerimiento")
-}
-
-model ReqRepoFamily {
-  id           Int           @id @default(autoincrement()) @map("id")
-  repository   ReqRepository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
-  repositoryId Int           @map("repositorio_id")
-  code         String        @map("codigo") // F1
-  name         String        @map("nombre")
-  total        Int           @default(0) @map("total")
-  received     Int           @default(0) @map("recibidos")
-  pending      Int           @default(0) @map("pendientes")
-  order        Int           @default(0) @map("orden")
-  items        ReqRepoItem[]
-
-  @@map("familias_repositorio")
-}
-
-model ReqRepoItem {
-  id       Int           @id @default(autoincrement()) @map("id")
-  family   ReqRepoFamily @relation(fields: [familyId], references: [id], onDelete: Cascade)
-  familyId Int           @map("familia_id")
-  idx      Int           @map("indice")
-  doc      String        @map("documento")
-  due      String        @map("vencimiento")
-  status   String        @map("estado") // received | pending | overdue
-  file     String?       @map("archivo")
-  size     String?       @map("tamano")
-  by       String?       @map("por")
-  at       String?       @map("en")
-  order    Int           @default(0) @map("orden")
-
-  @@map("items_repositorio")
-}
-
-model ReqRepoActivity {
-  id           Int           @id @default(autoincrement()) @map("id")
-  repository   ReqRepository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
-  repositoryId Int           @map("repositorio_id")
-  at           String        @map("en")
-  actor        String        @map("actor")
-  role         String        @map("rol") // Cliente | Auditor | Auto
-  action       String        @map("accion")
-  detail       String        @map("detalle")
-  order        Int           @default(0) @map("orden")
-
-  @@map("actividades_repositorio")
-}
-
-model ReqPresentation {
-  id         Int      @id @default(autoincrement()) @map("id")
-  code       String   @unique @map("codigo") // PRES-2025-009
-  clientName String   @map("nombre_cliente")
-  nit        String   @map("nit")
-  title      String   @map("titulo")
-  year       String   @map("anio")
-  presented  String   @map("presentado")
-  preparedBy String   @map("preparado_por")
-  slides     Int      @default(0) @map("diapositivas")
-  author     String   @map("autor")
-  date       String   @map("fecha")
-  status     String   @map("estado") // Enviada | Borrador
-  positives  String[] @map("positivos")
-  observed   Json?    @map("observado") // [{title, shortTitle, summary, riesgos[], oportunidades[]}]
-  evaluated  Json?    @map("evaluado") // {mercantil[], tributario[], otros[]}
-  createdAt  DateTime @default(now()) @map("creado_en")
-
-  @@map("presentaciones_requerimiento")
-}
-
-model CalendarEvent {
-  id        Int      @id @default(autoincrement()) @map("id")
-  date      DateTime @map("fecha")
-  type      String   @map("tipo") // dian | ica | req
-  title     String   @map("titulo")
-  subtitle  String   @map("subtitulo")
-  clientKey String?  @map("cliente_clave") // clave de UI: zarzal, pacif...
-  order     Int      @default(0) @map("orden")
-
-  @@map("eventos_calendario")
 }

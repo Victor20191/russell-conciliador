@@ -33,7 +33,6 @@ export const workNav: NavItem[] = [
       { label: "Mapeo plan estándar", href: "/balance/mapeo", permiso: "mapeo:ver", modulo: "mapeo" },
       { label: "Estado de Resultado", href: "/balance/estado-resultado", permiso: "balance:ver", modulo: "balance" },
       { label: "Balance", href: "/balance", permiso: "balance:ver", modulo: "balance" },
-      { label: "Razonabilidad", href: "/razonabilidad", count: 9, permiso: "razonabilidad:ver", modulo: "razonabilidad" },
     ],
   },
   {
@@ -49,19 +48,6 @@ export const workNav: NavItem[] = [
     ],
   },
   { label: "Impuestos · DIAN", href: "/dian", icon: "doc", count: 2, permiso: "dian:ver", modulo: "dian" },
-  {
-    label: "Requerimientos",
-    href: "/requerimientos",
-    icon: "folder",
-    permiso: "requerimientos:ver",
-    modulo: "requerimientos",
-    children: [
-      { label: "Plantillas", href: "/requerimientos", permiso: "requerimientos:ver", modulo: "requerimientos" },
-      { label: "Repositorios", href: "/requerimientos/repositorios", permiso: "requerimientos:ver", modulo: "requerimientos" },
-      { label: "Presentaciones", href: "/requerimientos/presentaciones", permiso: "presentaciones:ver", modulo: "presentaciones" },
-    ],
-  },
-  { label: "Calendario", href: "/calendario", icon: "calendar", permiso: "calendario:ver", modulo: "calendario" },
   { label: "Auditoría", href: "/auditoria", icon: "log", permiso: "auditoria:ver", modulo: "auditoria" },
 ];
 

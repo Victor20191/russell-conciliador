@@ -63,7 +63,7 @@ export default async function BalancePage() {
     <div>
       <PageHeader
         title="Balance de comprobación"
-        subtitle="Fuente única de los balances cargados por cliente. Versionamiento, validaciones, mapeo y trazabilidad. Lo consumen DIAN, Razonabilidad y Conciliaciones."
+        subtitle="Fuente única de los balances cargados por cliente. Versionamiento, validaciones, mapeo y trazabilidad. Lo consumen DIAN y Conciliaciones."
       />
       <BalanceIndexClient clients={clients} auditRows={auditRows} std={std} clientNames={clientNames} />
     </div>

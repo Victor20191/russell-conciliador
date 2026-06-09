@@ -4,12 +4,8 @@ export type PlatformModuleKey =
   | "dashboard"
   | "balance"
   | "mapeo"
-  | "razonabilidad"
   | "conciliaciones"
   | "dian"
-  | "requerimientos"
-  | "presentaciones"
-  | "calendario"
   | "auditoria"
   | "clientes"
   | "equipos"
@@ -77,16 +73,6 @@ export const MODULOS_PLATAFORMA: PlatformModuleDefinition[] = [
     configurableForNonAdmins: true,
   },
   {
-    key: "razonabilidad",
-    label: "Razonabilidad",
-    description: "Análisis de razonabilidad y hallazgos.",
-    group: "Trabajo",
-    icon: "ai",
-    order: 40,
-    enabledForNonAdmins: true,
-    configurableForNonAdmins: true,
-  },
-  {
     key: "conciliaciones",
     label: "Conciliaciones",
     description: "Cruces entre contabilidad y módulos auxiliares.",
@@ -103,36 +89,6 @@ export const MODULOS_PLATAFORMA: PlatformModuleDefinition[] = [
     group: "Trabajo",
     icon: "doc",
     order: 60,
-    enabledForNonAdmins: true,
-    configurableForNonAdmins: true,
-  },
-  {
-    key: "requerimientos",
-    label: "Requerimientos",
-    description: "Plantillas, generación y seguimiento de solicitudes de información.",
-    group: "Trabajo",
-    icon: "folder",
-    order: 70,
-    enabledForNonAdmins: true,
-    configurableForNonAdmins: true,
-  },
-  {
-    key: "presentaciones",
-    label: "Presentaciones",
-    description: "Informes ejecutivos para cliente.",
-    group: "Trabajo",
-    icon: "chart",
-    order: 80,
-    enabledForNonAdmins: true,
-    configurableForNonAdmins: true,
-  },
-  {
-    key: "calendario",
-    label: "Calendario",
-    description: "Vencimientos y eventos de clientes.",
-    group: "Trabajo",
-    icon: "calendar",
-    order: 90,
     enabledForNonAdmins: true,
     configurableForNonAdmins: true,
   },

@@ -21,8 +21,8 @@ export default function LoginPage() {
             Plataforma de conciliación y diagnóstico contable y tributario
           </h1>
           <p className="mt-4 text-sm leading-relaxed text-[#A9B6C8]">
-            Balance de comprobación, razonabilidad, impuestos DIAN, requerimientos
-            de información y auditoría — en un solo flujo de trabajo asistido por IA.
+            Balance de comprobación, conciliaciones, impuestos DIAN y auditoría
+            — en un solo flujo de trabajo asistido por IA.
           </p>
         </div>
 
