@@ -82,11 +82,8 @@ export const UserUpdateSchema = z.object({
   name: z.string().min(1, { error: "El nombre es obligatorio." }).trim(),
   role: RoleField,
   active: z.boolean(),
-});
-
-export const UserResetSchema = z.object({
-  id: z.coerce.number().int().positive(),
-  password: PasswordSchema,
+  // Ausente o vacía → la contraseña no se toca; con valor → política completa.
+  password: z.preprocess((v) => (v ? v : undefined), PasswordSchema.optional()),
 });
 
 export const UserUnlockSchema = z.object({

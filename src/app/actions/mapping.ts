@@ -5,14 +5,18 @@ import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
 import { requirePermiso } from "@/lib/rbac";
+import { clienteDeCuentaCliente, clientIdPorNombre } from "@/lib/rbac/contexto";
 import { parseId } from "@/lib/ids";
 import { registrarError } from "@/lib/errores";
 
 export async function updateAccountMapping(formData: FormData): Promise<void> {
+  // Primer gate: sesión + permiso de rol; segundo: alcance de escritura
+  // sobre el cliente dueño de la cuenta que se va a mapear (cartera).
   await requirePermiso("mapeo:editar");
   const id = parseId(formData.get("id"));
   const russell = (formData.get("russell") as string) || null;
   if (!id) return;
+  await requirePermiso("mapeo:editar", { clientId: await clienteDeCuentaCliente(id) });
   // Envolvemos las operaciones de base de datos para registrar cualquier
   // fallo en el servidor y dejar que el error suba al error boundary.
   try {
@@ -36,6 +40,8 @@ export async function suggestMappingsAI(formData: FormData): Promise<void> {
   await requirePermiso("mapeo:editar");
   const clientName = formData.get("clientName") as string;
   if (!clientName) return;
+  // Alcance de escritura sobre el cliente cuyas cuentas se van a mapear.
+  await requirePermiso("mapeo:editar", { clientId: await clientIdPorNombre(clientName) });
 
   // Envolvemos las operaciones de base de datos (lecturas, actualizaciones,
   // auditoría) para registrar cualquier fallo y propagarlo al error boundary.

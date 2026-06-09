@@ -115,3 +115,47 @@ export const clientIdPorNombre = cache(
     return matches.length === 1 ? matches[0].id : null;
   },
 );
+
+// ============================================================
+// Resolutores entidad → clientId, para pasar `{ clientId }` a los gates
+// (requirePermiso/authorizePermiso) en acciones que tocan datos de un
+// cliente. Todos son fail-closed: si la entidad no existe o su cliente
+// no resuelve de forma única, devuelven null y el gate DENIEGA.
+// ============================================================
+
+/** Cliente de un balance (Balance referencia al cliente por nombre). */
+export const clienteDeBalance = cache(async (balanceId: number): Promise<number | null> => {
+  const balance = await prisma.balance.findUnique({
+    where: { id: balanceId },
+    select: { clientName: true },
+  });
+  return clientIdPorNombre(balance?.clientName);
+});
+
+/** Cliente de una conciliación: usa la FK si existe; si no (datos legado), por nombre. */
+export const clienteDeConciliacion = cache(async (reconciliationId: number): Promise<number | null> => {
+  const rec = await prisma.reconciliation.findUnique({
+    where: { id: reconciliationId },
+    select: { clientId: true, clientName: true },
+  });
+  if (!rec) return null;
+  return rec.clientId ?? clientIdPorNombre(rec.clientName);
+});
+
+/** Cliente de una partida de conciliación (vía su conciliación; no confía en el formulario). */
+export const clienteDeFilaConciliacion = cache(async (rowId: number): Promise<number | null> => {
+  const row = await prisma.reconciliationRow.findUnique({
+    where: { id: rowId },
+    select: { reconciliationId: true },
+  });
+  return row ? clienteDeConciliacion(row.reconciliationId) : null;
+});
+
+/** Cliente de una cuenta del mapeo (ClientAccount referencia al cliente por nombre). */
+export const clienteDeCuentaCliente = cache(async (accountId: number): Promise<number | null> => {
+  const cuenta = await prisma.clientAccount.findUnique({
+    where: { id: accountId },
+    select: { clientName: true },
+  });
+  return clientIdPorNombre(cuenta?.clientName);
+});

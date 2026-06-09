@@ -97,6 +97,12 @@ async function main() {
     { code: "C-0950", name: "Constructora Río Verde S.A.S", nit: "900.667.319-4", erp: "OFIMATICA", sector: "Construcción", configured: ["Cartera", "Activos fijos"], pending: ["Inventarios", "Nómina", "Ingresos"] },
     { code: "C-1101", name: "Distribuciones El Roble S.A.", nit: "830.554.221-7", erp: "SIIGO", sector: "Distribución", configured: ["Inventarios", "Cartera", "Ingresos", "Cuentas por pagar"], pending: [] },
     { code: "C-1308", name: "Servicios Médicos Vital IPS", nit: "901.044.102-2", erp: "SIESA", sector: "Salud", configured: ["Nómina", "Cartera"], pending: ["Ingresos", "Cuentas por pagar"] },
+    // Clientes referenciados por los balances y el mapeo (cuentas_cliente) de
+    // este mismo seed. Deben existir en `clientes` para que el alcance por
+    // cartera (clientIdPorNombre, fail-closed) pueda resolverlos.
+    { code: "C-0644", name: "El Zarzal S.A", nit: "890.345.872-1", erp: "SIIGO", sector: "Agroindustria", configured: ["Cartera", "Ingresos"], pending: ["Inventarios"] },
+    { code: "C-0763", name: "Comercializadora Andina Ltda", nit: "800.234.115-7", erp: "SIESA", sector: "Comercio", configured: ["Cartera"], pending: ["Ingresos"] },
+    { code: "C-0918", name: "Manufacturas del Sur S.A", nit: "830.502.118-9", erp: "SAP", sector: "Manufactura", configured: ["Inventarios"], pending: ["Nómina"] },
   ];
   for (const c of clients) {
     await prisma.client.create({

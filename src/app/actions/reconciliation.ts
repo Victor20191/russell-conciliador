@@ -6,9 +6,14 @@ import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
 import { requirePermiso } from "@/lib/rbac";
+import { clienteDeConciliacion, clienteDeFilaConciliacion } from "@/lib/rbac/contexto";
 import { parseId } from "@/lib/ids";
 import { createProcessNotification } from "@/lib/notifications";
 import { registrarError } from "@/lib/errores";
+
+// Patrón de autorización en dos pasos: el primer gate exige sesión +
+// permiso de rol ANTES de tocar la BD; el segundo añade el ALCANCE de
+// escritura sobre el cliente de la conciliación (cartera, fail-closed).
 
 export async function addReconciliationComment(formData: FormData): Promise<void> {
   await requirePermiso("conciliaciones:editar");
@@ -16,6 +21,7 @@ export async function addReconciliationComment(formData: FormData): Promise<void
   const cuenta = formData.get("cuenta") as string;
   const text = ((formData.get("text") as string) ?? "").trim();
   if (!reconciliationId || !cuenta || !text) return;
+  await requirePermiso("conciliaciones:editar", { clientId: await clienteDeConciliacion(reconciliationId) });
 
   try {
     const user = await getCurrentUser();
@@ -41,6 +47,8 @@ export async function setRowStatus(formData: FormData): Promise<void> {
   const status = formData.get("status") as string; // conciliada | excepcion | ajuste
   const reconciliationId = parseId(formData.get("reconciliationId"));
   if (!rowId || !["conciliada", "excepcion", "ajuste"].includes(status)) return;
+  // El cliente se resuelve desde la FILA (no desde el formulario, que es manipulable).
+  await requirePermiso("conciliaciones:editar", { clientId: await clienteDeFilaConciliacion(rowId) });
 
   try {
     const row = await prisma.reconciliationRow.update({ where: { id: rowId }, data: { manualStatus: status } });
@@ -58,6 +66,7 @@ export async function sendToReviewer(formData: FormData): Promise<void> {
   await requirePermiso("conciliaciones:editar");
   const id = parseId(formData.get("id"));
   if (!id) return;
+  await requirePermiso("conciliaciones:editar", { clientId: await clienteDeConciliacion(id) });
   try {
     await prisma.reconciliation.update({ where: { id }, data: { status: "REVIEW" } });
     const user = await getCurrentUser();
@@ -89,6 +98,8 @@ export async function executeReconciliation(formData: FormData): Promise<void> {
   const period = formData.get("period") as string;
   const cutoff = (formData.get("cutoff") as string) || "";
   if (!clientId || !moduleId || !period) return;
+  // Ejecutar es la acción operativa por excelencia: exige cartera con escritura.
+  await requirePermiso("conciliaciones:ejecutar", { clientId });
 
   // El id se captura dentro del try; el redirect() se ejecuta DESPUÉS, porque
   // redirect() funciona lanzando una excepción especial que NO debe capturarse.

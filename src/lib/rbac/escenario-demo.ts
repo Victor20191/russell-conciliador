@@ -47,6 +47,9 @@ export const DEMO_MIEMBROS_EQUIPO = DEMO_INTEGRANTES.map((m) => m.email);
 export const DEMO_CLIENTE_A = "C-1042"; // Inversiones del Pacífico S.A.S
 export const DEMO_CLIENTE_B = "C-0871"; // Agroindustrias del Cauca Ltda.
 export const DEMO_CLIENTE_FUERA = "C-1308"; // Servicios Médicos Vital IPS (NO asignado)
+// El Zarzal: cliente de los balances y del mapeo demo (cuentas_cliente). El
+// EQUIPO recibe escritura (cartera heredada): ambos Staff pueden trabajarlo.
+export const DEMO_CLIENTE_MAPEO = "C-0644"; // El Zarzal S.A
 
 export type DemoAsignacion = {
   clientCode: string;
@@ -63,6 +66,9 @@ export const DEMO_ASIGNACIONES: DemoAsignacion[] = [
   // Staff: ESCRITURA solo sobre su cliente asignado (segregación por dato).
   { clientCode: DEMO_CLIENTE_A, userEmail: "staff1.demo@russellbedford.co", readScope: true, writeScope: true },
   { clientCode: DEMO_CLIENTE_B, userEmail: "staff2.demo@russellbedford.co", readScope: true, writeScope: true },
+  // El Zarzal (balances + mapeo demo): escritura a nivel de EQUIPO, para
+  // demostrar la herencia de alcance por equipo (ambos Staff escriben).
+  { clientCode: DEMO_CLIENTE_MAPEO, team: true, readScope: true, writeScope: true },
   // Supervisión (Gerente y Socio): LECTURA de la cartera, sin escritura.
   { clientCode: DEMO_CLIENTE_A, userEmail: "gerente.demo@russellbedford.co", readScope: true, writeScope: false },
   { clientCode: DEMO_CLIENTE_B, userEmail: "gerente.demo@russellbedford.co", readScope: true, writeScope: false },

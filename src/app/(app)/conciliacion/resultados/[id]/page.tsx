@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { authorizePermiso, requirePermiso } from "@/lib/rbac";
+import { clientIdPorNombre } from "@/lib/rbac/contexto";
 import { PageHeader, StatCard, BackLink, EmptyState } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { fmtCompact, fmtPct } from "@/lib/format";
@@ -11,7 +12,6 @@ import { parseId } from "@/lib/ids";
 
 export default async function CruceDetailPage({ params }: { params: Promise<{ id: string }> }) {
   await requirePermiso("conciliaciones:ver");
-  const puedeEditar = (await authorizePermiso("conciliaciones:editar")).ok;
   const { id: rawId } = await params;
   const id = parseId(rawId);
   if (!id) notFound();
@@ -20,6 +20,14 @@ export default async function CruceDetailPage({ params }: { params: Promise<{ id
     include: { rows: { orderBy: { order: "asc" } }, comments: { orderBy: { createdAt: "asc" } } },
   });
   if (!rec) notFound();
+
+  // Editar exige, además del permiso de rol, ALCANCE de escritura sobre el
+  // cliente de ESTE cruce (cartera): los controles se ocultan fuera de ella.
+  const puedeEditar = (
+    await authorizePermiso("conciliaciones:editar", {
+      clientId: rec.clientId ?? (await clientIdPorNombre(rec.clientName)),
+    })
+  ).ok;
 
   const rows: Row[] = rec.rows.map((r) => ({ id: r.id, cuenta: r.cuenta, desc: r.desc, cont: r.cont, mod: r.mod, diff: r.diff, items: r.items, manualStatus: r.manualStatus }));
   const comments: Comment[] = rec.comments.map((c) => ({ id: c.id, cuenta: c.cuenta, who: c.who, initials: c.initials, text: c.text, time: c.time }));

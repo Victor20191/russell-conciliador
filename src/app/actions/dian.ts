@@ -8,6 +8,12 @@ import { requirePermiso } from "@/lib/rbac";
 import { parseId } from "@/lib/ids";
 import { registrarError } from "@/lib/errores";
 
+// NOTA · alcance por cartera: estas acciones NO pasan `{ clientId }` al gate
+// porque el modelo de datos DIAN (DianForm/DianPeriod/DianMapping/DianComment)
+// es GLOBAL de la plataforma: no tiene vínculo con ningún cliente. Si algún
+// día los formularios DIAN se asocian a un cliente, añadir aquí el alcance
+// igual que en balance/mapeo/conciliaciones (resolver clientId → gate).
+
 export async function addDianComment(formData: FormData): Promise<void> {
   await requirePermiso("dian:editar");
   const formId = parseId(formData.get("formId"));

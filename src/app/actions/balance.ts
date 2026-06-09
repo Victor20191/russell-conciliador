@@ -5,14 +5,18 @@ import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
 import { requirePermiso } from "@/lib/rbac";
+import { clienteDeBalance } from "@/lib/rbac/contexto";
 import { parseId } from "@/lib/ids";
 import { createProcessNotification } from "@/lib/notifications";
 import { registrarError } from "@/lib/errores";
 
 export async function freezeBalance(formData: FormData): Promise<void> {
+  // Primer gate: sesión + permiso de rol (antes de tocar la BD).
   await requirePermiso("balance:editar");
   const id = parseId(formData.get("id"));
   if (!id) return;
+  // Segundo gate: ALCANCE de escritura sobre el cliente del balance (cartera).
+  await requirePermiso("balance:editar", { clientId: await clienteDeBalance(id) });
 
   try {
     const balance = await prisma.balance.findUnique({ where: { id } });

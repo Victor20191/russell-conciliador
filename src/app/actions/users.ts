@@ -12,7 +12,6 @@ import { logAudit } from "@/lib/audit";
 import {
   UserCreateSchema,
   UserUpdateSchema,
-  UserResetSchema,
   UserUnlockSchema,
   UserDeleteSchema,
   type ActionState,
@@ -97,6 +96,7 @@ export async function updateUser(
     role: formData.get("role"),
     active:
       formData.get("active") === "on" || formData.get("active") === "true",
+    password: formData.get("password"),
   });
   if (!parsed.success)
     return { ok: false, errors: z.flattenError(parsed.error).fieldErrors };
@@ -138,8 +138,19 @@ export async function updateUser(
     });
     if (emailDup) return { ok: false, message: "Ya existe un usuario con ese correo." };
 
+    // Contraseña opcional: si viene, se restablece junto con los demás datos
+    // (forzando cambio en el próximo ingreso y limpiando bloqueos).
+    const resetPassword = parsed.data.password
+      ? {
+          password: await bcrypt.hash(parsed.data.password, 10),
+          mustChangePassword: true,
+          failedLoginAttempts: 0,
+          lastFailedLoginAt: null,
+          blockedUntil: null,
+        }
+      : {};
     const bump =
-      before?.active && !parsed.data.active
+      (before?.active && !parsed.data.active) || parsed.data.password
         ? { sessionVersion: { increment: 1 } }
         : {};
     await prisma.user.update({
@@ -149,6 +160,7 @@ export async function updateUser(
         name: parsed.data.name,
         role: parsed.data.role,
         active: parsed.data.active,
+        ...resetPassword,
         ...bump,
       },
     });
@@ -160,62 +172,12 @@ export async function updateUser(
       entity: String(parsed.data.id),
       detail: `${parsed.data.email} · ${parsed.data.role} · ${
         parsed.data.active ? "activo" : "inactivo"
-      }`,
+      }${parsed.data.password ? " · contraseña restablecida" : ""}`,
     });
     revalidatePath(PATH);
     return { ok: true };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("updateUser", e) };
-  }
-}
-
-export async function resetUserPassword(
-  _prev: ActionState | undefined,
-  formData: FormData,
-): Promise<ActionState> {
-  const authz = await authorizePermiso("usuarios:editar");
-  if (!authz.ok) return { ok: false, message: authz.message };
-
-  const parsed = UserResetSchema.safeParse({
-    id: formData.get("id"),
-    password: formData.get("password"),
-  });
-  if (!parsed.success)
-    return { ok: false, errors: z.flattenError(parsed.error).fieldErrors };
-
-  try {
-    const target = await prisma.user.findUnique({
-      where: { id: parsed.data.id },
-      select: { role: true },
-    });
-    if (target?.role === ROL_SUPERADMINISTRADOR && authz.role !== ROL_SUPERADMINISTRADOR) {
-      return { ok: false, message: "Solo un Superadministrador puede resetear esa cuenta." };
-    }
-
-    const password = await bcrypt.hash(parsed.data.password, 10);
-    await prisma.user.update({
-      where: { id: parsed.data.id },
-      data: {
-        password,
-        mustChangePassword: true,
-        sessionVersion: { increment: 1 },
-        failedLoginAttempts: 0,
-        lastFailedLoginAt: null,
-        blockedUntil: null,
-      },
-    });
-
-    const actor = await getCurrentUser();
-    await logAudit({
-      user: actor?.name ?? "Sistema",
-      action: "RESETEÓ CONTRASEÑA",
-      entity: String(parsed.data.id),
-      detail: "Forzar cambio en próximo ingreso",
-    });
-    revalidatePath(PATH);
-    return { ok: true };
-  } catch (e) {
-    return { ok: false, message: mensajeErrorBD("resetUserPassword", e) };
   }
 }
 

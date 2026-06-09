@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { authorizePermiso, requirePermiso } from "@/lib/rbac";
+import { clientIdPorNombre } from "@/lib/rbac/contexto";
 import { PageHeader, StatCard, Chip, BackLink } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { fmtCompact } from "@/lib/format";
@@ -12,12 +13,18 @@ import { parseId } from "@/lib/ids";
 
 export default async function BalanceDetailPage({ params }: { params: Promise<{ id: string }> }) {
   await requirePermiso("balance:ver");
-  const puedeEditar = (await authorizePermiso("balance:editar")).ok;
   const { id: rawId } = await params;
   const id = parseId(rawId);
   if (!id) notFound();
   const balance = await prisma.balance.findUnique({ where: { id } });
   if (!balance) notFound();
+
+  // Editar (congelar) exige, además del permiso de rol, ALCANCE de escritura
+  // sobre el cliente de ESTE balance (cartera): así el botón se oculta para
+  // quien no podría ejecutar la acción.
+  const puedeEditar = (
+    await authorizePermiso("balance:editar", { clientId: await clientIdPorNombre(balance.clientName) })
+  ).ok;
 
   const sums = balance.sums as Sums | null;
   const validations = (balance.validations as Validation[] | null) ?? [];

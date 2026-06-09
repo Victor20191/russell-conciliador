@@ -4,7 +4,8 @@ import { useActionState, useEffect, useState } from "react";
 import { Card, PageHeader } from "@/components/ui";
 import { PasswordInput } from "@/components/password-input";
 import { Modal } from "@/components/modal";
-import { createUser, updateUser, resetUserPassword, unlockUser, deleteUser } from "@/app/actions/users";
+import { createUser, updateUser, unlockUser, deleteUser } from "@/app/actions/users";
+import { Icon } from "@/components/icons";
 import { isAccountBlocked, LOGIN_MAX_ATTEMPTS } from "@/lib/login-throttle";
 
 export type UserRow = {
@@ -301,7 +302,7 @@ function CreateUserForm({ roles, onSuccess }: { roles: RoleOption[]; onSuccess: 
           <label className="text-[12px] font-medium text-ink-700">Contraseña temporal</label>
           <PasswordInput
             name="password"
-            placeholder="Mínimo 8 caracteres"
+            placeholder="Mínimo 10 caracteres"
             required
             className="rounded-md border border-ink-200 px-3 py-2 text-[13px]"
           />
@@ -333,97 +334,9 @@ function CreateUserForm({ roles, onSuccess }: { roles: RoleOption[]; onSuccess: 
 
 function EditUserForm({ user, roles, onSuccess }: { user: UserRow; roles: RoleOption[]; onSuccess: () => void }) {
   const [state, action, pending] = useActionState(updateUser, undefined);
+  const [resetOpen, setResetOpen] = useState(false);
   const hasCurrentRole = roles.some((r) => r.code === user.role);
   const defaultRole = hasCurrentRole ? user.role : "";
-
-  useEffect(() => {
-    if (state?.ok) onSuccess();
-  }, [state, onSuccess]);
-
-  return (
-    <div className="flex flex-col gap-5">
-      <form action={action} className="flex flex-col gap-4">
-        <input type="hidden" name="id" value={user.id} />
-
-        <div className="flex flex-col gap-1.5">
-          <label className="text-[12px] font-medium text-ink-700">Nombre completo</label>
-          <input
-            name="name"
-            defaultValue={user.name}
-            required
-            className="rounded-md border border-ink-200 px-3 py-2 text-[13px]"
-          />
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          <label className="text-[12px] font-medium text-ink-700">Correo electrónico</label>
-          <input
-            name="email"
-            type="email"
-            defaultValue={user.email}
-            required
-            className="rounded-md border border-ink-200 px-3 py-2 text-[13px]"
-          />
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          <label className="text-[12px] font-medium text-ink-700">Rol</label>
-          <select
-            name="role"
-            required
-            defaultValue={defaultRole}
-            className="rounded-md border border-ink-200 px-3 py-2 text-[13px]"
-          >
-            {!hasCurrentRole && (
-              <option value="" disabled>
-                — Selecciona un rol vigente —
-              </option>
-            )}
-            {roles.map((r) => (
-              <option key={r.code} value={r.code}>
-                {r.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <label className="mt-2 flex items-center gap-2 text-[13px] text-ink-800">
-          <input
-            type="checkbox"
-            name="active"
-            defaultChecked={user.active}
-            className="h-4 w-4 rounded border-ink-300 text-navy-600 focus:ring-navy-600"
-          />
-          Usuario activo
-        </label>
-
-        {state?.message && <p className="text-[12px] text-err-700">{state.message}</p>}
-        {state?.errors && (
-          <p className="text-[12px] text-err-700">
-            {Object.values(state.errors).flat().filter(Boolean)[0]}
-          </p>
-        )}
-
-        <div className="mt-2 flex justify-end gap-3">
-          <button
-            type="submit"
-            disabled={pending}
-            className="rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-60"
-          >
-            {pending ? "Guardando…" : "Guardar cambios"}
-          </button>
-        </div>
-      </form>
-
-      <div className="border-t border-ink-100 pt-4">
-        <ResetPasswordForm user={user} onSuccess={onSuccess} />
-      </div>
-    </div>
-  );
-}
-
-function ResetPasswordForm({ user, onSuccess }: { user: UserRow; onSuccess: () => void }) {
-  const [state, action, pending] = useActionState(resetUserPassword, undefined);
 
   useEffect(() => {
     if (state?.ok) onSuccess();
@@ -433,18 +346,80 @@ function ResetPasswordForm({ user, onSuccess }: { user: UserRow; onSuccess: () =
     <form action={action} className="flex flex-col gap-4">
       <input type="hidden" name="id" value={user.id} />
 
-      <p className="text-[13px] text-ink-600">
-        Establece una nueva contraseña para <strong>{user.name}</strong>. El usuario deberá cambiarla la próxima vez que inicie sesión.
-      </p>
-
       <div className="flex flex-col gap-1.5">
-        <label className="text-[12px] font-medium text-ink-700">Nueva contraseña</label>
-        <PasswordInput
-          name="password"
-          placeholder="Mínimo 8 caracteres"
+        <label className="text-[12px] font-medium text-ink-700">Nombre completo</label>
+        <input
+          name="name"
+          defaultValue={user.name}
           required
           className="rounded-md border border-ink-200 px-3 py-2 text-[13px]"
         />
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <label className="text-[12px] font-medium text-ink-700">Correo electrónico</label>
+        <input
+          name="email"
+          type="email"
+          defaultValue={user.email}
+          required
+          className="rounded-md border border-ink-200 px-3 py-2 text-[13px]"
+        />
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <label className="text-[12px] font-medium text-ink-700">Rol</label>
+        <select
+          name="role"
+          required
+          defaultValue={defaultRole}
+          className="rounded-md border border-ink-200 px-3 py-2 text-[13px]"
+        >
+          {!hasCurrentRole && (
+            <option value="" disabled>
+              — Selecciona un rol vigente —
+            </option>
+          )}
+          {roles.map((r) => (
+            <option key={r.code} value={r.code}>
+              {r.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <label className="flex items-center gap-2 text-[13px] text-ink-800">
+        <input
+          type="checkbox"
+          name="active"
+          defaultChecked={user.active}
+          className="h-4 w-4 rounded border-ink-300 text-navy-600 focus:ring-navy-600"
+        />
+        Usuario activo
+      </label>
+
+      <div className="rounded-md border border-ink-200">
+        <button
+          type="button"
+          onClick={() => setResetOpen((open) => !open)}
+          className="flex w-full items-center justify-between px-3 py-2.5 text-[13px] font-medium text-ink-700 hover:bg-ink-50"
+        >
+          Restablecer contraseña
+          <Icon name={resetOpen ? "chev-d" : "chev-r"} size={16} />
+        </button>
+        {resetOpen && (
+          <div className="flex flex-col gap-2 border-t border-ink-100 px-3 pb-3 pt-3">
+            <PasswordInput
+              name="password"
+              placeholder="Mínimo 10 caracteres"
+              className="rounded-md border border-ink-200 px-3 py-2 text-[13px]"
+            />
+            <p className="text-[11px] text-ink-500">
+              Si la dejas vacía, la contraseña actual no cambia. Si la estableces,{" "}
+              <strong>{user.name}</strong> deberá cambiarla la próxima vez que inicie sesión.
+            </p>
+          </div>
+        )}
       </div>
 
       {state?.message && <p className="text-[12px] text-err-700">{state.message}</p>}
@@ -454,13 +429,13 @@ function ResetPasswordForm({ user, onSuccess }: { user: UserRow; onSuccess: () =
         </p>
       )}
 
-      <div className="mt-2 flex justify-end gap-3">
+      <div className="mt-2 flex justify-end">
         <button
           type="submit"
           disabled={pending}
           className="rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-60"
         >
-          {pending ? "Actualizando…" : "Actualizar contraseña"}
+          {pending ? "Guardando…" : "Guardar cambios"}
         </button>
       </div>
     </form>
