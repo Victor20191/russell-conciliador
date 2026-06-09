@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
 import { authorizePermiso } from "@/lib/rbac";
+import { ROLES_LEGADO } from "@/lib/rbac/catalogo";
 import { ROL_SUPERADMINISTRADOR } from "@/lib/rbac/modulos-plataforma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
@@ -19,6 +20,7 @@ import {
 import { mensajeErrorBD } from "@/lib/errores";
 
 const PATH = "/config/usuarios";
+const ROLES_LEGADO_NO_ASIGNABLES = new Set<string>(ROLES_LEGADO);
 
 export async function createUser(
   _prev: ActionState | undefined,
@@ -36,6 +38,9 @@ export async function createUser(
   });
   if (!parsed.success)
     return { ok: false, errors: z.flattenError(parsed.error).fieldErrors };
+  if (ROLES_LEGADO_NO_ASIGNABLES.has(parsed.data.role)) {
+    return { ok: false, message: "Los roles legado ya no se pueden asignar." };
+  }
 
   try {
     const rol = await prisma.role.findFirst({
@@ -95,6 +100,9 @@ export async function updateUser(
   });
   if (!parsed.success)
     return { ok: false, errors: z.flattenError(parsed.error).fieldErrors };
+  if (ROLES_LEGADO_NO_ASIGNABLES.has(parsed.data.role)) {
+    return { ok: false, message: "Los roles legado ya no se pueden asignar." };
+  }
 
   try {
     const rol = await prisma.role.findFirst({

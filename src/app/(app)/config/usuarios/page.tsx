@@ -1,6 +1,7 @@
 import prisma from "@/lib/prisma";
 import { requirePermiso } from "@/lib/rbac";
 import { getCurrentUser } from "@/lib/dal";
+import { ROLES_LEGADO } from "@/lib/rbac/catalogo";
 import { ROL_SUPERADMINISTRADOR } from "@/lib/rbac/modulos-plataforma";
 import UsuariosClient, { type UserRow, type RoleOption } from "./usuarios-client";
 
@@ -9,7 +10,7 @@ export default async function UsuariosPage() {
   const [users, roles, currentUser] = await Promise.all([
     prisma.user.findMany({ orderBy: { name: "asc" } }),
     prisma.role.findMany({
-      where: { active: true },
+      where: { active: true, code: { notIn: [...ROLES_LEGADO] } },
       orderBy: { rank: "desc" },
       select: { code: true, name: true },
     }),

@@ -353,6 +353,8 @@ function CreateUserForm({ roles, onSuccess }: { roles: RoleOption[]; onSuccess: 
 
 function EditUserForm({ user, roles, onSuccess }: { user: UserRow; roles: RoleOption[]; onSuccess: () => void }) {
   const [state, action, pending] = useActionState(updateUser, undefined);
+  const hasCurrentRole = roles.some((r) => r.code === user.role);
+  const defaultRole = hasCurrentRole ? user.role : "";
 
   useEffect(() => {
     if (state?.ok) onSuccess();
@@ -387,9 +389,15 @@ function EditUserForm({ user, roles, onSuccess }: { user: UserRow; roles: RoleOp
         <label className="text-[12px] font-medium text-ink-700">Rol</label>
         <select
           name="role"
-          defaultValue={user.role}
+          required
+          defaultValue={defaultRole}
           className="rounded-md border border-ink-200 px-3 py-2 text-[13px]"
         >
+          {!hasCurrentRole && (
+            <option value="" disabled>
+              — Selecciona un rol vigente —
+            </option>
+          )}
           {roles.map((r) => (
             <option key={r.code} value={r.code}>
               {r.name}
