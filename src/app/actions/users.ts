@@ -12,6 +12,8 @@ import {
   UserCreateSchema,
   UserUpdateSchema,
   UserResetSchema,
+  UserUnlockSchema,
+  UserDeleteSchema,
   type ActionState,
 } from "@/lib/definitions";
 import { mensajeErrorBD } from "@/lib/errores";
@@ -189,6 +191,9 @@ export async function resetUserPassword(
         password,
         mustChangePassword: true,
         sessionVersion: { increment: 1 },
+        failedLoginAttempts: 0,
+        lastFailedLoginAt: null,
+        blockedUntil: null,
       },
     });
 
@@ -203,5 +208,117 @@ export async function resetUserPassword(
     return { ok: true };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("resetUserPassword", e) };
+  }
+}
+
+export async function unlockUser(
+  _prev: ActionState | undefined,
+  formData: FormData,
+): Promise<ActionState> {
+  const authz = await authorizePermiso("usuarios:editar");
+  if (!authz.ok) return { ok: false, message: authz.message };
+
+  const parsed = UserUnlockSchema.safeParse({
+    id: formData.get("id"),
+  });
+  if (!parsed.success)
+    return { ok: false, errors: z.flattenError(parsed.error).fieldErrors };
+
+  try {
+    const target = await prisma.user.findUnique({
+      where: { id: parsed.data.id },
+      select: { role: true, email: true, blockedUntil: true, failedLoginAttempts: true },
+    });
+    if (!target) return { ok: false, message: "El usuario no existe." };
+    if (target.role === ROL_SUPERADMINISTRADOR && authz.role !== ROL_SUPERADMINISTRADOR) {
+      return { ok: false, message: "Solo un Superadministrador puede desbloquear esa cuenta." };
+    }
+    if (!target.blockedUntil && target.failedLoginAttempts === 0) {
+      return { ok: false, message: "El usuario no tiene bloqueo para limpiar." };
+    }
+
+    await prisma.user.update({
+      where: { id: parsed.data.id },
+      data: {
+        failedLoginAttempts: 0,
+        lastFailedLoginAt: null,
+        blockedUntil: null,
+      },
+    });
+
+    const actor = await getCurrentUser();
+    await logAudit({
+      user: actor?.name ?? "Sistema",
+      action: "DESBLOQUEÓ USUARIO",
+      entity: target.email,
+      detail: "Limpió bloqueo de inicio de sesión",
+    });
+    revalidatePath(PATH);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("unlockUser", e) };
+  }
+}
+
+export async function deleteUser(
+  _prev: ActionState | undefined,
+  formData: FormData,
+): Promise<ActionState> {
+  const authz = await authorizePermiso("usuarios:eliminar");
+  if (!authz.ok) return { ok: false, message: authz.message };
+
+  const parsed = UserDeleteSchema.safeParse({
+    id: formData.get("id"),
+  });
+  if (!parsed.success)
+    return { ok: false, errors: z.flattenError(parsed.error).fieldErrors };
+
+  try {
+    if (parsed.data.id === authz.userId) {
+      return { ok: false, message: "No puedes eliminar tu propia cuenta." };
+    }
+
+    const target = await prisma.user.findUnique({
+      where: { id: parsed.data.id },
+      select: { role: true, email: true },
+    });
+    if (!target) return { ok: false, message: "El usuario no existe." };
+    if (target.role === ROL_SUPERADMINISTRADOR && authz.role !== ROL_SUPERADMINISTRADOR) {
+      return { ok: false, message: "Solo un Superadministrador puede eliminar esa cuenta." };
+    }
+
+    // Las FK hacia User son LÓGICAS (sin restricción física), así que el
+    // borrado no cae en cascada: limpiamos manualmente equipos y cartera
+    // para no dejar registros huérfanos. Los comentarios y menciones sí
+    // caen por cascada (onDelete: Cascade en el schema).
+    await prisma.$transaction([
+      prisma.teamMember.deleteMany({ where: { userId: parsed.data.id } }),
+      prisma.clientAssignment.deleteMany({ where: { userId: parsed.data.id } }),
+      prisma.team.updateMany({
+        where: { leadUserId: parsed.data.id },
+        data: { leadUserId: null },
+      }),
+      prisma.teamMember.updateMany({
+        where: { assignedById: parsed.data.id },
+        data: { assignedById: null },
+      }),
+      prisma.clientAssignment.updateMany({
+        where: { assignedById: parsed.data.id },
+        data: { assignedById: null },
+      }),
+      prisma.user.delete({ where: { id: parsed.data.id } }),
+    ]);
+
+    const actor = await getCurrentUser();
+    await logAudit({
+      user: actor?.name ?? "Sistema",
+      action: "ELIMINÓ USUARIO",
+      entity: target.email,
+      detail: target.role,
+    });
+    revalidatePath(PATH);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("deleteUser", e) };
   }
 }

@@ -1,7 +1,7 @@
 import * as z from "zod";
 
 export const LoginSchema = z.object({
-  email: z.email({ error: "Ingresa un correo válido." }).trim(),
+  email: z.email({ error: "Ingresa un correo válido." }).trim().toLowerCase(),
   password: z
     .string()
     .min(1, { error: "La contraseña es obligatoria." })
@@ -69,7 +69,7 @@ export const ChangePasswordSchema = z.object({
 const RoleField = z.string().trim().min(1, { error: "El rol es obligatorio." });
 
 export const UserCreateSchema = z.object({
-  email: z.email({ error: "Correo inválido." }).trim(),
+  email: z.email({ error: "Correo inválido." }).trim().toLowerCase(),
   name: z.string().min(1, { error: "El nombre es obligatorio." }).trim(),
   role: RoleField,
   initials: z.string().min(1).max(3, { error: "Máximo 3 caracteres." }).trim(),
@@ -78,7 +78,7 @@ export const UserCreateSchema = z.object({
 
 export const UserUpdateSchema = z.object({
   id: z.coerce.number().int().positive(),
-  email: z.email({ error: "Correo inválido." }).trim(),
+  email: z.email({ error: "Correo inválido." }).trim().toLowerCase(),
   name: z.string().min(1, { error: "El nombre es obligatorio." }).trim(),
   role: RoleField,
   active: z.boolean(),
@@ -87,4 +87,12 @@ export const UserUpdateSchema = z.object({
 export const UserResetSchema = z.object({
   id: z.coerce.number().int().positive(),
   password: PasswordSchema,
+});
+
+export const UserUnlockSchema = z.object({
+  id: z.coerce.number().int().positive(),
+});
+
+export const UserDeleteSchema = z.object({
+  id: z.coerce.number().int().positive(),
 });

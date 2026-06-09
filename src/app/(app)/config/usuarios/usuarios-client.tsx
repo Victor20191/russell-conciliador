@@ -4,7 +4,8 @@ import { useActionState, useEffect, useState } from "react";
 import { Card, PageHeader } from "@/components/ui";
 import { PasswordInput } from "@/components/password-input";
 import { Modal } from "@/components/modal";
-import { createUser, updateUser, resetUserPassword } from "@/app/actions/users";
+import { createUser, updateUser, resetUserPassword, unlockUser, deleteUser } from "@/app/actions/users";
+import { isAccountBlocked, LOGIN_MAX_ATTEMPTS } from "@/lib/login-throttle";
 
 export type UserRow = {
   id: number;
@@ -14,9 +15,25 @@ export type UserRow = {
   initials: string;
   active: boolean;
   lastLoginAt: string | null;
+  failedLoginAttempts: number;
+  blockedUntil: string | null;
 };
 
 export type RoleOption = { code: string; name: string };
+
+function userIsBlocked(user: UserRow): boolean {
+  return isAccountBlocked(user.blockedUntil ? new Date(user.blockedUntil) : null);
+}
+
+function formatDateTime(input: string | null): string {
+  if (!input) return "—";
+  const date = new Date(input);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleString("es-CO", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
 
 export default function UsuariosClient({
   rows,
@@ -30,6 +47,7 @@ export default function UsuariosClient({
   const [createOpen, setCreateOpen] = useState(false);
   const [editUser, setEditUser] = useState<UserRow | null>(null);
   const [passwordUser, setPasswordUser] = useState<UserRow | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<UserRow | null>(null);
 
   return (
     <div>
@@ -58,53 +76,61 @@ export default function UsuariosClient({
               </tr>
             </thead>
             <tbody className="divide-y divide-ink-100">
-              {rows.map((u) => (
-                <tr key={u.id} className="hover:bg-ink-50/50">
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-3">
-                      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-navy-700 text-[11px] font-semibold text-white">
-                        {u.initials}
-                      </span>
-                      <div>
-                        <div className="font-medium text-ink-800">{u.name}</div>
-                        <div className="text-[11.5px] text-ink-500">{u.email}</div>
+              {rows.map((u) => {
+                const blocked = userIsBlocked(u);
+                return (
+                  <tr key={u.id} className="hover:bg-ink-50/50">
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-navy-700 text-[11px] font-semibold text-white">
+                          {u.initials}
+                        </span>
+                        <div>
+                          <div className="font-medium text-ink-800">{u.name}</div>
+                          <div className="text-[11.5px] text-ink-500">{u.email}</div>
+                        </div>
                       </div>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-ink-600">{u.role}</td>
-                  <td className="px-4 py-3">
-                    {u.active ? (
-                      <span className="inline-flex items-center rounded-full bg-ok-100 px-2 py-0.5 text-[11px] font-semibold text-ok-700">
-                        Activo
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center rounded-full bg-ink-100 px-2 py-0.5 text-[11px] font-semibold text-ink-600">
-                        Inactivo
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    {u.role === "Superadministrador" && !canManageSuperadmins ? (
-                      <span className="text-[12px] text-ink-400">Reservado</span>
-                    ) : (
-                      <>
-                        <button
-                          onClick={() => setEditUser(u)}
-                          className="mr-4 text-blue-500 hover:underline"
-                        >
-                          Editar
-                        </button>
-                        <button
-                          onClick={() => setPasswordUser(u)}
-                          className="text-blue-500 hover:underline"
-                        >
-                          Contraseña
-                        </button>
-                      </>
-                    )}
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="px-4 py-3 text-ink-600">{u.role}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-col items-start gap-1">
+                        {blocked ? (
+                          <span className="inline-flex items-center rounded-full bg-err-100 px-2 py-0.5 text-[11px] font-semibold text-err-700">
+                            Bloqueado
+                          </span>
+                        ) : u.active ? (
+                          <span className="inline-flex items-center rounded-full bg-ok-100 px-2 py-0.5 text-[11px] font-semibold text-ok-700">
+                            Activo
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center rounded-full bg-ink-100 px-2 py-0.5 text-[11px] font-semibold text-ink-600">
+                            Inactivo
+                          </span>
+                        )}
+                        {blocked ? (
+                          <span className="text-[11px] text-ink-500">
+                            Hasta {formatDateTime(u.blockedUntil)}
+                          </span>
+                        ) : u.failedLoginAttempts > 0 ? (
+                          <span className="text-[11px] text-ink-500">
+                            Intentos fallidos: {u.failedLoginAttempts}/{LOGIN_MAX_ATTEMPTS}
+                          </span>
+                        ) : null}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <UserActions
+                        user={u}
+                        blocked={blocked}
+                        canManageSuperadmins={canManageSuperadmins}
+                        onEdit={() => setEditUser(u)}
+                        onPassword={() => setPasswordUser(u)}
+                        onDelete={() => setDeleteTarget(u)}
+                      />
+                    </td>
+                  </tr>
+                );
+              })}
               {rows.length === 0 && (
                 <tr>
                   <td colSpan={4} className="px-4 py-8 text-center text-ink-500">
@@ -151,7 +177,73 @@ export default function UsuariosClient({
           />
         )}
       </Modal>
+
+      <Modal
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        title="Eliminar usuario"
+      >
+        {deleteTarget && (
+          <DeleteUserForm
+            user={deleteTarget}
+            onSuccess={() => setDeleteTarget(null)}
+          />
+        )}
+      </Modal>
     </div>
+  );
+}
+
+function UserActions({
+  user,
+  blocked,
+  canManageSuperadmins,
+  onEdit,
+  onPassword,
+  onDelete,
+}: {
+  user: UserRow;
+  blocked: boolean;
+  canManageSuperadmins: boolean;
+  onEdit: () => void;
+  onPassword: () => void;
+  onDelete: () => void;
+}) {
+  if (user.role === "Superadministrador" && !canManageSuperadmins) {
+    return <div className="text-right text-[12px] text-ink-400">Reservado</div>;
+  }
+
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1">
+      <button onClick={onEdit} className="text-blue-500 hover:underline">
+        Editar
+      </button>
+      <button onClick={onPassword} className="text-blue-500 hover:underline">
+        Contraseña
+      </button>
+      {blocked && <UnlockUserForm user={user} />}
+      <button onClick={onDelete} className="text-err-700 hover:underline">
+        Eliminar
+      </button>
+    </div>
+  );
+}
+
+function UnlockUserForm({ user }: { user: UserRow }) {
+  const [state, action, pending] = useActionState(unlockUser, undefined);
+
+  return (
+    <form action={action} className="inline-flex items-center gap-2">
+      <input type="hidden" name="id" value={user.id} />
+      <button
+        type="submit"
+        disabled={pending}
+        className="text-err-700 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {pending ? "Desbloqueando…" : "Desbloquear"}
+      </button>
+      {state?.message && <span className="text-[11px] text-err-700">{state.message}</span>}
+    </form>
   );
 }
 
@@ -362,6 +454,47 @@ function ResetPasswordForm({ user, onSuccess }: { user: UserRow; onSuccess: () =
           className="rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-60"
         >
           {pending ? "Actualizando…" : "Actualizar contraseña"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function DeleteUserForm({ user, onSuccess }: { user: UserRow; onSuccess: () => void }) {
+  const [state, action, pending] = useActionState(deleteUser, undefined);
+
+  useEffect(() => {
+    if (state?.ok) onSuccess();
+  }, [state, onSuccess]);
+
+  return (
+    <form action={action} className="flex flex-col gap-4">
+      <input type="hidden" name="id" value={user.id} />
+
+      <p className="text-[13px] text-ink-600">
+        Vas a eliminar permanentemente a <strong>{user.name}</strong> ({user.email}).
+        Esta acción no se puede deshacer: se retirará de sus equipos y cartera, y se
+        borrarán sus comentarios y menciones.
+      </p>
+      <p className="text-[12px] text-ink-500">
+        Si solo quieres suspender su acceso, usa <strong>Editar</strong> y desmarca
+        «Usuario activo» en lugar de eliminarlo.
+      </p>
+
+      {state?.message && <p className="text-[12px] text-err-700">{state.message}</p>}
+      {state?.errors && (
+        <p className="text-[12px] text-err-700">
+          {Object.values(state.errors).flat().filter(Boolean)[0]}
+        </p>
+      )}
+
+      <div className="mt-2 flex justify-end gap-3">
+        <button
+          type="submit"
+          disabled={pending}
+          className="rounded-md bg-err-700 px-4 py-2 text-[13px] font-semibold text-white hover:bg-err-700/90 disabled:opacity-60"
+        >
+          {pending ? "Eliminando…" : "Eliminar definitivamente"}
         </button>
       </div>
     </form>

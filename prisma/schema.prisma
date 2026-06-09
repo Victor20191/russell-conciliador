@@ -18,20 +18,23 @@ datasource db {
 
 // ===== Autenticación =====
 model User {
-  id                 Int       @id @default(autoincrement()) @map("id")
-  email              String    @unique @map("correo")
-  password           String    @map("contrasena") // hash bcrypt
-  name               String    @map("nombre")
-  role               String    @default("Consulta") @map("rol")
-  initials           String    @map("iniciales")
-  active             Boolean   @default(true) @map("activo")
-  sessionVersion     Int       @default(0) @map("version_sesion")
-  mustChangePassword Boolean   @default(false) @map("debe_cambiar_contrasena")
-  lastLoginAt        DateTime? @map("ultimo_inicio_sesion")
-  comments           Comment[]        @relation("ComentariosAutor")
-  mentions           CommentMention[] @relation("MencionesUsuario")
-  createdAt          DateTime  @default(now()) @map("creado_en")
-  updatedAt          DateTime  @updatedAt @map("actualizado_en")
+  id                  Int              @id @default(autoincrement()) @map("id")
+  email               String           @unique @map("correo")
+  password            String           @map("contrasena") // hash bcrypt
+  name                String           @map("nombre")
+  role                String           @default("Consulta") @map("rol")
+  initials            String           @map("iniciales")
+  active              Boolean          @default(true) @map("activo")
+  sessionVersion      Int              @default(0) @map("version_sesion")
+  failedLoginAttempts Int              @default(0) @map("intentos_fallidos")
+  lastFailedLoginAt   DateTime?        @map("ultimo_intento_fallido")
+  blockedUntil        DateTime?        @map("bloqueado_hasta")
+  mustChangePassword  Boolean          @default(false) @map("debe_cambiar_contrasena")
+  lastLoginAt         DateTime?        @map("ultimo_inicio_sesion")
+  comments            Comment[]        @relation("ComentariosAutor")
+  mentions            CommentMention[] @relation("MencionesUsuario")
+  createdAt           DateTime         @default(now()) @map("creado_en")
+  updatedAt           DateTime         @updatedAt @map("actualizado_en")
 
   @@map("usuarios")
 }

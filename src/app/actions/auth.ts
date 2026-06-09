@@ -13,8 +13,9 @@ import { createSession, deleteSession } from "@/lib/session";
 import { verifySession } from "@/lib/dal";
 import { getClientIp } from "@/lib/request";
 import {
-  LOGIN_WINDOW_MS,
+  isAccountBlocked,
   isLockedOut,
+  nextFailedLoginState,
 } from "@/lib/login-throttle";
 import prisma from "@/lib/prisma";
 import { mensajeErrorBD, registrarError } from "@/lib/errores";
@@ -38,32 +39,48 @@ export async function login(
 
   const { email, password } = validated.data;
   const ip = await getClientIp();
-  const since = new Date(Date.now() - LOGIN_WINDOW_MS);
 
   // El redirect() se ejecuta DESPUÉS del try (funciona lanzando una excepción
   // especial que no debe capturarse). Dentro del try van las operaciones de BD.
   let destino: string | null = null;
   try {
-    const recentFailures = await prisma.loginAttempt.count({
-      where: { success: false, createdAt: { gt: since }, OR: [{ email }, { ip }] },
-    });
-    if (isLockedOut(recentFailures)) {
+    const user = await prisma.user.findUnique({ where: { email } });
+    const now = new Date();
+    if (isAccountBlocked(user?.blockedUntil, now)) {
       return { message: "Demasiados intentos. Intenta de nuevo en unos minutos." };
     }
 
-    const user = await prisma.user.findUnique({ where: { email } });
     // Comparar siempre (contra hash dummy si no hay usuario) para tiempo constante.
     const ok = await bcrypt.compare(password, user?.password ?? DUMMY_HASH);
 
     if (!user || !user.active || !ok) {
       await prisma.loginAttempt.create({ data: { email, ip, success: false } });
+      if (user?.active) {
+        const failedState = nextFailedLoginState({
+          failedLoginAttempts: user.failedLoginAttempts,
+          lastFailedLoginAt: user.lastFailedLoginAt,
+          now,
+        });
+        await prisma.user.update({
+          where: { id: user.id },
+          data: failedState,
+        });
+        if (isLockedOut(failedState.failedLoginAttempts)) {
+          return { message: "Demasiados intentos. Intenta de nuevo en unos minutos." };
+        }
+      }
       return { message: "Credenciales inválidas." };
     }
 
     await prisma.loginAttempt.create({ data: { email, ip, success: true } });
     await prisma.user.update({
       where: { id: user.id },
-      data: { lastLoginAt: new Date() },
+      data: {
+        lastLoginAt: now,
+        failedLoginAttempts: 0,
+        lastFailedLoginAt: null,
+        blockedUntil: null,
+      },
     });
     await createSession(user.id, user.role, user.sessionVersion);
 

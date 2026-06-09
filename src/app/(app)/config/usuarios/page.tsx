@@ -23,6 +23,8 @@ export default async function UsuariosPage() {
     initials: u.initials,
     active: u.active,
     lastLoginAt: u.lastLoginAt ? u.lastLoginAt.toISOString() : null,
+    failedLoginAttempts: u.failedLoginAttempts,
+    blockedUntil: u.blockedUntil ? u.blockedUntil.toISOString() : null,
   }));
   const roleOptions: RoleOption[] = roles
     .filter((r) => currentUser?.role === ROL_SUPERADMINISTRADOR || r.code !== ROL_SUPERADMINISTRADOR)
