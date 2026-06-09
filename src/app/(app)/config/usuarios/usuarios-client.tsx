@@ -35,6 +35,13 @@ function formatDateTime(input: string | null): string {
   });
 }
 
+function initialsFromFullName(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  const firstName = parts[0] ?? "";
+  const lastName = parts.length > 1 ? parts[parts.length - 1] : "";
+  return `${firstName[0] ?? ""}${lastName[0] ?? ""}`.toUpperCase();
+}
+
 export default function UsuariosClient({
   rows,
   roles,
@@ -249,6 +256,8 @@ function UnlockUserForm({ user }: { user: UserRow }) {
 
 function CreateUserForm({ roles, onSuccess }: { roles: RoleOption[]; onSuccess: () => void }) {
   const [state, action, pending] = useActionState(createUser, undefined);
+  const [name, setName] = useState("");
+  const initials = initialsFromFullName(name);
 
   useEffect(() => {
     if (state?.ok) onSuccess();
@@ -262,6 +271,8 @@ function CreateUserForm({ roles, onSuccess }: { roles: RoleOption[]; onSuccess: 
           <input
             name="name"
             placeholder="Ej. Juan Pérez"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
             required
             className="rounded-md border border-ink-200 px-3 py-2 text-[13px]"
           />
@@ -281,9 +292,11 @@ function CreateUserForm({ roles, onSuccess }: { roles: RoleOption[]; onSuccess: 
           <input
             name="initials"
             placeholder="JP"
+            value={initials}
             maxLength={3}
+            readOnly
             required
-            className="rounded-md border border-ink-200 px-3 py-2 text-[13px]"
+            className="rounded-md border border-ink-200 bg-ink-50 px-3 py-2 text-[13px] text-ink-700"
           />
         </div>
         <div className="flex flex-col gap-1.5">
