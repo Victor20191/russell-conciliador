@@ -11,8 +11,12 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_JUSTIFY
 from reportlab.platypus import (
     BaseDocTemplate, PageTemplate, Frame, Paragraph, Spacer, Table, TableStyle,
     KeepTogether, FrameBreak, NextPageTemplate, PageBreak, Flowable, ListFlowable,
-    ListItem,
+    ListItem, Image as RLImage,
 )
+from reportlab.lib.utils import ImageReader
+import os
+
+SHOTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_screenshots")
 
 # ----------------------------------------------------------------------------
 # Paleta
@@ -113,6 +117,29 @@ def callout(title, body, tone="info", width=None):
         ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
     ]))
     return outer
+
+
+def figure(filename, caption, width=None):
+    """Captura de pantalla enmarcada con leyenda debajo."""
+    w = width or (PAGE_W - 2 * MARGIN)
+    path = os.path.join(SHOTS, filename)
+    ir = ImageReader(path)
+    iw, ih = ir.getSize()
+    inner_w = w - 8
+    disp_h = inner_w * ih / iw
+    img = RLImage(path, width=inner_w, height=disp_h)
+    framed = Table([[img]], colWidths=[w])
+    framed.setStyle(TableStyle([
+        ("BOX", (0, 0), (-1, -1), 0.8, BORDER),
+        ("LEFTPADDING", (0, 0), (-1, -1), 3), ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+        ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("BACKGROUND", (0, 0), (-1, -1), WHITE),
+    ]))
+    cap = Paragraph(
+        f'<font color="#DD5A33">▸</font> {caption}',
+        style("figcap", fontName="Helvetica-Oblique", fontSize=8, leading=11,
+              textColor=MUTED, spaceBefore=4, spaceAfter=10))
+    return KeepTogether([framed, cap])
 
 
 def arrow(width, label=None):
@@ -504,6 +531,8 @@ story.append(PageBreak())
 # 5. DETALLE POR RUTA
 # =========================================================================
 story.append(Paragraph("Detalle de cada ruta", H1))
+story.append(Paragraph(
+    "Cada ruta se acompaña de una captura real de la plataforma (datos de demostración).", LEAD))
 
 # --- Permisos por rol ---
 story.append(Paragraph("Permisos por rol — la matriz", H2))
@@ -543,8 +572,10 @@ story.append(callout(
     "ni la gestión de usuarios (<font face=\"Courier-Bold\">usuarios:crear/editar/eliminar</font>): la operación "
     "se cancela para evitar un auto-bloqueo. Los roles legado (Consulta, Auditor, Líder) no se editan desde esta "
     "pantalla.", tone="warn"))
-
-story.append(Spacer(1, 8))
+story.append(Spacer(1, 6))
+story.append(figure("permisos.png",
+    "Permisos por rol — la matriz rol×módulo. Cada celda fija el nivel (Ninguno / Ver / Comentar / Operar / "
+    "Administrar); la marca «Parcial» avisa que la concesión aún no cubre todo el nivel."))
 
 # --- Clientes ---
 story.append(Paragraph("Clientes", H2))
@@ -558,6 +589,10 @@ story.append(Paragraph(
     "<font face='Courier-Bold' color='#2F6DB5'>clientes:editar</font>; "
     "<b>parametrizar módulos y eliminar</b> requiere "
     "<font face='Courier-Bold' color='#2F6DB5'>clientes:configurar</font> (Senior / Administrador).", SMALL))
+story.append(Spacer(1, 6))
+story.append(figure("clientes.png",
+    "Clientes y parametrizaciones — listado con NIT, ERP y sector, y el estado de cada módulo por cliente. "
+    "El botón «Nuevo cliente» asigna el código automáticamente."))
 
 # --- Equipos ---
 story.append(Paragraph("Equipos", H2))
@@ -569,6 +604,10 @@ story.append(Paragraph(
 story.append(Paragraph(
     "Requiere <font face='Courier-Bold' color='#2F6DB5'>equipos:crear</font> y "
     "<font face='Courier-Bold' color='#2F6DB5'>equipos:asignar</font>.", SMALL))
+story.append(Spacer(1, 6))
+story.append(figure("equipos.png",
+    "Equipos de trabajo — cada equipo con su líder e integrantes; cada integrante muestra su rol, vigencia "
+    "y estado (Vigente / Programado / Expirado)."))
 
 # --- Cartera ---
 story.append(Paragraph("Cartera clientes", H2))
@@ -585,6 +624,12 @@ story.append(Paragraph(
     "Opcionalmente fijas <b>vigencia</b> y <b>motivo</b>. La asignación de cartera se guarda para "
     "<b>todo el equipo</b> (sus integrantes la heredan). Requiere "
     "<font face='Courier-Bold' color='#2F6DB5'>equipos:asignar</font>.", BODY))
+story.append(Spacer(1, 6))
+story.append(figure("carteras.png",
+    "Cartera clientes — qué clientes atiende cada equipo, con su alcance (Consulta / Operación), vigencia y estado."))
+story.append(figure("carteras-modal.png",
+    "Modal «Asignar clientes»: se eligen uno o varios clientes y se marcan las casillas de Alcance — "
+    "Consulta (lectura) y Operación (escritura, que solo surte efecto para el Staff)."))
 
 # --- Usuarios ---
 story.append(Paragraph("Usuarios", H2))
@@ -594,6 +639,10 @@ story.append(Paragraph(
     "con contraseña temporal (<font face='Courier-Bold'>mustChangePassword</font>) y debe cambiarla al "
     "primer ingreso. Requiere "
     "<font face='Courier-Bold' color='#2F6DB5'>usuarios:crear / editar / eliminar</font> (Administrador).", BODY))
+story.append(Spacer(1, 6))
+story.append(figure("usuarios.png",
+    "Usuarios — alta y gestión de cuentas; cada usuario con su rol y estado. El rol asignado aquí es el que "
+    "evalúa la matriz de permisos."))
 
 story.append(Spacer(1, 12))
 

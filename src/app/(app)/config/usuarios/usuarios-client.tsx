@@ -53,7 +53,6 @@ export default function UsuariosClient({
 }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [editUser, setEditUser] = useState<UserRow | null>(null);
-  const [passwordUser, setPasswordUser] = useState<UserRow | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<UserRow | null>(null);
 
   return (
@@ -131,7 +130,6 @@ export default function UsuariosClient({
                         blocked={blocked}
                         canManageSuperadmins={canManageSuperadmins}
                         onEdit={() => setEditUser(u)}
-                        onPassword={() => setPasswordUser(u)}
                         onDelete={() => setDeleteTarget(u)}
                       />
                     </td>
@@ -173,19 +171,6 @@ export default function UsuariosClient({
       </Modal>
 
       <Modal
-        open={!!passwordUser}
-        onClose={() => setPasswordUser(null)}
-        title="Cambiar contraseña"
-      >
-        {passwordUser && (
-          <ResetPasswordForm
-            user={passwordUser}
-            onSuccess={() => setPasswordUser(null)}
-          />
-        )}
-      </Modal>
-
-      <Modal
         open={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}
         title="Eliminar usuario"
@@ -206,14 +191,12 @@ function UserActions({
   blocked,
   canManageSuperadmins,
   onEdit,
-  onPassword,
   onDelete,
 }: {
   user: UserRow;
   blocked: boolean;
   canManageSuperadmins: boolean;
   onEdit: () => void;
-  onPassword: () => void;
   onDelete: () => void;
 }) {
   if (user.role === "Superadministrador" && !canManageSuperadmins) {
@@ -224,9 +207,6 @@ function UserActions({
     <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1">
       <button onClick={onEdit} className="text-blue-500 hover:underline">
         Editar
-      </button>
-      <button onClick={onPassword} className="text-blue-500 hover:underline">
-        Contraseña
       </button>
       {blocked && <UnlockUserForm user={user} />}
       <button onClick={onDelete} className="text-err-700 hover:underline">
@@ -361,78 +341,84 @@ function EditUserForm({ user, roles, onSuccess }: { user: UserRow; roles: RoleOp
   }, [state, onSuccess]);
 
   return (
-    <form action={action} className="flex flex-col gap-4">
-      <input type="hidden" name="id" value={user.id} />
+    <div className="flex flex-col gap-5">
+      <form action={action} className="flex flex-col gap-4">
+        <input type="hidden" name="id" value={user.id} />
 
-      <div className="flex flex-col gap-1.5">
-        <label className="text-[12px] font-medium text-ink-700">Nombre completo</label>
-        <input
-          name="name"
-          defaultValue={user.name}
-          required
-          className="rounded-md border border-ink-200 px-3 py-2 text-[13px]"
-        />
+        <div className="flex flex-col gap-1.5">
+          <label className="text-[12px] font-medium text-ink-700">Nombre completo</label>
+          <input
+            name="name"
+            defaultValue={user.name}
+            required
+            className="rounded-md border border-ink-200 px-3 py-2 text-[13px]"
+          />
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <label className="text-[12px] font-medium text-ink-700">Correo electrónico</label>
+          <input
+            name="email"
+            type="email"
+            defaultValue={user.email}
+            required
+            className="rounded-md border border-ink-200 px-3 py-2 text-[13px]"
+          />
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <label className="text-[12px] font-medium text-ink-700">Rol</label>
+          <select
+            name="role"
+            required
+            defaultValue={defaultRole}
+            className="rounded-md border border-ink-200 px-3 py-2 text-[13px]"
+          >
+            {!hasCurrentRole && (
+              <option value="" disabled>
+                — Selecciona un rol vigente —
+              </option>
+            )}
+            {roles.map((r) => (
+              <option key={r.code} value={r.code}>
+                {r.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <label className="mt-2 flex items-center gap-2 text-[13px] text-ink-800">
+          <input
+            type="checkbox"
+            name="active"
+            defaultChecked={user.active}
+            className="h-4 w-4 rounded border-ink-300 text-navy-600 focus:ring-navy-600"
+          />
+          Usuario activo
+        </label>
+
+        {state?.message && <p className="text-[12px] text-err-700">{state.message}</p>}
+        {state?.errors && (
+          <p className="text-[12px] text-err-700">
+            {Object.values(state.errors).flat().filter(Boolean)[0]}
+          </p>
+        )}
+
+        <div className="mt-2 flex justify-end gap-3">
+          <button
+            type="submit"
+            disabled={pending}
+            className="rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-60"
+          >
+            {pending ? "Guardando…" : "Guardar cambios"}
+          </button>
+        </div>
+      </form>
+
+      <div className="border-t border-ink-100 pt-4">
+        <ResetPasswordForm user={user} onSuccess={onSuccess} />
       </div>
-
-      <div className="flex flex-col gap-1.5">
-        <label className="text-[12px] font-medium text-ink-700">Correo electrónico</label>
-        <input
-          name="email"
-          type="email"
-          defaultValue={user.email}
-          required
-          className="rounded-md border border-ink-200 px-3 py-2 text-[13px]"
-        />
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        <label className="text-[12px] font-medium text-ink-700">Rol</label>
-        <select
-          name="role"
-          required
-          defaultValue={defaultRole}
-          className="rounded-md border border-ink-200 px-3 py-2 text-[13px]"
-        >
-          {!hasCurrentRole && (
-            <option value="" disabled>
-              — Selecciona un rol vigente —
-            </option>
-          )}
-          {roles.map((r) => (
-            <option key={r.code} value={r.code}>
-              {r.name}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <label className="mt-2 flex items-center gap-2 text-[13px] text-ink-800">
-        <input
-          type="checkbox"
-          name="active"
-          defaultChecked={user.active}
-          className="h-4 w-4 rounded border-ink-300 text-navy-600 focus:ring-navy-600"
-        />
-        Usuario activo
-      </label>
-
-      {state?.message && <p className="text-[12px] text-err-700">{state.message}</p>}
-      {state?.errors && (
-        <p className="text-[12px] text-err-700">
-          {Object.values(state.errors).flat().filter(Boolean)[0]}
-        </p>
-      )}
-
-      <div className="mt-2 flex justify-end gap-3">
-        <button
-          type="submit"
-          disabled={pending}
-          className="rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-60"
-        >
-          {pending ? "Guardando…" : "Guardar cambios"}
-        </button>
-      </div>
-    </form>
+    </div>
   );
 }
 
