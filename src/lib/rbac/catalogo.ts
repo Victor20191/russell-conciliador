@@ -45,7 +45,7 @@ export const ROLES: RolCatalogo[] = [
   },
   {
     code: "Senior", name: "Senior", rank: 3, isOperative: false, isSystem: true,
-    description: "Consulta y revisión. Valida la info del cliente, delega, revisa al Staff, configura clientes y arma equipos/cartera.",
+    description: "Consulta y revisión. Valida la info del cliente, delega, revisa al Staff, configura clientes y asigna responsables por cliente.",
   },
   {
     code: "Staff", name: "Staff", rank: 2, isOperative: true, isSystem: true,
@@ -76,17 +76,6 @@ export const ROLES_PDF = ["Socio", "Gerente", "Senior", "Staff", "Administrador"
 export const ROLES_MATRIZ = ["Superadministrador", ...ROLES_PDF] as const;
 export const ROLES_LEGADO = ["Consulta", "Auditor", "Líder"] as const;
 
-// Roles que pueden ser LÍDER de un equipo. El líder es el "Senior responsable"
-// (PDF: el Senior arma equipos/cartera). Se incluye el rol legado "Líder", que
-// mapea a Senior (ver MAPEO_LEGADO_PDF). Lo comparten el selector de la UI y la
-// validación de la server action (defensa en profundidad).
-export const ROLES_LIDER_EQUIPO = ["Senior", "Líder"] as const;
-
-// Roles que pueden ser INTEGRANTE de un equipo. La cuadrilla la conforma el
-// Staff (único rol operativo que ejecuta el trabajo de campo). Se incluye el
-// rol legado "Auditor", que mapea a Staff (ver MAPEO_LEGADO_PDF).
-export const ROLES_INTEGRANTE_EQUIPO = ["Staff", "Auditor"] as const;
-
 export type Permiso = {
   code: string; // "<modulo>:<accion>" — llave canónica usada por los gates en código
   module: string;
@@ -97,6 +86,14 @@ export type Permiso = {
 };
 
 // ----- Grupos de roles para legibilidad de la matriz -----
+//
+// DECISIÓN EXPLÍCITA · Superadministrador: administra la PLATAFORMA
+// (usuarios, roles, módulos, publicación, configuración) pero NO opera
+// datos de auditoría: ningún permiso operativo (crear/editar/ejecutar de
+// balance, mapeo, conciliaciones, dian) ni de revisión/supervisión. La
+// segregación del PDF ("Staff: único rol operativo") aplica también a él.
+// Si el negocio decide lo contrario, agregarlo al grupo correspondiente
+// y correr `npm run db:sync:rbac -- --aplicar`.
 const SOLO_SUPERADMIN = ["Superadministrador"];
 const ADMIN_PLATAFORMA = ["Superadministrador", "Administrador"];
 const TODOS = ["Socio", "Gerente", "Senior", "Staff", "Administrador", "Superadministrador"];
@@ -105,8 +102,9 @@ const SUPERVISORES = ["Gerente", "Socio"];
 const SOLO_STAFF = ["Staff"];
 const SOLO_SENIOR = ["Senior"];
 const SOLO_ADMIN = ADMIN_PLATAFORMA;
-// El Senior arma la cartera (PDF); el Administrador, como administrador de la
-// plataforma, también gestiona la configuración de negocio (clientes/equipos).
+// El Senior asigna los responsables por cliente (PDF); el Administrador, como
+// administrador de la plataforma, también gestiona la configuración de negocio
+// (clientes y sus responsables).
 const SENIOR_Y_ADMIN = ["Senior", "Administrador", "Superadministrador"];
 
 export const PERMISOS: Permiso[] = [
@@ -117,11 +115,10 @@ export const PERMISOS: Permiso[] = [
   { code: "conciliaciones:ver", module: "conciliaciones", action: "ver", label: "Ver conciliaciones", roles: TODOS },
   { code: "dian:ver", module: "dian", action: "ver", label: "Ver Impuestos · DIAN", roles: TODOS },
   { code: "clientes:ver", module: "clientes", action: "ver", label: "Ver clientes", roles: TODOS },
-  { code: "equipos:ver", module: "equipos", action: "ver", label: "Ver equipos de trabajo", roles: CONSULTA_Y_ADMIN },
   { code: "auditoria:ver", module: "auditoria", action: "ver", label: "Ver registro de auditoría", roles: CONSULTA_Y_ADMIN },
   { code: "usuarios:ver", module: "usuarios", action: "ver", label: "Ver usuarios", roles: SOLO_ADMIN },
   { code: "modulos:ver", module: "modulos", action: "ver", label: "Ver módulos y campos", roles: SOLO_ADMIN },
-  { code: "mapeos_dian:ver", module: "mapeos_dian", action: "ver", label: "Ver mapeos DIAN", roles: ["Senior", "Administrador"] },
+  { code: "mapeos_dian:ver", module: "mapeos_dian", action: "ver", label: "Ver mapeos DIAN", roles: SENIOR_Y_ADMIN },
 
   // ===== Conversación (comentar) — participar en las conversaciones del
   // módulo. Lectura+colaboración: todos los roles del PDF pueden comentar
@@ -152,9 +149,7 @@ export const PERMISOS: Permiso[] = [
   { code: "clientes:crear", module: "clientes", action: "crear", label: "Crear cliente", roles: SENIOR_Y_ADMIN },
   { code: "clientes:editar", module: "clientes", action: "editar", label: "Editar cliente", roles: SENIOR_Y_ADMIN },
   { code: "clientes:configurar", module: "clientes", action: "configurar", label: "Configurar parámetros del cliente", roles: SENIOR_Y_ADMIN },
-  { code: "equipos:crear", module: "equipos", action: "crear", label: "Crear equipo de trabajo", roles: SENIOR_Y_ADMIN },
-  { code: "equipos:asignar", module: "equipos", action: "asignar", label: "Asignar equipos y cartera", roles: SENIOR_Y_ADMIN },
-  { code: "mapeos_dian:configurar", module: "mapeos_dian", action: "configurar", label: "Configurar mapeos DIAN", roles: ["Senior", "Administrador"] },
+  { code: "mapeos_dian:configurar", module: "mapeos_dian", action: "configurar", label: "Configurar mapeos DIAN", roles: SENIOR_Y_ADMIN },
 
   // ===== Administración de la herramienta — SOLO Administrador =====
   { code: "usuarios:crear", module: "usuarios", action: "crear", label: "Crear usuario", roles: SOLO_ADMIN },
@@ -217,7 +212,7 @@ export const MAPEO_LEGADO_PDF: MapeoLegado[] = [
   },
   {
     legacy: "Líder", pdf: "Senior", confidence: "alta",
-    rationale: "Configura clientes, arma equipos/cartera y revisa al Staff; coincide con los gates minRole:'Líder' de nav.ts.",
+    rationale: "Configura clientes, asigna responsables y revisa al Staff; coincide con los gates minRole:'Líder' de nav.ts.",
   },
   {
     legacy: "Consulta", pdf: null, confidence: "media",

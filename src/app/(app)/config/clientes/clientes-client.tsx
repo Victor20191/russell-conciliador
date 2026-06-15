@@ -12,6 +12,11 @@ import {
 import type { ActionState } from "@/lib/definitions";
 
 export type ModuleRef = { id: number; name: string };
+export type PersonaRef = { id: number; name: string };
+/** Candidatos a responsable, ya filtrados por rol y activos. */
+export type Personas = { gerentes: PersonaRef[]; seniors: PersonaRef[]; staffs: PersonaRef[] };
+/** Arista de jerarquía superior→subordinado (jerarquia_usuarios). */
+export type Arista = { superiorId: number; subordinadoId: number };
 export type ClientRow = {
   id: number;
   code: string;
@@ -20,6 +25,7 @@ export type ClientRow = {
   erp: string;
   sector: string;
   modules: { moduleId: number; status: string }[];
+  responsables: { funcion: string; userId: number; name: string }[];
 };
 
 function statusOf(c: ClientRow, moduleId: number): "configured" | "pending" | "none" {
@@ -32,12 +38,16 @@ export default function ClientesClient({
   erps,
   sectors,
   nextCode,
+  personas,
+  aristas,
 }: {
   clients: ClientRow[];
   modules: ModuleRef[];
   erps: string[];
   sectors: string[];
   nextCode: string;
+  personas: Personas;
+  aristas: Arista[];
 }) {
   const [q, setQ] = useState("");
   const [erp, setErp] = useState("");
@@ -104,6 +114,7 @@ export default function ClientesClient({
               <th className="px-4 py-2 font-semibold">NIT</th>
               <th className="px-4 py-2 font-semibold">ERP</th>
               <th className="px-4 py-2 font-semibold">Sector</th>
+              <th className="px-4 py-2 font-semibold">Responsables</th>
               {modules.map((m) => (
                 <th key={m.id} className="px-2 py-2 text-center font-semibold">{m.name}</th>
               ))}
@@ -117,6 +128,9 @@ export default function ClientesClient({
                 <td className="px-4 py-2.5 font-mono text-ink-500">{c.nit}</td>
                 <td className="px-4 py-2.5 text-ink-600">{c.erp}</td>
                 <td className="px-4 py-2.5 text-ink-600">{c.sector}</td>
+                <td className="px-4 py-2.5">
+                  <ResponsablesCell responsables={c.responsables} />
+                </td>
                 {modules.map((m) => (
                   <td key={m.id} className="px-2 py-2 text-center">
                     <ModuleCell status={statusOf(c, m.id)} />
@@ -135,7 +149,7 @@ export default function ClientesClient({
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={modules.length + 5} className="px-4 py-8 text-center text-[12.5px] text-ink-400">
+                <td colSpan={modules.length + 6} className="px-4 py-8 text-center text-[12.5px] text-ink-400">
                   Sin clientes que coincidan con el filtro.
                 </td>
               </tr>
@@ -154,6 +168,8 @@ export default function ClientesClient({
           sectors={sectors}
           nextCode={nextCode}
           modules={modules}
+          personas={personas}
+          aristas={aristas}
         />
       )}
       {editing && (
@@ -167,9 +183,37 @@ export default function ClientesClient({
           sectors={sectors}
           nextCode={nextCode}
           modules={modules}
+          personas={personas}
+          aristas={aristas}
         />
       )}
     </Card>
+  );
+}
+
+function ResponsablesCell({ responsables }: { responsables: ClientRow["responsables"] }) {
+  if (responsables.length < 3) {
+    return (
+      <span className="inline-flex items-center rounded-full bg-warn-100 px-2 py-0.5 text-[10px] font-semibold text-warn-700">
+        Sin asignar
+      </span>
+    );
+  }
+  const orden = ["staff", "senior", "gerente"];
+  const etiqueta: Record<string, string> = { staff: "St", senior: "Sr", gerente: "Gr" };
+  const lista = [...responsables].sort(
+    (a, b) => orden.indexOf(a.funcion) - orden.indexOf(b.funcion),
+  );
+  return (
+    <span className="text-[11.5px] text-ink-600">
+      {lista.map((r, i) => (
+        <span key={r.funcion} title={`${r.funcion}: ${r.name}`}>
+          {i > 0 && " · "}
+          <span className="font-semibold text-ink-400">{etiqueta[r.funcion] ?? r.funcion}</span>{" "}
+          {r.name}
+        </span>
+      ))}
+    </span>
   );
 }
 
@@ -205,6 +249,8 @@ function ClientModal({
   sectors,
   nextCode,
   modules,
+  personas,
+  aristas,
 }: {
   onClose: () => void;
   title: string;
@@ -214,6 +260,8 @@ function ClientModal({
   sectors: string[];
   nextCode: string;
   modules?: ModuleRef[];
+  personas: Personas;
+  aristas: Arista[];
 }) {
   const [state, formAction, pending] = useActionState<ActionState, FormData>(action, {});
   const isEdit = client != null;
@@ -222,6 +270,52 @@ function ClientModal({
   const [selectedModuleIds, setSelectedModuleIds] = useState<number[]>(
     () => (isEdit ? client.modules.map((module) => module.moduleId) : []),
   );
+
+  // Responsables en CASCADA por jerarquía: el gerente acota los seniors
+  // (sus subordinados) y el senior acota los staff. Si un responsable ya
+  // asignado dejó de ser válido (inactivo o arista eliminada), el select
+  // queda vacío y obliga a elegir de nuevo.
+  const respDe = (funcion: string): number | "" =>
+    client?.responsables.find((r) => r.funcion === funcion)?.userId ?? "";
+  const [gerenteId, setGerenteId] = useState<number | "">(() => respDe("gerente"));
+  const [seniorId, setSeniorId] = useState<number | "">(() => respDe("senior"));
+  const [staffId, setStaffId] = useState<number | "">(() => respDe("staff"));
+
+  const esSubordinado = (superiorId: number | "", subordinadoId: number) =>
+    superiorId !== "" &&
+    aristas.some((a) => a.superiorId === superiorId && a.subordinadoId === subordinadoId);
+  const seniorsDelGerente = useMemo(
+    () =>
+      gerenteId === ""
+        ? []
+        : personas.seniors.filter((s) =>
+            aristas.some((a) => a.superiorId === gerenteId && a.subordinadoId === s.id),
+          ),
+    [gerenteId, personas.seniors, aristas],
+  );
+  const staffsDelSenior = useMemo(
+    () =>
+      seniorId === ""
+        ? []
+        : personas.staffs.filter((s) =>
+            aristas.some((a) => a.superiorId === seniorId && a.subordinadoId === s.id),
+          ),
+    [seniorId, personas.staffs, aristas],
+  );
+
+  function cambiarGerente(value: string) {
+    const id = value ? Number(value) : "";
+    setGerenteId(id);
+    if (seniorId !== "" && !esSubordinado(id, seniorId)) {
+      setSeniorId("");
+      setStaffId("");
+    }
+  }
+  function cambiarSenior(value: string) {
+    const id = value ? Number(value) : "";
+    setSeniorId(id);
+    if (staffId !== "" && !esSubordinado(id, staffId)) setStaffId("");
+  }
 
   function toggleModule(moduleId: number) {
     setSelectedModuleIds((current) =>
@@ -290,6 +384,76 @@ function ClientModal({
               ))}
             </datalist>
           </CField>
+        </div>
+
+        <div className="rounded-md border border-ink-150 bg-ink-50/60 p-3">
+          <div className="mb-2 flex flex-col gap-0.5">
+            <span className="text-[11.5px] font-medium text-ink-600">
+              Responsables de la auditoría
+            </span>
+            <span className="text-[11px] text-ink-400">
+              Staff ejecuta · Senior revisa · Gerente valida. El Socio se deriva de la
+              jerarquía.
+            </span>
+          </div>
+          <div className="flex flex-col gap-2">
+            <CField label="Gerente (valida)" error={state?.errors?.gerenteId}>
+              <select
+                name="gerenteId"
+                required
+                value={gerenteId}
+                onChange={(e) => cambiarGerente(e.target.value)}
+                className="w-full rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400"
+              >
+                <option value="">Selecciona el gerente…</option>
+                {personas.gerentes.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </CField>
+            <CField label="Senior (revisa)" error={state?.errors?.seniorId}>
+              <select
+                name="seniorId"
+                required
+                value={seniorId}
+                onChange={(e) => cambiarSenior(e.target.value)}
+                disabled={gerenteId === ""}
+                className="w-full rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400 disabled:cursor-not-allowed disabled:bg-ink-50 disabled:text-ink-400"
+              >
+                <option value="">
+                  {gerenteId === ""
+                    ? "Primero selecciona el gerente"
+                    : seniorsDelGerente.length === 0
+                      ? "El gerente no tiene seniors a cargo"
+                      : "Selecciona el senior…"}
+                </option>
+                {seniorsDelGerente.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </CField>
+            <CField label="Staff (ejecuta)" error={state?.errors?.staffId}>
+              <select
+                name="staffId"
+                required
+                value={staffId}
+                onChange={(e) => setStaffId(e.target.value ? Number(e.target.value) : "")}
+                disabled={seniorId === ""}
+                className="w-full rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400 disabled:cursor-not-allowed disabled:bg-ink-50 disabled:text-ink-400"
+              >
+                <option value="">
+                  {seniorId === ""
+                    ? "Primero selecciona el senior"
+                    : staffsDelSenior.length === 0
+                      ? "El senior no tiene staff a cargo"
+                      : "Selecciona el staff…"}
+                </option>
+                {staffsDelSenior.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </CField>
+          </div>
         </div>
 
         {modules && modules.length > 0 && (

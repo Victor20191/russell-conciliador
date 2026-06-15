@@ -8,7 +8,6 @@ export type PlatformModuleKey =
   | "dian"
   | "auditoria"
   | "clientes"
-  | "equipos"
   | "mapeos_dian"
   | "usuarios"
   | "modulos"
@@ -109,16 +108,6 @@ export const MODULOS_PLATAFORMA: PlatformModuleDefinition[] = [
     group: "Configuración",
     icon: "users",
     order: 110,
-    enabledForNonAdmins: true,
-    configurableForNonAdmins: true,
-  },
-  {
-    key: "equipos",
-    label: "Equipos y carteras",
-    description: "Equipos de trabajo, integrantes y cartera asignada.",
-    group: "Configuración",
-    icon: "users",
-    order: 120,
     enabledForNonAdmins: true,
     configurableForNonAdmins: true,
   },

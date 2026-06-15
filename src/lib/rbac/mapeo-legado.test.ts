@@ -28,7 +28,7 @@ describe("Mapeo legado→PDF (herencia de permisos)", () => {
     expect(M["Líder"]).toEqual(MATRIZ["Senior"]);
     expect(tienePermiso(M, "Líder", "conciliaciones:revisar")).toBe(true);
     expect(tienePermiso(M, "Líder", "clientes:configurar")).toBe(true);
-    expect(tienePermiso(M, "Líder", "equipos:asignar")).toBe(true);
+    expect(tienePermiso(M, "Líder", "clientes:editar")).toBe(true);
     expect(tienePermiso(M, "Líder", "conciliaciones:ejecutar")).toBe(false); // no es operativo
   });
 

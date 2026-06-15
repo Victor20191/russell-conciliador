@@ -2,9 +2,10 @@
 // Seed ADITIVO — permisos "<modulo>:comentar".
 //
 // A diferencia de seed-rbac.ts (que BORRA y reconstruye la matriz,
-// equipos y cartera), este script solo INSERTA los permisos de comentar
-// y sus concesiones por rol. Es idempotente y NO toca ningún ajuste
-// manual de /config/permisos ni los equipos/asignaciones existentes.
+// la jerarquía y las asignaciones demo), este script solo INSERTA los
+// permisos de comentar y sus concesiones por rol. Es idempotente y NO
+// toca ningún ajuste manual de /config/permisos ni la jerarquía o las
+// asignaciones existentes.
 //
 // Ejecutar:  npx tsx prisma/seed-comentar.ts
 // ============================================================

@@ -25,6 +25,7 @@ npx vitest run -t "nombre del test"           # por nombre
 npm run db:migrate          # crea/aplica migraciones (prisma migrate dev)
 npm run db:seed             # datos demo (clientes, balances, DIAN…)
 npm run db:seed:rbac        # siembra roles, permisos y la matriz rol×permiso
+npm run db:sync:rbac        # reconcilia la matriz BD ↔ catálogo SIN tocar jerarquía/asignaciones (dry-run; --aplicar para ejecutar)
 npm run db:studio           # explorador de BD
 npm run db:backfill:roles   # conversión de roles legado (dry-run)
 ```
@@ -49,13 +50,15 @@ App Next.js 16 (App Router, React 19, Tailwind v4) con backend propio: Server Ac
 El modelo NO es jerárquico por rango. La verdad operativa vive en la matriz rol×permiso. Detalle clave: Socio/Gerente/Senior tienen rango alto pero son de **consulta**; el **Staff** es el único rol operativo (el único que escribe/ejecuta). `src/lib/roles.ts`/`can()` (rangos) es legado en transición — **el código nuevo autoriza por permiso**.
 
 - **Permisos canónicos** con formato `"<modulo>:<accion>"` (p. ej. `conciliaciones:ejecutar`, `usuarios:crear`).
-- `src/lib/rbac/catalogo.ts` — **fuente única de verdad** de roles, permisos y matriz. La comparten el seed (`prisma/seed-rbac.ts`) y las pruebas. Si cambias permisos, edita aquí y vuelve a sembrar.
+- `src/lib/rbac/catalogo.ts` — **fuente única de verdad** de roles, permisos y matriz. La comparten el seed (`prisma/seed-rbac.ts`) y las pruebas. Si cambias permisos, edita aquí y corre `npm run db:sync:rbac -- --aplicar` (reconcilia solo la matriz; `db:seed:rbac` es destructivo: borra y re-crea la jerarquía y los responsables demo).
 - `src/lib/rbac.ts` — los gates que usan las páginas y acciones:
   - `requirePermiso(permiso, opts?)` → redirige a `/dashboard` si no cumple (páginas/layouts y acciones `void`).
   - `authorizePermiso(permiso, opts?)` → devuelve `AuthzResult` sin lanzar (acciones que retornan `ActionState`).
-- **Doble verificación por dato**: para acciones sobre un cliente se pasa `{ clientId }` y se exige, además del permiso de rol, **alcance** sobre ese cliente (cartera): `writeScope` para crear/editar/eliminar/ejecutar, `readScope` para leer. `clientId: null` → deniega (fail-closed). La lógica pura está en `src/lib/rbac/permisos.ts` (testeable en memoria); el contexto de runtime que lee BD, en `src/lib/rbac/contexto.ts`.
+- **Doble verificación por dato**: para acciones sobre un cliente se pasa `{ clientId }` y se exige, además del permiso de rol, **alcance** sobre ese cliente: `writeScope` para crear/editar/eliminar/ejecutar, `readScope` para leer. `clientId: null` → deniega (fail-closed). La lógica pura está en `src/lib/rbac/permisos.ts` y `src/lib/rbac/jerarquia.ts` (testeables en memoria); el contexto de runtime que lee BD, en `src/lib/rbac/contexto.ts`.
+- **Asignación directa por cliente** (sin equipos): cada cliente tiene EXACTAMENTE un responsable por función en `ClientAssignment` (`asignaciones_cliente`, `@@unique([clientId, role])`): **staff** ejecuta (write), **senior** revisa (read) y **gerente** valida (read). Se eligen al crear/editar el cliente (`createClient`/`updateClient` los exigen). El **Socio NO se asigna**: deriva lectura por jerarquía sobre los clientes de sus gerentes (`derivarAsignacionesSocio`).
+- **Jerarquía organizacional** (`UserHierarchy` / `jerarquia_usuarios`): aristas muchos-a-muchos entre roles adyacentes (Socio→Gerente→Senior→Staff), gestionadas desde la ficha del usuario (`superiorIds`). El formulario de cliente filtra en cascada (gerente → sus seniors → sus staff) y la server action revalida la consistencia. Cambiar el rol o borrar un usuario que es responsable activo de clientes está bloqueado hasta reasignarlos.
 - `getMatriz()` se cachea en el Data Cache de Next (`unstable_cache`, tag `RBAC_CACHE_TAG`); al editar permisos hay que invalidar con `revalidateTag`. Si la BD falla, cae al catálogo conocido (no abre acceso).
-- **Vigencia temporal**: las membresías de equipo y las carteras tienen `validFrom`/`validUntil`. Expiran solas: `getAsignacionesUsuario()` filtra por fecha al leer (sin jobs).
+- **Vigencia temporal**: las asignaciones de responsables tienen `validFrom`/`validUntil` (hoy sin UI). Expiran solas: `getAsignacionesUsuario()` filtra por fecha al leer (sin jobs).
 
 ### Publicación de módulos (capa separada del RBAC)
 
@@ -69,7 +72,7 @@ En `src/app/actions/*.ts`. El orden es: `"use server"` → autorizar (`authorize
 
 - Cliente generado en `src/generated/prisma` (importar desde ahí, no de `@prisma/client`). Singleton en `src/lib/prisma.ts` con driver adapter `@prisma/adapter-pg` y pool configurable.
 - **IDs numéricos autoincrementales** en todos los modelos; los códigos de negocio (`C-1042`, `IVA`…) son columnas `@unique`.
-- **FK suaves** hacia `User` y `Client`: solo el `Int` mapeado, SIN `@relation` (no hay cascada física → al borrar un usuario hay que limpiar equipos/cartera a mano, ver `deleteUser`). Las demás relaciones sí son FK duras con `onDelete`.
+- **FK suaves** hacia `User` y `Client`: solo el `Int` mapeado, SIN `@relation` (no hay cascada física → al borrar un usuario hay que limpiar jerarquía y asignaciones a mano, ver `deleteUser`). Las demás relaciones sí son FK duras con `onDelete`.
 - Comentarios polimórficos (`Comment`): anclados por `(entityType, entityId)` donde `entityType` reutiliza los códigos de módulo del RBAC.
 
 ### Otras convenciones

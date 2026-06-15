@@ -56,8 +56,6 @@ export const configNav: NavItem[] = [
   { label: "Módulos y campos", href: "/config/modulos", icon: "settings", permiso: "modulos:ver", modulo: "modulos" },
   { label: "Clientes", href: "/config/clientes", icon: "users", permiso: "clientes:configurar", modulo: "clientes" },
   { label: "Mapeos DIAN", href: "/config/dian", icon: "doc", permiso: "mapeos_dian:ver", modulo: "mapeos_dian" },
-  { label: "Equipos", href: "/config/equipos", icon: "users", permiso: "equipos:asignar", modulo: "equipos" },
-  { label: "Cartera clientes", href: "/config/carteras", icon: "folder", permiso: "equipos:asignar", modulo: "equipos" },
   { label: "Usuarios", href: "/config/usuarios", icon: "users", permiso: "usuarios:ver", modulo: "usuarios" },
   { label: "Permisos por rol", href: "/config/permisos", icon: "settings", permiso: "roles:configurar", modulo: "roles" },
 ];

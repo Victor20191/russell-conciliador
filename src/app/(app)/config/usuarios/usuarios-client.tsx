@@ -7,6 +7,7 @@ import { Modal } from "@/components/modal";
 import { createUser, updateUser, unlockUser, deleteUser } from "@/app/actions/users";
 import { Icon } from "@/components/icons";
 import { isAccountBlocked, LOGIN_MAX_ATTEMPTS } from "@/lib/login-throttle";
+import { ROL_SUPERIOR } from "@/lib/rbac/jerarquia";
 
 export type UserRow = {
   id: number;
@@ -21,6 +22,10 @@ export type UserRow = {
 };
 
 export type RoleOption = { code: string; name: string };
+/** Candidato a superior directo (usuario activo con rol Socio/Gerente/Senior). */
+export type SuperiorRef = { id: number; name: string; role: string };
+/** Arista de jerarquía superior→subordinado (jerarquia_usuarios). */
+export type Arista = { superiorId: number; subordinadoId: number };
 
 function userIsBlocked(user: UserRow): boolean {
   return isAccountBlocked(user.blockedUntil ? new Date(user.blockedUntil) : null);
@@ -47,10 +52,14 @@ export default function UsuariosClient({
   rows,
   roles,
   canManageSuperadmins,
+  superiores,
+  aristas,
 }: {
   rows: UserRow[];
   roles: RoleOption[];
   canManageSuperadmins: boolean;
+  superiores: SuperiorRef[];
+  aristas: Arista[];
 }) {
   const [createOpen, setCreateOpen] = useState(false);
   const [editUser, setEditUser] = useState<UserRow | null>(null);
@@ -154,7 +163,11 @@ export default function UsuariosClient({
         onClose={() => setCreateOpen(false)}
         title="Crear nuevo usuario"
       >
-        <CreateUserForm roles={roles} onSuccess={() => setCreateOpen(false)} />
+        <CreateUserForm
+          roles={roles}
+          superiores={superiores}
+          onSuccess={() => setCreateOpen(false)}
+        />
       </Modal>
 
       <Modal
@@ -166,6 +179,8 @@ export default function UsuariosClient({
           <EditUserForm
             user={editUser}
             roles={roles}
+            superiores={superiores}
+            aristas={aristas}
             onSuccess={() => setEditUser(null)}
           />
         )}
@@ -235,9 +250,70 @@ function UnlockUserForm({ user }: { user: UserRow }) {
   );
 }
 
-function CreateUserForm({ roles, onSuccess }: { roles: RoleOption[]; onSuccess: () => void }) {
+/**
+ * Superiores directos en la jerarquía organizacional, según el rol elegido:
+ * Staff→Seniors, Senior→Gerentes, Gerente→Socios. Para roles sin superior
+ * (Socio, Administrador…) no se muestra nada. Checkboxes `superiorIds`.
+ */
+function SuperioresField({
+  role,
+  superiores,
+  defaultSelected = [],
+}: {
+  role: string;
+  superiores: SuperiorRef[];
+  defaultSelected?: number[];
+}) {
+  const rolSuperior = ROL_SUPERIOR[role];
+  if (!rolSuperior) return null;
+  const candidatos = superiores.filter((s) => s.role === rolSuperior);
+  const etiqueta = `${rolSuperior}s a los que reporta`;
+
+  return (
+    <div className="flex flex-col gap-1.5 sm:col-span-2">
+      <label className="text-[12px] font-medium text-ink-700">{etiqueta}</label>
+      {candidatos.length === 0 ? (
+        <p className="rounded-md border border-ink-200 bg-ink-50 px-3 py-2 text-[12px] text-ink-500">
+          No hay usuarios {rolSuperior} activos. Créalos primero para armar la jerarquía.
+        </p>
+      ) : (
+        <div className="grid grid-cols-1 gap-1.5 rounded-md border border-ink-200 p-2.5 sm:grid-cols-2">
+          {candidatos.map((s) => (
+            <label
+              key={s.id}
+              className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-[13px] text-ink-800 hover:bg-ink-50"
+            >
+              <input
+                type="checkbox"
+                name="superiorIds"
+                value={s.id}
+                defaultChecked={defaultSelected.includes(s.id)}
+                className="h-4 w-4 rounded border-ink-300 text-navy-600 focus:ring-navy-600"
+              />
+              {s.name}
+            </label>
+          ))}
+        </div>
+      )}
+      <p className="text-[11px] text-ink-500">
+        Define la jerarquía: en el cliente solo se podrá asignar bajo estos superiores.
+      </p>
+    </div>
+  );
+}
+
+function CreateUserForm({
+  roles,
+  superiores,
+  onSuccess,
+}: {
+  roles: RoleOption[];
+  superiores: SuperiorRef[];
+  onSuccess: () => void;
+}) {
   const [state, action, pending] = useActionState(createUser, undefined);
   const [name, setName] = useState("");
+  const [role, setRole] = useState("");
   const initials = initialsFromFullName(name);
 
   useEffect(() => {
@@ -285,7 +361,8 @@ function CreateUserForm({ roles, onSuccess }: { roles: RoleOption[]; onSuccess: 
           <select
             name="role"
             required
-            defaultValue=""
+            value={role}
+            onChange={(event) => setRole(event.target.value)}
             className="rounded-md border border-ink-200 px-3 py-2 text-[13px]"
           >
             <option value="" disabled>
@@ -298,6 +375,7 @@ function CreateUserForm({ roles, onSuccess }: { roles: RoleOption[]; onSuccess: 
             ))}
           </select>
         </div>
+        <SuperioresField key={role} role={role} superiores={superiores} />
         <div className="flex flex-col gap-1.5 sm:col-span-2">
           <label className="text-[12px] font-medium text-ink-700">Contraseña temporal</label>
           <PasswordInput
@@ -332,11 +410,29 @@ function CreateUserForm({ roles, onSuccess }: { roles: RoleOption[]; onSuccess: 
   );
 }
 
-function EditUserForm({ user, roles, onSuccess }: { user: UserRow; roles: RoleOption[]; onSuccess: () => void }) {
+function EditUserForm({
+  user,
+  roles,
+  superiores,
+  aristas,
+  onSuccess,
+}: {
+  user: UserRow;
+  roles: RoleOption[];
+  superiores: SuperiorRef[];
+  aristas: Arista[];
+  onSuccess: () => void;
+}) {
   const [state, action, pending] = useActionState(updateUser, undefined);
   const [resetOpen, setResetOpen] = useState(false);
   const hasCurrentRole = roles.some((r) => r.code === user.role);
   const defaultRole = hasCurrentRole ? user.role : "";
+  const [role, setRole] = useState(defaultRole);
+  // Superiores actuales del usuario; solo aplican mientras conserve su rol
+  // (al cambiarlo, la selección se descarta y se elige de nuevo).
+  const superioresActuales = aristas
+    .filter((a) => a.subordinadoId === user.id)
+    .map((a) => a.superiorId);
 
   useEffect(() => {
     if (state?.ok) onSuccess();
@@ -372,7 +468,8 @@ function EditUserForm({ user, roles, onSuccess }: { user: UserRow; roles: RoleOp
         <select
           name="role"
           required
-          defaultValue={defaultRole}
+          value={role}
+          onChange={(event) => setRole(event.target.value)}
           className="rounded-md border border-ink-200 px-3 py-2 text-[13px]"
         >
           {!hasCurrentRole && (
@@ -387,6 +484,13 @@ function EditUserForm({ user, roles, onSuccess }: { user: UserRow; roles: RoleOp
           ))}
         </select>
       </div>
+
+      <SuperioresField
+        key={role}
+        role={role}
+        superiores={superiores}
+        defaultSelected={role === user.role ? superioresActuales : []}
+      />
 
       <label className="flex items-center gap-2 text-[13px] text-ink-800">
         <input
@@ -455,8 +559,9 @@ function DeleteUserForm({ user, onSuccess }: { user: UserRow; onSuccess: () => v
 
       <p className="text-[13px] text-ink-600">
         Vas a eliminar permanentemente a <strong>{user.name}</strong> ({user.email}).
-        Esta acción no se puede deshacer: se retirará de sus equipos y cartera, y se
-        borrarán sus comentarios y menciones.
+        Esta acción no se puede deshacer: se retirará de la jerarquía organizacional y
+        se borrarán sus comentarios y menciones. Si es responsable de algún cliente,
+        primero deberás reasignarlo.
       </p>
       <p className="text-[12px] text-ink-500">
         Si solo quieres suspender su acceso, usa <strong>Editar</strong> y desmarca

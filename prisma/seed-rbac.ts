@@ -1,12 +1,12 @@
 // ============================================================
 // Seed RBAC — Roles, permisos, matriz rol×permiso y datos de prueba
-// (equipo + cartera con alcance) para validar la autorización.
+// (jerarquía organizacional + responsables por cliente) para validar
+// la autorización.
 //
 // SEPARADO del seed principal (prisma/seed.ts) a propósito:
 //   - No toca ni borra los datos del seed principal.
 //   - Es idempotente (upsert + limpieza scoped de tablas RBAC).
-//   - Requiere que las 6 tablas nuevas existan: ejecutar DESPUÉS de
-//     migrar el bloque de control de acceso del schema.
+//   - Requiere que las tablas RBAC existan: ejecutar DESPUÉS de migrar.
 //
 // Ejecutar:  npm run db:seed:rbac
 //
@@ -20,22 +20,20 @@ import { PrismaClient } from "../src/generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { ROLES, PERMISOS, matrizConLegado } from "../src/lib/rbac/catalogo";
 import {
-  DEMO_EQUIPO,
   DEMO_USUARIOS,
-  DEMO_INTEGRANTES,
-  DEMO_ASIGNACIONES,
+  DEMO_JERARQUIA,
+  asignacionesDemo,
 } from "../src/lib/rbac/escenario-demo";
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
 const prisma = new PrismaClient({ adapter });
 
 async function main() {
-  console.log("🌱 Seed RBAC (roles, permisos, equipos y cartera de prueba)…");
+  console.log("🌱 Seed RBAC (roles, permisos, jerarquía y responsables de prueba)…");
 
   // 1) Limpieza idempotente de las tablas RBAC (no toca usuarios/clientes).
   await prisma.clientAssignment.deleteMany();
-  await prisma.teamMember.deleteMany();
-  await prisma.team.deleteMany();
+  await prisma.userHierarchy.deleteMany();
   await prisma.rolePermission.deleteMany();
 
   // 2) Catálogo de ROLES (upsert por code: conserva ediciones del Administrador).
@@ -96,45 +94,41 @@ async function main() {
     idPorEmail.set(u.email, user.id);
   }
 
-  // 6) Equipo de trabajo demo + integrantes.
-  const liderId = idPorEmail.get(DEMO_EQUIPO.leadEmail) ?? null;
-  const equipo = await prisma.team.create({
-    data: {
-      name: DEMO_EQUIPO.name,
-      description: DEMO_EQUIPO.description,
-      leadUserId: liderId,
-      members: {
-        create: DEMO_INTEGRANTES.map((m) => ({
-          userId: idPorEmail.get(m.email)!,
-          role: { connect: { code: m.roleCode } },
-        })),
-      },
-    },
+  // 6) Jerarquía organizacional demo (Socio → Gerente → Senior → Staffs).
+  await prisma.userHierarchy.createMany({
+    data: DEMO_JERARQUIA.map((a) => ({
+      superiorId: idPorEmail.get(a.superiorEmail)!,
+      subordinateId: idPorEmail.get(a.subordinadoEmail)!,
+    })),
   });
 
-  // 7) Cartera + alcance (asignaciones_cliente) sobre clientes reales del seed.
+  // 7) Responsables por cliente (asignaciones_cliente) sobre clientes reales
+  //    del seed: staff escribe; senior y gerente leen. El Socio NO se asigna
+  //    (deriva lectura por jerarquía en runtime).
+  const asignaciones = asignacionesDemo();
+  const seniorId = idPorEmail.get("senior.demo@russellbedford.co") ?? null;
   const clientes = await prisma.client.findMany({
-    where: { code: { in: DEMO_ASIGNACIONES.map((asignacion) => asignacion.clientCode) } },
+    where: { code: { in: asignaciones.map((asignacion) => asignacion.clientCode) } },
     select: { id: true, code: true },
   });
   const clientIdByCode = new Map(clientes.map((client) => [client.code, client.id]));
-  if (clientIdByCode.size !== new Set(DEMO_ASIGNACIONES.map((a) => a.clientCode)).size) {
+  if (clientIdByCode.size !== new Set(asignaciones.map((a) => a.clientCode)).size) {
     throw new Error("Faltan clientes del escenario RBAC. Ejecuta primero el seed principal.");
   }
   await prisma.clientAssignment.createMany({
-    data: DEMO_ASIGNACIONES.map((a) => ({
+    data: asignaciones.map((a) => ({
       clientId: clientIdByCode.get(a.clientCode)!,
-      teamId: a.team ? equipo.id : null,
-      userId: a.userEmail ? idPorEmail.get(a.userEmail)! : null,
+      userId: idPorEmail.get(a.userEmail)!,
+      role: a.funcion,
       readScope: a.readScope,
       writeScope: a.writeScope,
-      assignedById: liderId,
+      assignedById: seniorId,
     })),
   });
 
   console.log(
     `✅ RBAC sembrado: ${ROLES.length} roles · ${PERMISOS.length} permisos · ${filas.length} concesiones · ` +
-      `${DEMO_USUARIOS.length} usuarios demo · 1 equipo · ${DEMO_ASIGNACIONES.length} asignaciones de cartera.`,
+      `${DEMO_USUARIOS.length} usuarios demo · ${DEMO_JERARQUIA.length} aristas de jerarquía · ${asignaciones.length} asignaciones de responsables.`,
   );
   console.log("ℹ️  Roles legado con permisos heredados (Auditor≈Staff, Líder≈Senior, Consulta=lectura). Conversión de usuarios.rol: opcional vía prisma/backfill-roles.ts.");
 }

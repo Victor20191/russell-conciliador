@@ -53,14 +53,16 @@ model LoginAttempt {
 
 // ============================================================
 // ===== Control de acceso y organización · Roles, permisos,
-//       equipos de trabajo y cartera de clientes =====
+//       jerarquía organizacional y responsables por cliente =====
 //
 // Parametrización derivada de "RB_GCT Roles y Responsabilidades –
 // Área de Revisoría Fiscal" (Russell Bedford, 04-jun-2026).
 //
 // El bloque nació en la migración aditiva
 // 20260605235129_rbac_control_acceso. La migración posterior de IDs
-// convirtió también sus claves y referencias a INTEGER.
+// convirtió también sus claves y referencias a INTEGER. La migración
+// asignacion_directa_y_jerarquia reemplazó equipos/cartera manual por
+// jerarquia_usuarios + responsables directos por cliente.
 //
 // Convención del repo (OBLIGATORIA):
 //   - Identificadores Prisma en inglés; tablas/columnas físicas en
@@ -68,9 +70,8 @@ model LoginAttempt {
 //   - Todos los modelos usan id numérico autoincremental. Los códigos de
 //     negocio (C-1042, INV, IVA...) se conservan como columnas únicas.
 //   - FK SUAVES hacia User y Client: solo el id Int mapeado, SIN
-//     @relation. Replica el patrón ya usado en el repo
-//     (Team.leadUserId -> User.id: relación lógica sin FK física).
-//     Así no se agregan relaciones inversas en User/Client.
+//     @relation (relación lógica sin FK física). Así no se agregan
+//     relaciones inversas en User/Client.
 //   - Coexiste con usuarios.rol:String @default("Consulta") y can()
 //     (src/lib/roles.ts). usuarios.rol se reinterpreta como FK
 //     LÓGICA a Role.code (mismo valor), sin migrar esa columna todavía.
@@ -98,7 +99,6 @@ model Role {
   isSystem    Boolean          @default(false) @map("es_sistema") // roles base no borrables desde la UI
   active      Boolean          @default(true) @map("activo")
   permissions RolePermission[]
-  teamMembers TeamMember[]
   createdAt   DateTime         @default(now()) @map("creado_en")
   updatedAt   DateTime         @updatedAt @map("actualizado_en")
 
@@ -143,82 +143,57 @@ model RolePermission {
   @@map("roles_permisos")
 }
 
-/// EQUIPO DE TRABAJO (cuadrilla de auditoría). El Senior lo arma.
-/// leadUserId es FK SUAVE a User.id (sin relación inversa en User).
-model Team {
-  id          Int                @id @default(autoincrement()) @map("id")
-  name        String             @map("nombre")
-  description String?            @map("descripcion")
-  leadUserId  Int?               @map("lider_usuario_id") // Senior responsable (FK lógica a User.id)
-  active      Boolean            @default(true) @map("activo")
-  members     TeamMember[]
-  assignments ClientAssignment[]
-  createdAt   DateTime           @default(now()) @map("creado_en")
-  updatedAt   DateTime           @updatedAt @map("actualizado_en")
+/// JERARQUÍA organizacional usuario↔usuario (muchos a muchos).
+/// Aristas entre roles ADYACENTES: Socio→Gerente, Gerente→Senior,
+/// Senior→Staff. Un staff puede reportar a varios seniors, un senior
+/// a varios gerentes, etc. La adyacencia de roles se valida en la
+/// server action (src/app/actions/users.ts), no en BD.
+/// superiorId y subordinateId son FK SUAVES a User.id (sin @relation);
+/// la limpieza al borrar usuarios es manual (deleteUser).
+model UserHierarchy {
+  id            Int      @id @default(autoincrement()) @map("id")
+  superiorId    Int      @map("superior_id") // FK lógica a User.id
+  subordinateId Int      @map("subordinado_id") // FK lógica a User.id
+  createdAt     DateTime @default(now()) @map("creado_en")
 
-  @@index([leadUserId])
-  @@map("equipos")
+  @@unique([superiorId, subordinateId])
+  @@index([subordinateId])
+  @@map("jerarquia_usuarios")
 }
 
-/// INTEGRANTE de un equipo. userId es FK SUAVE a User.id. roleId
-/// (opcional) referencia el catálogo Role para registrar el cargo
-/// funcional dentro del equipo. Un usuario puede estar en varios
-/// equipos (p.ej. un Senior con 2 carteras).
+/// RESPONSABLES del cliente — asignación DIRECTA (sin equipos), hecha
+/// al crear/editar el cliente. Cada cliente tiene EXACTAMENTE un
+/// responsable por función:
+///   staff   → ejecuta la auditoría (readScope + writeScope)
+///   senior  → revisa               (readScope)
+///   gerente → valida               (readScope)
+/// El Socio NO se asigna: deriva LECTURA por jerarquía
+/// (jerarquia_usuarios) sobre los clientes donde sus gerentes
+/// subordinados tengan funcion="gerente" vigente.
 ///
 /// Vigencia temporal: validFrom/validUntil delimitan la ventana en la
-/// que la membresía AUTORIZA. validUntil = null → permanente. Permite
-/// asignar a un usuario a OTRO equipo de forma temporal (cubrimientos,
-/// refuerzos): al expirar, deja de alcanzar la cartera del equipo SIN
-/// necesidad de un job (se filtra por fecha al leer en
-/// getAsignacionesUsuario).
-model TeamMember {
-  id           Int       @id @default(autoincrement()) @map("id")
-  team         Team      @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  teamId       Int       @map("equipo_id")
-  userId       Int       @map("usuario_id") // FK lógica a User.id
-  role         Role?     @relation(fields: [roleId], references: [id], onDelete: SetNull)
-  roleId       Int?      @map("rol_id") // rol funcional dentro del equipo
-  active       Boolean   @default(true) @map("activo")
-  validFrom    DateTime  @default(now()) @map("vigente_desde") // inicio de vigencia
-  validUntil   DateTime? @map("vigente_hasta") // fin de vigencia; null = permanente
-  reason       String?   @map("motivo") // p.ej. "cubrimiento vacaciones"
-  assignedById Int?      @map("asignado_por_id") // quién delegó (FK lógica a User.id)
-  createdAt    DateTime  @default(now()) @map("creado_en")
-
-  @@unique([teamId, userId]) // un usuario una sola vez por equipo
-  @@index([userId, active, validUntil])
-  @@map("integrantes_equipo")
-}
-
-/// CARTERA DE CLIENTES + ALCANCE (read/write) por cliente. Vincula
-/// un cliente con el equipo y/o usuario que lo atiende y define el
-/// alcance a nivel de DATO: readScope=ve / writeScope=escribe. Aquí
-/// se materializa la segregación de funciones del PDF: Staff recibe
-/// writeScope=true; Senior/Gerente/Socio writeScope=false (consulta).
-/// El Senior (assignedById) delega. Los campos de alcance quedan
-/// sembrados pero INERTES hasta activar la autorización por dato.
+/// que la asignación AUTORIZA (se filtra por fecha al leer en
+/// getAsignacionesUsuario, sin jobs).
 ///
 /// clientId, userId y assignedById son FK SUAVES numéricas (a
-/// Client.id y User.id). Solo teamId es FK dura hacia Team.
+/// Client.id y User.id).
 model ClientAssignment {
   id           Int       @id @default(autoincrement()) @map("id")
   clientId     Int       @map("cliente_id") // FK lógica a Client.id
-  team         Team?     @relation(fields: [teamId], references: [id], onDelete: SetNull)
-  teamId       Int?      @map("equipo_id")
-  userId       Int?      @map("usuario_id") // responsable individual (FK lógica a User.id), opcional
+  userId       Int       @map("usuario_id") // responsable (FK lógica a User.id)
+  role         String    @map("funcion") // staff | senior | gerente
   readScope    Boolean   @default(true) @map("alcance_lectura") // ve este cliente
-  writeScope   Boolean   @default(false) @map("alcance_escritura") // escribe/ejecuta (solo Staff)
-  assignedById Int?      @map("asignado_por_id") // Senior que realizó la asignación (FK lógica a User.id)
+  writeScope   Boolean   @default(false) @map("alcance_escritura") // escribe/ejecuta (solo staff)
+  assignedById Int?      @map("asignado_por_id") // quién asignó (FK lógica a User.id)
   active       Boolean   @default(true) @map("activo")
-  validFrom    DateTime  @default(now()) @map("vigente_desde") // inicio de vigencia de la cartera
+  validFrom    DateTime  @default(now()) @map("vigente_desde") // inicio de vigencia
   validUntil   DateTime? @map("vigente_hasta") // fin de vigencia; null = permanente
-  reason       String?   @map("motivo") // p.ej. "asignación temporal de cartera"
+  reason       String?   @map("motivo") // p.ej. "asignación temporal"
   createdAt    DateTime  @default(now()) @map("creado_en")
   updatedAt    DateTime  @updatedAt @map("actualizado_en")
 
-  @@unique([clientId, teamId, userId]) // evita duplicados de cartera (ver nota NULL más abajo)
+  @@unique([clientId, role]) // 1 responsable por función por cliente
   @@index([clientId])
-  @@index([teamId])
   @@index([userId, active, validUntil])
   @@map("asignaciones_cliente")
 }

@@ -1,9 +1,10 @@
 // ============================================================
 // Contexto de autorización en RUNTIME (lee BD).
 //
-// Conecta la matriz RBAC y el alcance por cartera con la app: aquí se
+// Conecta la matriz RBAC y el alcance por cliente con la app: aquí se
 // cargan, desde la base, la matriz rol×permiso y las asignaciones de
-// cliente del usuario, que `src/lib/rbac.ts` usa para decidir el acceso.
+// cliente del usuario (responsables directos + derivación del Socio),
+// que `src/lib/rbac.ts` usa para decidir el acceso.
 //
 // getMatriz usa unstable_cache (Data Cache de Next.js) con el tag
 // "rbac-matriz": persiste entre requests y se invalida solo cuando el
@@ -15,6 +16,7 @@ import { cache } from "react";
 import { unstable_cache } from "next/cache";
 import prisma from "@/lib/prisma";
 import { matrizConLegado } from "@/lib/rbac/catalogo";
+import { ROL_SOCIO, derivarAsignacionesSocio } from "@/lib/rbac/jerarquia";
 import type { Matriz, Asignacion } from "@/lib/rbac/permisos";
 
 export const RBAC_CACHE_TAG = "rbac-matriz-v2";
@@ -54,47 +56,54 @@ export const getMatriz = cache(async (): Promise<Matriz> => {
 });
 
 /**
- * Asignaciones de cartera VIGENTES que alcanzan al usuario: directas
- * (`userId`) y heredadas por equipo (`teamId` ∈ sus equipos). La forma
- * coincide con la que espera `puedeSobreCliente`.
+ * Asignaciones VIGENTES que alcanzan al usuario: las directas (`userId`,
+ * como responsable staff/senior/gerente de cada cliente) y, si el rol es
+ * Socio, las DERIVADAS por jerarquía: lectura sobre los clientes donde
+ * alguno de sus gerentes subordinados (jerarquia_usuarios) tiene
+ * asignación vigente con función "gerente". La forma coincide con la que
+ * espera `puedeSobreCliente`.
  *
- * Vigencia temporal (membresía y cartera): además de `active`, una fila
- * solo cuenta si ya inició (`vigente_desde <= ahora`) y no ha expirado
- * (`vigente_hasta` null = permanente, o >= ahora). Así una asignación
- * temporal a OTRO equipo deja de autorizar al expirar SIN un job: se
- * filtra por fecha en este único punto de lectura, y las funciones puras
- * de `permisos.ts` no necesitan saber de fechas (fail-safe).
+ * Vigencia temporal: además de `active`, una fila solo cuenta si ya
+ * inició (`vigente_desde <= ahora`) y no ha expirado (`vigente_hasta`
+ * null = permanente, o >= ahora). Se filtra por fecha en este único
+ * punto de lectura, y las funciones puras de `permisos.ts` no necesitan
+ * saber de fechas (fail-safe).
  */
 export const getAsignacionesUsuario = cache(
-  async (userId: number): Promise<{ asignaciones: Asignacion[]; equipos: number[] }> => {
+  async (userId: number, roleCode: string): Promise<{ asignaciones: Asignacion[] }> => {
     const ahora = new Date();
     // "Aún vigente": permanente (validUntil null) o no expirada.
     const noExpirada = [{ validUntil: null }, { validUntil: { gte: ahora } }];
+    const vigente = { active: true, validFrom: { lte: ahora }, OR: noExpirada };
+    const forma = {
+      clientId: true,
+      userId: true,
+      readScope: true,
+      writeScope: true,
+      active: true,
+    } as const;
 
-    const miembros = await prisma.teamMember.findMany({
-      where: { userId, active: true, validFrom: { lte: ahora }, OR: noExpirada },
-      select: { teamId: true },
+    const directas = await prisma.clientAssignment.findMany({
+      where: { ...vigente, userId },
+      select: forma,
     });
-    const equipos = miembros.map((m) => m.teamId);
+    if (roleCode !== ROL_SOCIO) return { asignaciones: directas };
 
-    const asignaciones = await prisma.clientAssignment.findMany({
-      where: {
-        active: true,
-        validFrom: { lte: ahora },
-        // Dos condiciones OR distintas (vigencia + alcance) se combinan con
-        // AND explícito para no colisionar la misma clave `OR`.
-        AND: [{ OR: noExpirada }, { OR: [{ userId }, { teamId: { in: equipos } }] }],
-      },
-      select: {
-        clientId: true,
-        userId: true,
-        teamId: true,
-        readScope: true,
-        writeScope: true,
-        active: true,
-      },
+    // Socio: lectura derivada sobre la cartera de sus gerentes.
+    const aristas = await prisma.userHierarchy.findMany({
+      where: { superiorId: userId },
+      select: { subordinateId: true },
     });
-    return { asignaciones, equipos };
+    const gerentes = aristas.map((a) => a.subordinateId);
+    if (gerentes.length === 0) return { asignaciones: directas };
+
+    const deGerentes = await prisma.clientAssignment.findMany({
+      where: { ...vigente, role: "gerente", userId: { in: gerentes } },
+      select: { clientId: true },
+    });
+    return {
+      asignaciones: [...directas, ...derivarAsignacionesSocio(userId, deGerentes)],
+    };
   },
 );
 

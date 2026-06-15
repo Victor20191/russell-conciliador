@@ -6,6 +6,7 @@ import bcrypt from "bcryptjs";
 import prisma from "@/lib/prisma";
 import { authorizePermiso } from "@/lib/rbac";
 import { ROLES_LEGADO } from "@/lib/rbac/catalogo";
+import { ROL_SUPERIOR, esAristaValida } from "@/lib/rbac/jerarquia";
 import { ROL_SUPERADMINISTRADOR } from "@/lib/rbac/modulos-plataforma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
@@ -14,12 +15,52 @@ import {
   UserUpdateSchema,
   UserUnlockSchema,
   UserDeleteSchema,
+  SuperioresSchema,
   type ActionState,
 } from "@/lib/definitions";
 import { mensajeErrorBD } from "@/lib/errores";
 
 const PATH = "/config/usuarios";
 const ROLES_LEGADO_NO_ASIGNABLES = new Set<string>(ROLES_LEGADO);
+
+/** IDs de superiores directos enviados por el formulario (checkboxes). */
+function parseSuperiores(
+  formData: FormData,
+): { ok: true; superiorIds: number[] } | { ok: false } {
+  const parsed = SuperioresSchema.safeParse(formData.getAll("superiorIds"));
+  if (!parsed.success) return { ok: false };
+  return { ok: true, superiorIds: [...new Set(parsed.data)] };
+}
+
+/**
+ * Valida los superiores directos contra la jerarquía organizacional:
+ * el rol del usuario determina el rol exacto que deben tener sus superiores
+ * (Staff→Senior, Senior→Gerente, Gerente→Socio). Los roles sin superior
+ * (Socio, Administrador, Superadministrador) no admiten lista.
+ */
+async function validarSuperiores(
+  role: string,
+  superiorIds: number[],
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const rolEsperado = ROL_SUPERIOR[role];
+  if (!rolEsperado) {
+    return superiorIds.length === 0
+      ? { ok: true }
+      : { ok: false, message: "Este rol no reporta a superiores en la jerarquía." };
+  }
+  if (superiorIds.length === 0) return { ok: true };
+  const superiores = await prisma.user.findMany({
+    where: { id: { in: superiorIds }, active: true, role: rolEsperado },
+    select: { id: true },
+  });
+  if (superiores.length !== superiorIds.length) {
+    return {
+      ok: false,
+      message: `Los superiores seleccionados deben ser usuarios ${rolEsperado} activos.`,
+    };
+  }
+  return { ok: true };
+}
 
 export async function createUser(
   _prev: ActionState | undefined,
@@ -56,16 +97,31 @@ export async function createUser(
     });
     if (dup) return { ok: false, message: "Ya existe un usuario con ese correo." };
 
+    const superiores = parseSuperiores(formData);
+    if (!superiores.ok) return { ok: false, message: "Selecciona superiores válidos." };
+    const superioresValidos = await validarSuperiores(parsed.data.role, superiores.superiorIds);
+    if (!superioresValidos.ok) return { ok: false, message: superioresValidos.message };
+
     const password = await bcrypt.hash(parsed.data.password, 10);
-    await prisma.user.create({
-      data: {
-        email: parsed.data.email,
-        name: parsed.data.name,
-        role: parsed.data.role,
-        initials: parsed.data.initials.toUpperCase(),
-        password,
-        mustChangePassword: true,
-      },
+    await prisma.$transaction(async (tx) => {
+      const nuevo = await tx.user.create({
+        data: {
+          email: parsed.data.email,
+          name: parsed.data.name,
+          role: parsed.data.role,
+          initials: parsed.data.initials.toUpperCase(),
+          password,
+          mustChangePassword: true,
+        },
+      });
+      if (superiores.superiorIds.length > 0) {
+        await tx.userHierarchy.createMany({
+          data: superiores.superiorIds.map((superiorId) => ({
+            superiorId,
+            subordinateId: nuevo.id,
+          })),
+        });
+      }
     });
 
     const actor = await getCurrentUser();
@@ -73,7 +129,7 @@ export async function createUser(
       user: actor?.name ?? "Sistema",
       action: "CREÓ USUARIO",
       entity: parsed.data.email,
-      detail: parsed.data.role,
+      detail: `${parsed.data.role} · superiores: ${superiores.superiorIds.length}`,
     });
     revalidatePath(PATH);
     return { ok: true };
@@ -138,6 +194,26 @@ export async function updateUser(
     });
     if (emailDup) return { ok: false, message: "Ya existe un usuario con ese correo." };
 
+    const cambiaRol = before != null && before.role !== parsed.data.role;
+    if (cambiaRol) {
+      // Las asignaciones por cliente llevan la FUNCIÓN del rol actual
+      // (staff/senior/gerente): con otro rol quedarían inconsistentes.
+      const responsabilidades = await prisma.clientAssignment.count({
+        where: { userId: parsed.data.id, active: true },
+      });
+      if (responsabilidades > 0) {
+        return {
+          ok: false,
+          message: `Este usuario es responsable de ${responsabilidades} cliente(s). Reasigna esos clientes antes de cambiar su rol.`,
+        };
+      }
+    }
+
+    const superiores = parseSuperiores(formData);
+    if (!superiores.ok) return { ok: false, message: "Selecciona superiores válidos." };
+    const superioresValidos = await validarSuperiores(parsed.data.role, superiores.superiorIds);
+    if (!superioresValidos.ok) return { ok: false, message: superioresValidos.message };
+
     // Contraseña opcional: si viene, se restablece junto con los demás datos
     // (forzando cambio en el próximo ingreso y limpiando bloqueos).
     const resetPassword = parsed.data.password
@@ -153,16 +229,51 @@ export async function updateUser(
       (before?.active && !parsed.data.active) || parsed.data.password
         ? { sessionVersion: { increment: 1 } }
         : {};
-    await prisma.user.update({
-      where: { id: parsed.data.id },
-      data: {
-        email: parsed.data.email,
-        name: parsed.data.name,
-        role: parsed.data.role,
-        active: parsed.data.active,
-        ...resetPassword,
-        ...bump,
-      },
+    await prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: parsed.data.id },
+        data: {
+          email: parsed.data.email,
+          name: parsed.data.name,
+          role: parsed.data.role,
+          active: parsed.data.active,
+          ...resetPassword,
+          ...bump,
+        },
+      });
+
+      // Superiores directos: se reemplazan por los del formulario.
+      await tx.userHierarchy.deleteMany({ where: { subordinateId: parsed.data.id } });
+      if (superiores.superiorIds.length > 0) {
+        await tx.userHierarchy.createMany({
+          data: superiores.superiorIds.map((superiorId) => ({
+            superiorId,
+            subordinateId: parsed.data.id,
+          })),
+        });
+      }
+
+      // Si cambió el rol, podar las aristas donde este usuario es SUPERIOR
+      // y que dejaron de conectar roles adyacentes.
+      if (cambiaRol) {
+        const comoSuperior = await tx.userHierarchy.findMany({
+          where: { superiorId: parsed.data.id },
+          select: { id: true, subordinateId: true },
+        });
+        if (comoSuperior.length > 0) {
+          const subordinados = await tx.user.findMany({
+            where: { id: { in: comoSuperior.map((a) => a.subordinateId) } },
+            select: { id: true, role: true },
+          });
+          const rolPorId = new Map(subordinados.map((u) => [u.id, u.role]));
+          const invalidas = comoSuperior
+            .filter((a) => !esAristaValida(parsed.data.role, rolPorId.get(a.subordinateId) ?? ""))
+            .map((a) => a.id);
+          if (invalidas.length > 0) {
+            await tx.userHierarchy.deleteMany({ where: { id: { in: invalidas } } });
+          }
+        }
+      }
     });
 
     const actor = await getCurrentUser();
@@ -172,7 +283,7 @@ export async function updateUser(
       entity: String(parsed.data.id),
       detail: `${parsed.data.email} · ${parsed.data.role} · ${
         parsed.data.active ? "activo" : "inactivo"
-      }${parsed.data.password ? " · contraseña restablecida" : ""}`,
+      } · superiores: ${superiores.superiorIds.length}${parsed.data.password ? " · contraseña restablecida" : ""}`,
     });
     revalidatePath(PATH);
     return { ok: true };
@@ -257,21 +368,28 @@ export async function deleteUser(
       return { ok: false, message: "Solo un Superadministrador puede eliminar esa cuenta." };
     }
 
+    // Si es responsable vigente de clientes, el borrado dejaría clientes
+    // sin staff/senior/gerente en silencio: se exige reasignar primero.
+    const responsabilidades = await prisma.clientAssignment.count({
+      where: { userId: parsed.data.id, active: true },
+    });
+    if (responsabilidades > 0) {
+      return {
+        ok: false,
+        message: `Este usuario es responsable de ${responsabilidades} cliente(s). Reasigna esos clientes antes de eliminarlo.`,
+      };
+    }
+
     // Las FK hacia User son LÓGICAS (sin restricción física), así que el
-    // borrado no cae en cascada: limpiamos manualmente equipos y cartera
-    // para no dejar registros huérfanos. Los comentarios y menciones sí
-    // caen por cascada (onDelete: Cascade en el schema).
+    // borrado no cae en cascada: limpiamos manualmente la jerarquía y las
+    // asignaciones residuales (inactivas/expiradas) para no dejar registros
+    // huérfanos. Los comentarios y menciones sí caen por cascada
+    // (onDelete: Cascade en el schema).
     await prisma.$transaction([
-      prisma.teamMember.deleteMany({ where: { userId: parsed.data.id } }),
+      prisma.userHierarchy.deleteMany({
+        where: { OR: [{ superiorId: parsed.data.id }, { subordinateId: parsed.data.id }] },
+      }),
       prisma.clientAssignment.deleteMany({ where: { userId: parsed.data.id } }),
-      prisma.team.updateMany({
-        where: { leadUserId: parsed.data.id },
-        data: { leadUserId: null },
-      }),
-      prisma.teamMember.updateMany({
-        where: { assignedById: parsed.data.id },
-        data: { assignedById: null },
-      }),
       prisma.clientAssignment.updateMany({
         where: { assignedById: parsed.data.id },
         data: { assignedById: null },

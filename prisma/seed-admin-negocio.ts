@@ -1,6 +1,6 @@
 // ============================================================
 // Seed ADITIVO — concede al Administrador la gestión de la
-// configuración de negocio (clientes y equipos/cartera).
+// configuración de negocio (clientes y sus responsables).
 //
 // Solo INSERTA las concesiones faltantes para el rol Administrador
 // (createMany skipDuplicates): no borra ni toca otros roles ni ajustes
@@ -20,8 +20,6 @@ const CODES = [
   "clientes:crear",
   "clientes:editar",
   "clientes:configurar",
-  "equipos:crear",
-  "equipos:asignar",
 ];
 
 async function main() {

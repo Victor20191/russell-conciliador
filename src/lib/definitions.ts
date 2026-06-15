@@ -52,6 +52,20 @@ export const ClientSchema = z.object({
   sector: z.string().min(1, { error: "El sector es obligatorio." }).trim(),
 });
 
+// Responsables del cliente (asignación directa al crear/editar): el Staff
+// ejecuta, el Senior revisa y el Gerente valida. La consistencia (roles
+// exactos, usuarios activos y jerarquía gerente→senior→staff) se contrasta
+// contra la BD en la propia Server Action.
+export const ClientResponsablesSchema = z.object({
+  gerenteId: z.coerce.number({ error: "Selecciona el gerente." }).int().positive({ error: "Selecciona el gerente." }),
+  seniorId: z.coerce.number({ error: "Selecciona el senior." }).int().positive({ error: "Selecciona el senior." }),
+  staffId: z.coerce.number({ error: "Selecciona el staff." }).int().positive({ error: "Selecciona el staff." }),
+});
+
+// Superiores directos de un usuario en la jerarquía organizacional
+// (jerarquia_usuarios). La adyacencia de roles se valida en la action.
+export const SuperioresSchema = z.array(z.coerce.number().int().positive()).max(50);
+
 export const PasswordSchema = z
   .string()
   .min(10, { error: "La contraseña debe tener al menos 10 caracteres." })

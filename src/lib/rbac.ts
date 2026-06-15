@@ -47,7 +47,7 @@ async function decidir(permiso: string, opts: AuthzOpts): Promise<AuthzResult> {
     if (!opts.clientId) {
       return { ok: false, message: "No tienes alcance sobre este cliente." };
     }
-    const { asignaciones, equipos } = await getAsignacionesUsuario(session.userId);
+    const { asignaciones } = await getAsignacionesUsuario(session.userId, session.role);
     const alcanza = puedeSobreCliente({
       matriz,
       roleCode: session.role,
@@ -55,7 +55,6 @@ async function decidir(permiso: string, opts: AuthzOpts): Promise<AuthzResult> {
       permiso,
       clientId: opts.clientId,
       asignaciones,
-      equiposDelUsuario: equipos,
     });
     if (!alcanza) return { ok: false, message: "No tienes alcance sobre este cliente." };
   }

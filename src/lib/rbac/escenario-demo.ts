@@ -7,71 +7,81 @@
 //
 // Referencia clientes REALES del seed principal (prisma/seed.ts):
 //   C-1042 Inversiones del Pacífico · C-0871 Agroindustrias del Cauca
-//   C-1308 Servicios Médicos Vital IPS (usado como cliente FUERA de la cartera).
+//   C-1308 Servicios Médicos Vital IPS (usado como cliente FUERA de alcance).
 //
-// Cartera de prueba (segregación de funciones del PDF):
-//   Equipo "Cartera Pacífico" (líder: Senior) atiende C-1042 y C-0871.
-//   - Todos sus integrantes LEEN ambos clientes (asignación de equipo).
-//   - Staff Uno ESCRIBE solo C-1042; Staff Dos ESCRIBE solo C-0871.
-//   - Gerente y Socio LEEN la cartera (supervisión), sin escribir.
+// Modelo de asignación DIRECTA (segregación de funciones del PDF):
+//   Cada cliente tiene un staff (ejecuta, escritura), un senior (revisa,
+//   lectura) y un gerente (valida, lectura), elegidos al crear el cliente.
+//   El Socio NO se asigna: deriva LECTURA por jerarquía sobre los clientes
+//   donde sus gerentes subordinados están asignados.
+//
+// Jerarquía demo: Socio → Gerente → Senior → {Staff Uno, Staff Dos}.
 // ============================================================
 
-export const DEMO_EQUIPO = {
-  key: "team-demo-pacifico",
-  name: "Equipo Demo · Cartera Pacífico",
-  description: "Equipo de prueba para validar roles, permisos y alcance por cliente.",
-  leadEmail: "senior.demo@russellbedford.co",
-};
+import type { FuncionAsignacion } from "./jerarquia";
 
 export type DemoUsuario = { email: string; name: string; role: string; initials: string };
 
+const SOCIO = "socio.demo@russellbedford.co";
+const GERENTE = "gerente.demo@russellbedford.co";
+const SENIOR = "senior.demo@russellbedford.co";
+const STAFF1 = "staff1.demo@russellbedford.co";
+const STAFF2 = "staff2.demo@russellbedford.co";
+
 export const DEMO_USUARIOS: DemoUsuario[] = [
-  { email: "socio.demo@russellbedford.co", name: "Demo Socio", role: "Socio", initials: "DS" },
-  { email: "gerente.demo@russellbedford.co", name: "Demo Gerente", role: "Gerente", initials: "DG" },
-  { email: "senior.demo@russellbedford.co", name: "Demo Senior", role: "Senior", initials: "DN" },
-  { email: "staff1.demo@russellbedford.co", name: "Demo Staff Uno", role: "Staff", initials: "S1" },
-  { email: "staff2.demo@russellbedford.co", name: "Demo Staff Dos", role: "Staff", initials: "S2" },
+  { email: SOCIO, name: "Demo Socio", role: "Socio", initials: "DS" },
+  { email: GERENTE, name: "Demo Gerente", role: "Gerente", initials: "DG" },
+  { email: SENIOR, name: "Demo Senior", role: "Senior", initials: "DN" },
+  { email: STAFF1, name: "Demo Staff Uno", role: "Staff", initials: "S1" },
+  { email: STAFF2, name: "Demo Staff Dos", role: "Staff", initials: "S2" },
 ];
 
-// Integrantes del equipo (con su rol funcional dentro del equipo).
-export const DEMO_INTEGRANTES = [
-  { email: "senior.demo@russellbedford.co", roleCode: "Senior" },
-  { email: "staff1.demo@russellbedford.co", roleCode: "Staff" },
-  { email: "staff2.demo@russellbedford.co", roleCode: "Staff" },
+// Aristas de jerarquía (superior → subordinado) entre roles adyacentes.
+export const DEMO_JERARQUIA = [
+  { superiorEmail: SOCIO, subordinadoEmail: GERENTE },
+  { superiorEmail: GERENTE, subordinadoEmail: SENIOR },
+  { superiorEmail: SENIOR, subordinadoEmail: STAFF1 },
+  { superiorEmail: SENIOR, subordinadoEmail: STAFF2 },
 ];
 
-// Quién hereda alcance por pertenecer al equipo demo.
-export const DEMO_MIEMBROS_EQUIPO = DEMO_INTEGRANTES.map((m) => m.email);
-
-// Clientes reales del seed principal usados como cartera de prueba.
+// Clientes reales del seed principal usados como alcance de prueba.
 export const DEMO_CLIENTE_A = "C-1042"; // Inversiones del Pacífico S.A.S
 export const DEMO_CLIENTE_B = "C-0871"; // Agroindustrias del Cauca Ltda.
 export const DEMO_CLIENTE_FUERA = "C-1308"; // Servicios Médicos Vital IPS (NO asignado)
-// El Zarzal: cliente de los balances y del mapeo demo (cuentas_cliente). El
-// EQUIPO recibe escritura (cartera heredada): ambos Staff pueden trabajarlo.
+// El Zarzal: cliente de los balances y del mapeo demo (cuentas_cliente).
 export const DEMO_CLIENTE_MAPEO = "C-0644"; // El Zarzal S.A
+
+// Responsables por cliente (1 por función, como exige el formulario).
+export type DemoResponsables = {
+  clientCode: string;
+  staffEmail: string;
+  seniorEmail: string;
+  gerenteEmail: string;
+};
+
+export const DEMO_RESPONSABLES: DemoResponsables[] = [
+  { clientCode: DEMO_CLIENTE_A, staffEmail: STAFF1, seniorEmail: SENIOR, gerenteEmail: GERENTE },
+  { clientCode: DEMO_CLIENTE_B, staffEmail: STAFF2, seniorEmail: SENIOR, gerenteEmail: GERENTE },
+  { clientCode: DEMO_CLIENTE_MAPEO, staffEmail: STAFF1, seniorEmail: SENIOR, gerenteEmail: GERENTE },
+];
 
 export type DemoAsignacion = {
   clientCode: string;
-  userEmail?: string; // asignación individual
-  team?: boolean; // true → asignación a nivel de equipo (hereda a sus integrantes)
+  userEmail: string;
+  funcion: FuncionAsignacion;
   readScope: boolean;
   writeScope: boolean;
 };
 
-export const DEMO_ASIGNACIONES: DemoAsignacion[] = [
-  // Cartera del equipo: todos sus integrantes pueden LEER ambos clientes.
-  { clientCode: DEMO_CLIENTE_A, team: true, readScope: true, writeScope: false },
-  { clientCode: DEMO_CLIENTE_B, team: true, readScope: true, writeScope: false },
-  // Staff: ESCRITURA solo sobre su cliente asignado (segregación por dato).
-  { clientCode: DEMO_CLIENTE_A, userEmail: "staff1.demo@russellbedford.co", readScope: true, writeScope: true },
-  { clientCode: DEMO_CLIENTE_B, userEmail: "staff2.demo@russellbedford.co", readScope: true, writeScope: true },
-  // El Zarzal (balances + mapeo demo): escritura a nivel de EQUIPO, para
-  // demostrar la herencia de alcance por equipo (ambos Staff escriben).
-  { clientCode: DEMO_CLIENTE_MAPEO, team: true, readScope: true, writeScope: true },
-  // Supervisión (Gerente y Socio): LECTURA de la cartera, sin escritura.
-  { clientCode: DEMO_CLIENTE_A, userEmail: "gerente.demo@russellbedford.co", readScope: true, writeScope: false },
-  { clientCode: DEMO_CLIENTE_B, userEmail: "gerente.demo@russellbedford.co", readScope: true, writeScope: false },
-  { clientCode: DEMO_CLIENTE_A, userEmail: "socio.demo@russellbedford.co", readScope: true, writeScope: false },
-  { clientCode: DEMO_CLIENTE_B, userEmail: "socio.demo@russellbedford.co", readScope: true, writeScope: false },
-];
+/**
+ * Expande DEMO_RESPONSABLES a filas planas de asignación, con el alcance
+ * que materializa la segregación del PDF: staff escribe, senior y gerente
+ * solo leen. Es la forma que siembra el seed y consumen las pruebas.
+ */
+export function asignacionesDemo(): DemoAsignacion[] {
+  return DEMO_RESPONSABLES.flatMap((r) => [
+    { clientCode: r.clientCode, userEmail: r.staffEmail, funcion: "staff" as const, readScope: true, writeScope: true },
+    { clientCode: r.clientCode, userEmail: r.seniorEmail, funcion: "senior" as const, readScope: true, writeScope: false },
+    { clientCode: r.clientCode, userEmail: r.gerenteEmail, funcion: "gerente" as const, readScope: true, writeScope: false },
+  ]);
+}
