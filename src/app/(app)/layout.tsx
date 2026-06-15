@@ -1,5 +1,4 @@
-import Sidebar from "@/components/sidebar";
-import Topbar from "@/components/topbar";
+import AppShell from "@/components/app-shell";
 import { redirect } from "next/navigation";
 import { getCurrentUser, verifySession } from "@/lib/dal";
 import { getMatriz } from "@/lib/rbac/contexto";
@@ -36,17 +35,14 @@ export default async function AppLayout({
   });
 
   return (
-    <div className="flex min-h-screen">
-      <Sidebar
-        user={user}
-        permisos={permisos}
-        modulosVisibles={modulosVisibles}
-        modulosEnDesarrollo={modulosEnDesarrollo}
-      />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <Topbar notifications={notifications} />
-        <main className="flex-1 p-6">{children}</main>
-      </div>
-    </div>
+    <AppShell
+      user={user}
+      permisos={permisos}
+      modulosVisibles={modulosVisibles}
+      modulosEnDesarrollo={modulosEnDesarrollo}
+      notifications={notifications}
+    >
+      {children}
+    </AppShell>
   );
 }

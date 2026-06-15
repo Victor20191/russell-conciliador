@@ -100,7 +100,14 @@ function MappingEditor({
   };
 
   return (
-    <Modal open onClose={onClose} title={`${lineKey} · Editar mapeo`}>
+    <Modal
+      open
+      onClose={onClose}
+      title={`${lineKey} · Editar mapeo`}
+      footer={
+        <button onClick={save} disabled={saving} className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"><Icon name="check" size={13} /> {saving ? "Guardando…" : "Guardar mapeo"}</button>
+      }
+    >
       <p className="mb-3 text-[12px] text-ink-500">{label}. Las cuentas con signo <b>+</b> suman al saldo contable del renglón; las de signo <b>−</b> restan.</p>
       <div className="flex flex-col gap-2">
         {rows.map((r, i) => (
@@ -116,10 +123,6 @@ function MappingEditor({
         ))}
       </div>
       <button onClick={add} className="mt-2 inline-flex items-center gap-1.5 text-[12px] font-medium text-blue-500 hover:underline"><Icon name="plus" size={13} /> Agregar cuenta</button>
-
-      <div className="mt-4 flex items-center justify-end gap-2">
-        <button onClick={save} disabled={saving} className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"><Icon name="check" size={13} /> {saving ? "Guardando…" : "Guardar mapeo"}</button>
-      </div>
     </Modal>
   );
 }

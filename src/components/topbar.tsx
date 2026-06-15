@@ -34,8 +34,10 @@ const CRUMB_LABELS: Record<string, string> = {
 
 export default function Topbar({
   notifications,
+  onOpenMobileNav,
 }: {
   notifications: NotificationDTO[];
+  onOpenMobileNav?: () => void;
 }) {
   const pathname = usePathname();
   const [bellOpen, setBellOpen] = useState(false);
@@ -54,7 +56,16 @@ export default function Topbar({
   if (crumbs.length === 0) crumbs.push("Inicio");
 
   return (
-    <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-ink-150 bg-white/90 px-5 py-2.5 backdrop-blur">
+    <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-ink-150 bg-white/90 px-4 py-2.5 backdrop-blur sm:px-5">
+      {/* Botón de menú: abre el drawer de navegación en pantallas angostas */}
+      <button
+        type="button"
+        onClick={onOpenMobileNav}
+        aria-label="Abrir menú"
+        className="-ml-1 shrink-0 rounded-md border border-ink-200 bg-white p-1.5 text-ink-600 transition hover:bg-ink-50 lg:hidden"
+      >
+        <Icon name="menu" size={18} />
+      </button>
       {/* Breadcrumbs */}
       <div className="flex min-w-0 items-center gap-1.5 text-[12.5px] text-ink-500">
         {crumbs.map((c, i) => (
@@ -101,7 +112,7 @@ export default function Topbar({
           </button>
 
           {bellOpen && hasNotifications && (
-            <div className="absolute right-0 mt-2 w-80 overflow-hidden rounded-lg border border-ink-150 bg-white shadow-lg">
+            <div className="absolute right-0 mt-2 w-[calc(100vw-2rem)] max-w-xs overflow-hidden rounded-lg border border-ink-150 bg-white shadow-lg sm:w-80 sm:max-w-none">
               <div className="flex items-center gap-2 border-b border-ink-100 px-4 py-2.5">
                 <b className="text-[13px] text-ink-800">Notificaciones</b>
                 <span className="rounded-full bg-ai-100 px-1.5 py-0.5 text-[10px] font-semibold text-ai-700">

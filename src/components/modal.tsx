@@ -21,9 +21,12 @@ export function Modal({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-navy-900/40 p-4 pt-[8vh] backdrop-blur-sm">
-      <div className="w-full max-w-lg overflow-hidden rounded-lg border border-ink-150 bg-white shadow-lg">
-        <div className="flex items-center justify-between border-b border-ink-100 px-4 py-3">
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-navy-900/40 p-4 backdrop-blur-sm sm:items-center sm:p-6">
+      {/* Columna flex con altura acotada: el cuerpo hace scroll y el footer
+          (con el botón Guardar) queda SIEMPRE visible, incluso con formularios
+          largos o en pantallas/ventanas de poca altura. */}
+      <div className="flex max-h-full w-full max-w-lg flex-col overflow-hidden rounded-lg border border-ink-150 bg-white shadow-lg">
+        <div className="flex shrink-0 items-center justify-between border-b border-ink-100 px-4 py-3">
           <h2 className="text-[13.5px] font-semibold text-ink-800">{title}</h2>
           <button
             onClick={onClose}
@@ -33,9 +36,9 @@ export function Modal({
             <Icon name="x" size={16} />
           </button>
         </div>
-        <div className="px-4 py-4">{children}</div>
+        <div className="flex-1 overflow-y-auto px-4 py-4">{children}</div>
         {footer && (
-          <div className="flex items-center justify-end gap-2 border-t border-ink-100 px-4 py-3">
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-ink-100 bg-white px-4 py-3">
             {footer}
           </div>
         )}

@@ -158,46 +158,30 @@ export default function UsuariosClient({
         </div>
       </Card>
 
-      <Modal
-        open={createOpen}
-        onClose={() => setCreateOpen(false)}
-        title="Crear nuevo usuario"
-      >
+      {createOpen && (
         <CreateUserForm
           roles={roles}
           superiores={superiores}
-          onSuccess={() => setCreateOpen(false)}
+          onClose={() => setCreateOpen(false)}
         />
-      </Modal>
+      )}
 
-      <Modal
-        open={!!editUser}
-        onClose={() => setEditUser(null)}
-        title="Editar usuario"
-      >
-        {editUser && (
-          <EditUserForm
-            user={editUser}
-            roles={roles}
-            superiores={superiores}
-            aristas={aristas}
-            onSuccess={() => setEditUser(null)}
-          />
-        )}
-      </Modal>
+      {editUser && (
+        <EditUserForm
+          user={editUser}
+          roles={roles}
+          superiores={superiores}
+          aristas={aristas}
+          onClose={() => setEditUser(null)}
+        />
+      )}
 
-      <Modal
-        open={!!deleteTarget}
-        onClose={() => setDeleteTarget(null)}
-        title="Eliminar usuario"
-      >
-        {deleteTarget && (
-          <DeleteUserForm
-            user={deleteTarget}
-            onSuccess={() => setDeleteTarget(null)}
-          />
-        )}
-      </Modal>
+      {deleteTarget && (
+        <DeleteUserForm
+          user={deleteTarget}
+          onClose={() => setDeleteTarget(null)}
+        />
+      )}
     </div>
   );
 }
@@ -305,11 +289,11 @@ function SuperioresField({
 function CreateUserForm({
   roles,
   superiores,
-  onSuccess,
+  onClose,
 }: {
   roles: RoleOption[];
   superiores: SuperiorRef[];
-  onSuccess: () => void;
+  onClose: () => void;
 }) {
   const [state, action, pending] = useActionState(createUser, undefined);
   const [name, setName] = useState("");
@@ -317,11 +301,26 @@ function CreateUserForm({
   const initials = initialsFromFullName(name);
 
   useEffect(() => {
-    if (state?.ok) onSuccess();
-  }, [state, onSuccess]);
+    if (state?.ok) onClose();
+  }, [state, onClose]);
 
   return (
-    <form action={action} className="flex flex-col gap-4">
+    <Modal
+      open
+      onClose={onClose}
+      title="Crear nuevo usuario"
+      footer={
+        <button
+          type="submit"
+          form="create-user-form"
+          disabled={pending}
+          className="rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-60"
+        >
+          {pending ? "Creando…" : "Crear usuario"}
+        </button>
+      }
+    >
+      <form id="create-user-form" action={action} className="flex flex-col gap-4">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="flex flex-col gap-1.5">
           <label className="text-[12px] font-medium text-ink-700">Nombre completo</label>
@@ -397,16 +396,8 @@ function CreateUserForm({
         </p>
       )}
 
-      <div className="mt-2 flex justify-end gap-3">
-        <button
-          type="submit"
-          disabled={pending}
-          className="rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-60"
-        >
-          {pending ? "Creando…" : "Crear usuario"}
-        </button>
-      </div>
-    </form>
+      </form>
+    </Modal>
   );
 }
 
@@ -415,13 +406,13 @@ function EditUserForm({
   roles,
   superiores,
   aristas,
-  onSuccess,
+  onClose,
 }: {
   user: UserRow;
   roles: RoleOption[];
   superiores: SuperiorRef[];
   aristas: Arista[];
-  onSuccess: () => void;
+  onClose: () => void;
 }) {
   const [state, action, pending] = useActionState(updateUser, undefined);
   const [resetOpen, setResetOpen] = useState(false);
@@ -435,11 +426,26 @@ function EditUserForm({
     .map((a) => a.superiorId);
 
   useEffect(() => {
-    if (state?.ok) onSuccess();
-  }, [state, onSuccess]);
+    if (state?.ok) onClose();
+  }, [state, onClose]);
 
   return (
-    <form action={action} className="flex flex-col gap-4">
+    <Modal
+      open
+      onClose={onClose}
+      title="Editar usuario"
+      footer={
+        <button
+          type="submit"
+          form="edit-user-form"
+          disabled={pending}
+          className="rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-60"
+        >
+          {pending ? "Guardando…" : "Guardar cambios"}
+        </button>
+      }
+    >
+      <form id="edit-user-form" action={action} className="flex flex-col gap-4">
       <input type="hidden" name="id" value={user.id} />
 
       <div className="flex flex-col gap-1.5">
@@ -533,28 +539,35 @@ function EditUserForm({
         </p>
       )}
 
-      <div className="mt-2 flex justify-end">
-        <button
-          type="submit"
-          disabled={pending}
-          className="rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-60"
-        >
-          {pending ? "Guardando…" : "Guardar cambios"}
-        </button>
-      </div>
-    </form>
+      </form>
+    </Modal>
   );
 }
 
-function DeleteUserForm({ user, onSuccess }: { user: UserRow; onSuccess: () => void }) {
+function DeleteUserForm({ user, onClose }: { user: UserRow; onClose: () => void }) {
   const [state, action, pending] = useActionState(deleteUser, undefined);
 
   useEffect(() => {
-    if (state?.ok) onSuccess();
-  }, [state, onSuccess]);
+    if (state?.ok) onClose();
+  }, [state, onClose]);
 
   return (
-    <form action={action} className="flex flex-col gap-4">
+    <Modal
+      open
+      onClose={onClose}
+      title="Eliminar usuario"
+      footer={
+        <button
+          type="submit"
+          form="delete-user-form"
+          disabled={pending}
+          className="rounded-md bg-err-700 px-4 py-2 text-[13px] font-semibold text-white hover:bg-err-700/90 disabled:opacity-60"
+        >
+          {pending ? "Eliminando…" : "Eliminar definitivamente"}
+        </button>
+      }
+    >
+      <form id="delete-user-form" action={action} className="flex flex-col gap-4">
       <input type="hidden" name="id" value={user.id} />
 
       <p className="text-[13px] text-ink-600">
@@ -575,15 +588,7 @@ function DeleteUserForm({ user, onSuccess }: { user: UserRow; onSuccess: () => v
         </p>
       )}
 
-      <div className="mt-2 flex justify-end gap-3">
-        <button
-          type="submit"
-          disabled={pending}
-          className="rounded-md bg-err-700 px-4 py-2 text-[13px] font-semibold text-white hover:bg-err-700/90 disabled:opacity-60"
-        >
-          {pending ? "Eliminando…" : "Eliminar definitivamente"}
-        </button>
-      </div>
-    </form>
+      </form>
+    </Modal>
   );
 }

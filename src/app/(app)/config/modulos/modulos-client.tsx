@@ -240,8 +240,22 @@ function FieldModal({
   }, [state, onClose]);
 
   return (
-    <Modal open onClose={onClose} title={title}>
-      <form action={formAction} className="flex flex-col gap-3">
+    <Modal
+      open
+      onClose={onClose}
+      title={title}
+      footer={
+        <button
+          type="submit"
+          form="field-form"
+          disabled={pending}
+          className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
+        >
+          {pending ? "Guardando…" : "Guardar"}
+        </button>
+      }
+    >
+      <form id="field-form" action={formAction} className="flex flex-col gap-3">
         <input type="hidden" name="moduleId" value={moduleId} />
         {field && <input type="hidden" name="id" value={field.id} />}
 
@@ -287,16 +301,6 @@ function FieldModal({
         </Field>
 
         {state?.message && <p className="text-[12px] text-err-700">{state.message}</p>}
-
-        <div className="mt-1 flex items-center justify-end gap-2">
-          <button
-            type="submit"
-            disabled={pending}
-            className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
-          >
-            {pending ? "Guardando…" : "Guardar"}
-          </button>
-        </div>
       </form>
     </Modal>
   );

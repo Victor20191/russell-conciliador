@@ -25,11 +25,15 @@ export default function Sidebar({
   permisos,
   modulosVisibles,
   modulosEnDesarrollo,
+  mobileOpen = false,
+  onCloseMobile,
 }: {
   user: { name: string; role: string; initials: string } | null;
   permisos: string[];
   modulosVisibles: string[];
   modulosEnDesarrollo: string[];
+  mobileOpen?: boolean;
+  onCloseMobile?: () => void;
 }) {
   const pathname = usePathname();
 
@@ -80,7 +84,21 @@ export default function Sidebar({
   }
 
   return (
-    <aside className="sticky top-0 flex h-screen w-[232px] shrink-0 flex-col border-r border-navy-900 bg-navy-800 text-[#C9D4E2]">
+    <>
+      {/* Overlay: cierra el drawer al tocar fuera (solo en pantallas angostas) */}
+      {mobileOpen && (
+        <button
+          type="button"
+          aria-label="Cerrar menú"
+          onClick={onCloseMobile}
+          className="fixed inset-0 z-40 bg-navy-900/50 backdrop-blur-sm lg:hidden"
+        />
+      )}
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 flex h-screen w-[232px] shrink-0 flex-col border-r border-navy-900 bg-navy-800 text-[#C9D4E2] transition-transform duration-200 lg:sticky lg:top-0 lg:z-auto lg:translate-x-0 ${
+          mobileOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full lg:translate-x-0"
+        }`}
+      >
       {/* Marca */}
       <div className="flex items-center gap-2.5 border-b border-white/10 px-[18px] py-3.5">
         <BrandMark size={28} />
@@ -90,6 +108,14 @@ export default function Sidebar({
             Conciliador
           </small>
         </div>
+        <button
+          type="button"
+          onClick={onCloseMobile}
+          aria-label="Cerrar menú"
+          className="ml-auto rounded p-1 text-[#A9B6C8] transition hover:bg-white/10 hover:text-white lg:hidden"
+        >
+          <Icon name="x" size={18} />
+        </button>
       </div>
 
       <div className="flex-1 overflow-y-auto pb-2">
@@ -184,7 +210,8 @@ export default function Sidebar({
           </button>
         </form>
       </div>
-    </aside>
+      </aside>
+    </>
   );
 }
 

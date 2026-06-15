@@ -330,8 +330,25 @@ function ClientModal({
   }, [state, onClose]);
 
   return (
-    <Modal open onClose={onClose} title={title}>
-      <form action={formAction} className="flex flex-col gap-3">
+    <Modal
+      open
+      onClose={onClose}
+      title={title}
+      footer={
+        <>
+          {isEdit && <DeleteClientButton id={client!.id} onDone={onClose} />}
+          <button
+            type="submit"
+            form="client-form"
+            disabled={pending}
+            className="ml-auto rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
+          >
+            {pending ? "Guardando…" : "Guardar"}
+          </button>
+        </>
+      }
+    >
+      <form id="client-form" action={formAction} className="flex flex-col gap-3">
         {isEdit && <input type="hidden" name="id" value={client.id} />}
         <CField label="Código" error={state?.errors?.code}>
           <input
@@ -503,19 +520,6 @@ function ClientModal({
         )}
 
         {state?.message && <p className="text-[12px] text-err-700">{state.message}</p>}
-
-        <div className="mt-1 flex items-center gap-2">
-          {isEdit && (
-            <DeleteClientButton id={client!.id} onDone={onClose} />
-          )}
-          <button
-            type="submit"
-            disabled={pending}
-            className="ml-auto rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
-          >
-            {pending ? "Guardando…" : "Guardar"}
-          </button>
-        </div>
       </form>
     </Modal>
   );
