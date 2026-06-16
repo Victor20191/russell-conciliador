@@ -210,6 +210,7 @@ model Client {
   erp             String           @map("erp")
   sector          String           @map("sector")
   modules         ClientModule[]
+  dianForms       ClientDianForm[]
   reconciliations Reconciliation[]
   createdAt       DateTime         @default(now()) @map("creado_en")
 
@@ -253,6 +254,22 @@ model ClientModule {
 
   @@unique([clientId, moduleId])
   @@map("modulos_cliente")
+}
+
+// ===== Formularios DIAN activados por cliente (Config · Clientes) =====
+/// Qué formatos DIAN (IVA F-300, Retención F-350, ICA F-CHIP…) aplican a cada
+/// cliente. Se eligen en la sección "Módulos del cliente" al crear/editar el
+/// cliente: activar DIAN equivale a tener al menos un formato seleccionado.
+model ClientDianForm {
+  id        Int      @id @default(autoincrement()) @map("id")
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  clientId  Int      @map("cliente_id")
+  form      DianForm @relation(fields: [formId], references: [id], onDelete: Cascade)
+  formId    Int      @map("formulario_id")
+  createdAt DateTime @default(now()) @map("creado_en")
+
+  @@unique([clientId, formId])
+  @@map("formularios_dian_cliente")
 }
 
 // ===== Superadministración · publicación visual de módulos =====
@@ -465,6 +482,7 @@ model DianForm {
   sections    DianSection[]
   mappings    DianMapping[]
   comments    DianComment[]
+  clientForms ClientDianForm[]
 
   @@map("formularios_dian")
 }

@@ -12,6 +12,8 @@ import {
 import type { ActionState } from "@/lib/definitions";
 
 export type ModuleRef = { id: number; name: string };
+/** Catálogo de formatos DIAN seleccionables por cliente (IVA F-300…). */
+export type DianFormRef = { id: number; name: string; code: string };
 export type PersonaRef = { id: number; name: string };
 /** Candidatos a responsable, ya filtrados por rol y activos. */
 export type Personas = { gerentes: PersonaRef[]; seniors: PersonaRef[]; staffs: PersonaRef[] };
@@ -25,6 +27,7 @@ export type ClientRow = {
   erp: string;
   sector: string;
   modules: { moduleId: number; status: string }[];
+  dianFormIds: number[];
   responsables: { funcion: string; userId: number; name: string }[];
 };
 
@@ -35,6 +38,7 @@ function statusOf(c: ClientRow, moduleId: number): "configured" | "pending" | "n
 export default function ClientesClient({
   clients,
   modules,
+  dianForms,
   erps,
   sectors,
   nextCode,
@@ -43,6 +47,7 @@ export default function ClientesClient({
 }: {
   clients: ClientRow[];
   modules: ModuleRef[];
+  dianForms: DianFormRef[];
   erps: string[];
   sectors: string[];
   nextCode: string;
@@ -168,6 +173,7 @@ export default function ClientesClient({
           sectors={sectors}
           nextCode={nextCode}
           modules={modules}
+          dianForms={dianForms}
           personas={personas}
           aristas={aristas}
         />
@@ -183,6 +189,7 @@ export default function ClientesClient({
           sectors={sectors}
           nextCode={nextCode}
           modules={modules}
+          dianForms={dianForms}
           personas={personas}
           aristas={aristas}
         />
@@ -253,6 +260,7 @@ function ClientModal({
   sectors,
   nextCode,
   modules,
+  dianForms,
   personas,
   aristas,
 }: {
@@ -264,6 +272,7 @@ function ClientModal({
   sectors: string[];
   nextCode: string;
   modules?: ModuleRef[];
+  dianForms: DianFormRef[];
   personas: Personas;
   aristas: Arista[];
 }) {
@@ -273,6 +282,14 @@ function ClientModal({
   // explícita del usuario. Al editar se marcan solo los ya asignados en BD.
   const [selectedModuleIds, setSelectedModuleIds] = useState<number[]>(
     () => (isEdit ? client.modules.map((module) => module.moduleId) : []),
+  );
+  // DIAN vive DENTRO de "Módulos del cliente": activarlo equivale a tener al
+  // menos un formato seleccionado. Al editar se precargan los formatos activos.
+  const [dianActive, setDianActive] = useState<boolean>(
+    () => (isEdit ? client.dianFormIds.length > 0 : false),
+  );
+  const [selectedDianFormIds, setSelectedDianFormIds] = useState<number[]>(
+    () => (isEdit ? client.dianFormIds : []),
   );
 
   // Responsables en CASCADA por jerarquía: el gerente acota los seniors
@@ -352,6 +369,32 @@ function ClientModal({
     );
   }
 
+  // ----- DIAN: activación + formatos (uno o varios) -----
+  const dianFormById = useMemo(() => {
+    const m = new Map<number, DianFormRef>();
+    dianForms.forEach((f) => m.set(f.id, f));
+    return m;
+  }, [dianForms]);
+  const dianDisponibles = dianForms.filter((f) => !selectedDianFormIds.includes(f.id));
+  // "Activar DIAN" significa tener al menos un formato: guardar DIAN activo sin
+  // formatos lo persistiría como desactivado (inconsistencia silenciosa). Se
+  // bloquea el guardado hasta elegir un formato o desactivar DIAN.
+  const dianInvalido = dianActive && selectedDianFormIds.length === 0;
+
+  function toggleDian() {
+    setDianActive((active) => {
+      if (active) setSelectedDianFormIds([]); // al desactivar se limpian los formatos
+      return !active;
+    });
+  }
+  function agregarDianForm(value: string) {
+    const id = value ? Number(value) : 0;
+    if (id) setSelectedDianFormIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+  }
+  function quitarDianForm(id: number) {
+    setSelectedDianFormIds((prev) => prev.filter((x) => x !== id));
+  }
+
   useEffect(() => {
     if (state?.ok) onClose();
   }, [state, onClose]);
@@ -367,7 +410,8 @@ function ClientModal({
           <button
             type="submit"
             form="client-form"
-            disabled={pending}
+            disabled={pending || dianInvalido}
+            title={dianInvalido ? "Selecciona al menos un formato DIAN o desactiva DIAN." : undefined}
             className="ml-auto rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
           >
             {pending ? "Guardando…" : "Guardar"}
@@ -532,49 +576,145 @@ function ClientModal({
           </div>
         </div>
 
-        {modules && modules.length > 0 && (
+        {((modules && modules.length > 0) || dianForms.length > 0) && (
           <div className="rounded-md border border-ink-150 bg-ink-50/60 p-3">
             <input type="hidden" name="syncModules" value="1" />
             <div className="mb-2 flex items-center justify-between gap-3">
               <span className="text-[11.5px] font-medium text-ink-600">Módulos del cliente</span>
-              <span className="text-[11px] font-medium text-ink-400">
-                {selectedModuleIds.length}/{modules.length}
-              </span>
+              {modules && modules.length > 0 && (
+                <span className="text-[11px] font-medium text-ink-400">
+                  {selectedModuleIds.length}/{modules.length}
+                </span>
+              )}
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              {modules.map((module) => {
-                const checked = selectedModuleIds.includes(module.id);
-                return (
-                  <label
-                    key={module.id}
-                    className={`flex min-h-9 cursor-pointer items-center gap-2 rounded-md border px-2.5 py-2 text-[12px] font-medium transition ${
-                      checked
-                        ? "border-ok-100 bg-white text-ink-800"
-                        : "border-ink-150 bg-ink-100 text-ink-500"
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      name="moduleIds"
-                      value={module.id}
-                      checked={checked}
-                      onChange={() => toggleModule(module.id)}
-                      className="sr-only"
-                    />
-                    <span
-                      className={`grid h-4 w-4 shrink-0 place-items-center rounded border ${
+            {modules && modules.length > 0 && (
+              <div className="grid grid-cols-2 gap-2">
+                {modules.map((module) => {
+                  const checked = selectedModuleIds.includes(module.id);
+                  return (
+                    <label
+                      key={module.id}
+                      className={`flex min-h-9 cursor-pointer items-center gap-2 rounded-md border px-2.5 py-2 text-[12px] font-medium transition ${
                         checked
-                          ? "border-ok-500 bg-ok-500 text-white"
-                          : "border-ink-300 bg-white text-transparent"
+                          ? "border-ok-100 bg-white text-ink-800"
+                          : "border-ink-150 bg-ink-100 text-ink-500"
                       }`}
                     >
-                      <Icon name="check" size={11} stroke={2} />
+                      <input
+                        type="checkbox"
+                        name="moduleIds"
+                        value={module.id}
+                        checked={checked}
+                        onChange={() => toggleModule(module.id)}
+                        className="sr-only"
+                      />
+                      <span
+                        className={`grid h-4 w-4 shrink-0 place-items-center rounded border ${
+                          checked
+                            ? "border-ok-500 bg-ok-500 text-white"
+                            : "border-ink-300 bg-white text-transparent"
+                        }`}
+                      >
+                        <Icon name="check" size={11} stroke={2} />
+                      </span>
+                      <span className="truncate">{module.name}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* DIAN · Impuestos: se activa aquí mismo y, al activarlo, se eligen
+                los formatos a auditar (IVA F-300, Retención F-350, ICA F-CHIP). */}
+            {dianForms.length > 0 && (
+              <div className="mt-2 rounded-md border border-ink-150 bg-white p-2.5">
+                <label className="flex cursor-pointer items-center gap-2 text-[12px] font-medium">
+                  <input
+                    type="checkbox"
+                    checked={dianActive}
+                    onChange={toggleDian}
+                    className="sr-only"
+                  />
+                  <span
+                    className={`grid h-4 w-4 shrink-0 place-items-center rounded border ${
+                      dianActive
+                        ? "border-ok-500 bg-ok-500 text-white"
+                        : "border-ink-300 bg-white text-transparent"
+                    }`}
+                  >
+                    <Icon name="check" size={11} stroke={2} />
+                  </span>
+                  <span className="text-ink-800">DIAN · Impuestos</span>
+                  <span className="ml-auto text-[11px] font-medium text-ink-400">
+                    {selectedDianFormIds.length}/{dianForms.length}
+                  </span>
+                </label>
+
+                {dianActive && (
+                  <div className="mt-2 flex flex-col gap-1.5 border-t border-ink-100 pt-2">
+                    <span className="text-[11px] text-ink-500">
+                      Formatos a auditar — uno o varios
                     </span>
-                    <span className="truncate">{module.name}</span>
-                  </label>
-                );
-              })}
-            </div>
+                    {selectedDianFormIds.length > 0 && (
+                      <div className="flex flex-col gap-1.5">
+                        {selectedDianFormIds.map((id) => {
+                          const f = dianFormById.get(id);
+                          return (
+                            <div
+                              key={id}
+                              className="flex items-center justify-between gap-2 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12.5px] text-ink-800"
+                            >
+                              <span className="truncate">
+                                {f ? f.name : `Formato ${id}`}
+                                {f && (
+                                  <span className="ml-1.5 font-mono text-[11px] text-ink-400">
+                                    {f.code}
+                                  </span>
+                                )}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => quitarDianForm(id)}
+                                title="Quitar formato"
+                                className="rounded p-0.5 text-ink-400 transition hover:bg-ink-100 hover:text-err-600"
+                              >
+                                <Icon name="x" size={14} />
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {/* Envío del arreglo: un input oculto por formato elegido. */}
+                    {selectedDianFormIds.map((id) => (
+                      <input key={id} type="hidden" name="dianFormIds" value={id} />
+                    ))}
+                    <select
+                      value=""
+                      onChange={(e) => agregarDianForm(e.target.value)}
+                      disabled={dianDisponibles.length === 0}
+                      className="w-full rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400 disabled:cursor-not-allowed disabled:bg-ink-50 disabled:text-ink-400"
+                    >
+                      <option value="">
+                        {dianDisponibles.length === 0
+                          ? "Todos los formatos ya están agregados"
+                          : "Agregar formato…"}
+                      </option>
+                      {dianDisponibles.map((f) => (
+                        <option key={f.id} value={f.id}>
+                          {f.name} · {f.code}
+                        </option>
+                      ))}
+                    </select>
+                    {selectedDianFormIds.length === 0 && (
+                      <span className="text-[11px] text-warn-700">
+                        Selecciona al menos un formato o desactiva DIAN.
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 

@@ -3,6 +3,7 @@ import { PageHeader } from "@/components/ui";
 import ClientesClient, {
   type ClientRow,
   type ModuleRef,
+  type DianFormRef,
   type Personas,
   type Arista,
 } from "./clientes-client";
@@ -12,12 +13,16 @@ import { ROL_POR_FUNCION } from "@/lib/rbac/jerarquia";
 
 export default async function ClientesPage() {
   await requirePermiso("clientes:configurar");
-  const [clients, modules, usuarios, aristasBD, asignaciones] = await Promise.all([
+  const [clients, modules, dianFormsBD, usuarios, aristasBD, asignaciones] = await Promise.all([
     prisma.client.findMany({
       orderBy: { name: "asc" },
-      include: { modules: true },
+      include: { modules: true, dianForms: true },
     }),
     prisma.module.findMany({ orderBy: { name: "asc" } }),
+    prisma.dianForm.findMany({
+      orderBy: { code: "asc" },
+      select: { id: true, name: true, code: true },
+    }),
     prisma.user.findMany({
       orderBy: { name: "asc" },
       select: { id: true, name: true, role: true, active: true },
@@ -68,9 +73,15 @@ export default async function ClientesPage() {
     erp: c.erp,
     sector: c.sector,
     modules: c.modules.map((m) => ({ moduleId: m.moduleId, status: m.status })),
+    dianFormIds: c.dianForms.map((f) => f.formId),
     responsables: responsablesPorCliente.get(c.id) ?? [],
   }));
   const mods: ModuleRef[] = modules.map((m) => ({ id: m.id, name: m.name }));
+  const dianForms: DianFormRef[] = dianFormsBD.map((f) => ({
+    id: f.id,
+    name: f.name,
+    code: f.code,
+  }));
   const erps = [...new Set(clients.map((c) => c.erp))].sort();
   const sectors = [...new Set(clients.map((c) => c.sector))].sort();
   const nextCode = nextClientCode(clients.map((c) => c.code));
@@ -84,6 +95,7 @@ export default async function ClientesPage() {
       <ClientesClient
         clients={rows}
         modules={mods}
+        dianForms={dianForms}
         erps={erps}
         sectors={sectors}
         nextCode={nextCode}

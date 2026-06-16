@@ -10,6 +10,7 @@ async function main() {
   console.log("🌱 Seeding…");
 
   // ---- Limpieza idempotente ----
+  await prisma.clientDianForm.deleteMany();
   await prisma.clientAccount.deleteMany();
   await prisma.russellOption.deleteMany();
   await prisma.dianComment.deleteMany();
@@ -312,6 +313,27 @@ async function main() {
   const dianObjective = "Validar que las declaraciones del año fueron presentadas y pagadas oportunamente, y que las cifras declaradas crucen con las cifras contables al cierre.";
   await prisma.dianForm.update({ where: { key: "IVA" }, data: { objective: dianObjective, conclusion: "Se evidencian diferencias en el IVA descontable de $795.709 y diferencias menores no materiales en otros renglones. Las diferencias en ingresos están explicadas por devoluciones y refacturación de septiembre." } });
   await prisma.dianForm.update({ where: { key: "RETEFUENTE" }, data: { objective: dianObjective, conclusion: "No se evidencian diferencias materiales entre los valores declarados en retención en la fuente vs. contabilidad. Diferencias menores explicadas por redondeo." } });
+
+  // ---- Formatos DIAN activados por cliente (sección "Módulos del cliente") ----
+  const clientIdByCode = new Map<string, number>(
+    (await prisma.client.findMany({ select: { id: true, code: true } }))
+      .map((c) => [c.code, c.id]),
+  );
+  const dianPorCliente: { code: string; forms: string[] }[] = [
+    { code: "C-1042", forms: ["IVA", "RETEFUENTE"] },
+    { code: "C-0871", forms: ["IVA", "RETEFUENTE", "ICA"] },
+    { code: "C-1233", forms: ["RETEFUENTE"] },
+  ];
+  await prisma.clientDianForm.createMany({
+    data: dianPorCliente.flatMap((d) => {
+      const clientId = clientIdByCode.get(d.code);
+      if (!clientId) return [];
+      return d.forms
+        .map((key) => formIdByKey.get(key))
+        .filter((formId): formId is number => formId != null)
+        .map((formId) => ({ clientId, formId }));
+    }),
+  });
 
   // ---- Catálogo de cuentas Russell (selector del mapeo) ----
   await prisma.russellOption.createMany({

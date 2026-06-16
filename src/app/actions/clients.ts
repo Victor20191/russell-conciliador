@@ -32,6 +32,26 @@ async function moduleIdsExist(moduleIds: number[]): Promise<boolean> {
   return existingModules.length === moduleIds.length;
 }
 
+/** Formatos DIAN (IVA F-300, Retención F-350, ICA F-CHIP…) que el cliente
+ *  activa en la sección "Módulos del cliente". Lista vacía = DIAN desactivado. */
+function parseDianFormIds(formData: FormData): { ok: true; dianFormIds: number[] } | { ok: false } {
+  const parsed = formData.getAll("dianFormIds").map(parseId);
+  if (parsed.some((id) => id == null)) return { ok: false };
+  return {
+    ok: true,
+    dianFormIds: [...new Set(parsed.filter((id): id is number => id != null))],
+  };
+}
+
+async function dianFormIdsExist(dianFormIds: number[]): Promise<boolean> {
+  if (dianFormIds.length === 0) return true;
+  const existing = await prisma.dianForm.findMany({
+    where: { id: { in: dianFormIds } },
+    select: { id: true },
+  });
+  return existing.length === dianFormIds.length;
+}
+
 type Responsables = { gerenteId: number; seniorId: number; staffIds: number[] };
 type ResponsablesValidados =
   | { ok: true; nombres: { gerente: string; senior: string; staffs: string[] } }
@@ -161,6 +181,12 @@ export async function createClient(
     const validados = await validarResponsables(responsables.data);
     if (!validados.ok) return { ok: false, message: validados.message };
 
+    // Parametrizar módulos/DIAN al crear exige el mismo permiso de configuración
+    // que al editar (defensa en profundidad): el formulario de creación incluye
+    // la sección "Módulos del cliente".
+    const configAuthz = await authorizePermiso("clientes:configurar");
+    if (!configAuthz.ok) return { ok: false, message: configAuthz.message };
+
     const modulesResult = parseModuleIds(formData);
     if (!modulesResult.ok) {
       return { ok: false, message: "Selecciona módulos válidos." };
@@ -168,6 +194,15 @@ export async function createClient(
     const moduleIds = modulesResult.moduleIds;
     if (!(await moduleIdsExist(moduleIds))) {
       return { ok: false, message: "Selecciona módulos válidos." };
+    }
+
+    const dianResult = parseDianFormIds(formData);
+    if (!dianResult.ok) {
+      return { ok: false, message: "Selecciona formatos DIAN válidos." };
+    }
+    const dianFormIds = dianResult.dianFormIds;
+    if (!(await dianFormIdsExist(dianFormIds))) {
+      return { ok: false, message: "Selecciona formatos DIAN válidos." };
     }
 
     await prisma.$transaction(async (tx) => {
@@ -181,6 +216,9 @@ export async function createClient(
                   status: "pending",
                 })),
               }
+            : undefined,
+          dianForms: dianFormIds.length
+            ? { create: dianFormIds.map((formId) => ({ formId })) }
             : undefined,
         },
       });
@@ -201,7 +239,7 @@ export async function createClient(
       user: user?.name ?? "Sistema",
       action: "CREÓ CLIENTE",
       entity: data.code,
-      detail: `${data.name} · ${data.nit} · staff ${validados.nombres.staffs.join(", ")} / senior ${validados.nombres.senior} / gerente ${validados.nombres.gerente}`,
+      detail: `${data.name} · ${data.nit} · staff ${validados.nombres.staffs.join(", ")} / senior ${validados.nombres.senior} / gerente ${validados.nombres.gerente}${dianFormIds.length ? ` · formatos DIAN: ${dianFormIds.length}` : ""}`,
     });
     revalidatePath(PATH);
     return { ok: true };
@@ -245,6 +283,7 @@ export async function updateClient(
 
     const shouldSyncModules = formData.get("syncModules") === "1";
     let moduleIds: number[] | null = null;
+    let dianFormIds: number[] | null = null;
     if (shouldSyncModules) {
       const configAuthz = await authorizePermiso("clientes:configurar");
       if (!configAuthz.ok) return { ok: false, message: configAuthz.message };
@@ -256,6 +295,15 @@ export async function updateClient(
       moduleIds = modulesResult.moduleIds;
       if (!(await moduleIdsExist(moduleIds))) {
         return { ok: false, message: "Selecciona módulos válidos." };
+      }
+
+      const dianResult = parseDianFormIds(formData);
+      if (!dianResult.ok) {
+        return { ok: false, message: "Selecciona formatos DIAN válidos." };
+      }
+      dianFormIds = dianResult.dianFormIds;
+      if (!(await dianFormIdsExist(dianFormIds))) {
+        return { ok: false, message: "Selecciona formatos DIAN válidos." };
       }
     }
 
@@ -305,6 +353,23 @@ export async function updateClient(
           update: {},
         });
       }
+
+      // Formatos DIAN: viven en la misma sección "Módulos del cliente" y se
+      // sincronizan con el mismo flag. Se retiran los deseleccionados y se
+      // crean los nuevos, conservando los que siguen activos.
+      if (dianFormIds == null) return;
+      await tx.clientDianForm.deleteMany({
+        where: {
+          clientId: id,
+          ...(dianFormIds.length > 0 ? { formId: { notIn: dianFormIds } } : {}),
+        },
+      });
+      if (dianFormIds.length > 0) {
+        await tx.clientDianForm.createMany({
+          data: dianFormIds.map((formId) => ({ clientId: id, formId })),
+          skipDuplicates: true,
+        });
+      }
     });
 
     const user = await getCurrentUser();
@@ -312,7 +377,7 @@ export async function updateClient(
       user: user?.name ?? "Sistema",
       action: "ACTUALIZÓ CLIENTE",
       entity: current.code,
-      detail: `${name} · ${nit} · staff ${validados.nombres.staffs.join(", ")} / senior ${validados.nombres.senior} / gerente ${validados.nombres.gerente}${moduleIds != null ? ` · módulos asignados: ${moduleIds.length}` : ""}`,
+      detail: `${name} · ${nit} · staff ${validados.nombres.staffs.join(", ")} / senior ${validados.nombres.senior} / gerente ${validados.nombres.gerente}${moduleIds != null ? ` · módulos asignados: ${moduleIds.length}` : ""}${dianFormIds != null ? ` · formatos DIAN: ${dianFormIds.length}` : ""}`,
     });
     revalidatePath(PATH);
     return { ok: true };
