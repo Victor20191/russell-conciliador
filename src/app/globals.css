@@ -60,6 +60,12 @@ html,
 body {
   margin: 0;
   padding: 0;
+  min-height: 100%;
+  overscroll-behavior-y: none;
+}
+
+html {
+  background: var(--color-ink-50);
 }
 
 body {

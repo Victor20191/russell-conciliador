@@ -12,6 +12,7 @@ import { redirect } from "next/navigation";
 import { verifySession } from "@/lib/dal";
 import { tienePermiso, puedeSobreCliente } from "@/lib/rbac/permisos";
 import { getMatriz, getAsignacionesUsuario } from "@/lib/rbac/contexto";
+import { ROLES_ALCANCE_GLOBAL } from "@/lib/rbac/jerarquia";
 import { moduloDelPermiso } from "@/lib/rbac/modulos-plataforma";
 import { moduloDisponibleParaRol } from "@/lib/rbac/publicacion";
 import { can, type Role } from "@/lib/roles";
@@ -24,8 +25,14 @@ export type AuthzOpts = {
   // Si se incluye la clave, además del permiso de rol se exige ALCANCE
   // sobre este cliente (writeScope para crear/editar/eliminar/ejecutar,
   // readScope para lectura). Pasar `null` cuando no se pudo resolver el
-  // cliente: deniega (fail-closed).
+  // cliente: deniega (fail-closed). Los roles de ALCANCE GLOBAL
+  // (Administrador/Superadministrador) omiten este chequeo.
   clientId?: number | null;
+  // Fuerza el modo de alcance en lugar de inferirlo del permiso. Se usa
+  // `"lectura"` para validar MEMBRESÍA (ser responsable del cliente) en la
+  // administración de clientes, donde el rol con el permiso (Senior) tiene
+  // writeScope=false sobre sus propios clientes.
+  modo?: "lectura" | "escritura";
 };
 
 async function decidir(permiso: string, opts: AuthzOpts): Promise<AuthzResult> {
@@ -44,19 +51,25 @@ async function decidir(permiso: string, opts: AuthzOpts): Promise<AuthzResult> {
 
   // Alcance por cliente: solo si el caller lo solicitó (incluyó la clave).
   if ("clientId" in opts) {
-    if (!opts.clientId) {
-      return { ok: false, message: "No tienes alcance sobre este cliente." };
+    // Administradores de plataforma: alcance global, no se filtran por cartera.
+    if (!ROLES_ALCANCE_GLOBAL.has(session.role)) {
+      if (!opts.clientId) {
+        return { ok: false, message: "No tienes alcance sobre este cliente." };
+      }
+      const { asignaciones } = await getAsignacionesUsuario(session.userId, session.role);
+      const alcanza = puedeSobreCliente(
+        {
+          matriz,
+          roleCode: session.role,
+          userId: session.userId,
+          permiso,
+          clientId: opts.clientId,
+          asignaciones,
+        },
+        opts.modo,
+      );
+      if (!alcanza) return { ok: false, message: "No tienes alcance sobre este cliente." };
     }
-    const { asignaciones } = await getAsignacionesUsuario(session.userId, session.role);
-    const alcanza = puedeSobreCliente({
-      matriz,
-      roleCode: session.role,
-      userId: session.userId,
-      permiso,
-      clientId: opts.clientId,
-      asignaciones,
-    });
-    if (!alcanza) return { ok: false, message: "No tienes alcance sobre este cliente." };
   }
 
   return { ok: true, userId: session.userId, role: session.role };

@@ -2,6 +2,7 @@ import Link from "next/link";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { authorizePermiso, requirePermiso } from "@/lib/rbac";
+import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { PageHeader, Card, CardHeader, StatCard, Chip } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { statusChip, fmtCompact } from "@/lib/format";
@@ -16,13 +17,21 @@ export default async function DashboardPage() {
   await requirePermiso("dashboard:ver");
   const user = await getCurrentUser();
   const puedeCrearConciliacion = (await authorizePermiso("conciliaciones:crear")).ok;
+  // Todos los indicadores se limitan a la cartera del usuario (Admin/Superadmin
+  // ven la plataforma completa). La actividad del equipo (auditoría) es
+  // transversal y se mantiene global.
+  const alc = await alcanceLecturaUsuario();
+  const recWhere = alc.todos ? {} : { clientId: { in: alc.clientIds } };
+  const cmWhere = alc.todos ? {} : { clientId: { in: alc.clientIds } };
+  const rowWhere = alc.todos ? {} : { reconciliation: { clientId: { in: alc.clientIds } } };
+  const clientWhere = alc.todos ? {} : { id: { in: alc.clientIds } };
   const [recs, diffSum, configuredCount, pendingCount, activity, pendingClients] = await Promise.all([
-    prisma.reconciliation.findMany({ orderBy: { createdAt: "desc" }, take: 50 }),
-    prisma.reconciliationRow.aggregate({ _sum: { diff: true } }),
-    prisma.clientModule.count({ where: { status: "configured" } }),
-    prisma.clientModule.count({ where: { status: "pending" } }),
+    prisma.reconciliation.findMany({ where: recWhere, orderBy: { createdAt: "desc" }, take: 50 }),
+    prisma.reconciliationRow.aggregate({ where: rowWhere, _sum: { diff: true } }),
+    prisma.clientModule.count({ where: { status: "configured", ...cmWhere } }),
+    prisma.clientModule.count({ where: { status: "pending", ...cmWhere } }),
     prisma.auditEntry.findMany({ orderBy: { createdAt: "desc" }, take: 6 }),
-    prisma.client.findMany({ where: { modules: { some: { status: "pending" } } }, take: 20, include: { modules: { where: { status: "pending" }, include: { module: true } } } }),
+    prisma.client.findMany({ where: { ...clientWhere, modules: { some: { status: "pending" } } }, take: 20, include: { modules: { where: { status: "pending" }, include: { module: true } } } }),
   ]);
 
   const inProcess = recs.filter((r) => r.status === "DIFF" || r.status === "REVIEW").length;

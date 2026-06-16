@@ -3,7 +3,7 @@
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { authorizePermiso } from "@/lib/rbac";
-import { getMatriz } from "@/lib/rbac/contexto";
+import { getMatriz, clienteDeBalance, clienteDeConciliacion } from "@/lib/rbac/contexto";
 import { tienePermiso } from "@/lib/rbac/permisos";
 import { esEntidadComentable, etiquetaEntidad } from "@/lib/comentarios";
 import { MESES } from "@/lib/format";
@@ -12,12 +12,34 @@ import { mensajeErrorBD, registrarError } from "@/lib/errores";
 // ============================================================
 // Server actions de CONVERSACIONES (comentarios polimórficos).
 //
-// Autorización en dos capas:
-//   - leer la conversación  → "<tipo>:ver"
-//   - publicar / mencionar  → "<tipo>:comentar"
-// (El alcance por cartera de cliente se añadirá por entidad cuando la
-//  conversación cuelgue de datos de un cliente concreto.)
+// Autorización en dos capas + alcance por cartera de la entidad padre:
+//   - leer la conversación  → "<tipo>:ver"      (+ alcance de lectura)
+//   - publicar / mencionar  → "<tipo>:comentar" (+ alcance de lectura)
+// El alcance se resuelve por tipo (alcanceDeEntidad): balance/conciliación
+// cuelgan de un cliente; DIAN es global (sin cliente, sin alcance extra).
 // ============================================================
+
+/**
+ * Cliente al que pertenece la entidad comentada, para exigir alcance de
+ * cartera (modo lectura = membresía). `scoped:false` = entidad global (DIAN):
+ * basta el permiso de rol. `clientId:null` (no resuelto) → el gate deniega a
+ * quien no tenga alcance global (fail-closed).
+ */
+async function alcanceDeEntidad(
+  tipo: string,
+  entityId: number,
+): Promise<{ scoped: false } | { scoped: true; clientId: number | null }> {
+  switch (tipo) {
+    case "balance":
+      return { scoped: true, clientId: await clienteDeBalance(entityId) };
+    case "conciliaciones":
+      return { scoped: true, clientId: await clienteDeConciliacion(entityId) };
+    case "clientes":
+      return { scoped: true, clientId: entityId };
+    default: // "dian" y cualquier otra entidad global
+      return { scoped: false };
+  }
+}
 
 export type ComentarioDTO = {
   id: number;
@@ -68,7 +90,16 @@ export async function listarComentarios(
   }
   const ver = await authorizePermiso(`${tipo}:ver`);
   if (!ver.ok) return { ok: false, message: ver.message };
-  const comentar = await authorizePermiso(`${tipo}:comentar`);
+
+  // Alcance por cartera de la entidad padre (DIAN es global, sin alcance extra).
+  const alc = await alcanceDeEntidad(tipo, entityId);
+  if (alc.scoped && !(await authorizePermiso(`${tipo}:ver`, { clientId: alc.clientId })).ok) {
+    return { ok: false, message: "No tienes alcance sobre este cliente." };
+  }
+  // ¿Puede comentar ESTE cliente? (no solo a nivel de rol).
+  const comentar = alc.scoped
+    ? await authorizePermiso(`${tipo}:comentar`, { clientId: alc.clientId })
+    : await authorizePermiso(`${tipo}:comentar`);
 
   try {
     const rows = await prisma.comment.findMany({
@@ -136,6 +167,12 @@ export async function publicarComentario(input: {
   }
   const authz = await authorizePermiso(`${tipo}:comentar`);
   if (!authz.ok) return { ok: false, message: authz.message };
+
+  // Alcance por cartera de la entidad padre (DIAN es global, sin alcance extra).
+  const alc = await alcanceDeEntidad(tipo, entityId);
+  if (alc.scoped && !(await authorizePermiso(`${tipo}:comentar`, { clientId: alc.clientId })).ok) {
+    return { ok: false, message: "No tienes alcance sobre este cliente." };
+  }
 
   const body = (input.body ?? "").trim();
   if (!body) return { ok: false, message: "El comentario está vacío." };

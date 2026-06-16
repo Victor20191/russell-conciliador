@@ -81,9 +81,16 @@ export async function updateModuleField(
 
   // Operaciones de base de datos envueltas en try-catch
   try {
-    await prisma.moduleField.update({
+    const updated = await prisma.moduleField.update({
       where: { id },
       data: { key, label, type, required, hint: hint?.trim() || null },
+    });
+    const user = await getCurrentUser();
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: "EDITÓ CAMPO",
+      entity: `Módulo ${updated.moduleId}`,
+      detail: `${updated.key} · ${updated.label}`,
     });
     revalidatePath(PATH);
     return { ok: true };
@@ -98,7 +105,14 @@ export async function deleteModuleField(formData: FormData): Promise<void> {
   if (!id) return;
   // Operaciones de base de datos envueltas en try-catch
   try {
-    await prisma.moduleField.delete({ where: { id } });
+    const deleted = await prisma.moduleField.delete({ where: { id } });
+    const user = await getCurrentUser();
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: "ELIMINÓ CAMPO",
+      entity: `Módulo ${deleted.moduleId}`,
+      detail: `${deleted.key} · ${deleted.label}`,
+    });
     revalidatePath(PATH);
   } catch (e) {
     registrarError("deleteModuleField", e);
@@ -110,7 +124,8 @@ export async function moveModuleField(formData: FormData): Promise<void> {
   await requirePermiso("modulos:configurar");
   const id = parseId(formData.get("id"));
   if (!id) return;
-  const dir = formData.get("dir") as string; // "up" | "down"
+  const dir = formData.get("dir"); // "up" | "down"
+  if (dir !== "up" && dir !== "down") return;
   // Operaciones de base de datos envueltas en try-catch
   try {
     const field = await prisma.moduleField.findUnique({ where: { id } });
@@ -129,6 +144,13 @@ export async function moveModuleField(formData: FormData): Promise<void> {
       prisma.moduleField.update({ where: { id: field.id }, data: { order: neighbor.order } }),
       prisma.moduleField.update({ where: { id: neighbor.id }, data: { order: field.order } }),
     ]);
+    const user = await getCurrentUser();
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: "REORDENÓ CAMPO",
+      entity: `Módulo ${field.moduleId}`,
+      detail: `${field.key} · ${dir === "up" ? "subió" : "bajó"}`,
+    });
     revalidatePath(PATH);
   } catch (e) {
     registrarError("moveModuleField", e);

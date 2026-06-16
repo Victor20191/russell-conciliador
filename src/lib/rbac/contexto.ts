@@ -15,8 +15,9 @@ import "server-only";
 import { cache } from "react";
 import { unstable_cache } from "next/cache";
 import prisma from "@/lib/prisma";
+import { verifySession } from "@/lib/dal";
 import { matrizConLegado } from "@/lib/rbac/catalogo";
-import { ROL_SOCIO, derivarAsignacionesSocio } from "@/lib/rbac/jerarquia";
+import { ROL_SOCIO, ROLES_ALCANCE_GLOBAL, derivarAsignacionesSocio } from "@/lib/rbac/jerarquia";
 import type { Matriz, Asignacion } from "@/lib/rbac/permisos";
 
 export const RBAC_CACHE_TAG = "rbac-matriz-v2";
@@ -106,6 +107,49 @@ export const getAsignacionesUsuario = cache(
     };
   },
 );
+
+/**
+ * Cartera de LECTURA del usuario ACTUAL, para filtrar listados por cliente.
+ *  - Administrador/Superadministrador → { todos: true }: alcance global, ven
+ *    toda la plataforma (no se filtran por cartera).
+ *  - Resto → los clientes donde el usuario tiene readScope vigente
+ *    (asignaciones directas + derivación del Socio sobre sus gerentes).
+ * Devuelve `clientIds` Y `clientNames` porque las entidades referencian al
+ * cliente de forma inconsistente: `reconciliation.clientId` (FK) vs
+ * `balance.clientName` / `clientAccount.clientName` (nombre). Fail-closed:
+ * sin asignaciones, ambas listas quedan vacías (no ve nada). Memoizado por
+ * request con React.cache().
+ */
+export type AlcanceLectura =
+  | { todos: true }
+  | { todos: false; clientIds: number[]; clientNames: string[] };
+
+export const alcanceLecturaUsuario = cache(async (): Promise<AlcanceLectura> => {
+  const session = await verifySession();
+  if (ROLES_ALCANCE_GLOBAL.has(session.role)) return { todos: true };
+
+  const { asignaciones } = await getAsignacionesUsuario(session.userId, session.role);
+  const ids = [
+    ...new Set(
+      asignaciones
+        .filter((a) => a.active !== false && a.readScope && a.userId === session.userId)
+        .map((a) => a.clientId)
+        .filter((id): id is number => typeof id === "number"),
+    ),
+  ];
+  if (ids.length === 0) return { todos: false, clientIds: [], clientNames: [] };
+
+  // Resuelve solo los clientes existentes (las asignaciones son FK suaves).
+  const clientes = await prisma.client.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, name: true },
+  });
+  return {
+    todos: false,
+    clientIds: clientes.map((c) => c.id),
+    clientNames: [...new Set(clientes.map((c) => c.name))],
+  };
+});
 
 /**
  * Puente clientName → Client.id. Las entidades de negocio referencian al

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import prisma from "@/lib/prisma";
 import { authorizePermiso, requirePermiso } from "@/lib/rbac";
+import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { PageHeader, Card, StatCard, EmptyState } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { fmtNum, fmtPct } from "@/lib/format";
@@ -22,10 +23,13 @@ export default async function EstadoResultadoPage({
   await requirePermiso("balance:ver");
   const puedeVerMapeo = (await authorizePermiso("mapeo:ver")).ok;
   const sp = await searchParams;
+  // Solo la cartera del usuario alimenta el selector; el cliente/período de la
+  // URL se valida contra esa lista (sin fuga del estado de resultado ajeno).
+  const alc = await alcanceLecturaUsuario();
   // Balances oficiales con estado de resultado cargado (filtrado en memoria; pocos registros)
   const officials = (
     await prisma.balance.findMany({
-      where: { isOfficial: true },
+      where: { isOfficial: true, ...(alc.todos ? {} : { clientName: { in: alc.clientNames } }) },
       select: { clientName: true, period: true, incomeStatement: true },
       orderBy: [{ clientName: "asc" }, { period: "asc" }],
     })

@@ -1,5 +1,6 @@
 import prisma from "@/lib/prisma";
 import { requirePermiso } from "@/lib/rbac";
+import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { PageHeader } from "@/components/ui";
 import BalanceIndexClient, {
   type ClientGroup,
@@ -12,8 +13,15 @@ type AuditEntry = { date: string; actor: string; role: string; action: string; i
 
 export default async function BalancePage() {
   await requirePermiso("balance:ver");
+  // Cartera de lectura: cada usuario ve solo los balances de SUS clientes
+  // (Admin/Superadmin ven todos). Balance referencia al cliente por nombre.
+  const alc = await alcanceLecturaUsuario();
+  const whereCliente = alc.todos ? {} : { clientName: { in: alc.clientNames } };
   const [balances, standard] = await Promise.all([
-    prisma.balance.findMany({ orderBy: [{ clientName: "asc" }, { createdAt: "desc" }] }),
+    prisma.balance.findMany({
+      where: whereCliente,
+      orderBy: [{ clientName: "asc" }, { createdAt: "desc" }],
+    }),
     prisma.standardAccount.findMany({ orderBy: { code: "asc" } }),
   ]);
 

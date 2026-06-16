@@ -19,12 +19,14 @@ export default async function BalanceDetailPage({ params }: { params: Promise<{ 
   const balance = await prisma.balance.findUnique({ where: { id } });
   if (!balance) notFound();
 
-  // Editar (congelar) exige, además del permiso de rol, ALCANCE de escritura
-  // sobre el cliente de ESTE balance (cartera): así el botón se oculta para
-  // quien no podría ejecutar la acción.
-  const puedeEditar = (
-    await authorizePermiso("balance:editar", { clientId: await clientIdPorNombre(balance.clientName) })
-  ).ok;
+  // Alcance por cartera: leer este balance exige READ sobre su cliente. Quien
+  // no lo alcanza (cliente ajeno) es redirigido; Admin/Superadmin ven todo.
+  const clientId = await clientIdPorNombre(balance.clientName);
+  await requirePermiso("balance:ver", { clientId });
+
+  // Editar (congelar) exige, además, ALCANCE de escritura sobre el cliente de
+  // ESTE balance: así el botón se oculta para quien no podría ejecutar la acción.
+  const puedeEditar = (await authorizePermiso("balance:editar", { clientId })).ok;
 
   const sums = balance.sums as Sums | null;
   const validations = (balance.validations as Validation[] | null) ?? [];

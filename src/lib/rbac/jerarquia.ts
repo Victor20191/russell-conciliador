@@ -23,6 +23,17 @@ import type { Asignacion } from "./permisos";
 
 export const ROL_SOCIO = "Socio";
 
+/**
+ * Roles con ALCANCE GLOBAL sobre la cartera: administran y consultan toda la
+ * plataforma sin asignación directa por cliente. No se les aplica el filtro de
+ * cartera (ni en lectura ni en administración de clientes); el resto de roles
+ * (Socio por derivación; Gerente/Senior/Staff por asignación) sí se filtran.
+ */
+export const ROLES_ALCANCE_GLOBAL: ReadonlySet<string> = new Set([
+  "Administrador",
+  "Superadministrador",
+]);
+
 /** Funciones de responsable que se asignan por cliente. */
 export const FUNCIONES_ASIGNACION = ["staff", "senior", "gerente"] as const;
 export type FuncionAsignacion = (typeof FUNCIONES_ASIGNACION)[number];

@@ -257,6 +257,12 @@ export async function updateClient(
   const id = parseId(formData.get("id"));
   if (!id) return { ok: false, message: "Cliente inexistente." };
 
+  // Alcance por cartera: el Senior solo edita los clientes donde es responsable
+  // (modo "lectura" = membresía, pues su writeScope es false); Admin/Superadmin
+  // tienen alcance global.
+  const alcance = await authorizePermiso("clientes:editar", { clientId: id, modo: "lectura" });
+  if (!alcance.ok) return { ok: false, message: alcance.message };
+
   try {
     const current = await prisma.client.findUnique({ where: { id } });
     if (!current) return { ok: false, message: "Cliente inexistente." };
@@ -390,6 +396,10 @@ export async function deleteClient(formData: FormData): Promise<void> {
   await requirePermiso("clientes:configurar");
   const id = parseId(formData.get("id"));
   if (!id) return;
+  // Alcance por cartera: solo el responsable del cliente (Senior) o un
+  // administrador de plataforma puede eliminarlo ("configurar" infiere modo
+  // lectura = membresía).
+  await requirePermiso("clientes:configurar", { clientId: id });
   try {
     // Las asignaciones de responsables son FK suaves: se limpian a mano
     // en la misma transacción para no dejar filas huérfanas.
@@ -416,8 +426,14 @@ export async function setClientModuleStatus(formData: FormData): Promise<void> {
   await requirePermiso("clientes:configurar");
   const clientId = parseId(formData.get("clientId"));
   const moduleId = parseId(formData.get("moduleId"));
-  const next = formData.get("next") as string; // configured | pending | none
+  const next = formData.get("next");
   if (!clientId || !moduleId) return;
+  // Validación de input: solo estados conocidos. `next` va directo a la columna
+  // `estado`, así que no se confía en el valor del formulario.
+  if (next !== "configured" && next !== "pending" && next !== "none") return;
+
+  // Alcance por cartera: solo el responsable del cliente o un administrador.
+  await requirePermiso("clientes:configurar", { clientId });
 
   try {
     if (next === "none") {
@@ -429,6 +445,13 @@ export async function setClientModuleStatus(formData: FormData): Promise<void> {
         update: { status: next },
       });
     }
+    const user = await getCurrentUser();
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: "CAMBIÓ ESTADO DE MÓDULO",
+      entity: `cliente ${clientId} · módulo ${moduleId}`,
+      detail: `estado → ${next}`,
+    });
     revalidatePath(PATH);
   } catch (e) {
     registrarError("setClientModuleStatus", e);

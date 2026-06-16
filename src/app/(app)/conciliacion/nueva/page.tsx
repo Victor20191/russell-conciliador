@@ -1,12 +1,21 @@
 import prisma from "@/lib/prisma";
 import { requirePermiso } from "@/lib/rbac";
+import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { PageHeader } from "@/components/ui";
 import NuevaClient, { type ClientOpt, type ModuleOpt, type StdField } from "./nueva-client";
 
 export default async function NuevaConciliacionPage() {
   await requirePermiso("conciliaciones:crear");
+  // El selector ofrece SOLO los clientes de la cartera del usuario (el Staff,
+  // único rol que llega aquí, solo ejecuta sobre sus clientes asignados). La
+  // server action `executeReconciliation` revalida el alcance de escritura.
+  const alc = await alcanceLecturaUsuario();
   const [clients, modules, fields] = await Promise.all([
-    prisma.client.findMany({ orderBy: { name: "asc" }, include: { modules: true } }),
+    prisma.client.findMany({
+      where: alc.todos ? {} : { id: { in: alc.clientIds } },
+      orderBy: { name: "asc" },
+      include: { modules: true },
+    }),
     prisma.module.findMany({ orderBy: { name: "asc" } }),
     prisma.moduleField.findMany({ orderBy: { order: "asc" } }),
   ]);

@@ -1,7 +1,7 @@
 import { test, expect, describe } from "vitest";
 import { MATRIZ, PERMISOS, ROLES, ROLES_MATRIZ, ROLES_PDF } from "./catalogo";
 import { puedeSobreCliente, tienePermiso, type Asignacion } from "./permisos";
-import { derivarAsignacionesSocio } from "./jerarquia";
+import { derivarAsignacionesSocio, ROLES_ALCANCE_GLOBAL } from "./jerarquia";
 import {
   DEMO_USUARIOS,
   asignacionesDemo,
@@ -183,5 +183,46 @@ describe("Permisos globales (sin alcance de cliente)", () => {
 
   test("la lectura general está disponible para todos los roles del PDF", () => {
     for (const r of ROLES_PDF) expect(tienePermiso(MATRIZ, r, "conciliaciones:ver")).toBe(true);
+  });
+});
+
+describe("Administración de clientes — alcance por MEMBRESÍA (override de modo)", () => {
+  // El Senior tiene clientes:editar pero writeScope=false sobre sus clientes:
+  // por defecto (modo escritura inferido) sería denegado; con modo "lectura"
+  // (membresía) administra los clientes donde es el responsable asignado.
+  const ctx = (email: string, permiso: string, clientId: string) => ({
+    matriz: MATRIZ,
+    roleCode: rolDe(email),
+    userId: email,
+    permiso,
+    clientId,
+    asignaciones,
+  });
+
+  test("sin override, editar cliente infiere ESCRITURA y deniega al Senior (writeScope=false)", () => {
+    expect(puedeSobreCliente(ctx(SENIOR, "clientes:editar", DEMO_CLIENTE_A))).toBe(false);
+  });
+
+  test("con modo 'lectura' (membresía) el Senior administra los clientes donde es responsable", () => {
+    expect(puedeSobreCliente(ctx(SENIOR, "clientes:editar", DEMO_CLIENTE_A), "lectura")).toBe(true);
+    expect(puedeSobreCliente(ctx(SENIOR, "clientes:editar", DEMO_CLIENTE_B), "lectura")).toBe(true);
+  });
+
+  test("el override NO concede acceso fuera de la cartera del Senior", () => {
+    expect(puedeSobreCliente(ctx(SENIOR, "clientes:editar", DEMO_CLIENTE_FUERA), "lectura")).toBe(false);
+  });
+
+  test("el override de lectura no salta el permiso de rol (un Staff no administra clientes)", () => {
+    expect(puedeSobreCliente(ctx(STAFF1, "clientes:editar", DEMO_CLIENTE_A), "lectura")).toBe(false);
+  });
+});
+
+describe("Roles de alcance global (no se filtran por cartera)", () => {
+  test("son exactamente Administrador y Superadministrador", () => {
+    expect(ROLES_ALCANCE_GLOBAL.has("Administrador")).toBe(true);
+    expect(ROLES_ALCANCE_GLOBAL.has("Superadministrador")).toBe(true);
+    for (const r of ["Socio", "Gerente", "Senior", "Staff"]) {
+      expect(ROLES_ALCANCE_GLOBAL.has(r)).toBe(false);
+    }
   });
 });

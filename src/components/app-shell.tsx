@@ -37,7 +37,7 @@ export default function AppShell({
   }
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex h-dvh min-h-dvh overflow-hidden overscroll-none">
       <Sidebar
         user={user}
         permisos={permisos}
@@ -46,12 +46,14 @@ export default function AppShell({
         mobileOpen={mobileNavOpen}
         onCloseMobile={() => setMobileNavOpen(false)}
       />
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <Topbar
           notifications={notifications}
           onOpenMobileNav={() => setMobileNavOpen(true)}
         />
-        <main className="flex-1 p-4 sm:p-6">{children}</main>
+        <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6">
+          {children}
+        </main>
       </div>
     </div>
   );

@@ -21,13 +21,14 @@ export default async function CruceDetailPage({ params }: { params: Promise<{ id
   });
   if (!rec) notFound();
 
-  // Editar exige, además del permiso de rol, ALCANCE de escritura sobre el
-  // cliente de ESTE cruce (cartera): los controles se ocultan fuera de ella.
-  const puedeEditar = (
-    await authorizePermiso("conciliaciones:editar", {
-      clientId: rec.clientId ?? (await clientIdPorNombre(rec.clientName)),
-    })
-  ).ok;
+  // Alcance por cartera: leer este cruce exige READ sobre su cliente. Quien no
+  // lo alcanza (cliente ajeno) es redirigido; Admin/Superadmin ven todo.
+  const clientId = rec.clientId ?? (await clientIdPorNombre(rec.clientName));
+  await requirePermiso("conciliaciones:ver", { clientId });
+
+  // Editar exige, además, ALCANCE de escritura sobre el cliente de ESTE cruce:
+  // los controles se ocultan fuera de ella.
+  const puedeEditar = (await authorizePermiso("conciliaciones:editar", { clientId })).ok;
 
   const rows: Row[] = rec.rows.map((r) => ({ id: r.id, cuenta: r.cuenta, desc: r.desc, cont: r.cont, mod: r.mod, diff: r.diff, items: r.items, manualStatus: r.manualStatus }));
   const comments: Comment[] = rec.comments.map((c) => ({ id: c.id, cuenta: c.cuenta, who: c.who, initials: c.initials, text: c.text, time: c.time }));

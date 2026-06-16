@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { requirePermiso } from "@/lib/rbac";
+import { clientIdPorNombre } from "@/lib/rbac/contexto";
 import { PageHeader, StatCard, BackLink } from "@/components/ui";
 import { fmtCompact } from "@/lib/format";
 import BalanceDiffClient, { type DiffData } from "./balance-diff-client";
@@ -13,6 +14,9 @@ export default async function BalanceDiffPage({ params }: { params: Promise<{ id
   if (!id) notFound();
   const balance = await prisma.balance.findUnique({ where: { id } });
   if (!balance || balance.diff == null) notFound();
+
+  // Alcance por cartera: leer este balance exige READ sobre su cliente.
+  await requirePermiso("balance:ver", { clientId: await clientIdPorNombre(balance.clientName) });
 
   const diff = balance.diff as DiffData;
 

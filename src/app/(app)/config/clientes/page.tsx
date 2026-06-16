@@ -8,13 +8,19 @@ import ClientesClient, {
   type Arista,
 } from "./clientes-client";
 import { requirePermiso } from "@/lib/rbac";
+import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { nextClientCode } from "@/lib/client-code";
 import { ROL_POR_FUNCION } from "@/lib/rbac/jerarquia";
 
 export default async function ClientesPage() {
   await requirePermiso("clientes:configurar");
+  // Cartera administrable: el Senior solo gestiona los clientes donde es
+  // responsable; Admin/Superadmin administran todos.
+  const alc = await alcanceLecturaUsuario();
+  const whereCliente = alc.todos ? {} : { id: { in: alc.clientIds } };
   const [clients, modules, dianFormsBD, usuarios, aristasBD, asignaciones] = await Promise.all([
     prisma.client.findMany({
+      where: whereCliente,
       orderBy: { name: "asc" },
       include: { modules: true, dianForms: true },
     }),
@@ -31,7 +37,7 @@ export default async function ClientesPage() {
       select: { superiorId: true, subordinateId: true },
     }),
     prisma.clientAssignment.findMany({
-      where: { active: true },
+      where: { active: true, ...(alc.todos ? {} : { clientId: { in: alc.clientIds } }) },
       select: { clientId: true, userId: true, role: true },
     }),
   ]);

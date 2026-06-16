@@ -1,6 +1,7 @@
 import Link from "next/link";
 import prisma from "@/lib/prisma";
 import { requirePermiso } from "@/lib/rbac";
+import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { PageHeader, Card, Chip } from "@/components/ui";
 import { Icon } from "@/components/icons";
 
@@ -11,8 +12,13 @@ const PROCESS_LABEL: Record<string, { label: string; tone: "warn" | "err" }> = {
 
 export default async function EnProcesoPage() {
   await requirePermiso("conciliaciones:ver");
+  // Cartera de lectura: solo los cruces de SUS clientes (Admin/Superadmin todos).
+  const alc = await alcanceLecturaUsuario();
   const recs = await prisma.reconciliation.findMany({
-    where: { status: { in: ["DIFF", "REVIEW"] } },
+    where: {
+      status: { in: ["DIFF", "REVIEW"] },
+      ...(alc.todos ? {} : { clientId: { in: alc.clientIds } }),
+    },
     orderBy: { createdAt: "desc" },
   });
 

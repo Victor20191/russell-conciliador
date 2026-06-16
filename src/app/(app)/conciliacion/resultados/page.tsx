@@ -1,13 +1,19 @@
 import Link from "next/link";
 import prisma from "@/lib/prisma";
 import { requirePermiso } from "@/lib/rbac";
+import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { PageHeader, Card } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { statusChip } from "@/lib/format";
 
 export default async function ResultadosPage() {
   await requirePermiso("conciliaciones:ver");
+  // Cartera de lectura: cada usuario ve solo los cruces de SUS clientes
+  // (Admin/Superadmin ven todos). Filtra por la FK clientId (fail-closed:
+  // un cruce sin clientId no se muestra a usuarios con cartera).
+  const alc = await alcanceLecturaUsuario();
   const recs = await prisma.reconciliation.findMany({
+    where: alc.todos ? {} : { clientId: { in: alc.clientIds } },
     orderBy: { createdAt: "desc" },
   });
 

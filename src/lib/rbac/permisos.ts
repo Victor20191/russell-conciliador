@@ -83,10 +83,17 @@ export type ContextoCliente = {
 /**
  * Decisión combinada para una acción sobre un cliente:
  *   (el rol tiene el permiso)  AND  (el usuario tiene el alcance sobre el cliente)
- * El modo (lectura/escritura) se infiere de la acción del permiso.
+ * El modo (lectura/escritura) se infiere de la acción del permiso, salvo que se
+ * fuerce con `modoOverride`. El override sirve para validar MEMBRESÍA (ser
+ * responsable = readScope) en la administración de clientes, donde el rol que
+ * tiene el permiso (Senior) administra sus clientes con writeScope=false.
  */
-export function puedeSobreCliente(ctx: ContextoCliente): boolean {
+export function puedeSobreCliente(
+  ctx: ContextoCliente,
+  modoOverride?: "lectura" | "escritura",
+): boolean {
   if (!tienePermiso(ctx.matriz, ctx.roleCode, ctx.permiso)) return false;
-  const modo = ACCIONES_ESCRITURA.has(accionDe(ctx.permiso)) ? "escritura" : "lectura";
+  const modo =
+    modoOverride ?? (ACCIONES_ESCRITURA.has(accionDe(ctx.permiso)) ? "escritura" : "lectura");
   return alcanzaCliente(ctx.asignaciones, ctx.userId, ctx.clientId, modo);
 }
