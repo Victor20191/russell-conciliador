@@ -294,10 +294,6 @@ async function main() {
       { periodKey: "2026-07", label: "Julio 2026", status: "DIFF", filed: "08/Ago/2026" },
       { periodKey: "2026-06", label: "Junio 2026", status: "OK", filed: "08/Jul/2026" },
     ] },
-    { key: "SALUDABLE", name: "Impuesto Saludable", code: "F-310", periodicity: "Mensual", icon: "chip", periods: [
-      { periodKey: "2026-10", label: "Octubre 2026", status: "PEND", filed: null },
-      { periodKey: "2026-09", label: "Septiembre 2026", status: "OK", filed: "18/Oct/2026" },
-    ] },
     { key: "ICA", name: "ICA Bogotá", code: "F-CHIP", periodicity: "Bimestral", icon: "chart", periods: [
       { periodKey: "2026-B5", label: "Bimestre 5 · Sep-Oct 2026", status: "PEND", filed: null },
     ] },
