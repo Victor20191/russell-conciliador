@@ -192,7 +192,10 @@ model ClientAssignment {
   createdAt    DateTime  @default(now()) @map("creado_en")
   updatedAt    DateTime  @updatedAt @map("actualizado_en")
 
-  @@unique([clientId, role]) // 1 responsable por función por cliente
+  // (cliente, función, usuario): un cliente admite VARIOS staff distintos,
+  // sin poder duplicar a la misma persona en la misma función. La regla de
+  // "un solo senior y un solo gerente" se garantiza en la Server Action.
+  @@unique([clientId, role, userId])
   @@index([clientId])
   @@index([userId, active, validUntil])
   @@map("asignaciones_cliente")

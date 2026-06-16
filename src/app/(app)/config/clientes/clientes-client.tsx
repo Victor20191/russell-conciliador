@@ -192,7 +192,11 @@ export default function ClientesClient({
 }
 
 function ResponsablesCell({ responsables }: { responsables: ClientRow["responsables"] }) {
-  if (responsables.length < 3) {
+  // Completo = las tres funciones cubiertas (con uno o varios staff).
+  const funciones = new Set(responsables.map((r) => r.funcion));
+  const completo =
+    funciones.has("staff") && funciones.has("senior") && funciones.has("gerente");
+  if (!completo) {
     return (
       <span className="inline-flex items-center rounded-full bg-warn-100 px-2 py-0.5 text-[10px] font-semibold text-warn-700">
         Sin asignar
@@ -207,7 +211,7 @@ function ResponsablesCell({ responsables }: { responsables: ClientRow["responsab
   return (
     <span className="text-[11.5px] text-ink-600">
       {lista.map((r, i) => (
-        <span key={r.funcion} title={`${r.funcion}: ${r.name}`}>
+        <span key={`${r.funcion}-${r.userId}`} title={`${r.funcion}: ${r.name}`}>
           {i > 0 && " · "}
           <span className="font-semibold text-ink-400">{etiqueta[r.funcion] ?? r.funcion}</span>{" "}
           {r.name}
@@ -279,7 +283,11 @@ function ClientModal({
     client?.responsables.find((r) => r.funcion === funcion)?.userId ?? "";
   const [gerenteId, setGerenteId] = useState<number | "">(() => respDe("gerente"));
   const [seniorId, setSeniorId] = useState<number | "">(() => respDe("senior"));
-  const [staffId, setStaffId] = useState<number | "">(() => respDe("staff"));
+  const [staffIds, setStaffIds] = useState<number[]>(() =>
+    (client?.responsables ?? [])
+      .filter((r) => r.funcion === "staff")
+      .map((r) => r.userId),
+  );
 
   const esSubordinado = (superiorId: number | "", subordinadoId: number) =>
     superiorId !== "" &&
@@ -302,19 +310,38 @@ function ClientModal({
           ),
     [seniorId, personas.staffs, aristas],
   );
+  // Staff aún elegibles para agregar (reportan al senior y no están ya puestos).
+  const staffDisponibles = staffsDelSenior.filter((s) => !staffIds.includes(s.id));
+  // Nombres de los staff ya seleccionados (incluye los heredados de la edición).
+  const nombreStaffPorId = useMemo(() => {
+    const m = new Map<number, string>();
+    personas.staffs.forEach((s) => m.set(s.id, s.name));
+    (client?.responsables ?? [])
+      .filter((r) => r.funcion === "staff")
+      .forEach((r) => m.set(r.userId, r.name));
+    return m;
+  }, [personas.staffs, client]);
 
   function cambiarGerente(value: string) {
     const id = value ? Number(value) : "";
     setGerenteId(id);
     if (seniorId !== "" && !esSubordinado(id, seniorId)) {
       setSeniorId("");
-      setStaffId("");
+      setStaffIds([]);
     }
   }
   function cambiarSenior(value: string) {
     const id = value ? Number(value) : "";
     setSeniorId(id);
-    if (staffId !== "" && !esSubordinado(id, staffId)) setStaffId("");
+    // Conserva solo los staff que reportan al nuevo senior.
+    setStaffIds((prev) => prev.filter((sid) => esSubordinado(id, sid)));
+  }
+  function agregarStaff(value: string) {
+    const sid = value ? Number(value) : 0;
+    if (sid) setStaffIds((prev) => (prev.includes(sid) ? prev : [...prev, sid]));
+  }
+  function quitarStaff(sid: number) {
+    setStaffIds((prev) => prev.filter((x) => x !== sid));
   }
 
   function toggleModule(moduleId: number) {
@@ -449,13 +476,40 @@ function ClientModal({
                 ))}
               </select>
             </CField>
-            <CField label="Staff (ejecuta)" error={state?.errors?.staffId}>
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[11.5px] font-medium text-ink-600">
+                Staff (ejecuta) — uno o varios
+              </span>
+              {staffIds.length > 0 && (
+                <div className="flex flex-col gap-1.5">
+                  {staffIds.map((sid) => (
+                    <div
+                      key={sid}
+                      className="flex items-center justify-between gap-2 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12.5px] text-ink-800"
+                    >
+                      <span className="truncate">
+                        {nombreStaffPorId.get(sid) ?? `Usuario ${sid}`}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => quitarStaff(sid)}
+                        title="Quitar staff"
+                        className="rounded p-0.5 text-ink-400 transition hover:bg-ink-100 hover:text-err-600"
+                      >
+                        <Icon name="x" size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {/* Envío del arreglo: un input oculto por cada staff elegido. */}
+              {staffIds.map((sid) => (
+                <input key={sid} type="hidden" name="staffIds" value={sid} />
+              ))}
               <select
-                name="staffId"
-                required
-                value={staffId}
-                onChange={(e) => setStaffId(e.target.value ? Number(e.target.value) : "")}
-                disabled={seniorId === ""}
+                value=""
+                onChange={(e) => agregarStaff(e.target.value)}
+                disabled={seniorId === "" || staffDisponibles.length === 0}
                 className="w-full rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400 disabled:cursor-not-allowed disabled:bg-ink-50 disabled:text-ink-400"
               >
                 <option value="">
@@ -463,13 +517,18 @@ function ClientModal({
                     ? "Primero selecciona el senior"
                     : staffsDelSenior.length === 0
                       ? "El senior no tiene staff a cargo"
-                      : "Selecciona el staff…"}
+                      : staffDisponibles.length === 0
+                        ? "Todos los staff ya están agregados"
+                        : "Agregar staff…"}
                 </option>
-                {staffsDelSenior.map((p) => (
+                {staffDisponibles.map((p) => (
                   <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
               </select>
-            </CField>
+              {state?.errors?.staffIds && (
+                <span className="text-[11px] text-err-700">{state.errors.staffIds[0]}</span>
+              )}
+            </div>
           </div>
         </div>
 

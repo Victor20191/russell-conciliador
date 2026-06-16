@@ -9,7 +9,7 @@ import { ClientSchema, ClientResponsablesSchema, type ActionState } from "@/lib/
 import { parseId } from "@/lib/ids";
 import { nextClientCode } from "@/lib/client-code";
 import { requirePermiso, authorizePermiso } from "@/lib/rbac";
-import { ROL_POR_FUNCION, type FuncionAsignacion } from "@/lib/rbac/jerarquia";
+import { ROL_POR_FUNCION } from "@/lib/rbac/jerarquia";
 import { mensajeErrorBD, registrarError } from "@/lib/errores";
 
 const PATH = "/config/clientes";
@@ -32,22 +32,23 @@ async function moduleIdsExist(moduleIds: number[]): Promise<boolean> {
   return existingModules.length === moduleIds.length;
 }
 
-type Responsables = { gerenteId: number; seniorId: number; staffId: number };
+type Responsables = { gerenteId: number; seniorId: number; staffIds: number[] };
 type ResponsablesValidados =
-  | { ok: true; nombres: Record<FuncionAsignacion, string> }
+  | { ok: true; nombres: { gerente: string; senior: string; staffs: string[] } }
   | { ok: false; message: string };
 
 /**
- * Valida los 3 responsables del cliente: existen, están activos, tienen el
- * rol exacto de su función y respetan la jerarquía organizacional (el senior
- * reporta al gerente y el staff reporta al senior).
+ * Valida los responsables del cliente: existen, están activos, tienen el rol
+ * exacto de su función y respetan la jerarquía organizacional (el senior
+ * reporta al gerente y CADA staff reporta al senior). Admite uno o varios
+ * staff; el senior y el gerente son uno cada uno.
  */
 async function validarResponsables({
   gerenteId,
   seniorId,
-  staffId,
+  staffIds,
 }: Responsables): Promise<ResponsablesValidados> {
-  const ids = [gerenteId, seniorId, staffId];
+  const ids = [gerenteId, seniorId, ...staffIds];
   if (new Set(ids).size !== ids.length) {
     return { ok: false, message: "Los responsables deben ser personas distintas." };
   }
@@ -58,13 +59,13 @@ async function validarResponsables({
   });
   const porId = new Map(usuarios.map((u) => [u.id, u]));
 
-  const esperados: { funcion: FuncionAsignacion; id: number }[] = [
+  // Gerente y senior: uno cada uno, con su rol exacto.
+  const unico: { funcion: "gerente" | "senior"; id: number }[] = [
     { funcion: "gerente", id: gerenteId },
     { funcion: "senior", id: seniorId },
-    { funcion: "staff", id: staffId },
   ];
-  const nombres = {} as Record<FuncionAsignacion, string>;
-  for (const { funcion, id } of esperados) {
+  const nombres = { gerente: "", senior: "", staffs: [] as string[] };
+  for (const { funcion, id } of unico) {
     const u = porId.get(id);
     const rolEsperado = ROL_POR_FUNCION[funcion];
     if (!u || !u.active || u.role !== rolEsperado) {
@@ -76,21 +77,31 @@ async function validarResponsables({
     nombres[funcion] = u.name;
   }
 
-  const [seniorDelGerente, staffDelSenior] = await Promise.all([
+  // Staff: uno o varios, todos con rol Staff activo.
+  for (const staffId of staffIds) {
+    const u = porId.get(staffId);
+    if (!u || !u.active || u.role !== ROL_POR_FUNCION.staff) {
+      return { ok: false, message: "Uno de los staff seleccionados no es un Staff activo." };
+    }
+    nombres.staffs.push(u.name);
+  }
+
+  // Jerarquía: el senior reporta al gerente y cada staff reporta al senior.
+  const [seniorDelGerente, staffsDelSenior] = await Promise.all([
     prisma.userHierarchy.findFirst({
       where: { superiorId: gerenteId, subordinateId: seniorId },
       select: { id: true },
     }),
-    prisma.userHierarchy.findFirst({
-      where: { superiorId: seniorId, subordinateId: staffId },
-      select: { id: true },
+    prisma.userHierarchy.findMany({
+      where: { superiorId: seniorId, subordinateId: { in: staffIds } },
+      select: { subordinateId: true },
     }),
   ]);
   if (!seniorDelGerente) {
     return { ok: false, message: "El senior no reporta al gerente seleccionado." };
   }
-  if (!staffDelSenior) {
-    return { ok: false, message: "El staff no reporta al senior seleccionado." };
+  if (staffsDelSenior.length !== staffIds.length) {
+    return { ok: false, message: "Uno de los staff no reporta al senior seleccionado." };
   }
 
   return { ok: true, nombres };
@@ -100,17 +111,22 @@ function parseResponsables(formData: FormData) {
   return ClientResponsablesSchema.safeParse({
     gerenteId: formData.get("gerenteId"),
     seniorId: formData.get("seniorId"),
-    staffId: formData.get("staffId"),
+    staffIds: formData.getAll("staffIds").filter((v) => v !== ""),
   });
 }
 
-/** Filas de asignación por función para el cliente (staff: única con escritura). */
-function filasResponsables({ gerenteId, seniorId, staffId }: Responsables) {
+/** Filas de asignación para el cliente: cada staff ejecuta (escritura); el
+ *  senior y el gerente solo consultan (lectura). */
+function filasResponsables({
+  gerenteId,
+  seniorId,
+  staffIds,
+}: Responsables): { userId: number; role: string; writeScope: boolean }[] {
   return [
-    { userId: staffId, role: "staff", writeScope: true },
+    ...staffIds.map((userId) => ({ userId, role: "staff", writeScope: true })),
     { userId: seniorId, role: "senior", writeScope: false },
     { userId: gerenteId, role: "gerente", writeScope: false },
-  ] as const;
+  ];
 }
 
 export async function createClient(
@@ -185,7 +201,7 @@ export async function createClient(
       user: user?.name ?? "Sistema",
       action: "CREÓ CLIENTE",
       entity: data.code,
-      detail: `${data.name} · ${data.nit} · staff ${validados.nombres.staff} / senior ${validados.nombres.senior} / gerente ${validados.nombres.gerente}`,
+      detail: `${data.name} · ${data.nit} · staff ${validados.nombres.staffs.join(", ")} / senior ${validados.nombres.senior} / gerente ${validados.nombres.gerente}`,
     });
     revalidatePath(PATH);
     return { ok: true };
@@ -246,11 +262,16 @@ export async function updateClient(
     await prisma.$transaction(async (tx) => {
       await tx.client.update({ where: { id }, data: { name, nit, erp, sector } });
 
-      // Upsert por función: si el responsable no cambia se conserva su
-      // vigencia (validFrom); si cambia, la fila pasa al nuevo usuario.
-      for (const r of filasResponsables(responsables.data)) {
+      // Sincroniza los responsables conservando la vigencia de los que siguen:
+      // el upsert por (cliente, función, usuario) reactiva o crea cada
+      // responsable actual, y el deleteMany retira las filas que ya no
+      // corresponden (gerente/senior reemplazados o staff removidos).
+      const filas = filasResponsables(responsables.data);
+      for (const r of filas) {
         await tx.clientAssignment.upsert({
-          where: { clientId_role: { clientId: id, role: r.role } },
+          where: {
+            clientId_role_userId: { clientId: id, role: r.role, userId: r.userId },
+          },
           create: {
             clientId: id,
             userId: r.userId,
@@ -259,9 +280,15 @@ export async function updateClient(
             writeScope: r.writeScope,
             assignedById: authz.userId,
           },
-          update: { userId: r.userId, active: true, assignedById: authz.userId },
+          update: { active: true, writeScope: r.writeScope, assignedById: authz.userId },
         });
       }
+      await tx.clientAssignment.deleteMany({
+        where: {
+          clientId: id,
+          NOT: { OR: filas.map((r) => ({ role: r.role, userId: r.userId })) },
+        },
+      });
 
       if (moduleIds == null) return;
 
@@ -285,7 +312,7 @@ export async function updateClient(
       user: user?.name ?? "Sistema",
       action: "ACTUALIZÓ CLIENTE",
       entity: current.code,
-      detail: `${name} · ${nit} · staff ${validados.nombres.staff} / senior ${validados.nombres.senior} / gerente ${validados.nombres.gerente}${moduleIds != null ? ` · módulos asignados: ${moduleIds.length}` : ""}`,
+      detail: `${name} · ${nit} · staff ${validados.nombres.staffs.join(", ")} / senior ${validados.nombres.senior} / gerente ${validados.nombres.gerente}${moduleIds != null ? ` · módulos asignados: ${moduleIds.length}` : ""}`,
     });
     revalidatePath(PATH);
     return { ok: true };
