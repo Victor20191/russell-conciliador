@@ -36,7 +36,10 @@ export default function RootLayout({
       lang="es"
       className={`${ibmPlexSans.variable} ${ibmPlexMono.variable} ${newsreader.variable}`}
     >
-      <body>{children}</body>
+      {/* suppressHydrationWarning: extensiones del navegador (ColorZilla → cz-shortcut-listen,
+          Grammarly → data-gr-*, etc.) inyectan atributos en <body> antes de que React
+          hidrate. Solo silencia el aviso de atributos de ESTE nodo, no de su contenido. */}
+      <body suppressHydrationWarning>{children}</body>
     </html>
   );
 }

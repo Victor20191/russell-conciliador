@@ -324,18 +324,18 @@ function ClientModal({
 }) {
   const [state, formAction, pending] = useActionState<ActionState, FormData>(action, {});
   const isEdit = client != null;
-  // Los módulos nunca se preseleccionan al crear: la asignación es una decisión
-  // explícita del usuario. Al editar se marcan solo los ya asignados en BD.
+  // Por defecto, un cliente nuevo trae TODOS los módulos activos (se pueden
+  // deseleccionar). Al editar se marcan solo los ya asignados en BD.
   const [selectedModuleIds, setSelectedModuleIds] = useState<number[]>(
-    () => (isEdit ? client.modules.map((module) => module.moduleId) : []),
+    () => (isEdit ? client.modules.map((module) => module.moduleId) : (modules ?? []).map((m) => m.id)),
   );
-  // DIAN vive DENTRO de "Módulos del cliente": activarlo equivale a tener al
-  // menos un formato seleccionado. Al editar se precargan los formatos activos.
+  // DIAN vive DENTRO de "Módulos del cliente". Por defecto, un cliente nuevo
+  // trae DIAN activo con todos sus formatos. Al editar se precargan los activos.
   const [dianActive, setDianActive] = useState<boolean>(
-    () => (isEdit ? client.dianFormIds.length > 0 : false),
+    () => (isEdit ? client.dianFormIds.length > 0 : dianForms.length > 0),
   );
   const [selectedDianFormIds, setSelectedDianFormIds] = useState<number[]>(
-    () => (isEdit ? client.dianFormIds : []),
+    () => (isEdit ? client.dianFormIds : dianForms.map((f) => f.id)),
   );
 
   // Responsables en CASCADA por jerarquía: el gerente acota los seniors

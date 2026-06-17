@@ -92,7 +92,8 @@ pasos = [
     "2.  Las columnas marcadas con * son obligatorias (fondo ámbar). El resto es opcional (fondo gris).",
     "3.  El «Código» (C-####) NO se captura: la plataforma lo asigna automáticamente al importar.",
     "4.  «Tipo de cliente» es A, B o C (lista desplegable).",
-    "5.  ERP, Sector, Socio, Gerente y Senior tienen lista desplegable. Para módulos y DIAN elige «Sí» o «No» (vacío = No).",
+    "5.  ERP, Sector, Socio, Gerente y Senior tienen lista desplegable.",
+    "5b. Módulos y DIAN: déjalos EN BLANCO para activar TODOS por defecto. Marca «Sí»/«No» solo si quieres elegir cuáles.",
     "6.  «Staff (ejecuta)» admite uno o varios: escribe los nombres separados por punto y coma «;».",
     "7.  El Socio (firma) se registra como dato informativo: elige cualquier Socio activo (no condiciona al Gerente).",
     "8.  Cascada de equipo: el Senior debe reportar al Gerente y cada Staff al Senior (ver tabla abajo).",
@@ -135,8 +136,8 @@ ref = [
     ("Gerente (valida)", "Un Gerente activo. Solo de la lista desplegable.", "Sí"),
     ("Senior (revisa)", "Un Senior activo que reporte al Gerente elegido.", "Sí"),
     ("Staff (ejecuta)", "Uno o varios Staff que reporten al Senior, separados por «;».", "Sí"),
-    ("Módulos (6 columnas)", "Activos fijos, Cartera, Cuentas por pagar, Ingresos, Inventarios, Nómina. Sí/No.", "No"),
-    ("DIAN (3 columnas)", "IVA (F-300), Retención en la fuente (F-350), ICA (F-CHIP). Sí/No.", "No"),
+    ("Módulos (6 columnas)", "Activos fijos, Cartera, Cuentas por pagar, Ingresos, Inventarios, Nómina. En blanco = TODOS; «Sí» activa, «No» excluye.", "No"),
+    ("DIAN (3 columnas)", "IVA (F-300), Retención en la fuente (F-350), ICA (F-CHIP). En blanco = TODOS; «Sí» activa, «No» excluye.", "No"),
 ]
 for nombre_col, regla, obl in ref:
     ws.merge_cells(f"C{r}:D{r}")

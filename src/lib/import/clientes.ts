@@ -24,6 +24,10 @@ export type FilaCliente = {
   staff: string[]; // nombres (uno o varios)
   modulos: string[]; // nombres de módulos marcados «Sí»
   dianCodes: string[]; // códigos DIAN (F-300…) marcados «Sí»
+  // Bloque SIN ningún valor (ni «Sí» ni «No»): la Server Action lo interpreta
+  // como «activar todos» por defecto. Un «No» explícito NO deja el bloque en blanco.
+  modulosEnBlanco: boolean;
+  dianEnBlanco: boolean;
 };
 
 export type ParseClientes = { filas: FilaCliente[]; errores: ErrorImport[] };
@@ -138,13 +142,19 @@ export async function parseClientesWorkbook(data: ArrayBuffer | Buffer): Promise
 
     const modulos = modCols.filter((m) => esSi(val(row, m.col))).map((m) => m.name);
     const dianCodes = dianCols.filter((d) => esSi(val(row, d.col))).map((d) => d.code);
+    // Bloque en blanco = ninguna celda con texto (ni «Sí» ni «No»).
+    const modulosEnBlanco = modCols.every((m) => val(row, m.col) === "");
+    const dianEnBlanco = dianCols.every((d) => val(row, d.col) === "");
 
     if (errs.length > 0) {
       for (const m of errs) errores.push({ hoja: HOJA, fila: r, mensaje: m });
       continue;
     }
 
-    filas.push({ fila: r, name, nit, tipo, erp, sector, socio, gerente, senior, staff, modulos, dianCodes });
+    filas.push({
+      fila: r, name, nit, tipo, erp, sector, socio, gerente, senior, staff,
+      modulos, dianCodes, modulosEnBlanco, dianEnBlanco,
+    });
   }
 
   return { filas, errores };

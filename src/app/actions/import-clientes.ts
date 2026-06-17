@@ -89,6 +89,10 @@ export async function importarClientes(
     };
     const moduloId = new Map(modulos.map((m) => [normalizar(m.name), m.id]));
     const dianId = new Map(dianForms.map((d) => [d.code.toUpperCase(), d.id]));
+    // Por defecto, un cliente trae TODOS los módulos y formatos DIAN: si la fila
+    // deja el bloque en blanco, se activan todos.
+    const todosModuleIds = modulos.map((m) => m.id);
+    const todosDianIds = dianForms.map((d) => d.id);
     const edges = new Set(aristasBD.map((a) => `${a.superiorId}:${a.subordinateId}`));
     const nitsExistentes = new Set(clientes.map((c) => c.nit));
 
@@ -133,18 +137,29 @@ export async function importarClientes(
       const ids = [gerente.id, senior.id, ...staffIds].filter((x): x is number => x != null);
       if (new Set(ids).size !== ids.length) push("Los responsables deben ser personas distintas.");
 
-      // Módulos y formatos DIAN.
-      const moduleIds: number[] = [];
-      for (const nombre of f.modulos) {
-        const id = moduloId.get(normalizar(nombre));
-        if (!id) push(`Módulo desconocido: «${nombre}».`);
-        else moduleIds.push(id);
+      // Módulos y formatos DIAN. Bloque en blanco ⇒ todos por defecto; si la
+      // fila marca algo (Sí/No), se respeta exactamente lo marcado con «Sí».
+      let moduleIds: number[];
+      if (f.modulosEnBlanco) {
+        moduleIds = todosModuleIds;
+      } else {
+        moduleIds = [];
+        for (const nombre of f.modulos) {
+          const id = moduloId.get(normalizar(nombre));
+          if (!id) push(`Módulo desconocido: «${nombre}».`);
+          else moduleIds.push(id);
+        }
       }
-      const dianFormIds: number[] = [];
-      for (const code of f.dianCodes) {
-        const id = dianId.get(code.toUpperCase());
-        if (!id) push(`Formato DIAN desconocido: «${code}».`);
-        else dianFormIds.push(id);
+      let dianFormIds: number[];
+      if (f.dianEnBlanco) {
+        dianFormIds = todosDianIds;
+      } else {
+        dianFormIds = [];
+        for (const code of f.dianCodes) {
+          const id = dianId.get(code.toUpperCase());
+          if (!id) push(`Formato DIAN desconocido: «${code}».`);
+          else dianFormIds.push(id);
+        }
       }
 
       if (errs.length > 0) {

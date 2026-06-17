@@ -43,3 +43,10 @@ next-env.d.ts
 # Prisma generated client
 /src/generated/prisma
 .smoke-*.png
+
+# hojas de cálculo, scripts Python y texto
+*.xlsx
+*.xls
+*.xlsm
+*.py
+*.txt

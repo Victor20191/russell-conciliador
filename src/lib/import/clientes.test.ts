@@ -48,6 +48,35 @@ test("parsea cliente con responsables, módulos y DIAN", async () => {
   expect(f.staff).toEqual(["Demo Staff Uno", "Demo Staff Dos"]);
   expect(f.modulos.sort()).toEqual(["Cartera", "Cuentas por pagar", "Ingresos"]);
   expect(f.dianCodes).toEqual(["F-300", "F-350"]);
+  // La fila marca Sí/No, así que los bloques NO están en blanco.
+  expect(f.modulosEnBlanco).toBe(false);
+  expect(f.dianEnBlanco).toBe(false);
+});
+
+test("bloque de módulos/DIAN en blanco activa las banderas (→ todos por defecto)", async () => {
+  const buf = await construir([
+    // Solo datos + responsables; módulos y DIAN en blanco.
+    ["Acme", "800", "C", "SAP", "Industria", "Demo Socio", "Demo Gerente", "Demo Senior", "Demo Staff Uno"],
+  ]);
+  const { filas, errores } = await parseClientesWorkbook(buf);
+  expect(errores).toEqual([]);
+  expect(filas[0].modulos).toEqual([]);
+  expect(filas[0].dianCodes).toEqual([]);
+  expect(filas[0].modulosEnBlanco).toBe(true);
+  expect(filas[0].dianEnBlanco).toBe(true);
+});
+
+test("«No» explícito NO deja el bloque en blanco (excluye, no activa todos)", async () => {
+  const buf = await construir([
+    [
+      "Beta", "801", "A", "SAP", "Industria", "Demo Socio", "Demo Gerente", "Demo Senior", "Demo Staff Uno",
+      "No", "No", "No", "No", "No", "No", "No", "No", "No",
+    ],
+  ]);
+  const { filas } = await parseClientesWorkbook(buf);
+  expect(filas[0].modulos).toEqual([]);
+  expect(filas[0].modulosEnBlanco).toBe(false);
+  expect(filas[0].dianEnBlanco).toBe(false);
 });
 
 test("omite filas de ejemplo y vacías", async () => {
