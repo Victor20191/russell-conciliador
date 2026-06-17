@@ -207,13 +207,16 @@ model Client {
   code            String           @unique @map("codigo") // p.ej. C-1042
   name            String           @map("nombre")
   nit             String           @map("nit")
+  tipo            String           @default("C") @map("tipo_cliente") // clasificación A | B | C
   erp             String           @map("erp")
   sector          String           @map("sector")
+  socioId         Int?             @map("socio_id") // socio responsable (FK lógica a User.id, informativo)
   modules         ClientModule[]
   dianForms       ClientDianForm[]
   reconciliations Reconciliation[]
   createdAt       DateTime         @default(now()) @map("creado_en")
 
+  @@index([socioId])
   @@map("clientes")
 }
 

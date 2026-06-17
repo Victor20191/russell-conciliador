@@ -10,7 +10,7 @@ import ClientesClient, {
 import { requirePermiso } from "@/lib/rbac";
 import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { nextClientCode } from "@/lib/client-code";
-import { ROL_POR_FUNCION } from "@/lib/rbac/jerarquia";
+import { ROL_POR_FUNCION, ROL_SOCIO } from "@/lib/rbac/jerarquia";
 
 export default async function ClientesPage() {
   await requirePermiso("clientes:configurar");
@@ -51,6 +51,7 @@ export default async function ClientesPage() {
       .filter((u) => u.active && u.role === rol)
       .map((u) => ({ id: u.id, name: u.name }));
   const personas: Personas = {
+    socios: activosDeRol(ROL_SOCIO),
     gerentes: activosDeRol(ROL_POR_FUNCION.gerente),
     seniors: activosDeRol(ROL_POR_FUNCION.senior),
     staffs: activosDeRol(ROL_POR_FUNCION.staff),
@@ -76,8 +77,11 @@ export default async function ClientesPage() {
     code: c.code,
     name: c.name,
     nit: c.nit,
+    tipo: c.tipo,
     erp: c.erp,
     sector: c.sector,
+    socioId: c.socioId,
+    socioName: c.socioId != null ? (nombrePorId.get(c.socioId) ?? null) : null,
     modules: c.modules.map((m) => ({ moduleId: m.moduleId, status: m.status })),
     dianFormIds: c.dianForms.map((f) => f.formId),
     responsables: responsablesPorCliente.get(c.id) ?? [],

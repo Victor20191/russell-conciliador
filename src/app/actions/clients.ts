@@ -9,7 +9,7 @@ import { ClientSchema, ClientResponsablesSchema, type ActionState } from "@/lib/
 import { parseId } from "@/lib/ids";
 import { nextClientCode } from "@/lib/client-code";
 import { requirePermiso, authorizePermiso } from "@/lib/rbac";
-import { ROL_POR_FUNCION } from "@/lib/rbac/jerarquia";
+import { ROL_POR_FUNCION, ROL_SOCIO } from "@/lib/rbac/jerarquia";
 import { mensajeErrorBD, registrarError } from "@/lib/errores";
 
 const PATH = "/config/clientes";
@@ -127,6 +127,24 @@ async function validarResponsables({
   return { ok: true, nombres };
 }
 
+/**
+ * Valida el socio responsable (campo informativo del cliente): debe existir,
+ * estar activo y tener exactamente el rol Socio. NO crea asignación ni otorga
+ * alcance de lectura — el Socio sigue derivando su acceso por jerarquía.
+ */
+async function validarSocio(
+  socioId: number,
+): Promise<{ ok: true; nombre: string } | { ok: false; message: string }> {
+  const u = await prisma.user.findUnique({
+    where: { id: socioId },
+    select: { name: true, role: true, active: true },
+  });
+  if (!u || !u.active || u.role !== ROL_SOCIO) {
+    return { ok: false, message: "El socio seleccionado no es un Socio activo." };
+  }
+  return { ok: true, nombre: u.name };
+}
+
 function parseResponsables(formData: FormData) {
   return ClientResponsablesSchema.safeParse({
     gerenteId: formData.get("gerenteId"),
@@ -166,13 +184,15 @@ export async function createClient(
       code,
       name: formData.get("name"),
       nit: formData.get("nit"),
+      tipo: formData.get("tipo"),
       erp: formData.get("erp"),
       sector: formData.get("sector"),
+      socioId: formData.get("socioId"),
     });
     if (!parsed.success) {
       return { ok: false, errors: z.flattenError(parsed.error).fieldErrors };
     }
-    const data = parsed.data;
+    const { socioId, ...data } = parsed.data;
 
     const responsables = parseResponsables(formData);
     if (!responsables.success) {
@@ -180,6 +200,9 @@ export async function createClient(
     }
     const validados = await validarResponsables(responsables.data);
     if (!validados.ok) return { ok: false, message: validados.message };
+
+    const socio = await validarSocio(socioId);
+    if (!socio.ok) return { ok: false, message: socio.message };
 
     // Parametrizar módulos/DIAN al crear exige el mismo permiso de configuración
     // que al editar (defensa en profundidad): el formulario de creación incluye
@@ -209,6 +232,7 @@ export async function createClient(
       const cliente = await tx.client.create({
         data: {
           ...data,
+          socioId,
           modules: moduleIds.length
             ? {
                 create: moduleIds.map((moduleId) => ({
@@ -239,7 +263,7 @@ export async function createClient(
       user: user?.name ?? "Sistema",
       action: "CREÓ CLIENTE",
       entity: data.code,
-      detail: `${data.name} · ${data.nit} · staff ${validados.nombres.staffs.join(", ")} / senior ${validados.nombres.senior} / gerente ${validados.nombres.gerente}${dianFormIds.length ? ` · formatos DIAN: ${dianFormIds.length}` : ""}`,
+      detail: `${data.name} · ${data.nit} · tipo ${data.tipo} · socio ${socio.nombre} · staff ${validados.nombres.staffs.join(", ")} / senior ${validados.nombres.senior} / gerente ${validados.nombres.gerente}${dianFormIds.length ? ` · formatos DIAN: ${dianFormIds.length}` : ""}`,
     });
     revalidatePath(PATH);
     return { ok: true };
@@ -272,13 +296,15 @@ export async function updateClient(
       code: current.code,
       name: formData.get("name"),
       nit: formData.get("nit"),
+      tipo: formData.get("tipo"),
       erp: formData.get("erp"),
       sector: formData.get("sector"),
+      socioId: formData.get("socioId"),
     });
     if (!parsed.success) {
       return { ok: false, errors: z.flattenError(parsed.error).fieldErrors };
     }
-    const { name, nit, erp, sector } = parsed.data;
+    const { name, nit, tipo, erp, sector, socioId } = parsed.data;
 
     const responsables = parseResponsables(formData);
     if (!responsables.success) {
@@ -286,6 +312,9 @@ export async function updateClient(
     }
     const validados = await validarResponsables(responsables.data);
     if (!validados.ok) return { ok: false, message: validados.message };
+
+    const socio = await validarSocio(socioId);
+    if (!socio.ok) return { ok: false, message: socio.message };
 
     const shouldSyncModules = formData.get("syncModules") === "1";
     let moduleIds: number[] | null = null;
@@ -314,7 +343,7 @@ export async function updateClient(
     }
 
     await prisma.$transaction(async (tx) => {
-      await tx.client.update({ where: { id }, data: { name, nit, erp, sector } });
+      await tx.client.update({ where: { id }, data: { name, nit, tipo, erp, sector, socioId } });
 
       // Sincroniza los responsables conservando la vigencia de los que siguen:
       // el upsert por (cliente, función, usuario) reactiva o crea cada
@@ -383,7 +412,7 @@ export async function updateClient(
       user: user?.name ?? "Sistema",
       action: "ACTUALIZÓ CLIENTE",
       entity: current.code,
-      detail: `${name} · ${nit} · staff ${validados.nombres.staffs.join(", ")} / senior ${validados.nombres.senior} / gerente ${validados.nombres.gerente}${moduleIds != null ? ` · módulos asignados: ${moduleIds.length}` : ""}${dianFormIds != null ? ` · formatos DIAN: ${dianFormIds.length}` : ""}`,
+      detail: `${name} · ${nit} · tipo ${tipo} · socio ${socio.nombre} · staff ${validados.nombres.staffs.join(", ")} / senior ${validados.nombres.senior} / gerente ${validados.nombres.gerente}${moduleIds != null ? ` · módulos asignados: ${moduleIds.length}` : ""}${dianFormIds != null ? ` · formatos DIAN: ${dianFormIds.length}` : ""}`,
     });
     revalidatePath(PATH);
     return { ok: true };

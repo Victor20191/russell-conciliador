@@ -35,16 +35,41 @@ test("ModuleFieldSchema rechaza un tipo no permitido", () => {
   expect(r.success).toBe(false);
 });
 
-test("ClientSchema exige código, nombre, nit, erp y sector", () => {
+test("ClientSchema exige código, nombre, nit, tipo, erp, sector y socio", () => {
   expect(
     ClientSchema.safeParse({
       code: "C-9001",
       name: "Demo S.A.S",
       nit: "900.000.000-1",
+      tipo: "A",
+      erp: "SIESA",
+      sector: "Comercio",
+      socioId: 3,
+    }).success,
+  ).toBe(true);
+  // Tipo fuera de A/B/C es inválido.
+  expect(
+    ClientSchema.safeParse({
+      code: "C-9001",
+      name: "Demo S.A.S",
+      nit: "900.000.000-1",
+      tipo: "D",
+      erp: "SIESA",
+      sector: "Comercio",
+      socioId: 3,
+    }).success,
+  ).toBe(false);
+  // Sin socio (informativo pero obligatorio) es inválido.
+  expect(
+    ClientSchema.safeParse({
+      code: "C-9001",
+      name: "Demo S.A.S",
+      nit: "900.000.000-1",
+      tipo: "A",
       erp: "SIESA",
       sector: "Comercio",
     }).success,
-  ).toBe(true);
+  ).toBe(false);
   expect(
     ClientSchema.safeParse({ code: "", name: "", nit: "", erp: "", sector: "" }).success,
   ).toBe(false);

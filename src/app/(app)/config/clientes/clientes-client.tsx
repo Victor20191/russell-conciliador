@@ -15,8 +15,13 @@ export type ModuleRef = { id: number; name: string };
 /** Catálogo de formatos DIAN seleccionables por cliente (IVA F-300…). */
 export type DianFormRef = { id: number; name: string; code: string };
 export type PersonaRef = { id: number; name: string };
-/** Candidatos a responsable, ya filtrados por rol y activos. */
-export type Personas = { gerentes: PersonaRef[]; seniors: PersonaRef[]; staffs: PersonaRef[] };
+/** Candidatos por rol, ya filtrados por activos. El socio es informativo. */
+export type Personas = {
+  socios: PersonaRef[];
+  gerentes: PersonaRef[];
+  seniors: PersonaRef[];
+  staffs: PersonaRef[];
+};
 /** Arista de jerarquía superior→subordinado (jerarquia_usuarios). */
 export type Arista = { superiorId: number; subordinadoId: number };
 export type ClientRow = {
@@ -24,8 +29,11 @@ export type ClientRow = {
   code: string;
   name: string;
   nit: string;
+  tipo: string;
   erp: string;
   sector: string;
+  socioId: number | null;
+  socioName: string | null;
   modules: { moduleId: number; status: string }[];
   dianFormIds: number[];
   responsables: { funcion: string; userId: number; name: string }[];
@@ -117,6 +125,7 @@ export default function ClientesClient({
             <tr className="border-b border-ink-100 text-left text-[11px] uppercase tracking-wider text-ink-500">
               <th className="px-4 py-2 font-semibold">Cliente</th>
               <th className="px-4 py-2 font-semibold">NIT</th>
+              <th className="px-2 py-2 text-center font-semibold">Tipo</th>
               <th className="px-4 py-2 font-semibold">ERP</th>
               <th className="px-4 py-2 font-semibold">Sector</th>
               <th className="px-4 py-2 font-semibold">Responsables</th>
@@ -131,10 +140,13 @@ export default function ClientesClient({
               <tr key={c.id} className="border-b border-ink-50 last:border-0 hover:bg-ink-50">
                 <td className="px-4 py-2.5 font-medium text-ink-800">{c.name}</td>
                 <td className="px-4 py-2.5 font-mono text-ink-500">{c.nit}</td>
+                <td className="px-2 py-2.5 text-center">
+                  <TipoBadge tipo={c.tipo} />
+                </td>
                 <td className="px-4 py-2.5 text-ink-600">{c.erp}</td>
                 <td className="px-4 py-2.5 text-ink-600">{c.sector}</td>
                 <td className="px-4 py-2.5">
-                  <ResponsablesCell responsables={c.responsables} />
+                  <ResponsablesCell responsables={c.responsables} socioName={c.socioName} />
                 </td>
                 {modules.map((m) => (
                   <td key={m.id} className="px-2 py-2 text-center">
@@ -154,7 +166,7 @@ export default function ClientesClient({
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={modules.length + 6} className="px-4 py-8 text-center text-[12.5px] text-ink-400">
+                <td colSpan={modules.length + 7} className="px-4 py-8 text-center text-[12.5px] text-ink-400">
                   Sin clientes que coincidan con el filtro.
                 </td>
               </tr>
@@ -198,7 +210,31 @@ export default function ClientesClient({
   );
 }
 
-function ResponsablesCell({ responsables }: { responsables: ClientRow["responsables"] }) {
+/** Clasificación del cliente: A (azul), B (ámbar), C (gris). */
+function TipoBadge({ tipo }: { tipo: string }) {
+  const estilo: Record<string, string> =
+    {
+      A: "bg-navy-700 text-white",
+      B: "bg-warn-100 text-warn-700",
+      C: "bg-ink-100 text-ink-500",
+    };
+  return (
+    <span
+      title={`Tipo de cliente: ${tipo}`}
+      className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-semibold ${estilo[tipo] ?? "bg-ink-100 text-ink-500"}`}
+    >
+      {tipo}
+    </span>
+  );
+}
+
+function ResponsablesCell({
+  responsables,
+  socioName,
+}: {
+  responsables: ClientRow["responsables"];
+  socioName: string | null;
+}) {
   // Completo = las tres funciones cubiertas (con uno o varios staff).
   const funciones = new Set(responsables.map((r) => r.funcion));
   const completo =
@@ -217,6 +253,12 @@ function ResponsablesCell({ responsables }: { responsables: ClientRow["responsab
   );
   return (
     <span className="text-[11.5px] text-ink-600">
+      {socioName && (
+        <span title={`socio: ${socioName}`}>
+          <span className="font-semibold text-ink-400">So</span> {socioName}
+          {" · "}
+        </span>
+      )}
       {lista.map((r, i) => (
         <span key={`${r.funcion}-${r.userId}`} title={`${r.funcion}: ${r.name}`}>
           {i > 0 && " · "}
@@ -298,6 +340,19 @@ function ClientModal({
   // queda vacío y obliga a elegir de nuevo.
   const respDe = (funcion: string): number | "" =>
     client?.responsables.find((r) => r.funcion === funcion)?.userId ?? "";
+  // Socio responsable (informativo): selector independiente de la cascada.
+  const [socioId, setSocioId] = useState<number | "">(() => client?.socioId ?? "");
+  // Conserva el socio ya asignado aunque hoy esté inactivo (no vendría en la lista).
+  const socioOpciones = useMemo(() => {
+    const opts = [...personas.socios];
+    if (
+      client?.socioId != null &&
+      !opts.some((s) => s.id === client.socioId)
+    ) {
+      opts.unshift({ id: client.socioId, name: client.socioName ?? `Usuario ${client.socioId}` });
+    }
+    return opts;
+  }, [personas.socios, client]);
   const [gerenteId, setGerenteId] = useState<number | "">(() => respDe("gerente"));
   const [seniorId, setSeniorId] = useState<number | "">(() => respDe("senior"));
   const [staffIds, setStaffIds] = useState<number[]>(() =>
@@ -438,13 +493,28 @@ function ClientModal({
             className="w-full rounded-md border border-ink-200 px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400"
           />
         </CField>
-        <CField label="NIT" error={state?.errors?.nit}>
-          <input
-            name="nit"
-            defaultValue={client?.nit ?? ""}
-            className="w-full rounded-md border border-ink-200 px-2.5 py-1.5 font-mono text-[12.5px] outline-none focus:border-blue-400"
-          />
-        </CField>
+        <div className="flex gap-3">
+          <CField label="NIT" error={state?.errors?.nit}>
+            <input
+              name="nit"
+              defaultValue={client?.nit ?? ""}
+              className="w-full rounded-md border border-ink-200 px-2.5 py-1.5 font-mono text-[12.5px] outline-none focus:border-blue-400"
+            />
+          </CField>
+          <CField label="Tipo de cliente" error={state?.errors?.tipo}>
+            <select
+              name="tipo"
+              required
+              defaultValue={client?.tipo ?? ""}
+              className="w-full rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400"
+            >
+              <option value="">Selecciona…</option>
+              <option value="A">A</option>
+              <option value="B">B</option>
+              <option value="C">C</option>
+            </select>
+          </CField>
+        </div>
         <div className="flex gap-3">
           <CField label="ERP" error={state?.errors?.erp}>
             <input
@@ -480,11 +550,25 @@ function ClientModal({
               Responsables de la auditoría
             </span>
             <span className="text-[11px] text-ink-400">
-              Staff ejecuta · Senior revisa · Gerente valida. El Socio se deriva de la
-              jerarquía.
+              Gerente valida · Senior revisa · Staff ejecuta. El Socio (firma) se
+              registra como dato; su acceso se deriva de la jerarquía.
             </span>
           </div>
           <div className="flex flex-col gap-2">
+            <CField label="Socio (firma)" error={state?.errors?.socioId}>
+              <select
+                name="socioId"
+                required
+                value={socioId}
+                onChange={(e) => setSocioId(e.target.value ? Number(e.target.value) : "")}
+                className="w-full rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400"
+              >
+                <option value="">Selecciona el socio…</option>
+                {socioOpciones.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </CField>
             <CField label="Gerente (valida)" error={state?.errors?.gerenteId}>
               <select
                 name="gerenteId"

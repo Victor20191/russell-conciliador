@@ -48,8 +48,17 @@ export const ClientSchema = z.object({
   code: z.string().min(1, { error: "El código es obligatorio." }).trim(),
   name: z.string().min(1, { error: "El nombre es obligatorio." }).trim(),
   nit: z.string().min(1, { error: "El NIT es obligatorio." }).trim(),
+  // Clasificación del cliente (A, B o C). Obligatoria.
+  tipo: z.enum(["A", "B", "C"], { error: "Selecciona el tipo de cliente (A, B o C)." }),
   erp: z.string().min(1, { error: "El ERP es obligatorio." }).trim(),
   sector: z.string().min(1, { error: "El sector es obligatorio." }).trim(),
+  // Socio responsable (informativo): la consistencia (Socio activo) se valida
+  // contra la BD en la Server Action. No otorga alcance de lectura: el Socio
+  // sigue derivando su acceso por jerarquía (derivarAsignacionesSocio).
+  socioId: z.coerce
+    .number({ error: "Selecciona el socio." })
+    .int()
+    .positive({ error: "Selecciona el socio." }),
 });
 
 // Responsables del cliente (asignación directa al crear/editar): uno o varios
