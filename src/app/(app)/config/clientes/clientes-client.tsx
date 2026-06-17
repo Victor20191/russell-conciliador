@@ -676,9 +676,20 @@ function ClientModal({
           <div className="rounded-md border border-ink-150 bg-ink-50/60 p-3">
             <input type="hidden" name="syncModules" value="1" />
             <div className="mb-2 flex items-center justify-between gap-3">
-              <span className="text-[11.5px] font-medium text-ink-600">Módulos del cliente</span>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[11.5px] font-medium text-ink-600">Módulos del cliente</span>
+                {!isEdit && (
+                  <span
+                    title="Por defecto se cargan y habilitan todos los módulos y formatos DIAN. Desmarca los que no apliquen."
+                    className="inline-flex items-center gap-1 rounded-full border border-warn-100 bg-warn-100 px-2 py-0.5 text-[10.5px] font-semibold text-warn-700"
+                  >
+                    <Icon name="check" size={10} stroke={2.5} />
+                    Por defecto, todos cargados y habilitados
+                  </span>
+                )}
+              </div>
               {modules && modules.length > 0 && (
-                <span className="text-[11px] font-medium text-ink-400">
+                <span className="shrink-0 text-[11px] font-medium text-ink-400">
                   {selectedModuleIds.length}/{modules.length}
                 </span>
               )}
