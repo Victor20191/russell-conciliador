@@ -10,6 +10,7 @@ import {
   deleteClient,
 } from "@/app/actions/clients";
 import type { ActionState } from "@/lib/definitions";
+import { ImportClientesButton } from "./import-clientes-modal";
 
 export type ModuleRef = { id: number; name: string };
 /** Catálogo de formatos DIAN seleccionables por cliente (IVA F-300…). */
@@ -111,12 +112,15 @@ export default function ClientesClient({
             <option key={x} value={x}>{x}</option>
           ))}
         </select>
-        <button
-          onClick={() => setCreating(true)}
-          className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white transition hover:bg-navy-600"
-        >
-          <Icon name="plus" size={13} /> Nuevo cliente
-        </button>
+        <div className="ml-auto flex items-center gap-2">
+          <ImportClientesButton />
+          <button
+            onClick={() => setCreating(true)}
+            className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white transition hover:bg-navy-600"
+          >
+            <Icon name="plus" size={13} /> Nuevo cliente
+          </button>
+        </div>
       </div>
 
       <div className="overflow-x-auto">
@@ -459,6 +463,7 @@ function ClientModal({
       open
       onClose={onClose}
       title={title}
+      size="3xl"
       footer={
         <>
           {isEdit && <DeleteClientButton id={client!.id} onDone={onClose} />}
@@ -476,6 +481,11 @@ function ClientModal({
     >
       <form id="client-form" action={formAction} className="flex flex-col gap-3">
         {isEdit && <input type="hidden" name="id" value={client.id} />}
+        {/* Dos columnas (en ≥sm): Datos del cliente | Responsables. Aprovecha el
+            ancho del modal y reduce el alto para que todo quepa sin scroll. */}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="flex flex-col gap-2.5 rounded-md border border-ink-150 bg-ink-50/60 p-3">
+        <span className="text-[11.5px] font-medium text-ink-600">Datos del cliente</span>
         <CField label="Código" error={state?.errors?.code}>
           <input
             name="code"
@@ -542,6 +552,7 @@ function ClientModal({
               ))}
             </datalist>
           </CField>
+        </div>
         </div>
 
         <div className="rounded-md border border-ink-150 bg-ink-50/60 p-3">
@@ -659,6 +670,7 @@ function ClientModal({
             </div>
           </div>
         </div>
+        </div>
 
         {((modules && modules.length > 0) || dianForms.length > 0) && (
           <div className="rounded-md border border-ink-150 bg-ink-50/60 p-3">
@@ -672,7 +684,7 @@ function ClientModal({
               )}
             </div>
             {modules && modules.length > 0 && (
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 {modules.map((module) => {
                   const checked = selectedModuleIds.includes(module.id);
                   return (

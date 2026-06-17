@@ -22,6 +22,8 @@ model User {
   email               String           @unique @map("correo")
   password            String           @map("contrasena") // hash bcrypt
   name                String           @map("nombre")
+  cedula              String?          @unique @map("cedula") // documento de identidad (único)
+  cargo               String?          @map("cargo") // título de puesto (texto libre)
   role                String           @default("Consulta") @map("rol")
   initials            String           @map("iniciales")
   active              Boolean          @default(true) @map("activo")

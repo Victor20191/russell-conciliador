@@ -2,18 +2,30 @@
 
 import { Icon } from "@/components/icons";
 
+// Ancho máximo del modal. `lg` (por defecto) conserva el tamaño histórico de
+// todos los modales; los formularios anchos (p. ej. clientes) piden uno mayor.
+const ANCHOS = {
+  md: "max-w-md",
+  lg: "max-w-lg",
+  xl: "max-w-xl",
+  "2xl": "max-w-2xl",
+  "3xl": "max-w-3xl",
+} as const;
+
 export function Modal({
   open,
   onClose,
   title,
   children,
   footer,
+  size = "lg",
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
   children: React.ReactNode;
   footer?: React.ReactNode;
+  size?: keyof typeof ANCHOS;
 }) {
   // Por convención del proyecto, el modal SOLO se cierra con el botón X.
   // No se cierra por tecla Escape ni por clic en el backdrop, para evitar
@@ -25,7 +37,9 @@ export function Modal({
       {/* Columna flex con altura acotada: el cuerpo hace scroll y el footer
           (con el botón Guardar) queda SIEMPRE visible, incluso con formularios
           largos o en pantallas/ventanas de poca altura. */}
-      <div className="flex max-h-full w-full max-w-lg flex-col overflow-hidden rounded-lg border border-ink-150 bg-white shadow-lg">
+      <div
+        className={`flex max-h-full w-full ${ANCHOS[size]} flex-col overflow-hidden rounded-lg border border-ink-150 bg-white shadow-lg`}
+      >
         <div className="flex shrink-0 items-center justify-between border-b border-ink-100 px-4 py-3">
           <h2 className="text-[13.5px] font-semibold text-ink-800">{title}</h2>
           <button

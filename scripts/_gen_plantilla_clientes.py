@@ -2,7 +2,6 @@ import json
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.worksheet.datavalidation import DataValidation
-from openpyxl.comments import Comment
 from openpyxl.utils import get_column_letter
 
 with open("/tmp/catalogos.json", encoding="utf-8") as f:
@@ -269,19 +268,6 @@ for idx, (title, width, req) in enumerate(headers, start=1):
     c.border = border
 wc.row_dimensions[1].height = 38
 wc.freeze_panes = "A2"
-
-# Comentarios de ayuda
-staff_col = get_column_letter(headers_index["Staff (ejecuta) * — uno o varios, separar con ;"] + 1)
-staff_lista = "; ".join(staffs) if staffs else "(no hay staff activos)"
-wc[f"{staff_col}1"].comment = Comment(
-    f"Escribe uno o varios staff separados por punto y coma.\nDisponibles: {staff_lista}\nDeben reportar al Senior elegido.",
-    "Plantilla",
-)
-socio_col = get_column_letter(headers_index["Socio (firma) *"] + 1)
-wc[f"{socio_col}1"].comment = Comment(
-    "Socio responsable de la firma. El Gerente que elijas debe reportar a este Socio.",
-    "Plantilla",
-)
 
 # Filas de ejemplo (a borrar)
 ejemplos = []

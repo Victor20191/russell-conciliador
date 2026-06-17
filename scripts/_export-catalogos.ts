@@ -5,7 +5,7 @@ async function main() {
   const [usuarios, aristas, modules, dianForms, clients] = await Promise.all([
     prisma.user.findMany({
       orderBy: { name: "asc" },
-      select: { id: true, name: true, email: true, role: true, active: true },
+      select: { id: true, name: true, email: true, role: true, active: true, cedula: true, cargo: true },
     }),
     prisma.userHierarchy.findMany({ select: { superiorId: true, subordinateId: true } }),
     prisma.module.findMany({ orderBy: { name: "asc" }, select: { id: true, code: true, name: true } }),

@@ -8,6 +8,7 @@ import { createUser, updateUser, unlockUser, deleteUser } from "@/app/actions/us
 import { Icon } from "@/components/icons";
 import { isAccountBlocked, LOGIN_MAX_ATTEMPTS } from "@/lib/login-throttle";
 import { ROL_SUPERIOR } from "@/lib/rbac/jerarquia";
+import { ImportMaestrosButton } from "./import-maestros-modal";
 
 export type UserRow = {
   id: number;
@@ -71,12 +72,15 @@ export default function UsuariosClient({
         title="Usuarios"
         subtitle="Crea, edita y desactiva cuentas. Solo administradores."
         actions={
-          <button
-            onClick={() => setCreateOpen(true)}
-            className="rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white"
-          >
-            Nuevo usuario
-          </button>
+          <div className="flex items-center gap-2">
+            <ImportMaestrosButton />
+            <button
+              onClick={() => setCreateOpen(true)}
+              className="rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white"
+            >
+              Nuevo usuario
+            </button>
+          </div>
         }
       />
 
