@@ -15,7 +15,18 @@ export type ClientGroup = {
   periodList: PeriodRow[];
 };
 export type AuditRow = { date: string; actor: string; role: string; action: string; ip: string; details: string };
-export type StdAccount = { code: string; name: string; level: number; nature: string; critical: boolean };
+export type StdAccount = {
+  code: string;
+  name: string;
+  level: number;
+  nature: string;
+  critical: boolean;
+  russellAccount: string | null;
+  categoryType: string | null;
+  includes: string | null;
+  supportingDocuments: string | null;
+  mappingNotes: string | null;
+};
 
 type Tab = "clients" | "audit" | "std";
 
@@ -156,33 +167,43 @@ function AuditTab({ rows, clientNames }: { rows: AuditRow[]; clientNames: string
 function StandardTab({ std }: { std: StdAccount[] }) {
   const [q, setQ] = useState("");
   const needle = q.trim().toLowerCase();
-  const rows = std.filter((s) => !needle || s.code.includes(needle) || s.name.toLowerCase().includes(needle));
+  const rows = std.filter((s) => {
+    if (!needle) return true;
+    return [s.code, s.name, s.russellAccount, s.categoryType, s.includes, s.mappingNotes]
+      .some((value) => value?.toLowerCase().includes(needle));
+  });
   return (
     <Card>
       <div className="flex items-center gap-2 border-b border-ink-100 px-4 py-3">
         <h2 className="text-[13px] font-semibold text-ink-800">Plan de cuentas estándar — Russell Bedford</h2>
         <Chip label={`${rows.length} cuentas`} tone="ink" />
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="filtrar…" className="ml-auto rounded-md border border-ink-200 px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400" />
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="filtrar cuenta, rubro o soporte" className="ml-auto w-72 rounded-md border border-ink-200 px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400" />
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-[12.5px]">
           <thead>
             <tr className="border-b border-ink-100 text-left text-[11px] uppercase tracking-wider text-ink-500">
               <th className="px-4 py-2 font-semibold">Código</th>
-              <th className="px-4 py-2 font-semibold">Nombre</th>
-              <th className="px-4 py-2 font-semibold">Nivel</th>
+              <th className="px-4 py-2 font-semibold">Nombre PUC</th>
+              <th className="px-4 py-2 font-semibold">Cuenta Russell</th>
+              <th className="px-4 py-2 font-semibold">Tipo rubro</th>
               <th className="px-4 py-2 font-semibold">Naturaleza</th>
-              <th className="px-4 py-2 font-semibold">Crítica</th>
+              <th className="px-4 py-2 font-semibold">Qué incluye</th>
+              <th className="px-4 py-2 font-semibold">Soportes</th>
+              <th className="px-4 py-2 font-semibold">Observaciones</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((s) => (
               <tr key={s.code} className="border-b border-ink-50 last:border-0 hover:bg-ink-50">
                 <td className="px-4 py-2.5 font-mono text-ink-600" style={{ paddingLeft: (s.level - 1) * 16 + 16 }}>{s.code}</td>
-                <td className={`px-4 py-2.5 text-ink-800 ${s.level === 1 ? "font-bold" : s.level === 2 ? "font-medium" : ""}`}>{s.name}</td>
-                <td className="px-4 py-2.5 text-ink-500">Nivel {s.level}</td>
+                <td className="min-w-56 px-4 py-2.5 font-medium text-ink-800">{s.name}</td>
+                <td className="min-w-44 px-4 py-2.5 text-ink-700">{s.russellAccount ?? "—"}</td>
+                <td className="min-w-56 px-4 py-2.5 text-ink-600">{s.categoryType ?? "—"}</td>
                 <td className="px-4 py-2.5"><Chip label={s.nature === "D" ? "Débito" : "Crédito"} tone="ink" /></td>
-                <td className="px-4 py-2.5">{s.critical && <Chip label="Crítica" tone="warn" />}</td>
+                <td className="max-w-md whitespace-normal px-4 py-2.5 leading-relaxed text-ink-600">{s.includes ?? "—"}</td>
+                <td className="max-w-xs whitespace-normal px-4 py-2.5 leading-relaxed text-ink-500">{s.supportingDocuments ?? "—"}</td>
+                <td className="max-w-md whitespace-normal px-4 py-2.5 leading-relaxed text-ink-500">{s.mappingNotes ?? "—"}</td>
               </tr>
             ))}
           </tbody>

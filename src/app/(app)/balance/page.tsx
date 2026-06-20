@@ -62,7 +62,16 @@ export default async function BalancePage() {
   const auditRows: AuditRow[] = auditLog;
 
   const std: StdAccount[] = standard.map((s) => ({
-    code: s.code, name: s.name, level: s.level, nature: s.nature, critical: s.critical,
+    code: s.code,
+    name: s.name,
+    level: s.level,
+    nature: s.nature,
+    critical: s.critical,
+    russellAccount: s.russellAccount,
+    categoryType: s.categoryType,
+    includes: s.includes,
+    supportingDocuments: s.supportingDocuments,
+    mappingNotes: s.mappingNotes,
   }));
 
   const clientNames = clients.map((c) => c.clientName);

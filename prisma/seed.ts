@@ -2,6 +2,7 @@ import "dotenv/config";
 import bcrypt from "bcryptjs";
 import { PrismaClient } from "../src/generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import pucMaster from "./data/puc-maestro-russell.json";
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
 const prisma = new PrismaClient({ adapter });
@@ -146,29 +147,8 @@ async function main() {
   });
 
   // ---- Plan de cuentas estándar ----
-  const chart = [
-    ["1", "ACTIVO", 1, "D", null, false], ["11", "Disponible", 2, "D", "1", true],
-    ["1105", "Caja", 3, "D", "11", true], ["1110", "Bancos", 3, "D", "11", true],
-    ["12", "Inversiones", 2, "D", "1", false], ["13", "Deudores", 2, "D", "1", true],
-    ["1305", "Clientes", 3, "D", "13", true], ["1330", "Anticipos y avances", 3, "D", "13", false],
-    ["1355", "Anticipos de impuestos", 3, "D", "13", false], ["1399", "Provisiones", 3, "C", "13", false],
-    ["14", "Inventarios", 2, "D", "1", true], ["15", "Propiedades, planta y equipo", 2, "D", "1", true],
-    ["1592", "Depreciación acumulada", 3, "C", "15", false], ["16", "Intangibles", 2, "D", "1", false],
-    ["17", "Diferidos", 2, "D", "1", false], ["2", "PASIVO", 1, "C", null, false],
-    ["21", "Obligaciones financieras", 2, "C", "2", true], ["22", "Proveedores", 2, "C", "2", true],
-    ["23", "Cuentas por pagar", 2, "C", "2", false], ["24", "Impuestos, gravámenes y tasas", 2, "C", "2", true],
-    ["25", "Obligaciones laborales", 2, "C", "2", false], ["3", "PATRIMONIO", 1, "C", null, false],
-    ["31", "Capital social", 2, "C", "3", false], ["36", "Resultados del ejercicio", 2, "C", "3", true],
-    ["4", "INGRESOS", 1, "C", null, true], ["41", "Operacionales", 2, "C", "4", true],
-    ["5", "GASTOS", 1, "D", null, true], ["51", "Operacionales de admón", 2, "D", "5", false],
-    ["52", "Operacionales de ventas", 2, "D", "5", false], ["6", "COSTOS DE VENTAS", 1, "D", null, true],
-    ["7", "COSTOS DE PRODUCCIÓN", 1, "D", null, false],
-  ] as const;
   await prisma.standardAccount.createMany({
-    data: chart.map(([code, name, level, nature, parent, critical]) => ({
-      code: code as string, name: name as string, level: level as number,
-      nature: nature as string, parent: parent as string | null, critical: critical as boolean,
-    })),
+    data: pucMaster.accounts,
   });
 
   // ---- Balances ----
@@ -246,21 +226,6 @@ async function main() {
       { date: "07/Ene/2026 15:35", actor: "Manuela Gutiérrez", role: "Auditor senior", action: "Revisó mapeo y validaciones", ip: "interno", details: "Aprobado para congelar" },
       { date: "08/Ene/2026 11:32", actor: "Manuela Gutiérrez", role: "Auditor senior", action: "Congeló v3 como oficial", ip: "interno", details: "Versión auditada para cierre 2025" },
       { date: "12/Ene/2026 09:02", actor: "Sistema", role: "Auditor", action: "Publicó balance a DIAN y Razonabilidad", ip: "interno", details: "Disponible para módulos downstream" },
-    ],
-    incomeStatement: [
-      { concept: "Ingresos por ventas", current: 28940, prior: 25740, budget: 28000, bold: true, sep: false },
-      { concept: "Devoluciones y descuentos", current: -1240, prior: -980, budget: -1200, bold: false, sep: false },
-      { concept: "Costo de ventas", current: -16280, prior: -14620, budget: -16500, bold: false, sep: false },
-      { concept: "Utilidad bruta", current: 11420, prior: 10140, budget: 10300, bold: true, sep: true },
-      { concept: "Gastos de administración", current: -3680, prior: -3420, budget: -3700, bold: false, sep: false },
-      { concept: "Gastos de ventas", current: -2940, prior: -2680, budget: -3100, bold: false, sep: false },
-      { concept: "Depreciaciones y amortizaciones", current: -620, prior: -580, budget: -650, bold: false, sep: false },
-      { concept: "Utilidad operacional", current: 4180, prior: 3460, budget: 2850, bold: true, sep: true },
-      { concept: "Ingresos no operacionales", current: 420, prior: 380, budget: 300, bold: false, sep: false },
-      { concept: "Gastos financieros", current: -680, prior: -620, budget: -700, bold: false, sep: false },
-      { concept: "Diferencia en cambio", current: -180, prior: 140, budget: 0, bold: false, sep: false },
-      { concept: "Impuesto de renta", current: -900, prior: -820, budget: -850, bold: false, sep: false },
-      { concept: "Utilidad neta del ejercicio", current: 2840, prior: 2540, budget: 1600, bold: true, sep: true },
     ],
   };
 

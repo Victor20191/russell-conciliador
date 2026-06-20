@@ -436,13 +436,21 @@ model AuditEntry {
 
 // ===== Plan de cuentas estándar (Balance) =====
 model StandardAccount {
-  id       Int     @id @default(autoincrement()) @map("id")
-  code     String  @unique @map("codigo")
-  name     String  @map("nombre")
-  level    Int     @map("nivel")
-  nature   String  @map("naturaleza") // D | C
-  parent   String? @map("padre")
-  critical Boolean @default(false) @map("critica")
+  id                  Int     @id @default(autoincrement()) @map("id")
+  code                String  @unique @map("codigo")
+  name                String  @map("nombre")
+  level               Int     @map("nivel")
+  nature              String  @map("naturaleza") // D | C
+  parent              String? @map("padre")
+  critical            Boolean @default(false) @map("critica")
+  russellAccount      String? @map("cuenta_russell")
+  categoryType        String? @map("tipo_rubro")
+  includes            String? @map("incluye")
+  excludes            String? @map("no_incluye")
+  possibleAccounts    String? @map("cuentas_posibles")
+  supportingDocuments String? @map("soportes_terceros")
+  controlSupports     String? @map("soportes_control")
+  mappingNotes        String? @map("observaciones_homologacion")
 
   @@map("cuentas_estandar")
 }

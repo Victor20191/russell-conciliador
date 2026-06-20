@@ -5,15 +5,14 @@ import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { PageHeader, Card, StatCard, EmptyState } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { fmtNum, fmtPct } from "@/lib/format";
+import ErExportActions, { type ErLine } from "./er-export-actions";
 import ErSelectors from "./er-selectors";
-
-type ErLine = { concept: string; current: number; prior: number; budget: number; bold: boolean; sep: boolean };
 
 function varPct(current: number, prior: number): number | null {
   if (prior === 0) return null;
   return ((current - prior) / Math.abs(prior)) * 100;
 }
-const money = (n: number) => `$ ${fmtNum(Math.abs(n))} M`;
+const money = (n: number) => `${n < 0 ? "-" : ""}$ ${fmtNum(Math.abs(n))} M`;
 
 export default async function EstadoResultadoPage({
   searchParams,
@@ -106,10 +105,7 @@ export default async function EstadoResultadoPage({
                 </tbody>
               </table>
             </div>
-            <div className="flex items-center justify-end gap-2 border-t border-ink-100 px-4 py-2.5">
-              <button disabled title="Exportación — fase posterior" className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-md bg-ink-100 px-2.5 py-1.5 text-[12px] font-semibold text-ink-400"><Icon name="download" size={13} /> Excel</button>
-              <button disabled title="Exportación — fase posterior" className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-md bg-ink-100 px-2.5 py-1.5 text-[12px] font-semibold text-ink-400"><Icon name="download" size={13} /> PDF</button>
-            </div>
+            <ErExportActions cliente={cliente} periodo={periodo} lines={lines} />
           </Card>
         </>
       )}
