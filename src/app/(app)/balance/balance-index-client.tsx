@@ -29,6 +29,8 @@ export type StdAccount = {
 };
 
 type Tab = "clients" | "audit" | "std";
+const PAGE_SIZE_OPTIONS = [50, 100, 200] as const;
+type PageSize = (typeof PAGE_SIZE_OPTIONS)[number];
 
 function statusTone(s: string): "ok" | "warn" | "blue" | "ink" {
   if (s === "Congelado") return "blue";
@@ -166,18 +168,51 @@ function AuditTab({ rows, clientNames }: { rows: AuditRow[]; clientNames: string
 
 function StandardTab({ std }: { std: StdAccount[] }) {
   const [q, setQ] = useState("");
+  const [pageSize, setPageSize] = useState<PageSize>(50);
+  const [page, setPage] = useState(1);
   const needle = q.trim().toLowerCase();
   const rows = std.filter((s) => {
     if (!needle) return true;
     return [s.code, s.name, s.russellAccount, s.categoryType, s.includes, s.mappingNotes]
       .some((value) => value?.toLowerCase().includes(needle));
   });
+  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const start = rows.length === 0 ? 0 : (currentPage - 1) * pageSize;
+  const end = Math.min(start + pageSize, rows.length);
+  const pageRows = rows.slice(start, end);
+
   return (
     <Card>
-      <div className="flex items-center gap-2 border-b border-ink-100 px-4 py-3">
+      <div className="flex flex-wrap items-center gap-2 border-b border-ink-100 px-4 py-3">
         <h2 className="text-[13px] font-semibold text-ink-800">Plan de cuentas estándar — Russell Bedford</h2>
         <Chip label={`${rows.length} cuentas`} tone="ink" />
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="filtrar cuenta, rubro o soporte" className="ml-auto w-72 rounded-md border border-ink-200 px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400" />
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+          <input
+            value={q}
+            onChange={(e) => {
+              setQ(e.target.value);
+              setPage(1);
+            }}
+            placeholder="filtrar cuenta, rubro o soporte"
+            className="w-72 rounded-md border border-ink-200 px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400"
+          />
+          <label className="flex items-center gap-1.5 text-[12px] font-medium text-ink-500">
+            Mostrar
+            <select
+              value={pageSize}
+              onChange={(e) => {
+                setPageSize(Number(e.target.value) as PageSize);
+                setPage(1);
+              }}
+              className="rounded-md border border-ink-200 bg-white px-2 py-1.5 text-[12.5px] text-ink-700 outline-none focus:border-blue-400"
+            >
+              {PAGE_SIZE_OPTIONS.map((size) => (
+                <option key={size} value={size}>{size}</option>
+              ))}
+            </select>
+          </label>
+        </div>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-[12.5px]">
@@ -194,7 +229,7 @@ function StandardTab({ std }: { std: StdAccount[] }) {
             </tr>
           </thead>
           <tbody>
-            {rows.map((s) => (
+            {pageRows.map((s) => (
               <tr key={s.code} className="border-b border-ink-50 last:border-0 hover:bg-ink-50">
                 <td className="px-4 py-2.5 font-mono text-ink-600" style={{ paddingLeft: (s.level - 1) * 16 + 16 }}>{s.code}</td>
                 <td className="min-w-56 px-4 py-2.5 font-medium text-ink-800">{s.name}</td>
@@ -208,6 +243,32 @@ function StandardTab({ std }: { std: StdAccount[] }) {
             ))}
           </tbody>
         </table>
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-ink-100 px-4 py-3">
+        <div className="text-[12px] text-ink-500">
+          {rows.length === 0 ? "Sin resultados" : `Mostrando ${start + 1}-${end} de ${rows.length}`}
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setPage((current) => Math.max(1, current - 1))}
+            disabled={currentPage === 1}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ink-200 bg-white px-2.5 text-[12px] font-semibold text-ink-700 disabled:cursor-not-allowed disabled:bg-ink-50 disabled:text-ink-300"
+          >
+            <Icon name="chev-l" size={13} /> Anterior
+          </button>
+          <span className="min-w-20 text-center font-mono text-[12px] text-ink-500">
+            {currentPage} / {totalPages}
+          </span>
+          <button
+            type="button"
+            onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+            disabled={currentPage === totalPages}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ink-200 bg-white px-2.5 text-[12px] font-semibold text-ink-700 disabled:cursor-not-allowed disabled:bg-ink-50 disabled:text-ink-300"
+          >
+            Siguiente <Icon name="chev-r" size={13} />
+          </button>
+        </div>
       </div>
     </Card>
   );
