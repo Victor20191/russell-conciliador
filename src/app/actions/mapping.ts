@@ -30,7 +30,7 @@ export async function updateAccountMapping(formData: FormData): Promise<ActionSt
       where: { id },
       data: { russellOptionId: option?.id ?? null },
     });
-    revalidatePath("/balance/mapeo");
+    revalidatePath("/config/mapeo");
     return { ok: true, message: "Mapeo actualizado." };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("updateAccountMapping", e) };
@@ -78,7 +78,7 @@ export async function suggestMappingsAI(formData: FormData): Promise<ActionState
       entity: `Mapeo · ${clientName}`,
       detail: `${suggested} cuenta(s) mapeadas por similitud`,
     });
-    revalidatePath("/balance/mapeo");
+    revalidatePath("/config/mapeo");
     return { ok: true, message: `${suggested} cuenta(s) mapeadas por sugerencia.` };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("suggestMappingsAI", e) };

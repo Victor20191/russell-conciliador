@@ -3,6 +3,12 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Icon } from "@/components/icons";
+import {
+  PageSizeSelect,
+  PaginationControls,
+  PaginationFooter,
+  usePagination,
+} from "@/components/pagination-controls";
 import { Card, Chip } from "@/components/ui";
 import { CargarBalanceButton, type ClienteOpcion } from "./cargar-balance-modal";
 
@@ -16,22 +22,8 @@ export type ClientGroup = {
   periodList: PeriodRow[];
 };
 export type AuditRow = { date: string; actor: string; role: string; action: string; ip: string; details: string };
-export type StdAccount = {
-  code: string;
-  name: string;
-  level: number;
-  nature: string;
-  critical: boolean;
-  russellAccount: string | null;
-  categoryType: string | null;
-  includes: string | null;
-  supportingDocuments: string | null;
-  mappingNotes: string | null;
-};
 
-type Tab = "clients" | "audit" | "std";
-const PAGE_SIZE_OPTIONS = [50, 100, 200] as const;
-type PageSize = (typeof PAGE_SIZE_OPTIONS)[number];
+type Tab = "clients" | "audit";
 
 function statusTone(s: string): "ok" | "warn" | "blue" | "ink" {
   if (s === "Congelado") return "blue";
@@ -40,9 +32,9 @@ function statusTone(s: string): "ok" | "warn" | "blue" | "ink" {
 }
 
 export default function BalanceIndexClient({
-  clients, auditRows, std, clientNames, uploadClients, canUpload,
+  clients, auditRows, clientNames, uploadClients, canUpload,
 }: {
-  clients: ClientGroup[]; auditRows: AuditRow[]; std: StdAccount[]; clientNames: string[];
+  clients: ClientGroup[]; auditRows: AuditRow[]; clientNames: string[];
   uploadClients: ClienteOpcion[]; canUpload: boolean;
 }) {
   const [tab, setTab] = useState<Tab>("clients");
@@ -52,21 +44,29 @@ export default function BalanceIndexClient({
       <div className="mb-4 flex items-center gap-2">
         <TabBtn on={tab === "clients"} onClick={() => setTab("clients")} label="Clientes" count={clients.length} />
         <TabBtn on={tab === "audit"} onClick={() => setTab("audit")} label="Audit log" count={auditRows.length} />
-        <TabBtn on={tab === "std"} onClick={() => setTab("std")} label="Plan estándar" count={std.length} />
         {canUpload && <CargarBalanceButton clients={uploadClients} />}
       </div>
 
       {tab === "clients" && <ClientsTab clients={clients} />}
       {tab === "audit" && <AuditTab rows={auditRows} clientNames={clientNames} />}
-      {tab === "std" && <StandardTab std={std} />}
     </div>
   );
 }
 
 function ClientsTab({ clients }: { clients: ClientGroup[] }) {
+  const pg = usePagination(clients, 50);
   return (
     <div className="flex flex-col gap-5">
-      {clients.map((c) => (
+      {clients.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-ink-150 bg-white px-4 py-2.5 shadow-sm">
+          <span className="text-[12px] text-ink-500">{pg.rangeLabel}</span>
+          <div className="flex flex-wrap items-center gap-3">
+            <PageSizeSelect value={pg.pageSize} onChange={pg.setPageSize} />
+            <PaginationControls currentPage={pg.page} totalPages={pg.totalPages} onPageChange={pg.setPage} />
+          </div>
+        </div>
+      )}
+      {pg.pageItems.map((c) => (
         <Card key={c.clientName}>
           <div className="flex items-center gap-2.5 border-b border-ink-100 px-4 py-3">
             <span className="text-ink-400"><Icon name="doc" size={16} /></span>
@@ -124,13 +124,17 @@ function ClientsTab({ clients }: { clients: ClientGroup[] }) {
 }
 
 function AuditTab({ rows, clientNames }: { rows: AuditRow[]; clientNames: string[] }) {
+  const pg = usePagination(rows, 50);
   return (
     <Card>
-      <div className="flex items-center gap-2 border-b border-ink-100 px-4 py-3">
+      <div className="flex flex-wrap items-center gap-2 border-b border-ink-100 px-4 py-3">
         <h2 className="text-[13px] font-semibold text-ink-800">Audit log</h2>
-        <select className="ml-auto rounded-md border border-ink-200 px-2 py-1 text-[12px] text-ink-700 outline-none">
-          {clientNames.map((n) => <option key={n} value={n}>{n}</option>)}
-        </select>
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <select className="rounded-md border border-ink-200 px-2 py-1 text-[12px] text-ink-700 outline-none">
+            {clientNames.map((n) => <option key={n} value={n}>{n}</option>)}
+          </select>
+          <PageSizeSelect value={pg.pageSize} onChange={pg.setPageSize} />
+        </div>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-[12.5px]">
@@ -145,8 +149,8 @@ function AuditTab({ rows, clientNames }: { rows: AuditRow[]; clientNames: string
             </tr>
           </thead>
           <tbody>
-            {rows.map((r, i) => (
-              <tr key={i} className="border-b border-ink-50 last:border-0">
+            {pg.pageItems.map((r, i) => (
+              <tr key={pg.start + i} className="border-b border-ink-50 last:border-0">
                 <td className="px-4 py-2.5 font-mono text-ink-600">{r.date}</td>
                 <td className="px-4 py-2.5 text-ink-800">{r.actor}</td>
                 <td className="px-4 py-2.5"><Chip label={r.role} tone={r.role.includes("Cliente") ? "blue" : "ink"} /></td>
@@ -155,117 +159,18 @@ function AuditTab({ rows, clientNames }: { rows: AuditRow[]; clientNames: string
                 <td className="px-4 py-2.5 text-ink-500">{r.details}</td>
               </tr>
             ))}
+            {rows.length === 0 && (
+              <tr><td colSpan={6} className="px-4 py-8 text-center text-ink-400">Sin entradas en la bitácora.</td></tr>
+            )}
           </tbody>
         </table>
       </div>
-    </Card>
-  );
-}
-
-function StandardTab({ std }: { std: StdAccount[] }) {
-  const [q, setQ] = useState("");
-  const [pageSize, setPageSize] = useState<PageSize>(50);
-  const [page, setPage] = useState(1);
-  const needle = q.trim().toLowerCase();
-  const rows = std.filter((s) => {
-    if (!needle) return true;
-    return [s.code, s.name, s.russellAccount, s.categoryType, s.includes, s.mappingNotes]
-      .some((value) => value?.toLowerCase().includes(needle));
-  });
-  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
-  const currentPage = Math.min(page, totalPages);
-  const start = rows.length === 0 ? 0 : (currentPage - 1) * pageSize;
-  const end = Math.min(start + pageSize, rows.length);
-  const pageRows = rows.slice(start, end);
-
-  return (
-    <Card>
-      <div className="flex flex-wrap items-center gap-2 border-b border-ink-100 px-4 py-3">
-        <h2 className="text-[13px] font-semibold text-ink-800">Plan de cuentas estándar — Russell Bedford</h2>
-        <Chip label={`${rows.length} cuentas`} tone="ink" />
-        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-          <input
-            value={q}
-            onChange={(e) => {
-              setQ(e.target.value);
-              setPage(1);
-            }}
-            placeholder="filtrar cuenta, rubro o soporte"
-            className="w-72 rounded-md border border-ink-200 px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400"
-          />
-          <label className="flex items-center gap-1.5 text-[12px] font-medium text-ink-500">
-            Mostrar
-            <select
-              value={pageSize}
-              onChange={(e) => {
-                setPageSize(Number(e.target.value) as PageSize);
-                setPage(1);
-              }}
-              className="rounded-md border border-ink-200 bg-white px-2 py-1.5 text-[12.5px] text-ink-700 outline-none focus:border-blue-400"
-            >
-              {PAGE_SIZE_OPTIONS.map((size) => (
-                <option key={size} value={size}>{size}</option>
-              ))}
-            </select>
-          </label>
-        </div>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-[12.5px]">
-          <thead>
-            <tr className="border-b border-ink-100 text-left text-[11px] uppercase tracking-wider text-ink-500">
-              <th className="px-4 py-2 font-semibold">Código</th>
-              <th className="px-4 py-2 font-semibold">Nombre PUC</th>
-              <th className="px-4 py-2 font-semibold">Cuenta Russell</th>
-              <th className="px-4 py-2 font-semibold">Tipo rubro</th>
-              <th className="px-4 py-2 font-semibold">Naturaleza</th>
-              <th className="px-4 py-2 font-semibold">Qué incluye</th>
-              <th className="px-4 py-2 font-semibold">Soportes</th>
-              <th className="px-4 py-2 font-semibold">Observaciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            {pageRows.map((s) => (
-              <tr key={s.code} className="border-b border-ink-50 last:border-0 hover:bg-ink-50">
-                <td className="px-4 py-2.5 font-mono text-ink-600" style={{ paddingLeft: (s.level - 1) * 16 + 16 }}>{s.code}</td>
-                <td className="min-w-56 px-4 py-2.5 font-medium text-ink-800">{s.name}</td>
-                <td className="min-w-44 px-4 py-2.5 text-ink-700">{s.russellAccount ?? "—"}</td>
-                <td className="min-w-56 px-4 py-2.5 text-ink-600">{s.categoryType ?? "—"}</td>
-                <td className="px-4 py-2.5"><Chip label={s.nature === "D" ? "Débito" : "Crédito"} tone="ink" /></td>
-                <td className="max-w-md whitespace-normal px-4 py-2.5 leading-relaxed text-ink-600">{s.includes ?? "—"}</td>
-                <td className="max-w-xs whitespace-normal px-4 py-2.5 leading-relaxed text-ink-500">{s.supportingDocuments ?? "—"}</td>
-                <td className="max-w-md whitespace-normal px-4 py-2.5 leading-relaxed text-ink-500">{s.mappingNotes ?? "—"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-ink-100 px-4 py-3">
-        <div className="text-[12px] text-ink-500">
-          {rows.length === 0 ? "Sin resultados" : `Mostrando ${start + 1}-${end} de ${rows.length}`}
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setPage((current) => Math.max(1, current - 1))}
-            disabled={currentPage === 1}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ink-200 bg-white px-2.5 text-[12px] font-semibold text-ink-700 disabled:cursor-not-allowed disabled:bg-ink-50 disabled:text-ink-300"
-          >
-            <Icon name="chev-l" size={13} /> Anterior
-          </button>
-          <span className="min-w-20 text-center font-mono text-[12px] text-ink-500">
-            {currentPage} / {totalPages}
-          </span>
-          <button
-            type="button"
-            onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
-            disabled={currentPage === totalPages}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ink-200 bg-white px-2.5 text-[12px] font-semibold text-ink-700 disabled:cursor-not-allowed disabled:bg-ink-50 disabled:text-ink-300"
-          >
-            Siguiente <Icon name="chev-r" size={13} />
-          </button>
-        </div>
-      </div>
+      <PaginationFooter
+        rangeLabel={pg.rangeLabel}
+        currentPage={pg.page}
+        totalPages={pg.totalPages}
+        onPageChange={pg.setPage}
+      />
     </Card>
   );
 }

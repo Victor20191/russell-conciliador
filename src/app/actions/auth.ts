@@ -139,7 +139,8 @@ export async function changePassword(
       });
       // Reeditar la cookie actual con la nueva versión para no expulsar al propio usuario.
       await createSession(user.id, user.role, newVersion);
-      destino = "/dashboard";
+      // `pwd=1` hace que el dashboard confirme el cambio con un toast (FlashToast).
+      destino = "/dashboard?pwd=1";
     }
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("changePassword", e) };

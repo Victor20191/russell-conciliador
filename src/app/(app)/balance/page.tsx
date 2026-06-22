@@ -6,7 +6,6 @@ import BalanceIndexClient, {
   type ClientGroup,
   type PeriodRow,
   type AuditRow,
-  type StdAccount,
 } from "./balance-index-client";
 
 type AuditEntry = { date: string; actor: string; role: string; action: string; ip: string; details: string };
@@ -17,12 +16,11 @@ export default async function BalancePage() {
   // (Admin/Superadmin ven todos). Balance referencia al cliente por nombre.
   const alc = await alcanceLecturaUsuario();
   const whereCliente = alc.todos ? {} : { clientName: { in: alc.clientNames } };
-  const [balances, standard, carteraClientes] = await Promise.all([
+  const [balances, carteraClientes] = await Promise.all([
     prisma.balance.findMany({
       where: whereCliente,
       orderBy: [{ clientName: "asc" }, { createdAt: "desc" }],
     }),
-    prisma.standardAccount.findMany({ orderBy: { code: "asc" } }),
     // Clientes de la cartera para el selector del modal de carga.
     prisma.client.findMany({
       where: alc.todos ? {} : { id: { in: alc.clientIds } },
@@ -71,31 +69,17 @@ export default async function BalancePage() {
   const auditLog = (withAudit?.auditLog as AuditEntry[] | null) ?? [];
   const auditRows: AuditRow[] = auditLog;
 
-  const std: StdAccount[] = standard.map((s) => ({
-    code: s.code,
-    name: s.name,
-    level: s.level,
-    nature: s.nature,
-    critical: s.critical,
-    russellAccount: s.russellAccount,
-    categoryType: s.categoryType,
-    includes: s.includes,
-    supportingDocuments: s.supportingDocuments,
-    mappingNotes: s.mappingNotes,
-  }));
-
   const clientNames = clients.map((c) => c.clientName);
 
   return (
     <div>
       <PageHeader
         title="Balance de comprobación"
-        subtitle="Fuente única de los balances cargados por cliente. Versionamiento, validaciones, mapeo y trazabilidad. Lo consumen DIAN y Conciliaciones."
+        subtitle="Fuente única de los balances cargados por cliente. Carga, versionamiento, validaciones y trazabilidad. Lo consumen DIAN y Conciliaciones."
       />
       <BalanceIndexClient
         clients={clients}
         auditRows={auditRows}
-        std={std}
         clientNames={clientNames}
         uploadClients={uploadClients}
         canUpload={canUpload}

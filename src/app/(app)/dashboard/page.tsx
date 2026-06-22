@@ -6,6 +6,7 @@ import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { PageHeader, Card, CardHeader, StatCard, Chip } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { statusChip, fmtCompact } from "@/lib/format";
+import { FlashToast } from "@/components/flash-toast";
 
 const STATUS_LABEL: Record<string, string> = { OK: "Conciliado", DIFF: "Diferencia", REVIEW: "En revisión" };
 function initials(name: string): string {
@@ -13,8 +14,13 @@ function initials(name: string): string {
   return ((p[0]?.[0] ?? "") + (p[1]?.[0] ?? "")).toUpperCase() || "··";
 }
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ pwd?: string }>;
+}) {
   await requirePermiso("dashboard:ver");
+  const { pwd } = await searchParams;
   const user = await getCurrentUser();
   const puedeCrearConciliacion = (await authorizePermiso("conciliaciones:crear")).ok;
   // Todos los indicadores se limitan a la cartera del usuario (Admin/Superadmin
@@ -40,6 +46,13 @@ export default async function DashboardPage() {
 
   return (
     <div>
+      {pwd === "1" && (
+        <FlashToast
+          tone="success"
+          title="Contraseña actualizada correctamente."
+          clearParam="pwd"
+        />
+      )}
       <PageHeader
         title={`Hola, ${user?.name?.split(" ")[0] ?? ""}`}
         subtitle="Resumen de tu trabajo de conciliación y diagnóstico"

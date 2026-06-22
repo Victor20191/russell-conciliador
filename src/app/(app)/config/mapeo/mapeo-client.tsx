@@ -4,11 +4,30 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
 import { Card, Chip, StatCard, EmptyState } from "@/components/ui";
+import {
+  PageSizeSelect,
+  PaginationFooter,
+  usePagination,
+} from "@/components/pagination-controls";
 import { ActionForm } from "@/components/action-form";
 import { updateAccountMapping, suggestMappingsAI } from "@/app/actions/mapping";
 
 export type Account = { id: number; code: string; level: number; name: string; russellCode: string | null };
 export type RussellOpt = { code: string; name: string; module: string | null };
+export type StdAccount = {
+  code: string;
+  name: string;
+  level: number;
+  nature: string;
+  critical: boolean;
+  russellAccount: string | null;
+  categoryType: string | null;
+  includes: string | null;
+  supportingDocuments: string | null;
+  mappingNotes: string | null;
+};
+
+type Tab = "mapping" | "standard";
 
 // Estado de parametrización por módulo (metadata demo; el conteo se deriva de los mapeos).
 const MODULE_STATUS: Record<string, "ok" | "partial" | "missing"> = {
@@ -23,11 +42,12 @@ const STATE_LABEL: Record<string, { label: string; tone: "ok" | "warn" | "err" }
 };
 
 export default function MapeoClient({
-  clientNames, cliente, accounts, options,
+  clientNames, cliente, accounts, options, std,
 }: {
-  clientNames: string[]; cliente: string; accounts: Account[]; options: RussellOpt[];
+  clientNames: string[]; cliente: string; accounts: Account[]; options: RussellOpt[]; std: StdAccount[];
 }) {
   const router = useRouter();
+  const [tab, setTab] = useState<Tab>("mapping");
   const [q, setQ] = useState("");
   const [level, setLevel] = useState<"all" | "4" | "6" | "8">("all");
 
@@ -54,11 +74,19 @@ export default function MapeoClient({
   const rows = accounts
     .filter((a) => level === "all" || a.level === Number(level))
     .filter((a) => !q || a.code.includes(q) || a.name.toLowerCase().includes(q.toLowerCase()));
+  const pg = usePagination(rows, 50);
 
   const coverage = stats.total > 0 ? Math.round((stats.mapped / stats.total) * 100) : 0;
 
   return (
     <div>
+      <div className="mb-4 flex items-center gap-2">
+        <TabBtn on={tab === "mapping"} onClick={() => setTab("mapping")} label="Mapeo por cliente" count={accounts.length} />
+        <TabBtn on={tab === "standard"} onClick={() => setTab("standard")} label="Plan estándar Russell" count={std.length} />
+      </div>
+
+      {tab === "mapping" ? (
+        <>
       {/* KPIs */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <Card className="p-4">
@@ -92,7 +120,7 @@ export default function MapeoClient({
           <h2 className="text-[13px] font-semibold text-ink-800">Parametrización cuenta a cuenta</h2>
           <select
             value={cliente}
-            onChange={(e) => router.push(`/balance/mapeo?cliente=${encodeURIComponent(e.target.value)}`)}
+            onChange={(e) => router.push(`/config/mapeo?cliente=${encodeURIComponent(e.target.value)}`)}
             className="rounded-md border border-ink-200 px-2 py-1 text-[12px] text-ink-700 outline-none"
           >
             {clientNames.map((n) => <option key={n} value={n}>{n}</option>)}
@@ -100,10 +128,11 @@ export default function MapeoClient({
           <div className="ml-auto flex items-center gap-2">
             <div className="flex overflow-hidden rounded-md border border-ink-200 text-[11.5px]">
               {(["all", "4", "6", "8"] as const).map((l) => (
-                <button key={l} onClick={() => setLevel(l)} className={`px-2.5 py-1 ${level === l ? "bg-navy-800 text-white" : "bg-white text-ink-600 hover:bg-ink-50"}`}>{l === "all" ? "Todos" : `N${l}`}</button>
+                <button key={l} onClick={() => { setLevel(l); pg.resetToFirstPage(); }} className={`px-2.5 py-1 ${level === l ? "bg-navy-800 text-white" : "bg-white text-ink-600 hover:bg-ink-50"}`}>{l === "all" ? "Todos" : `N${l}`}</button>
               ))}
             </div>
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filtrar por código o nombre…" className="rounded-md border border-ink-200 px-2.5 py-1.5 text-[12px] outline-none focus:border-blue-400" />
+            <input value={q} onChange={(e) => { setQ(e.target.value); pg.resetToFirstPage(); }} placeholder="Filtrar por código o nombre…" className="rounded-md border border-ink-200 px-2.5 py-1.5 text-[12px] outline-none focus:border-blue-400" />
+            <PageSizeSelect value={pg.pageSize} onChange={pg.setPageSize} />
             <ActionForm
               action={suggestMappingsAI}
               successMessage="Sugerencias IA aplicadas."
@@ -142,7 +171,7 @@ export default function MapeoClient({
                 </tr>
               </thead>
               <tbody>
-                {rows.map((a) => {
+                {pg.pageItems.map((a) => {
                   const opt = a.russellCode ? optByCode.get(a.russellCode) : null;
                   const mod = opt?.module ?? null;
                   const st = mod ? MODULE_STATUS[mod] : null;
@@ -188,10 +217,16 @@ export default function MapeoClient({
             </table>
           </div>
         )}
-        <div className="flex items-center justify-between border-t border-ink-100 px-4 py-2.5 text-[11.5px] text-ink-500">
-          <span>{rows.length} cuentas mostradas · {stats.mapped} parametrizadas de {stats.total}</span>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-ink-100 px-4 py-2.5 text-[11.5px] text-ink-500">
+          <span>{stats.mapped} parametrizadas de {stats.total}</span>
           <span>Última actualización: 08/Ene/2026 11:32 · Manuela Gutiérrez</span>
         </div>
+        <PaginationFooter
+          rangeLabel={pg.rangeLabel}
+          currentPage={pg.page}
+          totalPages={pg.totalPages}
+          onPageChange={pg.setPage}
+        />
       </Card>
 
       {/* Resumen por módulo */}
@@ -209,6 +244,87 @@ export default function MapeoClient({
           ))}
         </div>
       </Card>
+        </>
+      ) : (
+        <StandardTab std={std} />
+      )}
     </div>
+  );
+}
+
+function StandardTab({ std }: { std: StdAccount[] }) {
+  const [q, setQ] = useState("");
+  const needle = q.trim().toLowerCase();
+  const rows = std.filter((s) => {
+    if (!needle) return true;
+    return [s.code, s.name, s.russellAccount, s.categoryType, s.includes, s.mappingNotes]
+      .some((value) => value?.toLowerCase().includes(needle));
+  });
+  const pg = usePagination(rows, 50);
+
+  return (
+    <Card>
+      <div className="flex flex-wrap items-center gap-2 border-b border-ink-100 px-4 py-3">
+        <h2 className="text-[13px] font-semibold text-ink-800">Plan de cuentas estándar — Russell Bedford</h2>
+        <Chip label={`${pg.total} cuentas`} tone="ink" />
+        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+          <input
+            value={q}
+            onChange={(e) => {
+              setQ(e.target.value);
+              pg.resetToFirstPage();
+            }}
+            placeholder="filtrar cuenta, rubro o soporte"
+            className="w-72 rounded-md border border-ink-200 px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400"
+          />
+          <PageSizeSelect value={pg.pageSize} onChange={pg.setPageSize} />
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-[12.5px]">
+          <thead>
+            <tr className="border-b border-ink-100 text-left text-[11px] uppercase tracking-wider text-ink-500">
+              <th className="px-4 py-2 font-semibold">Código</th>
+              <th className="px-4 py-2 font-semibold">Nombre PUC</th>
+              <th className="px-4 py-2 font-semibold">Cuenta Russell</th>
+              <th className="px-4 py-2 font-semibold">Tipo rubro</th>
+              <th className="px-4 py-2 font-semibold">Naturaleza</th>
+              <th className="px-4 py-2 font-semibold">Qué incluye</th>
+              <th className="px-4 py-2 font-semibold">Soportes</th>
+              <th className="px-4 py-2 font-semibold">Observaciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {pg.pageItems.map((s) => (
+              <tr key={s.code} className="border-b border-ink-50 last:border-0 hover:bg-ink-50">
+                <td className="px-4 py-2.5 font-mono text-ink-600" style={{ paddingLeft: (s.level - 1) * 16 + 16 }}>{s.code}</td>
+                <td className="min-w-56 px-4 py-2.5 font-medium text-ink-800">{s.name}</td>
+                <td className="min-w-44 px-4 py-2.5 text-ink-700">{s.russellAccount ?? "—"}</td>
+                <td className="min-w-56 px-4 py-2.5 text-ink-600">{s.categoryType ?? "—"}</td>
+                <td className="px-4 py-2.5"><Chip label={s.nature === "D" ? "Débito" : "Crédito"} tone="ink" /></td>
+                <td className="max-w-md whitespace-normal px-4 py-2.5 leading-relaxed text-ink-600">{s.includes ?? "—"}</td>
+                <td className="max-w-xs whitespace-normal px-4 py-2.5 leading-relaxed text-ink-500">{s.supportingDocuments ?? "—"}</td>
+                <td className="max-w-md whitespace-normal px-4 py-2.5 leading-relaxed text-ink-500">{s.mappingNotes ?? "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <PaginationFooter
+        rangeLabel={pg.rangeLabel}
+        currentPage={pg.page}
+        totalPages={pg.totalPages}
+        onPageChange={pg.setPage}
+      />
+    </Card>
+  );
+}
+
+function TabBtn({ on, onClick, label, count }: { on: boolean; onClick: () => void; label: string; count: number }) {
+  return (
+    <button onClick={onClick} className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12.5px] font-medium transition ${on ? "bg-navy-800 text-white" : "text-ink-600 hover:bg-ink-100"}`}>
+      {label}
+      <span className={`rounded-full px-1.5 text-[10px] font-semibold ${on ? "bg-white/20 text-white" : "bg-ink-100 text-ink-500"}`}>{count}</span>
+    </button>
   );
 }

@@ -127,9 +127,7 @@ export function esNivelParcial(perms: PermisoLite[], grantedIds: Set<number>): b
 }
 
 // ----- Árbol de presentación (filas de la matriz) -----
-// Etiquetas y orden tomados de la navegación real (src/lib/nav.ts). Los
-// submódulos con permiso propio (mapeo) se anidan bajo su módulo padre
-// como sub-filas.
+// Etiquetas y orden tomados de la navegación real (src/lib/nav.ts).
 
 export type ModuloItem = {
   module: string;
@@ -149,9 +147,6 @@ export const ARBOL_MODULOS: GrupoModulos[] = [
         module: "balance",
         label: "Balance de comprobación",
         icon: "doc",
-        hijos: [
-          { module: "mapeo", label: "Mapeo plan estándar" },
-        ],
       },
       { module: "conciliaciones", label: "Conciliaciones", icon: "play" },
       { module: "dian", label: "Impuestos · DIAN", icon: "doc" },
@@ -162,6 +157,7 @@ export const ARBOL_MODULOS: GrupoModulos[] = [
     grupo: "Configuración y administración",
     items: [
       { module: "clientes", label: "Clientes", icon: "users" },
+      { module: "mapeo", label: "Mapeo plan estándar", icon: "settings" },
       { module: "mapeos_dian", label: "Mapeos DIAN", icon: "doc" },
       { module: "usuarios", label: "Usuarios", icon: "users" },
       { module: "modulos", label: "Módulos y campos", icon: "box" },

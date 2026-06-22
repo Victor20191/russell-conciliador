@@ -2,6 +2,11 @@
 
 import { useState } from "react";
 import { Card, Chip } from "@/components/ui";
+import {
+  PageSizeSelect,
+  PaginationControls,
+  usePagination,
+} from "@/components/pagination-controls";
 import { fmt } from "@/lib/format";
 
 export type DiffRow = { type: "added" | "removed" | "changed"; code: string; name: string; before: number; after: number; delta: number; flag?: string };
@@ -11,16 +16,22 @@ type View = "git" | "side" | "sxs";
 
 export default function BalanceDiffClient({ diff, version }: { diff: DiffData; version: string }) {
   const [view, setView] = useState<View>("git");
+  const pg = usePagination(diff.rows, 50);
   return (
     <div>
-      <div className="mb-3 flex items-center gap-2">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
         <ViewBtn on={view === "git"} onClick={() => setView("git")} label="Git diff" />
         <ViewBtn on={view === "side"} onClick={() => setView("side")} label="Antes / Después" />
         <ViewBtn on={view === "sxs"} onClick={() => setView("sxs")} label="Lado a lado" />
+        <div className="ml-auto"><PageSizeSelect value={pg.pageSize} onChange={pg.setPageSize} /></div>
       </div>
-      {view === "git" && <GitView rows={diff.rows} />}
-      {view === "side" && <SideView rows={diff.rows} />}
-      {view === "sxs" && <SxsView rows={diff.rows} version={version} />}
+      {view === "git" && <GitView rows={pg.pageItems} />}
+      {view === "side" && <SideView rows={pg.pageItems} />}
+      {view === "sxs" && <SxsView rows={pg.pageItems} version={version} />}
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-ink-150 bg-white px-4 py-2.5 shadow-sm">
+        <span className="text-[12px] text-ink-500">{pg.rangeLabel}</span>
+        <PaginationControls currentPage={pg.page} totalPages={pg.totalPages} onPageChange={pg.setPage} />
+      </div>
     </div>
   );
 }

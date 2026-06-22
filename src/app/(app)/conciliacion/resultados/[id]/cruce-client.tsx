@@ -4,6 +4,11 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
 import { Card, Chip } from "@/components/ui";
+import {
+  PageSizeSelect,
+  PaginationFooter,
+  usePagination,
+} from "@/components/pagination-controls";
 import { ActionForm } from "@/components/action-form";
 import { fmt, fmtPct } from "@/lib/format";
 import { addReconciliationComment, setRowStatus } from "@/app/actions/reconciliation";
@@ -33,6 +38,7 @@ export default function CruceClient({
 
   const commentsByAccount = (cuenta: string) => comments.filter((c) => c.cuenta === cuenta);
   const shown = rows.filter((r) => filter === "all" || r.diff !== 0);
+  const pg = usePagination(shown, 50);
   const sel = rows.find((r) => r.cuenta === selected) ?? rows[0];
 
   return (
@@ -40,9 +46,12 @@ export default function CruceClient({
       {/* Tabla */}
       <Card className="lg:col-span-2">
         <div className="flex flex-wrap items-center gap-2 border-b border-ink-100 px-4 py-3">
-          <button onClick={() => setFilter("all")} className={`rounded-full px-2.5 py-1 text-[11.5px] font-semibold ${filter === "all" ? "bg-navy-800 text-white" : "bg-ink-100 text-ink-600"}`}>Todas {rows.length}</button>
-          <button onClick={() => setFilter("diff")} className={`rounded-full px-2.5 py-1 text-[11.5px] font-semibold ${filter === "diff" ? "bg-navy-800 text-white" : "bg-err-100 text-err-700"}`}>Con diferencia {rows.filter((r) => r.diff !== 0).length}</button>
-          <span className="ml-auto"><Chip label={`Materialidad: ${fmt(materiality)}`} tone="ink" /></span>
+          <button onClick={() => { setFilter("all"); pg.resetToFirstPage(); }} className={`rounded-full px-2.5 py-1 text-[11.5px] font-semibold ${filter === "all" ? "bg-navy-800 text-white" : "bg-ink-100 text-ink-600"}`}>Todas {rows.length}</button>
+          <button onClick={() => { setFilter("diff"); pg.resetToFirstPage(); }} className={`rounded-full px-2.5 py-1 text-[11.5px] font-semibold ${filter === "diff" ? "bg-navy-800 text-white" : "bg-err-100 text-err-700"}`}>Con diferencia {rows.filter((r) => r.diff !== 0).length}</button>
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <Chip label={`Materialidad: ${fmt(materiality)}`} tone="ink" />
+            <PageSizeSelect value={pg.pageSize} onChange={pg.setPageSize} />
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-[12.5px]">
@@ -58,7 +67,7 @@ export default function CruceClient({
               </tr>
             </thead>
             <tbody>
-              {shown.map((r) => {
+              {pg.pageItems.map((r) => {
                 const st = statusOf(r.diff, materiality, r.manualStatus);
                 const variation = r.cont !== 0 ? (r.diff / r.cont) * 100 : 0;
                 const nc = commentsByAccount(r.cuenta).length;
@@ -84,6 +93,12 @@ export default function CruceClient({
             </tbody>
           </table>
         </div>
+        <PaginationFooter
+          rangeLabel={pg.rangeLabel}
+          currentPage={pg.page}
+          totalPages={pg.totalPages}
+          onPageChange={pg.setPage}
+        />
       </Card>
 
       {/* Panel lateral */}

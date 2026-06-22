@@ -3,6 +3,11 @@
 import { useActionState, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, PageHeader } from "@/components/ui";
+import {
+  PageSizeSelect,
+  PaginationFooter,
+  usePagination,
+} from "@/components/pagination-controls";
 import { PasswordInput } from "@/components/password-input";
 import { Modal } from "@/components/modal";
 import { createUser, updateUser, unlockUser, deleteUser } from "@/app/actions/users";
@@ -67,6 +72,7 @@ export default function UsuariosClient({
   const [createOpen, setCreateOpen] = useState(false);
   const [editUser, setEditUser] = useState<UserRow | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<UserRow | null>(null);
+  const pg = usePagination(rows, 50);
 
   return (
     <div>
@@ -87,6 +93,10 @@ export default function UsuariosClient({
       />
 
       <Card>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-100 px-4 py-3">
+          <span className="text-[12px] text-ink-500">{pg.total} usuario(s)</span>
+          <PageSizeSelect value={pg.pageSize} onChange={pg.setPageSize} />
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-[13px]">
             <thead>
@@ -98,7 +108,7 @@ export default function UsuariosClient({
               </tr>
             </thead>
             <tbody className="divide-y divide-ink-100">
-              {rows.map((u) => {
+              {pg.pageItems.map((u) => {
                 const blocked = userIsBlocked(u);
                 return (
                   <tr key={u.id} className="hover:bg-ink-50/50">
@@ -162,6 +172,12 @@ export default function UsuariosClient({
             </tbody>
           </table>
         </div>
+        <PaginationFooter
+          rangeLabel={pg.rangeLabel}
+          currentPage={pg.page}
+          totalPages={pg.totalPages}
+          onPageChange={pg.setPage}
+        />
       </Card>
 
       {createOpen && (

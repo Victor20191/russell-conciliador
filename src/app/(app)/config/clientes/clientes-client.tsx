@@ -3,6 +3,11 @@
 import { useActionState, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
+import {
+  PageSizeSelect,
+  PaginationFooter,
+  usePagination,
+} from "@/components/pagination-controls";
 import { Card } from "@/components/ui";
 import { Modal } from "@/components/modal";
 import { ActionForm } from "@/components/action-form";
@@ -53,8 +58,13 @@ function statusOf(c: ClientRow, moduleId: number): "configured" | "pending" | "n
   return (m?.status as "configured" | "pending") ?? "none";
 }
 
-const PAGE_SIZE_OPTIONS = [50, 100, 200] as const;
-type PageSize = (typeof PAGE_SIZE_OPTIONS)[number];
+/** Estado de "DIAN · Impuestos" como un módulo más de la tabla. ClientDianForm no
+ *  tiene 'status' propio, así que se deriva de la presencia de formatos: con al
+ *  menos un formato ⇒ "pending" (activo, igual que un módulo recién asignado);
+ *  sin formatos ⇒ "none" (N/A). */
+function dianStatusOf(c: ClientRow): "configured" | "pending" | "none" {
+  return c.dianFormIds.length > 0 ? "pending" : "none";
+}
 
 export default function ClientesClient({
   clients,
@@ -80,8 +90,6 @@ export default function ClientesClient({
   const [sector, setSector] = useState("");
   const [editing, setEditing] = useState<ClientRow | null>(null);
   const [creating, setCreating] = useState(false);
-  const [pageSize, setPageSize] = useState<PageSize>(50);
-  const [page, setPage] = useState(1);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -93,11 +101,10 @@ export default function ClientesClient({
     );
   }, [clients, q, erp, sector]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const currentPage = Math.min(page, totalPages);
-  const start = filtered.length === 0 ? 0 : (currentPage - 1) * pageSize;
-  const end = Math.min(start + pageSize, filtered.length);
-  const pageRows = filtered.slice(start, end);
+  const pg = usePagination(filtered, 50);
+  // "DIAN · Impuestos" se muestra como una columna-módulo más cuando el catálogo
+  // tiene formatos (siempre, en la práctica: IVA/Retención/ICA vienen del seed).
+  const showDian = dianForms.length > 0;
 
   return (
     <Card>
@@ -109,7 +116,7 @@ export default function ClientesClient({
             value={q}
             onChange={(e) => {
               setQ(e.target.value);
-              setPage(1);
+              pg.resetToFirstPage();
             }}
             placeholder="Buscar cliente o NIT…"
             className="w-56 bg-transparent text-[12.5px] text-ink-700 outline-none placeholder:text-ink-400"
@@ -119,7 +126,7 @@ export default function ClientesClient({
           value={erp}
           onChange={(e) => {
             setErp(e.target.value);
-            setPage(1);
+            pg.resetToFirstPage();
           }}
           className="rounded-md border border-ink-200 px-2 py-1.5 text-[12.5px] text-ink-700 outline-none"
         >
@@ -133,7 +140,7 @@ export default function ClientesClient({
           value={sector}
           onChange={(e) => {
             setSector(e.target.value);
-            setPage(1);
+            pg.resetToFirstPage();
           }}
           className="rounded-md border border-ink-200 px-2 py-1.5 text-[12.5px] text-ink-700 outline-none"
         >
@@ -142,21 +149,6 @@ export default function ClientesClient({
             <option key={s.id} value={s.id}>{s.name}</option>
           ))}
         </select>
-        <label className="flex items-center gap-1.5 text-[12px] font-medium text-ink-500">
-          Mostrar
-          <select
-            value={pageSize}
-            onChange={(e) => {
-              setPageSize(Number(e.target.value) as PageSize);
-              setPage(1);
-            }}
-            className="rounded-md border border-ink-200 bg-white px-2 py-1.5 text-[12.5px] text-ink-700 outline-none focus:border-blue-400"
-          >
-            {PAGE_SIZE_OPTIONS.map((size) => (
-              <option key={size} value={size}>{size}</option>
-            ))}
-          </select>
-        </label>
         <div className="ml-auto flex items-center gap-2">
           <ImportClientesButton />
           <button
@@ -165,6 +157,7 @@ export default function ClientesClient({
           >
             <Icon name="plus" size={13} /> Nuevo cliente
           </button>
+          <PageSizeSelect value={pg.pageSize} onChange={pg.setPageSize} />
         </div>
       </div>
 
@@ -176,15 +169,17 @@ export default function ClientesClient({
               <th className="px-4 py-2 font-semibold">NIT</th>
               <th className="px-2 py-2 text-center font-semibold">Tipo</th>
               <th className="px-4 py-2 font-semibold">ERP</th>
-              <th className="px-4 py-2 font-semibold">Sector</th>
               {modules.map((m) => (
                 <th key={m.id} className="px-2 py-2 text-center font-semibold">{m.name}</th>
               ))}
+              {showDian && (
+                <th className="px-2 py-2 text-center font-semibold">DIAN · Impuestos</th>
+              )}
               <th className="px-2 py-2"></th>
             </tr>
           </thead>
           <tbody>
-            {pageRows.map((c) => (
+            {pg.pageItems.map((c) => (
               <tr key={c.id} className="border-b border-ink-50 last:border-0 hover:bg-ink-50">
                 <td className="p-0">
                   <button
@@ -219,12 +214,16 @@ export default function ClientesClient({
                     </span>
                   )}
                 </td>
-                <td className="px-4 py-2.5 text-ink-600">{c.sectorName ?? "—"}</td>
                 {modules.map((m) => (
                   <td key={m.id} className="px-2 py-2 text-center">
                     <ModuleCell status={statusOf(c, m.id)} />
                   </td>
                 ))}
+                {showDian && (
+                  <td className="px-2 py-2 text-center">
+                    <ModuleCell status={dianStatusOf(c)} />
+                  </td>
+                )}
                 <td className="px-2 py-2 text-right">
                   <button
                     onClick={() => setEditing(c)}
@@ -238,7 +237,7 @@ export default function ClientesClient({
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={modules.length + 6} className="px-4 py-8 text-center text-[12.5px] text-ink-400">
+                <td colSpan={modules.length + 5 + (showDian ? 1 : 0)} className="px-4 py-8 text-center text-[12.5px] text-ink-400">
                   Sin clientes que coincidan con el filtro.
                 </td>
               </tr>
@@ -247,32 +246,12 @@ export default function ClientesClient({
         </table>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-ink-100 px-4 py-3">
-        <div className="text-[12px] text-ink-500">
-          {filtered.length === 0 ? "Sin resultados" : `Mostrando ${start + 1}-${end} de ${filtered.length}`}
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setPage((current) => Math.max(1, current - 1))}
-            disabled={currentPage === 1}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ink-200 bg-white px-2.5 text-[12px] font-semibold text-ink-700 disabled:cursor-not-allowed disabled:bg-ink-50 disabled:text-ink-300"
-          >
-            <Icon name="chev-l" size={13} /> Anterior
-          </button>
-          <span className="min-w-20 text-center font-mono text-[12px] text-ink-500">
-            {currentPage} / {totalPages}
-          </span>
-          <button
-            type="button"
-            onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
-            disabled={currentPage === totalPages}
-            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ink-200 bg-white px-2.5 text-[12px] font-semibold text-ink-700 disabled:cursor-not-allowed disabled:bg-ink-50 disabled:text-ink-300"
-          >
-            Siguiente <Icon name="chev-r" size={13} />
-          </button>
-        </div>
-      </div>
+      <PaginationFooter
+        rangeLabel={pg.rangeLabel}
+        currentPage={pg.page}
+        totalPages={pg.totalPages}
+        onPageChange={pg.setPage}
+      />
 
       {creating && (
         <ClientModal
@@ -481,30 +460,24 @@ function ClientModal({
     );
   }
 
-  // ----- DIAN: activación + formatos (uno o varios) -----
-  const dianFormById = useMemo(() => {
-    const m = new Map<number, DianFormRef>();
-    dianForms.forEach((f) => m.set(f.id, f));
-    return m;
-  }, [dianForms]);
-  const dianDisponibles = dianForms.filter((f) => !selectedDianFormIds.includes(f.id));
+  // ----- DIAN: módulo padre + un checkbox por formato (sub-ítem) -----
   // "Activar DIAN" significa tener al menos un formato: guardar DIAN activo sin
   // formatos lo persistiría como desactivado (inconsistencia silenciosa). Se
-  // bloquea el guardado hasta elegir un formato o desactivar DIAN.
+  // bloquea el guardado hasta marcar un formato o desactivar DIAN.
   const dianInvalido = dianActive && selectedDianFormIds.length === 0;
 
   function toggleDian() {
     setDianActive((active) => {
-      if (active) setSelectedDianFormIds([]); // al desactivar se limpian los formatos
-      return !active;
+      const next = !active;
+      // Al activar se marcan todos los formatos por defecto; al desactivar se limpian.
+      setSelectedDianFormIds(next ? dianForms.map((f) => f.id) : []);
+      return next;
     });
   }
-  function agregarDianForm(value: string) {
-    const id = value ? Number(value) : 0;
-    if (id) setSelectedDianFormIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
-  }
-  function quitarDianForm(id: number) {
-    setSelectedDianFormIds((prev) => prev.filter((x) => x !== id));
+  function toggleDianForm(id: number) {
+    setSelectedDianFormIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+    );
   }
 
   useEffect(() => {
@@ -814,61 +787,50 @@ function ClientModal({
                 </label>
 
                 {dianActive && (
-                  <div className="mt-2 flex flex-col gap-1.5 border-t border-ink-100 pt-2">
+                  <div className="mt-2 flex flex-col gap-1.5 border-t border-ink-100 pt-2 pl-6">
                     <span className="text-[11px] text-ink-500">
                       Formatos a auditar — uno o varios
                     </span>
-                    {selectedDianFormIds.length > 0 && (
-                      <div className="flex flex-col gap-1.5">
-                        {selectedDianFormIds.map((id) => {
-                          const f = dianFormById.get(id);
-                          return (
-                            <div
-                              key={id}
-                              className="flex items-center justify-between gap-2 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12.5px] text-ink-800"
-                            >
-                              <span className="truncate">
-                                {f ? f.name : `Formato ${id}`}
-                                {f && (
-                                  <span className="ml-1.5 font-mono text-[11px] text-ink-400">
-                                    {f.code}
-                                  </span>
-                                )}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => quitarDianForm(id)}
-                                title="Quitar formato"
-                                className="rounded p-0.5 text-ink-400 transition hover:bg-ink-100 hover:text-err-600"
-                              >
-                                <Icon name="x" size={14} />
-                              </button>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                    {/* Envío del arreglo: un input oculto por formato elegido. */}
-                    {selectedDianFormIds.map((id) => (
-                      <input key={id} type="hidden" name="dianFormIds" value={id} />
-                    ))}
-                    <select
-                      value=""
-                      onChange={(e) => agregarDianForm(e.target.value)}
-                      disabled={dianDisponibles.length === 0}
-                      className="w-full rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400 disabled:cursor-not-allowed disabled:bg-ink-50 disabled:text-ink-400"
-                    >
-                      <option value="">
-                        {dianDisponibles.length === 0
-                          ? "Todos los formatos ya están agregados"
-                          : "Agregar formato…"}
-                      </option>
-                      {dianDisponibles.map((f) => (
-                        <option key={f.id} value={f.id}>
-                          {f.name} · {f.code}
-                        </option>
-                      ))}
-                    </select>
+                    {/* Un checkbox por formato (sub-ítem de DIAN · Impuestos).
+                        Como son checkboxes nativos con name="dianFormIds", solo
+                        los marcados llegan al FormData; no hacen falta inputs ocultos. */}
+                    {dianForms.map((f) => {
+                      const checked = selectedDianFormIds.includes(f.id);
+                      return (
+                        <label
+                          key={f.id}
+                          className={`flex min-h-9 cursor-pointer items-center gap-2 rounded-md border px-2.5 py-2 text-[12px] font-medium transition ${
+                            checked
+                              ? "border-ok-100 bg-white text-ink-800"
+                              : "border-ink-150 bg-ink-100 text-ink-500"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            name="dianFormIds"
+                            value={f.id}
+                            checked={checked}
+                            onChange={() => toggleDianForm(f.id)}
+                            className="sr-only"
+                          />
+                          <span
+                            className={`grid h-4 w-4 shrink-0 place-items-center rounded border ${
+                              checked
+                                ? "border-ok-500 bg-ok-500 text-white"
+                                : "border-ink-300 bg-white text-transparent"
+                            }`}
+                          >
+                            <Icon name="check" size={11} stroke={2} />
+                          </span>
+                          <span className="truncate">
+                            {f.name}
+                            <span className="ml-1.5 font-mono text-[11px] text-ink-400">
+                              {f.code}
+                            </span>
+                          </span>
+                        </label>
+                      );
+                    })}
                     {selectedDianFormIds.length === 0 && (
                       <span className="text-[11px] text-warn-700">
                         Selecciona al menos un formato o desactiva DIAN.

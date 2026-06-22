@@ -56,7 +56,7 @@ export default async function EstadoResultadoPage({
         title="Estado de Resultado"
         subtitle="Consolidación del Estado de Resultado por período bajo el plan estándar. Comparativo vs. año anterior y presupuesto."
         actions={puedeVerMapeo ? (
-          <Link href="/balance/mapeo" className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-2 text-[12.5px] font-semibold text-white hover:bg-navy-600">
+          <Link href="/config/mapeo" className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-2 text-[12.5px] font-semibold text-white hover:bg-navy-600">
             <Icon name="settings" size={14} /> Ajustar mapeo
           </Link>
         ) : null}

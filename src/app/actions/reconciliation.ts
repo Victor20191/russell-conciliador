@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
-import { authorizePermiso, requirePermiso } from "@/lib/rbac";
+import { authorizePermiso } from "@/lib/rbac";
 import { clienteDeConciliacion, clienteDeFilaConciliacion } from "@/lib/rbac/contexto";
 import { parseId } from "@/lib/ids";
 import { createProcessNotification } from "@/lib/notifications";
@@ -102,24 +102,33 @@ const DEMO_CROSS_ROWS: [string, string, number, number, number, number][] = [
   ["143580", "Inventarios en tránsito", 31200000, 29420000, -1780000, 6],
 ];
 
-export async function executeReconciliation(formData: FormData): Promise<void> {
-  await requirePermiso("conciliaciones:ejecutar");
+export async function executeReconciliation(
+  _prev: ActionState | undefined,
+  formData: FormData,
+): Promise<ActionState> {
+  const authz = await authorizePermiso("conciliaciones:ejecutar");
+  if (!authz.ok) return { ok: false, message: authz.message };
   const clientId = parseId(formData.get("clientId"));
   const moduleId = parseId(formData.get("moduleId"));
   const period = formData.get("period") as string;
   const cutoff = (formData.get("cutoff") as string) || "";
-  if (!clientId || !moduleId || !period) return;
+  if (!clientId || !moduleId || !period) {
+    return { ok: false, message: "Faltan datos para ejecutar la conciliación." };
+  }
   // Ejecutar es la acción operativa por excelencia: exige cartera con escritura.
-  await requirePermiso("conciliaciones:ejecutar", { clientId });
+  const alcance = await authorizePermiso("conciliaciones:ejecutar", { clientId });
+  if (!alcance.ok) return { ok: false, message: alcance.message };
 
   // GATE de operación: iniciar una conciliación exige que el cliente tenga un
   // ERP asignado (define el origen de los auxiliares). Sin ERP se BLOQUEA con
   // alerta (la UI ya lo impide; esto es defensa en profundidad).
   const conErp = await prisma.client.findUnique({ where: { id: clientId }, select: { erpId: true } });
   if (!conErp?.erpId) {
-    throw new Error(
-      "El cliente no tiene un ERP asignado. Asígnalo en Configuración › Clientes antes de iniciar la conciliación.",
-    );
+    return {
+      ok: false,
+      message:
+        "El cliente no tiene un ERP asignado. Asígnalo en Configuración › Clientes antes de iniciar la conciliación.",
+    };
   }
 
   // El id se captura dentro del try; el redirect() se ejecuta DESPUÉS, porque
@@ -131,7 +140,7 @@ export async function executeReconciliation(formData: FormData): Promise<void> {
       prisma.module.findUnique({ where: { id: moduleId } }),
       getCurrentUser(),
     ]);
-    if (!client || !mod) return;
+    if (!client || !mod) return { ok: false, message: "Cliente o módulo inexistente." };
 
     const n = await prisma.reconciliation.count();
     const code = `REC-2026-${5000 + n}`;
@@ -164,10 +173,16 @@ export async function executeReconciliation(formData: FormData): Promise<void> {
     revalidatePath("/", "layout");
     reconciliationId = reconciliation.id;
   } catch (e) {
-    throw new Error(mensajeErrorBD("executeReconciliation", e));
+    return { ok: false, message: mensajeErrorBD("executeReconciliation", e) };
   }
 
-  if (reconciliationId !== null) redirect(`/conciliacion/resultados/${reconciliationId}`);
+  // Éxito: redirige al detalle del cruce con la señal `ejecutada=1`, que la
+  // página destino usa para confirmar con un toast (FlashToast). El redirect()
+  // se ejecuta FUERA del try porque funciona lanzando una excepción especial.
+  if (reconciliationId !== null) {
+    redirect(`/conciliacion/resultados/${reconciliationId}?ejecutada=1`);
+  }
+  return { ok: false, message: "No se pudo ejecutar la conciliación." };
 }
 
 function fmtSigned(n: number): string {

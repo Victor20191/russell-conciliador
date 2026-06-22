@@ -9,10 +9,18 @@ import CruceClient, { type Row, type Comment } from "./cruce-client";
 import Conversacion from "@/components/conversacion";
 import { parseId } from "@/lib/ids";
 import { SendToReviewerButton } from "./send-to-reviewer-button";
+import { FlashToast } from "@/components/flash-toast";
 
-export default async function CruceDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function CruceDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ ejecutada?: string }>;
+}) {
   await requirePermiso("conciliaciones:ver");
   const { id: rawId } = await params;
+  const { ejecutada } = await searchParams;
   const id = parseId(rawId);
   if (!id) notFound();
   const rec = await prisma.reconciliation.findUnique({
@@ -39,6 +47,14 @@ export default async function CruceDetailPage({ params }: { params: Promise<{ id
 
   return (
     <div>
+      {ejecutada === "1" && (
+        <FlashToast
+          tone="success"
+          title="Conciliación ejecutada correctamente."
+          message="El cruce se generó y está listo para revisión."
+          clearParam="ejecutada"
+        />
+      )}
       <div className="mb-3"><BackLink href="/conciliacion/resultados" label="Resultados de conciliación" /></div>
       <PageHeader
         title={`${rec.clientName} · ${rec.module}`}

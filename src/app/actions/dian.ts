@@ -13,7 +13,7 @@ import type { ActionState } from "@/lib/definitions";
 // porque el modelo de datos DIAN (DianForm/DianPeriod/DianMapping/DianComment)
 // es GLOBAL de la plataforma: no tiene vínculo con ningún cliente. Si algún
 // día los formularios DIAN se asocian a un cliente, añadir aquí el alcance
-// igual que en balance/mapeo/conciliaciones (resolver clientId → gate).
+// igual que en config/mapeo/conciliaciones (resolver clientId → gate).
 
 export async function addDianComment(formData: FormData): Promise<ActionState> {
   const authz = await authorizePermiso("dian:editar");

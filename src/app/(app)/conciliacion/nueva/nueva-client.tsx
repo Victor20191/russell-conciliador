@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { Icon, type IconName } from "@/components/icons";
 import { Card, Chip } from "@/components/ui";
 import { Stepper } from "@/components/stepper";
 import { confidenceClass } from "@/lib/format";
 import { executeReconciliation } from "@/app/actions/reconciliation";
+import { notifyError } from "@/lib/client-notifications";
 
 export type ClientOpt = { id: number; name: string; nit: string; erp: string; sector: string; configured: number[] };
 export type ModuleOpt = { id: number; code: string; name: string; icon: string };
@@ -292,6 +293,14 @@ function ConfirmStep({
 }: {
   clientId: number; moduleId: number; period: string; cutoff: string; clientName: string; moduleName: string; onBack: () => void;
 }) {
+  // Patrón ActionState: en éxito la acción redirige al detalle del cruce (donde
+  // se confirma con un toast); en error devuelve { ok:false, message } y aquí lo
+  // mostramos como toast sin romper el asistente con una pantalla de error.
+  const [state, formAction, pending] = useActionState(executeReconciliation, undefined);
+  useEffect(() => {
+    if (state?.ok === false && state.message) notifyError(state.message);
+  }, [state]);
+
   return (
     <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
       <Card className="p-5 lg:col-span-2">
@@ -314,12 +323,12 @@ function ConfirmStep({
           <li className="flex items-center gap-2"><Icon name="check" size={12} className="text-ok-500" /> Cruce contable vs. auxiliar</li>
           <li className="flex items-center gap-2"><Icon name="check" size={12} className="text-ok-500" /> Resumen de partidas</li>
         </ul>
-        <form action={executeReconciliation} className="mt-4">
+        <form action={formAction} className="mt-4">
           <input type="hidden" name="clientId" value={clientId} />
           <input type="hidden" name="moduleId" value={moduleId} />
           <input type="hidden" name="period" value={period} />
           <input type="hidden" name="cutoff" value={cutoff} />
-          <button type="submit" className="inline-flex w-full items-center justify-center gap-1.5 rounded-md bg-navy-700 px-4 py-2.5 text-[12.5px] font-semibold text-white hover:bg-navy-600"><Icon name="play" size={14} /> Guardar y ejecutar cargue</button>
+          <button type="submit" disabled={pending} className="inline-flex w-full items-center justify-center gap-1.5 rounded-md bg-navy-700 px-4 py-2.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-60"><Icon name="play" size={14} /> {pending ? "Ejecutando…" : "Guardar y ejecutar cargue"}</button>
         </form>
         <button onClick={onBack} className="mt-2 w-full rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] text-ink-600 hover:bg-ink-50">Atrás</button>
       </Card>
