@@ -1,5 +1,5 @@
 import prisma from "@/lib/prisma";
-import { requirePermiso } from "@/lib/rbac";
+import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { PageHeader } from "@/components/ui";
 import BalanceIndexClient, {
@@ -17,13 +17,23 @@ export default async function BalancePage() {
   // (Admin/Superadmin ven todos). Balance referencia al cliente por nombre.
   const alc = await alcanceLecturaUsuario();
   const whereCliente = alc.todos ? {} : { clientName: { in: alc.clientNames } };
-  const [balances, standard] = await Promise.all([
+  const [balances, standard, carteraClientes] = await Promise.all([
     prisma.balance.findMany({
       where: whereCliente,
       orderBy: [{ clientName: "asc" }, { createdAt: "desc" }],
     }),
     prisma.standardAccount.findMany({ orderBy: { code: "asc" } }),
+    // Clientes de la cartera para el selector del modal de carga.
+    prisma.client.findMany({
+      where: alc.todos ? {} : { id: { in: alc.clientIds } },
+      select: { id: true, name: true, nit: true },
+      orderBy: { name: "asc" },
+    }),
   ]);
+  // Cargar balance = permiso de rol (Staff es el único operativo). El alcance
+  // por cliente se verifica de nuevo en la Server Action al enviar.
+  const canUpload = (await authorizePermiso("balance:crear")).ok;
+  const uploadClients = canUpload ? carteraClientes : [];
 
   // Agrupar por cliente → períodos. NOTA: el Map es solo para agregar aquí;
   // a la frontera RSC→client se pasan SOLO objetos planos serializables (periodList).
@@ -82,7 +92,14 @@ export default async function BalancePage() {
         title="Balance de comprobación"
         subtitle="Fuente única de los balances cargados por cliente. Versionamiento, validaciones, mapeo y trazabilidad. Lo consumen DIAN y Conciliaciones."
       />
-      <BalanceIndexClient clients={clients} auditRows={auditRows} std={std} clientNames={clientNames} />
+      <BalanceIndexClient
+        clients={clients}
+        auditRows={auditRows}
+        std={std}
+        clientNames={clientNames}
+        uploadClients={uploadClients}
+        canUpload={canUpload}
+      />
     </div>
   );
 }

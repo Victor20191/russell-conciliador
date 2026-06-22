@@ -5,11 +5,11 @@ import { clientIdPorNombre } from "@/lib/rbac/contexto";
 import { PageHeader, StatCard, Chip, BackLink } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { fmtCompact } from "@/lib/format";
-import { freezeBalance } from "@/app/actions/balance";
 import BalanceDetailClient, {
   type Sums, type Validation, type BreakdownGroup, type Meta, type Version,
 } from "./balance-detail-client";
 import { parseId } from "@/lib/ids";
+import { FreezeBalanceButton } from "./freeze-balance-button";
 
 export default async function BalanceDetailPage({ params }: { params: Promise<{ id: string }> }) {
   await requirePermiso("balance:ver");
@@ -52,12 +52,7 @@ export default async function BalanceDetailPage({ params }: { params: Promise<{ 
               </a>
             )}
             {!balance.isFrozen && puedeEditar && (
-              <form action={freezeBalance}>
-                <input type="hidden" name="id" value={id} />
-                <button type="submit" className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-2 text-[12.5px] font-semibold text-white hover:bg-navy-600">
-                  <Icon name="check" size={14} /> Congelar como oficial
-                </button>
-              </form>
+              <FreezeBalanceButton id={id} />
             )}
             {balance.isFrozen && <Chip label="Congelado" tone="blue" />}
           </div>

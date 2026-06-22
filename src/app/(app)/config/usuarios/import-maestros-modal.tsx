@@ -4,6 +4,7 @@ import { useActionState, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Modal } from "@/components/modal";
 import { importarMaestros } from "@/app/actions/import-maestros";
+import { notifyActionState } from "@/lib/client-notifications";
 import type { ErrorImport, ImportMaestrosState } from "@/lib/import/maestros";
 
 export function ImportMaestrosButton() {
@@ -31,6 +32,10 @@ function ImportMaestrosModal({ onClose }: { onClose: () => void }) {
 
   // Al crear los usuarios, refresca la tabla de la página (server component).
   useEffect(() => {
+    notifyActionState(state, {
+      success: "Maestros importados.",
+      error: "No se pudo importar maestros.",
+    });
     if (state?.ok) router.refresh();
   }, [state, router]);
 

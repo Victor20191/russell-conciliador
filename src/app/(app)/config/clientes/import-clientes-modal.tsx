@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
 import { Modal } from "@/components/modal";
 import { importarClientes } from "@/app/actions/import-clientes";
+import { notifyActionState } from "@/lib/client-notifications";
 import type { ImportClientesState } from "@/lib/import/clientes";
 import type { ErrorImport } from "@/lib/import/maestros";
 
@@ -32,6 +33,10 @@ function ImportClientesModal({ onClose }: { onClose: () => void }) {
   const [fileName, setFileName] = useState("");
 
   useEffect(() => {
+    notifyActionState(state, {
+      success: "Clientes importados.",
+      error: "No se pudo importar clientes.",
+    });
     if (state?.ok) router.refresh();
   }, [state, router]);
 
@@ -71,6 +76,13 @@ function ImportClientesModal({ onClose }: { onClose: () => void }) {
             módulos y formatos DIAN. Las personas deben existir ya (impórtalas primero como maestros). No
             se importa nada si hay errores.
           </p>
+          <a
+            href="/config/clientes/plantilla"
+            download="Plantilla_Importacion_Clientes.xlsx"
+            className="inline-flex w-fit self-end items-center gap-1.5 rounded-md border border-ink-200 bg-ink-50 px-3 py-1.5 text-[12.5px] font-semibold text-ink-700 transition hover:bg-white"
+          >
+            <Icon name="download" size={13} /> Descargar plantilla Excel
+          </a>
           <label className="flex flex-col gap-1.5">
             <span className="text-[11.5px] font-medium text-ink-600">Archivo Excel (.xlsx)</span>
             <input

@@ -1,4 +1,5 @@
 import * as z from "zod";
+import { MESES_LARGOS } from "@/lib/format";
 
 export const LoginSchema = z.object({
   email: z.email({ error: "Ingresa un correo válido." }).trim().toLowerCase(),
@@ -50,8 +51,17 @@ export const ClientSchema = z.object({
   nit: z.string().min(1, { error: "El NIT es obligatorio." }).trim(),
   // Clasificación del cliente (A, B o C). Obligatoria.
   tipo: z.enum(["A", "B", "C"], { error: "Selecciona el tipo de cliente (A, B o C)." }),
-  erp: z.string().min(1, { error: "El ERP es obligatorio." }).trim(),
-  sector: z.string().min(1, { error: "El sector es obligatorio." }).trim(),
+  // ERP y Sector son catálogos maestros (FK por id). El ERP es obligatorio; el
+  // sector es opcional (hay clientes sin sector). La existencia/estado del
+  // catálogo se valida contra la BD en la Server Action.
+  erpId: z.coerce
+    .number({ error: "Selecciona el ERP." })
+    .int()
+    .positive({ error: "Selecciona el ERP." }),
+  sectorId: z.preprocess(
+    (v) => (v === "" || v == null ? undefined : v),
+    z.coerce.number().int().positive().optional(),
+  ),
   // Socio responsable (informativo): la consistencia (Socio activo) se valida
   // contra la BD en la Server Action. No otorga alcance de lectura: el Socio
   // sigue derivando su acceso por jerarquía (derivarAsignacionesSocio).
@@ -77,6 +87,23 @@ export const ClientResponsablesSchema = z.object({
 // Superiores directos de un usuario en la jerarquía organizacional
 // (jerarquia_usuarios). La adyacencia de roles se valida en la action.
 export const SuperioresSchema = z.array(z.coerce.number().int().positive()).max(50);
+
+// Carga de balance de comprobación: cliente + período (mes/año). El archivo
+// Excel se valida aparte en la Server Action (los File no pasan por Zod).
+export const CargarBalanceSchema = z.object({
+  clientId: z.coerce
+    .number({ error: "Selecciona el cliente." })
+    .int()
+    .positive({ error: "Selecciona el cliente." }),
+  mes: z.enum(MESES_LARGOS, { error: "Selecciona el mes del período." }),
+  anio: z.coerce
+    .number({ error: "Indica el año del período." })
+    .int()
+    .min(2000, { error: "Año fuera de rango." })
+    .max(2100, { error: "Año fuera de rango." }),
+  // Estándar contable para la extracción asistida (NIIF/PCGA/AUTO).
+  estandar: z.enum(["NIIF", "PCGA", "AUTO"]).catch("AUTO"),
+});
 
 export const PasswordSchema = z
   .string()

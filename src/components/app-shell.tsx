@@ -4,6 +4,7 @@ import { useState } from "react";
 import { usePathname } from "next/navigation";
 import Sidebar from "@/components/sidebar";
 import Topbar, { type NotificationDTO } from "@/components/topbar";
+import { ActionToaster } from "@/components/action-toaster";
 
 /**
  * Cascarón de la app (cliente) que coordina el estado compartido entre el
@@ -55,6 +56,7 @@ export default function AppShell({
           {children}
         </main>
       </div>
+      <ActionToaster />
     </div>
   );
 }

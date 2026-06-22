@@ -5,6 +5,7 @@ import Link from "next/link";
 import { guardarPublicacionModulos, type CambioPublicacionModulo } from "@/app/actions/module-publication";
 import { Card, Chip, PageHeader, StatCard } from "@/components/ui";
 import { Icon, type IconName } from "@/components/icons";
+import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import type { PlatformModuleState } from "@/lib/rbac/modulos-plataforma";
 
 type Message = { tone: "ok" | "err"; text: string } | null;
@@ -78,9 +79,13 @@ export default function PublicacionModulosClient({
           return next;
         });
         setPending({});
-        setMsg({ tone: "ok", text: `Publicación actualizada (${res.guardados ?? cambios.length}).` });
+        const text = `Publicación actualizada (${res.guardados ?? cambios.length}).`;
+        setMsg({ tone: "ok", text });
+        notifySuccess(text);
       } else {
-        setMsg({ tone: "err", text: res.message ?? "No se pudo guardar la publicación." });
+        const text = res.message ?? "No se pudo guardar la publicación.";
+        setMsg({ tone: "err", text });
+        notifyError(text);
       }
     });
   }

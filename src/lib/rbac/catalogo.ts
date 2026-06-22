@@ -100,6 +100,10 @@ const TODOS = ["Socio", "Gerente", "Senior", "Staff", "Administrador", "Superadm
 const CONSULTA_Y_ADMIN = ["Socio", "Gerente", "Senior", "Administrador", "Superadministrador"]; // todos menos Staff
 const SUPERVISORES = ["Gerente", "Socio"];
 const SOLO_STAFF = ["Staff"];
+// Cargar balance: el Staff (operativo) + los administradores de plataforma
+// (alcance global), para que Administrador/Superadministrador también puedan
+// cargar balances. NO incluye editar/congelar, que sigue siendo SOLO_STAFF.
+const STAFF_Y_ADMIN = ["Staff", "Administrador", "Superadministrador"];
 const SOLO_SENIOR = ["Senior"];
 const SOLO_ADMIN = ADMIN_PLATAFORMA;
 // El Senior asigna los responsables por cliente (PDF); el Administrador, como
@@ -129,8 +133,9 @@ export const PERMISOS: Permiso[] = [
   { code: "dian:comentar", module: "dian", action: "comentar", label: "Comentar en Impuestos · DIAN", roles: TODOS },
   { code: "clientes:comentar", module: "clientes", action: "comentar", label: "Comentar en clientes", roles: TODOS },
 
-  // ===== Operativo (crear/editar/ejecutar) — SOLO Staff =====
-  { code: "balance:crear", module: "balance", action: "crear", label: "Cargar balance", roles: SOLO_STAFF },
+  // ===== Operativo (crear/editar/ejecutar) — SOLO Staff (excepto la carga
+  // de balance, abierta también a administradores de plataforma) =====
+  { code: "balance:crear", module: "balance", action: "crear", label: "Cargar balance", roles: STAFF_Y_ADMIN },
   { code: "balance:editar", module: "balance", action: "editar", label: "Editar balance", roles: SOLO_STAFF },
   { code: "mapeo:editar", module: "mapeo", action: "editar", label: "Editar mapeo del plan estándar", roles: SOLO_STAFF },
   { code: "conciliaciones:crear", module: "conciliaciones", action: "crear", label: "Crear conciliación", roles: SOLO_STAFF },

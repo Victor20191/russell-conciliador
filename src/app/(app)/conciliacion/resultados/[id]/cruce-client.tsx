@@ -1,8 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
 import { Card, Chip } from "@/components/ui";
+import { ActionForm } from "@/components/action-form";
 import { fmt, fmtPct } from "@/lib/format";
 import { addReconciliationComment, setRowStatus } from "@/app/actions/reconciliation";
 
@@ -24,6 +26,7 @@ export default function CruceClient({
   reconciliationId: number; materiality: number; rows: Row[]; comments: Comment[];
   totals: { cont: number; mod: number; diff: number }; diffPct: number;
 }) {
+  const router = useRouter();
   const [filter, setFilter] = useState<"all" | "diff">("all");
   const [selected, setSelected] = useState<string>(rows[0]?.cuenta ?? "");
   const [tab, setTab] = useState<"comments" | "detalle" | "acciones">("comments");
@@ -120,15 +123,26 @@ export default function CruceClient({
                   </div>
                 ))}
               </div>
-              <form action={addReconciliationComment} className="mt-3">
-                <input type="hidden" name="reconciliationId" value={reconciliationId} />
-                <input type="hidden" name="cuenta" value={sel.cuenta} />
-                <textarea name="text" rows={3} placeholder="Escribe una observación o asigna a un compañero con @…" className="w-full rounded-md border border-ink-200 px-2.5 py-1.5 text-[12px] outline-none focus:border-blue-400" />
-                <div className="mt-1.5 flex items-center justify-between">
-                  <span className="text-[11px] text-ink-400">Visible para auditores asignados al cruce</span>
-                  <button type="submit" className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-2.5 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600"><Icon name="send" size={13} /> Comentar</button>
-                </div>
-              </form>
+              <ActionForm
+                action={addReconciliationComment}
+                successMessage="Comentario registrado."
+                errorMessage="No se pudo registrar el comentario."
+                className="mt-3"
+                resetOnSuccess
+                onSuccess={() => router.refresh()}
+              >
+                {(pending) => (
+                  <>
+                    <input type="hidden" name="reconciliationId" value={reconciliationId} />
+                    <input type="hidden" name="cuenta" value={sel.cuenta} />
+                    <textarea name="text" rows={3} placeholder="Escribe una observación o asigna a un compañero con @…" className="w-full rounded-md border border-ink-200 px-2.5 py-1.5 text-[12px] outline-none focus:border-blue-400" />
+                    <div className="mt-1.5 flex items-center justify-between">
+                      <span className="text-[11px] text-ink-400">Visible para auditores asignados al cruce</span>
+                      <button type="submit" disabled={pending} className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-2.5 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"><Icon name="send" size={13} /> {pending ? "Comentando…" : "Comentar"}</button>
+                    </div>
+                  </>
+                )}
+              </ActionForm>
             </div>
           )}
 
@@ -156,13 +170,25 @@ export default function CruceClient({
 }
 
 function RowAction({ reconciliationId, rowId, status, icon, label, danger }: { reconciliationId: number; rowId: number; status: string; icon: "check" | "warn" | "x"; label: string; danger?: boolean }) {
+  const router = useRouter();
+
   return (
-    <form action={setRowStatus}>
-      <input type="hidden" name="reconciliationId" value={reconciliationId} />
-      <input type="hidden" name="rowId" value={rowId} />
-      <input type="hidden" name="status" value={status} />
-      <button type="submit" className={`flex w-full items-center gap-2 rounded-md border px-2.5 py-2 text-left text-[12.5px] ${danger ? "border-err-100 bg-err-100 text-err-700 hover:opacity-80" : "border-ink-150 text-ink-700 hover:bg-ink-50"}`}><Icon name={icon} size={14} /> {label}</button>
-    </form>
+    <ActionForm
+      action={setRowStatus}
+      successMessage="Partida actualizada."
+      errorMessage="No se pudo actualizar la partida."
+      showInlineError={false}
+      onSuccess={() => router.refresh()}
+    >
+      {(pending) => (
+        <>
+          <input type="hidden" name="reconciliationId" value={reconciliationId} />
+          <input type="hidden" name="rowId" value={rowId} />
+          <input type="hidden" name="status" value={status} />
+          <button type="submit" disabled={pending} className={`flex w-full items-center gap-2 rounded-md border px-2.5 py-2 text-left text-[12.5px] disabled:opacity-60 ${danger ? "border-err-100 bg-err-100 text-err-700 hover:opacity-80" : "border-ink-150 text-ink-700 hover:bg-ink-50"}`}><Icon name={icon} size={14} /> {pending ? "Actualizando…" : label}</button>
+        </>
+      )}
+    </ActionForm>
   );
 }
 

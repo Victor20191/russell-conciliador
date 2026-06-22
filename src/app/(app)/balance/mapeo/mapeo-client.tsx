@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
 import { Card, Chip, StatCard, EmptyState } from "@/components/ui";
+import { ActionForm } from "@/components/action-form";
 import { updateAccountMapping, suggestMappingsAI } from "@/app/actions/mapping";
 
 export type Account = { id: number; code: string; level: number; name: string; russellCode: string | null };
@@ -103,12 +104,26 @@ export default function MapeoClient({
               ))}
             </div>
             <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filtrar por código o nombre…" className="rounded-md border border-ink-200 px-2.5 py-1.5 text-[12px] outline-none focus:border-blue-400" />
-            <form action={suggestMappingsAI}>
-              <input type="hidden" name="clientName" value={cliente} />
-              <button type="submit" className="inline-flex items-center gap-1.5 rounded-md border border-ai-100 bg-ai-100 px-2.5 py-1.5 text-[12px] font-semibold text-ai-700 hover:opacity-80">
-                <Icon name="ai" size={13} /> Sugerencias IA
-              </button>
-            </form>
+            <ActionForm
+              action={suggestMappingsAI}
+              successMessage="Sugerencias IA aplicadas."
+              errorMessage="No se pudieron generar sugerencias IA."
+              showInlineError={false}
+              onSuccess={() => router.refresh()}
+            >
+              {(pending) => (
+                <>
+                  <input type="hidden" name="clientName" value={cliente} />
+                  <button
+                    type="submit"
+                    disabled={pending}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-ai-100 bg-ai-100 px-2.5 py-1.5 text-[12px] font-semibold text-ai-700 hover:opacity-80 disabled:opacity-60"
+                  >
+                    <Icon name="ai" size={13} /> {pending ? "Sugiriendo…" : "Sugerencias IA"}
+                  </button>
+                </>
+              )}
+            </ActionForm>
           </div>
         </div>
 
@@ -137,13 +152,29 @@ export default function MapeoClient({
                       <td className="px-3 py-2 font-mono text-ink-600" style={{ paddingLeft: a.level === 4 ? 12 : a.level === 6 ? 28 : 48 }}>{a.code}</td>
                       <td className="px-3 py-2 text-ink-800">{a.level !== 4 && <span className="mr-1 text-ink-300">└</span>}{a.name}</td>
                       <td className="px-3 py-2">
-                        <form action={updateAccountMapping}>
-                          <input type="hidden" name="id" value={a.id} />
-                          <select name="russell" defaultValue={a.russellCode ?? ""} onChange={(e) => e.currentTarget.form?.requestSubmit()} className="w-full rounded-md border border-ink-200 px-2 py-1 text-[12px] outline-none focus:border-blue-400">
-                            <option value="">— Sin parametrizar —</option>
-                            {options.map((o) => <option key={o.code} value={o.code}>{o.code} · {o.name}</option>)}
-                          </select>
-                        </form>
+                        <ActionForm
+                          action={updateAccountMapping}
+                          successMessage="Mapeo actualizado."
+                          errorMessage="No se pudo actualizar el mapeo."
+                          showInlineError={false}
+                          onSuccess={() => router.refresh()}
+                        >
+                          {(pending) => (
+                            <>
+                              <input type="hidden" name="id" value={a.id} />
+                              <select
+                                name="russell"
+                                defaultValue={a.russellCode ?? ""}
+                                disabled={pending}
+                                onChange={(e) => e.currentTarget.form?.requestSubmit()}
+                                className="w-full rounded-md border border-ink-200 px-2 py-1 text-[12px] outline-none focus:border-blue-400 disabled:bg-ink-50 disabled:text-ink-400"
+                              >
+                                <option value="">— Sin parametrizar —</option>
+                                {options.map((o) => <option key={o.code} value={o.code}>{o.code} · {o.name}</option>)}
+                              </select>
+                            </>
+                          )}
+                        </ActionForm>
                       </td>
                       <td className="px-3 py-2">
                         {!a.russellCode ? <span className="italic text-ink-400">—</span>

@@ -2,12 +2,14 @@
 
 import { revalidatePath } from "next/cache";
 import prisma from "@/lib/prisma";
-import { requirePermiso } from "@/lib/rbac";
-import { registrarError } from "@/lib/errores";
+import { authorizePermiso } from "@/lib/rbac";
+import { mensajeErrorBD } from "@/lib/errores";
+import type { ActionState } from "@/lib/definitions";
 
-export async function markAllNotificationsRead(): Promise<void> {
+export async function markAllNotificationsRead(): Promise<ActionState> {
   // Validación previa (fuera del try): la guarda de permiso puede redirigir.
-  await requirePermiso("dashboard:ver");
+  const authz = await authorizePermiso("dashboard:ver");
+  if (!authz.ok) return { ok: false, message: authz.message };
   try {
     // Notificaciones globales del sistema (el modelo Notification no tiene dueño): se marcan todas.
     await prisma.notification.updateMany({
@@ -15,9 +17,8 @@ export async function markAllNotificationsRead(): Promise<void> {
       data: { unread: false },
     });
     revalidatePath("/", "layout");
+    return { ok: true, message: "Notificaciones marcadas como leídas." };
   } catch (e) {
-    // Acción void: registramos el error en el servidor y lo relanzamos al error boundary.
-    registrarError("markAllNotificationsRead", e);
-    throw e;
+    return { ok: false, message: mensajeErrorBD("markAllNotificationsRead", e) };
   }
 }

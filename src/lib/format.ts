@@ -27,6 +27,11 @@ export const confidenceClass = (c: number): "ok" | "warn" | "err" =>
 
 export const MESES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 
+export const MESES_LARGOS = [
+  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+] as const;
+
 export const fmtDate = (input: Date | string | null | undefined): string => {
   if (input == null) return "—";
   const d = typeof input === "string" ? new Date(input) : input;

@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
+import { ActionForm } from "@/components/action-form";
 import { markAllNotificationsRead } from "@/app/actions/notifications";
 
 export type NotificationDTO = {
@@ -39,6 +40,7 @@ export default function Topbar({
   notifications: NotificationDTO[];
   onOpenMobileNav?: () => void;
 }) {
+  const router = useRouter();
   const pathname = usePathname();
   const [bellOpen, setBellOpen] = useState(false);
   const unread = notifications.filter((n) => n.unread).length;
@@ -119,15 +121,27 @@ export default function Topbar({
                   {unread} sin leer
                 </span>
                 {unread > 0 && (
-                  <form action={markAllNotificationsRead} className="ml-auto">
-                    <button
-                      type="submit"
-                      onClick={() => setBellOpen(false)}
-                      className="text-[11px] font-medium text-blue-500 hover:underline"
-                    >
-                      Marcar todo leído
-                    </button>
-                  </form>
+                  <ActionForm
+                    action={markAllNotificationsRead}
+                    successMessage="Notificaciones marcadas como leídas."
+                    errorMessage="No se pudieron marcar las notificaciones."
+                    className="ml-auto"
+                    showInlineError={false}
+                    onSuccess={() => {
+                      setBellOpen(false);
+                      router.refresh();
+                    }}
+                  >
+                    {(pending) => (
+                      <button
+                        type="submit"
+                        disabled={pending}
+                        className="text-[11px] font-medium text-blue-500 hover:underline disabled:opacity-60"
+                      >
+                        {pending ? "Marcando…" : "Marcar todo leído"}
+                      </button>
+                    )}
+                  </ActionForm>
                 )}
               </div>
               <div className="max-h-96 overflow-y-auto">

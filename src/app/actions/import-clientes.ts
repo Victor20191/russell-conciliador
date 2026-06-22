@@ -12,6 +12,7 @@ import {
   parseClientesWorkbook,
   type ImportClientesState,
 } from "@/lib/import/clientes";
+import { resolverErp, resolverSector, type CatalogoRef } from "@/lib/import/erp-sector-alias";
 import { normalizar } from "@/lib/import/xlsx";
 import type { ErrorImport } from "@/lib/import/maestros";
 
@@ -23,8 +24,8 @@ type Resuelta = {
   name: string;
   nit: string;
   tipo: string;
-  erp: string;
-  sector: string;
+  erp: CatalogoRef;
+  sector: CatalogoRef | null;
   socioId: number;
   gerenteId: number;
   seniorId: number;
@@ -171,8 +172,8 @@ export async function importarClientes(
         name: f.name,
         nit: f.nit,
         tipo: f.tipo,
-        erp: f.erp,
-        sector: f.sector,
+        erp: resolverErp(f.erp),
+        sector: resolverSector(f.sector),
         socioId: socio.id!,
         gerenteId: gerente.id!,
         seniorId: senior.id!,
@@ -193,6 +194,25 @@ export async function importarClientes(
     const codigosUsados = clientes.map((c) => c.code);
     const codigosNuevos: string[] = [];
     await prisma.$transaction(async (tx) => {
+      // Catálogos ERP/Sector: upsert idempotente por `code` (los crea en la
+      // primera importación y reutiliza los existentes después).
+      const erpsDistintos = new Map<string, string>();
+      const sectoresDistintos = new Map<string, string>();
+      for (const c of resueltas) {
+        erpsDistintos.set(c.erp.code, c.erp.name);
+        if (c.sector) sectoresDistintos.set(c.sector.code, c.sector.name);
+      }
+      const erpIdPorCode = new Map<string, number>();
+      for (const [code, name] of erpsDistintos) {
+        const e = await tx.erp.upsert({ where: { code }, create: { code, name }, update: {} });
+        erpIdPorCode.set(code, e.id);
+      }
+      const sectorIdPorCode = new Map<string, number>();
+      for (const [code, name] of sectoresDistintos) {
+        const s = await tx.sector.upsert({ where: { code }, create: { code, name }, update: {} });
+        sectorIdPorCode.set(code, s.id);
+      }
+
       for (const c of resueltas) {
         const code = nextClientCode(codigosUsados);
         codigosUsados.push(code);
@@ -204,8 +224,8 @@ export async function importarClientes(
             name: c.name,
             nit: c.nit,
             tipo: c.tipo,
-            erp: c.erp,
-            sector: c.sector,
+            erpId: erpIdPorCode.get(c.erp.code)!,
+            sectorId: c.sector ? sectorIdPorCode.get(c.sector.code)! : null,
             socioId: c.socioId,
             modules: c.moduleIds.length
               ? { create: c.moduleIds.map((moduleId) => ({ moduleId, status: "pending" })) }

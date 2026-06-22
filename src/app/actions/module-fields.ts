@@ -7,8 +7,8 @@ import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
 import { ModuleFieldSchema, type ActionState } from "@/lib/definitions";
 import { parseId } from "@/lib/ids";
-import { requirePermiso, authorizePermiso } from "@/lib/rbac";
-import { mensajeErrorBD, registrarError } from "@/lib/errores";
+import { authorizePermiso } from "@/lib/rbac";
+import { mensajeErrorBD } from "@/lib/errores";
 
 const PATH = "/config/modulos";
 
@@ -99,10 +99,11 @@ export async function updateModuleField(
   }
 }
 
-export async function deleteModuleField(formData: FormData): Promise<void> {
-  await requirePermiso("modulos:configurar");
+export async function deleteModuleField(formData: FormData): Promise<ActionState> {
+  const authz = await authorizePermiso("modulos:configurar");
+  if (!authz.ok) return { ok: false, message: authz.message };
   const id = parseId(formData.get("id"));
-  if (!id) return;
+  if (!id) return { ok: false, message: "Campo inexistente." };
   // Operaciones de base de datos envueltas en try-catch
   try {
     const deleted = await prisma.moduleField.delete({ where: { id } });
@@ -114,22 +115,23 @@ export async function deleteModuleField(formData: FormData): Promise<void> {
       detail: `${deleted.key} · ${deleted.label}`,
     });
     revalidatePath(PATH);
+    return { ok: true, message: "Campo eliminado." };
   } catch (e) {
-    registrarError("deleteModuleField", e);
-    throw e;
+    return { ok: false, message: mensajeErrorBD("deleteModuleField", e) };
   }
 }
 
-export async function moveModuleField(formData: FormData): Promise<void> {
-  await requirePermiso("modulos:configurar");
+export async function moveModuleField(formData: FormData): Promise<ActionState> {
+  const authz = await authorizePermiso("modulos:configurar");
+  if (!authz.ok) return { ok: false, message: authz.message };
   const id = parseId(formData.get("id"));
-  if (!id) return;
+  if (!id) return { ok: false, message: "Campo inexistente." };
   const dir = formData.get("dir"); // "up" | "down"
-  if (dir !== "up" && dir !== "down") return;
+  if (dir !== "up" && dir !== "down") return { ok: false, message: "Dirección inválida." };
   // Operaciones de base de datos envueltas en try-catch
   try {
     const field = await prisma.moduleField.findUnique({ where: { id } });
-    if (!field) return;
+    if (!field) return { ok: false, message: "Campo inexistente." };
 
     const neighbor = await prisma.moduleField.findFirst({
       where: {
@@ -138,7 +140,7 @@ export async function moveModuleField(formData: FormData): Promise<void> {
       },
       orderBy: { order: dir === "up" ? "desc" : "asc" },
     });
-    if (!neighbor) return;
+    if (!neighbor) return { ok: true, message: "El campo ya está en el límite de la lista." };
 
     await prisma.$transaction([
       prisma.moduleField.update({ where: { id: field.id }, data: { order: neighbor.order } }),
@@ -152,8 +154,8 @@ export async function moveModuleField(formData: FormData): Promise<void> {
       detail: `${field.key} · ${dir === "up" ? "subió" : "bajó"}`,
     });
     revalidatePath(PATH);
+    return { ok: true, message: "Campo reordenado." };
   } catch (e) {
-    registrarError("moveModuleField", e);
-    throw e;
+    return { ok: false, message: mensajeErrorBD("moveModuleField", e) };
   }
 }

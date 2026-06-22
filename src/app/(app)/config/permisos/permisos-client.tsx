@@ -6,6 +6,7 @@ import { Card, PageHeader } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { guardarNiveles, type CambioNivel } from "@/app/actions/permisos";
 import { NIVEL_META, type Nivel, type NivelTone } from "@/lib/rbac/niveles";
+import { notifyError, notifySuccess } from "@/lib/client-notifications";
 
 export type RoleCol = { id: number; code: string; name: string };
 export type ModuloRow = {
@@ -116,9 +117,13 @@ export default function PermisosClient({
           return next;
         });
         setPending({});
-        setMsg({ tone: "ok", text: `Cambios guardados (${res.guardados ?? cambios.length} celdas).` });
+        const text = `Cambios guardados (${res.guardados ?? cambios.length} celdas).`;
+        setMsg({ tone: "ok", text });
+        notifySuccess(text);
       } else {
-        setMsg({ tone: "err", text: res.message ?? "No se pudieron guardar los cambios." });
+        const text = res.message ?? "No se pudieron guardar los cambios.";
+        setMsg({ tone: "err", text });
+        notifyError(text);
       }
     });
   }

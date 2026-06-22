@@ -1,0 +1,177 @@
+import { describe, it, expect } from "vitest";
+import {
+  calcularBalance,
+  claseNatura,
+  aplanarBreakdown,
+  compararBalances,
+  type CuentaCruda,
+  type CuentaEstandar,
+} from "./calcular";
+
+// Plan de cuentas estándar sintético (6 dígitos, como el real).
+const STD: CuentaEstandar[] = [
+  { code: "110505", nature: "D", critical: false }, // Caja
+  { code: "111005", nature: "D", critical: false }, // Bancos
+  { code: "130505", nature: "D", critical: true }, // Clientes (crítica)
+  { code: "220505", nature: "C", critical: false }, // Proveedores
+  { code: "240805", nature: "C", critical: true }, // IVA (crítica)
+  { code: "310505", nature: "C", critical: false }, // Capital
+  { code: "413505", nature: "C", critical: false }, // Ventas
+  { code: "510505", nature: "D", critical: false }, // Gastos admin
+];
+
+// Balance cuadrado en convención FIRMADA (débito +, crédito −).
+// Débitos: 1000+5000+4000+6000 = 16000. Créditos: 3000+1000+4000+8000 = 16000.
+const FIRMADO: CuentaCruda[] = [
+  { code: "110505", name: "Caja", prevBalance: 800, balance: 1000 },
+  { code: "111005", name: "Bancos", prevBalance: 5000, balance: 5000 },
+  { code: "130505", name: "Clientes", prevBalance: 3000, balance: 4000 },
+  { code: "220505", name: "Proveedores", prevBalance: -2500, balance: -3000 },
+  { code: "240805", name: "IVA", prevBalance: -900, balance: -1000 },
+  { code: "310505", name: "Capital", prevBalance: -4000, balance: -4000 },
+  { code: "413505", name: "Ventas", prevBalance: -7000, balance: -8000 },
+  { code: "510505", name: "Gastos admin", prevBalance: 5400, balance: 6000 },
+];
+
+describe("claseNatura", () => {
+  it("clasifica débito y crédito por clase", () => {
+    expect(claseNatura("110505")).toBe("D"); // activo
+    expect(claseNatura("510505")).toBe("D"); // gasto
+    expect(claseNatura("220505")).toBe("C"); // pasivo
+    expect(claseNatura("413505")).toBe("C"); // ingreso
+    expect(claseNatura("810505")).toBe("D"); // orden deudoras
+    expect(claseNatura("910505")).toBe("C"); // orden acreedoras
+  });
+});
+
+describe("calcularBalance — convención firmada y cuadre", () => {
+  const r = calcularBalance(FIRMADO, STD);
+
+  it("calcula las sumas por clase como magnitudes naturales", () => {
+    expect(r.sums.activo).toBe(10000);
+    expect(r.sums.pasivo).toBe(4000);
+    expect(r.sums.patrimonio).toBe(4000);
+    expect(r.sums.ingresos).toBe(8000);
+    expect(r.sums.gastos).toBe(6000);
+    expect(r.sums.costos).toBe(0);
+    expect(r.sums.utilidad).toBe(2000); // 8000 - 6000
+  });
+
+  it("detecta el cuadre por partida doble", () => {
+    expect(r.balanced).toBe(true);
+    expect(r.diffCuadre).toBe(0);
+    expect(r.validations.find((v) => v.id === "V1")?.status).toBe("ok");
+  });
+
+  it("cuenta mapeo y criticidad", () => {
+    expect(r.totalRows).toBe(8);
+    expect(r.mapped).toBe(8);
+    expect(r.unmapped).toBe(0);
+    expect(r.critical).toBe(2); // Clientes + IVA
+    expect(r.validations.find((v) => v.id === "V3")?.status).toBe("ok");
+  });
+
+  it("agrupa por grupo PUC de 2 dígitos", () => {
+    const g11 = r.breakdown.find((g) => g.code === "11");
+    expect(g11?.name).toBe("Disponible");
+    expect(g11?.items).toHaveLength(2); // Caja + Bancos
+    expect(g11?.balance).toBe(6000);
+    expect(r.breakdown.find((g) => g.code === "24")?.name).toBe("Impuestos, gravámenes y tasas");
+  });
+});
+
+describe("calcularBalance — convención por magnitudes (todo positivo)", () => {
+  // Mismos saldos pero con los créditos en positivo (export sin signo).
+  const MAGNITUD: CuentaCruda[] = FIRMADO.map((c) => ({ ...c, prevBalance: Math.abs(c.prevBalance), balance: Math.abs(c.balance) }));
+  const r = calcularBalance(MAGNITUD, STD);
+
+  it("normaliza signos y cuadra igual que la versión firmada", () => {
+    expect(r.balanced).toBe(true);
+    expect(r.sums.activo).toBe(10000);
+    expect(r.sums.pasivo).toBe(4000);
+    expect(r.sums.patrimonio).toBe(4000);
+    // Tras normalizar, los pasivos quedan negativos en el desglose.
+    expect(r.breakdown.find((g) => g.code === "22")?.balance).toBe(-3000);
+    expect(r.validations.find((v) => v.id === "V2")?.status).toBe("ok"); // sin contrarios
+  });
+});
+
+describe("calcularBalance — sin mapeo, saldo contrario y variación", () => {
+  const CUENTAS: CuentaCruda[] = [
+    { code: "110505", name: "Caja", prevBalance: 1000, balance: 1500 }, // +50% var
+    { code: "220505", name: "Proveedores", prevBalance: -2000, balance: -2000 }, // crédito normal
+    { code: "240805", name: "IVA (contrario)", prevBalance: -500, balance: 800 }, // crédito en débito → contrario
+    { code: "189965", name: "Diversos nuevo", prevBalance: 0, balance: 700 }, // sin mapeo (no en STD)
+  ];
+  const r = calcularBalance(CUENTAS, STD);
+
+  it("no invierte signos cuando los créditos están mayormente negativos", () => {
+    // creditosNeg(Proveedores)=1 vs creditosPos(IVA)=1 → no hay flip.
+    const iva = r.breakdown.find((g) => g.code === "24")?.items[0];
+    expect(iva?.balance).toBe(800);
+    expect(iva?.saldoOk).toBe(false); // saldo contrario a su naturaleza
+  });
+
+  it("detecta cuentas sin mapeo al estándar", () => {
+    expect(r.unmapped).toBe(1);
+    const v3 = r.validations.find((v) => v.id === "V3");
+    expect(v3?.status).toBe("warn");
+    expect(v3?.count).toBe(1);
+    const diversos = r.breakdown.find((g) => g.code === "18")?.items[0];
+    expect(diversos?.std).toBeNull();
+    expect(diversos?.mapped).toBe(false);
+  });
+
+  it("calcula variación porcentual y la marca cuando supera 25%", () => {
+    const caja = r.breakdown.find((g) => g.code === "11")?.items[0];
+    expect(caja?.variation).toBe(50);
+    expect(r.validations.find((v) => v.id === "V4")?.status).toBe("warn");
+  });
+
+  it("reporta el descuadre por partida doble", () => {
+    // Σ firmado = 1500 - 2000 + 800 + 700 = 1000 ≠ 0.
+    expect(r.balanced).toBe(false);
+    expect(r.diffCuadre).toBe(1000);
+    expect(r.validations.find((v) => v.id === "V1")?.status).toBe("warn");
+  });
+});
+
+describe("calcularBalance — hojas (evita doble conteo de resúmenes)", () => {
+  const CON_RESUMEN: CuentaCruda[] = [
+    { code: "11", name: "Disponible (grupo)", prevBalance: 0, balance: 6000 },
+    { code: "1105", name: "Caja (cuenta)", prevBalance: 0, balance: 1000 },
+    { code: "110505", name: "Caja general", prevBalance: 0, balance: 1000 },
+    { code: "111005", name: "Bancos", prevBalance: 0, balance: 5000 },
+  ];
+  const r = calcularBalance(CON_RESUMEN, STD);
+
+  it("solo suma las cuentas hoja", () => {
+    expect(r.totalRows).toBe(2); // 110505 y 111005 (11 y 1105 son ancestros)
+    expect(r.sums.activo).toBe(6000); // no 12000
+  });
+});
+
+describe("compararBalances", () => {
+  it("detecta agregadas, removidas y cambiadas, ordenadas por impacto", () => {
+    const r1 = calcularBalance(
+      [
+        { code: "110505", name: "Caja", prevBalance: 0, balance: 1000 },
+        { code: "111005", name: "Bancos", prevBalance: 0, balance: 5000 },
+      ],
+      STD,
+    );
+    const r2 = calcularBalance(
+      [
+        { code: "110505", name: "Caja", prevBalance: 0, balance: 1500 }, // cambia +500
+        { code: "130505", name: "Clientes", prevBalance: 0, balance: 9000 }, // agregada
+      ],
+      STD,
+    );
+    const diff = compararBalances(aplanarBreakdown(r1.breakdown), aplanarBreakdown(r2.breakdown));
+    expect(diff.summary.added).toBe(1); // Clientes
+    expect(diff.summary.removed).toBe(1); // Bancos
+    expect(diff.summary.changed).toBe(1); // Caja
+    expect(diff.rows[0].code).toBe("130505"); // mayor |delta| primero
+    expect(diff.summary.totalAffected).toBe(9000 + 5000 + 500);
+  });
+});

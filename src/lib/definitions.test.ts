@@ -35,15 +35,26 @@ test("ModuleFieldSchema rechaza un tipo no permitido", () => {
   expect(r.success).toBe(false);
 });
 
-test("ClientSchema exige código, nombre, nit, tipo, erp, sector y socio", () => {
+test("ClientSchema exige código, nombre, nit, tipo, erpId y socio (sectorId opcional)", () => {
   expect(
     ClientSchema.safeParse({
       code: "C-9001",
       name: "Demo S.A.S",
       nit: "900.000.000-1",
       tipo: "A",
-      erp: "SIESA",
-      sector: "Comercio",
+      erpId: 1,
+      sectorId: 2,
+      socioId: 3,
+    }).success,
+  ).toBe(true);
+  // El sector es opcional: sin sectorId sigue siendo válido.
+  expect(
+    ClientSchema.safeParse({
+      code: "C-9001",
+      name: "Demo S.A.S",
+      nit: "900.000.000-1",
+      tipo: "A",
+      erpId: 1,
       socioId: 3,
     }).success,
   ).toBe(true);
@@ -54,8 +65,18 @@ test("ClientSchema exige código, nombre, nit, tipo, erp, sector y socio", () =>
       name: "Demo S.A.S",
       nit: "900.000.000-1",
       tipo: "D",
-      erp: "SIESA",
-      sector: "Comercio",
+      erpId: 1,
+      sectorId: 2,
+      socioId: 3,
+    }).success,
+  ).toBe(false);
+  // Sin ERP (obligatorio) es inválido.
+  expect(
+    ClientSchema.safeParse({
+      code: "C-9001",
+      name: "Demo S.A.S",
+      nit: "900.000.000-1",
+      tipo: "A",
       socioId: 3,
     }).success,
   ).toBe(false);
@@ -66,12 +87,12 @@ test("ClientSchema exige código, nombre, nit, tipo, erp, sector y socio", () =>
       name: "Demo S.A.S",
       nit: "900.000.000-1",
       tipo: "A",
-      erp: "SIESA",
-      sector: "Comercio",
+      erpId: 1,
+      sectorId: 2,
     }).success,
   ).toBe(false);
   expect(
-    ClientSchema.safeParse({ code: "", name: "", nit: "", erp: "", sector: "" }).success,
+    ClientSchema.safeParse({ code: "", name: "", nit: "" }).success,
   ).toBe(false);
 });
 

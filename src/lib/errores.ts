@@ -9,10 +9,14 @@ import "server-only";
  *    en el `catch`, `return { ok: false, message: mensajeErrorBD(contexto, e) }`.
  *    El usuario ve un mensaje claro de QUÉ ocurrió.
  *
- *  - Acciones tipo formulario que devuelven `void`: en el `catch`,
- *    `registrarError(contexto, e)` y luego `throw e`. El error sube al
- *    error boundary (`error.tsx`) que muestra una pantalla controlada, y el
- *    detalle queda en los logs del servidor (correlacionable por `digest`).
+ *  - Acciones tipo formulario invocadas desde UI cliente deben devolver
+ *    `{ ok: false, message: mensajeErrorBD(contexto, e) }`, para que el
+ *    usuario reciba la notificación sin perder el contexto de la pantalla.
+ *
+ *  - Acciones que deben redirigir con `redirect()` pueden lanzar
+ *    `new Error(mensajeErrorBD(contexto, e))` en el `catch`. El error sube al
+ *    error boundary (`error.tsx`) con un mensaje ya traducido y el detalle
+ *    queda en logs del servidor.
  */
 
 // Códigos de error conocidos de Prisma → mensaje claro en español.

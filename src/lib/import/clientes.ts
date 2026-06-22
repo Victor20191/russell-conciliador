@@ -134,7 +134,7 @@ export async function parseClientesWorkbook(data: ArrayBuffer | Buffer): Promise
     if (!tipo) errs.push("Falta el tipo de cliente.");
     else if (!TIPOS.includes(tipo)) errs.push(`Tipo inválido: «${tipoRaw}» (usa A, B o C).`);
     if (!erp) errs.push("Falta el ERP.");
-    if (!sector) errs.push("Falta el sector.");
+    // El sector es opcional (hay clientes sin sector): no se exige aquí.
     if (!socio) errs.push("Falta el socio.");
     if (!gerente) errs.push("Falta el gerente.");
     if (!senior) errs.push("Falta el senior.");

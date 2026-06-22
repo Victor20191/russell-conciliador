@@ -1,10 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
 import { Card, EmptyState } from "@/components/ui";
 import { Modal } from "@/components/modal";
 import { saveDianMapping } from "@/app/actions/dian";
+import { notifyError, notifySuccess } from "@/lib/client-notifications";
 
 export type DianFormData = {
   id: number; name: string; code: string;
@@ -85,8 +87,10 @@ function MappingEditor({
 }: {
   formId: number; lineKey: string; label: string; initialRows: Row[]; onClose: () => void;
 }) {
+  const router = useRouter();
   const [rows, setRows] = useState<Row[]>(initialRows.length ? initialRows : [{ account: "", desc: "", sign: "+" }]);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const setRow = (i: number, patch: Partial<Row>) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   const add = () => setRows((rs) => [...rs, { account: "", desc: "", sign: "+" }]);
@@ -94,8 +98,17 @@ function MappingEditor({
 
   const save = async () => {
     setSaving(true);
-    await saveDianMapping(formId, lineKey, rows);
+    setError(null);
+    const res = await saveDianMapping(formId, lineKey, rows);
     setSaving(false);
+    if (!res.ok) {
+      const message = res.message ?? "No se pudo guardar el mapeo DIAN.";
+      setError(message);
+      notifyError(message);
+      return;
+    }
+    notifySuccess(res.message ?? "Mapeo DIAN guardado.");
+    router.refresh();
     onClose();
   };
 
@@ -123,6 +136,7 @@ function MappingEditor({
         ))}
       </div>
       <button onClick={add} className="mt-2 inline-flex items-center gap-1.5 text-[12px] font-medium text-blue-500 hover:underline"><Icon name="plus" size={13} /> Agregar cuenta</button>
+      {error && <p role="alert" className="mt-2 text-[12px] font-medium text-err-700">{error}</p>}
     </Modal>
   );
 }

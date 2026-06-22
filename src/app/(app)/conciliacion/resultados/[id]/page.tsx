@@ -5,10 +5,10 @@ import { clientIdPorNombre } from "@/lib/rbac/contexto";
 import { PageHeader, StatCard, BackLink, EmptyState } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { fmtCompact, fmtPct } from "@/lib/format";
-import { sendToReviewer } from "@/app/actions/reconciliation";
 import CruceClient, { type Row, type Comment } from "./cruce-client";
 import Conversacion from "@/components/conversacion";
 import { parseId } from "@/lib/ids";
+import { SendToReviewerButton } from "./send-to-reviewer-button";
 
 export default async function CruceDetailPage({ params }: { params: Promise<{ id: string }> }) {
   await requirePermiso("conciliaciones:ver");
@@ -47,10 +47,7 @@ export default async function CruceDetailPage({ params }: { params: Promise<{ id
           <div className="flex items-center gap-2">
             <button disabled title="Exportación — fase posterior" className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-md bg-ink-100 px-2.5 py-2 text-[12px] font-semibold text-ink-400"><Icon name="download" size={13} /> Excel</button>
             <button disabled title="Exportación — fase posterior" className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-md bg-ink-100 px-2.5 py-2 text-[12px] font-semibold text-ink-400"><Icon name="download" size={13} /> PDF</button>
-            {puedeEditar && <form action={sendToReviewer}>
-              <input type="hidden" name="id" value={rec.id} />
-              <button type="submit" className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-2 text-[12.5px] font-semibold text-white hover:bg-navy-600"><Icon name="send" size={14} /> Enviar a revisor</button>
-            </form>}
+            {puedeEditar && <SendToReviewerButton id={rec.id} />}
           </div>
         }
       />

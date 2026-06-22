@@ -8,9 +8,9 @@ import { logAudit } from "@/lib/audit";
 import { ClientSchema, ClientResponsablesSchema, type ActionState } from "@/lib/definitions";
 import { parseId } from "@/lib/ids";
 import { nextClientCode } from "@/lib/client-code";
-import { requirePermiso, authorizePermiso } from "@/lib/rbac";
+import { authorizePermiso } from "@/lib/rbac";
 import { ROL_POR_FUNCION, ROL_SOCIO } from "@/lib/rbac/jerarquia";
-import { mensajeErrorBD, registrarError } from "@/lib/errores";
+import { mensajeErrorBD } from "@/lib/errores";
 
 const PATH = "/config/clientes";
 
@@ -50,6 +50,18 @@ async function dianFormIdsExist(dianFormIds: number[]): Promise<boolean> {
     select: { id: true },
   });
   return existing.length === dianFormIds.length;
+}
+
+/** ERP del catálogo maestro: debe existir y estar activo. */
+async function erpValido(erpId: number): Promise<boolean> {
+  const erp = await prisma.erp.findUnique({ where: { id: erpId }, select: { active: true } });
+  return erp?.active === true;
+}
+
+/** Sector del catálogo maestro: debe existir y estar activo. */
+async function sectorValido(sectorId: number): Promise<boolean> {
+  const sector = await prisma.sector.findUnique({ where: { id: sectorId }, select: { active: true } });
+  return sector?.active === true;
 }
 
 type Responsables = { gerenteId: number; seniorId: number; staffIds: number[] };
@@ -185,14 +197,22 @@ export async function createClient(
       name: formData.get("name"),
       nit: formData.get("nit"),
       tipo: formData.get("tipo"),
-      erp: formData.get("erp"),
-      sector: formData.get("sector"),
+      erpId: formData.get("erpId"),
+      sectorId: formData.get("sectorId"),
       socioId: formData.get("socioId"),
     });
     if (!parsed.success) {
       return { ok: false, errors: z.flattenError(parsed.error).fieldErrors };
     }
     const { socioId, ...data } = parsed.data;
+
+    // ERP y Sector son catálogos maestros: deben existir y estar activos.
+    if (!(await erpValido(data.erpId))) {
+      return { ok: false, message: "Selecciona un ERP válido." };
+    }
+    if (data.sectorId != null && !(await sectorValido(data.sectorId))) {
+      return { ok: false, message: "Selecciona un sector válido." };
+    }
 
     const responsables = parseResponsables(formData);
     if (!responsables.success) {
@@ -297,14 +317,22 @@ export async function updateClient(
       name: formData.get("name"),
       nit: formData.get("nit"),
       tipo: formData.get("tipo"),
-      erp: formData.get("erp"),
-      sector: formData.get("sector"),
+      erpId: formData.get("erpId"),
+      sectorId: formData.get("sectorId"),
       socioId: formData.get("socioId"),
     });
     if (!parsed.success) {
       return { ok: false, errors: z.flattenError(parsed.error).fieldErrors };
     }
-    const { name, nit, tipo, erp, sector, socioId } = parsed.data;
+    const { name, nit, tipo, erpId, sectorId, socioId } = parsed.data;
+
+    // ERP y Sector son catálogos maestros: deben existir y estar activos.
+    if (!(await erpValido(erpId))) {
+      return { ok: false, message: "Selecciona un ERP válido." };
+    }
+    if (sectorId != null && !(await sectorValido(sectorId))) {
+      return { ok: false, message: "Selecciona un sector válido." };
+    }
 
     const responsables = parseResponsables(formData);
     if (!responsables.success) {
@@ -343,7 +371,7 @@ export async function updateClient(
     }
 
     await prisma.$transaction(async (tx) => {
-      await tx.client.update({ where: { id }, data: { name, nit, tipo, erp, sector, socioId } });
+      await tx.client.update({ where: { id }, data: { name, nit, tipo, erpId, sectorId, socioId } });
 
       // Sincroniza los responsables conservando la vigencia de los que siguen:
       // el upsert por (cliente, función, usuario) reactiva o crea cada
@@ -421,14 +449,16 @@ export async function updateClient(
   }
 }
 
-export async function deleteClient(formData: FormData): Promise<void> {
-  await requirePermiso("clientes:configurar");
+export async function deleteClient(formData: FormData): Promise<ActionState> {
+  const authz = await authorizePermiso("clientes:configurar");
+  if (!authz.ok) return { ok: false, message: authz.message };
   const id = parseId(formData.get("id"));
-  if (!id) return;
+  if (!id) return { ok: false, message: "Cliente inexistente." };
   // Alcance por cartera: solo el responsable del cliente (Senior) o un
   // administrador de plataforma puede eliminarlo ("configurar" infiere modo
   // lectura = membresía).
-  await requirePermiso("clientes:configurar", { clientId: id });
+  const alcance = await authorizePermiso("clientes:configurar", { clientId: id });
+  if (!alcance.ok) return { ok: false, message: alcance.message };
   try {
     // Las asignaciones de responsables son FK suaves: se limpian a mano
     // en la misma transacción para no dejar filas huérfanas.
@@ -444,25 +474,28 @@ export async function deleteClient(formData: FormData): Promise<void> {
       detail: "Cliente, responsables y parametrizaciones",
     });
     revalidatePath(PATH);
+    return { ok: true, message: "Cliente eliminado." };
   } catch (e) {
-    // Sube al error boundary (p. ej. FK si el cliente tiene datos vinculados).
-    registrarError("deleteClient", e);
-    throw e;
+    return { ok: false, message: mensajeErrorBD("deleteClient", e) };
   }
 }
 
-export async function setClientModuleStatus(formData: FormData): Promise<void> {
-  await requirePermiso("clientes:configurar");
+export async function setClientModuleStatus(formData: FormData): Promise<ActionState> {
+  const authz = await authorizePermiso("clientes:configurar");
+  if (!authz.ok) return { ok: false, message: authz.message };
   const clientId = parseId(formData.get("clientId"));
   const moduleId = parseId(formData.get("moduleId"));
   const next = formData.get("next");
-  if (!clientId || !moduleId) return;
+  if (!clientId || !moduleId) return { ok: false, message: "Cliente o módulo inválido." };
   // Validación de input: solo estados conocidos. `next` va directo a la columna
   // `estado`, así que no se confía en el valor del formulario.
-  if (next !== "configured" && next !== "pending" && next !== "none") return;
+  if (next !== "configured" && next !== "pending" && next !== "none") {
+    return { ok: false, message: "Estado de módulo inválido." };
+  }
 
   // Alcance por cartera: solo el responsable del cliente o un administrador.
-  await requirePermiso("clientes:configurar", { clientId });
+  const alcance = await authorizePermiso("clientes:configurar", { clientId });
+  if (!alcance.ok) return { ok: false, message: alcance.message };
 
   try {
     if (next === "none") {
@@ -482,8 +515,8 @@ export async function setClientModuleStatus(formData: FormData): Promise<void> {
       detail: `estado → ${next}`,
     });
     revalidatePath(PATH);
+    return { ok: true, message: "Estado de módulo actualizado." };
   } catch (e) {
-    registrarError("setClientModuleStatus", e);
-    throw e;
+    return { ok: false, message: mensajeErrorBD("setClientModuleStatus", e) };
   }
 }

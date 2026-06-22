@@ -1,9 +1,11 @@
 "use client";
 
 import { useActionState, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Icon, type IconName } from "@/components/icons";
 import { Card, Chip, EmptyState } from "@/components/ui";
 import { Modal } from "@/components/modal";
+import { ActionForm } from "@/components/action-form";
 import {
   createModuleField,
   updateModuleField,
@@ -11,6 +13,7 @@ import {
   moveModuleField,
 } from "@/app/actions/module-fields";
 import type { ActionState } from "@/lib/definitions";
+import { notifyActionState } from "@/lib/client-notifications";
 
 export type ModuleField = {
   id: number;
@@ -42,6 +45,7 @@ function validationFor(type: string): string {
 }
 
 export default function ModulosClient({ modules }: { modules: ModuleWithFields[] }) {
+  const router = useRouter();
   const [activeId, setActiveId] = useState(modules[0]?.id ?? 0);
   const [editing, setEditing] = useState<ModuleField | null>(null);
   const [creating, setCreating] = useState(false);
@@ -127,30 +131,50 @@ export default function ModulosClient({ modules }: { modules: ModuleWithFields[]
                       <td className="px-4 py-2.5 text-ink-500">{f.hint || "—"}</td>
                       <td className="px-4 py-2.5">
                         <div className="flex items-center justify-end gap-1">
-                          <form action={moveModuleField}>
+                          <ActionForm
+                            action={moveModuleField}
+                            successMessage="Campo reordenado."
+                            errorMessage="No se pudo reordenar el campo."
+                            showInlineError={false}
+                            onSuccess={() => router.refresh()}
+                          >
+                            {(pending) => (
+                              <>
                             <input type="hidden" name="id" value={f.id} />
                             <input type="hidden" name="dir" value="up" />
                             <button
                               type="submit"
-                              disabled={i === 0}
+                              disabled={i === 0 || pending}
                               title="Subir"
                               className="rounded p-1 text-ink-400 hover:bg-ink-100 disabled:opacity-30"
                             >
                               <Icon name="chev-d" size={13} className="rotate-180" />
                             </button>
-                          </form>
-                          <form action={moveModuleField}>
+                              </>
+                            )}
+                          </ActionForm>
+                          <ActionForm
+                            action={moveModuleField}
+                            successMessage="Campo reordenado."
+                            errorMessage="No se pudo reordenar el campo."
+                            showInlineError={false}
+                            onSuccess={() => router.refresh()}
+                          >
+                            {(pending) => (
+                              <>
                             <input type="hidden" name="id" value={f.id} />
                             <input type="hidden" name="dir" value="down" />
                             <button
                               type="submit"
-                              disabled={i === active.fields.length - 1}
+                              disabled={i === active.fields.length - 1 || pending}
                               title="Bajar"
                               className="rounded p-1 text-ink-400 hover:bg-ink-100 disabled:opacity-30"
                             >
                               <Icon name="chev-d" size={13} />
                             </button>
-                          </form>
+                              </>
+                            )}
+                          </ActionForm>
                           <button
                             onClick={() => setEditing(f)}
                             title="Editar"
@@ -158,16 +182,27 @@ export default function ModulosClient({ modules }: { modules: ModuleWithFields[]
                           >
                             <Icon name="settings" size={13} />
                           </button>
-                          <form action={deleteModuleField}>
+                          <ActionForm
+                            action={deleteModuleField}
+                            successMessage="Campo eliminado."
+                            errorMessage="No se pudo eliminar el campo."
+                            showInlineError={false}
+                            onSuccess={() => router.refresh()}
+                          >
+                            {(pending) => (
+                              <>
                             <input type="hidden" name="id" value={f.id} />
                             <button
                               type="submit"
+                              disabled={pending}
                               title="Eliminar"
                               className="rounded p-1 text-err-500 hover:bg-err-100"
                             >
                               <Icon name="x" size={13} />
                             </button>
-                          </form>
+                              </>
+                            )}
+                          </ActionForm>
                         </div>
                       </td>
                     </tr>
@@ -234,10 +269,15 @@ function FieldModal({
   field?: ModuleField | null;
 }) {
   const [state, formAction, pending] = useActionState<ActionState, FormData>(action, {});
+  const successMessage = field ? "Campo actualizado." : "Campo creado.";
 
   useEffect(() => {
+    notifyActionState(state, {
+      success: successMessage,
+      error: "No se pudo guardar el campo.",
+    });
     if (state?.ok) onClose();
-  }, [state, onClose]);
+  }, [state, onClose, successMessage]);
 
   return (
     <Modal

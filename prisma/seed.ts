@@ -31,6 +31,8 @@ async function main() {
   await prisma.clientModule.deleteMany();
   await prisma.module.deleteMany();
   await prisma.client.deleteMany();
+  await prisma.erp.deleteMany();
+  await prisma.sector.deleteMany();
   await prisma.user.deleteMany();
 
   // ---- Usuarios ----
@@ -91,6 +93,33 @@ async function main() {
     Ingresos: moduleIdByCode.get("ING")!,
   };
 
+  // ---- Catálogos maestros: ERP y Sector ----
+  await prisma.erp.createMany({
+    data: [
+      { code: "SIESA", name: "SIESA" },
+      { code: "SIIGO", name: "SIIGO" },
+      { code: "SAP", name: "SAP" },
+      { code: "OFIMATICA", name: "Ofimática" },
+    ],
+  });
+  const erpIdByCode = new Map(
+    (await prisma.erp.findMany({ select: { id: true, code: true } })).map((e) => [e.code, e.id]),
+  );
+  await prisma.sector.createMany({
+    data: [
+      { code: "COMERCIO", name: "Comercio" },
+      { code: "AGROINDUSTRIA", name: "Agroindustria" },
+      { code: "TRANSPORTE", name: "Transporte" },
+      { code: "CONSTRUCCION", name: "Construcción" },
+      { code: "DISTRIBUCION", name: "Distribución" },
+      { code: "SALUD", name: "Salud" },
+      { code: "MANUFACTURA", name: "Manufactura" },
+    ],
+  });
+  const sectorIdByName = new Map(
+    (await prisma.sector.findMany({ select: { id: true, name: true } })).map((s) => [s.name, s.id]),
+  );
+
   // ---- Clientes ----
   const clients = [
     { code: "C-1042", name: "Inversiones del Pacífico S.A.S", nit: "900.451.227-3", erp: "SIESA", sector: "Comercio", configured: ["Cartera", "Cuentas por pagar", "Ingresos"], pending: ["Inventarios"] },
@@ -109,7 +138,9 @@ async function main() {
   for (const c of clients) {
     await prisma.client.create({
       data: {
-        code: c.code, name: c.name, nit: c.nit, erp: c.erp, sector: c.sector,
+        code: c.code, name: c.name, nit: c.nit,
+        erpId: erpIdByCode.get(c.erp)!,
+        sectorId: sectorIdByName.get(c.sector) ?? null,
         modules: {
           create: [
             ...c.configured.map((m) => ({ moduleId: nameToModuleId[m], status: "configured" })),

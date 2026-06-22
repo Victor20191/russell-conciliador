@@ -31,7 +31,7 @@ export default async function DashboardPage() {
     prisma.clientModule.count({ where: { status: "configured", ...cmWhere } }),
     prisma.clientModule.count({ where: { status: "pending", ...cmWhere } }),
     prisma.auditEntry.findMany({ orderBy: { createdAt: "desc" }, take: 6 }),
-    prisma.client.findMany({ where: { ...clientWhere, modules: { some: { status: "pending" } } }, take: 20, include: { modules: { where: { status: "pending" }, include: { module: true } } } }),
+    prisma.client.findMany({ where: { ...clientWhere, modules: { some: { status: "pending" } } }, take: 20, include: { erp: { select: { name: true } }, modules: { where: { status: "pending" }, include: { module: true } } } }),
   ]);
 
   const inProcess = recs.filter((r) => r.status === "DIFF" || r.status === "REVIEW").length;
@@ -109,7 +109,7 @@ export default async function DashboardPage() {
             <div className="divide-y divide-ink-50">
               {pendingClients.map((c) => (
                 <div key={c.id} className="px-4 py-3">
-                  <div className="flex items-center justify-between"><span className="text-[12.5px] font-medium text-ink-800">{c.name}</span><span className="font-mono text-[11px] text-ink-400">{c.erp}</span></div>
+                  <div className="flex items-center justify-between"><span className="text-[12.5px] font-medium text-ink-800">{c.name}</span><span className="font-mono text-[11px] text-ink-400">{c.erp.name}</span></div>
                   <div className="mt-1.5 flex flex-wrap gap-1.5">{c.modules.map((m) => <Chip key={m.id} label={m.module.name} tone="warn" />)}</div>
                 </div>
               ))}

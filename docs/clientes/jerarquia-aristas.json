@@ -1,0 +1,438 @@
+[
+  {
+    "superior": "1001359241",
+    "subordinado": "1000306366"
+  },
+  {
+    "superior": "1001359241",
+    "subordinado": "1001534088"
+  },
+  {
+    "superior": "1001359241",
+    "subordinado": "1035878438"
+  },
+  {
+    "superior": "1001359241",
+    "subordinado": "1037671911"
+  },
+  {
+    "superior": "1001359241",
+    "subordinado": "1094275234"
+  },
+  {
+    "superior": "1001359241",
+    "subordinado": "1152466349"
+  },
+  {
+    "superior": "1001875917",
+    "subordinado": "1000306366"
+  },
+  {
+    "superior": "1001875917",
+    "subordinado": "1000399984"
+  },
+  {
+    "superior": "1001875917",
+    "subordinado": "1000400263"
+  },
+  {
+    "superior": "1001875917",
+    "subordinado": "1000758163"
+  },
+  {
+    "superior": "1001875917",
+    "subordinado": "1001534088"
+  },
+  {
+    "superior": "1001875917",
+    "subordinado": "1044508322"
+  },
+  {
+    "superior": "1001875917",
+    "subordinado": "1044509699"
+  },
+  {
+    "superior": "1017137111",
+    "subordinado": "1035224796"
+  },
+  {
+    "superior": "1017137111",
+    "subordinado": "1035420176"
+  },
+  {
+    "superior": "1018461187",
+    "subordinado": "1001359241"
+  },
+  {
+    "superior": "1018461187",
+    "subordinado": "1020478965"
+  },
+  {
+    "superior": "1018461187",
+    "subordinado": "1020493509"
+  },
+  {
+    "superior": "1018461187",
+    "subordinado": "1039467166"
+  },
+  {
+    "superior": "1020478965",
+    "subordinado": "1000400263"
+  },
+  {
+    "superior": "1020478965",
+    "subordinado": "1007242904"
+  },
+  {
+    "superior": "1020478965",
+    "subordinado": "1012390397"
+  },
+  {
+    "superior": "1020478965",
+    "subordinado": "1025640005"
+  },
+  {
+    "superior": "1020478965",
+    "subordinado": "1035878438"
+  },
+  {
+    "superior": "1020478965",
+    "subordinado": "1044508322"
+  },
+  {
+    "superior": "1020478965",
+    "subordinado": "1094275234"
+  },
+  {
+    "superior": "1020478965",
+    "subordinado": "1152466349"
+  },
+  {
+    "superior": "1020493509",
+    "subordinado": "1000306366"
+  },
+  {
+    "superior": "1020493509",
+    "subordinado": "1000400263"
+  },
+  {
+    "superior": "1020493509",
+    "subordinado": "1007242904"
+  },
+  {
+    "superior": "1020493509",
+    "subordinado": "1017922173"
+  },
+  {
+    "superior": "1020493509",
+    "subordinado": "1025640005"
+  },
+  {
+    "superior": "1020493509",
+    "subordinado": "1037671911"
+  },
+  {
+    "superior": "1020493509",
+    "subordinado": "1082998135"
+  },
+  {
+    "superior": "1035224796",
+    "subordinado": "1035233427"
+  },
+  {
+    "superior": "1035224796",
+    "subordinado": "1035432194"
+  },
+  {
+    "superior": "1035224796",
+    "subordinado": "1045024404"
+  },
+  {
+    "superior": "1035224796",
+    "subordinado": "1077467031"
+  },
+  {
+    "superior": "1035224796",
+    "subordinado": "1080292859"
+  },
+  {
+    "superior": "1035233427",
+    "subordinado": "1001524967"
+  },
+  {
+    "superior": "1035233427",
+    "subordinado": "1006888965"
+  },
+  {
+    "superior": "1035233427",
+    "subordinado": "1037238517"
+  },
+  {
+    "superior": "1035233427",
+    "subordinado": "1038408983"
+  },
+  {
+    "superior": "1035233427",
+    "subordinado": "1045518470"
+  },
+  {
+    "superior": "1035233427",
+    "subordinado": "1059904550"
+  },
+  {
+    "superior": "1035233427",
+    "subordinado": "1083045919"
+  },
+  {
+    "superior": "1035233427",
+    "subordinado": "1143469922"
+  },
+  {
+    "superior": "1035420176",
+    "subordinado": "1035233427"
+  },
+  {
+    "superior": "1035420176",
+    "subordinado": "1035432194"
+  },
+  {
+    "superior": "1035420176",
+    "subordinado": "1214739038"
+  },
+  {
+    "superior": "1035420176",
+    "subordinado": "1233338132"
+  },
+  {
+    "superior": "1035420176",
+    "subordinado": "1234991928"
+  },
+  {
+    "superior": "1035432194",
+    "subordinado": "1001237915"
+  },
+  {
+    "superior": "1035432194",
+    "subordinado": "1006888965"
+  },
+  {
+    "superior": "1035432194",
+    "subordinado": "1020470869"
+  },
+  {
+    "superior": "1035432194",
+    "subordinado": "1059904550"
+  },
+  {
+    "superior": "1035433398",
+    "subordinado": "1000758163"
+  },
+  {
+    "superior": "1035433398",
+    "subordinado": "1001534088"
+  },
+  {
+    "superior": "1035433398",
+    "subordinado": "1012390397"
+  },
+  {
+    "superior": "1035433398",
+    "subordinado": "1025640005"
+  },
+  {
+    "superior": "1035433398",
+    "subordinado": "1035878438"
+  },
+  {
+    "superior": "1035433398",
+    "subordinado": "1077470231"
+  },
+  {
+    "superior": "1035874865",
+    "subordinado": "1000400263"
+  },
+  {
+    "superior": "1035874865",
+    "subordinado": "1007493219"
+  },
+  {
+    "superior": "1035874865",
+    "subordinado": "1012390397"
+  },
+  {
+    "superior": "1035874865",
+    "subordinado": "1094275234"
+  },
+  {
+    "superior": "1035874865",
+    "subordinado": "1152466349"
+  },
+  {
+    "superior": "1037579884",
+    "subordinado": "1018461187"
+  },
+  {
+    "superior": "1037579884",
+    "subordinado": "43262428"
+  },
+  {
+    "superior": "1039467166",
+    "subordinado": "1001534088"
+  },
+  {
+    "superior": "1039467166",
+    "subordinado": "1007242904"
+  },
+  {
+    "superior": "1039467166",
+    "subordinado": "1017922173"
+  },
+  {
+    "superior": "1039467166",
+    "subordinado": "1035878438"
+  },
+  {
+    "superior": "1039467166",
+    "subordinado": "1044509699"
+  },
+  {
+    "superior": "1039467166",
+    "subordinado": "1077470231"
+  },
+  {
+    "superior": "1039467166",
+    "subordinado": "1082998135"
+  },
+  {
+    "superior": "1045024404",
+    "subordinado": "1037073072"
+  },
+  {
+    "superior": "1045024404",
+    "subordinado": "1038408983"
+  },
+  {
+    "superior": "1045024404",
+    "subordinado": "1042428217"
+  },
+  {
+    "superior": "1045024404",
+    "subordinado": "1045518470"
+  },
+  {
+    "superior": "1077467031",
+    "subordinado": "1000887806"
+  },
+  {
+    "superior": "1077467031",
+    "subordinado": "1003407650"
+  },
+  {
+    "superior": "1077467031",
+    "subordinado": "1037073072"
+  },
+  {
+    "superior": "1077467031",
+    "subordinado": "1083045919"
+  },
+  {
+    "superior": "1080292859",
+    "subordinado": "1003407650"
+  },
+  {
+    "superior": "1080292859",
+    "subordinado": "1020470869"
+  },
+  {
+    "superior": "1080292859",
+    "subordinado": "1083036857"
+  },
+  {
+    "superior": "1080292859",
+    "subordinado": "1143469922"
+  },
+  {
+    "superior": "1214739038",
+    "subordinado": "1000638766"
+  },
+  {
+    "superior": "1214739038",
+    "subordinado": "1000748100"
+  },
+  {
+    "superior": "1214739038",
+    "subordinado": "1006888965"
+  },
+  {
+    "superior": "1214739038",
+    "subordinado": "1020495881"
+  },
+  {
+    "superior": "1214739038",
+    "subordinado": "1090529864"
+  },
+  {
+    "superior": "1233338132",
+    "subordinado": "1000638766"
+  },
+  {
+    "superior": "1233338132",
+    "subordinado": "1000748100"
+  },
+  {
+    "superior": "1233338132",
+    "subordinado": "1000918813"
+  },
+  {
+    "superior": "1233338132",
+    "subordinado": "1006888965"
+  },
+  {
+    "superior": "1233338132",
+    "subordinado": "1020495881"
+  },
+  {
+    "superior": "1233338132",
+    "subordinado": "1037238517"
+  },
+  {
+    "superior": "1233338132",
+    "subordinado": "1077474826"
+  },
+  {
+    "superior": "1234991928",
+    "subordinado": "1000638766"
+  },
+  {
+    "superior": "1234991928",
+    "subordinado": "1000748100"
+  },
+  {
+    "superior": "1234991928",
+    "subordinado": "1000918813"
+  },
+  {
+    "superior": "1234991928",
+    "subordinado": "1020495881"
+  },
+  {
+    "superior": "1234991928",
+    "subordinado": "1090529864"
+  },
+  {
+    "superior": "43262428",
+    "subordinado": "1001875917"
+  },
+  {
+    "superior": "43262428",
+    "subordinado": "1020478965"
+  },
+  {
+    "superior": "43262428",
+    "subordinado": "1035433398"
+  },
+  {
+    "superior": "43262428",
+    "subordinado": "1035874865"
+  }
+]

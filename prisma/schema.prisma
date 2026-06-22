@@ -210,8 +210,10 @@ model Client {
   name            String           @map("nombre")
   nit             String           @map("nit")
   tipo            String           @default("C") @map("tipo_cliente") // clasificación A | B | C
-  erp             String           @map("erp")
-  sector          String           @map("sector")
+  erp             Erp              @relation(fields: [erpId], references: [id], onDelete: Restrict)
+  erpId           Int              @map("erp_id") // FK al catálogo erps
+  sector          Sector?          @relation(fields: [sectorId], references: [id], onDelete: Restrict)
+  sectorId        Int?             @map("sector_id") // FK al catálogo sectores (opcional: hay clientes sin sector)
   socioId         Int?             @map("socio_id") // socio responsable (FK lógica a User.id, informativo)
   modules         ClientModule[]
   dianForms       ClientDianForm[]
@@ -219,7 +221,40 @@ model Client {
   createdAt       DateTime         @default(now()) @map("creado_en")
 
   @@index([socioId])
+  @@index([erpId])
+  @@index([sectorId])
   @@map("clientes")
+}
+
+// ===== Catálogos maestros: ERP y Sector (Config · Clientes) =====
+/// Catálogo de sistemas contables/ERP que usan los clientes (SIESA, SIIGO,
+/// SAP…). `code` es la forma canónica en MAYÚSCULAS sin acentos; `name` la
+/// etiqueta visible. Antes era texto libre en clientes.erp.
+model Erp {
+  id        Int      @id @default(autoincrement()) @map("id")
+  code      String   @unique @map("codigo") // forma canónica: SIESA, SAP, SIIGO, OFIMATICA...
+  name      String   @map("nombre") // etiqueta visible
+  active    Boolean  @default(true) @map("activo")
+  order     Int      @default(0) @map("orden")
+  clients   Client[]
+  createdAt DateTime @default(now()) @map("creado_en")
+
+  @@map("erps")
+}
+
+/// Catálogo de sectores económicos del cliente. El origen trae "N-Nombre"
+/// (p.ej. "15-ESAL"): `code` guarda el número ("15") y `name` la etiqueta
+/// ("ESAL"). Antes era texto libre en clientes.sector.
+model Sector {
+  id        Int      @id @default(autoincrement()) @map("id")
+  code      String   @unique @map("codigo") // número del sector: "5", "15"...
+  name      String   @map("nombre") // etiqueta: "Comercio y Distribución", "ESAL"...
+  active    Boolean  @default(true) @map("activo")
+  order     Int      @default(0) @map("orden")
+  clients   Client[]
+  createdAt DateTime @default(now()) @map("creado_en")
+
+  @@map("sectores")
 }
 
 model Module {

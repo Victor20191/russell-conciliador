@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Card, PageHeader } from "@/components/ui";
 import { PasswordInput } from "@/components/password-input";
 import { Modal } from "@/components/modal";
@@ -8,6 +9,7 @@ import { createUser, updateUser, unlockUser, deleteUser } from "@/app/actions/us
 import { Icon } from "@/components/icons";
 import { isAccountBlocked, LOGIN_MAX_ATTEMPTS } from "@/lib/login-throttle";
 import { ROL_SUPERIOR } from "@/lib/rbac/jerarquia";
+import { notifyActionState } from "@/lib/client-notifications";
 import { ImportMaestrosButton } from "./import-maestros-modal";
 
 export type UserRow = {
@@ -221,7 +223,16 @@ function UserActions({
 }
 
 function UnlockUserForm({ user }: { user: UserRow }) {
+  const router = useRouter();
   const [state, action, pending] = useActionState(unlockUser, undefined);
+
+  useEffect(() => {
+    notifyActionState(state, {
+      success: "Usuario desbloqueado.",
+      error: "No se pudo desbloquear el usuario.",
+    });
+    if (state?.ok) router.refresh();
+  }, [state, router]);
 
   return (
     <form action={action} className="inline-flex items-center gap-2">
@@ -305,6 +316,10 @@ function CreateUserForm({
   const initials = initialsFromFullName(name);
 
   useEffect(() => {
+    notifyActionState(state, {
+      success: "Usuario creado.",
+      error: "No se pudo crear el usuario.",
+    });
     if (state?.ok) onClose();
   }, [state, onClose]);
 
@@ -430,6 +445,10 @@ function EditUserForm({
     .map((a) => a.superiorId);
 
   useEffect(() => {
+    notifyActionState(state, {
+      success: "Usuario actualizado.",
+      error: "No se pudo actualizar el usuario.",
+    });
     if (state?.ok) onClose();
   }, [state, onClose]);
 
@@ -552,6 +571,10 @@ function DeleteUserForm({ user, onClose }: { user: UserRow; onClose: () => void 
   const [state, action, pending] = useActionState(deleteUser, undefined);
 
   useEffect(() => {
+    notifyActionState(state, {
+      success: "Usuario eliminado.",
+      error: "No se pudo eliminar el usuario.",
+    });
     if (state?.ok) onClose();
   }, [state, onClose]);
 

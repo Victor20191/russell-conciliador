@@ -1,20 +1,26 @@
 "use client";
 
 import { useActionState, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
 import { Card } from "@/components/ui";
 import { Modal } from "@/components/modal";
+import { ActionForm } from "@/components/action-form";
 import {
   createClient,
   updateClient,
   deleteClient,
 } from "@/app/actions/clients";
 import type { ActionState } from "@/lib/definitions";
+import { notifyActionState } from "@/lib/client-notifications";
 import { ImportClientesButton } from "./import-clientes-modal";
 
 export type ModuleRef = { id: number; name: string };
 /** Catálogo de formatos DIAN seleccionables por cliente (IVA F-300…). */
 export type DianFormRef = { id: number; name: string; code: string };
+/** Catálogos maestros ERP y Sector seleccionables por cliente. */
+export type ErpRef = { id: number; name: string };
+export type SectorRef = { id: number; name: string };
 export type PersonaRef = { id: number; name: string };
 /** Candidatos por rol, ya filtrados por activos. El socio es informativo. */
 export type Personas = {
@@ -31,8 +37,10 @@ export type ClientRow = {
   name: string;
   nit: string;
   tipo: string;
-  erp: string;
-  sector: string;
+  erpId: number;
+  erpName: string;
+  sectorId: number | null;
+  sectorName: string | null;
   socioId: number | null;
   socioName: string | null;
   modules: { moduleId: number; status: string }[];
@@ -57,8 +65,8 @@ export default function ClientesClient({
   clients: ClientRow[];
   modules: ModuleRef[];
   dianForms: DianFormRef[];
-  erps: string[];
-  sectors: string[];
+  erps: ErpRef[];
+  sectors: SectorRef[];
   nextCode: string;
   personas: Personas;
   aristas: Arista[];
@@ -74,8 +82,8 @@ export default function ClientesClient({
     return clients.filter(
       (c) =>
         (!needle || c.name.toLowerCase().includes(needle) || c.nit.includes(needle)) &&
-        (!erp || c.erp === erp) &&
-        (!sector || c.sector === sector),
+        (!erp || String(c.erpId) === erp) &&
+        (!sector || String(c.sectorId ?? "") === sector),
     );
   }, [clients, q, erp, sector]);
 
@@ -98,8 +106,8 @@ export default function ClientesClient({
           className="rounded-md border border-ink-200 px-2 py-1.5 text-[12.5px] text-ink-700 outline-none"
         >
           <option value="">Todos los ERPs</option>
-          {erps.map((x) => (
-            <option key={x} value={x}>{x}</option>
+          {erps.map((e) => (
+            <option key={e.id} value={e.id}>{e.name}</option>
           ))}
         </select>
         <select
@@ -108,8 +116,8 @@ export default function ClientesClient({
           className="rounded-md border border-ink-200 px-2 py-1.5 text-[12.5px] text-ink-700 outline-none"
         >
           <option value="">Todos los sectores</option>
-          {sectors.map((x) => (
-            <option key={x} value={x}>{x}</option>
+          {sectors.map((s) => (
+            <option key={s.id} value={s.id}>{s.name}</option>
           ))}
         </select>
         <div className="ml-auto flex items-center gap-2">
@@ -147,8 +155,8 @@ export default function ClientesClient({
                 <td className="px-2 py-2.5 text-center">
                   <TipoBadge tipo={c.tipo} />
                 </td>
-                <td className="px-4 py-2.5 text-ink-600">{c.erp}</td>
-                <td className="px-4 py-2.5 text-ink-600">{c.sector}</td>
+                <td className="px-4 py-2.5 text-ink-600">{c.erpName}</td>
+                <td className="px-4 py-2.5 text-ink-600">{c.sectorName ?? "—"}</td>
                 <td className="px-4 py-2.5">
                   <ResponsablesCell responsables={c.responsables} socioName={c.socioName} />
                 </td>
@@ -314,8 +322,8 @@ function ClientModal({
   title: string;
   action: (prev: ActionState, fd: FormData) => Promise<ActionState>;
   client?: ClientRow | null;
-  erps: string[];
-  sectors: string[];
+  erps: ErpRef[];
+  sectors: SectorRef[];
   nextCode: string;
   modules?: ModuleRef[];
   dianForms: DianFormRef[];
@@ -455,8 +463,12 @@ function ClientModal({
   }
 
   useEffect(() => {
+    notifyActionState(state, {
+      success: isEdit ? "Cliente actualizado." : "Cliente creado.",
+      error: "No se pudo guardar el cliente.",
+    });
     if (state?.ok) onClose();
-  }, [state, onClose]);
+  }, [state, onClose, isEdit]);
 
   return (
     <Modal
@@ -526,31 +538,30 @@ function ClientModal({
           </CField>
         </div>
         <div className="flex gap-3">
-          <CField label="ERP" error={state?.errors?.erp}>
-            <input
-              name="erp"
-              list="erp-list"
-              defaultValue={client?.erp ?? ""}
-              className="w-full rounded-md border border-ink-200 px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400"
-            />
-            <datalist id="erp-list">
-              {erps.map((x) => (
-                <option key={x} value={x} />
+          <CField label="ERP" error={state?.errors?.erpId}>
+            <select
+              name="erpId"
+              required
+              defaultValue={client?.erpId ?? ""}
+              className="w-full rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400"
+            >
+              <option value="">Selecciona…</option>
+              {erps.map((e) => (
+                <option key={e.id} value={e.id}>{e.name}</option>
               ))}
-            </datalist>
+            </select>
           </CField>
-          <CField label="Sector" error={state?.errors?.sector}>
-            <input
-              name="sector"
-              list="sector-list"
-              defaultValue={client?.sector ?? ""}
-              className="w-full rounded-md border border-ink-200 px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400"
-            />
-            <datalist id="sector-list">
-              {sectors.map((x) => (
-                <option key={x} value={x} />
+          <CField label="Sector" error={state?.errors?.sectorId}>
+            <select
+              name="sectorId"
+              defaultValue={client?.sectorId ?? ""}
+              className="w-full rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400"
+            >
+              <option value="">Sin sector</option>
+              {sectors.map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
               ))}
-            </datalist>
+            </select>
           </CField>
         </div>
         </div>
@@ -832,22 +843,37 @@ function ClientModal({
 }
 
 function DeleteClientButton({ id, onDone }: { id: number; onDone: () => void }) {
+  const router = useRouter();
+
   return (
-    <form
+    <ActionForm
       action={deleteClient}
-      onSubmit={(e) => {
-        if (!confirm("¿Eliminar este cliente y sus parametrizaciones?")) e.preventDefault();
-        else setTimeout(onDone, 0);
+      successMessage="Cliente eliminado."
+      errorMessage="No se pudo eliminar el cliente."
+      showInlineError={false}
+      onSuccess={() => {
+        router.refresh();
+        onDone();
       }}
     >
-      <input type="hidden" name="id" value={id} />
-      <button
-        type="submit"
-        className="rounded-md border border-err-100 bg-err-100 px-3 py-1.5 text-[12.5px] font-semibold text-err-700 hover:bg-err-100/70"
-      >
-        Eliminar
-      </button>
-    </form>
+      {(pending) => (
+        <>
+          <input type="hidden" name="id" value={id} />
+          <button
+            type="submit"
+            disabled={pending}
+            onClick={(event) => {
+              if (!confirm("¿Eliminar este cliente y sus parametrizaciones?")) {
+                event.preventDefault();
+              }
+            }}
+            className="rounded-md border border-err-100 bg-err-100 px-3 py-1.5 text-[12.5px] font-semibold text-err-700 hover:bg-err-100/70 disabled:opacity-60"
+          >
+            {pending ? "Eliminando…" : "Eliminar"}
+          </button>
+        </>
+      )}
+    </ActionForm>
   );
 }
 

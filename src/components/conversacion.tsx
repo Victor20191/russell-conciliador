@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { Icon } from "@/components/icons";
 import { etiquetaEntidad } from "@/lib/comentarios";
+import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import {
   listarComentarios,
   publicarComentario,
@@ -62,6 +63,7 @@ export default function Conversacion({
         if (res.puedeComentar) setMencionables(await usuariosMencionables(tipo));
       } else {
         setError(res.message);
+        notifyError(res.message);
       }
       setCargando(false);
     })();
@@ -123,8 +125,10 @@ export default function Conversacion({
         setText("");
         setMentions({});
         setQuery(null);
+        notifySuccess("Comentario publicado.");
       } else {
         setError(res.message);
+        notifyError(res.message);
       }
     });
   }

@@ -19,9 +19,11 @@
     "db:seed:comentar": "tsx prisma/seed-comentar.ts",
     "db:seed:admin-negocio": "tsx prisma/seed-admin-negocio.ts",
     "db:backfill:roles": "tsx prisma/backfill-roles.ts",
+    "db:completar:jerarquia": "tsx scripts/completar_jerarquia.ts",
     "db:studio": "prisma studio"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.105.0",
     "@playwright/mcp": "^0.0.75",
     "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
@@ -33,6 +35,7 @@
     "prisma": "^7.8.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "xlsx": "^0.18.5",
     "zod": "^4.4.3"
   },
   "devDependencies": {

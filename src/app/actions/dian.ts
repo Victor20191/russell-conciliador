@@ -4,9 +4,10 @@ import { revalidatePath } from "next/cache";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
-import { requirePermiso } from "@/lib/rbac";
+import { authorizePermiso } from "@/lib/rbac";
 import { parseId } from "@/lib/ids";
-import { registrarError } from "@/lib/errores";
+import { mensajeErrorBD } from "@/lib/errores";
+import type { ActionState } from "@/lib/definitions";
 
 // NOTA · alcance por cartera: estas acciones NO pasan `{ clientId }` al gate
 // porque el modelo de datos DIAN (DianForm/DianPeriod/DianMapping/DianComment)
@@ -14,13 +15,14 @@ import { registrarError } from "@/lib/errores";
 // día los formularios DIAN se asocian a un cliente, añadir aquí el alcance
 // igual que en balance/mapeo/conciliaciones (resolver clientId → gate).
 
-export async function addDianComment(formData: FormData): Promise<void> {
-  await requirePermiso("dian:editar");
+export async function addDianComment(formData: FormData): Promise<ActionState> {
+  const authz = await authorizePermiso("dian:editar");
+  if (!authz.ok) return { ok: false, message: authz.message };
   const formId = parseId(formData.get("formId"));
   const lineKey = formData.get("lineKey") as string;
   const periodId = parseId(formData.get("periodId"));
   const text = ((formData.get("text") as string) ?? "").trim();
-  if (!formId || !lineKey || !text) return;
+  if (!formId || !lineKey || !text) return { ok: false, message: "Escribe una observación antes de comentar." };
 
   try {
     const user = await getCurrentUser();
@@ -29,20 +31,21 @@ export async function addDianComment(formData: FormData): Promise<void> {
     });
     await logAudit({ user: user?.name ?? "Sistema", action: "COMENTÓ", entity: `Renglón ${lineKey}`, detail: `DIAN ${formId}` });
     if (periodId) revalidatePath(`/dian/${periodId}`);
+    return { ok: true, message: "Observación registrada." };
   } catch (e) {
-    registrarError("addDianComment", e);
-    throw e;
+    return { ok: false, message: mensajeErrorBD("addDianComment", e) };
   }
 }
 
 // IA simulada: genera una observación heurística sobre la diferencia del renglón.
-export async function requestDianAiAnalysis(formData: FormData): Promise<void> {
-  await requirePermiso("dian:editar");
+export async function requestDianAiAnalysis(formData: FormData): Promise<ActionState> {
+  const authz = await authorizePermiso("dian:editar");
+  if (!authz.ok) return { ok: false, message: authz.message };
   const formId = parseId(formData.get("formId"));
   const lineKey = formData.get("lineKey") as string;
   const periodId = parseId(formData.get("periodId"));
   const diff = Number(formData.get("diff") ?? 0);
-  if (!formId || !lineKey) return;
+  if (!formId || !lineKey) return { ok: false, message: "Renglón DIAN inválido." };
 
   const abs = Math.abs(diff);
   const text = abs === 0
@@ -58,9 +61,9 @@ export async function requestDianAiAnalysis(formData: FormData): Promise<void> {
     const user = await getCurrentUser();
     await logAudit({ user: user?.name ?? "Sistema", action: "PIDIÓ ANÁLISIS IA", entity: `Renglón ${lineKey}`, detail: `DIAN ${formId}` });
     if (periodId) revalidatePath(`/dian/${periodId}`);
+    return { ok: true, message: "Análisis IA agregado." };
   } catch (e) {
-    registrarError("requestDianAiAnalysis", e);
-    throw e;
+    return { ok: false, message: mensajeErrorBD("requestDianAiAnalysis", e) };
   }
 }
 
@@ -68,9 +71,10 @@ export async function saveDianMapping(
   formId: number,
   lineKey: string,
   rows: { account: string; desc: string; sign: string }[],
-): Promise<void> {
-  await requirePermiso("mapeos_dian:configurar");
-  if (!formId || !lineKey) return;
+): Promise<ActionState> {
+  const authz = await authorizePermiso("mapeos_dian:configurar");
+  if (!authz.ok) return { ok: false, message: authz.message };
+  if (!formId || !lineKey) return { ok: false, message: "Renglón DIAN inválido." };
   const clean = rows.filter((r) => r.account.trim());
   try {
     await prisma.dianMapping.deleteMany({ where: { formId, lineKey } });
@@ -83,8 +87,8 @@ export async function saveDianMapping(
     await logAudit({ user: user?.name ?? "Sistema", action: "GUARDÓ MAPEO DIAN", entity: `Renglón ${lineKey}`, detail: `${clean.length} cuenta(s) · ${formId}` });
     revalidatePath("/config/dian");
     revalidatePath("/dian/[periodId]", "page");
+    return { ok: true, message: "Mapeo DIAN guardado." };
   } catch (e) {
-    registrarError("saveDianMapping", e);
-    throw e;
+    return { ok: false, message: mensajeErrorBD("saveDianMapping", e) };
   }
 }

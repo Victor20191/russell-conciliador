@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { Icon } from "@/components/icons";
 import { Card, Chip } from "@/components/ui";
+import { CargarBalanceButton, type ClienteOpcion } from "./cargar-balance-modal";
 
 export type PeriodRow = {
   period: string; versions: number; official: string | null; officialId: number | null;
@@ -39,9 +40,10 @@ function statusTone(s: string): "ok" | "warn" | "blue" | "ink" {
 }
 
 export default function BalanceIndexClient({
-  clients, auditRows, std, clientNames,
+  clients, auditRows, std, clientNames, uploadClients, canUpload,
 }: {
   clients: ClientGroup[]; auditRows: AuditRow[]; std: StdAccount[]; clientNames: string[];
+  uploadClients: ClienteOpcion[]; canUpload: boolean;
 }) {
   const [tab, setTab] = useState<Tab>("clients");
 
@@ -51,13 +53,7 @@ export default function BalanceIndexClient({
         <TabBtn on={tab === "clients"} onClick={() => setTab("clients")} label="Clientes" count={clients.length} />
         <TabBtn on={tab === "audit"} onClick={() => setTab("audit")} label="Audit log" count={auditRows.length} />
         <TabBtn on={tab === "std"} onClick={() => setTab("std")} label="Plan estándar" count={std.length} />
-        <button
-          disabled
-          title="Carga de balance — se habilita al cablear la importación de archivos (fase posterior)"
-          className="ml-auto inline-flex cursor-not-allowed items-center gap-1.5 rounded-md bg-ink-100 px-3 py-1.5 text-[12.5px] font-semibold text-ink-400"
-        >
-          <Icon name="upload" size={14} /> Cargar balance
-        </button>
+        {canUpload && <CargarBalanceButton clients={uploadClients} />}
       </div>
 
       {tab === "clients" && <ClientsTab clients={clients} />}

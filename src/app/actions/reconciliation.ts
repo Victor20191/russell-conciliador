@@ -5,23 +5,28 @@ import { redirect } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
-import { requirePermiso } from "@/lib/rbac";
+import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import { clienteDeConciliacion, clienteDeFilaConciliacion } from "@/lib/rbac/contexto";
 import { parseId } from "@/lib/ids";
 import { createProcessNotification } from "@/lib/notifications";
-import { registrarError } from "@/lib/errores";
+import { mensajeErrorBD } from "@/lib/errores";
+import type { ActionState } from "@/lib/definitions";
 
 // Patrón de autorización en dos pasos: el primer gate exige sesión +
 // permiso de rol ANTES de tocar la BD; el segundo añade el ALCANCE de
 // escritura sobre el cliente de la conciliación (cartera, fail-closed).
 
-export async function addReconciliationComment(formData: FormData): Promise<void> {
-  await requirePermiso("conciliaciones:editar");
+export async function addReconciliationComment(formData: FormData): Promise<ActionState> {
+  const authz = await authorizePermiso("conciliaciones:editar");
+  if (!authz.ok) return { ok: false, message: authz.message };
   const reconciliationId = parseId(formData.get("reconciliationId"));
   const cuenta = formData.get("cuenta") as string;
   const text = ((formData.get("text") as string) ?? "").trim();
-  if (!reconciliationId || !cuenta || !text) return;
-  await requirePermiso("conciliaciones:editar", { clientId: await clienteDeConciliacion(reconciliationId) });
+  if (!reconciliationId || !cuenta || !text) {
+    return { ok: false, message: "Escribe una observación antes de comentar." };
+  }
+  const alcance = await authorizePermiso("conciliaciones:editar", { clientId: await clienteDeConciliacion(reconciliationId) });
+  if (!alcance.ok) return { ok: false, message: alcance.message };
 
   try {
     const user = await getCurrentUser();
@@ -35,20 +40,24 @@ export async function addReconciliationComment(formData: FormData): Promise<void
     });
     await logAudit({ user: user?.name ?? "Sistema", action: "COMENTÓ", entity: `Cuenta ${cuenta}`, detail: `Cruce ${reconciliationId}` });
     revalidatePath(`/conciliacion/resultados/${reconciliationId}`);
+    return { ok: true, message: "Comentario registrado." };
   } catch (e) {
-    registrarError("addReconciliationComment", e);
-    throw e;
+    return { ok: false, message: mensajeErrorBD("addReconciliationComment", e) };
   }
 }
 
-export async function setRowStatus(formData: FormData): Promise<void> {
-  await requirePermiso("conciliaciones:editar");
+export async function setRowStatus(formData: FormData): Promise<ActionState> {
+  const authz = await authorizePermiso("conciliaciones:editar");
+  if (!authz.ok) return { ok: false, message: authz.message };
   const rowId = parseId(formData.get("rowId"));
   const status = formData.get("status") as string; // conciliada | excepcion | ajuste
   const reconciliationId = parseId(formData.get("reconciliationId"));
-  if (!rowId || !["conciliada", "excepcion", "ajuste"].includes(status)) return;
+  if (!rowId || !["conciliada", "excepcion", "ajuste"].includes(status)) {
+    return { ok: false, message: "Estado de partida inválido." };
+  }
   // El cliente se resuelve desde la FILA (no desde el formulario, que es manipulable).
-  await requirePermiso("conciliaciones:editar", { clientId: await clienteDeFilaConciliacion(rowId) });
+  const alcance = await authorizePermiso("conciliaciones:editar", { clientId: await clienteDeFilaConciliacion(rowId) });
+  if (!alcance.ok) return { ok: false, message: alcance.message };
 
   try {
     const row = await prisma.reconciliationRow.update({ where: { id: rowId }, data: { manualStatus: status } });
@@ -56,25 +65,27 @@ export async function setRowStatus(formData: FormData): Promise<void> {
     const labels: Record<string, string> = { conciliada: "marcó como conciliada", excepcion: "marcó como excepción", ajuste: "solicitó ajuste contable" };
     await logAudit({ user: user?.name ?? "Sistema", action: "ACTUALIZÓ PARTIDA", entity: `Cuenta ${row.cuenta}`, detail: labels[status] });
     if (reconciliationId) revalidatePath(`/conciliacion/resultados/${reconciliationId}`);
+    return { ok: true, message: "Partida actualizada." };
   } catch (e) {
-    registrarError("setRowStatus", e);
-    throw e;
+    return { ok: false, message: mensajeErrorBD("setRowStatus", e) };
   }
 }
 
-export async function sendToReviewer(formData: FormData): Promise<void> {
-  await requirePermiso("conciliaciones:editar");
+export async function sendToReviewer(formData: FormData): Promise<ActionState> {
+  const authz = await authorizePermiso("conciliaciones:editar");
+  if (!authz.ok) return { ok: false, message: authz.message };
   const id = parseId(formData.get("id"));
-  if (!id) return;
-  await requirePermiso("conciliaciones:editar", { clientId: await clienteDeConciliacion(id) });
+  if (!id) return { ok: false, message: "Conciliación inexistente." };
+  const alcance = await authorizePermiso("conciliaciones:editar", { clientId: await clienteDeConciliacion(id) });
+  if (!alcance.ok) return { ok: false, message: alcance.message };
   try {
     await prisma.reconciliation.update({ where: { id }, data: { status: "REVIEW" } });
     const user = await getCurrentUser();
     await logAudit({ user: user?.name ?? "Sistema", action: "ENVIÓ A REVISOR", entity: `Cruce ${id}`, detail: "Marcado en revisión" });
     revalidatePath(`/conciliacion/resultados/${id}`);
+    return { ok: true, message: "Conciliación enviada a revisor." };
   } catch (e) {
-    registrarError("sendToReviewer", e);
-    throw e;
+    return { ok: false, message: mensajeErrorBD("sendToReviewer", e) };
   }
 }
 
@@ -106,7 +117,7 @@ export async function executeReconciliation(formData: FormData): Promise<void> {
   let reconciliationId: number | null = null;
   try {
     const [client, mod, user] = await Promise.all([
-      prisma.client.findUnique({ where: { id: clientId } }),
+      prisma.client.findUnique({ where: { id: clientId }, include: { erp: { select: { name: true } } } }),
       prisma.module.findUnique({ where: { id: moduleId } }),
       getCurrentUser(),
     ]);
@@ -120,7 +131,7 @@ export async function executeReconciliation(formData: FormData): Promise<void> {
     const reconciliation = await prisma.reconciliation.create({
       data: {
         code, clientName: client.name, clientId: client.id, module: mod.name, period,
-        erp: client.erp, status: "REVIEW", diff: fmtSigned(totalDiff), items: itemsDiff,
+        erp: client.erp.name, status: "REVIEW", diff: fmtSigned(totalDiff), items: itemsDiff,
         date: "hoy", owner: user?.name ?? "Auditor", cutoff, runAt: "hoy", runBy: user?.name ?? "Auditor",
         materiality: 2000000, lastActivity: "ahora",
         rows: { create: DEMO_CROSS_ROWS.map(([cuenta, desc, cont, modBal, diff, items], i) => ({ cuenta, desc, cont, mod: modBal, diff, items, order: i })) },
@@ -143,8 +154,7 @@ export async function executeReconciliation(formData: FormData): Promise<void> {
     revalidatePath("/", "layout");
     reconciliationId = reconciliation.id;
   } catch (e) {
-    registrarError("executeReconciliation", e);
-    throw e;
+    throw new Error(mensajeErrorBD("executeReconciliation", e));
   }
 
   if (reconciliationId !== null) redirect(`/conciliacion/resultados/${reconciliationId}`);

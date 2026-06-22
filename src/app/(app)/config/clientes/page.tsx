@@ -18,17 +18,24 @@ export default async function ClientesPage() {
   // responsable; Admin/Superadmin administran todos.
   const alc = await alcanceLecturaUsuario();
   const whereCliente = alc.todos ? {} : { id: { in: alc.clientIds } };
-  const [clients, modules, dianFormsBD, usuarios, aristasBD, asignaciones] = await Promise.all([
+  const [clients, modules, dianFormsBD, erpsBD, sectoresBD, usuarios, aristasBD, asignaciones] = await Promise.all([
     prisma.client.findMany({
       where: whereCliente,
       orderBy: { name: "asc" },
-      include: { modules: true, dianForms: true },
+      include: {
+        modules: true,
+        dianForms: true,
+        erp: { select: { name: true } },
+        sector: { select: { name: true } },
+      },
     }),
     prisma.module.findMany({ orderBy: { name: "asc" } }),
     prisma.dianForm.findMany({
       orderBy: { code: "asc" },
       select: { id: true, name: true, code: true },
     }),
+    prisma.erp.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.sector.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.user.findMany({
       orderBy: { name: "asc" },
       select: { id: true, name: true, role: true, active: true },
@@ -78,8 +85,10 @@ export default async function ClientesPage() {
     name: c.name,
     nit: c.nit,
     tipo: c.tipo,
-    erp: c.erp,
-    sector: c.sector,
+    erpId: c.erpId,
+    erpName: c.erp.name,
+    sectorId: c.sectorId,
+    sectorName: c.sector?.name ?? null,
     socioId: c.socioId,
     socioName: c.socioId != null ? (nombrePorId.get(c.socioId) ?? null) : null,
     modules: c.modules.map((m) => ({ moduleId: m.moduleId, status: m.status })),
@@ -92,8 +101,8 @@ export default async function ClientesPage() {
     name: f.name,
     code: f.code,
   }));
-  const erps = [...new Set(clients.map((c) => c.erp))].sort();
-  const sectors = [...new Set(clients.map((c) => c.sector))].sort();
+  const erps = erpsBD.map((e) => ({ id: e.id, name: e.name }));
+  const sectors = sectoresBD.map((s) => ({ id: s.id, name: s.name }));
   const nextCode = nextClientCode(clients.map((c) => c.code));
 
   return (
