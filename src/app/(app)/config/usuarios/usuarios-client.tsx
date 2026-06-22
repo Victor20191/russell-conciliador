@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useEffect, useId, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, PageHeader } from "@/components/ui";
 import {
@@ -268,7 +268,7 @@ function UnlockUserForm({ user }: { user: UserRow }) {
 /**
  * Superiores directos en la jerarquía organizacional, según el rol elegido:
  * Staff→Seniors, Senior→Gerentes, Gerente→Socios. Para roles sin superior
- * (Socio, Administrador…) no se muestra nada. Checkboxes `superiorIds`.
+ * (Socio, Administrador…) no se muestra nada. Envía `superiorIds`.
  */
 function SuperioresField({
   role,
@@ -280,9 +280,35 @@ function SuperioresField({
   defaultSelected?: number[];
 }) {
   const rolSuperior = ROL_SUPERIOR[role];
+  const candidatos = rolSuperior ? superiores.filter((s) => s.role === rolSuperior) : [];
+  const [open, setOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<number[]>(() => {
+    const idsDisponibles = new Set(candidatos.map((s) => s.id));
+    return defaultSelected.filter((id) => idsDisponibles.has(id));
+  });
+  const dropdownId = useId();
+
   if (!rolSuperior) return null;
-  const candidatos = superiores.filter((s) => s.role === rolSuperior);
+
   const etiqueta = `${rolSuperior}s a los que reporta`;
+  const selectedSet = new Set(selectedIds);
+  const selectedNames = candidatos
+    .filter((s) => selectedSet.has(s.id))
+    .map((s) => s.name);
+  const resumen =
+    selectedNames.length === 0
+      ? `Seleccionar ${rolSuperior.toLowerCase()}`
+      : selectedNames.length === 1
+        ? selectedNames[0]
+        : `${selectedNames.length} seleccionados`;
+
+  function toggleSuperior(id: number) {
+    setSelectedIds((current) =>
+      current.includes(id)
+        ? current.filter((currentId) => currentId !== id)
+        : [...current, id],
+    );
+  }
 
   return (
     <div className="flex flex-col gap-1.5 sm:col-span-2">
@@ -292,22 +318,47 @@ function SuperioresField({
           No hay usuarios {rolSuperior} activos. Créalos primero para armar la jerarquía.
         </p>
       ) : (
-        <div className="grid grid-cols-1 gap-1.5 rounded-md border border-ink-200 p-2.5 sm:grid-cols-2">
-          {candidatos.map((s) => (
-            <label
-              key={s.id}
-              className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-[13px] text-ink-800 hover:bg-ink-50"
-            >
-              <input
-                type="checkbox"
-                name="superiorIds"
-                value={s.id}
-                defaultChecked={defaultSelected.includes(s.id)}
-                className="h-4 w-4 rounded border-ink-300 text-navy-600 focus:ring-navy-600"
-              />
-              {s.name}
-            </label>
+        <div className="relative">
+          {selectedIds.map((id) => (
+            <input key={id} type="hidden" name="superiorIds" value={id} />
           ))}
+          <button
+            type="button"
+            aria-expanded={open}
+            aria-controls={dropdownId}
+            onClick={() => setOpen((current) => !current)}
+            className="flex w-full items-center justify-between gap-2 rounded-md border border-ink-200 bg-white px-3 py-2 text-left text-[13px] text-ink-800 transition hover:border-ink-300 focus:border-navy-600 focus:outline-none focus:ring-2 focus:ring-navy-600/15"
+          >
+            <span
+              className={`min-w-0 flex-1 truncate ${
+                selectedNames.length === 0 ? "text-ink-500" : ""
+              }`}
+            >
+              {resumen}
+            </span>
+            <Icon name={open ? "chev-d" : "chev-r"} size={16} className="shrink-0 text-ink-500" />
+          </button>
+          {open && (
+            <div
+              id={dropdownId}
+              className="absolute left-0 right-0 z-20 mt-1 max-h-52 overflow-y-auto rounded-md border border-ink-200 bg-white p-1.5 shadow-lg"
+            >
+              {candidatos.map((s) => (
+                <label
+                  key={s.id}
+                  className="flex cursor-pointer items-center gap-2 rounded px-2 py-2 text-[13px] text-ink-800 hover:bg-ink-50"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedSet.has(s.id)}
+                    onChange={() => toggleSuperior(s.id)}
+                    className="h-4 w-4 rounded border-ink-300 text-navy-600 focus:ring-navy-600"
+                  />
+                  <span className="min-w-0 flex-1 leading-snug">{s.name}</span>
+                </label>
+              ))}
+            </div>
+          )}
         </div>
       )}
       <p className="text-[11px] text-ink-500">
