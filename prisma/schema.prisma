@@ -490,6 +490,32 @@ model StandardAccount {
   @@map("cuentas_estandar")
 }
 
+// ===== Bitácora del plan de cuentas estándar =====
+// Registro DEDICADO de todos los movimientos (crear/editar/eliminar) sobre las
+// cuentas estándar de Russell, para evidenciar la trazabilidad completa de la
+// parametrización del plan. Solo el Administrador opera esa tabla y cada cambio
+// deja una fila aquí (además del registro global en `AuditEntry`).
+// FK LÓGICAS (solo Int, sin @relation) hacia User y StandardAccount: la
+// bitácora se CONSERVA aunque luego se borre la cuenta o el usuario; `code`
+// preserva la referencia legible cuando `accountId` ya no existe.
+model StandardAccountLog {
+  id        Int      @id @default(autoincrement()) @map("id")
+  accountId Int?     @map("cuenta_id") // id de la cuenta afectada (null tras borrado físico)
+  code      String   @map("codigo") // código del sistema afectado (preserva referencia)
+  action    String   @map("accion") // CREÓ | EDITÓ | ELIMINÓ
+  user      String   @map("usuario") // nombre del actor
+  userId    Int?     @map("usuario_id") // FK lógica al User
+  detail    String   @map("detalle") // resumen legible del cambio
+  before    Json?    @map("antes") // snapshot previo (campos)
+  after     Json?    @map("despues") // snapshot nuevo (campos)
+  ip        String?  @map("ip")
+  createdAt DateTime @default(now()) @map("creado_en")
+
+  @@index([accountId])
+  @@index([createdAt])
+  @@map("bitacora_cuentas_estandar")
+}
+
 // ===== Balance de comprobación =====
 model Balance {
   id              Int      @id @default(autoincrement()) @map("id")

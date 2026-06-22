@@ -162,3 +162,57 @@ export const GuardarNivelesSchema = z
   .array(CambioNivelSchema)
   .min(1, { error: "No hay cambios para guardar." })
   .max(2000, { error: "Demasiados cambios en una sola operación." });
+
+// ===== Plan de cuentas estándar Russell (/config/mapeo · pestaña estándar) =====
+// CRUD del catálogo global de cuentas estándar. SOLO Administrador (gate
+// `mapeo:administrar`). Cada movimiento queda en la bitácora dedicada
+// `bitacora_cuentas_estandar` además del registro global de auditoría.
+
+// Texto opcional: "" o ausente → null; en otro caso, recortado. (Igual criterio
+// que los campos opcionales de cliente.)
+const textoOpcionalCuenta = z.preprocess((v) => {
+  if (typeof v !== "string") return null;
+  const t = v.trim();
+  return t === "" ? null : t;
+}, z.string().max(4000, { error: "El texto es demasiado largo." }).nullable());
+
+// Campos compartidos por crear/editar una cuenta estándar.
+const CuentaEstandarBase = {
+  code: z
+    .string()
+    .min(1, { error: "El código es obligatorio." })
+    .trim()
+    .max(60, { error: "El código es demasiado largo." }),
+  name: z
+    .string()
+    .min(1, { error: "El nombre es obligatorio." })
+    .trim()
+    .max(300, { error: "El nombre es demasiado largo." }),
+  level: z.coerce
+    .number({ error: "El nivel es obligatorio." })
+    .int({ error: "El nivel debe ser un entero." })
+    .min(1, { error: "Nivel fuera de rango (1–12)." })
+    .max(12, { error: "Nivel fuera de rango (1–12)." }),
+  nature: z.enum(["D", "C"], { error: "Selecciona la naturaleza (Débito o Crédito)." }),
+  critical: z.boolean(),
+  parent: textoOpcionalCuenta,
+  russellAccount: textoOpcionalCuenta,
+  categoryType: textoOpcionalCuenta,
+  includes: textoOpcionalCuenta,
+  excludes: textoOpcionalCuenta,
+  possibleAccounts: textoOpcionalCuenta,
+  supportingDocuments: textoOpcionalCuenta,
+  controlSupports: textoOpcionalCuenta,
+  mappingNotes: textoOpcionalCuenta,
+};
+
+export const StandardAccountCreateSchema = z.object(CuentaEstandarBase);
+
+export const StandardAccountUpdateSchema = z.object({
+  id: z.coerce.number().int().positive(),
+  ...CuentaEstandarBase,
+});
+
+export const StandardAccountDeleteSchema = z.object({
+  id: z.coerce.number().int().positive(),
+});

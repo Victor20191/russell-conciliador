@@ -157,6 +157,11 @@ export const PERMISOS: Permiso[] = [
   { code: "mapeos_dian:configurar", module: "mapeos_dian", action: "configurar", label: "Configurar mapeos DIAN", roles: SENIOR_Y_ADMIN },
 
   // ===== Administración de la herramienta — SOLO Administrador =====
+  // Parametrización del PLAN ESTÁNDAR Russell (catálogo global de cuentas
+  // estándar): crear/editar/eliminar cuentas estándar. Es administración de la
+  // herramienta (no datos de un cliente) → SOLO Administrador, distinta de
+  // `mapeo:editar` (Staff, que mapea las cuentas del PUC del cliente).
+  { code: "mapeo:administrar", module: "mapeo", action: "administrar", label: "Administrar plan estándar Russell", roles: SOLO_ADMIN },
   { code: "usuarios:crear", module: "usuarios", action: "crear", label: "Crear usuario", roles: SOLO_ADMIN },
   { code: "usuarios:editar", module: "usuarios", action: "editar", label: "Editar usuario", roles: SOLO_ADMIN },
   { code: "usuarios:eliminar", module: "usuarios", action: "eliminar", label: "Desactivar usuario", roles: SOLO_ADMIN },
