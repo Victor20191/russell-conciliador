@@ -1,4 +1,5 @@
 import prisma from "@/lib/prisma";
+import { codigosEstandarConBalances } from "@/lib/balance/asociacion";
 import { requirePermiso } from "@/lib/rbac";
 import { alcanceLecturaUsuario, getMatriz } from "@/lib/rbac/contexto";
 import { tienePermiso } from "@/lib/rbac/permisos";
@@ -33,7 +34,7 @@ export default async function MapeoPage({ searchParams }: { searchParams: Promis
   const matriz = await getMatriz();
   const canManage = user ? tienePermiso(matriz, user.role, "mapeo:administrar") : false;
 
-  const [accounts, options, standard, logs] = await Promise.all([
+  const [accounts, options, standard, logs, lockedStdCodes] = await Promise.all([
     prisma.clientAccount.findMany({
       where: { clientName: cliente },
       include: { russellOption: { select: { code: true } } },
@@ -46,6 +47,10 @@ export default async function MapeoPage({ searchParams }: { searchParams: Promis
     canManage
       ? prisma.standardAccountLog.findMany({ orderBy: { createdAt: "desc" }, take: 1000 })
       : Promise.resolve([]),
+    // Códigos de cuenta estándar que YA tienen balances asociados (global): el
+    // formulario bloquea el campo de código y el borrado de esas cuentas. Solo
+    // se calcula para quien administra el plan.
+    canManage ? codigosEstandarConBalances() : Promise.resolve<string[]>([]),
   ]);
 
   const acc: Account[] = accounts.map((a) => ({ id: a.id, code: a.code, level: a.level, name: a.name, russellCode: a.russellOption?.code ?? null }));
@@ -79,7 +84,7 @@ export default async function MapeoPage({ searchParams }: { searchParams: Promis
   return (
     <div>
       <PageHeader title="Mapeo plan estándar" subtitle="Configuración de las cuentas del PUC del cliente contra el plan estándar de Russell Bedford y su módulo de conciliación." />
-      <MapeoClient clientNames={clientNames} cliente={cliente} accounts={acc} options={opts} std={std} canManage={canManage} logs={stdLogs} />
+      <MapeoClient clientNames={clientNames} cliente={cliente} accounts={acc} options={opts} std={std} canManage={canManage} logs={stdLogs} lockedStdCodes={lockedStdCodes} />
     </div>
   );
 }

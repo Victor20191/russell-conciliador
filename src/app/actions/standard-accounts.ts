@@ -8,6 +8,7 @@ import { logAudit } from "@/lib/audit";
 import { authorizePermiso } from "@/lib/rbac";
 import { getClientIp } from "@/lib/request";
 import { mensajeErrorBD, registrarError } from "@/lib/errores";
+import { codigoEstandarTieneBalances } from "@/lib/balance/asociacion";
 import {
   StandardAccountCreateSchema,
   StandardAccountUpdateSchema,
@@ -183,6 +184,16 @@ export async function updateStandardAccount(
     // El código es la llave de negocio (@unique): si cambió, no debe chocar
     // con otra cuenta existente.
     if (parsed.data.code !== before.code) {
+      // Integridad histórica: el código es la referencia que guardan los
+      // balances ya cargados (`desglose[].items[].std`). Si la cuenta ya tiene
+      // balances de algún cliente asociados, NO se permite MOVER el código:
+      // rompería la trazabilidad de esos balances.
+      if (await codigoEstandarTieneBalances(before.code)) {
+        return {
+          ok: false,
+          message: `No puedes cambiar el código ${before.code}: ya tiene balances de clientes asociados. Mover el código rompería la trazabilidad de esos balances.`,
+        };
+      }
       const dup = await prisma.standardAccount.findFirst({
         where: { code: parsed.data.code, NOT: { id: parsed.data.id } },
         select: { id: true },
@@ -228,6 +239,16 @@ export async function deleteStandardAccount(
       where: { id: parsed.data.id },
     });
     if (!before) return { ok: false, message: "La cuenta estándar no existe." };
+
+    // Integridad histórica: igual que al editar, una cuenta estándar con
+    // balances de clientes asociados no se puede eliminar (rompería la
+    // trazabilidad de esos balances).
+    if (await codigoEstandarTieneBalances(before.code)) {
+      return {
+        ok: false,
+        message: `No puedes eliminar la cuenta ${before.code}: ya tiene balances de clientes asociados.`,
+      };
+    }
 
     await prisma.standardAccount.delete({ where: { id: parsed.data.id } });
 

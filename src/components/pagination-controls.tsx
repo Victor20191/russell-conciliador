@@ -171,7 +171,7 @@ export function PageSizeSelect({
   onChange: (size: PageSize) => void;
 }) {
   return (
-    <label className="flex items-center gap-1.5 text-[12px] font-medium text-ink-500">
+    <label className="ml-auto flex shrink-0 items-center justify-end gap-1.5 text-[12px] font-medium text-ink-500">
       Mostrar
       <select
         value={value}

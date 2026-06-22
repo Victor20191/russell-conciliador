@@ -63,9 +63,9 @@ const STATE_LABEL: Record<string, { label: string; tone: "ok" | "warn" | "err" }
 };
 
 export default function MapeoClient({
-  clientNames, cliente, accounts, options, std, canManage, logs,
+  clientNames, cliente, accounts, options, std, canManage, logs, lockedStdCodes,
 }: {
-  clientNames: string[]; cliente: string; accounts: Account[]; options: RussellOpt[]; std: StdAccount[]; canManage: boolean; logs: StdLogRow[];
+  clientNames: string[]; cliente: string; accounts: Account[]; options: RussellOpt[]; std: StdAccount[]; canManage: boolean; logs: StdLogRow[]; lockedStdCodes: string[];
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("mapping");
@@ -267,14 +267,18 @@ export default function MapeoClient({
       </Card>
         </>
       ) : (
-        <StandardTab std={std} canManage={canManage} logs={logs} />
+        <StandardTab std={std} canManage={canManage} logs={logs} lockedStdCodes={lockedStdCodes} />
       )}
     </div>
   );
 }
 
-function StandardTab({ std, canManage, logs }: { std: StdAccount[]; canManage: boolean; logs: StdLogRow[] }) {
+function StandardTab({ std, canManage, logs, lockedStdCodes }: { std: StdAccount[]; canManage: boolean; logs: StdLogRow[]; lockedStdCodes: string[] }) {
   const [q, setQ] = useState("");
+  // Códigos de cuenta estándar con balances ya asociados: su código no se puede
+  // mover ni la cuenta eliminar (la regla la garantiza la Server Action; aquí
+  // solo se bloquea el campo y el botón para evitar el intento).
+  const lockedCodes = useMemo(() => new Set(lockedStdCodes), [lockedStdCodes]);
   const [createOpen, setCreateOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<StdAccount | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<StdAccount | null>(null);
@@ -390,6 +394,7 @@ function StandardTab({ std, canManage, logs }: { std: StdAccount[]; canManage: b
       <StandardAccountForm
         mode="edit"
         account={editTarget}
+        locked={lockedCodes.has(editTarget.code)}
         onClose={() => setEditTarget(null)}
         onDelete={() => {
           const t = editTarget;
@@ -425,11 +430,13 @@ function Campo({ label, full, children }: { label: string; full?: boolean; child
 function StandardAccountForm({
   mode,
   account,
+  locked,
   onClose,
   onDelete,
 }: {
   mode: "create" | "edit";
   account?: StdAccount;
+  locked?: boolean;
   onClose: () => void;
   onDelete?: () => void;
 }) {
@@ -461,7 +468,9 @@ function StandardAccountForm({
               <button
                 type="button"
                 onClick={onDelete}
-                className="rounded-md border border-err-200 px-3 py-2 text-[13px] font-semibold text-err-700 hover:bg-err-50"
+                disabled={locked}
+                title={locked ? "No se puede eliminar: la cuenta ya tiene balances asociados." : undefined}
+                className="rounded-md border border-err-200 px-3 py-2 text-[13px] font-semibold text-err-700 hover:bg-err-50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
               >
                 Eliminar
               </button>
@@ -482,7 +491,19 @@ function StandardAccountForm({
         {isEdit && <input type="hidden" name="id" value={a!.id} />}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Campo label="Código del sistema">
-            <input name="code" defaultValue={a?.code ?? ""} required className={INPUT_CLS} />
+            <input
+              name="code"
+              defaultValue={a?.code ?? ""}
+              required
+              readOnly={locked}
+              aria-disabled={locked}
+              className={`${INPUT_CLS} ${locked ? "cursor-not-allowed bg-ink-50 text-ink-500" : ""}`}
+            />
+            {locked && (
+              <p className="text-[11px] leading-snug text-ink-500">
+                No editable: esta cuenta ya tiene balances de clientes asociados.
+              </p>
+            )}
           </Campo>
           <Campo label="Nombre PUC">
             <input name="name" defaultValue={a?.name ?? ""} required className={INPUT_CLS} />
