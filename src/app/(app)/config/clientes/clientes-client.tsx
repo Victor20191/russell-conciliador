@@ -37,8 +37,8 @@ export type ClientRow = {
   name: string;
   nit: string;
   tipo: string;
-  erpId: number;
-  erpName: string;
+  erpId: number | null;
+  erpName: string | null;
   sectorId: number | null;
   sectorName: string | null;
   socioId: number | null;
@@ -52,6 +52,10 @@ function statusOf(c: ClientRow, moduleId: number): "configured" | "pending" | "n
   const m = c.modules.find((x) => x.moduleId === moduleId);
   return (m?.status as "configured" | "pending") ?? "none";
 }
+
+const PAGE_SIZE_OPTIONS = [50, 100, 200] as const;
+type PageSize = (typeof PAGE_SIZE_OPTIONS)[number];
+
 export default function ClientesClient({
   clients,
   modules,
@@ -76,16 +80,24 @@ export default function ClientesClient({
   const [sector, setSector] = useState("");
   const [editing, setEditing] = useState<ClientRow | null>(null);
   const [creating, setCreating] = useState(false);
+  const [pageSize, setPageSize] = useState<PageSize>(50);
+  const [page, setPage] = useState(1);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return clients.filter(
       (c) =>
         (!needle || c.name.toLowerCase().includes(needle) || c.nit.includes(needle)) &&
-        (!erp || String(c.erpId) === erp) &&
+        (!erp || (erp === "__sin__" ? c.erpId == null : String(c.erpId) === erp)) &&
         (!sector || String(c.sectorId ?? "") === sector),
     );
   }, [clients, q, erp, sector]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const start = filtered.length === 0 ? 0 : (currentPage - 1) * pageSize;
+  const end = Math.min(start + pageSize, filtered.length);
+  const pageRows = filtered.slice(start, end);
 
   return (
     <Card>
@@ -95,24 +107,34 @@ export default function ClientesClient({
           <Icon name="search" size={14} />
           <input
             value={q}
-            onChange={(e) => setQ(e.target.value)}
+            onChange={(e) => {
+              setQ(e.target.value);
+              setPage(1);
+            }}
             placeholder="Buscar cliente o NIT…"
             className="w-56 bg-transparent text-[12.5px] text-ink-700 outline-none placeholder:text-ink-400"
           />
         </div>
         <select
           value={erp}
-          onChange={(e) => setErp(e.target.value)}
+          onChange={(e) => {
+            setErp(e.target.value);
+            setPage(1);
+          }}
           className="rounded-md border border-ink-200 px-2 py-1.5 text-[12.5px] text-ink-700 outline-none"
         >
           <option value="">Todos los ERPs</option>
+          <option value="__sin__">Sin ERP</option>
           {erps.map((e) => (
             <option key={e.id} value={e.id}>{e.name}</option>
           ))}
         </select>
         <select
           value={sector}
-          onChange={(e) => setSector(e.target.value)}
+          onChange={(e) => {
+            setSector(e.target.value);
+            setPage(1);
+          }}
           className="rounded-md border border-ink-200 px-2 py-1.5 text-[12.5px] text-ink-700 outline-none"
         >
           <option value="">Todos los sectores</option>
@@ -120,6 +142,21 @@ export default function ClientesClient({
             <option key={s.id} value={s.id}>{s.name}</option>
           ))}
         </select>
+        <label className="flex items-center gap-1.5 text-[12px] font-medium text-ink-500">
+          Mostrar
+          <select
+            value={pageSize}
+            onChange={(e) => {
+              setPageSize(Number(e.target.value) as PageSize);
+              setPage(1);
+            }}
+            className="rounded-md border border-ink-200 bg-white px-2 py-1.5 text-[12.5px] text-ink-700 outline-none focus:border-blue-400"
+          >
+            {PAGE_SIZE_OPTIONS.map((size) => (
+              <option key={size} value={size}>{size}</option>
+            ))}
+          </select>
+        </label>
         <div className="ml-auto flex items-center gap-2">
           <ImportClientesButton />
           <button
@@ -140,7 +177,6 @@ export default function ClientesClient({
               <th className="px-2 py-2 text-center font-semibold">Tipo</th>
               <th className="px-4 py-2 font-semibold">ERP</th>
               <th className="px-4 py-2 font-semibold">Sector</th>
-              <th className="px-4 py-2 font-semibold">Responsables</th>
               {modules.map((m) => (
                 <th key={m.id} className="px-2 py-2 text-center font-semibold">{m.name}</th>
               ))}
@@ -148,18 +184,42 @@ export default function ClientesClient({
             </tr>
           </thead>
           <tbody>
-            {filtered.map((c) => (
+            {pageRows.map((c) => (
               <tr key={c.id} className="border-b border-ink-50 last:border-0 hover:bg-ink-50">
-                <td className="px-4 py-2.5 font-medium text-ink-800">{c.name}</td>
-                <td className="px-4 py-2.5 font-mono text-ink-500">{c.nit}</td>
+                <td className="p-0">
+                  <button
+                    type="button"
+                    onClick={() => setEditing(c)}
+                    title="Ver información del cliente"
+                    className="block w-full px-4 py-2.5 text-left font-medium text-ink-800 transition hover:text-navy-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                  >
+                    {c.name}
+                  </button>
+                </td>
+                <td className="p-0">
+                  <button
+                    type="button"
+                    onClick={() => setEditing(c)}
+                    title="Ver información del cliente"
+                    className="block w-full px-4 py-2.5 text-left font-mono text-ink-500 transition hover:text-navy-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                  >
+                    {c.nit}
+                  </button>
+                </td>
                 <td className="px-2 py-2.5 text-center">
                   <TipoBadge tipo={c.tipo} />
                 </td>
-                <td className="px-4 py-2.5 text-ink-600">{c.erpName}</td>
-                <td className="px-4 py-2.5 text-ink-600">{c.sectorName ?? "—"}</td>
-                <td className="px-4 py-2.5">
-                  <ResponsablesCell responsables={c.responsables} socioName={c.socioName} />
+                <td className="px-4 py-2.5 text-ink-600">
+                  {c.erpName ?? (
+                    <span
+                      title="Sin ERP asignado: se exige antes de iniciar una conciliación o cargar el balance."
+                      className="inline-flex items-center rounded-full bg-warn-100 px-2 py-0.5 text-[10px] font-semibold text-warn-700"
+                    >
+                      Sin ERP
+                    </span>
+                  )}
                 </td>
+                <td className="px-4 py-2.5 text-ink-600">{c.sectorName ?? "—"}</td>
                 {modules.map((m) => (
                   <td key={m.id} className="px-2 py-2 text-center">
                     <ModuleCell status={statusOf(c, m.id)} />
@@ -168,7 +228,7 @@ export default function ClientesClient({
                 <td className="px-2 py-2 text-right">
                   <button
                     onClick={() => setEditing(c)}
-                    title="Editar cliente"
+                    title="Ver información del cliente"
                     className="rounded p-1 text-ink-400 hover:bg-ink-100 hover:text-ink-700"
                   >
                     <Icon name="chev-r" size={14} />
@@ -178,13 +238,40 @@ export default function ClientesClient({
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={modules.length + 7} className="px-4 py-8 text-center text-[12.5px] text-ink-400">
+                <td colSpan={modules.length + 6} className="px-4 py-8 text-center text-[12.5px] text-ink-400">
                   Sin clientes que coincidan con el filtro.
                 </td>
               </tr>
             )}
           </tbody>
         </table>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-ink-100 px-4 py-3">
+        <div className="text-[12px] text-ink-500">
+          {filtered.length === 0 ? "Sin resultados" : `Mostrando ${start + 1}-${end} de ${filtered.length}`}
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setPage((current) => Math.max(1, current - 1))}
+            disabled={currentPage === 1}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ink-200 bg-white px-2.5 text-[12px] font-semibold text-ink-700 disabled:cursor-not-allowed disabled:bg-ink-50 disabled:text-ink-300"
+          >
+            <Icon name="chev-l" size={13} /> Anterior
+          </button>
+          <span className="min-w-20 text-center font-mono text-[12px] text-ink-500">
+            {currentPage} / {totalPages}
+          </span>
+          <button
+            type="button"
+            onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+            disabled={currentPage === totalPages}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ink-200 bg-white px-2.5 text-[12px] font-semibold text-ink-700 disabled:cursor-not-allowed disabled:bg-ink-50 disabled:text-ink-300"
+          >
+            Siguiente <Icon name="chev-r" size={13} />
+          </button>
+        </div>
       </div>
 
       {creating && (
@@ -236,48 +323,6 @@ function TipoBadge({ tipo }: { tipo: string }) {
       className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-semibold ${estilo[tipo] ?? "bg-ink-100 text-ink-500"}`}
     >
       {tipo}
-    </span>
-  );
-}
-
-function ResponsablesCell({
-  responsables,
-  socioName,
-}: {
-  responsables: ClientRow["responsables"];
-  socioName: string | null;
-}) {
-  // Completo = las tres funciones cubiertas (con uno o varios staff).
-  const funciones = new Set(responsables.map((r) => r.funcion));
-  const completo =
-    funciones.has("staff") && funciones.has("senior") && funciones.has("gerente");
-  if (!completo) {
-    return (
-      <span className="inline-flex items-center rounded-full bg-warn-100 px-2 py-0.5 text-[10px] font-semibold text-warn-700">
-        Sin asignar
-      </span>
-    );
-  }
-  const orden = ["staff", "senior", "gerente"];
-  const etiqueta: Record<string, string> = { staff: "St", senior: "Sr", gerente: "Gr" };
-  const lista = [...responsables].sort(
-    (a, b) => orden.indexOf(a.funcion) - orden.indexOf(b.funcion),
-  );
-  return (
-    <span className="text-[11.5px] text-ink-600">
-      {socioName && (
-        <span title={`socio: ${socioName}`}>
-          <span className="font-semibold text-ink-400">So</span> {socioName}
-          {" · "}
-        </span>
-      )}
-      {lista.map((r, i) => (
-        <span key={`${r.funcion}-${r.userId}`} title={`${r.funcion}: ${r.name}`}>
-          {i > 0 && " · "}
-          <span className="font-semibold text-ink-400">{etiqueta[r.funcion] ?? r.funcion}</span>{" "}
-          {r.name}
-        </span>
-      ))}
     </span>
   );
 }
@@ -541,11 +586,11 @@ function ClientModal({
           <CField label="ERP" error={state?.errors?.erpId}>
             <select
               name="erpId"
-              required
               defaultValue={client?.erpId ?? ""}
+              title="Opcional al crear; se exige antes de iniciar una conciliación o cargar el balance."
               className="w-full rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400"
             >
-              <option value="">Selecciona…</option>
+              <option value="">Sin ERP</option>
               {erps.map((e) => (
                 <option key={e.id} value={e.id}>{e.name}</option>
               ))}

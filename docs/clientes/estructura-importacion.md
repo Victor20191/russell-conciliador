@@ -23,11 +23,12 @@ original `Estructura jerárquica con clientes.xlsx` (hoja `CONSOLIDADA`).
 ## Hoja de clientes — `Clientes`
 - **Fila 1 = encabezados. Datos desde la fila 2.** Una fila por NIT; varios staff
   en la misma celda separados por `;`.
-- Columnas: `Razón social *`, `NIT *`, `Tipo de cliente *` (A/B/C), `ERP *`,
-  `Sector *`, `Socio (firma) *`, `Gerente (valida) *`, `Senior (revisa) *`,
-  `Staff (ejecuta) *`.
-- **ERP obligatorio; Sector opcional.** Sin columnas de Módulos/DIAN ⇒ el importador
-  activa **todos** por defecto (módulos en estado «pendiente»).
+- Columnas: `Razón social *`, `NIT *`, `Tipo de cliente *` (A/B/C), `ERP`,
+  `Sector`, `Socio (firma) *`, `Gerente (valida) *`, `Senior (revisa) *`,
+  `Staff (ejecuta) *` (uno o varios, separados por `;`).
+- **ERP y Sector opcionales** al cargar: el ERP se EXIGE al iniciar una operación
+  (conciliación o carga de balance), no al importar. Sin columnas de Módulos/DIAN
+  ⇒ el importador activa **todos** por defecto (módulos en estado «pendiente»).
 - Los responsables se resuelven **por nombre** contra los usuarios creados en el paso 1
   (deben coincidir exactamente — vienen del mismo origen).
 
@@ -53,9 +54,22 @@ npm run db:seed        # módulos y formatos DIAN (para activarlos por defecto e
 3. Subir el **mismo archivo** en `/config/clientes`.
 
 ## Datos a corregir antes de importar clientes
-- **NIT `901491963`** — lo comparten `DCN DIVING COLOMBIA SAS` y
+- **NIT `901491963`** (BLOQUEANTE) — lo comparten `DCN DIVING COLOMBIA SAS` y
   `ABC CORPORATION S.A.S.` (error de origen): corrige el NIT de una. Mientras haya
   NIT duplicado, el lote completo falla.
-- **ERP de `CAJA DE COMPENSACION FAMILIAR COMFENALCO ANTIOQUIA` (NIT 890900842)** —
-  está vacío y el ERP es obligatorio.
-- (Opcional) **49 clientes sin sector** entran como «Sin sector»; complétalos luego.
+- (No bloqueante) **`CAJA DE COMPENSACION FAMILIAR COMFENALCO ANTIOQUIA` (NIT 890900842)**
+  entra **sin ERP**: el ERP es opcional al cargar, pero deberá asignarse en
+  Configuración › Clientes antes de iniciar una conciliación o cargar su balance.
+- (No bloqueante) **49 clientes sin sector** entran como «Sin sector»; complétalos luego.
+
+## Regla de ERP obligatorio para operar
+El ERP es **opcional al crear/importar** un cliente, pero **bloqueante para iniciar
+una operación**: la plataforma impide ejecutar una conciliación (`/conciliacion/nueva`)
+o cargar un balance (`/balance`) de un cliente sin ERP, y muestra la alerta para
+asignarlo. En `/config/clientes` los clientes sin ERP se marcan con la etiqueta
+«Sin ERP» y se pueden filtrar.
+
+## Staff: uno o varios por cliente
+Un cliente admite **varios staff** (el senior y el gerente son uno cada uno). En la
+hoja `Clientes` se separan con `;`; en el formulario se agregan/quitan en el panel
+«Staff (ejecuta) — uno o varios». En este maestro, 5 clientes traen más de un staff.

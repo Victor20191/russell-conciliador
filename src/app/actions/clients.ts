@@ -206,8 +206,9 @@ export async function createClient(
     }
     const { socioId, ...data } = parsed.data;
 
-    // ERP y Sector son catálogos maestros: deben existir y estar activos.
-    if (!(await erpValido(data.erpId))) {
+    // ERP y Sector son catálogos maestros opcionales: si se indican, deben
+    // existir y estar activos (el ERP se exige al iniciar una operación).
+    if (data.erpId != null && !(await erpValido(data.erpId))) {
       return { ok: false, message: "Selecciona un ERP válido." };
     }
     if (data.sectorId != null && !(await sectorValido(data.sectorId))) {
@@ -326,8 +327,9 @@ export async function updateClient(
     }
     const { name, nit, tipo, erpId, sectorId, socioId } = parsed.data;
 
-    // ERP y Sector son catálogos maestros: deben existir y estar activos.
-    if (!(await erpValido(erpId))) {
+    // ERP y Sector son catálogos maestros opcionales: si se indican, deben
+    // existir y estar activos (el ERP se exige al iniciar una operación).
+    if (erpId != null && !(await erpValido(erpId))) {
       return { ok: false, message: "Selecciona un ERP válido." };
     }
     if (sectorId != null && !(await sectorValido(sectorId))) {
@@ -371,7 +373,9 @@ export async function updateClient(
     }
 
     await prisma.$transaction(async (tx) => {
-      await tx.client.update({ where: { id }, data: { name, nit, tipo, erpId, sectorId, socioId } });
+      // erpId/sectorId con `?? null` para poder DEJARLOS vacíos (opcionales):
+      // undefined no actualizaría la columna; null la limpia explícitamente.
+      await tx.client.update({ where: { id }, data: { name, nit, tipo, erpId: erpId ?? null, sectorId: sectorId ?? null, socioId } });
 
       // Sincroniza los responsables conservando la vigencia de los que siguen:
       // el upsert por (cliente, función, usuario) reactiva o crea cada

@@ -21,7 +21,7 @@ export default async function NuevaConciliacionPage() {
   ]);
 
   const clientOpts: ClientOpt[] = clients.map((c) => ({
-    id: c.id, name: c.name, nit: c.nit, erp: c.erp.name, sector: c.sector?.name ?? "",
+    id: c.id, name: c.name, nit: c.nit, erp: c.erp?.name ?? "", sector: c.sector?.name ?? "",
     configured: c.modules.filter((m) => m.status === "configured").map((m) => m.moduleId),
   }));
   const moduleOpts: ModuleOpt[] = modules.map((m) => ({ id: m.id, code: m.code, name: m.name, icon: m.icon }));

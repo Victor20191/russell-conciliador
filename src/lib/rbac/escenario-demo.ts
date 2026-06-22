@@ -10,8 +10,9 @@
 //   C-1308 Servicios Médicos Vital IPS (usado como cliente FUERA de alcance).
 //
 // Modelo de asignación DIRECTA (segregación de funciones del PDF):
-//   Cada cliente tiene un staff (ejecuta, escritura), un senior (revisa,
-//   lectura) y un gerente (valida, lectura), elegidos al crear el cliente.
+//   Un cliente admite uno o varios staff (ejecutan, escritura) y un solo
+//   senior (revisa, lectura) y gerente (valida, lectura), elegidos al crear
+//   el cliente. Este escenario demo usa un staff por cliente.
 //   El Socio NO se asigna: deriva LECTURA por jerarquía sobre los clientes
 //   donde sus gerentes subordinados están asignados.
 //
@@ -51,7 +52,8 @@ export const DEMO_CLIENTE_FUERA = "C-1308"; // Servicios Médicos Vital IPS (NO 
 // El Zarzal: cliente de los balances y del mapeo demo (cuentas_cliente).
 export const DEMO_CLIENTE_MAPEO = "C-0644"; // El Zarzal S.A
 
-// Responsables por cliente (1 por función, como exige el formulario).
+// Responsables por cliente (el demo usa 1 por función; el formulario admite
+// uno o varios staff).
 export type DemoResponsables = {
   clientCode: string;
   staffEmail: string;

@@ -1,7 +1,8 @@
 -- ERP y Sector pasan de TEXTO LIBRE en `clientes` a CATÁLOGOS MAESTROS
 -- (`erps`, `sectores`) referenciados por id. Migración sin pérdida de datos:
 -- crea los catálogos, los siembra con los valores existentes, backfillea las
--- FK, verifica y luego elimina las columnas de texto.
+-- FK y luego elimina las columnas de texto. Ambas FK quedan OPCIONALES: el ERP
+-- se exige al INICIAR una operación (conciliación/balance), no al cargar.
 
 -- CreateTable
 CREATE TABLE "erps" (
@@ -48,7 +49,7 @@ FROM "clientes"
 WHERE "sector" IS NOT NULL AND trim("sector") <> ''
 ON CONFLICT ("codigo") DO NOTHING;
 
--- AlterTable: FK nullable para el backfill (ERP se hará NOT NULL al final).
+-- AlterTable: FK nullable (ERP y Sector son OPCIONALES a nivel de datos).
 ALTER TABLE "clientes" ADD COLUMN "erp_id" INTEGER;
 ALTER TABLE "clientes" ADD COLUMN "sector_id" INTEGER;
 
@@ -61,17 +62,9 @@ UPDATE "clientes" c SET "sector_id" = s."id"
 FROM "sectores" s
 WHERE c."sector" IS NOT NULL AND trim(c."sector") <> '' AND upper(trim(c."sector")) = s."codigo";
 
--- Control: ningún cliente puede quedar sin ERP (obligatorio). Si esto falla,
--- revisa los valores de `clientes.erp` antes de continuar.
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM "clientes" WHERE "erp_id" IS NULL) THEN
-    RAISE EXCEPTION 'Hay clientes sin ERP mapeado: revisa la columna clientes.erp.';
-  END IF;
-END $$;
-
--- Enforce: ERP obligatorio, eliminar columnas de texto, índices y FKs.
-ALTER TABLE "clientes" ALTER COLUMN "erp_id" SET NOT NULL;
+-- ERP/Sector quedan OPCIONALES (erp_id/sector_id nullable): un cliente puede
+-- cargarse sin ERP; el ERP se exige al iniciar una operación, no aquí. Se
+-- eliminan las columnas de texto ya migradas.
 ALTER TABLE "clientes" DROP COLUMN "erp";
 ALTER TABLE "clientes" DROP COLUMN "sector";
 

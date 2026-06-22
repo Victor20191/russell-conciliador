@@ -86,7 +86,7 @@ export default async function ClientesPage() {
     nit: c.nit,
     tipo: c.tipo,
     erpId: c.erpId,
-    erpName: c.erp.name,
+    erpName: c.erp?.name ?? null,
     sectorId: c.sectorId,
     sectorName: c.sector?.name ?? null,
     socioId: c.socioId,

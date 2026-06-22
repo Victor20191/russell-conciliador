@@ -24,7 +24,7 @@ type Resuelta = {
   name: string;
   nit: string;
   tipo: string;
-  erp: CatalogoRef;
+  erp: CatalogoRef | null; // opcional: el cliente puede importarse sin ERP
   sector: CatalogoRef | null;
   socioId: number;
   gerenteId: number;
@@ -199,7 +199,7 @@ export async function importarClientes(
       const erpsDistintos = new Map<string, string>();
       const sectoresDistintos = new Map<string, string>();
       for (const c of resueltas) {
-        erpsDistintos.set(c.erp.code, c.erp.name);
+        if (c.erp) erpsDistintos.set(c.erp.code, c.erp.name);
         if (c.sector) sectoresDistintos.set(c.sector.code, c.sector.name);
       }
       const erpIdPorCode = new Map<string, number>();
@@ -224,7 +224,7 @@ export async function importarClientes(
             name: c.name,
             nit: c.nit,
             tipo: c.tipo,
-            erpId: erpIdPorCode.get(c.erp.code)!,
+            erpId: c.erp ? erpIdPorCode.get(c.erp.code)! : null,
             sectorId: c.sector ? sectorIdPorCode.get(c.sector.code)! : null,
             socioId: c.socioId,
             modules: c.moduleIds.length

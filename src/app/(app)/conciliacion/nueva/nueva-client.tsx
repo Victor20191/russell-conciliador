@@ -92,13 +92,15 @@ function ScopeStep({
   cutoff: string; setCutoff: (v: string) => void; isConfigured: boolean; onContinue: () => void;
 }) {
   const client = clients.find((c) => c.id === clientId);
+  // El ERP es obligatorio para INICIAR la conciliación: sin ERP se bloquea.
+  const sinErp = !!client && !client.erp;
   return (
     <Card className="p-5">
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         <label className="flex flex-col gap-1">
           <span className="text-[11.5px] font-medium text-ink-600">Cliente</span>
           <select value={clientId} onChange={(e) => setClientId(Number(e.target.value))} className="rounded-md border border-ink-200 px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400">
-            {clients.map((c) => <option key={c.id} value={c.id}>{c.name} — {c.nit} — {c.erp}</option>)}
+            {clients.map((c) => <option key={c.id} value={c.id}>{c.name} — {c.nit} — {c.erp || "sin ERP"}</option>)}
           </select>
         </label>
         <label className="flex flex-col gap-1">
@@ -111,7 +113,12 @@ function ScopeStep({
         </label>
       </div>
 
-      {client && <div className="mt-2 text-[12px] text-ink-500">Sector: {client.sector} · {client.configured.length}/6 módulos parametrizados</div>}
+      {client && <div className="mt-2 text-[12px] text-ink-500">Sector: {client.sector || "—"} · {client.configured.length}/6 módulos parametrizados</div>}
+      {sinErp && (
+        <div className="mt-3 rounded-md bg-err-100 px-3 py-2 text-[12px] text-err-700">
+          <b>{client?.name}</b> no tiene un ERP asignado. Asígnalo en Configuración › Clientes antes de iniciar la conciliación.
+        </div>
+      )}
 
       <div className="mt-4 text-[11.5px] font-medium text-ink-600">Módulo a conciliar</div>
       <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -135,7 +142,7 @@ function ScopeStep({
       </div>
 
       <div className="mt-4 flex justify-end">
-        <button onClick={onContinue} className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-4 py-2 text-[12.5px] font-semibold text-white hover:bg-navy-600">
+        <button onClick={onContinue} disabled={sinErp} className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-4 py-2 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-50">
           Continuar <Icon name="chev-r" size={14} />
         </button>
       </div>

@@ -35,7 +35,7 @@ test("ModuleFieldSchema rechaza un tipo no permitido", () => {
   expect(r.success).toBe(false);
 });
 
-test("ClientSchema exige código, nombre, nit, tipo, erpId y socio (sectorId opcional)", () => {
+test("ClientSchema exige código, nombre, nit, tipo y socio (erpId y sectorId opcionales)", () => {
   expect(
     ClientSchema.safeParse({
       code: "C-9001",
@@ -70,7 +70,8 @@ test("ClientSchema exige código, nombre, nit, tipo, erpId y socio (sectorId opc
       socioId: 3,
     }).success,
   ).toBe(false);
-  // Sin ERP (obligatorio) es inválido.
+  // El ERP es OPCIONAL (se exige al iniciar una operación, no al validar el
+  // formulario): sin erpId sigue siendo válido.
   expect(
     ClientSchema.safeParse({
       code: "C-9001",
@@ -79,7 +80,7 @@ test("ClientSchema exige código, nombre, nit, tipo, erpId y socio (sectorId opc
       tipo: "A",
       socioId: 3,
     }).success,
-  ).toBe(false);
+  ).toBe(true);
   // Sin socio (informativo pero obligatorio) es inválido.
   expect(
     ClientSchema.safeParse({

@@ -112,6 +112,16 @@ export async function executeReconciliation(formData: FormData): Promise<void> {
   // Ejecutar es la acción operativa por excelencia: exige cartera con escritura.
   await requirePermiso("conciliaciones:ejecutar", { clientId });
 
+  // GATE de operación: iniciar una conciliación exige que el cliente tenga un
+  // ERP asignado (define el origen de los auxiliares). Sin ERP se BLOQUEA con
+  // alerta (la UI ya lo impide; esto es defensa en profundidad).
+  const conErp = await prisma.client.findUnique({ where: { id: clientId }, select: { erpId: true } });
+  if (!conErp?.erpId) {
+    throw new Error(
+      "El cliente no tiene un ERP asignado. Asígnalo en Configuración › Clientes antes de iniciar la conciliación.",
+    );
+  }
+
   // El id se captura dentro del try; el redirect() se ejecuta DESPUÉS, porque
   // redirect() funciona lanzando una excepción especial que NO debe capturarse.
   let reconciliationId: number | null = null;
@@ -131,7 +141,7 @@ export async function executeReconciliation(formData: FormData): Promise<void> {
     const reconciliation = await prisma.reconciliation.create({
       data: {
         code, clientName: client.name, clientId: client.id, module: mod.name, period,
-        erp: client.erp.name, status: "REVIEW", diff: fmtSigned(totalDiff), items: itemsDiff,
+        erp: client.erp?.name ?? "", status: "REVIEW", diff: fmtSigned(totalDiff), items: itemsDiff,
         date: "hoy", owner: user?.name ?? "Auditor", cutoff, runAt: "hoy", runBy: user?.name ?? "Auditor",
         materiality: 2000000, lastActivity: "ahora",
         rows: { create: DEMO_CROSS_ROWS.map(([cuenta, desc, cont, modBal, diff, items], i) => ({ cuenta, desc, cont, mod: modBal, diff, items, order: i })) },

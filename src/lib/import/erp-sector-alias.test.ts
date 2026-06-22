@@ -2,18 +2,23 @@ import { test, expect } from "vitest";
 import { resolverErp, resolverSector } from "./erp-sector-alias";
 
 test("resolverErp fusiona variantes de un mismo ERP", () => {
-  expect(resolverErp("SIESA").code).toBe("SIESA");
-  expect(resolverErp("Siesa").code).toBe("SIESA");
-  expect(resolverErp("SIESA (Enterprise/ERP)").code).toBe("SIESA");
-  expect(resolverErp(" Ofimática ").code).toBe("OFIMATICA");
-  expect(resolverErp("OFFIMATICA").code).toBe("OFIMATICA");
-  expect(resolverErp("CNT").code).toBe("CONTAI");
+  expect(resolverErp("SIESA")?.code).toBe("SIESA");
+  expect(resolverErp("Siesa")?.code).toBe("SIESA");
+  expect(resolverErp("SIESA (Enterprise/ERP)")?.code).toBe("SIESA");
+  expect(resolverErp(" Ofimática ")?.code).toBe("OFIMATICA");
+  expect(resolverErp("OFFIMATICA")?.code).toBe("OFIMATICA");
+  expect(resolverErp("CNT")?.code).toBe("CONTAI");
 });
 
 test("resolverErp crea entrada tolerante para ERP desconocido", () => {
   const r = resolverErp("Nuevo ERP 2.0");
-  expect(r.code).toBe("NUEVOERP20"); // mayúsculas, sin espacios ni símbolos
-  expect(r.name).toBe("Nuevo ERP 2.0"); // conserva el texto original
+  expect(r?.code).toBe("NUEVOERP20"); // mayúsculas, sin espacios ni símbolos
+  expect(r?.name).toBe("Nuevo ERP 2.0"); // conserva el texto original
+});
+
+test("resolverErp devuelve null cuando está vacío (ERP opcional)", () => {
+  expect(resolverErp("")).toBeNull();
+  expect(resolverErp("   ")).toBeNull();
 });
 
 test("resolverSector parte «N-Nombre» en código + nombre", () => {

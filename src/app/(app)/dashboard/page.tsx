@@ -109,7 +109,7 @@ export default async function DashboardPage() {
             <div className="divide-y divide-ink-50">
               {pendingClients.map((c) => (
                 <div key={c.id} className="px-4 py-3">
-                  <div className="flex items-center justify-between"><span className="text-[12.5px] font-medium text-ink-800">{c.name}</span><span className="font-mono text-[11px] text-ink-400">{c.erp.name}</span></div>
+                  <div className="flex items-center justify-between"><span className="text-[12.5px] font-medium text-ink-800">{c.name}</span><span className="font-mono text-[11px] text-ink-400">{c.erp?.name ?? "Sin ERP"}</span></div>
                   <div className="mt-1.5 flex flex-wrap gap-1.5">{c.modules.map((m) => <Chip key={m.id} label={m.module.name} tone="warn" />)}</div>
                 </div>
               ))}

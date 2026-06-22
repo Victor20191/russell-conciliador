@@ -164,11 +164,11 @@ model UserHierarchy {
 }
 
 /// RESPONSABLES del cliente — asignación DIRECTA (sin equipos), hecha
-/// al crear/editar el cliente. Cada cliente tiene EXACTAMENTE un
-/// responsable por función:
-///   staff   → ejecuta la auditoría (readScope + writeScope)
-///   senior  → revisa               (readScope)
-///   gerente → valida               (readScope)
+/// al crear/editar el cliente. Un cliente admite UNO O VARIOS staff y
+/// EXACTAMENTE un senior y un gerente:
+///   staff   → ejecuta la auditoría (readScope + writeScope) · uno o varios
+///   senior  → revisa               (readScope) · uno
+///   gerente → valida               (readScope) · uno
 /// El Socio NO se asigna: deriva LECTURA por jerarquía
 /// (jerarquia_usuarios) sobre los clientes donde sus gerentes
 /// subordinados tengan funcion="gerente" vigente.
@@ -210,8 +210,8 @@ model Client {
   name            String           @map("nombre")
   nit             String           @map("nit")
   tipo            String           @default("C") @map("tipo_cliente") // clasificación A | B | C
-  erp             Erp              @relation(fields: [erpId], references: [id], onDelete: Restrict)
-  erpId           Int              @map("erp_id") // FK al catálogo erps
+  erp             Erp?             @relation(fields: [erpId], references: [id], onDelete: Restrict)
+  erpId           Int?             @map("erp_id") // FK al catálogo erps (opcional: se exige al INICIAR una operación, no al cargar)
   sector          Sector?          @relation(fields: [sectorId], references: [id], onDelete: Restrict)
   sectorId        Int?             @map("sector_id") // FK al catálogo sectores (opcional: hay clientes sin sector)
   socioId         Int?             @map("socio_id") // socio responsable (FK lógica a User.id, informativo)

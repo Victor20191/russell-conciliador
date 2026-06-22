@@ -6,11 +6,11 @@
 // senior a varios gerentes, etc.). Las aristas viven en la tabla
 // jerarquia_usuarios y se gestionan desde la ficha del usuario.
 //
-// Cada cliente tiene EXACTAMENTE un responsable por función, elegido
-// al crear/editar el cliente:
-//   staff   → ejecuta la auditoría (alcance de escritura)
-//   senior  → revisa               (alcance de lectura)
-//   gerente → valida               (alcance de lectura)
+// Un cliente admite UNO O VARIOS staff y EXACTAMENTE un senior y un
+// gerente, elegidos al crear/editar el cliente:
+//   staff   → ejecuta la auditoría (alcance de escritura) · uno o varios
+//   senior  → revisa               (alcance de lectura) · uno
+//   gerente → valida               (alcance de lectura) · uno
 // El Socio NO se asigna por cliente: deriva LECTURA sobre los clientes
 // donde alguno de sus gerentes subordinados esté asignado como gerente
 // (derivarAsignacionesSocio).

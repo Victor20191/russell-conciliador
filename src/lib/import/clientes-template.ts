@@ -17,8 +17,8 @@ const FIJAS = [
   "Razón social *",
   "NIT *",
   "Tipo de cliente *",
-  "ERP *",
-  "Sector *",
+  "ERP",
+  "Sector",
   "Socio (firma) *",
   "Gerente (valida) *",
   "Senior (revisa) *",
@@ -171,7 +171,8 @@ function agregarInstrucciones(wb: ExcelJS.Workbook) {
   ws.columns = [{ width: 34 }, { width: 100 }];
   ws.addRows([
     ["Uso", "Diligencia la hoja Clientes. Borra o reemplaza las filas que empiezan por EJEMPLO."],
-    ["Campos obligatorios", "Razón social, NIT, tipo de cliente, ERP, sector, socio, gerente, senior y al menos un staff."],
+    ["Campos obligatorios", "Razón social, NIT, tipo de cliente, socio, gerente, senior y al menos un staff."],
+    ["ERP y sector", "Opcionales al cargar. El ERP es obligatorio para INICIAR una conciliación o cargar el balance: el sistema lo exigirá en ese momento."],
     ["Tipo de cliente", "Usa A, B o C."],
     ["Responsables", "Escribe los nombres exactamente como aparecen en la hoja Referencias. Staff acepta uno o varios nombres separados con punto y coma (;)."],
     ["Módulos", "Marca Sí en los módulos que debe tener el cliente y No en los que no aplican. Si dejas todo el bloque de módulos en blanco, el sistema activará todos."],

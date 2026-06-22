@@ -62,10 +62,12 @@ export const ERP_CATALOGO: CatalogoRef[] = ERP_CANONICOS.map((e) => ({ code: e.c
 /**
  * Resuelve el texto de ERP a su forma canónica del catálogo. Si no está en el
  * mapa de alias, crea una entrada tolerante (code = texto normalizado en
- * MAYÚSCULAS; name = texto tal cual) para no perder ERPs nuevos.
+ * MAYÚSCULAS; name = texto tal cual) para no perder ERPs nuevos. Texto vacío →
+ * null (el ERP es opcional: el cliente puede cargarse sin ERP).
  */
-export function resolverErp(texto: string): CatalogoRef {
+export function resolverErp(texto: string): CatalogoRef | null {
   const t = texto.trim();
+  if (!t) return null;
   const ref = ERP_POR_VARIANTE.get(normalizar(t));
   if (ref) return ref;
   return { code: aCodigo(t) || "ERP", name: t };

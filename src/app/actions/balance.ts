@@ -145,9 +145,18 @@ export async function cargarBalance(
   try {
     const cliente = await prisma.client.findUnique({
       where: { id: clientId },
-      select: { name: true, nit: true },
+      select: { name: true, nit: true, erpId: true },
     });
     if (!cliente) return { ok: false, message: "El cliente seleccionado ya no existe." };
+    // GATE de operación: cargar el balance exige que el cliente tenga un ERP
+    // asignado. Sin ERP se BLOQUEA con alerta.
+    if (cliente.erpId == null) {
+      return {
+        ok: false,
+        message:
+          "El cliente no tiene un ERP asignado. Asígnalo en Configuración › Clientes antes de cargar el balance.",
+      };
+    }
     const period = `${mes} ${anio}`;
     const periodos = periodoISO(mes, anio);
     const params: ParamsExtraccion = {

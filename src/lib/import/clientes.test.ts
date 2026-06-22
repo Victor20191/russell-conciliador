@@ -99,8 +99,9 @@ test("reporta campos faltantes y tipo inválido", async () => {
   const msgs = errores.map((e) => e.mensaje).join(" | ");
   expect(msgs).toMatch(/Falta la razón social/);
   expect(msgs).toMatch(/Tipo inválido/);
-  expect(msgs).toMatch(/Falta el ERP/);
   expect(msgs).toMatch(/Falta al menos un staff/);
+  // El ERP ya NO es obligatorio al cargar: su ausencia no genera error.
+  expect(msgs).not.toMatch(/Falta el ERP/);
 });
 
 test("error si falta la hoja Clientes", async () => {

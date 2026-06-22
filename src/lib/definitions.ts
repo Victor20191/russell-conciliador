@@ -51,13 +51,14 @@ export const ClientSchema = z.object({
   nit: z.string().min(1, { error: "El NIT es obligatorio." }).trim(),
   // Clasificación del cliente (A, B o C). Obligatoria.
   tipo: z.enum(["A", "B", "C"], { error: "Selecciona el tipo de cliente (A, B o C)." }),
-  // ERP y Sector son catálogos maestros (FK por id). El ERP es obligatorio; el
-  // sector es opcional (hay clientes sin sector). La existencia/estado del
-  // catálogo se valida contra la BD en la Server Action.
-  erpId: z.coerce
-    .number({ error: "Selecciona el ERP." })
-    .int()
-    .positive({ error: "Selecciona el ERP." }),
+  // ERP y Sector son catálogos maestros (FK por id). AMBOS son opcionales al
+  // cargar: el ERP se EXIGE al iniciar una operación (conciliación/balance), no
+  // aquí. La existencia/estado del catálogo se valida contra la BD en la Server
+  // Action.
+  erpId: z.preprocess(
+    (v) => (v === "" || v == null ? undefined : v),
+    z.coerce.number().int().positive().optional(),
+  ),
   sectorId: z.preprocess(
     (v) => (v === "" || v == null ? undefined : v),
     z.coerce.number().int().positive().optional(),
