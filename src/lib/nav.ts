@@ -59,5 +59,6 @@ export const configNav: NavItem[] = [
   { label: "Mapeos DIAN", href: "/config/dian", icon: "doc", permiso: "mapeos_dian:ver", modulo: "mapeos_dian" },
   { label: "Usuarios", href: "/config/usuarios", icon: "users", permiso: "usuarios:ver", modulo: "usuarios" },
   { label: "Permisos por rol", href: "/config/permisos", icon: "settings", permiso: "roles:configurar", modulo: "roles" },
+  { label: "Estructura", href: "/estructura", icon: "users", permiso: "estructura:ver", modulo: "estructura" },
   { label: "Novedades", href: "/novedades", icon: "bell", permiso: "novedades:ver", modulo: "novedades" },
 ];

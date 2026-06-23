@@ -174,6 +174,13 @@ export const PERMISOS: Permiso[] = [
   { code: "publicacion_modulos:ver", module: "publicacion_modulos", action: "ver", label: "Ver publicación de módulos", roles: SOLO_SUPERADMIN },
   { code: "publicacion_modulos:configurar", module: "publicacion_modulos", action: "configurar", label: "Configurar publicación de módulos", roles: SOLO_SUPERADMIN },
 
+  // ===== Estructura · mapa organizacional (solo lectura) — SOLO Administrador =====
+  // Visualiza la jerarquía Socio→Gerente→Senior→Staff y los clientes que
+  // atiende cada persona. Módulo admin-only: la visibilidad la da este permiso
+  // (no la publicación de módulos, inerte para `estructura`). Sin acción de
+  // administrar: es de pura consulta (los datos se editan en Usuarios/Clientes).
+  { code: "estructura:ver", module: "estructura", action: "ver", label: "Ver estructura de equipos", roles: SOLO_ADMIN },
+
   // ===== Novedades · changelog + control de versiones — SOLO Administrador =====
   // Módulo admin-only (por ahora): los administradores consultan el avance de la
   // plataforma y administran su contenido. La visibilidad real la da este

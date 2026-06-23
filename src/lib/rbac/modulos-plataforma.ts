@@ -14,7 +14,8 @@ export type PlatformModuleKey =
   | "modulos"
   | "roles"
   | "publicacion_modulos"
-  | "novedades";
+  | "novedades"
+  | "estructura";
 
 export type PlatformModuleDefinition = {
   key: PlatformModuleKey;
@@ -185,6 +186,19 @@ export const MODULOS_PLATAFORMA: PlatformModuleDefinition[] = [
     group: "Configuración",
     icon: "bell",
     order: 180,
+    enabledForNonAdmins: false,
+    configurableForNonAdmins: false,
+  },
+  {
+    // Admin-only, igual que novedades: la visibilidad la gobierna el permiso
+    // estructura:ver (SOLO_ADMIN); la publicación de módulos queda inerte
+    // (configurable=false ⇒ moduloPublicadoParaRol devuelve true para todos).
+    key: "estructura",
+    label: "Estructura",
+    description: "Mapa de la organización: socios, gerentes, seniors, staff y los clientes que atienden.",
+    group: "Configuración",
+    icon: "users",
+    order: 190,
     enabledForNonAdmins: false,
     configurableForNonAdmins: false,
   },
