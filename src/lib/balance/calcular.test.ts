@@ -4,6 +4,7 @@ import {
   claseNatura,
   aplanarBreakdown,
   compararBalances,
+  consolidarPorCodigo,
   descomponerCuenta,
   aFilasDetalle,
   reconstruirBalance,
@@ -140,6 +141,63 @@ describe("calcularBalance — sin mapeo, saldo contrario y variación", () => {
   });
 });
 
+describe("calcularBalance — saldo contrario en archivo de magnitud (SIGN-1)", () => {
+  // Archivo en MAGNITUD (créditos en positivo) con UNA cuenta de crédito de saldo
+  // contrario (deudor → llega negativa). El flip NO debe "corregirla" al signo de
+  // su clase: debe preservar la anomalía y que V2 la detecte.
+  const CUENTAS: CuentaCruda[] = [
+    { code: "110505", name: "Caja", prevBalance: 1000, balance: 2000 }, // D normal +
+    { code: "111005", name: "Bancos", prevBalance: 3000, balance: 3000 }, // D normal +
+    { code: "220505", name: "Proveedores", prevBalance: 1500, balance: 1500 }, // C normal + (magnitud)
+    { code: "240805", name: "IVA", prevBalance: 500, balance: 500 }, // C normal +
+    { code: "310505", name: "Capital", prevBalance: 4000, balance: 4000 }, // C normal +
+    { code: "413505", name: "Ventas (saldo deudor)", prevBalance: 0, balance: -500 }, // C contrario → negativo
+  ];
+  const r = calcularBalance(CUENTAS, STD);
+
+  it("detecta la convención magnitud y voltea los créditos normales", () => {
+    expect(r.breakdown.find((g) => g.code === "22")?.balance).toBe(-1500);
+  });
+
+  it("preserva el saldo contrario (no lo fuerza a -|v|) y V2 lo marca", () => {
+    const ventas = r.breakdown.find((g) => g.code === "41")?.items[0];
+    expect(ventas?.balance).toBe(500); // el crédito en deudor queda POSITIVO tras el flip
+    expect(ventas?.saldoOk).toBe(false); // contrario a su naturaleza → detectado
+    const v2 = r.validations.find((v) => v.id === "V2");
+    expect(v2?.status).toBe("warn");
+    expect(v2?.count).toBe(1);
+  });
+});
+
+describe("calcularBalance — V5 movimientos del período (COH-2)", () => {
+  it("no incluye V5 si el archivo solo trae saldos (sin movimientos)", () => {
+    const r = calcularBalance(FIRMADO, STD);
+    expect(r.validations.find((v) => v.id === "V5")).toBeUndefined();
+  });
+
+  it("ok cuando Σdébitos = Σcréditos del período", () => {
+    const r = calcularBalance(
+      [
+        { code: "110505", name: "Caja", prevBalance: 0, balance: 500, debitos: 500, creditos: 0 },
+        { code: "220505", name: "Proveedores", prevBalance: 0, balance: -500, debitos: 0, creditos: 500 },
+      ],
+      STD,
+    );
+    expect(r.validations.find((v) => v.id === "V5")?.status).toBe("ok");
+  });
+
+  it("warn cuando los movimientos descuadran (Σdébitos ≠ Σcréditos)", () => {
+    const r = calcularBalance(
+      [
+        { code: "110505", name: "Caja", prevBalance: 0, balance: 600, debitos: 600, creditos: 0 },
+        { code: "220505", name: "Proveedores", prevBalance: 0, balance: -300, debitos: 0, creditos: 300 },
+      ],
+      STD,
+    );
+    expect(r.validations.find((v) => v.id === "V5")?.status).toBe("warn");
+  });
+});
+
 describe("calcularBalance — hojas (evita doble conteo de resúmenes)", () => {
   const CON_RESUMEN: CuentaCruda[] = [
     { code: "11", name: "Disponible (grupo)", prevBalance: 0, balance: 6000 },
@@ -152,6 +210,36 @@ describe("calcularBalance — hojas (evita doble conteo de resúmenes)", () => {
   it("solo suma las cuentas hoja", () => {
     expect(r.totalRows).toBe(2); // 110505 y 111005 (11 y 1105 son ancestros)
     expect(r.sums.activo).toBe(6000); // no 12000
+  });
+});
+
+describe("consolidarPorCodigo — fusiona cuentas repetidas", () => {
+  it("suma saldos y movimientos del mismo código, conservando el primer nombre", () => {
+    const DUP: CuentaCruda[] = [
+      { code: "110505", name: "Caja general", prevBalance: 800, balance: 1000, debitos: 600, creditos: 400 },
+      { code: " 110505 ", name: "Caja menor", prevBalance: 200, balance: 500, debitos: 300, creditos: 100 },
+      { code: "111005", name: "Bancos", prevBalance: 5000, balance: 5000 },
+    ];
+    const out = consolidarPorCodigo(DUP);
+    expect(out).toHaveLength(2);
+    const caja = out.find((c) => c.code === "110505")!;
+    expect(caja.name).toBe("Caja general"); // primer nombre
+    expect(caja.prevBalance).toBe(1000); // 800 + 200
+    expect(caja.balance).toBe(1500); // 1000 + 500
+    expect(caja.debitos).toBe(900); // 600 + 300
+    expect(caja.creditos).toBe(500); // 400 + 100
+  });
+
+  it("calcularBalance deduplica antes de mapear y agregar", () => {
+    const r = calcularBalance(
+      [
+        { code: "110505", name: "Caja general", prevBalance: 0, balance: 1000 },
+        { code: "110505", name: "Caja menor", prevBalance: 0, balance: 1000 },
+      ],
+      STD,
+    );
+    expect(r.totalRows).toBe(1); // una sola fila tras consolidar
+    expect(r.sums.activo).toBe(2000); // 1000 + 1000
   });
 });
 

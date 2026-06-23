@@ -8,9 +8,9 @@ import { authorizePermiso } from "@/lib/rbac";
 import { clienteDeBalance } from "@/lib/rbac/contexto";
 import { parseId } from "@/lib/ids";
 import { createProcessNotification } from "@/lib/notifications";
-import { mensajeErrorBD } from "@/lib/errores";
+import { mensajeErrorBD, mensajeErrorIA } from "@/lib/errores";
 import { fmtDate, MESES_LARGOS } from "@/lib/format";
-import { CargarBalanceSchema, ConfirmarBalanceSchema, type ActionState } from "@/lib/definitions";
+import { ConfirmarBalanceSchema, ImportReadySchema, type ActionState } from "@/lib/definitions";
 import { parseBalanceWorkbook, type ImportBalanceState } from "@/lib/import/balance";
 import {
   calcularBalance,
@@ -18,10 +18,12 @@ import {
   aFilasDetalle,
   aplanarBreakdown,
   compararBalances,
+  tokenizarPlan,
   type CuentaCruda,
   type CuentaEstandar,
   type ResultadoBalance,
 } from "@/lib/balance/calcular";
+import { getCuentasEstandar } from "@/lib/balance/cuentas-estandar";
 import { extraerBalance } from "@/lib/balance/extraccion/extraer";
 import { mapearPorIA } from "@/lib/balance/mapeo-ia";
 import { iaDisponible } from "@/lib/anthropic";
@@ -66,15 +68,6 @@ type MetaEtl = {
   filasExcluidas: number;
   filasDescuadre: number;
 };
-
-/** Período (mes/año) → rango ISO yyyy-mm-dd (primer y último día del mes). */
-function periodoISO(mes: string, anio: number): { inicial: string; final: string } {
-  const idx = MESES_LARGOS.indexOf(mes as (typeof MESES_LARGOS)[number]);
-  if (idx < 0) return { inicial: `${anio}-01-01`, final: `${anio}-12-31` };
-  const mm = String(idx + 1).padStart(2, "0");
-  const ultimo = new Date(anio, idx + 1, 0).getDate();
-  return { inicial: `${anio}-${mm}-01`, final: `${anio}-${mm}-${String(ultimo).padStart(2, "0")}` };
-}
 
 /**
  * Etiqueta legible del período a partir del rango ISO `desde`/`hasta`. Si ambos
@@ -249,8 +242,12 @@ async function persistirCargue(p: {
   rolLabel: string;
   meta: MetaEtl;
 }): Promise<{ id: number; version: string; calc: ResultadoBalance }> {
+  // Plan pre-tokenizado una vez y compartido entre la pasada determinista y la
+  // pasada con override de IA (evita re-tokenizar el plan dos veces por cargue).
+  const planTok = tokenizarPlan(p.cuentasEstandar);
+
   // Barrido 1 (exacto) + 2 (descripción), deterministas.
-  let calc = calcularBalance(p.importReady, p.cuentasEstandar);
+  let calc = calcularBalance(p.importReady, p.cuentasEstandar, undefined, planTok);
 
   // Barrido 3 (IA): las cuentas que quedaron sin mapeo se homologan con Claude.
   // Best-effort: si la IA falla o no está configurada, se queda con lo determinista.
@@ -260,7 +257,7 @@ async function persistirCargue(p: {
       try {
         const plan = p.cuentasEstandar.map((s) => ({ code: s.code, name: s.name ?? "", russell: s.russellAccount ?? "", posibles: s.possibleAccounts ?? "" }));
         const override = await mapearPorIA(pendientes, plan);
-        if (override.size > 0) calc = calcularBalance(p.importReady, p.cuentasEstandar, override);
+        if (override.size > 0) calc = calcularBalance(p.importReady, p.cuentasEstandar, override, planTok);
       } catch {
         /* la IA es opcional: si falla, no rompe el cargue */
       }
@@ -418,7 +415,7 @@ export async function leerBalance(
       },
     };
   } catch (e) {
-    return { ok: false, message: mensajeErrorBD("leerBalance", e) };
+    return { ok: false, message: mensajeErrorIA("leerBalance", e) };
   }
 }
 
@@ -456,8 +453,12 @@ export async function confirmarCargaBalance(
   } catch {
     return { ok: false, message: "La lectura del archivo no es válida. Vuelve a leer el archivo." };
   }
-  if (!Array.isArray(sug?.importReady) || sug.importReady.length === 0) {
-    return { ok: false, message: "No hay cuentas leídas para cargar. Vuelve a leer el archivo." };
+  // Las cuentas viajan en el payload del cliente: se validan con Zod (tipos y
+  // montos numéricos) antes de persistir. Las sumas/cuadre se recalculan en el
+  // servidor; esto blinda contra payloads malformados (montos no numéricos, etc.).
+  const cuentasParsed = ImportReadySchema.safeParse(sug?.importReady);
+  if (!cuentasParsed.success) {
+    return { ok: false, message: "No hay cuentas leídas válidas para cargar. Vuelve a leer el archivo." };
   }
 
   try {
@@ -473,12 +474,12 @@ export async function confirmarCargaBalance(
     const period = etiquetaPeriodo(periodoInicio, periodoFin);
     const periodos = { inicial: periodoInicio, final: periodoFin };
     const centro = centroOperativo.trim() || null; // opcional: vacío → sin centro
-    const cuentasEstandar = await prisma.standardAccount.findMany({ select: { code: true, nature: true, critical: true, name: true, russellAccount: true, possibleAccounts: true } });
+    const cuentasEstandar = await getCuentasEstandar();
     const user = await getCurrentUser();
 
     const { id, version, calc } = await persistirCargue({
       clientId, clienteName: cliente.name, clienteNit: cliente.nit,
-      period, periodos, importReady: sug.importReady, cuentasEstandar,
+      period, periodos, importReady: cuentasParsed.data, cuentasEstandar,
       archivoNombre: sug.archivoNombre ?? "—",
       archivoTam: sug.archivoTam ?? "—",
       uploadedBy: user?.name ?? "—", rolLabel: etiquetaRol(authz.role),
@@ -508,131 +509,5 @@ export async function confirmarCargaBalance(
     };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("confirmarCargaBalance", e) };
-  }
-}
-
-/**
- * Carga directa (flujo legado, en un solo paso). Se conserva como respaldo; la
- * UI usa `leerBalance` + `confirmarCargaBalance`. No congela: eso lo hace
- * `freezeBalance`.
- */
-export async function cargarBalance(
-  _prev: ImportBalanceState,
-  formData: FormData,
-): Promise<ImportBalanceState> {
-  // Primer gate: sesión + permiso de rol (Staff es el único operativo).
-  const authz = await authorizePermiso("balance:crear");
-  if (!authz.ok) return { ok: false, message: authz.message };
-
-  // Validación de los campos del formulario (cliente + período).
-  const parsed = CargarBalanceSchema.safeParse({
-    clientId: formData.get("clientId"),
-    mes: formData.get("mes"),
-    anio: formData.get("anio"),
-  });
-  if (!parsed.success) {
-    return { ok: false, message: parsed.error.issues[0]?.message ?? "Datos inválidos." };
-  }
-  const { clientId, mes, anio, estandar: estandarContable } = parsed.data;
-
-  // Segundo gate: ALCANCE de escritura sobre el cliente seleccionado (cartera).
-  const scope = await authorizePermiso("balance:crear", { clientId });
-  if (!scope.ok) return { ok: false, message: scope.message };
-
-  const archivo = formData.get("archivo");
-  if (!(archivo instanceof File) || archivo.size === 0) {
-    return { ok: false, message: "Adjunta el archivo del balance (Excel, CSV, JSON o PDF)." };
-  }
-  if (archivo.size > MAX_BYTES) return { ok: false, message: "El archivo supera 20 MB." };
-
-  try {
-    const cliente = await prisma.client.findUnique({
-      where: { id: clientId },
-      select: { name: true, nit: true, erpId: true },
-    });
-    if (!cliente) return { ok: false, message: "El cliente seleccionado ya no existe." };
-    // GATE de operación: cargar el balance exige que el cliente tenga un ERP
-    // asignado. Sin ERP se BLOQUEA con alerta.
-    if (cliente.erpId == null) {
-      return {
-        ok: false,
-        message:
-          "El cliente no tiene un ERP asignado. Asígnalo en Configuración › Clientes antes de cargar el balance.",
-      };
-    }
-    const period = `${mes} ${anio}`;
-    const periodos = periodoISO(mes, anio);
-    const params: ParamsExtraccion = {
-      nit: cliente.nit,
-      periodoInicial: periodos.inicial,
-      periodoFinal: periodos.final,
-      centro: null,
-      estandar: estandarContable,
-    };
-
-    // Extracción: con IA (multi-formato) o, sin API key, con el parser de
-    // plantilla limpia (solo .xlsx) como respaldo.
-    const datosArchivo = await archivo.arrayBuffer();
-    let extr: ResultadoTransform;
-    if (iaDisponible()) {
-      extr = await extraerBalance(datosArchivo, archivo.name, params);
-    } else {
-      const { filas, errores } = await parseBalanceWorkbook(datosArchivo);
-      if (errores.length > 0) {
-        return { ok: false, message: `${errores.length} problema(s) en el archivo. Nada se cargó.`, errores };
-      }
-      const importReady: CuentaCruda[] = filas.map((f) => ({ code: f.code, name: f.name, prevBalance: f.prevBalance, balance: f.balance }));
-      const cab = {
-        nit: { valor: cliente.nit, fuente: "PARAMETRO" as const },
-        periodoInicial: { valor: periodos.inicial, fuente: "PARAMETRO" as const },
-        periodoFinal: { valor: periodos.final, fuente: "PARAMETRO" as const },
-        centro: { valor: null, fuente: "NINGUNO" as const },
-        estandar: estandarContable,
-      };
-      extr = {
-        importReady,
-        excepciones: [],
-        cabecera: cab,
-        resumen: {
-          filasLeidas: importReady.length, filasExcluidas: 0, filasImportables: importReady.length, filasDescuadre: 0,
-          nit: cab.nit, periodoInicial: cab.periodoInicial, periodoFinal: cab.periodoFinal, centro: cab.centro,
-          estandar: estandarContable, convencionCredito: "firmado",
-        },
-      };
-    }
-
-    if (extr.importReady.length === 0) {
-      return {
-        ok: false,
-        message: "No se importó ninguna cuenta del archivo. Revisa las excepciones.",
-        excepciones: extr.excepciones,
-      };
-    }
-
-    // Cálculo y escritura (helper compartido).
-    const cuentasEstandar = await prisma.standardAccount.findMany({ select: { code: true, nature: true, critical: true, name: true, russellAccount: true, possibleAccounts: true } });
-    const user = await getCurrentUser();
-    const { id, version, calc } = await persistirCargue({
-      clientId, clienteName: cliente.name, clienteNit: cliente.nit,
-      period, periodos, importReady: extr.importReady, cuentasEstandar,
-      archivoNombre: archivo.name, archivoTam: tamArchivo(archivo.size),
-      uploadedBy: user?.name ?? "—", rolLabel: etiquetaRol(authz.role),
-      meta: {
-        centro: extr.cabecera.centro.valor, estandar: extr.cabecera.estandar, convencionCredito: extr.resumen.convencionCredito,
-        filasLeidas: extr.resumen.filasLeidas, filasExcluidas: extr.resumen.filasExcluidas, filasDescuadre: extr.resumen.filasDescuadre,
-      },
-    });
-
-    return {
-      ok: true,
-      excepciones: extr.excepciones,
-      resumen: {
-        id, cliente: cliente.name, period, version,
-        cuentas: calc.totalRows, mapped: calc.mapped, unmapped: calc.unmapped, balanced: calc.balanced,
-        auditoria: extr.resumen,
-      },
-    };
-  } catch (e) {
-    return { ok: false, message: mensajeErrorBD("cargarBalance", e) };
   }
 }

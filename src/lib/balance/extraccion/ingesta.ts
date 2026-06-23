@@ -44,6 +44,28 @@ function aBase64(data: ArrayBuffer): string {
   return Buffer.from(data).toString("base64");
 }
 
+// Límite de páginas por documento de la API de Anthropic (PDF).
+export const LIMITE_PAGINAS_PDF = 100;
+
+/**
+ * Estimación best-effort del número de páginas de un PDF. Devuelve `null` si no
+ * se puede determinar con confianza (p. ej. object streams comprimidos), para
+ * NO bloquear archivos válidos: la verificación es fail-open.
+ */
+export function contarPaginasPDF(data: ArrayBuffer): number | null {
+  try {
+    const texto = new TextDecoder("latin1").decode(new Uint8Array(data));
+    // El `/Count` del nodo raíz `/Pages` es el total; tomamos el mayor de los presentes.
+    const cuentas = [...texto.matchAll(/\/Count\s+(\d+)/g)].map((m) => Number(m[1]));
+    if (cuentas.length > 0) return Math.max(...cuentas);
+    // Respaldo: contar marcadores `/Type /Page` (sin la «s» de `/Pages`).
+    const paginas = (texto.match(/\/Type\s*\/Page[^s]/g) ?? []).length;
+    return paginas > 0 ? paginas : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Lee un libro (xlsx/xls/xlsb/csv) a grillas por hoja, saltando filas vacías. */
 function leerLibro(data: ArrayBuffer): GridHoja[] {
   const wb = XLSX.read(Buffer.from(data), { type: "buffer", raw: true, cellDates: false });
@@ -114,7 +136,7 @@ export function ingerir(data: ArrayBuffer, fileName: string): Ingesta {
  * `maxFilas` por hoja y `maxCols` columnas, con índices 1-based para que el
  * modelo pueda referirse a filas/columnas exactas.
  */
-export function construirVistaPrevia(hojas: GridHoja[], maxFilas = 40, maxCols = 25): string {
+export function construirVistaPrevia(hojas: GridHoja[], maxFilas = 60, maxCols = 25): string {
   const partes: string[] = [];
   for (const hoja of hojas) {
     const total = hoja.filas.length;

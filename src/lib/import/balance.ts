@@ -2,7 +2,7 @@
 // Lee la hoja «Balance» (encabezados en la fila 1, datos desde la fila 2) y
 // devuelve las cuentas crudas + errores de estructura. El cálculo de agregados
 // (mapeo, sumas, validaciones) vive en `src/lib/balance/calcular.ts` y la
-// persistencia/versionado en la Server Action `cargarBalance`.
+// persistencia/versionado en la Server Action `confirmarCargaBalance`.
 
 import type ExcelJS from "exceljs";
 import { celdaTexto, normalizar, cargarWorkbook } from "./xlsx";
@@ -14,7 +14,7 @@ const HOJA = "Balance";
 export type FilaBalance = { fila: number; code: string; name: string; prevBalance: number; balance: number };
 export type ParseBalance = { filas: FilaBalance[]; errores: ErrorImport[] };
 
-/** Estado que devuelve la Server Action `cargarBalance` (resultado o errores). */
+/** Estado que devuelven las Server Actions de carga de balance (resultado o errores). */
 export type ImportBalanceState = {
   ok?: boolean;
   message?: string;

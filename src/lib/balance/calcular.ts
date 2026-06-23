@@ -7,7 +7,7 @@
 // Balance: `sums`, `breakdown` (por grupo PUC), `validations` y los
 // contadores de mapeo. Es determinista y testeable en memoria
 // (`calcular.test.ts`); la persistencia y el versionado viven en la
-// Server Action `cargarBalance`.
+// Server Action `confirmarCargaBalance` (`persistirCargue`).
 // ============================================================
 import { fmt } from "@/lib/format";
 
@@ -103,6 +103,16 @@ function variacion(prev: number, balance: number): number | null {
 
 const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
 
+/**
+ * Normaliza un código de cuenta a su forma canónica de clave: dígitos sin
+ * espacios ni puntos de miles. Replica la limpieza de `normalizarCodigo` de la
+ * ingesta (módulo puro, sin dependencia inversa) para que la consolidación y la
+ * descomposición PUC sean robustas ante códigos sin pre-normalizar.
+ */
+function limpiarCodigo(code: string): string {
+  return (code ?? "").replace(/[\s.]/g, "").trim();
+}
+
 // ---- Segundo barrido: coincidencia por descripción ----
 // Umbral mínimo de similitud (0..1) para aceptar un match por descripción.
 export const UMBRAL_DESCRIPCION = 0.55;
@@ -131,25 +141,37 @@ function jaccard(a: Set<string>, b: Set<string>): number {
   return inter / (a.size + b.size - inter);
 }
 
-/**
- * Mejor cuenta estándar para el nombre de una cuenta del cliente, comparando por
- * descripción (nombre + cuenta Russell + cuentas posibles) dentro de la MISMA
- * clase PUC (primer dígito). Devuelve `{ code, score }` (0..1) o null.
- */
-export function mejorPorDescripcion(nombre: string, clase: string, estandar: CuentaEstandar[]): { code: string; score: number } | null {
-  const q = tokens(nombre);
-  if (q.size === 0) return null;
-  const qNorm = normalizarTexto(nombre);
-  let best: { code: string; score: number } | null = null;
-  for (const s of estandar) {
-    if (s.code.charAt(0) !== clase) continue; // restringe a la misma clase
+// Plan estándar pre-tokenizado para el barrido por descripción: se construye
+// una sola vez por cargue, evitando re-tokenizar las ~346 cuentas del plan por
+// cada cuenta del cliente sin mapear.
+export type CuentaPlanTokenizada = { code: string; clase: string; frasesTok: Set<string>[]; frasesNorm: string[] };
+
+/** Pre-tokeniza el plan (nombre + cuenta Russell + cuentas posibles) una vez. */
+export function tokenizarPlan(estandar: CuentaEstandar[]): CuentaPlanTokenizada[] {
+  return estandar.map((s) => {
     const frases: string[] = [];
     if (s.name) frases.push(s.name);
     if (s.russellAccount) frases.push(s.russellAccount);
     if (s.possibleAccounts) frases.push(...s.possibleAccounts.split(","));
+    return { code: s.code, clase: s.code.charAt(0), frasesTok: frases.map((f) => tokens(f)), frasesNorm: frases.map((f) => normalizarTexto(f)) };
+  });
+}
+
+/**
+ * Mejor cuenta estándar para el nombre de una cuenta del cliente, comparando por
+ * descripción (nombre + cuenta Russell + cuentas posibles) dentro de la MISMA
+ * clase PUC (primer dígito). Recibe el plan YA tokenizado. Devuelve `{ code, score }` (0..1) o null.
+ */
+export function mejorPorDescripcion(nombre: string, clase: string, plan: CuentaPlanTokenizada[]): { code: string; score: number } | null {
+  const q = tokens(nombre);
+  if (q.size === 0) return null;
+  const qNorm = normalizarTexto(nombre);
+  let best: { code: string; score: number } | null = null;
+  for (const s of plan) {
+    if (s.clase !== clase) continue; // restringe a la misma clase
     let local = 0;
-    for (const f of frases) {
-      const score = normalizarTexto(f) === qNorm ? 1 : jaccard(q, tokens(f));
+    for (let i = 0; i < s.frasesTok.length; i++) {
+      const score = s.frasesNorm[i] === qNorm ? 1 : jaccard(q, s.frasesTok[i]);
       if (score > local) local = score;
     }
     if (!best || local > best.score) best = { code: s.code, score: local };
@@ -165,14 +187,39 @@ export type MapeoCuenta = { std: string | null; coincidencia: number | null; map
  * texto (coincidencia = score%) si supera el umbral. El tercer barrido (IA) se
  * inyecta aparte vía `override` en `calcularBalance`.
  */
-export function mapearCuenta(code: string, name: string, stdByCode: Map<string, CuentaEstandar>, estandar: CuentaEstandar[], hayDescripcion: boolean): MapeoCuenta {
+export function mapearCuenta(code: string, name: string, stdByCode: Map<string, CuentaEstandar>, estandar: CuentaEstandar[], hayDescripcion: boolean, planTok?: CuentaPlanTokenizada[]): MapeoCuenta {
   const key = code.length >= 6 ? code.slice(0, 6) : null;
   if (key && stdByCode.get(key)) return { std: key, coincidencia: 100, mapped: true };
   if (hayDescripcion) {
-    const m = mejorPorDescripcion(name, code.charAt(0), estandar);
+    const plan = planTok ?? tokenizarPlan(estandar); // construido aparte por `calcularBalance`; perezoso para llamadas sueltas/tests
+    const m = mejorPorDescripcion(name, code.charAt(0), plan);
     if (m && m.score >= UMBRAL_DESCRIPCION) return { std: m.code, coincidencia: Math.round(m.score * 100), mapped: true };
   }
   return { std: null, coincidencia: null, mapped: false };
+}
+
+/**
+ * Consolida cuentas crudas con el MISMO código en una sola fila: suma saldos
+ * (anterior/final) y movimientos (débitos/créditos), conserva el primer nombre y
+ * el orden de aparición. Un archivo que trae la misma cuenta repetida (o que la
+ * IA extrae dos veces) no debe producir detalle duplicado al persistir. La clave
+ * de agrupación es el código `trim`-eado (también se normaliza el `code` de salida).
+ */
+export function consolidarPorCodigo(cuentas: CuentaCruda[]): CuentaCruda[] {
+  const porCodigo = new Map<string, CuentaCruda>();
+  for (const c of cuentas) {
+    const key = limpiarCodigo(c.code);
+    const prev = porCodigo.get(key);
+    if (!prev) {
+      porCodigo.set(key, { ...c, code: key });
+      continue;
+    }
+    prev.prevBalance += c.prevBalance;
+    prev.balance += c.balance;
+    if (c.debitos != null) prev.debitos = (prev.debitos ?? 0) + c.debitos;
+    if (c.creditos != null) prev.creditos = (prev.creditos ?? 0) + c.creditos;
+  }
+  return [...porCodigo.values()];
 }
 
 /**
@@ -186,19 +233,32 @@ export function calcularBalance(
   cuentas: CuentaCruda[],
   estandar: CuentaEstandar[],
   override?: Map<string, { std: string | null; coincidencia: number | null }>,
+  planTok?: CuentaPlanTokenizada[],
 ): ResultadoBalance {
   const stdByCode = new Map(estandar.map((s) => [s.code, s]));
   const hayDescripcion = estandar.some((s) => s.possibleAccounts || s.name);
+  // Plan pre-tokenizado para el barrido por descripción: se calcula una vez (o
+  // se recibe ya construido para no repetirlo entre la pasada determinista y la
+  // pasada con override de IA — ver `persistirCargue`).
+  const plan = hayDescripcion ? (planTok ?? tokenizarPlan(estandar)) : [];
+
+  // 0) Consolida cuentas repetidas (mismo código) ANTES del filtro de hojas:
+  //    una cuenta partida en varias filas se fusiona sumando saldos/movimientos.
+  const consolidadas = consolidarPorCodigo(cuentas);
 
   // 1) Hojas: cuentas que no son prefijo de otra (evita doble conteo de
   //    filas de resumen como clase/grupo/cuenta cuando el archivo las trae).
-  const hojas = cuentas.filter(
-    (c) => !cuentas.some((o) => o.code !== c.code && o.code.startsWith(c.code) && o.code.length > c.code.length),
-  );
+  //    O(n·L): se marcan los prefijos propios de cada código como "ancestros";
+  //    una cuenta es hoja si su código no es ancestro de ninguna otra.
+  const ancestros = new Set<string>();
+  for (const { code } of consolidadas) {
+    for (let i = 1; i < code.length; i++) ancestros.add(code.slice(0, i));
+  }
+  const hojas = consolidadas.filter((c) => !ancestros.has(c.code));
 
   // 2) Mapeo en cascada (exacto → descripción → override IA) + naturaleza.
   const mapeadas = hojas.map((c) => {
-    let mp = mapearCuenta(c.code, c.name, stdByCode, estandar, hayDescripcion);
+    let mp = mapearCuenta(c.code, c.name, stdByCode, estandar, hayDescripcion, plan);
     if (!mp.mapped) {
       const ov = override?.get(c.code);
       if (ov?.std) mp = { std: ov.std, coincidencia: ov.coincidencia, mapped: true };
@@ -222,7 +282,11 @@ export function calcularBalance(
   const creditosPositivos = creditos.filter((m) => m.balance > 0).length;
   const creditosNegativos = creditos.filter((m) => m.balance < 0).length;
   const flip = creditos.length > 0 && creditosPositivos > creditosNegativos;
-  const aSigno = (nature: string, v: number) => (flip ? (nature === "C" ? -Math.abs(v) : Math.abs(v)) : v);
+  // Bajo magnitud se INVIERTE el signo de las cuentas de naturaleza crédito
+  // (no se fuerza a -Math.abs): así una cuenta crédito con saldo deudor —saldo
+  // contrario legítimo a su naturaleza— conserva su anomalía y la validación V2
+  // la detecta, en vez de "corregirla" silenciosamente al signo de su clase.
+  const aSigno = (nature: string, v: number) => (flip ? (nature === "C" ? -v : v) : v);
 
   const detalle: BreakdownItem[] = mapeadas.map((m) => {
     const balance = aSigno(m.nature, m.balance);
@@ -274,8 +338,12 @@ function agregarDetalle(detalle: BreakdownItem[]): ResultadoBalance {
   // a los créditos, es decir Σ(saldos firmados) ≈ 0. Es el invariante válido en
   // cualquier momento del período (a diferencia de A = P + Pat, que solo se
   // cumple tras el cierre). Equivale a A = P + Pat + Resultado.
-  const totalAbs = sum(detalle.map((d) => Math.abs(d.balance)));
-  const diffCuadre = sum(detalle.map((d) => d.balance));
+  // Las cuentas de ORDEN (clases 8 y 9) no forman parte de la ecuación de
+  // partida doble patrimonio-resultado: se excluyen del cuadre (siguen visibles
+  // en el desglose y en las sumas no entran de por sí).
+  const paraCuadre = detalle.filter((d) => d.code.charAt(0) !== "8" && d.code.charAt(0) !== "9");
+  const totalAbs = sum(paraCuadre.map((d) => Math.abs(d.balance)));
+  const diffCuadre = sum(paraCuadre.map((d) => d.balance));
   const balanced = Math.abs(diffCuadre) <= Math.max(1, totalAbs * 0.005);
 
   // 5) Desglose por grupo PUC (2 dígitos). Códigos sin grupo conocido → "99".
@@ -317,7 +385,7 @@ function agregarDetalle(detalle: BreakdownItem[]): ResultadoBalance {
       id: "V1",
       rule: "Balance cuadrado (débitos = créditos)",
       status: balanced ? "ok" : "warn",
-      detail: balanced ? "Partida doble correcta · diferencia: $ 0" : `Diferencia entre débitos y créditos: ${fmt(diffCuadre)}`,
+      detail: balanced ? `Partida doble correcta · diferencia: ${fmt(diffCuadre)}` : `Diferencia entre débitos y créditos: ${fmt(diffCuadre)}`,
       ...(balanced ? {} : { count: 1 }),
     },
     {
@@ -343,6 +411,23 @@ function agregarDetalle(detalle: BreakdownItem[]): ResultadoBalance {
     },
   ];
 
+  // V5: cuadre de los MOVIMIENTOS del período (Σ débitos = Σ créditos), un
+  // invariante distinto del cuadre de saldos (V1). Solo aplica si el archivo
+  // trajo columnas de movimientos (debe/haber); si no, no se evalúa.
+  const totalDebe = sum(detalle.map((d) => d.debe ?? 0));
+  const totalHaber = sum(detalle.map((d) => d.haber ?? 0));
+  if (totalDebe > 0 || totalHaber > 0) {
+    const diffMov = totalDebe - totalHaber;
+    const movOk = Math.abs(diffMov) <= Math.max(1, (totalDebe + totalHaber) * 0.005);
+    validations.push({
+      id: "V5",
+      rule: "Movimientos del período (débitos = créditos)",
+      status: movOk ? "ok" : "warn",
+      detail: movOk ? `Partida doble del período correcta · diferencia: ${fmt(diffMov)}` : `Σ débitos − Σ créditos del período: ${fmt(diffMov)}`,
+      ...(movOk ? {} : { count: 1 }),
+    });
+  }
+
   return {
     sums,
     validations,
@@ -362,7 +447,7 @@ function agregarDetalle(detalle: BreakdownItem[]): ResultadoBalance {
 
 /** Descompone un código imputable en sus prefijos PUC (niveles 2/4/6/8). */
 export function descomponerCuenta(code: string): { cuenta2: string; cuenta4: string; cuenta6: string; cuenta8: string } {
-  const c = (code ?? "").trim();
+  const c = limpiarCodigo(code);
   return { cuenta2: c.slice(0, 2), cuenta4: c.slice(0, 4), cuenta6: c.slice(0, 6), cuenta8: c };
 }
 

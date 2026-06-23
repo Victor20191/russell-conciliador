@@ -4,15 +4,12 @@ import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { PageHeader, Card, StatCard, EmptyState } from "@/components/ui";
 import { Icon } from "@/components/icons";
-import { fmtNum, fmtPct } from "@/lib/format";
+import { fmtNum } from "@/lib/format";
 import { reconstruirBalance, construirEstadoResultado } from "@/lib/balance/calcular";
+import { getCuentasEstandar } from "@/lib/balance/cuentas-estandar";
 import ErExportActions, { type ErLine } from "./er-export-actions";
 import ErSelectors from "./er-selectors";
 
-function varPct(current: number, prior: number): number | null {
-  if (prior === 0) return null;
-  return ((current - prior) / Math.abs(prior)) * 100;
-}
 const money = (n: number) => `${n < 0 ? "-" : ""}$ ${fmtNum(Math.abs(n))} M`;
 
 export default async function EstadoResultadoPage({
@@ -47,7 +44,7 @@ export default async function EstadoResultadoPage({
         where: { encabezadoId: selected.id },
         select: { cuenta8: true, nombreCuenta: true, cuenta6Russell: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
       }),
-      prisma.standardAccount.findMany({ select: { code: true, nature: true, critical: true } }),
+      getCuentasEstandar(),
     ]);
     const calc = reconstruirBalance(
       det.map((f) => ({
@@ -65,13 +62,12 @@ export default async function EstadoResultadoPage({
   const operacional = find("utilidad operacional");
   const neta = find("utilidad neta");
   const margin = (n: number | undefined) => (ingresos && n != null ? `Margen ${(Math.abs(n) / ingresos * 100).toFixed(1)}%` : "");
-  const ingresosVar = lines[0] ? varPct(lines[0].current, lines[0].prior) : null;
 
   return (
     <div>
       <PageHeader
         title="Estado de Resultado"
-        subtitle="Consolidación del Estado de Resultado por período bajo el plan estándar. Comparativo vs. año anterior y presupuesto."
+        subtitle="Consolidación del Estado de Resultado por período bajo el plan estándar."
         actions={puedeVerMapeo ? (
           <Link href="/config/mapeo" className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-2 text-[12.5px] font-semibold text-white hover:bg-navy-600">
             <Icon name="settings" size={14} /> Ajustar mapeo
@@ -84,7 +80,7 @@ export default async function EstadoResultadoPage({
       ) : (
         <>
           <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-            <StatCard label="Ingresos operacionales" value={money(ingresos)} hint={ingresosVar != null ? `${fmtPct(ingresosVar)} vs año anterior` : ""} tone="ok" />
+            <StatCard label="Ingresos operacionales" value={money(ingresos)} tone="ok" />
             <StatCard label="Utilidad bruta" value={money(bruta?.current ?? 0)} hint={margin(bruta?.current)} tone="ink" />
             <StatCard label="Utilidad operacional" value={money(operacional?.current ?? 0)} hint={margin(operacional?.current)} tone="ink" />
             <StatCard label="Utilidad neta" value={money(neta?.current ?? 0)} hint={margin(neta?.current)} tone="ok" />
@@ -100,25 +96,16 @@ export default async function EstadoResultadoPage({
                 <thead>
                   <tr className="border-b border-ink-100 text-left text-[11px] uppercase tracking-wider text-ink-500">
                     <th className="px-4 py-2 font-semibold">Concepto (plan estándar)</th>
-                    <th className="px-4 py-2 text-right font-semibold">2025</th>
-                    <th className="px-4 py-2 text-right font-semibold">2024</th>
-                    <th className="px-4 py-2 text-right font-semibold">Var %</th>
-                    <th className="px-4 py-2 text-right font-semibold">Presup.</th>
+                    <th className="px-4 py-2 text-right font-semibold">Valor del período</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {lines.map((l, i) => {
-                    const v = varPct(l.current, l.prior);
-                    return (
-                      <tr key={i} className={`${l.bold ? "bg-ink-50 font-semibold text-ink-900" : "text-ink-700"} ${l.sep ? "border-t-2 border-ink-200" : "border-b border-ink-50"}`}>
-                        <td className="px-4 py-2">{l.concept}</td>
-                        <td className="px-4 py-2 text-right font-mono">{money(l.current)}</td>
-                        <td className="px-4 py-2 text-right font-mono text-ink-500">{money(l.prior)}</td>
-                        <td className={`px-4 py-2 text-right font-mono ${v == null ? "text-ink-400" : v >= 0 ? "text-ok-700" : "text-err-700"}`}>{fmtPct(v)}</td>
-                        <td className="px-4 py-2 text-right font-mono text-ink-500">{money(l.budget)}</td>
-                      </tr>
-                    );
-                  })}
+                  {lines.map((l, i) => (
+                    <tr key={i} className={`${l.bold ? "bg-ink-50 font-semibold text-ink-900" : "text-ink-700"} ${l.sep ? "border-t-2 border-ink-200" : "border-b border-ink-50"}`}>
+                      <td className="px-4 py-2">{l.concept}</td>
+                      <td className="px-4 py-2 text-right font-mono">{money(l.current)}</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>

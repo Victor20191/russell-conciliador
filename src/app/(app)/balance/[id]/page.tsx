@@ -5,6 +5,7 @@ import { PageHeader, StatCard, Chip, BackLink } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { fmtCompact, fmtDate } from "@/lib/format";
 import { reconstruirBalance, agruparJerarquia } from "@/lib/balance/calcular";
+import { getCuentasEstandar } from "@/lib/balance/cuentas-estandar";
 import BalanceDetailClient, {
   type Meta, type Version,
 } from "./balance-detail-client";
@@ -37,10 +38,16 @@ export default async function BalanceDetailPage({ params }: { params: Promise<{ 
   // Mapear líneas del balance al estándar: Staff y Admin (balance:crear).
   const puedeMapear = (await authorizePermiso("balance:crear", { clientId })).ok;
 
-  // Agregados RECALCULADOS desde el detalle (ya no se persiste el JSON).
-  const [cuentasEstandar, subgrupos] = await Promise.all([
-    prisma.standardAccount.findMany({ select: { code: true, name: true, nature: true, critical: true } }),
+  // Agregados RECALCULADOS desde el detalle. Plan estándar (cacheado), subgrupos
+  // (nombres de nivel 4/2) y la bitácora de versiones se cargan en paralelo.
+  const [cuentasEstandar, subgrupos, hermanos] = await Promise.all([
+    getCuentasEstandar(),
     prisma.subgrupoEstandar.findMany({ select: { codigo: true, nombre: true, grupo: true, nombreGrupo: true } }),
+    prisma.balancePruebaEncabezado.findMany({
+      where: { clienteId: balance.clienteId, periodo: balance.periodo },
+      orderBy: { creadoEn: "desc" },
+      select: { id: true, version: true, ultimaCarga: true, cargadoPor: true, rolCarga: true, archivo: true, tamanoArchivo: true, filasTotales: true, sumaActivo: true, cuadrado: true, nota: true, cambios: true, creadoEn: true },
+    }),
   ]);
   const filas = balance.detalles.map((f) => ({
     id: f.id, cuenta8: f.cuenta8, nombreCuenta: f.nombreCuenta, cuenta6Russell: f.cuenta6Russell,
@@ -57,12 +64,8 @@ export default async function BalanceDetailPage({ params }: { params: Promise<{ 
   const arbol = agruparJerarquia(filas, cuentasEstandar, nombresRussell, { nombre4, nombre2 });
   const estandarOpciones = cuentasEstandar.map((s) => ({ code: s.code, name: s.name }));
 
-  // Bitácora de versiones: los encabezados hermanos del mismo (cliente, período).
-  const hermanos = await prisma.balancePruebaEncabezado.findMany({
-    where: { clienteId: balance.clienteId, periodo: balance.periodo },
-    orderBy: { creadoEn: "desc" },
-    select: { id: true, version: true, ultimaCarga: true, cargadoPor: true, rolCarga: true, archivo: true, tamanoArchivo: true, filasTotales: true, sumaActivo: true, cuadrado: true, nota: true, cambios: true, creadoEn: true },
-  });
+  // Bitácora de versiones: los encabezados hermanos del mismo (cliente, período)
+  // (cargados arriba en paralelo con el plan estándar).
   const versions: Version[] = hermanos.map((h) => ({
     v: h.version, date: h.ultimaCarga ?? "—", uploadedBy: h.cargadoPor ?? "—", role: h.rolCarga ?? "—",
     file: h.archivo ?? "—", size: h.tamanoArchivo ?? "—", rows: h.filasTotales, sumA: Number(h.sumaActivo),

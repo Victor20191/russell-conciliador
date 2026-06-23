@@ -5,7 +5,7 @@
 import "server-only";
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { getAnthropic, MODELO_EXTRACCION } from "@/lib/anthropic";
+import { getAnthropic, MODELO_EXTRACCION, conReintentoSinTemperatura } from "@/lib/anthropic";
 
 export type CuentaPendiente = { code: string; name: string };
 export type CuentaPlan = { code: string; name: string; russell: string; posibles: string };
@@ -44,23 +44,35 @@ export async function mapearPorIA(pendientes: CuentaPendiente[], plan: CuentaPla
   const client = getAnthropic();
   const planTexto = plan.map((p) => `${p.code} | ${p.name} | russell: ${p.russell} | sinónimos: ${p.posibles}`).join("\n");
   const validos = new Set(plan.map((p) => p.code));
+  // Prompt caching: el breakpoint va en el ÚLTIMO bloque de `system` (el plan, ~29-38K
+  // tokens según el modelo) y cachea TODO el prefijo —SYSTEM + plan— de una vez. No se
+  // marca SYSTEM por separado: sus ~220 tokens quedan bajo el mínimo cacheable (2048 en
+  // Sonnet 4.6, 4096 en Opus 4.x) y no formarían entrada propia. El plan es idéntico en
+  // cada lote y entre cargas → se escribe una vez y se lee (~0,1× del costo) en las
+  // llamadas siguientes dentro del TTL.
   const system = [
-    { type: "text" as const, text: SYSTEM, cache_control: { type: "ephemeral" as const } },
-    { type: "text" as const, text: `PLAN ESTÁNDAR RUSSELL (código | nombre | russell | sinónimos):\n${planTexto}`, cache_control: { type: "ephemeral" as const } },
+    { type: "text" as const, text: SYSTEM },
+    {
+      type: "text" as const,
+      text: `PLAN ESTÁNDAR RUSSELL (código | nombre | russell | sinónimos):\n${planTexto}`,
+      cache_control: { type: "ephemeral" as const },
+    },
   ];
 
   for (let i = 0; i < pendientes.length; i += TAM_LOTE) {
     const lote = pendientes.slice(i, i + TAM_LOTE);
     const lista = lote.map((p) => `${p.code} | ${p.name}`).join("\n");
     try {
-      const r = await client.messages.parse({
-        model: MODELO_EXTRACCION,
-        max_tokens: 8000,
-        thinking: { type: "adaptive" },
-        system,
-        messages: [{ role: "user", content: [{ type: "text", text: `CUENTAS DEL CLIENTE A MAPEAR (código | nombre):\n${lista}\n\nDevuelve una asignación por cada cuenta del cliente.` }] }],
-        output_config: { format: zodOutputFormat(MapeoIASchema) },
-      });
+      const r = await conReintentoSinTemperatura((ajustes) =>
+        client.messages.parse({
+          model: MODELO_EXTRACCION,
+          max_tokens: 8000,
+          ...ajustes,
+          system,
+          messages: [{ role: "user", content: [{ type: "text", text: `CUENTAS DEL CLIENTE A MAPEAR (código | nombre):\n${lista}\n\nDevuelve una asignación por cada cuenta del cliente.` }] }],
+          output_config: { format: zodOutputFormat(MapeoIASchema) },
+        }),
+      );
       for (const a of r.parsed_output?.asignaciones ?? []) {
         const std = a.cuenta6Russell && validos.has(a.cuenta6Russell) ? a.cuenta6Russell : null;
         out.set(a.cuentaCliente, { std, coincidencia: std ? Math.round(Math.max(0, Math.min(100, a.coincidencia))) : null });

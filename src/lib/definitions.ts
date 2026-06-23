@@ -1,5 +1,4 @@
 import * as z from "zod";
-import { MESES_LARGOS } from "@/lib/format";
 
 export const LoginSchema = z.object({
   email: z.email({ error: "Ingresa un correo válido." }).trim().toLowerCase(),
@@ -89,22 +88,21 @@ export const ClientResponsablesSchema = z.object({
 // (jerarquia_usuarios). La adyacencia de roles se valida en la action.
 export const SuperioresSchema = z.array(z.coerce.number().int().positive()).max(50);
 
-// Carga de balance de comprobación: cliente + período (mes/año). El archivo
-// Excel se valida aparte en la Server Action (los File no pasan por Zod).
-export const CargarBalanceSchema = z.object({
-  clientId: z.coerce
-    .number({ error: "Selecciona el cliente." })
-    .int()
-    .positive({ error: "Selecciona el cliente." }),
-  mes: z.enum(MESES_LARGOS, { error: "Selecciona el mes del período." }),
-  anio: z.coerce
-    .number({ error: "Indica el año del período." })
-    .int()
-    .min(2000, { error: "Año fuera de rango." })
-    .max(2100, { error: "Año fuera de rango." }),
-  // Estándar contable para la extracción asistida (NIIF/PCGA/AUTO).
-  estandar: z.enum(["NIIF", "PCGA", "AUTO"]).catch("AUTO"),
-});
+// Cuentas leídas que viajan en el `payload` del paso "leer" al "confirmar". Se
+// validan tipos y montos (numéricos) antes de persistir; las sumas y el cuadre
+// se recalculan en el servidor. Coincide con `CuentaCruda` de calcular.ts.
+export const ImportReadySchema = z
+  .array(
+    z.object({
+      code: z.string(),
+      name: z.string(),
+      prevBalance: z.number(),
+      balance: z.number(),
+      debitos: z.number().optional(),
+      creditos: z.number().optional(),
+    }),
+  )
+  .min(1);
 
 // Confirmación de carga (paso 2): cliente + período desde/hasta (fechas ISO) +
 // centro operativo (opcional). Las cuentas ya leídas viajan aparte en `payload`.

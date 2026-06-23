@@ -67,3 +67,37 @@ export function mensajeErrorBD(contexto: string, e: unknown): string {
   if (code && MENSAJES_PRISMA[code]) return MENSAJES_PRISMA[code];
   return MENSAJE_GENERICO;
 }
+
+/**
+ * Mensaje claro para fallos de la extracción con IA (Anthropic). Traduce los
+ * errores de la API (429/529/5xx/timeout/credenciales) a algo accionable y
+ * preserva los mensajes deliberados del pipeline (extracción/ingesta). Para
+ * cualquier otro error (p. ej. un fallo de BD al persistir) cae a
+ * `mensajeErrorBD`. Úsalo en los `catch` de acciones que invocan la IA.
+ */
+export function mensajeErrorIA(contexto: string, e: unknown): string {
+  const status = e && typeof e === "object" && "status" in e ? (e as { status?: unknown }).status : undefined;
+  const nombre = e && typeof e === "object" && "name" in e ? String((e as { name?: unknown }).name ?? "") : "";
+  const msg = e instanceof Error ? e.message : typeof e === "string" ? e : "";
+
+  // Error de la API de Anthropic: tiene `status` numérico o un nombre de clase del SDK.
+  const esErrorAnthropic = typeof status === "number" || /APIError|APIConnection|RateLimit|Overloaded|Anthropic/i.test(nombre);
+  if (esErrorAnthropic) {
+    registrarError(contexto, e);
+    if (status === 429) return "El servicio de IA está saturado en este momento. Espera unos segundos y vuelve a intentar.";
+    if (status === 529) return "El servicio de IA está sobrecargado. Reintenta en un momento.";
+    if (typeof status === "number" && status >= 500) return "El servicio de IA tuvo un error temporal. Reintenta en un momento.";
+    if (status === 401 || status === 403) return "La extracción con IA no está disponible por un problema de credenciales. Avisa al administrador.";
+    if (/timeout|ETIMEDOUT|ECONNRESET|connection/i.test(`${nombre} ${msg}`)) return "La lectura con IA tardó demasiado. Prueba con un archivo más pequeño o reintenta.";
+    return "No se pudo leer el archivo con IA. Revisa el formato del archivo o reintenta.";
+  }
+
+  // Mensaje deliberado del pipeline de extracción/ingesta (texto ya útil en español).
+  if (/^(La IA |El PDF |Formato de archivo)/.test(msg)) {
+    registrarError(contexto, e);
+    return msg;
+  }
+
+  // Cualquier otro error (incluye fallos de BD al persistir): traducción de BD.
+  return mensajeErrorBD(contexto, e);
+}

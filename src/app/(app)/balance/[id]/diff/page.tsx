@@ -4,6 +4,7 @@ import { requirePermiso } from "@/lib/rbac";
 import { PageHeader, StatCard, BackLink } from "@/components/ui";
 import { fmtCompact } from "@/lib/format";
 import { reconstruirBalance, aplanarBreakdown, compararBalances } from "@/lib/balance/calcular";
+import { getCuentasEstandar } from "@/lib/balance/cuentas-estandar";
 import BalanceDiffClient, { type DiffData } from "./balance-diff-client";
 import { parseId } from "@/lib/ids";
 
@@ -37,7 +38,7 @@ export default async function BalanceDiffPage({ params }: { params: Promise<{ id
   });
   if (!previa) notFound();
 
-  const cuentasEstandar = await prisma.standardAccount.findMany({ select: { code: true, nature: true, critical: true } });
+  const cuentasEstandar = await getCuentasEstandar();
   const calcActual = reconstruirBalance(aFilas(balance.detalles), cuentasEstandar);
   const calcPrev = reconstruirBalance(aFilas(previa.detalles), cuentasEstandar);
   const diff: DiffData = compararBalances(aplanarBreakdown(calcPrev.breakdown), aplanarBreakdown(calcActual.breakdown));

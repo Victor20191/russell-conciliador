@@ -1,7 +1,7 @@
 "use server";
 
 import * as z from "zod";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
@@ -9,6 +9,7 @@ import { authorizePermiso } from "@/lib/rbac";
 import { getClientIp } from "@/lib/request";
 import { mensajeErrorBD, registrarError } from "@/lib/errores";
 import { codigoEstandarTieneBalances } from "@/lib/balance/asociacion";
+import { CUENTAS_ESTANDAR_TAG } from "@/lib/balance/cuentas-estandar";
 import {
   StandardAccountCreateSchema,
   StandardAccountUpdateSchema,
@@ -155,6 +156,7 @@ export async function createStandardAccount(
       after: snapshot(created),
     });
     revalidatePath(PATH);
+    updateTag(CUENTAS_ESTANDAR_TAG); // el plan estándar cambió → invalida el caché global (read-your-own-writes)
     return { ok: true, message: "Cuenta estándar creada." };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("createStandardAccount", e) };
@@ -217,6 +219,7 @@ export async function updateStandardAccount(
       after: despues,
     });
     revalidatePath(PATH);
+    updateTag(CUENTAS_ESTANDAR_TAG); // el plan estándar cambió → invalida el caché global (read-your-own-writes)
     return { ok: true, message: "Cuenta estándar actualizada." };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("updateStandardAccount", e) };
@@ -260,6 +263,7 @@ export async function deleteStandardAccount(
       before: snapshot(before),
     });
     revalidatePath(PATH);
+    updateTag(CUENTAS_ESTANDAR_TAG); // el plan estándar cambió → invalida el caché global (read-your-own-writes)
     return { ok: true, message: "Cuenta estándar eliminada." };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("deleteStandardAccount", e) };

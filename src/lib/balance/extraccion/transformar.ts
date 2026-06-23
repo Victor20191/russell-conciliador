@@ -147,7 +147,10 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
   const tieneInicial = cols.saldoInicial > 0;
   const tieneMovimientos = cols.debitos > 0 || cols.creditos > 0;
   const validarControl = tieneInicial && tieneMovimientos;
-  const minLen = spec.reglaDetalle.longitudMin ?? 7; // longitud MÍNIMA inclusiva de una cuenta de detalle
+  // Longitud MÍNIMA inclusiva de una cuenta de detalle. Default 6 (no 7) para
+  // alinear con la ruta directa/PDF (`validarDirecta`, >=6) y con el nivel de
+  // imputación del estándar Russell (cuentas de 6 dígitos).
+  const minLen = spec.reglaDetalle.longitudMin ?? 6;
 
   let filasLeidas = 0;
   let filasExcluidas = 0;
@@ -317,7 +320,7 @@ function leerSaldoFinal(fila: CeldaCruda[], cols: MappingSpec["columnas"], si: n
     if (d === null || c === null) return null;
     return d - c;
   }
-  return si + db - cr; // sin columna de saldo final: se computa
+  return si + Math.abs(db) - Math.abs(cr); // sin columna de saldo final: se computa con los movimientos en magnitud (igual que el control)
 }
 
 function agregarPorCuenta(filas: FilaParcial[]): FilaParcial[] {
