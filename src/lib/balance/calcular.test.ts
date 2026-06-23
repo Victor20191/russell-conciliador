@@ -296,6 +296,17 @@ describe("mapearCuenta — cascada de barridos", () => {
   });
 });
 
+describe("calcularBalance — config de mapeo guardada del cliente", () => {
+  it("la config del cliente (por cuenta 6) tiene prioridad sobre el mapeo exacto", () => {
+    // 110505 mapearía exacto a 110505; la config del cliente lo fuerza a 130505.
+    const cfg = new Map([["110505", { std: "130505", coincidencia: 100 }]]);
+    const r = calcularBalance(FIRMADO, STD, undefined, undefined, cfg);
+    const item = r.breakdown.flatMap((g) => g.items).find((i) => i.code === "110505");
+    expect(item?.std).toBe("130505");
+    expect(item?.mapped).toBe(true);
+  });
+});
+
 describe("descomponerCuenta", () => {
   it("parte el código imputable en prefijos PUC 2/4/6/8", () => {
     expect(descomponerCuenta("11100501")).toEqual({ cuenta2: "11", cuenta4: "1110", cuenta6: "111005", cuenta8: "11100501" });

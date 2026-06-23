@@ -647,6 +647,27 @@ model BalancePruebaDetalle {
   @@map("balance_prueba_detalle")
 }
 
+// ===== Configuración de mapeo por cliente (memoria entre períodos) =====
+// Recuerda a qué cuenta estándar Russell se mapea cada cuenta de 6 dígitos del
+// cliente, para que la parametrización se haga UNA sola vez: al importar otro
+// período del mismo cliente, este mapeo se aplica primero (prioridad sobre la
+// cascada exacto/descripción/IA). `origen=manual` (asignación a mano) no se pisa
+// por mapeos automáticos. FK suave a Client (Int, sin @relation).
+model MapeoBalanceCliente {
+  id             Int      @id @default(autoincrement()) @map("id")
+  clienteId      Int      @map("cliente_id")
+  cuenta6        String   @map("cuenta_6") // código del cliente (6 dígitos)
+  cuenta6Russell String   @map("cuenta_6_russell") // cuenta estándar asignada
+  coincidencia   Decimal? @map("porcentaje_coincidencia") @db.Decimal(5, 2)
+  origen         String   @default("automatico") @map("origen") // manual | automatico
+  actualizadoPor String?  @map("actualizado_por")
+  actualizadoEn  DateTime @updatedAt @map("actualizado_en")
+
+  @@unique([clienteId, cuenta6])
+  @@index([clienteId])
+  @@map("mapeo_balance_cliente")
+}
+
 // ===== Impuestos · DIAN =====
 model DianForm {
   id          Int           @id @default(autoincrement()) @map("id")

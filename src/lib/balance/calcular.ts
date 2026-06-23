@@ -234,6 +234,9 @@ export function calcularBalance(
   estandar: CuentaEstandar[],
   override?: Map<string, { std: string | null; coincidencia: number | null }>,
   planTok?: CuentaPlanTokenizada[],
+  // Configuración de mapeo GUARDADA del cliente (clave = cuenta de 6 dígitos).
+  // Tiene PRIORIDAD sobre la cascada: lo que ya se parametrizó no se recalcula.
+  configCliente?: Map<string, { std: string | null; coincidencia: number | null }>,
 ): ResultadoBalance {
   const stdByCode = new Map(estandar.map((s) => [s.code, s]));
   const hayDescripcion = estandar.some((s) => s.possibleAccounts || s.name);
@@ -256,12 +259,19 @@ export function calcularBalance(
   }
   const hojas = consolidadas.filter((c) => !ancestros.has(c.code));
 
-  // 2) Mapeo en cascada (exacto → descripción → override IA) + naturaleza.
+  // 2) Mapeo en cascada: config guardada del cliente → exacto → descripción →
+  //    override IA. La config (por cuenta de 6 díg.) manda sobre todo lo demás.
   const mapeadas = hojas.map((c) => {
-    let mp = mapearCuenta(c.code, c.name, stdByCode, estandar, hayDescripcion, plan);
-    if (!mp.mapped) {
-      const ov = override?.get(c.code);
-      if (ov?.std) mp = { std: ov.std, coincidencia: ov.coincidencia, mapped: true };
+    const cfg = configCliente?.get(c.code.slice(0, 6));
+    let mp: MapeoCuenta;
+    if (cfg?.std) {
+      mp = { std: cfg.std, coincidencia: cfg.coincidencia, mapped: true };
+    } else {
+      mp = mapearCuenta(c.code, c.name, stdByCode, estandar, hayDescripcion, plan);
+      if (!mp.mapped) {
+        const ov = override?.get(c.code);
+        if (ov?.std) mp = { std: ov.std, coincidencia: ov.coincidencia, mapped: true };
+      }
     }
     const ref = mp.std ? stdByCode.get(mp.std) : undefined;
     return {
