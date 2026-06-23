@@ -1,7 +1,7 @@
 "use client";
 
 import { Icon } from "@/components/icons";
-import { fmtNum, fmtPct } from "@/lib/format";
+import { fmtNum } from "@/lib/format";
 
 export type ErLine = {
   concept: string;
@@ -11,11 +11,6 @@ export type ErLine = {
   bold: boolean;
   sep: boolean;
 };
-
-function varPct(current: number, prior: number): number | null {
-  if (prior === 0) return null;
-  return ((current - prior) / Math.abs(prior)) * 100;
-}
 
 function money(n: number): string {
   const sign = n < 0 ? "-" : "";
@@ -86,19 +81,12 @@ function buildPdf(cliente: string, periodo: string, lines: ErLine[]): Blob {
     content += pdfText(36, 532, `${cliente} - ${periodo}`, 11, false);
     content += pdfText(760, 532, `Pag. ${index + 1}/${chunks.length}`, 8, false);
     content += pdfText(36, 500, "Concepto", 8, true);
-    content += pdfText(370, 500, "2025", 8, true);
-    content += pdfText(490, 500, "2024", 8, true);
-    content += pdfText(610, 500, "Var %", 8, true);
-    content += pdfText(710, 500, "Presup.", 8, true);
+    content += pdfText(370, 500, "Valor del período", 8, true);
 
     chunk.forEach((line, rowIndex) => {
       const y = 480 - rowIndex * 18;
-      const pct = varPct(line.current, line.prior);
-      content += pdfText(36, y, truncate(line.concept, 54), 8, line.bold);
+      content += pdfText(36, y, truncate(line.concept, 70), 8, line.bold);
       content += pdfText(370, y, money(line.current), 8, line.bold);
-      content += pdfText(490, y, money(line.prior), 8, line.bold);
-      content += pdfText(610, y, fmtPct(pct), 8, line.bold);
-      content += pdfText(710, y, money(line.budget), 8, line.bold);
     });
 
     const contentId = addObject(`<< /Length ${content.length} >>\nstream\n${content}endstream`);
@@ -138,17 +126,13 @@ export default function ErExportActions({
 
   const downloadExcel = () => {
     const rows = lines
-      .map((line) => {
-        const pct = varPct(line.current, line.prior);
-        return `
+      .map(
+        (line) => `
           <tr>
             <td>${escapeHtml(line.concept)}</td>
             <td>${line.current}</td>
-            <td>${line.prior}</td>
-            <td>${pct == null ? "" : pct.toFixed(1)}</td>
-            <td>${line.budget}</td>
-          </tr>`;
-      })
+          </tr>`,
+      )
       .join("");
     const html = `<!doctype html>
       <html>
@@ -168,10 +152,7 @@ export default function ErExportActions({
             <thead>
               <tr>
                 <th>Concepto</th>
-                <th>2025 (M)</th>
-                <th>2024 (M)</th>
-                <th>Var %</th>
-                <th>Presup. (M)</th>
+                <th>Valor del período (M)</th>
               </tr>
             </thead>
             <tbody>${rows}</tbody>

@@ -19,7 +19,7 @@ export default async function BalancePage() {
       where: whereCliente,
       orderBy: [{ nombreCliente: "asc" }, { creadoEn: "desc" }],
       select: {
-        id: true, nombreCliente: true, nit: true, periodo: true, version: true,
+        id: true, clienteId: true, nombreCliente: true, nit: true, periodo: true, version: true,
         esOficial: true, estado: true, completitud: true, ultimaCarga: true,
         mapeadas: true, sinMapear: true, filasTotales: true,
       },
@@ -36,30 +36,34 @@ export default async function BalancePage() {
   const canUpload = (await authorizePermiso("balance:crear")).ok;
   const uploadClients = canUpload ? carteraClientes : [];
 
-  // Agrupar por cliente → períodos. NOTA: el Map es solo para agregar aquí;
-  // a la frontera RSC→client se pasan SOLO objetos planos serializables (periodList).
-  type Agg = { clientName: string; clientNit: string; mapped?: number; unmapped?: number; total?: number; periods: Map<string, PeriodRow> };
-  const byClient = new Map<string, Agg>();
+  // Agrupar por cliente → períodos. La clave es el clienteId (NO el nombre, que
+  // es denormalizado: dos clientes homónimos no deben fusionarse y un cliente
+  // renombrado no debe partirse). El mapeo (mapeadas/sinMapear/total) se lleva a
+  // nivel de PERÍODO (su versión oficial), no de cliente, para no mezclar
+  // períodos. A la frontera RSC→client se pasan SOLO objetos planos serializables.
+  type Agg = { clientId: number; clientName: string; clientNit: string; periods: Map<string, PeriodRow> };
+  const byClient = new Map<number, Agg>();
   for (const b of encabezados) {
-    let g = byClient.get(b.nombreCliente);
+    let g = byClient.get(b.clienteId);
     if (!g) {
-      g = { clientName: b.nombreCliente, clientNit: b.nit ?? "", periods: new Map() };
-      byClient.set(b.nombreCliente, g);
-    }
-    if (g.mapped == null || b.esOficial) {
-      g.mapped = b.mapeadas; g.unmapped = b.sinMapear; g.total = b.filasTotales;
+      g = { clientId: b.clienteId, clientName: b.nombreCliente, clientNit: b.nit ?? "", periods: new Map() };
+      byClient.set(b.clienteId, g);
     }
     let p = g.periods.get(b.periodo);
-    if (!p) { p = { period: b.periodo, versions: 0, official: null, officialId: null, status: b.estado, complete: b.completitud, lastUpload: b.ultimaCarga ?? "" }; g.periods.set(b.periodo, p); }
+    if (!p) {
+      p = { period: b.periodo, versions: 0, official: null, officialId: null, status: b.estado, complete: b.completitud, lastUpload: b.ultimaCarga ?? "", mapped: b.mapeadas, unmapped: b.sinMapear, total: b.filasTotales };
+      g.periods.set(b.periodo, p);
+    }
     p.versions += 1;
     if (!p.officialId) p.officialId = b.id; // fallback si ninguna fila es oficial
     if (b.esOficial) {
       p.official = b.version; p.officialId = b.id; p.status = b.estado; p.complete = b.completitud; p.lastUpload = b.ultimaCarga ?? p.lastUpload;
+      p.mapped = b.mapeadas; p.unmapped = b.sinMapear; p.total = b.filasTotales; // mapeo de la versión oficial del período
     }
   }
 
   const clients: ClientGroup[] = [...byClient.values()].map((g) => ({
-    clientName: g.clientName, clientNit: g.clientNit, mapped: g.mapped, unmapped: g.unmapped, total: g.total,
+    clientId: g.clientId, clientName: g.clientName, clientNit: g.clientNit,
     periodList: [...g.periods.values()],
   }));
 

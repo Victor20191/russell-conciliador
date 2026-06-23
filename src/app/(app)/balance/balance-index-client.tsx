@@ -15,10 +15,10 @@ import { CargarBalanceButton, type ClienteOpcion } from "./cargar-balance-modal"
 export type PeriodRow = {
   period: string; versions: number; official: string | null; officialId: number | null;
   status: string; complete: number; lastUpload: string;
+  mapped: number; unmapped: number; total: number;
 };
 export type ClientGroup = {
-  clientName: string; clientNit: string;
-  mapped?: number; unmapped?: number; total?: number;
+  clientId: number; clientName: string; clientNit: string;
   periodList: PeriodRow[];
 };
 export type AuditRow = { date: string; actor: string; role: string; action: string; ip: string; details: string };
@@ -67,13 +67,11 @@ function ClientsTab({ clients }: { clients: ClientGroup[] }) {
         </div>
       )}
       {pg.pageItems.map((c) => (
-        <Card key={c.clientName}>
+        <Card key={c.clientId}>
           <div className="flex items-center gap-2.5 border-b border-ink-100 px-4 py-3">
             <span className="text-ink-400"><Icon name="doc" size={16} /></span>
             <h2 className="text-[13px] font-semibold text-ink-800">{c.clientName}</h2>
             <span className="font-mono text-[11px] text-ink-400">{c.clientNit}</span>
-            {c.total != null && <span className="ml-2"><Chip label={`${c.mapped}/${c.total} mapeadas`} tone="ink" /></span>}
-            {c.unmapped != null && c.unmapped > 0 && <Chip label={`${c.unmapped} sin mapeo`} tone="warn" />}
             <span className="ml-auto text-[11px] text-ink-400">{c.periodList.length} período(s)</span>
           </div>
           <div className="overflow-x-auto">
@@ -85,6 +83,7 @@ function ClientsTab({ clients }: { clients: ClientGroup[] }) {
                   <th className="px-4 py-2 font-semibold">Versión oficial</th>
                   <th className="px-4 py-2 font-semibold">Estado</th>
                   <th className="px-4 py-2 font-semibold">Completitud</th>
+                  <th className="px-4 py-2 font-semibold">Mapeo</th>
                   <th className="px-4 py-2 font-semibold">Última carga</th>
                   <th className="px-4 py-2"></th>
                 </tr>
@@ -103,6 +102,10 @@ function ClientsTab({ clients }: { clients: ClientGroup[] }) {
                         </div>
                         <span className="font-mono text-[11px] text-ink-500">{p.complete}%</span>
                       </div>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <span className="font-mono text-[11px] text-ink-600">{p.mapped}/{p.total}</span>
+                      {p.unmapped > 0 && <span className="ml-1.5"><Chip label={`${p.unmapped} sin mapeo`} tone="warn" /></span>}
                     </td>
                     <td className="px-4 py-2.5 text-ink-500">{p.lastUpload}</td>
                     <td className="px-4 py-2.5 text-right">

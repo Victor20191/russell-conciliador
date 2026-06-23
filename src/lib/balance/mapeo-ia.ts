@@ -5,7 +5,7 @@
 import "server-only";
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { getAnthropic, MODELO_EXTRACCION } from "@/lib/anthropic";
+import { getAnthropic, MODELO_EXTRACCION, conReintentoSinTemperatura } from "@/lib/anthropic";
 
 export type CuentaPendiente = { code: string; name: string };
 export type CuentaPlan = { code: string; name: string; russell: string; posibles: string };
@@ -63,14 +63,16 @@ export async function mapearPorIA(pendientes: CuentaPendiente[], plan: CuentaPla
     const lote = pendientes.slice(i, i + TAM_LOTE);
     const lista = lote.map((p) => `${p.code} | ${p.name}`).join("\n");
     try {
-      const r = await client.messages.parse({
-        model: MODELO_EXTRACCION,
-        max_tokens: 8000,
-        thinking: { type: "adaptive" },
-        system,
-        messages: [{ role: "user", content: [{ type: "text", text: `CUENTAS DEL CLIENTE A MAPEAR (código | nombre):\n${lista}\n\nDevuelve una asignación por cada cuenta del cliente.` }] }],
-        output_config: { format: zodOutputFormat(MapeoIASchema) },
-      });
+      const r = await conReintentoSinTemperatura((ajustes) =>
+        client.messages.parse({
+          model: MODELO_EXTRACCION,
+          max_tokens: 8000,
+          ...ajustes,
+          system,
+          messages: [{ role: "user", content: [{ type: "text", text: `CUENTAS DEL CLIENTE A MAPEAR (código | nombre):\n${lista}\n\nDevuelve una asignación por cada cuenta del cliente.` }] }],
+          output_config: { format: zodOutputFormat(MapeoIASchema) },
+        }),
+      );
       for (const a of r.parsed_output?.asignaciones ?? []) {
         const std = a.cuenta6Russell && validos.has(a.cuenta6Russell) ? a.cuenta6Russell : null;
         out.set(a.cuentaCliente, { std, coincidencia: std ? Math.round(Math.max(0, Math.min(100, a.coincidencia))) : null });

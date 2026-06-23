@@ -5,6 +5,7 @@ import { PageHeader, StatCard, Chip, BackLink } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { fmtCompact, fmtDate } from "@/lib/format";
 import { reconstruirBalance, agruparPorRussell } from "@/lib/balance/calcular";
+import { getCuentasEstandar } from "@/lib/balance/cuentas-estandar";
 import BalanceDetailClient, {
   type Meta, type Version,
 } from "./balance-detail-client";
@@ -35,8 +36,16 @@ export default async function BalanceDetailPage({ params }: { params: Promise<{ 
   // ESTE balance: así el botón se oculta para quien no podría ejecutar la acción.
   const puedeEditar = (await authorizePermiso("balance:editar", { clientId })).ok;
 
-  // Agregados RECALCULADOS desde el detalle (ya no se persiste el JSON).
-  const cuentasEstandar = await prisma.standardAccount.findMany({ select: { code: true, name: true, nature: true, critical: true } });
+  // Agregados RECALCULADOS desde el detalle (ya no se persiste el JSON). El plan
+  // estándar (cacheado) y la bitácora de versiones se cargan en paralelo.
+  const [cuentasEstandar, hermanos] = await Promise.all([
+    getCuentasEstandar(),
+    prisma.balancePruebaEncabezado.findMany({
+      where: { clienteId: balance.clienteId, periodo: balance.periodo },
+      orderBy: { creadoEn: "desc" },
+      select: { id: true, version: true, ultimaCarga: true, cargadoPor: true, rolCarga: true, archivo: true, tamanoArchivo: true, filasTotales: true, sumaActivo: true, cuadrado: true, nota: true, cambios: true, creadoEn: true },
+    }),
+  ]);
   const filas = balance.detalles.map((f) => ({
     cuenta8: f.cuenta8, nombreCuenta: f.nombreCuenta, cuenta6Russell: f.cuenta6Russell,
     coincidencia: f.coincidencia != null ? Number(f.coincidencia) : null,
@@ -49,12 +58,8 @@ export default async function BalanceDetailPage({ params }: { params: Promise<{ 
   const nombresRussell = new Map(cuentasEstandar.map((s) => [s.code, s.name]));
   const breakdown = agruparPorRussell(filas, cuentasEstandar, nombresRussell);
 
-  // Bitácora de versiones: los encabezados hermanos del mismo (cliente, período).
-  const hermanos = await prisma.balancePruebaEncabezado.findMany({
-    where: { clienteId: balance.clienteId, periodo: balance.periodo },
-    orderBy: { creadoEn: "desc" },
-    select: { id: true, version: true, ultimaCarga: true, cargadoPor: true, rolCarga: true, archivo: true, tamanoArchivo: true, filasTotales: true, sumaActivo: true, cuadrado: true, nota: true, cambios: true, creadoEn: true },
-  });
+  // Bitácora de versiones: los encabezados hermanos del mismo (cliente, período)
+  // (cargados arriba en paralelo con el plan estándar).
   const versions: Version[] = hermanos.map((h) => ({
     v: h.version, date: h.ultimaCarga ?? "—", uploadedBy: h.cargadoPor ?? "—", role: h.rolCarga ?? "—",
     file: h.archivo ?? "—", size: h.tamanoArchivo ?? "—", rows: h.filasTotales, sumA: Number(h.sumaActivo),

@@ -156,6 +156,19 @@ describe("transformarTabular", () => {
     expect(rr.resumen.filasDescuadre).toBe(0);
   });
 
+  it("sin columna de saldo final, computa el saldo con movimientos en magnitud (SIGN-2)", () => {
+    const hojaSinSaldoFinal: GridHoja = {
+      nombre: "Balance",
+      filas: [
+        ["Código", "Cuenta", "SI", "DB", "CR"],
+        [110505, "Caja", 0, -50, 0], // débito en negativo (nota débito) y SIN columna de saldo final
+      ],
+    };
+    const s = spec({ columnas: { ...spec().columnas, saldoInicial: 3, debitos: 4, creditos: 5, saldoFinal: 0, saldoFinalDebito: 0, saldoFinalCredito: 0 } });
+    const rr = transformarTabular(s, [hojaSinSaldoFinal], PARAMS);
+    expect(rr.importReady[0]).toMatchObject({ code: "110505", balance: 50, debitos: 50 });
+  });
+
   it("archivo marcado no importable → 0 filas + excepción", () => {
     const rr = transformarTabular(spec({ importable: false, motivoNoImportable: "Solo movimientos." }), [hoja], PARAMS);
     expect(rr.importReady).toHaveLength(0);

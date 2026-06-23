@@ -8,8 +8,8 @@ import "server-only";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { getAnthropic, MODELO_EXTRACCION } from "@/lib/anthropic";
-import { ingerir, construirVistaPrevia } from "./ingesta";
+import { getAnthropic, MODELO_EXTRACCION, conReintentoSinTemperatura } from "@/lib/anthropic";
+import { ingerir, construirVistaPrevia, contarPaginasPDF, LIMITE_PAGINAS_PDF } from "./ingesta";
 import { MappingSpecSchema, ExtraccionDirectaSchema } from "./esquema";
 import { transformarTabular, validarDirecta, type ParamsExtraccion, type ResultadoTransform } from "./transformar";
 
@@ -46,7 +46,7 @@ export async function extraerBalance(data: ArrayBuffer, fileName: string, params
   const ingesta = ingerir(data, fileName);
   const client = getAnthropic();
   // Prompt caching: con el modelo por defecto (Sonnet 4.6, mínimo cacheable 2048 tokens)
-  // el prompt (~2,8K tokens) SÍ se cachea. Ojo: si se fija ANTHROPIC_MODEL a la familia
+  // el prompt (~2,1-2,5K tokens) SÍ se cachea. Ojo: si se fija ANTHROPIC_MODEL a la familia
   // Opus 4.x (mínimo 4096) el prompt queda corto y dejaría de cachearse (sin coste extra).
   // El grueso de la entrada es el archivo/vista previa: cambia por carga y no es cacheable.
   const system = [{ type: "text" as const, text: promptSistema(), cache_control: { type: "ephemeral" as const } }];
@@ -61,14 +61,16 @@ export async function extraerBalance(data: ArrayBuffer, fileName: string, params
       vista,
     ].join("\n");
 
-    const r = await client.messages.parse({
-      model: MODELO_EXTRACCION,
-      max_tokens: MAX_TOKENS_ESTRUCTURA,
-      thinking: { type: "adaptive" },
-      system,
-      messages: [{ role: "user", content: [{ type: "text", text: instruccion }] }],
-      output_config: { format: zodOutputFormat(MappingSpecSchema) },
-    });
+    const r = await conReintentoSinTemperatura((ajustes) =>
+      client.messages.parse({
+        model: MODELO_EXTRACCION,
+        max_tokens: MAX_TOKENS_ESTRUCTURA,
+        ...ajustes,
+        system,
+        messages: [{ role: "user", content: [{ type: "text", text: instruccion }] }],
+        output_config: { format: zodOutputFormat(MappingSpecSchema) },
+      }),
+    );
     const spec = r.parsed_output;
     if (!spec) throw new Error("La IA no devolvió un mapeo válido del archivo. Reintenta o revisa el formato.");
     return transformarTabular(spec, ingesta.hojas, params);
@@ -76,6 +78,12 @@ export async function extraerBalance(data: ArrayBuffer, fileName: string, params
 
   // Documento (PDF o texto): extracción directa.
   const doc = ingesta.documento;
+  if (doc.tipo === "pdf") {
+    const paginas = contarPaginasPDF(data);
+    if (paginas != null && paginas > LIMITE_PAGINAS_PDF) {
+      throw new Error(`El PDF tiene ${paginas} páginas y el máximo que la IA puede leer es ${LIMITE_PAGINAS_PDF}. Divídelo o exporta el balance a Excel/CSV.`);
+    }
+  }
   const instruccion = [
     bloqueParametros(params),
     "",
@@ -91,14 +99,16 @@ export async function extraerBalance(data: ArrayBuffer, fileName: string, params
         ]
       : [{ type: "text" as const, text: instruccion }];
 
-  const r = await client.messages.parse({
-    model: MODELO_EXTRACCION,
-    max_tokens: MAX_TOKENS_DIRECTA,
-    thinking: { type: "adaptive" },
-    system,
-    messages: [{ role: "user", content }],
-    output_config: { format: zodOutputFormat(ExtraccionDirectaSchema) },
-  });
+  const r = await conReintentoSinTemperatura((ajustes) =>
+    client.messages.parse({
+      model: MODELO_EXTRACCION,
+      max_tokens: MAX_TOKENS_DIRECTA,
+      ...ajustes,
+      system,
+      messages: [{ role: "user", content }],
+      output_config: { format: zodOutputFormat(ExtraccionDirectaSchema) },
+    }),
+  );
   const extr = r.parsed_output;
   if (!extr) throw new Error("La IA no devolvió filas válidas del documento. Reintenta o revisa el archivo.");
   return validarDirecta(extr, params);
