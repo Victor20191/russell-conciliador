@@ -121,6 +121,7 @@ export const PERMISOS: Permiso[] = [
   { code: "clientes:ver", module: "clientes", action: "ver", label: "Ver clientes", roles: TODOS },
   { code: "auditoria:ver", module: "auditoria", action: "ver", label: "Ver registro de auditoría", roles: CONSULTA_Y_ADMIN },
   { code: "usuarios:ver", module: "usuarios", action: "ver", label: "Ver usuarios", roles: SOLO_ADMIN },
+  { code: "maestros:ver", module: "maestros", action: "ver", label: "Ver maestros", roles: SOLO_ADMIN },
   { code: "modulos:ver", module: "modulos", action: "ver", label: "Ver módulos y campos", roles: SOLO_ADMIN },
   { code: "mapeos_dian:ver", module: "mapeos_dian", action: "ver", label: "Ver mapeos DIAN", roles: SENIOR_Y_ADMIN },
 
@@ -165,12 +166,20 @@ export const PERMISOS: Permiso[] = [
   { code: "usuarios:crear", module: "usuarios", action: "crear", label: "Crear usuario", roles: SOLO_ADMIN },
   { code: "usuarios:editar", module: "usuarios", action: "editar", label: "Editar usuario", roles: SOLO_ADMIN },
   { code: "usuarios:eliminar", module: "usuarios", action: "eliminar", label: "Desactivar usuario", roles: SOLO_ADMIN },
+  { code: "maestros:administrar", module: "maestros", action: "administrar", label: "Administrar maestros", roles: SOLO_ADMIN },
   { code: "roles:ver", module: "roles", action: "ver", label: "Ver matriz de roles y permisos", roles: SOLO_ADMIN },
   { code: "roles:configurar", module: "roles", action: "configurar", label: "Editar permisos por rol", roles: SOLO_ADMIN },
   { code: "modulos:configurar", module: "modulos", action: "configurar", label: "Configurar módulos y campos", roles: SOLO_ADMIN },
   { code: "dian:configurar", module: "dian", action: "configurar", label: "Configurar formularios DIAN", roles: SOLO_ADMIN },
   { code: "publicacion_modulos:ver", module: "publicacion_modulos", action: "ver", label: "Ver publicación de módulos", roles: SOLO_SUPERADMIN },
   { code: "publicacion_modulos:configurar", module: "publicacion_modulos", action: "configurar", label: "Configurar publicación de módulos", roles: SOLO_SUPERADMIN },
+
+  // ===== Novedades · changelog + control de versiones — SOLO Administrador =====
+  // Módulo admin-only (por ahora): los administradores consultan el avance de la
+  // plataforma y administran su contenido. La visibilidad real la da este
+  // permiso (no la publicación de módulos, que para `novedades` queda inerte).
+  { code: "novedades:ver", module: "novedades", action: "ver", label: "Ver novedades", roles: SOLO_ADMIN },
+  { code: "novedades:administrar", module: "novedades", action: "administrar", label: "Administrar novedades", roles: SOLO_ADMIN },
 ];
 
 // ----- MATRIZ rol×permiso derivada del catálogo (solo roles del PDF) -----

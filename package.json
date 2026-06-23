@@ -18,6 +18,7 @@
     "db:sync:rbac": "tsx prisma/sync-matriz.ts",
     "db:seed:comentar": "tsx prisma/seed-comentar.ts",
     "db:seed:admin-negocio": "tsx prisma/seed-admin-negocio.ts",
+    "db:seed:novedades": "tsx prisma/seed-novedades.ts",
     "db:backfill:roles": "tsx prisma/backfill-roles.ts",
     "db:completar:jerarquia": "tsx scripts/completar_jerarquia.ts",
     "db:studio": "prisma studio"

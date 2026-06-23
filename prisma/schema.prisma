@@ -741,3 +741,51 @@ model RussellOption {
 
   @@map("opciones_russell")
 }
+
+// ===== Novedades · changelog + control de versiones (Configuración) =====
+// Bitácora de evolución de la PLATAFORMA, visible SOLO para administradores
+// (gates novedades:ver / novedades:administrar). El ENCABEZADO es una VERSIÓN
+// (timeline de avance: borrador → publicada); el DETALLE es un CAMBIO por fila,
+// con su guía de operación (texto multilínea, una línea por paso), un ejemplo y
+// un deep-link a la ruta interna real para "probar" la funcionalidad.
+//
+// FK DURA cambios_version → versiones_plataforma con onDelete: Cascade (borrar
+// una versión arrastra sus cambios). `createdById` es FK LÓGICA a User (solo
+// Int, sin @relation): el changelog se conserva aunque el autor se elimine.
+model PlatformVersion {
+  id          Int       @id @default(autoincrement()) @map("id")
+  number      String    @unique @map("numero") // versión legible: "1.2.0"
+  title       String    @map("titulo")
+  summary     String?   @map("resumen")
+  status      String    @default("borrador") @map("estado") // borrador | publicada
+  releasedAt  DateTime? @map("publicado_en") // fecha de lanzamiento (al publicar)
+  order       Int       @default(0) @map("orden") // orden manual del timeline
+  createdById Int?      @map("creado_por_id") // FK lógica a User.id (autor)
+  createdAt   DateTime  @default(now()) @map("creado_en")
+  updatedAt   DateTime  @updatedAt @map("actualizado_en")
+
+  changes VersionChange[]
+
+  @@index([status])
+  @@map("versiones_plataforma")
+}
+
+model VersionChange {
+  id            Int             @id @default(autoincrement()) @map("id")
+  versionId     Int             @map("version_id")
+  version       PlatformVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  type          String          @map("tipo") // nueva | mejora | correccion | seguridad
+  title         String          @map("titulo")
+  description   String          @map("descripcion")
+  moduleKey     String?         @map("modulo") // clave de PlatformModule afectado (opcional)
+  route         String?         @map("ruta") // deep-link interno, p. ej. "/balance"
+  howTo         String?         @map("como_operar") // pasos: texto multilínea (1 línea = 1 paso)
+  example       String?         @map("ejemplo") // ejemplo práctico
+  featureStatus String          @default("disponible") @map("estado_funcionalidad") // disponible | en_desarrollo | planeada
+  order         Int             @default(0) @map("orden")
+  createdAt     DateTime        @default(now()) @map("creado_en")
+  updatedAt     DateTime        @updatedAt @map("actualizado_en")
+
+  @@index([versionId])
+  @@map("cambios_version")
+}

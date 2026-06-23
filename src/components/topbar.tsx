@@ -31,6 +31,7 @@ const CRUMB_LABELS: Record<string, string> = {
   modulos: "Módulos y campos",
   "publicacion-modulos": "Publicación de módulos",
   clientes: "Clientes",
+  maestros: "Maestros",
 };
 
 export default function Topbar({

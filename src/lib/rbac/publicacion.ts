@@ -9,7 +9,7 @@ import {
   type PlatformModuleState,
 } from "@/lib/rbac/modulos-plataforma";
 
-export const PUBLICACION_MODULOS_CACHE_TAG = "publicacion-modulos";
+export const PUBLICACION_MODULOS_CACHE_TAG = "publicacion-modulos-v2";
 
 async function leerPublicacionBD(): Promise<PlatformModuleState[]> {
   const filas = await prisma.platformModule.findMany({
@@ -36,7 +36,7 @@ async function leerPublicacionBD(): Promise<PlatformModuleState[]> {
 
 const getPublicacionCached = unstable_cache(
   leerPublicacionBD,
-  ["publicacion-modulos"],
+  ["publicacion-modulos-v2"],
   { tags: [PUBLICACION_MODULOS_CACHE_TAG], revalidate: 3600 },
 );
 

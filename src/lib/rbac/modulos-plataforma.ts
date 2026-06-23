@@ -8,11 +8,13 @@ export type PlatformModuleKey =
   | "dian"
   | "auditoria"
   | "clientes"
+  | "maestros"
   | "mapeos_dian"
   | "usuarios"
   | "modulos"
   | "roles"
-  | "publicacion_modulos";
+  | "publicacion_modulos"
+  | "novedades";
 
 export type PlatformModuleDefinition = {
   key: PlatformModuleKey;
@@ -112,6 +114,16 @@ export const MODULOS_PLATAFORMA: PlatformModuleDefinition[] = [
     configurableForNonAdmins: true,
   },
   {
+    key: "maestros",
+    label: "Maestros",
+    description: "Catálogos base de responsables, ERP y sectores.",
+    group: "Configuración",
+    icon: "box",
+    order: 120,
+    enabledForNonAdmins: true,
+    configurableForNonAdmins: true,
+  },
+  {
     key: "mapeos_dian",
     label: "Mapeos DIAN",
     description: "Parametrización de cuentas para formularios DIAN.",
@@ -160,6 +172,21 @@ export const MODULOS_PLATAFORMA: PlatformModuleDefinition[] = [
     order: 170,
     enabledForNonAdmins: true,
     configurableForNonAdmins: true,
+  },
+  {
+    // Admin-only: NO se publica a no-administradores (enabled=false) y NO es
+    // configurable desde Publicación de módulos (configurable=false), de modo
+    // que el toggle queda inerte y la única barrera es el permiso novedades:ver
+    // (SOLO_ADMIN). Con configurable=false, moduloPublicadoParaRol devuelve true
+    // para todos, pero el filtro de permiso lo mantiene admin-only.
+    key: "novedades",
+    label: "Novedades",
+    description: "Changelog y control de versiones de la plataforma.",
+    group: "Configuración",
+    icon: "bell",
+    order: 180,
+    enabledForNonAdmins: false,
+    configurableForNonAdmins: false,
   },
 ];
 

@@ -228,3 +228,83 @@ export const StandardAccountUpdateSchema = z.object({
 export const StandardAccountDeleteSchema = z.object({
   id: z.coerce.number().int().positive(),
 });
+
+// ===== Novedades (/novedades · changelog + control de versiones) =====
+// CRUD admin-only (gate `novedades:administrar`). Una VERSIÓN (encabezado) agrupa
+// varios CAMBIOS (detalle). Texto opcional: "" o ausente → null (mismo criterio
+// que los campos opcionales de cuenta estándar/cliente).
+const textoOpcionalNovedad = z.preprocess((v) => {
+  if (typeof v !== "string") return null;
+  const t = v.trim();
+  return t === "" ? null : t;
+}, z.string().max(8000, { error: "El texto es demasiado largo." }).nullable());
+
+// Ruta interna para "probar" la funcionalidad: vacía → null; si viene, debe ser
+// una ruta ABSOLUTA INTERNA (empieza con "/", sin "//" inicial ni dominio/esquema)
+// para evitar enlaces externos / open-redirect desde el botón "Probar".
+const rutaInternaOpcional = z.preprocess(
+  (v) => {
+    if (typeof v !== "string") return null;
+    const t = v.trim();
+    return t === "" ? null : t;
+  },
+  z
+    .string()
+    .regex(/^\/(?!\/)[A-Za-z0-9/_-]*$/, {
+      error: "La ruta debe ser interna (empezar con / y sin dominio).",
+    })
+    .max(200, { error: "La ruta es demasiado larga." })
+    .nullable(),
+);
+
+const ordenOpcional = z.coerce.number().int().min(0).max(100000).catch(0);
+
+const VersionBase = {
+  number: z
+    .string()
+    .min(1, { error: "El número de versión es obligatorio." })
+    .trim()
+    .max(40, { error: "El número es demasiado largo." }),
+  title: z
+    .string()
+    .min(1, { error: "El título es obligatorio." })
+    .trim()
+    .max(200, { error: "El título es demasiado largo." }),
+  summary: textoOpcionalNovedad,
+  status: z.enum(["borrador", "publicada"], { error: "Selecciona el estado de la versión." }),
+  order: ordenOpcional,
+};
+
+export const VersionCreateSchema = z.object(VersionBase);
+export const VersionUpdateSchema = z.object({ id: z.coerce.number().int().positive(), ...VersionBase });
+export const VersionDeleteSchema = z.object({ id: z.coerce.number().int().positive() });
+
+const ChangeBase = {
+  versionId: z
+    .coerce.number({ error: "Selecciona la versión." })
+    .int()
+    .positive({ error: "Selecciona la versión." }),
+  type: z.enum(["nueva", "mejora", "correccion", "seguridad"], { error: "Selecciona el tipo de cambio." }),
+  title: z
+    .string()
+    .min(1, { error: "El título es obligatorio." })
+    .trim()
+    .max(200, { error: "El título es demasiado largo." }),
+  description: z
+    .string()
+    .min(1, { error: "La descripción es obligatoria." })
+    .trim()
+    .max(8000, { error: "La descripción es demasiado larga." }),
+  moduleKey: textoOpcionalNovedad,
+  route: rutaInternaOpcional,
+  howTo: textoOpcionalNovedad,
+  example: textoOpcionalNovedad,
+  featureStatus: z.enum(["disponible", "en_desarrollo", "planeada"], {
+    error: "Selecciona el estado de la funcionalidad.",
+  }),
+  order: ordenOpcional,
+};
+
+export const ChangeCreateSchema = z.object(ChangeBase);
+export const ChangeUpdateSchema = z.object({ id: z.coerce.number().int().positive(), ...ChangeBase });
+export const ChangeDeleteSchema = z.object({ id: z.coerce.number().int().positive() });

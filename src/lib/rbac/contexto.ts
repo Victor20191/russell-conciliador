@@ -20,7 +20,7 @@ import { matrizConLegado } from "@/lib/rbac/catalogo";
 import { ROL_SOCIO, ROLES_ALCANCE_GLOBAL, derivarAsignacionesSocio } from "@/lib/rbac/jerarquia";
 import type { Matriz, Asignacion } from "@/lib/rbac/permisos";
 
-export const RBAC_CACHE_TAG = "rbac-matriz-v2";
+export const RBAC_CACHE_TAG = "rbac-matriz-v3";
 
 // La función interna que lee de BD (sin cache layer).
 async function leerMatrizDeBD(): Promise<Matriz> {
@@ -38,7 +38,7 @@ async function leerMatrizDeBD(): Promise<Matriz> {
 
 // unstable_cache: persiste entre requests hasta que revalidateTag(RBAC_CACHE_TAG)
 // sea llamado. Se combina con cache() para deduplicar dentro del mismo request.
-const getMatrizCached = unstable_cache(leerMatrizDeBD, ["rbac-matriz-v2"], {
+const getMatrizCached = unstable_cache(leerMatrizDeBD, ["rbac-matriz-v3"], {
   tags: [RBAC_CACHE_TAG],
   revalidate: 3600, // revalidación máxima: 1 hora (fallback si no hay tag invalidation)
 });

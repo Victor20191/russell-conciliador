@@ -157,6 +157,7 @@ export const ARBOL_MODULOS: GrupoModulos[] = [
     grupo: "Configuración y administración",
     items: [
       { module: "clientes", label: "Clientes", icon: "users" },
+      { module: "maestros", label: "Maestros", icon: "box" },
       { module: "mapeo", label: "Mapeo plan estándar", icon: "settings" },
       { module: "mapeos_dian", label: "Mapeos DIAN", icon: "doc" },
       { module: "usuarios", label: "Usuarios", icon: "users" },

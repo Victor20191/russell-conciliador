@@ -1,0 +1,171 @@
+"use client";
+
+import Link from "next/link";
+import { Card, Chip } from "@/components/ui";
+import { Icon } from "@/components/icons";
+import {
+  parsePasos,
+  esRutaInternaSegura,
+  etiquetaTipo,
+  toneDeTipo,
+  etiquetaEstadoFuncionalidad,
+  toneDeEstadoFuncionalidad,
+  etiquetaEstadoVersion,
+  toneDeEstadoVersion,
+} from "@/lib/novedades/format";
+import type { ChangeRow, VersionRow } from "./novedades-client";
+
+function formatFecha(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("es-CO", { dateStyle: "long" });
+}
+
+export function VersionCard({
+  version,
+  canManage,
+  onEdit,
+  onDelete,
+  onAddChange,
+  onEditChange,
+  onDeleteChange,
+}: {
+  version: VersionRow;
+  canManage: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
+  onAddChange: () => void;
+  onEditChange: (change: ChangeRow) => void;
+  onDeleteChange: (change: ChangeRow) => void;
+}) {
+  return (
+    <Card>
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-ink-100 px-4 py-3.5">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-mono text-[13px] font-semibold text-navy-700">v{version.number}</span>
+            <Chip label={etiquetaEstadoVersion(version.status)} tone={toneDeEstadoVersion(version.status)} />
+            {version.releasedAt && (
+              <span className="text-[11.5px] text-ink-500">{formatFecha(version.releasedAt)}</span>
+            )}
+          </div>
+          <h2 className="mt-1 font-serif text-lg text-ink-900">{version.title}</h2>
+          {version.summary && (
+            <p className="mt-1 max-w-2xl whitespace-pre-line text-[13px] text-ink-600">{version.summary}</p>
+          )}
+        </div>
+        {canManage && (
+          <div className="flex shrink-0 items-center gap-x-3 text-[12.5px]">
+            <button onClick={onAddChange} className="font-medium text-blue-500 hover:underline">
+              Agregar cambio
+            </button>
+            <button onClick={onEdit} className="text-ink-600 hover:underline">
+              Editar
+            </button>
+            <button onClick={onDelete} className="text-err-700 hover:underline">
+              Eliminar
+            </button>
+          </div>
+        )}
+      </div>
+
+      {version.changes.length === 0 ? (
+        <p className="px-4 py-6 text-center text-[12.5px] text-ink-500">
+          Esta versión aún no tiene cambios documentados.
+        </p>
+      ) : (
+        <ul className="divide-y divide-ink-100">
+          {version.changes.map((c) => (
+            <li key={c.id} className="px-4 py-4">
+              <ChangeItem
+                change={c}
+                canManage={canManage}
+                onEdit={() => onEditChange(c)}
+                onDelete={() => onDeleteChange(c)}
+              />
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
+function ChangeItem({
+  change,
+  canManage,
+  onEdit,
+  onDelete,
+}: {
+  change: ChangeRow;
+  canManage: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const pasos = parsePasos(change.howTo);
+  // El botón "Probar" solo si la ruta es interna segura y la funcionalidad no es
+  // todavía "planeada" (en ese caso la ruta puede no existir aún).
+  const mostrarProbar = esRutaInternaSegura(change.route) && change.featureStatus !== "planeada";
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <Chip label={etiquetaTipo(change.type)} tone={toneDeTipo(change.type)} />
+          <Chip
+            label={etiquetaEstadoFuncionalidad(change.featureStatus)}
+            tone={toneDeEstadoFuncionalidad(change.featureStatus)}
+          />
+          <span className="text-[13.5px] font-semibold text-ink-800">{change.title}</span>
+        </div>
+        {canManage && (
+          <div className="flex shrink-0 items-center gap-x-3 text-[12px]">
+            <button onClick={onEdit} className="text-blue-500 hover:underline">
+              Editar
+            </button>
+            <button onClick={onDelete} className="text-err-700 hover:underline">
+              Eliminar
+            </button>
+          </div>
+        )}
+      </div>
+
+      {change.description && (
+        <p className="mt-2 whitespace-pre-line text-[13px] leading-relaxed text-ink-600">
+          {change.description}
+        </p>
+      )}
+
+      {pasos.length > 0 && (
+        <div className="mt-3">
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">
+            Cómo se opera
+          </div>
+          <ol className="mt-1.5 list-decimal space-y-1 pl-5 text-[13px] text-ink-700 marker:text-ink-400">
+            {pasos.map((paso, i) => (
+              <li key={i}>{paso}</li>
+            ))}
+          </ol>
+        </div>
+      )}
+
+      {change.example && (
+        <div className="mt-3 rounded-md border border-ink-150 bg-ink-50 px-3 py-2">
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">Ejemplo</div>
+          <p className="mt-1 whitespace-pre-line text-[12.5px] text-ink-700">{change.example}</p>
+        </div>
+      )}
+
+      {mostrarProbar && change.route && (
+        <Link
+          href={change.route}
+          className="mt-3 inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white transition hover:bg-navy-700/90"
+        >
+          Probar funcionalidad
+          <Icon name="chev-r" size={13} />
+        </Link>
+      )}
+    </div>
+  );
+}
