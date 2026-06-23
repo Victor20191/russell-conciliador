@@ -76,8 +76,8 @@ function BreakdownTab({ groups }: { groups: BreakdownGroup[] }) {
                     <td className={`px-4 py-2 text-right font-mono ${g.variation != null && Math.abs(g.variation) > 25 ? "text-warn-700" : "text-ink-700"}`}>{fmtPct(g.variation)}</td>
                     <td className="px-4 py-2">{!g.saldoOk ? <Chip label="Saldo contrario" tone="err" /> : g.mapped ? <Chip label="OK" tone="ok" /> : null}</td>
                   </tr>
-                  {isOpen && g.items.map((a) => (
-                    <tr key={a.code} className="border-b border-ink-50 hover:bg-ink-50">
+                  {isOpen && g.items.map((a, i) => (
+                    <tr key={`${g.code}-${a.code}-${i}`} className="border-b border-ink-50 hover:bg-ink-50">
                       <td className="px-4 py-2 pl-9 font-mono text-[11.5px] text-ink-500">{a.code}</td>
                       <td className="px-4 py-2 text-ink-700">{a.name}{a.critical && <span className="ml-2"><Chip label="Crítica" tone="warn" /></span>}</td>
                       <td className="px-4 py-2">

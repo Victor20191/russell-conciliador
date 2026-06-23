@@ -4,6 +4,7 @@ import {
   claseNatura,
   aplanarBreakdown,
   compararBalances,
+  consolidarPorCodigo,
   descomponerCuenta,
   aFilasDetalle,
   reconstruirBalance,
@@ -152,6 +153,36 @@ describe("calcularBalance — hojas (evita doble conteo de resúmenes)", () => {
   it("solo suma las cuentas hoja", () => {
     expect(r.totalRows).toBe(2); // 110505 y 111005 (11 y 1105 son ancestros)
     expect(r.sums.activo).toBe(6000); // no 12000
+  });
+});
+
+describe("consolidarPorCodigo — fusiona cuentas repetidas", () => {
+  it("suma saldos y movimientos del mismo código, conservando el primer nombre", () => {
+    const DUP: CuentaCruda[] = [
+      { code: "110505", name: "Caja general", prevBalance: 800, balance: 1000, debitos: 600, creditos: 400 },
+      { code: " 110505 ", name: "Caja menor", prevBalance: 200, balance: 500, debitos: 300, creditos: 100 },
+      { code: "111005", name: "Bancos", prevBalance: 5000, balance: 5000 },
+    ];
+    const out = consolidarPorCodigo(DUP);
+    expect(out).toHaveLength(2);
+    const caja = out.find((c) => c.code === "110505")!;
+    expect(caja.name).toBe("Caja general"); // primer nombre
+    expect(caja.prevBalance).toBe(1000); // 800 + 200
+    expect(caja.balance).toBe(1500); // 1000 + 500
+    expect(caja.debitos).toBe(900); // 600 + 300
+    expect(caja.creditos).toBe(500); // 400 + 100
+  });
+
+  it("calcularBalance deduplica antes de mapear y agregar", () => {
+    const r = calcularBalance(
+      [
+        { code: "110505", name: "Caja general", prevBalance: 0, balance: 1000 },
+        { code: "110505", name: "Caja menor", prevBalance: 0, balance: 1000 },
+      ],
+      STD,
+    );
+    expect(r.totalRows).toBe(1); // una sola fila tras consolidar
+    expect(r.sums.activo).toBe(2000); // 1000 + 1000
   });
 });
 

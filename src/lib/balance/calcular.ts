@@ -176,6 +176,30 @@ export function mapearCuenta(code: string, name: string, stdByCode: Map<string, 
 }
 
 /**
+ * Consolida cuentas crudas con el MISMO código en una sola fila: suma saldos
+ * (anterior/final) y movimientos (débitos/créditos), conserva el primer nombre y
+ * el orden de aparición. Un archivo que trae la misma cuenta repetida (o que la
+ * IA extrae dos veces) no debe producir detalle duplicado al persistir. La clave
+ * de agrupación es el código `trim`-eado (también se normaliza el `code` de salida).
+ */
+export function consolidarPorCodigo(cuentas: CuentaCruda[]): CuentaCruda[] {
+  const porCodigo = new Map<string, CuentaCruda>();
+  for (const c of cuentas) {
+    const key = (c.code ?? "").trim();
+    const prev = porCodigo.get(key);
+    if (!prev) {
+      porCodigo.set(key, { ...c, code: key });
+      continue;
+    }
+    prev.prevBalance += c.prevBalance;
+    prev.balance += c.balance;
+    if (c.debitos != null) prev.debitos = (prev.debitos ?? 0) + c.debitos;
+    if (c.creditos != null) prev.creditos = (prev.creditos ?? 0) + c.creditos;
+  }
+  return [...porCodigo.values()];
+}
+
+/**
  * Calcula los agregados del balance. `cuentas` son las filas crudas del
  * Excel; `estandar` el plan de cuentas (6 dígitos, con descripciones opcionales).
  * Mapeo en cascada: 1) exacto por prefijo de 6 dígitos; 2) por descripción si el
@@ -190,10 +214,14 @@ export function calcularBalance(
   const stdByCode = new Map(estandar.map((s) => [s.code, s]));
   const hayDescripcion = estandar.some((s) => s.possibleAccounts || s.name);
 
+  // 0) Consolida cuentas repetidas (mismo código) ANTES del filtro de hojas:
+  //    una cuenta partida en varias filas se fusiona sumando saldos/movimientos.
+  const consolidadas = consolidarPorCodigo(cuentas);
+
   // 1) Hojas: cuentas que no son prefijo de otra (evita doble conteo de
   //    filas de resumen como clase/grupo/cuenta cuando el archivo las trae).
-  const hojas = cuentas.filter(
-    (c) => !cuentas.some((o) => o.code !== c.code && o.code.startsWith(c.code) && o.code.length > c.code.length),
+  const hojas = consolidadas.filter(
+    (c) => !consolidadas.some((o) => o.code !== c.code && o.code.startsWith(c.code) && o.code.length > c.code.length),
   );
 
   // 2) Mapeo en cascada (exacto → descripción → override IA) + naturaleza.
