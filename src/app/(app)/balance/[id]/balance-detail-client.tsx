@@ -1,23 +1,32 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
 import { Card, Chip } from "@/components/ui";
+import { Modal } from "@/components/modal";
 import { fmt, fmtPct } from "@/lib/format";
+import { notifyError, notifySuccess } from "@/lib/client-notifications";
+import { asignarCuentaEstandar } from "@/app/actions/balance";
+import type { NodoBalance } from "@/lib/balance/calcular";
 
 export type Sums = { activo: number; pasivo: number; patrimonio: number; ingresos: number; gastos: number; costos: number; utilidad: number };
 export type Validation = { id: string; rule: string; status: string; detail: string; count?: number };
-export type BreakdownItem = { code: string; name: string; prevBalance: number; balance: number; debe: number; haber: number; variation: number | null; std: string | null; coincidencia: number | null; saldoOk: boolean; critical: boolean };
-export type BreakdownGroup = { code: string; name: string; prevBalance: number; balance: number; debe: number; haber: number; variation: number | null; mapped: boolean; saldoOk: boolean; critical: boolean; items: BreakdownItem[] };
+export type EstandarOpcion = { code: string; name: string };
 export type Meta = { rows: number; mapped: number; unmapped: number; critical: number; file: string; fileSize: string; frozenBy: string; frozenAt: string; uploadedBy: string; uploadedAt: string };
 export type Version = { v: string; date: string; uploadedBy: string; role: string; file: string; size: string; rows: number; sumA: number; balanced: boolean; note: string; changes: number };
 
 type Tab = "breakdown" | "validations" | "versions";
+type Filtro = "todo" | "balance" | "er" | "alertas";
+type Conteo = { mapeo: number; naturaleza: number };
+
+const CLASES_BALANCE = new Set(["1", "2", "3"]);
+const CLASES_ER = new Set(["4", "5", "6", "7"]);
 
 export default function BalanceDetailClient({
-  breakdown, validations, versions, officialVersion, warnCount,
+  arbol, estandar, puedeMapear, validations, versions, officialVersion, warnCount,
 }: {
-  breakdown: BreakdownGroup[]; validations: Validation[]; versions: Version[]; officialVersion: string; warnCount: number;
+  arbol: NodoBalance[]; estandar: EstandarOpcion[]; puedeMapear: boolean; validations: Validation[]; versions: Version[]; officialVersion: string; warnCount: number;
 }) {
   const [tab, setTab] = useState<Tab>("breakdown");
   return (
@@ -27,21 +36,98 @@ export default function BalanceDetailClient({
         <TabBtn on={tab === "validations"} onClick={() => setTab("validations")} label="Validaciones" count={warnCount} />
         <TabBtn on={tab === "versions"} onClick={() => setTab("versions")} label="Versiones" count={versions.length} />
       </div>
-      {tab === "breakdown" && <BreakdownTab groups={breakdown} />}
+      {tab === "breakdown" && <BreakdownTab arbol={arbol} estandar={estandar} puedeMapear={puedeMapear} />}
       {tab === "validations" && <ValidationsTab validations={validations} />}
       {tab === "versions" && <VersionsTab versions={versions} officialVersion={officialVersion} />}
     </div>
   );
 }
 
-function BreakdownTab({ groups }: { groups: BreakdownGroup[] }) {
-  const [open, setOpen] = useState<string[]>(groups.slice(0, 3).map((g) => g.code));
-  const toggle = (code: string) => setOpen((o) => (o.includes(code) ? o.filter((c) => c !== code) : [...o, code]));
+/** Llaves de los nodos con hijos (para expandir/contraer todo). */
+function keysConHijos(nodos: NodoBalance[]): string[] {
+  const ks: string[] = [];
+  const walk = (n: NodoBalance) => { if (n.hijos.length) { ks.push(n.key); n.hijos.forEach(walk); } };
+  nodos.forEach(walk);
+  return ks;
+}
+
+/** ¿Hoja con alerta? Cuenta sin mapear (mapeo) o con naturaleza/saldo contrario. */
+function esHojaAlerta(n: NodoBalance): boolean {
+  const mapeado = n.nivel === 8 ? !!n.std : n.mapped;
+  return !mapeado || !n.saldoOk;
+}
+
+/** Poda el árbol dejando solo las ramas con alertas (filtro "Alertas"). */
+function podarAlertas(nodos: NodoBalance[]): NodoBalance[] {
+  const out: NodoBalance[] = [];
+  for (const n of nodos) {
+    const hijos = podarAlertas(n.hijos);
+    const self = (n.hijos.length === 0 && esHojaAlerta(n)) || (n.nivel === 6 && !n.mapped);
+    if (hijos.length > 0 || self) out.push({ ...n, hijos });
+  }
+  return out;
+}
+
+/** Cuenta de alertas (mapeo / naturaleza) por nodo, sumando sus hojas. */
+function contarAlertas(arbol: NodoBalance[]): Map<string, Conteo> {
+  const m = new Map<string, Conteo>();
+  const walk = (n: NodoBalance): Conteo => {
+    let r: Conteo;
+    if (n.hijos.length === 0) {
+      const mapeado = n.nivel === 8 ? !!n.std : n.mapped;
+      r = { mapeo: mapeado ? 0 : 1, naturaleza: n.saldoOk ? 0 : 1 };
+    } else {
+      r = n.hijos.reduce<Conteo>((a, h) => { const c = walk(h); return { mapeo: a.mapeo + c.mapeo, naturaleza: a.naturaleza + c.naturaleza }; }, { mapeo: 0, naturaleza: 0 });
+    }
+    m.set(n.key, r);
+    return r;
+  };
+  arbol.forEach(walk);
+  return m;
+}
+
+function BreakdownTab({ arbol, estandar, puedeMapear }: { arbol: NodoBalance[]; estandar: EstandarOpcion[]; puedeMapear: boolean }) {
+  const [filtro, setFiltro] = useState<Filtro>("todo");
+  // Por defecto: expandido hasta nivel 6 (clase y subgrupo abiertos; cuentas del cliente colapsadas).
+  const [open, setOpen] = useState<Set<string>>(() => new Set(keysConHijos(arbol).filter((k) => k.split("/").length <= 2)));
+  const [asignar, setAsignar] = useState<NodoBalance | null>(null);
+
+  // Conteo de alertas (mapeo / naturaleza) por nodo + totales del balance.
+  const conteos = useMemo(() => contarAlertas(arbol), [arbol]);
+  const totales = useMemo(
+    () => arbol.reduce<Conteo>((a, n) => { const c = conteos.get(n.key); return { mapeo: a.mapeo + (c?.mapeo ?? 0), naturaleza: a.naturaleza + (c?.naturaleza ?? 0) }; }, { mapeo: 0, naturaleza: 0 }),
+    [arbol, conteos],
+  );
+  const totalAlertas = totales.mapeo + totales.naturaleza;
+
+  const visible = useMemo(() => {
+    if (filtro === "balance") return arbol.filter((n) => CLASES_BALANCE.has(n.clase));
+    if (filtro === "er") return arbol.filter((n) => CLASES_ER.has(n.clase));
+    if (filtro === "alertas") return podarAlertas(arbol);
+    return arbol;
+  }, [arbol, filtro]);
+
+  // En el filtro "Alertas" el árbol podado se muestra totalmente expandido.
+  const openEff = useMemo(() => (filtro === "alertas" ? new Set(keysConHijos(visible)) : open), [filtro, visible, open]);
+
+  const toggle = (key: string) => setOpen((o) => { const n = new Set(o); if (n.has(key)) n.delete(key); else n.add(key); return n; });
+  const expandirTodo = () => setOpen(new Set(keysConHijos(arbol)));
+  const contraerTodo = () => setOpen(new Set());
+
   return (
     <Card>
-      <p className="border-b border-ink-100 px-4 py-2 text-[11.5px] text-ink-500">
-        Balance normalizado al <span className="font-semibold text-ink-700">plan estándar Russell</span> (agrupado por cuenta estándar, con su nombre). Despliega para ver las cuentas del cliente (nivel 8).
-      </p>
+      <div className="flex flex-wrap items-center gap-2 border-b border-ink-100 px-4 py-2.5">
+        <span className="text-[11.5px] text-ink-500">Normalizado al <span className="font-semibold text-ink-700">plan estándar Russell</span>: clase → subgrupo → cuenta estándar → cuenta del cliente.</span>
+        <div className="ml-auto flex items-center gap-1.5">
+          <FiltroBtn on={filtro === "todo"} onClick={() => setFiltro("todo")} label="Todo" />
+          <FiltroBtn on={filtro === "balance"} onClick={() => setFiltro("balance")} label="Balance" />
+          <FiltroBtn on={filtro === "er"} onClick={() => setFiltro("er")} label="Estado de Resultado" />
+          <FiltroBtn on={filtro === "alertas"} onClick={() => setFiltro("alertas")} label="Alertas" count={totalAlertas} tone="warn" />
+          <span className="mx-1 h-4 w-px bg-ink-200" />
+          <button onClick={expandirTodo} className="rounded-md border border-ink-200 px-2 py-1 text-[11.5px] font-medium text-ink-600 hover:bg-ink-50">Expandir todo</button>
+          <button onClick={contraerTodo} className="rounded-md border border-ink-200 px-2 py-1 text-[11.5px] font-medium text-ink-600 hover:bg-ink-50">Contraer todo</button>
+        </div>
+      </div>
       <div className="overflow-x-auto">
         <table className="w-full text-[12.5px]">
           <thead>
@@ -58,55 +144,153 @@ function BreakdownTab({ groups }: { groups: BreakdownGroup[] }) {
             </tr>
           </thead>
           <tbody>
-            {groups.map((g) => {
-              const isOpen = open.includes(g.code);
-              const sinMapeo = !g.mapped;
-              return (
-                <FragmentRows key={g.code}>
-                  <tr className={`cursor-pointer border-b border-ink-100 ${sinMapeo ? "bg-warn-100" : "bg-ink-50"}`} onClick={() => toggle(g.code)}>
-                    <td className="px-4 py-2 font-mono font-semibold text-ink-700">
-                      <span className="mr-1 inline-block align-middle"><Icon name={isOpen ? "chev-d" : "chev-r"} size={12} /></span>{g.code}
-                    </td>
-                    <td className="px-4 py-2 font-semibold text-ink-800">{g.name}{g.critical && <span className="ml-2 align-middle text-warn-500"><Icon name="warn" size={12} /></span>}</td>
-                    <td className="px-4 py-2">{g.mapped ? <Chip label="Russell" tone="ok" /> : <Chip label="Sin mapeo" tone="warn" />}</td>
-                    <td className="px-4 py-2 text-right font-mono text-ink-400">{fmt(g.prevBalance)}</td>
-                    <td className="px-4 py-2 text-right font-mono text-ink-600">{fmt(g.debe)}</td>
-                    <td className="px-4 py-2 text-right font-mono text-ink-600">{fmt(g.haber)}</td>
-                    <td className="px-4 py-2 text-right font-mono font-semibold text-ink-800">{fmt(g.balance)}</td>
-                    <td className={`px-4 py-2 text-right font-mono ${g.variation != null && Math.abs(g.variation) > 25 ? "text-warn-700" : "text-ink-700"}`}>{fmtPct(g.variation)}</td>
-                    <td className="px-4 py-2">{!g.saldoOk ? <Chip label="Saldo contrario" tone="err" /> : g.mapped ? <Chip label="OK" tone="ok" /> : null}</td>
-                  </tr>
-                  {isOpen && g.items.map((a, i) => (
-                    <tr key={`${g.code}-${a.code}-${i}`} className="border-b border-ink-50 hover:bg-ink-50">
-                      <td className="px-4 py-2 pl-9 font-mono text-[11.5px] text-ink-500">{a.code}</td>
-                      <td className="px-4 py-2 text-ink-700">{a.name}{a.critical && <span className="ml-2"><Chip label="Crítica" tone="warn" /></span>}</td>
-                      <td className="px-4 py-2">
-                        {a.std ? (
-                          <span className="inline-flex items-center gap-1.5 font-mono text-[11.5px] text-blue-500">
-                            {a.coincidencia != null && a.coincidencia < 100 ? "≈" : "→"} {a.std}
-                            {a.coincidencia != null && (
-                              <span className={`rounded px-1 text-[10px] font-semibold ${a.coincidencia >= 85 ? "bg-ok-100 text-ok-700" : a.coincidencia >= 55 ? "bg-warn-100 text-warn-700" : "bg-err-100 text-err-700"}`}>{a.coincidencia}%</span>
-                            )}
-                          </span>
-                        ) : (
-                          <Chip label="Asignar" tone="warn" />
-                        )}
-                      </td>
-                      <td className="px-4 py-2 text-right font-mono text-ink-400">{fmt(a.prevBalance)}</td>
-                      <td className="px-4 py-2 text-right font-mono text-ink-500">{fmt(a.debe)}</td>
-                      <td className="px-4 py-2 text-right font-mono text-ink-500">{fmt(a.haber)}</td>
-                      <td className="px-4 py-2 text-right font-mono text-ink-700">{fmt(a.balance)}</td>
-                      <td className={`px-4 py-2 text-right font-mono ${a.variation != null && Math.abs(a.variation) > 25 ? "text-warn-700" : "text-ink-500"}`}>{fmtPct(a.variation)}</td>
-                      <td className="px-4 py-2">{!a.saldoOk && <Chip label="Naturaleza" tone="err" />}</td>
-                    </tr>
-                  ))}
-                </FragmentRows>
-              );
-            })}
+            {visible.length === 0 ? (
+              <tr><td colSpan={9} className="px-4 py-6 text-center text-[12.5px] text-ink-400">{filtro === "alertas" ? "Sin alertas de mapeo ni de naturaleza. 🎉" : "Sin cuentas para este filtro."}</td></tr>
+            ) : (
+              visible.flatMap((n) => filas(n, 0, openEff, toggle, puedeMapear, setAsignar, conteos))
+            )}
           </tbody>
         </table>
       </div>
+      {asignar && <AsignarModal nodo={asignar} estandar={estandar} onClose={() => setAsignar(null)} />}
     </Card>
+  );
+}
+
+/** Renderiza recursivamente las filas (nodo + hijos si está expandido). */
+function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: string) => void, puedeMapear: boolean, onAsignar: (n: NodoBalance) => void, conteos: Map<string, Conteo>): React.ReactElement[] {
+  const tieneHijos = nodo.hijos.length > 0;
+  const isOpen = open.has(nodo.key);
+  const esGrupo = nodo.nivel !== 8;
+  const sinMapeo = nodo.nivel === 6 && !nodo.mapped;
+  const pad = 16 + depth * 18;
+  // Contadores de alertas del subárbol (solo en nodos de agrupación: clase/subgrupo/cuenta estándar).
+  const c = tieneHijos ? conteos.get(nodo.key) : undefined;
+
+  const fila = (
+    <tr
+      key={nodo.key}
+      className={`border-b border-ink-50 ${esGrupo ? (sinMapeo ? "bg-warn-100" : nodo.nivel <= 2 ? "bg-ink-100" : "bg-ink-50") : "hover:bg-ink-50"} ${tieneHijos ? "cursor-pointer" : ""}`}
+      onClick={tieneHijos ? () => toggle(nodo.key) : undefined}
+    >
+      <td className="px-4 py-2 font-mono text-ink-600" style={{ paddingLeft: pad }}>
+        {tieneHijos && <span className="mr-1 inline-block align-middle text-ink-400"><Icon name={isOpen ? "chev-d" : "chev-r"} size={12} /></span>}
+        <span className={esGrupo ? "font-semibold text-ink-700" : "text-[11.5px] text-ink-500"}>{nodo.code}</span>
+        {c && (c.mapeo > 0 || c.naturaleza > 0) && (
+          <span className="ml-2 inline-flex items-center gap-1 align-middle">
+            {c.mapeo > 0 && <span title={`${c.mapeo} cuenta(s) sin mapeo`} className="inline-flex items-center gap-0.5 rounded bg-warn-100 px-1 text-[10px] font-semibold text-warn-700"><Icon name="warn" size={9} />{c.mapeo}</span>}
+            {c.naturaleza > 0 && <span title={`${c.naturaleza} cuenta(s) con naturaleza/saldo contrario`} className="rounded bg-err-100 px-1 text-[10px] font-semibold text-err-700">±{c.naturaleza}</span>}
+          </span>
+        )}
+      </td>
+      <td className={`px-4 py-2 ${esGrupo ? "font-semibold text-ink-800" : "text-ink-700"}`}>
+        {nodo.name}
+        {nodo.critical && nodo.nivel === 8 && <span className="ml-2"><Chip label="Crítica" tone="warn" /></span>}
+      </td>
+      <td className="px-4 py-2">{celdaMapeo(nodo, puedeMapear, onAsignar)}</td>
+      <td className="px-4 py-2 text-right font-mono text-ink-400">{fmt(nodo.prevBalance)}</td>
+      <td className="px-4 py-2 text-right font-mono text-ink-600">{fmt(nodo.debe)}</td>
+      <td className="px-4 py-2 text-right font-mono text-ink-600">{fmt(nodo.haber)}</td>
+      <td className={`px-4 py-2 text-right font-mono ${esGrupo ? "font-semibold text-ink-800" : "text-ink-700"}`}>{fmt(nodo.balance)}</td>
+      <td className={`px-4 py-2 text-right font-mono ${nodo.variation != null && Math.abs(nodo.variation) > 25 ? "text-warn-700" : "text-ink-600"}`}>{fmtPct(nodo.variation)}</td>
+      <td className="px-4 py-2">{!nodo.saldoOk ? <Chip label={nodo.nivel === 8 ? "Naturaleza" : "Saldo contrario"} tone="err" /> : nodo.nivel === 6 && nodo.mapped ? <Chip label="OK" tone="ok" /> : null}</td>
+    </tr>
+  );
+
+  if (!tieneHijos || !isOpen) return [fila];
+  return [fila, ...nodo.hijos.flatMap((h) => filas(h, depth + 1, open, toggle, puedeMapear, onAsignar, conteos))];
+}
+
+function celdaMapeo(nodo: NodoBalance, puedeMapear: boolean, onAsignar: (n: NodoBalance) => void): React.ReactNode {
+  if (nodo.nivel === 6) return nodo.mapped ? <Chip label="Russell" tone="ok" /> : <Chip label="Sin mapeo" tone="warn" />;
+  if (nodo.nivel !== 8) return null;
+
+  const contenido = nodo.std ? (
+    <span className="inline-flex items-center gap-1.5 font-mono text-[11.5px] text-blue-500">
+      {nodo.coincidencia != null && nodo.coincidencia < 100 ? "≈" : "→"} {nodo.std}
+      {nodo.coincidencia != null && (
+        <span className={`rounded px-1 text-[10px] font-semibold ${nodo.coincidencia >= 85 ? "bg-ok-100 text-ok-700" : nodo.coincidencia >= 55 ? "bg-warn-100 text-warn-700" : "bg-err-100 text-err-700"}`}>{nodo.coincidencia}%</span>
+      )}
+    </span>
+  ) : (
+    <Chip label="Asignar" tone="warn" />
+  );
+
+  if (!puedeMapear || nodo.detalleId == null) return contenido;
+  return (
+    <button
+      type="button"
+      onClick={(e) => { e.stopPropagation(); onAsignar(nodo); }}
+      title="Asignar / cambiar la cuenta estándar"
+      className="rounded hover:bg-ink-100"
+    >
+      {contenido}
+    </button>
+  );
+}
+
+function AsignarModal({ nodo, estandar, onClose }: { nodo: NodoBalance; estandar: EstandarOpcion[]; onClose: () => void }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [q, setQ] = useState("");
+  const clase = nodo.code.charAt(0);
+
+  const opciones = useMemo(() => {
+    const t = q.trim().toLowerCase();
+    const base = estandar.filter((o) => (t ? `${o.code} ${o.name}`.toLowerCase().includes(t) : o.code.charAt(0) === clase));
+    return base.slice(0, 200);
+  }, [estandar, q, clase]);
+
+  const elegir = (codigo: string) => {
+    const fd = new FormData();
+    fd.set("detalleId", String(nodo.detalleId));
+    fd.set("codigo", codigo);
+    start(async () => {
+      const r = await asignarCuentaEstandar(fd);
+      if (r?.ok) { notifySuccess(r.message ?? "Cuenta asignada."); router.refresh(); onClose(); }
+      else notifyError(r?.message ?? "No se pudo asignar la cuenta.");
+    });
+  };
+
+  return (
+    <Modal open onClose={onClose} title="Asignar cuenta estándar" size="2xl">
+      <div className="flex flex-col gap-3">
+        <p className="text-[12.5px] text-ink-600">
+          Cuenta del cliente <span className="font-mono font-semibold">{nodo.code}</span> — {nodo.name}.
+          Elige la cuenta del <span className="font-semibold">plan estándar Russell</span> (nivel 6) a la que corresponde.
+        </p>
+        <p className="rounded-md bg-blue-50 px-3 py-2 text-[11.5px] text-blue-700">
+          Se aplicará a <span className="font-semibold">todas las cuentas que inician con {nodo.code.slice(0, 6)}</span> (mismo nivel 6) en este balance.
+        </p>
+        <input
+          autoFocus
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder={`Filtra por código o nombre… (por defecto, clase ${clase})`}
+          className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400"
+        />
+        <div className="max-h-80 overflow-y-auto rounded-md border border-ink-150">
+          {opciones.length === 0 ? (
+            <div className="px-3 py-4 text-center text-[12px] text-ink-400">Sin coincidencias.</div>
+          ) : (
+            opciones.map((o) => (
+              <button
+                key={o.code}
+                type="button"
+                disabled={pending}
+                onClick={() => elegir(o.code)}
+                className="flex w-full items-center gap-3 border-b border-ink-50 px-3 py-2 text-left last:border-0 hover:bg-ink-50 disabled:opacity-60"
+              >
+                <span className="font-mono text-[11.5px] font-semibold text-ink-700">{o.code}</span>
+                <span className="text-[12.5px] text-ink-700">{o.name}</span>
+                {o.code === nodo.std && <span className="ml-auto"><Chip label="Actual" tone="ok" /></span>}
+              </button>
+            ))
+          )}
+        </div>
+        {pending && <p className="text-[12px] text-ink-500">Asignando…</p>}
+      </div>
+    </Modal>
   );
 }
 
@@ -176,15 +360,22 @@ function VersionsTab({ versions, officialVersion }: { versions: Version[]; offic
   );
 }
 
-function FragmentRows({ children }: { children: React.ReactNode }) {
-  return <>{children}</>;
-}
-
 function TabBtn({ on, onClick, label, count }: { on: boolean; onClick: () => void; label: string; count?: number }) {
   return (
     <button onClick={onClick} className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12.5px] font-medium transition ${on ? "bg-navy-800 text-white" : "text-ink-600 hover:bg-ink-100"}`}>
       {label}
       {count != null && <span className={`rounded-full px-1.5 text-[10px] font-semibold ${on ? "bg-white/20 text-white" : "bg-ink-100 text-ink-500"}`}>{count}</span>}
+    </button>
+  );
+}
+
+function FiltroBtn({ on, onClick, label, count, tone }: { on: boolean; onClick: () => void; label: string; count?: number; tone?: "warn" }) {
+  return (
+    <button onClick={onClick} className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11.5px] font-medium transition ${on ? "bg-navy-700 text-white" : "border border-ink-200 text-ink-600 hover:bg-ink-50"}`}>
+      {label}
+      {count != null && count > 0 && (
+        <span className={`rounded-full px-1.5 text-[10px] font-semibold ${on ? "bg-white/20 text-white" : tone === "warn" ? "bg-warn-100 text-warn-700" : "bg-ink-100 text-ink-500"}`}>{count}</span>
+      )}
     </button>
   );
 }

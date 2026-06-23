@@ -4,7 +4,7 @@ import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import { PageHeader, StatCard, Chip, BackLink } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { fmtCompact, fmtDate } from "@/lib/format";
-import { reconstruirBalance, agruparPorRussell } from "@/lib/balance/calcular";
+import { reconstruirBalance, agruparJerarquia } from "@/lib/balance/calcular";
 import { getCuentasEstandar } from "@/lib/balance/cuentas-estandar";
 import BalanceDetailClient, {
   type Meta, type Version,
@@ -21,7 +21,7 @@ export default async function BalanceDetailPage({ params }: { params: Promise<{ 
     where: { id },
     include: {
       detalles: {
-        select: { cuenta8: true, nombreCuenta: true, cuenta6Russell: true, coincidencia: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
+        select: { id: true, cuenta8: true, nombreCuenta: true, cuenta6Russell: true, coincidencia: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
       },
     },
   });
@@ -35,11 +35,14 @@ export default async function BalanceDetailPage({ params }: { params: Promise<{ 
   // Editar (congelar) exige, además, ALCANCE de escritura sobre el cliente de
   // ESTE balance: así el botón se oculta para quien no podría ejecutar la acción.
   const puedeEditar = (await authorizePermiso("balance:editar", { clientId })).ok;
+  // Mapear líneas del balance al estándar: Staff y Admin (balance:crear).
+  const puedeMapear = (await authorizePermiso("balance:crear", { clientId })).ok;
 
-  // Agregados RECALCULADOS desde el detalle (ya no se persiste el JSON). El plan
-  // estándar (cacheado) y la bitácora de versiones se cargan en paralelo.
-  const [cuentasEstandar, hermanos] = await Promise.all([
+  // Agregados RECALCULADOS desde el detalle. Plan estándar (cacheado), subgrupos
+  // (nombres de nivel 4/2) y la bitácora de versiones se cargan en paralelo.
+  const [cuentasEstandar, subgrupos, hermanos] = await Promise.all([
     getCuentasEstandar(),
+    prisma.subgrupoEstandar.findMany({ select: { codigo: true, nombre: true, grupo: true, nombreGrupo: true } }),
     prisma.balancePruebaEncabezado.findMany({
       where: { clienteId: balance.clienteId, periodo: balance.periodo },
       orderBy: { creadoEn: "desc" },
@@ -47,16 +50,19 @@ export default async function BalanceDetailPage({ params }: { params: Promise<{ 
     }),
   ]);
   const filas = balance.detalles.map((f) => ({
-    cuenta8: f.cuenta8, nombreCuenta: f.nombreCuenta, cuenta6Russell: f.cuenta6Russell,
+    id: f.id, cuenta8: f.cuenta8, nombreCuenta: f.nombreCuenta, cuenta6Russell: f.cuenta6Russell,
     coincidencia: f.coincidencia != null ? Number(f.coincidencia) : null,
     saldoInicial: Number(f.saldoInicial), debitos: Number(f.debitos), creditos: Number(f.creditos), saldoFinal: Number(f.saldoFinal),
   }));
   const calc = reconstruirBalance(filas, cuentasEstandar);
   const sums = balance.detalles.length > 0 ? calc.sums : null;
   const validations = calc.validations;
-  // Vista normalizada a Russell (agrupa por cuenta estándar con su nombre, drill a cuenta 8).
+  // Árbol normalizado a Russell: clase(2) → subgrupo(4) → cuenta estándar(6) → cuenta cliente(8).
   const nombresRussell = new Map(cuentasEstandar.map((s) => [s.code, s.name]));
-  const breakdown = agruparPorRussell(filas, cuentasEstandar, nombresRussell);
+  const nombre4 = new Map(subgrupos.map((s) => [s.codigo, s.nombre]));
+  const nombre2 = new Map(subgrupos.map((s) => [s.grupo, s.nombreGrupo]));
+  const arbol = agruparJerarquia(filas, cuentasEstandar, nombresRussell, { nombre4, nombre2 });
+  const estandarOpciones = cuentasEstandar.map((s) => ({ code: s.code, name: s.name }));
 
   // Bitácora de versiones: los encabezados hermanos del mismo (cliente, período)
   // (cargados arriba en paralelo con el plan estándar).
@@ -124,7 +130,9 @@ export default async function BalanceDetailPage({ params }: { params: Promise<{ 
           </div>
 
           <BalanceDetailClient
-            breakdown={breakdown}
+            arbol={arbol}
+            estandar={estandarOpciones}
+            puedeMapear={puedeMapear}
             validations={validations}
             versions={versions}
             officialVersion={balance.version}

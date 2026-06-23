@@ -490,6 +490,24 @@ model StandardAccount {
   @@map("cuentas_estandar")
 }
 
+// ===== Subgrupos del plan estándar (nivel 4) =====
+// Catálogo de subgrupos de 4 dígitos del plan Russell: aporta el NOMBRE de los
+// niveles 4 y 2 para la vista jerárquica del balance (clase 2 → subgrupo 4 →
+// cuenta estándar 6 → cuenta cliente 8). El enlace con `cuentas_estandar` es por
+// prefijo del código (no hay FK física). Se carga desde
+// `prisma/data/subgrupos-russell.json` con `npm run db:load:subgrupos`.
+model SubgrupoEstandar {
+  id          Int    @id @default(autoincrement()) @map("id")
+  codigo      String @unique @map("codigo") // 4 dígitos (p. ej. 1105)
+  nombre      String @map("nombre") // nombre del subgrupo (p. ej. Caja)
+  grupo       String @map("grupo") // 2 dígitos (p. ej. 11)
+  nombreGrupo String @map("nombre_grupo") // nombre del grupo (p. ej. Disponible)
+  naturaleza  String @map("naturaleza") // D | C
+
+  @@index([grupo])
+  @@map("subgrupos_estandar")
+}
+
 // ===== Bitácora del plan de cuentas estándar =====
 // Registro DEDICADO de todos los movimientos (crear/editar/eliminar) sobre las
 // cuentas estándar de Russell, para evidenciar la trazabilidad completa de la
@@ -627,6 +645,27 @@ model BalancePruebaDetalle {
   @@index([cuenta6])
   @@index([cuenta6Russell])
   @@map("balance_prueba_detalle")
+}
+
+// ===== Configuración de mapeo por cliente (memoria entre períodos) =====
+// Recuerda a qué cuenta estándar Russell se mapea cada cuenta de 6 dígitos del
+// cliente, para que la parametrización se haga UNA sola vez: al importar otro
+// período del mismo cliente, este mapeo se aplica primero (prioridad sobre la
+// cascada exacto/descripción/IA). `origen=manual` (asignación a mano) no se pisa
+// por mapeos automáticos. FK suave a Client (Int, sin @relation).
+model MapeoBalanceCliente {
+  id             Int      @id @default(autoincrement()) @map("id")
+  clienteId      Int      @map("cliente_id")
+  cuenta6        String   @map("cuenta_6") // código del cliente (6 dígitos)
+  cuenta6Russell String   @map("cuenta_6_russell") // cuenta estándar asignada
+  coincidencia   Decimal? @map("porcentaje_coincidencia") @db.Decimal(5, 2)
+  origen         String   @default("automatico") @map("origen") // manual | automatico
+  actualizadoPor String?  @map("actualizado_por")
+  actualizadoEn  DateTime @updatedAt @map("actualizado_en")
+
+  @@unique([clienteId, cuenta6])
+  @@index([clienteId])
+  @@map("mapeo_balance_cliente")
 }
 
 // ===== Impuestos · DIAN =====

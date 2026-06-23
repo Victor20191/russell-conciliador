@@ -14,6 +14,7 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
     "db:load:puc": "tsx prisma/load-puc-maestro.ts",
+    "db:load:subgrupos": "tsx prisma/load-subgrupos.ts",
     "db:seed:rbac": "tsx prisma/seed-rbac.ts",
     "db:sync:rbac": "tsx prisma/sync-matriz.ts",
     "db:seed:comentar": "tsx prisma/seed-comentar.ts",
