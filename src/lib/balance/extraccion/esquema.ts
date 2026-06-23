@@ -41,22 +41,26 @@ export const ExcepcionSchema = z.object({
 });
 export type Excepcion = z.infer<typeof ExcepcionSchema>;
 
-// Mapa de columnas: índices de columna 1-based (A=1). null = la columna no existe.
-export const ColumnasSchema = z.object({
-  codigo: z.number().int().nullable(),
-  nombre: z.number().int().nullable(),
-  saldoInicial: z.number().int().nullable(),
-  debitos: z.number().int().nullable(),
-  creditos: z.number().int().nullable(),
-  // Saldo final como columna única firmada…
-  saldoFinal: z.number().int().nullable(),
-  // …o partido en débito/crédito (saldo = débito − crédito).
-  saldoFinalDebito: z.number().int().nullable(),
-  saldoFinalCredito: z.number().int().nullable(),
-  // Centro operativo y tercero (si existe tercero → puede requerir agregación).
-  centro: z.number().int().nullable(),
-  tercero: z.number().int().nullable(),
-});
+// Mapa de columnas: índices de columna 1-based (A=1). 0 = la columna no existe.
+// (Se usa 0 en vez de null para no exceder el límite de 16 parámetros con
+// uniones/nullables de Structured Outputs.)
+export const ColumnasSchema = z
+  .object({
+    codigo: z.number().int(),
+    nombre: z.number().int(),
+    saldoInicial: z.number().int(),
+    debitos: z.number().int(),
+    creditos: z.number().int(),
+    // Saldo final como columna única firmada…
+    saldoFinal: z.number().int(),
+    // …o partido en débito/crédito (saldo = débito − crédito).
+    saldoFinalDebito: z.number().int(),
+    saldoFinalCredito: z.number().int(),
+    // Centro operativo y tercero (si existe tercero → puede requerir agregación).
+    centro: z.number().int(),
+    tercero: z.number().int(),
+  })
+  .describe("Índices de columna 1-based (A=1). Usa 0 cuando la columna no exista (no null).");
 export type Columnas = z.infer<typeof ColumnasSchema>;
 
 // Cómo reconocer una fila de DETALLE (cuenta imputable) vs. una fila padre/total.

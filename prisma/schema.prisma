@@ -517,6 +517,9 @@ model StandardAccountLog {
 }
 
 // ===== Balance de comprobación =====
+// DEPRECADO: modelo legado basado en JSON (`desglose`, `sumas`, etc.). Sustituido
+// por el modelo normalizado `BalancePruebaEncabezado` + `BalancePruebaDetalle`.
+// Se conserva la tabla (vacía) por compatibilidad; ya no se lee ni escribe.
 model Balance {
   id              Int      @id @default(autoincrement()) @map("id")
   clientName      String   @map("nombre_cliente")
@@ -540,6 +543,90 @@ model Balance {
 
   @@unique([clientName, period, version])
   @@map("balances")
+}
+
+// ===== Balance de prueba normalizado (encabezado + detalle) =====
+// Modelo relacional del balance de comprobación del cliente. El ENCABEZADO es un
+// cargue por (cliente, período, versión); el DETALLE es una fila por cuenta, con
+// la cuenta desagregada por nivel PUC (2/4/6/8) y los montos como columnas reales
+// (`saldo_inicial`, `debitos`, `creditos`, `saldo_final`) consultables vía SQL.
+// Los agregados (sumas, validaciones, desglose, comparativo) se RECALCULAN desde
+// el detalle al leer (ver `src/lib/balance/calcular.ts`), no se persisten.
+model BalancePruebaEncabezado {
+  id              Int      @id @default(autoincrement()) @map("id")
+  // FK LÓGICA a Client (solo Int, sin @relation): convención del proyecto para
+  // FKs suaves hacia Client/User. `nombreCliente`/`nit` quedan denormalizados
+  // para listar sin join.
+  clienteId       Int      @map("cliente_id")
+  nombreCliente   String   @map("nombre_cliente")
+  nit             String?  @map("nit")
+  periodo         String   @map("periodo") // display, p. ej. "Enero 2026"
+  periodoInicio   DateTime @map("periodo_inicio") @db.Date
+  periodoFin      DateTime @map("periodo_fin") @db.Date
+  centroOperativo String?  @map("centro_operativo")
+  // Versionado (un oficial por cliente/período; congelado bloquea edición).
+  version         String   @map("version")
+  esOficial       Boolean  @default(false) @map("es_oficial")
+  estaCongelado   Boolean  @default(false) @map("esta_congelado")
+  estado          String   @default("Única") @map("estado")
+  completitud     Int      @default(100) @map("completitud")
+  // Resumen del cargue (para listados, ficha de versión y bitácora sin recalcular).
+  archivo         String?  @map("archivo")
+  tamanoArchivo   String?  @map("tamano_archivo")
+  cargadoPor      String?  @map("cargado_por")
+  rolCarga        String?  @map("rol_carga")
+  cuadrado        Boolean  @default(true) @map("cuadrado")
+  nota            String?  @map("nota")
+  sumaActivo      Decimal  @default(0) @map("suma_activo") @db.Decimal(18, 2)
+  filasTotales    Int      @default(0) @map("filas_totales")
+  mapeadas        Int      @default(0) @map("mapeadas")
+  sinMapear       Int      @default(0) @map("sin_mapear")
+  criticas        Int      @default(0) @map("criticas")
+  cambios         Int      @default(0) @map("cambios")
+  // Metadatos del ETL.
+  estandar          String?   @map("estandar")
+  convencionCredito String?   @map("convencion_credito")
+  filasLeidas       Int?      @map("filas_leidas")
+  filasExcluidas    Int?      @map("filas_excluidas")
+  filasDescuadre    Int?      @map("filas_descuadre")
+  congeladoPor      String?   @map("congelado_por")
+  congeladoEn       DateTime? @map("congelado_en")
+  ultimaCarga       String?   @map("ultima_carga") // sello legible del último cargue
+  creadoEn          DateTime  @default(now()) @map("creado_en")
+
+  detalles BalancePruebaDetalle[]
+
+  @@unique([clienteId, periodo, version])
+  @@index([clienteId, periodo])
+  @@index([nombreCliente])
+  @@map("balance_prueba_encabezado")
+}
+
+model BalancePruebaDetalle {
+  id           Int                     @id @default(autoincrement()) @map("id")
+  encabezadoId Int                     @map("encabezado_id")
+  encabezado   BalancePruebaEncabezado @relation(fields: [encabezadoId], references: [id], onDelete: Cascade)
+  // Cuenta desagregada por nivel PUC (prefijos del código imputable).
+  cuenta2      String                  @map("cuenta_2") // 11
+  cuenta4      String                  @map("cuenta_4") // 1110
+  cuenta6      String                  @map("cuenta_6") // 111005
+  cuenta8      String                  @map("cuenta_8") // 11100501 (código imputable completo)
+  nombreCuenta String                  @map("nombre_cuenta")
+  // Mapeo al plan estándar Russell (cuenta de 6 dígitos) + % de coincidencia.
+  cuenta6Russell String?               @map("cuenta_6_russell")
+  coincidencia   Decimal?              @map("porcentaje_coincidencia") @db.Decimal(5, 2)
+  // Montos del balance de comprobación (firmados: débito +, crédito −).
+  saldoInicial Decimal                 @default(0) @map("saldo_inicial") @db.Decimal(18, 2)
+  debitos      Decimal                 @default(0) @map("debitos") @db.Decimal(18, 2)
+  creditos     Decimal                 @default(0) @map("creditos") @db.Decimal(18, 2)
+  saldoFinal   Decimal                 @default(0) @map("saldo_final") @db.Decimal(18, 2)
+  creadoEn     DateTime                @default(now()) @map("creado_en") // TS CREA
+  editadoEn    DateTime                @updatedAt @map("editado_en") // TS EDICIÓN
+
+  @@index([encabezadoId])
+  @@index([cuenta6])
+  @@index([cuenta6Russell])
+  @@map("balance_prueba_detalle")
 }
 
 // ===== Impuestos · DIAN =====

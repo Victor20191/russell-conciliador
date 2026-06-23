@@ -1,12 +1,12 @@
 import { notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { authorizePermiso, requirePermiso } from "@/lib/rbac";
-import { clientIdPorNombre } from "@/lib/rbac/contexto";
 import { PageHeader, StatCard, Chip, BackLink } from "@/components/ui";
 import { Icon } from "@/components/icons";
-import { fmtCompact } from "@/lib/format";
+import { fmtCompact, fmtDate } from "@/lib/format";
+import { reconstruirBalance, agruparPorRussell } from "@/lib/balance/calcular";
 import BalanceDetailClient, {
-  type Sums, type Validation, type BreakdownGroup, type Meta, type Version,
+  type Meta, type Version,
 } from "./balance-detail-client";
 import { parseId } from "@/lib/ids";
 import { FreezeBalanceButton } from "./freeze-balance-button";
@@ -16,24 +16,60 @@ export default async function BalanceDetailPage({ params }: { params: Promise<{ 
   const { id: rawId } = await params;
   const id = parseId(rawId);
   if (!id) notFound();
-  const balance = await prisma.balance.findUnique({ where: { id } });
+  const balance = await prisma.balancePruebaEncabezado.findUnique({
+    where: { id },
+    include: {
+      detalles: {
+        select: { cuenta8: true, nombreCuenta: true, cuenta6Russell: true, coincidencia: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
+      },
+    },
+  });
   if (!balance) notFound();
 
   // Alcance por cartera: leer este balance exige READ sobre su cliente. Quien
   // no lo alcanza (cliente ajeno) es redirigido; Admin/Superadmin ven todo.
-  const clientId = await clientIdPorNombre(balance.clientName);
+  const clientId = balance.clienteId;
   await requirePermiso("balance:ver", { clientId });
 
   // Editar (congelar) exige, además, ALCANCE de escritura sobre el cliente de
   // ESTE balance: así el botón se oculta para quien no podría ejecutar la acción.
   const puedeEditar = (await authorizePermiso("balance:editar", { clientId })).ok;
 
-  const sums = balance.sums as Sums | null;
-  const validations = (balance.validations as Validation[] | null) ?? [];
-  const breakdown = (balance.breakdown as BreakdownGroup[] | null) ?? [];
-  const meta = balance.meta as Meta | null;
-  const versions = (balance.versionHistory as Version[] | null) ?? [];
-  const hasDiff = balance.diff != null;
+  // Agregados RECALCULADOS desde el detalle (ya no se persiste el JSON).
+  const cuentasEstandar = await prisma.standardAccount.findMany({ select: { code: true, name: true, nature: true, critical: true } });
+  const filas = balance.detalles.map((f) => ({
+    cuenta8: f.cuenta8, nombreCuenta: f.nombreCuenta, cuenta6Russell: f.cuenta6Russell,
+    coincidencia: f.coincidencia != null ? Number(f.coincidencia) : null,
+    saldoInicial: Number(f.saldoInicial), debitos: Number(f.debitos), creditos: Number(f.creditos), saldoFinal: Number(f.saldoFinal),
+  }));
+  const calc = reconstruirBalance(filas, cuentasEstandar);
+  const sums = balance.detalles.length > 0 ? calc.sums : null;
+  const validations = calc.validations;
+  // Vista normalizada a Russell (agrupa por cuenta estándar con su nombre, drill a cuenta 8).
+  const nombresRussell = new Map(cuentasEstandar.map((s) => [s.code, s.name]));
+  const breakdown = agruparPorRussell(filas, cuentasEstandar, nombresRussell);
+
+  // Bitácora de versiones: los encabezados hermanos del mismo (cliente, período).
+  const hermanos = await prisma.balancePruebaEncabezado.findMany({
+    where: { clienteId: balance.clienteId, periodo: balance.periodo },
+    orderBy: { creadoEn: "desc" },
+    select: { id: true, version: true, ultimaCarga: true, cargadoPor: true, rolCarga: true, archivo: true, tamanoArchivo: true, filasTotales: true, sumaActivo: true, cuadrado: true, nota: true, cambios: true, creadoEn: true },
+  });
+  const versions: Version[] = hermanos.map((h) => ({
+    v: h.version, date: h.ultimaCarga ?? "—", uploadedBy: h.cargadoPor ?? "—", role: h.rolCarga ?? "—",
+    file: h.archivo ?? "—", size: h.tamanoArchivo ?? "—", rows: h.filasTotales, sumA: Number(h.sumaActivo),
+    balanced: h.cuadrado, note: h.nota ?? "", changes: h.cambios,
+  }));
+  // Hay diff si existe una versión anterior a esta (cargada antes).
+  const esta = hermanos.find((h) => h.id === id);
+  const hasDiff = esta != null && hermanos.some((h) => h.creadoEn < esta.creadoEn);
+
+  const meta: Meta = {
+    rows: balance.filasTotales, mapped: balance.mapeadas, unmapped: balance.sinMapear, critical: balance.criticas,
+    file: balance.archivo ?? "—", fileSize: balance.tamanoArchivo ?? "—",
+    frozenBy: balance.congeladoPor ?? "", frozenAt: balance.congeladoEn ? fmtDate(balance.congeladoEn) : "",
+    uploadedBy: balance.cargadoPor ?? "—", uploadedAt: balance.ultimaCarga ?? "—",
+  };
 
   const okCount = validations.filter((v) => v.status === "ok").length;
   const warnCount = validations.filter((v) => v.status === "warn").length;
@@ -42,8 +78,8 @@ export default async function BalanceDetailPage({ params }: { params: Promise<{ 
     <div>
       <div className="mb-3"><BackLink href="/balance" label="Balance de comprobación" /></div>
       <PageHeader
-        title={balance.clientName}
-        subtitle={`${balance.period} · versión ${balance.version}`}
+        title={balance.nombreCliente}
+        subtitle={`${balance.periodo} · versión ${balance.version}`}
         actions={
           <div className="flex items-center gap-2">
             {hasDiff && (
@@ -51,21 +87,19 @@ export default async function BalanceDetailPage({ params }: { params: Promise<{ 
                 <Icon name="log" size={14} /> Diff de versiones
               </a>
             )}
-            {!balance.isFrozen && puedeEditar && (
+            {!balance.estaCongelado && puedeEditar && (
               <FreezeBalanceButton id={id} />
             )}
-            {balance.isFrozen && <Chip label="Congelado" tone="blue" />}
+            {balance.estaCongelado && <Chip label="Congelado" tone="blue" />}
           </div>
         }
       />
 
-      {meta && (
-        <p className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-ink-500">
-          <span className="inline-flex items-center gap-1"><Icon name="upload" size={12} /> {meta.uploadedBy} · {meta.uploadedAt}</span>
-          {balance.isFrozen && <span className="inline-flex items-center gap-1 text-ok-700"><Icon name="check" size={12} /> Congelada por {meta.frozenBy} · {meta.frozenAt}</span>}
-          <span className="font-mono">{meta.file} · {meta.fileSize} · {meta.rows} cuentas</span>
-        </p>
-      )}
+      <p className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-ink-500">
+        <span className="inline-flex items-center gap-1"><Icon name="upload" size={12} /> {meta.uploadedBy} · {meta.uploadedAt}</span>
+        {balance.estaCongelado && <span className="inline-flex items-center gap-1 text-ok-700"><Icon name="check" size={12} /> Congelada por {meta.frozenBy} · {meta.frozenAt}</span>}
+        <span className="font-mono">{meta.file} · {meta.fileSize} · {meta.rows} cuentas</span>
+      </p>
 
       {!sums && (
         <div className="rounded-lg border border-ink-150 bg-white p-6 text-[13px] text-ink-500">

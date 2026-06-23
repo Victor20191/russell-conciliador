@@ -144,8 +144,8 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
   }
 
   const cols = spec.columnas;
-  const tieneInicial = cols.saldoInicial != null;
-  const tieneMovimientos = cols.debitos != null || cols.creditos != null;
+  const tieneInicial = cols.saldoInicial > 0;
+  const tieneMovimientos = cols.debitos > 0 || cols.creditos > 0;
   const validarControl = tieneInicial && tieneMovimientos;
   const minLen = spec.reglaDetalle.longitudMin ?? 7; // longitud MÍNIMA inclusiva de una cuenta de detalle
 
@@ -173,8 +173,8 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
     }
 
     const si = tieneInicial ? normalizarMonto(cell(fila, cols.saldoInicial)) : 0;
-    const db = cols.debitos != null ? normalizarMonto(cell(fila, cols.debitos)) : 0;
-    const cr = cols.creditos != null ? normalizarMonto(cell(fila, cols.creditos)) : 0;
+    const db = cols.debitos > 0 ? normalizarMonto(cell(fila, cols.debitos)) : 0;
+    const cr = cols.creditos > 0 ? normalizarMonto(cell(fila, cols.creditos)) : 0;
     const saldo = leerSaldoFinal(fila, cols, si ?? 0, db ?? 0, cr ?? 0);
 
     if (si === null || db === null || cr === null || saldo === null) {
@@ -188,7 +188,7 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
       db: Math.abs(db ?? 0), // movimientos en magnitud positiva
       cr: Math.abs(cr ?? 0),
       saldo: saldo ?? 0,
-      centro: cols.centro != null ? texto(cell(fila, cols.centro)) || null : null,
+      centro: cols.centro > 0 ? texto(cell(fila, cols.centro)) || null : null,
     });
   }
 
@@ -296,7 +296,7 @@ export function validarDirecta(extr: ExtraccionDirecta, params: ParamsExtraccion
 // ---------------- Auxiliares ----------------
 
 function cell(fila: CeldaCruda[], col1: number | null): CeldaCruda {
-  if (col1 == null) return null;
+  if (col1 == null || col1 < 1) return null; // 0/negativo = columna ausente
   return fila[col1 - 1] ?? null;
 }
 
@@ -310,10 +310,10 @@ function esDetalle(code: string, fila: CeldaCruda[], spec: MappingSpec, minLen: 
 }
 
 function leerSaldoFinal(fila: CeldaCruda[], cols: MappingSpec["columnas"], si: number, db: number, cr: number): number | null {
-  if (cols.saldoFinal != null) return normalizarMonto(cell(fila, cols.saldoFinal));
-  if (cols.saldoFinalDebito != null || cols.saldoFinalCredito != null) {
-    const d = cols.saldoFinalDebito != null ? normalizarMonto(cell(fila, cols.saldoFinalDebito)) : 0;
-    const c = cols.saldoFinalCredito != null ? normalizarMonto(cell(fila, cols.saldoFinalCredito)) : 0;
+  if (cols.saldoFinal > 0) return normalizarMonto(cell(fila, cols.saldoFinal));
+  if (cols.saldoFinalDebito > 0 || cols.saldoFinalCredito > 0) {
+    const d = cols.saldoFinalDebito > 0 ? normalizarMonto(cell(fila, cols.saldoFinalDebito)) : 0;
+    const c = cols.saldoFinalCredito > 0 ? normalizarMonto(cell(fila, cols.saldoFinalCredito)) : 0;
     if (d === null || c === null) return null;
     return d - c;
   }

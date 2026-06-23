@@ -15,12 +15,23 @@ import { fmt } from "@/lib/format";
 // `debitos`/`creditos` son los movimientos del período (magnitud positiva);
 // opcionales porque algunos balances solo traen saldos.
 export type CuentaCruda = { code: string; name: string; prevBalance: number; balance: number; debitos?: number; creditos?: number };
-export type CuentaEstandar = { code: string; nature: string; critical: boolean };
+// El plan estándar puede llegar «rico» (con descripciones) para el segundo
+// barrido por coincidencia; los campos descriptivos son opcionales.
+export type CuentaEstandar = {
+  code: string;
+  nature: string;
+  critical: boolean;
+  name?: string;
+  russellAccount?: string | null;
+  possibleAccounts?: string | null;
+  includes?: string | null;
+  categoryType?: string | null;
+};
 
 // ---- Tipos de salida (coinciden con el JSON que renderiza el detalle) ----
 export type Sums = { activo: number; pasivo: number; patrimonio: number; ingresos: number; gastos: number; costos: number; utilidad: number };
 export type Validation = { id: string; rule: string; status: "ok" | "warn"; detail: string; count?: number };
-export type BreakdownItem = { code: string; name: string; balance: number; prevBalance: number; variation: number | null; std: string | null; mapped: boolean; critical: boolean; nature: string; saldoOk: boolean; debe?: number; haber?: number };
+export type BreakdownItem = { code: string; name: string; balance: number; prevBalance: number; variation: number | null; std: string | null; coincidencia: number | null; mapped: boolean; critical: boolean; nature: string; saldoOk: boolean; debe?: number; haber?: number };
 export type BreakdownGroup = { code: string; name: string; balance: number; prevBalance: number; variation: number | null; mapped: boolean; critical: boolean; nature: string; saldoOk: boolean; items: BreakdownItem[]; debe?: number; haber?: number };
 
 export type ResultadoBalance = {
@@ -92,14 +103,92 @@ function variacion(prev: number, balance: number): number | null {
 
 const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
 
+// ---- Segundo barrido: coincidencia por descripción ----
+// Umbral mínimo de similitud (0..1) para aceptar un match por descripción.
+export const UMBRAL_DESCRIPCION = 0.55;
+const STOPWORDS = new Set(["de", "del", "la", "el", "los", "las", "y", "en", "por", "para", "a", "con", "o", "u", "e", "su", "sus"]);
+
+/** Normaliza texto: minúsculas, sin acentos, sin puntuación, espacios colapsados. */
+export function normalizarTexto(s: string): string {
+  // NFD separa los acentos en marcas combinantes; `[^a-z0-9\s]` las elimina
+  // (junto con la puntuación), dejando solo letras/dígitos ASCII y espacios.
+  return (s ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function tokens(s: string): Set<string> {
+  return new Set(normalizarTexto(s).split(" ").filter((t) => t && !STOPWORDS.has(t)));
+}
+
+function jaccard(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  let inter = 0;
+  for (const t of a) if (b.has(t)) inter++;
+  return inter / (a.size + b.size - inter);
+}
+
+/**
+ * Mejor cuenta estándar para el nombre de una cuenta del cliente, comparando por
+ * descripción (nombre + cuenta Russell + cuentas posibles) dentro de la MISMA
+ * clase PUC (primer dígito). Devuelve `{ code, score }` (0..1) o null.
+ */
+export function mejorPorDescripcion(nombre: string, clase: string, estandar: CuentaEstandar[]): { code: string; score: number } | null {
+  const q = tokens(nombre);
+  if (q.size === 0) return null;
+  const qNorm = normalizarTexto(nombre);
+  let best: { code: string; score: number } | null = null;
+  for (const s of estandar) {
+    if (s.code.charAt(0) !== clase) continue; // restringe a la misma clase
+    const frases: string[] = [];
+    if (s.name) frases.push(s.name);
+    if (s.russellAccount) frases.push(s.russellAccount);
+    if (s.possibleAccounts) frases.push(...s.possibleAccounts.split(","));
+    let local = 0;
+    for (const f of frases) {
+      const score = normalizarTexto(f) === qNorm ? 1 : jaccard(q, tokens(f));
+      if (score > local) local = score;
+    }
+    if (!best || local > best.score) best = { code: s.code, score: local };
+  }
+  return best;
+}
+
+export type MapeoCuenta = { std: string | null; coincidencia: number | null; mapped: boolean };
+
+/**
+ * Mapea una cuenta del cliente al plan estándar: 1) exacto por prefijo de 6
+ * dígitos (coincidencia 100); 2) si falla y hay descripciones, por similitud de
+ * texto (coincidencia = score%) si supera el umbral. El tercer barrido (IA) se
+ * inyecta aparte vía `override` en `calcularBalance`.
+ */
+export function mapearCuenta(code: string, name: string, stdByCode: Map<string, CuentaEstandar>, estandar: CuentaEstandar[], hayDescripcion: boolean): MapeoCuenta {
+  const key = code.length >= 6 ? code.slice(0, 6) : null;
+  if (key && stdByCode.get(key)) return { std: key, coincidencia: 100, mapped: true };
+  if (hayDescripcion) {
+    const m = mejorPorDescripcion(name, code.charAt(0), estandar);
+    if (m && m.score >= UMBRAL_DESCRIPCION) return { std: m.code, coincidencia: Math.round(m.score * 100), mapped: true };
+  }
+  return { std: null, coincidencia: null, mapped: false };
+}
+
 /**
  * Calcula los agregados del balance. `cuentas` son las filas crudas del
- * Excel; `estandar` el plan de cuentas (6 dígitos). El mapeo es por
- * prefijo de 6 dígitos: una cuenta `11050501` mapea a la subcuenta
- * estándar `110505`.
+ * Excel; `estandar` el plan de cuentas (6 dígitos, con descripciones opcionales).
+ * Mapeo en cascada: 1) exacto por prefijo de 6 dígitos; 2) por descripción si el
+ * plan trae `possibleAccounts`/`name`; 3) IA, inyectada vía `override`
+ * (code de cliente → cuenta estándar) desde la Server Action.
  */
-export function calcularBalance(cuentas: CuentaCruda[], estandar: CuentaEstandar[]): ResultadoBalance {
+export function calcularBalance(
+  cuentas: CuentaCruda[],
+  estandar: CuentaEstandar[],
+  override?: Map<string, { std: string | null; coincidencia: number | null }>,
+): ResultadoBalance {
   const stdByCode = new Map(estandar.map((s) => [s.code, s]));
+  const hayDescripcion = estandar.some((s) => s.possibleAccounts || s.name);
 
   // 1) Hojas: cuentas que no son prefijo de otra (evita doble conteo de
   //    filas de resumen como clase/grupo/cuenta cuando el archivo las trae).
@@ -107,15 +196,19 @@ export function calcularBalance(cuentas: CuentaCruda[], estandar: CuentaEstandar
     (c) => !cuentas.some((o) => o.code !== c.code && o.code.startsWith(c.code) && o.code.length > c.code.length),
   );
 
-  // 2) Mapeo al estándar + naturaleza/criticidad de cada hoja.
+  // 2) Mapeo en cascada (exacto → descripción → override IA) + naturaleza.
   const mapeadas = hojas.map((c) => {
-    const key = c.code.length >= 6 ? c.code.slice(0, 6) : null;
-    const ref = key ? stdByCode.get(key) : undefined;
-    const std = ref ? key : null;
+    let mp = mapearCuenta(c.code, c.name, stdByCode, estandar, hayDescripcion);
+    if (!mp.mapped) {
+      const ov = override?.get(c.code);
+      if (ov?.std) mp = { std: ov.std, coincidencia: ov.coincidencia, mapped: true };
+    }
+    const ref = mp.std ? stdByCode.get(mp.std) : undefined;
     return {
       ...c,
-      std,
-      mapped: ref != null,
+      std: mp.std,
+      coincidencia: mp.coincidencia,
+      mapped: mp.mapped,
       nature: ref ? ref.nature : claseNatura(c.code),
       critical: ref ? ref.critical : false,
     };
@@ -141,6 +234,7 @@ export function calcularBalance(cuentas: CuentaCruda[], estandar: CuentaEstandar
       prevBalance,
       variation: variacion(prevBalance, balance),
       std: m.std,
+      coincidencia: m.coincidencia,
       mapped: m.mapped,
       critical: m.critical,
       nature: m.nature,
@@ -150,6 +244,16 @@ export function calcularBalance(cuentas: CuentaCruda[], estandar: CuentaEstandar
     };
   });
 
+  return agregarDetalle(detalle);
+}
+
+/**
+ * Agregación común (sumas, validaciones, desglose, cuadre) a partir del detalle
+ * ya mapeado y firmado (débito +, crédito −). La comparten `calcularBalance`
+ * (detalle proveniente del archivo) y `reconstruirBalance` (detalle proveniente
+ * de las filas persistidas en `balance_prueba_detalle`).
+ */
+function agregarDetalle(detalle: BreakdownItem[]): ResultadoBalance {
   // 4) Sumas por clase (primer dígito). Las clases de crédito se muestran
   //    como magnitud natural positiva (pasivo, patrimonio, ingresos).
   const porClase: Record<string, number> = {};
@@ -250,6 +354,193 @@ export function calcularBalance(cuentas: CuentaCruda[], estandar: CuentaEstandar
     unmapped: sinMapeo,
     critical: detalle.filter((d) => d.critical).length,
   };
+}
+
+// ============================================================
+// Puente con el modelo normalizado (balance_prueba_detalle).
+// ============================================================
+
+/** Descompone un código imputable en sus prefijos PUC (niveles 2/4/6/8). */
+export function descomponerCuenta(code: string): { cuenta2: string; cuenta4: string; cuenta6: string; cuenta8: string } {
+  const c = (code ?? "").trim();
+  return { cuenta2: c.slice(0, 2), cuenta4: c.slice(0, 4), cuenta6: c.slice(0, 6), cuenta8: c };
+}
+
+// Fila lista para insertar en `balance_prueba_detalle` (montos firmados).
+export type FilaDetalle = {
+  cuenta2: string; cuenta4: string; cuenta6: string; cuenta8: string;
+  nombreCuenta: string; cuenta6Russell: string | null; coincidencia: number | null;
+  saldoInicial: number; debitos: number; creditos: number; saldoFinal: number;
+};
+
+/** Aplana el desglose calculado a filas de detalle para persistir (1 por cuenta). */
+export function aFilasDetalle(breakdown: BreakdownGroup[]): FilaDetalle[] {
+  const filas: FilaDetalle[] = [];
+  for (const g of breakdown) {
+    for (const it of g.items) {
+      filas.push({
+        ...descomponerCuenta(it.code),
+        nombreCuenta: it.name,
+        cuenta6Russell: it.std,
+        coincidencia: it.coincidencia,
+        saldoInicial: it.prevBalance,
+        debitos: it.debe ?? 0,
+        creditos: it.haber ?? 0,
+        saldoFinal: it.balance,
+      });
+    }
+  }
+  return filas;
+}
+
+// Fila tal como se lee de `balance_prueba_detalle` (montos ya firmados; los
+// Decimal de Prisma deben convertirse a number antes de pasar aquí).
+export type FilaDetallePersistida = {
+  cuenta8: string; nombreCuenta: string; cuenta6Russell: string | null; coincidencia?: number | null;
+  saldoInicial: number; debitos: number; creditos: number; saldoFinal: number;
+};
+
+/**
+ * Reconstruye los agregados (sumas, validaciones, desglose, cuadre) a partir de
+ * las filas persistidas. NO re-aplica la normalización de signo: los saldos ya
+ * están firmados desde el cargue. `estandar` aporta naturaleza/criticidad.
+ */
+export function reconstruirBalance(filas: FilaDetallePersistida[], estandar: CuentaEstandar[]): ResultadoBalance {
+  const stdByCode = new Map(estandar.map((s) => [s.code, s]));
+  const detalle: BreakdownItem[] = filas.map((f) => {
+    const ref = f.cuenta6Russell ? stdByCode.get(f.cuenta6Russell) : undefined;
+    const nature = ref ? ref.nature : claseNatura(f.cuenta8);
+    return {
+      code: f.cuenta8,
+      name: f.nombreCuenta,
+      balance: f.saldoFinal,
+      prevBalance: f.saldoInicial,
+      variation: variacion(f.saldoInicial, f.saldoFinal),
+      std: f.cuenta6Russell,
+      coincidencia: f.coincidencia ?? (f.cuenta6Russell != null ? 100 : null),
+      mapped: f.cuenta6Russell != null,
+      critical: ref ? ref.critical : false,
+      nature,
+      saldoOk: saldoConcuerda(f.saldoFinal, nature),
+      debe: f.debitos,
+      haber: f.creditos,
+    };
+  });
+  return agregarDetalle(detalle);
+}
+
+// ============================================================
+// Vista NORMALIZADA a Russell para la pantalla de detalle.
+// Agrupa por la cuenta estándar Russell (cuenta_6_russell), adoptando SU nombre,
+// y hace drill-down a las cuentas imputables (cuenta_8) del cliente. Es una vista
+// de presentación; NO sustituye al `breakdown` por clase PUC que alimenta sumas,
+// validaciones y estado de resultado.
+// ============================================================
+export type RussellItem = {
+  code: string; name: string; prevBalance: number; balance: number;
+  debe: number; haber: number; variation: number | null; std: string | null;
+  coincidencia: number | null; saldoOk: boolean; critical: boolean;
+};
+export type RussellGroup = {
+  code: string; name: string; prevBalance: number; balance: number;
+  debe: number; haber: number; variation: number | null; mapped: boolean;
+  saldoOk: boolean; critical: boolean; items: RussellItem[];
+};
+
+/**
+ * Agrupa las cuentas del cliente por su cuenta estándar Russell. `nombres` mapea
+ * código estándar → nombre Russell (de `StandardAccount`). Las cuentas sin mapeo
+ * caen en un grupo «Sin mapeo» al final.
+ */
+export function agruparPorRussell(
+  filas: FilaDetallePersistida[],
+  estandar: CuentaEstandar[],
+  nombres: Map<string, string>,
+): RussellGroup[] {
+  const stdByCode = new Map(estandar.map((s) => [s.code, s]));
+  const buckets = new Map<string, RussellItem[]>();
+  for (const f of filas) {
+    const std = f.cuenta6Russell;
+    const ref = std ? stdByCode.get(std) : undefined;
+    const nature = ref ? ref.nature : claseNatura(f.cuenta8);
+    const item: RussellItem = {
+      code: f.cuenta8,
+      name: f.nombreCuenta,
+      prevBalance: f.saldoInicial,
+      balance: f.saldoFinal,
+      debe: f.debitos,
+      haber: f.creditos,
+      variation: variacion(f.saldoInicial, f.saldoFinal),
+      std,
+      coincidencia: f.coincidencia ?? (std != null ? 100 : null),
+      saldoOk: saldoConcuerda(f.saldoFinal, nature),
+      critical: ref ? ref.critical : false,
+    };
+    const key = std ?? "SIN";
+    (buckets.get(key) ?? buckets.set(key, []).get(key)!).push(item);
+  }
+
+  const grupos: RussellGroup[] = [...buckets.entries()].map(([key, items]) => {
+    items.sort((a, b) => a.code.localeCompare(b.code));
+    const mapped = key !== "SIN";
+    const ref = mapped ? stdByCode.get(key) : undefined;
+    const nature = ref ? ref.nature : "-";
+    const balance = sum(items.map((i) => i.balance));
+    const prevBalance = sum(items.map((i) => i.prevBalance));
+    return {
+      code: mapped ? key : "—",
+      name: mapped ? nombres.get(key) ?? `Cuenta ${key}` : "Sin mapeo (cuentas no mapeadas)",
+      prevBalance,
+      balance,
+      debe: sum(items.map((i) => i.debe)),
+      haber: sum(items.map((i) => i.haber)),
+      variation: variacion(prevBalance, balance),
+      mapped,
+      saldoOk: mapped ? saldoConcuerda(balance, nature) : true,
+      critical: items.some((i) => i.critical),
+      items,
+    };
+  });
+
+  // Orden: por código Russell ascendente; el grupo «Sin mapeo» (—) al final.
+  grupos.sort((a, b) => (a.code === "—" ? 1 : 0) - (b.code === "—" ? 1 : 0) || a.code.localeCompare(b.code));
+  return grupos;
+}
+
+// ---- Estado de resultado derivado (clases 4/5/6/7) ----
+export type LineaEstadoResultado = { concept: string; current: number; prior: number; budget: number; bold: boolean; sep: boolean };
+
+/**
+ * Construye un estado de resultado básico a partir de los agregados del balance.
+ * `prior`/`budget` quedan en 0 (no hay histórico ni presupuesto en el modelo).
+ * Útil para el período corriente; sustituye al antiguo JSON `incomeStatement`.
+ */
+export function construirEstadoResultado(r: ResultadoBalance): LineaEstadoResultado[] {
+  const magnitud = (code: string) => {
+    const g = r.breakdown.find((x) => x.code === code);
+    return g ? Math.abs(g.balance) : 0;
+  };
+  const lineas: LineaEstadoResultado[] = [];
+  const push = (concept: string, current: number, opts: { bold?: boolean; sep?: boolean } = {}) =>
+    lineas.push({ concept, current, prior: 0, budget: 0, bold: opts.bold ?? false, sep: opts.sep ?? false });
+
+  const ingrNoOp = magnitud("42");
+  push("Ingresos operacionales", magnitud("41"));
+  if (ingrNoOp) push("Ingresos no operacionales", ingrNoOp);
+  push("Total ingresos", r.sums.ingresos, { bold: true });
+  push("Costo de ventas", r.sums.costos, { sep: true });
+  push("Utilidad bruta", r.sums.ingresos - r.sums.costos, { bold: true });
+  const gAdmin = magnitud("51");
+  const gVentas = magnitud("52");
+  push("Gastos de administración", gAdmin);
+  if (gVentas) push("Gastos de ventas", gVentas);
+  push("Utilidad operacional", r.sums.ingresos - r.sums.costos - gAdmin - gVentas, { bold: true });
+  const gNoOp = magnitud("53");
+  const impuesto = magnitud("54");
+  if (gNoOp) push("Gastos no operacionales", gNoOp);
+  if (impuesto) push("Impuesto de renta y complementarios", impuesto);
+  push("Utilidad neta", r.sums.utilidad, { bold: true, sep: true });
+  return lineas;
 }
 
 // ---- Comparativo entre versiones (para el campo `diff`) ----

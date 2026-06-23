@@ -8,18 +8,21 @@ import BalanceIndexClient, {
   type AuditRow,
 } from "./balance-index-client";
 
-type AuditEntry = { date: string; actor: string; role: string; action: string; ip: string; details: string };
-
 export default async function BalancePage() {
   await requirePermiso("balance:ver");
   // Cartera de lectura: cada usuario ve solo los balances de SUS clientes
-  // (Admin/Superadmin ven todos). Balance referencia al cliente por nombre.
+  // (Admin/Superadmin ven todos). El encabezado referencia al cliente por id.
   const alc = await alcanceLecturaUsuario();
-  const whereCliente = alc.todos ? {} : { clientName: { in: alc.clientNames } };
-  const [balances, carteraClientes] = await Promise.all([
-    prisma.balance.findMany({
+  const whereCliente = alc.todos ? {} : { clienteId: { in: alc.clientIds } };
+  const [encabezados, carteraClientes] = await Promise.all([
+    prisma.balancePruebaEncabezado.findMany({
       where: whereCliente,
-      orderBy: [{ clientName: "asc" }, { createdAt: "desc" }],
+      orderBy: [{ nombreCliente: "asc" }, { creadoEn: "desc" }],
+      select: {
+        id: true, nombreCliente: true, nit: true, periodo: true, version: true,
+        esOficial: true, estado: true, completitud: true, ultimaCarga: true,
+        mapeadas: true, sinMapear: true, filasTotales: true,
+      },
     }),
     // Clientes de la cartera para el selector del modal de carga.
     prisma.client.findMany({
@@ -37,25 +40,21 @@ export default async function BalancePage() {
   // a la frontera RSC→client se pasan SOLO objetos planos serializables (periodList).
   type Agg = { clientName: string; clientNit: string; mapped?: number; unmapped?: number; total?: number; periods: Map<string, PeriodRow> };
   const byClient = new Map<string, Agg>();
-  for (const b of balances) {
-    let g = byClient.get(b.clientName);
+  for (const b of encabezados) {
+    let g = byClient.get(b.nombreCliente);
     if (!g) {
-      g = { clientName: b.clientName, clientNit: b.clientNit ?? "", periods: new Map() };
-      byClient.set(b.clientName, g);
+      g = { clientName: b.nombreCliente, clientNit: b.nit ?? "", periods: new Map() };
+      byClient.set(b.nombreCliente, g);
     }
-    const meta = b.meta as { mapped?: number; unmapped?: number; rows?: number } | null;
-    if (meta && (g.mapped == null || b.isOfficial)) {
-      g.mapped = meta.mapped; g.unmapped = meta.unmapped; g.total = meta.rows;
+    if (g.mapped == null || b.esOficial) {
+      g.mapped = b.mapeadas; g.unmapped = b.sinMapear; g.total = b.filasTotales;
     }
-    let p = g.periods.get(b.period);
-    if (!p) { p = { period: b.period, versions: 0, official: null, officialId: null, status: b.status, complete: b.complete, lastUpload: b.lastUpload ?? "" }; g.periods.set(b.period, p); }
+    let p = g.periods.get(b.periodo);
+    if (!p) { p = { period: b.periodo, versions: 0, official: null, officialId: null, status: b.estado, complete: b.completitud, lastUpload: b.ultimaCarga ?? "" }; g.periods.set(b.periodo, p); }
     p.versions += 1;
     if (!p.officialId) p.officialId = b.id; // fallback si ninguna fila es oficial
-    if (b.isOfficial) {
-      p.official = b.version; p.officialId = b.id; p.status = b.status; p.complete = b.complete; p.lastUpload = b.lastUpload ?? p.lastUpload;
-      // El conteo real de versiones del período oficial viene de su versionHistory.
-      const vh = b.versionHistory as unknown[] | null;
-      if (vh && vh.length > p.versions) p.versions = vh.length;
+    if (b.esOficial) {
+      p.official = b.version; p.officialId = b.id; p.status = b.estado; p.complete = b.completitud; p.lastUpload = b.ultimaCarga ?? p.lastUpload;
     }
   }
 
@@ -64,10 +63,8 @@ export default async function BalancePage() {
     periodList: [...g.periods.values()],
   }));
 
-  // Audit log: del balance oficial de El Zarzal (demo) — primero con auditLog no nulo
-  const withAudit = balances.find((b) => b.auditLog != null);
-  const auditLog = (withAudit?.auditLog as AuditEntry[] | null) ?? [];
-  const auditRows: AuditRow[] = auditLog;
+  // La bitácora detallada por movimiento vive ahora en /auditoria (registros_auditoria).
+  const auditRows: AuditRow[] = [];
 
   const clientNames = clients.map((c) => c.clientName);
 

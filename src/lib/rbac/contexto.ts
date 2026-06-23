@@ -176,13 +176,13 @@ export const clientIdPorNombre = cache(
 // no resuelve de forma única, devuelven null y el gate DENIEGA.
 // ============================================================
 
-/** Cliente de un balance (Balance referencia al cliente por nombre). */
+/** Cliente de un balance de prueba (FK directa `clienteId` en el encabezado). */
 export const clienteDeBalance = cache(async (balanceId: number): Promise<number | null> => {
-  const balance = await prisma.balance.findUnique({
+  const balance = await prisma.balancePruebaEncabezado.findUnique({
     where: { id: balanceId },
-    select: { clientName: true },
+    select: { clienteId: true },
   });
-  return clientIdPorNombre(balance?.clientName);
+  return balance?.clienteId ?? null;
 });
 
 /** Cliente de una conciliación: usa la FK si existe; si no (datos legado), por nombre. */

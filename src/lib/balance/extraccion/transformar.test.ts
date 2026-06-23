@@ -23,7 +23,7 @@ function spec(over: Partial<MappingSpec> = {}): MappingSpec {
     hoja: "Balance",
     filaEncabezado: 1,
     primeraFilaDatos: 2,
-    columnas: { codigo: 1, nombre: 2, saldoInicial: 3, debitos: 4, creditos: 5, saldoFinal: 6, saldoFinalDebito: null, saldoFinalCredito: null, centro: null, tercero: null },
+    columnas: { codigo: 1, nombre: 2, saldoInicial: 3, debitos: 4, creditos: 5, saldoFinal: 6, saldoFinalDebito: 0, saldoFinalCredito: 0, centro: 0, tercero: 0 },
     signoCredito: "firmado",
     reglaDetalle: { tipo: "longitud", longitudMin: 6, columna: null, valor: null },
     agregarPorTercero: false,
@@ -150,7 +150,7 @@ describe("transformarTabular", () => {
         [220505, "Proveedores", -3000],
       ],
     };
-    const s = spec({ columnas: { ...spec().columnas, saldoInicial: null, debitos: null, creditos: null, saldoFinal: 3 } });
+    const s = spec({ columnas: { ...spec().columnas, saldoInicial: 0, debitos: 0, creditos: 0, saldoFinal: 3 } });
     const rr = transformarTabular(s, [hojaSaldo], PARAMS);
     expect(rr.importReady).toHaveLength(2);
     expect(rr.resumen.filasDescuadre).toBe(0);

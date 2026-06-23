@@ -20,7 +20,8 @@ async function main() {
   await prisma.dianSection.deleteMany();
   await prisma.dianPeriod.deleteMany();
   await prisma.dianForm.deleteMany();
-  await prisma.balance.deleteMany();
+  await prisma.balancePruebaDetalle.deleteMany();
+  await prisma.balancePruebaEncabezado.deleteMany();
   await prisma.standardAccount.deleteMany();
   await prisma.auditEntry.deleteMany();
   await prisma.notification.deleteMany();
@@ -183,97 +184,8 @@ async function main() {
   });
 
   // ---- Balances ----
-  const elZarzalDetail = {
-    sums: { activo: 12450320500, pasivo: 7230180400, patrimonio: 5220140100, ingresos: 18540220000, gastos: 14320180500, costos: 2870540200, utilidad: 1349499300 },
-    validations: [
-      { id: "V1", rule: "Balance cuadrado (A = P + Pat)", status: "ok", detail: "Diferencia: $ 0" },
-      { id: "V2", rule: "Naturaleza de cuenta vs saldo", status: "warn", detail: "3 cuentas con saldo contrario", count: 3 },
-      { id: "V3", rule: "Sumas de mayores vs auxiliares", status: "ok", detail: "412 cuentas validadas" },
-      { id: "V4", rule: "Terceros con NIT inválido", status: "warn", detail: "7 terceros sin identificar", count: 7 },
-      { id: "V5", rule: "Cuentas nuevas no mapeadas", status: "warn", detail: "14 cuentas sin mapeo al estándar", count: 14 },
-      { id: "V6", rule: "Variaciones > 25% vs período anterior", status: "warn", detail: "18 cuentas con variación significativa", count: 18 },
-      { id: "V7", rule: "Cuentas dormidas reactivadas", status: "ok", detail: "Sin cuentas dormidas reactivadas" },
-      { id: "V8", rule: "Saldos en moneda extranjera sin tasa", status: "ok", detail: "No aplica" },
-    ],
-    breakdown: [
-      { code: "11", name: "Disponible", balance: 1240180300, prevBalance: 980440200, variation: 26.49, mapped: true, critical: true, nature: "D", saldoOk: true, items: [
-        { code: "110505", name: "Caja general", balance: 12400000, prevBalance: 8200000, variation: 51.2, std: "1105", mapped: true, critical: false, nature: "D", saldoOk: true },
-        { code: "111005", name: "Bancomercial – Bancolombia", balance: 824220500, prevBalance: 612400000, variation: 34.6, std: "1110", mapped: true, critical: false, nature: "D", saldoOk: true },
-        { code: "111010", name: "BBVA cta corriente", balance: 312180200, prevBalance: 248500000, variation: 25.6, std: "1110", mapped: true, critical: false, nature: "D", saldoOk: true },
-        { code: "111505", name: "Davivienda – ahorros", balance: 91379600, prevBalance: 111340200, variation: -18.1, std: "1110", mapped: true, critical: false, nature: "D", saldoOk: true },
-      ] },
-      { code: "13", name: "Deudores", balance: 4822140200, prevBalance: 4120550800, variation: 17.0, mapped: true, critical: true, nature: "D", saldoOk: true, items: [
-        { code: "130505", name: "Clientes nacionales", balance: 4120180400, prevBalance: 3580200000, variation: 15.1, std: "1305", mapped: true, critical: true, nature: "D", saldoOk: true },
-        { code: "130510", name: "Clientes exterior", balance: 552880300, prevBalance: 380440000, variation: 45.3, std: "1305", mapped: true, critical: false, nature: "D", saldoOk: true },
-        { code: "133005", name: "Anticipos a proveedores", balance: 188200500, prevBalance: 195300000, variation: -3.6, std: "1330", mapped: true, critical: false, nature: "D", saldoOk: true },
-        { code: "139905", name: "Provisión cartera", balance: -39121000, prevBalance: -35440000, variation: 10.4, std: "1399", mapped: true, critical: false, nature: "C", saldoOk: true },
-      ] },
-      { code: "14", name: "Inventarios", balance: 3280550200, prevBalance: 2980120400, variation: 10.1, mapped: true, critical: true, nature: "D", saldoOk: true, items: [
-        { code: "143505", name: "Mercancías no fabricadas", balance: 2120180300, prevBalance: 1981400000, variation: 7.0, std: "14", mapped: true, critical: false, nature: "D", saldoOk: true },
-        { code: "143510", name: "Mercancías en tránsito", balance: 480550900, prevBalance: 320100000, variation: 50.1, std: "14", mapped: true, critical: false, nature: "D", saldoOk: true },
-        { code: "149905", name: "Provisión obsolescencia", balance: -118200000, prevBalance: -112400000, variation: 5.1, std: null, mapped: false, critical: false, nature: "C", saldoOk: true },
-      ] },
-      { code: "24", name: "Impuestos, gravámenes y tasas", balance: -440180500, prevBalance: -412550300, variation: 6.7, mapped: true, critical: true, nature: "C", saldoOk: false, items: [
-        { code: "240805", name: "IVA generado", balance: 28500000, prevBalance: -120180400, variation: null, std: "24", mapped: true, critical: true, nature: "C", saldoOk: false },
-        { code: "240810", name: "IVA descontable", balance: -185220500, prevBalance: -148500000, variation: 24.7, std: "24", mapped: true, critical: false, nature: "C", saldoOk: true },
-        { code: "236501", name: "Retefuente", balance: -283460000, prevBalance: -143820000, variation: 97.1, std: "24", mapped: true, critical: true, nature: "C", saldoOk: true },
-      ] },
-      { code: "99", name: "Sin clasificar (cuentas no mapeadas)", balance: -92800000, prevBalance: -112400000, variation: null, mapped: false, critical: false, nature: "-", saldoOk: false, items: [
-        { code: "189965", name: "Diversos – nuevo cliente", balance: 25400000, prevBalance: 0, variation: null, std: null, mapped: false, critical: false, nature: "D", saldoOk: true },
-        { code: "149905", name: "Provisión obsolescencia", balance: -118200000, prevBalance: -112400000, variation: 5.1, std: null, mapped: false, critical: false, nature: "C", saldoOk: true },
-      ] },
-    ],
-    meta: { rows: 412, mapped: 398, unmapped: 14, critical: 23, file: "Balance ZARZAL Dic-2025_v3.xlsx", fileSize: "284 KB", frozenBy: "Manuela Gutiérrez", frozenAt: "08/Ene/2026 11:32", uploadedBy: "Sandra Paniagua (cliente)", uploadedAt: "06/Ene/2026 09:14" },
-    versionHistory: [
-      { v: "v3", date: "06/Ene/2026 09:14", uploadedBy: "Sandra Paniagua", role: "Cliente — Contadora", file: "Balance ZARZAL Dic-2025_v3.xlsx", size: "284 KB", rows: 412, sumA: 12450320500, balanced: true, note: "Versión final con ajustes solicitados", changes: 18 },
-      { v: "v2", date: "28/Dic/2025 16:42", uploadedBy: "Sandra Paniagua", role: "Cliente — Contadora", file: "Balance ZARZAL Dic-2025_v2.xlsx", size: "281 KB", rows: 407, sumA: 12308140200, balanced: true, note: "Corrige clasificación de cartera exterior", changes: 24 },
-      { v: "v1", date: "20/Dic/2025 10:05", uploadedBy: "Sandra Paniagua", role: "Cliente — Contadora", file: "Balance ZARZAL Dic-2025_v1.xlsx", size: "276 KB", rows: 402, sumA: 12180440700, balanced: false, note: "Primera versión – descuadra $ 1.4M", changes: 402 },
-    ],
-    diff: {
-      summary: { added: 5, removed: 0, changed: 8, totalAffected: 142180300 },
-      rows: [
-        { type: "changed", code: "110505", name: "Caja general", before: 8400000, after: 12400000, delta: 4000000 },
-        { type: "changed", code: "111005", name: "Bancomercial – Bancolombia", before: 780200000, after: 824220500, delta: 44020500 },
-        { type: "added", code: "130510", name: "Clientes exterior", before: 0, after: 552880300, delta: 552880300 },
-        { type: "added", code: "143510", name: "Mercancías en tránsito", before: 0, after: 480550900, delta: 480550900 },
-        { type: "changed", code: "240805", name: "IVA generado", before: -12500000, after: 28500000, delta: 41000000, flag: "Cambio de naturaleza" },
-        { type: "changed", code: "240810", name: "IVA descontable", before: -148500000, after: -185220500, delta: -36720500 },
-        { type: "changed", code: "236501", name: "Retefuente", before: -143820000, after: -283460000, delta: -139640000 },
-        { type: "added", code: "189965", name: "Diversos – nuevo cliente", before: 0, after: 25400000, delta: 25400000 },
-        { type: "added", code: "133005", name: "Anticipos a proveedores", before: 0, after: 188200500, delta: 188200500 },
-        { type: "changed", code: "139905", name: "Provisión cartera", before: -35440000, after: -39121000, delta: -3681000 },
-        { type: "added", code: "143505", name: "Mercancías no fabricadas (reclas.)", before: 0, after: 2120180300, delta: 2120180300 },
-        { type: "changed", code: "130505", name: "Clientes nacionales", before: 3580200000, after: 4120180400, delta: 539980400 },
-        { type: "changed", code: "111010", name: "BBVA cta corriente", before: 248500000, after: 312180200, delta: 63680200 },
-      ],
-    },
-    auditLog: [
-      { date: "20/Dic/2025 10:05", actor: "Sandra Paniagua", role: "Cliente", action: "Subió balance Dic-2025 v1", ip: "190.85.241.18", details: "276 KB · 402 cuentas · descuadra $ 1.4M" },
-      { date: "28/Dic/2025 16:42", actor: "Sandra Paniagua", role: "Cliente", action: "Subió balance Dic-2025 v2", ip: "190.85.241.18", details: "281 KB · 407 cuentas · cuadrado" },
-      { date: "03/Ene/2026 14:20", actor: "Manuela Gutiérrez", role: "Auditor senior", action: "Solicitó nueva versión", ip: "interno", details: "Reclasificar cartera exterior y mercancías en tránsito" },
-      { date: "06/Ene/2026 09:14", actor: "Sandra Paniagua", role: "Cliente", action: "Subió balance Dic-2025 v3", ip: "190.85.241.18", details: "284 KB · 412 cuentas · cuadrado" },
-      { date: "06/Ene/2026 09:40", actor: "Juliana Rincón", role: "Auditor", action: "Ejecutó validaciones automáticas", ip: "interno", details: "4 ok · 4 alertas" },
-      { date: "07/Ene/2026 11:10", actor: "Juliana Rincón", role: "Auditor", action: "Mapeó 14 cuentas al estándar", ip: "interno", details: "398 de 412 cuentas mapeadas" },
-      { date: "07/Ene/2026 15:35", actor: "Manuela Gutiérrez", role: "Auditor senior", action: "Revisó mapeo y validaciones", ip: "interno", details: "Aprobado para congelar" },
-      { date: "08/Ene/2026 11:32", actor: "Manuela Gutiérrez", role: "Auditor senior", action: "Congeló v3 como oficial", ip: "interno", details: "Versión auditada para cierre 2025" },
-      { date: "12/Ene/2026 09:02", actor: "Sistema", role: "Auditor", action: "Publicó balance a DIAN y Razonabilidad", ip: "interno", details: "Disponible para módulos downstream" },
-    ],
-  };
-
-  await prisma.balance.create({
-    data: { clientName: "El Zarzal S.A", clientNit: "890.345.872-1", period: "Diciembre 2025", version: "v3", isOfficial: true, isFrozen: true, status: "Congelado", complete: 100, lastUpload: "06/Ene/2026 09:14", ...elZarzalDetail },
-  });
-  await prisma.balance.createMany({
-    data: [
-      { clientName: "El Zarzal S.A", clientNit: "890.345.872-1", period: "Noviembre 2025", version: "v2", status: "Última", complete: 100, lastUpload: "04/Dic/2025 14:20" },
-      { clientName: "El Zarzal S.A", clientNit: "890.345.872-1", period: "Octubre 2025", version: "v1", status: "Única", complete: 100, lastUpload: "05/Nov/2025 09:10" },
-      { clientName: "El Zarzal S.A", clientNit: "890.345.872-1", period: "Abril 2026", version: "v2", status: "Con alertas", complete: 97, lastUpload: "05/May/2026 10:42" },
-      { clientName: "Inversiones del Pacífico S.A.S", clientNit: "900.451.227-3", period: "Diciembre 2025", version: "v2", isOfficial: true, isFrozen: true, status: "Congelado", complete: 100, lastUpload: "09/Ene/2026 08:30" },
-      { clientName: "Inversiones del Pacífico S.A.S", clientNit: "900.451.227-3", period: "Septiembre 2025", version: "v1", status: "Única", complete: 100, lastUpload: "06/Oct/2025 16:00" },
-      { clientName: "Comercializadora Andina Ltda", clientNit: "800.234.115-7", period: "Marzo 2026", version: "v4", status: "Última", complete: 88, lastUpload: "10/Abr/2026 12:15" },
-      { clientName: "Manufacturas del Sur S.A", clientNit: "830.502.118-9", period: "Octubre 2026", version: "v1", status: "Única", complete: 100, lastUpload: "04/Nov/2026 11:48" },
-    ],
-  });
+  // El balance de prueba se carga desde la UI (modelo normalizado encabezado +
+  // detalle); ya no se siembran balances demo.
 
   // ---- DIAN ----
   const forms = [

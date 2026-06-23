@@ -6,8 +6,7 @@ import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
 import { Modal } from "@/components/modal";
 import { Chip } from "@/components/ui";
-import { MESES_LARGOS } from "@/lib/format";
-import { cargarBalance } from "@/app/actions/balance";
+import { leerBalance, confirmarCargaBalance, type LeerBalanceState, type SugerenciaBalance } from "@/app/actions/balance";
 import { notifyActionState } from "@/lib/client-notifications";
 import type { ImportBalanceState } from "@/lib/import/balance";
 
@@ -16,69 +15,90 @@ export type ClienteOpcion = { id: number; name: string; nit: string };
 type Resumen = NonNullable<ImportBalanceState["resumen"]>;
 type Excepcion = NonNullable<ImportBalanceState["excepciones"]>[number];
 
+const soloDigitos = (s: string) => (s ?? "").replace(/\D/g, "");
+
+/** Cliente cuyo NIT coincide con el NIT detectado (núcleo de 9 dígitos). */
+function clienteSugerido(clients: ClienteOpcion[], nit: string | null): string {
+  const core = soloDigitos(nit ?? "").slice(0, 9);
+  if (core.length < 5) return "";
+  const m = clients.find((c) => soloDigitos(c.nit).slice(0, 9) === core);
+  return m ? String(m.id) : "";
+}
+
 export function CargarBalanceButton({ clients }: { clients: ClienteOpcion[] }) {
   const [open, setOpen] = useState(false);
+  // `instancia` reinicia el asistente por completo (incluye los useActionState).
+  const [instancia, setInstancia] = useState(0);
+  const reiniciar = () => setInstancia((n) => n + 1);
   return (
     <>
       <button
-        onClick={() => setOpen(true)}
+        onClick={() => { reiniciar(); setOpen(true); }}
         className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white transition hover:bg-navy-600"
       >
         <Icon name="upload" size={14} /> Cargar balance
       </button>
-      {open && <CargarBalanceModal clients={clients} onClose={() => setOpen(false)} />}
+      {open && <CargarBalanceModal key={instancia} clients={clients} onClose={() => setOpen(false)} onReiniciar={reiniciar} />}
     </>
   );
 }
 
-function CargarBalanceModal({ clients, onClose }: { clients: ClienteOpcion[]; onClose: () => void }) {
+function CargarBalanceModal({ clients, onClose, onReiniciar }: { clients: ClienteOpcion[]; onClose: () => void; onReiniciar: () => void }) {
   const router = useRouter();
-  const [state, formAction, pending] = useActionState<ImportBalanceState, FormData>(cargarBalance, {});
-  const [clientId, setClientId] = useState("");
+  const [leerState, leerAction, leyendo] = useActionState<LeerBalanceState, FormData>(leerBalance, {});
+  const [confirmState, confirmAction, cargando] = useActionState<ImportBalanceState, FormData>(confirmarCargaBalance, {});
   const [fileName, setFileName] = useState("");
-  const anioActual = new Date().getFullYear();
-  const mesActual = new Date().getMonth();
-  const anios = [anioActual + 1, anioActual, anioActual - 1, anioActual - 2, anioActual - 3];
 
   useEffect(() => {
-    notifyActionState(state, {
-      success: "Balance cargado.",
-      error: "No se pudo cargar el balance.",
-    });
-    if (state?.ok) router.refresh();
-  }, [state, router]);
+    notifyActionState(confirmState, { success: "Balance cargado.", error: "No se pudo cargar el balance." });
+    if (confirmState?.ok) router.refresh();
+  }, [confirmState, router]);
+
+  const sug = leerState?.sugerencia;
+  const fase: "ok" | "revisar" | "archivo" = confirmState?.ok ? "ok" : sug ? "revisar" : "archivo";
+
+  const footer =
+    fase === "ok" ? (
+      <button onClick={onClose} className="ml-auto rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600">
+        Cerrar
+      </button>
+    ) : fase === "revisar" ? (
+      <div className="flex w-full items-center">
+        <button type="button" onClick={onReiniciar} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] font-semibold text-ink-600 hover:bg-ink-50">
+          ← Otro archivo
+        </button>
+        <button
+          type="submit"
+          form="confirmar-form"
+          disabled={cargando}
+          className="ml-auto rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
+        >
+          {cargando ? "Cargando…" : "Cargar balance"}
+        </button>
+      </div>
+    ) : (
+      <button
+        type="submit"
+        form="leer-form"
+        disabled={leyendo || !fileName || clients.length === 0}
+        className="ml-auto rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
+      >
+        {leyendo ? "Leyendo con IA…" : "Leer archivo"}
+      </button>
+    );
 
   return (
-    <Modal
-      open
-      onClose={onClose}
-      title="Cargar balance de comprobación"
-      size="2xl"
-      footer={
-        state?.ok ? (
-          <button onClick={onClose} className="ml-auto rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600">
-            Cerrar
-          </button>
-        ) : (
-          <button
-            type="submit"
-            form="cargar-balance-form"
-            disabled={pending || !clientId || !fileName}
-            className="ml-auto rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
-          >
-            {pending ? "Extrayendo con IA…" : "Cargar balance"}
-          </button>
-        )
-      }
-    >
-      {state?.ok && state.resumen ? (
-        <ResultadoOk resumen={state.resumen} excepciones={state.excepciones ?? []} onClose={onClose} />
+    <Modal open onClose={onClose} title="Cargar balance de comprobación" size="2xl" footer={footer}>
+      {fase === "ok" && confirmState.resumen ? (
+        <ResultadoOk resumen={confirmState.resumen} excepciones={confirmState.excepciones ?? []} onClose={onClose} />
+      ) : fase === "revisar" && sug ? (
+        <FormRevisar sug={sug} clients={clients} confirmAction={confirmAction} confirmMessage={confirmState?.message} excepciones={leerState?.excepciones ?? []} />
       ) : (
-        <form id="cargar-balance-form" action={formAction} className="flex flex-col gap-3.5">
+        <form id="leer-form" action={leerAction} className="flex flex-col gap-3.5">
           <p className="text-[12.5px] leading-relaxed text-ink-600">
-            Sube el balance en <span className="font-semibold">Excel (.xlsx/.xls/.xlsb), CSV, JSON o PDF</span>. La IA
-            identifica la estructura, extrae las cuentas (NIT, período, saldos, débitos y créditos), valida el cuadre y
-            reporta las excepciones sin inventar datos. Cada cargue crea una nueva versión del período.
+            Sube el balance en <span className="font-semibold">Excel (.xlsx/.xls/.xlsb), CSV, JSON o PDF</span>. La IA lo
+            lee, identifica la estructura y te <span className="font-semibold">sugiere</span> los datos (cliente, período,
+            saldos). Tú revisas y completas lo que falte antes de cargar; nada se guarda hasta confirmar.
           </p>
 
           {clients.length === 0 ? (
@@ -86,78 +106,126 @@ function CargarBalanceModal({ clients, onClose }: { clients: ClienteOpcion[]; on
               No tienes clientes asignados con alcance para cargar balances.
             </div>
           ) : (
-            <>
-              <label className="flex flex-col gap-1.5">
-                <span className="text-[11.5px] font-medium text-ink-600">Cliente</span>
-                <select
-                  name="clientId"
-                  required
-                  value={clientId}
-                  onChange={(e) => setClientId(e.target.value)}
-                  className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400"
-                >
-                  <option value="" disabled>
-                    Selecciona el cliente…
-                  </option>
-                  {clients.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name} — {c.nit}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <div className="grid grid-cols-3 gap-3">
-                <label className="flex flex-col gap-1.5">
-                  <span className="text-[11.5px] font-medium text-ink-600">Mes del período</span>
-                  <select name="mes" required defaultValue={MESES_LARGOS[mesActual]} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400">
-                    {MESES_LARGOS.map((m) => (
-                      <option key={m} value={m}>
-                        {m}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="flex flex-col gap-1.5">
-                  <span className="text-[11.5px] font-medium text-ink-600">Año</span>
-                  <select name="anio" required defaultValue={anioActual} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400">
-                    {anios.map((y) => (
-                      <option key={y} value={y}>
-                        {y}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="flex flex-col gap-1.5">
-                  <span className="text-[11.5px] font-medium text-ink-600">Estándar</span>
-                  <select name="estandar" defaultValue="AUTO" className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400">
-                    <option value="AUTO">Auto</option>
-                    <option value="NIIF">NIIF</option>
-                    <option value="PCGA">PCGA</option>
-                  </select>
-                </label>
-              </div>
-
-              <label className="flex flex-col gap-1.5">
-                <span className="text-[11.5px] font-medium text-ink-600">Archivo (Excel, CSV, JSON o PDF)</span>
-                <input
-                  type="file"
-                  name="archivo"
-                  accept=".xlsx,.xls,.xlsb,.csv,.json,.pdf,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                  required
-                  onChange={(e) => setFileName(e.target.files?.[0]?.name ?? "")}
-                  className="rounded-md border border-ink-200 bg-white text-[12.5px] text-ink-700 file:mr-3 file:cursor-pointer file:border-0 file:bg-navy-700 file:px-3 file:py-2 file:text-[12.5px] file:font-semibold file:text-white"
-                />
-              </label>
-
-              {state?.message && <p className="text-[12px] font-medium text-err-700">{state.message}</p>}
-              {state?.errores && state.errores.length > 0 && <ErroresTabla errores={state.errores} />}
-              {state?.excepciones && state.excepciones.length > 0 && <ExcepcionesTabla excepciones={state.excepciones} />}
-            </>
+            <label className="flex flex-col gap-1.5">
+              <span className="text-[11.5px] font-medium text-ink-600">Archivo (Excel, CSV, JSON o PDF)</span>
+              <input
+                type="file"
+                name="archivo"
+                accept=".xlsx,.xls,.xlsb,.csv,.json,.pdf,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                required
+                onChange={(e) => setFileName(e.target.files?.[0]?.name ?? "")}
+                className="rounded-md border border-ink-200 bg-white text-[12.5px] text-ink-700 file:mr-3 file:cursor-pointer file:border-0 file:bg-navy-700 file:px-3 file:py-2 file:text-[12.5px] file:font-semibold file:text-white"
+              />
+            </label>
           )}
+
+          {leerState?.message && <p className="text-[12px] font-medium text-err-700">{leerState.message}</p>}
+          {leerState?.errores && leerState.errores.length > 0 && <ErroresTabla errores={leerState.errores} />}
+          {leerState?.excepciones && leerState.excepciones.length > 0 && <ExcepcionesTabla excepciones={leerState.excepciones} />}
         </form>
       )}
     </Modal>
+  );
+}
+
+function FormRevisar({
+  sug,
+  clients,
+  confirmAction,
+  confirmMessage,
+  excepciones,
+}: {
+  sug: SugerenciaBalance;
+  clients: ClienteOpcion[];
+  confirmAction: (payload: FormData) => void;
+  confirmMessage?: string;
+  excepciones: Excepcion[];
+}) {
+  // Defaults derivados de la sugerencia (campos NO controlados con defaultValue).
+  const clienteSug = clienteSugerido(clients, sug.nitDetectado);
+  const estandarDef = ["NIIF", "PCGA", "AUTO"].includes(sug.estandar) ? sug.estandar : "AUTO";
+  const desdeDef = sug.periodoInicial ?? "";
+  const hastaDef = sug.periodoFinal ?? "";
+  const centroDef = sug.centro ?? "";
+
+  return (
+    <form id="confirmar-form" action={confirmAction} className="flex flex-col gap-3.5">
+      <input type="hidden" name="payload" value={JSON.stringify(sug)} />
+
+      <div className="rounded-md border border-ok-100 bg-ok-100/40 px-3 py-2.5 text-[12.5px] text-ok-700">
+        Leí <span className="font-semibold">{sug.cuentas} cuenta(s)</span> de{" "}
+        <span className="font-mono">{sug.archivoNombre}</span>. Revisa y completa los campos antes de cargar; no se ha guardado nada todavía.
+      </div>
+
+      <label className="flex flex-col gap-1.5">
+        <span className="text-[11.5px] font-medium text-ink-600">Cliente</span>
+        <select
+          name="clientId"
+          required
+          defaultValue={clienteSug}
+          className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400"
+        >
+          <option value="" disabled>Selecciona el cliente…</option>
+          {clients.map((c) => (
+            <option key={c.id} value={c.id}>{c.name} — {c.nit}</option>
+          ))}
+        </select>
+        {clienteSug === "" && sug.nitDetectado && (
+          <span className="text-[11px] text-warn-700">
+            NIT detectado <span className="font-mono">{sug.nitDetectado}</span> sin cliente coincidente — selecciónalo manualmente.
+          </span>
+        )}
+      </label>
+
+      <div className="grid grid-cols-3 gap-3">
+        <label className="flex flex-col gap-1.5">
+          <span className="text-[11.5px] font-medium text-ink-600">Período desde</span>
+          <input type="date" name="periodoInicio" required defaultValue={desdeDef} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400" />
+        </label>
+        <label className="flex flex-col gap-1.5">
+          <span className="text-[11.5px] font-medium text-ink-600">Período hasta</span>
+          <input type="date" name="periodoFin" required defaultValue={hastaDef} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400" />
+        </label>
+        <label className="flex flex-col gap-1.5">
+          <span className="text-[11.5px] font-medium text-ink-600">Estándar</span>
+          <select name="estandar" defaultValue={estandarDef} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400">
+            <option value="AUTO">Auto</option>
+            <option value="NIIF">NIIF</option>
+            <option value="PCGA">PCGA</option>
+          </select>
+        </label>
+      </div>
+
+      <label className="flex flex-col gap-1.5">
+        <span className="text-[11.5px] font-medium text-ink-600">
+          Centro operativo <span className="font-normal text-ink-400">(opcional · solo si aplica)</span>
+        </span>
+        <input type="text" name="centroOperativo" defaultValue={centroDef} placeholder="Déjalo vacío si el balance no tiene centro" className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400" />
+      </label>
+
+      <SugerenciaResumen sug={sug} />
+
+      {confirmMessage && <p className="text-[12px] font-medium text-err-700">{confirmMessage}</p>}
+      {excepciones.length > 0 && <ExcepcionesTabla excepciones={excepciones} />}
+    </form>
+  );
+}
+
+function SugerenciaResumen({ sug }: { sug: SugerenciaBalance }) {
+  return (
+    <div className="rounded-md border border-ink-150 bg-ink-50 px-3 py-2.5">
+      <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Lo que detecté en el archivo</div>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[12px] text-ink-600 sm:grid-cols-3">
+        <Linea k="NIT" v={`${sug.nitDetectado ?? "—"} (${sug.nitFuente.toLowerCase()})`} />
+        <Linea k="Centro" v={sug.centro ?? "—"} />
+        <Linea k="Período" v={`${sug.periodoInicial ?? "?"} → ${sug.periodoFinal ?? "?"}`} />
+        <Linea k="Cuentas" v={String(sug.cuentas)} />
+        <Linea k="Excluidas" v={String(sug.filasExcluidas)} />
+        <Linea k="Descuadres" v={String(sug.filasDescuadre)} />
+        <Linea k="Estándar" v={sug.estandar} />
+        <Linea k="Signo crédito" v={sug.convencionCredito} />
+      </div>
+    </div>
   );
 }
 
@@ -207,7 +275,7 @@ function ResultadoOk({ resumen, excepciones, onClose }: { resumen: Resumen; exce
 function ExcepcionesTabla({ excepciones }: { excepciones: Excepcion[] }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="text-[11.5px] font-semibold text-warn-700">{excepciones.length} excepción(es) — no se importaron estas filas:</span>
+      <span className="text-[11.5px] font-semibold text-warn-700">{excepciones.length} excepción(es) — filas/datos que la IA marcó para revisar:</span>
       <div className="max-h-60 overflow-y-auto rounded-md border border-ink-150">
         <table className="w-full text-[11.5px]">
           <thead className="sticky top-0 bg-ink-50 text-ink-500">
@@ -238,7 +306,7 @@ function ExcepcionesTabla({ excepciones }: { excepciones: Excepcion[] }) {
 function ErroresTabla({ errores }: { errores: NonNullable<ImportBalanceState["errores"]> }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="text-[11.5px] font-semibold text-err-700">{errores.length} problema(s) encontrados — nada se cargó:</span>
+      <span className="text-[11.5px] font-semibold text-err-700">{errores.length} problema(s) en el archivo — nada se leyó:</span>
       <div className="max-h-60 overflow-y-auto rounded-md border border-ink-150">
         <table className="w-full text-[11.5px]">
           <thead className="sticky top-0 bg-ink-50 text-ink-500">

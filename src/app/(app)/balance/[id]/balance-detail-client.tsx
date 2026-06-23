@@ -7,8 +7,8 @@ import { fmt, fmtPct } from "@/lib/format";
 
 export type Sums = { activo: number; pasivo: number; patrimonio: number; ingresos: number; gastos: number; costos: number; utilidad: number };
 export type Validation = { id: string; rule: string; status: string; detail: string; count?: number };
-export type BreakdownItem = { code: string; name: string; balance: number; prevBalance: number; variation: number | null; std: string | null; mapped: boolean; critical: boolean; nature: string; saldoOk: boolean };
-export type BreakdownGroup = { code: string; name: string; balance: number; prevBalance: number; variation: number | null; mapped: boolean; critical: boolean; nature: string; saldoOk: boolean; items: BreakdownItem[] };
+export type BreakdownItem = { code: string; name: string; prevBalance: number; balance: number; debe: number; haber: number; variation: number | null; std: string | null; coincidencia: number | null; saldoOk: boolean; critical: boolean };
+export type BreakdownGroup = { code: string; name: string; prevBalance: number; balance: number; debe: number; haber: number; variation: number | null; mapped: boolean; saldoOk: boolean; critical: boolean; items: BreakdownItem[] };
 export type Meta = { rows: number; mapped: number; unmapped: number; critical: number; file: string; fileSize: string; frozenBy: string; frozenAt: string; uploadedBy: string; uploadedAt: string };
 export type Version = { v: string; date: string; uploadedBy: string; role: string; file: string; size: string; rows: number; sumA: number; balanced: boolean; note: string; changes: number };
 
@@ -35,10 +35,13 @@ export default function BalanceDetailClient({
 }
 
 function BreakdownTab({ groups }: { groups: BreakdownGroup[] }) {
-  const [open, setOpen] = useState<string[]>(["11", "13", "24"]);
+  const [open, setOpen] = useState<string[]>(groups.slice(0, 3).map((g) => g.code));
   const toggle = (code: string) => setOpen((o) => (o.includes(code) ? o.filter((c) => c !== code) : [...o, code]));
   return (
     <Card>
+      <p className="border-b border-ink-100 px-4 py-2 text-[11.5px] text-ink-500">
+        Balance normalizado al <span className="font-semibold text-ink-700">plan estándar Russell</span> (agrupado por cuenta estándar, con su nombre). Despliega para ver las cuentas del cliente (nivel 8).
+      </p>
       <div className="overflow-x-auto">
         <table className="w-full text-[12.5px]">
           <thead>
@@ -46,8 +49,10 @@ function BreakdownTab({ groups }: { groups: BreakdownGroup[] }) {
               <th className="px-4 py-2 font-semibold">Código</th>
               <th className="px-4 py-2 font-semibold">Cuenta</th>
               <th className="px-4 py-2 font-semibold">Mapeo estándar</th>
+              <th className="px-4 py-2 text-right font-semibold">Saldo anterior</th>
+              <th className="px-4 py-2 text-right font-semibold">Débito</th>
+              <th className="px-4 py-2 text-right font-semibold">Crédito</th>
               <th className="px-4 py-2 text-right font-semibold">Saldo</th>
-              <th className="px-4 py-2 text-right font-semibold">Período anterior</th>
               <th className="px-4 py-2 text-right font-semibold">Var %</th>
               <th className="px-4 py-2 font-semibold">Validación</th>
             </tr>
@@ -55,17 +60,19 @@ function BreakdownTab({ groups }: { groups: BreakdownGroup[] }) {
           <tbody>
             {groups.map((g) => {
               const isOpen = open.includes(g.code);
-              const is99 = g.code === "99";
+              const sinMapeo = !g.mapped;
               return (
                 <FragmentRows key={g.code}>
-                  <tr className={`cursor-pointer border-b border-ink-100 ${is99 ? "bg-warn-100" : "bg-ink-50"}`} onClick={() => toggle(g.code)}>
+                  <tr className={`cursor-pointer border-b border-ink-100 ${sinMapeo ? "bg-warn-100" : "bg-ink-50"}`} onClick={() => toggle(g.code)}>
                     <td className="px-4 py-2 font-mono font-semibold text-ink-700">
                       <span className="mr-1 inline-block align-middle"><Icon name={isOpen ? "chev-d" : "chev-r"} size={12} /></span>{g.code}
                     </td>
                     <td className="px-4 py-2 font-semibold text-ink-800">{g.name}{g.critical && <span className="ml-2 align-middle text-warn-500"><Icon name="warn" size={12} /></span>}</td>
-                    <td className="px-4 py-2">{g.mapped ? <Chip label="Mapeada" tone="ok" /> : <Chip label="Sin mapeo" tone="warn" />}</td>
-                    <td className="px-4 py-2 text-right font-mono font-semibold text-ink-800">{fmt(g.balance)}</td>
+                    <td className="px-4 py-2">{g.mapped ? <Chip label="Russell" tone="ok" /> : <Chip label="Sin mapeo" tone="warn" />}</td>
                     <td className="px-4 py-2 text-right font-mono text-ink-400">{fmt(g.prevBalance)}</td>
+                    <td className="px-4 py-2 text-right font-mono text-ink-600">{fmt(g.debe)}</td>
+                    <td className="px-4 py-2 text-right font-mono text-ink-600">{fmt(g.haber)}</td>
+                    <td className="px-4 py-2 text-right font-mono font-semibold text-ink-800">{fmt(g.balance)}</td>
                     <td className={`px-4 py-2 text-right font-mono ${g.variation != null && Math.abs(g.variation) > 25 ? "text-warn-700" : "text-ink-700"}`}>{fmtPct(g.variation)}</td>
                     <td className="px-4 py-2">{!g.saldoOk ? <Chip label="Saldo contrario" tone="err" /> : g.mapped ? <Chip label="OK" tone="ok" /> : null}</td>
                   </tr>
@@ -73,9 +80,22 @@ function BreakdownTab({ groups }: { groups: BreakdownGroup[] }) {
                     <tr key={a.code} className="border-b border-ink-50 hover:bg-ink-50">
                       <td className="px-4 py-2 pl-9 font-mono text-[11.5px] text-ink-500">{a.code}</td>
                       <td className="px-4 py-2 text-ink-700">{a.name}{a.critical && <span className="ml-2"><Chip label="Crítica" tone="warn" /></span>}</td>
-                      <td className="px-4 py-2">{a.std ? <span className="font-mono text-[11.5px] text-blue-500">→ {a.std}</span> : <Chip label="Asignar" tone="warn" />}</td>
-                      <td className="px-4 py-2 text-right font-mono text-ink-700">{fmt(a.balance)}</td>
+                      <td className="px-4 py-2">
+                        {a.std ? (
+                          <span className="inline-flex items-center gap-1.5 font-mono text-[11.5px] text-blue-500">
+                            {a.coincidencia != null && a.coincidencia < 100 ? "≈" : "→"} {a.std}
+                            {a.coincidencia != null && (
+                              <span className={`rounded px-1 text-[10px] font-semibold ${a.coincidencia >= 85 ? "bg-ok-100 text-ok-700" : a.coincidencia >= 55 ? "bg-warn-100 text-warn-700" : "bg-err-100 text-err-700"}`}>{a.coincidencia}%</span>
+                            )}
+                          </span>
+                        ) : (
+                          <Chip label="Asignar" tone="warn" />
+                        )}
+                      </td>
                       <td className="px-4 py-2 text-right font-mono text-ink-400">{fmt(a.prevBalance)}</td>
+                      <td className="px-4 py-2 text-right font-mono text-ink-500">{fmt(a.debe)}</td>
+                      <td className="px-4 py-2 text-right font-mono text-ink-500">{fmt(a.haber)}</td>
+                      <td className="px-4 py-2 text-right font-mono text-ink-700">{fmt(a.balance)}</td>
                       <td className={`px-4 py-2 text-right font-mono ${a.variation != null && Math.abs(a.variation) > 25 ? "text-warn-700" : "text-ink-500"}`}>{fmtPct(a.variation)}</td>
                       <td className="px-4 py-2">{!a.saldoOk && <Chip label="Naturaleza" tone="err" />}</td>
                     </tr>

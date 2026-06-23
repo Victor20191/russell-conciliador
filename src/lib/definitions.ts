@@ -106,6 +106,20 @@ export const CargarBalanceSchema = z.object({
   estandar: z.enum(["NIIF", "PCGA", "AUTO"]).catch("AUTO"),
 });
 
+// Confirmación de carga (paso 2): cliente + período desde/hasta (fechas ISO) +
+// centro operativo (opcional). Las cuentas ya leídas viajan aparte en `payload`.
+const ISO_FECHA = /^\d{4}-\d{2}-\d{2}$/;
+export const ConfirmarBalanceSchema = z
+  .object({
+    clientId: z.coerce.number({ error: "Selecciona el cliente." }).int().positive({ error: "Selecciona el cliente." }),
+    periodoInicio: z.string().regex(ISO_FECHA, { error: "Indica el período desde (fecha)." }),
+    periodoFin: z.string().regex(ISO_FECHA, { error: "Indica el período hasta (fecha)." }),
+    // Centro operativo: opcional («solo si aplica»). Vacío → sin centro.
+    centroOperativo: z.string().trim().optional().default(""),
+    estandar: z.enum(["NIIF", "PCGA", "AUTO"]).catch("AUTO"),
+  })
+  .refine((d) => d.periodoFin >= d.periodoInicio, { error: "El período hasta no puede ser anterior al período desde.", path: ["periodoFin"] });
+
 export const PasswordSchema = z
   .string()
   .min(10, { error: "La contraseña debe tener al menos 10 caracteres." })

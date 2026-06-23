@@ -19,13 +19,13 @@ export default async function MapeoPage({ searchParams }: { searchParams: Promis
   // elegido (searchParams) se valida contra esa lista, de modo que no puede
   // consultarse el plan de cuentas de un cliente ajeno por la URL.
   const alc = await alcanceLecturaUsuario();
-  const balances = await prisma.balance.findMany({
-    where: alc.todos ? {} : { clientName: { in: alc.clientNames } },
-    select: { clientName: true },
-    distinct: ["clientName"],
-    orderBy: { clientName: "asc" },
+  const balances = await prisma.balancePruebaEncabezado.findMany({
+    where: alc.todos ? {} : { clienteId: { in: alc.clientIds } },
+    select: { nombreCliente: true },
+    distinct: ["nombreCliente"],
+    orderBy: { nombreCliente: "asc" },
   });
-  const clientNames = balances.map((b) => b.clientName);
+  const clientNames = balances.map((b) => b.nombreCliente);
   const cliente = sp.cliente && clientNames.includes(sp.cliente) ? sp.cliente : (clientNames.includes("El Zarzal S.A") ? "El Zarzal S.A" : clientNames[0] ?? "");
 
   // Solo el Administrador parametriza el plan estándar (gate `mapeo:administrar`).

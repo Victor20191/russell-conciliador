@@ -28,11 +28,15 @@ npm run db:seed:rbac        # siembra roles, permisos y la matriz rol×permiso
 npm run db:sync:rbac        # reconcilia la matriz BD ↔ catálogo SIN tocar jerarquía/asignaciones (dry-run; --aplicar para ejecutar)
 npm run db:studio           # explorador de BD
 npm run db:backfill:roles   # conversión de roles legado (dry-run)
+npm run db:load:puc         # carga el PUC maestro Russell (prisma/data/puc-maestro-russell.json)
+npm run db:seed:comentar    # siembra el permiso/datos de comentarios
+npm run db:seed:admin-negocio   # siembra el usuario administrador de negocio
+npm run db:completar:jerarquia  # completa aristas faltantes de la jerarquía
 ```
 
 Las pruebas viven junto al código como `*.test.ts` (config en `vitest.config.ts`, entorno `node`, `SESSION_SECRET` inyectado). El cliente Prisma se regenera en `postinstall` y `prebuild`; tras editar `schema.prisma` corre `prisma generate` (o `db:migrate`).
 
-Variables de entorno (`.env`, ver `.env.example`): `DATABASE_URL`, `SESSION_SECRET` (`openssl rand -base64 32`), y opcionales `COOKIE_SECURE`, `DB_POOL_MAX`, `DB_CONNECT_TIMEOUT_MS`, `DB_IDLE_TIMEOUT_MS`.
+Variables de entorno (`.env`, ver `.env.example`): `DATABASE_URL`, `SESSION_SECRET` (`openssl rand -base64 32`), y opcionales `COOKIE_SECURE`, `DB_POOL_MAX`, `DB_CONNECT_TIMEOUT_MS`, `DB_IDLE_TIMEOUT_MS`. Para la extracción de balances con IA: `ANTHROPIC_API_KEY` (sin ella la app sigue funcionando; la extracción asistida queda deshabilitada) y `ANTHROPIC_MODEL` (opcional, por defecto `claude-opus-4-8`).
 
 ## Arquitectura
 
@@ -75,6 +79,43 @@ En `src/app/actions/*.ts`. El orden es: `"use server"` → autorizar (`authorize
 - **IDs numéricos autoincrementales** en todos los modelos; los códigos de negocio (`C-1042`, `IVA`…) son columnas `@unique`.
 - **FK suaves** hacia `User` y `Client`: solo el `Int` mapeado, SIN `@relation` (no hay cascada física → al borrar un usuario hay que limpiar jerarquía y asignaciones a mano, ver `deleteUser`). Las demás relaciones sí son FK duras con `onDelete`.
 - Comentarios polimórficos (`Comment`): anclados por `(entityType, entityId)` donde `entityType` reutiliza los códigos de módulo del RBAC.
+
+### Balance de prueba: modelo normalizado (encabezado + detalle)
+
+- **Almacenamiento**: el balance de comprobación vive en dos tablas relacionales — `balance_prueba_encabezado` (un cargue por `(clienteId, periodo, version)`, con versionado `esOficial`/`estaCongelado` y el resumen del cargue) y `balance_prueba_detalle` (una fila por cuenta, con la cuenta desagregada por nivel PUC `cuenta_2/4/6/8`, el mapeo `cuenta_6_russell`, y los montos `saldo_inicial/debitos/creditos/saldo_final` como `Decimal(18,2)` firmados: débito +, crédito −). FK suave `clienteId → clientes` (Int, sin `@relation`); FK dura encabezado→detalle con `onDelete: Cascade`.
+- **El modelo `Balance` legado (JSON `desglose`/`sumas`/…) está DEPRECADO** y vacío; la tabla `balances` se conserva pero ya no se lee ni escribe.
+- `src/lib/balance/calcular.ts` — cálculo **puro** (sin BD, sin Excel): de las cuentas crudas + el plan estándar (cuentas de 6 dígitos) produce `sums`, `breakdown` (por grupo PUC), `validations` y contadores. **Los agregados NO se persisten**: se RECALCULAN al leer con `reconstruirBalance(filas, estandar)` desde el detalle. Helpers clave: `descomponerCuenta` (código→2/4/6/8), `aFilasDetalle` (desglose→filas para insertar), `construirEstadoResultado` (P&L derivado, sustituye al antiguo `incomeStatement`). Determinista y testeable (`calcular.test.ts`); la carga/versionado vive en `cargarBalance` (`src/app/actions/balance.ts`). Las pantallas `/balance` reconstruyen los view-models en sus loaders RSC.
+- `src/lib/balance/asociacion.ts` — el vínculo balance↔plan estándar es la columna `cuenta_6_russell` del detalle (= código de la cuenta estándar). Saber si una cuenta estándar tiene balances asociados es una consulta Prisma directa sobre `balance_prueba_detalle` (antes requería SQL crudo `jsonb_array_elements` sobre el JSON). La comprobación es **global** (todos los clientes): editar/borrar una cuenta estándar afecta a toda la plataforma.
+
+### Extracción de balances con IA (Claude)
+
+Primera integración de IA de la plataforma. Pipeline en `src/lib/balance/extraccion/`, orquestado por `extraer.ts`:
+
+1. **Ingesta** (`ingesta.ts`): el archivo subido (xlsx/xls/xlsb/csv/json/pdf) se clasifica en modo `tabular` (grillas por hoja) o `documento` (PDF base64 / texto). Solo el código toca todas las filas; al modelo se le manda una **vista previa compacta** con índices 1-based.
+2. **Llamada a Claude** (`@anthropic-ai/sdk`, salida estructurada con `zodOutputFormat` y esquemas Zod en `esquema.ts`):
+   - Tabular → modo **ESTRUCTURA**: el modelo devuelve un *mapping spec* (qué columna es código/nombre/saldo…), no transcribe filas.
+   - Documento → modo **EXTRACCIÓN DIRECTA**: el modelo devuelve las filas de detalle ya normalizadas.
+3. **Transformación/validación determinista** (`transformar.ts`): aplica el spec o valida la extracción directa y alimenta a `calcularBalance`.
+
+- `src/lib/anthropic.ts` — singleton perezoso; **no** exige la API key hasta usarse (`getAnthropic()` lanza un error claro si falta; `iaDisponible()` decide UI/fallback). Modelo en `MODELO_EXTRACCION`.
+- El **prompt de sistema** es Markdown editable (`prompt-extraccion.md`, fuente única, se memoiza); hay un fallback embebido si no se puede leer del disco.
+
+### Importación masiva por Excel
+
+Parsers **puros** en `src/lib/import/` (devuelven `{ filas, errores }`); la resolución contra BD (existencia/unicidad de personas, módulos, formatos DIAN) y la validación de jerarquía viven SIEMPRE en la Server Action correspondiente, no en el parser.
+
+- `xlsx.ts` — helpers compartidos (`cargarWorkbook`, `celdaTexto`, `normalizar`) sobre `exceljs`.
+- `clientes.ts` → acción `import-clientes.ts`: hoja «Clientes», staff múltiple separado por `;`, columnas de módulos/DIAN marcadas «Sí/X/1». Un bloque de módulos/DIAN **en blanco** (sin ningún valor) se interpreta como «activar todos»; un «No» explícito no. Plantilla: `Plantilla_Importacion_Clientes.xlsx`.
+- `maestros.ts` → acción `import-maestros.ts`: 4 hojas (Socio/Gerente/Senior/Staff); el rol lo define la hoja y el superior esperado sale de la jerarquía. Plantilla: `Plantilla_Maestros_Personas.xlsx`.
+- `balance.ts` — parser de la plantilla de balance de comprobación (hoja «Balance»); el cálculo vive en `calcular.ts`.
+- `erp-sector-alias.ts` — normaliza alias de ERP/sector al importar.
+
+### Errores, notificaciones y toasts (UI)
+
+- **Error boundaries**: `src/app/error.tsx`, `src/app/global-error.tsx` y `src/app/(app)/error.tsx` capturan los `throw` de las acciones `void`; la UI común está en `src/components/pantalla-error.tsx`. Los `catch` traducen códigos Prisma a español vía `src/lib/errores.ts` (`mensajeErrorBD`/`registrarError`).
+- **Toasts**: `src/lib/client-notifications.ts` emite eventos (`notifySuccess/Error/Info`) que escucha el `ActionToaster` montado en el layout (app), por lo que **persiste entre navegaciones**. `flash-toast.tsx` dispara un toast UNA vez al montar — para confirmar operaciones que terminaron con un redirect del servidor (la confirmación se emite en la página destino). `action-form.tsx` envuelve formularios de Server Action con manejo de éxito/error.
+- **Notificaciones persistidas**: `src/lib/notifications.ts` (`createProcessNotification`) registra avisos de proceso en BD que muestra el Topbar (p. ej. enviar una conciliación a revisión).
+- **Paginación**: control reutilizable en `src/components/pagination-controls.tsx`.
 
 ### Otras convenciones
 

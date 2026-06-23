@@ -4,6 +4,10 @@ import {
   claseNatura,
   aplanarBreakdown,
   compararBalances,
+  descomponerCuenta,
+  aFilasDetalle,
+  reconstruirBalance,
+  mapearCuenta,
   type CuentaCruda,
   type CuentaEstandar,
 } from "./calcular";
@@ -173,5 +177,68 @@ describe("compararBalances", () => {
     expect(diff.summary.changed).toBe(1); // Caja
     expect(diff.rows[0].code).toBe("130505"); // mayor |delta| primero
     expect(diff.summary.totalAffected).toBe(9000 + 5000 + 500);
+  });
+});
+
+describe("mapearCuenta — cascada de barridos", () => {
+  const STD_RICO: CuentaEstandar[] = [
+    { code: "110505", nature: "D", critical: false, name: "Caja general", russellAccount: "Caja", possibleAccounts: "Caja general, caja principal, efectivo en caja, caja recaudo" },
+    { code: "111005", nature: "D", critical: false, name: "Bancos moneda nacional", russellAccount: "Bancos", possibleAccounts: "Banco, cuenta corriente, cuenta de ahorros, bancos nacionales" },
+  ];
+  const idx = new Map(STD_RICO.map((s) => [s.code, s]));
+
+  it("barrido 1: exacto por prefijo de 6 dígitos → coincidencia 100", () => {
+    expect(mapearCuenta("11050501", "CAJA GENERAL", idx, STD_RICO, true)).toMatchObject({ std: "110505", coincidencia: 100, mapped: true });
+  });
+
+  it("barrido 2: sin prefijo pero el nombre coincide con un sinónimo → mapea con %", () => {
+    const r = mapearCuenta("11999901", "Caja principal", idx, STD_RICO, true); // 119999 no está en el plan
+    expect(r.std).toBe("110505");
+    expect(r.mapped).toBe(true);
+    expect(r.coincidencia).toBeGreaterThanOrEqual(55);
+  });
+
+  it("nombre sin relación → sin mapeo (queda para el barrido IA)", () => {
+    expect(mapearCuenta("11999902", "Maquinaria pesada", idx, STD_RICO, true).mapped).toBe(false);
+  });
+
+  it("respeta la clase: una cuenta clase 1 no mapea a una clase 4 aunque el texto se parezca", () => {
+    const r = mapearCuenta("41999901", "Caja general", idx, STD_RICO, true); // clase 4 ≠ clase 1 del plan
+    expect(r.mapped).toBe(false);
+  });
+});
+
+describe("descomponerCuenta", () => {
+  it("parte el código imputable en prefijos PUC 2/4/6/8", () => {
+    expect(descomponerCuenta("11100501")).toEqual({ cuenta2: "11", cuenta4: "1110", cuenta6: "111005", cuenta8: "11100501" });
+  });
+  it("no inventa dígitos cuando el código es más corto", () => {
+    expect(descomponerCuenta("1105")).toEqual({ cuenta2: "11", cuenta4: "1105", cuenta6: "1105", cuenta8: "1105" });
+  });
+});
+
+describe("aFilasDetalle + reconstruirBalance (ida y vuelta)", () => {
+  it("reconstruye los mismos agregados desde las filas persistidas", () => {
+    const calc = calcularBalance(FIRMADO, STD);
+    const filas = aFilasDetalle(calc.breakdown).map((f) => ({
+      cuenta8: f.cuenta8, nombreCuenta: f.nombreCuenta, cuenta6Russell: f.cuenta6Russell,
+      saldoInicial: f.saldoInicial, debitos: f.debitos, creditos: f.creditos, saldoFinal: f.saldoFinal,
+    }));
+    const recon = reconstruirBalance(filas, STD);
+
+    expect(recon.sums).toEqual(calc.sums);
+    expect(recon.balanced).toBe(calc.balanced);
+    expect(recon.totalRows).toBe(calc.totalRows);
+    expect(recon.mapped).toBe(calc.mapped);
+    expect(recon.unmapped).toBe(calc.unmapped);
+    // El desglose por grupo coincide en código y saldo.
+    expect(recon.breakdown.map((g) => [g.code, g.balance])).toEqual(calc.breakdown.map((g) => [g.code, g.balance]));
+  });
+
+  it("aFilasDetalle mapea saldo_inicial/saldo_final/debe/haber correctamente", () => {
+    const calc = calcularBalance(FIRMADO, STD);
+    const filas = aFilasDetalle(calc.breakdown);
+    const caja = filas.find((f) => f.cuenta8 === "110505");
+    expect(caja).toMatchObject({ cuenta6Russell: "110505", saldoInicial: 800, saldoFinal: 1000, coincidencia: 100 });
   });
 });

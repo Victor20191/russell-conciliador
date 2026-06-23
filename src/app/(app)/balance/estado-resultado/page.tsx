@@ -5,6 +5,7 @@ import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { PageHeader, Card, StatCard, EmptyState } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { fmtNum, fmtPct } from "@/lib/format";
+import { reconstruirBalance, construirEstadoResultado } from "@/lib/balance/calcular";
 import ErExportActions, { type ErLine } from "./er-export-actions";
 import ErSelectors from "./er-selectors";
 
@@ -25,22 +26,38 @@ export default async function EstadoResultadoPage({
   // Solo la cartera del usuario alimenta el selector; el cliente/período de la
   // URL se valida contra esa lista (sin fuga del estado de resultado ajeno).
   const alc = await alcanceLecturaUsuario();
-  // Balances oficiales con estado de resultado cargado (filtrado en memoria; pocos registros)
-  const officials = (
-    await prisma.balance.findMany({
-      where: { isOfficial: true, ...(alc.todos ? {} : { clientName: { in: alc.clientNames } }) },
-      select: { clientName: true, period: true, incomeStatement: true },
-      orderBy: [{ clientName: "asc" }, { period: "asc" }],
-    })
-  ).filter((o) => o.incomeStatement != null);
+  // Balances oficiales (encabezados) de la cartera del usuario.
+  const officials = await prisma.balancePruebaEncabezado.findMany({
+    where: { esOficial: true, ...(alc.todos ? {} : { clienteId: { in: alc.clientIds } }) },
+    select: { id: true, nombreCliente: true, periodo: true },
+    orderBy: [{ nombreCliente: "asc" }, { periodo: "asc" }],
+  });
 
-  const clientNames = [...new Set(officials.map((o) => o.clientName))];
+  const clientNames = [...new Set(officials.map((o) => o.nombreCliente))];
   const cliente = sp.cliente && clientNames.includes(sp.cliente) ? sp.cliente : (clientNames.includes("El Zarzal S.A") ? "El Zarzal S.A" : clientNames[0] ?? "");
-  const periodsForClient = officials.filter((o) => o.clientName === cliente).map((o) => o.period);
+  const periodsForClient = officials.filter((o) => o.nombreCliente === cliente).map((o) => o.periodo);
   const periodo = sp.periodo && periodsForClient.includes(sp.periodo) ? sp.periodo : periodsForClient[0] ?? "";
 
-  const selected = officials.find((o) => o.clientName === cliente && o.period === periodo);
-  const lines = (selected?.incomeStatement as ErLine[] | null) ?? [];
+  // El estado de resultado se DERIVA del detalle del balance oficial seleccionado.
+  const selected = officials.find((o) => o.nombreCliente === cliente && o.periodo === periodo);
+  let lines: ErLine[] = [];
+  if (selected) {
+    const [det, cuentasEstandar] = await Promise.all([
+      prisma.balancePruebaDetalle.findMany({
+        where: { encabezadoId: selected.id },
+        select: { cuenta8: true, nombreCuenta: true, cuenta6Russell: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
+      }),
+      prisma.standardAccount.findMany({ select: { code: true, nature: true, critical: true } }),
+    ]);
+    const calc = reconstruirBalance(
+      det.map((f) => ({
+        cuenta8: f.cuenta8, nombreCuenta: f.nombreCuenta, cuenta6Russell: f.cuenta6Russell,
+        saldoInicial: Number(f.saldoInicial), debitos: Number(f.debitos), creditos: Number(f.creditos), saldoFinal: Number(f.saldoFinal),
+      })),
+      cuentasEstandar,
+    );
+    lines = construirEstadoResultado(calc);
+  }
 
   const find = (needle: string) => lines.find((l) => l.concept.toLowerCase().includes(needle));
   const ingresos = lines[0]?.current ?? 0;
