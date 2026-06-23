@@ -5,9 +5,9 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 
-// Modelo por defecto: el más capaz (el balance es dato financiero). Configurable
-// por entorno sin tocar código.
-export const MODELO_EXTRACCION = process.env.ANTHROPIC_MODEL ?? "claude-opus-4-8";
+// Modelo por defecto: buen equilibrio velocidad/calidad para extracción estructurada.
+// Configurable por entorno sin tocar código.
+export const MODELO_EXTRACCION = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
 
 let cliente: Anthropic | null = null;
 
