@@ -10,7 +10,7 @@ El proceso de carga es: **solicitar el archivo → leer → traer los campos com
 
 Lo que sugieres alimenta un modelo de **dos tablas**:
 
-- **Encabezado** (un cargue por cliente/período/versión): `NIT`, `PERIODO_INICIAL`, `PERIODO_FINAL`, `CENTRO_OPERATIVO`, estándar contable.
+- **Encabezado** (un cargue por cliente/período/versión): `NIT`, `PERIODO_INICIAL`, `PERIODO_FINAL`, `CENTRO_OPERATIVO`, tipo de balance.
 - **Detalle** (una fila por cuenta imputable): la `CUENTA` (código), `NOMBRE_CUENTA`, `SALDO_INICIAL`, `DEBITOS`, `CREDITOS`, `SALDO`.
 
 > Importante: la **desagregación** del código por niveles PUC (`cuenta_2/4/6/8`) y el **mapeo al plan estándar Russell** (`cuenta_6_russell`, por prefijo de 6 dígitos) los hace el **código de la plataforma**, no tú. Tú solo devuelves el **código imputable completo** y sus montos; no separes la cuenta por niveles ni intentes mapearla a Russell.
@@ -29,7 +29,7 @@ El esquema de salida lo impone el sistema (Structured Outputs): llena todos los 
 - **NIT_ESPERADO** — NIT del cliente seleccionado. Si viene, es el NIT corporativo correcto.
 - **PERIODO_ESPERADO** — mes y año elegidos en la aplicación (primer y último día del mes).
 - **CENTRO_POR_DEFECTO** — centro operativo a usar solo si el parámetro viene informado y el archivo no trae uno explícito.
-- **ESTANDAR_CONTABLE** — `NIIF`, `PCGA` o `AUTO`.
+- **ESTANDAR_CONTABLE** — `NIF`, `NIIF`, `PCGA` o `AUTO`.
 
 ## Reglas
 
@@ -56,7 +56,7 @@ El esquema de salida lo impone el sistema (Structured Outputs): llena todos los 
 - **Encabezado partido en varias filas** (p. ej. filas 11-16): `filaEncabezado` es la última fila del encabezado; `primeraFilaDatos`, la siguiente.
 - **SAP**: «Sociedad 4810» no es NIT ni centro; quita `COP`/separadores; créditos en negativo → `signoCredito=firmado`.
 - **Código embebido**: cuenta y nombre juntos como «código - nombre», o código dentro de «Desc. auxiliar».
-- **NIIF/PCGA**: si el archivo trae ambos planes, elige el indicado por ESTANDAR_CONTABLE.
+- **NIF/NIIF/PCGA**: si el archivo trae varios planes, elige el indicado por ESTANDAR_CONTABLE.
 - **Reportes paginados**: hay encabezados repetidos y muchas filas TOTAL; exclúyelas.
 
 ## Salidas

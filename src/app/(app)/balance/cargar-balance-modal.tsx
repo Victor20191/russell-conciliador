@@ -8,6 +8,7 @@ import { Modal } from "@/components/modal";
 import { Chip } from "@/components/ui";
 import { leerBalance, confirmarCargaBalance, type LeerBalanceState, type SugerenciaBalance } from "@/app/actions/balance";
 import { notifyActionState } from "@/lib/client-notifications";
+import { TIPO_BALANCE_CARGA } from "@/lib/balance/tipo-balance";
 import type { ImportBalanceState } from "@/lib/import/balance";
 
 export type ClienteOpcion = { id: number; name: string; nit: string };
@@ -143,7 +144,6 @@ function FormRevisar({
 }) {
   // Defaults derivados de la sugerencia (campos NO controlados con defaultValue).
   const clienteSug = clienteSugerido(clients, sug.nitDetectado);
-  const estandarDef = ["NIIF", "PCGA", "AUTO"].includes(sug.estandar) ? sug.estandar : "AUTO";
   const desdeDef = sug.periodoInicial ?? "";
   const hastaDef = sug.periodoFinal ?? "";
   const centroDef = sug.centro ?? "";
@@ -177,7 +177,7 @@ function FormRevisar({
         )}
       </label>
 
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label className="flex flex-col gap-1.5">
           <span className="text-[11.5px] font-medium text-ink-600">Período desde</span>
           <input type="date" name="periodoInicio" required defaultValue={desdeDef} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400" />
@@ -186,14 +186,13 @@ function FormRevisar({
           <span className="text-[11.5px] font-medium text-ink-600">Período hasta</span>
           <input type="date" name="periodoFin" required defaultValue={hastaDef} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400" />
         </label>
-        <label className="flex flex-col gap-1.5">
-          <span className="text-[11.5px] font-medium text-ink-600">Estándar</span>
-          <select name="estandar" defaultValue={estandarDef} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400">
-            <option value="AUTO">Auto</option>
-            <option value="NIIF">NIIF</option>
-            <option value="PCGA">PCGA</option>
-          </select>
-        </label>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <span className="text-[11.5px] font-medium text-ink-600">Tipo de balance</span>
+        <div className="rounded-md border border-ink-150 bg-ink-50 px-2.5 py-2 text-[12.5px] font-semibold text-ink-700">
+          {TIPO_BALANCE_CARGA}
+        </div>
       </div>
 
       <label className="flex flex-col gap-1.5">
@@ -222,7 +221,7 @@ function SugerenciaResumen({ sug }: { sug: SugerenciaBalance }) {
         <Linea k="Cuentas" v={String(sug.cuentas)} />
         <Linea k="Excluidas" v={String(sug.filasExcluidas)} />
         <Linea k="Descuadres" v={String(sug.filasDescuadre)} />
-        <Linea k="Estándar" v={sug.estandar} />
+        <Linea k="Tipo" v={sug.estandar} />
         <Linea k="Signo crédito" v={sug.convencionCredito} />
       </div>
     </div>
@@ -257,7 +256,7 @@ function ResultadoOk({ resumen, excepciones, onClose }: { resumen: Resumen; exce
             <Linea k="NIT" v={`${aud.nit.valor ?? "—"} (${aud.nit.fuente.toLowerCase()})`} />
             <Linea k="Centro" v={`${aud.centro.valor ?? "—"} (${aud.centro.fuente.toLowerCase()})`} />
             <Linea k="Período" v={`${aud.periodoInicial.valor ?? "?"} → ${aud.periodoFinal.valor ?? "?"}`} />
-            <Linea k="Estándar" v={aud.estandar} />
+            <Linea k="Tipo" v={aud.estandar} />
             <Linea k="Signo crédito" v={aud.convencionCredito} />
           </div>
         </div>

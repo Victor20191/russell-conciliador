@@ -22,7 +22,7 @@ export const OrigenSchema = z.object({
 });
 export type Origen = z.infer<typeof OrigenSchema>;
 
-export const ESTANDARES = ["NIIF", "PCGA", "AUTO", "DESCONOCIDO"] as const;
+export const ESTANDARES = ["NIF", "NIIF", "PCGA", "AUTO", "DESCONOCIDO"] as const;
 export const EstandarSchema = z.enum(ESTANDARES);
 export type Estandar = z.infer<typeof EstandarSchema>;
 

@@ -24,6 +24,7 @@ import {
   type ResultadoBalance,
 } from "@/lib/balance/calcular";
 import { getCuentasEstandar } from "@/lib/balance/cuentas-estandar";
+import { TIPO_BALANCE_CARGA } from "@/lib/balance/tipo-balance";
 import { extraerBalance } from "@/lib/balance/extraccion/extraer";
 import { mapearPorIA } from "@/lib/balance/mapeo-ia";
 import { iaDisponible } from "@/lib/anthropic";
@@ -394,9 +395,6 @@ export async function leerBalance(
   const authz = await authorizePermiso("balance:crear");
   if (!authz.ok) return { ok: false, message: authz.message };
 
-  const estandarRaw = String(formData.get("estandar") ?? "AUTO");
-  const estandarContable = (["NIIF", "PCGA", "AUTO"].includes(estandarRaw) ? estandarRaw : "AUTO") as ParamsExtraccion["estandar"];
-
   const archivo = formData.get("archivo");
   if (!(archivo instanceof File) || archivo.size === 0) {
     return { ok: false, message: "Adjunta el archivo del balance (Excel, CSV, JSON o PDF)." };
@@ -405,8 +403,9 @@ export async function leerBalance(
 
   try {
     // Lectura sin parámetros de cliente/período: la IA detecta todo del archivo
-    // como sugerencia. Si no hay API key, cae al parser de plantilla limpia.
-    const params: ParamsExtraccion = { nit: null, periodoInicial: null, periodoFinal: null, centro: null, estandar: estandarContable };
+    // como sugerencia. El tipo de balance es regla fija de negocio.
+    // Si no hay API key, cae al parser de plantilla limpia.
+    const params: ParamsExtraccion = { nit: null, periodoInicial: null, periodoFinal: null, centro: null, estandar: TIPO_BALANCE_CARGA };
     const datosArchivo = await archivo.arrayBuffer();
     let extr: ResultadoTransform;
     if (iaDisponible()) {
@@ -422,13 +421,13 @@ export async function leerBalance(
         excepciones: [],
         cabecera: {
           nit: { valor: null, fuente: "NINGUNO" }, periodoInicial: { valor: null, fuente: "NINGUNO" },
-          periodoFinal: { valor: null, fuente: "NINGUNO" }, centro: { valor: null, fuente: "NINGUNO" }, estandar: estandarContable,
+          periodoFinal: { valor: null, fuente: "NINGUNO" }, centro: { valor: null, fuente: "NINGUNO" }, estandar: TIPO_BALANCE_CARGA,
         },
         resumen: {
           filasLeidas: importReady.length, filasExcluidas: 0, filasImportables: importReady.length, filasDescuadre: 0,
           nit: { valor: null, fuente: "NINGUNO" }, periodoInicial: { valor: null, fuente: "NINGUNO" },
           periodoFinal: { valor: null, fuente: "NINGUNO" }, centro: { valor: null, fuente: "NINGUNO" },
-          estandar: estandarContable, convencionCredito: "firmado",
+          estandar: TIPO_BALANCE_CARGA, convencionCredito: "firmado",
         },
       };
     }
@@ -480,12 +479,12 @@ export async function confirmarCargaBalance(
     periodoInicio: formData.get("periodoInicio"),
     periodoFin: formData.get("periodoFin"),
     centroOperativo: formData.get("centroOperativo"),
-    estandar: formData.get("estandar"),
   });
   if (!parsed.success) {
     return { ok: false, message: parsed.error.issues[0]?.message ?? "Datos inválidos." };
   }
-  const { clientId, periodoInicio, periodoFin, centroOperativo, estandar } = parsed.data;
+  const { clientId, periodoInicio, periodoFin, centroOperativo } = parsed.data;
+  const estandar = TIPO_BALANCE_CARGA;
 
   const scope = await authorizePermiso("balance:crear", { clientId });
   if (!scope.ok) return { ok: false, message: scope.message };
@@ -538,7 +537,7 @@ export async function confirmarCargaBalance(
       periodoInicial: { valor: periodoInicio, fuente: "FUENTE" },
       periodoFinal: { valor: periodoFin, fuente: "FUENTE" },
       centro: { valor: centro, fuente: centro ? "FUENTE" : "NINGUNO" },
-      estandar: (["NIIF", "PCGA", "AUTO", "DESCONOCIDO"].includes(estandar) ? estandar : "DESCONOCIDO") as ResumenAuditoria["estandar"],
+      estandar,
       convencionCredito: (sug.convencionCredito === "magnitud" ? "magnitud" : "firmado"),
     };
 

@@ -39,7 +39,7 @@ Si un usuario no tiene permiso para cargar, simplemente no verá el botón.
 ## 4. Cómo cargar un balance (paso a paso)
 
 1. En la sección Balance, pulsar **Cargar balance**.
-2. Elegir el **cliente**, el **mes y año** del período y el **estándar contable** (NIIF, PCGA o automático).
+2. Elegir el **cliente** y el **mes y año** del período. El **tipo de balance** queda referido por defecto como **NIF**.
 3. Adjuntar el **archivo** del balance (ver formatos admitidos).
 4. Confirmar. La plataforma procesa el archivo con ayuda de la IA.
 5. Al terminar, se crea una **nueva versión** del balance y se muestra:
@@ -87,7 +87,7 @@ Tamaño máximo por archivo: **20 MB**.
 
 ## 7. Qué información se extrae y se valida
 
-De cada balance se obtiene, por cuenta: **código de cuenta, nombre, saldo inicial, débitos, créditos y saldo final**; y a nivel general: **NIT de la empresa, período (inicial y final), centro operativo y estándar contable**.
+De cada balance se obtiene, por cuenta: **código de cuenta, nombre, saldo inicial, débitos, créditos y saldo final**; y a nivel general: **NIT de la empresa, período (inicial y final), centro operativo y tipo de balance NIF**.
 
 Antes de aceptar la información, la plataforma valida:
 

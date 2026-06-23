@@ -114,6 +114,12 @@ describe("transformarTabular", () => {
     expect(r.cabecera.periodoFinal.valor).toBe("2026-05-31");
   });
 
+  it("fija NIF cuando llega como tipo de balance por defecto", () => {
+    const rr = transformarTabular(spec({ estandar: "PCGA" }), [hoja], { ...PARAMS, estandar: "NIF" });
+    expect(rr.cabecera.estandar).toBe("NIF");
+    expect(rr.resumen.estandar).toBe("NIF");
+  });
+
   it("normaliza créditos negativos (SAP) a magnitud positiva", () => {
     const hojaSap: GridHoja = {
       nombre: "Balance",
