@@ -406,10 +406,13 @@ export async function leerBalance(
     // como sugerencia. El tipo de balance es regla fija de negocio.
     // Si no hay API key, cae al parser de plantilla limpia.
     const params: ParamsExtraccion = { nit: null, periodoInicial: null, periodoFinal: null, centro: null, estandar: TIPO_BALANCE_CARGA };
+    // Hoja elegida por el usuario en Excel multi-hoja (la IA no la asume). Vacío
+    // → null: archivos de una sola hoja / CSV / PDF siguen el flujo normal.
+    const hoja = String(formData.get("hoja") ?? "").trim() || null;
     const datosArchivo = await archivo.arrayBuffer();
     let extr: ResultadoTransform;
     if (iaDisponible()) {
-      extr = await extraerBalance(datosArchivo, archivo.name, params);
+      extr = await extraerBalance(datosArchivo, archivo.name, params, hoja);
     } else {
       const { filas, errores } = await parseBalanceWorkbook(datosArchivo);
       if (errores.length > 0) {

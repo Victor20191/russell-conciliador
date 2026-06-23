@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
@@ -9,7 +9,11 @@ import { Chip } from "@/components/ui";
 import { leerBalance, confirmarCargaBalance, type LeerBalanceState, type SugerenciaBalance } from "@/app/actions/balance";
 import { notifyActionState } from "@/lib/client-notifications";
 import { TIPO_BALANCE_CARGA } from "@/lib/balance/tipo-balance";
+import { leerHojasParaPreview, columnaLetra, type CeldaCruda, type HojaPreview } from "@/lib/balance/extraccion/hojas-cliente";
 import type { ImportBalanceState } from "@/lib/import/balance";
+
+/** Extensiones de Excel que pueden traer varias hojas (inspeccionables en cliente). */
+const esExcel = (name: string) => /\.(xlsx|xlsm|xls|xlsb)$/i.test(name);
 
 export type ClienteOpcion = { id: number; name: string; nit: string };
 
@@ -49,14 +53,54 @@ function CargarBalanceModal({ clients, onClose, onReiniciar }: { clients: Client
   const [leerState, leerAction, leyendo] = useActionState<LeerBalanceState, FormData>(leerBalance, {});
   const [confirmState, confirmAction, cargando] = useActionState<ImportBalanceState, FormData>(confirmarCargaBalance, {});
   const [fileName, setFileName] = useState("");
+  // Hojas detectadas en el cliente (solo Excel con 2+ hojas) y la elegida por el
+  // usuario. Mientras `hojas` esté presente, la elección es obligatoria.
+  const [hojas, setHojas] = useState<HojaPreview[] | null>(null);
+  const [hojaElegida, setHojaElegida] = useState<string | null>(null);
+  const [inspeccionando, setInspeccionando] = useState(false);
+  // Identifica el análisis en curso: si el usuario cambia de archivo mientras se
+  // lee el anterior, descartamos el resultado tardío (no pisa el estado nuevo).
+  const seqRef = useRef(0);
 
   useEffect(() => {
     notifyActionState(confirmState, { success: "Balance cargado.", error: "No se pudo cargar el balance." });
     if (confirmState?.ok) router.refresh();
   }, [confirmState, router]);
 
+  // Al elegir archivo: si es Excel, leemos sus hojas en el navegador (SheetJS
+  // diferido) para que el usuario elija cuál cargar cuando haya 2+. Cualquier
+  // fallo degrada al flujo normal (la IA elige) sin bloquear.
+  async function onArchivoChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0] ?? null;
+    const seq = ++seqRef.current;
+    setFileName(file?.name ?? "");
+    setHojas(null);
+    setHojaElegida(null);
+    if (!file || !esExcel(file.name)) {
+      setInspeccionando(false);
+      return;
+    }
+    setInspeccionando(true);
+    try {
+      const detectadas = await leerHojasParaPreview(file);
+      if (seqRef.current !== seq) return; // otro archivo se eligió mientras tanto
+      // Con 2+ hojas el usuario elige; con una sola la fijamos directamente. En
+      // ambos casos la IA recibe SIEMPRE una hoja ya validada aquí, nunca asume.
+      if (detectadas.length >= 2) setHojas(detectadas);
+      else if (detectadas.length === 1) setHojaElegida(detectadas[0].nombre);
+    } catch {
+      /* archivo ilegible en el cliente: seguimos el flujo normal (la IA lee el archivo) */
+    } finally {
+      if (seqRef.current === seq) setInspeccionando(false);
+    }
+  }
+
   const sug = leerState?.sugerencia;
   const fase: "ok" | "revisar" | "archivo" = confirmState?.ok ? "ok" : sug ? "revisar" : "archivo";
+
+  // Con Excel multi-hoja, no se puede leer hasta elegir una hoja.
+  const requiereHoja = !!hojas && hojas.length >= 2;
+  const leerDeshabilitado = leyendo || inspeccionando || !fileName || clients.length === 0 || (requiereHoja && !hojaElegida);
 
   const footer =
     fase === "ok" ? (
@@ -81,10 +125,16 @@ function CargarBalanceModal({ clients, onClose, onReiniciar }: { clients: Client
       <button
         type="submit"
         form="leer-form"
-        disabled={leyendo || !fileName || clients.length === 0}
+        disabled={leerDeshabilitado}
         className="ml-auto rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
       >
-        {leyendo ? "Leyendo con IA…" : "Leer archivo"}
+        {leyendo
+          ? "Leyendo con IA…"
+          : inspeccionando
+            ? "Analizando hojas…"
+            : requiereHoja && hojaElegida
+              ? `Leer hoja «${recortar(hojaElegida, 22)}»`
+              : "Leer archivo"}
       </button>
     );
 
@@ -107,17 +157,25 @@ function CargarBalanceModal({ clients, onClose, onReiniciar }: { clients: Client
               No tienes clientes asignados con alcance para cargar balances.
             </div>
           ) : (
-            <label className="flex flex-col gap-1.5">
-              <span className="text-[11.5px] font-medium text-ink-600">Archivo (Excel, CSV, JSON o PDF)</span>
-              <input
-                type="file"
-                name="archivo"
-                accept=".xlsx,.xls,.xlsb,.csv,.json,.pdf,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                required
-                onChange={(e) => setFileName(e.target.files?.[0]?.name ?? "")}
-                className="rounded-md border border-ink-200 bg-white text-[12.5px] text-ink-700 file:mr-3 file:cursor-pointer file:border-0 file:bg-navy-700 file:px-3 file:py-2 file:text-[12.5px] file:font-semibold file:text-white"
-              />
-            </label>
+            <>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-[11.5px] font-medium text-ink-600">Archivo (Excel, CSV, JSON o PDF)</span>
+                <input
+                  type="file"
+                  name="archivo"
+                  accept=".xlsx,.xls,.xlsb,.csv,.json,.pdf,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                  required
+                  onChange={onArchivoChange}
+                  className="rounded-md border border-ink-200 bg-white text-[12.5px] text-ink-700 file:mr-3 file:cursor-pointer file:border-0 file:bg-navy-700 file:px-3 file:py-2 file:text-[12.5px] file:font-semibold file:text-white"
+                />
+              </label>
+
+              {/* Hoja elegida en Excel multi-hoja; vacío en archivos de una sola hoja, CSV o PDF. */}
+              <input type="hidden" name="hoja" value={hojaElegida ?? ""} />
+
+              {inspeccionando && <p className="text-[12px] text-ink-500">Analizando las hojas del archivo…</p>}
+              {requiereHoja && hojas && <SelectorHojas hojas={hojas} elegida={hojaElegida} onElegir={setHojaElegida} />}
+            </>
           )}
 
           {leerState?.message && <p className="text-[12px] font-medium text-err-700">{leerState.message}</p>}
@@ -344,4 +402,96 @@ function Linea({ k, v }: { k: string; v: string }) {
       <span className="text-right font-medium text-ink-700">{v}</span>
     </div>
   );
+}
+
+/** Selector de hoja (Excel multi-hoja): pestañas + vista previa de la elegida. */
+function SelectorHojas({
+  hojas,
+  elegida,
+  onElegir,
+}: {
+  hojas: HojaPreview[];
+  elegida: string | null;
+  onElegir: (nombre: string) => void;
+}) {
+  const activa = hojas.find((h) => h.nombre === elegida) ?? null;
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-warn-100 bg-warn-100/30 px-3 py-2.5">
+      <p className="text-[12px] leading-relaxed text-warn-700">
+        Este archivo tiene <span className="font-semibold">{hojas.length} hojas</span>. Selecciona cuál es el balance
+        que quieres cargar — <span className="font-semibold">la IA no elegirá por ti</span>.
+      </p>
+      <div className="flex flex-wrap gap-1.5">
+        {hojas.map((h) => {
+          const on = h.nombre === elegida;
+          return (
+            <button
+              key={h.nombre}
+              type="button"
+              onClick={() => onElegir(h.nombre)}
+              className={`rounded-md border px-2.5 py-1 text-[11.5px] font-medium transition ${
+                on ? "border-navy-700 bg-navy-700 text-white" : "border-ink-200 bg-white text-ink-600 hover:bg-ink-50"
+              }`}
+            >
+              {h.nombre} <span className={on ? "text-white/70" : "text-ink-400"}>· {h.totalFilas} fila(s)</span>
+            </button>
+          );
+        })}
+      </div>
+      {activa ? (
+        <PreviewHoja hoja={activa} />
+      ) : (
+        <p className="rounded-md border border-dashed border-ink-200 bg-white px-3 py-4 text-center text-[11.5px] text-ink-400">
+          Elige una hoja para ver su contenido y poder cargarla.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Mini-tabla tipo Excel: primeras filas × columnas (A, B, C…) de la hoja. */
+function PreviewHoja({ hoja }: { hoja: HojaPreview }) {
+  const numCols = Math.min(8, Math.max(1, hoja.totalColumnas));
+  const cols = Array.from({ length: numCols }, (_, j) => j);
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="text-[10.5px] font-semibold uppercase tracking-wider text-ink-500">Vista previa de «{hoja.nombre}»</div>
+      <div className="max-h-56 overflow-auto rounded-md border border-ink-150 bg-white">
+        <table className="border-collapse text-[11px]">
+          <thead className="sticky top-0 z-10 bg-ink-50 text-ink-400">
+            <tr>
+              <th className="border-b border-r border-ink-100 px-2 py-1 text-right font-semibold">#</th>
+              {cols.map((j) => (
+                <th key={j} className="border-b border-ink-100 px-2 py-1 text-left font-semibold">{columnaLetra(j)}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {hoja.muestra.map((fila, i) => (
+              <tr key={i} className="even:bg-ink-50/40">
+                <td className="border-r border-ink-100 px-2 py-1 text-right font-mono text-ink-400">{i + 1}</td>
+                {cols.map((j) => (
+                  <td key={j} className="whitespace-nowrap px-2 py-1 text-ink-700">{celdaTexto(fila[j] ?? null)}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="text-[10.5px] text-ink-400">
+        Mostrando {hoja.muestra.length} de {hoja.totalFilas} fila(s)
+        {hoja.totalColumnas > numCols && ` · ${hoja.totalColumnas} columnas en total`}
+      </div>
+    </div>
+  );
+}
+
+function celdaTexto(c: CeldaCruda): string {
+  if (c == null || c === "") return "";
+  const s = String(c).replace(/\s+/g, " ").trim();
+  return s.length > 28 ? `${s.slice(0, 28)}…` : s;
+}
+
+function recortar(s: string, max: number): string {
+  return s.length > max ? `${s.slice(0, max)}…` : s;
 }

@@ -41,8 +41,18 @@ const MAX_TOKENS_DIRECTA = 32000;
 /**
  * Extrae el balance de un archivo. Lanza si la IA no devuelve un resultado
  * válido o si el archivo es ilegible (lo captura la Server Action).
+ *
+ * `hojaElegida` (Excel multi-hoja): cuando el usuario eligió explícitamente la
+ * hoja del balance, se restringe la vista previa y la extracción a esa hoja —
+ * la IA NO decide cuál cargar. Si no viene, conserva el comportamiento actual
+ * (la IA identifica la hoja entre todas).
  */
-export async function extraerBalance(data: ArrayBuffer, fileName: string, params: ParamsExtraccion): Promise<ResultadoTransform> {
+export async function extraerBalance(
+  data: ArrayBuffer,
+  fileName: string,
+  params: ParamsExtraccion,
+  hojaElegida?: string | null,
+): Promise<ResultadoTransform> {
   const ingesta = ingerir(data, fileName);
   const client = getAnthropic();
   // Prompt caching: con el modelo por defecto (Sonnet 4.6, mínimo cacheable 2048 tokens)
@@ -52,14 +62,23 @@ export async function extraerBalance(data: ArrayBuffer, fileName: string, params
   const system = [{ type: "text" as const, text: promptSistema(), cache_control: { type: "ephemeral" as const } }];
 
   if (ingesta.modo === "tabular") {
-    const vista = construirVistaPrevia(ingesta.hojas);
-    const instruccion = [
+    // Hoja elegida por el usuario: solo la mandamos a la IA (y luego la forzamos
+    // en el spec). Fallback a todas si el nombre no coincide con ninguna hoja.
+    const elegida = hojaElegida?.trim() || null;
+    const soloElegida = elegida ? ingesta.hojas.filter((h) => h.nombre === elegida) : [];
+    const hojasVista = soloElegida.length > 0 ? soloElegida : ingesta.hojas;
+    const vista = construirVistaPrevia(hojasVista);
+
+    const lineas = [
       bloqueParametros(params),
       "",
       "Modo ESTRUCTURA: describe el mapa del balance (no transcribas filas). Índices de columna 1-based (A=1).",
-      "Vista previa del archivo:",
-      vista,
-    ].join("\n");
+    ];
+    if (elegida) {
+      lineas.push(`HOJA SELECCIONADA POR EL USUARIO (obligatoria): «${elegida}». Devuelve el mapeo SOLO de esta hoja; ignora cualquier otra.`);
+    }
+    lineas.push("Vista previa del archivo:", vista);
+    const instruccion = lineas.join("\n");
 
     const r = await conReintentoSinTemperatura((ajustes) =>
       client.messages.parse({
@@ -73,7 +92,9 @@ export async function extraerBalance(data: ArrayBuffer, fileName: string, params
     );
     const spec = r.parsed_output;
     if (!spec) throw new Error("La IA no devolvió un mapeo válido del archivo. Reintenta o revisa el formato.");
-    return transformarTabular(spec, ingesta.hojas, params);
+    // Forzamos la hoja elegida en el spec para que `transformarTabular` procese
+    // esa hoja (recibe todas las hojas para encontrarla completa).
+    return transformarTabular(elegida ? { ...spec, hoja: elegida } : spec, ingesta.hojas, params);
   }
 
   // Documento (PDF o texto): extracción directa.
