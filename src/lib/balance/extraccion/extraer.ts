@@ -45,6 +45,10 @@ const MAX_TOKENS_DIRECTA = 32000;
 export async function extraerBalance(data: ArrayBuffer, fileName: string, params: ParamsExtraccion): Promise<ResultadoTransform> {
   const ingesta = ingerir(data, fileName);
   const client = getAnthropic();
+  // Prompt caching: con el modelo por defecto (Sonnet 4.6, mínimo cacheable 2048 tokens)
+  // el prompt (~2,8K tokens) SÍ se cachea. Ojo: si se fija ANTHROPIC_MODEL a la familia
+  // Opus 4.x (mínimo 4096) el prompt queda corto y dejaría de cachearse (sin coste extra).
+  // El grueso de la entrada es el archivo/vista previa: cambia por carga y no es cacheable.
   const system = [{ type: "text" as const, text: promptSistema(), cache_control: { type: "ephemeral" as const } }];
 
   if (ingesta.modo === "tabular") {
