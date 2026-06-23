@@ -120,7 +120,7 @@ export default function Sidebar({
 
       <div className="min-h-0 flex-1 overflow-y-auto pb-2">
         <SectionLabel>Trabajo</SectionLabel>
-        <nav className="flex flex-col px-2">
+        <nav className="flex flex-col gap-1 px-2">
           {visibleWork.map((it) => {
             const active = isGroupActive(pathname, it);
             const open = openGroups[it.href] ?? false;
@@ -129,7 +129,7 @@ export default function Sidebar({
             }
             const inDevelopment = !!it.modulo && developmentSet.has(it.modulo);
             return (
-              <div key={it.href}>
+              <div key={it.href} className="min-w-0">
                 <button
                   onClick={() => toggle(it.href)}
                   className={`flex w-full items-center gap-2.5 rounded px-3 py-2 text-[13px] transition ${
@@ -148,14 +148,14 @@ export default function Sidebar({
                   </span>
                 </button>
                 {open && (
-                  <div className="mb-1 ml-3 flex flex-col gap-0.5 border-l border-white/10 pl-2">
+                  <div className="mb-2 mt-1.5 ml-3 flex flex-col gap-1 border-l border-white/10 pl-2.5">
                     {it.children.map((ch) => {
                       const childActive = isChildActive(pathname, ch.href);
                       return (
                         <Link
                           key={ch.href}
                           href={ch.href}
-                          className={`flex items-center gap-2 rounded px-2.5 py-1.5 text-[12.5px] transition ${
+                          className={`flex items-center gap-2 rounded px-2.5 py-2 text-[12.5px] transition ${
                             childActive
                               ? "bg-white/10 text-white"
                               : "text-[#A9B6C8] hover:bg-white/5"
@@ -180,7 +180,7 @@ export default function Sidebar({
         </nav>
 
         <SectionLabel>Configuración</SectionLabel>
-        <nav className="flex flex-col px-2">
+        <nav className="flex flex-col gap-1 px-2">
           {visibleConfig.map((it) => (
             <TopLink key={it.href} item={it} active={pathname === it.href} developmentSet={developmentSet} />
           ))}
