@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useId, useState } from "react";
+import { useActionState, useEffect, useId, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, PageHeader } from "@/components/ui";
 import {
@@ -72,7 +72,21 @@ export default function UsuariosClient({
   const [createOpen, setCreateOpen] = useState(false);
   const [editUser, setEditUser] = useState<UserRow | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<UserRow | null>(null);
-  const pg = usePagination(rows, 50);
+  const [q, setQ] = useState("");
+
+  const filtered = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    if (!needle) return rows;
+    return rows.filter(
+      (u) =>
+        u.name.toLowerCase().includes(needle) ||
+        u.email.toLowerCase().includes(needle) ||
+        u.role.toLowerCase().includes(needle) ||
+        u.initials.toLowerCase().includes(needle),
+    );
+  }, [rows, q]);
+
+  const pg = usePagination(filtered, 50);
 
   return (
     <div>
@@ -93,7 +107,19 @@ export default function UsuariosClient({
       />
 
       <Card>
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-100 px-4 py-3">
+        <div className="flex flex-wrap items-center gap-2 border-b border-ink-100 px-4 py-3">
+          <div className="flex items-center gap-2 rounded-md border border-ink-200 bg-ink-50 px-2.5 py-1.5 text-ink-400">
+            <Icon name="search" size={14} />
+            <input
+              value={q}
+              onChange={(e) => {
+                setQ(e.target.value);
+                pg.resetToFirstPage();
+              }}
+              placeholder="Buscar por nombre, correo o rol…"
+              className="w-56 bg-transparent text-[12.5px] text-ink-700 outline-none placeholder:text-ink-400"
+            />
+          </div>
           <span className="text-[12px] text-ink-500">{pg.total} usuario(s)</span>
           <PageSizeSelect value={pg.pageSize} onChange={pg.setPageSize} />
         </div>
@@ -162,10 +188,12 @@ export default function UsuariosClient({
                   </tr>
                 );
               })}
-              {rows.length === 0 && (
+              {filtered.length === 0 && (
                 <tr>
                   <td colSpan={4} className="px-4 py-8 text-center text-ink-500">
-                    No hay usuarios registrados.
+                    {q.trim()
+                      ? "No hay usuarios que coincidan con la búsqueda."
+                      : "No hay usuarios registrados."}
                   </td>
                 </tr>
               )}
