@@ -169,6 +169,66 @@ export async function freezeBalance(formData: FormData): Promise<ActionState> {
 }
 
 /**
+ * Asigna manualmente una cuenta del cliente (fila de `balance_prueba_detalle`) a
+ * una cuenta del plan estándar Russell. El estándar es de nivel 6 (máxima
+ * profundidad del plan), así que `cuenta_6_russell` siempre apunta a ese nivel.
+ * Coincidencia = 100 (asignación manual). Recalcula los contadores de mapeo del
+ * encabezado.
+ */
+export async function asignarCuentaEstandar(formData: FormData): Promise<ActionState> {
+  // Mapear una línea del balance al plan estándar lo hacen quienes trabajan el
+  // balance: Staff y Admin (permiso `balance:crear`, scoped por cliente).
+  const authz = await authorizePermiso("balance:crear");
+  if (!authz.ok) return { ok: false, message: authz.message };
+
+  const detalleId = parseId(formData.get("detalleId"));
+  const codigo = String(formData.get("codigo") ?? "").trim();
+  if (!detalleId) return { ok: false, message: "Cuenta del balance inexistente." };
+  if (!codigo) return { ok: false, message: "Selecciona una cuenta estándar." };
+
+  try {
+    const fila = await prisma.balancePruebaDetalle.findUnique({
+      where: { id: detalleId },
+      select: { cuenta6: true, encabezado: { select: { id: true, clienteId: true } } },
+    });
+    if (!fila) return { ok: false, message: "La cuenta del balance ya no existe." };
+
+    // Alcance de escritura sobre el cliente del balance (cartera).
+    const alcance = await authorizePermiso("balance:crear", { clientId: fila.encabezado.clienteId });
+    if (!alcance.ok) return { ok: false, message: alcance.message };
+
+    // La cuenta estándar debe existir (es de 6 dígitos = nivel 6 del plan).
+    const std = await prisma.standardAccount.findUnique({ where: { code: codigo }, select: { code: true } });
+    if (!std) return { ok: false, message: "La cuenta estándar seleccionada no existe." };
+
+    const encId = fila.encabezado.id;
+    // El mapeo es a nivel de cuenta de 6 dígitos: se aplica a TODAS las cuentas
+    // del cliente con el mismo prefijo (cuenta_6) en este balance.
+    const afectadas = await prisma.balancePruebaDetalle.updateMany({
+      where: { encabezadoId: encId, cuenta6: fila.cuenta6 },
+      data: { cuenta6Russell: std.code, coincidencia: 100 },
+    });
+
+    // Recalcula contadores de mapeo del encabezado.
+    const [total, mapeadas] = await Promise.all([
+      prisma.balancePruebaDetalle.count({ where: { encabezadoId: encId } }),
+      prisma.balancePruebaDetalle.count({ where: { encabezadoId: encId, cuenta6Russell: { not: null } } }),
+    ]);
+    await prisma.balancePruebaEncabezado.update({
+      where: { id: encId },
+      data: { mapeadas, sinMapear: total - mapeadas, completitud: total > 0 ? Math.round((mapeadas / total) * 100) : 100 },
+    });
+
+    const user = await getCurrentUser();
+    await logAudit({ user: user?.name ?? "Sistema", action: "ASIGNÓ CUENTA ESTÁNDAR", entity: fila.cuenta6, detail: `${fila.cuenta6} (${afectadas.count} cuenta(s)) → ${std.code}` });
+    revalidatePath(`/balance/${encId}`);
+    return { ok: true, message: `${afectadas.count} cuenta(s) ${fila.cuenta6}* mapeada(s) a ${std.code}.` };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("asignarCuentaEstandar", e) };
+  }
+}
+
+/**
  * Escribe un cargue (encabezado + detalle) a partir de las cuentas ya extraídas
  * (`importReady`). Maneja versionado correlativo por (cliente, período), cálculo
  * de agregados, comparativo de cambios y bitácora. Fuente ÚNICA de la escritura:

@@ -490,6 +490,24 @@ model StandardAccount {
   @@map("cuentas_estandar")
 }
 
+// ===== Subgrupos del plan estándar (nivel 4) =====
+// Catálogo de subgrupos de 4 dígitos del plan Russell: aporta el NOMBRE de los
+// niveles 4 y 2 para la vista jerárquica del balance (clase 2 → subgrupo 4 →
+// cuenta estándar 6 → cuenta cliente 8). El enlace con `cuentas_estandar` es por
+// prefijo del código (no hay FK física). Se carga desde
+// `prisma/data/subgrupos-russell.json` con `npm run db:load:subgrupos`.
+model SubgrupoEstandar {
+  id          Int    @id @default(autoincrement()) @map("id")
+  codigo      String @unique @map("codigo") // 4 dígitos (p. ej. 1105)
+  nombre      String @map("nombre") // nombre del subgrupo (p. ej. Caja)
+  grupo       String @map("grupo") // 2 dígitos (p. ej. 11)
+  nombreGrupo String @map("nombre_grupo") // nombre del grupo (p. ej. Disponible)
+  naturaleza  String @map("naturaleza") // D | C
+
+  @@index([grupo])
+  @@map("subgrupos_estandar")
+}
+
 // ===== Bitácora del plan de cuentas estándar =====
 // Registro DEDICADO de todos los movimientos (crear/editar/eliminar) sobre las
 // cuentas estándar de Russell, para evidenciar la trazabilidad completa de la

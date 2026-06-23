@@ -10,6 +10,7 @@ import MapeoClient, {
   type RussellOpt,
   type StdAccount,
   type StdLogRow,
+  type Subgrupo,
 } from "./mapeo-client";
 
 export default async function MapeoPage({ searchParams }: { searchParams: Promise<{ cliente?: string }> }) {
@@ -34,7 +35,7 @@ export default async function MapeoPage({ searchParams }: { searchParams: Promis
   const matriz = await getMatriz();
   const canManage = user ? tienePermiso(matriz, user.role, "mapeo:administrar") : false;
 
-  const [accounts, options, standard, logs, lockedStdCodes] = await Promise.all([
+  const [accounts, options, standard, subgruposRows, logs, lockedStdCodes] = await Promise.all([
     prisma.clientAccount.findMany({
       where: { clientName: cliente },
       include: { russellOption: { select: { code: true } } },
@@ -42,6 +43,7 @@ export default async function MapeoPage({ searchParams }: { searchParams: Promis
     }),
     prisma.russellOption.findMany({ orderBy: { code: "asc" } }),
     prisma.standardAccount.findMany({ orderBy: { code: "asc" } }),
+    prisma.subgrupoEstandar.findMany({ orderBy: { codigo: "asc" } }),
     // Bitácora dedicada: solo se carga para quien puede administrar (los más
     // recientes; la tabla conserva el histórico completo + espejo en /auditoria).
     canManage
@@ -80,11 +82,14 @@ export default async function MapeoPage({ searchParams }: { searchParams: Promis
     detail: l.detail,
     createdAt: l.createdAt.toISOString(),
   }));
+  const subgrupos: Subgrupo[] = subgruposRows.map((s) => ({
+    id: s.id, codigo: s.codigo, nombre: s.nombre, grupo: s.grupo, nombreGrupo: s.nombreGrupo, naturaleza: s.naturaleza,
+  }));
 
   return (
     <div>
       <PageHeader title="Mapeo plan estándar" subtitle="Configuración de las cuentas del PUC del cliente contra el plan estándar de Russell Bedford y su módulo de conciliación." />
-      <MapeoClient clientNames={clientNames} cliente={cliente} accounts={acc} options={opts} std={std} canManage={canManage} logs={stdLogs} lockedStdCodes={lockedStdCodes} />
+      <MapeoClient clientNames={clientNames} cliente={cliente} accounts={acc} options={opts} std={std} subgrupos={subgrupos} canManage={canManage} logs={stdLogs} lockedStdCodes={lockedStdCodes} />
     </div>
   );
 }

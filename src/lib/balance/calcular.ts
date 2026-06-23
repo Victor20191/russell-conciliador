@@ -396,7 +396,7 @@ export function aFilasDetalle(breakdown: BreakdownGroup[]): FilaDetalle[] {
 // Fila tal como se lee de `balance_prueba_detalle` (montos ya firmados; los
 // Decimal de Prisma deben convertirse a number antes de pasar aquí).
 export type FilaDetallePersistida = {
-  cuenta8: string; nombreCuenta: string; cuenta6Russell: string | null; coincidencia?: number | null;
+  id?: number; cuenta8: string; nombreCuenta: string; cuenta6Russell: string | null; coincidencia?: number | null;
   saldoInicial: number; debitos: number; creditos: number; saldoFinal: number;
 };
 
@@ -505,6 +505,123 @@ export function agruparPorRussell(
   // Orden: por código Russell ascendente; el grupo «Sin mapeo» (—) al final.
   grupos.sort((a, b) => (a.code === "—" ? 1 : 0) - (b.code === "—" ? 1 : 0) || a.code.localeCompare(b.code));
   return grupos;
+}
+
+// ============================================================
+// Árbol jerárquico para el detalle: clase (2) → subgrupo (4) → cuenta estándar
+// Russell (6) → cuenta del cliente (8). Las cuentas mapeadas cuelgan del código
+// ESTÁNDAR (normalizado a Russell); las no mapeadas, de su propio código de
+// cliente bajo un nodo «Sin mapeo» en su clase. Es una vista de presentación.
+// ============================================================
+export type NodoBalance = {
+  key: string;
+  nivel: 2 | 4 | 6 | 8;
+  code: string;
+  name: string;
+  prevBalance: number;
+  balance: number;
+  debe: number;
+  haber: number;
+  variation: number | null;
+  mapped: boolean;
+  saldoOk: boolean;
+  critical: boolean;
+  clase: string; // primer dígito (filtro Balance 1-3 / Estado de Resultado 4-7)
+  detalleId: number | null; // solo hojas (nivel 8): id de balance_prueba_detalle
+  std: string | null;
+  coincidencia: number | null;
+  hijos: NodoBalance[];
+};
+
+// Nombres de los niveles 4 (subgrupo) y 2 (grupo) — de la tabla `subgrupos_estandar`.
+export type NombresJerarquia = { nombre4: Map<string, string>; nombre2: Map<string, string> };
+
+export function agruparJerarquia(
+  filas: FilaDetallePersistida[],
+  estandar: CuentaEstandar[],
+  nombres: Map<string, string>,
+  sub?: NombresJerarquia,
+): NodoBalance[] {
+  const stdByCode = new Map(estandar.map((s) => [s.code, s]));
+  type N6 = { code: string; name: string; mapped: boolean; std: string | null; hojas: NodoBalance[] };
+  type N4 = { code: string; n6: Map<string, N6> };
+  type N2 = { name: string; clase: string; n4: Map<string, N4> };
+  const arbol = new Map<string, N2>();
+
+  for (const f of filas) {
+    const std = f.cuenta6Russell;
+    const mapped = std != null;
+    const ref = std ? stdByCode.get(std) : undefined;
+    const nature = ref ? ref.nature : claseNatura(f.cuenta8);
+    const base = mapped ? std! : f.cuenta8; // de dónde derivar nivel 2/4
+    const c2 = base.slice(0, 2);
+    const c4 = base.slice(0, 4) || c2;
+    const c6 = mapped ? std! : `${c4}-SIN`;
+    const hoja: NodoBalance = {
+      key: `${c2}/${c4}/${c6}/${f.cuenta8}#${f.id ?? ""}`,
+      nivel: 8,
+      code: f.cuenta8,
+      name: f.nombreCuenta,
+      prevBalance: f.saldoInicial,
+      balance: f.saldoFinal,
+      debe: f.debitos,
+      haber: f.creditos,
+      variation: variacion(f.saldoInicial, f.saldoFinal),
+      mapped,
+      saldoOk: saldoConcuerda(f.saldoFinal, nature),
+      critical: ref ? ref.critical : false,
+      clase: c2.charAt(0),
+      detalleId: f.id ?? null,
+      std: std ?? null,
+      coincidencia: f.coincidencia ?? (mapped ? 100 : null),
+      hijos: [],
+    };
+    const n2 = arbol.get(c2) ?? arbol.set(c2, { name: sub?.nombre2.get(c2) ?? GRUPOS_PUC[c2] ?? `Grupo ${c2}`, clase: c2.charAt(0), n4: new Map() }).get(c2)!;
+    const n4 = n2.n4.get(c4) ?? n2.n4.set(c4, { code: c4, n6: new Map() }).get(c4)!;
+    const n6 = n4.n6.get(c6) ?? n4.n6.set(c6, { code: mapped ? std! : "—", name: mapped ? nombres.get(std!) ?? `Cuenta ${std}` : "Sin mapeo", mapped, std: std ?? null, hojas: [] }).get(c6)!;
+    n6.hojas.push(hoja);
+  }
+
+  const agg = (hijos: NodoBalance[]) => ({
+    prevBalance: sum(hijos.map((h) => h.prevBalance)),
+    balance: sum(hijos.map((h) => h.balance)),
+    debe: sum(hijos.map((h) => h.debe)),
+    haber: sum(hijos.map((h) => h.haber)),
+    critical: hijos.some((h) => h.critical),
+  });
+
+  return [...arbol.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([c2, v2]) => {
+      const n4nodes = [...v2.n4.entries()]
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([c4, v4]) => {
+          const n6nodes = [...v4.n6.entries()]
+            .sort((a, b) => (a[1].mapped ? 0 : 1) - (b[1].mapped ? 0 : 1) || a[0].localeCompare(b[0]))
+            .map(([c6, v6]) => {
+              v6.hojas.sort((x, y) => x.code.localeCompare(y.code));
+              const a = agg(v6.hojas);
+              return {
+                key: `${c2}/${c4}/${c6}`, nivel: 6 as const, code: v6.code, name: v6.name, ...a,
+                variation: variacion(a.prevBalance, a.balance), mapped: v6.mapped,
+                saldoOk: v6.mapped ? saldoConcuerda(a.balance, claseNatura(c2)) : true,
+                clase: c2.charAt(0), detalleId: null, std: v6.std, coincidencia: null, hijos: v6.hojas,
+              } satisfies NodoBalance;
+            });
+          const a = agg(n6nodes);
+          return {
+            key: `${c2}/${c4}`, nivel: 4 as const, code: c4, name: sub?.nombre4.get(c4) ?? `Subgrupo ${c4}`, ...a,
+            variation: variacion(a.prevBalance, a.balance), mapped: true, saldoOk: saldoConcuerda(a.balance, claseNatura(c2)),
+            clase: c2.charAt(0), detalleId: null, std: null, coincidencia: null, hijos: n6nodes,
+          } satisfies NodoBalance;
+        });
+      const a = agg(n4nodes);
+      return {
+        key: c2, nivel: 2 as const, code: c2, name: v2.name, ...a,
+        variation: variacion(a.prevBalance, a.balance), mapped: true, saldoOk: saldoConcuerda(a.balance, claseNatura(c2)),
+        clase: v2.clase, detalleId: null, std: null, coincidencia: null, hijos: n4nodes,
+      } satisfies NodoBalance;
+    });
 }
 
 // ---- Estado de resultado derivado (clases 4/5/6/7) ----
