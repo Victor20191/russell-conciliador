@@ -22,6 +22,7 @@ type Conteo = { mapeo: number; naturaleza: number };
 
 const CLASES_BALANCE = new Set(["1", "2", "3"]);
 const CLASES_ER = new Set(["4", "5", "6", "7"]);
+const NIVEL_LABEL: Record<number, string> = { 2: "Clase", 4: "Subgrupo", 6: "Cta. estándar", 8: "Cta. cliente" };
 
 export default function BalanceDetailClient({
   arbol, estandar, puedeMapear, validations, versions, officialVersion, warnCount,
@@ -68,6 +69,18 @@ function podarAlertas(nodos: NodoBalance[]): NodoBalance[] {
   return out;
 }
 
+/** Filtra el árbol por código/nombre: si un nodo coincide, incluye su subárbol completo; si no, solo si algún descendiente coincide. */
+function podarBusqueda(nodos: NodoBalance[], needle: string): NodoBalance[] {
+  const out: NodoBalance[] = [];
+  for (const n of nodos) {
+    const self = n.code.toLowerCase().includes(needle) || n.name.toLowerCase().includes(needle) || (n.std?.toLowerCase().includes(needle) ?? false);
+    if (self) { out.push(n); continue; }
+    const hijos = podarBusqueda(n.hijos, needle);
+    if (hijos.length > 0) out.push({ ...n, hijos });
+  }
+  return out;
+}
+
 /** Cuenta de alertas (mapeo / naturaleza) por nodo, sumando sus hojas. */
 function contarAlertas(arbol: NodoBalance[]): Map<string, Conteo> {
   const m = new Map<string, Conteo>();
@@ -88,6 +101,7 @@ function contarAlertas(arbol: NodoBalance[]): Map<string, Conteo> {
 
 function BreakdownTab({ arbol, estandar, puedeMapear }: { arbol: NodoBalance[]; estandar: EstandarOpcion[]; puedeMapear: boolean }) {
   const [filtro, setFiltro] = useState<Filtro>("todo");
+  const [q, setQ] = useState("");
   // Por defecto: expandido hasta nivel 6 (clase y subgrupo abiertos; cuentas del cliente colapsadas).
   const [open, setOpen] = useState<Set<string>>(() => new Set(keysConHijos(arbol).filter((k) => k.split("/").length <= 2)));
   const [asignar, setAsignar] = useState<NodoBalance | null>(null);
@@ -101,14 +115,17 @@ function BreakdownTab({ arbol, estandar, puedeMapear }: { arbol: NodoBalance[]; 
   const totalAlertas = totales.mapeo + totales.naturaleza;
 
   const visible = useMemo(() => {
-    if (filtro === "balance") return arbol.filter((n) => CLASES_BALANCE.has(n.clase));
-    if (filtro === "er") return arbol.filter((n) => CLASES_ER.has(n.clase));
-    if (filtro === "alertas") return podarAlertas(arbol);
-    return arbol;
-  }, [arbol, filtro]);
+    let base: NodoBalance[];
+    if (filtro === "balance") base = arbol.filter((n) => CLASES_BALANCE.has(n.clase));
+    else if (filtro === "er") base = arbol.filter((n) => CLASES_ER.has(n.clase));
+    else if (filtro === "alertas") base = podarAlertas(arbol);
+    else base = arbol;
+    const needle = q.trim().toLowerCase();
+    return needle ? podarBusqueda(base, needle) : base;
+  }, [arbol, filtro, q]);
 
   // En el filtro "Alertas" el árbol podado se muestra totalmente expandido.
-  const openEff = useMemo(() => (filtro === "alertas" ? new Set(keysConHijos(visible)) : open), [filtro, visible, open]);
+  const openEff = useMemo(() => (filtro === "alertas" || q.trim() ? new Set(keysConHijos(visible)) : open), [filtro, visible, open, q]);
 
   const toggle = (key: string) => setOpen((o) => { const n = new Set(o); if (n.has(key)) n.delete(key); else n.add(key); return n; });
   const expandirTodo = () => setOpen(new Set(keysConHijos(arbol)));
@@ -119,6 +136,15 @@ function BreakdownTab({ arbol, estandar, puedeMapear }: { arbol: NodoBalance[]; 
       <div className="flex flex-wrap items-center gap-2 border-b border-ink-100 px-4 py-2.5">
         <span className="text-[11.5px] text-ink-500">Normalizado al <span className="font-semibold text-ink-700">plan estándar Russell</span>: clase → subgrupo → cuenta estándar → cuenta del cliente.</span>
         <div className="ml-auto flex items-center gap-1.5">
+          <div className="mr-1 flex items-center gap-2 rounded-md border border-ink-200 bg-ink-50 px-2.5 py-1.5 text-ink-400">
+            <Icon name="search" size={14} />
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Buscar código o cuenta…"
+              className="w-48 bg-transparent text-[12.5px] text-ink-700 outline-none placeholder:text-ink-400"
+            />
+          </div>
           <FiltroBtn on={filtro === "todo"} onClick={() => setFiltro("todo")} label="Todo" />
           <FiltroBtn on={filtro === "balance"} onClick={() => setFiltro("balance")} label="Balance" />
           <FiltroBtn on={filtro === "er"} onClick={() => setFiltro("er")} label="Estado de Resultado" />
@@ -145,7 +171,7 @@ function BreakdownTab({ arbol, estandar, puedeMapear }: { arbol: NodoBalance[]; 
           </thead>
           <tbody>
             {visible.length === 0 ? (
-              <tr><td colSpan={9} className="px-4 py-6 text-center text-[12.5px] text-ink-400">{filtro === "alertas" ? "Sin alertas de mapeo ni de naturaleza. 🎉" : "Sin cuentas para este filtro."}</td></tr>
+              <tr><td colSpan={9} className="px-4 py-6 text-center text-[12.5px] text-ink-400">{q.trim() ? "Sin cuentas que coincidan con la búsqueda." : filtro === "alertas" ? "Sin alertas de mapeo ni de naturaleza. 🎉" : "Sin cuentas para este filtro."}</td></tr>
             ) : (
               visible.flatMap((n) => filas(n, 0, openEff, toggle, puedeMapear, setAsignar, conteos))
             )}
@@ -176,6 +202,7 @@ function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: 
       <td className="px-4 py-2 font-mono text-ink-600" style={{ paddingLeft: pad }}>
         {tieneHijos && <span className="mr-1 inline-block align-middle text-ink-400"><Icon name={isOpen ? "chev-d" : "chev-r"} size={12} /></span>}
         <span className={esGrupo ? "font-semibold text-ink-700" : "text-[11.5px] text-ink-500"}>{nodo.code}</span>
+        <span className="ml-2 rounded border border-ink-200 bg-white px-1.5 py-px align-middle text-[10px] font-semibold uppercase tracking-wide text-ink-500">{NIVEL_LABEL[nodo.nivel]}</span>
         {c && (c.mapeo > 0 || c.naturaleza > 0) && (
           <span className="ml-2 inline-flex items-center gap-1 align-middle">
             {c.mapeo > 0 && <span title={`${c.mapeo} cuenta(s) sin mapeo`} className="inline-flex items-center gap-0.5 rounded bg-warn-100 px-1 text-[10px] font-semibold text-warn-700"><Icon name="warn" size={9} />{c.mapeo}</span>}
