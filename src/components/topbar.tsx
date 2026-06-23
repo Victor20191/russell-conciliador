@@ -84,17 +84,6 @@ export default function Topbar({
       </div>
 
       <div className="ml-auto flex items-center gap-2.5">
-        <div className="hidden items-center gap-2 rounded-md border border-ink-200 bg-ink-50 px-2.5 py-1.5 text-ink-400 md:flex">
-          <Icon name="search" size={14} />
-          <input
-            placeholder="Buscar cliente, conciliación, partida…"
-            className="w-56 bg-transparent text-[12.5px] text-ink-700 outline-none placeholder:text-ink-400"
-          />
-          <kbd className="rounded border border-ink-200 bg-white px-1 text-[10px] text-ink-400">
-            ⌘K
-          </kbd>
-        </div>
-
         <div className="relative">
           <button
             type="button"
@@ -183,14 +172,6 @@ export default function Topbar({
             </div>
           )}
         </div>
-        <button
-          type="button"
-          aria-label="Ayuda"
-          title="Ayuda"
-          className="rounded-md border border-ink-200 bg-white p-2 text-ink-600 transition hover:bg-ink-50"
-        >
-          <Icon name="doc" size={16} />
-        </button>
       </div>
     </div>
   );
