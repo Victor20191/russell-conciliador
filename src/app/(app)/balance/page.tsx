@@ -17,11 +17,11 @@ export default async function BalancePage() {
   const [encabezados, carteraClientes] = await Promise.all([
     prisma.balancePruebaEncabezado.findMany({
       where: whereCliente,
-      orderBy: [{ nombreCliente: "asc" }, { creadoEn: "desc" }],
+      orderBy: { creadoEn: "desc" },
       select: {
         id: true, clienteId: true, nombreCliente: true, nit: true, periodo: true, version: true,
         esOficial: true, estado: true, completitud: true, ultimaCarga: true,
-        mapeadas: true, sinMapear: true, filasTotales: true,
+        mapeadas: true, sinMapear: true, filasTotales: true, creadoEn: true,
       },
     }),
     // Clientes de la cartera para el selector del modal de carga.
@@ -41,14 +41,23 @@ export default async function BalancePage() {
   // renombrado no debe partirse). El mapeo (mapeadas/sinMapear/total) se lleva a
   // nivel de PERÍODO (su versión oficial), no de cliente, para no mezclar
   // períodos. A la frontera RSC→client se pasan SOLO objetos planos serializables.
-  type Agg = { clientId: number; clientName: string; clientNit: string; periods: Map<string, PeriodRow> };
+  type Agg = {
+    clientId: number; clientName: string; clientNit: string;
+    periods: Map<string, PeriodRow>;
+    // Sello de orden por última carga/recarga: el `creadoEn` más reciente de cada
+    // período y del cliente entero (cada cargue/recargue crea un encabezado nuevo).
+    periodTs: Map<string, number>; lastTs: number;
+  };
   const byClient = new Map<number, Agg>();
   for (const b of encabezados) {
+    const ts = b.creadoEn.getTime();
     let g = byClient.get(b.clienteId);
     if (!g) {
-      g = { clientId: b.clienteId, clientName: b.nombreCliente, clientNit: b.nit ?? "", periods: new Map() };
+      g = { clientId: b.clienteId, clientName: b.nombreCliente, clientNit: b.nit ?? "", periods: new Map(), periodTs: new Map(), lastTs: ts };
       byClient.set(b.clienteId, g);
     }
+    g.lastTs = Math.max(g.lastTs, ts);
+    g.periodTs.set(b.periodo, Math.max(g.periodTs.get(b.periodo) ?? 0, ts));
     let p = g.periods.get(b.periodo);
     if (!p) {
       p = { period: b.periodo, versions: 0, official: null, officialId: null, status: b.estado, complete: b.completitud, lastUpload: b.ultimaCarga ?? "", mapped: b.mapeadas, unmapped: b.sinMapear, total: b.filasTotales };
@@ -62,10 +71,16 @@ export default async function BalancePage() {
     }
   }
 
-  const clients: ClientGroup[] = [...byClient.values()].map((g) => ({
-    clientId: g.clientId, clientName: g.clientName, clientNit: g.clientNit,
-    periodList: [...g.periods.values()],
-  }));
+  // Orden por última carga/recarga (más reciente primero): tanto los clientes
+  // como los períodos dentro de cada cliente.
+  const clients: ClientGroup[] = [...byClient.values()]
+    .sort((a, b) => b.lastTs - a.lastTs)
+    .map((g) => ({
+      clientId: g.clientId, clientName: g.clientName, clientNit: g.clientNit,
+      periodList: [...g.periods.values()].sort(
+        (x, y) => (g.periodTs.get(y.period) ?? 0) - (g.periodTs.get(x.period) ?? 0),
+      ),
+    }));
 
   // La bitácora detallada por movimiento vive ahora en /auditoria (registros_auditoria).
   const auditRows: AuditRow[] = [];
