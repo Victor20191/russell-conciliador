@@ -17,7 +17,8 @@ export type Meta = { rows: number; mapped: number; unmapped: number; critical: n
 export type Version = { v: string; date: string; uploadedBy: string; role: string; file: string; size: string; rows: number; sumA: number; balanced: boolean; note: string; changes: number };
 
 type Tab = "breakdown" | "validations" | "versions";
-type Filtro = "todo" | "balance" | "er";
+type Filtro = "todo" | "balance" | "er" | "alertas";
+type Conteo = { mapeo: number; naturaleza: number };
 
 const CLASES_BALANCE = new Set(["1", "2", "3"]);
 const CLASES_ER = new Set(["4", "5", "6", "7"]);
@@ -50,16 +51,64 @@ function keysConHijos(nodos: NodoBalance[]): string[] {
   return ks;
 }
 
+/** ¿Hoja con alerta? Cuenta sin mapear (mapeo) o con naturaleza/saldo contrario. */
+function esHojaAlerta(n: NodoBalance): boolean {
+  const mapeado = n.nivel === 8 ? !!n.std : n.mapped;
+  return !mapeado || !n.saldoOk;
+}
+
+/** Poda el árbol dejando solo las ramas con alertas (filtro "Alertas"). */
+function podarAlertas(nodos: NodoBalance[]): NodoBalance[] {
+  const out: NodoBalance[] = [];
+  for (const n of nodos) {
+    const hijos = podarAlertas(n.hijos);
+    const self = (n.hijos.length === 0 && esHojaAlerta(n)) || (n.nivel === 6 && !n.mapped);
+    if (hijos.length > 0 || self) out.push({ ...n, hijos });
+  }
+  return out;
+}
+
+/** Cuenta de alertas (mapeo / naturaleza) por nodo, sumando sus hojas. */
+function contarAlertas(arbol: NodoBalance[]): Map<string, Conteo> {
+  const m = new Map<string, Conteo>();
+  const walk = (n: NodoBalance): Conteo => {
+    let r: Conteo;
+    if (n.hijos.length === 0) {
+      const mapeado = n.nivel === 8 ? !!n.std : n.mapped;
+      r = { mapeo: mapeado ? 0 : 1, naturaleza: n.saldoOk ? 0 : 1 };
+    } else {
+      r = n.hijos.reduce<Conteo>((a, h) => { const c = walk(h); return { mapeo: a.mapeo + c.mapeo, naturaleza: a.naturaleza + c.naturaleza }; }, { mapeo: 0, naturaleza: 0 });
+    }
+    m.set(n.key, r);
+    return r;
+  };
+  arbol.forEach(walk);
+  return m;
+}
+
 function BreakdownTab({ arbol, estandar, puedeMapear }: { arbol: NodoBalance[]; estandar: EstandarOpcion[]; puedeMapear: boolean }) {
   const [filtro, setFiltro] = useState<Filtro>("todo");
   // Por defecto: expandido hasta nivel 6 (clase y subgrupo abiertos; cuentas del cliente colapsadas).
   const [open, setOpen] = useState<Set<string>>(() => new Set(keysConHijos(arbol).filter((k) => k.split("/").length <= 2)));
   const [asignar, setAsignar] = useState<NodoBalance | null>(null);
 
-  const visible = useMemo(
-    () => arbol.filter((n) => (filtro === "todo" ? true : filtro === "balance" ? CLASES_BALANCE.has(n.clase) : CLASES_ER.has(n.clase))),
-    [arbol, filtro],
+  // Conteo de alertas (mapeo / naturaleza) por nodo + totales del balance.
+  const conteos = useMemo(() => contarAlertas(arbol), [arbol]);
+  const totales = useMemo(
+    () => arbol.reduce<Conteo>((a, n) => { const c = conteos.get(n.key); return { mapeo: a.mapeo + (c?.mapeo ?? 0), naturaleza: a.naturaleza + (c?.naturaleza ?? 0) }; }, { mapeo: 0, naturaleza: 0 }),
+    [arbol, conteos],
   );
+  const totalAlertas = totales.mapeo + totales.naturaleza;
+
+  const visible = useMemo(() => {
+    if (filtro === "balance") return arbol.filter((n) => CLASES_BALANCE.has(n.clase));
+    if (filtro === "er") return arbol.filter((n) => CLASES_ER.has(n.clase));
+    if (filtro === "alertas") return podarAlertas(arbol);
+    return arbol;
+  }, [arbol, filtro]);
+
+  // En el filtro "Alertas" el árbol podado se muestra totalmente expandido.
+  const openEff = useMemo(() => (filtro === "alertas" ? new Set(keysConHijos(visible)) : open), [filtro, visible, open]);
 
   const toggle = (key: string) => setOpen((o) => { const n = new Set(o); if (n.has(key)) n.delete(key); else n.add(key); return n; });
   const expandirTodo = () => setOpen(new Set(keysConHijos(arbol)));
@@ -73,6 +122,7 @@ function BreakdownTab({ arbol, estandar, puedeMapear }: { arbol: NodoBalance[]; 
           <FiltroBtn on={filtro === "todo"} onClick={() => setFiltro("todo")} label="Todo" />
           <FiltroBtn on={filtro === "balance"} onClick={() => setFiltro("balance")} label="Balance" />
           <FiltroBtn on={filtro === "er"} onClick={() => setFiltro("er")} label="Estado de Resultado" />
+          <FiltroBtn on={filtro === "alertas"} onClick={() => setFiltro("alertas")} label="Alertas" count={totalAlertas} tone="warn" />
           <span className="mx-1 h-4 w-px bg-ink-200" />
           <button onClick={expandirTodo} className="rounded-md border border-ink-200 px-2 py-1 text-[11.5px] font-medium text-ink-600 hover:bg-ink-50">Expandir todo</button>
           <button onClick={contraerTodo} className="rounded-md border border-ink-200 px-2 py-1 text-[11.5px] font-medium text-ink-600 hover:bg-ink-50">Contraer todo</button>
@@ -95,9 +145,9 @@ function BreakdownTab({ arbol, estandar, puedeMapear }: { arbol: NodoBalance[]; 
           </thead>
           <tbody>
             {visible.length === 0 ? (
-              <tr><td colSpan={9} className="px-4 py-6 text-center text-[12.5px] text-ink-400">Sin cuentas para este filtro.</td></tr>
+              <tr><td colSpan={9} className="px-4 py-6 text-center text-[12.5px] text-ink-400">{filtro === "alertas" ? "Sin alertas de mapeo ni de naturaleza. 🎉" : "Sin cuentas para este filtro."}</td></tr>
             ) : (
-              visible.flatMap((n) => filas(n, 0, open, toggle, puedeMapear, setAsignar))
+              visible.flatMap((n) => filas(n, 0, openEff, toggle, puedeMapear, setAsignar, conteos))
             )}
           </tbody>
         </table>
@@ -108,12 +158,14 @@ function BreakdownTab({ arbol, estandar, puedeMapear }: { arbol: NodoBalance[]; 
 }
 
 /** Renderiza recursivamente las filas (nodo + hijos si está expandido). */
-function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: string) => void, puedeMapear: boolean, onAsignar: (n: NodoBalance) => void): React.ReactElement[] {
+function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: string) => void, puedeMapear: boolean, onAsignar: (n: NodoBalance) => void, conteos: Map<string, Conteo>): React.ReactElement[] {
   const tieneHijos = nodo.hijos.length > 0;
   const isOpen = open.has(nodo.key);
   const esGrupo = nodo.nivel !== 8;
   const sinMapeo = nodo.nivel === 6 && !nodo.mapped;
   const pad = 16 + depth * 18;
+  // Contadores de alertas del subárbol (solo en nodos de agrupación: clase/subgrupo/cuenta estándar).
+  const c = tieneHijos ? conteos.get(nodo.key) : undefined;
 
   const fila = (
     <tr
@@ -124,6 +176,12 @@ function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: 
       <td className="px-4 py-2 font-mono text-ink-600" style={{ paddingLeft: pad }}>
         {tieneHijos && <span className="mr-1 inline-block align-middle text-ink-400"><Icon name={isOpen ? "chev-d" : "chev-r"} size={12} /></span>}
         <span className={esGrupo ? "font-semibold text-ink-700" : "text-[11.5px] text-ink-500"}>{nodo.code}</span>
+        {c && (c.mapeo > 0 || c.naturaleza > 0) && (
+          <span className="ml-2 inline-flex items-center gap-1 align-middle">
+            {c.mapeo > 0 && <span title={`${c.mapeo} cuenta(s) sin mapeo`} className="inline-flex items-center gap-0.5 rounded bg-warn-100 px-1 text-[10px] font-semibold text-warn-700"><Icon name="warn" size={9} />{c.mapeo}</span>}
+            {c.naturaleza > 0 && <span title={`${c.naturaleza} cuenta(s) con naturaleza/saldo contrario`} className="rounded bg-err-100 px-1 text-[10px] font-semibold text-err-700">±{c.naturaleza}</span>}
+          </span>
+        )}
       </td>
       <td className={`px-4 py-2 ${esGrupo ? "font-semibold text-ink-800" : "text-ink-700"}`}>
         {nodo.name}
@@ -140,7 +198,7 @@ function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: 
   );
 
   if (!tieneHijos || !isOpen) return [fila];
-  return [fila, ...nodo.hijos.flatMap((h) => filas(h, depth + 1, open, toggle, puedeMapear, onAsignar))];
+  return [fila, ...nodo.hijos.flatMap((h) => filas(h, depth + 1, open, toggle, puedeMapear, onAsignar, conteos))];
 }
 
 function celdaMapeo(nodo: NodoBalance, puedeMapear: boolean, onAsignar: (n: NodoBalance) => void): React.ReactNode {
@@ -311,10 +369,13 @@ function TabBtn({ on, onClick, label, count }: { on: boolean; onClick: () => voi
   );
 }
 
-function FiltroBtn({ on, onClick, label }: { on: boolean; onClick: () => void; label: string }) {
+function FiltroBtn({ on, onClick, label, count, tone }: { on: boolean; onClick: () => void; label: string; count?: number; tone?: "warn" }) {
   return (
-    <button onClick={onClick} className={`rounded-md px-2.5 py-1 text-[11.5px] font-medium transition ${on ? "bg-navy-700 text-white" : "border border-ink-200 text-ink-600 hover:bg-ink-50"}`}>
+    <button onClick={onClick} className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11.5px] font-medium transition ${on ? "bg-navy-700 text-white" : "border border-ink-200 text-ink-600 hover:bg-ink-50"}`}>
       {label}
+      {count != null && count > 0 && (
+        <span className={`rounded-full px-1.5 text-[10px] font-semibold ${on ? "bg-white/20 text-white" : tone === "warn" ? "bg-warn-100 text-warn-700" : "bg-ink-100 text-ink-500"}`}>{count}</span>
+      )}
     </button>
   );
 }

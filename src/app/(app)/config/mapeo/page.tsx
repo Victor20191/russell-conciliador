@@ -1,6 +1,6 @@
 import prisma from "@/lib/prisma";
 import { codigosEstandarConBalances } from "@/lib/balance/asociacion";
-import { requirePermiso } from "@/lib/rbac";
+import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import { alcanceLecturaUsuario, getMatriz } from "@/lib/rbac/contexto";
 import { tienePermiso } from "@/lib/rbac/permisos";
 import { getCurrentUser } from "@/lib/dal";
@@ -11,6 +11,7 @@ import MapeoClient, {
   type StdAccount,
   type StdLogRow,
   type Subgrupo,
+  type MapeoClienteRow,
 } from "./mapeo-client";
 
 export default async function MapeoPage({ searchParams }: { searchParams: Promise<{ cliente?: string }> }) {
@@ -34,8 +35,13 @@ export default async function MapeoPage({ searchParams }: { searchParams: Promis
   const user = await getCurrentUser();
   const matriz = await getMatriz();
   const canManage = user ? tienePermiso(matriz, user.role, "mapeo:administrar") : false;
+  // Memoria de mapeo por cliente (pestaña "Mapeo balance/cliente"): clienteId del
+  // cliente seleccionado + flag de escritura (la action revalida el alcance real).
+  const clienteRow = cliente ? await prisma.balancePruebaEncabezado.findFirst({ where: { nombreCliente: cliente }, select: { clienteId: true } }) : null;
+  const clienteId = clienteRow?.clienteId ?? null;
+  const puedeMapear = (await authorizePermiso("balance:crear")).ok;
 
-  const [accounts, options, standard, subgruposRows, logs, lockedStdCodes] = await Promise.all([
+  const [accounts, options, standard, subgruposRows, logs, lockedStdCodes, mapeoRows] = await Promise.all([
     prisma.clientAccount.findMany({
       where: { clientName: cliente },
       include: { russellOption: { select: { code: true } } },
@@ -53,6 +59,7 @@ export default async function MapeoPage({ searchParams }: { searchParams: Promis
     // formulario bloquea el campo de código y el borrado de esas cuentas. Solo
     // se calcula para quien administra el plan.
     canManage ? codigosEstandarConBalances() : Promise.resolve<string[]>([]),
+    clienteId ? prisma.mapeoBalanceCliente.findMany({ where: { clienteId }, orderBy: { cuenta6: "asc" } }) : Promise.resolve([]),
   ]);
 
   const acc: Account[] = accounts.map((a) => ({ id: a.id, code: a.code, level: a.level, name: a.name, russellCode: a.russellOption?.code ?? null }));
@@ -85,11 +92,24 @@ export default async function MapeoPage({ searchParams }: { searchParams: Promis
   const subgrupos: Subgrupo[] = subgruposRows.map((s) => ({
     id: s.id, codigo: s.codigo, nombre: s.nombre, grupo: s.grupo, nombreGrupo: s.nombreGrupo, naturaleza: s.naturaleza,
   }));
+  // Memoria de mapeo del cliente seleccionado: cuenta_6 del cliente → cuenta
+  // estándar Russell (con su nombre), origen y % de coincidencia.
+  const stdNombre = new Map(std.map((s) => [s.code, s.name]));
+  const mapeoCliente: MapeoClienteRow[] = mapeoRows.map((r) => ({
+    id: r.id,
+    cuenta6: r.cuenta6,
+    cuenta6Russell: r.cuenta6Russell,
+    nombreRussell: stdNombre.get(r.cuenta6Russell) ?? null,
+    coincidencia: r.coincidencia != null ? Number(r.coincidencia) : null,
+    origen: r.origen,
+    actualizadoPor: r.actualizadoPor,
+    actualizadoEn: r.actualizadoEn.toISOString(),
+  }));
 
   return (
     <div>
       <PageHeader title="Mapeo plan estándar" subtitle="Configuración de las cuentas del PUC del cliente contra el plan estándar de Russell Bedford y su módulo de conciliación." />
-      <MapeoClient clientNames={clientNames} cliente={cliente} accounts={acc} options={opts} std={std} subgrupos={subgrupos} canManage={canManage} logs={stdLogs} lockedStdCodes={lockedStdCodes} />
+      <MapeoClient clientNames={clientNames} cliente={cliente} accounts={acc} options={opts} std={std} subgrupos={subgrupos} canManage={canManage} logs={stdLogs} lockedStdCodes={lockedStdCodes} mapeoCliente={mapeoCliente} clienteId={clienteId} puedeMapear={puedeMapear} />
     </div>
   );
 }
