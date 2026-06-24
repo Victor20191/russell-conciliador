@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import Sidebar from "@/components/sidebar";
 import Topbar, { type NotificationDTO } from "@/components/topbar";
 import { ActionToaster } from "@/components/action-toaster";
+import AccessTracker from "@/components/access-tracker";
 
 /**
  * Cascarón de la app (cliente) que coordina el estado compartido entre el
@@ -57,6 +58,7 @@ export default function AppShell({
         </main>
       </div>
       <ActionToaster />
+      <AccessTracker />
     </div>
   );
 }

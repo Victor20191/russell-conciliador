@@ -3,9 +3,15 @@
 // modelo extrajo directamente (PDF). Normaliza montos multi-formato, conserva la
 // CUENTA como texto, filtra padres/totales, agrega por tercero y valida la
 // ecuación de control fila por fila. Es puro y testeable (`transformar.test.ts`).
-import type { Estandar, Excepcion, ExtraccionDirecta, MappingSpec, Origen, ResumenAuditoria } from "./esquema";
+import { CUADRE_NO_APLICA } from "./esquema";
+import type { CuadreTotales, Estandar, Excepcion, ExtraccionDirecta, MappingSpec, Origen, ResumenAuditoria } from "./esquema";
 import type { CuentaCruda } from "@/lib/balance/calcular";
 import type { CeldaCruda, GridHoja } from "./ingesta";
+
+// Nivel mínimo de imputación del PUC: ninguna cuenta de MOVIMIENTO es más corta
+// que la subcuenta (6 dígitos). Clases/grupos/cuentas (1/2/4 díg.) nunca son
+// hojas aunque el archivo las traiga "sueltas" (sin subcuentas debajo).
+const LONGITUD_MIN_IMPUTABLE = 6;
 
 export type Cabecera = {
   nit: Origen;
@@ -28,6 +34,7 @@ export type ResultadoTransform = {
   excepciones: Excepcion[];
   resumen: ResumenAuditoria;
   cabecera: Cabecera;
+  cuadre: CuadreTotales; // cuadre de las hojas contra la fila TOTALES del archivo
 };
 
 // ---------------- Normalización numérica ----------------
@@ -130,6 +137,7 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
       ],
       resumen: resumenVacio(cabecera, spec.signoCredito),
       cabecera,
+      cuadre: CUADRE_NO_APLICA,
     };
   }
 
@@ -140,6 +148,7 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
       excepciones: [...excepciones, { hoja: spec.hoja, fila: null, campo: "hoja", valor: spec.hoja, regla: "Hoja no encontrada", accion: "Revisar el nombre de la hoja." }],
       resumen: resumenVacio(cabecera, spec.signoCredito),
       cabecera,
+      cuadre: CUADRE_NO_APLICA,
     };
   }
 
@@ -147,17 +156,17 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
   const tieneInicial = cols.saldoInicial > 0;
   const tieneMovimientos = cols.debitos > 0 || cols.creditos > 0;
   const validarControl = tieneInicial && tieneMovimientos;
-  // Longitud MÍNIMA inclusiva de una cuenta de detalle. Default 6 (no 7) para
-  // alinear con la ruta directa/PDF (`validarDirecta`, >=6) y con el nivel de
-  // imputación del estándar Russell (cuentas de 6 dígitos).
-  let minLen = spec.reglaDetalle.longitudMin ?? 6;
-  // Preferimos el nivel auxiliar (8 dígitos) cuando existe. Pero si el modelo
-  // pidió nivel 8 y el archivo NO trae ninguna cuenta de 8+ dígitos, caemos a
-  // nivel 6 (subcuenta) para no dejar el cargue vacío. El modelo solo ve una
-  // vista previa; aquí se decide sobre TODAS las filas (respaldo determinista).
-  if (spec.reglaDetalle.tipo === "longitud" && minLen >= 8 && !hayCuentasNivel(hoja, spec.primeraFilaDatos, cols.codigo, 8)) {
-    minLen = 6;
+  // Pasada 1 (jerarquía por PREFIJO): reúne TODOS los códigos numéricos de la
+  // hoja. Una cuenta es HOJA (movimiento real) si su código no es prefijo de
+  // ningún otro más largo del archivo; es AGRUPADORA si tiene hijos debajo. Esto
+  // reemplaza la antigua heurística por longitud fija, que perdía las hojas de 6
+  // dígitos sin auxiliares cuando OTRAS cuentas del archivo llegaban al nivel 8.
+  const codigos: string[] = [];
+  for (let r = spec.primeraFilaDatos - 1; r < hoja.filas.length; r++) {
+    const code = normalizarCodigo(cell(hoja.filas[r] ?? [], cols.codigo));
+    if (/^\d+$/.test(code)) codigos.push(code);
   }
+  const ancestros = prefijosDe(codigos);
 
   let filasLeidas = 0;
   let filasExcluidas = 0;
@@ -176,8 +185,9 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
       filasExcluidas++;
       continue;
     }
-    // ¿Es fila de detalle?
-    if (!esDetalle(code, fila, spec, minLen)) {
+    // ¿Es cuenta de movimiento (hoja)? Columna marcadora si el archivo la trae;
+    // si no, detección estructural por prefijo (no es prefijo de otra) + piso PUC.
+    if (!esHoja(code, fila, spec, ancestros)) {
       filasExcluidas++;
       continue;
     }
@@ -203,6 +213,7 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
   }
 
   const agregadas = spec.agregarPorTercero ? agregarPorCuenta(parciales) : parciales;
+  const { movimiento, agrupadoras } = contarJerarquia(codigos, ancestros);
 
   const importReady: CuentaCruda[] = [];
   let filasDescuadre = 0;
@@ -222,6 +233,14 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
     importReady.push({ code: f.code, name: f.name, prevBalance: f.si, balance: f.saldo, debitos: f.db, creditos: f.cr });
   }
 
+  // Cuadre OBLIGATORIO contra el gran total del archivo, sobre lo que
+  // EFECTIVAMENTE se importa/persiste (importReady, ya sin las filas de descuadre
+  // de control): así "cuadra" garantiza que lo guardado coincide con TOTALES, no
+  // un conjunto distinto al persistido.
+  const sumaDebitos = importReady.reduce((s, f) => s + Math.abs(f.debitos ?? 0), 0);
+  const sumaCreditos = importReady.reduce((s, f) => s + Math.abs(f.creditos ?? 0), 0);
+  const cuadre = construirCuadre(detectarTotales(hoja, spec), sumaDebitos, sumaCreditos);
+
   return {
     importReady,
     excepciones,
@@ -230,6 +249,8 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
       filasExcluidas,
       filasImportables: importReady.length,
       filasDescuadre,
+      cuentasMovimiento: movimiento,
+      cuentasAgrupadoras: agrupadoras,
       nit: cabecera.nit,
       periodoInicial: cabecera.periodoInicial,
       periodoFinal: cabecera.periodoFinal,
@@ -238,6 +259,7 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
       convencionCredito: spec.signoCredito,
     },
     cabecera,
+    cuadre,
   };
 }
 
@@ -253,11 +275,19 @@ export function validarDirecta(extr: ExtraccionDirecta, params: ParamsExtraccion
       excepciones: [...excepciones, { hoja: null, fila: null, campo: null, valor: null, regla: "Archivo no importable", accion: extr.motivoNoImportable ?? "Solicitar un balance con saldos." }],
       resumen: resumenVacio(cabecera, "firmado"),
       cabecera,
+      cuadre: CUADRE_NO_APLICA,
     };
   }
 
+  // Misma detección de jerarquía por prefijo que la ruta tabular: descarta las
+  // cuentas padre que el modelo haya devuelto junto a sus auxiliares.
+  const codigos = extr.filas.map((f) => normalizarCodigo(f.cuenta)).filter((c) => /^\d+$/.test(c));
+  const ancestros = prefijosDe(codigos);
   const base: FilaParcial[] = extr.filas
-    .filter((f) => /^\d+$/.test(normalizarCodigo(f.cuenta)) && normalizarCodigo(f.cuenta).length >= 6)
+    .filter((f) => {
+      const c = normalizarCodigo(f.cuenta);
+      return /^\d+$/.test(c) && c.length >= LONGITUD_MIN_IMPUTABLE && !ancestros.has(c);
+    })
     .map((f) => ({
       code: normalizarCodigo(f.cuenta),
       name: f.nombre || normalizarCodigo(f.cuenta),
@@ -269,6 +299,7 @@ export function validarDirecta(extr: ExtraccionDirecta, params: ParamsExtraccion
     }));
   const filasLeidas = extr.filas.length;
   const filasExcluidas = filasLeidas - base.length;
+  const { movimiento, agrupadoras } = contarJerarquia(codigos, ancestros);
   const agregadas = extr.agregarPorTercero ? agregarPorCuenta(base) : base;
 
   const importReady: CuentaCruda[] = [];
@@ -292,6 +323,8 @@ export function validarDirecta(extr: ExtraccionDirecta, params: ParamsExtraccion
       filasExcluidas,
       filasImportables: importReady.length,
       filasDescuadre,
+      cuentasMovimiento: movimiento,
+      cuentasAgrupadoras: agrupadoras,
       nit: cabecera.nit,
       periodoInicial: cabecera.periodoInicial,
       periodoFinal: cabecera.periodoFinal,
@@ -300,6 +333,9 @@ export function validarDirecta(extr: ExtraccionDirecta, params: ParamsExtraccion
       convencionCredito: "firmado",
     },
     cabecera,
+    // La extracción directa de PDF no expone una fila TOTALES fiable: el cuadre
+    // queda a la validación interna por partida doble (no bloquea).
+    cuadre: CUADRE_NO_APLICA,
   };
 }
 
@@ -310,22 +346,106 @@ function cell(fila: CeldaCruda[], col1: number | null): CeldaCruda {
   return fila[col1 - 1] ?? null;
 }
 
-/** ¿Hay al menos una cuenta numérica de `nivel`+ dígitos a partir de la primera fila de datos? */
-function hayCuentasNivel(hoja: GridHoja, primeraFilaDatos: number, colCodigo: number | null, nivel: number): boolean {
-  for (let r = Math.max(primeraFilaDatos - 1, 0); r < hoja.filas.length; r++) {
-    const code = normalizarCodigo(cell(hoja.filas[r] ?? [], colCodigo));
-    if (/^\d+$/.test(code) && code.length >= nivel) return true;
+/**
+ * Conjunto de prefijos PROPIOS de todos los códigos. Un código que aparece aquí
+ * es AGRUPADORA (es prefijo de otro más largo → tiene hijos); si no aparece, es
+ * HOJA (movimiento real: nadie cuelga de él). Mismo criterio que la detección de
+ * hojas de `calcular.ts`, pero aplicado YA en la selección de filas.
+ */
+function prefijosDe(codigos: Iterable<string>): Set<string> {
+  const prefijos = new Set<string>();
+  for (const code of codigos) {
+    for (let i = 1; i < code.length; i++) prefijos.add(code.slice(0, i));
   }
-  return false;
+  return prefijos;
 }
 
-function esDetalle(code: string, fila: CeldaCruda[], spec: MappingSpec, minLen: number): boolean {
+/**
+ * ¿La fila es una cuenta de MOVIMIENTO (hoja)? Base estructural: código de ≥6
+ * dígitos (nivel imputable del PUC) que NO sea prefijo de otro. Si el archivo
+ * trae una columna marcadora de imputable, esta REFINA la base (no la sustituye):
+ * nunca se importa una cuenta con hijos en el archivo aunque la marca la señale,
+ * para no doble-contar una agrupadora marcada por error.
+ */
+function esHoja(code: string, fila: CeldaCruda[], spec: MappingSpec, ancestros: Set<string>): boolean {
+  const estructural = code.length >= LONGITUD_MIN_IMPUTABLE && !ancestros.has(code);
   if (spec.reglaDetalle.tipo === "columna" && spec.reglaDetalle.columna != null) {
     const marca = texto(cell(fila, spec.reglaDetalle.columna)).toLowerCase();
     const esperado = (spec.reglaDetalle.valor ?? "").toLowerCase().trim();
-    if (esperado) return marca === esperado;
+    if (esperado) return marca === esperado && estructural;
   }
-  return code.length >= minLen;
+  return estructural;
+}
+
+/** Cuenta hojas (movimiento) vs. agrupadoras entre los códigos numéricos únicos. */
+function contarJerarquia(codigos: Iterable<string>, ancestros: Set<string>): { movimiento: number; agrupadoras: number } {
+  let movimiento = 0;
+  let agrupadoras = 0;
+  for (const code of new Set(codigos)) {
+    if (code.length >= LONGITUD_MIN_IMPUTABLE && !ancestros.has(code)) movimiento++;
+    else agrupadoras++;
+  }
+  return { movimiento, agrupadoras };
+}
+
+/**
+ * Busca la fila del GRAN TOTAL del archivo para cuadrar contra ella. La señal
+ * definitoria es que el gran total de un balance de prueba **cuadra**: la suma de
+ * débitos ≈ la suma de créditos (partida doble). Por eso una candidata válida
+ * debe: tener código NO imputable, un rótulo con "total"† que NO sea un subtotal
+ * por sección (TOTAL ACTIVOS, PASIVOS, INGRESOS…, plural/acentos incluidos), y
+ * traer AMBOS lados (débito>0 y crédito>0) con `|débito − crédito|` dentro del 1 %.
+ * Entre las válidas toma la de mayor magnitud (el gran total ≥ cualquier
+ * subtotal). Esto descarta los subtotales de una sola sección y las filas
+ * narrativas/ruido con la palabra "total". Si no halla ninguna válida (o falta
+ * alguna columna de movimiento) devuelve no detectado y NO se bloquea el cargue
+ * (queda la validación interna por partida doble).
+ * † también "sumas iguales", el rótulo clásico del cuadre contable.
+ */
+function detectarTotales(hoja: GridHoja, spec: MappingSpec): { detectado: boolean; debitos: number; creditos: number } {
+  const cols = spec.columnas;
+  if (cols.debitos < 1 || cols.creditos < 1) return { detectado: false, debitos: 0, creditos: 0 };
+  let mejor: { debitos: number; creditos: number; mag: number } | null = null;
+  for (let r = Math.max(spec.primeraFilaDatos - 1, 0); r < hoja.filas.length; r++) {
+    const fila = hoja.filas[r] ?? [];
+    const code = normalizarCodigo(cell(fila, cols.codigo));
+    if (/^\d+$/.test(code)) continue; // una fila con código imputable no es la de totales
+    const rotulo = fila.map((c) => texto(c)).join(" ").toLowerCase();
+    if (!/\btotal(es)?\b|sumas?\s+iguales|gran\s+total/.test(rotulo)) continue;
+    // Excluye los SUBTOTALES por sección/clase (en singular y plural, con o sin
+    // acentos): solo el GRAN total del reporte cuadra contra todas las hojas.
+    if (/\b(activos?|pasivos?|patrimonios?|ingresos?|gastos?|costos?|[oó]rdenes?|orden|resultados?|corrientes?|clases?|grupos?)\b/.test(rotulo)) continue;
+    const d = Math.abs(normalizarMonto(cell(fila, cols.debitos)) ?? 0);
+    const c = Math.abs(normalizarMonto(cell(fila, cols.creditos)) ?? 0);
+    if (d <= 0 || c <= 0) continue; // el gran total tiene AMBOS lados informados
+    if (Math.abs(d - c) > Math.max(1, Math.max(d, c) * 0.01)) continue; // … y cuadra (Σdéb ≈ Σcré)
+    const mag = d + c;
+    if (!mejor || mag > mejor.mag) mejor = { debitos: d, creditos: c, mag };
+  }
+  return mejor ? { detectado: true, debitos: mejor.debitos, creditos: mejor.creditos } : { detectado: false, debitos: 0, creditos: 0 };
+}
+
+/** Arma el resultado del cuadre con tolerancia max(1 COP, 0.5% del total). Puro:
+ *  lo reusa la Server Action para RE-evaluar el cuadre en el servidor sobre las
+ *  cuentas validadas (no se confía en el veredicto del payload del cliente). */
+export function construirCuadre(totales: { detectado: boolean; debitos: number; creditos: number }, sumaDebitos: number, sumaCreditos: number): CuadreTotales {
+  const toleranciaDebitos = Math.max(1, Math.abs(totales.debitos) * 0.005);
+  const toleranciaCreditos = Math.max(1, Math.abs(totales.creditos) * 0.005);
+  const diferenciaDebitos = sumaDebitos - totales.debitos;
+  const diferenciaCreditos = sumaCreditos - totales.creditos;
+  const cuadra = totales.detectado && Math.abs(diferenciaDebitos) <= toleranciaDebitos && Math.abs(diferenciaCreditos) <= toleranciaCreditos;
+  return {
+    detectado: totales.detectado,
+    totalDebitos: totales.debitos,
+    totalCreditos: totales.creditos,
+    sumaDebitos,
+    sumaCreditos,
+    diferenciaDebitos,
+    diferenciaCreditos,
+    toleranciaDebitos,
+    toleranciaCreditos,
+    cuadra,
+  };
 }
 
 function leerSaldoFinal(fila: CeldaCruda[], cols: MappingSpec["columnas"], si: number, db: number, cr: number): number | null {
@@ -362,6 +482,8 @@ function resumenVacio(cabecera: Cabecera, conv: "firmado" | "magnitud"): Resumen
     filasExcluidas: 0,
     filasImportables: 0,
     filasDescuadre: 0,
+    cuentasMovimiento: 0,
+    cuentasAgrupadoras: 0,
     nit: cabecera.nit,
     periodoInicial: cabecera.periodoInicial,
     periodoFinal: cabecera.periodoFinal,

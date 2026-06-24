@@ -120,6 +120,10 @@ export const PERMISOS: Permiso[] = [
   { code: "dian:ver", module: "dian", action: "ver", label: "Ver Impuestos · DIAN", roles: TODOS },
   { code: "clientes:ver", module: "clientes", action: "ver", label: "Ver clientes", roles: TODOS },
   { code: "auditoria:ver", module: "auditoria", action: "ver", label: "Ver registro de auditoría", roles: CONSULTA_Y_ADMIN },
+  // Accesos y tráfico de rutas: expone la actividad de TODOS los usuarios
+  // (quién entra, cuándo, a qué ruta) → admin-only, más restringido que la
+  // bitácora de acciones (`auditoria:ver`).
+  { code: "auditoria:accesos", module: "auditoria", action: "accesos", label: "Ver accesos y tráfico de rutas", roles: SOLO_ADMIN },
   { code: "usuarios:ver", module: "usuarios", action: "ver", label: "Ver usuarios", roles: SOLO_ADMIN },
   { code: "maestros:ver", module: "maestros", action: "ver", label: "Ver maestros", roles: SOLO_ADMIN },
   { code: "modulos:ver", module: "modulos", action: "ver", label: "Ver módulos y campos", roles: SOLO_ADMIN },

@@ -21,6 +21,7 @@
     "db:seed:admin-negocio": "tsx prisma/seed-admin-negocio.ts",
     "db:seed:novedades": "tsx prisma/seed-novedades.ts",
     "db:backfill:roles": "tsx prisma/backfill-roles.ts",
+    "db:purgar:accesos": "tsx prisma/purgar-accesos.ts",
     "db:completar:jerarquia": "tsx scripts/completar_jerarquia.ts",
     "db:studio": "prisma studio"
   },

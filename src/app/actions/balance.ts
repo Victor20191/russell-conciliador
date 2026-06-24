@@ -9,7 +9,7 @@ import { clienteDeBalance } from "@/lib/rbac/contexto";
 import { parseId } from "@/lib/ids";
 import { createProcessNotification } from "@/lib/notifications";
 import { mensajeErrorBD, mensajeErrorIA } from "@/lib/errores";
-import { fmtDate, MESES_LARGOS } from "@/lib/format";
+import { fmt, fmtDate, MESES_LARGOS } from "@/lib/format";
 import { ConfirmarBalanceSchema, ImportReadySchema, type ActionState } from "@/lib/definitions";
 import { parseBalanceWorkbook, type ImportBalanceState } from "@/lib/import/balance";
 import {
@@ -28,8 +28,10 @@ import { TIPO_BALANCE_CARGA } from "@/lib/balance/tipo-balance";
 import { extraerBalance } from "@/lib/balance/extraccion/extraer";
 import { mapearPorIA } from "@/lib/balance/mapeo-ia";
 import { iaDisponible } from "@/lib/anthropic";
+import { construirCuadre } from "@/lib/balance/extraccion/transformar";
 import type { ParamsExtraccion, ResultadoTransform } from "@/lib/balance/extraccion/transformar";
-import type { Excepcion, ResumenAuditoria } from "@/lib/balance/extraccion/esquema";
+import { CUADRE_NO_APLICA } from "@/lib/balance/extraccion/esquema";
+import type { CuadreTotales, Excepcion, ResumenAuditoria } from "@/lib/balance/extraccion/esquema";
 
 const MAX_BYTES = 20 * 1024 * 1024; // 20 MB (admite PDF)
 
@@ -49,7 +51,10 @@ export type SugerenciaBalance = {
   filasLeidas: number;
   filasExcluidas: number;
   filasDescuadre: number;
+  cuentasMovimiento: number; // hojas detectadas (cuentas de movimiento real)
+  cuentasAgrupadoras: number; // cuentas que son prefijo de otra (no se importan)
   cuentas: number;
+  cuadre: CuadreTotales; // cuadre de las hojas contra la fila TOTALES del archivo
   importReady: CuentaCruda[];
 };
 
@@ -108,6 +113,18 @@ function etiquetaRol(code: string): string {
     superadmin: "Superadministrador",
   };
   return map[code] ?? code;
+}
+
+/** Mensaje de bloqueo cuando las hojas (movimiento) no cuadran contra TOTALES. */
+function mensajeCuadre(c: CuadreTotales): string {
+  const partes: string[] = [];
+  if (Math.abs(c.diferenciaDebitos) > c.toleranciaDebitos) {
+    partes.push(`débitos: hojas ${fmt(c.sumaDebitos)} vs TOTALES ${fmt(c.totalDebitos)} (Δ ${fmt(c.diferenciaDebitos)})`);
+  }
+  if (Math.abs(c.diferenciaCreditos) > c.toleranciaCreditos) {
+    partes.push(`créditos: hojas ${fmt(c.sumaCreditos)} vs TOTALES ${fmt(c.totalCreditos)} (Δ ${fmt(c.diferenciaCreditos)})`);
+  }
+  return `El balance no cuadra contra la fila TOTALES del archivo — ${partes.join("; ")}. Revisa la jerarquía de cuentas (padres/auxiliares) y vuelve a leer el archivo.`;
 }
 
 export async function freezeBalance(formData: FormData): Promise<ActionState> {
@@ -233,9 +250,8 @@ export async function asignarCuentaEstandar(formData: FormData): Promise<ActionS
 /**
  * Escribe un cargue (encabezado + detalle) a partir de las cuentas ya extraídas
  * (`importReady`). Maneja versionado correlativo por (cliente, período), cálculo
- * de agregados, comparativo de cambios y bitácora. Fuente ÚNICA de la escritura:
- * la comparten `cargarBalance` (flujo directo) y `confirmarCargaBalance` (flujo
- * leer→confirmar). No congela: eso lo hace `freezeBalance`.
+ * de agregados, comparativo de cambios y bitácora. Única ruta de persistencia,
+ * invocada solo por `confirmarCargaBalance`. No congela: eso lo hace `freezeBalance`.
  */
 async function persistirCargue(p: {
   clientId: number;
@@ -428,10 +444,13 @@ export async function leerBalance(
         },
         resumen: {
           filasLeidas: importReady.length, filasExcluidas: 0, filasImportables: importReady.length, filasDescuadre: 0,
+          cuentasMovimiento: importReady.length, cuentasAgrupadoras: 0,
           nit: { valor: null, fuente: "NINGUNO" }, periodoInicial: { valor: null, fuente: "NINGUNO" },
           periodoFinal: { valor: null, fuente: "NINGUNO" }, centro: { valor: null, fuente: "NINGUNO" },
           estandar: TIPO_BALANCE_CARGA, convencionCredito: "firmado",
         },
+        // El parser de plantilla limpia no expone una fila TOTALES: sin cuadre.
+        cuadre: CUADRE_NO_APLICA,
       };
     }
 
@@ -455,7 +474,10 @@ export async function leerBalance(
         filasLeidas: extr.resumen.filasLeidas,
         filasExcluidas: extr.resumen.filasExcluidas,
         filasDescuadre: extr.resumen.filasDescuadre,
+        cuentasMovimiento: extr.resumen.cuentasMovimiento,
+        cuentasAgrupadoras: extr.resumen.cuentasAgrupadoras,
         cuentas: extr.importReady.length,
+        cuadre: extr.cuadre,
         importReady: extr.importReady,
       },
     };
@@ -467,8 +489,9 @@ export async function leerBalance(
 /**
  * CONFIRMACIÓN (paso final). Recibe el cliente/período confirmados por la persona
  * + las cuentas ya leídas (sugerencia serializada en `payload`) y escribe el
- * cargue. Recalcula los agregados en el servidor desde las cuentas (no confía en
- * números del cliente para las sumas).
+ * cargue. Recalcula en el servidor los agregados Y el cuadre contra TOTALES desde
+ * las cuentas (no confía en las sumas ni en el veredicto de cuadre del cliente; sí
+ * toma del payload los totales del archivo, no reconstruibles sin reabrirlo).
  */
 export async function confirmarCargaBalance(
   _prev: ImportBalanceState,
@@ -506,6 +529,18 @@ export async function confirmarCargaBalance(
     return { ok: false, message: "No hay cuentas leídas válidas para cargar. Vuelve a leer el archivo." };
   }
 
+  // Cuadre OBLIGATORIO contra el gran total del archivo, RE-EVALUADO en el
+  // servidor: las sumas se recomputan desde las cuentas ya validadas (no se confía
+  // en el veredicto `cuadra` del payload del cliente). Solo los totales del archivo
+  // —detectados durante la lectura y no reconstruibles sin el archivo— viajan en el
+  // payload. Si no se detectó gran total, no aplica (queda la partida doble interna).
+  if (sug.cuadre?.detectado) {
+    const sumaDebitos = cuentasParsed.data.reduce((s, r) => s + Math.abs(r.debitos ?? 0), 0);
+    const sumaCreditos = cuentasParsed.data.reduce((s, r) => s + Math.abs(r.creditos ?? 0), 0);
+    const verif = construirCuadre({ detectado: true, debitos: sug.cuadre.totalDebitos, creditos: sug.cuadre.totalCreditos }, sumaDebitos, sumaCreditos);
+    if (!verif.cuadra) return { ok: false, message: mensajeCuadre(verif) };
+  }
+
   try {
     const cliente = await prisma.client.findUnique({
       where: { id: clientId },
@@ -536,6 +571,7 @@ export async function confirmarCargaBalance(
 
     const auditoria: ResumenAuditoria = {
       filasLeidas: sug.filasLeidas, filasExcluidas: sug.filasExcluidas, filasImportables: sug.cuentas, filasDescuadre: sug.filasDescuadre,
+      cuentasMovimiento: sug.cuentasMovimiento ?? sug.cuentas, cuentasAgrupadoras: sug.cuentasAgrupadoras ?? 0,
       nit: { valor: sug.nitDetectado, fuente: sug.nitFuente },
       periodoInicial: { valor: periodoInicio, fuente: "FUENTE" },
       periodoFinal: { valor: periodoFin, fuente: "FUENTE" },

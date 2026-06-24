@@ -1,10 +1,12 @@
 import prisma from "@/lib/prisma";
 import { PageHeader } from "@/components/ui";
 import AuditoriaTabla, { type AuditoriaRow } from "./auditoria-tabla";
-import { requirePermiso } from "@/lib/rbac";
+import AuditoriaTabs from "./auditoria-tabs";
+import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 
 export default async function AuditoriaPage({ searchParams }: { searchParams: Promise<{ q?: string; user?: string; action?: string }> }) {
   await requirePermiso("auditoria:ver");
+  const canAccesos = (await authorizePermiso("auditoria:accesos")).ok;
   const sp = await searchParams;
   const all = await prisma.auditEntry.findMany({ orderBy: { ts: "desc" } });
 
@@ -31,6 +33,7 @@ export default async function AuditoriaPage({ searchParams }: { searchParams: Pr
   return (
     <div>
       <PageHeader title="Auditoría" subtitle="Bitácora inmutable: trazabilidad de acciones del sistema con usuario, IP y detalle." />
+      <AuditoriaTabs canAccesos={canAccesos} />
       <AuditoriaTabla rows={rows} users={users} actions={actions} />
     </div>
   );

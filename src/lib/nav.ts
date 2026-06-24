@@ -47,7 +47,19 @@ export const workNav: NavItem[] = [
     ],
   },
   { label: "Impuestos · DIAN", href: "/dian", icon: "doc", count: 2, permiso: "dian:ver", modulo: "dian" },
-  { label: "Auditoría", href: "/auditoria", icon: "log", permiso: "auditoria:ver", modulo: "auditoria" },
+  {
+    label: "Auditoría",
+    href: "/auditoria",
+    icon: "log",
+    permiso: "auditoria:ver",
+    modulo: "auditoria",
+    children: [
+      // "Accesos y tráfico" solo es visible para admins (permiso auditoria:accesos);
+      // los roles de consulta ven únicamente el registro de acciones.
+      { label: "Registro de acciones", href: "/auditoria", permiso: "auditoria:ver", modulo: "auditoria" },
+      { label: "Accesos y tráfico", href: "/auditoria/accesos", permiso: "auditoria:accesos", modulo: "auditoria" },
+    ],
+  },
 ];
 
 export const configNav: NavItem[] = [

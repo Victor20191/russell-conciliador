@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
 import { Modal } from "@/components/modal";
 import { Chip } from "@/components/ui";
+import { fmt } from "@/lib/format";
 import { leerBalance, confirmarCargaBalance, type LeerBalanceState, type SugerenciaBalance } from "@/app/actions/balance";
 import { notifyActionState } from "@/lib/client-notifications";
 import { TIPO_BALANCE_CARGA } from "@/lib/balance/tipo-balance";
@@ -97,6 +98,9 @@ function CargarBalanceModal({ clients, onClose, onReiniciar }: { clients: Client
 
   const sug = leerState?.sugerencia;
   const fase: "ok" | "revisar" | "archivo" = confirmState?.ok ? "ok" : sug ? "revisar" : "archivo";
+  // El cargue se bloquea si se detectó una fila TOTALES y las hojas NO cuadran
+  // contra ella (el servidor lo revalida; esto solo desactiva el botón antes).
+  const cuadreBloquea = fase === "revisar" && !!sug?.cuadre?.detectado && !sug.cuadre.cuadra;
 
   // Con Excel multi-hoja, no se puede leer hasta elegir una hoja.
   const requiereHoja = !!hojas && hojas.length >= 2;
@@ -115,10 +119,11 @@ function CargarBalanceModal({ clients, onClose, onReiniciar }: { clients: Client
         <button
           type="submit"
           form="confirmar-form"
-          disabled={cargando}
+          disabled={cargando || cuadreBloquea}
+          title={cuadreBloquea ? "El balance no cuadra contra la fila TOTALES del archivo." : undefined}
           className="ml-auto rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
         >
-          {cargando ? "Cargando…" : "Cargar balance"}
+          {cargando ? "Cargando…" : cuadreBloquea ? "No cuadra con TOTALES" : "Cargar balance"}
         </button>
       </div>
     ) : (
@@ -215,6 +220,8 @@ function FormRevisar({
         <span className="font-mono">{sug.archivoNombre}</span>. Revisa y completa los campos antes de cargar; no se ha guardado nada todavía.
       </div>
 
+      <CuadreBanner c={sug.cuadre} />
+
       <label className="flex flex-col gap-1.5">
         <span className="text-[11.5px] font-medium text-ink-600">Cliente</span>
         <select
@@ -268,6 +275,38 @@ function FormRevisar({
   );
 }
 
+/**
+ * Resultado del cuadre de las cuentas de movimiento (hojas) contra la fila
+ * TOTALES del archivo. Si no se detectó fila de totales, queda informativo; si no
+ * cuadra, es bloqueante (rojo) y el botón de carga se desactiva.
+ */
+function CuadreBanner({ c }: { c: SugerenciaBalance["cuadre"] }) {
+  if (!c?.detectado) {
+    return (
+      <div className="rounded-md border border-ink-150 bg-ink-50 px-3 py-2 text-[12px] text-ink-500">
+        No se detectó una fila de <span className="font-semibold">TOTALES</span> en el archivo: el cuadre se valida solo por partida doble.
+      </div>
+    );
+  }
+  if (c.cuadra) {
+    return (
+      <div className="rounded-md border border-ok-100 bg-ok-100/40 px-3 py-2 text-[12px] text-ok-700">
+        <span className="font-semibold">Cuadre contra TOTALES: OK.</span> Débitos {fmt(c.sumaDebitos)} y créditos {fmt(c.sumaCreditos)} coinciden con la fila TOTALES del archivo.
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-md border border-err-200 bg-err-50 px-3 py-2.5 text-[12px] text-err-700">
+      <div className="font-semibold">No cuadra contra la fila TOTALES del archivo — no se puede cargar.</div>
+      <ul className="mt-1 list-disc space-y-0.5 pl-4">
+        <li>Débitos: hojas {fmt(c.sumaDebitos)} vs TOTALES {fmt(c.totalDebitos)} (Δ {fmt(c.diferenciaDebitos)})</li>
+        <li>Créditos: hojas {fmt(c.sumaCreditos)} vs TOTALES {fmt(c.totalCreditos)} (Δ {fmt(c.diferenciaCreditos)})</li>
+      </ul>
+      <div className="mt-1">Revisa la jerarquía de cuentas (padres/auxiliares) y vuelve a leer el archivo.</div>
+    </div>
+  );
+}
+
 function SugerenciaResumen({ sug }: { sug: SugerenciaBalance }) {
   return (
     <div className="rounded-md border border-ink-150 bg-ink-50 px-3 py-2.5">
@@ -276,7 +315,9 @@ function SugerenciaResumen({ sug }: { sug: SugerenciaBalance }) {
         <Linea k="NIT" v={`${sug.nitDetectado ?? "—"} (${sug.nitFuente.toLowerCase()})`} />
         <Linea k="Centro" v={sug.centro ?? "—"} />
         <Linea k="Período" v={`${sug.periodoInicial ?? "?"} → ${sug.periodoFinal ?? "?"}`} />
-        <Linea k="Cuentas" v={String(sug.cuentas)} />
+        <Linea k="Movimiento (hojas)" v={String(sug.cuentasMovimiento)} />
+        <Linea k="Agrupadoras" v={String(sug.cuentasAgrupadoras)} />
+        <Linea k="Importables" v={String(sug.cuentas)} />
         <Linea k="Excluidas" v={String(sug.filasExcluidas)} />
         <Linea k="Descuadres" v={String(sug.filasDescuadre)} />
         <Linea k="Tipo" v={sug.estandar} />
@@ -308,6 +349,8 @@ function ResultadoOk({ resumen, excepciones, onClose }: { resumen: Resumen; exce
           <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Resumen de auditoría</div>
           <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[12px] text-ink-600 sm:grid-cols-3">
             <Linea k="Filas leídas" v={String(aud.filasLeidas)} />
+            <Linea k="Movimiento (hojas)" v={String(aud.cuentasMovimiento)} />
+            <Linea k="Agrupadoras" v={String(aud.cuentasAgrupadoras)} />
             <Linea k="Importables" v={String(aud.filasImportables)} />
             <Linea k="Excluidas" v={String(aud.filasExcluidas)} />
             <Linea k="Descuadres" v={String(aud.filasDescuadre)} />

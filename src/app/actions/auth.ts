@@ -10,8 +10,9 @@ import {
   type ActionState,
 } from "@/lib/definitions";
 import { createSession, deleteSession } from "@/lib/session";
-import { verifySession } from "@/lib/dal";
-import { getClientIp } from "@/lib/request";
+import { verifySession, getCurrentUser } from "@/lib/dal";
+import { getClientIp, getUserAgent } from "@/lib/request";
+import { registrarAcceso } from "@/lib/access-log";
 import {
   isAccountBlocked,
   isLockedOut,
@@ -84,6 +85,17 @@ export async function login(
     });
     await createSession(user.id, user.role, user.sessionVersion);
 
+    // Registro de acceso (ingreso). Best-effort: registrarAcceso nunca lanza.
+    await registrarAcceso({
+      userId: user.id,
+      userName: user.name,
+      role: user.role,
+      path: "/login",
+      kind: "ingreso",
+      ip,
+      userAgent: await getUserAgent(),
+    });
+
     destino = user.mustChangePassword ? "/cambiar-contrasena" : "/dashboard";
   } catch (e) {
     registrarError("login", e);
@@ -99,6 +111,19 @@ export async function logout() {
   // El cierre de sesión debe ser resiliente: si deleteSession falla, se registra
   // y se continúa al login igualmente. El redirect() va fuera del try.
   try {
+    // Capturar quién cierra ANTES de borrar la cookie (después no hay sesión).
+    const user = await getCurrentUser();
+    if (user) {
+      await registrarAcceso({
+        userId: user.id,
+        userName: user.name,
+        role: user.role,
+        path: "/login",
+        kind: "salida",
+        ip: await getClientIp(),
+        userAgent: await getUserAgent(),
+      });
+    }
     await deleteSession();
   } catch (e) {
     registrarError("logout", e);

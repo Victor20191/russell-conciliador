@@ -25,7 +25,7 @@ function spec(over: Partial<MappingSpec> = {}): MappingSpec {
     primeraFilaDatos: 2,
     columnas: { codigo: 1, nombre: 2, saldoInicial: 3, debitos: 4, creditos: 5, saldoFinal: 6, saldoFinalDebito: 0, saldoFinalCredito: 0, centro: 0, tercero: 0 },
     signoCredito: "firmado",
-    reglaDetalle: { tipo: "longitud", longitudMin: 6, columna: null, valor: null },
+    reglaDetalle: { tipo: "prefijo", columna: null, valor: null },
     agregarPorTercero: false,
     nit: { valor: null, fuente: "NINGUNO" },
     periodoInicial: { valor: null, fuente: "NINGUNO" },
@@ -175,32 +175,125 @@ describe("transformarTabular", () => {
     expect(rr.importReady[0]).toMatchObject({ code: "110505", balance: 50, debitos: 50 });
   });
 
-  it("nivel 8: con auxiliares de 8 dígitos importa solo el nivel 8 (excluye subcuentas padre)", () => {
+  it("por prefijo: con auxiliares de 8 dígitos excluye la subcuenta padre de 6", () => {
     const hojaN8: GridHoja = {
       nombre: "Balance",
       filas: [
         ["Código", "Cuenta", "SI", "DB", "CR", "Saldo"],
-        [110505, "Caja general (padre)", 1000, 0, 0, 1000], // subcuenta 6 → padre, se excluye
+        [110505, "Caja general (padre)", 1000, 0, 0, 1000], // tiene auxiliares debajo → agrupadora
         [11050501, "Caja sede A", 600, 0, 0, 600], // auxiliar 8 ✓
         [11050502, "Caja sede B", 400, 0, 0, 400], // auxiliar 8 ✓
       ],
     };
-    const rr = transformarTabular(spec({ reglaDetalle: { tipo: "longitud", longitudMin: 8, columna: null, valor: null } }), [hojaN8], PARAMS);
+    const rr = transformarTabular(spec(), [hojaN8], PARAMS);
     expect(rr.importReady.map((c) => c.code).sort()).toEqual(["11050501", "11050502"]);
+    expect(rr.resumen.cuentasMovimiento).toBe(2);
+    expect(rr.resumen.cuentasAgrupadoras).toBe(1); // 110505
   });
 
-  it("respaldo: pide nivel 8 pero el archivo solo trae 6 dígitos → cae a nivel 6", () => {
+  it("por prefijo: una subcuenta de 6 sin hijos es movimiento; el grupo de 2 se excluye", () => {
     const hojaN6: GridHoja = {
       nombre: "Balance",
       filas: [
         ["Código", "Cuenta", "SI", "DB", "CR", "Saldo"],
-        [11, "DISPONIBLE (padre)", 0, 0, 0, 1000], // padre, se excluye
-        [110505, "Caja", 1000, 0, 0, 1000], // subcuenta 6 ✓ (gracias al respaldo)
-        [220505, "Proveedores", -2000, 0, 1000, -3000], // subcuenta 6 ✓
+        [11, "DISPONIBLE (padre)", 0, 0, 0, 1000], // grupo de 2 díg. → excluido (piso PUC)
+        [110505, "Caja", 1000, 0, 0, 1000], // subcuenta 6 sin hijos ✓
+        [220505, "Proveedores", -2000, 0, 1000, -3000], // subcuenta 6 sin hijos ✓
       ],
     };
-    const rr = transformarTabular(spec({ reglaDetalle: { tipo: "longitud", longitudMin: 8, columna: null, valor: null } }), [hojaN6], PARAMS);
+    const rr = transformarTabular(spec(), [hojaN6], PARAMS);
     expect(rr.importReady.map((c) => c.code).sort()).toEqual(["110505", "220505"]);
+  });
+
+  it("profundidad MIXTA: hoja de 6 dígitos junto a auxiliares de 8 (caso que la longitud fija perdía) + cuadre TOTALES", () => {
+    const hojaMixta: GridHoja = {
+      nombre: "Balance",
+      filas: [
+        ["Código", "Cuenta", "SI", "DB", "CR", "Saldo"],
+        [1105, "Caja", 0, 0, 0, 0], // cuenta de 4 → agrupadora
+        [110505, "Caja general", 0, 100, 0, 100], // 6 díg. SIN hijos → MOVIMIENTO (longitudMin=8 la perdía)
+        [110510, "Cajas menores", 0, 0, 0, 0], // 6 díg. CON hijos → agrupadora
+        [11051001, "Caja menor A", 0, 40, 0, 40], // auxiliar 8 ✓
+        [11051002, "Caja menor B", 0, 60, 0, 60], // auxiliar 8 ✓
+        [220505, "Proveedores", 0, 0, 200, -200], // 6 díg. crédito → MOVIMIENTO
+        ["", "TOTALES", "", 200, 200, ""], // gran total balanceado del archivo
+      ],
+    };
+    const rr = transformarTabular(spec(), [hojaMixta], PARAMS);
+    expect(rr.importReady.map((c) => c.code).sort()).toEqual(["110505", "11051001", "11051002", "220505"]);
+    expect(rr.resumen.cuentasMovimiento).toBe(4);
+    expect(rr.resumen.cuentasAgrupadoras).toBe(2); // 1105, 110510
+    expect(rr.cuadre.detectado).toBe(true);
+    expect(rr.cuadre.totalDebitos).toBe(200);
+    expect(rr.cuadre.totalCreditos).toBe(200);
+    expect(rr.cuadre.sumaDebitos).toBe(200); // 100 + 40 + 60
+    expect(rr.cuadre.cuadra).toBe(true);
+  });
+
+  it("cuadre TOTALES: bloquea (cuadra=false) cuando la suma de hojas no coincide con el gran total", () => {
+    const hojaDescuadrada: GridHoja = {
+      nombre: "Balance",
+      filas: [
+        ["Código", "Cuenta", "SI", "DB", "CR", "Saldo"],
+        [110505, "Caja general", 0, 100, 0, 100],
+        [11051001, "Caja menor A", 0, 40, 0, 40],
+        [11051002, "Caja menor B", 0, 60, 0, 60],
+        [220505, "Proveedores", 0, 0, 200, -200],
+        ["", "GRAN TOTAL", "", 300, 300, ""], // dice 300/300 pero las hojas suman 200/200
+      ],
+    };
+    const rr = transformarTabular(spec(), [hojaDescuadrada], PARAMS);
+    expect(rr.cuadre.detectado).toBe(true);
+    expect(rr.cuadre.sumaDebitos).toBe(200);
+    expect(rr.cuadre.totalDebitos).toBe(300);
+    expect(rr.cuadre.cuadra).toBe(false);
+  });
+
+  it("detectarTotales ignora subtotales por sección (plural) y elige el gran total BALANCEADO", () => {
+    const hoja: GridHoja = {
+      nombre: "Balance",
+      filas: [
+        ["Código", "Cuenta", "SI", "DB", "CR", "Saldo"],
+        [110505, "Caja", 0, 100, 0, 100],
+        [220505, "Proveedores", 0, 0, 100, -100],
+        ["", "TOTAL ACTIVOS", "", 100, 0, ""], // subtotal de sección (plural) → ignorado
+        ["", "TOTAL PASIVOS", "", 0, 100, ""], // subtotal de sección (plural) → ignorado
+        ["", "TOTALES", "", 100, 100, ""], // gran total balanceado → ESTE
+      ],
+    };
+    const rr = transformarTabular(spec(), [hoja], PARAMS);
+    expect(rr.cuadre.detectado).toBe(true);
+    expect(rr.cuadre.totalDebitos).toBe(100);
+    expect(rr.cuadre.totalCreditos).toBe(100);
+    expect(rr.cuadre.cuadra).toBe(true);
+  });
+
+  it("sin gran total balanceado (solo un subtotal de una columna) → cuadre NO aplica, no bloquea", () => {
+    const hoja: GridHoja = {
+      nombre: "Balance",
+      filas: [
+        ["Código", "Cuenta", "SI", "DB", "CR", "Saldo"],
+        [110505, "Caja", 0, 100, 0, 100],
+        ["", "TOTAL ACTIVOS", "", 100, 0, ""], // sección, una sola columna → no es gran total
+      ],
+    };
+    const rr = transformarTabular(spec(), [hoja], PARAMS);
+    expect(rr.importReady.map((c) => c.code)).toEqual(["110505"]);
+    expect(rr.cuadre.detectado).toBe(false); // no se bloquea por un subtotal de sección
+  });
+
+  it("marca de imputable: NUNCA importa una agrupadora con hijos (la marca refina al prefijo)", () => {
+    const hoja: GridHoja = {
+      nombre: "Balance",
+      filas: [
+        ["Código", "Cuenta", "SI", "DB", "CR", "Saldo", "Imputa"],
+        [110510, "Cajas menores (madre)", 0, 0, 0, 0, "x"], // marcada PERO tiene hijos → NO se importa
+        [11051001, "Caja A", 0, 40, 0, 40, "x"], // marcada, hoja ✓
+        [11051002, "Caja B", 0, 60, 0, 60, "x"], // marcada, hoja ✓
+      ],
+    };
+    const rr = transformarTabular(spec({ reglaDetalle: { tipo: "columna", columna: 7, valor: "x" } }), [hoja], PARAMS);
+    expect(rr.importReady.map((c) => c.code).sort()).toEqual(["11051001", "11051002"]); // sin 110510 → sin doble conteo
   });
 
   it("archivo marcado no importable → 0 filas + excepción", () => {

@@ -63,12 +63,18 @@ export const ColumnasSchema = z
   .describe("Índices de columna 1-based (A=1). Usa 0 cuando la columna no exista (no null).");
 export type Columnas = z.infer<typeof ColumnasSchema>;
 
-// Cómo reconocer una fila de DETALLE (cuenta imputable) vs. una fila padre/total.
+// Cómo reconocer una fila de DETALLE (cuenta de MOVIMIENTO/hoja) vs. una fila
+// padre/agrupadora. La plataforma detecta las hojas de forma DETERMINISTA por
+// PREFIJO (una cuenta es agrupadora si su código es prefijo de otro más largo
+// del archivo —tiene hijos—; es hoja, movimiento real, si nadie cuelga de ella),
+// con un piso de 6 dígitos (nivel de imputación del PUC). El modelo NO necesita
+// estimar longitudes: solo debe indicar una columna marcadora de imputable si el
+// archivo la trae (esa tiene prioridad sobre el prefijo).
 export const ReglaDetalleSchema = z.object({
-  // "longitud": cuenta de detalle = longitud >= longitudMin (mínimo inclusivo).
-  // "columna": una columna marcadora con cierto valor (cueclasificacion=I, indicador=1).
-  tipo: z.enum(["longitud", "columna"]),
-  longitudMin: z.number().int().nullable(), // longitud mínima inclusiva de una cuenta de detalle
+  // "prefijo": detección estructural por jerarquía (default; la hace el código).
+  // "columna": una columna marcadora con cierto valor (cueclasificacion=I,
+  //   indicador=1, Rompimiento=Cuenta, Movimiento_Diario…).
+  tipo: z.enum(["prefijo", "columna"]),
   columna: z.number().int().nullable(),
   valor: z.string().nullable(),
 });
@@ -124,12 +130,48 @@ export const ExtraccionDirectaSchema = z.object({
 });
 export type ExtraccionDirecta = z.infer<typeof ExtraccionDirectaSchema>;
 
+// Cuadre del balance contra la fila TOTALES del archivo (validación OBLIGATORIA
+// del cargue). Suma los débitos/créditos de SOLO las cuentas de movimiento
+// (hojas) y los compara con la fila TOTALES. Solo aplica a archivos tabulares con
+// fila de totales y columnas de débito/crédito; si no se detecta una fila de
+// totales, `detectado=false` y NO bloquea (se valida solo por partida doble). La
+// tolerancia por columna es max(1 COP, 0.5% del total) para absorber redondeos.
+export type CuadreTotales = {
+  detectado: boolean; // se halló una fila TOTALES utilizable en el archivo
+  totalDebitos: number; // débitos de la fila TOTALES del archivo
+  totalCreditos: number; // créditos de la fila TOTALES del archivo
+  sumaDebitos: number; // suma de débitos de las cuentas de movimiento (hojas)
+  sumaCreditos: number; // suma de créditos de las cuentas de movimiento (hojas)
+  diferenciaDebitos: number; // sumaDebitos − totalDebitos
+  diferenciaCreditos: number; // sumaCreditos − totalCreditos
+  toleranciaDebitos: number;
+  toleranciaCreditos: number;
+  cuadra: boolean; // detectado && ambas diferencias dentro de tolerancia
+};
+
+// Cuadre no aplicable (archivo sin fila TOTALES o sin columnas de movimiento, p.
+// ej. extracción directa de PDF). No bloquea el cargue.
+export const CUADRE_NO_APLICA: CuadreTotales = {
+  detectado: false,
+  totalDebitos: 0,
+  totalCreditos: 0,
+  sumaDebitos: 0,
+  sumaCreditos: 0,
+  diferenciaDebitos: 0,
+  diferenciaCreditos: 0,
+  toleranciaDebitos: 0,
+  toleranciaCreditos: 0,
+  cuadra: false,
+};
+
 // RESUMEN_AUDITORIA (SALIDA C) — lo arma el código a partir del resultado.
 export type ResumenAuditoria = {
   filasLeidas: number;
   filasExcluidas: number; // por jerarquía/totales/encabezados
   filasImportables: number;
   filasDescuadre: number; // no cumplen la ecuación de control
+  cuentasMovimiento: number; // hojas detectadas (cuentas de movimiento real)
+  cuentasAgrupadoras: number; // cuentas que son prefijo de otra (no se importan)
   nit: Origen;
   periodoInicial: Origen;
   periodoFinal: Origen;

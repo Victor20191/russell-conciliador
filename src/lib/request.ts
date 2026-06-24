@@ -8,3 +8,8 @@ export async function getClientIp(): Promise<string> {
   if (xff) return xff.split(",")[0].trim();
   return h.get("x-real-ip")?.trim() ?? "desconocida";
 }
+
+export async function getUserAgent(): Promise<string | null> {
+  const h = await headers();
+  return h.get("user-agent");
+}

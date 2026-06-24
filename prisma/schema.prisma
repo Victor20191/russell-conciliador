@@ -469,6 +469,34 @@ model AuditEntry {
   @@map("registros_auditoria")
 }
 
+// ===== Accesos / navegación (analítica de tráfico) =====
+// Capa separada de `AuditEntry`: aquí se registra QUÉ rutas visita cada usuario
+// y cuándo (incluidos ingreso/cierre de sesión), para la analítica de tráfico.
+// `userName`/`role` van denormalizados para que el histórico sobreviva al borrado
+// del usuario (FK suave: solo `userId` Int, sin @relation, sin cascada).
+model AccessLog {
+  id        Int      @id @default(autoincrement()) @map("id")
+  userId    Int?     @map("usuario_id")
+  userName  String   @map("usuario")
+  role      String?  @map("rol")
+  path      String   @map("ruta")
+  kind      String   @map("tipo") // navegacion | ingreso | salida
+  ip        String?  @map("ip")
+  userAgent String?  @map("agente")
+  createdAt DateTime @default(now()) @map("creado_en")
+
+  // Índices alineados a las consultas del tablero y a la retención:
+  //  - createdAt: detalle (orden + rango) y purga por antigüedad.
+  //  - (kind, createdAt): ranking de rutas (kind='navegacion') y conteo por tipo.
+  //  - (userName, createdAt): filtros/rankings acotados a un usuario.
+  // Se evitan índices de una sola columna redundantes para no encarecer el INSERT
+  // (tabla de alta escritura, lectura ocasional).
+  @@index([createdAt])
+  @@index([kind, createdAt])
+  @@index([userName, createdAt])
+  @@map("registros_acceso")
+}
+
 // ===== Plan de cuentas estándar (Balance) =====
 model StandardAccount {
   id                  Int     @id @default(autoincrement()) @map("id")
