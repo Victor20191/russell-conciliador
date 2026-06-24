@@ -150,7 +150,14 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
   // Longitud MÍNIMA inclusiva de una cuenta de detalle. Default 6 (no 7) para
   // alinear con la ruta directa/PDF (`validarDirecta`, >=6) y con el nivel de
   // imputación del estándar Russell (cuentas de 6 dígitos).
-  const minLen = spec.reglaDetalle.longitudMin ?? 6;
+  let minLen = spec.reglaDetalle.longitudMin ?? 6;
+  // Preferimos el nivel auxiliar (8 dígitos) cuando existe. Pero si el modelo
+  // pidió nivel 8 y el archivo NO trae ninguna cuenta de 8+ dígitos, caemos a
+  // nivel 6 (subcuenta) para no dejar el cargue vacío. El modelo solo ve una
+  // vista previa; aquí se decide sobre TODAS las filas (respaldo determinista).
+  if (spec.reglaDetalle.tipo === "longitud" && minLen >= 8 && !hayCuentasNivel(hoja, spec.primeraFilaDatos, cols.codigo, 8)) {
+    minLen = 6;
+  }
 
   let filasLeidas = 0;
   let filasExcluidas = 0;
@@ -301,6 +308,15 @@ export function validarDirecta(extr: ExtraccionDirecta, params: ParamsExtraccion
 function cell(fila: CeldaCruda[], col1: number | null): CeldaCruda {
   if (col1 == null || col1 < 1) return null; // 0/negativo = columna ausente
   return fila[col1 - 1] ?? null;
+}
+
+/** ¿Hay al menos una cuenta numérica de `nivel`+ dígitos a partir de la primera fila de datos? */
+function hayCuentasNivel(hoja: GridHoja, primeraFilaDatos: number, colCodigo: number | null, nivel: number): boolean {
+  for (let r = Math.max(primeraFilaDatos - 1, 0); r < hoja.filas.length; r++) {
+    const code = normalizarCodigo(cell(hoja.filas[r] ?? [], colCodigo));
+    if (/^\d+$/.test(code) && code.length >= nivel) return true;
+  }
+  return false;
 }
 
 function esDetalle(code: string, fila: CeldaCruda[], spec: MappingSpec, minLen: number): boolean {

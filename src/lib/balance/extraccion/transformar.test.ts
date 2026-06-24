@@ -175,6 +175,34 @@ describe("transformarTabular", () => {
     expect(rr.importReady[0]).toMatchObject({ code: "110505", balance: 50, debitos: 50 });
   });
 
+  it("nivel 8: con auxiliares de 8 dígitos importa solo el nivel 8 (excluye subcuentas padre)", () => {
+    const hojaN8: GridHoja = {
+      nombre: "Balance",
+      filas: [
+        ["Código", "Cuenta", "SI", "DB", "CR", "Saldo"],
+        [110505, "Caja general (padre)", 1000, 0, 0, 1000], // subcuenta 6 → padre, se excluye
+        [11050501, "Caja sede A", 600, 0, 0, 600], // auxiliar 8 ✓
+        [11050502, "Caja sede B", 400, 0, 0, 400], // auxiliar 8 ✓
+      ],
+    };
+    const rr = transformarTabular(spec({ reglaDetalle: { tipo: "longitud", longitudMin: 8, columna: null, valor: null } }), [hojaN8], PARAMS);
+    expect(rr.importReady.map((c) => c.code).sort()).toEqual(["11050501", "11050502"]);
+  });
+
+  it("respaldo: pide nivel 8 pero el archivo solo trae 6 dígitos → cae a nivel 6", () => {
+    const hojaN6: GridHoja = {
+      nombre: "Balance",
+      filas: [
+        ["Código", "Cuenta", "SI", "DB", "CR", "Saldo"],
+        [11, "DISPONIBLE (padre)", 0, 0, 0, 1000], // padre, se excluye
+        [110505, "Caja", 1000, 0, 0, 1000], // subcuenta 6 ✓ (gracias al respaldo)
+        [220505, "Proveedores", -2000, 0, 1000, -3000], // subcuenta 6 ✓
+      ],
+    };
+    const rr = transformarTabular(spec({ reglaDetalle: { tipo: "longitud", longitudMin: 8, columna: null, valor: null } }), [hojaN6], PARAMS);
+    expect(rr.importReady.map((c) => c.code).sort()).toEqual(["110505", "220505"]);
+  });
+
   it("archivo marcado no importable → 0 filas + excepción", () => {
     const rr = transformarTabular(spec({ importable: false, motivoNoImportable: "Solo movimientos." }), [hoja], PARAMS);
     expect(rr.importReady).toHaveLength(0);
