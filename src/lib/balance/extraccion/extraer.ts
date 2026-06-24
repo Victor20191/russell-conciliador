@@ -55,9 +55,9 @@ export async function extraerBalance(
 ): Promise<ResultadoTransform> {
   const ingesta = ingerir(data, fileName);
   const client = getAnthropic();
-  // Prompt caching: con el modelo por defecto (Sonnet 4.6, mínimo cacheable 2048 tokens)
-  // el prompt (~2,1-2,5K tokens) SÍ se cachea. Ojo: si se fija ANTHROPIC_MODEL a la familia
-  // Opus 4.x (mínimo 4096) el prompt queda corto y dejaría de cachearse (sin coste extra).
+  // Prompt caching: con el modelo por defecto (Opus 4.8, mínimo cacheable 4096 tokens)
+  // el prompt (~2,1-2,5K tokens) queda corto y no se cachea (sin coste extra).
+  // Con Sonnet 4.6 (mínimo 2048) sí se cachearía; configurable vía ANTHROPIC_MODEL.
   // El grueso de la entrada es el archivo/vista previa: cambia por carga y no es cacheable.
   const system = [{ type: "text" as const, text: promptSistema(), cache_control: { type: "ephemeral" as const } }];
 

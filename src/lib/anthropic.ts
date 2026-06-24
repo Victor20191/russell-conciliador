@@ -5,9 +5,9 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 
-// Modelo por defecto: buen equilibrio velocidad/calidad para extracción estructurada.
+// Modelo por defecto: máxima calidad para extracción estructurada (Opus 4.8).
 // Configurable por entorno sin tocar código.
-export const MODELO_EXTRACCION = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-6";
+export const MODELO_EXTRACCION = process.env.ANTHROPIC_MODEL ?? "claude-opus-4-8";
 
 let cliente: Anthropic | null = null;
 
@@ -44,8 +44,8 @@ function aceptaTemperatura(model: string): boolean {
 /**
  * Ajustes para que la lectura de archivos sea **determinista** y se ciña a los
  * datos reales (no inventar para "cuadrar"):
- * - Modelos que aceptan `temperature` (el predeterminado Sonnet 4.6, Haiku 4.5,
- *   Opus 4.6 y anteriores): `temperature: 0` con el *thinking* DESACTIVADO —son
+ * - Modelos que aceptan `temperature` (Sonnet 4.6, Haiku 4.5, Opus 4.6 y
+ *   anteriores): `temperature: 0` con el *thinking* DESACTIVADO —son
  *   incompatibles entre sí— ⇒ decodificación voraz, sin aleatoriedad.
  * - Modelos que ya no aceptan `temperature` (Opus 4.7/4.8, Fable 5): se usa
  *   *thinking* adaptativo y el anclaje a los datos recae en la salida

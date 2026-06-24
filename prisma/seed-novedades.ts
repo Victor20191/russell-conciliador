@@ -230,15 +230,14 @@ const VERSIONES: VersionSeed[] = [
       },
       {
         type: "mejora",
-        title: "Extracción con Claude Sonnet 4.6 y prompt caching por umbral",
+        title: "Prompt caching en la extracción de balances con IA",
         description:
-          "El modelo de extracción por defecto pasa a claude-sonnet-4-6 y se consolida el punto de caché del prompt (prompt caching) con un umbral documentado por modelo. En la práctica, la parte fija y larga de las instrucciones que se le dan a la IA se reutiliza entre cargues en lugar de reenviarse y reprocesarse cada vez.\n\n" +
+          "Se consolida el punto de caché del prompt (prompt caching) en la extracción asistida de balances. En la práctica, la parte fija y larga de las instrucciones que se le dan a la IA se reutiliza entre cargues en lugar de reenviarse y reprocesarse cada vez, siempre que supere el umbral mínimo que exige el modelo en uso.\n\n" +
           "El objetivo es puramente de costo y velocidad: leer balances con IA debe ser barato y rápido para que se use a diario sin pensarlo. Cachear el prompt reduce el costo por cargue y acorta el tiempo de respuesta, sobre todo en balances grandes.",
         moduleKey: "balance",
         route: "/balance",
         howTo:
-          "No requiere ninguna acción: aplica automáticamente al cargar un balance con IA\n" +
-          "Si lo necesitas, el modelo es configurable con la variable de entorno ANTHROPIC_MODEL",
+          "No requiere ninguna acción: aplica automáticamente al cargar un balance con IA",
         example:
           "Cargar un balance extenso reutiliza el contexto ya cacheado de las instrucciones, de modo que la extracción cuesta menos y termina antes que la primera vez.",
         featureStatus: "disponible",
