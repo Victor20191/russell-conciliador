@@ -25,6 +25,8 @@ export const verifySession = cache(async () => {
       name: true,
       email: true,
       initials: true,
+      avatarKey: true,
+      updatedAt: true,
     },
   });
 
@@ -41,6 +43,8 @@ export const verifySession = cache(async () => {
     name: user.name,
     email: user.email,
     initials: user.initials,
+    avatarKey: user.avatarKey,
+    updatedAt: user.updatedAt,
   };
 });
 
@@ -53,6 +57,8 @@ export const getCurrentUser = cache(async () => {
       email: session.email,
       role: session.role,
       initials: session.initials,
+      avatarKey: session.avatarKey,
+      updatedAt: session.updatedAt,
     };
   } catch {
     return null;

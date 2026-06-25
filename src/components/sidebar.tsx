@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icon, BrandMark } from "@/components/icons";
+import { Avatar } from "@/components/avatar";
 import { workNav, configNav, type NavChild, type NavItem } from "@/lib/nav";
 import { logout } from "@/app/actions/auth";
 
@@ -28,7 +29,7 @@ export default function Sidebar({
   mobileOpen = false,
   onCloseMobile,
 }: {
-  user: { name: string; role: string; initials: string } | null;
+  user: { name: string; role: string; initials: string; avatarUrl?: string | null } | null;
   permisos: string[];
   modulosVisibles: string[];
   modulosEnDesarrollo: string[];
@@ -189,17 +190,27 @@ export default function Sidebar({
 
       {/* Usuario + logout */}
       <div className="flex items-center gap-2.5 border-t border-white/10 px-[18px] py-3">
-        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-500 text-[11px] font-semibold text-white">
-          {user?.initials ?? "··"}
-        </div>
-        <div className="min-w-0 flex-1 leading-tight">
-          <div className="truncate text-[12.5px] font-semibold text-white">
-            {user?.name ?? "Usuario"}
+        <Link
+          href="/perfil"
+          onClick={onCloseMobile}
+          title="Mi perfil"
+          className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md p-1 -m-1 transition hover:bg-white/5"
+        >
+          <Avatar
+            src={user?.avatarUrl}
+            initials={user?.initials ?? "··"}
+            name={user?.name}
+            size={32}
+          />
+          <div className="min-w-0 flex-1 leading-tight">
+            <div className="truncate text-[12.5px] font-semibold text-white">
+              {user?.name ?? "Usuario"}
+            </div>
+            <div className="truncate text-[10.5px] text-[#7C8DA3]">
+              {user?.role ?? ""}
+            </div>
           </div>
-          <div className="truncate text-[10.5px] text-[#7C8DA3]">
-            {user?.role ?? ""}
-          </div>
-        </div>
+        </Link>
         <form action={logout}>
           <button
             type="submit"

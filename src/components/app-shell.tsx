@@ -21,7 +21,7 @@ export default function AppShell({
   notifications,
   children,
 }: {
-  user: { name: string; role: string; initials: string } | null;
+  user: { name: string; role: string; initials: string; avatarUrl?: string | null } | null;
   permisos: string[];
   modulosVisibles: string[];
   modulosEnDesarrollo: string[];

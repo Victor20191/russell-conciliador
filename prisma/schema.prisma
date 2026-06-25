@@ -26,6 +26,9 @@ model User {
   cargo               String?          @map("cargo") // título de puesto (texto libre)
   role                String           @default("Consulta") @map("rol")
   initials            String           @map("iniciales")
+  // Referencia (key) a la foto de perfil en el almacenamiento de objetos
+  // (S3/MinIO/R2). El binario NUNCA vive en la BD: aquí solo va la clave.
+  avatarKey           String?          @map("clave_foto")
   active              Boolean          @default(true) @map("activo")
   sessionVersion      Int              @default(0) @map("version_sesion")
   failedLoginAttempts Int              @default(0) @map("intentos_fallidos")

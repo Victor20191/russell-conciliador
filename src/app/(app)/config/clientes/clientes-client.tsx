@@ -150,6 +150,14 @@ export default function ClientesClient({
           ))}
         </select>
         <div className="ml-auto flex items-center gap-2">
+          <a
+            href="/config/clientes/exportar"
+            download
+            title="Descargar un Excel con todos los clientes (según tu cartera)."
+            className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-white px-3 py-1.5 text-[12.5px] font-semibold text-ink-700 transition hover:bg-ink-50"
+          >
+            <Icon name="download" size={13} /> Exportar a Excel
+          </a>
           <ImportClientesButton />
           <button
             onClick={() => setCreating(true)}

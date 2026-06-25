@@ -15,7 +15,9 @@ import { Icon } from "@/components/icons";
 import { isAccountBlocked, LOGIN_MAX_ATTEMPTS } from "@/lib/login-throttle";
 import { ROL_SUPERIOR } from "@/lib/rbac/jerarquia";
 import { notifyActionState } from "@/lib/client-notifications";
+import { Avatar } from "@/components/avatar";
 import { ImportMaestrosButton } from "./import-maestros-modal";
+import { CargarFotosButton } from "./cargar-fotos-modal";
 
 export type UserRow = {
   id: number;
@@ -23,6 +25,7 @@ export type UserRow = {
   name: string;
   role: string;
   initials: string;
+  avatarUrl: string | null;
   active: boolean;
   lastLoginAt: string | null;
   failedLoginAttempts: number;
@@ -95,6 +98,7 @@ export default function UsuariosClient({
         subtitle="Crea, edita y desactiva cuentas. Solo administradores."
         actions={
           <div className="flex items-center gap-2">
+            <CargarFotosButton />
             <ImportMaestrosButton />
             <button
               onClick={() => setCreateOpen(true)}
@@ -140,9 +144,7 @@ export default function UsuariosClient({
                   <tr key={u.id} className="hover:bg-ink-50/50">
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
-                        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-navy-700 text-[11px] font-semibold text-white">
-                          {u.initials}
-                        </span>
+                        <Avatar src={u.avatarUrl} initials={u.initials} name={u.name} size={32} />
                         <div>
                           <div className="font-medium text-ink-800">{u.name}</div>
                           <div className="text-[11.5px] text-ink-500">{u.email}</div>

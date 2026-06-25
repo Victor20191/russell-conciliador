@@ -36,7 +36,7 @@ npm run db:completar:jerarquia  # completa aristas faltantes de la jerarquía
 
 Las pruebas viven junto al código como `*.test.ts` (config en `vitest.config.ts`, entorno `node`, `SESSION_SECRET` inyectado). El cliente Prisma se regenera en `postinstall` y `prebuild`; tras editar `schema.prisma` corre `prisma generate` (o `db:migrate`).
 
-Variables de entorno (`.env`, ver `.env.example`): `DATABASE_URL`, `SESSION_SECRET` (`openssl rand -base64 32`), y opcionales `COOKIE_SECURE`, `DB_POOL_MAX`, `DB_CONNECT_TIMEOUT_MS`, `DB_IDLE_TIMEOUT_MS`. Para la extracción de balances con IA: `ANTHROPIC_API_KEY` (sin ella la app sigue funcionando; la extracción asistida queda deshabilitada) y `ANTHROPIC_MODEL` (opcional, por defecto `claude-opus-4-8`).
+Variables de entorno (`.env`, ver `.env.example`): `DATABASE_URL`, `SESSION_SECRET` (`openssl rand -base64 32`), y opcionales `COOKIE_SECURE`, `DB_POOL_MAX`, `DB_CONNECT_TIMEOUT_MS`, `DB_IDLE_TIMEOUT_MS`. Para la extracción de balances con IA: `ANTHROPIC_API_KEY` (sin ella la app sigue funcionando; la extracción asistida queda deshabilitada) y `ANTHROPIC_MODEL` (opcional, por defecto `claude-opus-4-8`). Para las **fotos de perfil** (almacenamiento de objetos S3/MinIO/R2): `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` y opcionales `S3_ENDPOINT`/`S3_FORCE_PATH_STYLE` (MinIO/R2). Sin ellas la app sigue funcionando y los usuarios ven sus iniciales (la subida de fotos queda deshabilitada).
 
 ## Arquitectura
 

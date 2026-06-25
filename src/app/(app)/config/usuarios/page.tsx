@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/dal";
 import { ROLES_LEGADO } from "@/lib/rbac/catalogo";
 import { ROL_SUPERIOR } from "@/lib/rbac/jerarquia";
 import { ROL_SUPERADMINISTRADOR } from "@/lib/rbac/modulos-plataforma";
+import { urlAvatar } from "@/lib/avatares";
 import UsuariosClient, {
   type UserRow,
   type RoleOption,
@@ -37,6 +38,7 @@ export default async function UsuariosPage() {
     name: u.name,
     role: u.role,
     initials: u.initials,
+    avatarUrl: urlAvatar(u),
     active: u.active,
     lastLoginAt: u.lastLoginAt ? u.lastLoginAt.toISOString() : null,
     failedLoginAttempts: u.failedLoginAttempts,
