@@ -928,3 +928,21 @@ model TasaCambio {
   @@index([moneda, vigenciaDesde])
   @@map("tasas_cambio")
 }
+
+// Prompts de IA editables por el Superadministrador. La plataforma guarda aquí el
+// CONTENIDO vigente de cada prompt de sistema (extracción de balances, mapeo de
+// cuentas…) para poder verlo y editarlo desde la UI y que persista en producción
+// (el sistema de archivos de Vercel es de solo lectura). `predeterminado` conserva
+// el valor original del código para poder restaurarlo sin depender del disco.
+// El catálogo de prompts conocidos vive en `src/lib/ia/prompts-catalogo.ts`.
+model PromptIA {
+  id             Int      @id @default(autoincrement()) @map("id")
+  clave          String   @unique @map("clave") // identificador estable: "extraccion_balance", "mapeo_balance"
+  contenido      String   @map("contenido") // texto vigente que se envía a la IA
+  predeterminado String   @map("predeterminado") // valor de fábrica (para "restaurar")
+  actualizadoPor String?  @map("actualizado_por")
+  actualizadoEn  DateTime @updatedAt @map("actualizado_en")
+  creadoEn       DateTime @default(now()) @map("creado_en")
+
+  @@map("prompts_ia")
+}

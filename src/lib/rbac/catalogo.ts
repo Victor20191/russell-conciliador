@@ -195,6 +195,13 @@ export const PERMISOS: Permiso[] = [
   // permiso (no la publicación de módulos, que para `novedades` queda inerte).
   { code: "novedades:ver", module: "novedades", action: "ver", label: "Ver novedades", roles: SOLO_ADMIN },
   { code: "novedades:administrar", module: "novedades", action: "administrar", label: "Administrar novedades", roles: SOLO_ADMIN },
+
+  // ===== Prompts de IA — SOLO Superadministrador =====
+  // Ver y editar los prompts de sistema que la plataforma envía a la IA
+  // (extracción de balances, mapeo de cuentas). Es configuración global de la
+  // plataforma (afecta a todos los clientes), no datos de un cliente → SOLO el
+  // Superadministrador, igual que el consumo de IA (`auditoria:ia`).
+  { code: "prompts:administrar", module: "prompts", action: "administrar", label: "Administrar prompts de IA", roles: SOLO_SUPERADMIN },
 ];
 
 // ----- MATRIZ rol×permiso derivada del catálogo (solo roles del PDF) -----

@@ -75,4 +75,5 @@ export const configNav: NavItem[] = [
   { label: "Permisos por rol", href: "/config/permisos", icon: "settings", permiso: "roles:configurar", modulo: "roles" },
   { label: "Estructura", href: "/estructura", icon: "users", permiso: "estructura:ver", modulo: "estructura" },
   { label: "Novedades", href: "/novedades", icon: "bell", permiso: "novedades:ver", modulo: "novedades" },
+  { label: "Prompts de IA", href: "/config/prompts", icon: "ai", permiso: "prompts:administrar", modulo: "prompts" },
 ];

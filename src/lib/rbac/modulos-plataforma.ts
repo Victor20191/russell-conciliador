@@ -15,7 +15,8 @@ export type PlatformModuleKey =
   | "roles"
   | "publicacion_modulos"
   | "novedades"
-  | "estructura";
+  | "estructura"
+  | "prompts";
 
 export type PlatformModuleDefinition = {
   key: PlatformModuleKey;
@@ -199,6 +200,19 @@ export const MODULOS_PLATAFORMA: PlatformModuleDefinition[] = [
     group: "Configuración",
     icon: "users",
     order: 190,
+    enabledForNonAdmins: false,
+    configurableForNonAdmins: false,
+  },
+  {
+    // Solo-Superadministrador: la visibilidad la gobierna el permiso
+    // prompts:administrar (SOLO_SUPERADMIN); la publicación de módulos queda
+    // inerte (configurable=false ⇒ moduloPublicadoParaRol devuelve true).
+    key: "prompts",
+    label: "Prompts de IA",
+    description: "Instrucciones de sistema que la plataforma envía a la IA (extracción de balances y mapeo de cuentas).",
+    group: "Configuración",
+    icon: "ai",
+    order: 200,
     enabledForNonAdmins: false,
     configurableForNonAdmins: false,
   },

@@ -6,6 +6,7 @@ import "server-only";
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { getAnthropic, MODELO_EXTRACCION, conReintentoSinTemperatura } from "@/lib/anthropic";
+import { getPromptContenido, CLAVE_MAPEO } from "@/lib/ia/prompts";
 import type { UsoIA } from "@/lib/ia/uso";
 
 export type CuentaPendiente = { code: string; name: string };
@@ -24,13 +25,6 @@ const MapeoIASchema = z.object({
   ),
 });
 
-const SYSTEM = [
-  "Eres un especialista en homologación del PUC colombiano al plan de cuentas estándar de Russell Bedford.",
-  "Para cada cuenta del cliente, elige la cuenta estándar (código de 6 dígitos) cuyo significado corresponda mejor, respetando la CLASE (primer dígito) y la naturaleza.",
-  "Usa el nombre, la cuenta Russell y los sinónimos del plan. Si ninguna corresponde con confianza razonable, deja `cuenta6Russell` vacío («»).",
-  "`coincidencia` es tu confianza 0-100. No inventes códigos: usa solo códigos presentes en el plan.",
-].join(" ");
-
 const TAM_LOTE = 80; // cuentas por llamada (acota el tamaño de salida)
 
 /**
@@ -46,6 +40,8 @@ export async function mapearPorIA(pendientes: CuentaPendiente[], plan: CuentaPla
   if (pendientes.length === 0 || plan.length === 0) return out;
 
   const client = getAnthropic();
+  // Prompt de sistema vigente (editable por el Superadministrador, BD → fábrica).
+  const systemTexto = await getPromptContenido(CLAVE_MAPEO);
   const planTexto = plan.map((p) => `${p.code} | ${p.name} | russell: ${p.russell} | sinónimos: ${p.posibles}`).join("\n");
   const validos = new Set(plan.map((p) => p.code));
   // Prompt caching: el breakpoint va en el ÚLTIMO bloque de `system` (el plan, ~29-38K
@@ -55,7 +51,7 @@ export async function mapearPorIA(pendientes: CuentaPendiente[], plan: CuentaPla
   // cada lote y entre cargas → se escribe una vez y se lee (~0,1× del costo) en las
   // llamadas siguientes dentro del TTL.
   const system = [
-    { type: "text" as const, text: SYSTEM },
+    { type: "text" as const, text: systemTexto },
     {
       type: "text" as const,
       text: `PLAN ESTÁNDAR RUSSELL (código | nombre | russell | sinónimos):\n${planTexto}`,

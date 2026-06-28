@@ -116,6 +116,13 @@ export const ConfirmarBalanceSchema = z
   })
   .refine((d) => d.periodoFin >= d.periodoInicio, { error: "El período hasta no puede ser anterior al período desde.", path: ["periodoFin"] });
 
+// Edición de un prompt de IA (Superadministrador). `clave` identifica el prompt
+// del catálogo (extraccion_balance | mapeo_balance); el contenido es libre.
+export const ActualizarPromptSchema = z.object({
+  clave: z.string().trim().min(1, { error: "Prompt inválido." }),
+  contenido: z.string().trim().min(20, { error: "El prompt debe tener al menos 20 caracteres." }),
+});
+
 export const PasswordSchema = z
   .string()
   .min(10, { error: "La contraseña debe tener al menos 10 caracteres." })

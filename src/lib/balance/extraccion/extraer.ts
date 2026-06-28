@@ -5,27 +5,13 @@
 // transformación/validación determinista. El resultado alimenta a
 // `calcularBalance` en la Server Action.
 import "server-only";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { getAnthropic, MODELO_EXTRACCION, conReintentoSinTemperatura } from "@/lib/anthropic";
+import { getPromptContenido, CLAVE_EXTRACCION } from "@/lib/ia/prompts";
 import { ingerir, construirVistaPrevia, contarPaginasPDF, LIMITE_PAGINAS_PDF } from "./ingesta";
 import { MappingSpecSchema, ExtraccionDirectaSchema } from "./esquema";
 import { transformarTabular, validarDirecta, type ParamsExtraccion, type ResultadoTransform } from "./transformar";
 import type { UsoIA } from "@/lib/ia/uso";
-
-// El prompt es Markdown editable; se lee del disco (fuente única) y se memoiza.
-let promptCache: string | null = null;
-function promptSistema(): string {
-  if (promptCache) return promptCache;
-  try {
-    promptCache = readFileSync(join(process.cwd(), "src/lib/balance/extraccion/prompt-extraccion.md"), "utf8");
-  } catch {
-    promptCache =
-      "Eres un especialista en ETL de balances de prueba colombianos. Devuelve la estructura/filas en el esquema pedido, sin inventar datos. CUENTA como texto; CRÉDITOS positivos; valida SALDO = SALDO_INICIAL + DÉBITOS − CRÉDITOS.";
-  }
-  return promptCache;
-}
 
 function bloqueParametros(params: ParamsExtraccion): string {
   return [
@@ -61,11 +47,13 @@ export async function extraerBalance(
 ): Promise<ResultadoTransform> {
   const ingesta = ingerir(data, fileName);
   const client = getAnthropic();
+  // Prompt de sistema vigente (editable por el Superadministrador, BD → fábrica).
+  const promptTexto = await getPromptContenido(CLAVE_EXTRACCION);
   // Prompt caching: con el modelo por defecto (Opus 4.8, mínimo cacheable 4096 tokens)
   // el prompt (~2,1-2,5K tokens) queda corto y no se cachea (sin coste extra).
   // Con Sonnet 4.6 (mínimo 2048) sí se cachearía; configurable vía ANTHROPIC_MODEL.
   // El grueso de la entrada es el archivo/vista previa: cambia por carga y no es cacheable.
-  const system = [{ type: "text" as const, text: promptSistema(), cache_control: { type: "ephemeral" as const } }];
+  const system = [{ type: "text" as const, text: promptTexto, cache_control: { type: "ephemeral" as const } }];
 
   if (ingesta.modo === "tabular") {
     // Hoja elegida por el usuario: solo la mandamos a la IA (y luego la forzamos
