@@ -859,3 +859,73 @@ model VersionChange {
   @@index([versionId])
   @@map("cambios_version")
 }
+
+// ===== Consumo de IA (tokens y costos de escaneos con Claude) =====
+// Registro de uso de la API de Claude (Anthropic): UNA fila por LLAMADA a la API
+// durante el escaneo/extracción de documentos (extracción tabular, extracción de
+// PDF y mapeo por lotes). Diseño GENÉRICO (campo `tipoOperacion`) para servir a
+// cualquier función de IA futura, no solo al balance. Permite contar escaneos,
+// ver tokens y costo por documento/cliente, y el gasto mensual en COP.
+//
+// FK LÓGICAS (solo Int, sin @relation) hacia Client y User, como el resto de
+// registros (AccessLog/StandardAccountLog): el histórico de costos sobrevive al
+// borrado del cliente o del usuario. `usuarioNombre` va denormalizado.
+//
+// Costo SNAPSHOT: `costoUsd`, `trm` y `costoCop` se calculan y congelan al
+// registrar, de modo que cambios futuros de tarifas o de la TRM no alteran el
+// histórico. Tokens como Int; costo USD con 6 decimales (microdólares por
+// llamada); costo COP con 2 decimales.
+model ConsumoIA {
+  id            Int     @id @default(autoincrement()) @map("id")
+  // FK lógicas (sin @relation). clienteId es opcional: en la extracción inicial
+  // (lectura del archivo) el cliente aún no está confirmado.
+  clienteId     Int?    @map("cliente_id")
+  usuarioId     Int?    @map("usuario_id")
+  usuarioNombre String? @map("usuario_nombre")
+  // Contexto de la operación.
+  modulo        String  @default("balance") @map("modulo") // reutiliza los códigos de módulo del RBAC
+  tipoOperacion String  @map("tipo_operacion") // extraccion_tabular | extraccion_pdf | mapeo_ia
+  modelo        String  @map("modelo") // p. ej. claude-opus-4-8
+  archivoNombre String? @map("archivo_nombre")
+  nitDetectado  String? @map("nit_detectado")
+  loteIndice    Int?    @map("lote_indice") // mapeo por lotes: índice del lote (0-based)
+  cuentasLote   Int?    @map("cuentas_lote") // cuentas enviadas en el lote
+  // Tokens consumidos (los 4 componentes del `usage` de Anthropic).
+  tokensEntrada       Int @default(0) @map("tokens_entrada")
+  tokensSalida        Int @default(0) @map("tokens_salida")
+  tokensCacheCreacion Int @default(0) @map("tokens_cache_creacion")
+  tokensCacheLectura  Int @default(0) @map("tokens_cache_lectura")
+  // Costo (snapshot al momento del registro).
+  costoUsd Decimal  @default(0) @map("costo_usd") @db.Decimal(12, 6)
+  trm      Decimal  @default(0) @map("trm") @db.Decimal(12, 4) // COP por 1 USD usada en la conversión
+  costoCop Decimal  @default(0) @map("costo_cop") @db.Decimal(14, 2)
+  // Estado de la llamada.
+  exitoso      Boolean  @default(true) @map("exitoso")
+  mensajeError String?  @map("mensaje_error")
+  creadoEn     DateTime @default(now()) @map("creado_en")
+
+  @@index([creadoEn])
+  @@index([clienteId, creadoEn])
+  @@index([tipoOperacion, creadoEn])
+  @@map("consumo_ia")
+}
+
+// ===== Tasas de cambio (TRM oficial USD→COP) =====
+// Histórico de la Tasa de Cambio Representativa del Mercado (TRM) de la
+// Superintendencia Financiera, obtenida de datos.gov.co (dataset 32sa-8pi3).
+// `getTRM()` (src/lib/ia/trm.ts) hace UPSERT de la TRM vigente aquí y la usa de
+// fallback durable si el servicio externo no responde. La conversión a COP del
+// consumo de IA toma de aquí el valor vigente.
+model TasaCambio {
+  id            Int       @id @default(autoincrement()) @map("id")
+  moneda        String    @default("USD") @map("moneda") // moneda origen (par contra COP)
+  valor         Decimal   @map("valor") @db.Decimal(12, 4) // COP por 1 unidad de `moneda`
+  vigenciaDesde DateTime  @map("vigencia_desde") @db.Date
+  vigenciaHasta DateTime? @map("vigencia_hasta") @db.Date
+  fuente        String    @default("superfinanciera") @map("fuente")
+  obtenidaEn    DateTime  @default(now()) @map("obtenida_en")
+
+  @@unique([moneda, vigenciaDesde])
+  @@index([moneda, vigenciaDesde])
+  @@map("tasas_cambio")
+}

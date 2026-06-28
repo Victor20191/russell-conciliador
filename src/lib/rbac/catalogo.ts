@@ -124,6 +124,10 @@ export const PERMISOS: Permiso[] = [
   // (quién entra, cuándo, a qué ruta) → admin-only, más restringido que la
   // bitácora de acciones (`auditoria:ver`).
   { code: "auditoria:accesos", module: "auditoria", action: "accesos", label: "Ver accesos y tráfico de rutas", roles: SOLO_ADMIN },
+  // Consumo y costos de IA (tokens y gasto de los escaneos con Claude). Información
+  // de costos de la plataforma → SOLO el Superadministrador (más restringido aún
+  // que la analítica de accesos, que es admin-only).
+  { code: "auditoria:ia", module: "auditoria", action: "ia", label: "Ver consumo y costos de IA", roles: SOLO_SUPERADMIN },
   { code: "usuarios:ver", module: "usuarios", action: "ver", label: "Ver usuarios", roles: SOLO_ADMIN },
   { code: "maestros:ver", module: "maestros", action: "ver", label: "Ver maestros", roles: SOLO_ADMIN },
   { code: "modulos:ver", module: "modulos", action: "ver", label: "Ver módulos y campos", roles: SOLO_ADMIN },

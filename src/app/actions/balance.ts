@@ -28,6 +28,7 @@ import { TIPO_BALANCE_CARGA } from "@/lib/balance/tipo-balance";
 import { extraerBalance } from "@/lib/balance/extraccion/extraer";
 import { mapearPorIA } from "@/lib/balance/mapeo-ia";
 import { iaDisponible } from "@/lib/anthropic";
+import { registrarConsumoIA, type UsoIA } from "@/lib/ia/uso";
 import { construirCuadre } from "@/lib/balance/extraccion/transformar";
 import type { ParamsExtraccion, ResultadoTransform } from "@/lib/balance/extraccion/transformar";
 import { CUADRE_NO_APLICA } from "@/lib/balance/extraccion/esquema";
@@ -264,6 +265,7 @@ async function persistirCargue(p: {
   archivoNombre: string;
   archivoTam: string;
   uploadedBy: string;
+  uploadedById?: number | null;
   rolLabel: string;
   meta: MetaEtl;
 }): Promise<{ id: number; version: string; calc: ResultadoBalance }> {
@@ -288,13 +290,21 @@ async function persistirCargue(p: {
   if (iaDisponible()) {
     const pendientes = calc.breakdown.flatMap((g) => g.items).filter((it) => !it.mapped).map((it) => ({ code: it.code, name: it.name }));
     if (pendientes.length > 0) {
+      const usos: UsoIA[] = [];
       try {
         const plan = p.cuentasEstandar.map((s) => ({ code: s.code, name: s.name ?? "", russell: s.russellAccount ?? "", posibles: s.possibleAccounts ?? "" }));
-        const override = await mapearPorIA(pendientes, plan);
+        const override = await mapearPorIA(pendientes, plan, usos);
         if (override.size > 0) calc = calcularBalance(p.importReady, p.cuentasEstandar, override, planTok, configCliente);
       } catch {
         /* la IA es opcional: si falla, no rompe el cargue */
       }
+      // Registra el consumo de tokens del mapeo (best-effort, no rompe el cargue).
+      await registrarConsumoIA(usos, {
+        clienteId: p.clientId,
+        usuarioId: p.uploadedById ?? null,
+        usuarioNombre: p.uploadedBy,
+        archivoNombre: p.archivoNombre,
+      });
     }
   }
 
@@ -426,9 +436,10 @@ export async function leerBalance(
     // → null: archivos de una sola hoja / CSV / PDF siguen el flujo normal.
     const hoja = String(formData.get("hoja") ?? "").trim() || null;
     const datosArchivo = await archivo.arrayBuffer();
+    const usos: UsoIA[] = [];
     let extr: ResultadoTransform;
     if (iaDisponible()) {
-      extr = await extraerBalance(datosArchivo, archivo.name, params, hoja);
+      extr = await extraerBalance(datosArchivo, archivo.name, params, hoja, usos);
     } else {
       const { filas, errores } = await parseBalanceWorkbook(datosArchivo);
       if (errores.length > 0) {
@@ -452,6 +463,20 @@ export async function leerBalance(
         // El parser de plantilla limpia no expone una fila TOTALES: sin cuadre.
         cuadre: CUADRE_NO_APLICA,
       };
+    }
+
+    // Registra el consumo de tokens de la lectura/extracción (best-effort). Se
+    // hace aquí —aunque no haya cuentas útiles— porque la IA ya consumió tokens.
+    // El cliente aún no está confirmado en este paso (clienteId: null).
+    if (usos.length > 0) {
+      const user = await getCurrentUser();
+      await registrarConsumoIA(usos, {
+        clienteId: null,
+        usuarioId: user?.id ?? null,
+        usuarioNombre: user?.name ?? null,
+        archivoNombre: archivo.name,
+        nitDetectado: extr.cabecera.nit.valor,
+      });
     }
 
     if (extr.importReady.length === 0) {
@@ -562,7 +587,7 @@ export async function confirmarCargaBalance(
       period, periodos, importReady: cuentasParsed.data, cuentasEstandar,
       archivoNombre: sug.archivoNombre ?? "—",
       archivoTam: sug.archivoTam ?? "—",
-      uploadedBy: user?.name ?? "—", rolLabel: etiquetaRol(authz.role),
+      uploadedBy: user?.name ?? "—", uploadedById: user?.id ?? null, rolLabel: etiquetaRol(authz.role),
       meta: {
         centro, estandar, convencionCredito: sug.convencionCredito,
         filasLeidas: sug.filasLeidas, filasExcluidas: sug.filasExcluidas, filasDescuadre: sug.filasDescuadre,

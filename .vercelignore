@@ -1,0 +1,8 @@
+# Variables de entorno locales: se gestionan como Environment Variables en
+# Vercel (Project Settings → Environment Variables), NO se suben al deployment.
+.env
+.env.*
+
+# Artefactos locales que Vercel reconstruye en su build.
+.next
+node_modules

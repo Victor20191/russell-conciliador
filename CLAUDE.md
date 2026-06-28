@@ -36,7 +36,7 @@ npm run db:completar:jerarquia  # completa aristas faltantes de la jerarquía
 
 Las pruebas viven junto al código como `*.test.ts` (config en `vitest.config.ts`, entorno `node`, `SESSION_SECRET` inyectado). El cliente Prisma se regenera en `postinstall` y `prebuild`; tras editar `schema.prisma` corre `prisma generate` (o `db:migrate`).
 
-Variables de entorno (`.env`, ver `.env.example`): `DATABASE_URL`, `SESSION_SECRET` (`openssl rand -base64 32`), y opcionales `COOKIE_SECURE`, `DB_POOL_MAX`, `DB_CONNECT_TIMEOUT_MS`, `DB_IDLE_TIMEOUT_MS`. Para la extracción de balances con IA: `ANTHROPIC_API_KEY` (sin ella la app sigue funcionando; la extracción asistida queda deshabilitada) y `ANTHROPIC_MODEL` (opcional, por defecto `claude-opus-4-8`). Para las **fotos de perfil** (almacenamiento de objetos S3/MinIO/R2): `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` y opcionales `S3_ENDPOINT`/`S3_FORCE_PATH_STYLE` (MinIO/R2). Sin ellas la app sigue funcionando y los usuarios ven sus iniciales (la subida de fotos queda deshabilitada).
+Variables de entorno (`.env`, ver `.env.example`): `DATABASE_URL`, `SESSION_SECRET` (`openssl rand -base64 32`), y opcionales `COOKIE_SECURE`, `DB_POOL_MAX`, `DB_CONNECT_TIMEOUT_MS`, `DB_IDLE_TIMEOUT_MS`. Para la extracción de balances con IA: `ANTHROPIC_API_KEY` (sin ella la app sigue funcionando; la extracción asistida queda deshabilitada) y `ANTHROPIC_MODEL` (opcional, por defecto `claude-opus-4-8`). Para el **costeo del consumo de IA** en pesos: `USD_COP_TRM_FALLBACK` (opcional, por defecto 4000; la TRM oficial se obtiene y cachea sola de datos.gov.co, esto es solo el respaldo). Para las **fotos de perfil** (almacenamiento de objetos S3/MinIO/R2): `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` y opcionales `S3_ENDPOINT`/`S3_FORCE_PATH_STYLE` (MinIO/R2). Sin ellas la app sigue funcionando y los usuarios ven sus iniciales (la subida de fotos queda deshabilitada).
 
 ## Arquitectura
 
@@ -99,6 +99,15 @@ Primera integración de IA de la plataforma. Pipeline en `src/lib/balance/extrac
 
 - `src/lib/anthropic.ts` — singleton perezoso; **no** exige la API key hasta usarse (`getAnthropic()` lanza un error claro si falta; `iaDisponible()` decide UI/fallback). Modelo en `MODELO_EXTRACCION`.
 - El **prompt de sistema** es Markdown editable (`prompt-extraccion.md`, fuente única, se memoiza); hay un fallback embebido si no se puede leer del disco.
+
+### Consumo de IA (tokens y costos)
+
+Cada llamada a Claude registra su uso en `ConsumoIA` (`consumo_ia`) — UNA fila por llamada (extracción tabular/PDF y cada lote de mapeo), con diseño **genérico** (`tipoOperacion`) para futuras funciones de IA. El pipeline puro (`extraer.ts`/`mapeo-ia.ts`) NO toca BD ni sesión: acumula el `usage` en un out-param `usosOut`, y la Server Action (`balance.ts`) lo persiste con `registrarConsumoIA` (best-effort, como `logAudit`). En la extracción inicial el `clienteId` es null (aún no confirmado); en el mapeo ya se conoce.
+
+- `src/lib/ia/precios.ts` — tarifas USD por modelo y `calcularCostoUsd(modelo, usage)`: puro y testeable, suma los **4 componentes** del `usage` (input/output/cache write/cache read), porque el mapeo aprovecha el prompt caching.
+- `src/lib/ia/trm.ts` — `getTRM()`: TRM oficial USD→COP de la Superfinanciera (datos.gov.co, dataset `32sa-8pi3`), cacheada a diario (`unstable_cache`) y persistida en `TasaCambio` (`tasas_cambio`); fallback en cascada remoto→BD→`USD_COP_TRM_FALLBACK`. Nunca lanza.
+- `src/lib/ia/uso.ts` — `registrarConsumoIA`: calcula costo USD y COP como **SNAPSHOT** (congela `costoUsd`/`trm`/`costoCop` al registrar) y los inserta.
+- **Tablero** `/auditoria/ia` (RSC, calcado de `/auditoria/accesos`): gasto del mes en COP, escaneos, tokens y desgloses por tipo/cliente. Permiso `auditoria:ia` → **SOLO Superadministrador** (`SOLO_SUPERADMIN`).
 
 ### Importación masiva por Excel
 

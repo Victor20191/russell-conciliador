@@ -6,6 +6,7 @@ import "server-only";
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { getAnthropic, MODELO_EXTRACCION, conReintentoSinTemperatura } from "@/lib/anthropic";
+import type { UsoIA } from "@/lib/ia/uso";
 
 export type CuentaPendiente = { code: string; name: string };
 export type CuentaPlan = { code: string; name: string; russell: string; posibles: string };
@@ -36,8 +37,11 @@ const TAM_LOTE = 80; // cuentas por llamada (acota el tamaño de salida)
  * Mapea por IA las cuentas pendientes contra el plan. Procesa en lotes y memoiza
  * el plan en el prompt de sistema (cache). Best-effort: si una llamada falla, ese
  * lote queda sin asignar (el cargue continúa con lo que sí se resolvió).
+ *
+ * `usosOut` (opcional): acumula el `usage` (tokens) de cada lote para que la
+ * Server Action registre el consumo de IA, sin acoplar este módulo a la BD.
  */
-export async function mapearPorIA(pendientes: CuentaPendiente[], plan: CuentaPlan[]): Promise<Map<string, Asignacion>> {
+export async function mapearPorIA(pendientes: CuentaPendiente[], plan: CuentaPlan[], usosOut?: UsoIA[]): Promise<Map<string, Asignacion>> {
   const out = new Map<string, Asignacion>();
   if (pendientes.length === 0 || plan.length === 0) return out;
 
@@ -73,6 +77,7 @@ export async function mapearPorIA(pendientes: CuentaPendiente[], plan: CuentaPla
           output_config: { format: zodOutputFormat(MapeoIASchema) },
         }),
       );
+      usosOut?.push({ tipoOperacion: "mapeo_ia", modelo: MODELO_EXTRACCION, usage: r.usage, loteIndice: Math.floor(i / TAM_LOTE), cuentasLote: lote.length });
       for (const a of r.parsed_output?.asignaciones ?? []) {
         const std = a.cuenta6Russell && validos.has(a.cuenta6Russell) ? a.cuenta6Russell : null;
         out.set(a.cuentaCliente, { std, coincidencia: std ? Math.round(Math.max(0, Math.min(100, a.coincidencia))) : null });

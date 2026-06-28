@@ -12,6 +12,7 @@ import { getAnthropic, MODELO_EXTRACCION, conReintentoSinTemperatura } from "@/l
 import { ingerir, construirVistaPrevia, contarPaginasPDF, LIMITE_PAGINAS_PDF } from "./ingesta";
 import { MappingSpecSchema, ExtraccionDirectaSchema } from "./esquema";
 import { transformarTabular, validarDirecta, type ParamsExtraccion, type ResultadoTransform } from "./transformar";
+import type { UsoIA } from "@/lib/ia/uso";
 
 // El prompt es Markdown editable; se lee del disco (fuente única) y se memoiza.
 let promptCache: string | null = null;
@@ -46,12 +47,17 @@ const MAX_TOKENS_DIRECTA = 32000;
  * hoja del balance, se restringe la vista previa y la extracción a esa hoja —
  * la IA NO decide cuál cargar. Si no viene, conserva el comportamiento actual
  * (la IA identifica la hoja entre todas).
+ *
+ * `usosOut` (opcional): si se pasa, se le agrega el `usage` (tokens) de cada
+ * llamada a Claude para que la Server Action registre el consumo de IA. No altera
+ * el resultado; mantener el pipeline desacoplado de la BD/sesión.
  */
 export async function extraerBalance(
   data: ArrayBuffer,
   fileName: string,
   params: ParamsExtraccion,
   hojaElegida?: string | null,
+  usosOut?: UsoIA[],
 ): Promise<ResultadoTransform> {
   const ingesta = ingerir(data, fileName);
   const client = getAnthropic();
@@ -90,6 +96,7 @@ export async function extraerBalance(
         output_config: { format: zodOutputFormat(MappingSpecSchema) },
       }),
     );
+    usosOut?.push({ tipoOperacion: "extraccion_tabular", modelo: MODELO_EXTRACCION, usage: r.usage });
     const spec = r.parsed_output;
     if (!spec) throw new Error("La IA no devolvió un mapeo válido del archivo. Reintenta o revisa el formato.");
     // Forzamos la hoja elegida en el spec para que `transformarTabular` procese
@@ -130,6 +137,7 @@ export async function extraerBalance(
       output_config: { format: zodOutputFormat(ExtraccionDirectaSchema) },
     }),
   );
+  usosOut?.push({ tipoOperacion: "extraccion_pdf", modelo: MODELO_EXTRACCION, usage: r.usage });
   const extr = r.parsed_output;
   if (!extr) throw new Error("La IA no devolvió filas válidas del documento. Reintenta o revisa el archivo.");
   return validarDirecta(extr, params);
