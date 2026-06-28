@@ -56,8 +56,7 @@ export const ColumnasSchema = z
     // …o partido en débito/crédito (saldo = débito − crédito).
     saldoFinalDebito: z.number().int(),
     saldoFinalCredito: z.number().int(),
-    // Centro operativo y tercero (si existe tercero → puede requerir agregación).
-    centro: z.number().int(),
+    // Tercero (si existe → puede requerir agregación por cuenta).
     tercero: z.number().int(),
   })
   .describe("Índices de columna 1-based (A=1). Usa 0 cuando la columna no exista (no null).");
@@ -92,7 +91,6 @@ export const MappingSpecSchema = z.object({
   nit: OrigenSchema,
   periodoInicial: OrigenSchema, // ISO yyyy-mm-dd en `valor`, o null
   periodoFinal: OrigenSchema,
-  centroOperativo: OrigenSchema,
   estandar: EstandarSchema,
   importable: z.boolean(), // false p. ej. Antioqueña (solo movimientos), IDOM (libro diario)
   motivoNoImportable: z.string().nullable(),
@@ -102,7 +100,7 @@ export const MappingSpecSchema = z.object({
 });
 export type MappingSpec = z.infer<typeof MappingSpecSchema>;
 
-// Una fila ya normalizada (10 columnas del prompt, sin NIT/periodo que son del cabecera).
+// Una fila ya normalizada (columnas del prompt, sin NIT/periodo que son del cabecera).
 export const FilaExtraidaSchema = z.object({
   cuenta: z.string(),
   nombre: z.string(),
@@ -110,7 +108,6 @@ export const FilaExtraidaSchema = z.object({
   debitos: z.number(),
   creditos: z.number(),
   saldo: z.number(),
-  centro: z.string().nullable(),
 });
 export type FilaExtraida = z.infer<typeof FilaExtraidaSchema>;
 
@@ -119,7 +116,6 @@ export const ExtraccionDirectaSchema = z.object({
   nit: OrigenSchema,
   periodoInicial: OrigenSchema,
   periodoFinal: OrigenSchema,
-  centroOperativo: OrigenSchema,
   estandar: EstandarSchema,
   agregarPorTercero: z.boolean(),
   filas: z.array(FilaExtraidaSchema),
@@ -175,7 +171,6 @@ export type ResumenAuditoria = {
   nit: Origen;
   periodoInicial: Origen;
   periodoFinal: Origen;
-  centro: Origen;
   estandar: Estandar;
   convencionCredito: ConvencionSigno;
 };

@@ -14,7 +14,6 @@ const PARAMS: ParamsExtraccion = {
   nit: "900.451.227-3",
   periodoInicial: "2026-05-01",
   periodoFinal: "2026-05-31",
-  centro: null,
   estandar: "AUTO",
 };
 
@@ -23,14 +22,13 @@ function spec(over: Partial<MappingSpec> = {}): MappingSpec {
     hoja: "Balance",
     filaEncabezado: 1,
     primeraFilaDatos: 2,
-    columnas: { codigo: 1, nombre: 2, saldoInicial: 3, debitos: 4, creditos: 5, saldoFinal: 6, saldoFinalDebito: 0, saldoFinalCredito: 0, centro: 0, tercero: 0 },
+    columnas: { codigo: 1, nombre: 2, saldoInicial: 3, debitos: 4, creditos: 5, saldoFinal: 6, saldoFinalDebito: 0, saldoFinalCredito: 0, tercero: 0 },
     signoCredito: "firmado",
     reglaDetalle: { tipo: "prefijo", columna: null, valor: null },
     agregarPorTercero: false,
     nit: { valor: null, fuente: "NINGUNO" },
     periodoInicial: { valor: null, fuente: "NINGUNO" },
     periodoFinal: { valor: null, fuente: "NINGUNO" },
-    centroOperativo: { valor: null, fuente: "NINGUNO" },
     estandar: "AUTO",
     importable: true,
     motivoNoImportable: null,
@@ -310,7 +308,6 @@ describe("validarDirecta (PDF)", () => {
         nit: { valor: "800070771-1", fuente: "FUENTE" },
         periodoInicial: { valor: "2026-03-01", fuente: "FUENTE" },
         periodoFinal: { valor: "2026-03-31", fuente: "FUENTE" },
-        centroOperativo: { valor: null, fuente: "NINGUNO" },
         estandar: "NIIF",
         agregarPorTercero: false,
         importable: true,
@@ -318,8 +315,8 @@ describe("validarDirecta (PDF)", () => {
         excepciones: [],
         notas: null,
         filas: [
-          { cuenta: "110505", nombre: "Caja", saldoInicial: 1000, debitos: 500, creditos: 0, saldo: 1500, centro: null },
-          { cuenta: "13", nombre: "Deudores", saldoInicial: 0, debitos: 0, creditos: 0, saldo: 999, centro: null }, // padre len 2 → excluido
+          { cuenta: "110505", nombre: "Caja", saldoInicial: 1000, debitos: 500, creditos: 0, saldo: 1500 },
+          { cuenta: "13", nombre: "Deudores", saldoInicial: 0, debitos: 0, creditos: 0, saldo: 999 }, // padre len 2 → excluido
         ],
       },
       { ...PARAMS, nit: null, periodoInicial: null, periodoFinal: null, estandar: "NIIF" },

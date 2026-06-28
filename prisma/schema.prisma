@@ -612,7 +612,6 @@ model BalancePruebaEncabezado {
   periodo         String   @map("periodo") // display, p. ej. "Enero 2026"
   periodoInicio   DateTime @map("periodo_inicio") @db.Date
   periodoFin      DateTime @map("periodo_fin") @db.Date
-  centroOperativo String?  @map("centro_operativo")
   // Versionado (un oficial por cliente/período; congelado bloquea edición).
   version         String   @map("version")
   esOficial       Boolean  @default(false) @map("es_oficial")

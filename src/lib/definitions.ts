@@ -104,18 +104,15 @@ export const ImportReadySchema = z
   )
   .min(1);
 
-// Confirmación de carga (paso 2): cliente + período desde/hasta (fechas ISO) +
-// centro operativo (opcional). El tipo de balance no se recibe del cliente: la
-// carga lo fija por regla de negocio. Las cuentas ya leídas viajan aparte en
-// `payload`.
+// Confirmación de carga (paso 2): cliente + período desde/hasta (fechas ISO). El
+// tipo de balance no se recibe del cliente: la carga lo fija por regla de
+// negocio. Las cuentas ya leídas viajan aparte en `payload`.
 const ISO_FECHA = /^\d{4}-\d{2}-\d{2}$/;
 export const ConfirmarBalanceSchema = z
   .object({
     clientId: z.coerce.number({ error: "Selecciona el cliente." }).int().positive({ error: "Selecciona el cliente." }),
     periodoInicio: z.string().regex(ISO_FECHA, { error: "Indica el período desde (fecha)." }),
     periodoFin: z.string().regex(ISO_FECHA, { error: "Indica el período hasta (fecha)." }),
-    // Centro operativo: opcional («solo si aplica»). Vacío → sin centro.
-    centroOperativo: z.string().trim().optional().default(""),
   })
   .refine((d) => d.periodoFin >= d.periodoInicio, { error: "El período hasta no puede ser anterior al período desde.", path: ["periodoFin"] });
 

@@ -59,7 +59,7 @@ La inteligencia artificial actúa como un **asistente contable experto en lectur
 1. **Lee el archivo en el formato en que venga.** No exige una plantilla; se adapta a cómo cada sistema contable exporta el balance.
 2. **Reconoce la estructura automáticamente.** Identifica cuál es la hoja del balance (ignora hojas de filtros, retenciones, instrucciones o reportes por tercero), dónde están los encabezados —incluso cuando están repartidos en varias filas— y qué significa cada columna (código, nombre, saldo inicial, débitos, créditos, saldo final).
 3. **Extrae las cuentas con sus cifras**, interpretando correctamente los distintos formatos de números (separadores de miles y decimales colombianos o internacionales, símbolos de moneda, valores negativos entre paréntesis, etc.).
-4. **Identifica los datos de cabecera sin inventarlos:** el NIT de la empresa (nunca el de un tercero), el período y el centro operativo. Si un dato no está, lo deja vacío en lugar de suponerlo; si hay información contradictoria (por ejemplo, fechas que no coinciden), lo reporta como excepción en vez de elegir por su cuenta.
+4. **Identifica los datos de cabecera sin inventarlos:** el NIT de la empresa (nunca el de un tercero) y el período. Si un dato no está, lo deja vacío en lugar de suponerlo; si hay información contradictoria (por ejemplo, fechas que no coinciden), lo reporta como excepción en vez de elegir por su cuenta.
 5. **Distingue las cuentas de detalle de las cuentas “padre” y los totales**, para no duplicar cifras. Excluye filas de totales, subtotales y encabezados repetidos.
 6. **Normaliza el signo de los créditos** según cómo los entregue cada sistema, de modo que la información quede homogénea.
 7. **Agrupa el detalle por tercero cuando corresponde**, sumando por cuenta para que el balance quede a nivel de cuenta y no de tercero.
@@ -87,7 +87,7 @@ Tamaño máximo por archivo: **20 MB**.
 
 ## 7. Qué información se extrae y se valida
 
-De cada balance se obtiene, por cuenta: **código de cuenta, nombre, saldo inicial, débitos, créditos y saldo final**; y a nivel general: **NIT de la empresa, período (inicial y final), centro operativo y tipo de balance NIF**.
+De cada balance se obtiene, por cuenta: **código de cuenta, nombre, saldo inicial, débitos, créditos y saldo final**; y a nivel general: **NIT de la empresa, período (inicial y final) y tipo de balance NIF**.
 
 Antes de aceptar la información, la plataforma valida:
 

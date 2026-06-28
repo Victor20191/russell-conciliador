@@ -46,7 +46,6 @@ export type SugerenciaBalance = {
   nitFuente: ResumenAuditoria["nit"]["fuente"];
   periodoInicial: string | null;
   periodoFinal: string | null;
-  centro: string | null;
   estandar: string;
   convencionCredito: string;
   filasLeidas: number;
@@ -68,7 +67,6 @@ export type LeerBalanceState = {
 };
 
 type MetaEtl = {
-  centro: string | null;
   estandar: string;
   convencionCredito: string;
   filasLeidas: number;
@@ -372,7 +370,6 @@ async function persistirCargue(p: {
     data: {
       clienteId: p.clientId, nombreCliente: p.clienteName, nit: p.clienteNit,
       periodo: p.period, periodoInicio: new Date(p.periodos.inicial), periodoFin: new Date(p.periodos.final),
-      centroOperativo: p.meta.centro,
       version, esOficial: false, estaCongelado: false, estado: status, completitud: complete,
       archivo: p.archivoNombre, tamanoArchivo: p.archivoTam,
       cargadoPor: p.uploadedBy, rolCarga: p.rolLabel, cuadrado: calc.balanced, nota,
@@ -431,7 +428,7 @@ export async function leerBalance(
     // Lectura sin parámetros de cliente/período: la IA detecta todo del archivo
     // como sugerencia. El tipo de balance es regla fija de negocio.
     // Si no hay API key, cae al parser de plantilla limpia.
-    const params: ParamsExtraccion = { nit: null, periodoInicial: null, periodoFinal: null, centro: null, estandar: TIPO_BALANCE_CARGA };
+    const params: ParamsExtraccion = { nit: null, periodoInicial: null, periodoFinal: null, estandar: TIPO_BALANCE_CARGA };
     // Hoja elegida por el usuario en Excel multi-hoja (la IA no la asume). Vacío
     // → null: archivos de una sola hoja / CSV / PDF siguen el flujo normal.
     const hoja = String(formData.get("hoja") ?? "").trim() || null;
@@ -451,13 +448,13 @@ export async function leerBalance(
         excepciones: [],
         cabecera: {
           nit: { valor: null, fuente: "NINGUNO" }, periodoInicial: { valor: null, fuente: "NINGUNO" },
-          periodoFinal: { valor: null, fuente: "NINGUNO" }, centro: { valor: null, fuente: "NINGUNO" }, estandar: TIPO_BALANCE_CARGA,
+          periodoFinal: { valor: null, fuente: "NINGUNO" }, estandar: TIPO_BALANCE_CARGA,
         },
         resumen: {
           filasLeidas: importReady.length, filasExcluidas: 0, filasImportables: importReady.length, filasDescuadre: 0,
           cuentasMovimiento: importReady.length, cuentasAgrupadoras: 0,
           nit: { valor: null, fuente: "NINGUNO" }, periodoInicial: { valor: null, fuente: "NINGUNO" },
-          periodoFinal: { valor: null, fuente: "NINGUNO" }, centro: { valor: null, fuente: "NINGUNO" },
+          periodoFinal: { valor: null, fuente: "NINGUNO" },
           estandar: TIPO_BALANCE_CARGA, convencionCredito: "firmado",
         },
         // El parser de plantilla limpia no expone una fila TOTALES: sin cuadre.
@@ -493,7 +490,6 @@ export async function leerBalance(
         nitFuente: extr.cabecera.nit.fuente,
         periodoInicial: extr.cabecera.periodoInicial.valor,
         periodoFinal: extr.cabecera.periodoFinal.valor,
-        centro: extr.cabecera.centro.valor,
         estandar: extr.cabecera.estandar,
         convencionCredito: extr.resumen.convencionCredito,
         filasLeidas: extr.resumen.filasLeidas,
@@ -529,12 +525,11 @@ export async function confirmarCargaBalance(
     clientId: formData.get("clientId"),
     periodoInicio: formData.get("periodoInicio"),
     periodoFin: formData.get("periodoFin"),
-    centroOperativo: formData.get("centroOperativo"),
   });
   if (!parsed.success) {
     return { ok: false, message: parsed.error.issues[0]?.message ?? "Datos inválidos." };
   }
-  const { clientId, periodoInicio, periodoFin, centroOperativo } = parsed.data;
+  const { clientId, periodoInicio, periodoFin } = parsed.data;
   const estandar = TIPO_BALANCE_CARGA;
 
   const scope = await authorizePermiso("balance:crear", { clientId });
@@ -578,7 +573,6 @@ export async function confirmarCargaBalance(
 
     const period = etiquetaPeriodo(periodoInicio, periodoFin);
     const periodos = { inicial: periodoInicio, final: periodoFin };
-    const centro = centroOperativo.trim() || null; // opcional: vacío → sin centro
     const cuentasEstandar = await getCuentasEstandar();
     const user = await getCurrentUser();
 
@@ -589,7 +583,7 @@ export async function confirmarCargaBalance(
       archivoTam: sug.archivoTam ?? "—",
       uploadedBy: user?.name ?? "—", uploadedById: user?.id ?? null, rolLabel: etiquetaRol(authz.role),
       meta: {
-        centro, estandar, convencionCredito: sug.convencionCredito,
+        estandar, convencionCredito: sug.convencionCredito,
         filasLeidas: sug.filasLeidas, filasExcluidas: sug.filasExcluidas, filasDescuadre: sug.filasDescuadre,
       },
     });
@@ -600,7 +594,6 @@ export async function confirmarCargaBalance(
       nit: { valor: sug.nitDetectado, fuente: sug.nitFuente },
       periodoInicial: { valor: periodoInicio, fuente: "FUENTE" },
       periodoFinal: { valor: periodoFin, fuente: "FUENTE" },
-      centro: { valor: centro, fuente: centro ? "FUENTE" : "NINGUNO" },
       estandar,
       convencionCredito: (sug.convencionCredito === "magnitud" ? "magnitud" : "firmado"),
     };

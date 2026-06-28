@@ -17,7 +17,6 @@ export type Cabecera = {
   nit: Origen;
   periodoInicial: Origen;
   periodoFinal: Origen;
-  centro: Origen;
   estandar: Estandar;
 };
 
@@ -25,7 +24,6 @@ export type ParamsExtraccion = {
   nit: string | null;
   periodoInicial: string | null;
   periodoFinal: string | null;
-  centro: string | null;
   estandar: Estandar;
 };
 
@@ -108,21 +106,20 @@ function elegir(param: string | null, detectado: Origen): Origen {
 }
 
 function resolverCabecera(
-  det: { nit: Origen; periodoInicial: Origen; periodoFinal: Origen; centroOperativo: Origen; estandar: Estandar },
+  det: { nit: Origen; periodoInicial: Origen; periodoFinal: Origen; estandar: Estandar },
   params: ParamsExtraccion,
 ): Cabecera {
   return {
     nit: elegir(params.nit, det.nit),
     periodoInicial: elegir(params.periodoInicial, det.periodoInicial),
     periodoFinal: elegir(params.periodoFinal, det.periodoFinal),
-    centro: elegir(params.centro, det.centroOperativo),
     estandar: params.estandar !== "AUTO" ? params.estandar : det.estandar,
   };
 }
 
 // ---------------- Ruta tabular (MappingSpec → filas) ----------------
 
-type FilaParcial = { code: string; name: string; si: number; db: number; cr: number; saldo: number; centro: string | null };
+type FilaParcial = { code: string; name: string; si: number; db: number; cr: number; saldo: number };
 
 export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params: ParamsExtraccion): ResultadoTransform {
   const excepciones: Excepcion[] = [...spec.excepciones];
@@ -208,7 +205,6 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
       db: Math.abs(db ?? 0), // movimientos en magnitud positiva
       cr: Math.abs(cr ?? 0),
       saldo: saldo ?? 0,
-      centro: cols.centro > 0 ? texto(cell(fila, cols.centro)) || null : null,
     });
   }
 
@@ -254,7 +250,6 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
       nit: cabecera.nit,
       periodoInicial: cabecera.periodoInicial,
       periodoFinal: cabecera.periodoFinal,
-      centro: cabecera.centro,
       estandar: cabecera.estandar,
       convencionCredito: spec.signoCredito,
     },
@@ -295,7 +290,6 @@ export function validarDirecta(extr: ExtraccionDirecta, params: ParamsExtraccion
       db: Math.abs(f.debitos ?? 0),
       cr: Math.abs(f.creditos ?? 0),
       saldo: f.saldo ?? 0,
-      centro: f.centro,
     }));
   const filasLeidas = extr.filas.length;
   const filasExcluidas = filasLeidas - base.length;
@@ -328,7 +322,6 @@ export function validarDirecta(extr: ExtraccionDirecta, params: ParamsExtraccion
       nit: cabecera.nit,
       periodoInicial: cabecera.periodoInicial,
       periodoFinal: cabecera.periodoFinal,
-      centro: cabecera.centro,
       estandar: cabecera.estandar,
       convencionCredito: "firmado",
     },
@@ -462,7 +455,7 @@ function leerSaldoFinal(fila: CeldaCruda[], cols: MappingSpec["columnas"], si: n
 function agregarPorCuenta(filas: FilaParcial[]): FilaParcial[] {
   const m = new Map<string, FilaParcial>();
   for (const f of filas) {
-    const k = `${f.code}|${f.centro ?? ""}`;
+    const k = f.code;
     const prev = m.get(k);
     if (!prev) m.set(k, { ...f });
     else {
@@ -487,7 +480,6 @@ function resumenVacio(cabecera: Cabecera, conv: "firmado" | "magnitud"): Resumen
     nit: cabecera.nit,
     periodoInicial: cabecera.periodoInicial,
     periodoFinal: cabecera.periodoFinal,
-    centro: cabecera.centro,
     estandar: cabecera.estandar,
     convencionCredito: conv,
   };

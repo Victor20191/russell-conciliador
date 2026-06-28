@@ -81,11 +81,14 @@ export function StatCard({
   value,
   hint,
   tone = "ink",
+  valueClassName = "text-2xl",
 }: {
   label: string;
   value: string;
   hint?: string;
   tone?: "ok" | "warn" | "err" | "ink" | "blue";
+  /** Clases del valor (p. ej. tamaño): se ajusta para montos completos largos. */
+  valueClassName?: string;
 }) {
   const accent: Record<string, string> = {
     ok: "text-ok-700",
@@ -99,7 +102,7 @@ export function StatCard({
       <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">
         {label}
       </div>
-      <div className={`mt-1.5 font-mono text-2xl font-semibold ${accent[tone]}`}>
+      <div className={`mt-1.5 break-words font-mono font-semibold ${valueClassName} ${accent[tone]}`}>
         {value}
       </div>
       {hint && <div className="mt-1 text-[12px] text-ink-500">{hint}</div>}

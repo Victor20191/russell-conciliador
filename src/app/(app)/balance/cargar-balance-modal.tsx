@@ -9,7 +9,6 @@ import { Chip } from "@/components/ui";
 import { fmt } from "@/lib/format";
 import { leerBalance, confirmarCargaBalance, type LeerBalanceState, type SugerenciaBalance } from "@/app/actions/balance";
 import { notifyActionState } from "@/lib/client-notifications";
-import { TIPO_BALANCE_CARGA } from "@/lib/balance/tipo-balance";
 import { leerHojasParaPreview, columnaLetra, type CeldaCruda, type HojaPreview } from "@/lib/balance/extraccion/hojas-cliente";
 import type { ImportBalanceState } from "@/lib/import/balance";
 
@@ -209,7 +208,6 @@ function FormRevisar({
   const clienteSug = clienteSugerido(clients, sug.nitDetectado);
   const desdeDef = sug.periodoInicial ?? "";
   const hastaDef = sug.periodoFinal ?? "";
-  const centroDef = sug.centro ?? "";
 
   return (
     <form id="confirmar-form" action={confirmAction} className="flex flex-col gap-3.5">
@@ -252,20 +250,6 @@ function FormRevisar({
           <input type="date" name="periodoFin" required defaultValue={hastaDef} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400" />
         </label>
       </div>
-
-      <div className="flex flex-col gap-1.5">
-        <span className="text-[11.5px] font-medium text-ink-600">Tipo de balance</span>
-        <div className="rounded-md border border-ink-150 bg-ink-50 px-2.5 py-2 text-[12.5px] font-semibold text-ink-700">
-          {TIPO_BALANCE_CARGA}
-        </div>
-      </div>
-
-      <label className="flex flex-col gap-1.5">
-        <span className="text-[11.5px] font-medium text-ink-600">
-          Centro operativo <span className="font-normal text-ink-400">(opcional · solo si aplica)</span>
-        </span>
-        <input type="text" name="centroOperativo" defaultValue={centroDef} placeholder="Déjalo vacío si el balance no tiene centro" className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400" />
-      </label>
 
       <SugerenciaResumen sug={sug} />
 
@@ -313,7 +297,6 @@ function SugerenciaResumen({ sug }: { sug: SugerenciaBalance }) {
       <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Lo que detecté en el archivo</div>
       <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[12px] text-ink-600 sm:grid-cols-3">
         <Linea k="NIT" v={`${sug.nitDetectado ?? "—"} (${sug.nitFuente.toLowerCase()})`} />
-        <Linea k="Centro" v={sug.centro ?? "—"} />
         <Linea k="Período" v={`${sug.periodoInicial ?? "?"} → ${sug.periodoFinal ?? "?"}`} />
         <Linea k="Movimiento (hojas)" v={String(sug.cuentasMovimiento)} />
         <Linea k="Agrupadoras" v={String(sug.cuentasAgrupadoras)} />
@@ -355,7 +338,6 @@ function ResultadoOk({ resumen, excepciones, onClose }: { resumen: Resumen; exce
             <Linea k="Excluidas" v={String(aud.filasExcluidas)} />
             <Linea k="Descuadres" v={String(aud.filasDescuadre)} />
             <Linea k="NIT" v={`${aud.nit.valor ?? "—"} (${aud.nit.fuente.toLowerCase()})`} />
-            <Linea k="Centro" v={`${aud.centro.valor ?? "—"} (${aud.centro.fuente.toLowerCase()})`} />
             <Linea k="Período" v={`${aud.periodoInicial.valor ?? "?"} → ${aud.periodoFinal.valor ?? "?"}`} />
             <Linea k="Tipo" v={aud.estandar} />
             <Linea k="Signo crédito" v={aud.convencionCredito} />

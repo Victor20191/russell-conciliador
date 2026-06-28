@@ -3,7 +3,7 @@ import prisma from "@/lib/prisma";
 import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import { PageHeader, StatCard, Chip, BackLink } from "@/components/ui";
 import { Icon } from "@/components/icons";
-import { fmtCompact, fmtDate } from "@/lib/format";
+import { fmt, fmtDate } from "@/lib/format";
 import { reconstruirBalance, agruparJerarquia } from "@/lib/balance/calcular";
 import { getCuentasEstandar } from "@/lib/balance/cuentas-estandar";
 import BalanceDetailClient, {
@@ -121,12 +121,12 @@ export default async function BalanceDetailPage({ params }: { params: Promise<{ 
       {sums && (
         <>
           <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
-            <StatCard label="Activo" value={fmtCompact(sums.activo)} tone="blue" />
-            <StatCard label="Pasivo" value={fmtCompact(sums.pasivo)} tone="ink" />
-            <StatCard label="Patrimonio" value={fmtCompact(sums.patrimonio)} tone="ink" />
-            <StatCard label="Utilidad" value={fmtCompact(sums.utilidad)} tone="ok" />
-            <StatCard label="Validaciones" value={`${okCount} ok`} hint={warnCount > 0 ? `${warnCount} alerta(s)` : "Sin alertas"} tone={warnCount > 0 ? "warn" : "ok"} />
-            {meta && <StatCard label="Mapeo al estándar" value={`${meta.mapped}/${meta.rows}`} hint={`${meta.critical} críticas`} tone="ink" />}
+            <StatCard label="Activo" value={fmt(sums.activo)} tone="blue" valueClassName="text-lg" />
+            <StatCard label="Pasivo" value={fmt(sums.pasivo)} tone="ink" valueClassName="text-lg" />
+            <StatCard label="Patrimonio" value={fmt(sums.patrimonio)} tone="ink" valueClassName="text-lg" />
+            <StatCard label="Utilidad" value={fmt(sums.utilidad)} tone="ok" valueClassName="text-lg" />
+            <StatCard label="Validaciones" value={`${okCount} ok`} hint={warnCount > 0 ? `${warnCount} alerta(s)` : "Sin alertas"} tone={warnCount > 0 ? "warn" : "ok"} valueClassName="text-lg" />
+            {meta && <StatCard label="Mapeo al estándar" value={`${meta.mapped}/${meta.rows}`} hint={`${meta.critical} críticas`} tone="ink" valueClassName="text-lg" />}
           </div>
 
           <BalanceDetailClient
