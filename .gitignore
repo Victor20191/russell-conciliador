@@ -44,10 +44,6 @@ next-env.d.ts
 /src/generated/prisma
 .smoke-*.png
 
-# Hook de novedades (estado de dedupe y log de ejecución)
-.claude/novedades-state.json
-.claude/novedades-hook.log
-
 # hojas de cálculo, scripts Python y texto
 *.xlsx
 *.xls

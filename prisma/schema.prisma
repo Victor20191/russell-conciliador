@@ -964,18 +964,3 @@ model PromptIA {
 
   @@map("prompts_ia")
 }
-
-// Ajustes de plataforma simples (clave→valor). Tabla genérica para preferencias
-// del Superadministrador que deben persistir (FS de solo lectura en Vercel) y que
-// no justifican una tabla propia. Hoy guarda el modelo de IA usado por el hook que
-// vuelca los commits del día a /novedades (clave "novedades.modelo_ia").
-model ConfiguracionPlataforma {
-  id             Int      @id @default(autoincrement()) @map("id")
-  clave          String   @unique @map("clave") // identificador estable del ajuste
-  valor          String   @map("valor") // valor vigente (texto)
-  actualizadoPor String?  @map("actualizado_por")
-  actualizadoEn  DateTime @updatedAt @map("actualizado_en")
-  creadoEn       DateTime @default(now()) @map("creado_en")
-
-  @@map("configuracion_plataforma")
-}
