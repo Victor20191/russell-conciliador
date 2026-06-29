@@ -1,6 +1,6 @@
 // Ingesta de archivos para la extracción de balances.
 //
-// Convierte el archivo subido (xlsx/xls/xlsb/csv/json/pdf) en una representación
+// Convierte el archivo subido (xlsx/csv/json/pdf) en una representación
 // que el pipeline pueda usar:
 //   - modo "tabular": grillas (matriz de celdas) por hoja → ruta de detección de
 //     estructura + transformación determinista.
@@ -9,7 +9,7 @@
 //
 // Solo el código toca todas las filas; al modelo se le envía una vista previa
 // (la construye el orquestador a partir de las grillas).
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 
 export type CeldaCruda = string | number | boolean | null;
 export type GridHoja = { nombre: string; filas: CeldaCruda[][] };
@@ -66,19 +66,108 @@ export function contarPaginasPDF(data: ArrayBuffer): number | null {
   }
 }
 
-/** Lee un libro (xlsx/xls/xlsb/csv) a grillas por hoja, saltando filas vacías. */
-function leerLibro(data: ArrayBuffer): GridHoja[] {
-  const wb = XLSX.read(Buffer.from(data), { type: "buffer", raw: true, cellDates: false });
-  return wb.SheetNames.map((nombre) => {
-    const ws = wb.Sheets[nombre];
-    const filas = XLSX.utils.sheet_to_json<CeldaCruda[]>(ws, {
-      header: 1,
-      raw: true,
-      defval: null,
-      blankrows: false,
+function celdaExcel(v: ExcelJS.CellValue): CeldaCruda {
+  if (v == null) return null;
+  if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return v;
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  if (typeof v === "object") {
+    if ("result" in v) return celdaExcel(v.result as ExcelJS.CellValue);
+    if ("text" in v && typeof v.text === "string") return v.text;
+    if ("richText" in v && Array.isArray(v.richText)) {
+      return v.richText.map((r) => r.text ?? "").join("");
+    }
+    return JSON.stringify(v);
+  }
+  return String(v);
+}
+
+function filaTieneDatos(fila: CeldaCruda[]): boolean {
+  return fila.some((c) => c != null && String(c).trim() !== "");
+}
+
+/** Lee un libro OOXML (.xlsx/.xlsm) a grillas por hoja, saltando filas vacías. */
+async function leerLibroExcel(data: ArrayBuffer): Promise<GridHoja[]> {
+  const wb = new ExcelJS.Workbook();
+  const carga = Buffer.from(data) as unknown as Parameters<typeof wb.xlsx.load>[0];
+  await wb.xlsx.load(carga);
+
+  return wb.worksheets.map((ws) => {
+    const filas: CeldaCruda[][] = [];
+    ws.eachRow({ includeEmpty: false }, (row) => {
+      const values = (row.values as ExcelJS.CellValue[]).slice(1).map(celdaExcel);
+      if (filaTieneDatos(values)) filas.push(values);
     });
-    return { nombre, filas };
+    return { nombre: ws.name, filas };
   });
+}
+
+function parseCsv(texto: string): CeldaCruda[][] {
+  const filas: string[][] = [];
+  let fila: string[] = [];
+  let celda = "";
+  let entreComillas = false;
+
+  for (let i = 0; i < texto.length; i++) {
+    const ch = texto[i];
+    const next = texto[i + 1];
+
+    if (entreComillas) {
+      if (ch === "\"" && next === "\"") {
+        celda += "\"";
+        i++;
+      } else if (ch === "\"") {
+        entreComillas = false;
+      } else {
+        celda += ch;
+      }
+      continue;
+    }
+
+    if (ch === "\"") {
+      entreComillas = true;
+    } else if (ch === ",") {
+      fila.push(celda);
+      celda = "";
+    } else if (ch === "\n") {
+      fila.push(celda);
+      filas.push(fila);
+      fila = [];
+      celda = "";
+    } else if (ch !== "\r") {
+      celda += ch;
+    }
+  }
+
+  fila.push(celda);
+  filas.push(fila);
+
+  return filas
+    .map((r) =>
+      r.map((v) => {
+        const s = v.trim();
+        if (!s) return null;
+        const n = numeroCsv(s);
+        return n == null ? s : n;
+      }),
+    )
+    .filter(filaTieneDatos);
+}
+
+function leerCsv(data: ArrayBuffer): GridHoja[] {
+  return [{ nombre: "csv", filas: parseCsv(new TextDecoder().decode(data)) }];
+}
+
+function numeroCsv(s: string): number | null {
+  if (/^-?\d+$/.test(s)) return Number(s);
+  if (/^-?\d+\.\d+$/.test(s)) return Number(s);
+  if (/^-?\d+,\d+$/.test(s)) return Number(s.replace(",", "."));
+  if (/^-?\d{1,3}(\.\d{3})+(,\d+)?$/.test(s)) {
+    return Number(s.replace(/\./g, "").replace(",", "."));
+  }
+  if (/^-?\d{1,3}(,\d{3})+(\.\d+)?$/.test(s)) {
+    return Number(s.replace(/,/g, ""));
+  }
+  return null;
 }
 
 /** JSON tabular (arreglo de objetos) → grilla; cualquier otro JSON → texto. */
@@ -109,7 +198,7 @@ function ingerirJson(texto: string): Ingesta {
  * Ingiere el archivo. Lanza si el formato es ilegible (lo captura el orquestador
  * y lo convierte en una excepción del cargue).
  */
-export function ingerir(data: ArrayBuffer, fileName: string): Ingesta {
+export async function ingerir(data: ArrayBuffer, fileName: string): Promise<Ingesta> {
   const formato = detectarFormato(fileName, data);
   switch (formato) {
     case "pdf":
@@ -117,16 +206,18 @@ export function ingerir(data: ArrayBuffer, fileName: string): Ingesta {
     case "json":
       return ingerirJson(new TextDecoder().decode(data));
     case "csv":
+      return { modo: "tabular", hojas: leerCsv(data) };
     case "xlsx":
+      return { modo: "tabular", hojas: await leerLibroExcel(data) };
     case "xls":
     case "xlsb":
-      return { modo: "tabular", hojas: leerLibro(data) };
+      throw new Error("Por seguridad, los formatos .xls y .xlsb no se procesan. Guarda el archivo como .xlsx o usa CSV, JSON o PDF.");
     default:
-      // Último intento: tratar como libro (SheetJS sniffa varios formatos).
+      // Último intento seguro: probar como OOXML moderno (.xlsx/.xlsm).
       try {
-        return { modo: "tabular", hojas: leerLibro(data) };
+        return { modo: "tabular", hojas: await leerLibroExcel(data) };
       } catch {
-        throw new Error("Formato de archivo no reconocido. Usa Excel (.xlsx/.xls/.xlsb), CSV, JSON o PDF.");
+        throw new Error("Formato de archivo no reconocido. Usa Excel (.xlsx/.xlsm), CSV, JSON o PDF.");
       }
   }
 }

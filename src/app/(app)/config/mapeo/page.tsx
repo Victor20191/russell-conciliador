@@ -23,11 +23,11 @@ export default async function MapeoPage({ searchParams }: { searchParams: Promis
   const alc = await alcanceLecturaUsuario();
   const balances = await prisma.balancePruebaEncabezado.findMany({
     where: alc.todos ? {} : { clienteId: { in: alc.clientIds } },
-    select: { nombreCliente: true },
-    distinct: ["nombreCliente"],
+    select: { clienteId: true, nombreCliente: true },
+    distinct: ["clienteId"],
     orderBy: { nombreCliente: "asc" },
   });
-  const clientNames = balances.map((b) => b.nombreCliente);
+  const clientNames = [...new Set(balances.map((b) => b.nombreCliente))];
   const cliente = sp.cliente && clientNames.includes(sp.cliente) ? sp.cliente : (clientNames.includes("El Zarzal S.A") ? "El Zarzal S.A" : clientNames[0] ?? "");
 
   // Solo el Administrador parametriza el plan estándar (gate `mapeo:administrar`).
@@ -37,16 +37,26 @@ export default async function MapeoPage({ searchParams }: { searchParams: Promis
   const canManage = user ? tienePermiso(matriz, user.role, "mapeo:administrar") : false;
   // Memoria de mapeo por cliente (pestaña "Mapeo balance/cliente"): clienteId del
   // cliente seleccionado + flag de escritura (la action revalida el alcance real).
-  const clienteRow = cliente ? await prisma.balancePruebaEncabezado.findFirst({ where: { nombreCliente: cliente }, select: { clienteId: true } }) : null;
-  const clienteId = clienteRow?.clienteId ?? null;
-  const puedeMapear = (await authorizePermiso("balance:crear")).ok;
+  const clienteMatches = cliente
+    ? await prisma.client.findMany({ where: { name: cliente }, select: { id: true }, take: 2 })
+    : [];
+  const clienteId =
+    clienteMatches.length === 1 &&
+    balances.some((b) => b.clienteId === clienteMatches[0].id)
+      ? clienteMatches[0].id
+      : null;
+  const puedeMapear = clienteId
+    ? (await authorizePermiso("balance:crear", { clientId: clienteId })).ok
+    : false;
 
   const [accounts, options, standard, subgruposRows, logs, lockedStdCodes, mapeoRows] = await Promise.all([
-    prisma.clientAccount.findMany({
-      where: { clientName: cliente },
-      include: { russellOption: { select: { code: true } } },
-      orderBy: { order: "asc" },
-    }),
+    clienteId
+      ? prisma.clientAccount.findMany({
+          where: { clientName: cliente },
+          include: { russellOption: { select: { code: true } } },
+          orderBy: { order: "asc" },
+        })
+      : Promise.resolve([]),
     prisma.russellOption.findMany({ orderBy: { code: "asc" } }),
     prisma.standardAccount.findMany({ orderBy: { code: "asc" } }),
     prisma.subgrupoEstandar.findMany({ orderBy: { codigo: "asc" } }),

@@ -360,6 +360,7 @@ model Reconciliation {
   comments     ReconciliationComment[]
   createdAt    DateTime                @default(now()) @map("creado_en")
 
+  @@index([clientId, createdAt], map: "conciliaciones_cliente_creado_en_idx")
   @@index([createdAt])
   @@map("conciliaciones")
 }
@@ -857,6 +858,23 @@ model VersionChange {
 
   @@index([versionId])
   @@map("cambios_version")
+}
+
+model ReporteNovedadesIA {
+  id               Int      @id @default(autoincrement()) @map("id")
+  huellaContexto   String   @unique @map("huella_contexto")
+  modelo           String   @map("modelo")
+  titulo           String   @map("titulo")
+  html             String   @map("html")
+  totalVersiones   Int      @map("total_versiones")
+  totalCambios     Int      @map("total_cambios")
+  cambiosIncluidos Int      @map("cambios_incluidos")
+  creadoPorId      Int?     @map("creado_por_id")
+  creadoEn         DateTime @default(now()) @map("creado_en")
+  actualizadoEn    DateTime @updatedAt @map("actualizado_en")
+
+  @@index([modelo])
+  @@map("reportes_novedades_ia")
 }
 
 // ===== Consumo de IA (tokens y costos de escaneos con Claude) =====

@@ -7,10 +7,12 @@ import { logAudit } from "@/lib/audit";
 import { authorizePermiso } from "@/lib/rbac";
 import { clienteDeBalance } from "@/lib/rbac/contexto";
 import { parseId } from "@/lib/ids";
+import { tomarCandadoTransaccion, transaccionSerializable } from "@/lib/concurrency";
 import { createProcessNotification } from "@/lib/notifications";
 import { mensajeErrorBD, mensajeErrorIA } from "@/lib/errores";
 import { fmt, fmtDate, MESES_LARGOS } from "@/lib/format";
 import { ConfirmarBalanceSchema, ImportReadySchema, type ActionState } from "@/lib/definitions";
+import { firmarPayloadServidor, validarFirmaPayloadServidor } from "@/lib/server-payload";
 import { parseBalanceWorkbook, type ImportBalanceState } from "@/lib/import/balance";
 import {
   calcularBalance,
@@ -35,11 +37,13 @@ import { CUADRE_NO_APLICA } from "@/lib/balance/extraccion/esquema";
 import type { CuadreTotales, Excepcion, ResumenAuditoria } from "@/lib/balance/extraccion/esquema";
 
 const MAX_BYTES = 20 * 1024 * 1024; // 20 MB (admite PDF)
+const CONTEXTO_PAYLOAD_BALANCE = "balance:sugerencia:v1";
 
 // Sugerencia que devuelve la LECTURA del archivo (paso 1): cabecera detectada +
 // las cuentas leídas. NO se persiste nada; la persona la revisa, completa los
 // campos faltantes (cliente, período) y recién entonces confirma la carga.
 export type SugerenciaBalance = {
+  firma: string;
   archivoNombre: string;
   archivoTam: string;
   nitDetectado: string | null;
@@ -57,6 +61,7 @@ export type SugerenciaBalance = {
   cuadre: CuadreTotales; // cuadre de las hojas contra la fila TOTALES del archivo
   importReady: CuentaCruda[];
 };
+type SugerenciaBalanceSinFirma = Omit<SugerenciaBalance, "firma">;
 
 export type LeerBalanceState = {
   ok?: boolean;
@@ -126,6 +131,19 @@ function mensajeCuadre(c: CuadreTotales): string {
   return `El balance no cuadra contra la fila TOTALES del archivo — ${partes.join("; ")}. Revisa la jerarquía de cuentas (padres/auxiliares) y vuelve a leer el archivo.`;
 }
 
+function firmarSugerenciaBalance(sugerencia: SugerenciaBalanceSinFirma): SugerenciaBalance {
+  return {
+    ...sugerencia,
+    firma: firmarPayloadServidor(sugerencia, CONTEXTO_PAYLOAD_BALANCE),
+  };
+}
+
+function sugerenciaSinFirma(sugerencia: SugerenciaBalance): SugerenciaBalanceSinFirma {
+  const { firma, ...payload } = sugerencia;
+  void firma;
+  return payload;
+}
+
 export async function freezeBalance(formData: FormData): Promise<ActionState> {
   // Primer gate: sesión + permiso de rol (antes de tocar la BD).
   const authz = await authorizePermiso("balance:editar");
@@ -137,42 +155,66 @@ export async function freezeBalance(formData: FormData): Promise<ActionState> {
   if (!alcance.ok) return { ok: false, message: alcance.message };
 
   try {
-    const balance = await prisma.balancePruebaEncabezado.findUnique({ where: { id } });
-    if (!balance) return { ok: false, message: "Balance inexistente." };
-    if (balance.estaCongelado) return { ok: true, message: "El balance ya estaba congelado." };
-
     const user = await getCurrentUser();
-    // La versión oficial es única por (cliente, período): se desmarca cualquier otra.
-    await prisma.balancePruebaEncabezado.updateMany({
-      where: { clienteId: balance.clienteId, periodo: balance.periodo, esOficial: true },
-      data: { esOficial: false },
+    const resultado = await transaccionSerializable(async (tx) => {
+      const referencia = await tx.balancePruebaEncabezado.findUnique({ where: { id } });
+      if (!referencia) return { ok: false as const, message: "Balance inexistente." };
+
+      await tomarCandadoTransaccion(tx, `balance-oficial:${referencia.clienteId}:${referencia.periodo}`);
+
+      const balance = await tx.balancePruebaEncabezado.findUnique({ where: { id } });
+      if (!balance) return { ok: false as const, message: "Balance inexistente." };
+      if (balance.estaCongelado) {
+        return {
+          ok: true as const,
+          message: "El balance ya estaba congelado.",
+          balance,
+          congelado: false,
+        };
+      }
+
+      // La versión oficial es única por (cliente, período): se desmarca cualquier otra.
+      await tx.balancePruebaEncabezado.updateMany({
+        where: { clienteId: balance.clienteId, periodo: balance.periodo, esOficial: true },
+        data: { esOficial: false },
+      });
+      await tx.balancePruebaEncabezado.update({
+        where: { id },
+        data: {
+          esOficial: true,
+          estaCongelado: true,
+          estado: "Congelado",
+          congeladoPor: user?.name ?? "Sistema",
+          congeladoEn: new Date(),
+        },
+      });
+
+      return {
+        ok: true as const,
+        message: "Balance congelado como oficial.",
+        balance,
+        congelado: true,
+      };
     });
-    await prisma.balancePruebaEncabezado.update({
-      where: { id },
-      data: {
-        esOficial: true,
-        estaCongelado: true,
-        estado: "Congelado",
-        congeladoPor: user?.name ?? "Sistema",
-        congeladoEn: new Date(),
-      },
-    });
+
+    if (!resultado.ok) return resultado;
+    if (!resultado.congelado) return { ok: true, message: resultado.message };
 
     await logAudit({
       user: user?.name ?? "Sistema",
       action: "CONGELÓ BALANCE",
-      entity: `${balance.nombreCliente} · ${balance.periodo}`,
-      detail: `Versión ${balance.version} marcada como oficial`,
+      entity: `${resultado.balance.nombreCliente} · ${resultado.balance.periodo}`,
+      detail: `Versión ${resultado.balance.version} marcada como oficial`,
     });
     await createProcessNotification({
       actor: user?.name,
       text: "congeló el balance oficial de",
-      target: `${balance.nombreCliente} · ${balance.periodo} · ${balance.version}`,
+      target: `${resultado.balance.nombreCliente} · ${resultado.balance.periodo} · ${resultado.balance.version}`,
     });
     revalidatePath("/", "layout");
     revalidatePath("/balance");
     revalidatePath(`/balance/${id}`);
-    return { ok: true, message: "Balance congelado como oficial." };
+    return { ok: true, message: resultado.message };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("freezeBalance", e) };
   }
@@ -332,78 +374,85 @@ async function persistirCargue(p: {
     /* la memoria de mapeo es best-effort: no rompe el cargue */
   }
 
-  // Versionado: un ENCABEZADO nuevo por cargue, correlativo por (cliente,
-  // período); @@unique([clienteId, periodo, version]) lo respalda.
-  const previas = await prisma.balancePruebaEncabezado.findMany({
-    where: { clienteId: p.clientId, periodo: p.period },
-    orderBy: { creadoEn: "asc" },
-    select: { id: true },
-  });
-  const version = `v${previas.length + 1}`;
   const alertas = calc.validations.filter((v) => v.status === "warn").length;
-  const status = alertas > 0 ? "Con alertas" : previas.length > 0 ? "Última" : "Única";
   const complete = calc.totalRows > 0 ? Math.round((calc.mapped / calc.totalRows) * 100) : 100;
   const ahora = sello();
   const nota = alertas > 0 ? `${alertas} validación(es) con alerta` : "Sin alertas";
 
-  // Comparativo contra la versión previa (solo el conteo de cambios; el diff
-  // completo se recalcula al abrir la pantalla de diff).
-  let cambios = calc.totalRows;
-  const previaId = previas[previas.length - 1]?.id;
-  if (previaId) {
-    const filasPrev = await prisma.balancePruebaDetalle.findMany({
-      where: { encabezadoId: previaId },
-      select: { cuenta8: true, nombreCuenta: true, cuenta6Russell: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
-    });
-    const calcPrev = reconstruirBalance(
-      filasPrev.map((f) => ({
-        cuenta8: f.cuenta8, nombreCuenta: f.nombreCuenta, cuenta6Russell: f.cuenta6Russell,
-        saldoInicial: Number(f.saldoInicial), debitos: Number(f.debitos), creditos: Number(f.creditos), saldoFinal: Number(f.saldoFinal),
-      })),
-      p.cuentasEstandar,
-    );
-    const diff = compararBalances(aplanarBreakdown(calcPrev.breakdown), aplanarBreakdown(calc.breakdown));
-    cambios = diff.summary.added + diff.summary.changed + diff.summary.removed;
-  }
+  const creado = await transaccionSerializable(async (tx) => {
+    await tomarCandadoTransaccion(tx, `balance-cargue:${p.clientId}:${p.period}`);
 
-  const creado = await prisma.balancePruebaEncabezado.create({
-    data: {
-      clienteId: p.clientId, nombreCliente: p.clienteName, nit: p.clienteNit,
-      periodo: p.period, periodoInicio: new Date(p.periodos.inicial), periodoFin: new Date(p.periodos.final),
-      version, esOficial: false, estaCongelado: false, estado: status, completitud: complete,
-      archivo: p.archivoNombre, tamanoArchivo: p.archivoTam,
-      cargadoPor: p.uploadedBy, rolCarga: p.rolLabel, cuadrado: calc.balanced, nota,
-      sumaActivo: calc.sums.activo, filasTotales: calc.totalRows,
-      mapeadas: calc.mapped, sinMapear: calc.unmapped, criticas: calc.critical, cambios,
-      estandar: p.meta.estandar, convencionCredito: p.meta.convencionCredito,
-      filasLeidas: p.meta.filasLeidas, filasExcluidas: p.meta.filasExcluidas, filasDescuadre: p.meta.filasDescuadre,
-      ultimaCarga: ahora,
-      detalles: {
-        create: aFilasDetalle(calc.breakdown).map((f) => ({
-          cuenta2: f.cuenta2, cuenta4: f.cuenta4, cuenta6: f.cuenta6, cuenta8: f.cuenta8,
-          nombreCuenta: f.nombreCuenta, cuenta6Russell: f.cuenta6Russell, coincidencia: f.coincidencia,
-          saldoInicial: f.saldoInicial, debitos: f.debitos, creditos: f.creditos, saldoFinal: f.saldoFinal,
+    // Versionado correlativo por (cliente, período). El candado evita que dos
+    // cargues simultáneos calculen la misma versión antes de insertar.
+    const previas = await tx.balancePruebaEncabezado.findMany({
+      where: { clienteId: p.clientId, periodo: p.period },
+      orderBy: { creadoEn: "asc" },
+      select: { id: true },
+    });
+    const version = `v${previas.length + 1}`;
+    const status = alertas > 0 ? "Con alertas" : previas.length > 0 ? "Última" : "Única";
+
+    // Comparativo contra la versión previa (solo el conteo de cambios; el diff
+    // completo se recalcula al abrir la pantalla de diff).
+    let cambios = calc.totalRows;
+    const previaId = previas[previas.length - 1]?.id;
+    if (previaId) {
+      const filasPrev = await tx.balancePruebaDetalle.findMany({
+        where: { encabezadoId: previaId },
+        select: { cuenta8: true, nombreCuenta: true, cuenta6Russell: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
+      });
+      const calcPrev = reconstruirBalance(
+        filasPrev.map((f) => ({
+          cuenta8: f.cuenta8, nombreCuenta: f.nombreCuenta, cuenta6Russell: f.cuenta6Russell,
+          saldoInicial: Number(f.saldoInicial), debitos: Number(f.debitos), creditos: Number(f.creditos), saldoFinal: Number(f.saldoFinal),
         })),
+        p.cuentasEstandar,
+      );
+      const diff = compararBalances(aplanarBreakdown(calcPrev.breakdown), aplanarBreakdown(calc.breakdown));
+      cambios = diff.summary.added + diff.summary.changed + diff.summary.removed;
+    }
+
+    const balance = await tx.balancePruebaEncabezado.create({
+      data: {
+        clienteId: p.clientId, nombreCliente: p.clienteName, nit: p.clienteNit,
+        periodo: p.period, periodoInicio: new Date(p.periodos.inicial), periodoFin: new Date(p.periodos.final),
+        version, esOficial: false, estaCongelado: false, estado: status, completitud: complete,
+        archivo: p.archivoNombre, tamanoArchivo: p.archivoTam,
+        cargadoPor: p.uploadedBy, rolCarga: p.rolLabel, cuadrado: calc.balanced, nota,
+        sumaActivo: calc.sums.activo, filasTotales: calc.totalRows,
+        mapeadas: calc.mapped, sinMapear: calc.unmapped, criticas: calc.critical, cambios,
+        estandar: p.meta.estandar, convencionCredito: p.meta.convencionCredito,
+        filasLeidas: p.meta.filasLeidas, filasExcluidas: p.meta.filasExcluidas, filasDescuadre: p.meta.filasDescuadre,
+        ultimaCarga: ahora,
+        detalles: {
+          create: aFilasDetalle(calc.breakdown).map((f) => ({
+            cuenta2: f.cuenta2, cuenta4: f.cuenta4, cuenta6: f.cuenta6, cuenta8: f.cuenta8,
+            nombreCuenta: f.nombreCuenta, cuenta6Russell: f.cuenta6Russell, coincidencia: f.coincidencia,
+            saldoInicial: f.saldoInicial, debitos: f.debitos, creditos: f.creditos, saldoFinal: f.saldoFinal,
+          })),
+        },
       },
-    },
-    select: { id: true },
+      select: { id: true },
+    });
+
+    return { id: balance.id, version };
   });
 
   await logAudit({
     user: p.uploadedBy,
     action: "CARGÓ BALANCE",
     entity: `${p.clienteName} · ${p.period}`,
-    detail: `${version} · ${calc.totalRows} cuentas · ${calc.mapped} mapeadas · ${calc.balanced ? "cuadrado" : "descuadra"}`,
+    detail: `${creado.version} · ${calc.totalRows} cuentas · ${calc.mapped} mapeadas · ${calc.balanced ? "cuadrado" : "descuadra"}`,
   });
   await createProcessNotification({
     actor: p.uploadedBy,
     text: "cargó el balance de",
-    target: `${p.clienteName} · ${p.period} · ${version}`,
+    target: `${p.clienteName} · ${p.period} · ${creado.version}`,
   });
   revalidatePath("/", "layout");
   revalidatePath("/balance");
 
-  return { id: creado.id, version, calc };
+  return { id: creado.id, version: creado.version, calc };
 }
 
 /**
@@ -480,27 +529,29 @@ export async function leerBalance(
       return { ok: false, message: "No se leyó ninguna cuenta del archivo. Revisa las excepciones.", excepciones: extr.excepciones };
     }
 
+    const sugerenciaBase: SugerenciaBalanceSinFirma = {
+      archivoNombre: archivo.name,
+      archivoTam: tamArchivo(archivo.size),
+      nitDetectado: extr.cabecera.nit.valor,
+      nitFuente: extr.cabecera.nit.fuente,
+      periodoInicial: extr.cabecera.periodoInicial.valor,
+      periodoFinal: extr.cabecera.periodoFinal.valor,
+      estandar: extr.cabecera.estandar,
+      convencionCredito: extr.resumen.convencionCredito,
+      filasLeidas: extr.resumen.filasLeidas,
+      filasExcluidas: extr.resumen.filasExcluidas,
+      filasDescuadre: extr.resumen.filasDescuadre,
+      cuentasMovimiento: extr.resumen.cuentasMovimiento,
+      cuentasAgrupadoras: extr.resumen.cuentasAgrupadoras,
+      cuentas: extr.importReady.length,
+      cuadre: extr.cuadre,
+      importReady: extr.importReady,
+    };
+
     return {
       ok: true,
       excepciones: extr.excepciones,
-      sugerencia: {
-        archivoNombre: archivo.name,
-        archivoTam: tamArchivo(archivo.size),
-        nitDetectado: extr.cabecera.nit.valor,
-        nitFuente: extr.cabecera.nit.fuente,
-        periodoInicial: extr.cabecera.periodoInicial.valor,
-        periodoFinal: extr.cabecera.periodoFinal.valor,
-        estandar: extr.cabecera.estandar,
-        convencionCredito: extr.resumen.convencionCredito,
-        filasLeidas: extr.resumen.filasLeidas,
-        filasExcluidas: extr.resumen.filasExcluidas,
-        filasDescuadre: extr.resumen.filasDescuadre,
-        cuentasMovimiento: extr.resumen.cuentasMovimiento,
-        cuentasAgrupadoras: extr.resumen.cuentasAgrupadoras,
-        cuentas: extr.importReady.length,
-        cuadre: extr.cuadre,
-        importReady: extr.importReady,
-      },
+      sugerencia: firmarSugerenciaBalance(sugerenciaBase),
     };
   } catch (e) {
     return { ok: false, message: mensajeErrorIA("leerBalance", e) };
@@ -540,6 +591,19 @@ export async function confirmarCargaBalance(
     sug = JSON.parse(String(formData.get("payload") ?? "")) as SugerenciaBalance;
   } catch {
     return { ok: false, message: "La lectura del archivo no es válida. Vuelve a leer el archivo." };
+  }
+  if (
+    !sug ||
+    !validarFirmaPayloadServidor(
+      sugerenciaSinFirma(sug),
+      sug.firma,
+      CONTEXTO_PAYLOAD_BALANCE,
+    )
+  ) {
+    return {
+      ok: false,
+      message: "La lectura del archivo fue alterada o expiró. Vuelve a leer el archivo.",
+    };
   }
   // Las cuentas viajan en el payload del cliente: se validan con Zod (tipos y
   // montos numéricos) antes de persistir. Las sumas/cuadre se recalculan en el

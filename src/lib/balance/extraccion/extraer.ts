@@ -45,7 +45,7 @@ export async function extraerBalance(
   hojaElegida?: string | null,
   usosOut?: UsoIA[],
 ): Promise<ResultadoTransform> {
-  const ingesta = ingerir(data, fileName);
+  const ingesta = await ingerir(data, fileName);
   const client = getAnthropic();
   // Prompt de sistema vigente (editable por el Superadministrador, BD → fábrica).
   const promptTexto = await getPromptContenido(CLAVE_EXTRACCION);

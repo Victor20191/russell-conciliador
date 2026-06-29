@@ -15,6 +15,7 @@ async function cookieSecure(): Promise<boolean> {
     return process.env.COOKIE_SECURE === "true";
   }
   const proto = (await headers()).get("x-forwarded-proto");
+  if (process.env.NODE_ENV === "production") return proto !== "http";
   return proto === "https";
 }
 

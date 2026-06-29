@@ -1,0 +1,989 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Russell Diagnóstico - Presentación Detallada de Funcionalidades Recientes (Junio 2026)</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f8f9fa;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        header {
+            background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
+            color: white;
+            padding: 30px 0;
+            text-align: center;
+            margin-bottom: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        
+        header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+        
+        header p {
+            font-size: 1.2rem;
+            opacity: 0.9;
+        }
+        
+        section {
+            background: white;
+            margin-bottom: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+        
+        .section-header {
+            background: linear-gradient(135deg, #f3f4f6 0%, #e5e7eb 100%);
+            padding: 20px;
+            border-bottom: 1px solid #d1d5db;
+        }
+        
+        .section-header h2 {
+            color: #1e3a8a;
+            font-size: 1.8rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .section-content {
+            padding: 25px;
+        }
+        
+        .subsection {
+            margin-bottom: 25px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .subsection:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+        }
+        
+        .subsection h3 {
+            color: #1e40af;
+            font-size: 1.4rem;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .timeline {
+            position: relative;
+            padding-left: 20px;
+            margin: 20px 0;
+        }
+        
+        .timeline::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 3px;
+            background: linear-gradient(to bottom, #3b82f6, #1d4ed8);
+        }
+        
+        .timeline-item {
+            position: relative;
+            margin-bottom: 25px;
+            padding-left: 25px;
+        }
+        
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            left: -6px;
+            top: 0;
+            width: 12px;
+            height: 12px;
+            background: white;
+            border: 3px solid #3b82f6;
+            border-radius: 50%;
+            z-index: 10;
+        }
+        
+        .timeline-date {
+            font-weight: bold;
+            color: #1e3a8a;
+            display: block;
+            margin-bottom: 5px;
+        }
+        
+        .timeline-content {
+            background: #f8fafc;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 3px solid #e5e7eb;
+        }
+        
+        .technical-details {
+            background: #f0f9ff;
+            border: 1px solid #bae6fd;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 15px 0;
+        }
+        
+        .technical-details h4 {
+            color: #0284c7;
+            margin-bottom: 10px;
+            font-size: 1.1rem;
+        }
+        
+        .technical-details ul {
+            margin-left: 20px;
+        }
+        
+        .benefits {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        
+        .benefit-card {
+            background: #f0fdf4;
+            border: 1px solid #bbf7d0;
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+        }
+        
+        .benefit-icon {
+            font-size: 2rem;
+            margin-bottom: 10px;
+            color: #16a34a;
+        }
+        
+        .benefit-card h4 {
+            color: #15803d;
+            margin-bottom: 8px;
+        }
+        
+        .benefit-card p {
+            font-size: 0.9rem;
+            color: #166534;
+        }
+        
+        .code-sample {
+            background: #1f2937;
+            color: #f9fafb;
+            padding: 15px;
+            border-radius: 6px;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 0.9rem;
+            overflow-x: auto;
+            margin: 15px 0;
+        }
+        
+        .commit-info {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 10px;
+            padding: 10px;
+            background: #eff6ff;
+            border-radius: 6px;
+        }
+        
+        .commit-hash {
+            font-family: 'Courier New', Courier, monospace;
+            background: #dbeafe;
+            color: #1e40af;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+        
+        .commit-date {
+            color: #6b7280;
+            font-size: 0.9rem;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        
+        .stat-card {
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+        
+        .stat-value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #1e3a8a;
+            display: block;
+            margin-bottom: 5px;
+        }
+        
+        .stat-label {
+            color: #6b7280;
+            font-size: 0.9rem;
+        }
+        
+        .footer {
+            text-align: center;
+            padding: 30px;
+            color: #6b7280;
+            font-size: 0.9rem;
+            border-top: 1px solid #e5e7eb;
+            margin-top: 40px;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+        
+        .badge-success {
+            background: #dcfce7;
+            color: #166534;
+        }
+        
+        .badge-warning {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        
+        .badge-info {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+        
+        .badge-secondary {
+            background: #f3f4f6;
+            color: #4b5563;
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 15px;
+            }
+            
+            header h1 {
+                font-size: 2rem;
+            }
+            
+            .section-header h2 {
+                font-size: 1.5rem;
+            }
+            
+            .subsection h3 {
+                font-size: 1.2rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Russell Diagnóstico</h1>
+        <p>Presentación Detallada de Funcionalidades Recientes</p>
+        <p>Junio 2026 - Mejoras en IA, Perfil, Auditoría y Balance</p>
+    </header>
+    
+    <div class="container">
+        <section>
+            <div class="section-header">
+                <h2>📊 Resumen Ejecutivo</h2>
+            </div>
+            <div class="section-content">
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <span class="stat-value">6</span>
+                        <span class="stat-label">Módulos Mejorados</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-value">10</span>
+                        <span class="stat-label">Commits Analizados</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-value">4</span>
+                        <span class="stat-label">Áreas de Innovación</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-value">100%</span>
+                        <span class="stat-label">Enfoque en Usabilidad</span>
+                    </div>
+                </div>
+                
+                <p>Durante junio de 2026, Russell Diagnóstico implementó un conjunto significativo de mejoras técnicas y funcionales que transforman la plataforma en múltiples dimensiones. Estas actualizaciones se enfocan en cuatro pilares estratégicos:</p>
+                
+                <div class="benefits">
+                    <div class="benefit-card">
+                        <div class="benefit-icon">🤖</div>
+                        <h4>Inteligencia Artificial Empresarial</h4>
+                        <p>Gestión dinámica de prompts y monitoreo de costos de IA para optimización continua</p>
+                    </div>
+                    <div class="benefit-card">
+                        <div class="benefit-icon">👤</div>
+                        <h4>Experiencia de Usuario Centrada</h4>
+                        <p>Personalización avanzada y funcionalidades de exportación para mayor productividad</p>
+                    </div>
+                    <div class="benefit-card">
+                        <div class="benefit-icon">🔒</div>
+                        <h4>Gobernanza y Trazabilidad</h4>
+                        <p>Auditoría integral y registro de accesos para cumplimiento y seguridad</p>
+                    </div>
+                    <div class="benefit-card">
+                        <div class="benefit-icon">⚡</div>
+                        <h4>Excelencia Operativa</h4>
+                        <p>Optimizaciones de rendimiento y mejoras en el módulo de balance financiero</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+        
+        <section>
+            <div class="section-header">
+                <h2>🤖 Módulo de Inteligencia Artificial</h2>
+            </div>
+            <div class="section-content">
+                <div class="subsection">
+                    <h3>2.1 Gestión Dinámica de Prompts de IA</h3>
+                    <div class="commit-info">
+                        <span class="commit-hash">a13294d</span>
+                        <span class="commit-date">28 de junio de 2026</span>
+                        <span class="badge badge-success">feat(prompts-ia)</span>
+                    </div>
+                    
+                    <div class="timeline">
+                        <div class="timeline-item">
+                            <span class="timeline-date">Fecha de implementación</span>
+                            <div class="timeline-content">
+                                <p><strong>Qué es:</strong> Nueva pantalla de configuración ubicada en <em>Configuración › Prompts de IA</em> (<code>/config/prompts</code>) que permite al superadministrador visualizar, editar y restaurar los prompts del sistema utilizados por la inteligencia artificial.</p>
+                                
+                                <p><strong>Innovación técnica clave:</strong></p>
+                                <ul>
+                                    <li>Los prompts ahora se almacenan en la base de datos (tabla <code>prompts_ia</code>) con su valor predeterminado</li>
+                                    <li>Los pipelines de IA (<code>extraer.ts</code>, <code>mapeo-ia.ts</code>) leen los prompts directamente desde la base de datos con caché</li>
+                                    <li>Invalidación automática de caché al editar prompts mediante <code>updateTag(PROMPTS_CACHE_TAG)</code></li>
+                                    <li>Persistencia en producción utilizando el sistema de archivos de solo lectura de Vercel</li>
+                                    <li>Catálogo centralizado de prompts en <code>src/lib/ia/prompts-catalogo.ts</code></li>
+                                </ul>
+                                
+                                <p><strong>Control de acceso granular:</strong></p>
+                                <ul>
+                                    <li>Permiso requerido: <code>prompts:administrar</code> (exclusivamente para Superadministrador)</li>
+                                    <li>Módulo de plataforma exclusivo para administradores</li>
+                                    <li>Entrada de menú dedicada en la interfaz de administración</li>
+                                    <li>Incluye seed de base de datos (<code>db:seed:prompts</code>)</li>
+                                </ul>
+                            </div>
+                        </div>
+                        
+                        <div class="timeline-item">
+                            <span class="timeline-date">Detalles de implementación</span>
+                            <div class="timeline-content">
+                                <div class="technical-details">
+                                    <h4>Arquitectura de la solución</h4>
+                                    <ul>
+                                        <li><strong>Modelo de datos:</strong> Tabla <code>prompts_ia</code> con campos <code>clave</code>, <code>contenido</code> (vigente), <code>predeterminado</code> (valor de fábrica), <code>actualizadoPor</code> y <code>actualizadoEn</code></li>
+                                        <li><strong>Cache inteligente:</strong> Utiliza <code>unstable_cache</code> de Next.js con invalidación basada en tags para rendimiento óptimo</li>
+                                        <li><strong>Fallback seguro:</strong> Si la BD falla, cae automáticamente al valor de fábrica del catálogo para nunca romper la IA</li>
+                                        <li><strong>Consistencia de datos:</strong> El campo <code>predeterminado</code> se guarda en BD (Vercel-safe) para permitir restauraciones confiables</li>
+                                    </ul>
+                                </div>
+                                
+                                <div class="technical-details">
+                                    <h4>Flujos de trabajo soportados</h4>
+                                    <ul>
+                                        <li><strong>Visualización:</strong> Los superadministradores pueden ver el contenido vigente de cada prompt y saber si coincide con el valor predeterminado</li>
+                                        <li><strong>Edición:</strong> Modificación directa del contenido del prompt con validación y registro de auditoría</li>
+                                        <li><strong>Restauración:</strong> Volver al valor de fábrica guardado en BD o al valor de fábrica del código si no existe fila en BD</li>
+                                        <li><strong>Invalidación de caché:</strong> Cada cambio invalida el cache de prompts para que la IA use el nuevo texto inmediatamente</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="benefits">
+                        <div class="benefit-card">
+                            <div class="benefit-icon">⚙️</div>
+                            <h4>Flexibilidad operativa</h4>
+                            <p>Los administradores pueden ajustar los prompts sin requerir despliegues de código, permitiendo experimentación y optimización continua</p>
+                        </div>
+                        <div class="benefit-card">
+                            <div class="benefit-icon">💰</div>
+                            <h4>Optimización de costos</h4>
+                            <p>Mejora en el caching reduce el consumo de tokens de IA al evitar lecturas repetidas de la misma información</li>
+                        </div>
+                        <div class="benefit-card">
+                            <div class="benefit-icon">🎯</div>
+                            <h4>Calidad consistente</h4>
+                            <p>Los prompts se cargan desde una fuente centralizada garantizando uniformidad en todos los usos de IA</li>
+                        </div>
+                        <div class="benefit-card">
+                            <div class="benefit-icon">📜</div>
+                            <h4>Trazabilidad completa</h4>
+                            <p>Historial de cambios mediante el sistema de auditoría existente para cumplimiento y revisión</li>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="subsection">
+                    <h3>2.2 Monitoreo de Consumo y Costos de IA</h3>
+                    <div class="commit-info">
+                        <span class="commit-hash">1ad00f6</span>
+                        <span class="commit-date">27 de junio de 2026</span>
+                        <span class="badge badge-success">feat(consumo-ia)</span>
+                    </div>
+                    
+                    <div class="timeline">
+                        <div class="timeline-item">
+                            <span class="timeline-date">Fecha de implementación</span>
+                            <div class="timeline-content">
+                                <p><strong>Qué es:</strong> Implementación de un sistema completo para registrar y monitorear el consumo de la API de Claude (Anthropic) durante los procesos de extracción y mapeo de balances, incluyendo el cálculo detallado de costos asociados.</p>
+                            </div>
+                        </div>
+                        
+                        <div class="timeline-item">
+                            <span class="timeline-date">Detalles técnicos</span>
+                            <div class="timeline-content">
+                                <div class="technical-details">
+                                    <h4>Modelo de datos de consumo</h4>
+                                    <p>Nuevo modelo Prisma <code>ConsumoIA</code> que registra:</p>
+                                    <ul>
+                                        <li>Tokens consumidos (entrada, salida, caché de creación, caché de lectura)</li>
+                                        <li>Costos en USD y COP (con snapshot de TRM al momento del registro)</li>
+                                        <li>Modelo utilizado (ej: claude-opus-4-8)</li>
+                                        <li>Tipo de operación (extracción_tabular, extracción_pdf, mapeo_ia)</li>
+                                        <li>Información contextual (cliente, usuario, archivo procesado, NIT detectado)</li>
+                                        <li>Métricas de lote (índice de lote, cuentas por lote para mapeo por lotes)</li>
+                                    </ul>
+                                </div>
+                                
+                                <div class="technical-details">
+                                    <h4>Integración con pipelines de IA</h4>
+                                    <ul>
+                                        <li><strong>Extracción de balances:</strong> Los módulos <code>extraer.ts</code> y <code>mapeo-ia.ts</code> acumulan uso de IA y lo pasan a la Server Action</li>
+                                        <li><strong>Registro eficiente:</strong> Función <code>registrarConsumoIA</code> que procesa múltiples usos en una sola query BD</li>
+                                        <li><strong>Cálculo de costos:</strong> Módulo <code>precios.ts</code> que convierte usage de API a USD usando tarifas oficiales de Anthropic</li>
+                                        <li><strong>Conversión a COP:</strong> Uso de TRM oficial mediante <code>trm.ts</code> con cache diario y fallback durable</li>
+                                        <li><strong>Snapshot de costos:</strong> El costo USD, TRM y costo COP se congelan al registrar para preservar históricos precisos</li>
+                                    </ul>
+                                </div>
+                                
+                                <div class="technical-details">
+                                    <h4>Seguridad y permisos</h4>
+                                    <ul>
+                                        <li>Nuevo permiso de auditoría <code>auditoria:ia</code> restringido a Superadministradores</li>
+                                        <li>Páginas dedicadas en el módulo de auditoría para visualización de consumo (<code>/auditoria/ia</code>)</li>
+                                        <li>Tabla detallada con paginación en memoria para rendimiento óptimo</li>
+                                        <li>Dashboard con métricas resumidas (gasto mensual, tokens consumidos, llamadas por tipo)</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="benefits">
+                        <div class="benefit-card">
+                            <div class="benefit-icon">📊</div>
+                            <h4>Transparencia financiera</h4>
+                            <p>Visibilidad completa de los costos asociados al uso de IA para mejor toma de decisiones presupuestarias</p>
+                        </div>
+                        <div class="benefit-card">
+                            <div class="benefit-icon">🔍</div>
+                            <h4>Optimización de recursos</h4>
+                            <p>Identificación de patrones de consumo para optimizar uso y reducir gastos innecesarios</p>
+                        </div>
+                        <div class="benefit-card">
+                            <div class="benefit-icon">👥</div>
+                            <h4>Responsabilidad operativa</h4>
+                            <p>Trazabilidad completa de quién utilizó qué recursos y cuándo para auditoría interna</p>
+                        </div>
+                        <div class="benefit-card">
+                            <div class="benefit-icon">📈</div>
+                            <h4>Planificación presupuestaria</h4>
+                            <p>Datos históricos para forecasting preciso de gastos de IA y optimización de modelos utilizados</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+        
+        <section>
+            <div class="section-header">
+                <h2>👤 Módulo de Perfil y Exportación</h2>
+            </div>
+            <div class="section-content">
+                <div class="subsection">
+                    <h3>3.1 Fotos de Perfil de Usuario</h3>
+                    <div class="commit-info">
+                        <span class="commit-hash">fa84d46</span>
+                        <span class="commit-date">25 de junio de 2026</span>
+                        <span class="badge badge-success">feat(perfil, exportar)</span>
+                    </div>
+                    
+                    <div class="timeline">
+                        <div class="timeline-item">
+                            <span class="timeline-date">Fecha de implementación</span>
+                            <div class="timeline-content">
+                                <p><strong>Qué es:</strong> Sistema completo para manejo de fotos de perfil de usuarios con almacenamiento en servicios de objetos (S3/MinIO/R2) y funcionalidad de carga masiva por cédula.</p>
+                            </div>
+                        </div>
+                        
+                        <div class="timeline-item">
+                            <span class="timeline-date">Detalles técnicos</span>
+                            <div class="timeline-content">
+                                <div class="technical-details">
+                                    <h4>Arquitectura de almacenamiento optimizada</h4>
+                                    <ul>
+                                        <li><strong>Almacenamiento externo:</strong> Solo se guarda la clave (key) en la base de datos, el binario real en almacenamiento de objetos (S3/MinIO/R2)</li>
+                                        <li><strong>Campo nuevo:</strong> Columna <code>clave_foto</code> en la tabla <code>usuarios</code> mediante migración <code>20260625000000_foto_perfil_usuario</code></li>
+                                        <li><strong>API dedicada:</strong> Endpoint <code>/api/usuarios/[id]/foto</code> para manejo seguro de imágenes</li>
+                                        <li><strong>Componente Avatar reutilizable:</strong> Con fallback a iniciales cuando no hay foto disponible</li>
+                                        <li><strong>Carga masiva por lote:</strong> Administradores pueden subir ZIP con fotos nombradas por cédula para actualización eficiente</li>
+                                    </ul>
+                                </div>
+                                
+                                <div class="technical-details">
+                                    <h4>Flujos de trabajo de usuario</h4>
+                                    <ul>
+                                        <li><strong>Autoservicio individual:</strong> Usuario puede subir/actualizar su foto en <code>/perfil</code> mediante interfaz intuitiva</li>
+                                        <li><strong>Validación de formato:</strong> Validación de tipos de archivo y tamaños mínimos/máximos</li>
+                                        <li><strong>Procesamiento de imágenes:</strong> Redimensionado y optimización opcional antes del almacenamiento</li>
+                                        <li><strong>Eliminación segura:</strong> Borrado tanto de la referencia en BD como del archivo en almacenamiento de objetos</li>
+                                        <li><strong>Integración con UI:</strong> Componente <code>Avatar</code> usado consistentemente en toda la aplicación</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="benefits">
+                        <div class="benefit-card">
+                            <div class="benefit-icon">🎨</div>
+                            <h4>Personalización mejorada</h4>
+                            <p>Experiencia de usuario más personalizada y profesional que mejora el sentido de pertenencia</p>
+                        </div>
+                        <div class="benefit-card">
+                            <div class="benefit-icon">📦</div>
+                            <h4>Escalabilidad</h4>
+                            <p>Almacenamiento externo evita crecimiento excesivo de la base de datos y mejora el rendimiento</p>
+                        </div>
+                        <div class="benefit-card">
+                            <div class="benefit-icon">⏱️</div>
+                            <h4>Eficiencia operativa</h4>
+                            <p>Carga masiva ahorra tiempo significativo en entornos con muchos usuarios (ej: onboarding de nuevos empleados)</p>
+                        </div>
+                        <div class="benefit-card">
+                            <div class="benefit-icon">🔄</div>
+                            <h4>Consistencia visual</h4>
+                            <p>Interfaz uniforme con fallbacks gracefully diseñados que garantizan buena UX en todas las condiciones</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="subsection">
+                    <h3>3.2 Exportación de Clientes</h3>
+                    <div class="commit-info">
+                        <span class="commit-hash">fa84d46</span>
+                        <span class="commit-date">25 de junio de 2026</span>
+                        <span class="badge badge-success">feat(perfil, exportar)</span>
+                    </div>
+                    
+                    <div class="timeline">
+                        <div class="timeline-item">
+                            <span class="timeline-date">Fecha de implementación</span>
+                            <div class="timeline-content">
+                                <p><strong>Qué es:</strong> Funcionalidad para exportar la lista de clientes a formato Excel desde la sección de configuración de clientes (<code>/config/clientes</code>).</p>
+                            </div>
+                        </div>
+                        
+                        <div class="timeline-item">
+                            <span class="timeline-date">Detalles técnicos</span>
+                            <div class="timeline-content">
+                                <div class="technical-details">
+                                    <h4>Implementación de exportación</h4>
+                                    <ul>
+                                        <li><strong>Endpoint dedicado:</strong> <code>src/app/(app)/config/clientes/exportar/route.ts</code> que maneja la generación y entrega del archivo</li>
+                                        <li><strong>Lógica de exportación:</strong> Implementada en <code>src/lib/export/clientes.ts</code> con pruebas unitarias en <code>src/lib/export/clientes.test.ts</code></li>
+                                        <li><strong>Formato Excel optimizado:</strong> Utiliza bibliotecas estándar para generar archivos .xlsx compatibles con Excel, Google Sheets y LibreOffice</li>
+                                        <li><strong>Selección de campos:</strong> Incluye todos los campos relevantes del cliente (código, nombre, NIT, tipo, sector, ERP, estado, fechas de creación/actualización)</li>
+                                        <li><strong>Integración de permisos:</strong> Reutiliza el sistema de permisos existente para controlar quién puede exportar</li>
+                                        <li><strong>Nombre de archivo descriptivo:</strong> Generado dinámicamente con timestamp para evitar sobrescrituras</li>
+                                    </ul>
+                                </div>
+                                
+                                <div class="technical-details">
+                                    <h4>Experiencia de usuario</h4>
+                                    <ul>
+                                        <li><strong>Un clic:</strong> Botón visible en la interfaz de configuración de clientes que inicia la exportación inmediatamente</li>
+                                        <li><strong>Notificación de éxito:</strong> Toast de confirmación al completar la exportación</li>
+                                        <li><strong>Manejo de errores:</strong> Mensajes claros en caso de fallos durante el proceso</li>
+                                        <li><strong>Responsividad:</strong> Funciona correctamente en dispositivos móviles y escritorio</li>
+                                        <li><strong>Privacidad de datos:</strong> Solo exporta datos a los que el usuario tiene permiso según su rol y asignaciones</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="benefits">
+                        <div class="benefit-card">
+                            <div class="benefit-icon">📤</div>
+                            <h4>Reportabilidad mejorada</h4>
+                            <p>Facilita la generación de reportes ejecutivos, auditorías y análisis externos sin intervención técnica</p>
+                        </div>
+                        <div class="benefit-card">
+                            <div class="benefit-icon">🔗</div>
+                            <h4>Interoperabilidad</h4>
+                            <p>Formato Excel ampliamente compatible con otras herramientas empresariales y sistemas de reporting</p>
+                        </div>
+                        <div class="benefit-card">
+                            <div class="benefit-icon">⏰</div>
+                            <h4>Ahorro de tiempo</h4>
+                            <p>Eliminación de procesos manuales de extracción de datos que antes requerían consultas SQL o reportes personalizados</p>
+                        </div>
+                        <div class="benefit-card">
+                            <div class="benefit-icon">🎯</div>
+                            <h4>Precisión de datos</h4>
+                            <p>Exportación directa desde la fuente de verdad garantiza consistencia y elimina errores de transcripción manual</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+        
+        <section>
+            <div class="section-header">
+                <h2>🔒 Módulo de Auditoría y Balance</h2>
+            </div>
+            <div class="section-content">
+                <div class="subsection">
+                    <h3>4.1 Registro de Accesos y Mejora de Auditoría</h3>
+                    <div class="commit-info">
+                        <span class="commit-hash">739a9ec</span>
+                        <span class="commit-date">24 de junio de 2026</span>
+                        <span class="badge badge-success">feat(auditoria, balance)</span>
+                    </div>
+                    
+                    <div class="timeline">
+                        <div class="timeline-item">
+                            <span class="timeline-date">Fecha de implementación</span>
+                            <div class="timeline-content">
+                                <p><strong>Qué es:</strong> Mejoras significativas al sistema de auditoría incluyendo el registro detallado de accesos a la plataforma y mejoras en la estructura existente de auditoría.</p>
+                            </div>
+                        </div>
+                        
+                        <div class="timeline-item">
+                            <span class="timeline-date">Detalles técnicos</span>
+                            <div class="timeline-content">
+                                <div class="technical-details">
+                                    <h4>Nuevo modelo de acceso</h4>
+                                    <p>Modelo Prisma <code>AccessLog</code> que registra:</p>
+                                    <ul>
+                                        <li>Usuario (ID y nombre desnormalizado para historial persistente)</li>
+                                        <li>Rol del usuario en el momento del acceso</li>
+                                        <li>Ruta visitada (path) con límite de longitud para prevención de abusos</li>
+                                        <li>Tipo de evento: <code>navegacion</code> (visitas reales), <code>ingreso</code> (login exitoso), <code>salida</code> (logout)</li>
+                                        <li>Dirección IP del cliente (para análisis de geolocalización y detección de anomalías)</li>
+                                        <li>User Agent del navegador (para análisis de tecnologías utilizadas)</li>
+                                        <li>Marca de tiempo precisa del evento</li>
+                                    </ul>
+                                </div>
+                                
+                                <div class="technical-details">
+                                    <h4>Implementación de registro</h4>
+                                    <ul>
+                                        <li><strong>Registro automático en login:</strong> En <code>src/app/actions/auth.ts</code> después de validación exitosa</li>
+                                        <li><strong>Registro automático en logout:</strong> En la misma función, capturando usuario antes de borrar sesión</li>
+                                        <li><strong>Rastreador del cliente:</strong> Componente <code>AccessTracker</code> que envía cada cambio de ruta vía <code>/api/registro-acceso</code></li>
+                                        <li><strong>Endpoint seguro:</strong> <code>src/app/api/registro-acceso/route.ts</code> que verifica sesión antes de registrar</li>
+                                        <li><strong>Best-effort logging:</strong> Función <code>registrarAcceso</code> que nunca lanza excepciones que afecten la operación principal</li>
+                                        <li><strong>Índices optimizados:</strong> Índices en <code>createdAt</code>, <code>(kind, createdAt)</code> y <code>(userName, createdAt)</code> para consultas eficientes del tablero</li>
+                                    </ul>
+                                </div>
+                                
+                                <div class="technical-details">
+                                    <h4>Mejoras en interfaz de auditoría</h4>
+                                    <ul>
+                                        <li><strong>Nueva pestaña:</strong> «Accesos y tráfico» separada de «Acciones» para mejor organización</li>
+                                        <li><strong>Control de acceso granular:</strong> Nuevo permiso <code>auditoria:accesos</code> (admin-only) para esta vista</li>
+                                        <li><strong>Filtrado avanzado:</strong> Por rango de días, usuario específico y tipo de evento</li>
+                                        <li><strong>Tabla detallada:</strong> Con paginación en memoria y columnas informativas (fecha, tipo, cliente, usuario, archivo, etc.)</li>
+                                        <li><strong>Dashboard resumen:</strong> Estadísticas por tipo de operación y por cliente con barras de progreso visuales</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="benefits">
+                        <div class="benefit-card">
+                            <div class="benefit-icon">🛡️</div>
+                            <h4>Seguridad mejorada</h4>
+                            <p>Trazabilidad completa de quién accedió a qué y cuándo para detección temprana de accesos no autorizados</p>
+                        </div>
+                        <div class="benefit-card">
+                            <div class="benefit-icon">📋</div>
+                            <h4>Cumplimiento normativo</h4>
+                            <p>Facilita el cumplimiento de requisitos de auditoría interna y externa (SOX, GDPR, etc.)</p>
+                        </div>
+                        <div class="benefit-card">
+                            <div class="benefit-icon">📈</div>
+                            <h4>Análisis de uso</h4>
+                            <p>Información valiosa para optimización de experiencia de usuario basada en patrones reales de navegación</p>
+                        </div>
+                        <div class="benefit-card">
+                            <div class="benefit-icon">🔍</div>
+                            <h4>Detección de anomalías</h4>
+                            <p>Identificación fácil de accesos inusuales (horarios estranos, IPs desconocidas, frecuencia elevada)</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="subsection">
+                    <h3>4.2 Mejoras en el Módulo de Balance</h3>
+                    
+                    <div class="timeline-item">
+                        <span class="timeline-date">892c0e6 - 6 de junio de 2026</span>
+                        <span class="badge badge-success">feat(balance)</span>
+                    </div>
+                    <div class="timeline-content">
+                        <p><strong>Funcionalidad de búsqueda en detalle de balance:</strong></p>
+                        <ul>
+                            <li>Implementación de campo de búsqueda que permite filtrar los nodos del árbol de balance por código o nombre</li>
+                            <li>Nuevo estado para manejar la consulta de búsqueda y actualización de lógica de visualización</li>
+                            <li>Introducción de nuevo conjunto de etiquetas para los niveles de los nodos para mejor representación visual</li>
+                            <li>Mejor usabilidad para usuarios que trabajan con balances extensos (hundreds or thousands of accounts)</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="timeline-item">
+                        <span class="timeline-date">0cbaf8c - 23 de junio de 2026</span>
+                        <span class="badge badge-info">refactor(balance)</span>
+                    </div>
+                    <div class="timeline-content">
+                        <p><strong>Optimización de recuperación de datos:</strong></p>
+                        <ul>
+                            <li>Actualización de cláusula <code>orderBy</code> en consulta de BD para ordenar solo por <code>creadoEn</code>, simplificando lógica</li>
+                            <li>Mejoras en estructura de datos para agregación de clientes agregando <code>periodTs</code> y <code>lastTs</code></li>
+                            <li>Implementación de ordenamiento basado en subidas más recientes para mostrar primero los datos más relevantes</li>
+                            <li>Reducción significativa en tiempo de carga de la página de balance</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="timeline-item">
+                        <span class="timeline-date">4adef00 - 10 de junio de 2026</span>
+                        <span class="badge badge-info">refactor(balance)</span>
+                    </div>
+                    <div class="timeline-content">
+                        <p><strong>Mejora en lógica de importación de cuentas:</strong></p>
+                        <ul>
+                            <li>Actualización de regla de longitud mínima para cuentas de detalle, priorizando nivel auxiliar de 8 dígitos</li>
+                            <li>Respaldo a nivel 6 si no se encuentran cuentas de 8 dígitos (evita pérdida de datos importantes)</li>
+                            <li>Nueva función para verificar existencia de cuentas numéricas de un nivel específico</li>
+                            <li>Ajustes en pruebas para reflejar estos cambios y asegurar robustez del proceso</li>
+                            <li>Prevención de inclusión de subcuentas no deseadas que generaban ruido en los reportes</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="timeline-item">
+                        <span class="timeline-date">03b42fe - 28 de junio de 2026</span>
+                        <span class="badge badge-success">refactor(balance)</span>
+                    </div>
+                    <div class="timeline-content">
+                        <p><strong>Simplificación de lógica y interfaz de balance:</strong></p>
+                        <ul>
+                            <li>Eliminación del "centro operativo" de toda la lógica y campo tipo de balance del modal</li>
+                            <li>Remoción de columna <code>centro_operativo</code> mediante migración <code>20260628000000_quitar_centro_operativo_balance</code></li>
+                            <li>Quita del campo "Tipo de balance" del modal de carga (NIF sigue fijo por regla de negocio)</li>
+                            <li>Muestra del valor completo (no abreviado) en tarjetas Activo/Pasivo/Patrimonio/Utilidad del detalle de balance</li>
+                            <li>Simplificación de esquemas Zod, prompt de IA y pruebas asociadas</li>
+                        </ul>
+                    </div>
+                    
+                    <div class="benefits">
+                        <div class="benefit-card">
+                            <div class="benefit-icon">🔍</div>
+                            <h4>Usabilidad superior</h4>
+                            <p>Búsqueda en tiempo real que permite encontrar cuentas específicas rápidamente en balances grandes</p>
+                        </div>
+                        <div class="benefit-card">
+                            <div class="benefit-icon">⚡</div>
+                            <h4>Rendimiento optimizado</h4>
+                            <p>Carga más rápida y mejor manejo de grandes volúmenes de datos mediante consultas optimizadas</p>
+                        </div>
+                        <div class="benefit-card">
+                            <div class="benefit-icon">🎯</div>
+                            <h4>Precisión de datos</h4>
+                            <p>Lógica de importación más robusta que evita incluir cuentas incorrectas o duplicadas</p>
+                        </div>
+                        <div class="benefit-card">
+                            <div class="benefit-icon">🧹</div>
+                            <h4>Interfaz limpia</h4>
+                            <p>Eliminación de complejidad innecesaria que reduce la carga cognitiva y mejora la experiencia de usuario</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+        
+        <section>
+            <div class="section-header">
+                <h2>✨ Mejoras de Experiencia de Usuario</h2>
+            </div>
+            <div class="section-content">
+                <div class="subsection">
+                    <h3>5.1 Rediseño del Sidebar</h3>
+                    <div class="commit-info">
+                        <span class="commit-hash">674d4e1</span>
+                        <span class="commit-date">23 de junio de 2026</span>
+                        <span class="badge badge-info">refactor(sidebar)</span>
+                    </div>
+                    
+                    <div class="timeline">
+                        <div class="timeline-item">
+                            <span class="timeline-date">Fecha de implementación</span>
+                            <div class="timeline-content">
+                                <p><strong>Qué es:</strong> Mejora significativa en el diseño y estructura del componente Sidebar para mejor organización visual y experiencia de navegación.</p>
+                            </div>
+                        </div>
+                        
+                        <div class="timeline-item">
+                            <span class="timeline-date">Detalles técnicos</span>
+                            <div class="timeline-content">
+                                <div class="technical-details">
+                                    <h4>Mejoras de diseño implementadas</h4>
+                                    <ul>
+                                        <li><strong>Espaciado optimizado:</strong> Adición de <code>gap</code> entre elementos de navegación para mejorar legibilidad</li>
+                                        <li><strong>Actualización de clases:</strong> Clases de botones y enlaces actualizadas para optimizar diseño visual</li>
+                                        <li><strong>Estructura de grupos:</strong> Mejor alineamiento y presentación de elementos secundarios en grupos de trabajo y configuración</li>
+                                        <li><strong>Jerarquía visual:</strong> Distinción clara entre secciones principales y secundarias mediante indentación y estilos</li>
+                                        <li><strong>Responsividad:</strong> Adaptación mejorada a diferentes tamaños de pantalla y dispositivos</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="benefits">
+                        <div class="benefit-card">
+                            <div class="benefit-icon">🧭</div>
+                            <h4>Navegación intuitiva</h4>
+                            <p>Menú organizado que reduce el tiempo de búsqueda y mejora la descubrimiento de funcionalidades</p>
+                        </div>
+                        <div class="benefit-card">
+                            <div class="benefit-icon">👁️</div>
+                            <h4>Menor carga cognitiva</h4>
+                            <p>Interfaz más limpia y organizada que facilita el enfoque en las tareas importantes</p>
+                        </div>
+                        <div class="benefit-card">
+                            <div class="benefit-icon">📱</div>
+                            <h4>Experiencia consistente</hnd>
+                            <p>Diseño adaptable que mantiene usabilidad óptima en desktop, tablet y móvil</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="subsection">
+                    <h3>5.2 Otras mejoras de usabilidad</h3>
+                    <div class="timeline">
+                        <div class="timeline-item">
+                            <span class="timeline-date">e80cbff - 23 de junio de 2026</span>
+                            <span class="badge badge-info">refactor(seed-novedades, anthropic, balance)</span>
+                        </div>
+                        <div class="timeline-content">
+                            <p><strong>Actualizaciones de claridad y precisión:</strong></p>
+                            <ul>
+                                <li>Modificación del título y descripción de mejora en extracción de balances con IA, enfocándose en prompt caching y su impacto en costos y velocidad</li>
+                                <li>Actualización del modelo de extracción por defecto a "claude-opus-4-8" para reflejar máxima calidad en extracción estructurada</li>
+                                <li>Ajustes en comentarios del código para clarificar comportamiento del prompt caching según el modelo utilizado</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+        
+        <section>
+            <div class="section-header">
+                <h2>📈 Impacto y Próximos Pasos</h2>
+            </div>
+            <div class="section-content">
+                <div class="subsection">
+                    <h3>Impacto estimado de las mejoras</h3>
+                    
+                    <div class="benefits" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));">
+                        <div class="benefit-card">
+                            <div class="benefit-icon">👥</div>
+                            <h4>Para usuarios finales</h4>
+                            <p>Experiencia más personalizada, eficiente y satisfactoria que reduce fricción y aumenta la adopción de la plataforma</p>
+                        </div>
+                        <div class="benefit-card">
+                            <div class="benefit-icon">⚙️</div>
+                            <h4>Para administradores</h4>
+                            <p>Herramientas avanzadas de control, monitoreo y personalización que reducen el overhead operativo y mejoran la gobernanza</p>
+                        </div>
+                        <div class="benefit-card">
+                            <div class="benefit-icon">🏢</div>
+                            <h4>Para la organización</h4>
+                            <p>Mejor cumplimiento normativo, reducción de costos operativos y mayor escalabilidad para soportar crecimiento</p>
+                        </div>
+                        <div class="benefit-card">
+                            <div class="benefit-icon">🚀</div>
+                            <h4>Para el producto</h4>
+                            <p>Base tecnológica más sólida con menos deuda técnica que facilita futuras innovaciones y mantenibilidad</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="subsection">
+                    <h3>Próximos pasos sugeridos</h3>
+                    <ol>
+                        <li><strong>Extensión del monitoreo de IA:</strong> Implementar alertas proactivas cuando se superen umbrales de costo o patrones de uso anómalos</li>
+                        <li><strong>Personalización avanzada:</strong> Añadir temas y configuraciones de interfaz por usuario/rol para mayor adaptabilidad</li>
+                        <li><strong>Analytics avanzados:</strong> Crear dashboards de uso basados en los logs de acceso para insights de comportamiento</li>
+                        <li><strong>Integración de IA expandida:</strong> Aplicar técnicas similares de IA a otros módulos além de balance (facturación, nómina, etc.)</li>
+                        <li><strong>Automatización de reportes:</strong> Generación automática de reportes de auditoría y consumo con programación y distribución por email</li>
+                        <li><strong>Optimización continua:</strong> Establecer métricas de rendimiento y retroalimentación de usuario para priorizar mejoras futuras</li>
+                    </ol>
+                </div>
+            </div>
+        </section>
+        
+        <footer class="footer">
+            <p>Presentación generada el 28 de junio de 2026 para Russell Diagnóstico</p>
+            <p>Basada en el análisis directo de commits recientes del repositorio russell-lfm</p>
+            <p>© 2026 Russell Diagnóstico - Todos los derechos reservados</p>
+        </footer>
+    </div>
+</body>
+</html>

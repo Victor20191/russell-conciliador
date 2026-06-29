@@ -1,14 +1,13 @@
 import { SignJWT, jwtVerify } from "jose";
 import type { SessionPayload } from "@/lib/definitions";
-
-const encodedKey = new TextEncoder().encode(process.env.SESSION_SECRET);
+import { getEncodedSessionSecret } from "@/lib/session-secret";
 
 export async function encrypt(payload: SessionPayload): Promise<string> {
   return new SignJWT(payload)
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("7d")
-    .sign(encodedKey);
+    .sign(getEncodedSessionSecret());
 }
 
 export async function decrypt(
@@ -16,7 +15,7 @@ export async function decrypt(
 ): Promise<SessionPayload | null> {
   if (!session) return null;
   try {
-    const { payload } = await jwtVerify(session, encodedKey, {
+    const { payload } = await jwtVerify(session, getEncodedSessionSecret(), {
       algorithms: ["HS256"],
     });
     return payload as unknown as SessionPayload;

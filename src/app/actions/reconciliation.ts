@@ -1,5 +1,6 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import prisma from "@/lib/prisma";
@@ -10,6 +11,7 @@ import { clienteDeConciliacion, clienteDeFilaConciliacion } from "@/lib/rbac/con
 import { parseId } from "@/lib/ids";
 import { createProcessNotification } from "@/lib/notifications";
 import { mensajeErrorBD } from "@/lib/errores";
+import { transaccionSerializable } from "@/lib/concurrency";
 import type { ActionState } from "@/lib/definitions";
 
 // Patrón de autorización en dos pasos: el primer gate exige sesión +
@@ -142,26 +144,37 @@ export async function executeReconciliation(
     ]);
     if (!client || !mod) return { ok: false, message: "Cliente o módulo inexistente." };
 
-    const n = await prisma.reconciliation.count();
-    const code = `REC-2026-${5000 + n}`;
     const totalDiff = DEMO_CROSS_ROWS.reduce((s, r) => s + r[4], 0);
     const itemsDiff = DEMO_CROSS_ROWS.filter((r) => r[4] !== 0).length;
 
-    const reconciliation = await prisma.reconciliation.create({
-      data: {
-        code, clientName: client.name, clientId: client.id, module: mod.name, period,
-        erp: client.erp?.name ?? "", status: "REVIEW", diff: fmtSigned(totalDiff), items: itemsDiff,
-        date: "hoy", owner: user?.name ?? "Auditor", cutoff, runAt: "hoy", runBy: user?.name ?? "Auditor",
-        materiality: 2000000, lastActivity: "ahora",
-        rows: { create: DEMO_CROSS_ROWS.map(([cuenta, desc, cont, modBal, diff, items], i) => ({ cuenta, desc, cont, mod: modBal, diff, items, order: i })) },
-      },
-    });
+    const { id, code } = await transaccionSerializable(async (tx) => {
+      const temporalCode = `REC-TMP-${randomUUID()}`;
+      const reconciliation = await tx.reconciliation.create({
+        data: {
+          code: temporalCode, clientName: client.name, clientId: client.id, module: mod.name, period,
+          erp: client.erp?.name ?? "", status: "REVIEW", diff: fmtSigned(totalDiff), items: itemsDiff,
+          date: "hoy", owner: user?.name ?? "Auditor", cutoff, runAt: "hoy", runBy: user?.name ?? "Auditor",
+          materiality: 2000000, lastActivity: "ahora",
+          rows: { create: DEMO_CROSS_ROWS.map(([cuenta, desc, cont, modBal, diff, items], i) => ({ cuenta, desc, cont, mod: modBal, diff, items, order: i })) },
+        },
+        select: { id: true },
+      });
 
-    // Marca el módulo del cliente como parametrizado
-    await prisma.clientModule.upsert({
-      where: { clientId_moduleId: { clientId, moduleId } },
-      create: { clientId, moduleId, status: "configured" },
-      update: { status: "configured" },
+      const year = new Date().getFullYear();
+      const code = `REC-${year}-${5000 + reconciliation.id}`;
+      await tx.reconciliation.update({
+        where: { id: reconciliation.id },
+        data: { code },
+      });
+
+      // Marca el módulo del cliente como parametrizado.
+      await tx.clientModule.upsert({
+        where: { clientId_moduleId: { clientId, moduleId } },
+        create: { clientId, moduleId, status: "configured" },
+        update: { status: "configured" },
+      });
+
+      return { id: reconciliation.id, code };
     });
 
     await logAudit({ user: user?.name ?? "Sistema", action: "EJECUTÓ", entity: `Cruce ${code}`, detail: `${mod.name} · ${client.name} · ${period}` });
@@ -171,7 +184,7 @@ export async function executeReconciliation(
       target: `${client.name} · ${mod.name} · ${period}`,
     });
     revalidatePath("/", "layout");
-    reconciliationId = reconciliation.id;
+    reconciliationId = id;
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("executeReconciliation", e) };
   }

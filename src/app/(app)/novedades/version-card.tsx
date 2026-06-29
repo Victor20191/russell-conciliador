@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Card, Chip } from "@/components/ui";
 import { Icon } from "@/components/icons";
+import { fmtDateTime } from "@/lib/format";
 import {
   parsePasos,
   esRutaInternaSegura,
@@ -15,11 +16,13 @@ import {
 } from "@/lib/novedades/format";
 import type { ChangeRow, VersionRow } from "./novedades-client";
 
-function formatFecha(iso: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleDateString("es-CO", { dateStyle: "long" });
+// ¿La edición es posterior y significativa frente al alta? (>1 min de diferencia,
+// para no marcar como "editado" el desfase del mismo guardado inicial).
+function fueEditado(createdAt: string, updatedAt: string): boolean {
+  const c = new Date(createdAt).getTime();
+  const u = new Date(updatedAt).getTime();
+  if (Number.isNaN(c) || Number.isNaN(u)) return false;
+  return u - c > 60_000;
 }
 
 export function VersionCard({
@@ -47,7 +50,10 @@ export function VersionCard({
             <span className="font-mono text-[13px] font-semibold text-navy-700">v{version.number}</span>
             <Chip label={etiquetaEstadoVersion(version.status)} tone={toneDeEstadoVersion(version.status)} />
             {version.releasedAt && (
-              <span className="text-[11.5px] text-ink-500">{formatFecha(version.releasedAt)}</span>
+              <span className="inline-flex items-center gap-1 text-[11.5px] text-ink-500">
+                <Icon name="calendar" size={12} className="text-ink-400" />
+                Publicada el {fmtDateTime(version.releasedAt)}
+              </span>
             )}
           </div>
           <h2 className="mt-1 font-serif text-lg text-ink-900">{version.title}</h2>
@@ -128,6 +134,14 @@ function ChangeItem({
               Eliminar
             </button>
           </div>
+        )}
+      </div>
+
+      <div className="mt-1.5 flex flex-wrap items-center gap-1 text-[11.5px] text-ink-500">
+        <Icon name="calendar" size={12} className="text-ink-400" />
+        <span>Aplicado el {fmtDateTime(change.createdAt)}</span>
+        {fueEditado(change.createdAt, change.updatedAt) && (
+          <span className="text-ink-400">· editado el {fmtDateTime(change.updatedAt)}</span>
         )}
       </div>
 

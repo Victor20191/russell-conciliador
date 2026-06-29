@@ -38,6 +38,7 @@ npm install
 cp .env.example .env
 #   - DATABASE_URL: cadena de conexión a PostgreSQL
 #   - SESSION_SECRET: genera uno con  openssl rand -base64 32
+#   - OPENROUTER_API_KEY: opcional, habilita reportes funcionales IA en /novedades
 
 # 3. Crear la base de datos (si no existe)
 createdb russell_lfm

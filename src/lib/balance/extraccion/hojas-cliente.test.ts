@@ -1,14 +1,15 @@
 import { describe, it, expect } from "vitest";
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import { leerHojasParaPreview, columnaLetra } from "./hojas-cliente";
 
 /** Arma un .xlsx en memoria a partir de hojas (AOA) y lo expone como un File mínimo. */
-function comoFile(hojas: Record<string, (string | number)[][]>): File {
-  const wb = XLSX.utils.book_new();
+async function comoFile(hojas: Record<string, (string | number)[][]>): Promise<File> {
+  const wb = new ExcelJS.Workbook();
   for (const [nombre, filas] of Object.entries(hojas)) {
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(filas), nombre);
+    const ws = wb.addWorksheet(nombre);
+    for (const fila of filas) ws.addRow(fila);
   }
-  const ab = XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer;
+  const ab = (await wb.xlsx.writeBuffer()) as ArrayBuffer;
   // Solo se usa `arrayBuffer()`; evitamos depender del `File` global del runtime.
   return { name: "balance.xlsx", arrayBuffer: async () => ab } as unknown as File;
 }
@@ -16,7 +17,7 @@ function comoFile(hojas: Record<string, (string | number)[][]>): File {
 describe("leerHojasParaPreview", () => {
   it("lista las hojas con contenido en orden, con su conteo y vista previa", async () => {
     const hojas = await leerHojasParaPreview(
-      comoFile({
+      await comoFile({
         Balance: [["Codigo", "Cuenta", "Saldo"], ["1105", "Caja", 1000], ["1110", "Bancos", 5000]],
         Retenciones: [["Concepto", "Valor"], ["Renta", 50]],
       }),
@@ -30,13 +31,13 @@ describe("leerHojasParaPreview", () => {
   });
 
   it("descarta las hojas vacías (no se ofrecen para elegir)", async () => {
-    const hojas = await leerHojasParaPreview(comoFile({ Balance: [["A"], ["1"]], Vacia: [] }));
+    const hojas = await leerHojasParaPreview(await comoFile({ Balance: [["A"], ["1"]], Vacia: [] }));
     expect(hojas.map((h) => h.nombre)).toEqual(["Balance"]);
   });
 
   it("recorta la muestra a 10 filas × 8 columnas pero conserva los totales reales", async () => {
     const filas = Array.from({ length: 15 }, (_, i) => Array.from({ length: 12 }, (_, j) => `r${i}c${j}`));
-    const [hoja] = await leerHojasParaPreview(comoFile({ Datos: filas }));
+    const [hoja] = await leerHojasParaPreview(await comoFile({ Datos: filas }));
     expect(hoja.totalFilas).toBe(15);
     expect(hoja.totalColumnas).toBe(12);
     expect(hoja.muestra.length).toBe(10);

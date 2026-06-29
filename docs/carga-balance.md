@@ -76,7 +76,7 @@ Sobre lo que la IA interpreta, la plataforma aplica además **controles automát
 
 ## 6. Formatos de archivo admitidos
 
-- Excel (`.xlsx`, `.xls`, `.xlsb`)
+- Excel (`.xlsx`, `.xlsm`)
 - CSV
 - JSON
 - PDF
