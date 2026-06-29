@@ -109,8 +109,16 @@ const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
  * ingesta (módulo puro, sin dependencia inversa) para que la consolidación y la
  * descomposición PUC sean robustas ante códigos sin pre-normalizar.
  */
-function limpiarCodigo(code: string): string {
-  return (code ?? "").replace(/[\s.]/g, "").trim();
+export function limpiarCodigo(code: string): string {
+  // Quita espacios/puntos y el SUFIJO ALFABÉTICO final que algunos ERP agregan a
+  // cuentas inactivas/variantes (INAC, A, AS…): `236550INAC` → `236550`. Así la
+  // cuenta con sufijo se normaliza a su código base y consolida con él (los PUC
+  // colombianos son numéricos, por lo que cualquier letra al final es un sufijo).
+  // Si al quitar el sufijo el código quedara vacío (código todo-letras), se
+  // conserva el original limpio para no perder la fila.
+  const limpio = (code ?? "").replace(/[\s.]/g, "").trim();
+  const sinSufijo = limpio.replace(/[A-Za-z]+$/, "");
+  return sinSufijo.length > 0 ? sinSufijo : limpio;
 }
 
 // ---- Segundo barrido: coincidencia por descripción ----
@@ -223,6 +231,44 @@ export function consolidarPorCodigo(cuentas: CuentaCruda[]): CuentaCruda[] {
 }
 
 /**
+ * Quita "padres redundantes" en archivos cuya jerarquía NO anida por prefijo: el
+ * ERP agrupa por estructura/indentación con códigos HERMANOS (p. ej. el padre
+ * `221005 PROVEEDORES INTERNACIONALES` y su único hijo `221006 …USD`, con el MISMO
+ * saldo). La detección por prefijo no los ve como padre/hijo y cargaría AMBOS →
+ * duplica el monto. Regla determinista y conservadora: dentro del MISMO grupo de 4
+ * díg, si dos cuentas tienen montos IDÉNTICOS y NO triviales (no todo en 0) y el
+ * nombre de una es prefijo del de la otra, la de nombre más corto (el encabezado)
+ * se descarta y se conserva el detalle. Solo aplica a montos idénticos, así que es
+ * casi imposible que afecte a cuentas genuinamente distintas.
+ */
+export function quitarPadresRedundantes(cuentas: CuentaCruda[]): CuentaCruda[] {
+  const norm = (s: string) => (s ?? "").trim().toUpperCase().replace(/\s+/g, " ");
+  const trivial = (c: CuentaCruda) => c.prevBalance === 0 && c.balance === 0 && (c.debitos ?? 0) === 0 && (c.creditos ?? 0) === 0;
+  // Firma: mismo grupo de 4 díg + montos idénticos.
+  const firma = (c: CuentaCruda) => `${c.code.slice(0, 4)}|${c.prevBalance}|${c.balance}|${c.debitos ?? 0}|${c.creditos ?? 0}`;
+  const grupos = new Map<string, CuentaCruda[]>();
+  for (const c of cuentas) {
+    if (trivial(c)) continue; // los de monto 0 no se deduplican (muchos coinciden)
+    const k = firma(c);
+    (grupos.get(k) ?? grupos.set(k, []).get(k)!).push(c);
+  }
+  const descartar = new Set<CuentaCruda>();
+  for (const g of grupos.values()) {
+    if (g.length < 2) continue;
+    for (const a of g) {
+      for (const b of g) {
+        if (a === b) continue;
+        const na = norm(a.name);
+        const nb = norm(b.name);
+        // `a` (encabezado) es prefijo de `b` (detalle más específico) → se descarta `a`.
+        if (na.length > 0 && nb.length > na.length && nb.startsWith(na)) descartar.add(a);
+      }
+    }
+  }
+  return descartar.size === 0 ? cuentas : cuentas.filter((c) => !descartar.has(c));
+}
+
+/**
  * Calcula los agregados del balance. `cuentas` son las filas crudas del
  * Excel; `estandar` el plan de cuentas (6 dígitos, con descripciones opcionales).
  * Mapeo en cascada: 1) exacto por prefijo de 6 dígitos; 2) por descripción si el
@@ -257,7 +303,9 @@ export function calcularBalance(
   for (const { code } of consolidadas) {
     for (let i = 1; i < code.length; i++) ancestros.add(code.slice(0, i));
   }
-  const hojas = consolidadas.filter((c) => !ancestros.has(c.code));
+  // Hojas por prefijo + guard para jerarquías de código hermano (padre/hijo con
+  // mismo saldo) que el prefijo no detecta (evita el doble conteo del encabezado).
+  const hojas = quitarPadresRedundantes(consolidadas.filter((c) => !ancestros.has(c.code)));
 
   // 2) Mapeo en cascada: config guardada del cliente → exacto → descripción →
   //    override IA. La config (por cuenta de 6 díg.) manda sobre todo lo demás.

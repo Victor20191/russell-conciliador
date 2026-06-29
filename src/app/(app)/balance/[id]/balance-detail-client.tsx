@@ -8,6 +8,7 @@ import { Modal } from "@/components/modal";
 import { fmt, fmtPct } from "@/lib/format";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import { asignarCuentaEstandar } from "@/app/actions/balance";
+import Conversacion from "@/components/conversacion";
 import type { NodoBalance } from "@/lib/balance/calcular";
 
 export type Sums = { activo: number; pasivo: number; patrimonio: number; ingresos: number; gastos: number; costos: number; utilidad: number };
@@ -25,9 +26,9 @@ const CLASES_ER = new Set(["4", "5", "6", "7"]);
 const NIVEL_LABEL: Record<number, string> = { 2: "Clase", 4: "Subgrupo", 6: "Cta. estándar", 8: "Cta. cliente" };
 
 export default function BalanceDetailClient({
-  arbol, estandar, puedeMapear, validations, versions, officialVersion, warnCount,
+  arbol, estandar, puedeMapear, validations, versions, officialVersion, warnCount, balanceId, comentarios,
 }: {
-  arbol: NodoBalance[]; estandar: EstandarOpcion[]; puedeMapear: boolean; validations: Validation[]; versions: Version[]; officialVersion: string; warnCount: number;
+  arbol: NodoBalance[]; estandar: EstandarOpcion[]; puedeMapear: boolean; validations: Validation[]; versions: Version[]; officialVersion: string; warnCount: number; balanceId: number; comentarios: Record<string, number>;
 }) {
   const [tab, setTab] = useState<Tab>("breakdown");
   return (
@@ -37,7 +38,7 @@ export default function BalanceDetailClient({
         <TabBtn on={tab === "validations"} onClick={() => setTab("validations")} label="Validaciones" count={warnCount} />
         <TabBtn on={tab === "versions"} onClick={() => setTab("versions")} label="Versiones" count={versions.length} />
       </div>
-      {tab === "breakdown" && <BreakdownTab arbol={arbol} estandar={estandar} puedeMapear={puedeMapear} />}
+      {tab === "breakdown" && <BreakdownTab arbol={arbol} estandar={estandar} puedeMapear={puedeMapear} balanceId={balanceId} comentarios={comentarios} />}
       {tab === "validations" && <ValidationsTab validations={validations} />}
       {tab === "versions" && <VersionsTab versions={versions} officialVersion={officialVersion} />}
     </div>
@@ -99,12 +100,13 @@ function contarAlertas(arbol: NodoBalance[]): Map<string, Conteo> {
   return m;
 }
 
-function BreakdownTab({ arbol, estandar, puedeMapear }: { arbol: NodoBalance[]; estandar: EstandarOpcion[]; puedeMapear: boolean }) {
+function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios }: { arbol: NodoBalance[]; estandar: EstandarOpcion[]; puedeMapear: boolean; balanceId: number; comentarios: Record<string, number> }) {
   const [filtro, setFiltro] = useState<Filtro>("todo");
   const [q, setQ] = useState("");
   // Por defecto: expandido hasta nivel 6 (clase y subgrupo abiertos; cuentas del cliente colapsadas).
   const [open, setOpen] = useState<Set<string>>(() => new Set(keysConHijos(arbol).filter((k) => k.split("/").length <= 2)));
   const [asignar, setAsignar] = useState<NodoBalance | null>(null);
+  const [comentar, setComentar] = useState<NodoBalance | null>(null);
 
   // Conteo de alertas (mapeo / naturaleza) por nodo + totales del balance.
   const conteos = useMemo(() => contarAlertas(arbol), [arbol]);
@@ -173,18 +175,19 @@ function BreakdownTab({ arbol, estandar, puedeMapear }: { arbol: NodoBalance[]; 
             {visible.length === 0 ? (
               <tr><td colSpan={9} className="px-4 py-6 text-center text-[12.5px] text-ink-400">{q.trim() ? "Sin cuentas que coincidan con la búsqueda." : filtro === "alertas" ? "Sin alertas de mapeo ni de naturaleza. 🎉" : "Sin cuentas para este filtro."}</td></tr>
             ) : (
-              visible.flatMap((n) => filas(n, 0, openEff, toggle, puedeMapear, setAsignar, conteos))
+              visible.flatMap((n) => filas(n, 0, openEff, toggle, puedeMapear, setAsignar, conteos, comentarios, setComentar))
             )}
           </tbody>
         </table>
       </div>
       {asignar && <AsignarModal nodo={asignar} estandar={estandar} onClose={() => setAsignar(null)} />}
+      {comentar && <ComentarModal nodo={comentar} balanceId={balanceId} onClose={() => setComentar(null)} />}
     </Card>
   );
 }
 
 /** Renderiza recursivamente las filas (nodo + hijos si está expandido). */
-function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: string) => void, puedeMapear: boolean, onAsignar: (n: NodoBalance) => void, conteos: Map<string, Conteo>): React.ReactElement[] {
+function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: string) => void, puedeMapear: boolean, onAsignar: (n: NodoBalance) => void, conteos: Map<string, Conteo>, comentarios: Record<string, number>, onComentar: (n: NodoBalance) => void): React.ReactElement[] {
   const tieneHijos = nodo.hijos.length > 0;
   const isOpen = open.has(nodo.key);
   const esGrupo = nodo.nivel !== 8;
@@ -213,6 +216,14 @@ function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: 
       <td className={`px-4 py-2 ${esGrupo ? "font-semibold text-ink-800" : "text-ink-700"}`}>
         {nodo.name}
         {nodo.critical && nodo.nivel === 8 && <span className="ml-2"><Chip label="Crítica" tone="warn" /></span>}
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onComentar(nodo); }}
+          title="Comentarios de esta cuenta"
+          className={`ml-2 inline-flex items-center gap-0.5 rounded px-1 align-middle text-[11px] hover:bg-ink-100 ${comentarios[nodo.code] ? "text-blue-600" : "text-ink-300 hover:text-ink-600"}`}
+        >
+          <Icon name="msg" size={12} />{comentarios[nodo.code] ? <span className="font-semibold">{comentarios[nodo.code]}</span> : null}
+        </button>
       </td>
       <td className="px-4 py-2">{celdaMapeo(nodo, puedeMapear, onAsignar)}</td>
       <td className="px-4 py-2 text-right font-mono text-ink-400">{fmt(nodo.prevBalance)}</td>
@@ -225,7 +236,7 @@ function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: 
   );
 
   if (!tieneHijos || !isOpen) return [fila];
-  return [fila, ...nodo.hijos.flatMap((h) => filas(h, depth + 1, open, toggle, puedeMapear, onAsignar, conteos))];
+  return [fila, ...nodo.hijos.flatMap((h) => filas(h, depth + 1, open, toggle, puedeMapear, onAsignar, conteos, comentarios, onComentar))];
 }
 
 function celdaMapeo(nodo: NodoBalance, puedeMapear: boolean, onAsignar: (n: NodoBalance) => void): React.ReactNode {
@@ -317,6 +328,15 @@ function AsignarModal({ nodo, estandar, onClose }: { nodo: NodoBalance; estandar
         </div>
         {pending && <p className="text-[12px] text-ink-500">Asignando…</p>}
       </div>
+    </Modal>
+  );
+}
+
+/** Comentarios de una cuenta puntual del balance (anclados por su código). */
+function ComentarModal({ nodo, balanceId, onClose }: { nodo: NodoBalance; balanceId: number; onClose: () => void }) {
+  return (
+    <Modal open onClose={onClose} title={`Comentarios · ${nodo.code} — ${nodo.name}`} size="2xl">
+      <Conversacion tipo="balance" entityId={balanceId} anchor={nodo.code} titulo={`${NIVEL_LABEL[nodo.nivel]} ${nodo.code} · ${nodo.name}`} />
     </Modal>
   );
 }

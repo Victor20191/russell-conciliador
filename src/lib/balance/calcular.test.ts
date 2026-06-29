@@ -5,6 +5,7 @@ import {
   aplanarBreakdown,
   compararBalances,
   consolidarPorCodigo,
+  quitarPadresRedundantes,
   descomponerCuenta,
   aFilasDetalle,
   reconstruirBalance,
@@ -304,6 +305,57 @@ describe("calcularBalance — config de mapeo guardada del cliente", () => {
     const item = r.breakdown.flatMap((g) => g.items).find((i) => i.code === "110505");
     expect(item?.std).toBe("130505");
     expect(item?.mapped).toBe(true);
+  });
+});
+
+describe("limpiarCodigo — sufijo alfabético (INAC/A/AS) se omite", () => {
+  it("descomponerCuenta quita el sufijo y normaliza el código", () => {
+    expect(descomponerCuenta("236550INAC")).toEqual({ cuenta2: "23", cuenta4: "2365", cuenta6: "236550", cuenta8: "236550" });
+    expect(descomponerCuenta("23680503A").cuenta8).toBe("23680503");
+    expect(descomponerCuenta("23680523INAC").cuenta8).toBe("23680523");
+    // Código numérico puro no cambia.
+    expect(descomponerCuenta("110505").cuenta8).toBe("110505");
+  });
+
+  it("consolidarPorCodigo fusiona la cuenta con sufijo con su base (suma saldos)", () => {
+    const r = consolidarPorCodigo([
+      { code: "236550", name: "RTE FTE 10%", prevBalance: 0, balance: -1715696, debitos: 0, creditos: 1715696 },
+      { code: "236550INAC", name: "RTE FTE 20%", prevBalance: 0, balance: -16585270, debitos: 0, creditos: 16585270 },
+    ]);
+    expect(r).toHaveLength(1);
+    expect(r[0].code).toBe("236550");
+    expect(r[0].balance).toBe(-18300966); // -1.715.696 + -16.585.270
+  });
+});
+
+describe("quitarPadresRedundantes — jerarquía de código hermano (no anida por prefijo)", () => {
+  it("descarta el encabezado padre cuando el hijo tiene mismo saldo y nombre más específico", () => {
+    const cuentas: CuentaCruda[] = [
+      { code: "221005", name: "PROVEEDORES INTERNACIONALES", prevBalance: 0, balance: -30454318366, debitos: 0, creditos: 30454318366 },
+      { code: "221006", name: "PROVEEDORES INTERNACIONALES USD", prevBalance: 0, balance: -30454318366, debitos: 0, creditos: 30454318366 },
+      { code: "220501", name: "PROVEEDORES", prevBalance: 0, balance: -11388561892, debitos: 0, creditos: 11388561892 },
+      { code: "220505", name: "PROVEEDORES NACIONALES", prevBalance: 0, balance: -11388561892, debitos: 0, creditos: 11388561892 },
+    ];
+    const r = quitarPadresRedundantes(cuentas);
+    const codigos = r.map((c) => c.code).sort();
+    // Se conservan los detalles (221006/220505), se descartan los encabezados (221005/220501).
+    expect(codigos).toEqual(["220505", "221006"]);
+  });
+
+  it("NO toca cuentas con mismo saldo si NO hay relación de nombre (cuentas distintas)", () => {
+    const cuentas: CuentaCruda[] = [
+      { code: "221005", name: "CUENTA A", prevBalance: 0, balance: -1000, debitos: 0, creditos: 1000 },
+      { code: "221006", name: "CUENTA B", prevBalance: 0, balance: -1000, debitos: 0, creditos: 1000 },
+    ];
+    expect(quitarPadresRedundantes(cuentas)).toHaveLength(2);
+  });
+
+  it("NO deduplica saldos en cero (evita falsos positivos masivos)", () => {
+    const cuentas: CuentaCruda[] = [
+      { code: "221005", name: "PROVEEDORES", prevBalance: 0, balance: 0, debitos: 0, creditos: 0 },
+      { code: "221006", name: "PROVEEDORES USD", prevBalance: 0, balance: 0, debitos: 0, creditos: 0 },
+    ];
+    expect(quitarPadresRedundantes(cuentas)).toHaveLength(2);
   });
 });
 

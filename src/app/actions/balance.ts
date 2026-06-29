@@ -19,6 +19,7 @@ import {
   aplanarBreakdown,
   compararBalances,
   tokenizarPlan,
+  limpiarCodigo,
   type CuentaCruda,
   type CuentaEstandar,
   type ResultadoBalance,
@@ -540,6 +541,65 @@ export async function leerBalance(
     };
   } catch (e) {
     return { ok: false, message: mensajeErrorIA("leerBalance", e) };
+  }
+}
+
+/**
+ * AUDITORÍA RÁPIDA pre-carga (determinista, sin IA): dado el cliente elegido y las
+ * cuentas leídas, evidencia (a) **posibles omisiones** —cuentas imputables del
+ * ÚLTIMO balance del cliente que NO vienen en este archivo— y (b) cuentas que se
+ * **cargarán sin mapeo** al estándar. No escribe nada ni bloquea; es para que la
+ * persona revise antes de confirmar.
+ */
+export type AuditoriaCarga = {
+  ok: boolean;
+  message?: string;
+  hayPrevio: boolean;
+  omisiones: { code: string; name: string }[];
+  sinMapeo: { code: string; name: string }[];
+};
+
+export async function auditarCargaBalance(clienteId: number, importReady: CuentaCruda[]): Promise<AuditoriaCarga> {
+  const vacio: AuditoriaCarga = { ok: false, hayPrevio: false, omisiones: [], sinMapeo: [] };
+  const authz = await authorizePermiso("balance:crear");
+  if (!authz.ok) return { ...vacio, message: authz.message };
+  const scope = await authorizePermiso("balance:crear", { clientId: clienteId });
+  if (!scope.ok) return { ...vacio, message: scope.message };
+  const parsed = ImportReadySchema.safeParse(importReady);
+  if (!parsed.success) return { ...vacio, message: "Cuentas leídas inválidas." };
+  const cuentas = parsed.data;
+  try {
+    // Mismo criterio de normalización que la carga (quita sufijos INAC/A/AS), para
+    // que la comparación sea consistente: `236550INAC` ≡ `236550`.
+    const enArchivo = new Set(cuentas.map((c) => limpiarCodigo(c.code)));
+
+    // (a) Omisiones: imputables del último balance del cliente ausentes en el archivo.
+    const previo = await prisma.balancePruebaEncabezado.findFirst({
+      where: { clienteId }, orderBy: { creadoEn: "desc" }, select: { id: true },
+    });
+    let omisiones: { code: string; name: string }[] = [];
+    if (previo) {
+      const det = await prisma.balancePruebaDetalle.findMany({ where: { encabezadoId: previo.id }, select: { cuenta8: true, nombreCuenta: true } });
+      omisiones = det.filter((d) => !enArchivo.has(limpiarCodigo(d.cuenta8))).map((d) => ({ code: d.cuenta8, name: d.nombreCuenta }));
+    }
+
+    // (b) Sin mapeo: cascada determinista (config guardada + exacto + descripción), SIN IA.
+    const cuentasEstandar = await getCuentasEstandar();
+    const configRows = await prisma.clientAccount.findMany({
+      where: { clienteId, cuenta6Russell: { not: null } },
+      select: { code: true, cuenta6Russell: true, coincidencia: true, origenMapeo: true },
+    });
+    const configCliente = new Map<string, { std: string; coincidencia: number | null }>();
+    for (const r of configRows) {
+      const c6 = r.code.slice(0, 6);
+      if (!configCliente.has(c6) || r.origenMapeo === "manual") configCliente.set(c6, { std: r.cuenta6Russell as string, coincidencia: r.coincidencia != null ? Number(r.coincidencia) : null });
+    }
+    const calc = calcularBalance(cuentas, cuentasEstandar, undefined, undefined, configCliente);
+    const sinMapeo = calc.breakdown.flatMap((g) => g.items).filter((it) => !it.mapped).map((it) => ({ code: it.code, name: it.name }));
+
+    return { ok: true, hayPrevio: !!previo, omisiones, sinMapeo };
+  } catch (e) {
+    return { ...vacio, message: mensajeErrorBD("auditarCargaBalance", e) };
   }
 }
 
