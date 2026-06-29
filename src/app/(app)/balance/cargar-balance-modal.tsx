@@ -97,9 +97,6 @@ function CargarBalanceModal({ clients, onClose, onReiniciar }: { clients: Client
 
   const sug = leerState?.sugerencia;
   const fase: "ok" | "revisar" | "archivo" = confirmState?.ok ? "ok" : sug ? "revisar" : "archivo";
-  // El cargue se bloquea si se detectó una fila TOTALES y las hojas NO cuadran
-  // contra ella (el servidor lo revalida; esto solo desactiva el botón antes).
-  const cuadreBloquea = fase === "revisar" && !!sug?.cuadre?.detectado && !sug.cuadre.cuadra;
 
   // Con Excel multi-hoja, no se puede leer hasta elegir una hoja.
   const requiereHoja = !!hojas && hojas.length >= 2;
@@ -118,11 +115,10 @@ function CargarBalanceModal({ clients, onClose, onReiniciar }: { clients: Client
         <button
           type="submit"
           form="confirmar-form"
-          disabled={cargando || cuadreBloquea}
-          title={cuadreBloquea ? "El balance no cuadra contra la fila TOTALES del archivo." : undefined}
+          disabled={cargando}
           className="ml-auto rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
         >
-          {cargando ? "Cargando…" : cuadreBloquea ? "No cuadra con TOTALES" : "Cargar balance"}
+          {cargando ? "Cargando…" : "Cargar balance"}
         </button>
       </div>
     ) : (
@@ -281,12 +277,12 @@ function CuadreBanner({ c }: { c: SugerenciaBalance["cuadre"] }) {
   }
   return (
     <div className="rounded-md border border-err-200 bg-err-50 px-3 py-2.5 text-[12px] text-err-700">
-      <div className="font-semibold">No cuadra contra la fila TOTALES del archivo — no se puede cargar.</div>
+      <div className="font-semibold">No cuadra contra la fila TOTALES del archivo.</div>
       <ul className="mt-1 list-disc space-y-0.5 pl-4">
         <li>Débitos: hojas {fmt(c.sumaDebitos)} vs TOTALES {fmt(c.totalDebitos)} (Δ {fmt(c.diferenciaDebitos)})</li>
         <li>Créditos: hojas {fmt(c.sumaCreditos)} vs TOTALES {fmt(c.totalCreditos)} (Δ {fmt(c.diferenciaCreditos)})</li>
       </ul>
-      <div className="mt-1">Revisa la jerarquía de cuentas (padres/auxiliares) y vuelve a leer el archivo.</div>
+      <div className="mt-1">Puedes cargarlo igual: quedará <span className="font-semibold">marcado como descuadrado</span> (novedad) para revisión, o revisa la jerarquía de cuentas (padres/auxiliares) y vuelve a leer el archivo.</div>
     </div>
   );
 }

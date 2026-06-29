@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useMemo, useState } from "react";
+import { useActionState, useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
 import { Card, Chip, StatCard, EmptyState } from "@/components/ui";
@@ -11,17 +11,16 @@ import {
 } from "@/components/pagination-controls";
 import { ActionForm } from "@/components/action-form";
 import { Modal } from "@/components/modal";
-import { notifyActionState } from "@/lib/client-notifications";
-import { updateAccountMapping, suggestMappingsAI } from "@/app/actions/mapping";
+import { notifyActionState, notifySuccess, notifyError } from "@/lib/client-notifications";
 import {
   createStandardAccount,
   updateStandardAccount,
   deleteStandardAccount,
 } from "@/app/actions/standard-accounts";
 import { crearSubgrupo, editarSubgrupo, eliminarSubgrupo } from "@/app/actions/subgrupos";
-import { crearMapeoCliente, editarMapeoCliente, eliminarMapeoCliente } from "@/app/actions/mapeo-cliente";
+import { crearMapeoCliente, editarMapeoCliente, eliminarMapeoCliente, confirmarMapeoCliente, reasignarMapeoCliente } from "@/app/actions/mapeo-cliente";
 
-export type Account = { id: number; code: string; level: number; name: string; russellCode: string | null };
+export type Account = { id: number; code: string; level: number; name: string; cuenta6Russell: string | null; coincidencia: number | null; origenMapeo: string | null };
 export type RussellOpt = { code: string; name: string; module: string | null };
 export type StdAccount = {
   id: number;
@@ -66,54 +65,38 @@ export type MapeoClienteRow = {
 
 type Tab = "mapping" | "standard" | "subgrupos" | "mapeocliente";
 
-// Estado de parametrización por módulo (metadata demo; el conteo se deriva de los mapeos).
-const MODULE_STATUS: Record<string, "ok" | "partial" | "missing"> = {
-  "Caja": "ok", "Bancos": "ok", "Cartera": "partial", "Inventarios": "ok",
-  "Activos fijos": "missing", "Cuentas por pagar": "ok", "DIAN": "partial",
-  "Nómina": "missing", "Ingresos": "ok",
-};
-const STATE_LABEL: Record<string, { label: string; tone: "ok" | "warn" | "err" }> = {
-  ok: { label: "Parametrizado", tone: "ok" },
-  partial: { label: "Parametrizado parcial", tone: "warn" },
-  missing: { label: "Sin parametrizar", tone: "err" },
-};
-
 export default function MapeoClient({
-  clientNames, cliente, accounts, options, std, subgrupos, canManage, logs, lockedStdCodes, mapeoCliente, clienteId, puedeMapear,
+  clientNames, cliente, accounts, std, subgrupos, canManage, logs, lockedStdCodes, mapeoCliente, clienteId, clienteNit, puedeMapear,
 }: {
-  clientNames: string[]; cliente: string; accounts: Account[]; options: RussellOpt[]; std: StdAccount[]; subgrupos: Subgrupo[]; canManage: boolean; logs: StdLogRow[]; lockedStdCodes: string[]; mapeoCliente: MapeoClienteRow[]; clienteId: number | null; puedeMapear: boolean;
+  clientNames: string[]; cliente: string; accounts: Account[]; std: StdAccount[]; subgrupos: Subgrupo[]; canManage: boolean; logs: StdLogRow[]; lockedStdCodes: string[]; mapeoCliente: MapeoClienteRow[]; clienteId: number | null; clienteNit: string | null; puedeMapear: boolean;
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("mapping");
   const [q, setQ] = useState("");
   const [level, setLevel] = useState<"all" | "4" | "6" | "8">("all");
+  const [soloPendientes, setSoloPendientes] = useState(false);
+  const [confirmar, setConfirmar] = useState<Account | null>(null);
+  const [asignar, setAsignar] = useState<Account | null>(null);
 
-  const optByCode = useMemo(() => new Map(options.map((o) => [o.code, o])), [options]);
+  const stdByCode = useMemo(() => new Map(std.map((s) => [s.code, s.name])), [std]);
+  // Opciones de cuenta estándar (nivel 6 del plan) para el selector de reasignación.
+  const opciones6 = useMemo(() => std.filter((s) => s.code.length === 6).map((s) => ({ code: s.code, name: s.name })), [std]);
   const stats = useMemo(() => ({
     total: accounts.length,
     n4: accounts.filter((a) => a.level === 4).length,
     n6: accounts.filter((a) => a.level === 6).length,
     n8: accounts.filter((a) => a.level === 8).length,
-    mapped: accounts.filter((a) => a.russellCode).length,
+    stdMapped: accounts.filter((a) => a.cuenta6Russell).length,
+    porConfirmar: accounts.filter((a) => a.cuenta6Russell && (a.coincidencia == null || a.coincidencia < 100)).length,
   }), [accounts]);
-  const modulesOk = Object.values(MODULE_STATUS).filter((s) => s === "ok").length;
-
-  // Conteo por módulo derivado de los mapeos actuales
-  const moduleCounts = useMemo(() => {
-    const m: Record<string, number> = {};
-    for (const a of accounts) {
-      const opt = a.russellCode ? optByCode.get(a.russellCode) : null;
-      if (opt?.module) m[opt.module] = (m[opt.module] ?? 0) + 1;
-    }
-    return m;
-  }, [accounts, optByCode]);
 
   const rows = accounts
     .filter((a) => level === "all" || a.level === Number(level))
+    .filter((a) => !soloPendientes || (!!a.cuenta6Russell && (a.coincidencia == null || a.coincidencia < 100)))
     .filter((a) => !q || a.code.includes(q) || a.name.toLowerCase().includes(q.toLowerCase()));
   const pg = usePagination(rows, 50);
 
-  const coverage = stats.total > 0 ? Math.round((stats.mapped / stats.total) * 100) : 0;
+  const stdCoverage = stats.total > 0 ? Math.round((stats.stdMapped / stats.total) * 100) : 0;
 
   return (
     <div>
@@ -140,17 +123,17 @@ export default function MapeoClient({
             <Chip label={`N4 · ${stats.n4}`} tone="ink" /><Chip label={`N6 · ${stats.n6}`} tone="ink" /><Chip label={`N8 · ${stats.n8}`} tone="ink" />
           </div>
         </Card>
-        <StatCard label="Parametrizadas" value={String(stats.mapped)} hint={`${coverage}% cobertura`} tone="ok" />
-        <StatCard label="Módulos de conciliación" value={`${modulesOk}/9`} hint="Parametrizados para este cliente" tone="blue" />
+        <StatCard label="Mapeadas a estándar" value={`${stats.stdMapped}/${stats.total}`} hint={`${stdCoverage}% cobertura`} tone="ok" />
+        <StatCard label="Por confirmar" value={String(stats.porConfirmar)} hint="coincidencia < 100%" tone={stats.porConfirmar > 0 ? "warn" : "ok"} />
       </div>
 
-      {/* Leyenda 3 segmentos */}
+      {/* Leyenda */}
       <div className="mt-4 flex flex-wrap items-center gap-2 text-[12px] text-ink-500">
-        <span className="rounded-md bg-ink-50 px-2.5 py-1.5"><b className="text-ink-700">Cuenta del cliente</b> · PUC del ERP (N4/N6/N8)</span>
+        <span className="rounded-md bg-ink-50 px-2.5 py-1.5"><b className="text-ink-700">Cuenta del cliente</b> · PUC (N4/N6/N8)</span>
         <Icon name="chev-r" size={12} />
-        <span className="rounded-md bg-ink-50 px-2.5 py-1.5"><b className="text-ink-700">Cuenta Russell</b> · selector contra el estándar</span>
+        <span className="rounded-md bg-ink-50 px-2.5 py-1.5"><b className="text-ink-700">Cuenta estándar</b> · plan Russell (6 díg)</span>
         <Icon name="chev-r" size={12} />
-        <span className="rounded-md bg-ink-50 px-2.5 py-1.5"><b className="text-ink-700">Conciliación</b> · módulo + estado</span>
+        <span className="rounded-md bg-ink-50 px-2.5 py-1.5"><b className="text-ink-700">% + Confirmación</b> · fija el mapeo manual</span>
       </div>
 
       {/* Tabla */}
@@ -170,33 +153,24 @@ export default function MapeoClient({
                 <button key={l} onClick={() => { setLevel(l); pg.resetToFirstPage(); }} className={`px-2.5 py-1 ${level === l ? "bg-navy-800 text-white" : "bg-white text-ink-600 hover:bg-ink-50"}`}>{l === "all" ? "Todos" : `N${l}`}</button>
               ))}
             </div>
+            <button
+              type="button"
+              onClick={() => { setSoloPendientes((v) => !v); pg.resetToFirstPage(); }}
+              className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11.5px] font-medium transition ${soloPendientes ? "border-warn-300 bg-warn-100 text-warn-700" : "border-ink-200 text-ink-600 hover:bg-ink-50"}`}
+            >
+              <Icon name="warn" size={12} /> Por confirmar{stats.porConfirmar > 0 ? ` (${stats.porConfirmar})` : ""}
+            </button>
             <input value={q} onChange={(e) => { setQ(e.target.value); pg.resetToFirstPage(); }} placeholder="Filtrar por código o nombre…" className="rounded-md border border-ink-200 px-2.5 py-1.5 text-[12px] outline-none focus:border-blue-400" />
             <PageSizeSelect value={pg.pageSize} onChange={pg.setPageSize} />
-            <ActionForm
-              action={suggestMappingsAI}
-              successMessage="Sugerencias IA aplicadas."
-              errorMessage="No se pudieron generar sugerencias IA."
-              showInlineError={false}
-              onSuccess={() => router.refresh()}
-            >
-              {(pending) => (
-                <>
-                  <input type="hidden" name="clientName" value={cliente} />
-                  <button
-                    type="submit"
-                    disabled={pending}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-ai-100 bg-ai-100 px-2.5 py-1.5 text-[12px] font-semibold text-ai-700 hover:opacity-80 disabled:opacity-60"
-                  >
-                    <Icon name="ai" size={13} /> {pending ? "Sugiriendo…" : "Sugerencias IA"}
-                  </button>
-                </>
-              )}
-            </ActionForm>
           </div>
         </div>
 
         {rows.length === 0 ? (
-          <EmptyState icon="doc" title="Sin cuentas para este cliente" description="Este cliente no tiene un PUC cargado en el repositorio de mapeo." />
+          soloPendientes ? (
+            <EmptyState icon="check" title="Nada por confirmar" description="Todas las cuentas con mapeo están confirmadas o son coincidencia exacta (100%)." />
+          ) : (
+            <EmptyState icon="doc" title="Sin cuentas para este cliente" description="Este cliente no tiene un PUC cargado en el repositorio de mapeo." />
+          )
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-[12.5px]">
@@ -205,49 +179,52 @@ export default function MapeoClient({
                   <th className="px-3 py-2 font-semibold">Nivel</th>
                   <th className="px-3 py-2 font-semibold">Código</th>
                   <th className="px-3 py-2 font-semibold">Nombre cuenta (ERP)</th>
-                  <th className="px-3 py-2 font-semibold">Cuenta Russell</th>
-                  <th className="px-3 py-2 font-semibold">Módulo · estado</th>
+                  <th className="px-3 py-2 font-semibold">Cuenta estándar (balance)</th>
+                  <th className="px-3 py-2 font-semibold">% Coincidencia</th>
+                  <th className="px-3 py-2 font-semibold">Confirmación</th>
                 </tr>
               </thead>
               <tbody>
                 {pg.pageItems.map((a) => {
-                  const opt = a.russellCode ? optByCode.get(a.russellCode) : null;
-                  const mod = opt?.module ?? null;
-                  const st = mod ? MODULE_STATUS[mod] : null;
+                  const sinMapeo = !a.cuenta6Russell;
+                  const confirmado = a.coincidencia != null && a.coincidencia >= 100;
                   return (
                     <tr key={a.id} className="border-b border-ink-50 last:border-0 hover:bg-ink-50">
                       <td className="px-3 py-2"><Chip label={`N${a.level}`} tone="ink" /></td>
                       <td className="px-3 py-2 font-mono text-ink-600" style={{ paddingLeft: a.level === 4 ? 12 : a.level === 6 ? 28 : 48 }}>{a.code}</td>
                       <td className="px-3 py-2 text-ink-800">{a.level !== 4 && <span className="mr-1 text-ink-300">└</span>}{a.name}</td>
                       <td className="px-3 py-2">
-                        <ActionForm
-                          action={updateAccountMapping}
-                          successMessage="Mapeo actualizado."
-                          errorMessage="No se pudo actualizar el mapeo."
-                          showInlineError={false}
-                          onSuccess={() => router.refresh()}
-                        >
-                          {(pending) => (
-                            <>
-                              <input type="hidden" name="id" value={a.id} />
-                              <select
-                                name="russell"
-                                defaultValue={a.russellCode ?? ""}
-                                disabled={pending}
-                                onChange={(e) => e.currentTarget.form?.requestSubmit()}
-                                className="w-full rounded-md border border-ink-200 px-2 py-1 text-[12px] outline-none focus:border-blue-400 disabled:bg-ink-50 disabled:text-ink-400"
-                              >
-                                <option value="">— Sin parametrizar —</option>
-                                {options.map((o) => <option key={o.code} value={o.code}>{o.code} · {o.name}</option>)}
-                              </select>
-                            </>
-                          )}
-                        </ActionForm>
+                        {puedeMapear ? (
+                          <button type="button" onClick={() => setAsignar(a)} title="Cambiar la cuenta estándar (aplica a todo el grupo de 6 díg)" className="text-left hover:underline">
+                            {sinMapeo ? (
+                              <Chip label="Asignar" tone="warn" />
+                            ) : (
+                              <span className="font-mono text-[11.5px] text-blue-600">{a.cuenta6Russell}{stdByCode.get(a.cuenta6Russell!) ? <span className="ml-1 font-sans text-ink-500">· {stdByCode.get(a.cuenta6Russell!)}</span> : null}</span>
+                            )}
+                          </button>
+                        ) : sinMapeo ? (
+                          <Chip label="Sin mapeo" tone="warn" />
+                        ) : (
+                          <span className="font-mono text-[11.5px] text-blue-600">{a.cuenta6Russell}{stdByCode.get(a.cuenta6Russell!) ? <span className="ml-1 font-sans text-ink-500">· {stdByCode.get(a.cuenta6Russell!)}</span> : null}</span>
+                        )}
                       </td>
                       <td className="px-3 py-2">
-                        {!a.russellCode ? <span className="italic text-ink-400">—</span>
-                          : !mod ? <span className="text-ink-500">No participa en conciliaciones</span>
-                          : <span className="inline-flex items-center gap-1.5"><Chip label={mod} tone="blue" /><Chip label={STATE_LABEL[st!].label} tone={STATE_LABEL[st!].tone} /></span>}
+                        {sinMapeo || a.coincidencia == null ? (
+                          <span className="text-ink-400">—</span>
+                        ) : (
+                          <span className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${a.coincidencia >= 85 ? "bg-ok-100 text-ok-700" : a.coincidencia >= 55 ? "bg-warn-100 text-warn-700" : "bg-err-100 text-err-700"}`}>{a.coincidencia}%</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">
+                        {sinMapeo ? (
+                          <span className="text-ink-400">—</span>
+                        ) : confirmado ? (
+                          <Chip label={a.origenMapeo === "manual" ? "Confirmado" : "Exacto"} tone="ok" />
+                        ) : (
+                          <button type="button" onClick={() => setConfirmar(a)} className="inline-flex items-center gap-1 rounded-md border border-warn-200 bg-warn-50 px-2.5 py-1 text-[11.5px] font-semibold text-warn-700 hover:bg-warn-100">
+                            <Icon name="check" size={12} /> Confirmar
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );
@@ -257,8 +234,7 @@ export default function MapeoClient({
           </div>
         )}
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-ink-100 px-4 py-2.5 text-[11.5px] text-ink-500">
-          <span>{stats.mapped} parametrizadas de {stats.total}</span>
-          <span>Última actualización: 08/Ene/2026 11:32 · Manuela Gutiérrez</span>
+          <span>{stats.stdMapped} mapeadas al estándar de {stats.total}{stats.porConfirmar > 0 ? ` · ${stats.porConfirmar} por confirmar` : ""}</span>
         </div>
         <PaginationFooter
           rangeLabel={pg.rangeLabel}
@@ -267,25 +243,15 @@ export default function MapeoClient({
           onPageChange={pg.setPage}
         />
       </Card>
-
-      {/* Resumen por módulo */}
-      <Card className="mt-4">
-        <div className="border-b border-ink-100 px-4 py-3 text-[13px] font-semibold text-ink-800">Estado de parametrización por módulo</div>
-        <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-3">
-          {Object.entries(MODULE_STATUS).map(([mod, state]) => (
-            <div key={mod} className="rounded-md border border-ink-150 px-3 py-2.5">
-              <div className="flex items-center justify-between">
-                <span className="text-[12.5px] font-semibold text-ink-800">{mod}</span>
-                <Chip label={STATE_LABEL[state].label} tone={STATE_LABEL[state].tone} />
-              </div>
-              <div className="mt-1 text-[11.5px] text-ink-500">{moduleCounts[mod] ?? 0} cuentas</div>
-            </div>
-          ))}
-        </div>
-      </Card>
+      {confirmar && (
+        <ConfirmarMapeoModal cuenta={confirmar} accounts={accounts} stdByCode={stdByCode} onClose={() => setConfirmar(null)} />
+      )}
+      {asignar && (
+        <AsignarEstandarModal cuenta={asignar} opciones={opciones6} onClose={() => setAsignar(null)} />
+      )}
         </>
       ) : tab === "mapeocliente" ? (
-        <MapeoClienteTab rows={mapeoCliente} std={std} clienteId={clienteId} puedeMapear={puedeMapear} cliente={cliente} clientNames={clientNames} />
+        <MapeoClienteTab rows={mapeoCliente} std={std} clienteId={clienteId} clienteNit={clienteNit} puedeMapear={puedeMapear} cliente={cliente} clientNames={clientNames} />
       ) : tab === "standard" ? (
         <StandardTab std={std} canManage={canManage} logs={logs} lockedStdCodes={lockedStdCodes} />
       ) : (
@@ -295,13 +261,142 @@ export default function MapeoClient({
   );
 }
 
-// ===== Memoria de mapeo por cliente (cuenta_6 del cliente → cuenta estándar) =====
-// Edita la tabla `mapeo_balance_cliente`: la parametrización que se reaplica en
-// cada importación del cliente. Gate de escritura: `balance:crear` (la action
-// revalida el alcance por cartera).
+// Caja de confirmación: confirma el mapeo de una cuenta como MANUAL al 100%. Por
+// defecto aplica a TODAS las cuentas del cliente que mapean al mismo estándar
+// (varios grupos de 6 díg a la vez, p. ej. todas las imputables → 158405); si se
+// desmarca, confirma solo el grupo de 6 díg de la fila.
+function ConfirmarMapeoModal({ cuenta, accounts, stdByCode, onClose }: {
+  cuenta: Account; accounts: Account[]; stdByCode: Map<string, string>; onClose: () => void;
+}) {
+  const router = useRouter();
+  const [todas, setTodas] = useState(true);
+  const c6 = cuenta.code.slice(0, 6);
+  const std = cuenta.cuenta6Russell;
+  const stdName = std ? stdByCode.get(std) : undefined;
+  const grupoCount = accounts.filter((x) => x.code.slice(0, 6) === c6).length;
+  const estandarCount = accounts.filter((x) => x.cuenta6Russell === std).length;
+  const estandarPend = accounts.filter((x) => x.cuenta6Russell === std && (x.coincidencia == null || x.coincidencia < 100)).length;
+  const total = todas ? estandarCount : grupoCount;
 
-function MapeoClienteTab({ rows, std, clienteId, puedeMapear, cliente, clientNames }: {
-  rows: MapeoClienteRow[]; std: StdAccount[]; clienteId: number | null; puedeMapear: boolean; cliente: string; clientNames: string[];
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      size="xl"
+      title="Confirmar mapeo estándar"
+      footer={
+        <ActionForm action={confirmarMapeoCliente} successMessage="Mapeo confirmado." errorMessage="No se pudo confirmar el mapeo." showInlineError={false} onSuccess={() => { router.refresh(); onClose(); }}>
+          {(pending) => (
+            <>
+              <input type="hidden" name="id" value={cuenta.id} />
+              <input type="hidden" name="todas" value={todas ? "1" : "0"} />
+              <button type="submit" disabled={pending} className="rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-60">
+                {pending ? "Confirmando…" : `Confirmar ${total} cuenta(s)`}
+              </button>
+            </>
+          )}
+        </ActionForm>
+      }
+    >
+      <div className="flex flex-col gap-3 text-[13px] text-ink-700">
+        <p>
+          La cuenta <span className="font-mono font-semibold">{cuenta.code}</span> — {cuenta.name} mapea a{" "}
+          <span className="font-mono text-blue-600">{std}</span>{stdName ? ` · ${stdName}` : ""} con <b>{cuenta.coincidencia ?? "—"}%</b> de coincidencia.
+        </p>
+        <label className="flex cursor-pointer items-start gap-2 rounded-md border border-ink-150 px-3 py-2.5 hover:bg-ink-50">
+          <input type="checkbox" checked={todas} onChange={(e) => setTodas(e.target.checked)} className="mt-0.5 h-4 w-4 rounded border-ink-300 text-navy-600 focus:ring-navy-600" />
+          <span className="text-[12.5px]">
+            <b>Aplicar a todas las cuentas que mapean a {std}{stdName ? ` · ${stdName}` : ""}</b>
+            <span className="mt-0.5 block text-ink-500">
+              {estandarCount} cuenta(s) en total · {estandarPend} pendiente(s). Si lo desmarcas, se confirma solo el grupo <span className="font-mono">{c6}</span> ({grupoCount} cuenta(s)).
+            </span>
+          </span>
+        </label>
+        <div className="rounded-md bg-blue-50 px-3 py-2 text-[12px] text-blue-700">
+          Las cuentas quedarán como mapeo <b>manual al 100%</b> y ya no se recalcularán (ni con IA) en próximas cargas de balance.
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// Selector (con búsqueda) para CAMBIAR la cuenta estándar de una fila. El cambio
+// aplica a todo el grupo de 6 díg como mapeo `manual` al 100%.
+function AsignarEstandarModal({ cuenta, opciones, onClose }: {
+  cuenta: Account; opciones: { code: string; name: string }[]; onClose: () => void;
+}) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [q, setQ] = useState("");
+  const c6 = cuenta.code.slice(0, 6);
+  const clase = cuenta.code.charAt(0);
+
+  const filtradas = useMemo(() => {
+    const t = q.trim().toLowerCase();
+    const base = opciones.filter((o) => (t ? `${o.code} ${o.name}`.toLowerCase().includes(t) : o.code.charAt(0) === clase));
+    return base.slice(0, 200);
+  }, [opciones, q, clase]);
+
+  const elegir = (codigo: string) => {
+    const fd = new FormData();
+    fd.set("id", String(cuenta.id));
+    fd.set("codigo", codigo);
+    start(async () => {
+      const r = await reasignarMapeoCliente(fd);
+      if (r?.ok) { notifySuccess("Cuenta estándar reasignada."); router.refresh(); onClose(); }
+      else notifyError(r?.message ?? "No se pudo reasignar la cuenta.");
+    });
+  };
+
+  return (
+    <Modal open onClose={onClose} title="Cambiar cuenta estándar" size="2xl">
+      <div className="flex flex-col gap-3">
+        <p className="text-[12.5px] text-ink-600">
+          Cuenta del cliente <span className="font-mono font-semibold">{cuenta.code}</span> — {cuenta.name}.
+          Elige la cuenta del <span className="font-semibold">plan estándar Russell</span> (nivel 6).
+        </p>
+        <p className="rounded-md bg-blue-50 px-3 py-2 text-[11.5px] text-blue-700">
+          Se aplicará a <span className="font-semibold">todo el grupo {c6}</span> (sus imputables de nivel 8) como mapeo <span className="font-semibold">manual al 100%</span>.
+        </p>
+        <input
+          autoFocus
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder={`Filtra por código o nombre… (por defecto, clase ${clase})`}
+          className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400"
+        />
+        <div className="max-h-80 overflow-y-auto rounded-md border border-ink-150">
+          {filtradas.length === 0 ? (
+            <div className="px-3 py-4 text-center text-[12px] text-ink-400">Sin coincidencias.</div>
+          ) : (
+            filtradas.map((o) => (
+              <button
+                key={o.code}
+                type="button"
+                disabled={pending}
+                onClick={() => elegir(o.code)}
+                className="flex w-full items-center gap-3 border-b border-ink-50 px-3 py-2 text-left last:border-0 hover:bg-ink-50 disabled:opacity-60"
+              >
+                <span className="font-mono text-[11.5px] font-semibold text-ink-700">{o.code}</span>
+                <span className="text-[12.5px] text-ink-700">{o.name}</span>
+                {o.code === cuenta.cuenta6Russell && <span className="ml-auto"><Chip label="Actual" tone="ok" /></span>}
+              </button>
+            ))
+          )}
+        </div>
+        {pending && <p className="text-[12px] text-ink-500">Reasignando…</p>}
+      </div>
+    </Modal>
+  );
+}
+
+// ===== Memoria de mapeo por cliente (cuenta_6 del cliente → cuenta estándar) =====
+// Edita la tabla `cuentas_cliente`: la parametrización que se reaplica en cada
+// importación del cliente. Gate de escritura: `balance:crear` (la action revalida
+// el alcance por cartera).
+
+function MapeoClienteTab({ rows, std, clienteId, clienteNit, puedeMapear, cliente, clientNames }: {
+  rows: MapeoClienteRow[]; std: StdAccount[]; clienteId: number | null; clienteNit: string | null; puedeMapear: boolean; cliente: string; clientNames: string[];
 }) {
   const router = useRouter();
   const [q, setQ] = useState("");
@@ -322,7 +417,7 @@ function MapeoClienteTab({ rows, std, clienteId, puedeMapear, cliente, clientNam
     <>
       <Card>
         <div className="border-b border-ink-100 bg-blue-50/40 px-4 py-2.5 text-[11.5px] leading-relaxed text-ink-600">
-          Memoria de mapeo de <b>{cliente}</b>: se aplica <b>automáticamente</b> al importar balances de este cliente (prioridad sobre la cascada). Lo marcado como <b>manual</b> no lo pisa el mapeo automático. Editar aquí <b>no</b> cambia balances ya cargados; aplica a las próximas importaciones.
+          Memoria de mapeo de <b>{cliente}</b>{clienteNit ? <> · NIT <span className="font-mono">{clienteNit}</span></> : null} (se identifica por NIT/cliente, no por nombre): se aplica <b>automáticamente</b> al importar balances de este cliente (prioridad sobre la cascada). Lo marcado como <b>manual</b> no lo pisa el mapeo automático. Editar aquí <b>no</b> cambia balances ya cargados; aplica a las próximas importaciones.
         </div>
         <div className="flex flex-wrap items-center gap-2 border-b border-ink-100 px-4 py-3">
           <h2 className="text-[13px] font-semibold text-ink-800">Mapeo de balance por cliente</h2>

@@ -199,7 +199,7 @@ export async function asignarCuentaEstandar(formData: FormData): Promise<ActionS
   try {
     const fila = await prisma.balancePruebaDetalle.findUnique({
       where: { id: detalleId },
-      select: { cuenta6: true, encabezado: { select: { id: true, clienteId: true } } },
+      select: { cuenta6: true, nombreCuenta: true, encabezado: { select: { id: true, clienteId: true, nombreCliente: true, nit: true } } },
     });
     if (!fila) return { ok: false, message: "La cuenta del balance ya no existe." };
 
@@ -208,7 +208,7 @@ export async function asignarCuentaEstandar(formData: FormData): Promise<ActionS
     if (!alcance.ok) return { ok: false, message: alcance.message };
 
     // La cuenta estándar debe existir (es de 6 dígitos = nivel 6 del plan).
-    const std = await prisma.standardAccount.findUnique({ where: { code: codigo }, select: { code: true } });
+    const std = await prisma.standardAccount.findUnique({ where: { code: codigo }, select: { code: true, name: true } });
     if (!std) return { ok: false, message: "La cuenta estándar seleccionada no existe." };
 
     const encId = fila.encabezado.id;
@@ -219,13 +219,21 @@ export async function asignarCuentaEstandar(formData: FormData): Promise<ActionS
       data: { cuenta6Russell: std.code, coincidencia: 100 },
     });
 
-    // Memoria del cliente: guarda esta asignación como `manual` para reusarla en
-    // próximos períodos (y que NO la pise el mapeo automático).
+    // Memoria del cliente (cuentas_cliente): guarda esta asignación como `manual`
+    // para reusarla en próximos períodos (y que NO la pise el mapeo automático).
+    // No toca el mapeo de conciliación (russellOption) de la fila si ya existe.
     const user = await getCurrentUser();
-    await prisma.mapeoBalanceCliente.upsert({
-      where: { clienteId_cuenta6: { clienteId: fila.encabezado.clienteId, cuenta6: fila.cuenta6 } },
-      create: { clienteId: fila.encabezado.clienteId, cuenta6: fila.cuenta6, cuenta6Russell: std.code, coincidencia: 100, origen: "manual", actualizadoPor: user?.name ?? null },
-      update: { cuenta6Russell: std.code, coincidencia: 100, origen: "manual", actualizadoPor: user?.name ?? null },
+    const ahora = new Date();
+    // Marca el grupo de 6 díg como mapeo MANUAL del cliente (memoria entre períodos).
+    await prisma.clientAccount.upsert({
+      where: { clienteId_code: { clienteId: fila.encabezado.clienteId, code: fila.cuenta6 } },
+      create: { clientName: fila.encabezado.nombreCliente, clienteId: fila.encabezado.clienteId, nit: fila.encabezado.nit, code: fila.cuenta6, level: 6, name: std.name ?? fila.cuenta6, cuenta6Russell: std.code, coincidencia: 100, origenMapeo: "manual", actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
+      update: { nit: fila.encabezado.nit, cuenta6Russell: std.code, coincidencia: 100, origenMapeo: "manual", actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
+    });
+    // Propaga el estándar a las cuentas IMPUTABLES del mismo grupo (display consistente).
+    await prisma.clientAccount.updateMany({
+      where: { clienteId: fila.encabezado.clienteId, code: { startsWith: fila.cuenta6 }, NOT: { code: fila.cuenta6 } },
+      data: { cuenta6Russell: std.code, coincidencia: 100, actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
     });
 
     // Recalcula contadores de mapeo del encabezado.
@@ -266,19 +274,32 @@ async function persistirCargue(p: {
   uploadedById?: number | null;
   rolLabel: string;
   meta: MetaEtl;
+  // Cuadre contra el gran total del archivo (TOTALES). Si no cuadra NO bloquea el
+  // cargue: se sube igual y queda marcado como descuadrado (novedad/alerta).
+  cuadreTotales?: CuadreTotales | null;
 }): Promise<{ id: number; version: string; calc: ResultadoBalance }> {
   // Plan pre-tokenizado una vez y compartido entre la pasada determinista y la
   // pasada con override de IA (evita re-tokenizar el plan dos veces por cargue).
   const planTok = tokenizarPlan(p.cuentasEstandar);
 
-  // Configuración de mapeo GUARDADA del cliente (memoria entre períodos): tiene
-  // PRIORIDAD sobre la cascada; lo marcado como `manual` nunca se recalcula.
-  const configRows = await prisma.mapeoBalanceCliente.findMany({
-    where: { clienteId: p.clientId },
-    select: { cuenta6: true, cuenta6Russell: true, coincidencia: true, origen: true },
+  // Configuración de mapeo GUARDADA del cliente (memoria entre períodos, en
+  // cuentas_cliente): tiene PRIORIDAD sobre la cascada; lo `manual` no se recalcula.
+  const configRows = await prisma.clientAccount.findMany({
+    where: { clienteId: p.clientId, cuenta6Russell: { not: null } },
+    select: { code: true, cuenta6Russell: true, coincidencia: true, origenMapeo: true },
   });
-  const configCliente = new Map(configRows.map((r) => [r.cuenta6, { std: r.cuenta6Russell, coincidencia: r.coincidencia != null ? Number(r.coincidencia) : null }]));
-  const manualSet = new Set(configRows.filter((r) => r.origen === "manual").map((r) => r.cuenta6));
+  // El mapeo es por cuenta de 6 díg: derivamos el mapa cuenta_6 → estándar desde
+  // CUALQUIER fila del cliente (grupo o imputable; todas comparten el estándar),
+  // dando prioridad a las filas `manual`. `manualCodes` son los códigos exactos
+  // marcados a mano (no se recalculan).
+  const configCliente = new Map<string, { std: string; coincidencia: number | null }>();
+  for (const r of configRows) {
+    const c6 = r.code.slice(0, 6);
+    if (!configCliente.has(c6) || r.origenMapeo === "manual") {
+      configCliente.set(c6, { std: r.cuenta6Russell as string, coincidencia: r.coincidencia != null ? Number(r.coincidencia) : null });
+    }
+  }
+  const manualCodes = new Set(configRows.filter((r) => r.origenMapeo === "manual").map((r) => r.code));
 
   // Barrido 0 (config guardada) + 1 (exacto) + 2 (descripción), deterministas.
   let calc = calcularBalance(p.importReady, p.cuentasEstandar, undefined, planTok, configCliente);
@@ -306,30 +327,45 @@ async function persistirCargue(p: {
     }
   }
 
-  // Memoria de mapeo del cliente: guarda lo resuelto (por cuenta de 6 díg.) para
-  // reusarlo en próximos períodos, SIN pisar lo marcado como `manual`. Best-effort.
+  // Registra/actualiza el PUC del cliente en cuentas_cliente: una fila por cuenta
+  // IMPUTABLE (cuenta 8, con su NOMBRE real) + una por grupo de 6 díg, cada una con
+  // su mapeo al plan estándar. Es la memoria entre períodos y el PUC real del
+  // cliente. NO pisa filas marcadas como `manual`. Best-effort: no rompe el cargue.
+  const filasDet = aFilasDetalle(calc.breakdown);
   try {
-    const resueltas = new Map<string, { std: string; coincidencia: number | null }>();
-    for (const g of calc.breakdown) {
-      for (const it of g.items) {
-        if (!it.std) continue;
-        const c6 = it.code.slice(0, 6);
-        if (!resueltas.has(c6)) resueltas.set(c6, { std: it.std, coincidencia: it.coincidencia });
+    const stdName = new Map(p.cuentasEstandar.map((s) => [s.code, s.name ?? s.code]));
+    const nivelPorCodigo = (code: string) => (code.length >= 8 ? 8 : code.length === 6 ? 6 : code.length === 4 ? 4 : 2);
+    // Una fila por código: imputables (nombre real) y grupos de 6 díg (nombre del estándar).
+    const rows = new Map<string, { code: string; level: number; name: string; std: string | null; coincidencia: number | null }>();
+    for (const f of filasDet) {
+      const coinc = f.coincidencia != null ? Number(f.coincidencia) : null;
+      rows.set(f.cuenta8, { code: f.cuenta8, level: nivelPorCodigo(f.cuenta8), name: f.nombreCuenta || f.cuenta8, std: f.cuenta6Russell, coincidencia: coinc });
+      if (f.cuenta6 !== f.cuenta8 && !rows.has(f.cuenta6)) {
+        const gname = f.cuenta6Russell ? (stdName.get(f.cuenta6Russell) ?? f.cuenta6) : f.cuenta6;
+        rows.set(f.cuenta6, { code: f.cuenta6, level: 6, name: gname, std: f.cuenta6Russell, coincidencia: coinc });
       }
     }
+    const ahoraDate = new Date();
     await Promise.all(
-      [...resueltas]
-        .filter(([c6]) => !manualSet.has(c6))
-        .map(([c6, m]) =>
-          prisma.mapeoBalanceCliente.upsert({
-            where: { clienteId_cuenta6: { clienteId: p.clientId, cuenta6: c6 } },
-            create: { clienteId: p.clientId, cuenta6: c6, cuenta6Russell: m.std, coincidencia: m.coincidencia, origen: "automatico" },
-            update: { cuenta6Russell: m.std, coincidencia: m.coincidencia, origen: "automatico" },
+      [...rows.values()]
+        .filter((r) => !manualCodes.has(r.code))
+        .map((r) =>
+          prisma.clientAccount.upsert({
+            where: { clienteId_code: { clienteId: p.clientId, code: r.code } },
+            create: { clientName: p.clienteName, clienteId: p.clientId, nit: p.clienteNit, code: r.code, level: r.level, name: r.name, cuenta6Russell: r.std, coincidencia: r.coincidencia, origenMapeo: "automatico", actualizadoPor: p.uploadedBy, actualizadoEn: ahoraDate },
+            update: { clientName: p.clienteName, nit: p.clienteNit, level: r.level, name: r.name, cuenta6Russell: r.std, coincidencia: r.coincidencia, origenMapeo: "automatico", actualizadoPor: p.uploadedBy, actualizadoEn: ahoraDate },
           }),
         ),
     );
   } catch {
-    /* la memoria de mapeo es best-effort: no rompe el cargue */
+    /* el registro del PUC es best-effort: no rompe el cargue */
+  }
+
+  // Novedad de DESCUADRE contra el gran total del archivo (TOTALES): NO bloquea
+  // el cargue —se sube todo igual— pero queda como alerta y el balance no-cuadrado.
+  const descuadreTotales = !!p.cuadreTotales?.detectado && !p.cuadreTotales.cuadra;
+  if (descuadreTotales) {
+    calc.validations.push({ id: "cuadre-totales", rule: "Cuadre contra TOTALES del archivo", status: "warn", detail: mensajeCuadre(p.cuadreTotales!), count: 1 });
   }
 
   // Versionado: un ENCABEZADO nuevo por cargue, correlativo por (cliente,
@@ -372,14 +408,14 @@ async function persistirCargue(p: {
       periodo: p.period, periodoInicio: new Date(p.periodos.inicial), periodoFin: new Date(p.periodos.final),
       version, esOficial: false, estaCongelado: false, estado: status, completitud: complete,
       archivo: p.archivoNombre, tamanoArchivo: p.archivoTam,
-      cargadoPor: p.uploadedBy, rolCarga: p.rolLabel, cuadrado: calc.balanced, nota,
+      cargadoPor: p.uploadedBy, rolCarga: p.rolLabel, cuadrado: calc.balanced && !descuadreTotales, nota,
       sumaActivo: calc.sums.activo, filasTotales: calc.totalRows,
       mapeadas: calc.mapped, sinMapear: calc.unmapped, criticas: calc.critical, cambios,
       estandar: p.meta.estandar, convencionCredito: p.meta.convencionCredito,
       filasLeidas: p.meta.filasLeidas, filasExcluidas: p.meta.filasExcluidas, filasDescuadre: p.meta.filasDescuadre,
       ultimaCarga: ahora,
       detalles: {
-        create: aFilasDetalle(calc.breakdown).map((f) => ({
+        create: filasDet.map((f) => ({
           cuenta2: f.cuenta2, cuenta4: f.cuenta4, cuenta6: f.cuenta6, cuenta8: f.cuenta8,
           nombreCuenta: f.nombreCuenta, cuenta6Russell: f.cuenta6Russell, coincidencia: f.coincidencia,
           saldoInicial: f.saldoInicial, debitos: f.debitos, creditos: f.creditos, saldoFinal: f.saldoFinal,
@@ -549,16 +585,17 @@ export async function confirmarCargaBalance(
     return { ok: false, message: "No hay cuentas leídas válidas para cargar. Vuelve a leer el archivo." };
   }
 
-  // Cuadre OBLIGATORIO contra el gran total del archivo, RE-EVALUADO en el
-  // servidor: las sumas se recomputan desde las cuentas ya validadas (no se confía
-  // en el veredicto `cuadra` del payload del cliente). Solo los totales del archivo
-  // —detectados durante la lectura y no reconstruibles sin el archivo— viajan en el
-  // payload. Si no se detectó gran total, no aplica (queda la partida doble interna).
+  // Cuadre contra el gran total del archivo (TOTALES), RE-EVALUADO en el servidor:
+  // las sumas se recomputan desde las cuentas ya validadas (no se confía en el
+  // veredicto del payload; solo los totales del archivo viajan en él). Ya NO
+  // bloquea: si no cuadra, el balance se carga igual y queda marcado como
+  // descuadrado (novedad/alerta) en `persistirCargue`. Si no hay gran total, no
+  // aplica (queda la partida doble interna).
+  let cuadreTotales: CuadreTotales | null = null;
   if (sug.cuadre?.detectado) {
     const sumaDebitos = cuentasParsed.data.reduce((s, r) => s + Math.abs(r.debitos ?? 0), 0);
     const sumaCreditos = cuentasParsed.data.reduce((s, r) => s + Math.abs(r.creditos ?? 0), 0);
-    const verif = construirCuadre({ detectado: true, debitos: sug.cuadre.totalDebitos, creditos: sug.cuadre.totalCreditos }, sumaDebitos, sumaCreditos);
-    if (!verif.cuadra) return { ok: false, message: mensajeCuadre(verif) };
+    cuadreTotales = construirCuadre({ detectado: true, debitos: sug.cuadre.totalDebitos, creditos: sug.cuadre.totalCreditos }, sumaDebitos, sumaCreditos);
   }
 
   try {
@@ -582,6 +619,7 @@ export async function confirmarCargaBalance(
       archivoNombre: sug.archivoNombre ?? "—",
       archivoTam: sug.archivoTam ?? "—",
       uploadedBy: user?.name ?? "—", uploadedById: user?.id ?? null, rolLabel: etiquetaRol(authz.role),
+      cuadreTotales,
       meta: {
         estandar, convencionCredito: sug.convencionCredito,
         filasLeidas: sug.filasLeidas, filasExcluidas: sug.filasExcluidas, filasDescuadre: sug.filasDescuadre,
