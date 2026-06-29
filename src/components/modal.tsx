@@ -10,6 +10,7 @@ const ANCHOS = {
   xl: "max-w-xl",
   "2xl": "max-w-2xl",
   "3xl": "max-w-3xl",
+  "4xl": "max-w-4xl",
 } as const;
 
 export function Modal({

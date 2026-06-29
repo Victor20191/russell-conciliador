@@ -34,8 +34,8 @@ sesión JWT**. Migrar a `next-auth` más adelante es directo (los modelos `User`
 # 1. Instalar dependencias (genera el cliente Prisma automáticamente)
 npm install
 
-# 2. Configurar variables de entorno
-cp .env.example .env
+# 2. Configurar variables de entorno en .env
+#   Este archivo es local y no se versiona.
 #   - DATABASE_URL: cadena de conexión a PostgreSQL
 #   - SESSION_SECRET: genera uno con  openssl rand -base64 32
 #   - OPENROUTER_API_KEY: opcional, habilita reportes funcionales IA en /novedades

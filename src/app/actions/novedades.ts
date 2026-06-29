@@ -8,9 +8,10 @@ import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
 import { authorizePermiso } from "@/lib/rbac";
 import { mensajeErrorBD } from "@/lib/errores";
-import { completarTextoOpenRouter, mensajeErrorOpenRouter } from "@/lib/openrouter";
+import { completarTextoGemini, mensajeErrorGemini } from "@/lib/gemini";
 import {
   MODELO_REPORTE_NOVEDADES,
+  TEMPERATURA_REPORTE_NOVEDADES,
   VERSION_PROMPT_REPORTE_NOVEDADES,
   type ReporteNovedades,
   type UsoOpenRouterReporte,
@@ -151,11 +152,138 @@ function crearContextoReporte(
   return { contexto, totalChanges, includedChanges };
 }
 
-function construirPromptReporte(params: {
+function ordenarUnicos(valores: Array<string | null | undefined>): string[] {
+  return Array.from(new Set(valores.map((valor) => valor?.trim()).filter((valor): valor is string => Boolean(valor))))
+    .sort((a, b) => a.localeCompare(b, "es"));
+}
+
+function contarValores(valores: Array<string | null | undefined>): ConteoReporte[] {
+  const conteo = new Map<string, number>();
+  for (const valor of valores) {
+    const limpio = valor?.trim();
+    if (!limpio) continue;
+    conteo.set(limpio, (conteo.get(limpio) ?? 0) + 1);
+  }
+  return Array.from(conteo.entries())
+    .map(([nombre, total]) => ({ nombre, total }))
+    .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+}
+
+function crearResumenFactual(params: {
   contexto: VersionReporteContexto[];
+  totalVersions: number;
   totalChanges: number;
   includedChanges: number;
-  generatedAt: string;
+}): ResumenFactualReporte {
+  const cambios = params.contexto.flatMap((version) => version.cambios);
+  return {
+    totalVersiones: params.totalVersions,
+    totalCambios: params.totalChanges,
+    cambiosIncluidos: params.includedChanges,
+    modulosDocumentados: ordenarUnicos(cambios.map((cambio) => cambio.modulo)),
+    rutasDocumentadas: ordenarUnicos(cambios.map((cambio) => cambio.ruta)),
+    cambiosPorTipo: contarValores(cambios.map((cambio) => cambio.tipo)),
+    cambiosPorEstadoFuncionalidad: contarValores(cambios.map((cambio) => cambio.estadoFuncionalidad)),
+  };
+}
+
+function crearHuellaReporte(payload: unknown): string {
+  return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+}
+
+function crearSeedReporte(huella: string): number {
+  return Number.parseInt(huella.slice(0, 8), 16) & 0x7fffffff;
+}
+
+function leerCacheMemoria(huella: string): ReporteCacheado | null {
+  return cacheReportesMemoria.get(huella) ?? null;
+}
+
+function guardarCacheMemoria(huella: string, cacheado: ReporteCacheado): void {
+  if (cacheReportesMemoria.size >= MAX_CACHE_MEMORIA) {
+    const primero = cacheReportesMemoria.keys().next().value;
+    if (primero) cacheReportesMemoria.delete(primero);
+  }
+  cacheReportesMemoria.set(huella, cacheado);
+}
+
+function esCachePersistenteNoDisponible(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : "";
+  return /P2021|P2022|reportes_novedades_ia|does not exist|no existe/i.test(msg);
+}
+
+async function leerCachePersistente(huella: string): Promise<ReporteCacheado | null> {
+  try {
+    const cacheado = await prisma.reporteNovedadesIA.findUnique({
+      where: { huellaContexto: huella },
+      select: {
+        titulo: true,
+        html: true,
+        totalVersiones: true,
+        totalCambios: true,
+        actualizadoEn: true,
+      },
+    });
+
+    if (!cacheado) return null;
+    return {
+      report: { titulo: cacheado.titulo, html: cacheado.html },
+      generatedAt: cacheado.actualizadoEn.toISOString(),
+      totalVersions: cacheado.totalVersiones,
+      totalChanges: cacheado.totalCambios,
+    };
+  } catch (e) {
+    if (esCachePersistenteNoDisponible(e)) return null;
+    throw e;
+  }
+}
+
+async function guardarCachePersistente(params: {
+  huella: string;
+  report: ReporteNovedades;
+  totalVersions: number;
+  totalChanges: number;
+  includedChanges: number;
+  userId: number | null;
+}): Promise<ReporteCacheado | null> {
+  try {
+    const creado = await prisma.reporteNovedadesIA.create({
+      data: {
+        huellaContexto: params.huella,
+        modelo: MODELO_REPORTE_NOVEDADES,
+        titulo: params.report.titulo,
+        html: params.report.html,
+        totalVersiones: params.totalVersions,
+        totalCambios: params.totalChanges,
+        cambiosIncluidos: params.includedChanges,
+        creadoPorId: params.userId,
+      },
+      select: {
+        titulo: true,
+        html: true,
+        totalVersiones: true,
+        totalCambios: true,
+        creadoEn: true,
+      },
+    });
+
+    return {
+      report: { titulo: creado.titulo, html: creado.html },
+      generatedAt: creado.creadoEn.toISOString(),
+      totalVersions: creado.totalVersiones,
+      totalChanges: creado.totalCambios,
+    };
+  } catch (e) {
+    if (esCachePersistenteNoDisponible(e)) return null;
+    const existente = await leerCachePersistente(params.huella);
+    if (existente) return existente;
+    throw e;
+  }
+}
+
+function construirPromptReporte(params: {
+  contexto: VersionReporteContexto[];
+  resumenFactual: ResumenFactualReporte;
 }): string {
   return [
     "Genera un reporte funcional detallado, listo para PDF, para la plataforma Russell Diagnóstico a partir del changelog de Novedades.",
@@ -165,9 +293,12 @@ function construirPromptReporte(params: {
     "",
     "Estructura visual obligatoria, inspirada en una presentación ejecutiva lista para imprimir:",
     "- Portada compacta: título, subtítulo, período de la actualización y una frase de valor.",
-    "- Resumen Ejecutivo: 4 estadísticas sintéticas en tarjetas y 3 a 5 pilares estratégicos.",
+    "- Resumen Ejecutivo: 4 estadísticas exactas en tarjetas y 3 a 5 pilares estratégicos basados en el texto documentado.",
     "- Secciones por módulo o área funcional, cada una con subtítulo, descripción, beneficios y pasos de uso.",
-    "- En cada funcionalidad explica: qué es, para qué sirve, cómo se usa, impacto operativo y evidencia funcional.",
+    "- En cada funcionalidad conserva la misma estructura interna y desarrolla: qué es, qué situación resuelve, cómo se usa, cómo cambia el trabajo del usuario, impacto operativo y evidencia funcional.",
+    "- Para cada cambio documentado escribe una explicación funcional ampliada de 1 a 2 párrafos breves o bloques equivalentes. Reserva 3 párrafos solo para cambios centrales con contexto suficiente.",
+    "- Mantén cada bloque funcional entre 90 y 180 palabras cuando haya contexto suficiente; si el contexto es mínimo, redacta menos sin rellenar.",
+    "- Cuando exista descripción, pasos o ejemplo, intégralos en una lectura funcional más completa sin copiar mecánicamente el texto original.",
     "- Línea de evolución o implementación escrita en lenguaje funcional, no técnico.",
     "- Beneficios tangibles, impacto general y próximos pasos sugeridos.",
     "- Footer discreto: Reporte generado desde Novedades - Russell Diagnóstico.",
@@ -175,24 +306,29 @@ function construirPromptReporte(params: {
     "Reglas de diseño del HTML:",
     "- Usa CSS autocontenido dentro de <style>.",
     "- Optimiza para PDF en tamaño carta: márgenes limpios, secciones con break-inside: avoid y @media print.",
-    "- Usa tarjetas, tablas visuales simples o barras CSS cuando ayuden a leer el impacto, pero sin librerías.",
+    "- Usa tarjetas, tablas visuales simples o barras CSS solo con los conteos exactos de la base factual.",
     "- Mantén un estilo sobrio, ejecutivo y funcional, compatible con la identidad Russell.",
     "",
     "Reglas editoriales obligatorias:",
     "- Escribe en español de Colombia, con tono ejecutivo y claro para usuarios no técnicos.",
     "- Usa únicamente las funcionalidades, rutas y módulos del JSON de contexto. No inventes módulos ni rutas.",
+    "- Usa únicamente los números de la base factual exacta. No inventes porcentajes, ahorros, costos, tiempos, fechas, cantidades, niveles de avance ni métricas.",
+    "- Puedes interpretar la intención funcional, el problema operativo y el beneficio esperado solo cuando se desprendan directamente del título, descripción, cómo operar, ejemplo, módulo o ruta documentados.",
+    "- Distingue claramente interpretación funcional de dato factual: no presentes inferencias como mediciones, decisiones oficiales o compromisos del producto.",
+    "- Si una funcionalidad tiene poco contexto, amplía con explicación de uso y alcance usando lenguaje prudente, pero no agregues capacidades no documentadas.",
     "- No incluyas hashes de commit, nombres de ramas, nombres de archivos, tablas, columnas, migraciones, funciones, clases, librerías, código, APIs internas, tokens, costos técnicos ni detalles de arquitectura.",
     "- Si el contexto trae datos técnicos, conviértelos a una explicación funcional o descártalos si no aportan al usuario del PDF.",
     "- Puedes mencionar una ruta interna solo como ubicación de uso, por ejemplo: Configuración > Clientes o /config/clientes.",
     "- No uses expresiones como implementación técnica, arquitectura, modelo de datos, pipeline, Prisma, cache, endpoint, Server Action, componente, migración, commit o repositorio.",
-    "- Si propones métricas para gráficos, preséntalas como indicadores funcionales estimados o ilustrativos, no como mediciones reales.",
+    "- Si un dato no está en el contexto, escribe No documentado en Novedades o elimina ese detalle.",
     "- Enfócate en qué cambió, cómo se usa, qué problema resuelve, impacto operativo y beneficios para el proceso de auditoría/diagnóstico.",
     "- No menciones que recibiste un JSON ni que estás generando una respuesta con IA.",
-    "- Si falta un dato, redacta de forma prudente con lo que sí está documentado.",
+    "- Mantén el orden de versiones y cambios entregado en el contexto.",
+    "- Mantén la misma estructura visual para que regeneraciones con el mismo contexto sean consistentes.",
+    "- No cambies la estructura general del reporte: solo aumenta la profundidad de las explicaciones dentro de cada bloque funcional.",
     "",
-    `Fecha de generación: ${params.generatedAt}`,
-    `Cambios totales en BD: ${params.totalChanges}`,
-    `Cambios incluidos en el prompt: ${params.includedChanges}`,
+    "Base factual exacta:",
+    JSON.stringify(params.resumenFactual),
     "",
     "Contexto JSON:",
     JSON.stringify(params.contexto),
@@ -202,7 +338,12 @@ function construirPromptReporte(params: {
 function esSaturacionProveedor(e: unknown): boolean {
   const status = e && typeof e === "object" && "status" in e ? (e as { status?: unknown }).status : undefined;
   const msg = e instanceof Error ? e.message : "";
-  return status === 502 || /ResourceExhausted|request limit reached|Upstream error from Nvidia|Nvidia/i.test(msg);
+  return (
+    status === 429 ||
+    status === 502 ||
+    status === 503 ||
+    /ResourceExhausted|request limit reached|rate limit|quota|overloaded|unavailable|temporarily/i.test(msg)
+  );
 }
 
 function esperar(ms: number): Promise<void> {
@@ -281,10 +422,13 @@ pre{white-space:pre-wrap;font-family:inherit}
 
 function normalizarReporteHtml(texto: string): ReporteNovedades {
   const extraido = extraerDocumentoHtml(texto);
-  if (!extraido.trim()) throw new Error("OpenRouter no devolvió HTML válido.");
+  if (!extraido.trim()) throw new Error("Gemini no devolvió HTML válido.");
 
   let html = sanitizarHtmlReporte(extraido);
   if (!/<html[\s>]/i.test(html)) html = envolverHtmlBasico(html);
+  if (!/<\/body>/i.test(html) || !/<\/html>/i.test(html)) {
+    throw new Error("Gemini devolvió HTML incompleto.");
+  }
   if (!/^<!doctype/i.test(html.trim())) html = `<!DOCTYPE html>\n${html}`;
 
   if (!/<body[\s>]/i.test(html)) {
@@ -318,33 +462,74 @@ export async function generarReporteFuncionalNovedades(): Promise<GenerarReporte
       return { ok: false, message: "No hay cambios documentados para generar un reporte funcional." };
     }
 
-    const generatedAt = new Date().toISOString();
-    const prompt = construirPromptReporte({ contexto, totalChanges, includedChanges, generatedAt });
-    const messages = [
-      {
-        role: "system" as const,
-        content:
-          "Eres un consultor funcional senior. Redactas reportes ejecutivos de software contable y de auditoría con precisión, sin inventar hechos fuera del contexto.",
-      },
-      { role: "user" as const, content: prompt },
-    ];
-
-    let completion: Awaited<ReturnType<typeof completarTextoOpenRouter>>;
-    try {
-      completion = await completarTextoOpenRouter({
+    const resumenFactual = crearResumenFactual({
+      contexto,
+      totalVersions: versiones.length,
+      totalChanges,
+      includedChanges,
+    });
+    const huellaReporte = crearHuellaReporte({
+      versionPrompt: VERSION_PROMPT_REPORTE_NOVEDADES,
+      modelo: MODELO_REPORTE_NOVEDADES,
+      temperatura: TEMPERATURA_REPORTE_NOVEDADES,
+      resumenFactual,
+      contexto,
+    });
+    const cacheMemoria = leerCacheMemoria(huellaReporte);
+    if (cacheMemoria) {
+      return {
+        ok: true,
+        report: cacheMemoria.report,
         model: MODELO_REPORTE_NOVEDADES,
-        maxTokens: 8500,
-        temperature: 0.18,
-        messages,
+        generatedAt: cacheMemoria.generatedAt,
+        totalVersions: cacheMemoria.totalVersions,
+        totalChanges: cacheMemoria.totalChanges,
+      };
+    }
+
+    const cachePersistente = await leerCachePersistente(huellaReporte);
+    if (cachePersistente) {
+      guardarCacheMemoria(huellaReporte, cachePersistente);
+      return {
+        ok: true,
+        report: cachePersistente.report,
+        model: MODELO_REPORTE_NOVEDADES,
+        generatedAt: cachePersistente.generatedAt,
+        totalVersions: cachePersistente.totalVersions,
+        totalChanges: cachePersistente.totalChanges,
+      };
+    }
+
+    const generatedAt = new Date().toISOString();
+    const prompt = construirPromptReporte({ contexto, resumenFactual });
+    const seed = crearSeedReporte(huellaReporte);
+    const system =
+      "Eres un consultor funcional senior. Redactas reportes ejecutivos de software contable y de auditoría con precisión estricta: no agregas datos, números, fechas, rutas ni funcionalidades que no estén en el contexto.";
+
+    let completion: Awaited<ReturnType<typeof completarTextoGemini>>;
+    try {
+      completion = await completarTextoGemini({
+        model: MODELO_REPORTE_NOVEDADES,
+        maxTokens: 56_000,
+        temperature: TEMPERATURA_REPORTE_NOVEDADES,
+        topP: 1,
+        seed,
+        timeoutMs: 300_000,
+        system,
+        prompt,
       });
     } catch (e) {
       if (!esSaturacionProveedor(e)) throw e;
       await esperar(1500);
-      completion = await completarTextoOpenRouter({
+      completion = await completarTextoGemini({
         model: MODELO_REPORTE_NOVEDADES,
-        maxTokens: 6500,
-        temperature: 0.15,
-        messages,
+        maxTokens: 40_000,
+        temperature: TEMPERATURA_REPORTE_NOVEDADES,
+        topP: 1,
+        seed,
+        timeoutMs: 240_000,
+        system,
+        prompt,
       });
     }
 
@@ -357,18 +542,33 @@ export async function generarReporteFuncionalNovedades(): Promise<GenerarReporte
       entity: "Novedades",
       detail: `Generó reporte funcional con ${MODELO_REPORTE_NOVEDADES} (${includedChanges}/${totalChanges} cambios enviados).`,
     });
-
-    return {
-      ok: true,
+    const cacheado = await guardarCachePersistente({
+      huella: huellaReporte,
       report,
-      model: MODELO_REPORTE_NOVEDADES,
+      totalVersions: versiones.length,
+      totalChanges,
+      includedChanges,
+      userId: user?.id ?? null,
+    });
+    const reporteFinal = cacheado ?? {
+      report,
       generatedAt,
-      usage: completion.usage,
       totalVersions: versiones.length,
       totalChanges,
     };
+    guardarCacheMemoria(huellaReporte, reporteFinal);
+
+    return {
+      ok: true,
+      report: reporteFinal.report,
+      model: MODELO_REPORTE_NOVEDADES,
+      generatedAt: reporteFinal.generatedAt,
+      usage: completion.usage,
+      totalVersions: reporteFinal.totalVersions,
+      totalChanges: reporteFinal.totalChanges,
+    };
   } catch (e) {
-    return { ok: false, message: mensajeErrorOpenRouter("generarReporteFuncionalNovedades", e) };
+    return { ok: false, message: mensajeErrorGemini("generarReporteFuncionalNovedades", e) };
   }
 }
 

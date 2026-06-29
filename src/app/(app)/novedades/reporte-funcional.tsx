@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { generarReporteFuncionalNovedades } from "@/app/actions/novedades";
 import { Card, Chip } from "@/components/ui";
 import { Icon } from "@/components/icons";
+import { Modal } from "@/components/modal";
 import type { ReporteNovedades } from "@/lib/novedades/reportes";
 
 type MetaReporte = {
@@ -45,14 +46,32 @@ function descargarHtml(reporte: ReporteNovedades): void {
   URL.revokeObjectURL(url);
 }
 
-function abrirPdf(reporte: ReporteNovedades): void {
-  const win = window.open("", "_blank");
-  if (!win) return;
-  win.document.open();
-  win.document.write(reporte.html);
-  win.document.close();
-  win.focus();
-  window.setTimeout(() => win.print(), 350);
+function descargarBlob(blob: Blob, nombre: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = nombre;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function descargarPdf(reporte: ReporteNovedades): Promise<void> {
+  const res = await fetch("/api/novedades/reporte-pdf", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ titulo: reporte.titulo, html: reporte.html }),
+  });
+
+  const esPdf = res.headers.get("content-type")?.includes("application/pdf");
+  if (!res.ok || res.redirected || !esPdf) {
+    const payload = (await res.json().catch(() => null)) as { message?: string } | null;
+    throw new Error(payload?.message ?? "No se pudo generar el PDF.");
+  }
+
+  const blob = await res.blob();
+  descargarBlob(blob, `${slug(reporte.titulo) || "reporte-funcional-novedades"}.pdf`);
 }
 
 export function ReporteFuncionalNovedades({
@@ -66,6 +85,8 @@ export function ReporteFuncionalNovedades({
   const [reporte, setReporte] = useState<ReporteNovedades | null>(null);
   const [meta, setMeta] = useState<MetaReporte | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [modalAbierto, setModalAbierto] = useState(false);
+  const [pdfPendiente, setPdfPendiente] = useState(false);
 
   const generar = () => {
     setError(null);
@@ -81,10 +102,25 @@ export function ReporteFuncionalNovedades({
         totalVersions: res.totalVersions,
         totalChanges: res.totalChanges,
       });
+      // El resultado se entrega directamente en una ventana modal.
+      setModalAbierto(true);
     });
   };
 
   const puedeGenerar = totalChanges > 0 && !isPending;
+
+  const descargarPdfActual = async () => {
+    if (!reporte || pdfPendiente) return;
+    setError(null);
+    setPdfPendiente(true);
+    try {
+      await descargarPdf(reporte);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo generar el PDF.");
+    } finally {
+      setPdfPendiente(false);
+    }
+  };
 
   return (
     <Card className="mb-5 overflow-hidden">
@@ -103,16 +139,10 @@ export function ReporteFuncionalNovedades({
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
           {reporte && (
-            <>
-              <button onClick={() => abrirPdf(reporte)} className={BTN_SECUNDARIO}>
-                <Icon name="doc" size={14} />
-                PDF
-              </button>
-              <button onClick={() => descargarHtml(reporte)} className={BTN_SECUNDARIO}>
-                <Icon name="download" size={14} />
-                HTML
-              </button>
-            </>
+            <button onClick={() => setModalAbierto(true)} className={BTN_SECUNDARIO}>
+              <Icon name="eye" size={14} />
+              Ver reporte
+            </button>
           )}
           <button onClick={generar} disabled={!puedeGenerar} className={BTN_PRIMARIO}>
             <Icon name="ai" size={14} />
@@ -127,44 +157,57 @@ export function ReporteFuncionalNovedades({
         </div>
       )}
 
-      {reporte && meta ? (
-        <div className="px-4 py-4">
-          <div className="flex flex-wrap items-center gap-2 text-[11.5px] text-ink-500">
-            <span>{fechaLarga(meta.generatedAt)}</span>
-            <span>·</span>
-            <span>{meta.totalVersions} versiones · {meta.totalChanges} cambios documentados</span>
-          </div>
+      <div className="px-4 py-5 text-[13px] text-ink-500">
+        {reporte && meta ? (
+          <span className="inline-flex flex-wrap items-center gap-2">
+            <Icon name="check" size={14} className="text-ok-700" />
+            Reporte generado el {fechaLarga(meta.generatedAt)} · {meta.totalVersions} versiones ·{" "}
+            {meta.totalChanges} cambios. Usa «Ver reporte» para abrirlo y descargarlo.
+          </span>
+        ) : totalChanges > 0 ? (
+          "El reporte se genera bajo demanda con las novedades documentadas actualmente."
+        ) : (
+          "Documenta al menos un cambio para generar el reporte funcional."
+        )}
+      </div>
 
-          <div className="mt-3 flex flex-wrap items-end justify-between gap-3">
-            <div className="min-w-0">
-              <h3 className="font-serif text-xl text-ink-900">{reporte.titulo}</h3>
-              <p className="mt-1 text-[13px] text-ink-500">Vista previa del documento que se imprimirá en PDF.</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <button onClick={() => abrirPdf(reporte)} className={BTN_PRIMARIO}>
-                <Icon name="doc" size={14} />
-                Imprimir PDF
-              </button>
+      {reporte && meta && (
+        <Modal
+          open={modalAbierto}
+          onClose={() => setModalAbierto(false)}
+          title="Reporte funcional de novedades"
+          size="4xl"
+          footer={
+            <>
               <button onClick={() => descargarHtml(reporte)} className={BTN_SECUNDARIO}>
                 <Icon name="download" size={14} />
                 Descargar HTML
               </button>
-            </div>
+              <button onClick={descargarPdfActual} disabled={pdfPendiente} className={BTN_PRIMARIO}>
+                <Icon name="doc" size={14} />
+                {pdfPendiente ? "Descargando..." : "Descargar PDF"}
+              </button>
+            </>
+          }
+        >
+          <div className="flex flex-wrap items-center gap-2 text-[11.5px] text-ink-500">
+            <span>{fechaLarga(meta.generatedAt)}</span>
+            <span>·</span>
+            <span>
+              {meta.totalVersions} versiones · {meta.totalChanges} cambios documentados
+            </span>
           </div>
-
+          <h3 className="mt-2 font-serif text-xl text-ink-900">{reporte.titulo}</h3>
+          <p className="mt-1 text-[13px] text-ink-500">
+            Vista previa del documento. Descárgalo en HTML o PDF con los botones de abajo.
+          </p>
           <iframe
             title="Vista previa del reporte funcional"
             srcDoc={reporte.html}
             sandbox=""
-            className="mt-4 h-[760px] w-full rounded-md border border-ink-150 bg-white"
+            className="mt-4 h-[68vh] w-full rounded-md border border-ink-150 bg-white"
           />
-        </div>
-      ) : (
-        <div className="px-4 py-5 text-[13px] text-ink-500">
-          {totalChanges > 0
-            ? "El reporte se genera bajo demanda con las novedades documentadas actualmente."
-            : "Documenta al menos un cambio para generar el reporte funcional."}
-        </div>
+        </Modal>
       )}
     </Card>
   );

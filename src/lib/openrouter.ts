@@ -32,6 +32,12 @@ type OpenRouterResponse = {
   };
 };
 
+type SolicitudOpenRouterResult = {
+  text: string;
+  usage?: UsoOpenRouterReporte;
+  finishReason?: string | null;
+};
+
 export class OpenRouterError extends Error {
   status?: number;
   body?: string;
@@ -52,6 +58,7 @@ type CompletarOpenRouterParams = {
   temperature?: number;
   topP?: number;
   seed?: number;
+  timeoutMs?: number;
   cache?: {
     enabled?: boolean;
     ttlSeconds?: number;
@@ -108,10 +115,11 @@ async function solicitarChatOpenRouter({
   temperature = 0.25,
   topP,
   seed,
+  timeoutMs = 120_000,
   cache,
-}: CompletarOpenRouterParams): Promise<{ text: string; usage?: UsoOpenRouterReporte }> {
+}: CompletarOpenRouterParams): Promise<SolicitudOpenRouterResult> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 120_000);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const res = await fetch(OPENROUTER_CHAT_URL, {
@@ -170,8 +178,17 @@ async function solicitarChatOpenRouter({
       throw new OpenRouterError("OpenRouter no devolvió contenido en la respuesta.", { body: bodyText });
     }
 
+    const finishReason = payload?.choices?.[0]?.finish_reason;
+    if (finishReason === "length") {
+      throw new OpenRouterError("OpenRouter cortó la respuesta porque alcanzó el límite de salida.", {
+        status: 422,
+        body: bodyText,
+      });
+    }
+
     return {
       text: content,
+      finishReason,
       usage: payload?.usage
         ? {
             promptTokens: payload.usage.prompt_tokens,
@@ -228,6 +245,9 @@ export function mensajeErrorOpenRouter(contexto: string, e: unknown): string {
   }
   if (/ResourceExhausted|request limit reached|Upstream error from Nvidia|Nvidia/i.test(msg)) {
     return "El proveedor Nvidia de OpenRouter está saturado en este momento. Reintenta en unos minutos; la conexión y la API key están funcionando.";
+  }
+  if (/límite de salida|limite de salida|HTML incompleto/i.test(msg)) {
+    return "La IA devolvió un reporte incompleto. Reintenta; si vuelve a pasar, reduce la cantidad de cambios enviados o usa un reporte menos extenso.";
   }
   if (typeof status === "number" && status >= 500) {
     return "OpenRouter tuvo un error temporal. Reintenta en un momento.";
