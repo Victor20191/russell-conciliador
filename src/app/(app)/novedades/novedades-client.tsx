@@ -91,6 +91,8 @@ export default function NovedadesClient({
           number: v.number,
           title: v.title,
           changesCount: v.changes.length,
+          releasedAt: v.releasedAt,
+          createdAt: v.createdAt,
         }))}
         totalVersions={versions.length}
         totalChanges={totalCambios}

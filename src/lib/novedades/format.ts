@@ -79,15 +79,39 @@ export function parsePasos(howTo: string | null | undefined): string[] {
     .filter((linea) => linea.length > 0);
 }
 
+/** Fecha efectiva de una versión en epoch ms, base del orden cronológico. En las
+ * versiones autogeneradas `dev-AAAA-MM-DD` es la fecha del nombre (la de sus
+ * cambios, no la de cuándo corrió el volcado); en el resto, la de publicación si
+ * existe y, si no, la de registro. 0 si no parsea. */
+function fechaEfectivaVersion(v: {
+  number: string;
+  releasedAt: string | null;
+  createdAt: string;
+}): number {
+  const dev = /^dev-(\d{4}-\d{2}-\d{2})$/.exec(v.number);
+  const t = new Date(dev ? dev[1] : (v.releasedAt ?? v.createdAt)).getTime();
+  return Number.isNaN(t) ? 0 : t;
+}
+
 /**
- * Ordena las versiones para el timeline: `order` descendente (control manual del
- * admin) y, a igualdad, `id` descendente (la más reciente arriba). Estable para
- * borradores sin fecha de publicación. NO muta el arreglo de entrada.
+ * Ordena las versiones de la MÁS RECIENTE a la más antigua por fecha efectiva
+ * (ver `fechaEfectivaVersion`), descendente. A igualdad de fecha respeta el
+ * `order` manual del admin y, por último, `id` (ambos desc). Así las versiones
+ * autogeneradas (sin `order`) quedan en su lugar cronológico y no siempre al
+ * final. NO muta el arreglo de entrada.
  */
-export function ordenarVersiones<T extends { order: number; id: number }>(
-  versiones: readonly T[],
-): T[] {
-  return [...versiones].sort((a, b) => b.order - a.order || b.id - a.id);
+export function ordenarVersiones<
+  T extends {
+    number: string;
+    order: number;
+    id: number;
+    releasedAt: string | null;
+    createdAt: string;
+  },
+>(versiones: readonly T[]): T[] {
+  return [...versiones].sort(
+    (a, b) => fechaEfectivaVersion(b) - fechaEfectivaVersion(a) || b.order - a.order || b.id - a.id,
+  );
 }
 
 /**
