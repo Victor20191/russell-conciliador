@@ -10,6 +10,7 @@ export const dynamic = "force-dynamic";
 const ReportePdfSchema = z.object({
   titulo: z.string().trim().min(1).max(180),
   html: z.string().min(100).max(6_000_000),
+  viewportWidth: z.number().min(320).max(1_800).optional(),
 });
 
 function slug(texto: string): string {
@@ -36,7 +37,7 @@ export async function POST(req: NextRequest) {
       return Response.json({ message: "El reporte no tiene un formato válido para generar PDF." }, { status: 400 });
     }
 
-    const pdf = generarPdfReporteNovedades(parsed.data);
+    const pdf = await generarPdfReporteNovedades(parsed.data);
 
     return new Response(pdf, {
       headers: {

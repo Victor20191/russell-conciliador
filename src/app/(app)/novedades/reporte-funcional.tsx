@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { generarReporteFuncionalNovedades } from "@/app/actions/novedades";
 import { Card, Chip } from "@/components/ui";
 import { Icon } from "@/components/icons";
@@ -73,11 +73,11 @@ function descargarBlob(blob: Blob, nombre: string): void {
   URL.revokeObjectURL(url);
 }
 
-async function descargarPdf(reporte: ReporteNovedades): Promise<void> {
+async function descargarPdf(reporte: ReporteNovedades, viewportWidth?: number): Promise<void> {
   const res = await fetch("/api/novedades/reporte-pdf", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ titulo: reporte.titulo, html: reporte.html }),
+    body: JSON.stringify({ titulo: reporte.titulo, html: reporte.html, viewportWidth }),
   });
 
   const esPdf = res.headers.get("content-type")?.includes("application/pdf");
@@ -106,6 +106,7 @@ export function ReporteFuncionalNovedades({
   const [modalAbierto, setModalAbierto] = useState(false); // modal con el resultado
   const [configAbierto, setConfigAbierto] = useState(false); // modal de alcance
   const [pdfPendiente, setPdfPendiente] = useState(false);
+  const vistaPreviaRef = useRef<HTMLIFrameElement | null>(null);
   // Alcance del reporte: por defecto TODAS las versiones (caso más común).
   const [modo, setModo] = useState<"todas" | "seleccion">("todas");
   const [seleccion, setSeleccion] = useState<Set<number>>(new Set());
@@ -170,7 +171,8 @@ export function ReporteFuncionalNovedades({
     setError(null);
     setPdfPendiente(true);
     try {
-      await descargarPdf(reporte);
+      const viewportWidth = vistaPreviaRef.current?.clientWidth;
+      await descargarPdf(reporte, viewportWidth ? Math.round(viewportWidth) : undefined);
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo generar el PDF.");
     } finally {
@@ -376,6 +378,7 @@ export function ReporteFuncionalNovedades({
             Vista previa del documento. Descárgalo en HTML o PDF con los botones de abajo.
           </p>
           <iframe
+            ref={vistaPreviaRef}
             title="Vista previa del reporte funcional"
             srcDoc={reporte.html}
             sandbox=""
