@@ -17,7 +17,7 @@ export type EstandarOpcion = { code: string; name: string };
 export type Meta = { rows: number; mapped: number; unmapped: number; critical: number; file: string; fileSize: string; frozenBy: string; frozenAt: string; uploadedBy: string; uploadedAt: string };
 export type Version = { v: string; date: string; uploadedBy: string; role: string; file: string; size: string; rows: number; sumA: number; balanced: boolean; note: string; changes: number };
 
-type Tab = "breakdown" | "validations" | "versions";
+type Tab = "breakdown" | "validations" | "versions" | "clases";
 type Filtro = "todo" | "balance" | "er" | "alertas";
 type Conteo = { mapeo: number; naturaleza: number };
 
@@ -26,9 +26,9 @@ const CLASES_ER = new Set(["4", "5", "6", "7"]);
 const NIVEL_LABEL: Record<number, string> = { 2: "Clase", 4: "Subgrupo", 6: "Cta. estándar", 8: "Cta. cliente" };
 
 export default function BalanceDetailClient({
-  arbol, estandar, puedeMapear, validations, versions, officialVersion, warnCount, balanceId, comentarios,
+  arbol, estandar, puedeMapear, validations, versions, officialVersion, warnCount, balanceId, comentarios, sums, balanced, diffCuadre,
 }: {
-  arbol: NodoBalance[]; estandar: EstandarOpcion[]; puedeMapear: boolean; validations: Validation[]; versions: Version[]; officialVersion: string; warnCount: number; balanceId: number; comentarios: Record<string, number>;
+  arbol: NodoBalance[]; estandar: EstandarOpcion[]; puedeMapear: boolean; validations: Validation[]; versions: Version[]; officialVersion: string; warnCount: number; balanceId: number; comentarios: Record<string, number>; sums: Sums; balanced: boolean; diffCuadre: number;
 }) {
   const [tab, setTab] = useState<Tab>("breakdown");
   const [prevalid, setPrevalid] = useState<Prevalidacion | null>(null);
@@ -46,6 +46,7 @@ export default function BalanceDetailClient({
         <TabBtn on={tab === "breakdown"} onClick={() => setTab("breakdown")} label="Detalle por niveles" />
         <TabBtn on={tab === "validations"} onClick={() => setTab("validations")} label="Validaciones" count={warnCount} />
         <TabBtn on={tab === "versions"} onClick={() => setTab("versions")} label="Versiones" count={versions.length} />
+        <TabBtn on={tab === "clases"} onClick={() => setTab("clases")} label="Saldos por clase" />
         <button
           onClick={correrPrevalidador}
           disabled={pendingPrev}
@@ -60,6 +61,7 @@ export default function BalanceDetailClient({
       {tab === "breakdown" && <BreakdownTab arbol={arbol} estandar={estandar} puedeMapear={puedeMapear} balanceId={balanceId} comentarios={comentarios} />}
       {tab === "validations" && <ValidationsTab validations={validations} />}
       {tab === "versions" && <VersionsTab versions={versions} officialVersion={officialVersion} />}
+      {tab === "clases" && <ClasesTab sums={sums} balanced={balanced} diffCuadre={diffCuadre} />}
     </div>
   );
 }
@@ -357,6 +359,42 @@ function ComentarModal({ nodo, balanceId, onClose }: { nodo: NodoBalance; balanc
     <Modal open onClose={onClose} title={`Comentarios · ${nodo.code} — ${nodo.name}`} size="2xl">
       <Conversacion tipo="balance" entityId={balanceId} anchor={nodo.code} titulo={`${NIVEL_LABEL[nodo.nivel]} ${nodo.code} · ${nodo.name}`} />
     </Modal>
+  );
+}
+
+/** Saldos totales por clase contable (PUC) + indicador de cuadre. Chequeo rápido de completitud. */
+function ClasesTab({ sums, balanced, diffCuadre }: { sums: Sums; balanced: boolean; diffCuadre: number }) {
+  const fila = (label: string, valor: number, bold = false) => (
+    <div className="flex items-center justify-between border-b border-ink-50 px-4 py-2.5 last:border-0">
+      <span className={`text-[12.5px] ${bold ? "font-semibold text-ink-800" : "text-ink-600"}`}>{label}</span>
+      <span className={`font-mono text-[13px] ${bold ? "font-semibold text-ink-800" : "text-ink-700"}`}>{fmt(valor)}</span>
+    </div>
+  );
+  return (
+    <Card>
+      <div className="flex flex-wrap items-center gap-2 border-b border-ink-100 px-4 py-2.5">
+        <span className="text-[11.5px] text-ink-500">Totales por clase contable (PUC). Sirve para confirmar que el balance subió completo y cuadrado.</span>
+        <span className="ml-auto inline-flex items-center gap-2">
+          <span className="text-[11.5px] text-ink-500" title="Σ saldos firmados (débito − crédito) ≈ 0">Cuadre</span>
+          {balanced ? <Chip label="Cuadrado" tone="ok" /> : <Chip label={`Descuadra · dif ${fmt(diffCuadre)}`} tone="err" />}
+        </span>
+      </div>
+      <div className="grid gap-4 p-4 md:grid-cols-2">
+        <div className="overflow-hidden rounded-lg border border-ink-100">
+          <div className="border-b border-ink-100 bg-ink-50 px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Balance general</div>
+          {fila("Activo", sums.activo)}
+          {fila("Pasivo", sums.pasivo)}
+          {fila("Patrimonio", sums.patrimonio)}
+        </div>
+        <div className="overflow-hidden rounded-lg border border-ink-100">
+          <div className="border-b border-ink-100 bg-ink-50 px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Estado de resultado</div>
+          {fila("Ingresos", sums.ingresos)}
+          {fila("Costos", sums.costos)}
+          {fila("Gastos", sums.gastos)}
+          {fila("Utilidad", sums.utilidad, true)}
+        </div>
+      </div>
+    </Card>
   );
 }
 
