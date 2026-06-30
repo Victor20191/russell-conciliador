@@ -5,6 +5,7 @@ import { generarReporteFuncionalNovedades } from "@/app/actions/novedades";
 import { Card, Chip } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { Modal } from "@/components/modal";
+import { fmtDate } from "@/lib/format";
 import type { ReporteNovedades } from "@/lib/novedades/reportes";
 
 // Versión reducida para el selector de alcance del reporte (no necesita el
@@ -14,6 +15,8 @@ export type VersionOpcion = {
   number: string;
   title: string;
   changesCount: number;
+  releasedAt: string | null; // ISO — fecha de publicación (null si es borrador)
+  createdAt: string; // ISO — fecha de registro/generación
 };
 
 type MetaReporte = {
@@ -24,6 +27,8 @@ type MetaReporte = {
 
 const BTN_PRIMARIO =
   "inline-flex items-center justify-center gap-1.5 rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white transition hover:bg-navy-700/90 disabled:cursor-not-allowed disabled:opacity-60";
+const BTN_REPORTE_PRINCIPAL =
+  "inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-navy-700 px-5 text-[13px] font-semibold text-white shadow-md shadow-navy-900/10 ring-1 ring-navy-900/10 transition hover:bg-navy-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:min-w-[220px]";
 const BTN_SECUNDARIO =
   "inline-flex items-center justify-center gap-1.5 rounded-md border border-ink-150 bg-white px-3 py-2 text-[12.5px] font-semibold text-ink-700 transition hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-60";
 const BTN_ATAJO =
@@ -175,30 +180,37 @@ export function ReporteFuncionalNovedades({
 
   return (
     <Card className="mb-5 overflow-hidden">
-      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-ink-100 px-4 py-3.5">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <Chip label="Reporte funcional IA" tone="ai" />
-            <span className="text-[11.5px] text-ink-500">
-              {totalVersions} versiones · {totalChanges} cambios
-            </span>
+      <div className="flex flex-col gap-4 border-b border-ink-100 px-4 py-4 lg:flex-row lg:items-center lg:justify-between lg:px-5">
+        <div className="flex min-w-0 gap-3">
+          <div className="mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-ai-100 text-ai-700">
+            <Icon name="ai" size={18} />
           </div>
-          <h2 className="mt-1 font-serif text-lg text-ink-900">Reporte detallado de funcionalidades</h2>
-          <p className="mt-1 max-w-3xl text-[13px] leading-relaxed text-ink-600">
-            Genera una presentación funcional lista para PDF, sin detalles técnicos innecesarios.
-          </p>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <Chip label="Reporte funcional IA" tone="ai" />
+              <span className="text-[11.5px] text-ink-500">
+                {totalVersions} versiones · {totalChanges} cambios
+              </span>
+            </div>
+            <h2 className="mt-1 font-serif text-lg text-ink-900">
+              Reporte detallado de funcionalidades con IA
+            </h2>
+            <p className="mt-1 max-w-3xl text-[13px] leading-relaxed text-ink-600">
+              Genera una presentación funcional lista para PDF, sin detalles técnicos innecesarios.
+            </p>
+          </div>
         </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-2">
+        <div className="flex w-full flex-col items-stretch gap-2 border-t border-ink-100 pt-3 sm:flex-row sm:items-center lg:w-auto lg:min-w-[240px] lg:justify-end lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
+          <button onClick={abrirConfig} disabled={!puedeAbrir} className={BTN_REPORTE_PRINCIPAL}>
+            <Icon name="ai" size={15} />
+            {reporte ? "Regenerar con IA" : "Generar reporte con IA"}
+          </button>
           {reporte && (
             <button onClick={() => setModalAbierto(true)} className={BTN_SECUNDARIO}>
               <Icon name="eye" size={14} />
               Ver reporte
             </button>
           )}
-          <button onClick={abrirConfig} disabled={!puedeAbrir} className={BTN_PRIMARIO}>
-            <Icon name="ai" size={14} />
-            {reporte ? "Regenerar" : "Generar reporte"}
-          </button>
         </div>
       </div>
 
@@ -313,6 +325,12 @@ export function ReporteFuncionalNovedades({
                     />
                     <span className="min-w-0 flex-1 truncate text-ink-800">
                       <span className="font-medium">v{v.number}</span> · {v.title}
+                    </span>
+                    <span
+                      className="shrink-0 tabular-nums text-[11px] text-ink-400"
+                      title={v.releasedAt ? "Fecha de publicación" : "Fecha de generación"}
+                    >
+                      {fmtDate(v.releasedAt ?? v.createdAt)}
                     </span>
                     <span className="shrink-0 text-[11px] text-ink-500">
                       {v.changesCount} {v.changesCount === 1 ? "cambio" : "cambios"}
