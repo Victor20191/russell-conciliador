@@ -85,7 +85,16 @@ export default function NovedadesClient({
         el botón «Probar funcionalidad» te lleva directo a la ruta para usarla.
       </p>
 
-      <ReporteFuncionalNovedades totalVersions={versions.length} totalChanges={totalCambios} />
+      <ReporteFuncionalNovedades
+        versions={ordenadas.map((v) => ({
+          id: v.id,
+          number: v.number,
+          title: v.title,
+          changesCount: v.changes.length,
+        }))}
+        totalVersions={versions.length}
+        totalChanges={totalCambios}
+      />
 
       {ordenadas.length === 0 ? (
         <Card>

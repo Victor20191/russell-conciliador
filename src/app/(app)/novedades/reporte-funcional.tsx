@@ -1,11 +1,20 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { generarReporteFuncionalNovedades } from "@/app/actions/novedades";
 import { Card, Chip } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { Modal } from "@/components/modal";
 import type { ReporteNovedades } from "@/lib/novedades/reportes";
+
+// Versión reducida para el selector de alcance del reporte (no necesita el
+// detalle completo de cambios, solo cuántos trae cada versión).
+export type VersionOpcion = {
+  id: number;
+  number: string;
+  title: string;
+  changesCount: number;
+};
 
 type MetaReporte = {
   generatedAt: string;
@@ -17,6 +26,8 @@ const BTN_PRIMARIO =
   "inline-flex items-center justify-center gap-1.5 rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white transition hover:bg-navy-700/90 disabled:cursor-not-allowed disabled:opacity-60";
 const BTN_SECUNDARIO =
   "inline-flex items-center justify-center gap-1.5 rounded-md border border-ink-150 bg-white px-3 py-2 text-[12.5px] font-semibold text-ink-700 transition hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-60";
+const BTN_ATAJO =
+  "inline-flex items-center gap-1 rounded-md border border-ink-150 bg-white px-2.5 py-1 text-[11.5px] font-medium text-ink-600 transition hover:bg-ink-50";
 
 function fechaLarga(iso: string): string {
   const d = new Date(iso);
@@ -75,9 +86,11 @@ async function descargarPdf(reporte: ReporteNovedades): Promise<void> {
 }
 
 export function ReporteFuncionalNovedades({
+  versions,
   totalChanges,
   totalVersions,
 }: {
+  versions: VersionOpcion[];
   totalChanges: number;
   totalVersions: number;
 }) {
@@ -85,13 +98,22 @@ export function ReporteFuncionalNovedades({
   const [reporte, setReporte] = useState<ReporteNovedades | null>(null);
   const [meta, setMeta] = useState<MetaReporte | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [modalAbierto, setModalAbierto] = useState(false);
+  const [modalAbierto, setModalAbierto] = useState(false); // modal con el resultado
+  const [configAbierto, setConfigAbierto] = useState(false); // modal de alcance
   const [pdfPendiente, setPdfPendiente] = useState(false);
+  // Alcance del reporte: por defecto TODAS las versiones (caso más común).
+  const [modo, setModo] = useState<"todas" | "seleccion">("todas");
+  const [seleccion, setSeleccion] = useState<Set<number>>(new Set());
 
-  const generar = () => {
+  const cambiosSeleccionados = useMemo(
+    () => versions.filter((v) => seleccion.has(v.id)).reduce((acc, v) => acc + v.changesCount, 0),
+    [versions, seleccion],
+  );
+
+  const generar = (versionIds?: number[]) => {
     setError(null);
     startTransition(async () => {
-      const res = await generarReporteFuncionalNovedades();
+      const res = await generarReporteFuncionalNovedades(versionIds ? { versionIds } : undefined);
       if (!res.ok) {
         setError(res.message);
         return;
@@ -102,12 +124,41 @@ export function ReporteFuncionalNovedades({
         totalVersions: res.totalVersions,
         totalChanges: res.totalChanges,
       });
-      // El resultado se entrega directamente en una ventana modal.
+      // Cierra la configuración y entrega el resultado en su propia ventana modal.
+      setConfigAbierto(false);
       setModalAbierto(true);
     });
   };
 
-  const puedeGenerar = totalChanges > 0 && !isPending;
+  const confirmarGenerar = () => {
+    if (modo === "seleccion") {
+      const ids = versions.filter((v) => seleccion.has(v.id)).map((v) => v.id);
+      if (ids.length === 0) return;
+      generar(ids);
+      return;
+    }
+    generar();
+  };
+
+  const abrirConfig = () => {
+    setError(null);
+    setConfigAbierto(true);
+  };
+
+  const toggle = (id: number) =>
+    setSeleccion((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const soloUltima = () => setSeleccion(versions[0] ? new Set([versions[0].id]) : new Set());
+  const seleccionarTodas = () => setSeleccion(new Set(versions.map((v) => v.id)));
+  const limpiar = () => setSeleccion(new Set());
+
+  const puedeAbrir = totalChanges > 0;
+  const puedeConfirmar =
+    !isPending && (modo === "todas" ? totalChanges > 0 : cambiosSeleccionados > 0);
 
   const descargarPdfActual = async () => {
     if (!reporte || pdfPendiente) return;
@@ -144,14 +195,14 @@ export function ReporteFuncionalNovedades({
               Ver reporte
             </button>
           )}
-          <button onClick={generar} disabled={!puedeGenerar} className={BTN_PRIMARIO}>
+          <button onClick={abrirConfig} disabled={!puedeAbrir} className={BTN_PRIMARIO}>
             <Icon name="ai" size={14} />
-            {isPending ? "Generando..." : reporte ? "Regenerar" : "Generar reporte"}
+            {reporte ? "Regenerar" : "Generar reporte"}
           </button>
         </div>
       </div>
 
-      {error && (
+      {error && !configAbierto && !modalAbierto && (
         <div className="border-b border-err-100 bg-err-100 px-4 py-3 text-[13px] text-err-700">
           {error}
         </div>
@@ -165,11 +216,116 @@ export function ReporteFuncionalNovedades({
             {meta.totalChanges} cambios. Usa «Ver reporte» para abrirlo y descargarlo.
           </span>
         ) : totalChanges > 0 ? (
-          "El reporte se genera bajo demanda con las novedades documentadas actualmente."
+          "El reporte se genera bajo demanda; puedes incluir todo el historial o solo las versiones que elijas."
         ) : (
           "Documenta al menos un cambio para generar el reporte funcional."
         )}
       </div>
+
+      {/* Configuración del alcance antes de generar. */}
+      <Modal
+        open={configAbierto}
+        onClose={() => setConfigAbierto(false)}
+        title="Generar reporte funcional"
+        size="2xl"
+        footer={
+          <button onClick={confirmarGenerar} disabled={!puedeConfirmar} className={BTN_PRIMARIO}>
+            <Icon name="ai" size={14} />
+            {isPending ? "Generando…" : "Generar reporte"}
+          </button>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <p className="text-[13px] leading-relaxed text-ink-600">
+            Elige qué versiones incluir. Acotar el alcance produce un documento más enfocado y evita
+            recortes cuando el historial es extenso.
+          </p>
+
+          <div className="flex flex-col gap-2.5">
+            <label
+              className={`flex cursor-pointer items-start gap-2.5 rounded-md border px-3 py-2.5 transition ${
+                modo === "todas" ? "border-navy-600 bg-navy-700/5" : "border-ink-150 hover:bg-ink-50"
+              }`}
+            >
+              <input
+                type="radio"
+                name="alcance-reporte"
+                checked={modo === "todas"}
+                onChange={() => setModo("todas")}
+                className="mt-0.5 accent-navy-700"
+              />
+              <span className="min-w-0">
+                <span className="block text-[13px] font-medium text-ink-800">Todas las versiones</span>
+                <span className="block text-[11.5px] text-ink-500">
+                  {totalVersions} versiones · {totalChanges} cambios documentados
+                </span>
+              </span>
+            </label>
+
+            <label
+              className={`flex cursor-pointer items-start gap-2.5 rounded-md border px-3 py-2.5 transition ${
+                modo === "seleccion" ? "border-navy-600 bg-navy-700/5" : "border-ink-150 hover:bg-ink-50"
+              }`}
+            >
+              <input
+                type="radio"
+                name="alcance-reporte"
+                checked={modo === "seleccion"}
+                onChange={() => setModo("seleccion")}
+                className="mt-0.5 accent-navy-700"
+              />
+              <span className="min-w-0">
+                <span className="block text-[13px] font-medium text-ink-800">Elegir versiones</span>
+                <span className="block text-[11.5px] text-ink-500">
+                  Selecciona una o varias versiones del historial.
+                </span>
+              </span>
+            </label>
+          </div>
+
+          {modo === "seleccion" && (
+            <div className="flex flex-col gap-2 rounded-md border border-ink-150 p-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <button type="button" onClick={soloUltima} className={BTN_ATAJO}>
+                  Solo la última
+                </button>
+                <button type="button" onClick={seleccionarTodas} className={BTN_ATAJO}>
+                  Seleccionar todas
+                </button>
+                <button type="button" onClick={limpiar} className={BTN_ATAJO}>
+                  Limpiar
+                </button>
+                <span className="ml-auto text-[11.5px] text-ink-500">
+                  {seleccion.size} versiones · {cambiosSeleccionados} cambios
+                </span>
+              </div>
+              <div className="max-h-64 divide-y divide-ink-100 overflow-y-auto rounded-md border border-ink-100">
+                {versions.map((v) => (
+                  <label
+                    key={v.id}
+                    className="flex cursor-pointer items-center gap-2.5 px-3 py-2 text-[12.5px] transition hover:bg-ink-50"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={seleccion.has(v.id)}
+                      onChange={() => toggle(v.id)}
+                      className="accent-navy-700"
+                    />
+                    <span className="min-w-0 flex-1 truncate text-ink-800">
+                      <span className="font-medium">v{v.number}</span> · {v.title}
+                    </span>
+                    <span className="shrink-0 text-[11px] text-ink-500">
+                      {v.changesCount} {v.changesCount === 1 ? "cambio" : "cambios"}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {error && <p className="text-[12.5px] text-err-700">{error}</p>}
+        </div>
+      </Modal>
 
       {reporte && meta && (
         <Modal

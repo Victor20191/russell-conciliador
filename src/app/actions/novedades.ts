@@ -23,6 +23,8 @@ import {
   ChangeCreateSchema,
   ChangeUpdateSchema,
   ChangeDeleteSchema,
+  ReporteNovedadesScopeSchema,
+  type ReporteNovedadesScope,
   type ActionState,
 } from "@/lib/definitions";
 
@@ -447,19 +449,47 @@ function normalizarReporteHtml(texto: string): ReporteNovedades {
   };
 }
 
-export async function generarReporteFuncionalNovedades(): Promise<GenerarReporteNovedadesResult> {
+export async function generarReporteFuncionalNovedades(
+  opciones?: ReporteNovedadesScope,
+): Promise<GenerarReporteNovedadesResult> {
   const authz = await authorizePermiso(PERMISO_VER);
   if (!authz.ok) return { ok: false, message: authz.message };
 
+  const parsed = ReporteNovedadesScopeSchema.safeParse(opciones ?? {});
+  if (!parsed.success) {
+    return { ok: false, message: "El alcance del reporte no es válido." };
+  }
+  // Normaliza (dedup + orden) para que la huella del caché sea estable: el mismo
+  // conjunto de versiones —en cualquier orden— reutiliza el reporte cacheado.
+  // Sin selección → null → todas las versiones (comportamiento por defecto).
+  const versionIds = parsed.data.versionIds?.length
+    ? Array.from(new Set(parsed.data.versionIds)).sort((a, b) => a - b)
+    : null;
+
   try {
     const versiones = await prisma.platformVersion.findMany({
+      where: versionIds ? { id: { in: versionIds } } : undefined,
       orderBy: [{ order: "desc" }, { id: "desc" }],
       include: { changes: { orderBy: [{ order: "asc" }, { id: "asc" }] } },
     });
 
+    if (versiones.length === 0) {
+      return {
+        ok: false,
+        message: versionIds
+          ? "No se encontraron las versiones seleccionadas."
+          : "Aún no hay versiones documentadas para generar un reporte.",
+      };
+    }
+
     const { contexto, totalChanges, includedChanges } = crearContextoReporte(versiones);
     if (totalChanges === 0) {
-      return { ok: false, message: "No hay cambios documentados para generar un reporte funcional." };
+      return {
+        ok: false,
+        message: versionIds
+          ? "Las versiones seleccionadas no tienen cambios documentados."
+          : "No hay cambios documentados para generar un reporte funcional.",
+      };
     }
 
     const resumenFactual = crearResumenFactual({
@@ -472,6 +502,7 @@ export async function generarReporteFuncionalNovedades(): Promise<GenerarReporte
       versionPrompt: VERSION_PROMPT_REPORTE_NOVEDADES,
       modelo: MODELO_REPORTE_NOVEDADES,
       temperatura: TEMPERATURA_REPORTE_NOVEDADES,
+      alcance: versionIds ?? "todas",
       resumenFactual,
       contexto,
     });
@@ -540,7 +571,9 @@ export async function generarReporteFuncionalNovedades(): Promise<GenerarReporte
       user: user?.name ?? "Sistema",
       action: "GENERÓ REPORTE IA",
       entity: "Novedades",
-      detail: `Generó reporte funcional con ${MODELO_REPORTE_NOVEDADES} (${includedChanges}/${totalChanges} cambios enviados).`,
+      detail: `Generó reporte funcional con ${MODELO_REPORTE_NOVEDADES} (${includedChanges}/${totalChanges} cambios enviados, ${
+        versionIds ? `${versiones.length} versiones seleccionadas` : "todas las versiones"
+      }).`,
     });
     const cacheado = await guardarCachePersistente({
       huella: huellaReporte,

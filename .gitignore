@@ -50,3 +50,6 @@ next-env.d.ts
 *.xlsm
 *.py
 *.txt
+
+# Estado de dedupe del volcado de novedades (npm run novedades:commits)
+.claude/novedades-state.json
