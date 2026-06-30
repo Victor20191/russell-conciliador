@@ -276,17 +276,32 @@ function FormRevisar({
  * cuadra, es bloqueante (rojo) y el botón de carga se desactiva.
  */
 function CuadreBanner({ c }: { c: SugerenciaBalance["cuadre"] }) {
-  if (!c?.detectado) {
+  if (!c) return null;
+  // 1) Partida doble (lo más importante): Σ débitos debe ser EXACTAMENTE igual a Σ
+  // créditos, sin tolerancia de %. Si no, se alerta aunque coincida con TOTALES.
+  if (!c.partidaDobleCuadra) {
     return (
-      <div className="rounded-md border border-ink-150 bg-ink-50 px-3 py-2 text-[12px] text-ink-500">
-        No se detectó una fila de <span className="font-semibold">TOTALES</span> en el archivo: el cuadre se valida solo por partida doble.
+      <div className="rounded-md border border-warn-200 bg-warn-50 px-3 py-2.5 text-[12px] text-warn-700">
+        <div className="font-semibold">Débitos y créditos no coinciden (partida doble).</div>
+        <div className="mt-1">Débitos {fmt(c.sumaDebitos)} vs créditos {fmt(c.sumaCreditos)} · diferencia <span className="font-semibold">{fmt(c.diferenciaPartidaDoble)}</span>. Deben ser exactamente iguales.</div>
+        {c.detectado && c.cuadra && <div className="mt-1 text-warn-600">Cada columna sí coincide con la fila TOTALES del archivo, pero entre sí no cuadran: revisa el archivo origen.</div>}
+        <div className="mt-1">Puedes cargarlo igual: quedará <span className="font-semibold">marcado como descuadrado</span> (novedad) para revisión.</div>
       </div>
     );
   }
+  // 2) Partida doble OK pero sin fila TOTALES en el archivo.
+  if (!c.detectado) {
+    return (
+      <div className="rounded-md border border-ok-100 bg-ok-100/40 px-3 py-2 text-[12px] text-ok-700">
+        <span className="font-semibold">Cuadre por partida doble: OK.</span> Débitos {fmt(c.sumaDebitos)} y créditos {fmt(c.sumaCreditos)} son iguales. (El archivo no trae fila TOTALES.)
+      </div>
+    );
+  }
+  // 3) Partida doble OK y coincide con la fila TOTALES.
   if (c.cuadra) {
     return (
       <div className="rounded-md border border-ok-100 bg-ok-100/40 px-3 py-2 text-[12px] text-ok-700">
-        <span className="font-semibold">Cuadre contra TOTALES: OK.</span> Débitos {fmt(c.sumaDebitos)} y créditos {fmt(c.sumaCreditos)} coinciden con la fila TOTALES del archivo.
+        <span className="font-semibold">Cuadre: OK.</span> Débitos {fmt(c.sumaDebitos)} y créditos {fmt(c.sumaCreditos)} coinciden entre sí y con la fila TOTALES del archivo.
       </div>
     );
   }

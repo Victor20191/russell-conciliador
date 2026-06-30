@@ -143,6 +143,11 @@ export type CuadreTotales = {
   toleranciaDebitos: number;
   toleranciaCreditos: number;
   cuadra: boolean; // detectado && ambas diferencias dentro de tolerancia
+  // Partida doble de los movimientos: Σ débitos debe ser EXACTAMENTE igual a Σ
+  // créditos (tolerancia 1 COP por redondeo, sin %). Independiente de la fila
+  // TOTALES: aplica aunque el archivo no la traiga.
+  diferenciaPartidaDoble: number; // sumaDebitos − sumaCreditos
+  partidaDobleCuadra: boolean; // |diferenciaPartidaDoble| ≤ 1
 };
 
 // Cuadre no aplicable (archivo sin fila TOTALES o sin columnas de movimiento, p.
@@ -158,6 +163,8 @@ export const CUADRE_NO_APLICA: CuadreTotales = {
   toleranciaDebitos: 0,
   toleranciaCreditos: 0,
   cuadra: false,
+  diferenciaPartidaDoble: 0,
+  partidaDobleCuadra: true, // no aplica → no alertar
 };
 
 // RESUMEN_AUDITORIA (SALIDA C) — lo arma el código a partir del resultado.

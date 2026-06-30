@@ -476,7 +476,9 @@ function agregarDetalle(detalle: BreakdownItem[]): ResultadoBalance {
   const totalHaber = sum(detalle.map((d) => d.haber ?? 0));
   if (totalDebe > 0 || totalHaber > 0) {
     const diffMov = totalDebe - totalHaber;
-    const movOk = Math.abs(diffMov) <= Math.max(1, (totalDebe + totalHaber) * 0.005);
+    // Partida doble del período: Σ débitos debe ser EXACTAMENTE igual a Σ créditos
+    // (1 COP por redondeo, sin tolerancia de %).
+    const movOk = Math.abs(diffMov) <= 1;
     validations.push({
       id: "V5",
       rule: "Movimientos del período (débitos = créditos)",

@@ -449,6 +449,10 @@ export function construirCuadre(totales: { detectado: boolean; debitos: number; 
   const diferenciaDebitos = sumaDebitos - totales.debitos;
   const diferenciaCreditos = sumaCreditos - totales.creditos;
   const cuadra = totales.detectado && Math.abs(diferenciaDebitos) <= toleranciaDebitos && Math.abs(diferenciaCreditos) <= toleranciaCreditos;
+  // Partida doble de los movimientos: Σ débitos = Σ créditos, EXACTO (1 COP por
+  // redondeo, sin %). No depende de la fila TOTALES del archivo.
+  const diferenciaPartidaDoble = sumaDebitos - sumaCreditos;
+  const partidaDobleCuadra = Math.abs(diferenciaPartidaDoble) <= 1;
   return {
     detectado: totales.detectado,
     totalDebitos: totales.debitos,
@@ -460,6 +464,8 @@ export function construirCuadre(totales: { detectado: boolean; debitos: number; 
     toleranciaDebitos,
     toleranciaCreditos,
     cuadra,
+    diferenciaPartidaDoble,
+    partidaDobleCuadra,
   };
 }
 

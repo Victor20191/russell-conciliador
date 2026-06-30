@@ -3,6 +3,7 @@ import {
   parseNumeroFlexible,
   normalizarCodigo,
   controlConcuerda,
+  construirCuadre,
   transformarTabular,
   validarDirecta,
   type ParamsExtraccion,
@@ -78,6 +79,25 @@ describe("normalizarCodigo", () => {
   });
   it("un rótulo de texto puro no produce código numérico (se excluirá)", () => {
     expect(/^\d+$/.test(normalizarCodigo("TOTAL ACTIVOS"))).toBe(false);
+  });
+});
+
+describe("construirCuadre · partida doble", () => {
+  const totales = { detectado: true, debitos: 100, creditos: 100 };
+  it("cuadra cuando Σ débitos = Σ créditos (≤ 1 COP)", () => {
+    const c = construirCuadre(totales, 100, 100);
+    expect(c.partidaDobleCuadra).toBe(true);
+    expect(c.diferenciaPartidaDoble).toBe(0);
+  });
+  it("NO cuadra ante cualquier diferencia, sin tolerancia de %", () => {
+    // 164M sobre 175 mil M es < 0,1 %, pero igual debe marcarse descuadrado.
+    const c = construirCuadre({ detectado: true, debitos: 175_593_035_623, creditos: 175_757_323_542 }, 175_593_035_623, 175_757_323_542);
+    expect(c.partidaDobleCuadra).toBe(false);
+    expect(c.diferenciaPartidaDoble).toBe(175_593_035_623 - 175_757_323_542);
+  });
+  it("1 COP de diferencia se tolera (redondeo)", () => {
+    expect(construirCuadre(totales, 100, 101).partidaDobleCuadra).toBe(true);
+    expect(construirCuadre(totales, 100, 102).partidaDobleCuadra).toBe(false);
   });
 });
 
