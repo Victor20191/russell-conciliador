@@ -28,6 +28,7 @@ export default async function NovedadesPage() {
     summary: v.summary,
     status: v.status,
     releasedAt: v.releasedAt ? v.releasedAt.toISOString() : null,
+    createdAt: v.createdAt.toISOString(),
     order: v.order,
     changes: v.changes.map((c) => ({
       id: c.id,
@@ -41,6 +42,8 @@ export default async function NovedadesPage() {
       example: c.example,
       featureStatus: c.featureStatus,
       order: c.order,
+      createdAt: c.createdAt.toISOString(),
+      updatedAt: c.updatedAt.toISOString(),
     })),
   }));
 

@@ -40,6 +40,16 @@ export const fmtDate = (input: Date | string | null | undefined): string => {
   return `${dd}/${MESES[d.getMonth()]}/${d.getFullYear()}`;
 };
 
+// Fecha + hora (dd/Mes/aaaa hh:mm), 24 h y locale es-CO. Misma forma que el
+// `fmtTS` de los tableros de auditoría, expuesto aquí para reusarse.
+export const fmtDateTime = (input: Date | string | null | undefined): string => {
+  if (input == null) return "—";
+  const d = typeof input === "string" ? new Date(input) : input;
+  if (Number.isNaN(d.getTime())) return "—";
+  const p2 = (n: number) => String(n).padStart(2, "0");
+  return `${p2(d.getDate())}/${MESES[d.getMonth()]}/${d.getFullYear()} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
+};
+
 export const timeAgo = (input: Date | string, now: Date = new Date()): string => {
   const d = typeof input === "string" ? new Date(input) : input;
   const diff = Math.max(0, now.getTime() - d.getTime());

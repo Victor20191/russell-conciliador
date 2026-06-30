@@ -13,7 +13,7 @@ import { leerHojasParaPreview, columnaLetra, type CeldaCruda, type HojaPreview }
 import type { ImportBalanceState } from "@/lib/import/balance";
 
 /** Extensiones de Excel que pueden traer varias hojas (inspeccionables en cliente). */
-const esExcel = (name: string) => /\.(xlsx|xlsm|xls|xlsb)$/i.test(name);
+const esExcel = (name: string) => /\.(xlsx|xlsm)$/i.test(name);
 
 export type ClienteOpcion = { id: number; name: string; nit: string };
 
@@ -67,8 +67,8 @@ function CargarBalanceModal({ clients, onClose, onReiniciar }: { clients: Client
     if (confirmState?.ok) router.refresh();
   }, [confirmState, router]);
 
-  // Al elegir archivo: si es Excel, leemos sus hojas en el navegador (SheetJS
-  // diferido) para que el usuario elija cuál cargar cuando haya 2+. Cualquier
+  // Al elegir archivo: si es Excel moderno, leemos sus hojas en el navegador
+  // para que el usuario elija cuál cargar cuando haya 2+. Cualquier
   // fallo degrada al flujo normal (la IA elige) sin bloquear.
   async function onArchivoChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0] ?? null;
@@ -147,7 +147,7 @@ function CargarBalanceModal({ clients, onClose, onReiniciar }: { clients: Client
       ) : (
         <form id="leer-form" action={leerAction} className="flex flex-col gap-3.5">
           <p className="text-[12.5px] leading-relaxed text-ink-600">
-            Sube el balance en <span className="font-semibold">Excel (.xlsx/.xls/.xlsb), CSV, JSON o PDF</span>. La IA lo
+            Sube el balance en <span className="font-semibold">Excel (.xlsx/.xlsm), CSV, JSON o PDF</span>. La IA lo
             lee, identifica la estructura y te <span className="font-semibold">sugiere</span> los datos (cliente, período,
             saldos). Tú revisas y completas lo que falte antes de cargar; nada se guarda hasta confirmar.
           </p>
@@ -163,7 +163,7 @@ function CargarBalanceModal({ clients, onClose, onReiniciar }: { clients: Client
                 <input
                   type="file"
                   name="archivo"
-                  accept=".xlsx,.xls,.xlsb,.csv,.json,.pdf,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                  accept=".xlsx,.xlsm,.csv,.json,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                   required
                   onChange={onArchivoChange}
                   className="rounded-md border border-ink-200 bg-white text-[12.5px] text-ink-700 file:mr-3 file:cursor-pointer file:border-0 file:bg-navy-700 file:px-3 file:py-2 file:text-[12.5px] file:font-semibold file:text-white"

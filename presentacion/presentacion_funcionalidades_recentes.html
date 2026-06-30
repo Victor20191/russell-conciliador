@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>presentacion_funcionalidades_recentes</title>
+  <style>
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+  </style>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/milligram@1.4.1/dist/minimal.css" />
+</head>
+<body>
+<h1
+id="russell-diagnóstico---plataforma-de-conciliación-y-diagnóstico-financiero">Russell
+Diagnóstico - Plataforma de Conciliación y Diagnóstico Financiero</h1>
+<h2 id="presentación-de-funcionalidades-recientes">Presentación de
+Funcionalidades Recientes</h2>
+<h3 id="junio-2026">Junio 2026</h3>
+<hr />
+<h2 id="tabla-de-contenidos">Tabla de Contenidos</h2>
+<ol type="1">
+<li><a href="#introducción">Introducción</a></li>
+<li><a href="#módulo-de-inteligencia-artificial">Módulo de Inteligencia
+Artificial</a>
+<ul>
+<li>2.1 Gestión de Prompts de IA</li>
+<li>2.2 Monitoreo de Consumo y Costos de IA</li>
+</ul></li>
+<li><a href="#módulo-de-perfil-y-exportación">Módulo de Perfil y
+Exportación</a>
+<ul>
+<li>3.1 Fotos de Perfil de Usuario</li>
+<li>3.2 Exportación de Clientes</li>
+</ul></li>
+<li><a href="#módulo-de-auditoría-y-balance">Módulo de Auditoría y
+Balance</a>
+<ul>
+<li>4.1 Registro de Accesos y Mejora de Auditoría</li>
+<li>4.2 Mejoras en el Módulo de Balance</li>
+</ul></li>
+<li><a href="#mejoras-de-experiencia-de-usuario">Mejoras de Experiencia
+de Usuario</a>
+<ul>
+<li>5.1 Rediseño del Sidebar</li>
+<li>5.2 Optimización de Recuperación de Datos</li>
+<li>5.3 Funcionalidad de Búsqueda en Detalle de Balance</li>
+</ul></li>
+<li><a href="#conclusiones">Conclusiones</a></li>
+</ol>
+<hr />
+<h2 id="introducción">Introducción</h2>
+<p>La plataforma Russell Diagnóstico ha experimentado importantes
+mejoras durante el mes de junio de 2026, enfocándose en cuatro áreas
+principales: - Inteligencia Artificial y automatización inteligente -
+Experiencia de usuario y personalización - Auditoría y trazabilidad -
+Optimización de rendimiento y usabilidad</p>
+<p>Esta presentación detalla cada una de estas funcionalidades
+recientes, explicando su propósito, beneficios técnicos y valor para los
+usuarios finales.</p>
+<hr />
+<h2 id="módulo-de-inteligencia-artificial">Módulo de Inteligencia
+Artificial</h2>
+<h3 id="gestión-de-prompts-de-ia">2.1 Gestión de Prompts de IA</h3>
+<p><strong>Fecha de implementación:</strong> 28 de junio de 2026<br />
+<strong>Commit:</strong> <code>a13294d</code> feat(prompts-ia)</p>
+<h4 id="qué-es">¿Qué es?</h4>
+<p>Una nueva pantalla de configuración ubicada en <strong>Configuración
+› Prompts de IA</strong> (<code>/config/prompts</code>) que permite al
+superadministrador visualizar, editar y restaurar los prompts del
+sistema utilizados por la inteligencia artificial para: - Extracción de
+balances contables - Mapeo de cuentas contables</p>
+<h4 id="características-técnicas">Características técnicas:</h4>
+<ul>
+<li>Los prompts ahora se almacenan en la base de datos (tabla
+<code>prompts_ia</code>) con su valor predeterminado</li>
+<li>Los pipelines de IA (<code>extraer.ts</code>,
+<code>mapeo-ia.ts</code>) leen los prompts directamente desde la base de
+datos con caché</li>
+<li>Invalidación automática de caché al editar prompts</li>
+<li>Persistencia en producción utilizando el sistema de archivos de solo
+lectura de Vercel</li>
+<li>Catálogo centralizado de prompts en
+<code>src/lib/ia/prompts-catalogo.ts</code></li>
+</ul>
+<h4 id="control-de-acceso">Control de acceso:</h4>
+<ul>
+<li><strong>Permiso requerido:</strong> <code>prompts:administrar</code>
+(exclusivamente para Superadministrador)</li>
+<li>Módulo de plataforma exclusivo para administradores</li>
+<li>Entrada de menú dedicada en la interfaz de administración</li>
+<li>Incluye seed de base de datos (<code>db:seed:prompts</code>)</li>
+</ul>
+<h4 id="beneficios">Beneficios:</h4>
+<ul>
+<li><strong>Flexibilidad operativa:</strong> Los administradores pueden
+ajustar los prompts sin requerir despliegues de código</li>
+<li><strong>Optimización de costos:</strong> Mejora en el caching reduce
+el consumo de tokens de IA</li>
+<li><strong>Calidad consistente:</strong> Los prompts se cargan desde
+una fuente centralizada garantizando uniformidad</li>
+<li><strong>Trazabilidad completa:</strong> Historial de cambios
+mediante el sistema de auditoría existente</li>
+</ul>
+<h3 id="monitoreo-de-consumo-y-costos-de-ia">2.2 Monitoreo de Consumo y
+Costos de IA</h3>
+<p><strong>Fecha de implementación:</strong> 27 de junio de 2026<br />
+<strong>Commit:</strong> <code>1ad00f6</code> feat(consumo-ia)</p>
+<h4 id="qué-es-1">¿Qué es?</h4>
+<p>Implementación de un sistema completo para registrar y monitorear el
+consumo de la API de Claude (Anthropic) durante los procesos de
+extracción y mapeo de balances, incluyendo el cálculo detallado de
+costos asociados.</p>
+<h4 id="características-técnicas-1">Características técnicas:</h4>
+<ul>
+<li>Nuevo modelo Prisma <code>ConsumoIA</code> para registrar:
+<ul>
+<li>Tokens consumidos (entrada, salida, caché)</li>
+<li>Costos en USD y COP</li>
+<li>Modelo utilizado (ej: claude-opus-4-8)</li>
+<li>Tipo de operación (extracción_tabular, extraccion_pdf,
+mapeo_ia)</li>
+<li>Información contextual (cliente, usuario, archivo procesado)</li>
+</ul></li>
+<li>Integración con los pipelines de extracción y mapeo de balances</li>
+<li>Nuevo permiso de auditoría <code>auditoria:ia</code> restringido a
+Superadministradores</li>
+<li>Páginas dedicadas en el módulo de auditoría para visualización de
+consumo</li>
+</ul>
+<h4 id="beneficios-1">Beneficios:</h4>
+<ul>
+<li><strong>Transparencia financiera:</strong> Visibilidad completa de
+los costos asociados al uso de IA</li>
+<li><strong>Optimización de recursos:</strong> Identificación de
+patrones de consumo para optimizar uso</li>
+<li><strong>Responsabilidad operativa:</strong> Trazabilidad completa de
+quién utilizó qué recursos y cuándo</li>
+<li><strong>Planificación presupuestaria:</strong> Datos históricos para
+forecasting de gastos de IA</li>
+</ul>
+<hr />
+<h2 id="módulo-de-perfil-y-exportación">Módulo de Perfil y
+Exportación</h2>
+<h3 id="fotos-de-perfil-de-usuario">3.1 Fotos de Perfil de Usuario</h3>
+<p><strong>Fecha de implementación:</strong> 25 de junio de 2026<br />
+<strong>Commit:</strong> <code>fa84d46</code> feat(perfil, exportar)</p>
+<h4 id="qué-es-2">¿Qué es?</h4>
+<p>Sistema completo para manejo de fotos de perfil de usuarios con
+almacenamiento en servicios de objetos (S3/MinIO/R2) y funcionalidad de
+carga masiva.</p>
+<h4 id="características-técnicas-2">Características técnicas:</h4>
+<ul>
+<li><strong>Autoservicio individual:</strong> Usuario puede
+subir/actualizar su foto en <code>/perfil</code></li>
+<li><strong>Carga masiva por lote:</strong> Administradores pueden subir
+ZIP con fotos nombradas por cédula</li>
+<li><strong>Almacenamiento optimizado:</strong> Solo se guarda la clave
+(key) en la base de datos, el binario en almacenamiento externo</li>
+<li><strong>Componente Avatar reutilizable:</strong> Con fallback a
+iniciales cuando no hay foto disponible</li>
+<li><strong>API dedicada:</strong> <code>/api/usuarios/[id]/foto</code>
+para manejo de imágenes</li>
+<li>Migración de base de datos para agregar columna
+<code>clave_foto</code></li>
+</ul>
+<h4 id="beneficios-2">Beneficios:</h4>
+<ul>
+<li><strong>Personalización mejorada:</strong> Experiencia de usuario
+más personalizada y profesional</li>
+<li><strong>Escalabilidad:</strong> Almacenamiento externo evita
+crecimiento excesivo de la base de datos</li>
+<li><strong>Eficiencia operativa:</strong> Carga masiva ahorra tiempo en
+entornos con muchos usuarios</li>
+<li><strong>Consistencia visual:</strong> Interfaz uniforme con
+fallbacks gracefully diseñados</li>
+</ul>
+<h3 id="exportación-de-clientes">3.2 Exportación de Clientes</h3>
+<p><strong>Fecha de implementación:</strong> 25 de junio de 2026<br />
+<strong>Commit:</strong> <code>fa84d46</code> feat(perfil, exportar)</p>
+<h4 id="qué-es-3">¿Qué es?</h4>
+<p>Funcionalidad para exportar la lista de clientes a formato Excel
+desde la sección de configuración de clientes
+(<code>/config/clientes</code>).</p>
+<h4 id="características-técnicas-3">Características técnicas:</h4>
+<ul>
+<li>Endpoint dedicado:
+<code>src/app/(app)/config/clientes/exportar/route.ts</code></li>
+<li>Lógica de exportación en
+<code>src/lib/export/clientes.ts</code></li>
+<li>Formato Excel optimizado para análisis y reportes</li>
+<li>Integración con el sistema de permisos existente</li>
+</ul>
+<h4 id="beneficios-3">Beneficios:</h4>
+<ul>
+<li><strong>Reportabilidad mejorada:</strong> Facilita la generación de
+reportes ejecutivos y auditorías</li>
+<li><strong>Interoperabilidad:</strong> Formato Excel ampliamente
+compatible con otras herramientas empresariales</li>
+<li><strong>Ahorro de tiempo:</strong> Eliminación de procesos manuales
+de extracción de datos</li>
+<li><strong>Precisión de datos:</strong> Exportación directa desde la
+fuente de verdad</li>
+</ul>
+<hr />
+<h2 id="módulo-de-auditoría-y-balance">Módulo de Auditoría y
+Balance</h2>
+<h3 id="registro-de-accesos-y-mejora-de-auditoría">4.1 Registro de
+Accesos y Mejora de Auditoría</h3>
+<p><strong>Fecha de implementación:</strong> 24 de junio de 2026<br />
+<strong>Commit:</strong> <code>739a9ec</code> feat(auditoria,
+balance)</p>
+<h4 id="qué-es-4">¿Qué es?</h4>
+<p>Mejoras significativas al sistema de auditoría incluyendo el registro
+detallado de accesos a la plataforma y mejoras en la estructura
+existente de auditoría.</p>
+<h4 id="características-técnicas-4">Características técnicas:</h4>
+<ul>
+<li><strong>Nuevo modelo <code>AccessLog</code>:</strong> Registra rutas
+visitadas por usuarios con detalles como:
+<ul>
+<li>Nombre de usuario y rol</li>
+<li>Dirección IP y agente de usuario</li>
+<li>Tipo de evento (navegación, ingreso, salida)</li>
+<li>Marca de tiempo</li>
+</ul></li>
+<li><strong>Registro automático:</strong> Al iniciar y cerrar sesión,
+así como durante la navegación</li>
+<li><strong>Mejoras en pantallas de auditoría:</strong>
+<ul>
+<li>Nuevas pestañas para distinguir entre acciones y accesos</li>
+<li>Permisos granulares por rol para visualización adecuada</li>
+<li>Mejor organización visual de la información de auditoría</li>
+</ul></li>
+</ul>
+<h4 id="beneficios-4">Beneficios:</h4>
+<ul>
+<li><strong>Seguridad mejorada:</strong> Trazabilidad completa de quién
+accedió a qué y cuándo</li>
+<li><strong>Cumplimiento normativo:</strong> Facilita el cumplimiento de
+requisitos de auditoría interna y externa</li>
+<li><strong>Análisis de uso:</strong> Información valiosa para
+optimización de experiencia de usuario</li>
+<li><strong>Detección de anomalías:</strong> Identificación fácil de
+accesos inusuales o sospechosos</li>
+<li><strong>Transparencia operativa:</strong> Los administradores tienen
+visibilidad completa de la actividad del sistema</li>
+</ul>
+<h3 id="mejoras-en-el-módulo-de-balance">4.2 Mejoras en el Módulo de
+Balance</h3>
+<h4 id="funcionalidad-de-búsqueda-en-detalle-de-balance">4.2.1
+Funcionalidad de Búsqueda en Detalle de Balance</h4>
+<p><strong>Fecha:</strong> 6 de junio de 2026<br />
+<strong>Commit:</strong> <code>892c0e6</code> feat(balance)</p>
+<ul>
+<li>Implementación de funcionalidad de búsqueda en el detalle del
+balance</li>
+<li>Mejora significativa en la usabilidad para usuarios que trabajan con
+balances extensos</li>
+<li>Filtrado en tiempo real sin recarga de página</li>
+</ul>
+<h4 id="optimización-de-recuperación-de-datos">4.2.2 Optimización de
+Recuperación de Datos</h4>
+<p><strong>Fecha:</strong> 23 de junio de 2026<br />
+<strong>Commit:</strong> <code>0cbaf8c</code> refactor(balance)</p>
+<ul>
+<li>Optimización de consultas a base de datos para recuperación más
+eficiente</li>
+<li>Mejora en el ordenamiento de datos para mostrar primero los
+registros más recientes</li>
+<li>Reducción en tiempo de carga de la página de balance</li>
+</ul>
+<h4 id="mejora-en-lógica-de-importación-de-cuentas">4.2.3 Mejora en
+Lógica de Importación de Cuentas</h4>
+<p><strong>Fecha:</strong> 10 de junio de 2026<br />
+<strong>Commit:</strong> <code>4adef00</code> refactor(balance)</p>
+<ul>
+<li>Optimización del proceso de transformación durante la importación de
+cuentas</li>
+<li>Manejo más eficiente de casos edge y validación de datos</li>
+<li>Mejora en la robustez del proceso de carga inicial</li>
+</ul>
+<h4 id="simplificación-de-lógica-de-ordenamiento">4.2.4 Simplificación
+de Lógica de Ordenamiento</h4>
+<p><strong>Fecha:</strong> 24 de junio de 2026<br />
+<strong>Commit:</strong> <code>739a9ec</code> feat(auditoria,
+balance)</p>
+<ul>
+<li>Simplificación de la cláusula <code>orderBy</code> en consultas de
+base de datos</li>
+<li>Adición de campos <code>periodTs</code> y <code>lastTs</code> para
+tracking eficiente de timestamps</li>
+<li>Ordenamiento basado en subidas más recientes para mejor experiencia
+de usuario</li>
+</ul>
+<h4 id="simplificación-de-modal-de-balance">4.2.5 Simplificación de
+Modal de Balance</h4>
+<p><strong>Fecha:</strong> 3 de junio de 2026<br />
+<strong>Commit:</strong> <code>03b42fe</code> refactor(balance)</p>
+<ul>
+<li>Eliminación del campo “tipo de balance” del modal (simplificación de
+interfaz)</li>
+<li>Remoción del centro operativo de la lógica de balance
+(simplificación de arquitectura)</li>
+<li>Enfoque más limpio y directo en la funcionalidad esencial</li>
+</ul>
+<h4 id="beneficios-globales-del-módulo-de-balance">Beneficios globales
+del módulo de balance:</h4>
+<ul>
+<li><strong>Experiencia de usuario superior:</strong> Interfaz más
+limpia, rápida e intuitiva</li>
+<li><strong>Rendimiento optimizado:</strong> Carga más rápida y mejor
+manejo de grandes volúmenes de datos</li>
+<li><strong>Menor complejidad operativa:</strong> Menos pasos y menos
+confusión para usuarios finales</li>
+<li><strong>Escalabilidad mejorada:</strong> Arquitectura más limpia que
+facilita futuras extensiones</li>
+</ul>
+<hr />
+<h2 id="mejoras-de-experiencia-de-usuario">Mejoras de Experiencia de
+Usuario</h2>
+<h3 id="rediseño-del-sidebar">5.1 Rediseño del Sidebar</h3>
+<p><strong>Fecha:</strong> 17 de junio de 2026<br />
+<strong>Commit:</strong> <code>674d4e1</code> refactor(sidebar)</p>
+<ul>
+<li>Mejora significativa en el diseño y estructura del componente
+Sidebar</li>
+<li>Mejor organización visual de elementos de navegación</li>
+<li>Experiencia de navegación más intuitiva y consistente</li>
+<li>Optimización para diferentes tamaños de pantalla</li>
+</ul>
+<h3 id="optimización-de-recuperación-de-datos-1">5.2 Optimización de
+Recuperación de Datos</h3>
+<p><strong>Fecha:</strong> 23 de junio de 2026<br />
+<strong>Commit:</strong> <code>0cbaf8c</code> refactor(balance)</p>
+<ul>
+<li>Optimización de consultas a base de datos para recuperación más
+eficiente</li>
+<li>Mejora en el ordenamiento de datos para mostrar primero los
+registros más recientes</li>
+<li>Reducción en tiempo de carga de la página de balance</li>
+</ul>
+<h3 id="funcionalidad-de-búsqueda-en-detalle-de-balance-1">5.3
+Funcionalidad de Búsqueda en Detalle de Balance</h3>
+<p><strong>Fecha:</strong> 6 de junio de 2026<br />
+<strong>Commit:</strong> <code>892c0e6</code> feat(balance)</p>
+<ul>
+<li>Implementación de funcionalidad de búsqueda en el detalle del
+balance</li>
+<li>Mejora significativa en la usabilidad para usuarios que trabajan con
+balances extensos</li>
+<li>Filtrado en tiempo real sin recarga de página</li>
+</ul>
+<hr />
+<h2 id="conclusiones">Conclusiones</h2>
+<h3 id="resumen-de-innovaciones-clave">Resumen de Innovaciones
+Clave</h3>
+<p>Durante junio de 2026, Russell Diagnóstico ha implementado un
+conjunto significativo de mejoras que transforman la plataforma en
+múltiples dimensiones:</p>
+<h4 id="inteligencia-artificial-empresarial">1. <strong>Inteligencia
+Artificial Empresarial</strong></h4>
+<ul>
+<li><strong>Gestión dinámica de prompts:</strong> Permite ajustes en
+tiempo real sin despliegues</li>
+<li><strong>Monitoreo de costos de IA:</strong> Transparencia financiera
+y optimización de recursos</li>
+<li><strong>Integración profunda:</strong> IA como servicio integrado,
+no como feature aislado</li>
+</ul>
+<h4 id="experiencia-de-usuario-centrada-en-la-persona">2.
+<strong>Experiencia de Usuario Centrada en la Persona</strong></h4>
+<ul>
+<li><strong>Personalización avanzada:</strong> Fotos de perfil y
+opciones de visualización mejoradas</li>
+<li><strong>Exportación funcional:</strong> Interoperabilidad con
+herramientas empresariales estándar</li>
+<li><strong>Navegación optimizada:</strong> Interfaz más limpia, rápida
+e intuitiva</li>
+</ul>
+<h4 id="gobernanza-y-trazabilidad-empresarial">3. <strong>Gobernanza y
+Trazabilidad Empresarial</strong></h4>
+<ul>
+<li><strong>Auditoría integral:</strong> Seguimiento completo de accesos
+y acciones</li>
+<li><strong>Cumplimiento facilitado:</strong> Herramientas para atender
+requisitos regulatorios</li>
+<li><strong>Seguridad proactiva:</strong> Detección temprana de
+actividades inusuales</li>
+</ul>
+<h4 id="excelencia-operativa">4. <strong>Excelencia
+Operativa</strong></h4>
+<ul>
+<li><strong>Rendimiento optimizado:</strong> Tiempos de respuesta
+mejorados mediante mejoras técnicas</li>
+<li><strong>Escalabilidad arquitectónica:</strong> Código más limpio y
+mantenible</li>
+<li><strong>Calidad de datos:</strong> Procesos de importación y manejo
+más robustos</li>
+</ul>
+<h3 id="impacto-estimado">Impacto Estimado</h3>
+<p>Estas mejoras colectivamente proporcionan:</p>
+<ul>
+<li><strong>Para usuarios finales:</strong> Experiencia más
+personalizada, eficiente y satisfactoria</li>
+<li><strong>Para administradores:</strong> Herramientas avanzadas de
+control, monitoreo y personalización</li>
+<li><strong>Para la organización:</strong> Mejor cumplimiento, reducción
+de costos operativos y mayor escalabilidad</li>
+<li><strong>Para el producto:</strong> Base tecnológica más sólida para
+futuras innovaciones</li>
+</ul>
+<h3 id="próximos-pasos-sugeridos">Próximos Pasos Sugeridos</h3>
+<p>Basado en estas implementaciones, se podrían considerar:</p>
+<ol type="1">
+<li><strong>Extensión del monitoreo de IA:</strong> Alertas proactivas
+cuando se superen umbrales de costo</li>
+<li><strong>Personalización avanzada:</strong> Temas y configuraciones
+de interfaz por usuario/rol</li>
+<li><strong>Analytics avanzados:</strong> Dashboards de uso basados en
+los logs de acceso</li>
+<li><strong>Integración de IA expandida:</strong> Aplicación de IA a
+otros módulos além de balance</li>
+<li><strong>Automatización de reportes:</strong> Generación automática
+de reportes de auditoría y consumo</li>
+</ol>
+<hr />
+<p><em>Presentación generada el 28 de junio de 2026 para Russell
+Diagnóstico</em><br />
+<em>Basada en los commits recientes del repositorio russell-lfm</em></p>
+</body>
+</html>

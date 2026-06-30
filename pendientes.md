@@ -18,6 +18,18 @@ Reunión del 22/06/2026 — Víctor Rivera & Luisa Martinez
 10. **Adoptar Microsoft Planner** (Office 365) como herramienta de gestión de tareas en lugar de Excel.
 11. **Verificar el número de clientes** (Luisa creía que eran 176). (Luisa)
 
+### Buenas prácticas IA para extracción de balances
+
+Estado: **Pendiente por implementar**.
+
+- **Alinear memoria de reglas de mapeo:** resolver la desalineación entre el código/schema que usa `mapeo_balance_cliente` y la BD actual donde la memoria parece vivir en `cuentas_cliente` (`cliente_id`, `cuenta_6_russell`, `origen_mapeo`, `porcentaje_coincidencia`).
+- **Separar completamente números y semántica:** ajustar la vista previa que se envía a la IA para que no incluya valores monetarios; la IA debe descubrir estructura/semántica y el backend debe conservar los montos por ruta determinística.
+- **Implementar umbral duro de confianza:** definir un mínimo operativo para el mapeo IA (referencia: `>= 85%`) y no persistir automáticamente sugerencias por debajo del umbral.
+- **Revisión humana obligatoria para casos dudosos:** enrutar coincidencias bajas, nulas o ambiguas a HITL antes de confirmar/persistir el mapeo.
+- **Aplicar caché de reglas antes de IA:** garantizar que las reglas persistidas del cliente se consulten antes de llamar al modelo para homologación de cuentas.
+- **Evaluar escalera de modelos configurable:** usar modelos más económicos para casos simples y reservar Opus para casos complejos o ambiguos.
+- **Mantener prácticas ya implementadas:** conservar auditoría de consumo IA, costo en COP, prompt caching y Structured Outputs como controles base del proceso.
+
 ---
 
 ## Integración Consigo (proyecto por cerrar)

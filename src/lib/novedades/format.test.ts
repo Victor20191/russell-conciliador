@@ -34,16 +34,21 @@ describe("parsePasos", () => {
 });
 
 describe("ordenarVersiones", () => {
-  it("ordena por orden desc y luego id desc, sin mutar la entrada", () => {
+  it("ordena por fecha efectiva desc (dev por su nombre); desempata order e id desc; sin mutar", () => {
     const input = [
-      { id: 1, order: 10 },
-      { id: 2, order: 30 },
-      { id: 3, order: 30 },
-      { id: 4, order: 20 },
+      // publicada antigua
+      { id: 1, number: "1.0.0", order: 10, releasedAt: "2026-06-15T00:00:00Z", createdAt: "2026-06-01T00:00:00Z" },
+      // dev generada DESPUÉS (createdAt más nuevo) pero con fecha de NOMBRE anterior
+      { id: 2, number: "dev-2026-06-28", order: 0, releasedAt: null, createdAt: "2026-06-30T00:00:00Z" },
+      // dev con fecha de nombre posterior → debe quedar por ENCIMA de la id=2
+      { id: 5, number: "dev-2026-06-29", order: 0, releasedAt: null, createdAt: "2026-06-29T00:00:00Z" },
+      // mismas fechas de publicación → desempata order desc (30 > 20)
+      { id: 3, number: "1.3.0", order: 30, releasedAt: "2026-06-20T00:00:00Z", createdAt: "2026-06-01T00:00:00Z" },
+      { id: 4, number: "1.2.0", order: 20, releasedAt: "2026-06-20T00:00:00Z", createdAt: "2026-06-01T00:00:00Z" },
     ];
     const out = ordenarVersiones(input);
-    expect(out.map((v) => v.id)).toEqual([3, 2, 4, 1]);
-    expect(input.map((v) => v.id)).toEqual([1, 2, 3, 4]); // no muta
+    expect(out.map((v) => v.id)).toEqual([5, 2, 3, 4, 1]);
+    expect(input.map((v) => v.id)).toEqual([1, 2, 5, 3, 4]); // no muta
   });
 });
 

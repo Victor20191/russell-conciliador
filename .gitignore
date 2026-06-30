@@ -30,7 +30,7 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# archivos de entorno locales: no subir a Git
 .env*
 
 # vercel
@@ -50,3 +50,6 @@ next-env.d.ts
 *.xlsm
 *.py
 *.txt
+
+# Estado de dedupe del volcado de novedades (npm run novedades:commits)
+.claude/novedades-state.json

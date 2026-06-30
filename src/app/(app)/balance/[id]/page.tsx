@@ -144,6 +144,9 @@ export default async function BalanceDetailPage({ params }: { params: Promise<{ 
             warnCount={warnCount}
             balanceId={id}
             comentarios={comentariosPorAncla}
+            sums={sums}
+            balanced={calc.balanced}
+            diffCuadre={calc.diffCuadre}
           />
         </>
       )}

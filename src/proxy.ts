@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { jwtVerify } from "jose";
+import { getEncodedSessionSecret } from "@/lib/session-secret";
 
-const encodedKey = new TextEncoder().encode(process.env.SESSION_SECRET);
 const PUBLIC_ROUTES = ["/login"];
 
 // Verificación optimista: solo valida la firma del JWT desde la cookie.
@@ -15,7 +15,7 @@ export default async function proxy(req: NextRequest) {
   let authenticated = false;
   if (token) {
     try {
-      await jwtVerify(token, encodedKey, { algorithms: ["HS256"] });
+      await jwtVerify(token, getEncodedSessionSecret(), { algorithms: ["HS256"] });
       authenticated = true;
     } catch {
       authenticated = false;

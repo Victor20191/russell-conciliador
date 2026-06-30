@@ -313,3 +313,13 @@ const ChangeBase = {
 export const ChangeCreateSchema = z.object(ChangeBase);
 export const ChangeUpdateSchema = z.object({ id: z.coerce.number().int().positive(), ...ChangeBase });
 export const ChangeDeleteSchema = z.object({ id: z.coerce.number().int().positive() });
+
+// Alcance del reporte funcional generado con IA. `versionIds` vacío o ausente →
+// TODO el changelog (comportamiento por defecto). Si trae IDs, el reporte se
+// limita a esas versiones. Esto acota el reporte y ayuda a no topar el límite de
+// cambios enviados al modelo. NO se filtra por fecha calendario porque la unidad
+// de agrupación del módulo es la versión (releasedAt es null en borradores).
+export const ReporteNovedadesScopeSchema = z.object({
+  versionIds: z.array(z.coerce.number().int().positive()).max(1000).optional(),
+});
+export type ReporteNovedadesScope = z.infer<typeof ReporteNovedadesScopeSchema>;

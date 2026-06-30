@@ -22,11 +22,11 @@ export default async function MapeoPage({ searchParams }: { searchParams: Promis
   const alc = await alcanceLecturaUsuario();
   const balances = await prisma.balancePruebaEncabezado.findMany({
     where: alc.todos ? {} : { clienteId: { in: alc.clientIds } },
-    select: { nombreCliente: true },
-    distinct: ["nombreCliente"],
+    select: { clienteId: true, nombreCliente: true, nit: true },
+    distinct: ["clienteId"],
     orderBy: { nombreCliente: "asc" },
   });
-  const clientNames = balances.map((b) => b.nombreCliente);
+  const clientNames = [...new Set(balances.map((b) => b.nombreCliente))];
   const cliente = sp.cliente && clientNames.includes(sp.cliente) ? sp.cliente : (clientNames.includes("El Zarzal S.A") ? "El Zarzal S.A" : clientNames[0] ?? "");
 
   // Solo el Administrador parametriza el plan estándar (gate `mapeo:administrar`).
@@ -36,16 +36,20 @@ export default async function MapeoPage({ searchParams }: { searchParams: Promis
   const canManage = user ? tienePermiso(matriz, user.role, "mapeo:administrar") : false;
   // Memoria de mapeo por cliente (pestaña "Mapeo balance/cliente"): clienteId del
   // cliente seleccionado + flag de escritura (la action revalida el alcance real).
-  const clienteRow = cliente ? await prisma.balancePruebaEncabezado.findFirst({ where: { nombreCliente: cliente }, select: { clienteId: true, nit: true } }) : null;
+  const clienteRow = cliente ? balances.find((b) => b.nombreCliente === cliente) ?? null : null;
   const clienteId = clienteRow?.clienteId ?? null;
   const clienteNit = clienteRow?.nit ?? null;
-  const puedeMapear = (await authorizePermiso("balance:crear")).ok;
+  const puedeMapear = clienteId
+    ? (await authorizePermiso("balance:crear", { clientId: clienteId })).ok
+    : false;
 
   const [accounts, standard, subgruposRows, logs, lockedStdCodes, mapeoRows] = await Promise.all([
-    prisma.clientAccount.findMany({
-      where: { clientName: cliente },
-      orderBy: { order: "asc" },
-    }),
+    clienteId
+      ? prisma.clientAccount.findMany({
+          where: { clienteId },
+          orderBy: [{ order: "asc" }, { code: "asc" }],
+        })
+      : Promise.resolve([]),
     prisma.standardAccount.findMany({ orderBy: { code: "asc" } }),
     prisma.subgrupoEstandar.findMany({ orderBy: { codigo: "asc" } }),
     // Bitácora dedicada: solo se carga para quien puede administrar (los más
