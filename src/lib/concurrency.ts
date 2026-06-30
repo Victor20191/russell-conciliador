@@ -40,7 +40,11 @@ export async function tomarCandadoTransaccion(
   recurso: string,
 ): Promise<void> {
   const key = advisoryKey(recurso);
-  await tx.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(${LOCK_NAMESPACE}, ${key})`);
+  // `pg_advisory_xact_lock` devuelve `void`: con el driver adapter de Prisma 7
+  // (@prisma/adapter-pg) `$queryRaw` no sabe deserializar una columna `void` y
+  // lanza P2010. Usamos `$executeRaw` —no deserializa el resultado del SELECT,
+  // que aquí no necesitamos— para tomar el candado sin romper la transacción.
+  await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(${LOCK_NAMESPACE}, ${key})`);
 }
 
 export async function transaccionSerializable<T>(
