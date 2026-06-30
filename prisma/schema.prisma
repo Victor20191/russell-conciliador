@@ -678,27 +678,6 @@ model BalancePruebaDetalle {
   @@map("balance_prueba_detalle")
 }
 
-// ===== Configuración de mapeo por cliente (memoria entre períodos) =====
-// Recuerda a qué cuenta estándar Russell se mapea cada cuenta de 6 dígitos del
-// cliente, para que la parametrización se haga UNA sola vez: al importar otro
-// período del mismo cliente, este mapeo se aplica primero (prioridad sobre la
-// cascada exacto/descripción/IA). `origen=manual` (asignación a mano) no se pisa
-// por mapeos automáticos. FK suave a Client (Int, sin @relation).
-model MapeoBalanceCliente {
-  id             Int      @id @default(autoincrement()) @map("id")
-  clienteId      Int      @map("cliente_id")
-  cuenta6        String   @map("cuenta_6") // código del cliente (6 dígitos)
-  cuenta6Russell String   @map("cuenta_6_russell") // cuenta estándar asignada
-  coincidencia   Decimal? @map("porcentaje_coincidencia") @db.Decimal(5, 2)
-  origen         String   @default("automatico") @map("origen") // manual | automatico
-  actualizadoPor String?  @map("actualizado_por")
-  actualizadoEn  DateTime @updatedAt @map("actualizado_en")
-
-  @@unique([clienteId, cuenta6])
-  @@index([clienteId])
-  @@map("mapeo_balance_cliente")
-}
-
 // ===== Impuestos · DIAN =====
 model DianForm {
   id          Int           @id @default(autoincrement()) @map("id")
@@ -787,18 +766,37 @@ model DianComment {
   @@map("comentarios_dian")
 }
 
-// ===== Mapeo cuenta-cliente → Russell (Balance · Mapeo plan estándar) =====
+// ===== Cuentas del cliente (PUC) + sus dos mapeos =====
+// Tabla ÚNICA de las cuentas de cada cliente. Sostiene DOS mapeos sobre la misma
+// fila: (1) `russellOption` → módulo de conciliación (Caja/Bancos/DIAN…), y
+// (2) `cuenta6Russell` → cuenta estándar del plan (6 díg) para el BALANCE. El
+// importador de balances registra/actualiza aquí las cuentas del cliente y su
+// mapeo estándar (memoria entre períodos): al cargar otro período, este mapeo se
+// aplica primero. `origenMapeo=manual` (asignación a mano) no se pisa por mapeos
+// automáticos. FK suave a Client por `clienteId` (Int, sin @relation); el
+// `clientName` se conserva como clave del módulo de conciliación.
 model ClientAccount {
   id              Int            @id @default(autoincrement()) @map("id")
-  clientName      String         @map("nombre_cliente")
+  clientName      String         @map("nombre_cliente") // se conserva para el módulo de conciliación
+  clienteId       Int?           @map("cliente_id") // FK suave a Client: identidad ESTABLE del balance
+  nit             String?        @map("nit") // NIT del cliente (identificador legible de negocio)
   code            String         @map("codigo")
   level           Int            @map("nivel") // 4 | 6 | 8
   name            String         @map("nombre")
   russellOption   RussellOption? @relation(fields: [russellOptionId], references: [id], onDelete: SetNull)
   russellOptionId Int?           @map("opcion_russell_id")
   order           Int            @default(0) @map("orden")
+  // Mapeo al plan estándar Russell (BALANCE): cuenta estándar de 6 díg + % y origen.
+  cuenta6Russell  String?        @map("cuenta_6_russell")
+  coincidencia    Decimal?       @map("porcentaje_coincidencia") @db.Decimal(5, 2)
+  origenMapeo     String?        @map("origen_mapeo") // manual | automatico
+  actualizadoPor  String?        @map("actualizado_por")
+  actualizadoEn   DateTime?      @map("actualizado_en")
 
+  // Conciliación llavea por (nombre_cliente, código); el BALANCE llavea por
+  // (cliente_id, código) — inmutable, a prueba de cambios de nombre.
   @@unique([clientName, code])
+  @@unique([clienteId, code])
   @@map("cuentas_cliente")
 }
 

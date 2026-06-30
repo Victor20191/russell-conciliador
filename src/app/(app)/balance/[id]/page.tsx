@@ -11,6 +11,7 @@ import BalanceDetailClient, {
 } from "./balance-detail-client";
 import { parseId } from "@/lib/ids";
 import { FreezeBalanceButton } from "./freeze-balance-button";
+import Conversacion from "@/components/conversacion";
 
 export default async function BalanceDetailPage({ params }: { params: Promise<{ id: string }> }) {
   await requirePermiso("balance:ver");
@@ -40,7 +41,7 @@ export default async function BalanceDetailPage({ params }: { params: Promise<{ 
 
   // Agregados RECALCULADOS desde el detalle. Plan estándar (cacheado), subgrupos
   // (nombres de nivel 4/2) y la bitácora de versiones se cargan en paralelo.
-  const [cuentasEstandar, subgrupos, hermanos] = await Promise.all([
+  const [cuentasEstandar, subgrupos, hermanos, comentariosGrp] = await Promise.all([
     getCuentasEstandar(),
     prisma.subgrupoEstandar.findMany({ select: { codigo: true, nombre: true, grupo: true, nombreGrupo: true } }),
     prisma.balancePruebaEncabezado.findMany({
@@ -48,7 +49,11 @@ export default async function BalanceDetailPage({ params }: { params: Promise<{ 
       orderBy: { creadoEn: "desc" },
       select: { id: true, version: true, ultimaCarga: true, cargadoPor: true, rolCarga: true, archivo: true, tamanoArchivo: true, filasTotales: true, sumaActivo: true, cuadrado: true, nota: true, cambios: true, creadoEn: true },
     }),
+    // Conteo de comentarios por cuenta (ancla) de este balance, para los badges del árbol.
+    prisma.comment.groupBy({ by: ["anchor"], where: { entityType: "balance", entityId: id }, _count: { _all: true } }),
   ]);
+  const comentariosPorAncla: Record<string, number> = {};
+  for (const g of comentariosGrp) if (g.anchor) comentariosPorAncla[g.anchor] = g._count._all;
   const filas = balance.detalles.map((f) => ({
     id: f.id, cuenta8: f.cuenta8, nombreCuenta: f.nombreCuenta, cuenta6Russell: f.cuenta6Russell,
     coincidencia: f.coincidencia != null ? Number(f.coincidencia) : null,
@@ -137,9 +142,17 @@ export default async function BalanceDetailPage({ params }: { params: Promise<{ 
             versions={versions}
             officialVersion={balance.version}
             warnCount={warnCount}
+            balanceId={id}
+            comentarios={comentariosPorAncla}
           />
         </>
       )}
+
+      {/* Conversación del balance completo (período). Los comentarios por cuenta
+          se abren desde cada fila del detalle. */}
+      <div className="mt-6">
+        <Conversacion tipo="balance" entityId={id} titulo={`Conversación · ${balance.nombreCliente} · ${balance.periodo} ${balance.version}`} />
+      </div>
     </div>
   );
 }

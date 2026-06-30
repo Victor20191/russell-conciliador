@@ -1,13 +1,13 @@
 "use client";
 
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useActionState, useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
 import { Modal } from "@/components/modal";
 import { Chip } from "@/components/ui";
 import { fmt } from "@/lib/format";
-import { leerBalance, confirmarCargaBalance, type LeerBalanceState, type SugerenciaBalance } from "@/app/actions/balance";
+import { leerBalance, confirmarCargaBalance, auditarCargaBalance, type LeerBalanceState, type SugerenciaBalance, type AuditoriaCarga } from "@/app/actions/balance";
 import { notifyActionState } from "@/lib/client-notifications";
 import { leerHojasParaPreview, columnaLetra, type CeldaCruda, type HojaPreview } from "@/lib/balance/extraccion/hojas-cliente";
 import type { ImportBalanceState } from "@/lib/import/balance";
@@ -97,9 +97,6 @@ function CargarBalanceModal({ clients, onClose, onReiniciar }: { clients: Client
 
   const sug = leerState?.sugerencia;
   const fase: "ok" | "revisar" | "archivo" = confirmState?.ok ? "ok" : sug ? "revisar" : "archivo";
-  // El cargue se bloquea si se detectó una fila TOTALES y las hojas NO cuadran
-  // contra ella (el servidor lo revalida; esto solo desactiva el botón antes).
-  const cuadreBloquea = fase === "revisar" && !!sug?.cuadre?.detectado && !sug.cuadre.cuadra;
 
   // Con Excel multi-hoja, no se puede leer hasta elegir una hoja.
   const requiereHoja = !!hojas && hojas.length >= 2;
@@ -118,11 +115,10 @@ function CargarBalanceModal({ clients, onClose, onReiniciar }: { clients: Client
         <button
           type="submit"
           form="confirmar-form"
-          disabled={cargando || cuadreBloquea}
-          title={cuadreBloquea ? "El balance no cuadra contra la fila TOTALES del archivo." : undefined}
+          disabled={cargando}
           className="ml-auto rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
         >
-          {cargando ? "Cargando…" : cuadreBloquea ? "No cuadra con TOTALES" : "Cargar balance"}
+          {cargando ? "Cargando…" : "Cargar balance"}
         </button>
       </div>
     ) : (
@@ -209,6 +205,18 @@ function FormRevisar({
   const desdeDef = sug.periodoInicial ?? "";
   const hastaDef = sug.periodoFinal ?? "";
 
+  // Auditoría rápida (determinista, no bloqueante): se corre al elegir cliente.
+  const [audit, setAudit] = useState<AuditoriaCarga | null>(null);
+  const [auditando, startAudit] = useTransition();
+  const correrAudit = (cid: number) => {
+    if (!cid) { setAudit(null); return; }
+    startAudit(async () => { setAudit(await auditarCargaBalance(cid, sug.importReady)); });
+  };
+  // Fetch-on-mount intencional para el cliente sugerido (la auditoría es una
+  // lectura asíncrona, no un prefill de estado derivado).
+  // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
+  useEffect(() => { if (clienteSug) correrAudit(Number(clienteSug)); }, []);
+
   return (
     <form id="confirmar-form" action={confirmAction} className="flex flex-col gap-3.5">
       <input type="hidden" name="payload" value={JSON.stringify(sug)} />
@@ -226,6 +234,7 @@ function FormRevisar({
           name="clientId"
           required
           defaultValue={clienteSug}
+          onChange={(e) => correrAudit(Number(e.target.value))}
           className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400"
         >
           <option value="" disabled>Selecciona el cliente…</option>
@@ -239,6 +248,8 @@ function FormRevisar({
           </span>
         )}
       </label>
+
+      <AuditPanel audit={audit} auditando={auditando} />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label className="flex flex-col gap-1.5">
@@ -281,12 +292,47 @@ function CuadreBanner({ c }: { c: SugerenciaBalance["cuadre"] }) {
   }
   return (
     <div className="rounded-md border border-err-200 bg-err-50 px-3 py-2.5 text-[12px] text-err-700">
-      <div className="font-semibold">No cuadra contra la fila TOTALES del archivo — no se puede cargar.</div>
+      <div className="font-semibold">No cuadra contra la fila TOTALES del archivo.</div>
       <ul className="mt-1 list-disc space-y-0.5 pl-4">
         <li>Débitos: hojas {fmt(c.sumaDebitos)} vs TOTALES {fmt(c.totalDebitos)} (Δ {fmt(c.diferenciaDebitos)})</li>
         <li>Créditos: hojas {fmt(c.sumaCreditos)} vs TOTALES {fmt(c.totalCreditos)} (Δ {fmt(c.diferenciaCreditos)})</li>
       </ul>
-      <div className="mt-1">Revisa la jerarquía de cuentas (padres/auxiliares) y vuelve a leer el archivo.</div>
+      <div className="mt-1">Puedes cargarlo igual: quedará <span className="font-semibold">marcado como descuadrado</span> (novedad) para revisión, o revisa la jerarquía de cuentas (padres/auxiliares) y vuelve a leer el archivo.</div>
+    </div>
+  );
+}
+
+/**
+ * Auditoría rápida pre-carga (no bloqueante): posibles omisiones (cuentas del
+ * último balance del cliente que no vienen) + cuentas que se cargarán sin mapeo.
+ */
+function AuditPanel({ audit, auditando }: { audit: AuditoriaCarga | null; auditando: boolean }) {
+  if (auditando) return <p className="text-[11.5px] text-ink-500">Auditando contra el último balance del cliente…</p>;
+  if (!audit?.ok) return null;
+  return (
+    <div className="flex flex-col gap-2">
+      {audit.omisiones.length > 0 ? (
+        <div className="rounded-md border border-warn-200 bg-warn-50 px-3 py-2 text-[12px] text-warn-700">
+          <div className="font-semibold">⚠ {audit.omisiones.length} posible(s) omisión(es): cuentas del último balance del cliente que NO vienen en este archivo.</div>
+          <ul className="mt-1 max-h-32 list-disc space-y-0.5 overflow-y-auto pl-4 font-mono text-[11px]">
+            {audit.omisiones.slice(0, 60).map((o) => <li key={o.code}><span className="font-semibold">{o.code}</span> {o.name}</li>)}
+            {audit.omisiones.length > 60 && <li className="list-none text-warn-600">… y {audit.omisiones.length - 60} más</li>}
+          </ul>
+        </div>
+      ) : audit.hayPrevio ? (
+        <div className="rounded-md border border-ok-100 bg-ok-100/40 px-3 py-1.5 text-[12px] text-ok-700">✓ No faltan cuentas respecto al último balance del cliente.</div>
+      ) : (
+        <div className="rounded-md border border-ink-150 bg-ink-50 px-3 py-1.5 text-[11.5px] text-ink-500">Primer balance de este cliente: no hay con qué comparar omisiones.</div>
+      )}
+      {audit.sinMapeo.length > 0 && (
+        <div className="rounded-md border border-ink-200 bg-ink-50 px-3 py-2 text-[12px] text-ink-600">
+          <div className="font-semibold">{audit.sinMapeo.length} cuenta(s) se cargarán SIN mapeo al estándar (revisa códigos de 4 díg o con sufijos).</div>
+          <ul className="mt-1 max-h-24 list-disc space-y-0.5 overflow-y-auto pl-4 font-mono text-[11px]">
+            {audit.sinMapeo.slice(0, 40).map((o) => <li key={o.code}><span className="font-semibold">{o.code}</span> {o.name}</li>)}
+            {audit.sinMapeo.length > 40 && <li className="list-none text-ink-500">… y {audit.sinMapeo.length - 40} más</li>}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }

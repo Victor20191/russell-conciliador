@@ -7,7 +7,8 @@ import { Card, Chip } from "@/components/ui";
 import { Modal } from "@/components/modal";
 import { fmt, fmtPct } from "@/lib/format";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
-import { asignarCuentaEstandar } from "@/app/actions/balance";
+import { asignarCuentaEstandar, prevalidarHomologacion, type Prevalidacion, type AlertaHomologacion, type DesfaseNivel } from "@/app/actions/balance";
+import Conversacion from "@/components/conversacion";
 import type { NodoBalance } from "@/lib/balance/calcular";
 
 export type Sums = { activo: number; pasivo: number; patrimonio: number; ingresos: number; gastos: number; costos: number; utilidad: number };
@@ -25,19 +26,38 @@ const CLASES_ER = new Set(["4", "5", "6", "7"]);
 const NIVEL_LABEL: Record<number, string> = { 2: "Clase", 4: "Subgrupo", 6: "Cta. estándar", 8: "Cta. cliente" };
 
 export default function BalanceDetailClient({
-  arbol, estandar, puedeMapear, validations, versions, officialVersion, warnCount,
+  arbol, estandar, puedeMapear, validations, versions, officialVersion, warnCount, balanceId, comentarios,
 }: {
-  arbol: NodoBalance[]; estandar: EstandarOpcion[]; puedeMapear: boolean; validations: Validation[]; versions: Version[]; officialVersion: string; warnCount: number;
+  arbol: NodoBalance[]; estandar: EstandarOpcion[]; puedeMapear: boolean; validations: Validation[]; versions: Version[]; officialVersion: string; warnCount: number; balanceId: number; comentarios: Record<string, number>;
 }) {
   const [tab, setTab] = useState<Tab>("breakdown");
+  const [prevalid, setPrevalid] = useState<Prevalidacion | null>(null);
+  const [pendingPrev, startPrev] = useTransition();
+  function correrPrevalidador() {
+    startPrev(async () => {
+      const r = await prevalidarHomologacion(balanceId);
+      if (!r.ok) { notifyError(r.message ?? "No se pudo prevalidar."); return; }
+      setPrevalid(r);
+    });
+  }
   return (
     <div className="mt-5">
       <div className="mb-3 flex items-center gap-2">
         <TabBtn on={tab === "breakdown"} onClick={() => setTab("breakdown")} label="Detalle por niveles" />
         <TabBtn on={tab === "validations"} onClick={() => setTab("validations")} label="Validaciones" count={warnCount} />
         <TabBtn on={tab === "versions"} onClick={() => setTab("versions")} label="Versiones" count={versions.length} />
+        <button
+          onClick={correrPrevalidador}
+          disabled={pendingPrev}
+          className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-brand-200 bg-brand-50 px-3 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-100 disabled:opacity-60"
+          title="Verifica que las cuentas homologadas cuadren en valores por clase y subgrupo"
+        >
+          {!pendingPrev && <Icon name="check" size={14} />}
+          {pendingPrev ? "Prevalidando…" : "Prevalidador cuentas homologadas"}
+        </button>
       </div>
-      {tab === "breakdown" && <BreakdownTab arbol={arbol} estandar={estandar} puedeMapear={puedeMapear} />}
+      {prevalid && <PrevalidadorModal data={prevalid} onClose={() => setPrevalid(null)} />}
+      {tab === "breakdown" && <BreakdownTab arbol={arbol} estandar={estandar} puedeMapear={puedeMapear} balanceId={balanceId} comentarios={comentarios} />}
       {tab === "validations" && <ValidationsTab validations={validations} />}
       {tab === "versions" && <VersionsTab versions={versions} officialVersion={officialVersion} />}
     </div>
@@ -99,12 +119,13 @@ function contarAlertas(arbol: NodoBalance[]): Map<string, Conteo> {
   return m;
 }
 
-function BreakdownTab({ arbol, estandar, puedeMapear }: { arbol: NodoBalance[]; estandar: EstandarOpcion[]; puedeMapear: boolean }) {
+function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios }: { arbol: NodoBalance[]; estandar: EstandarOpcion[]; puedeMapear: boolean; balanceId: number; comentarios: Record<string, number> }) {
   const [filtro, setFiltro] = useState<Filtro>("todo");
   const [q, setQ] = useState("");
   // Por defecto: expandido hasta nivel 6 (clase y subgrupo abiertos; cuentas del cliente colapsadas).
   const [open, setOpen] = useState<Set<string>>(() => new Set(keysConHijos(arbol).filter((k) => k.split("/").length <= 2)));
   const [asignar, setAsignar] = useState<NodoBalance | null>(null);
+  const [comentar, setComentar] = useState<NodoBalance | null>(null);
 
   // Conteo de alertas (mapeo / naturaleza) por nodo + totales del balance.
   const conteos = useMemo(() => contarAlertas(arbol), [arbol]);
@@ -173,18 +194,19 @@ function BreakdownTab({ arbol, estandar, puedeMapear }: { arbol: NodoBalance[]; 
             {visible.length === 0 ? (
               <tr><td colSpan={9} className="px-4 py-6 text-center text-[12.5px] text-ink-400">{q.trim() ? "Sin cuentas que coincidan con la búsqueda." : filtro === "alertas" ? "Sin alertas de mapeo ni de naturaleza. 🎉" : "Sin cuentas para este filtro."}</td></tr>
             ) : (
-              visible.flatMap((n) => filas(n, 0, openEff, toggle, puedeMapear, setAsignar, conteos))
+              visible.flatMap((n) => filas(n, 0, openEff, toggle, puedeMapear, setAsignar, conteos, comentarios, setComentar))
             )}
           </tbody>
         </table>
       </div>
       {asignar && <AsignarModal nodo={asignar} estandar={estandar} onClose={() => setAsignar(null)} />}
+      {comentar && <ComentarModal nodo={comentar} balanceId={balanceId} onClose={() => setComentar(null)} />}
     </Card>
   );
 }
 
 /** Renderiza recursivamente las filas (nodo + hijos si está expandido). */
-function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: string) => void, puedeMapear: boolean, onAsignar: (n: NodoBalance) => void, conteos: Map<string, Conteo>): React.ReactElement[] {
+function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: string) => void, puedeMapear: boolean, onAsignar: (n: NodoBalance) => void, conteos: Map<string, Conteo>, comentarios: Record<string, number>, onComentar: (n: NodoBalance) => void): React.ReactElement[] {
   const tieneHijos = nodo.hijos.length > 0;
   const isOpen = open.has(nodo.key);
   const esGrupo = nodo.nivel !== 8;
@@ -213,6 +235,14 @@ function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: 
       <td className={`px-4 py-2 ${esGrupo ? "font-semibold text-ink-800" : "text-ink-700"}`}>
         {nodo.name}
         {nodo.critical && nodo.nivel === 8 && <span className="ml-2"><Chip label="Crítica" tone="warn" /></span>}
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onComentar(nodo); }}
+          title="Comentarios de esta cuenta"
+          className={`ml-2 inline-flex items-center gap-0.5 rounded px-1 align-middle text-[11px] hover:bg-ink-100 ${comentarios[nodo.code] ? "text-blue-600" : "text-ink-300 hover:text-ink-600"}`}
+        >
+          <Icon name="msg" size={12} />{comentarios[nodo.code] ? <span className="font-semibold">{comentarios[nodo.code]}</span> : null}
+        </button>
       </td>
       <td className="px-4 py-2">{celdaMapeo(nodo, puedeMapear, onAsignar)}</td>
       <td className="px-4 py-2 text-right font-mono text-ink-400">{fmt(nodo.prevBalance)}</td>
@@ -225,7 +255,7 @@ function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: 
   );
 
   if (!tieneHijos || !isOpen) return [fila];
-  return [fila, ...nodo.hijos.flatMap((h) => filas(h, depth + 1, open, toggle, puedeMapear, onAsignar, conteos))];
+  return [fila, ...nodo.hijos.flatMap((h) => filas(h, depth + 1, open, toggle, puedeMapear, onAsignar, conteos, comentarios, onComentar))];
 }
 
 function celdaMapeo(nodo: NodoBalance, puedeMapear: boolean, onAsignar: (n: NodoBalance) => void): React.ReactNode {
@@ -321,6 +351,15 @@ function AsignarModal({ nodo, estandar, onClose }: { nodo: NodoBalance; estandar
   );
 }
 
+/** Comentarios de una cuenta puntual del balance (anclados por su código). */
+function ComentarModal({ nodo, balanceId, onClose }: { nodo: NodoBalance; balanceId: number; onClose: () => void }) {
+  return (
+    <Modal open onClose={onClose} title={`Comentarios · ${nodo.code} — ${nodo.name}`} size="2xl">
+      <Conversacion tipo="balance" entityId={balanceId} anchor={nodo.code} titulo={`${NIVEL_LABEL[nodo.nivel]} ${nodo.code} · ${nodo.name}`} />
+    </Modal>
+  );
+}
+
 function ValidationsTab({ validations }: { validations: Validation[] }) {
   return (
     <Card>
@@ -404,5 +443,111 @@ function FiltroBtn({ on, onClick, label, count, tone }: { on: boolean; onClick: 
         <span className={`rounded-full px-1.5 text-[10px] font-semibold ${on ? "bg-white/20 text-white" : tone === "warn" ? "bg-warn-100 text-warn-700" : "bg-ink-100 text-ink-500"}`}>{count}</span>
       )}
     </button>
+  );
+}
+
+const MOTIVO_LABEL: Record<AlertaHomologacion["motivo"], string> = {
+  sin_homologar: "Sin homologar",
+  cambia_clase: "Cambia de clase",
+  cambia_subgrupo: "Cambia de subgrupo",
+};
+const MOTIVO_CHIP: Record<AlertaHomologacion["motivo"], string> = {
+  sin_homologar: "bg-ink-100 text-ink-600",
+  cambia_clase: "bg-warn-100 text-warn-700",
+  cambia_subgrupo: "bg-brand-50 text-brand-700",
+};
+function deATexto(a: AlertaHomologacion): string {
+  if (a.motivo === "sin_homologar") return "— (sin cuenta estándar)";
+  if (a.motivo === "cambia_clase") return `clase ${a.claseCliente} → ${a.claseRussell}`;
+  return `subgrupo ${a.subgrupoCliente} → ${a.subgrupoRussell}`;
+}
+
+/** Modal del Prevalidador: cuadre de la homologación por clase/subgrupo + cuentas a reclasificar. */
+function PrevalidadorModal({ data, onClose }: { data: Prevalidacion; onClose: () => void }) {
+  const cuadraTodo = data.cuadradoClase && data.cuadradoSubgrupo && data.alertas.length === 0;
+  const chip = (ok: boolean) => `rounded-full px-2 py-0.5 font-semibold ${ok ? "bg-ok-100 text-ok-700" : "bg-warn-100 text-warn-700"}`;
+  return (
+    <Modal open onClose={onClose} title="Prevalidador de cuentas homologadas" size="2xl">
+      <div className="flex max-h-[68vh] flex-col gap-4 overflow-auto pr-1">
+        <div className="flex flex-wrap items-center gap-2 text-[11.5px]">
+          <span className="text-ink-500">{data.homologadas} de {data.totalCuentas} cuentas homologadas</span>
+          <span className={chip(data.cuadradoClase)}>Clase: {data.cuadradoClase ? "cuadra" : "no cuadra"}</span>
+          <span className={chip(data.cuadradoSubgrupo)}>Subgrupo: {data.cuadradoSubgrupo ? "cuadra" : "no cuadra"}</span>
+        </div>
+
+        {cuadraTodo ? (
+          <div className="flex items-center gap-2 rounded-lg border border-ok-100 bg-ok-50 px-4 py-3 text-sm text-ok-700">
+            <Icon name="check" size={16} />
+            Las cuentas homologadas cuadran en valores a nivel de clase y subgrupo. No hay nada que reclasificar.
+          </div>
+        ) : (
+          <>
+            <p className="text-[11.5px] text-ink-500">
+              La homologación movió o dejó sin clasificar valor. Cada nivel compara el total por el código del <b>cliente</b> contra el de la <b>cuenta estándar</b>; las cuentas que rompen el cuadre se listan abajo para reclasificar.
+            </p>
+            {data.clases.length > 0 && <NivelTabla titulo="Clases con descuadre" filas={data.clases} />}
+            {data.subgrupos.length > 0 && <NivelTabla titulo="Subgrupos con descuadre" filas={data.subgrupos} />}
+            {data.alertas.length > 0 && (
+              <div>
+                <h4 className="mb-1.5 text-xs font-semibold text-ink-700">Cuentas a revisar y reclasificar ({data.alertas.length})</h4>
+                <div className="overflow-hidden rounded-lg border border-ink-100">
+                  <table className="w-full text-[11.5px]">
+                    <thead className="bg-ink-50 text-ink-500">
+                      <tr>
+                        <th className="px-2 py-1.5 text-left font-semibold">Cuenta</th>
+                        <th className="px-2 py-1.5 text-left font-semibold">Motivo</th>
+                        <th className="px-2 py-1.5 text-left font-semibold">De → A</th>
+                        <th className="px-2 py-1.5 text-right font-semibold">Saldo</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.alertas.map((a) => (
+                        <tr key={a.code} className="border-t border-ink-50">
+                          <td className="px-2 py-1.5"><span className="font-mono text-ink-700">{a.code}</span> <span className="text-ink-500">{a.name}</span></td>
+                          <td className="px-2 py-1.5"><span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${MOTIVO_CHIP[a.motivo]}`}>{MOTIVO_LABEL[a.motivo]}</span></td>
+                          <td className="px-2 py-1.5 text-ink-600">{deATexto(a)}</td>
+                          <td className="px-2 py-1.5 text-right font-mono tabular-nums text-ink-700">{fmt(a.saldo)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="mt-2 text-[11px] text-ink-400">Para reclasificar: cierra este modal, abre la cuenta en «Detalle por niveles» y reasigna su cuenta estándar.</p>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+function NivelTabla({ titulo, filas }: { titulo: string; filas: DesfaseNivel[] }) {
+  return (
+    <div>
+      <h4 className="mb-1.5 text-xs font-semibold text-ink-700">{titulo}</h4>
+      <div className="overflow-hidden rounded-lg border border-ink-100">
+        <table className="w-full text-[11.5px]">
+          <thead className="bg-ink-50 text-ink-500">
+            <tr>
+              <th className="px-2 py-1.5 text-left font-semibold">Nivel</th>
+              <th className="px-2 py-1.5 text-right font-semibold">Total cliente</th>
+              <th className="px-2 py-1.5 text-right font-semibold">Total estándar</th>
+              <th className="px-2 py-1.5 text-right font-semibold">Diferencia</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filas.map((f) => (
+              <tr key={f.codigo} className="border-t border-ink-50">
+                <td className="px-2 py-1.5"><span className="font-mono text-ink-700">{f.codigo}</span> <span className="text-ink-500">{f.nombre}</span></td>
+                <td className="px-2 py-1.5 text-right font-mono tabular-nums text-ink-600">{fmt(f.totalCliente)}</td>
+                <td className="px-2 py-1.5 text-right font-mono tabular-nums text-ink-600">{fmt(f.totalRussell)}</td>
+                <td className="px-2 py-1.5 text-right font-mono tabular-nums font-semibold text-warn-700">{fmt(f.diferencia)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }

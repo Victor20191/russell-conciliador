@@ -68,6 +68,17 @@ describe("normalizarCodigo", () => {
     expect(normalizarCodigo(" 11 05 05 ")).toBe("110505");
     expect(normalizarCodigo(110505)).toBe("110505");
   });
+  it("extrae el código cuando viene EMBEBIDO en el nombre", () => {
+    expect(normalizarCodigo("11050501 - Caja General")).toBe("11050501");
+    expect(normalizarCodigo("11100501 - Bancolombia Cuenta Corriente Nro.613-748953-32")).toBe("11100501");
+  });
+  it("quita el sufijo alfabético (INAC/A/AS)", () => {
+    expect(normalizarCodigo("236550INAC")).toBe("236550");
+    expect(normalizarCodigo("23680503A")).toBe("23680503");
+  });
+  it("un rótulo de texto puro no produce código numérico (se excluirá)", () => {
+    expect(/^\d+$/.test(normalizarCodigo("TOTAL ACTIVOS"))).toBe(false);
+  });
 });
 
 describe("controlConcuerda", () => {

@@ -81,10 +81,27 @@ export function normalizarMonto(c: CeldaCruda): number | null {
   return parseNumeroFlexible(String(c));
 }
 
-/** CUENTA como texto: dígitos con ceros iniciales; sin espacios ni puntos de miles. */
+/**
+ * CUENTA como texto normalizado. Maneja dos casos del archivo:
+ *  - código SOLO: `11050501` → `11050501`.
+ *  - código EMBEBIDO en el nombre: `11050501 - Caja General` → toma el token de
+ *    código inicial → `11050501` (algunos ERP no traen columna de código aparte).
+ * Además quita espacios/puntos y el SUFIJO alfabético final (INAC/A/AS):
+ * `236550INAC` → `236550`. Si al quitar el sufijo queda vacío (texto puro, p. ej.
+ * un rótulo de total), conserva el token para que el filtro `/^\d+$/` lo excluya.
+ */
 export function normalizarCodigo(c: CeldaCruda): string {
   if (c == null) return "";
-  return String(c).replace(/[\s.]/g, "").trim();
+  // 1) Quita espacios/puntos de FORMATO dentro del código: `0110.05` → `011005`,
+  //    ` 11 05 05 ` → `110505`.
+  const limpio = String(c).replace(/[\s.]/g, "").trim();
+  // 2) Toma el token de código inicial (por si el nombre va pegado tras un guion:
+  //    `11050501-CajaGeneral` → `11050501`).
+  const m = /^([0-9][0-9A-Za-z]*)/.exec(limpio);
+  const base = m ? m[1] : limpio;
+  // 3) Quita el sufijo alfabético final (INAC/A/AS): `236550INAC` → `236550`.
+  const sinSufijo = base.replace(/[A-Za-z]+$/, "");
+  return sinSufijo.length > 0 ? sinSufijo : base;
 }
 
 const texto = (c: CeldaCruda): string => (c == null ? "" : String(c).replace(/\s+/g, " ").trim());
@@ -173,7 +190,12 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
     const fila = hoja.filas[r] ?? [];
     const filaNum = r + 1;
     const code = normalizarCodigo(cell(fila, cols.codigo));
-    const name = texto(cell(fila, cols.nombre));
+    let name = texto(cell(fila, cols.nombre));
+    // Si el código va embebido en el nombre ("11050501 - Caja General"), deja solo
+    // el nombre (quita el prefijo "código -"). Requiere dígitos iniciales + guion,
+    // así no afecta nombres normales que empiecen por texto.
+    const emb = /^\s*[0-9][0-9A-Za-z]*\s*[-–—]\s*(.+)$/.exec(name);
+    if (emb) name = emb[1].trim();
     if (!code && !name) continue; // fila vacía
     filasLeidas++;
 
