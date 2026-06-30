@@ -83,7 +83,7 @@ function extraerBloques(html: string): PdfBlock[] {
   return bloques;
 }
 
-function utf16Hex(value: string): string {
+function normalizarTextoPdf(value: string): string {
   const safe = value
     .replace(/[¿¡]/g, "")
     .replace(/[“”]/g, "\"")
@@ -96,15 +96,19 @@ function utf16Hex(value: string): string {
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^\x20-\x7e]/g, "")
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "");
-  let hex = "FEFF";
-  for (let i = 0; i < safe.length; i += 1) {
-    hex += safe.charCodeAt(i).toString(16).padStart(4, "0").toUpperCase();
-  }
-  return `<${hex}>`;
+  return safe;
+}
+
+function pdfLiteral(value: string): string {
+  const safe = normalizarTextoPdf(value)
+    .replace(/\\/g, "\\\\")
+    .replace(/\(/g, "\\(")
+    .replace(/\)/g, "\\)");
+  return `(${safe})`;
 }
 
 function pdfText(x: number, y: number, text: string, size: number, bold = false): string {
-  return `BT /${bold ? "F2" : "F1"} ${size} Tf ${x.toFixed(1)} ${y.toFixed(1)} Td ${utf16Hex(text)} Tj ET\n`;
+  return `BT /${bold ? "F2" : "F1"} ${size} Tf ${x.toFixed(1)} ${y.toFixed(1)} Td ${pdfLiteral(text)} Tj ET\n`;
 }
 
 function wrapText(text: string, fontSize: number, width: number): string[] {
