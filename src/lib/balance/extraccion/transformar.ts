@@ -27,8 +27,30 @@ export type ParamsExtraccion = {
   estandar: Estandar;
 };
 
+// Clasificación de cada fila parseada del archivo. La importación promueve solo
+// las `movimiento`; el resto se conserva en staging (paso 1) sin descartarse.
+export type TipoFila = "movimiento" | "agrupadora" | "total" | "descuadre";
+
+// Fila CRUDA normalizada (un registro por fila leída del archivo), para el
+// staging del paso 1. NO se descarta ninguna: padres, totales y descuadres se
+// etiquetan con `tipoFila` en vez de tirarse.
+export type FilaCruda = {
+  hoja: string | null;
+  filaNum: number; // índice 1-based de la fila origen
+  codigoCrudo: string;
+  codigo: string; // normalizado ("" si no numérico)
+  nombre: string;
+  nivel: number | null; // longitud del código (2/4/6/8)
+  tipoFila: TipoFila;
+  saldoInicial: number;
+  debitos: number;
+  creditos: number;
+  saldoFinal: number;
+};
+
 export type ResultadoTransform = {
   importReady: CuentaCruda[];
+  filasCrudas: FilaCruda[]; // TODAS las filas leídas (clasificadas), para staging
   excepciones: Excepcion[];
   resumen: ResumenAuditoria;
   cabecera: Cabecera;
@@ -115,6 +137,28 @@ export function controlConcuerda(si: number, db: number, cr: number, saldo: numb
   return Math.abs(saldo - (si + db - cr)) <= tol || Math.abs(saldo - (si - db + cr)) <= tol;
 }
 
+/**
+ * Elige los movimientos (débito/crédito) que EXPLICAN el saldo final reportado.
+ * Algunos ERP traen el movimiento NETO firmado: un débito negativo es una
+ * reversión (un neto en sentido crédito), no un error. Tomar su magnitud (`|x|`)
+ * rompía la identidad de control y, según el caso, corrompía el monto (lo dejaba
+ * con el signo equivocado) o excluía la cuenta entera por «descuadre».
+ *
+ * Regla, con el SALDO como verdad (identidad firmada `si + db − cr = saldo`):
+ *  1) si los valores TAL CUAL la cumplen, se conservan con su signo (preserva la
+ *     reversión del ERP);
+ *  2) si no, se devuelven en magnitud — cubre los créditos firmados-negativos
+ *     estilo SAP y las notas débito sin saldo final, donde la verdad ES la
+ *     magnitud (la validación de control posterior decide si la fila entra).
+ *
+ * Para archivos de magnitudes (sin negativos) el resultado es idéntico a
+ * `Math.abs`, así que los cargues normales no cambian de comportamiento.
+ */
+export function elegirMovimiento(si: number, db: number, cr: number, saldo: number, tol = 1): { db: number; cr: number } {
+  if (Math.abs(saldo - (si + db - cr)) <= tol) return { db, cr };
+  return { db: Math.abs(db), cr: Math.abs(cr) };
+}
+
 // ---------------- Resolución de cabecera ----------------
 
 function elegir(param: string | null, detectado: Origen): Origen {
@@ -145,6 +189,7 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
   if (!spec.importable) {
     return {
       importReady: [],
+      filasCrudas: [],
       excepciones: [
         ...excepciones,
         { hoja: spec.hoja, fila: null, campo: null, valor: null, regla: "Archivo no importable", accion: spec.motivoNoImportable ?? "Solicitar un balance con saldos." },
@@ -159,6 +204,7 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
   if (!hoja) {
     return {
       importReady: [],
+      filasCrudas: [],
       excepciones: [...excepciones, { hoja: spec.hoja, fila: null, campo: "hoja", valor: spec.hoja, regla: "Hoja no encontrada", accion: "Revisar el nombre de la hoja." }],
       resumen: resumenVacio(cabecera, spec.signoCredito),
       cabecera,
@@ -185,10 +231,16 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
   let filasLeidas = 0;
   let filasExcluidas = 0;
   const parciales: FilaParcial[] = [];
+  // Todas las filas leídas (sin descartar), para el staging del paso 1.
+  const filasCrudas: FilaCruda[] = [];
+  // Índices en `filasCrudas` por código de movimiento → re-etiqueta a "descuadre"
+  // las que no cuadren tras la agregación.
+  const crudasPorCodigo = new Map<string, number[]>();
 
   for (let r = spec.primeraFilaDatos - 1; r < hoja.filas.length; r++) {
     const fila = hoja.filas[r] ?? [];
     const filaNum = r + 1;
+    const codigoCrudo = texto(cell(fila, cols.codigo));
     const code = normalizarCodigo(cell(fila, cols.codigo));
     let name = texto(cell(fila, cols.nombre));
     // Si el código va embebido en el nombre ("11050501 - Caja General"), deja solo
@@ -199,34 +251,60 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
     if (!code && !name) continue; // fila vacía
     filasLeidas++;
 
+    const esNum = /^\d+$/.test(code);
+    const si = tieneInicial ? normalizarMonto(cell(fila, cols.saldoInicial)) : 0;
+    const db = cols.debitos > 0 ? normalizarMonto(cell(fila, cols.debitos)) : 0;
+    const cr = cols.creditos > 0 ? normalizarMonto(cell(fila, cols.creditos)) : 0;
+    const saldo = leerSaldoFinal(fila, cols, si ?? 0, db ?? 0, cr ?? 0);
+
+    // Registra la fila CRUDA (sin descartar). El tipo es provisional para las de
+    // movimiento (puede pasar a "descuadre" tras validar el control).
+    const registrar = (tipoFila: TipoFila, m: { si: number; db: number; cr: number; saldo: number }): number => {
+      filasCrudas.push({
+        hoja: hoja.nombre,
+        filaNum,
+        codigoCrudo,
+        codigo: esNum ? code : "",
+        nombre: name || code || codigoCrudo,
+        nivel: esNum ? code.length : null,
+        tipoFila,
+        saldoInicial: m.si,
+        debitos: m.db,
+        creditos: m.cr,
+        saldoFinal: m.saldo,
+      });
+      return filasCrudas.length - 1;
+    };
+
     // Totales/secciones: código no numérico.
-    if (!/^\d+$/.test(code)) {
+    if (!esNum) {
       filasExcluidas++;
+      registrar("total", { si: si ?? 0, db: db ?? 0, cr: cr ?? 0, saldo: saldo ?? 0 });
       continue;
     }
     // ¿Es cuenta de movimiento (hoja)? Columna marcadora si el archivo la trae;
     // si no, detección estructural por prefijo (no es prefijo de otra) + piso PUC.
     if (!esHoja(code, fila, spec, ancestros)) {
       filasExcluidas++;
+      registrar("agrupadora", { si: si ?? 0, db: db ?? 0, cr: cr ?? 0, saldo: saldo ?? 0 });
       continue;
     }
-
-    const si = tieneInicial ? normalizarMonto(cell(fila, cols.saldoInicial)) : 0;
-    const db = cols.debitos > 0 ? normalizarMonto(cell(fila, cols.debitos)) : 0;
-    const cr = cols.creditos > 0 ? normalizarMonto(cell(fila, cols.creditos)) : 0;
-    const saldo = leerSaldoFinal(fila, cols, si ?? 0, db ?? 0, cr ?? 0);
 
     if (si === null || db === null || cr === null || saldo === null) {
       excepciones.push({ hoja: hoja.nombre, fila: filaNum, campo: "monto", valor: null, regla: "Monto no numérico", accion: "Corregir el valor en el archivo." });
+      registrar("descuadre", { si: si ?? 0, db: db ?? 0, cr: cr ?? 0, saldo: saldo ?? 0 });
       continue;
     }
+    const mov = elegirMovimiento(si, db, cr, saldo);
+    const idx = registrar("movimiento", { si, db: mov.db, cr: mov.cr, saldo });
+    (crudasPorCodigo.get(code) ?? crudasPorCodigo.set(code, []).get(code)!).push(idx);
     parciales.push({
       code,
       name: name || code,
-      si: si ?? 0,
-      db: Math.abs(db ?? 0), // movimientos en magnitud positiva
-      cr: Math.abs(cr ?? 0),
-      saldo: saldo ?? 0,
+      si, // movimiento del período: firmado si el ERP trae reversas, magnitud si no
+      db: mov.db,
+      cr: mov.cr,
+      saldo,
     });
   }
 
@@ -246,6 +324,7 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
         regla: "Descuadre (SALDO ≠ SALDO_INICIAL + DÉBITOS − CRÉDITOS)",
         accion: "Revisar la cuenta; no se importa.",
       });
+      for (const idx of crudasPorCodigo.get(f.code) ?? []) filasCrudas[idx].tipoFila = "descuadre";
       continue;
     }
     importReady.push({ code: f.code, name: f.name, prevBalance: f.si, balance: f.saldo, debitos: f.db, creditos: f.cr });
@@ -255,12 +334,15 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
   // EFECTIVAMENTE se importa/persiste (importReady, ya sin las filas de descuadre
   // de control): así "cuadra" garantiza que lo guardado coincide con TOTALES, no
   // un conjunto distinto al persistido.
-  const sumaDebitos = importReady.reduce((s, f) => s + Math.abs(f.debitos ?? 0), 0);
-  const sumaCreditos = importReady.reduce((s, f) => s + Math.abs(f.creditos ?? 0), 0);
+  // Σ firmada (no `|x|`): así una reversión (débito neto negativo) resta del lado
+  // correcto y la partida doble Σdéb = Σcré cuadra igual que en el archivo origen.
+  const sumaDebitos = importReady.reduce((s, f) => s + (f.debitos ?? 0), 0);
+  const sumaCreditos = importReady.reduce((s, f) => s + (f.creditos ?? 0), 0);
   const cuadre = construirCuadre(detectarTotales(hoja, spec), sumaDebitos, sumaCreditos);
 
   return {
     importReady,
+    filasCrudas,
     excepciones,
     resumen: {
       filasLeidas,
@@ -289,6 +371,7 @@ export function validarDirecta(extr: ExtraccionDirecta, params: ParamsExtraccion
   if (!extr.importable) {
     return {
       importReady: [],
+      filasCrudas: [],
       excepciones: [...excepciones, { hoja: null, fila: null, campo: null, valor: null, regla: "Archivo no importable", accion: extr.motivoNoImportable ?? "Solicitar un balance con saldos." }],
       resumen: resumenVacio(cabecera, "firmado"),
       cabecera,
@@ -300,19 +383,34 @@ export function validarDirecta(extr: ExtraccionDirecta, params: ParamsExtraccion
   // cuentas padre que el modelo haya devuelto junto a sus auxiliares.
   const codigos = extr.filas.map((f) => normalizarCodigo(f.cuenta)).filter((c) => /^\d+$/.test(c));
   const ancestros = prefijosDe(codigos);
-  const base: FilaParcial[] = extr.filas
-    .filter((f) => {
-      const c = normalizarCodigo(f.cuenta);
-      return /^\d+$/.test(c) && c.length >= LONGITUD_MIN_IMPUTABLE && !ancestros.has(c);
-    })
-    .map((f) => ({
-      code: normalizarCodigo(f.cuenta),
-      name: f.nombre || normalizarCodigo(f.cuenta),
-      si: f.saldoInicial ?? 0,
-      db: Math.abs(f.debitos ?? 0),
-      cr: Math.abs(f.creditos ?? 0),
-      saldo: f.saldo ?? 0,
-    }));
+  const base: FilaParcial[] = [];
+  const filasCrudas: FilaCruda[] = [];
+  const crudasPorCodigo = new Map<string, number[]>();
+  extr.filas.forEach((f, i) => {
+    const code = normalizarCodigo(f.cuenta);
+    const esNum = /^\d+$/.test(code);
+    const mov = elegirMovimiento(f.saldoInicial ?? 0, f.debitos ?? 0, f.creditos ?? 0, f.saldo ?? 0);
+    const esMovimiento = esNum && code.length >= LONGITUD_MIN_IMPUTABLE && !ancestros.has(code);
+    const tipoFila: TipoFila = !esNum ? "total" : esMovimiento ? "movimiento" : "agrupadora";
+    filasCrudas.push({
+      hoja: null,
+      filaNum: i + 1,
+      codigoCrudo: f.cuenta,
+      codigo: esNum ? code : "",
+      nombre: f.nombre || code || f.cuenta,
+      nivel: esNum ? code.length : null,
+      tipoFila,
+      saldoInicial: f.saldoInicial ?? 0,
+      debitos: mov.db,
+      creditos: mov.cr,
+      saldoFinal: f.saldo ?? 0,
+    });
+    if (esMovimiento) {
+      const idx = filasCrudas.length - 1;
+      (crudasPorCodigo.get(code) ?? crudasPorCodigo.set(code, []).get(code)!).push(idx);
+      base.push({ code, name: f.nombre || code, si: f.saldoInicial ?? 0, db: mov.db, cr: mov.cr, saldo: f.saldo ?? 0 });
+    }
+  });
   const filasLeidas = extr.filas.length;
   const filasExcluidas = filasLeidas - base.length;
   const { movimiento, agrupadoras } = contarJerarquia(codigos, ancestros);
@@ -326,6 +424,7 @@ export function validarDirecta(extr: ExtraccionDirecta, params: ParamsExtraccion
     if (hayMov && !controlConcuerda(f.si, f.db, f.cr, f.saldo)) {
       filasDescuadre++;
       excepciones.push({ hoja: null, fila: null, campo: "saldo", valor: `${f.code}`, regla: "Descuadre (SALDO ≠ SALDO_INICIAL + DÉBITOS − CRÉDITOS)", accion: "Revisar la cuenta; no se importa." });
+      for (const idx of crudasPorCodigo.get(f.code) ?? []) filasCrudas[idx].tipoFila = "descuadre";
       continue;
     }
     importReady.push({ code: f.code, name: f.name, prevBalance: f.si, balance: f.saldo, debitos: f.db, creditos: f.cr });
@@ -333,6 +432,7 @@ export function validarDirecta(extr: ExtraccionDirecta, params: ParamsExtraccion
 
   return {
     importReady,
+    filasCrudas,
     excepciones,
     resumen: {
       filasLeidas,

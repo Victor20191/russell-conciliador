@@ -3,6 +3,7 @@ import {
   parseNumeroFlexible,
   normalizarCodigo,
   controlConcuerda,
+  elegirMovimiento,
   construirCuadre,
   transformarTabular,
   validarDirecta,
@@ -114,6 +115,17 @@ describe("controlConcuerda", () => {
   });
 });
 
+describe("elegirMovimiento", () => {
+  it("conserva el signo cuando la identidad firmada explica el saldo", () => {
+    expect(elegirMovimiento(14_900_064.22, -8_829_085.77, 449_106, 5_621_872.45)).toEqual({ db: -8_829_085.77, cr: 449_106 });
+    expect(elegirMovimiento(0, 1000, 0, 1000)).toEqual({ db: 1000, cr: 0 }); // débito normal, sin cambio
+  });
+  it("cae a magnitud cuando el signo NO explica el saldo (SAP / nota débito)", () => {
+    expect(elegirMovimiento(-100, 0, -900, -1000)).toEqual({ db: 0, cr: 900 }); // crédito firmado-negativo
+    expect(elegirMovimiento(0, -50, 0, 50)).toEqual({ db: 50, cr: 0 }); // nota débito con saldo en magnitud
+  });
+});
+
 describe("transformarTabular", () => {
   const hoja: GridHoja = {
     nombre: "Balance",
@@ -138,6 +150,17 @@ describe("transformarTabular", () => {
     expect(r.resumen.filasDescuadre).toBe(1);
     expect(r.excepciones.some((e) => /Descuadre/.test(e.regla))).toBe(true);
   });
+  it("staging: conserva TODAS las filas leídas, clasificadas (no pierde ninguna)", () => {
+    // 5 filas de datos (la cabecera no cuenta): nada se descarta, solo se etiqueta.
+    expect(r.filasCrudas).toHaveLength(5);
+    const tipo = (codigo: string) => r.filasCrudas.find((f) => f.codigo === codigo)?.tipoFila;
+    expect(tipo("11")).toBe("agrupadora"); // padre
+    expect(tipo("110505")).toBe("movimiento");
+    expect(tipo("220505")).toBe("movimiento");
+    expect(tipo("130505")).toBe("descuadre"); // movimiento que no cuadró → re-etiquetado
+    // La fila TOTAL (código no numérico) queda como "total" con codigo vacío.
+    expect(r.filasCrudas.find((f) => f.tipoFila === "total")?.codigo).toBe("");
+  });
   it("la cabecera usa los parámetros del modal (PARAMETRO)", () => {
     expect(r.cabecera.nit).toEqual({ valor: "900.451.227-3", fuente: "PARAMETRO" });
     expect(r.cabecera.periodoFinal.valor).toBe("2026-05-31");
@@ -159,6 +182,40 @@ describe("transformarTabular", () => {
     };
     const rr = transformarTabular(spec(), [hojaSap], PARAMS);
     expect(rr.importReady[0]).toMatchObject({ code: "240805", creditos: 900 });
+  });
+
+  it("conserva el débito NETO negativo (reversa) cuando explica el saldo", () => {
+    // Caso real COMESTIBLES DAN (cuenta 143560): débito neto −8.829.085,77 que
+    // ANTES se volteaba a magnitud → la fila descuadraba y se excluía entera.
+    const hojaRev: GridHoja = {
+      nombre: "Balance",
+      filas: [
+        ["Código", "Cuenta", "Saldo anterior", "Débito", "Crédito", "Saldo final"],
+        [143560, "SALSAS", 14_900_064.22, -8_829_085.77, 449_106, 5_621_872.45], // 14.900.064,22 − 8.829.085,77 − 449.106 = 5.621.872,45 ✓
+      ],
+    };
+    const rr = transformarTabular(spec(), [hojaRev], PARAMS);
+    expect(rr.importReady).toHaveLength(1); // ya NO se descarta
+    expect(rr.importReady[0]).toMatchObject({ code: "143560", debitos: -8_829_085.77, creditos: 449_106, balance: 5_621_872.45 });
+    expect(rr.resumen.filasDescuadre).toBe(0);
+  });
+
+  it("la suma de cuadre resta la reversa (partida doble cuadra con el origen)", () => {
+    const hojaPd: GridHoja = {
+      nombre: "Balance",
+      filas: [
+        ["Código", "Cuenta", "Saldo anterior", "Débito", "Crédito", "Saldo final"],
+        [110505, "Caja", 0, 1000, 0, 1000], // débito normal
+        [143560, "Salsas", 100, -1000, 0, -900], // reversa: débito neto −1000
+        [240805, "IVA", 0, 0, 0, 0],
+        ["TOTAL", "Sumas iguales", "", 0, 0, 0], // gran total del archivo (Σdéb = Σcré)
+      ],
+    };
+    const rr = transformarTabular(spec(), [hojaPd], PARAMS);
+    // Σ firmada: 1000 + (−1000) = 0, no 2000 como daría |x|.
+    expect(rr.cuadre.sumaDebitos).toBe(0);
+    expect(rr.cuadre.diferenciaPartidaDoble).toBe(0);
+    expect(rr.cuadre.partidaDobleCuadra).toBe(true);
   });
 
   it("agrega por tercero sumando los importes", () => {

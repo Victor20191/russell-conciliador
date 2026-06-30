@@ -12,7 +12,8 @@
 import { fmt } from "@/lib/format";
 
 // ---- Tipos de entrada ----
-// `debitos`/`creditos` son los movimientos del período (magnitud positiva);
+// `debitos`/`creditos` son los movimientos del período (normalmente magnitud
+// positiva, pero firmados si el ERP reporta reversas como neto negativo);
 // opcionales porque algunos balances solo traen saldos.
 export type CuentaCruda = { code: string; name: string; prevBalance: number; balance: number; debitos?: number; creditos?: number };
 // El plan estándar puede llegar «rico» (con descripciones) para el segundo
@@ -38,13 +39,92 @@ export type ResultadoBalance = {
   sums: Sums;
   validations: Validation[];
   breakdown: BreakdownGroup[];
-  balanced: boolean;
-  diffCuadre: number;
+  balanced: boolean; // Gate 2: |A − P − Patrimonio − Resultado| ≤ MARGEN_CUADRE
+  diffCuadre: number; // = A − P − Patrimonio − Resultado (Σ saldos firmados, clases 1–7)
+  movimientosCuadran: boolean; // Gate 1: |Σdébitos − Σcréditos| ≤ MARGEN_CUADRE
+  diffMov: number; // = Σdébitos − Σcréditos del período
   totalRows: number;
   mapped: number;
   unmapped: number;
   critical: number;
 };
+
+// Margen absoluto (COP) para los gates contables del cargue: el balance se
+// promueve igual, pero queda marcado CUADRADO solo si AMBAS identidades caen
+// dentro de este margen: débitos=créditos (Gate 1) y A−P=Patrimonio+Resultado
+// (Gate 2). Fuera de él → se promueve con ALERTA (descuadrado).
+export const MARGEN_CUADRE = 1000;
+
+// Validación contable del BORRADOR (paso 1): compara los totales de Activo /
+// Pasivo / Patrimonio CALCULADOS del detalle contra los que TRAE el archivo (si
+// vienen), y verifica la ecuación A = Pasivo + Patrimonio + Resultado. Todo en
+// magnitudes (sin signo) y con margen ±MARGEN_CUADRE. Los `*Archivo`/`*Cuadra`
+// por clase son null cuando el archivo no trae ese total (solo hay calculado).
+export type ValidacionContable = {
+  // Calculado del detalle de movimiento (magnitudes naturales por clase).
+  activo: number;
+  pasivo: number;
+  patrimonio: number;
+  ingresos: number;
+  gastos: number;
+  costos: number;
+  resultado: number; // ingresos − gastos − costos
+  // Totales que trae el archivo (filas clase 1/2/3), en magnitud; null si ausentes.
+  activoArchivo: number | null;
+  pasivoArchivo: number | null;
+  patrimonioArchivo: number | null;
+  // Validación 1 — ecuación contable A = P + Patrimonio + Resultado.
+  ecuacionDiff: number; // = activo − pasivo − patrimonio − resultado
+  ecuacionCuadra: boolean; // |ecuacionDiff| ≤ MARGEN_CUADRE
+  // Validación 2 — archivo vs detalle por clase (|archivo| − calculado).
+  activoDiff: number | null;
+  activoCuadra: boolean | null;
+  pasivoDiff: number | null;
+  pasivoCuadra: boolean | null;
+  patrimonioDiff: number | null;
+  patrimonioCuadra: boolean | null;
+};
+
+/**
+ * Construye la validación contable del borrador a partir del balance calculado y
+ * los totales A/P/Patrimonio que trae el archivo (en magnitud). Pura y testeable.
+ * La comparación archivo↔detalle usa `Math.abs(archivo)` para ser agnóstica a la
+ * convención de signo (firmado vs magnitud) del reporte.
+ */
+export function construirValidacionContable(
+  calc: ResultadoBalance,
+  totalesArchivo: { activo: number | null; pasivo: number | null; patrimonio: number | null },
+): ValidacionContable {
+  const s = calc.sums;
+  const cmp = (arch: number | null, mag: number): { diff: number | null; cuadra: boolean | null } => {
+    if (arch == null) return { diff: null, cuadra: null };
+    const diff = Math.abs(arch) - mag;
+    return { diff, cuadra: Math.abs(diff) <= MARGEN_CUADRE };
+  };
+  const a = cmp(totalesArchivo.activo, s.activo);
+  const p = cmp(totalesArchivo.pasivo, s.pasivo);
+  const pat = cmp(totalesArchivo.patrimonio, s.patrimonio);
+  return {
+    activo: s.activo,
+    pasivo: s.pasivo,
+    patrimonio: s.patrimonio,
+    ingresos: s.ingresos,
+    gastos: s.gastos,
+    costos: s.costos,
+    resultado: s.utilidad,
+    activoArchivo: totalesArchivo.activo == null ? null : Math.abs(totalesArchivo.activo),
+    pasivoArchivo: totalesArchivo.pasivo == null ? null : Math.abs(totalesArchivo.pasivo),
+    patrimonioArchivo: totalesArchivo.patrimonio == null ? null : Math.abs(totalesArchivo.patrimonio),
+    ecuacionDiff: calc.diffCuadre,
+    ecuacionCuadra: calc.balanced,
+    activoDiff: a.diff,
+    activoCuadra: a.cuadra,
+    pasivoDiff: p.diff,
+    pasivoCuadra: p.cuadra,
+    patrimonioDiff: pat.diff,
+    patrimonioCuadra: pat.cuadra,
+  };
+}
 
 // Nombres de los grupos del PUC colombiano (Decreto 2650) — el plan
 // estándar solo trae cuentas de 6 dígitos, así que los nombres de grupo
@@ -261,7 +341,13 @@ export function quitarPadresRedundantes(cuentas: CuentaCruda[]): CuentaCruda[] {
         const na = norm(a.name);
         const nb = norm(b.name);
         // `a` (encabezado) es prefijo de `b` (detalle más específico) → se descarta `a`.
-        if (na.length > 0 && nb.length > na.length && nb.startsWith(na)) descartar.add(a);
+        // PERO el sufijo que los distingue debe ser un DESCRIPTOR (con letras), no
+        // una mera enumeración: "BASE RAPIDAN" vs "BASE RAPIDAN 2" son cuentas
+        // HERMANAS distintas (mismo saldo por coincidencia), no encabezado/detalle,
+        // y NO deben deduplicarse. "PROVEEDORES INTERNACIONALES" vs "… USD" sí.
+        if (na.length > 0 && nb.length > na.length && nb.startsWith(na) && /[a-záéíóúüñ]/i.test(nb.slice(na.length))) {
+          descartar.add(a);
+        }
       }
     }
   }
@@ -400,9 +486,9 @@ function agregarDetalle(detalle: BreakdownItem[]): ResultadoBalance {
   // partida doble patrimonio-resultado: se excluyen del cuadre (siguen visibles
   // en el desglose y en las sumas no entran de por sí).
   const paraCuadre = detalle.filter((d) => d.code.charAt(0) !== "8" && d.code.charAt(0) !== "9");
-  const totalAbs = sum(paraCuadre.map((d) => Math.abs(d.balance)));
   const diffCuadre = sum(paraCuadre.map((d) => d.balance));
-  const balanced = Math.abs(diffCuadre) <= Math.max(1, totalAbs * 0.005);
+  // Gate 2 (A − P = Patrimonio + Resultado): margen absoluto fijo de ±$1000.
+  const balanced = Math.abs(diffCuadre) <= MARGEN_CUADRE;
 
   // 5) Desglose por grupo PUC (2 dígitos). Códigos sin grupo conocido → "99".
   const buckets = new Map<string, BreakdownItem[]>();
@@ -469,22 +555,24 @@ function agregarDetalle(detalle: BreakdownItem[]): ResultadoBalance {
     },
   ];
 
-  // V5: cuadre de los MOVIMIENTOS del período (Σ débitos = Σ créditos), un
-  // invariante distinto del cuadre de saldos (V1). Solo aplica si el archivo
-  // trajo columnas de movimientos (debe/haber); si no, no se evalúa.
+  // V5 / Gate 1: cuadre de los MOVIMIENTOS del período (Σ débitos = Σ créditos),
+  // distinto del cuadre de saldos (V1). El veredicto del cargue usa el margen
+  // ±$1000; el descuadre exacto (>1 COP) queda como matiz informativo en el texto.
   const totalDebe = sum(detalle.map((d) => d.debe ?? 0));
   const totalHaber = sum(detalle.map((d) => d.haber ?? 0));
-  if (totalDebe > 0 || totalHaber > 0) {
-    const diffMov = totalDebe - totalHaber;
-    // Partida doble del período: Σ débitos debe ser EXACTAMENTE igual a Σ créditos
-    // (1 COP por redondeo, sin tolerancia de %).
-    const movOk = Math.abs(diffMov) <= 1;
+  const hayMovimientos = totalDebe !== 0 || totalHaber !== 0;
+  const diffMov = totalDebe - totalHaber;
+  // Si el archivo no trajo movimientos (solo saldos), el gate no aplica → cuadra.
+  const movimientosCuadran = !hayMovimientos || Math.abs(diffMov) <= MARGEN_CUADRE;
+  if (hayMovimientos) {
     validations.push({
       id: "V5",
       rule: "Movimientos del período (débitos = créditos)",
-      status: movOk ? "ok" : "warn",
-      detail: movOk ? `Partida doble del período correcta · diferencia: ${fmt(diffMov)}` : `Σ débitos − Σ créditos del período: ${fmt(diffMov)}`,
-      ...(movOk ? {} : { count: 1 }),
+      status: movimientosCuadran ? "ok" : "warn",
+      detail: movimientosCuadran
+        ? `Partida doble del período correcta · diferencia: ${fmt(diffMov)}`
+        : `Σ débitos − Σ créditos del período: ${fmt(diffMov)} (fuera del margen ±${fmt(MARGEN_CUADRE)})`,
+      ...(movimientosCuadran ? {} : { count: 1 }),
     });
   }
 
@@ -494,6 +582,8 @@ function agregarDetalle(detalle: BreakdownItem[]): ResultadoBalance {
     breakdown,
     balanced,
     diffCuadre,
+    movimientosCuadran,
+    diffMov,
     totalRows: detalle.length,
     mapped: detalle.length - sinMapeo,
     unmapped: sinMapeo,

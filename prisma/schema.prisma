@@ -678,6 +678,33 @@ model BalancePruebaDetalle {
   @@map("balance_prueba_detalle")
 }
 
+// Staging crudo de la importación de balance (paso 1). Recibe TODAS las filas
+// normalizadas del archivo —sin descartar padres/totales/descuadres— etiquetadas
+// con su `tipoFila`. El paso 2 (confirmación) las relee, promueve solo las de
+// movimiento al modelo normalizado y PURGA el lote. FK suave a `clientes` (Int,
+// sin @relation); `clienteId` es null hasta que se confirma el cliente.
+model BalanceImportacionStaging {
+  id           Int      @id @default(autoincrement()) @map("id")
+  loteId       String   @map("lote_id") // uuid por sesión de importación
+  clienteId    Int?     @map("cliente_id") // null hasta confirmar
+  hoja         String?  @map("hoja")
+  filaNum      Int      @map("fila_num") // índice 1-based de la fila origen
+  codigoCrudo  String   @map("codigo_crudo") // texto tal cual del archivo
+  codigo       String   @map("codigo") // normalizado ("" si no numérico)
+  nombre       String   @map("nombre")
+  nivel        Int?     @map("nivel") // longitud PUC del código (2/4/6/8)
+  tipoFila     String   @map("tipo_fila") // movimiento | agrupadora | total | excluida | descuadre
+  saldoInicial Decimal  @default(0) @map("saldo_inicial") @db.Decimal(18, 2)
+  debitos      Decimal  @default(0) @map("debitos") @db.Decimal(18, 2)
+  creditos     Decimal  @default(0) @map("creditos") @db.Decimal(18, 2)
+  saldoFinal   Decimal  @default(0) @map("saldo_final") @db.Decimal(18, 2)
+  creadoEn     DateTime @default(now()) @map("creado_en")
+
+  @@index([loteId])
+  @@index([clienteId])
+  @@map("balance_importacion_staging")
+}
+
 // ===== Impuestos · DIAN =====
 model DianForm {
   id          Int           @id @default(autoincrement()) @map("id")

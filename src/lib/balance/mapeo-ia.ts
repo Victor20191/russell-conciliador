@@ -5,7 +5,8 @@
 import "server-only";
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { getAnthropic, MODELO_EXTRACCION, conReintentoSinTemperatura } from "@/lib/anthropic";
+import { getAnthropic, conReintentoSinTemperatura } from "@/lib/anthropic";
+import { CASCADA_MAPEO } from "@/lib/ia/modelos";
 import { getPromptContenido, CLAVE_MAPEO } from "@/lib/ia/prompts";
 import type { UsoIA } from "@/lib/ia/uso";
 
@@ -27,19 +28,69 @@ const MapeoIASchema = z.object({
 
 const TAM_LOTE = 80; // cuentas por llamada (acota el tamaño de salida)
 
+type BloqueSistema = { type: "text"; text: string; cache_control?: { type: "ephemeral" } };
+
 /**
- * Mapea por IA las cuentas pendientes contra el plan. Procesa en lotes y memoiza
- * el plan en el prompt de sistema (cache). Best-effort: si una llamada falla, ese
- * lote queda sin asignar (el cargue continúa con lo que sí se resolvió).
+ * Mapea por IA un conjunto de cuentas con UN modelo, en lotes, memoizando el plan
+ * en el prompt de sistema (prompt caching). Best-effort: si una llamada falla, ese
+ * lote queda sin asignar. `loteBase` desfasa el `loteIndice` reportado para que
+ * cada tier de la cascada registre lotes con índices únicos.
+ */
+async function mapearConModelo(
+  pendientes: CuentaPendiente[],
+  modelo: string,
+  system: BloqueSistema[],
+  validos: Set<string>,
+  loteBase: number,
+  usosOut?: UsoIA[],
+): Promise<Map<string, Asignacion>> {
+  const client = getAnthropic();
+  const res = new Map<string, Asignacion>();
+  for (let i = 0; i < pendientes.length; i += TAM_LOTE) {
+    const lote = pendientes.slice(i, i + TAM_LOTE);
+    const lista = lote.map((p) => `${p.code} | ${p.name}`).join("\n");
+    try {
+      const r = await conReintentoSinTemperatura(
+        (ajustes) =>
+          client.messages.parse({
+            model: modelo,
+            max_tokens: 8000,
+            ...ajustes,
+            system,
+            messages: [{ role: "user", content: [{ type: "text", text: `CUENTAS DEL CLIENTE A MAPEAR (código | nombre):\n${lista}\n\nDevuelve una asignación por cada cuenta del cliente.` }] }],
+            output_config: { format: zodOutputFormat(MapeoIASchema) },
+          }),
+        modelo,
+      );
+      usosOut?.push({ tipoOperacion: "mapeo_ia", modelo, usage: r.usage, loteIndice: loteBase + Math.floor(i / TAM_LOTE), cuentasLote: lote.length });
+      for (const a of r.parsed_output?.asignaciones ?? []) {
+        const std = a.cuenta6Russell && validos.has(a.cuenta6Russell) ? a.cuenta6Russell : null;
+        res.set(a.cuentaCliente, { std, coincidencia: std ? Math.round(Math.max(0, Math.min(100, a.coincidencia))) : null });
+      }
+    } catch {
+      // Lote fallido: se omite; las cuentas quedan sin mapear en este tier.
+    }
+  }
+  return res;
+}
+
+/**
+ * Mapea por IA las cuentas pendientes contra el plan, en CASCADA de modelos
+ * (Haiku → Sonnet → Opus, ver `src/lib/ia/modelos.ts`): el tier barato barre las
+ * obvias y solo las que quedan por debajo del umbral de confianza escalan al
+ * modelo más capaz. Conserva la MEJOR asignación (mayor `coincidencia`) vista en
+ * cualquier tier. Best-effort: lo que ningún tier resuelva queda sin mapear.
  *
- * `usosOut` (opcional): acumula el `usage` (tokens) de cada lote para que la
+ * Las cuentas conocidas ya se resolvieron antes por la caché SQL (`cuentas_cliente`)
+ * y los barridos deterministas; aquí solo llegan las cuentas NUEVAS.
+ *
+ * `usosOut` (opcional): acumula el `usage` (tokens) de cada lote/tier para que la
  * Server Action registre el consumo de IA, sin acoplar este módulo a la BD.
  */
 export async function mapearPorIA(pendientes: CuentaPendiente[], plan: CuentaPlan[], usosOut?: UsoIA[]): Promise<Map<string, Asignacion>> {
   const out = new Map<string, Asignacion>();
   if (pendientes.length === 0 || plan.length === 0) return out;
 
-  const client = getAnthropic();
   // Prompt de sistema vigente (editable por el Superadministrador, BD → fábrica).
   const systemTexto = await getPromptContenido(CLAVE_MAPEO);
   const planTexto = plan.map((p) => `${p.code} | ${p.name} | russell: ${p.russell} | sinónimos: ${p.posibles}`).join("\n");
@@ -48,39 +99,35 @@ export async function mapearPorIA(pendientes: CuentaPendiente[], plan: CuentaPla
   // tokens según el modelo) y cachea TODO el prefijo —SYSTEM + plan— de una vez. No se
   // marca SYSTEM por separado: sus ~220 tokens quedan bajo el mínimo cacheable (2048 en
   // Sonnet 4.6, 4096 en Opus 4.x) y no formarían entrada propia. El plan es idéntico en
-  // cada lote y entre cargas → se escribe una vez y se lee (~0,1× del costo) en las
-  // llamadas siguientes dentro del TTL.
-  const system = [
-    { type: "text" as const, text: systemTexto },
+  // cada lote → se escribe una vez por modelo y se lee (~0,1× del costo) en los lotes
+  // siguientes de ese tier dentro del TTL (la caché es por-modelo).
+  const system: BloqueSistema[] = [
+    { type: "text", text: systemTexto },
     {
-      type: "text" as const,
+      type: "text",
       text: `PLAN ESTÁNDAR RUSSELL (código | nombre | russell | sinónimos):\n${planTexto}`,
-      cache_control: { type: "ephemeral" as const },
+      cache_control: { type: "ephemeral" },
     },
   ];
 
-  for (let i = 0; i < pendientes.length; i += TAM_LOTE) {
-    const lote = pendientes.slice(i, i + TAM_LOTE);
-    const lista = lote.map((p) => `${p.code} | ${p.name}`).join("\n");
-    try {
-      const r = await conReintentoSinTemperatura((ajustes) =>
-        client.messages.parse({
-          model: MODELO_EXTRACCION,
-          max_tokens: 8000,
-          ...ajustes,
-          system,
-          messages: [{ role: "user", content: [{ type: "text", text: `CUENTAS DEL CLIENTE A MAPEAR (código | nombre):\n${lista}\n\nDevuelve una asignación por cada cuenta del cliente.` }] }],
-          output_config: { format: zodOutputFormat(MapeoIASchema) },
-        }),
-      );
-      usosOut?.push({ tipoOperacion: "mapeo_ia", modelo: MODELO_EXTRACCION, usage: r.usage, loteIndice: Math.floor(i / TAM_LOTE), cuentasLote: lote.length });
-      for (const a of r.parsed_output?.asignaciones ?? []) {
-        const std = a.cuenta6Russell && validos.has(a.cuenta6Russell) ? a.cuenta6Russell : null;
-        out.set(a.cuentaCliente, { std, coincidencia: std ? Math.round(Math.max(0, Math.min(100, a.coincidencia))) : null });
-      }
-    } catch {
-      // Lote fallido: se omite; las cuentas quedan sin mapear.
+  let restantes = pendientes;
+  let loteBase = 0;
+  for (const { modelo, umbralEscalar } of CASCADA_MAPEO) {
+    if (restantes.length === 0) break;
+    const res = await mapearConModelo(restantes, modelo, system, validos, loteBase, usosOut);
+    loteBase += Math.ceil(restantes.length / TAM_LOTE);
+
+    const aunPendientes: CuentaPendiente[] = [];
+    for (const p of restantes) {
+      const a = res.get(p.code);
+      const previa = out.get(p.code);
+      // Conserva la mejor asignación (mayor coincidencia) entre tiers.
+      if (a?.std && (a.coincidencia ?? 0) >= (previa?.coincidencia ?? -1)) out.set(p.code, a);
+      const mejor = out.get(p.code);
+      // Escala al siguiente tier si la mejor coincidencia sigue bajo el umbral.
+      if (!mejor?.std || (mejor.coincidencia ?? 0) < umbralEscalar) aunPendientes.push(p);
     }
+    restantes = aunPendientes;
   }
   return out;
 }

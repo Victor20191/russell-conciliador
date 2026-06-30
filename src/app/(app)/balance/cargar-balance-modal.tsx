@@ -227,6 +227,7 @@ function FormRevisar({
       </div>
 
       <CuadreBanner c={sug.cuadre} />
+      <BorradorBalance sug={sug} />
 
       <label className="flex flex-col gap-1.5">
         <span className="text-[11.5px] font-medium text-ink-600">Cliente</span>
@@ -313,6 +314,105 @@ function CuadreBanner({ c }: { c: SugerenciaBalance["cuadre"] }) {
         <li>Créditos: hojas {fmt(c.sumaCreditos)} vs TOTALES {fmt(c.totalCreditos)} (Δ {fmt(c.diferenciaCreditos)})</li>
       </ul>
       <div className="mt-1">Puedes cargarlo igual: quedará <span className="font-semibold">marcado como descuadrado</span> (novedad) para revisión, o revisa la jerarquía de cuentas (padres/auxiliares) y vuelve a leer el archivo.</div>
+    </div>
+  );
+}
+
+/**
+ * Borrador del paso 1: valida en el encabezado si CRUZAN las cuentas de Activo,
+ * Pasivo y Patrimonio —tanto la ecuación contable (A = P + Patrimonio + Resultado)
+ * como la consistencia archivo vs detalle (delata cuentas omitidas)— y muestra
+ * TODO el movimiento en una tabla scrollable. Nada se ha cargado todavía.
+ */
+function BorradorBalance({ sug }: { sug: SugerenciaBalance }) {
+  const v = sug.validacion;
+  if (!v) return null;
+  const ecOk = v.ecuacionCuadra;
+  return (
+    <div className="flex flex-col gap-2.5">
+      {/* Validación 1 — ecuación contable */}
+      <div className={`rounded-md border px-3 py-2 text-[12px] ${ecOk ? "border-ok-100 bg-ok-100/40 text-ok-700" : "border-warn-200 bg-warn-50 text-warn-700"}`}>
+        <span className="font-semibold">{ecOk ? "Cuadra:" : "No cuadra:"}</span> Activo = Pasivo + Patrimonio + Resultado · diferencia <span className="font-semibold">{fmt(v.ecuacionDiff)}</span>
+        {!ecOk && <span> (fuera del margen ±{fmt(1000)}; se puede cargar igual, quedará marcado descuadrado)</span>}
+      </div>
+
+      {/* Validación 2 — A/P/Patrimonio: calculado vs archivo */}
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <ClaseCard label="Activo" calc={v.activo} archivo={v.activoArchivo} cuadra={v.activoCuadra} diff={v.activoDiff} />
+        <ClaseCard label="Pasivo" calc={v.pasivo} archivo={v.pasivoArchivo} cuadra={v.pasivoCuadra} diff={v.pasivoDiff} />
+        <ClaseCard label="Patrimonio" calc={v.patrimonio} archivo={v.patrimonioArchivo} cuadra={v.patrimonioCuadra} diff={v.patrimonioDiff} />
+      </div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <MiniDato k="Ingresos" v={v.ingresos} />
+        <MiniDato k="Gastos" v={v.gastos} />
+        <MiniDato k="Costos" v={v.costos} />
+        <MiniDato k="Resultado" v={v.resultado} />
+      </div>
+
+      {/* Movimiento completo en borrador */}
+      <DetalleMovimiento cuentas={sug.importReady} />
+    </div>
+  );
+}
+
+function ClaseCard({ label, calc, archivo, cuadra, diff }: { label: string; calc: number; archivo: number | null; cuadra: boolean | null; diff: number | null }) {
+  const tono =
+    cuadra == null ? "border-ink-150 bg-ink-50" : cuadra ? "border-ok-100 bg-ok-100/40" : "border-err-200 bg-err-50";
+  return (
+    <div className={`rounded-md border px-3 py-2 ${tono}`}>
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">{label}</div>
+      <div className="mt-0.5 text-[13px] font-semibold text-ink-800">{fmt(calc)}</div>
+      {archivo == null ? (
+        <div className="mt-0.5 text-[10.5px] text-ink-400">solo calculado (sin total en archivo)</div>
+      ) : cuadra ? (
+        <div className="mt-0.5 text-[10.5px] text-ok-700">✓ archivo {fmt(archivo)} — cruza</div>
+      ) : (
+        <div className="mt-0.5 text-[10.5px] text-err-700">archivo {fmt(archivo)} · Δ {fmt(diff ?? 0)}</div>
+      )}
+    </div>
+  );
+}
+
+function MiniDato({ k, v }: { k: string; v: number }) {
+  return (
+    <div className="rounded-md border border-ink-150 bg-ink-50 px-2.5 py-1.5">
+      <div className="text-[10.5px] font-semibold uppercase tracking-wide text-ink-500">{k}</div>
+      <div className="mt-0.5 text-[12px] font-semibold text-ink-700">{fmt(v)}</div>
+    </div>
+  );
+}
+
+/** Tabla scrollable con TODAS las cuentas de movimiento del borrador. */
+function DetalleMovimiento({ cuentas }: { cuentas: SugerenciaBalance["importReady"] }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">Movimiento en borrador · {cuentas.length} cuenta(s)</div>
+      <div className="max-h-72 overflow-auto rounded-md border border-ink-150">
+        <table className="w-full text-[11px]">
+          <thead className="sticky top-0 bg-ink-50 text-ink-500">
+            <tr className="text-left">
+              <th className="px-2 py-1.5 font-semibold">Código</th>
+              <th className="px-2 py-1.5 font-semibold">Cuenta</th>
+              <th className="px-2 py-1.5 text-right font-semibold">Saldo ant.</th>
+              <th className="px-2 py-1.5 text-right font-semibold">Débito</th>
+              <th className="px-2 py-1.5 text-right font-semibold">Crédito</th>
+              <th className="px-2 py-1.5 text-right font-semibold">Saldo act.</th>
+            </tr>
+          </thead>
+          <tbody>
+            {cuentas.map((c, i) => (
+              <tr key={`${c.code}-${i}`} className="border-t border-ink-100">
+                <td className="whitespace-nowrap px-2 py-1 font-mono text-ink-500">{c.code}</td>
+                <td className="max-w-[220px] truncate px-2 py-1 text-ink-700" title={c.name}>{c.name}</td>
+                <td className="whitespace-nowrap px-2 py-1 text-right tabular-nums text-ink-600">{fmt(c.prevBalance)}</td>
+                <td className="whitespace-nowrap px-2 py-1 text-right tabular-nums text-ink-600">{fmt(c.debitos ?? 0)}</td>
+                <td className="whitespace-nowrap px-2 py-1 text-right tabular-nums text-ink-600">{fmt(c.creditos ?? 0)}</td>
+                <td className="whitespace-nowrap px-2 py-1 text-right font-medium tabular-nums text-ink-800">{fmt(c.balance)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

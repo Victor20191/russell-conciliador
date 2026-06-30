@@ -55,11 +55,11 @@ function aceptaTemperatura(model: string): boolean {
  * invenciones la da el diseño del pipeline (en modo tabular el modelo solo
  * describe la estructura; la transcripción de montos la hace el código).
  */
-export function ajustesDeterministas(): {
+export function ajustesDeterministas(model: string = MODELO_EXTRACCION): {
   temperature?: number;
   thinking: { type: "adaptive" } | { type: "disabled" };
 } {
-  if (aceptaTemperatura(MODELO_EXTRACCION)) {
+  if (aceptaTemperatura(model)) {
     return { temperature: 0, thinking: { type: "disabled" } };
   }
   return { thinking: { type: "adaptive" } };
@@ -82,9 +82,9 @@ function esMuestreoNoSoportado(e: unknown): boolean {
  * adaptativo). Evita que apuntar `ANTHROPIC_MODEL` a un modelo más nuevo rompa
  * la extracción de forma opaca. El callback recibe los ajustes para esparcirlos.
  */
-export async function conReintentoSinTemperatura<T>(llamar: (ajustes: AjustesDeterministas) => Promise<T>): Promise<T> {
+export async function conReintentoSinTemperatura<T>(llamar: (ajustes: AjustesDeterministas) => Promise<T>, model: string = MODELO_EXTRACCION): Promise<T> {
   try {
-    return await llamar(ajustesDeterministas());
+    return await llamar(ajustesDeterministas(model));
   } catch (e) {
     if (esMuestreoNoSoportado(e)) return await llamar({ thinking: { type: "adaptive" } });
     throw e;

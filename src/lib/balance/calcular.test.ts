@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   calcularBalance,
+  construirValidacionContable,
   claseNatura,
   aplanarBreakdown,
   compararBalances,
@@ -134,10 +135,38 @@ describe("calcularBalance — sin mapeo, saldo contrario y variación", () => {
     expect(r.validations.find((v) => v.id === "V4")?.status).toBe("warn");
   });
 
-  it("reporta el descuadre por partida doble", () => {
-    // Σ firmado = 1500 - 2000 + 800 + 700 = 1000 ≠ 0.
-    expect(r.balanced).toBe(false);
+  it("a $1000 exactos, el cuadre por partida doble entra en el margen (cuadra)", () => {
+    // Σ firmado = 1500 - 2000 + 800 + 700 = 1000 = MARGEN_CUADRE ⇒ dentro del margen.
     expect(r.diffCuadre).toBe(1000);
+    expect(r.balanced).toBe(true); // |1000| ≤ 1000
+    expect(r.validations.find((v) => v.id === "V1")?.status).toBe("ok");
+  });
+});
+
+describe("calcularBalance — gates con margen ±$1000 (A−P=Patrimonio+Resultado)", () => {
+  it("descuadre de $500 → cuadra (dentro del margen)", () => {
+    const r = calcularBalance(
+      [
+        { code: "110505", name: "Caja", prevBalance: 0, balance: 1000, debitos: 1000, creditos: 0 },
+        { code: "220505", name: "Proveedores", prevBalance: 0, balance: -500, debitos: 0, creditos: 500 },
+      ],
+      STD,
+    );
+    expect(r.diffCuadre).toBe(500); // 1000 + (−500)
+    expect(r.balanced).toBe(true);
+    expect(r.movimientosCuadran).toBe(true); // Σdéb 1000 − Σcré 500 = 500 ≤ 1000
+  });
+
+  it("descuadre de $2000 → NO cuadra (fuera del margen) y V1 alerta", () => {
+    const r = calcularBalance(
+      [
+        { code: "110505", name: "Caja", prevBalance: 0, balance: 3000, debitos: 3000, creditos: 0 },
+        { code: "220505", name: "Proveedores", prevBalance: 0, balance: -1000, debitos: 0, creditos: 1000 },
+      ],
+      STD,
+    );
+    expect(r.diffCuadre).toBe(2000); // 3000 + (−1000)
+    expect(r.balanced).toBe(false);
     expect(r.validations.find((v) => v.id === "V1")?.status).toBe("warn");
   });
 });
@@ -187,7 +216,7 @@ describe("calcularBalance — V5 movimientos del período (COH-2)", () => {
     expect(r.validations.find((v) => v.id === "V5")?.status).toBe("ok");
   });
 
-  it("warn cuando los movimientos descuadran (Σdébitos ≠ Σcréditos)", () => {
+  it("ok dentro del margen ±$1000 aunque Σdébitos ≠ Σcréditos exacto", () => {
     const r = calcularBalance(
       [
         { code: "110505", name: "Caja", prevBalance: 0, balance: 600, debitos: 600, creditos: 0 },
@@ -195,7 +224,22 @@ describe("calcularBalance — V5 movimientos del período (COH-2)", () => {
       ],
       STD,
     );
+    // Σdéb 600 − Σcré 300 = 300 ≤ 1000 ⇒ el gate del cargue lo da por cuadrado.
+    expect(r.validations.find((v) => v.id === "V5")?.status).toBe("ok");
+    expect(r.movimientosCuadran).toBe(true);
+  });
+
+  it("warn cuando los movimientos descuadran por más de $1000", () => {
+    const r = calcularBalance(
+      [
+        { code: "110505", name: "Caja", prevBalance: 0, balance: 2000, debitos: 2000, creditos: 0 },
+        { code: "220505", name: "Proveedores", prevBalance: 0, balance: -500, debitos: 0, creditos: 500 },
+      ],
+      STD,
+    );
+    // Σdéb 2000 − Σcré 500 = 1500 > 1000 ⇒ alerta.
     expect(r.validations.find((v) => v.id === "V5")?.status).toBe("warn");
+    expect(r.movimientosCuadran).toBe(false);
   });
 });
 
@@ -328,6 +372,43 @@ describe("limpiarCodigo — sufijo alfabético (INAC/A/AS) se omite", () => {
   });
 });
 
+describe("construirValidacionContable — borrador A/P/Patrimonio (archivo vs calculado + ecuación)", () => {
+  // Activo 1000, Pasivo 600 (crédito), Patrimonio 400 (crédito), sin resultado.
+  const CUENTAS: CuentaCruda[] = [
+    { code: "110505", name: "Caja", prevBalance: 0, balance: 1000 },
+    { code: "220505", name: "Proveedores", prevBalance: 0, balance: -600 },
+    { code: "310505", name: "Capital", prevBalance: 0, balance: -400 },
+  ];
+  const calc = calcularBalance(CUENTAS, STD);
+
+  it("cruza cuando los totales del archivo coinciden con el detalle y la ecuación cuadra", () => {
+    // El archivo trae clase 2/3 firmadas en negativo (convención firmado).
+    const v = construirValidacionContable(calc, { activo: 1000, pasivo: -600, patrimonio: -400 });
+    expect(v.activo).toBe(1000);
+    expect(v.pasivo).toBe(600); // magnitud
+    expect(v.patrimonio).toBe(400);
+    expect(v.activoArchivo).toBe(1000); // |archivo|
+    expect(v.activoCuadra).toBe(true);
+    expect(v.pasivoCuadra).toBe(true);
+    expect(v.patrimonioCuadra).toBe(true);
+    expect(v.ecuacionDiff).toBe(0); // 1000 − 600 − 400 − 0
+    expect(v.ecuacionCuadra).toBe(true);
+  });
+
+  it("marca la clase como NO cruzada cuando el total del archivo difiere por > $1000", () => {
+    const v = construirValidacionContable(calc, { activo: 3000, pasivo: -600, patrimonio: -400 });
+    expect(v.activoCuadra).toBe(false);
+    expect(v.activoDiff).toBe(2000); // |3000| − 1000
+  });
+
+  it("deja null la clase cuando el archivo no trae ese total (solo calculado)", () => {
+    const v = construirValidacionContable(calc, { activo: null, pasivo: null, patrimonio: null });
+    expect(v.activoArchivo).toBeNull();
+    expect(v.activoCuadra).toBeNull();
+    expect(v.activo).toBe(1000); // el calculado siempre está
+  });
+});
+
 describe("quitarPadresRedundantes — jerarquía de código hermano (no anida por prefijo)", () => {
   it("descarta el encabezado padre cuando el hijo tiene mismo saldo y nombre más específico", () => {
     const cuentas: CuentaCruda[] = [
@@ -356,6 +437,16 @@ describe("quitarPadresRedundantes — jerarquía de código hermano (no anida po
       { code: "221006", name: "PROVEEDORES USD", prevBalance: 0, balance: 0, debitos: 0, creditos: 0 },
     ];
     expect(quitarPadresRedundantes(cuentas)).toHaveLength(2);
+  });
+
+  it("NO deduplica HERMANAS enumeradas con mismo saldo (caso COMESTIBLES 11050502/03)", () => {
+    // Dos cajas distintas con saldo 100.000 idéntico por coincidencia; el sufijo
+    // que las distingue es un número (" 2"), no un descriptor → NO son encabezado/detalle.
+    const cuentas: CuentaCruda[] = [
+      { code: "11050502", name: "CAJA GENERAL BASE RAPIDAN", prevBalance: 100000, balance: 100000, debitos: 0, creditos: 0 },
+      { code: "11050503", name: "CAJA GENERAL BASE RAPIDAN 2", prevBalance: 100000, balance: 100000, debitos: 0, creditos: 0 },
+    ];
+    expect(quitarPadresRedundantes(cuentas).map((c) => c.code).sort()).toEqual(["11050502", "11050503"]);
   });
 });
 

@@ -16,6 +16,7 @@ import { firmarPayloadServidor, validarFirmaPayloadServidor } from "@/lib/server
 import { parseBalanceWorkbook, type ImportBalanceState } from "@/lib/import/balance";
 import {
   calcularBalance,
+  construirValidacionContable,
   reconstruirBalance,
   aFilasDetalle,
   aplanarBreakdown,
@@ -26,6 +27,7 @@ import {
   type CuentaCruda,
   type CuentaEstandar,
   type ResultadoBalance,
+  type ValidacionContable,
 } from "@/lib/balance/calcular";
 import { getCuentasEstandar } from "@/lib/balance/cuentas-estandar";
 import { TIPO_BALANCE_CARGA } from "@/lib/balance/tipo-balance";
@@ -33,8 +35,9 @@ import { extraerBalance } from "@/lib/balance/extraccion/extraer";
 import { mapearPorIA } from "@/lib/balance/mapeo-ia";
 import { iaDisponible } from "@/lib/anthropic";
 import { registrarConsumoIA, type UsoIA } from "@/lib/ia/uso";
+import { randomUUID } from "node:crypto";
 import { construirCuadre } from "@/lib/balance/extraccion/transformar";
-import type { ParamsExtraccion, ResultadoTransform } from "@/lib/balance/extraccion/transformar";
+import type { FilaCruda, ParamsExtraccion, ResultadoTransform } from "@/lib/balance/extraccion/transformar";
 import { CUADRE_NO_APLICA } from "@/lib/balance/extraccion/esquema";
 import type { CuadreTotales, Excepcion, ResumenAuditoria } from "@/lib/balance/extraccion/esquema";
 
@@ -46,6 +49,7 @@ const CONTEXTO_PAYLOAD_BALANCE = "balance:sugerencia:v1";
 // campos faltantes (cliente, período) y recién entonces confirma la carga.
 export type SugerenciaBalance = {
   firma: string;
+  loteId: string; // lote de staging (paso 1): el paso 2 relee las filas crudas por aquí
   archivoNombre: string;
   archivoTam: string;
   nitDetectado: string | null;
@@ -61,6 +65,7 @@ export type SugerenciaBalance = {
   cuentasAgrupadoras: number; // cuentas que son prefijo de otra (no se importan)
   cuentas: number;
   cuadre: CuadreTotales; // cuadre de las hojas contra la fila TOTALES del archivo
+  validacion: ValidacionContable; // borrador: A/P/Patrimonio (archivo vs calculado) + ecuación
   importReady: CuentaCruda[];
 };
 type SugerenciaBalanceSinFirma = Omit<SugerenciaBalance, "firma">;
@@ -144,6 +149,26 @@ function sugerenciaSinFirma(sugerencia: SugerenciaBalance): SugerenciaBalanceSin
   const { firma, ...payload } = sugerencia;
   void firma;
   return payload;
+}
+
+// Paso 2 — «análisis por cuentas»: agrega las filas de MOVIMIENTO del staging por
+// código de cuenta (suma terceros/auxiliares del mismo código) → `CuentaCruda[]`
+// listo para `persistirCargue`. Los Decimal de Prisma se convierten a number.
+type FilaStaging = { codigo: string; nombre: string; saldoInicial: unknown; debitos: unknown; creditos: unknown; saldoFinal: unknown };
+function agregarStagingPorCuenta(filas: FilaStaging[]): CuentaCruda[] {
+  const m = new Map<string, CuentaCruda>();
+  for (const f of filas) {
+    const si = Number(f.saldoInicial), db = Number(f.debitos), cr = Number(f.creditos), sf = Number(f.saldoFinal);
+    const prev = m.get(f.codigo);
+    if (!prev) m.set(f.codigo, { code: f.codigo, name: f.nombre, prevBalance: si, balance: sf, debitos: db, creditos: cr });
+    else {
+      prev.prevBalance += si;
+      prev.balance += sf;
+      prev.debitos = (prev.debitos ?? 0) + db;
+      prev.creditos = (prev.creditos ?? 0) + cr;
+    }
+  }
+  return [...m.values()];
 }
 
 export async function freezeBalance(formData: FormData): Promise<ActionState> {
@@ -464,7 +489,7 @@ async function persistirCargue(p: {
         periodo: p.period, periodoInicio: new Date(p.periodos.inicial), periodoFin: new Date(p.periodos.final),
         version, esOficial: false, estaCongelado: false, estado: status, completitud: complete,
         archivo: p.archivoNombre, tamanoArchivo: p.archivoTam,
-        cargadoPor: p.uploadedBy, rolCarga: p.rolLabel, cuadrado: calc.balanced && !descuadreTotales, nota,
+        cargadoPor: p.uploadedBy, rolCarga: p.rolLabel, cuadrado: calc.balanced && calc.movimientosCuadran && !descuadreTotales, nota,
         sumaActivo: calc.sums.activo, filasTotales: calc.totalRows,
         mapeadas: calc.mapped, sinMapear: calc.unmapped, criticas: calc.critical, cambios,
         estandar: p.meta.estandar, convencionCredito: p.meta.convencionCredito,
@@ -488,7 +513,7 @@ async function persistirCargue(p: {
     user: p.uploadedBy,
     action: "CARGÓ BALANCE",
     entity: `${p.clienteName} · ${p.period}`,
-    detail: `${creado.version} · ${calc.totalRows} cuentas · ${calc.mapped} mapeadas · ${calc.balanced && !descuadreTotales ? "cuadrado" : "descuadra"}`,
+    detail: `${creado.version} · ${calc.totalRows} cuentas · ${calc.mapped} mapeadas · ${calc.balanced && calc.movimientosCuadran && !descuadreTotales ? "cuadrado" : "descuadra"}`,
   });
   await createProcessNotification({
     actor: p.uploadedBy,
@@ -538,8 +563,14 @@ export async function leerBalance(
         return { ok: false, message: `${errores.length} problema(s) en el archivo. Nada se leyó.`, errores };
       }
       const importReady: CuentaCruda[] = filas.map((f) => ({ code: f.code, name: f.name, prevBalance: f.prevBalance, balance: f.balance }));
+      const filasCrudas: FilaCruda[] = filas.map((f, i) => ({
+        hoja: null, filaNum: i + 1, codigoCrudo: f.code, codigo: /^\d+$/.test(f.code) ? f.code : "",
+        nombre: f.name, nivel: /^\d+$/.test(f.code) ? f.code.length : null, tipoFila: "movimiento",
+        saldoInicial: f.prevBalance, debitos: 0, creditos: 0, saldoFinal: f.balance,
+      }));
       extr = {
         importReady,
+        filasCrudas,
         excepciones: [],
         cabecera: {
           nit: { valor: null, fuente: "NINGUNO" }, periodoInicial: { valor: null, fuente: "NINGUNO" },
@@ -575,7 +606,43 @@ export async function leerBalance(
       return { ok: false, message: "No se leyó ninguna cuenta del archivo. Revisa las excepciones.", excepciones: extr.excepciones };
     }
 
+    // PASO 1 — staging crudo: lleva TODAS las filas leídas (incluidas padres,
+    // totales y descuadres) a `balance_importacion_staging`, sin descartar nada.
+    // El paso 2 (confirmación) las relee por `loteId`, promueve solo las de
+    // movimiento y purga el lote. `clienteId` va null (aún no se eligió cliente).
+    const loteId = randomUUID();
+    // Purga best-effort de lotes huérfanos (previews que nunca se confirmaron).
+    try {
+      await prisma.balanceImportacionStaging.deleteMany({ where: { creadoEn: { lt: new Date(Date.now() - 24 * 60 * 60 * 1000) } } });
+    } catch {
+      /* best-effort: la limpieza no debe tumbar la lectura */
+    }
+    const LOTE_STAGING = 1000;
+    for (let i = 0; i < extr.filasCrudas.length; i += LOTE_STAGING) {
+      await prisma.balanceImportacionStaging.createMany({
+        data: extr.filasCrudas.slice(i, i + LOTE_STAGING).map((f) => ({
+          loteId, clienteId: null, hoja: f.hoja, filaNum: f.filaNum, codigoCrudo: f.codigoCrudo,
+          codigo: f.codigo, nombre: f.nombre, nivel: f.nivel, tipoFila: f.tipoFila,
+          saldoInicial: f.saldoInicial, debitos: f.debitos, creditos: f.creditos, saldoFinal: f.saldoFinal,
+        })),
+      });
+    }
+
+    // Validación contable del BORRADOR: totales A/P/Patrimonio CALCULADOS del
+    // detalle (calcularBalance no necesita el plan estándar para las sumas: son por
+    // clase) contra los que TRAE el archivo (filas clase 1/2/3), + la ecuación
+    // A = P + Patrimonio + Resultado. Todo con margen ±$1000.
+    const calcBorrador = calcularBalance(extr.importReady, []);
+    const totalFilaArchivo = (clase: string) => extr.filasCrudas.find((f) => f.codigo === clase)?.saldoFinal ?? null;
+    const validacion = construirValidacionContable(calcBorrador, {
+      activo: totalFilaArchivo("1"),
+      pasivo: totalFilaArchivo("2"),
+      patrimonio: totalFilaArchivo("3"),
+    });
+
     const sugerenciaBase: SugerenciaBalanceSinFirma = {
+      loteId,
+      validacion,
       archivoNombre: archivo.name,
       archivoTam: tamArchivo(archivo.size),
       nitDetectado: extr.cabecera.nit.valor,
@@ -835,6 +902,24 @@ export async function confirmarCargaBalance(
     return { ok: false, message: "No hay cuentas leídas válidas para cargar. Vuelve a leer el archivo." };
   }
 
+  // PASO 2 — análisis por cuentas sobre el STAGING del paso 1: relee las filas
+  // crudas del lote y promueve solo las de MOVIMIENTO (agregadas por código de
+  // cuenta). La firma HMAC ata el `loteId`, así que el lote es de esta lectura. Si
+  // el lote expiró/se purgó (>24h sin confirmar), cae al `importReady` firmado del
+  // payload (misma data) para no romper el cargue.
+  let importReadyFinal: CuentaCruda[];
+  try {
+    const stagedMovimiento = await prisma.balanceImportacionStaging.findMany({
+      where: { loteId: sug.loteId, tipoFila: "movimiento" },
+      orderBy: { filaNum: "asc" },
+      select: { codigo: true, nombre: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
+    });
+    importReadyFinal = stagedMovimiento.length > 0 ? agregarStagingPorCuenta(stagedMovimiento) : cuentasParsed.data;
+  } catch {
+    importReadyFinal = cuentasParsed.data; // si el staging falla, no se bloquea el cargue
+  }
+  if (importReadyFinal.length === 0) importReadyFinal = cuentasParsed.data;
+
   // Cuadre contra el gran total del archivo (TOTALES), RE-EVALUADO en el servidor:
   // las sumas se recomputan desde las cuentas ya validadas (no se confía en el
   // veredicto del payload; solo los totales del archivo viajan en él). Ya NO
@@ -843,8 +928,10 @@ export async function confirmarCargaBalance(
   // aplica (queda la partida doble interna).
   let cuadreTotales: CuadreTotales | null = null;
   if (sug.cuadre?.detectado) {
-    const sumaDebitos = cuentasParsed.data.reduce((s, r) => s + Math.abs(r.debitos ?? 0), 0);
-    const sumaCreditos = cuentasParsed.data.reduce((s, r) => s + Math.abs(r.creditos ?? 0), 0);
+    // Σ firmada (no `|x|`): las reversas (débito neto negativo) restan del lado
+    // correcto y la partida doble cuadra igual que en el archivo origen.
+    const sumaDebitos = importReadyFinal.reduce((s, r) => s + (r.debitos ?? 0), 0);
+    const sumaCreditos = importReadyFinal.reduce((s, r) => s + (r.creditos ?? 0), 0);
     cuadreTotales = construirCuadre({ detectado: true, debitos: sug.cuadre.totalDebitos, creditos: sug.cuadre.totalCreditos }, sumaDebitos, sumaCreditos);
   }
 
@@ -865,7 +952,7 @@ export async function confirmarCargaBalance(
 
     const { id, version, calc } = await persistirCargue({
       clientId, clienteName: cliente.name, clienteNit: cliente.nit,
-      period, periodos, importReady: cuentasParsed.data, cuentasEstandar,
+      period, periodos, importReady: importReadyFinal, cuentasEstandar,
       archivoNombre: sug.archivoNombre ?? "—",
       archivoTam: sug.archivoTam ?? "—",
       uploadedBy: user?.name ?? "—", uploadedById: user?.id ?? null, rolLabel: etiquetaRol(authz.role),
@@ -875,6 +962,14 @@ export async function confirmarCargaBalance(
         filasLeidas: sug.filasLeidas, filasExcluidas: sug.filasExcluidas, filasDescuadre: sug.filasDescuadre,
       },
     });
+
+    // Promovido con éxito → PURGA el lote de staging (best-effort: si falla, la
+    // limpieza de huérfanos >24h en `leerBalance` lo recoge).
+    try {
+      await prisma.balanceImportacionStaging.deleteMany({ where: { loteId: sug.loteId } });
+    } catch {
+      /* best-effort */
+    }
 
     const auditoria: ResumenAuditoria = {
       filasLeidas: sug.filasLeidas, filasExcluidas: sug.filasExcluidas, filasImportables: sug.cuentas, filasDescuadre: sug.filasDescuadre,
