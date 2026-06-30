@@ -390,17 +390,25 @@ async function persistirCargue(p: {
       }
     }
     const ahoraDate = new Date();
-    await Promise.all(
-      [...rows.values()]
-        .filter((r) => !manualCodes.has(r.code))
-        .map((r) =>
+    // Escritura del PUC en LOTES de concurrencia ACOTADA: disparar los ~750
+    // upserts a la vez saturaba el pool (máx. ~10) contra una BD remota y la
+    // mayoría fallaba por timeout de conexión, dejando la memoria PUC incompleta.
+    // El CONJUNTO de upserts y los datos de cada uno son IDÉNTICOS; solo se acota
+    // cuántos viajan en paralelo (≤ pool → nunca encola de más). Sigue siendo
+    // best-effort y NO alimenta el resultado del balance (no se lee su salida).
+    const aEscribir = [...rows.values()].filter((r) => !manualCodes.has(r.code));
+    const LOTE_PUC = Math.max(1, (parseInt(process.env.DB_POOL_MAX ?? "10", 10) || 10) - 2);
+    for (let i = 0; i < aEscribir.length; i += LOTE_PUC) {
+      await Promise.all(
+        aEscribir.slice(i, i + LOTE_PUC).map((r) =>
           prisma.clientAccount.upsert({
             where: { clienteId_code: { clienteId: p.clientId, code: r.code } },
             create: { clientName: p.clienteName, clienteId: p.clientId, nit: p.clienteNit, code: r.code, level: r.level, name: r.name, cuenta6Russell: r.std, coincidencia: r.coincidencia, origenMapeo: "automatico", actualizadoPor: p.uploadedBy, actualizadoEn: ahoraDate },
             update: { clientName: p.clienteName, nit: p.clienteNit, level: r.level, name: r.name, cuenta6Russell: r.std, coincidencia: r.coincidencia, origenMapeo: "automatico", actualizadoPor: p.uploadedBy, actualizadoEn: ahoraDate },
           }),
         ),
-    );
+      );
+    }
   } catch {
     /* el registro del PUC es best-effort: no rompe el cargue */
   }
