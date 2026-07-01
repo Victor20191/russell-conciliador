@@ -136,3 +136,32 @@ export function construirArbolBorrador(filas: FilaBorrador[], tol = 1): NodoBorr
 export function contarNodos(nodos: NodoBorrador[]): number {
   return nodos.reduce((n, x) => n + 1 + contarNodos(x.hijos), 0);
 }
+
+/**
+ * Aplana el árbol a una lista en orden de despliegue, con la profundidad de cada
+ * nodo (para exportar/serializar). Si `filtro` trae códigos, incluye solo las ramas
+ * que contienen una coincidencia (código que empieza por alguno del filtro): sus
+ * ancestros (ruta) + todo el subárbol de cada coincidencia. Misma lógica que el
+ * filtro visual del árbol.
+ */
+export function aplanarArbolFiltrado(arbol: NodoBorrador[], filtro: string[] = []): { nodo: NodoBorrador; profundidad: number }[] {
+  const activo = filtro.length > 0;
+  const coincide = (c: string) => activo && filtro.some((f) => c.startsWith(f));
+  const subRama = new Map<number, boolean>();
+  const marcar = (n: NodoBorrador): boolean => {
+    let hay = coincide(n.codigo);
+    for (const h of n.hijos) if (marcar(h)) hay = true;
+    subRama.set(n.filaNum, hay);
+    return hay;
+  };
+  arbol.forEach(marcar);
+  const out: { nodo: NodoBorrador; profundidad: number }[] = [];
+  const rec = (n: NodoBorrador, prof: number, bajoMatch: boolean) => {
+    if (activo && !bajoMatch && !subRama.get(n.filaNum)) return;
+    out.push({ nodo: n, profundidad: prof });
+    const esMatch = coincide(n.codigo);
+    n.hijos.forEach((h) => rec(h, prof + 1, bajoMatch || esMatch));
+  };
+  arbol.forEach((r) => rec(r, 0, false));
+  return out;
+}

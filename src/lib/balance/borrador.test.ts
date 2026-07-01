@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { construirArbolBorrador, contarNodos, type FilaBorrador } from "./borrador";
+import { construirArbolBorrador, contarNodos, aplanarArbolFiltrado, type FilaBorrador } from "./borrador";
 
 function fila(filaNum: number, codigo: string, nombre: string, saldoFinal: number, tipo: FilaBorrador["tipoFila"]): FilaBorrador {
   return { filaNum, codigo, codigoCrudo: codigo, nombre, nivel: codigo.length || null, tipoFila: tipo, saldoInicial: 0, debitos: 0, creditos: 0, saldoFinal };
@@ -122,5 +122,22 @@ describe("construirArbolBorrador", () => {
     ]);
     expect(arbol[0].descuadre).toBe(0); // dentro de tolerancia
     expect(arbol[0].hijos[0].descuadre).toBeNull(); // las hojas no se validan
+  });
+});
+
+describe("aplanarArbolFiltrado", () => {
+  const arbol = construirArbolBorrador([
+    fila(1, "2", "PASIVO", 50, "agrupadora"),
+    fila(2, "2105", "OBLIGACIONES", 50, "movimiento"),
+    fila(3, "1", "ACTIVO", 100, "agrupadora"),
+    fila(4, "1105", "CAJA", 100, "movimiento"),
+  ]);
+
+  it("sin filtro devuelve TODOS los nodos en orden de despliegue", () => {
+    expect(aplanarArbolFiltrado(arbol).map((x) => x.nodo.codigo)).toEqual(["2", "2105", "1", "1105"]);
+  });
+
+  it("con filtro deja solo la rama coincidente (ancestro + subárbol), por prefijo", () => {
+    expect(aplanarArbolFiltrado(arbol, ["21"]).map((x) => x.nodo.codigo)).toEqual(["2", "2105"]);
   });
 });

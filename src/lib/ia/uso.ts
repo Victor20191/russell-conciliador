@@ -11,7 +11,7 @@ import { registrarError } from "@/lib/errores";
 import { calcularCostoUsd, type UsoTokens } from "@/lib/ia/precios";
 import { getTRM } from "@/lib/ia/trm";
 
-export type TipoOperacionIA = "extraccion_tabular" | "extraccion_pdf" | "mapeo_ia";
+export type TipoOperacionIA = "extraccion_tabular" | "extraccion_pdf" | "mapeo_ia" | "diagnostico_ia";
 
 /** Un uso = una llamada a la API de Claude (lo que devuelve el pipeline). */
 export type UsoIA = {

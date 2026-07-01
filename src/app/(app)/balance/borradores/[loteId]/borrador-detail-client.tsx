@@ -5,17 +5,19 @@ import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
 import { Card, Chip } from "@/components/ui";
 import { fmt } from "@/lib/format";
-import { cargarBorrador, descartarBorrador } from "@/app/actions/balance";
+import { cargarBorrador, descartarBorrador, diagnosticarBorradorIA, reclasificarFilaBorrador } from "@/app/actions/balance";
 import type { ImportBalanceState } from "@/lib/import/balance";
 import type { NodoBorrador } from "@/lib/balance/borrador";
 import type { ValidacionContable } from "@/lib/balance/calcular";
+import type { Hallazgo } from "@/lib/balance/diagnostico";
+import type { DiagnosticoIA } from "@/lib/balance/diagnostico-ia";
 import { notifyActionState, notifySuccess, notifyError } from "@/lib/client-notifications";
 
 type Cliente = { id: number; name: string; nit: string };
 type PartidaDoble = { debitos: number; creditos: number; diff: number; cuadra: boolean };
 
 export default function BorradorDetailClient({
-  loteId, nitDetectado, periodoInicial, periodoFinal, arbol, validacion, partidaDoble, clientes, clienteSugeridoId,
+  loteId, nitDetectado, periodoInicial, periodoFinal, arbol, validacion, partidaDoble, hallazgos, clientes, clienteSugeridoId,
 }: {
   loteId: string;
   archivoNombre: string;
@@ -25,6 +27,7 @@ export default function BorradorDetailClient({
   arbol: NodoBorrador[];
   validacion: ValidacionContable;
   partidaDoble: PartidaDoble;
+  hallazgos: Hallazgo[];
   clientes: Cliente[];
   clienteSugeridoId: number | null;
 }) {
@@ -32,6 +35,18 @@ export default function BorradorDetailClient({
   const [cargarState, cargarAction, cargando] = useActionState<ImportBalanceState, FormData>(cargarBorrador, {});
   const [descartando, startDescartar] = useTransition();
   const [confirmarDescarte, setConfirmarDescarte] = useState(false);
+  const [diagnosticando, startDiagnostico] = useTransition();
+  const [diagIA, setDiagIA] = useState<DiagnosticoIA | null>(null);
+  // Filtro del árbol por código(s) sugerido(s): al aplicarlo, el árbol muestra solo
+  // esas ramas expandidas al máximo detalle.
+  const [filtro, setFiltro] = useState<string[]>([]);
+
+  const onDiagnosticar = () =>
+    startDiagnostico(async () => {
+      const r = await diagnosticarBorradorIA(loteId);
+      if (r.ok) { setDiagIA(r.diagnostico ?? null); if (r.message) notifySuccess(r.message); }
+      else notifyError(r.message ?? "No se pudo diagnosticar.");
+    });
 
   useEffect(() => {
     notifyActionState(cargarState, { success: "Balance cargado.", error: "No se pudo cargar el balance." });
@@ -49,15 +64,35 @@ export default function BorradorDetailClient({
     <div className="flex flex-col gap-4">
       <ValidacionHeader v={validacion} pd={partidaDoble} />
 
+      {hallazgos.length > 0 && (
+        <DiagnosticoPanel hallazgos={hallazgos} diagIA={diagIA} diagnosticando={diagnosticando} onDiagnosticar={onDiagnosticar} filtro={filtro} onFiltrar={setFiltro} />
+      )}
+
       <Card className="overflow-hidden">
         <div className="border-b border-ink-100 bg-ink-50 px-3 py-2">
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">Movimiento en borrador (crudo del Excel · sin homologación)</div>
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">Movimiento en borrador (crudo del Excel · sin homologación)</div>
+            <a
+              href={`/balance/borradores/${loteId}/export${filtro.length > 0 ? `?filtro=${encodeURIComponent(filtro.join(","))}` : ""}`}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-ok-200 bg-ok-100/40 px-2.5 py-1.5 text-[12px] font-semibold text-ok-700 hover:bg-ok-100"
+              title={filtro.length > 0 ? "Exporta a Excel SOLO las cuentas filtradas" : "Exporta a Excel todo el árbol del borrador"}
+            >
+              <Icon name="download" size={13} /> Exportar a Excel{filtro.length > 0 ? " (filtrado)" : ""}
+            </a>
+          </div>
           <div className="mt-1 text-[11px] leading-relaxed text-ink-500">
-            <span className="font-semibold text-err-700">Δ subrayado</span> en una agrupadora = su total del archivo − la suma de las filas que cuelgan de ella (por prefijo de código). Si ≠ 0, su subtotal no cuadra con su desglose: puede ser una <span className="font-semibold">cuenta faltante</span>, o que el ERP numere el detalle sin anidar por código (el subtotal y su detalle no comparten prefijo — la plata está, pero en otra rama).
+            <span className="font-semibold text-err-700">Δ subrayado</span> en una agrupadora = su total del archivo − la suma de las filas que cuelgan de ella (por prefijo de código). Si ≠ 0, su subtotal no cuadra con su desglose: puede ser una <span className="font-semibold">cuenta faltante</span>, o que el ERP numere el detalle sin anidar por código (el subtotal y su detalle no comparten prefijo — la plata está, pero en otra rama). Usa <span className="font-semibold">⇄</span> para corregir una cuenta entre <span className="font-semibold">agrupadora</span> y <span className="font-semibold">movimiento</span> (aplica a todas las sucursales y recalcula).
           </div>
         </div>
+        {filtro.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 border-b border-blue-100 bg-blue-50 px-3 py-1.5 text-[11px]">
+            <Icon name="filter" size={12} /> <span className="font-semibold text-blue-700">Filtrando el árbol:</span>
+            {filtro.map((c) => <span key={c} className="rounded bg-blue-600 px-1.5 py-0.5 font-mono text-[10.5px] text-white">{c}</span>)}
+            <button type="button" onClick={() => setFiltro([])} className="ml-1 text-[11px] font-medium text-blue-700 underline hover:text-blue-900">Limpiar filtro</button>
+          </div>
+        )}
         <div className="max-h-[560px] overflow-auto">
-          <ArbolTabla arbol={arbol} />
+          <ArbolTabla arbol={arbol} loteId={loteId} filtro={filtro} />
         </div>
       </Card>
 
@@ -170,11 +205,95 @@ function MiniDato({ k, v, archivo, cuadra, diff }: { k: string; v: number; archi
   );
 }
 
+// ---- Diagnóstico del descuadre (determinista + asistido por IA) ----
+function DiagnosticoPanel({ hallazgos, diagIA, diagnosticando, onDiagnosticar, filtro, onFiltrar }: { hallazgos: Hallazgo[]; diagIA: DiagnosticoIA | null; diagnosticando: boolean; onDiagnosticar: () => void; filtro: string[]; onFiltrar: (c: string[]) => void }) {
+  const toggle = (c: string) => onFiltrar(filtro.includes(c) ? filtro.filter((x) => x !== c) : [...filtro, c]);
+  const chipCuenta = (c: string) => {
+    const on = filtro.includes(c);
+    return (
+      <button key={c} type="button" onClick={() => toggle(c)} title={on ? "Quitar del filtro del árbol" : "Filtrar el árbol por esta cuenta"}
+        className={`rounded px-1.5 py-0.5 font-mono text-[10.5px] ${on ? "bg-blue-600 text-white" : "bg-ink-100 text-ink-600 hover:bg-blue-100 hover:text-blue-700"}`}>
+        {c}
+      </button>
+    );
+  };
+  return (
+    <Card className="p-4">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">Diagnóstico del descuadre</div>
+        <button
+          type="button"
+          onClick={onDiagnosticar}
+          disabled={diagnosticando}
+          className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[12px] font-semibold text-blue-700 hover:bg-blue-100 disabled:opacity-60"
+        >
+          <Icon name="ai" size={13} /> {diagnosticando ? "Analizando con IA…" : "Diagnóstico asistido (IA)"}
+        </button>
+      </div>
+      {/* Hallazgos deterministas (sin costo) */}
+      <ul className="flex flex-col gap-1.5">
+        {hallazgos.map((h, i) => {
+          const tono = h.severidad === "alta" ? "border-err-200 bg-err-50" : "border-warn-200 bg-warn-50";
+          return (
+            <li key={i} className={`rounded-md border px-3 py-2 text-[12px] ${tono}`}>
+              <div className="font-semibold text-ink-800">{h.titulo} <span className="font-normal text-ink-500">· {fmt(h.monto)}</span></div>
+              <div className="mt-0.5 text-[11.5px] leading-relaxed text-ink-600">{h.detalle}</div>
+            </li>
+          );
+        })}
+      </ul>
+      {/* Resultado del análisis con IA */}
+      {diagIA && (
+        <div className="mt-3 rounded-md border border-blue-200 bg-blue-50/50 p-3">
+          <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-blue-700">
+            <Icon name="ai" size={12} /> Análisis asistido (sugerencia — verifica antes de actuar)
+          </div>
+          <div className="text-[12px] font-medium text-ink-800">{diagIA.resumen}</div>
+          <ul className="mt-2 flex flex-col gap-2">
+            {diagIA.hipotesis.map((hp, i) => (
+              <li key={i} className="rounded-md border border-ink-150 bg-white px-3 py-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[12px] font-semibold text-ink-800">{hp.titulo}</span>
+                  <span className="shrink-0 text-[10.5px] text-ink-400">confianza {hp.confianza}%</span>
+                </div>
+                <div className="mt-0.5 text-[11.5px] leading-relaxed text-ink-600">{hp.explicacion}</div>
+                {hp.cuentas.length > 0 && (
+                  <div className="mt-1 flex flex-wrap items-center gap-1">
+                    {hp.cuentas.map(chipCuenta)}
+                    <button type="button" onClick={() => onFiltrar(hp.cuentas)} title="Filtrar el árbol por todas las cuentas de esta hipótesis"
+                      className="ml-0.5 inline-flex items-center gap-1 rounded border border-blue-200 px-1.5 py-0.5 text-[10.5px] font-medium text-blue-700 hover:bg-blue-50">
+                      <Icon name="search" size={11} /> Ver en el árbol
+                    </button>
+                  </div>
+                )}
+                <div className="mt-1 text-[11.5px] text-ok-700"><span className="font-semibold">Corrección:</span> {hp.correccion}</div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </Card>
+  );
+}
+
 // ---- Árbol crudo (agrupadora / movimiento, descuadre subrayado) ----
 const tieneDescuadre = (n: NodoBorrador): boolean => (n.descuadre != null && n.descuadre !== 0) || n.hijos.some(tieneDescuadre);
 const nivelLabel = (codigo: string) => (codigo.length <= 2 ? "Clase" : codigo.length <= 4 ? "Grupo" : codigo.length <= 6 ? "Cuenta" : "Subcuenta");
 
-function ArbolTabla({ arbol }: { arbol: NodoBorrador[] }) {
+function ArbolTabla({ arbol, loteId, filtro }: { arbol: NodoBorrador[]; loteId: string; filtro: string[] }) {
+  const router = useRouter();
+  const [reclasificando, startReclasificar] = useTransition();
+  const [pendiente, setPendiente] = useState<string | null>(null);
+  const reclasificar = (codigo: string, actual: NodoBorrador["tipoFila"]) => {
+    const nuevo = actual === "movimiento" ? "agrupadora" : "movimiento";
+    setPendiente(codigo);
+    startReclasificar(async () => {
+      const r = await reclasificarFilaBorrador(loteId, codigo, nuevo);
+      if (r.ok) { notifySuccess(r.message ?? "Cuenta reclasificada."); router.refresh(); }
+      else notifyError(r.message ?? "No se pudo reclasificar.");
+      setPendiente(null);
+    });
+  };
   // Expande por defecto los niveles altos y TODA rama con descuadre (para verlo).
   const expandidosInicial = useMemo(() => {
     const s = new Set<number>();
@@ -188,14 +307,34 @@ function ArbolTabla({ arbol }: { arbol: NodoBorrador[] }) {
   const [abiertos, setAbiertos] = useState<Set<number>>(expandidosInicial);
   const toggle = (k: number) => setAbiertos((prev) => { const n = new Set(prev); if (n.has(k)) n.delete(k); else n.add(k); return n; });
 
+  // Filtro por código(s) sugerido(s): un nodo COINCIDE si su código empieza por
+  // alguno del filtro; se muestran sus ancestros (ruta) y todo su subárbol (detalle
+  // al máximo), y se resaltan las coincidencias.
+  const filtroActivo = filtro.length > 0;
+  const coincide = (codigo: string) => filtroActivo && filtro.some((f) => codigo.startsWith(f));
+  const subRamaCoincide = useMemo(() => {
+    const map = new Map<number, boolean>();
+    const rec = (n: NodoBorrador): boolean => {
+      let has = coincide(n.codigo);
+      for (const h of n.hijos) if (rec(h)) has = true;
+      map.set(n.filaNum, has);
+      return has;
+    };
+    arbol.forEach(rec);
+    return map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [arbol, filtro]);
+
   const filas: React.ReactNode[] = [];
-  const render = (n: NodoBorrador, depth: number) => {
+  const render = (n: NodoBorrador, depth: number, bajoMatch = false) => {
+    if (filtroActivo && !bajoMatch && !subRamaCoincide.get(n.filaNum)) return; // fuera de la ruta filtrada
     const hasHijos = n.hijos.length > 0;
-    const open = abiertos.has(n.filaNum);
+    const esMatch = coincide(n.codigo);
+    const open = filtroActivo ? true : abiertos.has(n.filaNum); // filtrado → todo expandido
     const esMov = n.tipoFila === "movimiento";
     const descuadrado = n.descuadre != null && n.descuadre !== 0;
     filas.push(
-      <tr key={n.filaNum} className={`border-t border-ink-100 ${esMov ? "hover:bg-ink-50/60" : "bg-ink-50/40"}`}>
+      <tr key={n.filaNum} className={`border-t border-ink-100 ${esMatch ? "bg-blue-50 ring-1 ring-inset ring-blue-200" : esMov ? "hover:bg-ink-50/60" : "bg-ink-50/40"}`}>
         <td className="px-2 py-1 align-top">
           <div className="flex items-center gap-1.5" style={{ paddingLeft: 4 + depth * 16 }}>
             {hasHijos ? (
@@ -227,6 +366,17 @@ function ArbolTabla({ arbol }: { arbol: NodoBorrador[] }) {
                 Δ {fmt(n.descuadre!)}
               </span>
             )}
+            {n.tipoFila !== "total" && /^\d+$/.test(n.codigo) && (
+              <button
+                type="button"
+                onClick={() => reclasificar(n.codigo, n.tipoFila)}
+                disabled={reclasificando}
+                title={esMov ? "Marcar esta cuenta como AGRUPADORA (dejará de cargarse)" : "Marcar esta cuenta como MOVIMIENTO (se cargará su saldo)"}
+                className="rounded border border-ink-200 px-1.5 py-0.5 text-[10px] font-medium text-ink-500 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:opacity-50"
+              >
+                {pendiente === n.codigo ? "…" : esMov ? "⇄ Agrupadora" : "⇄ Movimiento"}
+              </button>
+            )}
           </div>
         </td>
         <td className="whitespace-nowrap px-2 py-1 text-right align-top tabular-nums text-ink-600">{fmt(n.saldoInicial)}</td>
@@ -235,7 +385,7 @@ function ArbolTabla({ arbol }: { arbol: NodoBorrador[] }) {
         <td className="whitespace-nowrap px-2 py-1 text-right align-top font-medium tabular-nums text-ink-800">{fmt(n.saldoFinal)}</td>
       </tr>,
     );
-    if (hasHijos && open) n.hijos.forEach((h) => render(h, depth + 1));
+    if (hasHijos && open) n.hijos.forEach((h) => render(h, depth + 1, bajoMatch || esMatch));
   };
   arbol.forEach((r) => render(r, 0));
 
