@@ -12,7 +12,10 @@
 import ExcelJS from "exceljs";
 
 export type CeldaCruda = string | number | boolean | null;
-export type GridHoja = { nombre: string; filas: CeldaCruda[][] };
+// `negrita` (solo XLSX): por cada fila de `filas`, el flag NEGRITA de cada celda
+// (alineado 0-based con la fila). Muchos ERP marcan las cuentas AGRUPADORAS en
+// negrita — es su propia clasificación, más confiable que inferir por código.
+export type GridHoja = { nombre: string; filas: CeldaCruda[][]; negrita?: boolean[][] };
 
 export type DocumentoIA = { tipo: "pdf"; base64: string } | { tipo: "texto"; texto: string };
 
@@ -93,11 +96,17 @@ async function leerLibroExcel(data: ArrayBuffer): Promise<GridHoja[]> {
 
   return wb.worksheets.map((ws) => {
     const filas: CeldaCruda[][] = [];
+    const negrita: boolean[][] = [];
     ws.eachRow({ includeEmpty: false }, (row) => {
       const values = (row.values as ExcelJS.CellValue[]).slice(1).map(celdaExcel);
-      if (filaTieneDatos(values)) filas.push(values);
+      if (!filaTieneDatos(values)) return;
+      filas.push(values);
+      // Flag NEGRITA por celda (exceljs: `cell.font.bold`; celdas 1-based) alineado
+      // 0-based con `values`. Respalda con la negrita a nivel de fila si la trae.
+      const filaBold = (row as unknown as { font?: { bold?: boolean } }).font?.bold === true;
+      negrita.push(values.map((_, j) => filaBold || row.getCell(j + 1).font?.bold === true));
     });
-    return { nombre: ws.name, filas };
+    return { nombre: ws.name, filas, negrita };
   });
 }
 

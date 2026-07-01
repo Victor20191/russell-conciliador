@@ -678,6 +678,37 @@ model BalancePruebaDetalle {
   @@map("balance_prueba_detalle")
 }
 
+// Encabezado de un LOTE de importación (borrador persistente). Un registro por
+// lectura de archivo: guarda la metadata para LISTAR los borradores sin recalcular
+// (archivo, NIT/período detectado, snapshot de validación) y el dueño. Persiste
+// hasta que se CARGA (promueve a oficial) o se DESCARTA. FK suave a `clientes` y
+// `usuarios` (Int, sin @relation).
+model BalanceImportacionLote {
+  id                Int      @id @default(autoincrement()) @map("id")
+  loteId            String   @unique @map("lote_id")
+  clienteId         Int?     @map("cliente_id") // sugerido por NIT; null hasta cargar
+  archivoNombre     String   @map("archivo_nombre")
+  archivoTam        String?  @map("archivo_tam")
+  nitDetectado      String?  @map("nit_detectado")
+  periodoInicial    String?  @map("periodo_inicial") // ISO detectado (editable al cargar)
+  periodoFinal      String?  @map("periodo_final")
+  estandar          String?  @map("estandar")
+  convencionCredito String?  @map("convencion_credito")
+  cuentasMovimiento Int      @default(0) @map("cuentas_movimiento")
+  filasLeidas       Int      @default(0) @map("filas_leidas")
+  filasExcluidas    Int      @default(0) @map("filas_excluidas")
+  // Snapshot de validación (para listar sin recalcular): partida doble + ecuación.
+  partidaDobleDiff  Decimal  @default(0) @map("partida_doble_diff") @db.Decimal(18, 2)
+  ecuacionDiff      Decimal  @default(0) @map("ecuacion_diff") @db.Decimal(18, 2)
+  cuadrado          Boolean  @default(false) @map("cuadrado")
+  cargadoPor        String?  @map("cargado_por")
+  cargadoPorId      Int?     @map("cargado_por_id") // dueño del borrador (FK suave a User)
+  creadoEn          DateTime @default(now()) @map("creado_en")
+
+  @@index([cargadoPorId])
+  @@map("balance_importacion_lote")
+}
+
 // Staging crudo de la importación de balance (paso 1). Recibe TODAS las filas
 // normalizadas del archivo —sin descartar padres/totales/descuadres— etiquetadas
 // con su `tipoFila`. El paso 2 (confirmación) las relee, promueve solo las de

@@ -407,6 +407,32 @@ describe("construirValidacionContable — borrador A/P/Patrimonio (archivo vs ca
     expect(v.activoCuadra).toBeNull();
     expect(v.activo).toBe(1000); // el calculado siempre está
   });
+
+  it("compara Ingresos/Gastos/Costos/Resultado del archivo con el calculado", () => {
+    const pyg: CuentaCruda[] = [
+      { code: "413505", name: "Ventas", prevBalance: 0, balance: -1000 }, // ingreso (crédito)
+      { code: "513505", name: "Gastos admin", prevBalance: 0, balance: 300 }, // gasto (débito)
+      { code: "613505", name: "Costo de ventas", prevBalance: 0, balance: 200 }, // costo (débito)
+    ];
+    const c = calcularBalance(pyg, STD);
+    // Archivo firmado: clase 4 en negativo, 5/6 en positivo.
+    const v = construirValidacionContable(c, { activo: null, pasivo: null, patrimonio: null, ingresos: -1000, gastos: 300, costos: 200 });
+    expect(v.ingresos).toBe(1000);
+    expect(v.ingresosArchivo).toBe(1000); // |archivo|
+    expect(v.ingresosCuadra).toBe(true);
+    expect(v.gastosCuadra).toBe(true);
+    expect(v.costosCuadra).toBe(true);
+    expect(v.resultado).toBe(500); // 1000 − 300 − 200
+    expect(v.resultadoArchivo).toBe(500);
+    expect(v.resultadoCuadra).toBe(true);
+  });
+
+  it("deja null el resultado del archivo si falta alguna clase de P&L", () => {
+    const v = construirValidacionContable(calc, { activo: null, pasivo: null, patrimonio: null, ingresos: -1000 });
+    expect(v.ingresosArchivo).toBe(1000);
+    expect(v.costosArchivo).toBeNull();
+    expect(v.resultadoArchivo).toBeNull(); // faltan gastos/costos
+  });
 });
 
 describe("quitarPadresRedundantes — jerarquía de código hermano (no anida por prefijo)", () => {

@@ -92,8 +92,9 @@ export function mensajeErrorIA(contexto: string, e: unknown): string {
     return "No se pudo leer el archivo con IA. Revisa el formato del archivo o reintenta.";
   }
 
-  // Mensaje deliberado del pipeline de extracción/ingesta (texto ya útil en español).
-  if (/^(La IA |El PDF |Formato de archivo)/.test(msg)) {
+  // Mensaje deliberado del pipeline de extracción/ingesta (texto ya útil en
+  // español, p. ej. formato no soportado). Se muestra tal cual al usuario.
+  if (/^(La IA |El PDF |Formato de archivo|Por seguridad)/.test(msg)) {
     registrarError(contexto, e);
     return msg;
   }

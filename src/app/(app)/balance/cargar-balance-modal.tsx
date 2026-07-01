@@ -108,15 +108,23 @@ function CargarBalanceModal({ clients, onClose, onReiniciar }: { clients: Client
         Cerrar
       </button>
     ) : fase === "revisar" ? (
-      <div className="flex w-full items-center">
+      <div className="flex w-full items-center gap-2">
         <button type="button" onClick={onReiniciar} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] font-semibold text-ink-600 hover:bg-ink-50">
           ← Otro archivo
         </button>
+        {sug && (
+          <Link
+            href={`/balance/borradores/${sug.loteId}`}
+            className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] font-semibold text-ink-700 hover:bg-ink-50"
+          >
+            <Icon name="doc" size={13} /> Ir al borrador
+          </Link>
+        )}
         <button
           type="submit"
           form="confirmar-form"
           disabled={cargando}
-          className="ml-auto rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
+          className={`${sug ? "" : "ml-auto "}rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60`}
         >
           {cargando ? "Cargando…" : "Cargar balance"}
         </button>

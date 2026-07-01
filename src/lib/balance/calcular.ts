@@ -43,6 +43,8 @@ export type ResultadoBalance = {
   diffCuadre: number; // = A − P − Patrimonio − Resultado (Σ saldos firmados, clases 1–7)
   movimientosCuadran: boolean; // Gate 1: |Σdébitos − Σcréditos| ≤ MARGEN_CUADRE
   diffMov: number; // = Σdébitos − Σcréditos del período
+  totalDebe: number; // Σ débitos del período (sobre el detalle YA depurado; = base de diffMov)
+  totalHaber: number; // Σ créditos del período (sobre el detalle YA depurado; = base de diffMov)
   totalRows: number;
   mapped: number;
   unmapped: number;
@@ -69,10 +71,14 @@ export type ValidacionContable = {
   gastos: number;
   costos: number;
   resultado: number; // ingresos − gastos − costos
-  // Totales que trae el archivo (filas clase 1/2/3), en magnitud; null si ausentes.
+  // Totales que trae el archivo (filas clase 1/2/3 y 4/5/6+7), en magnitud; null si ausentes.
   activoArchivo: number | null;
   pasivoArchivo: number | null;
   patrimonioArchivo: number | null;
+  ingresosArchivo: number | null;
+  gastosArchivo: number | null;
+  costosArchivo: number | null;
+  resultadoArchivo: number | null; // = |ingresos| − |gastos| − |costos| del archivo (firmado)
   // Validación 1 — ecuación contable A = P + Patrimonio + Resultado.
   ecuacionDiff: number; // = activo − pasivo − patrimonio − resultado
   ecuacionCuadra: boolean; // |ecuacionDiff| ≤ MARGEN_CUADRE
@@ -83,6 +89,14 @@ export type ValidacionContable = {
   pasivoCuadra: boolean | null;
   patrimonioDiff: number | null;
   patrimonioCuadra: boolean | null;
+  ingresosDiff: number | null;
+  ingresosCuadra: boolean | null;
+  gastosDiff: number | null;
+  gastosCuadra: boolean | null;
+  costosDiff: number | null;
+  costosCuadra: boolean | null;
+  resultadoDiff: number | null; // = resultadoArchivo − resultado calculado (firmado, sin abs)
+  resultadoCuadra: boolean | null;
 };
 
 /**
@@ -93,17 +107,32 @@ export type ValidacionContable = {
  */
 export function construirValidacionContable(
   calc: ResultadoBalance,
-  totalesArchivo: { activo: number | null; pasivo: number | null; patrimonio: number | null },
+  totalesArchivo: {
+    activo: number | null; pasivo: number | null; patrimonio: number | null;
+    ingresos?: number | null; gastos?: number | null; costos?: number | null;
+  },
 ): ValidacionContable {
   const s = calc.sums;
-  const cmp = (arch: number | null, mag: number): { diff: number | null; cuadra: boolean | null } => {
+  const mag = (v: number | null | undefined) => (v == null ? null : Math.abs(v));
+  const cmp = (arch: number | null | undefined, calculado: number): { diff: number | null; cuadra: boolean | null } => {
     if (arch == null) return { diff: null, cuadra: null };
-    const diff = Math.abs(arch) - mag;
+    const diff = Math.abs(arch) - calculado;
     return { diff, cuadra: Math.abs(diff) <= MARGEN_CUADRE };
   };
   const a = cmp(totalesArchivo.activo, s.activo);
   const p = cmp(totalesArchivo.pasivo, s.pasivo);
   const pat = cmp(totalesArchivo.patrimonio, s.patrimonio);
+  const ing = cmp(totalesArchivo.ingresos, s.ingresos);
+  const gas = cmp(totalesArchivo.gastos, s.gastos);
+  const cos = cmp(totalesArchivo.costos, s.costos);
+  // Resultado del archivo = |ingresos| − |gastos| − |costos| (mismo cálculo que la
+  // utilidad calculada). Solo si el archivo trae las tres clases. Sin `abs` en el
+  // diff: el resultado puede ser negativo (pérdida) y debe compararse con signo.
+  const ingA = mag(totalesArchivo.ingresos);
+  const gasA = mag(totalesArchivo.gastos);
+  const cosA = mag(totalesArchivo.costos);
+  const resultadoArchivo = ingA != null && gasA != null && cosA != null ? ingA - gasA - cosA : null;
+  const resDiff = resultadoArchivo == null ? null : resultadoArchivo - s.utilidad;
   return {
     activo: s.activo,
     pasivo: s.pasivo,
@@ -112,9 +141,13 @@ export function construirValidacionContable(
     gastos: s.gastos,
     costos: s.costos,
     resultado: s.utilidad,
-    activoArchivo: totalesArchivo.activo == null ? null : Math.abs(totalesArchivo.activo),
-    pasivoArchivo: totalesArchivo.pasivo == null ? null : Math.abs(totalesArchivo.pasivo),
-    patrimonioArchivo: totalesArchivo.patrimonio == null ? null : Math.abs(totalesArchivo.patrimonio),
+    activoArchivo: mag(totalesArchivo.activo),
+    pasivoArchivo: mag(totalesArchivo.pasivo),
+    patrimonioArchivo: mag(totalesArchivo.patrimonio),
+    ingresosArchivo: ingA,
+    gastosArchivo: gasA,
+    costosArchivo: cosA,
+    resultadoArchivo,
     ecuacionDiff: calc.diffCuadre,
     ecuacionCuadra: calc.balanced,
     activoDiff: a.diff,
@@ -123,6 +156,14 @@ export function construirValidacionContable(
     pasivoCuadra: p.cuadra,
     patrimonioDiff: pat.diff,
     patrimonioCuadra: pat.cuadra,
+    ingresosDiff: ing.diff,
+    ingresosCuadra: ing.cuadra,
+    gastosDiff: gas.diff,
+    gastosCuadra: gas.cuadra,
+    costosDiff: cos.diff,
+    costosCuadra: cos.cuadra,
+    resultadoDiff: resDiff,
+    resultadoCuadra: resDiff == null ? null : Math.abs(resDiff) <= MARGEN_CUADRE,
   };
 }
 
@@ -584,6 +625,8 @@ function agregarDetalle(detalle: BreakdownItem[]): ResultadoBalance {
     diffCuadre,
     movimientosCuadran,
     diffMov,
+    totalDebe,
+    totalHaber,
     totalRows: detalle.length,
     mapped: detalle.length - sinMapeo,
     unmapped: sinMapeo,

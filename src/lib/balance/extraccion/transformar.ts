@@ -159,6 +159,56 @@ export function elegirMovimiento(si: number, db: number, cr: number, saldo: numb
   return { db: Math.abs(db), cr: Math.abs(cr) };
 }
 
+// Subtotal DUPLICADO: en algunos ERP una cuenta de 6 díg (subtotal) trae saldo
+// PROPIO y, además, su detalle vive en una subcuenta de 8 díg del MISMO grupo de
+// 4 díg con las CUATRO columnas idénticas (el ERP no anidó el detalle bajo su
+// subtotal por código). Contar ambas duplica el monto. Se detecta la de 6 díg (el
+// subtotal) para NO importarla: su detalle de 8 díg ya lleva el valor. El match
+// EXACTO en las 4 columnas (saldo ini/débito/crédito/saldo final, todas ≠ 0) hace
+// casi imposible un falso positivo.
+export type FilaMontos = { codigo: string; saldoInicial: number; debitos: number; creditos: number; saldoFinal: number };
+export function marcarSubtotalesDuplicados<T extends FilaMontos>(filas: T[]): Set<T> {
+  const dup = new Set<T>();
+  const firma = (f: FilaMontos) => `${f.saldoInicial}|${f.debitos}|${f.creditos}|${f.saldoFinal}`;
+  const trivial = (f: FilaMontos) => f.saldoInicial === 0 && f.debitos === 0 && f.creditos === 0 && f.saldoFinal === 0;
+  const porGrupo = new Map<string, T[]>();
+  for (const f of filas) {
+    if (!/^\d+$/.test(f.codigo)) continue;
+    const g = f.codigo.slice(0, 4);
+    (porGrupo.get(g) ?? porGrupo.set(g, []).get(g)!).push(f);
+  }
+  for (const grupo of porGrupo.values()) {
+    const firmasOcho = new Set(grupo.filter((f) => f.codigo.length === 8 && !trivial(f)).map(firma));
+    if (firmasOcho.size === 0) continue;
+    for (const s of grupo) {
+      if (s.codigo.length === 6 && !trivial(s) && firmasOcho.has(firma(s))) dup.add(s);
+    }
+  }
+  return dup;
+}
+
+// Código REPETIDO: algunos ERP usan el MISMO código para un encabezado (agrupadora)
+// y una línea de MOVIMIENTO consecutiva ("una agrupa, la otra contiene movimiento",
+// p. ej. `1105 EFECTIVO` = total y `1105 CAJA GENERAL` = la caja real). La detección
+// por prefijo marca AMBAS como agrupadora → la línea de movimiento se PERDERÍA al
+// cargar. Se conserva la PRIMERA aparición como agrupadora y las repeticiones
+// consecutivas del mismo código pasan a MOVIMIENTO. Muta `tipoFila` y devuelve las
+// filas reclasificadas (para agregarlas al conjunto imputable). Opera en orden de
+// archivo (`filaNum`).
+export function reclasificarRepetidos<T extends { filaNum: number; codigo: string; tipoFila: TipoFila }>(filas: T[]): T[] {
+  const ord = [...filas].sort((a, b) => a.filaNum - b.filaNum);
+  const cambiadas: T[] = [];
+  for (let i = 1; i < ord.length; i++) {
+    const cur = ord[i];
+    const prev = ord[i - 1];
+    if (/^\d+$/.test(cur.codigo) && cur.codigo === prev.codigo && cur.tipoFila === "agrupadora" && prev.tipoFila === "agrupadora") {
+      cur.tipoFila = "movimiento";
+      cambiadas.push(cur);
+    }
+  }
+  return cambiadas;
+}
+
 // ---------------- Resolución de cabecera ----------------
 
 function elegir(param: string | null, detectado: Origen): Origen {
@@ -228,6 +278,24 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
   }
   const ancestros = prefijosDe(codigos);
 
+  // ¿La hoja usa NEGRITA como marcador de agrupadora? Solo si hay MEZCLA (algunas
+  // cuentas numéricas en negrita y otras no). Cuando la trae, es la clasificación
+  // PROPIA del ERP y manda sobre la heurística por prefijo. Si el archivo NO trae
+  // negrita (CSV/JSON/xlsx sin formato) o viene toda igual, `usaNegrita` es false y
+  // se conserva la heurística estructural (`esHoja`) como respaldo.
+  const usaNegrita = ((): boolean => {
+    if (!hoja.negrita) return false;
+    let b = 0;
+    let nb = 0;
+    for (let r = spec.primeraFilaDatos - 1; r < hoja.filas.length; r++) {
+      const code = normalizarCodigo(cell(hoja.filas[r] ?? [], cols.codigo));
+      if (!/^\d+$/.test(code)) continue;
+      if (filaEnNegrita(hoja.negrita[r], cols.codigo, cols.nombre)) b++;
+      else nb++;
+    }
+    return b > 0 && nb > 0;
+  })();
+
   let filasLeidas = 0;
   let filasExcluidas = 0;
   const parciales: FilaParcial[] = [];
@@ -282,9 +350,13 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
       registrar("total", { si: si ?? 0, db: db ?? 0, cr: cr ?? 0, saldo: saldo ?? 0 });
       continue;
     }
-    // ¿Es cuenta de movimiento (hoja)? Columna marcadora si el archivo la trae;
-    // si no, detección estructural por prefijo (no es prefijo de otra) + piso PUC.
-    if (!esHoja(code, fila, spec, ancestros)) {
+    // ¿Es agrupadora? 1º la NEGRITA del ERP si la hoja la usa como marcador (manda);
+    // si no, columna marcadora del archivo o detección estructural por prefijo
+    // (no es prefijo de otra) + piso PUC — `esHoja`.
+    const esAgrupadora = usaNegrita
+      ? filaEnNegrita(hoja.negrita?.[r], cols.codigo, cols.nombre)
+      : !esHoja(code, fila, spec, ancestros);
+    if (esAgrupadora) {
       filasExcluidas++;
       registrar("agrupadora", { si: si ?? 0, db: db ?? 0, cr: cr ?? 0, saldo: saldo ?? 0 });
       continue;
@@ -309,7 +381,6 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
   }
 
   const agregadas = spec.agregarPorTercero ? agregarPorCuenta(parciales) : parciales;
-  const { movimiento, agrupadoras } = contarJerarquia(codigos, ancestros);
 
   const importReady: CuentaCruda[] = [];
   let filasDescuadre = 0;
@@ -330,6 +401,29 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
     importReady.push({ code: f.code, name: f.name, prevBalance: f.si, balance: f.saldo, debitos: f.db, creditos: f.cr });
   }
 
+  // Subtotales DUPLICADOS: una cuenta de 6 díg cuyas 4 columnas coinciden EXACTO
+  // con una subcuenta de 8 díg del mismo grupo (el ERP mal-numeró el detalle). Se
+  // re-clasifica como agrupadora y NO se importa: su detalle ya lleva el valor.
+  const dupSubtotales = marcarSubtotalesDuplicados(filasCrudas.filter((f) => f.tipoFila === "movimiento"));
+  if (dupSubtotales.size > 0) {
+    const codigosDup = new Set<string>();
+    for (const f of dupSubtotales) { f.tipoFila = "agrupadora"; codigosDup.add(f.codigo); }
+    for (let i = importReady.length - 1; i >= 0; i--) {
+      if (codigosDup.has(importReady[i].code)) importReady.splice(i, 1);
+    }
+  }
+
+  // Códigos REPETIDOS (encabezado + línea de movimiento con el mismo código): la
+  // repetición pasa a movimiento y se agrega a lo importable (si no, su saldo se
+  // pierde). Su ecuación de control se valida como cualquier fila.
+  for (const f of reclasificarRepetidos(filasCrudas)) {
+    if (!validarControl || controlConcuerda(f.saldoInicial, f.debitos, f.creditos, f.saldoFinal)) {
+      importReady.push({ code: f.codigo, name: f.nombre, prevBalance: f.saldoInicial, balance: f.saldoFinal, debitos: f.debitos, creditos: f.creditos });
+    } else {
+      f.tipoFila = "descuadre";
+    }
+  }
+
   // Cuadre OBLIGATORIO contra el gran total del archivo, sobre lo que
   // EFECTIVAMENTE se importa/persiste (importReady, ya sin las filas de descuadre
   // de control): así "cuadra" garantiza que lo guardado coincide con TOTALES, no
@@ -340,6 +434,12 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
   const sumaCreditos = importReady.reduce((s, f) => s + (f.creditos ?? 0), 0);
   const cuadre = construirCuadre(detectarTotales(hoja, spec), sumaDebitos, sumaCreditos);
 
+  // Conteos por la clasificación FINAL de las filas (refleja la negrita y las
+  // reclasificaciones), por código único. Una cuenta que quedó como movimiento no
+  // se cuenta también como agrupadora.
+  const codigosMovimiento = new Set(filasCrudas.filter((f) => f.tipoFila === "movimiento").map((f) => f.codigo));
+  const codigosAgrupadora = new Set(filasCrudas.filter((f) => f.tipoFila === "agrupadora" && !codigosMovimiento.has(f.codigo)).map((f) => f.codigo));
+
   return {
     importReady,
     filasCrudas,
@@ -349,8 +449,8 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
       filasExcluidas,
       filasImportables: importReady.length,
       filasDescuadre,
-      cuentasMovimiento: movimiento,
-      cuentasAgrupadoras: agrupadoras,
+      cuentasMovimiento: codigosMovimiento.size,
+      cuentasAgrupadoras: codigosAgrupadora.size,
       nit: cabecera.nit,
       periodoInicial: cabecera.periodoInicial,
       periodoFinal: cabecera.periodoFinal,
@@ -459,6 +559,13 @@ export function validarDirecta(extr: ExtraccionDirecta, params: ParamsExtraccion
 function cell(fila: CeldaCruda[], col1: number | null): CeldaCruda {
   if (col1 == null || col1 < 1) return null; // 0/negativo = columna ausente
   return fila[col1 - 1] ?? null;
+}
+
+// Una fila "en negrita" (marca de agrupadora del ERP) = su código o su nombre en
+// negrita. `negritaFila` viene de la ingesta (solo XLSX), alineada 0-based con la fila.
+function filaEnNegrita(negritaFila: boolean[] | undefined, codigoCol: number | null, nombreCol: number | null): boolean {
+  const cn = (col: number | null) => col != null && col >= 1 && negritaFila?.[col - 1] === true;
+  return cn(nombreCol) || cn(codigoCol);
 }
 
 /**

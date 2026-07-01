@@ -129,6 +129,9 @@ export default async function BalanceDetailPage({ params }: { params: Promise<{ 
             <StatCard label="Activo" value={fmt(sums.activo)} tone="blue" valueClassName="text-lg" />
             <StatCard label="Pasivo" value={fmt(sums.pasivo)} tone="ink" valueClassName="text-lg" />
             <StatCard label="Patrimonio" value={fmt(sums.patrimonio)} tone="ink" valueClassName="text-lg" />
+            <StatCard label="Ingresos" value={fmt(sums.ingresos)} tone="ink" valueClassName="text-lg" />
+            <StatCard label="Gastos" value={fmt(sums.gastos)} tone="ink" valueClassName="text-lg" />
+            <StatCard label="Costos" value={fmt(sums.costos)} tone="ink" valueClassName="text-lg" />
             <StatCard label="Utilidad" value={fmt(sums.utilidad)} tone="ok" valueClassName="text-lg" />
             <StatCard label="Validaciones" value={`${okCount} ok`} hint={warnCount > 0 ? `${warnCount} alerta(s)` : "Sin alertas"} tone={warnCount > 0 ? "warn" : "ok"} valueClassName="text-lg" />
             {meta && <StatCard label="Mapeo al estándar" value={`${meta.mapped}/${meta.rows}`} hint={`${meta.critical} críticas`} tone="ink" valueClassName="text-lg" />}

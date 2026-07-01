@@ -4,6 +4,8 @@ import {
   normalizarCodigo,
   controlConcuerda,
   elegirMovimiento,
+  marcarSubtotalesDuplicados,
+  reclasificarRepetidos,
   construirCuadre,
   transformarTabular,
   validarDirecta,
@@ -112,6 +114,48 @@ describe("controlConcuerda", () => {
   });
   it("descuadre real falla ambas orientaciones", () => {
     expect(controlConcuerda(1000, 0, 500, 800)).toBe(false);
+  });
+});
+
+describe("marcarSubtotalesDuplicados", () => {
+  it("marca la cuenta de 6 díg cuyas 4 columnas = una de 8 díg del mismo grupo (caso 141006/14101004)", () => {
+    const filas = [
+      { codigo: "141006", saldoInicial: 9531, debitos: 0, creditos: 0, saldoFinal: 9531 },
+      { codigo: "14101004", saldoInicial: 9531, debitos: 0, creditos: 0, saldoFinal: 9531 },
+      { codigo: "141001", saldoInicial: 100, debitos: 0, creditos: 0, saldoFinal: 100 }, // sin gemelo
+    ];
+    expect([...marcarSubtotalesDuplicados(filas)].map((f) => f.codigo)).toEqual(["141006"]);
+  });
+  it("no marca si las columnas difieren o todo es 0", () => {
+    expect(
+      marcarSubtotalesDuplicados([
+        { codigo: "141006", saldoInicial: 0, debitos: 0, creditos: 0, saldoFinal: 0 }, // todo 0
+        { codigo: "14101004", saldoInicial: 0, debitos: 0, creditos: 0, saldoFinal: 0 },
+        { codigo: "220505", saldoInicial: 100, debitos: 0, creditos: 0, saldoFinal: 100 },
+        { codigo: "22050501", saldoInicial: 200, debitos: 0, creditos: 0, saldoFinal: 200 }, // valor distinto
+      ]).size,
+    ).toBe(0);
+  });
+});
+
+describe("reclasificarRepetidos", () => {
+  it("la 2ª aparición consecutiva del mismo código pasa de agrupadora a movimiento", () => {
+    const filas = [
+      { filaNum: 1, codigo: "1105", tipoFila: "agrupadora" as const },
+      { filaNum: 2, codigo: "1105", tipoFila: "agrupadora" as const },
+      { filaNum: 3, codigo: "110505", tipoFila: "movimiento" as const },
+    ];
+    const cambiadas = reclasificarRepetidos(filas);
+    expect(cambiadas.map((f) => f.filaNum)).toEqual([2]);
+    expect(filas[0].tipoFila).toBe("agrupadora"); // la primera se conserva como encabezado
+    expect(filas[1].tipoFila).toBe("movimiento"); // la repetición pasa a movimiento
+  });
+  it("no toca códigos que no se repiten", () => {
+    const filas = [
+      { filaNum: 1, codigo: "1105", tipoFila: "agrupadora" as const },
+      { filaNum: 2, codigo: "1110", tipoFila: "agrupadora" as const },
+    ];
+    expect(reclasificarRepetidos(filas)).toHaveLength(0);
   });
 });
 
@@ -275,6 +319,41 @@ describe("transformarTabular", () => {
     expect(rr.importReady.map((c) => c.code).sort()).toEqual(["11050501", "11050502"]);
     expect(rr.resumen.cuentasMovimiento).toBe(2);
     expect(rr.resumen.cuentasAgrupadoras).toBe(1); // 110505
+  });
+
+  it("negrita como marcador: una de 6 díg con hijos de 8 pero SIN negrita es movimiento (caso 135510)", () => {
+    const hoja: GridHoja = {
+      nombre: "Balance",
+      filas: [
+        ["Código", "Cuenta", "SI", "DB", "CR", "Saldo"],
+        [1355, "IMPUESTOS", 0, 0, 0, 100], // agrupadora (negrita)
+        [135510, "ANTICIPO ICA", 30, 0, 0, 30], // 6 díg con hijo de 8, SIN negrita → movimiento
+        [13551011, "AUTORRET ITAGUI", 70, 0, 0, 70], // movimiento (sin negrita)
+      ],
+      negrita: [
+        [false, false, false, false, false, false],
+        [true, true, false, false, false, false], // 1355 en negrita → agrupadora
+        [false, false, false, false, false, false], // 135510 sin negrita → movimiento (pese al prefijo)
+        [false, false, false, false, false, false],
+      ],
+    };
+    const rr = transformarTabular(spec(), [hoja], PARAMS);
+    expect(rr.importReady.map((c) => c.code).sort()).toEqual(["135510", "13551011"]);
+    expect(rr.resumen.cuentasAgrupadoras).toBe(1); // solo 1355
+  });
+
+  it("sin negrita: cae a la heurística por prefijo (135510 con hijo de 8 → agrupadora)", () => {
+    const hoja: GridHoja = {
+      nombre: "Balance",
+      filas: [
+        ["Código", "Cuenta", "SI", "DB", "CR", "Saldo"],
+        [1355, "IMPUESTOS", 0, 0, 0, 100],
+        [135510, "ANTICIPO ICA", 30, 0, 0, 30],
+        [13551011, "AUTORRET ITAGUI", 70, 0, 0, 70],
+      ], // sin `negrita` → heurística estructural
+    };
+    const rr = transformarTabular(spec(), [hoja], PARAMS);
+    expect(rr.importReady.map((c) => c.code).sort()).toEqual(["13551011"]); // 135510 es agrupadora por prefijo
   });
 
   it("por prefijo: una subcuenta de 6 sin hijos es movimiento; el grupo de 2 se excluye", () => {

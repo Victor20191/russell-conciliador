@@ -30,6 +30,7 @@ export const workNav: NavItem[] = [
     permiso: "balance:ver",
     modulo: "balance",
     children: [
+      { label: "Balance borrador", href: "/balance/borradores", permiso: "balance:crear", modulo: "balance" },
       { label: "Estado de Resultado", href: "/balance/estado-resultado", permiso: "balance:ver", modulo: "balance" },
       { label: "Balance", href: "/balance", permiso: "balance:ver", modulo: "balance" },
     ],

@@ -36,8 +36,8 @@ import { mapearPorIA } from "@/lib/balance/mapeo-ia";
 import { iaDisponible } from "@/lib/anthropic";
 import { registrarConsumoIA, type UsoIA } from "@/lib/ia/uso";
 import { randomUUID } from "node:crypto";
-import { construirCuadre } from "@/lib/balance/extraccion/transformar";
-import type { FilaCruda, ParamsExtraccion, ResultadoTransform } from "@/lib/balance/extraccion/transformar";
+import { construirCuadre, marcarSubtotalesDuplicados, reclasificarRepetidos } from "@/lib/balance/extraccion/transformar";
+import type { FilaCruda, ParamsExtraccion, ResultadoTransform, TipoFila } from "@/lib/balance/extraccion/transformar";
 import { CUADRE_NO_APLICA } from "@/lib/balance/extraccion/esquema";
 import type { CuadreTotales, Excepcion, ResumenAuditoria } from "@/lib/balance/extraccion/esquema";
 
@@ -169,6 +169,122 @@ function agregarStagingPorCuenta(filas: FilaStaging[]): CuentaCruda[] {
     }
   }
   return [...m.values()];
+}
+
+// Promueve un LOTE de staging a balance OFICIAL. Núcleo compartido por el flujo
+// del modal (`confirmarCargaBalance`, con payload firmado) y por el de la página
+// de borrador (`cargarBorrador`, con el encabezado persistido). Relee el staging,
+// hace el análisis por cuentas, persiste y PURGA el lote (staging + encabezado).
+type MetaPromocion = {
+  loteId: string;
+  clientId: number;
+  periodoInicio: string;
+  periodoFin: string;
+  rolLabel: string;
+  archivoNombre: string;
+  archivoTam: string;
+  nitDetectado: string | null;
+  nitFuente: ResumenAuditoria["nit"]["fuente"];
+  convencionCredito: string;
+  filasLeidas: number;
+  filasExcluidas: number;
+  filasDescuadre: number;
+  cuentasMovimiento: number;
+  cuentas: number;
+  cuentasAgrupadoras: number;
+  cuadreArchivo: { totalDebitos: number; totalCreditos: number } | null; // solo el modal lo trae
+  importReadyFallback: CuentaCruda[]; // por si el staging ya no está (modal firmado)
+};
+async function promoverStagingAOficial(p: MetaPromocion, contexto: string): Promise<ImportBalanceState> {
+  // Análisis por cuentas sobre el staging del lote (MOVIMIENTO agregado por código).
+  let importReadyFinal: CuentaCruda[];
+  try {
+    // Lee TODAS las filas del lote (no solo `movimiento`) para poder reclasificar
+    // los códigos repetidos (encabezado+movimiento) que en staging quedaron como
+    // agrupadora — así los lotes viejos también recuperan ese saldo.
+    const staged = await prisma.balanceImportacionStaging.findMany({
+      where: { loteId: p.loteId },
+      orderBy: { filaNum: "asc" },
+      select: { filaNum: true, codigo: true, nombre: true, tipoFila: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
+    });
+    const rows = staged.map((f) => ({
+      filaNum: f.filaNum, codigo: f.codigo, nombre: f.nombre, tipoFila: f.tipoFila as TipoFila,
+      saldoInicial: Number(f.saldoInicial), debitos: Number(f.debitos), creditos: Number(f.creditos), saldoFinal: Number(f.saldoFinal),
+    }));
+    reclasificarRepetidos(rows); // código repetido → movimiento
+    const mov = rows.filter((f) => f.tipoFila === "movimiento");
+    // Excluye subtotales DUPLICADOS (6 díg con detalle 8 díg idéntico) para no doblar.
+    const dup = marcarSubtotalesDuplicados(mov);
+    const movNetas = mov.filter((f) => !dup.has(f));
+    importReadyFinal = movNetas.length > 0 ? agregarStagingPorCuenta(movNetas) : p.importReadyFallback;
+  } catch {
+    importReadyFinal = p.importReadyFallback;
+  }
+  if (importReadyFinal.length === 0) importReadyFinal = p.importReadyFallback;
+  if (importReadyFinal.length === 0) return { ok: false, message: "El borrador ya no tiene cuentas para cargar. Vuelve a leer el archivo." };
+
+  // Cuadre contra la fila TOTALES del archivo (solo el flujo del modal lo trae). Σ
+  // firmada: las reversas restan del lado correcto. No bloquea; marca descuadre.
+  let cuadreTotales: CuadreTotales | null = null;
+  if (p.cuadreArchivo) {
+    const sumaDebitos = importReadyFinal.reduce((s, r) => s + (r.debitos ?? 0), 0);
+    const sumaCreditos = importReadyFinal.reduce((s, r) => s + (r.creditos ?? 0), 0);
+    cuadreTotales = construirCuadre({ detectado: true, debitos: p.cuadreArchivo.totalDebitos, creditos: p.cuadreArchivo.totalCreditos }, sumaDebitos, sumaCreditos);
+  }
+
+  try {
+    const cliente = await prisma.client.findUnique({ where: { id: p.clientId }, select: { name: true, nit: true, erpId: true } });
+    if (!cliente) return { ok: false, message: "El cliente seleccionado ya no existe." };
+    if (cliente.erpId == null) {
+      return { ok: false, message: "El cliente no tiene un ERP asignado. Asígnalo en Configuración › Clientes antes de cargar el balance." };
+    }
+
+    const period = etiquetaPeriodo(p.periodoInicio, p.periodoFin);
+    const periodos = { inicial: p.periodoInicio, final: p.periodoFin };
+    const cuentasEstandar = await getCuentasEstandar();
+    const user = await getCurrentUser();
+
+    const { id, version, calc } = await persistirCargue({
+      clientId: p.clientId, clienteName: cliente.name, clienteNit: cliente.nit,
+      period, periodos, importReady: importReadyFinal, cuentasEstandar,
+      archivoNombre: p.archivoNombre, archivoTam: p.archivoTam,
+      uploadedBy: user?.name ?? "—", uploadedById: user?.id ?? null, rolLabel: p.rolLabel,
+      cuadreTotales,
+      meta: {
+        estandar: TIPO_BALANCE_CARGA, convencionCredito: p.convencionCredito,
+        filasLeidas: p.filasLeidas, filasExcluidas: p.filasExcluidas, filasDescuadre: p.filasDescuadre,
+      },
+    });
+
+    // Promovido → PURGA el lote (staging + encabezado). Best-effort.
+    try {
+      await prisma.balanceImportacionStaging.deleteMany({ where: { loteId: p.loteId } });
+      await prisma.balanceImportacionLote.deleteMany({ where: { loteId: p.loteId } });
+    } catch {
+      /* best-effort */
+    }
+
+    const auditoria: ResumenAuditoria = {
+      filasLeidas: p.filasLeidas, filasExcluidas: p.filasExcluidas, filasImportables: p.cuentas, filasDescuadre: p.filasDescuadre,
+      cuentasMovimiento: p.cuentasMovimiento, cuentasAgrupadoras: p.cuentasAgrupadoras,
+      nit: { valor: p.nitDetectado, fuente: p.nitFuente },
+      periodoInicial: { valor: p.periodoInicio, fuente: "FUENTE" },
+      periodoFinal: { valor: p.periodoFin, fuente: "FUENTE" },
+      estandar: TIPO_BALANCE_CARGA,
+      convencionCredito: p.convencionCredito === "magnitud" ? "magnitud" : "firmado",
+    };
+
+    return {
+      ok: true,
+      resumen: {
+        id, cliente: cliente.name, period, version,
+        cuentas: calc.totalRows, mapped: calc.mapped, unmapped: calc.unmapped, balanced: calc.balanced,
+        auditoria,
+      },
+    };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD(contexto, e) };
+  }
 }
 
 export async function freezeBalance(formData: FormData): Promise<ActionState> {
@@ -588,15 +704,16 @@ export async function leerBalance(
       };
     }
 
+    const usuario = await getCurrentUser();
+
     // Registra el consumo de tokens de la lectura/extracción (best-effort). Se
     // hace aquí —aunque no haya cuentas útiles— porque la IA ya consumió tokens.
     // El cliente aún no está confirmado en este paso (clienteId: null).
     if (usos.length > 0) {
-      const user = await getCurrentUser();
       await registrarConsumoIA(usos, {
         clienteId: null,
-        usuarioId: user?.id ?? null,
-        usuarioNombre: user?.name ?? null,
+        usuarioId: usuario?.id ?? null,
+        usuarioNombre: usuario?.name ?? null,
         archivoNombre: archivo.name,
         nitDetectado: extr.cabecera.nit.valor,
       });
@@ -606,17 +723,29 @@ export async function leerBalance(
       return { ok: false, message: "No se leyó ninguna cuenta del archivo. Revisa las excepciones.", excepciones: extr.excepciones };
     }
 
-    // PASO 1 — staging crudo: lleva TODAS las filas leídas (incluidas padres,
-    // totales y descuadres) a `balance_importacion_staging`, sin descartar nada.
-    // El paso 2 (confirmación) las relee por `loteId`, promueve solo las de
-    // movimiento y purga el lote. `clienteId` va null (aún no se eligió cliente).
+    // Validación contable del BORRADOR: totales A/P/Patrimonio CALCULADOS del
+    // detalle (calcularBalance no necesita el plan estándar para las sumas: son por
+    // clase) contra los que TRAE el archivo (filas clase 1/2/3), + la ecuación
+    // A = P + Patrimonio + Resultado. Todo con margen ±$1000.
+    const calcBorrador = calcularBalance(extr.importReady, []);
+    // Total del archivo por clase = SUMA de todas las filas totalizadoras de esa
+    // clase (código "1"/"2"/"3"). En balances MULTI-SUCURSAL el ERP repite el total
+    // de ACTIVO/PASIVO/PATRIMONIO por sucursal; sumarlas da el consolidado, que es
+    // lo que el detalle (agregado por código entre sucursales) debe reflejar.
+    const totalFilaArchivo = (clase: string) => {
+      const filas = extr.filasCrudas.filter((f) => f.codigo === clase);
+      return filas.length > 0 ? filas.reduce((s, f) => s + f.saldoFinal, 0) : null;
+    };
+    const validacion = construirValidacionContable(calcBorrador, {
+      activo: totalFilaArchivo("1"),
+      pasivo: totalFilaArchivo("2"),
+      patrimonio: totalFilaArchivo("3"),
+    });
+
+    // PASO 1 — BORRADOR persistente: staging crudo (todas las filas, sin descartar)
+    // + encabezado de lote con la metadata para listarlo. Persiste hasta que se
+    // CARGA (promueve a oficial) o se DESCARTA — sin purga automática.
     const loteId = randomUUID();
-    // Purga best-effort de lotes huérfanos (previews que nunca se confirmaron).
-    try {
-      await prisma.balanceImportacionStaging.deleteMany({ where: { creadoEn: { lt: new Date(Date.now() - 24 * 60 * 60 * 1000) } } });
-    } catch {
-      /* best-effort: la limpieza no debe tumbar la lectura */
-    }
     const LOTE_STAGING = 1000;
     for (let i = 0; i < extr.filasCrudas.length; i += LOTE_STAGING) {
       await prisma.balanceImportacionStaging.createMany({
@@ -627,17 +756,18 @@ export async function leerBalance(
         })),
       });
     }
-
-    // Validación contable del BORRADOR: totales A/P/Patrimonio CALCULADOS del
-    // detalle (calcularBalance no necesita el plan estándar para las sumas: son por
-    // clase) contra los que TRAE el archivo (filas clase 1/2/3), + la ecuación
-    // A = P + Patrimonio + Resultado. Todo con margen ±$1000.
-    const calcBorrador = calcularBalance(extr.importReady, []);
-    const totalFilaArchivo = (clase: string) => extr.filasCrudas.find((f) => f.codigo === clase)?.saldoFinal ?? null;
-    const validacion = construirValidacionContable(calcBorrador, {
-      activo: totalFilaArchivo("1"),
-      pasivo: totalFilaArchivo("2"),
-      patrimonio: totalFilaArchivo("3"),
+    await prisma.balanceImportacionLote.create({
+      data: {
+        loteId, clienteId: null,
+        archivoNombre: archivo.name, archivoTam: tamArchivo(archivo.size),
+        nitDetectado: extr.cabecera.nit.valor,
+        periodoInicial: extr.cabecera.periodoInicial.valor, periodoFinal: extr.cabecera.periodoFinal.valor,
+        estandar: extr.cabecera.estandar, convencionCredito: extr.resumen.convencionCredito,
+        cuentasMovimiento: extr.resumen.cuentasMovimiento, filasLeidas: extr.resumen.filasLeidas, filasExcluidas: extr.resumen.filasExcluidas,
+        partidaDobleDiff: calcBorrador.diffMov, ecuacionDiff: calcBorrador.diffCuadre,
+        cuadrado: calcBorrador.balanced && calcBorrador.movimientosCuadran,
+        cargadoPor: usuario?.name ?? null, cargadoPorId: usuario?.id ?? null,
+      },
     });
 
     const sugerenciaBase: SugerenciaBalanceSinFirma = {
@@ -870,7 +1000,6 @@ export async function confirmarCargaBalance(
     return { ok: false, message: parsed.error.issues[0]?.message ?? "Datos inválidos." };
   }
   const { clientId, periodoInicio, periodoFin } = parsed.data;
-  const estandar = TIPO_BALANCE_CARGA;
 
   const scope = await authorizePermiso("balance:crear", { clientId });
   if (!scope.ok) return { ok: false, message: scope.message };
@@ -902,94 +1031,81 @@ export async function confirmarCargaBalance(
     return { ok: false, message: "No hay cuentas leídas válidas para cargar. Vuelve a leer el archivo." };
   }
 
-  // PASO 2 — análisis por cuentas sobre el STAGING del paso 1: relee las filas
-  // crudas del lote y promueve solo las de MOVIMIENTO (agregadas por código de
-  // cuenta). La firma HMAC ata el `loteId`, así que el lote es de esta lectura. Si
-  // el lote expiró/se purgó (>24h sin confirmar), cae al `importReady` firmado del
-  // payload (misma data) para no romper el cargue.
-  let importReadyFinal: CuentaCruda[];
+  // PASO 2 — promoción a oficial (relee el staging del lote, análisis por cuentas,
+  // persiste y purga). Núcleo compartido con `cargarBorrador`. La firma HMAC ata el
+  // `loteId`; el `importReady` firmado es el respaldo si el staging ya no está.
+  return await promoverStagingAOficial(
+    {
+      loteId: sug.loteId, clientId, periodoInicio, periodoFin, rolLabel: etiquetaRol(authz.role),
+      archivoNombre: sug.archivoNombre ?? "—", archivoTam: sug.archivoTam ?? "—",
+      nitDetectado: sug.nitDetectado, nitFuente: sug.nitFuente, convencionCredito: sug.convencionCredito,
+      filasLeidas: sug.filasLeidas, filasExcluidas: sug.filasExcluidas, filasDescuadre: sug.filasDescuadre,
+      cuentasMovimiento: sug.cuentasMovimiento ?? sug.cuentas, cuentas: sug.cuentas, cuentasAgrupadoras: sug.cuentasAgrupadoras ?? 0,
+      cuadreArchivo: sug.cuadre?.detectado ? { totalDebitos: sug.cuadre.totalDebitos, totalCreditos: sug.cuadre.totalCreditos } : null,
+      importReadyFallback: cuentasParsed.data,
+    },
+    "confirmarCargaBalance",
+  );
+}
+
+/**
+ * Carga (promueve a oficial) un BORRADOR persistido desde su página, eligiendo
+ * cliente y período. Relee el staging del lote por `loteId` (fuente de verdad) y
+ * reutiliza el mismo núcleo de promoción que el modal. No usa payload firmado: el
+ * `loteId` viene del encabezado persistido y la autorización protege la escritura.
+ */
+export async function cargarBorrador(_prev: ImportBalanceState, formData: FormData): Promise<ImportBalanceState> {
+  const authz = await authorizePermiso("balance:crear");
+  if (!authz.ok) return { ok: false, message: authz.message };
+
+  const parsed = ConfirmarBalanceSchema.safeParse({
+    clientId: formData.get("clientId"),
+    periodoInicio: formData.get("periodoInicio"),
+    periodoFin: formData.get("periodoFin"),
+  });
+  if (!parsed.success) return { ok: false, message: parsed.error.issues[0]?.message ?? "Datos inválidos." };
+  const { clientId, periodoInicio, periodoFin } = parsed.data;
+  const loteId = String(formData.get("loteId") ?? "").trim();
+  if (!loteId) return { ok: false, message: "Borrador inválido. Vuelve a la lista de borradores." };
+
+  const scope = await authorizePermiso("balance:crear", { clientId });
+  if (!scope.ok) return { ok: false, message: scope.message };
+
+  // El encabezado (si existe) enriquece la metadata; el staging es lo que se
+  // promueve. Un borrador «huérfano» (sin encabezado) también se puede cargar.
+  const lote = await prisma.balanceImportacionLote.findUnique({ where: { loteId } });
+  const movEnStaging = await prisma.balanceImportacionStaging.count({ where: { loteId, tipoFila: "movimiento" } });
+  if (!lote && movEnStaging === 0) return { ok: false, message: "El borrador ya no existe (fue cargado o descartado)." };
+
+  return await promoverStagingAOficial(
+    {
+      loteId, clientId, periodoInicio, periodoFin, rolLabel: etiquetaRol(authz.role),
+      archivoNombre: lote?.archivoNombre ?? "—", archivoTam: lote?.archivoTam ?? "—",
+      nitDetectado: lote?.nitDetectado ?? null, nitFuente: lote?.nitDetectado ? "FUENTE" : "NINGUNO",
+      convencionCredito: lote?.convencionCredito ?? "firmado",
+      filasLeidas: lote?.filasLeidas ?? 0, filasExcluidas: lote?.filasExcluidas ?? 0, filasDescuadre: 0,
+      cuentasMovimiento: lote?.cuentasMovimiento ?? movEnStaging, cuentas: lote?.cuentasMovimiento ?? movEnStaging, cuentasAgrupadoras: 0,
+      cuadreArchivo: null,
+      importReadyFallback: [],
+    },
+    "cargarBorrador",
+  );
+}
+
+/** Descarta (elimina) un borrador: borra su staging + encabezado. */
+export async function descartarBorrador(loteId: string): Promise<ActionState> {
+  const authz = await authorizePermiso("balance:crear");
+  if (!authz.ok) return { ok: false, message: authz.message };
+  const id = String(loteId ?? "").trim();
+  if (!id) return { ok: false, message: "Borrador inválido." };
   try {
-    const stagedMovimiento = await prisma.balanceImportacionStaging.findMany({
-      where: { loteId: sug.loteId, tipoFila: "movimiento" },
-      orderBy: { filaNum: "asc" },
-      select: { codigo: true, nombre: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
-    });
-    importReadyFinal = stagedMovimiento.length > 0 ? agregarStagingPorCuenta(stagedMovimiento) : cuentasParsed.data;
-  } catch {
-    importReadyFinal = cuentasParsed.data; // si el staging falla, no se bloquea el cargue
-  }
-  if (importReadyFinal.length === 0) importReadyFinal = cuentasParsed.data;
-
-  // Cuadre contra el gran total del archivo (TOTALES), RE-EVALUADO en el servidor:
-  // las sumas se recomputan desde las cuentas ya validadas (no se confía en el
-  // veredicto del payload; solo los totales del archivo viajan en él). Ya NO
-  // bloquea: si no cuadra, el balance se carga igual y queda marcado como
-  // descuadrado (novedad/alerta) en `persistirCargue`. Si no hay gran total, no
-  // aplica (queda la partida doble interna).
-  let cuadreTotales: CuadreTotales | null = null;
-  if (sug.cuadre?.detectado) {
-    // Σ firmada (no `|x|`): las reversas (débito neto negativo) restan del lado
-    // correcto y la partida doble cuadra igual que en el archivo origen.
-    const sumaDebitos = importReadyFinal.reduce((s, r) => s + (r.debitos ?? 0), 0);
-    const sumaCreditos = importReadyFinal.reduce((s, r) => s + (r.creditos ?? 0), 0);
-    cuadreTotales = construirCuadre({ detectado: true, debitos: sug.cuadre.totalDebitos, creditos: sug.cuadre.totalCreditos }, sumaDebitos, sumaCreditos);
-  }
-
-  try {
-    const cliente = await prisma.client.findUnique({
-      where: { id: clientId },
-      select: { name: true, nit: true, erpId: true },
-    });
-    if (!cliente) return { ok: false, message: "El cliente seleccionado ya no existe." };
-    if (cliente.erpId == null) {
-      return { ok: false, message: "El cliente no tiene un ERP asignado. Asígnalo en Configuración › Clientes antes de cargar el balance." };
-    }
-
-    const period = etiquetaPeriodo(periodoInicio, periodoFin);
-    const periodos = { inicial: periodoInicio, final: periodoFin };
-    const cuentasEstandar = await getCuentasEstandar();
+    await prisma.balanceImportacionStaging.deleteMany({ where: { loteId: id } });
+    await prisma.balanceImportacionLote.deleteMany({ where: { loteId: id } });
     const user = await getCurrentUser();
-
-    const { id, version, calc } = await persistirCargue({
-      clientId, clienteName: cliente.name, clienteNit: cliente.nit,
-      period, periodos, importReady: importReadyFinal, cuentasEstandar,
-      archivoNombre: sug.archivoNombre ?? "—",
-      archivoTam: sug.archivoTam ?? "—",
-      uploadedBy: user?.name ?? "—", uploadedById: user?.id ?? null, rolLabel: etiquetaRol(authz.role),
-      cuadreTotales,
-      meta: {
-        estandar, convencionCredito: sug.convencionCredito,
-        filasLeidas: sug.filasLeidas, filasExcluidas: sug.filasExcluidas, filasDescuadre: sug.filasDescuadre,
-      },
-    });
-
-    // Promovido con éxito → PURGA el lote de staging (best-effort: si falla, la
-    // limpieza de huérfanos >24h en `leerBalance` lo recoge).
-    try {
-      await prisma.balanceImportacionStaging.deleteMany({ where: { loteId: sug.loteId } });
-    } catch {
-      /* best-effort */
-    }
-
-    const auditoria: ResumenAuditoria = {
-      filasLeidas: sug.filasLeidas, filasExcluidas: sug.filasExcluidas, filasImportables: sug.cuentas, filasDescuadre: sug.filasDescuadre,
-      cuentasMovimiento: sug.cuentasMovimiento ?? sug.cuentas, cuentasAgrupadoras: sug.cuentasAgrupadoras ?? 0,
-      nit: { valor: sug.nitDetectado, fuente: sug.nitFuente },
-      periodoInicial: { valor: periodoInicio, fuente: "FUENTE" },
-      periodoFinal: { valor: periodoFin, fuente: "FUENTE" },
-      estandar,
-      convencionCredito: (sug.convencionCredito === "magnitud" ? "magnitud" : "firmado"),
-    };
-
-    return {
-      ok: true,
-      resumen: {
-        id, cliente: cliente.name, period, version,
-        cuentas: calc.totalRows, mapped: calc.mapped, unmapped: calc.unmapped, balanced: calc.balanced,
-        auditoria,
-      },
-    };
+    await logAudit({ user: user?.name ?? "—", action: "DESCARTÓ BORRADOR de balance", entity: id, detail: "" });
+    revalidatePath("/balance/borradores");
+    return { ok: true, message: "Borrador descartado." };
   } catch (e) {
-    return { ok: false, message: mensajeErrorBD("confirmarCargaBalance", e) };
+    return { ok: false, message: mensajeErrorBD("descartarBorrador", e) };
   }
 }
