@@ -1192,3 +1192,36 @@ export async function reclasificarFilaBorrador(loteId: string, codigo: string, t
     return { ok: false, message: mensajeErrorBD("reclasificarFilaBorrador", e) };
   }
 }
+
+/**
+ * Corrige "lados invertidos": intercambia débito ↔ crédito de una cuenta del
+ * borrador. Solo toca las filas de ese código cuyo control HOY no cuadra con el
+ * saldo pero SÍ cuadra al intercambiar (así no daña sucursales correctas). El
+ * saldo NO se toca (ya es el correcto; la ecuación cuadra).
+ */
+export async function invertirLadosFilaBorrador(loteId: string, codigo: string): Promise<ActionState> {
+  const authz = await authorizePermiso("balance:crear");
+  if (!authz.ok) return { ok: false, message: authz.message };
+  const id = String(loteId ?? "").trim();
+  const cod = String(codigo ?? "").trim();
+  if (!id || !/^\d+$/.test(cod)) return { ok: false, message: "Cuenta inválida." };
+  try {
+    const rows = await prisma.balanceImportacionStaging.findMany({
+      where: { loteId: id, codigo: cod },
+      select: { id: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
+    });
+    const controlOk = (si: number, db: number, cr: number, s: number) => Math.abs(si + db - cr - s) <= 1;
+    const aInvertir = rows.filter((r) => {
+      const si = Number(r.saldoInicial), db = Number(r.debitos), cr = Number(r.creditos), s = Number(r.saldoFinal);
+      return !controlOk(si, db, cr, s) && controlOk(si, cr, db, s);
+    });
+    if (aInvertir.length === 0) return { ok: false, message: "Esa cuenta no tiene filas con débito/crédito invertidos." };
+    await prisma.$transaction(aInvertir.map((r) => prisma.balanceImportacionStaging.update({ where: { id: r.id }, data: { debitos: r.creditos, creditos: r.debitos } })));
+    const user = await getCurrentUser();
+    await logAudit({ user: user?.name ?? "—", action: "INVIRTIÓ débito/crédito en balance borrador", entity: id, detail: `${cod} (${aInvertir.length} fila/s)` });
+    revalidatePath(`/balance/borradores/${id}`);
+    return { ok: true, message: `Débito/crédito corregidos en ${cod} (${aInvertir.length} fila${aInvertir.length === 1 ? "" : "s"}).` };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("invertirLadosFilaBorrador", e) };
+  }
+}

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
 import { Card, Chip } from "@/components/ui";
 import { fmt } from "@/lib/format";
-import { cargarBorrador, descartarBorrador, diagnosticarBorradorIA, reclasificarFilaBorrador } from "@/app/actions/balance";
+import { cargarBorrador, descartarBorrador, diagnosticarBorradorIA, reclasificarFilaBorrador, invertirLadosFilaBorrador } from "@/app/actions/balance";
 import type { ImportBalanceState } from "@/lib/import/balance";
 import type { NodoBorrador } from "@/lib/balance/borrador";
 import type { ValidacionContable } from "@/lib/balance/calcular";
@@ -294,6 +294,17 @@ function ArbolTabla({ arbol, loteId, filtro }: { arbol: NodoBorrador[]; loteId: 
       setPendiente(null);
     });
   };
+  const invertirLados = (codigo: string) => {
+    setPendiente(codigo);
+    startReclasificar(async () => {
+      const r = await invertirLadosFilaBorrador(loteId, codigo);
+      if (r.ok) { notifySuccess(r.message ?? "Débito/crédito corregidos."); router.refresh(); }
+      else notifyError(r.message ?? "No se pudo corregir.");
+      setPendiente(null);
+    });
+  };
+  // Control contable: saldo ant + débito − crédito = saldo actual (±$1).
+  const controlOk = (si: number, db: number, cr: number, s: number) => Math.abs(si + db - cr - s) <= 1;
   // Expande por defecto los niveles altos y TODA rama con descuadre (para verlo).
   const expandidosInicial = useMemo(() => {
     const s = new Set<number>();
@@ -333,6 +344,8 @@ function ArbolTabla({ arbol, loteId, filtro }: { arbol: NodoBorrador[]; loteId: 
     const open = filtroActivo ? true : abiertos.has(n.filaNum); // filtrado → todo expandido
     const esMov = n.tipoFila === "movimiento";
     const descuadrado = n.descuadre != null && n.descuadre !== 0;
+    // Lados invertidos: el control no cuadra, pero SÍ al intercambiar débito↔crédito.
+    const ladosInv = esMov && !controlOk(n.saldoInicial, n.debitos, n.creditos, n.saldoFinal) && controlOk(n.saldoInicial, n.creditos, n.debitos, n.saldoFinal);
     filas.push(
       <tr key={n.filaNum} className={`border-t border-ink-100 ${esMatch ? "bg-blue-50 ring-1 ring-inset ring-blue-200" : esMov ? "hover:bg-ink-50/60" : "bg-ink-50/40"}`}>
         <td className="px-2 py-1 align-top">
@@ -375,6 +388,17 @@ function ArbolTabla({ arbol, loteId, filtro }: { arbol: NodoBorrador[]; loteId: 
                 className="rounded border border-ink-200 px-1.5 py-0.5 text-[10px] font-medium text-ink-500 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:opacity-50"
               >
                 {pendiente === n.codigo ? "…" : esMov ? "⇄ Agrupadora" : "⇄ Movimiento"}
+              </button>
+            )}
+            {ladosInv && (
+              <button
+                type="button"
+                onClick={() => invertirLados(n.codigo)}
+                disabled={reclasificando}
+                title={`Débito y crédito están invertidos (déb ${fmt(n.debitos)} / créd ${fmt(n.creditos)}): el control no cuadra con el saldo, pero sí al intercambiarlos. Corrige el lado.`}
+                className="rounded border border-warn-300 bg-warn-50 px-1.5 py-0.5 text-[10px] font-semibold text-warn-700 hover:bg-warn-100 disabled:opacity-50"
+              >
+                {pendiente === n.codigo ? "…" : "⇄ Débito/Crédito"}
               </button>
             )}
           </div>

@@ -47,6 +47,19 @@ describe("diagnosticarBorrador", () => {
     expect(n?.candidato?.codigo).toBe("139005"); // misma magnitud, otra rama
   });
 
+  it("detecta lados invertidos: el control falla pero cuadra al intercambiar débito↔crédito", () => {
+    // si 100 + déb 0 − créd 30 = 70 ≠ 130; al intercambiar: 100 + 30 − 0 = 130 ✓
+    const h = diagnosticarBorrador(vc(), [nodo("120505", "DIF CAMBIO", 130, { tipoFila: "movimiento", saldoInicial: 100, creditos: 30 })], PD_OK);
+    const li = h.find((x) => x.tipo === "lados_invertidos");
+    expect(li?.nodo?.codigo).toBe("120505");
+    expect(li?.monto).toBe(60); // 2 × (créd 30 − déb 0)
+  });
+
+  it("no marca lados invertidos cuando el control ya cuadra", () => {
+    const h = diagnosticarBorrador(vc(), [nodo("110505", "CAJA", 130, { tipoFila: "movimiento", saldoInicial: 100, debitos: 30 })], PD_OK);
+    expect(h.some((x) => x.tipo === "lados_invertidos")).toBe(false);
+  });
+
   it("balance limpio → sin hallazgos", () => {
     expect(diagnosticarBorrador(vc(), [nodo("1", "ACTIVO", 100, { descuadre: 0 })], PD_OK)).toEqual([]);
   });

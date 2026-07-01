@@ -12,7 +12,7 @@ const TOL = 1000; // mismo margen ±$1000 del cuadre
 
 export type CuentaRef = { codigo: string; nombre: string; saldoFinal: number };
 export type Hallazgo = {
-  tipo: "partida_doble" | "ecuacion" | "clase" | "nodo";
+  tipo: "partida_doble" | "ecuacion" | "clase" | "nodo" | "lados_invertidos";
   severidad: "alta" | "media";
   titulo: string;
   detalle: string;
@@ -43,6 +43,27 @@ export function diagnosticarBorrador(v: ValidacionContable, arbol: NodoBorrador[
   const todos = aplanar(arbol);
   const hojas = todos.filter((n) => n.tipoFila === "movimiento");
   const ref = (n: NodoBorrador): CuentaRef => ({ codigo: n.codigo, nombre: n.nombre, saldoFinal: n.saldoFinal });
+  // El control por cuenta (si + déb − créd = saldo) es una identidad EXACTA:
+  // tolerancia de $1 (redondeo), no el margen de cuadre global.
+  const controlOk = (si: number, db: number, cr: number, saldo: number) => Math.abs(si + db - cr - saldo) <= 1;
+
+  // 0. LADOS INVERTIDOS (débito↔crédito): movimiento cuyo control NO cuadra con el
+  //    saldo pero SÍ al intercambiar débito y crédito. Es la causa exacta —y
+  //    fácilmente corregible— de muchos descuadres de partida doble; se reporta
+  //    primero. Cada uno desbalancea la partida doble en 2×(créd − déb).
+  const invertidos = hojas.filter(
+    (n) => !controlOk(n.saldoInicial, n.debitos, n.creditos, n.saldoFinal) && controlOk(n.saldoInicial, n.creditos, n.debitos, n.saldoFinal),
+  );
+  for (const n of invertidos.slice(0, 12)) {
+    hallazgos.push({
+      tipo: "lados_invertidos",
+      severidad: "alta",
+      nodo: ref(n),
+      monto: 2 * (n.creditos - n.debitos),
+      titulo: `${n.codigo} «${n.nombre}»: débito y crédito invertidos`,
+      detalle: `El movimiento no cuadra con su saldo (${fmt(n.saldoFinal)}) pero SÍ al intercambiar débito ↔ crédito (déb ${fmt(n.debitos)} / créd ${fmt(n.creditos)}). Corrige el lado: hoy descuadra la partida doble en ${fmt(2 * (n.creditos - n.debitos))}.`,
+    });
+  }
 
   // 1. Partida doble (débitos = créditos): el invariante más fuerte del balance.
   if (!pd.cuadra) {
