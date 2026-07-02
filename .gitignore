@@ -44,6 +44,9 @@ next-env.d.ts
 /src/generated/prisma
 .smoke-*.png
 
+# imágenes pegadas desde el portapapeles (no versionar)
+clipboard-*.png
+
 # hojas de cálculo, scripts Python y texto
 *.xlsx
 *.xls
