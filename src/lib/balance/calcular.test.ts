@@ -6,6 +6,7 @@ import {
   aplanarBreakdown,
   compararBalances,
   consolidarPorCodigo,
+  conForzarHoja,
   quitarPadresRedundantes,
   descomponerCuenta,
   aFilasDetalle,
@@ -508,5 +509,27 @@ describe("aFilasDetalle + reconstruirBalance (ida y vuelta)", () => {
     const filas = aFilasDetalle(calc.breakdown);
     const caja = filas.find((f) => f.cuenta8 === "110505");
     expect(caja).toMatchObject({ cuenta6Russell: "110505", saldoInicial: 800, saldoFinal: 1000, coincidencia: 100 });
+  });
+});
+
+describe("conForzarHoja — imputable de nivel alto que es prefijo de sus hermanas", () => {
+  it("una cuenta de 4 díg marcada NO se descarta por ser prefijo (caso CAJA GENERAL 1105)", () => {
+    const cuentas = conForzarHoja([
+      { code: "1105", name: "CAJA GENERAL", prevBalance: 0, balance: 13282874 },
+      { code: "110505", name: "BASE", prevBalance: 0, balance: 200000 },
+      { code: "110510", name: "CAJAS", prevBalance: 0, balance: 0 },
+    ]);
+    expect(cuentas.find((c) => c.code === "1105")?.forzarHoja).toBe(true);
+    // Activo = 13.282.874 (1105) + 200.000 (110505) + 0 → 1105 NO se descarta.
+    expect(calcularBalance(cuentas, []).sums.activo).toBe(13482874);
+  });
+
+  it("SIN el flag, el filtro por prefijo descarta el padre (comportamiento por defecto)", () => {
+    const r = calcularBalance([
+      { code: "110505", name: "Caja padre", prevBalance: 0, balance: 1000 },
+      { code: "11050501", name: "Aux A", prevBalance: 0, balance: 600 },
+      { code: "11050502", name: "Aux B", prevBalance: 0, balance: 400 },
+    ], []);
+    expect(r.sums.activo).toBe(1000); // 600 + 400; el padre 110505 se descarta (no dobla a 2000)
   });
 });

@@ -15,7 +15,11 @@ import { fmt } from "@/lib/format";
 // `debitos`/`creditos` son los movimientos del período (normalmente magnitud
 // positiva, pero firmados si el ERP reporta reversas como neto negativo);
 // opcionales porque algunos balances solo traen saldos.
-export type CuentaCruda = { code: string; name: string; prevBalance: number; balance: number; debitos?: number; creditos?: number };
+// `forzarHoja`: la cuenta es imputable AUNQUE su código sea prefijo de otra del
+// conjunto (el caller ya la clasificó como movimiento — p. ej. el borrador marcó
+// una cuenta de 4 díg como movimiento y sus "hijos" por código son hermanos). Evita
+// que el filtro de hojas por prefijo de `calcularBalance` la descarte.
+export type CuentaCruda = { code: string; name: string; prevBalance: number; balance: number; debitos?: number; creditos?: number; forzarHoja?: boolean };
 // El plan estándar puede llegar «rico» (con descripciones) para el segundo
 // barrido por coincidencia; los campos descriptivos son opcionales.
 export type CuentaEstandar = {
@@ -347,8 +351,26 @@ export function consolidarPorCodigo(cuentas: CuentaCruda[]): CuentaCruda[] {
     prev.balance += c.balance;
     if (c.debitos != null) prev.debitos = (prev.debitos ?? 0) + c.debitos;
     if (c.creditos != null) prev.creditos = (prev.creditos ?? 0) + c.creditos;
+    if (c.forzarHoja) prev.forzarHoja = true;
   }
   return [...porCodigo.values()];
+}
+
+/**
+ * Marca como HOJA FORZADA las cuentas cuyo código es prefijo ESTRICTO de otra del
+ * conjunto. Se aplica a un conjunto de imputables YA clasificado (el borrador/la
+ * extracción): así `calcularBalance` no descarta por su filtro de prefijo una
+ * cuenta que el ERP codificó a un nivel alto pero es realmente imputable (p. ej.
+ * `1105 CAJA GENERAL` junto a `110505`/`110510`, que son sus hermanos, no sus
+ * hijos). NO cambia montos; solo agrega el flag.
+ */
+export function conForzarHoja(cuentas: CuentaCruda[]): CuentaCruda[] {
+  const codes = cuentas.map((c) => c.code);
+  return cuentas.map((c) =>
+    c.code.length > 0 && codes.some((o) => o.length > c.code.length && o.startsWith(c.code))
+      ? { ...c, forzarHoja: true }
+      : c,
+  );
 }
 
 /**
@@ -431,8 +453,9 @@ export function calcularBalance(
     for (let i = 1; i < code.length; i++) ancestros.add(code.slice(0, i));
   }
   // Hojas por prefijo + guard para jerarquías de código hermano (padre/hijo con
-  // mismo saldo) que el prefijo no detecta (evita el doble conteo del encabezado).
-  const hojas = quitarPadresRedundantes(consolidadas.filter((c) => !ancestros.has(c.code)));
+  // mismo saldo) que el prefijo no detecta. `forzarHoja` respeta las cuentas que el
+  // caller ya clasificó como imputables aunque su código sea prefijo de otra.
+  const hojas = quitarPadresRedundantes(consolidadas.filter((c) => c.forzarHoja || !ancestros.has(c.code)));
 
   // 2) Mapeo en cascada: config guardada del cliente → exacto → descripción →
   //    override IA. La config (por cuenta de 6 díg.) manda sobre todo lo demás.

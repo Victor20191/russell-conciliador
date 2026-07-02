@@ -23,6 +23,7 @@ import {
   compararBalances,
   tokenizarPlan,
   limpiarCodigo,
+  conForzarHoja,
   GRUPOS_PUC,
   type CuentaCruda,
   type CuentaEstandar,
@@ -225,6 +226,9 @@ async function promoverStagingAOficial(p: MetaPromocion, contexto: string): Prom
   }
   if (importReadyFinal.length === 0) importReadyFinal = p.importReadyFallback;
   if (importReadyFinal.length === 0) return { ok: false, message: "El borrador ya no tiene cuentas para cargar. Vuelve a leer el archivo." };
+  // Respeta como hojas los imputables de nivel alto (código repetido/desacople) que
+  // el filtro por prefijo de `calcularBalance`/`persistirCargue` descartaría.
+  importReadyFinal = conForzarHoja(importReadyFinal);
 
   // Cuadre contra la fila TOTALES del archivo (solo el flujo del modal lo trae). Σ
   // firmada: las reversas restan del lado correcto. No bloquea; marca descuadre.

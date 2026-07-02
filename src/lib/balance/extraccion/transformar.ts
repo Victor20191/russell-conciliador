@@ -5,6 +5,7 @@
 // ecuación de control fila por fila. Es puro y testeable (`transformar.test.ts`).
 import { CUADRE_NO_APLICA } from "./esquema";
 import type { CuadreTotales, Estandar, Excepcion, ExtraccionDirecta, MappingSpec, Origen, ResumenAuditoria } from "./esquema";
+import { conForzarHoja } from "@/lib/balance/calcular";
 import type { CuentaCruda } from "@/lib/balance/calcular";
 import type { CeldaCruda, GridHoja } from "./ingesta";
 
@@ -441,7 +442,9 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
   const codigosAgrupadora = new Set(filasCrudas.filter((f) => f.tipoFila === "agrupadora" && !codigosMovimiento.has(f.codigo)).map((f) => f.codigo));
 
   return {
-    importReady,
+    // Respeta como hojas los imputables de nivel alto ya clasificados (código
+    // repetido/desacople) que el filtro por prefijo de `calcularBalance` descartaría.
+    importReady: conForzarHoja(importReady),
     filasCrudas,
     excepciones,
     resumen: {
@@ -531,7 +534,9 @@ export function validarDirecta(extr: ExtraccionDirecta, params: ParamsExtraccion
   }
 
   return {
-    importReady,
+    // Respeta como hojas los imputables de nivel alto ya clasificados (código
+    // repetido/desacople) que el filtro por prefijo de `calcularBalance` descartaría.
+    importReady: conForzarHoja(importReady),
     filasCrudas,
     excepciones,
     resumen: {

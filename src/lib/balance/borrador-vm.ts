@@ -1,7 +1,7 @@
 // View-model del borrador a partir de las filas del staging. Compartido por la
 // página de detalle (RSC) y la acción de diagnóstico asistido, para que el árbol,
 // las validaciones y los hallazgos se calculen EXACTAMENTE igual en ambos lados.
-import { calcularBalance, construirValidacionContable, type CuentaCruda, type ValidacionContable } from "./calcular";
+import { calcularBalance, construirValidacionContable, conForzarHoja, type CuentaCruda, type ValidacionContable } from "./calcular";
 import { marcarSubtotalesDuplicados, reclasificarRepetidos } from "./extraccion/transformar";
 import { construirArbolBorrador, type FilaBorrador, type NodoBorrador } from "./borrador";
 import { diagnosticarBorrador, type Hallazgo, type PartidaDobleInfo } from "./diagnostico";
@@ -32,9 +32,11 @@ export function construirVistaBorrador(filas: FilaBorrador[]): VistaBorrador {
 
   const movimiento = filas.filter((f) => f.tipoFila === "movimiento");
   const dup = marcarSubtotalesDuplicados(movimiento);
-  const importReady: CuentaCruda[] = movimiento
-    .filter((f) => !dup.has(f))
-    .map((f) => ({ code: f.codigo, name: f.nombre, prevBalance: f.saldoInicial, balance: f.saldoFinal, debitos: f.debitos, creditos: f.creditos }));
+  const importReady: CuentaCruda[] = conForzarHoja(
+    movimiento
+      .filter((f) => !dup.has(f))
+      .map((f) => ({ code: f.codigo, name: f.nombre, prevBalance: f.saldoInicial, balance: f.saldoFinal, debitos: f.debitos, creditos: f.creditos })),
+  );
   const calc = calcularBalance(importReady, []);
 
   const totalArchivo = (clase: string) => {
