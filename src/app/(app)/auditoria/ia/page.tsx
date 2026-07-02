@@ -20,6 +20,13 @@ const p2 = (n: number) => String(n).padStart(2, "0");
 const fmtTS = (d: Date) =>
   `${p2(d.getDate())}/${MESES[d.getMonth()]}/${d.getFullYear()} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
 const num = (v: unknown) => Number(v ?? 0);
+const normalizarNit = (nit: string | null | undefined) => {
+  const limpio = String(nit ?? "").replace(/\D/g, "");
+  return limpio || null;
+};
+
+type ClienteInfo = { key: string; label: string };
+type ClienteResumen = ClienteInfo & { llamadas: number; costoCop: number; costoUsd: number };
 
 export default async function ConsumoIAPage() {
   // SOLO el Superadministrador (permiso auditoria:ia). Redirige si no cumple.
@@ -29,7 +36,7 @@ export default async function ConsumoIAPage() {
   const inicioMes = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
   const whereMes = { creadoEn: { gte: inicioMes } };
 
-  const [resumenMes, escaneosMes, porTipo, porCliente, totalHist, detalle, trm] = await Promise.all([
+  const [resumenMes, escaneosMes, porTipo, consumoMesCliente, totalHist, detalle, trm] = await Promise.all([
     prisma.consumoIA.aggregate({
       where: whereMes,
       _sum: {
@@ -45,42 +52,57 @@ export default async function ConsumoIAPage() {
       _sum: { costoCop: true },
       _count: true,
     }),
-    prisma.consumoIA.groupBy({
-      by: ["clienteId"],
+    prisma.consumoIA.findMany({
       where: whereMes,
-      _sum: { costoCop: true },
-      _count: true,
-      orderBy: { _sum: { costoCop: "desc" } },
-      take: 12,
+      select: { clienteId: true, nitDetectado: true, archivoNombre: true, costoCop: true, costoUsd: true },
     }),
     prisma.consumoIA.aggregate({ _sum: { costoCop: true }, _count: true }),
     prisma.consumoIA.findMany({
       orderBy: { creadoEn: "desc" },
       take: 500,
       select: {
-        id: true, creadoEn: true, tipoOperacion: true, modelo: true, clienteId: true,
+        id: true, creadoEn: true, tipoOperacion: true, modelo: true, clienteId: true, nitDetectado: true,
         usuarioNombre: true, archivoNombre: true,
         tokensEntrada: true, tokensSalida: true, tokensCacheCreacion: true, tokensCacheLectura: true,
-        costoCop: true,
+        costoUsd: true, trm: true, costoCop: true,
       },
     }),
     getTRM(),
   ]);
 
-  // Resolver nombres de cliente (clienteId es FK suave: no hay join).
-  const idsClientes = [
-    ...new Set(
-      [...porCliente.map((c) => c.clienteId), ...detalle.map((d) => d.clienteId)].filter(
-        (id): id is number => typeof id === "number",
-      ),
-    ),
-  ];
-  const clientes = idsClientes.length
-    ? await prisma.client.findMany({ where: { id: { in: idsClientes } }, select: { id: true, name: true } })
-    : [];
+  // Resolver nombres de cliente. clienteId es FK suave; para extracciones previas
+  // a la confirmación se usa el NIT detectado o, si falta, el archivo cuando sus
+  // llamadas de mapeo apuntan a un único cliente.
+  const clientes = await prisma.client.findMany({ select: { id: true, name: true, nit: true } });
   const nombreCliente = new Map(clientes.map((c) => [c.id, c.name]));
-  const etiquetaCliente = (id: number | null) =>
-    id == null ? "— (sin cliente)" : nombreCliente.get(id) ?? `Cliente #${id}`;
+  const clientePorNit = new Map(
+    clientes.flatMap((c) => {
+      const nit = normalizarNit(c.nit);
+      return nit ? [[nit, { id: c.id, name: c.name }] as const] : [];
+    }),
+  );
+  const candidatosArchivo = new Map<string, Set<number>>();
+  for (const c of [...consumoMesCliente, ...detalle]) {
+    if (c.clienteId == null || !c.archivoNombre) continue;
+    const set = candidatosArchivo.get(c.archivoNombre) ?? new Set<number>();
+    set.add(c.clienteId);
+    candidatosArchivo.set(c.archivoNombre, set);
+  }
+  const clientePorArchivo = new Map<string, { id: number; name: string }>();
+  for (const [archivo, ids] of candidatosArchivo) {
+    if (ids.size !== 1) continue;
+    const id = [...ids][0];
+    clientePorArchivo.set(archivo, { id, name: nombreCliente.get(id) ?? `Cliente #${id}` });
+  }
+  const clienteInfo = (id: number | null, nitDetectado?: string | null, archivoNombre?: string | null): ClienteInfo => {
+    if (id != null) return { key: `id:${id}`, label: nombreCliente.get(id) ?? `Cliente #${id}` };
+    const nit = normalizarNit(nitDetectado);
+    const porNit = nit ? clientePorNit.get(nit) : null;
+    if (porNit) return { key: `id:${porNit.id}`, label: porNit.name };
+    const porArchivo = archivoNombre ? clientePorArchivo.get(archivoNombre) : null;
+    if (porArchivo) return { key: `id:${porArchivo.id}`, label: porArchivo.name };
+    return { key: "sin-cliente", label: "— (sin cliente)" };
+  };
 
   const costoMes = num(resumenMes._sum.costoCop);
   const costoUsdMes = num(resumenMes._sum.costoUsd);
@@ -93,17 +115,29 @@ export default async function ConsumoIAPage() {
 
   const mesLabel = `${MESES_LARGOS[ahora.getMonth()]} ${ahora.getFullYear()}`;
   const maxTipo = Math.max(1, ...porTipo.map((t) => num(t._sum.costoCop)));
-  const maxCliente = Math.max(1, ...porCliente.map((c) => num(c._sum.costoCop)));
+  const resumenClienteMap = new Map<string, ClienteResumen>();
+  for (const c of consumoMesCliente) {
+    const info = clienteInfo(c.clienteId, c.nitDetectado, c.archivoNombre);
+    const actual = resumenClienteMap.get(info.key) ?? { ...info, llamadas: 0, costoCop: 0, costoUsd: 0 };
+    actual.llamadas += 1;
+    actual.costoCop += num(c.costoCop);
+    actual.costoUsd += num(c.costoUsd);
+    resumenClienteMap.set(info.key, actual);
+  }
+  const porCliente = [...resumenClienteMap.values()].sort((a, b) => b.costoCop - a.costoCop).slice(0, 12);
+  const maxCliente = Math.max(1, ...porCliente.map((c) => c.costoCop));
 
   const rows: ConsumoRow[] = detalle.map((d) => ({
     id: d.id,
     ts: fmtTS(d.creadoEn),
     tipo: tipoLabel(d.tipoOperacion),
     modelo: d.modelo,
-    cliente: etiquetaCliente(d.clienteId),
+    cliente: clienteInfo(d.clienteId, d.nitDetectado, d.archivoNombre).label,
     usuario: d.usuarioNombre,
     archivo: d.archivoNombre,
     tokens: num(d.tokensEntrada) + num(d.tokensSalida) + num(d.tokensCacheCreacion) + num(d.tokensCacheLectura),
+    costoUsd: num(d.costoUsd),
+    trm: num(d.trm),
     costoCop: num(d.costoCop),
   }));
 
@@ -162,13 +196,13 @@ export default async function ConsumoIAPage() {
           ) : (
             <ul className="space-y-2.5">
               {porCliente.map((c) => {
-                const costo = num(c._sum.costoCop);
+                const costo = c.costoCop;
                 return (
-                  <li key={String(c.clienteId)}>
+                  <li key={c.key}>
                     <div className="mb-1 flex items-baseline justify-between gap-3">
                       <span className="min-w-0 truncate text-[12.5px] text-ink-800">
-                        {etiquetaCliente(c.clienteId)}
-                        <span className="ml-1.5 text-[11px] text-ink-400">{fmtNum(c._count)} llamada(s)</span>
+                        {c.label}
+                        <span className="ml-1.5 text-[11px] text-ink-400">{fmtNum(c.llamadas)} llamada(s) · US$ {c.costoUsd.toFixed(4)}</span>
                       </span>
                       <span className="shrink-0 font-mono text-[12px] font-semibold text-ink-700">{fmt(Math.round(costo))}</span>
                     </div>
