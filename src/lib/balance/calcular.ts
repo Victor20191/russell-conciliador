@@ -925,42 +925,6 @@ export function agruparJerarquia(
     });
 }
 
-// ---- Estado de resultado derivado (clases 4/5/6/7) ----
-export type LineaEstadoResultado = { concept: string; current: number; prior: number; budget: number; bold: boolean; sep: boolean };
-
-/**
- * Construye un estado de resultado básico a partir de los agregados del balance.
- * `prior`/`budget` quedan en 0 (no hay histórico ni presupuesto en el modelo).
- * Útil para el período corriente; sustituye al antiguo JSON `incomeStatement`.
- */
-export function construirEstadoResultado(r: ResultadoBalance): LineaEstadoResultado[] {
-  const magnitud = (code: string) => {
-    const g = r.breakdown.find((x) => x.code === code);
-    return g ? Math.abs(g.balance) : 0;
-  };
-  const lineas: LineaEstadoResultado[] = [];
-  const push = (concept: string, current: number, opts: { bold?: boolean; sep?: boolean } = {}) =>
-    lineas.push({ concept, current, prior: 0, budget: 0, bold: opts.bold ?? false, sep: opts.sep ?? false });
-
-  const ingrNoOp = magnitud("42");
-  push("Ingresos operacionales", magnitud("41"));
-  if (ingrNoOp) push("Ingresos no operacionales", ingrNoOp);
-  push("Total ingresos", r.sums.ingresos, { bold: true });
-  push("Costo de ventas", r.sums.costos, { sep: true });
-  push("Utilidad bruta", r.sums.ingresos - r.sums.costos, { bold: true });
-  const gAdmin = magnitud("51");
-  const gVentas = magnitud("52");
-  push("Gastos de administración", gAdmin);
-  if (gVentas) push("Gastos de ventas", gVentas);
-  push("Utilidad operacional", r.sums.ingresos - r.sums.costos - gAdmin - gVentas, { bold: true });
-  const gNoOp = magnitud("53");
-  const impuesto = magnitud("54");
-  if (gNoOp) push("Gastos no operacionales", gNoOp);
-  if (impuesto) push("Impuesto de renta y complementarios", impuesto);
-  push("Utilidad neta", r.sums.utilidad, { bold: true, sep: true });
-  return lineas;
-}
-
 // ---- Comparativo entre versiones (para el campo `diff`) ----
 export type DiffRow = { type: "added" | "removed" | "changed"; code: string; name: string; before: number; after: number; delta: number };
 export type DiffBalance = { summary: { added: number; removed: number; changed: number; totalAffected: number }; rows: DiffRow[] };

@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
@@ -24,7 +25,6 @@ import {
   tokenizarPlan,
   limpiarCodigo,
   conForzarHoja,
-  GRUPOS_PUC,
   type CuentaCruda,
   type CuentaEstandar,
   type ResultadoBalance,
@@ -868,123 +868,6 @@ export async function auditarCargaBalance(clienteId: number, importReady: Cuenta
 }
 
 /**
- * PREVALIDADOR DE CUENTAS HOMOLOGADAS (a pedido, desde el detalle del balance).
- *
- * Verifica que la homologación al plan estándar NO mueva ni pierda valor a nivel de
- * CLASE (2 díg) y SUBGRUPO (4 díg): para cada nivel compara el total agrupado por el
- * código del CLIENTE (cuenta_2/cuenta_4) contra el total agrupado por la CUENTA
- * ESTÁNDAR homologada (cuenta_6_russell → 2/4 díg). Si difieren, hay cuentas que al
- * homologar saltaron de clase/subgrupo o quedaron sin homologar (valor que no entra
- * en la jerarquía estándar). Esas cuentas se listan para que el usuario las revise y
- * vuelva a clasificar. Solo lectura: no escribe nada.
- */
-export type MotivoHomologacion = "sin_homologar" | "cambia_clase" | "cambia_subgrupo";
-export type AlertaHomologacion = {
-  code: string;
-  name: string;
-  saldo: number;
-  claseCliente: string;
-  claseRussell: string | null;
-  subgrupoCliente: string;
-  subgrupoRussell: string | null;
-  motivo: MotivoHomologacion;
-};
-export type DesfaseNivel = {
-  codigo: string;
-  nombre: string;
-  totalCliente: number;
-  totalRussell: number;
-  diferencia: number;
-};
-export type Prevalidacion = {
-  ok: boolean;
-  message?: string;
-  totalCuentas: number;
-  homologadas: number;
-  cuadradoClase: boolean;
-  cuadradoSubgrupo: boolean;
-  clases: DesfaseNivel[];
-  subgrupos: DesfaseNivel[];
-  alertas: AlertaHomologacion[];
-};
-
-export async function prevalidarHomologacion(balanceId: number): Promise<Prevalidacion> {
-  const vacio: Prevalidacion = { ok: false, totalCuentas: 0, homologadas: 0, cuadradoClase: false, cuadradoSubgrupo: false, clases: [], subgrupos: [], alertas: [] };
-  const authz = await authorizePermiso("balance:ver");
-  if (!authz.ok) return { ...vacio, message: authz.message };
-  const clienteId = await clienteDeBalance(balanceId);
-  const scope = await authorizePermiso("balance:ver", { clientId: clienteId });
-  if (!scope.ok) return { ...vacio, message: scope.message };
-  try {
-    const det = await prisma.balancePruebaDetalle.findMany({
-      where: { encabezadoId: balanceId },
-      select: { cuenta8: true, cuenta4: true, cuenta2: true, nombreCuenta: true, cuenta6Russell: true, saldoFinal: true },
-    });
-    if (det.length === 0) return { ...vacio, message: "El balance no tiene cuentas." };
-
-    // Nombres de subgrupo (nivel 4) del catálogo estándar, para mostrar.
-    const subs = await prisma.subgrupoEstandar.findMany({ select: { codigo: true, nombre: true } });
-    const nombreSub = new Map(subs.map((s) => [s.codigo, s.nombre]));
-
-    // Rollups por nivel, en dos vistas: CLIENTE (código original) vs ESTÁNDAR (homologado).
-    const claseCli = new Map<string, number>(); const claseRus = new Map<string, number>();
-    const subCli = new Map<string, number>(); const subRus = new Map<string, number>();
-    const alertas: AlertaHomologacion[] = [];
-    let homologadas = 0;
-
-    for (const d of det) {
-      const saldo = Number(d.saldoFinal);
-      const cc = d.cuenta2;
-      const sc = d.cuenta4 || cc;
-      const russ = d.cuenta6Russell;
-      const cr = russ ? russ.slice(0, 2) : null;
-      const sr = russ ? russ.slice(0, 4) || cr! : null;
-
-      claseCli.set(cc, (claseCli.get(cc) ?? 0) + saldo);
-      subCli.set(sc, (subCli.get(sc) ?? 0) + saldo);
-      if (russ) {
-        homologadas++;
-        claseRus.set(cr!, (claseRus.get(cr!) ?? 0) + saldo);
-        subRus.set(sr!, (subRus.get(sr!) ?? 0) + saldo);
-      }
-
-      let motivo: MotivoHomologacion | null = null;
-      if (!russ) motivo = "sin_homologar";
-      else if (cr !== cc) motivo = "cambia_clase";
-      else if (sr !== sc) motivo = "cambia_subgrupo";
-      if (motivo) alertas.push({ code: d.cuenta8, name: d.nombreCuenta, saldo, claseCliente: cc, claseRussell: cr, subgrupoCliente: sc, subgrupoRussell: sr, motivo });
-    }
-
-    const TOL = 1; // 1 peso: por debajo es redondeo, no descuadre.
-    const desfase = (cli: Map<string, number>, rus: Map<string, number>, nombre: (k: string) => string): DesfaseNivel[] => {
-      const out: DesfaseNivel[] = [];
-      for (const k of new Set([...cli.keys(), ...rus.keys()])) {
-        const tc = cli.get(k) ?? 0;
-        const tr = rus.get(k) ?? 0;
-        if (Math.abs(tc - tr) > TOL) out.push({ codigo: k, nombre: nombre(k), totalCliente: tc, totalRussell: tr, diferencia: tc - tr });
-      }
-      return out.sort((a, b) => Math.abs(b.diferencia) - Math.abs(a.diferencia));
-    };
-
-    const clases = desfase(claseCli, claseRus, (k) => GRUPOS_PUC[k] ?? `Grupo ${k}`);
-    const subgrupos = desfase(subCli, subRus, (k) => nombreSub.get(k) ?? `Subgrupo ${k}`);
-
-    return {
-      ok: true,
-      totalCuentas: det.length,
-      homologadas,
-      cuadradoClase: clases.length === 0,
-      cuadradoSubgrupo: subgrupos.length === 0,
-      clases,
-      subgrupos,
-      alertas: alertas.sort((a, b) => Math.abs(b.saldo) - Math.abs(a.saldo)),
-    };
-  } catch (e) {
-    return { ...vacio, message: mensajeErrorBD("prevalidarHomologacion", e) };
-  }
-}
-
-/**
  * CONFIRMACIÓN (paso final). Recibe el cliente/período confirmados por la persona
  * + las cuentas ya leídas (sugerencia serializada en `payload`) y escribe el
  * cargue. Recalcula en el servidor los agregados Y el cuadre contra TOTALES desde
@@ -1084,7 +967,7 @@ export async function cargarBorrador(_prev: ImportBalanceState, formData: FormDa
   const movEnStaging = await prisma.balanceImportacionStaging.count({ where: { loteId, tipoFila: "movimiento" } });
   if (!lote && movEnStaging === 0) return { ok: false, message: "El borrador ya no existe (fue cargado o descartado)." };
 
-  return await promoverStagingAOficial(
+  const res = await promoverStagingAOficial(
     {
       loteId, clientId, periodoInicio, periodoFin, rolLabel: etiquetaRol(authz.role),
       archivoNombre: lote?.archivoNombre ?? "—", archivoTam: lote?.archivoTam ?? "—",
@@ -1097,6 +980,12 @@ export async function cargarBorrador(_prev: ImportBalanceState, formData: FormDa
     },
     "cargarBorrador",
   );
+  // Éxito: redirige EN EL SERVIDOR al balance oficial. El borrador ya se purgó, así
+  // que re-renderizar su página daría 404; el redirect del servidor evita esa carrera
+  // (la confirmación se muestra con FlashToast en el destino). `redirect()` lanza una
+  // excepción especial: va FUERA de cualquier try/catch.
+  if (res.ok && res.resumen?.id) redirect(`/balance/${res.resumen.id}?cargado=1`);
+  return res; // solo el caso de error llega aquí
 }
 
 /** Descarta (elimina) un borrador: borra su staging + encabezado. */

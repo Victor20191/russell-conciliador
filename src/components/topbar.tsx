@@ -20,7 +20,6 @@ const CRUMB_LABELS: Record<string, string> = {
   dashboard: "Inicio",
   balance: "Balance de comprobación",
   mapeo: "Mapeo plan estándar",
-  "estado-resultado": "Estado de Resultado",
   conciliacion: "Conciliación",
   nueva: "Nueva",
   "en-proceso": "En proceso",

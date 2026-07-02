@@ -72,8 +72,14 @@ export default function Conversacion({
     };
   }, [tipo, entityId, anchor]);
 
-  // Auto-scroll al último mensaje cuando cambia la lista.
+  // Auto-scroll al último mensaje cuando se AGREGA uno, pero NO en la carga inicial
+  // (eso dejaría la página del balance al final; debe abrir en el encabezado).
+  const cargaHecha = useRef(false);
   useEffect(() => {
+    if (!cargaHecha.current) {
+      if (comentarios.length > 0) cargaHecha.current = true; // primera carga con datos: no scrollees
+      return;
+    }
     finRef.current?.scrollIntoView({ block: "nearest" });
   }, [comentarios.length]);
 

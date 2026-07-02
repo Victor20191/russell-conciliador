@@ -11,11 +11,14 @@ import BalanceDetailClient, {
 } from "./balance-detail-client";
 import { parseId } from "@/lib/ids";
 import { FreezeBalanceButton } from "./freeze-balance-button";
+import { ExportarBalance } from "./exportar-balance";
+import { FlashToast } from "@/components/flash-toast";
 import Conversacion from "@/components/conversacion";
 
-export default async function BalanceDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function BalanceDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ cargado?: string }> }) {
   await requirePermiso("balance:ver");
   const { id: rawId } = await params;
+  const { cargado } = await searchParams;
   const id = parseId(rawId);
   if (!id) notFound();
   const balance = await prisma.balancePruebaEncabezado.findUnique({
@@ -92,12 +95,14 @@ export default async function BalanceDetailPage({ params }: { params: Promise<{ 
 
   return (
     <div>
+      {cargado && <FlashToast title="Balance cargado" message="El borrador se promovió a balance oficial." clearParam="cargado" />}
       <div className="mb-3"><BackLink href="/balance" label="Balance de comprobación" /></div>
       <PageHeader
         title={balance.nombreCliente}
         subtitle={`${balance.periodo} · versión ${balance.version}`}
         actions={
           <div className="flex items-center gap-2">
+            {sums && <ExportarBalance id={id} />}
             {hasDiff && (
               <a href={`/balance/${id}/diff`} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 px-3 py-2 text-[12.5px] font-medium text-ink-700 hover:bg-ink-50">
                 <Icon name="log" size={14} /> Diff de versiones

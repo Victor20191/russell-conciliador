@@ -49,9 +49,10 @@ export default function BorradorDetailClient({
     });
 
   useEffect(() => {
-    notifyActionState(cargarState, { success: "Balance cargado.", error: "No se pudo cargar el balance." });
-    if (cargarState?.ok && cargarState.resumen) router.push(`/balance/${cargarState.resumen.id}`);
-  }, [cargarState, router]);
+    // El éxito redirige EN EL SERVIDOR (a /balance/[id]) y confirma con FlashToast;
+    // aquí solo se notifica el error si la carga falla.
+    if (cargarState && cargarState.ok === false) notifyActionState(cargarState, { success: "Balance cargado.", error: "No se pudo cargar el balance." });
+  }, [cargarState]);
 
   const onDescartar = () =>
     startDescartar(async () => {
