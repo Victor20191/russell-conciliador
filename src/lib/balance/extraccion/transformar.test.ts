@@ -83,6 +83,12 @@ describe("normalizarCodigo", () => {
   it("un rótulo de texto puro no produce código numérico (se excluirá)", () => {
     expect(/^\d+$/.test(normalizarCodigo("TOTAL ACTIVOS"))).toBe(false);
   });
+
+  it("extrae el código de subtotales «al final» (TOTAL 110505 → 110505)", () => {
+    expect(normalizarCodigo("TOTAL 110505")).toBe("110505");
+    expect(normalizarCodigo("SUBTOTAL 1105")).toBe("1105");
+    expect(normalizarCodigo("Total: 11 05 05")).toBe("110505");
+  });
 });
 
 describe("construirCuadre · partida doble", () => {

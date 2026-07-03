@@ -5,29 +5,56 @@ import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
 import { Card, Chip } from "@/components/ui";
 import { fmt } from "@/lib/format";
-import { cargarBorrador, descartarBorrador, diagnosticarBorradorIA, reclasificarFilaBorrador, invertirLadosFilaBorrador } from "@/app/actions/balance";
+import { cargarBorrador, descartarBorrador, diagnosticarBorradorIA, aplicarCambiosBorrador } from "@/app/actions/balance";
 import type { ImportBalanceState } from "@/lib/import/balance";
-import type { NodoBorrador } from "@/lib/balance/borrador";
+import { construirVistaBorrador } from "@/lib/balance/borrador-vm";
+import type { FilaBorrador, NodoBorrador } from "@/lib/balance/borrador";
 import type { ValidacionContable } from "@/lib/balance/calcular";
 import type { Hallazgo } from "@/lib/balance/diagnostico";
 import type { DiagnosticoIA } from "@/lib/balance/diagnostico-ia";
 import { notifyActionState, notifySuccess, notifyError } from "@/lib/client-notifications";
 
 type Cliente = { id: number; name: string; nit: string };
-type PartidaDoble = { debitos: number; creditos: number; diff: number; cuadra: boolean };
+
+/** Aplica los cambios TEMPORALES (reclasificación / lados invertidos / desacople)
+ *  sobre las filas crudas, en memoria (misma lógica que la acción de guardar). */
+function aplicarCambios(
+  filas: FilaBorrador[],
+  override: Record<string, "agrupadora" | "movimiento">,
+  invertidos: string[],
+  desacopladas: Record<string, boolean>,
+): FilaBorrador[] {
+  const out = filas.map((f) => ({ ...f }));
+  if (Object.keys(override).length > 0) {
+    for (const f of out) {
+      const ov = override[f.codigo];
+      if (ov && /^\d+$/.test(f.codigo) && f.tipoFila === (ov === "movimiento" ? "agrupadora" : "movimiento")) f.tipoFila = ov;
+    }
+  }
+  if (invertidos.length > 0) {
+    const set = new Set(invertidos);
+    const ctrlOk = (f: FilaBorrador) => Math.abs(f.saldoInicial + f.debitos - f.creditos - f.saldoFinal) <= 1;
+    for (const f of out) {
+      if (set.has(f.codigo) && !ctrlOk(f) && Math.abs(f.saldoInicial + f.creditos - f.debitos - f.saldoFinal) <= 1) {
+        const t = f.debitos; f.debitos = f.creditos; f.creditos = t;
+      }
+    }
+  }
+  if (Object.keys(desacopladas).length > 0) {
+    for (const f of out) if (f.codigo in desacopladas) f.desacoplada = desacopladas[f.codigo];
+  }
+  return out;
+}
 
 export default function BorradorDetailClient({
-  loteId, nitDetectado, periodoInicial, periodoFinal, arbol, validacion, partidaDoble, hallazgos, clientes, clienteSugeridoId,
+  loteId, nitDetectado, periodoInicial, periodoFinal, filas, clientes, clienteSugeridoId,
 }: {
   loteId: string;
   archivoNombre: string;
   nitDetectado: string | null;
   periodoInicial: string | null;
   periodoFinal: string | null;
-  arbol: NodoBorrador[];
-  validacion: ValidacionContable;
-  partidaDoble: PartidaDoble;
-  hallazgos: Hallazgo[];
+  filas: FilaBorrador[];
   clientes: Cliente[];
   clienteSugeridoId: number | null;
 }) {
@@ -37,9 +64,29 @@ export default function BorradorDetailClient({
   const [confirmarDescarte, setConfirmarDescarte] = useState(false);
   const [diagnosticando, startDiagnostico] = useTransition();
   const [diagIA, setDiagIA] = useState<DiagnosticoIA | null>(null);
-  // Filtro del árbol por código(s) sugerido(s): al aplicarlo, el árbol muestra solo
-  // esas ramas expandidas al máximo detalle.
   const [filtro, setFiltro] = useState<string[]>([]);
+
+  // Cambios TEMPORALES (en el navegador) hasta Guardar/Descartar.
+  const [override, setOverride] = useState<Record<string, "agrupadora" | "movimiento">>({});
+  const [invertidos, setInvertidos] = useState<string[]>([]);
+  const [desacopladas, setDesacopladas] = useState<Record<string, boolean>>({});
+  const [guardando, startGuardar] = useTransition();
+  const nCambios = Object.keys(override).length + invertidos.length + Object.keys(desacopladas).length;
+  const hayCambios = nCambios > 0;
+  // View-model recomputado LOCALMENTE con los cambios temporales (sin tocar la BD).
+  const { arbol, validacion, partidaDoble, hallazgos } = useMemo(() => construirVistaBorrador(aplicarCambios(filas, override, invertidos, desacopladas)), [filas, override, invertidos, desacopladas]);
+
+  const onReclasificar = (codigo: string, actual: NodoBorrador["tipoFila"]) =>
+    setOverride((o) => ({ ...o, [codigo]: actual === "movimiento" ? "agrupadora" : "movimiento" }));
+  const onInvertir = (codigo: string) => setInvertidos((inv) => (inv.includes(codigo) ? inv : [...inv, codigo]));
+  const onDesacoplar = (codigo: string, desacopladaAhora: boolean) => setDesacopladas((d) => ({ ...d, [codigo]: !desacopladaAhora }));
+  const descartarCambios = () => { setOverride({}); setInvertidos([]); setDesacopladas({}); };
+  const guardarCambios = () =>
+    startGuardar(async () => {
+      const r = await aplicarCambiosBorrador(loteId, override, invertidos, desacopladas);
+      if (r.ok) { notifySuccess(r.message ?? "Cambios guardados."); setOverride({}); setInvertidos([]); setDesacopladas({}); router.refresh(); }
+      else notifyError(r.message ?? "No se pudieron guardar los cambios.");
+    });
 
   const onDiagnosticar = () =>
     startDiagnostico(async () => {
@@ -82,9 +129,22 @@ export default function BorradorDetailClient({
             </a>
           </div>
           <div className="mt-1 text-[11px] leading-relaxed text-ink-500">
-            <span className="font-semibold text-err-700">Δ subrayado</span> en una agrupadora = su total del archivo − la suma de las filas que cuelgan de ella (por prefijo de código). Si ≠ 0, su subtotal no cuadra con su desglose: puede ser una <span className="font-semibold">cuenta faltante</span>, o que el ERP numere el detalle sin anidar por código (el subtotal y su detalle no comparten prefijo — la plata está, pero en otra rama). Usa <span className="font-semibold">⇄</span> para corregir una cuenta entre <span className="font-semibold">agrupadora</span> y <span className="font-semibold">movimiento</span> (aplica a todas las sucursales y recalcula).
+            <span className="font-semibold text-err-700">Δ subrayado</span> en una agrupadora = su total del archivo − la suma de las filas que cuelgan de ella (por prefijo de código). Si ≠ 0, su subtotal no cuadra con su desglose: puede ser una <span className="font-semibold">cuenta faltante</span>, o que el ERP numere el detalle sin anidar por código (el subtotal y su detalle no comparten prefijo — la plata está, pero en otra rama). Usa <span className="font-semibold">⇄ Agrupadora/Movimiento</span> para corregir el tipo de una cuenta, y <span className="font-semibold">⇄ Desacoplar</span> para sacar una cuenta de una agrupadora de código ajeno y anidarla bajo su padre real por código (aplica a todas las sucursales y recalcula).
           </div>
         </div>
+        {hayCambios && (
+          <div className="flex flex-wrap items-center gap-2 border-b border-warn-200 bg-warn-50 px-3 py-2 text-[12px]">
+            <Icon name="warn" size={13} />
+            <span className="font-semibold text-warn-800">{nCambios} cambio(s) sin guardar</span>
+            <span className="text-warn-700">— se aplican en pantalla; guárdalos para persistirlos en el borrador.</span>
+            <div className="ml-auto flex items-center gap-2">
+              <button type="button" onClick={guardarCambios} disabled={guardando} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60">
+                {guardando ? "Guardando…" : "Guardar cambios"}
+              </button>
+              <button type="button" onClick={descartarCambios} disabled={guardando} className="rounded-md border border-ink-300 px-3 py-1.5 text-[12px] font-medium text-ink-700 hover:bg-ink-50 disabled:opacity-60">Descartar cambios</button>
+            </div>
+          </div>
+        )}
         {filtro.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5 border-b border-blue-100 bg-blue-50 px-3 py-1.5 text-[11px]">
             <Icon name="filter" size={12} /> <span className="font-semibold text-blue-700">Filtrando el árbol:</span>
@@ -92,9 +152,7 @@ export default function BorradorDetailClient({
             <button type="button" onClick={() => setFiltro([])} className="ml-1 text-[11px] font-medium text-blue-700 underline hover:text-blue-900">Limpiar filtro</button>
           </div>
         )}
-        <div className="max-h-[560px] overflow-auto">
-          <ArbolTabla arbol={arbol} loteId={loteId} filtro={filtro} />
-        </div>
+        <ArbolTabla arbol={arbol} filtro={filtro} onReclasificar={onReclasificar} onInvertir={onInvertir} onDesacoplar={onDesacoplar} />
       </Card>
 
       {/* Cargar / Descartar */}
@@ -123,8 +181,9 @@ export default function BorradorDetailClient({
             <span className="text-[11px] text-warn-700">NIT detectado <span className="font-mono">{nitDetectado}</span> sin cliente coincidente — selecciónalo.</span>
           )}
           {cargarState?.message && !cargarState.ok && <p className="text-[12px] font-medium text-err-700">{cargarState.message}</p>}
+          {hayCambios && <p className="text-[11.5px] font-medium text-warn-700">Tienes cambios sin guardar: guárdalos o descártalos antes de cargar (el balance se carga desde lo guardado).</p>}
           <div className="flex items-center gap-2">
-            <button type="submit" disabled={cargando} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60">
+            <button type="submit" disabled={cargando || hayCambios} title={hayCambios ? "Guarda o descarta los cambios antes de cargar" : undefined} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60">
               {cargando ? "Cargando…" : "Cargar balance"}
             </button>
             {confirmarDescarte ? (
@@ -281,29 +340,7 @@ function DiagnosticoPanel({ hallazgos, diagIA, diagnosticando, onDiagnosticar, f
 const tieneDescuadre = (n: NodoBorrador): boolean => (n.descuadre != null && n.descuadre !== 0) || n.hijos.some(tieneDescuadre);
 const nivelLabel = (codigo: string) => (codigo.length <= 2 ? "Clase" : codigo.length <= 4 ? "Grupo" : codigo.length <= 6 ? "Cuenta" : "Subcuenta");
 
-function ArbolTabla({ arbol, loteId, filtro }: { arbol: NodoBorrador[]; loteId: string; filtro: string[] }) {
-  const router = useRouter();
-  const [reclasificando, startReclasificar] = useTransition();
-  const [pendiente, setPendiente] = useState<string | null>(null);
-  const reclasificar = (codigo: string, actual: NodoBorrador["tipoFila"]) => {
-    const nuevo = actual === "movimiento" ? "agrupadora" : "movimiento";
-    setPendiente(codigo);
-    startReclasificar(async () => {
-      const r = await reclasificarFilaBorrador(loteId, codigo, nuevo);
-      if (r.ok) { notifySuccess(r.message ?? "Cuenta reclasificada."); router.refresh(); }
-      else notifyError(r.message ?? "No se pudo reclasificar.");
-      setPendiente(null);
-    });
-  };
-  const invertirLados = (codigo: string) => {
-    setPendiente(codigo);
-    startReclasificar(async () => {
-      const r = await invertirLadosFilaBorrador(loteId, codigo);
-      if (r.ok) { notifySuccess(r.message ?? "Débito/crédito corregidos."); router.refresh(); }
-      else notifyError(r.message ?? "No se pudo corregir.");
-      setPendiente(null);
-    });
-  };
+function ArbolTabla({ arbol, filtro, onReclasificar, onInvertir, onDesacoplar }: { arbol: NodoBorrador[]; filtro: string[]; onReclasificar: (codigo: string, actual: NodoBorrador["tipoFila"]) => void; onInvertir: (codigo: string) => void; onDesacoplar: (codigo: string, desacopladaAhora: boolean) => void }) {
   // Control contable: saldo ant + débito − crédito = saldo actual (±$1).
   const controlOk = (si: number, db: number, cr: number, s: number) => Math.abs(si + db - cr - s) <= 1;
   // Expande por defecto los niveles altos y TODA rama con descuadre (para verlo).
@@ -318,35 +355,62 @@ function ArbolTabla({ arbol, loteId, filtro }: { arbol: NodoBorrador[]; loteId: 
   }, [arbol]);
   const [abiertos, setAbiertos] = useState<Set<number>>(expandidosInicial);
   const toggle = (k: number) => setAbiertos((prev) => { const n = new Set(prev); if (n.has(k)) n.delete(k); else n.add(k); return n; });
+  const codigosConHijos = useMemo(() => { const s = new Set<number>(); const rec = (n: NodoBorrador) => { if (n.hijos.length > 0) s.add(n.filaNum); n.hijos.forEach(rec); }; arbol.forEach(rec); return s; }, [arbol]);
+  const expandirTodo = () => setAbiertos(new Set(codigosConHijos));
+  const contraerTodo = () => setAbiertos(new Set());
 
-  // Filtro por código(s) sugerido(s): un nodo COINCIDE si su código empieza por
-  // alguno del filtro; se muestran sus ancestros (ruta) y todo su subárbol (detalle
-  // al máximo), y se resaltan las coincidencias.
+  // ---- Filtros del árbol: búsqueda, vista (Balance/Estado de Resultado/Alertas),
+  //      nivel máximo (N2/N4/N6/N8) y el filtro de código(s) sugerido(s) por la IA. ----
+  const [q, setQ] = useState("");
+  const [vista, setVista] = useState<"todo" | "balance" | "er" | "alertas">("todo");
+  const [nivelMax, setNivelMax] = useState(0); // 0 = todos; 2/4/6/8 = hasta ese nivel
   const filtroActivo = filtro.length > 0;
   const coincide = (codigo: string) => filtroActivo && filtro.some((f) => codigo.startsWith(f));
-  const subRamaCoincide = useMemo(() => {
-    const map = new Map<number, boolean>();
-    const rec = (n: NodoBorrador): boolean => {
-      let has = coincide(n.codigo);
-      for (const h of n.hijos) if (rec(h)) has = true;
-      map.set(n.filaNum, has);
-      return has;
+  const needle = q.trim().toLowerCase();
+  const matchQ = (n: NodoBorrador) => needle === "" || n.codigo.toLowerCase().includes(needle) || (n.nombre ?? "").toLowerCase().includes(needle);
+  const filtrando = filtroActivo || needle !== "" || vista !== "todo" || nivelMax > 0;
+  const nAlertas = useMemo(() => { let n = 0; const rec = (x: NodoBorrador) => { if (x.descuadre != null && x.descuadre !== 0) n++; x.hijos.forEach(rec); }; arbol.forEach(rec); return n; }, [arbol]);
+
+  // Poda del árbol según los filtros (conserva ancestros de las coincidencias).
+  const arbolVisible = useMemo(() => {
+    if (!filtrando) return arbol;
+    const enVista = (x: NodoBorrador) => {
+      if (vista === "todo" || vista === "alertas") return true;
+      const d = x.codigo.charAt(0);
+      if (!/[1-7]/.test(d)) return true; // estructural (sucursal / orden) → no filtra por clase
+      return vista === "balance" ? "123".includes(d) : "4567".includes(d);
     };
-    arbol.forEach(rec);
-    return map;
+    const nivelOk = (x: NodoBorrador) => nivelMax === 0 || !/^\d+$/.test(x.codigo) || x.codigo.length <= nivelMax;
+    const selfMatch = (x: NodoBorrador) => matchQ(x) && (vista !== "alertas" || (x.descuadre != null && x.descuadre !== 0)) && (!filtroActivo || coincide(x.codigo));
+    const podar = (nodos: NodoBorrador[]): NodoBorrador[] => {
+      const out: NodoBorrador[] = [];
+      for (const x of nodos) {
+        if (!nivelOk(x) || !enVista(x)) continue;
+        const hijos = podar(x.hijos);
+        if (selfMatch(x) || hijos.length > 0) out.push({ ...x, hijos });
+      }
+      return out;
+    };
+    return podar(arbol);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [arbol, filtro]);
+  }, [arbol, filtro, q, vista, nivelMax]);
 
   const filas: React.ReactNode[] = [];
-  const render = (n: NodoBorrador, depth: number, bajoMatch = false) => {
-    if (filtroActivo && !bajoMatch && !subRamaCoincide.get(n.filaNum)) return; // fuera de la ruta filtrada
+  const render = (n: NodoBorrador, depth: number, padreCodigo: string | null) => {
     const hasHijos = n.hijos.length > 0;
-    const esMatch = coincide(n.codigo);
-    const open = filtroActivo ? true : abiertos.has(n.filaNum); // filtrado → todo expandido
+    const esMatch = coincide(n.codigo) || (needle !== "" && matchQ(n));
+    const open = filtrando ? true : abiertos.has(n.filaNum); // filtrado → todo expandido
     const esMov = n.tipoFila === "movimiento";
     const descuadrado = n.descuadre != null && n.descuadre !== 0;
     // Lados invertidos: el control no cuadra, pero SÍ al intercambiar débito↔crédito.
     const ladosInv = esMov && !controlOk(n.saldoInicial, n.debitos, n.creditos, n.saldoFinal) && controlOk(n.saldoInicial, n.creditos, n.debitos, n.saldoFinal);
+    // Desacople: ya desacoplada (permite REACOPLAR), o cuelga de una agrupadora que NO
+    // es su prefijo (candidata a DESACOPLAR: el ERP la ubicó bajo un grupo de código
+    // ajeno). Solo aplica a movimientos con código numérico.
+    const numero = /^\d+$/.test(n.codigo);
+    const desacopladaAhora = !!n.desacoplada;
+    const bajoAjena = numero && padreCodigo != null && /^\d+$/.test(padreCodigo) && !n.codigo.startsWith(padreCodigo);
+    const puedeDesacoplar = esMov && numero && (desacopladaAhora || bajoAjena);
     filas.push(
       <tr key={n.filaNum} className={`border-t border-ink-100 ${esMatch ? "bg-blue-50 ring-1 ring-inset ring-blue-200" : esMov ? "hover:bg-ink-50/60" : "bg-ink-50/40"}`}>
         <td className="px-2 py-1 align-top">
@@ -383,23 +447,33 @@ function ArbolTabla({ arbol, loteId, filtro }: { arbol: NodoBorrador[]; loteId: 
             {n.tipoFila !== "total" && /^\d+$/.test(n.codigo) && (
               <button
                 type="button"
-                onClick={() => reclasificar(n.codigo, n.tipoFila)}
-                disabled={reclasificando}
+                onClick={() => onReclasificar(n.codigo, n.tipoFila)}
                 title={esMov ? "Marcar esta cuenta como AGRUPADORA (dejará de cargarse)" : "Marcar esta cuenta como MOVIMIENTO (se cargará su saldo)"}
-                className="rounded border border-ink-200 px-1.5 py-0.5 text-[10px] font-medium text-ink-500 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:opacity-50"
+                className="rounded border border-ink-200 px-1.5 py-0.5 text-[10px] font-medium text-ink-500 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
               >
-                {pendiente === n.codigo ? "…" : esMov ? "⇄ Agrupadora" : "⇄ Movimiento"}
+                {esMov ? "⇄ Agrupadora" : "⇄ Movimiento"}
               </button>
             )}
             {ladosInv && (
               <button
                 type="button"
-                onClick={() => invertirLados(n.codigo)}
-                disabled={reclasificando}
+                onClick={() => onInvertir(n.codigo)}
                 title={`Débito y crédito están invertidos (déb ${fmt(n.debitos)} / créd ${fmt(n.creditos)}): el control no cuadra con el saldo, pero sí al intercambiarlos. Corrige el lado.`}
-                className="rounded border border-warn-300 bg-warn-50 px-1.5 py-0.5 text-[10px] font-semibold text-warn-700 hover:bg-warn-100 disabled:opacity-50"
+                className="rounded border border-warn-300 bg-warn-50 px-1.5 py-0.5 text-[10px] font-semibold text-warn-700 hover:bg-warn-100"
               >
-                {pendiente === n.codigo ? "…" : "⇄ Débito/Crédito"}
+                ⇄ Débito/Crédito
+              </button>
+            )}
+            {puedeDesacoplar && (
+              <button
+                type="button"
+                onClick={() => onDesacoplar(n.codigo, desacopladaAhora)}
+                title={desacopladaAhora
+                  ? "Reacoplar: volver a colgar esta cuenta de la agrupadora por orden del archivo."
+                  : `Desacoplar de ${padreCodigo}: esta cuenta cuelga de una agrupadora de código ajeno. Sácala y anídala bajo su padre real por código (prefijo).`}
+                className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold ${desacopladaAhora ? "border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100" : "border-ink-200 text-ink-500 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"}`}
+              >
+                {desacopladaAhora ? "⇄ Reacoplar" : "⇄ Desacoplar"}
               </button>
             )}
           </div>
@@ -410,23 +484,53 @@ function ArbolTabla({ arbol, loteId, filtro }: { arbol: NodoBorrador[]; loteId: 
         <td className="whitespace-nowrap px-2 py-1 text-right align-top font-medium tabular-nums text-ink-800">{fmt(n.saldoFinal)}</td>
       </tr>,
     );
-    if (hasHijos && open) n.hijos.forEach((h) => render(h, depth + 1, bajoMatch || esMatch));
+    if (hasHijos && open) n.hijos.forEach((h) => render(h, depth + 1, n.codigo));
   };
-  arbol.forEach((r) => render(r, 0));
+  arbolVisible.forEach((r) => render(r, 0, null));
+
+  const nivelBtn = (v: number, label: string) => (
+    <button type="button" onClick={() => setNivelMax(v)} className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${nivelMax === v ? "bg-navy-700 text-white" : "text-ink-500 hover:bg-ink-100"}`}>{label}</button>
+  );
+  const vistaBtn = (v: typeof vista, label: string, count?: number) => (
+    <button type="button" onClick={() => setVista(v)} className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11.5px] font-medium ${vista === v ? "bg-navy-700 text-white" : "text-ink-600 hover:bg-ink-100"}`}>
+      {label}{count != null && count > 0 && <span className={`rounded-full px-1.5 text-[10px] font-semibold ${vista === v ? "bg-white/20" : "bg-warn-100 text-warn-700"}`}>{count}</span>}
+    </button>
+  );
 
   return (
-    <table className="w-full text-[11px]">
-      <thead className="sticky top-0 z-10 bg-ink-50 text-ink-500">
-        <tr className="text-left">
-          <th className="px-2 py-1.5 font-semibold">Código</th>
-          <th className="px-2 py-1.5 font-semibold">Cuenta</th>
-          <th className="px-2 py-1.5 text-right font-semibold">Saldo ant.</th>
-          <th className="px-2 py-1.5 text-right font-semibold">Débito</th>
-          <th className="px-2 py-1.5 text-right font-semibold">Crédito</th>
-          <th className="px-2 py-1.5 text-right font-semibold">Saldo actual</th>
-        </tr>
-      </thead>
-      <tbody>{filas}</tbody>
-    </table>
+    <div>
+      <div className="flex flex-wrap items-center gap-1.5 border-b border-ink-100 bg-white px-3 py-2">
+        <div className="flex items-center gap-1.5 rounded-md border border-ink-200 bg-ink-50 px-2 py-1 text-ink-400">
+          <Icon name="search" size={13} />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar código o cuenta…" className="w-44 bg-transparent text-[12px] text-ink-700 outline-none placeholder:text-ink-400" />
+        </div>
+        <div className="ml-auto flex items-center gap-0.5 rounded-md border border-ink-200 p-0.5">
+          {nivelBtn(0, "Todos")}{nivelBtn(2, "N2")}{nivelBtn(4, "N4")}{nivelBtn(6, "N6")}{nivelBtn(8, "N8")}
+        </div>
+        <span className="mx-0.5 h-4 w-px bg-ink-200" />
+        {vistaBtn("todo", "Todo")}
+        {vistaBtn("balance", "Balance")}
+        {vistaBtn("er", "Estado de Resultado")}
+        {vistaBtn("alertas", "Alertas", nAlertas)}
+        <span className="mx-0.5 h-4 w-px bg-ink-200" />
+        <button type="button" onClick={expandirTodo} className="rounded-md border border-ink-200 px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50">Expandir todo</button>
+        <button type="button" onClick={contraerTodo} className="rounded-md border border-ink-200 px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50">Contraer todo</button>
+      </div>
+      <div className="max-h-[560px] overflow-auto">
+        <table className="w-full text-[11px]">
+          <thead className="sticky top-0 z-10 bg-ink-50 text-ink-500">
+            <tr className="text-left">
+              <th className="px-2 py-1.5 font-semibold">Código</th>
+              <th className="px-2 py-1.5 font-semibold">Cuenta</th>
+              <th className="px-2 py-1.5 text-right font-semibold">Saldo ant.</th>
+              <th className="px-2 py-1.5 text-right font-semibold">Débito</th>
+              <th className="px-2 py-1.5 text-right font-semibold">Crédito</th>
+              <th className="px-2 py-1.5 text-right font-semibold">Saldo actual</th>
+            </tr>
+          </thead>
+          <tbody>{filas.length > 0 ? filas : <tr><td colSpan={6} className="px-3 py-6 text-center text-[12px] text-ink-400">Sin cuentas para este filtro.</td></tr>}</tbody>
+        </table>
+      </div>
+    </div>
   );
 }

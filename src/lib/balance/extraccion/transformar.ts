@@ -115,6 +115,12 @@ export function normalizarMonto(c: CeldaCruda): number | null {
  */
 export function normalizarCodigo(c: CeldaCruda): string {
   if (c == null) return "";
+  // 0) Filas de SUBTOTAL "al final": algunos ERP rotulan el subtotal en la columna de
+  //    código como "TOTAL 110505" / "SUBTOTAL 1105" (el detalle va ANTES y el subtotal
+  //    después). Se extrae el código numérico para identificarlas como AGRUPADORAS
+  //    (si no, quedan sin código y sin clasificar).
+  const tot = /^\s*(?:sub)?total\s*:?\s*([0-9][0-9.\s]*)\s*$/i.exec(String(c));
+  if (tot) return tot[1].replace(/[\s.]/g, "");
   // 1) Quita espacios/puntos de FORMATO dentro del código: `0110.05` → `011005`,
   //    ` 11 05 05 ` → `110505`.
   const limpio = String(c).replace(/[\s.]/g, "").trim();

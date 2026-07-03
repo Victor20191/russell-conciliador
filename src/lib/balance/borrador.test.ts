@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { construirArbolBorrador, contarNodos, aplanarArbolFiltrado, type FilaBorrador } from "./borrador";
+import { construirArbolBorrador, contarNodos, aplanarArbolFiltrado, reclasificarHuerfanas, type FilaBorrador } from "./borrador";
 
 function fila(filaNum: number, codigo: string, nombre: string, saldoFinal: number, tipo: FilaBorrador["tipoFila"]): FilaBorrador {
   return { filaNum, codigo, codigoCrudo: codigo, nombre, nivel: codigo.length || null, tipoFila: tipo, saldoInicial: 0, debitos: 0, creditos: 0, saldoFinal };
@@ -106,6 +106,65 @@ describe("construirArbolBorrador", () => {
     expect(clientes?.descuadre).toBe(0);
   });
 
+  it("una cuenta HERMANA ubicada por orden tras el detalle de otra sube al contenedor común (135531 no cuelga de 135515)", () => {
+    const arbol = construirArbolBorrador([
+      fila(1, "1355", "ANTICIPO IMPUESTOS", 138, "agrupadora"), // = 100 (135515) + 38 (135531)
+      fila(2, "135515", "RETENCION EN LA FUENTE", 100, "agrupadora"),
+      fila(3, "13551501", "VENTAS", 100, "movimiento"), // hija real de 135515
+      fila(4, "135531", "DESCUENTO IVA", 38, "movimiento"), // 6 díg como 135515 → HERMANA, no hija
+    ]);
+    const g = arbol[0]; // 1355
+    expect(g.hijos.map((h) => h.codigo)).toEqual(["135515", "135531"]); // 135531 sube a 1355
+    expect(g.hijos.find((h) => h.codigo === "135515")?.hijos.map((h) => h.codigo)).toEqual(["13551501"]);
+    expect(g.hijos.find((h) => h.codigo === "135515")?.descuadre).toBe(0); // 100 = 100, ya no le sobra
+    expect(g.descuadre).toBe(0); // 138 = 100 + 38, ya no le falta
+  });
+
+  it("desacople MANUAL: una cuenta marcada `desacoplada` sube al ancestro ABIERTO por PREFIJO (139910 sale de 1305 a 13)", () => {
+    const marca = (f: FilaBorrador): FilaBorrador => ({ ...f, desacoplada: true });
+    const arbol = construirArbolBorrador([
+      fila(1, "13", "CXC", 140, "agrupadora"), // = 100 (1305) + 40 (139910)
+      fila(2, "1305", "CLIENTES", 100, "agrupadora"),
+      fila(3, "130505", "CLIENTES NAL", 100, "movimiento"), // hija real de 1305
+      marca(fila(4, "139910", "OTROS DEUDORES", 40, "movimiento")), // el ERP la puso tras 1305; 1399 no anida ahí
+    ]);
+    const cxc = arbol.find((n) => n.codigo === "13")!;
+    const clientes = cxc.hijos.find((h) => h.codigo === "1305")!;
+    expect(clientes.hijos.map((h) => h.codigo)).toEqual(["130505"]); // 139910 ya no cuelga de 1305
+    expect(clientes.descuadre).toBe(0); // 100 = 100, ya no le sobra
+    expect(cxc.hijos.map((h) => h.codigo)).toEqual(["1305", "139910"]); // subió a 13 (ancestro por prefijo)
+    expect(cxc.descuadre).toBe(0); // 140 = 100 + 40
+  });
+
+  it("desacople sin ancestro por prefijo abierto en la pila → queda como raíz (fuera de la agrupadora ajena)", () => {
+    const arbol = construirArbolBorrador([
+      fila(1, "13", "CXC", 100, "agrupadora"),
+      fila(2, "1305", "CLIENTES", 100, "agrupadora"),
+      fila(3, "130505", "CLIENTES NAL", 100, "movimiento"),
+      { ...fila(4, "210505", "PROVEEDORES", 40, "movimiento"), desacoplada: true }, // ningún 2x abierto
+    ]);
+    const clientes = arbol.find((n) => n.codigo === "13")!.hijos.find((h) => h.codigo === "1305")!;
+    expect(clientes.hijos.map((h) => h.codigo)).toEqual(["130505"]); // no la absorbe
+    expect(clientes.descuadre).toBe(0);
+    expect(arbol.some((n) => n.codigo === "210505")).toBe(true); // queda como raíz, ya no infla a 1305
+  });
+
+  it("totales al final (summary-below): el subtotal viene DESPUÉS del detalle y se anida por prefijo", () => {
+    const mov = (fn: number, cod: string, nom: string, s: number): FilaBorrador => ({ filaNum: fn, codigo: cod, codigoCrudo: cod, nombre: nom, nivel: cod.length, tipoFila: "movimiento", saldoInicial: 0, debitos: 0, creditos: 0, saldoFinal: s });
+    const tot = (fn: number, cod: string, nom: string, s: number): FilaBorrador => ({ filaNum: fn, codigo: cod, codigoCrudo: `TOTAL ${cod}`, nombre: nom, nivel: cod.length, tipoFila: "agrupadora", saldoInicial: 0, debitos: 0, creditos: 0, saldoFinal: s });
+    const arbol = construirArbolBorrador([
+      mov(1, "11050501", "CAJA GENERAL", 100),
+      tot(2, "110505", "CAJA GENERAL", 100), // subtotal DESPUÉS del detalle
+      mov(3, "11051002", "CAJA MENOR", 30),
+      tot(4, "110510", "CAJAS MENORES", 30),
+      tot(5, "1105", "CAJA", 130), // subtotal de grupo (110505 + 110510)
+    ]);
+    const g = arbol.find((n) => n.codigo === "1105");
+    expect(g?.hijos.map((h) => h.codigo)).toEqual(["110505", "110510"]);
+    expect(g?.hijos.find((h) => h.codigo === "110505")?.hijos.map((h) => h.codigo)).toEqual(["11050501"]);
+    expect(g?.descuadre).toBe(0); // 100 + 30 = 130
+  });
+
   it("respeta la anidación del cliente por NIVEL: una cuenta ubicada dentro de un grupo ajeno por código cuadra (531520 en 5305)", () => {
     const arbol = construirArbolBorrador([
       fila(1, "53", "GASTOS NO OPERACIONALES", 130, "agrupadora"),
@@ -140,6 +199,42 @@ describe("construirArbolBorrador", () => {
   });
 });
 
+describe("reclasificarHuerfanas", () => {
+  it("reclasifica a movimiento la agrupadora SIN hijos con saldo (el ERP la exportó sin desglose)", () => {
+    const filas = [
+      fila(1, "2", "PASIVO", 150, "agrupadora"),
+      fila(2, "2205", "NACIONALES", 100, "agrupadora"), // sin subcuentas → huérfana
+      fila(3, "2305", "COSTOS Y GASTOS", 50, "agrupadora"),
+      fila(4, "230505", "HONORARIOS", 50, "movimiento"), // 2305 sí tiene hijo
+    ];
+    const cambiadas = reclasificarHuerfanas(filas);
+    expect(cambiadas.map((f) => f.codigo)).toEqual(["2205"]);
+    expect(filas.find((f) => f.codigo === "2205")?.tipoFila).toBe("movimiento");
+    expect(filas.find((f) => f.codigo === "2305")?.tipoFila).toBe("agrupadora"); // tiene hijo → intacta
+    expect(filas.find((f) => f.codigo === "2")?.tipoFila).toBe("agrupadora"); // clase → intacta
+  });
+
+  it("NO reclasifica una agrupadora sin hijos con saldo 0 (no aporta nada)", () => {
+    const filas = [
+      fila(1, "1", "ACTIVO", 0, "agrupadora"),
+      fila(2, "19", "OTROS ACTIVOS", 0, "agrupadora"), // vacía
+    ];
+    expect(reclasificarHuerfanas(filas)).toEqual([]);
+    expect(filas.every((f) => f.tipoFila === "agrupadora")).toBe(true);
+  });
+
+  it("NO reclasifica una agrupadora con detalle desacoplado por orden (no la deja doble-contar)", () => {
+    // 1305 no tiene hijos POR PREFIJO, pero por ORDEN cuelga 139005 → tiene hijo en el árbol.
+    const filas = [
+      fila(1, "13", "CXC", 233, "agrupadora"),
+      fila(2, "1305", "CLIENTES", 233, "agrupadora"),
+      fila(3, "139005", "DEUDAS", 233, "movimiento"),
+    ];
+    expect(reclasificarHuerfanas(filas)).toEqual([]);
+    expect(filas.find((f) => f.codigo === "1305")?.tipoFila).toBe("agrupadora");
+  });
+});
+
 describe("aplanarArbolFiltrado", () => {
   const arbol = construirArbolBorrador([
     fila(1, "2", "PASIVO", 50, "agrupadora"),
@@ -154,5 +249,13 @@ describe("aplanarArbolFiltrado", () => {
 
   it("con filtro deja solo la rama coincidente (ancestro + subárbol), por prefijo", () => {
     expect(aplanarArbolFiltrado(arbol, ["21"]).map((x) => x.nodo.codigo)).toEqual(["2", "2105"]);
+  });
+
+  it("conserva el ORDEN DEL ARCHIVO (summary-below): el detalle sale antes que su subtotal", () => {
+    const mov = (fn: number, cod: string): FilaBorrador => ({ filaNum: fn, codigo: cod, codigoCrudo: cod, nombre: cod, nivel: cod.length, tipoFila: "movimiento", saldoInicial: 0, debitos: 0, creditos: 0, saldoFinal: 100 });
+    const tot = (fn: number, cod: string): FilaBorrador => ({ filaNum: fn, codigo: cod, codigoCrudo: `TOTAL ${cod}`, nombre: cod, nivel: cod.length, tipoFila: "agrupadora", saldoInicial: 0, debitos: 0, creditos: 0, saldoFinal: 100 });
+    const sb = construirArbolBorrador([mov(1, "11050501"), tot(2, "110505"), tot(3, "1105")]);
+    // El árbol es 1105 > 110505 > 11050501, pero el export sale en orden de archivo.
+    expect(aplanarArbolFiltrado(sb).map((x) => x.nodo.codigo)).toEqual(["11050501", "110505", "1105"]);
   });
 });

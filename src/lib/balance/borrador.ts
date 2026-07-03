@@ -23,6 +23,10 @@ export type FilaBorrador = {
   debitos: number;
   creditos: number;
   saldoFinal: number;
+  // Desacople MANUAL: anida por PREFIJO de código (su padre real), ignorando el
+  // contenedor por orden. Corrige un detalle mal ubicado por el ERP bajo una
+  // agrupadora de código ajeno (p. ej. `145020` colgado de `1305`).
+  desacoplada?: boolean;
 };
 
 export type NodoBorrador = FilaBorrador & {
@@ -55,15 +59,65 @@ export function construirArbolBorrador(filas: FilaBorrador[], tol = 1): NodoBorr
   // cuentan en el descuadre (su padre no los debe sumar; el detalle ya está).
   const dupSet = marcarSubtotalesDuplicados(ordenadas.filter((f) => f.tipoFila === "movimiento"));
 
+  // ¿"Totales al final" (summary-below)? Algunos ERP ponen el SUBTOTAL DESPUÉS de su
+  // detalle, rotulado en la columna de código como "TOTAL 110505". Ahí el ORDEN no da
+  // la jerarquía; se anida por PREFIJO de código (order-agnóstico), con los subtotales
+  // como padres. Se detecta si la mayoría de las agrupadoras vienen así rotuladas.
+  const esTotalCrudo = (f: FilaBorrador) => /^\s*(?:sub)?total/i.test(f.codigoCrudo ?? "");
+  const agrup = ordenadas.filter((f) => f.tipoFila !== "movimiento" && esNumerico(f.codigo));
+  const summaryBelow = agrup.length > 0 && agrup.filter(esTotalCrudo).length > agrup.length / 2;
+
+  if (summaryBelow) {
+    const nodos = ordenadas.map((f) => ({ ...f, descuadre: null, subtotalDuplicado: dupSet.has(f), hijos: [] }) as NodoBorrador);
+    const agrPorCodigo = new Map<string, NodoBorrador>();
+    for (const n of nodos) if (n.tipoFila !== "movimiento" && esNumerico(n.codigo) && !agrPorCodigo.has(n.codigo)) agrPorCodigo.set(n.codigo, n);
+    const padreDe = (code: string): NodoBorrador | null => {
+      for (let len = code.length - 1; len >= 1; len--) {
+        const p = agrPorCodigo.get(code.slice(0, len));
+        if (p) return p;
+      }
+      return null;
+    };
+    for (const n of nodos) {
+      const padre = esNumerico(n.codigo) ? padreDe(n.codigo) : null;
+      if (padre && padre !== n) padre.hijos.push(n);
+      else roots.push(n);
+    }
+  } else {
   for (const f of ordenadas) {
     const nodo: NodoBorrador = { ...f, descuadre: null, subtotalDuplicado: dupSet.has(f), hijos: [] };
     if (nodo.tipoFila === "movimiento") {
-      // Un movimiento cuelga de la agrupadora ABIERTA más profunda (por ORDEN del
-      // archivo), NO por prefijo de código. Así los movimientos «desacoplados» que
-      // el ERP ubicó bajo una agrupadora que no les corresponde por código (p. ej.
-      // `139005` bajo `1305 CLIENTES`) quedan bajo su agrupadora real y el subtotal
-      // cuadra. No abre ni cierra bloques.
-      const padre = pila[pila.length - 1];
+      // Un movimiento cuelga de la agrupadora ABIERTA más profunda que sea un
+      // CONTENEDOR plausible: código estrictamente MÁS CORTO que el suyo (por ORDEN
+      // del archivo, no por prefijo). Dos códigos de igual longitud son HERMANOS, no
+      // padre-hijo (un 6 díg no cuelga de otro 6 díg). Así:
+      //  - se respeta el desacople del ERP: un detalle bajo un grupo de código ajeno
+      //    pero de MENOR nivel (p. ej. `139005` bajo `1305 CLIENTES`) queda ahí y el
+      //    subtotal cuadra; PERO
+      //  - una cuenta HERMANA que el orden ubicó tras el detalle de otra (p. ej.
+      //    `135531` justo después de las hijas de `135515`) NO se traga: sube al
+      //    contenedor común real (`1355`), y ambos subtotales cuadran.
+      // No abre ni cierra bloques. Fallback al tope si el código no es numérico o no
+      // hay contenedor más corto (conserva el comportamiento por orden).
+      let padre: NodoBorrador | undefined;
+      if (esNumerico(nodo.codigo)) {
+        for (let i = pila.length - 1; i >= 0; i--) {
+          const t = pila[i];
+          if (!esNumerico(t.codigo)) continue;
+          if (nodo.desacoplada) {
+            // Desacople MANUAL: SOLO cuelga de un ancestro real por PREFIJO estricto;
+            // ignora los contenedores por orden de código ajeno. Si no hay ancestro
+            // por prefijo en la pila, queda como raíz (fuera de la agrupadora ajena).
+            if (nodo.codigo.startsWith(t.codigo) && t.codigo.length < nodo.codigo.length) { padre = t; break; }
+          } else if (t.codigo.length < nodo.codigo.length || t.codigo === nodo.codigo) {
+            // Normal: contenedor por nivel (código más corto), o el MISMO código (caso
+            // «código repetido»: encabezado + su movimiento homónimo).
+            padre = t; break;
+          }
+        }
+      }
+      // Desacoplada sin ancestro por prefijo → raíz; si no, fallback al tope por orden.
+      padre = padre ?? (nodo.desacoplada ? undefined : pila[pila.length - 1]);
       if (padre) padre.hijos.push(nodo);
       else roots.push(nodo);
     } else {
@@ -82,6 +136,7 @@ export function construirArbolBorrador(filas: FilaBorrador[], tol = 1): NodoBorr
       else roots.push(nodo);
       pila.push(nodo);
     }
+  }
   }
 
   // Aplanar + indexar por nombre para detectar gemelos.
@@ -137,17 +192,53 @@ export function construirArbolBorrador(filas: FilaBorrador[], tol = 1): NodoBorr
   return roots;
 }
 
+/**
+ * Reclasifica a MOVIMIENTO las agrupadoras HUÉRFANAS: nodos marcados como
+ * agrupadora que en el árbol NO tienen ningún hijo y traen movimiento (saldo o
+ * débito/crédito ≠ 0). Una "agrupadora" que no agrupa nada es en realidad una
+ * hoja imputable — el ERP exportó el saldo DIRECTO en la cuenta, sin desglose
+ * (p. ej. `2205 NACIONALES` con su saldo y sin subcuentas); si se deja como
+ * agrupadora, su plata se pierde al cargar (una agrupadora se asume = Σ hijos, y
+ * no tiene). MUTA `filas` (tipoFila) y devuelve las filas reclasificadas.
+ *
+ * Seguro contra DOBLE CONTEO: un nodo sin hijos no tiene descendientes que ya
+ * aporten su saldo, y la detección de gemelos ignora los nodos sin hijos (ver el
+ * `continue` en `construirArbolBorrador`), así que tampoco recibe un gemelo.
+ */
+export function reclasificarHuerfanas(filas: FilaBorrador[]): FilaBorrador[] {
+  const tieneMovimiento = (n: NodoBorrador) =>
+    Math.abs(n.saldoFinal) > 0.005 || Math.abs(n.debitos) > 0.005 || Math.abs(n.creditos) > 0.005;
+  const arbol = construirArbolBorrador(filas);
+  const huerfanas = new Set<number>(); // filaNum
+  const rec = (n: NodoBorrador) => {
+    if (n.tipoFila !== "movimiento" && n.hijos.length === 0 && !n.subtotalDuplicado && tieneMovimiento(n)) {
+      huerfanas.add(n.filaNum);
+    }
+    n.hijos.forEach(rec);
+  };
+  arbol.forEach(rec);
+  const cambiadas: FilaBorrador[] = [];
+  for (const f of filas) {
+    if (huerfanas.has(f.filaNum)) {
+      f.tipoFila = "movimiento";
+      cambiadas.push(f);
+    }
+  }
+  return cambiadas;
+}
+
 /** Total de nodos en el bosque (para contadores/UI). */
 export function contarNodos(nodos: NodoBorrador[]): number {
   return nodos.reduce((n, x) => n + 1 + contarNodos(x.hijos), 0);
 }
 
 /**
- * Aplana el árbol a una lista en orden de despliegue, con la profundidad de cada
- * nodo (para exportar/serializar). Si `filtro` trae códigos, incluye solo las ramas
- * que contienen una coincidencia (código que empieza por alguno del filtro): sus
- * ancestros (ruta) + todo el subárbol de cada coincidencia. Misma lógica que el
- * filtro visual del árbol.
+ * Aplana el árbol a una lista con la profundidad (nivel) de cada nodo, ordenada por
+ * el ORDEN ORIGINAL del archivo (`filaNum`) — no por el recorrido del árbol — para
+ * que el export conserve el crudo tal cual (p. ej. en «totales al final» el subtotal
+ * sale DESPUÉS de su detalle, como en el Excel). Si `filtro` trae códigos, incluye
+ * solo las ramas que contienen una coincidencia (código que empieza por alguno del
+ * filtro): sus ancestros (ruta) + todo el subárbol de cada coincidencia.
  */
 export function aplanarArbolFiltrado(arbol: NodoBorrador[], filtro: string[] = []): { nodo: NodoBorrador; profundidad: number }[] {
   const activo = filtro.length > 0;
@@ -168,5 +259,7 @@ export function aplanarArbolFiltrado(arbol: NodoBorrador[], filtro: string[] = [
     n.hijos.forEach((h) => rec(h, prof + 1, bajoMatch || esMatch));
   };
   arbol.forEach((r) => rec(r, 0, false));
+  // Orden ORIGINAL del archivo: conserva el crudo (detalle→subtotal en summary-below).
+  out.sort((a, b) => a.nodo.filaNum - b.nodo.filaNum);
   return out;
 }

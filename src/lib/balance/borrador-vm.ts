@@ -3,7 +3,7 @@
 // las validaciones y los hallazgos se calculen EXACTAMENTE igual en ambos lados.
 import { calcularBalance, construirValidacionContable, conForzarHoja, type CuentaCruda, type ValidacionContable } from "./calcular";
 import { marcarSubtotalesDuplicados, reclasificarRepetidos } from "./extraccion/transformar";
-import { construirArbolBorrador, type FilaBorrador, type NodoBorrador } from "./borrador";
+import { construirArbolBorrador, reclasificarHuerfanas, type FilaBorrador, type NodoBorrador } from "./borrador";
 import { diagnosticarBorrador, type Hallazgo, type PartidaDobleInfo } from "./diagnostico";
 
 export type AgrupadoraRef = { codigo: string; nombre: string; saldoFinal: number; descuadre: number | null };
@@ -28,6 +28,9 @@ function aplanar(nodos: NodoBorrador[]): NodoBorrador[] {
  */
 export function construirVistaBorrador(filas: FilaBorrador[]): VistaBorrador {
   reclasificarRepetidos(filas);
+  // Agrupadoras HUÉRFANAS (sin hijos, con saldo) → movimiento: son hojas imputables
+  // que el ERP exportó sin desglose; si no, su saldo se pierde. MUTA `filas`.
+  reclasificarHuerfanas(filas);
   const arbol = construirArbolBorrador(filas);
 
   const movimiento = filas.filter((f) => f.tipoFila === "movimiento");

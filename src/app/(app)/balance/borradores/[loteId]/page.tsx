@@ -3,7 +3,6 @@ import prisma from "@/lib/prisma";
 import { requirePermiso } from "@/lib/rbac";
 import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { PageHeader, BackLink } from "@/components/ui";
-import { construirVistaBorrador } from "@/lib/balance/borrador-vm";
 import type { FilaBorrador } from "@/lib/balance/borrador";
 import BorradorDetailClient from "./borrador-detail-client";
 
@@ -21,14 +20,14 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
   ]);
   if (filasStaging.length === 0) notFound();
 
-  // Filas crudas → view-model (árbol + validaciones + hallazgos), mismo pipeline
-  // que usa la acción de diagnóstico asistido. Decimal de Prisma → number.
+  // Filas CRUDAS del staging → al cliente, que recomputa el view-model (árbol +
+  // validaciones + hallazgos) y aplica los cambios TEMPORALES antes de guardar.
+  // Decimal de Prisma → number.
   const filas: FilaBorrador[] = filasStaging.map((f) => ({
     filaNum: f.filaNum, codigo: f.codigo, codigoCrudo: f.codigoCrudo, nombre: f.nombre, nivel: f.nivel,
-    tipoFila: f.tipoFila as FilaBorrador["tipoFila"],
+    tipoFila: f.tipoFila as FilaBorrador["tipoFila"], desacoplada: f.desacoplada,
     saldoInicial: Number(f.saldoInicial), debitos: Number(f.debitos), creditos: Number(f.creditos), saldoFinal: Number(f.saldoFinal),
   }));
-  const { arbol, validacion, partidaDoble, hallazgos } = construirVistaBorrador(filas);
 
   // Clientes de la cartera para el selector de carga + cliente sugerido por NIT.
   const alc = await alcanceLecturaUsuario();
@@ -53,10 +52,7 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
         nitDetectado={lote?.nitDetectado ?? null}
         periodoInicial={lote?.periodoInicial ?? null}
         periodoFinal={lote?.periodoFinal ?? null}
-        arbol={arbol}
-        validacion={validacion}
-        partidaDoble={partidaDoble}
-        hallazgos={hallazgos}
+        filas={filas}
         clientes={clientes.map((c) => ({ id: c.id, name: c.name, nit: c.nit }))}
         clienteSugeridoId={clienteSugeridoId}
       />

@@ -729,6 +729,10 @@ model BalanceImportacionStaging {
   debitos      Decimal  @default(0) @map("debitos") @db.Decimal(18, 2)
   creditos     Decimal  @default(0) @map("creditos") @db.Decimal(18, 2)
   saldoFinal   Decimal  @default(0) @map("saldo_final") @db.Decimal(18, 2)
+  // Desacople MANUAL: el usuario forzó que esta cuenta se anide por PREFIJO de código
+  // (su padre real), no por el orden del archivo. Corrige un detalle que el ERP ubicó
+  // bajo una agrupadora de código ajeno y de menor nivel (p. ej. `145020` bajo `1305`).
+  desacoplada  Boolean  @default(false) @map("desacoplada")
   creadoEn     DateTime @default(now()) @map("creado_en")
 
   @@index([loteId])

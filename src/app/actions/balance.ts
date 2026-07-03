@@ -35,7 +35,7 @@ import { TIPO_BALANCE_CARGA } from "@/lib/balance/tipo-balance";
 import { extraerBalance } from "@/lib/balance/extraccion/extraer";
 import { mapearPorIA } from "@/lib/balance/mapeo-ia";
 import { construirVistaBorrador } from "@/lib/balance/borrador-vm";
-import type { FilaBorrador } from "@/lib/balance/borrador";
+import { reclasificarHuerfanas, type FilaBorrador } from "@/lib/balance/borrador";
 import { diagnosticarConIA, type DiagnosticoIA } from "@/lib/balance/diagnostico-ia";
 import { iaDisponible, MODELO_EXTRACCION } from "@/lib/anthropic";
 import { registrarConsumoIA, type UsoIA } from "@/lib/ia/uso";
@@ -209,13 +209,16 @@ async function promoverStagingAOficial(p: MetaPromocion, contexto: string): Prom
     const staged = await prisma.balanceImportacionStaging.findMany({
       where: { loteId: p.loteId },
       orderBy: { filaNum: "asc" },
-      select: { filaNum: true, codigo: true, nombre: true, tipoFila: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
+      select: { filaNum: true, codigo: true, codigoCrudo: true, nombre: true, nivel: true, tipoFila: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
     });
-    const rows = staged.map((f) => ({
-      filaNum: f.filaNum, codigo: f.codigo, nombre: f.nombre, tipoFila: f.tipoFila as TipoFila,
+    const rows: FilaBorrador[] = staged.map((f) => ({
+      filaNum: f.filaNum, codigo: f.codigo, codigoCrudo: f.codigoCrudo, nombre: f.nombre, nivel: f.nivel, tipoFila: f.tipoFila as TipoFila,
       saldoInicial: Number(f.saldoInicial), debitos: Number(f.debitos), creditos: Number(f.creditos), saldoFinal: Number(f.saldoFinal),
     }));
     reclasificarRepetidos(rows); // código repetido → movimiento
+    // Agrupadora huérfana (sin hijos, con saldo) → movimiento: el ERP la exportó sin
+    // desglose; si no, su saldo se pierde al cargar. También recupera lotes viejos.
+    reclasificarHuerfanas(rows);
     const mov = rows.filter((f) => f.tipoFila === "movimiento");
     // Excluye subtotales DUPLICADOS (6 díg con detalle 8 díg idéntico) para no doblar.
     const dup = marcarSubtotalesDuplicados(mov);
@@ -734,6 +737,14 @@ export async function leerBalance(
     // detalle (calcularBalance no necesita el plan estándar para las sumas: son por
     // clase) contra los que TRAE el archivo (filas clase 1/2/3), + la ecuación
     // A = P + Patrimonio + Resultado. Todo con margen ±$1000.
+    // Agrupadoras HUÉRFANAS (sin hijos, con saldo) → movimiento: hojas imputables
+    // que el ERP exportó sin desglose. MUTA `filasCrudas` (staging las guarda ya
+    // como movimiento) y las suma al detalle para que el snapshot del encabezado
+    // (chip Cuadrado/Descuadrado) refleje lo mismo que verá la vista del borrador.
+    const huerfanas = reclasificarHuerfanas(extr.filasCrudas);
+    for (const f of huerfanas) {
+      extr.importReady.push({ code: f.codigo, name: f.nombre, prevBalance: f.saldoInicial, balance: f.saldoFinal, debitos: f.debitos, creditos: f.creditos });
+    }
     const calcBorrador = calcularBalance(extr.importReady, []);
     // Total del archivo por clase = SUMA de todas las filas totalizadoras de esa
     // clase (código "1"/"2"/"3"). En balances MULTI-SUCURSAL el ERP repite el total
@@ -1057,64 +1068,67 @@ export async function diagnosticarBorradorIA(loteId: string): Promise<Diagnostic
 }
 
 /**
- * Reclasifica manualmente una cuenta del borrador entre AGRUPADORA ↔ MOVIMIENTO
- * (corrección tras el diagnóstico). Aplica a TODAS las filas del lote con ese
- * código que hoy tienen el tipo ACTUAL (para corregir la cuenta en todas las
- * sucursales sin tocar una fila del mismo código pero del otro tipo — p. ej. un
- * encabezado repetido). Persiste en el staging; la página recalcula al revalidar.
+ * GUARDA en el staging los cambios que el usuario hizo en el borrador (hasta ahora
+ * TEMPORALES en el navegador): reclasificaciones AGRUPADORA↔MOVIMIENTO y correcciones
+ * de "lados invertidos" (débito↔crédito). Se aplica en lote:
+ *  - `override`: código → tipo nuevo. Flip de las filas del lote con ese código que
+ *    hoy tienen el tipo OPUESTO (no toca una fila del mismo código pero del otro
+ *    tipo — p. ej. un encabezado repetido).
+ *  - `invertidos`: códigos cuyo débito/crédito se intercambia SOLO en las filas cuyo
+ *    control hoy no cuadra pero SÍ al intercambiar (no daña sucursales correctas; el
+ *    saldo no se toca).
+ *  - `desacopladas`: código → on/off del flag `desacoplada` (anidar por prefijo, no por
+ *    orden). No afecta el balance cargado (la carga agrega por código, no por árbol);
+ *    solo corrige DÓNDE se muestra el descuadre en la revisión del borrador.
  */
-export async function reclasificarFilaBorrador(loteId: string, codigo: string, tipoFila: "agrupadora" | "movimiento"): Promise<ActionState> {
+export async function aplicarCambiosBorrador(
+  loteId: string,
+  override: Record<string, "agrupadora" | "movimiento">,
+  invertidos: string[],
+  desacopladas: Record<string, boolean> = {},
+): Promise<ActionState> {
   const authz = await authorizePermiso("balance:crear");
   if (!authz.ok) return { ok: false, message: authz.message };
   const id = String(loteId ?? "").trim();
-  const cod = String(codigo ?? "").trim();
-  if (!id || !/^\d+$/.test(cod)) return { ok: false, message: "Cuenta inválida." };
-  if (tipoFila !== "agrupadora" && tipoFila !== "movimiento") return { ok: false, message: "Tipo inválido." };
-  const tipoActual = tipoFila === "movimiento" ? "agrupadora" : "movimiento";
+  if (!id) return { ok: false, message: "Borrador inválido." };
+  const reclas = Object.entries(override ?? {}).filter(([c, t]) => /^\d+$/.test(c) && (t === "agrupadora" || t === "movimiento"));
+  const invs = [...new Set((invertidos ?? []).filter((c) => /^\d+$/.test(c)))];
+  const desac = Object.entries(desacopladas ?? {}).filter(([c]) => /^\d+$/.test(c));
+  if (reclas.length === 0 && invs.length === 0 && desac.length === 0) return { ok: false, message: "No hay cambios para guardar." };
   try {
-    const res = await prisma.balanceImportacionStaging.updateMany({
-      where: { loteId: id, codigo: cod, tipoFila: tipoActual },
-      data: { tipoFila },
-    });
-    if (res.count === 0) return { ok: false, message: "No hay filas de esa cuenta para reclasificar." };
+    let nRe = 0;
+    let nInv = 0;
+    let nDes = 0;
+    for (const [cod, tipo] of reclas) {
+      const actual = tipo === "movimiento" ? "agrupadora" : "movimiento";
+      const r = await prisma.balanceImportacionStaging.updateMany({ where: { loteId: id, codigo: cod, tipoFila: actual }, data: { tipoFila: tipo } });
+      nRe += r.count;
+    }
+    if (invs.length > 0) {
+      const rows = await prisma.balanceImportacionStaging.findMany({
+        where: { loteId: id, codigo: { in: invs } },
+        select: { id: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
+      });
+      const controlOk = (si: number, db: number, cr: number, s: number) => Math.abs(si + db - cr - s) <= 1;
+      const aInvertir = rows.filter((r) => {
+        const si = Number(r.saldoInicial), db = Number(r.debitos), cr = Number(r.creditos), s = Number(r.saldoFinal);
+        return !controlOk(si, db, cr, s) && controlOk(si, cr, db, s);
+      });
+      if (aInvertir.length > 0) {
+        await prisma.$transaction(aInvertir.map((r) => prisma.balanceImportacionStaging.update({ where: { id: r.id }, data: { debitos: r.creditos, creditos: r.debitos } })));
+        nInv = aInvertir.length;
+      }
+    }
+    for (const [cod, on] of desac) {
+      const r = await prisma.balanceImportacionStaging.updateMany({ where: { loteId: id, codigo: cod }, data: { desacoplada: on } });
+      nDes += r.count;
+    }
     const user = await getCurrentUser();
-    await logAudit({ user: user?.name ?? "—", action: "RECLASIFICÓ cuenta de balance borrador", entity: id, detail: `${cod}: ${tipoActual} → ${tipoFila} (${res.count} fila/s)` });
+    await logAudit({ user: user?.name ?? "—", action: "GUARDÓ cambios en balance borrador", entity: id, detail: `${nRe} reclasificada(s), ${nInv} inversión(es), ${nDes} desacople(s)` });
     revalidatePath(`/balance/borradores/${id}`);
-    return { ok: true, message: `Cuenta ${cod} → ${tipoFila} (${res.count} fila${res.count === 1 ? "" : "s"}).` };
+    const nTotal = nRe + nInv + nDes;
+    return { ok: true, message: `Cambios guardados (${nTotal} fila${nTotal === 1 ? "" : "s"}).` };
   } catch (e) {
-    return { ok: false, message: mensajeErrorBD("reclasificarFilaBorrador", e) };
-  }
-}
-
-/**
- * Corrige "lados invertidos": intercambia débito ↔ crédito de una cuenta del
- * borrador. Solo toca las filas de ese código cuyo control HOY no cuadra con el
- * saldo pero SÍ cuadra al intercambiar (así no daña sucursales correctas). El
- * saldo NO se toca (ya es el correcto; la ecuación cuadra).
- */
-export async function invertirLadosFilaBorrador(loteId: string, codigo: string): Promise<ActionState> {
-  const authz = await authorizePermiso("balance:crear");
-  if (!authz.ok) return { ok: false, message: authz.message };
-  const id = String(loteId ?? "").trim();
-  const cod = String(codigo ?? "").trim();
-  if (!id || !/^\d+$/.test(cod)) return { ok: false, message: "Cuenta inválida." };
-  try {
-    const rows = await prisma.balanceImportacionStaging.findMany({
-      where: { loteId: id, codigo: cod },
-      select: { id: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
-    });
-    const controlOk = (si: number, db: number, cr: number, s: number) => Math.abs(si + db - cr - s) <= 1;
-    const aInvertir = rows.filter((r) => {
-      const si = Number(r.saldoInicial), db = Number(r.debitos), cr = Number(r.creditos), s = Number(r.saldoFinal);
-      return !controlOk(si, db, cr, s) && controlOk(si, cr, db, s);
-    });
-    if (aInvertir.length === 0) return { ok: false, message: "Esa cuenta no tiene filas con débito/crédito invertidos." };
-    await prisma.$transaction(aInvertir.map((r) => prisma.balanceImportacionStaging.update({ where: { id: r.id }, data: { debitos: r.creditos, creditos: r.debitos } })));
-    const user = await getCurrentUser();
-    await logAudit({ user: user?.name ?? "—", action: "INVIRTIÓ débito/crédito en balance borrador", entity: id, detail: `${cod} (${aInvertir.length} fila/s)` });
-    revalidatePath(`/balance/borradores/${id}`);
-    return { ok: true, message: `Débito/crédito corregidos en ${cod} (${aInvertir.length} fila${aInvertir.length === 1 ? "" : "s"}).` };
-  } catch (e) {
-    return { ok: false, message: mensajeErrorBD("invertirLadosFilaBorrador", e) };
+    return { ok: false, message: mensajeErrorBD("aplicarCambiosBorrador", e) };
   }
 }
