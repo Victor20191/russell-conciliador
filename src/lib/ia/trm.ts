@@ -2,8 +2,8 @@
 //
 // `getTRM()` devuelve los pesos colombianos por 1 USD para convertir el costo de
 // las llamadas a Claude. Estrategia (como `getMatriz` en src/lib/rbac/contexto.ts):
-//   - unstable_cache (Data Cache de Next) con revalidate diario: el fetch remoto
-//     ocurre ~1 vez al día (la primera lectura tras expirar), no en cada request.
+//   - unstable_cache (Data Cache de Next) por fecha Colombia: el fetch remoto
+//     ocurre ~1 vez al día por vigencia, no en cada request.
 //   - Al refrescar, hace UPSERT en `tasas_cambio` (histórico + fallback durable).
 //   - Fallback en cascada: remoto/cache → última fila de `tasas_cambio` →
 //     env USD_COP_TRM_FALLBACK (default 4000). Nunca lanza.
@@ -14,11 +14,9 @@ import { registrarError } from "@/lib/errores";
 
 export const TRM_CACHE_TAG = "trm-usd-cop";
 const MONEDA = "USD";
+const ZONA_COLOMBIA = "America/Bogota";
 
-// Dataset "Tasa de Cambio Representativa del Mercado - TRM" (Socrata 32sa-8pi3):
-// se pide la fila más reciente por vigencia.
-const ENDPOINT =
-  "https://www.datos.gov.co/resource/32sa-8pi3.json?$order=vigenciadesde%20DESC&$limit=1";
+const BASE_ENDPOINT = "https://www.datos.gov.co/resource/32sa-8pi3.json";
 
 function trmFallback(): number {
   const n = Number(process.env.USD_COP_TRM_FALLBACK ?? "4000");
@@ -26,6 +24,32 @@ function trmFallback(): number {
 }
 
 type FilaTRM = { valor?: string; vigenciadesde?: string; vigenciahasta?: string };
+
+/** Fecha civil colombiana (`YYYY-MM-DD`) para decidir la TRM vigente. */
+export function fechaColombiaISO(fecha: Date = new Date()): string {
+  const partes = new Intl.DateTimeFormat("en-CA", {
+    timeZone: ZONA_COLOMBIA,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(fecha);
+  const valor = (tipo: string) => partes.find((p) => p.type === tipo)?.value ?? "";
+  return `${valor("year")}-${valor("month")}-${valor("day")}`;
+}
+
+function diaUTC(fechaISO: string): Date {
+  return new Date(`${fechaISO}T00:00:00.000Z`);
+}
+
+function endpointTRM(fechaISO: string): string {
+  const params = new URLSearchParams({
+    $select: "valor,vigenciadesde,vigenciahasta",
+    $where: `vigenciadesde <= '${fechaISO}T00:00:00.000'`,
+    $order: "vigenciadesde DESC",
+    $limit: "1",
+  });
+  return `${BASE_ENDPOINT}?${params.toString()}`;
+}
 
 /** Normaliza un ISO datetime a la fecha (medianoche UTC) para casar con @db.Date. */
 function aDia(iso: string | undefined): Date {
@@ -35,8 +59,8 @@ function aDia(iso: string | undefined): Date {
 }
 
 /** Consulta la TRM vigente más reciente en datos.gov.co. Devuelve null si falla. */
-async function obtenerTRMRemota(): Promise<{ valor: number; desde: Date; hasta: Date | null } | null> {
-  const resp = await fetch(ENDPOINT, {
+async function obtenerTRMRemota(fechaISO: string): Promise<{ valor: number; desde: Date; hasta: Date | null } | null> {
+  const resp = await fetch(endpointTRM(fechaISO), {
     headers: { accept: "application/json" },
     // El TTL lo gobierna el unstable_cache externo; evita doble capa de caché.
     cache: "no-store",
@@ -55,10 +79,10 @@ async function obtenerTRMRemota(): Promise<{ valor: number; desde: Date; hasta: 
 }
 
 /** Última TRM conocida en BD (fallback durable). */
-async function ultimaTRMBD(): Promise<number | null> {
+async function ultimaTRMBD(fechaISO?: string): Promise<number | null> {
   try {
     const fila = await prisma.tasaCambio.findFirst({
-      where: { moneda: MONEDA },
+      where: { moneda: MONEDA, ...(fechaISO ? { vigenciaDesde: { lte: diaUTC(fechaISO) } } : {}) },
       orderBy: { vigenciaDesde: "desc" },
       select: { valor: true },
     });
@@ -73,9 +97,9 @@ async function ultimaTRMBD(): Promise<number | null> {
  * número (remoto → BD → fallback de entorno); nunca lanza, para no romper la
  * conversión a COP del consumo de IA.
  */
-async function refrescarTRM(): Promise<number> {
+async function refrescarTRM(fechaISO: string): Promise<number> {
   try {
-    const remota = await obtenerTRMRemota();
+    const remota = await obtenerTRMRemota(fechaISO);
     if (remota) {
       await prisma.tasaCambio
         .upsert({
@@ -95,22 +119,24 @@ async function refrescarTRM(): Promise<number> {
   } catch (e) {
     registrarError("refrescarTRM", e);
   }
-  return (await ultimaTRMBD()) ?? trmFallback();
+  return (await ultimaTRMBD(fechaISO)) ?? trmFallback();
 }
 
-// Refresco ~diario: el fetch+upsert solo corre en el primer acceso tras expirar.
-const getTRMCached = unstable_cache(refrescarTRM, ["trm-usd-cop"], {
+// Refresco ~diario por fecha: el fetch+upsert solo corre en el primer acceso tras
+// expirar para esa vigencia. La fecha va como argumento para entrar en la llave.
+const getTRMCached = unstable_cache(refrescarTRM, ["trm-usd-cop-vigente-v2"], {
   tags: [TRM_CACHE_TAG],
   revalidate: 86_400, // 24 h
 });
 
-/** Pesos colombianos por 1 USD. Cacheada a diario; nunca lanza. */
-export async function getTRM(): Promise<number> {
+/** Pesos colombianos por 1 USD. Cacheada por fecha Colombia; nunca lanza. */
+export async function getTRM(fecha: Date = new Date()): Promise<number> {
+  const fechaISO = fechaColombiaISO(fecha);
   try {
-    const v = await getTRMCached();
+    const v = await getTRMCached(fechaISO);
     if (Number.isFinite(v) && v > 0) return v;
   } catch {
     /* cae al fallback BD/entorno */
   }
-  return (await ultimaTRMBD()) ?? trmFallback();
+  return (await ultimaTRMBD(fechaISO)) ?? trmFallback();
 }

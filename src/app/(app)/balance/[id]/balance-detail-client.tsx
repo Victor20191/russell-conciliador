@@ -155,8 +155,12 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios }: 
           <FiltroBtn on={filtro === "er"} onClick={() => setFiltro("er")} label="Estado de Resultado" />
           <FiltroBtn on={filtro === "alertas"} onClick={() => setFiltro("alertas")} label="Alertas" count={totalAlertas} tone="warn" />
           <span className="mx-1 h-4 w-px bg-ink-200" />
-          <button onClick={expandirTodo} className="rounded-md border border-ink-200 px-2 py-1 text-[11.5px] font-medium text-ink-600 hover:bg-ink-50">Expandir todo</button>
-          <button onClick={contraerTodo} className="rounded-md border border-ink-200 px-2 py-1 text-[11.5px] font-medium text-ink-600 hover:bg-ink-50">Contraer todo</button>
+          <button onClick={expandirTodo} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 px-2 py-1 text-[11.5px] font-medium text-ink-600 hover:bg-ink-50">
+            <Icon name="chev-d" size={12} /> Expandir todo
+          </button>
+          <button onClick={contraerTodo} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 px-2 py-1 text-[11.5px] font-medium text-ink-600 hover:bg-ink-50">
+            <Icon name="chev-r" size={12} /> Contraer todo
+          </button>
         </div>
       </div>
       <div className="overflow-x-auto">
