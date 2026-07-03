@@ -2,7 +2,7 @@
 // página de detalle (RSC) y la acción de diagnóstico asistido, para que el árbol,
 // las validaciones y los hallazgos se calculen EXACTAMENTE igual en ambos lados.
 import { calcularBalance, construirValidacionContable, conForzarHoja, type CuentaCruda, type ValidacionContable } from "./calcular";
-import { marcarSubtotalesDuplicados, reclasificarRepetidos } from "./extraccion/transformar";
+import { marcarSubtotalesDuplicados, reclasificarRepetidos, reclasificarNoImputables } from "./extraccion/transformar";
 import { construirArbolBorrador, reclasificarHuerfanas, type FilaBorrador, type NodoBorrador } from "./borrador";
 import { diagnosticarBorrador, type Hallazgo, type PartidaDobleInfo } from "./diagnostico";
 
@@ -28,6 +28,10 @@ function aplanar(nodos: NodoBorrador[]): NodoBorrador[] {
  */
 export function construirVistaBorrador(filas: FilaBorrador[]): VistaBorrador {
   reclasificarRepetidos(filas);
+  // Pie/total del reporte sin código («Total general», «Totales», marca del software)
+  // mal clasificado como movimiento → «total»: si no, se cuelga de la última
+  // agrupadora inflando su Δ y se cuenta al cargar. MUTA `filas`.
+  reclasificarNoImputables(filas);
   // Agrupadoras HUÉRFANAS (sin hijos, con saldo) → movimiento: son hojas imputables
   // que el ERP exportó sin desglose; si no, su saldo se pierde. MUTA `filas`.
   reclasificarHuerfanas(filas);

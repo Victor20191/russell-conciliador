@@ -40,7 +40,7 @@ import { diagnosticarConIA, type DiagnosticoIA } from "@/lib/balance/diagnostico
 import { iaDisponible, MODELO_EXTRACCION } from "@/lib/anthropic";
 import { registrarConsumoIA, type UsoIA } from "@/lib/ia/uso";
 import { randomUUID } from "node:crypto";
-import { construirCuadre, marcarSubtotalesDuplicados, reclasificarRepetidos } from "@/lib/balance/extraccion/transformar";
+import { construirCuadre, marcarSubtotalesDuplicados, reclasificarRepetidos, reclasificarNoImputables } from "@/lib/balance/extraccion/transformar";
 import type { FilaCruda, ParamsExtraccion, ResultadoTransform, TipoFila } from "@/lib/balance/extraccion/transformar";
 import { CUADRE_NO_APLICA } from "@/lib/balance/extraccion/esquema";
 import type { CuadreTotales, Excepcion, ResumenAuditoria } from "@/lib/balance/extraccion/esquema";
@@ -216,6 +216,7 @@ async function promoverStagingAOficial(p: MetaPromocion, contexto: string): Prom
       saldoInicial: Number(f.saldoInicial), debitos: Number(f.debitos), creditos: Number(f.creditos), saldoFinal: Number(f.saldoFinal),
     }));
     reclasificarRepetidos(rows); // código repetido → movimiento
+    reclasificarNoImputables(rows); // pie/total sin código («Total general», marca ERP) → total
     // Agrupadora huérfana (sin hijos, con saldo) → movimiento: el ERP la exportó sin
     // desglose; si no, su saldo se pierde al cargar. También recupera lotes viejos.
     reclasificarHuerfanas(rows);
@@ -737,6 +738,10 @@ export async function leerBalance(
     // detalle (calcularBalance no necesita el plan estándar para las sumas: son por
     // clase) contra los que TRAE el archivo (filas clase 1/2/3), + la ecuación
     // A = P + Patrimonio + Resultado. Todo con margen ±$1000.
+    // Pie/total sin código («Total general», «Totales», marca del ERP) mal marcado
+    // como movimiento → «total»: si no, se cuelga de la última agrupadora inflando su
+    // Δ y se cuenta al cargar. MUTA `filasCrudas` (staging las guarda ya como total).
+    reclasificarNoImputables(extr.filasCrudas);
     // Agrupadoras HUÉRFANAS (sin hijos, con saldo) → movimiento: hojas imputables
     // que el ERP exportó sin desglose. MUTA `filasCrudas` (staging las guarda ya
     // como movimiento) y las suma al detalle para que el snapshot del encabezado

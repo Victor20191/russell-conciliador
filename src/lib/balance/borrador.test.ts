@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { construirArbolBorrador, contarNodos, aplanarArbolFiltrado, reclasificarHuerfanas, type FilaBorrador } from "./borrador";
+import { reclasificarNoImputables } from "./extraccion/transformar";
 
 function fila(filaNum: number, codigo: string, nombre: string, saldoFinal: number, tipo: FilaBorrador["tipoFila"]): FilaBorrador {
   return { filaNum, codigo, codigoCrudo: codigo, nombre, nivel: codigo.length || null, tipoFila: tipo, saldoInicial: 0, debitos: 0, creditos: 0, saldoFinal };
@@ -196,6 +197,35 @@ describe("construirArbolBorrador", () => {
     ]);
     expect(arbol[0].descuadre).toBe(0); // dentro de tolerancia
     expect(arbol[0].hijos[0].descuadre).toBeNull(); // las hojas no se validan
+  });
+});
+
+describe("reclasificarNoImputables (pie/total sin código)", () => {
+  it("una fila de PIE sin código (Total general) no se cuelga de la última agrupadora ni infla su Δ", () => {
+    const filas: FilaBorrador[] = [
+      fila(1, "739905", "CIERRE COSTO INDIRECTA", -324, "agrupadora"),
+      fila(2, "73990501", "CIERRE COSTO INDIRECTA", -324, "movimiento"),
+      { ...fila(3, "", "Total general", -665, "movimiento"), codigoCrudo: "Total general" },
+    ];
+    reclasificarNoImputables(filas); // pie sin código → total
+    const arbol = construirArbolBorrador(filas);
+    const cierre = arbol.find((n) => n.codigo === "739905")!;
+    expect(cierre.hijos.map((h) => h.codigo)).toEqual(["73990501"]); // el gran total NO cuelga aquí
+    expect(cierre.descuadre).toBe(0); // -324 = -324, sin Δ falso (antes: Δ 665)
+    const total = arbol.find((n) => n.codigoCrudo === "Total general");
+    expect(total?.tipoFila).toBe("total"); // queda como raíz, tipo total, no se cuenta
+  });
+
+  it("reclasifica solo los movimientos con código NO numérico; deja intactas las cuentas", () => {
+    const filas: FilaBorrador[] = [
+      fila(1, "110505", "CAJA", 100, "movimiento"),
+      { ...fila(2, "", "Siesa Enterprise Net 1.25.0", 1, "movimiento"), codigoCrudo: "Siesa Enterprise Net 1.25.0" },
+      fila(3, "11", "DISPONIBLE", 100, "agrupadora"),
+    ];
+    const cambiadas = reclasificarNoImputables(filas);
+    expect(cambiadas.map((f) => f.nombre)).toEqual(["Siesa Enterprise Net 1.25.0"]);
+    expect(filas.find((f) => f.codigo === "110505")?.tipoFila).toBe("movimiento"); // cuenta real intacta
+    expect(filas.find((f) => f.codigo === "11")?.tipoFila).toBe("agrupadora"); // agrupadora intacta
   });
 });
 

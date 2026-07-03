@@ -216,6 +216,24 @@ export function reclasificarRepetidos<T extends { filaNum: number; codigo: strin
   return cambiadas;
 }
 
+// Filas de PIE/TOTAL del reporte, clasificadas por error como MOVIMIENTO, cuyo
+// código NO es numérico: el «Total general» / «Totales» del final, o la marca del
+// software del ERP («Siesa Enterprise Net 1.25.0»). Sin código imputable NO son
+// cuentas: si quedan como movimiento (a) se cuelgan por ORDEN de la última
+// agrupadora abierta, inflando su Δ con el gran total, y (b) se cuentan al cargar.
+// Se reclasifican a «total» (no se cuentan; en el árbol quedan como raíz). MUTA
+// `filas` y devuelve las reclasificadas.
+export function reclasificarNoImputables<T extends { codigo: string; tipoFila: TipoFila }>(filas: T[]): T[] {
+  const cambiadas: T[] = [];
+  for (const f of filas) {
+    if (f.tipoFila === "movimiento" && !/^\d+$/.test(f.codigo)) {
+      f.tipoFila = "total";
+      cambiadas.push(f);
+    }
+  }
+  return cambiadas;
+}
+
 // ---------------- Resolución de cabecera ----------------
 
 function elegir(param: string | null, detectado: Origen): Origen {
