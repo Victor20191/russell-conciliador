@@ -106,8 +106,10 @@ export type ValidacionContable = {
 /**
  * Construye la validación contable del borrador a partir del balance calculado y
  * los totales A/P/Patrimonio que trae el archivo (en magnitud). Pura y testeable.
- * La comparación archivo↔detalle usa `Math.abs(archivo)` para ser agnóstica a la
- * convención de signo (firmado vs magnitud) del reporte.
+ * La comparación archivo↔detalle usa `Math.abs` en AMBOS lados para ser agnóstica a
+ * la convención de signo (firmado vs magnitud) del reporte: así un patrimonio en
+ * DÉFICIT o una pérdida (calculado negativo) cruza cuando su magnitud coincide con
+ * el archivo, en vez de reportar el doble por la diferencia de signo.
  */
 export function construirValidacionContable(
   calc: ResultadoBalance,
@@ -120,7 +122,7 @@ export function construirValidacionContable(
   const mag = (v: number | null | undefined) => (v == null ? null : Math.abs(v));
   const cmp = (arch: number | null | undefined, calculado: number): { diff: number | null; cuadra: boolean | null } => {
     if (arch == null) return { diff: null, cuadra: null };
-    const diff = Math.abs(arch) - calculado;
+    const diff = Math.abs(arch) - Math.abs(calculado);
     return { diff, cuadra: Math.abs(diff) <= MARGEN_CUADRE };
   };
   const a = cmp(totalesArchivo.activo, s.activo);

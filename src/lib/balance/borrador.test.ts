@@ -106,6 +106,21 @@ describe("construirArbolBorrador", () => {
     expect(clientes?.descuadre).toBe(0);
   });
 
+  it("respeta la anidación del cliente por NIVEL: una cuenta ubicada dentro de un grupo ajeno por código cuadra (531520 en 5305)", () => {
+    const arbol = construirArbolBorrador([
+      fila(1, "53", "GASTOS NO OPERACIONALES", 130, "agrupadora"),
+      fila(2, "5305", "FINANCIEROS", 130, "agrupadora"), // = 100 (530505) + 30 (531520)
+      fila(3, "530505", "GASTOS BANCARIOS", 100, "agrupadora"),
+      fila(4, "530505005", "GASTOS BANCARIOS", 100, "movimiento"),
+      fila(5, "531520", "IMPUESTOS ASUMIDOS", 30, "agrupadora"), // código 5315, pero el cliente lo anidó en 5305
+      fila(6, "531520005", "IMPUESTOS ASUMIDOS", 30, "movimiento"),
+    ]);
+    const fin = arbol[0].hijos.find((h) => h.codigo === "5305");
+    expect(fin?.hijos.map((h) => h.codigo)).toEqual(["530505", "531520"]); // 531520 NO salta a 53
+    expect(fin?.descuadre).toBe(0); // 100 + 30 = 130
+    expect(arbol[0].descuadre).toBe(0); // 53 = 5305(130)
+  });
+
   it("marca un descuadre REAL: la agrupadora no cuadra con las filas que la siguen", () => {
     const arbol = construirArbolBorrador([
       fila(1, "1410", "PRODUCTOS EN PROCESO", 100, "agrupadora"), // total 100…

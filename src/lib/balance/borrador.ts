@@ -36,7 +36,6 @@ export type NodoBorrador = FilaBorrador & {
 };
 
 const esNumerico = (c: string) => /^\d+$/.test(c);
-const esPrefijoEstricto = (a: string, b: string) => a.length > 0 && b.length > a.length && b.startsWith(a);
 const normNombre = (s: string) => (s ?? "").trim().toUpperCase().replace(/\s+/g, " ");
 
 /**
@@ -68,8 +67,14 @@ export function construirArbolBorrador(filas: FilaBorrador[], tol = 1): NodoBorr
       if (padre) padre.hijos.push(nodo);
       else roots.push(nodo);
     } else {
-      // Agrupadora/total: cierra los bloques cuyo código ya no es prefijo del actual.
-      while (pila.length > 0 && !(esNumerico(nodo.codigo) && esPrefijoEstricto(pila[pila.length - 1].codigo, nodo.codigo))) {
+      // Agrupadora/total: cuelga de la agrupadora abierta más cercana de NIVEL más
+      // SUPERFICIAL (código más corto), respetando la INDENTACIÓN del cliente aunque
+      // el código no anide por prefijo. Así una cuenta que el cliente ubicó dentro de
+      // un grupo ajeno por código (p. ej. `531520` dentro de `5305`) queda bajo ese
+      // grupo y su subtotal cuadra, en vez de "saltar" fuera por prefijo. Cierra los
+      // bloques de nivel igual o más profundo (código de igual o mayor longitud).
+      const nivelSuperior = (top: NodoBorrador) => esNumerico(nodo.codigo) && esNumerico(top.codigo) && top.codigo.length < nodo.codigo.length;
+      while (pila.length > 0 && !nivelSuperior(pila[pila.length - 1])) {
         pila.pop();
       }
       const padre = pila[pila.length - 1];

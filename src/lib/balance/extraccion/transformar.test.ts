@@ -321,25 +321,76 @@ describe("transformarTabular", () => {
     expect(rr.resumen.cuentasAgrupadoras).toBe(1); // 110505
   });
 
-  it("negrita como marcador: una de 6 díg con hijos de 8 pero SIN negrita es movimiento (caso 135510)", () => {
+  it("negrita como marcador (convención consistente): una de 6 díg con hijos de 8 pero SIN negrita es movimiento (caso 135510)", () => {
+    // La negrita marca la MAYORÍA de los padres (1105,1110,1305,1355) → convención
+    // válida, así que se usa Y corrige 135510 (prefijo de 8 díg pero sin negrita → movimiento).
+    const B = [true, true, false, false, false, false];
+    const P = [false, false, false, false, false, false];
     const hoja: GridHoja = {
       nombre: "Balance",
       filas: [
         ["Código", "Cuenta", "SI", "DB", "CR", "Saldo"],
-        [1355, "IMPUESTOS", 0, 0, 0, 100], // agrupadora (negrita)
-        [135510, "ANTICIPO ICA", 30, 0, 0, 30], // 6 díg con hijo de 8, SIN negrita → movimiento
-        [13551011, "AUTORRET ITAGUI", 70, 0, 0, 70], // movimiento (sin negrita)
+        [1105, "EFECTIVO", 0, 0, 0, 0], // agrupadora (negrita)
+        [110505, "CAJA", 10, 0, 0, 10], // movimiento
+        [1110, "BANCOS", 0, 0, 0, 0], // agrupadora (negrita)
+        [111005, "BANCO X", 20, 0, 0, 20], // movimiento
+        [1305, "CLIENTES", 0, 0, 0, 0], // agrupadora (negrita)
+        [130505, "CLIENTES NAL", 15, 0, 0, 15], // movimiento
+        [1355, "IMPUESTOS", 0, 0, 0, 0], // agrupadora (negrita)
+        [135505, "RETEFUENTE", 5, 0, 0, 5], // movimiento
+        [135510, "ANTICIPO ICA", 30, 0, 0, 30], // prefijo de 8 díg pero SIN negrita → movimiento
+        [13551011, "AUTORRET ITAGUI", 70, 0, 0, 70], // movimiento
       ],
-      negrita: [
-        [false, false, false, false, false, false],
-        [true, true, false, false, false, false], // 1355 en negrita → agrupadora
-        [false, false, false, false, false, false], // 135510 sin negrita → movimiento (pese al prefijo)
-        [false, false, false, false, false, false],
-      ],
+      negrita: [P, B, P, B, P, B, P, B, P, P, P],
     };
     const rr = transformarTabular(spec(), [hoja], PARAMS);
-    expect(rr.importReady.map((c) => c.code).sort()).toEqual(["135510", "13551011"]);
-    expect(rr.resumen.cuentasAgrupadoras).toBe(1); // solo 1355
+    expect(rr.importReady.map((c) => c.code).sort()).toEqual(["110505", "111005", "130505", "135505", "135510", "13551011"]);
+    expect(rr.resumen.cuentasAgrupadoras).toBe(4); // 1105, 1110, 1305, 1355
+  });
+
+  it("negrita SOLO en 6 díg (el ERP no marca clase/grupo): NO es marcador válido → cae a prefijo", () => {
+    // Patrón HOSPITAL: solo la subcuenta 110505 va en negrita; las agrupadoras
+    // 1/11/1105 no. La negrita no marca los padres → se ignora y clasifica por prefijo.
+    const B = [true, true, false, false, false, false];
+    const P = [false, false, false, false, false, false];
+    const hoja: GridHoja = {
+      nombre: "Balance",
+      filas: [
+        ["Código", "Cuenta", "SI", "DB", "CR", "Saldo"],
+        [1, "ACTIVO", 0, 0, 0, 0], // agrupadora clase (SIN negrita)
+        [11, "DISPONIBLE", 0, 0, 0, 0], // agrupadora grupo (SIN negrita)
+        [1105, "CAJA", 0, 0, 0, 0], // agrupadora cuenta (SIN negrita)
+        [110505, "CAJA GENERAL", 0, 0, 0, 0], // agrupadora subcuenta (EN negrita)
+        [11050501, "CAJA A", 100, 0, 0, 100], // hoja
+      ],
+      negrita: [P, P, P, P, B, P],
+    };
+    const rr = transformarTabular(spec(), [hoja], PARAMS);
+    expect(rr.importReady.map((c) => c.code)).toEqual(["11050501"]); // solo la hoja
+    expect(rr.resumen.cuentasAgrupadoras).toBe(4); // 1, 11, 1105, 110505
+  });
+
+  it("negrita ESPORÁDICA (no concuerda con la estructura): cae a la heurística por prefijo", () => {
+    // Aquí la negrita NO marca agrupadoras (está en hojas y las agrupadoras van sin
+    // negrita): concuerda poco con el prefijo → se ignora y clasifica por prefijo.
+    const B = [true, true, false, false, false, false];
+    const P = [false, false, false, false, false, false];
+    const hoja: GridHoja = {
+      nombre: "Balance",
+      filas: [
+        ["Código", "Cuenta", "SI", "DB", "CR", "Saldo"],
+        [11, "DISPONIBLE", 0, 0, 0, 0], // agrupadora (SIN negrita)
+        [1105, "CAJA", 0, 0, 0, 0], // agrupadora (SIN negrita)
+        [110505, "CAJA GENERAL", 10, 0, 0, 10], // hoja, EN negrita (esporádica)
+        [110510, "CAJAS MENORES", 20, 0, 0, 20], // hoja, EN negrita (esporádica)
+      ],
+      negrita: [P, P, P, B, B],
+    };
+    const rr = transformarTabular(spec(), [hoja], PARAMS);
+    // Si usara la negrita marcaría 11/1105 como movimiento (bug). Con el respaldo por
+    // prefijo, los imputables son las hojas 110505/110510.
+    expect(rr.importReady.map((c) => c.code).sort()).toEqual(["110505", "110510"]);
+    expect(rr.resumen.cuentasAgrupadoras).toBe(2); // 11 y 1105
   });
 
   it("sin negrita: cae a la heurística por prefijo (135510 con hijo de 8 → agrupadora)", () => {

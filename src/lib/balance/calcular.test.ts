@@ -434,6 +434,18 @@ describe("construirValidacionContable — borrador A/P/Patrimonio (archivo vs ca
     expect(v.costosArchivo).toBeNull();
     expect(v.resultadoArchivo).toBeNull(); // faltan gastos/costos
   });
+
+  it("patrimonio NEGATIVO (déficit) cruza con el archivo cuando las magnitudes coinciden", () => {
+    // Capital (crédito, −100) + pérdidas acumuladas (débito, +180) → patrimonio neto −80 (déficit).
+    const c = calcularBalance([
+      { code: "310505", name: "Capital", prevBalance: 0, balance: -100 },
+      { code: "360505", name: "Pérdidas acumuladas", prevBalance: 0, balance: 180 },
+    ], STD);
+    expect(c.sums.patrimonio).toBe(-80);
+    const v = construirValidacionContable(c, { activo: null, pasivo: null, patrimonio: 80 });
+    expect(v.patrimonioDiff).toBe(0); // magnitudes iguales, aunque el signo difiera
+    expect(v.patrimonioCuadra).toBe(true);
+  });
 });
 
 describe("quitarPadresRedundantes — jerarquía de código hermano (no anida por prefijo)", () => {

@@ -279,22 +279,28 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
   }
   const ancestros = prefijosDe(codigos);
 
-  // ¿La hoja usa NEGRITA como marcador de agrupadora? Solo si hay MEZCLA (algunas
-  // cuentas numéricas en negrita y otras no). Cuando la trae, es la clasificación
-  // PROPIA del ERP y manda sobre la heurística por prefijo. Si el archivo NO trae
-  // negrita (CSV/JSON/xlsx sin formato) o viene toda igual, `usaNegrita` es false y
-  // se conserva la heurística estructural (`esHoja`) como respaldo.
+  // ¿La hoja usa NEGRITA como marcador de agrupadora? Es marcador VÁLIDO solo si la
+  // negrita marca de verdad las AGRUPADORAS: la mayoría de los PADRES estructurales
+  // (código que es prefijo de otro) están en negrita, Y la mayoría de las HOJAS NO.
+  // No basta el acuerdo GLOBAL: en un archivo con miles de hojas, unas pocas
+  // agrupadoras mal marcadas (p. ej. el ERP solo pone en negrita las de 6 díg y no
+  // las clases/grupos) quedan enmascaradas. Si la negrita no marca los padres de
+  // forma consistente, se ignora y se clasifica por prefijo (`esHoja`).
   const usaNegrita = ((): boolean => {
     if (!hoja.negrita) return false;
-    let b = 0;
-    let nb = 0;
+    let padres = 0;
+    let padresBold = 0;
+    let hojas = 0;
+    let hojasBold = 0;
     for (let r = spec.primeraFilaDatos - 1; r < hoja.filas.length; r++) {
       const code = normalizarCodigo(cell(hoja.filas[r] ?? [], cols.codigo));
       if (!/^\d+$/.test(code)) continue;
-      if (filaEnNegrita(hoja.negrita[r], cols.codigo, cols.nombre)) b++;
-      else nb++;
+      const enNegrita = filaEnNegrita(hoja.negrita[r], cols.codigo, cols.nombre);
+      if (ancestros.has(code)) { padres++; if (enNegrita) padresBold++; }
+      else { hojas++; if (enNegrita) hojasBold++; }
     }
-    return b > 0 && nb > 0;
+    // La negrita debe marcar los padres (≥80%) y NO las hojas (≥80% sin negrita).
+    return padres > 0 && hojas > 0 && padresBold / padres >= 0.8 && (hojas - hojasBold) / hojas >= 0.8;
   })();
 
   let filasLeidas = 0;
