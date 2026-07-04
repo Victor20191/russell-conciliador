@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import ExcelJS from "exceljs";
 import { agruparJerarquia, agruparPorRussell, type CuentaEstandar } from "@/lib/balance/calcular";
 import { crearExportacionBalance } from "./balance";
 
@@ -29,5 +30,27 @@ describe("crearExportacionBalance", () => {
     const buf = await crearExportacionBalance({ arbol, grupos }, META, "comparativo");
     expect(buf.length).toBeGreaterThan(0);
     expect(buf.subarray(0, 2).toString("latin1")).toBe("PK");
+  });
+
+  it("HOMOLOGADO trae una pestaña «Validación» con fórmulas vivas sobre «Balance homologado»", async () => {
+    const buf = await crearExportacionBalance({ arbol, grupos }, META, "homologado");
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buf as unknown as ArrayBuffer);
+    const ws = wb.getWorksheet("Validación");
+    expect(ws).toBeTruthy();
+    // Alguna celda de la col B debe ser una fórmula que referencia la hoja homologada.
+    const formulas: string[] = [];
+    ws!.eachRow((row) => { const v = row.getCell(2).value as { formula?: string } | null; if (v && typeof v === "object" && v.formula) formulas.push(v.formula); });
+    expect(formulas.length).toBeGreaterThan(0);
+    expect(formulas.some((f) => f.includes("Balance homologado"))).toBe(true);
+    // Debe existir el chequeo de partida doble (IF … CUADRA/DESCUADRE).
+    expect(formulas.some((f) => f.includes("CUADRA"))).toBe(true);
+  });
+
+  it("COMPARATIVO no agrega la pestaña de validación", async () => {
+    const buf = await crearExportacionBalance({ arbol, grupos }, META, "comparativo");
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buf as unknown as ArrayBuffer);
+    expect(wb.getWorksheet("Validación")).toBeFalsy();
   });
 });

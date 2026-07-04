@@ -7,9 +7,13 @@ import { Card, Chip } from "@/components/ui";
 import { Modal } from "@/components/modal";
 import { fmt, fmtPct } from "@/lib/format";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
-import { asignarCuentaEstandar } from "@/app/actions/balance";
+import { asignarCuentaEstandar, validarAlerta, revertirValidacionAlerta, eliminarDetalleBalance } from "@/app/actions/balance";
 import Conversacion from "@/components/conversacion";
 import type { NodoBalance } from "@/lib/balance/calcular";
+
+export type ValidacionInfo = { tipo: string; por: string; en: string; comentario: string };
+// Contexto de validación de alertas que se pasa al renderizador de filas.
+type ValCtx = { puede: boolean; mapa: Record<string, ValidacionInfo>; onOk: (n: NodoBalance, tipo: string) => void; onRevertir: (code: string) => void };
 
 export type Sums = { activo: number; pasivo: number; patrimonio: number; ingresos: number; gastos: number; costos: number; utilidad: number };
 export type Validation = { id: string; rule: string; status: string; detail: string; count?: number };
@@ -26,9 +30,9 @@ const CLASES_ER = new Set(["4", "5", "6", "7"]);
 const NIVEL_LABEL: Record<number, string> = { 2: "Clase", 4: "Subgrupo", 6: "Cta. estándar", 8: "Cta. cliente" };
 
 export default function BalanceDetailClient({
-  arbol, estandar, puedeMapear, validations, versions, officialVersion, warnCount, balanceId, comentarios, sums, balanced, diffCuadre,
+  arbol, estandar, puedeMapear, validations, versions, officialVersion, warnCount, balanceId, comentarios, validaciones, puedeValidar, puedeEliminar, sums, balanced, diffCuadre,
 }: {
-  arbol: NodoBalance[]; estandar: EstandarOpcion[]; puedeMapear: boolean; validations: Validation[]; versions: Version[]; officialVersion: string; warnCount: number; balanceId: number; comentarios: Record<string, number>; sums: Sums; balanced: boolean; diffCuadre: number;
+  arbol: NodoBalance[]; estandar: EstandarOpcion[]; puedeMapear: boolean; validations: Validation[]; versions: Version[]; officialVersion: string; warnCount: number; balanceId: number; comentarios: Record<string, number>; validaciones: Record<string, ValidacionInfo>; puedeValidar: boolean; puedeEliminar: boolean; sums: Sums; balanced: boolean; diffCuadre: number;
 }) {
   const [tab, setTab] = useState<Tab>("breakdown");
   return (
@@ -39,7 +43,7 @@ export default function BalanceDetailClient({
         <TabBtn on={tab === "versions"} onClick={() => setTab("versions")} label="Versiones" count={versions.length} />
         <TabBtn on={tab === "clases"} onClick={() => setTab("clases")} label="Saldos por clase" />
       </div>
-      {tab === "breakdown" && <BreakdownTab arbol={arbol} estandar={estandar} puedeMapear={puedeMapear} balanceId={balanceId} comentarios={comentarios} />}
+      {tab === "breakdown" && <BreakdownTab arbol={arbol} estandar={estandar} puedeMapear={puedeMapear} balanceId={balanceId} comentarios={comentarios} validaciones={validaciones} puedeValidar={puedeValidar} puedeEliminar={puedeEliminar} />}
       {tab === "validations" && <ValidationsTab validations={validations} />}
       {tab === "versions" && <VersionsTab versions={versions} officialVersion={officialVersion} />}
       {tab === "clases" && <ClasesTab sums={sums} balanced={balanced} diffCuadre={diffCuadre} />}
@@ -55,18 +59,19 @@ function keysConHijos(nodos: NodoBalance[]): string[] {
   return ks;
 }
 
-/** ¿Hoja con alerta? Cuenta sin mapear (mapeo) o con naturaleza/saldo contrario. */
-function esHojaAlerta(n: NodoBalance): boolean {
+/** ¿Hoja con alerta? Cuenta sin mapear (mapeo) o con naturaleza/saldo contrario NO
+ *  validada (una alerta de saldo con OK+comentario deja de contar). */
+function esHojaAlerta(n: NodoBalance, validados: Set<string>): boolean {
   const mapeado = n.nivel === 8 ? !!n.std : n.mapped;
-  return !mapeado || !n.saldoOk;
+  return !mapeado || (!n.saldoOk && !validados.has(n.code));
 }
 
 /** Poda el árbol dejando solo las ramas con alertas (filtro "Alertas"). */
-function podarAlertas(nodos: NodoBalance[]): NodoBalance[] {
+function podarAlertas(nodos: NodoBalance[], validados: Set<string>): NodoBalance[] {
   const out: NodoBalance[] = [];
   for (const n of nodos) {
-    const hijos = podarAlertas(n.hijos);
-    const self = (n.hijos.length === 0 && esHojaAlerta(n)) || (n.nivel === 6 && !n.mapped);
+    const hijos = podarAlertas(n.hijos, validados);
+    const self = (n.hijos.length === 0 && esHojaAlerta(n, validados)) || (n.nivel === 6 && !n.mapped);
     if (hijos.length > 0 || self) out.push({ ...n, hijos });
   }
   return out;
@@ -84,14 +89,15 @@ function podarBusqueda(nodos: NodoBalance[], needle: string): NodoBalance[] {
   return out;
 }
 
-/** Cuenta de alertas (mapeo / naturaleza) por nodo, sumando sus hojas. */
-function contarAlertas(arbol: NodoBalance[]): Map<string, Conteo> {
+/** Cuenta de alertas (mapeo / naturaleza) por nodo, sumando sus hojas. Las alertas
+ *  de saldo VALIDADAS (OK+comentario) no cuentan. */
+function contarAlertas(arbol: NodoBalance[], validados: Set<string>): Map<string, Conteo> {
   const m = new Map<string, Conteo>();
   const walk = (n: NodoBalance): Conteo => {
     let r: Conteo;
     if (n.hijos.length === 0) {
       const mapeado = n.nivel === 8 ? !!n.std : n.mapped;
-      r = { mapeo: mapeado ? 0 : 1, naturaleza: n.saldoOk ? 0 : 1 };
+      r = { mapeo: mapeado ? 0 : 1, naturaleza: n.saldoOk || validados.has(n.code) ? 0 : 1 };
     } else {
       r = n.hijos.reduce<Conteo>((a, h) => { const c = walk(h); return { mapeo: a.mapeo + c.mapeo, naturaleza: a.naturaleza + c.naturaleza }; }, { mapeo: 0, naturaleza: 0 });
     }
@@ -102,7 +108,8 @@ function contarAlertas(arbol: NodoBalance[]): Map<string, Conteo> {
   return m;
 }
 
-function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios }: { arbol: NodoBalance[]; estandar: EstandarOpcion[]; puedeMapear: boolean; balanceId: number; comentarios: Record<string, number> }) {
+function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, validaciones, puedeValidar, puedeEliminar }: { arbol: NodoBalance[]; estandar: EstandarOpcion[]; puedeMapear: boolean; balanceId: number; comentarios: Record<string, number>; validaciones: Record<string, ValidacionInfo>; puedeValidar: boolean; puedeEliminar: boolean }) {
+  const router = useRouter();
   const [filtro, setFiltro] = useState<Filtro>("todo");
   const [q, setQ] = useState("");
   // Por defecto TODO contraído: al entrar se ve el encabezado y solo las clases,
@@ -110,9 +117,27 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios }: 
   const [open, setOpen] = useState<Set<string>>(() => new Set());
   const [asignar, setAsignar] = useState<NodoBalance | null>(null);
   const [comentar, setComentar] = useState<NodoBalance | null>(null);
+  const [validar, setValidar] = useState<{ nodo: NodoBalance; tipo: string } | null>(null);
+  const [eliminar, setEliminar] = useState<NodoBalance | null>(null);
+  // Handler de borrado (o null si no puede): controla la visibilidad del botón.
+  const onEliminar = puedeEliminar ? setEliminar : null;
+  const [, startRevertir] = useTransition();
+
+  // Cuentas cuya alerta de saldo ya fue VALIDADA (retiradas del conteo/poda).
+  const validados = useMemo(() => new Set(Object.keys(validaciones)), [validaciones]);
+  const val: ValCtx = {
+    puede: puedeValidar,
+    mapa: validaciones,
+    onOk: (nodo, tipo) => setValidar({ nodo, tipo }),
+    onRevertir: (code) => startRevertir(async () => {
+      const r = await revertirValidacionAlerta({ balanceId, anchor: code });
+      if (r.ok) { notifySuccess(r.message ?? "Validación revertida."); router.refresh(); }
+      else notifyError(r.message ?? "No se pudo revertir.");
+    }),
+  };
 
   // Conteo de alertas (mapeo / naturaleza) por nodo + totales del balance.
-  const conteos = useMemo(() => contarAlertas(arbol), [arbol]);
+  const conteos = useMemo(() => contarAlertas(arbol, validados), [arbol, validados]);
   const totales = useMemo(
     () => arbol.reduce<Conteo>((a, n) => { const c = conteos.get(n.key); return { mapeo: a.mapeo + (c?.mapeo ?? 0), naturaleza: a.naturaleza + (c?.naturaleza ?? 0) }; }, { mapeo: 0, naturaleza: 0 }),
     [arbol, conteos],
@@ -123,11 +148,11 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios }: 
     let base: NodoBalance[];
     if (filtro === "balance") base = arbol.filter((n) => CLASES_BALANCE.has(n.clase));
     else if (filtro === "er") base = arbol.filter((n) => CLASES_ER.has(n.clase));
-    else if (filtro === "alertas") base = podarAlertas(arbol);
+    else if (filtro === "alertas") base = podarAlertas(arbol, validados);
     else base = arbol;
     const needle = q.trim().toLowerCase();
     return needle ? podarBusqueda(base, needle) : base;
-  }, [arbol, filtro, q]);
+  }, [arbol, filtro, q, validados]);
 
   // En el filtro "Alertas" el árbol podado se muestra totalmente expandido.
   const openEff = useMemo(() => (filtro === "alertas" || q.trim() ? new Set(keysConHijos(visible)) : open), [filtro, visible, open, q]);
@@ -182,19 +207,21 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios }: 
             {visible.length === 0 ? (
               <tr><td colSpan={9} className="px-4 py-6 text-center text-[12.5px] text-ink-400">{q.trim() ? "Sin cuentas que coincidan con la búsqueda." : filtro === "alertas" ? "Sin alertas de mapeo ni de naturaleza. 🎉" : "Sin cuentas para este filtro."}</td></tr>
             ) : (
-              visible.flatMap((n) => filas(n, 0, openEff, toggle, puedeMapear, setAsignar, conteos, comentarios, setComentar))
+              visible.flatMap((n) => filas(n, 0, openEff, toggle, puedeMapear, setAsignar, conteos, comentarios, setComentar, val, onEliminar))
             )}
           </tbody>
         </table>
       </div>
       {asignar && <AsignarModal nodo={asignar} estandar={estandar} onClose={() => setAsignar(null)} />}
       {comentar && <ComentarModal nodo={comentar} balanceId={balanceId} onClose={() => setComentar(null)} />}
+      {validar && <ValidarModal nodo={validar.nodo} tipo={validar.tipo} balanceId={balanceId} onClose={() => setValidar(null)} />}
+      {eliminar && <EliminarModal nodo={eliminar} onClose={() => setEliminar(null)} />}
     </Card>
   );
 }
 
 /** Renderiza recursivamente las filas (nodo + hijos si está expandido). */
-function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: string) => void, puedeMapear: boolean, onAsignar: (n: NodoBalance) => void, conteos: Map<string, Conteo>, comentarios: Record<string, number>, onComentar: (n: NodoBalance) => void): React.ReactElement[] {
+function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: string) => void, puedeMapear: boolean, onAsignar: (n: NodoBalance) => void, conteos: Map<string, Conteo>, comentarios: Record<string, number>, onComentar: (n: NodoBalance) => void, val: ValCtx, onEliminar: ((n: NodoBalance) => void) | null): React.ReactElement[] {
   const tieneHijos = nodo.hijos.length > 0;
   const isOpen = open.has(nodo.key);
   const esGrupo = nodo.nivel !== 8;
@@ -231,6 +258,16 @@ function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: 
         >
           <Icon name="msg" size={12} />{comentarios[nodo.code] ? <span className="font-semibold">{comentarios[nodo.code]}</span> : null}
         </button>
+        {onEliminar && nodo.nivel === 8 && nodo.detalleId != null && !nodo.std && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onEliminar(nodo); }}
+            title="Eliminar registro sin mapeo del balance"
+            className="ml-1.5 inline-flex items-center rounded-md border border-err-300 bg-err-100 px-1.5 py-0.5 align-middle font-bold text-err-700 hover:bg-err-200"
+          >
+            <Icon name="x" size={16} />
+          </button>
+        )}
       </td>
       <td className="px-4 py-2">{celdaMapeo(nodo, puedeMapear, onAsignar)}</td>
       <td className="px-4 py-2 text-right font-mono text-ink-400">{fmt(nodo.prevBalance)}</td>
@@ -238,12 +275,40 @@ function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: 
       <td className="px-4 py-2 text-right font-mono text-ink-600">{fmt(nodo.haber)}</td>
       <td className={`px-4 py-2 text-right font-mono ${esGrupo ? "font-semibold text-ink-800" : "text-ink-700"}`}>{fmt(nodo.balance)}</td>
       <td className={`px-4 py-2 text-right font-mono ${nodo.variation != null && Math.abs(nodo.variation) > 25 ? "text-warn-700" : "text-ink-600"}`}>{fmtPct(nodo.variation)}</td>
-      <td className="px-4 py-2">{!nodo.saldoOk ? <Chip label={nodo.nivel === 8 ? "Naturaleza" : "Saldo contrario"} tone="err" /> : nodo.nivel === 6 && nodo.mapped ? <Chip label="OK" tone="ok" /> : null}</td>
+      <td className="whitespace-nowrap px-4 py-2">{celdaValidacion(nodo, val)}</td>
     </tr>
   );
 
   if (!tieneHijos || !isOpen) return [fila];
-  return [fila, ...nodo.hijos.flatMap((h) => filas(h, depth + 1, open, toggle, puedeMapear, onAsignar, conteos, comentarios, onComentar))];
+  return [fila, ...nodo.hijos.flatMap((h) => filas(h, depth + 1, open, toggle, puedeMapear, onAsignar, conteos, comentarios, onComentar, val, onEliminar))];
+}
+
+/** Celda de la columna "Validación": alerta de naturaleza/saldo contrario con botón
+ *  "Dar OK", o el estado "Validado ✓" (con quién/cuándo/comentario) y opción de
+ *  revertir. Sin alerta de saldo, muestra el "OK" de la cuenta estándar mapeada. */
+function celdaValidacion(nodo: NodoBalance, val: ValCtx): React.ReactNode {
+  if (nodo.saldoOk) return nodo.nivel === 6 && nodo.mapped ? <Chip label="OK" tone="ok" /> : null;
+  const tipo = nodo.nivel === 8 ? "naturaleza" : "saldo_contrario";
+  const label = nodo.nivel === 8 ? "Naturaleza" : "Saldo contrario";
+  const v = val.mapa[nodo.code];
+  if (v) {
+    return (
+      <span className="inline-flex flex-col items-start gap-1">
+        <span title={`Validado por ${v.por} · ${v.en}\n“${v.comentario}”`} className="cursor-help"><Chip label="Validado ✓" tone="ok" /></span>
+        {val.puede && (
+          <button type="button" onClick={(e) => { e.stopPropagation(); val.onRevertir(nodo.code); }} title="Revertir la validación (la alerta reaparece)" className="whitespace-nowrap rounded px-1 text-[10.5px] font-medium text-ink-400 hover:bg-ink-100 hover:text-ink-600">Revertir</button>
+        )}
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex flex-col items-start gap-1">
+      <Chip label={label} tone="err" />
+      {val.puede && (
+        <button type="button" onClick={(e) => { e.stopPropagation(); val.onOk(nodo, tipo); }} title="Dar OK a esta alerta (exige un comentario justificativo)" className="whitespace-nowrap rounded border border-ok-500 bg-ok-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-ok-700 hover:bg-ok-500 hover:text-white">Dar OK</button>
+      )}
+    </span>
+  );
 }
 
 function celdaMapeo(nodo: NodoBalance, puedeMapear: boolean, onAsignar: (n: NodoBalance) => void): React.ReactNode {
@@ -341,9 +406,90 @@ function AsignarModal({ nodo, estandar, onClose }: { nodo: NodoBalance; estandar
 
 /** Comentarios de una cuenta puntual del balance (anclados por su código). */
 function ComentarModal({ nodo, balanceId, onClose }: { nodo: NodoBalance; balanceId: number; onClose: () => void }) {
+  const router = useRouter();
   return (
     <Modal open onClose={onClose} title={`Comentarios · ${nodo.code} — ${nodo.name}`} size="2xl">
-      <Conversacion tipo="balance" entityId={balanceId} anchor={nodo.code} titulo={`${NIVEL_LABEL[nodo.nivel]} ${nodo.code} · ${nodo.name}`} />
+      {/* Al publicar, refresca la página para que el badge azul de comentarios del
+          informe (conteo por cuenta, calculado server-side) se actualice. */}
+      <Conversacion tipo="balance" entityId={balanceId} anchor={nodo.code} titulo={`${NIVEL_LABEL[nodo.nivel]} ${nodo.code} · ${nodo.name}`} onPublicado={() => router.refresh()} />
+    </Modal>
+  );
+}
+
+/** Validar (dar OK a) una alerta: exige un comentario justificativo. El comentario
+ *  se publica en la conversación de la cuenta y la alerta se retira de la vista. */
+function ValidarModal({ nodo, tipo, balanceId, onClose }: { nodo: NodoBalance; tipo: string; balanceId: number; onClose: () => void }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [texto, setTexto] = useState("");
+  const label = tipo === "naturaleza" ? "Naturaleza" : "Saldo contrario";
+  const listo = texto.trim().length >= 3;
+  const guardar = () => {
+    if (!listo) { notifyError("Escribe un comentario para validar la alerta."); return; }
+    start(async () => {
+      const r = await validarAlerta({ balanceId, anchor: nodo.code, tipoAlerta: tipo, comentario: texto.trim() });
+      if (r.ok) { notifySuccess(r.message ?? "Alerta validada."); router.refresh(); onClose(); }
+      else notifyError(r.message ?? "No se pudo validar la alerta.");
+    });
+  };
+  return (
+    <Modal open onClose={onClose} title={`Validar alerta · ${label}`} size="lg">
+      <div className="flex flex-col gap-3">
+        <p className="text-[12.5px] text-ink-600">
+          Cuenta <span className="font-mono font-semibold">{nodo.code}</span> — {nodo.name}. Vas a dar <span className="font-semibold">OK</span> a la alerta de <span className="font-semibold">{label.toLowerCase()}</span>: la alerta se retira de la vista y queda registrada como validada.
+        </p>
+        <p className="rounded-md bg-blue-50 px-3 py-2 text-[11.5px] text-blue-700">
+          El <span className="font-semibold">comentario es obligatorio</span> — justifica por qué el saldo es correcto pese a la alerta. Se publicará en la conversación de la cuenta.
+        </p>
+        <textarea
+          autoFocus
+          value={texto}
+          onChange={(e) => setTexto(e.target.value)}
+          rows={4}
+          placeholder="Comentario obligatorio: motivo por el que esta cuenta está correcta…"
+          className="min-h-[96px] resize-y rounded-md border border-ink-200 px-3 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400"
+        />
+        <div className="flex items-center justify-end gap-2">
+          <button type="button" onClick={onClose} disabled={pending} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] text-ink-600 hover:bg-ink-50 disabled:opacity-60">Cancelar</button>
+          <button type="button" onClick={guardar} disabled={pending || !listo} className="rounded-md bg-ok-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50">
+            {pending ? "Validando…" : "Validar y dar OK"}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/** Confirmación para eliminar una cuenta (línea de detalle) del balance oficial. */
+function EliminarModal({ nodo, onClose }: { nodo: NodoBalance; onClose: () => void }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const eliminar = () => {
+    if (nodo.detalleId == null) return;
+    start(async () => {
+      const r = await eliminarDetalleBalance(nodo.detalleId!);
+      if (r.ok) { notifySuccess(r.message ?? "Cuenta eliminada."); router.refresh(); onClose(); }
+      else notifyError(r.message ?? "No se pudo eliminar la cuenta.");
+    });
+  };
+  return (
+    <Modal open onClose={onClose} title="Eliminar registro del balance" size="lg">
+      <div className="flex flex-col gap-3">
+        <p className="text-[12.5px] text-ink-600">
+          Vas a eliminar del balance el registro <span className="font-semibold">{nodo.name}</span>
+          {nodo.code ? <span className="font-mono text-ink-500"> ({nodo.code})</span> : null}
+          {" "}— saldo {fmt(nodo.balance)}. Se quita del detalle y los totales/mapeo se recalculan.
+        </p>
+        <p className="rounded-md bg-err-100 px-3 py-2 text-[11.5px] text-err-700">
+          Esta acción no se puede deshacer. Úsala para retirar filas que no son cuentas (p. ej. «Totales Prueba», totales del reporte).
+        </p>
+        <div className="flex items-center justify-end gap-2">
+          <button type="button" onClick={onClose} disabled={pending} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] text-ink-600 hover:bg-ink-50 disabled:opacity-60">Cancelar</button>
+          <button type="button" onClick={eliminar} disabled={pending} className="rounded-md bg-err-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50">
+            {pending ? "Eliminando…" : "Eliminar registro"}
+          </button>
+        </div>
+      </div>
     </Modal>
   );
 }

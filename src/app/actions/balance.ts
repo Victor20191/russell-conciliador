@@ -1137,3 +1137,118 @@ export async function aplicarCambiosBorrador(
     return { ok: false, message: mensajeErrorBD("aplicarCambiosBorrador", e) };
   }
 }
+
+/**
+ * VALIDA (da OK) una alerta de naturaleza/saldo contrario de una cuenta del balance.
+ * Exige un COMENTARIO justificativo (obligatorio), que se publica en la conversación
+ * de la cuenta (anclado por su código) y queda ligado a la validación. Tras validar,
+ * la alerta se retira de la vista (deja «Validado ✓», reversible). Autoriza como
+ * operar el balance: `balance:crear` + alcance de escritura sobre el cliente.
+ */
+export async function validarAlerta(input: { balanceId: number; anchor: string; tipoAlerta: string; comentario: string }): Promise<ActionState> {
+  const balanceId = Number(input?.balanceId);
+  const anchor = String(input?.anchor ?? "").trim();
+  const tipoAlerta = input?.tipoAlerta === "naturaleza" ? "naturaleza" : "saldo_contrario";
+  const comentario = String(input?.comentario ?? "").trim();
+  if (!Number.isInteger(balanceId) || balanceId <= 0 || !anchor) return { ok: false, message: "Alerta inválida." };
+  if (comentario.length < 3) return { ok: false, message: "El comentario es obligatorio para validar la alerta." };
+  const bal = await prisma.balancePruebaEncabezado.findUnique({ where: { id: balanceId }, select: { clienteId: true } });
+  if (!bal) return { ok: false, message: "Balance no encontrado." };
+  const authz = await authorizePermiso("balance:crear", { clientId: bal.clienteId });
+  if (!authz.ok) return { ok: false, message: authz.message };
+  const user = await getCurrentUser();
+  if (!user) return { ok: false, message: "Sesión no válida." };
+  try {
+    // Comentario + validación de forma ATÓMICA. La validación es única por
+    // (balance, cuenta): re-validar reemplaza el comentario ligado.
+    await prisma.$transaction(async (tx) => {
+      const c = await tx.comment.create({ data: { entityType: "balance", entityId: balanceId, anchor, authorId: user.id, body: comentario } });
+      await tx.validacionAlerta.upsert({
+        where: { balanceId_anchor: { balanceId, anchor } },
+        update: { tipoAlerta, commentId: c.id, validadoPor: user.name, validadoPorId: user.id, validadoEn: new Date() },
+        create: { balanceId, anchor, tipoAlerta, commentId: c.id, validadoPor: user.name, validadoPorId: user.id },
+      });
+    });
+    await logAudit({ user: user.name, action: "VALIDÓ alerta de balance", entity: `${balanceId}:${anchor}`, detail: tipoAlerta });
+    revalidatePath(`/balance/${balanceId}`);
+    return { ok: true, message: "Alerta validada." };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("validarAlerta", e) };
+  }
+}
+
+/**
+ * REVIERTE la validación de una alerta: reaparece la alerta. El comentario
+ * justificativo se CONSERVA como historial en la conversación de la cuenta.
+ */
+export async function revertirValidacionAlerta(input: { balanceId: number; anchor: string }): Promise<ActionState> {
+  const balanceId = Number(input?.balanceId);
+  const anchor = String(input?.anchor ?? "").trim();
+  if (!Number.isInteger(balanceId) || balanceId <= 0 || !anchor) return { ok: false, message: "Alerta inválida." };
+  const bal = await prisma.balancePruebaEncabezado.findUnique({ where: { id: balanceId }, select: { clienteId: true } });
+  if (!bal) return { ok: false, message: "Balance no encontrado." };
+  const authz = await authorizePermiso("balance:crear", { clientId: bal.clienteId });
+  if (!authz.ok) return { ok: false, message: authz.message };
+  try {
+    const del = await prisma.validacionAlerta.deleteMany({ where: { balanceId, anchor } });
+    const user = await getCurrentUser();
+    await logAudit({ user: user?.name ?? "—", action: "REVIRTIÓ validación de alerta", entity: `${balanceId}:${anchor}`, detail: `${del.count} validación(es)` });
+    revalidatePath(`/balance/${balanceId}`);
+    return { ok: true, message: "Validación revertida." };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("revertirValidacionAlerta", e) };
+  }
+}
+
+/**
+ * ELIMINA una línea del detalle de un balance oficial — p. ej. una fila-total basura
+ * («Totales Prueba», gran total) que se coló como cuenta. Recalcula el resumen del
+ * encabezado (sumas, mapeo, críticas) desde el detalle restante, igual que al cargar.
+ * BLOQUEADO si el balance está CONGELADO. Autoriza como operar el balance:
+ * `balance:crear` + alcance de escritura sobre el cliente.
+ */
+export async function eliminarDetalleBalance(detalleId: number): Promise<ActionState> {
+  const id = Number(detalleId);
+  if (!Number.isInteger(id) || id <= 0) return { ok: false, message: "Cuenta del balance inexistente." };
+  const authz = await authorizePermiso("balance:crear");
+  if (!authz.ok) return { ok: false, message: authz.message };
+  try {
+    const fila = await prisma.balancePruebaDetalle.findUnique({
+      where: { id },
+      select: { cuenta8: true, nombreCuenta: true, encabezado: { select: { id: true, clienteId: true, estaCongelado: true } } },
+    });
+    if (!fila) return { ok: false, message: "La cuenta del balance ya no existe." };
+    const alcance = await authorizePermiso("balance:crear", { clientId: fila.encabezado.clienteId });
+    if (!alcance.ok) return { ok: false, message: alcance.message };
+    if (fila.encabezado.estaCongelado) return { ok: false, message: "El balance está congelado: no se pueden eliminar cuentas." };
+    const encId = fila.encabezado.id;
+
+    await prisma.balancePruebaDetalle.delete({ where: { id } });
+
+    // Recalcula el resumen del encabezado desde el detalle RESTANTE (misma lógica que
+    // la carga), para que las sumas, el mapeo y las críticas queden consistentes.
+    const [restantes, cuentasEstandar] = await Promise.all([
+      prisma.balancePruebaDetalle.findMany({ where: { encabezadoId: encId }, select: { cuenta8: true, nombreCuenta: true, cuenta6Russell: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true } }),
+      getCuentasEstandar(),
+    ]);
+    const calc = reconstruirBalance(
+      restantes.map((f) => ({ cuenta8: f.cuenta8, nombreCuenta: f.nombreCuenta, cuenta6Russell: f.cuenta6Russell, saldoInicial: Number(f.saldoInicial), debitos: Number(f.debitos), creditos: Number(f.creditos), saldoFinal: Number(f.saldoFinal) })),
+      cuentasEstandar,
+    );
+    await prisma.balancePruebaEncabezado.update({
+      where: { id: encId },
+      data: {
+        sumaActivo: calc.sums?.activo ?? 0, filasTotales: calc.totalRows,
+        mapeadas: calc.mapped, sinMapear: calc.unmapped, criticas: calc.critical,
+        completitud: calc.totalRows > 0 ? Math.round((calc.mapped / calc.totalRows) * 100) : 100,
+      },
+    });
+
+    const user = await getCurrentUser();
+    await logAudit({ user: user?.name ?? "Sistema", action: "ELIMINÓ cuenta del balance", entity: fila.cuenta8, detail: `${fila.cuenta8} — ${fila.nombreCuenta}` });
+    revalidatePath(`/balance/${encId}`);
+    return { ok: true, message: `Cuenta ${fila.cuenta8} eliminada del balance.` };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("eliminarDetalleBalance", e) };
+  }
+}

@@ -435,10 +435,31 @@ model Comment {
   editedAt   DateTime?        @map("editado_en")
   createdAt  DateTime         @default(now()) @map("creado_en")
   mentions   CommentMention[]
+  validaciones ValidacionAlerta[]
 
   @@index([entityType, entityId])
   @@index([authorId])
   @@map("comentarios")
+}
+
+/// Validación (OK) de una alerta de naturaleza/saldo contrario en una cuenta de un
+/// balance. Requiere un comentario justificativo (queda en la conversación de la
+/// cuenta) y retira la alerta de la vista. Reversible. FK suave a User; FK dura al
+/// comentario (si se borra el comentario, cae la validación).
+model ValidacionAlerta {
+  id            Int      @id @default(autoincrement()) @map("id")
+  balanceId     Int      @map("balance_id") // FK suave → balance_prueba_encabezado
+  anchor        String   @map("ancla") // código de cuenta (nodo.code)
+  tipoAlerta    String   @map("tipo_alerta") // "naturaleza" | "saldo_contrario"
+  comment       Comment  @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  commentId     Int      @map("comentario_id")
+  validadoPor   String?  @map("validado_por")
+  validadoPorId Int?     @map("validado_por_id") // FK suave → User
+  validadoEn    DateTime @default(now()) @map("validado_en")
+
+  @@unique([balanceId, anchor])
+  @@index([balanceId])
+  @@map("validacion_alerta")
 }
 
 /// Mención (@usuario) dentro de un comentario. Tabla propia para poder

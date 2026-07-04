@@ -29,12 +29,16 @@ export default function Conversacion({
   anchor = null,
   titulo,
   className = "",
+  onPublicado,
 }: {
   tipo: string;
   entityId: number;
   anchor?: string | null;
   titulo?: string;
   className?: string;
+  // Se invoca tras publicar un comentario con éxito (p. ej. para refrescar la
+  // página y actualizar el badge de comentarios del informe).
+  onPublicado?: () => void;
 }) {
   const [comentarios, setComentarios] = useState<ComentarioDTO[]>([]);
   const [puedeComentar, setPuedeComentar] = useState(false);
@@ -132,6 +136,7 @@ export default function Conversacion({
         setMentions({});
         setQuery(null);
         notifySuccess("Comentario publicado.");
+        onPublicado?.();
       } else {
         setError(res.message);
         notifyError(res.message);

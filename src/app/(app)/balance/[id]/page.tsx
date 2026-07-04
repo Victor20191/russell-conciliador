@@ -57,6 +57,14 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
   ]);
   const comentariosPorAncla: Record<string, number> = {};
   for (const g of comentariosGrp) if (g.anchor) comentariosPorAncla[g.anchor] = g._count._all;
+
+  // Alertas ya VALIDADAS (OK + comentario) de este balance → se retiran de la vista.
+  const validacionesRows = await prisma.validacionAlerta.findMany({
+    where: { balanceId: id },
+    select: { anchor: true, tipoAlerta: true, validadoPor: true, validadoEn: true, comment: { select: { body: true } } },
+  });
+  const validaciones: Record<string, { tipo: string; por: string; en: string; comentario: string }> = {};
+  for (const v of validacionesRows) validaciones[v.anchor] = { tipo: v.tipoAlerta, por: v.validadoPor ?? "—", en: fmtDate(v.validadoEn), comentario: v.comment?.body ?? "" };
   const filas = balance.detalles.map((f) => ({
     id: f.id, cuenta8: f.cuenta8, nombreCuenta: f.nombreCuenta, cuenta6Russell: f.cuenta6Russell,
     coincidencia: f.coincidencia != null ? Number(f.coincidencia) : null,
@@ -152,6 +160,9 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
             warnCount={warnCount}
             balanceId={id}
             comentarios={comentariosPorAncla}
+            validaciones={validaciones}
+            puedeValidar={puedeMapear}
+            puedeEliminar={puedeMapear && !balance.estaCongelado}
             sums={sums}
             balanced={calc.balanced}
             diffCuadre={calc.diffCuadre}
