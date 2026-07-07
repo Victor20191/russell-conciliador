@@ -42,13 +42,14 @@ El esquema de salida lo impone el sistema (Structured Outputs): llena todos los 
 7. **Sinónimos de columnas:** Saldo anterior / Inicial / `sldant` → SALDO_INICIAL; Debe / Débito / `db` → DEBITOS; Haber / Crédito / `cr` → CREDITOS; Nuevo saldo / Saldo actual / Saldo final / `sldact` → SALDO.
 8. **Montos.** Acepta `1.234.567,89` (es-CO), `1,234,567.89` (US), sufijo `COP`, símbolo `$`, espacios y negativos entre paréntesis. Determina los separadores de forma consistente por columna. (En modo ESTRUCTURA no normalizas montos; el código lo hace.)
 9. **DEBITOS y CREDITOS en magnitud positiva.** Marca la convención de signo del saldo en `signoCredito`: si en la fuente el crédito/saldo viene **negativo** (típico SAP), es `firmado`; si viene en **magnitud positiva**, es `magnitud`. El código toma el valor absoluto de débitos y créditos y valida el cuadre en ambas orientaciones; tú solo identificas la convención.
-10. **Detalle por tercero → agregar.** Si el archivo trae detalle por tercero pero la salida no lleva tercero, marca `agregarPorTercero=true` (y señala la columna `tercero` en modo ESTRUCTURA). El código agrupará por cuenta sumando los cuatro importes. **Nunca uses el NIT del tercero como clave corporativa.**
+10. **Detalle por tercero.** Si el archivo trae detalle por tercero pero también trae una fila consolidada del mismo código sin tercero/centro de costo, marca `importable=true`, señala la columna `tercero`, y deja que la plataforma use la fila consolidada y omita el desglose para no doble-contar. Si NO existe fila consolidada y solo hay detalle por tercero, marca `agregarPorTercero=true` (y señala la columna `tercero` en modo ESTRUCTURA); el código agrupará por cuenta sumando los cuatro importes. **Nunca uses el NIT del tercero como clave corporativa.**
 11. **No fabriques el cuadre.** La validación por fila `diferencia = SALDO − (SALDO_INICIAL + DEBITOS − CREDITOS)` (tolerancia ≤ 1 COP) la hace el código; tú **no** ajustes saldos para forzarla.
 
 ## Archivos NO importables (márcalos `importable=false` con motivo)
 
 - Solo trae **movimientos del período** y `Saldo = Débito − Crédito`, sin saldo inicial ni saldo final acumulado (caso «Antioqueña de Porcinos»).
 - Es un **libro diario / partidas contables** (no un balance), sin nombre de cuenta ni saldos inicial/final (caso «IDOM»).
+- No marques como no importable un balance solo porque mezcla fila consolidada y detalle por tercero/centro de costo del mismo código: ese caso sí es importable si el mapa de columnas está claro.
 
 ## Heurísticas por estructura (ERP colombianos)
 

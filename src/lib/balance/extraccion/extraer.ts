@@ -11,6 +11,7 @@ import { getPromptContenido, CLAVE_EXTRACCION } from "@/lib/ia/prompts";
 import { ingerir, construirVistaPrevia, contarPaginasPDF, LIMITE_PAGINAS_PDF } from "./ingesta";
 import { MappingSpecSchema, ExtraccionDirectaSchema } from "./esquema";
 import { transformarTabular, validarDirecta, type ParamsExtraccion, type ResultadoTransform } from "./transformar";
+import type { MappingSpec } from "./esquema";
 import type { UsoIA } from "@/lib/ia/uso";
 
 function bloqueParametros(params: ParamsExtraccion): string {
@@ -24,6 +25,40 @@ function bloqueParametros(params: ParamsExtraccion): string {
 
 const MAX_TOKENS_ESTRUCTURA = 8000;
 const MAX_TOKENS_DIRECTA = 32000;
+
+function esBalancePorTerceroRecuperable(spec: MappingSpec): boolean {
+  if (spec.importable || spec.columnas.tercero <= 0) return false;
+  const cols = spec.columnas;
+  const tieneMapaMinimo =
+    cols.codigo > 0 &&
+    cols.nombre > 0 &&
+    cols.saldoInicial > 0 &&
+    (cols.debitos > 0 || cols.creditos > 0) &&
+    (cols.saldoFinal > 0 || (cols.saldoFinalDebito > 0 && cols.saldoFinalCredito > 0));
+  if (!tieneMapaMinimo) return false;
+  const textoMotivo = `${spec.motivoNoImportable ?? ""} ${spec.notas ?? ""}`;
+  return /tercero|centro de costo|duplic|consolid/i.test(textoMotivo);
+}
+
+function recuperarBalancePorTercero(spec: MappingSpec): MappingSpec {
+  return {
+    ...spec,
+    importable: true,
+    motivoNoImportable: null,
+    excepciones: [
+      ...spec.excepciones,
+      {
+        hoja: spec.hoja,
+        fila: null,
+        campo: "tercero",
+        valor: null,
+        regla: "Balance por tercero con fila consolidada",
+        accion: "La plataforma importará la fila consolidada sin tercero cuando exista y omitirá el desglose por tercero/centro de costo para evitar doble conteo.",
+      },
+    ],
+    notas: [spec.notas, "Recuperado como balance por tercero: se priorizan filas consolidadas sin tercero por código."].filter(Boolean).join(" "),
+  };
+}
 
 /**
  * Extrae el balance de un archivo. Lanza si la IA no devuelve un resultado
@@ -87,9 +122,10 @@ export async function extraerBalance(
     usosOut?.push({ tipoOperacion: "extraccion_tabular", modelo: MODELO_EXTRACCION, usage: r.usage });
     const spec = r.parsed_output;
     if (!spec) throw new Error("La IA no devolvió un mapeo válido del archivo. Reintenta o revisa el formato.");
+    const specImportacion = esBalancePorTerceroRecuperable(spec) ? recuperarBalancePorTercero(spec) : spec;
     // Forzamos la hoja elegida en el spec para que `transformarTabular` procese
     // esa hoja (recibe todas las hojas para encontrarla completa).
-    return transformarTabular(elegida ? { ...spec, hoja: elegida } : spec, ingesta.hojas, params);
+    return transformarTabular(elegida ? { ...specImportacion, hoja: elegida } : specImportacion, ingesta.hojas, params);
   }
 
   // Documento (PDF o texto): extracción directa.

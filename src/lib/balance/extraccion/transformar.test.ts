@@ -268,7 +268,7 @@ describe("transformarTabular", () => {
     expect(rr.cuadre.partidaDobleCuadra).toBe(true);
   });
 
-  it("agrega por tercero sumando los importes", () => {
+  it("agrega por tercero sumando los importes aunque el modelo no active agregarPorTercero", () => {
     const hojaT: GridHoja = {
       nombre: "Balance",
       filas: [
@@ -277,10 +277,36 @@ describe("transformarTabular", () => {
         [130505, "Cli B", 200, 200, 0, 400, "T2"],
       ],
     };
-    const s = spec({ agregarPorTercero: true, columnas: { ...spec().columnas, tercero: 7 } });
+    const s = spec({ agregarPorTercero: false, columnas: { ...spec().columnas, tercero: 7 } });
     const rr = transformarTabular(s, [hojaT], PARAMS);
     expect(rr.importReady).toHaveLength(1);
     expect(rr.importReady[0]).toMatchObject({ code: "130505", prevBalance: 300, balance: 1000, debitos: 700 });
+  });
+
+  it("balance por tercero: si existe fila consolidada del mismo código, omite el detalle para no doble-contar", () => {
+    const B = [true, true, false, false, false, false, false];
+    const P = [false, false, false, false, false, false, false];
+    const hojaT: GridHoja = {
+      nombre: "Balance",
+      filas: [
+        ["Código", "Cuenta", "SI", "DB", "CR", "Saldo", "Tercero"],
+        [130505, "Clientes", 100, 500, 0, 600, ""], // consolidado: se usa
+        [130505, "Clientes A", 40, 200, 0, 240, "Tercero A"], // detalle duplicado: se omite
+        [130505, "Clientes B", 60, 300, 0, 360, "Tercero B"], // detalle duplicado: se omite
+        [220505, "Proveedor A", -100, 0, 50, -150, "Proveedor A"], // sin consolidado: se agrega
+        [220505, "Proveedor B", -200, 0, 50, -250, "Proveedor B"],
+      ],
+      negrita: [P, B, P, P, P, P],
+    };
+    const s = spec({ agregarPorTercero: true, columnas: { ...spec().columnas, tercero: 7 } });
+    const rr = transformarTabular(s, [hojaT], PARAMS);
+
+    expect(rr.importReady.map((c) => c.code).sort()).toEqual(["130505", "220505"]);
+    expect(rr.importReady.find((c) => c.code === "130505")).toMatchObject({ prevBalance: 100, debitos: 500, creditos: 0, balance: 600 });
+    expect(rr.importReady.find((c) => c.code === "220505")).toMatchObject({ prevBalance: -300, debitos: 0, creditos: 100, balance: -400 });
+    expect(rr.resumen.filasExcluidas).toBe(2);
+    expect(rr.filasCrudas).toHaveLength(3);
+    expect(rr.excepciones.some((e) => e.regla === "Detalle por tercero omitido por fila consolidada")).toBe(true);
   });
 
   it("sin columnas de movimiento, acepta por saldo sin validar control", () => {
