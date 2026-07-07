@@ -119,7 +119,7 @@ export default function BorradorDetailClient({
       {porTercero && (
         <div className="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">
           <Icon name="warn" size={14} />
-          <span><span className="font-semibold">Balance abierto por tercero detectado.</span> Se colapsó el detalle de tercero (NIT/cédula) y se concilia por <span className="font-semibold">cuenta</span> — el saldo de cada cuenta ya es la suma de sus terceros. Los cálculos y la carga usan el nivel de cuenta.</span>
+          <span><span className="font-semibold">Balance abierto por tercero detectado.</span> Se colapsó el detalle de tercero (NIT/cédula) y se concilia por <span className="font-semibold">cuenta</span> — el saldo de cada cuenta ya es la suma de sus terceros. Los cálculos y la carga usan el nivel de cuenta. Si algún tercero no se detectó y quedó como fila, exclúyelo a mano con la <span className="font-semibold text-err-700">✕</span> (omitir).</span>
         </div>
       )}
       <ValidacionHeader v={validacion} pd={partidaDoble} />

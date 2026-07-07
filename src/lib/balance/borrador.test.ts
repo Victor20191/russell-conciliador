@@ -258,6 +258,18 @@ describe("reclasificarHuerfanas", () => {
     expect(filas.find((f) => f.codigo === "2")?.tipoFila).toBe("agrupadora"); // clase → intacta
   });
 
+  it("una cuenta cuyos únicos hijos están OMITIDOS se vuelve huérfana (imputable con su saldo)", () => {
+    const filas: FilaBorrador[] = [
+      fila(1, "11", "DISPONIBLE", 100, "agrupadora"),
+      fila(2, "1105", "CAJA", 100, "agrupadora"), // su saldo (100) = el del tercero
+      { ...fila(3, "901427659", "901427659", 100, "movimiento"), omitida: true }, // tercero excluido a mano
+    ];
+    const cambiadas = reclasificarHuerfanas(filas);
+    expect(cambiadas.map((f) => f.codigo)).toContain("1105"); // 1105 recuperada como imputable
+    expect(filas.find((f) => f.codigo === "1105")?.tipoFila).toBe("movimiento");
+    expect(filas.find((f) => f.codigo === "11")?.tipoFila).toBe("agrupadora"); // 11 sigue agrupando a 1105
+  });
+
   it("NO reclasifica una agrupadora sin hijos con saldo 0 (no aporta nada)", () => {
     const filas = [
       fila(1, "1", "ACTIVO", 0, "agrupadora"),

@@ -10,14 +10,24 @@ function fila(filaNum: number, codigo: string, nombre: string, saldoFinal: numbe
 const tercero = (fn: number, nit: string, saldo: number) => fila(fn, nit, nit, saldo, "movimiento");
 
 describe("esFilaTercero", () => {
-  it("detecta un movimiento cuyo nombre es su propio código (NIT/cédula)", () => {
-    expect(esFilaTercero({ tipoFila: "movimiento", codigo: "901427659", nombre: "901427659" })).toBe(true);
-    expect(esFilaTercero({ tipoFila: "movimiento", codigo: "22586894", nombre: "22586894" })).toBe(true); // cédula 8 díg
+  it("detecta un movimiento cuyo nombre es su propio código (NIT/cédula) — forma limpia", () => {
+    expect(esFilaTercero({ tipoFila: "movimiento", codigo: "901427659", nombre: "901427659", codigoCrudo: "901427659 MELONN S.A.S" })).toBe(true);
+    expect(esFilaTercero({ tipoFila: "movimiento", codigo: "22586894", nombre: "22586894", codigoCrudo: "22586894 FLOREZ" })).toBe(true); // cédula 8 díg
   });
-  it("NO marca una cuenta real (nombre descriptivo) ni una agrupadora ni código vacío", () => {
-    expect(esFilaTercero({ tipoFila: "movimiento", codigo: "11051005", nombre: "CAJA MENOR ENVIGADO" })).toBe(false);
-    expect(esFilaTercero({ tipoFila: "agrupadora", codigo: "901427659", nombre: "901427659" })).toBe(false);
-    expect(esFilaTercero({ tipoFila: "movimiento", codigo: "", nombre: "" })).toBe(false);
+  it("detecta el tercero PEGADO (ID junto al nombre) por el crudo — NIT y RFC", () => {
+    // NIT colombiano pegado con nombre que trae dígitos → código no numérico.
+    expect(esFilaTercero({ tipoFila: "total", codigo: "", nombre: "901114801D2", codigoCrudo: "901114801 D2 WORK SAS" })).toBe(true);
+    // RFC mexicano (empieza por letras): empresa y persona.
+    expect(esFilaTercero({ tipoFila: "total", codigo: "", nombre: "AME880912189", codigoCrudo: "AME880912189 AEROMEXICO" })).toBe(true);
+    expect(esFilaTercero({ tipoFila: "movimiento", codigo: "", nombre: "AAQA9401125U2Adriá", codigoCrudo: "AAQA9401125U2 Adrián Ayala Quintana" })).toBe(true);
+  });
+  it("NO marca cuentas reales, rótulos de sección (sin dígitos) ni agrupadoras", () => {
+    expect(esFilaTercero({ tipoFila: "movimiento", codigo: "11051005", nombre: "CAJA MENOR ENVIGADO", codigoCrudo: "11051005" })).toBe(false);
+    expect(esFilaTercero({ tipoFila: "movimiento", codigo: "22359501", nombre: "OTRAS CUENTAS POR PAGAR", codigoCrudo: "22359501" })).toBe(false);
+    expect(esFilaTercero({ tipoFila: "agrupadora", codigo: "901427659", nombre: "901427659", codigoCrudo: "901427659" })).toBe(false);
+    expect(esFilaTercero({ tipoFila: "total", codigo: "", nombre: "Total general", codigoCrudo: "Total general" })).toBe(false);
+    // Rótulo de sección: crudo sin dígitos en el ID → no es un tercero.
+    expect(esFilaTercero({ tipoFila: "movimiento", codigo: "", nombre: "NOMINASNOMINAS", codigoCrudo: "NOMINAS NOMINAS" })).toBe(false);
   });
 });
 

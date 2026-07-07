@@ -15,14 +15,29 @@
 // Solo se activa cuando el archivo viene por tercero; el resto de informes NO se toca.
 import type { FilaBorrador } from "./borrador";
 
+// Identificador tributario de un tercero al inicio del crudo: NIT/cédula colombiana
+// (solo dígitos) o RFC mexicano (empieza por letras + dígitos, p. ej. `AME880912189`,
+// `AAQA9401125U2`). Token alfanumérico de ≥7 chars que CONTIENE algún dígito (así se
+// descarta un rótulo de sección como «Generico» o «NOMINAS», que no trae dígitos).
+const TAX_ID_CON_NOMBRE = /^(?=[A-Za-z0-9.\-]*\d)[A-Za-z0-9.\-]{7,}\s+.*[A-Za-zÁÉÍÓÚÑ]/;
+
 /**
- * ¿Fila de DETALLE DE TERCERO? Movimiento cuyo código es numérico (un NIT/cédula) y
- * cuyo nombre es EXACTAMENTE ese mismo número — así lo exporta el ERP. Distingue con
- * fiabilidad un tercero de una cuenta real (una cuenta siempre tiene nombre
- * descriptivo ≠ su código), incluso si el NIT/cédula tiene 8 dígitos como una cuenta.
+ * ¿Fila de DETALLE DE TERCERO? Dos formas en que el ERP las trae:
+ *  1. LIMPIA: su nombre es EXACTAMENTE su código (el NIT/cédula/RFC), p. ej. código
+ *     `901427659` / `AME880912189` con ese mismo nombre.
+ *  2. PEGADA: el ID viene junto al nombre en una sola celda y el crudo queda
+ *     «<tax-id> <nombre>» (`901114801 D2 WORK SAS`, `AAQA9401125U2 Adrián Ayala`).
+ *     `normalizarCodigo` deja el código NO numérico o vacío, así que se detecta por
+ *     el crudo (ID alfanumérico con dígitos + nombre).
+ *
+ * Distingue con fiabilidad de una CUENTA real: una cuenta tiene código NUMÉRICO
+ * LIMPIO y su crudo es el código a secas («22359501»), sin nombre pegado — por eso la
+ * rama «pegada» exige código NO numérico. Nombre === código nunca pasa en una cuenta.
  */
-export function esFilaTercero(f: Pick<FilaBorrador, "tipoFila" | "codigo" | "nombre">): boolean {
-  return f.tipoFila === "movimiento" && /^\d+$/.test(f.codigo) && (f.nombre ?? "").trim() === f.codigo;
+export function esFilaTercero(f: Pick<FilaBorrador, "tipoFila" | "codigo" | "nombre" | "codigoCrudo">): boolean {
+  if (f.tipoFila === "agrupadora") return false;
+  if ((f.nombre ?? "").trim() === f.codigo && f.codigo.length >= 5) return true;
+  return !/^\d+$/.test(f.codigo) && TAX_ID_CON_NOMBRE.test((f.codigoCrudo ?? "").trim());
 }
 
 /**
@@ -30,7 +45,7 @@ export function esFilaTercero(f: Pick<FilaBorrador, "tipoFila" | "codigo" | "nom
  * filas de tercero. Umbral holgado (>20 %) para no confundir con un informe normal
  * (que no tiene ninguna), y mínimo de filas para no dispararse en archivos diminutos.
  */
-export function esBalancePorTercero(filas: Array<Pick<FilaBorrador, "tipoFila" | "codigo" | "nombre">>): boolean {
+export function esBalancePorTercero(filas: Array<Pick<FilaBorrador, "tipoFila" | "codigo" | "nombre" | "codigoCrudo">>): boolean {
   let mov = 0;
   let ter = 0;
   for (const f of filas) {

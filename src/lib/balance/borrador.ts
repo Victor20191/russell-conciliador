@@ -219,7 +219,11 @@ export function reclasificarHuerfanas(filas: FilaBorrador[]): FilaBorrador[] {
   const arbol = construirArbolBorrador(filas);
   const huerfanas = new Set<number>(); // filaNum
   const rec = (n: NodoBorrador) => {
-    if (n.tipoFila !== "movimiento" && esNumerico(n.codigo) && n.hijos.length === 0 && !n.subtotalDuplicado && tieneMovimiento(n)) {
+    // Sin hijos que cuenten: 0 hijos, o TODOS omitidos (p. ej. un tercero que se coló
+    // y el usuario excluyó con ✕). Así la cuenta cuyos únicos hijos están omitidos se
+    // vuelve imputable y aporta su saldo completo, en vez de perderse como agrupadora.
+    const sinHijosReales = n.hijos.every((h) => h.omitida);
+    if (n.tipoFila !== "movimiento" && esNumerico(n.codigo) && sinHijosReales && !n.subtotalDuplicado && tieneMovimiento(n)) {
       huerfanas.add(n.filaNum);
     }
     n.hijos.forEach(rec);
