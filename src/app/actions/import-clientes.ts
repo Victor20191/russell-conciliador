@@ -15,6 +15,7 @@ import {
 import { resolverErp, resolverSector, type CatalogoRef } from "@/lib/import/erp-sector-alias";
 import { normalizar } from "@/lib/import/xlsx";
 import type { ErrorImport } from "@/lib/import/maestros";
+import { claveNit } from "@/lib/nit";
 
 const PATH = "/config/clientes";
 const MAX_BYTES = 4 * 1024 * 1024; // 4 MB
@@ -95,7 +96,7 @@ export async function importarClientes(
     const todosModuleIds = modulos.map((m) => m.id);
     const todosDianIds = dianForms.map((d) => d.id);
     const edges = new Set(aristasBD.map((a) => `${a.superiorId}:${a.subordinateId}`));
-    const nitsExistentes = new Set(clientes.map((c) => c.nit));
+    const nitsExistentes = new Set(clientes.map((c) => claveNit(c.nit)));
 
     // ---- Validación fila por fila (nada se crea si hay errores) ----
     const erroresDB: ErrorImport[] = [];
@@ -106,9 +107,11 @@ export async function importarClientes(
       const errs: string[] = [];
       const push = (m: string) => errs.push(m);
 
-      if (nitsExistentes.has(f.nit)) push(`Ya existe un cliente con NIT ${f.nit}.`);
-      if (nitsLote.has(f.nit)) push(`NIT repetido en el archivo: ${f.nit}.`);
-      nitsLote.add(f.nit);
+      const nitNormalizado = claveNit(f.nit);
+      if (!nitNormalizado) push(`El NIT ${f.nit} debe incluir al menos un numero.`);
+      if (nitNormalizado && nitsExistentes.has(nitNormalizado)) push(`Ya existe un cliente con NIT ${f.nit}.`);
+      if (nitNormalizado && nitsLote.has(nitNormalizado)) push(`NIT repetido en el archivo: ${f.nit}.`);
+      if (nitNormalizado) nitsLote.add(nitNormalizado);
 
       const socio = resolver(ROL_SOCIO, f.socio);
       const gerente = resolver(ROL_POR_FUNCION.gerente, f.gerente);

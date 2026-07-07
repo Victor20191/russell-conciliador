@@ -1,4 +1,5 @@
 import * as z from "zod";
+import { tieneDigitosNit } from "@/lib/nit";
 
 export const LoginSchema = z.object({
   email: z.email({ error: "Ingresa un correo válido." }).trim().toLowerCase(),
@@ -47,7 +48,11 @@ export const ModuleFieldSchema = z.object({
 export const ClientSchema = z.object({
   code: z.string().min(1, { error: "El código es obligatorio." }).trim(),
   name: z.string().min(1, { error: "El nombre es obligatorio." }).trim(),
-  nit: z.string().min(1, { error: "El NIT es obligatorio." }).trim(),
+  nit: z
+    .string()
+    .min(1, { error: "El NIT es obligatorio." })
+    .trim()
+    .refine(tieneDigitosNit, { error: "El NIT debe incluir al menos un numero." }),
   // Clasificación del cliente (A, B o C). Obligatoria.
   tipo: z.enum(["A", "B", "C"], { error: "Selecciona el tipo de cliente (A, B o C)." }),
   // ERP y Sector son catálogos maestros (FK por id). AMBOS son opcionales al

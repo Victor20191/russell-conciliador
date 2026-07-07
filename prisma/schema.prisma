@@ -211,7 +211,7 @@ model Client {
   id              Int              @id @default(autoincrement()) @map("id")
   code            String           @unique @map("codigo") // p.ej. C-1042
   name            String           @map("nombre")
-  nit             String           @map("nit")
+  nit             String           @unique @map("nit")
   tipo            String           @default("C") @map("tipo_cliente") // clasificación A | B | C
   erp             Erp?             @relation(fields: [erpId], references: [id], onDelete: Restrict)
   erpId           Int?             @map("erp_id") // FK al catálogo erps (opcional: se exige al INICIAR una operación, no al cargar)
