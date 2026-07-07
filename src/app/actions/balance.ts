@@ -36,6 +36,7 @@ import { extraerBalance } from "@/lib/balance/extraccion/extraer";
 import { mapearPorIA } from "@/lib/balance/mapeo-ia";
 import { construirVistaBorrador } from "@/lib/balance/borrador-vm";
 import { reclasificarHuerfanas, type FilaBorrador } from "@/lib/balance/borrador";
+import { esBalancePorTercero, colapsarTerceros } from "@/lib/balance/terceros";
 import { diagnosticarConIA, type DiagnosticoIA } from "@/lib/balance/diagnostico-ia";
 import { iaDisponible, MODELO_EXTRACCION } from "@/lib/anthropic";
 import { registrarConsumoIA, type UsoIA } from "@/lib/ia/uso";
@@ -209,18 +210,22 @@ async function promoverStagingAOficial(p: MetaPromocion, contexto: string): Prom
     const staged = await prisma.balanceImportacionStaging.findMany({
       where: { loteId: p.loteId },
       orderBy: { filaNum: "asc" },
-      select: { filaNum: true, codigo: true, codigoCrudo: true, nombre: true, nivel: true, tipoFila: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
+      select: { filaNum: true, codigo: true, codigoCrudo: true, nombre: true, nivel: true, tipoFila: true, omitida: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
     });
-    const rows: FilaBorrador[] = staged.map((f) => ({
-      filaNum: f.filaNum, codigo: f.codigo, codigoCrudo: f.codigoCrudo, nombre: f.nombre, nivel: f.nivel, tipoFila: f.tipoFila as TipoFila,
+    const filasStaging: FilaBorrador[] = staged.map((f) => ({
+      filaNum: f.filaNum, codigo: f.codigo, codigoCrudo: f.codigoCrudo, nombre: f.nombre, nivel: f.nivel, tipoFila: f.tipoFila as TipoFila, omitida: f.omitida,
       saldoInicial: Number(f.saldoInicial), debitos: Number(f.debitos), creditos: Number(f.creditos), saldoFinal: Number(f.saldoFinal),
     }));
+    // Balance ABIERTO POR TERCERO → colapsar el detalle y cargar por CUENTA (lógica
+    // separada; los demás informes no se tocan). Las cuentas quedan como imputables.
+    const rows = esBalancePorTercero(filasStaging) ? colapsarTerceros(filasStaging) : filasStaging;
     reclasificarRepetidos(rows); // código repetido → movimiento
     reclasificarNoImputables(rows); // pie/total sin código («Total general», marca ERP) → total
     // Agrupadora huérfana (sin hijos, con saldo) → movimiento: el ERP la exportó sin
     // desglose; si no, su saldo se pierde al cargar. También recupera lotes viejos.
     reclasificarHuerfanas(rows);
-    const mov = rows.filter((f) => f.tipoFila === "movimiento");
+    // Filas OMITIDAS: se conservan en el crudo pero NO se vuelcan al balance oficial.
+    const mov = rows.filter((f) => f.tipoFila === "movimiento" && !f.omitida);
     // Excluye subtotales DUPLICADOS (6 díg con detalle 8 díg idéntico) para no doblar.
     const dup = marcarSubtotalesDuplicados(mov);
     const movNetas = mov.filter((f) => !dup.has(f));
@@ -1085,12 +1090,16 @@ export async function diagnosticarBorradorIA(loteId: string): Promise<Diagnostic
  *  - `desacopladas`: código → on/off del flag `desacoplada` (anidar por prefijo, no por
  *    orden). No afecta el balance cargado (la carga agrega por código, no por árbol);
  *    solo corrige DÓNDE se muestra el descuadre en la revisión del borrador.
+ *  - `omitidas`: filaNum → on/off del flag `omitida`. La fila se conserva en el crudo
+ *    (comparativo línea a línea) pero se excluye de los cálculos y NO se vuelca al
+ *    balance al cargar. Se aplica por FILA (no por código) para precisión.
  */
 export async function aplicarCambiosBorrador(
   loteId: string,
   override: Record<string, "agrupadora" | "movimiento">,
   invertidos: string[],
   desacopladas: Record<string, boolean> = {},
+  omitidas: Record<string, boolean> = {},
 ): Promise<ActionState> {
   const authz = await authorizePermiso("balance:crear");
   if (!authz.ok) return { ok: false, message: authz.message };
@@ -1099,11 +1108,13 @@ export async function aplicarCambiosBorrador(
   const reclas = Object.entries(override ?? {}).filter(([c, t]) => /^\d+$/.test(c) && (t === "agrupadora" || t === "movimiento"));
   const invs = [...new Set((invertidos ?? []).filter((c) => /^\d+$/.test(c)))];
   const desac = Object.entries(desacopladas ?? {}).filter(([c]) => /^\d+$/.test(c));
-  if (reclas.length === 0 && invs.length === 0 && desac.length === 0) return { ok: false, message: "No hay cambios para guardar." };
+  const omit = Object.entries(omitidas ?? {}).filter(([f]) => /^\d+$/.test(f));
+  if (reclas.length === 0 && invs.length === 0 && desac.length === 0 && omit.length === 0) return { ok: false, message: "No hay cambios para guardar." };
   try {
     let nRe = 0;
     let nInv = 0;
     let nDes = 0;
+    let nOmi = 0;
     for (const [cod, tipo] of reclas) {
       const actual = tipo === "movimiento" ? "agrupadora" : "movimiento";
       const r = await prisma.balanceImportacionStaging.updateMany({ where: { loteId: id, codigo: cod, tipoFila: actual }, data: { tipoFila: tipo } });
@@ -1128,10 +1139,14 @@ export async function aplicarCambiosBorrador(
       const r = await prisma.balanceImportacionStaging.updateMany({ where: { loteId: id, codigo: cod }, data: { desacoplada: on } });
       nDes += r.count;
     }
+    for (const [fila, on] of omit) {
+      const r = await prisma.balanceImportacionStaging.updateMany({ where: { loteId: id, filaNum: Number(fila) }, data: { omitida: on } });
+      nOmi += r.count;
+    }
     const user = await getCurrentUser();
-    await logAudit({ user: user?.name ?? "—", action: "GUARDÓ cambios en balance borrador", entity: id, detail: `${nRe} reclasificada(s), ${nInv} inversión(es), ${nDes} desacople(s)` });
+    await logAudit({ user: user?.name ?? "—", action: "GUARDÓ cambios en balance borrador", entity: id, detail: `${nRe} reclasificada(s), ${nInv} inversión(es), ${nDes} desacople(s), ${nOmi} omitida(s)` });
     revalidatePath(`/balance/borradores/${id}`);
-    const nTotal = nRe + nInv + nDes;
+    const nTotal = nRe + nInv + nDes + nOmi;
     return { ok: true, message: `Cambios guardados (${nTotal} fila${nTotal === 1 ? "" : "s"}).` };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("aplicarCambiosBorrador", e) };

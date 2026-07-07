@@ -16,13 +16,14 @@ import { notifyActionState, notifySuccess, notifyError } from "@/lib/client-noti
 
 type Cliente = { id: number; name: string; nit: string };
 
-/** Aplica los cambios TEMPORALES (reclasificación / lados invertidos / desacople)
- *  sobre las filas crudas, en memoria (misma lógica que la acción de guardar). */
+/** Aplica los cambios TEMPORALES (reclasificación / lados invertidos / desacople /
+ *  omitir) sobre las filas crudas, en memoria (misma lógica que la acción de guardar). */
 function aplicarCambios(
   filas: FilaBorrador[],
   override: Record<string, "agrupadora" | "movimiento">,
   invertidos: string[],
   desacopladas: Record<string, boolean>,
+  omitidas: Record<number, boolean>,
 ): FilaBorrador[] {
   const out = filas.map((f) => ({ ...f }));
   if (Object.keys(override).length > 0) {
@@ -42,6 +43,9 @@ function aplicarCambios(
   }
   if (Object.keys(desacopladas).length > 0) {
     for (const f of out) if (f.codigo in desacopladas) f.desacoplada = desacopladas[f.codigo];
+  }
+  if (Object.keys(omitidas).length > 0) {
+    for (const f of out) if (f.filaNum in omitidas) f.omitida = omitidas[f.filaNum];
   }
   return out;
 }
@@ -70,21 +74,23 @@ export default function BorradorDetailClient({
   const [override, setOverride] = useState<Record<string, "agrupadora" | "movimiento">>({});
   const [invertidos, setInvertidos] = useState<string[]>([]);
   const [desacopladas, setDesacopladas] = useState<Record<string, boolean>>({});
+  const [omitidas, setOmitidas] = useState<Record<number, boolean>>({});
   const [guardando, startGuardar] = useTransition();
-  const nCambios = Object.keys(override).length + invertidos.length + Object.keys(desacopladas).length;
+  const nCambios = Object.keys(override).length + invertidos.length + Object.keys(desacopladas).length + Object.keys(omitidas).length;
   const hayCambios = nCambios > 0;
   // View-model recomputado LOCALMENTE con los cambios temporales (sin tocar la BD).
-  const { arbol, validacion, partidaDoble, hallazgos } = useMemo(() => construirVistaBorrador(aplicarCambios(filas, override, invertidos, desacopladas)), [filas, override, invertidos, desacopladas]);
+  const { arbol, validacion, partidaDoble, hallazgos, porTercero } = useMemo(() => construirVistaBorrador(aplicarCambios(filas, override, invertidos, desacopladas, omitidas)), [filas, override, invertidos, desacopladas, omitidas]);
 
   const onReclasificar = (codigo: string, actual: NodoBorrador["tipoFila"]) =>
     setOverride((o) => ({ ...o, [codigo]: actual === "movimiento" ? "agrupadora" : "movimiento" }));
   const onInvertir = (codigo: string) => setInvertidos((inv) => (inv.includes(codigo) ? inv : [...inv, codigo]));
   const onDesacoplar = (codigo: string, desacopladaAhora: boolean) => setDesacopladas((d) => ({ ...d, [codigo]: !desacopladaAhora }));
-  const descartarCambios = () => { setOverride({}); setInvertidos([]); setDesacopladas({}); };
+  const onOmitir = (filaNum: number, omitidaAhora: boolean) => setOmitidas((o) => ({ ...o, [filaNum]: !omitidaAhora }));
+  const descartarCambios = () => { setOverride({}); setInvertidos([]); setDesacopladas({}); setOmitidas({}); };
   const guardarCambios = () =>
     startGuardar(async () => {
-      const r = await aplicarCambiosBorrador(loteId, override, invertidos, desacopladas);
-      if (r.ok) { notifySuccess(r.message ?? "Cambios guardados."); setOverride({}); setInvertidos([]); setDesacopladas({}); router.refresh(); }
+      const r = await aplicarCambiosBorrador(loteId, override, invertidos, desacopladas, omitidas);
+      if (r.ok) { notifySuccess(r.message ?? "Cambios guardados."); setOverride({}); setInvertidos([]); setDesacopladas({}); setOmitidas({}); router.refresh(); }
       else notifyError(r.message ?? "No se pudieron guardar los cambios.");
     });
 
@@ -110,6 +116,12 @@ export default function BorradorDetailClient({
 
   return (
     <div className="flex flex-col gap-4">
+      {porTercero && (
+        <div className="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">
+          <Icon name="warn" size={14} />
+          <span><span className="font-semibold">Balance abierto por tercero detectado.</span> Se colapsó el detalle de tercero (NIT/cédula) y se concilia por <span className="font-semibold">cuenta</span> — el saldo de cada cuenta ya es la suma de sus terceros. Los cálculos y la carga usan el nivel de cuenta.</span>
+        </div>
+      )}
       <ValidacionHeader v={validacion} pd={partidaDoble} />
 
       {hallazgos.length > 0 && (
@@ -129,7 +141,7 @@ export default function BorradorDetailClient({
             </a>
           </div>
           <div className="mt-1 text-[11px] leading-relaxed text-ink-500">
-            <span className="font-semibold text-err-700">Δ subrayado</span> en una agrupadora = su total del archivo − la suma de las filas que cuelgan de ella (por prefijo de código). Si ≠ 0, su subtotal no cuadra con su desglose: puede ser una <span className="font-semibold">cuenta faltante</span>, o que el ERP numere el detalle sin anidar por código (el subtotal y su detalle no comparten prefijo — la plata está, pero en otra rama). Usa <span className="font-semibold">⇄ Agrupadora/Movimiento</span> para corregir el tipo de una cuenta, y <span className="font-semibold">⇄ Desacoplar</span> para sacar una cuenta de una agrupadora de código ajeno y anidarla bajo su padre real por código (aplica a todas las sucursales y recalcula).
+            <span className="font-semibold text-err-700">Δ subrayado</span> en una agrupadora = su total del archivo − la suma de las filas que cuelgan de ella (por prefijo de código). Si ≠ 0, su subtotal no cuadra con su desglose: puede ser una <span className="font-semibold">cuenta faltante</span>, o que el ERP numere el detalle sin anidar por código (el subtotal y su detalle no comparten prefijo — la plata está, pero en otra rama). Usa <span className="font-semibold">⇄ Agrupadora/Movimiento</span> para corregir el tipo de una cuenta, <span className="font-semibold">⇄ Desacoplar</span> para sacar una cuenta de una agrupadora de código ajeno, y la <span className="font-semibold text-err-700">✕</span> para <span className="font-semibold">omitir</span> un registro de los cálculos (se conserva en el crudo/Excel línea a línea y NO se carga al balance).
           </div>
         </div>
         {hayCambios && (
@@ -152,7 +164,7 @@ export default function BorradorDetailClient({
             <button type="button" onClick={() => setFiltro([])} className="ml-1 text-[11px] font-medium text-blue-700 underline hover:text-blue-900">Limpiar filtro</button>
           </div>
         )}
-        <ArbolTabla arbol={arbol} filtro={filtro} onReclasificar={onReclasificar} onInvertir={onInvertir} onDesacoplar={onDesacoplar} />
+        <ArbolTabla arbol={arbol} filtro={filtro} onReclasificar={onReclasificar} onInvertir={onInvertir} onDesacoplar={onDesacoplar} onOmitir={onOmitir} />
       </Card>
 
       {/* Cargar / Descartar */}
@@ -340,7 +352,7 @@ function DiagnosticoPanel({ hallazgos, diagIA, diagnosticando, onDiagnosticar, f
 const tieneDescuadre = (n: NodoBorrador): boolean => (n.descuadre != null && n.descuadre !== 0) || n.hijos.some(tieneDescuadre);
 const nivelLabel = (codigo: string) => (codigo.length <= 2 ? "Clase" : codigo.length <= 4 ? "Grupo" : codigo.length <= 6 ? "Cuenta" : "Subcuenta");
 
-function ArbolTabla({ arbol, filtro, onReclasificar, onInvertir, onDesacoplar }: { arbol: NodoBorrador[]; filtro: string[]; onReclasificar: (codigo: string, actual: NodoBorrador["tipoFila"]) => void; onInvertir: (codigo: string) => void; onDesacoplar: (codigo: string, desacopladaAhora: boolean) => void }) {
+function ArbolTabla({ arbol, filtro, onReclasificar, onInvertir, onDesacoplar, onOmitir }: { arbol: NodoBorrador[]; filtro: string[]; onReclasificar: (codigo: string, actual: NodoBorrador["tipoFila"]) => void; onInvertir: (codigo: string) => void; onDesacoplar: (codigo: string, desacopladaAhora: boolean) => void; onOmitir: (filaNum: number, omitidaAhora: boolean) => void }) {
   // Control contable: saldo ant + débito − crédito = saldo actual (±$1).
   const controlOk = (si: number, db: number, cr: number, s: number) => Math.abs(si + db - cr - s) <= 1;
   // Expande por defecto los niveles altos y TODA rama con descuadre (para verlo).
@@ -411,8 +423,13 @@ function ArbolTabla({ arbol, filtro, onReclasificar, onInvertir, onDesacoplar }:
     const desacopladaAhora = !!n.desacoplada;
     const bajoAjena = numero && padreCodigo != null && /^\d+$/.test(padreCodigo) && !n.codigo.startsWith(padreCodigo);
     const puedeDesacoplar = esMov && numero && (desacopladaAhora || bajoAjena);
+    // Omitir: la fila se conserva pero no cuenta en los cálculos ni se carga al balance.
+    // Aplica a MOVIMIENTOS (lo que suma) y a filas TOTAL/pie del reporte (p. ej.
+    // «Totales Prueba»), que ya no cuentan pero se pueden marcar/excluir del export.
+    const omitida = !!n.omitida;
+    const puedeOmitir = esMov || n.tipoFila === "total";
     filas.push(
-      <tr key={n.filaNum} className={`border-t border-ink-100 ${esMatch ? "bg-blue-50 ring-1 ring-inset ring-blue-200" : esMov ? "hover:bg-ink-50/60" : "bg-ink-50/40"}`}>
+      <tr key={n.filaNum} className={`border-t border-ink-100 ${omitida ? "opacity-45" : ""} ${esMatch ? "bg-blue-50 ring-1 ring-inset ring-blue-200" : esMov ? "hover:bg-ink-50/60" : "bg-ink-50/40"}`}>
         <td className="px-2 py-1 align-top">
           <div className="flex items-center gap-1.5" style={{ paddingLeft: 4 + depth * 16 }}>
             {hasHijos ? (
@@ -425,9 +442,10 @@ function ArbolTabla({ arbol, filtro, onReclasificar, onInvertir, onDesacoplar }:
         </td>
         <td className="px-2 py-1 align-top">
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className={`text-[12px] ${descuadrado ? "font-semibold text-err-700 underline decoration-err-500 decoration-2 underline-offset-2" : "text-ink-800"}`} title={n.nombre}>
+            <span className={`text-[12px] ${omitida ? "text-ink-400 line-through" : descuadrado ? "font-semibold text-err-700 underline decoration-err-500 decoration-2 underline-offset-2" : "text-ink-800"}`} title={n.nombre}>
               {n.nombre}
             </span>
+            {omitida && <Chip label="Omitida · no cuenta" tone="warn" />}
             {n.subtotalDuplicado ? (
               <span title="Subtotal de 6 díg cuyo detalle de 8 díg (mismas 4 columnas) está mal-numerado. No se carga: su detalle ya lleva el valor.">
                 <Chip label="Subtotal duplicado · no se carga" tone="warn" />
@@ -474,6 +492,20 @@ function ArbolTabla({ arbol, filtro, onReclasificar, onInvertir, onDesacoplar }:
                 className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold ${desacopladaAhora ? "border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100" : "border-ink-200 text-ink-500 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"}`}
               >
                 {desacopladaAhora ? "⇄ Reacoplar" : "⇄ Desacoplar"}
+              </button>
+            )}
+            {puedeOmitir && (
+              <button
+                type="button"
+                onClick={() => onOmitir(n.filaNum, omitida)}
+                title={omitida
+                  ? "Incluir de nuevo este registro en los cálculos."
+                  : "Omitir este registro de los cálculos. Se conserva en el crudo (comparativo línea a línea en Excel) y NO se carga al balance."}
+                className={omitida
+                  ? "inline-flex items-center rounded-md border border-ink-200 px-1.5 py-0.5 text-[10px] font-semibold text-ink-500 hover:bg-ink-100"
+                  : "inline-flex items-center rounded-md border border-err-300 bg-err-100 px-1.5 py-0.5 font-bold text-err-700 hover:bg-err-200"}
+              >
+                {omitida ? "Incluir" : <Icon name="x" size={14} />}
               </button>
             )}
           </div>

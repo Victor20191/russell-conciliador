@@ -754,6 +754,10 @@ model BalanceImportacionStaging {
   // (su padre real), no por el orden del archivo. Corrige un detalle que el ERP ubicó
   // bajo una agrupadora de código ajeno y de menor nivel (p. ej. `145020` bajo `1305`).
   desacoplada  Boolean  @default(false) @map("desacoplada")
+  // Omitir MANUAL: la fila se CONSERVA en el crudo (para el comparativo línea a línea
+  // con el archivo), pero se EXCLUYE de los cálculos del borrador y NO se vuelca al
+  // balance oficial al cargar. Para registros que no son cuentas (totales/ruido).
+  omitida      Boolean  @default(false) @map("omitida")
   creadoEn     DateTime @default(now()) @map("creado_en")
 
   @@index([loteId])

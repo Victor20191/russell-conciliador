@@ -27,6 +27,10 @@ export type FilaBorrador = {
   // contenedor por orden. Corrige un detalle mal ubicado por el ERP bajo una
   // agrupadora de código ajeno (p. ej. `145020` colgado de `1305`).
   desacoplada?: boolean;
+  // Omitir MANUAL: la fila SE CONSERVA en el árbol/crudo (para el comparativo línea a
+  // línea), pero se EXCLUYE de los cálculos (no cuenta en el descuadre de su padre,
+  // ni en las sumas/partida doble, ni se vuelca al balance al cargar).
+  omitida?: boolean;
 };
 
 export type NodoBorrador = FilaBorrador & {
@@ -158,7 +162,7 @@ export function construirArbolBorrador(filas: FilaBorrador[], tol = 1): NodoBorr
   const usados = new Set<number>();
   for (const A of todos) {
     if (A.tipoFila === "movimiento" || A.hijos.length === 0) continue;
-    const hueco = A.saldoFinal - A.hijos.reduce((s, h) => s + h.saldoFinal, 0);
+    const hueco = A.saldoFinal - A.hijos.reduce((s, h) => s + (h.omitida ? 0 : h.saldoFinal), 0);
     if (Math.abs(hueco) <= tol) continue; // ya cuadra con sus hijos
     const cand = (porNombre.get(normNombre(A.nombre)) ?? []).filter(
       (B) => B !== A && !usados.has(B.filaNum) && Math.abs(B.saldoFinal - hueco) <= tol && !esDescendiente(B, A),
@@ -182,7 +186,7 @@ export function construirArbolBorrador(filas: FilaBorrador[], tol = 1): NodoBorr
     const atribuidos = gemelosDe.get(n.filaNum) ?? [];
     if (n.tipoFila !== "movimiento" && (n.hijos.length > 0 || atribuidos.length > 0)) {
       let suma = 0;
-      for (const h of n.hijos) if (!perteneceA.has(h.filaNum) && !h.subtotalDuplicado) suma += h.saldoFinal;
+      for (const h of n.hijos) if (!perteneceA.has(h.filaNum) && !h.subtotalDuplicado && !h.omitida) suma += h.saldoFinal;
       for (const g of atribuidos) suma += g.saldoFinal;
       const d = n.saldoFinal - suma;
       n.descuadre = Math.abs(d) > tol ? d : 0;
@@ -204,6 +208,10 @@ export function construirArbolBorrador(filas: FilaBorrador[], tol = 1): NodoBorr
  * Seguro contra DOBLE CONTEO: un nodo sin hijos no tiene descendientes que ya
  * aporten su saldo, y la detección de gemelos ignora los nodos sin hijos (ver el
  * `continue` en `construirArbolBorrador`), así que tampoco recibe un gemelo.
+ *
+ * Solo aplica a códigos NUMÉRICOS: un pie/total de código no numérico («Totales
+ * Prueba», «Total general») NO es una cuenta, así que NO se recupera a movimiento
+ * (lo dejó como «total» `reclasificarNoImputables` y así debe quedar).
  */
 export function reclasificarHuerfanas(filas: FilaBorrador[]): FilaBorrador[] {
   const tieneMovimiento = (n: NodoBorrador) =>
@@ -211,7 +219,7 @@ export function reclasificarHuerfanas(filas: FilaBorrador[]): FilaBorrador[] {
   const arbol = construirArbolBorrador(filas);
   const huerfanas = new Set<number>(); // filaNum
   const rec = (n: NodoBorrador) => {
-    if (n.tipoFila !== "movimiento" && n.hijos.length === 0 && !n.subtotalDuplicado && tieneMovimiento(n)) {
+    if (n.tipoFila !== "movimiento" && esNumerico(n.codigo) && n.hijos.length === 0 && !n.subtotalDuplicado && tieneMovimiento(n)) {
       huerfanas.add(n.filaNum);
     }
     n.hijos.forEach(rec);

@@ -200,6 +200,20 @@ describe("construirArbolBorrador", () => {
   });
 });
 
+describe("omitida (excluir de cálculos, conservar en el crudo)", () => {
+  it("una fila OMITIDA no cuenta en el descuadre de su agrupadora", () => {
+    const arbol = construirArbolBorrador([
+      fila(1, "11", "DISPONIBLE", 600, "agrupadora"),
+      fila(2, "110505", "CAJA", 600, "movimiento"),
+      { ...fila(3, "110599", "TOTAL RUIDO", 999, "movimiento"), omitida: true }, // omitida: no infla
+    ]);
+    // 11 = 600 (solo 110505); la omitida (999) no suma → descuadre 0 (antes: −999).
+    expect(arbol[0].descuadre).toBe(0);
+    // La fila omitida SIGUE en el árbol (se conserva para el comparativo línea a línea).
+    expect(arbol[0].hijos.map((h) => h.codigo)).toEqual(["110505", "110599"]);
+  });
+});
+
 describe("reclasificarNoImputables (pie/total sin código)", () => {
   it("una fila de PIE sin código (Total general) no se cuelga de la última agrupadora ni infla su Δ", () => {
     const filas: FilaBorrador[] = [
@@ -251,6 +265,16 @@ describe("reclasificarHuerfanas", () => {
     ];
     expect(reclasificarHuerfanas(filas)).toEqual([]);
     expect(filas.every((f) => f.tipoFila === "agrupadora")).toBe(true);
+  });
+
+  it("NO recupera un total/pie de código NO numérico (Totales Prueba se queda como total)", () => {
+    const filas: FilaBorrador[] = [
+      fila(1, "11", "DISPONIBLE", 100, "agrupadora"),
+      fila(2, "110505", "CAJA", 100, "movimiento"),
+      { ...fila(3, "", "Totales Prueba", 245, "total"), codigoCrudo: "" }, // sin hijos, con saldo, pero no numérico
+    ];
+    expect(reclasificarHuerfanas(filas)).toEqual([]); // no recupera nada
+    expect(filas.find((f) => f.nombre === "Totales Prueba")?.tipoFila).toBe("total"); // sigue total, no cuenta
   });
 
   it("NO reclasifica una agrupadora con detalle desacoplado por orden (no la deja doble-contar)", () => {

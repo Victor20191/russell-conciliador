@@ -17,8 +17,11 @@ const NUM_FMT = "#,##0.00;-#,##0.00";
 
 const nivelLabel = (c: string) =>
   c.length === 0 ? "Total" : c.length <= 2 ? "Clase" : c.length <= 4 ? "Grupo" : c.length <= 6 ? "Cuenta" : "Subcuenta";
-const tipoLabel = (n: NodoBorrador) =>
-  n.subtotalDuplicado ? "Subtotal duplicado" : n.tipoFila === "movimiento" ? "Movimiento" : n.tipoFila === "total" ? "Total" : "Agrupadora";
+const tipoLabel = (n: NodoBorrador) => {
+  const base = n.subtotalDuplicado ? "Subtotal duplicado" : n.tipoFila === "movimiento" ? "Movimiento" : n.tipoFila === "total" ? "Total" : "Agrupadora";
+  // Las OMITIDAS se conservan en el crudo (línea a línea) pero no cuentan ni se cargan.
+  return n.omitida ? `${base} · OMITIDA` : base;
+};
 
 export async function crearExportacionBorrador(
   filas: FilaExportBorrador[],
@@ -59,7 +62,7 @@ export async function crearExportacionBorrador(
     // descuadre de la app). Se referencia su "Saldo actual" (col H) — el mismo valor
     // que el subtotal del padre debería igualar.
     const celdasHijos = esAgrup
-      ? nodo.hijos.filter((h) => !h.subtotalDuplicado && rowOf.has(h.filaNum)).map((h) => `${COL_SALDO}${rowOf.get(h.filaNum)}`)
+      ? nodo.hijos.filter((h) => !h.subtotalDuplicado && !h.omitida && rowOf.has(h.filaNum)).map((h) => `${COL_SALDO}${rowOf.get(h.filaNum)}`)
       : [];
     const conHijos = celdasHijos.length > 0;
     const row = ws.addRow({
@@ -87,6 +90,8 @@ export async function crearExportacionBorrador(
       row.getCell("delta").font = { color: { argb: "FFC01919" }, bold: true };
       row.getCell("deltaFormula").font = { color: { argb: "FFC01919" }, bold: true };
     }
+    // Fila OMITIDA: se conserva (línea a línea) pero se muestra tachada/gris.
+    if (nodo.omitida) row.font = { color: { argb: "FF98A2B3" }, italic: true, strike: true };
   });
 
   ws.views = [{ state: "frozen", ySplit: 1 }];

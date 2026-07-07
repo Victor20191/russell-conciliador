@@ -4,6 +4,7 @@
 import { calcularBalance, construirValidacionContable, conForzarHoja, type CuentaCruda, type ValidacionContable } from "./calcular";
 import { marcarSubtotalesDuplicados, reclasificarRepetidos, reclasificarNoImputables } from "./extraccion/transformar";
 import { construirArbolBorrador, reclasificarHuerfanas, type FilaBorrador, type NodoBorrador } from "./borrador";
+import { esBalancePorTercero, colapsarTerceros } from "./terceros";
 import { diagnosticarBorrador, type Hallazgo, type PartidaDobleInfo } from "./diagnostico";
 
 export type AgrupadoraRef = { codigo: string; nombre: string; saldoFinal: number; descuadre: number | null };
@@ -13,6 +14,7 @@ export type VistaBorrador = {
   partidaDoble: PartidaDobleInfo;
   hallazgos: Hallazgo[];
   agrupadoras: AgrupadoraRef[]; // estructura compacta (sin hojas) para aterrizar la IA
+  porTercero: boolean; // el archivo venía abierto por tercero → se colapsó el detalle
 };
 
 function aplanar(nodos: NodoBorrador[]): NodoBorrador[] {
@@ -27,17 +29,24 @@ function aplanar(nodos: NodoBorrador[]): NodoBorrador[] {
  * repetidos). Reproduce el mismo pipeline en la página y en la acción de IA.
  */
 export function construirVistaBorrador(filas: FilaBorrador[]): VistaBorrador {
-  reclasificarRepetidos(filas);
+  // ¿Balance ABIERTO POR TERCERO? Se COLAPSA el detalle de tercero y se concilia por
+  // CUENTA (lógica separada; los demás informes no se tocan). Al quitar los terceros,
+  // las cuentas quedan sin hijos y `reclasificarHuerfanas` las vuelve imputables.
+  const porTercero = esBalancePorTercero(filas);
+  const base = porTercero ? colapsarTerceros(filas) : filas;
+
+  reclasificarRepetidos(base);
   // Pie/total del reporte sin código («Total general», «Totales», marca del software)
   // mal clasificado como movimiento → «total»: si no, se cuelga de la última
-  // agrupadora inflando su Δ y se cuenta al cargar. MUTA `filas`.
-  reclasificarNoImputables(filas);
+  // agrupadora inflando su Δ y se cuenta al cargar. MUTA `base`.
+  reclasificarNoImputables(base);
   // Agrupadoras HUÉRFANAS (sin hijos, con saldo) → movimiento: son hojas imputables
-  // que el ERP exportó sin desglose; si no, su saldo se pierde. MUTA `filas`.
-  reclasificarHuerfanas(filas);
-  const arbol = construirArbolBorrador(filas);
+  // que el ERP exportó sin desglose; si no, su saldo se pierde. MUTA `base`.
+  reclasificarHuerfanas(base);
+  const arbol = construirArbolBorrador(base);
 
-  const movimiento = filas.filter((f) => f.tipoFila === "movimiento");
+  // Las filas OMITIDAS se conservan en el árbol (crudo) pero NO cuentan en los cálculos.
+  const movimiento = base.filter((f) => f.tipoFila === "movimiento" && !f.omitida);
   const dup = marcarSubtotalesDuplicados(movimiento);
   const importReady: CuentaCruda[] = conForzarHoja(
     movimiento
@@ -47,7 +56,7 @@ export function construirVistaBorrador(filas: FilaBorrador[]): VistaBorrador {
   const calc = calcularBalance(importReady, []);
 
   const totalArchivo = (clase: string) => {
-    const fs = filas.filter((f) => f.codigo === clase);
+    const fs = base.filter((f) => f.codigo === clase && !f.omitida);
     return fs.length > 0 ? fs.reduce((s, f) => s + f.saldoFinal, 0) : null;
   };
   const costosArchivo = [totalArchivo("6"), totalArchivo("7")].filter((v): v is number => v != null);
@@ -67,5 +76,5 @@ export function construirVistaBorrador(filas: FilaBorrador[]): VistaBorrador {
     .filter((n) => n.tipoFila !== "movimiento")
     .map((n) => ({ codigo: n.codigo, nombre: n.nombre, saldoFinal: n.saldoFinal, descuadre: n.descuadre }));
 
-  return { arbol, validacion, partidaDoble, hallazgos, agrupadoras };
+  return { arbol, validacion, partidaDoble, hallazgos, agrupadoras, porTercero };
 }
