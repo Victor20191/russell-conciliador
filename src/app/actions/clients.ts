@@ -11,6 +11,7 @@ import { nextClientCode } from "@/lib/client-code";
 import { authorizePermiso } from "@/lib/rbac";
 import { ROL_POR_FUNCION, ROL_SOCIO } from "@/lib/rbac/jerarquia";
 import { mensajeErrorBD } from "@/lib/errores";
+import { claveNit } from "@/lib/nit";
 
 const PATH = "/config/clientes";
 
@@ -62,6 +63,40 @@ async function erpValido(erpId: number): Promise<boolean> {
 async function sectorValido(sectorId: number): Promise<boolean> {
   const sector = await prisma.sector.findUnique({ where: { id: sectorId }, select: { active: true } });
   return sector?.active === true;
+}
+
+async function clienteConMismoNit(
+  nit: string,
+  excluirId?: number,
+): Promise<{ id: number; code: string; name: string; nit: string } | null> {
+  const nitNormalizado = claveNit(nit);
+  if (!nitNormalizado) return null;
+
+  const rows = excluirId
+    ? await prisma.$queryRaw<{ id: number; code: string; name: string; nit: string }[]>`
+        SELECT id, codigo AS code, nombre AS name, nit
+        FROM clientes
+        WHERE regexp_replace(nit, '[^0-9]', '', 'g') = ${nitNormalizado}
+          AND id <> ${excluirId}
+        LIMIT 1
+      `
+    : await prisma.$queryRaw<{ id: number; code: string; name: string; nit: string }[]>`
+        SELECT id, codigo AS code, nombre AS name, nit
+        FROM clientes
+        WHERE regexp_replace(nit, '[^0-9]', '', 'g') = ${nitNormalizado}
+        LIMIT 1
+      `;
+
+  return rows[0] ?? null;
+}
+
+function errorNitDuplicado(cliente: { code: string; name: string }): ActionState {
+  return {
+    ok: false,
+    errors: {
+      nit: [`Ya existe un cliente con este NIT (${cliente.code} - ${cliente.name}).`],
+    },
+  };
 }
 
 type Responsables = { gerenteId: number; seniorId: number; staffIds: number[] };
@@ -206,6 +241,9 @@ export async function createClient(
     }
     const { socioId, ...data } = parsed.data;
 
+    const duplicado = await clienteConMismoNit(data.nit);
+    if (duplicado) return errorNitDuplicado(duplicado);
+
     // ERP y Sector son catálogos maestros opcionales: si se indican, deben
     // existir y estar activos (el ERP se exige al iniciar una operación).
     if (data.erpId != null && !(await erpValido(data.erpId))) {
@@ -326,6 +364,9 @@ export async function updateClient(
       return { ok: false, errors: z.flattenError(parsed.error).fieldErrors };
     }
     const { name, nit, tipo, erpId, sectorId, socioId } = parsed.data;
+
+    const duplicado = await clienteConMismoNit(nit, id);
+    if (duplicado) return errorNitDuplicado(duplicado);
 
     // ERP y Sector son catálogos maestros opcionales: si se indican, deben
     // existir y estar activos (el ERP se exige al iniciar una operación).
