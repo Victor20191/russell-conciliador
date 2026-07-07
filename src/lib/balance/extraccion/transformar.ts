@@ -291,6 +291,26 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
   const tieneInicial = cols.saldoInicial > 0;
   const tieneMovimientos = cols.debitos > 0 || cols.creditos > 0;
   const validarControl = tieneInicial && tieneMovimientos;
+  // Reportes "balance por tercero": algunos ERP traen, para el mismo código,
+  // una fila consolidada sin tercero y debajo el desglose por tercero/centro de
+  // costo. Si sumamos ambos niveles duplicamos saldos. Cuando exista la fila
+  // consolidada, el detalle por tercero es una vista alternativa y se excluye.
+  const codigosConConsolidado = new Set<string>();
+  const codigosConDetalleTercero = new Set<string>();
+  if (cols.tercero > 0) {
+    for (let r = spec.primeraFilaDatos - 1; r < hoja.filas.length; r++) {
+      const fila = hoja.filas[r] ?? [];
+      const code = normalizarCodigo(cell(fila, cols.codigo));
+      if (!/^\d+$/.test(code)) continue;
+      if (texto(cell(fila, cols.tercero)) === "") codigosConConsolidado.add(code);
+      else codigosConDetalleTercero.add(code);
+    }
+  }
+  const omitirDetalleTercero = (code: string, fila: CeldaCruda[]): boolean =>
+    cols.tercero > 0 &&
+    codigosConConsolidado.has(code) &&
+    codigosConDetalleTercero.has(code) &&
+    texto(cell(fila, cols.tercero)) !== "";
   // Pasada 1 (jerarquía por PREFIJO): reúne TODOS los códigos numéricos de la
   // hoja. Una cuenta es HOJA (movimiento real) si su código no es prefijo de
   // ningún otro más largo del archivo; es AGRUPADORA si tiene hijos debajo. Esto
@@ -330,6 +350,7 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
   let filasLeidas = 0;
   let filasExcluidas = 0;
   const parciales: FilaParcial[] = [];
+  let filasDetalleTerceroExcluidas = 0;
   // Todas las filas leídas (sin descartar), para el staging del paso 1.
   const filasCrudas: FilaCruda[] = [];
   // Índices en `filasCrudas` por código de movimiento → re-etiqueta a "descuadre"
@@ -381,10 +402,18 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
       registrar("total", { si: si ?? 0, db: db ?? 0, cr: cr ?? 0, saldo: saldo ?? 0 });
       continue;
     }
+    if (omitirDetalleTercero(code, fila)) {
+      filasExcluidas++;
+      filasDetalleTerceroExcluidas++;
+      continue;
+    }
+    const consolidadoConDetalleTercero = codigosConConsolidado.has(code) && codigosConDetalleTercero.has(code);
     // ¿Es agrupadora? 1º la NEGRITA del ERP si la hoja la usa como marcador (manda);
     // si no, columna marcadora del archivo o detección estructural por prefijo
-    // (no es prefijo de otra) + piso PUC — `esHoja`.
-    const esAgrupadora = usaNegrita
+    // (no es prefijo de otra) + piso PUC — `esHoja`. En balances por tercero, la
+    // negrita de la fila consolidada suele significar "subtotal del desglose por
+    // tercero", no cuenta padre contable; ahí manda el prefijo.
+    const esAgrupadora = usaNegrita && !consolidadoConDetalleTercero
       ? filaEnNegrita(hoja.negrita?.[r], cols.codigo, cols.nombre)
       : !esHoja(code, fila, spec, ancestros);
     if (esAgrupadora) {
@@ -411,7 +440,11 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
     });
   }
 
-  const agregadas = spec.agregarPorTercero ? agregarPorCuenta(parciales) : parciales;
+  // El destino del balance no conserva tercero. Si el archivo trae esa columna,
+  // varias filas pueden representar el mismo código; se agregan aunque el modelo
+  // no active explícitamente `agregarPorTercero`, para que el borrador coincida
+  // con la promoción final (que también agrupa staging por cuenta).
+  const agregadas = (spec.agregarPorTercero || cols.tercero > 0) ? agregarPorCuenta(parciales) : parciales;
 
   const importReady: CuentaCruda[] = [];
   let filasDescuadre = 0;
@@ -464,6 +497,16 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
   const sumaDebitos = importReady.reduce((s, f) => s + (f.debitos ?? 0), 0);
   const sumaCreditos = importReady.reduce((s, f) => s + (f.creditos ?? 0), 0);
   const cuadre = construirCuadre(detectarTotales(hoja, spec), sumaDebitos, sumaCreditos);
+  if (filasDetalleTerceroExcluidas > 0) {
+    excepciones.push({
+      hoja: hoja.nombre,
+      fila: null,
+      campo: "tercero",
+      valor: `${filasDetalleTerceroExcluidas} fila(s)`,
+      regla: "Detalle por tercero omitido por fila consolidada",
+      accion: "Se usó la fila consolidada sin tercero del mismo código para evitar doble conteo.",
+    });
+  }
 
   // Conteos por la clasificación FINAL de las filas (refleja la negrita y las
   // reclasificaciones), por código único. Una cuenta que quedó como movimiento no
