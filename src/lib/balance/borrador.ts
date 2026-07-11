@@ -31,6 +31,9 @@ export type FilaBorrador = {
   // línea), pero se EXCLUYE de los cálculos (no cuenta en el descuadre de su padre,
   // ni en las sumas/partida doble, ni se vuelca al balance al cargar).
   omitida?: boolean;
+  // Re-parentado MANUAL (tabulador): `filaNum` de la agrupadora bajo la que el usuario
+  // colgó esta fila (indentar/desindentar), sobreescribiendo la anidación automática.
+  padreManual?: number | null;
 };
 
 export type NodoBorrador = FilaBorrador & {
@@ -155,17 +158,40 @@ export function construirArbolBorrador(filas: FilaBorrador[], tol = 1): NodoBorr
   const esDescendiente = (posible: NodoBorrador, ancestro: NodoBorrador): boolean =>
     ancestro.hijos.some((h) => h === posible || esDescendiente(posible, h));
 
+  // Re-parentado MANUAL (tabulador): el usuario movió una fila bajo la agrupadora que
+  // eligió (indentar/desindentar → `padreManual` = filaNum destino). Se aplica sobre el
+  // árbol ya anidado, ANTES del descuadre, para que el nuevo padre la cuente y el viejo
+  // deje de descuadrar. Ignora un destino inexistente o que crearía un ciclo.
+  if (todos.some((n) => n.padreManual != null)) {
+    const porFilaNum = new Map(todos.map((n) => [n.filaNum, n]));
+    const padreActual = new Map<number, NodoBorrador | null>();
+    const mapPadres = (n: NodoBorrador, p: NodoBorrador | null) => { padreActual.set(n.filaNum, p); n.hijos.forEach((h) => mapPadres(h, n)); };
+    roots.forEach((r) => mapPadres(r, null));
+    for (const n of todos) {
+      if (n.padreManual == null) continue;
+      const destino = porFilaNum.get(n.padreManual);
+      if (!destino || destino === n || esDescendiente(destino, n)) continue;
+      const actual = padreActual.get(n.filaNum) ?? null;
+      if (actual) actual.hijos = actual.hijos.filter((h) => h !== n);
+      else { const i = roots.indexOf(n); if (i >= 0) roots.splice(i, 1); }
+      destino.hijos.push(n);
+      padreActual.set(n.filaNum, destino);
+    }
+  }
+
   // Detección de gemelos: para cada agrupadora "hueca" (su hueco = saldo − Σhijos ≠ 0),
   // busca un nodo del mismo NOMBRE cuyo saldo ≈ hueco y que NO sea su descendiente.
   // Ese detalle se atribuye al subtotal (perteneceA) para el cómputo del descuadre.
   const perteneceA = new Map<number, NodoBorrador>();
   const usados = new Set<number>();
   for (const A of todos) {
-    if (A.tipoFila === "movimiento" || A.hijos.length === 0) continue;
+    // Un nodo OMITIDO (p. ej. una agrupadora del re-listado con guiones tachada) NO
+    // reclama gemelos: no cuenta, así que no debe atribuirse el saldo de una fila real.
+    if (A.tipoFila === "movimiento" || A.hijos.length === 0 || A.omitida) continue;
     const hueco = A.saldoFinal - A.hijos.reduce((s, h) => s + (h.omitida ? 0 : h.saldoFinal), 0);
     if (Math.abs(hueco) <= tol) continue; // ya cuadra con sus hijos
     const cand = (porNombre.get(normNombre(A.nombre)) ?? []).filter(
-      (B) => B !== A && !usados.has(B.filaNum) && Math.abs(B.saldoFinal - hueco) <= tol && !esDescendiente(B, A),
+      (B) => B !== A && !B.omitida && !usados.has(B.filaNum) && Math.abs(B.saldoFinal - hueco) <= tol && !esDescendiente(B, A),
     );
     if (cand.length > 0) {
       perteneceA.set(cand[0].filaNum, A);
@@ -184,7 +210,9 @@ export function construirArbolBorrador(filas: FilaBorrador[], tol = 1): NodoBorr
   const marcar = (n: NodoBorrador) => {
     for (const h of n.hijos) marcar(h);
     const atribuidos = gemelosDe.get(n.filaNum) ?? [];
-    if (n.tipoFila !== "movimiento" && (n.hijos.length > 0 || atribuidos.length > 0)) {
+    // Un nodo OMITIDO (p. ej. una agrupadora del re-listado con guiones que se marcó
+    // tachada) no computa descuadre: no cuenta, así que no debe mostrar Δ falso.
+    if (n.tipoFila !== "movimiento" && !n.omitida && (n.hijos.length > 0 || atribuidos.length > 0)) {
       let suma = 0;
       for (const h of n.hijos) if (!perteneceA.has(h.filaNum) && !h.subtotalDuplicado && !h.omitida) suma += h.saldoFinal;
       for (const g of atribuidos) suma += g.saldoFinal;
@@ -223,7 +251,8 @@ export function reclasificarHuerfanas(filas: FilaBorrador[]): FilaBorrador[] {
     // y el usuario excluyó con ✕). Así la cuenta cuyos únicos hijos están omitidos se
     // vuelve imputable y aporta su saldo completo, en vez de perderse como agrupadora.
     const sinHijosReales = n.hijos.every((h) => h.omitida);
-    if (n.tipoFila !== "movimiento" && esNumerico(n.codigo) && sinHijosReales && !n.subtotalDuplicado && tieneMovimiento(n)) {
+    // Un nodo ya OMITIDO no se recupera a movimiento: está tachado y excluido a propósito.
+    if (n.tipoFila !== "movimiento" && !n.omitida && esNumerico(n.codigo) && sinHijosReales && !n.subtotalDuplicado && tieneMovimiento(n)) {
       huerfanas.add(n.filaNum);
     }
     n.hijos.forEach(rec);

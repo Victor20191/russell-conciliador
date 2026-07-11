@@ -5,7 +5,9 @@ import { calcularBalance, construirValidacionContable, conForzarHoja, type Cuent
 import { marcarSubtotalesDuplicados, reclasificarRepetidos, reclasificarNoImputables } from "./extraccion/transformar";
 import { construirArbolBorrador, reclasificarHuerfanas, type FilaBorrador, type NodoBorrador } from "./borrador";
 import { esBalancePorTercero, colapsarTerceros } from "./terceros";
+import { marcarRelistadoGuiones } from "./relistado";
 import { diagnosticarBorrador, type Hallazgo, type PartidaDobleInfo } from "./diagnostico";
+import { contarFormasCodigo, contarCodigosRepetidos, contarDescuadres, type DiagnosticoLectura } from "./diagnostico-lectura";
 
 export type AgrupadoraRef = { codigo: string; nombre: string; saldoFinal: number; descuadre: number | null };
 export type VistaBorrador = {
@@ -15,6 +17,8 @@ export type VistaBorrador = {
   hallazgos: Hallazgo[];
   agrupadoras: AgrupadoraRef[]; // estructura compacta (sin hojas) para aterrizar la IA
   porTercero: boolean; // el archivo venía abierto por tercero → se colapsó el detalle
+  relistadoGuiones: number; // nº de filas de re-listado con guiones colapsadas (0 = ninguno)
+  diagnostico: DiagnosticoLectura; // huella observacional de la lectura (para medir)
 };
 
 function aplanar(nodos: NodoBorrador[]): NodoBorrador[] {
@@ -34,6 +38,12 @@ export function construirVistaBorrador(filas: FilaBorrador[]): VistaBorrador {
   // las cuentas quedan sin hijos y `reclasificarHuerfanas` las vuelve imputables.
   const porTercero = esBalancePorTercero(filas);
   const base = porTercero ? colapsarTerceros(filas) : filas;
+  const terceros = porTercero ? filas.length - base.length : 0;
+  // RE-LISTADO CON GUIONES: algunos ERP re-listan cada cuenta además del código plano
+  // con notación de guiones («1105-05-04» + «*SIN NOMBRE*»). Esas filas redundantes (las
+  // que ya tienen su equivalente plano) se MARCAN como omitidas: se siguen VIENDO
+  // tachadas y el usuario puede rescatar alguna con «Incluir», pero NO cuentan. MUTA base.
+  const relistadoGuiones = marcarRelistadoGuiones(base);
 
   reclasificarRepetidos(base);
   // Pie/total del reporte sin código («Total general», «Totales», marca del software)
@@ -41,8 +51,9 @@ export function construirVistaBorrador(filas: FilaBorrador[]): VistaBorrador {
   // agrupadora inflando su Δ y se cuenta al cargar. MUTA `base`.
   reclasificarNoImputables(base);
   // Agrupadoras HUÉRFANAS (sin hijos, con saldo) → movimiento: son hojas imputables
-  // que el ERP exportó sin desglose; si no, su saldo se pierde. MUTA `base`.
-  reclasificarHuerfanas(base);
+  // que el ERP exportó sin desglose; si no, su saldo se pierde. MUTA `base`. El delta
+  // fresco es fiable como señal (esta pasada no se aplica en la extracción).
+  const nHuerfanas = reclasificarHuerfanas(base).length;
   const arbol = construirArbolBorrador(base);
 
   // Las filas OMITIDAS se conservan en el árbol (crudo) pero NO cuentan en los cálculos.
@@ -76,5 +87,29 @@ export function construirVistaBorrador(filas: FilaBorrador[]): VistaBorrador {
     .filter((n) => n.tipoFila !== "movimiento")
     .map((n) => ({ codigo: n.codigo, nombre: n.nombre, saldoFinal: n.saldoFinal, descuadre: n.descuadre }));
 
-  return { arbol, validacion, partidaDoble, hallazgos, agrupadoras, porTercero };
+  // HUELLA DIAGNÓSTICA (observacional): conteos que las pasadas ya produjeron. La forma
+  // del código se mide sobre `filas` (crudo, antes de colapsar terceros) para reflejar el
+  // formato real del archivo. No altera nada del cálculo.
+  const formas = contarFormasCodigo(filas);
+  const diagnostico: DiagnosticoLectura = {
+    filas: filas.length,
+    movimientos: base.filter((f) => f.tipoFila === "movimiento").length,
+    agrupadoras: base.filter((f) => f.tipoFila === "agrupadora").length,
+    totales: base.filter((f) => f.tipoFila === "total").length,
+    porTercero,
+    terceros,
+    relistadoGuiones,
+    huerfanas: nHuerfanas,
+    repetidos: contarCodigosRepetidos(base),
+    subtotalesDuplicados: dup.size,
+    descuadres: contarDescuadres(arbol),
+    codigoDigitos: formas.digitos,
+    codigoGuiones: formas.guiones,
+    codigoLetras: formas.letras,
+    cuadrado: calc.balanced && calc.movimientosCuadran,
+    partidaDobleDiff: calc.diffMov,
+    ecuacionDiff: calc.diffCuadre,
+  };
+
+  return { arbol, validacion, partidaDoble, hallazgos, agrupadoras, porTercero, relistadoGuiones, diagnostico };
 }

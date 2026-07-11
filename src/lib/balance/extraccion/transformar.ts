@@ -56,6 +56,11 @@ export type ResultadoTransform = {
   resumen: ResumenAuditoria;
   cabecera: Cabecera;
   cuadre: CuadreTotales; // cuadre de las hojas contra la fila TOTALES del archivo
+  // Metadatos de la lectura para la HUELLA DIAGNÓSTICA (medición): cómo se leyó el
+  // archivo («tabular» | «documento» | «plantilla») y la confianza 0..1 que la IA
+  // declaró en su mapping spec (solo modo tabular; null/ausente en los demás).
+  modo?: string;
+  confianza?: number | null;
 };
 
 // ---------------- Normalización numérica ----------------

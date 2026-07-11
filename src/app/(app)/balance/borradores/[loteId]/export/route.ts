@@ -25,6 +25,11 @@ export async function GET(req: Request, { params }: { params: Promise<{ loteId: 
     const filas: FilaBorrador[] = filasStaging.map((f) => ({
       filaNum: f.filaNum, codigo: f.codigo, codigoCrudo: f.codigoCrudo, nombre: f.nombre, nivel: f.nivel,
       tipoFila: f.tipoFila as FilaBorrador["tipoFila"],
+      // Flags de edición manual GUARDADA: se aplican igual que en la vista, para que el
+      // árbol/fórmulas del Excel reflejen desacoples, omitidos y re-parentados (tabulador).
+      // TRI-ESTADO durable: null (BD) = «sin tocar» → el marcado del re-listado con
+      // guiones las tacha; false = rescatada a mano → se respeta; true = omitida.
+      desacoplada: f.desacoplada, omitida: f.omitida ?? undefined, padreManual: f.padreManual,
       saldoInicial: Number(f.saldoInicial), debitos: Number(f.debitos), creditos: Number(f.creditos), saldoFinal: Number(f.saldoFinal),
     }));
     const { arbol } = construirVistaBorrador(filas);

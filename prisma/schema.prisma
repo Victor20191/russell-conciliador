@@ -754,15 +754,53 @@ model BalanceImportacionStaging {
   // (su padre real), no por el orden del archivo. Corrige un detalle que el ERP ubicó
   // bajo una agrupadora de código ajeno y de menor nivel (p. ej. `145020` bajo `1305`).
   desacoplada  Boolean  @default(false) @map("desacoplada")
-  // Omitir MANUAL: la fila se CONSERVA en el crudo (para el comparativo línea a línea
-  // con el archivo), pero se EXCLUYE de los cálculos del borrador y NO se vuelca al
-  // balance oficial al cargar. Para registros que no son cuentas (totales/ruido).
-  omitida      Boolean  @default(false) @map("omitida")
+  // Omitir MANUAL (TRI-ESTADO): null = sin tocar (elegible para el auto-marcado del
+  // re-listado con guiones), true = omitida (se conserva en el crudo pero se excluye de
+  // cálculos y carga), false = RESCATADA a mano con «Incluir» (cuenta en todas partes;
+  // el auto-marcado la respeta). El override manual gana siempre.
+  omitida      Boolean? @map("omitida")
+  // Re-parentado MANUAL (tabulador): `filaNum` de la agrupadora bajo la que el usuario
+  // colgó esta fila (indentar/desindentar), cuando la anidación automática la ubica mal
+  // (p. ej. un código con guiones huérfano `1105-10-19` que debe ir bajo `110510`).
+  // null = sin override.
+  padreManual  Int?     @map("padre_manual")
   creadoEn     DateTime @default(now()) @map("creado_en")
 
   @@index([loteId])
   @@index([clienteId])
   @@map("balance_importacion_staging")
+}
+
+// HUELLA DIAGNÓSTICA de la lectura de un balance (medición, NO afecta la lectura). Una
+// fila por evento de importación, con FK SUAVE a `lote_id`/`cliente_id` (sin @relation)
+// para que SOBREVIVA a la purga del lote/staging al confirmar o descartar. Acumula el
+// dataset para decidir con datos si la cola de heurísticas converge o hay que rediseñar.
+// `heuristicas` es JSON flexible con los conteos por pasada (ver `DiagnosticoLectura`).
+model BalanceLecturaDiagnostico {
+  id                 Int      @id @default(autoincrement()) @map("id")
+  loteId             String   @map("lote_id") // ref suave; sobrevive a la purga del lote
+  clienteId          Int?     @map("cliente_id")
+  archivoNombre      String   @map("archivo_nombre")
+  modo               String?  @map("modo") // tabular | documento
+  formato            String?  @map("formato") // xlsx | csv | pdf | json
+  filas              Int      @default(0) @map("filas")
+  movimientos        Int      @default(0) @map("movimientos")
+  // Cuadre AUTOMÁTICO (antes de edición manual): ¿acertó solo el modelo?
+  cuadradoInicial    Boolean  @default(false) @map("cuadrado_inicial")
+  // Ciclo de vida del cargue
+  resultado          String   @default("borrador") @map("resultado") // borrador | cargado | descartado
+  cuadradoFinal      Boolean? @map("cuadrado_final")
+  // Intervención MANUAL (toma final; 0 = la heurística bastó)
+  manualOmitidas     Int      @default(0) @map("manual_omitidas")
+  manualReparentadas Int      @default(0) @map("manual_reparentadas")
+  manualDesacopladas Int      @default(0) @map("manual_desacopladas")
+  // Huella detallada de cada pasada heurística + forma del código (flexible)
+  heuristicas        Json     @map("heuristicas")
+  creadoEn           DateTime @default(now()) @map("creado_en")
+  actualizadoEn      DateTime @updatedAt @map("actualizado_en")
+
+  @@index([loteId])
+  @@map("balance_lectura_diagnostico")
 }
 
 // ===== Impuestos · DIAN =====

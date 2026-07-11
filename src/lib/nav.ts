@@ -60,6 +60,8 @@ export const workNav: NavItem[] = [
       { label: "Accesos y tráfico", href: "/auditoria/accesos", permiso: "auditoria:accesos", modulo: "auditoria" },
       // Consumo y costos de IA: SOLO el Superadministrador (permiso auditoria:ia).
       { label: "Consumo de IA", href: "/auditoria/ia", permiso: "auditoria:ia", modulo: "auditoria" },
+      // Medición del modelo de lectura de balances: mismo permiso (Superadmin).
+      { label: "Lectura de balances", href: "/auditoria/lectura", permiso: "auditoria:ia", modulo: "auditoria" },
     ],
   },
 ];

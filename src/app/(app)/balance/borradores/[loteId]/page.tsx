@@ -25,7 +25,9 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
   // Decimal de Prisma → number.
   const filas: FilaBorrador[] = filasStaging.map((f) => ({
     filaNum: f.filaNum, codigo: f.codigo, codigoCrudo: f.codigoCrudo, nombre: f.nombre, nivel: f.nivel,
-    tipoFila: f.tipoFila as FilaBorrador["tipoFila"], desacoplada: f.desacoplada, omitida: f.omitida,
+    // TRI-ESTADO durable: null (BD) = «sin tocar» → undefined; true = omitida;
+    // false = RESCATADA a mano (el auto-marcado del re-listado la respeta).
+    tipoFila: f.tipoFila as FilaBorrador["tipoFila"], desacoplada: f.desacoplada, omitida: f.omitida ?? undefined, padreManual: f.padreManual,
     saldoInicial: Number(f.saldoInicial), debitos: Number(f.debitos), creditos: Number(f.creditos), saldoFinal: Number(f.saldoFinal),
   }));
 

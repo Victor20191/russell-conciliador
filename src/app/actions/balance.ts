@@ -37,6 +37,8 @@ import { mapearPorIA } from "@/lib/balance/mapeo-ia";
 import { construirVistaBorrador } from "@/lib/balance/borrador-vm";
 import { reclasificarHuerfanas, type FilaBorrador } from "@/lib/balance/borrador";
 import { esBalancePorTercero, colapsarTerceros } from "@/lib/balance/terceros";
+import { marcarRelistadoGuiones } from "@/lib/balance/relistado";
+import { registrarDiagnosticoInicial, cerrarDiagnostico } from "@/lib/balance/diagnostico-lectura-registro";
 import { diagnosticarConIA, type DiagnosticoIA } from "@/lib/balance/diagnostico-ia";
 import { iaDisponible, MODELO_EXTRACCION } from "@/lib/anthropic";
 import { registrarConsumoIA, type UsoIA } from "@/lib/ia/uso";
@@ -213,12 +215,19 @@ async function promoverStagingAOficial(p: MetaPromocion, contexto: string): Prom
       select: { filaNum: true, codigo: true, codigoCrudo: true, nombre: true, nivel: true, tipoFila: true, omitida: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
     });
     const filasStaging: FilaBorrador[] = staged.map((f) => ({
-      filaNum: f.filaNum, codigo: f.codigo, codigoCrudo: f.codigoCrudo, nombre: f.nombre, nivel: f.nivel, tipoFila: f.tipoFila as TipoFila, omitida: f.omitida,
+      // TRI-ESTADO durable: null (BD) = «sin tocar» → undefined (elegible para el marcado
+      // del re-listado con guiones); false = RESCATADA a mano → cuenta y SÍ se carga
+      // (el override manual gana); true = omitida → no se carga.
+      filaNum: f.filaNum, codigo: f.codigo, codigoCrudo: f.codigoCrudo, nombre: f.nombre, nivel: f.nivel, tipoFila: f.tipoFila as TipoFila, omitida: f.omitida ?? undefined,
       saldoInicial: Number(f.saldoInicial), debitos: Number(f.debitos), creditos: Number(f.creditos), saldoFinal: Number(f.saldoFinal),
     }));
     // Balance ABIERTO POR TERCERO → colapsar el detalle y cargar por CUENTA (lógica
     // separada; los demás informes no se tocan). Las cuentas quedan como imputables.
     const rows = esBalancePorTercero(filasStaging) ? colapsarTerceros(filasStaging) : filasStaging;
+    // RE-LISTADO CON GUIONES: marca como omitidas las filas «1105-05-04»/«*SIN NOMBRE*»
+    // redundantes (que duplican una fila plana existente); NO se cargan (el filtro
+    // `!f.omitida` de abajo las excluye), conservando el código plano que cuadra.
+    marcarRelistadoGuiones(rows);
     reclasificarRepetidos(rows); // código repetido → movimiento
     reclasificarNoImputables(rows); // pie/total sin código («Total general», marca ERP) → total
     // Agrupadora huérfana (sin hijos, con saldo) → movimiento: el ERP la exportó sin
@@ -271,6 +280,23 @@ async function promoverStagingAOficial(p: MetaPromocion, contexto: string): Prom
         filasLeidas: p.filasLeidas, filasExcluidas: p.filasExcluidas, filasDescuadre: p.filasDescuadre,
       },
     });
+
+    // Cierra la huella diagnóstica (best-effort, ANTES de purgar el staging): resultado
+    // + cuánta intervención manual necesitó. Nunca tumba la confirmación.
+    try {
+      const [nOmi, nPad, nDes] = await Promise.all([
+        prisma.balanceImportacionStaging.count({ where: { loteId: p.loteId, omitida: true } }),
+        prisma.balanceImportacionStaging.count({ where: { loteId: p.loteId, padreManual: { not: null } } }),
+        prisma.balanceImportacionStaging.count({ where: { loteId: p.loteId, desacoplada: true } }),
+      ]);
+      await cerrarDiagnostico({
+        loteId: p.loteId, resultado: "cargado",
+        cuadradoFinal: calc.balanced && calc.movimientosCuadran,
+        manual: { omitidas: nOmi, reparentadas: nPad, desacopladas: nDes },
+      });
+    } catch {
+      /* best-effort */
+    }
 
     // Promovido → PURGA el lote (staging + encabezado). Best-effort.
     try {
@@ -717,6 +743,8 @@ export async function leerBalance(
         },
         // El parser de plantilla limpia no expone una fila TOTALES: sin cuadre.
         cuadre: CUADRE_NO_APLICA,
+        // Para la huella diagnóstica: lectura SIN IA, por plantilla estándar.
+        modo: "plantilla",
       };
     }
 
@@ -738,6 +766,11 @@ export async function leerBalance(
     if (extr.importReady.length === 0) {
       return { ok: false, message: "No se leyó ninguna cuenta del archivo. Revisa las excepciones.", excepciones: extr.excepciones };
     }
+
+    // HUELLA DIAGNÓSTICA inicial (MEDICIÓN, no afecta la lectura). Se calcula sobre un
+    // CLON de las filas crudas ANTES de las reclasificaciones de abajo, para que las
+    // pasadas cuenten frescas. `construirVistaBorrador` MUTA su entrada → se clona.
+    const diagInicial = construirVistaBorrador(extr.filasCrudas.map((f) => ({ ...f }))).diagnostico;
 
     // Validación contable del BORRADOR: totales A/P/Patrimonio CALCULADOS del
     // detalle (calcularBalance no necesita el plan estándar para las sumas: son por
@@ -796,6 +829,16 @@ export async function leerBalance(
         cuadrado: calcBorrador.balanced && calcBorrador.movimientosCuadran,
         cargadoPor: usuario?.name ?? null, cargadoPorId: usuario?.id ?? null,
       },
+    });
+
+    // Registra la huella diagnóstica del cargue (best-effort; sobrevive a la purga del
+    // lote al confirmar/descartar porque vive en su propia tabla).
+    await registrarDiagnosticoInicial({
+      loteId, clienteId: null, archivoNombre: archivo.name,
+      modo: extr.modo ?? null,
+      formato: (archivo.name.split(".").pop() ?? "").toLowerCase() || null,
+      confianza: extr.confianza ?? null,
+      diag: diagInicial,
     });
 
     const sugerenciaBase: SugerenciaBalanceSinFirma = {
@@ -1016,6 +1059,18 @@ export async function descartarBorrador(loteId: string): Promise<ActionState> {
   const id = String(loteId ?? "").trim();
   if (!id) return { ok: false, message: "Borrador inválido." };
   try {
+    // Cierra la huella diagnóstica (best-effort, ANTES de purgar): resultado descartado
+    // + intervención manual acumulada.
+    try {
+      const [nOmi, nPad, nDes] = await Promise.all([
+        prisma.balanceImportacionStaging.count({ where: { loteId: id, omitida: true } }),
+        prisma.balanceImportacionStaging.count({ where: { loteId: id, padreManual: { not: null } } }),
+        prisma.balanceImportacionStaging.count({ where: { loteId: id, desacoplada: true } }),
+      ]);
+      await cerrarDiagnostico({ loteId: id, resultado: "descartado", manual: { omitidas: nOmi, reparentadas: nPad, desacopladas: nDes } });
+    } catch {
+      /* best-effort */
+    }
     await prisma.balanceImportacionStaging.deleteMany({ where: { loteId: id } });
     await prisma.balanceImportacionLote.deleteMany({ where: { loteId: id } });
     const user = await getCurrentUser();
@@ -1093,6 +1148,8 @@ export async function diagnosticarBorradorIA(loteId: string): Promise<Diagnostic
  *  - `omitidas`: filaNum → on/off del flag `omitida`. La fila se conserva en el crudo
  *    (comparativo línea a línea) pero se excluye de los cálculos y NO se vuelca al
  *    balance al cargar. Se aplica por FILA (no por código) para precisión.
+ *  - `padres`: filaNum → `padreManual` (filaNum de la agrupadora destino, o null para
+ *    quitar el override). Re-parentado manual (tabulador: indentar/desindentar).
  */
 export async function aplicarCambiosBorrador(
   loteId: string,
@@ -1100,6 +1157,7 @@ export async function aplicarCambiosBorrador(
   invertidos: string[],
   desacopladas: Record<string, boolean> = {},
   omitidas: Record<string, boolean> = {},
+  padres: Record<string, number | null> = {},
 ): Promise<ActionState> {
   const authz = await authorizePermiso("balance:crear");
   if (!authz.ok) return { ok: false, message: authz.message };
@@ -1109,12 +1167,14 @@ export async function aplicarCambiosBorrador(
   const invs = [...new Set((invertidos ?? []).filter((c) => /^\d+$/.test(c)))];
   const desac = Object.entries(desacopladas ?? {}).filter(([c]) => /^\d+$/.test(c));
   const omit = Object.entries(omitidas ?? {}).filter(([f]) => /^\d+$/.test(f));
-  if (reclas.length === 0 && invs.length === 0 && desac.length === 0 && omit.length === 0) return { ok: false, message: "No hay cambios para guardar." };
+  const pads = Object.entries(padres ?? {}).filter(([f]) => /^\d+$/.test(f));
+  if (reclas.length === 0 && invs.length === 0 && desac.length === 0 && omit.length === 0 && pads.length === 0) return { ok: false, message: "No hay cambios para guardar." };
   try {
     let nRe = 0;
     let nInv = 0;
     let nDes = 0;
     let nOmi = 0;
+    let nPad = 0;
     for (const [cod, tipo] of reclas) {
       const actual = tipo === "movimiento" ? "agrupadora" : "movimiento";
       const r = await prisma.balanceImportacionStaging.updateMany({ where: { loteId: id, codigo: cod, tipoFila: actual }, data: { tipoFila: tipo } });
@@ -1143,10 +1203,15 @@ export async function aplicarCambiosBorrador(
       const r = await prisma.balanceImportacionStaging.updateMany({ where: { loteId: id, filaNum: Number(fila) }, data: { omitida: on } });
       nOmi += r.count;
     }
+    for (const [fila, destino] of pads) {
+      const padreManual = typeof destino === "number" && Number.isInteger(destino) ? destino : null;
+      const r = await prisma.balanceImportacionStaging.updateMany({ where: { loteId: id, filaNum: Number(fila) }, data: { padreManual } });
+      nPad += r.count;
+    }
     const user = await getCurrentUser();
-    await logAudit({ user: user?.name ?? "—", action: "GUARDÓ cambios en balance borrador", entity: id, detail: `${nRe} reclasificada(s), ${nInv} inversión(es), ${nDes} desacople(s), ${nOmi} omitida(s)` });
+    await logAudit({ user: user?.name ?? "—", action: "GUARDÓ cambios en balance borrador", entity: id, detail: `${nRe} reclasificada(s), ${nInv} inversión(es), ${nDes} desacople(s), ${nOmi} omitida(s), ${nPad} re-parentada(s)` });
     revalidatePath(`/balance/borradores/${id}`);
-    const nTotal = nRe + nInv + nDes + nOmi;
+    const nTotal = nRe + nInv + nDes + nOmi + nPad;
     return { ok: true, message: `Cambios guardados (${nTotal} fila${nTotal === 1 ? "" : "s"}).` };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("aplicarCambiosBorrador", e) };

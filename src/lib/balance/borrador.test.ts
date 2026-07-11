@@ -189,6 +189,24 @@ describe("construirArbolBorrador", () => {
     expect(arbol[0].descuadre).toBe(20); // 100 − 80, nada más lo explica
   });
 
+  it("re-parentado MANUAL (padreManual): mueve la fila bajo la agrupadora elegida y ambas cuadran", () => {
+    const filas: FilaBorrador[] = [
+      fila(1, "11", "DISPONIBLE", 100, "agrupadora"),
+      fila(2, "1105", "CAJA", 100, "agrupadora"),
+      fila(3, "110510", "CAJA MENOR", 100, "agrupadora"), // = 70 (hijo) + 30 (re-parentado)
+      fila(4, "11051003", "CALI", 70, "movimiento"),
+      // Huérfano con guion: su código truncó a "1105" → auto anida bajo 1105, pero debe ir bajo 110510.
+      { ...fila(5, "1105", "VISITA MEDICA", 30, "movimiento"), codigoCrudo: "1105-10-19", padreManual: 3 },
+    ];
+    const arbol = construirArbolBorrador(filas);
+    const c1105 = arbol[0].hijos.find((h) => h.codigo === "1105")!;
+    const c110510 = c1105.hijos.find((h) => h.codigo === "110510")!;
+    expect(c110510.hijos.map((h) => h.filaNum)).toEqual([4, 5]); // la re-parentada (fila 5) quedó aquí
+    expect(c110510.descuadre).toBe(0); // 100 = 70 + 30
+    expect(c1105.hijos.some((h) => h.filaNum === 5)).toBe(false); // ya no cuelga de 1105
+    expect(c1105.descuadre).toBe(0); // 100 = 110510(100)
+  });
+
   it("no marca descuadre cuando el nodo cuadra con sus hijos", () => {
     const arbol = construirArbolBorrador([
       fila(1, "11", "DISPONIBLE", 900, "agrupadora"),

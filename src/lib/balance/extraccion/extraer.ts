@@ -125,7 +125,9 @@ export async function extraerBalance(
     const specImportacion = esBalancePorTerceroRecuperable(spec) ? recuperarBalancePorTercero(spec) : spec;
     // Forzamos la hoja elegida en el spec para que `transformarTabular` procese
     // esa hoja (recibe todas las hojas para encontrarla completa).
-    return transformarTabular(elegida ? { ...specImportacion, hoja: elegida } : specImportacion, ingesta.hojas, params);
+    const resultado = transformarTabular(elegida ? { ...specImportacion, hoja: elegida } : specImportacion, ingesta.hojas, params);
+    // Metadatos para la huella diagnóstica: cómo se leyó y con qué confianza.
+    return { ...resultado, modo: "tabular", confianza: spec.confianza };
   }
 
   // Documento (PDF o texto): extracción directa.
@@ -164,5 +166,6 @@ export async function extraerBalance(
   usosOut?.push({ tipoOperacion: "extraccion_pdf", modelo: MODELO_EXTRACCION, usage: r.usage });
   const extr = r.parsed_output;
   if (!extr) throw new Error("La IA no devolvió filas válidas del documento. Reintenta o revisa el archivo.");
-  return validarDirecta(extr, params);
+  // Metadatos para la huella diagnóstica (la extracción directa no declara confianza).
+  return { ...validarDirecta(extr, params), modo: "documento" };
 }
