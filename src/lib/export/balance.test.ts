@@ -32,6 +32,26 @@ describe("crearExportacionBalance", () => {
     expect(buf.subarray(0, 2).toString("latin1")).toBe("PK");
   });
 
+  it("HOMOLOGADO: cuenta en UNA columna «CÓDIGO - NOMBRE» + columna «Nivel» con nombre PUC", async () => {
+    const buf = await crearExportacionBalance({ arbol, grupos }, META, "homologado");
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buf as unknown as ArrayBuffer);
+    const ws = wb.getWorksheet("Balance homologado")!;
+    // Encabezados (fila 3): Nivel, Cuenta, y los montos.
+    expect(ws.getCell("A3").value).toBe("Nivel");
+    expect(ws.getCell("B3").value).toBe("Cuenta");
+    expect(ws.getCell("F3").value).toBe("Saldo actual");
+    // Primera fila de datos (4): CLASE «1 - Activo» con nivel «Clase».
+    expect(ws.getCell("A4").value).toBe("Clase");
+    expect(String(ws.getCell("B4").value)).toBe("1 - Activo");
+    // Alguna fila de SUBCUENTA (6 díg) trae «110505 - …» y nivel «Subcuenta».
+    const niveles: string[] = [];
+    const cuentas: string[] = [];
+    ws.eachRow((r) => { niveles.push(String(r.getCell(1).value ?? "")); cuentas.push(String(r.getCell(2).value ?? "")); });
+    expect(niveles).toContain("Subcuenta");
+    expect(cuentas.some((c) => /^110505 - /.test(c))).toBe(true);
+  });
+
   it("HOMOLOGADO trae una pestaña «Validación» con fórmulas vivas sobre «Balance homologado»", async () => {
     const buf = await crearExportacionBalance({ arbol, grupos }, META, "homologado");
     const wb = new ExcelJS.Workbook();

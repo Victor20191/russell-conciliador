@@ -3,7 +3,7 @@
 // las validaciones y los hallazgos se calculen EXACTAMENTE igual en ambos lados.
 import { calcularBalance, construirValidacionContable, conForzarHoja, type CuentaCruda, type ValidacionContable } from "./calcular";
 import { marcarSubtotalesDuplicados, reclasificarRepetidos, reclasificarNoImputables } from "./extraccion/transformar";
-import { construirArbolBorrador, reclasificarHuerfanas, type FilaBorrador, type NodoBorrador } from "./borrador";
+import { construirArbolBorrador, reclasificarHuerfanas, marcarNoContables, type FilaBorrador, type NodoBorrador } from "./borrador";
 import { esBalancePorTercero, colapsarTerceros } from "./terceros";
 import { marcarRelistadoGuiones } from "./relistado";
 import { diagnosticarBorrador, type Hallazgo, type PartidaDobleInfo } from "./diagnostico";
@@ -18,6 +18,7 @@ export type VistaBorrador = {
   agrupadoras: AgrupadoraRef[]; // estructura compacta (sin hojas) para aterrizar la IA
   porTercero: boolean; // el archivo venía abierto por tercero → se colapsó el detalle
   relistadoGuiones: number; // nº de filas de re-listado con guiones colapsadas (0 = ninguno)
+  totalesOcultos: number; // nº de filas sin cuenta contable (total/pie) ocultas por defecto
   diagnostico: DiagnosticoLectura; // huella observacional de la lectura (para medir)
 };
 
@@ -50,6 +51,9 @@ export function construirVistaBorrador(filas: FilaBorrador[]): VistaBorrador {
   // mal clasificado como movimiento → «total»: si no, se cuelga de la última
   // agrupadora inflando su Δ y se cuenta al cargar. MUTA `base`.
   reclasificarNoImputables(base);
+  // Filas SIN cuenta contable (total/pie: «<none>», «Total general», subtotales sin
+  // código) → se ocultan por defecto (omitida, tachadas), rescatables con «Incluir».
+  const totalesOcultos = marcarNoContables(base);
   // Agrupadoras HUÉRFANAS (sin hijos, con saldo) → movimiento: son hojas imputables
   // que el ERP exportó sin desglose; si no, su saldo se pierde. MUTA `base`. El delta
   // fresco es fiable como señal (esta pasada no se aplica en la extracción).
@@ -111,5 +115,5 @@ export function construirVistaBorrador(filas: FilaBorrador[]): VistaBorrador {
     ecuacionDiff: calc.diffCuadre,
   };
 
-  return { arbol, validacion, partidaDoble, hallazgos, agrupadoras, porTercero, relistadoGuiones, diagnostico };
+  return { arbol, validacion, partidaDoble, hallazgos, agrupadoras, porTercero, relistadoGuiones, totalesOcultos, diagnostico };
 }

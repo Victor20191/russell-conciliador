@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { esFilaTercero, esBalancePorTercero, colapsarTerceros } from "./terceros";
+import { esFilaTercero, esFilaGenericoTercero, esBalancePorTercero, colapsarTerceros } from "./terceros";
 import { construirVistaBorrador } from "./borrador-vm";
 import type { FilaBorrador } from "./borrador";
 
@@ -28,6 +28,28 @@ describe("esFilaTercero", () => {
     expect(esFilaTercero({ tipoFila: "total", codigo: "", nombre: "Total general", codigoCrudo: "Total general" })).toBe(false);
     // Rótulo de sección: crudo sin dígitos en el ID → no es un tercero.
     expect(esFilaTercero({ tipoFila: "movimiento", codigo: "", nombre: "NOMINASNOMINAS", codigoCrudo: "NOMINAS NOMINAS" })).toBe(false);
+  });
+});
+
+describe("esFilaGenericoTercero", () => {
+  it("detecta el placeholder «Generico Genérico» (con y sin acento), no una cuenta ni agrupadora", () => {
+    expect(esFilaGenericoTercero({ tipoFila: "total", codigoCrudo: "Generico Genérico" })).toBe(true);
+    expect(esFilaGenericoTercero({ tipoFila: "movimiento", codigoCrudo: "Generico Generico" })).toBe(true);
+    expect(esFilaGenericoTercero({ tipoFila: "agrupadora", codigoCrudo: "Generico Genérico" })).toBe(false);
+    expect(esFilaGenericoTercero({ tipoFila: "movimiento", codigoCrudo: "52201001" })).toBe(false); // cuenta real
+    expect(esFilaGenericoTercero({ tipoFila: "total", codigoCrudo: "NOMINAS NOMINAS" })).toBe(false);
+  });
+});
+
+describe("colapsarTerceros con el tercero genérico", () => {
+  it("quita también las filas «Generico Genérico» (movimiento y total), deja la cuenta", () => {
+    const filas: FilaBorrador[] = [
+      fila(1, "5220", "ARRENDAMIENTOS", 100, "agrupadora"),
+      { ...fila(2, "", "GenericoGené", 60, "movimiento"), codigoCrudo: "Generico Genérico" },
+      { ...fila(3, "", "GenericoGené", 0, "total"), codigoCrudo: "Generico Genérico" },
+      tercero(4, "901427659", 40),
+    ];
+    expect(colapsarTerceros(filas).map((f) => f.codigoCrudo)).toEqual(["5220"]);
   });
 });
 

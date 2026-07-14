@@ -40,6 +40,21 @@ export function esFilaTercero(f: Pick<FilaBorrador, "tipoFila" | "codigo" | "nom
   return !/^\d+$/.test(f.codigo) && TAX_ID_CON_NOMBRE.test((f.codigoCrudo ?? "").trim());
 }
 
+// El «tercero GENÉRICO»: cuando un movimiento de la cuenta no tiene tercero asignado,
+// el ERP lo agrupa bajo un placeholder cuya celda de CÓDIGO trae el rótulo literal
+// «Generico Genérico» (no un código de cuenta). Es una fila de tercero más — pero sin
+// dígitos, así que `esFilaTercero` la descarta a propósito (para no falsear informes
+// normales). Se detecta aparte y SOLO se colapsa dentro del flujo por-tercero.
+const ES_GENERICO = /gen[eé]rico/i;
+
+/** ¿Fila del tercero GENÉRICO (placeholder «Generico Genérico»)? Su crudo NO empieza
+ *  por dígito (una cuenta real sí) y contiene «generico»/«genérico». */
+export function esFilaGenericoTercero(f: Pick<FilaBorrador, "tipoFila" | "codigoCrudo">): boolean {
+  if (f.tipoFila === "agrupadora") return false;
+  const crudo = (f.codigoCrudo ?? "").trim();
+  return !/^\d/.test(crudo) && ES_GENERICO.test(crudo);
+}
+
 /**
  * ¿El archivo viene ABIERTO POR TERCERO? La gran mayoría de sus movimientos son
  * filas de tercero. Umbral holgado (>20 %) para no confundir con un informe normal
@@ -58,9 +73,9 @@ export function esBalancePorTercero(filas: Array<Pick<FilaBorrador, "tipoFila" |
 }
 
 /**
- * Quita las filas de detalle de tercero, dejando la estructura por CUENTA. Devuelve
- * un array NUEVO (no muta el original) con las mismas filas menos los terceros.
+ * Quita las filas de detalle de tercero (incluido el tercero GENÉRICO), dejando la
+ * estructura por CUENTA. Devuelve un array NUEVO (no muta el original).
  */
 export function colapsarTerceros(filas: FilaBorrador[]): FilaBorrador[] {
-  return filas.filter((f) => !esFilaTercero(f));
+  return filas.filter((f) => !esFilaTercero(f) && !esFilaGenericoTercero(f));
 }

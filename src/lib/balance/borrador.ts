@@ -127,14 +127,23 @@ export function construirArbolBorrador(filas: FilaBorrador[], tol = 1): NodoBorr
       padre = padre ?? (nodo.desacoplada ? undefined : pila[pila.length - 1]);
       if (padre) padre.hijos.push(nodo);
       else roots.push(nodo);
+    } else if (!esNumerico(nodo.codigo)) {
+      // Fila NO numérica (total/pie/ruido sin código real: `<none>`, «Total general»,
+      // marca del ERP). NO es una cuenta ni un contenedor: se coloca como RAÍZ (nivel
+      // superior) SIN vaciar ni empujar la pila de agrupadoras numéricas abiertas. Así
+      // no infla el descuadre de ninguna agrupadora («Total general» queda como raíz) y,
+      // si viene INTERCALADA, no deja huérfana la cuenta en curso ni detacha sus hijas
+      // (antes `nivelSuperior` —que exige código numérico— era falso para todos y vaciaba
+      // la pila, degradando la agrupadora a movimiento). Ver casos `5220`/`<none>`.
+      roots.push(nodo);
     } else {
-      // Agrupadora/total: cuelga de la agrupadora abierta más cercana de NIVEL más
+      // Agrupadora NUMÉRICA: cuelga de la agrupadora abierta más cercana de NIVEL más
       // SUPERFICIAL (código más corto), respetando la INDENTACIÓN del cliente aunque
       // el código no anide por prefijo. Así una cuenta que el cliente ubicó dentro de
       // un grupo ajeno por código (p. ej. `531520` dentro de `5305`) queda bajo ese
       // grupo y su subtotal cuadra, en vez de "saltar" fuera por prefijo. Cierra los
       // bloques de nivel igual o más profundo (código de igual o mayor longitud).
-      const nivelSuperior = (top: NodoBorrador) => esNumerico(nodo.codigo) && esNumerico(top.codigo) && top.codigo.length < nodo.codigo.length;
+      const nivelSuperior = (top: NodoBorrador) => esNumerico(top.codigo) && top.codigo.length < nodo.codigo.length;
       while (pila.length > 0 && !nivelSuperior(pila[pila.length - 1])) {
         pila.pop();
       }
@@ -268,6 +277,28 @@ export function reclasificarHuerfanas(filas: FilaBorrador[]): FilaBorrador[] {
   return cambiadas;
 }
 
+/**
+ * MARCA como `omitida` (por defecto, tachadas) las filas que NO son una cuenta contable:
+ * los `total`/pie sin código real («Total general», «<none>», marca del ERP, subtotales
+ * sin código). Se muestran DESHABILITADAS y no cuentan, pero el usuario puede RESCATAR
+ * alguna con «Incluir». MUTA `filas` (`omitida`) y devuelve cuántas marcó.
+ *
+ * Respeta el TRI-ESTADO como `marcarRelistadoGuiones`: solo marca filas cuyo `omitida`
+ * está SIN definir (`undefined`); si el usuario la rescató (`false`) o la omitió a mano
+ * (`true`), se respeta. Debe correr DESPUÉS de `reclasificarNoImputables` (que produce
+ * los `total`). No toca cuentas (movimiento/agrupadora tienen código numérico).
+ */
+export function marcarNoContables(filas: FilaBorrador[]): number {
+  let n = 0;
+  for (const f of filas) {
+    if (f.omitida === undefined && f.tipoFila === "total") {
+      f.omitida = true;
+      n++;
+    }
+  }
+  return n;
+}
+
 /** Total de nodos en el bosque (para contadores/UI). */
 export function contarNodos(nodos: NodoBorrador[]): number {
   return nodos.reduce((n, x) => n + 1 + contarNodos(x.hijos), 0);
@@ -303,4 +334,59 @@ export function aplanarArbolFiltrado(arbol: NodoBorrador[], filtro: string[] = [
   // Orden ORIGINAL del archivo: conserva el crudo (detalle→subtotal en summary-below).
   out.sort((a, b) => a.nodo.filaNum - b.nodo.filaNum);
   return out;
+}
+
+// ---- Tabulador: contexto para "Ubicar" (elegir destino por prefijo + mover en lote) ----
+
+/** Referencia mínima a un nodo para el selector del tabulador. */
+export type RefNodo = { filaNum: number; codigo: string; codigoCrudo: string; nombre: string };
+
+export type ContextoNodo = {
+  padre: number | null; // filaNum del padre en el árbol (null si es raíz)
+  // Ancestros por PREFIJO de código presentes en el árbol, del MÁS PROFUNDO al más
+  // superficial (p. ej. `522003` → [5220, 52, 5]). Son los destinos válidos de "anidar".
+  candidatos: RefNodo[];
+  // Las OTRAS filas con el MISMO padre actual (numéricas): candidatas a moverse en lote.
+  // El modal las filtra por el prefijo del destino elegido.
+  hermanas: RefNodo[];
+};
+
+const aRef = (n: NodoBorrador): RefNodo => ({ filaNum: n.filaNum, codigo: n.codigo, codigoCrudo: n.codigoCrudo, nombre: n.nombre });
+
+/**
+ * Contexto del TABULADOR por nodo: su padre en el árbol, los destinos de anidación
+ * (ancestros por prefijo de código) y sus hermanas (mismo padre). Puro y testeable;
+ * lo consume el modal "Ubicar" del borrador. Solo para nodos de código numérico.
+ */
+export function contextoTabulador(arbol: NodoBorrador[]): Map<number, ContextoNodo> {
+  const todos: RefNodo[] = [];
+  const padreDe = new Map<number, number | null>();
+  const hermanosDe = new Map<number, RefNodo[]>(); // filaNum → refs de TODOS sus hermanos (incluido él)
+  const rec = (nodos: NodoBorrador[], padre: number | null) => {
+    const refs = nodos.filter((n) => esNumerico(n.codigo)).map(aRef);
+    for (const n of nodos) {
+      todos.push(aRef(n));
+      padreDe.set(n.filaNum, padre);
+      if (esNumerico(n.codigo)) hermanosDe.set(n.filaNum, refs);
+      rec(n.hijos, n.filaNum);
+    }
+  };
+  rec(arbol, null);
+
+  const m = new Map<number, ContextoNodo>();
+  for (const x of todos) {
+    if (!esNumerico(x.codigo)) continue;
+    const candidatos = todos
+      .filter((c) => esNumerico(c.codigo) && c.codigo.length < x.codigo.length && x.codigo.startsWith(c.codigo))
+      .sort((a, b) => b.codigo.length - a.codigo.length); // más profundo primero
+    const hermanas = (hermanosDe.get(x.filaNum) ?? []).filter((h) => h.filaNum !== x.filaNum);
+    m.set(x.filaNum, { padre: padreDe.get(x.filaNum) ?? null, candidatos, hermanas });
+  }
+  return m;
+}
+
+/** ¿La fila está MAL ubicada? Tiene un ancestro por prefijo (destino) más profundo que
+ *  su padre actual → merece el botón "Ubicar". */
+export function puedeUbicar(ctx: ContextoNodo | undefined): boolean {
+  return !!ctx && ctx.candidatos.length > 0 && ctx.candidatos[0].filaNum !== ctx.padre;
 }
