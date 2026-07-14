@@ -27,7 +27,9 @@ type Conteo = { mapeo: number; naturaleza: number };
 
 const CLASES_BALANCE = new Set(["1", "2", "3"]);
 const CLASES_ER = new Set(["4", "5", "6", "7"]);
-const NIVEL_LABEL: Record<number, string> = { 2: "Clase", 4: "Subgrupo", 6: "Cta. estándar", 8: "Cta. cliente" };
+// Nombre del nivel PUC según la longitud del código: 1=Clase, 2=Grupo, 4=Cuenta,
+// 6=Subcuenta, 8=Auxiliar (el nivel 8 es la cuenta del cliente / auxiliar).
+const NIVEL_LABEL: Record<number, string> = { 1: "Clase", 2: "Grupo", 4: "Cuenta", 6: "Subcuenta", 8: "Auxiliar" };
 
 export default function BalanceDetailClient({
   arbol, estandar, puedeMapear, validations, versions, officialVersion, warnCount, balanceId, comentarios, validaciones, puedeValidar, puedeEliminar, sums, balanced, diffCuadre,
@@ -164,7 +166,7 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, va
   return (
     <Card>
       <div className="flex flex-wrap items-center gap-2 border-b border-ink-100 px-4 py-2.5">
-        <span className="text-[11.5px] text-ink-500">Normalizado al <span className="font-semibold text-ink-700">plan estándar Russell</span>: clase → subgrupo → cuenta estándar → cuenta del cliente.</span>
+        <span className="text-[11.5px] text-ink-500">Normalizado al <span className="font-semibold text-ink-700">plan estándar Russell</span>: grupo → cuenta → subcuenta → auxiliar (cuenta del cliente).</span>
         <div className="ml-auto flex items-center gap-1.5">
           <div className="mr-1 flex items-center gap-2 rounded-md border border-ink-200 bg-ink-50 px-2.5 py-1.5 text-ink-400">
             <Icon name="search" size={14} />
