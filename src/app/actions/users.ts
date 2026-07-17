@@ -19,9 +19,65 @@ import {
   type ActionState,
 } from "@/lib/definitions";
 import { mensajeErrorBD } from "@/lib/errores";
+import {
+  almacenamientoDisponible,
+  subirObjeto,
+  eliminarObjeto,
+} from "@/lib/storage/objetos";
+import {
+  validarImagen,
+  keyAvatar,
+  AVATAR_MAX_BYTES,
+  type TipoImagen,
+} from "@/lib/avatares";
 
 const PATH = "/config/usuarios";
 const ROLES_LEGADO_NO_ASIGNABLES = new Set<string>(ROLES_LEGADO);
+
+type FotoUsuarioPreparada = {
+  bytes: Uint8Array;
+  tipo: TipoImagen;
+  contentType: string;
+};
+
+async function prepararFotoUsuario(
+  formData: FormData,
+): Promise<
+  | { ok: true; foto: FotoUsuarioPreparada | null }
+  | { ok: false; message: string }
+> {
+  const entrada = formData.get("foto");
+  if (entrada === null) return { ok: true, foto: null };
+  if (!(entrada instanceof File)) {
+    return { ok: false, message: "La foto adjunta no es un archivo válido." };
+  }
+  if (entrada.size === 0) return { ok: true, foto: null };
+  if (!almacenamientoDisponible()) {
+    return {
+      ok: false,
+      message: "El almacenamiento de fotos no está configurado. Define las variables S3_*.",
+    };
+  }
+  if (entrada.size > AVATAR_MAX_BYTES) {
+    return {
+      ok: false,
+      message: `La foto supera ${Math.round(AVATAR_MAX_BYTES / 1024 / 1024)} MB.`,
+    };
+  }
+
+  const bytes = new Uint8Array(await entrada.arrayBuffer());
+  const validacion = validarImagen(bytes);
+  if (!validacion.ok) return { ok: false, message: validacion.error };
+
+  return {
+    ok: true,
+    foto: {
+      bytes,
+      tipo: validacion.tipo,
+      contentType: validacion.contentType,
+    },
+  };
+}
 
 /** IDs de superiores directos enviados por el formulario (checkboxes). */
 function parseSuperiores(
@@ -102,34 +158,59 @@ export async function createUser(
     const superioresValidos = await validarSuperiores(parsed.data.role, superiores.superiorIds);
     if (!superioresValidos.ok) return { ok: false, message: superioresValidos.message };
 
+    const fotoPreparada = await prepararFotoUsuario(formData);
+    if (!fotoPreparada.ok) return { ok: false, message: fotoPreparada.message };
+
     const password = await bcrypt.hash(parsed.data.password, 10);
-    await prisma.$transaction(async (tx) => {
-      const nuevo = await tx.user.create({
-        data: {
-          email: parsed.data.email,
-          name: parsed.data.name,
-          role: parsed.data.role,
-          initials: parsed.data.initials.toUpperCase(),
-          password,
-          mustChangePassword: true,
-        },
-      });
-      if (superiores.superiorIds.length > 0) {
-        await tx.userHierarchy.createMany({
-          data: superiores.superiorIds.map((superiorId) => ({
-            superiorId,
-            subordinateId: nuevo.id,
-          })),
+    let keyFotoSubida: string | null = null;
+    try {
+      await prisma.$transaction(async (tx) => {
+        const nuevo = await tx.user.create({
+          data: {
+            email: parsed.data.email,
+            name: parsed.data.name,
+            role: parsed.data.role,
+            initials: parsed.data.initials.toUpperCase(),
+            password,
+            mustChangePassword: true,
+          },
         });
-      }
-    });
+        if (superiores.superiorIds.length > 0) {
+          await tx.userHierarchy.createMany({
+            data: superiores.superiorIds.map((superiorId) => ({
+              superiorId,
+              subordinateId: nuevo.id,
+            })),
+          });
+        }
+
+        if (fotoPreparada.foto) {
+          const key = keyAvatar(nuevo.id, fotoPreparada.foto.tipo);
+          keyFotoSubida = key;
+          await subirObjeto({
+            key,
+            cuerpo: fotoPreparada.foto.bytes,
+            contentType: fotoPreparada.foto.contentType,
+          });
+          await tx.user.update({
+            where: { id: nuevo.id },
+            data: { avatarKey: key },
+          });
+        }
+      }, { timeout: 30_000 });
+    } catch (e) {
+      // La transacción revierte usuario y jerarquía; compensamos el objeto R2
+      // si la subida alcanzó a completarse antes del error.
+      if (keyFotoSubida) await eliminarObjeto(keyFotoSubida).catch(() => {});
+      throw e;
+    }
 
     const actor = await getCurrentUser();
     await logAudit({
       user: actor?.name ?? "Sistema",
       action: "CREÓ USUARIO",
       entity: parsed.data.email,
-      detail: `${parsed.data.role} · superiores: ${superiores.superiorIds.length}`,
+      detail: `${parsed.data.role} · superiores: ${superiores.superiorIds.length} · foto: ${fotoPreparada.foto ? "sí" : "no"}`,
     });
     revalidatePath(PATH);
     return { ok: true };

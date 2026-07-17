@@ -487,6 +487,21 @@ function CreateUserForm({
         </div>
         <SuperioresField key={role} role={role} superiores={superiores} />
         <div className="flex flex-col gap-1.5 sm:col-span-2">
+          <label className="text-[12px] font-medium text-ink-700">
+            Foto de perfil <span className="font-normal text-ink-500">(opcional)</span>
+          </label>
+          <input
+            type="file"
+            name="foto"
+            accept="image/jpeg,image/png,image/webp"
+            disabled={pending}
+            className="rounded-md border border-ink-200 bg-white text-[12.5px] text-ink-700 file:mr-3 file:cursor-pointer file:border-0 file:bg-navy-700 file:px-3 file:py-2 file:text-[12.5px] file:font-semibold file:text-white disabled:opacity-60"
+          />
+          <p className="text-[11px] text-ink-500">
+            JPG, PNG o WEBP · máximo 4 MB. Si no adjuntas una foto, se mostrarán las iniciales.
+          </p>
+        </div>
+        <div className="flex flex-col gap-1.5 sm:col-span-2">
           <label className="text-[12px] font-medium text-ink-700">Contraseña temporal</label>
           <PasswordInput
             name="password"
