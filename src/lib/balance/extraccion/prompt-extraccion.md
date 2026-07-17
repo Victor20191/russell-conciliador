@@ -58,6 +58,7 @@ El esquema de salida lo impone el sistema (Structured Outputs): llena todos los 
 - **Código embebido**: cuenta y nombre juntos como «código - nombre», o código dentro de «Desc. auxiliar».
 - **NIF/NIIF/PCGA**: si el archivo trae varios planes, elige el indicado por ESTANDAR_CONTABLE.
 - **Reportes paginados**: hay encabezados repetidos y muchas filas TOTAL; exclúyelas.
+- **SIIGO «balance por cuenta con tercero»**: trae una columna «Rompimiento» con el nivel de cada fila (`Cta Nivel 1/2/3/4`, `Cuenta`, `NIT`). Mapea la columna de tercero (`Codigo SN` o `Nombre SN`) en `columnas.tercero` para que la plataforma colapse el detalle por tercero (las filas `NIT` repiten el código de la cuenta con el tercero aparte). Marca la hoja con `reglaDetalle.tipo="columna"`, `columna` = «Rompimiento», `valor="Cuenta"`. Las filas `Cta Nivel 1` traen un **código artificial gigante** (p. ej. `800000000000000`): NO las excluyas ni intentes arreglarlas — la plataforma deriva la clase real de sus subcuentas.
 
 ## Salidas
 

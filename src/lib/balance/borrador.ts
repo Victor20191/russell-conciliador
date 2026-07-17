@@ -278,20 +278,60 @@ export function reclasificarHuerfanas(filas: FilaBorrador[]): FilaBorrador[] {
 }
 
 /**
- * MARCA como `omitida` (por defecto, tachadas) las filas que NO son una cuenta contable:
- * los `total`/pie sin código real («Total general», «<none>», marca del ERP, subtotales
- * sin código). Se muestran DESHABILITADAS y no cuentan, pero el usuario puede RESCATAR
- * alguna con «Incluir». MUTA `filas` (`omitida`) y devuelve cuántas marcó.
+ * MARCA como `omitida` (por defecto, tachadas) las filas que NO van al balance:
+ *  1. PIES/NOTAS del ERP: código que NO EMPIEZA POR DÍGITO («Procesado en: …», «Total
+ *     general», «<none>», marcas del software, rótulos) o sin código. Una cuenta PUC real
+ *     siempre arranca en número (`1`, `11`, `1105`, `110505`…), incluso con sufijos/letras
+ *     alfanuméricas (`110A505`, `236550INAC`), por eso se usa «empieza por dígito» y NO
+ *     `!esNumerico` (que tacharía esas cuentas reales — CONSERVADOR a propósito).
+ *  2. CUENTAS DE ORDEN (clase 8 deudoras / 9 acreedoras): memorando fuera de balance, no
+ *     entran en la ecuación contable. Se ocultan por defecto (caso KOEN); si un cliente las
+ *     necesita, se rescatan.
  *
- * Respeta el TRI-ESTADO como `marcarRelistadoGuiones`: solo marca filas cuyo `omitida`
- * está SIN definir (`undefined`); si el usuario la rescató (`false`) o la omitió a mano
- * (`true`), se respeta. Debe correr DESPUÉS de `reclasificarNoImputables` (que produce
- * los `total`). No toca cuentas (movimiento/agrupadora tienen código numérico).
+ * Se muestran DESHABILITADAS y no cuentan, pero el usuario puede RESCATAR alguna con
+ * «Incluir». MUTA `filas` (`omitida`), devuelve el conteo. Respeta el TRI-ESTADO como
+ * `marcarRelistadoGuiones`: solo marca filas cuyo `omitida` está SIN definir (`undefined`);
+ * si el usuario la rescató (`false`) o la omitió a mano (`true`), se respeta.
  */
+// Placeholder de código de un ROLLUP DE CLASE de SIIGO: un número redondo gigante
+// (`800000000000000` = 8×10^14) que el ERP pone en la fila «Cta Nivel 1» en vez del
+// código de clase real. Dígito no-cero + ≥10 ceros: NINGUNA cuenta PUC real luce así
+// (un IVA largo real como `614505157005` tiene dígitos no-cero). El dígito líder NO es la
+// clase (`8…` para un rollup de clase 5), por eso la clase se deriva de los HIJOS.
+const ES_CODIGO_PLACEHOLDER = /^[1-9]0{10,}$/;
+
+/**
+ * Corrige el código placeholder de los rollups de clase de SIIGO: reemplaza el número
+ * gigante por la CLASE real (1 díg) derivada de su primer hijo con código PUC (la fila
+ * siguiente en orden). Así el rollup («Otros Gastos») queda como nodo de clase `5`, anida
+ * a sus `53…`, no lo oculta `marcarNoContables` y `totalArchivo("5")` vuelve a encontrarlo.
+ * MUTA `filas` (`codigo`/`nivel`/`tipoFila`) y devuelve cuántas corrigió. Debe correr ANTES
+ * del resto de pasadas. Si no hay hijo numérico después, deja la fila igual (fallback).
+ */
+export function corregirCodigosPlaceholder(filas: FilaBorrador[]): number {
+  const ordenadas = [...filas].sort((a, b) => a.filaNum - b.filaNum);
+  let n = 0;
+  for (let i = 0; i < ordenadas.length; i++) {
+    const f = ordenadas[i];
+    if (!ES_CODIGO_PLACEHOLDER.test(f.codigo)) continue;
+    // Primer hijo con código PUC real (1-10 díg, no otro placeholder) hacia abajo.
+    const hijo = ordenadas.slice(i + 1).find((h) => /^\d{1,10}$/.test(h.codigo));
+    if (!hijo) continue; // sin hijo numérico → no se puede derivar la clase
+    f.codigo = hijo.codigo.charAt(0); // la CLASE (primer dígito del hijo)
+    f.nivel = 1;
+    f.tipoFila = "agrupadora"; // es un rollup con hijos, no un movimiento
+    n++;
+  }
+  return n;
+}
+
 export function marcarNoContables(filas: FilaBorrador[]): number {
   let n = 0;
   for (const f of filas) {
-    if (f.omitida === undefined && f.tipoFila === "total") {
+    if (f.omitida !== undefined) continue; // respeta rescate/omisión manual (tri-estado)
+    const esPieONota = !/^\d/.test(f.codigo); // no empieza por dígito → no es cuenta
+    const esCuentaDeOrden = /^[89]/.test(f.codigo); // clase 8/9 → fuera de balance
+    if (esPieONota || esCuentaDeOrden) {
       f.omitida = true;
       n++;
     }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { esFilaTercero, esFilaGenericoTercero, esBalancePorTercero, colapsarTerceros } from "./terceros";
+import { esFilaTercero, esFilaGenericoTercero, esBalancePorTercero, colapsarTerceros, esFilaTerceroSufijo, esBalancePorTerceroSufijo, consolidarTercerosPorSufijo } from "./terceros";
 import { construirVistaBorrador } from "./borrador-vm";
 import type { FilaBorrador } from "./borrador";
 
@@ -96,5 +96,39 @@ describe("colapsarTerceros + construirVistaBorrador (balance por tercero)", () =
     expect(codigos.has("110505")).toBe(true); // sí las cuentas
     // El Activo calculado = Σ cuentas (12 × 100 = 1200), NO clase 9.
     expect(Math.round(vista.validacion.activo)).toBe(1200);
+  });
+});
+
+describe("tercero con NIT en el sufijo del código (SAP/BO «por tercero»)", () => {
+  it("esFilaTerceroSufijo: código-…-NIT sí; cuenta con sufijo corto o guiones no", () => {
+    expect(esFilaTerceroSufijo({ tipoFila: "movimiento", codigoCrudo: "120520-0-00-800011002" })).toBe(true);
+    expect(esFilaTerceroSufijo({ tipoFila: "movimiento", codigoCrudo: "122505-0-00-860034594" })).toBe(true);
+    expect(esFilaTerceroSufijo({ tipoFila: "movimiento", codigoCrudo: "11100501-0-00" })).toBe(false); // banco, sufijo corto
+    expect(esFilaTerceroSufijo({ tipoFila: "movimiento", codigoCrudo: "1105-05-04" })).toBe(false); // re-listado guiones
+    expect(esFilaTerceroSufijo({ tipoFila: "movimiento", codigoCrudo: "901427659" })).toBe(false); // NIT plano (sin guion)
+    expect(esFilaTerceroSufijo({ tipoFila: "agrupadora", codigoCrudo: "120520-0-00-800011002" })).toBe(false);
+  });
+
+  it("consolidarTercerosPorSufijo: suma los terceros de cada cuenta en UNA fila", () => {
+    const t = (fn: number, crudo: string, sf: number): FilaBorrador => ({ ...fila(fn, "120520", "INDUSTRIA MANUFACTURERA", sf, "movimiento"), codigoCrudo: crudo });
+    const filas: FilaBorrador[] = [
+      fila(1, "11100501", "BANCO", 100, "movimiento"), // no-tercero → pasa igual
+      t(2, "120520-0-00-800011002", 473),
+      t(3, "120520-0-00-800027374", 41),
+      t(4, "120520-0-00-890928257", 1678),
+    ];
+    const out = consolidarTercerosPorSufijo(filas);
+    expect(out.map((f) => f.codigoCrudo)).toEqual(["11100501", "120520"]); // banco + 1 cuenta consolidada
+    const c120520 = out.find((f) => f.codigo === "120520")!;
+    expect(c120520.saldoFinal).toBe(473 + 41 + 1678); // 2192: suma de los 3 terceros
+  });
+
+  it("esBalancePorTerceroSufijo: true cuando la mayoría de movimientos traen NIT en sufijo", () => {
+    const conSufijo: FilaBorrador[] = Array.from({ length: 25 }, (_, i) => ({
+      ...fila(i + 1, "120520", "CTA", 1, "movimiento"), codigoCrudo: `120520-0-00-${800000000 + i}`,
+    }));
+    expect(esBalancePorTerceroSufijo(conSufijo)).toBe(true);
+    const normal = Array.from({ length: 25 }, (_, i) => fila(i + 1, `1105050${i}`, `CTA ${i}`, 1, "movimiento"));
+    expect(esBalancePorTerceroSufijo(normal)).toBe(false);
   });
 });

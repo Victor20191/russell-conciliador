@@ -35,8 +35,8 @@ import { TIPO_BALANCE_CARGA } from "@/lib/balance/tipo-balance";
 import { extraerBalance } from "@/lib/balance/extraccion/extraer";
 import { mapearPorIA } from "@/lib/balance/mapeo-ia";
 import { construirVistaBorrador } from "@/lib/balance/borrador-vm";
-import { reclasificarHuerfanas, type FilaBorrador } from "@/lib/balance/borrador";
-import { esBalancePorTercero, colapsarTerceros } from "@/lib/balance/terceros";
+import { reclasificarHuerfanas, corregirCodigosPlaceholder, type FilaBorrador } from "@/lib/balance/borrador";
+import { esBalancePorTercero, colapsarTerceros, esBalancePorTerceroSufijo, consolidarTercerosPorSufijo } from "@/lib/balance/terceros";
 import { marcarRelistadoGuiones } from "@/lib/balance/relistado";
 import { registrarDiagnosticoInicial, cerrarDiagnostico } from "@/lib/balance/diagnostico-lectura-registro";
 import { diagnosticarConIA, type DiagnosticoIA } from "@/lib/balance/diagnostico-ia";
@@ -223,7 +223,12 @@ async function promoverStagingAOficial(p: MetaPromocion, contexto: string): Prom
     }));
     // Balance ABIERTO POR TERCERO → colapsar el detalle y cargar por CUENTA (lógica
     // separada; los demás informes no se tocan). Las cuentas quedan como imputables.
-    const rows = esBalancePorTercero(filasStaging) ? colapsarTerceros(filasStaging) : filasStaging;
+    let rows = esBalancePorTercero(filasStaging) ? colapsarTerceros(filasStaging) : filasStaging;
+    // Tercero con NIT PEGADO en el sufijo del código → consolida (suma) por cuenta.
+    if (esBalancePorTerceroSufijo(rows)) rows = consolidarTercerosPorSufijo(rows);
+    // SIIGO: corrige el código placeholder gigante de los rollups de clase (deriva la
+    // clase de los hijos) ANTES de reclasificar, para que la carga use el código real.
+    corregirCodigosPlaceholder(rows);
     // RE-LISTADO CON GUIONES: marca como omitidas las filas «1105-05-04»/«*SIN NOMBRE*»
     // redundantes (que duplican una fila plana existente); NO se cargan (el filtro
     // `!f.omitida` de abajo las excluye), conservando el código plano que cuadra.

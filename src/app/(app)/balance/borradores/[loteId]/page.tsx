@@ -46,7 +46,7 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
       <div className="mb-3"><BackLink href="/balance/borradores" label="Volver a borradores" /></div>
       <PageHeader
         title={`Borrador · ${lote?.archivoNombre ?? "(sin encabezado)"}`}
-        subtitle="Estructura CRUDA extraída del Excel (sin homologación). Las agrupadoras cuyo total ≠ suma de sus hijos aparecen subrayadas: ahí está el descuadre."
+        subtitle="Estructura CRUDA extraída del Excel (sin homologación). Las agrupadoras cuyo total ≠ suma de sus cuentas aparecen subrayadas: ahí está el descuadre."
       />
       <BorradorDetailClient
         loteId={loteId}

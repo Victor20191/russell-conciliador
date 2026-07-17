@@ -86,7 +86,7 @@ export default function BorradorDetailClient({
   const nCambios = Object.keys(override).length + invertidos.length + Object.keys(desacopladas).length + Object.keys(omitidas).length + Object.keys(padres).length;
   const hayCambios = nCambios > 0;
   // View-model recomputado LOCALMENTE con los cambios temporales (sin tocar la BD).
-  const { arbol, validacion, partidaDoble, hallazgos, porTercero, relistadoGuiones, totalesOcultos } = useMemo(() => construirVistaBorrador(aplicarCambios(filas, override, invertidos, desacopladas, omitidas, padres)), [filas, override, invertidos, desacopladas, omitidas, padres]);
+  const { arbol, validacion, partidaDoble, hallazgos, porTercero, relistadoGuiones, filasOcultas, clasesCorregidas } = useMemo(() => construirVistaBorrador(aplicarCambios(filas, override, invertidos, desacopladas, omitidas, padres)), [filas, override, invertidos, desacopladas, omitidas, padres]);
 
   // Posición de cada nodo en el árbol (hermano anterior + abuelo) para el TABULADOR:
   // el ← (desindentar) sube al abuelo. El → abre el modal "Ubicar" (elegir destino + lote).
@@ -143,10 +143,16 @@ export default function BorradorDetailClient({
           <span><span className="font-semibold">Re-listado con guiones detectado.</span> Se marcaron <span className="font-semibold">{relistadoGuiones}</span> fila(s) con código en notación de guiones (p. ej. <span className="font-mono">1105-05-04</span>) que duplican una cuenta ya listada con su código plano (<span className="font-mono">11050504</span>): se muestran <span className="line-through">tachadas</span> y NO cuentan (se concilia por el código plano). Si alguna hiciera falta, la puedes rescatar con «Incluir».</span>
         </div>
       )}
-      {totalesOcultos > 0 && (
+      {clasesCorregidas > 0 && (
+        <div className="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">
+          <Icon name="warn" size={14} />
+          <span>Se corrigieron <span className="font-semibold">{clasesCorregidas}</span> código(s) de clase que el ERP (SIIGO) trajo como número gigante (p. ej. <span className="font-mono">800000000000000</span>), derivando la clase real de sus subcuentas (p. ej. <span className="font-mono">5</span> «Otros Gastos»). Así anida y totaliza bien por clase.</span>
+        </div>
+      )}
+      {filasOcultas > 0 && (
         <div className="flex items-start gap-2 rounded-md border border-ink-200 bg-ink-50 px-3 py-2 text-[12px] text-ink-600">
           <Icon name="warn" size={14} />
-          <span>Se ocultaron <span className="font-semibold">{totalesOcultos}</span> fila(s) sin cuenta contable (totales, pies y ruido del ERP como <span className="font-mono">&lt;none&gt;</span> o «Total general»): se muestran <span className="line-through">tachadas</span> y NO cuentan. Si necesitas alguna, rescátala con «Incluir».</span>
+          <span>Se ocultaron <span className="font-semibold">{filasOcultas}</span> fila(s) que no van al balance: pies/notas del ERP (código que no empieza por dígito, como «Procesado en: …», <span className="font-mono">&lt;none&gt;</span> o «Total general») y <span className="font-semibold">cuentas de orden (clase 8 y 9)</span>. Se muestran <span className="line-through">tachadas</span> y NO cuentan. Si necesitas alguna, rescátala con «Incluir».</span>
         </div>
       )}
       <ValidacionHeader v={validacion} pd={partidaDoble} />
@@ -479,7 +485,7 @@ function MoverModal({ arbol, filaNum, contexto, onConfirmar, onClose }: {
         {hermanasElegibles.length > 0 && (
           <div>
             <div className="mb-1.5 flex items-center justify-between gap-2">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">Mover también estas hermanas (prefijo <span className="font-mono">{destinoRef.codigo}</span>)</span>
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">Mover también estas cuentas (prefijo <span className="font-mono">{destinoRef.codigo}</span>)</span>
               <span className="flex shrink-0 gap-2 text-[11px]">
                 <button type="button" onClick={() => setMarcadas(new Set(hermanasElegibles.map((h) => h.filaNum)))} className="font-medium text-blue-700 hover:underline">Todas</button>
                 <button type="button" onClick={() => setMarcadas(new Set())} className="font-medium text-ink-500 hover:underline">Ninguna</button>
@@ -617,7 +623,7 @@ function ArbolTabla({ arbol, filtro, onReclasificar, onInvertir, onDesacoplar, o
               <Chip label={`Agrupadora · ${nivelLabel(n.codigo)}`} tone="ink" />
             )}
             {descuadrado && (
-              <span className="text-[10.5px] font-semibold text-err-700" title={`Total del archivo ${fmt(n.saldoFinal)} − suma de sus ${n.hijos.length} sub-filas = ${fmt(n.descuadre!)}. Su subtotal no cuadra con su desglose por código.`}>
+              <span className="text-[10.5px] font-semibold text-err-700" title={`Total del archivo ${fmt(n.saldoFinal)} − suma de sus ${n.hijos.length} cuentas = ${fmt(n.descuadre!)}. Su subtotal no cuadra con su desglose por código.`}>
                 Δ {fmt(n.descuadre!)}
               </span>
             )}
@@ -668,19 +674,19 @@ function ArbolTabla({ arbol, filtro, onReclasificar, onInvertir, onDesacoplar, o
               </button>
             )}
             {(puedeUbicarFila || puedeDesindentar || reparentada) && (
-              <span className="inline-flex items-center gap-0.5" title="Tabulador: ubica esta fila en la rama correcta. → elige bajo cuál cuenta anidarla (y mueve sus hermanas en lote); ← la sube un nivel.">
+              <span className="inline-flex items-center gap-0.5" title="Tabulador: ubica esta fila en la rama correcta. → elige bajo cuál cuenta anidarla (y mueve las cuentas del mismo grupo en lote); ← la sube un nivel.">
                 <button
                   type="button"
                   disabled={!puedeDesindentar}
                   onClick={() => onDesindentar(n.filaNum)}
-                  title="Desindentar: subir esta fila un nivel (al abuelo)."
+                  title="Desindentar: subir esta fila un nivel (a su agrupadora superior)."
                   className="rounded border border-ink-200 px-1 py-0.5 text-[11px] font-bold leading-none text-ink-500 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-default disabled:opacity-30 disabled:hover:border-ink-200 disabled:hover:bg-transparent disabled:hover:text-ink-500"
                 >←</button>
                 <button
                   type="button"
                   disabled={!puedeUbicarFila}
                   onClick={() => onUbicar(n.filaNum)}
-                  title="Ubicar: elegir bajo cuál cuenta de arriba anidar esta fila y mover sus hermanas en lote."
+                  title="Ubicar: elegir bajo cuál cuenta de arriba anidar esta fila y mover las cuentas del mismo grupo en lote."
                   className="rounded border border-ink-200 px-1 py-0.5 text-[11px] font-bold leading-none text-ink-500 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-default disabled:opacity-30 disabled:hover:border-ink-200 disabled:hover:bg-transparent disabled:hover:text-ink-500"
                 >→</button>
                 {reparentada && <Chip label="↳ movida" tone="blue" />}
