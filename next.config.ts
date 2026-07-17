@@ -49,12 +49,13 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
-  // Los balances (Excel/CSV por tercero) y PDFs se suben por Server Action; el límite
-  // por defecto (1 MB) los rechaza («Body exceeded 1 MB limit»). Se amplía para cubrir
-  // archivos grandes (p. ej. balance por tercero de varios MB) y el payload de confirmación.
+  // Los balances (Excel/CSV por tercero), PDFs y fotos se suben por Server
+  // Action; el límite por defecto (1 MB) rechaza estos archivos.
   experimental: {
     serverActions: {
-      bodySizeLimit: "25mb",
+      // La acción de fotos conserva su propio límite estricto de 60 MB. Este
+      // margen cubre además el envoltorio multipart de la petición.
+      bodySizeLimit: "64mb",
     },
   },
   async headers() {
