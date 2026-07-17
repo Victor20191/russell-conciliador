@@ -1,4 +1,5 @@
 import { test, expect, describe } from "vitest";
+import JSZip from "jszip";
 import {
   extensionDeNombre,
   pareceImagen,
@@ -89,7 +90,33 @@ describe("emparejarFotosPorCedula", () => {
       { userId: 1, nombreArchivo: "52123456.jpg", name: "Ana" },
       { userId: 2, nombreArchivo: "1.098.765.432.png", name: "Beto" },
     ]);
+    expect(r.ajustesNombre).toEqual([]);
     expect(r.sinUsuario).toEqual([]);
+  });
+
+  test("usa el prefijo cuando un sufijo de copia es la única coincidencia", () => {
+    const r = emparejarFotosPorCedula(["1098765432-1.png"], usuarios);
+
+    expect(r.emparejados).toEqual([
+      { userId: 2, nombreArchivo: "1098765432-1.png", name: "Beto" },
+    ]);
+    expect(r.ajustesNombre).toEqual([
+      { archivo: "1098765432-1.png", cedula: "1098765432" },
+    ]);
+    expect(r.sinUsuario).toEqual([]);
+  });
+
+  test("prioriza el nombre exacto aunque el archivo con sufijo aparezca primero", () => {
+    const r = emparejarFotosPorCedula(
+      ["52123456-1.jpg", "52123456.png"],
+      usuarios,
+    );
+
+    expect(r.emparejados).toEqual([
+      { userId: 1, nombreArchivo: "52123456.png", name: "Ana" },
+    ]);
+    expect(r.ajustesNombre).toEqual([]);
+    expect(r.duplicados).toEqual(["52123456-1.jpg"]);
   });
 
   test("clasifica sin-usuario, ignorados y duplicados", () => {
@@ -108,5 +135,42 @@ describe("emparejarFotosPorCedula", () => {
     expect(r.sinUsuario).toEqual(["99999999.jpg"]);
     expect(r.ignorados).toEqual(["notas.txt"]);
     expect(r.duplicados).toEqual(["52.123.456.png"]);
+  });
+});
+
+describe("ZIP pequeño de aceptación", () => {
+  test("clasifica coincidencia exacta, sufijo, huérfano e imagen inválida", async () => {
+    const zipCreado = new JSZip();
+    zipCreado.file("52123456.png", PNG);
+    zipCreado.file("1098765432-1.png", PNG);
+    zipCreado.file("99999999.png", PNG);
+    zipCreado.file("77777777.png", new TextEncoder().encode("no es una imagen"));
+
+    const zip = await JSZip.loadAsync(await zipCreado.generateAsync({ type: "uint8array" }));
+    const usuarios = [
+      { id: 1, cedula: "52.123.456", name: "Ana" },
+      { id: 2, cedula: "1098765432", name: "Beto" },
+      { id: 3, cedula: "77777777", name: "Cata" },
+    ];
+    const emparejamiento = emparejarFotosPorCedula(Object.keys(zip.files), usuarios);
+    const invalidas: string[] = [];
+
+    for (const foto of emparejamiento.emparejados) {
+      const entrada = zip.file(foto.nombreArchivo);
+      if (!entrada) continue;
+      const validacion = validarImagen(await entrada.async("uint8array"));
+      if (!validacion.ok) invalidas.push(foto.nombreArchivo);
+    }
+
+    expect(emparejamiento.emparejados.map((foto) => foto.nombreArchivo)).toEqual([
+      "52123456.png",
+      "1098765432-1.png",
+      "77777777.png",
+    ]);
+    expect(emparejamiento.ajustesNombre).toEqual([
+      { archivo: "1098765432-1.png", cedula: "1098765432" },
+    ]);
+    expect(emparejamiento.sinUsuario).toEqual(["99999999.png"]);
+    expect(invalidas).toEqual(["77777777.png"]);
   });
 });

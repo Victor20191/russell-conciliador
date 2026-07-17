@@ -29,6 +29,7 @@ export type CargarFotosState = {
   message?: string;
   resumen?: {
     asignadas: number;
+    ajustesNombre: { archivo: string; cedula: string }[]; // sufijos -1/-2 resueltos por prefijo
     sinUsuario: string[]; // imágenes cuya cédula no coincide con ningún usuario
     invalidas: { archivo: string; motivo: string }[]; // imágenes corruptas/formato no válido
     duplicados: string[]; // varias imágenes para la misma cédula (se usó la primera)
@@ -131,6 +132,7 @@ export async function cargarFotosUsuarios(
 
     const resumen = {
       asignadas,
+      ajustesNombre: emp.ajustesNombre,
       sinUsuario: emp.sinUsuario,
       invalidas,
       duplicados: emp.duplicados,

@@ -32,14 +32,14 @@ model User {
   active              Boolean          @default(true) @map("activo")
   sessionVersion      Int              @default(0) @map("version_sesion")
   failedLoginAttempts Int              @default(0) @map("intentos_fallidos")
-  lastFailedLoginAt   DateTime?        @map("ultimo_intento_fallido")
-  blockedUntil        DateTime?        @map("bloqueado_hasta")
+  lastFailedLoginAt   DateTime?        @map("ultimo_intento_fallido") @db.Timestamptz(3)
+  blockedUntil        DateTime?        @map("bloqueado_hasta") @db.Timestamptz(3)
   mustChangePassword  Boolean          @default(false) @map("debe_cambiar_contrasena")
-  lastLoginAt         DateTime?        @map("ultimo_inicio_sesion")
+  lastLoginAt         DateTime?        @map("ultimo_inicio_sesion") @db.Timestamptz(3)
   comments            Comment[]        @relation("ComentariosAutor")
   mentions            CommentMention[] @relation("MencionesUsuario")
-  createdAt           DateTime         @default(now()) @map("creado_en")
-  updatedAt           DateTime         @updatedAt @map("actualizado_en")
+  createdAt           DateTime         @default(now()) @map("creado_en") @db.Timestamptz(3)
+  updatedAt           DateTime         @updatedAt @map("actualizado_en") @db.Timestamptz(3)
 
   @@map("usuarios")
 }
@@ -49,7 +49,7 @@ model LoginAttempt {
   email     String   @map("correo")
   ip        String   @map("ip")
   success   Boolean  @map("exitoso")
-  createdAt DateTime @default(now()) @map("creado_en")
+  createdAt DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   @@index([email, createdAt])
   @@index([ip, createdAt])
@@ -104,8 +104,8 @@ model Role {
   isSystem    Boolean          @default(false) @map("es_sistema") // roles base no borrables desde la UI
   active      Boolean          @default(true) @map("activo")
   permissions RolePermission[]
-  createdAt   DateTime         @default(now()) @map("creado_en")
-  updatedAt   DateTime         @updatedAt @map("actualizado_en")
+  createdAt   DateTime         @default(now()) @map("creado_en") @db.Timestamptz(3)
+  updatedAt   DateTime         @updatedAt @map("actualizado_en") @db.Timestamptz(3)
 
   @@index([rank])
   @@map("roles")
@@ -125,7 +125,7 @@ model Permission {
   description String?          @map("descripcion")
   active      Boolean          @default(true) @map("activo")
   roles       RolePermission[]
-  createdAt   DateTime         @default(now()) @map("creado_en")
+  createdAt   DateTime         @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   @@unique([module, action])
   @@index([module])
@@ -141,7 +141,7 @@ model RolePermission {
   roleId       Int        @map("rol_id")
   permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
   permissionId Int        @map("permiso_id")
-  createdAt    DateTime   @default(now()) @map("creado_en")
+  createdAt    DateTime   @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   @@unique([roleId, permissionId])
   @@index([permissionId])
@@ -159,7 +159,7 @@ model UserHierarchy {
   id            Int      @id @default(autoincrement()) @map("id")
   superiorId    Int      @map("superior_id") // FK lógica a User.id
   subordinateId Int      @map("subordinado_id") // FK lógica a User.id
-  createdAt     DateTime @default(now()) @map("creado_en")
+  createdAt     DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   @@unique([superiorId, subordinateId])
   @@index([subordinateId])
@@ -191,11 +191,11 @@ model ClientAssignment {
   writeScope   Boolean   @default(false) @map("alcance_escritura") // escribe/ejecuta (solo staff)
   assignedById Int?      @map("asignado_por_id") // quién asignó (FK lógica a User.id)
   active       Boolean   @default(true) @map("activo")
-  validFrom    DateTime  @default(now()) @map("vigente_desde") // inicio de vigencia
-  validUntil   DateTime? @map("vigente_hasta") // fin de vigencia; null = permanente
+  validFrom    DateTime  @default(now()) @map("vigente_desde") @db.Timestamptz(3) // inicio de vigencia
+  validUntil   DateTime? @map("vigente_hasta") @db.Timestamptz(3) // fin de vigencia; null = permanente
   reason       String?   @map("motivo") // p.ej. "asignación temporal"
-  createdAt    DateTime  @default(now()) @map("creado_en")
-  updatedAt    DateTime  @updatedAt @map("actualizado_en")
+  createdAt    DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
+  updatedAt    DateTime  @updatedAt @map("actualizado_en") @db.Timestamptz(3)
 
   // (cliente, función, usuario): un cliente admite VARIOS staff distintos,
   // sin poder duplicar a la misma persona en la misma función. La regla de
@@ -221,7 +221,7 @@ model Client {
   modules         ClientModule[]
   dianForms       ClientDianForm[]
   reconciliations Reconciliation[]
-  createdAt       DateTime         @default(now()) @map("creado_en")
+  createdAt       DateTime         @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   @@index([socioId])
   @@index([erpId])
@@ -240,7 +240,7 @@ model Erp {
   active    Boolean  @default(true) @map("activo")
   order     Int      @default(0) @map("orden")
   clients   Client[]
-  createdAt DateTime @default(now()) @map("creado_en")
+  createdAt DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   @@map("erps")
 }
@@ -255,7 +255,7 @@ model Sector {
   active    Boolean  @default(true) @map("activo")
   order     Int      @default(0) @map("orden")
   clients   Client[]
-  createdAt DateTime @default(now()) @map("creado_en")
+  createdAt DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   @@map("sectores")
 }
@@ -309,7 +309,7 @@ model ClientDianForm {
   clientId  Int      @map("cliente_id")
   form      DianForm @relation(fields: [formId], references: [id], onDelete: Cascade)
   formId    Int      @map("formulario_id")
-  createdAt DateTime @default(now()) @map("creado_en")
+  createdAt DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   @@unique([clientId, formId])
   @@map("formularios_dian_cliente")
@@ -320,17 +320,17 @@ model ClientDianForm {
 /// módulo se publica para usuarios NO superadministradores. No concede permisos:
 /// la autorización final sigue siendo la matriz RolePermission.
 model PlatformModule {
-  id                         Int      @id @default(autoincrement()) @map("id")
-  key                        String   @unique @map("clave") // balance | dian | conciliaciones...
-  label                      String   @map("etiqueta")
-  description                String?  @map("descripcion")
-  group                      String   @map("grupo") // Trabajo | Configuración
-  icon                       String   @map("icono")
-  order                      Int      @default(0) @map("orden")
-  enabledForNonAdmins        Boolean  @default(true) @map("habilitado_no_administradores")
-  configurableForNonAdmins   Boolean  @default(true) @map("bloqueable_no_administradores")
-  createdAt                  DateTime @default(now()) @map("creado_en")
-  updatedAt                  DateTime @updatedAt @map("actualizado_en")
+  id                       Int      @id @default(autoincrement()) @map("id")
+  key                      String   @unique @map("clave") // balance | dian | conciliaciones...
+  label                    String   @map("etiqueta")
+  description              String?  @map("descripcion")
+  group                    String   @map("grupo") // Trabajo | Configuración
+  icon                     String   @map("icono")
+  order                    Int      @default(0) @map("orden")
+  enabledForNonAdmins      Boolean  @default(true) @map("habilitado_no_administradores")
+  configurableForNonAdmins Boolean  @default(true) @map("bloqueable_no_administradores")
+  createdAt                DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+  updatedAt                DateTime @updatedAt @map("actualizado_en") @db.Timestamptz(3)
 
   @@index([group, order])
   @@map("modulos_plataforma")
@@ -349,16 +349,15 @@ model Reconciliation {
   status       String                  @map("estado") // OK | DIFF | REVIEW
   diff         String                  @map("diferencia")
   items        Int                     @default(0) @map("items")
-  date         String                  @map("fecha")
   owner        String                  @map("responsable")
-  cutoff       String?                 @map("corte")
-  runAt        String?                 @map("ejecutado_en")
+  cutoff       DateTime?               @map("corte") @db.Date
+  runAt        DateTime?               @map("ejecutado_en") @db.Timestamptz(3)
   runBy        String?                 @map("ejecutado_por")
-  lastActivity String?                 @map("ultima_actividad")
+  lastActivity DateTime?               @map("ultima_actividad") @db.Timestamptz(3)
   materiality  Int                     @default(2000000) @map("materialidad")
   rows         ReconciliationRow[]
   comments     ReconciliationComment[]
-  createdAt    DateTime                @default(now()) @map("creado_en")
+  createdAt    DateTime                @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   @@index([clientId, createdAt], map: "conciliaciones_cliente_creado_en_idx")
   @@index([createdAt])
@@ -390,8 +389,7 @@ model ReconciliationComment {
   who              String         @map("autor")
   initials         String         @map("iniciales")
   text             String         @map("texto")
-  time             String         @map("hora")
-  createdAt        DateTime       @default(now()) @map("creado_en")
+  createdAt        DateTime       @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   @@map("comentarios_conciliacion")
 }
@@ -403,9 +401,8 @@ model Notification {
   who       String   @map("autor")
   text      String   @map("texto")
   target    String   @map("destino")
-  time      String   @map("hora")
   unread    Boolean  @default(true) @map("no_leida")
-  createdAt DateTime @default(now()) @map("creado_en")
+  createdAt DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   @@map("notificaciones")
 }
@@ -421,20 +418,20 @@ model Notification {
 /// dentro del registro cuando aplica (p.ej. la cuenta en una
 /// conciliación o el renglón en un formulario DIAN).
 model Comment {
-  id         Int              @id @default(autoincrement()) @map("id")
-  entityType String           @map("entidad_tipo")
-  entityId   Int              @map("entidad_id")
-  anchor     String?          @map("ancla")
-  author     User             @relation("ComentariosAutor", fields: [authorId], references: [id], onDelete: Cascade)
-  authorId   Int              @map("autor_id")
-  body       String           @map("texto")
-  parent     Comment?         @relation("ComentarioHilo", fields: [parentId], references: [id], onDelete: Cascade)
-  parentId   Int?             @map("comentario_padre_id")
-  replies    Comment[]        @relation("ComentarioHilo")
-  isAI       Boolean          @default(false) @map("es_ia")
-  editedAt   DateTime?        @map("editado_en")
-  createdAt  DateTime         @default(now()) @map("creado_en")
-  mentions   CommentMention[]
+  id           Int                @id @default(autoincrement()) @map("id")
+  entityType   String             @map("entidad_tipo")
+  entityId     Int                @map("entidad_id")
+  anchor       String?            @map("ancla")
+  author       User               @relation("ComentariosAutor", fields: [authorId], references: [id], onDelete: Cascade)
+  authorId     Int                @map("autor_id")
+  body         String             @map("texto")
+  parent       Comment?           @relation("ComentarioHilo", fields: [parentId], references: [id], onDelete: Cascade)
+  parentId     Int?               @map("comentario_padre_id")
+  replies      Comment[]          @relation("ComentarioHilo")
+  isAI         Boolean            @default(false) @map("es_ia")
+  editedAt     DateTime?          @map("editado_en") @db.Timestamptz(3)
+  createdAt    DateTime           @default(now()) @map("creado_en") @db.Timestamptz(3)
+  mentions     CommentMention[]
   validaciones ValidacionAlerta[]
 
   @@index([entityType, entityId])
@@ -455,7 +452,7 @@ model ValidacionAlerta {
   commentId     Int      @map("comentario_id")
   validadoPor   String?  @map("validado_por")
   validadoPorId Int?     @map("validado_por_id") // FK suave → User
-  validadoEn    DateTime @default(now()) @map("validado_en")
+  validadoEn    DateTime @default(now()) @map("validado_en") @db.Timestamptz(3)
 
   @@unique([balanceId, anchor])
   @@index([balanceId])
@@ -471,8 +468,8 @@ model CommentMention {
   commentId Int       @map("comentario_id")
   user      User      @relation("MencionesUsuario", fields: [userId], references: [id], onDelete: Cascade)
   userId    Int       @map("usuario_mencionado_id")
-  readAt    DateTime? @map("leido_en")
-  createdAt DateTime  @default(now()) @map("creado_en")
+  readAt    DateTime? @map("leido_en") @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   @@unique([commentId, userId])
   @@index([userId])
@@ -482,13 +479,12 @@ model CommentMention {
 // ===== Auditoría =====
 model AuditEntry {
   id        Int      @id @default(autoincrement()) @map("id")
-  ts        String   @map("marca_tiempo")
   user      String   @map("usuario")
   action    String   @map("accion")
   entity    String   @map("entidad")
   detail    String   @map("detalle")
   ip        String?  @map("ip")
-  createdAt DateTime @default(now()) @map("creado_en")
+  createdAt DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   @@index([createdAt])
   @@map("registros_auditoria")
@@ -508,7 +504,7 @@ model AccessLog {
   kind      String   @map("tipo") // navegacion | ingreso | salida
   ip        String?  @map("ip")
   userAgent String?  @map("agente")
-  createdAt DateTime @default(now()) @map("creado_en")
+  createdAt DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   // Índices alineados a las consultas del tablero y a la retención:
   //  - createdAt: detalle (orden + rango) y purga por antigüedad.
@@ -580,7 +576,7 @@ model StandardAccountLog {
   before    Json?    @map("antes") // snapshot previo (campos)
   after     Json?    @map("despues") // snapshot nuevo (campos)
   ip        String?  @map("ip")
-  createdAt DateTime @default(now()) @map("creado_en")
+  createdAt DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   @@index([accountId])
   @@index([createdAt])
@@ -592,25 +588,25 @@ model StandardAccountLog {
 // por el modelo normalizado `BalancePruebaEncabezado` + `BalancePruebaDetalle`.
 // Se conserva la tabla (vacía) por compatibilidad; ya no se lee ni escribe.
 model Balance {
-  id              Int      @id @default(autoincrement()) @map("id")
-  clientName      String   @map("nombre_cliente")
-  clientNit       String?  @map("nit_cliente")
-  period          String   @map("periodo")
-  version         String   @map("version")
-  isOfficial      Boolean  @default(false) @map("es_oficial")
-  isFrozen        Boolean  @default(false) @map("esta_congelado")
-  status          String   @default("Única") @map("estado")
-  complete        Int      @default(100) @map("completitud")
-  sums            Json?    @map("sumas") // activo, pasivo, patrimonio, ingresos, gastos, costos, utilidad
-  validations     Json?    @map("validaciones") // reglas de validación
-  breakdown       Json?    @map("desglose") // desglose por nivel 2 con items
-  meta            Json?    @map("metadatos") // metadatos del cargue (file, rows, accounts...)
-  versionHistory  Json?    @map("historial_versiones") // historial de versiones (v3/v2/v1) con metadatos
-  diff            Json?    @map("comparativo") // comparativo de la versión oficial vs. la anterior
-  auditLog        Json?    @map("bitacora") // bitácora de cargues/congelados por cliente
-  incomeStatement Json?    @map("estado_resultado") // líneas del estado de resultado (concepto, 2025, 2024, presupuesto)
-  lastUpload      String?  @map("ultima_carga") // fecha-hora de la última carga (display)
-  createdAt       DateTime @default(now()) @map("creado_en")
+  id              Int       @id @default(autoincrement()) @map("id")
+  clientName      String    @map("nombre_cliente")
+  clientNit       String?   @map("nit_cliente")
+  period          String    @map("periodo")
+  version         String    @map("version")
+  isOfficial      Boolean   @default(false) @map("es_oficial")
+  isFrozen        Boolean   @default(false) @map("esta_congelado")
+  status          String    @default("Única") @map("estado")
+  complete        Int       @default(100) @map("completitud")
+  sums            Json?     @map("sumas") // activo, pasivo, patrimonio, ingresos, gastos, costos, utilidad
+  validations     Json?     @map("validaciones") // reglas de validación
+  breakdown       Json?     @map("desglose") // desglose por nivel 2 con items
+  meta            Json?     @map("metadatos") // metadatos del cargue (file, rows, accounts...)
+  versionHistory  Json?     @map("historial_versiones") // historial de versiones (v3/v2/v1) con metadatos
+  diff            Json?     @map("comparativo") // comparativo de la versión oficial vs. la anterior
+  auditLog        Json?     @map("bitacora") // bitácora de cargues/congelados por cliente
+  incomeStatement Json?     @map("estado_resultado") // líneas del estado de resultado (concepto, 2025, 2024, presupuesto)
+  lastUpload      DateTime? @map("ultima_carga") @db.Timestamptz(3)
+  createdAt       DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   @@unique([clientName, period, version])
   @@map("balances")
@@ -624,35 +620,35 @@ model Balance {
 // Los agregados (sumas, validaciones, desglose, comparativo) se RECALCULAN desde
 // el detalle al leer (ver `src/lib/balance/calcular.ts`), no se persisten.
 model BalancePruebaEncabezado {
-  id              Int      @id @default(autoincrement()) @map("id")
+  id                Int       @id @default(autoincrement()) @map("id")
   // FK LÓGICA a Client (solo Int, sin @relation): convención del proyecto para
   // FKs suaves hacia Client/User. `nombreCliente`/`nit` quedan denormalizados
   // para listar sin join.
-  clienteId       Int      @map("cliente_id")
-  nombreCliente   String   @map("nombre_cliente")
-  nit             String?  @map("nit")
-  periodo         String   @map("periodo") // display, p. ej. "Enero 2026"
-  periodoInicio   DateTime @map("periodo_inicio") @db.Date
-  periodoFin      DateTime @map("periodo_fin") @db.Date
+  clienteId         Int       @map("cliente_id")
+  nombreCliente     String    @map("nombre_cliente")
+  nit               String?   @map("nit")
+  periodo           String    @map("periodo") // display, p. ej. "Enero 2026"
+  periodoInicio     DateTime  @map("periodo_inicio") @db.Date
+  periodoFin        DateTime  @map("periodo_fin") @db.Date
   // Versionado (un oficial por cliente/período; congelado bloquea edición).
-  version         String   @map("version")
-  esOficial       Boolean  @default(false) @map("es_oficial")
-  estaCongelado   Boolean  @default(false) @map("esta_congelado")
-  estado          String   @default("Única") @map("estado")
-  completitud     Int      @default(100) @map("completitud")
+  version           String    @map("version")
+  esOficial         Boolean   @default(false) @map("es_oficial")
+  estaCongelado     Boolean   @default(false) @map("esta_congelado")
+  estado            String    @default("Única") @map("estado")
+  completitud       Int       @default(100) @map("completitud")
   // Resumen del cargue (para listados, ficha de versión y bitácora sin recalcular).
-  archivo         String?  @map("archivo")
-  tamanoArchivo   String?  @map("tamano_archivo")
-  cargadoPor      String?  @map("cargado_por")
-  rolCarga        String?  @map("rol_carga")
-  cuadrado        Boolean  @default(true) @map("cuadrado")
-  nota            String?  @map("nota")
-  sumaActivo      Decimal  @default(0) @map("suma_activo") @db.Decimal(18, 2)
-  filasTotales    Int      @default(0) @map("filas_totales")
-  mapeadas        Int      @default(0) @map("mapeadas")
-  sinMapear       Int      @default(0) @map("sin_mapear")
-  criticas        Int      @default(0) @map("criticas")
-  cambios         Int      @default(0) @map("cambios")
+  archivo           String?   @map("archivo")
+  tamanoArchivo     String?   @map("tamano_archivo")
+  cargadoPor        String?   @map("cargado_por")
+  rolCarga          String?   @map("rol_carga")
+  cuadrado          Boolean   @default(true) @map("cuadrado")
+  nota              String?   @map("nota")
+  sumaActivo        Decimal   @default(0) @map("suma_activo") @db.Decimal(18, 2)
+  filasTotales      Int       @default(0) @map("filas_totales")
+  mapeadas          Int       @default(0) @map("mapeadas")
+  sinMapear         Int       @default(0) @map("sin_mapear")
+  criticas          Int       @default(0) @map("criticas")
+  cambios           Int       @default(0) @map("cambios")
   // Metadatos del ETL.
   estandar          String?   @map("estandar")
   convencionCredito String?   @map("convencion_credito")
@@ -660,9 +656,9 @@ model BalancePruebaEncabezado {
   filasExcluidas    Int?      @map("filas_excluidas")
   filasDescuadre    Int?      @map("filas_descuadre")
   congeladoPor      String?   @map("congelado_por")
-  congeladoEn       DateTime? @map("congelado_en")
-  ultimaCarga       String?   @map("ultima_carga") // sello legible del último cargue
-  creadoEn          DateTime  @default(now()) @map("creado_en")
+  congeladoEn       DateTime? @map("congelado_en") @db.Timestamptz(3)
+  ultimaCarga       DateTime? @map("ultima_carga") @db.Timestamptz(3)
+  creadoEn          DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   detalles BalancePruebaDetalle[]
 
@@ -673,25 +669,25 @@ model BalancePruebaEncabezado {
 }
 
 model BalancePruebaDetalle {
-  id           Int                     @id @default(autoincrement()) @map("id")
-  encabezadoId Int                     @map("encabezado_id")
-  encabezado   BalancePruebaEncabezado @relation(fields: [encabezadoId], references: [id], onDelete: Cascade)
+  id             Int                     @id @default(autoincrement()) @map("id")
+  encabezadoId   Int                     @map("encabezado_id")
+  encabezado     BalancePruebaEncabezado @relation(fields: [encabezadoId], references: [id], onDelete: Cascade)
   // Cuenta desagregada por nivel PUC (prefijos del código imputable).
-  cuenta2      String                  @map("cuenta_2") // 11
-  cuenta4      String                  @map("cuenta_4") // 1110
-  cuenta6      String                  @map("cuenta_6") // 111005
-  cuenta8      String                  @map("cuenta_8") // 11100501 (código imputable completo)
-  nombreCuenta String                  @map("nombre_cuenta")
+  cuenta2        String                  @map("cuenta_2") // 11
+  cuenta4        String                  @map("cuenta_4") // 1110
+  cuenta6        String                  @map("cuenta_6") // 111005
+  cuenta8        String                  @map("cuenta_8") // 11100501 (código imputable completo)
+  nombreCuenta   String                  @map("nombre_cuenta")
   // Mapeo al plan estándar Russell (cuenta de 6 dígitos) + % de coincidencia.
-  cuenta6Russell String?               @map("cuenta_6_russell")
-  coincidencia   Decimal?              @map("porcentaje_coincidencia") @db.Decimal(5, 2)
+  cuenta6Russell String?                 @map("cuenta_6_russell")
+  coincidencia   Decimal?                @map("porcentaje_coincidencia") @db.Decimal(5, 2)
   // Montos del balance de comprobación (firmados: débito +, crédito −).
-  saldoInicial Decimal                 @default(0) @map("saldo_inicial") @db.Decimal(18, 2)
-  debitos      Decimal                 @default(0) @map("debitos") @db.Decimal(18, 2)
-  creditos     Decimal                 @default(0) @map("creditos") @db.Decimal(18, 2)
-  saldoFinal   Decimal                 @default(0) @map("saldo_final") @db.Decimal(18, 2)
-  creadoEn     DateTime                @default(now()) @map("creado_en") // TS CREA
-  editadoEn    DateTime                @updatedAt @map("editado_en") // TS EDICIÓN
+  saldoInicial   Decimal                 @default(0) @map("saldo_inicial") @db.Decimal(18, 2)
+  debitos        Decimal                 @default(0) @map("debitos") @db.Decimal(18, 2)
+  creditos       Decimal                 @default(0) @map("creditos") @db.Decimal(18, 2)
+  saldoFinal     Decimal                 @default(0) @map("saldo_final") @db.Decimal(18, 2)
+  creadoEn       DateTime                @default(now()) @map("creado_en") @db.Timestamptz(3) // TS CREA
+  editadoEn      DateTime                @updatedAt @map("editado_en") @db.Timestamptz(3) // TS EDICIÓN
 
   @@index([encabezadoId])
   @@index([cuenta6])
@@ -705,31 +701,31 @@ model BalancePruebaDetalle {
 // hasta que se CARGA (promueve a oficial) o se DESCARTA. FK suave a `clientes` y
 // `usuarios` (Int, sin @relation).
 model BalanceImportacionLote {
-  id                Int      @id @default(autoincrement()) @map("id")
-  loteId            String   @unique @map("lote_id")
-  clienteId         Int?     @map("cliente_id") // sugerido por NIT; null hasta cargar
-  archivoNombre     String   @map("archivo_nombre")
-  archivoTam        String?  @map("archivo_tam")
-  nitDetectado      String?  @map("nit_detectado")
-  periodoInicial    String?  @map("periodo_inicial") // ISO detectado (editable al cargar)
-  periodoFinal      String?  @map("periodo_final")
-  estandar          String?  @map("estandar")
-  convencionCredito String?  @map("convencion_credito")
-  cuentasMovimiento Int      @default(0) @map("cuentas_movimiento")
-  filasLeidas       Int      @default(0) @map("filas_leidas")
-  filasExcluidas    Int      @default(0) @map("filas_excluidas")
+  id                Int       @id @default(autoincrement()) @map("id")
+  loteId            String    @unique @map("lote_id")
+  clienteId         Int?      @map("cliente_id") // sugerido por NIT; null hasta cargar
+  archivoNombre     String    @map("archivo_nombre")
+  archivoTam        String?   @map("archivo_tam")
+  nitDetectado      String?   @map("nit_detectado")
+  periodoInicial    DateTime? @map("periodo_inicial") @db.Date // Fecha detectada (editable al cargar)
+  periodoFinal      DateTime? @map("periodo_final") @db.Date
+  estandar          String?   @map("estandar")
+  convencionCredito String?   @map("convencion_credito")
+  cuentasMovimiento Int       @default(0) @map("cuentas_movimiento")
+  filasLeidas       Int       @default(0) @map("filas_leidas")
+  filasExcluidas    Int       @default(0) @map("filas_excluidas")
   // Snapshot de validación (para listar sin recalcular): partida doble + ecuación.
-  partidaDobleDiff  Decimal  @default(0) @map("partida_doble_diff") @db.Decimal(18, 2)
-  ecuacionDiff      Decimal  @default(0) @map("ecuacion_diff") @db.Decimal(18, 2)
-  cuadrado          Boolean  @default(false) @map("cuadrado")
-  cargadoPor        String?  @map("cargado_por")
-  cargadoPorId      Int?     @map("cargado_por_id") // dueño del borrador (FK suave a User)
+  partidaDobleDiff  Decimal   @default(0) @map("partida_doble_diff") @db.Decimal(18, 2)
+  ecuacionDiff      Decimal   @default(0) @map("ecuacion_diff") @db.Decimal(18, 2)
+  cuadrado          Boolean   @default(false) @map("cuadrado")
+  cargadoPor        String?   @map("cargado_por")
+  cargadoPorId      Int?      @map("cargado_por_id") // dueño del borrador (FK suave a User)
   // Trazabilidad de la extracción (para guardar el PERFIL al confirmar la carga):
   // huella del layout, cómo se obtuvo el spec y el spec usado (MappingSpec plano).
-  huella            String?  @map("huella")
-  origenExtraccion  String?  @map("origen_extraccion") // perfil | ia | plantilla | manual
-  specJson          Json?    @map("spec_json")
-  creadoEn          DateTime @default(now()) @map("creado_en")
+  huella            String?   @map("huella")
+  origenExtraccion  String?   @map("origen_extraccion") // perfil | ia | plantilla | manual
+  specJson          Json?     @map("spec_json")
+  creadoEn          DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   @@index([cargadoPorId])
   @@map("balance_importacion_lote")
@@ -769,7 +765,7 @@ model BalanceImportacionStaging {
   // (p. ej. un código con guiones huérfano `1105-10-19` que debe ir bajo `110510`).
   // null = sin override.
   padreManual  Int?     @map("padre_manual")
-  creadoEn     DateTime @default(now()) @map("creado_en")
+  creadoEn     DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   @@index([loteId])
   @@index([clienteId])
@@ -782,27 +778,34 @@ model BalanceImportacionStaging {
 // dataset para decidir con datos si la cola de heurísticas converge o hay que rediseñar.
 // `heuristicas` es JSON flexible con los conteos por pasada (ver `DiagnosticoLectura`).
 model BalanceLecturaDiagnostico {
-  id                 Int      @id @default(autoincrement()) @map("id")
-  loteId             String   @map("lote_id") // ref suave; sobrevive a la purga del lote
-  clienteId          Int?     @map("cliente_id")
-  archivoNombre      String   @map("archivo_nombre")
-  modo               String?  @map("modo") // tabular | documento
-  formato            String?  @map("formato") // xlsx | csv | pdf | json
-  filas              Int      @default(0) @map("filas")
-  movimientos        Int      @default(0) @map("movimientos")
+  id                   Int      @id @default(autoincrement()) @map("id")
+  loteId               String   @map("lote_id") // ref suave; sobrevive a la purga del lote
+  clienteId            Int?     @map("cliente_id")
+  archivoNombre        String   @map("archivo_nombre")
+  modo                 String?  @map("modo") // tabular | documento
+  formato              String?  @map("formato") // xlsx | csv | pdf | json
+  filas                Int      @default(0) @map("filas")
+  movimientos          Int      @default(0) @map("movimientos")
   // Cuadre AUTOMÁTICO (antes de edición manual): ¿acertó solo el modelo?
-  cuadradoInicial    Boolean  @default(false) @map("cuadrado_inicial")
+  cuadradoInicial      Boolean  @default(false) @map("cuadrado_inicial")
   // Ciclo de vida del cargue
-  resultado          String   @default("borrador") @map("resultado") // borrador | cargado | descartado
-  cuadradoFinal      Boolean? @map("cuadrado_final")
+  resultado            String   @default("borrador") @map("resultado") // borrador | cargado | descartado
+  cuadradoFinal        Boolean? @map("cuadrado_final")
   // Intervención MANUAL (toma final; 0 = la heurística bastó)
-  manualOmitidas     Int      @default(0) @map("manual_omitidas")
-  manualReparentadas Int      @default(0) @map("manual_reparentadas")
-  manualDesacopladas Int      @default(0) @map("manual_desacopladas")
+  manualOmitidas       Int      @default(0) @map("manual_omitidas")
+  manualReparentadas   Int      @default(0) @map("manual_reparentadas")
+  manualDesacopladas   Int      @default(0) @map("manual_desacopladas")
+  // Reclasificar (agrupadora↔movimiento) e invertir (débito↔crédito) mutan el
+  // staging sin dejar marca durable → se ACUMULAN al aplicarse (no al cerrar).
+  manualReclasificadas Int      @default(0) @map("manual_reclasificadas")
+  manualInvertidas     Int      @default(0) @map("manual_invertidas")
+  // Hipótesis del diagnóstico asistido con IA del descuadre (última corrida),
+  // para analizar qué causas recurren. Null = nunca se pidió.
+  diagnosticoIa        Json?    @map("diagnostico_ia")
   // Huella detallada de cada pasada heurística + forma del código (flexible)
-  heuristicas        Json     @map("heuristicas")
-  creadoEn           DateTime @default(now()) @map("creado_en")
-  actualizadoEn      DateTime @updatedAt @map("actualizado_en")
+  heuristicas          Json     @map("heuristicas")
+  creadoEn             DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+  actualizadoEn        DateTime @updatedAt @map("actualizado_en") @db.Timestamptz(3)
 
   @@index([loteId])
   @@map("balance_lectura_diagnostico")
@@ -839,12 +842,12 @@ model PerfilCargaBalance {
   // ---- metadatos del perfil ----
   origen               String    @map("origen") // ia | manual (manual NUNCA se degrada a ia)
   vecesUsado           Int       @default(0) @map("veces_usado")
-  ultimoUsoEn          DateTime? @map("ultimo_uso_en")
+  ultimoUsoEn          DateTime? @map("ultimo_uso_en") @db.Timestamptz(3)
   archivoEjemplo       String?   @map("archivo_ejemplo") // nombre del archivo que originó el perfil
   creadoPor            String?   @map("creado_por")
   creadoPorId          Int?      @map("creado_por_id")
-  creadoEn             DateTime  @default(now()) @map("creado_en")
-  actualizadoEn        DateTime  @updatedAt @map("actualizado_en")
+  creadoEn             DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
+  actualizadoEn        DateTime  @updatedAt @map("actualizado_en") @db.Timestamptz(3)
 
   @@unique([clienteId, huella])
   @@index([huella])
@@ -863,22 +866,22 @@ model AjustesCargaBalance {
   estandar          String?  @map("estandar") // NIF | NIIF | PCGA | null=auto
   agregarPorTercero Boolean? @map("agregar_por_tercero") // null=auto
   actualizadoPor    String?  @map("actualizado_por")
-  creadoEn          DateTime @default(now()) @map("creado_en")
-  actualizadoEn     DateTime @updatedAt @map("actualizado_en")
+  creadoEn          DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+  actualizadoEn     DateTime @updatedAt @map("actualizado_en") @db.Timestamptz(3)
 
   @@map("ajustes_carga_balance")
 }
 
 // ===== Impuestos · DIAN =====
 model DianForm {
-  id          Int           @id @default(autoincrement()) @map("id")
-  key         String        @unique @map("clave") // IVA, RETEFUENTE...
-  name        String        @map("nombre")
-  code        String        @map("codigo") // F-300
-  periodicity String        @map("periodicidad")
-  icon        String        @map("icono")
-  objective   String?       @map("objetivo")
-  conclusion  String?       @map("conclusion")
+  id          Int              @id @default(autoincrement()) @map("id")
+  key         String           @unique @map("clave") // IVA, RETEFUENTE...
+  name        String           @map("nombre")
+  code        String           @map("codigo") // F-300
+  periodicity String           @map("periodicidad")
+  icon        String           @map("icono")
+  objective   String?          @map("objetivo")
+  conclusion  String?          @map("conclusion")
   periods     DianPeriod[]
   sections    DianSection[]
   mappings    DianMapping[]
@@ -889,13 +892,13 @@ model DianForm {
 }
 
 model DianPeriod {
-  id        Int      @id @default(autoincrement()) @map("id")
-  periodKey String   @map("clave_periodo") // 2026-B5
-  label     String   @map("etiqueta")
-  status    String   @map("estado") // OK | DIFF | PEND
-  filed     String?  @map("presentado")
-  form      DianForm @relation(fields: [formId], references: [id], onDelete: Cascade)
-  formId    Int      @map("formulario_id")
+  id        Int       @id @default(autoincrement()) @map("id")
+  periodKey String    @map("clave_periodo") // 2026-B5
+  label     String    @map("etiqueta")
+  status    String    @map("estado") // OK | DIFF | PEND
+  filed     DateTime? @map("presentado") @db.Date
+  form      DianForm  @relation(fields: [formId], references: [id], onDelete: Cascade)
+  formId    Int       @map("formulario_id")
 
   @@unique([formId, periodKey])
   @@map("periodos_dian")
@@ -950,9 +953,8 @@ model DianComment {
   who       String   @map("autor")
   initials  String   @map("iniciales")
   text      String   @map("texto")
-  time      String   @map("hora")
   isAI      Boolean  @default(false) @map("es_ia")
-  createdAt DateTime @default(now()) @map("creado_en")
+  createdAt DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   @@map("comentarios_dian")
 }
@@ -982,7 +984,7 @@ model ClientAccount {
   coincidencia    Decimal?       @map("porcentaje_coincidencia") @db.Decimal(5, 2)
   origenMapeo     String?        @map("origen_mapeo") // manual | automatico
   actualizadoPor  String?        @map("actualizado_por")
-  actualizadoEn   DateTime?      @map("actualizado_en")
+  actualizadoEn   DateTime?      @map("actualizado_en") @db.Timestamptz(3)
 
   // Conciliación llavea por (nombre_cliente, código); el BALANCE llavea por
   // (cliente_id, código) — inmutable, a prueba de cambios de nombre.
@@ -1017,11 +1019,11 @@ model PlatformVersion {
   title       String    @map("titulo")
   summary     String?   @map("resumen")
   status      String    @default("borrador") @map("estado") // borrador | publicada
-  releasedAt  DateTime? @map("publicado_en") // fecha de lanzamiento (al publicar)
+  releasedAt  DateTime? @map("publicado_en") @db.Timestamptz(3) // instante de publicación
   order       Int       @default(0) @map("orden") // orden manual del timeline
   createdById Int?      @map("creado_por_id") // FK lógica a User.id (autor)
-  createdAt   DateTime  @default(now()) @map("creado_en")
-  updatedAt   DateTime  @updatedAt @map("actualizado_en")
+  createdAt   DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("actualizado_en") @db.Timestamptz(3)
 
   changes VersionChange[]
 
@@ -1042,8 +1044,8 @@ model VersionChange {
   example       String?         @map("ejemplo") // ejemplo práctico
   featureStatus String          @default("disponible") @map("estado_funcionalidad") // disponible | en_desarrollo | planeada
   order         Int             @default(0) @map("orden")
-  createdAt     DateTime        @default(now()) @map("creado_en")
-  updatedAt     DateTime        @updatedAt @map("actualizado_en")
+  createdAt     DateTime        @default(now()) @map("creado_en") @db.Timestamptz(3)
+  updatedAt     DateTime        @updatedAt @map("actualizado_en") @db.Timestamptz(3)
 
   @@index([versionId])
   @@map("cambios_version")
@@ -1059,8 +1061,8 @@ model ReporteNovedadesIA {
   totalCambios     Int      @map("total_cambios")
   cambiosIncluidos Int      @map("cambios_incluidos")
   creadoPorId      Int?     @map("creado_por_id")
-  creadoEn         DateTime @default(now()) @map("creado_en")
-  actualizadoEn    DateTime @updatedAt @map("actualizado_en")
+  creadoEn         DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+  actualizadoEn    DateTime @updatedAt @map("actualizado_en") @db.Timestamptz(3)
 
   @@index([modelo])
   @@map("reportes_novedades_ia")
@@ -1082,33 +1084,33 @@ model ReporteNovedadesIA {
 // histórico. Tokens como Int; costo USD con 6 decimales (microdólares por
 // llamada); costo COP con 2 decimales.
 model ConsumoIA {
-  id            Int     @id @default(autoincrement()) @map("id")
+  id                  Int      @id @default(autoincrement()) @map("id")
   // FK lógicas (sin @relation). clienteId es opcional: en la extracción inicial
   // (lectura del archivo) el cliente aún no está confirmado.
-  clienteId     Int?    @map("cliente_id")
-  usuarioId     Int?    @map("usuario_id")
-  usuarioNombre String? @map("usuario_nombre")
+  clienteId           Int?     @map("cliente_id")
+  usuarioId           Int?     @map("usuario_id")
+  usuarioNombre       String?  @map("usuario_nombre")
   // Contexto de la operación.
-  modulo        String  @default("balance") @map("modulo") // reutiliza los códigos de módulo del RBAC
-  tipoOperacion String  @map("tipo_operacion") // extraccion_tabular | extraccion_pdf | mapeo_ia
-  modelo        String  @map("modelo") // p. ej. claude-opus-4-8
-  archivoNombre String? @map("archivo_nombre")
-  nitDetectado  String? @map("nit_detectado")
-  loteIndice    Int?    @map("lote_indice") // mapeo por lotes: índice del lote (0-based)
-  cuentasLote   Int?    @map("cuentas_lote") // cuentas enviadas en el lote
+  modulo              String   @default("balance") @map("modulo") // reutiliza los códigos de módulo del RBAC
+  tipoOperacion       String   @map("tipo_operacion") // extraccion_tabular | extraccion_pdf | mapeo_ia
+  modelo              String   @map("modelo") // p. ej. claude-opus-4-8
+  archivoNombre       String?  @map("archivo_nombre")
+  nitDetectado        String?  @map("nit_detectado")
+  loteIndice          Int?     @map("lote_indice") // mapeo por lotes: índice del lote (0-based)
+  cuentasLote         Int?     @map("cuentas_lote") // cuentas enviadas en el lote
   // Tokens consumidos (los 4 componentes del `usage` de Anthropic).
-  tokensEntrada       Int @default(0) @map("tokens_entrada")
-  tokensSalida        Int @default(0) @map("tokens_salida")
-  tokensCacheCreacion Int @default(0) @map("tokens_cache_creacion")
-  tokensCacheLectura  Int @default(0) @map("tokens_cache_lectura")
+  tokensEntrada       Int      @default(0) @map("tokens_entrada")
+  tokensSalida        Int      @default(0) @map("tokens_salida")
+  tokensCacheCreacion Int      @default(0) @map("tokens_cache_creacion")
+  tokensCacheLectura  Int      @default(0) @map("tokens_cache_lectura")
   // Costo (snapshot al momento del registro).
-  costoUsd Decimal  @default(0) @map("costo_usd") @db.Decimal(12, 6)
-  trm      Decimal  @default(0) @map("trm") @db.Decimal(12, 4) // COP por 1 USD usada en la conversión
-  costoCop Decimal  @default(0) @map("costo_cop") @db.Decimal(14, 2)
+  costoUsd            Decimal  @default(0) @map("costo_usd") @db.Decimal(12, 6)
+  trm                 Decimal  @default(0) @map("trm") @db.Decimal(12, 4) // COP por 1 USD usada en la conversión
+  costoCop            Decimal  @default(0) @map("costo_cop") @db.Decimal(14, 2)
   // Estado de la llamada.
-  exitoso      Boolean  @default(true) @map("exitoso")
-  mensajeError String?  @map("mensaje_error")
-  creadoEn     DateTime @default(now()) @map("creado_en")
+  exitoso             Boolean  @default(true) @map("exitoso")
+  mensajeError        String?  @map("mensaje_error")
+  creadoEn            DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   @@index([creadoEn])
   @@index([clienteId, creadoEn])
@@ -1129,7 +1131,7 @@ model TasaCambio {
   vigenciaDesde DateTime  @map("vigencia_desde") @db.Date
   vigenciaHasta DateTime? @map("vigencia_hasta") @db.Date
   fuente        String    @default("superfinanciera") @map("fuente")
-  obtenidaEn    DateTime  @default(now()) @map("obtenida_en")
+  obtenidaEn    DateTime  @default(now()) @map("obtenida_en") @db.Timestamptz(3)
 
   @@unique([moneda, vigenciaDesde])
   @@index([moneda, vigenciaDesde])
@@ -1148,8 +1150,8 @@ model PromptIA {
   contenido      String   @map("contenido") // texto vigente que se envía a la IA
   predeterminado String   @map("predeterminado") // valor de fábrica (para "restaurar")
   actualizadoPor String?  @map("actualizado_por")
-  actualizadoEn  DateTime @updatedAt @map("actualizado_en")
-  creadoEn       DateTime @default(now()) @map("creado_en")
+  actualizadoEn  DateTime @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+  creadoEn       DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   @@map("prompts_ia")
 }

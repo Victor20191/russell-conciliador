@@ -1,5 +1,6 @@
 import { BrandMark } from "@/components/icons";
 import LoginForm from "./login-form";
+import { anioColombia } from "@/lib/fecha-hora";
 
 export default function LoginPage() {
   return (
@@ -27,7 +28,7 @@ export default function LoginPage() {
         </div>
 
         <div className="text-xs text-[#7C8DA3]">
-          © {new Date().getFullYear()} Russell Bedford Colombia · Uso interno
+          © {anioColombia()} Russell Bedford Colombia · Uso interno
         </div>
       </div>
 

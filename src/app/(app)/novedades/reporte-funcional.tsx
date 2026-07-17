@@ -5,7 +5,7 @@ import { generarReporteFuncionalNovedades } from "@/app/actions/novedades";
 import { Card, Chip } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { Modal } from "@/components/modal";
-import { fmtDate } from "@/lib/format";
+import { fmtDate, fmtDateTimeLong } from "@/lib/format";
 import type { ReporteNovedades } from "@/lib/novedades/reportes";
 
 // Versión reducida para el selector de alcance del reporte (no necesita el
@@ -35,9 +35,8 @@ const BTN_ATAJO =
   "inline-flex items-center gap-1 rounded-md border border-ink-150 bg-white px-2.5 py-1 text-[11.5px] font-medium text-ink-600 transition hover:bg-ink-50";
 
 function fechaLarga(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" });
+  const fecha = fmtDateTimeLong(iso);
+  return fecha === "—" ? "" : fecha;
 }
 
 function slug(texto: string): string {

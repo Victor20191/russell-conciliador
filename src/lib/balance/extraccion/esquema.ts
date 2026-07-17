@@ -95,7 +95,11 @@ export const MappingSpecSchema = z.object({
   importable: z.boolean(), // false p. ej. Antioqueña (solo movimientos), IDOM (libro diario)
   motivoNoImportable: z.string().nullable(),
   excepciones: z.array(ExcepcionSchema),
-  confianza: z.number(), // 0..1
+  confianza: z
+    .number() // 0..1
+    .describe(
+      "Calibración honesta del mapeo (0..1). 0.9+ SOLO si el encabezado es inequívoco y cada columna de montos (saldo inicial, débitos, créditos, saldo final) se identificó sin duda. Usa <0.75 si dudaste entre columnas de débitos/créditos/saldos, del signo del crédito, o de primeraFilaDatos. Un valor bajo NO penaliza: escala la lectura a un modelo mayor. No infles la confianza.",
+    ),
   notas: z.string().nullable(),
 });
 export type MappingSpec = z.infer<typeof MappingSpecSchema>;

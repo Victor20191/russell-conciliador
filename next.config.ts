@@ -1,5 +1,10 @@
 import type { NextConfig } from "next";
 
+// Next/Vercel suele ejecutar Node en UTC. La lógica de negocio usa helpers con
+// zona explícita, y este valor protege además cualquier dependencia que consulte
+// la zona local del proceso.
+process.env.TZ = "America/Bogota";
+
 const isDev = process.env.NODE_ENV !== "production";
 // TLS real del despliegue: mismo interruptor que la cookie de sesión
 // (ver src/lib/session.ts → cookieSecure). Sin HTTPS NO se emiten los headers
@@ -44,6 +49,15 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  // Los balances (Excel/CSV por tercero), PDFs y fotos se suben por Server
+  // Action; el límite por defecto (1 MB) rechaza estos archivos.
+  experimental: {
+    serverActions: {
+      // La acción de fotos conserva su propio límite estricto de 60 MB. Este
+      // margen cubre además el envoltorio multipart de la petición.
+      bodySizeLimit: "64mb",
+    },
+  },
   async headers() {
     return [
       {

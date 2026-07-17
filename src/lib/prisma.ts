@@ -1,11 +1,15 @@
 import { PrismaClient } from "@/generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { ZONA_HORARIA_COLOMBIA } from "@/lib/fecha-hora";
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
 function buildClient() {
   const adapter = new PrismaPg({
     connectionString: process.env.DATABASE_URL!,
+    // Fuerza CURRENT_DATE, CURRENT_TIMESTAMP y cualquier SQL de negocio a la
+    // zona colombiana aunque el proveedor PostgreSQL tenga otro valor global.
+    options: `-c timezone=${ZONA_HORARIA_COLOMBIA}`,
     // keepAlive detecta sockets muertos (p. ej. tras un cambio de red/VPN)
     // en vez de entregarlos colgados desde el pool de conexiones.
     keepAlive: true,

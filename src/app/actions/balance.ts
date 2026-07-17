@@ -11,7 +11,8 @@ import { parseId } from "@/lib/ids";
 import { tomarCandadoTransaccion, transaccionSerializable } from "@/lib/concurrency";
 import { createProcessNotification } from "@/lib/notifications";
 import { mensajeErrorBD, mensajeErrorIA } from "@/lib/errores";
-import { fmt, fmtDate, MESES_LARGOS } from "@/lib/format";
+import { fmt, MESES_LARGOS } from "@/lib/format";
+import { fechaCalendarioPrisma } from "@/lib/fecha-hora";
 import { ConfirmarBalanceSchema, PayloadCargaBalanceSchema, SpecCargaBalanceSchema, type ActionState, type PayloadCargaBalance } from "@/lib/definitions";
 import { claveNit } from "@/lib/nit";
 import { firmarPayloadServidor, validarFirmaPayloadServidor } from "@/lib/server-payload";
@@ -43,7 +44,7 @@ import { construirVistaBorrador } from "@/lib/balance/borrador-vm";
 import { reclasificarHuerfanas, type FilaBorrador } from "@/lib/balance/borrador";
 import { esBalancePorTercero, colapsarTerceros } from "@/lib/balance/terceros";
 import { marcarRelistadoGuiones } from "@/lib/balance/relistado";
-import { registrarDiagnosticoInicial, cerrarDiagnostico } from "@/lib/balance/diagnostico-lectura-registro";
+import { registrarDiagnosticoInicial, cerrarDiagnostico, acumularIntervencionManual, registrarDiagnosticoIA } from "@/lib/balance/diagnostico-lectura-registro";
 import { diagnosticarConIA, type DiagnosticoIA } from "@/lib/balance/diagnostico-ia";
 import { iaDisponible, MODELO_EXTRACCION } from "@/lib/anthropic";
 import { registrarConsumoIA, type UsoIA } from "@/lib/ia/uso";
@@ -110,14 +111,6 @@ function etiquetaPeriodo(inicio: string, fin: string): string {
   if (!a || !b) return `${inicio} – ${fin}`;
   const nombre = (mm: string, yyyy: string) => `${MESES_LARGOS[Number(mm) - 1] ?? mm} ${yyyy}`;
   return a[1] === b[1] && a[2] === b[2] ? nombre(b[2], b[1]) : `${nombre(a[2], a[1])} – ${nombre(b[2], b[1])}`;
-}
-
-/** Sello de fecha-hora para mostrar (p. ej. "06/Ene/2026 09:14"). */
-function sello(): string {
-  const d = new Date();
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mm = String(d.getMinutes()).padStart(2, "0");
-  return `${fmtDate(d)} ${hh}:${mm}`;
 }
 
 /** Tamaño de archivo legible (KB/MB) en es-CO. */
@@ -677,7 +670,7 @@ async function persistirCargue(p: {
 
   const alertas = calc.validations.filter((v) => v.status === "warn").length;
   const complete = calc.totalRows > 0 ? Math.round((calc.mapped / calc.totalRows) * 100) : 100;
-  const ahora = sello();
+  const ahora = new Date();
   const nota = alertas > 0 ? `${alertas} validación(es) con alerta` : "Sin alertas";
 
   const creado = await transaccionSerializable(async (tx) => {
@@ -716,7 +709,7 @@ async function persistirCargue(p: {
     const balance = await tx.balancePruebaEncabezado.create({
       data: {
         clienteId: p.clientId, nombreCliente: p.clienteName, nit: p.clienteNit,
-        periodo: p.period, periodoInicio: new Date(p.periodos.inicial), periodoFin: new Date(p.periodos.final),
+        periodo: p.period, periodoInicio: fechaCalendarioPrisma(p.periodos.inicial), periodoFin: fechaCalendarioPrisma(p.periodos.final),
         version, esOficial: false, estaCongelado: false, estado: status, completitud: complete,
         archivo: p.archivoNombre, tamanoArchivo: p.archivoTam,
         cargadoPor: p.uploadedBy, rolCarga: p.rolLabel, cuadrado: calc.balanced && calc.movimientosCuadran && !descuadreTotales, nota,
@@ -778,7 +771,7 @@ export async function leerBalance(
 
   const archivo = formData.get("archivo");
   if (!(archivo instanceof File) || archivo.size === 0) {
-    return { ok: false, message: "Adjunta el archivo del balance (Excel, CSV, JSON o PDF)." };
+    return { ok: false, message: "Adjunta el archivo del balance (Excel, CSV, TXT, JSON o PDF)." };
   }
   if (archivo.size > MAX_BYTES) return { ok: false, message: "El archivo supera 20 MB." };
 
@@ -1034,7 +1027,8 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
       loteId, clienteId: null,
       archivoNombre: p.archivoNombre, archivoTam: tamArchivo(p.archivoTamBytes),
       nitDetectado: nitFinal.valor,
-      periodoInicial: extr.cabecera.periodoInicial.valor, periodoFinal: extr.cabecera.periodoFinal.valor,
+      periodoInicial: extr.cabecera.periodoInicial.valor ? fechaCalendarioPrisma(extr.cabecera.periodoInicial.valor) : null,
+      periodoFinal: extr.cabecera.periodoFinal.valor ? fechaCalendarioPrisma(extr.cabecera.periodoFinal.valor) : null,
       estandar: extr.cabecera.estandar, convencionCredito: extr.resumen.convencionCredito,
       cuentasMovimiento: extr.resumen.cuentasMovimiento, filasLeidas: extr.resumen.filasLeidas, filasExcluidas: extr.resumen.filasExcluidas,
       partidaDobleDiff: calcBorrador.diffMov, ecuacionDiff: calcBorrador.diffCuadre,
@@ -1131,7 +1125,7 @@ export async function reprocesarBalanceConSpec(
     const datosArchivo = await archivo.arrayBuffer();
     const ingesta = await ingerir(datosArchivo, archivo.name);
     if (ingesta.modo !== "tabular") {
-      return { ok: false, message: "El editor de estructura solo aplica a archivos tabulares (Excel/CSV/JSON)." };
+      return { ok: false, message: "El editor de estructura solo aplica a archivos tabulares (Excel/CSV/TXT delimitado/JSON)." };
     }
     const params: ParamsExtraccion = { nit: null, periodoInicial: null, periodoFinal: null, estandar: TIPO_BALANCE_CARGA };
     const spec = specDesdePerfil(aplanarSpec(parsed.data));
@@ -1499,6 +1493,9 @@ export async function diagnosticarBorradorIA(loteId: string): Promise<Diagnostic
       modulo: "balance",
     });
     await logAudit({ user: user?.name ?? "—", action: "DIAGNÓSTICO IA de balance borrador", entity: id, detail: `${hallazgos.length} hallazgo(s)` });
+    // Persiste las hipótesis en la huella diagnóstica (antes eran efímeras en el
+    // cliente): permite analizar qué causas de descuadre recurren. Best-effort.
+    if (diagnostico) await registrarDiagnosticoIA(id, diagnostico);
     return { ok: true, diagnostico };
   } catch (e) {
     return { ok: false, message: mensajeErrorIA("diagnosticarBorradorIA", e) };
@@ -1583,6 +1580,9 @@ export async function aplicarCambiosBorrador(
     }
     const user = await getCurrentUser();
     await logAudit({ user: user?.name ?? "—", action: "GUARDÓ cambios en balance borrador", entity: id, detail: `${nRe} reclasificada(s), ${nInv} inversión(es), ${nDes} desacople(s), ${nOmi} omitida(s), ${nPad} re-parentada(s)` });
+    // Huella diagnóstica: reclasificar/invertir mutan el staging sin marca durable,
+    // así que se acumulan aquí (best-effort; los otros contadores se toman al cerrar).
+    await acumularIntervencionManual(id, { reclasificadas: nRe, invertidas: nInv });
     revalidatePath(`/balance/borradores/${id}`);
     const nTotal = nRe + nInv + nDes + nOmi + nPad;
     return { ok: true, message: `Cambios guardados (${nTotal} fila${nTotal === 1 ? "" : "s"}).` };

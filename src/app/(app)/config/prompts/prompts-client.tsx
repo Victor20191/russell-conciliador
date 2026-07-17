@@ -3,7 +3,7 @@
 import { useActionState, useEffect, useState } from "react";
 import { Card, Chip } from "@/components/ui";
 import { Icon } from "@/components/icons";
-import { fmtDate } from "@/lib/format";
+import { fmtDateTime } from "@/lib/format";
 import { notifyActionState } from "@/lib/client-notifications";
 import { actualizarPrompt, restaurarPrompt } from "@/app/actions/prompts";
 import type { ActionState } from "@/lib/definitions";
@@ -63,7 +63,7 @@ function PromptEditor({ prompt }: { prompt: PromptVista }) {
         <div className="shrink-0 text-right text-[11px] text-ink-400">
           {prompt.actualizadoEn ? (
             <>
-              Editado {fmtDate(prompt.actualizadoEn)}
+              Editado {fmtDateTime(prompt.actualizadoEn)}
               {prompt.actualizadoPor ? ` · ${prompt.actualizadoPor}` : ""}
             </>
           ) : (

@@ -15,6 +15,8 @@ import { ingerir, construirVistaPrevia, contarPaginasPDF, LIMITE_PAGINAS_PDF, ty
 import { MappingSpecSchema, ExtraccionDirectaSchema } from "./esquema";
 import { transformarTabular, validarDirecta, type ParamsExtraccion, type ResultadoTransform } from "./transformar";
 import { esTransformacionAceptable, debeEscalarExtraccion } from "./validacion";
+import { veredictoOrientacion, invertirColumnasMovimiento } from "./verificacion";
+import type { GridHoja } from "./ingesta";
 import type { MappingSpec } from "./esquema";
 import type { UsoIA } from "@/lib/ia/uso";
 
@@ -29,6 +31,38 @@ function bloqueParametros(params: ParamsExtraccion): string {
 
 const MAX_TOKENS_ESTRUCTURA = 8000;
 const MAX_TOKENS_DIRECTA = 32000;
+
+/**
+ * Corrección DETERMINISTA (0 llamadas IA) de columnas débito↔crédito
+ * intercambiadas en el spec de la IA: si la votación de orientación por fila
+ * delata la inversión, se re-transforma con las columnas swapeadas EN EL SPEC
+ * (así el editor de estructura y el perfil guardado quedan coherentes). El
+ * intercambio se conserva solo si el resultado corregido es aceptable y vota
+ * «directa»; si no, se devuelve el original intacto (que `esTransformacionAceptable`
+ * rechazará → escala al siguiente tier).
+ */
+function corregirOrientacionInvertida(
+  spec: MappingSpec,
+  resultado: ResultadoTransform,
+  hojas: GridHoja[],
+  params: ParamsExtraccion,
+): { spec: MappingSpec; resultado: ResultadoTransform } {
+  if (veredictoOrientacion(resultado.orientacionControl) !== "invertida") return { spec, resultado };
+  const specSwap = invertirColumnasMovimiento(spec);
+  const resSwap = transformarTabular(specSwap, hojas, params);
+  if (veredictoOrientacion(resSwap.orientacionControl) !== "directa" || !esTransformacionAceptable(resSwap)) {
+    return { spec, resultado };
+  }
+  resSwap.excepciones.push({
+    hoja: spec.hoja,
+    fila: null,
+    campo: "columnas",
+    valor: `débitos C${spec.columnas.debitos} ↔ créditos C${spec.columnas.creditos}`,
+    regla: "Columnas débito/crédito invertidas — corregidas automáticamente",
+    accion: "Verificar el mapeo en el editor de estructura antes de cargar.",
+  });
+  return { spec: specSwap, resultado: resSwap };
+}
 
 function esBalancePorTerceroRecuperable(spec: MappingSpec): boolean {
   if (spec.importable || spec.columnas.tercero <= 0) return false;
@@ -174,8 +208,14 @@ export async function extraerBalance(
       // esa hoja (recibe todas las hojas para encontrarla completa). Se transforma
       // SIEMPRE (con `importable: false` devuelve el resultado vacío con el motivo,
       // igual que antes de la cascada).
-      const spec = elegida ? { ...specTier, hoja: elegida } : specTier;
-      const resultado = transformarTabular(spec, ingesta.hojas, params);
+      const specInicial = elegida ? { ...specTier, hoja: elegida } : specTier;
+      // Corrige débitos↔créditos invertidos ANTES de evaluar aceptación/escalado.
+      const { spec, resultado } = corregirOrientacionInvertida(
+        specInicial,
+        transformarTabular(specInicial, ingesta.hojas, params),
+        ingesta.hojas,
+        params,
+      );
 
       // Mejor intento: un resultado ACEPTABLE se conserva; entre no aceptables
       // gana el tier más capaz (el más reciente). Cubre el caso de un tier rápido

@@ -4,6 +4,7 @@ import { authorizePermiso } from "@/lib/rbac";
 import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { crearExportacionClientes, type FilaClienteExport } from "@/lib/export/clientes";
 import { mensajeErrorBD } from "@/lib/errores";
+import { fechaColombiaISO } from "@/lib/fecha-hora";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -84,7 +85,7 @@ export async function GET() {
       { modulos: modules, dianForms: dianFormsBD },
       generadoEn,
     );
-    const nombreArchivo = `Clientes_Russell_${generadoEn.toISOString().slice(0, 10)}.xlsx`;
+    const nombreArchivo = `Clientes_Russell_${fechaColombiaISO(generadoEn)}.xlsx`;
     const body = buffer.buffer.slice(
       buffer.byteOffset,
       buffer.byteOffset + buffer.byteLength,

@@ -12,6 +12,7 @@ import {
 import { ActionForm } from "@/components/action-form";
 import { Modal } from "@/components/modal";
 import { notifyActionState, notifySuccess, notifyError } from "@/lib/client-notifications";
+import { fmtDateTimeLong } from "@/lib/format";
 import {
   createStandardAccount,
   updateStandardAccount,
@@ -920,9 +921,7 @@ function DeleteStandardAccountForm({ account, onClose }: { account: StdAccount; 
 }
 
 function fmtFecha(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" });
+  return fmtDateTimeLong(iso);
 }
 
 function logTone(action: string): "ok" | "blue" | "err" | "ink" {

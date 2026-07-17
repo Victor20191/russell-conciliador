@@ -200,7 +200,7 @@ function CargarBalanceModal({ clients, onClose, onReiniciar }: { clients: Client
       ) : (
         <form id="leer-form" action={leerAction} className="flex flex-col gap-3.5">
           <p className="text-[12.5px] leading-relaxed text-ink-600">
-            Sube el balance en <span className="font-semibold">Excel (.xlsx/.xlsm), CSV, JSON o PDF</span>. La plataforma
+            Sube el balance en <span className="font-semibold">Excel (.xlsx/.xlsm), CSV, TXT (plano), JSON o PDF</span>. La plataforma
             lo lee (con el <span className="font-semibold">perfil guardado del cliente</span> si el formato ya se conoce, o
             con IA), identifica la estructura y te <span className="font-semibold">sugiere</span> los datos (cliente,
             período, saldos). Tú revisas y completas lo que falte antes de cargar; nada se guarda hasta confirmar.
@@ -213,11 +213,11 @@ function CargarBalanceModal({ clients, onClose, onReiniciar }: { clients: Client
           ) : (
             <>
               <label className="flex flex-col gap-1.5">
-                <span className="text-[11.5px] font-medium text-ink-600">Archivo (Excel, CSV, JSON o PDF)</span>
+                <span className="text-[11.5px] font-medium text-ink-600">Archivo (Excel, CSV, TXT, JSON o PDF)</span>
                 <input
                   type="file"
                   name="archivo"
-                  accept=".xlsx,.xlsm,.csv,.json,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                  accept=".xlsx,.xlsm,.csv,.txt,.json,.pdf,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                   required
                   onChange={onArchivoChange}
                   className="rounded-md border border-ink-200 bg-white text-[12.5px] text-ink-700 file:mr-3 file:cursor-pointer file:border-0 file:bg-navy-700 file:px-3 file:py-2 file:text-[12.5px] file:font-semibold file:text-white"
@@ -827,6 +827,12 @@ function SugerenciaResumen({ sug }: { sug: SugerenciaBalance }) {
         <Linea k="Tipo" v={p.estandar} />
         <Linea k="Signo crédito" v={p.convencionCredito} />
       </div>
+      {p.filasDescuadre > 0 && (
+        <div className="mt-2 rounded-md border border-warn-100 bg-warn-100/40 px-3 py-2 text-[12px] text-warn-700">
+          <span className="font-semibold">{p.filasDescuadre} cuenta(s) en descuadre de control</span> — estas filas NO se
+          importarán al confirmar. Revísalas en el borrador (o corrige el mapeo en «Ajustar estructura») antes de cargar.
+        </div>
+      )}
     </div>
   );
 }

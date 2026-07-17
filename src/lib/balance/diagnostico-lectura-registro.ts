@@ -61,3 +61,39 @@ export async function cerrarDiagnostico(c: CierreDiagnostico): Promise<void> {
     /* best-effort */
   }
 }
+
+/** Acumula la intervención manual que NO deja marca durable en staging: reclasificar
+ *  (agrupadora↔movimiento) e invertir (débito↔crédito). Se llama al APLICAR los
+ *  cambios del borrador (los otros contadores se toman del staging al cerrar). */
+export async function acumularIntervencionManual(
+  loteId: string,
+  delta: { reclasificadas?: number; invertidas?: number },
+): Promise<void> {
+  const reclasificadas = delta.reclasificadas ?? 0;
+  const invertidas = delta.invertidas ?? 0;
+  if (reclasificadas === 0 && invertidas === 0) return;
+  try {
+    await prisma.balanceLecturaDiagnostico.updateMany({
+      where: { loteId },
+      data: {
+        ...(reclasificadas > 0 ? { manualReclasificadas: { increment: reclasificadas } } : {}),
+        ...(invertidas > 0 ? { manualInvertidas: { increment: invertidas } } : {}),
+      },
+    });
+  } catch {
+    /* best-effort */
+  }
+}
+
+/** Persiste las hipótesis del diagnóstico asistido con IA (última corrida) para poder
+ *  analizar qué causas de descuadre recurren — antes era efímero en el cliente. */
+export async function registrarDiagnosticoIA(loteId: string, diagnostico: unknown): Promise<void> {
+  try {
+    await prisma.balanceLecturaDiagnostico.updateMany({
+      where: { loteId },
+      data: { diagnosticoIa: diagnostico as object },
+    });
+  } catch {
+    /* best-effort */
+  }
+}

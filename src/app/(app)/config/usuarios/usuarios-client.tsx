@@ -16,6 +16,7 @@ import { isAccountBlocked, LOGIN_MAX_ATTEMPTS } from "@/lib/login-throttle";
 import { ROL_SUPERIOR } from "@/lib/rbac/jerarquia";
 import { notifyActionState } from "@/lib/client-notifications";
 import { Avatar } from "@/components/avatar";
+import { fmtDateTimeLong } from "@/lib/format";
 import { ImportMaestrosButton } from "./import-maestros-modal";
 import { CargarFotosButton } from "./cargar-fotos-modal";
 
@@ -43,13 +44,7 @@ function userIsBlocked(user: UserRow): boolean {
 }
 
 function formatDateTime(input: string | null): string {
-  if (!input) return "—";
-  const date = new Date(input);
-  if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleString("es-CO", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
+  return fmtDateTimeLong(input);
 }
 
 function initialsFromFullName(name: string): string {
@@ -492,6 +487,21 @@ function CreateUserForm({
         </div>
         <SuperioresField key={role} role={role} superiores={superiores} />
         <div className="flex flex-col gap-1.5 sm:col-span-2">
+          <label className="text-[12px] font-medium text-ink-700">
+            Foto de perfil <span className="font-normal text-ink-500">(opcional)</span>
+          </label>
+          <input
+            type="file"
+            name="foto"
+            accept="image/jpeg,image/png,image/webp"
+            disabled={pending}
+            className="rounded-md border border-ink-200 bg-white text-[12.5px] text-ink-700 file:mr-3 file:cursor-pointer file:border-0 file:bg-navy-700 file:px-3 file:py-2 file:text-[12.5px] file:font-semibold file:text-white disabled:opacity-60"
+          />
+          <p className="text-[11px] text-ink-500">
+            JPG, PNG o WEBP · máximo 4 MB. Si no adjuntas una foto, se mostrarán las iniciales.
+          </p>
+        </div>
+        <div className="flex flex-col gap-1.5 sm:col-span-2">
           <label className="text-[12px] font-medium text-ink-700">Contraseña temporal</label>
           <PasswordInput
             name="password"
@@ -617,6 +627,36 @@ function EditUserForm({
         superiores={superiores}
         defaultSelected={role === user.role ? superioresActuales : []}
       />
+
+      <div className="rounded-lg border border-ink-200 bg-ink-50/60 p-3">
+        <div className="flex items-center gap-3">
+          <Avatar
+            src={user.avatarUrl}
+            initials={user.initials}
+            name={user.name}
+            size={48}
+            className="ring-2 ring-white"
+          />
+          <div className="min-w-0">
+            <label className="text-[12px] font-medium text-ink-700">Foto de perfil</label>
+            <p className="mt-0.5 text-[11px] leading-relaxed text-ink-500">
+              {user.avatarUrl
+                ? "Selecciona otra imagen para reemplazar la foto actual."
+                : "Este usuario aún no tiene foto; puedes cargarla ahora."}
+            </p>
+          </div>
+        </div>
+        <input
+          type="file"
+          name="foto"
+          accept="image/jpeg,image/png,image/webp"
+          disabled={pending}
+          className="mt-3 w-full rounded-md border border-ink-200 bg-white text-[12.5px] text-ink-700 file:mr-3 file:cursor-pointer file:border-0 file:bg-navy-700 file:px-3 file:py-2 file:text-[12.5px] file:font-semibold file:text-white disabled:opacity-60"
+        />
+        <p className="mt-1.5 text-[11px] text-ink-500">
+          JPG, PNG o WEBP · máximo 4 MB. Si no seleccionas un archivo, la foto actual no cambia.
+        </p>
+      </div>
 
       <label className="flex items-center gap-2 text-[13px] text-ink-800">
         <input

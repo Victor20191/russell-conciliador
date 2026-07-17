@@ -1,4 +1,5 @@
-// Helpers de formato (portados de components.jsx) — locale es-CO
+// Helpers de formato (portados de components.jsx) — locale y zona de Colombia.
+import { aFecha, partesFechaHoraColombia, ZONA_HORARIA_COLOMBIA, type EntradaFecha } from "@/lib/fecha-hora";
 
 export const fmt = (n: number | null | undefined): string => {
   if (n == null) return "—";
@@ -34,20 +35,62 @@ export const MESES_LARGOS = [
 
 export const fmtDate = (input: Date | string | null | undefined): string => {
   if (input == null) return "—";
-  const d = typeof input === "string" ? new Date(input) : input;
-  if (Number.isNaN(d.getTime())) return "—";
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${dd}/${MESES[d.getMonth()]}/${d.getFullYear()}`;
+  const partes = partesFechaHoraColombia(input);
+  if (!partes) return "—";
+  const dd = String(partes.dia).padStart(2, "0");
+  return `${dd}/${MESES[partes.mes - 1]}/${partes.anio}`;
+};
+
+/** Formatea un PostgreSQL DATE sin aplicarle zona horaria. */
+export const fmtCalendarDate = (input: Date | string | null | undefined): string => {
+  if (input == null) return "—";
+  let anio: number;
+  let mes: number;
+  let dia: number;
+  if (typeof input === "string" && /^(\d{4})-(\d{2})-(\d{2})$/.test(input)) {
+    const [, yyyy, mm, dd] = /^(\d{4})-(\d{2})-(\d{2})$/.exec(input)!;
+    anio = Number(yyyy);
+    mes = Number(mm);
+    dia = Number(dd);
+  } else {
+    const fecha = aFecha(input);
+    if (!fecha) return "—";
+    anio = fecha.getUTCFullYear();
+    mes = fecha.getUTCMonth() + 1;
+    dia = fecha.getUTCDate();
+  }
+  if (!MESES[mes - 1]) return "—";
+  return `${String(dia).padStart(2, "0")}/${MESES[mes - 1]}/${anio}`;
 };
 
 // Fecha + hora (dd/Mes/aaaa hh:mm), 24 h y locale es-CO. Misma forma que el
 // `fmtTS` de los tableros de auditoría, expuesto aquí para reusarse.
 export const fmtDateTime = (input: Date | string | null | undefined): string => {
   if (input == null) return "—";
-  const d = typeof input === "string" ? new Date(input) : input;
-  if (Number.isNaN(d.getTime())) return "—";
+  const partes = partesFechaHoraColombia(input);
+  if (!partes) return "—";
   const p2 = (n: number) => String(n).padStart(2, "0");
-  return `${p2(d.getDate())}/${MESES[d.getMonth()]}/${d.getFullYear()} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
+  return `${p2(partes.dia)}/${MESES[partes.mes - 1]}/${partes.anio} ${p2(partes.hora)}:${p2(partes.minuto)}`;
+};
+
+export const fmtDateTimeSeconds = (input: Date | string | null | undefined): string => {
+  if (input == null) return "—";
+  const partes = partesFechaHoraColombia(input);
+  if (!partes) return "—";
+  const p2 = (n: number) => String(n).padStart(2, "0");
+  return `${p2(partes.dia)}/${MESES[partes.mes - 1]}/${partes.anio} ${p2(partes.hora)}:${p2(partes.minuto)}:${p2(partes.segundo)}`;
+};
+
+/** Formato largo consistente para interfaces cliente y servidor. */
+export const fmtDateTimeLong = (input: EntradaFecha | null | undefined): string => {
+  if (input == null) return "—";
+  const fecha = aFecha(input);
+  if (!fecha) return "—";
+  return new Intl.DateTimeFormat("es-CO", {
+    timeZone: ZONA_HORARIA_COLOMBIA,
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(fecha);
 };
 
 export const timeAgo = (input: Date | string, now: Date = new Date()): string => {

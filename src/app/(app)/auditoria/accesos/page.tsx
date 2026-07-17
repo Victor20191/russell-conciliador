@@ -1,6 +1,6 @@
 import prisma from "@/lib/prisma";
 import { PageHeader, Card, StatCard } from "@/components/ui";
-import { MESES, fmtNum, timeAgo } from "@/lib/format";
+import { fmtDateTime, fmtNum, timeAgo } from "@/lib/format";
 import { workNav, configNav } from "@/lib/nav";
 import { requirePermiso } from "@/lib/rbac";
 import AuditoriaTabs from "../auditoria-tabs";
@@ -14,10 +14,6 @@ for (const item of [...workNav, ...configNav]) {
   for (const c of item.children ?? []) navLabels.set(c.href, c.label);
 }
 const etiquetaRuta = (p: string) => navLabels.get(p) ?? p;
-
-const p2 = (n: number) => String(n).padStart(2, "0");
-const fmtTS = (d: Date) =>
-  `${p2(d.getDate())}/${MESES[d.getMonth()]}/${d.getFullYear()} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
 
 export default async function AccesosPage({
   searchParams,
@@ -83,7 +79,7 @@ export default async function AccesosPage({
 
   const rows: AccesoRow[] = detalle.map((e) => ({
     id: e.id,
-    ts: fmtTS(e.createdAt),
+    ts: fmtDateTime(e.createdAt),
     user: e.userName,
     role: e.role,
     kind: e.kind,

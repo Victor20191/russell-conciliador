@@ -9,6 +9,7 @@ import {
   construirCuadre,
   transformarTabular,
   validarDirecta,
+  ajustarPrimeraFilaDatos,
   type ParamsExtraccion,
 } from "./transformar";
 import type { MappingSpec } from "./esquema";
@@ -380,6 +381,34 @@ describe("transformarTabular", () => {
     expect(rr.resumen.cuentasAgrupadoras).toBe(4); // 1105, 1110, 1305, 1355
   });
 
+  it("negrita como marcador: un padre SIN negrita cuyo saldo YA está cubierto por sus hojas NO se importa doblado", () => {
+    // Mismo patrón del caso 135510 pero con el saldo del padre EXPLICADO por su
+    // detalle (70 = 70): importar ambos doblaría el saldo. La negrita no anula la
+    // evidencia estructural — el padre cubierto queda agrupadora.
+    const B = [true, true, false, false, false, false];
+    const P = [false, false, false, false, false, false];
+    const hoja: GridHoja = {
+      nombre: "Balance",
+      filas: [
+        ["Código", "Cuenta", "SI", "DB", "CR", "Saldo"],
+        [1105, "EFECTIVO", 0, 0, 0, 0], // agrupadora (negrita)
+        [110505, "CAJA", 10, 0, 0, 10], // movimiento
+        [1110, "BANCOS", 0, 0, 0, 0], // agrupadora (negrita)
+        [111005, "BANCO X", 20, 0, 0, 20], // movimiento
+        [1305, "CLIENTES", 0, 0, 0, 0], // agrupadora (negrita)
+        [130505, "CLIENTES NAL", 15, 0, 0, 15], // movimiento
+        [1355, "IMPUESTOS", 0, 0, 0, 0], // agrupadora (negrita)
+        [135505, "RETEFUENTE", 5, 0, 0, 5], // movimiento
+        [135510, "ANTICIPO ICA", 70, 0, 0, 70], // SIN negrita pero saldo = Σ hijos → agrupadora
+        [13551011, "AUTORRET ITAGUI", 70, 0, 0, 70], // movimiento (el detalle que lo explica)
+      ],
+      negrita: [P, B, P, B, P, B, P, B, P, P, P],
+    };
+    const rr = transformarTabular(spec(), [hoja], PARAMS);
+    expect(rr.importReady.map((c) => c.code).sort()).toEqual(["110505", "111005", "130505", "135505", "13551011"]);
+    expect(rr.resumen.cuentasAgrupadoras).toBe(5); // 1105, 1110, 1305, 1355 y 135510 (cubierto)
+  });
+
   it("negrita SOLO en 6 díg (el ERP no marca clase/grupo): NO es marcador válido → cae a prefijo", () => {
     // Patrón HOSPITAL: solo la subcuenta 110505 va en negrita; las agrupadoras
     // 1/11/1105 no. La negrita no marca los padres → se ignora y clasifica por prefijo.
@@ -574,5 +603,54 @@ describe("validarDirecta (PDF)", () => {
     expect(r.importReady.map((c) => c.code)).toEqual(["110505"]);
     expect(r.cabecera.nit).toEqual({ valor: "800070771-1", fuente: "FUENTE" });
     expect(r.cabecera.estandar).toBe("NIIF");
+  });
+});
+
+describe("ajustarPrimeraFilaDatos (guardia del rango de datos)", () => {
+  // Encabezado en F2 y datos reales desde F3, pero el spec declara F8: las filas
+  // F3-F7 (5 cuentas numéricas) se perderían.
+  const hoja: GridHoja = {
+    nombre: "Balance",
+    filas: [
+      ["EMPRESA XYZ S.A.S. NIT 900123456", "", "", "", "", ""],
+      ["Código", "Cuenta", "SI", "DB", "CR", "Saldo"],
+      [110505, "CAJA", 100, 0, 0, 100],
+      [110510, "BANCOS", 200, 0, 0, 200],
+      [130505, "CLIENTES", 300, 0, 0, 300],
+      [220505, "PROVEEDORES", -250, 0, 0, -250],
+      [240505, "IMPUESTOS", -150, 0, 0, -150],
+      [250505, "SALARIOS", -200, 0, 0, -200],
+    ],
+  };
+
+  it("amplía el rango cuando hay 3+ cuentas antes de la primera fila declarada", () => {
+    expect(ajustarPrimeraFilaDatos(hoja, spec({ filaEncabezado: 2, primeraFilaDatos: 8 }))).toBe(3);
+  });
+
+  it("no ajusta con evidencia insuficiente (<3 filas numéricas saltadas)", () => {
+    // Solo F3 y F4 quedan en el rango saltado.
+    expect(ajustarPrimeraFilaDatos(hoja, spec({ filaEncabezado: 2, primeraFilaDatos: 5 }))).toBe(5);
+  });
+
+  it("no ajusta cuando el spec ya es correcto", () => {
+    expect(ajustarPrimeraFilaDatos(hoja, spec({ filaEncabezado: 2, primeraFilaDatos: 3 }))).toBe(3);
+  });
+
+  it("transformarTabular aplica el ajuste y emite la excepción", () => {
+    const r = transformarTabular(spec({ filaEncabezado: 2, primeraFilaDatos: 8 }), [hoja], PARAMS);
+    expect(r.importReady.map((c) => c.code).sort()).toEqual(["110505", "110510", "130505", "220505", "240505", "250505"]);
+    expect(r.excepciones.some((e) => e.campo === "primeraFilaDatos")).toBe(true);
+  });
+
+  it("un dato suelto del encabezado (p. ej. NIT numérico) no dispara el ajuste", () => {
+    const conNit: GridHoja = {
+      nombre: "Balance",
+      filas: [
+        ["900123456", "", "", "", "", ""], // NIT solo en la col 1
+        ["Código", "Cuenta", "SI", "DB", "CR", "Saldo"],
+        [110505, "CAJA", 100, 0, 0, 100],
+      ],
+    };
+    expect(ajustarPrimeraFilaDatos(conNit, spec({ filaEncabezado: 0, primeraFilaDatos: 3 }))).toBe(3);
   });
 });

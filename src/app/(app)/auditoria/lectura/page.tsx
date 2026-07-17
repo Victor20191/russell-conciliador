@@ -1,13 +1,11 @@
 import prisma from "@/lib/prisma";
 import { PageHeader, Card, StatCard, Chip } from "@/components/ui";
-import { fmtNum, MESES } from "@/lib/format";
+import { fmtDateTime, fmtNum } from "@/lib/format";
 import { requirePermiso } from "@/lib/rbac";
 import type { DiagnosticoLectura } from "@/lib/balance/diagnostico-lectura";
 
 type Huella = DiagnosticoLectura & { confianza?: number | null };
 
-const p2 = (n: number) => String(n).padStart(2, "0");
-const fmtTS = (d: Date) => `${p2(d.getDate())}/${MESES[d.getMonth()]}/${d.getFullYear()} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
 const pct = (n: number, d: number) => (d > 0 ? Math.round((100 * n) / d) : 0);
 
 // Etiqueta legible de cada señal heurística.
@@ -32,17 +30,46 @@ function disparadas(h: Huella): string[] {
   return s;
 }
 
-export default async function LecturaBalanceDiagPage() {
+const RESULTADOS = ["borrador", "cargado", "descartado"] as const;
+const FORMATOS = ["xlsx", "csv", "txt", "json", "pdf"] as const;
+
+// Intervención manual TOTAL del reporte (los 5 tipos de corrección).
+const manoDe = (f: { manualOmitidas: number; manualReparentadas: number; manualDesacopladas: number; manualReclasificadas: number; manualInvertidas: number }) =>
+  f.manualOmitidas + f.manualReparentadas + f.manualDesacopladas + f.manualReclasificadas + f.manualInvertidas;
+
+export default async function LecturaBalanceDiagPage({ searchParams }: { searchParams: Promise<{ resultado?: string; formato?: string }> }) {
   // SOLO Superadministrador (se reutiliza el permiso de auditoría de IA).
   await requirePermiso("auditoria:ia");
 
-  const filas = await prisma.balanceLecturaDiagnostico.findMany({ orderBy: { creadoEn: "desc" }, take: 300 });
+  const sp = await searchParams;
+  const resultadoSel = RESULTADOS.find((r) => r === sp.resultado) ?? null;
+  const formatoSel = FORMATOS.find((f) => f === sp.formato) ?? null;
+
+  const filas = await prisma.balanceLecturaDiagnostico.findMany({
+    where: {
+      ...(resultadoSel ? { resultado: resultadoSel } : {}),
+      ...(formatoSel ? { formato: formatoSel } : {}),
+    },
+    orderBy: { creadoEn: "desc" },
+    take: 300,
+  });
   const total = filas.length;
 
   const cuadroSolo = filas.filter((f) => f.cuadradoInicial).length;
-  const conMano = filas.filter((f) => f.manualOmitidas + f.manualReparentadas + f.manualDesacopladas > 0).length;
+  const conMano = filas.filter((f) => manoDe(f) > 0).length;
   const cargados = filas.filter((f) => f.resultado === "cargado").length;
   const descartados = filas.filter((f) => f.resultado === "descartado").length;
+
+  // Enlaces de filtro (server-rendered): alterna el valor y conserva el otro filtro.
+  const hrefCon = (cambios: { resultado?: string | null; formato?: string | null }): string => {
+    const q = new URLSearchParams();
+    const r = cambios.resultado === undefined ? resultadoSel : cambios.resultado;
+    const fm = cambios.formato === undefined ? formatoSel : cambios.formato;
+    if (r) q.set("resultado", r);
+    if (fm) q.set("formato", fm);
+    const s = q.toString();
+    return s ? `/auditoria/lectura?${s}` : "/auditoria/lectura";
+  };
 
   // Disparo por heurística: en cuántos reportes se activó cada señal.
   const conteoHeur = new Map<string, number>();
@@ -87,10 +114,27 @@ export default async function LecturaBalanceDiagPage() {
         <StatCard label="Combinaciones" value={fmtNum(combosDistintos)} tone="blue" hint="huellas heurísticas distintas" />
       </div>
 
-      <p className="mb-4 text-[12px] text-ink-500">
+      <p className="mb-3 text-[12px] text-ink-500">
         Resultado de los cargues medidos: <span className="font-semibold text-ink-700">{fmtNum(cargados)}</span> cargado(s),{" "}
         <span className="font-semibold text-ink-700">{fmtNum(descartados)}</span> descartado(s), el resto en borrador.
       </p>
+
+      <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-[12px]">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[11px] uppercase tracking-wide text-ink-400">Resultado:</span>
+          <a href={hrefCon({ resultado: null })} className={`rounded-full px-2.5 py-0.5 ${!resultadoSel ? "bg-navy-700 font-semibold text-white" : "border border-ink-200 text-ink-600 hover:bg-ink-50"}`}>todos</a>
+          {RESULTADOS.map((r) => (
+            <a key={r} href={hrefCon({ resultado: resultadoSel === r ? null : r })} className={`rounded-full px-2.5 py-0.5 ${resultadoSel === r ? "bg-navy-700 font-semibold text-white" : "border border-ink-200 text-ink-600 hover:bg-ink-50"}`}>{r}</a>
+          ))}
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[11px] uppercase tracking-wide text-ink-400">Formato:</span>
+          <a href={hrefCon({ formato: null })} className={`rounded-full px-2.5 py-0.5 ${!formatoSel ? "bg-navy-700 font-semibold text-white" : "border border-ink-200 text-ink-600 hover:bg-ink-50"}`}>todos</a>
+          {FORMATOS.map((fm) => (
+            <a key={fm} href={hrefCon({ formato: formatoSel === fm ? null : fm })} className={`rounded-full px-2.5 py-0.5 ${formatoSel === fm ? "bg-navy-700 font-semibold text-white" : "border border-ink-200 text-ink-600 hover:bg-ink-50"}`}>{fm}</a>
+          ))}
+        </div>
+      </div>
 
       <div className="mb-4 grid gap-3 lg:grid-cols-2">
         <Card className="p-4">
@@ -128,7 +172,7 @@ export default async function LecturaBalanceDiagPage() {
                   <span className="shrink-0 text-ai-600">★</span>
                   <span className="min-w-0">
                     <span className="font-medium text-ink-800">{c.sig}</span>
-                    <span className="ml-1.5 text-[11px] text-ink-400">{fmtTS(c.fecha)} · {c.archivo}</span>
+                    <span className="ml-1.5 text-[11px] text-ink-400">{fmtDateTime(c.fecha)} · {c.archivo}</span>
                   </span>
                 </li>
               ))}
@@ -147,6 +191,8 @@ export default async function LecturaBalanceDiagPage() {
                 <th className="px-3 py-2 text-right font-medium">Filas</th>
                 <th className="px-3 py-2 font-medium">Fmt</th>
                 <th className="px-3 py-2 font-medium">Cuadró</th>
+                <th className="px-3 py-2 font-medium">Final</th>
+                <th className="px-3 py-2 text-right font-medium" title="Δ partida doble / Δ ecuación de la lectura automática">Δ P.doble / Δ Ecuación</th>
                 <th className="px-3 py-2 font-medium">Heurísticas disparadas</th>
                 <th className="px-3 py-2 font-medium">Manual</th>
                 <th className="px-3 py-2 font-medium">Resultado</th>
@@ -156,15 +202,26 @@ export default async function LecturaBalanceDiagPage() {
               {filas.map((f) => {
                 const h = f.heuristicas as unknown as Huella;
                 const disp = disparadas(h);
-                const mano = f.manualOmitidas + f.manualReparentadas + f.manualDesacopladas;
+                const mano = manoDe(f);
                 return (
                   <tr key={f.id} className="border-t border-ink-100 hover:bg-ink-50/60">
-                    <td className="whitespace-nowrap px-3 py-1.5 text-ink-500">{fmtTS(f.creadoEn)}</td>
-                    <td className="max-w-[220px] truncate px-3 py-1.5 text-ink-800" title={f.archivoNombre}>{f.archivoNombre}</td>
+                    <td className="whitespace-nowrap px-3 py-1.5 text-ink-500">{fmtDateTime(f.creadoEn)}</td>
+                    <td className="max-w-[220px] truncate px-3 py-1.5 text-ink-800" title={f.archivoNombre}>
+                      {f.diagnosticoIa != null && <span className="mr-1 text-ai-600" title="Se pidió diagnóstico asistido con IA">✦</span>}
+                      {f.archivoNombre}
+                    </td>
                     <td className="px-3 py-1.5 text-right font-mono text-ink-600">{fmtNum(f.filas)}</td>
                     <td className="px-3 py-1.5 text-ink-500">{f.formato ?? "—"}</td>
                     <td className="px-3 py-1.5">
                       <Chip label={f.cuadradoInicial ? "Sí" : "No"} tone={f.cuadradoInicial ? "ok" : "warn"} />
+                    </td>
+                    <td className="px-3 py-1.5">
+                      {f.cuadradoFinal == null ? <span className="text-ink-400">—</span> : <Chip label={f.cuadradoFinal ? "Sí" : "No"} tone={f.cuadradoFinal ? "ok" : "err"} />}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-1.5 text-right font-mono text-[11px] text-ink-600">
+                      {(h.partidaDobleDiff ?? 0) === 0 && (h.ecuacionDiff ?? 0) === 0
+                        ? <span className="text-ink-400">—</span>
+                        : `${fmtNum(Math.round(h.partidaDobleDiff ?? 0))} / ${fmtNum(Math.round(h.ecuacionDiff ?? 0))}`}
                     </td>
                     <td className="px-3 py-1.5">
                       <div className="flex flex-wrap gap-1">
@@ -173,7 +230,7 @@ export default async function LecturaBalanceDiagPage() {
                     </td>
                     <td className="px-3 py-1.5">
                       {mano === 0 ? <span className="text-ink-400">—</span> : (
-                        <span className="font-mono text-[11px] text-warn-700" title={`${f.manualOmitidas} omitidas · ${f.manualReparentadas} reparentadas · ${f.manualDesacopladas} desacopladas`}>
+                        <span className="font-mono text-[11px] text-warn-700" title={`${f.manualOmitidas} omitidas · ${f.manualReparentadas} reparentadas · ${f.manualDesacopladas} desacopladas · ${f.manualReclasificadas} reclasificadas · ${f.manualInvertidas} invertidas`}>
                           {mano}
                         </span>
                       )}
@@ -188,7 +245,7 @@ export default async function LecturaBalanceDiagPage() {
                 );
               })}
               {filas.length === 0 && (
-                <tr><td colSpan={8} className="px-3 py-8 text-center text-[12.5px] text-ink-400">Aún no hay reportes medidos. Lee un balance para empezar a acumular datos.</td></tr>
+                <tr><td colSpan={10} className="px-3 py-8 text-center text-[12.5px] text-ink-400">Aún no hay reportes medidos. Lee un balance para empezar a acumular datos.</td></tr>
               )}
             </tbody>
           </table>

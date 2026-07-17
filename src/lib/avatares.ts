@@ -105,6 +105,8 @@ export type UsuarioCedula = { id: number; cedula: string | null; name: string };
 export type Emparejamiento = {
   /** archivo → usuario resuelto por cédula */
   emparejados: { userId: number; nombreArchivo: string; name: string }[];
+  /** nombres con sufijo de copia (`-1`, `-2`...) resueltos por su prefijo */
+  ajustesNombre: { archivo: string; cedula: string }[];
   /** archivos de imagen cuya cédula no coincide con ningún usuario */
   sinUsuario: string[];
   /** archivos descartados por no ser imágenes reconocibles (o ser carpetas) */
@@ -129,32 +131,109 @@ export function emparejarFotosPorCedula(
 
   const emp: Emparejamiento = {
     emparejados: [],
+    ajustesNombre: [],
     sinUsuario: [],
     ignorados: [],
     duplicados: [],
   };
-  const cedulasUsadas = new Set<string>();
+  const candidatos: {
+    indice: number;
+    nombre: string;
+    cedulaExacta: string;
+    cedulaSinSufijo: string | null;
+  }[] = [];
 
-  for (const nombre of nombresArchivo) {
+  for (const [indice, nombre] of nombresArchivo.entries()) {
     // Carpetas del zip (terminan en "/") o no-imágenes: ignoradas.
     if (nombre.endsWith("/") || !pareceImagen(nombre)) {
       if (!nombre.endsWith("/")) emp.ignorados.push(nombre);
       continue;
     }
+
     const base = nombre.split(/[\\/]/).pop() ?? nombre;
     const sinExt = base.slice(0, base.length - extensionDeNombre(base).length - 1);
-    const ced = normalizarCedula(sinExt);
-    const usuario = ced ? porCedula.get(ced) : undefined;
-    if (!usuario) {
-      emp.sinUsuario.push(nombre);
+    const matchSufijo = sinExt.match(/^(.+)-(\d+)$/);
+    candidatos.push({
+      indice,
+      nombre,
+      cedulaExacta: normalizarCedula(sinExt),
+      cedulaSinSufijo: matchSufijo ? normalizarCedula(matchSufijo[1]) : null,
+    });
+  }
+
+  const cedulasUsadas = new Set<string>();
+  const resoluciones = new Map<
+    number,
+    | { tipo: "emparejado"; usuario: UsuarioCedula; cedula: string; ajustado: boolean }
+    | { tipo: "duplicado" }
+    | { tipo: "sinUsuario" }
+  >();
+
+  // Primera pasada: las cédulas exactas siempre tienen prioridad, incluso si
+  // un archivo con sufijo de copia apareció antes dentro del ZIP.
+  for (const candidato of candidatos) {
+    const usuario = candidato.cedulaExacta
+      ? porCedula.get(candidato.cedulaExacta)
+      : undefined;
+    if (!usuario) continue;
+    if (cedulasUsadas.has(candidato.cedulaExacta)) {
+      resoluciones.set(candidato.indice, { tipo: "duplicado" });
       continue;
     }
-    if (cedulasUsadas.has(ced)) {
-      emp.duplicados.push(nombre);
+
+    cedulasUsadas.add(candidato.cedulaExacta);
+    resoluciones.set(candidato.indice, {
+      tipo: "emparejado",
+      usuario,
+      cedula: candidato.cedulaExacta,
+      ajustado: false,
+    });
+  }
+
+  // Segunda pasada: solo los archivos sin coincidencia exacta pueden probar el
+  // prefijo anterior a `-1`, `-2`, etc. Nunca reemplazan una cédula exacta.
+  for (const candidato of candidatos) {
+    if (resoluciones.has(candidato.indice)) continue;
+    const cedula = candidato.cedulaSinSufijo;
+    const usuario = cedula ? porCedula.get(cedula) : undefined;
+    if (!usuario || !cedula) {
+      resoluciones.set(candidato.indice, { tipo: "sinUsuario" });
       continue;
     }
-    cedulasUsadas.add(ced);
-    emp.emparejados.push({ userId: usuario.id, nombreArchivo: nombre, name: usuario.name });
+    if (cedulasUsadas.has(cedula)) {
+      resoluciones.set(candidato.indice, { tipo: "duplicado" });
+      continue;
+    }
+
+    cedulasUsadas.add(cedula);
+    resoluciones.set(candidato.indice, {
+      tipo: "emparejado",
+      usuario,
+      cedula,
+      ajustado: true,
+    });
+  }
+
+  // Conserva el orden original en el resumen y en la carga efectiva.
+  for (const candidato of candidatos) {
+    const resolucion = resoluciones.get(candidato.indice);
+    if (!resolucion || resolucion.tipo === "sinUsuario") {
+      emp.sinUsuario.push(candidato.nombre);
+      continue;
+    }
+    if (resolucion.tipo === "duplicado") {
+      emp.duplicados.push(candidato.nombre);
+      continue;
+    }
+
+    emp.emparejados.push({
+      userId: resolucion.usuario.id,
+      nombreArchivo: candidato.nombre,
+      name: resolucion.usuario.name,
+    });
+    if (resolucion.ajustado) {
+      emp.ajustesNombre.push({ archivo: candidato.nombre, cedula: resolucion.cedula });
+    }
   }
 
   return emp;

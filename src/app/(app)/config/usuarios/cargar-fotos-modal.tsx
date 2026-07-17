@@ -75,6 +75,8 @@ function CargarFotosModal({ onClose }: { onClose: () => void }) {
             llamarse con la <span className="font-semibold">cédula</span> del usuario, por ejemplo{" "}
             <code className="rounded bg-ink-100 px-1 font-mono text-[11.5px]">52123456.jpg</code>. Formatos
             admitidos: JPG, PNG o WEBP (máx. 4 MB cada una). Las personas deben existir ya como usuarios.
+            Los sufijos de copia como <code className="rounded bg-ink-100 px-1 font-mono text-[11.5px]">-1</code>{" "}
+            solo se aceptan cuando el prefijo coincide con una cédula existente.
           </p>
           <label className="flex flex-col gap-1.5">
             <span className="text-[11.5px] font-medium text-ink-600">Archivo ZIP (.zip)</span>
@@ -111,6 +113,10 @@ function ResultadoOk({ resumen }: { resumen: NonNullable<CargarFotosState["resum
 
 function DetalleResumen({ resumen }: { resumen: NonNullable<CargarFotosState["resumen"]> }) {
   const bloques: { titulo: string; items: string[] }[] = [
+    {
+      titulo: "Nombres ajustados automáticamente",
+      items: resumen.ajustesNombre.map((i) => `${i.archivo} → cédula ${i.cedula}`),
+    },
     {
       titulo: "Sin usuario (la cédula no coincide)",
       items: resumen.sinUsuario,

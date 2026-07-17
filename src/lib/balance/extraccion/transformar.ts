@@ -49,6 +49,15 @@ export type FilaCruda = {
   saldoFinal: number;
 };
 
+// Votación de ORIENTACIÓN débito/crédito sobre los valores CRUDOS del archivo
+// (antes de que `elegirMovimiento` normalice): cuántas filas de movimiento
+// cumplen la ecuación de control solo en la orientación DIRECTA
+// (saldo = si + db − cr), solo en la INVERTIDA (saldo = si − db + cr), o en
+// ambas (AMBIGUAS: db=cr o sin movimiento — no votan). Una mayoría invertida
+// delata columnas débito↔crédito intercambiadas en el mapping spec, que la
+// partida doble no detecta por simetría.
+export type OrientacionControl = { directa: number; invertida: number; ambiguas: number };
+
 export type ResultadoTransform = {
   importReady: CuentaCruda[];
   filasCrudas: FilaCruda[]; // TODAS las filas leídas (clasificadas), para staging
@@ -61,6 +70,8 @@ export type ResultadoTransform = {
   // declaró en su mapping spec (solo modo tabular; null/ausente en los demás).
   modo?: string;
   confianza?: number | null;
+  // Solo modo tabular con control por fila disponible (saldo inicial + movimientos).
+  orientacionControl?: OrientacionControl;
 };
 
 // ---------------- Normalización numérica ----------------
@@ -292,6 +303,21 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
     };
   }
 
+  // Guardia de `primeraFilaDatos`: si el spec dejó filas de DATOS reales entre el
+  // encabezado y la primera fila declarada, se amplía el rango (y se avisa).
+  const primeraAjustada = ajustarPrimeraFilaDatos(hoja, spec);
+  if (primeraAjustada !== spec.primeraFilaDatos) {
+    excepciones.push({
+      hoja: hoja.nombre,
+      fila: primeraAjustada,
+      campo: "primeraFilaDatos",
+      valor: `F${spec.primeraFilaDatos} → F${primeraAjustada}`,
+      regla: "Primera fila de datos corregida (había cuentas antes de la declarada)",
+      accion: "Verificar el rango en el editor de estructura si el ajuste no corresponde.",
+    });
+    spec = { ...spec, primeraFilaDatos: primeraAjustada };
+  }
+
   const cols = spec.columnas;
   const tieneInicial = cols.saldoInicial > 0;
   const tieneMovimientos = cols.debitos > 0 || cols.creditos > 0;
@@ -322,11 +348,31 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
   // reemplaza la antigua heurística por longitud fija, que perdía las hojas de 6
   // dígitos sin auxiliares cuando OTRAS cuentas del archivo llegaban al nivel 8.
   const codigos: string[] = [];
+  const saldosNumericos: { code: string; saldo: number }[] = [];
   for (let r = spec.primeraFilaDatos - 1; r < hoja.filas.length; r++) {
-    const code = normalizarCodigo(cell(hoja.filas[r] ?? [], cols.codigo));
-    if (/^\d+$/.test(code)) codigos.push(code);
+    const fila = hoja.filas[r] ?? [];
+    const code = normalizarCodigo(cell(fila, cols.codigo));
+    if (!/^\d+$/.test(code)) continue;
+    codigos.push(code);
+    const si = tieneInicial ? normalizarMonto(cell(fila, cols.saldoInicial)) : 0;
+    const db = cols.debitos > 0 ? normalizarMonto(cell(fila, cols.debitos)) : 0;
+    const cr = cols.creditos > 0 ? normalizarMonto(cell(fila, cols.creditos)) : 0;
+    saldosNumericos.push({ code, saldo: leerSaldoFinal(fila, cols, si ?? 0, db ?? 0, cr ?? 0) ?? 0 });
   }
   const ancestros = prefijosDe(codigos);
+  // Σ saldo de las HOJAS descendientes por cada código agrupador PRESENTE en el
+  // archivo. Distingue, entre los padres SIN negrita, al que ya está explicado
+  // por su detalle (importarlo doblaría el saldo) del que trae saldo PROPIO no
+  // cubierto (el ERP mal-anidó un imputable — caso 135510 — y hay que rescatarlo).
+  const codigosPresentes = new Set(codigos);
+  const saldoHojasBajo = new Map<string, number>();
+  for (const f of saldosNumericos) {
+    if (ancestros.has(f.code)) continue; // solo las hojas suman
+    for (let i = 1; i < f.code.length; i++) {
+      const p = f.code.slice(0, i);
+      if (codigosPresentes.has(p)) saldoHojasBajo.set(p, (saldoHojasBajo.get(p) ?? 0) + f.saldo);
+    }
+  }
 
   // ¿La hoja usa NEGRITA como marcador de agrupadora? Es marcador VÁLIDO solo si la
   // negrita marca de verdad las AGRUPADORAS: la mayoría de los PADRES estructurales
@@ -356,6 +402,7 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
   let filasExcluidas = 0;
   const parciales: FilaParcial[] = [];
   let filasDetalleTerceroExcluidas = 0;
+  const orientacion: OrientacionControl = { directa: 0, invertida: 0, ambiguas: 0 };
   // Todas las filas leídas (sin descartar), para el staging del paso 1.
   const filasCrudas: FilaCruda[] = [];
   // Índices en `filasCrudas` por código de movimiento → re-etiqueta a "descuadre"
@@ -413,13 +460,18 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
       continue;
     }
     const consolidadoConDetalleTercero = codigosConConsolidado.has(code) && codigosConDetalleTercero.has(code);
-    // ¿Es agrupadora? 1º la NEGRITA del ERP si la hoja la usa como marcador (manda);
-    // si no, columna marcadora del archivo o detección estructural por prefijo
-    // (no es prefijo de otra) + piso PUC — `esHoja`. En balances por tercero, la
-    // negrita de la fila consolidada suele significar "subtotal del desglose por
-    // tercero", no cuenta padre contable; ahí manda el prefijo.
+    // ¿Es agrupadora? Con la NEGRITA como marcador (gate 80/80), la negrita manda
+    // PERO no anula la evidencia estructural: un padre SIN negrita cuyo saldo ya
+    // está CUBIERTO por sus hojas descendientes es agrupadora igual (importarlo
+    // doblaría el saldo — el gate tolera hasta 20% de padres sin marcar). En
+    // cambio, un padre sin negrita con saldo PROPIO no cubierto por su detalle se
+    // conserva como movimiento (rescate del imputable mal-anidado, caso 135510).
+    // En balances por tercero, la negrita de la fila consolidada suele significar
+    // "subtotal del desglose por tercero", no cuenta padre contable; ahí manda el
+    // prefijo (`esHoja`).
+    const cubiertoPorHijos = ancestros.has(code) && Math.abs((saldo ?? 0) - (saldoHojasBajo.get(code) ?? 0)) <= 1;
     const esAgrupadora = usaNegrita && !consolidadoConDetalleTercero
-      ? filaEnNegrita(hoja.negrita?.[r], cols.codigo, cols.nombre)
+      ? filaEnNegrita(hoja.negrita?.[r], cols.codigo, cols.nombre) || cubiertoPorHijos
       : !esHoja(code, fila, spec, ancestros);
     if (esAgrupadora) {
       filasExcluidas++;
@@ -431,6 +483,16 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
       excepciones.push({ hoja: hoja.nombre, fila: filaNum, campo: "monto", valor: null, regla: "Monto no numérico", accion: "Corregir el valor en el archivo." });
       registrar("descuadre", { si: si ?? 0, db: db ?? 0, cr: cr ?? 0, saldo: saldo ?? 0 });
       continue;
+    }
+    // Voto de orientación sobre los valores CRUDOS (antes de normalizar): si la
+    // fila solo cuadra con débitos y créditos intercambiados, es evidencia de un
+    // mapeo de columnas invertido.
+    if (validarControl) {
+      const directaOk = Math.abs(saldo - (si + db - cr)) <= 1;
+      const invertidaOk = Math.abs(saldo - (si - db + cr)) <= 1;
+      if (directaOk && invertidaOk) orientacion.ambiguas++;
+      else if (directaOk) orientacion.directa++;
+      else if (invertidaOk) orientacion.invertida++;
     }
     const mov = elegirMovimiento(si, db, cr, saldo);
     const idx = registrar("movimiento", { si, db: mov.db, cr: mov.cr, saldo });
@@ -540,6 +602,7 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
     },
     cabecera,
     cuadre,
+    ...(validarControl ? { orientacionControl: orientacion } : {}),
   };
 }
 
@@ -680,6 +743,33 @@ function esHoja(code: string, fila: CeldaCruda[], spec: MappingSpec, ancestros: 
     if (esperado) return marca === esperado && estructural;
   }
   return estructural;
+}
+
+// Mínimo de filas con código numérico "saltadas" para corregir `primeraFilaDatos`:
+// evita que un NIT o un dato suelto del encabezado dispare el ajuste.
+const MIN_FILAS_SALTADAS_AJUSTE = 3;
+
+/**
+ * Guardia DETERMINISTA de `primeraFilaDatos`: si entre el encabezado y la
+ * primera fila de datos declarada quedaron 3+ filas con código de cuenta
+ * numérico, el spec está corrido (encabezado partido que confundió al modelo, o
+ * un perfil guardado ante un layout desplazado) y esas filas de datos reales se
+ * perderían. Devuelve la primera fila con código numérico de ese rango; si no
+ * hay evidencia suficiente, la original.
+ */
+export function ajustarPrimeraFilaDatos(hoja: GridHoja, spec: MappingSpec): number {
+  const desde = Math.max(spec.filaEncabezado + 1, 1);
+  const hasta = spec.primeraFilaDatos - 1;
+  if (hasta < desde || spec.columnas.codigo <= 0) return spec.primeraFilaDatos;
+  let primera = 0;
+  let saltadas = 0;
+  for (let f = desde; f <= hasta; f++) {
+    const code = normalizarCodigo(cell(hoja.filas[f - 1] ?? [], spec.columnas.codigo));
+    if (!/^\d+$/.test(code)) continue;
+    saltadas++;
+    if (primera === 0) primera = f;
+  }
+  return saltadas >= MIN_FILAS_SALTADAS_AJUSTE ? primera : spec.primeraFilaDatos;
 }
 
 /** Cuenta hojas (movimiento) vs. agrupadoras entre los códigos numéricos únicos. */

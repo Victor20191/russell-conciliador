@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { authorizePermiso } from "@/lib/rbac";
 import type { DiagnosticoLectura } from "@/lib/balance/diagnostico-lectura";
+import { fechaColombiaISO, fechaHoraColombiaISO } from "@/lib/fecha-hora";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,7 +13,8 @@ const COLS = [
   "creadoEn", "archivoNombre", "formato", "resultado", "filas", "movimientos", "agrupadoras", "totales",
   "cuadradoInicial", "cuadradoFinal", "porTercero", "terceros", "relistadoGuiones", "huerfanas",
   "repetidos", "subtotalesDuplicados", "descuadres", "codigoDigitos", "codigoGuiones", "codigoLetras",
-  "partidaDobleDiff", "ecuacionDiff", "manualOmitidas", "manualReparentadas", "manualDesacopladas", "confianza",
+  "partidaDobleDiff", "ecuacionDiff", "manualOmitidas", "manualReparentadas", "manualDesacopladas",
+  "manualReclasificadas", "manualInvertidas", "diagnosticoIa", "confianza",
 ] as const;
 
 const csv = (v: unknown): string => {
@@ -30,7 +32,7 @@ export async function GET() {
   for (const f of filas) {
     const h = f.heuristicas as unknown as Huella;
     const fila: Record<string, unknown> = {
-      creadoEn: f.creadoEn.toISOString(), archivoNombre: f.archivoNombre, formato: f.formato,
+      creadoEn: fechaHoraColombiaISO(f.creadoEn), archivoNombre: f.archivoNombre, formato: f.formato,
       resultado: f.resultado, filas: f.filas, movimientos: f.movimientos,
       agrupadoras: h.agrupadoras, totales: h.totales,
       cuadradoInicial: f.cuadradoInicial, cuadradoFinal: f.cuadradoFinal,
@@ -39,6 +41,8 @@ export async function GET() {
       codigoDigitos: h.codigoDigitos, codigoGuiones: h.codigoGuiones, codigoLetras: h.codigoLetras,
       partidaDobleDiff: h.partidaDobleDiff, ecuacionDiff: h.ecuacionDiff,
       manualOmitidas: f.manualOmitidas, manualReparentadas: f.manualReparentadas, manualDesacopladas: f.manualDesacopladas,
+      manualReclasificadas: f.manualReclasificadas, manualInvertidas: f.manualInvertidas,
+      diagnosticoIa: f.diagnosticoIa == null ? "" : JSON.stringify(f.diagnosticoIa),
       confianza: h.confianza,
     };
     lineas.push(COLS.map((c) => csv(fila[c])).join(";"));
@@ -48,7 +52,7 @@ export async function GET() {
   return new Response(body, {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="diagnostico_lectura_${new Date().toISOString().slice(0, 10)}.csv"`,
+      "Content-Disposition": `attachment; filename="diagnostico_lectura_${fechaColombiaISO()}.csv"`,
       "Cache-Control": "no-store",
     },
   });

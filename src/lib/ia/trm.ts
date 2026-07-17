@@ -11,10 +11,10 @@ import "server-only";
 import { unstable_cache } from "next/cache";
 import prisma from "@/lib/prisma";
 import { registrarError } from "@/lib/errores";
+import { fechaCalendarioPrisma, fechaColombiaISO } from "@/lib/fecha-hora";
 
 export const TRM_CACHE_TAG = "trm-usd-cop";
 const MONEDA = "USD";
-const ZONA_COLOMBIA = "America/Bogota";
 
 const BASE_ENDPOINT = "https://www.datos.gov.co/resource/32sa-8pi3.json";
 
@@ -25,20 +25,8 @@ function trmFallback(): number {
 
 type FilaTRM = { valor?: string; vigenciadesde?: string; vigenciahasta?: string };
 
-/** Fecha civil colombiana (`YYYY-MM-DD`) para decidir la TRM vigente. */
-export function fechaColombiaISO(fecha: Date = new Date()): string {
-  const partes = new Intl.DateTimeFormat("en-CA", {
-    timeZone: ZONA_COLOMBIA,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(fecha);
-  const valor = (tipo: string) => partes.find((p) => p.type === tipo)?.value ?? "";
-  return `${valor("year")}-${valor("month")}-${valor("day")}`;
-}
-
 function diaUTC(fechaISO: string): Date {
-  return new Date(`${fechaISO}T00:00:00.000Z`);
+  return fechaCalendarioPrisma(fechaISO);
 }
 
 function endpointTRM(fechaISO: string): string {
