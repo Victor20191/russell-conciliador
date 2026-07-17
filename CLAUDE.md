@@ -87,18 +87,22 @@ En `src/app/actions/*.ts`. El orden es: `"use server"` → autorizar (`authorize
 - `src/lib/balance/calcular.ts` — cálculo **puro** (sin BD, sin Excel): de las cuentas crudas + el plan estándar (cuentas de 6 dígitos) produce `sums`, `breakdown` (por grupo PUC), `validations` y contadores. **Los agregados NO se persisten**: se RECALCULAN al leer con `reconstruirBalance(filas, estandar)` desde el detalle. Helpers clave: `descomponerCuenta` (código→2/4/6/8), `aFilasDetalle` (desglose→filas para insertar), `construirEstadoResultado` (P&L derivado, sustituye al antiguo `incomeStatement`). Determinista y testeable (`calcular.test.ts`); la carga/versionado vive en `confirmarCargaBalance`→`persistirCargue` (`src/app/actions/balance.ts`). Las pantallas `/balance` reconstruyen los view-models en sus loaders RSC.
 - `src/lib/balance/asociacion.ts` — el vínculo balance↔plan estándar es la columna `cuenta_6_russell` del detalle (= código de la cuenta estándar). Saber si una cuenta estándar tiene balances asociados es una consulta Prisma directa sobre `balance_prueba_detalle` (antes requería SQL crudo `jsonb_array_elements` sobre el JSON). La comprobación es **global** (todos los clientes): editar/borrar una cuenta estándar afecta a toda la plataforma.
 
-### Extracción de balances con IA (Claude)
+### Extracción de balances con IA (Claude) + perfiles por cliente
 
 Primera integración de IA de la plataforma. Pipeline en `src/lib/balance/extraccion/`, orquestado por `extraer.ts`:
 
-1. **Ingesta** (`ingesta.ts`): el archivo subido (xlsx/xls/xlsb/csv/json/pdf) se clasifica en modo `tabular` (grillas por hoja) o `documento` (PDF base64 / texto). Solo el código toca todas las filas; al modelo se le manda una **vista previa compacta** con índices 1-based.
-2. **Llamada a Claude** (`@anthropic-ai/sdk`, salida estructurada con `zodOutputFormat` y esquemas Zod en `esquema.ts`):
-   - Tabular → modo **ESTRUCTURA**: el modelo devuelve un *mapping spec* (qué columna es código/nombre/saldo…), no transcribe filas.
-   - Documento → modo **EXTRACCIÓN DIRECTA**: el modelo devuelve las filas de detalle ya normalizadas.
-3. **Transformación/validación determinista** (`transformar.ts`): aplica el spec o valida la extracción directa y alimenta a `calcularBalance`.
+1. **Ingesta** (`ingesta.ts`): el archivo subido (xlsx/xls/xlsb/csv/json/pdf) se clasifica en modo `tabular` (grillas por hoja) o `documento` (PDF base64 / texto). Solo el código toca todas las filas; al modelo se le manda una **vista previa compacta** con índices 1-based (sobre la grilla SIN filas vacías).
+2. **Perfil guardado del cliente** (`perfiles_carga_balance`): antes de llamar a la IA, `leerBalance` calcula la **huella** del layout (`huella.ts`: sha256 corto del encabezado normalizado + hoja, con huellas candidatas de las primeras ~15 filas) y detecta el **NIT determinista** (`detectarNit`, exige label). Si hay perfil con esa huella, el spec se aplica directo — **0 llamadas IA**; si el resultado no es aceptable (`validacion.ts`) cae a la IA. El perfil se guarda al confirmar la carga (checkbox) vía el spec persistido en el lote (`spec_json`/`huella`/`origen_extraccion` en `balance_importacion_lote`).
+3. **Llamada a Claude** (`@anthropic-ai/sdk`, salida estructurada con `zodOutputFormat` y esquemas Zod en `esquema.ts`):
+   - Tabular → modo **ESTRUCTURA** en **cascada** (`CASCADA_EXTRACCION` en `src/lib/ia/modelos.ts`): Sonnet primero (prompt de sistema cacheable) y escala a Opus si `confianza < 0.75`, `!importable` o la transformación no cuadra. El modelo devuelve un *mapping spec*, no transcribe filas.
+   - Documento → modo **EXTRACCIÓN DIRECTA** (siempre `MODELO_EXTRACCION`): filas de detalle ya normalizadas.
+4. **Transformación/validación determinista** (`transformar.ts`): aplica el spec o valida la extracción directa y alimenta a `calcularBalance`.
 
-- `src/lib/anthropic.ts` — singleton perezoso; **no** exige la API key hasta usarse (`getAnthropic()` lanza un error claro si falta; `iaDisponible()` decide UI/fallback). Modelo en `MODELO_EXTRACCION`.
+- **Personalización por cliente**: `ajustes_carga_balance` (hoja preferida, convención de crédito, estándar, tercero — null = auto, se aplican al resolver el cliente por NIT) y el **editor de estructura** del modal (corrige el spec y reprocesa sin IA vía `reprocesarBalanceConSpec`, que reemplaza el lote de staging). Gestión en `/config/clientes` (botón por fila → `ajustes-carga-modal.tsx`, actions en `perfiles-carga.ts`, gate `balance:crear` + clientId).
+- **Contrato del wizard (v2)**: `SugerenciaBalance = { firma, payload, render }` — la firma HMAC (`balance:sugerencia:v2`) cubre SOLO el payload compacto (loteId + metadatos); `render.*` solo pinta y no vuelve al servidor. El staging es la ÚNICA fuente al confirmar (`cuentasDesdeStaging`, compartida con `auditarCargaBalance(clienteId, loteId)`).
+- `src/lib/anthropic.ts` — singleton perezoso; **no** exige la API key hasta usarse (`getAnthropic()` lanza un error claro si falta; `iaDisponible()` decide UI/fallback). Modelo mayor en `MODELO_EXTRACCION`; tier rápido en `ANTHROPIC_MODELO_EXTRACCION_RAPIDA`. Sin API key, un perfil guardado igual habilita la carga completa determinista (si no, plantilla limpia).
 - El **prompt de sistema** es Markdown editable (`prompt-extraccion.md`, fuente única, se memoiza); hay un fallback embebido si no se puede leer del disco.
+- El mapeo IA de cuentas (`mapeo-ia.ts`) lanza el primer lote de cada tier solo (calienta la caché del plan) y los demás en paralelo acotado (`ANTHROPIC_MAPEO_CONCURRENCIA`, default 4, helper `src/lib/paralelo.ts`). El volcado del PUC a `cuentas_cliente` solo escribe filas que **cambiaron**.
 
 ### Consumo de IA (tokens y costos)
 

@@ -1,5 +1,6 @@
 import * as z from "zod";
 import { tieneDigitosNit } from "@/lib/nit";
+import { SpecCargaSchema } from "@/lib/balance/extraccion/esquema";
 
 export const LoginSchema = z.object({
   email: z.email({ error: "Ingresa un correo válido." }).trim().toLowerCase(),
@@ -93,21 +94,50 @@ export const ClientResponsablesSchema = z.object({
 // (jerarquia_usuarios). La adyacencia de roles se valida en la action.
 export const SuperioresSchema = z.array(z.coerce.number().int().positive()).max(50);
 
-// Cuentas leídas que viajan en el `payload` del paso "leer" al "confirmar". Se
-// validan tipos y montos (numéricos) antes de persistir; las sumas y el cuadre
-// se recalculan en el servidor. Coincide con `CuentaCruda` de calcular.ts.
-export const ImportReadySchema = z
-  .array(
-    z.object({
-      code: z.string(),
-      name: z.string(),
-      prevBalance: z.number(),
-      balance: z.number(),
-      debitos: z.number().optional(),
-      creditos: z.number().optional(),
-    }),
-  )
-  .min(1);
+// Payload COMPACTO firmado (HMAC) que vuelve del cliente al confirmar la carga
+// de balance (paso 2). Solo loteId + metadatos: las cuentas viven en el staging
+// del lote (fuente de verdad) y NO viajan de regreso. `cuadreArchivo` sí viaja
+// porque los totales de la fila TOTALES no son reconstruibles sin reabrir el
+// archivo. La firma se valida con el contexto `balance:sugerencia:v2`.
+export const PayloadCargaBalanceSchema = z.object({
+  v: z.literal(2),
+  loteId: z.uuid(),
+  archivoNombre: z.string(),
+  archivoTam: z.string(),
+  nitDetectado: z.string().nullable(),
+  nitFuente: z.enum(["PARAMETRO", "FUENTE", "INFERIDO", "NINGUNO"]),
+  periodoInicial: z.string().nullable(),
+  periodoFinal: z.string().nullable(),
+  estandar: z.string(),
+  convencionCredito: z.string(),
+  filasLeidas: z.number().int(),
+  filasExcluidas: z.number().int(),
+  filasDescuadre: z.number().int(),
+  cuentasMovimiento: z.number().int(),
+  cuentasAgrupadoras: z.number().int(),
+  cuentas: z.number().int(),
+  cuadreArchivo: z.object({ totalDebitos: z.number(), totalCreditos: z.number() }).nullable(),
+  origenExtraccion: z.enum(["perfil", "ia", "plantilla", "manual"]),
+  huella: z.string().nullable(),
+});
+export type PayloadCargaBalance = z.infer<typeof PayloadCargaBalanceSchema>;
+
+// Spec de estructura EDITABLE del asistente de carga (editor de estructura) y del
+// perfil guardado por cliente. El shape viene del pipeline (`SpecCargaSchema`);
+// aquí se agregan las validaciones de sanidad del formulario.
+export const SpecCargaBalanceSchema = SpecCargaSchema.refine((s) => s.hoja.trim().length > 0, { error: "Indica la hoja del balance.", path: ["hoja"] })
+  .refine((s) => s.primeraFilaDatos > s.filaEncabezado, { error: "La primera fila de datos debe ir después de la fila de encabezado.", path: ["primeraFilaDatos"] })
+  .refine((s) => s.columnas.codigo >= 1, { error: "Indica la columna del código de cuenta.", path: ["columnas"] });
+
+// Preferencias por defecto de carga de balance POR CLIENTE (todas opcionales:
+// "" / «auto» → null = no fuerza nada).
+export const AjustesCargaSchema = z.object({
+  clienteId: z.coerce.number({ error: "Cliente inválido." }).int().positive({ error: "Cliente inválido." }),
+  hojaPreferida: z.preprocess((v) => (typeof v === "string" && v.trim() ? v.trim() : null), z.string().max(120, { error: "El nombre de la hoja es demasiado largo." }).nullable()),
+  convencionCredito: z.preprocess((v) => (v === "" || v == null ? null : v), z.enum(["firmado", "magnitud"], { error: "Convención de crédito inválida." }).nullable()),
+  estandar: z.preprocess((v) => (v === "" || v == null ? null : v), z.enum(["NIF", "NIIF", "PCGA"], { error: "Estándar contable inválido." }).nullable()),
+  agregarPorTercero: z.preprocess((v) => (v === "si" ? true : v === "no" ? false : null), z.boolean().nullable()),
+});
 
 // Confirmación de carga (paso 2): cliente + período desde/hasta (fechas ISO). El
 // tipo de balance no se recibe del cliente: la carga lo fija por regla de

@@ -8,6 +8,7 @@ import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { getAnthropic, conReintentoSinTemperatura } from "@/lib/anthropic";
 import { CASCADA_MAPEO } from "@/lib/ia/modelos";
 import { getPromptContenido, CLAVE_MAPEO } from "@/lib/ia/prompts";
+import { conConcurrencia } from "@/lib/paralelo";
 import type { UsoIA } from "@/lib/ia/uso";
 
 export type CuentaPendiente = { code: string; name: string };
@@ -28,11 +29,18 @@ const MapeoIASchema = z.object({
 
 const TAM_LOTE = 80; // cuentas por llamada (acota el tamaño de salida)
 
+// Lotes 2..N de un mismo tier se lanzan en paralelo (la caché del plan ya está
+// caliente tras el lote 1). Configurable por entorno sin tocar código.
+const CONCURRENCIA_LOTES = Math.max(1, Number(process.env.ANTHROPIC_MAPEO_CONCURRENCIA ?? 4));
+
 type BloqueSistema = { type: "text"; text: string; cache_control?: { type: "ephemeral" } };
 
 /**
  * Mapea por IA un conjunto de cuentas con UN modelo, en lotes, memoizando el plan
- * en el prompt de sistema (prompt caching). Best-effort: si una llamada falla, ese
+ * en el prompt de sistema (prompt caching). El PRIMER lote va solo y en serie —
+ * escribe la caché del plan (~29-38K tokens) UNA vez—; los siguientes la leen y
+ * se lanzan con concurrencia acotada (lanzarlos todos junto al primero
+ * multiplicaría el `cache_creation`). Best-effort: si una llamada falla, ese
  * lote queda sin asignar. `loteBase` desfasa el `loteIndice` reportado para que
  * cada tier de la cascada registre lotes con índices únicos.
  */
@@ -46,8 +54,10 @@ async function mapearConModelo(
 ): Promise<Map<string, Asignacion>> {
   const client = getAnthropic();
   const res = new Map<string, Asignacion>();
-  for (let i = 0; i < pendientes.length; i += TAM_LOTE) {
-    const lote = pendientes.slice(i, i + TAM_LOTE);
+  const lotes: CuentaPendiente[][] = [];
+  for (let i = 0; i < pendientes.length; i += TAM_LOTE) lotes.push(pendientes.slice(i, i + TAM_LOTE));
+
+  const procesarLote = async (lote: CuentaPendiente[], indice: number): Promise<void> => {
     const lista = lote.map((p) => `${p.code} | ${p.name}`).join("\n");
     try {
       const r = await conReintentoSinTemperatura(
@@ -62,13 +72,20 @@ async function mapearConModelo(
           }),
         modelo,
       );
-      usosOut?.push({ tipoOperacion: "mapeo_ia", modelo, usage: r.usage, loteIndice: loteBase + Math.floor(i / TAM_LOTE), cuentasLote: lote.length });
+      usosOut?.push({ tipoOperacion: "mapeo_ia", modelo, usage: r.usage, loteIndice: loteBase + indice, cuentasLote: lote.length });
       for (const a of r.parsed_output?.asignaciones ?? []) {
         const std = a.cuenta6Russell && validos.has(a.cuenta6Russell) ? a.cuenta6Russell : null;
         res.set(a.cuentaCliente, { std, coincidencia: std ? Math.round(Math.max(0, Math.min(100, a.coincidencia))) : null });
       }
     } catch {
       // Lote fallido: se omite; las cuentas quedan sin mapear en este tier.
+    }
+  };
+
+  if (lotes.length > 0) {
+    await procesarLote(lotes[0], 0); // calienta la caché del plan de este tier
+    if (lotes.length > 1) {
+      await conConcurrencia(lotes.slice(1), CONCURRENCIA_LOTES, (lote, i) => procesarLote(lote, i + 1));
     }
   }
   return res;

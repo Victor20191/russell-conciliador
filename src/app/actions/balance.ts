@@ -12,7 +12,8 @@ import { tomarCandadoTransaccion, transaccionSerializable } from "@/lib/concurre
 import { createProcessNotification } from "@/lib/notifications";
 import { mensajeErrorBD, mensajeErrorIA } from "@/lib/errores";
 import { fmt, fmtDate, MESES_LARGOS } from "@/lib/format";
-import { ConfirmarBalanceSchema, ImportReadySchema, type ActionState } from "@/lib/definitions";
+import { ConfirmarBalanceSchema, PayloadCargaBalanceSchema, SpecCargaBalanceSchema, type ActionState, type PayloadCargaBalance } from "@/lib/definitions";
+import { claveNit } from "@/lib/nit";
 import { firmarPayloadServidor, validarFirmaPayloadServidor } from "@/lib/server-payload";
 import { parseBalanceWorkbook, type ImportBalanceState } from "@/lib/import/balance";
 import {
@@ -33,6 +34,10 @@ import {
 import { getCuentasEstandar } from "@/lib/balance/cuentas-estandar";
 import { TIPO_BALANCE_CARGA } from "@/lib/balance/tipo-balance";
 import { extraerBalance } from "@/lib/balance/extraccion/extraer";
+import { ingerir, type Ingesta } from "@/lib/balance/extraccion/ingesta";
+import { huellasCandidatas, detectarNit, calcularHuella } from "@/lib/balance/extraccion/huella";
+import { aplanarSpec, specDesdePerfil, specCargaDesdePerfil, type PerfilPlano } from "@/lib/balance/extraccion/perfil";
+import { esTransformacionAceptable } from "@/lib/balance/extraccion/validacion";
 import { mapearPorIA } from "@/lib/balance/mapeo-ia";
 import { construirVistaBorrador } from "@/lib/balance/borrador-vm";
 import { reclasificarHuerfanas, type FilaBorrador } from "@/lib/balance/borrador";
@@ -43,39 +48,40 @@ import { diagnosticarConIA, type DiagnosticoIA } from "@/lib/balance/diagnostico
 import { iaDisponible, MODELO_EXTRACCION } from "@/lib/anthropic";
 import { registrarConsumoIA, type UsoIA } from "@/lib/ia/uso";
 import { randomUUID } from "node:crypto";
-import { construirCuadre, marcarSubtotalesDuplicados, reclasificarRepetidos, reclasificarNoImputables } from "@/lib/balance/extraccion/transformar";
+import { construirCuadre, marcarSubtotalesDuplicados, reclasificarRepetidos, reclasificarNoImputables, transformarTabular } from "@/lib/balance/extraccion/transformar";
 import type { FilaCruda, ParamsExtraccion, ResultadoTransform, TipoFila } from "@/lib/balance/extraccion/transformar";
 import { CUADRE_NO_APLICA } from "@/lib/balance/extraccion/esquema";
-import type { CuadreTotales, Excepcion, ResumenAuditoria } from "@/lib/balance/extraccion/esquema";
+import type { CuadreTotales, Excepcion, MappingSpec, Origen, ResumenAuditoria, SpecCarga } from "@/lib/balance/extraccion/esquema";
 
 const MAX_BYTES = 20 * 1024 * 1024; // 20 MB (admite PDF)
-const CONTEXTO_PAYLOAD_BALANCE = "balance:sugerencia:v1";
+// v2: la firma HMAC cubre SOLO el payload compacto (loteId + metadatos); las
+// cuentas ya no viajan de regreso al servidor (el staging es la fuente de verdad).
+const CONTEXTO_PAYLOAD_BALANCE = "balance:sugerencia:v2";
 
-// Sugerencia que devuelve la LECTURA del archivo (paso 1): cabecera detectada +
-// las cuentas leídas. NO se persiste nada; la persona la revisa, completa los
-// campos faltantes (cliente, período) y recién entonces confirma la carga.
+// Cómo se obtuvo la estructura del archivo en la lectura:
+//   perfil    → perfil guardado del cliente aplicado por huella (0 llamadas IA)
+//   ia        → cascada de detección de estructura / extracción directa
+//   plantilla → parser determinista de la plantilla limpia (sin API key)
+//   manual    → spec ajustado a mano en el editor de estructura
+export type OrigenExtraccion = "perfil" | "ia" | "plantilla" | "manual";
+
+// Sugerencia que devuelve la LECTURA del archivo (paso 1). `payload` es lo ÚNICO
+// que vuelve al servidor al confirmar (firmado); `render` es solo para pintar la
+// revisión en el modal (tabla del borrador, cuadre, editor de estructura) y NO
+// viaja de regreso ni se firma.
 export type SugerenciaBalance = {
-  firma: string;
-  loteId: string; // lote de staging (paso 1): el paso 2 relee las filas crudas por aquí
-  archivoNombre: string;
-  archivoTam: string;
-  nitDetectado: string | null;
-  nitFuente: ResumenAuditoria["nit"]["fuente"];
-  periodoInicial: string | null;
-  periodoFinal: string | null;
-  estandar: string;
-  convencionCredito: string;
-  filasLeidas: number;
-  filasExcluidas: number;
-  filasDescuadre: number;
-  cuentasMovimiento: number; // hojas detectadas (cuentas de movimiento real)
-  cuentasAgrupadoras: number; // cuentas que son prefijo de otra (no se importan)
-  cuentas: number;
-  cuadre: CuadreTotales; // cuadre de las hojas contra la fila TOTALES del archivo
-  validacion: ValidacionContable; // borrador: A/P/Patrimonio (archivo vs calculado) + ecuación
-  importReady: CuentaCruda[];
+  firma: string; // HMAC del `payload` (contexto balance:sugerencia:v2)
+  payload: PayloadCargaBalance;
+  render: {
+    cuadre: CuadreTotales; // cuadre de las hojas contra la fila TOTALES del archivo
+    validacion: ValidacionContable; // borrador: A/P/Patrimonio (archivo vs calculado) + ecuación
+    importReady: CuentaCruda[];
+    spec: SpecCarga | null; // valores iniciales del editor de estructura (null en PDF/plantilla)
+    encabezados: string[]; // celdas de la fila de encabezado usada (labels del editor)
+    hojas: string[]; // nombres de hojas de la ingesta (selector del editor)
+    clienteDetectadoId: number | null; // resuelto por NIT determinista en el servidor
+  };
 };
-type SugerenciaBalanceSinFirma = Omit<SugerenciaBalance, "firma">;
 
 export type LeerBalanceState = {
   ok?: boolean;
@@ -145,17 +151,52 @@ function mensajeCuadre(c: CuadreTotales): string {
   return `El balance no cuadra contra la fila TOTALES del archivo — ${partes.join("; ")}. Revisa la jerarquía de cuentas (padres/auxiliares) y vuelve a leer el archivo.`;
 }
 
-function firmarSugerenciaBalance(sugerencia: SugerenciaBalanceSinFirma): SugerenciaBalance {
-  return {
-    ...sugerencia,
-    firma: firmarPayloadServidor(sugerencia, CONTEXTO_PAYLOAD_BALANCE),
-  };
+/** Resuelve el cliente por NIT (núcleo de 9 dígitos, mismo criterio del selector del modal). */
+async function clientePorNit(nit: string | null): Promise<number | null> {
+  const core = claveNit(nit ?? "").slice(0, 9);
+  if (core.length < 5) return null;
+  try {
+    const clientes = await prisma.client.findMany({ select: { id: true, nit: true } });
+    return clientes.find((c) => claveNit(c.nit).slice(0, 9) === core)?.id ?? null;
+  } catch {
+    return null; // best-effort: sin cliente detectado la lectura sigue normal
+  }
 }
 
-function sugerenciaSinFirma(sugerencia: SugerenciaBalance): SugerenciaBalanceSinFirma {
-  const { firma, ...payload } = sugerencia;
-  void firma;
-  return payload;
+type AjustesCarga = { hojaPreferida: string | null; convencionCredito: string | null; estandar: string | null; agregarPorTercero: boolean | null };
+
+/** Preferencias de carga guardadas del cliente (null si no tiene). Best-effort. */
+async function ajustesCargaDeCliente(clienteId: number | null): Promise<AjustesCarga | null> {
+  if (clienteId == null) return null;
+  try {
+    return await prisma.ajustesCargaBalance.findUnique({
+      where: { clienteId },
+      select: { hojaPreferida: true, convencionCredito: true, estandar: true, agregarPorTercero: true },
+    });
+  } catch {
+    return null;
+  }
+}
+
+/** Fila de perfil de carga → PerfilPlano del pipeline (normaliza los enums de BD). */
+type FilaPerfilCarga = {
+  hoja: string; filaEncabezado: number; primeraFilaDatos: number;
+  colCodigo: number; colNombre: number; colSaldoInicial: number; colDebitos: number; colCreditos: number;
+  colSaldoFinal: number; colSaldoFinalDebito: number; colSaldoFinalCredito: number; colTercero: number;
+  signoCredito: string; reglaDetalleTipo: string; reglaDetalleColumna: number | null; reglaDetalleValor: string | null;
+  agregarPorTercero: boolean;
+};
+function perfilPlanoDesdeFila(p: FilaPerfilCarga): PerfilPlano {
+  return {
+    hoja: p.hoja, filaEncabezado: p.filaEncabezado, primeraFilaDatos: p.primeraFilaDatos,
+    colCodigo: p.colCodigo, colNombre: p.colNombre, colSaldoInicial: p.colSaldoInicial,
+    colDebitos: p.colDebitos, colCreditos: p.colCreditos, colSaldoFinal: p.colSaldoFinal,
+    colSaldoFinalDebito: p.colSaldoFinalDebito, colSaldoFinalCredito: p.colSaldoFinalCredito, colTercero: p.colTercero,
+    signoCredito: p.signoCredito === "magnitud" ? "magnitud" : "firmado",
+    reglaDetalleTipo: p.reglaDetalleTipo === "columna" ? "columna" : "prefijo",
+    reglaDetalleColumna: p.reglaDetalleColumna, reglaDetalleValor: p.reglaDetalleValor,
+    agregarPorTercero: p.agregarPorTercero,
+  };
 }
 
 // Paso 2 — «análisis por cuentas»: agrega las filas de MOVIMIENTO del staging por
@@ -176,6 +217,50 @@ function agregarStagingPorCuenta(filas: FilaStaging[]): CuentaCruda[] {
     }
   }
   return [...m.values()];
+}
+
+/**
+ * Análisis por cuentas del STAGING de un lote: relee TODAS las filas (no solo
+ * `movimiento`, para poder reclasificar), colapsa terceros, reclasifica
+ * repetidos/no imputables/huérfanas, excluye omitidas y subtotales duplicados, y
+ * agrega por código. Es EXACTAMENTE lo que se promoverá a oficial — lo comparten
+ * la promoción (`promoverStagingAOficial`) y la auditoría pre-carga
+ * (`auditarCargaBalance`), para que ambas vean lo mismo. `[]` si el lote no existe.
+ */
+async function cuentasDesdeStaging(loteId: string): Promise<CuentaCruda[]> {
+  const staged = await prisma.balanceImportacionStaging.findMany({
+    where: { loteId },
+    orderBy: { filaNum: "asc" },
+    select: { filaNum: true, codigo: true, codigoCrudo: true, nombre: true, nivel: true, tipoFila: true, omitida: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
+  });
+  const filasStaging: FilaBorrador[] = staged.map((f) => ({
+    // TRI-ESTADO durable: null (BD) = «sin tocar» → undefined (elegible para el marcado
+    // del re-listado con guiones); false = RESCATADA a mano → cuenta y SÍ se carga
+    // (el override manual gana); true = omitida → no se carga.
+    filaNum: f.filaNum, codigo: f.codigo, codigoCrudo: f.codigoCrudo, nombre: f.nombre, nivel: f.nivel, tipoFila: f.tipoFila as TipoFila, omitida: f.omitida ?? undefined,
+    saldoInicial: Number(f.saldoInicial), debitos: Number(f.debitos), creditos: Number(f.creditos), saldoFinal: Number(f.saldoFinal),
+  }));
+  // Balance ABIERTO POR TERCERO → colapsar el detalle y cargar por CUENTA (lógica
+  // separada; los demás informes no se tocan). Las cuentas quedan como imputables.
+  const rows = esBalancePorTercero(filasStaging) ? colapsarTerceros(filasStaging) : filasStaging;
+  // RE-LISTADO CON GUIONES: marca como omitidas las filas «1105-05-04»/«*SIN NOMBRE*»
+  // redundantes (que duplican una fila plana existente); NO se cargan (el filtro
+  // `!f.omitida` de abajo las excluye), conservando el código plano que cuadra.
+  marcarRelistadoGuiones(rows);
+  reclasificarRepetidos(rows); // código repetido → movimiento
+  reclasificarNoImputables(rows); // pie/total sin código («Total general», marca ERP) → total
+  // Agrupadora huérfana (sin hijos, con saldo) → movimiento: el ERP la exportó sin
+  // desglose; si no, su saldo se pierde al cargar. También recupera lotes viejos.
+  reclasificarHuerfanas(rows);
+  // Filas OMITIDAS: se conservan en el crudo pero NO se vuelcan al balance oficial.
+  const mov = rows.filter((f) => f.tipoFila === "movimiento" && !f.omitida);
+  // Excluye subtotales DUPLICADOS (6 díg con detalle 8 díg idéntico) para no doblar.
+  const dup = marcarSubtotalesDuplicados(mov);
+  const movNetas = mov.filter((f) => !dup.has(f));
+  if (movNetas.length === 0) return [];
+  // Respeta como hojas los imputables de nivel alto (código repetido/desacople) que
+  // el filtro por prefijo de `calcularBalance`/`persistirCargue` descartaría.
+  return conForzarHoja(agregarStagingPorCuenta(movNetas));
 }
 
 // Promueve un LOTE de staging a balance OFICIAL. Núcleo compartido por el flujo
@@ -200,53 +285,18 @@ type MetaPromocion = {
   cuentas: number;
   cuentasAgrupadoras: number;
   cuadreArchivo: { totalDebitos: number; totalCreditos: number } | null; // solo el modal lo trae
-  importReadyFallback: CuentaCruda[]; // por si el staging ya no está (modal firmado)
 };
 async function promoverStagingAOficial(p: MetaPromocion, contexto: string): Promise<ImportBalanceState> {
   // Análisis por cuentas sobre el staging del lote (MOVIMIENTO agregado por código).
+  // El staging es la ÚNICA fuente: sin él no hay nada que promover (ya no existe el
+  // respaldo `importReady` del payload — dejó de viajar al cliente).
   let importReadyFinal: CuentaCruda[];
   try {
-    // Lee TODAS las filas del lote (no solo `movimiento`) para poder reclasificar
-    // los códigos repetidos (encabezado+movimiento) que en staging quedaron como
-    // agrupadora — así los lotes viejos también recuperan ese saldo.
-    const staged = await prisma.balanceImportacionStaging.findMany({
-      where: { loteId: p.loteId },
-      orderBy: { filaNum: "asc" },
-      select: { filaNum: true, codigo: true, codigoCrudo: true, nombre: true, nivel: true, tipoFila: true, omitida: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
-    });
-    const filasStaging: FilaBorrador[] = staged.map((f) => ({
-      // TRI-ESTADO durable: null (BD) = «sin tocar» → undefined (elegible para el marcado
-      // del re-listado con guiones); false = RESCATADA a mano → cuenta y SÍ se carga
-      // (el override manual gana); true = omitida → no se carga.
-      filaNum: f.filaNum, codigo: f.codigo, codigoCrudo: f.codigoCrudo, nombre: f.nombre, nivel: f.nivel, tipoFila: f.tipoFila as TipoFila, omitida: f.omitida ?? undefined,
-      saldoInicial: Number(f.saldoInicial), debitos: Number(f.debitos), creditos: Number(f.creditos), saldoFinal: Number(f.saldoFinal),
-    }));
-    // Balance ABIERTO POR TERCERO → colapsar el detalle y cargar por CUENTA (lógica
-    // separada; los demás informes no se tocan). Las cuentas quedan como imputables.
-    const rows = esBalancePorTercero(filasStaging) ? colapsarTerceros(filasStaging) : filasStaging;
-    // RE-LISTADO CON GUIONES: marca como omitidas las filas «1105-05-04»/«*SIN NOMBRE*»
-    // redundantes (que duplican una fila plana existente); NO se cargan (el filtro
-    // `!f.omitida` de abajo las excluye), conservando el código plano que cuadra.
-    marcarRelistadoGuiones(rows);
-    reclasificarRepetidos(rows); // código repetido → movimiento
-    reclasificarNoImputables(rows); // pie/total sin código («Total general», marca ERP) → total
-    // Agrupadora huérfana (sin hijos, con saldo) → movimiento: el ERP la exportó sin
-    // desglose; si no, su saldo se pierde al cargar. También recupera lotes viejos.
-    reclasificarHuerfanas(rows);
-    // Filas OMITIDAS: se conservan en el crudo pero NO se vuelcan al balance oficial.
-    const mov = rows.filter((f) => f.tipoFila === "movimiento" && !f.omitida);
-    // Excluye subtotales DUPLICADOS (6 díg con detalle 8 díg idéntico) para no doblar.
-    const dup = marcarSubtotalesDuplicados(mov);
-    const movNetas = mov.filter((f) => !dup.has(f));
-    importReadyFinal = movNetas.length > 0 ? agregarStagingPorCuenta(movNetas) : p.importReadyFallback;
-  } catch {
-    importReadyFinal = p.importReadyFallback;
+    importReadyFinal = await cuentasDesdeStaging(p.loteId);
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD(contexto, e) };
   }
-  if (importReadyFinal.length === 0) importReadyFinal = p.importReadyFallback;
-  if (importReadyFinal.length === 0) return { ok: false, message: "El borrador ya no tiene cuentas para cargar. Vuelve a leer el archivo." };
-  // Respeta como hojas los imputables de nivel alto (código repetido/desacople) que
-  // el filtro por prefijo de `calcularBalance`/`persistirCargue` descartaría.
-  importReadyFinal = conForzarHoja(importReadyFinal);
+  if (importReadyFinal.length === 0) return { ok: false, message: "El borrador ya no existe o no tiene cuentas para cargar. Vuelve a leer el archivo." };
 
   // Cuadre contra la fila TOTALES del archivo (solo el flujo del modal lo trae). Σ
   // firmada: las reversas restan del lado correcto. No bloquea; marca descuadre.
@@ -509,12 +559,15 @@ async function persistirCargue(p: {
   // pasada con override de IA (evita re-tokenizar el plan dos veces por cargue).
   const planTok = tokenizarPlan(p.cuentasEstandar);
 
-  // Configuración de mapeo GUARDADA del cliente (memoria entre períodos, en
-  // cuentas_cliente): tiene PRIORIDAD sobre la cascada; lo `manual` no se recalcula.
-  const configRows = await prisma.clientAccount.findMany({
-    where: { clienteId: p.clientId, cuenta6Russell: { not: null } },
-    select: { code: true, cuenta6Russell: true, coincidencia: true, origenMapeo: true },
+  // PUC + configuración de mapeo GUARDADOS del cliente en UNA sola lectura: las
+  // filas con mapeo alimentan la config (memoria entre períodos, con PRIORIDAD
+  // sobre la cascada; lo `manual` no se recalcula) y TODAS las filas sirven de
+  // base de comparación para escribir después SOLO lo que cambió.
+  const pucRows = await prisma.clientAccount.findMany({
+    where: { clienteId: p.clientId },
+    select: { code: true, name: true, level: true, nit: true, clientName: true, cuenta6Russell: true, coincidencia: true, origenMapeo: true },
   });
+  const configRows = pucRows.filter((r) => r.cuenta6Russell != null);
   // El mapeo es por cuenta de 6 díg: derivamos el mapa cuenta_6 → estándar desde
   // CUALQUIER fila del cliente (grupo o imputable; todas comparten el estándar),
   // dando prioridad a las filas `manual`. `manualCodes` son los códigos exactos
@@ -527,6 +580,7 @@ async function persistirCargue(p: {
     }
   }
   const manualCodes = new Set(configRows.filter((r) => r.origenMapeo === "manual").map((r) => r.code));
+  const pucExistente = new Map(pucRows.map((r) => [r.code, r]));
 
   // Barrido 0 (config guardada) + 1 (exacto) + 2 (descripción), deterministas.
   let calc = calcularBalance(p.importReady, p.cuentasEstandar, undefined, planTok, configCliente);
@@ -579,7 +633,25 @@ async function persistirCargue(p: {
     // El CONJUNTO de upserts y los datos de cada uno son IDÉNTICOS; solo se acota
     // cuántos viajan en paralelo (≤ pool → nunca encola de más). Sigue siendo
     // best-effort y NO alimenta el resultado del balance (no se lee su salida).
-    const aEscribir = [...rows.values()].filter((r) => !manualCodes.has(r.code));
+    // Solo se escribe lo que CAMBIÓ respecto a lo ya guardado (comparado contra la
+    // lectura única de arriba): en un cliente recurrente con catálogo estable el
+    // volcado pasa de ~750 upserts a ~0 escrituras por cargue.
+    const sinCambios = (r: { code: string; level: number; name: string; std: string | null; coincidencia: number | null }): boolean => {
+      const e = pucExistente.get(r.code);
+      if (!e) return false;
+      const coincE = e.coincidencia != null ? Math.round(Number(e.coincidencia)) : null;
+      const coincR = r.coincidencia != null ? Math.round(r.coincidencia) : null;
+      return (
+        e.origenMapeo === "automatico" &&
+        e.level === r.level &&
+        e.name === r.name &&
+        (e.cuenta6Russell ?? null) === r.std &&
+        coincE === coincR &&
+        e.nit === p.clienteNit &&
+        e.clientName === p.clienteName
+      );
+    };
+    const aEscribir = [...rows.values()].filter((r) => !manualCodes.has(r.code) && !sinCambios(r));
     const LOTE_PUC = Math.max(1, (parseInt(process.env.DB_POOL_MAX ?? "10", 10) || 10) - 2);
     for (let i = 0; i < aEscribir.length; i += LOTE_PUC) {
       await Promise.all(
@@ -685,9 +757,17 @@ async function persistirCargue(p: {
 }
 
 /**
- * LECTURA (paso 1). Extrae las cuentas del archivo SIN escribir nada y devuelve
- * una sugerencia (NIT/período/centro detectados + cuentas + excepciones) para
- * que la persona la revise y complete antes de confirmar. No exige cliente.
+ * LECTURA (paso 1). Extrae las cuentas del archivo SIN escribir nada (salvo el
+ * borrador en staging) y devuelve una sugerencia (NIT/período detectados +
+ * cuentas + excepciones) para que la persona la revise y complete antes de
+ * confirmar. No exige cliente.
+ *
+ * Orden de resolución de la ESTRUCTURA (tabular):
+ *   1. PERFIL guardado por huella del layout → determinista, 0 llamadas IA.
+ *   2. Cascada de IA (Sonnet→Opus) si hay API key.
+ *   3. Parser de plantilla limpia si no hay API key ni perfil aplicable.
+ * Además detecta el NIT de forma determinista para preseleccionar el cliente y
+ * aplicar sus preferencias de carga (hoja preferida, estándar, signo, tercero).
  */
 export async function leerBalance(
   _prev: LeerBalanceState,
@@ -703,172 +783,388 @@ export async function leerBalance(
   if (archivo.size > MAX_BYTES) return { ok: false, message: "El archivo supera 20 MB." };
 
   try {
-    // Lectura sin parámetros de cliente/período: la IA detecta todo del archivo
+    // Lectura sin parámetros de cliente/período: se detecta todo del archivo
     // como sugerencia. El tipo de balance es regla fija de negocio.
-    // Si no hay API key, cae al parser de plantilla limpia.
     const params: ParamsExtraccion = { nit: null, periodoInicial: null, periodoFinal: null, estandar: TIPO_BALANCE_CARGA };
     // Hoja elegida por el usuario en Excel multi-hoja (la IA no la asume). Vacío
     // → null: archivos de una sola hoja / CSV / PDF siguen el flujo normal.
-    const hoja = String(formData.get("hoja") ?? "").trim() || null;
+    let hoja = String(formData.get("hoja") ?? "").trim() || null;
     const datosArchivo = await archivo.arrayBuffer();
     const usos: UsoIA[] = [];
-    let extr: ResultadoTransform;
-    if (iaDisponible()) {
-      extr = await extraerBalance(datosArchivo, archivo.name, params, hoja, usos);
-    } else {
-      const { filas, errores } = await parseBalanceWorkbook(datosArchivo);
-      if (errores.length > 0) {
-        return { ok: false, message: `${errores.length} problema(s) en el archivo. Nada se leyó.`, errores };
+
+    // Ingesta ÚNICA (el orquestador la reutiliza). Si el formato es ilegible se
+    // deja null: la ruta con IA re-lanza el error legible al re-ingerir; la de
+    // plantilla sigue con su propio manejo de errores.
+    let ingesta: Ingesta | null = null;
+    try {
+      ingesta = await ingerir(datosArchivo, archivo.name);
+    } catch {
+      ingesta = null;
+    }
+
+    // ---- Contexto determinista ANTES de llamar a la IA ----
+    // NIT → cliente (preselección + preferencias); huella del layout → perfil.
+    let clienteDetectadoId: number | null = null;
+    let nitDeterminista: string | null = null;
+    let specGuardado: MappingSpec | null = null;
+    if (ingesta?.modo === "tabular") {
+      nitDeterminista = detectarNit(ingesta.hojas);
+      clienteDetectadoId = await clientePorNit(nitDeterminista);
+      const ajustes = await ajustesCargaDeCliente(clienteDetectadoId);
+
+      // Preferencias del cliente: hoja preferida (si el usuario no eligió una y
+      // existe en el archivo) y estándar contable fijado.
+      if (!hoja && ajustes?.hojaPreferida && ingesta.hojas.some((h) => h.nombre === ajustes.hojaPreferida)) {
+        hoja = ajustes.hojaPreferida;
       }
-      const importReady: CuentaCruda[] = filas.map((f) => ({ code: f.code, name: f.name, prevBalance: f.prevBalance, balance: f.balance }));
-      const filasCrudas: FilaCruda[] = filas.map((f, i) => ({
-        hoja: null, filaNum: i + 1, codigoCrudo: f.code, codigo: /^\d+$/.test(f.code) ? f.code : "",
-        nombre: f.name, nivel: /^\d+$/.test(f.code) ? f.code.length : null, tipoFila: "movimiento",
-        saldoInicial: f.prevBalance, debitos: 0, creditos: 0, saldoFinal: f.balance,
-      }));
-      extr = {
-        importReady,
-        filasCrudas,
-        excepciones: [],
-        cabecera: {
-          nit: { valor: null, fuente: "NINGUNO" }, periodoInicial: { valor: null, fuente: "NINGUNO" },
-          periodoFinal: { valor: null, fuente: "NINGUNO" }, estandar: TIPO_BALANCE_CARGA,
-        },
-        resumen: {
-          filasLeidas: importReady.length, filasExcluidas: 0, filasImportables: importReady.length, filasDescuadre: 0,
-          cuentasMovimiento: importReady.length, cuentasAgrupadoras: 0,
-          nit: { valor: null, fuente: "NINGUNO" }, periodoInicial: { valor: null, fuente: "NINGUNO" },
-          periodoFinal: { valor: null, fuente: "NINGUNO" },
-          estandar: TIPO_BALANCE_CARGA, convencionCredito: "firmado",
-        },
-        // El parser de plantilla limpia no expone una fila TOTALES: sin cuadre.
-        cuadre: CUADRE_NO_APLICA,
-        // Para la huella diagnóstica: lectura SIN IA, por plantilla estándar.
-        modo: "plantilla",
-      };
+      if (ajustes?.estandar === "NIF" || ajustes?.estandar === "NIIF" || ajustes?.estandar === "PCGA") {
+        params.estandar = ajustes.estandar;
+      }
+
+      // PERFIL guardado por HUELLA del layout (0 llamadas IA si aplica): prioridad
+      // al perfil del cliente detectado por NIT; si no, el usado más recientemente.
+      // Aplicar el spec de otro cliente con el MISMO layout es correcto (misma
+      // transformación); las preferencias/preselección sí exigen NIT coincidente.
+      const hojasLookup = hoja ? ingesta.hojas.filter((h) => h.nombre === hoja) : ingesta.hojas;
+      const candidatas = huellasCandidatas(hojasLookup.length > 0 ? hojasLookup : ingesta.hojas);
+      if (candidatas.length > 0) {
+        try {
+          const perfiles = await prisma.perfilCargaBalance.findMany({
+            where: { huella: { in: candidatas.map((c) => c.huella) } },
+            orderBy: [{ ultimoUsoEn: { sort: "desc", nulls: "last" } }, { actualizadoEn: "desc" }],
+          });
+          const perfil = perfiles.find((p) => clienteDetectadoId != null && p.clienteId === clienteDetectadoId) ?? perfiles[0] ?? null;
+          if (perfil) {
+            const plano = perfilPlanoDesdeFila(perfil);
+            // Preferencias del cliente pisan el signo/tercero del perfil.
+            if (ajustes?.convencionCredito === "firmado" || ajustes?.convencionCredito === "magnitud") plano.signoCredito = ajustes.convencionCredito;
+            if (ajustes?.agregarPorTercero != null) plano.agregarPorTercero = ajustes.agregarPorTercero;
+            specGuardado = specDesdePerfil(plano);
+          }
+        } catch {
+          specGuardado = null; // best-effort: sin perfil la lectura sigue normal
+        }
+      }
+    }
+
+    let extr: ResultadoTransform | null = null;
+    let spec: MappingSpec | null = null;
+    let origenExtraccion: OrigenExtraccion = "plantilla";
+    if (iaDisponible()) {
+      const r = await extraerBalance(datosArchivo, archivo.name, params, {
+        hojaElegida: hoja, usosOut: usos, ingesta: ingesta ?? undefined, specGuardado,
+      });
+      extr = r.resultado;
+      spec = r.spec;
+      origenExtraccion = r.origenExtraccion;
+    } else {
+      // SIN API key: un perfil guardado habilita igual la carga completa
+      // determinista (antes solo funcionaba la plantilla limpia).
+      if (specGuardado && ingesta?.modo === "tabular") {
+        const specConHoja = hoja ? { ...specGuardado, hoja } : specGuardado;
+        const res = transformarTabular(specConHoja, ingesta.hojas, params);
+        if (esTransformacionAceptable(res)) {
+          extr = res;
+          spec = specConHoja;
+          origenExtraccion = "perfil";
+        }
+      }
+      if (!extr) {
+        const { filas, errores } = await parseBalanceWorkbook(datosArchivo);
+        if (errores.length > 0) {
+          return { ok: false, message: `${errores.length} problema(s) en el archivo. Nada se leyó.`, errores };
+        }
+        const importReady: CuentaCruda[] = filas.map((f) => ({ code: f.code, name: f.name, prevBalance: f.prevBalance, balance: f.balance }));
+        const filasCrudas: FilaCruda[] = filas.map((f, i) => ({
+          hoja: null, filaNum: i + 1, codigoCrudo: f.code, codigo: /^\d+$/.test(f.code) ? f.code : "",
+          nombre: f.name, nivel: /^\d+$/.test(f.code) ? f.code.length : null, tipoFila: "movimiento",
+          saldoInicial: f.prevBalance, debitos: 0, creditos: 0, saldoFinal: f.balance,
+        }));
+        extr = {
+          importReady,
+          filasCrudas,
+          excepciones: [],
+          cabecera: {
+            nit: { valor: null, fuente: "NINGUNO" }, periodoInicial: { valor: null, fuente: "NINGUNO" },
+            periodoFinal: { valor: null, fuente: "NINGUNO" }, estandar: TIPO_BALANCE_CARGA,
+          },
+          resumen: {
+            filasLeidas: importReady.length, filasExcluidas: 0, filasImportables: importReady.length, filasDescuadre: 0,
+            cuentasMovimiento: importReady.length, cuentasAgrupadoras: 0,
+            nit: { valor: null, fuente: "NINGUNO" }, periodoInicial: { valor: null, fuente: "NINGUNO" },
+            periodoFinal: { valor: null, fuente: "NINGUNO" },
+            estandar: TIPO_BALANCE_CARGA, convencionCredito: "firmado",
+          },
+          // El parser de plantilla limpia no expone una fila TOTALES: sin cuadre.
+          cuadre: CUADRE_NO_APLICA,
+          // Para la huella diagnóstica: lectura SIN IA, por plantilla estándar.
+          modo: "plantilla",
+        };
+        origenExtraccion = "plantilla";
+      }
     }
 
     const usuario = await getCurrentUser();
 
     // Registra el consumo de tokens de la lectura/extracción (best-effort). Se
     // hace aquí —aunque no haya cuentas útiles— porque la IA ya consumió tokens.
-    // El cliente aún no está confirmado en este paso (clienteId: null).
+    // El cliente detectado por NIT enriquece el registro (aún sin confirmar).
     if (usos.length > 0) {
       await registrarConsumoIA(usos, {
-        clienteId: null,
+        clienteId: clienteDetectadoId,
         usuarioId: usuario?.id ?? null,
         usuarioNombre: usuario?.name ?? null,
         archivoNombre: archivo.name,
-        nitDetectado: extr.cabecera.nit.valor,
+        nitDetectado: nitDeterminista ?? extr.cabecera.nit.valor,
       });
     }
 
-    if (extr.importReady.length === 0) {
-      return { ok: false, message: "No se leyó ninguna cuenta del archivo. Revisa las excepciones.", excepciones: extr.excepciones };
-    }
-
-    // HUELLA DIAGNÓSTICA inicial (MEDICIÓN, no afecta la lectura). Se calcula sobre un
-    // CLON de las filas crudas ANTES de las reclasificaciones de abajo, para que las
-    // pasadas cuenten frescas. `construirVistaBorrador` MUTA su entrada → se clona.
-    const diagInicial = construirVistaBorrador(extr.filasCrudas.map((f) => ({ ...f }))).diagnostico;
-
-    // Validación contable del BORRADOR: totales A/P/Patrimonio CALCULADOS del
-    // detalle (calcularBalance no necesita el plan estándar para las sumas: son por
-    // clase) contra los que TRAE el archivo (filas clase 1/2/3), + la ecuación
-    // A = P + Patrimonio + Resultado. Todo con margen ±$1000.
-    // Pie/total sin código («Total general», «Totales», marca del ERP) mal marcado
-    // como movimiento → «total»: si no, se cuelga de la última agrupadora inflando su
-    // Δ y se cuenta al cargar. MUTA `filasCrudas` (staging las guarda ya como total).
-    reclasificarNoImputables(extr.filasCrudas);
-    // Agrupadoras HUÉRFANAS (sin hijos, con saldo) → movimiento: hojas imputables
-    // que el ERP exportó sin desglose. MUTA `filasCrudas` (staging las guarda ya
-    // como movimiento) y las suma al detalle para que el snapshot del encabezado
-    // (chip Cuadrado/Descuadrado) refleje lo mismo que verá la vista del borrador.
-    const huerfanas = reclasificarHuerfanas(extr.filasCrudas);
-    for (const f of huerfanas) {
-      extr.importReady.push({ code: f.codigo, name: f.nombre, prevBalance: f.saldoInicial, balance: f.saldoFinal, debitos: f.debitos, creditos: f.creditos });
-    }
-    const calcBorrador = calcularBalance(extr.importReady, []);
-    // Total del archivo por clase = SUMA de todas las filas totalizadoras de esa
-    // clase (código "1"/"2"/"3"). En balances MULTI-SUCURSAL el ERP repite el total
-    // de ACTIVO/PASIVO/PATRIMONIO por sucursal; sumarlas da el consolidado, que es
-    // lo que el detalle (agregado por código entre sucursales) debe reflejar.
-    const totalFilaArchivo = (clase: string) => {
-      const filas = extr.filasCrudas.filter((f) => f.codigo === clase);
-      return filas.length > 0 ? filas.reduce((s, f) => s + f.saldoFinal, 0) : null;
-    };
-    const validacion = construirValidacionContable(calcBorrador, {
-      activo: totalFilaArchivo("1"),
-      pasivo: totalFilaArchivo("2"),
-      patrimonio: totalFilaArchivo("3"),
-    });
-
-    // PASO 1 — BORRADOR persistente: staging crudo (todas las filas, sin descartar)
-    // + encabezado de lote con la metadata para listarlo. Persiste hasta que se
-    // CARGA (promueve a oficial) o se DESCARTA — sin purga automática.
-    const loteId = randomUUID();
-    const LOTE_STAGING = 1000;
-    for (let i = 0; i < extr.filasCrudas.length; i += LOTE_STAGING) {
-      await prisma.balanceImportacionStaging.createMany({
-        data: extr.filasCrudas.slice(i, i + LOTE_STAGING).map((f) => ({
-          loteId, clienteId: null, hoja: f.hoja, filaNum: f.filaNum, codigoCrudo: f.codigoCrudo,
-          codigo: f.codigo, nombre: f.nombre, nivel: f.nivel, tipoFila: f.tipoFila,
-          saldoInicial: f.saldoInicial, debitos: f.debitos, creditos: f.creditos, saldoFinal: f.saldoFinal,
-        })),
-      });
-    }
-    await prisma.balanceImportacionLote.create({
-      data: {
-        loteId, clienteId: null,
-        archivoNombre: archivo.name, archivoTam: tamArchivo(archivo.size),
-        nitDetectado: extr.cabecera.nit.valor,
-        periodoInicial: extr.cabecera.periodoInicial.valor, periodoFinal: extr.cabecera.periodoFinal.valor,
-        estandar: extr.cabecera.estandar, convencionCredito: extr.resumen.convencionCredito,
-        cuentasMovimiento: extr.resumen.cuentasMovimiento, filasLeidas: extr.resumen.filasLeidas, filasExcluidas: extr.resumen.filasExcluidas,
-        partidaDobleDiff: calcBorrador.diffMov, ecuacionDiff: calcBorrador.diffCuadre,
-        cuadrado: calcBorrador.balanced && calcBorrador.movimientosCuadran,
-        cargadoPor: usuario?.name ?? null, cargadoPorId: usuario?.id ?? null,
-      },
-    });
-
-    // Registra la huella diagnóstica del cargue (best-effort; sobrevive a la purga del
-    // lote al confirmar/descartar porque vive en su propia tabla).
-    await registrarDiagnosticoInicial({
-      loteId, clienteId: null, archivoNombre: archivo.name,
-      modo: extr.modo ?? null,
-      formato: (archivo.name.split(".").pop() ?? "").toLowerCase() || null,
-      confianza: extr.confianza ?? null,
-      diag: diagInicial,
-    });
-
-    const sugerenciaBase: SugerenciaBalanceSinFirma = {
-      loteId,
-      validacion,
+    return await persistirLoteYSugerencia({
+      extr,
       archivoNombre: archivo.name,
-      archivoTam: tamArchivo(archivo.size),
-      nitDetectado: extr.cabecera.nit.valor,
-      nitFuente: extr.cabecera.nit.fuente,
-      periodoInicial: extr.cabecera.periodoInicial.valor,
-      periodoFinal: extr.cabecera.periodoFinal.valor,
-      estandar: extr.cabecera.estandar,
-      convencionCredito: extr.resumen.convencionCredito,
-      filasLeidas: extr.resumen.filasLeidas,
-      filasExcluidas: extr.resumen.filasExcluidas,
-      filasDescuadre: extr.resumen.filasDescuadre,
-      cuentasMovimiento: extr.resumen.cuentasMovimiento,
-      cuentasAgrupadoras: extr.resumen.cuentasAgrupadoras,
-      cuentas: extr.importReady.length,
-      cuadre: extr.cuadre,
-      importReady: extr.importReady,
-    };
-
-    return {
-      ok: true,
-      excepciones: extr.excepciones,
-      sugerencia: firmarSugerenciaBalance(sugerenciaBase),
-    };
+      archivoTamBytes: archivo.size,
+      usuario: usuario ? { id: usuario.id, name: usuario.name } : null,
+      origenExtraccion,
+      spec,
+      ingesta,
+      nitDeterminista,
+      clienteDetectadoId,
+    });
   } catch (e) {
     return { ok: false, message: mensajeErrorIA("leerBalance", e) };
+  }
+}
+
+type ParamsLoteSugerencia = {
+  extr: ResultadoTransform;
+  archivoNombre: string;
+  archivoTamBytes: number;
+  usuario: { id: number; name: string } | null;
+  origenExtraccion: OrigenExtraccion;
+  spec: MappingSpec | null;
+  ingesta: Ingesta | null;
+  nitDeterminista: string | null;
+  clienteDetectadoId: number | null;
+};
+
+/**
+ * Cola COMPARTIDA del paso 1 (la usan `leerBalance` y `reprocesarBalanceConSpec`):
+ * valida el borrador, persiste el staging crudo + el encabezado de lote (con la
+ * huella del layout, el origen de la extracción y el spec usado — para poder
+ * guardar el PERFIL del cliente al confirmar) y arma la SugerenciaBalance v2 con
+ * el payload compacto firmado.
+ */
+async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBalanceState> {
+  const { extr } = p;
+  if (extr.importReady.length === 0) {
+    return { ok: false, message: "No se leyó ninguna cuenta del archivo. Revisa las excepciones.", excepciones: extr.excepciones };
+  }
+
+  // HUELLA DIAGNÓSTICA inicial (MEDICIÓN, no afecta la lectura). Se calcula sobre un
+  // CLON de las filas crudas ANTES de las reclasificaciones de abajo, para que las
+  // pasadas cuenten frescas. `construirVistaBorrador` MUTA su entrada → se clona.
+  const diagInicial = construirVistaBorrador(extr.filasCrudas.map((f) => ({ ...f }))).diagnostico;
+
+  // Validación contable del BORRADOR: totales A/P/Patrimonio CALCULADOS del
+  // detalle (calcularBalance no necesita el plan estándar para las sumas: son por
+  // clase) contra los que TRAE el archivo (filas clase 1/2/3), + la ecuación
+  // A = P + Patrimonio + Resultado. Todo con margen ±$1000.
+  // Pie/total sin código («Total general», «Totales», marca del ERP) mal marcado
+  // como movimiento → «total»: si no, se cuelga de la última agrupadora inflando su
+  // Δ y se cuenta al cargar. MUTA `filasCrudas` (staging las guarda ya como total).
+  reclasificarNoImputables(extr.filasCrudas);
+  // Agrupadoras HUÉRFANAS (sin hijos, con saldo) → movimiento: hojas imputables
+  // que el ERP exportó sin desglose. MUTA `filasCrudas` (staging las guarda ya
+  // como movimiento) y las suma al detalle para que el snapshot del encabezado
+  // (chip Cuadrado/Descuadrado) refleje lo mismo que verá la vista del borrador.
+  const huerfanas = reclasificarHuerfanas(extr.filasCrudas);
+  for (const f of huerfanas) {
+    extr.importReady.push({ code: f.codigo, name: f.nombre, prevBalance: f.saldoInicial, balance: f.saldoFinal, debitos: f.debitos, creditos: f.creditos });
+  }
+  const calcBorrador = calcularBalance(extr.importReady, []);
+  // Total del archivo por clase = SUMA de todas las filas totalizadoras de esa
+  // clase (código "1"/"2"/"3"). En balances MULTI-SUCURSAL el ERP repite el total
+  // de ACTIVO/PASIVO/PATRIMONIO por sucursal; sumarlas da el consolidado, que es
+  // lo que el detalle (agregado por código entre sucursales) debe reflejar.
+  const totalFilaArchivo = (clase: string) => {
+    const filas = extr.filasCrudas.filter((f) => f.codigo === clase);
+    return filas.length > 0 ? filas.reduce((s, f) => s + f.saldoFinal, 0) : null;
+  };
+  const validacion = construirValidacionContable(calcBorrador, {
+    activo: totalFilaArchivo("1"),
+    pasivo: totalFilaArchivo("2"),
+    patrimonio: totalFilaArchivo("3"),
+  });
+
+  // NIT final: el detectado DETERMINISTA manda (fuente FUENTE); si no, el de la
+  // extracción (IA/plantilla).
+  const nitFinal: Origen = p.nitDeterminista ? { valor: p.nitDeterminista, fuente: "FUENTE" } : extr.cabecera.nit;
+
+  // Huella + encabezados de la fila de encabezado REAL del spec usado (más precisa
+  // que las candidatas del lookup: aquí ya se conoce la fila exacta).
+  const specUsado = p.spec;
+  let huellaFinal: string | null = null;
+  let encabezados: string[] = [];
+  if (specUsado && p.ingesta?.modo === "tabular") {
+    const hojaSpec = p.ingesta.hojas.find((h) => h.nombre === specUsado.hoja) ?? p.ingesta.hojas[0];
+    const filaEnc = hojaSpec?.filas[specUsado.filaEncabezado - 1];
+    if (hojaSpec && filaEnc) {
+      huellaFinal = calcularHuella(hojaSpec.nombre, filaEnc);
+      encabezados = filaEnc.map((c) => (c == null ? "" : String(c)));
+    }
+  }
+  const specCarga: SpecCarga | null = specUsado ? specCargaDesdePerfil(aplanarSpec(specUsado)) : null;
+
+  // PASO 1 — BORRADOR persistente: staging crudo (todas las filas, sin descartar)
+  // + encabezado de lote con la metadata para listarlo. Persiste hasta que se
+  // CARGA (promueve a oficial) o se DESCARTA — sin purga automática.
+  const loteId = randomUUID();
+  const LOTE_STAGING = 1000;
+  for (let i = 0; i < extr.filasCrudas.length; i += LOTE_STAGING) {
+    await prisma.balanceImportacionStaging.createMany({
+      data: extr.filasCrudas.slice(i, i + LOTE_STAGING).map((f) => ({
+        loteId, clienteId: null, hoja: f.hoja, filaNum: f.filaNum, codigoCrudo: f.codigoCrudo,
+        codigo: f.codigo, nombre: f.nombre, nivel: f.nivel, tipoFila: f.tipoFila,
+        saldoInicial: f.saldoInicial, debitos: f.debitos, creditos: f.creditos, saldoFinal: f.saldoFinal,
+      })),
+    });
+  }
+  await prisma.balanceImportacionLote.create({
+    data: {
+      loteId, clienteId: null,
+      archivoNombre: p.archivoNombre, archivoTam: tamArchivo(p.archivoTamBytes),
+      nitDetectado: nitFinal.valor,
+      periodoInicial: extr.cabecera.periodoInicial.valor, periodoFinal: extr.cabecera.periodoFinal.valor,
+      estandar: extr.cabecera.estandar, convencionCredito: extr.resumen.convencionCredito,
+      cuentasMovimiento: extr.resumen.cuentasMovimiento, filasLeidas: extr.resumen.filasLeidas, filasExcluidas: extr.resumen.filasExcluidas,
+      partidaDobleDiff: calcBorrador.diffMov, ecuacionDiff: calcBorrador.diffCuadre,
+      cuadrado: calcBorrador.balanced && calcBorrador.movimientosCuadran,
+      cargadoPor: p.usuario?.name ?? null, cargadoPorId: p.usuario?.id ?? null,
+      huella: huellaFinal, origenExtraccion: p.origenExtraccion,
+      ...(specCarga ? { specJson: specCarga } : {}),
+    },
+  });
+
+  // Registra la huella diagnóstica del cargue (best-effort; sobrevive a la purga del
+  // lote al confirmar/descartar porque vive en su propia tabla).
+  await registrarDiagnosticoInicial({
+    loteId, clienteId: null, archivoNombre: p.archivoNombre,
+    modo: extr.modo ?? null,
+    formato: (p.archivoNombre.split(".").pop() ?? "").toLowerCase() || null,
+    confianza: extr.confianza ?? null,
+    diag: diagInicial,
+  });
+
+  const payload: PayloadCargaBalance = {
+    v: 2,
+    loteId,
+    archivoNombre: p.archivoNombre,
+    archivoTam: tamArchivo(p.archivoTamBytes),
+    nitDetectado: nitFinal.valor,
+    nitFuente: nitFinal.fuente,
+    periodoInicial: extr.cabecera.periodoInicial.valor,
+    periodoFinal: extr.cabecera.periodoFinal.valor,
+    estandar: extr.cabecera.estandar,
+    convencionCredito: extr.resumen.convencionCredito,
+    filasLeidas: extr.resumen.filasLeidas,
+    filasExcluidas: extr.resumen.filasExcluidas,
+    filasDescuadre: extr.resumen.filasDescuadre,
+    cuentasMovimiento: extr.resumen.cuentasMovimiento,
+    cuentasAgrupadoras: extr.resumen.cuentasAgrupadoras,
+    cuentas: extr.importReady.length,
+    cuadreArchivo: extr.cuadre.detectado ? { totalDebitos: extr.cuadre.totalDebitos, totalCreditos: extr.cuadre.totalCreditos } : null,
+    origenExtraccion: p.origenExtraccion,
+    huella: huellaFinal,
+  };
+
+  return {
+    ok: true,
+    excepciones: extr.excepciones,
+    sugerencia: {
+      firma: firmarPayloadServidor(payload, CONTEXTO_PAYLOAD_BALANCE),
+      payload,
+      render: {
+        cuadre: extr.cuadre,
+        validacion,
+        importReady: extr.importReady,
+        spec: specCarga,
+        encabezados,
+        hojas: p.ingesta?.modo === "tabular" ? p.ingesta.hojas.map((h) => h.nombre) : [],
+        clienteDetectadoId: p.clienteDetectadoId,
+      },
+    },
+  };
+}
+
+/**
+ * REPROCESO determinista con el spec AJUSTADO A MANO en el editor de estructura
+ * (fase revisar del modal): recibe otra vez el archivo (el navegador aún lo
+ * tiene), aplica `transformarTabular` con el spec editado — SIN llamadas a IA —
+ * y reemplaza el lote de staging anterior. Devuelve una sugerencia nueva.
+ */
+export async function reprocesarBalanceConSpec(
+  _prev: LeerBalanceState,
+  formData: FormData,
+): Promise<LeerBalanceState> {
+  const authz = await authorizePermiso("balance:crear");
+  if (!authz.ok) return { ok: false, message: authz.message };
+
+  const archivo = formData.get("archivo");
+  if (!(archivo instanceof File) || archivo.size === 0) {
+    return { ok: false, message: "No se encontró el archivo original. Vuelve a leerlo." };
+  }
+  if (archivo.size > MAX_BYTES) return { ok: false, message: "El archivo supera 20 MB." };
+
+  let specBruto: unknown;
+  try {
+    specBruto = JSON.parse(String(formData.get("spec") ?? ""));
+  } catch {
+    return { ok: false, message: "Los ajustes de estructura no son válidos. Vuelve a intentarlo." };
+  }
+  const parsed = SpecCargaBalanceSchema.safeParse(specBruto);
+  if (!parsed.success) {
+    return { ok: false, message: parsed.error.issues[0]?.message ?? "Los ajustes de estructura no son válidos." };
+  }
+  const loteIdAnterior = String(formData.get("loteIdAnterior") ?? "").trim();
+
+  try {
+    const datosArchivo = await archivo.arrayBuffer();
+    const ingesta = await ingerir(datosArchivo, archivo.name);
+    if (ingesta.modo !== "tabular") {
+      return { ok: false, message: "El editor de estructura solo aplica a archivos tabulares (Excel/CSV/JSON)." };
+    }
+    const params: ParamsExtraccion = { nit: null, periodoInicial: null, periodoFinal: null, estandar: TIPO_BALANCE_CARGA };
+    const spec = specDesdePerfil(aplanarSpec(parsed.data));
+    const nitDeterminista = detectarNit(ingesta.hojas);
+    const clienteDetectadoId = await clientePorNit(nitDeterminista);
+    const extr = transformarTabular(spec, ingesta.hojas, params);
+    const usuario = await getCurrentUser();
+
+    const res = await persistirLoteYSugerencia({
+      extr,
+      archivoNombre: archivo.name,
+      archivoTamBytes: archivo.size,
+      usuario: usuario ? { id: usuario.id, name: usuario.name } : null,
+      origenExtraccion: "manual",
+      spec,
+      ingesta,
+      nitDeterminista,
+      clienteDetectadoId,
+    });
+
+    // El lote anterior se purga SOLO si el reproceso quedó persistido (si falló,
+    // el borrador previo sigue disponible). Best-effort.
+    if (res.ok && loteIdAnterior) {
+      try {
+        await prisma.balanceImportacionStaging.deleteMany({ where: { loteId: loteIdAnterior } });
+        await prisma.balanceImportacionLote.deleteMany({ where: { loteId: loteIdAnterior } });
+      } catch {
+        /* best-effort */
+      }
+    }
+    return res;
+  } catch (e) {
+    return { ok: false, message: mensajeErrorIA("reprocesarBalanceConSpec", e) };
   }
 }
 
@@ -885,18 +1181,24 @@ export type AuditoriaCarga = {
   hayPrevio: boolean;
   omisiones: { code: string; name: string }[];
   sinMapeo: { code: string; name: string }[];
+  // Preferencias de carga guardadas del cliente elegido (null si no tiene), para
+  // avisar en el modal si difieren de lo aplicado en la lectura.
+  ajustes?: AjustesCarga | null;
 };
 
-export async function auditarCargaBalance(clienteId: number, importReady: CuentaCruda[]): Promise<AuditoriaCarga> {
+export async function auditarCargaBalance(clienteId: number, loteId: string): Promise<AuditoriaCarga> {
   const vacio: AuditoriaCarga = { ok: false, hayPrevio: false, omisiones: [], sinMapeo: [] };
   const authz = await authorizePermiso("balance:crear");
   if (!authz.ok) return { ...vacio, message: authz.message };
   const scope = await authorizePermiso("balance:crear", { clientId: clienteId });
   if (!scope.ok) return { ...vacio, message: scope.message };
-  const parsed = ImportReadySchema.safeParse(importReady);
-  if (!parsed.success) return { ...vacio, message: "Cuentas leídas inválidas." };
-  const cuentas = parsed.data;
+  const id = String(loteId ?? "").trim();
+  if (!id) return { ...vacio, message: "Borrador inválido. Vuelve a leer el archivo." };
   try {
+    // Las cuentas salen del STAGING del lote (misma vista que se promoverá al
+    // confirmar) — ya no viajan de ida y vuelta por el navegador.
+    const cuentas = await cuentasDesdeStaging(id);
+    if (cuentas.length === 0) return { ...vacio, message: "El borrador ya no existe. Vuelve a leer el archivo." };
     // Mismo criterio de normalización que la carga (quita sufijos INAC/A/AS), para
     // que la comparación sea consistente: `236550INAC` ≡ `236550`.
     const enArchivo = new Set(cuentas.map((c) => limpiarCodigo(c.code)));
@@ -925,18 +1227,74 @@ export async function auditarCargaBalance(clienteId: number, importReady: Cuenta
     const calc = calcularBalance(cuentas, cuentasEstandar, undefined, undefined, configCliente);
     const sinMapeo = calc.breakdown.flatMap((g) => g.items).filter((it) => !it.mapped).map((it) => ({ code: it.code, name: it.name }));
 
-    return { ok: true, hayPrevio: !!previo, omisiones, sinMapeo };
+    const ajustes = await ajustesCargaDeCliente(clienteId);
+
+    return { ok: true, hayPrevio: !!previo, omisiones, sinMapeo, ajustes };
   } catch (e) {
     return { ...vacio, message: mensajeErrorBD("auditarCargaBalance", e) };
   }
 }
 
 /**
+ * Guarda/actualiza el PERFIL de carga del cliente tras una promoción exitosa
+ * (checkbox del modal). El spec y la huella salen del LOTE (leídos ANTES de la
+ * promoción, que purga el lote). Best-effort: nunca tumba la carga.
+ */
+async function guardarPerfilTrasCarga(p: {
+  clientId: number;
+  huella: string | null;
+  specJson: unknown;
+  origenExtraccion: PayloadCargaBalance["origenExtraccion"];
+  archivoNombre: string;
+}): Promise<void> {
+  try {
+    if (!p.huella) return;
+    const parsed = SpecCargaBalanceSchema.safeParse(p.specJson);
+    if (!parsed.success) return;
+    const plano = aplanarSpec(parsed.data);
+    // Un spec ajustado a mano queda (y se mantiene) como `manual`; el resto es
+    // `ia` (automático). `manual` NUNCA se degrada por una carga automática.
+    const esManual = p.origenExtraccion === "manual";
+    const ahora = new Date();
+    const existia = await prisma.perfilCargaBalance.findUnique({
+      where: { clienteId_huella: { clienteId: p.clientId, huella: p.huella } },
+      select: { id: true },
+    });
+    const usuario = await getCurrentUser();
+    await prisma.perfilCargaBalance.upsert({
+      where: { clienteId_huella: { clienteId: p.clientId, huella: p.huella } },
+      create: {
+        clienteId: p.clientId, huella: p.huella, ...plano,
+        origen: esManual ? "manual" : "ia",
+        vecesUsado: 1, ultimoUsoEn: ahora, archivoEjemplo: p.archivoNombre,
+        creadoPor: usuario?.name ?? null, creadoPorId: usuario?.id ?? null,
+      },
+      update: {
+        ...plano,
+        vecesUsado: { increment: 1 }, ultimoUsoEn: ahora, archivoEjemplo: p.archivoNombre,
+        ...(esManual ? { origen: "manual" } : {}),
+      },
+    });
+    if (!existia) {
+      await logAudit({
+        user: usuario?.name ?? "Sistema",
+        action: "GUARDÓ PERFIL de carga de balance",
+        entity: `cliente ${p.clientId}`,
+        detail: `huella ${p.huella} · ${esManual ? "ajustado a mano" : "detectado"} · ${p.archivoNombre}`,
+      });
+    }
+  } catch {
+    /* best-effort */
+  }
+}
+
+/**
  * CONFIRMACIÓN (paso final). Recibe el cliente/período confirmados por la persona
- * + las cuentas ya leídas (sugerencia serializada en `payload`) y escribe el
- * cargue. Recalcula en el servidor los agregados Y el cuadre contra TOTALES desde
- * las cuentas (no confía en las sumas ni en el veredicto de cuadre del cliente; sí
- * toma del payload los totales del archivo, no reconstruibles sin reabrirlo).
+ * + el payload COMPACTO firmado de la lectura (v2: loteId + metadatos, sin
+ * cuentas — el staging es la fuente de verdad). Recalcula en el servidor los
+ * agregados Y el cuadre contra TOTALES desde el staging (solo toma del payload
+ * los totales del archivo, no reconstruibles sin reabrirlo). Si la persona lo
+ * pidió (checkbox), guarda el spec usado como PERFIL de carga del cliente.
  */
 export async function confirmarCargaBalance(
   _prev: ImportBalanceState,
@@ -958,48 +1316,64 @@ export async function confirmarCargaBalance(
   const scope = await authorizePermiso("balance:crear", { clientId });
   if (!scope.ok) return { ok: false, message: scope.message };
 
-  let sug: SugerenciaBalance;
+  // El hidden `payload` trae { firma, payload } (v2). La firma se valida sobre el
+  // objeto CRUDO (la serialización canónica ordena claves) y el payload se
+  // re-valida con Zod para tipar con seguridad.
+  let bruto: { firma?: unknown; payload?: unknown };
   try {
-    sug = JSON.parse(String(formData.get("payload") ?? "")) as SugerenciaBalance;
+    bruto = JSON.parse(String(formData.get("payload") ?? "")) as { firma?: unknown; payload?: unknown };
   } catch {
     return { ok: false, message: "La lectura del archivo no es válida. Vuelve a leer el archivo." };
   }
-  if (
-    !sug ||
-    !validarFirmaPayloadServidor(
-      sugerenciaSinFirma(sug),
-      sug.firma,
-      CONTEXTO_PAYLOAD_BALANCE,
-    )
-  ) {
-    return {
-      ok: false,
-      message: "La lectura del archivo fue alterada o expiró. Vuelve a leer el archivo.",
-    };
+  if (!bruto?.payload || !validarFirmaPayloadServidor(bruto.payload, bruto.firma, CONTEXTO_PAYLOAD_BALANCE)) {
+    return { ok: false, message: "La lectura del archivo fue alterada o expiró. Vuelve a leer el archivo." };
   }
-  // Las cuentas viajan en el payload del cliente: se validan con Zod (tipos y
-  // montos numéricos) antes de persistir. Las sumas/cuadre se recalculan en el
-  // servidor; esto blinda contra payloads malformados (montos no numéricos, etc.).
-  const cuentasParsed = ImportReadySchema.safeParse(sug?.importReady);
-  if (!cuentasParsed.success) {
-    return { ok: false, message: "No hay cuentas leídas válidas para cargar. Vuelve a leer el archivo." };
+  const payloadParsed = PayloadCargaBalanceSchema.safeParse(bruto.payload);
+  if (!payloadParsed.success) {
+    return { ok: false, message: "La lectura del archivo no es válida. Vuelve a leer el archivo." };
+  }
+  const sug = payloadParsed.data;
+
+  // El spec/huella para guardar el perfil se leen del lote ANTES de promover (la
+  // promoción purga el lote). Best-effort: sin lote igual se puede cargar.
+  let lote: { huella: string | null; specJson: unknown; origenExtraccion: string | null } | null = null;
+  try {
+    lote = await prisma.balanceImportacionLote.findUnique({
+      where: { loteId: sug.loteId },
+      select: { huella: true, specJson: true, origenExtraccion: true },
+    });
+  } catch {
+    lote = null;
   }
 
   // PASO 2 — promoción a oficial (relee el staging del lote, análisis por cuentas,
   // persiste y purga). Núcleo compartido con `cargarBorrador`. La firma HMAC ata el
-  // `loteId`; el `importReady` firmado es el respaldo si el staging ya no está.
-  return await promoverStagingAOficial(
+  // `loteId`; sin staging no hay carga (el payload ya no lleva cuentas).
+  const res = await promoverStagingAOficial(
     {
       loteId: sug.loteId, clientId, periodoInicio, periodoFin, rolLabel: etiquetaRol(authz.role),
-      archivoNombre: sug.archivoNombre ?? "—", archivoTam: sug.archivoTam ?? "—",
+      archivoNombre: sug.archivoNombre, archivoTam: sug.archivoTam,
       nitDetectado: sug.nitDetectado, nitFuente: sug.nitFuente, convencionCredito: sug.convencionCredito,
       filasLeidas: sug.filasLeidas, filasExcluidas: sug.filasExcluidas, filasDescuadre: sug.filasDescuadre,
-      cuentasMovimiento: sug.cuentasMovimiento ?? sug.cuentas, cuentas: sug.cuentas, cuentasAgrupadoras: sug.cuentasAgrupadoras ?? 0,
-      cuadreArchivo: sug.cuadre?.detectado ? { totalDebitos: sug.cuadre.totalDebitos, totalCreditos: sug.cuadre.totalCreditos } : null,
-      importReadyFallback: cuentasParsed.data,
+      cuentasMovimiento: sug.cuentasMovimiento, cuentas: sug.cuentas, cuentasAgrupadoras: sug.cuentasAgrupadoras,
+      cuadreArchivo: sug.cuadreArchivo,
     },
     "confirmarCargaBalance",
   );
+
+  // Perfil de carga del cliente (checkbox «guardar este formato»): con la carga ya
+  // promovida y el cliente confirmado. Best-effort.
+  if (res.ok && formData.get("guardarPerfil") === "1") {
+    await guardarPerfilTrasCarga({
+      clientId,
+      huella: lote?.huella ?? sug.huella,
+      specJson: lote?.specJson ?? null,
+      origenExtraccion: sug.origenExtraccion,
+      archivoNombre: sug.archivoNombre,
+    });
+  }
+
+  return res;
 }
 
 /**
@@ -1040,7 +1414,6 @@ export async function cargarBorrador(_prev: ImportBalanceState, formData: FormDa
       filasLeidas: lote?.filasLeidas ?? 0, filasExcluidas: lote?.filasExcluidas ?? 0, filasDescuadre: 0,
       cuentasMovimiento: lote?.cuentasMovimiento ?? movEnStaging, cuentas: lote?.cuentasMovimiento ?? movEnStaging, cuentasAgrupadoras: 0,
       cuadreArchivo: null,
-      importReadyFallback: [],
     },
     "cargarBorrador",
   );

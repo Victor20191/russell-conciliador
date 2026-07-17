@@ -724,6 +724,11 @@ model BalanceImportacionLote {
   cuadrado          Boolean  @default(false) @map("cuadrado")
   cargadoPor        String?  @map("cargado_por")
   cargadoPorId      Int?     @map("cargado_por_id") // dueño del borrador (FK suave a User)
+  // Trazabilidad de la extracción (para guardar el PERFIL al confirmar la carga):
+  // huella del layout, cómo se obtuvo el spec y el spec usado (MappingSpec plano).
+  huella            String?  @map("huella")
+  origenExtraccion  String?  @map("origen_extraccion") // perfil | ia | plantilla | manual
+  specJson          Json?    @map("spec_json")
   creadoEn          DateTime @default(now()) @map("creado_en")
 
   @@index([cargadoPorId])
@@ -801,6 +806,67 @@ model BalanceLecturaDiagnostico {
 
   @@index([loteId])
   @@map("balance_lectura_diagnostico")
+}
+
+// Perfil de CARGA por cliente: memoria de la ESTRUCTURA del archivo de balance
+// (el MappingSpec de la extracción, aplanado) llaveada por la HUELLA del layout
+// (hash del encabezado normalizado + hoja). En cargas siguientes con la misma
+// huella el spec se aplica de forma DETERMINISTA (sin llamada a IA). Se guarda
+// al confirmar una carga (checkbox del asistente) y se gestiona desde la ficha
+// del cliente. FK suave a `clientes` y `usuarios` (Int, sin @relation).
+model PerfilCargaBalance {
+  id                   Int       @id @default(autoincrement()) @map("id")
+  clienteId            Int       @map("cliente_id")
+  huella               String    @map("huella") // sha256 hex corto (16) del encabezado+hoja
+  // ---- MappingSpec aplanado (columnas 1-based, A=1; 0 = la columna no existe) ----
+  hoja                 String    @map("hoja")
+  filaEncabezado       Int       @map("fila_encabezado")
+  primeraFilaDatos     Int       @map("primera_fila_datos")
+  colCodigo            Int       @map("col_codigo")
+  colNombre            Int       @map("col_nombre")
+  colSaldoInicial      Int       @map("col_saldo_inicial")
+  colDebitos           Int       @map("col_debitos")
+  colCreditos          Int       @map("col_creditos")
+  colSaldoFinal        Int       @map("col_saldo_final")
+  colSaldoFinalDebito  Int       @map("col_saldo_final_debito")
+  colSaldoFinalCredito Int       @map("col_saldo_final_credito")
+  colTercero           Int       @map("col_tercero")
+  signoCredito         String    @map("signo_credito") // firmado | magnitud
+  reglaDetalleTipo     String    @map("regla_detalle_tipo") // prefijo | columna
+  reglaDetalleColumna  Int?      @map("regla_detalle_columna")
+  reglaDetalleValor    String?   @map("regla_detalle_valor")
+  agregarPorTercero    Boolean   @default(false) @map("agregar_por_tercero")
+  // ---- metadatos del perfil ----
+  origen               String    @map("origen") // ia | manual (manual NUNCA se degrada a ia)
+  vecesUsado           Int       @default(0) @map("veces_usado")
+  ultimoUsoEn          DateTime? @map("ultimo_uso_en")
+  archivoEjemplo       String?   @map("archivo_ejemplo") // nombre del archivo que originó el perfil
+  creadoPor            String?   @map("creado_por")
+  creadoPorId          Int?      @map("creado_por_id")
+  creadoEn             DateTime  @default(now()) @map("creado_en")
+  actualizadoEn        DateTime  @updatedAt @map("actualizado_en")
+
+  @@unique([clienteId, huella])
+  @@index([huella])
+  @@map("perfiles_carga_balance")
+}
+
+// Preferencias por defecto del CLIENTE para la carga de balances (una fila por
+// cliente). Todos los campos son nullable = «auto»: no fuerzan nada; cuando el
+// cliente se resuelve por NIT en el paso de lectura, los valores fijados pisan
+// lo detectado. FK suave a `clientes` (Int, sin @relation).
+model AjustesCargaBalance {
+  id                Int      @id @default(autoincrement()) @map("id")
+  clienteId         Int      @unique @map("cliente_id")
+  hojaPreferida     String?  @map("hoja_preferida")
+  convencionCredito String?  @map("convencion_credito") // firmado | magnitud | null=auto
+  estandar          String?  @map("estandar") // NIF | NIIF | PCGA | null=auto
+  agregarPorTercero Boolean? @map("agregar_por_tercero") // null=auto
+  actualizadoPor    String?  @map("actualizado_por")
+  creadoEn          DateTime @default(now()) @map("creado_en")
+  actualizadoEn     DateTime @updatedAt @map("actualizado_en")
+
+  @@map("ajustes_carga_balance")
 }
 
 // ===== Impuestos · DIAN =====

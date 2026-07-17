@@ -7,9 +7,18 @@ import { Icon } from "@/components/icons";
 import { Modal } from "@/components/modal";
 import { Chip } from "@/components/ui";
 import { fmt } from "@/lib/format";
-import { leerBalance, confirmarCargaBalance, auditarCargaBalance, type LeerBalanceState, type SugerenciaBalance, type AuditoriaCarga } from "@/app/actions/balance";
-import { notifyActionState } from "@/lib/client-notifications";
+import {
+  leerBalance,
+  confirmarCargaBalance,
+  auditarCargaBalance,
+  reprocesarBalanceConSpec,
+  type LeerBalanceState,
+  type SugerenciaBalance,
+  type AuditoriaCarga,
+} from "@/app/actions/balance";
+import { notifyActionState, notifyError, notifySuccess } from "@/lib/client-notifications";
 import { leerHojasParaPreview, columnaLetra, type CeldaCruda, type HojaPreview } from "@/lib/balance/extraccion/hojas-cliente";
+import type { SpecCarga } from "@/lib/balance/extraccion/esquema";
 import type { ImportBalanceState } from "@/lib/import/balance";
 
 /** Extensiones de Excel que pueden traer varias hojas (inspeccionables en cliente). */
@@ -53,6 +62,12 @@ function CargarBalanceModal({ clients, onClose, onReiniciar }: { clients: Client
   const [leerState, leerAction, leyendo] = useActionState<LeerBalanceState, FormData>(leerBalance, {});
   const [confirmState, confirmAction, cargando] = useActionState<ImportBalanceState, FormData>(confirmarCargaBalance, {});
   const [fileName, setFileName] = useState("");
+  // El File original se retiene para el EDITOR DE ESTRUCTURA (reproceso sin IA):
+  // el input se desmonta al pasar a la fase de revisión.
+  const [archivoFile, setArchivoFile] = useState<File | null>(null);
+  // Sugerencia REPROCESADA con el editor (pisa a la de la lectura inicial).
+  const [sugLocal, setSugLocal] = useState<SugerenciaBalance | null>(null);
+  const [reprocesando, startReproceso] = useTransition();
   // Hojas detectadas en el cliente (solo Excel con 2+ hojas) y la elegida por el
   // usuario. Mientras `hojas` esté presente, la elección es obligatoria.
   const [hojas, setHojas] = useState<HojaPreview[] | null>(null);
@@ -74,6 +89,7 @@ function CargarBalanceModal({ clients, onClose, onReiniciar }: { clients: Client
     const file = e.target.files?.[0] ?? null;
     const seq = ++seqRef.current;
     setFileName(file?.name ?? "");
+    setArchivoFile(file);
     setHojas(null);
     setHojaElegida(null);
     if (!file || !esExcel(file.name)) {
@@ -95,7 +111,26 @@ function CargarBalanceModal({ clients, onClose, onReiniciar }: { clients: Client
     }
   }
 
-  const sug = leerState?.sugerencia;
+  // Reproceso determinista (editor de estructura / preferencias del cliente):
+  // reenvía el archivo con el spec ajustado; la sugerencia nueva pisa la anterior.
+  const reprocesar = (spec: SpecCarga, loteIdAnterior: string) => {
+    if (!archivoFile) return;
+    startReproceso(async () => {
+      const fd = new FormData();
+      fd.set("archivo", archivoFile);
+      fd.set("spec", JSON.stringify(spec));
+      fd.set("loteIdAnterior", loteIdAnterior);
+      const res = await reprocesarBalanceConSpec({}, fd);
+      if (res.ok && res.sugerencia) {
+        setSugLocal(res.sugerencia);
+        notifySuccess("Archivo reprocesado con la estructura ajustada (sin IA).");
+      } else {
+        notifyError(res.message ?? "No se pudo reprocesar el archivo.");
+      }
+    });
+  };
+
+  const sug = sugLocal ?? leerState?.sugerencia;
   const fase: "ok" | "revisar" | "archivo" = confirmState?.ok ? "ok" : sug ? "revisar" : "archivo";
 
   // Con Excel multi-hoja, no se puede leer hasta elegir una hoja.
@@ -114,7 +149,7 @@ function CargarBalanceModal({ clients, onClose, onReiniciar }: { clients: Client
         </button>
         {sug && (
           <Link
-            href={`/balance/borradores/${sug.loteId}`}
+            href={`/balance/borradores/${sug.payload.loteId}`}
             className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] font-semibold text-ink-700 hover:bg-ink-50"
           >
             <Icon name="doc" size={13} /> Ir al borrador
@@ -123,10 +158,10 @@ function CargarBalanceModal({ clients, onClose, onReiniciar }: { clients: Client
         <button
           type="submit"
           form="confirmar-form"
-          disabled={cargando}
+          disabled={cargando || reprocesando}
           className={`${sug ? "" : "ml-auto "}rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60`}
         >
-          {cargando ? "Cargando…" : "Cargar balance"}
+          {cargando ? "Cargando…" : reprocesando ? "Reprocesando…" : "Cargar balance"}
         </button>
       </div>
     ) : (
@@ -137,7 +172,7 @@ function CargarBalanceModal({ clients, onClose, onReiniciar }: { clients: Client
         className="ml-auto rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
       >
         {leyendo
-          ? "Leyendo con IA…"
+          ? "Leyendo…"
           : inspeccionando
             ? "Analizando hojas…"
             : requiereHoja && hojaElegida
@@ -151,13 +186,24 @@ function CargarBalanceModal({ clients, onClose, onReiniciar }: { clients: Client
       {fase === "ok" && confirmState.resumen ? (
         <ResultadoOk resumen={confirmState.resumen} excepciones={confirmState.excepciones ?? []} onClose={onClose} />
       ) : fase === "revisar" && sug ? (
-        <FormRevisar sug={sug} clients={clients} confirmAction={confirmAction} confirmMessage={confirmState?.message} excepciones={leerState?.excepciones ?? []} />
+        <FormRevisar
+          key={sug.payload.loteId}
+          sug={sug}
+          clients={clients}
+          confirmAction={confirmAction}
+          confirmMessage={confirmState?.message}
+          excepciones={leerState?.excepciones ?? []}
+          archivoFile={archivoFile}
+          reprocesando={reprocesando}
+          onReprocesar={reprocesar}
+        />
       ) : (
         <form id="leer-form" action={leerAction} className="flex flex-col gap-3.5">
           <p className="text-[12.5px] leading-relaxed text-ink-600">
-            Sube el balance en <span className="font-semibold">Excel (.xlsx/.xlsm), CSV, JSON o PDF</span>. La IA lo
-            lee, identifica la estructura y te <span className="font-semibold">sugiere</span> los datos (cliente, período,
-            saldos). Tú revisas y completas lo que falte antes de cargar; nada se guarda hasta confirmar.
+            Sube el balance en <span className="font-semibold">Excel (.xlsx/.xlsm), CSV, JSON o PDF</span>. La plataforma
+            lo lee (con el <span className="font-semibold">perfil guardado del cliente</span> si el formato ya se conoce, o
+            con IA), identifica la estructura y te <span className="font-semibold">sugiere</span> los datos (cliente,
+            período, saldos). Tú revisas y completas lo que falte antes de cargar; nada se guarda hasta confirmar.
           </p>
 
           {clients.length === 0 ? (
@@ -195,30 +241,56 @@ function CargarBalanceModal({ clients, onClose, onReiniciar }: { clients: Client
   );
 }
 
+/** Chip con el ORIGEN de la estructura aplicada en la lectura. */
+function OrigenChip({ origen }: { origen: SugerenciaBalance["payload"]["origenExtraccion"] }) {
+  const map = {
+    perfil: { label: "Perfil guardado · sin IA", tone: "ok" as const },
+    ia: { label: "Estructura detectada con IA", tone: "ai" as const },
+    plantilla: { label: "Plantilla limpia · sin IA", tone: "ink" as const },
+    manual: { label: "Estructura ajustada a mano", tone: "blue" as const },
+  };
+  const m = map[origen] ?? map.ia;
+  return <Chip label={m.label} tone={m.tone} />;
+}
+
 function FormRevisar({
   sug,
   clients,
   confirmAction,
   confirmMessage,
   excepciones,
+  archivoFile,
+  reprocesando,
+  onReprocesar,
 }: {
   sug: SugerenciaBalance;
   clients: ClienteOpcion[];
   confirmAction: (payload: FormData) => void;
   confirmMessage?: string;
   excepciones: Excepcion[];
+  archivoFile: File | null;
+  reprocesando: boolean;
+  onReprocesar: (spec: SpecCarga, loteIdAnterior: string) => void;
 }) {
   // Defaults derivados de la sugerencia (campos NO controlados con defaultValue).
-  const clienteSug = clienteSugerido(clients, sug.nitDetectado);
-  const desdeDef = sug.periodoInicial ?? "";
-  const hastaDef = sug.periodoFinal ?? "";
+  // Preselección: cliente resuelto por NIT en el servidor (si está en la cartera)
+  // o coincidencia por NIT en el cliente.
+  const detectado = sug.render.clienteDetectadoId;
+  const clienteSug =
+    detectado != null && clients.some((c) => c.id === detectado) ? String(detectado) : clienteSugerido(clients, sug.payload.nitDetectado);
+  const desdeDef = sug.payload.periodoInicial ?? "";
+  const hastaDef = sug.payload.periodoFinal ?? "";
+
+  // El editor de estructura solo aplica si aún tenemos el File (reproceso) y la
+  // lectura produjo un spec (tabular). PDF/plantilla no traen spec.
+  const puedeEditar = !!archivoFile && !!sug.render.spec;
 
   // Auditoría rápida (determinista, no bloqueante): se corre al elegir cliente.
   const [audit, setAudit] = useState<AuditoriaCarga | null>(null);
   const [auditando, startAudit] = useTransition();
   const correrAudit = (cid: number) => {
     if (!cid) { setAudit(null); return; }
-    startAudit(async () => { setAudit(await auditarCargaBalance(cid, sug.importReady)); });
+    startAudit(async () => { setAudit(await auditarCargaBalance(cid, sug.payload.loteId)); });
   };
   // Fetch-on-mount intencional para el cliente sugerido (la auditoría es una
   // lectura asíncrona, no un prefill de estado derivado).
@@ -227,15 +299,30 @@ function FormRevisar({
 
   return (
     <form id="confirmar-form" action={confirmAction} className="flex flex-col gap-3.5">
-      <input type="hidden" name="payload" value={JSON.stringify(sug)} />
+      {/* Payload COMPACTO firmado (v2): solo loteId + metadatos; las cuentas ya
+          están en el staging del servidor y no viajan de regreso. */}
+      <input type="hidden" name="payload" value={JSON.stringify({ firma: sug.firma, payload: sug.payload })} />
 
-      <div className="rounded-md border border-ok-100 bg-ok-100/40 px-3 py-2.5 text-[12.5px] text-ok-700">
-        Leí <span className="font-semibold">{sug.cuentas} cuenta(s)</span> de{" "}
-        <span className="font-mono">{sug.archivoNombre}</span>. Revisa y completa los campos antes de cargar; no se ha guardado nada todavía.
+      <div className="flex items-start justify-between gap-2 rounded-md border border-ok-100 bg-ok-100/40 px-3 py-2.5 text-[12.5px] text-ok-700">
+        <span>
+          Leí <span className="font-semibold">{sug.payload.cuentas} cuenta(s)</span> de{" "}
+          <span className="font-mono">{sug.payload.archivoNombre}</span>. Revisa y completa los campos antes de cargar; no se ha guardado nada todavía.
+        </span>
+        <OrigenChip origen={sug.payload.origenExtraccion} />
       </div>
 
-      <CuadreBanner c={sug.cuadre} />
+      <CuadreBanner c={sug.render.cuadre} />
       <BorradorBalance sug={sug} />
+
+      {puedeEditar && sug.render.spec && (
+        <EditorEstructura
+          spec={sug.render.spec}
+          encabezados={sug.render.encabezados}
+          hojas={sug.render.hojas}
+          reprocesando={reprocesando}
+          onAplicar={(s) => onReprocesar(s, sug.payload.loteId)}
+        />
+      )}
 
       <label className="flex flex-col gap-1.5">
         <span className="text-[11.5px] font-medium text-ink-600">Cliente</span>
@@ -251,13 +338,14 @@ function FormRevisar({
             <option key={c.id} value={c.id}>{c.name} — {c.nit}</option>
           ))}
         </select>
-        {clienteSug === "" && sug.nitDetectado && (
+        {clienteSug === "" && sug.payload.nitDetectado && (
           <span className="text-[11px] text-warn-700">
-            NIT detectado <span className="font-mono">{sug.nitDetectado}</span> sin cliente coincidente — selecciónalo manualmente.
+            NIT detectado <span className="font-mono">{sug.payload.nitDetectado}</span> sin cliente coincidente — selecciónalo manualmente.
           </span>
         )}
       </label>
 
+      <AvisoAjustesCliente audit={audit} sug={sug} puedeReprocesar={puedeEditar && !reprocesando} onReprocesar={(s) => onReprocesar(s, sug.payload.loteId)} />
       <AuditPanel audit={audit} auditando={auditando} />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -271,6 +359,18 @@ function FormRevisar({
         </label>
       </div>
 
+      {/* Guardar el formato como PERFIL del cliente: la próxima carga con el mismo
+          layout se procesa determinista, sin IA. Solo cuando hay huella (tabular). */}
+      {sug.payload.huella && (
+        <label className="flex items-start gap-2 rounded-md border border-ink-150 bg-ink-50 px-3 py-2 text-[12px] text-ink-600">
+          <input type="checkbox" name="guardarPerfil" value="1" defaultChecked className="mt-0.5" />
+          <span>
+            <span className="font-semibold">Guardar este formato como perfil del cliente.</span> Las próximas cargas con el
+            mismo layout se procesarán al instante, sin IA.
+          </span>
+        </label>
+      )}
+
       <SugerenciaResumen sug={sug} />
 
       {confirmMessage && <p className="text-[12px] font-medium text-err-700">{confirmMessage}</p>}
@@ -280,11 +380,262 @@ function FormRevisar({
 }
 
 /**
+ * Aviso cuando las PREFERENCIAS guardadas del cliente elegido difieren de lo
+ * aplicado en esta lectura (hoja, signo, tercero): ofrece reprocesar con ellas.
+ */
+function AvisoAjustesCliente({
+  audit,
+  sug,
+  puedeReprocesar,
+  onReprocesar,
+}: {
+  audit: AuditoriaCarga | null;
+  sug: SugerenciaBalance;
+  puedeReprocesar: boolean;
+  onReprocesar: (spec: SpecCarga) => void;
+}) {
+  const ajustes = audit?.ok ? audit.ajustes : null;
+  const spec = sug.render.spec;
+  if (!ajustes || !spec) return null;
+
+  const difiere: string[] = [];
+  const parche: Partial<SpecCarga> = {};
+  if ((ajustes.convencionCredito === "firmado" || ajustes.convencionCredito === "magnitud") && ajustes.convencionCredito !== spec.signoCredito) {
+    difiere.push(`convención de crédito «${ajustes.convencionCredito}»`);
+    parche.signoCredito = ajustes.convencionCredito;
+  }
+  if (ajustes.agregarPorTercero != null && ajustes.agregarPorTercero !== spec.agregarPorTercero) {
+    difiere.push(`agregación por tercero ${ajustes.agregarPorTercero ? "activada" : "desactivada"}`);
+    parche.agregarPorTercero = ajustes.agregarPorTercero;
+  }
+  if (ajustes.hojaPreferida && sug.render.hojas.includes(ajustes.hojaPreferida) && ajustes.hojaPreferida !== spec.hoja) {
+    difiere.push(`hoja preferida «${ajustes.hojaPreferida}»`);
+    parche.hoja = ajustes.hojaPreferida;
+  }
+  if (difiere.length === 0) return null;
+
+  return (
+    <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">
+      <div>
+        Este cliente tiene preferencias de carga guardadas que difieren de lo aplicado: <span className="font-semibold">{difiere.join(", ")}</span>.
+      </div>
+      {puedeReprocesar && (
+        <button
+          type="button"
+          onClick={() => onReprocesar({ ...spec, ...parche })}
+          className="mt-1.5 rounded-md border border-blue-300 bg-white px-2.5 py-1 text-[11.5px] font-semibold text-blue-800 hover:bg-blue-100"
+        >
+          Aplicar preferencias y reprocesar (sin IA)
+        </button>
+      )}
+    </div>
+  );
+}
+
+// Roles de columna del editor (0 = la columna no existe en el archivo).
+const ROLES_COLUMNA: { key: keyof SpecCarga["columnas"]; label: string; requerida?: boolean }[] = [
+  { key: "codigo", label: "Código de cuenta", requerida: true },
+  { key: "nombre", label: "Nombre de la cuenta" },
+  { key: "saldoInicial", label: "Saldo inicial" },
+  { key: "debitos", label: "Débitos" },
+  { key: "creditos", label: "Créditos" },
+  { key: "saldoFinal", label: "Saldo final (una columna)" },
+  { key: "saldoFinalDebito", label: "Saldo final · débito" },
+  { key: "saldoFinalCredito", label: "Saldo final · crédito" },
+  { key: "tercero", label: "Tercero / NIT" },
+];
+
+/**
+ * Editor de ESTRUCTURA del archivo: muestra el mapa aplicado (hoja, filas,
+ * columnas por rol, signo, regla de detalle) y permite corregirlo. «Aplicar»
+ * reprocesa el archivo de forma DETERMINISTA (sin IA) con el spec ajustado.
+ */
+function EditorEstructura({
+  spec,
+  encabezados,
+  hojas,
+  reprocesando,
+  onAplicar,
+}: {
+  spec: SpecCarga;
+  encabezados: string[];
+  hojas: string[];
+  reprocesando: boolean;
+  onAplicar: (spec: SpecCarga) => void;
+}) {
+  const [abierto, setAbierto] = useState(false);
+  const [ed, setEd] = useState<SpecCarga>(spec);
+
+  // Opciones de columna: hasta donde llegue el encabezado o la columna más alta ya asignada.
+  const maxCol = Math.max(encabezados.length, ...Object.values(ed.columnas), ed.reglaDetalle.columna ?? 0, 6);
+  const opciones = Array.from({ length: maxCol }, (_, i) => i + 1);
+  const etiquetaCol = (n: number) => {
+    const enc = encabezados[n - 1];
+    return enc ? `${columnaLetra(n - 1)} — ${recortar(enc, 24)}` : columnaLetra(n - 1);
+  };
+
+  const setCol = (key: keyof SpecCarga["columnas"], v: number) => setEd((s) => ({ ...s, columnas: { ...s.columnas, [key]: v } }));
+  const sinCambios = JSON.stringify(ed) === JSON.stringify(spec);
+
+  return (
+    <div className="rounded-md border border-ink-150">
+      <button
+        type="button"
+        onClick={() => setAbierto((v) => !v)}
+        className="flex w-full items-center justify-between px-3 py-2 text-[12px] font-semibold text-ink-600 hover:bg-ink-50"
+      >
+        <span className="inline-flex items-center gap-1.5">
+          <Icon name="doc" size={13} /> Ajustar estructura del archivo
+        </span>
+        <span className="text-ink-400">{abierto ? "▲" : "▼"}</span>
+      </button>
+      {abierto && (
+        <div className="flex flex-col gap-3 border-t border-ink-100 px-3 py-3">
+          <p className="text-[11.5px] leading-relaxed text-ink-500">
+            Corrige qué columna corresponde a cada dato y reprocesa al instante — <span className="font-semibold">sin IA</span>.
+            Marca «no existe» cuando el archivo no trae esa columna.
+          </p>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <label className="flex flex-col gap-1">
+              <span className="text-[11px] font-medium text-ink-600">Hoja</span>
+              <select
+                value={ed.hoja}
+                onChange={(e) => setEd((s) => ({ ...s, hoja: e.target.value }))}
+                className="rounded-md border border-ink-200 bg-white px-2 py-1.5 text-[12px] text-ink-700"
+              >
+                {(hojas.length > 0 ? hojas : [ed.hoja]).map((h) => (
+                  <option key={h} value={h}>{h}</option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-[11px] font-medium text-ink-600">Fila del encabezado</span>
+              <input
+                type="number" min={1} value={ed.filaEncabezado}
+                onChange={(e) => setEd((s) => ({ ...s, filaEncabezado: Math.max(1, Number(e.target.value) || 1) }))}
+                className="rounded-md border border-ink-200 bg-white px-2 py-1.5 text-[12px] text-ink-700"
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-[11px] font-medium text-ink-600">Primera fila de datos</span>
+              <input
+                type="number" min={2} value={ed.primeraFilaDatos}
+                onChange={(e) => setEd((s) => ({ ...s, primeraFilaDatos: Math.max(1, Number(e.target.value) || 1) }))}
+                className="rounded-md border border-ink-200 bg-white px-2 py-1.5 text-[12px] text-ink-700"
+              />
+            </label>
+          </div>
+
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+            {ROLES_COLUMNA.map((rol) => (
+              <label key={rol.key} className="flex flex-col gap-1">
+                <span className="text-[11px] font-medium text-ink-600">
+                  {rol.label}
+                  {rol.requerida && <span className="text-err-600"> *</span>}
+                </span>
+                <select
+                  value={ed.columnas[rol.key]}
+                  onChange={(e) => setCol(rol.key, Number(e.target.value))}
+                  className="rounded-md border border-ink-200 bg-white px-2 py-1.5 text-[12px] text-ink-700"
+                >
+                  {!rol.requerida && <option value={0}>— no existe —</option>}
+                  {opciones.map((n) => (
+                    <option key={n} value={n}>{etiquetaCol(n)}</option>
+                  ))}
+                </select>
+              </label>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <label className="flex flex-col gap-1">
+              <span className="text-[11px] font-medium text-ink-600">Convención del crédito</span>
+              <select
+                value={ed.signoCredito}
+                onChange={(e) => setEd((s) => ({ ...s, signoCredito: e.target.value === "magnitud" ? "magnitud" : "firmado" }))}
+                className="rounded-md border border-ink-200 bg-white px-2 py-1.5 text-[12px] text-ink-700"
+              >
+                <option value="firmado">Firmado (crédito negativo)</option>
+                <option value="magnitud">Magnitud (todo positivo)</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-[11px] font-medium text-ink-600">Detección de cuentas de detalle</span>
+              <select
+                value={ed.reglaDetalle.tipo}
+                onChange={(e) => setEd((s) => ({ ...s, reglaDetalle: e.target.value === "columna" ? { tipo: "columna", columna: s.reglaDetalle.columna ?? 1, valor: s.reglaDetalle.valor ?? "" } : { tipo: "prefijo", columna: null, valor: null } }))}
+                className="rounded-md border border-ink-200 bg-white px-2 py-1.5 text-[12px] text-ink-700"
+              >
+                <option value="prefijo">Por jerarquía de códigos (auto)</option>
+                <option value="columna">Por columna marcadora</option>
+              </select>
+            </label>
+            <label className="flex items-end gap-2 pb-1.5">
+              <input
+                type="checkbox"
+                checked={ed.agregarPorTercero}
+                onChange={(e) => setEd((s) => ({ ...s, agregarPorTercero: e.target.checked }))}
+              />
+              <span className="text-[11.5px] text-ink-600">Agregar por tercero (sumar por cuenta)</span>
+            </label>
+          </div>
+
+          {ed.reglaDetalle.tipo === "columna" && (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <label className="flex flex-col gap-1">
+                <span className="text-[11px] font-medium text-ink-600">Columna marcadora</span>
+                <select
+                  value={ed.reglaDetalle.columna ?? 1}
+                  onChange={(e) => setEd((s) => ({ ...s, reglaDetalle: { ...s.reglaDetalle, columna: Number(e.target.value) } }))}
+                  className="rounded-md border border-ink-200 bg-white px-2 py-1.5 text-[12px] text-ink-700"
+                >
+                  {opciones.map((n) => (
+                    <option key={n} value={n}>{etiquetaCol(n)}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="text-[11px] font-medium text-ink-600">Valor que marca el detalle (p. ej. «I», «1»)</span>
+                <input
+                  type="text" value={ed.reglaDetalle.valor ?? ""}
+                  onChange={(e) => setEd((s) => ({ ...s, reglaDetalle: { ...s.reglaDetalle, valor: e.target.value } }))}
+                  className="rounded-md border border-ink-200 bg-white px-2 py-1.5 text-[12px] text-ink-700"
+                />
+              </label>
+            </div>
+          )}
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={reprocesando || sinCambios}
+              onClick={() => onAplicar(ed)}
+              className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
+            >
+              {reprocesando ? "Reprocesando…" : "Reprocesar sin IA"}
+            </button>
+            <button
+              type="button"
+              disabled={reprocesando || sinCambios}
+              onClick={() => setEd(spec)}
+              className="rounded-md border border-ink-200 px-3 py-1.5 text-[12px] font-semibold text-ink-600 hover:bg-ink-50 disabled:opacity-60"
+            >
+              Restablecer
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
  * Resultado del cuadre de las cuentas de movimiento (hojas) contra la fila
  * TOTALES del archivo. Si no se detectó fila de totales, queda informativo; si no
  * cuadra, es bloqueante (rojo) y el botón de carga se desactiva.
  */
-function CuadreBanner({ c }: { c: SugerenciaBalance["cuadre"] }) {
+function CuadreBanner({ c }: { c: SugerenciaBalance["render"]["cuadre"] }) {
   if (!c) return null;
   // 1) Partida doble (lo más importante): Σ débitos debe ser EXACTAMENTE igual a Σ
   // créditos, sin tolerancia de %. Si no, se alerta aunque coincida con TOTALES.
@@ -321,7 +672,7 @@ function CuadreBanner({ c }: { c: SugerenciaBalance["cuadre"] }) {
         <li>Débitos: hojas {fmt(c.sumaDebitos)} vs TOTALES {fmt(c.totalDebitos)} (Δ {fmt(c.diferenciaDebitos)})</li>
         <li>Créditos: hojas {fmt(c.sumaCreditos)} vs TOTALES {fmt(c.totalCreditos)} (Δ {fmt(c.diferenciaCreditos)})</li>
       </ul>
-      <div className="mt-1">Puedes cargarlo igual: quedará <span className="font-semibold">marcado como descuadrado</span> (novedad) para revisión, o revisa la jerarquía de cuentas (padres/auxiliares) y vuelve a leer el archivo.</div>
+      <div className="mt-1">Puedes cargarlo igual: quedará <span className="font-semibold">marcado como descuadrado</span> (novedad) para revisión, o revisa la jerarquía de cuentas (padres/auxiliares) y vuelve a leer el archivo — o corrige la estructura con «Ajustar estructura del archivo».</div>
     </div>
   );
 }
@@ -333,7 +684,7 @@ function CuadreBanner({ c }: { c: SugerenciaBalance["cuadre"] }) {
  * TODO el movimiento en una tabla scrollable. Nada se ha cargado todavía.
  */
 function BorradorBalance({ sug }: { sug: SugerenciaBalance }) {
-  const v = sug.validacion;
+  const v = sug.render.validacion;
   if (!v) return null;
   const ecOk = v.ecuacionCuadra;
   return (
@@ -358,7 +709,7 @@ function BorradorBalance({ sug }: { sug: SugerenciaBalance }) {
       </div>
 
       {/* Movimiento completo en borrador */}
-      <DetalleMovimiento cuentas={sug.importReady} />
+      <DetalleMovimiento cuentas={sug.render.importReady} />
     </div>
   );
 }
@@ -391,7 +742,7 @@ function MiniDato({ k, v }: { k: string; v: number }) {
 }
 
 /** Tabla scrollable con TODAS las cuentas de movimiento del borrador. */
-function DetalleMovimiento({ cuentas }: { cuentas: SugerenciaBalance["importReady"] }) {
+function DetalleMovimiento({ cuentas }: { cuentas: SugerenciaBalance["render"]["importReady"] }) {
   return (
     <div className="flex flex-col gap-1.5">
       <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">Movimiento en borrador · {cuentas.length} cuenta(s)</div>
@@ -461,19 +812,20 @@ function AuditPanel({ audit, auditando }: { audit: AuditoriaCarga | null; audita
 }
 
 function SugerenciaResumen({ sug }: { sug: SugerenciaBalance }) {
+  const p = sug.payload;
   return (
     <div className="rounded-md border border-ink-150 bg-ink-50 px-3 py-2.5">
       <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Lo que detecté en el archivo</div>
       <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[12px] text-ink-600 sm:grid-cols-3">
-        <Linea k="NIT" v={`${sug.nitDetectado ?? "—"} (${sug.nitFuente.toLowerCase()})`} />
-        <Linea k="Período" v={`${sug.periodoInicial ?? "?"} → ${sug.periodoFinal ?? "?"}`} />
-        <Linea k="Movimiento (hojas)" v={String(sug.cuentasMovimiento)} />
-        <Linea k="Agrupadoras" v={String(sug.cuentasAgrupadoras)} />
-        <Linea k="Importables" v={String(sug.cuentas)} />
-        <Linea k="Excluidas" v={String(sug.filasExcluidas)} />
-        <Linea k="Descuadres" v={String(sug.filasDescuadre)} />
-        <Linea k="Tipo" v={sug.estandar} />
-        <Linea k="Signo crédito" v={sug.convencionCredito} />
+        <Linea k="NIT" v={`${p.nitDetectado ?? "—"} (${p.nitFuente.toLowerCase()})`} />
+        <Linea k="Período" v={`${p.periodoInicial ?? "?"} → ${p.periodoFinal ?? "?"}`} />
+        <Linea k="Movimiento (hojas)" v={String(p.cuentasMovimiento)} />
+        <Linea k="Agrupadoras" v={String(p.cuentasAgrupadoras)} />
+        <Linea k="Importables" v={String(p.cuentas)} />
+        <Linea k="Excluidas" v={String(p.filasExcluidas)} />
+        <Linea k="Descuadres" v={String(p.filasDescuadre)} />
+        <Linea k="Tipo" v={p.estandar} />
+        <Linea k="Signo crédito" v={p.convencionCredito} />
       </div>
     </div>
   );
@@ -526,7 +878,7 @@ function ResultadoOk({ resumen, excepciones, onClose }: { resumen: Resumen; exce
 function ExcepcionesTabla({ excepciones }: { excepciones: Excepcion[] }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="text-[11.5px] font-semibold text-warn-700">{excepciones.length} excepción(es) — filas/datos que la IA marcó para revisar:</span>
+      <span className="text-[11.5px] font-semibold text-warn-700">{excepciones.length} excepción(es) — filas/datos que la lectura marcó para revisar:</span>
       <div className="max-h-60 overflow-y-auto rounded-md border border-ink-150">
         <table className="w-full text-[11.5px]">
           <thead className="sticky top-0 bg-ink-50 text-ink-500">

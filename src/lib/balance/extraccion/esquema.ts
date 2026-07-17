@@ -100,6 +100,21 @@ export const MappingSpecSchema = z.object({
 });
 export type MappingSpec = z.infer<typeof MappingSpecSchema>;
 
+// Subconjunto EDITABLE/PERSISTIBLE del MappingSpec: lo que el usuario puede
+// ajustar en el editor de estructura y lo que se guarda en el perfil de carga
+// del cliente (los metadatos de una corrida —confianza, excepciones, notas,
+// NIT/período— NO forman parte del layout).
+export const SpecCargaSchema = MappingSpecSchema.pick({
+  hoja: true,
+  filaEncabezado: true,
+  primeraFilaDatos: true,
+  columnas: true,
+  signoCredito: true,
+  reglaDetalle: true,
+  agregarPorTercero: true,
+});
+export type SpecCarga = z.infer<typeof SpecCargaSchema>;
+
 // Una fila ya normalizada (columnas del prompt, sin NIT/periodo que son del cabecera).
 export const FilaExtraidaSchema = z.object({
   cuenta: z.string(),

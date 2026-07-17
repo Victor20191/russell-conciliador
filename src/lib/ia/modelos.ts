@@ -1,4 +1,5 @@
 import "server-only";
+import { MODELO_EXTRACCION } from "@/lib/anthropic";
 
 // Capa de configuración de modelos: abstrae los IDs de modelo tras roles, porque
 // los proveedores deprecan modelos con frecuencia. Cambiar de modelo = cambiar
@@ -30,3 +31,23 @@ export const CASCADA_MAPEO: { modelo: string; umbralEscalar: number }[] = [
   { modelo: MODELOS.estandar, umbralEscalar: UMBRAL_COMPLEJO },
   { modelo: MODELOS.complejo, umbralEscalar: 0 }, // último tier: no escala más
 ];
+
+// ---------------- Cascada de EXTRACCIÓN de estructura (tabular) ----------------
+//
+// El modo ESTRUCTURA solo devuelve el mapa de columnas del archivo (~20 campos),
+// una tarea que un modelo medio resuelve casi siempre: se intenta primero con
+// Sonnet (además su mínimo de caché de 2048 tokens SÍ deja cachear el prompt de
+// sistema, ~2,5K tokens) y se escala a Opus solo si la confianza queda bajo el
+// umbral, el spec dice «no importable» o la transformación no cuadra. Los
+// PERFILES guardados por cliente cortan ANTES de esta cascada (0 llamadas).
+// La extracción DIRECTA de PDF/texto no cascadea: siempre `MODELO_EXTRACCION`.
+export const MODELO_EXTRACCION_RAPIDA = process.env.ANTHROPIC_MODELO_EXTRACCION_RAPIDA ?? "claude-sonnet-4-6";
+
+// Umbral de `confianza` (0..1) del spec para aceptar el intento del tier rápido.
+export const UMBRAL_CONFIANZA_EXTRACCION = Number(process.env.ANTHROPIC_UMBRAL_EXTRACCION ?? 0.75);
+
+// Se filtran tiers duplicados por si `ANTHROPIC_MODEL` apunta al mismo modelo rápido.
+export const CASCADA_EXTRACCION: { modelo: string; umbralConfianza: number }[] = [
+  { modelo: MODELO_EXTRACCION_RAPIDA, umbralConfianza: UMBRAL_CONFIANZA_EXTRACCION },
+  { modelo: MODELO_EXTRACCION, umbralConfianza: 0 }, // último tier: no escala más
+].filter((tier, i, todos) => todos.findIndex((t) => t.modelo === tier.modelo) === i);
