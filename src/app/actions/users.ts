@@ -260,7 +260,7 @@ export async function updateUser(
 
     const before = await prisma.user.findUnique({
       where: { id: parsed.data.id },
-      select: { active: true, role: true },
+      select: { active: true, role: true, avatarKey: true },
     });
     if (before?.role === ROL_SUPERADMINISTRADOR && authz.role !== ROL_SUPERADMINISTRADOR) {
       return { ok: false, message: "Solo un Superadministrador puede editar esa cuenta." };
@@ -295,6 +295,9 @@ export async function updateUser(
     const superioresValidos = await validarSuperiores(parsed.data.role, superiores.superiorIds);
     if (!superioresValidos.ok) return { ok: false, message: superioresValidos.message };
 
+    const fotoPreparada = await prepararFotoUsuario(formData);
+    if (!fotoPreparada.ok) return { ok: false, message: fotoPreparada.message };
+
     // Contraseña opcional: si viene, se restablece junto con los demás datos
     // (forzando cambio en el próximo ingreso y limpiando bloqueos).
     const resetPassword = parsed.data.password
@@ -310,52 +313,81 @@ export async function updateUser(
       (before?.active && !parsed.data.active) || parsed.data.password
         ? { sessionVersion: { increment: 1 } }
         : {};
-    await prisma.$transaction(async (tx) => {
-      await tx.user.update({
-        where: { id: parsed.data.id },
-        data: {
-          email: parsed.data.email,
-          name: parsed.data.name,
-          role: parsed.data.role,
-          active: parsed.data.active,
-          ...resetPassword,
-          ...bump,
-        },
+    const keyFotoAnterior = before?.avatarKey ?? null;
+    const keyFotoNueva = fotoPreparada.foto
+      ? keyAvatar(parsed.data.id, fotoPreparada.foto.tipo)
+      : null;
+
+    if (fotoPreparada.foto && keyFotoNueva) {
+      await subirObjeto({
+        key: keyFotoNueva,
+        cuerpo: fotoPreparada.foto.bytes,
+        contentType: fotoPreparada.foto.contentType,
       });
+    }
 
-      // Superiores directos: se reemplazan por los del formulario.
-      await tx.userHierarchy.deleteMany({ where: { subordinateId: parsed.data.id } });
-      if (superiores.superiorIds.length > 0) {
-        await tx.userHierarchy.createMany({
-          data: superiores.superiorIds.map((superiorId) => ({
-            superiorId,
-            subordinateId: parsed.data.id,
-          })),
+    try {
+      await prisma.$transaction(async (tx) => {
+        await tx.user.update({
+          where: { id: parsed.data.id },
+          data: {
+            email: parsed.data.email,
+            name: parsed.data.name,
+            role: parsed.data.role,
+            active: parsed.data.active,
+            ...(keyFotoNueva ? { avatarKey: keyFotoNueva } : {}),
+            ...resetPassword,
+            ...bump,
+          },
         });
-      }
 
-      // Si cambió el rol, podar las aristas donde este usuario es SUPERIOR
-      // y que dejaron de conectar roles adyacentes.
-      if (cambiaRol) {
-        const comoSuperior = await tx.userHierarchy.findMany({
-          where: { superiorId: parsed.data.id },
-          select: { id: true, subordinateId: true },
-        });
-        if (comoSuperior.length > 0) {
-          const subordinados = await tx.user.findMany({
-            where: { id: { in: comoSuperior.map((a) => a.subordinateId) } },
-            select: { id: true, role: true },
+        // Superiores directos: se reemplazan por los del formulario.
+        await tx.userHierarchy.deleteMany({ where: { subordinateId: parsed.data.id } });
+        if (superiores.superiorIds.length > 0) {
+          await tx.userHierarchy.createMany({
+            data: superiores.superiorIds.map((superiorId) => ({
+              superiorId,
+              subordinateId: parsed.data.id,
+            })),
           });
-          const rolPorId = new Map(subordinados.map((u) => [u.id, u.role]));
-          const invalidas = comoSuperior
-            .filter((a) => !esAristaValida(parsed.data.role, rolPorId.get(a.subordinateId) ?? ""))
-            .map((a) => a.id);
-          if (invalidas.length > 0) {
-            await tx.userHierarchy.deleteMany({ where: { id: { in: invalidas } } });
+        }
+
+        // Si cambió el rol, podar las aristas donde este usuario es SUPERIOR
+        // y que dejaron de conectar roles adyacentes.
+        if (cambiaRol) {
+          const comoSuperior = await tx.userHierarchy.findMany({
+            where: { superiorId: parsed.data.id },
+            select: { id: true, subordinateId: true },
+          });
+          if (comoSuperior.length > 0) {
+            const subordinados = await tx.user.findMany({
+              where: { id: { in: comoSuperior.map((a) => a.subordinateId) } },
+              select: { id: true, role: true },
+            });
+            const rolPorId = new Map(subordinados.map((u) => [u.id, u.role]));
+            const invalidas = comoSuperior
+              .filter((a) => !esAristaValida(parsed.data.role, rolPorId.get(a.subordinateId) ?? ""))
+              .map((a) => a.id);
+            if (invalidas.length > 0) {
+              await tx.userHierarchy.deleteMany({ where: { id: { in: invalidas } } });
+            }
           }
         }
+      });
+    } catch (error) {
+      // Si la key cambió, la foto anterior sigue intacta y podemos compensar
+      // eliminando el objeto nuevo que la BD no alcanzó a referenciar.
+      if (keyFotoNueva && keyFotoNueva !== keyFotoAnterior) {
+        await eliminarObjeto(keyFotoNueva).catch(() => {});
       }
-    });
+      throw error;
+    }
+
+    // Tras confirmar la nueva referencia en BD, retiramos el formato anterior
+    // para no dejar objetos huérfanos cuando JPG/PNG/WEBP cambia.
+    if (keyFotoNueva && keyFotoAnterior && keyFotoAnterior !== keyFotoNueva) {
+      await eliminarObjeto(keyFotoAnterior).catch(() => {});
+    }
 
     const actor = await getCurrentUser();
     await logAudit({
@@ -364,7 +396,7 @@ export async function updateUser(
       entity: String(parsed.data.id),
       detail: `${parsed.data.email} · ${parsed.data.role} · ${
         parsed.data.active ? "activo" : "inactivo"
-      } · superiores: ${superiores.superiorIds.length}${parsed.data.password ? " · contraseña restablecida" : ""}`,
+      } · superiores: ${superiores.superiorIds.length}${parsed.data.password ? " · contraseña restablecida" : ""}${fotoPreparada.foto ? " · foto reemplazada" : ""}`,
     });
     revalidatePath(PATH);
     return { ok: true };
