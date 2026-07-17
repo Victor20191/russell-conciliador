@@ -7,6 +7,7 @@ import BalanceIndexClient, {
   type PeriodRow,
   type AuditRow,
 } from "./balance-index-client";
+import { fmtDateTime } from "@/lib/format";
 
 export default async function BalancePage() {
   await requirePermiso("balance:ver");
@@ -60,13 +61,13 @@ export default async function BalancePage() {
     g.periodTs.set(b.periodo, Math.max(g.periodTs.get(b.periodo) ?? 0, ts));
     let p = g.periods.get(b.periodo);
     if (!p) {
-      p = { period: b.periodo, versions: 0, official: null, officialId: null, status: b.estado, complete: b.completitud, lastUpload: b.ultimaCarga ?? "", mapped: b.mapeadas, unmapped: b.sinMapear, total: b.filasTotales };
+      p = { period: b.periodo, versions: 0, official: null, officialId: null, status: b.estado, complete: b.completitud, lastUpload: b.ultimaCarga ? fmtDateTime(b.ultimaCarga) : "", mapped: b.mapeadas, unmapped: b.sinMapear, total: b.filasTotales };
       g.periods.set(b.periodo, p);
     }
     p.versions += 1;
     if (!p.officialId) p.officialId = b.id; // fallback si ninguna fila es oficial
     if (b.esOficial) {
-      p.official = b.version; p.officialId = b.id; p.status = b.estado; p.complete = b.completitud; p.lastUpload = b.ultimaCarga ?? p.lastUpload;
+      p.official = b.version; p.officialId = b.id; p.status = b.estado; p.complete = b.completitud; p.lastUpload = b.ultimaCarga ? fmtDateTime(b.ultimaCarga) : p.lastUpload;
       p.mapped = b.mapeadas; p.unmapped = b.sinMapear; p.total = b.filasTotales; // mapeo de la versión oficial del período
     }
   }

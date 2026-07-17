@@ -39,6 +39,7 @@ import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { PrismaClient } from "../src/generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { fechaColombiaISO } from "../src/lib/fecha-hora";
 
 // ---------- Tipos ----------
 
@@ -207,10 +208,11 @@ function leerCommits(): Commit[] {
     .filter((reg) => reg.trim() !== "")
     .map((reg) => {
       const [full, short, aIso, subject, body] = reg.split(US);
+      const instanteAutor = new Date(aIso ?? "");
       return {
         full: full ?? "",
         short: short ?? "",
-        fecha: (aIso ?? "").slice(0, 10),
+        fecha: Number.isNaN(instanteAutor.getTime()) ? "" : fechaColombiaISO(instanteAutor),
         subject: subject ?? "",
         body: (body ?? "").trim(),
       };

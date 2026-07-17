@@ -19,6 +19,7 @@ import {
   MESES_RETENCION_DEFECTO,
   fechaCorteRetencion,
 } from "../src/lib/access-log-retencion";
+import { fechaHoraColombiaISO } from "../src/lib/fecha-hora";
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
 const prisma = new PrismaClient({ adapter });
@@ -34,7 +35,7 @@ async function main() {
 
   const corte = fechaCorteRetencion(meses, new Date());
   console.log(
-    `🧹 Purga registros_acceso (retención ${meses} meses) — corte: ${corte.toISOString()} ${APLICAR ? "(APLICANDO)" : "(dry-run: usa --aplicar para ejecutar)"}\n`,
+    `🧹 Purga registros_acceso (retención ${meses} meses) — corte Colombia: ${fechaHoraColombiaISO(corte)} ${APLICAR ? "(APLICANDO)" : "(dry-run: usa --aplicar para ejecutar)"}\n`,
   );
 
   const where = { createdAt: { lt: corte } };

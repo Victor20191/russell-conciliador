@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { authorizePermiso } from "@/lib/rbac";
 import type { DiagnosticoLectura } from "@/lib/balance/diagnostico-lectura";
+import { fechaColombiaISO, fechaHoraColombiaISO } from "@/lib/fecha-hora";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,7 +31,7 @@ export async function GET() {
   for (const f of filas) {
     const h = f.heuristicas as unknown as Huella;
     const fila: Record<string, unknown> = {
-      creadoEn: f.creadoEn.toISOString(), archivoNombre: f.archivoNombre, formato: f.formato,
+      creadoEn: fechaHoraColombiaISO(f.creadoEn), archivoNombre: f.archivoNombre, formato: f.formato,
       resultado: f.resultado, filas: f.filas, movimientos: f.movimientos,
       agrupadoras: h.agrupadoras, totales: h.totales,
       cuadradoInicial: f.cuadradoInicial, cuadradoFinal: f.cuadradoFinal,
@@ -48,7 +49,7 @@ export async function GET() {
   return new Response(body, {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="diagnostico_lectura_${new Date().toISOString().slice(0, 10)}.csv"`,
+      "Content-Disposition": `attachment; filename="diagnostico_lectura_${fechaColombiaISO()}.csv"`,
       "Cache-Control": "no-store",
     },
   });

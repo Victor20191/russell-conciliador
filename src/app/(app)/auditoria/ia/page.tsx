@@ -1,6 +1,7 @@
 import prisma from "@/lib/prisma";
 import { PageHeader, Card, StatCard, Chip } from "@/components/ui";
-import { fmt, fmtNum, MESES, MESES_LARGOS } from "@/lib/format";
+import { fmt, fmtDateTime, fmtNum, MESES_LARGOS } from "@/lib/format";
+import { inicioMesColombia, partesFechaHoraColombia } from "@/lib/fecha-hora";
 import { requirePermiso } from "@/lib/rbac";
 import { getTRM } from "@/lib/ia/trm";
 import ConsumoTabla, { type ConsumoRow } from "./consumo-tabla";
@@ -16,9 +17,6 @@ const tipoLabel = (t: string) => TIPO_LABEL[t] ?? t;
 // mismo documento, con 1 o varias llamadas).
 const TIPOS_ESCANEO = ["extraccion_tabular", "extraccion_pdf"];
 
-const p2 = (n: number) => String(n).padStart(2, "0");
-const fmtTS = (d: Date) =>
-  `${p2(d.getDate())}/${MESES[d.getMonth()]}/${d.getFullYear()} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
 const num = (v: unknown) => Number(v ?? 0);
 const normalizarNit = (nit: string | null | undefined) => {
   const limpio = String(nit ?? "").replace(/\D/g, "");
@@ -33,7 +31,8 @@ export default async function ConsumoIAPage() {
   await requirePermiso("auditoria:ia");
 
   const ahora = new Date();
-  const inicioMes = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
+  const partesAhora = partesFechaHoraColombia(ahora)!;
+  const inicioMes = inicioMesColombia(ahora);
   const whereMes = { creadoEn: { gte: inicioMes } };
 
   const [resumenMes, escaneosMes, porTipo, consumoMesCliente, totalHist, detalle, trm] = await Promise.all([
@@ -113,7 +112,7 @@ export default async function ConsumoIAPage() {
   const costoHist = num(totalHist._sum.costoCop);
   const llamadasHist = totalHist._count;
 
-  const mesLabel = `${MESES_LARGOS[ahora.getMonth()]} ${ahora.getFullYear()}`;
+  const mesLabel = `${MESES_LARGOS[partesAhora.mes - 1]} ${partesAhora.anio}`;
   const maxTipo = Math.max(1, ...porTipo.map((t) => num(t._sum.costoCop)));
   const resumenClienteMap = new Map<string, ClienteResumen>();
   for (const c of consumoMesCliente) {
@@ -129,7 +128,7 @@ export default async function ConsumoIAPage() {
 
   const rows: ConsumoRow[] = detalle.map((d) => ({
     id: d.id,
-    ts: fmtTS(d.creadoEn),
+    ts: fmtDateTime(d.creadoEn),
     tipo: tipoLabel(d.tipoOperacion),
     modelo: d.modelo,
     cliente: clienteInfo(d.clienteId, d.nitDetectado, d.archivoNombre).label,

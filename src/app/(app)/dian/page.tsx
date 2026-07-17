@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { requirePermiso } from "@/lib/rbac";
 import { PageHeader, Card, Chip } from "@/components/ui";
 import { Icon, type IconName } from "@/components/icons";
+import { fmtCalendarDate } from "@/lib/format";
 
 export default async function DianPage() {
   await requirePermiso("dian:ver");
@@ -25,7 +26,7 @@ export default async function DianPage() {
                 <Link key={p.id} href={`/dian/${p.id}`} className="flex items-center justify-between px-4 py-2.5 hover:bg-ink-50">
                   <div>
                     <div className="text-[12.5px] text-ink-800">{p.label}</div>
-                    {p.filed && <div className="text-[11px] text-ink-400">Presentado: {p.filed}</div>}
+                    {p.filed && <div className="text-[11px] text-ink-400">Presentado: {fmtCalendarDate(p.filed)}</div>}
                   </div>
                   <div className="flex items-center gap-2"><Chip label={label(p.status)} tone={tone(p.status)} /><Icon name="chev-r" size={13} className="text-ink-300" /></div>
                 </Link>

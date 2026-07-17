@@ -2,6 +2,7 @@
 // histórico acotado; los registros más antiguos que la ventana de retención se
 // purgan periódicamente (script `db:purgar:accesos`) para que la tabla no crezca
 // sin límite. Lógica PURA (sin BD), reutilizable y testeable.
+import { restarMesesColombia } from "@/lib/fecha-hora";
 
 // Meses de histórico que se conservan por defecto. Configurable por entorno
 // (ACCESS_LOG_RETENCION_MESES) en el script de purga.
@@ -12,7 +13,5 @@ export const MESES_RETENCION_DEFECTO = 18;
  * purgable. Resta `mesesRetencion` meses a `ahora` sin mutarlo.
  */
 export function fechaCorteRetencion(mesesRetencion: number, ahora: Date): Date {
-  const corte = new Date(ahora);
-  corte.setMonth(corte.getMonth() - mesesRetencion);
-  return corte;
+  return restarMesesColombia(ahora, mesesRetencion);
 }

@@ -6,7 +6,7 @@ import { authorizePermiso } from "@/lib/rbac";
 import { getMatriz, clienteDeBalance, clienteDeConciliacion } from "@/lib/rbac/contexto";
 import { tienePermiso } from "@/lib/rbac/permisos";
 import { esEntidadComentable, etiquetaEntidad } from "@/lib/comentarios";
-import { MESES } from "@/lib/format";
+import { fmtDateTime } from "@/lib/format";
 import { mensajeErrorBD, registrarError } from "@/lib/errores";
 
 // ============================================================
@@ -62,8 +62,7 @@ export type ListarResult =
 export type PublicarResult = { ok: true; comentario: ComentarioDTO } | { ok: false; message: string };
 
 function stamp(d: Date): string {
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${p(d.getDate())}/${MESES[d.getMonth()]}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  return fmtDateTime(d);
 }
 
 /** Usuarios activos cuyo ROL puede ver el módulo (candidatos a mención). */

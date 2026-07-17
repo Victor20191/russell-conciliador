@@ -8,9 +8,10 @@
 // Ejecutar:  npm run db:seed:prompts   (DESPUÉS de migrar)
 //
 // IDEMPOTENTE y NO destructivo de ediciones: en cada corrida REFRESCA
-// `predeterminado` al valor de fábrica vigente del código, pero solo escribe
-// `contenido` al CREAR la fila — si un admin ya editó el prompt, su texto se
-// conserva.
+// `predeterminado` al valor de fábrica vigente del código. `contenido` solo se
+// escribe al CREAR la fila o cuando sigue SIN editar (idéntico al valor de
+// fábrica anterior) — si un admin ya editó el prompt, su texto se conserva y
+// puede adoptar el nuevo con «Restaurar» en /config/prompts.
 // ============================================================
 
 import "dotenv/config";
@@ -25,11 +26,15 @@ async function main() {
   console.log("🌱 Seed de Prompts de IA…");
   for (const def of PROMPTS_CATALOGO) {
     const defecto = def.defecto();
+    // ¿El contenido vigente sigue siendo el de fábrica ANTERIOR (sin editar)?
+    // Si sí, se refresca también `contenido` para que el prompt nuevo entre en
+    // vigor; si el admin lo editó, su texto se conserva intacto.
+    const previa = await prisma.promptIA.findUnique({ where: { clave: def.clave }, select: { contenido: true, predeterminado: true } });
+    const sinEditar = previa != null && previa.contenido.trim() === previa.predeterminado.trim();
     const fila = await prisma.promptIA.upsert({
       where: { clave: def.clave },
       create: { clave: def.clave, contenido: defecto, predeterminado: defecto, actualizadoPor: "Sistema (seed)" },
-      // No piso `contenido` (puede estar editado); solo refresco el predeterminado.
-      update: { predeterminado: defecto },
+      update: { predeterminado: defecto, ...(sinEditar ? { contenido: defecto, actualizadoPor: "Sistema (seed)" } : {}) },
       select: { id: true, contenido: true },
     });
     const editado = fila.contenido.trim() !== defecto.trim();

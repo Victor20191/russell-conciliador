@@ -4,6 +4,7 @@ import { requirePermiso } from "@/lib/rbac";
 import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { PageHeader, BackLink } from "@/components/ui";
 import type { FilaBorrador } from "@/lib/balance/borrador";
+import { fechaCalendarioISO } from "@/lib/fecha-hora";
 import BorradorDetailClient from "./borrador-detail-client";
 
 const soloDigitos = (s: string) => (s ?? "").replace(/\D/g, "");
@@ -52,8 +53,8 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
         loteId={loteId}
         archivoNombre={lote?.archivoNombre ?? "(sin encabezado)"}
         nitDetectado={lote?.nitDetectado ?? null}
-        periodoInicial={lote?.periodoInicial ?? null}
-        periodoFinal={lote?.periodoFinal ?? null}
+        periodoInicial={lote?.periodoInicial ? fechaCalendarioISO(lote.periodoInicial) : null}
+        periodoFinal={lote?.periodoFinal ? fechaCalendarioISO(lote.periodoFinal) : null}
         filas={filas}
         clientes={clientes.map((c) => ({ id: c.id, name: c.name, nit: c.nit }))}
         clienteSugeridoId={clienteSugeridoId}

@@ -6,6 +6,7 @@ import { moduloPublicadoParaRol } from "@/lib/rbac/modulos-plataforma";
 import { getPublicacionModulos } from "@/lib/rbac/publicacion";
 import { urlAvatar } from "@/lib/avatares";
 import prisma from "@/lib/prisma";
+import { fmtDateTime } from "@/lib/format";
 
 export default async function AppLayout({
   children,
@@ -50,7 +51,15 @@ export default async function AppLayout({
       permisos={permisos}
       modulosVisibles={modulosVisibles}
       modulosEnDesarrollo={modulosEnDesarrollo}
-      notifications={notifications}
+      notifications={notifications.map((n) => ({
+        id: n.id,
+        kind: n.kind,
+        who: n.who,
+        text: n.text,
+        target: n.target,
+        time: fmtDateTime(n.createdAt),
+        unread: n.unread,
+      }))}
     >
       {children}
     </AppShell>

@@ -1,6 +1,7 @@
 // Helpers PUROS del módulo de Novedades (sin React, sin Prisma, sin BD):
 // formato del changelog / control de versiones. Determinista y testeable en
 // aislamiento (ver format.test.ts). La UI (page/cliente) y el seed los reusan.
+import { inicioDiaColombiaDesdeISO } from "@/lib/fecha-hora";
 
 // Tonos válidos del componente Chip (src/components/ui.tsx).
 export type Tono = "ok" | "warn" | "err" | "ink" | "blue" | "ai";
@@ -89,8 +90,14 @@ function fechaEfectivaVersion(v: {
   createdAt: string;
 }): number {
   const dev = /^dev-(\d{4}-\d{2}-\d{2})$/.exec(v.number);
-  const t = new Date(dev ? dev[1] : (v.releasedAt ?? v.createdAt)).getTime();
-  return Number.isNaN(t) ? 0 : t;
+  try {
+    const t = dev
+      ? inicioDiaColombiaDesdeISO(dev[1]).getTime()
+      : new Date(v.releasedAt ?? v.createdAt).getTime();
+    return Number.isNaN(t) ? 0 : t;
+  } catch {
+    return 0;
+  }
 }
 
 /**

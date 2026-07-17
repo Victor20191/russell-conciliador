@@ -3,7 +3,7 @@ import prisma from "@/lib/prisma";
 import { requirePermiso } from "@/lib/rbac";
 import { PageHeader, StatCard, BackLink, EmptyState } from "@/components/ui";
 import { Icon } from "@/components/icons";
-import { fmtCompact, fmtPct } from "@/lib/format";
+import { fmtCalendarDate, fmtCompact, fmtDateTime, fmtPct } from "@/lib/format";
 import DianDetailClient, { type Section, type Mapping, type Comment } from "./dian-detail-client";
 import { parseId } from "@/lib/ids";
 
@@ -26,7 +26,15 @@ export default async function DianDetailPage({ params }: { params: Promise<{ per
     lines: s.lines.map((l) => ({ k: l.k, label: l.label, decl: l.decl, cont: l.cont, diff: l.diff })),
   }));
   const mappings: Mapping[] = form.mappings.map((m) => ({ lineKey: m.lineKey, account: m.account, desc: m.desc, sign: m.sign }));
-  const comments: Comment[] = form.comments.map((c) => ({ id: c.id, lineKey: c.lineKey, who: c.who, initials: c.initials, text: c.text, time: c.time, isAI: c.isAI }));
+  const comments: Comment[] = form.comments.map((c) => ({
+    id: c.id,
+    lineKey: c.lineKey,
+    who: c.who,
+    initials: c.initials,
+    text: c.text,
+    time: `${c.isAI ? "Sugerencia automática · " : ""}${fmtDateTime(c.createdAt)}`,
+    isAI: c.isAI,
+  }));
 
   // KPIs: totales excluyendo la sección de Ingresos (ID terminada en "-ING"), igual que el prototipo.
   const totalsSecs = sections.filter((s) => !s.key.endsWith("-ING") && s.key !== "ING");
@@ -41,7 +49,7 @@ export default async function DianDetailPage({ params }: { params: Promise<{ per
       <div className="mb-3"><BackLink href="/dian" label="Impuestos · DIAN" /></div>
       <PageHeader
         title={`${form.name} · ${period.label}`}
-        subtitle={`Inversiones del Pacífico S.A.S · NIT 900.451.227-3${period.filed ? ` · Declaración presentada ${period.filed}` : ""}`}
+        subtitle={`Inversiones del Pacífico S.A.S · NIT 900.451.227-3${period.filed ? ` · Declaración presentada ${fmtCalendarDate(period.filed)}` : ""}`}
         actions={
           <div className="flex items-center gap-2">
             <button disabled title="Exportación — fase posterior" className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-md bg-ink-100 px-2.5 py-2 text-[12px] font-semibold text-ink-400"><Icon name="download" size={13} /> Excel</button>

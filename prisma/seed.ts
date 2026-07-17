@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { PrismaClient } from "../src/generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import pucMaster from "./data/puc-maestro-russell.json";
+import { fechaCalendarioPrisma } from "../src/lib/fecha-hora";
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
 const prisma = new PrismaClient({ adapter });
@@ -155,12 +156,12 @@ async function main() {
   // ---- Conciliaciones recientes ----
   await prisma.reconciliation.createMany({
     data: [
-      { code: "REC-2026-0418", clientName: "Distribuciones El Roble S.A.", module: "Inventarios", period: "Feb 2026", erp: "SIIGO", status: "OK", diff: "$ 0", items: 0, date: "22/Abr/2026", owner: "M. Bermúdez" },
-      { code: "REC-2026-0412", clientName: "Agroindustrias del Cauca Ltda.", module: "Cartera", period: "Mar 2026", erp: "SIIGO", status: "DIFF", diff: "$ 4.218.500", items: 7, date: "21/Abr/2026", owner: "J. Rincón", lastActivity: "hace 2 h" },
-      { code: "REC-2026-0407", clientName: "Logística Andina Express S.A.", module: "Cuentas por pagar", period: "Mar 2026", erp: "SAP", status: "DIFF", diff: "$ 12.044.180", items: 18, date: "20/Abr/2026", owner: "C. Aristizábal", lastActivity: "hoy 09:40" },
-      { code: "REC-2026-0403", clientName: "Inversiones del Pacífico S.A.S", module: "Cartera", period: "Mar 2026", erp: "SIESA", status: "REVIEW", diff: "$ 805.220", items: 3, date: "18/Abr/2026", owner: "J. Rincón", lastActivity: "ayer 17:12" },
-      { code: "REC-2026-0398", clientName: "Servicios Médicos Vital IPS", module: "Nómina", period: "Mar 2026", erp: "SIESA", status: "OK", diff: "$ 0", items: 0, date: "16/Abr/2026", owner: "M. Bermúdez" },
-      { code: "REC-2026-0394", clientName: "Constructora Río Verde S.A.S", module: "Activos fijos", period: "Feb 2026", erp: "OFIMATICA", status: "DIFF", diff: "$ 1.450.000", items: 2, date: "15/Abr/2026", owner: "C. Aristizábal" },
+      { code: "REC-2026-0418", clientName: "Distribuciones El Roble S.A.", module: "Inventarios", period: "Feb 2026", erp: "SIIGO", status: "OK", diff: "$ 0", items: 0, owner: "M. Bermúdez", createdAt: new Date("2026-04-22T12:00:00-05:00") },
+      { code: "REC-2026-0412", clientName: "Agroindustrias del Cauca Ltda.", module: "Cartera", period: "Mar 2026", erp: "SIIGO", status: "DIFF", diff: "$ 4.218.500", items: 7, owner: "J. Rincón", lastActivity: new Date("2026-04-21T16:00:00-05:00"), createdAt: new Date("2026-04-21T12:00:00-05:00") },
+      { code: "REC-2026-0407", clientName: "Logística Andina Express S.A.", module: "Cuentas por pagar", period: "Mar 2026", erp: "SAP", status: "DIFF", diff: "$ 12.044.180", items: 18, owner: "C. Aristizábal", lastActivity: new Date("2026-04-20T09:40:00-05:00"), createdAt: new Date("2026-04-20T09:00:00-05:00") },
+      { code: "REC-2026-0403", clientName: "Inversiones del Pacífico S.A.S", module: "Cartera", period: "Mar 2026", erp: "SIESA", status: "REVIEW", diff: "$ 805.220", items: 3, owner: "J. Rincón", lastActivity: new Date("2026-04-18T17:12:00-05:00"), createdAt: new Date("2026-04-18T12:00:00-05:00") },
+      { code: "REC-2026-0398", clientName: "Servicios Médicos Vital IPS", module: "Nómina", period: "Mar 2026", erp: "SIESA", status: "OK", diff: "$ 0", items: 0, owner: "M. Bermúdez", createdAt: new Date("2026-04-16T12:00:00-05:00") },
+      { code: "REC-2026-0394", clientName: "Constructora Río Verde S.A.S", module: "Activos fijos", period: "Feb 2026", erp: "OFIMATICA", status: "DIFF", diff: "$ 1.450.000", items: 2, owner: "C. Aristizábal", createdAt: new Date("2026-04-15T12:00:00-05:00") },
     ],
   });
 
@@ -169,12 +170,12 @@ async function main() {
   // ---- Auditoría ----
   await prisma.auditEntry.createMany({
     data: [
-      { ts: "03/May/2026 09:14:22", user: "Juliana Rincón", action: "EJECUTÓ", entity: "Cruce REC-2026-0431", detail: "Inventarios · Inversiones del Pacífico · Marzo 2026", ip: "190.85.241.18" },
-      { ts: "03/May/2026 09:13:48", user: "Juliana Rincón", action: "GUARDÓ MAPEO", entity: "Cuentas (Inventarios)", detail: "7 cuentas auto, 1 reasignada por similitud, 1 sin mapeo", ip: "190.85.241.18" },
-      { ts: "03/May/2026 09:11:02", user: "Juliana Rincón", action: "GUARDÓ MAPEO", entity: "Campos (Inventarios)", detail: "10 de 10 campos requeridos cubiertos", ip: "190.85.241.18" },
-      { ts: "03/May/2026 09:08:17", user: "Juliana Rincón", action: "CARGÓ ARCHIVO", entity: "INV_PACIFICO_MAR2026.xlsx", detail: "4.821 filas · 12 columnas · 1,4 MB", ip: "190.85.241.18" },
-      { ts: "03/May/2026 09:07:55", user: "Juliana Rincón", action: "INICIÓ", entity: "Parametrización", detail: "Cliente C-1042 · Módulo Inventarios", ip: "190.85.241.18" },
-      { ts: "02/May/2026 17:41:09", user: "María Bermúdez", action: "ASIGNÓ", entity: "REC-2026-0431", detail: "Asignado a Juliana Rincón con prioridad media", ip: "interno" },
+      { createdAt: new Date("2026-05-03T09:14:22-05:00"), user: "Juliana Rincón", action: "EJECUTÓ", entity: "Cruce REC-2026-0431", detail: "Inventarios · Inversiones del Pacífico · Marzo 2026", ip: "190.85.241.18" },
+      { createdAt: new Date("2026-05-03T09:13:48-05:00"), user: "Juliana Rincón", action: "GUARDÓ MAPEO", entity: "Cuentas (Inventarios)", detail: "7 cuentas auto, 1 reasignada por similitud, 1 sin mapeo", ip: "190.85.241.18" },
+      { createdAt: new Date("2026-05-03T09:11:02-05:00"), user: "Juliana Rincón", action: "GUARDÓ MAPEO", entity: "Campos (Inventarios)", detail: "10 de 10 campos requeridos cubiertos", ip: "190.85.241.18" },
+      { createdAt: new Date("2026-05-03T09:08:17-05:00"), user: "Juliana Rincón", action: "CARGÓ ARCHIVO", entity: "INV_PACIFICO_MAR2026.xlsx", detail: "4.821 filas · 12 columnas · 1,4 MB", ip: "190.85.241.18" },
+      { createdAt: new Date("2026-05-03T09:07:55-05:00"), user: "Juliana Rincón", action: "INICIÓ", entity: "Parametrización", detail: "Cliente C-1042 · Módulo Inventarios", ip: "190.85.241.18" },
+      { createdAt: new Date("2026-05-02T17:41:09-05:00"), user: "María Bermúdez", action: "ASIGNÓ", entity: "REC-2026-0431", detail: "Asignado a Juliana Rincón con prioridad media", ip: "interno" },
     ],
   });
 
@@ -190,18 +191,18 @@ async function main() {
   // ---- DIAN ----
   const forms = [
     { key: "IVA", name: "IVA", code: "F-300", periodicity: "Bimestral", icon: "doc", periods: [
-      { periodKey: "2026-B5", label: "Bimestre 5 · Sep-Oct 2026", status: "DIFF", filed: "15/Nov/2026" },
-      { periodKey: "2026-B4", label: "Bimestre 4 · Jul-Ago 2026", status: "OK", filed: "15/Sep/2026" },
-      { periodKey: "2026-B3", label: "Bimestre 3 · May-Jun 2026", status: "OK", filed: "15/Jul/2026" },
-      { periodKey: "2026-B2", label: "Bimestre 2 · Mar-Abr 2026", status: "DIFF", filed: "15/May/2026" },
-      { periodKey: "2026-B1", label: "Bimestre 1 · Ene-Feb 2026", status: "OK", filed: "15/Mar/2026" },
+      { periodKey: "2026-B5", label: "Bimestre 5 · Sep-Oct 2026", status: "DIFF", filed: fechaCalendarioPrisma("2026-11-15") },
+      { periodKey: "2026-B4", label: "Bimestre 4 · Jul-Ago 2026", status: "OK", filed: fechaCalendarioPrisma("2026-09-15") },
+      { periodKey: "2026-B3", label: "Bimestre 3 · May-Jun 2026", status: "OK", filed: fechaCalendarioPrisma("2026-07-15") },
+      { periodKey: "2026-B2", label: "Bimestre 2 · Mar-Abr 2026", status: "DIFF", filed: fechaCalendarioPrisma("2026-05-15") },
+      { periodKey: "2026-B1", label: "Bimestre 1 · Ene-Feb 2026", status: "OK", filed: fechaCalendarioPrisma("2026-03-15") },
     ] },
     { key: "RETEFUENTE", name: "Retención en la fuente", code: "F-350", periodicity: "Mensual", icon: "wallet", periods: [
-      { periodKey: "2026-10", label: "Octubre 2026", status: "OK", filed: "08/Nov/2026" },
-      { periodKey: "2026-09", label: "Septiembre 2026", status: "OK", filed: "08/Oct/2026" },
-      { periodKey: "2026-08", label: "Agosto 2026", status: "OK", filed: "08/Sep/2026" },
-      { periodKey: "2026-07", label: "Julio 2026", status: "DIFF", filed: "08/Ago/2026" },
-      { periodKey: "2026-06", label: "Junio 2026", status: "OK", filed: "08/Jul/2026" },
+      { periodKey: "2026-10", label: "Octubre 2026", status: "OK", filed: fechaCalendarioPrisma("2026-11-08") },
+      { periodKey: "2026-09", label: "Septiembre 2026", status: "OK", filed: fechaCalendarioPrisma("2026-10-08") },
+      { periodKey: "2026-08", label: "Agosto 2026", status: "OK", filed: fechaCalendarioPrisma("2026-09-08") },
+      { periodKey: "2026-07", label: "Julio 2026", status: "DIFF", filed: fechaCalendarioPrisma("2026-08-08") },
+      { periodKey: "2026-06", label: "Junio 2026", status: "OK", filed: fechaCalendarioPrisma("2026-07-08") },
     ] },
     { key: "ICA", name: "ICA", code: "F-CHIP", periodicity: "Bimestral", icon: "chart", periods: [
       { periodKey: "2026-B5", label: "Bimestre 5 · Sep-Oct 2026", status: "PEND", filed: null },
@@ -312,14 +313,15 @@ async function main() {
     data: {
       code: "REC-2026-0431", clientName: "Inversiones del Pacífico S.A.S", module: "Inventarios",
       period: "Marzo 2026", erp: "SIESA", status: "REVIEW", diff: "-$ 6.097.050", items: 4,
-      date: "03/May/2026", owner: "J. Rincón", cutoff: "31/Mar/2026", runAt: "03/May/2026 09:14",
-      runBy: "Juliana Rincón", materiality: 2000000, lastActivity: "hace 12 min",
+      owner: "J. Rincón", cutoff: fechaCalendarioPrisma("2026-03-31"), runAt: new Date("2026-05-03T09:14:00-05:00"),
+      runBy: "Juliana Rincón", materiality: 2000000, lastActivity: new Date("2026-05-03T09:23:00-05:00"),
+      createdAt: new Date("2026-05-03T09:14:00-05:00"),
       rows: { create: crossRows.map(([cuenta, desc, cont, mod, diff, items], i) => ({ cuenta, desc, cont, mod, diff, items, order: i })) },
       comments: {
         create: [
-          { cuenta: "143515", who: "Carlos Aristizábal", initials: "CA", time: "hace 38 min", text: "La diferencia de $ 1.364.850 corresponde a una orden de producción que el ERP cerró el 01/Abr pero en contabilidad quedó del período. Verificar con planta." },
-          { cuenta: "143515", who: "Juliana Rincón", initials: "JR", time: "hace 21 min", text: "Confirmado con Andrea (planta). Se reclasifica para abril. Marco como observación cerrada al recibir el ajuste contable." },
-          { cuenta: "143524", who: "Juliana Rincón", initials: "JR", time: "hace 8 min", text: "Diferencia material — $ 4.900.000. Pendiente conciliar con kárdex de bodega 02 (sur). Solicito a María revisión." },
+          { cuenta: "143515", who: "Carlos Aristizábal", initials: "CA", createdAt: new Date("2026-05-03T08:45:00-05:00"), text: "La diferencia de $ 1.364.850 corresponde a una orden de producción que el ERP cerró el 01/Abr pero en contabilidad quedó del período. Verificar con planta." },
+          { cuenta: "143515", who: "Juliana Rincón", initials: "JR", createdAt: new Date("2026-05-03T09:02:00-05:00"), text: "Confirmado con Andrea (planta). Se reclasifica para abril. Marco como observación cerrada al recibir el ajuste contable." },
+          { cuenta: "143524", who: "Juliana Rincón", initials: "JR", createdAt: new Date("2026-05-03T09:15:00-05:00"), text: "Diferencia material — $ 4.900.000. Pendiente conciliar con kárdex de bodega 02 (sur). Solicito a María revisión." },
         ],
       },
     },
@@ -421,11 +423,11 @@ async function main() {
   // ---- Comentarios por renglón (IVA) ----
   await prisma.dianComment.createMany({
     data: [
-      { formId: formIdByKey.get("IVA")!, lineKey: "DES-IMG", who: "IA", initials: "IA", isAI: true, time: "sugerencia automática", text: "La diferencia de $352.915 representa el 0,03% del valor declarado. Posibles causas: IVA descontable de importaciones del cierre de octubre con DIAN del primer día hábil de noviembre, o reclasificación de tarifa entre 5% y general. Verificar la planilla de importaciones del último decadario." },
-      { formId: formIdByKey.get("IVA")!, lineKey: "DES-CB5", who: "IA", initials: "IA", isAI: true, time: "sugerencia automática", text: "Diferencia material ($156.428). Patrón típico: facturas de proveedores recibidas después del corte pero registradas dentro del bimestre. Validar con el reporte de causación posterior." },
-      { formId: formIdByKey.get("IVA")!, lineKey: "ING-G5", who: "Carlos Aristizábal", initials: "CA", time: "hace 1 día", text: "Esta diferencia corresponde a facturación de septiembre que ya causó IVA; se realizó devolución y se refacturó." },
-      { formId: formIdByKey.get("IVA")!, lineKey: "ING-G5", who: "Juliana Rincón", initials: "JR", time: "hace 6 h", text: "Confirmado con comercial. La devolución NC-2026-1842 explica los $13.500.000. Se reclasifica como diferencia de oportunidad — no implica ajuste a la declaración." },
-      { formId: formIdByKey.get("IVA")!, lineKey: "ING-LIC", who: "IA", initials: "IA", isAI: true, time: "sugerencia automática", text: "Diferencia de $13.499.973. Mismo patrón que el renglón al 5% — probablemente comparten origen (devolución y refacturación de septiembre). Validar trazabilidad." },
+      { formId: formIdByKey.get("IVA")!, lineKey: "DES-IMG", who: "IA", initials: "IA", isAI: true, createdAt: new Date("2026-05-03T08:00:00-05:00"), text: "La diferencia de $352.915 representa el 0,03% del valor declarado. Posibles causas: IVA descontable de importaciones del cierre de octubre con DIAN del primer día hábil de noviembre, o reclasificación de tarifa entre 5% y general. Verificar la planilla de importaciones del último decadario." },
+      { formId: formIdByKey.get("IVA")!, lineKey: "DES-CB5", who: "IA", initials: "IA", isAI: true, createdAt: new Date("2026-05-03T08:05:00-05:00"), text: "Diferencia material ($156.428). Patrón típico: facturas de proveedores recibidas después del corte pero registradas dentro del bimestre. Validar con el reporte de causación posterior." },
+      { formId: formIdByKey.get("IVA")!, lineKey: "ING-G5", who: "Carlos Aristizábal", initials: "CA", createdAt: new Date("2026-05-02T11:00:00-05:00"), text: "Esta diferencia corresponde a facturación de septiembre que ya causó IVA; se realizó devolución y se refacturó." },
+      { formId: formIdByKey.get("IVA")!, lineKey: "ING-G5", who: "Juliana Rincón", initials: "JR", createdAt: new Date("2026-05-03T03:00:00-05:00"), text: "Confirmado con comercial. La devolución NC-2026-1842 explica los $13.500.000. Se reclasifica como diferencia de oportunidad — no implica ajuste a la declaración." },
+      { formId: formIdByKey.get("IVA")!, lineKey: "ING-LIC", who: "IA", initials: "IA", isAI: true, createdAt: new Date("2026-05-03T08:10:00-05:00"), text: "Diferencia de $13.499.973. Mismo patrón que el renglón al 5% — probablemente comparten origen (devolución y refacturación de septiembre). Validar trazabilidad." },
     ],
   });
 

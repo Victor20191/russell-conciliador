@@ -4,7 +4,7 @@ import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import { clientIdPorNombre } from "@/lib/rbac/contexto";
 import { PageHeader, StatCard, BackLink, EmptyState } from "@/components/ui";
 import { Icon } from "@/components/icons";
-import { fmtCompact, fmtPct } from "@/lib/format";
+import { fmtCalendarDate, fmtCompact, fmtDateTime, fmtPct } from "@/lib/format";
 import CruceClient, { type Row, type Comment } from "./cruce-client";
 import Conversacion from "@/components/conversacion";
 import { parseId } from "@/lib/ids";
@@ -39,7 +39,7 @@ export default async function CruceDetailPage({
   const puedeEditar = (await authorizePermiso("conciliaciones:editar", { clientId })).ok;
 
   const rows: Row[] = rec.rows.map((r) => ({ id: r.id, cuenta: r.cuenta, desc: r.desc, cont: r.cont, mod: r.mod, diff: r.diff, items: r.items, manualStatus: r.manualStatus }));
-  const comments: Comment[] = rec.comments.map((c) => ({ id: c.id, cuenta: c.cuenta, who: c.who, initials: c.initials, text: c.text, time: c.time }));
+  const comments: Comment[] = rec.comments.map((c) => ({ id: c.id, cuenta: c.cuenta, who: c.who, initials: c.initials, text: c.text, time: fmtDateTime(c.createdAt) }));
 
   const totals = rows.reduce((t, r) => ({ cont: t.cont + r.cont, mod: t.mod + r.mod, diff: t.diff + r.diff }), { cont: 0, mod: 0, diff: 0 });
   const itemsDiff = rows.filter((r) => r.diff !== 0).length;
@@ -58,7 +58,7 @@ export default async function CruceDetailPage({
       <div className="mb-3"><BackLink href="/conciliacion/resultados" label="Resultados de conciliación" /></div>
       <PageHeader
         title={`${rec.clientName} · ${rec.module}`}
-        subtitle={`Resultado del cruce #${rec.id} · ${rec.code} · Período ${rec.period}${rec.cutoff ? ` · Corte ${rec.cutoff}` : ""} · ERP ${rec.erp}${rec.runAt ? ` · Ejecutado ${rec.runAt} por ${rec.runBy}` : ""}`}
+        subtitle={`Resultado del cruce #${rec.id} · ${rec.code} · Período ${rec.period}${rec.cutoff ? ` · Corte ${fmtCalendarDate(rec.cutoff)}` : ""} · ERP ${rec.erp}${rec.runAt ? ` · Ejecutado ${fmtDateTime(rec.runAt)} por ${rec.runBy}` : ""}`}
         actions={
           <div className="flex items-center gap-2">
             <button disabled title="Exportación — fase posterior" className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-md bg-ink-100 px-2.5 py-2 text-[12px] font-semibold text-ink-400"><Icon name="download" size={13} /> Excel</button>
