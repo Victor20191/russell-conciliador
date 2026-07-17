@@ -1,13 +1,11 @@
 import prisma from "@/lib/prisma";
 import { PageHeader, Card, StatCard, Chip } from "@/components/ui";
-import { fmtNum, MESES } from "@/lib/format";
+import { fmtDateTime, fmtNum } from "@/lib/format";
 import { requirePermiso } from "@/lib/rbac";
 import type { DiagnosticoLectura } from "@/lib/balance/diagnostico-lectura";
 
 type Huella = DiagnosticoLectura & { confianza?: number | null };
 
-const p2 = (n: number) => String(n).padStart(2, "0");
-const fmtTS = (d: Date) => `${p2(d.getDate())}/${MESES[d.getMonth()]}/${d.getFullYear()} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
 const pct = (n: number, d: number) => (d > 0 ? Math.round((100 * n) / d) : 0);
 
 // Etiqueta legible de cada señal heurística.
@@ -128,7 +126,7 @@ export default async function LecturaBalanceDiagPage() {
                   <span className="shrink-0 text-ai-600">★</span>
                   <span className="min-w-0">
                     <span className="font-medium text-ink-800">{c.sig}</span>
-                    <span className="ml-1.5 text-[11px] text-ink-400">{fmtTS(c.fecha)} · {c.archivo}</span>
+                    <span className="ml-1.5 text-[11px] text-ink-400">{fmtDateTime(c.fecha)} · {c.archivo}</span>
                   </span>
                 </li>
               ))}
@@ -159,7 +157,7 @@ export default async function LecturaBalanceDiagPage() {
                 const mano = f.manualOmitidas + f.manualReparentadas + f.manualDesacopladas;
                 return (
                   <tr key={f.id} className="border-t border-ink-100 hover:bg-ink-50/60">
-                    <td className="whitespace-nowrap px-3 py-1.5 text-ink-500">{fmtTS(f.creadoEn)}</td>
+                    <td className="whitespace-nowrap px-3 py-1.5 text-ink-500">{fmtDateTime(f.creadoEn)}</td>
                     <td className="max-w-[220px] truncate px-3 py-1.5 text-ink-800" title={f.archivoNombre}>{f.archivoNombre}</td>
                     <td className="px-3 py-1.5 text-right font-mono text-ink-600">{fmtNum(f.filas)}</td>
                     <td className="px-3 py-1.5 text-ink-500">{f.formato ?? "—"}</td>

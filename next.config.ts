@@ -1,5 +1,10 @@
 import type { NextConfig } from "next";
 
+// Next/Vercel suele ejecutar Node en UTC. La lógica de negocio usa helpers con
+// zona explícita, y este valor protege además cualquier dependencia que consulte
+// la zona local del proceso.
+process.env.TZ = "America/Bogota";
+
 const isDev = process.env.NODE_ENV !== "production";
 // TLS real del despliegue: mismo interruptor que la cookie de sesión
 // (ver src/lib/session.ts → cookieSecure). Sin HTTPS NO se emiten los headers

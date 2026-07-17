@@ -3,12 +3,13 @@ import { PageHeader } from "@/components/ui";
 import AuditoriaTabla, { type AuditoriaRow } from "./auditoria-tabla";
 import AuditoriaTabs from "./auditoria-tabs";
 import { authorizePermiso, requirePermiso } from "@/lib/rbac";
+import { fmtDateTimeSeconds } from "@/lib/format";
 
 export default async function AuditoriaPage({ searchParams }: { searchParams: Promise<{ q?: string; user?: string; action?: string }> }) {
   await requirePermiso("auditoria:ver");
   const canAccesos = (await authorizePermiso("auditoria:accesos")).ok;
   const sp = await searchParams;
-  const all = await prisma.auditEntry.findMany({ orderBy: { ts: "desc" } });
+  const all = await prisma.auditEntry.findMany({ orderBy: { createdAt: "desc" } });
 
   const users = [...new Set(all.map((e) => e.user))].sort();
   const actions = [...new Set(all.map((e) => e.action))].sort();
@@ -22,7 +23,7 @@ export default async function AuditoriaPage({ searchParams }: { searchParams: Pr
 
   const rows: AuditoriaRow[] = entries.map((e) => ({
     id: e.id,
-    ts: e.ts,
+    ts: fmtDateTimeSeconds(e.createdAt),
     user: e.user,
     action: e.action,
     entity: e.entity,

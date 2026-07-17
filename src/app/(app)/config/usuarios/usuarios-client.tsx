@@ -16,6 +16,7 @@ import { isAccountBlocked, LOGIN_MAX_ATTEMPTS } from "@/lib/login-throttle";
 import { ROL_SUPERIOR } from "@/lib/rbac/jerarquia";
 import { notifyActionState } from "@/lib/client-notifications";
 import { Avatar } from "@/components/avatar";
+import { fmtDateTimeLong } from "@/lib/format";
 import { ImportMaestrosButton } from "./import-maestros-modal";
 import { CargarFotosButton } from "./cargar-fotos-modal";
 
@@ -43,13 +44,7 @@ function userIsBlocked(user: UserRow): boolean {
 }
 
 function formatDateTime(input: string | null): string {
-  if (!input) return "—";
-  const date = new Date(input);
-  if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleString("es-CO", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
+  return fmtDateTimeLong(input);
 }
 
 function initialsFromFullName(name: string): string {

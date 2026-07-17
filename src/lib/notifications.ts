@@ -23,7 +23,6 @@ export async function createProcessNotification({
         who: actor?.trim() || "Sistema",
         text,
         target,
-        time: "ahora",
         unread: true,
       },
     });

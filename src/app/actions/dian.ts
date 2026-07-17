@@ -27,7 +27,7 @@ export async function addDianComment(formData: FormData): Promise<ActionState> {
   try {
     const user = await getCurrentUser();
     await prisma.dianComment.create({
-      data: { formId, lineKey, who: user?.name ?? "Usuario", initials: user?.initials ?? "··", text, time: "ahora" },
+      data: { formId, lineKey, who: user?.name ?? "Usuario", initials: user?.initials ?? "··", text },
     });
     await logAudit({ user: user?.name ?? "Sistema", action: "COMENTÓ", entity: `Renglón ${lineKey}`, detail: `DIAN ${formId}` });
     if (periodId) revalidatePath(`/dian/${periodId}`);
@@ -56,7 +56,7 @@ export async function requestDianAiAnalysis(formData: FormData): Promise<ActionS
 
   try {
     await prisma.dianComment.create({
-      data: { formId, lineKey, who: "IA", initials: "IA", isAI: true, time: "sugerencia automática", text },
+      data: { formId, lineKey, who: "IA", initials: "IA", isAI: true, text },
     });
     const user = await getCurrentUser();
     await logAudit({ user: user?.name ?? "Sistema", action: "PIDIÓ ANÁLISIS IA", entity: `Renglón ${lineKey}`, detail: `DIAN ${formId}` });

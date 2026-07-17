@@ -6,6 +6,7 @@ import { agruparPorRussell, agruparJerarquia } from "@/lib/balance/calcular";
 import { getCuentasEstandar } from "@/lib/balance/cuentas-estandar";
 import { crearExportacionBalance, type TipoExportBalance } from "@/lib/export/balance";
 import { mensajeErrorBD } from "@/lib/errores";
+import { fechaColombiaISO } from "@/lib/fecha-hora";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,7 +50,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     const buffer = await crearExportacionBalance({ arbol, grupos }, { cliente: balance.nombreCliente, periodo: balance.periodo, version: balance.version, generadoEn }, tipo);
     const base = balance.nombreCliente.replace(/[^\w.-]+/g, "_").slice(0, 40);
     const suf = tipo === "comparativo" ? "Comparativo" : "Homologado";
-    const nombreArchivo = `Balance_${suf}_${base}_v${balance.version}_${generadoEn.toISOString().slice(0, 10)}.xlsx`;
+    const nombreArchivo = `Balance_${suf}_${base}_v${balance.version}_${fechaColombiaISO(generadoEn)}.xlsx`;
     const body = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer;
 
     return new Response(body, {

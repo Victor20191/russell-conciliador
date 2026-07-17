@@ -1,7 +1,7 @@
 import prisma from "@/lib/prisma";
 import { requirePermiso } from "@/lib/rbac";
 import { PageHeader } from "@/components/ui";
-import { fmtDate } from "@/lib/format";
+import { fmtCalendarDate, fmtDate } from "@/lib/format";
 import BorradoresIndexClient, { type BorradorRow } from "./borradores-index-client";
 
 const soloDigitos = (s: string) => (s ?? "").replace(/\D/g, "");
@@ -38,7 +38,7 @@ export default async function BorradoresPage() {
         conEncabezado: !!h,
         nitDetectado: h?.nitDetectado ?? null,
         clienteSugerido: core.length >= 5 ? (porNit.get(core) ?? null) : null,
-        periodo: h?.periodoInicial && h?.periodoFinal ? `${h.periodoInicial} → ${h.periodoFinal}` : "—",
+        periodo: h?.periodoInicial && h?.periodoFinal ? `${fmtCalendarDate(h.periodoInicial)} → ${fmtCalendarDate(h.periodoFinal)}` : "—",
         cuentasMovimiento: movByLote.get(l.loteId) ?? h?.cuentasMovimiento ?? 0,
         cuadrado: h?.cuadrado ?? false,
         partidaDobleDiff: h ? Number(h.partidaDobleDiff) : 0,

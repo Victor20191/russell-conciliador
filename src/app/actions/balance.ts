@@ -11,7 +11,8 @@ import { parseId } from "@/lib/ids";
 import { tomarCandadoTransaccion, transaccionSerializable } from "@/lib/concurrency";
 import { createProcessNotification } from "@/lib/notifications";
 import { mensajeErrorBD, mensajeErrorIA } from "@/lib/errores";
-import { fmt, fmtDate, MESES_LARGOS } from "@/lib/format";
+import { fmt, MESES_LARGOS } from "@/lib/format";
+import { fechaCalendarioPrisma } from "@/lib/fecha-hora";
 import { ConfirmarBalanceSchema, ImportReadySchema, type ActionState } from "@/lib/definitions";
 import { firmarPayloadServidor, validarFirmaPayloadServidor } from "@/lib/server-payload";
 import { parseBalanceWorkbook, type ImportBalanceState } from "@/lib/import/balance";
@@ -104,14 +105,6 @@ function etiquetaPeriodo(inicio: string, fin: string): string {
   if (!a || !b) return `${inicio} – ${fin}`;
   const nombre = (mm: string, yyyy: string) => `${MESES_LARGOS[Number(mm) - 1] ?? mm} ${yyyy}`;
   return a[1] === b[1] && a[2] === b[2] ? nombre(b[2], b[1]) : `${nombre(a[2], a[1])} – ${nombre(b[2], b[1])}`;
-}
-
-/** Sello de fecha-hora para mostrar (p. ej. "06/Ene/2026 09:14"). */
-function sello(): string {
-  const d = new Date();
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mm = String(d.getMinutes()).padStart(2, "0");
-  return `${fmtDate(d)} ${hh}:${mm}`;
 }
 
 /** Tamaño de archivo legible (KB/MB) en es-CO. */
@@ -617,7 +610,7 @@ async function persistirCargue(p: {
 
   const alertas = calc.validations.filter((v) => v.status === "warn").length;
   const complete = calc.totalRows > 0 ? Math.round((calc.mapped / calc.totalRows) * 100) : 100;
-  const ahora = sello();
+  const ahora = new Date();
   const nota = alertas > 0 ? `${alertas} validación(es) con alerta` : "Sin alertas";
 
   const creado = await transaccionSerializable(async (tx) => {
@@ -656,7 +649,7 @@ async function persistirCargue(p: {
     const balance = await tx.balancePruebaEncabezado.create({
       data: {
         clienteId: p.clientId, nombreCliente: p.clienteName, nit: p.clienteNit,
-        periodo: p.period, periodoInicio: new Date(p.periodos.inicial), periodoFin: new Date(p.periodos.final),
+        periodo: p.period, periodoInicio: fechaCalendarioPrisma(p.periodos.inicial), periodoFin: fechaCalendarioPrisma(p.periodos.final),
         version, esOficial: false, estaCongelado: false, estado: status, completitud: complete,
         archivo: p.archivoNombre, tamanoArchivo: p.archivoTam,
         cargadoPor: p.uploadedBy, rolCarga: p.rolLabel, cuadrado: calc.balanced && calc.movimientosCuadran && !descuadreTotales, nota,
@@ -834,7 +827,8 @@ export async function leerBalance(
         loteId, clienteId: null,
         archivoNombre: archivo.name, archivoTam: tamArchivo(archivo.size),
         nitDetectado: extr.cabecera.nit.valor,
-        periodoInicial: extr.cabecera.periodoInicial.valor, periodoFinal: extr.cabecera.periodoFinal.valor,
+        periodoInicial: extr.cabecera.periodoInicial.valor ? fechaCalendarioPrisma(extr.cabecera.periodoInicial.valor) : null,
+        periodoFinal: extr.cabecera.periodoFinal.valor ? fechaCalendarioPrisma(extr.cabecera.periodoFinal.valor) : null,
         estandar: extr.cabecera.estandar, convencionCredito: extr.resumen.convencionCredito,
         cuentasMovimiento: extr.resumen.cuentasMovimiento, filasLeidas: extr.resumen.filasLeidas, filasExcluidas: extr.resumen.filasExcluidas,
         partidaDobleDiff: calcBorrador.diffMov, ecuacionDiff: calcBorrador.diffCuadre,

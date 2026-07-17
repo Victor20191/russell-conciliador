@@ -10,6 +10,7 @@
 // (Parametrizado / Pendiente / No activo) y formato DIAN (Sí / No).
 
 import ExcelJS from "exceljs";
+import { fmtDate } from "@/lib/format";
 
 /** Una fila de cliente ya resuelta para exportar (sin dependencias de Prisma). */
 export type FilaClienteExport = {
@@ -137,7 +138,7 @@ function agregarResumen(
 
   const filas: [string, string | number][] = [
     ["Reporte", "Clientes de la plataforma"],
-    ["Generado el", generadoEn.toLocaleDateString("es-CO")],
+    ["Generado el", fmtDate(generadoEn)],
     ["Total de clientes", clientes.length],
     ["", ""],
     ["Por tipo de cliente", ""],

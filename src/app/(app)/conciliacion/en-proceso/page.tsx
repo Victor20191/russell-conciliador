@@ -3,6 +3,7 @@ import { requirePermiso } from "@/lib/rbac";
 import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { PageHeader } from "@/components/ui";
 import EnProcesoTabla, { type EnProcesoRow } from "./en-proceso-tabla";
+import { fmtDateTime } from "@/lib/format";
 
 export default async function EnProcesoPage() {
   await requirePermiso("conciliaciones:ver");
@@ -22,7 +23,7 @@ export default async function EnProcesoPage() {
     module: r.module,
     period: r.period,
     status: r.status,
-    lastActivity: r.lastActivity,
+    lastActivity: r.lastActivity ? fmtDateTime(r.lastActivity) : null,
     owner: r.owner,
   }));
 

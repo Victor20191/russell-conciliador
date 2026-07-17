@@ -5,6 +5,7 @@ import { construirVistaBorrador } from "@/lib/balance/borrador-vm";
 import { aplanarArbolFiltrado, type FilaBorrador } from "@/lib/balance/borrador";
 import { crearExportacionBorrador } from "@/lib/export/borrador";
 import { mensajeErrorBD } from "@/lib/errores";
+import { fechaColombiaISO } from "@/lib/fecha-hora";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,7 +42,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ loteId: 
     const generadoEn = new Date();
     const buffer = await crearExportacionBorrador(planas, { archivo: lote?.archivoNombre ?? loteId, generadoEn, filtro });
     const base = (lote?.archivoNombre ?? loteId).replace(/\.[^.]+$/, "").replace(/[^\w.-]+/g, "_").slice(0, 60);
-    const nombreArchivo = `Borrador_${base}${filtro.length > 0 ? "_filtrado" : ""}_${generadoEn.toISOString().slice(0, 10)}.xlsx`;
+    const nombreArchivo = `Borrador_${base}${filtro.length > 0 ? "_filtrado" : ""}_${fechaColombiaISO(generadoEn)}.xlsx`;
     const body = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer;
 
     return new Response(body, {

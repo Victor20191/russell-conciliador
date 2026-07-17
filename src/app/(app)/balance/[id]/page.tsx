@@ -3,7 +3,7 @@ import prisma from "@/lib/prisma";
 import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import { PageHeader, StatCard, Chip, BackLink } from "@/components/ui";
 import { Icon } from "@/components/icons";
-import { fmt, fmtDate } from "@/lib/format";
+import { fmt, fmtDateTime } from "@/lib/format";
 import { reconstruirBalance, agruparJerarquia } from "@/lib/balance/calcular";
 import { getCuentasEstandar } from "@/lib/balance/cuentas-estandar";
 import BalanceDetailClient, {
@@ -64,7 +64,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
     select: { anchor: true, tipoAlerta: true, validadoPor: true, validadoEn: true, comment: { select: { body: true } } },
   });
   const validaciones: Record<string, { tipo: string; por: string; en: string; comentario: string }> = {};
-  for (const v of validacionesRows) validaciones[v.anchor] = { tipo: v.tipoAlerta, por: v.validadoPor ?? "—", en: fmtDate(v.validadoEn), comentario: v.comment?.body ?? "" };
+  for (const v of validacionesRows) validaciones[v.anchor] = { tipo: v.tipoAlerta, por: v.validadoPor ?? "—", en: fmtDateTime(v.validadoEn), comentario: v.comment?.body ?? "" };
   const filas = balance.detalles.map((f) => ({
     id: f.id, cuenta8: f.cuenta8, nombreCuenta: f.nombreCuenta, cuenta6Russell: f.cuenta6Russell,
     coincidencia: f.coincidencia != null ? Number(f.coincidencia) : null,
@@ -83,7 +83,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
   // Bitácora de versiones: los encabezados hermanos del mismo (cliente, período)
   // (cargados arriba en paralelo con el plan estándar).
   const versions: Version[] = hermanos.map((h) => ({
-    v: h.version, date: h.ultimaCarga ?? "—", uploadedBy: h.cargadoPor ?? "—", role: h.rolCarga ?? "—",
+    v: h.version, date: h.ultimaCarga ? fmtDateTime(h.ultimaCarga) : "—", uploadedBy: h.cargadoPor ?? "—", role: h.rolCarga ?? "—",
     file: h.archivo ?? "—", size: h.tamanoArchivo ?? "—", rows: h.filasTotales, sumA: Number(h.sumaActivo),
     balanced: h.cuadrado, note: h.nota ?? "", changes: h.cambios,
   }));
@@ -94,8 +94,8 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
   const meta: Meta = {
     rows: balance.filasTotales, mapped: balance.mapeadas, unmapped: balance.sinMapear, critical: balance.criticas,
     file: balance.archivo ?? "—", fileSize: balance.tamanoArchivo ?? "—",
-    frozenBy: balance.congeladoPor ?? "", frozenAt: balance.congeladoEn ? fmtDate(balance.congeladoEn) : "",
-    uploadedBy: balance.cargadoPor ?? "—", uploadedAt: balance.ultimaCarga ?? "—",
+    frozenBy: balance.congeladoPor ?? "", frozenAt: balance.congeladoEn ? fmtDateTime(balance.congeladoEn) : "",
+    uploadedBy: balance.cargadoPor ?? "—", uploadedAt: balance.ultimaCarga ? fmtDateTime(balance.ultimaCarga) : "—",
   };
 
   const okCount = validations.filter((v) => v.status === "ok").length;

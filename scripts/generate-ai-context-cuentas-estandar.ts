@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { mkdirSync, writeFileSync } from "node:fs";
 import prisma from "../src/lib/prisma";
+import { fechaHoraColombiaISO } from "../src/lib/fecha-hora";
 
 type AccountRow = {
   code: string;
@@ -78,7 +79,7 @@ async function main() {
 
   let md = "";
   md += "# Cuenta estandar Russell Bedford - contexto para modelos de IA\n\n";
-  md += `Generado desde la tabla PostgreSQL \`cuentas_estandar\` el ${new Date().toISOString()}.\n\n`;
+  md += `Generado desde la tabla PostgreSQL \`cuentas_estandar\` el ${fechaHoraColombiaISO()}.\n\n`;
   md += "Este documento describe la estructura semantica del plan estandar Russell Bedford y enumera todas las cuentas cargadas en base de datos. Su proposito es servir como contexto de recuperacion para modelos de inteligencia artificial que comparen cuentas de clientes contra el plan estandar Russell.\n\n";
 
   md += "## Fuente de verdad\n\n";

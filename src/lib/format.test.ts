@@ -1,5 +1,5 @@
 import { test, expect } from "vitest";
-import { pct, fmtDate, timeAgo } from "./format";
+import { pct, fmtCalendarDate, fmtDate, fmtDateTime, fmtDateTimeSeconds, timeAgo } from "./format";
 import { fmtPct } from "./format";
 
 test("pct redondea a porcentaje entero", () => {
@@ -8,8 +8,20 @@ test("pct redondea a porcentaje entero", () => {
 });
 
 test("fmtDate formatea como DD/MMM/AAAA en español", () => {
-  expect(fmtDate(new Date(2026, 4, 3))).toBe("03/May/2026");
-  expect(fmtDate(new Date(2026, 0, 31))).toBe("31/Ene/2026");
+  expect(fmtDate(new Date("2026-05-03T12:00:00Z"))).toBe("03/May/2026");
+  expect(fmtDate(new Date("2026-01-31T12:00:00Z"))).toBe("31/Ene/2026");
+  expect(fmtDate(new Date("2026-07-17T04:30:00Z"))).toBe("16/Jul/2026");
+});
+
+test("fmtDateTime siempre muestra el reloj de Colombia", () => {
+  const instante = new Date("2026-07-17T04:30:45Z");
+  expect(fmtDateTime(instante)).toBe("16/Jul/2026 23:30");
+  expect(fmtDateTimeSeconds(instante)).toBe("16/Jul/2026 23:30:45");
+});
+
+test("fmtCalendarDate conserva una fecha PostgreSQL DATE", () => {
+  expect(fmtCalendarDate(new Date("2026-07-16T00:00:00Z"))).toBe("16/Jul/2026");
+  expect(fmtCalendarDate("2026-01-31")).toBe("31/Ene/2026");
 });
 
 test("fmtDate devuelve guion para entradas nulas o inválidas", () => {

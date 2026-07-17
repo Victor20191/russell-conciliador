@@ -5,7 +5,7 @@ import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { PageHeader, Card, CardHeader, StatCard, Chip } from "@/components/ui";
 import { Icon } from "@/components/icons";
-import { statusChip, fmtCompact } from "@/lib/format";
+import { statusChip, fmtCompact, fmtDateTimeSeconds } from "@/lib/format";
 import { FlashToast } from "@/components/flash-toast";
 
 const STATUS_LABEL: Record<string, string> = { OK: "Conciliado", DIFF: "Diferencia", REVIEW: "En revisión" };
@@ -111,7 +111,7 @@ export default async function DashboardPage({
                   <div className="text-[12px] text-ink-700">
                     <div><b>{a.user}</b> <span className="text-ink-500">{a.action.toLowerCase()}</span> <b>{a.entity}</b></div>
                     <div className="text-[11px] text-ink-400">{a.detail}</div>
-                    <div className="text-[10.5px] text-ink-300">{a.ts}</div>
+                    <div className="text-[10.5px] text-ink-300">{fmtDateTimeSeconds(a.createdAt)}</div>
                   </div>
                 </div>
               ))}

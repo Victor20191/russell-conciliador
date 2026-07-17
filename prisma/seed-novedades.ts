@@ -23,6 +23,7 @@
 import "dotenv/config";
 import { PrismaClient } from "../src/generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { inicioDiaColombiaDesdeISO } from "../src/lib/fecha-hora";
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
 const prisma = new PrismaClient({ adapter });
@@ -55,7 +56,7 @@ const VERSIONES: VersionSeed[] = [
     summary:
       "Los cimientos sobre los que se construye todo lo demás: control de acceso por roles con alcance por cliente, gestión de clientes y responsables, conciliaciones, cruce de impuestos DIAN y un registro de auditoría que deja rastro de cada acción.",
     status: "publicada",
-    releasedAt: new Date("2026-06-15"),
+    releasedAt: inicioDiaColombiaDesdeISO("2026-06-15"),
     order: 10,
     changes: [
       {
@@ -154,7 +155,7 @@ const VERSIONES: VersionSeed[] = [
     summary:
       "El balance de comprobación da un salto: deja atrás el almacenamiento en JSON, pasa a un modelo relacional normalizado y versionado, y estrena la primera integración de IA de la plataforma para cargarlo desde casi cualquier formato. (Base del balance: aporte de Santiago Jaramillo.)",
     status: "publicada",
-    releasedAt: new Date("2026-06-22"),
+    releasedAt: inicioDiaColombiaDesdeISO("2026-06-22"),
     order: 20,
     changes: [
       {
@@ -265,7 +266,7 @@ const VERSIONES: VersionSeed[] = [
     summary:
       "Menos trabajo manual y más datos maestros: catálogos de ERP y Sector, administración del plan estándar Russell con su propia bitácora, importación masiva por Excel y mejoras transversales de usabilidad (paginación, filtros y notificaciones).",
     status: "publicada",
-    releasedAt: new Date("2026-06-22"),
+    releasedAt: inicioDiaColombiaDesdeISO("2026-06-22"),
     order: 30,
     changes: [
       {
@@ -356,7 +357,7 @@ const VERSIONES: VersionSeed[] = [
     summary:
       "El detalle del balance se vuelve navegable como un árbol del plan estándar (clase → subgrupo → cuenta estándar → cuenta del cliente), se puede mapear cuentas a mano cuando la automatización no acierta, y se suma el catálogo de subgrupos (nivel 4) que da nombre a los niveles del árbol. Aporte de Santiago Jaramillo.",
     status: "publicada",
-    releasedAt: new Date("2026-06-23"),
+    releasedAt: inicioDiaColombiaDesdeISO("2026-06-23"),
     order: 40,
     changes: [
       {
@@ -419,7 +420,7 @@ const VERSIONES: VersionSeed[] = [
     summary:
       "La parametrización del mapeo deja de repetirse período a período: se guarda por cliente y se reaplica sola en los siguientes cargues. Y el detalle del balance estrena alertas que llevan directo a lo que falta revisar (cuentas sin mapear o con saldo de naturaleza contraria). Aporte de Santiago Jaramillo.",
     status: "publicada",
-    releasedAt: new Date("2026-06-23"),
+    releasedAt: inicioDiaColombiaDesdeISO("2026-06-23"),
     order: 50,
     changes: [
       {

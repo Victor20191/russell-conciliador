@@ -13,6 +13,7 @@ import { createProcessNotification } from "@/lib/notifications";
 import { mensajeErrorBD } from "@/lib/errores";
 import { transaccionSerializable } from "@/lib/concurrency";
 import type { ActionState } from "@/lib/definitions";
+import { anioColombia, fechaCalendarioPrisma } from "@/lib/fecha-hora";
 
 // Patrón de autorización en dos pasos: el primer gate exige sesión +
 // permiso de rol ANTES de tocar la BD; el segundo añade el ALCANCE de
@@ -37,7 +38,7 @@ export async function addReconciliationComment(formData: FormData): Promise<Acti
         reconciliationId, cuenta,
         who: user?.name ?? "Usuario",
         initials: user?.initials ?? "··",
-        text, time: "ahora",
+        text,
       },
     });
     await logAudit({ user: user?.name ?? "Sistema", action: "COMENTÓ", entity: `Cuenta ${cuenta}`, detail: `Cruce ${reconciliationId}` });
@@ -149,18 +150,19 @@ export async function executeReconciliation(
 
     const { id, code } = await transaccionSerializable(async (tx) => {
       const temporalCode = `REC-TMP-${randomUUID()}`;
+      const ahora = new Date();
       const reconciliation = await tx.reconciliation.create({
         data: {
           code: temporalCode, clientName: client.name, clientId: client.id, module: mod.name, period,
           erp: client.erp?.name ?? "", status: "REVIEW", diff: fmtSigned(totalDiff), items: itemsDiff,
-          date: "hoy", owner: user?.name ?? "Auditor", cutoff, runAt: "hoy", runBy: user?.name ?? "Auditor",
-          materiality: 2000000, lastActivity: "ahora",
+          owner: user?.name ?? "Auditor", cutoff: cutoff ? fechaCalendarioPrisma(cutoff) : null, runAt: ahora, runBy: user?.name ?? "Auditor",
+          materiality: 2000000, lastActivity: ahora,
           rows: { create: DEMO_CROSS_ROWS.map(([cuenta, desc, cont, modBal, diff, items], i) => ({ cuenta, desc, cont, mod: modBal, diff, items, order: i })) },
         },
         select: { id: true },
       });
 
-      const year = new Date().getFullYear();
+      const year = anioColombia(ahora);
       const code = `REC-${year}-${5000 + reconciliation.id}`;
       await tx.reconciliation.update({
         where: { id: reconciliation.id },
