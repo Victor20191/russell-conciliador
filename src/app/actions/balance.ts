@@ -35,8 +35,8 @@ import { TIPO_BALANCE_CARGA } from "@/lib/balance/tipo-balance";
 import { extraerBalance } from "@/lib/balance/extraccion/extraer";
 import { mapearPorIA } from "@/lib/balance/mapeo-ia";
 import { construirVistaBorrador } from "@/lib/balance/borrador-vm";
-import { reclasificarHuerfanas, corregirCodigosPlaceholder, type FilaBorrador } from "@/lib/balance/borrador";
-import { esBalancePorTercero, colapsarTerceros, esBalancePorTerceroSufijo, consolidarTercerosPorSufijo } from "@/lib/balance/terceros";
+import { reclasificarHuerfanas, corregirCodigosPlaceholder, marcarNoContables, type FilaBorrador } from "@/lib/balance/borrador";
+import { esBalancePorTercero, colapsarTerceros, esBalancePorTerceroSufijo, consolidarTercerosPorSufijo, marcarCuentaNit } from "@/lib/balance/terceros";
 import { marcarRelistadoGuiones } from "@/lib/balance/relistado";
 import { registrarDiagnosticoInicial, cerrarDiagnostico } from "@/lib/balance/diagnostico-lectura-registro";
 import { diagnosticarConIA, type DiagnosticoIA } from "@/lib/balance/diagnostico-ia";
@@ -229,12 +229,19 @@ async function promoverStagingAOficial(p: MetaPromocion, contexto: string): Prom
     // SIIGO: corrige el código placeholder gigante de los rollups de clase (deriva la
     // clase de los hijos) ANTES de reclasificar, para que la carga use el código real.
     corregirCodigosPlaceholder(rows);
+    // SIIGO «por cuenta»: tacha las filas «NIT» que repiten su cuenta → NO se cargan (el
+    // filtro `!f.omitida` de abajo las excluye), conservando la fila «Cuenta» (el total).
+    marcarCuentaNit(rows);
     // RE-LISTADO CON GUIONES: marca como omitidas las filas «1105-05-04»/«*SIN NOMBRE*»
     // redundantes (que duplican una fila plana existente); NO se cargan (el filtro
     // `!f.omitida` de abajo las excluye), conservando el código plano que cuadra.
     marcarRelistadoGuiones(rows);
     reclasificarRepetidos(rows); // código repetido → movimiento
     reclasificarNoImputables(rows); // pie/total sin código («Total general», marca ERP) → total
+    // Filas que NO van al balance (pies/notas, cuentas de orden 8/9 y totales de sucursal
+    // «00X»): se omiten para que la carga coincida con lo que el borrador muestra tachado.
+    // Respeta el tri-estado (no pisa un rescate manual `omitida=false`).
+    marcarNoContables(rows);
     // Agrupadora huérfana (sin hijos, con saldo) → movimiento: el ERP la exportó sin
     // desglose; si no, su saldo se pierde al cargar. También recupera lotes viejos.
     reclasificarHuerfanas(rows);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { esFilaTercero, esFilaGenericoTercero, esBalancePorTercero, colapsarTerceros, esFilaTerceroSufijo, esBalancePorTerceroSufijo, consolidarTercerosPorSufijo } from "./terceros";
+import { esFilaTercero, esFilaGenericoTercero, esBalancePorTercero, colapsarTerceros, esFilaTerceroSufijo, esBalancePorTerceroSufijo, consolidarTercerosPorSufijo, marcarCuentaNit } from "./terceros";
 import { construirVistaBorrador } from "./borrador-vm";
 import type { FilaBorrador } from "./borrador";
 
@@ -109,18 +109,26 @@ describe("tercero con NIT en el sufijo del código (SAP/BO «por tercero»)", ()
     expect(esFilaTerceroSufijo({ tipoFila: "agrupadora", codigoCrudo: "120520-0-00-800011002" })).toBe(false);
   });
 
-  it("consolidarTercerosPorSufijo: suma los terceros de cada cuenta en UNA fila", () => {
-    const t = (fn: number, crudo: string, sf: number): FilaBorrador => ({ ...fila(fn, "120520", "INDUSTRIA MANUFACTURERA", sf, "movimiento"), codigoCrudo: crudo });
+  it("consolidarTercerosPorSufijo: deja SIEMPRE el código limpio y una fila por cuenta (suma TODO)", () => {
+    const conCrudo = (fn: number, cod: string, crudo: string, sf: number): FilaBorrador => ({ ...fila(fn, cod, cod, sf, "movimiento"), codigoCrudo: crudo });
     const filas: FilaBorrador[] = [
-      fila(1, "11100501", "BANCO", 100, "movimiento"), // no-tercero → pasa igual
-      t(2, "120520-0-00-800011002", 473),
-      t(3, "120520-0-00-800027374", 41),
-      t(4, "120520-0-00-890928257", 1678),
+      fila(1, "1105", "CAJA", 0, "agrupadora"), // agrupadora → pasa igual
+      // A) Banco: solo el tercero genérico `-0-00` (sin NIT) → se limpia a "11100501".
+      conCrudo(2, "11100501", "11100501-0-00", 100),
+      // B) Cuenta con genérico `-0-00` + detalle NIT → SUMA todos (el `-0-00` es un tercero más).
+      conCrudo(3, "135515", "135515-0-00", 300),
+      conCrudo(4, "135515", "135515-0-00-800180687", 100),
+      conCrudo(5, "135515", "135515-0-00-890903938", 200),
+      // C) Cuenta con SOLO detalle NIT → suma.
+      conCrudo(6, "120520", "120520-0-00-800011002", 473),
+      conCrudo(7, "120520", "120520-0-00-800027374", 41),
     ];
     const out = consolidarTercerosPorSufijo(filas);
-    expect(out.map((f) => f.codigoCrudo)).toEqual(["11100501", "120520"]); // banco + 1 cuenta consolidada
-    const c120520 = out.find((f) => f.codigo === "120520")!;
-    expect(c120520.saldoFinal).toBe(473 + 41 + 1678); // 2192: suma de los 3 terceros
+    // Una fila por cuenta, todas con el código limpio (sin sufijo).
+    expect(out.map((f) => f.codigoCrudo)).toEqual(["1105", "11100501", "135515", "120520"]);
+    expect(out.find((f) => f.codigo === "11100501")!.saldoFinal).toBe(100);
+    expect(out.find((f) => f.codigo === "135515")!.saldoFinal).toBe(300 + 100 + 200); // Σ de TODOS los terceros
+    expect(out.find((f) => f.codigo === "120520")!.saldoFinal).toBe(473 + 41); // suma de NIT
   });
 
   it("esBalancePorTerceroSufijo: true cuando la mayoría de movimientos traen NIT en sufijo", () => {
@@ -130,5 +138,58 @@ describe("tercero con NIT en el sufijo del código (SAP/BO «por tercero»)", ()
     expect(esBalancePorTerceroSufijo(conSufijo)).toBe(true);
     const normal = Array.from({ length: 25 }, (_, i) => fila(i + 1, `1105050${i}`, `CTA ${i}`, 1, "movimiento"));
     expect(esBalancePorTerceroSufijo(normal)).toBe(false);
+  });
+});
+
+describe("SIIGO «por cuenta»: fila NIT que repite su cuenta (marcarCuentaNit)", () => {
+  it("tacha las filas cuyo código repite el de la anterior; conserva la «Cuenta»", () => {
+    // Bloque: Cta Nivel 4 (agrupadora) → Cuenta (total) → NIT ×2 (repiten el código).
+    const filas: FilaBorrador[] = [
+      fila(1, "110505", "CAJA GENERAL", 100, "agrupadora"), // Cta Nivel 4
+      fila(2, "11050505", "CAJA GENERAL", 100, "movimiento"), // Cuenta (total)
+      fila(3, "11050505", "CAJA GENERAL", 60, "movimiento"), // NIT 1 → tachar
+      fila(4, "11050505", "CAJA GENERAL", 40, "movimiento"), // NIT 2 → tachar
+      fila(5, "11050510", "CAJA MENOR", 0, "movimiento"), // otra Cuenta
+    ];
+    const n = marcarCuentaNit(filas);
+    expect(n).toBe(2);
+    expect(filas[1].omitida).toBeUndefined(); // la «Cuenta» se conserva
+    expect(filas[2].omitida).toBe(true); // NIT tachado
+    expect(filas[3].omitida).toBe(true);
+    expect(filas[4].omitida).toBeUndefined(); // otra cuenta intacta
+  });
+
+  it("NO toca multi-sucursal: la agrupadora de clase entre sucursales resetea el rastreo", () => {
+    // 1 ACTIVO A → 1105 (mov) … 1 ACTIVO B → 1105 (mov): mismo código pero con la
+    // agrupadora «1» en medio, que resetea → no se tacha ninguno.
+    const filas: FilaBorrador[] = [
+      fila(1, "1", "ACTIVO A", 100, "agrupadora"),
+      fila(2, "1105", "CAJA", 100, "movimiento"),
+      fila(3, "1", "ACTIVO B", 50, "agrupadora"),
+      fila(4, "1105", "CAJA", 50, "movimiento"),
+    ];
+    expect(marcarCuentaNit(filas)).toBe(0);
+  });
+
+  it("NO tacha variantes INAC/'A' (mismo código tras quitar sufijo, valores DISTINTOS)", () => {
+    // `11100502` y `11100502INAC` colapsan al mismo código pero son cuentas independientes:
+    // la primera NO es el total de la segunda → ambas deben contar.
+    const filas: FilaBorrador[] = [
+      { ...fila(1, "11100502", "BANCOLOMBIA", -118, "movimiento"), codigoCrudo: "11100502" },
+      { ...fila(2, "11100502", "BANCOLOMBIA", -414, "movimiento"), codigoCrudo: "11100502INAC" },
+      { ...fila(3, "23703021", "COMPENSAR", 5, "movimiento"), codigoCrudo: "23703021" },
+      { ...fila(4, "23703021", "COMPENSAR", 32, "movimiento"), codigoCrudo: "23703021A" },
+    ];
+    expect(marcarCuentaNit(filas)).toBe(0);
+    expect(filas.every((f) => f.omitida === undefined)).toBe(true);
+  });
+
+  it("respeta el tri-estado: un NIT rescatado (omitida=false) no se re-tacha", () => {
+    const filas: FilaBorrador[] = [
+      fila(1, "11050505", "CAJA", 100, "movimiento"),
+      { ...fila(2, "11050505", "CAJA", 100, "movimiento"), omitida: false }, // rescatado
+    ];
+    expect(marcarCuentaNit(filas)).toBe(0);
+    expect(filas[1].omitida).toBe(false);
   });
 });

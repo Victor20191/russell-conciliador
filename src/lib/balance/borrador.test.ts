@@ -455,6 +455,23 @@ describe("marcarNoContables (ocultar totales / no-cuentas)", () => {
     expect(filas[0].omitida).toBeUndefined(); // la cuenta contable (clase 1) no se toca
     expect(filas[4].omitida).toBeUndefined(); // la cuenta alfanumérica (110A505) NO se tacha
   });
+
+  it("tacha los totales de sucursal «00X» (multi-sucursal) y no toca cuentas reales", () => {
+    const filas: FilaBorrador[] = [
+      { ...fila(1, "002", "MEDELLIN", 88_202_777_497, "movimiento"), codigoCrudo: "002 MEDELLIN" },
+      { ...fila(2, "012", "CALI- CEDIS", -12_401_580_407, "movimiento"), codigoCrudo: "012 CALI- CEDIS" },
+      fila(3, "11", "DISPONIBLE", 100, "agrupadora"), // grupo PUC real → NO se toca
+      fila(4, "11100502", "BANCOLOMBIA", 100, "movimiento"), // cuenta real → NO se toca
+      fila(5, "011005", "CAJA ZERO-PADDED", 50, "movimiento"), // 6 díg: NO es delimitador → NO se toca
+    ];
+    const n = marcarNoContables(filas);
+    expect(n).toBe(2); // solo los dos «00X»
+    expect(filas[0].omitida).toBe(true);
+    expect(filas[1].omitida).toBe(true);
+    expect(filas[2].omitida).toBeUndefined();
+    expect(filas[3].omitida).toBeUndefined();
+    expect(filas[4].omitida).toBeUndefined(); // 011005 (6 díg) no se confunde con sucursal
+  });
 });
 
 describe("corregirCodigosPlaceholder (SIIGO: rollup de clase con código gigante)", () => {

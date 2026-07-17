@@ -86,7 +86,7 @@ export default function BorradorDetailClient({
   const nCambios = Object.keys(override).length + invertidos.length + Object.keys(desacopladas).length + Object.keys(omitidas).length + Object.keys(padres).length;
   const hayCambios = nCambios > 0;
   // View-model recomputado LOCALMENTE con los cambios temporales (sin tocar la BD).
-  const { arbol, validacion, partidaDoble, hallazgos, porTercero, relistadoGuiones, filasOcultas, clasesCorregidas } = useMemo(() => construirVistaBorrador(aplicarCambios(filas, override, invertidos, desacopladas, omitidas, padres)), [filas, override, invertidos, desacopladas, omitidas, padres]);
+  const { arbol, validacion, partidaDoble, hallazgos, porTercero, relistadoGuiones, filasOcultas, clasesCorregidas, nitTachados } = useMemo(() => construirVistaBorrador(aplicarCambios(filas, override, invertidos, desacopladas, omitidas, padres)), [filas, override, invertidos, desacopladas, omitidas, padres]);
 
   // Posición de cada nodo en el árbol (hermano anterior + abuelo) para el TABULADOR:
   // el ← (desindentar) sube al abuelo. El → abre el modal "Ubicar" (elegir destino + lote).
@@ -149,10 +149,16 @@ export default function BorradorDetailClient({
           <span>Se corrigieron <span className="font-semibold">{clasesCorregidas}</span> código(s) de clase que el ERP (SIIGO) trajo como número gigante (p. ej. <span className="font-mono">800000000000000</span>), derivando la clase real de sus subcuentas (p. ej. <span className="font-mono">5</span> «Otros Gastos»). Así anida y totaliza bien por clase.</span>
         </div>
       )}
+      {nitTachados > 0 && (
+        <div className="flex items-start gap-2 rounded-md border border-ink-200 bg-ink-50 px-3 py-2 text-[12px] text-ink-600">
+          <Icon name="warn" size={14} />
+          <span>Balance por cuenta con detalle de tercero: se tacharon <span className="font-semibold">{nitTachados}</span> fila(s) <span className="font-semibold">NIT</span> que repiten el saldo de su cuenta (el total ya está en la fila «Cuenta»). Se muestran <span className="line-through">tachadas</span> y NO cuentan. Si necesitas alguna, rescátala con «Incluir».</span>
+        </div>
+      )}
       {filasOcultas > 0 && (
         <div className="flex items-start gap-2 rounded-md border border-ink-200 bg-ink-50 px-3 py-2 text-[12px] text-ink-600">
           <Icon name="warn" size={14} />
-          <span>Se ocultaron <span className="font-semibold">{filasOcultas}</span> fila(s) que no van al balance: pies/notas del ERP (código que no empieza por dígito, como «Procesado en: …», <span className="font-mono">&lt;none&gt;</span> o «Total general») y <span className="font-semibold">cuentas de orden (clase 8 y 9)</span>. Se muestran <span className="line-through">tachadas</span> y NO cuentan. Si necesitas alguna, rescátala con «Incluir».</span>
+          <span>Se ocultaron <span className="font-semibold">{filasOcultas}</span> fila(s) que no van al balance: pies/notas del ERP (código que no empieza por dígito, como «Procesado en: …», <span className="font-mono">&lt;none&gt;</span> o «Total general»), <span className="font-semibold">cuentas de orden (clase 8 y 9)</span> y <span className="font-semibold">totales de sucursal</span> (código que empieza en 0, como «<span className="font-mono">002 MEDELLIN</span>» en un balance multi-sucursal). Se muestran <span className="line-through">tachadas</span> y NO cuentan. Si necesitas alguna, rescátala con «Incluir».</span>
         </div>
       )}
       <ValidacionHeader v={validacion} pd={partidaDoble} />

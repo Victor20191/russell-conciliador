@@ -325,13 +325,22 @@ export function corregirCodigosPlaceholder(filas: FilaBorrador[]): number {
   return n;
 }
 
+// Delimitador de SUCURSAL en un balance multi-sucursal consolidado: el archivo trae un
+// balance completo por sucursal, cada uno encabezado por una fila «00X NOMBRE» (`002
+// MEDELLIN`, `012 CALI- CEDIS`) cuyo código es el NÚMERO de sucursal (2-3 díg que empieza
+// en 0) y cuyo saldo es el TOTAL de esa sucursal. NO es una cuenta PUC (no hay clase 0);
+// si se deja, se cuenta como cuenta de «clase 0» e infla el balance. 2-3 díg para no
+// tocar una cuenta real zero-padded larga (`011005`), que no luce así.
+const ES_DELIMITADOR_SUCURSAL = /^0\d{0,2}$/;
+
 export function marcarNoContables(filas: FilaBorrador[]): number {
   let n = 0;
   for (const f of filas) {
     if (f.omitida !== undefined) continue; // respeta rescate/omisión manual (tri-estado)
     const esPieONota = !/^\d/.test(f.codigo); // no empieza por dígito → no es cuenta
     const esCuentaDeOrden = /^[89]/.test(f.codigo); // clase 8/9 → fuera de balance
-    if (esPieONota || esCuentaDeOrden) {
+    const esSucursal = ES_DELIMITADOR_SUCURSAL.test(f.codigo); // total de sucursal, no PUC
+    if (esPieONota || esCuentaDeOrden || esSucursal) {
       f.omitida = true;
       n++;
     }

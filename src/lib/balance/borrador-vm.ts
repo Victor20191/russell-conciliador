@@ -4,7 +4,7 @@
 import { calcularBalance, construirValidacionContable, conForzarHoja, type CuentaCruda, type ValidacionContable } from "./calcular";
 import { marcarSubtotalesDuplicados, reclasificarRepetidos, reclasificarNoImputables } from "./extraccion/transformar";
 import { construirArbolBorrador, reclasificarHuerfanas, marcarNoContables, corregirCodigosPlaceholder, type FilaBorrador, type NodoBorrador } from "./borrador";
-import { esBalancePorTercero, colapsarTerceros, esBalancePorTerceroSufijo, consolidarTercerosPorSufijo } from "./terceros";
+import { esBalancePorTercero, colapsarTerceros, esBalancePorTerceroSufijo, consolidarTercerosPorSufijo, marcarCuentaNit } from "./terceros";
 import { marcarRelistadoGuiones } from "./relistado";
 import { diagnosticarBorrador, type Hallazgo, type PartidaDobleInfo } from "./diagnostico";
 import { contarFormasCodigo, contarCodigosRepetidos, contarDescuadres, type DiagnosticoLectura } from "./diagnostico-lectura";
@@ -20,6 +20,7 @@ export type VistaBorrador = {
   relistadoGuiones: number; // nº de filas de re-listado con guiones colapsadas (0 = ninguno)
   filasOcultas: number; // nº de filas ocultas por defecto (pies/notas + cuentas de orden 8/9)
   clasesCorregidas: number; // nº de rollups de clase SIIGO con código placeholder corregido
+  nitTachados: number; // nº de filas NIT (repiten su cuenta) tachadas (SIIGO por cuenta)
   diagnostico: DiagnosticoLectura; // huella observacional de la lectura (para medir)
 };
 
@@ -51,6 +52,10 @@ export function construirVistaBorrador(filas: FilaBorrador[]): VistaBorrador {
   // (`800000000000000`) en vez de la clase. Se corrige PRIMERO (deriva la clase de los
   // hijos) para que el código real fluya por todo lo demás. MUTA base.
   const clasesCorregidas = corregirCodigosPlaceholder(base);
+  // SIIGO «por cuenta»: cada cuenta viene como fila «Cuenta» (total) + filas «NIT» que
+  // REPITEN su código. Se TACHAN las repeticiones (movimientos consecutivos de igual
+  // código), conservando la «Cuenta». Seguro sin umbral (resetea en agrupadoras). MUTA base.
+  const nitTachados = marcarCuentaNit(base);
   // RE-LISTADO CON GUIONES: algunos ERP re-listan cada cuenta además del código plano
   // con notación de guiones («1105-05-04» + «*SIN NOMBRE*»). Esas filas redundantes (las
   // que ya tienen su equivalente plano) se MARCAN como omitidas: se siguen VIENDO
@@ -127,5 +132,5 @@ export function construirVistaBorrador(filas: FilaBorrador[]): VistaBorrador {
     ecuacionDiff: calc.diffCuadre,
   };
 
-  return { arbol, validacion, partidaDoble, hallazgos, agrupadoras, porTercero, relistadoGuiones, filasOcultas, clasesCorregidas, diagnostico };
+  return { arbol, validacion, partidaDoble, hallazgos, agrupadoras, porTercero, relistadoGuiones, filasOcultas, clasesCorregidas, nitTachados, diagnostico };
 }
