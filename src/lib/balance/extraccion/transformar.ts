@@ -129,6 +129,13 @@ export function normalizarCodigo(c: CeldaCruda): string {
   // 1) Quita espacios/puntos de FORMATO dentro del código: `0110.05` → `011005`,
   //    ` 11 05 05 ` → `110505`.
   const limpio = String(c).replace(/[\s.]/g, "").trim();
+  // 1b) Código PUC RE-LISTADO en notación de GUIONES: la cuenta (grupo) seguida de tramos
+  //     de EXACTAMENTE 2 dígitos («1105-05-04», «1130-05-04», «1305-05-05») → son los
+  //     NIVELES de la cuenta y se CONCATENAN → `11050504`. El «exactamente 2 díg» lo
+  //     distingue de: (a) «código - nombre» (`11050501-CajaGeneral`, tras el guion hay
+  //     TEXTO); y (b) el DETALLE POR TERCERO (`120520-0-00-800011002`), que trae un tramo
+  //     `-0-` de 1 díg y/o un NIT de ≥7 díg — ese se maneja aparte (truncar en el 1er guion).
+  if (/^\d+(?:-\d{2})+$/.test(limpio)) return limpio.replace(/-/g, "");
   // 2) Toma el token de código inicial (por si el nombre va pegado tras un guion:
   //    `11050501-CajaGeneral` → `11050501`).
   const m = /^([0-9][0-9A-Za-z]*)/.exec(limpio);
@@ -305,7 +312,7 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
   if (cols.tercero > 0) {
     for (let r = spec.primeraFilaDatos - 1; r < hoja.filas.length; r++) {
       const fila = hoja.filas[r] ?? [];
-      const code = normalizarCodigo(cell(fila, cols.codigo));
+      const code = normalizarCodigo(celdaCodigo(fila, cols));
       if (!/^\d+$/.test(code)) continue;
       if (texto(cell(fila, cols.tercero)) === "") codigosConConsolidado.add(code);
       else codigosConDetalleTercero.add(code);
@@ -323,7 +330,7 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
   // dígitos sin auxiliares cuando OTRAS cuentas del archivo llegaban al nivel 8.
   const codigos: string[] = [];
   for (let r = spec.primeraFilaDatos - 1; r < hoja.filas.length; r++) {
-    const code = normalizarCodigo(cell(hoja.filas[r] ?? [], cols.codigo));
+    const code = normalizarCodigo(celdaCodigo(hoja.filas[r] ?? [], cols));
     if (/^\d+$/.test(code)) codigos.push(code);
   }
   const ancestros = prefijosDe(codigos);
@@ -342,7 +349,7 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
     let hojas = 0;
     let hojasBold = 0;
     for (let r = spec.primeraFilaDatos - 1; r < hoja.filas.length; r++) {
-      const code = normalizarCodigo(cell(hoja.filas[r] ?? [], cols.codigo));
+      const code = normalizarCodigo(celdaCodigo(hoja.filas[r] ?? [], cols));
       if (!/^\d+$/.test(code)) continue;
       const enNegrita = filaEnNegrita(hoja.negrita[r], cols.codigo, cols.nombre);
       if (ancestros.has(code)) { padres++; if (enNegrita) padresBold++; }
@@ -365,8 +372,8 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
   for (let r = spec.primeraFilaDatos - 1; r < hoja.filas.length; r++) {
     const fila = hoja.filas[r] ?? [];
     const filaNum = r + 1;
-    const codigoCrudo = texto(cell(fila, cols.codigo));
-    const code = normalizarCodigo(cell(fila, cols.codigo));
+    const codigoCrudo = texto(celdaCodigo(fila, cols));
+    const code = normalizarCodigo(celdaCodigo(fila, cols));
     let name = texto(cell(fila, cols.nombre));
     // Si el código va embebido en el nombre ("11050501 - Caja General"), deja solo
     // el nombre (quita el prefijo "código -"). Requiere dígitos iniciales + guion,
@@ -644,6 +651,25 @@ function cell(fila: CeldaCruda[], col1: number | null): CeldaCruda {
   return fila[col1 - 1] ?? null;
 }
 
+// Valor CRUDO del código PUC de una fila. Normalmente una sola columna (`cols.codigo`),
+// pero algunos ERP (SIIGO «Balance de prueba auxiliares») lo traen FRAGMENTADO en varias
+// columnas de jerarquía (GRUPO|CUENTA|SUBCUENTA|AUXILIAR|SUBAUXILIAR). Si `codigoFragmentos`
+// trae índices, se CONCATENAN sus celdas en ese orden (`11`+`05`+`10`+`01` → `11051001`).
+// Los tramos bajo el grupo son de 2 díg en el PUC: si el ERP los exportó como número (perdió
+// el cero a la izquierda, `5` en vez de `05`) se re-completan. La entrega como cadena la
+// consumen igual `normalizarCodigo` y `texto`; sin fragmentos devuelve la celda original.
+function celdaCodigo(fila: CeldaCruda[], cols: MappingSpec["columnas"]): CeldaCruda {
+  const frag = cols.codigoFragmentos;
+  if (!frag || frag.length === 0) return cell(fila, cols.codigo);
+  let out = "";
+  for (let i = 0; i < frag.length; i++) {
+    const t = texto(cell(fila, frag[i])).replace(/[\s.]/g, "");
+    if (t === "") continue;
+    out += i > 0 && /^\d$/.test(t) ? "0" + t : t; // completa el tramo de 2 díg
+  }
+  return out;
+}
+
 // Una fila "en negrita" (marca de agrupadora del ERP) = su código o su nombre en
 // negrita. `negritaFila` viene de la ingesta (solo XLSX), alineada 0-based con la fila.
 function filaEnNegrita(negritaFila: boolean[] | undefined, codigoCol: number | null, nombreCol: number | null): boolean {
@@ -713,7 +739,7 @@ function detectarTotales(hoja: GridHoja, spec: MappingSpec): { detectado: boolea
   let mejor: { debitos: number; creditos: number; mag: number } | null = null;
   for (let r = Math.max(spec.primeraFilaDatos - 1, 0); r < hoja.filas.length; r++) {
     const fila = hoja.filas[r] ?? [];
-    const code = normalizarCodigo(cell(fila, cols.codigo));
+    const code = normalizarCodigo(celdaCodigo(fila, cols));
     if (/^\d+$/.test(code)) continue; // una fila con código imputable no es la de totales
     const rotulo = fila.map((c) => texto(c)).join(" ").toLowerCase();
     if (!/\btotal(es)?\b|sumas?\s+iguales|gran\s+total/.test(rotulo)) continue;
