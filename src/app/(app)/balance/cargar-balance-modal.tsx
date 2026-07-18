@@ -311,8 +311,10 @@ function FormRevisar({
         <OrigenChip origen={sug.payload.origenExtraccion} />
       </div>
 
+      {/* La validación contable completa y el resumen de detección se muestran en
+          el borrador persistente. Aquí dejamos el cuadre y el movimiento. */}
       <CuadreBanner c={sug.render.cuadre} />
-      <BorradorBalance sug={sug} />
+      <DetalleMovimiento cuentas={sug.render.importReady} />
 
       {puedeEditar && sug.render.spec && (
         <EditorEstructura
@@ -370,9 +372,6 @@ function FormRevisar({
           </span>
         </label>
       )}
-
-      <SugerenciaResumen sug={sug} />
-
       {confirmMessage && <p className="text-[12px] font-medium text-err-700">{confirmMessage}</p>}
       {excepciones.length > 0 && <ExcepcionesTabla excepciones={excepciones} />}
     </form>
@@ -433,7 +432,8 @@ function AvisoAjustesCliente({
 }
 
 // Roles de columna del editor (0 = la columna no existe en el archivo).
-const ROLES_COLUMNA: { key: keyof SpecCarga["columnas"]; label: string; requerida?: boolean }[] = [
+type RolColumna = Exclude<keyof SpecCarga["columnas"], "codigoFragmentos">;
+const ROLES_COLUMNA: { key: RolColumna; label: string; requerida?: boolean }[] = [
   { key: "codigo", label: "Código de cuenta", requerida: true },
   { key: "nombre", label: "Nombre de la cuenta" },
   { key: "saldoInicial", label: "Saldo inicial" },
@@ -465,16 +465,36 @@ function EditorEstructura({
 }) {
   const [abierto, setAbierto] = useState(false);
   const [ed, setEd] = useState<SpecCarga>(spec);
+  const [fragmentosTexto, setFragmentosTexto] = useState(spec.columnas.codigoFragmentos.join(", "));
 
   // Opciones de columna: hasta donde llegue el encabezado o la columna más alta ya asignada.
-  const maxCol = Math.max(encabezados.length, ...Object.values(ed.columnas), ed.reglaDetalle.columna ?? 0, 6);
+  const columnasAsignadas = Object.values(ed.columnas).flatMap((v) => Array.isArray(v) ? v : [v]);
+  const maxCol = Math.max(encabezados.length, ...columnasAsignadas, ed.reglaDetalle.columna ?? 0, 6);
   const opciones = Array.from({ length: maxCol }, (_, i) => i + 1);
   const etiquetaCol = (n: number) => {
     const enc = encabezados[n - 1];
     return enc ? `${columnaLetra(n - 1)} — ${recortar(enc, 24)}` : columnaLetra(n - 1);
   };
 
-  const setCol = (key: keyof SpecCarga["columnas"], v: number) => setEd((s) => ({ ...s, columnas: { ...s.columnas, [key]: v } }));
+  const setCol = (key: RolColumna, v: number) => {
+    if (key === "codigo" && v > 0) setFragmentosTexto("");
+    setEd((s) => ({
+      ...s,
+      columnas: {
+        ...s.columnas,
+        [key]: v,
+        ...(key === "codigo" && v > 0 ? { codigoFragmentos: [] } : {}),
+      },
+    }));
+  };
+  const setCodigoFragmentos = (texto: string) => {
+    setFragmentosTexto(texto);
+    const fragmentos = [...new Set(texto.split(/[\s,;]+/).map(Number).filter((n) => Number.isInteger(n) && n > 0))];
+    setEd((s) => ({
+      ...s,
+      columnas: { ...s.columnas, codigo: fragmentos.length > 0 ? 0 : s.columnas.codigo, codigoFragmentos: fragmentos },
+    }));
+  };
   const sinCambios = JSON.stringify(ed) === JSON.stringify(spec);
 
   return (
@@ -539,13 +559,26 @@ function EditorEstructura({
                   onChange={(e) => setCol(rol.key, Number(e.target.value))}
                   className="rounded-md border border-ink-200 bg-white px-2 py-1.5 text-[12px] text-ink-700"
                 >
-                  {!rol.requerida && <option value={0}>— no existe —</option>}
+                  {(!rol.requerida || rol.key === "codigo") && (
+                    <option value={0}>{rol.key === "codigo" ? "— usa columnas fragmentadas —" : "— no existe —"}</option>
+                  )}
                   {opciones.map((n) => (
                     <option key={n} value={n}>{etiquetaCol(n)}</option>
                   ))}
                 </select>
               </label>
             ))}
+            <label className="flex flex-col gap-1 sm:col-span-2">
+              <span className="text-[11px] font-medium text-ink-600">Columnas del código fragmentado</span>
+              <input
+                type="text"
+                value={fragmentosTexto}
+                onChange={(e) => setCodigoFragmentos(e.target.value)}
+                placeholder="Ej.: 1, 2, 3, 4, 5"
+                className="rounded-md border border-ink-200 bg-white px-2 py-1.5 text-[12px] text-ink-700"
+              />
+              <span className="text-[10.5px] text-ink-400">Úsalo cuando GRUPO, CUENTA, SUBCUENTA y AUXILIAR vienen en columnas separadas.</span>
+            </label>
           </div>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -677,70 +710,6 @@ function CuadreBanner({ c }: { c: SugerenciaBalance["render"]["cuadre"] }) {
   );
 }
 
-/**
- * Borrador del paso 1: valida en el encabezado si CRUZAN las cuentas de Activo,
- * Pasivo y Patrimonio —tanto la ecuación contable (A = P + Patrimonio + Resultado)
- * como la consistencia archivo vs detalle (delata cuentas omitidas)— y muestra
- * TODO el movimiento en una tabla scrollable. Nada se ha cargado todavía.
- */
-function BorradorBalance({ sug }: { sug: SugerenciaBalance }) {
-  const v = sug.render.validacion;
-  if (!v) return null;
-  const ecOk = v.ecuacionCuadra;
-  return (
-    <div className="flex flex-col gap-2.5">
-      {/* Validación 1 — ecuación contable */}
-      <div className={`rounded-md border px-3 py-2 text-[12px] ${ecOk ? "border-ok-100 bg-ok-100/40 text-ok-700" : "border-warn-200 bg-warn-50 text-warn-700"}`}>
-        <span className="font-semibold">{ecOk ? "Cuadra:" : "No cuadra:"}</span> Activo = Pasivo + Patrimonio + Resultado · diferencia <span className="font-semibold">{fmt(v.ecuacionDiff)}</span>
-        {!ecOk && <span> (fuera del margen ±{fmt(1000)}; se puede cargar igual, quedará marcado descuadrado)</span>}
-      </div>
-
-      {/* Validación 2 — A/P/Patrimonio: calculado vs archivo */}
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-        <ClaseCard label="Activo" calc={v.activo} archivo={v.activoArchivo} cuadra={v.activoCuadra} diff={v.activoDiff} />
-        <ClaseCard label="Pasivo" calc={v.pasivo} archivo={v.pasivoArchivo} cuadra={v.pasivoCuadra} diff={v.pasivoDiff} />
-        <ClaseCard label="Patrimonio" calc={v.patrimonio} archivo={v.patrimonioArchivo} cuadra={v.patrimonioCuadra} diff={v.patrimonioDiff} />
-      </div>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <MiniDato k="Ingresos" v={v.ingresos} />
-        <MiniDato k="Gastos" v={v.gastos} />
-        <MiniDato k="Costos" v={v.costos} />
-        <MiniDato k="Resultado" v={v.resultado} />
-      </div>
-
-      {/* Movimiento completo en borrador */}
-      <DetalleMovimiento cuentas={sug.render.importReady} />
-    </div>
-  );
-}
-
-function ClaseCard({ label, calc, archivo, cuadra, diff }: { label: string; calc: number; archivo: number | null; cuadra: boolean | null; diff: number | null }) {
-  const tono =
-    cuadra == null ? "border-ink-150 bg-ink-50" : cuadra ? "border-ok-100 bg-ok-100/40" : "border-err-200 bg-err-50";
-  return (
-    <div className={`rounded-md border px-3 py-2 ${tono}`}>
-      <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">{label}</div>
-      <div className="mt-0.5 text-[13px] font-semibold text-ink-800">{fmt(calc)}</div>
-      {archivo == null ? (
-        <div className="mt-0.5 text-[10.5px] text-ink-400">solo calculado (sin total en archivo)</div>
-      ) : cuadra ? (
-        <div className="mt-0.5 text-[10.5px] text-ok-700">✓ archivo {fmt(archivo)} — cruza</div>
-      ) : (
-        <div className="mt-0.5 text-[10.5px] text-err-700">archivo {fmt(archivo)} · Δ {fmt(diff ?? 0)}</div>
-      )}
-    </div>
-  );
-}
-
-function MiniDato({ k, v }: { k: string; v: number }) {
-  return (
-    <div className="rounded-md border border-ink-150 bg-ink-50 px-2.5 py-1.5">
-      <div className="text-[10.5px] font-semibold uppercase tracking-wide text-ink-500">{k}</div>
-      <div className="mt-0.5 text-[12px] font-semibold text-ink-700">{fmt(v)}</div>
-    </div>
-  );
-}
-
 /** Tabla scrollable con TODAS las cuentas de movimiento del borrador. */
 function DetalleMovimiento({ cuentas }: { cuentas: SugerenciaBalance["render"]["importReady"] }) {
   return (
@@ -805,32 +774,6 @@ function AuditPanel({ audit, auditando }: { audit: AuditoriaCarga | null; audita
             {audit.sinMapeo.slice(0, 40).map((o) => <li key={o.code}><span className="font-semibold">{o.code}</span> {o.name}</li>)}
             {audit.sinMapeo.length > 40 && <li className="list-none text-ink-500">… y {audit.sinMapeo.length - 40} más</li>}
           </ul>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function SugerenciaResumen({ sug }: { sug: SugerenciaBalance }) {
-  const p = sug.payload;
-  return (
-    <div className="rounded-md border border-ink-150 bg-ink-50 px-3 py-2.5">
-      <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Lo que detecté en el archivo</div>
-      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[12px] text-ink-600 sm:grid-cols-3">
-        <Linea k="NIT" v={`${p.nitDetectado ?? "—"} (${p.nitFuente.toLowerCase()})`} />
-        <Linea k="Período" v={`${p.periodoInicial ?? "?"} → ${p.periodoFinal ?? "?"}`} />
-        <Linea k="Movimiento (hojas)" v={String(p.cuentasMovimiento)} />
-        <Linea k="Agrupadoras" v={String(p.cuentasAgrupadoras)} />
-        <Linea k="Importables" v={String(p.cuentas)} />
-        <Linea k="Excluidas" v={String(p.filasExcluidas)} />
-        <Linea k="Descuadres" v={String(p.filasDescuadre)} />
-        <Linea k="Tipo" v={p.estandar} />
-        <Linea k="Signo crédito" v={p.convencionCredito} />
-      </div>
-      {p.filasDescuadre > 0 && (
-        <div className="mt-2 rounded-md border border-warn-100 bg-warn-100/40 px-3 py-2 text-[12px] text-warn-700">
-          <span className="font-semibold">{p.filasDescuadre} cuenta(s) en descuadre de control</span> — estas filas NO se
-          importarán al confirmar. Revísalas en el borrador (o corrige el mapeo en «Ajustar estructura») antes de cargar.
         </div>
       )}
     </div>

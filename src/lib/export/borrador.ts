@@ -40,8 +40,8 @@ export async function crearExportacionBorrador(
     { header: "Débito", key: "db", width: 20 },
     { header: "Crédito", key: "cr", width: 20 },
     { header: "Saldo actual", key: "saldo", width: 20 },
-    { header: "Suma hijos (fórmula)", key: "sumaHijos", width: 22 },
-    { header: "Δ vs hijos (fórmula)", key: "deltaFormula", width: 20 },
+    { header: "Suma cuentas (fórmula)", key: "sumaHijos", width: 22 },
+    { header: "Δ vs cuentas (fórmula)", key: "deltaFormula", width: 20 },
     { header: "Δ descuadre (app)", key: "delta", width: 18 },
   ];
   ws.getRow(1).font = { bold: true };

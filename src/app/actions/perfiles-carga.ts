@@ -7,6 +7,7 @@ import { logAudit } from "@/lib/audit";
 import { authorizePermiso } from "@/lib/rbac";
 import { mensajeErrorBD } from "@/lib/errores";
 import { AjustesCargaSchema, type ActionState } from "@/lib/definitions";
+import { normalizarCodigoFragmentos } from "@/lib/balance/extraccion/perfil";
 
 // Gestión de la PERSONALIZACIÓN de carga de balances por cliente:
 //   - Perfiles de carga (`perfiles_carga_balance`): la estructura del archivo
@@ -80,7 +81,9 @@ export async function listarPerfilesCarga(clienteId: number): Promise<PerfilesCa
     const perfiles: PerfilCargaResumen[] = filas.map((p) => {
       const partes: string[] = [];
       const col = (label: string, n: number) => { if (n > 0) partes.push(`${label} ${letraColumna(n)}`); };
-      col("código", p.colCodigo);
+      const fragmentos = normalizarCodigoFragmentos(p.colCodigoFragmentos);
+      if (fragmentos.length > 0) partes.push(`código ${fragmentos.map(letraColumna).join("+")}`);
+      else col("código", p.colCodigo);
       col("nombre", p.colNombre);
       col("saldo inicial", p.colSaldoInicial);
       col("débitos", p.colDebitos);

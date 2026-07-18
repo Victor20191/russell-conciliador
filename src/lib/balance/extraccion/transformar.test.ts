@@ -27,7 +27,7 @@ function spec(over: Partial<MappingSpec> = {}): MappingSpec {
     hoja: "Balance",
     filaEncabezado: 1,
     primeraFilaDatos: 2,
-    columnas: { codigo: 1, nombre: 2, saldoInicial: 3, debitos: 4, creditos: 5, saldoFinal: 6, saldoFinalDebito: 0, saldoFinalCredito: 0, tercero: 0 },
+    columnas: { codigo: 1, codigoFragmentos: [], nombre: 2, saldoInicial: 3, debitos: 4, creditos: 5, saldoFinal: 6, saldoFinalDebito: 0, saldoFinalCredito: 0, tercero: 0 },
     signoCredito: "firmado",
     reglaDetalle: { tipo: "prefijo", columna: null, valor: null },
     agregarPorTercero: false,
@@ -76,6 +76,18 @@ describe("normalizarCodigo", () => {
   it("extrae el código cuando viene EMBEBIDO en el nombre", () => {
     expect(normalizarCodigo("11050501 - Caja General")).toBe("11050501");
     expect(normalizarCodigo("11100501 - Bancolombia Cuenta Corriente Nro.613-748953-32")).toBe("11100501");
+  });
+  it("concatena el código PUC en notación de GUIONES (todos los tramos numéricos)", () => {
+    expect(normalizarCodigo("1105-05-04")).toBe("11050504");
+    expect(normalizarCodigo("1130-05-04")).toBe("11300504");
+    expect(normalizarCodigo("1305-05-05")).toBe("13050505");
+    expect(normalizarCodigo("1105-10-19")).toBe("11051019");
+    // NO se confunde con «código - nombre» (tras el guion hay TEXTO): token inicial.
+    expect(normalizarCodigo("11050501 - Caja General")).toBe("11050501");
+    // NO se confunde con el DETALLE POR TERCERO (`-0-` de 1 díg y/o NIT ≥7 díg): trunca.
+    expect(normalizarCodigo("120520-0-00-800011002")).toBe("120520");
+    expect(normalizarCodigo("11100501-0-00")).toBe("11100501");
+    expect(normalizarCodigo("135515-0-00")).toBe("135515");
   });
   it("quita el sufijo alfabético (INAC/A/AS)", () => {
     expect(normalizarCodigo("236550INAC")).toBe("236550");
@@ -215,6 +227,26 @@ describe("transformarTabular", () => {
   it("la cabecera usa los parámetros del modal (PARAMETRO)", () => {
     expect(r.cabecera.nit).toEqual({ valor: "900.451.227-3", fuente: "PARAMETRO" });
     expect(r.cabecera.periodoFinal.valor).toBe("2026-05-31");
+  });
+
+  it("concatena el código PUC FRAGMENTADO en varias columnas (SIIGO auxiliares)", () => {
+    const hojaFrag: GridHoja = {
+      nombre: "Balance",
+      filas: [
+        ["GRUPO", "CUENTA", "SUBCUENTA", "AUXILIAR", "SUBAUXILIAR", "Descripción", "Saldo anterior", "Débito", "Crédito", "Nuevo saldo"],
+        ["1", "", "", "", "", "ACTIVO", 1700, 600, 50, 2250], // clase → agrupadora
+        ["11", "05", "05", "", "", "CAJA GENERAL", 1000, 500, 0, 1500], // 110505
+        ["11", "05", "10", "01", "", "OFICINA MEDELLIN", 500, 0, 0, 500], // 11051001
+        [11, 10, 5, "", "", "BANCOLOMBIA", 200, 100, 50, 250], // fragmentos NUMÉRICOS (cero perdido)
+      ],
+    };
+    const s = spec({ columnas: { ...spec().columnas, codigo: 0, codigoFragmentos: [1, 2, 3, 4, 5], nombre: 6, saldoInicial: 7, debitos: 8, creditos: 9, saldoFinal: 10 } });
+    const rr = transformarTabular(s, [hojaFrag], PARAMS);
+    const cod = (nom: string) => rr.filasCrudas.find((f) => f.nombre === nom)?.codigo;
+    expect(cod("CAJA GENERAL")).toBe("110505");
+    expect(cod("OFICINA MEDELLIN")).toBe("11051001");
+    expect(cod("BANCOLOMBIA")).toBe("111005"); // 11 + 10 + "05" (cero re-completado)
+    expect(rr.importReady.map((c) => c.code).sort()).toEqual(["110505", "11051001", "111005"]);
   });
 
   it("fija NIF cuando llega como tipo de balance por defecto", () => {

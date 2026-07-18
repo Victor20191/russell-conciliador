@@ -10,6 +10,7 @@ const SPEC: MappingSpec = {
   primeraFilaDatos: 4,
   columnas: {
     codigo: 1,
+    codigoFragmentos: [],
     nombre: 2,
     saldoInicial: 3,
     debitos: 4,
@@ -50,6 +51,7 @@ describe("aplanarSpec ↔ specCargaDesdePerfil", () => {
   it("aplana columnas y regla de detalle a campos planos del modelo", () => {
     const plano = aplanarSpec(SPEC);
     expect(plano.colCodigo).toBe(1);
+    expect(plano.colCodigoFragmentos).toEqual([]);
     expect(plano.colSaldoFinalDebito).toBe(0);
     expect(plano.reglaDetalleTipo).toBe("columna");
     expect(plano.reglaDetalleColumna).toBe(7);

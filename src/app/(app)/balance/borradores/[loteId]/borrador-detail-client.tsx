@@ -4,11 +4,12 @@ import { useActionState, useEffect, useMemo, useState, useTransition } from "rea
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
 import { Card, Chip } from "@/components/ui";
+import { Modal } from "@/components/modal";
 import { fmt } from "@/lib/format";
 import { cargarBorrador, descartarBorrador, diagnosticarBorradorIA, aplicarCambiosBorrador } from "@/app/actions/balance";
 import type { ImportBalanceState } from "@/lib/import/balance";
 import { construirVistaBorrador } from "@/lib/balance/borrador-vm";
-import type { FilaBorrador, NodoBorrador } from "@/lib/balance/borrador";
+import { contextoTabulador, puedeUbicar, type ContextoNodo, type RefNodo, type FilaBorrador, type NodoBorrador } from "@/lib/balance/borrador";
 import type { ValidacionContable } from "@/lib/balance/calcular";
 import type { Hallazgo } from "@/lib/balance/diagnostico";
 import type { DiagnosticoIA } from "@/lib/balance/diagnostico-ia";
@@ -80,22 +81,25 @@ export default function BorradorDetailClient({
   const [desacopladas, setDesacopladas] = useState<Record<string, boolean>>({});
   const [omitidas, setOmitidas] = useState<Record<number, boolean>>({});
   const [padres, setPadres] = useState<Record<number, number | null>>({});
+  const [mover, setMover] = useState<number | null>(null); // filaNum en el modal "Ubicar"
   const [guardando, startGuardar] = useTransition();
   const nCambios = Object.keys(override).length + invertidos.length + Object.keys(desacopladas).length + Object.keys(omitidas).length + Object.keys(padres).length;
   const hayCambios = nCambios > 0;
   // View-model recomputado LOCALMENTE con los cambios temporales (sin tocar la BD).
-  const { arbol, validacion, partidaDoble, hallazgos, porTercero, relistadoGuiones } = useMemo(() => construirVistaBorrador(aplicarCambios(filas, override, invertidos, desacopladas, omitidas, padres)), [filas, override, invertidos, desacopladas, omitidas, padres]);
+  const { arbol, validacion, partidaDoble, hallazgos, porTercero, relistadoGuiones, filasOcultas, clasesCorregidas, nitTachados } = useMemo(() => construirVistaBorrador(aplicarCambios(filas, override, invertidos, desacopladas, omitidas, padres)), [filas, override, invertidos, desacopladas, omitidas, padres]);
 
   // Posición de cada nodo en el árbol (hermano anterior + abuelo) para el TABULADOR:
-  // indentar = colgar del hermano de arriba; desindentar = subir al abuelo.
+  // el ← (desindentar) sube al abuelo. El → abre el modal "Ubicar" (elegir destino + lote).
   const posiciones = useMemo(() => construirPosiciones(arbol), [arbol]);
+  const contexto = useMemo(() => contextoTabulador(arbol), [arbol]);
 
   const onReclasificar = (codigo: string, actual: NodoBorrador["tipoFila"]) =>
     setOverride((o) => ({ ...o, [codigo]: actual === "movimiento" ? "agrupadora" : "movimiento" }));
   const onInvertir = (codigo: string) => setInvertidos((inv) => (inv.includes(codigo) ? inv : [...inv, codigo]));
   const onDesacoplar = (codigo: string, desacopladaAhora: boolean) => setDesacopladas((d) => ({ ...d, [codigo]: !desacopladaAhora }));
   const onOmitir = (filaNum: number, omitidaAhora: boolean) => setOmitidas((o) => ({ ...o, [filaNum]: !omitidaAhora }));
-  const onIndentar = (filaNum: number) => { const p = posiciones.get(filaNum); if (p?.prev != null) setPadres((m) => ({ ...m, [filaNum]: p.prev })); };
+  const onUbicar = (filaNum: number) => setMover(filaNum); // → abre el modal "Ubicar"
+  const onConfirmarMover = (patch: Record<number, number>) => { setPadres((m) => ({ ...m, ...patch })); setMover(null); };
   const onDesindentar = (filaNum: number) => { const p = posiciones.get(filaNum); if (p?.abuelo != null) setPadres((m) => ({ ...m, [filaNum]: p.abuelo })); };
   const descartarCambios = () => { setOverride({}); setInvertidos([]); setDesacopladas({}); setOmitidas({}); setPadres({}); };
   const guardarCambios = () =>
@@ -137,6 +141,24 @@ export default function BorradorDetailClient({
         <div className="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">
           <Icon name="warn" size={14} />
           <span><span className="font-semibold">Re-listado con guiones detectado.</span> Se marcaron <span className="font-semibold">{relistadoGuiones}</span> fila(s) con código en notación de guiones (p. ej. <span className="font-mono">1105-05-04</span>) que duplican una cuenta ya listada con su código plano (<span className="font-mono">11050504</span>): se muestran <span className="line-through">tachadas</span> y NO cuentan (se concilia por el código plano). Si alguna hiciera falta, la puedes rescatar con «Incluir».</span>
+        </div>
+      )}
+      {clasesCorregidas > 0 && (
+        <div className="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">
+          <Icon name="warn" size={14} />
+          <span>Se corrigieron <span className="font-semibold">{clasesCorregidas}</span> código(s) de clase que el ERP (SIIGO) trajo como número gigante (p. ej. <span className="font-mono">800000000000000</span>), derivando la clase real de sus subcuentas (p. ej. <span className="font-mono">5</span> «Otros Gastos»). Así anida y totaliza bien por clase.</span>
+        </div>
+      )}
+      {nitTachados > 0 && (
+        <div className="flex items-start gap-2 rounded-md border border-ink-200 bg-ink-50 px-3 py-2 text-[12px] text-ink-600">
+          <Icon name="warn" size={14} />
+          <span>Balance por cuenta con detalle de tercero: se tacharon <span className="font-semibold">{nitTachados}</span> fila(s) <span className="font-semibold">NIT</span> que repiten el saldo de su cuenta (el total ya está en la fila «Cuenta»). Se muestran <span className="line-through">tachadas</span> y NO cuentan. Si necesitas alguna, rescátala con «Incluir».</span>
+        </div>
+      )}
+      {filasOcultas > 0 && (
+        <div className="flex items-start gap-2 rounded-md border border-ink-200 bg-ink-50 px-3 py-2 text-[12px] text-ink-600">
+          <Icon name="warn" size={14} />
+          <span>Se ocultaron <span className="font-semibold">{filasOcultas}</span> fila(s) que no van al balance: pies/notas del ERP (código que no empieza por dígito, como «Procesado en: …», <span className="font-mono">&lt;none&gt;</span> o «Total general»), <span className="font-semibold">cuentas de orden (clase 8 y 9)</span> y <span className="font-semibold">totales de sucursal</span> (código que empieza en 0, como «<span className="font-mono">002 MEDELLIN</span>» en un balance multi-sucursal). Se muestran <span className="line-through">tachadas</span> y NO cuentan. Si necesitas alguna, rescátala con «Incluir».</span>
         </div>
       )}
       <ValidacionHeader v={validacion} pd={partidaDoble} />
@@ -186,8 +208,12 @@ export default function BorradorDetailClient({
             <button type="button" onClick={() => setFiltro([])} className="ml-1 text-[11px] font-medium text-blue-700 underline hover:text-blue-900">Limpiar filtro</button>
           </div>
         )}
-        <ArbolTabla arbol={arbol} filtro={filtro} onReclasificar={onReclasificar} onInvertir={onInvertir} onDesacoplar={onDesacoplar} onOmitir={onOmitir} posiciones={posiciones} onIndentar={onIndentar} onDesindentar={onDesindentar} />
+        <ArbolTabla arbol={arbol} filtro={filtro} onReclasificar={onReclasificar} onInvertir={onInvertir} onDesacoplar={onDesacoplar} onOmitir={onOmitir} posiciones={posiciones} contexto={contexto} onUbicar={onUbicar} onDesindentar={onDesindentar} />
       </Card>
+
+      {mover != null && (
+        <MoverModal arbol={arbol} filaNum={mover} contexto={contexto} onConfirmar={onConfirmarMover} onClose={() => setMover(null)} />
+      )}
 
       {/* Cargar / Descartar */}
       <Card className="p-4">
@@ -389,7 +415,105 @@ function construirPosiciones(arbol: NodoBorrador[]): Map<number, Posicion> {
 }
 const nivelLabel = (codigo: string) => (codigo.length <= 2 ? "Clase" : codigo.length <= 4 ? "Grupo" : codigo.length <= 6 ? "Cuenta" : "Subcuenta");
 
-function ArbolTabla({ arbol, filtro, onReclasificar, onInvertir, onDesacoplar, onOmitir, posiciones, onIndentar, onDesindentar }: { arbol: NodoBorrador[]; filtro: string[]; onReclasificar: (codigo: string, actual: NodoBorrador["tipoFila"]) => void; onInvertir: (codigo: string) => void; onDesacoplar: (codigo: string, desacopladaAhora: boolean) => void; onOmitir: (filaNum: number, omitidaAhora: boolean) => void; posiciones: Map<number, Posicion>; onIndentar: (filaNum: number) => void; onDesindentar: (filaNum: number) => void }) {
+/** Modal "Ubicar": elige bajo cuál cuenta de arriba anidar la fila (ancestros por
+ *  prefijo, el más profundo sugerido) y mueve en LOTE sus hermanas del mismo prefijo. */
+function MoverModal({ arbol, filaNum, contexto, onConfirmar, onClose }: {
+  arbol: NodoBorrador[];
+  filaNum: number;
+  contexto: Map<number, ContextoNodo>;
+  onConfirmar: (patch: Record<number, number>) => void;
+  onClose: () => void;
+}) {
+  const ctx = contexto.get(filaNum);
+  const candidatos = ctx?.candidatos ?? [];
+  const hermanas = ctx?.hermanas ?? [];
+  // Hermanas que anidarían bajo un destino dado (mismo prefijo, más específicas que él).
+  const elegiblesDe = (ref?: RefNodo) => (ref ? hermanas.filter((h) => h.codigo.startsWith(ref.codigo) && h.codigo.length > ref.codigo.length) : []);
+
+  const [destino, setDestino] = useState<number>(candidatos[0]?.filaNum ?? -1);
+  const [marcadas, setMarcadas] = useState<Set<number>>(() => new Set(elegiblesDe(candidatos[0]).map((h) => h.filaNum)));
+  const nodoX = useMemo(() => {
+    const buscar = (ns: NodoBorrador[]): NodoBorrador | null => {
+      for (const n of ns) { if (n.filaNum === filaNum) return n; const h = buscar(n.hijos); if (h) return h; }
+      return null;
+    };
+    return buscar(arbol);
+  }, [arbol, filaNum]);
+
+  if (!ctx || candidatos.length === 0 || !nodoX) return null;
+
+  const destinoRef = candidatos.find((c) => c.filaNum === destino) ?? candidatos[0];
+  const hermanasElegibles = elegiblesDe(destinoRef);
+  // Al cambiar el destino, re-marcar TODAS las hermanas elegibles del nuevo prefijo.
+  const cambiarDestino = (fn: number) => { setDestino(fn); const ref = candidatos.find((c) => c.filaNum === fn); setMarcadas(new Set(elegiblesDe(ref).map((h) => h.filaNum))); };
+  const toggleH = (fn: number) => setMarcadas((s) => { const n = new Set(s); if (n.has(fn)) n.delete(fn); else n.add(fn); return n; });
+  const marcadasVisibles = hermanasElegibles.filter((h) => marcadas.has(h.filaNum)).length;
+  const total = 1 + marcadasVisibles;
+  const confirmar = () => {
+    const patch: Record<number, number> = { [filaNum]: destinoRef.filaNum };
+    for (const h of hermanasElegibles) if (marcadas.has(h.filaNum)) patch[h.filaNum] = destinoRef.filaNum;
+    onConfirmar(patch);
+  };
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Ubicar cuenta en el árbol"
+      size="lg"
+      footer={
+        <>
+          <button type="button" onClick={onClose} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] font-semibold text-ink-600 hover:bg-ink-50">Cancelar</button>
+          <button type="button" onClick={confirmar} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600">Ubicar {total} cuenta(s)</button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-4 text-[12.5px]">
+        <div className="rounded-md border border-ink-150 bg-ink-50 px-3 py-2">
+          <span className="font-mono text-[11px] text-ink-500">{nodoX.codigoCrudo}</span>{" "}
+          <span className="font-medium text-ink-800">{nodoX.nombre}</span>
+        </div>
+
+        <div>
+          <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Anidar bajo</div>
+          <div className="flex flex-col gap-1">
+            {candidatos.map((c, i) => (
+              <label key={c.filaNum} className={`flex cursor-pointer items-center gap-2 rounded-md border px-2.5 py-1.5 ${destino === c.filaNum ? "border-blue-300 bg-blue-50" : "border-ink-150 hover:bg-ink-50"}`}>
+                <input type="radio" name="destino-ubicar" checked={destino === c.filaNum} onChange={() => cambiarDestino(c.filaNum)} />
+                <span className="font-mono text-[11px] text-ink-500">{c.codigoCrudo}</span>
+                <span className="min-w-0 truncate text-ink-800" title={c.nombre}>{c.nombre}</span>
+                <span className="ml-auto shrink-0 text-[10.5px] text-ink-400">{nivelLabel(c.codigo)}{i === 0 ? " · sugerido" : ""}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {hermanasElegibles.length > 0 && (
+          <div>
+            <div className="mb-1.5 flex items-center justify-between gap-2">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">Mover también estas cuentas (prefijo <span className="font-mono">{destinoRef.codigo}</span>)</span>
+              <span className="flex shrink-0 gap-2 text-[11px]">
+                <button type="button" onClick={() => setMarcadas(new Set(hermanasElegibles.map((h) => h.filaNum)))} className="font-medium text-blue-700 hover:underline">Todas</button>
+                <button type="button" onClick={() => setMarcadas(new Set())} className="font-medium text-ink-500 hover:underline">Ninguna</button>
+              </span>
+            </div>
+            <div className="flex max-h-52 flex-col gap-1 overflow-y-auto">
+              {hermanasElegibles.map((h) => (
+                <label key={h.filaNum} className="flex cursor-pointer items-center gap-2 rounded-md border border-ink-150 px-2.5 py-1 hover:bg-ink-50">
+                  <input type="checkbox" checked={marcadas.has(h.filaNum)} onChange={() => toggleH(h.filaNum)} />
+                  <span className="font-mono text-[11px] text-ink-500">{h.codigoCrudo}</span>
+                  <span className="min-w-0 truncate text-ink-700" title={h.nombre}>{h.nombre}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+function ArbolTabla({ arbol, filtro, onReclasificar, onInvertir, onDesacoplar, onOmitir, posiciones, contexto, onUbicar, onDesindentar }: { arbol: NodoBorrador[]; filtro: string[]; onReclasificar: (codigo: string, actual: NodoBorrador["tipoFila"]) => void; onInvertir: (codigo: string) => void; onDesacoplar: (codigo: string, desacopladaAhora: boolean) => void; onOmitir: (filaNum: number, omitidaAhora: boolean) => void; posiciones: Map<number, Posicion>; contexto: Map<number, ContextoNodo>; onUbicar: (filaNum: number) => void; onDesindentar: (filaNum: number) => void }) {
   // Control contable: saldo ant + débito − crédito = saldo actual (±$1).
   const controlOk = (si: number, db: number, cr: number, s: number) => Math.abs(si + db - cr - s) <= 1;
   // Expande por defecto los niveles altos y TODA rama con descuadre (para verlo).
@@ -468,10 +592,11 @@ function ArbolTabla({ arbol, filtro, onReclasificar, onInvertir, onDesacoplar, o
     // muestra «Incluir» para RESCATARLA — incluye las agrupadoras del re-listado con
     // guiones que se marcaron tachadas automáticamente.
     const puedeOmitir = esMov || n.tipoFila === "total" || omitida;
-    // Tabulador (re-parentado manual): indentar = colgar del hermano de arriba;
-    // desindentar = subir al abuelo. Solo en nodos con código numérico.
+    // Tabulador (re-parentado manual): → abre el modal "Ubicar" (elegir destino + mover
+    // hermanas en lote) si la fila está mal ubicada; ← sube un nivel (al abuelo).
     const pos = numero ? posiciones.get(n.filaNum) : undefined;
-    const puedeIndentar = !!pos && pos.prev != null;
+    const ctxFila = numero ? contexto.get(n.filaNum) : undefined;
+    const puedeUbicarFila = puedeUbicar(ctxFila);
     const puedeDesindentar = !!pos && pos.abuelo != null;
     const reparentada = n.padreManual != null;
     filas.push(
@@ -504,7 +629,7 @@ function ArbolTabla({ arbol, filtro, onReclasificar, onInvertir, onDesacoplar, o
               <Chip label={`Agrupadora · ${nivelLabel(n.codigo)}`} tone="ink" />
             )}
             {descuadrado && (
-              <span className="text-[10.5px] font-semibold text-err-700" title={`Total del archivo ${fmt(n.saldoFinal)} − suma de sus ${n.hijos.length} sub-filas = ${fmt(n.descuadre!)}. Su subtotal no cuadra con su desglose por código.`}>
+              <span className="text-[10.5px] font-semibold text-err-700" title={`Total del archivo ${fmt(n.saldoFinal)} − suma de sus ${n.hijos.length} cuentas = ${fmt(n.descuadre!)}. Su subtotal no cuadra con su desglose por código.`}>
                 Δ {fmt(n.descuadre!)}
               </span>
             )}
@@ -554,20 +679,20 @@ function ArbolTabla({ arbol, filtro, onReclasificar, onInvertir, onDesacoplar, o
                 {omitida ? "Incluir" : <Icon name="x" size={14} />}
               </button>
             )}
-            {(puedeIndentar || puedeDesindentar || reparentada) && (
-              <span className="inline-flex items-center gap-0.5" title="Tabulador: ubica esta fila en la rama que quieras. → la mete en la agrupadora de arriba; ← la sube un nivel.">
+            {(puedeUbicarFila || puedeDesindentar || reparentada) && (
+              <span className="inline-flex items-center gap-0.5" title="Tabulador: ubica esta fila en la rama correcta. → elige bajo cuál cuenta anidarla (y mueve las cuentas del mismo grupo en lote); ← la sube un nivel.">
                 <button
                   type="button"
                   disabled={!puedeDesindentar}
                   onClick={() => onDesindentar(n.filaNum)}
-                  title="Desindentar: subir esta fila un nivel (al abuelo)."
+                  title="Desindentar: subir esta fila un nivel (a su agrupadora superior)."
                   className="rounded border border-ink-200 px-1 py-0.5 text-[11px] font-bold leading-none text-ink-500 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-default disabled:opacity-30 disabled:hover:border-ink-200 disabled:hover:bg-transparent disabled:hover:text-ink-500"
                 >←</button>
                 <button
                   type="button"
-                  disabled={!puedeIndentar}
-                  onClick={() => onIndentar(n.filaNum)}
-                  title="Indentar: colgar esta fila de la agrupadora de arriba (meterla en esa rama)."
+                  disabled={!puedeUbicarFila}
+                  onClick={() => onUbicar(n.filaNum)}
+                  title="Ubicar: elegir bajo cuál cuenta de arriba anidar esta fila y mover las cuentas del mismo grupo en lote."
                   className="rounded border border-ink-200 px-1 py-0.5 text-[11px] font-bold leading-none text-ink-500 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-default disabled:opacity-30 disabled:hover:border-ink-200 disabled:hover:bg-transparent disabled:hover:text-ink-500"
                 >→</button>
                 {reparentada && <Chip label="↳ movida" tone="blue" />}

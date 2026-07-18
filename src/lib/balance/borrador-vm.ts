@@ -3,8 +3,8 @@
 // las validaciones y los hallazgos se calculen EXACTAMENTE igual en ambos lados.
 import { calcularBalance, construirValidacionContable, conForzarHoja, type CuentaCruda, type ValidacionContable } from "./calcular";
 import { marcarSubtotalesDuplicados, reclasificarRepetidos, reclasificarNoImputables } from "./extraccion/transformar";
-import { construirArbolBorrador, reclasificarHuerfanas, type FilaBorrador, type NodoBorrador } from "./borrador";
-import { esBalancePorTercero, colapsarTerceros } from "./terceros";
+import { construirArbolBorrador, reclasificarHuerfanas, marcarNoContables, corregirCodigosPlaceholder, type FilaBorrador, type NodoBorrador } from "./borrador";
+import { esBalancePorTercero, colapsarTerceros, esBalancePorTerceroSufijo, consolidarTercerosPorSufijo, marcarCuentaNit } from "./terceros";
 import { marcarRelistadoGuiones } from "./relistado";
 import { diagnosticarBorrador, type Hallazgo, type PartidaDobleInfo } from "./diagnostico";
 import { contarFormasCodigo, contarCodigosRepetidos, contarDescuadres, type DiagnosticoLectura } from "./diagnostico-lectura";
@@ -18,6 +18,9 @@ export type VistaBorrador = {
   agrupadoras: AgrupadoraRef[]; // estructura compacta (sin hojas) para aterrizar la IA
   porTercero: boolean; // el archivo venía abierto por tercero → se colapsó el detalle
   relistadoGuiones: number; // nº de filas de re-listado con guiones colapsadas (0 = ninguno)
+  filasOcultas: number; // nº de filas ocultas por defecto (pies/notas + cuentas de orden 8/9)
+  clasesCorregidas: number; // nº de rollups de clase SIIGO con código placeholder corregido
+  nitTachados: number; // nº de filas NIT (repiten su cuenta) tachadas (SIIGO por cuenta)
   diagnostico: DiagnosticoLectura; // huella observacional de la lectura (para medir)
 };
 
@@ -36,9 +39,23 @@ export function construirVistaBorrador(filas: FilaBorrador[]): VistaBorrador {
   // ¿Balance ABIERTO POR TERCERO? Se COLAPSA el detalle de tercero y se concilia por
   // CUENTA (lógica separada; los demás informes no se tocan). Al quitar los terceros,
   // las cuentas quedan sin hijos y `reclasificarHuerfanas` las vuelve imputables.
-  const porTercero = esBalancePorTercero(filas);
-  const base = porTercero ? colapsarTerceros(filas) : filas;
-  const terceros = porTercero ? filas.length - base.length : 0;
+  // Tercero con NIT como FILA aparte (código = NIT) → se QUITA el detalle.
+  const porTerceroNit = esBalancePorTercero(filas);
+  const base0 = porTerceroNit ? colapsarTerceros(filas) : filas;
+  // Tercero con NIT PEGADO en el sufijo del código (`120520-0-00-800011002`, sin fila
+  // consolidada) → se CONSOLIDA (suma) por cuenta en una sola fila.
+  const porTerceroSufijo = esBalancePorTerceroSufijo(base0);
+  const base = porTerceroSufijo ? consolidarTercerosPorSufijo(base0) : base0;
+  const porTercero = porTerceroNit || porTerceroSufijo;
+  const terceros = filas.length - base.length;
+  // SIIGO «por cuenta»: los rollups de clase traen un código placeholder gigante
+  // (`800000000000000`) en vez de la clase. Se corrige PRIMERO (deriva la clase de los
+  // hijos) para que el código real fluya por todo lo demás. MUTA base.
+  const clasesCorregidas = corregirCodigosPlaceholder(base);
+  // SIIGO «por cuenta»: cada cuenta viene como fila «Cuenta» (total) + filas «NIT» que
+  // REPITEN su código. Se TACHAN las repeticiones (movimientos consecutivos de igual
+  // código), conservando la «Cuenta». Seguro sin umbral (resetea en agrupadoras). MUTA base.
+  const nitTachados = marcarCuentaNit(base);
   // RE-LISTADO CON GUIONES: algunos ERP re-listan cada cuenta además del código plano
   // con notación de guiones («1105-05-04» + «*SIN NOMBRE*»). Esas filas redundantes (las
   // que ya tienen su equivalente plano) se MARCAN como omitidas: se siguen VIENDO
@@ -50,6 +67,10 @@ export function construirVistaBorrador(filas: FilaBorrador[]): VistaBorrador {
   // mal clasificado como movimiento → «total»: si no, se cuelga de la última
   // agrupadora inflando su Δ y se cuenta al cargar. MUTA `base`.
   reclasificarNoImputables(base);
+  // Filas que NO van al balance → se ocultan por defecto (omitida, tachadas),
+  // rescatables con «Incluir»: pies/notas del ERP (código que no empieza por dígito:
+  // «Procesado en: …», «<none>», «Total general») y cuentas de orden (clase 8/9).
+  const filasOcultas = marcarNoContables(base);
   // Agrupadoras HUÉRFANAS (sin hijos, con saldo) → movimiento: son hojas imputables
   // que el ERP exportó sin desglose; si no, su saldo se pierde. MUTA `base`. El delta
   // fresco es fiable como señal (esta pasada no se aplica en la extracción).
@@ -111,5 +132,5 @@ export function construirVistaBorrador(filas: FilaBorrador[]): VistaBorrador {
     ecuacionDiff: calc.diffCuadre,
   };
 
-  return { arbol, validacion, partidaDoble, hallazgos, agrupadoras, porTercero, relistadoGuiones, diagnostico };
+  return { arbol, validacion, partidaDoble, hallazgos, agrupadoras, porTercero, relistadoGuiones, filasOcultas, clasesCorregidas, nitTachados, diagnostico };
 }

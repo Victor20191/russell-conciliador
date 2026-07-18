@@ -37,12 +37,12 @@ import { TIPO_BALANCE_CARGA } from "@/lib/balance/tipo-balance";
 import { extraerBalance } from "@/lib/balance/extraccion/extraer";
 import { ingerir, type Ingesta } from "@/lib/balance/extraccion/ingesta";
 import { huellasCandidatas, detectarNit, calcularHuella } from "@/lib/balance/extraccion/huella";
-import { aplanarSpec, specDesdePerfil, specCargaDesdePerfil, type PerfilPlano } from "@/lib/balance/extraccion/perfil";
+import { aplanarSpec, normalizarCodigoFragmentos, specDesdePerfil, specCargaDesdePerfil, type PerfilPlano } from "@/lib/balance/extraccion/perfil";
 import { esTransformacionAceptable } from "@/lib/balance/extraccion/validacion";
 import { mapearPorIA } from "@/lib/balance/mapeo-ia";
 import { construirVistaBorrador } from "@/lib/balance/borrador-vm";
-import { reclasificarHuerfanas, type FilaBorrador } from "@/lib/balance/borrador";
-import { esBalancePorTercero, colapsarTerceros } from "@/lib/balance/terceros";
+import { reclasificarHuerfanas, corregirCodigosPlaceholder, marcarNoContables, type FilaBorrador } from "@/lib/balance/borrador";
+import { esBalancePorTercero, colapsarTerceros, esBalancePorTerceroSufijo, consolidarTercerosPorSufijo, marcarCuentaNit } from "@/lib/balance/terceros";
 import { marcarRelistadoGuiones } from "@/lib/balance/relistado";
 import { registrarDiagnosticoInicial, cerrarDiagnostico, acumularIntervencionManual, registrarDiagnosticoIA } from "@/lib/balance/diagnostico-lectura-registro";
 import { diagnosticarConIA, type DiagnosticoIA } from "@/lib/balance/diagnostico-ia";
@@ -174,7 +174,7 @@ async function ajustesCargaDeCliente(clienteId: number | null): Promise<AjustesC
 /** Fila de perfil de carga → PerfilPlano del pipeline (normaliza los enums de BD). */
 type FilaPerfilCarga = {
   hoja: string; filaEncabezado: number; primeraFilaDatos: number;
-  colCodigo: number; colNombre: number; colSaldoInicial: number; colDebitos: number; colCreditos: number;
+  colCodigo: number; colCodigoFragmentos: unknown; colNombre: number; colSaldoInicial: number; colDebitos: number; colCreditos: number;
   colSaldoFinal: number; colSaldoFinalDebito: number; colSaldoFinalCredito: number; colTercero: number;
   signoCredito: string; reglaDetalleTipo: string; reglaDetalleColumna: number | null; reglaDetalleValor: string | null;
   agregarPorTercero: boolean;
@@ -182,7 +182,8 @@ type FilaPerfilCarga = {
 function perfilPlanoDesdeFila(p: FilaPerfilCarga): PerfilPlano {
   return {
     hoja: p.hoja, filaEncabezado: p.filaEncabezado, primeraFilaDatos: p.primeraFilaDatos,
-    colCodigo: p.colCodigo, colNombre: p.colNombre, colSaldoInicial: p.colSaldoInicial,
+    colCodigo: p.colCodigo, colCodigoFragmentos: normalizarCodigoFragmentos(p.colCodigoFragmentos),
+    colNombre: p.colNombre, colSaldoInicial: p.colSaldoInicial,
     colDebitos: p.colDebitos, colCreditos: p.colCreditos, colSaldoFinal: p.colSaldoFinal,
     colSaldoFinalDebito: p.colSaldoFinalDebito, colSaldoFinalCredito: p.colSaldoFinalCredito, colTercero: p.colTercero,
     signoCredito: p.signoCredito === "magnitud" ? "magnitud" : "firmado",
@@ -235,13 +236,22 @@ async function cuentasDesdeStaging(loteId: string): Promise<CuentaCruda[]> {
   }));
   // Balance ABIERTO POR TERCERO → colapsar el detalle y cargar por CUENTA (lógica
   // separada; los demás informes no se tocan). Las cuentas quedan como imputables.
-  const rows = esBalancePorTercero(filasStaging) ? colapsarTerceros(filasStaging) : filasStaging;
+  let rows = esBalancePorTercero(filasStaging) ? colapsarTerceros(filasStaging) : filasStaging;
+  // Tercero con NIT pegado al sufijo del código: consolida por cuenta antes de
+  // aplicar las demás reglas del borrador.
+  if (esBalancePorTerceroSufijo(rows)) rows = consolidarTercerosPorSufijo(rows);
+  // Normaliza rollups SIIGO y evita cargar como cuentas las filas de detalle NIT.
+  corregirCodigosPlaceholder(rows);
+  marcarCuentaNit(rows);
   // RE-LISTADO CON GUIONES: marca como omitidas las filas «1105-05-04»/«*SIN NOMBRE*»
   // redundantes (que duplican una fila plana existente); NO se cargan (el filtro
   // `!f.omitida` de abajo las excluye), conservando el código plano que cuadra.
   marcarRelistadoGuiones(rows);
   reclasificarRepetidos(rows); // código repetido → movimiento
   reclasificarNoImputables(rows); // pie/total sin código («Total general», marca ERP) → total
+  // Omite pies/notas, cuentas de orden 8/9 y totales de sucursal; respeta los
+  // rescates manuales del tri-estado `omitida`.
+  marcarNoContables(rows);
   // Agrupadora huérfana (sin hijos, con saldo) → movimiento: el ERP la exportó sin
   // desglose; si no, su saldo se pierde al cargar. También recupera lotes viejos.
   reclasificarHuerfanas(rows);

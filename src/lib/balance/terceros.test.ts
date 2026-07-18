@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { esFilaTercero, esBalancePorTercero, colapsarTerceros } from "./terceros";
+import { esFilaTercero, esFilaGenericoTercero, esBalancePorTercero, colapsarTerceros, esFilaTerceroSufijo, esBalancePorTerceroSufijo, consolidarTercerosPorSufijo, marcarCuentaNit } from "./terceros";
 import { construirVistaBorrador } from "./borrador-vm";
 import type { FilaBorrador } from "./borrador";
 
@@ -28,6 +28,28 @@ describe("esFilaTercero", () => {
     expect(esFilaTercero({ tipoFila: "total", codigo: "", nombre: "Total general", codigoCrudo: "Total general" })).toBe(false);
     // Rótulo de sección: crudo sin dígitos en el ID → no es un tercero.
     expect(esFilaTercero({ tipoFila: "movimiento", codigo: "", nombre: "NOMINASNOMINAS", codigoCrudo: "NOMINAS NOMINAS" })).toBe(false);
+  });
+});
+
+describe("esFilaGenericoTercero", () => {
+  it("detecta el placeholder «Generico Genérico» (con y sin acento), no una cuenta ni agrupadora", () => {
+    expect(esFilaGenericoTercero({ tipoFila: "total", codigoCrudo: "Generico Genérico" })).toBe(true);
+    expect(esFilaGenericoTercero({ tipoFila: "movimiento", codigoCrudo: "Generico Generico" })).toBe(true);
+    expect(esFilaGenericoTercero({ tipoFila: "agrupadora", codigoCrudo: "Generico Genérico" })).toBe(false);
+    expect(esFilaGenericoTercero({ tipoFila: "movimiento", codigoCrudo: "52201001" })).toBe(false); // cuenta real
+    expect(esFilaGenericoTercero({ tipoFila: "total", codigoCrudo: "NOMINAS NOMINAS" })).toBe(false);
+  });
+});
+
+describe("colapsarTerceros con el tercero genérico", () => {
+  it("quita también las filas «Generico Genérico» (movimiento y total), deja la cuenta", () => {
+    const filas: FilaBorrador[] = [
+      fila(1, "5220", "ARRENDAMIENTOS", 100, "agrupadora"),
+      { ...fila(2, "", "GenericoGené", 60, "movimiento"), codigoCrudo: "Generico Genérico" },
+      { ...fila(3, "", "GenericoGené", 0, "total"), codigoCrudo: "Generico Genérico" },
+      tercero(4, "901427659", 40),
+    ];
+    expect(colapsarTerceros(filas).map((f) => f.codigoCrudo)).toEqual(["5220"]);
   });
 });
 
@@ -74,5 +96,100 @@ describe("colapsarTerceros + construirVistaBorrador (balance por tercero)", () =
     expect(codigos.has("110505")).toBe(true); // sí las cuentas
     // El Activo calculado = Σ cuentas (12 × 100 = 1200), NO clase 9.
     expect(Math.round(vista.validacion.activo)).toBe(1200);
+  });
+});
+
+describe("tercero con NIT en el sufijo del código (SAP/BO «por tercero»)", () => {
+  it("esFilaTerceroSufijo: código-…-NIT sí; cuenta con sufijo corto o guiones no", () => {
+    expect(esFilaTerceroSufijo({ tipoFila: "movimiento", codigoCrudo: "120520-0-00-800011002" })).toBe(true);
+    expect(esFilaTerceroSufijo({ tipoFila: "movimiento", codigoCrudo: "122505-0-00-860034594" })).toBe(true);
+    expect(esFilaTerceroSufijo({ tipoFila: "movimiento", codigoCrudo: "11100501-0-00" })).toBe(false); // banco, sufijo corto
+    expect(esFilaTerceroSufijo({ tipoFila: "movimiento", codigoCrudo: "1105-05-04" })).toBe(false); // re-listado guiones
+    expect(esFilaTerceroSufijo({ tipoFila: "movimiento", codigoCrudo: "901427659" })).toBe(false); // NIT plano (sin guion)
+    expect(esFilaTerceroSufijo({ tipoFila: "agrupadora", codigoCrudo: "120520-0-00-800011002" })).toBe(false);
+  });
+
+  it("consolidarTercerosPorSufijo: deja SIEMPRE el código limpio y una fila por cuenta (suma TODO)", () => {
+    const conCrudo = (fn: number, cod: string, crudo: string, sf: number): FilaBorrador => ({ ...fila(fn, cod, cod, sf, "movimiento"), codigoCrudo: crudo });
+    const filas: FilaBorrador[] = [
+      fila(1, "1105", "CAJA", 0, "agrupadora"), // agrupadora → pasa igual
+      // A) Banco: solo el tercero genérico `-0-00` (sin NIT) → se limpia a "11100501".
+      conCrudo(2, "11100501", "11100501-0-00", 100),
+      // B) Cuenta con genérico `-0-00` + detalle NIT → SUMA todos (el `-0-00` es un tercero más).
+      conCrudo(3, "135515", "135515-0-00", 300),
+      conCrudo(4, "135515", "135515-0-00-800180687", 100),
+      conCrudo(5, "135515", "135515-0-00-890903938", 200),
+      // C) Cuenta con SOLO detalle NIT → suma.
+      conCrudo(6, "120520", "120520-0-00-800011002", 473),
+      conCrudo(7, "120520", "120520-0-00-800027374", 41),
+    ];
+    const out = consolidarTercerosPorSufijo(filas);
+    // Una fila por cuenta, todas con el código limpio (sin sufijo).
+    expect(out.map((f) => f.codigoCrudo)).toEqual(["1105", "11100501", "135515", "120520"]);
+    expect(out.find((f) => f.codigo === "11100501")!.saldoFinal).toBe(100);
+    expect(out.find((f) => f.codigo === "135515")!.saldoFinal).toBe(300 + 100 + 200); // Σ de TODOS los terceros
+    expect(out.find((f) => f.codigo === "120520")!.saldoFinal).toBe(473 + 41); // suma de NIT
+  });
+
+  it("esBalancePorTerceroSufijo: true cuando la mayoría de movimientos traen NIT en sufijo", () => {
+    const conSufijo: FilaBorrador[] = Array.from({ length: 25 }, (_, i) => ({
+      ...fila(i + 1, "120520", "CTA", 1, "movimiento"), codigoCrudo: `120520-0-00-${800000000 + i}`,
+    }));
+    expect(esBalancePorTerceroSufijo(conSufijo)).toBe(true);
+    const normal = Array.from({ length: 25 }, (_, i) => fila(i + 1, `1105050${i}`, `CTA ${i}`, 1, "movimiento"));
+    expect(esBalancePorTerceroSufijo(normal)).toBe(false);
+  });
+});
+
+describe("SIIGO «por cuenta»: fila NIT que repite su cuenta (marcarCuentaNit)", () => {
+  it("tacha las filas cuyo código repite el de la anterior; conserva la «Cuenta»", () => {
+    // Bloque: Cta Nivel 4 (agrupadora) → Cuenta (total) → NIT ×2 (repiten el código).
+    const filas: FilaBorrador[] = [
+      fila(1, "110505", "CAJA GENERAL", 100, "agrupadora"), // Cta Nivel 4
+      fila(2, "11050505", "CAJA GENERAL", 100, "movimiento"), // Cuenta (total)
+      fila(3, "11050505", "CAJA GENERAL", 60, "movimiento"), // NIT 1 → tachar
+      fila(4, "11050505", "CAJA GENERAL", 40, "movimiento"), // NIT 2 → tachar
+      fila(5, "11050510", "CAJA MENOR", 0, "movimiento"), // otra Cuenta
+    ];
+    const n = marcarCuentaNit(filas);
+    expect(n).toBe(2);
+    expect(filas[1].omitida).toBeUndefined(); // la «Cuenta» se conserva
+    expect(filas[2].omitida).toBe(true); // NIT tachado
+    expect(filas[3].omitida).toBe(true);
+    expect(filas[4].omitida).toBeUndefined(); // otra cuenta intacta
+  });
+
+  it("NO toca multi-sucursal: la agrupadora de clase entre sucursales resetea el rastreo", () => {
+    // 1 ACTIVO A → 1105 (mov) … 1 ACTIVO B → 1105 (mov): mismo código pero con la
+    // agrupadora «1» en medio, que resetea → no se tacha ninguno.
+    const filas: FilaBorrador[] = [
+      fila(1, "1", "ACTIVO A", 100, "agrupadora"),
+      fila(2, "1105", "CAJA", 100, "movimiento"),
+      fila(3, "1", "ACTIVO B", 50, "agrupadora"),
+      fila(4, "1105", "CAJA", 50, "movimiento"),
+    ];
+    expect(marcarCuentaNit(filas)).toBe(0);
+  });
+
+  it("NO tacha variantes INAC/'A' (mismo código tras quitar sufijo, valores DISTINTOS)", () => {
+    // `11100502` y `11100502INAC` colapsan al mismo código pero son cuentas independientes:
+    // la primera NO es el total de la segunda → ambas deben contar.
+    const filas: FilaBorrador[] = [
+      { ...fila(1, "11100502", "BANCOLOMBIA", -118, "movimiento"), codigoCrudo: "11100502" },
+      { ...fila(2, "11100502", "BANCOLOMBIA", -414, "movimiento"), codigoCrudo: "11100502INAC" },
+      { ...fila(3, "23703021", "COMPENSAR", 5, "movimiento"), codigoCrudo: "23703021" },
+      { ...fila(4, "23703021", "COMPENSAR", 32, "movimiento"), codigoCrudo: "23703021A" },
+    ];
+    expect(marcarCuentaNit(filas)).toBe(0);
+    expect(filas.every((f) => f.omitida === undefined)).toBe(true);
+  });
+
+  it("respeta el tri-estado: un NIT rescatado (omitida=false) no se re-tacha", () => {
+    const filas: FilaBorrador[] = [
+      fila(1, "11050505", "CAJA", 100, "movimiento"),
+      { ...fila(2, "11050505", "CAJA", 100, "movimiento"), omitida: false }, // rescatado
+    ];
+    expect(marcarCuentaNit(filas)).toBe(0);
+    expect(filas[1].omitida).toBe(false);
   });
 });

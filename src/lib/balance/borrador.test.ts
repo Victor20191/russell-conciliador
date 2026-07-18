@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { construirArbolBorrador, contarNodos, aplanarArbolFiltrado, reclasificarHuerfanas, type FilaBorrador } from "./borrador";
+import { construirArbolBorrador, contarNodos, aplanarArbolFiltrado, reclasificarHuerfanas, marcarNoContables, corregirCodigosPlaceholder, contextoTabulador, puedeUbicar, type FilaBorrador } from "./borrador";
+import { construirVistaBorrador } from "./borrador-vm";
 import { reclasificarNoImputables } from "./extraccion/transformar";
 
 function fila(filaNum: number, codigo: string, nombre: string, saldoFinal: number, tipo: FilaBorrador["tipoFila"]): FilaBorrador {
@@ -20,6 +21,28 @@ describe("construirArbolBorrador", () => {
     expect(arbol[0].hijos[0].codigo).toBe("11");
     expect(arbol[0].hijos[0].hijos[0].hijos.map((h) => h.codigo)).toEqual(["110505", "110510"]);
     expect(contarNodos(arbol)).toBe(5);
+  });
+
+  it("una fila NO numérica intercalada («<none>») no vacía la pila ni detacha las hijas", () => {
+    const filas: FilaBorrador[] = [
+      fila(1, "52", "OPERACIONALES", 0, "agrupadora"),
+      fila(2, "5220", "ARRENDAMIENTOS", 100, "agrupadora"),
+      { ...fila(3, "", "<none>", 0, "total"), codigoCrudo: "<none>" }, // ruido: código vacío
+      fila(4, "522003", "RENTING", 60, "agrupadora"),
+      fila(5, "52200301", "RENTING", 60, "movimiento"),
+      fila(6, "522010", "CONSTRUCCIONES", 40, "agrupadora"),
+    ];
+    const arbol = construirArbolBorrador(filas);
+    // 5220 NO se detacha: conserva sus hijas por prefijo. El «<none>» queda como RAÍZ
+    // (ruido), sin colgarse de 5220 ni de nadie; la agrupadora en curso sigue abierta.
+    const n52 = arbol.find((n) => n.codigo === "52")!;
+    const n5220 = n52.hijos.find((h) => h.codigo === "5220")!;
+    expect(n5220.hijos.map((h) => h.codigo)).toEqual(["522003", "522010"]);
+    const none = arbol.find((n) => n.codigoCrudo === "<none>");
+    expect(none?.tipoFila).toBe("total"); // raíz, no cuelga de ninguna cuenta
+    // Como 5220 conserva hijas, `reclasificarHuerfanas` NO la degrada a movimiento.
+    reclasificarHuerfanas(filas);
+    expect(filas.find((f) => f.codigo === "5220")!.tipoFila).toBe("agrupadora");
   });
 
   it("código repetido: el encabezado agrupa; su línea de movimiento y su detalle cuelgan debajo", () => {
@@ -341,5 +364,154 @@ describe("aplanarArbolFiltrado", () => {
     const sb = construirArbolBorrador([mov(1, "11050501"), tot(2, "110505"), tot(3, "1105")]);
     // El árbol es 1105 > 110505 > 11050501, pero el export sale en orden de archivo.
     expect(aplanarArbolFiltrado(sb).map((x) => x.nodo.codigo)).toEqual(["11050501", "110505", "1105"]);
+  });
+});
+
+describe("contextoTabulador + puedeUbicar (tabulador Ubicar)", () => {
+
+  // Caso real: 5220 (movimiento) y varias 5220xx desanidadas como hermanas bajo 52.
+
+  const filas: FilaBorrador[] = [
+
+    fila(1, "52", "OPERACIONALES", 0, "agrupadora"),
+
+    fila(2, "5220", "ARRENDAMIENTOS", 100, "movimiento"), // quedó como movimiento
+
+    fila(3, "522003", "RENTING", 60, "agrupadora"),
+
+    fila(4, "522010", "CONSTRUCCIONES", 40, "agrupadora"),
+
+    fila(5, "522015", "MAQUINARIA", 0, "agrupadora"),
+
+  ];
+
+
+
+  it("da los candidatos por prefijo (más profundo primero) y las hermanas", () => {
+
+    // Con 5220 como movimiento, las 5220xx cuelgan de 52 (hermanas entre sí y de 5220).
+
+    const ctx = contextoTabulador(construirArbolBorrador(filas));
+
+    const c522003 = ctx.get(3)!;
+
+    expect(c522003.candidatos.map((c) => c.codigo)).toEqual(["5220", "52"]); // profundo→superficial
+
+    expect(c522003.padre).toBe(1); // cuelga de 52
+
+    expect(c522003.hermanas.map((h) => h.codigo).sort()).toEqual(["5220", "522010", "522015"]);
+
+  });
+
+
+
+  it("puedeUbicar: true para las 5220xx mal ubicadas; false para una ya bien anidada", () => {
+
+    const ctx = contextoTabulador(construirArbolBorrador(filas));
+
+    expect(puedeUbicar(ctx.get(3))).toBe(true); // 522003: ancestro 5220 ≠ su padre 52
+
+    // Cuenta bien ubicada: 11050501 bajo 110505 → su ancestro más profundo ES su padre.
+
+    const bien = contextoTabulador(construirArbolBorrador([
+
+      fila(10, "1105", "CAJA", 0, "agrupadora"),
+
+      fila(11, "110505", "CAJA G", 0, "agrupadora"),
+
+      fila(12, "11050501", "CAJA GENERAL", 0, "movimiento"),
+
+    ]));
+
+    expect(puedeUbicar(bien.get(12))).toBe(false);
+
+  });
+
+});
+
+describe("marcarNoContables (ocultar totales / no-cuentas)", () => {
+
+  it("marca omitida las filas 'total'; respeta el tri-estado y no toca las cuentas", () => {
+
+    const filas: FilaBorrador[] = [
+      fila(1, "110505", "CAJA", 100, "movimiento"), // cuenta real (código numérico)
+      { ...fila(2, "", "Total general", 0, "total"), codigoCrudo: "Total general" },
+      { ...fila(3, "", "<none>", 0, "total"), codigoCrudo: "<none>", omitida: false }, // rescatada a mano
+      // Pie del ERP que se coló como AGRUPADORA (empieza por letra) → igual se tacha.
+      { ...fila(4, "", "Procesado en: Abril 15 2026", 0, "agrupadora"), codigoCrudo: "Procesado en: Abril 15 2026" },
+      // Cuenta con código ALFANUMÉRICO (empieza por dígito) → NO se toca.
+      fila(5, "110A505", "CAJA ALFANUMÉRICA", 50, "movimiento"),
+      // Cuentas de ORDEN (clase 8 y 9) → se tachan siempre (fuera de balance).
+      fila(6, "8305", "DEUDORAS DE CONTROL", 0, "agrupadora"),
+      fila(7, "930505", "ACREEDORAS", 0, "movimiento"),
+    ];
+    const n = marcarNoContables(filas);
+    expect(n).toBe(4); // #2 (total), #4 (pie), #6 (clase 8), #7 (clase 9); la #3 ya fue rescatada
+    expect(filas[1].omitida).toBe(true);
+    expect(filas[3].omitida).toBe(true); // el pie que empieza por letra, aunque sea "agrupadora"
+    expect(filas[5].omitida).toBe(true); // clase 8 (cuenta de orden)
+    expect(filas[6].omitida).toBe(true); // clase 9 (cuenta de orden)
+    expect(filas[2].omitida).toBe(false); // respeta el rescate (tri-estado)
+    expect(filas[0].omitida).toBeUndefined(); // la cuenta contable (clase 1) no se toca
+    expect(filas[4].omitida).toBeUndefined(); // la cuenta alfanumérica (110A505) NO se tacha
+  });
+
+  it("tacha los totales de sucursal «00X» (multi-sucursal) y no toca cuentas reales", () => {
+    const filas: FilaBorrador[] = [
+      { ...fila(1, "002", "MEDELLIN", 88_202_777_497, "movimiento"), codigoCrudo: "002 MEDELLIN" },
+      { ...fila(2, "012", "CALI- CEDIS", -12_401_580_407, "movimiento"), codigoCrudo: "012 CALI- CEDIS" },
+      fila(3, "11", "DISPONIBLE", 100, "agrupadora"), // grupo PUC real → NO se toca
+      fila(4, "11100502", "BANCOLOMBIA", 100, "movimiento"), // cuenta real → NO se toca
+      fila(5, "011005", "CAJA ZERO-PADDED", 50, "movimiento"), // 6 díg: NO es delimitador → NO se toca
+    ];
+    const n = marcarNoContables(filas);
+    expect(n).toBe(2); // solo los dos «00X»
+    expect(filas[0].omitida).toBe(true);
+    expect(filas[1].omitida).toBe(true);
+    expect(filas[2].omitida).toBeUndefined();
+    expect(filas[3].omitida).toBeUndefined();
+    expect(filas[4].omitida).toBeUndefined(); // 011005 (6 díg) no se confunde con sucursal
+  });
+});
+
+describe("corregirCodigosPlaceholder (SIIGO: rollup de clase con código gigante)", () => {
+  it("deriva la clase del primer hijo y no toca cuentas reales largas", () => {
+    const filas: FilaBorrador[] = [
+      fila(1, "800000000000000", "Otros Gastos", 100, "movimiento"), // placeholder 8×10^14
+      fila(2, "53", "NO OPERACIONALES", 100, "agrupadora"),
+      fila(3, "5305", "GASTOS BANCARIOS", 100, "agrupadora"),
+      fila(4, "53052505", "DIFERENCIA EN CAMBIO", 100, "movimiento"),
+      fila(5, "614505157005", "IVA COMPRAS", 50, "movimiento"), // cuenta real larga (12 díg) → NO se toca
+    ];
+    const n = corregirCodigosPlaceholder(filas);
+    expect(n).toBe(1);
+    expect(filas[0].codigo).toBe("5"); // clase derivada del hijo "53"
+    expect(filas[0].nivel).toBe(1);
+    expect(filas[0].tipoFila).toBe("agrupadora");
+    expect(filas[0].nombre).toBe("Otros Gastos"); // conserva el nombre
+    expect(filas[4].codigo).toBe("614505157005"); // cuenta real intacta (dígitos no-cero)
+  });
+
+  it("sin hijo numérico después, deja el placeholder igual (fallback)", () => {
+    const filas: FilaBorrador[] = [fila(1, "800000000000000", "Otros Gastos", 100, "movimiento")];
+    expect(corregirCodigosPlaceholder(filas)).toBe(0);
+    expect(filas[0].codigo).toBe("800000000000000");
+  });
+});
+
+describe("corregirCodigosPlaceholder + construirVistaBorrador", () => {
+  it("el rollup queda como clase 5, anida su grupo/cuenta y NO se oculta", () => {
+    const filas: FilaBorrador[] = [
+      fila(1, "800000000000000", "Otros Gastos", 100, "movimiento"),
+      fila(2, "53", "NO OPERACIONALES", 100, "agrupadora"),
+      fila(3, "5305", "GASTOS BANCARIOS", 100, "agrupadora"),
+      fila(4, "53052505", "DIFERENCIA EN CAMBIO", 100, "movimiento"),
+    ];
+    const vista = construirVistaBorrador(filas);
+    expect(vista.clasesCorregidas).toBe(1);
+    const c5 = vista.arbol.find((n) => n.codigo === "5");
+    expect(c5?.nombre).toBe("Otros Gastos");
+    expect(!!c5?.omitida).toBe(false); // ya no es clase 8 → no se tacha
+    expect(c5?.hijos.some((h) => h.codigo === "53")).toBe(true); // 53 anida bajo 5
   });
 });

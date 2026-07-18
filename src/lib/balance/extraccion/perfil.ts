@@ -10,6 +10,7 @@ export type PerfilPlano = {
   filaEncabezado: number;
   primeraFilaDatos: number;
   colCodigo: number;
+  colCodigoFragmentos: number[];
   colNombre: number;
   colSaldoInicial: number;
   colDebitos: number;
@@ -32,6 +33,7 @@ export function aplanarSpec(spec: SpecCarga): PerfilPlano {
     filaEncabezado: spec.filaEncabezado,
     primeraFilaDatos: spec.primeraFilaDatos,
     colCodigo: spec.columnas.codigo,
+    colCodigoFragmentos: spec.columnas.codigoFragmentos,
     colNombre: spec.columnas.nombre,
     colSaldoInicial: spec.columnas.saldoInicial,
     colDebitos: spec.columnas.debitos,
@@ -56,6 +58,7 @@ export function specCargaDesdePerfil(p: PerfilPlano): SpecCarga {
     primeraFilaDatos: p.primeraFilaDatos,
     columnas: {
       codigo: p.colCodigo,
+      codigoFragmentos: p.colCodigoFragmentos,
       nombre: p.colNombre,
       saldoInicial: p.colSaldoInicial,
       debitos: p.colDebitos,
@@ -73,6 +76,14 @@ export function specCargaDesdePerfil(p: PerfilPlano): SpecCarga {
     },
     agregarPorTercero: p.agregarPorTercero,
   };
+}
+
+/** Convierte el JSON de Prisma en una lista segura de columnas 1-based. */
+export function normalizarCodigoFragmentos(valor: unknown): number[] {
+  if (!Array.isArray(valor)) return [];
+  return valor
+    .filter((n): n is number => typeof n === "number" && Number.isInteger(n) && n > 0)
+    .filter((n, i, todos) => todos.indexOf(n) === i);
 }
 
 /**

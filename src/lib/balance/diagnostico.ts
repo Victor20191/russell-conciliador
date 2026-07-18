@@ -128,8 +128,8 @@ export function diagnosticarBorrador(v: ValidacionContable, arbol: NodoBorrador[
       candidato: candidato ? ref(candidato) : null,
       titulo: `${n.codigo} «${n.nombre}» no cuadra con su desglose`,
       detalle: candidato
-        ? `Su total (${fmt(n.saldoFinal)}) menos la suma de sus hijos deja ${fmt(d)}, que coincide con ${candidato.codigo} «${candidato.nombre}» (${fmt(candidato.saldoFinal)}): el detalle podría estar ubicado en otra rama.`
-        : `Su total menos la suma de sus hijos deja ${fmt(d)} — puede ser una cuenta faltante o mal numerada que no anida por prefijo.`,
+        ? `Su total (${fmt(n.saldoFinal)}) menos la suma de sus cuentas deja ${fmt(d)}, que coincide con ${candidato.codigo} «${candidato.nombre}» (${fmt(candidato.saldoFinal)}): el detalle podría estar ubicado en otra rama.`
+        : `Su total menos la suma de sus cuentas deja ${fmt(d)} — puede ser una cuenta faltante o mal numerada que no anida por prefijo.`,
       monto: d,
     });
   }

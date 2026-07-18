@@ -826,6 +826,7 @@ model PerfilCargaBalance {
   filaEncabezado       Int       @map("fila_encabezado")
   primeraFilaDatos     Int       @map("primera_fila_datos")
   colCodigo            Int       @map("col_codigo")
+  colCodigoFragmentos  Json      @default("[]") @map("col_codigo_fragmentos")
   colNombre            Int       @map("col_nombre")
   colSaldoInicial      Int       @map("col_saldo_inicial")
   colDebitos           Int       @map("col_debitos")

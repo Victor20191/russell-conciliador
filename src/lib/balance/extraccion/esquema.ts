@@ -47,6 +47,11 @@ export type Excepcion = z.infer<typeof ExcepcionSchema>;
 export const ColumnasSchema = z
   .object({
     codigo: z.number().int(),
+    // Código PUC FRAGMENTADO en varias columnas de jerarquía (SIIGO «Balance de prueba
+    // auxiliares»: GRUPO|CUENTA|SUBCUENTA|AUXILIAR|SUBAUXILIAR). Índices 1-based EN ORDEN
+    // (grupo→auxiliar); el código real es su concatenación (`11`+`05`+`10`+`01` →
+    // `11051001`). Vacío `[]` cuando el código viene en UNA sola columna (usa `codigo`).
+    codigoFragmentos: z.array(z.number().int()),
     nombre: z.number().int(),
     saldoInicial: z.number().int(),
     debitos: z.number().int(),
