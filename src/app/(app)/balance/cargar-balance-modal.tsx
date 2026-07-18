@@ -24,6 +24,15 @@ import type { ImportBalanceState } from "@/lib/import/balance";
 /** Extensiones de Excel que pueden traer varias hojas (inspeccionables en cliente). */
 const esExcel = (name: string) => /\.(xlsx|xlsm)$/i.test(name);
 
+/**
+ * Umbral para NO inspeccionar el Excel en el navegador. Un xlsx comprime ~6×, así que un
+ * archivo de ~500 KB en disco ya trae miles de filas; parsear el libro COMPLETO en el hilo
+ * principal (`leerHojasParaPreview`) congela la página. Por encima de esto se omite la vista
+ * previa de hojas: el servidor lee el archivo y la IA/perfil elige la hoja (los balances
+ * grandes suelen ser de una sola hoja, así que no se pierde nada útil).
+ */
+const MAX_PREVIEW_BYTES = 500 * 1024;
+
 export type ClienteOpcion = { id: number; name: string; nit: string };
 
 type Resumen = NonNullable<ImportBalanceState["resumen"]>;
@@ -73,6 +82,9 @@ function CargarBalanceModal({ clients, onClose, onReiniciar }: { clients: Client
   const [hojas, setHojas] = useState<HojaPreview[] | null>(null);
   const [hojaElegida, setHojaElegida] = useState<string | null>(null);
   const [inspeccionando, setInspeccionando] = useState(false);
+  // Excel demasiado grande para inspeccionar en el navegador sin congelar: se omite la vista
+  // previa de hojas y lo lee el servidor.
+  const [archivoGrande, setArchivoGrande] = useState(false);
   // Identifica el análisis en curso: si el usuario cambia de archivo mientras se
   // lee el anterior, descartamos el resultado tardío (no pisa el estado nuevo).
   const seqRef = useRef(0);
@@ -92,8 +104,15 @@ function CargarBalanceModal({ clients, onClose, onReiniciar }: { clients: Client
     setArchivoFile(file);
     setHojas(null);
     setHojaElegida(null);
+    setArchivoGrande(false);
     if (!file || !esExcel(file.name)) {
       setInspeccionando(false);
+      return;
+    }
+    if (file.size > MAX_PREVIEW_BYTES) {
+      // Grande: NO se parsea en el navegador (congelaría). Lo lee el servidor.
+      setInspeccionando(false);
+      setArchivoGrande(true);
       return;
     }
     setInspeccionando(true);
@@ -228,6 +247,11 @@ function CargarBalanceModal({ clients, onClose, onReiniciar }: { clients: Client
               <input type="hidden" name="hoja" value={hojaElegida ?? ""} />
 
               {inspeccionando && <p className="text-[12px] text-ink-500">Analizando las hojas del archivo…</p>}
+              {archivoGrande && (
+                <p className="rounded-md border border-ink-150 bg-ink-50 px-3 py-2 text-[12px] text-ink-600">
+                  <span className="font-semibold">Archivo grande.</span> Se omite la vista previa de hojas para no congelar el navegador; el servidor lo analizará al leer (puede tardar). Si tiene varias hojas, asegúrate de que la del balance sea la principal.
+                </p>
+              )}
               {requiereHoja && hojas && <SelectorHojas hojas={hojas} elegida={hojaElegida} onElegir={setHojaElegida} />}
             </>
           )}
