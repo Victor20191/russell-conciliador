@@ -388,7 +388,30 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
   // agrupadoras mal marcadas (p. ej. el ERP solo pone en negrita las de 6 díg y no
   // las clases/grupos) quedan enmascaradas. Si la negrita no marca los padres de
   // forma consistente, se ignora y se clasifica por prefijo (`esHoja`).
-  const usaNegrita = ((): boolean => {
+  // ¿Balance ABIERTO POR TERCERO con las CUENTAS EN NEGRITA? (SIIGO «balance por tercero»):
+  // bajo cada cuenta imputable viene su detalle por tercero; la CUENTA va en negrita y el
+  // detalle (código `0` «GENERAL» o un NIT/cédula) va SIN negrita, y la cuenta YA trae el
+  // total consolidado. Aquí la negrita marca las HOJAS (no los padres), así que la heurística
+  // `usaNegrita` de abajo NO aplica; se descarta el detalle sin negrita (lo hace el bucle) y se
+  // conservan solo las cuentas. Detección en ORDEN: fila numérica en negrita = cuenta; fila
+  // numérica SIN negrita cuyo código NO EXTIENDE (no empieza por) la última cuenta = tercero.
+  const descartarTerceroNegrita = ((): boolean => {
+    if (!hoja.negrita) return false;
+    let cuentas = 0;
+    let terceros = 0;
+    let cuentaBold = "";
+    for (let r = spec.primeraFilaDatos - 1; r < hoja.filas.length; r++) {
+      const code = normalizarCodigo(celdaCodigo(hoja.filas[r] ?? [], cols));
+      if (!/^\d+$/.test(code)) continue;
+      if (filaEnNegrita(hoja.negrita[r], cols.codigo, cols.nombre)) { cuentas++; cuentaBold = code; }
+      else if (cuentaBold && !code.startsWith(cuentaBold)) terceros++;
+    }
+    return cuentas >= 20 && terceros / (cuentas + terceros) > 0.2;
+  })();
+
+  // Cortocircuitado en el patrón por-tercero-negrita: ahí TODAS las cuentas van en negrita
+  // (padres Y hojas), así que el gate padres-bold/hojas-no-bold no aplica; manda el prefijo.
+  const usaNegrita = !descartarTerceroNegrita && ((): boolean => {
     if (!hoja.negrita) return false;
     let padres = 0;
     let padresBold = 0;
@@ -409,6 +432,8 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
   let filasExcluidas = 0;
   const parciales: FilaParcial[] = [];
   let filasDetalleTerceroExcluidas = 0;
+  let filasTerceroNegritaExcluidas = 0; // detalle por tercero descartado por negrita
+  let cuentaNegritaActual = ""; // código de la última cuenta EN NEGRITA (contexto del descarte)
   const orientacion: OrientacionControl = { directa: 0, invertida: 0, ambiguas: 0 };
   // Todas las filas leídas (sin descartar), para el staging del paso 1.
   const filasCrudas: FilaCruda[] = [];
@@ -460,6 +485,19 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
       filasExcluidas++;
       registrar("total", { si: si ?? 0, db: db ?? 0, cr: cr ?? 0, saldo: saldo ?? 0 });
       continue;
+    }
+    // Balance por tercero con cuentas EN NEGRITA: la cuenta va en negrita; su detalle por
+    // tercero (código `0`/NIT que NO extiende la cuenta) va sin negrita → se DESCARTA (la
+    // cuenta ya trae el total consolidado). Doble condición (sin-negrita Y no-extiende) para
+    // conservar una hoja real no-negrita que SÍ cuelga por prefijo de un padre en negrita.
+    if (descartarTerceroNegrita) {
+      if (filaEnNegrita(hoja.negrita?.[r], cols.codigo, cols.nombre)) {
+        cuentaNegritaActual = code; // cuenta en negrita → nuevo contexto
+      } else if (cuentaNegritaActual && !code.startsWith(cuentaNegritaActual)) {
+        filasExcluidas++;
+        filasTerceroNegritaExcluidas++;
+        continue; // tercero → descartar
+      }
     }
     if (omitirDetalleTercero(code, fila)) {
       filasExcluidas++;
@@ -579,6 +617,16 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
       valor: `${filasDetalleTerceroExcluidas} fila(s)`,
       regla: "Detalle por tercero omitido por fila consolidada",
       accion: "Se usó la fila consolidada sin tercero del mismo código para evitar doble conteo.",
+    });
+  }
+  if (filasTerceroNegritaExcluidas > 0) {
+    excepciones.push({
+      hoja: hoja.nombre,
+      fila: null,
+      campo: "tercero",
+      valor: `${filasTerceroNegritaExcluidas} fila(s)`,
+      regla: "Detalle por tercero descartado (sin negrita)",
+      accion: "Balance abierto por tercero: se conservaron solo las cuentas en negrita (que ya traen el total consolidado) y se descartó el detalle por tercero.",
     });
   }
 

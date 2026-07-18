@@ -686,3 +686,45 @@ describe("ajustarPrimeraFilaDatos (guardia del rango de datos)", () => {
     expect(ajustarPrimeraFilaDatos(conNit, spec({ filaEncabezado: 0, primeraFilaDatos: 3 }))).toBe(3);
   });
 });
+
+describe("transformarTabular: balance por tercero con CUENTAS EN NEGRITA", () => {
+  const HDR = ["Código", "Cuenta", "Saldo ant", "Débito", "Crédito", "Saldo final"];
+  const BOLD6 = [true, true, true, true, true, true];
+  const PLANO6 = [false, false, false, false, false, false];
+
+  it("descarta el detalle por tercero SIN negrita y conserva las cuentas en negrita", () => {
+    const filas: GridHoja["filas"] = [HDR];
+    const negrita: boolean[][] = [BOLD6];
+    const cuenta = (cod: string, nom: string, sf: number) => { filas.push([cod, nom, 0, 0, 0, sf]); negrita.push(BOLD6); };
+    const tercero = (cod: string, nom: string, sf: number) => { filas.push([cod, nom, 0, 0, 0, sf]); negrita.push(PLANO6); };
+    cuenta("1105", "CAJA", 0); // padre en negrita
+    for (let i = 1; i <= 24; i++) {
+      const c = `1105${String(i).padStart(2, "0")}`; // 110501..110524 (hojas)
+      cuenta(c, `CTA ${i}`, i * 100);
+      tercero("0", "GENERAL", i * 100); // tercero genérico → descartar
+    }
+    tercero("890903938", "BANCOLOMBIA S.A.", 0); // NIT bajo la última cuenta → descartar
+    const hoja: GridHoja = { nombre: "Balance", filas, negrita };
+    const r = transformarTabular(spec(), [hoja], PARAMS);
+    // El detalle por tercero NO sobrevive al staging:
+    expect(r.filasCrudas.some((f) => f.codigoCrudo === "0")).toBe(false);
+    expect(r.filasCrudas.some((f) => f.codigoCrudo === "890903938")).toBe(false);
+    // Las 24 cuentas hoja + el padre 1105 sí:
+    expect(r.filasCrudas.filter((f) => /^1105\d\d$/.test(f.codigo)).length).toBe(24);
+    expect(r.filasCrudas.some((f) => f.codigo === "1105")).toBe(true);
+    expect(r.excepciones.some((e) => /descartado \(sin negrita\)/.test(e.regla))).toBe(true);
+  });
+
+  it("NO descarta una hoja real SIN negrita que SÍ extiende a su padre en negrita", () => {
+    const filas: GridHoja["filas"] = [HDR,
+      ["1105", "CAJA", 0, 0, 0, 300],
+      ["110505", "CAJA GENERAL", 100, 0, 0, 100], // hoja no-negrita, extiende 1105
+      ["110510", "CAJAS MENORES", 200, 0, 0, 200],
+    ];
+    const negrita: boolean[][] = [BOLD6, BOLD6, PLANO6, PLANO6];
+    const hoja: GridHoja = { nombre: "Balance", filas, negrita };
+    const r = transformarTabular(spec(), [hoja], PARAMS);
+    expect(r.filasCrudas.some((f) => f.codigo === "110505")).toBe(true);
+    expect(r.filasCrudas.some((f) => f.codigo === "110510")).toBe(true);
+  });
+});
