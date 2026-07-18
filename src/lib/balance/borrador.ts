@@ -47,6 +47,10 @@ export type NodoBorrador = FilaBorrador & {
 };
 
 const esNumerico = (c: string) => /^\d+$/.test(c);
+// Una fila "descuadre" es un MOVIMIENTO que falló el control (saldo ≠ si+db−cr):
+// estructuralmente es una HOJA, no un contenedor. Se anida/clasifica como movimiento —
+// si no, el árbol la trata como agrupadora y le cuelga las cuentas siguientes por orden.
+const esHojaMovimiento = (t: TipoFila) => t === "movimiento" || t === "descuadre";
 const normNombre = (s: string) => (s ?? "").trim().toUpperCase().replace(/\s+/g, " ");
 
 /**
@@ -71,7 +75,7 @@ export function construirArbolBorrador(filas: FilaBorrador[], tol = 1): NodoBorr
   // la jerarquía; se anida por PREFIJO de código (order-agnóstico), con los subtotales
   // como padres. Se detecta si la mayoría de las agrupadoras vienen así rotuladas.
   const esTotalCrudo = (f: FilaBorrador) => /^\s*(?:sub)?total/i.test(f.codigoCrudo ?? "");
-  const agrup = ordenadas.filter((f) => f.tipoFila !== "movimiento" && esNumerico(f.codigo));
+  const agrup = ordenadas.filter((f) => !esHojaMovimiento(f.tipoFila) && esNumerico(f.codigo));
   const summaryBelow = agrup.length > 0 && agrup.filter(esTotalCrudo).length > agrup.length / 2;
 
   if (summaryBelow) {
@@ -93,7 +97,7 @@ export function construirArbolBorrador(filas: FilaBorrador[], tol = 1): NodoBorr
   } else {
   for (const f of ordenadas) {
     const nodo: NodoBorrador = { ...f, descuadre: null, subtotalDuplicado: dupSet.has(f), hijos: [] };
-    if (nodo.tipoFila === "movimiento") {
+    if (esHojaMovimiento(nodo.tipoFila)) {
       // Un movimiento cuelga de la agrupadora ABIERTA más profunda que sea un
       // CONTENEDOR plausible: código estrictamente MÁS CORTO que el suyo (por ORDEN
       // del archivo, no por prefijo). Dos códigos de igual longitud son HERMANOS, no

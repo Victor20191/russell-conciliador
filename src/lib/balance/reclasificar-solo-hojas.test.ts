@@ -76,3 +76,23 @@ describe("reclasificarSoloHojas", () => {
     expect(filas.every((f) => f.tipoFila === "movimiento")).toBe(true);
   });
 });
+
+describe("descuadre es HOJA, no agrupadora", () => {
+  it("una fila tipoFila='descuadre' no agrupa las cuentas siguientes; queda como hoja", () => {
+    seq = 0;
+    // Cliente que manda SOLO movimientos de 8 díg; uno falló el control → «descuadre».
+    // No debe volverse contenedor de las cuentas que le siguen por orden.
+    const filas: FilaBorrador[] = [
+      fila("52201001", "movimiento", 4989676437),
+      fila("52201004", "descuadre", 766380822), // movimiento que no cuadró
+      fila("52201101", "movimiento", 1039264788),
+      fila("52201501", "movimiento", 2341812),
+    ];
+    const arbol = construirArbolBorrador(filas);
+    // Todas quedan planas (raíces); la «descuadre» NO cuelga las siguientes.
+    expect(arbol.map((n) => n.codigo)).toEqual(["52201001", "52201004", "52201101", "52201501"]);
+    const n = arbol.find((x) => x.codigo === "52201004")!;
+    expect(n.hijos).toHaveLength(0); // hoja, sin hijos
+    expect(n.descuadre).toBeNull(); // no computa Δ de agrupadora
+  });
+});

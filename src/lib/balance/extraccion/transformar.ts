@@ -444,14 +444,23 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
   for (let r = spec.primeraFilaDatos - 1; r < hoja.filas.length; r++) {
     const fila = hoja.filas[r] ?? [];
     const filaNum = r + 1;
-    const codigoCrudo = texto(celdaCodigo(fila, cols));
-    const code = normalizarCodigo(celdaCodigo(fila, cols));
+    let codigoCrudo = texto(celdaCodigo(fila, cols));
+    let code = normalizarCodigo(celdaCodigo(fila, cols));
     let name = texto(cell(fila, cols.nombre));
-    // Si el código va embebido en el nombre ("11050501 - Caja General"), deja solo
-    // el nombre (quita el prefijo "código -"). Requiere dígitos iniciales + guion,
-    // así no afecta nombres normales que empiecen por texto.
-    const emb = /^\s*[0-9][0-9A-Za-z]*\s*[-–—]\s*(.+)$/.exec(name);
-    if (emb) name = emb[1].trim();
+    // Si el código va embebido en el nombre ("11050501 - Caja General", "1105 - CAJA"),
+    // deja solo el nombre (quita el prefijo "código -"). Requiere dígitos iniciales +
+    // guion, así no afecta nombres normales que empiecen por texto. Además, si la fila NO
+    // trae código en su columna (ERP que ponen el código de las AGRUPADORAS SOLO en el
+    // nombre, y el de las hojas en otra columna), se ADOPTA ese código embebido: así la
+    // cuenta se clasifica y anida, en vez de perderse como «total» sin código.
+    const emb = /^\s*([0-9][0-9A-Za-z]*)\s*[-–—]\s*(.+)$/.exec(name);
+    if (emb) {
+      if (!code) {
+        code = normalizarCodigo(emb[1]);
+        if (code) codigoCrudo = emb[1].trim();
+      }
+      name = emb[2].trim();
+    }
     if (!code && !name) continue; // fila vacía
     filasLeidas++;
 
@@ -515,9 +524,11 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
     // "subtotal del desglose por tercero", no cuenta padre contable; ahí manda el
     // prefijo (`esHoja`).
     const cubiertoPorHijos = ancestros.has(code) && Math.abs((saldo ?? 0) - (saldoHojasBajo.get(code) ?? 0)) <= 1;
-    const esAgrupadora = usaNegrita && !consolidadoConDetalleTercero
-      ? filaEnNegrita(hoja.negrita?.[r], cols.codigo, cols.nombre) || cubiertoPorHijos
-      : !esHoja(code, fila, spec, ancestros);
+    const esAgrupadora = spec.reglaDetalle.tipo === "movimiento"
+      ? false // "Todas son movimiento": lista plana de cuentas imputables, sin agrupadoras.
+      : usaNegrita && !consolidadoConDetalleTercero
+        ? filaEnNegrita(hoja.negrita?.[r], cols.codigo, cols.nombre) || cubiertoPorHijos
+        : !esHoja(code, fila, spec, ancestros);
     if (esAgrupadora) {
       filasExcluidas++;
       registrar("agrupadora", { si: si ?? 0, db: db ?? 0, cr: cr ?? 0, saldo: saldo ?? 0 });

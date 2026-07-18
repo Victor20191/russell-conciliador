@@ -229,6 +229,43 @@ describe("transformarTabular", () => {
     expect(r.cabecera.periodoFinal.valor).toBe("2026-05-31");
   });
 
+  it("adopta el código EMBEBIDO en el nombre cuando la columna de código va vacía (agrupadoras sin código propio)", () => {
+    // Formato donde las AGRUPADORAS traen su código pegado al nombre («1105 - CAJA») y la
+    // columna de código solo trae el de las HOJAS. Sin el fallback, las agrupadoras quedan
+    // sin código y se pierden como «total».
+    const hojaEmb: GridHoja = {
+      nombre: "Balance",
+      filas: [
+        ["Código", "Cuenta", "Saldo anterior", "Débito", "Crédito", "Saldo final"],
+        ["", "1105 - CAJA", 2000, 0, 0, 2000], // agrupadora: código SOLO en el nombre
+        ["11051001", "ADMINISTRACION MEDELIN", 2000, 0, 0, 2000], // hoja: código en su columna
+        ["", "Total general", "", "", "", 2000], // sin patrón «código -» → NO adopta código
+      ],
+    };
+    const rr = transformarTabular(spec(), [hojaEmb], PARAMS);
+    const caja = rr.filasCrudas.find((f) => f.nombre === "CAJA");
+    expect(caja?.codigo).toBe("1105"); // adoptó el código del nombre
+    expect(caja?.nombre).toBe("CAJA"); // el nombre queda sin el prefijo
+    const hoja = rr.filasCrudas.find((f) => f.codigo === "11051001");
+    expect(hoja?.nombre).toBe("ADMINISTRACION MEDELIN"); // la hoja no se toca
+    expect(rr.filasCrudas.find((f) => f.nombre === "Total general")?.codigo).toBe("");
+  });
+
+  it("regla de detalle «movimiento»: toda cuenta numérica se toma como movimiento (lista plana, sin agrupadoras)", () => {
+    const hojaPlana: GridHoja = {
+      nombre: "Balance",
+      filas: [
+        ["Código", "Cuenta", "Saldo anterior", "Débito", "Crédito", "Saldo final"],
+        ["11", "DISPONIBLE", 1500, 0, 0, 1500], // con «prefijo» sería agrupadora (prefijo de 110505)
+        ["110505", "Caja", 1000, 500, 0, 1500],
+      ],
+    };
+    const rr = transformarTabular(spec({ reglaDetalle: { tipo: "movimiento", columna: null, valor: null } }), [hojaPlana], PARAMS);
+    const tipo = (codigo: string) => rr.filasCrudas.find((f) => f.codigo === codigo)?.tipoFila;
+    expect(tipo("11")).toBe("movimiento"); // NO se agrupa aunque sea prefijo de 110505
+    expect(tipo("110505")).toBe("movimiento");
+  });
+
   it("concatena el código PUC FRAGMENTADO en varias columnas (SIIGO auxiliares)", () => {
     const hojaFrag: GridHoja = {
       nombre: "Balance",

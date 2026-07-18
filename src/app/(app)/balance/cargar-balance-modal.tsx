@@ -135,6 +135,7 @@ function CargarBalanceModal({ clients, onClose, onReiniciar }: { clients: Client
   const reprocesar = (spec: SpecCarga, loteIdAnterior: string) => {
     if (!archivoFile) return;
     startReproceso(async () => {
+      try { await archivoFile.arrayBuffer(); } catch { notifyError("No pudimos leer el archivo. Suele pasar cuando está ABIERTO en Excel o sincronizándose en OneDrive: ciérralo e intenta de nuevo."); return; }
       const fd = new FormData();
       fd.set("archivo", archivoFile);
       fd.set("spec", JSON.stringify(spec));
@@ -147,6 +148,24 @@ function CargarBalanceModal({ clients, onClose, onReiniciar }: { clients: Client
         notifyError(res.message ?? "No se pudo reprocesar el archivo.");
       }
     });
+  };
+
+  // Antes de subir: intenta LEER el archivo en el navegador (lo mismo que hará la subida).
+  // Si está ABIERTO en Excel o sincronizándose en OneDrive, la lectura falla y el POST daría
+  // un críptico "Failed to fetch" que rompe la página. Avisamos claro y NO enviamos.
+  const onLeerSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const archivo = formData.get("archivo");
+    if (archivo instanceof File && archivo.size > 0) {
+      try {
+        await archivo.arrayBuffer();
+      } catch {
+        notifyError("No pudimos leer el archivo. Suele pasar cuando está ABIERTO en Excel o sincronizándose en OneDrive: ciérralo (y espera a que OneDrive termine) y vuelve a intentar.");
+        return;
+      }
+    }
+    leerAction(formData);
   };
 
   const sug = sugLocal ?? leerState?.sugerencia;
@@ -217,7 +236,7 @@ function CargarBalanceModal({ clients, onClose, onReiniciar }: { clients: Client
           onReprocesar={reprocesar}
         />
       ) : (
-        <form id="leer-form" action={leerAction} className="flex flex-col gap-3.5">
+        <form id="leer-form" onSubmit={onLeerSubmit} className="flex flex-col gap-3.5">
           <p className="text-[12.5px] leading-relaxed text-ink-600">
             Sube el balance en <span className="font-semibold">Excel (.xlsx/.xlsm), CSV, TXT (plano), JSON o PDF</span>. La plataforma
             lo lee (con el <span className="font-semibold">perfil guardado del cliente</span> si el formato ya se conoce, o
@@ -488,6 +507,7 @@ export function EditorEstructura({
   onAplicar: (spec: SpecCarga) => void;
 }) {
   const [abierto, setAbierto] = useState(false);
+  const [ayudaAbierta, setAyudaAbierta] = useState(false);
   const [ed, setEd] = useState<SpecCarga>(spec);
   const [fragmentosTexto, setFragmentosTexto] = useState(spec.columnas.codigoFragmentos.join(", "));
 
@@ -539,6 +559,55 @@ export function EditorEstructura({
             Corrige qué columna corresponde a cada dato y reprocesa al instante — <span className="font-semibold">sin IA</span>.
             Marca «no existe» cuando el archivo no trae esa columna.
           </p>
+
+          <button
+            type="button"
+            onClick={() => setAyudaAbierta((v) => !v)}
+            className="inline-flex w-fit items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11.5px] font-semibold text-blue-700 hover:bg-blue-100"
+          >
+            <Icon name="doc" size={12} /> Guía detallada de los campos {ayudaAbierta ? "▲" : "▼"}
+          </button>
+          {ayudaAbierta && (
+            <div className="flex flex-col gap-3 rounded-md border border-blue-100 bg-blue-50/40 px-3 py-3 text-[11.5px] leading-relaxed text-ink-600">
+              <div>
+                <div className="mb-1 text-[10.5px] font-semibold uppercase tracking-wider text-blue-700">Para qué sirve</div>
+                <p>Reprocesa el archivo con el mapa de columnas corregido, <span className="font-semibold">sin IA y al instante</span>. Úsalo cuando la lectura automática asignó mal una columna, la fila del encabezado, el signo del crédito o cómo se detecta el detalle. No modifica el archivo original: genera una lectura nueva que reemplaza a la anterior.</p>
+              </div>
+              <div>
+                <div className="mb-1 text-[10.5px] font-semibold uppercase tracking-wider text-blue-700">Dónde están los datos</div>
+                <dl className="flex flex-col gap-1">
+                  <div><dt className="inline font-semibold">Hoja:</dt> <dd className="inline">la pestaña del Excel donde está el balance. En archivos con varias hojas, elige la correcta.</dd></div>
+                  <div><dt className="inline font-semibold">Fila del encabezado:</dt> <dd className="inline">número de fila (empezando en 1) donde están los <span className="italic">títulos</span> de las columnas («Código», «Nombre», «Débito»…). Si el archivo trae logo o título arriba, no es la fila 1.</dd></div>
+                  <div><dt className="inline font-semibold">Primera fila de datos:</dt> <dd className="inline">la primera fila con una cuenta real, justo debajo del encabezado.</dd></div>
+                </dl>
+              </div>
+              <div>
+                <div className="mb-1 text-[10.5px] font-semibold uppercase tracking-wider text-blue-700">Columnas por rol (elige la letra, o «no existe»)</div>
+                <dl className="flex flex-col gap-1">
+                  <div><dt className="inline font-semibold">Código de cuenta *:</dt> <dd className="inline">(obligatoria) la columna con el código PUC (<span className="font-mono">1105</span>, <span className="font-mono">110505</span>…). Si el código viene partido en varias columnas, déjala en «usa columnas fragmentadas» y usa el campo de más abajo.</dd></div>
+                  <div><dt className="inline font-semibold">Nombre de la cuenta:</dt> <dd className="inline">la descripción de la cuenta («CAJA GENERAL»).</dd></div>
+                  <div><dt className="inline font-semibold">Saldo inicial:</dt> <dd className="inline">el saldo anterior, al inicio del período.</dd></div>
+                  <div><dt className="inline font-semibold">Débitos / Créditos:</dt> <dd className="inline">los movimientos débito y crédito del período.</dd></div>
+                  <div><dt className="inline font-semibold">Saldo final (una columna):</dt> <dd className="inline">úsala cuando el saldo final viene en <span className="font-semibold">una sola</span> columna. En ese caso deja «no existe» las dos de abajo.</dd></div>
+                  <div><dt className="inline font-semibold">Saldo final · débito / · crédito:</dt> <dd className="inline">úsalas cuando el saldo final viene en <span className="font-semibold">dos</span> columnas separadas (una para saldos débito y otra para crédito). Entonces deja «no existe» el «saldo final (una columna)».</dd></div>
+                  <div><dt className="inline font-semibold">Tercero / NIT:</dt> <dd className="inline">la columna del NIT/cédula del tercero (en balances por tercero). «no existe» si el archivo no la trae.</dd></div>
+                </dl>
+              </div>
+              <div>
+                <div className="mb-1 text-[10.5px] font-semibold uppercase tracking-wider text-blue-700">Casos especiales</div>
+                <dl className="flex flex-col gap-1">
+                  <div><dt className="inline font-semibold">Columnas del código fragmentado:</dt> <dd className="inline">cuando el código no está en una columna, sino repartido (col 1 = «11», col 2 = «05», col 3 = «05»). Escribe los números de columna separados por coma (<span className="font-mono">1, 2, 3</span>): se concatenan en orden para formar el código.</dd></div>
+                  <div><dt className="inline font-semibold">Convención del crédito:</dt> <dd className="inline"><span className="font-semibold">Magnitud</span> = débitos y créditos vienen como positivos (lo normal). <span className="font-semibold">Firmado</span> = el archivo trae los créditos con signo negativo.</dd></div>
+                  <div><dt className="inline font-semibold">Detección de cuentas de detalle:</dt> <dd className="inline"><span className="font-semibold">Por jerarquía de códigos (auto)</span> decide qué cuenta es de movimiento por la longitud/jerarquía del código PUC. <span className="font-semibold">Por columna marcadora</span> se usa cuando el archivo tiene una columna que marca el detalle (p. ej. «I» o «1»): eliges la columna y el valor que lo marca. <span className="font-semibold">Todas son movimiento</span> cuando el archivo trae una lista plana de cuentas imputables sin agrupadoras (ninguna se agrupa).</dd></div>
+                  <div><dt className="inline font-semibold">Agregar por tercero:</dt> <dd className="inline">en balances abiertos por tercero, suma los terceros y deja el saldo a nivel de cuenta.</dd></div>
+                </dl>
+              </div>
+              <div>
+                <div className="mb-1 text-[10.5px] font-semibold uppercase tracking-wider text-blue-700">Cómo aplicarlo</div>
+                <p>Ajusta lo que esté mal y pulsa <span className="font-semibold">«Reprocesar sin IA»</span>: el resultado se recalcula al instante, sin costo de IA. <span className="font-semibold">«Restablecer»</span> vuelve al mapa detectado originalmente. En la página del borrador, además debes <span className="font-semibold">re-adjuntar el archivo original</span> antes de reprocesar (esa página no conserva el archivo).</p>
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <label className="flex flex-col gap-1">
@@ -621,11 +690,20 @@ export function EditorEstructura({
               <span className="text-[11px] font-medium text-ink-600">Detección de cuentas de detalle</span>
               <select
                 value={ed.reglaDetalle.tipo}
-                onChange={(e) => setEd((s) => ({ ...s, reglaDetalle: e.target.value === "columna" ? { tipo: "columna", columna: s.reglaDetalle.columna ?? 1, valor: s.reglaDetalle.valor ?? "" } : { tipo: "prefijo", columna: null, valor: null } }))}
+                onChange={(e) => setEd((s) => {
+                  const v = e.target.value;
+                  const reglaDetalle = v === "columna"
+                    ? { tipo: "columna" as const, columna: s.reglaDetalle.columna ?? 1, valor: s.reglaDetalle.valor ?? "" }
+                    : v === "movimiento"
+                      ? { tipo: "movimiento" as const, columna: null, valor: null }
+                      : { tipo: "prefijo" as const, columna: null, valor: null };
+                  return { ...s, reglaDetalle };
+                })}
                 className="rounded-md border border-ink-200 bg-white px-2 py-1.5 text-[12px] text-ink-700"
               >
                 <option value="prefijo">Por jerarquía de códigos (auto)</option>
                 <option value="columna">Por columna marcadora</option>
+                <option value="movimiento">Todas son movimiento (lista plana, sin agrupadoras)</option>
               </select>
             </label>
             <label className="flex items-end gap-2 pb-1.5">

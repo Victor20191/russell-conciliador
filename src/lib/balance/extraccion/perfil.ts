@@ -20,7 +20,7 @@ export type PerfilPlano = {
   colSaldoFinalCredito: number;
   colTercero: number;
   signoCredito: ConvencionSigno;
-  reglaDetalleTipo: "prefijo" | "columna";
+  reglaDetalleTipo: "prefijo" | "columna" | "movimiento";
   reglaDetalleColumna: number | null;
   reglaDetalleValor: string | null;
   agregarPorTercero: boolean;

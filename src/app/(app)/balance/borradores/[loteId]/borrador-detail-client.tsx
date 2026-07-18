@@ -33,7 +33,9 @@ function aplicarCambios(
   if (Object.keys(override).length > 0) {
     for (const f of out) {
       const ov = override[f.codigo];
-      if (ov && /^\d+$/.test(f.codigo) && f.tipoFila === (ov === "movimiento" ? "agrupadora" : "movimiento")) f.tipoFila = ov;
+      // Aplica la reclasificación a cualquier fila numérica que NO sea «total» (incluye
+      // «descuadre», que estructuralmente es un movimiento) y que difiera del destino.
+      if (ov && /^\d+$/.test(f.codigo) && f.tipoFila !== "total" && f.tipoFila !== ov) f.tipoFila = ov;
     }
   }
   if (invertidos.length > 0) {
@@ -158,6 +160,7 @@ export default function BorradorDetailClient({
   const onReprocesar = (s: SpecCarga) => {
     if (!archivoFile) { notifyError("Adjunta el archivo original para reprocesar."); return; }
     startReproceso(async () => {
+      try { await archivoFile.arrayBuffer(); } catch { notifyError("No pudimos leer el archivo. Suele pasar cuando está ABIERTO en Excel o sincronizándose en OneDrive: ciérralo e intenta de nuevo."); return; }
       const fd = new FormData();
       fd.set("archivo", archivoFile);
       fd.set("spec", JSON.stringify(s));
@@ -664,7 +667,7 @@ function ArbolTabla({ arbol, filtro, onReclasificar, onInvertir, onDesacoplar, o
     const hasHijos = n.hijos.length > 0;
     const esMatch = coincide(n.codigo) || (needle !== "" && matchQ(n));
     const open = filtrando ? true : abiertos.has(n.filaNum); // filtrado → todo expandido
-    const esMov = n.tipoFila === "movimiento";
+    const esMov = n.tipoFila === "movimiento" || n.tipoFila === "descuadre";
     const descuadrado = n.descuadre != null && n.descuadre !== 0;
     // Lados invertidos: el control no cuadra, pero SÍ al intercambiar débito↔crédito.
     const ladosInv = esMov && !controlOk(n.saldoInicial, n.debitos, n.creditos, n.saldoFinal) && controlOk(n.saldoInicial, n.creditos, n.debitos, n.saldoFinal);

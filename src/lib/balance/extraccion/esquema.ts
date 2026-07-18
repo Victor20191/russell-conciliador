@@ -78,7 +78,9 @@ export const ReglaDetalleSchema = z.object({
   // "prefijo": detección estructural por jerarquía (default; la hace el código).
   // "columna": una columna marcadora con cierto valor (cueclasificacion=I,
   //   indicador=1, Rompimiento=Cuenta, Movimiento_Diario…).
-  tipo: z.enum(["prefijo", "columna"]),
+  // "movimiento": el archivo trae SOLO cuentas de movimiento (lista plana, sin
+  //   agrupadoras) → toda fila numérica se toma como movimiento (opción del usuario).
+  tipo: z.enum(["prefijo", "columna", "movimiento"]),
   columna: z.number().int().nullable(),
   valor: z.string().nullable(),
 });
