@@ -197,12 +197,12 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, va
               <th className="px-4 py-2 font-semibold">Código</th>
               <th className="px-4 py-2 font-semibold">Cuenta</th>
               <th className="px-4 py-2 font-semibold">Mapeo estándar</th>
-              <th className="px-4 py-2 text-right font-semibold">Saldo anterior</th>
-              <th className="px-4 py-2 text-right font-semibold">Débito</th>
-              <th className="px-4 py-2 text-right font-semibold">Crédito</th>
-              <th className="px-4 py-2 text-right font-semibold">Saldo</th>
-              <th className="px-4 py-2 text-right font-semibold">Var %</th>
-              <th className="px-4 py-2 font-semibold">Validación</th>
+              <th className="whitespace-nowrap border-l border-ink-150 px-4 py-2 text-right font-semibold">Saldo anterior</th>
+              <th className="whitespace-nowrap border-l border-ink-150 px-4 py-2 text-right font-semibold">Débito</th>
+              <th className="whitespace-nowrap border-l border-ink-150 px-4 py-2 text-right font-semibold">Crédito</th>
+              <th className="whitespace-nowrap border-l border-ink-150 px-4 py-2 text-right font-semibold">Saldo</th>
+              <th className="whitespace-nowrap border-l border-ink-150 px-4 py-2 text-right font-semibold">Var %</th>
+              <th className="border-l border-ink-150 px-4 py-2 font-semibold">Validación</th>
             </tr>
           </thead>
           <tbody>
@@ -235,7 +235,7 @@ function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: 
   const fila = (
     <tr
       key={nodo.key}
-      className={`border-b border-ink-50 ${esGrupo ? (sinMapeo ? "bg-warn-100" : nodo.nivel <= 2 ? "bg-ink-100" : "bg-ink-50") : "hover:bg-ink-50"} ${tieneHijos ? "cursor-pointer" : ""}`}
+      className={`border-b border-ink-100 ${esGrupo ? (sinMapeo ? "bg-warn-100" : nodo.nivel <= 2 ? "bg-ink-100" : "bg-ink-50") : "hover:bg-ink-50"} ${tieneHijos ? "cursor-pointer" : ""}`}
       onClick={tieneHijos ? () => toggle(nodo.key) : undefined}
     >
       <td className="px-4 py-2 font-mono text-ink-600" style={{ paddingLeft: pad }}>
@@ -272,12 +272,12 @@ function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: 
         )}
       </td>
       <td className="px-4 py-2">{celdaMapeo(nodo, puedeMapear, onAsignar)}</td>
-      <td className="px-4 py-2 text-right font-mono text-ink-400">{fmt(nodo.prevBalance)}</td>
-      <td className="px-4 py-2 text-right font-mono text-ink-600">{fmt(nodo.debe)}</td>
-      <td className="px-4 py-2 text-right font-mono text-ink-600">{fmt(nodo.haber)}</td>
-      <td className={`px-4 py-2 text-right font-mono ${esGrupo ? "font-semibold text-ink-800" : "text-ink-700"}`}>{fmt(nodo.balance)}</td>
-      <td className={`px-4 py-2 text-right font-mono ${nodo.variation != null && Math.abs(nodo.variation) > 25 ? "text-warn-700" : "text-ink-600"}`}>{fmtPct(nodo.variation)}</td>
-      <td className="whitespace-nowrap px-4 py-2">{celdaValidacion(nodo, val)}</td>
+      <td className="whitespace-nowrap border-l border-ink-150 px-4 py-2 text-right font-mono text-ink-400">{fmt(nodo.prevBalance)}</td>
+      <td className="whitespace-nowrap border-l border-ink-150 px-4 py-2 text-right font-mono text-ink-600">{fmt(nodo.debe)}</td>
+      <td className="whitespace-nowrap border-l border-ink-150 px-4 py-2 text-right font-mono text-ink-600">{fmt(nodo.haber)}</td>
+      <td className={`whitespace-nowrap border-l border-ink-150 px-4 py-2 text-right font-mono ${esGrupo ? "font-semibold text-ink-800" : "text-ink-700"}`}>{fmt(nodo.balance)}</td>
+      <td className={`whitespace-nowrap border-l border-ink-150 px-4 py-2 text-right font-mono ${nodo.variation != null && Math.abs(nodo.variation) > 25 ? "text-warn-700" : "text-ink-600"}`}>{fmtPct(nodo.variation)}</td>
+      <td className="whitespace-nowrap border-l border-ink-150 px-4 py-2">{celdaValidacion(nodo, val)}</td>
     </tr>
   );
 
@@ -499,9 +499,9 @@ function EliminarModal({ nodo, onClose }: { nodo: NodoBalance; onClose: () => vo
 /** Saldos totales por clase contable (PUC) + indicador de cuadre. Chequeo rápido de completitud. */
 function ClasesTab({ sums, balanced, diffCuadre }: { sums: Sums; balanced: boolean; diffCuadre: number }) {
   const fila = (label: string, valor: number, bold = false) => (
-    <div className="flex items-center justify-between border-b border-ink-50 px-4 py-2.5 last:border-0">
+    <div className="flex items-center justify-between border-b border-ink-100 px-4 py-2.5 last:border-0">
       <span className={`text-[12.5px] ${bold ? "font-semibold text-ink-800" : "text-ink-600"}`}>{label}</span>
-      <span className={`font-mono text-[13px] ${bold ? "font-semibold text-ink-800" : "text-ink-700"}`}>{fmt(valor)}</span>
+      <span className={`whitespace-nowrap font-mono text-[13px] ${bold ? "font-semibold text-ink-800" : "text-ink-700"}`}>{fmt(valor)}</span>
     </div>
   );
   return (
@@ -546,7 +546,7 @@ function ValidationsTab({ validations }: { validations: Validation[] }) {
           </thead>
           <tbody>
             {validations.map((v) => (
-              <tr key={v.id} className="border-b border-ink-50 last:border-0">
+              <tr key={v.id} className="border-b border-ink-100 last:border-0">
                 <td className="px-4 py-2.5 font-medium text-ink-800">{v.rule}</td>
                 <td className="px-4 py-2.5">{v.status === "ok" ? <Chip label="OK" tone="ok" /> : <Chip label={`${v.count ?? ""} ${v.count === 1 ? "alerta" : "alertas"}`} tone="warn" />}</td>
                 <td className="px-4 py-2.5 text-ink-500">{v.detail}</td>
@@ -570,24 +570,24 @@ function VersionsTab({ versions, officialVersion }: { versions: Version[]; offic
               <th className="px-4 py-2 font-semibold">Fecha</th>
               <th className="px-4 py-2 font-semibold">Cargado por</th>
               <th className="px-4 py-2 font-semibold">Archivo</th>
-              <th className="px-4 py-2 text-right font-semibold">Cuentas</th>
-              <th className="px-4 py-2 text-right font-semibold">Activo</th>
-              <th className="px-4 py-2 font-semibold">Cuadrado</th>
-              <th className="px-4 py-2 text-right font-semibold">Cambios</th>
+              <th className="whitespace-nowrap border-l border-ink-150 px-4 py-2 text-right font-semibold">Cuentas</th>
+              <th className="whitespace-nowrap border-l border-ink-150 px-4 py-2 text-right font-semibold">Activo</th>
+              <th className="border-l border-ink-150 px-4 py-2 font-semibold">Cuadrado</th>
+              <th className="whitespace-nowrap border-l border-ink-150 px-4 py-2 text-right font-semibold">Cambios</th>
               <th className="px-4 py-2 font-semibold">Nota</th>
             </tr>
           </thead>
           <tbody>
             {versions.map((v, i) => (
-              <tr key={v.v} className="border-b border-ink-50 last:border-0 align-top">
+              <tr key={v.v} className="border-b border-ink-100 last:border-0 align-top">
                 <td className="px-4 py-2.5">{v.v === officialVersion ? <Chip label={`${v.v} · oficial`} tone="ok" /> : <Chip label={v.v} tone="ink" />}</td>
-                <td className="px-4 py-2.5 font-mono text-ink-500">{v.date}</td>
+                <td className="whitespace-nowrap px-4 py-2.5 font-mono text-ink-500">{v.date}</td>
                 <td className="px-4 py-2.5"><div className="font-medium text-ink-800">{v.uploadedBy}</div><div className="text-[11px] text-ink-400">{v.role}</div></td>
                 <td className="px-4 py-2.5 text-ink-600">{v.file}<div className="text-[11px] text-ink-400">{v.size}</div></td>
-                <td className="px-4 py-2.5 text-right font-mono text-ink-700">{v.rows}</td>
-                <td className="px-4 py-2.5 text-right font-mono text-ink-700">{fmt(v.sumA)}</td>
-                <td className="px-4 py-2.5">{v.balanced ? <Chip label="Sí" tone="ok" /> : <Chip label="Descuadra" tone="err" />}</td>
-                <td className="px-4 py-2.5 text-right font-mono text-ink-600">{i === versions.length - 1 ? "—" : `+${v.changes}`}</td>
+                <td className="whitespace-nowrap border-l border-ink-150 px-4 py-2.5 text-right font-mono text-ink-700">{v.rows}</td>
+                <td className="whitespace-nowrap border-l border-ink-150 px-4 py-2.5 text-right font-mono text-ink-700">{fmt(v.sumA)}</td>
+                <td className="border-l border-ink-150 px-4 py-2.5">{v.balanced ? <Chip label="Sí" tone="ok" /> : <Chip label="Descuadra" tone="err" />}</td>
+                <td className="whitespace-nowrap border-l border-ink-150 px-4 py-2.5 text-right font-mono text-ink-600">{i === versions.length - 1 ? "—" : `+${v.changes}`}</td>
                 <td className="px-4 py-2.5 text-ink-500">{v.note}</td>
               </tr>
             ))}
