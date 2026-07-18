@@ -63,14 +63,22 @@ export const fmtCalendarDate = (input: Date | string | null | undefined): string
   return `${String(dia).padStart(2, "0")}/${MESES[mes - 1]}/${anio}`;
 };
 
-// Fecha + hora (dd/Mes/aaaa hh:mm), 24 h y locale es-CO. Misma forma que el
-// `fmtTS` de los tableros de auditoría, expuesto aquí para reusarse.
+// Reloj de 12 horas con el sufijo es-CO ("a. m."/"p. m."), igual al que
+// produce Intl para este locale. 0 → 12 a. m.; 12 → 12 p. m.
+const hora12 = (hora: number): { h: number; sufijo: "a. m." | "p. m." } => ({
+  h: hora % 12 === 0 ? 12 : hora % 12,
+  sufijo: hora < 12 ? "a. m." : "p. m.",
+});
+
+// Fecha + hora (dd/Mes/aaaa h:mm a. m./p. m.), 12 h y locale es-CO. Misma forma
+// que el `fmtTS` de los tableros de auditoría, expuesto aquí para reusarse.
 export const fmtDateTime = (input: Date | string | null | undefined): string => {
   if (input == null) return "—";
   const partes = partesFechaHoraColombia(input);
   if (!partes) return "—";
   const p2 = (n: number) => String(n).padStart(2, "0");
-  return `${p2(partes.dia)}/${MESES[partes.mes - 1]}/${partes.anio} ${p2(partes.hora)}:${p2(partes.minuto)}`;
+  const { h, sufijo } = hora12(partes.hora);
+  return `${p2(partes.dia)}/${MESES[partes.mes - 1]}/${partes.anio} ${h}:${p2(partes.minuto)} ${sufijo}`;
 };
 
 export const fmtDateTimeSeconds = (input: Date | string | null | undefined): string => {
@@ -78,7 +86,8 @@ export const fmtDateTimeSeconds = (input: Date | string | null | undefined): str
   const partes = partesFechaHoraColombia(input);
   if (!partes) return "—";
   const p2 = (n: number) => String(n).padStart(2, "0");
-  return `${p2(partes.dia)}/${MESES[partes.mes - 1]}/${partes.anio} ${p2(partes.hora)}:${p2(partes.minuto)}:${p2(partes.segundo)}`;
+  const { h, sufijo } = hora12(partes.hora);
+  return `${p2(partes.dia)}/${MESES[partes.mes - 1]}/${partes.anio} ${h}:${p2(partes.minuto)}:${p2(partes.segundo)} ${sufijo}`;
 };
 
 /** Formato largo consistente para interfaces cliente y servidor. */
@@ -90,6 +99,7 @@ export const fmtDateTimeLong = (input: EntradaFecha | null | undefined): string 
     timeZone: ZONA_HORARIA_COLOMBIA,
     dateStyle: "medium",
     timeStyle: "short",
+    hour12: true,
   }).format(fecha);
 };
 

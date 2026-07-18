@@ -13,10 +13,17 @@ test("fmtDate formatea como DD/MMM/AAAA en español", () => {
   expect(fmtDate(new Date("2026-07-17T04:30:00Z"))).toBe("16/Jul/2026");
 });
 
-test("fmtDateTime siempre muestra el reloj de Colombia", () => {
+test("fmtDateTime siempre muestra el reloj de Colombia en 12 horas", () => {
   const instante = new Date("2026-07-17T04:30:45Z");
-  expect(fmtDateTime(instante)).toBe("16/Jul/2026 23:30");
-  expect(fmtDateTimeSeconds(instante)).toBe("16/Jul/2026 23:30:45");
+  expect(fmtDateTime(instante)).toBe("16/Jul/2026 11:30 p. m.");
+  expect(fmtDateTimeSeconds(instante)).toBe("16/Jul/2026 11:30:45 p. m.");
+});
+
+test("fmtDateTime maneja medianoche y mediodía como 12 a. m./p. m.", () => {
+  // 05:15Z = 00:15 en Colombia; 17:00Z = 12:00 del mediodía.
+  expect(fmtDateTime(new Date("2026-07-17T05:15:00Z"))).toBe("17/Jul/2026 12:15 a. m.");
+  expect(fmtDateTime(new Date("2026-07-17T17:00:00Z"))).toBe("17/Jul/2026 12:00 p. m.");
+  expect(fmtDateTime(new Date("2026-07-17T22:07:00Z"))).toBe("17/Jul/2026 5:07 p. m.");
 });
 
 test("fmtCalendarDate conserva una fecha PostgreSQL DATE", () => {
