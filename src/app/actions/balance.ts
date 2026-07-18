@@ -41,7 +41,7 @@ import { aplanarSpec, normalizarCodigoFragmentos, specDesdePerfil, specCargaDesd
 import { esTransformacionAceptable } from "@/lib/balance/extraccion/validacion";
 import { mapearPorIA } from "@/lib/balance/mapeo-ia";
 import { construirVistaBorrador } from "@/lib/balance/borrador-vm";
-import { reclasificarHuerfanas, corregirCodigosPlaceholder, marcarNoContables, type FilaBorrador } from "@/lib/balance/borrador";
+import { reclasificarHuerfanas, reclasificarSoloHojas, corregirCodigosPlaceholder, marcarNoContables, type FilaBorrador } from "@/lib/balance/borrador";
 import { esBalancePorTercero, colapsarTerceros, esBalancePorTerceroSufijo, consolidarTercerosPorSufijo, marcarCuentaNit } from "@/lib/balance/terceros";
 import { marcarRelistadoGuiones } from "@/lib/balance/relistado";
 import { registrarDiagnosticoInicial, cerrarDiagnostico, acumularIntervencionManual, registrarDiagnosticoIA } from "@/lib/balance/diagnostico-lectura-registro";
@@ -156,7 +156,7 @@ async function clientePorNit(nit: string | null): Promise<number | null> {
   }
 }
 
-type AjustesCarga = { hojaPreferida: string | null; convencionCredito: string | null; estandar: string | null; agregarPorTercero: boolean | null };
+type AjustesCarga = { hojaPreferida: string | null; convencionCredito: string | null; estandar: string | null; agregarPorTercero: boolean | null; imputarSoloHojas: boolean | null };
 
 /** Preferencias de carga guardadas del cliente (null si no tiene). Best-effort. */
 async function ajustesCargaDeCliente(clienteId: number | null): Promise<AjustesCarga | null> {
@@ -164,7 +164,7 @@ async function ajustesCargaDeCliente(clienteId: number | null): Promise<AjustesC
   try {
     return await prisma.ajustesCargaBalance.findUnique({
       where: { clienteId },
-      select: { hojaPreferida: true, convencionCredito: true, estandar: true, agregarPorTercero: true },
+      select: { hojaPreferida: true, convencionCredito: true, estandar: true, agregarPorTercero: true, imputarSoloHojas: true },
     });
   } catch {
     return null;
@@ -976,6 +976,19 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
   // como movimiento → «total»: si no, se cuelga de la última agrupadora inflando su
   // Δ y se cuenta al cargar. MUTA `filasCrudas` (staging las guarda ya como total).
   reclasificarNoImputables(extr.filasCrudas);
+  // Export TOTALMENTE JERÁRQUICO (opción del cliente `imputarSoloHojas`): imputar SOLO
+  // las hojas — los subtotales (subcuenta + auxiliares listados como filas) se marcan
+  // agrupadora para no contar doble. ANTES de reclasificarHuerfanas (para que el árbol
+  // anide el detalle por orden) y de calcBorrador (para que el snapshot del encabezado
+  // no cuente doble). `importReady` se sincroniza quitando los códigos promovidos.
+  const ajustesCliente = await ajustesCargaDeCliente(p.clienteDetectadoId);
+  if (ajustesCliente?.imputarSoloHojas) {
+    const promovidas = reclasificarSoloHojas(extr.filasCrudas);
+    if (promovidas.length > 0) {
+      const codigosProm = new Set(promovidas.map((f) => f.codigo));
+      extr.importReady = extr.importReady.filter((c) => !codigosProm.has(c.code));
+    }
+  }
   // Agrupadoras HUÉRFANAS (sin hijos, con saldo) → movimiento: hojas imputables
   // que el ERP exportó sin desglose. MUTA `filasCrudas` (staging las guarda ya
   // como movimiento) y las suma al detalle para que el snapshot del encabezado
@@ -1555,9 +1568,17 @@ export async function aplicarCambiosBorrador(
     let nDes = 0;
     let nOmi = 0;
     let nPad = 0;
-    for (const [cod, tipo] of reclas) {
-      const actual = tipo === "movimiento" ? "agrupadora" : "movimiento";
-      const r = await prisma.balanceImportacionStaging.updateMany({ where: { loteId: id, codigo: cod, tipoFila: actual }, data: { tipoFila: tipo } });
+    // Reclasificación en LOTE por destino (una consulta por dirección, no por código):
+    // «Imputar solo las hojas» produce muchos códigos → agrupadora, así que un bucle
+    // por código sería lento. Solo se voltea la fila si su tipo actual es el opuesto.
+    const codsAgrup = reclas.filter(([, t]) => t === "agrupadora").map(([c]) => c);
+    const codsMov = reclas.filter(([, t]) => t === "movimiento").map(([c]) => c);
+    if (codsAgrup.length > 0) {
+      const r = await prisma.balanceImportacionStaging.updateMany({ where: { loteId: id, codigo: { in: codsAgrup }, tipoFila: "movimiento" }, data: { tipoFila: "agrupadora" } });
+      nRe += r.count;
+    }
+    if (codsMov.length > 0) {
+      const r = await prisma.balanceImportacionStaging.updateMany({ where: { loteId: id, codigo: { in: codsMov }, tipoFila: "agrupadora" }, data: { tipoFila: "movimiento" } });
       nRe += r.count;
     }
     if (invs.length > 0) {

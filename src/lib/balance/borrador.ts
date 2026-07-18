@@ -348,6 +348,36 @@ export function marcarNoContables(filas: FilaBorrador[]): number {
   return n;
 }
 
+/**
+ * Reclasifica a AGRUPADORA los MOVIMIENTOS que son SUBTOTALES en un export TOTALMENTE
+ * JERÁRQUICO: cada nivel viene exportado con su saldo (= Σ de su detalle), por lo que la
+ * subcuenta y sus auxiliares aparecen TODOS como filas imputables y se cuentan DOBLE
+ * (p. ej. SIESA `110501 CAJA GENERAL` + sus auxiliares `1105…`, que además no comparten
+ * prefijo con su subtotal). Regla: un movimiento cuyo SIGUIENTE movimiento (por orden de
+ * archivo) tiene código MÁS LARGO tiene detalle debajo → es agrupadora; solo cuentan las
+ * HOJAS (el nivel más profundo). Funciona por ORDEN+LONGITUD (no por prefijo), porque el
+ * anidado de movimientos de `construirArbolBorrador` es por orden y así el detalle se
+ * cuelga del subtotal promovido.
+ *
+ * AGRESIVA a propósito (SIN guardia de suma): en un balance MIXTO —donde una cuenta con
+ * detalle también trae saldo propio— borraría ese saldo. Por eso se activa SOLO por
+ * opción del cliente (`imputarSoloHojas`), no de forma global. MUTA `filas` (tipoFila) y
+ * devuelve las reclasificadas.
+ */
+export function reclasificarSoloHojas(filas: FilaBorrador[]): FilaBorrador[] {
+  const mov = filas
+    .filter((f) => f.tipoFila === "movimiento" && !f.omitida && esNumerico(f.codigo))
+    .sort((a, b) => a.filaNum - b.filaNum);
+  const promover = new Set<number>();
+  // Tiene detalle debajo si el SIGUIENTE movimiento (por orden) es de código más largo.
+  for (let i = 0; i < mov.length - 1; i++) {
+    if (mov[i + 1].codigo.length > mov[i].codigo.length) promover.add(mov[i].filaNum);
+  }
+  const cambiadas: FilaBorrador[] = [];
+  for (const f of filas) if (promover.has(f.filaNum)) { f.tipoFila = "agrupadora"; cambiadas.push(f); }
+  return cambiadas;
+}
+
 /** Total de nodos en el bosque (para contadores/UI). */
 export function contarNodos(nodos: NodoBorrador[]): number {
   return nodos.reduce((n, x) => n + 1 + contarNodos(x.hijos), 0);

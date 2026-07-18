@@ -198,6 +198,21 @@ export function AjustesCargaModal({
                     <option value="no">No</option>
                   </select>
                 </label>
+                <label className="flex flex-col gap-1 sm:col-span-2">
+                  <span className="text-[11px] font-medium text-ink-600">Imputar solo las hojas (export jerárquico)</span>
+                  <select
+                    name="imputarSoloHojas"
+                    defaultValue={data.ajustes?.imputarSoloHojas == null ? "" : data.ajustes.imputarSoloHojas ? "si" : "no"}
+                    className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400"
+                  >
+                    <option value="">Auto (no)</option>
+                    <option value="si">Sí — solo cuenta el nivel más profundo</option>
+                    <option value="no">No</option>
+                  </select>
+                  <span className="text-[10.5px] leading-relaxed text-ink-400">
+                    Actívalo si el archivo trae la cuenta Y sus subcuentas/auxiliares como filas (p. ej. SIESA): se cuentan solo las hojas y los niveles superiores pasan a agrupadora, evitando el doble conteo. No lo uses en balances mixtos.
+                  </span>
+                </label>
               </div>
               {saveState?.message && !saveState.ok && <p className="text-[12px] font-medium text-err-700">{saveState.message}</p>}
               <button

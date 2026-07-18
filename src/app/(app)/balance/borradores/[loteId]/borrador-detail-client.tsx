@@ -1,15 +1,17 @@
 "use client";
 
-import { useActionState, useEffect, useMemo, useState, useTransition } from "react";
+import { useActionState, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
 import { Card, Chip } from "@/components/ui";
 import { Modal } from "@/components/modal";
 import { fmt } from "@/lib/format";
-import { cargarBorrador, descartarBorrador, diagnosticarBorradorIA, aplicarCambiosBorrador } from "@/app/actions/balance";
+import { cargarBorrador, descartarBorrador, diagnosticarBorradorIA, aplicarCambiosBorrador, reprocesarBalanceConSpec } from "@/app/actions/balance";
+import { EditorEstructura } from "@/app/(app)/balance/cargar-balance-modal";
+import type { SpecCarga } from "@/lib/balance/extraccion/esquema";
 import type { ImportBalanceState } from "@/lib/import/balance";
 import { construirVistaBorrador } from "@/lib/balance/borrador-vm";
-import { contextoTabulador, puedeUbicar, type ContextoNodo, type RefNodo, type FilaBorrador, type NodoBorrador } from "@/lib/balance/borrador";
+import { contextoTabulador, puedeUbicar, reclasificarSoloHojas, type ContextoNodo, type RefNodo, type FilaBorrador, type NodoBorrador } from "@/lib/balance/borrador";
 import type { ValidacionContable } from "@/lib/balance/calcular";
 import type { Hallazgo } from "@/lib/balance/diagnostico";
 import type { DiagnosticoIA } from "@/lib/balance/diagnostico-ia";
@@ -56,7 +58,7 @@ function aplicarCambios(
 }
 
 export default function BorradorDetailClient({
-  loteId, nitDetectado, periodoInicial, periodoFinal, filas, clientes, clienteSugeridoId,
+  loteId, nitDetectado, periodoInicial, periodoFinal, filas, clientes, clienteSugeridoId, spec,
 }: {
   loteId: string;
   archivoNombre: string;
@@ -66,6 +68,7 @@ export default function BorradorDetailClient({
   filas: FilaBorrador[];
   clientes: Cliente[];
   clienteSugeridoId: number | null;
+  spec: SpecCarga | null;
 }) {
   const router = useRouter();
   const [cargarState, cargarAction, cargando] = useActionState<ImportBalanceState, FormData>(cargarBorrador, {});
@@ -82,11 +85,52 @@ export default function BorradorDetailClient({
   const [omitidas, setOmitidas] = useState<Record<number, boolean>>({});
   const [padres, setPadres] = useState<Record<number, number | null>>({});
   const [mover, setMover] = useState<number | null>(null); // filaNum en el modal "Ubicar"
+  const [soloHojas, setSoloHojas] = useState(false); // export jerárquico: solo cuentan las hojas
+  const [autoCorregido, setAutoCorregido] = useState(false); // «solo hojas» se activó por auto-corrección al abrir
+  const autoAplicadoRef = useRef(false);
+  const [archivoFile, setArchivoFile] = useState<File | null>(null); // re-adjuntar para reprocesar sin IA
+  const [reprocesando, startReproceso] = useTransition();
   const [guardando, startGuardar] = useTransition();
-  const nCambios = Object.keys(override).length + invertidos.length + Object.keys(desacopladas).length + Object.keys(omitidas).length + Object.keys(padres).length;
+  // «Imputar solo las hojas»: en un export jerárquico (la cuenta y sus subcuentas/auxiliares
+  // vienen TODAS como filas), marca como AGRUPADORA toda cuenta con detalle debajo (código
+  // más largo por orden) → solo cuentan las hojas. Se expresa como overrides de
+  // reclasificación: reversible en pantalla y persistible con «Guardar cambios».
+  const overrideEfectivo = useMemo(() => {
+    if (!soloHojas) return override;
+    const combinado: Record<string, "agrupadora" | "movimiento"> = { ...override };
+    for (const f of reclasificarSoloHojas(filas.map((x) => ({ ...x })))) {
+      if (!(f.codigo in combinado)) combinado[f.codigo] = "agrupadora";
+    }
+    return combinado;
+  }, [filas, soloHojas, override]);
+  const nCambios = Object.keys(overrideEfectivo).length + invertidos.length + Object.keys(desacopladas).length + Object.keys(omitidas).length + Object.keys(padres).length;
   const hayCambios = nCambios > 0;
   // View-model recomputado LOCALMENTE con los cambios temporales (sin tocar la BD).
-  const { arbol, validacion, partidaDoble, hallazgos, porTercero, relistadoGuiones, filasOcultas, clasesCorregidas, nitTachados } = useMemo(() => construirVistaBorrador(aplicarCambios(filas, override, invertidos, desacopladas, omitidas, padres)), [filas, override, invertidos, desacopladas, omitidas, padres]);
+  const { arbol, validacion, partidaDoble, hallazgos, porTercero, relistadoGuiones, filasOcultas, clasesCorregidas, nitTachados } = useMemo(() => construirVistaBorrador(aplicarCambios(filas, overrideEfectivo, invertidos, desacopladas, omitidas, padres)), [filas, overrideEfectivo, invertidos, desacopladas, omitidas, padres]);
+
+  // AUTO-CORRECCIÓN de anidado por orden: en un export jerárquico (subtotales + auxiliares
+  // como filas), «solo hojas» re-anida cada auxiliar bajo su subtotal por ORDEN. Se calcula
+  // el balance CON y SIN la corrección y solo se propone si VERIFICADAMENTE acerca el activo
+  // al total del archivo y reduce descuadres — en un balance mixto no aplica (fail-safe).
+  const analisisSoloHojas = useMemo(() => {
+    const base = construirVistaBorrador(filas.map((f) => ({ ...f })));
+    const clon = filas.map((f) => ({ ...f }));
+    const promovidas = reclasificarSoloHojas(clon);
+    const conSolo = construirVistaBorrador(clon);
+    const distBase = base.validacion.activoArchivo != null ? Math.abs(base.validacion.activo - base.validacion.activoArchivo) : Infinity;
+    const distSolo = conSolo.validacion.activoArchivo != null ? Math.abs(conSolo.validacion.activo - conSolo.validacion.activoArchivo) : Infinity;
+    const ayuda = distBase !== Infinity && distSolo < distBase * 0.5 && conSolo.diagnostico.descuadres < base.diagnostico.descuadres && promovidas.length > 0;
+    return { ayuda, n: promovidas.length };
+  }, [filas]);
+  // Auto-activa la corrección UNA vez al abrir (si verifica). Reversible: el usuario puede
+  // desmarcar «solo hojas», y no se vuelve a auto-aplicar (autoAplicadoRef).
+  useEffect(() => {
+    if (!autoAplicadoRef.current && analisisSoloHojas.ayuda) {
+      autoAplicadoRef.current = true;
+      setSoloHojas(true);
+      setAutoCorregido(true);
+    }
+  }, [analisisSoloHojas]);
 
   // Posición de cada nodo en el árbol (hermano anterior + abuelo) para el TABULADOR:
   // el ← (desindentar) sube al abuelo. El → abre el modal "Ubicar" (elegir destino + lote).
@@ -101,13 +145,28 @@ export default function BorradorDetailClient({
   const onUbicar = (filaNum: number) => setMover(filaNum); // → abre el modal "Ubicar"
   const onConfirmarMover = (patch: Record<number, number>) => { setPadres((m) => ({ ...m, ...patch })); setMover(null); };
   const onDesindentar = (filaNum: number) => { const p = posiciones.get(filaNum); if (p?.abuelo != null) setPadres((m) => ({ ...m, [filaNum]: p.abuelo })); };
-  const descartarCambios = () => { setOverride({}); setInvertidos([]); setDesacopladas({}); setOmitidas({}); setPadres({}); };
+  const descartarCambios = () => { setOverride({}); setInvertidos([]); setDesacopladas({}); setOmitidas({}); setPadres({}); setSoloHojas(false); };
   const guardarCambios = () =>
     startGuardar(async () => {
-      const r = await aplicarCambiosBorrador(loteId, override, invertidos, desacopladas, omitidas, padres);
-      if (r.ok) { notifySuccess(r.message ?? "Cambios guardados."); setOverride({}); setInvertidos([]); setDesacopladas({}); setOmitidas({}); setPadres({}); router.refresh(); }
+      const r = await aplicarCambiosBorrador(loteId, overrideEfectivo, invertidos, desacopladas, omitidas, padres);
+      if (r.ok) { notifySuccess(r.message ?? "Cambios guardados."); setOverride({}); setInvertidos([]); setDesacopladas({}); setOmitidas({}); setPadres({}); setSoloHojas(false); router.refresh(); }
       else notifyError(r.message ?? "No se pudieron guardar los cambios.");
     });
+
+  // Reproceso determinista con el spec ajustado (editor de estructura), re-adjuntando el
+  // archivo original — esta página no lo conserva. Crea un borrador NUEVO y purga este.
+  const onReprocesar = (s: SpecCarga) => {
+    if (!archivoFile) { notifyError("Adjunta el archivo original para reprocesar."); return; }
+    startReproceso(async () => {
+      const fd = new FormData();
+      fd.set("archivo", archivoFile);
+      fd.set("spec", JSON.stringify(s));
+      fd.set("loteIdAnterior", loteId);
+      const r = await reprocesarBalanceConSpec({}, fd);
+      if (r.ok && r.sugerencia) { notifySuccess("Reprocesado sin IA."); router.push(`/balance/borradores/${r.sugerencia.payload.loteId}`); }
+      else notifyError(r.message ?? "No se pudo reprocesar el archivo.");
+    });
+  };
 
   const onDiagnosticar = () =>
     startDiagnostico(async () => {
@@ -161,6 +220,14 @@ export default function BorradorDetailClient({
           <span>Se ocultaron <span className="font-semibold">{filasOcultas}</span> fila(s) que no van al balance: pies/notas del ERP (código que no empieza por dígito, como «Procesado en: …», <span className="font-mono">&lt;none&gt;</span> o «Total general»), <span className="font-semibold">cuentas de orden (clase 8 y 9)</span> y <span className="font-semibold">totales de sucursal</span> (código que empieza en 0, como «<span className="font-mono">002 MEDELLIN</span>» en un balance multi-sucursal). Se muestran <span className="line-through">tachadas</span> y NO cuentan. Si necesitas alguna, rescátala con «Incluir».</span>
         </div>
       )}
+      {soloHojas && autoCorregido && (
+        <div className="flex items-start gap-2 rounded-md border border-ok-200 bg-ok-100/40 px-3 py-2 text-[12px] text-ok-800">
+          <span className="mt-px font-bold text-ok-700">✓</span>
+          <span>
+            <span className="font-semibold">Corrección automática de anidado.</span> Se detectó un export jerárquico con doble conteo y se re-anidaron <span className="font-semibold">{analisisSoloHojas.n}</span> cuenta(s) por orden (solo cuentan las hojas — cada auxiliar bajo su subtotal). Revisa el resultado y pulsa <span className="font-semibold">Guardar cambios</span> para fijarlo, o desmarca «Imputar solo las hojas» abajo para revertir. Los descuadres que queden son genuinos (cuenta faltante o de signo), no de anidado.
+          </span>
+        </div>
+      )}
       <ValidacionHeader v={validacion} pd={partidaDoble} />
 
       {hallazgos.length > 0 && (
@@ -187,6 +254,12 @@ export default function BorradorDetailClient({
           <div className="mt-1 text-[11px] leading-relaxed text-ink-500">
             <span className="font-semibold text-err-700">Δ subrayado</span> en una agrupadora = su total del archivo − la suma de las filas que cuelgan de ella (por prefijo de código). Si ≠ 0, su subtotal no cuadra con su desglose: puede ser una <span className="font-semibold">cuenta faltante</span>, o que el ERP numere el detalle sin anidar por código (el subtotal y su detalle no comparten prefijo — la plata está, pero en otra rama). Usa <span className="font-semibold">⇄ Agrupadora/Movimiento</span> para corregir el tipo de una cuenta, <span className="font-semibold">⇄ Desacoplar</span> para sacar una cuenta de una agrupadora de código ajeno, la <span className="font-semibold text-err-700">✕</span> para <span className="font-semibold">omitir</span> un registro de los cálculos (se conserva en el crudo/Excel línea a línea y NO se carga al balance), y el <span className="font-semibold">tabulador ← →</span> para <span className="font-semibold">ubicar</span> una fila en la rama que quieras (→ la mete en la agrupadora de arriba; ← la sube un nivel).
           </div>
+          <label className={`mt-2 flex cursor-pointer items-start gap-2 rounded-md border px-2.5 py-1.5 text-[12px] ${soloHojas ? "border-blue-300 bg-blue-50 text-ink-700" : "border-ink-200 bg-white text-ink-600"}`}>
+            <input type="checkbox" checked={soloHojas} onChange={(e) => setSoloHojas(e.target.checked)} className="mt-0.5" />
+            <span>
+              <span className="font-semibold">Imputar solo las hojas</span> (export jerárquico) — si el archivo trae la cuenta <span className="font-semibold">y</span> sus subcuentas/auxiliares como filas (p. ej. SIESA), marca los niveles superiores como <span className="font-semibold">agrupadora</span> para no contar doble; solo cuenta el nivel más profundo. Se previsualiza al instante; <span className="font-semibold">guarda</span> para persistirlo. Para automatizarlo en cada carga del cliente, actívalo en Config › Clientes › Carga de balances.
+            </span>
+          </label>
         </div>
         {hayCambios && (
           <div className="flex flex-wrap items-center gap-2 border-b border-warn-200 bg-warn-50 px-3 py-2 text-[12px]">
@@ -210,6 +283,24 @@ export default function BorradorDetailClient({
         )}
         <ArbolTabla arbol={arbol} filtro={filtro} onReclasificar={onReclasificar} onInvertir={onInvertir} onDesacoplar={onDesacoplar} onOmitir={onOmitir} posiciones={posiciones} contexto={contexto} onUbicar={onUbicar} onDesindentar={onDesindentar} />
       </Card>
+
+      {spec && (
+        <Card className="p-3">
+          <div className="mb-2 rounded-md border border-ink-150 bg-ink-50 px-3 py-2 text-[11.5px] leading-relaxed text-ink-600">
+            <span className="font-semibold">Reprocesar con otra estructura (sin IA):</span> corrige el mapeo de columnas, la detección o el signo abajo. Como esta página no conserva el archivo, <span className="font-semibold">re-adjunta el archivo original</span> para reprocesar — se creará un borrador nuevo con el resultado.
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <input
+                type="file"
+                accept=".xlsx,.xls,.xlsb,.csv,.txt,.json,.pdf"
+                onChange={(e) => setArchivoFile(e.target.files?.[0] ?? null)}
+                className="text-[12px] text-ink-700 file:mr-2 file:rounded-md file:border-0 file:bg-navy-700 file:px-2.5 file:py-1 file:text-[12px] file:font-semibold file:text-white hover:file:bg-navy-600"
+              />
+              {archivoFile && <span className="text-[11.5px] font-medium text-ok-700">✓ {archivoFile.name}</span>}
+            </div>
+          </div>
+          <EditorEstructura spec={spec} encabezados={[]} hojas={[spec.hoja]} reprocesando={reprocesando} onAplicar={onReprocesar} />
+        </Card>
+      )}
 
       {mover != null && (
         <MoverModal arbol={arbol} filaNum={mover} contexto={contexto} onConfirmar={onConfirmarMover} onClose={() => setMover(null)} />

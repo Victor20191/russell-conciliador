@@ -4,6 +4,8 @@ import { requirePermiso } from "@/lib/rbac";
 import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { PageHeader, BackLink } from "@/components/ui";
 import type { FilaBorrador } from "@/lib/balance/borrador";
+import { SpecCargaBalanceSchema } from "@/lib/definitions";
+import type { SpecCarga } from "@/lib/balance/extraccion/esquema";
 import { fechaCalendarioISO } from "@/lib/fecha-hora";
 import BorradorDetailClient from "./borrador-detail-client";
 
@@ -20,6 +22,11 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
     prisma.balanceImportacionStaging.findMany({ where: { loteId }, orderBy: { filaNum: "asc" } }),
   ]);
   if (filasStaging.length === 0) notFound();
+
+  // Spec de extracción usado (si se guardó): habilita el editor de estructura en el
+  // borrador (re-adjuntando el archivo). Puede faltar (carga por plantilla sin spec).
+  const specParsed = lote?.specJson ? SpecCargaBalanceSchema.safeParse(lote.specJson) : null;
+  const spec: SpecCarga | null = specParsed?.success ? (specParsed.data as SpecCarga) : null;
 
   // Filas CRUDAS del staging → al cliente, que recomputa el view-model (árbol +
   // validaciones + hallazgos) y aplica los cambios TEMPORALES antes de guardar.
@@ -58,6 +65,7 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
         filas={filas}
         clientes={clientes.map((c) => ({ id: c.id, name: c.name, nit: c.nit }))}
         clienteSugeridoId={clienteSugeridoId}
+        spec={spec}
       />
     </div>
   );

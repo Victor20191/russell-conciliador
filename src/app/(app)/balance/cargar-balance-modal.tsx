@@ -248,8 +248,8 @@ function CargarBalanceModal({ clients, onClose, onReiniciar }: { clients: Client
 
               {inspeccionando && <p className="text-[12px] text-ink-500">Analizando las hojas del archivo…</p>}
               {archivoGrande && (
-                <p className="rounded-md border border-ink-150 bg-ink-50 px-3 py-2 text-[12px] text-ink-600">
-                  <span className="font-semibold">Archivo grande.</span> Se omite la vista previa de hojas para no congelar el navegador; el servidor lo analizará al leer (puede tardar). Si tiene varias hojas, asegúrate de que la del balance sea la principal.
+                <p className="rounded-md border border-err-200 bg-err-50 px-3 py-2.5 text-[12px] font-medium text-err-700">
+                  <span className="font-semibold">⚠️ ¡Archivo muy pesado!</span> Su carga toma más tiempo de lo normal — no cierres esta operación mientras carga.
                 </p>
               )}
               {requiereHoja && hojas && <SelectorHojas hojas={hojas} elegida={hojaElegida} onElegir={setHojaElegida} />}
@@ -474,7 +474,7 @@ const ROLES_COLUMNA: { key: RolColumna; label: string; requerida?: boolean }[] =
  * columnas por rol, signo, regla de detalle) y permite corregirlo. «Aplicar»
  * reprocesa el archivo de forma DETERMINISTA (sin IA) con el spec ajustado.
  */
-function EditorEstructura({
+export function EditorEstructura({
   spec,
   encabezados,
   hojas,

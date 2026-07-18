@@ -35,10 +35,35 @@ const MENSAJES_PRISMA: Record<string, string> = {
   P1002: "La base de datos no respondió a tiempo. Intenta de nuevo.",
   P1008: "La operación tardó demasiado (tiempo de espera agotado). Intenta de nuevo.",
   P1017: "La base de datos cerró la conexión. Intenta de nuevo.",
+  // Pool agotado / timeout al obtener una conexión (típico tras una operación
+  // larga —p. ej. leer un archivo grande con IA— que deja las conexiones ociosas).
+  P2024: "La base de datos tardó demasiado en responder. Con archivos grandes la lectura puede demorar; espera unos segundos y vuelve a intentar. Si persiste, avisa al administrador.",
 };
 
 const MENSAJE_GENERICO =
   "Ocurrió un error al procesar la operación en la base de datos. Intenta de nuevo; si el problema persiste, contacta al administrador.";
+
+// Timeout/caída de conexión de node-postgres. Estos errores NO traen `code` de
+// Prisma (p. ej. "Connection terminated due to connection timeout" con causa
+// "Connection terminated unexpectedly"), así que sin este reconocedor caerían al
+// mensaje genérico de "base de datos" y ocultarían que fue un problema de latencia.
+const MENSAJE_CONEXION =
+  "La base de datos tardó demasiado en responder. Con archivos grandes la lectura puede demorar más de lo normal; espera unos segundos y vuelve a intentar. Si persiste, avisa al administrador.";
+
+/** ¿Es un timeout/caída de conexión SIN código Prisma (node-postgres/pool)? */
+function esErrorConexionSinCodigo(e: unknown): boolean {
+  const partes: string[] = [];
+  const acumular = (x: unknown, prof: number) => {
+    if (prof > 4 || x == null) return;
+    if (typeof x === "string") { partes.push(x); return; }
+    if (x instanceof Error) { partes.push(x.message); acumular((x as { cause?: unknown }).cause, prof + 1); return; }
+    if (typeof x === "object" && "message" in x) partes.push(String((x as { message?: unknown }).message ?? ""));
+  };
+  acumular(e, 0);
+  return /connection terminated|connection timeout|timeout.*connect|connect.*timeout|terminated unexpectedly|ECONNRESET|ETIMEDOUT|EPIPE|Connection ended|server closed the connection/i.test(
+    partes.join(" "),
+  );
+}
 
 /** Extrae el código de error de Prisma (p. ej. "P2002") si lo hay. */
 function codigoPrisma(e: unknown): string | undefined {
@@ -65,6 +90,7 @@ export function mensajeErrorBD(contexto: string, e: unknown): string {
   registrarError(contexto, e);
   const code = codigoPrisma(e);
   if (code && MENSAJES_PRISMA[code]) return MENSAJES_PRISMA[code];
+  if (esErrorConexionSinCodigo(e)) return MENSAJE_CONEXION;
   return MENSAJE_GENERICO;
 }
 

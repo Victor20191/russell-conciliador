@@ -137,6 +137,7 @@ export const AjustesCargaSchema = z.object({
   convencionCredito: z.preprocess((v) => (v === "" || v == null ? null : v), z.enum(["firmado", "magnitud"], { error: "Convención de crédito inválida." }).nullable()),
   estandar: z.preprocess((v) => (v === "" || v == null ? null : v), z.enum(["NIF", "NIIF", "PCGA"], { error: "Estándar contable inválido." }).nullable()),
   agregarPorTercero: z.preprocess((v) => (v === "si" ? true : v === "no" ? false : null), z.boolean().nullable()),
+  imputarSoloHojas: z.preprocess((v) => (v === "si" ? true : v === "no" ? false : null), z.boolean().nullable()),
 });
 
 // Confirmación de carga (paso 2): cliente + período desde/hasta (fechas ISO). El

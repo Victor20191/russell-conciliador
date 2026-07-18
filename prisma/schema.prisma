@@ -866,6 +866,12 @@ model AjustesCargaBalance {
   convencionCredito String?  @map("convencion_credito") // firmado | magnitud | null=auto
   estandar          String?  @map("estandar") // NIF | NIIF | PCGA | null=auto
   agregarPorTercero Boolean? @map("agregar_por_tercero") // null=auto
+  // Export TOTALMENTE JERÁRQUICO (cada nivel exportado con su saldo = Σ del detalle,
+  // p. ej. SIESA con subcuenta + auxiliares como filas imputables): imputar SOLO las
+  // hojas (el nivel más profundo) y tratar los niveles superiores como agrupadoras,
+  // para evitar el doble conteo. null/false=auto/off. Opt-in por cliente porque es
+  // agresivo (en un balance MIXTO borraría el saldo propio de una cuenta con detalle).
+  imputarSoloHojas  Boolean? @map("imputar_solo_hojas")
   actualizadoPor    String?  @map("actualizado_por")
   creadoEn          DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
   actualizadoEn     DateTime @updatedAt @map("actualizado_en") @db.Timestamptz(3)
