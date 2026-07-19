@@ -37,6 +37,7 @@ export type AjustesCargaResumen = {
   estandar: string | null;
   agregarPorTercero: boolean | null;
   imputarSoloHojas: boolean | null;
+  observaciones: string | null;
 };
 
 export type PerfilesCargaState = {
@@ -76,7 +77,7 @@ export async function listarPerfilesCarga(clienteId: number): Promise<PerfilesCa
       }),
       prisma.ajustesCargaBalance.findUnique({
         where: { clienteId },
-        select: { hojaPreferida: true, convencionCredito: true, estandar: true, agregarPorTercero: true, imputarSoloHojas: true },
+        select: { hojaPreferida: true, convencionCredito: true, estandar: true, agregarPorTercero: true, imputarSoloHojas: true, observaciones: true },
       }),
     ]);
     const perfiles: PerfilCargaResumen[] = filas.map((p) => {
@@ -151,16 +152,17 @@ export async function guardarAjustesCarga(_prev: ActionState | undefined, formDa
     estandar: formData.get("estandar"),
     agregarPorTercero: formData.get("agregarPorTercero"),
     imputarSoloHojas: formData.get("imputarSoloHojas"),
+    observaciones: formData.get("observaciones"),
   });
   if (!parsed.success) return { ok: false, message: parsed.error.issues[0]?.message ?? "Datos inválidos." };
-  const { clienteId, hojaPreferida, convencionCredito, estandar, agregarPorTercero, imputarSoloHojas } = parsed.data;
+  const { clienteId, hojaPreferida, convencionCredito, estandar, agregarPorTercero, imputarSoloHojas, observaciones } = parsed.data;
   const scope = await authorizePermiso("balance:crear", { clientId: clienteId });
   if (!scope.ok) return { ok: false, message: scope.message };
   try {
     const cliente = await prisma.client.findUnique({ where: { id: clienteId }, select: { name: true } });
     if (!cliente) return { ok: false, message: "El cliente seleccionado ya no existe." };
     const user = await getCurrentUser();
-    const datos = { hojaPreferida, convencionCredito, estandar, agregarPorTercero, imputarSoloHojas, actualizadoPor: user?.name ?? null };
+    const datos = { hojaPreferida, convencionCredito, estandar, agregarPorTercero, imputarSoloHojas, observaciones, actualizadoPor: user?.name ?? null };
     await prisma.ajustesCargaBalance.upsert({
       where: { clienteId },
       create: { clienteId, ...datos },
@@ -176,6 +178,7 @@ export async function guardarAjustesCarga(_prev: ActionState | undefined, formDa
         estandar ? `estándar ${estandar}` : null,
         agregarPorTercero != null ? `tercero ${agregarPorTercero ? "sí" : "no"}` : null,
         imputarSoloHojas != null ? `solo hojas ${imputarSoloHojas ? "sí" : "no"}` : null,
+        observaciones ? "con notas" : null,
       ].filter(Boolean).join(" · ") || "todo en auto",
     });
     revalidatePath(PATH);

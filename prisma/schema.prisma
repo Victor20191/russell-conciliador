@@ -872,6 +872,10 @@ model AjustesCargaBalance {
   // para evitar el doble conteo. null/false=auto/off. Opt-in por cliente porque es
   // agresivo (en un balance MIXTO borraría el saldo propio de una cuenta con detalle).
   imputarSoloHojas  Boolean? @map("imputar_solo_hojas")
+  // Notas / observaciones de carga por cliente (texto libre): particularidades del formato
+  // que el analista quiere recordar (p. ej. "duplica renglones UC/CU — se omite uno").
+  // Se muestran al cargar/revisar el balance de ese cliente. null/"" = sin notas.
+  observaciones     String?  @map("observaciones") @db.Text
   actualizadoPor    String?  @map("actualizado_por")
   creadoEn          DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
   actualizadoEn     DateTime @updatedAt @map("actualizado_en") @db.Timestamptz(3)

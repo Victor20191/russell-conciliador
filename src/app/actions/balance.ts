@@ -156,7 +156,7 @@ async function clientePorNit(nit: string | null): Promise<number | null> {
   }
 }
 
-type AjustesCarga = { hojaPreferida: string | null; convencionCredito: string | null; estandar: string | null; agregarPorTercero: boolean | null; imputarSoloHojas: boolean | null };
+type AjustesCarga = { hojaPreferida: string | null; convencionCredito: string | null; estandar: string | null; agregarPorTercero: boolean | null; imputarSoloHojas: boolean | null; observaciones: string | null };
 
 /** Preferencias de carga guardadas del cliente (null si no tiene). Best-effort. */
 async function ajustesCargaDeCliente(clienteId: number | null): Promise<AjustesCarga | null> {
@@ -164,7 +164,7 @@ async function ajustesCargaDeCliente(clienteId: number | null): Promise<AjustesC
   try {
     return await prisma.ajustesCargaBalance.findUnique({
       where: { clienteId },
-      select: { hojaPreferida: true, convencionCredito: true, estandar: true, agregarPorTercero: true, imputarSoloHojas: true },
+      select: { hojaPreferida: true, convencionCredito: true, estandar: true, agregarPorTercero: true, imputarSoloHojas: true, observaciones: true },
     });
   } catch {
     return null;
@@ -1257,51 +1257,95 @@ export async function auditarCargaBalance(clienteId: number, loteId: string): Pr
  * (checkbox del modal). El spec y la huella salen del LOTE (leídos ANTES de la
  * promoción, que purga el lote). Best-effort: nunca tumba la carga.
  */
-async function guardarPerfilTrasCarga(p: {
+type ParamsPerfilCarga = {
   clientId: number;
   huella: string | null;
   specJson: unknown;
   origenExtraccion: PayloadCargaBalance["origenExtraccion"];
   archivoNombre: string;
-}): Promise<void> {
+};
+
+/**
+ * Núcleo del upsert del PERFIL de carga (clave clienteId+huella). LANZA si la BD falla
+ * (para que el llamador reporte); devuelve false si faltan datos (sin huella o spec
+ * inválido). Lo usan el guardado best-effort de la carga y el botón «Guardar» del editor.
+ */
+async function upsertPerfilCarga(p: ParamsPerfilCarga): Promise<boolean> {
+  if (!p.huella) return false;
+  const parsed = SpecCargaBalanceSchema.safeParse(p.specJson);
+  if (!parsed.success) return false;
+  const plano = aplanarSpec(parsed.data);
+  // Un spec ajustado a mano queda (y se mantiene) como `manual`; el resto es
+  // `ia` (automático). `manual` NUNCA se degrada por una carga automática.
+  const esManual = p.origenExtraccion === "manual";
+  const ahora = new Date();
+  const existia = await prisma.perfilCargaBalance.findUnique({
+    where: { clienteId_huella: { clienteId: p.clientId, huella: p.huella } },
+    select: { id: true },
+  });
+  const usuario = await getCurrentUser();
+  await prisma.perfilCargaBalance.upsert({
+    where: { clienteId_huella: { clienteId: p.clientId, huella: p.huella } },
+    create: {
+      clienteId: p.clientId, huella: p.huella, ...plano,
+      origen: esManual ? "manual" : "ia",
+      vecesUsado: 1, ultimoUsoEn: ahora, archivoEjemplo: p.archivoNombre,
+      creadoPor: usuario?.name ?? null, creadoPorId: usuario?.id ?? null,
+    },
+    update: {
+      ...plano,
+      vecesUsado: { increment: 1 }, ultimoUsoEn: ahora, archivoEjemplo: p.archivoNombre,
+      ...(esManual ? { origen: "manual" } : {}),
+    },
+  });
+  if (!existia) {
+    await logAudit({
+      user: usuario?.name ?? "Sistema",
+      action: "GUARDÓ PERFIL de carga de balance",
+      entity: `cliente ${p.clientId}`,
+      detail: `huella ${p.huella} · ${esManual ? "ajustado a mano" : "detectado"} · ${p.archivoNombre}`,
+    });
+  }
+  return true;
+}
+
+/** Guarda el perfil tras una carga exitosa (best-effort; nunca tumba la carga). */
+async function guardarPerfilTrasCarga(p: ParamsPerfilCarga): Promise<void> {
+  try { await upsertPerfilCarga(p); } catch { /* best-effort */ }
+}
+
+/**
+ * GUARDA el spec ajustado en el editor de estructura como PERFIL del cliente, SIN
+ * reprocesar el archivo. Usa la huella y el cliente (por NIT) del lote actual — para
+ * dejar el ajuste memorizado para futuras cargas cuando reprocesar no hace falta.
+ */
+export async function guardarPerfilDesdeEditor(loteId: string, specJson: unknown, clientIdExplicito?: number): Promise<ActionState & { needsClient?: boolean }> {
+  const authz = await authorizePermiso("balance:crear");
+  if (!authz.ok) return { ok: false, message: authz.message };
+  const id = String(loteId ?? "").trim();
+  if (!id) return { ok: false, message: "Borrador inválido." };
+  const parsed = SpecCargaBalanceSchema.safeParse(specJson);
+  if (!parsed.success) return { ok: false, message: parsed.error.issues[0]?.message ?? "Los ajustes de estructura no son válidos." };
   try {
-    if (!p.huella) return;
-    const parsed = SpecCargaBalanceSchema.safeParse(p.specJson);
-    if (!parsed.success) return;
-    const plano = aplanarSpec(parsed.data);
-    // Un spec ajustado a mano queda (y se mantiene) como `manual`; el resto es
-    // `ia` (automático). `manual` NUNCA se degrada por una carga automática.
-    const esManual = p.origenExtraccion === "manual";
-    const ahora = new Date();
-    const existia = await prisma.perfilCargaBalance.findUnique({
-      where: { clienteId_huella: { clienteId: p.clientId, huella: p.huella } },
-      select: { id: true },
+    const lote = await prisma.balanceImportacionLote.findUnique({
+      where: { loteId: id },
+      select: { huella: true, clienteId: true, nitDetectado: true, archivoNombre: true },
     });
-    const usuario = await getCurrentUser();
-    await prisma.perfilCargaBalance.upsert({
-      where: { clienteId_huella: { clienteId: p.clientId, huella: p.huella } },
-      create: {
-        clienteId: p.clientId, huella: p.huella, ...plano,
-        origen: esManual ? "manual" : "ia",
-        vecesUsado: 1, ultimoUsoEn: ahora, archivoEjemplo: p.archivoNombre,
-        creadoPor: usuario?.name ?? null, creadoPorId: usuario?.id ?? null,
-      },
-      update: {
-        ...plano,
-        vecesUsado: { increment: 1 }, ultimoUsoEn: ahora, archivoEjemplo: p.archivoNombre,
-        ...(esManual ? { origen: "manual" } : {}),
-      },
-    });
-    if (!existia) {
-      await logAudit({
-        user: usuario?.name ?? "Sistema",
-        action: "GUARDÓ PERFIL de carga de balance",
-        entity: `cliente ${p.clientId}`,
-        detail: `huella ${p.huella} · ${esManual ? "ajustado a mano" : "detectado"} · ${p.archivoNombre}`,
-      });
-    }
-  } catch {
-    /* best-effort */
+    if (!lote) return { ok: false, message: "El borrador ya no existe." };
+    if (!lote.huella) return { ok: false, message: "No hay huella del layout para guardar el perfil. Reprocesa una vez (sin IA) para generarla y vuelve a guardar." };
+    // Cliente EXPLÍCITO (elegido en el prompt) manda; si no, el del lote o el detectado por NIT.
+    const cidExpl = typeof clientIdExplicito === "number" && Number.isInteger(clientIdExplicito) && clientIdExplicito > 0 ? clientIdExplicito : null;
+    const clientId = cidExpl ?? lote.clienteId ?? (await clientePorNit(lote.nitDetectado));
+    // Sin cliente → se pide al usuario que lo elija para concluir el guardado (needsClient).
+    if (clientId == null) return { ok: false, needsClient: true, message: "Elige el cliente para guardar el perfil del formato." };
+    const scope = await authorizePermiso("balance:crear", { clientId });
+    if (!scope.ok) return { ok: false, message: scope.message };
+    const ok = await upsertPerfilCarga({ clientId, huella: lote.huella, specJson: parsed.data, origenExtraccion: "manual", archivoNombre: lote.archivoNombre });
+    if (!ok) return { ok: false, message: "No se pudo guardar el perfil (faltan datos del layout)." };
+    revalidatePath("/config/clientes");
+    return { ok: true, message: "Perfil de formato guardado para este cliente. Las próximas cargas del mismo layout lo aplicarán solas, sin IA." };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("guardarPerfilDesdeEditor", e) };
   }
 }
 

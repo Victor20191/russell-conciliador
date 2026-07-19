@@ -12,6 +12,7 @@ import {
   confirmarCargaBalance,
   auditarCargaBalance,
   reprocesarBalanceConSpec,
+  guardarPerfilDesdeEditor,
   type LeerBalanceState,
   type SugerenciaBalance,
   type AuditoriaCarga,
@@ -19,6 +20,7 @@ import {
 import { notifyActionState, notifyError, notifySuccess } from "@/lib/client-notifications";
 import { leerHojasParaPreview, columnaLetra, type CeldaCruda, type HojaPreview } from "@/lib/balance/extraccion/hojas-cliente";
 import type { SpecCarga } from "@/lib/balance/extraccion/esquema";
+import { PromptClientePerfil } from "@/app/(app)/balance/prompt-cliente-perfil";
 import type { ImportBalanceState } from "@/lib/import/balance";
 
 /** Extensiones de Excel que pueden traer varias hojas (inspeccionables en cliente). */
@@ -340,6 +342,28 @@ function FormRevisar({
   // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
   useEffect(() => { if (clienteSug) correrAudit(Number(clienteSug)); }, []);
 
+  // Guardar el spec ajustado como PERFIL del cliente SIN reprocesar (para futuras cargas).
+  // Si no hay cliente (ni por NIT ni en el lote), se pide elegirlo para concluir el guardado.
+  const [guardandoPerfil, startGuardarPerfil] = useTransition();
+  const [promptPerfilSpec, setPromptPerfilSpec] = useState<SpecCarga | null>(null);
+  const onGuardarPerfil = (spec: SpecCarga) => {
+    startGuardarPerfil(async () => {
+      const r = await guardarPerfilDesdeEditor(sug.payload.loteId, spec);
+      if (r.ok) { notifySuccess(r.message ?? "Perfil guardado."); return; }
+      if (r.needsClient) { setPromptPerfilSpec(spec); return; }
+      notifyError(r.message ?? "No se pudo guardar el perfil.");
+    });
+  };
+  const guardarPerfilConCliente = (clientId: number) => {
+    const spec = promptPerfilSpec;
+    if (!spec) return;
+    startGuardarPerfil(async () => {
+      const r = await guardarPerfilDesdeEditor(sug.payload.loteId, spec, clientId);
+      if (r.ok) { notifySuccess(r.message ?? "Perfil guardado."); setPromptPerfilSpec(null); }
+      else notifyError(r.message ?? "No se pudo guardar el perfil.");
+    });
+  };
+
   return (
     <form id="confirmar-form" action={confirmAction} className="flex flex-col gap-3.5">
       {/* Payload COMPACTO firmado (v2): solo loteId + metadatos; las cuentas ya
@@ -366,7 +390,13 @@ function FormRevisar({
           hojas={sug.render.hojas}
           reprocesando={reprocesando}
           onAplicar={(s) => onReprocesar(s, sug.payload.loteId)}
+          onGuardar={onGuardarPerfil}
+          guardando={guardandoPerfil}
         />
+      )}
+
+      {promptPerfilSpec && (
+        <PromptClientePerfil clientes={clients} guardando={guardandoPerfil} onElegir={guardarPerfilConCliente} onClose={() => setPromptPerfilSpec(null)} />
       )}
 
       <label className="flex flex-col gap-1.5">
@@ -499,12 +529,16 @@ export function EditorEstructura({
   hojas,
   reprocesando,
   onAplicar,
+  onGuardar,
+  guardando,
 }: {
   spec: SpecCarga;
   encabezados: string[];
   hojas: string[];
   reprocesando: boolean;
   onAplicar: (spec: SpecCarga) => void;
+  onGuardar?: (spec: SpecCarga) => void;
+  guardando?: boolean;
 }) {
   const [abierto, setAbierto] = useState(false);
   const [ayudaAbierta, setAyudaAbierta] = useState(false);
@@ -604,7 +638,7 @@ export function EditorEstructura({
               </div>
               <div>
                 <div className="mb-1 text-[10.5px] font-semibold uppercase tracking-wider text-blue-700">Cómo aplicarlo</div>
-                <p>Ajusta lo que esté mal y pulsa <span className="font-semibold">«Reprocesar sin IA»</span>: el resultado se recalcula al instante, sin costo de IA. <span className="font-semibold">«Restablecer»</span> vuelve al mapa detectado originalmente. En la página del borrador, además debes <span className="font-semibold">re-adjuntar el archivo original</span> antes de reprocesar (esa página no conserva el archivo).</p>
+                <p>Ajusta lo que esté mal y pulsa <span className="font-semibold">«Reprocesar sin IA»</span>: el resultado se recalcula al instante, sin costo de IA. <span className="font-semibold">«Guardar perfil (sin reprocesar)»</span> memoriza esta estructura como perfil del cliente para futuras cargas del mismo layout, sin volver a leer el archivo (útil cuando el resultado ya está bien y solo quieres dejar el ajuste). <span className="font-semibold">«Restablecer»</span> vuelve al mapa detectado originalmente. En la página del borrador, además debes <span className="font-semibold">re-adjuntar el archivo original</span> antes de reprocesar (esa página no conserva el archivo).</p>
               </div>
             </div>
           )}
@@ -750,6 +784,17 @@ export function EditorEstructura({
             >
               {reprocesando ? "Reprocesando…" : "Reprocesar sin IA"}
             </button>
+            {onGuardar && (
+              <button
+                type="button"
+                disabled={guardando || reprocesando}
+                onClick={() => onGuardar(ed)}
+                title="Guarda esta estructura como perfil del cliente (para futuras cargas del mismo layout), sin reprocesar el archivo."
+                className="rounded-md border border-ok-300 bg-ok-100/40 px-3 py-1.5 text-[12px] font-semibold text-ok-700 hover:bg-ok-100 disabled:opacity-60"
+              >
+                {guardando ? "Guardando…" : "Guardar perfil (sin reprocesar)"}
+              </button>
+            )}
             <button
               type="button"
               disabled={reprocesando || sinCambios}
@@ -854,8 +899,17 @@ function DetalleMovimiento({ cuentas }: { cuentas: SugerenciaBalance["render"]["
 function AuditPanel({ audit, auditando }: { audit: AuditoriaCarga | null; auditando: boolean }) {
   if (auditando) return <p className="text-[11.5px] text-ink-500">Auditando contra el último balance del cliente…</p>;
   if (!audit?.ok) return null;
+  const notas = audit.ajustes?.observaciones?.trim();
   return (
     <div className="flex flex-col gap-2">
+      {notas && (
+        <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">
+          <div className="mb-0.5 flex items-center gap-1.5 font-semibold">
+            <span aria-hidden>📌</span> Notas de carga de este cliente
+          </div>
+          <p className="whitespace-pre-wrap leading-relaxed">{notas}</p>
+        </div>
+      )}
       {audit.omisiones.length > 0 ? (
         <div className="rounded-md border border-warn-200 bg-warn-50 px-3 py-2 text-[12px] text-warn-700">
           <div className="font-semibold">⚠ {audit.omisiones.length} posible(s) omisión(es): cuentas del último balance del cliente que NO vienen en este archivo.</div>

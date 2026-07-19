@@ -6,8 +6,9 @@ import { Icon } from "@/components/icons";
 import { Card, Chip } from "@/components/ui";
 import { Modal } from "@/components/modal";
 import { fmt } from "@/lib/format";
-import { cargarBorrador, descartarBorrador, diagnosticarBorradorIA, aplicarCambiosBorrador, reprocesarBalanceConSpec } from "@/app/actions/balance";
+import { cargarBorrador, descartarBorrador, diagnosticarBorradorIA, aplicarCambiosBorrador, reprocesarBalanceConSpec, guardarPerfilDesdeEditor } from "@/app/actions/balance";
 import { EditorEstructura } from "@/app/(app)/balance/cargar-balance-modal";
+import { PromptClientePerfil } from "@/app/(app)/balance/prompt-cliente-perfil";
 import type { SpecCarga } from "@/lib/balance/extraccion/esquema";
 import type { ImportBalanceState } from "@/lib/import/balance";
 import { construirVistaBorrador } from "@/lib/balance/borrador-vm";
@@ -17,7 +18,7 @@ import type { Hallazgo } from "@/lib/balance/diagnostico";
 import type { DiagnosticoIA } from "@/lib/balance/diagnostico-ia";
 import { notifyActionState, notifySuccess, notifyError } from "@/lib/client-notifications";
 
-type Cliente = { id: number; name: string; nit: string };
+type Cliente = { id: number; name: string; nit: string; notas?: string | null };
 
 /** Aplica los cambios TEMPORALES (reclasificación / lados invertidos / desacople /
  *  omitir / re-parentado) sobre las filas crudas, en memoria (misma lógica que guardar). */
@@ -76,6 +77,12 @@ export default function BorradorDetailClient({
   const [cargarState, cargarAction, cargando] = useActionState<ImportBalanceState, FormData>(cargarBorrador, {});
   const [descartando, startDescartar] = useTransition();
   const [confirmarDescarte, setConfirmarDescarte] = useState(false);
+  const [clienteSelId, setClienteSelId] = useState<number | null>(clienteSugeridoId); // sigue las notas del cliente
+  const [periodoIni, setPeriodoIni] = useState(periodoInicial ?? "");
+  const [periodoFin, setPeriodoFin] = useState(periodoFinal ?? "");
+  // Compuerta al entrar: sin cliente detectado por NIT, exige cliente + período
+  // antes de operar (para aplicar sus preferencias/notas y no cargar a ciegas).
+  const [gateAbierto, setGateAbierto] = useState(clienteSugeridoId == null);
   const [diagnosticando, startDiagnostico] = useTransition();
   const [diagIA, setDiagIA] = useState<DiagnosticoIA | null>(null);
   const [filtro, setFiltro] = useState<string[]>([]);
@@ -92,6 +99,8 @@ export default function BorradorDetailClient({
   const autoAplicadoRef = useRef(false);
   const [archivoFile, setArchivoFile] = useState<File | null>(null); // re-adjuntar para reprocesar sin IA
   const [reprocesando, startReproceso] = useTransition();
+  const [guardandoPerfil, startGuardarPerfil] = useTransition();
+  const [promptPerfilSpec, setPromptPerfilSpec] = useState<SpecCarga | null>(null); // pide cliente al guardar perfil
   const [guardando, startGuardar] = useTransition();
   // «Imputar solo las hojas»: en un export jerárquico (la cuenta y sus subcuentas/auxiliares
   // vienen TODAS como filas), marca como AGRUPADORA toda cuenta con detalle debajo (código
@@ -157,6 +166,26 @@ export default function BorradorDetailClient({
 
   // Reproceso determinista con el spec ajustado (editor de estructura), re-adjuntando el
   // archivo original — esta página no lo conserva. Crea un borrador NUEVO y purga este.
+  // Guardar el spec ajustado como PERFIL del cliente SIN reprocesar (para futuras cargas).
+  // Si no hay cliente (ni por NIT ni en el lote), se pide elegirlo para concluir el guardado.
+  const onGuardarPerfil = (s: SpecCarga) => {
+    startGuardarPerfil(async () => {
+      const r = await guardarPerfilDesdeEditor(loteId, s);
+      if (r.ok) { notifySuccess(r.message ?? "Perfil guardado."); return; }
+      if (r.needsClient) { setPromptPerfilSpec(s); return; } // pedir cliente
+      notifyError(r.message ?? "No se pudo guardar el perfil.");
+    });
+  };
+  const guardarPerfilConCliente = (clientId: number) => {
+    const s = promptPerfilSpec;
+    if (!s) return;
+    startGuardarPerfil(async () => {
+      const r = await guardarPerfilDesdeEditor(loteId, s, clientId);
+      if (r.ok) { notifySuccess(r.message ?? "Perfil guardado."); setPromptPerfilSpec(null); }
+      else notifyError(r.message ?? "No se pudo guardar el perfil.");
+    });
+  };
+
   const onReprocesar = (s: SpecCarga) => {
     if (!archivoFile) { notifyError("Adjunta el archivo original para reprocesar."); return; }
     startReproceso(async () => {
@@ -301,7 +330,7 @@ export default function BorradorDetailClient({
               {archivoFile && <span className="text-[11.5px] font-medium text-ok-700">✓ {archivoFile.name}</span>}
             </div>
           </div>
-          <EditorEstructura spec={spec} encabezados={[]} hojas={[spec.hoja]} reprocesando={reprocesando} onAplicar={onReprocesar} />
+          <EditorEstructura spec={spec} encabezados={[]} hojas={[spec.hoja]} reprocesando={reprocesando} onAplicar={onReprocesar} onGuardar={onGuardarPerfil} guardando={guardandoPerfil} />
         </Card>
       )}
 
@@ -309,35 +338,65 @@ export default function BorradorDetailClient({
         <MoverModal arbol={arbol} filaNum={mover} contexto={contexto} onConfirmar={onConfirmarMover} onClose={() => setMover(null)} />
       )}
 
+      {promptPerfilSpec && (
+        <PromptClientePerfil clientes={clientes} guardando={guardandoPerfil} onElegir={guardarPerfilConCliente} onClose={() => setPromptPerfilSpec(null)} />
+      )}
+
+      {gateAbierto && (
+        <GateClientePeriodo
+          clientes={clientes}
+          nitDetectado={nitDetectado}
+          clienteSelId={clienteSelId}
+          periodoIni={periodoIni}
+          periodoFin={periodoFin}
+          onConfirmar={(cid, ini, fin) => { setClienteSelId(cid); setPeriodoIni(ini); setPeriodoFin(fin); setGateAbierto(false); }}
+          onClose={() => setGateAbierto(false)}
+        />
+      )}
+
       {/* Cargar / Descartar */}
       <Card className="p-4">
         <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Cargar como balance oficial</div>
+        {(() => {
+          const notas = clientes.find((c) => c.id === clienteSelId)?.notas?.trim();
+          return notas ? (
+            <div className="mb-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">
+              <div className="mb-0.5 flex items-center gap-1.5 font-semibold"><span aria-hidden>📌</span> Notas de carga de este cliente</div>
+              <p className="whitespace-pre-wrap leading-relaxed">{notas}</p>
+            </div>
+          ) : null;
+        })()}
         <form action={cargarAction} className="flex flex-col gap-3">
           <input type="hidden" name="loteId" value={loteId} />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <label className="flex flex-col gap-1.5 sm:col-span-1">
               <span className="text-[11.5px] font-medium text-ink-600">Cliente</span>
-              <select name="clientId" required defaultValue={clienteSugeridoId ? String(clienteSugeridoId) : ""} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400">
+              <select name="clientId" required value={clienteSelId ? String(clienteSelId) : ""} onChange={(e) => setClienteSelId(e.target.value ? Number(e.target.value) : null)} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400">
                 <option value="" disabled>Selecciona el cliente…</option>
                 {clientes.map((c) => <option key={c.id} value={c.id}>{c.name} — {c.nit}</option>)}
               </select>
             </label>
             <label className="flex flex-col gap-1.5">
               <span className="text-[11.5px] font-medium text-ink-600">Período desde</span>
-              <input type="date" name="periodoInicio" required defaultValue={periodoInicial ?? ""} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400" />
+              <input type="date" name="periodoInicio" required value={periodoIni} onChange={(e) => setPeriodoIni(e.target.value)} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400" />
             </label>
             <label className="flex flex-col gap-1.5">
               <span className="text-[11.5px] font-medium text-ink-600">Período hasta</span>
-              <input type="date" name="periodoFin" required defaultValue={periodoFinal ?? ""} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400" />
+              <input type="date" name="periodoFin" required value={periodoFin} onChange={(e) => setPeriodoFin(e.target.value)} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400" />
             </label>
           </div>
-          {clienteSugeridoId == null && nitDetectado && (
-            <span className="text-[11px] text-warn-700">NIT detectado <span className="font-mono">{nitDetectado}</span> sin cliente coincidente — selecciónalo.</span>
+          {clienteSelId == null && (
+            <span className="inline-flex flex-wrap items-center gap-2 text-[11px] text-warn-700">
+              {nitDetectado ? <>NIT detectado <span className="font-mono">{nitDetectado}</span> sin cliente coincidente.</> : <>No se detectó el cliente.</>}
+              <button type="button" onClick={() => setGateAbierto(true)} className="rounded border border-warn-300 bg-warn-50 px-2 py-0.5 font-semibold text-warn-700 hover:bg-warn-100">
+                Elegir cliente y período
+              </button>
+            </span>
           )}
           {cargarState?.message && !cargarState.ok && <p className="text-[12px] font-medium text-err-700">{cargarState.message}</p>}
           {hayCambios && <p className="text-[11.5px] font-medium text-warn-700">Tienes cambios sin guardar: guárdalos o descártalos antes de cargar (el balance se carga desde lo guardado).</p>}
           <div className="flex items-center gap-2">
-            <button type="submit" disabled={cargando || hayCambios} title={hayCambios ? "Guarda o descarta los cambios antes de cargar" : undefined} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60">
+            <button type="submit" disabled={cargando || hayCambios || clienteSelId == null || !periodoIni || !periodoFin} title={clienteSelId == null || !periodoIni || !periodoFin ? "Falta el cliente o el período" : hayCambios ? "Guarda o descarta los cambios antes de cargar" : undefined} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60">
               {cargando ? "Cargando…" : "Cargar balance"}
             </button>
             {confirmarDescarte ? (
@@ -493,6 +552,23 @@ function DiagnosticoPanel({ hallazgos, diagIA, diagnosticando, onDiagnosticar, f
 // ---- Árbol crudo (agrupadora / movimiento, descuadre subrayado) ----
 const tieneDescuadre = (n: NodoBorrador): boolean => (n.descuadre != null && n.descuadre !== 0) || n.hijos.some(tieneDescuadre);
 
+// Control contable de una fila: saldo ant + débito − crédito = saldo actual (±$1).
+const controlCuadraFila = (si: number, db: number, cr: number, s: number) => Math.abs(si + db - cr - s) <= 1;
+/**
+ * ¿La fila merece «Alerta»? Una AGRUPADORA cuyo total ≠ suma de sus hijos (Δ), o un
+ * MOVIMIENTO problemático: con débito/crédito INVERTIDOS (cuadra al intercambiarlos —
+ * descuadra la partida doble) o marcado «descuadre» (no cuadra en ninguna orientación).
+ * Las filas omitidas no alertan.
+ */
+const esAlertaNodo = (n: NodoBorrador): boolean => {
+  if (n.descuadre != null && n.descuadre !== 0) return true;
+  if (n.omitida) return false;
+  if (n.tipoFila === "descuadre") return true;
+  if (n.tipoFila !== "movimiento") return false;
+  return !controlCuadraFila(n.saldoInicial, n.debitos, n.creditos, n.saldoFinal)
+    && controlCuadraFila(n.saldoInicial, n.creditos, n.debitos, n.saldoFinal);
+};
+
 // Posición de cada nodo para el TABULADOR: `prev` = filaNum del hermano anterior (para
 // indentar → colgarlo de él); `abuelo` = filaNum del abuelo (para desindentar → subirlo).
 type Posicion = { prev: number | null; abuelo: number | null };
@@ -636,7 +712,7 @@ function ArbolTabla({ arbol, filtro, onReclasificar, onInvertir, onDesacoplar, o
   const needle = q.trim().toLowerCase();
   const matchQ = (n: NodoBorrador) => needle === "" || n.codigo.toLowerCase().includes(needle) || (n.nombre ?? "").toLowerCase().includes(needle);
   const filtrando = filtroActivo || needle !== "" || vista !== "todo" || nivelMax > 0;
-  const nAlertas = useMemo(() => { let n = 0; const rec = (x: NodoBorrador) => { if (x.descuadre != null && x.descuadre !== 0) n++; x.hijos.forEach(rec); }; arbol.forEach(rec); return n; }, [arbol]);
+  const nAlertas = useMemo(() => { let n = 0; const rec = (x: NodoBorrador) => { if (esAlertaNodo(x)) n++; x.hijos.forEach(rec); }; arbol.forEach(rec); return n; }, [arbol]);
 
   // Poda del árbol según los filtros (conserva ancestros de las coincidencias).
   const arbolVisible = useMemo(() => {
@@ -648,7 +724,7 @@ function ArbolTabla({ arbol, filtro, onReclasificar, onInvertir, onDesacoplar, o
       return vista === "balance" ? "123".includes(d) : "4567".includes(d);
     };
     const nivelOk = (x: NodoBorrador) => nivelMax === 0 || !/^\d+$/.test(x.codigo) || x.codigo.length <= nivelMax;
-    const selfMatch = (x: NodoBorrador) => matchQ(x) && (vista !== "alertas" || (x.descuadre != null && x.descuadre !== 0)) && (!filtroActivo || coincide(x.codigo));
+    const selfMatch = (x: NodoBorrador) => matchQ(x) && (vista !== "alertas" || esAlertaNodo(x)) && (!filtroActivo || coincide(x.codigo));
     const podar = (nodos: NodoBorrador[]): NodoBorrador[] => {
       const out: NodoBorrador[] = [];
       for (const x of nodos) {
@@ -848,5 +924,79 @@ function ArbolTabla({ arbol, filtro, onReclasificar, onInvertir, onDesacoplar, o
         </table>
       </div>
     </div>
+  );
+}
+
+/**
+ * Compuerta al entrar al borrador cuando NO se detectó el cliente por NIT: exige
+ * elegir cliente + período antes de operar, para que apliquen sus preferencias/
+ * notas y no se cargue el balance a ciegas. Se cierra solo con la X/Cancelar.
+ */
+function GateClientePeriodo({
+  clientes, nitDetectado, clienteSelId, periodoIni, periodoFin, onConfirmar, onClose,
+}: {
+  clientes: Cliente[];
+  nitDetectado: string | null;
+  clienteSelId: number | null;
+  periodoIni: string;
+  periodoFin: string;
+  onConfirmar: (clienteId: number, ini: string, fin: string) => void;
+  onClose: () => void;
+}) {
+  const [sel, setSel] = useState(clienteSelId ? String(clienteSelId) : "");
+  const [ini, setIni] = useState(periodoIni);
+  const [fin, setFin] = useState(periodoFin);
+  const listo = !!sel && !!ini && !!fin && fin >= ini;
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Selecciona el cliente y el período"
+      size="md"
+      footer={
+        <>
+          <button type="button" onClick={onClose} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] font-semibold text-ink-600 hover:bg-ink-50">
+            Cancelar
+          </button>
+          <button
+            type="button"
+            disabled={!listo}
+            onClick={() => onConfirmar(Number(sel), ini, fin)}
+            className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
+          >
+            Continuar
+          </button>
+        </>
+      }
+    >
+      <div className="flex flex-col gap-3 text-[12.5px]">
+        <p className="text-ink-600">
+          {nitDetectado ? <>El NIT detectado <span className="font-mono">{nitDetectado}</span> no coincide con ningún cliente.</> : <>No se detectó el cliente en el archivo.</>}{" "}
+          Elige el cliente y el período para aplicar sus preferencias y notas de carga, y poder cargar el balance.
+        </p>
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] font-medium text-ink-600">Cliente</span>
+          <select
+            value={sel}
+            onChange={(e) => setSel(e.target.value)}
+            className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400"
+          >
+            <option value="" disabled>Selecciona el cliente…</option>
+            {clientes.map((c) => <option key={c.id} value={c.id}>{c.name} — {c.nit}</option>)}
+          </select>
+        </label>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="flex flex-col gap-1">
+            <span className="text-[11px] font-medium text-ink-600">Período desde</span>
+            <input type="date" value={ini} onChange={(e) => setIni(e.target.value)} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400" />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-[11px] font-medium text-ink-600">Período hasta</span>
+            <input type="date" value={fin} onChange={(e) => setFin(e.target.value)} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400" />
+          </label>
+        </div>
+        {!!ini && !!fin && fin < ini && <p className="text-[11.5px] font-medium text-err-700">El período hasta no puede ser anterior al período desde.</p>}
+      </div>
+    </Modal>
   );
 }

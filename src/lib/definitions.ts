@@ -138,6 +138,7 @@ export const AjustesCargaSchema = z.object({
   estandar: z.preprocess((v) => (v === "" || v == null ? null : v), z.enum(["NIF", "NIIF", "PCGA"], { error: "Estándar contable inválido." }).nullable()),
   agregarPorTercero: z.preprocess((v) => (v === "si" ? true : v === "no" ? false : null), z.boolean().nullable()),
   imputarSoloHojas: z.preprocess((v) => (v === "si" ? true : v === "no" ? false : null), z.boolean().nullable()),
+  observaciones: z.preprocess((v) => (typeof v === "string" && v.trim() ? v.trim() : null), z.string().max(2000, { error: "Las notas son demasiado largas (máx. 2000 caracteres)." }).nullable()),
 });
 
 // Confirmación de carga (paso 2): cliente + período desde/hasta (fechas ISO). El

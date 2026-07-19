@@ -46,6 +46,12 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
     select: { id: true, name: true, nit: true },
     orderBy: { name: "asc" },
   });
+  // Notas de carga por cliente (particularidades del formato) para avisar al revisar.
+  const notasRows = await prisma.ajustesCargaBalance.findMany({
+    where: { clienteId: { in: clientes.map((c) => c.id) }, observaciones: { not: null } },
+    select: { clienteId: true, observaciones: true },
+  });
+  const notasPorCliente = new Map(notasRows.map((r) => [r.clienteId, r.observaciones]));
   const core = soloDigitos(lote?.nitDetectado ?? "").slice(0, 9);
   const clienteSugeridoId = core.length >= 5 ? (clientes.find((c) => soloDigitos(c.nit).slice(0, 9) === core)?.id ?? null) : null;
 
@@ -63,7 +69,7 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
         periodoInicial={lote?.periodoInicial ? fechaCalendarioISO(lote.periodoInicial) : null}
         periodoFinal={lote?.periodoFinal ? fechaCalendarioISO(lote.periodoFinal) : null}
         filas={filas}
-        clientes={clientes.map((c) => ({ id: c.id, name: c.name, nit: c.nit }))}
+        clientes={clientes.map((c) => ({ id: c.id, name: c.name, nit: c.nit, notas: notasPorCliente.get(c.id) ?? null }))}
         clienteSugeridoId={clienteSugeridoId}
         spec={spec}
       />

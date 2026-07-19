@@ -21,6 +21,10 @@ const LOTES: { slug: string; nombre: string; descripcion: string; loteId: string
   { slug: "quifarma_relistado", nombre: "QUIFARMA · re-listado con guiones", descripcion: "Filas 1105-05-04 redundantes tachadas; huérfanas con código pleno.", loteId: "f1c44d6b-379c-4b5b-b446-074e1e44b333" },
   { slug: "kakaraka_por_tercero", nombre: "KAKARAKA · por tercero", descripcion: "Balance abierto por tercero (NIT como fila).", loteId: "8d7d648e-3dec-4f10-a5eb-4bd6cd309d5f" },
   { slug: "karibik_por_cuenta", nombre: "KARIBIK · por cuenta (baseline)", descripcion: "Balance por cuenta estándar, sin quirks especiales.", loteId: "1e73b543-75d5-42ed-815b-b792d5303415" },
+  // Casos añadidos en la sesión de fixes (descuadre=hoja, código embebido, por tercero jerárquico).
+  { slug: "movimientos_planos_descuadre", nombre: "Cliente plano · solo movimientos + «descuadre»=hoja", descripcion: "Lista plana de cuentas 8 díg (sin agrupadoras); una fila «descuadre» NO agrupa las siguientes (se trata como hoja).", loteId: "465f975f-b0d2-447b-ad3e-028148c0f5fc" },
+  { slug: "delta_codigo_en_nombre", nombre: "LAB. DELTA · código embebido en el nombre", descripcion: "SIESA Auxiliar NIIF vs PCGA: agrupadoras con «1105 - CAJA» en el nombre.", loteId: "2dd506eb-af33-4746-bfe1-1d115c6b789f" },
+  { slug: "lasallista_por_tercero_jerarquico", nombre: "LASALLISTA · export jerárquico por tercero", descripcion: "SIESA por tercero; subcuentas + auxiliares como filas (base sin «solo hojas»).", loteId: "3f188615-1b28-4439-bc6f-a0b84be60c11" },
 ];
 
 const DIR = fileURLToPath(new URL("./__fixtures__", import.meta.url));

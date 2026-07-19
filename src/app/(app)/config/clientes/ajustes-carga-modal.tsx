@@ -213,6 +213,20 @@ export function AjustesCargaModal({
                     Actívalo si el archivo trae la cuenta Y sus subcuentas/auxiliares como filas (p. ej. SIESA): se cuentan solo las hojas y los niveles superiores pasan a agrupadora, evitando el doble conteo. No lo uses en balances mixtos.
                   </span>
                 </label>
+                <label className="flex flex-col gap-1 sm:col-span-2">
+                  <span className="text-[11px] font-medium text-ink-600">Notas / observaciones de carga</span>
+                  <textarea
+                    name="observaciones"
+                    defaultValue={data.ajustes?.observaciones ?? ""}
+                    rows={3}
+                    maxLength={2000}
+                    placeholder="Particularidades del formato de este cliente para recordar en cada carga (p. ej. «duplica renglones UC/CU — se omite uno»)."
+                    className="resize-y rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] leading-relaxed text-ink-700 outline-none focus:border-blue-400"
+                  />
+                  <span className="text-[10.5px] leading-relaxed text-ink-400">
+                    Texto libre. Aparecen como aviso al cargar y revisar el balance de este cliente. No cambian el cálculo; sirven de memoria para el equipo.
+                  </span>
+                </label>
               </div>
               {saveState?.message && !saveState.ok && <p className="text-[12px] font-medium text-err-700">{saveState.message}</p>}
               <button
