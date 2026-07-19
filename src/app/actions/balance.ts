@@ -1350,6 +1350,51 @@ export async function guardarPerfilDesdeEditor(loteId: string, specJson: unknown
 }
 
 /**
+ * Guarda las NOTAS / observaciones de carga del cliente desde el editor de
+ * estructura (per-cliente, texto libre). Resuelve el cliente igual que el perfil:
+ * explícito → del lote → por NIT; si no hay, pide elegirlo (needsClient).
+ */
+export async function guardarNotasDesdeEditor(loteId: string, observaciones: string, clientIdExplicito?: number): Promise<ActionState & { needsClient?: boolean }> {
+  const authz = await authorizePermiso("balance:crear");
+  if (!authz.ok) return { ok: false, message: authz.message };
+  const id = String(loteId ?? "").trim();
+  if (!id) return { ok: false, message: "Borrador inválido." };
+  const texto = String(observaciones ?? "").trim();
+  if (texto.length > 2000) return { ok: false, message: "Las notas son demasiado largas (máx. 2000 caracteres)." };
+  const notas = texto || null;
+  try {
+    const lote = await prisma.balanceImportacionLote.findUnique({
+      where: { loteId: id },
+      select: { clienteId: true, nitDetectado: true },
+    });
+    if (!lote) return { ok: false, message: "El borrador ya no existe." };
+    const cidExpl = typeof clientIdExplicito === "number" && Number.isInteger(clientIdExplicito) && clientIdExplicito > 0 ? clientIdExplicito : null;
+    const clientId = cidExpl ?? lote.clienteId ?? (await clientePorNit(lote.nitDetectado));
+    if (clientId == null) return { ok: false, needsClient: true, message: "Elige el cliente para guardar las notas." };
+    const scope = await authorizePermiso("balance:crear", { clientId });
+    if (!scope.ok) return { ok: false, message: scope.message };
+    const cliente = await prisma.client.findUnique({ where: { id: clientId }, select: { name: true } });
+    if (!cliente) return { ok: false, message: "El cliente seleccionado ya no existe." };
+    const user = await getCurrentUser();
+    await prisma.ajustesCargaBalance.upsert({
+      where: { clienteId: clientId },
+      create: { clienteId: clientId, observaciones: notas, actualizadoPor: user?.name ?? null },
+      update: { observaciones: notas, actualizadoPor: user?.name ?? null },
+    });
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: "GUARDÓ NOTAS de carga de balance",
+      entity: cliente.name,
+      detail: notas ? `${notas.length} caracteres` : "notas vacías",
+    });
+    revalidatePath("/config/clientes");
+    return { ok: true, message: notas ? "Notas de carga guardadas." : "Notas de carga borradas." };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("guardarNotasDesdeEditor", e) };
+  }
+}
+
+/**
  * CONFIRMACIÓN (paso final). Recibe el cliente/período confirmados por la persona
  * + el payload COMPACTO firmado de la lectura (v2: loteId + metadatos, sin
  * cuentas — el staging es la fuente de verdad). Recalcula en el servidor los

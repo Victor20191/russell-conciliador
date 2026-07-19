@@ -531,6 +531,9 @@ export function EditorEstructura({
   onAplicar,
   onGuardar,
   guardando,
+  notasCliente,
+  onGuardarNotas,
+  guardandoNotas,
 }: {
   spec: SpecCarga;
   encabezados: string[];
@@ -539,11 +542,20 @@ export function EditorEstructura({
   onAplicar: (spec: SpecCarga) => void;
   onGuardar?: (spec: SpecCarga) => void;
   guardando?: boolean;
+  // Notas / observaciones de carga del cliente (per-cliente, no del formato). El
+  // padre resuelve el cliente y persiste; aquí solo se edita y se dispara el guardado.
+  notasCliente?: string | null;
+  onGuardarNotas?: (texto: string) => void;
+  guardandoNotas?: boolean;
 }) {
   const [abierto, setAbierto] = useState(false);
   const [ayudaAbierta, setAyudaAbierta] = useState(false);
   const [ed, setEd] = useState<SpecCarga>(spec);
   const [fragmentosTexto, setFragmentosTexto] = useState(spec.columnas.codigoFragmentos.join(", "));
+  const [notas, setNotas] = useState(notasCliente ?? "");
+  // Sincroniza las notas locales cuando cambia el cliente (o tras guardar/refrescar).
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { setNotas(notasCliente ?? ""); }, [notasCliente]);
 
   // Opciones de columna: hasta donde llegue el encabezado o la columna más alta ya asignada.
   const columnasAsignadas = Object.values(ed.columnas).flatMap((v) => Array.isArray(v) ? v : [v]);
@@ -804,6 +816,31 @@ export function EditorEstructura({
               Restablecer
             </button>
           </div>
+
+          {onGuardarNotas && (
+            <div className="mt-3 border-t border-ink-100 pt-3">
+              <div className="text-[12px] font-semibold text-ink-700">Notas / observaciones de carga del cliente</div>
+              <p className="mt-0.5 text-[11px] leading-relaxed text-ink-500">
+                Particularidades del formato de este cliente para recordar en cada carga (p. ej. «duplica renglones UC/CU — se omite uno»). Se guardan por cliente y aparecen al cargar y revisar; no cambian el cálculo.
+              </p>
+              <textarea
+                value={notas}
+                onChange={(e) => setNotas(e.target.value)}
+                rows={3}
+                maxLength={2000}
+                placeholder="Sin notas para este cliente."
+                className="mt-1.5 w-full resize-y rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] leading-relaxed text-ink-700 outline-none focus:border-blue-400"
+              />
+              <button
+                type="button"
+                disabled={guardandoNotas || notas.trim() === (notasCliente ?? "").trim()}
+                onClick={() => onGuardarNotas(notas.trim())}
+                className="mt-2 rounded-md border border-blue-300 bg-blue-50 px-3 py-1.5 text-[12px] font-semibold text-blue-700 hover:bg-blue-100 disabled:opacity-60"
+              >
+                {guardandoNotas ? "Guardando…" : "Guardar notas del cliente"}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

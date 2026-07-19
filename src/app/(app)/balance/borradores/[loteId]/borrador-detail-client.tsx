@@ -6,7 +6,7 @@ import { Icon } from "@/components/icons";
 import { Card, Chip } from "@/components/ui";
 import { Modal } from "@/components/modal";
 import { fmt } from "@/lib/format";
-import { cargarBorrador, descartarBorrador, diagnosticarBorradorIA, aplicarCambiosBorrador, reprocesarBalanceConSpec, guardarPerfilDesdeEditor } from "@/app/actions/balance";
+import { cargarBorrador, descartarBorrador, diagnosticarBorradorIA, aplicarCambiosBorrador, reprocesarBalanceConSpec, guardarPerfilDesdeEditor, guardarNotasDesdeEditor } from "@/app/actions/balance";
 import { EditorEstructura } from "@/app/(app)/balance/cargar-balance-modal";
 import { PromptClientePerfil } from "@/app/(app)/balance/prompt-cliente-perfil";
 import type { SpecCarga } from "@/lib/balance/extraccion/esquema";
@@ -186,6 +186,23 @@ export default function BorradorDetailClient({
     });
   };
 
+  // Notas / observaciones de carga del cliente (per-cliente) desde el editor de estructura.
+  const [guardandoNotas, startGuardarNotas] = useTransition();
+  const [notasPendientes, setNotasPendientes] = useState<string | null>(null); // a guardar tras elegir cliente
+  const guardarNotas = (texto: string, clienteId: number) => {
+    startGuardarNotas(async () => {
+      const r = await guardarNotasDesdeEditor(loteId, texto, clienteId);
+      if (r.ok) { notifySuccess(r.message ?? "Notas guardadas."); router.refresh(); }
+      else notifyError(r.message ?? "No se pudieron guardar las notas.");
+    });
+  };
+  const onGuardarNotas = (texto: string) => {
+    // Sin cliente aún: se recuerda el texto y se pide el cliente; al confirmarlo se
+    // guarda (antes se abría la compuerta pero NO se reintentaba → las notas se perdían).
+    if (clienteSelId == null) { setNotasPendientes(texto); setGateAbierto(true); notifyError("Elige el cliente para guardar las notas."); return; }
+    guardarNotas(texto, clienteSelId);
+  };
+
   const onReprocesar = (s: SpecCarga) => {
     if (!archivoFile) { notifyError("Adjunta el archivo original para reprocesar."); return; }
     startReproceso(async () => {
@@ -262,9 +279,16 @@ export default function BorradorDetailClient({
       )}
       <ValidacionHeader v={validacion} pd={partidaDoble} />
 
-      {hallazgos.length > 0 && (
-        <DiagnosticoPanel hallazgos={hallazgos} diagIA={diagIA} diagnosticando={diagnosticando} onDiagnosticar={onDiagnosticar} filtro={filtro} onFiltrar={setFiltro} />
-      )}
+      {(() => {
+        // Partida doble y ecuación ya se ven arriba (ValidacionHeader), y el
+        // descuadre por clase ya lo muestra cada tarjeta (Δ archivo vs detalle);
+        // se omiten aquí para no repetirlos. Queda lo accionable: lados invertidos
+        // y nodos que no cuadran con su desglose. La fuente los conserva (contexto IA).
+        const hh = hallazgos.filter((h) => h.tipo !== "partida_doble" && h.tipo !== "ecuacion" && h.tipo !== "clase");
+        return hh.length > 0 ? (
+          <DiagnosticoPanel hallazgos={hh} diagIA={diagIA} diagnosticando={diagnosticando} onDiagnosticar={onDiagnosticar} filtro={filtro} onFiltrar={setFiltro} />
+        ) : null;
+      })()}
 
       <Card className="overflow-hidden">
         <div className="border-b border-ink-100 bg-ink-50 px-3 py-2">
@@ -330,7 +354,7 @@ export default function BorradorDetailClient({
               {archivoFile && <span className="text-[11.5px] font-medium text-ok-700">✓ {archivoFile.name}</span>}
             </div>
           </div>
-          <EditorEstructura spec={spec} encabezados={[]} hojas={[spec.hoja]} reprocesando={reprocesando} onAplicar={onReprocesar} onGuardar={onGuardarPerfil} guardando={guardandoPerfil} />
+          <EditorEstructura spec={spec} encabezados={[]} hojas={[spec.hoja]} reprocesando={reprocesando} onAplicar={onReprocesar} onGuardar={onGuardarPerfil} guardando={guardandoPerfil} notasCliente={clientes.find((c) => c.id === clienteSelId)?.notas ?? null} onGuardarNotas={onGuardarNotas} guardandoNotas={guardandoNotas} />
         </Card>
       )}
 
@@ -349,8 +373,11 @@ export default function BorradorDetailClient({
           clienteSelId={clienteSelId}
           periodoIni={periodoIni}
           periodoFin={periodoFin}
-          onConfirmar={(cid, ini, fin) => { setClienteSelId(cid); setPeriodoIni(ini); setPeriodoFin(fin); setGateAbierto(false); }}
-          onClose={() => setGateAbierto(false)}
+          onConfirmar={(cid, ini, fin) => {
+            setClienteSelId(cid); setPeriodoIni(ini); setPeriodoFin(fin); setGateAbierto(false);
+            if (notasPendientes != null) { const t = notasPendientes; setNotasPendientes(null); guardarNotas(t, cid); }
+          }}
+          onClose={() => { setGateAbierto(false); setNotasPendientes(null); }}
         />
       )}
 
