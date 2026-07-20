@@ -286,6 +286,15 @@ describe("transformarTabular", () => {
     expect(rr.importReady.map((c) => c.code).sort()).toEqual(["110505", "11051001", "111005"]);
   });
 
+  it("ignora codigoFragmentos con índices inválidos ([0]) y usa la columna de código", () => {
+    // La IA a veces expresa «sin fragmentos» como [0] (generaliza el 0=ausente de los
+    // campos escalares al arreglo). Sin el filtro, el código quedaba vacío en TODAS las
+    // filas y el archivo terminaba en 0 cuentas importables (caso CORPO LA MUJER).
+    const s = spec({ columnas: { ...spec().columnas, codigoFragmentos: [0] } });
+    const rr = transformarTabular(s, [hoja], PARAMS);
+    expect(rr.importReady.map((c) => c.code).sort()).toEqual(["110505", "220505"]);
+  });
+
   it("fija NIF cuando llega como tipo de balance por defecto", () => {
     const rr = transformarTabular(spec({ estandar: "PCGA" }), [hoja], { ...PARAMS, estandar: "NIF" });
     expect(rr.cabecera.estandar).toBe("NIF");

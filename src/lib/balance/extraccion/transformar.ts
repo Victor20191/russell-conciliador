@@ -781,7 +781,9 @@ function cell(fila: CeldaCruda[], col1: number | null): CeldaCruda {
 // el cero a la izquierda, `5` en vez de `05`) se re-completan. La entrega como cadena la
 // consumen igual `normalizarCodigo` y `texto`; sin fragmentos devuelve la celda original.
 function celdaCodigo(fila: CeldaCruda[], cols: MappingSpec["columnas"]): CeldaCruda {
-  const frag = cols.codigoFragmentos;
+  // La IA a veces expresa «sin fragmentos» como `[0]` (generaliza el 0=ausente de
+  // los campos escalares al arreglo): un índice <1 no es columna → se descarta.
+  const frag = cols.codigoFragmentos?.filter((c) => c >= 1);
   if (!frag || frag.length === 0) return cell(fila, cols.codigo);
   let out = "";
   for (let i = 0; i < frag.length; i++) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useRef, useState, useTransition } from "react";
+import { startTransition, useActionState, useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
@@ -193,7 +193,7 @@ function CargarBalanceModal({
         return;
       }
     }
-    leerAction(formData);
+    startTransition(() => leerAction(formData));
   };
 
   const sug = sugLocal ?? leerState?.sugerencia;
