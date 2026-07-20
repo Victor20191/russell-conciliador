@@ -118,6 +118,9 @@ export const PayloadCargaBalanceSchema = z.object({
   cuentas: z.number().int(),
   cuadreArchivo: z.object({ totalDebitos: z.number(), totalCreditos: z.number() }).nullable(),
   origenExtraccion: z.enum(["perfil", "ia", "plantilla", "manual"]),
+  // Proveedor elegido para esta carga. Opcional para aceptar sugerencias v2 que
+  // ya estuvieran abiertas antes de incorporar el selector de desarrollo.
+  proveedorIA: z.enum(["anthropic", "gemini"]).optional(),
   huella: z.string().nullable(),
 });
 export type PayloadCargaBalance = z.infer<typeof PayloadCargaBalanceSchema>;

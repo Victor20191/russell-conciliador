@@ -8,9 +8,11 @@
 // registro de consumo los hace la action (out-param `usosOut`).
 import "server-only";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import { getAnthropic, MODELO_EXTRACCION, conReintentoSinTemperatura } from "@/lib/anthropic";
+import { getAnthropic, conReintentoSinTemperatura } from "@/lib/anthropic";
+import { completarJsonEstructuradoGemini } from "@/lib/gemini";
 import { CASCADA_EXTRACCION } from "@/lib/ia/modelos";
 import { getPromptContenido, CLAVE_EXTRACCION } from "@/lib/ia/prompts";
+import { modeloIABalance, proveedorIABalance, usoTokensGemini, type ProveedorIABalance } from "@/lib/ia/proveedor-balance";
 import { ingerir, construirVistaPrevia, contarPaginasPDF, LIMITE_PAGINAS_PDF, type Ingesta } from "./ingesta";
 import { MappingSpecSchema, ExtraccionDirectaSchema } from "./esquema";
 import { transformarTabular, validarDirecta, type ParamsExtraccion, type ResultadoTransform } from "./transformar";
@@ -119,6 +121,8 @@ export type OpcionesExtraccion = {
    * aceptable se descarta y se cae a la cascada normal.
    */
   specGuardado?: MappingSpec | null;
+  /** Proveedor elegido para esta carga (solo es seleccionable fuera de producción). */
+  proveedorIA?: ProveedorIABalance;
 };
 
 export type ResultadoExtraccion = {
@@ -140,6 +144,9 @@ export async function extraerBalance(
   opciones: OpcionesExtraccion = {},
 ): Promise<ResultadoExtraccion> {
   const { hojaElegida, usosOut, specGuardado } = opciones;
+  // Se resuelve otra vez en el servidor: en producción siempre queda Anthropic,
+  // incluso si una petición manipulada intenta enviar Gemini.
+  const proveedorIA = proveedorIABalance(opciones.proveedorIA);
   const ingesta = opciones.ingesta ?? (await ingerir(data, fileName));
 
   if (ingesta.modo === "tabular") {
@@ -155,8 +162,7 @@ export async function extraerBalance(
       }
     }
 
-    // 2) Cascada de detección de estructura (Sonnet→Opus por confianza/resultado).
-    const client = getAnthropic();
+    // 2) Detección de estructura con el proveedor habilitado para este entorno.
     // Prompt de sistema vigente (editable por el Superadministrador, BD → fábrica).
     // Prompt caching: con Sonnet (mínimo cacheable 2048 tokens) el prompt
     // (~2,1-2,5K tokens) SÍ se cachea entre cargas; con Opus (mínimo 4096) queda
@@ -182,9 +188,48 @@ export async function extraerBalance(
     lineas.push("Vista previa del archivo:", vista);
     const instruccion = lineas.join("\n");
 
+    // En desarrollo/pruebas se puede usar el modelo económico de Gemini. Es una
+    // sola llamada estructurada; toda la transformación de filas y montos sigue
+    // siendo determinista en este servidor.
+    if (proveedorIA === "gemini") {
+      const modelo = modeloIABalance(proveedorIA);
+      const r = await completarJsonEstructuradoGemini(
+        {
+          model: modelo,
+          system: promptTexto,
+          prompt: instruccion,
+          maxTokens: MAX_TOKENS_ESTRUCTURA,
+          temperature: 0,
+        },
+        MappingSpecSchema,
+      );
+      usosOut?.push({
+        tipoOperacion: "extraccion_tabular",
+        modelo,
+        usage: usoTokensGemini(r.usage),
+      });
+
+      const specTier = esBalancePorTerceroRecuperable(r.data)
+        ? recuperarBalancePorTercero(r.data)
+        : r.data;
+      const specInicial = elegida ? { ...specTier, hoja: elegida } : specTier;
+      const { spec, resultado } = corregirOrientacionInvertida(
+        specInicial,
+        transformarTabular(specInicial, ingesta.hojas, params),
+        ingesta.hojas,
+        params,
+      );
+      return {
+        resultado: { ...resultado, modo: "tabular", confianza: spec.confianza },
+        origenExtraccion: "ia",
+        spec,
+      };
+    }
+
     // Mejor intento hasta ahora (para usarlo si el último tier tampoco convence:
     // el descuadre no bloquea el cargue, solo lo marca).
     let mejor: { spec: MappingSpec; resultado: ResultadoTransform } | null = null;
+    const client = getAnthropic();
 
     for (const tier of CASCADA_EXTRACCION) {
       const r = await conReintentoSinTemperatura(
@@ -232,8 +277,7 @@ export async function extraerBalance(
     return { resultado: { ...mejor.resultado, modo: "tabular", confianza: mejor.spec.confianza }, origenExtraccion: "ia", spec: mejor.spec };
   }
 
-  // Documento (PDF o texto): extracción directa, siempre con el modelo mayor.
-  const client = getAnthropic();
+  // Documento (PDF o texto): extracción directa con el proveedor del entorno.
   const promptTexto = await getPromptContenido(CLAVE_EXTRACCION);
   const system = [{ type: "text" as const, text: promptTexto, cache_control: { type: "ephemeral" as const } }];
   const doc = ingesta.documento;
@@ -250,6 +294,37 @@ export async function extraerBalance(
     doc.tipo === "texto" ? `\nCONTENIDO:\n${doc.texto.slice(0, 200_000)}` : "",
   ].join("\n");
 
+  if (proveedorIA === "gemini") {
+    const modelo = modeloIABalance(proveedorIA);
+    const r = await completarJsonEstructuradoGemini(
+      {
+        model: modelo,
+        system: promptTexto,
+        parts:
+          doc.tipo === "pdf"
+            ? [
+                { inlineData: { mimeType: "application/pdf", data: doc.base64 } },
+                { text: instruccion },
+              ]
+            : [{ text: instruccion }],
+        maxTokens: MAX_TOKENS_DIRECTA,
+        temperature: 0,
+        timeoutMs: 10 * 60 * 1000,
+      },
+      ExtraccionDirectaSchema,
+    );
+    usosOut?.push({
+      tipoOperacion: "extraccion_pdf",
+      modelo,
+      usage: usoTokensGemini(r.usage),
+    });
+    return {
+      resultado: { ...validarDirecta(r.data, params), modo: "documento" },
+      origenExtraccion: "ia",
+      spec: null,
+    };
+  }
+
   const content =
     doc.tipo === "pdf"
       ? [
@@ -258,17 +333,21 @@ export async function extraerBalance(
         ]
       : [{ type: "text" as const, text: instruccion }];
 
-  const r = await conReintentoSinTemperatura((ajustes) =>
-    client.messages.parse({
-      model: MODELO_EXTRACCION,
-      max_tokens: MAX_TOKENS_DIRECTA,
-      ...ajustes,
-      system,
-      messages: [{ role: "user", content }],
-      output_config: { format: zodOutputFormat(ExtraccionDirectaSchema) },
-    }),
+  const client = getAnthropic();
+  const modelo = modeloIABalance(proveedorIA);
+  const r = await conReintentoSinTemperatura(
+    (ajustes) =>
+      client.messages.parse({
+        model: modelo,
+        max_tokens: MAX_TOKENS_DIRECTA,
+        ...ajustes,
+        system,
+        messages: [{ role: "user", content }],
+        output_config: { format: zodOutputFormat(ExtraccionDirectaSchema) },
+      }),
+    modelo,
   );
-  usosOut?.push({ tipoOperacion: "extraccion_pdf", modelo: MODELO_EXTRACCION, usage: r.usage });
+  usosOut?.push({ tipoOperacion: "extraccion_pdf", modelo, usage: r.usage });
   const extr = r.parsed_output;
   if (!extr) throw new Error("La IA no devolvió filas válidas del documento. Reintenta o revisa el archivo.");
   // Metadatos para la huella diagnóstica (la extracción directa no declara confianza).

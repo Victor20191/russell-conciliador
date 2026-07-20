@@ -11,6 +11,7 @@ import {
 } from "@/components/pagination-controls";
 import { Card, Chip } from "@/components/ui";
 import { CargarBalanceButton, type ClienteOpcion } from "./cargar-balance-modal";
+import type { ConfiguracionIABalanceUI } from "@/lib/ia/proveedor-balance";
 
 export type PeriodRow = {
   period: string; versions: number; official: string | null; officialId: number | null;
@@ -32,10 +33,11 @@ function statusTone(s: string): "ok" | "warn" | "blue" | "ink" {
 }
 
 export default function BalanceIndexClient({
-  clients, auditRows, clientNames, uploadClients, canUpload,
+  clients, auditRows, clientNames, uploadClients, canUpload, configuracionIA,
 }: {
   clients: ClientGroup[]; auditRows: AuditRow[]; clientNames: string[];
   uploadClients: ClienteOpcion[]; canUpload: boolean;
+  configuracionIA: ConfiguracionIABalanceUI | null;
 }) {
   const [tab, setTab] = useState<Tab>("clients");
 
@@ -44,7 +46,7 @@ export default function BalanceIndexClient({
       <div className="mb-4 flex items-center gap-2">
         <TabBtn on={tab === "clients"} onClick={() => setTab("clients")} label="Clientes" count={clients.length} />
         <TabBtn on={tab === "audit"} onClick={() => setTab("audit")} label="Audit log" count={auditRows.length} />
-        {canUpload && <CargarBalanceButton clients={uploadClients} />}
+        {canUpload && <CargarBalanceButton clients={uploadClients} configuracionIA={configuracionIA} />}
       </div>
 
       {tab === "clients" && <ClientsTab clients={clients} />}

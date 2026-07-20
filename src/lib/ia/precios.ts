@@ -1,11 +1,13 @@
-// Tarifas de la API de Claude (Anthropic) y cálculo de costo por llamada.
+// Tarifas de los proveedores de IA y cálculo de costo por llamada.
 //
 // Módulo PURO (sin BD, sin red): convierte el `usage` que devuelve la API en un
 // costo en USD. Determinista y testeable (`precios.test.ts`). La conversión a
 // pesos colombianos (TRM) y la persistencia viven en `src/lib/ia/uso.ts`.
 //
-// Precios en USD por 1.000.000 de tokens. Cache write = TTL de 5 min (1,25×
-// del input); cache read = 0,1× del input. Fuente: tarifas públicas de Anthropic.
+// Precios en USD por 1.000.000 de tokens. En Anthropic, cache write = TTL de
+// 5 min (1,25× del input) y cache read = 0,1×. Fuentes: tarifas públicas de cada
+// proveedor. Gemini no reporta esos campos en este pipeline, por lo que ambos
+// contadores permanecen en cero al registrar sus llamadas.
 // Si se cambia `ANTHROPIC_MODEL`, agrega aquí su fila; si falta, se usa
 // `TARIFA_DEFECTO` (la del modelo por defecto del proyecto, Opus 4.8).
 
@@ -31,14 +33,16 @@ export const TARIFAS_USD: Record<string, Tarifa> = {
   "claude-sonnet-4-6": { entrada: 3, salida: 15, cacheCreacion: 3.75, cacheLectura: 0.3 },
   "claude-haiku-4-5": { entrada: 1, salida: 5, cacheCreacion: 1.25, cacheLectura: 0.1 },
   "claude-fable-5": { entrada: 10, salida: 50, cacheCreacion: 12.5, cacheLectura: 1.0 },
+  "gemini-3.1-flash-lite": { entrada: 0.25, salida: 1.5, cacheCreacion: 0.25, cacheLectura: 0.025 },
 };
 
 // Modelo por defecto del proyecto (ver src/lib/anthropic.ts → MODELO_EXTRACCION).
 export const TARIFA_DEFECTO: Tarifa = TARIFAS_USD["claude-opus-4-8"];
+export const TARIFA_GEMINI_DEFECTO: Tarifa = TARIFAS_USD["gemini-3.1-flash-lite"];
 
 /** Tarifa del modelo (con fallback a la del modelo por defecto). */
 export function tarifaPara(modelo: string): Tarifa {
-  return TARIFAS_USD[modelo] ?? TARIFA_DEFECTO;
+  return TARIFAS_USD[modelo] ?? (modelo.toLowerCase().startsWith("gemini-") ? TARIFA_GEMINI_DEFECTO : TARIFA_DEFECTO);
 }
 
 /**

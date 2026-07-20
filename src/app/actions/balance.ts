@@ -46,7 +46,7 @@ import { esBalancePorTercero, colapsarTerceros, esBalancePorTerceroSufijo, conso
 import { marcarRelistadoGuiones } from "@/lib/balance/relistado";
 import { registrarDiagnosticoInicial, cerrarDiagnostico, acumularIntervencionManual, registrarDiagnosticoIA } from "@/lib/balance/diagnostico-lectura-registro";
 import { diagnosticarConIA, type DiagnosticoIA } from "@/lib/balance/diagnostico-ia";
-import { iaDisponible, MODELO_EXTRACCION } from "@/lib/anthropic";
+import { iaBalanceDisponible, mensajeIABalanceNoDisponible, modeloIABalance, proveedorIABalance, type ProveedorIABalance } from "@/lib/ia/proveedor-balance";
 import { registrarConsumoIA, type UsoIA } from "@/lib/ia/uso";
 import { randomUUID } from "node:crypto";
 import { construirCuadre, marcarSubtotalesDuplicados, reclasificarRepetidos, reclasificarNoImputables, transformarTabular } from "@/lib/balance/extraccion/transformar";
@@ -81,6 +81,7 @@ export type SugerenciaBalance = {
     encabezados: string[]; // celdas de la fila de encabezado usada (labels del editor)
     hojas: string[]; // nombres de hojas de la ingesta (selector del editor)
     clienteDetectadoId: number | null; // resuelto por NIT determinista en el servidor
+    proveedorIA: ProveedorIABalance | null; // visible para comprobar el proveedor de la lectura
   };
 };
 
@@ -288,6 +289,7 @@ type MetaPromocion = {
   cuentas: number;
   cuentasAgrupadoras: number;
   cuadreArchivo: { totalDebitos: number; totalCreditos: number } | null; // solo el modal lo trae
+  proveedorIA?: ProveedorIABalance;
 };
 async function promoverStagingAOficial(p: MetaPromocion, contexto: string): Promise<ImportBalanceState> {
   // Análisis por cuentas sobre el staging del lote (MOVIMIENTO agregado por código).
@@ -328,6 +330,7 @@ async function promoverStagingAOficial(p: MetaPromocion, contexto: string): Prom
       archivoNombre: p.archivoNombre, archivoTam: p.archivoTam,
       uploadedBy: user?.name ?? "—", uploadedById: user?.id ?? null, rolLabel: p.rolLabel,
       cuadreTotales,
+      proveedorIA: p.proveedorIA,
       meta: {
         estandar: TIPO_BALANCE_CARGA, convencionCredito: p.convencionCredito,
         filasLeidas: p.filasLeidas, filasExcluidas: p.filasExcluidas, filasDescuadre: p.filasDescuadre,
@@ -557,6 +560,8 @@ async function persistirCargue(p: {
   // Cuadre contra el gran total del archivo (TOTALES). Si no cuadra NO bloquea el
   // cargue: se sube igual y queda marcado como descuadrado (novedad/alerta).
   cuadreTotales?: CuadreTotales | null;
+  /** Proveedor elegido para esta carga; producción lo vuelve a forzar a Anthropic. */
+  proveedorIA?: ProveedorIABalance;
 }): Promise<{ id: number; version: string; calc: ResultadoBalance }> {
   // Plan pre-tokenizado una vez y compartido entre la pasada determinista y la
   // pasada con override de IA (evita re-tokenizar el plan dos veces por cargue).
@@ -588,15 +593,17 @@ async function persistirCargue(p: {
   // Barrido 0 (config guardada) + 1 (exacto) + 2 (descripción), deterministas.
   let calc = calcularBalance(p.importReady, p.cuentasEstandar, undefined, planTok, configCliente);
 
-  // Barrido 3 (IA): las cuentas que quedaron sin mapeo se homologan con Claude.
+  // Barrido 3 (IA): las cuentas que quedaron sin mapeo se homologan con el
+  // proveedor permitido para el entorno (producción siempre usa Anthropic).
   // Best-effort: si la IA falla o no está configurada, se queda con lo determinista.
-  if (iaDisponible()) {
+  const proveedorIA = proveedorIABalance(p.proveedorIA);
+  if (iaBalanceDisponible(proveedorIA)) {
     const pendientes = calc.breakdown.flatMap((g) => g.items).filter((it) => !it.mapped).map((it) => ({ code: it.code, name: it.name }));
     if (pendientes.length > 0) {
       const usos: UsoIA[] = [];
       try {
         const plan = p.cuentasEstandar.map((s) => ({ code: s.code, name: s.name ?? "", russell: s.russellAccount ?? "", posibles: s.possibleAccounts ?? "" }));
-        const override = await mapearPorIA(pendientes, plan, usos);
+        const override = await mapearPorIA(pendientes, plan, usos, proveedorIA);
         if (override.size > 0) calc = calcularBalance(p.importReady, p.cuentasEstandar, override, planTok, configCliente);
       } catch {
         /* la IA es opcional: si falla, no rompe el cargue */
@@ -786,6 +793,7 @@ export async function leerBalance(
   if (archivo.size > MAX_BYTES) return { ok: false, message: "El archivo supera 20 MB." };
 
   try {
+    const proveedorIA = proveedorIABalance(formData.get("modeloIA"));
     // Lectura sin parámetros de cliente/período: se detecta todo del archivo
     // como sugerencia. El tipo de balance es regla fija de negocio.
     const params: ParamsExtraccion = { nit: null, periodoInicial: null, periodoFinal: null, estandar: TIPO_BALANCE_CARGA };
@@ -853,9 +861,9 @@ export async function leerBalance(
     let extr: ResultadoTransform | null = null;
     let spec: MappingSpec | null = null;
     let origenExtraccion: OrigenExtraccion = "plantilla";
-    if (iaDisponible()) {
+    if (iaBalanceDisponible(proveedorIA)) {
       const r = await extraerBalance(datosArchivo, archivo.name, params, {
-        hojaElegida: hoja, usosOut: usos, ingesta: ingesta ?? undefined, specGuardado,
+        hojaElegida: hoja, usosOut: usos, ingesta: ingesta ?? undefined, specGuardado, proveedorIA,
       });
       extr = r.resultado;
       spec = r.spec;
@@ -932,6 +940,7 @@ export async function leerBalance(
       ingesta,
       nitDeterminista,
       clienteDetectadoId,
+      proveedorIA,
     });
   } catch (e) {
     return { ok: false, message: mensajeErrorIA("leerBalance", e) };
@@ -948,6 +957,7 @@ type ParamsLoteSugerencia = {
   ingesta: Ingesta | null;
   nitDeterminista: string | null;
   clienteDetectadoId: number | null;
+  proveedorIA: ProveedorIABalance;
 };
 
 /**
@@ -1091,6 +1101,7 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
     cuentas: extr.importReady.length,
     cuadreArchivo: extr.cuadre.detectado ? { totalDebitos: extr.cuadre.totalDebitos, totalCreditos: extr.cuadre.totalCreditos } : null,
     origenExtraccion: p.origenExtraccion,
+    proveedorIA: p.proveedorIA,
     huella: huellaFinal,
   };
 
@@ -1108,6 +1119,7 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
         encabezados,
         hojas: p.ingesta?.modo === "tabular" ? p.ingesta.hojas.map((h) => h.nombre) : [],
         clienteDetectadoId: p.clienteDetectadoId,
+        proveedorIA: p.origenExtraccion === "ia" ? p.proveedorIA : null,
       },
     },
   };
@@ -1145,6 +1157,7 @@ export async function reprocesarBalanceConSpec(
   const loteIdAnterior = String(formData.get("loteIdAnterior") ?? "").trim();
 
   try {
+    const proveedorIA = proveedorIABalance(formData.get("modeloIA"));
     const datosArchivo = await archivo.arrayBuffer();
     const ingesta = await ingerir(datosArchivo, archivo.name);
     if (ingesta.modo !== "tabular") {
@@ -1167,6 +1180,7 @@ export async function reprocesarBalanceConSpec(
       ingesta,
       nitDeterminista,
       clienteDetectadoId,
+      proveedorIA,
     });
 
     // El lote anterior se purga SOLO si el reproceso quedó persistido (si falló,
@@ -1439,6 +1453,7 @@ export async function confirmarCargaBalance(
     return { ok: false, message: "La lectura del archivo no es válida. Vuelve a leer el archivo." };
   }
   const sug = payloadParsed.data;
+  const proveedorIA = proveedorIABalance(sug.proveedorIA);
 
   // El spec/huella para guardar el perfil se leen del lote ANTES de promover (la
   // promoción purga el lote). Best-effort: sin lote igual se puede cargar.
@@ -1463,6 +1478,7 @@ export async function confirmarCargaBalance(
       filasLeidas: sug.filasLeidas, filasExcluidas: sug.filasExcluidas, filasDescuadre: sug.filasDescuadre,
       cuentasMovimiento: sug.cuentasMovimiento, cuentas: sug.cuentas, cuentasAgrupadoras: sug.cuentasAgrupadoras,
       cuadreArchivo: sug.cuadreArchivo,
+      proveedorIA,
     },
     "confirmarCargaBalance",
   );
@@ -1574,7 +1590,7 @@ export type DiagnosticoBorradorState = { ok: boolean; message?: string; diagnost
 export async function diagnosticarBorradorIA(loteId: string): Promise<DiagnosticoBorradorState> {
   const authz = await authorizePermiso("balance:crear");
   if (!authz.ok) return { ok: false, message: authz.message };
-  if (!iaDisponible()) return { ok: false, message: "La IA no está disponible (falta ANTHROPIC_API_KEY)." };
+  if (!iaBalanceDisponible()) return { ok: false, message: mensajeIABalanceNoDisponible() };
   const id = String(loteId ?? "").trim();
   if (!id) return { ok: false, message: "Borrador inválido." };
   try {
@@ -1593,7 +1609,7 @@ export async function diagnosticarBorradorIA(loteId: string): Promise<Diagnostic
     if (hallazgos.length === 0) return { ok: true, diagnostico: null, message: "El borrador cuadra: no hay descuadre que diagnosticar." };
 
     const usos: UsoIA[] = [];
-    const diagnostico = await diagnosticarConIA(hallazgos, agrupadoras, MODELO_EXTRACCION, usos);
+    const diagnostico = await diagnosticarConIA(hallazgos, agrupadoras, modeloIABalance(), usos);
 
     const user = await getCurrentUser();
     await registrarConsumoIA(usos, {

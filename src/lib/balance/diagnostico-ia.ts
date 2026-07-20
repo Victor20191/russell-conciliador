@@ -9,6 +9,8 @@ import "server-only";
 import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { getAnthropic, conReintentoSinTemperatura, MODELO_EXTRACCION } from "@/lib/anthropic";
+import { completarJsonEstructuradoGemini } from "@/lib/gemini";
+import { modeloIABalance, proveedorIABalance, usoTokensGemini } from "@/lib/ia/proveedor-balance";
 import type { UsoIA } from "@/lib/ia/uso";
 import type { Hallazgo } from "./diagnostico";
 import type { AgrupadoraRef } from "./borrador-vm";
@@ -52,7 +54,6 @@ export async function diagnosticarConIA(
   usosOut?: UsoIA[],
 ): Promise<DiagnosticoIA | null> {
   if (hallazgos.length === 0) return null;
-  const client = getAnthropic();
   const hall = hallazgos
     .map((h, i) => `${i + 1}. [${h.tipo}] ${h.titulo} · monto ${h.monto}\n   ${h.detalle}`)
     .join("\n");
@@ -63,7 +64,29 @@ export async function diagnosticarConIA(
   const estructura = [...conDesc, ...resto]
     .map((a) => `${a.codigo} | ${a.nombre} | saldo ${a.saldoFinal}${a.descuadre ? ` | Δ ${a.descuadre}` : ""}`)
     .join("\n");
+  const prompt = `HALLAZGOS DETERMINISTAS (ya calculados):\n${hall}\n\nAGRUPADORAS (código | nombre | saldo | Δ):\n${estructura}\n\nAnaliza y devuelve hipótesis de la causa del descuadre con las cuentas implicadas y la corrección.`;
 
+  if (proveedorIABalance() === "gemini") {
+    const modeloGemini = modeloIABalance();
+    const r = await completarJsonEstructuradoGemini(
+      {
+        model: modeloGemini,
+        system: SYSTEM,
+        prompt,
+        maxTokens: 4000,
+        temperature: 0,
+      },
+      DiagnosticoIASchema,
+    );
+    usosOut?.push({
+      tipoOperacion: "diagnostico_ia",
+      modelo: modeloGemini,
+      usage: usoTokensGemini(r.usage),
+    });
+    return r.data;
+  }
+
+  const client = getAnthropic();
   const r = await conReintentoSinTemperatura(
     (ajustes) =>
       client.messages.parse({
@@ -77,7 +100,7 @@ export async function diagnosticarConIA(
             content: [
               {
                 type: "text",
-                text: `HALLAZGOS DETERMINISTAS (ya calculados):\n${hall}\n\nAGRUPADORAS (código | nombre | saldo | Δ):\n${estructura}\n\nAnaliza y devuelve hipótesis de la causa del descuadre con las cuentas implicadas y la corrección.`,
+                text: prompt,
               },
             ],
           },

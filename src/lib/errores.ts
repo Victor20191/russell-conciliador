@@ -95,7 +95,7 @@ export function mensajeErrorBD(contexto: string, e: unknown): string {
 }
 
 /**
- * Mensaje claro para fallos de la extracción con IA (Anthropic). Traduce los
+ * Mensaje claro para fallos de la extracción con IA (Anthropic o Gemini). Traduce los
  * errores de la API (429/529/5xx/timeout/credenciales) a algo accionable y
  * preserva los mensajes deliberados del pipeline (extracción/ingesta). Para
  * cualquier otro error (p. ej. un fallo de BD al persistir) cae a
@@ -106,9 +106,9 @@ export function mensajeErrorIA(contexto: string, e: unknown): string {
   const nombre = e && typeof e === "object" && "name" in e ? String((e as { name?: unknown }).name ?? "") : "";
   const msg = e instanceof Error ? e.message : typeof e === "string" ? e : "";
 
-  // Error de la API de Anthropic: tiene `status` numérico o un nombre de clase del SDK.
-  const esErrorAnthropic = typeof status === "number" || /APIError|APIConnection|RateLimit|Overloaded|Anthropic/i.test(nombre);
-  if (esErrorAnthropic) {
+  // Error de API: tiene `status` numérico o un nombre de clase de proveedor.
+  const esErrorProveedor = typeof status === "number" || /APIError|APIConnection|RateLimit|Overloaded|Anthropic|Gemini/i.test(`${nombre} ${msg}`);
+  if (esErrorProveedor) {
     registrarError(contexto, e);
     if (status === 429) return "El servicio de IA está saturado en este momento. Espera unos segundos y vuelve a intentar.";
     if (status === 529) return "El servicio de IA está sobrecargado. Reintenta en un momento.";
@@ -120,7 +120,7 @@ export function mensajeErrorIA(contexto: string, e: unknown): string {
 
   // Mensaje deliberado del pipeline de extracción/ingesta (texto ya útil en
   // español, p. ej. formato no soportado). Se muestra tal cual al usuario.
-  if (/^(La IA |El PDF |Formato de archivo|Por seguridad)/.test(msg)) {
+  if (/^(La IA |El PDF |Formato de archivo|Por seguridad|BALANCE_AI_PROVIDER)/.test(msg)) {
     registrarError(contexto, e);
     return msg;
   }

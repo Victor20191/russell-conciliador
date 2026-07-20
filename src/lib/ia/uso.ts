@@ -1,6 +1,6 @@
 // Registro del consumo de IA (tokens y costos) en `consumo_ia`.
 //
-// `registrarConsumoIA` recibe los usos (uno por llamada a Claude) acumulados por
+// `registrarConsumoIA` recibe los usos (uno por llamada al proveedor) acumulados por
 // el pipeline de extracción y los persiste con su costo en USD y COP. El costo es
 // SNAPSHOT: se calcula con la tarifa del modelo (precios.ts) y la TRM vigente
 // (trm.ts) al momento de registrar. Best-effort: como `logAudit`, nunca tumba la
@@ -13,7 +13,7 @@ import { getTRM } from "@/lib/ia/trm";
 
 export type TipoOperacionIA = "extraccion_tabular" | "extraccion_pdf" | "mapeo_ia" | "diagnostico_ia";
 
-/** Un uso = una llamada a la API de Claude (lo que devuelve el pipeline). */
+/** Un uso = una llamada a la API de IA (lo que devuelve el pipeline). */
 export type UsoIA = {
   tipoOperacion: TipoOperacionIA;
   modelo: string;

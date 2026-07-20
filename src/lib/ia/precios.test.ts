@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { calcularCostoUsd, tarifaPara, totalTokens, TARIFA_DEFECTO } from "./precios";
+import { calcularCostoUsd, tarifaPara, totalTokens, TARIFA_DEFECTO, TARIFA_GEMINI_DEFECTO } from "./precios";
 
 describe("calcularCostoUsd", () => {
   it("suma los 4 componentes con la tarifa de Opus 4.8", () => {
@@ -37,6 +37,15 @@ describe("calcularCostoUsd", () => {
     const usage = { input_tokens: 1_000_000, output_tokens: 1_000_000 };
     // 3 + 15 = 18 USD
     expect(calcularCostoUsd("claude-sonnet-4-6", usage)).toBeCloseTo(18, 6);
+  });
+
+  it("aplica la tarifa económica de Gemini 3.1 Flash-Lite", () => {
+    const usage = { input_tokens: 1_000_000, output_tokens: 1_000_000 };
+    expect(calcularCostoUsd("gemini-3.1-flash-lite", usage)).toBeCloseTo(1.75, 6);
+  });
+
+  it("usa la tarifa Gemini para otro modelo Gemini no catalogado", () => {
+    expect(tarifaPara("gemini-modelo-de-prueba")).toEqual(TARIFA_GEMINI_DEFECTO);
   });
 });
 

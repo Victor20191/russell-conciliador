@@ -1,12 +1,13 @@
 import "server-only";
 import { registrarError } from "@/lib/errores";
 import type { UsoOpenRouterReporte } from "@/lib/novedades/reportes";
+import { z } from "zod";
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
 
-type GeminiPart = {
-  text?: string;
-};
+export type GeminiPart =
+  | { text: string }
+  | { inlineData: { mimeType: string; data: string } };
 
 type GeminiResponse = {
   candidates?: Array<{
@@ -18,6 +19,7 @@ type GeminiResponse = {
   usageMetadata?: {
     promptTokenCount?: number;
     candidatesTokenCount?: number;
+    thoughtsTokenCount?: number;
     totalTokenCount?: number;
   };
   error?: {
@@ -33,15 +35,17 @@ type SolicitudGeminiResult = {
   finishReason?: string;
 };
 
-type CompletarGeminiParams = {
+export type CompletarGeminiParams = {
   model: string;
   system?: string;
-  prompt: string;
+  prompt?: string;
+  parts?: GeminiPart[];
   maxTokens?: number;
   temperature?: number;
   topP?: number;
   seed?: number;
   timeoutMs?: number;
+  responseJsonSchema?: Record<string, unknown>;
 };
 
 export class GeminiError extends Error {
@@ -67,6 +71,11 @@ function getGeminiApiKey(): string {
   return key;
 }
 
+/** ¿Hay una clave de Gemini disponible en el servidor? */
+export function geminiDisponible(): boolean {
+  return Boolean(process.env.GEMINI_API_KEY?.trim() || process.env.GOOGLE_GENERATIVE_AI_API_KEY?.trim());
+}
+
 function parseJsonSeguro(content: string): unknown {
   const limpio = content.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
   try {
@@ -84,7 +93,7 @@ function parseJsonSeguro(content: string): unknown {
 function extraerTexto(payload: GeminiResponse | null): string {
   return (
     payload?.candidates?.[0]?.content?.parts
-      ?.map((part) => (typeof part.text === "string" ? part.text : ""))
+      ?.map((part) => ("text" in part && typeof part.text === "string" ? part.text : ""))
       .filter(Boolean)
       .join("\n") ?? ""
   );
@@ -102,12 +111,16 @@ async function solicitarGemini({
   model,
   system,
   prompt,
+  parts,
   maxTokens = 16_000,
   temperature = 0,
   topP = 1,
   seed,
   timeoutMs = 240_000,
+  responseJsonSchema,
 }: CompletarGeminiParams): Promise<SolicitudGeminiResult> {
+  const partes = parts?.length ? parts : prompt != null ? [{ text: prompt }] : [];
+  if (partes.length === 0) throw new GeminiError("La solicitud a Gemini no contiene texto ni documento.", { status: 400 });
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   const url = `${GEMINI_API_BASE}/${rutaModeloGemini(model)}:generateContent`;
@@ -131,7 +144,7 @@ async function solicitarGemini({
         contents: [
           {
             role: "user",
-            parts: [{ text: prompt }],
+            parts: partes,
           },
         ],
         generationConfig: {
@@ -140,6 +153,12 @@ async function solicitarGemini({
           seed,
           candidateCount: 1,
           maxOutputTokens: maxTokens,
+          ...(responseJsonSchema
+            ? {
+                responseMimeType: "application/json",
+                responseJsonSchema,
+              }
+            : {}),
         },
       }),
     });
@@ -192,7 +211,10 @@ async function solicitarGemini({
       usage: payload?.usageMetadata
         ? {
             promptTokens: payload.usageMetadata.promptTokenCount,
-            completionTokens: payload.usageMetadata.candidatesTokenCount,
+            // Gemini factura los tokens de razonamiento como salida.
+            completionTokens:
+              (payload.usageMetadata.candidatesTokenCount ?? 0) +
+              (payload.usageMetadata.thoughtsTokenCount ?? 0),
             totalTokens: payload.usageMetadata.totalTokenCount,
           }
         : undefined,
@@ -223,6 +245,29 @@ export async function completarJsonGemini(params: CompletarGeminiParams): Promis
     data: parseJsonSeguro(completion.text),
     usage: completion.usage,
   };
+}
+
+/**
+ * Salida estructurada nativa de Gemini: convierte el esquema Zod a JSON Schema,
+ * se lo exige al proveedor y vuelve a validar la respuesta localmente. Esto es
+ * lo que usa el cargue de balances; nunca confía solo en que el modelo "parezca"
+ * haber devuelto JSON correcto.
+ */
+export async function completarJsonEstructuradoGemini<T>(
+  params: Omit<CompletarGeminiParams, "responseJsonSchema">,
+  schema: z.ZodType<T>,
+): Promise<{ data: T; usage?: UsoOpenRouterReporte }> {
+  const jsonSchema = z.toJSONSchema(schema) as Record<string, unknown>;
+  // `$schema` no forma parte del subconjunto aceptado por generateContent.
+  delete jsonSchema.$schema;
+  const completion = await solicitarGemini({ ...params, responseJsonSchema: jsonSchema });
+  const validacion = schema.safeParse(parseJsonSeguro(completion.text));
+  if (!validacion.success) {
+    throw new GeminiError("Gemini respondió JSON que no cumple el contrato solicitado.", {
+      status: 422,
+    });
+  }
+  return { data: validacion.data, usage: completion.usage };
 }
 
 export function mensajeErrorGemini(contexto: string, e: unknown): string {

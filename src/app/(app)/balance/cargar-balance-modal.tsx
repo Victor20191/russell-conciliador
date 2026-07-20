@@ -22,6 +22,7 @@ import { leerHojasParaPreview, columnaLetra, type CeldaCruda, type HojaPreview }
 import type { SpecCarga } from "@/lib/balance/extraccion/esquema";
 import { PromptClientePerfil } from "@/app/(app)/balance/prompt-cliente-perfil";
 import type { ImportBalanceState } from "@/lib/import/balance";
+import type { ConfiguracionIABalanceUI, ProveedorIABalance } from "@/lib/ia/proveedor-balance";
 
 /** Extensiones de Excel que pueden traer varias hojas (inspeccionables en cliente). */
 const esExcel = (name: string) => /\.(xlsx|xlsm)$/i.test(name);
@@ -50,7 +51,13 @@ function clienteSugerido(clients: ClienteOpcion[], nit: string | null): string {
   return m ? String(m.id) : "";
 }
 
-export function CargarBalanceButton({ clients }: { clients: ClienteOpcion[] }) {
+export function CargarBalanceButton({
+  clients,
+  configuracionIA,
+}: {
+  clients: ClienteOpcion[];
+  configuracionIA: ConfiguracionIABalanceUI | null;
+}) {
   const [open, setOpen] = useState(false);
   // `instancia` reinicia el asistente por completo (incluye los useActionState).
   const [instancia, setInstancia] = useState(0);
@@ -63,12 +70,30 @@ export function CargarBalanceButton({ clients }: { clients: ClienteOpcion[] }) {
       >
         <Icon name="upload" size={14} /> Cargar balance
       </button>
-      {open && <CargarBalanceModal key={instancia} clients={clients} onClose={() => setOpen(false)} onReiniciar={reiniciar} />}
+      {open && (
+        <CargarBalanceModal
+          key={instancia}
+          clients={clients}
+          configuracionIA={configuracionIA}
+          onClose={() => setOpen(false)}
+          onReiniciar={reiniciar}
+        />
+      )}
     </>
   );
 }
 
-function CargarBalanceModal({ clients, onClose, onReiniciar }: { clients: ClienteOpcion[]; onClose: () => void; onReiniciar: () => void }) {
+function CargarBalanceModal({
+  clients,
+  configuracionIA,
+  onClose,
+  onReiniciar,
+}: {
+  clients: ClienteOpcion[];
+  configuracionIA: ConfiguracionIABalanceUI | null;
+  onClose: () => void;
+  onReiniciar: () => void;
+}) {
   const router = useRouter();
   const [leerState, leerAction, leyendo] = useActionState<LeerBalanceState, FormData>(leerBalance, {});
   const [confirmState, confirmAction, cargando] = useActionState<ImportBalanceState, FormData>(confirmarCargaBalance, {});
@@ -134,7 +159,7 @@ function CargarBalanceModal({ clients, onClose, onReiniciar }: { clients: Client
 
   // Reproceso determinista (editor de estructura / preferencias del cliente):
   // reenvía el archivo con el spec ajustado; la sugerencia nueva pisa la anterior.
-  const reprocesar = (spec: SpecCarga, loteIdAnterior: string) => {
+  const reprocesar = (spec: SpecCarga, loteIdAnterior: string, proveedorIA?: ProveedorIABalance) => {
     if (!archivoFile) return;
     startReproceso(async () => {
       try { await archivoFile.arrayBuffer(); } catch { notifyError("No pudimos leer el archivo. Suele pasar cuando está ABIERTO en Excel o sincronizándose en OneDrive: ciérralo e intenta de nuevo."); return; }
@@ -142,6 +167,7 @@ function CargarBalanceModal({ clients, onClose, onReiniciar }: { clients: Client
       fd.set("archivo", archivoFile);
       fd.set("spec", JSON.stringify(spec));
       fd.set("loteIdAnterior", loteIdAnterior);
+      if (proveedorIA) fd.set("modeloIA", proveedorIA);
       const res = await reprocesarBalanceConSpec({}, fd);
       if (res.ok && res.sugerencia) {
         setSugLocal(res.sugerencia);
@@ -246,6 +272,30 @@ function CargarBalanceModal({ clients, onClose, onReiniciar }: { clients: Client
             período, saldos). Tú revisas y completas lo que falte antes de cargar; nada se guarda hasta confirmar.
           </p>
 
+          {configuracionIA && (
+            <div className="rounded-md border border-ai-100 bg-ai-100/30 px-3 py-2.5">
+              <div className="mb-2 flex items-center gap-2">
+                <span className="text-ai-700"><Icon name="ai" size={14} /></span>
+                <span className="text-[11.5px] font-semibold uppercase tracking-wide text-ai-700">Solo desarrollo local</span>
+              </div>
+              <label className="flex flex-col gap-1.5">
+                <span className="text-[11.5px] font-medium text-ink-700">Modelo de IA para esta carga</span>
+                <select
+                  name="modeloIA"
+                  defaultValue={configuracionIA.predeterminado}
+                  className="rounded-md border border-ai-100 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-ai-700"
+                >
+                  {configuracionIA.opciones.map((opcion) => (
+                    <option key={opcion.valor} value={opcion.valor}>{opcion.etiqueta}</option>
+                  ))}
+                </select>
+              </label>
+              <p className="mt-1.5 text-[11px] leading-relaxed text-ink-500">
+                Se aplica a la lectura y homologación de este archivo. En cualquier despliegue para clientes este control no existe y el servidor usa únicamente Anthropic.
+              </p>
+            </div>
+          )}
+
           {clients.length === 0 ? (
             <div className="rounded-md border border-warn-100 bg-warn-100/40 px-3 py-2.5 text-[12.5px] text-warn-700">
               No tienes clientes asignados con alcance para cargar balances.
@@ -287,10 +337,22 @@ function CargarBalanceModal({ clients, onClose, onReiniciar }: { clients: Client
 }
 
 /** Chip con el ORIGEN de la estructura aplicada en la lectura. */
-function OrigenChip({ origen }: { origen: SugerenciaBalance["payload"]["origenExtraccion"] }) {
+function OrigenChip({
+  origen,
+  proveedor,
+}: {
+  origen: SugerenciaBalance["payload"]["origenExtraccion"];
+  proveedor: SugerenciaBalance["render"]["proveedorIA"];
+}) {
   const map = {
     perfil: { label: "Perfil guardado · sin IA", tone: "ok" as const },
-    ia: { label: "Estructura detectada con IA", tone: "ai" as const },
+    ia: {
+      label:
+        proveedor === "gemini"
+          ? "Estructura detectada · Gemini (pruebas)"
+          : "Estructura detectada · Anthropic",
+      tone: "ai" as const,
+    },
     plantilla: { label: "Plantilla limpia · sin IA", tone: "ink" as const },
     manual: { label: "Estructura ajustada a mano", tone: "blue" as const },
   };
@@ -315,7 +377,7 @@ function FormRevisar({
   excepciones: Excepcion[];
   archivoFile: File | null;
   reprocesando: boolean;
-  onReprocesar: (spec: SpecCarga, loteIdAnterior: string) => void;
+  onReprocesar: (spec: SpecCarga, loteIdAnterior: string, proveedorIA?: ProveedorIABalance) => void;
 }) {
   // Defaults derivados de la sugerencia (campos NO controlados con defaultValue).
   // Preselección: cliente resuelto por NIT en el servidor (si está en la cartera)
@@ -375,7 +437,7 @@ function FormRevisar({
           Leí <span className="font-semibold">{sug.payload.cuentas} cuenta(s)</span> de{" "}
           <span className="font-mono">{sug.payload.archivoNombre}</span>. Revisa y completa los campos antes de cargar; no se ha guardado nada todavía.
         </span>
-        <OrigenChip origen={sug.payload.origenExtraccion} />
+        <OrigenChip origen={sug.payload.origenExtraccion} proveedor={sug.render.proveedorIA} />
       </div>
 
       {/* La validación contable completa y el resumen de detección se muestran en
@@ -389,7 +451,7 @@ function FormRevisar({
           encabezados={sug.render.encabezados}
           hojas={sug.render.hojas}
           reprocesando={reprocesando}
-          onAplicar={(s) => onReprocesar(s, sug.payload.loteId)}
+          onAplicar={(s) => onReprocesar(s, sug.payload.loteId, sug.payload.proveedorIA)}
           onGuardar={onGuardarPerfil}
           guardando={guardandoPerfil}
         />
@@ -420,7 +482,7 @@ function FormRevisar({
         )}
       </label>
 
-      <AvisoAjustesCliente audit={audit} sug={sug} puedeReprocesar={puedeEditar && !reprocesando} onReprocesar={(s) => onReprocesar(s, sug.payload.loteId)} />
+      <AvisoAjustesCliente audit={audit} sug={sug} puedeReprocesar={puedeEditar && !reprocesando} onReprocesar={(s) => onReprocesar(s, sug.payload.loteId, sug.payload.proveedorIA)} />
       <AuditPanel audit={audit} auditando={auditando} />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

@@ -144,7 +144,7 @@ export default async function ConsumoIAPage() {
     <div>
       <PageHeader
         title="Consumo de IA"
-        subtitle="Tokens y costos de los escaneos de documentos con IA (Claude). El gasto se convierte a pesos colombianos con la TRM oficial vigente."
+        subtitle="Tokens y costos de los escaneos con IA (Anthropic o Gemini de pruebas). El gasto se convierte a pesos colombianos con la TRM oficial vigente."
         actions={<Chip label={`TRM ${fmt(Math.round(trm))} / USD`} tone="ai" />}
       />
 

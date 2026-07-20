@@ -38,6 +38,10 @@ npm install
 #   Este archivo es local y no se versiona.
 #   - DATABASE_URL: cadena de conexión a PostgreSQL
 #   - SESSION_SECRET: genera uno con  openssl rand -base64 32
+#   - ANTHROPIC_API_KEY: proveedor obligatorio de balances en producción
+#   - BALANCE_AI_DEV_SELECTOR=true + BALANCE_AI_PROVIDER=gemini + GEMINI_API_KEY:
+#     opción económica solo con `next dev` local (selector en /balance › Cargar balance)
+#     Todo build/despliegue para clientes oculta el selector y fuerza Anthropic.
 #   - OPENROUTER_API_KEY: opcional, habilita reportes funcionales IA en /novedades
 
 # 3. Crear la base de datos (si no existe)
