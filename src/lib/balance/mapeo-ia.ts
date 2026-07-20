@@ -174,7 +174,8 @@ export async function mapearPorIA(
   const planTexto = plan.map((p) => `${p.code} | ${p.name} | russell: ${p.russell} | sinónimos: ${p.posibles}`).join("\n");
   const validos = new Set(plan.map((p) => p.code));
 
-  const proveedorIA = proveedorIABalance(proveedorSeleccionado);
+  // Proveedor YA autorizado por la frontera; sin valor explícito, compuerta de entorno.
+  const proveedorIA = proveedorSeleccionado ?? proveedorIABalance();
   if (proveedorIA === "gemini") {
     return mapearConGemini(pendientes, systemTexto, planTexto, validos, usosOut, proveedorIA);
   }

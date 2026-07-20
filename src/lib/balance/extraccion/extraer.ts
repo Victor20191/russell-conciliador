@@ -144,9 +144,10 @@ export async function extraerBalance(
   opciones: OpcionesExtraccion = {},
 ): Promise<ResultadoExtraccion> {
   const { hojaElegida, usosOut, specGuardado } = opciones;
-  // Se resuelve otra vez en el servidor: en producción siempre queda Anthropic,
-  // incluso si una petición manipulada intenta enviar Gemini.
-  const proveedorIA = proveedorIABalance(opciones.proveedorIA);
+  // El proveedor llega YA autorizado por la frontera (`proveedorIABalanceSesion`:
+  // dev local o usuario del dominio corporativo) — aquí no hay sesión que
+  // consultar. Sin valor explícito cae a la compuerta estricta de entorno.
+  const proveedorIA = opciones.proveedorIA ?? proveedorIABalance();
   const ingesta = opciones.ingesta ?? (await ingerir(data, fileName));
 
   if (ingesta.modo === "tabular") {

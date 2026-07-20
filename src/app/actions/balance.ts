@@ -47,6 +47,7 @@ import { marcarRelistadoGuiones } from "@/lib/balance/relistado";
 import { registrarDiagnosticoInicial, cerrarDiagnostico, acumularIntervencionManual, registrarDiagnosticoIA } from "@/lib/balance/diagnostico-lectura-registro";
 import { diagnosticarConIA, type DiagnosticoIA } from "@/lib/balance/diagnostico-ia";
 import { iaBalanceDisponible, mensajeIABalanceNoDisponible, modeloIABalance, proveedorIABalance, type ProveedorIABalance } from "@/lib/ia/proveedor-balance";
+import { proveedorIABalanceSesion } from "@/lib/ia/proveedor-balance-sesion";
 import { registrarConsumoIA, type UsoIA } from "@/lib/ia/uso";
 import { randomUUID } from "node:crypto";
 import { construirCuadre, marcarSubtotalesDuplicados, reclasificarRepetidos, reclasificarNoImputables, transformarTabular } from "@/lib/balance/extraccion/transformar";
@@ -560,7 +561,7 @@ async function persistirCargue(p: {
   // Cuadre contra el gran total del archivo (TOTALES). Si no cuadra NO bloquea el
   // cargue: se sube igual y queda marcado como descuadrado (novedad/alerta).
   cuadreTotales?: CuadreTotales | null;
-  /** Proveedor elegido para esta carga; producción lo vuelve a forzar a Anthropic. */
+  /** Proveedor de esta carga, YA autorizado por la frontera (sesión: dev o dominio). */
   proveedorIA?: ProveedorIABalance;
 }): Promise<{ id: number; version: string; calc: ResultadoBalance }> {
   // Plan pre-tokenizado una vez y compartido entre la pasada determinista y la
@@ -594,9 +595,9 @@ async function persistirCargue(p: {
   let calc = calcularBalance(p.importReady, p.cuentasEstandar, undefined, planTok, configCliente);
 
   // Barrido 3 (IA): las cuentas que quedaron sin mapeo se homologan con el
-  // proveedor permitido para el entorno (producción siempre usa Anthropic).
+  // proveedor que la frontera ya autorizó (sin él, la compuerta de entorno).
   // Best-effort: si la IA falla o no está configurada, se queda con lo determinista.
-  const proveedorIA = proveedorIABalance(p.proveedorIA);
+  const proveedorIA = p.proveedorIA ?? proveedorIABalance();
   if (iaBalanceDisponible(proveedorIA)) {
     const pendientes = calc.breakdown.flatMap((g) => g.items).filter((it) => !it.mapped).map((it) => ({ code: it.code, name: it.name }));
     if (pendientes.length > 0) {
@@ -793,7 +794,7 @@ export async function leerBalance(
   if (archivo.size > MAX_BYTES) return { ok: false, message: "El archivo supera 20 MB." };
 
   try {
-    const proveedorIA = proveedorIABalance(formData.get("modeloIA"));
+    const proveedorIA = await proveedorIABalanceSesion(formData.get("modeloIA"));
     // Lectura sin parámetros de cliente/período: se detecta todo del archivo
     // como sugerencia. El tipo de balance es regla fija de negocio.
     const params: ParamsExtraccion = { nit: null, periodoInicial: null, periodoFinal: null, estandar: TIPO_BALANCE_CARGA };
@@ -1157,7 +1158,7 @@ export async function reprocesarBalanceConSpec(
   const loteIdAnterior = String(formData.get("loteIdAnterior") ?? "").trim();
 
   try {
-    const proveedorIA = proveedorIABalance(formData.get("modeloIA"));
+    const proveedorIA = await proveedorIABalanceSesion(formData.get("modeloIA"));
     const datosArchivo = await archivo.arrayBuffer();
     const ingesta = await ingerir(datosArchivo, archivo.name);
     if (ingesta.modo !== "tabular") {
@@ -1453,7 +1454,9 @@ export async function confirmarCargaBalance(
     return { ok: false, message: "La lectura del archivo no es válida. Vuelve a leer el archivo." };
   }
   const sug = payloadParsed.data;
-  const proveedorIA = proveedorIABalance(sug.proveedorIA);
+  // Se RE-autoriza con la sesión al confirmar: un payload firmado en una sesión
+  // autorizada no habilita Gemini si quien confirma ya no lo está.
+  const proveedorIA = await proveedorIABalanceSesion(sug.proveedorIA);
 
   // El spec/huella para guardar el perfil se leen del lote ANTES de promover (la
   // promoción purga el lote). Best-effort: sin lote igual se puede cargar.
@@ -1590,7 +1593,8 @@ export type DiagnosticoBorradorState = { ok: boolean; message?: string; diagnost
 export async function diagnosticarBorradorIA(loteId: string): Promise<DiagnosticoBorradorState> {
   const authz = await authorizePermiso("balance:crear");
   if (!authz.ok) return { ok: false, message: authz.message };
-  if (!iaBalanceDisponible()) return { ok: false, message: mensajeIABalanceNoDisponible() };
+  const proveedorIA = await proveedorIABalanceSesion();
+  if (!iaBalanceDisponible(proveedorIA)) return { ok: false, message: mensajeIABalanceNoDisponible(proveedorIA) };
   const id = String(loteId ?? "").trim();
   if (!id) return { ok: false, message: "Borrador inválido." };
   try {
@@ -1609,7 +1613,7 @@ export async function diagnosticarBorradorIA(loteId: string): Promise<Diagnostic
     if (hallazgos.length === 0) return { ok: true, diagnostico: null, message: "El borrador cuadra: no hay descuadre que diagnosticar." };
 
     const usos: UsoIA[] = [];
-    const diagnostico = await diagnosticarConIA(hallazgos, agrupadoras, modeloIABalance(), usos);
+    const diagnostico = await diagnosticarConIA(hallazgos, agrupadoras, modeloIABalance(proveedorIA), usos, proveedorIA);
 
     const user = await getCurrentUser();
     await registrarConsumoIA(usos, {

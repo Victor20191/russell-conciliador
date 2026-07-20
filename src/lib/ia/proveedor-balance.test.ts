@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   configuracionIABalanceUI,
+  correoAutorizadoIAPruebas,
   iaBalanceDisponible,
   mensajeIABalanceNoDisponible,
   modoDesarrolloIABalanceActivo,
@@ -67,5 +68,33 @@ describe("proveedorIABalance", () => {
     vi.stubEnv("BALANCE_AI_PROVIDER", "otro");
     expect(() => proveedorIABalance()).toThrow(/BALANCE_AI_PROVIDER inválido/);
     expect(() => proveedorIABalance("otro")).toThrow(/BALANCE_AI_PROVIDER inválido/);
+  });
+
+  it("permite Gemini en producción cuando la frontera autorizó la sesión", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("BALANCE_AI_DEV_SELECTOR", "");
+    vi.stubEnv("GEMINI_API_KEY", "clave-prueba");
+
+    expect(proveedorIABalance("gemini", { autorizado: true })).toBe("gemini");
+    expect(modeloIABalance(proveedorIABalance("gemini", { autorizado: true }))).toContain("gemini");
+    // Sin selección explícita el predeterminado sigue siendo el flujo de producción.
+    expect(proveedorIABalance(undefined, { autorizado: true })).toBe("anthropic");
+    expect(configuracionIABalanceUI({ autorizado: true })?.predeterminado).toBe("anthropic");
+    // Sin la autorización de la frontera, todo queda forzado como antes.
+    expect(proveedorIABalance("gemini")).toBe("anthropic");
+    expect(configuracionIABalanceUI()).toBeNull();
+  });
+});
+
+describe("correoAutorizadoIAPruebas", () => {
+  it("acepta solo correos del dominio corporativo (insensible a mayúsculas)", () => {
+    expect(correoAutorizadoIAPruebas("admin@xentria.co")).toBe(true);
+    expect(correoAutorizadoIAPruebas("  Luisa@XENTRIA.CO ")).toBe(true);
+    expect(correoAutorizadoIAPruebas("staff@cliente.com")).toBe(false);
+    expect(correoAutorizadoIAPruebas("falso@noxentria.co")).toBe(false);
+    expect(correoAutorizadoIAPruebas("xentria.co@gmail.com")).toBe(false);
+    expect(correoAutorizadoIAPruebas("")).toBe(false);
+    expect(correoAutorizadoIAPruebas(null)).toBe(false);
+    expect(correoAutorizadoIAPruebas(undefined)).toBe(false);
   });
 });

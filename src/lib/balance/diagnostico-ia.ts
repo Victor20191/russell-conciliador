@@ -10,7 +10,7 @@ import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { getAnthropic, conReintentoSinTemperatura, MODELO_EXTRACCION } from "@/lib/anthropic";
 import { completarJsonEstructuradoGemini } from "@/lib/gemini";
-import { modeloIABalance, proveedorIABalance, usoTokensGemini } from "@/lib/ia/proveedor-balance";
+import { modeloIABalance, proveedorIABalance, usoTokensGemini, type ProveedorIABalance } from "@/lib/ia/proveedor-balance";
 import type { UsoIA } from "@/lib/ia/uso";
 import type { Hallazgo } from "./diagnostico";
 import type { AgrupadoraRef } from "./borrador-vm";
@@ -52,6 +52,7 @@ export async function diagnosticarConIA(
   agrupadoras: AgrupadoraRef[],
   modelo: string = MODELO_EXTRACCION,
   usosOut?: UsoIA[],
+  proveedorIA?: ProveedorIABalance,
 ): Promise<DiagnosticoIA | null> {
   if (hallazgos.length === 0) return null;
   const hall = hallazgos
@@ -66,8 +67,10 @@ export async function diagnosticarConIA(
     .join("\n");
   const prompt = `HALLAZGOS DETERMINISTAS (ya calculados):\n${hall}\n\nAGRUPADORAS (código | nombre | saldo | Δ):\n${estructura}\n\nAnaliza y devuelve hipótesis de la causa del descuadre con las cuentas implicadas y la corrección.`;
 
-  if (proveedorIABalance() === "gemini") {
-    const modeloGemini = modeloIABalance();
+  // Proveedor YA autorizado por la frontera; sin valor explícito, compuerta de entorno.
+  const proveedor = proveedorIA ?? proveedorIABalance();
+  if (proveedor === "gemini") {
+    const modeloGemini = modeloIABalance(proveedor);
     const r = await completarJsonEstructuradoGemini(
       {
         model: modeloGemini,

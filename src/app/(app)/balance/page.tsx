@@ -8,7 +8,7 @@ import BalanceIndexClient, {
   type AuditRow,
 } from "./balance-index-client";
 import { fmtDateTime } from "@/lib/format";
-import { configuracionIABalanceUI } from "@/lib/ia/proveedor-balance";
+import { configuracionIABalanceUISesion } from "@/lib/ia/proveedor-balance-sesion";
 
 export default async function BalancePage() {
   await requirePermiso("balance:ver");
@@ -37,7 +37,9 @@ export default async function BalancePage() {
   // por cliente se verifica de nuevo en la Server Action al enviar.
   const canUpload = (await authorizePermiso("balance:crear")).ok;
   const uploadClients = canUpload ? carteraClientes : [];
-  const configuracionIA = canUpload ? configuracionIABalanceUI() : null;
+  // Selector de proveedor: visible en dev autorizado o para usuarios del
+  // dominio corporativo (la Server Action re-verifica al enviar).
+  const configuracionIA = canUpload ? await configuracionIABalanceUISesion() : null;
 
   // Agrupar por cliente → períodos. La clave es el clienteId (NO el nombre, que
   // es denormalizado: dos clientes homónimos no deben fusionarse y un cliente
