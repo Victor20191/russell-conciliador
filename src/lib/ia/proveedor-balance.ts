@@ -101,11 +101,11 @@ export function configuracionIABalanceUI(opciones?: OpcionesAutorizacion): Confi
     opciones: [
       {
         valor: "gemini",
-        etiqueta: `Gemini · ${MODELO_GEMINI_BALANCE} — económico para pruebas`,
+        etiqueta: "Google",
       },
       {
         valor: "anthropic",
-        etiqueta: `Anthropic · Claude — flujo de producción (${MODELO_EXTRACCION})`,
+        etiqueta: "Anthropic",
       },
     ],
   };

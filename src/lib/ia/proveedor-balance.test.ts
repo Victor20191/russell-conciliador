@@ -34,7 +34,12 @@ describe("proveedorIABalance", () => {
     expect(proveedorIABalance("gemini")).toBe("gemini");
     expect(modeloIABalance("gemini")).toContain("gemini");
     expect(iaBalanceDisponible("gemini")).toBe(true);
-    expect(configuracionIABalanceUI()?.predeterminado).toBe("anthropic");
+    const configuracion = configuracionIABalanceUI();
+    expect(configuracion?.predeterminado).toBe("anthropic");
+    expect(configuracion?.opciones).toEqual([
+      { valor: "gemini", etiqueta: "Google" },
+      { valor: "anthropic", etiqueta: "Anthropic" },
+    ]);
   });
 
   it("fuerza Anthropic en producción aunque el entorno pida Gemini", () => {

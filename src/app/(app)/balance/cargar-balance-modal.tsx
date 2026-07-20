@@ -274,12 +274,8 @@ function CargarBalanceModal({
 
           {configuracionIA && (
             <div className="rounded-md border border-ai-100 bg-ai-100/30 px-3 py-2.5">
-              <div className="mb-2 flex items-center gap-2">
-                <span className="text-ai-700"><Icon name="ai" size={14} /></span>
-                <span className="text-[11.5px] font-semibold uppercase tracking-wide text-ai-700">Solo desarrollo local</span>
-              </div>
               <label className="flex flex-col gap-1.5">
-                <span className="text-[11.5px] font-medium text-ink-700">Modelo de IA para esta carga</span>
+                <span className="text-[11.5px] font-medium text-ink-700">Proveedor de IA para esta carga</span>
                 <select
                   name="modeloIA"
                   defaultValue={configuracionIA.predeterminado}
@@ -290,9 +286,6 @@ function CargarBalanceModal({
                   ))}
                 </select>
               </label>
-              <p className="mt-1.5 text-[11px] leading-relaxed text-ink-500">
-                Se aplica a la lectura y homologación de este archivo. En cualquier despliegue para clientes este control no existe y el servidor usa únicamente Anthropic.
-              </p>
             </div>
           )}
 
@@ -349,7 +342,7 @@ function OrigenChip({
     ia: {
       label:
         proveedor === "gemini"
-          ? "Estructura detectada · Gemini (pruebas)"
+          ? "Estructura detectada · Google"
           : "Estructura detectada · Anthropic",
       tone: "ai" as const,
     },
