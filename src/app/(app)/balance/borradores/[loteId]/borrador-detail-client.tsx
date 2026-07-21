@@ -17,6 +17,7 @@ import type { ValidacionContable } from "@/lib/balance/calcular";
 import type { Hallazgo } from "@/lib/balance/diagnostico";
 import type { DiagnosticoIA } from "@/lib/balance/diagnostico-ia";
 import { notifyActionState, notifySuccess, notifyError } from "@/lib/client-notifications";
+import { SelectorClienteBuscable } from "@/components/selector-cliente-buscable";
 
 type Cliente = { id: number; name: string; nit: string; notas?: string | null };
 
@@ -396,13 +397,13 @@ export default function BorradorDetailClient({
         <form action={cargarAction} className="flex flex-col gap-3">
           <input type="hidden" name="loteId" value={loteId} />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <label className="flex flex-col gap-1.5 sm:col-span-1">
-              <span className="text-[11.5px] font-medium text-ink-600">Cliente</span>
-              <select name="clientId" required value={clienteSelId ? String(clienteSelId) : ""} onChange={(e) => setClienteSelId(e.target.value ? Number(e.target.value) : null)} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400">
-                <option value="" disabled>Selecciona el cliente…</option>
-                {clientes.map((c) => <option key={c.id} value={c.id}>{c.name} — {c.nit}</option>)}
-              </select>
-            </label>
+            <SelectorClienteBuscable
+              clients={clientes}
+              value={clienteSelId}
+              onChange={setClienteSelId}
+              name="clientId"
+              className="sm:col-span-1"
+            />
             <label className="flex flex-col gap-1.5">
               <span className="text-[11.5px] font-medium text-ink-600">Período desde</span>
               <input type="date" name="periodoInicio" required value={periodoIni} onChange={(e) => setPeriodoIni(e.target.value)} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400" />
@@ -1001,17 +1002,11 @@ function GateClientePeriodo({
           {nitDetectado ? <>El NIT detectado <span className="font-mono">{nitDetectado}</span> no coincide con ningún cliente.</> : <>No se detectó el cliente en el archivo.</>}{" "}
           Elige el cliente y el período para aplicar sus preferencias y notas de carga, y poder cargar el balance.
         </p>
-        <label className="flex flex-col gap-1">
-          <span className="text-[11px] font-medium text-ink-600">Cliente</span>
-          <select
-            value={sel}
-            onChange={(e) => setSel(e.target.value)}
-            className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400"
-          >
-            <option value="" disabled>Selecciona el cliente…</option>
-            {clientes.map((c) => <option key={c.id} value={c.id}>{c.name} — {c.nit}</option>)}
-          </select>
-        </label>
+        <SelectorClienteBuscable
+          clients={clientes}
+          value={sel ? Number(sel) : null}
+          onChange={(clientId) => setSel(clientId == null ? "" : String(clientId))}
+        />
         <div className="grid grid-cols-2 gap-3">
           <label className="flex flex-col gap-1">
             <span className="text-[11px] font-medium text-ink-600">Período desde</span>
