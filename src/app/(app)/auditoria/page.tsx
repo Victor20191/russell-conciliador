@@ -7,9 +7,18 @@ import { fmtDateTimeSeconds } from "@/lib/format";
 
 export default async function AuditoriaPage({ searchParams }: { searchParams: Promise<{ q?: string; user?: string; action?: string }> }) {
   await requirePermiso("auditoria:ver");
-  const canAccesos = (await authorizePermiso("auditoria:accesos")).ok;
-  const sp = await searchParams;
-  const all = await prisma.auditEntry.findMany({ orderBy: { createdAt: "desc" } });
+  const [accesosAuth, sp, all] = await Promise.all([
+    authorizePermiso("auditoria:accesos"),
+    searchParams,
+    prisma.auditEntry.findMany({
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true, createdAt: true, user: true, action: true,
+        entity: true, detail: true, ip: true,
+      },
+    }),
+  ]);
+  const canAccesos = accesosAuth.ok;
 
   const users = [...new Set(all.map((e) => e.user))].sort();
   const actions = [...new Set(all.map((e) => e.action))].sort();

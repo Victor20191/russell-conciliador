@@ -36,15 +36,12 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
   const clientId = balance.clienteId;
   await requirePermiso("balance:ver", { clientId });
 
-  // Editar (congelar) exige, además, ALCANCE de escritura sobre el cliente de
-  // ESTE balance: así el botón se oculta para quien no podría ejecutar la acción.
-  const puedeEditar = (await authorizePermiso("balance:editar", { clientId })).ok;
-  // Mapear líneas del balance al estándar: Staff y Admin (balance:crear).
-  const puedeMapear = (await authorizePermiso("balance:crear", { clientId })).ok;
-
   // Agregados RECALCULADOS desde el detalle. Plan estándar (cacheado), subgrupos
-  // (nombres de nivel 4/2) y la bitácora de versiones se cargan en paralelo.
-  const [cuentasEstandar, subgrupos, hermanos, comentariosGrp] = await Promise.all([
+  // (nombres de nivel 4/2), la bitácora y los permisos de UI se cargan en una
+  // sola ola después de validar el alcance de lectura.
+  const [editarAuth, mapearAuth, cuentasEstandar, subgrupos, hermanos, comentariosGrp, validacionesRows] = await Promise.all([
+    authorizePermiso("balance:editar", { clientId }),
+    authorizePermiso("balance:crear", { clientId }),
     getCuentasEstandar(),
     prisma.subgrupoEstandar.findMany({ select: { codigo: true, nombre: true, grupo: true, nombreGrupo: true } }),
     prisma.balancePruebaEncabezado.findMany({
@@ -54,15 +51,19 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
     }),
     // Conteo de comentarios por cuenta (ancla) de este balance, para los badges del árbol.
     prisma.comment.groupBy({ by: ["anchor"], where: { entityType: "balance", entityId: id }, _count: { _all: true } }),
+    // Alertas ya VALIDADAS (OK + comentario) de este balance → se retiran de la vista.
+    prisma.validacionAlerta.findMany({
+      where: { balanceId: id },
+      select: { anchor: true, tipoAlerta: true, validadoPor: true, validadoEn: true, comment: { select: { body: true } } },
+    }),
   ]);
+  // Editar (congelar) y mapear exigen alcance de escritura; las Server Actions
+  // vuelven a verificarlo al ejecutar.
+  const puedeEditar = editarAuth.ok;
+  const puedeMapear = mapearAuth.ok;
   const comentariosPorAncla: Record<string, number> = {};
   for (const g of comentariosGrp) if (g.anchor) comentariosPorAncla[g.anchor] = g._count._all;
 
-  // Alertas ya VALIDADAS (OK + comentario) de este balance → se retiran de la vista.
-  const validacionesRows = await prisma.validacionAlerta.findMany({
-    where: { balanceId: id },
-    select: { anchor: true, tipoAlerta: true, validadoPor: true, validadoEn: true, comment: { select: { body: true } } },
-  });
   const validaciones: Record<string, { tipo: string; por: string; en: string; comentario: string }> = {};
   for (const v of validacionesRows) validaciones[v.anchor] = { tipo: v.tipoAlerta, por: v.validadoPor ?? "—", en: fmtDateTime(v.validadoEn), comentario: v.comment?.body ?? "" };
   const filas = balance.detalles.map((f) => ({

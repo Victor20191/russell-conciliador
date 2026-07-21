@@ -61,7 +61,7 @@ function aplicarCambios(
 }
 
 export default function BorradorDetailClient({
-  loteId, nitDetectado, periodoInicial, periodoFinal, filas, clientes, clienteSugeridoId, spec,
+  loteId, nitDetectado, periodoInicial, periodoFinal, filas, porTerceroDetectado, clientes, clienteSugeridoId, spec,
 }: {
   loteId: string;
   archivoNombre: string;
@@ -69,6 +69,7 @@ export default function BorradorDetailClient({
   periodoInicial: string | null;
   periodoFinal: string | null;
   filas: FilaBorrador[];
+  porTerceroDetectado: boolean;
   clientes: Cliente[];
   clienteSugeridoId: number | null;
   spec: SpecCarga | null;
@@ -114,7 +115,8 @@ export default function BorradorDetailClient({
   const nCambios = Object.keys(overrideEfectivo).length + invertidos.length + Object.keys(desacopladas).length + Object.keys(omitidas).length + Object.keys(padres).length;
   const hayCambios = nCambios > 0;
   // View-model recomputado LOCALMENTE con los cambios temporales (sin tocar la BD).
-  const { arbol, validacion, partidaDoble, hallazgos, porTercero, relistadoGuiones, filasOcultas, clasesCorregidas, nitTachados } = useMemo(() => construirVistaBorrador(aplicarCambios(filas, overrideEfectivo, invertidos, desacopladas, omitidas, padres)), [filas, overrideEfectivo, invertidos, desacopladas, omitidas, padres]);
+  const { arbol, validacion, partidaDoble, hallazgos, porTercero: porTerceroCalculado, relistadoGuiones, filasOcultas, clasesCorregidas, nitTachados } = useMemo(() => construirVistaBorrador(aplicarCambios(filas, overrideEfectivo, invertidos, desacopladas, omitidas, padres)), [filas, overrideEfectivo, invertidos, desacopladas, omitidas, padres]);
+  const porTercero = porTerceroDetectado || porTerceroCalculado;
 
   // AUTO-CORRECCIÓN de anidado por orden: en un export jerárquico (subtotales + auxiliares
   // como filas), «solo hojas» re-anida cada auxiliar bajo su subtotal por ORDEN. Se calcula

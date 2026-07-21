@@ -31,14 +31,16 @@ export default async function BalanceDiffPage({ params }: { params: Promise<{ id
   await requirePermiso("balance:ver", { clientId: balance.clienteId });
 
   // Versión anterior (cargada antes de esta) del mismo cliente/período.
-  const previa = await prisma.balancePruebaEncabezado.findFirst({
-    where: { clienteId: balance.clienteId, periodo: balance.periodo, creadoEn: { lt: balance.creadoEn } },
-    orderBy: { creadoEn: "desc" },
-    include: { detalles: { select: selectDet } },
-  });
+  const [previa, cuentasEstandar] = await Promise.all([
+    prisma.balancePruebaEncabezado.findFirst({
+      where: { clienteId: balance.clienteId, periodo: balance.periodo, creadoEn: { lt: balance.creadoEn } },
+      orderBy: { creadoEn: "desc" },
+      include: { detalles: { select: selectDet } },
+    }),
+    getCuentasEstandar(),
+  ]);
   if (!previa) notFound();
 
-  const cuentasEstandar = await getCuentasEstandar();
   const calcActual = reconstruirBalance(aFilas(balance.detalles), cuentasEstandar);
   const calcPrev = reconstruirBalance(aFilas(previa.detalles), cuentasEstandar);
   const diff: DiffData = compararBalances(aplanarBreakdown(calcPrev.breakdown), aplanarBreakdown(calcActual.breakdown));

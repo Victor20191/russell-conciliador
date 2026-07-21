@@ -21,23 +21,50 @@ export default async function DashboardPage({
 }) {
   await requirePermiso("dashboard:ver");
   const { pwd } = await searchParams;
-  const user = await getCurrentUser();
-  const puedeCrearConciliacion = (await authorizePermiso("conciliaciones:crear")).ok;
   // Todos los indicadores se limitan a la cartera del usuario (Admin/Superadmin
   // ven la plataforma completa). La actividad del equipo (auditoría) es
   // transversal y se mantiene global.
-  const alc = await alcanceLecturaUsuario();
+  const [user, crearConciliacionAuth, alc] = await Promise.all([
+    getCurrentUser(),
+    authorizePermiso("conciliaciones:crear"),
+    alcanceLecturaUsuario(),
+  ]);
+  const puedeCrearConciliacion = crearConciliacionAuth.ok;
   const recWhere = alc.todos ? {} : { clientId: { in: alc.clientIds } };
   const cmWhere = alc.todos ? {} : { clientId: { in: alc.clientIds } };
   const rowWhere = alc.todos ? {} : { reconciliation: { clientId: { in: alc.clientIds } } };
   const clientWhere = alc.todos ? {} : { id: { in: alc.clientIds } };
   const [recs, diffSum, configuredCount, pendingCount, activity, pendingClients] = await Promise.all([
-    prisma.reconciliation.findMany({ where: recWhere, orderBy: { createdAt: "desc" }, take: 50 }),
+    prisma.reconciliation.findMany({
+      where: recWhere,
+      orderBy: { createdAt: "desc" },
+      take: 50,
+      select: {
+        id: true, clientName: true, module: true, erp: true, diff: true,
+        status: true, owner: true,
+      },
+    }),
     prisma.reconciliationRow.aggregate({ where: rowWhere, _sum: { diff: true } }),
     prisma.clientModule.count({ where: { status: "configured", ...cmWhere } }),
     prisma.clientModule.count({ where: { status: "pending", ...cmWhere } }),
-    prisma.auditEntry.findMany({ orderBy: { createdAt: "desc" }, take: 6 }),
-    prisma.client.findMany({ where: { ...clientWhere, modules: { some: { status: "pending" } } }, take: 20, include: { erp: { select: { name: true } }, modules: { where: { status: "pending" }, include: { module: true } } } }),
+    prisma.auditEntry.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 6,
+      select: { id: true, user: true, action: true, entity: true, detail: true, createdAt: true },
+    }),
+    prisma.client.findMany({
+      where: { ...clientWhere, modules: { some: { status: "pending" } } },
+      take: 20,
+      select: {
+        id: true,
+        name: true,
+        erp: { select: { name: true } },
+        modules: {
+          where: { status: "pending" },
+          select: { id: true, module: { select: { name: true } } },
+        },
+      },
+    }),
   ]);
 
   const inProcess = recs.filter((r) => r.status === "DIFF" || r.status === "REVIEW").length;

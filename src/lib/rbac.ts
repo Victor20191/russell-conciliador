@@ -40,11 +40,17 @@ async function decidir(permiso: string, opts: AuthzOpts): Promise<AuthzResult> {
   if (session.mustChangePassword) redirect("/cambiar-contrasena");
 
   const modulo = moduloDelPermiso(permiso);
-  if (!(await moduloDisponibleParaRol(session.role, modulo))) {
+  // La publicación del módulo y la matriz de permisos son independientes.
+  // En una instancia fría ambas pueden consultar la BD/Data Cache; iniciarlas
+  // juntas evita pagar dos viajes consecutivos en TODAS las rutas protegidas.
+  const [moduloDisponible, matriz] = await Promise.all([
+    moduloDisponibleParaRol(session.role, modulo),
+    getMatriz(),
+  ]);
+  if (!moduloDisponible) {
     return { ok: false, message: "Este módulo no está habilitado para tu rol." };
   }
 
-  const matriz = await getMatriz();
   if (!tienePermiso(matriz, session.role, permiso)) {
     return { ok: false, message: "No tienes permisos para esta acción." };
   }

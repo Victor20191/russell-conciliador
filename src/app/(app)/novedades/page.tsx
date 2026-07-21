@@ -1,8 +1,5 @@
 import prisma from "@/lib/prisma";
-import { requirePermiso } from "@/lib/rbac";
-import { getMatriz } from "@/lib/rbac/contexto";
-import { tienePermiso } from "@/lib/rbac/permisos";
-import { getCurrentUser } from "@/lib/dal";
+import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import NovedadesClient, { type VersionRow } from "./novedades-client";
 
 // Módulo de NOVEDADES (changelog + control de versiones), admin-only. El guard
@@ -11,14 +8,14 @@ import NovedadesClient, { type VersionRow } from "./novedades-client";
 export default async function NovedadesPage() {
   await requirePermiso("novedades:ver");
 
-  const user = await getCurrentUser();
-  const matriz = await getMatriz();
-  const canManage = user ? tienePermiso(matriz, user.role, "novedades:administrar") : false;
-
-  const versiones = await prisma.platformVersion.findMany({
-    orderBy: [{ order: "desc" }, { id: "desc" }],
-    include: { changes: { orderBy: [{ order: "asc" }, { id: "asc" }] } },
-  });
+  const [administrarAuth, versiones] = await Promise.all([
+    authorizePermiso("novedades:administrar"),
+    prisma.platformVersion.findMany({
+      orderBy: [{ order: "desc" }, { id: "desc" }],
+      include: { changes: { orderBy: [{ order: "asc" }, { id: "asc" }] } },
+    }),
+  ]);
+  const canManage = administrarAuth.ok;
 
   // Serializa a tipos planos (fechas → ISO) para el client component.
   const versions: VersionRow[] = versiones.map((v) => ({

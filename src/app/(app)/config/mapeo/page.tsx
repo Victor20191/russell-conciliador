@@ -1,9 +1,7 @@
 import prisma from "@/lib/prisma";
 import { codigosEstandarConBalances } from "@/lib/balance/asociacion";
 import { authorizePermiso, requirePermiso } from "@/lib/rbac";
-import { alcanceLecturaUsuario, getMatriz } from "@/lib/rbac/contexto";
-import { tienePermiso } from "@/lib/rbac/permisos";
-import { getCurrentUser } from "@/lib/dal";
+import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { PageHeader } from "@/components/ui";
 import MapeoClient, {
   type Account,
@@ -15,11 +13,27 @@ import MapeoClient, {
 
 export default async function MapeoPage({ searchParams }: { searchParams: Promise<{ cliente?: string }> }) {
   await requirePermiso("mapeo:ver");
-  const sp = await searchParams;
   // El selector ofrece SOLO los clientes de la cartera del usuario; el `cliente`
   // elegido (searchParams) se valida contra esa lista, de modo que no puede
   // consultarse el plan de cuentas de un cliente ajeno por la URL.
-  const alc = await alcanceLecturaUsuario();
+  const [sp, alc, administrarAuth] = await Promise.all([
+    searchParams,
+    alcanceLecturaUsuario(),
+    authorizePermiso("mapeo:administrar"),
+  ]);
+  const canManage = administrarAuth.ok;
+
+  // Estas lecturas globales no dependen del cliente elegido. Se inician antes
+  // del selector para solaparlas con la consulta de balances.
+  const standardPromise = prisma.standardAccount.findMany({ orderBy: { code: "asc" } });
+  const subgruposPromise = prisma.subgrupoEstandar.findMany({ orderBy: { codigo: "asc" } });
+  const logsPromise = canManage
+    ? prisma.standardAccountLog.findMany({ orderBy: { createdAt: "desc" }, take: 1000 })
+    : Promise.resolve([]);
+  const lockedStdCodesPromise = canManage
+    ? codigosEstandarConBalances()
+    : Promise.resolve<string[]>([]);
+
   const balances = await prisma.balancePruebaEncabezado.findMany({
     where: alc.todos ? {} : { clienteId: { in: alc.clientIds } },
     select: { clienteId: true, nombreCliente: true, nit: true },
@@ -29,38 +43,30 @@ export default async function MapeoPage({ searchParams }: { searchParams: Promis
   const clientNames = [...new Set(balances.map((b) => b.nombreCliente))];
   const cliente = sp.cliente && clientNames.includes(sp.cliente) ? sp.cliente : (clientNames.includes("El Zarzal S.A") ? "El Zarzal S.A" : clientNames[0] ?? "");
 
-  // Solo el Administrador parametriza el plan estándar (gate `mapeo:administrar`).
-  // El flag controla la UI; la autoridad real sigue siendo el gate de la action.
-  const user = await getCurrentUser();
-  const matriz = await getMatriz();
-  const canManage = user ? tienePermiso(matriz, user.role, "mapeo:administrar") : false;
   // Memoria de mapeo por cliente (pestaña "Mapeo balance/cliente"): clienteId del
   // cliente seleccionado + flag de escritura (la action revalida el alcance real).
   const clienteRow = cliente ? balances.find((b) => b.nombreCliente === cliente) ?? null : null;
   const clienteId = clienteRow?.clienteId ?? null;
   const clienteNit = clienteRow?.nit ?? null;
-  const puedeMapear = clienteId
-    ? (await authorizePermiso("balance:crear", { clientId: clienteId })).ok
-    : false;
-
-  const [accounts, standard, subgruposRows, logs, lockedStdCodes, mapeoRows] = await Promise.all([
+  const [puedeMapear, accounts, standard, subgruposRows, logs, lockedStdCodes, mapeoRows] = await Promise.all([
+    clienteId
+      ? authorizePermiso("balance:crear", { clientId: clienteId }).then((result) => result.ok)
+      : Promise.resolve(false),
     clienteId
       ? prisma.clientAccount.findMany({
           where: { clienteId },
           orderBy: [{ order: "asc" }, { code: "asc" }],
         })
       : Promise.resolve([]),
-    prisma.standardAccount.findMany({ orderBy: { code: "asc" } }),
-    prisma.subgrupoEstandar.findMany({ orderBy: { codigo: "asc" } }),
+    standardPromise,
+    subgruposPromise,
     // Bitácora dedicada: solo se carga para quien puede administrar (los más
     // recientes; la tabla conserva el histórico completo + espejo en /auditoria).
-    canManage
-      ? prisma.standardAccountLog.findMany({ orderBy: { createdAt: "desc" }, take: 1000 })
-      : Promise.resolve([]),
+    logsPromise,
     // Códigos de cuenta estándar que YA tienen balances asociados (global): el
     // formulario bloquea el campo de código y el borrado de esas cuentas. Solo
     // se calcula para quien administra el plan.
-    canManage ? codigosEstandarConBalances() : Promise.resolve<string[]>([]),
+    lockedStdCodesPromise,
     clienteId
       ? prisma.clientAccount.findMany({
           where: { clienteId, level: 6, cuenta6Russell: { not: null } },

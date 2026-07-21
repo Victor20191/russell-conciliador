@@ -14,9 +14,13 @@ export default async function BalancePage() {
   await requirePermiso("balance:ver");
   // Cartera de lectura: cada usuario ve solo los balances de SUS clientes
   // (Admin/Superadmin ven todos). El encabezado referencia al cliente por id.
-  const alc = await alcanceLecturaUsuario();
+  const [alc, crearBalanceAuth] = await Promise.all([
+    alcanceLecturaUsuario(),
+    authorizePermiso("balance:crear"),
+  ]);
+  const canUpload = crearBalanceAuth.ok;
   const whereCliente = alc.todos ? {} : { clienteId: { in: alc.clientIds } };
-  const [encabezados, carteraClientes] = await Promise.all([
+  const [encabezados, carteraClientes, configuracionIA] = await Promise.all([
     prisma.balancePruebaEncabezado.findMany({
       where: whereCliente,
       orderBy: { creadoEn: "desc" },
@@ -32,14 +36,11 @@ export default async function BalancePage() {
       select: { id: true, name: true, nit: true },
       orderBy: { name: "asc" },
     }),
+    canUpload ? configuracionIABalanceUISesion() : Promise.resolve(null),
   ]);
   // Cargar balance = permiso de rol (Staff es el único operativo). El alcance
   // por cliente se verifica de nuevo en la Server Action al enviar.
-  const canUpload = (await authorizePermiso("balance:crear")).ok;
   const uploadClients = canUpload ? carteraClientes : [];
-  // Selector de proveedor: visible en dev autorizado o para usuarios del
-  // dominio corporativo (la Server Action re-verifica al enviar).
-  const configuracionIA = canUpload ? await configuracionIABalanceUISesion() : null;
 
   // Agrupar por cliente → períodos. La clave es el clienteId (NO el nombre, que
   // es denormalizado: dos clientes homónimos no deben fusionarse y un cliente

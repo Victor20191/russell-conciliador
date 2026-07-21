@@ -16,7 +16,22 @@ export default async function UsuariosPage() {
   await requirePermiso("usuarios:ver");
   const rolesSuperiores = [...new Set(Object.values(ROL_SUPERIOR))];
   const [users, roles, currentUser, superioresBD, aristasBD] = await Promise.all([
-    prisma.user.findMany({ orderBy: { name: "asc" } }),
+    prisma.user.findMany({
+      orderBy: { name: "asc" },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        role: true,
+        initials: true,
+        avatarKey: true,
+        active: true,
+        lastLoginAt: true,
+        failedLoginAttempts: true,
+        blockedUntil: true,
+        updatedAt: true,
+      },
+    }),
     prisma.role.findMany({
       where: { active: true, code: { notIn: [...ROLES_LEGADO] } },
       orderBy: { rank: "desc" },

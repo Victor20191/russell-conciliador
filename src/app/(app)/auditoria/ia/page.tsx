@@ -35,7 +35,7 @@ export default async function ConsumoIAPage() {
   const inicioMes = inicioMesColombia(ahora);
   const whereMes = { creadoEn: { gte: inicioMes } };
 
-  const [resumenMes, escaneosMes, porTipo, consumoMesCliente, totalHist, detalle, trm] = await Promise.all([
+  const [resumenMes, escaneosMes, porTipo, consumoMesCliente, totalHist, detalle, trm, clientes] = await Promise.all([
     prisma.consumoIA.aggregate({
       where: whereMes,
       _sum: {
@@ -67,12 +67,12 @@ export default async function ConsumoIAPage() {
       },
     }),
     getTRM(),
+    prisma.client.findMany({ select: { id: true, name: true, nit: true } }),
   ]);
 
   // Resolver nombres de cliente. clienteId es FK suave; para extracciones previas
   // a la confirmación se usa el NIT detectado o, si falta, el archivo cuando sus
   // llamadas de mapeo apuntan a un único cliente.
-  const clientes = await prisma.client.findMany({ select: { id: true, name: true, nit: true } });
   const nombreCliente = new Map(clientes.map((c) => [c.id, c.name]));
   const clientePorNit = new Map(
     clientes.flatMap((c) => {
