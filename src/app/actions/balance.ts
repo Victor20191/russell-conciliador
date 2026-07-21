@@ -267,6 +267,62 @@ async function cuentasDesdeStaging(loteId: string): Promise<CuentaCruda[]> {
   return conForzarHoja(agregarStagingPorCuenta(movNetas));
 }
 
+/**
+ * Mantiene actualizado el snapshot ligero que consume la LISTA de borradores.
+ * El cálculo completo se paga una sola vez al guardar cambios del borrador, no
+ * cada vez que cualquier usuario abre `/balance/borradores`.
+ */
+async function actualizarResumenLoteBorrador(loteId: string) {
+  const staged = await prisma.balanceImportacionStaging.findMany({
+    where: { loteId },
+    orderBy: { filaNum: "asc" },
+    select: {
+      filaNum: true,
+      codigo: true,
+      codigoCrudo: true,
+      nombre: true,
+      nivel: true,
+      tipoFila: true,
+      desacoplada: true,
+      omitida: true,
+      padreManual: true,
+      saldoInicial: true,
+      debitos: true,
+      creditos: true,
+      saldoFinal: true,
+    },
+  });
+  if (staged.length === 0) return;
+
+  const filas: FilaBorrador[] = staged.map((fila) => ({
+    filaNum: fila.filaNum,
+    codigo: fila.codigo,
+    codigoCrudo: fila.codigoCrudo,
+    nombre: fila.nombre,
+    nivel: fila.nivel,
+    tipoFila: fila.tipoFila as TipoFila,
+    desacoplada: fila.desacoplada,
+    omitida: fila.omitida ?? undefined,
+    padreManual: fila.padreManual,
+    saldoInicial: Number(fila.saldoInicial),
+    debitos: Number(fila.debitos),
+    creditos: Number(fila.creditos),
+    saldoFinal: Number(fila.saldoFinal),
+  }));
+  const diagnostico = construirVistaBorrador(filas).diagnostico;
+
+  await prisma.balanceImportacionLote.updateMany({
+    where: { loteId },
+    data: {
+      cuentasMovimiento: diagnostico.movimientos,
+      filasLeidas: diagnostico.filas,
+      partidaDobleDiff: diagnostico.partidaDobleDiff,
+      ecuacionDiff: diagnostico.ecuacionDiff,
+      cuadrado: diagnostico.cuadrado,
+    },
+  });
+}
+
 // Promueve un LOTE de staging a balance OFICIAL. Núcleo compartido por el flujo
 // del modal (`confirmarCargaBalance`, con payload firmado) y por el de la página
 // de borrador (`cargarBorrador`, con el encabezado persistido). Relee el staging,
@@ -1008,6 +1064,9 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
     extr.importReady.push({ code: f.codigo, name: f.nombre, prevBalance: f.saldoInicial, balance: f.saldoFinal, debitos: f.debitos, creditos: f.creditos });
   }
   const calcBorrador = calcularBalance(extr.importReady, []);
+  // Snapshot FINAL para la lista: reproduce el mismo pipeline que verá el detalle,
+  // ya con las preferencias y reclasificaciones aplicadas al staging definitivo.
+  const diagFinal = construirVistaBorrador(extr.filasCrudas.map((fila) => ({ ...fila }))).diagnostico;
   // Total del archivo por clase = SUMA de todas las filas totalizadoras de esa
   // clase (código "1"/"2"/"3"). En balances MULTI-SUCURSAL el ERP repite el total
   // de ACTIVO/PASIVO/PATRIMONIO por sucursal; sumarlas da el consolidado, que es
@@ -1064,8 +1123,8 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
       periodoFinal: extr.cabecera.periodoFinal.valor ? fechaCalendarioPrisma(extr.cabecera.periodoFinal.valor) : null,
       estandar: extr.cabecera.estandar, convencionCredito: extr.resumen.convencionCredito,
       cuentasMovimiento: extr.resumen.cuentasMovimiento, filasLeidas: extr.resumen.filasLeidas, filasExcluidas: extr.resumen.filasExcluidas,
-      partidaDobleDiff: calcBorrador.diffMov, ecuacionDiff: calcBorrador.diffCuadre,
-      cuadrado: calcBorrador.balanced && calcBorrador.movimientosCuadran,
+      partidaDobleDiff: diagFinal.partidaDobleDiff, ecuacionDiff: diagFinal.ecuacionDiff,
+      cuadrado: diagFinal.cuadrado,
       cargadoPor: p.usuario?.name ?? null, cargadoPorId: p.usuario?.id ?? null,
       huella: huellaFinal, origenExtraccion: p.origenExtraccion,
       ...(specCarga ? { specJson: specCarga } : {}),
@@ -1663,12 +1722,14 @@ export async function aplicarCambiosBorrador(
       const r = await prisma.balanceImportacionStaging.updateMany({ where: { loteId: id, filaNum: Number(fila) }, data: { padreManual } });
       nPad += r.count;
     }
+    await actualizarResumenLoteBorrador(id);
     const user = await getCurrentUser();
     await logAudit({ user: user?.name ?? "—", action: "GUARDÓ cambios en balance borrador", entity: id, detail: `${nRe} reclasificada(s), ${nInv} inversión(es), ${nDes} desacople(s), ${nOmi} omitida(s), ${nPad} re-parentada(s)` });
     // Huella diagnóstica: reclasificar/invertir mutan el staging sin marca durable,
     // así que se acumulan aquí (best-effort; los otros contadores se toman al cerrar).
     await acumularIntervencionManual(id, { reclasificadas: nRe, invertidas: nInv });
     revalidatePath(`/balance/borradores/${id}`);
+    revalidatePath("/balance/borradores");
     const nTotal = nRe + nInv + nDes + nOmi + nPad;
     return { ok: true, message: `Cambios guardados (${nTotal} fila${nTotal === 1 ? "" : "s"}).` };
   } catch (e) {
