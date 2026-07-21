@@ -4,7 +4,6 @@ import { startTransition, useActionState, useEffect, useRef, useState, useTransi
 import Link from "next/link";
 import { Icon } from "@/components/icons";
 import { Modal } from "@/components/modal";
-import { Chip } from "@/components/ui";
 import { fmt } from "@/lib/format";
 import {
   leerBalance,
@@ -291,30 +290,6 @@ function CargarBalanceModal({
   );
 }
 
-/** Chip con el ORIGEN de la estructura aplicada en la lectura. */
-function OrigenChip({
-  origen,
-  proveedor,
-}: {
-  origen: SugerenciaBalance["payload"]["origenExtraccion"];
-  proveedor: SugerenciaBalance["render"]["proveedorIA"];
-}) {
-  const map = {
-    perfil: { label: "Perfil guardado · sin IA", tone: "ok" as const },
-    ia: {
-      label:
-        proveedor === "gemini"
-          ? "Estructura detectada · Google"
-          : "Estructura detectada · Anthropic",
-      tone: "ai" as const,
-    },
-    plantilla: { label: "Plantilla limpia · sin IA", tone: "ink" as const },
-    manual: { label: "Estructura ajustada a mano", tone: "blue" as const },
-  };
-  const m = map[origen] ?? map.ia;
-  return <Chip label={m.label} tone={m.tone} />;
-}
-
 function FormRevisar({
   sug,
   clients,
@@ -358,17 +333,6 @@ function FormRevisar({
 
   return (
     <div className="flex flex-col gap-3.5">
-      <div className="flex items-start justify-between gap-2 rounded-md border border-ok-100 bg-ok-100/40 px-3 py-2.5 text-[12.5px] text-ok-700">
-        <span>
-          Leí <span className="font-semibold">{sug.payload.cuentas} cuenta(s)</span> de{" "}
-          <span className="font-mono">{sug.payload.archivoNombre}</span>. El archivo ya quedó guardado como borrador; continúa allí para completar la revisión antes de cargarlo.
-        </span>
-        <OrigenChip origen={sug.payload.origenExtraccion} proveedor={sug.render.proveedorIA} />
-      </div>
-
-      {/* La validación contable completa y el resumen de detección se muestran en
-          el borrador persistente. Aquí dejamos el cuadre y el movimiento. */}
-      <CuadreBanner c={sug.render.cuadre} />
       <DetalleMovimiento cuentas={sug.render.importReady} />
 
       {puedeEditar && sug.render.spec && (
@@ -730,53 +694,6 @@ export function EditorEstructura({
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-/**
- * Resultado del cuadre de las cuentas de movimiento (hojas) contra la fila
- * TOTALES del archivo. Si no se detectó fila de totales, queda informativo; si no
- * cuadra, es bloqueante (rojo) y el botón de carga se desactiva.
- */
-function CuadreBanner({ c }: { c: SugerenciaBalance["render"]["cuadre"] }) {
-  if (!c) return null;
-  // 1) Partida doble (lo más importante): Σ débitos debe ser EXACTAMENTE igual a Σ
-  // créditos, sin tolerancia de %. Si no, se alerta aunque coincida con TOTALES.
-  if (!c.partidaDobleCuadra) {
-    return (
-      <div className="rounded-md border border-warn-200 bg-warn-50 px-3 py-2.5 text-[12px] text-warn-700">
-        <div className="font-semibold">Débitos y créditos no coinciden (partida doble).</div>
-        <div className="mt-1">Débitos {fmt(c.sumaDebitos)} vs créditos {fmt(c.sumaCreditos)} · diferencia <span className="font-semibold">{fmt(c.diferenciaPartidaDoble)}</span>. Deben ser exactamente iguales.</div>
-        {c.detectado && c.cuadra && <div className="mt-1 text-warn-600">Cada columna sí coincide con la fila TOTALES del archivo, pero entre sí no cuadran: revisa el archivo origen.</div>}
-        <div className="mt-1">Puedes cargarlo igual: quedará <span className="font-semibold">marcado como descuadrado</span> (novedad) para revisión.</div>
-      </div>
-    );
-  }
-  // 2) Partida doble OK pero sin fila TOTALES en el archivo.
-  if (!c.detectado) {
-    return (
-      <div className="rounded-md border border-ok-100 bg-ok-100/40 px-3 py-2 text-[12px] text-ok-700">
-        <span className="font-semibold">Cuadre por partida doble: OK.</span> Débitos {fmt(c.sumaDebitos)} y créditos {fmt(c.sumaCreditos)} son iguales. (El archivo no trae fila TOTALES.)
-      </div>
-    );
-  }
-  // 3) Partida doble OK y coincide con la fila TOTALES.
-  if (c.cuadra) {
-    return (
-      <div className="rounded-md border border-ok-100 bg-ok-100/40 px-3 py-2 text-[12px] text-ok-700">
-        <span className="font-semibold">Cuadre: OK.</span> Débitos {fmt(c.sumaDebitos)} y créditos {fmt(c.sumaCreditos)} coinciden entre sí y con la fila TOTALES del archivo.
-      </div>
-    );
-  }
-  return (
-    <div className="rounded-md border border-err-200 bg-err-50 px-3 py-2.5 text-[12px] text-err-700">
-      <div className="font-semibold">No cuadra contra la fila TOTALES del archivo.</div>
-      <ul className="mt-1 list-disc space-y-0.5 pl-4">
-        <li>Débitos: hojas {fmt(c.sumaDebitos)} vs TOTALES {fmt(c.totalDebitos)} (Δ {fmt(c.diferenciaDebitos)})</li>
-        <li>Créditos: hojas {fmt(c.sumaCreditos)} vs TOTALES {fmt(c.totalCreditos)} (Δ {fmt(c.diferenciaCreditos)})</li>
-      </ul>
-      <div className="mt-1">Puedes cargarlo igual: quedará <span className="font-semibold">marcado como descuadrado</span> (novedad) para revisión, o revisa la jerarquía de cuentas (padres/auxiliares) y vuelve a leer el archivo — o corrige la estructura con «Ajustar estructura del archivo».</div>
     </div>
   );
 }
