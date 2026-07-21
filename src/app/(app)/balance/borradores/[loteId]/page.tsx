@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { requirePermiso } from "@/lib/rbac";
 import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
-import { PageHeader, BackLink } from "@/components/ui";
+import { BackLink } from "@/components/ui";
 import type { FilaBorrador } from "@/lib/balance/borrador";
 import { SpecCargaBalanceSchema } from "@/lib/definitions";
 import type { SpecCarga } from "@/lib/balance/extraccion/esquema";
@@ -171,10 +171,8 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
   return (
     <div>
       <div className="mb-3"><BackLink href="/balance/borradores" label="Volver a borradores" /></div>
-      <PageHeader
-        title={`Borrador · ${lote?.archivoNombre ?? "(sin encabezado)"}`}
-        subtitle="Estructura CRUDA extraída del Excel (sin homologación). Las agrupadoras cuyo total ≠ suma de sus cuentas aparecen subrayadas: ahí está el descuadre."
-      />
+      {/* El encabezado lo pinta el cliente: el botón de «filas tachadas» va en su
+          misma fila y su contador depende de los cambios en memoria del borrador. */}
       <BorradorDetailClient
         loteId={loteId}
         archivoNombre={lote?.archivoNombre ?? "(sin encabezado)"}

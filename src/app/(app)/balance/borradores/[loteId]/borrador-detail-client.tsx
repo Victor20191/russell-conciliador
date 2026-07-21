@@ -5,7 +5,7 @@ import { EstadoProcesando } from "@/components/estado-procesando";
 import { useActionState, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
-import { Card, Chip } from "@/components/ui";
+import { Card, Chip, PageHeader } from "@/components/ui";
 import { Modal } from "@/components/modal";
 import { fmt } from "@/lib/format";
 import { cargarBorrador, descartarBorrador, aplicarCambiosBorrador, asignarClienteBorrador, reprocesarBalanceConSpec, guardarPerfilDesdeEditor, guardarNotasDesdeEditor } from "@/app/actions/balance";
@@ -65,7 +65,7 @@ function aplicarCambios(
 }
 
 export default function BorradorDetailClient({
-  loteId, nitDetectado, periodoInicial, periodoFinal, filas, porTerceroDetectado, clientes, clienteSugeridoId, spec, correccionesAplicadas,
+  loteId, archivoNombre, nitDetectado, periodoInicial, periodoFinal, filas, porTerceroDetectado, clientes, clienteSugeridoId, spec, correccionesAplicadas,
 }: {
   loteId: string;
   archivoNombre: string;
@@ -83,6 +83,7 @@ export default function BorradorDetailClient({
   const [cargarState, cargarAction, cargando] = useActionState<ImportBalanceState, FormData>(cargarBorrador, {});
   const [descartando, startDescartar] = useTransition();
   const [confirmarDescarte, setConfirmarDescarte] = useState(false);
+  const [infoFilasExcluidas, setInfoFilasExcluidas] = useState(false); // modal informativo (no se monta hasta abrirlo)
   const [clienteSelId, setClienteSelId] = useState<number | null>(clienteSugeridoId); // sigue las notas del cliente
   const [periodoIni, setPeriodoIni] = useState(periodoInicial ?? "");
   const [periodoFin, setPeriodoFin] = useState(periodoFinal ?? "");
@@ -253,6 +254,26 @@ export default function BorradorDetailClient({
 
   return (
     <div className="flex flex-col gap-4">
+      <PageHeader
+        title={`Borrador · ${archivoNombre}`}
+        subtitle="Estructura CRUDA extraída del Excel (sin homologación). Las agrupadoras cuyo total ≠ suma de sus cuentas aparecen subrayadas: ahí está el descuadre."
+        actions={
+          (nitTachados > 0 || filasOcultas > 0) ? (
+            // El detalle de por qué se tacharon/ocultaron filas es largo y solo se
+            // consulta cuando algo no cuadra: vive tras este botón y el contenido
+            // del modal NO se monta hasta que se abre.
+            <button
+              type="button"
+              onClick={() => setInfoFilasExcluidas(true)}
+              className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-ink-50 px-2.5 py-1.5 text-[12px] font-medium text-ink-600 transition hover:bg-ink-100 hover:text-ink-800"
+            >
+              <Icon name="info" size={13} />
+              <span><span className="font-semibold">{nitTachados + filasOcultas}</span> fila(s) tachadas y fuera de los cálculos</span>
+              <span className="text-ink-400">— ver por qué</span>
+            </button>
+          ) : undefined
+        }
+      />
       {porTercero && (
         <div className="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">
           <Icon name="warn" size={14} />
@@ -271,17 +292,28 @@ export default function BorradorDetailClient({
           <span>Se corrigieron <span className="font-semibold">{clasesCorregidas}</span> código(s) de clase que el ERP (SIIGO) trajo como número gigante (p. ej. <span className="font-mono">800000000000000</span>), derivando la clase real de sus subcuentas (p. ej. <span className="font-mono">5</span> «Otros Gastos»). Así anida y totaliza bien por clase.</span>
         </div>
       )}
-      {nitTachados > 0 && (
-        <div className="flex items-start gap-2 rounded-md border border-ink-200 bg-ink-50 px-3 py-2 text-[12px] text-ink-600">
-          <Icon name="warn" size={14} />
-          <span>Balance por cuenta con detalle de tercero: se tacharon <span className="font-semibold">{nitTachados}</span> fila(s) <span className="font-semibold">NIT</span> que repiten el saldo de su cuenta (el total ya está en la fila «Cuenta»). Se muestran <span className="line-through">tachadas</span> y NO cuentan. Si necesitas alguna, rescátala con «Incluir».</span>
-        </div>
-      )}
-      {filasOcultas > 0 && (
-        <div className="flex items-start gap-2 rounded-md border border-ink-200 bg-ink-50 px-3 py-2 text-[12px] text-ink-600">
-          <Icon name="warn" size={14} />
-          <span>Se ocultaron <span className="font-semibold">{filasOcultas}</span> fila(s) que no van al balance: pies/notas del ERP (código que no empieza por dígito, como «Procesado en: …», <span className="font-mono">&lt;none&gt;</span> o «Total general»), <span className="font-semibold">cuentas de orden (clase 8 y 9)</span> y <span className="font-semibold">totales de sucursal</span> (código que empieza en 0, como «<span className="font-mono">002 MEDELLIN</span>» en un balance multi-sucursal). Se muestran <span className="line-through">tachadas</span> y NO cuentan. Si necesitas alguna, rescátala con «Incluir».</span>
-        </div>
+      {infoFilasExcluidas && (
+        <Modal
+          open
+          onClose={() => setInfoFilasExcluidas(false)}
+          title="Filas tachadas y fuera de los cálculos"
+          size="2xl"
+        >
+          <div className="flex flex-col gap-3 text-[12.5px] leading-relaxed text-ink-700">
+            {nitTachados > 0 && (
+              <div className="flex items-start gap-2 rounded-md border border-ink-200 bg-ink-50 px-3 py-2">
+                <Icon name="warn" size={14} />
+                <span>Balance por cuenta con detalle de tercero: se tacharon <span className="font-semibold">{nitTachados}</span> fila(s) <span className="font-semibold">NIT</span> que repiten el saldo de su cuenta (el total ya está en la fila «Cuenta»). Se muestran <span className="line-through">tachadas</span> y NO cuentan. Si necesitas alguna, rescátala con «Incluir».</span>
+              </div>
+            )}
+            {filasOcultas > 0 && (
+              <div className="flex items-start gap-2 rounded-md border border-ink-200 bg-ink-50 px-3 py-2">
+                <Icon name="warn" size={14} />
+                <span>Se ocultaron <span className="font-semibold">{filasOcultas}</span> fila(s) que no van al balance: pies/notas del ERP (código que no empieza por dígito, como «Procesado en: …», <span className="font-mono">&lt;none&gt;</span> o «Total general»), <span className="font-semibold">cuentas de orden (clase 8 y 9)</span> y <span className="font-semibold">totales de sucursal</span> (código que empieza en 0, como «<span className="font-mono">002 MEDELLIN</span>» en un balance multi-sucursal). Se muestran <span className="line-through">tachadas</span> y NO cuentan. Si necesitas alguna, rescátala con «Incluir».</span>
+              </div>
+            )}
+          </div>
+        </Modal>
       )}
       {correccionesAplicadas > 0 && (
         <div className="flex items-start gap-2 rounded-md border border-ok-200 bg-ok-100/40 px-3 py-2 text-[12px] text-ok-800">
@@ -554,25 +586,25 @@ function MiniDato({ k, v, archivo, cuadra, diff }: { k: string; v: number; archi
 function DiagnosticoPanel({ hallazgos }: { hallazgos: Hallazgo[] }) {
   const [abierto, setAbierto] = useState(false);
   return (
-    <Card className="p-4">
+    <div className="rounded-lg border border-err-100 bg-err-100/40 p-4 shadow-sm">
       <button
         type="button"
         onClick={() => setAbierto((v) => !v)}
         aria-expanded={abierto}
-        className="flex w-full items-center gap-1.5 text-left text-[11px] font-semibold uppercase tracking-wider text-ink-500 hover:text-ink-700"
+        className="flex w-full items-center gap-1.5 text-left text-[11px] font-semibold uppercase tracking-wider text-err-700"
       >
         <Icon name={abierto ? "chev-d" : "chev-r"} size={14} />
         Diagnóstico del descuadre
-        <span className="ml-1 rounded-full bg-ink-100 px-1.5 py-0.5 text-[10px] font-semibold normal-case tracking-normal text-ink-600">
+        <span className="ml-1 rounded-full border border-err-100 bg-white px-1.5 py-0.5 text-[10px] font-semibold normal-case tracking-normal text-err-700">
           {hallazgos.length}
         </span>
       </button>
       {abierto && (
         <ul className="mt-2 flex flex-col gap-1.5">
           {hallazgos.map((h, i) => {
-            const tono = h.severidad === "alta" ? "border-err-200 bg-err-50" : "border-warn-200 bg-warn-50";
+            const tono = h.severidad === "alta" ? "border-err-100" : "border-warn-100";
             return (
-              <li key={i} className={`rounded-md border px-3 py-2 text-[12px] ${tono}`}>
+              <li key={i} className={`rounded-md border bg-white px-3 py-2 text-[12px] ${tono}`}>
                 <div className="font-semibold text-ink-800">{h.titulo} <span className="font-normal text-ink-500">· {fmt(h.monto)}</span></div>
                 <div className="mt-0.5 text-[11.5px] leading-relaxed text-ink-600">{h.detalle}</div>
               </li>
@@ -580,7 +612,7 @@ function DiagnosticoPanel({ hallazgos }: { hallazgos: Hallazgo[] }) {
           })}
         </ul>
       )}
-    </Card>
+    </div>
   );
 }
 
