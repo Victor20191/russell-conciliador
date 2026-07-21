@@ -473,3 +473,166 @@ export function contextoTabulador(arbol: NodoBorrador[]): Map<number, ContextoNo
 export function puedeUbicar(ctx: ContextoNodo | undefined): boolean {
   return !!ctx && ctx.candidatos.length > 0 && ctx.candidatos[0].filaNum !== ctx.padre;
 }
+
+// ---- Reubicación GLOBAL: buscar cualquier cuenta y anidarla bajo una agrupadora ----
+
+export type CuentaReubicacion = RefNodo & {
+  tipoFila: TipoFila;
+  omitida: boolean;
+  subtotalDuplicado: boolean;
+  padre: number | null;
+  padreManual: number | null;
+  ruta: RefNodo[];
+  descendientes: number[];
+  busqueda: string;
+};
+
+export type IndiceReubicacion = {
+  cuentas: CuentaReubicacion[];
+  porFila: Map<number, CuentaReubicacion>;
+};
+
+/** Normalización compartida por los buscadores de origen/destino. */
+export function normalizarBusquedaCuenta(valor: string): string {
+  return (valor ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+/**
+ * Índice global del bosque actual. Conserva la ruta y los descendientes de cada
+ * cuenta para pintar el selector y excluir destinos que producirían un ciclo.
+ */
+export function construirIndiceReubicacion(arbol: NodoBorrador[]): IndiceReubicacion {
+  const cuentas: CuentaReubicacion[] = [];
+  const porFila = new Map<number, CuentaReubicacion>();
+
+  const rec = (n: NodoBorrador, padre: number | null, ruta: RefNodo[]): number[] => {
+    const ref = aRef(n);
+    const numerica = esNumerico(n.codigo) && n.tipoFila !== "total";
+    const cuenta: CuentaReubicacion | null = numerica
+      ? {
+          ...ref,
+          tipoFila: n.tipoFila,
+          omitida: !!n.omitida,
+          subtotalDuplicado: n.subtotalDuplicado,
+          padre,
+          padreManual: n.padreManual ?? null,
+          ruta,
+          descendientes: [],
+          busqueda: normalizarBusquedaCuenta(`${n.codigoCrudo} ${n.codigo} ${n.nombre}`),
+        }
+      : null;
+    if (cuenta) {
+      cuentas.push(cuenta);
+      porFila.set(cuenta.filaNum, cuenta);
+    }
+
+    const rutaHijos = numerica ? [...ruta, ref] : ruta;
+    const descendientes: number[] = [];
+    for (const h of n.hijos) {
+      if (esNumerico(h.codigo) && h.tipoFila !== "total") descendientes.push(h.filaNum);
+      descendientes.push(...rec(h, n.filaNum, rutaHijos));
+    }
+    if (cuenta) cuenta.descendientes = descendientes;
+    return descendientes;
+  };
+
+  for (const raiz of arbol) rec(raiz, null, []);
+  return { cuentas, porFila };
+}
+
+/** Destinos globales válidos: agrupadoras activas, fuera de la propia subrama. */
+export function destinosReubicacion(indice: IndiceReubicacion, filaNum: number): CuentaReubicacion[] {
+  const origen = indice.porFila.get(filaNum);
+  if (!origen) return [];
+  const prohibidas = new Set(origen.descendientes);
+  prohibidas.add(origen.filaNum);
+  if (origen.padre != null) prohibidas.add(origen.padre);
+
+  return indice.cuentas
+    .filter((c) => c.tipoFila === "agrupadora" && !c.omitida && !c.subtotalDuplicado && !prohibidas.has(c.filaNum))
+    .sort((a, b) => {
+      const sugA = origen.codigo.startsWith(a.codigo) && a.codigo.length < origen.codigo.length;
+      const sugB = origen.codigo.startsWith(b.codigo) && b.codigo.length < origen.codigo.length;
+      if (sugA !== sugB) return sugA ? -1 : 1;
+      if (sugA && sugB && a.codigo.length !== b.codigo.length) return b.codigo.length - a.codigo.length;
+      return a.filaNum - b.filaNum;
+    });
+}
+
+export function esDestinoSugerido(origen: CuentaReubicacion, destino: CuentaReubicacion): boolean {
+  return destino.codigo.length < origen.codigo.length && origen.codigo.startsWith(destino.codigo);
+}
+
+export type ResultadoValidacionReubicacion = { ok: true } | { ok: false; message: string };
+
+const mapaPadresArbol = (arbol: NodoBorrador[]): Map<number, number | null> => {
+  const padres = new Map<number, number | null>();
+  const rec = (n: NodoBorrador, padre: number | null) => {
+    padres.set(n.filaNum, padre);
+    n.hijos.forEach((h) => rec(h, n.filaNum));
+  };
+  arbol.forEach((n) => rec(n, null));
+  return padres;
+};
+
+/**
+ * Valida el grafo FINAL antes de persistir. Parte de la jerarquía automática,
+ * superpone todos los `padreManual` (existentes + parche) y rechaza referencias
+ * inexistentes, destinos que no agrupan, operaciones sin efecto y ciclos.
+ */
+export function validarReubicacionesBorrador(
+  filas: FilaBorrador[],
+  parche: Record<string, number | null>,
+): ResultadoValidacionReubicacion {
+  const porFila = new Map(filas.map((f) => [f.filaNum, { ...f }]));
+  const cambios = Object.entries(parche ?? {}).filter(([fila]) => /^\d+$/.test(fila));
+  if (cambios.length === 0) return { ok: true };
+
+  const arbolActual = construirArbolBorrador(filas.map((f) => ({ ...f })));
+  const padreActual = mapaPadresArbol(arbolActual);
+
+  for (const [filaStr, destino] of cambios) {
+    const filaNum = Number(filaStr);
+    const origen = porFila.get(filaNum);
+    if (!origen || !esNumerico(origen.codigo) || origen.tipoFila === "total") {
+      return { ok: false, message: `La fila ${filaNum} no es una cuenta reubicable de este borrador.` };
+    }
+    if (destino == null) {
+      origen.padreManual = null;
+      continue;
+    }
+    const padre = porFila.get(destino);
+    if (!padre || !esNumerico(padre.codigo)) {
+      return { ok: false, message: "La agrupadora seleccionada no pertenece a este borrador." };
+    }
+    if (padre.tipoFila !== "agrupadora" || padre.omitida) {
+      return { ok: false, message: `${padre.codigoCrudo || padre.codigo} no es una agrupadora disponible.` };
+    }
+    if (filaNum === destino) return { ok: false, message: "Una cuenta no puede anidarse bajo sí misma." };
+    if (padreActual.get(filaNum) === destino) {
+      return { ok: false, message: "La cuenta ya está ubicada bajo esa agrupadora." };
+    }
+    origen.padreManual = destino;
+  }
+
+  // Árbol sin overrides: define el padre automático al restaurar (`null`).
+  const automaticas = [...porFila.values()].map((f) => ({ ...f, padreManual: null }));
+  const padreFinal = mapaPadresArbol(construirArbolBorrador(automaticas));
+  for (const f of porFila.values()) if (f.padreManual != null) padreFinal.set(f.filaNum, f.padreManual);
+
+  for (const inicio of padreFinal.keys()) {
+    const vistos = new Set<number>();
+    let cursor: number | null | undefined = inicio;
+    while (cursor != null) {
+      if (vistos.has(cursor)) return { ok: false, message: "La reubicación formaría un ciclo dentro del árbol de cuentas." };
+      vistos.add(cursor);
+      cursor = padreFinal.get(cursor);
+    }
+  }
+  return { ok: true };
+}

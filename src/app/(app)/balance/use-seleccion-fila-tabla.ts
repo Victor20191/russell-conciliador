@@ -30,5 +30,5 @@ export function useSeleccionFilaTabla() {
     setFilaSeleccionada(null);
   }, []);
 
-  return { filaSeleccionada, onClickFila, onDoubleClickFila };
+  return { filaSeleccionada, setFilaSeleccionada, onClickFila, onDoubleClickFila };
 }

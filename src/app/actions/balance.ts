@@ -41,7 +41,7 @@ import { aplanarSpec, normalizarCodigoFragmentos, specDesdePerfil, specCargaDesd
 import { esTransformacionAceptable } from "@/lib/balance/extraccion/validacion";
 import { mapearPorIA } from "@/lib/balance/mapeo-ia";
 import { construirVistaBorrador } from "@/lib/balance/borrador-vm";
-import { reclasificarHuerfanas, reclasificarSoloHojas, corregirCodigosPlaceholder, marcarNoContables, type FilaBorrador } from "@/lib/balance/borrador";
+import { reclasificarHuerfanas, reclasificarSoloHojas, corregirCodigosPlaceholder, marcarNoContables, validarReubicacionesBorrador, type FilaBorrador } from "@/lib/balance/borrador";
 import { esBalancePorTercero, colapsarTerceros, esBalancePorTerceroSufijo, consolidarTercerosPorSufijo, marcarCuentaNit } from "@/lib/balance/terceros";
 import { marcarRelistadoGuiones } from "@/lib/balance/relistado";
 import { construirCorrecciones, planAplicarCorrecciones, type CorreccionCuenta, type FilaStagingCorreccion } from "@/lib/balance/correcciones";
@@ -1793,6 +1793,22 @@ export async function aplicarCambiosBorrador(
   const pads = Object.entries(padres ?? {}).filter(([f]) => /^\d+$/.test(f));
   if (reclas.length === 0 && invs.length === 0 && desac.length === 0 && omit.length === 0 && pads.length === 0) return { ok: false, message: "No hay cambios para guardar." };
   try {
+    // La UI filtra los destinos, pero una Server Action también es invocable por POST:
+    // valida el grafo completo ANTES de cualquier escritura para evitar referencias a
+    // otra fila, destinos que no agrupan o ciclos enviados desde un cliente alterado.
+    if (pads.length > 0) {
+      const staging = await filasStagingCorreccion(id);
+      const tiposForzados = new Map(reclas);
+      const filasValidacion: FilaBorrador[] = staging.map((f) => ({
+        ...f,
+        nivel: /^\d+$/.test(f.codigo) ? f.codigo.length : null,
+        tipoFila: tiposForzados.get(f.codigo) ?? (f.tipoFila as FilaBorrador["tipoFila"]),
+        omitida: f.omitida ?? undefined,
+      }));
+      const validacionReubicacion = validarReubicacionesBorrador(filasValidacion, Object.fromEntries(pads));
+      if (!validacionReubicacion.ok) return { ok: false, message: validacionReubicacion.message };
+    }
+
     let nRe = 0;
     let nInv = 0;
     let nDes = 0;

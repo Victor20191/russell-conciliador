@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { construirArbolBorrador, contarNodos, aplanarArbolFiltrado, reclasificarHuerfanas, marcarNoContables, corregirCodigosPlaceholder, contextoTabulador, puedeUbicar, type FilaBorrador } from "./borrador";
+import { construirArbolBorrador, construirIndiceReubicacion, contarNodos, aplanarArbolFiltrado, destinosReubicacion, esDestinoSugerido, normalizarBusquedaCuenta, reclasificarHuerfanas, marcarNoContables, corregirCodigosPlaceholder, contextoTabulador, puedeUbicar, validarReubicacionesBorrador, type FilaBorrador } from "./borrador";
 import { construirVistaBorrador } from "./borrador-vm";
 import { reclasificarNoImputables } from "./extraccion/transformar";
 
@@ -427,6 +427,66 @@ describe("contextoTabulador + puedeUbicar (tabulador Ubicar)", () => {
 
   });
 
+});
+
+describe("reubicación global de cuentas", () => {
+  const filas: FilaBorrador[] = [
+    fila(1, "1", "ACTIVO", 100, "agrupadora"),
+    fila(2, "11", "DISPONIBLE", 100, "agrupadora"),
+    fila(3, "1105", "CAJA", 100, "agrupadora"),
+    fila(4, "110505", "CAJA GENERAL", 100, "agrupadora"),
+    fila(5, "11050501", "CAJA BOGOTÁ", 100, "movimiento"),
+    fila(6, "2", "PASIVO", 100, "agrupadora"),
+    fila(7, "21", "OBLIGACIONES", 100, "agrupadora"),
+    fila(8, "2105", "BANCOS", 100, "agrupadora"),
+    fila(9, "210505", "BANCO NACIONAL", 100, "movimiento"),
+  ];
+
+  it("indexa código/nombre sin tildes y ofrece agrupadoras de cualquier rama", () => {
+    const indice = construirIndiceReubicacion(construirArbolBorrador(filas.map((f) => ({ ...f }))));
+    const origen = indice.porFila.get(5)!;
+    const destinos = destinosReubicacion(indice, 5);
+
+    expect(origen.busqueda).toContain("caja bogota");
+    expect(normalizarBusquedaCuenta("  BOGOTÁ / Caja  ")).toBe("bogota caja");
+    expect(destinos.map((d) => d.filaNum)).not.toContain(origen.padre); // padre actual = operación sin efecto
+    expect(destinos.some((d) => d.filaNum === 8)).toBe(true); // otra rama completa
+    expect(destinos.every((d) => d.tipoFila === "agrupadora")).toBe(true);
+    expect(esDestinoSugerido(origen, destinos[0])).toBe(true); // prefijo PUC primero
+  });
+
+  it("excluye la propia cuenta y todos sus descendientes como destinos", () => {
+    const indice = construirIndiceReubicacion(construirArbolBorrador(filas.map((f) => ({ ...f }))));
+    const destinos = destinosReubicacion(indice, 3).map((d) => d.filaNum);
+    expect(destinos).not.toContain(3);
+    expect(destinos).not.toContain(4);
+    expect(destinos).not.toContain(5);
+    expect(destinos).toContain(7);
+  });
+
+  it("acepta mover una subrama bajo otra agrupadora y conserva sus hijos", () => {
+    const resultado = validarReubicacionesBorrador(filas.map((f) => ({ ...f })), { "3": 7 });
+    expect(resultado).toEqual({ ok: true });
+
+    const movidas = filas.map((f) => ({ ...f, padreManual: f.filaNum === 3 ? 7 : f.padreManual }));
+    const arbol = construirArbolBorrador(movidas);
+    const obligaciones = arbol.find((n) => n.filaNum === 6)!.hijos.find((n) => n.filaNum === 7)!;
+    const caja = obligaciones.hijos.find((n) => n.filaNum === 3)!;
+    expect(caja.hijos.map((n) => n.filaNum)).toEqual([4]);
+    expect(caja.hijos[0].hijos.map((n) => n.filaNum)).toEqual([5]);
+  });
+
+  it("rechaza destino movimiento, destino actual, autorreferencia y ciclos", () => {
+    expect(validarReubicacionesBorrador(filas.map((f) => ({ ...f })), { "5": 9 })).toMatchObject({ ok: false });
+    expect(validarReubicacionesBorrador(filas.map((f) => ({ ...f })), { "5": 4 })).toMatchObject({ ok: false });
+    expect(validarReubicacionesBorrador(filas.map((f) => ({ ...f })), { "3": 3 })).toMatchObject({ ok: false });
+    expect(validarReubicacionesBorrador(filas.map((f) => ({ ...f })), { "3": 4 })).toMatchObject({ ok: false });
+  });
+
+  it("permite restaurar el padre automático de una cuenta reubicada", () => {
+    const movidas = filas.map((f) => ({ ...f, padreManual: f.filaNum === 3 ? 7 : f.padreManual }));
+    expect(validarReubicacionesBorrador(movidas, { "3": null })).toEqual({ ok: true });
+  });
 });
 
 describe("marcarNoContables (ocultar totales / no-cuentas)", () => {

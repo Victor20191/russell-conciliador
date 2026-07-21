@@ -31,6 +31,11 @@ export type BorradorRow = {
   fecha: string;
 };
 
+/** Base compartida de los botones de la columna «Acciones»: todos cuadrados y
+ *  del MISMO tamaño, para que la columna quede alineada fila a fila. */
+const BOTON_ACCION =
+  "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border transition";
+
 function normalizarBusqueda(valor: string | null) {
   return (valor ?? "")
     .normalize("NFD")
@@ -136,8 +141,8 @@ export default function BorradoresIndexClient({ rows }: { rows: BorradorRow[] })
                   </td>
                   <td className="px-3 py-2 text-ink-700">
                     {r.clienteSugerido ?? (
-                      <span className="inline-flex items-center gap-1 rounded-full border border-warn-300 bg-warn-50 px-2 py-0.5 text-[10.5px] font-semibold text-warn-700" title="Asignar el cliente es obligatorio: hazlo al abrir el borrador (Revisar).">
-                        Sin cliente — asígnalo en «Revisar»
+                      <span className="inline-flex items-center gap-1 rounded-full border border-warn-300 bg-warn-50 px-2 py-0.5 text-[10.5px] font-semibold text-warn-700" title="Asignar el cliente es obligatorio: hazlo al abrir el borrador.">
+                        Sin cliente — asígnalo al abrir el borrador
                       </span>
                     )}
                     {r.nitDetectado && <span className="block font-mono text-[10.5px] text-ink-400">{r.nitDetectado}</span>}
@@ -156,32 +161,46 @@ export default function BorradoresIndexClient({ rows }: { rows: BorradorRow[] })
                   </td>
                   <td className="px-3 py-2 text-[11px] text-ink-500">{r.fecha}</td>
                   <td className="px-3 py-2">
-                    <div className="flex items-center justify-end gap-2">
+                    {/* Acciones como iconos cuadrados del MISMO tamaño (BOTON_ACCION):
+                        revisar (ojo) y descartar (papelera). El descarte pide
+                        confirmación en el sitio, con ✓/✕ del mismo tamaño. */}
+                    <div className="flex items-center justify-end gap-1.5">
                       <Link
                         href={`/balance/borradores/${r.loteId}`}
-                        className="inline-flex items-center gap-1 rounded-md border border-ink-200 px-2 py-1 text-[11.5px] font-semibold text-ink-700 hover:bg-ink-50"
+                        title="Revisar borrador"
+                        aria-label="Revisar borrador"
+                        className={`${BOTON_ACCION} border-ink-200 text-ink-600 hover:bg-ink-50 hover:text-ink-900`}
                       >
-                        <Icon name="chev-r" size={12} /> Revisar
+                        <Icon name="eye" size={15} />
                       </Link>
                       {confirmar === r.loteId ? (
-                        <span className="inline-flex items-center gap-1">
+                        <>
                           <button
                             onClick={() => onDescartar(r.loteId)}
                             disabled={descartando}
-                            className="rounded-md bg-err-100 px-2 py-1 text-[11.5px] font-semibold text-err-700 hover:bg-err-200 disabled:opacity-60"
+                            title="Confirmar descarte"
+                            aria-label="Confirmar descarte"
+                            className={`${BOTON_ACCION} border-err-300 bg-err-100 text-err-700 hover:bg-err-200 disabled:opacity-60`}
                           >
-                            {descartando ? <EstadoProcesando>Descartando</EstadoProcesando> : "Confirmar"}
+                            {descartando ? <EstadoProcesando etiqueta="Descartando" /> : <Icon name="check" size={15} />}
                           </button>
-                          <button onClick={() => setConfirmar(null)} className="rounded-md border border-ink-200 px-2 py-1 text-[11.5px] text-ink-600 hover:bg-ink-50">
-                            Cancelar
+                          <button
+                            onClick={() => setConfirmar(null)}
+                            title="Cancelar"
+                            aria-label="Cancelar descarte"
+                            className={`${BOTON_ACCION} border-ink-200 text-ink-500 hover:bg-ink-50 hover:text-ink-800`}
+                          >
+                            <Icon name="x" size={15} />
                           </button>
-                        </span>
+                        </>
                       ) : (
                         <button
                           onClick={() => setConfirmar(r.loteId)}
-                          className="inline-flex items-center gap-1 rounded-md border border-err-200 px-2 py-1 text-[11.5px] font-semibold text-err-700 hover:bg-err-50"
+                          title="Descartar borrador"
+                          aria-label="Descartar borrador"
+                          className={`${BOTON_ACCION} border-err-200 text-err-600 hover:bg-err-50 hover:text-err-700`}
                         >
-                          <Icon name="x" size={12} /> Descartar
+                          <Icon name="trash" size={15} />
                         </button>
                       )}
                     </div>

@@ -2,7 +2,7 @@
 
 import { EstadoProcesando } from "@/components/estado-procesando";
 
-import { useActionState, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useActionState, useDeferredValue, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
 import { Card, Chip, PageHeader } from "@/components/ui";
@@ -14,7 +14,20 @@ import { PromptClientePerfil } from "@/app/(app)/balance/prompt-cliente-perfil";
 import type { SpecCarga } from "@/lib/balance/extraccion/esquema";
 import type { ImportBalanceState } from "@/lib/import/balance";
 import { construirVistaBorrador } from "@/lib/balance/borrador-vm";
-import { contextoTabulador, puedeUbicar, reclasificarSoloHojas, type ContextoNodo, type RefNodo, type FilaBorrador, type NodoBorrador } from "@/lib/balance/borrador";
+import {
+  construirIndiceReubicacion,
+  contextoTabulador,
+  destinosReubicacion,
+  esDestinoSugerido,
+  normalizarBusquedaCuenta,
+  puedeUbicar,
+  reclasificarSoloHojas,
+  type ContextoNodo,
+  type CuentaReubicacion,
+  type FilaBorrador,
+  type IndiceReubicacion,
+  type NodoBorrador,
+} from "@/lib/balance/borrador";
 import { nombreNivelCuenta } from "@/lib/balance/nivel-cuenta";
 import type { ValidacionContable } from "@/lib/balance/calcular";
 import type { Hallazgo } from "@/lib/balance/diagnostico";
@@ -97,7 +110,8 @@ export default function BorradorDetailClient({
   const [desacopladas, setDesacopladas] = useState<Record<string, boolean>>({});
   const [omitidas, setOmitidas] = useState<Record<number, boolean>>({});
   const [padres, setPadres] = useState<Record<number, number | null>>({});
-  const [mover, setMover] = useState<number | null>(null); // filaNum en el modal "Ubicar"
+  const [mover, setMover] = useState<{ filaNum: number | null } | null>(null);
+  const [enfoqueReubicacion, setEnfoqueReubicacion] = useState<{ origen: number; destino: number | null; secuencia: number } | null>(null);
   const [soloHojas, setSoloHojas] = useState(false); // export jerárquico: solo cuentan las hojas
   const [autoCorregido, setAutoCorregido] = useState(false); // «solo hojas» se activó por auto-corrección al abrir
   const autoAplicadoRef = useRef(false);
@@ -152,15 +166,23 @@ export default function BorradorDetailClient({
   // el ← (desindentar) sube al abuelo. El → abre el modal "Ubicar" (elegir destino + lote).
   const posiciones = useMemo(() => construirPosiciones(arbol), [arbol]);
   const contexto = useMemo(() => contextoTabulador(arbol), [arbol]);
+  const indiceReubicacion = useMemo(() => construirIndiceReubicacion(arbol), [arbol]);
 
   const onReclasificar = (codigo: string, actual: NodoBorrador["tipoFila"]) =>
     setOverride((o) => ({ ...o, [codigo]: actual === "movimiento" ? "agrupadora" : "movimiento" }));
   const onInvertir = (codigo: string) => setInvertidos((inv) => (inv.includes(codigo) ? inv : [...inv, codigo]));
   const onDesacoplar = (codigo: string, desacopladaAhora: boolean) => setDesacopladas((d) => ({ ...d, [codigo]: !desacopladaAhora }));
   const onOmitir = (filaNum: number, omitidaAhora: boolean) => setOmitidas((o) => ({ ...o, [filaNum]: !omitidaAhora }));
-  const onUbicar = (filaNum: number) => setMover(filaNum); // → abre el modal "Ubicar"
-  const onConfirmarMover = (patch: Record<number, number>) => { setPadres((m) => ({ ...m, ...patch })); setMover(null); };
-  const onDesindentar = (filaNum: number) => { const p = posiciones.get(filaNum); if (p?.abuelo != null) setPadres((m) => ({ ...m, [filaNum]: p.abuelo })); };
+  const onUbicar = (filaNum: number) => setMover({ filaNum });
+  const aplicarReubicacion = (filaNum: number, destino: number | null) => {
+    setPadres((m) => ({ ...m, [filaNum]: destino }));
+    setEnfoqueReubicacion((actual) => ({ origen: filaNum, destino, secuencia: (actual?.secuencia ?? 0) + 1 }));
+    setMover(null);
+  };
+  const onDesindentar = (filaNum: number) => {
+    const p = posiciones.get(filaNum);
+    if (p?.abuelo != null) aplicarReubicacion(filaNum, p.abuelo);
+  };
   const descartarCambios = () => { setOverride({}); setInvertidos([]); setDesacopladas({}); setOmitidas({}); setPadres({}); setSoloHojas(false); };
   const guardarCambios = () =>
     startGuardar(async () => {
@@ -368,7 +390,7 @@ export default function BorradorDetailClient({
           <label className={`mt-2 flex cursor-pointer items-start gap-2 rounded-md border px-2.5 py-1.5 text-[12px] ${soloHojas ? "border-blue-300 bg-blue-50 text-ink-700" : "border-ink-200 bg-white text-ink-600"}`}>
             <input type="checkbox" checked={soloHojas} onChange={(e) => setSoloHojas(e.target.checked)} className="mt-0.5" />
             <span>
-              <span className="font-semibold">Imputar solo las hojas</span> (export jerárquico) — si el archivo trae la cuenta <span className="font-semibold">y</span> sus subcuentas/auxiliares como filas (p. ej. SIESA), marca los niveles superiores como <span className="font-semibold">agrupadora</span> para no contar doble; solo cuenta el nivel más profundo. Se previsualiza al instante; <span className="font-semibold">guarda</span> para persistirlo. Para automatizarlo en cada carga del cliente, actívalo en Config › Clientes › Carga de balances.
+              <span className="font-semibold">Evitar doble conteo de subtotales</span> (export jerárquico) — algunos ERP (p. ej. SIESA) exportan la cuenta <span className="font-semibold">y</span> sus subcuentas/auxiliares, todas con saldo: al sumarlas todas el balance queda al doble. Esto marca como <span className="font-semibold">agrupadora</span> toda cuenta que traiga detalle debajo, de modo que solo sumen las cuentas del <span className="font-semibold">último nivel</span>. Se previsualiza al instante; <span className="font-semibold">guarda</span> para persistirlo. Para automatizarlo en cada carga del cliente, actívalo en Config › Clientes › Carga de balances.
             </span>
           </label>
         </div>
@@ -377,12 +399,6 @@ export default function BorradorDetailClient({
             <Icon name="warn" size={13} />
             <span className="font-semibold text-warn-800">{nCambios} cambio(s) sin guardar</span>
             <span className="text-warn-700">— se aplican en pantalla; guárdalos para persistirlos en el borrador.</span>
-            {Object.keys(padres).length > 0 && (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 font-medium text-blue-700">
-                <span aria-hidden className="h-2 w-2 rounded-full bg-blue-500" />
-                Las filas movidas se sombrean en azul en su nueva ubicación.
-              </span>
-            )}
             <div className="ml-auto flex items-center gap-2">
               <button type="button" onClick={guardarCambios} disabled={guardando} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60">
                 {guardando ? <EstadoProcesando>Guardando</EstadoProcesando> : "Guardar cambios"}
@@ -391,7 +407,7 @@ export default function BorradorDetailClient({
             </div>
           </div>
         )}
-        <ArbolTabla arbol={arbol} onReclasificar={onReclasificar} onInvertir={onInvertir} onDesacoplar={onDesacoplar} onOmitir={onOmitir} posiciones={posiciones} contexto={contexto} onUbicar={onUbicar} onDesindentar={onDesindentar} />
+        <ArbolTabla arbol={arbol} onReclasificar={onReclasificar} onInvertir={onInvertir} onDesacoplar={onDesacoplar} onOmitir={onOmitir} posiciones={posiciones} contexto={contexto} onUbicar={onUbicar} onDesindentar={onDesindentar} enfoqueReubicacion={enfoqueReubicacion} />
       </Card>
 
       {spec && (
@@ -413,7 +429,7 @@ export default function BorradorDetailClient({
       )}
 
       {mover != null && (
-        <MoverModal arbol={arbol} filaNum={mover} contexto={contexto} onConfirmar={onConfirmarMover} onClose={() => setMover(null)} />
+        <MoverModal indice={indiceReubicacion} filaNumInicial={mover.filaNum} onConfirmar={aplicarReubicacion} onClose={() => setMover(null)} />
       )}
 
       {promptPerfilSpec && (
@@ -650,97 +666,147 @@ function construirPosiciones(arbol: NodoBorrador[]): Map<number, Posicion> {
   rec(arbol, null, null);
   return m;
 }
-/** Modal "Ubicar": elige bajo cuál cuenta de arriba anidar la fila (ancestros por
- *  prefijo, el más profundo sugerido) y mueve en LOTE sus hermanas del mismo prefijo. */
-function MoverModal({ arbol, filaNum, contexto, onConfirmar, onClose }: {
-  arbol: NodoBorrador[];
-  filaNum: number;
-  contexto: Map<number, ContextoNodo>;
-  onConfirmar: (patch: Record<number, number>) => void;
+const tipoVisibleCuenta = (cuenta: CuentaReubicacion) =>
+  `${nombreNivelCuenta(cuenta.codigo)} · ${cuenta.tipoFila === "agrupadora" ? "Agrupadora" : "Movimiento"}`;
+
+const rutaVisibleCuenta = (cuenta: CuentaReubicacion) =>
+  cuenta.ruta.slice(-3).map((p) => `${p.codigoCrudo} ${p.nombre}`).join(" › ");
+
+/** Modal único: desde la acción global busca origen; desde la fila lo preselecciona. */
+function MoverModal({ indice, filaNumInicial, onConfirmar, onClose }: {
+  indice: IndiceReubicacion;
+  filaNumInicial: number | null;
+  onConfirmar: (filaNum: number, destino: number | null) => void;
   onClose: () => void;
 }) {
-  const ctx = contexto.get(filaNum);
-  const candidatos = ctx?.candidatos ?? [];
-  const hermanas = ctx?.hermanas ?? [];
-  // Hermanas que anidarían bajo un destino dado (mismo prefijo, más específicas que él).
-  const elegiblesDe = (ref?: RefNodo) => (ref ? hermanas.filter((h) => h.codigo.startsWith(ref.codigo) && h.codigo.length > ref.codigo.length) : []);
+  const [origenId, setOrigenId] = useState<number | null>(filaNumInicial);
+  const [destinoId, setDestinoId] = useState<number | null>(null);
+  const [buscarOrigen, setBuscarOrigen] = useState("");
+  const [buscarDestino, setBuscarDestino] = useState("");
+  const busquedaOrigen = useDeferredValue(normalizarBusquedaCuenta(buscarOrigen));
+  const busquedaDestino = useDeferredValue(normalizarBusquedaCuenta(buscarDestino));
+  const origen = origenId == null ? null : indice.porFila.get(origenId) ?? null;
+  const destinos = useMemo(() => origenId == null ? [] : destinosReubicacion(indice, origenId), [indice, origenId]);
+  const origenesVisibles = useMemo(() => {
+    const lista = busquedaOrigen === "" ? indice.cuentas : indice.cuentas.filter((c) => c.busqueda.includes(busquedaOrigen));
+    return lista.slice(0, 60);
+  }, [busquedaOrigen, indice]);
+  const destinosVisibles = useMemo(() => {
+    const lista = busquedaDestino === "" ? destinos : destinos.filter((c) => c.busqueda.includes(busquedaDestino));
+    return lista.slice(0, 80);
+  }, [busquedaDestino, destinos]);
+  const destino = destinoId == null ? null : indice.porFila.get(destinoId) ?? null;
 
-  const [destino, setDestino] = useState<number>(candidatos[0]?.filaNum ?? -1);
-  const [marcadas, setMarcadas] = useState<Set<number>>(() => new Set(elegiblesDe(candidatos[0]).map((h) => h.filaNum)));
-  const nodoX = useMemo(() => {
-    const buscar = (ns: NodoBorrador[]): NodoBorrador | null => {
-      for (const n of ns) { if (n.filaNum === filaNum) return n; const h = buscar(n.hijos); if (h) return h; }
-      return null;
-    };
-    return buscar(arbol);
-  }, [arbol, filaNum]);
-
-  if (!ctx || candidatos.length === 0 || !nodoX) return null;
-
-  const destinoRef = candidatos.find((c) => c.filaNum === destino) ?? candidatos[0];
-  const hermanasElegibles = elegiblesDe(destinoRef);
-  // Al cambiar el destino, re-marcar TODAS las hermanas elegibles del nuevo prefijo.
-  const cambiarDestino = (fn: number) => { setDestino(fn); const ref = candidatos.find((c) => c.filaNum === fn); setMarcadas(new Set(elegiblesDe(ref).map((h) => h.filaNum))); };
-  const toggleH = (fn: number) => setMarcadas((s) => { const n = new Set(s); if (n.has(fn)) n.delete(fn); else n.add(fn); return n; });
-  const marcadasVisibles = hermanasElegibles.filter((h) => marcadas.has(h.filaNum)).length;
-  const total = 1 + marcadasVisibles;
-  const confirmar = () => {
-    const patch: Record<number, number> = { [filaNum]: destinoRef.filaNum };
-    for (const h of hermanasElegibles) if (marcadas.has(h.filaNum)) patch[h.filaNum] = destinoRef.filaNum;
-    onConfirmar(patch);
+  const elegirOrigen = (filaNum: number) => {
+    setOrigenId(filaNum);
+    setDestinoId(null);
+    setBuscarOrigen("");
+    setBuscarDestino("");
   };
 
+  const footer = (
+    <>
+      <button type="button" onClick={onClose} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] font-semibold text-ink-600 hover:bg-ink-50">Cancelar</button>
+      {origen?.padreManual != null && (
+        <button
+          type="button"
+          onClick={() => onConfirmar(origen.filaNum, null)}
+          className="rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-[12.5px] font-semibold text-blue-700 hover:bg-blue-100"
+        >
+          Revertir movimiento cta
+        </button>
+      )}
+      <button
+        type="button"
+        disabled={!origen || !destino}
+        onClick={() => { if (origen && destino) onConfirmar(origen.filaNum, destino.filaNum); }}
+        className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-45"
+      >
+        Reubicar cuenta
+      </button>
+    </>
+  );
+
   return (
-    <Modal
-      open
-      onClose={onClose}
-      title="Ubicar cuenta en el árbol"
-      size="lg"
-      footer={
-        <>
-          <button type="button" onClick={onClose} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] font-semibold text-ink-600 hover:bg-ink-50">Cancelar</button>
-          <button type="button" onClick={confirmar} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600">Ubicar {total} cuenta(s)</button>
-        </>
-      }
-    >
+    <Modal open onClose={onClose} title="Reubicar cuenta en el árbol" size="2xl" footer={footer}>
       <div className="flex flex-col gap-4 text-[12.5px]">
-        <div className="rounded-md border border-ink-150 bg-ink-50 px-3 py-2">
-          <span className="font-mono text-[11px] text-ink-500">{nodoX.codigoCrudo}</span>{" "}
-          <span className="font-medium text-ink-800">{nodoX.nombre}</span>
-        </div>
-
         <div>
-          <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Anidar bajo</div>
-          <div className="flex flex-col gap-1">
-            {candidatos.map((c, i) => (
-              <label key={c.filaNum} className={`flex cursor-pointer items-center gap-2 rounded-md border px-2.5 py-1.5 ${destino === c.filaNum ? "border-blue-300 bg-blue-50" : "border-ink-150 hover:bg-ink-50"}`}>
-                <input type="radio" name="destino-ubicar" checked={destino === c.filaNum} onChange={() => cambiarDestino(c.filaNum)} />
-                <span className="font-mono text-[11px] text-ink-500">{c.codigoCrudo}</span>
-                <span className="min-w-0 truncate text-ink-800" title={c.nombre}>{c.nombre}</span>
-                <span className="ml-auto shrink-0 text-[10.5px] text-ink-400">{nombreNivelCuenta(c.codigo)}{i === 0 ? " · sugerido" : ""}</span>
-              </label>
-            ))}
+          <div className="mb-1.5 flex items-center justify-between gap-3">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">1. Cuenta que se moverá</span>
+            {origen && (
+              <button type="button" onClick={() => { setOrigenId(null); setDestinoId(null); }} className="text-[11px] font-semibold text-blue-700 hover:underline">
+                Cambiar cuenta
+              </button>
+            )}
           </div>
+          {origen ? (
+            <div className="rounded-lg border border-blue-200 bg-blue-50/70 px-3 py-2.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-mono text-[11px] text-ink-500">{origen.codigoCrudo}</span>
+                <span className="font-semibold text-ink-800">{origen.nombre}</span>
+                <span className={`rounded border px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide ${origen.tipoFila === "agrupadora" ? "border-ink-200 bg-white text-ink-600" : "border-blue-200 bg-blue-100 text-navy-700"}`}>{tipoVisibleCuenta(origen)}</span>
+                {origen.descendientes.length > 0 && <Chip label={`Moverá también ${origen.descendientes.length} descendiente(s)`} tone="blue" />}
+              </div>
+              {rutaVisibleCuenta(origen) && <div className="mt-1 truncate text-[10.5px] text-ink-500">Ubicación actual: {rutaVisibleCuenta(origen)}</div>}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-ink-200 bg-ink-50/60 p-2">
+              <div className="flex items-center gap-2 rounded-md border border-ink-200 bg-white px-2.5 py-2 text-ink-400 focus-within:border-blue-300 focus-within:ring-2 focus-within:ring-blue-100">
+                <Icon name="search" size={14} />
+                <input autoFocus value={buscarOrigen} onChange={(e) => setBuscarOrigen(e.target.value)} placeholder="Buscar la cuenta por código o nombre…" className="w-full bg-transparent text-[12.5px] text-ink-800 outline-none placeholder:text-ink-400" />
+              </div>
+              <div className="mt-2 max-h-60 space-y-1 overflow-y-auto" role="listbox" aria-label="Cuentas disponibles para mover">
+                {origenesVisibles.map((c) => (
+                  <button key={c.filaNum} type="button" onClick={() => elegirOrigen(c.filaNum)} className="flex w-full items-center gap-2 rounded-md border border-transparent px-2.5 py-2 text-left hover:border-blue-200 hover:bg-blue-50">
+                    <span className="w-24 shrink-0 font-mono text-[11px] text-ink-500">{c.codigoCrudo}</span>
+                    <span className="min-w-0 flex-1 truncate font-medium text-ink-800">{c.nombre}</span>
+                    <span className="shrink-0 rounded border border-ink-150 bg-white px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide text-ink-500">{tipoVisibleCuenta(c)}</span>
+                  </button>
+                ))}
+                {origenesVisibles.length === 0 && <div className="px-3 py-6 text-center text-ink-400">No encontramos cuentas con esa búsqueda.</div>}
+              </div>
+            </div>
+          )}
         </div>
 
-        {hermanasElegibles.length > 0 && (
+        {origen && (
           <div>
-            <div className="mb-1.5 flex items-center justify-between gap-2">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">Mover también estas cuentas (prefijo <span className="font-mono">{destinoRef.codigo}</span>)</span>
-              <span className="flex shrink-0 gap-2 text-[11px]">
-                <button type="button" onClick={() => setMarcadas(new Set(hermanasElegibles.map((h) => h.filaNum)))} className="font-medium text-blue-700 hover:underline">Todas</button>
-                <button type="button" onClick={() => setMarcadas(new Set())} className="font-medium text-ink-500 hover:underline">Ninguna</button>
-              </span>
+            <div className="mb-1.5 flex items-center justify-between gap-3">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">2. Anidar bajo una agrupadora</span>
+              <span className="text-[10.5px] text-ink-400">{destinos.length} destino(s) válido(s)</span>
             </div>
-            <div className="flex max-h-52 flex-col gap-1 overflow-y-auto">
-              {hermanasElegibles.map((h) => (
-                <label key={h.filaNum} className="flex cursor-pointer items-center gap-2 rounded-md border border-ink-150 px-2.5 py-1 hover:bg-ink-50">
-                  <input type="checkbox" checked={marcadas.has(h.filaNum)} onChange={() => toggleH(h.filaNum)} />
-                  <span className="font-mono text-[11px] text-ink-500">{h.codigoCrudo}</span>
-                  <span className="min-w-0 truncate text-ink-700" title={h.nombre}>{h.nombre}</span>
-                </label>
-              ))}
+            <div className="rounded-lg border border-ink-200 bg-ink-50/60 p-2">
+              <div className="flex items-center gap-2 rounded-md border border-ink-200 bg-white px-2.5 py-2 text-ink-400 focus-within:border-blue-300 focus-within:ring-2 focus-within:ring-blue-100">
+                <Icon name="search" size={14} />
+                <input value={buscarDestino} onChange={(e) => setBuscarDestino(e.target.value)} placeholder="Buscar agrupadora por código o nombre…" className="w-full bg-transparent text-[12.5px] text-ink-800 outline-none placeholder:text-ink-400" />
+              </div>
+              <div className="mt-2 max-h-72 space-y-1 overflow-y-auto" role="listbox" aria-label="Agrupadoras de destino">
+                {destinosVisibles.map((c) => {
+                  const sugerido = esDestinoSugerido(origen, c);
+                  const elegido = destinoId === c.filaNum;
+                  return (
+                    <label key={c.filaNum} className={`flex cursor-pointer items-start gap-2 rounded-md border px-2.5 py-2 transition ${elegido ? "border-blue-400 bg-blue-50 ring-1 ring-blue-200" : "border-transparent bg-white hover:border-blue-200 hover:bg-blue-50/60"}`}>
+                      <input type="radio" name="destino-reubicacion" checked={elegido} onChange={() => setDestinoId(c.filaNum)} className="mt-0.5" />
+                      <span className="w-24 shrink-0 font-mono text-[11px] text-ink-500">{c.codigoCrudo}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium text-ink-800" title={c.nombre}>{c.nombre}</span>
+                        {rutaVisibleCuenta(c) && <span className="block truncate text-[10.5px] text-ink-400">{rutaVisibleCuenta(c)}</span>}
+                      </span>
+                      {sugerido && <span className="shrink-0 rounded-full bg-ok-100 px-2 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide text-ok-700">Sugerido</span>}
+                      <span className="shrink-0 rounded border border-ink-150 bg-ink-50 px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide text-ink-500">{tipoVisibleCuenta(c)}</span>
+                    </label>
+                  );
+                })}
+                {destinosVisibles.length === 0 && <div className="px-3 py-6 text-center text-ink-400">No hay agrupadoras válidas para esta búsqueda.</div>}
+              </div>
             </div>
+          </div>
+        )}
+
+        {origen && destino && (
+          <div className="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[11.5px] text-blue-800">
+            <Icon name="move-tree" size={14} className="mt-0.5 shrink-0" />
+            <span><span className="font-semibold">{origen.codigoCrudo} {origen.nombre}</span> quedará bajo <span className="font-semibold">{destino.codigoCrudo} {destino.nombre}</span>. Al confirmar, la tabla abrirá esa rama y resaltará la nueva ubicación.</span>
           </div>
         )}
       </div>
@@ -748,8 +814,10 @@ function MoverModal({ arbol, filaNum, contexto, onConfirmar, onClose }: {
   );
 }
 
-function ArbolTabla({ arbol, onReclasificar, onInvertir, onDesacoplar, onOmitir, posiciones, contexto, onUbicar, onDesindentar }: { arbol: NodoBorrador[]; onReclasificar: (codigo: string, actual: NodoBorrador["tipoFila"]) => void; onInvertir: (codigo: string) => void; onDesacoplar: (codigo: string, desacopladaAhora: boolean) => void; onOmitir: (filaNum: number, omitidaAhora: boolean) => void; posiciones: Map<number, Posicion>; contexto: Map<number, ContextoNodo>; onUbicar: (filaNum: number) => void; onDesindentar: (filaNum: number) => void }) {
-  const { filaSeleccionada, onClickFila, onDoubleClickFila } = useSeleccionFilaTabla();
+function ArbolTabla({ arbol, onReclasificar, onInvertir, onDesacoplar, onOmitir, posiciones, contexto, onUbicar, onDesindentar, enfoqueReubicacion }: { arbol: NodoBorrador[]; onReclasificar: (codigo: string, actual: NodoBorrador["tipoFila"]) => void; onInvertir: (codigo: string) => void; onDesacoplar: (codigo: string, desacopladaAhora: boolean) => void; onOmitir: (filaNum: number, omitidaAhora: boolean) => void; posiciones: Map<number, Posicion>; contexto: Map<number, ContextoNodo>; onUbicar: (filaNum: number) => void; onDesindentar: (filaNum: number) => void; enfoqueReubicacion: { origen: number; destino: number | null; secuencia: number } | null }) {
+  const { filaSeleccionada, setFilaSeleccionada, onClickFila, onDoubleClickFila } = useSeleccionFilaTabla();
+  const tablaRef = useRef<HTMLDivElement>(null);
+  const [destinoDestacado, setDestinoDestacado] = useState<number | null>(null);
   // Control contable: saldo ant + débito − crédito = saldo actual (±$1).
   const controlOk = (si: number, db: number, cr: number, s: number) => Math.abs(si + db - cr - s) <= 1;
   // Expande por defecto los niveles altos y TODA rama con descuadre (para verlo).
@@ -773,6 +841,37 @@ function ArbolTabla({ arbol, onReclasificar, onInvertir, onDesacoplar, onOmitir,
   const [q, setQ] = useState("");
   const [vista, setVista] = useState<"todo" | "balance" | "er" | "alertas">("todo");
   const [nivelMax, setNivelMax] = useState(0); // 0 = todos; 2/4/6/8 = hasta ese nivel
+
+  useEffect(() => {
+    if (!enfoqueReubicacion) return;
+    const abrir = new Set<number>();
+    const buscarRuta = (nodos: NodoBorrador[], objetivo: number, ruta: number[]): boolean => {
+      for (const n of nodos) {
+        const actual = [...ruta, n.filaNum];
+        if (n.filaNum === objetivo) { actual.forEach((id) => abrir.add(id)); return true; }
+        if (buscarRuta(n.hijos, objetivo, actual)) return true;
+      }
+      return false;
+    };
+    buscarRuta(arbol, enfoqueReubicacion.origen, []);
+    if (enfoqueReubicacion.destino != null) buscarRuta(arbol, enfoqueReubicacion.destino, []);
+
+    const prepararFrame = window.requestAnimationFrame(() => {
+      setQ("");
+      setVista("todo");
+      setNivelMax(0);
+      setFilaSeleccionada(String(enfoqueReubicacion.origen));
+      setDestinoDestacado(enfoqueReubicacion.destino);
+      setAbiertos((prev) => new Set([...prev, ...abrir]));
+    });
+
+    const scrollTimer = window.setTimeout(() => {
+      const fila = tablaRef.current?.querySelector<HTMLTableRowElement>(`tr[data-selection-key="${enfoqueReubicacion.origen}"]`);
+      fila?.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+    }, 80);
+    const flashTimer = window.setTimeout(() => setDestinoDestacado(null), 2600);
+    return () => { window.cancelAnimationFrame(prepararFrame); window.clearTimeout(scrollTimer); window.clearTimeout(flashTimer); };
+  }, [arbol, enfoqueReubicacion, setFilaSeleccionada]);
   const needle = q.trim().toLowerCase();
   const matchQ = (n: NodoBorrador) => needle === "" || n.codigo.toLowerCase().includes(needle) || (n.nombre ?? "").toLowerCase().includes(needle);
   const filtrando = needle !== "" || vista !== "todo" || nivelMax > 0;
@@ -845,6 +944,7 @@ function ArbolTabla({ arbol, onReclasificar, onInvertir, onDesacoplar, onOmitir,
         key={n.filaNum}
         data-selection-key={n.filaNum}
         data-selected={filaSeleccionada === String(n.filaNum) ? "true" : undefined}
+        data-move-target={destinoDestacado === n.filaNum ? "true" : undefined}
         className={`border-t border-ink-100 transition-colors ${omitida ? "opacity-45" : ""} ${estadoVisualFila}`}
       >
         <td className={`px-2 py-1 align-top ${reparentada ? "border-l-[3px] border-l-blue-500" : ""}`}>
@@ -870,6 +970,17 @@ function ArbolTabla({ arbol, onReclasificar, onInvertir, onDesacoplar, onOmitir,
             <span className={`text-[12px] ${omitida ? "text-ink-400 line-through" : descuadrado ? "font-semibold text-err-700 underline decoration-err-500 decoration-2 underline-offset-2" : "text-ink-800"}`} title={n.nombre}>
               {n.nombre}
             </span>
+            {numero && n.tipoFila !== "total" && (
+              <button
+                type="button"
+                onClick={() => onUbicar(n.filaNum)}
+                title="Reubicar esta cuenta bajo cualquier agrupadora del borrador."
+                aria-label={`Reubicar ${n.codigoCrudo} ${n.nombre}`}
+                className="inline-flex h-5 w-5 items-center justify-center rounded border border-blue-200 bg-blue-50 text-blue-700 transition hover:border-blue-400 hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-200"
+              >
+                <Icon name="move-tree" size={12} />
+              </button>
+            )}
             {omitida && <Chip label="Omitida · no cuenta" tone="warn" />}
             {n.subtotalDuplicado ? (
               <span title="Subtotal de 6 díg cuyo detalle de 8 díg (mismas 4 columnas) está mal-numerado. No se carga: su detalle ya lleva el valor.">
@@ -930,7 +1041,7 @@ function ArbolTabla({ arbol, onReclasificar, onInvertir, onDesacoplar, onOmitir,
               </button>
             )}
             {(puedeUbicarFila || puedeDesindentar || reparentada) && (
-              <span className="inline-flex items-center gap-0.5" title="Tabulador: ubica esta fila en la rama correcta. → elige bajo cuál cuenta anidarla (y mueve las cuentas del mismo grupo en lote); ← la sube un nivel.">
+              <span className="inline-flex items-center gap-0.5" title="Tabulador: ubica esta fila en la rama correcta. → elige bajo cuál agrupadora anidarla; ← la sube un nivel.">
                 <button
                   type="button"
                   disabled={!puedeDesindentar}
@@ -942,7 +1053,7 @@ function ArbolTabla({ arbol, onReclasificar, onInvertir, onDesacoplar, onOmitir,
                   type="button"
                   disabled={!puedeUbicarFila}
                   onClick={() => onUbicar(n.filaNum)}
-                  title="Ubicar: elegir bajo cuál cuenta de arriba anidar esta fila y mover las cuentas del mismo grupo en lote."
+                  title="Ubicar: elegir bajo cuál agrupadora anidar esta fila."
                   className="rounded border border-ink-200 px-1 py-0.5 text-[11px] font-bold leading-none text-ink-500 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-default disabled:opacity-30 disabled:hover:border-ink-200 disabled:hover:bg-transparent disabled:hover:text-ink-500"
                 >→</button>
                 {reparentada && (
@@ -992,7 +1103,7 @@ function ArbolTabla({ arbol, onReclasificar, onInvertir, onDesacoplar, onOmitir,
         <button type="button" onClick={expandirTodo} className="rounded-md border border-ink-200 px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50">Expandir todo</button>
         <button type="button" onClick={contraerTodo} className="rounded-md border border-ink-200 px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50">Contraer todo</button>
       </div>
-      <div className="max-h-[560px] overflow-auto">
+      <div ref={tablaRef} className="max-h-[560px] overflow-auto">
         <table className="balance-detail-row-hover w-full text-[11px]">
           <thead className="sticky top-0 z-10 bg-ink-50 text-ink-500">
             <tr className="text-left">
