@@ -329,6 +329,34 @@ describe("transformarTabular", () => {
     expect(rr.resumen.filasDescuadre).toBe(0);
   });
 
+  it("firmado con el signo en la columna HABER (SAP BW): reversa (Haber positivo) → crédito negativo, sin descuadre ni falso «invertido»", () => {
+    // MEDIPIEL (SAP BW query): el Haber viene firmado — negativo = crédito normal,
+    // positivo = reversa (efecto débito). SI + Débito + Haber = SF en TODA fila.
+    const hojaSap: GridHoja = {
+      nombre: "Balance",
+      filas: [
+        ["Código", "Cuenta", "Saldo anterior", "Débito", "Crédito", "Saldo final"],
+        [11001000, "Banco", 2_039_499_288, 60_388_094_439, -59_642_886_544, 2_784_707_183], // normal: Haber negativo
+        [26151007, "Provisión fletes", -808_659_348, 0, 808_659_348, 0], // reversa: Haber positivo → 0
+      ],
+    };
+    const rr = transformarTabular(spec(), [hojaSap], PARAMS);
+    expect(rr.resumen.filasDescuadre).toBe(0);
+    // Crédito normal → magnitud positiva; reversa (Haber positivo) → crédito NEGATIVO
+    // (efecto débito): se conserva el signo, no se marca invertido ni se descuadra.
+    expect(rr.importReady.find((c) => c.code === "11001000")).toMatchObject({ debitos: 60_388_094_439, creditos: 59_642_886_544, balance: 2_784_707_183 });
+    expect(rr.importReady.find((c) => c.code === "26151007")).toMatchObject({ debitos: 0, creditos: -808_659_348, balance: 0 });
+  });
+
+  it("elegirMovimiento firmado: la orientación del crédito negado gana solo cuando corresponde", () => {
+    // Haber firmado positivo (reversa) → crédito interno = −cr.
+    expect(elegirMovimiento(-808_659_348, 0, 808_659_348, 0, 1, true)).toEqual({ db: 0, cr: -808_659_348 });
+    // Sin `firmado`, cae a magnitud (comportamiento previo intacto).
+    expect(elegirMovimiento(-808_659_348, 0, 808_659_348, 0, 1, false)).toEqual({ db: 0, cr: 808_659_348 });
+    // Signo en la columna DÉBITO (COMESTIBLES DAN): los crudos ya cuadran → intactos.
+    expect(elegirMovimiento(14_900_064.22, -8_829_085.77, 449_106, 5_621_872.45, 1, true)).toEqual({ db: -8_829_085.77, cr: 449_106 });
+  });
+
   it("la suma de cuadre resta la reversa (partida doble cuadra con el origen)", () => {
     const hojaPd: GridHoja = {
       nombre: "Balance",

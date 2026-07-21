@@ -176,16 +176,20 @@ export function controlConcuerda(si: number, db: number, cr: number, saldo: numb
  *
  * Regla, con el SALDO como verdad (identidad firmada `si + db − cr = saldo`):
  *  1) si los valores TAL CUAL la cumplen, se conservan con su signo (preserva la
- *     reversión del ERP);
- *  2) si no, se devuelven en magnitud — cubre los créditos firmados-negativos
- *     estilo SAP y las notas débito sin saldo final, donde la verdad ES la
- *     magnitud (la validación de control posterior decide si la fila entra).
+ *     reversión del ERP en la columna DÉBITO, p. ej. COMESTIBLES DAN 143560);
+ *  2) FIRMADO con el signo en la columna HABER/crédito (típico SAP): si el crédito
+ *     NEGADO la cumple (`si + db + cr = saldo`), se conserva ese signo. Así una
+ *     reversa (Haber positivo) queda como crédito negativo = efecto débito, y NO se
+ *     marca como falso «lado invertido» ni se cuenta del lado equivocado;
+ *  3) si no, se devuelven en magnitud — notas débito sin saldo final, donde la
+ *     verdad ES la magnitud (la validación de control posterior decide si entra).
  *
  * Para archivos de magnitudes (sin negativos) el resultado es idéntico a
  * `Math.abs`, así que los cargues normales no cambian de comportamiento.
  */
-export function elegirMovimiento(si: number, db: number, cr: number, saldo: number, tol = 1): { db: number; cr: number } {
+export function elegirMovimiento(si: number, db: number, cr: number, saldo: number, tol = 1, firmado = false): { db: number; cr: number } {
   if (Math.abs(saldo - (si + db - cr)) <= tol) return { db, cr };
+  if (firmado && Math.abs(saldo - (si + db + cr)) <= tol) return { db, cr: -cr };
   return { db: Math.abs(db), cr: Math.abs(cr) };
 }
 
@@ -326,6 +330,10 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
   }
 
   const cols = spec.columnas;
+  // Convención FIRMADA (típico SAP): habilita en `elegirMovimiento` la orientación en
+  // la que el Haber viene CON signo (negativo = crédito, positivo = reversa/efecto
+  // débito), para no fabricar falsos «lados invertidos» en las reversas.
+  const firmado = spec.signoCredito === "firmado";
   const tieneInicial = cols.saldoInicial > 0;
   const tieneMovimientos = cols.debitos > 0 || cols.creditos > 0;
   const validarControl = tieneInicial && tieneMovimientos;
@@ -550,7 +558,7 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
       else if (directaOk) orientacion.directa++;
       else if (invertidaOk) orientacion.invertida++;
     }
-    const mov = elegirMovimiento(si, db, cr, saldo);
+    const mov = elegirMovimiento(si, db, cr, saldo, 1, firmado);
     const idx = registrar("movimiento", { si, db: mov.db, cr: mov.cr, saldo });
     (crudasPorCodigo.get(code) ?? crudasPorCodigo.set(code, []).get(code)!).push(idx);
     parciales.push({
