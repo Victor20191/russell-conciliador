@@ -323,6 +323,12 @@ export default function BorradorDetailClient({
             <Icon name="warn" size={13} />
             <span className="font-semibold text-warn-800">{nCambios} cambio(s) sin guardar</span>
             <span className="text-warn-700">— se aplican en pantalla; guárdalos para persistirlos en el borrador.</span>
+            {Object.keys(padres).length > 0 && (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 font-medium text-blue-700">
+                <span aria-hidden className="h-2 w-2 rounded-full bg-blue-500" />
+                Las filas movidas se sombrean en azul en su nueva ubicación.
+              </span>
+            )}
             <div className="ml-auto flex items-center gap-2">
               <button type="button" onClick={guardarCambios} disabled={guardando} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60">
                 {guardando ? "Guardando…" : "Guardar cambios"}
@@ -797,9 +803,16 @@ function ArbolTabla({ arbol, filtro, onReclasificar, onInvertir, onDesacoplar, o
     const puedeUbicarFila = puedeUbicar(ctxFila);
     const puedeDesindentar = !!pos && pos.abuelo != null;
     const reparentada = n.padreManual != null;
+    const estadoVisualFila = esMatch
+      ? "bg-blue-50 ring-1 ring-inset ring-blue-200"
+      : reparentada
+        ? "bg-blue-100/70 ring-1 ring-inset ring-blue-300 hover:bg-blue-100"
+        : esMov
+          ? "hover:bg-ink-50/60"
+          : "bg-ink-50/40";
     filas.push(
-      <tr key={n.filaNum} className={`border-t border-ink-100 ${omitida ? "opacity-45" : ""} ${esMatch ? "bg-blue-50 ring-1 ring-inset ring-blue-200" : esMov ? "hover:bg-ink-50/60" : "bg-ink-50/40"}`}>
-        <td className="px-2 py-1 align-top">
+      <tr key={n.filaNum} className={`border-t border-ink-100 transition-colors ${omitida ? "opacity-45" : ""} ${estadoVisualFila}`}>
+        <td className={`px-2 py-1 align-top ${reparentada ? "border-l-[3px] border-l-blue-500" : ""}`}>
           <div className="flex items-center gap-1.5" style={{ paddingLeft: 4 + depth * 16 }}>
             {hasHijos ? (
               <button onClick={() => toggle(n.filaNum)} className="text-ink-400 hover:text-ink-700"><Icon name={open ? "chev-d" : "chev-r"} size={13} /></button>
@@ -893,7 +906,11 @@ function ArbolTabla({ arbol, filtro, onReclasificar, onInvertir, onDesacoplar, o
                   title="Ubicar: elegir bajo cuál cuenta de arriba anidar esta fila y mover las cuentas del mismo grupo en lote."
                   className="rounded border border-ink-200 px-1 py-0.5 text-[11px] font-bold leading-none text-ink-500 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-default disabled:opacity-30 disabled:hover:border-ink-200 disabled:hover:bg-transparent disabled:hover:text-ink-500"
                 >→</button>
-                {reparentada && <Chip label="↳ movida" tone="blue" />}
+                {reparentada && (
+                  <span title="Esta fila fue reubicada y se muestra sombreada en su nueva posición dentro del árbol.">
+                    <Chip label="↳ movida aquí" tone="blue" />
+                  </span>
+                )}
               </span>
             )}
           </div>

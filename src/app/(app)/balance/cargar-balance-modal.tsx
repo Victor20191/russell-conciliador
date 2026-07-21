@@ -2,22 +2,18 @@
 
 import { startTransition, useActionState, useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
 import { Modal } from "@/components/modal";
 import { Chip } from "@/components/ui";
 import { fmt } from "@/lib/format";
 import {
   leerBalance,
-  confirmarCargaBalance,
-  auditarCargaBalance,
   reprocesarBalanceConSpec,
   guardarPerfilDesdeEditor,
   type LeerBalanceState,
   type SugerenciaBalance,
-  type AuditoriaCarga,
 } from "@/app/actions/balance";
-import { notifyActionState, notifyError, notifySuccess } from "@/lib/client-notifications";
+import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import { leerHojasParaPreview, columnaLetra, type CeldaCruda, type HojaPreview } from "@/lib/balance/extraccion/hojas-cliente";
 import type { SpecCarga } from "@/lib/balance/extraccion/esquema";
 import { PromptClientePerfil } from "@/app/(app)/balance/prompt-cliente-perfil";
@@ -38,18 +34,7 @@ const MAX_PREVIEW_BYTES = 500 * 1024;
 
 export type ClienteOpcion = { id: number; name: string; nit: string };
 
-type Resumen = NonNullable<ImportBalanceState["resumen"]>;
 type Excepcion = NonNullable<ImportBalanceState["excepciones"]>[number];
-
-const soloDigitos = (s: string) => (s ?? "").replace(/\D/g, "");
-
-/** Cliente cuyo NIT coincide con el NIT detectado (núcleo de 9 dígitos). */
-function clienteSugerido(clients: ClienteOpcion[], nit: string | null): string {
-  const core = soloDigitos(nit ?? "").slice(0, 9);
-  if (core.length < 5) return "";
-  const m = clients.find((c) => soloDigitos(c.nit).slice(0, 9) === core);
-  return m ? String(m.id) : "";
-}
 
 export function CargarBalanceButton({
   clients,
@@ -94,9 +79,7 @@ function CargarBalanceModal({
   onClose: () => void;
   onReiniciar: () => void;
 }) {
-  const router = useRouter();
   const [leerState, leerAction, leyendo] = useActionState<LeerBalanceState, FormData>(leerBalance, {});
-  const [confirmState, confirmAction, cargando] = useActionState<ImportBalanceState, FormData>(confirmarCargaBalance, {});
   const [fileName, setFileName] = useState("");
   // El File original se retiene para el EDITOR DE ESTRUCTURA (reproceso sin IA):
   // el input se desmonta al pasar a la fase de revisión.
@@ -115,11 +98,6 @@ function CargarBalanceModal({
   // Identifica el análisis en curso: si el usuario cambia de archivo mientras se
   // lee el anterior, descartamos el resultado tardío (no pisa el estado nuevo).
   const seqRef = useRef(0);
-
-  useEffect(() => {
-    notifyActionState(confirmState, { success: "Balance cargado.", error: "No se pudo cargar el balance." });
-    if (confirmState?.ok) router.refresh();
-  }, [confirmState, router]);
 
   // Al elegir archivo: si es Excel moderno, leemos sus hojas en el navegador
   // para que el usuario elija cuál cargar cuando haya 2+. Cualquier
@@ -197,18 +175,14 @@ function CargarBalanceModal({
   };
 
   const sug = sugLocal ?? leerState?.sugerencia;
-  const fase: "ok" | "revisar" | "archivo" = confirmState?.ok ? "ok" : sug ? "revisar" : "archivo";
+  const fase: "revisar" | "archivo" = sug ? "revisar" : "archivo";
 
   // Con Excel multi-hoja, no se puede leer hasta elegir una hoja.
   const requiereHoja = !!hojas && hojas.length >= 2;
   const leerDeshabilitado = leyendo || inspeccionando || !fileName || clients.length === 0 || (requiereHoja && !hojaElegida);
 
   const footer =
-    fase === "ok" ? (
-      <button onClick={onClose} className="ml-auto rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600">
-        Cerrar
-      </button>
-    ) : fase === "revisar" ? (
+    fase === "revisar" ? (
       <div className="flex w-full items-center gap-2">
         <button type="button" onClick={onReiniciar} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] font-semibold text-ink-600 hover:bg-ink-50">
           ← Otro archivo
@@ -216,19 +190,11 @@ function CargarBalanceModal({
         {sug && (
           <Link
             href={`/balance/borradores/${sug.payload.loteId}`}
-            className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] font-semibold text-ink-700 hover:bg-ink-50"
+            className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600"
           >
             <Icon name="doc" size={13} /> Ir al borrador
           </Link>
         )}
-        <button
-          type="submit"
-          form="confirmar-form"
-          disabled={cargando || reprocesando}
-          className={`${sug ? "" : "ml-auto "}rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60`}
-        >
-          {cargando ? "Cargando…" : reprocesando ? "Reprocesando…" : "Cargar balance"}
-        </button>
       </div>
     ) : (
       <button
@@ -249,15 +215,11 @@ function CargarBalanceModal({
 
   return (
     <Modal open onClose={onClose} title="Cargar balance de comprobación" size="2xl" footer={footer}>
-      {fase === "ok" && confirmState.resumen ? (
-        <ResultadoOk resumen={confirmState.resumen} excepciones={confirmState.excepciones ?? []} onClose={onClose} />
-      ) : fase === "revisar" && sug ? (
+      {fase === "revisar" && sug ? (
         <FormRevisar
           key={sug.payload.loteId}
           sug={sug}
           clients={clients}
-          confirmAction={confirmAction}
-          confirmMessage={confirmState?.message}
           excepciones={leerState?.excepciones ?? []}
           archivoFile={archivoFile}
           reprocesando={reprocesando}
@@ -269,7 +231,7 @@ function CargarBalanceModal({
             Sube el balance en <span className="font-semibold">Excel (.xlsx/.xlsm), CSV, TXT (plano), JSON o PDF</span>. La plataforma
             lo lee (con el <span className="font-semibold">perfil guardado del cliente</span> si el formato ya se conoce, o
             con IA), identifica la estructura y te <span className="font-semibold">sugiere</span> los datos (cliente,
-            período, saldos). Tú revisas y completas lo que falte antes de cargar; nada se guarda hasta confirmar.
+            período, saldos). Al terminar la lectura crea un borrador para que lo revises antes de cargarlo como balance oficial.
           </p>
 
           {configuracionIA && (
@@ -356,8 +318,6 @@ function OrigenChip({
 function FormRevisar({
   sug,
   clients,
-  confirmAction,
-  confirmMessage,
   excepciones,
   archivoFile,
   reprocesando,
@@ -365,37 +325,14 @@ function FormRevisar({
 }: {
   sug: SugerenciaBalance;
   clients: ClienteOpcion[];
-  confirmAction: (payload: FormData) => void;
-  confirmMessage?: string;
   excepciones: Excepcion[];
   archivoFile: File | null;
   reprocesando: boolean;
   onReprocesar: (spec: SpecCarga, loteIdAnterior: string, proveedorIA?: ProveedorIABalance) => void;
 }) {
-  // Defaults derivados de la sugerencia (campos NO controlados con defaultValue).
-  // Preselección: cliente resuelto por NIT en el servidor (si está en la cartera)
-  // o coincidencia por NIT en el cliente.
-  const detectado = sug.render.clienteDetectadoId;
-  const clienteSug =
-    detectado != null && clients.some((c) => c.id === detectado) ? String(detectado) : clienteSugerido(clients, sug.payload.nitDetectado);
-  const desdeDef = sug.payload.periodoInicial ?? "";
-  const hastaDef = sug.payload.periodoFinal ?? "";
-
   // El editor de estructura solo aplica si aún tenemos el File (reproceso) y la
   // lectura produjo un spec (tabular). PDF/plantilla no traen spec.
   const puedeEditar = !!archivoFile && !!sug.render.spec;
-
-  // Auditoría rápida (determinista, no bloqueante): se corre al elegir cliente.
-  const [audit, setAudit] = useState<AuditoriaCarga | null>(null);
-  const [auditando, startAudit] = useTransition();
-  const correrAudit = (cid: number) => {
-    if (!cid) { setAudit(null); return; }
-    startAudit(async () => { setAudit(await auditarCargaBalance(cid, sug.payload.loteId)); });
-  };
-  // Fetch-on-mount intencional para el cliente sugerido (la auditoría es una
-  // lectura asíncrona, no un prefill de estado derivado).
-  // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
-  useEffect(() => { if (clienteSug) correrAudit(Number(clienteSug)); }, []);
 
   // Guardar el spec ajustado como PERFIL del cliente SIN reprocesar (para futuras cargas).
   // Si no hay cliente (ni por NIT ni en el lote), se pide elegirlo para concluir el guardado.
@@ -420,15 +357,11 @@ function FormRevisar({
   };
 
   return (
-    <form id="confirmar-form" action={confirmAction} className="flex flex-col gap-3.5">
-      {/* Payload COMPACTO firmado (v2): solo loteId + metadatos; las cuentas ya
-          están en el staging del servidor y no viajan de regreso. */}
-      <input type="hidden" name="payload" value={JSON.stringify({ firma: sug.firma, payload: sug.payload })} />
-
+    <div className="flex flex-col gap-3.5">
       <div className="flex items-start justify-between gap-2 rounded-md border border-ok-100 bg-ok-100/40 px-3 py-2.5 text-[12.5px] text-ok-700">
         <span>
           Leí <span className="font-semibold">{sug.payload.cuentas} cuenta(s)</span> de{" "}
-          <span className="font-mono">{sug.payload.archivoNombre}</span>. Revisa y completa los campos antes de cargar; no se ha guardado nada todavía.
+          <span className="font-mono">{sug.payload.archivoNombre}</span>. El archivo ya quedó guardado como borrador; continúa allí para completar la revisión antes de cargarlo.
         </span>
         <OrigenChip origen={sug.payload.origenExtraccion} proveedor={sug.render.proveedorIA} />
       </div>
@@ -453,108 +386,7 @@ function FormRevisar({
       {promptPerfilSpec && (
         <PromptClientePerfil clientes={clients} guardando={guardandoPerfil} onElegir={guardarPerfilConCliente} onClose={() => setPromptPerfilSpec(null)} />
       )}
-
-      <label className="flex flex-col gap-1.5">
-        <span className="text-[11.5px] font-medium text-ink-600">Cliente</span>
-        <select
-          name="clientId"
-          required
-          defaultValue={clienteSug}
-          onChange={(e) => correrAudit(Number(e.target.value))}
-          className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400"
-        >
-          <option value="" disabled>Selecciona el cliente…</option>
-          {clients.map((c) => (
-            <option key={c.id} value={c.id}>{c.name} — {c.nit}</option>
-          ))}
-        </select>
-        {clienteSug === "" && sug.payload.nitDetectado && (
-          <span className="text-[11px] text-warn-700">
-            NIT detectado <span className="font-mono">{sug.payload.nitDetectado}</span> sin cliente coincidente — selecciónalo manualmente.
-          </span>
-        )}
-      </label>
-
-      <AvisoAjustesCliente audit={audit} sug={sug} puedeReprocesar={puedeEditar && !reprocesando} onReprocesar={(s) => onReprocesar(s, sug.payload.loteId, sug.payload.proveedorIA)} />
-      <AuditPanel audit={audit} auditando={auditando} />
-
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <label className="flex flex-col gap-1.5">
-          <span className="text-[11.5px] font-medium text-ink-600">Período desde</span>
-          <input type="date" name="periodoInicio" required defaultValue={desdeDef} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400" />
-        </label>
-        <label className="flex flex-col gap-1.5">
-          <span className="text-[11.5px] font-medium text-ink-600">Período hasta</span>
-          <input type="date" name="periodoFin" required defaultValue={hastaDef} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400" />
-        </label>
-      </div>
-
-      {/* Guardar el formato como PERFIL del cliente: la próxima carga con el mismo
-          layout se procesa determinista, sin IA. Solo cuando hay huella (tabular). */}
-      {sug.payload.huella && (
-        <label className="flex items-start gap-2 rounded-md border border-ink-150 bg-ink-50 px-3 py-2 text-[12px] text-ink-600">
-          <input type="checkbox" name="guardarPerfil" value="1" defaultChecked className="mt-0.5" />
-          <span>
-            <span className="font-semibold">Guardar este formato como perfil del cliente.</span> Las próximas cargas con el
-            mismo layout se procesarán al instante, sin IA.
-          </span>
-        </label>
-      )}
-      {confirmMessage && <p className="text-[12px] font-medium text-err-700">{confirmMessage}</p>}
       {excepciones.length > 0 && <ExcepcionesTabla excepciones={excepciones} />}
-    </form>
-  );
-}
-
-/**
- * Aviso cuando las PREFERENCIAS guardadas del cliente elegido difieren de lo
- * aplicado en esta lectura (hoja, signo, tercero): ofrece reprocesar con ellas.
- */
-function AvisoAjustesCliente({
-  audit,
-  sug,
-  puedeReprocesar,
-  onReprocesar,
-}: {
-  audit: AuditoriaCarga | null;
-  sug: SugerenciaBalance;
-  puedeReprocesar: boolean;
-  onReprocesar: (spec: SpecCarga) => void;
-}) {
-  const ajustes = audit?.ok ? audit.ajustes : null;
-  const spec = sug.render.spec;
-  if (!ajustes || !spec) return null;
-
-  const difiere: string[] = [];
-  const parche: Partial<SpecCarga> = {};
-  if ((ajustes.convencionCredito === "firmado" || ajustes.convencionCredito === "magnitud") && ajustes.convencionCredito !== spec.signoCredito) {
-    difiere.push(`convención de crédito «${ajustes.convencionCredito}»`);
-    parche.signoCredito = ajustes.convencionCredito;
-  }
-  if (ajustes.agregarPorTercero != null && ajustes.agregarPorTercero !== spec.agregarPorTercero) {
-    difiere.push(`agregación por tercero ${ajustes.agregarPorTercero ? "activada" : "desactivada"}`);
-    parche.agregarPorTercero = ajustes.agregarPorTercero;
-  }
-  if (ajustes.hojaPreferida && sug.render.hojas.includes(ajustes.hojaPreferida) && ajustes.hojaPreferida !== spec.hoja) {
-    difiere.push(`hoja preferida «${ajustes.hojaPreferida}»`);
-    parche.hoja = ajustes.hojaPreferida;
-  }
-  if (difiere.length === 0) return null;
-
-  return (
-    <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">
-      <div>
-        Este cliente tiene preferencias de carga guardadas que difieren de lo aplicado: <span className="font-semibold">{difiere.join(", ")}</span>.
-      </div>
-      {puedeReprocesar && (
-        <button
-          type="button"
-          onClick={() => onReprocesar({ ...spec, ...parche })}
-          className="mt-1.5 rounded-md border border-blue-300 bg-white px-2.5 py-1 text-[11.5px] font-semibold text-blue-800 hover:bg-blue-100"
-        >
-          Aplicar preferencias y reprocesar (sin IA)
-        </button>
-      )}
     </div>
   );
 }
@@ -984,94 +816,6 @@ function DetalleMovimiento({ cuentas }: { cuentas: SugerenciaBalance["render"]["
   );
 }
 
-/**
- * Auditoría rápida pre-carga (no bloqueante): posibles omisiones (cuentas del
- * último balance del cliente que no vienen) + cuentas que se cargarán sin mapeo.
- */
-function AuditPanel({ audit, auditando }: { audit: AuditoriaCarga | null; auditando: boolean }) {
-  if (auditando) return <p className="text-[11.5px] text-ink-500">Auditando contra el último balance del cliente…</p>;
-  if (!audit?.ok) return null;
-  const notas = audit.ajustes?.observaciones?.trim();
-  return (
-    <div className="flex flex-col gap-2">
-      {notas && (
-        <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">
-          <div className="mb-0.5 flex items-center gap-1.5 font-semibold">
-            <span aria-hidden>📌</span> Notas de carga de este cliente
-          </div>
-          <p className="whitespace-pre-wrap leading-relaxed">{notas}</p>
-        </div>
-      )}
-      {audit.omisiones.length > 0 ? (
-        <div className="rounded-md border border-warn-200 bg-warn-50 px-3 py-2 text-[12px] text-warn-700">
-          <div className="font-semibold">⚠ {audit.omisiones.length} posible(s) omisión(es): cuentas del último balance del cliente que NO vienen en este archivo.</div>
-          <ul className="mt-1 max-h-32 list-disc space-y-0.5 overflow-y-auto pl-4 font-mono text-[11px]">
-            {audit.omisiones.slice(0, 60).map((o) => <li key={o.code}><span className="font-semibold">{o.code}</span> {o.name}</li>)}
-            {audit.omisiones.length > 60 && <li className="list-none text-warn-600">… y {audit.omisiones.length - 60} más</li>}
-          </ul>
-        </div>
-      ) : audit.hayPrevio ? (
-        <div className="rounded-md border border-ok-100 bg-ok-100/40 px-3 py-1.5 text-[12px] text-ok-700">✓ No faltan cuentas respecto al último balance del cliente.</div>
-      ) : (
-        <div className="rounded-md border border-ink-150 bg-ink-50 px-3 py-1.5 text-[11.5px] text-ink-500">Primer balance de este cliente: no hay con qué comparar omisiones.</div>
-      )}
-      {audit.sinMapeo.length > 0 && (
-        <div className="rounded-md border border-ink-200 bg-ink-50 px-3 py-2 text-[12px] text-ink-600">
-          <div className="font-semibold">{audit.sinMapeo.length} cuenta(s) se cargarán SIN mapeo al estándar (revisa códigos de 4 díg o con sufijos).</div>
-          <ul className="mt-1 max-h-24 list-disc space-y-0.5 overflow-y-auto pl-4 font-mono text-[11px]">
-            {audit.sinMapeo.slice(0, 40).map((o) => <li key={o.code}><span className="font-semibold">{o.code}</span> {o.name}</li>)}
-            {audit.sinMapeo.length > 40 && <li className="list-none text-ink-500">… y {audit.sinMapeo.length - 40} más</li>}
-          </ul>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ResultadoOk({ resumen, excepciones, onClose }: { resumen: Resumen; excepciones: Excepcion[]; onClose: () => void }) {
-  const aud = resumen.auditoria;
-  return (
-    <div className="flex flex-col gap-3">
-      <div className="rounded-md border border-ok-100 bg-ok-100/40 px-3 py-2.5 text-[12.5px] text-ok-700">
-        Balance cargado como <span className="font-semibold">{resumen.version}</span> para{" "}
-        <span className="font-semibold">{resumen.cliente}</span> · {resumen.period}.
-      </div>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <Dato label="Cuentas" value={String(resumen.cuentas)} />
-        <Dato label="Mapeadas" value={`${resumen.mapped}/${resumen.cuentas}`} />
-        <Dato label="Sin mapeo" value={String(resumen.unmapped)} />
-        <Dato label="Cuadre">
-          <Chip label={resumen.balanced ? "Cuadrado" : "Descuadra"} tone={resumen.balanced ? "ok" : "err"} />
-        </Dato>
-      </div>
-
-      {aud && (
-        <div className="rounded-md border border-ink-150 bg-ink-50 px-3 py-2.5">
-          <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Resumen de auditoría</div>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[12px] text-ink-600 sm:grid-cols-3">
-            <Linea k="Filas leídas" v={String(aud.filasLeidas)} />
-            <Linea k="Movimiento (hojas)" v={String(aud.cuentasMovimiento)} />
-            <Linea k="Agrupadoras" v={String(aud.cuentasAgrupadoras)} />
-            <Linea k="Importables" v={String(aud.filasImportables)} />
-            <Linea k="Excluidas" v={String(aud.filasExcluidas)} />
-            <Linea k="Descuadres" v={String(aud.filasDescuadre)} />
-            <Linea k="NIT" v={`${aud.nit.valor ?? "—"} (${aud.nit.fuente.toLowerCase()})`} />
-            <Linea k="Período" v={`${aud.periodoInicial.valor ?? "?"} → ${aud.periodoFinal.valor ?? "?"}`} />
-            <Linea k="Tipo" v={aud.estandar} />
-            <Linea k="Signo crédito" v={aud.convencionCredito} />
-          </div>
-        </div>
-      )}
-
-      {excepciones.length > 0 && <ExcepcionesTabla excepciones={excepciones} />}
-
-      <Link href={`/balance/${resumen.id}`} onClick={onClose} className="inline-flex w-fit items-center gap-1.5 rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] font-semibold text-ink-700 hover:bg-ink-50">
-        <Icon name="chev-r" size={13} /> Ver balance cargado
-      </Link>
-    </div>
-  );
-}
-
 function ExcepcionesTabla({ excepciones }: { excepciones: Excepcion[] }) {
   return (
     <div className="flex flex-col gap-1.5">
@@ -1125,24 +869,6 @@ function ErroresTabla({ errores }: { errores: NonNullable<ImportBalanceState["er
           </tbody>
         </table>
       </div>
-    </div>
-  );
-}
-
-function Dato({ label, value, children }: { label: string; value?: string; children?: React.ReactNode }) {
-  return (
-    <div className="rounded-md border border-ink-150 bg-ink-50 px-3 py-2">
-      <div className="text-[11px] font-semibold text-ink-500">{label}</div>
-      <div className="mt-0.5 text-[13px] font-semibold text-ink-800">{children ?? value}</div>
-    </div>
-  );
-}
-
-function Linea({ k, v }: { k: string; v: string }) {
-  return (
-    <div className="flex justify-between gap-2">
-      <span className="text-ink-400">{k}</span>
-      <span className="text-right font-medium text-ink-700">{v}</span>
     </div>
   );
 }
