@@ -1,12 +1,34 @@
 "use client";
 
 import { useState } from "react";
+import { useFormStatus } from "react-dom";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icon, BrandMark } from "@/components/icons";
 import { Avatar } from "@/components/avatar";
+import { EstadoProcesando } from "@/components/estado-procesando";
 import { workNav, configNav, type NavChild, type NavItem } from "@/lib/nav";
 import { logout } from "@/app/actions/auth";
+
+function BotonCerrarSesion() {
+  const { pending } = useFormStatus();
+
+  return (
+    <button
+      type="submit"
+      title="Cerrar sesión"
+      aria-busy={pending}
+      disabled={pending}
+      className="rounded p-1.5 text-[#A9B6C8] transition hover:bg-white/10 hover:text-white disabled:opacity-60"
+    >
+      {pending ? (
+        <EstadoProcesando etiqueta="Cerrando sesión" />
+      ) : (
+        <Icon name="logout" size={15} />
+      )}
+    </button>
+  );
+}
 
 function isChildActive(pathname: string, href: string) {
   return pathname === href;
@@ -212,13 +234,7 @@ export default function Sidebar({
           </div>
         </Link>
         <form action={logout}>
-          <button
-            type="submit"
-            title="Cerrar sesión"
-            className="rounded p-1.5 text-[#A9B6C8] transition hover:bg-white/10 hover:text-white"
-          >
-            <Icon name="logout" size={15} />
-          </button>
+          <BotonCerrarSesion />
         </form>
       </div>
       </aside>

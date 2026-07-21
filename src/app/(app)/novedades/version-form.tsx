@@ -1,5 +1,7 @@
 "use client";
 
+import { EstadoProcesando } from "@/components/estado-procesando";
+
 import { useActionState, useEffect } from "react";
 import { Modal } from "@/components/modal";
 import { createVersion, updateVersion, deleteVersion } from "@/app/actions/novedades";
@@ -34,7 +36,7 @@ export function VersionForm({
       title={mode === "edit" ? "Editar versión" : "Nueva versión"}
       footer={
         <button type="submit" form="version-form" disabled={pending} className={BTN_GUARDAR}>
-          {pending ? "Guardando…" : "Guardar"}
+          {pending ? <EstadoProcesando>Guardando</EstadoProcesando> : "Guardar"}
         </button>
       }
     >
@@ -119,7 +121,7 @@ export function DeleteVersionForm({
       title="Eliminar versión"
       footer={
         <button type="submit" form="delete-version-form" disabled={pending} className={BTN_ELIMINAR}>
-          {pending ? "Eliminando…" : "Eliminar definitivamente"}
+          {pending ? <EstadoProcesando>Eliminando</EstadoProcesando> : "Eliminar definitivamente"}
         </button>
       }
     >

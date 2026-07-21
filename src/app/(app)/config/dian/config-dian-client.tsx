@@ -1,5 +1,7 @@
 "use client";
 
+import { EstadoProcesando } from "@/components/estado-procesando";
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
@@ -118,7 +120,7 @@ function MappingEditor({
       onClose={onClose}
       title={`${lineKey} · Editar mapeo`}
       footer={
-        <button onClick={save} disabled={saving} className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"><Icon name="check" size={13} /> {saving ? "Guardando…" : "Guardar mapeo"}</button>
+        <button onClick={save} disabled={saving} className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"><Icon name="check" size={13} /> {saving ? <EstadoProcesando>Guardando</EstadoProcesando> : "Guardar mapeo"}</button>
       }
     >
       <p className="mb-3 text-[12px] text-ink-500">{label}. Las cuentas con signo <b>+</b> suman al saldo contable del renglón; las de signo <b>−</b> restan.</p>

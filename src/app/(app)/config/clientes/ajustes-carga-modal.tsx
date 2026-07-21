@@ -1,5 +1,7 @@
 "use client";
 
+import { EstadoProcesando } from "@/components/estado-procesando";
+
 import { useActionState, useEffect, useState, useTransition } from "react";
 import { Modal } from "@/components/modal";
 import { Chip } from "@/components/ui";
@@ -52,39 +54,55 @@ export function AjustesCargaModal({
   }, [saveState]);
 
   const [eliminando, startEliminar] = useTransition();
+  const [eliminandoObjetivo, setEliminandoObjetivo] = useState<string | null>(null);
   const eliminar = (id: number) => {
     if (!confirm("¿Eliminar este perfil? La próxima carga con ese formato volverá a detectar la estructura (con IA).")) return;
+    setEliminandoObjetivo(`perfil:${id}`);
     startEliminar(async () => {
-      const res = await eliminarPerfilCarga(id);
-      if (res.ok) {
-        notifySuccess("Perfil eliminado.");
-        setData(await listarPerfilesCarga(cliente.id));
-      } else {
-        notifyError(res.message ?? "No se pudo eliminar el perfil.");
+      try {
+        const res = await eliminarPerfilCarga(id);
+        if (res.ok) {
+          notifySuccess("Perfil eliminado.");
+          setData(await listarPerfilesCarga(cliente.id));
+        } else {
+          notifyError(res.message ?? "No se pudo eliminar el perfil.");
+        }
+      } finally {
+        setEliminandoObjetivo(null);
       }
     });
   };
   const eliminarCorreccion = (id: number) => {
     if (!confirm("¿Eliminar esta corrección? Dejará de aplicarse automáticamente en las próximas cargas de este cliente.")) return;
+    setEliminandoObjetivo(`correccion:${id}`);
     startEliminar(async () => {
-      const res = await eliminarCorreccionCarga(id);
-      if (res.ok) {
-        notifySuccess("Corrección eliminada.");
-        setData(await listarPerfilesCarga(cliente.id));
-      } else {
-        notifyError(res.message ?? "No se pudo eliminar la corrección.");
+      try {
+        const res = await eliminarCorreccionCarga(id);
+        if (res.ok) {
+          notifySuccess("Corrección eliminada.");
+          setData(await listarPerfilesCarga(cliente.id));
+        } else {
+          notifyError(res.message ?? "No se pudo eliminar la corrección.");
+        }
+      } finally {
+        setEliminandoObjetivo(null);
       }
     });
   };
   const limpiarCorrecciones = () => {
     if (!confirm("¿Eliminar TODAS las correcciones memorizadas de este cliente? Las próximas cargas no aplicarán ningún ajuste automático por cuenta.")) return;
+    setEliminandoObjetivo("correcciones:todas");
     startEliminar(async () => {
-      const res = await limpiarCorreccionesCarga(cliente.id);
-      if (res.ok) {
-        notifySuccess(res.message ?? "Correcciones eliminadas.");
-        setData(await listarPerfilesCarga(cliente.id));
-      } else {
-        notifyError(res.message ?? "No se pudieron eliminar las correcciones.");
+      try {
+        const res = await limpiarCorreccionesCarga(cliente.id);
+        if (res.ok) {
+          notifySuccess(res.message ?? "Correcciones eliminadas.");
+          setData(await listarPerfilesCarga(cliente.id));
+        } else {
+          notifyError(res.message ?? "No se pudieron eliminar las correcciones.");
+        }
+      } finally {
+        setEliminandoObjetivo(null);
       }
     });
   };
@@ -98,7 +116,7 @@ export function AjustesCargaModal({
   return (
     <Modal open onClose={onClose} title={`Carga de balances · ${cliente.name}`} size="2xl" footer={footer}>
       {cargando ? (
-        <p className="px-1 py-6 text-center text-[12.5px] text-ink-400">Cargando perfiles y preferencias…</p>
+        <p className="px-1 py-6 text-center text-[12.5px] text-ink-400"><EstadoProcesando>Cargando perfiles y preferencias</EstadoProcesando></p>
       ) : !data?.ok ? (
         <p className="rounded-md border border-err-200 bg-err-50 px-3 py-2.5 text-[12.5px] text-err-700">
           {data?.message ?? "No se pudo consultar la información."}
@@ -155,7 +173,11 @@ export function AjustesCargaModal({
                             title="Eliminar perfil (la próxima carga volverá a usar IA)"
                             className="rounded p-1 text-ink-400 hover:bg-err-50 hover:text-err-700 disabled:opacity-50"
                           >
-                            <Icon name="x" size={13} />
+                            {eliminandoObjetivo === `perfil:${p.id}` ? (
+                              <EstadoProcesando etiqueta="Eliminando perfil" />
+                            ) : (
+                              <Icon name="x" size={13} />
+                            )}
                           </button>
                         </td>
                       </tr>
@@ -183,7 +205,11 @@ export function AjustesCargaModal({
                   onClick={limpiarCorrecciones}
                   className="shrink-0 rounded-md border border-err-200 px-2.5 py-1 text-[11.5px] font-semibold text-err-700 hover:bg-err-50 disabled:opacity-50"
                 >
-                  Borrar todas
+                  {eliminandoObjetivo === "correcciones:todas" ? (
+                    <EstadoProcesando>Eliminando</EstadoProcesando>
+                  ) : (
+                    "Borrar todas"
+                  )}
                 </button>
               )}
             </div>
@@ -220,7 +246,11 @@ export function AjustesCargaModal({
                             title="Eliminar corrección (deja de aplicarse en las próximas cargas)"
                             className="rounded p-1 text-ink-400 hover:bg-err-50 hover:text-err-700 disabled:opacity-50"
                           >
-                            <Icon name="x" size={13} />
+                            {eliminandoObjetivo === `correccion:${c.id}` ? (
+                              <EstadoProcesando etiqueta="Eliminando corrección" />
+                            ) : (
+                              <Icon name="x" size={13} />
+                            )}
                           </button>
                         </td>
                       </tr>
@@ -325,7 +355,7 @@ export function AjustesCargaModal({
                 disabled={guardando}
                 className="w-fit rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
               >
-                {guardando ? "Guardando…" : "Guardar preferencias"}
+                {guardando ? <EstadoProcesando>Guardando</EstadoProcesando> : "Guardar preferencias"}
               </button>
             </form>
           </section>

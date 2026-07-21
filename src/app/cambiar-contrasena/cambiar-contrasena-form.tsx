@@ -1,5 +1,7 @@
 "use client";
 
+import { EstadoProcesando } from "@/components/estado-procesando";
+
 import { useActionState } from "react";
 import { changePassword } from "@/app/actions/auth";
 import { PasswordInput } from "@/components/password-input";
@@ -35,7 +37,7 @@ export default function CambiarContrasenaForm() {
 
       <button type="submit" disabled={pending}
         className="mt-1 rounded-md bg-navy-700 px-4 py-2.5 text-[13px] font-semibold text-white transition hover:bg-navy-600 disabled:opacity-60">
-        {pending ? "Guardando…" : "Cambiar contraseña"}
+        {pending ? <EstadoProcesando>Guardando</EstadoProcesando> : "Cambiar contraseña"}
       </button>
     </form>
   );

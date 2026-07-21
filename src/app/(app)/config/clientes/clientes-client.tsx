@@ -1,5 +1,7 @@
 "use client";
 
+import { EstadoProcesando } from "@/components/estado-procesando";
+
 import { useActionState, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
@@ -529,7 +531,7 @@ function ClientModal({
             title={dianInvalido ? "Selecciona al menos un formato DIAN o desactiva DIAN." : undefined}
             className="ml-auto rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
           >
-            {pending ? "Guardando…" : "Guardar"}
+            {pending ? <EstadoProcesando>Guardando</EstadoProcesando> : "Guardar"}
           </button>
         </>
       }
@@ -901,7 +903,7 @@ function DeleteClientButton({ id, onDone }: { id: number; onDone: () => void }) 
             }}
             className="rounded-md border border-err-100 bg-err-100 px-3 py-1.5 text-[12.5px] font-semibold text-err-700 hover:bg-err-100/70 disabled:opacity-60"
           >
-            {pending ? "Eliminando…" : "Eliminar"}
+            {pending ? <EstadoProcesando>Eliminando</EstadoProcesando> : "Eliminar"}
           </button>
         </>
       )}

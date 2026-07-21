@@ -1,5 +1,7 @@
 "use client";
 
+import { EstadoProcesando } from "@/components/estado-procesando";
+
 import { useActionState, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Avatar } from "@/components/avatar";
@@ -148,7 +150,7 @@ function FotoUploader({
             className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white transition hover:bg-navy-600 disabled:opacity-60"
           >
             <Icon name="upload" size={13} />
-            {subiendo ? "Guardando…" : "Guardar foto"}
+            {subiendo ? <EstadoProcesando>Guardando</EstadoProcesando> : "Guardar foto"}
           </button>
         </div>
       </form>
@@ -161,7 +163,7 @@ function FotoUploader({
             className="inline-flex items-center gap-1.5 rounded-md border border-err-100 bg-err-100/60 px-3 py-1.5 text-[12.5px] font-semibold text-err-700 transition hover:bg-err-100 disabled:opacity-60"
           >
             <Icon name="x" size={13} />
-            {quitando ? "Quitando…" : "Quitar foto"}
+            {quitando ? <EstadoProcesando>Quitando</EstadoProcesando> : "Quitar foto"}
           </button>
           {quitar?.message && (
             <p className="mt-1 text-[12px] font-medium text-err-700">{quitar.message}</p>

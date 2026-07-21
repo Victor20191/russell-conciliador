@@ -1,5 +1,7 @@
 "use client";
 
+import { EstadoProcesando } from "@/components/estado-procesando";
+
 import { useActionState, useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
@@ -292,7 +294,7 @@ function ConfirmarMapeoModal({ cuenta, accounts, stdByCode, onClose }: {
               <input type="hidden" name="id" value={cuenta.id} />
               <input type="hidden" name="todas" value={todas ? "1" : "0"} />
               <button type="submit" disabled={pending} className="rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-60">
-                {pending ? "Confirmando…" : `Confirmar ${total} cuenta(s)`}
+                {pending ? <EstadoProcesando>Confirmando</EstadoProcesando> : `Confirmar ${total} cuenta(s)`}
               </button>
             </>
           )}
@@ -385,7 +387,7 @@ function AsignarEstandarModal({ cuenta, opciones, onClose }: {
             ))
           )}
         </div>
-        {pending && <p className="text-[12px] text-ink-500">Reasignando…</p>}
+        {pending && <p className="text-[12px] text-ink-500"><EstadoProcesando>Reasignando</EstadoProcesando></p>}
       </div>
     </Modal>
   );
@@ -528,7 +530,7 @@ function MapeoClienteForm({ mode, row, clienteId, opciones, onClose, onDelete }:
             )}
           </div>
           <button type="submit" form="mapeo-cliente-form" disabled={pending} className="rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-60">
-            {pending ? "Guardando…" : isEdit ? "Guardar cambios" : "Crear regla"}
+            {pending ? <EstadoProcesando>Guardando</EstadoProcesando> : isEdit ? "Guardar cambios" : "Crear regla"}
           </button>
         </div>
       }
@@ -572,7 +574,7 @@ function DeleteMapeoClienteForm({ row, onClose }: { row: MapeoClienteRow; onClos
       title="Eliminar regla de mapeo"
       footer={
         <button type="submit" form="delete-mapeo-cliente-form" disabled={pending} className="rounded-md bg-err-700 px-4 py-2 text-[13px] font-semibold text-white hover:bg-err-700/90 disabled:opacity-60">
-          {pending ? "Eliminando…" : "Eliminar"}
+          {pending ? <EstadoProcesando>Eliminando</EstadoProcesando> : "Eliminar"}
         </button>
       }
     >
@@ -796,7 +798,7 @@ function StandardAccountForm({
             disabled={pending}
             className="rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-60"
           >
-            {pending ? "Guardando…" : isEdit ? "Guardar cambios" : "Crear cuenta"}
+            {pending ? <EstadoProcesando>Guardando</EstadoProcesando> : isEdit ? "Guardar cambios" : "Crear cuenta"}
           </button>
         </div>
       }
@@ -903,7 +905,7 @@ function DeleteStandardAccountForm({ account, onClose }: { account: StdAccount; 
           disabled={pending}
           className="rounded-md bg-err-700 px-4 py-2 text-[13px] font-semibold text-white hover:bg-err-700/90 disabled:opacity-60"
         >
-          {pending ? "Eliminando…" : "Eliminar definitivamente"}
+          {pending ? <EstadoProcesando>Eliminando</EstadoProcesando> : "Eliminar definitivamente"}
         </button>
       }
     >
@@ -1122,7 +1124,7 @@ function SubgrupoForm({ mode, subgrupo, onClose, onDelete }: { mode: "create" | 
             )}
           </div>
           <button type="submit" form="subgrupo-form" disabled={pending} className="rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-60">
-            {pending ? "Guardando…" : isEdit ? "Guardar cambios" : "Crear subgrupo"}
+            {pending ? <EstadoProcesando>Guardando</EstadoProcesando> : isEdit ? "Guardar cambios" : "Crear subgrupo"}
           </button>
         </div>
       }
@@ -1168,7 +1170,7 @@ function DeleteSubgrupoForm({ subgrupo, onClose }: { subgrupo: Subgrupo; onClose
       title="Eliminar subgrupo"
       footer={
         <button type="submit" form="delete-subgrupo-form" disabled={pending} className="rounded-md bg-err-700 px-4 py-2 text-[13px] font-semibold text-white hover:bg-err-700/90 disabled:opacity-60">
-          {pending ? "Eliminando…" : "Eliminar definitivamente"}
+          {pending ? <EstadoProcesando>Eliminando</EstadoProcesando> : "Eliminar definitivamente"}
         </button>
       }
     >

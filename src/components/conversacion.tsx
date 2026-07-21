@@ -1,5 +1,7 @@
 "use client";
 
+import { EstadoProcesando } from "@/components/estado-procesando";
+
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { Icon } from "@/components/icons";
 import { etiquetaEntidad } from "@/lib/comentarios";
@@ -160,7 +162,7 @@ export default function Conversacion({
 
       <div className="max-h-[420px] min-h-[120px] flex-1 space-y-3 overflow-y-auto px-4 py-3">
         {cargando ? (
-          <p className="text-[12.5px] text-ink-500">Cargando conversación…</p>
+          <p className="text-[12.5px] text-ink-500"><EstadoProcesando>Cargando conversación</EstadoProcesando></p>
         ) : comentarios.length === 0 ? (
           <p className="text-[12.5px] text-ink-500">
             Sin comentarios todavía. {puedeComentar ? "Sé el primero en escribir." : ""}
@@ -219,7 +221,7 @@ export default function Conversacion({
               className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-navy-800 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Icon name="send" size={14} />
-              {enviando ? "Enviando…" : "Enviar"}
+              {enviando ? <EstadoProcesando>Enviando</EstadoProcesando> : "Enviar"}
             </button>
           </div>
         </div>

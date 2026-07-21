@@ -1,5 +1,7 @@
 "use client";
 
+import { EstadoProcesando } from "@/components/estado-procesando";
+
 import { useActionState, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Icon, type IconName } from "@/components/icons";
@@ -146,9 +148,14 @@ export default function ModulosClient({ modules }: { modules: ModuleWithFields[]
                               type="submit"
                               disabled={i === 0 || pending}
                               title="Subir"
+                              aria-busy={pending}
                               className="rounded p-1 text-ink-400 hover:bg-ink-100 disabled:opacity-30"
                             >
-                              <Icon name="chev-d" size={13} className="rotate-180" />
+                              {pending ? (
+                                <EstadoProcesando etiqueta="Subiendo campo" />
+                              ) : (
+                                <Icon name="chev-d" size={13} className="rotate-180" />
+                              )}
                             </button>
                               </>
                             )}
@@ -168,9 +175,14 @@ export default function ModulosClient({ modules }: { modules: ModuleWithFields[]
                               type="submit"
                               disabled={i === active.fields.length - 1 || pending}
                               title="Bajar"
+                              aria-busy={pending}
                               className="rounded p-1 text-ink-400 hover:bg-ink-100 disabled:opacity-30"
                             >
-                              <Icon name="chev-d" size={13} />
+                              {pending ? (
+                                <EstadoProcesando etiqueta="Bajando campo" />
+                              ) : (
+                                <Icon name="chev-d" size={13} />
+                              )}
                             </button>
                               </>
                             )}
@@ -196,9 +208,14 @@ export default function ModulosClient({ modules }: { modules: ModuleWithFields[]
                               type="submit"
                               disabled={pending}
                               title="Eliminar"
+                              aria-busy={pending}
                               className="rounded p-1 text-err-500 hover:bg-err-100"
                             >
-                              <Icon name="x" size={13} />
+                              {pending ? (
+                                <EstadoProcesando etiqueta="Eliminando campo" />
+                              ) : (
+                                <Icon name="x" size={13} />
+                              )}
                             </button>
                               </>
                             )}
@@ -291,7 +308,7 @@ function FieldModal({
           disabled={pending}
           className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
         >
-          {pending ? "Guardando…" : "Guardar"}
+          {pending ? <EstadoProcesando>Guardando</EstadoProcesando> : "Guardar"}
         </button>
       }
     >

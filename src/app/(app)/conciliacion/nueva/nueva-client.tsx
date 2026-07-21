@@ -1,5 +1,7 @@
 "use client";
 
+import { EstadoProcesando } from "@/components/estado-procesando";
+
 import { useActionState, useEffect, useState } from "react";
 import { Icon, type IconName } from "@/components/icons";
 import { Card, Chip } from "@/components/ui";
@@ -328,7 +330,7 @@ function ConfirmStep({
           <input type="hidden" name="moduleId" value={moduleId} />
           <input type="hidden" name="period" value={period} />
           <input type="hidden" name="cutoff" value={cutoff} />
-          <button type="submit" disabled={pending} className="inline-flex w-full items-center justify-center gap-1.5 rounded-md bg-navy-700 px-4 py-2.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-60"><Icon name="play" size={14} /> {pending ? "Ejecutando…" : "Guardar y ejecutar cargue"}</button>
+          <button type="submit" disabled={pending} className="inline-flex w-full items-center justify-center gap-1.5 rounded-md bg-navy-700 px-4 py-2.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-60"><Icon name="play" size={14} /> {pending ? <EstadoProcesando>Ejecutando</EstadoProcesando> : "Guardar y ejecutar cargue"}</button>
         </form>
         <button onClick={onBack} className="mt-2 w-full rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] text-ink-600 hover:bg-ink-50">Atrás</button>
       </Card>

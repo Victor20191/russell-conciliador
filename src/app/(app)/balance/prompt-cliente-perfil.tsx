@@ -1,5 +1,7 @@
 "use client";
 
+import { EstadoProcesando } from "@/components/estado-procesando";
+
 import { useState } from "react";
 import { Modal } from "@/components/modal";
 
@@ -36,7 +38,7 @@ export function PromptClientePerfil({
             onClick={() => onElegir(Number(sel))}
             className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
           >
-            {guardando ? "Guardando…" : "Guardar perfil"}
+            {guardando ? <EstadoProcesando>Guardando</EstadoProcesando> : "Guardar perfil"}
           </button>
         </>
       }

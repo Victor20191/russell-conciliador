@@ -1,5 +1,7 @@
 "use client";
 
+import { EstadoProcesando } from "@/components/estado-procesando";
+
 import { useActionState, useEffect } from "react";
 import { Modal } from "@/components/modal";
 import { createChange, updateChange, deleteChange } from "@/app/actions/novedades";
@@ -52,7 +54,7 @@ export function ChangeForm({
       title={editar ? "Editar cambio" : "Agregar cambio"}
       footer={
         <button type="submit" form="change-form" disabled={pending} className={BTN_GUARDAR}>
-          {pending ? "Guardando…" : "Guardar"}
+          {pending ? <EstadoProcesando>Guardando</EstadoProcesando> : "Guardar"}
         </button>
       }
     >
@@ -186,7 +188,7 @@ export function DeleteChangeForm({
       title="Eliminar cambio"
       footer={
         <button type="submit" form="delete-change-form" disabled={pending} className={BTN_ELIMINAR}>
-          {pending ? "Eliminando…" : "Eliminar"}
+          {pending ? <EstadoProcesando>Eliminando</EstadoProcesando> : "Eliminar"}
         </button>
       }
     >

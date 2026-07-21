@@ -1,5 +1,7 @@
 "use client";
 
+import { EstadoProcesando } from "@/components/estado-procesando";
+
 import { useActionState, useEffect, useState } from "react";
 import { Card, Chip } from "@/components/ui";
 import { Icon } from "@/components/icons";
@@ -97,7 +99,7 @@ function PromptEditor({ prompt }: { prompt: PromptVista }) {
                   disabled={restaurando}
                   className="rounded-md border border-err-200 px-2.5 py-1.5 text-[12px] font-semibold text-err-700 hover:bg-err-50 disabled:opacity-60"
                 >
-                  {restaurando ? "Restaurando…" : "Sí, restaurar"}
+                  {restaurando ? <EstadoProcesando>Restaurando</EstadoProcesando> : "Sí, restaurar"}
                 </button>
                 <button
                   type="button"
@@ -124,7 +126,7 @@ function PromptEditor({ prompt }: { prompt: PromptVista }) {
               disabled={!sucio || guardando}
               className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:opacity-50"
             >
-              {guardando ? "Guardando…" : "Guardar cambios"}
+              {guardando ? <EstadoProcesando>Guardando</EstadoProcesando> : "Guardar cambios"}
             </button>
           </div>
         </div>

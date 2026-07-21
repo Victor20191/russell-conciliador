@@ -1,5 +1,7 @@
 "use client";
 
+import { EstadoProcesando } from "@/components/estado-procesando";
+
 import { useActionState, useEffect, useId, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, PageHeader } from "@/components/ui";
@@ -283,7 +285,7 @@ function UnlockUserForm({ user }: { user: UserRow }) {
         disabled={pending}
         className="text-err-700 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
       >
-        {pending ? "Desbloqueando…" : "Desbloquear"}
+        {pending ? <EstadoProcesando>Desbloqueando</EstadoProcesando> : "Desbloquear"}
       </button>
       {state?.message && <span className="text-[11px] text-err-700">{state.message}</span>}
     </form>
@@ -427,7 +429,7 @@ function CreateUserForm({
           disabled={pending}
           className="rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-60"
         >
-          {pending ? "Creando…" : "Crear usuario"}
+          {pending ? <EstadoProcesando>Creando</EstadoProcesando> : "Crear usuario"}
         </button>
       }
     >
@@ -571,7 +573,7 @@ function EditUserForm({
           disabled={pending}
           className="rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-60"
         >
-          {pending ? "Guardando…" : "Guardar cambios"}
+          {pending ? <EstadoProcesando>Guardando</EstadoProcesando> : "Guardar cambios"}
         </button>
       }
     >
@@ -727,7 +729,7 @@ function DeleteUserForm({ user, onClose }: { user: UserRow; onClose: () => void 
           disabled={pending}
           className="rounded-md bg-err-700 px-4 py-2 text-[13px] font-semibold text-white hover:bg-err-700/90 disabled:opacity-60"
         >
-          {pending ? "Eliminando…" : "Eliminar definitivamente"}
+          {pending ? <EstadoProcesando>Eliminando</EstadoProcesando> : "Eliminar definitivamente"}
         </button>
       }
     >

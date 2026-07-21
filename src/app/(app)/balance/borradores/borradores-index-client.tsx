@@ -1,5 +1,7 @@
 "use client";
 
+import { EstadoProcesando } from "@/components/estado-procesando";
+
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -168,7 +170,7 @@ export default function BorradoresIndexClient({ rows }: { rows: BorradorRow[] })
                             disabled={descartando}
                             className="rounded-md bg-err-100 px-2 py-1 text-[11.5px] font-semibold text-err-700 hover:bg-err-200 disabled:opacity-60"
                           >
-                            {descartando ? "Descartando…" : "Confirmar"}
+                            {descartando ? <EstadoProcesando>Descartando</EstadoProcesando> : "Confirmar"}
                           </button>
                           <button onClick={() => setConfirmar(null)} className="rounded-md border border-ink-200 px-2 py-1 text-[11.5px] text-ink-600 hover:bg-ink-50">
                             Cancelar

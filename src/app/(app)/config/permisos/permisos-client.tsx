@@ -1,5 +1,7 @@
 "use client";
 
+import { EstadoProcesando } from "@/components/estado-procesando";
+
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { Card, PageHeader } from "@/components/ui";
@@ -185,7 +187,7 @@ export default function PermisosClient({
               disabled={!dirty || saving}
               className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white hover:bg-navy-800 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {saving ? "Guardando…" : dirty ? `Guardar cambios (${sucios.length})` : "Guardar cambios"}
+              {saving ? <EstadoProcesando>Guardando</EstadoProcesando> : dirty ? `Guardar cambios (${sucios.length})` : "Guardar cambios"}
             </button>
           </>
         }

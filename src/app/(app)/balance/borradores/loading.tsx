@@ -1,10 +1,14 @@
 import { Card } from "@/components/ui";
+import { EstadoProcesando } from "@/components/estado-procesando";
 
 const FILAS_ESQUELETO = 6;
 
 export default function LoadingBorradores() {
   return (
     <div aria-busy="true" aria-label="Cargando balances borrador" className="animate-pulse">
+      <div className="mb-4 text-[12.5px] font-medium text-ink-500">
+        <EstadoProcesando>Cargando balances borrador</EstadoProcesando>
+      </div>
       <div className="mb-6">
         <div className="h-7 w-56 rounded bg-ink-150" />
         <div className="mt-2 h-3.5 w-full max-w-3xl rounded bg-ink-100" />

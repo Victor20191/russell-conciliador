@@ -1,5 +1,6 @@
 "use client";
 
+import { EstadoProcesando } from "@/components/estado-procesando";
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { guardarPublicacionModulos, type CambioPublicacionModulo } from "@/app/actions/module-publication";
@@ -117,7 +118,13 @@ export default function PublicacionModulosClient({
               disabled={!dirty || saving}
               className="rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white hover:bg-navy-800 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {saving ? "Guardando..." : dirty ? `Guardar cambios (${dirtyKeys.length})` : "Guardar cambios"}
+              {saving ? (
+                <EstadoProcesando>Guardando</EstadoProcesando>
+              ) : dirty ? (
+                `Guardar cambios (${dirtyKeys.length})`
+              ) : (
+                "Guardar cambios"
+              )}
             </button>
           </>
         }

@@ -1,5 +1,7 @@
 "use client";
 
+import { EstadoProcesando } from "@/components/estado-procesando";
+
 import { useMemo, useRef, useState, useTransition } from "react";
 import { generarReporteFuncionalNovedades } from "@/app/actions/novedades";
 import { Card, Chip } from "@/components/ui";
@@ -244,7 +246,7 @@ export function ReporteFuncionalNovedades({
         footer={
           <button onClick={confirmarGenerar} disabled={!puedeConfirmar} className={BTN_PRIMARIO}>
             <Icon name="ai" size={14} />
-            {isPending ? "Generando…" : "Generar reporte"}
+            {isPending ? <EstadoProcesando>Generando</EstadoProcesando> : "Generar reporte"}
           </button>
         }
       >
@@ -360,7 +362,7 @@ export function ReporteFuncionalNovedades({
               </button>
               <button onClick={descargarPdfActual} disabled={pdfPendiente} className={BTN_PRIMARIO}>
                 <Icon name="doc" size={14} />
-                {pdfPendiente ? "Descargando..." : "Descargar PDF"}
+                {pdfPendiente ? <EstadoProcesando>Descargando</EstadoProcesando> : "Descargar PDF"}
               </button>
             </>
           }

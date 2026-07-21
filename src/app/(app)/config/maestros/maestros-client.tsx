@@ -1,5 +1,7 @@
 "use client";
 
+import { EstadoProcesando } from "@/components/estado-procesando";
+
 import { useActionState, useEffect, useId, useMemo, useState } from "react";
 import { Card } from "@/components/ui";
 import { Icon } from "@/components/icons";
@@ -651,7 +653,7 @@ function PersonaModal({
           disabled={pending}
           className="rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
         >
-          {pending ? "Guardando…" : "Guardar"}
+          {pending ? <EstadoProcesando>Guardando</EstadoProcesando> : "Guardar"}
         </button>
       }
     >
@@ -795,7 +797,7 @@ function CatalogModal({
           disabled={pending}
           className="rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
         >
-          {pending ? "Guardando…" : "Guardar"}
+          {pending ? <EstadoProcesando>Guardando</EstadoProcesando> : "Guardar"}
         </button>
       }
     >
@@ -873,7 +875,7 @@ function DeletePersonaModal({
           disabled={pending}
           className="rounded-md bg-err-700 px-4 py-2 text-[13px] font-semibold text-white hover:bg-err-700/90 disabled:opacity-60"
         >
-          {pending ? "Eliminando…" : "Eliminar definitivamente"}
+          {pending ? <EstadoProcesando>Eliminando</EstadoProcesando> : "Eliminar definitivamente"}
         </button>
       }
     >
@@ -927,7 +929,7 @@ function DeleteCatalogModal({
           disabled={pending}
           className="rounded-md bg-err-700 px-4 py-2 text-[13px] font-semibold text-white hover:bg-err-700/90 disabled:opacity-60"
         >
-          {pending ? "Eliminando…" : "Eliminar definitivamente"}
+          {pending ? <EstadoProcesando>Eliminando</EstadoProcesando> : "Eliminar definitivamente"}
         </button>
       }
     >

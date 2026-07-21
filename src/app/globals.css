@@ -77,7 +77,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-@keyframes balance-reading-dot-bounce {
+@keyframes processing-dot-bounce {
   0%,
   60%,
   100% {
@@ -91,21 +91,21 @@ body {
   }
 }
 
-.balance-reading-dot {
+.processing-dot {
   display: inline-block;
-  animation: balance-reading-dot-bounce 900ms ease-in-out infinite;
+  animation: processing-dot-bounce 900ms ease-in-out infinite;
 }
 
-.balance-reading-dot:nth-child(2) {
+.processing-dot:nth-child(2) {
   animation-delay: 120ms;
 }
 
-.balance-reading-dot:nth-child(3) {
+.processing-dot:nth-child(3) {
   animation-delay: 240ms;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .balance-reading-dot {
+  .processing-dot {
     animation: none;
     opacity: 1;
   }

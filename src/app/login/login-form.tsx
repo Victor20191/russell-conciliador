@@ -1,5 +1,7 @@
 "use client";
 
+import { EstadoProcesando } from "@/components/estado-procesando";
+
 import { useActionState } from "react";
 import { login } from "@/app/actions/auth";
 import { PasswordInput } from "@/components/password-input";
@@ -53,7 +55,7 @@ export default function LoginForm() {
         disabled={pending}
         className="mt-1 rounded-md bg-navy-700 px-4 py-2.5 text-[13px] font-semibold text-white transition hover:bg-navy-600 disabled:opacity-60"
       >
-        {pending ? "Verificando…" : "Iniciar sesión"}
+        {pending ? <EstadoProcesando>Verificando</EstadoProcesando> : "Iniciar sesión"}
       </button>
     </form>
   );

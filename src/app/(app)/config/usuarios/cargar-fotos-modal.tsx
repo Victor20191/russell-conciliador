@@ -1,5 +1,7 @@
 "use client";
 
+import { EstadoProcesando } from "@/components/estado-procesando";
+
 import { useActionState, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Modal } from "@/components/modal";
@@ -61,7 +63,7 @@ function CargarFotosModal({ onClose }: { onClose: () => void }) {
             disabled={pending || !fileName}
             className="ml-auto rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
           >
-            {pending ? "Cargando…" : "Cargar fotos"}
+            {pending ? <EstadoProcesando>Cargando</EstadoProcesando> : "Cargar fotos"}
           </button>
         )
       }

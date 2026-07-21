@@ -1,5 +1,7 @@
 "use client";
 
+import { EstadoProcesando } from "@/components/estado-procesando";
+
 import { useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
@@ -127,7 +129,7 @@ export default function Topbar({
                         disabled={pending}
                         className="text-[11px] font-medium text-blue-500 hover:underline disabled:opacity-60"
                       >
-                        {pending ? "Marcando…" : "Marcar todo leído"}
+                        {pending ? <EstadoProcesando>Marcando</EstadoProcesando> : "Marcar todo leído"}
                       </button>
                     )}
                   </ActionForm>

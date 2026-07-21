@@ -1,4 +1,5 @@
 import { Card } from "@/components/ui";
+import { EstadoProcesando } from "@/components/estado-procesando";
 
 const FILAS = 6;
 
@@ -15,6 +16,9 @@ export default function AppRouteLoading() {
       aria-label="Cargando página"
       className="animate-pulse"
     >
+      <div className="mb-4 text-[12.5px] font-medium text-ink-500">
+        <EstadoProcesando>Cargando página</EstadoProcesando>
+      </div>
       <div className="mb-6">
         <div className="h-7 w-64 max-w-2/3 rounded bg-ink-150" />
         <div className="mt-2 h-3.5 w-full max-w-3xl rounded bg-ink-100" />

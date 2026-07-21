@@ -1,5 +1,7 @@
 "use client";
 
+import { EstadoProcesando } from "@/components/estado-procesando";
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
@@ -128,7 +130,7 @@ export default function DianDetailClient({
                   <input type="hidden" name="formId" value={formId} /><input type="hidden" name="lineKey" value={sel.k} /><input type="hidden" name="periodId" value={periodId} />
                   <textarea name="text" rows={2} placeholder="Agregar observación, asignar con @…" className="w-full rounded-md border border-ink-200 px-2.5 py-1.5 text-[12px] outline-none focus:border-blue-400" />
                   <div className="mt-1.5 flex justify-end">
-                    <button type="submit" disabled={pending} className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-2.5 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"><Icon name="send" size={13} /> {pending ? "Comentando…" : "Comentar"}</button>
+                    <button type="submit" disabled={pending} className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-2.5 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"><Icon name="send" size={13} /> {pending ? <EstadoProcesando>Comentando</EstadoProcesando> : "Comentar"}</button>
                   </div>
                 </>
               )}
@@ -144,7 +146,7 @@ export default function DianDetailClient({
               {(pending) => (
                 <>
                   <input type="hidden" name="formId" value={formId} /><input type="hidden" name="lineKey" value={sel.k} /><input type="hidden" name="periodId" value={periodId} /><input type="hidden" name="diff" value={sel.diff} />
-                  <button type="submit" disabled={pending} className="inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-ai-100 bg-ai-100 px-2.5 py-1.5 text-[12px] font-semibold text-ai-700 hover:opacity-80 disabled:opacity-60"><Icon name="ai" size={13} /> {pending ? "Analizando…" : "Pedir análisis IA"}</button>
+                  <button type="submit" disabled={pending} className="inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-ai-100 bg-ai-100 px-2.5 py-1.5 text-[12px] font-semibold text-ai-700 hover:opacity-80 disabled:opacity-60"><Icon name="ai" size={13} /> {pending ? <EstadoProcesando>Analizando</EstadoProcesando> : "Pedir análisis IA"}</button>
                 </>
               )}
             </ActionForm>

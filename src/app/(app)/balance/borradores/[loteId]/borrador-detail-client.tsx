@@ -1,5 +1,7 @@
 "use client";
 
+import { EstadoProcesando } from "@/components/estado-procesando";
+
 import { useActionState, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
@@ -171,7 +173,7 @@ export default function BorradorDetailClient({
   // borrador deja de estar «sin cliente» en la lista) y se re-aplican sus
   // correcciones memorizadas (el NIT no lo detectó al leer, así que la
   // re-aplicación automática no corrió). Si cambió algo, se refresca la vista.
-  const [, startAsignarCliente] = useTransition();
+  const [asignandoCliente, startAsignarCliente] = useTransition();
   const asignarCliente = (cid: number) => {
     startAsignarCliente(async () => {
       const r = await asignarClienteBorrador(loteId, cid);
@@ -350,7 +352,7 @@ export default function BorradorDetailClient({
             )}
             <div className="ml-auto flex items-center gap-2">
               <button type="button" onClick={guardarCambios} disabled={guardando} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60">
-                {guardando ? "Guardando…" : "Guardar cambios"}
+                {guardando ? <EstadoProcesando>Guardando</EstadoProcesando> : "Guardar cambios"}
               </button>
               <button type="button" onClick={descartarCambios} disabled={guardando} className="rounded-md border border-ink-300 px-3 py-1.5 text-[12px] font-medium text-ink-700 hover:bg-ink-50 disabled:opacity-60">Descartar cambios</button>
             </div>
@@ -449,6 +451,11 @@ export default function BorradorDetailClient({
               <input type="date" name="periodoFin" required value={periodoFin} onChange={(e) => setPeriodoFin(e.target.value)} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400" />
             </label>
           </div>
+          {asignandoCliente && (
+            <div className="text-[11.5px] font-medium text-ink-500">
+              <EstadoProcesando>Vinculando cliente</EstadoProcesando>
+            </div>
+          )}
           {clienteSelId == null && (
             <span className="inline-flex flex-wrap items-center gap-2 text-[11px] text-warn-700">
               {nitDetectado ? <>NIT detectado <span className="font-mono">{nitDetectado}</span> sin cliente coincidente.</> : <>No se detectó el cliente.</>}
@@ -461,12 +468,12 @@ export default function BorradorDetailClient({
           {hayCambios && <p className="text-[11.5px] font-medium text-warn-700">Tienes cambios sin guardar: guárdalos o descártalos antes de cargar (el balance se carga desde lo guardado).</p>}
           <div className="flex items-center gap-2">
             <button type="submit" disabled={cargando || hayCambios || clienteSelId == null || !periodoIni || !periodoFin} title={clienteSelId == null || !periodoIni || !periodoFin ? "Falta el cliente o el período" : hayCambios ? "Guarda o descarta los cambios antes de cargar" : undefined} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60">
-              {cargando ? "Cargando…" : "Cargar balance"}
+              {cargando ? <EstadoProcesando>Cargando</EstadoProcesando> : "Cargar balance"}
             </button>
             {confirmarDescarte ? (
               <span className="inline-flex items-center gap-2">
                 <button type="button" onClick={onDescartar} disabled={descartando} className="rounded-md bg-err-100 px-3 py-1.5 text-[12.5px] font-semibold text-err-700 hover:bg-err-200 disabled:opacity-60">
-                  {descartando ? "Descartando…" : "Confirmar descarte"}
+                  {descartando ? <EstadoProcesando>Descartando</EstadoProcesando> : "Confirmar descarte"}
                 </button>
                 <button type="button" onClick={() => setConfirmarDescarte(false)} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] text-ink-600 hover:bg-ink-50">Cancelar</button>
               </span>

@@ -18,6 +18,7 @@ import { leerHojasParaPreview, columnaLetra, type CeldaCruda, type HojaPreview }
 import type { SpecCarga } from "@/lib/balance/extraccion/esquema";
 import { PromptClientePerfil } from "@/app/(app)/balance/prompt-cliente-perfil";
 import { SelectorClienteBuscable } from "@/components/selector-cliente-buscable";
+import { EstadoProcesando } from "@/components/estado-procesando";
 import type { ImportBalanceState } from "@/lib/import/balance";
 import type { ConfiguracionIABalanceUI, ProveedorIABalance } from "@/lib/ia/proveedor-balance";
 
@@ -36,23 +37,6 @@ const MAX_PREVIEW_BYTES = 500 * 1024;
 export type ClienteOpcion = { id: number; name: string; nit: string };
 
 type Excepcion = NonNullable<ImportBalanceState["excepciones"]>[number];
-
-function LeyendoAnimado() {
-  return (
-    <span className="inline-flex items-baseline" aria-live="polite">
-      <span>Leyendo</span>
-      <span
-        className="ml-0.5 inline-flex w-[1.05em] items-baseline justify-between"
-        aria-hidden="true"
-      >
-        <span className="balance-reading-dot">.</span>
-        <span className="balance-reading-dot">.</span>
-        <span className="balance-reading-dot">.</span>
-      </span>
-      <span className="sr-only"> archivo</span>
-    </span>
-  );
-}
 
 export function CargarBalanceButton({
   clients,
@@ -243,7 +227,7 @@ function CargarBalanceModal({
             title="Selecciona y confirma el cliente para continuar"
             className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white opacity-60"
           >
-            <Icon name="doc" size={13} /> {asignandoCliente ? "Vinculando cliente…" : "Selecciona el cliente"}
+            <Icon name="doc" size={13} /> {asignandoCliente ? <EstadoProcesando>Vinculando cliente</EstadoProcesando> : "Selecciona el cliente"}
           </button>
         ) : null}
       </div>
@@ -256,10 +240,9 @@ function CargarBalanceModal({
         className="ml-auto rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
       >
         {leyendo
-          ? <LeyendoAnimado />
+          ? <EstadoProcesando etiqueta="Leyendo archivo">Leyendo</EstadoProcesando>
           : inspeccionando
-            ? "Analizando hojas…"
-            : requiereHoja && hojaElegida
+            ? <EstadoProcesando>Analizando hojas</EstadoProcesando> : requiereHoja && hojaElegida
               ? `Leer hoja «${recortar(hojaElegida, 22)}»`
               : "Leer archivo"}
       </button>
@@ -327,7 +310,7 @@ function CargarBalanceModal({
               {/* Hoja elegida en Excel multi-hoja; vacío en archivos de una sola hoja, CSV o PDF. */}
               <input type="hidden" name="hoja" value={hojaElegida ?? ""} />
 
-              {inspeccionando && <p className="text-[12px] text-ink-500">Analizando las hojas del archivo…</p>}
+              {inspeccionando && <p className="text-[12px] text-ink-500"><EstadoProcesando>Analizando las hojas del archivo</EstadoProcesando></p>}
               {archivoGrande && (
                 <p className="rounded-md border border-err-200 bg-err-50 px-3 py-2.5 text-[12px] font-medium text-err-700">
                   <span className="font-semibold">⚠️ ¡Archivo muy pesado!</span> Su carga toma más tiempo de lo normal — no cierres esta operación mientras carga.
@@ -487,7 +470,7 @@ function IdentificacionCliente({
           onClick={() => seleccion != null && onAsignar(seleccion)}
           className="h-[37px] rounded-md bg-navy-700 px-3 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
         >
-          {asignando ? "Vinculando…" : "Vincular cliente"}
+          {asignando ? <EstadoProcesando>Vinculando</EstadoProcesando> : "Vincular cliente"}
         </button>
       </div>
     </section>
@@ -784,7 +767,7 @@ export function EditorEstructura({
               onClick={() => onAplicar(ed)}
               className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
             >
-              {reprocesando ? "Reprocesando…" : "Reprocesar sin IA"}
+              {reprocesando ? <EstadoProcesando>Reprocesando</EstadoProcesando> : "Reprocesar sin IA"}
             </button>
             {onGuardar && (
               <button
@@ -794,7 +777,7 @@ export function EditorEstructura({
                 title="Guarda esta estructura como perfil del cliente (para futuras cargas del mismo layout), sin reprocesar el archivo."
                 className="rounded-md border border-ok-300 bg-ok-100/40 px-3 py-1.5 text-[12px] font-semibold text-ok-700 hover:bg-ok-100 disabled:opacity-60"
               >
-                {guardando ? "Guardando…" : "Guardar perfil (sin reprocesar)"}
+                {guardando ? <EstadoProcesando>Guardando</EstadoProcesando> : "Guardar perfil (sin reprocesar)"}
               </button>
             )}
             <button
@@ -827,7 +810,7 @@ export function EditorEstructura({
                 onClick={() => onGuardarNotas(notas.trim())}
                 className="mt-2 rounded-md border border-blue-300 bg-blue-50 px-3 py-1.5 text-[12px] font-semibold text-blue-700 hover:bg-blue-100 disabled:opacity-60"
               >
-                {guardandoNotas ? "Guardando…" : "Guardar notas del cliente"}
+                {guardandoNotas ? <EstadoProcesando>Guardando</EstadoProcesando> : "Guardar notas del cliente"}
               </button>
             </div>
           )}

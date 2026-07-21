@@ -1,5 +1,7 @@
 "use client";
 
+import { EstadoProcesando } from "@/components/estado-procesando";
+
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
@@ -14,7 +16,14 @@ import { useSeleccionFilaTabla } from "@/app/(app)/balance/use-seleccion-fila-ta
 
 export type ValidacionInfo = { tipo: string; por: string; en: string; comentario: string };
 // Contexto de validación de alertas que se pasa al renderizador de filas.
-type ValCtx = { puede: boolean; mapa: Record<string, ValidacionInfo>; onOk: (n: NodoBalance, tipo: string) => void; onRevertir: (code: string) => void };
+type ValCtx = {
+  puede: boolean;
+  mapa: Record<string, ValidacionInfo>;
+  revirtiendo: boolean;
+  codigoRevirtiendo: string | null;
+  onOk: (n: NodoBalance, tipo: string) => void;
+  onRevertir: (code: string) => void;
+};
 
 export type Sums = { activo: number; pasivo: number; patrimonio: number; ingresos: number; gastos: number; costos: number; utilidad: number };
 export type Validation = { id: string; rule: string; status: string; detail: string; count?: number };
@@ -125,19 +134,29 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, va
   const { filaSeleccionada, onClickFila, onDoubleClickFila } = useSeleccionFilaTabla();
   // Handler de borrado (o null si no puede): controla la visibilidad del botón.
   const onEliminar = puedeEliminar ? setEliminar : null;
-  const [, startRevertir] = useTransition();
+  const [revirtiendo, startRevertir] = useTransition();
+  const [codigoRevirtiendo, setCodigoRevirtiendo] = useState<string | null>(null);
 
   // Cuentas cuya alerta de saldo ya fue VALIDADA (retiradas del conteo/poda).
   const validados = useMemo(() => new Set(Object.keys(validaciones)), [validaciones]);
   const val: ValCtx = {
     puede: puedeValidar,
     mapa: validaciones,
+    revirtiendo,
+    codigoRevirtiendo,
     onOk: (nodo, tipo) => setValidar({ nodo, tipo }),
-    onRevertir: (code) => startRevertir(async () => {
-      const r = await revertirValidacionAlerta({ balanceId, anchor: code });
-      if (r.ok) { notifySuccess(r.message ?? "Validación revertida."); router.refresh(); }
-      else notifyError(r.message ?? "No se pudo revertir.");
-    }),
+    onRevertir: (code) => {
+      setCodigoRevirtiendo(code);
+      startRevertir(async () => {
+        try {
+          const r = await revertirValidacionAlerta({ balanceId, anchor: code });
+          if (r.ok) { notifySuccess(r.message ?? "Validación revertida."); router.refresh(); }
+          else notifyError(r.message ?? "No se pudo revertir.");
+        } finally {
+          setCodigoRevirtiendo(null);
+        }
+      });
+    },
   };
 
   // Conteo de alertas (mapeo / naturaleza) por nodo + totales del balance.
@@ -302,7 +321,13 @@ function celdaValidacion(nodo: NodoBalance, val: ValCtx): React.ReactNode {
       <span className="inline-flex flex-col items-start gap-1">
         <span title={`Validado por ${v.por} · ${v.en}\n“${v.comentario}”`} className="cursor-help"><Chip label="Validado ✓" tone="ok" /></span>
         {val.puede && (
-          <button type="button" onClick={(e) => { e.stopPropagation(); val.onRevertir(nodo.code); }} title="Revertir la validación (la alerta reaparece)" className="whitespace-nowrap rounded px-1 text-[10.5px] font-medium text-ink-400 hover:bg-ink-100 hover:text-ink-600">Revertir</button>
+          <button type="button" disabled={val.revirtiendo} onClick={(e) => { e.stopPropagation(); val.onRevertir(nodo.code); }} title="Revertir la validación (la alerta reaparece)" className="whitespace-nowrap rounded px-1 text-[10.5px] font-medium text-ink-400 hover:bg-ink-100 hover:text-ink-600 disabled:opacity-60">
+            {val.codigoRevirtiendo === nodo.code ? (
+              <EstadoProcesando>Revirtiendo</EstadoProcesando>
+            ) : (
+              "Revertir"
+            )}
+          </button>
         )}
       </span>
     );
@@ -404,7 +429,7 @@ function AsignarModal({ nodo, estandar, onClose }: { nodo: NodoBalance; estandar
             ))
           )}
         </div>
-        {pending && <p className="text-[12px] text-ink-500">Asignando…</p>}
+        {pending && <p className="text-[12px] text-ink-500"><EstadoProcesando>Asignando</EstadoProcesando></p>}
       </div>
     </Modal>
   );
@@ -458,7 +483,7 @@ function ValidarModal({ nodo, tipo, balanceId, onClose }: { nodo: NodoBalance; t
         <div className="flex items-center justify-end gap-2">
           <button type="button" onClick={onClose} disabled={pending} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] text-ink-600 hover:bg-ink-50 disabled:opacity-60">Cancelar</button>
           <button type="button" onClick={guardar} disabled={pending || !listo} className="rounded-md bg-ok-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50">
-            {pending ? "Validando…" : "Validar y dar OK"}
+            {pending ? <EstadoProcesando>Validando</EstadoProcesando> : "Validar y dar OK"}
           </button>
         </div>
       </div>
@@ -492,7 +517,7 @@ function EliminarModal({ nodo, onClose }: { nodo: NodoBalance; onClose: () => vo
         <div className="flex items-center justify-end gap-2">
           <button type="button" onClick={onClose} disabled={pending} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] text-ink-600 hover:bg-ink-50 disabled:opacity-60">Cancelar</button>
           <button type="button" onClick={eliminar} disabled={pending} className="rounded-md bg-err-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50">
-            {pending ? "Eliminando…" : "Eliminar registro"}
+            {pending ? <EstadoProcesando>Eliminando</EstadoProcesando> : "Eliminar registro"}
           </button>
         </div>
       </div>
