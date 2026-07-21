@@ -10,13 +10,14 @@
 // valor autoritativo (con re-atribución de gemelos) para cotejar.
 import ExcelJS from "exceljs";
 import type { NodoBorrador } from "@/lib/balance/borrador";
+import { nombreNivelCuenta } from "@/lib/balance/nivel-cuenta";
 
 export type FilaExportBorrador = { nodo: NodoBorrador; profundidad: number };
 
 const NUM_FMT = "#,##0.00;-#,##0.00";
 
-const nivelLabel = (c: string) =>
-  c.length === 0 ? "Total" : c.length <= 2 ? "Clase" : c.length <= 4 ? "Grupo" : c.length <= 6 ? "Cuenta" : "Subcuenta";
+const nivelLabel = (codigo: string) =>
+  codigo.replace(/\D/g, "").length === 0 ? "Total" : nombreNivelCuenta(codigo);
 const tipoLabel = (n: NodoBorrador) => {
   const base = n.subtotalDuplicado ? "Subtotal duplicado" : n.tipoFila === "movimiento" ? "Movimiento" : n.tipoFila === "total" ? "Total" : "Agrupadora";
   // Las OMITIDAS se conservan en el crudo (línea a línea) pero no cuentan ni se cargan.

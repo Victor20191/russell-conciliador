@@ -15,6 +15,7 @@ import type { SpecCarga } from "@/lib/balance/extraccion/esquema";
 import type { ImportBalanceState } from "@/lib/import/balance";
 import { construirVistaBorrador } from "@/lib/balance/borrador-vm";
 import { contextoTabulador, puedeUbicar, reclasificarSoloHojas, type ContextoNodo, type RefNodo, type FilaBorrador, type NodoBorrador } from "@/lib/balance/borrador";
+import { nombreNivelCuenta } from "@/lib/balance/nivel-cuenta";
 import type { ValidacionContable } from "@/lib/balance/calcular";
 import type { Hallazgo } from "@/lib/balance/diagnostico";
 import { notifyActionState, notifySuccess, notifyError, notifyInfo } from "@/lib/client-notifications";
@@ -603,8 +604,6 @@ function construirPosiciones(arbol: NodoBorrador[]): Map<number, Posicion> {
   rec(arbol, null, null);
   return m;
 }
-const nivelLabel = (codigo: string) => (codigo.length <= 2 ? "Clase" : codigo.length <= 4 ? "Grupo" : codigo.length <= 6 ? "Cuenta" : "Subcuenta");
-
 /** Modal "Ubicar": elige bajo cuál cuenta de arriba anidar la fila (ancestros por
  *  prefijo, el más profundo sugerido) y mueve en LOTE sus hermanas del mismo prefijo. */
 function MoverModal({ arbol, filaNum, contexto, onConfirmar, onClose }: {
@@ -672,7 +671,7 @@ function MoverModal({ arbol, filaNum, contexto, onConfirmar, onClose }: {
                 <input type="radio" name="destino-ubicar" checked={destino === c.filaNum} onChange={() => cambiarDestino(c.filaNum)} />
                 <span className="font-mono text-[11px] text-ink-500">{c.codigoCrudo}</span>
                 <span className="min-w-0 truncate text-ink-800" title={c.nombre}>{c.nombre}</span>
-                <span className="ml-auto shrink-0 text-[10.5px] text-ink-400">{nivelLabel(c.codigo)}{i === 0 ? " · sugerido" : ""}</span>
+                <span className="ml-auto shrink-0 text-[10.5px] text-ink-400">{nombreNivelCuenta(c.codigo)}{i === 0 ? " · sugerido" : ""}</span>
               </label>
             ))}
           </div>
@@ -812,10 +811,10 @@ function ArbolTabla({ arbol, onReclasificar, onInvertir, onDesacoplar, onOmitir,
             <span className="font-mono text-[11px] text-ink-500">{n.codigoCrudo || "—"}</span>
             {numero && !n.subtotalDuplicado && n.tipoFila !== "total" && (
               <span
-                title={esMov ? "Tipo actual: Movimiento" : `Tipo actual: Agrupadora · ${nivelLabel(n.codigo)}`}
+                title={`Nivel contable: ${nombreNivelCuenta(n.codigo)} · tipo interno: ${esMov ? "Movimiento" : "Agrupadora"}`}
                 className={`rounded border px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide ${esMov ? "border-blue-100 bg-blue-100 text-navy-700" : "border-ink-100 bg-ink-100 text-ink-600"}`}
               >
-                {esMov ? "Movimiento" : `Agrupadora · ${nivelLabel(n.codigo)}`}
+                {nombreNivelCuenta(n.codigo)}
               </span>
             )}
           </div>

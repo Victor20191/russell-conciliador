@@ -84,7 +84,7 @@ function ClientsTab({ clients }: { clients: ClientGroup[] }) {
       <div className="flex w-full max-w-md items-center gap-2 rounded-md border border-ink-200 bg-white px-3 py-2 text-ink-400 shadow-sm focus-within:border-blue-400">
         <Icon name="search" size={15} />
         <input
-          type="search"
+          type="text"
           value={busqueda}
           onChange={(event) => {
             setBusqueda(event.target.value);
