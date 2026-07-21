@@ -138,6 +138,20 @@ export default function BorradorDetailClient({
   const { arbol, validacion, partidaDoble, hallazgos, porTercero: porTerceroCalculado, relistadoGuiones, filasOcultas, clasesCorregidas, nitTachados } = useMemo(() => construirVistaBorrador(aplicarCambios(filas, overrideEfectivo, invertidos, desacopladas, omitidas, padres)), [filas, overrideEfectivo, invertidos, desacopladas, omitidas, padres]);
   const porTercero = porTerceroDetectado || porTerceroCalculado;
 
+  // «⇄ Agrupadora» sobre una cuenta SIN detalle debajo NO surte efecto: al reconstruir el
+  // árbol, `reclasificarHuerfanas` la devuelve a movimiento para que su saldo no se pierda
+  // al cargar (una agrupadora se asume = Σ hijos, y no tiene). Sin avisar, el botón parece
+  // roto — el tipo no cambia — pero el cambio SÍ se cuenta y se memorizaría al guardar. Se
+  // detecta comparando lo pedido con el tipo REAL del árbol ya construido.
+  const agrupadorasSinEfecto = useMemo(() => {
+    const pedidas = Object.entries(override).filter(([, t]) => t === "agrupadora").map(([codigo]) => codigo);
+    if (pedidas.length === 0) return new Set<string>();
+    const agrupanAlgo = new Set<string>();
+    const rec = (n: NodoBorrador) => { if (n.tipoFila !== "movimiento") agrupanAlgo.add(n.codigo); n.hijos.forEach(rec); };
+    arbol.forEach(rec);
+    return new Set(pedidas.filter((codigo) => !agrupanAlgo.has(codigo)));
+  }, [override, arbol]);
+
   // AUTO-CORRECCIÓN de anidado por orden: en un export jerárquico (subtotales + auxiliares
   // como filas), «solo hojas» re-anida cada auxiliar bajo su subtotal por ORDEN. Se calcula
   // el balance CON y SIN la corrección y solo se propone si VERIFICADAMENTE acerca el activo
@@ -362,9 +376,10 @@ export default function BorradorDetailClient({
         // y nodos que no cuadran con su desglose. La fuente conserva el contexto
         // completo para los cálculos y las correcciones deterministas del borrador.
         const hh = hallazgos.filter((h) => h.tipo !== "partida_doble" && h.tipo !== "ecuacion" && h.tipo !== "clase");
-        return hh.length > 0 ? (
-          <DiagnosticoPanel hallazgos={hh} />
-        ) : null;
+        // Se monta SIEMPRE, con o sin hallazgos: montarlo y desmontarlo según el resultado
+        // movía la tabla ~66 px en cada omisión o reclasificación (los hallazgos cambian con
+        // cada edición) y el usuario perdía el punto donde iba. Colapsado su alto es fijo.
+        return <DiagnosticoPanel hallazgos={hh} />;
       })()}
 
       <Card className="overflow-hidden">
@@ -394,20 +409,33 @@ export default function BorradorDetailClient({
             </span>
           </label>
         </div>
-        {hayCambios && (
-          <div className="flex flex-wrap items-center gap-2 border-b border-warn-200 bg-warn-50 px-3 py-2 text-[12px]">
-            <Icon name="warn" size={13} />
-            <span className="font-semibold text-warn-800">{nCambios} cambio(s) sin guardar</span>
-            <span className="text-warn-700">— se aplican en pantalla; guárdalos para persistirlos en el borrador.</span>
-            <div className="ml-auto flex items-center gap-2">
-              <button type="button" onClick={guardarCambios} disabled={guardando} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60">
-                {guardando ? <EstadoProcesando>Guardando</EstadoProcesando> : "Guardar cambios"}
-              </button>
-              <button type="button" onClick={descartarCambios} disabled={guardando} className="rounded-md border border-ink-300 px-3 py-1.5 text-[12px] font-medium text-ink-700 hover:bg-ink-50 disabled:opacity-60">Descartar cambios</button>
-            </div>
+        {/* Barra de guardado SIEMPRE presente. Si apareciera solo al haber cambios, el primer
+            ajuste empujaría la tabla ~37 px hacia abajo (y al guardar la subiría de vuelta),
+            justo mientras el usuario trabaja en ella. Va en UNA sola línea (`truncate`) para
+            que su alto no dependa del ancho de la ventana ni del estado. */}
+        <div className={`flex items-center gap-2 border-b px-3 py-2 text-[12px] ${hayCambios ? "border-warn-200 bg-warn-50" : "border-ink-100 bg-white"}`}>
+          {hayCambios && <Icon name="warn" size={13} />}
+          <span
+            className="min-w-0 flex-1 truncate"
+            title={hayCambios ? `${nCambios} cambio(s) sin guardar — se aplican en pantalla; guárdalos para persistirlos en el borrador.` : undefined}
+          >
+            {hayCambios ? (
+              <>
+                <span className="font-semibold text-warn-800">{nCambios} cambio(s) sin guardar</span>
+                <span className="text-warn-700"> — se aplican en pantalla; guárdalos para persistirlos en el borrador.</span>
+              </>
+            ) : (
+              <span className="text-ink-400">Sin cambios pendientes.</span>
+            )}
+          </span>
+          <div className="flex shrink-0 items-center gap-2">
+            <button type="button" onClick={guardarCambios} disabled={!hayCambios || guardando} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:opacity-45">
+              {guardando ? <EstadoProcesando>Guardando</EstadoProcesando> : "Guardar cambios"}
+            </button>
+            <button type="button" onClick={descartarCambios} disabled={!hayCambios || guardando} className="rounded-md border border-ink-300 px-3 py-1.5 text-[12px] font-medium text-ink-700 hover:bg-ink-50 disabled:opacity-45">Descartar cambios</button>
           </div>
-        )}
-        <ArbolTabla arbol={arbol} onReclasificar={onReclasificar} onInvertir={onInvertir} onDesacoplar={onDesacoplar} onOmitir={onOmitir} posiciones={posiciones} contexto={contexto} onUbicar={onUbicar} onDesindentar={onDesindentar} enfoqueReubicacion={enfoqueReubicacion} />
+        </div>
+        <ArbolTabla arbol={arbol} onReclasificar={onReclasificar} onInvertir={onInvertir} onDesacoplar={onDesacoplar} onOmitir={onOmitir} posiciones={posiciones} contexto={contexto} onUbicar={onUbicar} onDesindentar={onDesindentar} enfoqueReubicacion={enfoqueReubicacion} agrupadorasSinEfecto={agrupadorasSinEfecto} />
       </Card>
 
       {spec && (
@@ -601,21 +629,25 @@ function MiniDato({ k, v, archivo, cuadra, diff }: { k: string; v: number; archi
 // ---- Diagnóstico determinista del descuadre (colapsado por defecto) ----
 function DiagnosticoPanel({ hallazgos }: { hallazgos: Hallazgo[] }) {
   const [abierto, setAbierto] = useState(false);
+  // Sin hallazgos el panel NO desaparece (movería la tabla en cada edición): cambia a tono
+  // verde y deja de ser desplegable. Colapsado, ambos estados miden lo mismo.
+  const hay = hallazgos.length > 0;
   return (
-    <div className="rounded-lg border border-err-100 bg-err-100/40 p-4 shadow-sm">
+    <div className={`rounded-lg border p-4 shadow-sm ${hay ? "border-err-100 bg-err-100/40" : "border-ok-100 bg-ok-100/40"}`}>
       <button
         type="button"
         onClick={() => setAbierto((v) => !v)}
-        aria-expanded={abierto}
-        className="flex w-full items-center gap-1.5 text-left text-[11px] font-semibold uppercase tracking-wider text-err-700"
+        disabled={!hay}
+        aria-expanded={hay ? abierto : undefined}
+        className={`flex w-full items-center gap-1.5 text-left text-[11px] font-semibold uppercase tracking-wider ${hay ? "text-err-700" : "cursor-default text-ok-700"}`}
       >
-        <Icon name={abierto ? "chev-d" : "chev-r"} size={14} />
+        <Icon name={hay ? (abierto ? "chev-d" : "chev-r") : "check"} size={14} />
         Diagnóstico del descuadre
-        <span className="ml-1 rounded-full border border-err-100 bg-white px-1.5 py-0.5 text-[10px] font-semibold normal-case tracking-normal text-err-700">
-          {hallazgos.length}
+        <span className={`ml-1 rounded-full border bg-white px-1.5 py-0.5 text-[10px] font-semibold normal-case tracking-normal ${hay ? "border-err-100 text-err-700" : "border-ok-100 text-ok-700"}`}>
+          {hay ? hallazgos.length : "sin hallazgos"}
         </span>
       </button>
-      {abierto && (
+      {hay && abierto && (
         <ul className="mt-2 flex flex-col gap-1.5">
           {hallazgos.map((h, i) => {
             const tono = h.severidad === "alta" ? "border-err-100" : "border-warn-100";
@@ -814,7 +846,7 @@ function MoverModal({ indice, filaNumInicial, onConfirmar, onClose }: {
   );
 }
 
-function ArbolTabla({ arbol, onReclasificar, onInvertir, onDesacoplar, onOmitir, posiciones, contexto, onUbicar, onDesindentar, enfoqueReubicacion }: { arbol: NodoBorrador[]; onReclasificar: (codigo: string, actual: NodoBorrador["tipoFila"]) => void; onInvertir: (codigo: string) => void; onDesacoplar: (codigo: string, desacopladaAhora: boolean) => void; onOmitir: (filaNum: number, omitidaAhora: boolean) => void; posiciones: Map<number, Posicion>; contexto: Map<number, ContextoNodo>; onUbicar: (filaNum: number) => void; onDesindentar: (filaNum: number) => void; enfoqueReubicacion: { origen: number; destino: number | null; secuencia: number } | null }) {
+function ArbolTabla({ arbol, onReclasificar, onInvertir, onDesacoplar, onOmitir, posiciones, contexto, onUbicar, onDesindentar, enfoqueReubicacion, agrupadorasSinEfecto }: { arbol: NodoBorrador[]; onReclasificar: (codigo: string, actual: NodoBorrador["tipoFila"]) => void; onInvertir: (codigo: string) => void; onDesacoplar: (codigo: string, desacopladaAhora: boolean) => void; onOmitir: (filaNum: number, omitidaAhora: boolean) => void; posiciones: Map<number, Posicion>; contexto: Map<number, ContextoNodo>; onUbicar: (filaNum: number) => void; onDesindentar: (filaNum: number) => void; enfoqueReubicacion: { origen: number; destino: number | null; secuencia: number } | null; agrupadorasSinEfecto: Set<string> }) {
   const { filaSeleccionada, setFilaSeleccionada, onClickFila, onDoubleClickFila } = useSeleccionFilaTabla();
   const tablaRef = useRef<HTMLDivElement>(null);
   const [destinoDestacado, setDestinoDestacado] = useState<number | null>(null);
@@ -835,6 +867,17 @@ function ArbolTabla({ arbol, onReclasificar, onInvertir, onDesacoplar, onOmitir,
   const codigosConHijos = useMemo(() => { const s = new Set<number>(); const rec = (n: NodoBorrador) => { if (n.hijos.length > 0) s.add(n.filaNum); n.hijos.forEach(rec); }; arbol.forEach(rec); return s; }, [arbol]);
   const expandirTodo = () => setAbiertos(new Set(codigosConHijos));
   const contraerTodo = () => setAbiertos(new Set());
+
+  // Una fila que pasa a ser AGRUPADORA (al pulsar «⇄ Agrupadora») se traga como hijas las
+  // filas siguientes de código más largo. Como nació sin hijos, no está en `abiertos`: la
+  // rama aparecería COLAPSADA y esas filas desaparecerían de golpe — la tabla se encoge, el
+  // scroll salta y parece que el botón no hizo nada. Toda fila que GANE hijos se abre sola.
+  const conHijosPrevioRef = useRef(codigosConHijos);
+  useEffect(() => {
+    const nuevas = [...codigosConHijos].filter((k) => !conHijosPrevioRef.current.has(k));
+    conHijosPrevioRef.current = codigosConHijos;
+    if (nuevas.length > 0) setAbiertos((prev) => new Set([...prev, ...nuevas]));
+  }, [codigosConHijos]);
 
   // ---- Filtros del árbol: búsqueda, vista (Balance/Estado de Resultado/Alertas)
   //      y nivel máximo (N2/N4/N6/N8). ----
@@ -857,6 +900,17 @@ function ArbolTabla({ arbol, onReclasificar, onInvertir, onDesacoplar, onOmitir,
     };
   }, [pantallaCompleta]);
 
+  // El árbol se lee para calcular la ruta a expandir, pero va por REF y NO en dependencias:
+  // se reconstruye con cualquier edición (omitir, reclasificar, invertir, «solo hojas», o el
+  // refresco al guardar), y tenerlo como dependencia hacía que cada ✕ volviera a ejecutar el
+  // enfoque —scroll a la última cuenta reubicada y reseteo de búsqueda y filtros, el usuario
+  // perdía dónde iba— y cancelara los temporizadores en curso. El efecto de sincronía va
+  // ANTES para que el enfoque lea siempre el árbol del mismo commit.
+  const arbolRef = useRef(arbol);
+  useEffect(() => { arbolRef.current = arbol; }, [arbol]);
+
+  // Enfoca la fila reubicada. Solo corre con una reubicación NUEVA: `enfoqueReubicacion`
+  // cambia de identidad únicamente en `aplicarReubicacion` (su `secuencia` lo garantiza).
   useEffect(() => {
     if (!enfoqueReubicacion) return;
     const abrir = new Set<number>();
@@ -868,8 +922,8 @@ function ArbolTabla({ arbol, onReclasificar, onInvertir, onDesacoplar, onOmitir,
       }
       return false;
     };
-    buscarRuta(arbol, enfoqueReubicacion.origen, []);
-    if (enfoqueReubicacion.destino != null) buscarRuta(arbol, enfoqueReubicacion.destino, []);
+    buscarRuta(arbolRef.current, enfoqueReubicacion.origen, []);
+    if (enfoqueReubicacion.destino != null) buscarRuta(arbolRef.current, enfoqueReubicacion.destino, []);
 
     const prepararFrame = window.requestAnimationFrame(() => {
       setQ("");
@@ -886,7 +940,7 @@ function ArbolTabla({ arbol, onReclasificar, onInvertir, onDesacoplar, onOmitir,
     }, 80);
     const flashTimer = window.setTimeout(() => setDestinoDestacado(null), 2600);
     return () => { window.cancelAnimationFrame(prepararFrame); window.clearTimeout(scrollTimer); window.clearTimeout(flashTimer); };
-  }, [arbol, enfoqueReubicacion, setFilaSeleccionada]);
+  }, [enfoqueReubicacion, setFilaSeleccionada]);
   const needle = q.trim().toLowerCase();
   const matchQ = (n: NodoBorrador) => needle === "" || n.codigo.toLowerCase().includes(needle) || (n.nombre ?? "").toLowerCase().includes(needle);
   const filtrando = needle !== "" || vista !== "todo" || nivelMax > 0;
@@ -1018,6 +1072,11 @@ function ArbolTabla({ arbol, onReclasificar, onInvertir, onDesacoplar, onOmitir,
               >
                 {esMov ? "⇄ Agrupadora" : "⇄ Movimiento"}
               </button>
+            )}
+            {agrupadorasSinEfecto.has(n.codigo) && (
+              <span title="Pediste marcarla como AGRUPADORA, pero no tiene ninguna cuenta colgando: una agrupadora se asume igual a la suma de sus hijas, así que se dejaría sin saldo y su plata se perdería al cargar. Por eso el borrador la mantiene como MOVIMIENTO. Si lo que quieres es que NO cuente, usa la ✕ (omitir).">
+                <Chip label="Sin detalle debajo · sigue como movimiento" tone="warn" />
+              </span>
             )}
             {ladosInv && (
               <button
