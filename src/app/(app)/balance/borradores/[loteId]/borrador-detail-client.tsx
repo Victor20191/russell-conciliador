@@ -550,22 +550,36 @@ function MiniDato({ k, v, archivo, cuadra, diff }: { k: string; v: number; archi
   );
 }
 
-// ---- Diagnóstico determinista del descuadre ----
+// ---- Diagnóstico determinista del descuadre (colapsado por defecto) ----
 function DiagnosticoPanel({ hallazgos }: { hallazgos: Hallazgo[] }) {
+  const [abierto, setAbierto] = useState(false);
   return (
     <Card className="p-4">
-      <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Diagnóstico del descuadre</div>
-      <ul className="flex flex-col gap-1.5">
-        {hallazgos.map((h, i) => {
-          const tono = h.severidad === "alta" ? "border-err-200 bg-err-50" : "border-warn-200 bg-warn-50";
-          return (
-            <li key={i} className={`rounded-md border px-3 py-2 text-[12px] ${tono}`}>
-              <div className="font-semibold text-ink-800">{h.titulo} <span className="font-normal text-ink-500">· {fmt(h.monto)}</span></div>
-              <div className="mt-0.5 text-[11.5px] leading-relaxed text-ink-600">{h.detalle}</div>
-            </li>
-          );
-        })}
-      </ul>
+      <button
+        type="button"
+        onClick={() => setAbierto((v) => !v)}
+        aria-expanded={abierto}
+        className="flex w-full items-center gap-1.5 text-left text-[11px] font-semibold uppercase tracking-wider text-ink-500 hover:text-ink-700"
+      >
+        <Icon name={abierto ? "chev-d" : "chev-r"} size={14} />
+        Diagnóstico del descuadre
+        <span className="ml-1 rounded-full bg-ink-100 px-1.5 py-0.5 text-[10px] font-semibold normal-case tracking-normal text-ink-600">
+          {hallazgos.length}
+        </span>
+      </button>
+      {abierto && (
+        <ul className="mt-2 flex flex-col gap-1.5">
+          {hallazgos.map((h, i) => {
+            const tono = h.severidad === "alta" ? "border-err-200 bg-err-50" : "border-warn-200 bg-warn-50";
+            return (
+              <li key={i} className={`rounded-md border px-3 py-2 text-[12px] ${tono}`}>
+                <div className="font-semibold text-ink-800">{h.titulo} <span className="font-normal text-ink-500">· {fmt(h.monto)}</span></div>
+                <div className="mt-0.5 text-[11.5px] leading-relaxed text-ink-600">{h.detalle}</div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </Card>
   );
 }
