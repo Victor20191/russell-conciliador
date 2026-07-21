@@ -44,6 +44,7 @@ import { construirVistaBorrador } from "@/lib/balance/borrador-vm";
 import { reclasificarHuerfanas, reclasificarSoloHojas, corregirCodigosPlaceholder, marcarNoContables, type FilaBorrador } from "@/lib/balance/borrador";
 import { esBalancePorTercero, colapsarTerceros, esBalancePorTerceroSufijo, consolidarTercerosPorSufijo, marcarCuentaNit } from "@/lib/balance/terceros";
 import { marcarRelistadoGuiones } from "@/lib/balance/relistado";
+import { construirCorrecciones, planAplicarCorrecciones, type CorreccionCuenta, type FilaStagingCorreccion } from "@/lib/balance/correcciones";
 import { registrarDiagnosticoInicial, cerrarDiagnostico, acumularIntervencionManual } from "@/lib/balance/diagnostico-lectura-registro";
 import { iaBalanceDisponible, proveedorIABalance, type ProveedorIABalance } from "@/lib/ia/proveedor-balance";
 import { proveedorIABalanceSesion } from "@/lib/ia/proveedor-balance-sesion";
@@ -321,6 +322,103 @@ async function actualizarResumenLoteBorrador(loteId: string) {
       cuadrado: diagnostico.cuadrado,
     },
   });
+}
+
+/** Filas del staging de un lote en el formato PURO de correcciones (Decimal→number). */
+async function filasStagingCorreccion(loteId: string): Promise<FilaStagingCorreccion[]> {
+  const rows = await prisma.balanceImportacionStaging.findMany({
+    where: { loteId },
+    orderBy: { filaNum: "asc" },
+    select: {
+      filaNum: true, codigo: true, codigoCrudo: true, nombre: true, tipoFila: true,
+      saldoInicial: true, debitos: true, creditos: true, saldoFinal: true,
+      desacoplada: true, omitida: true, padreManual: true,
+    },
+  });
+  return rows.map((f) => ({
+    filaNum: f.filaNum, codigo: f.codigo, codigoCrudo: f.codigoCrudo, nombre: f.nombre, tipoFila: f.tipoFila,
+    saldoInicial: Number(f.saldoInicial), debitos: Number(f.debitos), creditos: Number(f.creditos), saldoFinal: Number(f.saldoFinal),
+    desacoplada: f.desacoplada, omitida: f.omitida, padreManual: f.padreManual,
+  }));
+}
+
+/**
+ * MEMORIZA en el perfil del cliente las correcciones por cuenta (upsert por
+ * clienteId+cuenta; solo pisa los campos que la corrección trae). LANZA si la BD
+ * falla — el llamador decide si es best-effort. Devuelve cuántas cuentas quedaron.
+ */
+async function memorizarCorreccionesCliente(clienteId: number, correcciones: CorreccionCuenta[], usuario: string | null): Promise<number> {
+  // Por lotes: «imputar solo las hojas» puede producir cientos de reclasificaciones
+  // y un upsert por viaje sería lento.
+  const LOTE_UPSERT = 200;
+  for (let i = 0; i < correcciones.length; i += LOTE_UPSERT) {
+    await prisma.$transaction(correcciones.slice(i, i + LOTE_UPSERT).map((c) =>
+      prisma.correccionCargaBalance.upsert({
+        where: { clienteId_cuenta: { clienteId, cuenta: c.cuenta } },
+        create: {
+          clienteId, cuenta: c.cuenta, nombre: c.nombre,
+          tipoFilaForzado: c.tipoFilaForzado, invertirLados: c.invertirLados,
+          desacoplada: c.desacoplada, omitida: c.omitida,
+          padreCodigo: c.padreCodigo !== undefined ? c.padreCodigo : null,
+          actualizadoPor: usuario,
+        },
+        update: {
+          ...(c.nombre ? { nombre: c.nombre } : {}),
+          ...(c.tipoFilaForzado ? { tipoFilaForzado: c.tipoFilaForzado } : {}),
+          ...(c.invertirLados ? { invertirLados: true } : {}),
+          ...(c.desacoplada != null ? { desacoplada: c.desacoplada } : {}),
+          ...(c.omitida != null ? { omitida: c.omitida } : {}),
+          ...(c.padreCodigo !== undefined ? { padreCodigo: c.padreCodigo } : {}),
+          actualizadoPor: usuario,
+        },
+      }),
+    ));
+  }
+  return correcciones.length;
+}
+
+/**
+ * RE-APLICA al staging de un lote las correcciones memorizadas del cliente, con
+ * las mismas salvaguardas del guardado manual (ver `planAplicarCorrecciones`).
+ * Actualiza el contador del lote (banner del borrador), el uso de cada corrección
+ * y el resumen del encabezado. Devuelve cuántas filas cambió. LANZA si la BD
+ * falla — los llamadores lo tratan como best-effort.
+ */
+async function aplicarCorreccionesGuardadas(loteId: string, clienteId: number): Promise<number> {
+  const guardadas = await prisma.correccionCargaBalance.findMany({ where: { clienteId } });
+  if (guardadas.length === 0) return 0;
+  const filas = await filasStagingCorreccion(loteId);
+  if (filas.length === 0) return 0;
+  const correcciones: CorreccionCuenta[] = guardadas.map((g) => ({
+    cuenta: g.cuenta, nombre: g.nombre,
+    tipoFilaForzado: g.tipoFilaForzado === "agrupadora" || g.tipoFilaForzado === "movimiento" ? g.tipoFilaForzado : null,
+    invertirLados: g.invertirLados, desacoplada: g.desacoplada, omitida: g.omitida,
+    // En un lote NUEVO `padreManual` nace null: el `padreCodigo` null memorizado
+    // (quitar override) queda inerte, como debe.
+    padreCodigo: g.padreCodigo,
+  }));
+  const plan = planAplicarCorrecciones(filas, correcciones);
+  if (plan.cambios.length === 0) return 0;
+  await prisma.$transaction(plan.cambios.map((ch) => {
+    const data: Record<string, unknown> = {};
+    if (ch.tipoFila) data.tipoFila = ch.tipoFila;
+    if (ch.debitos !== undefined) data.debitos = ch.debitos;
+    if (ch.creditos !== undefined) data.creditos = ch.creditos;
+    if (ch.desacoplada !== undefined) data.desacoplada = ch.desacoplada;
+    if (ch.omitida !== undefined) data.omitida = ch.omitida;
+    if (ch.padreManual !== undefined) data.padreManual = ch.padreManual;
+    return prisma.balanceImportacionStaging.updateMany({ where: { loteId, filaNum: ch.filaNum }, data });
+  }));
+  await prisma.balanceImportacionLote.updateMany({
+    where: { loteId },
+    data: { correccionesAplicadas: { increment: plan.cambios.length } },
+  });
+  await prisma.correccionCargaBalance.updateMany({
+    where: { clienteId, cuenta: { in: plan.cuentasAplicadas } },
+    data: { vecesAplicada: { increment: 1 }, ultimoUsoEn: new Date() },
+  });
+  await actualizarResumenLoteBorrador(loteId);
+  return plan.cambios.length;
 }
 
 // Promueve un LOTE de staging a balance OFICIAL. Núcleo compartido por el flujo
@@ -1141,6 +1239,18 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
     diag: diagInicial,
   });
 
+  // Correcciones por cuenta MEMORIZADAS del cliente (detectado por NIT): se
+  // re-aplican al staging recién creado — el borrador abre ya corregido, sin
+  // repetir a mano los ajustes de cargas anteriores. El resumen del lote se
+  // recalcula adentro. Best-effort: sin correcciones la lectura sigue igual.
+  if (p.clienteDetectadoId != null) {
+    try {
+      await aplicarCorreccionesGuardadas(loteId, p.clienteDetectadoId);
+    } catch {
+      /* best-effort */
+    }
+  }
+
   const payload: PayloadCargaBalance = {
     v: 2,
     loteId,
@@ -1656,6 +1766,12 @@ export async function descartarBorrador(loteId: string): Promise<ActionState> {
  *    balance al cargar. Se aplica por FILA (no por código) para precisión.
  *  - `padres`: filaNum → `padreManual` (filaNum de la agrupadora destino, o null para
  *    quitar el override). Re-parentado manual (tabulador: indentar/desindentar).
+ *
+ * Además de escribir el staging, MEMORIZA las correcciones por cuenta en el perfil
+ * del cliente (`correcciones_carga_balance`) para re-aplicarlas solas en las
+ * próximas cargas. El cliente sale del parámetro (selección de la página) →
+ * encabezado del lote → NIT detectado; sin cliente resoluble solo se guarda el
+ * staging (como antes). Best-effort: memorizar nunca tumba el guardado.
  */
 export async function aplicarCambiosBorrador(
   loteId: string,
@@ -1664,6 +1780,7 @@ export async function aplicarCambiosBorrador(
   desacopladas: Record<string, boolean> = {},
   omitidas: Record<string, boolean> = {},
   padres: Record<string, number | null> = {},
+  clienteId: number | null = null,
 ): Promise<ActionState> {
   const authz = await authorizePermiso("balance:crear");
   if (!authz.ok) return { ok: false, message: authz.message };
@@ -1724,16 +1841,80 @@ export async function aplicarCambiosBorrador(
     }
     await actualizarResumenLoteBorrador(id);
     const user = await getCurrentUser();
-    await logAudit({ user: user?.name ?? "—", action: "GUARDÓ cambios en balance borrador", entity: id, detail: `${nRe} reclasificada(s), ${nInv} inversión(es), ${nDes} desacople(s), ${nOmi} omitida(s), ${nPad} re-parentada(s)` });
+
+    // PERFIL del cliente: memoriza las correcciones por cuenta para re-aplicarlas
+    // solas en las próximas cargas. Best-effort: nunca tumba el guardado del staging.
+    let nMemorizadas = 0;
+    try {
+      const cidParam = typeof clienteId === "number" && Number.isInteger(clienteId) && clienteId > 0 ? clienteId : null;
+      const lote = cidParam == null
+        ? await prisma.balanceImportacionLote.findUnique({ where: { loteId: id }, select: { clienteId: true, nitDetectado: true } })
+        : null;
+      const cid = cidParam ?? lote?.clienteId ?? (await clientePorNit(lote?.nitDetectado ?? null));
+      if (cid != null) {
+        const scope = await authorizePermiso("balance:crear", { clientId: cid });
+        if (scope.ok) {
+          const filas = await filasStagingCorreccion(id);
+          const correcciones = construirCorrecciones(filas, {
+            override: Object.fromEntries(reclas),
+            invertidos: invs,
+            desacopladas: Object.fromEntries(desac),
+            omitidas: Object.fromEntries(omit),
+            padres: Object.fromEntries(pads),
+          });
+          if (correcciones.length > 0) {
+            nMemorizadas = await memorizarCorreccionesCliente(cid, correcciones, user?.name ?? null);
+            revalidatePath("/config/clientes");
+          }
+        }
+      }
+    } catch {
+      /* best-effort */
+    }
+
+    await logAudit({ user: user?.name ?? "—", action: "GUARDÓ cambios en balance borrador", entity: id, detail: `${nRe} reclasificada(s), ${nInv} inversión(es), ${nDes} desacople(s), ${nOmi} omitida(s), ${nPad} re-parentada(s)${nMemorizadas > 0 ? ` · ${nMemorizadas} cuenta(s) memorizadas en el perfil del cliente` : ""}` });
     // Huella diagnóstica: reclasificar/invertir mutan el staging sin marca durable,
     // así que se acumulan aquí (best-effort; los otros contadores se toman al cerrar).
     await acumularIntervencionManual(id, { reclasificadas: nRe, invertidas: nInv });
     revalidatePath(`/balance/borradores/${id}`);
     revalidatePath("/balance/borradores");
     const nTotal = nRe + nInv + nDes + nOmi + nPad;
-    return { ok: true, message: `Cambios guardados (${nTotal} fila${nTotal === 1 ? "" : "s"}).` };
+    return {
+      ok: true,
+      message: `Cambios guardados (${nTotal} fila${nTotal === 1 ? "" : "s"}).${nMemorizadas > 0 ? ` Se memorizaron ${nMemorizadas} corrección(es) en el perfil del cliente: las próximas cargas las aplicarán solas.` : ""}`,
+    };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("aplicarCambiosBorrador", e) };
+  }
+}
+
+/**
+ * RE-APLICA a un borrador las correcciones memorizadas de un cliente elegido A MANO
+ * (cuando el NIT no lo detectó al leer, la re-aplicación automática de la lectura no
+ * corrió). La compuerta del borrador la llama al confirmar el cliente. Devuelve
+ * cuántas filas cambió para avisar y refrescar la vista.
+ */
+export async function aplicarCorreccionesClienteBorrador(loteId: string, clienteId: number): Promise<ActionState & { aplicadas?: number }> {
+  const authz = await authorizePermiso("balance:crear");
+  if (!authz.ok) return { ok: false, message: authz.message };
+  const id = String(loteId ?? "").trim();
+  const cid = Number(clienteId);
+  if (!id || !Number.isInteger(cid) || cid <= 0) return { ok: false, message: "Borrador o cliente inválido." };
+  const scope = await authorizePermiso("balance:crear", { clientId: cid });
+  if (!scope.ok) return { ok: false, message: scope.message };
+  try {
+    const aplicadas = await aplicarCorreccionesGuardadas(id, cid);
+    if (aplicadas > 0) {
+      revalidatePath(`/balance/borradores/${id}`);
+      revalidatePath("/balance/borradores");
+    }
+    return {
+      ok: true,
+      aplicadas,
+      message: aplicadas > 0 ? `Se aplicaron ${aplicadas} corrección(es) memorizadas del perfil del cliente.` : undefined,
+    };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("aplicarCorreccionesClienteBorrador", e) };
   }
 }
 

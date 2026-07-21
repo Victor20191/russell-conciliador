@@ -725,6 +725,9 @@ model BalanceImportacionLote {
   huella            String?   @map("huella")
   origenExtraccion  String?   @map("origen_extraccion") // perfil | ia | plantilla | manual
   specJson          Json?     @map("spec_json")
+  // Filas del staging corregidas AUTOMÁTICAMENTE con las correcciones memorizadas
+  // del cliente (banner informativo del borrador). 0 = ninguna.
+  correccionesAplicadas Int   @default(0) @map("correcciones_aplicadas")
   creadoEn          DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   @@index([cargadoPorId])
@@ -881,6 +884,36 @@ model AjustesCargaBalance {
   actualizadoEn     DateTime @updatedAt @map("actualizado_en") @db.Timestamptz(3)
 
   @@map("ajustes_carga_balance")
+}
+
+// CORRECCIONES por CUENTA memorizadas del cliente (el perfil de carga a nivel de
+// fila). Cada ajuste manual del borrador (reclasificar agrupadora↔movimiento,
+// lados invertidos, desacoplar, omitir/rescatar, re-parentar) se memoriza aquí al
+// «Guardar cambios» y se RE-APLICA solo al leer el siguiente balance del mismo
+// cliente (por NIT, o al elegirlo en la compuerta del borrador), con las mismas
+// salvaguardas deterministas del guardado manual. La clave `cuenta` es el código
+// PUC de la fila; para filas sin código numérico (pies/totales del ERP) es el
+// texto crudo. FK suave a `clientes` (Int, sin @relation).
+model CorreccionCargaBalance {
+  id              Int       @id @default(autoincrement()) @map("id")
+  clienteId       Int       @map("cliente_id")
+  cuenta          String    @map("cuenta")
+  nombre          String?   @map("nombre") // último nombre visto (referencia en la UI)
+  tipoFilaForzado String?   @map("tipo_fila_forzado") // agrupadora | movimiento | null=sin corrección
+  invertirLados   Boolean   @default(false) @map("invertir_lados") // débito↔crédito (solo si el control lo verifica)
+  desacoplada     Boolean?  @map("desacoplada") // null=sin corrección
+  // Tri-estado como el staging: true = omitir; false = RESCATADA (el auto-marcado
+  // la respeta); null = sin corrección.
+  omitida         Boolean?  @map("omitida")
+  padreCodigo     String?   @map("padre_codigo") // re-parentar bajo la fila con esta clave
+  vecesAplicada   Int       @default(0) @map("veces_aplicada")
+  ultimoUsoEn     DateTime? @map("ultimo_uso_en") @db.Timestamptz(3)
+  actualizadoPor  String?   @map("actualizado_por")
+  creadoEn        DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
+  actualizadoEn   DateTime  @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+
+  @@unique([clienteId, cuenta])
+  @@map("correcciones_carga_balance")
 }
 
 // ===== Impuestos · DIAN =====

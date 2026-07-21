@@ -191,7 +191,7 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, va
         </div>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full text-[12.5px]">
+        <table className="balance-detail-row-hover w-full text-[12.5px]">
           <thead>
             <tr className="border-b border-ink-100 text-left text-[11px] uppercase tracking-wider text-ink-500">
               <th className="px-4 py-2 font-semibold">Código</th>
@@ -536,7 +536,7 @@ function ValidationsTab({ validations }: { validations: Validation[] }) {
   return (
     <Card>
       <div className="overflow-x-auto">
-        <table className="w-full text-[12.5px]">
+        <table className="balance-detail-row-hover w-full text-[12.5px]">
           <thead>
             <tr className="border-b border-ink-100 text-left text-[11px] uppercase tracking-wider text-ink-500">
               <th className="px-4 py-2 font-semibold">Regla</th>
@@ -563,7 +563,7 @@ function VersionsTab({ versions, officialVersion }: { versions: Version[]; offic
   return (
     <Card>
       <div className="overflow-x-auto">
-        <table className="w-full text-[12.5px]">
+        <table className="balance-detail-row-hover w-full text-[12.5px]">
           <thead>
             <tr className="border-b border-ink-100 text-left text-[11px] uppercase tracking-wider text-ink-500">
               <th className="px-4 py-2 font-semibold">Versión</th>

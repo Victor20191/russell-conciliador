@@ -6,7 +6,7 @@ import { Icon } from "@/components/icons";
 import { Card, Chip } from "@/components/ui";
 import { Modal } from "@/components/modal";
 import { fmt } from "@/lib/format";
-import { cargarBorrador, descartarBorrador, aplicarCambiosBorrador, reprocesarBalanceConSpec, guardarPerfilDesdeEditor, guardarNotasDesdeEditor } from "@/app/actions/balance";
+import { cargarBorrador, descartarBorrador, aplicarCambiosBorrador, aplicarCorreccionesClienteBorrador, reprocesarBalanceConSpec, guardarPerfilDesdeEditor, guardarNotasDesdeEditor } from "@/app/actions/balance";
 import { EditorEstructura } from "@/app/(app)/balance/cargar-balance-modal";
 import { PromptClientePerfil } from "@/app/(app)/balance/prompt-cliente-perfil";
 import type { SpecCarga } from "@/lib/balance/extraccion/esquema";
@@ -61,7 +61,7 @@ function aplicarCambios(
 }
 
 export default function BorradorDetailClient({
-  loteId, nitDetectado, periodoInicial, periodoFinal, filas, porTerceroDetectado, clientes, clienteSugeridoId, spec,
+  loteId, nitDetectado, periodoInicial, periodoFinal, filas, porTerceroDetectado, clientes, clienteSugeridoId, spec, correccionesAplicadas,
 }: {
   loteId: string;
   archivoNombre: string;
@@ -73,6 +73,7 @@ export default function BorradorDetailClient({
   clientes: Cliente[];
   clienteSugeridoId: number | null;
   spec: SpecCarga | null;
+  correccionesAplicadas: number;
 }) {
   const router = useRouter();
   const [cargarState, cargarAction, cargando] = useActionState<ImportBalanceState, FormData>(cargarBorrador, {});
@@ -158,10 +159,24 @@ export default function BorradorDetailClient({
   const descartarCambios = () => { setOverride({}); setInvertidos([]); setDesacopladas({}); setOmitidas({}); setPadres({}); setSoloHojas(false); };
   const guardarCambios = () =>
     startGuardar(async () => {
-      const r = await aplicarCambiosBorrador(loteId, overrideEfectivo, invertidos, desacopladas, omitidas, padres);
+      // El cliente seleccionado viaja para MEMORIZAR las correcciones en su perfil
+      // (si no hay, el servidor lo resuelve por el lote/NIT).
+      const r = await aplicarCambiosBorrador(loteId, overrideEfectivo, invertidos, desacopladas, omitidas, padres, clienteSelId);
       if (r.ok) { notifySuccess(r.message ?? "Cambios guardados."); setOverride({}); setInvertidos([]); setDesacopladas({}); setOmitidas({}); setPadres({}); setSoloHojas(false); router.refresh(); }
       else notifyError(r.message ?? "No se pudieron guardar los cambios.");
     });
+
+  // Correcciones memorizadas del cliente elegido A MANO en la compuerta: el NIT no
+  // lo detectó al leer (la re-aplicación automática no corrió), así que se aplican
+  // aquí y se refresca el borrador ya corregido.
+  const [, startAplicarCorrecciones] = useTransition();
+  const aplicarCorreccionesDeCliente = (cid: number) => {
+    startAplicarCorrecciones(async () => {
+      const r = await aplicarCorreccionesClienteBorrador(loteId, cid);
+      if (r.ok && (r.aplicadas ?? 0) > 0) { notifySuccess(r.message ?? "Correcciones del perfil aplicadas."); router.refresh(); }
+      else if (!r.ok && r.message) notifyError(r.message);
+    });
+  };
 
   // Reproceso determinista con el spec ajustado (editor de estructura), re-adjuntando el
   // archivo original — esta página no lo conserva. Crea un borrador NUEVO y purga este.
@@ -259,6 +274,14 @@ export default function BorradorDetailClient({
         <div className="flex items-start gap-2 rounded-md border border-ink-200 bg-ink-50 px-3 py-2 text-[12px] text-ink-600">
           <Icon name="warn" size={14} />
           <span>Se ocultaron <span className="font-semibold">{filasOcultas}</span> fila(s) que no van al balance: pies/notas del ERP (código que no empieza por dígito, como «Procesado en: …», <span className="font-mono">&lt;none&gt;</span> o «Total general»), <span className="font-semibold">cuentas de orden (clase 8 y 9)</span> y <span className="font-semibold">totales de sucursal</span> (código que empieza en 0, como «<span className="font-mono">002 MEDELLIN</span>» en un balance multi-sucursal). Se muestran <span className="line-through">tachadas</span> y NO cuentan. Si necesitas alguna, rescátala con «Incluir».</span>
+        </div>
+      )}
+      {correccionesAplicadas > 0 && (
+        <div className="flex items-start gap-2 rounded-md border border-ok-200 bg-ok-100/40 px-3 py-2 text-[12px] text-ok-800">
+          <span className="mt-px font-bold text-ok-700">✓</span>
+          <span>
+            <span className="font-semibold">Perfil del cliente aplicado.</span> Se corrigieron <span className="font-semibold">{correccionesAplicadas}</span> fila(s) automáticamente con las correcciones memorizadas de cargas anteriores (reclasificaciones, lados invertidos, omisiones, desacoples y re-parentados guardados para este cliente). Revísalas; si haces nuevos ajustes y los guardas, también quedarán memorizados. Puedes ver o borrar lo memorizado en Config › Clientes › Carga de balances.
+          </span>
         </div>
       )}
       {soloHojas && autoCorregido && (
@@ -368,6 +391,8 @@ export default function BorradorDetailClient({
           onConfirmar={(cid, ini, fin) => {
             setClienteSelId(cid); setPeriodoIni(ini); setPeriodoFin(fin); setGateAbierto(false);
             if (notasPendientes != null) { const t = notasPendientes; setNotasPendientes(null); guardarNotas(t, cid); }
+            // Cliente confirmado a mano → re-aplica sus correcciones memorizadas.
+            aplicarCorreccionesDeCliente(cid);
           }}
           onClose={() => { setGateAbierto(false); setNotasPendientes(null); }}
         />
@@ -886,7 +911,7 @@ function ArbolTabla({ arbol, onReclasificar, onInvertir, onDesacoplar, onOmitir,
         <button type="button" onClick={contraerTodo} className="rounded-md border border-ink-200 px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50">Contraer todo</button>
       </div>
       <div className="max-h-[560px] overflow-auto">
-        <table className="w-full text-[11px]">
+        <table className="balance-detail-row-hover w-full text-[11px]">
           <thead className="sticky top-0 z-10 bg-ink-50 text-ink-500">
             <tr className="text-left">
               <th className="px-2 py-1.5 font-semibold">Código</th>

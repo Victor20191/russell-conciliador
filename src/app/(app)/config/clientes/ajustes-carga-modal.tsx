@@ -8,6 +8,8 @@ import { notifyActionState, notifyError, notifySuccess } from "@/lib/client-noti
 import {
   listarPerfilesCarga,
   eliminarPerfilCarga,
+  eliminarCorreccionCarga,
+  limpiarCorreccionesCarga,
   guardarAjustesCarga,
   type PerfilesCargaState,
 } from "@/app/actions/perfiles-carga";
@@ -59,6 +61,30 @@ export function AjustesCargaModal({
         setData(await listarPerfilesCarga(cliente.id));
       } else {
         notifyError(res.message ?? "No se pudo eliminar el perfil.");
+      }
+    });
+  };
+  const eliminarCorreccion = (id: number) => {
+    if (!confirm("¿Eliminar esta corrección? Dejará de aplicarse automáticamente en las próximas cargas de este cliente.")) return;
+    startEliminar(async () => {
+      const res = await eliminarCorreccionCarga(id);
+      if (res.ok) {
+        notifySuccess("Corrección eliminada.");
+        setData(await listarPerfilesCarga(cliente.id));
+      } else {
+        notifyError(res.message ?? "No se pudo eliminar la corrección.");
+      }
+    });
+  };
+  const limpiarCorrecciones = () => {
+    if (!confirm("¿Eliminar TODAS las correcciones memorizadas de este cliente? Las próximas cargas no aplicarán ningún ajuste automático por cuenta.")) return;
+    startEliminar(async () => {
+      const res = await limpiarCorreccionesCarga(cliente.id);
+      if (res.ok) {
+        notifySuccess(res.message ?? "Correcciones eliminadas.");
+        setData(await listarPerfilesCarga(cliente.id));
+      } else {
+        notifyError(res.message ?? "No se pudieron eliminar las correcciones.");
       }
     });
   };
@@ -127,6 +153,71 @@ export function AjustesCargaModal({
                             disabled={eliminando}
                             onClick={() => eliminar(p.id)}
                             title="Eliminar perfil (la próxima carga volverá a usar IA)"
+                            className="rounded p-1 text-ink-400 hover:bg-err-50 hover:text-err-700 disabled:opacity-50"
+                          >
+                            <Icon name="x" size={13} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
+          {/* ---- Correcciones por cuenta memorizadas ---- */}
+          <section className="flex flex-col gap-2 border-t border-ink-100 pt-3">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <h3 className="text-[12.5px] font-semibold text-ink-800">Correcciones por cuenta memorizadas</h3>
+                <p className="text-[11.5px] leading-relaxed text-ink-500">
+                  Los ajustes hechos en el borrador (reclasificar, invertir lados, desacoplar, omitir, re-parentar) se memorizan al
+                  guardar cambios y se <span className="font-semibold">re-aplican solos</span> en cada nueva carga de este cliente.
+                </p>
+              </div>
+              {data.correcciones.length > 0 && (
+                <button
+                  type="button"
+                  disabled={eliminando}
+                  onClick={limpiarCorrecciones}
+                  className="shrink-0 rounded-md border border-err-200 px-2.5 py-1 text-[11.5px] font-semibold text-err-700 hover:bg-err-50 disabled:opacity-50"
+                >
+                  Borrar todas
+                </button>
+              )}
+            </div>
+            {data.correcciones.length === 0 ? (
+              <p className="rounded-md border border-dashed border-ink-200 bg-ink-50 px-3 py-3 text-center text-[11.5px] text-ink-400">
+                Este cliente aún no tiene correcciones memorizadas. Se crearán al pulsar «Guardar cambios» en un borrador de balance.
+              </p>
+            ) : (
+              <div className="max-h-64 overflow-x-auto overflow-y-auto rounded-md border border-ink-150">
+                <table className="w-full text-[11.5px]">
+                  <thead className="sticky top-0 bg-ink-50 text-ink-500">
+                    <tr className="text-left">
+                      <th className="px-2.5 py-1.5 font-semibold">Cuenta</th>
+                      <th className="px-2.5 py-1.5 font-semibold">Nombre</th>
+                      <th className="px-2.5 py-1.5 font-semibold">Corrección</th>
+                      <th className="px-2.5 py-1.5 text-right font-semibold">Aplicada</th>
+                      <th className="px-2.5 py-1.5 font-semibold">Último uso</th>
+                      <th className="px-2.5 py-1.5"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.correcciones.map((c) => (
+                      <tr key={c.id} className="border-t border-ink-100 align-top">
+                        <td className="whitespace-nowrap px-2.5 py-1.5 font-mono text-[10.5px] text-ink-700">{c.cuenta}</td>
+                        <td className="max-w-[180px] truncate px-2.5 py-1.5 text-ink-600" title={c.nombre ?? undefined}>{c.nombre ?? "—"}</td>
+                        <td className="px-2.5 py-1.5 text-ink-600">{c.resumen}</td>
+                        <td className="whitespace-nowrap px-2.5 py-1.5 text-right tabular-nums text-ink-600">{c.vecesAplicada}×</td>
+                        <td className="whitespace-nowrap px-2.5 py-1.5 text-ink-500">{fmtDate(c.ultimoUsoEn)}</td>
+                        <td className="px-2.5 py-1.5 text-right">
+                          <button
+                            type="button"
+                            disabled={eliminando}
+                            onClick={() => eliminarCorreccion(c.id)}
+                            title="Eliminar corrección (deja de aplicarse en las próximas cargas)"
                             className="rounded p-1 text-ink-400 hover:bg-err-50 hover:text-err-700 disabled:opacity-50"
                           >
                             <Icon name="x" size={13} />

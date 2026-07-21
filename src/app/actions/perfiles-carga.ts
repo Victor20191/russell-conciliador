@@ -40,11 +40,24 @@ export type AjustesCargaResumen = {
   observaciones: string | null;
 };
 
+export type CorreccionCargaResumen = {
+  id: number;
+  cuenta: string;
+  nombre: string | null;
+  resumen: string; // "→ agrupadora · omitir · anidar bajo 110510…"
+  vecesAplicada: number;
+  ultimoUsoEn: string | null; // ISO
+  actualizadoEn: string; // ISO
+};
+
 export type PerfilesCargaState = {
   ok: boolean;
   message?: string;
   perfiles: PerfilCargaResumen[];
   ajustes: AjustesCargaResumen | null;
+  // Correcciones por CUENTA memorizadas al guardar cambios en el borrador
+  // (`correcciones_carga_balance`): se re-aplican solas en cada nueva lectura.
+  correcciones: CorreccionCargaResumen[];
 };
 
 /** Letra Excel (A, B, …, AA) de un índice 1-based. */
@@ -64,13 +77,13 @@ function letraColumna(n: number): string {
  * el modal de la ficha, para no engordar el loader de la página).
  */
 export async function listarPerfilesCarga(clienteId: number): Promise<PerfilesCargaState> {
-  const vacio: PerfilesCargaState = { ok: false, perfiles: [], ajustes: null };
+  const vacio: PerfilesCargaState = { ok: false, perfiles: [], ajustes: null, correcciones: [] };
   const authz = await authorizePermiso("balance:crear");
   if (!authz.ok) return { ...vacio, message: authz.message };
   const scope = await authorizePermiso("balance:crear", { clientId: clienteId, modo: "lectura" });
   if (!scope.ok) return { ...vacio, message: scope.message };
   try {
-    const [filas, ajustes] = await Promise.all([
+    const [filas, ajustes, filasCorrecciones] = await Promise.all([
       prisma.perfilCargaBalance.findMany({
         where: { clienteId },
         orderBy: [{ ultimoUsoEn: { sort: "desc", nulls: "last" } }, { actualizadoEn: "desc" }],
@@ -78,6 +91,10 @@ export async function listarPerfilesCarga(clienteId: number): Promise<PerfilesCa
       prisma.ajustesCargaBalance.findUnique({
         where: { clienteId },
         select: { hojaPreferida: true, convencionCredito: true, estandar: true, agregarPorTercero: true, imputarSoloHojas: true, observaciones: true },
+      }),
+      prisma.correccionCargaBalance.findMany({
+        where: { clienteId },
+        orderBy: { cuenta: "asc" },
       }),
     ]);
     const perfiles: PerfilCargaResumen[] = filas.map((p) => {
@@ -106,9 +123,82 @@ export async function listarPerfilesCarga(clienteId: number): Promise<PerfilesCa
         actualizadoEn: p.actualizadoEn.toISOString(),
       };
     });
-    return { ok: true, perfiles, ajustes };
+    const correcciones: CorreccionCargaResumen[] = filasCorrecciones.map((c) => {
+      const partes: string[] = [];
+      if (c.tipoFilaForzado === "agrupadora") partes.push("→ agrupadora");
+      if (c.tipoFilaForzado === "movimiento") partes.push("→ movimiento");
+      if (c.invertirLados) partes.push("invertir débito↔crédito");
+      if (c.desacoplada === true) partes.push("desacoplar");
+      if (c.desacoplada === false) partes.push("reacoplar");
+      if (c.omitida === true) partes.push("omitir");
+      if (c.omitida === false) partes.push("incluir (rescatada)");
+      if (c.padreCodigo) partes.push(`anidar bajo ${c.padreCodigo}`);
+      return {
+        id: c.id,
+        cuenta: c.cuenta,
+        nombre: c.nombre,
+        resumen: partes.join(" · ") || "—",
+        vecesAplicada: c.vecesAplicada,
+        ultimoUsoEn: c.ultimoUsoEn?.toISOString() ?? null,
+        actualizadoEn: c.actualizadoEn.toISOString(),
+      };
+    });
+    return { ok: true, perfiles, ajustes, correcciones };
   } catch (e) {
     return { ...vacio, message: mensajeErrorBD("listarPerfilesCarga", e) };
+  }
+}
+
+/** Elimina UNA corrección memorizada (deja de re-aplicarse en las próximas cargas). */
+export async function eliminarCorreccionCarga(id: number): Promise<ActionState> {
+  const authz = await authorizePermiso("balance:crear");
+  if (!authz.ok) return { ok: false, message: authz.message };
+  const correccionId = Number(id);
+  if (!Number.isInteger(correccionId) || correccionId <= 0) return { ok: false, message: "Corrección inválida." };
+  try {
+    const correccion = await prisma.correccionCargaBalance.findUnique({
+      where: { id: correccionId },
+      select: { clienteId: true, cuenta: true, nombre: true },
+    });
+    if (!correccion) return { ok: false, message: "La corrección ya no existe." };
+    const scope = await authorizePermiso("balance:crear", { clientId: correccion.clienteId });
+    if (!scope.ok) return { ok: false, message: scope.message };
+    await prisma.correccionCargaBalance.delete({ where: { id: correccionId } });
+    const user = await getCurrentUser();
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: "ELIMINÓ CORRECCIÓN de carga de balance",
+      entity: `cliente ${correccion.clienteId}`,
+      detail: `cuenta ${correccion.cuenta}${correccion.nombre ? ` — ${correccion.nombre}` : ""}`,
+    });
+    revalidatePath(PATH);
+    return { ok: true, message: "Corrección eliminada." };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("eliminarCorreccionCarga", e) };
+  }
+}
+
+/** Elimina TODAS las correcciones memorizadas del cliente. */
+export async function limpiarCorreccionesCarga(clienteId: number): Promise<ActionState> {
+  const authz = await authorizePermiso("balance:crear");
+  if (!authz.ok) return { ok: false, message: authz.message };
+  const cid = Number(clienteId);
+  if (!Number.isInteger(cid) || cid <= 0) return { ok: false, message: "Cliente inválido." };
+  const scope = await authorizePermiso("balance:crear", { clientId: cid });
+  if (!scope.ok) return { ok: false, message: scope.message };
+  try {
+    const del = await prisma.correccionCargaBalance.deleteMany({ where: { clienteId: cid } });
+    const user = await getCurrentUser();
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: "LIMPIÓ CORRECCIONES de carga de balance",
+      entity: `cliente ${cid}`,
+      detail: `${del.count} corrección(es)`,
+    });
+    revalidatePath(PATH);
+    return { ok: true, message: `${del.count} corrección(es) eliminadas.` };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("limpiarCorreccionesCarga", e) };
   }
 }
 

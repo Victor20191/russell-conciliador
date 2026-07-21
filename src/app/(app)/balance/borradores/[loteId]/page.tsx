@@ -182,6 +182,7 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
         clientes={clientes.map((c) => ({ id: c.id, name: c.name, nit: c.nit, notas: notasPorCliente.get(c.id) ?? null }))}
         clienteSugeridoId={clienteSugeridoId}
         spec={spec}
+        correccionesAplicadas={lote?.correccionesAplicadas ?? 0}
       />
     </div>
   );
