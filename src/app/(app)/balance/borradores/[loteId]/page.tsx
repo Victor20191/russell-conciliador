@@ -162,7 +162,11 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
   ]);
   const notasPorCliente = new Map(notasRows.map((r) => [r.clienteId, r.observaciones]));
   const core = soloDigitos(lote?.nitDetectado ?? "").slice(0, 9);
-  const clienteSugeridoId = core.length >= 5 ? (clientes.find((c) => soloDigitos(c.nit).slice(0, 9) === core)?.id ?? null) : null;
+  const clientePorNitId = core.length >= 5 ? (clientes.find((c) => soloDigitos(c.nit).slice(0, 9) === core)?.id ?? null) : null;
+  // El cliente ya ASIGNADO al lote (al leer por NIT o a mano en la compuerta) manda
+  // sobre la re-detección por NIT; debe estar en la cartera visible del usuario.
+  const clienteAsignadoId = lote?.clienteId != null && clientes.some((c) => c.id === lote.clienteId) ? lote.clienteId : null;
+  const clienteSugeridoId = clienteAsignadoId ?? clientePorNitId;
 
   return (
     <div>

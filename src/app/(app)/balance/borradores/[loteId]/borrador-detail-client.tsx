@@ -6,7 +6,7 @@ import { Icon } from "@/components/icons";
 import { Card, Chip } from "@/components/ui";
 import { Modal } from "@/components/modal";
 import { fmt } from "@/lib/format";
-import { cargarBorrador, descartarBorrador, aplicarCambiosBorrador, aplicarCorreccionesClienteBorrador, reprocesarBalanceConSpec, guardarPerfilDesdeEditor, guardarNotasDesdeEditor } from "@/app/actions/balance";
+import { cargarBorrador, descartarBorrador, aplicarCambiosBorrador, asignarClienteBorrador, reprocesarBalanceConSpec, guardarPerfilDesdeEditor, guardarNotasDesdeEditor } from "@/app/actions/balance";
 import { EditorEstructura } from "@/app/(app)/balance/cargar-balance-modal";
 import { PromptClientePerfil } from "@/app/(app)/balance/prompt-cliente-perfil";
 import type { SpecCarga } from "@/lib/balance/extraccion/esquema";
@@ -15,7 +15,7 @@ import { construirVistaBorrador } from "@/lib/balance/borrador-vm";
 import { contextoTabulador, puedeUbicar, reclasificarSoloHojas, type ContextoNodo, type RefNodo, type FilaBorrador, type NodoBorrador } from "@/lib/balance/borrador";
 import type { ValidacionContable } from "@/lib/balance/calcular";
 import type { Hallazgo } from "@/lib/balance/diagnostico";
-import { notifyActionState, notifySuccess, notifyError } from "@/lib/client-notifications";
+import { notifyActionState, notifySuccess, notifyError, notifyInfo } from "@/lib/client-notifications";
 import { SelectorClienteBuscable } from "@/components/selector-cliente-buscable";
 import { useSeleccionFilaTabla } from "@/app/(app)/balance/use-seleccion-fila-tabla";
 
@@ -167,15 +167,18 @@ export default function BorradorDetailClient({
       else notifyError(r.message ?? "No se pudieron guardar los cambios.");
     });
 
-  // Correcciones memorizadas del cliente elegido A MANO en la compuerta: el NIT no
-  // lo detectó al leer (la re-aplicación automática no corrió), así que se aplican
-  // aquí y se refresca el borrador ya corregido.
-  const [, startAplicarCorrecciones] = useTransition();
-  const aplicarCorreccionesDeCliente = (cid: number) => {
-    startAplicarCorrecciones(async () => {
-      const r = await aplicarCorreccionesClienteBorrador(loteId, cid);
-      if (r.ok && (r.aplicadas ?? 0) > 0) { notifySuccess(r.message ?? "Correcciones del perfil aplicadas."); router.refresh(); }
-      else if (!r.ok && r.message) notifyError(r.message);
+  // Cliente elegido A MANO (compuerta o selector): se PERSISTE en el lote (el
+  // borrador deja de estar «sin cliente» en la lista) y se re-aplican sus
+  // correcciones memorizadas (el NIT no lo detectó al leer, así que la
+  // re-aplicación automática no corrió). Si cambió algo, se refresca la vista.
+  const [, startAsignarCliente] = useTransition();
+  const asignarCliente = (cid: number) => {
+    startAsignarCliente(async () => {
+      const r = await asignarClienteBorrador(loteId, cid);
+      if (r.ok) {
+        notifySuccess(r.message ?? "Cliente asignado al borrador.");
+        if ((r.aplicadas ?? 0) > 0) router.refresh();
+      } else if (r.message) notifyError(r.message);
     });
   };
 
@@ -387,15 +390,25 @@ export default function BorradorDetailClient({
           clientes={clientes}
           nitDetectado={nitDetectado}
           clienteSelId={clienteSelId}
+          obligatorio={clienteSelId == null}
           periodoIni={periodoIni}
           periodoFin={periodoFin}
           onConfirmar={(cid, ini, fin) => {
             setClienteSelId(cid); setPeriodoIni(ini); setPeriodoFin(fin); setGateAbierto(false);
             if (notasPendientes != null) { const t = notasPendientes; setNotasPendientes(null); guardarNotas(t, cid); }
-            // Cliente confirmado a mano → re-aplica sus correcciones memorizadas.
-            aplicarCorreccionesDeCliente(cid);
+            // Cliente confirmado a mano → se persiste en el lote y se re-aplican
+            // sus correcciones memorizadas.
+            asignarCliente(cid);
           }}
-          onClose={() => { setGateAbierto(false); setNotasPendientes(null); }}
+          onClose={() => {
+            setGateAbierto(false); setNotasPendientes(null);
+            // OBLIGATORIO: sin cliente asignado no se trabaja el borrador. Cerrar
+            // la compuerta sin elegirlo devuelve a la lista de borradores.
+            if (clienteSelId == null) {
+              notifyInfo("Cliente obligatorio", "Para revisar o cargar un borrador debes asignarle el cliente (NIT).");
+              router.push("/balance/borradores");
+            }
+          }}
         />
       )}
 
@@ -417,7 +430,13 @@ export default function BorradorDetailClient({
             <SelectorClienteBuscable
               clients={clientes}
               value={clienteSelId}
-              onChange={setClienteSelId}
+              onChange={(cid) => {
+                const anterior = clienteSelId;
+                setClienteSelId(cid);
+                // Cambio de cliente a mano → se persiste en el lote (mismo camino
+                // que la compuerta). Limpiarlo solo deja el aviso y bloquea la carga.
+                if (cid != null && cid !== anterior) asignarCliente(cid);
+              }}
               name="clientId"
               className="sm:col-span-1"
             />
@@ -784,6 +803,14 @@ function ArbolTabla({ arbol, onReclasificar, onInvertir, onDesacoplar, onOmitir,
               <span className="inline-block w-[13px]" />
             )}
             <span className="font-mono text-[11px] text-ink-500">{n.codigoCrudo || "—"}</span>
+            {numero && !n.subtotalDuplicado && n.tipoFila !== "total" && (
+              <span
+                title={esMov ? "Tipo actual: Movimiento" : `Tipo actual: Agrupadora · ${nivelLabel(n.codigo)}`}
+                className={`rounded border px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide ${esMov ? "border-blue-100 bg-blue-100 text-navy-700" : "border-ink-100 bg-ink-100 text-ink-600"}`}
+              >
+                {esMov ? "Movimiento" : `Agrupadora · ${nivelLabel(n.codigo)}`}
+              </span>
+            )}
           </div>
         </td>
         <td className="px-2 py-1 align-top">
@@ -798,11 +825,7 @@ function ArbolTabla({ arbol, onReclasificar, onInvertir, onDesacoplar, onOmitir,
               </span>
             ) : n.tipoFila === "total" ? (
               <Chip label="Total" tone="ink" />
-            ) : esMov ? (
-              <Chip label="Movimiento" tone="blue" />
-            ) : (
-              <Chip label={`Agrupadora · ${nivelLabel(n.codigo)}`} tone="ink" />
-            )}
+            ) : null}
             {descuadrado && (
               <span className="text-[10.5px] font-semibold text-err-700" title={`Total del archivo ${fmt(n.saldoFinal)} − suma de sus ${n.hijos.length} cuentas = ${fmt(n.descuadre!)}. Su subtotal no cuadra con su desglose por código.`}>
                 Δ {fmt(n.descuadre!)}
@@ -940,13 +963,16 @@ function ArbolTabla({ arbol, onReclasificar, onInvertir, onDesacoplar, onOmitir,
  * Compuerta al entrar al borrador cuando NO se detectó el cliente por NIT: exige
  * elegir cliente + período antes de operar, para que apliquen sus preferencias/
  * notas y no se cargue el balance a ciegas. Se cierra solo con la X/Cancelar.
+ * Con `obligatorio` (aún no hay cliente asignado) cerrarla sin elegir devuelve a
+ * la lista de borradores: el cliente es requisito para trabajar el borrador.
  */
 function GateClientePeriodo({
-  clientes, nitDetectado, clienteSelId, periodoIni, periodoFin, onConfirmar, onClose,
+  clientes, nitDetectado, clienteSelId, obligatorio, periodoIni, periodoFin, onConfirmar, onClose,
 }: {
   clientes: Cliente[];
   nitDetectado: string | null;
   clienteSelId: number | null;
+  obligatorio: boolean;
   periodoIni: string;
   periodoFin: string;
   onConfirmar: (clienteId: number, ini: string, fin: string) => void;
@@ -965,7 +991,7 @@ function GateClientePeriodo({
       footer={
         <>
           <button type="button" onClick={onClose} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] font-semibold text-ink-600 hover:bg-ink-50">
-            Cancelar
+            {obligatorio ? "Volver a borradores" : "Cancelar"}
           </button>
           <button
             type="button"
@@ -980,9 +1006,14 @@ function GateClientePeriodo({
     >
       <div className="flex flex-col gap-3 text-[12.5px]">
         <p className="text-ink-600">
-          {nitDetectado ? <>El NIT detectado <span className="font-mono">{nitDetectado}</span> no coincide con ningún cliente.</> : <>No se detectó el cliente en el archivo.</>}{" "}
+          {nitDetectado ? <>El NIT detectado <span className="font-mono">{nitDetectado}</span> no coincide con ningún cliente.</> : <>No se detectó el cliente (NIT) en el archivo.</>}{" "}
           Elige el cliente y el período para aplicar sus preferencias y notas de carga, y poder cargar el balance.
         </p>
+        {obligatorio && (
+          <p className="rounded-md border border-warn-200 bg-warn-50 px-3 py-2 text-[12px] font-medium text-warn-800">
+            Asignar el cliente es <span className="font-semibold">obligatorio</span>: sin él no se puede revisar ni cargar el borrador. Búscalo por nombre o NIT en el selector; el borrador quedará vinculado a ese cliente.
+          </p>
+        )}
         <SelectorClienteBuscable
           clients={clientes}
           value={sel ? Number(sel) : null}

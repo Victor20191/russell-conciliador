@@ -35,6 +35,23 @@ export type ClienteOpcion = { id: number; name: string; nit: string };
 
 type Excepcion = NonNullable<ImportBalanceState["excepciones"]>[number];
 
+function LeyendoAnimado() {
+  return (
+    <span className="inline-flex items-baseline" aria-live="polite">
+      <span>Leyendo</span>
+      <span
+        className="ml-0.5 inline-flex w-[1.05em] items-baseline justify-between"
+        aria-hidden="true"
+      >
+        <span className="balance-reading-dot">.</span>
+        <span className="balance-reading-dot">.</span>
+        <span className="balance-reading-dot">.</span>
+      </span>
+      <span className="sr-only"> archivo</span>
+    </span>
+  );
+}
+
 export function CargarBalanceButton({
   clients,
   configuracionIA,
@@ -200,10 +217,11 @@ function CargarBalanceModal({
         type="submit"
         form="leer-form"
         disabled={leerDeshabilitado}
+        aria-busy={leyendo}
         className="ml-auto rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
       >
         {leyendo
-          ? "Leyendo…"
+          ? <LeyendoAnimado />
           : inspeccionando
             ? "Analizando hojas…"
             : requiereHoja && hojaElegida

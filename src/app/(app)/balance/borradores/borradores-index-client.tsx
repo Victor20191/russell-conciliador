@@ -133,7 +133,11 @@ export default function BorradoresIndexClient({ rows }: { rows: BorradorRow[] })
                     {r.cargadoPor && <span className="block text-[10.5px] text-ink-400">por {r.cargadoPor}</span>}
                   </td>
                   <td className="px-3 py-2 text-ink-700">
-                    {r.clienteSugerido ?? <span className="text-ink-400">sin cliente</span>}
+                    {r.clienteSugerido ?? (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-warn-300 bg-warn-50 px-2 py-0.5 text-[10.5px] font-semibold text-warn-700" title="Asignar el cliente es obligatorio: hazlo al abrir el borrador (Revisar).">
+                        Sin cliente — asígnalo en «Revisar»
+                      </span>
+                    )}
                     {r.nitDetectado && <span className="block font-mono text-[10.5px] text-ink-400">{r.nitDetectado}</span>}
                   </td>
                   <td className="px-3 py-2 font-mono text-[11px] text-ink-600">{r.periodo}</td>

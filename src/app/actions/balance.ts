@@ -1889,12 +1889,14 @@ export async function aplicarCambiosBorrador(
 }
 
 /**
- * RE-APLICA a un borrador las correcciones memorizadas de un cliente elegido A MANO
- * (cuando el NIT no lo detectó al leer, la re-aplicación automática de la lectura no
- * corrió). La compuerta del borrador la llama al confirmar el cliente. Devuelve
- * cuántas filas cambió para avisar y refrescar la vista.
+ * ASIGNA a un borrador el cliente elegido A MANO (cuando el NIT del archivo no se
+ * detectó o no coincide con ningún cliente): PERSISTE el `clienteId` en el lote —
+ * el borrador deja de estar «sin cliente» en la lista y la compuerta no vuelve a
+ * pedirlo — y RE-APLICA sus correcciones memorizadas (la re-aplicación automática
+ * de la lectura no corrió). La compuerta y el selector del borrador la llaman al
+ * confirmar el cliente. Devuelve cuántas filas cambió para avisar y refrescar.
  */
-export async function aplicarCorreccionesClienteBorrador(loteId: string, clienteId: number): Promise<ActionState & { aplicadas?: number }> {
+export async function asignarClienteBorrador(loteId: string, clienteId: number): Promise<ActionState & { aplicadas?: number }> {
   const authz = await authorizePermiso("balance:crear");
   if (!authz.ok) return { ok: false, message: authz.message };
   const id = String(loteId ?? "").trim();
@@ -1903,18 +1905,23 @@ export async function aplicarCorreccionesClienteBorrador(loteId: string, cliente
   const scope = await authorizePermiso("balance:crear", { clientId: cid });
   if (!scope.ok) return { ok: false, message: scope.message };
   try {
+    const cliente = await prisma.client.findUnique({ where: { id: cid }, select: { id: true } });
+    if (!cliente) return { ok: false, message: "El cliente elegido ya no existe." };
+    // FK suave: el lote puede no existir (borrador huérfano sin encabezado);
+    // `updateMany` con 0 filas no falla y la asignación queda solo en la sesión.
+    await prisma.balanceImportacionLote.updateMany({ where: { loteId: id }, data: { clienteId: cid } });
     const aplicadas = await aplicarCorreccionesGuardadas(id, cid);
-    if (aplicadas > 0) {
-      revalidatePath(`/balance/borradores/${id}`);
-      revalidatePath("/balance/borradores");
-    }
+    revalidatePath(`/balance/borradores/${id}`);
+    revalidatePath("/balance/borradores");
     return {
       ok: true,
       aplicadas,
-      message: aplicadas > 0 ? `Se aplicaron ${aplicadas} corrección(es) memorizadas del perfil del cliente.` : undefined,
+      message: aplicadas > 0
+        ? `Cliente asignado al borrador. Se aplicaron ${aplicadas} corrección(es) memorizadas de su perfil.`
+        : "Cliente asignado al borrador.",
     };
   } catch (e) {
-    return { ok: false, message: mensajeErrorBD("aplicarCorreccionesClienteBorrador", e) };
+    return { ok: false, message: mensajeErrorBD("asignarClienteBorrador", e) };
   }
 }
 

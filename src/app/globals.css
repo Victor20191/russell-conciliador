@@ -77,6 +77,40 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+@keyframes balance-reading-dot-bounce {
+  0%,
+  60%,
+  100% {
+    opacity: 0.45;
+    transform: translateY(0);
+  }
+
+  30% {
+    opacity: 1;
+    transform: translateY(-0.22em);
+  }
+}
+
+.balance-reading-dot {
+  display: inline-block;
+  animation: balance-reading-dot-bounce 900ms ease-in-out infinite;
+}
+
+.balance-reading-dot:nth-child(2) {
+  animation-delay: 120ms;
+}
+
+.balance-reading-dot:nth-child(3) {
+  animation-delay: 240ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .balance-reading-dot {
+    animation: none;
+    opacity: 1;
+  }
+}
+
 /* Resalta la fila contable completa solo en las vistas de detalle. */
 .balance-detail-row-hover tbody tr > td:not([colspan]) {
   transition: background-color 120ms ease, box-shadow 120ms ease;
