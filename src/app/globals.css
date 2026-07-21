@@ -160,6 +160,27 @@ body {
     inset 0 -1px 0 color-mix(in srgb, var(--color-blue-500) 55%, transparent);
 }
 
+/* La ampliación tipográfica vive únicamente dentro del modo de pantalla
+   completa de la tabla. La vista normal conserva su densidad original. */
+[data-balance-table-fullscreen="true"] [class~="text-[9px]"] { font-size: 10px; }
+[data-balance-table-fullscreen="true"] [class~="text-[9.5px]"] { font-size: 10.5px; }
+[data-balance-table-fullscreen="true"] [class~="text-[10px]"] { font-size: 11px; }
+[data-balance-table-fullscreen="true"] [class~="text-[10.5px]"] { font-size: 11.5px; }
+[data-balance-table-fullscreen="true"] [class~="text-[11px]"] { font-size: 12px; }
+[data-balance-table-fullscreen="true"] [class~="text-[11.5px]"] { font-size: 12.5px; }
+[data-balance-table-fullscreen="true"] [class~="text-[12px]"] { font-size: 13px; }
+
+[data-balance-table-fullscreen="true"] svg {
+  transform: scale(1.12);
+  transform-origin: center;
+}
+
+[data-balance-table-fullscreen="true"] table th,
+[data-balance-table-fullscreen="true"] table td {
+  padding-top: 0.375rem;
+  padding-bottom: 0.375rem;
+}
+
 @keyframes balance-move-target-pulse {
   0%, 100% { background-color: transparent; }
   20%, 70% { background-color: color-mix(in srgb, var(--color-blue-100) 72%, var(--color-blue-500)); }

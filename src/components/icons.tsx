@@ -5,7 +5,8 @@ export type IconName =
   | "chev-r" | "chev-d" | "chev-l" | "plus" | "upload" | "download" | "check"
   | "x" | "warn" | "ai" | "doc" | "box" | "wallet" | "chip" | "chart"
   | "filter" | "more" | "msg" | "calendar" | "log" | "send" | "link" | "logout"
-  | "eye" | "eye-off" | "menu" | "info" | "move-tree" | "trash";
+  | "eye" | "eye-off" | "menu" | "info" | "move-tree" | "trash"
+  | "maximize" | "minimize";
 
 export function Icon({
   name,
@@ -69,6 +70,8 @@ export function Icon({
     case "info": return <svg {...props}><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h0" /></svg>;
     case "trash": return <svg {...props}><path d="M4 7h16M10 4h4a1 1 0 0 1 1 1v2H9V5a1 1 0 0 1 1-1z" /><path d="M6 7v13a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7" /><path d="M10 11v6M14 11v6" /></svg>;
     case "move-tree": return <svg {...props}><circle cx="5" cy="5" r="2" /><circle cx="19" cy="12" r="2" /><circle cx="5" cy="19" r="2" /><path d="M7 5h3a3 3 0 0 1 3 3v1a3 3 0 0 0 3 3h1M5 7v10M13 12H7" /></svg>;
+    case "maximize": return <svg {...props}><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5" /><path d="M3 8l6-6M21 8l-6-6M3 16l6 6M21 16l-6 6" /></svg>;
+    case "minimize": return <svg {...props}><path d="M9 9H4M9 9V4M15 9h5M15 9V4M9 15H4M9 15v5M15 15h5M15 15v5" /><path d="M9 9 3 3M15 9l6-6M9 15l-6 6M15 15l6 6" /></svg>;
     default: return null;
   }
 }

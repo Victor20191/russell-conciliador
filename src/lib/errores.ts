@@ -102,9 +102,7 @@ export function mensajeErrorBD(contexto: string, e: unknown): string {
  * `mensajeErrorBD`. Úsalo en los `catch` de acciones que invocan la IA.
  */
 export function mensajeErrorIA(contexto: string, e: unknown): string {
-  const status = e && typeof e === "object" && "status" in e ? (e as { status?: unknown }).status : undefined;
-  const nombre = e && typeof e === "object" && "name" in e ? String((e as { name?: unknown }).name ?? "") : "";
-  const msg = e instanceof Error ? e.message : typeof e === "string" ? e : "";
+  const { status, nombre, msg } = rasgosErrorIA(e);
 
   // Error de API: tiene `status` numérico o un nombre de clase de proveedor.
   const esErrorProveedor = typeof status === "number" || /APIError|APIConnection|RateLimit|Overloaded|Anthropic|Gemini/i.test(`${nombre} ${msg}`);
@@ -127,4 +125,29 @@ export function mensajeErrorIA(contexto: string, e: unknown): string {
 
   // Cualquier otro error (incluye fallos de BD al persistir): traducción de BD.
   return mensajeErrorBD(contexto, e);
+}
+
+/** Status, nombre de clase y mensaje del error, para reconocer fallos del proveedor de IA. */
+function rasgosErrorIA(e: unknown): { status?: number; nombre: string; msg: string } {
+  const statusBruto = e && typeof e === "object" && "status" in e ? (e as { status?: unknown }).status : undefined;
+  const status = typeof statusBruto === "number" ? statusBruto : undefined;
+  const nombre = e && typeof e === "object" && "name" in e ? String((e as { name?: unknown }).name ?? "") : "";
+  const msg = e instanceof Error ? e.message : typeof e === "string" ? e : "";
+  return { status, nombre, msg };
+}
+
+/**
+ * ¿El fallo es de DISPONIBILIDAD del proveedor de IA (Anthropic/Gemini)?
+ * Cubre saturación (429), sobrecarga (529), errores 5xx y timeouts/cortes de
+ * red de la API. Son temporales y ocurren en el servicio externo — no hay nada
+ * que corregir en el aplicativo ni en el archivo del usuario; la UI lo usa para
+ * mostrar el aviso que lo aclara. Excluye credenciales (401/403) y errores de
+ * formato, que sí requieren acción de este lado.
+ */
+export function esErrorDisponibilidadIA(e: unknown): boolean {
+  const { status, nombre, msg } = rasgosErrorIA(e);
+  const esProveedor = typeof status === "number" || /APIError|APIConnection|RateLimit|Overloaded|Anthropic|Gemini/i.test(`${nombre} ${msg}`);
+  if (!esProveedor) return false;
+  if (typeof status === "number") return status === 429 || status === 529 || status >= 500;
+  return /Overloaded|RateLimit|APIConnection/i.test(nombre) || /timeout|ETIMEDOUT|ECONNRESET|connection/i.test(`${nombre} ${msg}`);
 }

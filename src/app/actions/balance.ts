@@ -10,7 +10,7 @@ import { clienteDeBalance } from "@/lib/rbac/contexto";
 import { parseId } from "@/lib/ids";
 import { tomarCandadoTransaccion, transaccionSerializable } from "@/lib/concurrency";
 import { createProcessNotification } from "@/lib/notifications";
-import { mensajeErrorBD, mensajeErrorIA } from "@/lib/errores";
+import { esErrorDisponibilidadIA, mensajeErrorBD, mensajeErrorIA } from "@/lib/errores";
 import { fmt, MESES_LARGOS } from "@/lib/format";
 import { fechaCalendarioPrisma } from "@/lib/fecha-hora";
 import { ConfirmarBalanceSchema, PayloadCargaBalanceSchema, SpecCargaBalanceSchema, type ActionState, type PayloadCargaBalance } from "@/lib/definitions";
@@ -89,6 +89,9 @@ export type SugerenciaBalance = {
 export type LeerBalanceState = {
   ok?: boolean;
   message?: string;
+  // true cuando el fallo fue de disponibilidad del proveedor de IA (429/529/5xx/
+  // timeout): la UI aclara que es un problema del servicio externo, no del aplicativo.
+  errorProveedorIA?: boolean;
   errores?: NonNullable<ImportBalanceState["errores"]>;
   excepciones?: Excepcion[];
   sugerencia?: SugerenciaBalance;
@@ -1097,7 +1100,7 @@ export async function leerBalance(
       proveedorIA,
     });
   } catch (e) {
-    return { ok: false, message: mensajeErrorIA("leerBalance", e) };
+    return { ok: false, message: mensajeErrorIA("leerBalance", e), errorProveedorIA: esErrorDisponibilidadIA(e) };
   }
 }
 
@@ -1364,7 +1367,7 @@ export async function reprocesarBalanceConSpec(
     }
     return res;
   } catch (e) {
-    return { ok: false, message: mensajeErrorIA("reprocesarBalanceConSpec", e) };
+    return { ok: false, message: mensajeErrorIA("reprocesarBalanceConSpec", e), errorProveedorIA: esErrorDisponibilidadIA(e) };
   }
 }
 

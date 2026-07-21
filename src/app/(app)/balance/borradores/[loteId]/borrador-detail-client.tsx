@@ -841,6 +841,21 @@ function ArbolTabla({ arbol, onReclasificar, onInvertir, onDesacoplar, onOmitir,
   const [q, setQ] = useState("");
   const [vista, setVista] = useState<"todo" | "balance" | "er" | "alertas">("todo");
   const [nivelMax, setNivelMax] = useState(0); // 0 = todos; 2/4/6/8 = hasta ese nivel
+  const [pantallaCompleta, setPantallaCompleta] = useState(false);
+
+  useEffect(() => {
+    if (!pantallaCompleta) return;
+    const overflowAnterior = document.body.style.overflow;
+    const salirConEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPantallaCompleta(false);
+    };
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", salirConEscape);
+    return () => {
+      document.body.style.overflow = overflowAnterior;
+      window.removeEventListener("keydown", salirConEscape);
+    };
+  }, [pantallaCompleta]);
 
   useEffect(() => {
     if (!enfoqueReubicacion) return;
@@ -1085,8 +1100,13 @@ function ArbolTabla({ arbol, onReclasificar, onInvertir, onDesacoplar, onOmitir,
   );
 
   return (
-    <div>
-      <div className="flex flex-wrap items-center gap-1.5 border-b border-ink-100 bg-white px-3 py-2">
+    <div
+      role="region"
+      aria-label="Tabla de movimiento del borrador"
+      data-balance-table-fullscreen={pantallaCompleta ? "true" : undefined}
+      className={pantallaCompleta ? "fixed inset-0 z-40 flex min-h-0 flex-col overflow-hidden bg-white shadow-2xl ring-1 ring-inset ring-navy-900/10" : ""}
+    >
+      <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-ink-100 bg-white px-3 py-2">
         <div className="flex items-center gap-1.5 rounded-md border border-ink-200 bg-ink-50 px-2 py-1 text-ink-400">
           <Icon name="search" size={13} />
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar código o cuenta…" className="w-44 bg-transparent text-[12px] text-ink-700 outline-none placeholder:text-ink-400" />
@@ -1102,8 +1122,19 @@ function ArbolTabla({ arbol, onReclasificar, onInvertir, onDesacoplar, onOmitir,
         <span className="mx-0.5 h-4 w-px bg-ink-200" />
         <button type="button" onClick={expandirTodo} className="rounded-md border border-ink-200 px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50">Expandir todo</button>
         <button type="button" onClick={contraerTodo} className="rounded-md border border-ink-200 px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50">Contraer todo</button>
+        <button
+          type="button"
+          aria-pressed={pantallaCompleta}
+          onClick={() => setPantallaCompleta((actual) => !actual)}
+          title={pantallaCompleta ? "Salir de pantalla completa (Esc)" : "Abrir la tabla a pantalla completa"}
+          className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-semibold transition ${pantallaCompleta ? "border-navy-700 bg-navy-700 text-white hover:bg-navy-600" : "border-ink-200 bg-white text-ink-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"}`}
+        >
+          <Icon name={pantallaCompleta ? "minimize" : "maximize"} size={13} />
+          {pantallaCompleta ? "Salir de pantalla completa" : "Pantalla completa"}
+          {pantallaCompleta && <kbd className="ml-0.5 rounded border border-white/30 px-1 font-sans text-[9px] font-medium text-white/80">Esc</kbd>}
+        </button>
       </div>
-      <div ref={tablaRef} className="max-h-[560px] overflow-auto">
+      <div ref={tablaRef} className={pantallaCompleta ? "min-h-0 flex-1 overflow-auto overscroll-contain" : "max-h-[560px] overflow-auto"}>
         <table className="balance-detail-row-hover w-full text-[11px]">
           <thead className="sticky top-0 z-10 bg-ink-50 text-ink-500">
             <tr className="text-left">

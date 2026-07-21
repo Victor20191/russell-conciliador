@@ -154,6 +154,8 @@ function CargarBalanceModal({
       if (res.ok && res.sugerencia) {
         setSugLocal(res.sugerencia);
         notifySuccess("Archivo reprocesado con la estructura ajustada (sin IA).");
+      } else if (res.errorProveedorIA && res.message) {
+        notifyError(`${res.message} Es un inconveniente del proveedor de IA, no del aplicativo.`);
       } else {
         notifyError(res.message ?? "No se pudo reprocesar el archivo.");
       }
@@ -320,7 +322,18 @@ function CargarBalanceModal({
             </>
           )}
 
-          {leerState?.message && <p className="text-[12px] font-medium text-err-700">{leerState.message}</p>}
+          {leerState?.message &&
+            (leerState.errorProveedorIA ? (
+              <div className="rounded-md border border-warn-100 bg-warn-100/40 px-3 py-2.5 text-[12px] text-warn-700">
+                <p className="font-semibold">⚠️ Inconveniente temporal del proveedor de IA</p>
+                <p className="mt-1 font-medium">{leerState.message}</p>
+                <p className="mt-1">
+                  Es una falla del servicio externo de IA, <span className="font-semibold">no del aplicativo ni de tu archivo</span>. Espera unos minutos y vuelve a intentar la lectura.
+                </p>
+              </div>
+            ) : (
+              <p className="text-[12px] font-medium text-err-700">{leerState.message}</p>
+            ))}
           {leerState?.errores && leerState.errores.length > 0 && <ErroresTabla errores={leerState.errores} />}
           {leerState?.excepciones && leerState.excepciones.length > 0 && <ExcepcionesTabla excepciones={leerState.excepciones} />}
         </form>
