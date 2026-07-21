@@ -17,6 +17,7 @@ import type { ValidacionContable } from "@/lib/balance/calcular";
 import type { Hallazgo } from "@/lib/balance/diagnostico";
 import { notifyActionState, notifySuccess, notifyError } from "@/lib/client-notifications";
 import { SelectorClienteBuscable } from "@/components/selector-cliente-buscable";
+import { useSeleccionFilaTabla } from "@/app/(app)/balance/use-seleccion-fila-tabla";
 
 type Cliente = { id: number; name: string; nit: string; notas?: string | null };
 
@@ -677,6 +678,7 @@ function MoverModal({ arbol, filaNum, contexto, onConfirmar, onClose }: {
 }
 
 function ArbolTabla({ arbol, onReclasificar, onInvertir, onDesacoplar, onOmitir, posiciones, contexto, onUbicar, onDesindentar }: { arbol: NodoBorrador[]; onReclasificar: (codigo: string, actual: NodoBorrador["tipoFila"]) => void; onInvertir: (codigo: string) => void; onDesacoplar: (codigo: string, desacopladaAhora: boolean) => void; onOmitir: (filaNum: number, omitidaAhora: boolean) => void; posiciones: Map<number, Posicion>; contexto: Map<number, ContextoNodo>; onUbicar: (filaNum: number) => void; onDesindentar: (filaNum: number) => void }) {
+  const { filaSeleccionada, onClickFila, onDoubleClickFila } = useSeleccionFilaTabla();
   // Control contable: saldo ant + débito − crédito = saldo actual (±$1).
   const controlOk = (si: number, db: number, cr: number, s: number) => Math.abs(si + db - cr - s) <= 1;
   // Expande por defecto los niveles altos y TODA rama con descuadre (para verlo).
@@ -768,7 +770,12 @@ function ArbolTabla({ arbol, onReclasificar, onInvertir, onDesacoplar, onOmitir,
           ? "hover:bg-ink-50/60"
           : "bg-ink-50/40";
     filas.push(
-      <tr key={n.filaNum} className={`border-t border-ink-100 transition-colors ${omitida ? "opacity-45" : ""} ${estadoVisualFila}`}>
+      <tr
+        key={n.filaNum}
+        data-selection-key={n.filaNum}
+        data-selected={filaSeleccionada === String(n.filaNum) ? "true" : undefined}
+        className={`border-t border-ink-100 transition-colors ${omitida ? "opacity-45" : ""} ${estadoVisualFila}`}
+      >
         <td className={`px-2 py-1 align-top ${reparentada ? "border-l-[3px] border-l-blue-500" : ""}`}>
           <div className="flex items-center gap-1.5" style={{ paddingLeft: 4 + depth * 16 }}>
             {hasHijos ? (
@@ -922,7 +929,7 @@ function ArbolTabla({ arbol, onReclasificar, onInvertir, onDesacoplar, onOmitir,
               <th className="px-2 py-1.5 text-right font-semibold">Saldo actual</th>
             </tr>
           </thead>
-          <tbody>{filas.length > 0 ? filas : <tr><td colSpan={6} className="px-3 py-6 text-center text-[12px] text-ink-400">Sin cuentas para este filtro.</td></tr>}</tbody>
+          <tbody onClick={onClickFila} onDoubleClick={onDoubleClickFila}>{filas.length > 0 ? filas : <tr><td colSpan={6} className="px-3 py-6 text-center text-[12px] text-ink-400">Sin cuentas para este filtro.</td></tr>}</tbody>
         </table>
       </div>
     </div>

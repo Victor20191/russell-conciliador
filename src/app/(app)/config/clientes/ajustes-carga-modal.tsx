@@ -176,7 +176,7 @@ export function AjustesCargaModal({
                   guardar cambios y se <span className="font-semibold">re-aplican solos</span> en cada nueva carga de este cliente.
                 </p>
               </div>
-              {data.correcciones.length > 0 && (
+              {(data.correcciones ?? []).length > 0 && (
                 <button
                   type="button"
                   disabled={eliminando}
@@ -187,7 +187,7 @@ export function AjustesCargaModal({
                 </button>
               )}
             </div>
-            {data.correcciones.length === 0 ? (
+            {(data.correcciones ?? []).length === 0 ? (
               <p className="rounded-md border border-dashed border-ink-200 bg-ink-50 px-3 py-3 text-center text-[11.5px] text-ink-400">
                 Este cliente aún no tiene correcciones memorizadas. Se crearán al pulsar «Guardar cambios» en un borrador de balance.
               </p>
@@ -205,7 +205,7 @@ export function AjustesCargaModal({
                     </tr>
                   </thead>
                   <tbody>
-                    {data.correcciones.map((c) => (
+                    {(data.correcciones ?? []).map((c) => (
                       <tr key={c.id} className="border-t border-ink-100 align-top">
                         <td className="whitespace-nowrap px-2.5 py-1.5 font-mono text-[10.5px] text-ink-700">{c.cuenta}</td>
                         <td className="max-w-[180px] truncate px-2.5 py-1.5 text-ink-600" title={c.nombre ?? undefined}>{c.nombre ?? "—"}</td>

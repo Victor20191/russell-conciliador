@@ -10,6 +10,7 @@ import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import { asignarCuentaEstandar, validarAlerta, revertirValidacionAlerta, eliminarDetalleBalance } from "@/app/actions/balance";
 import Conversacion from "@/components/conversacion";
 import type { NodoBalance } from "@/lib/balance/calcular";
+import { useSeleccionFilaTabla } from "@/app/(app)/balance/use-seleccion-fila-tabla";
 
 export type ValidacionInfo = { tipo: string; por: string; en: string; comentario: string };
 // Contexto de validación de alertas que se pasa al renderizador de filas.
@@ -121,6 +122,7 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, va
   const [comentar, setComentar] = useState<NodoBalance | null>(null);
   const [validar, setValidar] = useState<{ nodo: NodoBalance; tipo: string } | null>(null);
   const [eliminar, setEliminar] = useState<NodoBalance | null>(null);
+  const { filaSeleccionada, onClickFila, onDoubleClickFila } = useSeleccionFilaTabla();
   // Handler de borrado (o null si no puede): controla la visibilidad del botón.
   const onEliminar = puedeEliminar ? setEliminar : null;
   const [, startRevertir] = useTransition();
@@ -205,11 +207,11 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, va
               <th className="border-l border-ink-150 px-4 py-2 font-semibold">Validación</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody onClick={onClickFila} onDoubleClick={onDoubleClickFila}>
             {visible.length === 0 ? (
               <tr><td colSpan={9} className="px-4 py-6 text-center text-[12.5px] text-ink-400">{q.trim() ? "Sin cuentas que coincidan con la búsqueda." : filtro === "alertas" ? "Sin alertas de mapeo ni de naturaleza. 🎉" : "Sin cuentas para este filtro."}</td></tr>
             ) : (
-              visible.flatMap((n) => filas(n, 0, openEff, toggle, puedeMapear, setAsignar, conteos, comentarios, setComentar, val, onEliminar))
+              visible.flatMap((n) => filas(n, 0, openEff, toggle, puedeMapear, setAsignar, conteos, comentarios, setComentar, val, onEliminar, filaSeleccionada))
             )}
           </tbody>
         </table>
@@ -223,7 +225,7 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, va
 }
 
 /** Renderiza recursivamente las filas (nodo + hijos si está expandido). */
-function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: string) => void, puedeMapear: boolean, onAsignar: (n: NodoBalance) => void, conteos: Map<string, Conteo>, comentarios: Record<string, number>, onComentar: (n: NodoBalance) => void, val: ValCtx, onEliminar: ((n: NodoBalance) => void) | null): React.ReactElement[] {
+function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: string) => void, puedeMapear: boolean, onAsignar: (n: NodoBalance) => void, conteos: Map<string, Conteo>, comentarios: Record<string, number>, onComentar: (n: NodoBalance) => void, val: ValCtx, onEliminar: ((n: NodoBalance) => void) | null, filaSeleccionada: string | null): React.ReactElement[] {
   const tieneHijos = nodo.hijos.length > 0;
   const isOpen = open.has(nodo.key);
   const esGrupo = nodo.nivel !== 8;
@@ -235,6 +237,8 @@ function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: 
   const fila = (
     <tr
       key={nodo.key}
+      data-selection-key={nodo.key}
+      data-selected={filaSeleccionada === nodo.key ? "true" : undefined}
       className={`border-b border-ink-100 ${esGrupo ? (sinMapeo ? "bg-warn-100" : nodo.nivel <= 2 ? "bg-ink-100" : "bg-ink-50") : "hover:bg-ink-50"} ${tieneHijos ? "cursor-pointer" : ""}`}
       onClick={tieneHijos ? () => toggle(nodo.key) : undefined}
     >
@@ -282,7 +286,7 @@ function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: 
   );
 
   if (!tieneHijos || !isOpen) return [fila];
-  return [fila, ...nodo.hijos.flatMap((h) => filas(h, depth + 1, open, toggle, puedeMapear, onAsignar, conteos, comentarios, onComentar, val, onEliminar))];
+  return [fila, ...nodo.hijos.flatMap((h) => filas(h, depth + 1, open, toggle, puedeMapear, onAsignar, conteos, comentarios, onComentar, val, onEliminar, filaSeleccionada))];
 }
 
 /** Celda de la columna "Validación": alerta de naturaleza/saldo contrario con botón
@@ -533,6 +537,7 @@ function ClasesTab({ sums, balanced, diffCuadre }: { sums: Sums; balanced: boole
 }
 
 function ValidationsTab({ validations }: { validations: Validation[] }) {
+  const { filaSeleccionada, onClickFila, onDoubleClickFila } = useSeleccionFilaTabla();
   return (
     <Card>
       <div className="overflow-x-auto">
@@ -544,9 +549,9 @@ function ValidationsTab({ validations }: { validations: Validation[] }) {
               <th className="px-4 py-2 font-semibold">Detalle</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody onClick={onClickFila} onDoubleClick={onDoubleClickFila}>
             {validations.map((v) => (
-              <tr key={v.id} className="border-b border-ink-100 last:border-0">
+              <tr key={v.id} data-selection-key={v.id} data-selected={filaSeleccionada === v.id ? "true" : undefined} className="border-b border-ink-100 last:border-0">
                 <td className="px-4 py-2.5 font-medium text-ink-800">{v.rule}</td>
                 <td className="px-4 py-2.5">{v.status === "ok" ? <Chip label="OK" tone="ok" /> : <Chip label={`${v.count ?? ""} ${v.count === 1 ? "alerta" : "alertas"}`} tone="warn" />}</td>
                 <td className="px-4 py-2.5 text-ink-500">{v.detail}</td>
@@ -560,6 +565,7 @@ function ValidationsTab({ validations }: { validations: Validation[] }) {
 }
 
 function VersionsTab({ versions, officialVersion }: { versions: Version[]; officialVersion: string }) {
+  const { filaSeleccionada, onClickFila, onDoubleClickFila } = useSeleccionFilaTabla();
   return (
     <Card>
       <div className="overflow-x-auto">
@@ -577,9 +583,9 @@ function VersionsTab({ versions, officialVersion }: { versions: Version[]; offic
               <th className="px-4 py-2 font-semibold">Nota</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody onClick={onClickFila} onDoubleClick={onDoubleClickFila}>
             {versions.map((v, i) => (
-              <tr key={v.v} className="border-b border-ink-100 last:border-0 align-top">
+              <tr key={v.v} data-selection-key={v.v} data-selected={filaSeleccionada === v.v ? "true" : undefined} className="border-b border-ink-100 last:border-0 align-top">
                 <td className="px-4 py-2.5">{v.v === officialVersion ? <Chip label={`${v.v} · oficial`} tone="ok" /> : <Chip label={v.v} tone="ink" />}</td>
                 <td className="whitespace-nowrap px-4 py-2.5 font-mono text-ink-500">{v.date}</td>
                 <td className="px-4 py-2.5"><div className="font-medium text-ink-800">{v.uploadedBy}</div><div className="text-[11px] text-ink-400">{v.role}</div></td>
