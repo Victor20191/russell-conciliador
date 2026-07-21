@@ -320,18 +320,18 @@ export function AjustesCargaModal({
                   </select>
                 </label>
                 <label className="flex flex-col gap-1 sm:col-span-2">
-                  <span className="text-[11px] font-medium text-ink-600">Imputar solo las hojas (export jerárquico)</span>
+                  <span className="text-[11px] font-medium text-ink-600">Evitar doble conteo de subtotales (export jerárquico)</span>
                   <select
                     name="imputarSoloHojas"
                     defaultValue={data.ajustes?.imputarSoloHojas == null ? "" : data.ajustes.imputarSoloHojas ? "si" : "no"}
                     className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400"
                   >
                     <option value="">Auto (no)</option>
-                    <option value="si">Sí — solo cuenta el nivel más profundo</option>
+                    <option value="si">Sí — solo suman las cuentas del último nivel</option>
                     <option value="no">No</option>
                   </select>
                   <span className="text-[10.5px] leading-relaxed text-ink-400">
-                    Actívalo si el archivo trae la cuenta Y sus subcuentas/auxiliares como filas (p. ej. SIESA): se cuentan solo las hojas y los niveles superiores pasan a agrupadora, evitando el doble conteo. No lo uses en balances mixtos.
+                    Actívalo si el ERP exporta la cuenta Y sus subcuentas/auxiliares, todas con saldo (p. ej. SIESA): las cuentas que traen detalle debajo pasan a agrupadora y solo suman las del último nivel, evitando que el balance quede al doble. No lo uses en balances mixtos.
                   </span>
                 </label>
                 <label className="flex flex-col gap-1 sm:col-span-2">

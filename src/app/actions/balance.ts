@@ -348,7 +348,7 @@ async function filasStagingCorreccion(loteId: string): Promise<FilaStagingCorrec
  * falla — el llamador decide si es best-effort. Devuelve cuántas cuentas quedaron.
  */
 async function memorizarCorreccionesCliente(clienteId: number, correcciones: CorreccionCuenta[], usuario: string | null): Promise<number> {
-  // Por lotes: «imputar solo las hojas» puede producir cientos de reclasificaciones
+  // Por lotes: «evitar doble conteo de subtotales» puede producir cientos de reclasificaciones
   // y un upsert por viaje sería lento.
   const LOTE_UPSERT = 200;
   for (let i = 0; i < correcciones.length; i += LOTE_UPSERT) {
@@ -1815,7 +1815,7 @@ export async function aplicarCambiosBorrador(
     let nOmi = 0;
     let nPad = 0;
     // Reclasificación en LOTE por destino (una consulta por dirección, no por código):
-    // «Imputar solo las hojas» produce muchos códigos → agrupadora, así que un bucle
+    // «Evitar doble conteo de subtotales» produce muchos códigos → agrupadora, así que un bucle
     // por código sería lento. Solo se voltea la fila si su tipo actual es el opuesto.
     const codsAgrup = reclas.filter(([, t]) => t === "agrupadora").map(([c]) => c);
     const codsMov = reclas.filter(([, t]) => t === "movimiento").map(([c]) => c);

@@ -120,7 +120,7 @@ export default function BorradorDetailClient({
   const [guardandoPerfil, startGuardarPerfil] = useTransition();
   const [promptPerfilSpec, setPromptPerfilSpec] = useState<SpecCarga | null>(null); // pide cliente al guardar perfil
   const [guardando, startGuardar] = useTransition();
-  // «Imputar solo las hojas»: en un export jerárquico (la cuenta y sus subcuentas/auxiliares
+  // «Evitar doble conteo de subtotales»: en un export jerárquico (la cuenta y sus subcuentas/auxiliares
   // vienen TODAS como filas), marca como AGRUPADORA toda cuenta con detalle debajo (código
   // más largo por orden) → solo cuentan las hojas. Se expresa como overrides de
   // reclasificación: reversible en pantalla y persistible con «Guardar cambios».
@@ -349,7 +349,7 @@ export default function BorradorDetailClient({
         <div className="flex items-start gap-2 rounded-md border border-ok-200 bg-ok-100/40 px-3 py-2 text-[12px] text-ok-800">
           <span className="mt-px font-bold text-ok-700">✓</span>
           <span>
-            <span className="font-semibold">Corrección automática de anidado.</span> Se detectó un export jerárquico con doble conteo y se re-anidaron <span className="font-semibold">{analisisSoloHojas.n}</span> cuenta(s) por orden (solo cuentan las hojas — cada auxiliar bajo su subtotal). Revisa el resultado y pulsa <span className="font-semibold">Guardar cambios</span> para fijarlo, o desmarca «Imputar solo las hojas» abajo para revertir. Los descuadres que queden son genuinos (cuenta faltante o de signo), no de anidado.
+            <span className="font-semibold">Corrección automática de anidado.</span> Se detectó un export jerárquico con doble conteo y se re-anidaron <span className="font-semibold">{analisisSoloHojas.n}</span> cuenta(s) por orden (solo suman las cuentas del último nivel — cada auxiliar bajo su subtotal). Revisa el resultado y pulsa <span className="font-semibold">Guardar cambios</span> para fijarlo, o desmarca «Evitar doble conteo de subtotales» abajo para revertir. Los descuadres que queden son genuinos (cuenta faltante o de signo), no de anidado.
           </span>
         </div>
       )}
