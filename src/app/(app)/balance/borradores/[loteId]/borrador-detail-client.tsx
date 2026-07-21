@@ -814,7 +814,7 @@ function ArbolTabla({ arbol, onReclasificar, onInvertir, onDesacoplar, onOmitir,
                 title={`Nivel contable: ${nombreNivelCuenta(n.codigo)} · tipo interno: ${esMov ? "Movimiento" : "Agrupadora"}`}
                 className={`rounded border px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide ${esMov ? "border-blue-100 bg-blue-100 text-navy-700" : "border-ink-100 bg-ink-100 text-ink-600"}`}
               >
-                {nombreNivelCuenta(n.codigo)}
+                {nombreNivelCuenta(n.codigo)} · {esMov ? "Movimiento" : "Agrupadora"}
               </span>
             )}
           </div>
