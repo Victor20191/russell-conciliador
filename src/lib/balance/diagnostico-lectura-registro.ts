@@ -84,16 +84,3 @@ export async function acumularIntervencionManual(
     /* best-effort */
   }
 }
-
-/** Persiste las hipótesis del diagnóstico asistido con IA (última corrida) para poder
- *  analizar qué causas de descuadre recurren — antes era efímero en el cliente. */
-export async function registrarDiagnosticoIA(loteId: string, diagnostico: unknown): Promise<void> {
-  try {
-    await prisma.balanceLecturaDiagnostico.updateMany({
-      where: { loteId },
-      data: { diagnosticoIa: diagnostico as object },
-    });
-  } catch {
-    /* best-effort */
-  }
-}

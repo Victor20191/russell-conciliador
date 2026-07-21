@@ -44,9 +44,8 @@ import { construirVistaBorrador } from "@/lib/balance/borrador-vm";
 import { reclasificarHuerfanas, reclasificarSoloHojas, corregirCodigosPlaceholder, marcarNoContables, type FilaBorrador } from "@/lib/balance/borrador";
 import { esBalancePorTercero, colapsarTerceros, esBalancePorTerceroSufijo, consolidarTercerosPorSufijo, marcarCuentaNit } from "@/lib/balance/terceros";
 import { marcarRelistadoGuiones } from "@/lib/balance/relistado";
-import { registrarDiagnosticoInicial, cerrarDiagnostico, acumularIntervencionManual, registrarDiagnosticoIA } from "@/lib/balance/diagnostico-lectura-registro";
-import { diagnosticarConIA, type DiagnosticoIA } from "@/lib/balance/diagnostico-ia";
-import { iaBalanceDisponible, mensajeIABalanceNoDisponible, modeloIABalance, proveedorIABalance, type ProveedorIABalance } from "@/lib/ia/proveedor-balance";
+import { registrarDiagnosticoInicial, cerrarDiagnostico, acumularIntervencionManual } from "@/lib/balance/diagnostico-lectura-registro";
+import { iaBalanceDisponible, proveedorIABalance, type ProveedorIABalance } from "@/lib/ia/proveedor-balance";
 import { proveedorIABalanceSesion } from "@/lib/ia/proveedor-balance-sesion";
 import { registrarConsumoIA, type UsoIA } from "@/lib/ia/uso";
 import { randomUUID } from "node:crypto";
@@ -1577,60 +1576,6 @@ export async function descartarBorrador(loteId: string): Promise<ActionState> {
     return { ok: true, message: "Borrador descartado." };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("descartarBorrador", e) };
-  }
-}
-
-// ---------------------- Diagnóstico asistido por IA ----------------------
-
-export type DiagnosticoBorradorState = { ok: boolean; message?: string; diagnostico?: DiagnosticoIA | null };
-
-/**
- * Segundo análisis del descuadre CON IA, bajo demanda. Corre DESPUÉS de las
- * validaciones deterministas: recomputa los hallazgos desde el staging (misma
- * vista que la página) y le manda a Claude SOLO esos hallazgos + la estructura de
- * agrupadoras — no el archivo crudo. Registra el consumo (best-effort).
- */
-export async function diagnosticarBorradorIA(loteId: string): Promise<DiagnosticoBorradorState> {
-  const authz = await authorizePermiso("balance:crear");
-  if (!authz.ok) return { ok: false, message: authz.message };
-  const proveedorIA = await proveedorIABalanceSesion();
-  if (!iaBalanceDisponible(proveedorIA)) return { ok: false, message: mensajeIABalanceNoDisponible(proveedorIA) };
-  const id = String(loteId ?? "").trim();
-  if (!id) return { ok: false, message: "Borrador inválido." };
-  try {
-    const [lote, filasStaging] = await Promise.all([
-      prisma.balanceImportacionLote.findUnique({ where: { loteId: id } }),
-      prisma.balanceImportacionStaging.findMany({ where: { loteId: id }, orderBy: { filaNum: "asc" } }),
-    ]);
-    if (filasStaging.length === 0) return { ok: false, message: "El borrador ya no existe." };
-
-    const filas: FilaBorrador[] = filasStaging.map((f) => ({
-      filaNum: f.filaNum, codigo: f.codigo, codigoCrudo: f.codigoCrudo, nombre: f.nombre, nivel: f.nivel,
-      tipoFila: f.tipoFila as FilaBorrador["tipoFila"],
-      saldoInicial: Number(f.saldoInicial), debitos: Number(f.debitos), creditos: Number(f.creditos), saldoFinal: Number(f.saldoFinal),
-    }));
-    const { hallazgos, agrupadoras } = construirVistaBorrador(filas);
-    if (hallazgos.length === 0) return { ok: true, diagnostico: null, message: "El borrador cuadra: no hay descuadre que diagnosticar." };
-
-    const usos: UsoIA[] = [];
-    const diagnostico = await diagnosticarConIA(hallazgos, agrupadoras, modeloIABalance(proveedorIA), usos, proveedorIA);
-
-    const user = await getCurrentUser();
-    await registrarConsumoIA(usos, {
-      clienteId: lote?.clienteId ?? null,
-      usuarioId: user?.id ?? null,
-      usuarioNombre: user?.name ?? null,
-      archivoNombre: lote?.archivoNombre ?? null,
-      nitDetectado: lote?.nitDetectado ?? null,
-      modulo: "balance",
-    });
-    await logAudit({ user: user?.name ?? "—", action: "DIAGNÓSTICO IA de balance borrador", entity: id, detail: `${hallazgos.length} hallazgo(s)` });
-    // Persiste las hipótesis en la huella diagnóstica (antes eran efímeras en el
-    // cliente): permite analizar qué causas de descuadre recurren. Best-effort.
-    if (diagnostico) await registrarDiagnosticoIA(id, diagnostico);
-    return { ok: true, diagnostico };
-  } catch (e) {
-    return { ok: false, message: mensajeErrorIA("diagnosticarBorradorIA", e) };
   }
 }
 
