@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Icon } from "@/components/icons";
 import {
@@ -32,6 +32,14 @@ function statusTone(s: string): "ok" | "warn" | "blue" | "ink" {
   return "ink";
 }
 
+function normalizarBusqueda(valor: string) {
+  return valor
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
 export default function BalanceIndexClient({
   clients, auditRows, clientNames, uploadClients, canUpload, configuracionIA,
 }: {
@@ -56,18 +64,60 @@ export default function BalanceIndexClient({
 }
 
 function ClientsTab({ clients }: { clients: ClientGroup[] }) {
-  const pg = usePagination(clients, 50);
+  const [busqueda, setBusqueda] = useState("");
+  const clientesFiltrados = useMemo(() => {
+    const termino = normalizarBusqueda(busqueda);
+    if (!termino) return clients;
+
+    const nitBuscado = busqueda.replace(/\D/g, "");
+    return clients.filter((cliente) => {
+      const nitNumerico = cliente.clientNit.replace(/\D/g, "");
+      return normalizarBusqueda(cliente.clientName).includes(termino)
+        || normalizarBusqueda(cliente.clientNit).includes(termino)
+        || (nitBuscado.length > 0 && nitNumerico.includes(nitBuscado));
+    });
+  }, [busqueda, clients]);
+
+  const pg = usePagination(clientesFiltrados, 50);
   return (
     <div className="flex flex-col gap-5">
-      {clients.length > 0 && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-ink-150 bg-white px-4 py-2.5 shadow-sm">
-          <span className="text-[12px] text-ink-500">{pg.rangeLabel}</span>
-          <div className="flex flex-wrap items-center gap-3">
-            <PageSizeSelect value={pg.pageSize} onChange={pg.setPageSize} />
-            <PaginationControls currentPage={pg.page} totalPages={pg.totalPages} onPageChange={pg.setPage} />
+      <div className="flex w-full max-w-md items-center gap-2 rounded-md border border-ink-200 bg-white px-3 py-2 text-ink-400 shadow-sm focus-within:border-blue-400">
+        <Icon name="search" size={15} />
+        <input
+          type="search"
+          value={busqueda}
+          onChange={(event) => {
+            setBusqueda(event.target.value);
+            pg.resetToFirstPage();
+          }}
+          placeholder="Buscar por NIT o razón social…"
+          aria-label="Buscar clientes por NIT o razón social"
+          className="min-w-0 flex-1 bg-transparent text-[12.5px] text-ink-700 outline-none placeholder:text-ink-400"
+        />
+        {busqueda.length > 0 && (
+          <button
+            type="button"
+            onClick={() => {
+              setBusqueda("");
+              pg.resetToFirstPage();
+            }}
+            aria-label="Limpiar búsqueda"
+            title="Limpiar búsqueda"
+            className="rounded p-0.5 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700"
+          >
+            <Icon name="x" size={14} />
+          </button>
+        )}
+      </div>
+
+      {clientesFiltrados.length === 0 && (
+        <Card>
+          <div className="px-4 py-10 text-center text-[12.5px] text-ink-400">
+            No se encontraron clientes con ese NIT o razón social.
           </div>
-        </div>
+        </Card>
       )}
+
       {pg.pageItems.map((c) => (
         <Card key={c.clientId}>
           <div className="flex items-center gap-2.5 border-b border-ink-100 px-4 py-3">
@@ -124,6 +174,16 @@ function ClientsTab({ clients }: { clients: ClientGroup[] }) {
           </div>
         </Card>
       ))}
+
+      {clients.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-ink-150 bg-white px-4 py-2.5 shadow-sm">
+          <span className="text-[12px] text-ink-500">{pg.rangeLabel}</span>
+          <div className="flex flex-wrap items-center gap-3">
+            <PageSizeSelect value={pg.pageSize} onChange={pg.setPageSize} />
+            <PaginationControls currentPage={pg.page} totalPages={pg.totalPages} onPageChange={pg.setPage} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
