@@ -6,6 +6,7 @@ import { Icon } from "@/components/icons";
 import { Modal } from "@/components/modal";
 import { fmt } from "@/lib/format";
 import {
+  asignarClienteBorrador,
   leerBalance,
   reprocesarBalanceConSpec,
   guardarPerfilDesdeEditor,
@@ -16,6 +17,7 @@ import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import { leerHojasParaPreview, columnaLetra, type CeldaCruda, type HojaPreview } from "@/lib/balance/extraccion/hojas-cliente";
 import type { SpecCarga } from "@/lib/balance/extraccion/esquema";
 import { PromptClientePerfil } from "@/app/(app)/balance/prompt-cliente-perfil";
+import { SelectorClienteBuscable } from "@/components/selector-cliente-buscable";
 import type { ImportBalanceState } from "@/lib/import/balance";
 import type { ConfiguracionIABalanceUI, ProveedorIABalance } from "@/lib/ia/proveedor-balance";
 
@@ -103,6 +105,8 @@ function CargarBalanceModal({
   // Sugerencia REPROCESADA con el editor (pisa a la de la lectura inicial).
   const [sugLocal, setSugLocal] = useState<SugerenciaBalance | null>(null);
   const [reprocesando, startReproceso] = useTransition();
+  const [asignandoCliente, startAsignarCliente] = useTransition();
+  const [clienteManual, setClienteManual] = useState<{ loteId: string; clientId: number } | null>(null);
   // Hojas detectadas en el cliente (solo Excel con 2+ hojas) y la elegida por el
   // usuario. Mientras `hojas` esté presente, la elección es obligatoria.
   const [hojas, setHojas] = useState<HojaPreview[] | null>(null);
@@ -192,6 +196,28 @@ function CargarBalanceModal({
 
   const sug = sugLocal ?? leerState?.sugerencia;
   const fase: "revisar" | "archivo" = sug ? "revisar" : "archivo";
+  const clienteDetectadoId =
+    sug?.render.clienteDetectadoId != null && clients.some((cliente) => cliente.id === sug.render.clienteDetectadoId)
+      ? sug.render.clienteDetectadoId
+      : null;
+  const clienteRevisionId =
+    sug && clienteManual?.loteId === sug.payload.loteId
+      ? clienteManual.clientId
+      : clienteDetectadoId;
+
+  const asignarClienteRevision = (clientId: number) => {
+    if (!sug) return;
+    const loteId = sug.payload.loteId;
+    startAsignarCliente(async () => {
+      const res = await asignarClienteBorrador(loteId, clientId);
+      if (!res.ok) {
+        notifyError(res.message ?? "No se pudo vincular el cliente al borrador.");
+        return;
+      }
+      setClienteManual({ loteId, clientId });
+      notifySuccess(res.message ?? "Cliente vinculado al borrador.");
+    });
+  };
 
   // Con Excel multi-hoja, no se puede leer hasta elegir una hoja.
   const requiereHoja = !!hojas && hojas.length >= 2;
@@ -203,14 +229,23 @@ function CargarBalanceModal({
         <button type="button" onClick={onReiniciar} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] font-semibold text-ink-600 hover:bg-ink-50">
           ← Otro archivo
         </button>
-        {sug && (
+        {sug && clienteRevisionId != null ? (
           <Link
             href={`/balance/borradores/${sug.payload.loteId}`}
             className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600"
           >
             <Icon name="doc" size={13} /> Ir al borrador
           </Link>
-        )}
+        ) : sug ? (
+          <button
+            type="button"
+            disabled
+            title="Selecciona y confirma el cliente para continuar"
+            className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white opacity-60"
+          >
+            <Icon name="doc" size={13} /> {asignandoCliente ? "Vinculando cliente…" : "Selecciona el cliente"}
+          </button>
+        ) : null}
       </div>
     ) : (
       <button
@@ -240,6 +275,9 @@ function CargarBalanceModal({
           excepciones={leerState?.excepciones ?? []}
           archivoFile={archivoFile}
           reprocesando={reprocesando}
+          clienteId={clienteRevisionId}
+          asignandoCliente={asignandoCliente}
+          onAsignarCliente={asignarClienteRevision}
           onReprocesar={reprocesar}
         />
       ) : (
@@ -314,6 +352,9 @@ function FormRevisar({
   excepciones,
   archivoFile,
   reprocesando,
+  clienteId,
+  asignandoCliente,
+  onAsignarCliente,
   onReprocesar,
 }: {
   sug: SugerenciaBalance;
@@ -321,6 +362,9 @@ function FormRevisar({
   excepciones: Excepcion[];
   archivoFile: File | null;
   reprocesando: boolean;
+  clienteId: number | null;
+  asignandoCliente: boolean;
+  onAsignarCliente: (clientId: number) => void;
   onReprocesar: (spec: SpecCarga, loteIdAnterior: string, proveedorIA?: ProveedorIABalance) => void;
 }) {
   // El editor de estructura solo aplica si aún tenemos el File (reproceso) y la
@@ -351,6 +395,14 @@ function FormRevisar({
 
   return (
     <div className="flex flex-col gap-3.5">
+      <IdentificacionCliente
+        nitDetectado={sug.payload.nitDetectado}
+        clients={clients}
+        clienteId={clienteId}
+        asignando={asignandoCliente}
+        onAsignar={onAsignarCliente}
+      />
+
       <DetalleMovimiento cuentas={sug.render.importReady} />
 
       {puedeEditar && sug.render.spec && (
@@ -370,6 +422,75 @@ function FormRevisar({
       )}
       {excepciones.length > 0 && <ExcepcionesTabla excepciones={excepciones} />}
     </div>
+  );
+}
+
+function IdentificacionCliente({
+  nitDetectado,
+  clients,
+  clienteId,
+  asignando,
+  onAsignar,
+}: {
+  nitDetectado: string | null;
+  clients: ClienteOpcion[];
+  clienteId: number | null;
+  asignando: boolean;
+  onAsignar: (clientId: number) => void;
+}) {
+  const [seleccion, setSeleccion] = useState<number | null>(null);
+  const cliente = clients.find((opcion) => opcion.id === clienteId) ?? null;
+
+  if (cliente) {
+    return (
+      <section className="rounded-lg border border-ok-100 bg-ok-100/55 px-3.5 py-3" aria-label="Cliente identificado">
+        <div className="mb-2 flex items-center gap-2 text-[12px] font-semibold text-ok-700">
+          <span className="inline-flex size-5 items-center justify-center rounded-full bg-white/80" aria-hidden="true">✓</span>
+          Cliente identificado
+        </div>
+        <dl className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_2fr]">
+          <div>
+            <dt className="text-[10.5px] font-semibold uppercase tracking-wide text-ink-500">NIT leído del archivo</dt>
+            <dd className="mt-0.5 font-mono text-[12.5px] font-semibold text-ink-800">{nitDetectado ?? "No detectado"}</dd>
+          </div>
+          <div>
+            <dt className="text-[10.5px] font-semibold uppercase tracking-wide text-ink-500">NIT del cliente</dt>
+            <dd className="mt-0.5 font-mono text-[12.5px] font-semibold text-ink-800">{cliente.nit}</dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="text-[10.5px] font-semibold uppercase tracking-wide text-ink-500">Razón social</dt>
+            <dd className="mt-0.5 truncate text-[12.5px] font-semibold text-ink-800" title={cliente.name}>{cliente.name}</dd>
+          </div>
+        </dl>
+      </section>
+    );
+  }
+
+  return (
+    <section className="rounded-lg border border-warn-200 bg-warn-100/55 px-3.5 py-3" aria-label="Cliente pendiente por identificar">
+      <div className="mb-2">
+        <div className="text-[12px] font-semibold text-warn-700">Cliente pendiente por identificar</div>
+        <p className="mt-0.5 text-[11.5px] text-ink-600">
+          {nitDetectado ? (
+            <>El archivo se leyó con el NIT <span className="font-mono font-semibold text-ink-800">{nitDetectado}</span>, pero no coincide con un cliente disponible.</>
+          ) : (
+            <>No se encontró un NIT de cliente en el archivo.</>
+          )}{" "}
+          Busca la empresa por razón social o NIT y confírmala para continuar.
+        </p>
+      </div>
+      <div className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+        <SelectorClienteBuscable clients={clients} value={seleccion} onChange={setSeleccion} />
+        <button
+          type="button"
+          disabled={seleccion == null || asignando}
+          onClick={() => seleccion != null && onAsignar(seleccion)}
+          className="h-[37px] rounded-md bg-navy-700 px-3 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
+        >
+          {asignando ? "Vinculando…" : "Vincular cliente"}
+        </button>
+      </div>
+    </section>
   );
 }
 
