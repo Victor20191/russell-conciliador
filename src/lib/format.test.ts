@@ -1,10 +1,18 @@
 import { test, expect } from "vitest";
-import { pct, fmtCalendarDate, fmtDate, fmtDateTime, fmtDateTimeSeconds, timeAgo } from "./format";
+import { pct, fmtCalendarDate, fmtContable, fmtDate, fmtDateTime, fmtDateTimeSeconds, timeAgo } from "./format";
 import { fmtPct } from "./format";
 
 test("pct redondea a porcentaje entero", () => {
   expect(pct(0.5)).toBe("50%");
   expect(pct(0.823)).toBe("82%");
+});
+
+test("fmtContable alinea importes con dos decimales fijos", () => {
+  expect(fmtContable(603353317.11)).toBe("$ 603.353.317,11");
+  expect(fmtContable(32202023)).toBe("$ 32.202.023,00");
+  expect(fmtContable(830396846)).toBe("$ 830.396.846,00");
+  expect(fmtContable(-1000.5)).toBe("-$ 1.000,50");
+  expect(fmtContable(null)).toBe("—");
 });
 
 test("fmtDate formatea como DD/MMM/AAAA en español", () => {

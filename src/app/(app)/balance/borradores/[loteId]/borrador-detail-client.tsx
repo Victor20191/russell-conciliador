@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
 import { Card, Chip, PageHeader } from "@/components/ui";
 import { Modal } from "@/components/modal";
-import { fmt } from "@/lib/format";
+import { fmt, fmtContable } from "@/lib/format";
 import { cargarBorrador, descartarBorrador, aplicarCambiosBorrador, asignarClienteBorrador, reprocesarBalanceConSpec, guardarPerfilDesdeEditor, guardarNotasDesdeEditor } from "@/app/actions/balance";
 import { EditorEstructura } from "@/app/(app)/balance/cargar-balance-modal";
 import { PromptClientePerfil } from "@/app/(app)/balance/prompt-cliente-perfil";
@@ -1139,10 +1139,10 @@ function ArbolTabla({ arbol, onReclasificar, onInvertir, onDesacoplar, onOmitir,
             )}
           </div>
         </td>
-        <td className="whitespace-nowrap px-2 py-1 text-right align-top tabular-nums text-ink-600">{fmt(n.saldoInicial)}</td>
-        <td className="whitespace-nowrap px-2 py-1 text-right align-top tabular-nums text-ink-600">{fmt(n.debitos)}</td>
-        <td className="whitespace-nowrap px-2 py-1 text-right align-top tabular-nums text-ink-600">{fmt(n.creditos)}</td>
-        <td className="whitespace-nowrap px-2 py-1 text-right align-top font-medium tabular-nums text-ink-800">{fmt(n.saldoFinal)}</td>
+        <td className="whitespace-nowrap px-2 py-1 text-right align-top tabular-nums text-ink-600">{fmtContable(n.saldoInicial)}</td>
+        <td className="whitespace-nowrap px-2 py-1 text-right align-top tabular-nums text-ink-600">{fmtContable(n.debitos)}</td>
+        <td className="whitespace-nowrap px-2 py-1 text-right align-top tabular-nums text-ink-600">{fmtContable(n.creditos)}</td>
+        <td className="whitespace-nowrap px-2 py-1 text-right align-top font-medium tabular-nums text-ink-800">{fmtContable(n.saldoFinal)}</td>
       </tr>,
     );
     if (hasHijos && open) n.hijos.forEach((h) => render(h, depth + 1, n.codigo));
@@ -1179,8 +1179,8 @@ function ArbolTabla({ arbol, onReclasificar, onInvertir, onDesacoplar, onOmitir,
         {vistaBtn("er", "Estado de Resultado")}
         {vistaBtn("alertas", "Alertas", nAlertas)}
         <span className="mx-0.5 h-4 w-px bg-ink-200" />
-        <button type="button" onClick={expandirTodo} className="rounded-md border border-ink-200 px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50">Expandir todo</button>
-        <button type="button" onClick={contraerTodo} className="rounded-md border border-ink-200 px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50">Contraer todo</button>
+        <button type="button" onClick={expandirTodo} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50"><Icon name="chev-d" size={12} />Expandir todo</button>
+        <button type="button" onClick={contraerTodo} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50"><Icon name="chev-r" size={12} />Contraer todo</button>
         <button
           type="button"
           aria-pressed={pantallaCompleta}

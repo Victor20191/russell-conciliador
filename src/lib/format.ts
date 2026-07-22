@@ -8,6 +8,18 @@ export const fmt = (n: number | null | undefined): string => {
   return `${sign}$ ${abs}`;
 };
 
+/** Formato monetario para tablas contables: conserva siempre dos decimales para
+ * que todas las cifras queden alineadas por la coma decimal. */
+export const fmtContable = (n: number | null | undefined): string => {
+  if (n == null) return "—";
+  const sign = n < 0 ? "-" : "";
+  const abs = Math.abs(n).toLocaleString("es-CO", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  return `${sign}$ ${abs}`;
+};
+
 export const fmtNum = (n: number | null | undefined): string =>
   n == null ? "—" : n.toLocaleString("es-CO");
 
