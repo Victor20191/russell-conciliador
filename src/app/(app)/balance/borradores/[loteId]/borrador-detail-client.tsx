@@ -976,6 +976,7 @@ function ArbolTabla({ arbol, onReclasificar, onInvertir, onDesacoplar, onOmitir,
     const esMatch = needle !== "" && matchQ(n);
     const open = filtrando ? true : abiertos.has(n.filaNum); // filtrado → todo expandido
     const esMov = n.tipoFila === "movimiento" || n.tipoFila === "descuadre";
+    const esAgrupadora = n.tipoFila === "agrupadora";
     const descuadrado = n.descuadre != null && n.descuadre !== 0;
     // Lados invertidos: el control no cuadra, pero SÍ al intercambiar débito↔crédito.
     const ladosInv = esMov && !controlOk(n.saldoInicial, n.debitos, n.creditos, n.saldoFinal) && controlOk(n.saldoInicial, n.creditos, n.debitos, n.saldoFinal);
@@ -1014,7 +1015,7 @@ function ArbolTabla({ arbol, onReclasificar, onInvertir, onDesacoplar, onOmitir,
         data-selection-key={n.filaNum}
         data-selected={filaSeleccionada === String(n.filaNum) ? "true" : undefined}
         data-move-target={destinoDestacado === n.filaNum ? "true" : undefined}
-        className={`border-t border-ink-100 transition-colors ${omitida ? "opacity-45" : ""} ${estadoVisualFila}`}
+        className={`border-t border-ink-100 transition-colors ${esAgrupadora ? "font-semibold" : ""} ${omitida ? "opacity-45" : ""} ${estadoVisualFila}`}
       >
         <td className={`px-2 py-1 align-top ${reparentada ? "border-l-[3px] border-l-blue-500" : ""}`}>
           <div className="flex items-center gap-1.5" style={{ paddingLeft: 4 + depth * 16 }}>
@@ -1142,7 +1143,7 @@ function ArbolTabla({ arbol, onReclasificar, onInvertir, onDesacoplar, onOmitir,
         <td className="whitespace-nowrap px-2 py-1 text-right align-top tabular-nums text-ink-600">{fmtContable(n.saldoInicial)}</td>
         <td className="whitespace-nowrap px-2 py-1 text-right align-top tabular-nums text-ink-600">{fmtContable(n.debitos)}</td>
         <td className="whitespace-nowrap px-2 py-1 text-right align-top tabular-nums text-ink-600">{fmtContable(n.creditos)}</td>
-        <td className="whitespace-nowrap px-2 py-1 text-right align-top font-medium tabular-nums text-ink-800">{fmtContable(n.saldoFinal)}</td>
+        <td className={`whitespace-nowrap px-2 py-1 text-right align-top tabular-nums text-ink-800 ${esAgrupadora ? "font-semibold" : esMov ? "font-normal" : "font-medium"}`}>{fmtContable(n.saldoFinal)}</td>
       </tr>,
     );
     if (hasHijos && open) n.hijos.forEach((h) => render(h, depth + 1, n.codigo));
