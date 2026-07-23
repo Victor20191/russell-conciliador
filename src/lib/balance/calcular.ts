@@ -10,6 +10,7 @@
 // Server Action `confirmarCargaBalance` (`persistirCargue`).
 // ============================================================
 import { fmt } from "@/lib/format";
+import { esSaldoContrarioAccionable } from "./umbrales-alertas";
 
 // ---- Tipos de entrada ----
 // `debitos`/`creditos` son los movimientos del período (normalmente magnitud
@@ -588,7 +589,8 @@ function agregarDetalle(detalle: BreakdownItem[]): ResultadoBalance {
 
   // 6) Validaciones.
   const sinMapeo = detalle.filter((d) => !d.mapped).length;
-  const contrario = detalle.filter((d) => !d.saldoOk).length;
+  const contrario = detalle.filter((d) => esSaldoContrarioAccionable(d.balance, d.saldoOk)).length;
+  const contrarioInformativo = detalle.filter((d) => !d.saldoOk && !esSaldoContrarioAccionable(d.balance, d.saldoOk)).length;
   const variaciones = detalle.filter((d) => d.variation != null && Math.abs(d.variation) > 25).length;
   const validations: Validation[] = [
     {
@@ -602,7 +604,11 @@ function agregarDetalle(detalle: BreakdownItem[]): ResultadoBalance {
       id: "V2",
       rule: "Naturaleza de cuenta vs saldo",
       status: contrario > 0 ? "warn" : "ok",
-      detail: contrario > 0 ? `${contrario} cuenta(s) con saldo contrario a su naturaleza` : "Sin saldos contrarios",
+      detail: contrario > 0
+        ? `${contrario} cuenta(s) con saldo contrario superior a ${fmt(50_000)}`
+        : contrarioInformativo > 0
+          ? `${contrarioInformativo} saldo(s) contrario(s) de hasta ${fmt(50_000)} · informativos`
+          : "Sin saldos contrarios",
       ...(contrario > 0 ? { count: contrario } : {}),
     },
     {

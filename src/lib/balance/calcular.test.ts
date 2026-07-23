@@ -118,6 +118,8 @@ describe("calcularBalance — sin mapeo, saldo contrario y variación", () => {
     const iva = r.breakdown.find((g) => g.code === "24")?.items[0];
     expect(iva?.balance).toBe(800);
     expect(iva?.saldoOk).toBe(false); // saldo contrario a su naturaleza
+    expect(r.validations.find((v) => v.id === "V2")?.status).toBe("ok"); // informativo: no supera $50.000
+    expect(r.validations.find((v) => v.id === "V2")?.count).toBeUndefined();
   });
 
   it("detecta cuentas sin mapeo al estándar", () => {
@@ -182,7 +184,7 @@ describe("calcularBalance — saldo contrario en archivo de magnitud (SIGN-1)", 
     { code: "220505", name: "Proveedores", prevBalance: 1500, balance: 1500 }, // C normal + (magnitud)
     { code: "240805", name: "IVA", prevBalance: 500, balance: 500 }, // C normal +
     { code: "310505", name: "Capital", prevBalance: 4000, balance: 4000 }, // C normal +
-    { code: "413505", name: "Ventas (saldo deudor)", prevBalance: 0, balance: -500 }, // C contrario → negativo
+    { code: "413505", name: "Ventas (saldo deudor)", prevBalance: 0, balance: -50_001 }, // C contrario → negativo
   ];
   const r = calcularBalance(CUENTAS, STD);
 
@@ -190,13 +192,32 @@ describe("calcularBalance — saldo contrario en archivo de magnitud (SIGN-1)", 
     expect(r.breakdown.find((g) => g.code === "22")?.balance).toBe(-1500);
   });
 
-  it("preserva el saldo contrario (no lo fuerza a -|v|) y V2 lo marca", () => {
+  it("preserva el saldo contrario (no lo fuerza a -|v|) y V2 alerta si supera $50.000", () => {
     const ventas = r.breakdown.find((g) => g.code === "41")?.items[0];
-    expect(ventas?.balance).toBe(500); // el crédito en deudor queda POSITIVO tras el flip
+    expect(ventas?.balance).toBe(50_001); // el crédito en deudor queda POSITIVO tras el flip
     expect(ventas?.saldoOk).toBe(false); // contrario a su naturaleza → detectado
     const v2 = r.validations.find((v) => v.id === "V2");
     expect(v2?.status).toBe("warn");
     expect(v2?.count).toBe(1);
+  });
+});
+
+describe("calcularBalance — umbral de naturaleza contraria", () => {
+  it("$50.000 exactos permanece informativo y no cuenta en V2", () => {
+    const r = calcularBalance(
+      [
+        { code: "110505", name: "Caja", prevBalance: 0, balance: 100_000 },
+        { code: "220505", name: "Proveedores", prevBalance: 0, balance: -150_000 },
+        { code: "240805", name: "IVA contrario", prevBalance: 0, balance: 50_000 },
+      ],
+      STD,
+    );
+    const iva = r.breakdown.find((g) => g.code === "24")?.items[0];
+    const v2 = r.validations.find((v) => v.id === "V2");
+    expect(iva?.saldoOk).toBe(false);
+    expect(v2?.status).toBe("ok");
+    expect(v2?.count).toBeUndefined();
+    expect(v2?.detail).toContain("informativos");
   });
 });
 

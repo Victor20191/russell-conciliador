@@ -7,8 +7,9 @@
 import { fmt } from "@/lib/format";
 import type { ValidacionContable } from "./calcular";
 import type { NodoBorrador } from "./borrador";
+import { esDescuadreAccionable } from "./umbrales-alertas";
 
-const TOL = 1000; // mismo margen ±$1000 del cuadre
+const TOL_CANDIDATO = 1000; // cercanía para sugerir una cuenta ubicada en otra rama
 
 export type CuentaRef = { codigo: string; nombre: string; saldoFinal: number };
 export type Hallazgo = {
@@ -55,18 +56,20 @@ export function diagnosticarBorrador(v: ValidacionContable, arbol: NodoBorrador[
     (n) => !controlOk(n.saldoInicial, n.debitos, n.creditos, n.saldoFinal) && controlOk(n.saldoInicial, n.creditos, n.debitos, n.saldoFinal),
   );
   for (const n of invertidos.slice(0, 12)) {
+    const monto = 2 * (n.creditos - n.debitos);
+    if (!esDescuadreAccionable(monto)) continue;
     hallazgos.push({
       tipo: "lados_invertidos",
       severidad: "alta",
       nodo: ref(n),
-      monto: 2 * (n.creditos - n.debitos),
+      monto,
       titulo: `${n.codigo} «${n.nombre}»: débito y crédito invertidos`,
-      detalle: `El movimiento no cuadra con su saldo (${fmt(n.saldoFinal)}) pero SÍ al intercambiar débito ↔ crédito (déb ${fmt(n.debitos)} / créd ${fmt(n.creditos)}). Corrige el lado: hoy descuadra la partida doble en ${fmt(2 * (n.creditos - n.debitos))}.`,
+      detalle: `El movimiento no cuadra con su saldo (${fmt(n.saldoFinal)}) pero SÍ al intercambiar débito ↔ crédito (déb ${fmt(n.debitos)} / créd ${fmt(n.creditos)}). Corrige el lado: hoy descuadra la partida doble en ${fmt(monto)}.`,
     });
   }
 
   // 1. Partida doble (débitos = créditos): el invariante más fuerte del balance.
-  if (!pd.cuadra) {
+  if (!pd.cuadra && esDescuadreAccionable(pd.diff)) {
     hallazgos.push({
       tipo: "partida_doble",
       severidad: "alta",
@@ -77,7 +80,7 @@ export function diagnosticarBorrador(v: ValidacionContable, arbol: NodoBorrador[
   }
 
   // 2. Ecuación contable A = P + Patrimonio + Resultado.
-  if (!v.ecuacionCuadra) {
+  if (!v.ecuacionCuadra && esDescuadreAccionable(v.ecuacionDiff)) {
     hallazgos.push({
       tipo: "ecuacion",
       severidad: "alta",
@@ -99,7 +102,7 @@ export function diagnosticarBorrador(v: ValidacionContable, arbol: NodoBorrador[
     { clase: "Costos", diff: v.costosDiff, cuadra: v.costosCuadra },
   ];
   for (const c of clases) {
-    if (c.cuadra === false && c.diff != null && Math.abs(c.diff) > TOL) {
+    if (c.cuadra === false && c.diff != null && esDescuadreAccionable(c.diff)) {
       hallazgos.push({
         tipo: "clase",
         severidad: "media",
@@ -115,12 +118,12 @@ export function diagnosticarBorrador(v: ValidacionContable, arbol: NodoBorrador[
   //    HOJA en otra rama cuyo saldo ≈ el hueco: indicio de "la plata está pero en
   //    otra rama" (detalle mal numerado por el ERP).
   const nodosDesc = todos
-    .filter((n) => n.descuadre != null && n.descuadre !== 0)
+    .filter((n) => esDescuadreAccionable(n.descuadre))
     .sort((a, b) => Math.abs(b.descuadre!) - Math.abs(a.descuadre!))
     .slice(0, 6);
   for (const n of nodosDesc) {
     const d = n.descuadre!;
-    const candidato = hojas.find((h) => h !== n && Math.abs(h.saldoFinal - d) <= TOL && !esDescendiente(h, n)) ?? null;
+    const candidato = hojas.find((h) => h !== n && Math.abs(h.saldoFinal - d) <= TOL_CANDIDATO && !esDescendiente(h, n)) ?? null;
     hallazgos.push({
       tipo: "nodo",
       severidad: "media",

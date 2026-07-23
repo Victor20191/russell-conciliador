@@ -12,6 +12,7 @@ import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import { asignarCuentaEstandar, validarAlerta, revertirValidacionAlerta, eliminarDetalleBalance } from "@/app/actions/balance";
 import Conversacion from "@/components/conversacion";
 import type { NodoBalance } from "@/lib/balance/calcular";
+import { esSaldoContrarioAccionable, esSaldoContrarioInformativo, UMBRAL_NATURALEZA_ALERTA } from "@/lib/balance/umbrales-alertas";
 import { useSeleccionFilaTabla } from "@/app/(app)/balance/use-seleccion-fila-tabla";
 
 export type ValidacionInfo = { tipo: string; por: string; en: string; comentario: string };
@@ -75,7 +76,7 @@ function keysConHijos(nodos: NodoBalance[]): string[] {
  *  validada (una alerta de saldo con OK+comentario deja de contar). */
 function esHojaAlerta(n: NodoBalance, validados: Set<string>): boolean {
   const mapeado = n.nivel === 8 ? !!n.std : n.mapped;
-  return !mapeado || (!n.saldoOk && !validados.has(n.code));
+  return !mapeado || (esSaldoContrarioAccionable(n.balance, n.saldoOk) && !validados.has(n.code));
 }
 
 /** Poda el árbol dejando solo las ramas con alertas (filtro "Alertas"). */
@@ -109,7 +110,10 @@ function contarAlertas(arbol: NodoBalance[], validados: Set<string>): Map<string
     let r: Conteo;
     if (n.hijos.length === 0) {
       const mapeado = n.nivel === 8 ? !!n.std : n.mapped;
-      r = { mapeo: mapeado ? 0 : 1, naturaleza: n.saldoOk || validados.has(n.code) ? 0 : 1 };
+      r = {
+        mapeo: mapeado ? 0 : 1,
+        naturaleza: esSaldoContrarioAccionable(n.balance, n.saldoOk) && !validados.has(n.code) ? 1 : 0,
+      };
     } else {
       r = n.hijos.reduce<Conteo>((a, h) => { const c = walk(h); return { mapeo: a.mapeo + c.mapeo, naturaleza: a.naturaleza + c.naturaleza }; }, { mapeo: 0, naturaleza: 0 });
     }
@@ -315,6 +319,16 @@ function celdaValidacion(nodo: NodoBalance, val: ValCtx): React.ReactNode {
   if (nodo.saldoOk) return nodo.nivel === 6 && nodo.mapped ? <Chip label="OK" tone="ok" /> : null;
   const tipo = nodo.nivel === 8 ? "naturaleza" : "saldo_contrario";
   const label = nodo.nivel === 8 ? "Naturaleza" : "Saldo contrario";
+  if (esSaldoContrarioInformativo(nodo.balance, nodo.saldoOk)) {
+    return (
+      <span
+        title={`Saldo contrario de hasta ${fmt(UMBRAL_NATURALEZA_ALERTA)}: se muestra como información y no requiere “Dar OK”.`}
+        className="inline-flex items-center rounded border border-err-100 bg-err-100/35 px-1.5 py-0.5 text-[10px] font-medium text-err-500"
+      >
+        {label} · informativo
+      </span>
+    );
+  }
   const v = val.mapa[nodo.code];
   if (v) {
     return (
@@ -374,18 +388,26 @@ function AsignarModal({ nodo, estandar, onClose }: { nodo: NodoBalance; estandar
   const router = useRouter();
   const [pending, start] = useTransition();
   const [q, setQ] = useState("");
+  const [codigoSeleccionado, setCodigoSeleccionado] = useState<string | null>(null);
   const clase = nodo.code.charAt(0);
+  const cuenta6 = nodo.code.slice(0, 6);
 
   const opciones = useMemo(() => {
     const t = q.trim().toLowerCase();
     const base = estandar.filter((o) => (t ? `${o.code} ${o.name}`.toLowerCase().includes(t) : o.code.charAt(0) === clase));
     return base.slice(0, 200);
   }, [estandar, q, clase]);
+  const seleccionada = useMemo(
+    () => estandar.find((o) => o.code === codigoSeleccionado) ?? null,
+    [estandar, codigoSeleccionado],
+  );
 
-  const elegir = (codigo: string) => {
+  const confirmar = (alcance: "solo" | "grupo") => {
+    if (!seleccionada) return;
     const fd = new FormData();
     fd.set("detalleId", String(nodo.detalleId));
-    fd.set("codigo", codigo);
+    fd.set("codigo", seleccionada.code);
+    fd.set("alcance", alcance);
     start(async () => {
       const r = await asignarCuentaEstandar(fd);
       if (r?.ok) { notifySuccess(r.message ?? "Cuenta asignada."); router.refresh(); onClose(); }
@@ -394,43 +416,87 @@ function AsignarModal({ nodo, estandar, onClose }: { nodo: NodoBalance; estandar
   };
 
   return (
-    <Modal open onClose={onClose} title="Asignar cuenta estándar" size="2xl">
-      <div className="flex flex-col gap-3">
-        <p className="text-[12.5px] text-ink-600">
-          Cuenta del cliente <span className="font-mono font-semibold">{nodo.code}</span> — {nodo.name}.
-          Elige la cuenta del <span className="font-semibold">plan estándar Russell</span> (nivel 6) a la que corresponde.
-        </p>
-        <p className="rounded-md bg-blue-50 px-3 py-2 text-[11.5px] text-blue-700">
-          Se aplicará a <span className="font-semibold">todas las cuentas que inician con {nodo.code.slice(0, 6)}</span> (mismo nivel 6) en este balance.
-        </p>
-        <input
-          autoFocus
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder={`Filtra por código o nombre… (por defecto, clase ${clase})`}
-          className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400"
-        />
-        <div className="max-h-80 overflow-y-auto rounded-md border border-ink-150">
-          {opciones.length === 0 ? (
-            <div className="px-3 py-4 text-center text-[12px] text-ink-400">Sin coincidencias.</div>
-          ) : (
-            opciones.map((o) => (
-              <button
-                key={o.code}
-                type="button"
-                disabled={pending}
-                onClick={() => elegir(o.code)}
-                className="flex w-full items-center gap-3 border-b border-ink-50 px-3 py-2 text-left last:border-0 hover:bg-ink-50 disabled:opacity-60"
-              >
-                <span className="font-mono text-[11.5px] font-semibold text-ink-700">{o.code}</span>
-                <span className="text-[12.5px] text-ink-700">{o.name}</span>
-                {o.code === nodo.std && <span className="ml-auto"><Chip label="Actual" tone="ok" /></span>}
-              </button>
-            ))
-          )}
+    <Modal open onClose={pending ? () => undefined : onClose} title={seleccionada ? "Confirmar alcance de la homologación" : "Asignar cuenta estándar"} size="2xl">
+      {seleccionada ? (
+        <div className="flex flex-col gap-4">
+          <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-blue-600">Homologación seleccionada</p>
+            <p className="mt-1 text-[12.5px] text-ink-700">
+              <span className="font-mono font-semibold">{nodo.code}</span> — {nodo.name}
+            </p>
+            <p className="mt-1 inline-flex items-center gap-2 text-[12.5px] font-semibold text-blue-700">
+              <span aria-hidden>→</span>
+              <span className="font-mono">{seleccionada.code}</span>
+              <span>{seleccionada.name}</span>
+            </p>
+          </div>
+          <div>
+            <p className="text-[13px] font-semibold text-ink-800">¿A cuáles cuentas deseas aplicar este cambio?</p>
+            <p className="mt-1 text-[12px] text-ink-500">Elige el alcance antes de guardar. La homologación no se ejecutará hasta que confirmes una opción.</p>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => confirmar("solo")}
+              className="group rounded-lg border border-ink-200 bg-white px-4 py-3 text-left transition hover:border-blue-300 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <span className="block text-[12.5px] font-semibold text-ink-800 group-hover:text-blue-700">Solo esta cuenta</span>
+              <span className="mt-1 block text-[11.5px] leading-relaxed text-ink-500">Modifica únicamente {nodo.code}. Las demás cuentas conservan su homologación actual.</span>
+            </button>
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() => confirmar("grupo")}
+              className="group rounded-lg border border-navy-700 bg-navy-700 px-4 py-3 text-left text-white transition hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <span className="block text-[12.5px] font-semibold">Todas las cuentas del grupo</span>
+              <span className="mt-1 block text-[11.5px] leading-relaxed text-white/75">Conserva el comportamiento actual: aplica a todas las cuentas {cuenta6}* y memoriza el mapeo para el cliente.</span>
+            </button>
+          </div>
+          <div className="flex items-center justify-between border-t border-ink-100 pt-3">
+            <button type="button" disabled={pending} onClick={() => setCodigoSeleccionado(null)} className="rounded-md px-2 py-1.5 text-[12px] font-medium text-blue-600 hover:bg-blue-50 disabled:opacity-60">
+              ← Cambiar cuenta estándar
+            </button>
+            {pending ? <p className="text-[12px] text-ink-500"><EstadoProcesando>Homologando</EstadoProcesando></p> : null}
+          </div>
         </div>
-        {pending && <p className="text-[12px] text-ink-500"><EstadoProcesando>Asignando</EstadoProcesando></p>}
-      </div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          <p className="text-[12.5px] text-ink-600">
+            Cuenta del cliente <span className="font-mono font-semibold">{nodo.code}</span> — {nodo.name}.
+            Elige la cuenta del <span className="font-semibold">plan estándar Russell</span> (nivel 6) a la que corresponde.
+          </p>
+          <p className="rounded-md bg-blue-50 px-3 py-2 text-[11.5px] text-blue-700">
+            Después de elegir el destino podrás confirmar si el cambio se aplica <span className="font-semibold">solo a esta cuenta</span> o a <span className="font-semibold">todo el grupo {cuenta6}*</span>.
+          </p>
+          <input
+            autoFocus
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder={`Filtra por código o nombre… (por defecto, clase ${clase})`}
+            className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400"
+          />
+          <div className="max-h-80 overflow-y-auto rounded-md border border-ink-150">
+            {opciones.length === 0 ? (
+              <div className="px-3 py-4 text-center text-[12px] text-ink-400">Sin coincidencias.</div>
+            ) : (
+              opciones.map((o) => (
+                <button
+                  key={o.code}
+                  type="button"
+                  onClick={() => setCodigoSeleccionado(o.code)}
+                  className="flex w-full items-center gap-3 border-b border-ink-50 px-3 py-2 text-left last:border-0 hover:bg-ink-50"
+                >
+                  <span className="font-mono text-[11.5px] font-semibold text-ink-700">{o.code}</span>
+                  <span className="text-[12.5px] text-ink-700">{o.name}</span>
+                  {o.code === nodo.std && <span className="ml-auto"><Chip label="Actual" tone="ok" /></span>}
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
     </Modal>
   );
 }

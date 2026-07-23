@@ -8,6 +8,7 @@ import { logAudit } from "@/lib/audit";
 import { authorizePermiso } from "@/lib/rbac";
 import { clienteDeBalance } from "@/lib/rbac/contexto";
 import { parseId } from "@/lib/ids";
+import { parseAlcanceHomologacion, resolverAlcanceHomologacion } from "@/lib/balance/alcance-homologacion";
 import { tomarCandadoTransaccion, transaccionSerializable } from "@/lib/concurrency";
 import { createProcessNotification } from "@/lib/notifications";
 import { esErrorDisponibilidadIA, mensajeErrorBD, mensajeErrorIA } from "@/lib/errores";
@@ -639,8 +640,12 @@ export async function asignarCuentaEstandar(formData: FormData): Promise<ActionS
 
   const detalleId = parseId(formData.get("detalleId"));
   const codigo = String(formData.get("codigo") ?? "").trim();
+  const alcanceMapeo = parseAlcanceHomologacion(formData.get("alcance"));
   if (!detalleId) return { ok: false, message: "Cuenta del balance inexistente." };
   if (!codigo) return { ok: false, message: "Selecciona una cuenta estándar." };
+  if (!alcanceMapeo) {
+    return { ok: false, message: "Confirma si deseas homologar solo esta cuenta o todo el grupo." };
+  }
 
   try {
     const fila = await prisma.balancePruebaDetalle.findUnique({
@@ -658,29 +663,36 @@ export async function asignarCuentaEstandar(formData: FormData): Promise<ActionS
     if (!std) return { ok: false, message: "La cuenta estándar seleccionada no existe." };
 
     const encId = fila.encabezado.id;
-    // El mapeo es a nivel de cuenta de 6 dígitos: se aplica a TODAS las cuentas
-    // del cliente con el mismo prefijo (cuenta_6) en este balance.
+    const planAlcance = resolverAlcanceHomologacion(alcanceMapeo, {
+      detalleId,
+      encabezadoId: encId,
+      cuenta6: fila.cuenta6,
+    });
+    const aplicarAlGrupo = planAlcance.memorizaPerfil;
+    // El usuario decide el alcance antes de homologar: una sola línea imputable
+    // o el comportamiento histórico sobre todas las cuentas del mismo nivel 6.
     const afectadas = await prisma.balancePruebaDetalle.updateMany({
-      where: { encabezadoId: encId, cuenta6: fila.cuenta6 },
+      where: planAlcance.filtroDetalle,
       data: { cuenta6Russell: std.code, coincidencia: 100 },
     });
 
-    // Memoria del cliente (cuentas_cliente): guarda esta asignación como `manual`
-    // para reusarla en próximos períodos (y que NO la pise el mapeo automático).
-    // No toca el mapeo de conciliación (russellOption) de la fila si ya existe.
     const user = await getCurrentUser();
-    const ahora = new Date();
-    // Marca el grupo de 6 díg como mapeo MANUAL del cliente (memoria entre períodos).
-    await prisma.clientAccount.upsert({
-      where: { clienteId_code: { clienteId: fila.encabezado.clienteId, code: fila.cuenta6 } },
-      create: { clientName: fila.encabezado.nombreCliente, clienteId: fila.encabezado.clienteId, nit: fila.encabezado.nit, code: fila.cuenta6, level: 6, name: std.name ?? fila.cuenta6, cuenta6Russell: std.code, coincidencia: 100, origenMapeo: "manual", actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
-      update: { nit: fila.encabezado.nit, cuenta6Russell: std.code, coincidencia: 100, origenMapeo: "manual", actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
-    });
-    // Propaga el estándar a las cuentas IMPUTABLES del mismo grupo (display consistente).
-    await prisma.clientAccount.updateMany({
-      where: { clienteId: fila.encabezado.clienteId, code: { startsWith: fila.cuenta6 }, NOT: { code: fila.cuenta6 } },
-      data: { cuenta6Russell: std.code, coincidencia: 100, actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
-    });
+    if (aplicarAlGrupo) {
+      // Sólo el alcance grupal actualiza la memoria de `cuentas_cliente`: esa
+      // memoria está definida por cuenta de 6 dígitos y se aplica entre períodos.
+      // Una excepción individual pertenece únicamente a este balance.
+      const ahora = new Date();
+      await prisma.clientAccount.upsert({
+        where: { clienteId_code: { clienteId: fila.encabezado.clienteId, code: fila.cuenta6 } },
+        create: { clientName: fila.encabezado.nombreCliente, clienteId: fila.encabezado.clienteId, nit: fila.encabezado.nit, code: fila.cuenta6, level: 6, name: std.name ?? fila.cuenta6, cuenta6Russell: std.code, coincidencia: 100, origenMapeo: "manual", actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
+        update: { nit: fila.encabezado.nit, cuenta6Russell: std.code, coincidencia: 100, origenMapeo: "manual", actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
+      });
+      // Propaga el estándar a las cuentas IMPUTABLES del mismo grupo (display consistente).
+      await prisma.clientAccount.updateMany({
+        where: { clienteId: fila.encabezado.clienteId, code: { startsWith: fila.cuenta6 }, NOT: { code: fila.cuenta6 } },
+        data: { cuenta6Russell: std.code, coincidencia: 100, actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
+      });
+    }
 
     // Recalcula contadores de mapeo del encabezado.
     const [total, mapeadas] = await Promise.all([
@@ -692,9 +704,17 @@ export async function asignarCuentaEstandar(formData: FormData): Promise<ActionS
       data: { mapeadas, sinMapear: total - mapeadas, completitud: total > 0 ? Math.round((mapeadas / total) * 100) : 100 },
     });
 
-    await logAudit({ user: user?.name ?? "Sistema", action: "ASIGNÓ CUENTA ESTÁNDAR", entity: fila.cuenta6, detail: `${fila.cuenta6} (${afectadas.count} cuenta(s)) → ${std.code}` });
+    const detalleAlcance = aplicarAlGrupo
+      ? `${fila.cuenta6} (${afectadas.count} cuenta(s) del grupo)`
+      : `${fila.cuenta6} (solo ${fila.nombreCuenta})`;
+    await logAudit({ user: user?.name ?? "Sistema", action: "ASIGNÓ CUENTA ESTÁNDAR", entity: fila.cuenta6, detail: `${detalleAlcance} → ${std.code}` });
     revalidatePath(`/balance/${encId}`);
-    return { ok: true, message: `${afectadas.count} cuenta(s) ${fila.cuenta6}* mapeada(s) a ${std.code}.` };
+    return {
+      ok: true,
+      message: aplicarAlGrupo
+        ? `${afectadas.count} cuenta(s) ${fila.cuenta6}* homologada(s) a ${std.code}.`
+        : `${fila.nombreCuenta} homologada a ${std.code} sin modificar las demás cuentas del grupo.`,
+    };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("asignarCuentaEstandar", e) };
   }

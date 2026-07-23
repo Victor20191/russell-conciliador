@@ -23,7 +23,7 @@ const PD_OK: PartidaDobleInfo = { debitos: 100, creditos: 100, diff: 0, cuadra: 
 
 describe("diagnosticarBorrador", () => {
   it("reporta partida doble y ecuación descuadradas", () => {
-    const h = diagnosticarBorrador(vc({ ecuacionCuadra: false, ecuacionDiff: -352 }), [], { debitos: 100, creditos: 117, diff: -17, cuadra: false });
+    const h = diagnosticarBorrador(vc({ ecuacionCuadra: false, ecuacionDiff: -2_352 }), [], { debitos: 4_100, creditos: 2_083, diff: 2_017, cuadra: false });
     expect(h.map((x) => x.tipo)).toEqual(expect.arrayContaining(["partida_doble", "ecuacion"]));
   });
 
@@ -32,14 +32,28 @@ describe("diagnosticarBorrador", () => {
     expect(h.find((x) => x.tipo === "clase" && x.clase === "Gastos")?.monto).toBe(11159637);
   });
 
-  it("no reporta clases dentro de la tolerancia ±$1000", () => {
+  it("no reporta como hallazgo los descuadres menores de $2.000", () => {
+    const h = diagnosticarBorrador(
+      vc({ ecuacionCuadra: false, ecuacionDiff: -1_999, gastosCuadra: false, gastosDiff: 1_999 }),
+      [nodo("5", "GASTOS", 1_999, { descuadre: 1_999 })],
+      { debitos: 2_999, creditos: 1_000, diff: 1_999, cuadra: false },
+    );
+    expect(h).toEqual([]);
+  });
+
+  it("reporta $2.000 exactos como alerta", () => {
+    const h = diagnosticarBorrador(vc({ gastosCuadra: false, gastosDiff: 2_000 }), [], PD_OK);
+    expect(h.find((x) => x.tipo === "clase")?.monto).toBe(2_000);
+  });
+
+  it("no reporta clases pequeñas aunque el cálculo base las marque como descuadradas", () => {
     const h = diagnosticarBorrador(vc({ gastosCuadra: false, gastosDiff: 500 }), [], PD_OK);
     expect(h.some((x) => x.tipo === "clase")).toBe(false);
   });
 
   it("nodo con descuadre + candidato del mismo monto en otra rama (misfiled)", () => {
-    const desacoplada = nodo("139005", "DEUDAS DIFICIL COBRO", 133, { tipoFila: "movimiento" });
-    const clientes = nodo("1305", "CLIENTES", 233, { descuadre: 133, hijos: [nodo("130505", "NAL", 100, { tipoFila: "movimiento" })] });
+    const desacoplada = nodo("139005", "DEUDAS DIFICIL COBRO", 2_133, { tipoFila: "movimiento" });
+    const clientes = nodo("1305", "CLIENTES", 2_233, { descuadre: 2_133, hijos: [nodo("130505", "NAL", 100, { tipoFila: "movimiento" })] });
     const raiz = nodo("13", "CXC", 0, { hijos: [clientes, desacoplada] });
     const h = diagnosticarBorrador(vc(), [raiz], PD_OK);
     const n = h.find((x) => x.tipo === "nodo");
@@ -48,11 +62,11 @@ describe("diagnosticarBorrador", () => {
   });
 
   it("detecta lados invertidos: el control falla pero cuadra al intercambiar débito↔crédito", () => {
-    // si 100 + déb 0 − créd 30 = 70 ≠ 130; al intercambiar: 100 + 30 − 0 = 130 ✓
-    const h = diagnosticarBorrador(vc(), [nodo("120505", "DIF CAMBIO", 130, { tipoFila: "movimiento", saldoInicial: 100, creditos: 30 })], PD_OK);
+    // si 100 + déb 0 − créd 1200 = -1100 ≠ 1300; al intercambiar: 100 + 1200 − 0 = 1300 ✓
+    const h = diagnosticarBorrador(vc(), [nodo("120505", "DIF CAMBIO", 1_300, { tipoFila: "movimiento", saldoInicial: 100, creditos: 1_200 })], PD_OK);
     const li = h.find((x) => x.tipo === "lados_invertidos");
     expect(li?.nodo?.codigo).toBe("120505");
-    expect(li?.monto).toBe(60); // 2 × (créd 30 − déb 0)
+    expect(li?.monto).toBe(2_400); // 2 × (créd 1200 − déb 0)
   });
 
   it("no marca lados invertidos cuando el control ya cuadra", () => {

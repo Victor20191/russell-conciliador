@@ -33,6 +33,7 @@ import {
 import { nombreNivelCuenta } from "@/lib/balance/nivel-cuenta";
 import type { ValidacionContable } from "@/lib/balance/calcular";
 import type { Hallazgo } from "@/lib/balance/diagnostico";
+import { esDescuadreAccionable, esDescuadreInformativo, UMBRAL_DESCUADRE_ALERTA } from "@/lib/balance/umbrales-alertas";
 import { notifyActionState, notifySuccess, notifyError, notifyInfo } from "@/lib/client-notifications";
 import { SelectorClienteBuscable } from "@/components/selector-cliente-buscable";
 import { useSeleccionFilaTabla } from "@/app/(app)/balance/use-seleccion-fila-tabla";
@@ -597,13 +598,27 @@ export default function BorradorDetailClient({
 // ---- Encabezado de validación (mismas tarjetas del borrador del modal) ----
 function ValidacionHeader({ v, pd }: { v: ValidacionContable; pd: { debitos: number; creditos: number; diff: number; cuadra: boolean } }) {
   const ecOk = v.ecuacionCuadra;
+  const pdInformativo = !pd.cuadra && esDescuadreInformativo(pd.diff);
+  const ecInformativo = !ecOk && esDescuadreInformativo(v.ecuacionDiff);
+  const tonoPartida = pd.cuadra
+    ? "border-ok-100 bg-ok-100/40 text-ok-700"
+    : pdInformativo
+      ? "border-err-100 bg-err-100/30 text-err-500"
+      : "border-warn-200 bg-warn-50 text-warn-700";
+  const tonoEcuacion = ecOk
+    ? "border-ok-100 bg-ok-100/40 text-ok-700"
+    : ecInformativo
+      ? "border-err-100 bg-err-100/30 text-err-500"
+      : "border-warn-200 bg-warn-50 text-warn-700";
   return (
     <div className="flex flex-col gap-2.5">
-      <div className={`rounded-md border px-3 py-2 text-[12px] ${pd.cuadra ? "border-ok-100 bg-ok-100/40 text-ok-700" : "border-warn-200 bg-warn-50 text-warn-700"}`}>
-        <span className="font-semibold">{pd.cuadra ? "Cuadra:" : "No coinciden:"}</span> partida doble · débitos <span className="font-semibold">{fmt(pd.debitos)}</span> vs créditos <span className="font-semibold">{fmt(pd.creditos)}</span> · diferencia <span className="font-semibold">{fmt(pd.diff)}</span>
+      <div className={`rounded-md border px-3 py-2 text-[12px] ${tonoPartida}`}>
+        <span className="font-semibold">{pd.cuadra ? "Cuadra:" : pdInformativo ? "Diferencia informativa:" : "No coinciden:"}</span> partida doble · débitos <span className="font-semibold">{fmt(pd.debitos)}</span> vs créditos <span className="font-semibold">{fmt(pd.creditos)}</span> · diferencia <span className="font-semibold">{fmt(pd.diff)}</span>
+        {pdInformativo && <span> · menor a {fmt(UMBRAL_DESCUADRE_ALERTA)}, no cuenta como alerta</span>}
       </div>
-      <div className={`rounded-md border px-3 py-2 text-[12px] ${ecOk ? "border-ok-100 bg-ok-100/40 text-ok-700" : "border-warn-200 bg-warn-50 text-warn-700"}`}>
-        <span className="font-semibold">{ecOk ? "Cuadra:" : "No cuadra:"}</span> Activo = Pasivo + Patrimonio + Resultado · diferencia <span className="font-semibold">{fmt(v.ecuacionDiff)}</span>
+      <div className={`rounded-md border px-3 py-2 text-[12px] ${tonoEcuacion}`}>
+        <span className="font-semibold">{ecOk ? "Cuadra:" : ecInformativo ? "Diferencia informativa:" : "No cuadra:"}</span> Activo = Pasivo + Patrimonio + Resultado · diferencia <span className="font-semibold">{fmt(v.ecuacionDiff)}</span>
+        {ecInformativo && <span> · menor a {fmt(UMBRAL_DESCUADRE_ALERTA)}, no cuenta como alerta</span>}
       </div>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         <ClaseCard label="Activo" calc={v.activo} archivo={v.activoArchivo} cuadra={v.activoCuadra} diff={v.activoDiff} />
@@ -621,7 +636,8 @@ function ValidacionHeader({ v, pd }: { v: ValidacionContable; pd: { debitos: num
 }
 
 function ClaseCard({ label, calc, archivo, cuadra, diff }: { label: string; calc: number; archivo: number | null; cuadra: boolean | null; diff: number | null }) {
-  const tono = cuadra == null ? "border-ink-150 bg-ink-50" : cuadra ? "border-ok-100 bg-ok-100/40" : "border-err-200 bg-err-50";
+  const informativo = cuadra === false && esDescuadreInformativo(diff);
+  const tono = cuadra == null ? "border-ink-150 bg-ink-50" : cuadra ? "border-ok-100 bg-ok-100/40" : informativo ? "border-err-100 bg-err-100/30" : "border-err-200 bg-err-50";
   return (
     <div className={`rounded-md border px-3 py-2 ${tono}`}>
       <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">{label}</div>
@@ -631,14 +647,17 @@ function ClaseCard({ label, calc, archivo, cuadra, diff }: { label: string; calc
       ) : cuadra ? (
         <div className="mt-0.5 text-[10.5px] text-ok-700">✓ archivo {fmt(archivo)} — cruza</div>
       ) : (
-        <div className="mt-0.5 text-[10.5px] text-err-700">archivo {fmt(archivo)} · Δ {fmt(diff ?? 0)}</div>
+        <div className={`mt-0.5 text-[10.5px] ${informativo ? "text-err-500" : "text-err-700"}`}>
+          archivo {fmt(archivo)} · Δ {fmt(diff ?? 0)}{informativo ? " · informativo" : ""}
+        </div>
       )}
     </div>
   );
 }
 
 function MiniDato({ k, v, archivo, cuadra, diff }: { k: string; v: number; archivo: number | null; cuadra: boolean | null; diff: number | null }) {
-  const tono = cuadra == null ? "border-ink-150 bg-ink-50" : cuadra ? "border-ok-100 bg-ok-100/40" : "border-err-200 bg-err-50";
+  const informativo = cuadra === false && esDescuadreInformativo(diff);
+  const tono = cuadra == null ? "border-ink-150 bg-ink-50" : cuadra ? "border-ok-100 bg-ok-100/40" : informativo ? "border-err-100 bg-err-100/30" : "border-err-200 bg-err-50";
   return (
     <div className={`rounded-md border px-2.5 py-1.5 ${tono}`}>
       <div className="text-[10.5px] font-semibold uppercase tracking-wide text-ink-500">{k}</div>
@@ -648,7 +667,9 @@ function MiniDato({ k, v, archivo, cuadra, diff }: { k: string; v: number; archi
       ) : cuadra ? (
         <div className="mt-0.5 text-[10px] text-ok-700">✓ archivo {fmt(archivo)}</div>
       ) : (
-        <div className="mt-0.5 text-[10px] text-err-700">archivo {fmt(archivo)} · Δ {fmt(diff ?? 0)}</div>
+        <div className={`mt-0.5 text-[10px] ${informativo ? "text-err-500" : "text-err-700"}`}>
+          archivo {fmt(archivo)} · Δ {fmt(diff ?? 0)}{informativo ? " · informativo" : ""}
+        </div>
       )}
     </div>
   );
@@ -704,12 +725,14 @@ const controlCuadraFila = (si: number, db: number, cr: number, s: number) => Mat
  * Las filas omitidas no alertan.
  */
 const esAlertaNodo = (n: NodoBorrador): boolean => {
-  if (n.descuadre != null && n.descuadre !== 0) return true;
+  if (esDescuadreAccionable(n.descuadre)) return true;
   if (n.omitida) return false;
-  if (n.tipoFila === "descuadre") return true;
+  const diferenciaControl = n.saldoInicial + n.debitos - n.creditos - n.saldoFinal;
+  if (n.tipoFila === "descuadre") return esDescuadreAccionable(diferenciaControl);
   if (n.tipoFila !== "movimiento") return false;
   return !controlCuadraFila(n.saldoInicial, n.debitos, n.creditos, n.saldoFinal)
-    && controlCuadraFila(n.saldoInicial, n.creditos, n.debitos, n.saldoFinal);
+    && controlCuadraFila(n.saldoInicial, n.creditos, n.debitos, n.saldoFinal)
+    && esDescuadreAccionable(2 * (n.creditos - n.debitos));
 };
 
 // Posición de cada nodo para el TABULADOR: `prev` = filaNum del hermano anterior (para
@@ -1171,6 +1194,8 @@ function ArbolTabla({ arbol, onReclasificar, onGestionarAgrupadora, onInvertir, 
     const esMov = n.tipoFila === "movimiento" || n.tipoFila === "descuadre";
     const esAgrupadora = n.tipoFila === "agrupadora";
     const descuadrado = n.descuadre != null && n.descuadre !== 0;
+    const descuadreAccionable = esDescuadreAccionable(n.descuadre);
+    const descuadreInformativo = esDescuadreInformativo(n.descuadre);
     // Lados invertidos: el control no cuadra, pero SÍ al intercambiar débito↔crédito.
     const ladosInv = esMov && !controlOk(n.saldoInicial, n.debitos, n.creditos, n.saldoFinal) && controlOk(n.saldoInicial, n.creditos, n.debitos, n.saldoFinal);
     // Desacople: ya desacoplada (permite REACOPLAR), o cuelga de una agrupadora que NO
@@ -1230,7 +1255,7 @@ function ArbolTabla({ arbol, onReclasificar, onGestionarAgrupadora, onInvertir, 
         </td>
         <td className="px-2 py-1 align-top">
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className={`text-[12px] ${omitida ? "text-ink-400 line-through" : descuadrado ? "font-semibold text-err-700 underline decoration-err-500 decoration-2 underline-offset-2" : "text-ink-800"}`} title={n.nombre}>
+            <span className={`text-[12px] ${omitida ? "text-ink-400 line-through" : descuadreAccionable ? "font-semibold text-err-700 underline decoration-err-500 decoration-2 underline-offset-2" : descuadreInformativo ? "font-medium text-err-500 underline decoration-err-100 decoration-1 underline-offset-2" : "text-ink-800"}`} title={n.nombre}>
               {n.nombre}
             </span>
             {numero && n.tipoFila !== "total" && (
@@ -1253,7 +1278,12 @@ function ArbolTabla({ arbol, onReclasificar, onGestionarAgrupadora, onInvertir, 
               <Chip label="Total" tone="ink" />
             ) : null}
             {descuadrado && (
-              <span className="text-[10.5px] font-semibold text-err-700" title={`Total del archivo ${fmt(n.saldoFinal)} − suma de sus ${n.hijos.length} cuentas = ${fmt(n.descuadre!)}. Su subtotal no cuadra con su desglose por código.`}>
+              <span
+                className={`rounded px-1.5 py-0.5 text-[10.5px] ${descuadreAccionable ? "font-semibold text-err-700" : "border border-err-100 bg-err-100/35 font-medium text-err-500"}`}
+                title={descuadreAccionable
+                  ? `Total del archivo ${fmt(n.saldoFinal)} − suma de sus ${n.hijos.length} cuentas = ${fmt(n.descuadre!)}. Su subtotal no cuadra con su desglose por código.`
+                  : `Diferencia informativa menor a ${fmt(UMBRAL_DESCUADRE_ALERTA)}: permanece visible, pero no se incluye en Alertas ni en el diagnóstico superior.`}
+              >
                 Δ {fmt(n.descuadre!)}
               </span>
             )}
