@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { construirArbolBorrador, construirIndiceReubicacion, contarNodos, aplanarArbolFiltrado, destinosReubicacion, esDestinoSugerido, normalizarBusquedaCuenta, reclasificarHuerfanas, marcarNoContables, corregirCodigosPlaceholder, contextoTabulador, puedeUbicar, validarReubicacionesBorrador, type FilaBorrador } from "./borrador";
+import { compararTotalesAgrupacion, construirArbolBorrador, construirIndiceReubicacion, contarNodos, aplanarArbolFiltrado, destinosReubicacion, esDestinoSugerido, normalizarBusquedaCuenta, reclasificarHuerfanas, marcarNoContables, corregirCodigosPlaceholder, contextoTabulador, puedeUbicar, sugerirMovimientosAgrupadora, validarReubicacionesBorrador, type FilaBorrador } from "./borrador";
 import { construirVistaBorrador } from "./borrador-vm";
 import { reclasificarNoImputables } from "./extraccion/transformar";
 
@@ -340,6 +340,16 @@ describe("reclasificarHuerfanas", () => {
     expect(reclasificarHuerfanas(filas)).toEqual([]);
     expect(filas.find((f) => f.codigo === "1305")?.tipoFila).toBe("agrupadora");
   });
+
+  it("preserva una agrupadora vacía cuando fue fijada manualmente, sin cambiar el comportamiento automático", () => {
+    const automatica = [{ ...fila(1, "73870202", "HONORARIOS", 46_052_892, "agrupadora"), tipoFilaForzado: "agrupadora" as const }];
+    const manual = automatica.map((f) => ({ ...f }));
+
+    expect(reclasificarHuerfanas(automatica).map((f) => f.filaNum)).toEqual([1]);
+    expect(automatica[0].tipoFila).toBe("movimiento");
+    expect(reclasificarHuerfanas(manual, { preservarAgrupadorasForzadas: true })).toEqual([]);
+    expect(manual[0].tipoFila).toBe("agrupadora");
+  });
 });
 
 describe("aplanarArbolFiltrado", () => {
@@ -486,6 +496,40 @@ describe("reubicación global de cuentas", () => {
   it("permite restaurar el padre automático de una cuenta reubicada", () => {
     const movidas = filas.map((f) => ({ ...f, padreManual: f.filaNum === 3 ? 7 : f.padreManual }));
     expect(validarReubicacionesBorrador(movidas, { "3": null })).toEqual({ ok: true });
+  });
+
+  it("sugiere movimientos hermanos de igual nivel que explican los cuatro valores de HONORARIOS", () => {
+    const cuenta = (filaNum: number, codigo: string, nombre: string, si: number, db: number, cr: number, sf: number, tipo: FilaBorrador["tipoFila"]): FilaBorrador => ({
+      filaNum, codigo, codigoCrudo: codigo, nombre, nivel: codigo.length, tipoFila: tipo,
+      saldoInicial: si, debitos: db, creditos: cr, saldoFinal: sf,
+    });
+    const caso = [
+      cuenta(1, "738702", "GENERALES", 0, 0, 0, 0, "agrupadora"),
+      cuenta(2, "73870202", "HONORARIOS", 37_143_394, 8_909_498, 0, 46_052_892, "movimiento"),
+      cuenta(3, "61651001", "SERVICIOS MÉDICOS VETERINARIOS", 33_086_000, 7_328_240, 0, 40_414_240, "movimiento"),
+      cuenta(4, "61651002", "IVA SERVICIOS VETERINARIOS", 60_610, 29_260, 0, 89_870, "movimiento"),
+      cuenta(5, "61651003", "ASESORÍA EN SISTEMAS", 262_390, 0, 0, 262_390, "movimiento"),
+      cuenta(6, "61652001", "AYUDAS DIAGNOSTICAS (CV)", 3_307_614, 1_304_200, 0, 4_611_814, "movimiento"),
+      cuenta(7, "61652002", "IVA AYUDAS DIAGNOSTICAS", 426_780, 247_798, 0, 674_578, "movimiento"),
+      cuenta(8, "73870204", "SERVICIOS", 78_610_830, 24_514_972, 0, 103_125_802, "movimiento"),
+    ];
+    const indice = construirIndiceReubicacion(construirArbolBorrador(caso));
+    const sugeridas = sugerirMovimientosAgrupadora(indice, 2);
+    const origen = indice.porFila.get(2)!;
+    const seleccion = sugeridas.map((id) => indice.porFila.get(id)!);
+
+    expect(sugeridas).toEqual([3, 4, 5, 6, 7]);
+    expect(compararTotalesAgrupacion(origen, seleccion)).toMatchObject({
+      coincide: true,
+      diferencias: { saldoInicial: 0, debitos: 0, creditos: 0, saldoFinal: 0 },
+    });
+  });
+
+  it("la comparación informa el descuadre pero no produce una validación bloqueante", () => {
+    const origen = construirIndiceReubicacion(construirArbolBorrador([fila(1, "110505", "CAJA", 100, "movimiento")])).porFila.get(1)!;
+    const resultado = compararTotalesAgrupacion(origen, []);
+    expect(resultado.coincide).toBe(false);
+    expect(resultado.diferencias.saldoFinal).toBe(100);
   });
 });
 

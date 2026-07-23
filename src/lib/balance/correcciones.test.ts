@@ -12,6 +12,7 @@ const fila = (p: Partial<FilaStagingCorreccion> & { filaNum: number }): FilaStag
   codigoCrudo: "",
   nombre: "",
   tipoFila: "movimiento",
+  tipoFilaForzado: null,
   saldoInicial: 0,
   debitos: 0,
   creditos: 0,
@@ -119,7 +120,7 @@ describe("construirCorrecciones", () => {
 });
 
 describe("planAplicarCorrecciones", () => {
-  it("reclasifica solo cuando el tipo actual es el opuesto (nunca filas total)", () => {
+  it("reclasifica el tipo y deja una marca manual durable (nunca filas total)", () => {
     const filas = [
       fila({ filaNum: 1, codigo: "1105", codigoCrudo: "1105", tipoFila: "movimiento" }),
       fila({ filaNum: 2, codigo: "2405", codigoCrudo: "2405", tipoFila: "agrupadora" }),
@@ -130,8 +131,11 @@ describe("planAplicarCorrecciones", () => {
       correccion({ cuenta: "2405", tipoFilaForzado: "agrupadora" }), // ya es agrupadora → nada
       correccion({ cuenta: "3105", tipoFilaForzado: "movimiento" }), // total → nada
     ]);
-    expect(cambios).toEqual([{ filaNum: 1, tipoFila: "agrupadora" }]);
-    expect(cuentasAplicadas).toEqual(["1105"]);
+    expect(cambios).toEqual([
+      { filaNum: 1, tipoFila: "agrupadora", tipoFilaForzado: "agrupadora" },
+      { filaNum: 2, tipoFilaForzado: "agrupadora" },
+    ]);
+    expect(cuentasAplicadas).toEqual(["1105", "2405"]);
   });
 
   it("invierte lados SOLO si el control falla y cuadra al intercambiar", () => {
@@ -223,7 +227,7 @@ describe("planAplicarCorrecciones", () => {
       fila({ filaNum: 3, codigo: "", codigoCrudo: "Total general", nombre: "Total general", tipoFila: "total" }),
     ];
     const { cambios } = planAplicarCorrecciones(loteNuevo, correcciones);
-    expect(cambios).toContainEqual({ filaNum: 2, tipoFila: "movimiento", padreManual: 1 });
+    expect(cambios).toContainEqual({ filaNum: 2, tipoFila: "movimiento", tipoFilaForzado: "movimiento", padreManual: 1 });
     expect(cambios).toContainEqual({ filaNum: 3, omitida: true });
   });
 });

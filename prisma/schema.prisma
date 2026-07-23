@@ -750,6 +750,9 @@ model BalanceImportacionStaging {
   nombre       String   @map("nombre")
   nivel        Int?     @map("nivel") // longitud PUC del código (2/4/6/8)
   tipoFila     String   @map("tipo_fila") // movimiento | agrupadora | total | excluida | descuadre
+  // Clasificación fijada MANUALMENTE por un auditor en el borrador. Permite conservar
+  // una agrupadora aunque todavía no tenga hijas, sin alterar la detección automática.
+  tipoFilaForzado String?  @map("tipo_fila_forzado") // agrupadora | movimiento | null
   saldoInicial Decimal  @default(0) @map("saldo_inicial") @db.Decimal(18, 2)
   debitos      Decimal  @default(0) @map("debitos") @db.Decimal(18, 2)
   creditos     Decimal  @default(0) @map("creditos") @db.Decimal(18, 2)

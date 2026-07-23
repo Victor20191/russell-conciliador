@@ -230,13 +230,15 @@ async function cuentasDesdeStaging(loteId: string): Promise<CuentaCruda[]> {
   const staged = await prisma.balanceImportacionStaging.findMany({
     where: { loteId },
     orderBy: { filaNum: "asc" },
-    select: { filaNum: true, codigo: true, codigoCrudo: true, nombre: true, nivel: true, tipoFila: true, omitida: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
+    select: { filaNum: true, codigo: true, codigoCrudo: true, nombre: true, nivel: true, tipoFila: true, tipoFilaForzado: true, omitida: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
   });
   const filasStaging: FilaBorrador[] = staged.map((f) => ({
     // TRI-ESTADO durable: null (BD) = «sin tocar» → undefined (elegible para el marcado
     // del re-listado con guiones); false = RESCATADA a mano → cuenta y SÍ se carga
     // (el override manual gana); true = omitida → no se carga.
-    filaNum: f.filaNum, codigo: f.codigo, codigoCrudo: f.codigoCrudo, nombre: f.nombre, nivel: f.nivel, tipoFila: f.tipoFila as TipoFila, omitida: f.omitida ?? undefined,
+    filaNum: f.filaNum, codigo: f.codigo, codigoCrudo: f.codigoCrudo, nombre: f.nombre, nivel: f.nivel, tipoFila: f.tipoFila as TipoFila,
+    tipoFilaForzado: f.tipoFilaForzado === "agrupadora" || f.tipoFilaForzado === "movimiento" ? f.tipoFilaForzado : null,
+    omitida: f.omitida ?? undefined,
     saldoInicial: Number(f.saldoInicial), debitos: Number(f.debitos), creditos: Number(f.creditos), saldoFinal: Number(f.saldoFinal),
   }));
   // Balance ABIERTO POR TERCERO → colapsar el detalle y cargar por CUENTA (lógica
@@ -287,6 +289,7 @@ async function actualizarResumenLoteBorrador(loteId: string) {
       nombre: true,
       nivel: true,
       tipoFila: true,
+      tipoFilaForzado: true,
       desacoplada: true,
       omitida: true,
       padreManual: true,
@@ -305,6 +308,7 @@ async function actualizarResumenLoteBorrador(loteId: string) {
     nombre: fila.nombre,
     nivel: fila.nivel,
     tipoFila: fila.tipoFila as TipoFila,
+    tipoFilaForzado: fila.tipoFilaForzado === "agrupadora" || fila.tipoFilaForzado === "movimiento" ? fila.tipoFilaForzado : null,
     desacoplada: fila.desacoplada,
     omitida: fila.omitida ?? undefined,
     padreManual: fila.padreManual,
@@ -333,13 +337,14 @@ async function filasStagingCorreccion(loteId: string): Promise<FilaStagingCorrec
     where: { loteId },
     orderBy: { filaNum: "asc" },
     select: {
-      filaNum: true, codigo: true, codigoCrudo: true, nombre: true, tipoFila: true,
+      filaNum: true, codigo: true, codigoCrudo: true, nombre: true, tipoFila: true, tipoFilaForzado: true,
       saldoInicial: true, debitos: true, creditos: true, saldoFinal: true,
       desacoplada: true, omitida: true, padreManual: true,
     },
   });
   return rows.map((f) => ({
     filaNum: f.filaNum, codigo: f.codigo, codigoCrudo: f.codigoCrudo, nombre: f.nombre, tipoFila: f.tipoFila,
+    tipoFilaForzado: f.tipoFilaForzado === "agrupadora" || f.tipoFilaForzado === "movimiento" ? f.tipoFilaForzado : null,
     saldoInicial: Number(f.saldoInicial), debitos: Number(f.debitos), creditos: Number(f.creditos), saldoFinal: Number(f.saldoFinal),
     desacoplada: f.desacoplada, omitida: f.omitida, padreManual: f.padreManual,
   }));
@@ -405,6 +410,7 @@ async function aplicarCorreccionesGuardadas(loteId: string, clienteId: number): 
   await prisma.$transaction(plan.cambios.map((ch) => {
     const data: Record<string, unknown> = {};
     if (ch.tipoFila) data.tipoFila = ch.tipoFila;
+    if (ch.tipoFilaForzado) data.tipoFilaForzado = ch.tipoFilaForzado;
     if (ch.debitos !== undefined) data.debitos = ch.debitos;
     if (ch.creditos !== undefined) data.creditos = ch.creditos;
     if (ch.desacoplada !== undefined) data.desacoplada = ch.desacoplada;
@@ -1823,11 +1829,17 @@ export async function aplicarCambiosBorrador(
     const codsAgrup = reclas.filter(([, t]) => t === "agrupadora").map(([c]) => c);
     const codsMov = reclas.filter(([, t]) => t === "movimiento").map(([c]) => c);
     if (codsAgrup.length > 0) {
-      const r = await prisma.balanceImportacionStaging.updateMany({ where: { loteId: id, codigo: { in: codsAgrup }, tipoFila: "movimiento" }, data: { tipoFila: "agrupadora" } });
+      const r = await prisma.balanceImportacionStaging.updateMany({
+        where: { loteId: id, codigo: { in: codsAgrup }, tipoFila: { in: ["movimiento", "descuadre", "agrupadora"] } },
+        data: { tipoFila: "agrupadora", tipoFilaForzado: "agrupadora" },
+      });
       nRe += r.count;
     }
     if (codsMov.length > 0) {
-      const r = await prisma.balanceImportacionStaging.updateMany({ where: { loteId: id, codigo: { in: codsMov }, tipoFila: "agrupadora" }, data: { tipoFila: "movimiento" } });
+      const r = await prisma.balanceImportacionStaging.updateMany({
+        where: { loteId: id, codigo: { in: codsMov }, tipoFila: { in: ["movimiento", "descuadre", "agrupadora"] } },
+        data: { tipoFila: "movimiento", tipoFilaForzado: "movimiento" },
+      });
       nRe += r.count;
     }
     if (invs.length > 0) {

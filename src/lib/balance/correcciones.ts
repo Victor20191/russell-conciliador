@@ -29,6 +29,7 @@ export type FilaStagingCorreccion = {
   codigoCrudo: string;
   nombre: string;
   tipoFila: string;
+  tipoFilaForzado: TipoFilaForzado | null;
   saldoInicial: number;
   debitos: number;
   creditos: number;
@@ -55,6 +56,7 @@ export type CorreccionCuenta = {
 export type CambioFila = {
   filaNum: number;
   tipoFila?: TipoFilaForzado;
+  tipoFilaForzado?: TipoFilaForzado;
   debitos?: number; // intercambio explícito de lados (valores finales)
   creditos?: number;
   desacoplada?: boolean;
@@ -176,8 +178,11 @@ export function planAplicarCorrecciones(
     let aplico = false;
     for (const f of rows) {
       const ch: CambioFila = { filaNum: f.filaNum };
-      if (c.tipoFilaForzado === "agrupadora" && f.tipoFila === "movimiento") ch.tipoFila = "agrupadora";
-      if (c.tipoFilaForzado === "movimiento" && f.tipoFila === "agrupadora") ch.tipoFila = "movimiento";
+      if (c.tipoFilaForzado && f.tipoFila !== "total") {
+        if (c.tipoFilaForzado === "agrupadora" && f.tipoFila !== "agrupadora") ch.tipoFila = "agrupadora";
+        if (c.tipoFilaForzado === "movimiento" && f.tipoFila === "agrupadora") ch.tipoFila = "movimiento";
+        if (f.tipoFilaForzado !== c.tipoFilaForzado) ch.tipoFilaForzado = c.tipoFilaForzado;
+      }
       if (
         c.invertirLados &&
         !controlCuadra(f.saldoInicial, f.debitos, f.creditos, f.saldoFinal) &&

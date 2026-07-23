@@ -35,7 +35,10 @@ function aplanar(nodos: NodoBorrador[]): NodoBorrador[] {
  * Construye el view-model del borrador. MUTA `filas` (reclasifica códigos
  * repetidos). Reproduce el mismo pipeline en la página y en la acción de IA.
  */
-export function construirVistaBorrador(filas: FilaBorrador[]): VistaBorrador {
+export function construirVistaBorrador(
+  filas: FilaBorrador[],
+  opciones: { preservarAgrupadorasForzadas?: boolean } = {},
+): VistaBorrador {
   // ¿Balance ABIERTO POR TERCERO? Se COLAPSA el detalle de tercero y se concilia por
   // CUENTA (lógica separada; los demás informes no se tocan). Al quitar los terceros,
   // las cuentas quedan sin hijos y `reclasificarHuerfanas` las vuelve imputables.
@@ -74,7 +77,7 @@ export function construirVistaBorrador(filas: FilaBorrador[]): VistaBorrador {
   // Agrupadoras HUÉRFANAS (sin hijos, con saldo) → movimiento: son hojas imputables
   // que el ERP exportó sin desglose; si no, su saldo se pierde. MUTA `base`. El delta
   // fresco es fiable como señal (esta pasada no se aplica en la extracción).
-  const nHuerfanas = reclasificarHuerfanas(base).length;
+  const nHuerfanas = reclasificarHuerfanas(base, opciones).length;
   const arbol = construirArbolBorrador(base);
 
   // Las filas OMITIDAS se conservan en el árbol (crudo) pero NO cuentan en los cálculos.

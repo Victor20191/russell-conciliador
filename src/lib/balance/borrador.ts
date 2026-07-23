@@ -19,6 +19,9 @@ export type FilaBorrador = {
   nombre: string;
   nivel: number | null;
   tipoFila: TipoFila;
+  // Clasificación fijada manualmente por un auditor. La vista del borrador puede
+  // preservarla aunque aún no tenga hijas; el análisis automático la deja intacta.
+  tipoFilaForzado?: "agrupadora" | "movimiento" | null;
   saldoInicial: number;
   debitos: number;
   creditos: number;
@@ -66,6 +69,13 @@ export function construirArbolBorrador(filas: FilaBorrador[], tol = 1): NodoBorr
   // Código repetido (encabezado + movimiento con el mismo código): la repetición
   // pasa a movimiento (muta `tipoFila` de las filas de entrada).
   reclasificarRepetidos(ordenadas);
+  // Una decisión MANUAL siempre gana sobre la inferencia estructural. En lotes nuevos
+  // esta marca solo existe si provino del perfil del cliente; la extracción/IA no la crea.
+  for (const fila of ordenadas) {
+    if (fila.tipoFilaForzado && esNumerico(fila.codigo) && fila.tipoFila !== "total") {
+      fila.tipoFila = fila.tipoFilaForzado;
+    }
+  }
   // Subtotales de 6 díg duplicados de su detalle de 8 díg (mal-numerados): no se
   // cuentan en el descuadre (su padre no los debe sumar; el detalle ya está).
   const dupSet = marcarSubtotalesDuplicados(ordenadas.filter((f) => f.tipoFila === "movimiento"));
@@ -254,7 +264,10 @@ export function construirArbolBorrador(filas: FilaBorrador[], tol = 1): NodoBorr
  * Prueba», «Total general») NO es una cuenta, así que NO se recupera a movimiento
  * (lo dejó como «total» `reclasificarNoImputables` y así debe quedar).
  */
-export function reclasificarHuerfanas(filas: FilaBorrador[]): FilaBorrador[] {
+export function reclasificarHuerfanas(
+  filas: FilaBorrador[],
+  opciones: { preservarAgrupadorasForzadas?: boolean } = {},
+): FilaBorrador[] {
   const tieneMovimiento = (n: NodoBorrador) =>
     Math.abs(n.saldoFinal) > 0.005 || Math.abs(n.debitos) > 0.005 || Math.abs(n.creditos) > 0.005;
   const arbol = construirArbolBorrador(filas);
@@ -265,7 +278,8 @@ export function reclasificarHuerfanas(filas: FilaBorrador[]): FilaBorrador[] {
     // vuelve imputable y aporta su saldo completo, en vez de perderse como agrupadora.
     const sinHijosReales = n.hijos.every((h) => h.omitida);
     // Un nodo ya OMITIDO no se recupera a movimiento: está tachado y excluido a propósito.
-    if (n.tipoFila !== "movimiento" && !n.omitida && esNumerico(n.codigo) && sinHijosReales && !n.subtotalDuplicado && tieneMovimiento(n)) {
+    const preservarManual = opciones.preservarAgrupadorasForzadas && n.tipoFilaForzado === "agrupadora";
+    if (!preservarManual && n.tipoFila !== "movimiento" && !n.omitida && esNumerico(n.codigo) && sinHijosReales && !n.subtotalDuplicado && tieneMovimiento(n)) {
       huerfanas.add(n.filaNum);
     }
     n.hijos.forEach(rec);
@@ -485,6 +499,10 @@ export type CuentaReubicacion = RefNodo & {
   ruta: RefNodo[];
   descendientes: number[];
   busqueda: string;
+  saldoInicial: number;
+  debitos: number;
+  creditos: number;
+  saldoFinal: number;
 };
 
 export type IndiceReubicacion = {
@@ -524,6 +542,10 @@ export function construirIndiceReubicacion(arbol: NodoBorrador[]): IndiceReubica
           ruta,
           descendientes: [],
           busqueda: normalizarBusquedaCuenta(`${n.codigoCrudo} ${n.codigo} ${n.nombre}`),
+          saldoInicial: n.saldoInicial,
+          debitos: n.debitos,
+          creditos: n.creditos,
+          saldoFinal: n.saldoFinal,
         }
       : null;
     if (cuenta) {
@@ -566,6 +588,89 @@ export function destinosReubicacion(indice: IndiceReubicacion, filaNum: number):
 
 export function esDestinoSugerido(origen: CuentaReubicacion, destino: CuentaReubicacion): boolean {
   return destino.codigo.length < origen.codigo.length && origen.codigo.startsWith(destino.codigo);
+}
+
+export type TotalesAgrupacion = {
+  saldoInicial: number;
+  debitos: number;
+  creditos: number;
+  saldoFinal: number;
+};
+
+export type ComparacionAgrupacion = {
+  objetivo: TotalesAgrupacion;
+  seleccion: TotalesAgrupacion;
+  diferencias: TotalesAgrupacion;
+  coincide: boolean;
+};
+
+const totalesCuenta = (cuenta: Pick<CuentaReubicacion, "saldoInicial" | "debitos" | "creditos" | "saldoFinal">): TotalesAgrupacion => ({
+  saldoInicial: cuenta.saldoInicial,
+  debitos: cuenta.debitos,
+  creditos: cuenta.creditos,
+  saldoFinal: cuenta.saldoFinal,
+});
+
+/** Compara los cuatro movimientos de la futura agrupadora contra las hijas elegidas. */
+export function compararTotalesAgrupacion(
+  origen: CuentaReubicacion,
+  hijas: CuentaReubicacion[],
+  tolerancia = 1,
+): ComparacionAgrupacion {
+  const objetivo = totalesCuenta(origen);
+  const seleccion = hijas.reduce<TotalesAgrupacion>(
+    (suma, fila) => ({
+      saldoInicial: suma.saldoInicial + fila.saldoInicial,
+      debitos: suma.debitos + fila.debitos,
+      creditos: suma.creditos + fila.creditos,
+      saldoFinal: suma.saldoFinal + fila.saldoFinal,
+    }),
+    { saldoInicial: 0, debitos: 0, creditos: 0, saldoFinal: 0 },
+  );
+  const diferencias: TotalesAgrupacion = {
+    saldoInicial: objetivo.saldoInicial - seleccion.saldoInicial,
+    debitos: objetivo.debitos - seleccion.debitos,
+    creditos: objetivo.creditos - seleccion.creditos,
+    saldoFinal: objetivo.saldoFinal - seleccion.saldoFinal,
+  };
+  return {
+    objetivo,
+    seleccion,
+    diferencias,
+    coincide: Object.values(diferencias).every((valor) => Math.abs(valor) <= tolerancia),
+  };
+}
+
+/**
+ * Sugiere los movimientos hermanos consecutivos que explican exactamente los cuatro
+ * totales de una cuenta. Es solo una ayuda visual: nunca valida ni bloquea el cambio.
+ */
+export function sugerirMovimientosAgrupadora(
+  indice: IndiceReubicacion,
+  filaNum: number,
+  tolerancia = 1,
+): number[] {
+  const origen = indice.porFila.get(filaNum);
+  if (!origen) return [];
+  const candidatas = indice.cuentas
+    .filter((cuenta) =>
+      cuenta.filaNum > origen.filaNum &&
+      cuenta.padre === origen.padre &&
+      cuenta.codigo.length === origen.codigo.length &&
+      cuenta.tipoFila === "movimiento" &&
+      !cuenta.omitida &&
+      !cuenta.subtotalDuplicado,
+    )
+    .sort((a, b) => a.filaNum - b.filaNum);
+
+  const seleccion: CuentaReubicacion[] = [];
+  for (const candidata of candidatas) {
+    seleccion.push(candidata);
+    if (compararTotalesAgrupacion(origen, seleccion, tolerancia).coincide) {
+      return seleccion.map((cuenta) => cuenta.filaNum);
+    }
+  }
+  return [];
 }
 
 export type ResultadoValidacionReubicacion = { ok: true } | { ok: false; message: string };

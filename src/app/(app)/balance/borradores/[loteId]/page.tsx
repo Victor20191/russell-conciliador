@@ -23,6 +23,7 @@ type FilaStagingBD = {
   nombre: string;
   nivel: number | null;
   tipoFila: string;
+  tipoFilaForzado: string | null;
   saldoInicial: unknown;
   debitos: unknown;
   creditos: unknown;
@@ -71,6 +72,7 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
           nombre,
           nivel,
           tipo_fila AS "tipoFila",
+          tipo_fila_forzado AS "tipoFilaForzado",
           saldo_inicial AS "saldoInicial",
           debitos,
           creditos,
@@ -107,6 +109,7 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
           nombre: true,
           nivel: true,
           tipoFila: true,
+          tipoFilaForzado: true,
           saldoInicial: true,
           debitos: true,
           creditos: true,
@@ -134,7 +137,9 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
     filaNum: f.filaNum, codigo: f.codigo, codigoCrudo: f.codigoCrudo, nombre: f.nombre, nivel: f.nivel,
     // TRI-ESTADO durable: null (BD) = «sin tocar» → undefined; true = omitida;
     // false = RESCATADA a mano (el auto-marcado del re-listado la respeta).
-    tipoFila: f.tipoFila as FilaBorrador["tipoFila"], desacoplada: f.desacoplada, omitida: f.omitida ?? undefined, padreManual: f.padreManual,
+    tipoFila: f.tipoFila as FilaBorrador["tipoFila"],
+    tipoFilaForzado: f.tipoFilaForzado === "agrupadora" || f.tipoFilaForzado === "movimiento" ? f.tipoFilaForzado : null,
+    desacoplada: f.desacoplada, omitida: f.omitida ?? undefined, padreManual: f.padreManual,
     saldoInicial: Number(f.saldoInicial), debitos: Number(f.debitos), creditos: Number(f.creditos), saldoFinal: Number(f.saldoFinal),
   }));
   // La misma exclusión de NIT/cédula que antes hacía el navegador se completa

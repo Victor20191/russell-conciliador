@@ -15,6 +15,7 @@ import type { SpecCarga } from "@/lib/balance/extraccion/esquema";
 import type { ImportBalanceState } from "@/lib/import/balance";
 import { construirVistaBorrador } from "@/lib/balance/borrador-vm";
 import {
+  compararTotalesAgrupacion,
   construirIndiceReubicacion,
   contextoTabulador,
   destinosReubicacion,
@@ -22,6 +23,7 @@ import {
   normalizarBusquedaCuenta,
   puedeUbicar,
   reclasificarSoloHojas,
+  sugerirMovimientosAgrupadora,
   type ContextoNodo,
   type CuentaReubicacion,
   type FilaBorrador,
@@ -53,7 +55,10 @@ function aplicarCambios(
       const ov = override[f.codigo];
       // Aplica la reclasificación a cualquier fila numérica que NO sea «total» (incluye
       // «descuadre», que estructuralmente es un movimiento) y que difiera del destino.
-      if (ov && /^\d+$/.test(f.codigo) && f.tipoFila !== "total" && f.tipoFila !== ov) f.tipoFila = ov;
+      if (ov && /^\d+$/.test(f.codigo) && f.tipoFila !== "total") {
+        f.tipoFila = ov;
+        f.tipoFilaForzado = ov;
+      }
     }
   }
   if (invertidos.length > 0) {
@@ -111,6 +116,7 @@ export default function BorradorDetailClient({
   const [omitidas, setOmitidas] = useState<Record<number, boolean>>({});
   const [padres, setPadres] = useState<Record<number, number | null>>({});
   const [mover, setMover] = useState<{ filaNum: number | null } | null>(null);
+  const [gestionarAgrupadora, setGestionarAgrupadora] = useState<{ filaNum: number } | null>(null);
   const [enfoqueReubicacion, setEnfoqueReubicacion] = useState<{ origen: number; destino: number | null; secuencia: number } | null>(null);
   const [soloHojas, setSoloHojas] = useState(false); // export jerárquico: solo cuentan las hojas
   const [autoCorregido, setAutoCorregido] = useState(false); // «solo hojas» se activó por auto-corrección al abrir
@@ -135,22 +141,14 @@ export default function BorradorDetailClient({
   const nCambios = Object.keys(overrideEfectivo).length + invertidos.length + Object.keys(desacopladas).length + Object.keys(omitidas).length + Object.keys(padres).length;
   const hayCambios = nCambios > 0;
   // View-model recomputado LOCALMENTE con los cambios temporales (sin tocar la BD).
-  const { arbol, validacion, partidaDoble, hallazgos, porTercero: porTerceroCalculado, relistadoGuiones, filasOcultas, clasesCorregidas, nitTachados } = useMemo(() => construirVistaBorrador(aplicarCambios(filas, overrideEfectivo, invertidos, desacopladas, omitidas, padres)), [filas, overrideEfectivo, invertidos, desacopladas, omitidas, padres]);
+  const { arbol, validacion, partidaDoble, hallazgos, porTercero: porTerceroCalculado, relistadoGuiones, filasOcultas, clasesCorregidas, nitTachados } = useMemo(
+    () => construirVistaBorrador(
+      aplicarCambios(filas, overrideEfectivo, invertidos, desacopladas, omitidas, padres),
+      { preservarAgrupadorasForzadas: true },
+    ),
+    [filas, overrideEfectivo, invertidos, desacopladas, omitidas, padres],
+  );
   const porTercero = porTerceroDetectado || porTerceroCalculado;
-
-  // «⇄ Agrupadora» sobre una cuenta SIN detalle debajo NO surte efecto: al reconstruir el
-  // árbol, `reclasificarHuerfanas` la devuelve a movimiento para que su saldo no se pierda
-  // al cargar (una agrupadora se asume = Σ hijos, y no tiene). Sin avisar, el botón parece
-  // roto — el tipo no cambia — pero el cambio SÍ se cuenta y se memorizaría al guardar. Se
-  // detecta comparando lo pedido con el tipo REAL del árbol ya construido.
-  const agrupadorasSinEfecto = useMemo(() => {
-    const pedidas = Object.entries(override).filter(([, t]) => t === "agrupadora").map(([codigo]) => codigo);
-    if (pedidas.length === 0) return new Set<string>();
-    const agrupanAlgo = new Set<string>();
-    const rec = (n: NodoBorrador) => { if (n.tipoFila !== "movimiento") agrupanAlgo.add(n.codigo); n.hijos.forEach(rec); };
-    arbol.forEach(rec);
-    return new Set(pedidas.filter((codigo) => !agrupanAlgo.has(codigo)));
-  }, [override, arbol]);
 
   // AUTO-CORRECCIÓN de anidado por orden: en un export jerárquico (subtotales + auxiliares
   // como filas), «solo hojas» re-anida cada auxiliar bajo su subtotal por ORDEN. Se calcula
@@ -182,8 +180,13 @@ export default function BorradorDetailClient({
   const contexto = useMemo(() => contextoTabulador(arbol), [arbol]);
   const indiceReubicacion = useMemo(() => construirIndiceReubicacion(arbol), [arbol]);
 
-  const onReclasificar = (codigo: string, actual: NodoBorrador["tipoFila"]) =>
-    setOverride((o) => ({ ...o, [codigo]: actual === "movimiento" ? "agrupadora" : "movimiento" }));
+  const onReclasificar = (cuenta: NodoBorrador) => {
+    if (cuenta.tipoFila === "movimiento" || cuenta.tipoFila === "descuadre") {
+      setGestionarAgrupadora({ filaNum: cuenta.filaNum });
+      return;
+    }
+    setOverride((o) => ({ ...o, [cuenta.codigo]: "movimiento" }));
+  };
   const onInvertir = (codigo: string) => setInvertidos((inv) => (inv.includes(codigo) ? inv : [...inv, codigo]));
   const onDesacoplar = (codigo: string, desacopladaAhora: boolean) => setDesacopladas((d) => ({ ...d, [codigo]: !desacopladaAhora }));
   const onOmitir = (filaNum: number, omitidaAhora: boolean) => setOmitidas((o) => ({ ...o, [filaNum]: !omitidaAhora }));
@@ -192,6 +195,22 @@ export default function BorradorDetailClient({
     setPadres((m) => ({ ...m, [filaNum]: destino }));
     setEnfoqueReubicacion((actual) => ({ origen: filaNum, destino, secuencia: (actual?.secuencia ?? 0) + 1 }));
     setMover(null);
+  };
+  const confirmarAgrupadora = (filaNum: number, seleccionadas: number[]) => {
+    const origen = indiceReubicacion.porFila.get(filaNum);
+    if (!origen) return;
+    const seleccion = new Set(seleccionadas);
+    setOverride((actual) => ({ ...actual, [origen.codigo]: "agrupadora" }));
+    setPadres((actual) => {
+      const siguiente = { ...actual };
+      for (const cuenta of indiceReubicacion.cuentas) {
+        if (cuenta.padreManual === filaNum && !seleccion.has(cuenta.filaNum)) siguiente[cuenta.filaNum] = null;
+      }
+      for (const hija of seleccion) siguiente[hija] = filaNum;
+      return siguiente;
+    });
+    setEnfoqueReubicacion((actual) => ({ origen: filaNum, destino: null, secuencia: (actual?.secuencia ?? 0) + 1 }));
+    setGestionarAgrupadora(null);
   };
   const onDesindentar = (filaNum: number) => {
     const p = posiciones.get(filaNum);
@@ -435,7 +454,7 @@ export default function BorradorDetailClient({
             <button type="button" onClick={descartarCambios} disabled={!hayCambios || guardando} className="rounded-md border border-ink-300 px-3 py-1.5 text-[12px] font-medium text-ink-700 hover:bg-ink-50 disabled:opacity-45">Descartar cambios</button>
           </div>
         </div>
-        <ArbolTabla arbol={arbol} onReclasificar={onReclasificar} onInvertir={onInvertir} onDesacoplar={onDesacoplar} onOmitir={onOmitir} posiciones={posiciones} contexto={contexto} onUbicar={onUbicar} onDesindentar={onDesindentar} enfoqueReubicacion={enfoqueReubicacion} agrupadorasSinEfecto={agrupadorasSinEfecto} />
+        <ArbolTabla arbol={arbol} onReclasificar={onReclasificar} onGestionarAgrupadora={(filaNum) => setGestionarAgrupadora({ filaNum })} onInvertir={onInvertir} onDesacoplar={onDesacoplar} onOmitir={onOmitir} posiciones={posiciones} contexto={contexto} onUbicar={onUbicar} onDesindentar={onDesindentar} enfoqueReubicacion={enfoqueReubicacion} />
       </Card>
 
       {spec && (
@@ -458,6 +477,15 @@ export default function BorradorDetailClient({
 
       {mover != null && (
         <MoverModal indice={indiceReubicacion} filaNumInicial={mover.filaNum} onConfirmar={aplicarReubicacion} onClose={() => setMover(null)} />
+      )}
+
+      {gestionarAgrupadora != null && (
+        <GestionarAgrupadoraModal
+          indice={indiceReubicacion}
+          filaNum={gestionarAgrupadora.filaNum}
+          onConfirmar={confirmarAgrupadora}
+          onClose={() => setGestionarAgrupadora(null)}
+        />
       )}
 
       {promptPerfilSpec && (
@@ -704,6 +732,171 @@ const tipoVisibleCuenta = (cuenta: CuentaReubicacion) =>
 const rutaVisibleCuenta = (cuenta: CuentaReubicacion) =>
   cuenta.ruta.slice(-3).map((p) => `${p.codigoCrudo} ${p.nombre}`).join(" › ");
 
+const columnasComparacionAgrupadora = [
+  ["saldoInicial", "Saldo anterior"],
+  ["debitos", "Débito"],
+  ["creditos", "Crédito"],
+  ["saldoFinal", "Saldo actual"],
+] as const;
+
+/** Conversión manual Movimiento → Agrupadora, con sugerencia y control informativo. */
+function GestionarAgrupadoraModal({ indice, filaNum, onConfirmar, onClose }: {
+  indice: IndiceReubicacion;
+  filaNum: number;
+  onConfirmar: (filaNum: number, seleccionadas: number[]) => void;
+  onClose: () => void;
+}) {
+  const origen = indice.porFila.get(filaNum) ?? null;
+  const sugeridas = useMemo(() => sugerirMovimientosAgrupadora(indice, filaNum), [indice, filaNum]);
+  const hijasManuales = useMemo(
+    () => indice.cuentas.filter((cuenta) => cuenta.padreManual === filaNum).map((cuenta) => cuenta.filaNum),
+    [indice, filaNum],
+  );
+  const [seleccionadas, setSeleccionadas] = useState<Set<number>>(
+    () => new Set([...hijasManuales, ...sugeridas]),
+  );
+  const [buscar, setBuscar] = useState("");
+  const busqueda = useDeferredValue(normalizarBusquedaCuenta(buscar));
+  const candidatas = useMemo(() => {
+    const filas = indice.cuentas.filter((cuenta) =>
+      cuenta.filaNum !== filaNum &&
+      cuenta.tipoFila === "movimiento" &&
+      !cuenta.omitida &&
+      !cuenta.subtotalDuplicado &&
+      (busqueda === "" || cuenta.busqueda.includes(busqueda)),
+    );
+    return filas
+      .sort((a, b) => {
+        const selA = seleccionadas.has(a.filaNum);
+        const selB = seleccionadas.has(b.filaNum);
+        if (selA !== selB) return selA ? -1 : 1;
+        const sugA = sugeridas.includes(a.filaNum);
+        const sugB = sugeridas.includes(b.filaNum);
+        if (sugA !== sugB) return sugA ? -1 : 1;
+        return a.filaNum - b.filaNum;
+      })
+      .slice(0, 120);
+  }, [indice, filaNum, busqueda, seleccionadas, sugeridas]);
+  const filasSeleccionadas = useMemo(
+    () => [...seleccionadas].map((id) => indice.porFila.get(id)).filter((cuenta): cuenta is CuentaReubicacion => !!cuenta),
+    [seleccionadas, indice],
+  );
+  const comparacion = useMemo(
+    () => origen ? compararTotalesAgrupacion(origen, filasSeleccionadas) : null,
+    [origen, filasSeleccionadas],
+  );
+
+  if (!origen) return null;
+  const alternar = (id: number) => setSeleccionadas((actual) => {
+    const siguiente = new Set(actual);
+    if (siguiente.has(id)) siguiente.delete(id);
+    else siguiente.add(id);
+    return siguiente;
+  });
+  const aplicarSugerencia = () => setSeleccionadas(new Set(sugeridas));
+  const footer = (
+    <>
+      <button type="button" onClick={onClose} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] font-semibold text-ink-600 hover:bg-ink-50">Cancelar</button>
+      <button
+        type="button"
+        onClick={() => onConfirmar(filaNum, [...seleccionadas].sort((a, b) => a - b))}
+        className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600"
+      >
+        {origen.tipoFila === "agrupadora" ? "Actualizar agrupadora" : "Convertir en agrupadora"}
+      </button>
+    </>
+  );
+
+  return (
+    <Modal open onClose={onClose} title="Convertir cuenta en agrupadora" size="3xl" footer={footer}>
+      <div className="space-y-4 text-[12px]">
+        <div className="rounded-lg border border-blue-200 bg-blue-50/70 px-3 py-2.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-mono text-[11px] text-ink-500">{origen.codigoCrudo}</span>
+            <span className="font-semibold text-ink-800">{origen.nombre}</span>
+            <span className="rounded border border-blue-200 bg-white px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide text-navy-700">
+              {nombreNivelCuenta(origen.codigo)} · Agrupadora manual
+            </span>
+          </div>
+          <p className="mt-1.5 text-[11px] leading-relaxed text-ink-600">
+            Ajuste manual de auditoría. No modifica la lectura automática ni el análisis de IA. Puedes dejarla sin movimientos o elegir cualquiera de los movimientos del borrador.
+          </p>
+        </div>
+
+        <div className={`rounded-md border px-3 py-2 ${sugeridas.length > 0 ? "border-ok-200 bg-ok-100/40 text-ok-800" : "border-warn-200 bg-warn-50 text-warn-800"}`}>
+          <div className="flex items-center justify-between gap-3">
+            <span>
+              {sugeridas.length > 0
+                ? <><span className="font-semibold">Sugerencia encontrada:</span> {sugeridas.length} movimiento(s) consecutivo(s) suman los cuatro valores de esta cuenta.</>
+                : <><span className="font-semibold">Sin coincidencia exacta automática.</span> Busca y selecciona manualmente los movimientos que deseas anidar.</>}
+            </span>
+            {sugeridas.length > 0 && (
+              <button type="button" onClick={aplicarSugerencia} className="shrink-0 rounded-md border border-ok-300 bg-white px-2 py-1 text-[10.5px] font-semibold text-ok-700 hover:bg-ok-100">
+                Usar sugerencia
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div>
+          <div className="mb-1.5 flex items-center justify-between gap-3">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">Movimientos que quedarán debajo</span>
+            <span className="text-[10.5px] text-ink-400">{seleccionadas.size} seleccionado(s) · puede ser 0</span>
+          </div>
+          <div className="rounded-lg border border-ink-200 bg-ink-50/60 p-2">
+            <div className="flex items-center gap-2 rounded-md border border-ink-200 bg-white px-2.5 py-2 text-ink-400 focus-within:border-blue-300 focus-within:ring-2 focus-within:ring-blue-100">
+              <Icon name="search" size={14} />
+              <input value={buscar} onChange={(e) => setBuscar(e.target.value)} placeholder="Buscar movimiento por código o nombre…" className="w-full bg-transparent text-[12.5px] text-ink-800 outline-none placeholder:text-ink-400" />
+            </div>
+            <div className="mt-2 max-h-60 space-y-1 overflow-y-auto" role="listbox" aria-label="Movimientos que se anidarán">
+              {candidatas.map((cuenta) => {
+                const elegida = seleccionadas.has(cuenta.filaNum);
+                const sugerida = sugeridas.includes(cuenta.filaNum);
+                return (
+                  <label key={cuenta.filaNum} className={`flex cursor-pointer items-center gap-2 rounded-md border px-2.5 py-2 ${elegida ? "border-blue-300 bg-blue-50" : "border-transparent bg-white hover:border-blue-200 hover:bg-blue-50/50"}`}>
+                    <input type="checkbox" checked={elegida} onChange={() => alternar(cuenta.filaNum)} />
+                    <span className="w-24 shrink-0 font-mono text-[11px] text-ink-500">{cuenta.codigoCrudo}</span>
+                    <span className="min-w-0 flex-1 truncate font-medium text-ink-800" title={cuenta.nombre}>{cuenta.nombre}</span>
+                    {sugerida && <span className="shrink-0 rounded-full bg-ok-100 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-ok-700">Sugerido</span>}
+                    <span className="shrink-0 rounded border border-blue-100 bg-blue-100 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-navy-700">{nombreNivelCuenta(cuenta.codigo)} · Movimiento</span>
+                  </label>
+                );
+              })}
+              {candidatas.length === 0 && <div className="px-3 py-6 text-center text-ink-400">No encontramos movimientos con esa búsqueda.</div>}
+            </div>
+          </div>
+        </div>
+
+        {comparacion && (
+          <div>
+            <div className={`mb-2 rounded-md border px-3 py-2 ${comparacion.coincide ? "border-ok-200 bg-ok-100/40 text-ok-800" : "border-warn-200 bg-warn-50 text-warn-800"}`}>
+              <span className="font-semibold">{comparacion.coincide ? "Los cuatro valores coinciden." : "Los valores seleccionados no coinciden completamente."}</span>{" "}
+              Este control es informativo y no impide convertir ni guardar la cuenta.
+            </div>
+            <div className="overflow-hidden rounded-lg border border-ink-200">
+              <table className="w-full border-collapse text-[11px]">
+                <thead className="bg-ink-50 text-ink-500">
+                  <tr><th className="px-3 py-2 text-left font-semibold">Control</th><th className="px-3 py-2 text-right font-semibold">Cuenta</th><th className="px-3 py-2 text-right font-semibold">Seleccionados</th><th className="px-3 py-2 text-right font-semibold">Diferencia</th></tr>
+                </thead>
+                <tbody>
+                  {columnasComparacionAgrupadora.map(([campo, etiqueta]) => (
+                    <tr key={campo} className="border-t border-ink-100">
+                      <td className="px-3 py-2 font-medium text-ink-700">{etiqueta}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(comparacion.objetivo[campo])}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(comparacion.seleccion[campo])}</td>
+                      <td className={`px-3 py-2 text-right tabular-nums font-semibold ${Math.abs(comparacion.diferencias[campo]) <= 1 ? "text-ok-700" : "text-warn-800"}`}>{fmtContable(comparacion.diferencias[campo])}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 /** Modal único: desde la acción global busca origen; desde la fila lo preselecciona. */
 function MoverModal({ indice, filaNumInicial, onConfirmar, onClose }: {
   indice: IndiceReubicacion;
@@ -846,7 +1039,7 @@ function MoverModal({ indice, filaNumInicial, onConfirmar, onClose }: {
   );
 }
 
-function ArbolTabla({ arbol, onReclasificar, onInvertir, onDesacoplar, onOmitir, posiciones, contexto, onUbicar, onDesindentar, enfoqueReubicacion, agrupadorasSinEfecto }: { arbol: NodoBorrador[]; onReclasificar: (codigo: string, actual: NodoBorrador["tipoFila"]) => void; onInvertir: (codigo: string) => void; onDesacoplar: (codigo: string, desacopladaAhora: boolean) => void; onOmitir: (filaNum: number, omitidaAhora: boolean) => void; posiciones: Map<number, Posicion>; contexto: Map<number, ContextoNodo>; onUbicar: (filaNum: number) => void; onDesindentar: (filaNum: number) => void; enfoqueReubicacion: { origen: number; destino: number | null; secuencia: number } | null; agrupadorasSinEfecto: Set<string> }) {
+function ArbolTabla({ arbol, onReclasificar, onGestionarAgrupadora, onInvertir, onDesacoplar, onOmitir, posiciones, contexto, onUbicar, onDesindentar, enfoqueReubicacion }: { arbol: NodoBorrador[]; onReclasificar: (cuenta: NodoBorrador) => void; onGestionarAgrupadora: (filaNum: number) => void; onInvertir: (codigo: string) => void; onDesacoplar: (codigo: string, desacopladaAhora: boolean) => void; onOmitir: (filaNum: number, omitidaAhora: boolean) => void; posiciones: Map<number, Posicion>; contexto: Map<number, ContextoNodo>; onUbicar: (filaNum: number) => void; onDesindentar: (filaNum: number) => void; enfoqueReubicacion: { origen: number; destino: number | null; secuencia: number } | null }) {
   const { filaSeleccionada, setFilaSeleccionada, onClickFila, onDoubleClickFila } = useSeleccionFilaTabla();
   const tablaRef = useRef<HTMLDivElement>(null);
   const [destinoDestacado, setDestinoDestacado] = useState<number | null>(null);
@@ -1067,16 +1260,26 @@ function ArbolTabla({ arbol, onReclasificar, onInvertir, onDesacoplar, onOmitir,
             {n.tipoFila !== "total" && /^\d+$/.test(n.codigo) && (
               <button
                 type="button"
-                onClick={() => onReclasificar(n.codigo, n.tipoFila)}
-                title={esMov ? "Marcar esta cuenta como AGRUPADORA (dejará de cargarse)" : "Marcar esta cuenta como MOVIMIENTO (se cargará su saldo)"}
+                onClick={() => onReclasificar(n)}
+                title={esMov ? "Convertir manualmente esta cuenta en AGRUPADORA y elegir sus movimientos." : "Marcar esta cuenta como MOVIMIENTO (se cargará su saldo)"}
                 className="rounded border border-ink-200 px-1.5 py-0.5 text-[10px] font-medium text-ink-500 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
               >
                 {esMov ? "⇄ Agrupadora" : "⇄ Movimiento"}
               </button>
             )}
-            {agrupadorasSinEfecto.has(n.codigo) && (
-              <span title="Pediste marcarla como AGRUPADORA, pero no tiene ninguna cuenta colgando: una agrupadora se asume igual a la suma de sus hijas, así que se dejaría sin saldo y su plata se perdería al cargar. Por eso el borrador la mantiene como MOVIMIENTO. Si lo que quieres es que NO cuente, usa la ✕ (omitir).">
-                <Chip label="Sin detalle debajo · sigue como movimiento" tone="warn" />
+            {esAgrupadora && n.tipoFilaForzado === "agrupadora" && (
+              <button
+                type="button"
+                onClick={() => onGestionarAgrupadora(n.filaNum)}
+                title="Seleccionar o ajustar los movimientos que quedarán debajo de esta agrupadora manual."
+                className="rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 hover:bg-blue-100"
+              >
+                + Movimientos
+              </button>
+            )}
+            {esAgrupadora && n.tipoFilaForzado === "agrupadora" && !hasHijos && (
+              <span title="La decisión manual se conserva. Si permanece vacía al cargar el balance oficial, su propio saldo se tratará como movimiento para evitar que se pierda dinero.">
+                <Chip label="Agrupadora manual sin movimientos" tone="warn" />
               </span>
             )}
             {ladosInv && (
