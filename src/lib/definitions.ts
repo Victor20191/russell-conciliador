@@ -163,6 +163,24 @@ export const ActualizarPromptSchema = z.object({
   contenido: z.string().trim().min(20, { error: "El prompt debe tener al menos 20 caracteres." }),
 });
 
+// Edición de un umbral de alertas del balance (Administrador/Superadministrador).
+// `clave` identifica el umbral del catálogo (descuadre | naturaleza); el valor es
+// un monto en pesos. Se acepta lo que el usuario escribe con separadores de miles
+// («50.000», «50 000») y se normaliza a número entero: la BD guarda Decimal(18,2)
+// pero los umbrales son montos redondos, no fracciones de peso.
+export const ActualizarUmbralSchema = z.object({
+  clave: z.string().trim().min(1, { error: "Umbral inválido." }),
+  valor: z
+    .string()
+    .trim()
+    .min(1, { error: "Escribe un monto." })
+    .transform((s) => s.replace(/[^\d]/g, ""))
+    .refine((s) => s.length > 0, { error: "El monto solo puede tener dígitos." })
+    .transform((s) => Number(s))
+    .refine((n) => Number.isSafeInteger(n), { error: "El monto es demasiado grande." })
+    .refine((n) => n <= 1_000_000_000, { error: "El monto no puede superar $1.000.000.000." }),
+});
+
 export const PasswordSchema = z
   .string()
   .min(10, { error: "La contraseña debe tener al menos 10 caracteres." })

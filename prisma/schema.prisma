@@ -1202,3 +1202,20 @@ model PromptIA {
 
   @@map("prompts_ia")
 }
+
+// Umbrales de las alertas del balance, parametrizables desde /config/parametros
+// (permiso `parametros:administrar`). Son GLOBALES de plataforma: una fila por
+// umbral conocido, identificada por `clave`. `predeterminado` conserva el valor
+// de fábrica para poder restaurarlo. El catálogo de umbrales conocidos (nombres,
+// descripciones y valores de fábrica) vive en `src/lib/balance/umbrales-alertas.ts`.
+model UmbralAlerta {
+  id             Int      @id @default(autoincrement()) @map("id")
+  clave          String   @unique @map("clave") // identificador estable: "descuadre", "naturaleza"
+  valor          Decimal  @map("valor") @db.Decimal(18, 2) // monto vigente en pesos
+  predeterminado Decimal  @map("predeterminado") @db.Decimal(18, 2) // valor de fábrica (para "restaurar")
+  actualizadoPor String?  @map("actualizado_por")
+  actualizadoEn  DateTime @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+  creadoEn       DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  @@map("umbrales_alertas")
+}

@@ -7,6 +7,7 @@ import { SpecCargaBalanceSchema } from "@/lib/definitions";
 import type { SpecCarga } from "@/lib/balance/extraccion/esquema";
 import { fechaCalendarioISO } from "@/lib/fecha-hora";
 import { stagingBorradorLote } from "@/lib/balance/staging-borrador";
+import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
 import BorradorDetailClient from "./borrador-detail-client";
 
 const soloDigitos = (s: string) => (s ?? "").replace(/\D/g, "");
@@ -21,9 +22,12 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
   // `stagingBorradorLote`; toda escritura la invalida con `invalidarStagingBorrador`.
   // El alcance depende de la sesión, así que corre fuera del caché, en paralelo.
   const alcancePromise = alcanceLecturaUsuario();
-  const [lote, staging] = await Promise.all([
+  const [lote, staging, umbrales] = await Promise.all([
     prisma.balanceImportacionLote.findUnique({ where: { loteId } }),
     stagingBorradorLote(loteId),
+    // Umbrales de alerta vigentes (parametrizables en /config/parametros). El
+    // borrador recalcula sus validaciones en el cliente, así que viajan por props.
+    getUmbralesAlertas(),
   ]);
   if (!staging) notFound();
 
@@ -72,6 +76,7 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
         clienteSugeridoId={clienteSugeridoId}
         spec={spec}
         correccionesAplicadas={lote?.correccionesAplicadas ?? 0}
+        umbrales={umbrales}
       />
     </div>
   );

@@ -12,7 +12,7 @@ import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import { asignarCuentaEstandar, validarAlerta, revertirValidacionAlerta, eliminarDetalleBalance } from "@/app/actions/balance";
 import Conversacion from "@/components/conversacion";
 import type { NodoBalance } from "@/lib/balance/calcular";
-import { esSaldoContrarioAccionable, esSaldoContrarioInformativo, UMBRAL_NATURALEZA_ALERTA } from "@/lib/balance/umbrales-alertas";
+import { esSaldoContrarioAccionable, esSaldoContrarioInformativo, type UmbralesAlertas } from "@/lib/balance/umbrales-alertas";
 import { useSeleccionFilaTabla } from "@/app/(app)/balance/use-seleccion-fila-tabla";
 
 export type ValidacionInfo = { tipo: string; por: string; en: string; comentario: string };
@@ -24,6 +24,8 @@ type ValCtx = {
   codigoRevirtiendo: string | null;
   onOk: (n: NodoBalance, tipo: string) => void;
   onRevertir: (code: string) => void;
+  /** Umbrales de alerta vigentes (parametrizables en /config/parametros). */
+  umbrales: UmbralesAlertas;
 };
 
 export type Sums = { activo: number; pasivo: number; patrimonio: number; ingresos: number; gastos: number; costos: number; utilidad: number };
@@ -43,9 +45,11 @@ const CLASES_ER = new Set(["4", "5", "6", "7"]);
 const NIVEL_LABEL: Record<number, string> = { 1: "Clase", 2: "Grupo", 4: "Cuenta", 6: "Subcuenta", 8: "Auxiliar" };
 
 export default function BalanceDetailClient({
-  arbol, estandar, puedeMapear, validations, versions, officialVersion, warnCount, balanceId, comentarios, validaciones, puedeValidar, puedeEliminar, sums, balanced, diffCuadre,
+  arbol, estandar, puedeMapear, validations, versions, officialVersion, warnCount, balanceId, comentarios, validaciones, puedeValidar, puedeEliminar, sums, balanced, diffCuadre, umbrales,
 }: {
   arbol: NodoBalance[]; estandar: EstandarOpcion[]; puedeMapear: boolean; validations: Validation[]; versions: Version[]; officialVersion: string; warnCount: number; balanceId: number; comentarios: Record<string, number>; validaciones: Record<string, ValidacionInfo>; puedeValidar: boolean; puedeEliminar: boolean; sums: Sums; balanced: boolean; diffCuadre: number;
+  /** Umbrales de alerta vigentes (parametrizables en /config/parametros). */
+  umbrales: UmbralesAlertas;
 }) {
   const [tab, setTab] = useState<Tab>("breakdown");
   return (
@@ -56,7 +60,7 @@ export default function BalanceDetailClient({
         <TabBtn on={tab === "versions"} onClick={() => setTab("versions")} label="Versiones" count={versions.length} />
         <TabBtn on={tab === "clases"} onClick={() => setTab("clases")} label="Saldos por clase" />
       </div>
-      {tab === "breakdown" && <BreakdownTab arbol={arbol} estandar={estandar} puedeMapear={puedeMapear} balanceId={balanceId} comentarios={comentarios} validaciones={validaciones} puedeValidar={puedeValidar} puedeEliminar={puedeEliminar} />}
+      {tab === "breakdown" && <BreakdownTab arbol={arbol} estandar={estandar} puedeMapear={puedeMapear} balanceId={balanceId} comentarios={comentarios} validaciones={validaciones} puedeValidar={puedeValidar} puedeEliminar={puedeEliminar} umbrales={umbrales} />}
       {tab === "validations" && <ValidationsTab validations={validations} />}
       {tab === "versions" && <VersionsTab versions={versions} officialVersion={officialVersion} />}
       {tab === "clases" && <ClasesTab sums={sums} balanced={balanced} diffCuadre={diffCuadre} />}
@@ -74,17 +78,17 @@ function keysConHijos(nodos: NodoBalance[]): string[] {
 
 /** ¿Hoja con alerta? Cuenta sin mapear (mapeo) o con naturaleza/saldo contrario NO
  *  validada (una alerta de saldo con OK+comentario deja de contar). */
-function esHojaAlerta(n: NodoBalance, validados: Set<string>): boolean {
+function esHojaAlerta(n: NodoBalance, validados: Set<string>, umbrales: UmbralesAlertas): boolean {
   const mapeado = n.nivel === 8 ? !!n.std : n.mapped;
-  return !mapeado || (esSaldoContrarioAccionable(n.balance, n.saldoOk) && !validados.has(n.code));
+  return !mapeado || (esSaldoContrarioAccionable(n.balance, n.saldoOk, umbrales) && !validados.has(n.code));
 }
 
 /** Poda el árbol dejando solo las ramas con alertas (filtro "Alertas"). */
-function podarAlertas(nodos: NodoBalance[], validados: Set<string>): NodoBalance[] {
+function podarAlertas(nodos: NodoBalance[], validados: Set<string>, umbrales: UmbralesAlertas): NodoBalance[] {
   const out: NodoBalance[] = [];
   for (const n of nodos) {
-    const hijos = podarAlertas(n.hijos, validados);
-    const self = (n.hijos.length === 0 && esHojaAlerta(n, validados)) || (n.nivel === 6 && !n.mapped);
+    const hijos = podarAlertas(n.hijos, validados, umbrales);
+    const self = (n.hijos.length === 0 && esHojaAlerta(n, validados, umbrales)) || (n.nivel === 6 && !n.mapped);
     if (hijos.length > 0 || self) out.push({ ...n, hijos });
   }
   return out;
@@ -104,7 +108,7 @@ function podarBusqueda(nodos: NodoBalance[], needle: string): NodoBalance[] {
 
 /** Cuenta de alertas (mapeo / naturaleza) por nodo, sumando sus hojas. Las alertas
  *  de saldo VALIDADAS (OK+comentario) no cuentan. */
-function contarAlertas(arbol: NodoBalance[], validados: Set<string>): Map<string, Conteo> {
+function contarAlertas(arbol: NodoBalance[], validados: Set<string>, umbrales: UmbralesAlertas): Map<string, Conteo> {
   const m = new Map<string, Conteo>();
   const walk = (n: NodoBalance): Conteo => {
     let r: Conteo;
@@ -112,7 +116,7 @@ function contarAlertas(arbol: NodoBalance[], validados: Set<string>): Map<string
       const mapeado = n.nivel === 8 ? !!n.std : n.mapped;
       r = {
         mapeo: mapeado ? 0 : 1,
-        naturaleza: esSaldoContrarioAccionable(n.balance, n.saldoOk) && !validados.has(n.code) ? 1 : 0,
+        naturaleza: esSaldoContrarioAccionable(n.balance, n.saldoOk, umbrales) && !validados.has(n.code) ? 1 : 0,
       };
     } else {
       r = n.hijos.reduce<Conteo>((a, h) => { const c = walk(h); return { mapeo: a.mapeo + c.mapeo, naturaleza: a.naturaleza + c.naturaleza }; }, { mapeo: 0, naturaleza: 0 });
@@ -124,7 +128,7 @@ function contarAlertas(arbol: NodoBalance[], validados: Set<string>): Map<string
   return m;
 }
 
-function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, validaciones, puedeValidar, puedeEliminar }: { arbol: NodoBalance[]; estandar: EstandarOpcion[]; puedeMapear: boolean; balanceId: number; comentarios: Record<string, number>; validaciones: Record<string, ValidacionInfo>; puedeValidar: boolean; puedeEliminar: boolean }) {
+function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, validaciones, puedeValidar, puedeEliminar, umbrales }: { arbol: NodoBalance[]; estandar: EstandarOpcion[]; puedeMapear: boolean; balanceId: number; comentarios: Record<string, number>; validaciones: Record<string, ValidacionInfo>; puedeValidar: boolean; puedeEliminar: boolean; umbrales: UmbralesAlertas }) {
   const router = useRouter();
   const [filtro, setFiltro] = useState<Filtro>("todo");
   const [q, setQ] = useState("");
@@ -148,6 +152,7 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, va
     mapa: validaciones,
     revirtiendo,
     codigoRevirtiendo,
+    umbrales,
     onOk: (nodo, tipo) => setValidar({ nodo, tipo }),
     onRevertir: (code) => {
       setCodigoRevirtiendo(code);
@@ -164,7 +169,7 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, va
   };
 
   // Conteo de alertas (mapeo / naturaleza) por nodo + totales del balance.
-  const conteos = useMemo(() => contarAlertas(arbol, validados), [arbol, validados]);
+  const conteos = useMemo(() => contarAlertas(arbol, validados, umbrales), [arbol, validados, umbrales]);
   const totales = useMemo(
     () => arbol.reduce<Conteo>((a, n) => { const c = conteos.get(n.key); return { mapeo: a.mapeo + (c?.mapeo ?? 0), naturaleza: a.naturaleza + (c?.naturaleza ?? 0) }; }, { mapeo: 0, naturaleza: 0 }),
     [arbol, conteos],
@@ -175,11 +180,11 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, va
     let base: NodoBalance[];
     if (filtro === "balance") base = arbol.filter((n) => CLASES_BALANCE.has(n.clase));
     else if (filtro === "er") base = arbol.filter((n) => CLASES_ER.has(n.clase));
-    else if (filtro === "alertas") base = podarAlertas(arbol, validados);
+    else if (filtro === "alertas") base = podarAlertas(arbol, validados, umbrales);
     else base = arbol;
     const needle = q.trim().toLowerCase();
     return needle ? podarBusqueda(base, needle) : base;
-  }, [arbol, filtro, q, validados]);
+  }, [arbol, filtro, q, validados, umbrales]);
 
   // En el filtro "Alertas" el árbol podado se muestra totalmente expandido.
   const openEff = useMemo(() => (filtro === "alertas" || q.trim() ? new Set(keysConHijos(visible)) : open), [filtro, visible, open, q]);
@@ -319,10 +324,10 @@ function celdaValidacion(nodo: NodoBalance, val: ValCtx): React.ReactNode {
   if (nodo.saldoOk) return nodo.nivel === 6 && nodo.mapped ? <Chip label="OK" tone="ok" /> : null;
   const tipo = nodo.nivel === 8 ? "naturaleza" : "saldo_contrario";
   const label = nodo.nivel === 8 ? "Naturaleza" : "Saldo contrario";
-  if (esSaldoContrarioInformativo(nodo.balance, nodo.saldoOk)) {
+  if (esSaldoContrarioInformativo(nodo.balance, nodo.saldoOk, val.umbrales)) {
     return (
       <span
-        title={`Saldo contrario de hasta ${fmt(UMBRAL_NATURALEZA_ALERTA)}: se muestra como información y no requiere “Dar OK”.`}
+        title={`Saldo contrario de hasta ${fmt(val.umbrales.naturaleza)}: se muestra como información y no requiere “Dar OK”.`}
         className="inline-flex items-center rounded border border-err-100 bg-err-100/35 px-1.5 py-0.5 text-[10px] font-medium text-err-500"
       >
         {label} · informativo

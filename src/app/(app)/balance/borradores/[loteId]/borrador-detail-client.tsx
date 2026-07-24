@@ -33,7 +33,7 @@ import {
 import { nombreNivelCuenta } from "@/lib/balance/nivel-cuenta";
 import type { ValidacionContable } from "@/lib/balance/calcular";
 import type { Hallazgo } from "@/lib/balance/diagnostico";
-import { esDescuadreAccionable, esDescuadreInformativo, UMBRAL_DESCUADRE_ALERTA } from "@/lib/balance/umbrales-alertas";
+import { esDescuadreAccionable, esDescuadreInformativo, type UmbralesAlertas } from "@/lib/balance/umbrales-alertas";
 import {
   esDescuadreDelArchivoFuente,
   MAX_COMENTARIO_PROMOCION,
@@ -90,7 +90,7 @@ function aplicarCambios(
 }
 
 export default function BorradorDetailClient({
-  loteId, archivoNombre, nitDetectado, periodoInicial, periodoFinal, filasCompactas, porTerceroDetectado, clientes, clienteSugeridoId, spec, correccionesAplicadas,
+  loteId, archivoNombre, nitDetectado, periodoInicial, periodoFinal, filasCompactas, porTerceroDetectado, clientes, clienteSugeridoId, spec, correccionesAplicadas, umbrales,
 }: {
   loteId: string;
   archivoNombre: string;
@@ -105,6 +105,8 @@ export default function BorradorDetailClient({
   clienteSugeridoId: number | null;
   spec: SpecCarga | null;
   correccionesAplicadas: number;
+  /** Umbrales de alerta vigentes (parametrizables en /config/parametros). */
+  umbrales: UmbralesAlertas;
 }) {
   const router = useRouter();
   // Una sola expansión por payload; el resto del componente trabaja con las filas
@@ -157,9 +159,9 @@ export default function BorradorDetailClient({
   const { arbol, validacion, partidaDoble, hallazgos, porTercero: porTerceroCalculado, relistadoGuiones, filasOcultas, clasesCorregidas, nitTachados } = useMemo(
     () => construirVistaBorrador(
       aplicarCambios(filas, overrideEfectivo, invertidos, desacopladas, omitidas, padres),
-      { preservarAgrupadorasForzadas: true },
+      { preservarAgrupadorasForzadas: true, umbrales },
     ),
-    [filas, overrideEfectivo, invertidos, desacopladas, omitidas, padres],
+    [filas, overrideEfectivo, invertidos, desacopladas, omitidas, padres, umbrales],
   );
   const porTercero = porTerceroDetectado || porTerceroCalculado;
   const advertenciaArchivoFuente = esDescuadreDelArchivoFuente(
@@ -424,6 +426,7 @@ export default function BorradorDetailClient({
         v={validacion}
         pd={partidaDoble}
         ocultarEcuacion={advertenciaArchivoFuente}
+        umbrales={umbrales}
       />
       {advertenciaArchivoFuente ? (
         <AdvertenciaArchivoFuente
@@ -499,7 +502,7 @@ export default function BorradorDetailClient({
             <button type="button" onClick={descartarCambios} disabled={!hayCambios || guardando} className="rounded-md border border-ink-300 px-3 py-1.5 text-[12px] font-medium text-ink-700 hover:bg-ink-50 disabled:opacity-45">Descartar cambios</button>
           </div>
         </div>
-        <ArbolTabla arbol={arbol} onReclasificar={onReclasificar} onGestionarAgrupadora={(filaNum) => setGestionarAgrupadora({ filaNum })} onInvertir={onInvertir} onDesacoplar={onDesacoplar} onOmitir={onOmitir} posiciones={posiciones} contexto={contexto} onUbicar={onUbicar} onDesindentar={onDesindentar} enfoqueReubicacion={enfoqueReubicacion} />
+        <ArbolTabla arbol={arbol} onReclasificar={onReclasificar} onGestionarAgrupadora={(filaNum) => setGestionarAgrupadora({ filaNum })} onInvertir={onInvertir} onDesacoplar={onDesacoplar} onOmitir={onOmitir} posiciones={posiciones} contexto={contexto} onUbicar={onUbicar} onDesindentar={onDesindentar} enfoqueReubicacion={enfoqueReubicacion} umbrales={umbrales} />
       </Card>
 
       {spec && (
@@ -671,14 +674,16 @@ function ValidacionHeader({
   v,
   pd,
   ocultarEcuacion,
+  umbrales,
 }: {
   v: ValidacionContable;
   pd: { debitos: number; creditos: number; diff: number; cuadra: boolean };
   ocultarEcuacion: boolean;
+  umbrales: UmbralesAlertas;
 }) {
   const ecOk = v.ecuacionCuadra;
-  const pdInformativo = !pd.cuadra && esDescuadreInformativo(pd.diff);
-  const ecInformativo = !ecOk && esDescuadreInformativo(v.ecuacionDiff);
+  const pdInformativo = !pd.cuadra && esDescuadreInformativo(pd.diff, umbrales);
+  const ecInformativo = !ecOk && esDescuadreInformativo(v.ecuacionDiff, umbrales);
   const tonoPartida = pd.cuadra
     ? "border-ok-100 bg-ok-100/40 text-ok-700"
     : pdInformativo
@@ -693,24 +698,24 @@ function ValidacionHeader({
     <div className="flex flex-col gap-2.5">
       <div className={`rounded-md border px-3 py-2 text-[12px] ${tonoPartida}`}>
         <span className="font-semibold">{pd.cuadra ? "Cuadra:" : pdInformativo ? "Diferencia informativa:" : "No coinciden:"}</span> partida doble · débitos <span className="font-semibold">{fmt(pd.debitos)}</span> vs créditos <span className="font-semibold">{fmt(pd.creditos)}</span> · diferencia <span className="font-semibold">{fmt(pd.diff)}</span>
-        {pdInformativo && <span> · menor a {fmt(UMBRAL_DESCUADRE_ALERTA)}, no cuenta como alerta</span>}
+        {pdInformativo && <span> · menor a {fmt(umbrales.descuadre)}, no cuenta como alerta</span>}
       </div>
       {ocultarEcuacion ? null : (
         <div className={`rounded-md border px-3 py-2 text-[12px] ${tonoEcuacion}`}>
           <span className="font-semibold">{ecOk ? "Cuadra:" : ecInformativo ? "Diferencia informativa:" : "No cuadra:"}</span> Activo = Pasivo + Patrimonio + Resultado · diferencia <span className="font-semibold">{fmt(v.ecuacionDiff)}</span>
-          {ecInformativo ? <span> · menor a {fmt(UMBRAL_DESCUADRE_ALERTA)}, no cuenta como alerta</span> : null}
+          {ecInformativo ? <span> · menor a {fmt(umbrales.descuadre)}, no cuenta como alerta</span> : null}
         </div>
       )}
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-        <ClaseCard label="Activo" calc={v.activo} archivo={v.activoArchivo} cuadra={v.activoCuadra} diff={v.activoDiff} />
-        <ClaseCard label="Pasivo" calc={v.pasivo} archivo={v.pasivoArchivo} cuadra={v.pasivoCuadra} diff={v.pasivoDiff} />
-        <ClaseCard label="Patrimonio" calc={v.patrimonio} archivo={v.patrimonioArchivo} cuadra={v.patrimonioCuadra} diff={v.patrimonioDiff} />
+        <ClaseCard label="Activo" calc={v.activo} archivo={v.activoArchivo} cuadra={v.activoCuadra} diff={v.activoDiff} umbrales={umbrales} />
+        <ClaseCard label="Pasivo" calc={v.pasivo} archivo={v.pasivoArchivo} cuadra={v.pasivoCuadra} diff={v.pasivoDiff} umbrales={umbrales} />
+        <ClaseCard label="Patrimonio" calc={v.patrimonio} archivo={v.patrimonioArchivo} cuadra={v.patrimonioCuadra} diff={v.patrimonioDiff} umbrales={umbrales} />
       </div>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <MiniDato k="Ingresos" v={v.ingresos} archivo={v.ingresosArchivo} cuadra={v.ingresosCuadra} diff={v.ingresosDiff} />
-        <MiniDato k="Gastos" v={v.gastos} archivo={v.gastosArchivo} cuadra={v.gastosCuadra} diff={v.gastosDiff} />
-        <MiniDato k="Costos" v={v.costos} archivo={v.costosArchivo} cuadra={v.costosCuadra} diff={v.costosDiff} />
-        <MiniDato k="Resultado" v={v.resultado} archivo={v.resultadoArchivo} cuadra={v.resultadoCuadra} diff={v.resultadoDiff} />
+        <MiniDato k="Ingresos" v={v.ingresos} archivo={v.ingresosArchivo} cuadra={v.ingresosCuadra} diff={v.ingresosDiff} umbrales={umbrales} />
+        <MiniDato k="Gastos" v={v.gastos} archivo={v.gastosArchivo} cuadra={v.gastosCuadra} diff={v.gastosDiff} umbrales={umbrales} />
+        <MiniDato k="Costos" v={v.costos} archivo={v.costosArchivo} cuadra={v.costosCuadra} diff={v.costosDiff} umbrales={umbrales} />
+        <MiniDato k="Resultado" v={v.resultado} archivo={v.resultadoArchivo} cuadra={v.resultadoCuadra} diff={v.resultadoDiff} umbrales={umbrales} />
       </div>
     </div>
   );
@@ -915,8 +920,8 @@ function AdvertenciaArchivoFuente({
   );
 }
 
-function ClaseCard({ label, calc, archivo, cuadra, diff }: { label: string; calc: number; archivo: number | null; cuadra: boolean | null; diff: number | null }) {
-  const informativo = cuadra === false && esDescuadreInformativo(diff);
+function ClaseCard({ label, calc, archivo, cuadra, diff, umbrales }: { label: string; calc: number; archivo: number | null; cuadra: boolean | null; diff: number | null; umbrales: UmbralesAlertas }) {
+  const informativo = cuadra === false && esDescuadreInformativo(diff, umbrales);
   const tono = cuadra == null ? "border-ink-150 bg-ink-50" : cuadra ? "border-ok-100 bg-ok-100/40" : informativo ? "border-err-100 bg-err-100/30" : "border-err-200 bg-err-50";
   return (
     <div className={`rounded-md border px-3 py-2 ${tono}`}>
@@ -935,8 +940,8 @@ function ClaseCard({ label, calc, archivo, cuadra, diff }: { label: string; calc
   );
 }
 
-function MiniDato({ k, v, archivo, cuadra, diff }: { k: string; v: number; archivo: number | null; cuadra: boolean | null; diff: number | null }) {
-  const informativo = cuadra === false && esDescuadreInformativo(diff);
+function MiniDato({ k, v, archivo, cuadra, diff, umbrales }: { k: string; v: number; archivo: number | null; cuadra: boolean | null; diff: number | null; umbrales: UmbralesAlertas }) {
+  const informativo = cuadra === false && esDescuadreInformativo(diff, umbrales);
   const tono = cuadra == null ? "border-ink-150 bg-ink-50" : cuadra ? "border-ok-100 bg-ok-100/40" : informativo ? "border-err-100 bg-err-100/30" : "border-err-200 bg-err-50";
   return (
     <div className={`rounded-md border px-2.5 py-1.5 ${tono}`}>
@@ -1003,15 +1008,15 @@ const controlCuadraFila = (si: number, db: number, cr: number, s: number) => Mat
  * descuadra la partida doble) o marcado «descuadre» (no cuadra en ninguna orientación).
  * Las filas omitidas no alertan.
  */
-const esAlertaNodo = (n: NodoBorrador): boolean => {
-  if (esDescuadreAccionable(n.descuadre)) return true;
+const esAlertaNodo = (n: NodoBorrador, umbrales: UmbralesAlertas): boolean => {
+  if (esDescuadreAccionable(n.descuadre, umbrales)) return true;
   if (n.omitida) return false;
   const diferenciaControl = n.saldoInicial + n.debitos - n.creditos - n.saldoFinal;
-  if (n.tipoFila === "descuadre") return esDescuadreAccionable(diferenciaControl);
+  if (n.tipoFila === "descuadre") return esDescuadreAccionable(diferenciaControl, umbrales);
   if (n.tipoFila !== "movimiento") return false;
   return !controlCuadraFila(n.saldoInicial, n.debitos, n.creditos, n.saldoFinal)
     && controlCuadraFila(n.saldoInicial, n.creditos, n.debitos, n.saldoFinal)
-    && esDescuadreAccionable(2 * (n.creditos - n.debitos));
+    && esDescuadreAccionable(2 * (n.creditos - n.debitos), umbrales);
 };
 
 // Posición de cada nodo para el TABULADOR: `prev` = filaNum del hermano anterior (para
@@ -1341,7 +1346,7 @@ function MoverModal({ indice, filaNumInicial, onConfirmar, onClose }: {
   );
 }
 
-function ArbolTabla({ arbol, onReclasificar, onGestionarAgrupadora, onInvertir, onDesacoplar, onOmitir, posiciones, contexto, onUbicar, onDesindentar, enfoqueReubicacion }: { arbol: NodoBorrador[]; onReclasificar: (cuenta: NodoBorrador) => void; onGestionarAgrupadora: (filaNum: number) => void; onInvertir: (codigo: string) => void; onDesacoplar: (codigo: string, desacopladaAhora: boolean) => void; onOmitir: (filaNum: number, omitidaAhora: boolean) => void; posiciones: Map<number, Posicion>; contexto: Map<number, ContextoNodo>; onUbicar: (filaNum: number) => void; onDesindentar: (filaNum: number) => void; enfoqueReubicacion: { origen: number; destino: number | null; secuencia: number } | null }) {
+function ArbolTabla({ arbol, onReclasificar, onGestionarAgrupadora, onInvertir, onDesacoplar, onOmitir, posiciones, contexto, onUbicar, onDesindentar, enfoqueReubicacion, umbrales }: { arbol: NodoBorrador[]; onReclasificar: (cuenta: NodoBorrador) => void; onGestionarAgrupadora: (filaNum: number) => void; onInvertir: (codigo: string) => void; onDesacoplar: (codigo: string, desacopladaAhora: boolean) => void; onOmitir: (filaNum: number, omitidaAhora: boolean) => void; posiciones: Map<number, Posicion>; contexto: Map<number, ContextoNodo>; onUbicar: (filaNum: number) => void; onDesindentar: (filaNum: number) => void; enfoqueReubicacion: { origen: number; destino: number | null; secuencia: number } | null; umbrales: UmbralesAlertas }) {
   const { filaSeleccionada, setFilaSeleccionada, onClickFila, onDoubleClickFila } = useSeleccionFilaTabla();
   const tablaRef = useRef<HTMLDivElement>(null);
   const pendienteEnfoqueRef = useRef<number | null>(null); // fila a enfocar cuando su página esté montada
@@ -1442,7 +1447,7 @@ function ArbolTabla({ arbol, onReclasificar, onGestionarAgrupadora, onInvertir, 
   const needle = q.trim().toLowerCase();
   const matchQ = (n: NodoBorrador) => needle === "" || n.codigo.toLowerCase().includes(needle) || (n.nombre ?? "").toLowerCase().includes(needle);
   const filtrando = needle !== "" || vista !== "todo" || nivelMax > 0;
-  const nAlertas = useMemo(() => { let n = 0; const rec = (x: NodoBorrador) => { if (esAlertaNodo(x)) n++; x.hijos.forEach(rec); }; arbol.forEach(rec); return n; }, [arbol]);
+  const nAlertas = useMemo(() => { let n = 0; const rec = (x: NodoBorrador) => { if (esAlertaNodo(x, umbrales)) n++; x.hijos.forEach(rec); }; arbol.forEach(rec); return n; }, [arbol, umbrales]);
 
   // Poda del árbol según los filtros (conserva ancestros de las coincidencias).
   const arbolVisible = useMemo(() => {
@@ -1454,7 +1459,7 @@ function ArbolTabla({ arbol, onReclasificar, onGestionarAgrupadora, onInvertir, 
       return vista === "balance" ? "123".includes(d) : "4567".includes(d);
     };
     const nivelOk = (x: NodoBorrador) => nivelMax === 0 || !/^\d+$/.test(x.codigo) || x.codigo.length <= nivelMax;
-    const selfMatch = (x: NodoBorrador) => matchQ(x) && (vista !== "alertas" || esAlertaNodo(x));
+    const selfMatch = (x: NodoBorrador) => matchQ(x) && (vista !== "alertas" || esAlertaNodo(x, umbrales));
     const podar = (nodos: NodoBorrador[]): NodoBorrador[] => {
       const out: NodoBorrador[] = [];
       for (const x of nodos) {
@@ -1510,8 +1515,8 @@ function ArbolTabla({ arbol, onReclasificar, onGestionarAgrupadora, onInvertir, 
     const esMov = n.tipoFila === "movimiento" || n.tipoFila === "descuadre";
     const esAgrupadora = n.tipoFila === "agrupadora";
     const descuadrado = n.descuadre != null && n.descuadre !== 0;
-    const descuadreAccionable = esDescuadreAccionable(n.descuadre);
-    const descuadreInformativo = esDescuadreInformativo(n.descuadre);
+    const descuadreAccionable = esDescuadreAccionable(n.descuadre, umbrales);
+    const descuadreInformativo = esDescuadreInformativo(n.descuadre, umbrales);
     // Lados invertidos: el control no cuadra, pero SÍ al intercambiar débito↔crédito.
     const ladosInv = esMov && !controlOk(n.saldoInicial, n.debitos, n.creditos, n.saldoFinal) && controlOk(n.saldoInicial, n.creditos, n.debitos, n.saldoFinal);
     // Desacople: ya desacoplada (permite REACOPLAR), o cuelga de una agrupadora que NO
@@ -1598,7 +1603,7 @@ function ArbolTabla({ arbol, onReclasificar, onGestionarAgrupadora, onInvertir, 
                 className={`rounded px-1.5 py-0.5 text-[10.5px] ${descuadreAccionable ? "font-semibold text-err-700" : "border border-err-100 bg-err-100/35 font-medium text-err-500"}`}
                 title={descuadreAccionable
                   ? `Total del archivo ${fmt(n.saldoFinal)} − suma de sus ${n.hijos.length} cuentas = ${fmt(n.descuadre!)}. Su subtotal no cuadra con su desglose por código.`
-                  : `Diferencia informativa menor a ${fmt(UMBRAL_DESCUADRE_ALERTA)}: permanece visible, pero no se incluye en Alertas ni en el diagnóstico superior.`}
+                  : `Diferencia informativa menor a ${fmt(umbrales.descuadre)}: permanece visible, pero no se incluye en Alertas ni en el diagnóstico superior.`}
               >
                 Δ {fmt(n.descuadre!)}
               </span>

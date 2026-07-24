@@ -10,7 +10,7 @@
 // Server Action `confirmarCargaBalance` (`persistirCargue`).
 // ============================================================
 import { fmt } from "@/lib/format";
-import { esSaldoContrarioAccionable } from "./umbrales-alertas";
+import { esSaldoContrarioAccionable, UMBRALES_ALERTAS_DEFECTO, type UmbralesAlertas } from "./umbrales-alertas";
 
 // ---- Tipos de entrada ----
 // `debitos`/`creditos` son los movimientos del período (normalmente magnitud
@@ -428,6 +428,11 @@ export function quitarPadresRedundantes(cuentas: CuentaCruda[]): CuentaCruda[] {
  * Mapeo en cascada: 1) exacto por prefijo de 6 dígitos; 2) por descripción si el
  * plan trae `possibleAccounts`/`name`; 3) IA, inyectada vía `override`
  * (code de cliente → cuenta estándar) desde la Server Action.
+ *
+ * `umbrales` es la parametrización vigente de alertas (/config/parametros); solo
+ * afecta a las VALIDACIONES (cuántos saldos contrarios son accionables), no a
+ * las sumas. El default de fábrica está para las pruebas: en runtime debe llegar
+ * el valor resuelto con `getUmbralesAlertas()`.
  */
 export function calcularBalance(
   cuentas: CuentaCruda[],
@@ -437,6 +442,7 @@ export function calcularBalance(
   // Configuración de mapeo GUARDADA del cliente (clave = cuenta de 6 dígitos).
   // Tiene PRIORIDAD sobre la cascada: lo que ya se parametrizó no se recalcula.
   configCliente?: Map<string, { std: string | null; coincidencia: number | null }>,
+  umbrales: UmbralesAlertas = UMBRALES_ALERTAS_DEFECTO,
 ): ResultadoBalance {
   const stdByCode = new Map(estandar.map((s) => [s.code, s]));
   const hayDescripcion = estandar.some((s) => s.possibleAccounts || s.name);
@@ -521,7 +527,7 @@ export function calcularBalance(
     };
   });
 
-  return agregarDetalle(detalle);
+  return agregarDetalle(detalle, umbrales);
 }
 
 /**
@@ -530,7 +536,7 @@ export function calcularBalance(
  * (detalle proveniente del archivo) y `reconstruirBalance` (detalle proveniente
  * de las filas persistidas en `balance_prueba_detalle`).
  */
-function agregarDetalle(detalle: BreakdownItem[]): ResultadoBalance {
+function agregarDetalle(detalle: BreakdownItem[], umbrales: UmbralesAlertas): ResultadoBalance {
   // 4) Sumas por clase (primer dígito). Las clases de crédito se muestran
   //    como magnitud natural positiva (pasivo, patrimonio, ingresos).
   const porClase: Record<string, number> = {};
@@ -591,8 +597,8 @@ function agregarDetalle(detalle: BreakdownItem[]): ResultadoBalance {
 
   // 6) Validaciones.
   const sinMapeo = detalle.filter((d) => !d.mapped).length;
-  const contrario = detalle.filter((d) => esSaldoContrarioAccionable(d.balance, d.saldoOk)).length;
-  const contrarioInformativo = detalle.filter((d) => !d.saldoOk && !esSaldoContrarioAccionable(d.balance, d.saldoOk)).length;
+  const contrario = detalle.filter((d) => esSaldoContrarioAccionable(d.balance, d.saldoOk, umbrales)).length;
+  const contrarioInformativo = detalle.filter((d) => !d.saldoOk && !esSaldoContrarioAccionable(d.balance, d.saldoOk, umbrales)).length;
   const variaciones = detalle.filter((d) => d.variation != null && Math.abs(d.variation) > 25).length;
   const validations: Validation[] = [
     {
@@ -607,9 +613,9 @@ function agregarDetalle(detalle: BreakdownItem[]): ResultadoBalance {
       rule: "Naturaleza de cuenta vs saldo",
       status: contrario > 0 ? "warn" : "ok",
       detail: contrario > 0
-        ? `${contrario} cuenta(s) con saldo contrario superior a ${fmt(50_000)}`
+        ? `${contrario} cuenta(s) con saldo contrario superior a ${fmt(umbrales.naturaleza)}`
         : contrarioInformativo > 0
-          ? `${contrarioInformativo} saldo(s) contrario(s) de hasta ${fmt(50_000)} · informativos`
+          ? `${contrarioInformativo} saldo(s) contrario(s) de hasta ${fmt(umbrales.naturaleza)} · informativos`
           : "Sin saldos contrarios",
       ...(contrario > 0 ? { count: contrario } : {}),
     },
@@ -715,8 +721,16 @@ export type FilaDetallePersistida = {
  * Reconstruye los agregados (sumas, validaciones, desglose, cuadre) a partir de
  * las filas persistidas. NO re-aplica la normalización de signo: los saldos ya
  * están firmados desde el cargue. `estandar` aporta naturaleza/criticidad.
+ *
+ * Los agregados NO se persisten: al recalcularse en cada lectura, cambiar un
+ * umbral en /config/parametros se refleja de inmediato en TODOS los balances ya
+ * cargados (comportamiento retroactivo, decidido a propósito).
  */
-export function reconstruirBalance(filas: FilaDetallePersistida[], estandar: CuentaEstandar[]): ResultadoBalance {
+export function reconstruirBalance(
+  filas: FilaDetallePersistida[],
+  estandar: CuentaEstandar[],
+  umbrales: UmbralesAlertas = UMBRALES_ALERTAS_DEFECTO,
+): ResultadoBalance {
   const stdByCode = new Map(estandar.map((s) => [s.code, s]));
   const detalle: BreakdownItem[] = filas.map((f) => {
     const ref = f.cuenta6Russell ? stdByCode.get(f.cuenta6Russell) : undefined;
@@ -737,7 +751,7 @@ export function reconstruirBalance(filas: FilaDetallePersistida[], estandar: Cue
       haber: f.creditos,
     };
   });
-  return agregarDetalle(detalle);
+  return agregarDetalle(detalle, umbrales);
 }
 
 // ============================================================

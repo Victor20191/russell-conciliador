@@ -202,6 +202,12 @@ export const PERMISOS: Permiso[] = [
   // plataforma (afecta a todos los clientes), no datos de un cliente → SOLO el
   // Superadministrador, igual que el consumo de IA (`auditoria:ia`).
   { code: "prompts:administrar", module: "prompts", action: "administrar", label: "Administrar prompts de IA", roles: SOLO_SUPERADMIN },
+
+  // ===== Parámetros de la plataforma — Administrador y Superadministrador =====
+  // Umbrales que separan los avisos informativos de las alertas accionables en el
+  // balance (diferencias y saldos contrarios). Es un criterio de MATERIALIDAD de la
+  // firma, no un dato de cliente: lo fija quien administra la herramienta.
+  { code: "parametros:administrar", module: "parametros", action: "administrar", label: "Administrar parámetros de alertas", roles: SOLO_ADMIN },
 ];
 
 // ----- MATRIZ rol×permiso derivada del catálogo (solo roles del PDF) -----

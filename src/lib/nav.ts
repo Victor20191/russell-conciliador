@@ -78,4 +78,5 @@ export const configNav: NavItem[] = [
   { label: "Estructura", href: "/estructura", icon: "users", permiso: "estructura:ver", modulo: "estructura" },
   { label: "Novedades", href: "/novedades", icon: "bell", permiso: "novedades:ver", modulo: "novedades" },
   { label: "Prompts de IA", href: "/config/prompts", icon: "ai", permiso: "prompts:administrar", modulo: "prompts" },
+  { label: "Parámetros de alertas", href: "/config/parametros", icon: "settings", permiso: "parametros:administrar", modulo: "parametros" },
 ];

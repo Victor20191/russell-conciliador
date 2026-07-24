@@ -6,6 +6,7 @@ import { Icon } from "@/components/icons";
 import { fmt, fmtDateTime } from "@/lib/format";
 import { reconstruirBalance, agruparJerarquia } from "@/lib/balance/calcular";
 import { getCuentasEstandar } from "@/lib/balance/cuentas-estandar";
+import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
 import BalanceDetailClient, {
   type Meta, type Version,
 } from "./balance-detail-client";
@@ -39,7 +40,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
   // Agregados RECALCULADOS desde el detalle. Plan estándar (cacheado), subgrupos
   // (nombres de nivel 4/2), la bitácora y los permisos de UI se cargan en una
   // sola ola después de validar el alcance de lectura.
-  const [editarAuth, mapearAuth, cuentasEstandar, subgrupos, hermanos, comentariosGrp, validacionesRows] = await Promise.all([
+  const [editarAuth, mapearAuth, cuentasEstandar, subgrupos, hermanos, comentariosGrp, validacionesRows, umbrales] = await Promise.all([
     authorizePermiso("balance:editar", { clientId }),
     authorizePermiso("balance:crear", { clientId }),
     getCuentasEstandar(),
@@ -56,6 +57,9 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
       where: { balanceId: id },
       select: { anchor: true, tipoAlerta: true, validadoPor: true, validadoEn: true, comment: { select: { body: true } } },
     }),
+    // Umbrales de alerta vigentes (/config/parametros). Como los agregados se
+    // RECALCULAN al leer, cambiarlos se refleja de inmediato en este balance.
+    getUmbralesAlertas(),
   ]);
   // Editar (congelar) y mapear exigen alcance de escritura; las Server Actions
   // vuelven a verificarlo al ejecutar.
@@ -71,7 +75,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
     coincidencia: f.coincidencia != null ? Number(f.coincidencia) : null,
     saldoInicial: Number(f.saldoInicial), debitos: Number(f.debitos), creditos: Number(f.creditos), saldoFinal: Number(f.saldoFinal),
   }));
-  const calc = reconstruirBalance(filas, cuentasEstandar);
+  const calc = reconstruirBalance(filas, cuentasEstandar, umbrales);
   const sums = balance.detalles.length > 0 ? calc.sums : null;
   const validations = calc.validations;
   // Árbol normalizado a Russell: clase(2) → subgrupo(4) → cuenta estándar(6) → cuenta cliente(8).
@@ -167,6 +171,8 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
             sums={sums}
             balanced={calc.balanced}
             diffCuadre={calc.diffCuadre}
+
+            umbrales={umbrales}
           />
         </>
       )}

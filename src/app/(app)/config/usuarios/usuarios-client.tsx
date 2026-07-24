@@ -544,6 +544,7 @@ function EditUserForm({
 }) {
   const [state, action, pending] = useActionState(updateUser, undefined);
   const [resetOpen, setResetOpen] = useState(false);
+  const [fotoMedianaAbierta, setFotoMedianaAbierta] = useState(false);
   const hasCurrentRole = roles.some((r) => r.code === user.role);
   const defaultRole = hasCurrentRole ? user.role : "";
   const [role, setRole] = useState(defaultRole);
@@ -561,148 +562,222 @@ function EditUserForm({
     if (state?.ok) onClose();
   }, [state, onClose]);
 
+  const abrirFotoMediana = () => {
+    if (!user.avatarUrl) return;
+    setFotoMedianaAbierta(true);
+  };
+
   return (
-    <Modal
-      open
-      onClose={onClose}
-      title="Editar usuario"
-      footer={
-        <button
-          type="submit"
-          form="edit-user-form"
-          disabled={pending}
-          className="rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-60"
-        >
-          {pending ? <EstadoProcesando>Guardando</EstadoProcesando> : "Guardar cambios"}
-        </button>
-      }
-    >
-      <form id="edit-user-form" action={action} className="flex flex-col gap-4">
-      <input type="hidden" name="id" value={user.id} />
+    <>
+      <Modal
+        open
+        onClose={onClose}
+        title="Editar usuario"
+        footer={
+          <button
+            type="submit"
+            form="edit-user-form"
+            disabled={pending}
+            className="rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-60"
+          >
+            {pending ? <EstadoProcesando>Guardando</EstadoProcesando> : "Guardar cambios"}
+          </button>
+        }
+      >
+        <form id="edit-user-form" action={action} className="flex flex-col gap-4">
+        <input type="hidden" name="id" value={user.id} />
 
-      <div className="flex flex-col gap-1.5">
-        <label className="text-[12px] font-medium text-ink-700">Nombre completo</label>
-        <input
-          name="name"
-          defaultValue={user.name}
-          required
-          className="rounded-md border border-ink-200 px-3 py-2 text-[13px]"
-        />
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        <label className="text-[12px] font-medium text-ink-700">Correo electrónico</label>
-        <input
-          name="email"
-          type="email"
-          defaultValue={user.email}
-          required
-          className="rounded-md border border-ink-200 px-3 py-2 text-[13px]"
-        />
-      </div>
-
-      <div className="flex flex-col gap-1.5">
-        <label className="text-[12px] font-medium text-ink-700">Rol</label>
-        <select
-          name="role"
-          required
-          value={role}
-          onChange={(event) => setRole(event.target.value)}
-          className="rounded-md border border-ink-200 px-3 py-2 text-[13px]"
-        >
-          {!hasCurrentRole && (
-            <option value="" disabled>
-              — Selecciona un rol vigente —
-            </option>
-          )}
-          {roles.map((r) => (
-            <option key={r.code} value={r.code}>
-              {r.name}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <SuperioresField
-        key={role}
-        role={role}
-        superiores={superiores}
-        defaultSelected={role === user.role ? superioresActuales : []}
-      />
-
-      <div className="rounded-lg border border-ink-200 bg-ink-50/60 p-3">
-        <div className="flex items-center gap-3">
-          <Avatar
-            src={user.avatarUrl}
-            initials={user.initials}
-            name={user.name}
-            size={48}
-            className="ring-2 ring-white"
+        <div className="flex flex-col gap-1.5">
+          <label className="text-[12px] font-medium text-ink-700">Nombre completo</label>
+          <input
+            name="name"
+            defaultValue={user.name}
+            required
+            className="rounded-md border border-ink-200 px-3 py-2 text-[13px]"
           />
-          <div className="min-w-0">
-            <label className="text-[12px] font-medium text-ink-700">Foto de perfil</label>
-            <p className="mt-0.5 text-[11px] leading-relaxed text-ink-500">
-              {user.avatarUrl
-                ? "Selecciona otra imagen para reemplazar la foto actual."
-                : "Este usuario aún no tiene foto; puedes cargarla ahora."}
-            </p>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <label className="text-[12px] font-medium text-ink-700">Correo electrónico</label>
+          <input
+            name="email"
+            type="email"
+            defaultValue={user.email}
+            required
+            className="rounded-md border border-ink-200 px-3 py-2 text-[13px]"
+          />
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <label className="text-[12px] font-medium text-ink-700">Rol</label>
+          <select
+            name="role"
+            required
+            value={role}
+            onChange={(event) => setRole(event.target.value)}
+            className="rounded-md border border-ink-200 px-3 py-2 text-[13px]"
+          >
+            {!hasCurrentRole && (
+              <option value="" disabled>
+                — Selecciona un rol vigente —
+              </option>
+            )}
+            {roles.map((r) => (
+              <option key={r.code} value={r.code}>
+                {r.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <SuperioresField
+          key={role}
+          role={role}
+          superiores={superiores}
+          defaultSelected={role === user.role ? superioresActuales : []}
+        />
+
+        <div className="rounded-lg border border-ink-200 bg-ink-50/60 p-3">
+          <div className="flex items-center gap-3">
+            {user.avatarUrl ? (
+              <button
+                type="button"
+                onClick={abrirFotoMediana}
+                title="Ver foto en tamaño mediano"
+                aria-label={`Ver foto de ${user.name} en tamaño mediano`}
+                className="group relative h-12 w-12 shrink-0 cursor-pointer rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-navy-500 focus-visible:ring-offset-2"
+              >
+                <Avatar
+                  src={user.avatarUrl}
+                  initials={user.initials}
+                  name={user.name}
+                  size={48}
+                  className="pointer-events-none ring-2 ring-white transition group-hover:ring-navy-300"
+                />
+                <span className="pointer-events-none absolute inset-0 grid place-items-center rounded-full bg-navy-900/0 text-white transition group-hover:bg-navy-900/35">
+                  <Icon
+                    name="eye"
+                    size={14}
+                    className="opacity-0 transition group-hover:opacity-100"
+                  />
+                </span>
+              </button>
+            ) : (
+              <Avatar
+                src={user.avatarUrl}
+                initials={user.initials}
+                name={user.name}
+                size={48}
+                className="ring-2 ring-white"
+              />
+            )}
+            <div className="min-w-0">
+              <label className="text-[12px] font-medium text-ink-700">Foto de perfil</label>
+              <p className="mt-0.5 text-[11px] leading-relaxed text-ink-500">
+                {user.avatarUrl
+                  ? "Selecciona otra imagen para reemplazar la foto actual."
+                  : "Este usuario aún no tiene foto; puedes cargarla ahora."}
+              </p>
+            </div>
+          </div>
+          <input
+            type="file"
+            name="foto"
+            accept="image/jpeg,image/png,image/webp"
+            disabled={pending}
+            className="mt-3 w-full rounded-md border border-ink-200 bg-white text-[12.5px] text-ink-700 file:mr-3 file:cursor-pointer file:border-0 file:bg-navy-700 file:px-3 file:py-2 file:text-[12.5px] file:font-semibold file:text-white disabled:opacity-60"
+          />
+          <p className="mt-1.5 text-[11px] text-ink-500">
+            JPG, PNG o WEBP · máximo 4 MB. Si no seleccionas un archivo, la foto actual no cambia.
+          </p>
+        </div>
+
+        <label className="flex items-center gap-2 text-[13px] text-ink-800">
+          <input
+            type="checkbox"
+            name="active"
+            defaultChecked={user.active}
+            className="h-4 w-4 rounded border-ink-300 text-navy-600 focus:ring-navy-600"
+          />
+          Usuario activo
+        </label>
+
+        <div className="rounded-md border border-ink-200">
+          <button
+            type="button"
+            onClick={() => setResetOpen((open) => !open)}
+            className="flex w-full items-center justify-between px-3 py-2.5 text-[13px] font-medium text-ink-700 hover:bg-ink-50"
+          >
+            Restablecer contraseña
+            <Icon name={resetOpen ? "chev-d" : "chev-r"} size={16} />
+          </button>
+          {resetOpen && (
+            <div className="flex flex-col gap-2 border-t border-ink-100 px-3 pb-3 pt-3">
+              <PasswordInput
+                name="password"
+                placeholder="Mínimo 10 caracteres"
+                className="rounded-md border border-ink-200 px-3 py-2 text-[13px]"
+              />
+              <p className="text-[11px] text-ink-500">
+                Si la dejas vacía, la contraseña actual no cambia. Si la estableces,{" "}
+                <strong>{user.name}</strong> deberá cambiarla la próxima vez que inicie sesión.
+              </p>
+            </div>
+          )}
+        </div>
+
+        {state?.message && <p className="text-[12px] text-err-700">{state.message}</p>}
+        {state?.errors && (
+          <p className="text-[12px] text-err-700">
+            {Object.values(state.errors).flat().filter(Boolean)[0]}
+          </p>
+        )}
+
+        </form>
+      </Modal>
+
+      {/* Fuera del modal de edición: evita overflow/clipping y queda por encima (z-60). */}
+      {user.avatarUrl && fotoMedianaAbierta ? (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-navy-900/50 p-4 backdrop-blur-sm">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="foto-perfil-mediana-titulo"
+            className="w-full max-w-md overflow-hidden rounded-lg border border-ink-150 bg-white shadow-lg"
+          >
+            <div className="flex items-center justify-between border-b border-ink-100 px-4 py-3">
+              <h2
+                id="foto-perfil-mediana-titulo"
+                className="text-[13.5px] font-semibold text-ink-800"
+              >
+                Foto de perfil
+              </h2>
+              <button
+                type="button"
+                onClick={() => setFotoMedianaAbierta(false)}
+                aria-label="Cerrar"
+                className="rounded p-1 text-ink-400 transition hover:bg-ink-50 hover:text-ink-700"
+              >
+                <Icon name="x" size={16} />
+              </button>
+            </div>
+            <div className="flex flex-col items-center gap-3 px-4 py-6">
+              <Avatar
+                src={user.avatarUrl}
+                initials={user.initials}
+                name={user.name}
+                size={192}
+                className="ring-4 ring-ink-100 shadow-sm"
+              />
+              <div className="text-center">
+                <p className="text-[13px] font-semibold text-ink-800">{user.name}</p>
+                <p className="mt-0.5 text-[11.5px] text-ink-500">{user.email}</p>
+              </div>
+            </div>
           </div>
         </div>
-        <input
-          type="file"
-          name="foto"
-          accept="image/jpeg,image/png,image/webp"
-          disabled={pending}
-          className="mt-3 w-full rounded-md border border-ink-200 bg-white text-[12.5px] text-ink-700 file:mr-3 file:cursor-pointer file:border-0 file:bg-navy-700 file:px-3 file:py-2 file:text-[12.5px] file:font-semibold file:text-white disabled:opacity-60"
-        />
-        <p className="mt-1.5 text-[11px] text-ink-500">
-          JPG, PNG o WEBP · máximo 4 MB. Si no seleccionas un archivo, la foto actual no cambia.
-        </p>
-      </div>
-
-      <label className="flex items-center gap-2 text-[13px] text-ink-800">
-        <input
-          type="checkbox"
-          name="active"
-          defaultChecked={user.active}
-          className="h-4 w-4 rounded border-ink-300 text-navy-600 focus:ring-navy-600"
-        />
-        Usuario activo
-      </label>
-
-      <div className="rounded-md border border-ink-200">
-        <button
-          type="button"
-          onClick={() => setResetOpen((open) => !open)}
-          className="flex w-full items-center justify-between px-3 py-2.5 text-[13px] font-medium text-ink-700 hover:bg-ink-50"
-        >
-          Restablecer contraseña
-          <Icon name={resetOpen ? "chev-d" : "chev-r"} size={16} />
-        </button>
-        {resetOpen && (
-          <div className="flex flex-col gap-2 border-t border-ink-100 px-3 pb-3 pt-3">
-            <PasswordInput
-              name="password"
-              placeholder="Mínimo 10 caracteres"
-              className="rounded-md border border-ink-200 px-3 py-2 text-[13px]"
-            />
-            <p className="text-[11px] text-ink-500">
-              Si la dejas vacía, la contraseña actual no cambia. Si la estableces,{" "}
-              <strong>{user.name}</strong> deberá cambiarla la próxima vez que inicie sesión.
-            </p>
-          </div>
-        )}
-      </div>
-
-      {state?.message && <p className="text-[12px] text-err-700">{state.message}</p>}
-      {state?.errors && (
-        <p className="text-[12px] text-err-700">
-          {Object.values(state.errors).flat().filter(Boolean)[0]}
-        </p>
-      )}
-
-      </form>
-    </Modal>
+      ) : null}
+    </>
   );
 }
 

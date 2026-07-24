@@ -1,5 +1,5 @@
 import { test, expect } from "vitest";
-import { ModuleFieldSchema, ClientSchema, PasswordSchema, UserUpdateSchema } from "./definitions";
+import { ModuleFieldSchema, ClientSchema, PasswordSchema, UserUpdateSchema, ActualizarUmbralSchema } from "./definitions";
 
 test("ModuleFieldSchema acepta un campo válido", () => {
   const r = ModuleFieldSchema.safeParse({
@@ -118,4 +118,24 @@ test("UserUpdateSchema exige un correo válido al editar usuarios", () => {
 
   expect(UserUpdateSchema.safeParse(base).success).toBe(true);
   expect(UserUpdateSchema.safeParse({ ...base, email: "correo-invalido" }).success).toBe(false);
+});
+
+test("ActualizarUmbralSchema normaliza el monto escrito con separadores", () => {
+  // El usuario escribe «50.000» (o lo pega con espacios/símbolo): al servidor debe
+  // llegar el número limpio, porque el umbral se compara contra montos en pesos.
+  for (const escrito of ["50000", "50.000", "50 000", "$50.000"]) {
+    const r = ActualizarUmbralSchema.safeParse({ clave: "naturaleza", valor: escrito });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.valor).toBe(50_000);
+  }
+});
+
+test("ActualizarUmbralSchema acepta cero y rechaza vacíos, texto y montos absurdos", () => {
+  // Cero es válido: apaga el filtro y toda diferencia real pasa a ser alerta.
+  expect(ActualizarUmbralSchema.safeParse({ clave: "descuadre", valor: "0" }).success).toBe(true);
+  expect(ActualizarUmbralSchema.safeParse({ clave: "descuadre", valor: "" }).success).toBe(false);
+  expect(ActualizarUmbralSchema.safeParse({ clave: "descuadre", valor: "abc" }).success).toBe(false);
+  expect(ActualizarUmbralSchema.safeParse({ clave: "descuadre", valor: "-500" }).success).toBe(true); // el signo se descarta → 500
+  expect(ActualizarUmbralSchema.safeParse({ clave: "descuadre", valor: "9999999999" }).success).toBe(false);
+  expect(ActualizarUmbralSchema.safeParse({ clave: "", valor: "2000" }).success).toBe(false);
 });

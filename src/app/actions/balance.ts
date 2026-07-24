@@ -42,6 +42,8 @@ import { aplanarSpec, normalizarCodigoFragmentos, specDesdePerfil, specCargaDesd
 import { esTransformacionAceptable } from "@/lib/balance/extraccion/validacion";
 import { mapearPorIA } from "@/lib/balance/mapeo-ia";
 import { construirVistaBorrador } from "@/lib/balance/borrador-vm";
+import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
+import type { UmbralesAlertas } from "@/lib/balance/umbrales-alertas";
 import { reclasificarHuerfanas, reclasificarSoloHojas, corregirCodigosPlaceholder, marcarNoContables, validarReubicacionesBorrador, type FilaBorrador } from "@/lib/balance/borrador";
 import { esBalancePorTercero, colapsarTerceros, esBalancePorTerceroSufijo, consolidarTercerosPorSufijo, marcarCuentaNit } from "@/lib/balance/terceros";
 import { invalidarStagingBorrador } from "@/lib/balance/staging-borrador";
@@ -489,15 +491,18 @@ async function promoverStagingAOficial(p: MetaPromocion, contexto: string): Prom
 
     const period = etiquetaPeriodo(p.periodoInicio, p.periodoFin);
     const periodos = { inicial: p.periodoInicio, final: p.periodoFin };
-    const cuentasEstandar = await getCuentasEstandar();
-    const user = await getCurrentUser();
+    const [cuentasEstandar, user, umbrales] = await Promise.all([
+      getCuentasEstandar(),
+      getCurrentUser(),
+      getUmbralesAlertas(),
+    ]);
 
     const { id, version, calc } = await persistirCargue({
       clientId: p.clientId, clienteName: cliente.name, clienteNit: cliente.nit,
       period, periodos, importReady: importReadyFinal, cuentasEstandar,
       archivoNombre: p.archivoNombre, archivoTam: p.archivoTam,
       uploadedBy: user?.name ?? "—", uploadedById: user?.id ?? null, rolLabel: p.rolLabel,
-      cuadreTotales,
+      cuadreTotales, umbrales,
       proveedorIA: p.proveedorIA,
       comentarioPromocion: p.comentarioPromocion,
       meta: {
@@ -753,6 +758,9 @@ async function persistirCargue(p: {
   proveedorIA?: ProveedorIABalance;
   /** Justificación registrada al promover un archivo cuya ecuación no cuadra. */
   comentarioPromocion?: string | null;
+  /** Umbrales de alerta vigentes (/config/parametros): definen cuántas validaciones
+   *  quedan en «warn» y, con ello, el estado y la nota del encabezado. */
+  umbrales: UmbralesAlertas;
 }): Promise<{ id: number; version: string; calc: ResultadoBalance }> {
   // Plan pre-tokenizado una vez y compartido entre la pasada determinista y la
   // pasada con override de IA (evita re-tokenizar el plan dos veces por cargue).
@@ -782,7 +790,7 @@ async function persistirCargue(p: {
   const pucExistente = new Map(pucRows.map((r) => [r.code, r]));
 
   // Barrido 0 (config guardada) + 1 (exacto) + 2 (descripción), deterministas.
-  let calc = calcularBalance(p.importReady, p.cuentasEstandar, undefined, planTok, configCliente);
+  let calc = calcularBalance(p.importReady, p.cuentasEstandar, undefined, planTok, configCliente, p.umbrales);
 
   // Barrido 3 (IA): las cuentas que quedaron sin mapeo se homologan con el
   // proveedor que la frontera ya autorizó (sin él, la compuerta de entorno).
@@ -795,7 +803,7 @@ async function persistirCargue(p: {
       try {
         const plan = p.cuentasEstandar.map((s) => ({ code: s.code, name: s.name ?? "", russell: s.russellAccount ?? "", posibles: s.possibleAccounts ?? "" }));
         const override = await mapearPorIA(pendientes, plan, usos, proveedorIA);
-        if (override.size > 0) calc = calcularBalance(p.importReady, p.cuentasEstandar, override, planTok, configCliente);
+        if (override.size > 0) calc = calcularBalance(p.importReady, p.cuentasEstandar, override, planTok, configCliente, p.umbrales);
       } catch {
         /* la IA es opcional: si falla, no rompe el cargue */
       }
@@ -910,6 +918,7 @@ async function persistirCargue(p: {
           saldoInicial: Number(f.saldoInicial), debitos: Number(f.debitos), creditos: Number(f.creditos), saldoFinal: Number(f.saldoFinal),
         })),
         p.cuentasEstandar,
+        p.umbrales,
       );
       const diff = compararBalances(aplanarBreakdown(calcPrev.breakdown), aplanarBreakdown(calc.breakdown));
       cambios = diff.summary.added + diff.summary.changed + diff.summary.removed;

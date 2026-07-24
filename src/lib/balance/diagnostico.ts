@@ -7,7 +7,7 @@
 import { fmt } from "@/lib/format";
 import type { ValidacionContable } from "./calcular";
 import type { NodoBorrador } from "./borrador";
-import { esDescuadreAccionable } from "./umbrales-alertas";
+import { esDescuadreAccionable, UMBRALES_ALERTAS_DEFECTO, type UmbralesAlertas } from "./umbrales-alertas";
 
 const TOL_CANDIDATO = 1000; // cercanía para sugerir una cuenta ubicada en otra rama
 
@@ -38,8 +38,17 @@ const esDescendiente = (posible: NodoBorrador, ancestro: NodoBorrador): boolean 
  * Produce una lista de hallazgos ordenada por severidad/monto. Pura y testeable.
  * NO decide el veredicto del cargue (eso lo hacen los gates); solo localiza y
  * explica el descuadre para el revisor.
+ *
+ * `umbrales` es la parametrización vigente (/config/parametros). El default de
+ * fábrica está para las pruebas y para quien no necesite la configuración: en
+ * runtime SIEMPRE debe llegar el valor resuelto con `getUmbralesAlertas()`.
  */
-export function diagnosticarBorrador(v: ValidacionContable, arbol: NodoBorrador[], pd: PartidaDobleInfo): Hallazgo[] {
+export function diagnosticarBorrador(
+  v: ValidacionContable,
+  arbol: NodoBorrador[],
+  pd: PartidaDobleInfo,
+  umbrales: UmbralesAlertas = UMBRALES_ALERTAS_DEFECTO,
+): Hallazgo[] {
   const hallazgos: Hallazgo[] = [];
   const todos = aplanar(arbol);
   const hojas = todos.filter((n) => n.tipoFila === "movimiento");
@@ -57,7 +66,7 @@ export function diagnosticarBorrador(v: ValidacionContable, arbol: NodoBorrador[
   );
   for (const n of invertidos.slice(0, 12)) {
     const monto = 2 * (n.creditos - n.debitos);
-    if (!esDescuadreAccionable(monto)) continue;
+    if (!esDescuadreAccionable(monto, umbrales)) continue;
     hallazgos.push({
       tipo: "lados_invertidos",
       severidad: "alta",
@@ -69,7 +78,7 @@ export function diagnosticarBorrador(v: ValidacionContable, arbol: NodoBorrador[
   }
 
   // 1. Partida doble (débitos = créditos): el invariante más fuerte del balance.
-  if (!pd.cuadra && esDescuadreAccionable(pd.diff)) {
+  if (!pd.cuadra && esDescuadreAccionable(pd.diff, umbrales)) {
     hallazgos.push({
       tipo: "partida_doble",
       severidad: "alta",
@@ -80,7 +89,7 @@ export function diagnosticarBorrador(v: ValidacionContable, arbol: NodoBorrador[
   }
 
   // 2. Ecuación contable A = P + Patrimonio + Resultado.
-  if (!v.ecuacionCuadra && esDescuadreAccionable(v.ecuacionDiff)) {
+  if (!v.ecuacionCuadra && esDescuadreAccionable(v.ecuacionDiff, umbrales)) {
     hallazgos.push({
       tipo: "ecuacion",
       severidad: "alta",
@@ -102,7 +111,7 @@ export function diagnosticarBorrador(v: ValidacionContable, arbol: NodoBorrador[
     { clase: "Costos", diff: v.costosDiff, cuadra: v.costosCuadra },
   ];
   for (const c of clases) {
-    if (c.cuadra === false && c.diff != null && esDescuadreAccionable(c.diff)) {
+    if (c.cuadra === false && c.diff != null && esDescuadreAccionable(c.diff, umbrales)) {
       hallazgos.push({
         tipo: "clase",
         severidad: "media",
@@ -118,7 +127,7 @@ export function diagnosticarBorrador(v: ValidacionContable, arbol: NodoBorrador[
   //    HOJA en otra rama cuyo saldo ≈ el hueco: indicio de "la plata está pero en
   //    otra rama" (detalle mal numerado por el ERP).
   const nodosDesc = todos
-    .filter((n) => esDescuadreAccionable(n.descuadre))
+    .filter((n) => esDescuadreAccionable(n.descuadre, umbrales))
     .sort((a, b) => Math.abs(b.descuadre!) - Math.abs(a.descuadre!))
     .slice(0, 6);
   for (const n of nodosDesc) {

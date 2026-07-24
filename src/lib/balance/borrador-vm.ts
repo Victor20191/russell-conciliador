@@ -8,6 +8,7 @@ import { esBalancePorTercero, colapsarTerceros, esBalancePorTerceroSufijo, conso
 import { marcarRelistadoGuiones } from "./relistado";
 import { diagnosticarBorrador, type Hallazgo, type PartidaDobleInfo } from "./diagnostico";
 import { contarFormasCodigo, contarCodigosRepetidos, contarDescuadres, type DiagnosticoLectura } from "./diagnostico-lectura";
+import { UMBRALES_ALERTAS_DEFECTO, type UmbralesAlertas } from "./umbrales-alertas";
 
 export type AgrupadoraRef = { codigo: string; nombre: string; saldoFinal: number; descuadre: number | null };
 export type VistaBorrador = {
@@ -34,11 +35,16 @@ function aplanar(nodos: NodoBorrador[]): NodoBorrador[] {
 /**
  * Construye el view-model del borrador. MUTA `filas` (reclasifica códigos
  * repetidos). Reproduce el mismo pipeline en la página y en la acción de IA.
+ *
+ * `opciones.umbrales` son los umbrales de alerta vigentes (/config/parametros).
+ * Solo afectan a validaciones y hallazgos, nunca a la estructura del árbol ni a
+ * los conteos del diagnóstico de lectura.
  */
 export function construirVistaBorrador(
   filas: FilaBorrador[],
-  opciones: { preservarAgrupadorasForzadas?: boolean } = {},
+  opciones: { preservarAgrupadorasForzadas?: boolean; umbrales?: UmbralesAlertas } = {},
 ): VistaBorrador {
+  const umbrales = opciones.umbrales ?? UMBRALES_ALERTAS_DEFECTO;
   // ¿Balance ABIERTO POR TERCERO? Se COLAPSA el detalle de tercero y se concilia por
   // CUENTA (lógica separada; los demás informes no se tocan). Al quitar los terceros,
   // las cuentas quedan sin hijos y `reclasificarHuerfanas` las vuelve imputables.
@@ -88,7 +94,7 @@ export function construirVistaBorrador(
       .filter((f) => !dup.has(f))
       .map((f) => ({ code: f.codigo, name: f.nombre, prevBalance: f.saldoInicial, balance: f.saldoFinal, debitos: f.debitos, creditos: f.creditos })),
   );
-  const calc = calcularBalance(importReady, []);
+  const calc = calcularBalance(importReady, [], undefined, undefined, undefined, umbrales);
 
   const totalArchivo = (clase: string) => {
     const fs = base.filter((f) => f.codigo === clase && !f.omitida);
@@ -106,7 +112,7 @@ export function construirVistaBorrador(
     diff: calc.diffMov,
     cuadra: calc.movimientosCuadran,
   };
-  const hallazgos = diagnosticarBorrador(validacion, arbol, partidaDoble);
+  const hallazgos = diagnosticarBorrador(validacion, arbol, partidaDoble, umbrales);
   const agrupadoras: AgrupadoraRef[] = aplanar(arbol)
     .filter((n) => n.tipoFila !== "movimiento")
     .map((n) => ({ codigo: n.codigo, nombre: n.nombre, saldoFinal: n.saldoFinal, descuadre: n.descuadre }));

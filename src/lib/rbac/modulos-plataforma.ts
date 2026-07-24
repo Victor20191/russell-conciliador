@@ -16,7 +16,8 @@ export type PlatformModuleKey =
   | "publicacion_modulos"
   | "novedades"
   | "estructura"
-  | "prompts";
+  | "prompts"
+  | "parametros";
 
 export type PlatformModuleDefinition = {
   key: PlatformModuleKey;
@@ -213,6 +214,19 @@ export const MODULOS_PLATAFORMA: PlatformModuleDefinition[] = [
     group: "Configuración",
     icon: "ai",
     order: 200,
+    enabledForNonAdmins: false,
+    configurableForNonAdmins: false,
+  },
+  {
+    // Admin-only: la visibilidad la gobierna el permiso parametros:administrar
+    // (SOLO_ADMIN); la publicación de módulos queda inerte (configurable=false ⇒
+    // moduloPublicadoParaRol devuelve true para todos).
+    key: "parametros",
+    label: "Parámetros de alertas",
+    description: "Umbrales que separan los avisos informativos de las alertas accionables del balance.",
+    group: "Configuración",
+    icon: "settings",
+    order: 210,
     enabledForNonAdmins: false,
     configurableForNonAdmins: false,
   },
