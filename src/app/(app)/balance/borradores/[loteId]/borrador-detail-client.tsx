@@ -627,7 +627,7 @@ export default function BorradorDetailClient({
           {hayCambios && <p className="text-[11.5px] font-medium text-warn-700">Tienes cambios sin guardar: guárdalos o descártalos antes de cargar (el balance se carga desde lo guardado).</p>}
           {faltaComentarioPromocion ? (
             <p className="text-[11.5px] font-medium text-warn-700">
-              Escribe el comentario requerido en la advertencia del archivo fuente para continuar.
+              Escribe el comentario obligatorio en la advertencia del archivo fuente para continuar.
             </p>
           ) : null}
           <div className="flex items-center gap-2">
@@ -640,7 +640,7 @@ export default function BorradorDetailClient({
                   : hayCambios
                     ? "Guarda o descarta los cambios antes de cargar"
                     : faltaComentarioPromocion
-                      ? "Falta el comentario requerido"
+                      ? "Falta el comentario obligatorio"
                       : undefined
               }
               className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
@@ -816,10 +816,10 @@ function AdvertenciaArchivoFuente({
             className={`rounded-full px-2 py-0.5 text-[9px] uppercase tracking-wide ${
               comentarioListo
                 ? "bg-ok-100 text-ok-700"
-                : "bg-warn-500 text-white"
+                : "bg-err-100 text-err-700"
             }`}
           >
-            {comentarioListo ? "Listo" : "Requerido"}
+            {comentarioListo ? "Listo" : "Obligatorio"}
           </span>
           <Icon
             name="chev-r"
@@ -859,7 +859,7 @@ function AdvertenciaArchivoFuente({
             </span>
             <div className="min-w-0">
               <div className="text-[11px] font-semibold uppercase tracking-wider text-warn-700">
-                Justificación requerida
+                Justificación obligatoria
               </div>
               <p className="mt-1 text-[12px] leading-relaxed text-ink-600">
                 El archivo no cumple la ecuación contable. Deja constancia de la
@@ -877,8 +877,8 @@ function AdvertenciaArchivoFuente({
           <label htmlFor="comentario-promocion-balance" className="flex flex-col gap-1.5">
             <span className="flex items-center gap-2 text-[11.5px] font-semibold text-ink-700">
               Argumento de aprobación
-              <span className="rounded-full bg-warn-100 px-2 py-0.5 text-[9px] uppercase tracking-wide text-warn-700">
-                Requerido
+              <span className="rounded-full bg-err-100 px-2 py-0.5 text-[9px] uppercase tracking-wide text-err-700">
+                Obligatorio
               </span>
             </span>
             <textarea
