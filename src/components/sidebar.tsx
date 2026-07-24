@@ -8,6 +8,7 @@ import { Icon, BrandMark } from "@/components/icons";
 import { Avatar } from "@/components/avatar";
 import { EstadoProcesando } from "@/components/estado-procesando";
 import { workNav, configNav, type NavChild, type NavItem } from "@/lib/nav";
+import { etiquetaVersion } from "@/lib/version-app";
 import { logout } from "@/app/actions/auth";
 
 function BotonCerrarSesion() {
@@ -48,6 +49,7 @@ export default function Sidebar({
   permisos,
   modulosVisibles,
   modulosEnDesarrollo,
+  appVersion = null,
   mobileOpen = false,
   onCloseMobile,
 }: {
@@ -55,6 +57,8 @@ export default function Sidebar({
   permisos: string[];
   modulosVisibles: string[];
   modulosEnDesarrollo: string[];
+  /** Última versión publicada de la plataforma (badge bajo la marca). */
+  appVersion?: { number: string; title: string | null } | null;
   mobileOpen?: boolean;
   onCloseMobile?: () => void;
 }) {
@@ -63,6 +67,8 @@ export default function Sidebar({
   // Visibilidad por PERMISO (matriz RBAC), no por jerarquía legado: el menú
   // muestra exactamente lo que la página deja entrar (mismo permiso del guard).
   const permset = new Set(permisos);
+  const puedeVerNovedades = permset.has("novedades:ver");
+  const etiquetaVer = appVersion?.number ? etiquetaVersion(appVersion.number) || null : null;
   const moduleset = new Set(modulosVisibles);
   const developmentSet = new Set(modulosEnDesarrollo);
   const puedeVer = (item: NavItem | NavChild) =>
@@ -122,23 +128,52 @@ export default function Sidebar({
           mobileOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full lg:translate-x-0"
         }`}
       >
-      {/* Marca */}
-      <div className="flex items-center gap-2.5 border-b border-white/10 px-[18px] py-3.5">
-        <BrandMark size={28} />
-        <div className="font-serif text-sm font-medium leading-tight text-white">
-          Russell Bedford
-          <small className="block font-sans text-[9.5px] font-medium uppercase tracking-[0.18em] text-[#7C8DA3]">
-            Conciliador
-          </small>
+      {/* Marca + versión de la plataforma */}
+      <div className="border-b border-white/10 px-[18px] py-3.5">
+        <div className="flex items-center gap-2.5">
+          <BrandMark size={28} />
+          <div className="min-w-0 flex-1 font-serif text-sm font-medium leading-tight text-white">
+            Russell Bedford
+            <small className="block font-sans text-[9.5px] font-medium uppercase tracking-[0.18em] text-[#7C8DA3]">
+              Conciliador
+            </small>
+          </div>
+          <button
+            type="button"
+            onClick={onCloseMobile}
+            aria-label="Cerrar menú"
+            className="rounded p-1 text-[#A9B6C8] transition hover:bg-white/10 hover:text-white lg:hidden"
+          >
+            <Icon name="x" size={18} />
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={onCloseMobile}
-          aria-label="Cerrar menú"
-          className="ml-auto rounded p-1 text-[#A9B6C8] transition hover:bg-white/10 hover:text-white lg:hidden"
-        >
-          <Icon name="x" size={18} />
-        </button>
+        {etiquetaVer && (
+          <div className="mt-2.5">
+            {puedeVerNovedades ? (
+              <Link
+                href="/novedades"
+                onClick={onCloseMobile}
+                title={
+                  appVersion?.title
+                    ? `${etiquetaVer} · ${appVersion.title}`
+                    : `Changelog · ${etiquetaVer}`
+                }
+                className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-medium tracking-wide text-[#A9B6C8] transition hover:border-white/20 hover:bg-white/10 hover:text-white"
+              >
+                <span className="h-1 w-1 rounded-full bg-emerald-400/90" aria-hidden />
+                {etiquetaVer}
+              </Link>
+            ) : (
+              <span
+                title={appVersion?.title ?? undefined}
+                className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-medium tracking-wide text-[#A9B6C8]"
+              >
+                <span className="h-1 w-1 rounded-full bg-emerald-400/90" aria-hidden />
+                {etiquetaVer}
+              </span>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto pb-2">

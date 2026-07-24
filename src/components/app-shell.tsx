@@ -19,6 +19,7 @@ export default function AppShell({
   modulosVisibles,
   modulosEnDesarrollo,
   notifications,
+  appVersion,
   children,
 }: {
   user: { name: string; role: string; initials: string; avatarUrl?: string | null } | null;
@@ -26,6 +27,8 @@ export default function AppShell({
   modulosVisibles: string[];
   modulosEnDesarrollo: string[];
   notifications: NotificationDTO[];
+  /** Última versión publicada (o package.json). Visible en el sidebar. */
+  appVersion: { number: string; title: string | null } | null;
   children: React.ReactNode;
 }) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -45,6 +48,7 @@ export default function AppShell({
         permisos={permisos}
         modulosVisibles={modulosVisibles}
         modulosEnDesarrollo={modulosEnDesarrollo}
+        appVersion={appVersion}
         mobileOpen={mobileNavOpen}
         onCloseMobile={() => setMobileNavOpen(false)}
       />

@@ -2,11 +2,6 @@
 
 import { useState } from "react";
 import { Card, EmptyState, PageHeader } from "@/components/ui";
-import {
-  PageSizeSelect,
-  PaginationFooter,
-  usePagination,
-} from "@/components/pagination-controls";
 import { ordenarVersiones } from "@/lib/novedades/format";
 import { VersionCard } from "./version-card";
 import { VersionForm, DeleteVersionForm } from "./version-form";
@@ -60,10 +55,6 @@ export default function NovedadesClient({
 
   const ordenadas = ordenarVersiones(versions);
   const totalCambios = versions.reduce((acc, v) => acc + v.changes.length, 0);
-  // Paginación en memoria del timeline (mismo patrón que las tablas de la app).
-  // `versions` se mantiene completo para el selector de versiones del formulario
-  // de cambios y para los totales del reporte; solo se pagina lo que se renderiza.
-  const pg = usePagination(ordenadas, 50);
 
   return (
     <div>
@@ -118,36 +109,20 @@ export default function NovedadesClient({
           />
         </Card>
       ) : (
-        <>
-          <div className="mb-3 flex flex-wrap items-center gap-2">
-            <span className="text-[12px] text-ink-500">{pg.rangeLabel} versiones</span>
-            <PageSizeSelect value={pg.pageSize} onChange={pg.setPageSize} />
-          </div>
-          <div className="flex flex-col gap-5">
-            {pg.pageItems.map((v) => (
-              <VersionCard
-                key={v.id}
-                version={v}
-                canManage={canManage}
-                onEdit={() => setVersionModal({ mode: "edit", version: v })}
-                onDelete={() => setDeleteVersionTarget(v)}
-                onAddChange={() => setChangeModal({ versionId: v.id, change: null })}
-                onEditChange={(c) => setChangeModal({ versionId: c.versionId, change: c })}
-                onDeleteChange={(c) => setDeleteChangeTarget(c)}
-              />
-            ))}
-          </div>
-          {pg.totalPages > 1 && (
-            <Card className="mt-5">
-              <PaginationFooter
-                rangeLabel={pg.rangeLabel}
-                currentPage={pg.page}
-                totalPages={pg.totalPages}
-                onPageChange={pg.setPage}
-              />
-            </Card>
-          )}
-        </>
+        <div className="flex flex-col gap-5">
+          {ordenadas.map((v) => (
+            <VersionCard
+              key={v.id}
+              version={v}
+              canManage={canManage}
+              onEdit={() => setVersionModal({ mode: "edit", version: v })}
+              onDelete={() => setDeleteVersionTarget(v)}
+              onAddChange={() => setChangeModal({ versionId: v.id, change: null })}
+              onEditChange={(c) => setChangeModal({ versionId: c.versionId, change: c })}
+              onDeleteChange={(c) => setDeleteChangeTarget(c)}
+            />
+          ))}
+        </div>
       )}
 
       {versionModal && (

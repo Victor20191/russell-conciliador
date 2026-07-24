@@ -5,6 +5,7 @@ import { getMatriz } from "@/lib/rbac/contexto";
 import { moduloPublicadoParaRol } from "@/lib/rbac/modulos-plataforma";
 import { getPublicacionModulos } from "@/lib/rbac/publicacion";
 import { urlAvatar } from "@/lib/avatares";
+import { getVersionApp } from "@/lib/version-app-servidor";
 import prisma from "@/lib/prisma";
 import { fmtDateTime } from "@/lib/format";
 
@@ -18,8 +19,8 @@ export default async function AppLayout({
 
   // El DAL ya devolvió los datos del usuario junto con la verificación de la
   // sesión. No hace falta atravesar de nuevo getCurrentUser(). Las lecturas de
-  // configuración y notificaciones tampoco dependen entre sí.
-  const [matriz, publicacionModulos, notifications] = await Promise.all([
+  // configuración, versión y notificaciones tampoco dependen entre sí.
+  const [matriz, publicacionModulos, notifications, versionApp] = await Promise.all([
     getMatriz(),
     getPublicacionModulos(),
     prisma.notification.findMany({
@@ -36,6 +37,7 @@ export default async function AppLayout({
         unread: true,
       },
     }),
+    getVersionApp(),
   ]);
   const permisos = matriz[session.role] ?? [];
   // Usuario para el cascarón: incluye la URL de la foto (o null → iniciales).
@@ -61,6 +63,7 @@ export default async function AppLayout({
       permisos={permisos}
       modulosVisibles={modulosVisibles}
       modulosEnDesarrollo={modulosEnDesarrollo}
+      appVersion={{ number: versionApp.number, title: versionApp.title }}
       notifications={notifications.map((n) => ({
         id: n.id,
         kind: n.kind,

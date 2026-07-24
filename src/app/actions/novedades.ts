@@ -2,12 +2,13 @@
 
 import { createHash } from "node:crypto";
 import * as z from "zod";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, updateTag } from "next/cache";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
 import { authorizePermiso } from "@/lib/rbac";
 import { mensajeErrorBD } from "@/lib/errores";
+import { VERSION_APP_CACHE_TAG } from "@/lib/version-app-servidor";
 import { completarTextoGemini, mensajeErrorGemini } from "@/lib/gemini";
 import {
   MODELO_REPORTE_NOVEDADES,
@@ -38,6 +39,14 @@ const PERMISO = "novedades:administrar";
 const PERMISO_VER = "novedades:ver";
 const MAX_CAMBIOS_PROMPT = 80;
 const MAX_CACHE_MEMORIA = 20;
+
+/** Invalida el badge de versión del cascarón (layout) y la página de novedades. */
+function revalidarVersionApp() {
+  updateTag(VERSION_APP_CACHE_TAG);
+  revalidatePath(PATH);
+  // El layout de la app lee getVersionApp(): fuerza re-render del shell.
+  revalidatePath("/", "layout");
+}
 
 type ReporteCacheado = {
   report: ReporteNovedades;
@@ -674,7 +683,7 @@ export async function createVersion(
       entity: `Novedades · v${created.number}`,
       detail: `Creó la versión ${created.number} · ${created.title}`,
     });
-    revalidatePath(PATH);
+    revalidarVersionApp();
     return { ok: true, message: "Versión creada." };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("createVersion", e) };
@@ -719,7 +728,7 @@ export async function updateVersion(
       entity: `Novedades · v${after.number}`,
       detail: `Editó la versión ${after.number} · ${after.title}`,
     });
-    revalidatePath(PATH);
+    revalidarVersionApp();
     return { ok: true, message: "Versión actualizada." };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("updateVersion", e) };
@@ -753,7 +762,7 @@ export async function deleteVersion(
       entity: `Novedades · v${before.number}`,
       detail: `Eliminó la versión ${before.number} · ${before.title} (${before._count.changes} cambios)`,
     });
-    revalidatePath(PATH);
+    revalidarVersionApp();
     return { ok: true, message: "Versión eliminada." };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("deleteVersion", e) };

@@ -1,6 +1,6 @@
 {
   "name": "russell-lfm",
-  "version": "0.1.0",
+  "version": "1.4.0",
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",
@@ -22,6 +22,7 @@
     "db:seed:novedades": "tsx prisma/seed-novedades.ts",
     "db:seed:prompts": "tsx prisma/seed-prompts.ts",
     "novedades:commits": "tsx scripts/novedades-desde-commits.ts",
+    "version:release": "tsx scripts/release-version.ts",
     "db:backfill:roles": "tsx prisma/backfill-roles.ts",
     "db:purgar:accesos": "tsx prisma/purgar-accesos.ts",
     "db:completar:jerarquia": "tsx scripts/completar_jerarquia.ts",

@@ -3,6 +3,11 @@
 import Link from "next/link";
 import { Card, Chip } from "@/components/ui";
 import { Icon } from "@/components/icons";
+import {
+  PageSizeSelect,
+  PaginationFooter,
+  usePagination,
+} from "@/components/pagination-controls";
 import { fmtDateTime } from "@/lib/format";
 import {
   parsePasos,
@@ -42,6 +47,10 @@ export function VersionCard({
   onEditChange: (change: ChangeRow) => void;
   onDeleteChange: (change: ChangeRow) => void;
 }) {
+  // Paginación en memoria de los cambios de esta versión (mismo patrón que las
+  // tablas de la app: PageSizeSelect + slice + PaginationFooter).
+  const pg = usePagination(version.changes, 50);
+
   return (
     <Card>
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-ink-100 px-4 py-3.5">
@@ -81,18 +90,32 @@ export function VersionCard({
           Esta versión aún no tiene cambios documentados.
         </p>
       ) : (
-        <ul className="divide-y divide-ink-100">
-          {version.changes.map((c) => (
-            <li key={c.id} className="px-4 py-4">
-              <ChangeItem
-                change={c}
-                canManage={canManage}
-                onEdit={() => onEditChange(c)}
-                onDelete={() => onDeleteChange(c)}
-              />
-            </li>
-          ))}
-        </ul>
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-100 px-4 py-3">
+            <span className="text-[12px] text-ink-500">
+              {pg.total} cambio{pg.total === 1 ? "" : "s"} documentado{pg.total === 1 ? "" : "s"}
+            </span>
+            <PageSizeSelect value={pg.pageSize} onChange={pg.setPageSize} />
+          </div>
+          <ul className="divide-y divide-ink-100">
+            {pg.pageItems.map((c) => (
+              <li key={c.id} className="px-4 py-4">
+                <ChangeItem
+                  change={c}
+                  canManage={canManage}
+                  onEdit={() => onEditChange(c)}
+                  onDelete={() => onDeleteChange(c)}
+                />
+              </li>
+            ))}
+          </ul>
+          <PaginationFooter
+            rangeLabel={pg.rangeLabel}
+            currentPage={pg.page}
+            totalPages={pg.totalPages}
+            onPageChange={pg.setPage}
+          />
+        </>
       )}
     </Card>
   );
