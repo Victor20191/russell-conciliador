@@ -34,7 +34,10 @@ export default async function DashboardPage({
   const cmWhere = alc.todos ? {} : { clientId: { in: alc.clientIds } };
   const rowWhere = alc.todos ? {} : { reconciliation: { clientId: { in: alc.clientIds } } };
   const clientWhere = alc.todos ? {} : { id: { in: alc.clientIds } };
-  const [recs, diffSum, configuredCount, pendingCount, activity, pendingClients] = await Promise.all([
+  // El dashboard necesita una foto coherente de varios indicadores. La
+  // transacción por arreglo ejecuta las seis lecturas sobre una sola conexión,
+  // evitando abrir varios sockets PostgreSQL a la vez durante un arranque frío.
+  const [recs, diffSum, configuredCount, pendingCount, activity, pendingClients] = await prisma.$transaction([
     prisma.reconciliation.findMany({
       where: recWhere,
       orderBy: { createdAt: "desc" },

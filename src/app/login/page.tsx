@@ -1,13 +1,8 @@
 import { BrandMark } from "@/components/icons";
 import LoginForm from "./login-form";
 import { anioColombia } from "@/lib/fecha-hora";
-import { etiquetaVersion } from "@/lib/version-app";
-import { getVersionApp } from "@/lib/version-app-servidor";
 
-export default async function LoginPage() {
-  const versionApp = await getVersionApp();
-  const versionLabel = etiquetaVersion(versionApp.number);
-
+export default function LoginPage() {
   return (
     <div className="grid min-h-screen lg:grid-cols-2">
       {/* Panel de marca */}
@@ -32,16 +27,8 @@ export default async function LoginPage() {
           </p>
         </div>
 
-        <div className="flex items-center justify-between gap-4 text-xs text-[#7C8DA3]">
+        <div className="text-xs text-[#7C8DA3]">
           <span>© {anioColombia()} Russell Bedford Colombia · Uso interno</span>
-          {versionLabel ? (
-            <span
-              title={versionApp.title ?? undefined}
-              className="shrink-0 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 font-medium tracking-wide text-[#A9B6C8]"
-            >
-              {versionLabel}
-            </span>
-          ) : null}
         </div>
       </div>
 

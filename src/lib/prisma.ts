@@ -18,8 +18,10 @@ function buildClient() {
     // Ajustar según el plan del servidor de BD (ej. Postgres con max_connections=100
     // y múltiples instancias Node: pool_size = floor(max_connections / instancias) - 5).
     max: parseInt(process.env.DB_POOL_MAX ?? "10"),
-    // Si la BD no responde en N ms, el request falla en lugar de colgar.
-    connectionTimeoutMillis: parseInt(process.env.DB_CONNECT_TIMEOUT_MS ?? "5000"),
+    // Si la BD no responde en N ms, el request falla en lugar de colgar. El
+    // margen predeterminado cubre arranques fríos y reanudaciones de red sin
+    // convertir una latencia transitoria en un falso fallo de conexión.
+    connectionTimeoutMillis: parseInt(process.env.DB_CONNECT_TIMEOUT_MS ?? "15000"),
     // Libera conexiones inactivas después de N ms.
     idleTimeoutMillis: parseInt(process.env.DB_IDLE_TIMEOUT_MS ?? "30000"),
   });
