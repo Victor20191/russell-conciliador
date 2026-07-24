@@ -368,12 +368,14 @@ export function consolidarPorCodigo(cuentas: CuentaCruda[]): CuentaCruda[] {
  * hijos). NO cambia montos; solo agrega el flag.
  */
 export function conForzarHoja(cuentas: CuentaCruda[]): CuentaCruda[] {
-  const codes = cuentas.map((c) => c.code);
-  return cuentas.map((c) =>
-    c.code.length > 0 && codes.some((o) => o.length > c.code.length && o.startsWith(c.code))
-      ? { ...c, forzarHoja: true }
-      : c,
-  );
+  // O(n·L): el conjunto de prefijos estrictos de todos los códigos responde en O(1)
+  // «¿este código es prefijo de otro más largo?» (con 50k+ filas, el par código×código
+  // congelaba el navegador).
+  const prefijos = new Set<string>();
+  for (const { code } of cuentas) {
+    for (let i = 1; i < code.length; i++) prefijos.add(code.slice(0, i));
+  }
+  return cuentas.map((c) => (c.code.length > 0 && prefijos.has(c.code) ? { ...c, forzarHoja: true } : c));
 }
 
 /**

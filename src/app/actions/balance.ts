@@ -45,6 +45,7 @@ import { construirVistaBorrador } from "@/lib/balance/borrador-vm";
 import { reclasificarHuerfanas, reclasificarSoloHojas, corregirCodigosPlaceholder, marcarNoContables, validarReubicacionesBorrador, type FilaBorrador } from "@/lib/balance/borrador";
 import { esBalancePorTercero, colapsarTerceros, esBalancePorTerceroSufijo, consolidarTercerosPorSufijo, marcarCuentaNit } from "@/lib/balance/terceros";
 import { marcarRelistadoGuiones } from "@/lib/balance/relistado";
+import { validarComentarioPromocion } from "@/lib/balance/advertencia-archivo-fuente";
 import { construirCorrecciones, planAplicarCorrecciones, type CorreccionCuenta, type FilaStagingCorreccion } from "@/lib/balance/correcciones";
 import { registrarDiagnosticoInicial, cerrarDiagnostico, acumularIntervencionManual } from "@/lib/balance/diagnostico-lectura-registro";
 import { iaBalanceDisponible, proveedorIABalance, type ProveedorIABalance } from "@/lib/ia/proveedor-balance";
@@ -454,6 +455,7 @@ type MetaPromocion = {
   cuentasAgrupadoras: number;
   cuadreArchivo: { totalDebitos: number; totalCreditos: number } | null; // solo el modal lo trae
   proveedorIA?: ProveedorIABalance;
+  comentarioPromocion?: string | null;
 };
 async function promoverStagingAOficial(p: MetaPromocion, contexto: string): Promise<ImportBalanceState> {
   // Análisis por cuentas sobre el staging del lote (MOVIMIENTO agregado por código).
@@ -495,6 +497,7 @@ async function promoverStagingAOficial(p: MetaPromocion, contexto: string): Prom
       uploadedBy: user?.name ?? "—", uploadedById: user?.id ?? null, rolLabel: p.rolLabel,
       cuadreTotales,
       proveedorIA: p.proveedorIA,
+      comentarioPromocion: p.comentarioPromocion,
       meta: {
         estandar: TIPO_BALANCE_CARGA, convencionCredito: p.convencionCredito,
         filasLeidas: p.filasLeidas, filasExcluidas: p.filasExcluidas, filasDescuadre: p.filasDescuadre,
@@ -745,6 +748,8 @@ async function persistirCargue(p: {
   cuadreTotales?: CuadreTotales | null;
   /** Proveedor de esta carga, YA autorizado por la frontera (sesión: dev o dominio). */
   proveedorIA?: ProveedorIABalance;
+  /** Justificación registrada al promover un archivo cuya ecuación no cuadra. */
+  comentarioPromocion?: string | null;
 }): Promise<{ id: number; version: string; calc: ResultadoBalance }> {
   // Plan pre-tokenizado una vez y compartido entre la pasada determinista y la
   // pasada con override de IA (evita re-tokenizar el plan dos veces por cargue).
@@ -871,7 +876,8 @@ async function persistirCargue(p: {
   const alertas = calc.validations.filter((v) => v.status === "warn").length;
   const complete = calc.totalRows > 0 ? Math.round((calc.mapped / calc.totalRows) * 100) : 100;
   const ahora = new Date();
-  const nota = alertas > 0 ? `${alertas} validación(es) con alerta` : "Sin alertas";
+  const notaSistema = alertas > 0 ? `${alertas} validación(es) con alerta` : "Sin alertas";
+  const nota = p.comentarioPromocion ?? notaSistema;
 
   const creado = await transaccionSerializable(async (tx) => {
     await tomarCandadoTransaccion(tx, `balance-cargue:${p.clientId}:${p.period}`);
@@ -936,7 +942,7 @@ async function persistirCargue(p: {
     user: p.uploadedBy,
     action: "CARGÓ BALANCE",
     entity: `${p.clienteName} · ${p.period}`,
-    detail: `${creado.version} · ${calc.totalRows} cuentas · ${calc.mapped} mapeadas · ${calc.balanced && calc.movimientosCuadran && !descuadreTotales ? "cuadrado" : "descuadra"}`,
+    detail: `${creado.version} · ${calc.totalRows} cuentas · ${calc.mapped} mapeadas · ${calc.balanced && calc.movimientosCuadran && !descuadreTotales ? "cuadrado" : "descuadra"}${p.comentarioPromocion ? ` · Comentario: ${p.comentarioPromocion.replace(/\s+/g, " ")}` : ""}`,
   });
   await createProcessNotification({
     actor: p.uploadedBy,
@@ -1717,6 +1723,13 @@ export async function cargarBorrador(_prev: ImportBalanceState, formData: FormDa
   const { clientId, periodoInicio, periodoFin } = parsed.data;
   const loteId = String(formData.get("loteId") ?? "").trim();
   if (!loteId) return { ok: false, message: "Borrador inválido. Vuelve a la lista de borradores." };
+  const comentarioValidado = validarComentarioPromocion(
+    formData.get("comentarioPromocion"),
+    formData.get("requiereComentarioArchivoFuente") === "1",
+  );
+  if (!comentarioValidado.ok) {
+    return { ok: false, message: comentarioValidado.message };
+  }
 
   const scope = await authorizePermiso("balance:crear", { clientId });
   if (!scope.ok) return { ok: false, message: scope.message };
@@ -1736,6 +1749,7 @@ export async function cargarBorrador(_prev: ImportBalanceState, formData: FormDa
       filasLeidas: lote?.filasLeidas ?? 0, filasExcluidas: lote?.filasExcluidas ?? 0, filasDescuadre: 0,
       cuentasMovimiento: lote?.cuentasMovimiento ?? movEnStaging, cuentas: lote?.cuentasMovimiento ?? movEnStaging, cuentasAgrupadoras: 0,
       cuadreArchivo: null,
+      comentarioPromocion: comentarioValidado.comentario,
     },
     "cargarBorrador",
   );

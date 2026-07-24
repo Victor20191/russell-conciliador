@@ -205,6 +205,27 @@ export function construirArbolBorrador(filas: FilaBorrador[], tol = 1): NodoBorr
   // Detección de gemelos: para cada agrupadora "hueca" (su hueco = saldo − Σhijos ≠ 0),
   // busca un nodo del mismo NOMBRE cuyo saldo ≈ hueco y que NO sea su descendiente.
   // Ese detalle se atribuye al subtotal (perteneceA) para el cómputo del descuadre.
+  // La descendencia se responde en O(1) con rangos DFS (entrada/salida), calculados
+  // UNA sola vez (perezoso) sobre el árbol ya re-parentado: el chequeo recursivo por
+  // candidato era cuadrático con nombres muy repetidos (balances por tercero).
+  let rangos: Map<number, { entrada: number; salida: number }> | null = null;
+  const esDescendienteRapido = (posible: NodoBorrador, ancestro: NodoBorrador): boolean => {
+    if (rangos == null) {
+      const porFila = new Map<number, { entrada: number; salida: number }>();
+      let reloj = 0;
+      const marcarRango = (n: NodoBorrador) => {
+        const r = { entrada: reloj++, salida: 0 };
+        porFila.set(n.filaNum, r);
+        for (const h of n.hijos) marcarRango(h);
+        r.salida = reloj++;
+      };
+      roots.forEach(marcarRango);
+      rangos = porFila;
+    }
+    const rp = rangos.get(posible.filaNum);
+    const ra = rangos.get(ancestro.filaNum);
+    return rp != null && ra != null && ra.entrada < rp.entrada && rp.salida < ra.salida;
+  };
   const perteneceA = new Map<number, NodoBorrador>();
   const usados = new Set<number>();
   for (const A of todos) {
@@ -214,7 +235,7 @@ export function construirArbolBorrador(filas: FilaBorrador[], tol = 1): NodoBorr
     const hueco = A.saldoFinal - A.hijos.reduce((s, h) => s + (h.omitida ? 0 : h.saldoFinal), 0);
     if (Math.abs(hueco) <= tol) continue; // ya cuadra con sus hijos
     const cand = (porNombre.get(normNombre(A.nombre)) ?? []).filter(
-      (B) => B !== A && !B.omitida && !usados.has(B.filaNum) && Math.abs(B.saldoFinal - hueco) <= tol && !esDescendiente(B, A),
+      (B) => B !== A && !B.omitida && !usados.has(B.filaNum) && Math.abs(B.saldoFinal - hueco) <= tol && !esDescendienteRapido(B, A),
     );
     if (cand.length > 0) {
       perteneceA.set(cand[0].filaNum, A);
@@ -443,41 +464,45 @@ export type ContextoNodo = {
   // Ancestros por PREFIJO de código presentes en el árbol, del MÁS PROFUNDO al más
   // superficial (p. ej. `522003` → [5220, 52, 5]). Son los destinos válidos de "anidar".
   candidatos: RefNodo[];
-  // Las OTRAS filas con el MISMO padre actual (numéricas): candidatas a moverse en lote.
-  // El modal las filtra por el prefijo del destino elegido.
-  hermanas: RefNodo[];
 };
 
 const aRef = (n: NodoBorrador): RefNodo => ({ filaNum: n.filaNum, codigo: n.codigo, codigoCrudo: n.codigoCrudo, nombre: n.nombre });
 
 /**
- * Contexto del TABULADOR por nodo: su padre en el árbol, los destinos de anidación
- * (ancestros por prefijo de código) y sus hermanas (mismo padre). Puro y testeable;
- * lo consume el modal "Ubicar" del borrador. Solo para nodos de código numérico.
+ * Contexto del TABULADOR por nodo: su padre en el árbol y los destinos de anidación
+ * (ancestros por prefijo de código). Puro y testeable; lo consume el modal "Ubicar"
+ * del borrador. Solo para nodos de código numérico. Los candidatos de cada nodo se
+ * resuelven probando los prefijos de su PROPIO código contra un índice código→nodos
+ * (O(n·L)); compararlo todos×todos es cuadrático y con un balance abierto por
+ * tercero (50k+ filas) congelaba el navegador.
  */
 export function contextoTabulador(arbol: NodoBorrador[]): Map<number, ContextoNodo> {
-  const todos: RefNodo[] = [];
+  const numericos: RefNodo[] = []; // en orden de árbol (DFS)
   const padreDe = new Map<number, number | null>();
-  const hermanosDe = new Map<number, RefNodo[]>(); // filaNum → refs de TODOS sus hermanos (incluido él)
   const rec = (nodos: NodoBorrador[], padre: number | null) => {
-    const refs = nodos.filter((n) => esNumerico(n.codigo)).map(aRef);
     for (const n of nodos) {
-      todos.push(aRef(n));
+      if (esNumerico(n.codigo)) numericos.push(aRef(n));
       padreDe.set(n.filaNum, padre);
-      if (esNumerico(n.codigo)) hermanosDe.set(n.filaNum, refs);
       rec(n.hijos, n.filaNum);
     }
   };
   rec(arbol, null);
 
+  const porCodigo = new Map<string, RefNodo[]>();
+  for (const r of numericos) {
+    (porCodigo.get(r.codigo) ?? porCodigo.set(r.codigo, []).get(r.codigo)!).push(r);
+  }
+
   const m = new Map<number, ContextoNodo>();
-  for (const x of todos) {
-    if (!esNumerico(x.codigo)) continue;
-    const candidatos = todos
-      .filter((c) => esNumerico(c.codigo) && c.codigo.length < x.codigo.length && x.codigo.startsWith(c.codigo))
-      .sort((a, b) => b.codigo.length - a.codigo.length); // más profundo primero
-    const hermanas = (hermanosDe.get(x.filaNum) ?? []).filter((h) => h.filaNum !== x.filaNum);
-    m.set(x.filaNum, { padre: padreDe.get(x.filaNum) ?? null, candidatos, hermanas });
+  for (const x of numericos) {
+    // Prefijos del más largo al más corto = candidatos del más profundo al más
+    // superficial (mismo orden que producía el sort por longitud descendente).
+    const candidatos: RefNodo[] = [];
+    for (let len = x.codigo.length - 1; len >= 1; len--) {
+      const grupo = porCodigo.get(x.codigo.slice(0, len));
+      if (grupo) candidatos.push(...grupo);
+    }
+    m.set(x.filaNum, { padre: padreDe.get(x.filaNum) ?? null, candidatos });
   }
   return m;
 }
@@ -557,7 +582,9 @@ export function construirIndiceReubicacion(arbol: NodoBorrador[]): IndiceReubica
     const descendientes: number[] = [];
     for (const h of n.hijos) {
       if (esNumerico(h.codigo) && h.tipoFila !== "total") descendientes.push(h.filaNum);
-      descendientes.push(...rec(h, n.filaNum, rutaHijos));
+      // push(...sub) con un subárbol de decenas de miles de nodos revienta el límite
+      // de argumentos del motor (RangeError); se acumula elemento a elemento.
+      for (const d of rec(h, n.filaNum, rutaHijos)) descendientes.push(d);
     }
     if (cuenta) cuenta.descendientes = descendientes;
     return descendientes;

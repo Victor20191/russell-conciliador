@@ -397,7 +397,7 @@ describe("contextoTabulador + puedeUbicar (tabulador Ubicar)", () => {
 
 
 
-  it("da los candidatos por prefijo (más profundo primero) y las hermanas", () => {
+  it("da los candidatos por prefijo (más profundo primero) y el padre", () => {
 
     // Con 5220 como movimiento, las 5220xx cuelgan de 52 (hermanas entre sí y de 5220).
 
@@ -408,8 +408,6 @@ describe("contextoTabulador + puedeUbicar (tabulador Ubicar)", () => {
     expect(c522003.candidatos.map((c) => c.codigo)).toEqual(["5220", "52"]); // profundo→superficial
 
     expect(c522003.padre).toBe(1); // cuelga de 52
-
-    expect(c522003.hermanas.map((h) => h.codigo).sort()).toEqual(["5220", "522010", "522015"]);
 
   });
 

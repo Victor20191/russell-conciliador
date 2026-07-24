@@ -34,9 +34,14 @@ import { nombreNivelCuenta } from "@/lib/balance/nivel-cuenta";
 import type { ValidacionContable } from "@/lib/balance/calcular";
 import type { Hallazgo } from "@/lib/balance/diagnostico";
 import { esDescuadreAccionable, esDescuadreInformativo, UMBRAL_DESCUADRE_ALERTA } from "@/lib/balance/umbrales-alertas";
+import {
+  esDescuadreDelArchivoFuente,
+  MAX_COMENTARIO_PROMOCION,
+} from "@/lib/balance/advertencia-archivo-fuente";
 import { notifyActionState, notifySuccess, notifyError, notifyInfo } from "@/lib/client-notifications";
 import { SelectorClienteBuscable } from "@/components/selector-cliente-buscable";
 import { useSeleccionFilaTabla } from "@/app/(app)/balance/use-seleccion-fila-tabla";
+import { PageSizeSelect, PaginationControls, usePagination } from "@/components/pagination-controls";
 
 type Cliente = { id: number; name: string; nit: string; notas?: string | null };
 
@@ -106,6 +111,7 @@ export default function BorradorDetailClient({
   const [clienteSelId, setClienteSelId] = useState<number | null>(clienteSugeridoId); // sigue las notas del cliente
   const [periodoIni, setPeriodoIni] = useState(periodoInicial ?? "");
   const [periodoFin, setPeriodoFin] = useState(periodoFinal ?? "");
+  const [comentarioPromocion, setComentarioPromocion] = useState("");
   // Compuerta al entrar: sin cliente detectado por NIT, exige cliente + período
   // antes de operar (para aplicar sus preferencias/notas y no cargar a ciegas).
   const [gateAbierto, setGateAbierto] = useState(clienteSugeridoId == null);
@@ -150,25 +156,39 @@ export default function BorradorDetailClient({
     [filas, overrideEfectivo, invertidos, desacopladas, omitidas, padres],
   );
   const porTercero = porTerceroDetectado || porTerceroCalculado;
+  const advertenciaArchivoFuente = esDescuadreDelArchivoFuente(
+    validacion,
+    partidaDoble,
+    hallazgos,
+  );
+  const faltaComentarioPromocion =
+    advertenciaArchivoFuente && comentarioPromocion.trim().length === 0;
 
   // AUTO-CORRECCIÓN de anidado por orden: en un export jerárquico (subtotales + auxiliares
   // como filas), «solo hojas» re-anida cada auxiliar bajo su subtotal por ORDEN. Se calcula
   // el balance CON y SIN la corrección y solo se propone si VERIFICADAMENTE acerca el activo
   // al total del archivo y reduce descuadres — en un balance mixto no aplica (fail-safe).
-  const analisisSoloHojas = useMemo(() => {
-    const base = construirVistaBorrador(filas.map((f) => ({ ...f })));
-    const clon = filas.map((f) => ({ ...f }));
-    const promovidas = reclasificarSoloHojas(clon);
-    const conSolo = construirVistaBorrador(clon);
-    const distBase = base.validacion.activoArchivo != null ? Math.abs(base.validacion.activo - base.validacion.activoArchivo) : Infinity;
-    const distSolo = conSolo.validacion.activoArchivo != null ? Math.abs(conSolo.validacion.activo - conSolo.validacion.activoArchivo) : Infinity;
-    const ayuda = distBase !== Infinity && distSolo < distBase * 0.5 && conSolo.diagnostico.descuadres < base.diagnostico.descuadres && promovidas.length > 0;
-    return { ayuda, n: promovidas.length };
+  // Corre DIFERIDO (tras el primer pintado): son DOS reconstrucciones completas de la
+  // vista, y con un archivo de decenas de miles de filas bloqueaban el primer render.
+  const [analisisSoloHojas, setAnalisisSoloHojas] = useState<{ ayuda: boolean; n: number } | null>(null);
+  useEffect(() => {
+    let cancelado = false;
+    const timer = window.setTimeout(() => {
+      const base = construirVistaBorrador(filas.map((f) => ({ ...f })));
+      const clon = filas.map((f) => ({ ...f }));
+      const promovidas = reclasificarSoloHojas(clon);
+      const conSolo = construirVistaBorrador(clon);
+      const distBase = base.validacion.activoArchivo != null ? Math.abs(base.validacion.activo - base.validacion.activoArchivo) : Infinity;
+      const distSolo = conSolo.validacion.activoArchivo != null ? Math.abs(conSolo.validacion.activo - conSolo.validacion.activoArchivo) : Infinity;
+      const ayuda = distBase !== Infinity && distSolo < distBase * 0.5 && conSolo.diagnostico.descuadres < base.diagnostico.descuadres && promovidas.length > 0;
+      if (!cancelado) setAnalisisSoloHojas({ ayuda, n: promovidas.length });
+    }, 60);
+    return () => { cancelado = true; window.clearTimeout(timer); };
   }, [filas]);
   // Auto-activa la corrección UNA vez al abrir (si verifica). Reversible: el usuario puede
   // desmarcar «solo hojas», y no se vuelve a auto-aplicar (autoAplicadoRef).
   useEffect(() => {
-    if (!autoAplicadoRef.current && analisisSoloHojas.ayuda) {
+    if (!autoAplicadoRef.current && analisisSoloHojas?.ayuda) {
       autoAplicadoRef.current = true;
       setSoloHojas(true);
       setAutoCorregido(true);
@@ -383,14 +403,25 @@ export default function BorradorDetailClient({
         <div className="flex items-start gap-2 rounded-md border border-ok-200 bg-ok-100/40 px-3 py-2 text-[12px] text-ok-800">
           <span className="mt-px font-bold text-ok-700">✓</span>
           <span>
-            <span className="font-semibold">Corrección automática de anidado.</span> Se detectó un export jerárquico con doble conteo y se re-anidaron <span className="font-semibold">{analisisSoloHojas.n}</span> cuenta(s) por orden (solo suman las cuentas del último nivel — cada auxiliar bajo su subtotal). Revisa el resultado y pulsa <span className="font-semibold">Guardar cambios</span> para fijarlo, o desmarca «Evitar doble conteo de subtotales» abajo para revertir. Los descuadres que queden son genuinos (cuenta faltante o de signo), no de anidado.
+            <span className="font-semibold">Corrección automática de anidado.</span> Se detectó un export jerárquico con doble conteo y se re-anidaron <span className="font-semibold">{analisisSoloHojas?.n ?? 0}</span> cuenta(s) por orden (solo suman las cuentas del último nivel — cada auxiliar bajo su subtotal). Revisa el resultado y pulsa <span className="font-semibold">Guardar cambios</span> para fijarlo, o desmarca «Evitar doble conteo de subtotales» abajo para revertir. Los descuadres que queden son genuinos (cuenta faltante o de signo), no de anidado.
           </span>
         </div>
       )}
-      <ValidacionHeader v={validacion} pd={partidaDoble} />
+      <ValidacionHeader
+        v={validacion}
+        pd={partidaDoble}
+        ocultarEcuacion={advertenciaArchivoFuente}
+      />
+      {advertenciaArchivoFuente ? (
+        <AdvertenciaArchivoFuente
+          diferencia={validacion.ecuacionDiff}
+          comentario={comentarioPromocion}
+          onComentarioChange={setComentarioPromocion}
+        />
+      ) : null}
 
       {(() => {
-        // Partida doble y ecuación ya se ven arriba (ValidacionHeader), y el
+        // Partida doble y ecuación ya se ven arriba en el encabezado; el
         // descuadre por clase ya lo muestra cada tarjeta (Δ archivo vs detalle);
         // se omiten aquí para no repetirlos. Queda lo accionable: lados invertidos
         // y nodos que no cuadran con su desglose. La fuente conserva el contexto
@@ -532,8 +563,17 @@ export default function BorradorDetailClient({
             </div>
           ) : null;
         })()}
-        <form action={cargarAction} className="flex flex-col gap-3">
+        <form
+          id="cargar-balance-oficial"
+          action={cargarAction}
+          className="flex flex-col gap-3"
+        >
           <input type="hidden" name="loteId" value={loteId} />
+          <input
+            type="hidden"
+            name="requiereComentarioArchivoFuente"
+            value={advertenciaArchivoFuente ? "1" : "0"}
+          />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <SelectorClienteBuscable
               clients={clientes}
@@ -572,8 +612,26 @@ export default function BorradorDetailClient({
           )}
           {cargarState?.message && !cargarState.ok && <p className="text-[12px] font-medium text-err-700">{cargarState.message}</p>}
           {hayCambios && <p className="text-[11.5px] font-medium text-warn-700">Tienes cambios sin guardar: guárdalos o descártalos antes de cargar (el balance se carga desde lo guardado).</p>}
+          {faltaComentarioPromocion ? (
+            <p className="text-[11.5px] font-medium text-warn-700">
+              Escribe el comentario requerido en la advertencia del archivo fuente para continuar.
+            </p>
+          ) : null}
           <div className="flex items-center gap-2">
-            <button type="submit" disabled={cargando || hayCambios || clienteSelId == null || !periodoIni || !periodoFin} title={clienteSelId == null || !periodoIni || !periodoFin ? "Falta el cliente o el período" : hayCambios ? "Guarda o descarta los cambios antes de cargar" : undefined} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60">
+            <button
+              type="submit"
+              disabled={cargando || hayCambios || clienteSelId == null || !periodoIni || !periodoFin || faltaComentarioPromocion}
+              title={
+                clienteSelId == null || !periodoIni || !periodoFin
+                  ? "Falta el cliente o el período"
+                  : hayCambios
+                    ? "Guarda o descarta los cambios antes de cargar"
+                    : faltaComentarioPromocion
+                      ? "Falta el comentario requerido"
+                      : undefined
+              }
+              className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
+            >
               {cargando ? <EstadoProcesando>Cargando</EstadoProcesando> : "Cargar balance"}
             </button>
             {confirmarDescarte ? (
@@ -596,7 +654,15 @@ export default function BorradorDetailClient({
 }
 
 // ---- Encabezado de validación (mismas tarjetas del borrador del modal) ----
-function ValidacionHeader({ v, pd }: { v: ValidacionContable; pd: { debitos: number; creditos: number; diff: number; cuadra: boolean } }) {
+function ValidacionHeader({
+  v,
+  pd,
+  ocultarEcuacion,
+}: {
+  v: ValidacionContable;
+  pd: { debitos: number; creditos: number; diff: number; cuadra: boolean };
+  ocultarEcuacion: boolean;
+}) {
   const ecOk = v.ecuacionCuadra;
   const pdInformativo = !pd.cuadra && esDescuadreInformativo(pd.diff);
   const ecInformativo = !ecOk && esDescuadreInformativo(v.ecuacionDiff);
@@ -616,10 +682,12 @@ function ValidacionHeader({ v, pd }: { v: ValidacionContable; pd: { debitos: num
         <span className="font-semibold">{pd.cuadra ? "Cuadra:" : pdInformativo ? "Diferencia informativa:" : "No coinciden:"}</span> partida doble · débitos <span className="font-semibold">{fmt(pd.debitos)}</span> vs créditos <span className="font-semibold">{fmt(pd.creditos)}</span> · diferencia <span className="font-semibold">{fmt(pd.diff)}</span>
         {pdInformativo && <span> · menor a {fmt(UMBRAL_DESCUADRE_ALERTA)}, no cuenta como alerta</span>}
       </div>
-      <div className={`rounded-md border px-3 py-2 text-[12px] ${tonoEcuacion}`}>
-        <span className="font-semibold">{ecOk ? "Cuadra:" : ecInformativo ? "Diferencia informativa:" : "No cuadra:"}</span> Activo = Pasivo + Patrimonio + Resultado · diferencia <span className="font-semibold">{fmt(v.ecuacionDiff)}</span>
-        {ecInformativo && <span> · menor a {fmt(UMBRAL_DESCUADRE_ALERTA)}, no cuenta como alerta</span>}
-      </div>
+      {ocultarEcuacion ? null : (
+        <div className={`rounded-md border px-3 py-2 text-[12px] ${tonoEcuacion}`}>
+          <span className="font-semibold">{ecOk ? "Cuadra:" : ecInformativo ? "Diferencia informativa:" : "No cuadra:"}</span> Activo = Pasivo + Patrimonio + Resultado · diferencia <span className="font-semibold">{fmt(v.ecuacionDiff)}</span>
+          {ecInformativo ? <span> · menor a {fmt(UMBRAL_DESCUADRE_ALERTA)}, no cuenta como alerta</span> : null}
+        </div>
+      )}
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         <ClaseCard label="Activo" calc={v.activo} archivo={v.activoArchivo} cuadra={v.activoCuadra} diff={v.activoDiff} />
         <ClaseCard label="Pasivo" calc={v.pasivo} archivo={v.pasivoArchivo} cuadra={v.pasivoCuadra} diff={v.pasivoDiff} />
@@ -632,6 +700,205 @@ function ValidacionHeader({ v, pd }: { v: ValidacionContable; pd: { debitos: num
         <MiniDato k="Resultado" v={v.resultado} archivo={v.resultadoArchivo} cuadra={v.resultadoCuadra} diff={v.resultadoDiff} />
       </div>
     </div>
+  );
+}
+
+function AdvertenciaArchivoFuente({
+  diferencia,
+  comentario,
+  onComentarioChange,
+}: {
+  diferencia: number;
+  comentario: string;
+  onComentarioChange: (comentario: string) => void;
+}) {
+  const [comentarioAbierto, setComentarioAbierto] = useState(false);
+  const [comentarioBorrador, setComentarioBorrador] = useState(comentario);
+  const comentarioListo = comentario.trim().length > 0;
+  const comentarioBorradorListo = comentarioBorrador.trim().length > 0;
+
+  const abrirComentario = () => {
+    setComentarioBorrador(comentario);
+    setComentarioAbierto(true);
+  };
+
+  const cerrarComentario = () => {
+    setComentarioBorrador(comentario);
+    setComentarioAbierto(false);
+  };
+
+  const guardarComentario = () => {
+    const comentarioLimpio = comentarioBorrador.trim();
+    if (!comentarioLimpio) return;
+    onComentarioChange(comentarioLimpio);
+    setComentarioAbierto(false);
+  };
+
+  return (
+    <section
+      aria-labelledby="advertencia-archivo-fuente"
+      className="overflow-hidden rounded-lg border border-warn-100 border-l-4 border-l-warn-500 bg-[#fffaf0] shadow-sm"
+    >
+      <input
+        type="hidden"
+        form="cargar-balance-oficial"
+        name="comentarioPromocion"
+        value={comentario}
+      />
+      <div className="flex flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-start">
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-warn-500 text-white shadow-sm">
+          <Icon name="warn" size={18} stroke={2} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="mb-1 flex flex-wrap items-center gap-2">
+            <h2
+              id="advertencia-archivo-fuente"
+              className="text-[11px] font-semibold uppercase tracking-wider text-warn-700"
+            >
+              Advertencia del archivo fuente
+            </h2>
+            <span className="rounded-full border border-warn-100 bg-white px-2 py-0.5 text-[10px] font-semibold text-warn-700">
+              No es un error del sistema
+            </span>
+          </div>
+          <p className="text-[13px] font-semibold text-ink-800">
+            Los totales coinciden, pero el archivo no cumple la ecuación contable.
+          </p>
+          <p className="mt-1 max-w-4xl text-[11.5px] leading-relaxed text-ink-600">
+            Russell reprodujo correctamente los valores del archivo y no encontró
+            alertas de descuadre por cuenta. Sin embargo, Activo no es igual a
+            Pasivo + Patrimonio + Resultado: la diferencia es{" "}
+            <span className="font-semibold tabular-nums text-warn-800">
+              {fmt(diferencia)}
+            </span>
+            . Esta diferencia ya viene en el archivo de origen.
+          </p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            <span className="rounded border border-ok-100 bg-white px-2 py-0.5 text-[10.5px] font-medium text-ok-700">
+              ✓ Partida doble cuadrada
+            </span>
+            <span className="rounded border border-ok-100 bg-white px-2 py-0.5 text-[10.5px] font-medium text-ok-700">
+              ✓ Totales cruzan con el archivo
+            </span>
+            <span className="rounded border border-ok-100 bg-white px-2 py-0.5 text-[10.5px] font-medium text-ok-700">
+              ✓ Sin alertas por cuenta
+            </span>
+          </div>
+        </div>
+        <button
+          type="button"
+          aria-haspopup="dialog"
+          onClick={abrirComentario}
+          className={`inline-flex w-full shrink-0 items-center justify-between gap-2 rounded-md border px-3 py-2 text-[11px] font-semibold shadow-sm transition sm:ml-auto sm:w-auto ${
+            comentarioListo
+              ? "border-ok-200 bg-white text-ok-700 hover:bg-ok-50"
+              : "border-warn-200 bg-white text-warn-700 hover:bg-warn-50"
+          }`}
+        >
+          <span className="inline-flex items-center gap-1.5">
+            <Icon name={comentarioListo ? "check" : "msg"} size={14} />
+            {comentarioListo ? "Comentario agregado" : "Comentario de aprobación"}
+          </span>
+          <span
+            className={`rounded-full px-2 py-0.5 text-[9px] uppercase tracking-wide ${
+              comentarioListo
+                ? "bg-ok-100 text-ok-700"
+                : "bg-warn-500 text-white"
+            }`}
+          >
+            {comentarioListo ? "Listo" : "Requerido"}
+          </span>
+          <Icon
+            name="chev-r"
+            size={12}
+          />
+        </button>
+      </div>
+      <Modal
+        open={comentarioAbierto}
+        onClose={cerrarComentario}
+        title="Comentario de aprobación"
+        size="lg"
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={cerrarComentario}
+              className="rounded-md border border-ink-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-ink-600 transition hover:bg-ink-50"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={guardarComentario}
+              disabled={!comentarioBorradorListo}
+              className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white transition hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Guardar comentario
+            </button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <div className="flex items-start gap-3 rounded-lg border border-warn-100 bg-[#fffaf0] px-3 py-3">
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-warn-500 text-white">
+              <Icon name="warn" size={17} stroke={2} />
+            </span>
+            <div className="min-w-0">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-warn-700">
+                Justificación requerida
+              </div>
+              <p className="mt-1 text-[12px] leading-relaxed text-ink-600">
+                El archivo no cumple la ecuación contable. Deja constancia de la
+                revisión antes de cargarlo como balance oficial.
+              </p>
+              <div className="mt-2 inline-flex rounded-md border border-warn-100 bg-white px-2.5 py-1.5 text-[11.5px] text-ink-600">
+                Diferencia del archivo:&nbsp;
+                <span className="font-semibold tabular-nums text-warn-800">
+                  {fmt(diferencia)}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <label htmlFor="comentario-promocion-balance" className="flex flex-col gap-1.5">
+            <span className="flex items-center gap-2 text-[11.5px] font-semibold text-ink-700">
+              Argumento de aprobación
+              <span className="rounded-full bg-warn-100 px-2 py-0.5 text-[9px] uppercase tracking-wide text-warn-700">
+                Requerido
+              </span>
+            </span>
+            <textarea
+              id="comentario-promocion-balance"
+              autoFocus
+              required
+              maxLength={MAX_COMENTARIO_PROMOCION}
+              rows={6}
+              value={comentarioBorrador}
+              onChange={(event) => setComentarioBorrador(event.target.value)}
+              aria-describedby="ayuda-comentario-promocion contador-comentario-promocion"
+              placeholder="Ej.: Diferencia revisada y confirmada con el cliente; corresponde al archivo fuente."
+              className="w-full resize-none rounded-lg border border-ink-200 bg-white px-3 py-2.5 text-[12.5px] leading-relaxed text-ink-700 outline-none transition placeholder:text-ink-400 focus:border-warn-500 focus:ring-2 focus:ring-warn-100"
+            />
+          </label>
+
+          <div className="flex items-start justify-between gap-3">
+            <p
+              id="ayuda-comentario-promocion"
+              className="max-w-sm text-[10.5px] leading-relaxed text-ink-500"
+            >
+              El comentario quedará visible en la nota de la versión oficial.
+            </p>
+            <div
+              id="contador-comentario-promocion"
+              className="shrink-0 text-[10px] tabular-nums text-ink-400"
+            >
+              {comentarioBorrador.length}/{MAX_COMENTARIO_PROMOCION}
+            </div>
+          </div>
+        </div>
+      </Modal>
+    </section>
   );
 }
 
@@ -714,7 +981,6 @@ function DiagnosticoPanel({ hallazgos }: { hallazgos: Hallazgo[] }) {
 }
 
 // ---- Árbol crudo (agrupadora / movimiento, descuadre subrayado) ----
-const tieneDescuadre = (n: NodoBorrador): boolean => (n.descuadre != null && n.descuadre !== 0) || n.hijos.some(tieneDescuadre);
 
 // Control contable de una fila: saldo ant + débito − crédito = saldo actual (±$1).
 const controlCuadraFila = (si: number, db: number, cr: number, s: number) => Math.abs(si + db - cr - s) <= 1;
@@ -1065,15 +1331,20 @@ function MoverModal({ indice, filaNumInicial, onConfirmar, onClose }: {
 function ArbolTabla({ arbol, onReclasificar, onGestionarAgrupadora, onInvertir, onDesacoplar, onOmitir, posiciones, contexto, onUbicar, onDesindentar, enfoqueReubicacion }: { arbol: NodoBorrador[]; onReclasificar: (cuenta: NodoBorrador) => void; onGestionarAgrupadora: (filaNum: number) => void; onInvertir: (codigo: string) => void; onDesacoplar: (codigo: string, desacopladaAhora: boolean) => void; onOmitir: (filaNum: number, omitidaAhora: boolean) => void; posiciones: Map<number, Posicion>; contexto: Map<number, ContextoNodo>; onUbicar: (filaNum: number) => void; onDesindentar: (filaNum: number) => void; enfoqueReubicacion: { origen: number; destino: number | null; secuencia: number } | null }) {
   const { filaSeleccionada, setFilaSeleccionada, onClickFila, onDoubleClickFila } = useSeleccionFilaTabla();
   const tablaRef = useRef<HTMLDivElement>(null);
+  const pendienteEnfoqueRef = useRef<number | null>(null); // fila a enfocar cuando su página esté montada
   const [destinoDestacado, setDestinoDestacado] = useState<number | null>(null);
   // Control contable: saldo ant + débito − crédito = saldo actual (±$1).
   const controlOk = (si: number, db: number, cr: number, s: number) => Math.abs(si + db - cr - s) <= 1;
   // Expande por defecto los niveles altos y TODA rama con descuadre (para verlo).
+  // Un solo recorrido post-orden: cada nodo sabe si su subárbol descuadra sin
+  // re-visitar descendientes (con 50k+ filas el chequeo por nodo se multiplicaba).
   const expandidosInicial = useMemo(() => {
     const s = new Set<number>();
-    const rec = (n: NodoBorrador) => {
-      if ((n.codigo.length > 0 && n.codigo.length <= 2) || tieneDescuadre(n)) s.add(n.filaNum);
-      n.hijos.forEach(rec);
+    const rec = (n: NodoBorrador): boolean => {
+      let descuadra = n.descuadre != null && n.descuadre !== 0;
+      for (const h of n.hijos) if (rec(h)) descuadra = true;
+      if ((n.codigo.length > 0 && n.codigo.length <= 2) || descuadra) s.add(n.filaNum);
+      return descuadra;
     };
     arbol.forEach(rec);
     return s;
@@ -1081,8 +1352,8 @@ function ArbolTabla({ arbol, onReclasificar, onGestionarAgrupadora, onInvertir, 
   const [abiertos, setAbiertos] = useState<Set<number>>(expandidosInicial);
   const toggle = (k: number) => setAbiertos((prev) => { const n = new Set(prev); if (n.has(k)) n.delete(k); else n.add(k); return n; });
   const codigosConHijos = useMemo(() => { const s = new Set<number>(); const rec = (n: NodoBorrador) => { if (n.hijos.length > 0) s.add(n.filaNum); n.hijos.forEach(rec); }; arbol.forEach(rec); return s; }, [arbol]);
-  const expandirTodo = () => setAbiertos(new Set(codigosConHijos));
-  const contraerTodo = () => setAbiertos(new Set());
+  const expandirTodo = () => { setAbiertos(new Set(codigosConHijos)); setPage(1); };
+  const contraerTodo = () => { setAbiertos(new Set()); setPage(1); };
 
   // Una fila que pasa a ser AGRUPADORA (al pulsar «⇄ Agrupadora») se traga como hijas las
   // filas siguientes de código más largo. Como nació sin hijos, no está en `abiertos`: la
@@ -1148,14 +1419,12 @@ function ArbolTabla({ arbol, onReclasificar, onGestionarAgrupadora, onInvertir, 
       setFilaSeleccionada(String(enfoqueReubicacion.origen));
       setDestinoDestacado(enfoqueReubicacion.destino);
       setAbiertos((prev) => new Set([...prev, ...abrir]));
+      // El scroll corre en el efecto de paginación: la fila puede caer en otra página.
+      pendienteEnfoqueRef.current = enfoqueReubicacion.origen;
     });
 
-    const scrollTimer = window.setTimeout(() => {
-      const fila = tablaRef.current?.querySelector<HTMLTableRowElement>(`tr[data-selection-key="${enfoqueReubicacion.origen}"]`);
-      fila?.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
-    }, 80);
     const flashTimer = window.setTimeout(() => setDestinoDestacado(null), 2600);
-    return () => { window.cancelAnimationFrame(prepararFrame); window.clearTimeout(scrollTimer); window.clearTimeout(flashTimer); };
+    return () => { window.cancelAnimationFrame(prepararFrame); window.clearTimeout(flashTimer); };
   }, [enfoqueReubicacion, setFilaSeleccionada]);
   const needle = q.trim().toLowerCase();
   const matchQ = (n: NodoBorrador) => needle === "" || n.codigo.toLowerCase().includes(needle) || (n.nombre ?? "").toLowerCase().includes(needle);
@@ -1186,8 +1455,42 @@ function ArbolTabla({ arbol, onReclasificar, onGestionarAgrupadora, onInvertir, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [arbol, q, vista, nivelMax]);
 
-  const filas: React.ReactNode[] = [];
-  const render = (n: NodoBorrador, depth: number, padreCodigo: string | null) => {
+  // Filas VISIBLES aplanadas (respetando expansión y filtros), paginadas: el DOM solo
+  // monta la página actual. Pintar decenas de miles de <tr> de una vez («Expandir todo»
+  // o una búsqueda amplia en un balance por tercero de 50k+ filas) congelaba la pestaña.
+  // NO se omite ningún dato: los cálculos usan el árbol completo y todas las filas
+  // siguen disponibles navegando páginas.
+  const filasVisibles = useMemo(() => {
+    const out: { nodo: NodoBorrador; depth: number; padreCodigo: string | null }[] = [];
+    const rec = (n: NodoBorrador, depth: number, padreCodigo: string | null) => {
+      out.push({ nodo: n, depth, padreCodigo });
+      if (n.hijos.length > 0 && (filtrando || abiertos.has(n.filaNum))) {
+        for (const h of n.hijos) rec(h, depth + 1, n.codigo);
+      }
+    };
+    arbolVisible.forEach((r) => rec(r, 0, null));
+    return out;
+  }, [arbolVisible, filtrando, abiertos]);
+  const { pageItems, page, setPage, pageSize, setPageSize, totalPages, rangeLabel } = usePagination(filasVisibles, 200);
+
+  // Enfoque tras una reubicación: la fila pudo caer en OTRA página — primero se salta a
+  // su página y, con la fila ya montada, se hace el scroll (el resaltado ya está fijado).
+  useEffect(() => {
+    const objetivo = pendienteEnfoqueRef.current;
+    if (objetivo == null) return;
+    const idx = filasVisibles.findIndex((f) => f.nodo.filaNum === objetivo);
+    if (idx < 0) return; // aún colapsada/filtrada: se reintenta cuando cambie la lista
+    const paginaDestino = Math.floor(idx / pageSize) + 1;
+    if (paginaDestino !== page) { setPage(paginaDestino); return; } // re-entra ya en la página
+    pendienteEnfoqueRef.current = null;
+    const timer = window.setTimeout(() => {
+      tablaRef.current?.querySelector<HTMLTableRowElement>(`tr[data-selection-key="${objetivo}"]`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [filasVisibles, page, pageSize, setPage]);
+
+  const filaTr = ({ nodo: n, depth, padreCodigo }: { nodo: NodoBorrador; depth: number; padreCodigo: string | null }) => {
     const hasHijos = n.hijos.length > 0;
     const esMatch = needle !== "" && matchQ(n);
     const open = filtrando ? true : abiertos.has(n.filaNum); // filtrado → todo expandido
@@ -1227,7 +1530,7 @@ function ArbolTabla({ arbol, onReclasificar, onGestionarAgrupadora, onInvertir, 
         : esMov
           ? "hover:bg-ink-50/60"
           : "bg-ink-50/40";
-    filas.push(
+    return (
       <tr
         key={n.filaNum}
         data-selection-key={n.filaNum}
@@ -1377,17 +1680,15 @@ function ArbolTabla({ arbol, onReclasificar, onGestionarAgrupadora, onInvertir, 
         <td className="whitespace-nowrap px-2 py-1 text-right align-top tabular-nums text-ink-600">{fmtContable(n.debitos)}</td>
         <td className="whitespace-nowrap px-2 py-1 text-right align-top tabular-nums text-ink-600">{fmtContable(n.creditos)}</td>
         <td className={`whitespace-nowrap px-2 py-1 text-right align-top tabular-nums text-ink-800 ${esAgrupadora ? "font-semibold" : esMov ? "font-normal" : "font-medium"}`}>{fmtContable(n.saldoFinal)}</td>
-      </tr>,
+      </tr>
     );
-    if (hasHijos && open) n.hijos.forEach((h) => render(h, depth + 1, n.codigo));
   };
-  arbolVisible.forEach((r) => render(r, 0, null));
 
   const nivelBtn = (v: number, label: string) => (
-    <button type="button" onClick={() => setNivelMax(v)} className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${nivelMax === v ? "bg-navy-700 text-white" : "text-ink-500 hover:bg-ink-100"}`}>{label}</button>
+    <button type="button" onClick={() => { setNivelMax(v); setPage(1); }} className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${nivelMax === v ? "bg-navy-700 text-white" : "text-ink-500 hover:bg-ink-100"}`}>{label}</button>
   );
   const vistaBtn = (v: typeof vista, label: string, count?: number) => (
-    <button type="button" onClick={() => setVista(v)} className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11.5px] font-medium ${vista === v ? "bg-navy-700 text-white" : "text-ink-600 hover:bg-ink-100"}`}>
+    <button type="button" onClick={() => { setVista(v); setPage(1); }} className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11.5px] font-medium ${vista === v ? "bg-navy-700 text-white" : "text-ink-600 hover:bg-ink-100"}`}>
       {label}{count != null && count > 0 && <span className={`rounded-full px-1.5 text-[10px] font-semibold ${vista === v ? "bg-white/20" : "bg-warn-100 text-warn-700"}`}>{count}</span>}
     </button>
   );
@@ -1402,7 +1703,7 @@ function ArbolTabla({ arbol, onReclasificar, onGestionarAgrupadora, onInvertir, 
       <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-ink-100 bg-white px-3 py-2">
         <div className="flex items-center gap-1.5 rounded-md border border-ink-200 bg-ink-50 px-2 py-1 text-ink-400">
           <Icon name="search" size={13} />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar código o cuenta…" className="w-44 bg-transparent text-[12px] text-ink-700 outline-none placeholder:text-ink-400" />
+          <input value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} placeholder="Buscar código o cuenta…" className="w-44 bg-transparent text-[12px] text-ink-700 outline-none placeholder:text-ink-400" />
         </div>
         <div className="ml-auto flex items-center gap-0.5 rounded-md border border-ink-200 p-0.5">
           {nivelBtn(0, "Todos")}{nivelBtn(2, "N2")}{nivelBtn(4, "N4")}{nivelBtn(6, "N6")}{nivelBtn(8, "N8")}
@@ -1439,8 +1740,15 @@ function ArbolTabla({ arbol, onReclasificar, onGestionarAgrupadora, onInvertir, 
               <th className="px-2 py-1.5 text-right font-semibold">Saldo actual</th>
             </tr>
           </thead>
-          <tbody onClick={onClickFila} onDoubleClick={onDoubleClickFila}>{filas.length > 0 ? filas : <tr><td colSpan={6} className="px-3 py-6 text-center text-[12px] text-ink-400">Sin cuentas para este filtro.</td></tr>}</tbody>
+          <tbody onClick={onClickFila} onDoubleClick={onDoubleClickFila}>{pageItems.length > 0 ? pageItems.map(filaTr) : <tr><td colSpan={6} className="px-3 py-6 text-center text-[12px] text-ink-400">Sin cuentas para este filtro.</td></tr>}</tbody>
         </table>
+      </div>
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-ink-100 bg-white px-3 py-2">
+        <div className="text-[12px] text-ink-500">{rangeLabel}</div>
+        <div className="flex flex-wrap items-center gap-3">
+          <PageSizeSelect value={pageSize} onChange={setPageSize} />
+          <PaginationControls currentPage={page} totalPages={totalPages} onPageChange={setPage} />
+        </div>
       </div>
     </div>
   );

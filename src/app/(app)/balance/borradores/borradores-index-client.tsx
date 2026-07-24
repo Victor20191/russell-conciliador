@@ -36,7 +36,7 @@ export type BorradorRow = {
 const BOTON_ACCION =
   "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border transition";
 
-function normalizarBusqueda(valor: string | null) {
+function normalizarBusqueda(valor: string | null | undefined) {
   return (valor ?? "")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
@@ -44,22 +44,34 @@ function normalizarBusqueda(valor: string | null) {
     .trim();
 }
 
+/** Coincide si el término aparece en archivo, razón social o NIT (con o sin DV). */
+export function coincideBusquedaBorrador(
+  borrador: Pick<BorradorRow, "archivoNombre" | "clienteSugerido" | "nitDetectado">,
+  busqueda: string,
+): boolean {
+  const termino = normalizarBusqueda(busqueda);
+  if (!termino) return true;
+
+  const nitBuscado = claveNit(busqueda);
+  const nitFila = claveNit(borrador.nitDetectado ?? "");
+
+  return (
+    normalizarBusqueda(borrador.archivoNombre).includes(termino)
+    || normalizarBusqueda(borrador.clienteSugerido).includes(termino)
+    || normalizarBusqueda(borrador.nitDetectado).includes(termino)
+    || (nitBuscado.length > 0 && nitFila.includes(nitBuscado))
+  );
+}
+
 export default function BorradoresIndexClient({ rows }: { rows: BorradorRow[] }) {
   const router = useRouter();
   const [descartando, startDescartar] = useTransition();
   const [confirmar, setConfirmar] = useState<string | null>(null);
   const [busqueda, setBusqueda] = useState("");
-  const borradoresFiltrados = useMemo(() => {
-    const termino = normalizarBusqueda(busqueda);
-    if (!termino) return rows;
-
-    const nitBuscado = claveNit(busqueda);
-    return rows.filter((borrador) =>
-      normalizarBusqueda(borrador.clienteSugerido).includes(termino)
-      || normalizarBusqueda(borrador.nitDetectado).includes(termino)
-      || (nitBuscado.length > 0 && claveNit(borrador.nitDetectado ?? "").includes(nitBuscado)),
-    );
-  }, [busqueda, rows]);
+  const borradoresFiltrados = useMemo(
+    () => rows.filter((borrador) => coincideBusquedaBorrador(borrador, busqueda)),
+    [busqueda, rows],
+  );
   const pg = usePagination(borradoresFiltrados, 50);
 
   const onDescartar = (loteId: string) => {
@@ -95,8 +107,8 @@ export default function BorradoresIndexClient({ rows }: { rows: BorradorRow[] })
             setBusqueda(event.target.value);
             pg.resetToFirstPage();
           }}
-          placeholder="Buscar por NIT o razón social…"
-          aria-label="Buscar borradores por NIT o razón social"
+          placeholder="Buscar por archivo, NIT o razón social…"
+          aria-label="Buscar borradores por archivo, NIT o razón social"
           className="min-w-0 flex-1 bg-transparent text-[12.5px] text-ink-700 outline-none placeholder:text-ink-400"
         />
         {busqueda.length > 0 && (
@@ -210,7 +222,7 @@ export default function BorradoresIndexClient({ rows }: { rows: BorradorRow[] })
               {borradoresFiltrados.length === 0 && (
                 <tr>
                   <td colSpan={7} className="px-4 py-10 text-center text-[12.5px] text-ink-400">
-                    No se encontraron borradores con ese NIT o razón social.
+                    No se encontraron borradores con ese archivo, NIT o razón social.
                   </td>
                 </tr>
               )}
