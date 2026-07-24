@@ -42,6 +42,7 @@ import { notifyActionState, notifySuccess, notifyError, notifyInfo } from "@/lib
 import { SelectorClienteBuscable } from "@/components/selector-cliente-buscable";
 import { useSeleccionFilaTabla } from "@/app/(app)/balance/use-seleccion-fila-tabla";
 import { PageSizeSelect, PaginationControls, usePagination } from "@/components/pagination-controls";
+import { expandirFilas, type FilasCompactas } from "@/lib/balance/filas-compactas";
 
 type Cliente = { id: number; name: string; nit: string; notas?: string | null };
 
@@ -89,14 +90,16 @@ function aplicarCambios(
 }
 
 export default function BorradorDetailClient({
-  loteId, archivoNombre, nitDetectado, periodoInicial, periodoFinal, filas, porTerceroDetectado, clientes, clienteSugeridoId, spec, correccionesAplicadas,
+  loteId, archivoNombre, nitDetectado, periodoInicial, periodoFinal, filasCompactas, porTerceroDetectado, clientes, clienteSugeridoId, spec, correccionesAplicadas,
 }: {
   loteId: string;
   archivoNombre: string;
   nitDetectado: string | null;
   periodoInicial: string | null;
   periodoFinal: string | null;
-  filas: FilaBorrador[];
+  /** Filas del staging en forma compacta (diccionario + tuplas): reduce ~5× el
+   *  payload RSC en balances por tercero de decenas de miles de filas. */
+  filasCompactas: FilasCompactas;
   porTerceroDetectado: boolean;
   clientes: Cliente[];
   clienteSugeridoId: number | null;
@@ -104,6 +107,9 @@ export default function BorradorDetailClient({
   correccionesAplicadas: number;
 }) {
   const router = useRouter();
+  // Una sola expansión por payload; el resto del componente trabaja con las filas
+  // completas exactamente como antes.
+  const filas = useMemo(() => expandirFilas(filasCompactas), [filasCompactas]);
   const [cargarState, cargarAction, cargando] = useActionState<ImportBalanceState, FormData>(cargarBorrador, {});
   const [descartando, startDescartar] = useTransition();
   const [confirmarDescarte, setConfirmarDescarte] = useState(false);
@@ -174,13 +180,20 @@ export default function BorradorDetailClient({
   useEffect(() => {
     let cancelado = false;
     const timer = window.setTimeout(() => {
-      const base = construirVistaBorrador(filas.map((f) => ({ ...f })));
+      // GUARD barato antes de reconstruir nada: si la reclasificación no promueve
+      // ninguna cuenta, `ayuda` sería false de todos modos (es condición AND) — se
+      // ahorra las dos reconstrucciones sin cambiar el veredicto.
       const clon = filas.map((f) => ({ ...f }));
       const promovidas = reclasificarSoloHojas(clon);
+      if (promovidas.length === 0) {
+        if (!cancelado) setAnalisisSoloHojas({ ayuda: false, n: 0 });
+        return;
+      }
+      const base = construirVistaBorrador(filas.map((f) => ({ ...f })));
       const conSolo = construirVistaBorrador(clon);
       const distBase = base.validacion.activoArchivo != null ? Math.abs(base.validacion.activo - base.validacion.activoArchivo) : Infinity;
       const distSolo = conSolo.validacion.activoArchivo != null ? Math.abs(conSolo.validacion.activo - conSolo.validacion.activoArchivo) : Infinity;
-      const ayuda = distBase !== Infinity && distSolo < distBase * 0.5 && conSolo.diagnostico.descuadres < base.diagnostico.descuadres && promovidas.length > 0;
+      const ayuda = distBase !== Infinity && distSolo < distBase * 0.5 && conSolo.diagnostico.descuadres < base.diagnostico.descuadres;
       if (!cancelado) setAnalisisSoloHojas({ ayuda, n: promovidas.length });
     }, 60);
     return () => { cancelado = true; window.clearTimeout(timer); };
@@ -496,7 +509,7 @@ export default function BorradorDetailClient({
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <input
                 type="file"
-                accept=".xlsx,.xls,.xlsb,.csv,.txt,.json,.pdf"
+                accept=".xlsx,.xlsm,.xls,.csv,.txt,.json,.pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 onChange={(e) => setArchivoFile(e.target.files?.[0] ?? null)}
                 className="text-[12px] text-ink-700 file:mr-2 file:rounded-md file:border-0 file:bg-navy-700 file:px-2.5 file:py-1 file:text-[12px] file:font-semibold file:text-white hover:file:bg-navy-600"
               />

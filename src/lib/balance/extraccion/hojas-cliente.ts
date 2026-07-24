@@ -2,9 +2,9 @@
 //
 // Cuando un Excel trae varias hojas (Balance, Retenciones, Parámetros…), el
 // usuario debe elegir explícitamente la hoja del balance: la IA no asume. Este
-// módulo lee el libro OOXML moderno en el navegador —con la misma librería que
-// la ingesta del servidor— para listar las hojas con contenido y una vista
-// previa, SIN subir el archivo.
+// módulo lee el libro en el navegador —ExcelJS para .xlsx/.xlsm y SheetJS para
+// .xls, igual que la ingesta del servidor— para listar las hojas con contenido
+// y una vista previa, SIN subir el archivo.
 
 import type ExcelJS from "exceljs";
 
@@ -21,7 +21,7 @@ const MAX_FILAS_MUESTRA = 10;
 const MAX_COLS_MUESTRA = 8;
 
 /**
- * Lee un Excel (.xlsx/.xlsm) en el navegador y devuelve sus hojas CON
+ * Lee un Excel (.xlsx/.xlsm/.xls) en el navegador y devuelve sus hojas CON
  * contenido (descarta las vacías) y una vista previa (primeras filas × columnas).
  * Usa las mismas opciones de lectura que el servidor para que los nombres de
  * hoja y los conteos coincidan 1:1 con lo que procesará el backend. Lanza si el
@@ -29,6 +29,11 @@ const MAX_COLS_MUESTRA = 8;
  * normal donde la IA elige).
  */
 export async function leerHojasParaPreview(file: File): Promise<HojaPreview[]> {
+  if (/\.xls$/i.test(file.name)) return leerHojasXls(file);
+  return leerHojasExcelModerno(file);
+}
+
+async function leerHojasExcelModerno(file: File): Promise<HojaPreview[]> {
   const { default: ExcelJSRuntime } = await import("exceljs");
   const wb = new ExcelJSRuntime.Workbook();
   const data = (await file.arrayBuffer()) as Parameters<typeof wb.xlsx.load>[0];
@@ -49,6 +54,44 @@ export async function leerHojasParaPreview(file: File): Promise<HojaPreview[]> {
   return hojas;
 }
 
+async function leerHojasXls(file: File): Promise<HojaPreview[]> {
+  const XLSX = await import("xlsx");
+  const wb = XLSX.read(new Uint8Array(await file.arrayBuffer()), {
+    type: "array",
+    raw: true,
+    dense: true,
+    sheetRows: 65_536,
+    cellDates: false,
+    cellFormula: false,
+    cellHTML: false,
+    bookVBA: false,
+  });
+
+  const hojas: HojaPreview[] = [];
+  for (const nombre of wb.SheetNames) {
+    const ws = wb.Sheets[nombre];
+    if (!ws) continue;
+    const filas = XLSX.utils
+      .sheet_to_json<unknown[]>(ws, {
+        header: 1,
+        raw: true,
+        defval: null,
+        blankrows: false,
+      })
+      .map((fila) => fila.map(celdaXls))
+      .filter(filaTieneDatos);
+    if (filas.length === 0) continue;
+    hojas.push(crearPreview(nombre, filas));
+  }
+  return hojas;
+}
+
+function crearPreview(nombre: string, filas: CeldaCruda[][]): HojaPreview {
+  const totalColumnas = filas.reduce((max, fila) => Math.max(max, fila.length), 0);
+  const muestra = filas.slice(0, MAX_FILAS_MUESTRA).map((fila) => fila.slice(0, MAX_COLS_MUESTRA));
+  return { nombre, totalFilas: filas.length, totalColumnas, muestra };
+}
+
 function celdaExcel(v: ExcelJS.CellValue): CeldaCruda {
   if (v == null) return null;
   if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return v;
@@ -61,6 +104,13 @@ function celdaExcel(v: ExcelJS.CellValue): CeldaCruda {
     }
     return JSON.stringify(v);
   }
+  return String(v);
+}
+
+function celdaXls(v: unknown): CeldaCruda {
+  if (v == null) return null;
+  if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return v;
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
   return String(v);
 }
 

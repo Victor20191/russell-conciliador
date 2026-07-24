@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import ExcelJS from "exceljs";
+import * as XLSX from "xlsx";
 import { leerHojasParaPreview, columnaLetra } from "./hojas-cliente";
 
 /** Arma un .xlsx en memoria a partir de hojas (AOA) y lo expone como un File mínimo. */
@@ -12,6 +13,15 @@ async function comoFile(hojas: Record<string, (string | number)[][]>): Promise<F
   const ab = (await wb.xlsx.writeBuffer()) as ArrayBuffer;
   // Solo se usa `arrayBuffer()`; evitamos depender del `File` global del runtime.
   return { name: "balance.xlsx", arrayBuffer: async () => ab } as unknown as File;
+}
+
+function comoFileXls(hojas: Record<string, (string | number)[][]>): File {
+  const wb = XLSX.utils.book_new();
+  for (const [nombre, filas] of Object.entries(hojas)) {
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(filas), nombre);
+  }
+  const ab = XLSX.write(wb, { type: "array", bookType: "biff8" }) as ArrayBuffer;
+  return { name: "balance.xls", arrayBuffer: async () => ab } as unknown as File;
 }
 
 describe("leerHojasParaPreview", () => {
@@ -42,6 +52,21 @@ describe("leerHojasParaPreview", () => {
     expect(hoja.totalColumnas).toBe(12);
     expect(hoja.muestra.length).toBe(10);
     expect(hoja.muestra[0].length).toBe(8);
+  });
+
+  it("ofrece la misma selección multihoja para un Excel 97-2003 (.xls)", async () => {
+    const hojas = await leerHojasParaPreview(
+      comoFileXls({
+        Balance: [["Código", "Cuenta", "Saldo"], ["110505", "Caja", 1000]],
+        Retenciones: [["Concepto", "Valor"], ["Renta", 50]],
+      }),
+    );
+    expect(hojas.map((hoja) => hoja.nombre)).toEqual(["Balance", "Retenciones"]);
+    expect(hojas[0]).toMatchObject({
+      totalFilas: 2,
+      totalColumnas: 3,
+      muestra: [["Código", "Cuenta", "Saldo"], ["110505", "Caja", 1000]],
+    });
   });
 });
 

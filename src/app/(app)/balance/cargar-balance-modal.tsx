@@ -23,7 +23,7 @@ import type { ImportBalanceState } from "@/lib/import/balance";
 import type { ConfiguracionIABalanceUI, ProveedorIABalance } from "@/lib/ia/proveedor-balance";
 
 /** Extensiones de Excel que pueden traer varias hojas (inspeccionables en cliente). */
-const esExcel = (name: string) => /\.(xlsx|xlsm)$/i.test(name);
+const esExcel = (name: string) => /\.(xlsx|xlsm|xls)$/i.test(name);
 
 /**
  * Umbral para NO inspeccionar el Excel en el navegador. Un xlsx comprime ~6×, así que un
@@ -103,7 +103,7 @@ function CargarBalanceModal({
   // lee el anterior, descartamos el resultado tardío (no pisa el estado nuevo).
   const seqRef = useRef(0);
 
-  // Al elegir archivo: si es Excel moderno, leemos sus hojas en el navegador
+  // Al elegir archivo: si es Excel compatible, leemos sus hojas en el navegador
   // para que el usuario elija cuál cargar cuando haya 2+. Cualquier
   // fallo degrada al flujo normal (la IA elige) sin bloquear.
   async function onArchivoChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -268,7 +268,7 @@ function CargarBalanceModal({
       ) : (
         <form id="leer-form" onSubmit={onLeerSubmit} className="flex flex-col gap-3.5">
           <p className="text-[12.5px] leading-relaxed text-ink-600">
-            Sube el balance en <span className="font-semibold">Excel (.xlsx/.xlsm), CSV, TXT (plano), JSON o PDF</span>. La plataforma
+            Sube el balance en <span className="font-semibold">Excel (.xlsx/.xlsm/.xls), CSV, TXT (plano), JSON o PDF</span>. La plataforma
             lo lee (con el <span className="font-semibold">perfil guardado del cliente</span> si el formato ya se conoce, o
             con IA), identifica la estructura y te <span className="font-semibold">sugiere</span> los datos (cliente,
             período, saldos). Al terminar la lectura crea un borrador para que lo revises antes de cargarlo como balance oficial.
@@ -302,7 +302,7 @@ function CargarBalanceModal({
                 <input
                   type="file"
                   name="archivo"
-                  accept=".xlsx,.xlsm,.csv,.txt,.json,.pdf,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                  accept=".xlsx,.xlsm,.xls,.csv,.txt,.json,.pdf,text/plain,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                   required
                   onChange={onArchivoChange}
                   className="rounded-md border border-ink-200 bg-white text-[12.5px] text-ink-700 file:mr-3 file:cursor-pointer file:border-0 file:bg-navy-700 file:px-3 file:py-2 file:text-[12.5px] file:font-semibold file:text-white"

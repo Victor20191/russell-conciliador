@@ -44,6 +44,7 @@ import { mapearPorIA } from "@/lib/balance/mapeo-ia";
 import { construirVistaBorrador } from "@/lib/balance/borrador-vm";
 import { reclasificarHuerfanas, reclasificarSoloHojas, corregirCodigosPlaceholder, marcarNoContables, validarReubicacionesBorrador, type FilaBorrador } from "@/lib/balance/borrador";
 import { esBalancePorTercero, colapsarTerceros, esBalancePorTerceroSufijo, consolidarTercerosPorSufijo, marcarCuentaNit } from "@/lib/balance/terceros";
+import { invalidarStagingBorrador } from "@/lib/balance/staging-borrador";
 import { marcarRelistadoGuiones } from "@/lib/balance/relistado";
 import { validarComentarioPromocion } from "@/lib/balance/advertencia-archivo-fuente";
 import { construirCorrecciones, planAplicarCorrecciones, type CorreccionCuenta, type FilaStagingCorreccion } from "@/lib/balance/correcciones";
@@ -429,6 +430,7 @@ async function aplicarCorreccionesGuardadas(loteId: string, clienteId: number): 
     data: { vecesAplicada: { increment: 1 }, ultimoUsoEn: new Date() },
   });
   await actualizarResumenLoteBorrador(loteId);
+  invalidarStagingBorrador(loteId);
   return plan.cambios.length;
 }
 
@@ -528,6 +530,7 @@ async function promoverStagingAOficial(p: MetaPromocion, contexto: string): Prom
     } catch {
       /* best-effort */
     }
+    invalidarStagingBorrador(p.loteId);
 
     const auditoria: ResumenAuditoria = {
       filasLeidas: p.filasLeidas, filasExcluidas: p.filasExcluidas, filasImportables: p.cuentas, filasDescuadre: p.filasDescuadre,
@@ -1070,7 +1073,10 @@ export async function leerBalance(
         }
       }
       if (!extr) {
-        const { filas, errores } = await parseBalanceWorkbook(datosArchivo);
+        const { filas, errores } = await parseBalanceWorkbook(datosArchivo, {
+          archivoNombre: archivo.name,
+          hoja,
+        });
         if (errores.length > 0) {
           return { ok: false, message: `${errores.length} problema(s) en el archivo. Nada se leyó.`, errores };
         }
@@ -1247,6 +1253,9 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
       })),
     });
   }
+  // Purga cualquier lectura cacheada previa del lote (p. ej. un 404 cacheado si
+  // alguien visitó la URL antes de existir el staging).
+  invalidarStagingBorrador(loteId);
   await prisma.balanceImportacionLote.create({
     data: {
       loteId, clienteId: null,
@@ -1396,6 +1405,7 @@ export async function reprocesarBalanceConSpec(
       } catch {
         /* best-effort */
       }
+      invalidarStagingBorrador(loteIdAnterior);
     }
     return res;
   } catch (e) {
@@ -1782,6 +1792,7 @@ export async function descartarBorrador(loteId: string): Promise<ActionState> {
     }
     await prisma.balanceImportacionStaging.deleteMany({ where: { loteId: id } });
     await prisma.balanceImportacionLote.deleteMany({ where: { loteId: id } });
+    invalidarStagingBorrador(id);
     const user = await getCurrentUser();
     await logAudit({ user: user?.name ?? "—", action: "DESCARTÓ BORRADOR de balance", entity: id, detail: "" });
     revalidatePath("/balance/borradores");
@@ -1941,6 +1952,7 @@ export async function aplicarCambiosBorrador(
     // Huella diagnóstica: reclasificar/invertir mutan el staging sin marca durable,
     // así que se acumulan aquí (best-effort; los otros contadores se toman al cerrar).
     await acumularIntervencionManual(id, { reclasificadas: nRe, invertidas: nInv });
+    invalidarStagingBorrador(id);
     revalidatePath(`/balance/borradores/${id}`);
     revalidatePath("/balance/borradores");
     const nTotal = nRe + nInv + nDes + nOmi + nPad;

@@ -51,7 +51,8 @@ describe("crearExportacionBalance", () => {
     const descripciones: string[] = [];
     const cuentas: string[] = [];
     ws.eachRow((r) => {
-      if (typeof r.getCell(1).value === "number") niveles.push(r.getCell(1).value);
+      const nivel = r.getCell(1).value;
+      if (typeof nivel === "number") niveles.push(nivel);
       descripciones.push(String(r.getCell(2).value ?? ""));
       cuentas.push(String(r.getCell(3).value ?? ""));
     });

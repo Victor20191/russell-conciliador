@@ -2,7 +2,7 @@
 //
 // Dos modos de salida del modelo (ambos forzados con Structured Outputs vía
 // `zodOutputFormat` en el orquestador, validados además aquí con Zod):
-//   - MappingSpec: para archivos TABULARES (xlsx/xlsm/csv/json). El modelo
+//   - MappingSpec: para archivos TABULARES (xlsx/xlsm/xls/csv/json). El modelo
 //     solo describe la ESTRUCTURA; la transformación masiva la hace el código.
 //   - ExtraccionDirecta: para PDF / archivos sin estructura tabular fiable. El
 //     modelo devuelve las filas ya normalizadas.

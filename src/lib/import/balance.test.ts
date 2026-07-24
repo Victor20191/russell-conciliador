@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import ExcelJS from "exceljs";
+import * as XLSX from "xlsx";
 import { parseMonto, parseBalanceWorkbook } from "./balance";
 
 describe("parseMonto", () => {
@@ -29,6 +30,14 @@ async function buildXlsx(rows: (string | number)[][], sheet = "Balance"): Promis
   const ws = wb.addWorksheet(sheet);
   for (const r of rows) ws.addRow(r);
   return (await wb.xlsx.writeBuffer()) as unknown as Buffer;
+}
+
+function buildXls(hojas: Record<string, (string | number)[][]>): ArrayBuffer {
+  const wb = XLSX.utils.book_new();
+  for (const [nombre, filas] of Object.entries(hojas)) {
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(filas), nombre);
+  }
+  return XLSX.write(wb, { type: "array", bookType: "biff8" }) as ArrayBuffer;
 }
 
 describe("parseBalanceWorkbook", () => {
@@ -93,5 +102,37 @@ describe("parseBalanceWorkbook", () => {
     const { errores } = await parseBalanceWorkbook(Buffer.from("no soy un xlsx"));
     expect(errores).toHaveLength(1);
     expect(errores[0].hoja).toBe("Archivo");
+  });
+
+  it("usa el parser de respaldo con un archivo .xls genuino", async () => {
+    const data = buildXls({
+      Balance: [
+        ["Código", "Cuenta", "Saldo anterior", "Saldo final"],
+        ["110505", "Caja general", 800, 1000],
+        ["220505", "Proveedores", 0, -3000],
+      ],
+    });
+    const { filas, errores } = await parseBalanceWorkbook(data, { archivoNombre: "balance.xls" });
+    expect(errores).toHaveLength(0);
+    expect(filas).toEqual([
+      { fila: 2, code: "110505", name: "Caja general", prevBalance: 800, balance: 1000 },
+      { fila: 3, code: "220505", name: "Proveedores", prevBalance: 0, balance: -3000 },
+    ]);
+  });
+
+  it("respeta la hoja elegida en un .xls multihoja", async () => {
+    const data = buildXls({
+      Instrucciones: [["Lee la otra hoja"]],
+      Marzo: [
+        ["Código", "Cuenta", "Saldo final"],
+        ["110505", "Caja", 2500],
+      ],
+    });
+    const { filas, errores } = await parseBalanceWorkbook(data, {
+      archivoNombre: "balance.xls",
+      hoja: "Marzo",
+    });
+    expect(errores).toHaveLength(0);
+    expect(filas[0]).toMatchObject({ code: "110505", name: "Caja", balance: 2500 });
   });
 });

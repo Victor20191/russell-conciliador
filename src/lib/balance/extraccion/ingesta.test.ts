@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import * as XLSX from "xlsx";
 import { construirVistaPrevia, detectarDelimitador, detectarFormato, ingerir, type GridHoja } from "./ingesta";
 
 function buf(texto: string, encoding: BufferEncoding = "utf-8"): ArrayBuffer {
@@ -6,11 +7,56 @@ function buf(texto: string, encoding: BufferEncoding = "utf-8"): ArrayBuffer {
   return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer;
 }
 
+function libroXls(hojas: Record<string, (string | number)[][]>): ArrayBuffer {
+  const wb = XLSX.utils.book_new();
+  for (const [nombre, filas] of Object.entries(hojas)) {
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(filas), nombre);
+  }
+  return XLSX.write(wb, { type: "array", bookType: "biff8" }) as ArrayBuffer;
+}
+
 describe("detectarFormato", () => {
   it("distingue txt de csv por extensión", () => {
     expect(detectarFormato("balanza.txt", buf("a\tb"))).toBe("txt");
     expect(detectarFormato("balanza.TXT", buf("a\tb"))).toBe("txt");
     expect(detectarFormato("balanza.csv", buf("a,b"))).toBe("csv");
+  });
+
+  it("detecta .xls por extensión y por su firma binaria CFB", () => {
+    const data = libroXls({ Balance: [["Código", "Cuenta"], ["110505", "Caja"]] });
+    expect(detectarFormato("balanza.XLS", data)).toBe("xls");
+    expect(detectarFormato("balanza_sin_extension", data)).toBe("xls");
+  });
+});
+
+describe("ingerir Excel 97-2003 (.xls)", () => {
+  it("lee todas las hojas, conserva textos y números y descarta filas vacías", async () => {
+    const data = libroXls({
+      Balance: [
+        ["Código", "Cuenta", "Saldo"],
+        ["00110505", "Caja", 1234.56],
+        ["", "", ""],
+      ],
+      Notas: [["Observación"], ["Cierre mensual"]],
+    });
+
+    const ingesta = await ingerir(data, "balance.xls");
+    expect(ingesta.modo).toBe("tabular");
+    if (ingesta.modo !== "tabular") return;
+    expect(ingesta.hojas.map((hoja) => hoja.nombre)).toEqual(["Balance", "Notas"]);
+    expect(ingesta.hojas[0].filas).toEqual([
+      ["Código", "Cuenta", "Saldo"],
+      ["00110505", "Caja", 1234.56],
+    ]);
+  });
+
+  it("rechaza un .xls ilegible con un mensaje claro", async () => {
+    const cfbTruncado = Uint8Array.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]).buffer;
+    await expect(ingerir(cfbTruncado, "balance.xls")).rejects.toThrow(/Excel 97-2003 válido/i);
+  });
+
+  it("mantiene .xlsb fuera del alcance", async () => {
+    await expect(ingerir(buf("no soy xlsb"), "balance.xlsb")).rejects.toThrow(/\.xlsb no se procesa/i);
   });
 });
 

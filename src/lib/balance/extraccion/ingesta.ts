@@ -1,6 +1,6 @@
 // Ingesta de archivos para la extracción de balances.
 //
-// Convierte el archivo subido (xlsx/csv/txt/json/pdf) en una representación
+// Convierte el archivo subido (xlsx/xls/csv/txt/json/pdf) en una representación
 // que el pipeline pueda usar:
 //   - modo "tabular": grillas (matriz de celdas) por hoja → ruta de detección de
 //     estructura + transformación determinista. CSV y TXT delimitado (tab, pipe,
@@ -13,7 +13,7 @@
 import ExcelJS from "exceljs";
 
 export type CeldaCruda = string | number | boolean | null;
-// `negrita` (solo XLSX): por cada fila de `filas`, el flag NEGRITA de cada celda
+// `negrita` (solo XLSX/XLSM): por cada fila de `filas`, el flag NEGRITA de cada celda
 // (alineado 0-based con la fila). Muchos ERP marcan las cuentas AGRUPADORAS en
 // negrita — es su propia clasificación, más confiable que inferir por código.
 export type GridHoja = { nombre: string; filas: CeldaCruda[][]; negrita?: boolean[][] };
@@ -27,6 +27,7 @@ export type Ingesta =
 export type Formato = "xlsx" | "xls" | "xlsb" | "csv" | "txt" | "json" | "pdf" | "desconocido";
 
 const PDF_MAGIC = "%PDF-";
+const CFB_MAGIC = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1] as const;
 
 /** Deduce el formato por extensión y, como respaldo, por la firma del contenido. */
 export function detectarFormato(fileName: string, data: ArrayBuffer): Formato {
@@ -39,8 +40,11 @@ export function detectarFormato(fileName: string, data: ArrayBuffer): Formato {
   if (ext === "json") return "json";
   if (ext === "pdf") return "pdf";
   // Firma: %PDF al inicio.
-  const head = new TextDecoder().decode(new Uint8Array(data).subarray(0, 5));
+  const bytes = new Uint8Array(data);
+  const head = new TextDecoder().decode(bytes.subarray(0, 5));
   if (head === PDF_MAGIC) return "pdf";
+  // Firma Compound File Binary usada por los libros Excel 97-2003 (.xls).
+  if (CFB_MAGIC.every((byte, index) => bytes[index] === byte)) return "xls";
   return "desconocido";
 }
 
@@ -110,6 +114,50 @@ async function leerLibroExcel(data: ArrayBuffer): Promise<GridHoja[]> {
     });
     return { nombre: ws.name, filas, negrita };
   });
+}
+
+/**
+ * Lee un libro binario Excel 97-2003 (.xls/BIFF) a grillas por hoja.
+ *
+ * SheetJS se carga solo en esta rama: el flujo habitual .xlsx/.xlsm conserva
+ * ExcelJS (incluida su señal de negrita) y no paga el costo de este parser.
+ * Las macros o fórmulas no se ejecutan; se extraen únicamente los valores
+ * almacenados en las celdas.
+ */
+async function leerLibroXls(data: ArrayBuffer): Promise<GridHoja[]> {
+  const XLSX = await import("xlsx");
+  const wb = XLSX.read(new Uint8Array(data), {
+    type: "array",
+    raw: true,
+    dense: true,
+    sheetRows: 65_536,
+    cellDates: false,
+    cellFormula: false,
+    cellHTML: false,
+    bookVBA: false,
+  });
+
+  return wb.SheetNames.map((nombre) => {
+    const ws = wb.Sheets[nombre];
+    if (!ws) return { nombre, filas: [] };
+    const filas = XLSX.utils
+      .sheet_to_json<unknown[]>(ws, {
+        header: 1,
+        raw: true,
+        defval: null,
+        blankrows: false,
+      })
+      .map((fila) => fila.map(celdaXls))
+      .filter(filaTieneDatos);
+    return { nombre, filas };
+  });
+}
+
+function celdaXls(v: unknown): CeldaCruda {
+  if (v == null) return null;
+  if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return v;
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  return String(v);
 }
 
 // Delimitadores admitidos en texto plano (CSV y archivos planos .txt de ERP).
@@ -276,15 +324,21 @@ export async function ingerir(data: ArrayBuffer, fileName: string): Promise<Inge
     }
     case "xlsx":
       return { modo: "tabular", hojas: await leerLibroExcel(data) };
-    case "xls":
+    case "xls": {
+      try {
+        return { modo: "tabular", hojas: await leerLibroXls(data) };
+      } catch {
+        throw new Error("No se pudo leer el archivo .xls. Verifica que sea un libro de Excel 97-2003 válido y que no tenga contraseña.");
+      }
+    }
     case "xlsb":
-      throw new Error("Por seguridad, los formatos .xls y .xlsb no se procesan. Guarda el archivo como .xlsx o usa CSV, TXT, JSON o PDF.");
+      throw new Error("El formato .xlsb no se procesa. Guarda el archivo como .xlsx, .xls o usa CSV, TXT, JSON o PDF.");
     default:
       // Último intento seguro: probar como OOXML moderno (.xlsx/.xlsm).
       try {
         return { modo: "tabular", hojas: await leerLibroExcel(data) };
       } catch {
-        throw new Error("Formato de archivo no reconocido. Usa Excel (.xlsx/.xlsm), CSV, TXT (plano), JSON o PDF.");
+        throw new Error("Formato de archivo no reconocido. Usa Excel (.xlsx/.xlsm/.xls), CSV, TXT (plano), JSON o PDF.");
       }
   }
 }
