@@ -32,33 +32,44 @@ describe("crearExportacionBalance", () => {
     expect(buf.subarray(0, 2).toString("latin1")).toBe("PK");
   });
 
-  it("HOMOLOGADO: separa el número y la descripción del nivel PUC", async () => {
+  it("HOMOLOGADO: separa el nivel, el código y la descripción de la cuenta", async () => {
     const buf = await crearExportacionBalance({ arbol, grupos }, META, "homologado");
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(buf as unknown as ArrayBuffer);
     const ws = wb.getWorksheet("Balance homologado")!;
-    // Encabezados (fila 3): número, descripción, cuenta y los montos.
+    // Encabezados (fila 3): nivel, código, descripción de cuenta y los montos.
     expect(ws.getCell("A3").value).toBe("Número de nivel");
     expect(ws.getCell("B3").value).toBe("Descripción del nivel");
-    expect(ws.getCell("C3").value).toBe("Cuenta");
-    expect(ws.getCell("G3").value).toBe("Saldo actual");
-    // Primera fila de datos (4): CLASE «1 - Activo», nivel 1 y descripción «Clase».
+    expect(ws.getCell("C3").value).toBe("Código de cuenta");
+    expect(ws.getCell("D3").value).toBe("Descripción de la cuenta");
+    expect(ws.getCell("H3").value).toBe("Saldo actual");
+    // Primera fila de datos (4): CLASE con código «1» y nombre «Activo» separados.
     expect(ws.getCell("A4").value).toBe(1);
     expect(ws.getCell("B4").value).toBe("Clase");
-    expect(String(ws.getCell("C4").value)).toBe("1 - Activo");
-    // Alguna fila de SUBCUENTA (6 díg) trae nivel 4, «Subcuenta» y «110505 - …».
+    expect(String(ws.getCell("C4").value)).toBe("1");
+    expect(String(ws.getCell("D4").value)).toBe("Activo");
+    expect(ws.getCell("C4").numFmt).toBe("@");
+    expect(ws.getCell("E4").value).toBe(150);
+    expect(ws.getCell("F4").value).toBe(0);
+    expect(ws.getCell("G4").value).toBe(0);
+    expect(ws.getCell("H4").value).toBe(150);
+    // Alguna fila de SUBCUENTA (6 díg) trae nivel 4, «Subcuenta», código y nombre.
     const niveles: number[] = [];
-    const descripciones: string[] = [];
-    const cuentas: string[] = [];
+    const descripcionesNivel: string[] = [];
+    const codigosCuenta: string[] = [];
+    const descripcionesCuenta: string[] = [];
     ws.eachRow((r) => {
       const nivel = r.getCell(1).value;
       if (typeof nivel === "number") niveles.push(nivel);
-      descripciones.push(String(r.getCell(2).value ?? ""));
-      cuentas.push(String(r.getCell(3).value ?? ""));
+      descripcionesNivel.push(String(r.getCell(2).value ?? ""));
+      codigosCuenta.push(String(r.getCell(3).value ?? ""));
+      descripcionesCuenta.push(String(r.getCell(4).value ?? ""));
     });
     expect(niveles).toEqual(expect.arrayContaining([1, 2, 3, 4]));
-    expect(descripciones).toContain("Subcuenta");
-    expect(cuentas.some((c) => /^110505 - /.test(c))).toBe(true);
+    expect(descripcionesNivel).toContain("Subcuenta");
+    expect(codigosCuenta).toContain("110505");
+    expect(descripcionesCuenta).toContain("Caja general");
+    expect(codigosCuenta.some((c) => c.includes(" - "))).toBe(false);
   });
 
   it("HOMOLOGADO trae una pestaña «Validación» con fórmulas vivas sobre «Balance homologado»", async () => {
@@ -72,11 +83,12 @@ describe("crearExportacionBalance", () => {
     ws!.eachRow((row) => { const v = row.getCell(2).value as { formula?: string } | null; if (v && typeof v === "object" && v.formula) formulas.push(v.formula); });
     expect(formulas.length).toBeGreaterThan(0);
     expect(formulas.some((f) => f.includes("Balance homologado"))).toBe(true);
-    // Los saldos se desplazaron una columna: actual G, anterior D, débito E y crédito F.
-    expect(formulas.some((f) => f.includes("'Balance homologado'!$G$"))).toBe(true);
-    expect(formulas.some((f) => f.includes("'Balance homologado'!$D$"))).toBe(true);
+    // Los saldos están después de las cuatro columnas descriptivas:
+    // actual H, anterior E, débito F y crédito G.
+    expect(formulas.some((f) => f.includes("'Balance homologado'!$H$"))).toBe(true);
     expect(formulas.some((f) => f.includes("'Balance homologado'!$E$"))).toBe(true);
     expect(formulas.some((f) => f.includes("'Balance homologado'!$F$"))).toBe(true);
+    expect(formulas.some((f) => f.includes("'Balance homologado'!$G$"))).toBe(true);
     // Debe existir el chequeo de partida doble (IF … CUADRA/DESCUADRE).
     expect(formulas.some((f) => f.includes("CUADRA"))).toBe(true);
   });

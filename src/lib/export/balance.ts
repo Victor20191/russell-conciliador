@@ -1,8 +1,9 @@
 // Exportación a Excel del BALANCE OFICIAL, en dos vistas:
-//  - "homologado": el balance en el plan estándar Russell. La cuenta va en UNA sola
-//    columna «CÓDIGO - NOMBRE» y el nivel PUC va separado en número y descripción
-//    (1=Clase, 2=Grupo, 3=Cuenta, 4=Subcuenta, 5=Auxiliar). Jerarquía Clase → Grupo →
-//    Cuenta → Subcuenta con subtotales en NEGRILLA y agrupación colapsable (outline).
+//  - "homologado": el balance en el plan estándar Russell. El código y la descripción
+//    de la cuenta van en columnas separadas; el nivel PUC también va separado en número
+//    y descripción (1=Clase, 2=Grupo, 3=Cuenta, 4=Subcuenta, 5=Auxiliar). Jerarquía
+//    Clase → Grupo → Cuenta → Subcuenta con subtotales en NEGRILLA y agrupación
+//    colapsable (outline).
 //  - "comparativo": Russell (homologado, negrilla) vs las cuentas del CLIENTE que
 //    la componen, también agrupado/colapsable.
 import ExcelJS from "exceljs";
@@ -34,9 +35,6 @@ const nivelPUC = (code: string): { numero: number; descripcion: string } => {
   if (n <= 6) return { numero: 4, descripcion: "Subcuenta" };
   return { numero: 5, descripcion: "Auxiliar" };
 };
-// Cuenta en una sola celda: «CÓDIGO - NOMBRE» (p. ej. «5 - Gastos»).
-const codNombre = (code: string, name: string) => `${code} - ${name}`;
-
 function titulo(ws: ExcelJS.Worksheet, meta: MetaExportBalance, texto: string, cols: number) {
   ws.mergeCells(1, 1, 1, cols);
   ws.getCell("A1").value = `${texto} — ${meta.cliente} · ${meta.periodo} · versión v${meta.version}`;
@@ -57,17 +55,18 @@ export type ClaseSubtotal = { clase: string; nombre: string; row: number };
  *  validación referencie esas celdas con fórmulas. */
 function hojaHomologado(wb: ExcelJS.Workbook, arbol: NodoBalance[], meta: MetaExportBalance): ClaseSubtotal[] {
   const ws = wb.addWorksheet("Balance homologado");
-  titulo(ws, meta, "Balance homologado (plan Russell)", 7);
-  encabezados(ws, ["Número de nivel", "Descripción del nivel", "Cuenta", "Saldo anterior", "Débito", "Crédito", "Saldo actual"]);
-  const montos = [4, 5, 6, 7];
+  titulo(ws, meta, "Balance homologado (plan Russell)", 8);
+  encabezados(ws, ["Número de nivel", "Descripción del nivel", "Código de cuenta", "Descripción de la cuenta", "Saldo anterior", "Débito", "Crédito", "Saldo actual"]);
+  const montos = [5, 6, 7, 8];
 
-  // `outline` da el nivel colapsable de Excel Y la indentación visual de la columna Cuenta.
-  const fila = (code: string, cuenta: string, m: number[], outline: number, opts: { bold?: boolean; fill?: ExcelJS.Fill } = {}): ExcelJS.Row => {
+  // `outline` da el nivel colapsable de Excel Y la indentación visual de la descripción.
+  const fila = (code: string, descripcionCuenta: string, m: number[], outline: number, opts: { bold?: boolean; fill?: ExcelJS.Fill } = {}): ExcelJS.Row => {
     const nivel = nivelPUC(code);
-    const row = ws.addRow([nivel.numero, nivel.descripcion, cuenta, ...m]);
+    const row = ws.addRow([nivel.numero, nivel.descripcion, code, descripcionCuenta, ...m]);
     row.outlineLevel = outline;
+    row.getCell(3).numFmt = "@"; // conserva el código como identificador de texto
     for (const c of montos) row.getCell(c).numFmt = NUM_FMT;
-    row.getCell(3).alignment = { indent: outline }; // anida visualmente la cuenta
+    row.getCell(4).alignment = { indent: outline }; // anida visualmente la descripción
     if (opts.bold) row.font = { bold: true };
     if (opts.fill) row.eachCell((c) => (c.fill = opts.fill!));
     return row;
@@ -85,23 +84,32 @@ function hojaHomologado(wb: ExcelJS.Workbook, arbol: NodoBalance[], meta: MetaEx
   for (const [cl, grupos] of porClase) {
     const nom = CLASES[cl] ?? `Clase ${cl}`;
     // Subtotal de CLASE. Se guarda su nº de fila para la hoja de validación.
-    const rClase = fila(cl, codNombre(cl, nom), [sum(grupos, "prevBalance"), sum(grupos, "debe"), sum(grupos, "haber"), sum(grupos, "balance")], 0, { bold: true, fill: N1_FILL });
+    const rClase = fila(cl, nom, [sum(grupos, "prevBalance"), sum(grupos, "debe"), sum(grupos, "haber"), sum(grupos, "balance")], 0, { bold: true, fill: N1_FILL });
     clases.push({ clase: cl, nombre: nom, row: rClase.number });
     for (const n2 of grupos) {
-      fila(n2.code, codNombre(n2.code, n2.name), [n2.prevBalance, n2.debe, n2.haber, n2.balance], 1, { bold: true, fill: N2_FILL });
+      fila(n2.code, n2.name, [n2.prevBalance, n2.debe, n2.haber, n2.balance], 1, { bold: true, fill: N2_FILL });
       for (const n4 of n2.hijos) {
-        fila(n4.code, codNombre(n4.code, n4.name), [n4.prevBalance, n4.debe, n4.haber, n4.balance], 2, { bold: true, fill: N4_FILL });
+        fila(n4.code, n4.name, [n4.prevBalance, n4.debe, n4.haber, n4.balance], 2, { bold: true, fill: N4_FILL });
         for (const n6 of n4.hijos) {
-          fila(n6.code, codNombre(n6.code, n6.name), [n6.prevBalance, n6.debe, n6.haber, n6.balance], 3);
+          fila(n6.code, n6.name, [n6.prevBalance, n6.debe, n6.haber, n6.balance], 3);
         }
       }
     }
   }
 
-  [17, 21, 52, 18, 18, 18, 18].forEach((w, i) => (ws.getColumn(i + 1).width = w));
+  [17, 21, 18, 42, 18, 18, 18, 18].forEach((w, i) => (ws.getColumn(i + 1).width = w));
   ws.views = [{ state: "frozen", ySplit: 3 }];
   ws.properties.outlineLevelRow = 3;
-  ws.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3, column: 7 } };
+  ws.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3, column: 8 } };
+  ws.pageSetup = {
+    orientation: "landscape",
+    fitToPage: true,
+    fitToWidth: 1,
+    fitToHeight: 0,
+    horizontalCentered: true,
+    printArea: `A1:H${ws.rowCount}`,
+    printTitlesRow: "1:3",
+  };
   return clases;
 }
 
@@ -141,27 +149,27 @@ function hojaValidacion(wb: ExcelJS.Workbook, meta: MetaExportBalance, clases: C
 
   ws.addRow([]);
   // A) Sumas por clase — su total debe ser 0 (ecuación contable de la balanza).
-  //    Montos en «Balance homologado»: saldo ant. D, débito E, crédito F, saldo actual G.
+  //    Montos en «Balance homologado»: saldo ant. E, débito F, crédito G, saldo actual H.
   seccion("Sumas por clase (saldo actual, con signo)");
-  for (const c of clases) kv(`${c.clase} · ${c.nombre}`, ref("G", c.row));
-  const nTotal = kv("Suma de clases (debe ser 0)", sumCol("G"), { bold: true });
+  for (const c of clases) kv(`${c.clase} · ${c.nombre}`, ref("H", c.row));
+  const nTotal = kv("Suma de clases (debe ser 0)", sumCol("H"), { bold: true });
   estado("Ecuación contable", `IF(ABS(B${nTotal})<=1,"✓ CUADRA","✗ DESCUADRE "&TEXT(B${nTotal},"#,##0.00"))`);
 
   ws.addRow([]);
   // B) Partida doble — Σ débito = Σ crédito.
   seccion("Partida doble (movimiento del período)");
-  const nDeb = kv("Total débito", sumCol("E"));
-  const nCred = kv("Total crédito", sumCol("F"));
+  const nDeb = kv("Total débito", sumCol("F"));
+  const nCred = kv("Total crédito", sumCol("G"));
   const nDif = kv("Diferencia (débito − crédito)", `B${nDeb}-B${nCred}`, { bold: true });
   estado("Partida doble", `IF(ABS(B${nDif})<=1,"✓ CUADRA","✗ DESCUADRE")`);
 
   ws.addRow([]);
   // C) Control de movimiento — saldo anterior + débito − crédito = saldo actual.
   seccion("Control de movimiento (saldo ant. + débito − crédito = saldo actual)");
-  const nSA = kv("Σ Saldo anterior", sumCol("D"));
-  const nD2 = kv("Σ Débito", sumCol("E"));
-  const nC2 = kv("Σ Crédito", sumCol("F"));
-  const nSF = kv("Σ Saldo actual", sumCol("G"));
+  const nSA = kv("Σ Saldo anterior", sumCol("E"));
+  const nD2 = kv("Σ Débito", sumCol("F"));
+  const nC2 = kv("Σ Crédito", sumCol("G"));
+  const nSF = kv("Σ Saldo actual", sumCol("H"));
   const nCtrl = kv("Control (SA + D − C − Saldo)", `B${nSA}+B${nD2}-B${nC2}-B${nSF}`, { bold: true });
   estado("Estado del control", `IF(ABS(B${nCtrl})<=1,"✓ OK","✗ REVISAR")`);
 

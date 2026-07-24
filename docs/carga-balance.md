@@ -113,6 +113,7 @@ Algunos archivos no son balances de comprobación completos y la plataforma los 
 ## 9. Después de cargar: detalle, comparación y oficialización
 
 - **Ver el balance:** muestra los grandes totales (activo, pasivo, patrimonio, utilidad), el detalle por grupos de cuentas con su mapeo al estándar, las validaciones y el historial de versiones.
+- **Exportar el balance homologado:** genera un Excel donde el número y la descripción del nivel, el código de cuenta y la descripción de la cuenta aparecen en columnas independientes.
 - **Comparar versiones:** evidencia qué cuentas se agregaron, se quitaron o cambiaron entre una versión y otra.
 - **Congelar como oficial:** fija la versión definitiva del período; es la que consumen DIAN y Conciliaciones.
 
