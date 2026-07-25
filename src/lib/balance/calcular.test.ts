@@ -12,8 +12,10 @@ import {
   aFilasDetalle,
   reconstruirBalance,
   mapearCuenta,
+  agruparJerarquia,
   type CuentaCruda,
   type CuentaEstandar,
+  type NodoBalance,
 } from "./calcular";
 
 // Plan de cuentas estándar sintético (6 dígitos, como el real).
@@ -564,5 +566,44 @@ describe("conForzarHoja — imputable de nivel alto que es prefijo de sus herman
       { code: "11050502", name: "Aux B", prevBalance: 0, balance: 400 },
     ], []);
     expect(r.sums.activo).toBe(1000); // 600 + 400; el padre 110505 se descarta (no dobla a 2000)
+  });
+});
+
+describe("agruparJerarquia · naturaleza HEREDADA en agrupadoras (cuenta contra-naturaleza)", () => {
+  // «Pérdidas acumuladas» (371005): clase 3 (patrimonio → clase = crédito) pero el plan
+  // estándar la declara DÉBITO (contra-patrimonio). «Utilidades acumuladas» (370505): clase 3, crédito.
+  const STD_CN: CuentaEstandar[] = [
+    { code: "371005", nature: "D", critical: false, name: "Pérdidas acumuladas" },
+    { code: "370505", nature: "C", critical: false, name: "Utilidades acumuladas" },
+  ];
+  const NOM_CN = new Map(STD_CN.map((s) => [s.code, s.name!]));
+  const FILAS_CN = [
+    // Pérdidas: auxiliar con saldo POSITIVO → correcto para naturaleza DÉBITO.
+    { cuenta8: "37100505", nombreCuenta: "PERDIDAS ACUMULADAS", cuenta6Russell: "371005", coincidencia: 100, saldoInicial: 21_000_000, debitos: 0, creditos: 0, saldoFinal: 21_589_276 },
+    // Utilidades: auxiliar con saldo NEGATIVO → correcto para naturaleza CRÉDITO.
+    { cuenta8: "37050505", nombreCuenta: "UTILIDADES ACUMULADAS", cuenta6Russell: "370505", coincidencia: 100, saldoInicial: -35_000_000, debitos: 0, creditos: 0, saldoFinal: -35_118_745 },
+  ];
+  const arbol = agruparJerarquia(FILAS_CN, STD_CN, NOM_CN);
+  const buscar = (nodos: NodoBalance[], code: string): NodoBalance | undefined => {
+    for (const n of nodos) { if (n.code === code) return n; const h = buscar(n.hijos, code); if (h) return h; }
+    return undefined;
+  };
+
+  it("las agrupadoras de «Pérdidas» (saldo +) NO se marcan: heredan la naturaleza DÉBITO del plan, no la de la clase", () => {
+    expect(buscar(arbol, "37100505")?.saldoOk).toBe(true); // auxiliar (ya lo hacía)
+    expect(buscar(arbol, "371005")?.saldoOk).toBe(true); // subcuenta (antes marcaba «Saldo contrario»)
+    expect(buscar(arbol, "3710")?.saldoOk).toBe(true); // cuenta
+    expect(buscar(arbol, "371005")?.nature).toBe("D");
+  });
+
+  it("las agrupadoras de «Utilidades» (saldo −, crédito) siguen OK", () => {
+    expect(buscar(arbol, "370505")?.saldoOk).toBe(true);
+    expect(buscar(arbol, "370505")?.nature).toBe("C");
+  });
+
+  it("el GRUPO mixto (utilidades C + pérdidas D) no se marca: naturaleza «-»", () => {
+    const g = buscar(arbol, "37")!;
+    expect(g.nature).toBe("-");
+    expect(g.saldoOk).toBe(true);
   });
 });

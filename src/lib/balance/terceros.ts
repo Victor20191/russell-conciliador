@@ -179,6 +179,59 @@ export function consolidarTercerosPorSufijo(filas: FilaBorrador[]): FilaBorrador
  * no lo sea (agrupadora/total). Así NO rompe «encabezado repetido» (dos agrupadoras) ni
  * multi-sucursal (la agrupadora de clase entre sucursales corta el bloque).
  */
+// ===== «Balance por tercero» por AUXILIAR (mismo código repetido, sin NIT) =====
+//
+// Otro formato: el ERP repite la MISMA cuenta auxiliar (mismo código Y mismo nombre,
+// p. ej. `13050501 Clientes nacionales`) una vez por tercero, SIN traer el NIT en el
+// código y SIN una fila «Cuenta» consolidada. Se ven N renglones idénticos por
+// auxiliar; el saldo real de la cuenta = Σ de todos. Para la VISTA del borrador se
+// consolidan en UNA fila por auxiliar (suma) — es SOLO presentación (el staging, la
+// carga oficial y la exportación no cambian; se activan con la opción del cliente).
+
+/**
+ * Consolida corridas CONSECUTIVAS de ≥2 movimientos NO omitidos con el MISMO código en
+ * una sola fila (suma saldos/débitos/créditos), conservando la primera. NO consolida un
+ * bloque «Cuenta + NIT» donde la primera fila YA es el total (guarda `primera ≈ Σ resto`):
+ * eso lo maneja `marcarCuentaNit`, que tacha las repeticiones. Se llama DESPUÉS de
+ * `marcarCuentaNit`, así los NIT ya tachados (omitidos) no entran en el bloque. Devuelve
+ * un array NUEVO (clona la primera fila de cada bloque) y cuántos bloques consolidó.
+ */
+export function consolidarAuxiliaresRepetidos(filas: FilaBorrador[]): { filas: FilaBorrador[]; consolidados: number } {
+  const out: FilaBorrador[] = [];
+  let consolidados = 0;
+  let i = 0;
+  while (i < filas.length) {
+    const f = filas[i];
+    if (f.tipoFila !== "movimiento" || !/^\d+$/.test(f.codigo) || f.omitida) { out.push(f); i++; continue; }
+    let j = i + 1;
+    while (j < filas.length && filas[j].tipoFila === "movimiento" && filas[j].codigo === f.codigo && !filas[j].omitida) j++;
+    const bloque = filas.slice(i, j);
+    if (bloque.length >= 2) {
+      const sumaResto = bloque.slice(1).reduce((s, r) => s + r.saldoFinal, 0);
+      // Si la PRIMERA ya es el total (bloque «Cuenta + NIT»), NO consolidar (lo tacha
+      // `marcarCuentaNit`); solo se consolida el detalle por auxiliar sin fila total.
+      if (Math.abs(f.saldoFinal - sumaResto) > 1) {
+        const consol: FilaBorrador = { ...f };
+        for (const r of bloque.slice(1)) {
+          consol.saldoInicial += r.saldoInicial;
+          consol.debitos += r.debitos;
+          consol.creditos += r.creditos;
+          consol.saldoFinal += r.saldoFinal;
+        }
+        out.push(consol);
+        consolidados++;
+      } else {
+        for (const r of bloque) out.push(r); // «Cuenta + NIT»: intacto
+      }
+      i = j;
+      continue;
+    }
+    out.push(f);
+    i++;
+  }
+  return { filas: out, consolidados };
+}
+
 export function marcarCuentaNit(filas: FilaBorrador[]): number {
   let n = 0;
   let i = 0;

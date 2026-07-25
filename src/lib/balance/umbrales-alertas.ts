@@ -21,6 +21,9 @@ export type ClaveUmbral = keyof UmbralesAlertas;
 // seed, las pruebas y el fallback del cargador cuando la BD no responde.
 export const UMBRAL_DESCUADRE_ALERTA = 2_000;
 export const UMBRAL_NATURALEZA_ALERTA = 50_000;
+// Un movimiento (débito o crédito) que vino con signo CONTRARIO al dominante de su
+// columna se sube en NEGATIVO. Ese negativo es la "alerta de magnitud".
+export const UMBRAL_MAGNITUD_ALERTA = 50_000;
 
 export const UMBRALES_ALERTAS_DEFECTO: UmbralesAlertas = {
   descuadre: UMBRAL_DESCUADRE_ALERTA,
@@ -49,7 +52,7 @@ export const UMBRALES_CATALOGO: UmbralDef[] = [
     descripcion:
       "Monto mínimo para que una diferencia cuente como alerta. Por debajo, la diferencia se sigue viendo pero queda marcada como informativa y no entra en «Alertas» ni en el diagnóstico superior.",
     dondeAplica:
-      "Borrador de balance: partida doble, ecuación contable, totales de clase vs. archivo, cuentas agrupadoras que no cuadran con su desglose y débito/crédito invertidos.",
+      "Borrador de balance: partida doble, ecuación contable, totales de clase vs. archivo y cuentas agrupadoras que no cuadran con su desglose.",
     defecto: UMBRAL_DESCUADRE_ALERTA,
     minimo: 0,
     maximo: UMBRAL_MAXIMO,
@@ -99,4 +102,14 @@ export function esSaldoContrarioAccionable(saldo: number, saldoOk: boolean, umbr
 /** Saldo contrario dentro del umbral: se informa sin bloquear. */
 export function esSaldoContrarioInformativo(saldo: number, saldoOk: boolean, umbrales: UmbralesAlertas): boolean {
   return !saldoOk && Math.abs(saldo) <= umbrales.naturaleza;
+}
+
+/** Un valor de movimiento (débito/crédito) negativo = vino con signo contrario a su
+ *  columna. Accionable si su cuantía supera el umbral; informativo si no. */
+export function esMagnitudAccionable(valor: number | null | undefined): boolean {
+  return valor != null && valor < 0 && Math.abs(valor) >= UMBRAL_MAGNITUD_ALERTA;
+}
+
+export function esMagnitudInformativo(valor: number | null | undefined): boolean {
+  return valor != null && valor < 0 && Math.abs(valor) < UMBRAL_MAGNITUD_ALERTA;
 }

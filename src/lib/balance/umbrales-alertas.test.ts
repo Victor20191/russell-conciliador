@@ -5,6 +5,8 @@ import {
   esSaldoContrarioAccionable,
   esSaldoContrarioInformativo,
   esClaveUmbral,
+  esMagnitudAccionable,
+  esMagnitudInformativo,
   getUmbralDef,
   UMBRALES_ALERTAS_DEFECTO,
   UMBRALES_CATALOGO,
@@ -74,5 +76,18 @@ describe("catálogo de umbrales", () => {
     for (const def of UMBRALES_CATALOGO) {
       expect(UMBRALES_ALERTAS_DEFECTO[def.clave]).toBe(def.defecto);
     }
+  });
+
+  it("magnitud: solo un valor NEGATIVO (signo contrario) alerta; positivo o cero, no", () => {
+    // Positivo (dominante) o cero → nunca es alerta de magnitud.
+    expect(esMagnitudAccionable(1_000_000)).toBe(false);
+    expect(esMagnitudInformativo(1_000_000)).toBe(false);
+    expect(esMagnitudAccionable(0)).toBe(false);
+    expect(esMagnitudAccionable(null)).toBe(false);
+    // Negativo (contrario): informativo bajo $50.000, accionable desde $50.000.
+    expect(esMagnitudInformativo(-49_999)).toBe(true);
+    expect(esMagnitudAccionable(-49_999)).toBe(false);
+    expect(esMagnitudInformativo(-50_000)).toBe(false);
+    expect(esMagnitudAccionable(-50_000)).toBe(true);
   });
 });

@@ -804,6 +804,8 @@ model BalanceLecturaDiagnostico {
   // Reclasificar (agrupadora↔movimiento) e invertir (débito↔crédito) mutan el
   // staging sin dejar marca durable → se ACUMULAN al aplicarse (no al cerrar).
   manualReclasificadas Int      @default(0) @map("manual_reclasificadas")
+  // DEPRECADO: la feature manual «lados invertidos» (⇄ débito/crédito) se eliminó; el
+  // signo contrario se maneja por columna con «alerta de magnitud». Columna sin uso.
   manualInvertidas     Int      @default(0) @map("manual_invertidas")
   // Hipótesis del diagnóstico asistido con IA del descuadre (última corrida),
   // para analizar qué causas recurren. Null = nunca se pidió.
@@ -903,7 +905,9 @@ model CorreccionCargaBalance {
   cuenta          String    @map("cuenta")
   nombre          String?   @map("nombre") // último nombre visto (referencia en la UI)
   tipoFilaForzado String?   @map("tipo_fila_forzado") // agrupadora | movimiento | null=sin corrección
-  invertirLados   Boolean   @default(false) @map("invertir_lados") // débito↔crédito (solo si el control lo verifica)
+  // DEPRECADO: la feature manual «lados invertidos» (⇄ débito/crédito) se eliminó; el
+  // signo contrario se maneja por columna con «alerta de magnitud». Columna sin uso.
+  invertirLados   Boolean   @default(false) @map("invertir_lados")
   desacoplada     Boolean?  @map("desacoplada") // null=sin corrección
   // Tri-estado como el staging: true = omitir; false = RESCATADA (el auto-marcado
   // la respeta); null = sin corrección.

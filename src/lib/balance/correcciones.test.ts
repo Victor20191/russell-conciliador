@@ -26,7 +26,6 @@ const fila = (p: Partial<FilaStagingCorreccion> & { filaNum: number }): FilaStag
 const correccion = (p: Partial<CorreccionCuenta> & { cuenta: string }): CorreccionCuenta => ({
   nombre: null,
   tipoFilaForzado: null,
-  invertirLados: false,
   desacoplada: null,
   omitida: null,
   ...p,
@@ -51,17 +50,15 @@ describe("construirCorrecciones", () => {
     fila({ filaNum: 3, codigo: "", codigoCrudo: "Total general", nombre: "Total general", tipoFila: "total" }),
   ];
 
-  it("traduce override/invertidos/desacopladas por código", () => {
+  it("traduce override/desacopladas por código", () => {
     const cs = construirCorrecciones(filas, {
       override: { "110505": "agrupadora" },
-      invertidos: ["110505"],
       desacopladas: { "1105": true },
       omitidas: {},
       padres: {},
     });
     const c1 = cs.find((c) => c.cuenta === "110505")!;
     expect(c1.tipoFilaForzado).toBe("agrupadora");
-    expect(c1.invertirLados).toBe(true);
     expect(c1.nombre).toBe("Caja general");
     expect(cs.find((c) => c.cuenta === "1105")?.desacoplada).toBe(true);
   });
@@ -69,7 +66,6 @@ describe("construirCorrecciones", () => {
   it("traduce omitir por filaNum a la clave de la fila (código o crudo)", () => {
     const cs = construirCorrecciones(filas, {
       override: {},
-      invertidos: [],
       desacopladas: {},
       omitidas: { "3": true, "2": false },
       padres: {},
@@ -81,7 +77,6 @@ describe("construirCorrecciones", () => {
   it("traduce re-parentar filaNum→filaNum a clave→clave y descarta destinos inexistentes", () => {
     const cs = construirCorrecciones(filas, {
       override: {},
-      invertidos: [],
       desacopladas: {},
       omitidas: {},
       padres: { "2": 1, "3": 99 },
@@ -93,7 +88,6 @@ describe("construirCorrecciones", () => {
   it("re-parentar a null memoriza QUITAR el override", () => {
     const cs = construirCorrecciones(filas, {
       override: {},
-      invertidos: [],
       desacopladas: {},
       omitidas: {},
       padres: { "2": null },
@@ -104,7 +98,6 @@ describe("construirCorrecciones", () => {
   it("fusiona varios deltas de la misma cuenta en una sola corrección", () => {
     const cs = construirCorrecciones(filas, {
       override: { "110505": "agrupadora" },
-      invertidos: ["110505"],
       desacopladas: {},
       omitidas: { "2": true },
       padres: { "2": 1 },
@@ -113,7 +106,6 @@ describe("construirCorrecciones", () => {
     const c = cs[0];
     expect(c.cuenta).toBe("110505");
     expect(c.tipoFilaForzado).toBe("agrupadora");
-    expect(c.invertirLados).toBe(true);
     expect(c.omitida).toBe(true);
     expect(c.padreCodigo).toBe("1105");
   });
@@ -136,20 +128,6 @@ describe("planAplicarCorrecciones", () => {
       { filaNum: 2, tipoFilaForzado: "agrupadora" },
     ]);
     expect(cuentasAplicadas).toEqual(["1105", "2405"]);
-  });
-
-  it("invierte lados SOLO si el control falla y cuadra al intercambiar", () => {
-    const filas = [
-      // 100 + 50 − 30 ≠ 80, pero 100 + 30 − 50 = 80 → invertir
-      fila({ filaNum: 1, codigo: "110505", codigoCrudo: "110505", saldoInicial: 100, debitos: 50, creditos: 30, saldoFinal: 80 }),
-      // control OK → no tocar aunque la corrección lo pida
-      fila({ filaNum: 2, codigo: "220505", codigoCrudo: "220505", saldoInicial: 0, debitos: 10, creditos: 4, saldoFinal: 6 }),
-    ];
-    const { cambios } = planAplicarCorrecciones(filas, [
-      correccion({ cuenta: "110505", invertirLados: true }),
-      correccion({ cuenta: "220505", invertirLados: true }),
-    ]);
-    expect(cambios).toEqual([{ filaNum: 1, debitos: 30, creditos: 50 }]);
   });
 
   it("omite/rescata solo filas con tri-estado sin tocar en el lote destino", () => {
@@ -201,7 +179,7 @@ describe("planAplicarCorrecciones", () => {
   it("cuentas sin fila coincidente en el lote destino no aplican ni cuentan", () => {
     const filas = [fila({ filaNum: 1, codigo: "110505", codigoCrudo: "110505" })];
     const { cambios, cuentasAplicadas } = planAplicarCorrecciones(filas, [
-      correccion({ cuenta: "999999", tipoFilaForzado: "agrupadora", invertirLados: true, omitida: true }),
+      correccion({ cuenta: "999999", tipoFilaForzado: "agrupadora", omitida: true }),
     ]);
     expect(cambios).toEqual([]);
     expect(cuentasAplicadas).toEqual([]);
@@ -215,7 +193,6 @@ describe("planAplicarCorrecciones", () => {
     ];
     const correcciones = construirCorrecciones(loteViejo, {
       override: { "110505": "movimiento" },
-      invertidos: [],
       desacopladas: {},
       omitidas: { "12": true },
       padres: { "11": 10 },

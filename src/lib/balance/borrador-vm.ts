@@ -4,7 +4,7 @@
 import { calcularBalance, construirValidacionContable, conForzarHoja, type CuentaCruda, type ValidacionContable } from "./calcular";
 import { marcarSubtotalesDuplicados, reclasificarRepetidos, reclasificarNoImputables } from "./extraccion/transformar";
 import { construirArbolBorrador, reclasificarHuerfanas, marcarNoContables, corregirCodigosPlaceholder, type FilaBorrador, type NodoBorrador } from "./borrador";
-import { esBalancePorTercero, colapsarTerceros, esBalancePorTerceroSufijo, consolidarTercerosPorSufijo, marcarCuentaNit } from "./terceros";
+import { esBalancePorTercero, colapsarTerceros, esBalancePorTerceroSufijo, consolidarTercerosPorSufijo, consolidarAuxiliaresRepetidos, marcarCuentaNit } from "./terceros";
 import { marcarRelistadoGuiones } from "./relistado";
 import { diagnosticarBorrador, type Hallazgo, type PartidaDobleInfo } from "./diagnostico";
 import { contarFormasCodigo, contarCodigosRepetidos, contarDescuadres, type DiagnosticoLectura } from "./diagnostico-lectura";
@@ -42,7 +42,7 @@ function aplanar(nodos: NodoBorrador[]): NodoBorrador[] {
  */
 export function construirVistaBorrador(
   filas: FilaBorrador[],
-  opciones: { preservarAgrupadorasForzadas?: boolean; umbrales?: UmbralesAlertas } = {},
+  opciones: { preservarAgrupadorasForzadas?: boolean; consolidarAuxiliares?: boolean; umbrales?: UmbralesAlertas } = {},
 ): VistaBorrador {
   const umbrales = opciones.umbrales ?? UMBRALES_ALERTAS_DEFECTO;
   // ¿Balance ABIERTO POR TERCERO? Se COLAPSA el detalle de tercero y se concilia por
@@ -54,9 +54,7 @@ export function construirVistaBorrador(
   // Tercero con NIT PEGADO en el sufijo del código (`120520-0-00-800011002`, sin fila
   // consolidada) → se CONSOLIDA (suma) por cuenta en una sola fila.
   const porTerceroSufijo = esBalancePorTerceroSufijo(base0);
-  const base = porTerceroSufijo ? consolidarTercerosPorSufijo(base0) : base0;
-  const porTercero = porTerceroNit || porTerceroSufijo;
-  const terceros = filas.length - base.length;
+  let base = porTerceroSufijo ? consolidarTercerosPorSufijo(base0) : base0;
   // SIIGO «por cuenta»: los rollups de clase traen un código placeholder gigante
   // (`800000000000000`) en vez de la clase. Se corrige PRIMERO (deriva la clase de los
   // hijos) para que el código real fluya por todo lo demás. MUTA base.
@@ -65,6 +63,14 @@ export function construirVistaBorrador(
   // REPITEN su código. Se TACHAN las repeticiones (movimientos consecutivos de igual
   // código), conservando la «Cuenta». Seguro sin umbral (resetea en agrupadoras). MUTA base.
   const nitTachados = marcarCuentaNit(base);
+  // Balance abierto por tercero por AUXILIAR (mismo código repetido, sin NIT en el código
+  // ni fila «Cuenta» total): se consolida por auxiliar SOLO para la VISTA (opción del
+  // cliente). La exportación y las métricas llaman SIN la opción → quedan intactas. Corre
+  // DESPUÉS de `marcarCuentaNit` para no tocar los bloques «Cuenta+NIT» (ya tachados).
+  const aux = opciones.consolidarAuxiliares ? consolidarAuxiliaresRepetidos(base) : { filas: base, consolidados: 0 };
+  base = aux.filas;
+  const porTercero = porTerceroNit || porTerceroSufijo || aux.consolidados > 0;
+  const terceros = filas.length - base.length;
   // RE-LISTADO CON GUIONES: algunos ERP re-listan cada cuenta además del código plano
   // con notación de guiones («1105-05-04» + «*SIN NOMBRE*»). Esas filas redundantes (las
   // que ya tienen su equivalente plano) se MARCAN como omitidas: se siguen VIENDO

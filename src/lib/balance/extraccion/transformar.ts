@@ -169,17 +169,14 @@ export function controlConcuerda(si: number, db: number, cr: number, saldo: numb
 
 /**
  * Elige los movimientos (débito/crédito) que EXPLICAN el saldo final reportado.
- * Algunos ERP traen el movimiento NETO firmado: un débito negativo es una
- * reversión (un neto en sentido crédito), no un error. Tomar su magnitud (`|x|`)
- * rompía la identidad de control y, según el caso, corrompía el monto (lo dejaba
- * con el signo equivocado) o excluía la cuenta entera por «descuadre».
- *
- * Regla, con el SALDO como verdad (identidad firmada `si + db − cr = saldo`):
- *  1) si los valores TAL CUAL la cumplen, se conservan con su signo (preserva la
- *     reversión del ERP);
- *  2) si no, se devuelven en magnitud — cubre los créditos firmados-negativos
- *     estilo SAP y las notas débito sin saldo final, donde la verdad ES la
- *     magnitud (la validación de control posterior decide si la fila entra).
+ * El SIGNO ya viene NORMALIZADO por columna aguas arriba (`transformarTabular`
+ * detecta el signo dominante de cada columna por mayoría y deja: dominante →
+ * positivo, contrario → negativo). Aquí solo se decide, con el SALDO como verdad
+ * (identidad `si + db − cr = saldo`):
+ *  1) si los valores TAL CUAL la cumplen, se conservan con su signo (preserva un
+ *     valor con signo contrario —reversa— sin marcarlo como falso «invertido»);
+ *  2) si no, se devuelven en magnitud — notas débito sin saldo final, donde la
+ *     verdad ES la magnitud (la validación de control posterior decide si entra).
  *
  * Para archivos de magnitudes (sin negativos) el resultado es idéntico a
  * `Math.abs`, así que los cargues normales no cambian de comportamiento.
@@ -356,6 +353,12 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
   // dígitos sin auxiliares cuando OTRAS cuentas del archivo llegaban al nivel 8.
   const codigos: string[] = [];
   const saldosNumericos: { code: string; saldo: number }[] = [];
+  // Signo DOMINANTE por columna (mayoría de valores no-cero). Un valor con el signo
+  // opuesto al dominante de SU columna es "contrario": se sube en negativo y se marca
+  // como magnitud en el borrador. En una columna con dominante NEGATIVO (Haber firmado
+  // estilo SAP) se niega toda la columna → normales+, contrarios−; en una con dominante
+  // POSITIVO (magnitud) se conserva el signo del archivo.
+  let dbPos = 0, dbNeg = 0, crPos = 0, crNeg = 0;
   for (let r = spec.primeraFilaDatos - 1; r < hoja.filas.length; r++) {
     const fila = hoja.filas[r] ?? [];
     const code = normalizarCodigo(celdaCodigo(fila, cols));
@@ -364,8 +367,14 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
     const si = tieneInicial ? normalizarMonto(cell(fila, cols.saldoInicial)) : 0;
     const db = cols.debitos > 0 ? normalizarMonto(cell(fila, cols.debitos)) : 0;
     const cr = cols.creditos > 0 ? normalizarMonto(cell(fila, cols.creditos)) : 0;
+    if (db) { if (db > 0) dbPos++; else dbNeg++; }
+    if (cr) { if (cr > 0) crPos++; else crNeg++; }
     saldosNumericos.push({ code, saldo: leerSaldoFinal(fila, cols, si ?? 0, db ?? 0, cr ?? 0) ?? 0 });
   }
+  const debitoDominanteNeg = dbNeg > dbPos;
+  const creditoDominanteNeg = crNeg > crPos;
+  const normDb = (v: number) => (debitoDominanteNeg ? -v : v);
+  const normCr = (v: number) => (creditoDominanteNeg ? -v : v);
   const ancestros = prefijosDe(codigos);
   // Σ saldo de las HOJAS descendientes por cada código agrupador PRESENTE en el
   // archivo. Distingue, entre los padres SIN negrita, al que ya está explicado
@@ -466,8 +475,11 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
 
     const esNum = /^\d+$/.test(code);
     const si = tieneInicial ? normalizarMonto(cell(fila, cols.saldoInicial)) : 0;
-    const db = cols.debitos > 0 ? normalizarMonto(cell(fila, cols.debitos)) : 0;
-    const cr = cols.creditos > 0 ? normalizarMonto(cell(fila, cols.creditos)) : 0;
+    // Normaliza por el signo DOMINANTE de cada columna: dominante → +, contrario → −.
+    const dbRaw = cols.debitos > 0 ? normalizarMonto(cell(fila, cols.debitos)) : 0;
+    const crRaw = cols.creditos > 0 ? normalizarMonto(cell(fila, cols.creditos)) : 0;
+    const db = dbRaw == null ? null : normDb(dbRaw);
+    const cr = crRaw == null ? null : normCr(crRaw);
     const saldo = leerSaldoFinal(fila, cols, si ?? 0, db ?? 0, cr ?? 0);
 
     // Registra la fila CRUDA (sin descartar). El tipo es provisional para las de
