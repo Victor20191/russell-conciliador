@@ -33,7 +33,7 @@ import {
 import { nombreNivelCuenta } from "@/lib/balance/nivel-cuenta";
 import type { ValidacionContable } from "@/lib/balance/calcular";
 import type { Hallazgo } from "@/lib/balance/diagnostico";
-import { esDescuadreAccionable, esDescuadreInformativo, UMBRAL_DESCUADRE_ALERTA } from "@/lib/balance/umbrales-alertas";
+import { esDescuadreAccionable, esDescuadreInformativo, esMagnitudAccionable, UMBRAL_DESCUADRE_ALERTA } from "@/lib/balance/umbrales-alertas";
 import {
   esDescuadreDelArchivoFuente,
   MAX_COMENTARIO_PROMOCION,
@@ -46,12 +46,11 @@ import { expandirFilas, type FilasCompactas } from "@/lib/balance/filas-compacta
 
 type Cliente = { id: number; name: string; nit: string; notas?: string | null };
 
-/** Aplica los cambios TEMPORALES (reclasificación / lados invertidos / desacople /
- *  omitir / re-parentado) sobre las filas crudas, en memoria (misma lógica que guardar). */
+/** Aplica los cambios TEMPORALES (reclasificación / desacople / omitir / re-parentado)
+ *  sobre las filas crudas, en memoria (misma lógica que guardar). */
 function aplicarCambios(
   filas: FilaBorrador[],
   override: Record<string, "agrupadora" | "movimiento">,
-  invertidos: string[],
   desacopladas: Record<string, boolean>,
   omitidas: Record<number, boolean>,
   padres: Record<number, number | null>,
@@ -65,15 +64,6 @@ function aplicarCambios(
       if (ov && /^\d+$/.test(f.codigo) && f.tipoFila !== "total") {
         f.tipoFila = ov;
         f.tipoFilaForzado = ov;
-      }
-    }
-  }
-  if (invertidos.length > 0) {
-    const set = new Set(invertidos);
-    const ctrlOk = (f: FilaBorrador) => Math.abs(f.saldoInicial + f.debitos - f.creditos - f.saldoFinal) <= 1;
-    for (const f of out) {
-      if (set.has(f.codigo) && !ctrlOk(f) && Math.abs(f.saldoInicial + f.creditos - f.debitos - f.saldoFinal) <= 1) {
-        const t = f.debitos; f.debitos = f.creditos; f.creditos = t;
       }
     }
   }
@@ -124,7 +114,6 @@ export default function BorradorDetailClient({
 
   // Cambios TEMPORALES (en el navegador) hasta Guardar/Descartar.
   const [override, setOverride] = useState<Record<string, "agrupadora" | "movimiento">>({});
-  const [invertidos, setInvertidos] = useState<string[]>([]);
   const [desacopladas, setDesacopladas] = useState<Record<string, boolean>>({});
   const [omitidas, setOmitidas] = useState<Record<number, boolean>>({});
   const [padres, setPadres] = useState<Record<number, number | null>>({});
@@ -151,15 +140,17 @@ export default function BorradorDetailClient({
     }
     return combinado;
   }, [filas, soloHojas, override]);
-  const nCambios = Object.keys(overrideEfectivo).length + invertidos.length + Object.keys(desacopladas).length + Object.keys(omitidas).length + Object.keys(padres).length;
+  const nCambios = Object.keys(overrideEfectivo).length + Object.keys(desacopladas).length + Object.keys(omitidas).length + Object.keys(padres).length;
   const hayCambios = nCambios > 0;
   // View-model recomputado LOCALMENTE con los cambios temporales (sin tocar la BD).
   const { arbol, validacion, partidaDoble, hallazgos, porTercero: porTerceroCalculado, relistadoGuiones, filasOcultas, clasesCorregidas, nitTachados } = useMemo(
     () => construirVistaBorrador(
-      aplicarCambios(filas, overrideEfectivo, invertidos, desacopladas, omitidas, padres),
-      { preservarAgrupadorasForzadas: true },
+      aplicarCambios(filas, overrideEfectivo, desacopladas, omitidas, padres),
+      // consolidarAuxiliares: SOLO para la vista — agrupa por auxiliar los balances
+      // abiertos por NIT (mismo código repetido). El staging y la exportación no cambian.
+      { preservarAgrupadorasForzadas: true, consolidarAuxiliares: true },
     ),
-    [filas, overrideEfectivo, invertidos, desacopladas, omitidas, padres],
+    [filas, overrideEfectivo, desacopladas, omitidas, padres],
   );
   const porTercero = porTerceroDetectado || porTerceroCalculado;
   const advertenciaArchivoFuente = esDescuadreDelArchivoFuente(
@@ -221,7 +212,6 @@ export default function BorradorDetailClient({
     }
     setOverride((o) => ({ ...o, [cuenta.codigo]: "movimiento" }));
   };
-  const onInvertir = (codigo: string) => setInvertidos((inv) => (inv.includes(codigo) ? inv : [...inv, codigo]));
   const onDesacoplar = (codigo: string, desacopladaAhora: boolean) => setDesacopladas((d) => ({ ...d, [codigo]: !desacopladaAhora }));
   const onOmitir = (filaNum: number, omitidaAhora: boolean) => setOmitidas((o) => ({ ...o, [filaNum]: !omitidaAhora }));
   const onUbicar = (filaNum: number) => setMover({ filaNum });
@@ -250,13 +240,13 @@ export default function BorradorDetailClient({
     const p = posiciones.get(filaNum);
     if (p?.abuelo != null) aplicarReubicacion(filaNum, p.abuelo);
   };
-  const descartarCambios = () => { setOverride({}); setInvertidos([]); setDesacopladas({}); setOmitidas({}); setPadres({}); setSoloHojas(false); };
+  const descartarCambios = () => { setOverride({}); setDesacopladas({}); setOmitidas({}); setPadres({}); setSoloHojas(false); };
   const guardarCambios = () =>
     startGuardar(async () => {
       // El cliente seleccionado viaja para MEMORIZAR las correcciones en su perfil
       // (si no hay, el servidor lo resuelve por el lote/NIT).
-      const r = await aplicarCambiosBorrador(loteId, overrideEfectivo, invertidos, desacopladas, omitidas, padres, clienteSelId);
-      if (r.ok) { notifySuccess(r.message ?? "Cambios guardados."); setOverride({}); setInvertidos([]); setDesacopladas({}); setOmitidas({}); setPadres({}); setSoloHojas(false); router.refresh(); }
+      const r = await aplicarCambiosBorrador(loteId, overrideEfectivo, desacopladas, omitidas, padres, clienteSelId);
+      if (r.ok) { notifySuccess(r.message ?? "Cambios guardados."); setOverride({}); setDesacopladas({}); setOmitidas({}); setPadres({}); setSoloHojas(false); router.refresh(); }
       else notifyError(r.message ?? "No se pudieron guardar los cambios.");
     });
 
@@ -436,9 +426,9 @@ export default function BorradorDetailClient({
       {(() => {
         // Partida doble y ecuación ya se ven arriba en el encabezado; el
         // descuadre por clase ya lo muestra cada tarjeta (Δ archivo vs detalle);
-        // se omiten aquí para no repetirlos. Queda lo accionable: lados invertidos
-        // y nodos que no cuadran con su desglose. La fuente conserva el contexto
-        // completo para los cálculos y las correcciones deterministas del borrador.
+        // se omiten aquí para no repetirlos. Queda lo accionable: los nodos que no
+        // cuadran con su desglose. La fuente conserva el contexto completo para los
+        // cálculos y las correcciones deterministas del borrador.
         const hh = hallazgos.filter((h) => h.tipo !== "partida_doble" && h.tipo !== "ecuacion" && h.tipo !== "clase");
         // Se monta SIEMPRE, con o sin hallazgos: montarlo y desmontarlo según el resultado
         // movía la tabla ~66 px en cada omisión o reclasificación (los hallazgos cambian con
@@ -499,7 +489,7 @@ export default function BorradorDetailClient({
             <button type="button" onClick={descartarCambios} disabled={!hayCambios || guardando} className="rounded-md border border-ink-300 px-3 py-1.5 text-[12px] font-medium text-ink-700 hover:bg-ink-50 disabled:opacity-45">Descartar cambios</button>
           </div>
         </div>
-        <ArbolTabla arbol={arbol} onReclasificar={onReclasificar} onGestionarAgrupadora={(filaNum) => setGestionarAgrupadora({ filaNum })} onInvertir={onInvertir} onDesacoplar={onDesacoplar} onOmitir={onOmitir} posiciones={posiciones} contexto={contexto} onUbicar={onUbicar} onDesindentar={onDesindentar} enfoqueReubicacion={enfoqueReubicacion} />
+        <ArbolTabla arbol={arbol} onReclasificar={onReclasificar} onGestionarAgrupadora={(filaNum) => setGestionarAgrupadora({ filaNum })} onDesacoplar={onDesacoplar} onOmitir={onOmitir} posiciones={posiciones} contexto={contexto} onUbicar={onUbicar} onDesindentar={onDesindentar} enfoqueReubicacion={enfoqueReubicacion} />
       </Card>
 
       {spec && (
@@ -995,13 +985,11 @@ function DiagnosticoPanel({ hallazgos }: { hallazgos: Hallazgo[] }) {
 
 // ---- Árbol crudo (agrupadora / movimiento, descuadre subrayado) ----
 
-// Control contable de una fila: saldo ant + débito − crédito = saldo actual (±$1).
-const controlCuadraFila = (si: number, db: number, cr: number, s: number) => Math.abs(si + db - cr - s) <= 1;
 /**
  * ¿La fila merece «Alerta»? Una AGRUPADORA cuyo total ≠ suma de sus hijos (Δ), o un
- * MOVIMIENTO problemático: con débito/crédito INVERTIDOS (cuadra al intercambiarlos —
- * descuadra la partida doble) o marcado «descuadre» (no cuadra en ninguna orientación).
- * Las filas omitidas no alertan.
+ * MOVIMIENTO problemático: con un valor de MAGNITUD (débito o crédito que vino con signo
+ * CONTRARIO al dominante de su columna → se subió en negativo) o marcado «descuadre» (no
+ * cuadra en ninguna orientación). Las filas omitidas no alertan.
  */
 const esAlertaNodo = (n: NodoBorrador): boolean => {
   if (esDescuadreAccionable(n.descuadre)) return true;
@@ -1009,9 +997,7 @@ const esAlertaNodo = (n: NodoBorrador): boolean => {
   const diferenciaControl = n.saldoInicial + n.debitos - n.creditos - n.saldoFinal;
   if (n.tipoFila === "descuadre") return esDescuadreAccionable(diferenciaControl);
   if (n.tipoFila !== "movimiento") return false;
-  return !controlCuadraFila(n.saldoInicial, n.debitos, n.creditos, n.saldoFinal)
-    && controlCuadraFila(n.saldoInicial, n.creditos, n.debitos, n.saldoFinal)
-    && esDescuadreAccionable(2 * (n.creditos - n.debitos));
+  return esMagnitudAccionable(n.debitos) || esMagnitudAccionable(n.creditos);
 };
 
 // Posición de cada nodo para el TABULADOR: `prev` = filaNum del hermano anterior (para
@@ -1341,13 +1327,11 @@ function MoverModal({ indice, filaNumInicial, onConfirmar, onClose }: {
   );
 }
 
-function ArbolTabla({ arbol, onReclasificar, onGestionarAgrupadora, onInvertir, onDesacoplar, onOmitir, posiciones, contexto, onUbicar, onDesindentar, enfoqueReubicacion }: { arbol: NodoBorrador[]; onReclasificar: (cuenta: NodoBorrador) => void; onGestionarAgrupadora: (filaNum: number) => void; onInvertir: (codigo: string) => void; onDesacoplar: (codigo: string, desacopladaAhora: boolean) => void; onOmitir: (filaNum: number, omitidaAhora: boolean) => void; posiciones: Map<number, Posicion>; contexto: Map<number, ContextoNodo>; onUbicar: (filaNum: number) => void; onDesindentar: (filaNum: number) => void; enfoqueReubicacion: { origen: number; destino: number | null; secuencia: number } | null }) {
+function ArbolTabla({ arbol, onReclasificar, onGestionarAgrupadora, onDesacoplar, onOmitir, posiciones, contexto, onUbicar, onDesindentar, enfoqueReubicacion }: { arbol: NodoBorrador[]; onReclasificar: (cuenta: NodoBorrador) => void; onGestionarAgrupadora: (filaNum: number) => void; onDesacoplar: (codigo: string, desacopladaAhora: boolean) => void; onOmitir: (filaNum: number, omitidaAhora: boolean) => void; posiciones: Map<number, Posicion>; contexto: Map<number, ContextoNodo>; onUbicar: (filaNum: number) => void; onDesindentar: (filaNum: number) => void; enfoqueReubicacion: { origen: number; destino: number | null; secuencia: number } | null }) {
   const { filaSeleccionada, setFilaSeleccionada, onClickFila, onDoubleClickFila } = useSeleccionFilaTabla();
   const tablaRef = useRef<HTMLDivElement>(null);
   const pendienteEnfoqueRef = useRef<number | null>(null); // fila a enfocar cuando su página esté montada
   const [destinoDestacado, setDestinoDestacado] = useState<number | null>(null);
-  // Control contable: saldo ant + débito − crédito = saldo actual (±$1).
-  const controlOk = (si: number, db: number, cr: number, s: number) => Math.abs(si + db - cr - s) <= 1;
   // Expande por defecto los niveles altos y TODA rama con descuadre (para verlo).
   // Un solo recorrido post-orden: cada nodo sabe si su subárbol descuadra sin
   // re-visitar descendientes (con 50k+ filas el chequeo por nodo se multiplicaba).
@@ -1512,8 +1496,10 @@ function ArbolTabla({ arbol, onReclasificar, onGestionarAgrupadora, onInvertir, 
     const descuadrado = n.descuadre != null && n.descuadre !== 0;
     const descuadreAccionable = esDescuadreAccionable(n.descuadre);
     const descuadreInformativo = esDescuadreInformativo(n.descuadre);
-    // Lados invertidos: el control no cuadra, pero SÍ al intercambiar débito↔crédito.
-    const ladosInv = esMov && !controlOk(n.saldoInicial, n.debitos, n.creditos, n.saldoFinal) && controlOk(n.saldoInicial, n.creditos, n.debitos, n.saldoFinal);
+    // Magnitud: un débito o crédito que vino con signo CONTRARIO al dominante de su
+    // columna se subió en negativo. Es informativo (el saldo es correcto); no hay acción.
+    const magnitudAcc = esMagnitudAccionable(n.debitos) || esMagnitudAccionable(n.creditos);
+    const magnitudContraria = esMov && (n.debitos < 0 || n.creditos < 0);
     // Desacople: ya desacoplada (permite REACOPLAR), o cuelga de una agrupadora que NO
     // es su prefijo (candidata a DESACOPLAR: el ERP la ubicó bajo un grupo de código
     // ajeno). Solo aplica a movimientos con código numérico.
@@ -1628,15 +1614,13 @@ function ArbolTabla({ arbol, onReclasificar, onGestionarAgrupadora, onInvertir, 
                 <Chip label="Agrupadora manual sin movimientos" tone="warn" />
               </span>
             )}
-            {ladosInv && (
-              <button
-                type="button"
-                onClick={() => onInvertir(n.codigo)}
-                title={`Débito y crédito están invertidos (déb ${fmt(n.debitos)} / créd ${fmt(n.creditos)}): el control no cuadra con el saldo, pero sí al intercambiarlos. Corrige el lado.`}
-                className="rounded border border-warn-300 bg-warn-50 px-1.5 py-0.5 text-[10px] font-semibold text-warn-700 hover:bg-warn-100"
+            {magnitudContraria && (
+              <span
+                className={`rounded px-1.5 py-0.5 text-[10.5px] ${magnitudAcc ? "border border-warn-300 bg-warn-50 font-semibold text-warn-700" : "border border-warn-100 bg-warn-50/50 font-medium text-warn-600"}`}
+                title={`Vino con signo CONTRARIO al dominante de su columna y se subió en negativo (déb ${fmt(n.debitos)} / créd ${fmt(n.creditos)}). Alerta de MAGNITUD: el saldo es correcto; verifica que la naturaleza de la cuenta sea la esperada.`}
               >
-                ⇄ Débito/Crédito
-              </button>
+                ± magnitud
+              </span>
             )}
             {puedeDesacoplar && (
               <button

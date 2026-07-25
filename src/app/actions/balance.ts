@@ -368,7 +368,7 @@ async function memorizarCorreccionesCliente(clienteId: number, correcciones: Cor
         where: { clienteId_cuenta: { clienteId, cuenta: c.cuenta } },
         create: {
           clienteId, cuenta: c.cuenta, nombre: c.nombre,
-          tipoFilaForzado: c.tipoFilaForzado, invertirLados: c.invertirLados,
+          tipoFilaForzado: c.tipoFilaForzado,
           desacoplada: c.desacoplada, omitida: c.omitida,
           padreCodigo: c.padreCodigo !== undefined ? c.padreCodigo : null,
           actualizadoPor: usuario,
@@ -376,7 +376,6 @@ async function memorizarCorreccionesCliente(clienteId: number, correcciones: Cor
         update: {
           ...(c.nombre ? { nombre: c.nombre } : {}),
           ...(c.tipoFilaForzado ? { tipoFilaForzado: c.tipoFilaForzado } : {}),
-          ...(c.invertirLados ? { invertirLados: true } : {}),
           ...(c.desacoplada != null ? { desacoplada: c.desacoplada } : {}),
           ...(c.omitida != null ? { omitida: c.omitida } : {}),
           ...(c.padreCodigo !== undefined ? { padreCodigo: c.padreCodigo } : {}),
@@ -403,7 +402,7 @@ async function aplicarCorreccionesGuardadas(loteId: string, clienteId: number): 
   const correcciones: CorreccionCuenta[] = guardadas.map((g) => ({
     cuenta: g.cuenta, nombre: g.nombre,
     tipoFilaForzado: g.tipoFilaForzado === "agrupadora" || g.tipoFilaForzado === "movimiento" ? g.tipoFilaForzado : null,
-    invertirLados: g.invertirLados, desacoplada: g.desacoplada, omitida: g.omitida,
+    desacoplada: g.desacoplada, omitida: g.omitida,
     // En un lote NUEVO `padreManual` nace null: el `padreCodigo` null memorizado
     // (quitar override) queda inerte, como debe.
     padreCodigo: g.padreCodigo,
@@ -414,8 +413,6 @@ async function aplicarCorreccionesGuardadas(loteId: string, clienteId: number): 
     const data: Record<string, unknown> = {};
     if (ch.tipoFila) data.tipoFila = ch.tipoFila;
     if (ch.tipoFilaForzado) data.tipoFilaForzado = ch.tipoFilaForzado;
-    if (ch.debitos !== undefined) data.debitos = ch.debitos;
-    if (ch.creditos !== undefined) data.creditos = ch.creditos;
     if (ch.desacoplada !== undefined) data.desacoplada = ch.desacoplada;
     if (ch.omitida !== undefined) data.omitida = ch.omitida;
     if (ch.padreManual !== undefined) data.padreManual = ch.padreManual;
@@ -1804,14 +1801,11 @@ export async function descartarBorrador(loteId: string): Promise<ActionState> {
 
 /**
  * GUARDA en el staging los cambios que el usuario hizo en el borrador (hasta ahora
- * TEMPORALES en el navegador): reclasificaciones AGRUPADORA↔MOVIMIENTO y correcciones
- * de "lados invertidos" (débito↔crédito). Se aplica en lote:
+ * TEMPORALES en el navegador): reclasificaciones AGRUPADORA↔MOVIMIENTO, desacople,
+ * omitir y re-parentado. Se aplica en lote:
  *  - `override`: código → tipo nuevo. Flip de las filas del lote con ese código que
  *    hoy tienen el tipo OPUESTO (no toca una fila del mismo código pero del otro
  *    tipo — p. ej. un encabezado repetido).
- *  - `invertidos`: códigos cuyo débito/crédito se intercambia SOLO en las filas cuyo
- *    control hoy no cuadra pero SÍ al intercambiar (no daña sucursales correctas; el
- *    saldo no se toca).
  *  - `desacopladas`: código → on/off del flag `desacoplada` (anidar por prefijo, no por
  *    orden). No afecta el balance cargado (la carga agrega por código, no por árbol);
  *    solo corrige DÓNDE se muestra el descuadre en la revisión del borrador.
@@ -1830,7 +1824,6 @@ export async function descartarBorrador(loteId: string): Promise<ActionState> {
 export async function aplicarCambiosBorrador(
   loteId: string,
   override: Record<string, "agrupadora" | "movimiento">,
-  invertidos: string[],
   desacopladas: Record<string, boolean> = {},
   omitidas: Record<string, boolean> = {},
   padres: Record<string, number | null> = {},
@@ -1841,11 +1834,10 @@ export async function aplicarCambiosBorrador(
   const id = String(loteId ?? "").trim();
   if (!id) return { ok: false, message: "Borrador inválido." };
   const reclas = Object.entries(override ?? {}).filter(([c, t]) => /^\d+$/.test(c) && (t === "agrupadora" || t === "movimiento"));
-  const invs = [...new Set((invertidos ?? []).filter((c) => /^\d+$/.test(c)))];
   const desac = Object.entries(desacopladas ?? {}).filter(([c]) => /^\d+$/.test(c));
   const omit = Object.entries(omitidas ?? {}).filter(([f]) => /^\d+$/.test(f));
   const pads = Object.entries(padres ?? {}).filter(([f]) => /^\d+$/.test(f));
-  if (reclas.length === 0 && invs.length === 0 && desac.length === 0 && omit.length === 0 && pads.length === 0) return { ok: false, message: "No hay cambios para guardar." };
+  if (reclas.length === 0 && desac.length === 0 && omit.length === 0 && pads.length === 0) return { ok: false, message: "No hay cambios para guardar." };
   try {
     // La UI filtra los destinos, pero una Server Action también es invocable por POST:
     // valida el grafo completo ANTES de cualquier escritura para evitar referencias a
@@ -1864,7 +1856,6 @@ export async function aplicarCambiosBorrador(
     }
 
     let nRe = 0;
-    let nInv = 0;
     let nDes = 0;
     let nOmi = 0;
     let nPad = 0;
@@ -1886,21 +1877,6 @@ export async function aplicarCambiosBorrador(
         data: { tipoFila: "movimiento", tipoFilaForzado: "movimiento" },
       });
       nRe += r.count;
-    }
-    if (invs.length > 0) {
-      const rows = await prisma.balanceImportacionStaging.findMany({
-        where: { loteId: id, codigo: { in: invs } },
-        select: { id: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
-      });
-      const controlOk = (si: number, db: number, cr: number, s: number) => Math.abs(si + db - cr - s) <= 1;
-      const aInvertir = rows.filter((r) => {
-        const si = Number(r.saldoInicial), db = Number(r.debitos), cr = Number(r.creditos), s = Number(r.saldoFinal);
-        return !controlOk(si, db, cr, s) && controlOk(si, cr, db, s);
-      });
-      if (aInvertir.length > 0) {
-        await prisma.$transaction(aInvertir.map((r) => prisma.balanceImportacionStaging.update({ where: { id: r.id }, data: { debitos: r.creditos, creditos: r.debitos } })));
-        nInv = aInvertir.length;
-      }
     }
     for (const [cod, on] of desac) {
       const r = await prisma.balanceImportacionStaging.updateMany({ where: { loteId: id, codigo: cod }, data: { desacoplada: on } });
@@ -1933,7 +1909,6 @@ export async function aplicarCambiosBorrador(
           const filas = await filasStagingCorreccion(id);
           const correcciones = construirCorrecciones(filas, {
             override: Object.fromEntries(reclas),
-            invertidos: invs,
             desacopladas: Object.fromEntries(desac),
             omitidas: Object.fromEntries(omit),
             padres: Object.fromEntries(pads),
@@ -1948,14 +1923,14 @@ export async function aplicarCambiosBorrador(
       /* best-effort */
     }
 
-    await logAudit({ user: user?.name ?? "—", action: "GUARDÓ cambios en balance borrador", entity: id, detail: `${nRe} reclasificada(s), ${nInv} inversión(es), ${nDes} desacople(s), ${nOmi} omitida(s), ${nPad} re-parentada(s)${nMemorizadas > 0 ? ` · ${nMemorizadas} cuenta(s) memorizadas en el perfil del cliente` : ""}` });
-    // Huella diagnóstica: reclasificar/invertir mutan el staging sin marca durable,
-    // así que se acumulan aquí (best-effort; los otros contadores se toman al cerrar).
-    await acumularIntervencionManual(id, { reclasificadas: nRe, invertidas: nInv });
+    await logAudit({ user: user?.name ?? "—", action: "GUARDÓ cambios en balance borrador", entity: id, detail: `${nRe} reclasificada(s), ${nDes} desacople(s), ${nOmi} omitida(s), ${nPad} re-parentada(s)${nMemorizadas > 0 ? ` · ${nMemorizadas} cuenta(s) memorizadas en el perfil del cliente` : ""}` });
+    // Huella diagnóstica: reclasificar muta el staging sin marca durable, así que se
+    // acumula aquí (best-effort; los otros contadores se toman al cerrar).
+    await acumularIntervencionManual(id, { reclasificadas: nRe });
     invalidarStagingBorrador(id);
     revalidatePath(`/balance/borradores/${id}`);
     revalidatePath("/balance/borradores");
-    const nTotal = nRe + nInv + nDes + nOmi + nPad;
+    const nTotal = nRe + nDes + nOmi + nPad;
     return {
       ok: true,
       message: `Cambios guardados (${nTotal} fila${nTotal === 1 ? "" : "s"}).${nMemorizadas > 0 ? ` Se memorizaron ${nMemorizadas} corrección(es) en el perfil del cliente: las próximas cargas las aplicarán solas.` : ""}`,

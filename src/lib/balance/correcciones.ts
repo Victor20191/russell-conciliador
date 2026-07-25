@@ -16,7 +16,6 @@ export type TipoFilaForzado = "agrupadora" | "movimiento";
 /** Cambios TEMPORALES del borrador tal como los guarda `aplicarCambiosBorrador`. */
 export type DeltasBorrador = {
   override: Record<string, TipoFilaForzado>;
-  invertidos: string[];
   desacopladas: Record<string, boolean>;
   omitidas: Record<string, boolean>; // filaNum → on/off
   padres: Record<string, number | null>; // filaNum → filaNum destino (null = quitar)
@@ -44,7 +43,6 @@ export type CorreccionCuenta = {
   cuenta: string;
   nombre: string | null;
   tipoFilaForzado: TipoFilaForzado | null;
-  invertirLados: boolean;
   desacoplada: boolean | null; // null = sin corrección
   omitida: boolean | null; // tri-estado: true omitir, false rescatar, null sin corrección
   // undefined = sin tocar (no pisa lo memorizado); null = QUITAR el re-parentado;
@@ -57,16 +55,12 @@ export type CambioFila = {
   filaNum: number;
   tipoFila?: TipoFilaForzado;
   tipoFilaForzado?: TipoFilaForzado;
-  debitos?: number; // intercambio explícito de lados (valores finales)
-  creditos?: number;
   desacoplada?: boolean;
   omitida?: boolean;
   padreManual?: number | null;
 };
 
 const esNumerico = (c: string) => /^\d+$/.test(c);
-// Control contable de una fila: saldo ant + débito − crédito = saldo actual (±$1).
-const controlCuadra = (si: number, db: number, cr: number, sf: number) => Math.abs(si + db - cr - sf) <= 1;
 
 /**
  * Clave re-aplicable de una fila: el código PUC si es numérico; si no, el texto
@@ -95,7 +89,7 @@ export function construirCorrecciones(filas: FilaStagingCorreccion[], d: DeltasB
   const entrada = (cuenta: string, nombre: string | null): CorreccionCuenta => {
     let c = out.get(cuenta);
     if (!c) {
-      c = { cuenta, nombre, tipoFilaForzado: null, invertirLados: false, desacoplada: null, omitida: null };
+      c = { cuenta, nombre, tipoFilaForzado: null, desacoplada: null, omitida: null };
       out.set(cuenta, c);
     }
     if (!c.nombre && nombre) c.nombre = nombre;
@@ -105,10 +99,6 @@ export function construirCorrecciones(filas: FilaStagingCorreccion[], d: DeltasB
   for (const [cod, tipo] of Object.entries(d.override ?? {})) {
     if (!esNumerico(cod) || (tipo !== "agrupadora" && tipo !== "movimiento")) continue;
     entrada(cod, porCodigo.get(cod)?.nombre ?? null).tipoFilaForzado = tipo;
-  }
-  for (const cod of d.invertidos ?? []) {
-    if (!esNumerico(cod)) continue;
-    entrada(cod, porCodigo.get(cod)?.nombre ?? null).invertirLados = true;
   }
   for (const [cod, on] of Object.entries(d.desacopladas ?? {})) {
     if (!esNumerico(cod)) continue;
@@ -143,7 +133,6 @@ export function construirCorrecciones(filas: FilaStagingCorreccion[], d: DeltasB
  * Plan para RE-APLICAR las correcciones memorizadas a las filas de un lote nuevo.
  * Salvaguardas (mismas del guardado manual):
  *  - reclasificar: solo si el tipo actual es el OPUESTO (nunca toca filas `total`);
- *  - invertir lados: solo si el control contable falla y SÍ cuadra al intercambiar;
  *  - omitir/rescatar: solo filas con `omitida` SIN TOCAR en el lote destino (null) —
  *    el tri-estado manual del lote gana siempre;
  *  - re-parentar: el destino se resuelve por clave en el lote destino (preferida la
@@ -182,14 +171,6 @@ export function planAplicarCorrecciones(
         if (c.tipoFilaForzado === "agrupadora" && f.tipoFila !== "agrupadora") ch.tipoFila = "agrupadora";
         if (c.tipoFilaForzado === "movimiento" && f.tipoFila === "agrupadora") ch.tipoFila = "movimiento";
         if (f.tipoFilaForzado !== c.tipoFilaForzado) ch.tipoFilaForzado = c.tipoFilaForzado;
-      }
-      if (
-        c.invertirLados &&
-        !controlCuadra(f.saldoInicial, f.debitos, f.creditos, f.saldoFinal) &&
-        controlCuadra(f.saldoInicial, f.creditos, f.debitos, f.saldoFinal)
-      ) {
-        ch.debitos = f.creditos;
-        ch.creditos = f.debitos;
       }
       if (c.desacoplada != null && f.desacoplada !== c.desacoplada) ch.desacoplada = c.desacoplada;
       if (c.omitida != null && f.omitida == null) ch.omitida = c.omitida;

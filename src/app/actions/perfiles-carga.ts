@@ -127,7 +127,6 @@ export async function listarPerfilesCarga(clienteId: number): Promise<PerfilesCa
       const partes: string[] = [];
       if (c.tipoFilaForzado === "agrupadora") partes.push("→ agrupadora");
       if (c.tipoFilaForzado === "movimiento") partes.push("→ movimiento");
-      if (c.invertirLados) partes.push("invertir débito↔crédito");
       if (c.desacoplada === true) partes.push("desacoplar");
       if (c.desacoplada === false) partes.push("reacoplar");
       if (c.omitida === true) partes.push("omitir");

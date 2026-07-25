@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { esFilaTercero, esFilaGenericoTercero, esBalancePorTercero, colapsarTerceros, esFilaTerceroSufijo, esBalancePorTerceroSufijo, consolidarTercerosPorSufijo, marcarCuentaNit } from "./terceros";
+import { esFilaTercero, esFilaGenericoTercero, esBalancePorTercero, colapsarTerceros, esFilaTerceroSufijo, esBalancePorTerceroSufijo, consolidarTercerosPorSufijo, consolidarAuxiliaresRepetidos, marcarCuentaNit } from "./terceros";
+import type { NodoBorrador } from "./borrador";
 import { construirVistaBorrador } from "./borrador-vm";
 import type { FilaBorrador } from "./borrador";
 
@@ -191,5 +192,66 @@ describe("SIIGO «por cuenta»: fila NIT que repite su cuenta (marcarCuentaNit)"
     ];
     expect(marcarCuentaNit(filas)).toBe(0);
     expect(filas[1].omitida).toBe(false);
+  });
+});
+
+const aplanarNodos = (ns: NodoBorrador[]): NodoBorrador[] => ns.flatMap((n) => [n, ...aplanarNodos(n.hijos)]);
+
+describe("consolidarAuxiliaresRepetidos (balance por tercero por auxiliar)", () => {
+  it("consolida N movimientos del MISMO código en UNA fila sumada (conserva la primera)", () => {
+    const filas = [
+      fila(1, "130505", "Clientes nacionales", 0, "agrupadora"),
+      fila(2, "13050501", "Clientes nacionales", 100, "movimiento", { saldoInicial: 20, debitos: 80 }),
+      fila(3, "13050501", "Clientes nacionales", 50, "movimiento", { debitos: 50 }),
+      fila(4, "13050501", "Clientes nacionales", 30, "movimiento", { creditos: 30 }),
+    ];
+    const { filas: out, consolidados } = consolidarAuxiliaresRepetidos(filas);
+    expect(consolidados).toBe(1);
+    expect(out).toHaveLength(2); // agrupadora + 1 auxiliar consolidado
+    const aux = out.find((f) => f.codigo === "13050501")!;
+    expect(aux).toMatchObject({ saldoInicial: 20, debitos: 130, creditos: 30, saldoFinal: 180 });
+  });
+
+  it("NO consolida un bloque «Cuenta + NIT» donde la primera YA es el total", () => {
+    const filas = [
+      fila(1, "110505", "Caja", 100, "movimiento"), // total
+      fila(2, "110505", "Caja", 60, "movimiento"), // NIT
+      fila(3, "110505", "Caja", 40, "movimiento"), // NIT (60+40 = 100 = total)
+    ];
+    const { consolidados, filas: out } = consolidarAuxiliaresRepetidos(filas);
+    expect(consolidados).toBe(0);
+    expect(out).toHaveLength(3); // intacto (lo maneja marcarCuentaNit)
+  });
+
+  it("ignora movimientos omitidos y códigos únicos", () => {
+    const filas = [
+      fila(1, "13050501", "Clientes", 100, "movimiento", { omitida: true }),
+      fila(2, "13050501", "Clientes", 50, "movimiento"),
+      fila(3, "13050502", "Otros", 20, "movimiento"),
+    ];
+    expect(consolidarAuxiliaresRepetidos(filas).consolidados).toBe(0);
+  });
+});
+
+describe("construirVistaBorrador · consolidarAuxiliares (opción SOLO de vista)", () => {
+  const base = () => [
+    fila(1, "13", "Deudores", 0, "agrupadora"),
+    fila(2, "1305", "Clientes", 0, "agrupadora"),
+    fila(3, "130505", "Clientes nacionales", 0, "agrupadora"),
+    fila(4, "13050501", "Clientes nacionales", 100, "movimiento"),
+    fila(5, "13050501", "Clientes nacionales", 50, "movimiento"),
+    fila(6, "13050501", "Clientes nacionales", 30, "movimiento"),
+  ];
+  it("CON la opción → un auxiliar por código (agrupado por auxiliar) + porTercero", () => {
+    const v = construirVistaBorrador(base().map((f) => ({ ...f })), { consolidarAuxiliares: true });
+    const aux = aplanarNodos(v.arbol).filter((n) => n.codigo === "13050501" && n.tipoFila === "movimiento");
+    expect(aux).toHaveLength(1);
+    expect(aux[0].saldoFinal).toBe(180);
+    expect(v.porTercero).toBe(true);
+  });
+  it("SIN la opción (export/métricas) → conserva los N renglones por NIT", () => {
+    const v = construirVistaBorrador(base().map((f) => ({ ...f })));
+    const aux = aplanarNodos(v.arbol).filter((n) => n.codigo === "13050501" && n.tipoFila === "movimiento");
+    expect(aux.length).toBeGreaterThan(1);
   });
 });

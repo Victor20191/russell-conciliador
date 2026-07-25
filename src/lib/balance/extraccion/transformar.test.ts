@@ -313,48 +313,50 @@ describe("transformarTabular", () => {
     expect(rr.importReady[0]).toMatchObject({ code: "240805", creditos: 900 });
   });
 
-  it("conserva el débito NETO negativo (reversa) cuando explica el saldo", () => {
-    // Caso real COMESTIBLES DAN (cuenta 143560): débito neto −8.829.085,77 que
-    // ANTES se volteaba a magnitud → la fila descuadraba y se excluía entera.
-    const hojaRev: GridHoja = {
+  it("normaliza por columna: en DÉBITO mayoritariamente + un valor negativo (reversa) se conserva NEGATIVO (contrario) y cuadra", () => {
+    // Caso real COMESTIBLES DAN (143560): débito neto −8.829.085,77. En una columna
+    // débito mayoritariamente positiva es un valor CONTRARIO: se conserva negativo.
+    const hoja: GridHoja = {
       nombre: "Balance",
       filas: [
         ["Código", "Cuenta", "Saldo anterior", "Débito", "Crédito", "Saldo final"],
-        [143560, "SALSAS", 14_900_064.22, -8_829_085.77, 449_106, 5_621_872.45], // 14.900.064,22 − 8.829.085,77 − 449.106 = 5.621.872,45 ✓
+        [110505, "Caja", 0, 1_000, 0, 1_000], // débito + normal
+        [110510, "Bancos", 0, 2_000, 0, 2_000], // débito + normal
+        [143560, "Salsas", 14_900_064.22, -8_829_085.77, 449_106, 5_621_872.45], // reversa: débito − (contrario)
       ],
     };
-    const rr = transformarTabular(spec(), [hojaRev], PARAMS);
-    expect(rr.importReady).toHaveLength(1); // ya NO se descarta
-    expect(rr.importReady[0]).toMatchObject({ code: "143560", debitos: -8_829_085.77, creditos: 449_106, balance: 5_621_872.45 });
+    const rr = transformarTabular(spec(), [hoja], PARAMS);
     expect(rr.resumen.filasDescuadre).toBe(0);
+    expect(rr.importReady.find((c) => c.code === "143560")).toMatchObject({ debitos: -8_829_085.77, creditos: 449_106, balance: 5_621_872.45 });
   });
 
-  it("firmado con el signo en la columna HABER (SAP BW): reversa (Haber positivo) → crédito negativo, sin descuadre ni falso «invertido»", () => {
+  it("normaliza por columna: en HABER mayoritariamente − (SAP firmado), normales suben + y una reversa (Haber +) queda NEGATIVA", () => {
     // MEDIPIEL (SAP BW query): el Haber viene firmado — negativo = crédito normal,
-    // positivo = reversa (efecto débito). SI + Débito + Haber = SF en TODA fila.
-    const hojaSap: GridHoja = {
+    // positivo = reversa (efecto débito). Se detecta por mayoría y se niega la columna.
+    const hoja: GridHoja = {
       nombre: "Balance",
       filas: [
         ["Código", "Cuenta", "Saldo anterior", "Débito", "Crédito", "Saldo final"],
-        [11001000, "Banco", 2_039_499_288, 60_388_094_439, -59_642_886_544, 2_784_707_183], // normal: Haber negativo
-        [26151007, "Provisión fletes", -808_659_348, 0, 808_659_348, 0], // reversa: Haber positivo → 0
+        [11001000, "Banco", 2_039_499_288, 60_388_094_439, -59_642_886_544, 2_784_707_183], // Haber − normal
+        [41000000, "Ingresos", -1_000, 0, -500, -1_500], // Haber − normal
+        [42000000, "Otros ing", -2_000, 0, -300, -2_300], // Haber − normal
+        [26151007, "Provisión fletes", -808_659_348, 0, 808_659_348, 0], // reversa: Haber + (contrario)
       ],
     };
-    const rr = transformarTabular(spec(), [hojaSap], PARAMS);
+    const rr = transformarTabular(spec(), [hoja], PARAMS);
     expect(rr.resumen.filasDescuadre).toBe(0);
-    // Crédito normal → magnitud positiva; reversa (Haber positivo) → crédito NEGATIVO
-    // (efecto débito): se conserva el signo, no se marca invertido ni se descuadra.
+    // Crédito normal → magnitud positiva; reversa (Haber +) → crédito NEGATIVO (contrario).
     expect(rr.importReady.find((c) => c.code === "11001000")).toMatchObject({ debitos: 60_388_094_439, creditos: 59_642_886_544, balance: 2_784_707_183 });
     expect(rr.importReady.find((c) => c.code === "26151007")).toMatchObject({ debitos: 0, creditos: -808_659_348, balance: 0 });
   });
 
-  it("elegirMovimiento firmado: la orientación del crédito negado gana solo cuando corresponde", () => {
-    // Haber firmado positivo (reversa) → crédito interno = −cr.
-    expect(elegirMovimiento(-808_659_348, 0, 808_659_348, 0, 1, true)).toEqual({ db: 0, cr: -808_659_348 });
-    // Sin `firmado`, cae a magnitud (comportamiento previo intacto).
-    expect(elegirMovimiento(-808_659_348, 0, 808_659_348, 0, 1, false)).toEqual({ db: 0, cr: 808_659_348 });
-    // Signo en la columna DÉBITO (COMESTIBLES DAN): los crudos ya cuadran → intactos.
-    expect(elegirMovimiento(14_900_064.22, -8_829_085.77, 449_106, 5_621_872.45, 1, true)).toEqual({ db: -8_829_085.77, cr: 449_106 });
+  it("elegirMovimiento: conserva los signos (ya normalizados) que cumplen el control; si no, magnitud", () => {
+    // Crédito contrario ya normalizado a negativo: cumple el control → se conserva.
+    expect(elegirMovimiento(-808_659_348, 0, -808_659_348, 0)).toEqual({ db: 0, cr: -808_659_348 });
+    // Débito neto negativo que cumple el control → se conserva.
+    expect(elegirMovimiento(14_900_064.22, -8_829_085.77, 449_106, 5_621_872.45)).toEqual({ db: -8_829_085.77, cr: 449_106 });
+    // Ninguna orientación con esos signos explica el saldo → magnitud.
+    expect(elegirMovimiento(0, -50, 0, 50)).toEqual({ db: 50, cr: 0 });
   });
 
   it("la suma de cuadre resta la reversa (partida doble cuadra con el origen)", () => {

@@ -4,6 +4,8 @@ import {
   esDescuadreInformativo,
   esSaldoContrarioAccionable,
   esSaldoContrarioInformativo,
+  esMagnitudAccionable,
+  esMagnitudInformativo,
 } from "./umbrales-alertas";
 
 describe("umbrales de alertas contables", () => {
@@ -20,5 +22,18 @@ describe("umbrales de alertas contables", () => {
     expect(esSaldoContrarioInformativo(50_001, false)).toBe(false);
     expect(esSaldoContrarioAccionable(-50_001, false)).toBe(true);
     expect(esSaldoContrarioAccionable(90_000, true)).toBe(false);
+  });
+
+  it("magnitud: solo un valor NEGATIVO (signo contrario) alerta; positivo o cero, no", () => {
+    // Positivo (dominante) o cero → nunca es alerta de magnitud.
+    expect(esMagnitudAccionable(1_000_000)).toBe(false);
+    expect(esMagnitudInformativo(1_000_000)).toBe(false);
+    expect(esMagnitudAccionable(0)).toBe(false);
+    expect(esMagnitudAccionable(null)).toBe(false);
+    // Negativo (contrario): informativo bajo $50.000, accionable desde $50.000.
+    expect(esMagnitudInformativo(-49_999)).toBe(true);
+    expect(esMagnitudAccionable(-49_999)).toBe(false);
+    expect(esMagnitudInformativo(-50_000)).toBe(false);
+    expect(esMagnitudAccionable(-50_000)).toBe(true);
   });
 });

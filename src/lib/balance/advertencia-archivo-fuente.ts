@@ -31,10 +31,7 @@ export function esDescuadreDelArchivoFuente(
   ].every((cuadra) => cuadra === true);
 
   const hayAlertaPorCuenta = hallazgos.some(
-    (hallazgo) =>
-      hallazgo.tipo === "clase" ||
-      hallazgo.tipo === "nodo" ||
-      hallazgo.tipo === "lados_invertidos",
+    (hallazgo) => hallazgo.tipo === "clase" || hallazgo.tipo === "nodo",
   );
 
   return (
