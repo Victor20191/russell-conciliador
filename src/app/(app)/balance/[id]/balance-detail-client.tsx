@@ -32,7 +32,7 @@ export type Sums = { activo: number; pasivo: number; patrimonio: number; ingreso
 export type Validation = { id: string; rule: string; status: string; detail: string; count?: number };
 export type EstandarOpcion = { code: string; name: string };
 export type Meta = { rows: number; mapped: number; unmapped: number; critical: number; file: string; fileSize: string; frozenBy: string; frozenAt: string; uploadedBy: string; uploadedAt: string };
-export type Version = { v: string; date: string; uploadedBy: string; role: string; file: string; size: string; rows: number; sumA: number; balanced: boolean; note: string; changes: number };
+export type Version = { v: string; date: string; uploadedBy: string; role: string; file: string; size: string; rows: number; sumA: number; balanced: boolean; note: string; /** Comentario de aprobación del revisor (vacío = el cargue no lo exigió). */ approvalNote: string; changes: number };
 
 type Tab = "breakdown" | "validations" | "versions" | "clases";
 type Filtro = "todo" | "balance" | "er" | "alertas";
@@ -690,7 +690,20 @@ function VersionsTab({ versions, officialVersion }: { versions: Version[]; offic
                 <td className="whitespace-nowrap border-l border-ink-150 px-4 py-2.5 text-right font-mono text-ink-700">{fmt(v.sumA)}</td>
                 <td className="border-l border-ink-150 px-4 py-2.5">{v.balanced ? <Chip label="Sí" tone="ok" /> : <Chip label="Descuadra" tone="err" />}</td>
                 <td className="whitespace-nowrap border-l border-ink-150 px-4 py-2.5 text-right font-mono text-ink-600">{i === versions.length - 1 ? "—" : `+${v.changes}`}</td>
-                <td className="px-4 py-2.5 text-ink-500">{v.note}</td>
+                <td className="px-4 py-2.5 text-ink-500">
+                  {v.note}
+                  {v.approvalNote && (
+                    // El comentario de aprobación vive en su propia columna desde que
+                    // dejó de pisar la nota: aquí se muestra ADEMÁS de ella, recortado
+                    // (el texto completo va en el tooltip y en el banner de la versión).
+                    <div
+                      title={v.approvalNote}
+                      className="mt-1 line-clamp-2 max-w-xs border-l-2 border-warn-300 pl-2 text-[11px] italic text-warn-700"
+                    >
+                      «{v.approvalNote}»
+                    </div>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>

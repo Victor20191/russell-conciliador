@@ -642,7 +642,14 @@ model BalancePruebaEncabezado {
   cargadoPor        String?   @map("cargado_por")
   rolCarga          String?   @map("rol_carga")
   cuadrado          Boolean   @default(true) @map("cuadrado")
+  // Nota AUTOMÁTICA del sistema («Sin alertas» / «N validación(es) con alerta»).
+  // Siempre la escribe el cargue: no la pisa el comentario del revisor.
   nota              String?   @map("nota")
+  // Comentario OBLIGATORIO que escribe el revisor al promover un borrador con
+  // «advertencia del archivo fuente» (los totales cruzan pero el archivo no cumple
+  // la ecuación contable). Justifica por qué se aceptó la diferencia; null = el
+  // cargue no la necesitó. Autor/fecha = `cargadoPor`/`rolCarga`/`ultimaCarga`.
+  comentarioAprobacion String? @map("comentario_aprobacion")
   sumaActivo        Decimal   @default(0) @map("suma_activo") @db.Decimal(18, 2)
   filasTotales      Int       @default(0) @map("filas_totales")
   mapeadas          Int       @default(0) @map("mapeadas")

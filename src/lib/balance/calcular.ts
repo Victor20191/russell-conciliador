@@ -230,6 +230,7 @@ function variacion(prev: number, balance: number): number | null {
 }
 
 const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
+const fmtDiferencia = (valor: number): string => fmt(Math.abs(valor) < 0.005 ? 0 : valor);
 
 /**
  * Normaliza un código de cuenta a su forma canónica de clave: dígitos sin
@@ -603,9 +604,9 @@ function agregarDetalle(detalle: BreakdownItem[], umbrales: UmbralesAlertas): Re
   const validations: Validation[] = [
     {
       id: "V1",
-      rule: "Balance cuadrado (débitos = créditos)",
+      rule: "Cuadre de saldos finales",
       status: balanced ? "ok" : "warn",
-      detail: balanced ? `Partida doble correcta · diferencia: ${fmt(diffCuadre)}` : `Diferencia entre débitos y créditos: ${fmt(diffCuadre)}`,
+      detail: `Activo = Pasivo + Patrimonio + Resultado · diferencia: ${fmtDiferencia(diffCuadre)}${balanced ? "" : ` (fuera del margen ±${fmt(MARGEN_CUADRE)})`}`,
       ...(balanced ? {} : { count: 1 }),
     },
     {
@@ -645,13 +646,12 @@ function agregarDetalle(detalle: BreakdownItem[], umbrales: UmbralesAlertas): Re
   // Si el archivo no trajo movimientos (solo saldos), el gate no aplica → cuadra.
   const movimientosCuadran = !hayMovimientos || Math.abs(diffMov) <= MARGEN_CUADRE;
   if (hayMovimientos) {
-    validations.push({
+    // Junto a V1 en la tabla para contrastar la foto final con la actividad.
+    validations.splice(1, 0, {
       id: "V5",
-      rule: "Movimientos del período (débitos = créditos)",
+      rule: "Cuadre de movimientos del período",
       status: movimientosCuadran ? "ok" : "warn",
-      detail: movimientosCuadran
-        ? `Partida doble del período correcta · diferencia: ${fmt(diffMov)}`
-        : `Σ débitos − Σ créditos del período: ${fmt(diffMov)} (fuera del margen ±${fmt(MARGEN_CUADRE)})`,
+      detail: `Total débitos = total créditos · diferencia: ${fmtDiferencia(diffMov)}${movimientosCuadran ? "" : ` (fuera del margen ±${fmt(MARGEN_CUADRE)})`}`,
       ...(movimientosCuadran ? {} : { count: 1 }),
     });
   }

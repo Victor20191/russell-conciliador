@@ -884,8 +884,11 @@ async function persistirCargue(p: {
   const alertas = calc.validations.filter((v) => v.status === "warn").length;
   const complete = calc.totalRows > 0 ? Math.round((calc.mapped / calc.totalRows) * 100) : 100;
   const ahora = new Date();
-  const notaSistema = alertas > 0 ? `${alertas} validación(es) con alerta` : "Sin alertas";
-  const nota = p.comentarioPromocion ?? notaSistema;
+  // La nota es SIEMPRE del sistema. El comentario del revisor va en su propia
+  // columna: si lo escribiera aquí, el conteo de alertas se perdería justo en los
+  // cargues que lo exigen (los que traen advertencia del archivo fuente).
+  const nota = alertas > 0 ? `${alertas} validación(es) con alerta` : "Sin alertas";
+  const comentarioAprobacion = p.comentarioPromocion ?? null;
 
   const creado = await transaccionSerializable(async (tx) => {
     await tomarCandadoTransaccion(tx, `balance-cargue:${p.clientId}:${p.period}`);
@@ -927,7 +930,7 @@ async function persistirCargue(p: {
         periodo: p.period, periodoInicio: fechaCalendarioPrisma(p.periodos.inicial), periodoFin: fechaCalendarioPrisma(p.periodos.final),
         version, esOficial: false, estaCongelado: false, estado: status, completitud: complete,
         archivo: p.archivoNombre, tamanoArchivo: p.archivoTam,
-        cargadoPor: p.uploadedBy, rolCarga: p.rolLabel, cuadrado: calc.balanced && calc.movimientosCuadran && !descuadreTotales, nota,
+        cargadoPor: p.uploadedBy, rolCarga: p.rolLabel, cuadrado: calc.balanced && calc.movimientosCuadran && !descuadreTotales, nota, comentarioAprobacion,
         sumaActivo: calc.sums.activo, filasTotales: calc.totalRows,
         mapeadas: calc.mapped, sinMapear: calc.unmapped, criticas: calc.critical, cambios,
         estandar: p.meta.estandar, convencionCredito: p.meta.convencionCredito,

@@ -14,6 +14,7 @@ import { parseId } from "@/lib/ids";
 import { FreezeBalanceButton } from "./freeze-balance-button";
 import { ExportarBalance } from "./exportar-balance";
 import { FlashToast } from "@/components/flash-toast";
+import { ComentarioAprobacion } from "./comentario-aprobacion";
 import Conversacion from "@/components/conversacion";
 
 export default async function BalanceDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ cargado?: string }> }) {
@@ -48,7 +49,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
     prisma.balancePruebaEncabezado.findMany({
       where: { clienteId: balance.clienteId, periodo: balance.periodo },
       orderBy: { creadoEn: "desc" },
-      select: { id: true, version: true, ultimaCarga: true, cargadoPor: true, rolCarga: true, archivo: true, tamanoArchivo: true, filasTotales: true, sumaActivo: true, cuadrado: true, nota: true, cambios: true, creadoEn: true },
+      select: { id: true, version: true, ultimaCarga: true, cargadoPor: true, rolCarga: true, archivo: true, tamanoArchivo: true, filasTotales: true, sumaActivo: true, cuadrado: true, nota: true, comentarioAprobacion: true, cambios: true, creadoEn: true },
     }),
     // Conteo de comentarios por cuenta (ancla) de este balance, para los badges del árbol.
     prisma.comment.groupBy({ by: ["anchor"], where: { entityType: "balance", entityId: id }, _count: { _all: true } }),
@@ -90,7 +91,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
   const versions: Version[] = hermanos.map((h) => ({
     v: h.version, date: h.ultimaCarga ? fmtDateTime(h.ultimaCarga) : "—", uploadedBy: h.cargadoPor ?? "—", role: h.rolCarga ?? "—",
     file: h.archivo ?? "—", size: h.tamanoArchivo ?? "—", rows: h.filasTotales, sumA: Number(h.sumaActivo),
-    balanced: h.cuadrado, note: h.nota ?? "", changes: h.cambios,
+    balanced: h.cuadrado, note: h.nota ?? "", approvalNote: h.comentarioAprobacion ?? "", changes: h.cambios,
   }));
   // Hay diff si existe una versión anterior a esta (cargada antes).
   const esta = hermanos.find((h) => h.id === id);
@@ -134,6 +135,16 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
         {balance.estaCongelado && <span className="inline-flex items-center gap-1 text-ok-700"><Icon name="check" size={12} /> Congelada por {meta.frozenBy} · {meta.frozenAt}</span>}
         <span className="font-mono">{meta.file} · {meta.fileSize} · {meta.rows} cuentas</span>
       </p>
+
+      {balance.comentarioAprobacion && (
+        <ComentarioAprobacion
+          comentario={balance.comentarioAprobacion}
+          version={`versión ${balance.version}`}
+          autor={meta.uploadedBy}
+          rol={balance.rolCarga ?? "—"}
+          fecha={meta.uploadedAt}
+        />
+      )}
 
       {!sums && (
         <div className="rounded-lg border border-ink-150 bg-white p-6 text-[13px] text-ink-500">

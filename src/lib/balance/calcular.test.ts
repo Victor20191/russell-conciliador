@@ -70,7 +70,10 @@ describe("calcularBalance — convención firmada y cuadre", () => {
   it("detecta el cuadre por partida doble", () => {
     expect(r.balanced).toBe(true);
     expect(r.diffCuadre).toBe(0);
-    expect(r.validations.find((v) => v.id === "V1")?.status).toBe("ok");
+    const v1 = r.validations.find((v) => v.id === "V1");
+    expect(v1?.status).toBe("ok");
+    expect(v1?.rule).toBe("Cuadre de saldos finales");
+    expect(v1?.detail).toContain("Activo = Pasivo + Patrimonio + Resultado · diferencia:");
   });
 
   it("cuenta mapeo y criticidad", () => {
@@ -237,7 +240,11 @@ describe("calcularBalance — V5 movimientos del período (COH-2)", () => {
       ],
       STD,
     );
-    expect(r.validations.find((v) => v.id === "V5")?.status).toBe("ok");
+    const v5 = r.validations.find((v) => v.id === "V5");
+    expect(v5?.status).toBe("ok");
+    expect(v5?.rule).toBe("Cuadre de movimientos del período");
+    expect(v5?.detail).toContain("Total débitos = total créditos · diferencia:");
+    expect(r.validations.map((v) => v.id).slice(0, 2)).toEqual(["V1", "V5"]);
   });
 
   it("ok dentro del margen ±$1000 aunque Σdébitos ≠ Σcréditos exacto", () => {
@@ -253,6 +260,18 @@ describe("calcularBalance — V5 movimientos del período (COH-2)", () => {
     expect(r.movimientosCuadran).toBe(true);
   });
 
+  it("presenta como $ 0 los residuales menores a medio centavo", () => {
+    const r = calcularBalance(
+      [
+        { code: "110505", name: "Caja", prevBalance: 0, balance: 999.998, debitos: 999.998, creditos: 0 },
+        { code: "220505", name: "Proveedores", prevBalance: 0, balance: -1000, debitos: 0, creditos: 1000 },
+      ],
+      STD,
+    );
+    expect(r.validations.find((v) => v.id === "V1")?.detail).toContain("diferencia: $ 0");
+    expect(r.validations.find((v) => v.id === "V5")?.detail).toContain("diferencia: $ 0");
+  });
+
   it("warn cuando los movimientos descuadran por más de $1000", () => {
     const r = calcularBalance(
       [
@@ -262,7 +281,9 @@ describe("calcularBalance — V5 movimientos del período (COH-2)", () => {
       STD,
     );
     // Σdéb 2000 − Σcré 500 = 1500 > 1000 ⇒ alerta.
-    expect(r.validations.find((v) => v.id === "V5")?.status).toBe("warn");
+    const v5 = r.validations.find((v) => v.id === "V5");
+    expect(v5?.status).toBe("warn");
+    expect(v5?.detail).toContain("fuera del margen");
     expect(r.movimientosCuadran).toBe(false);
   });
 });
