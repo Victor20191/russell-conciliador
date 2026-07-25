@@ -61,3 +61,10 @@ clipboard-*.png
 
 # Estado de dedupe del volcado de novedades (npm run novedades:commits)
 .claude/novedades-state.json
+
+# El subagente de evolución sí pertenece al proyecto; el estado local anterior
+# permanece ignorado y no se versiona.
+!.claude/
+.claude/*
+!.claude/agents/
+!.claude/agents/russell-lfm-evolucion.md

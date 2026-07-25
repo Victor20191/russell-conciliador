@@ -383,3 +383,31 @@ export const ReporteNovedadesScopeSchema = z.object({
   versionIds: z.array(z.coerce.number().int().positive()).max(1000).optional(),
 });
 export type ReporteNovedadesScope = z.infer<typeof ReporteNovedadesScopeSchema>;
+
+// Alcance del reporte ejecutivo de uso y adopción (Auditoría).
+// `desde`/`hasta` en ISO (fecha o datetime); se normalizan en la Server Action.
+// `versionIds` vacío o ausente → todas las versiones publicadas de Novedades.
+export const ReporteEjecutivoUsoScopeSchema = z
+  .object({
+    desde: z.string().trim().min(1, { error: "Indica la fecha de inicio." }).max(40),
+    hasta: z.string().trim().min(1, { error: "Indica la fecha de fin." }).max(40),
+    versionIds: z.array(z.coerce.number().int().positive()).max(1000).optional(),
+  })
+  .superRefine((val, ctx) => {
+    const d = Date.parse(val.desde);
+    const h = Date.parse(val.hasta);
+    if (!Number.isFinite(d)) {
+      ctx.addIssue({ code: "custom", message: "La fecha de inicio no es válida.", path: ["desde"] });
+    }
+    if (!Number.isFinite(h)) {
+      ctx.addIssue({ code: "custom", message: "La fecha de fin no es válida.", path: ["hasta"] });
+    }
+    if (Number.isFinite(d) && Number.isFinite(h) && d > h) {
+      ctx.addIssue({
+        code: "custom",
+        message: "La fecha de inicio no puede ser posterior a la de fin.",
+        path: ["desde"],
+      });
+    }
+  });
+export type ReporteEjecutivoUsoScope = z.infer<typeof ReporteEjecutivoUsoScopeSchema>;

@@ -1133,6 +1133,29 @@ model ReporteNovedadesIA {
   @@map("reportes_novedades_ia")
 }
 
+// Caché de reportes ejecutivos de uso y adopción (Auditoría).
+// Una fila por huella del contexto factual (período + métricas + novedades +
+// adopción). Mismo patrón que `reportes_novedades_ia`: reutiliza el HTML si el
+// contexto no cambió. `creadoPorId` es FK lógica a User (sin @relation).
+model ReporteEjecutivoUsoIA {
+  id             Int      @id @default(autoincrement()) @map("id")
+  huellaContexto String   @unique @map("huella_contexto")
+  modelo         String   @map("modelo")
+  titulo         String   @map("titulo")
+  html           String   @map("html")
+  periodoDesde   DateTime @map("periodo_desde") @db.Timestamptz(3)
+  periodoHasta   DateTime @map("periodo_hasta") @db.Timestamptz(3)
+  totalAcciones  Int      @map("total_acciones")
+  totalUsuarios  Int      @map("total_usuarios")
+  totalNovedades Int      @map("total_novedades")
+  creadoPorId    Int?     @map("creado_por_id")
+  creadoEn       DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+  actualizadoEn  DateTime @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+
+  @@index([modelo])
+  @@map("reportes_ejecutivos_uso_ia")
+}
+
 // ===== Consumo de IA (tokens y costos de escaneos con Claude) =====
 // Registro de uso de la API de Claude (Anthropic): UNA fila por LLAMADA a la API
 // durante el escaneo/extracción de documentos (extracción tabular, extracción de
