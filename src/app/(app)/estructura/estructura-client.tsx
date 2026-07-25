@@ -74,7 +74,7 @@ function PersonaCard({ nodo, onClick }: { nodo: PersonaNodo; onClick: () => void
           {resumenPersona(nodo)}
         </div>
       </div>
-      <Icon name="chev-r" size={16} className="shrink-0 text-ink-300 transition group-hover:text-blue-500" />
+      <Icon name="chev-r" size={16} className="shrink-0 text-ink-400 transition group-hover:text-blue-500" />
     </button>
   );
 }
@@ -173,7 +173,7 @@ export default function EstructuraClient({ arbol }: { arbol: EstructuraArbol }) 
             const esUltimo = i === path.length - 1;
             return (
               <span key={id} className="flex items-center gap-1">
-                <Icon name="chev-r" size={12} className="text-ink-300" />
+                <Icon name="chev-r" size={12} className="text-ink-400" />
                 {esUltimo ? (
                   <span className="font-semibold text-ink-800">{n?.name ?? "—"}</span>
                 ) : (

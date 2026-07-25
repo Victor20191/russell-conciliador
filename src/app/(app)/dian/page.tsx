@@ -28,7 +28,7 @@ export default async function DianPage() {
                     <div className="text-[12.5px] text-ink-800">{p.label}</div>
                     {p.filed && <div className="text-[11px] text-ink-400">Presentado: {fmtCalendarDate(p.filed)}</div>}
                   </div>
-                  <div className="flex items-center gap-2"><Chip label={label(p.status)} tone={tone(p.status)} /><Icon name="chev-r" size={13} className="text-ink-300" /></div>
+                  <div className="flex items-center gap-2"><Chip label={label(p.status)} tone={tone(p.status)} /><Icon name="chev-r" size={13} className="text-ink-400" /></div>
                 </Link>
               ))}
             </div>

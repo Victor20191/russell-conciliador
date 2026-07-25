@@ -207,7 +207,7 @@ function ModuleRow({
 
       <label
         className={`relative inline-flex h-6 w-11 shrink-0 items-center ${
-          locked ? "cursor-not-allowed opacity-45" : "cursor-pointer"
+          locked ? "cursor-not-allowed" : "cursor-pointer"
         }`}
         title={locked ? "Siempre visible" : enabled ? "Publicado" : "En desarrollo"}
       >
@@ -219,7 +219,7 @@ function ModuleRow({
           className="peer sr-only"
           aria-label={`${module.label}: ${enabled ? "publicado" : "en desarrollo"}`}
         />
-        <span className="h-6 w-11 rounded-full bg-ink-200 transition peer-checked:bg-navy-700" />
+        <span className={`h-6 w-11 rounded-full transition ${locked ? "bg-ink-400" : "bg-ink-200 peer-checked:bg-navy-700"}`} />
         <span className="absolute left-1 h-4 w-4 rounded-full bg-white shadow-sm transition peer-checked:translate-x-5" />
       </label>
     </div>

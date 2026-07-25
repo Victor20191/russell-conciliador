@@ -288,7 +288,7 @@ function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: 
           type="button"
           onClick={(e) => { e.stopPropagation(); onComentar(nodo); }}
           title="Comentarios de esta cuenta"
-          className={`ml-2 inline-flex items-center gap-0.5 rounded px-1 align-middle text-[11px] hover:bg-ink-100 ${comentarios[nodo.code] ? "text-blue-600" : "text-ink-300 hover:text-ink-600"}`}
+          className={`ml-2 inline-flex items-center gap-0.5 rounded px-1 align-middle text-[11px] hover:bg-ink-100 ${comentarios[nodo.code] ? "text-blue-600" : "text-ink-400 hover:text-ink-600"}`}
         >
           <Icon name="msg" size={12} />{comentarios[nodo.code] ? <span className="font-semibold">{comentarios[nodo.code]}</span> : null}
         </button>
@@ -456,7 +456,7 @@ function AsignarModal({ nodo, estandar, onClose }: { nodo: NodoBalance; estandar
               className="group rounded-lg border border-navy-700 bg-navy-700 px-4 py-3 text-left text-white transition hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <span className="block text-[12.5px] font-semibold">Todas las cuentas del grupo</span>
-              <span className="mt-1 block text-[11.5px] leading-relaxed text-white/75">Conserva el comportamiento actual: aplica a todas las cuentas {cuenta6}* y memoriza el mapeo para el cliente.</span>
+              <span className="mt-1 block text-[11.5px] leading-relaxed text-white/90">Conserva el comportamiento actual: aplica a todas las cuentas {cuenta6}* y memoriza el mapeo para el cliente.</span>
             </button>
           </div>
           <div className="flex items-center justify-between border-t border-ink-100 pt-3">

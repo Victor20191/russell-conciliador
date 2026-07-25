@@ -75,7 +75,7 @@ export default function Topbar({
       <div className="flex min-w-0 items-center gap-1.5 text-[12.5px] text-ink-500">
         {crumbs.map((c, i) => (
           <span key={i} className="flex items-center gap-1.5">
-            {i > 0 && <Icon name="chev-r" size={11} className="text-ink-300" />}
+            {i > 0 && <Icon name="chev-r" size={11} className="text-ink-400" />}
             {i === crumbs.length - 1 ? (
               <b className="truncate text-ink-800">{c}</b>
             ) : (

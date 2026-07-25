@@ -270,7 +270,7 @@ function AccountsStep({ onBack, onNext }: { onBack: () => void; onNext: () => vo
               return (
                 <tr key={a.src} className="border-b border-ink-50 last:border-0">
                   <td className="px-3 py-2"><div className="font-mono text-ink-700">{a.src}</div><div className="text-[11px] text-ink-500">{a.desc}</div></td>
-                  <td className="px-3 py-2 text-ink-300"><Icon name="chev-r" size={14} /></td>
+                  <td className="px-3 py-2 text-ink-400"><Icon name="chev-r" size={14} /></td>
                   <td className="px-3 py-2 font-mono text-ink-700">{a.std || <span className="italic text-ink-400">crear auxiliar…</span>}</td>
                   <td className="px-3 py-2"><span className={`inline-block rounded-full px-1.5 py-0.5 text-[11px] font-semibold ${tone === "ok" ? "bg-ok-100 text-ok-700" : tone === "warn" ? "bg-warn-100 text-warn-700" : "bg-err-100 text-err-700"}`}>{Math.round(a.confidence * 100)}%</span></td>
                   <td className="px-3 py-2"><Chip label={statusLabel(a.status)} tone={statusChipTone(a.status)} /></td>

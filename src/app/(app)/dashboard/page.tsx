@@ -141,7 +141,7 @@ export default async function DashboardPage({
                   <div className="text-[12px] text-ink-700">
                     <div><b>{a.user}</b> <span className="text-ink-500">{a.action.toLowerCase()}</span> <b>{a.entity}</b></div>
                     <div className="text-[11px] text-ink-400">{a.detail}</div>
-                    <div className="text-[10.5px] text-ink-300">{fmtDateTimeSeconds(a.createdAt)}</div>
+                    <div className="text-[10.5px] text-ink-400">{fmtDateTimeSeconds(a.createdAt)}</div>
                   </div>
                 </div>
               ))}

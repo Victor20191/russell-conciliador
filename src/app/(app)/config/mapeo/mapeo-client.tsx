@@ -195,7 +195,7 @@ export default function MapeoClient({
                     <tr key={a.id} className="border-b border-ink-50 last:border-0 hover:bg-ink-50">
                       <td className="px-3 py-2"><Chip label={`N${a.level}`} tone="ink" /></td>
                       <td className="px-3 py-2 font-mono text-ink-600" style={{ paddingLeft: a.level === 4 ? 12 : a.level === 6 ? 28 : 48 }}>{a.code}</td>
-                      <td className="px-3 py-2 text-ink-800">{a.level !== 4 && <span className="mr-1 text-ink-300">└</span>}{a.name}</td>
+                      <td className="px-3 py-2 text-ink-800">{a.level !== 4 && <span className="mr-1 text-ink-400">└</span>}{a.name}</td>
                       <td className="px-3 py-2">
                         {puedeMapear ? (
                           <button type="button" onClick={() => setAsignar(a)} title="Cambiar la cuenta estándar (aplica a todo el grupo de 6 díg)" className="text-left hover:underline">

@@ -30,7 +30,7 @@ export default function ConfigDianClient({ forms }: { forms: DianFormData[] }) {
       <div className="mb-4 flex flex-wrap gap-2">
         {forms.map((f) => (
           <button key={f.id} onClick={() => setActiveId(f.id)} className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12.5px] font-medium transition ${f.id === active.id ? "bg-navy-800 text-white" : "text-ink-600 hover:bg-ink-100"}`}>
-            {f.name} <span className="font-mono text-[11px] opacity-70">{f.code}</span>
+            {f.name} <span className={`font-mono text-[11px] ${f.id === active.id ? "text-white/80" : "text-ink-500"}`}>{f.code}</span>
           </button>
         ))}
       </div>

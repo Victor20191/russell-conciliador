@@ -10,18 +10,21 @@
   --color-navy-500: #345a82;
 
   /* Azul */
-  --color-blue-500: #3b7cb8;
+  --color-blue-500: #2f6fa7;
   --color-blue-400: #5c9bd0;
   --color-blue-100: #e5eef7;
   --color-blue-50: #f2f7fc;
 
-  /* Tinta / grises */
+  /* Tinta / grises
+     Los tonos 500 y 400 también se usan como texto pequeño sobre paper,
+     ink-50 e ink-100. Conservan una jerarquía suave, pero ambos superan 4.5:1
+     incluso sobre el fondo claro más exigente del sistema. */
   --color-ink-900: #0e1721;
   --color-ink-800: #1a2330;
   --color-ink-700: #2a3441;
   --color-ink-600: #475160;
-  --color-ink-500: #6a7484;
-  --color-ink-400: #9099a7;
+  --color-ink-500: #566273;
+  --color-ink-400: #626e7e;
   --color-ink-300: #bcc2cc;
   --color-ink-200: #dce0e7;
   --color-ink-150: #e7eaef;
@@ -75,6 +78,25 @@ body {
   color: var(--color-ink-800);
   background: var(--color-ink-50);
   -webkit-font-smoothing: antialiased;
+}
+
+/* Un control inactivo se distingue por el cursor y una superficie desaturada,
+   no haciendo ilegible su etiqueta. Esta regla neutraliza las opacidades
+   utilitarias del componente sin alterar sus colores semánticos. */
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled {
+  cursor: not-allowed;
+  opacity: 1;
+}
+
+button:disabled {
+  border-color: var(--color-ink-200) !important;
+  color: var(--color-ink-600) !important;
+  background-color: var(--color-ink-100) !important;
+  box-shadow: none;
+  filter: none;
 }
 
 @keyframes processing-dot-bounce {

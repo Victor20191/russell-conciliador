@@ -954,7 +954,7 @@ function SelectorHojas({
                 on ? "border-navy-700 bg-navy-700 text-white" : "border-ink-200 bg-white text-ink-600 hover:bg-ink-50"
               }`}
             >
-              {h.nombre} <span className={on ? "text-white/70" : "text-ink-400"}>· {h.totalFilas} fila(s)</span>
+              {h.nombre} <span className={on ? "text-white/90" : "text-ink-400"}>· {h.totalFilas} fila(s)</span>
             </button>
           );
         })}

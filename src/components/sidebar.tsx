@@ -320,7 +320,7 @@ function Count({ n }: { n: number }) {
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="px-3.5 pb-1 pt-3.5 text-[9.5px] font-semibold uppercase tracking-[0.18em] text-[#5E7290]">
+    <div className="px-3.5 pb-1 pt-3.5 text-[9.5px] font-semibold uppercase tracking-[0.18em] text-[#7C8DA3]">
       {children}
     </div>
   );
