@@ -47,10 +47,15 @@ next-env.d.ts
 # imágenes pegadas desde el portapapeles (no versionar)
 clipboard-*.png
 
-# hojas de cálculo, scripts Python y texto
+# hojas de cálculo, PDF, Word, scripts Python y texto
 *.xlsx
 *.xls
 *.xlsm
+*.xlsb
+*.pdf
+*.doc
+*.docx
+*.docm
 *.py
 *.txt
 

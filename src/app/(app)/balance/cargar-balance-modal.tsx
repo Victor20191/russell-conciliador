@@ -141,7 +141,12 @@ function CargarBalanceModal({
 
   // Reproceso determinista (editor de estructura / preferencias del cliente):
   // reenvía el archivo con el spec ajustado; la sugerencia nueva pisa la anterior.
-  const reprocesar = (spec: SpecCarga, loteIdAnterior: string, proveedorIA?: ProveedorIABalance) => {
+  const reprocesar = (
+    spec: SpecCarga,
+    loteIdAnterior: string,
+    proveedorIA?: ProveedorIABalance,
+    clientId?: number | null,
+  ) => {
     if (!archivoFile) return;
     startReproceso(async () => {
       try { await archivoFile.arrayBuffer(); } catch { notifyError("No pudimos leer el archivo. Suele pasar cuando está ABIERTO en Excel o sincronizándose en OneDrive: ciérralo e intenta de nuevo."); return; }
@@ -150,6 +155,7 @@ function CargarBalanceModal({
       fd.set("spec", JSON.stringify(spec));
       fd.set("loteIdAnterior", loteIdAnterior);
       if (proveedorIA) fd.set("modeloIA", proveedorIA);
+      if (clientId != null) fd.set("clienteId", String(clientId));
       const res = await reprocesarBalanceConSpec({}, fd);
       if (res.ok && res.sugerencia) {
         setSugLocal(res.sugerencia);
@@ -195,6 +201,57 @@ function CargarBalanceModal({
     if (!sug) return;
     const loteId = sug.payload.loteId;
     startAsignarCliente(async () => {
+      // Si conservamos el archivo y su mapa tabular, reprocesamos de forma
+      // determinista con el cliente elegido. Así sus preferencias (signo,
+      // tercero, solo-hojas) se aplican también a ESTA primera carga, no solo a
+      // las futuras. PDF/plantilla sin spec usan la vinculación directa.
+      if (archivoFile && sug.render.spec) {
+        try {
+          await archivoFile.arrayBuffer();
+        } catch {
+          notifyError("No pudimos releer el archivo original. Ciérralo en Excel y vuelve a intentarlo.");
+          return;
+        }
+        const fd = new FormData();
+        fd.set("archivo", archivoFile);
+        fd.set("spec", JSON.stringify(sug.render.spec));
+        fd.set("loteIdAnterior", loteId);
+        fd.set("clienteId", String(clientId));
+        if (sug.payload.proveedorIA) fd.set("modeloIA", sug.payload.proveedorIA);
+        const reprocesado = await reprocesarBalanceConSpec({}, fd);
+        if (!reprocesado.ok || !reprocesado.sugerencia) {
+          notifyError(reprocesado.message ?? "No se pudo aplicar el perfil del cliente al borrador.");
+          return;
+        }
+        setSugLocal(reprocesado.sugerencia);
+        setClienteManual({ loteId: reprocesado.sugerencia.payload.loteId, clientId });
+        notifySuccess("Cliente y perfil asociados. Sus preferencias se aplicaron al borrador.");
+        return;
+      }
+      if (archivoFile) {
+        try {
+          await archivoFile.arrayBuffer();
+        } catch {
+          notifyError("No pudimos releer el archivo original para aplicar las preferencias del cliente.");
+          return;
+        }
+        const fd = new FormData();
+        fd.set("archivo", archivoFile);
+        fd.set("clienteId", String(clientId));
+        fd.set("loteIdAnterior", loteId);
+        if (hojaElegida) fd.set("hoja", hojaElegida);
+        if (sug.payload.proveedorIA) fd.set("modeloIA", sug.payload.proveedorIA);
+        const releido = await leerBalance({}, fd);
+        if (!releido.ok || !releido.sugerencia) {
+          notifyError(releido.message ?? "No se pudo releer el archivo con las preferencias del cliente.");
+          return;
+        }
+        setSugLocal(releido.sugerencia);
+        setClienteManual({ loteId: releido.sugerencia.payload.loteId, clientId });
+        notifySuccess("Cliente y perfil asociados. Sus preferencias se aplicaron al borrador.");
+        return;
+      }
+
       const res = await asignarClienteBorrador(loteId, clientId);
       if (!res.ok) {
         notifyError(res.message ?? "No se pudo vincular el cliente al borrador.");
@@ -361,7 +418,12 @@ function FormRevisar({
   clienteId: number | null;
   asignandoCliente: boolean;
   onAsignarCliente: (clientId: number) => void;
-  onReprocesar: (spec: SpecCarga, loteIdAnterior: string, proveedorIA?: ProveedorIABalance) => void;
+  onReprocesar: (
+    spec: SpecCarga,
+    loteIdAnterior: string,
+    proveedorIA?: ProveedorIABalance,
+    clientId?: number | null,
+  ) => void;
 }) {
   // El editor de estructura solo aplica si aún tenemos el File (reproceso) y la
   // lectura produjo un spec (tabular). PDF/plantilla no traen spec.
@@ -407,7 +469,7 @@ function FormRevisar({
           encabezados={sug.render.encabezados}
           hojas={sug.render.hojas}
           reprocesando={reprocesando}
-          onAplicar={(s) => onReprocesar(s, sug.payload.loteId, sug.payload.proveedorIA)}
+          onAplicar={(s) => onReprocesar(s, sug.payload.loteId, sug.payload.proveedorIA, clienteId)}
           onGuardar={onGuardarPerfil}
           guardando={guardandoPerfil}
         />

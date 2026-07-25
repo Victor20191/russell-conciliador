@@ -22,7 +22,16 @@ export type ClientGroup = {
   clientId: number; clientName: string; clientNit: string;
   periodList: PeriodRow[];
 };
-export type AuditRow = { date: string; actor: string; role: string; action: string; ip: string; details: string };
+export type AuditRow = {
+  date: string;
+  actor: string;
+  role: string;
+  action: string;
+  ip: string;
+  details: string;
+  clientId: number;
+  clientName: string;
+};
 
 type Tab = "clients" | "audit";
 
@@ -41,9 +50,11 @@ function normalizarBusqueda(valor: string) {
 }
 
 export default function BalanceIndexClient({
-  clients, auditRows, clientNames, uploadClients, canUpload, configuracionIA,
+  clients, auditRows, auditClients, uploadClients, canUpload, configuracionIA,
 }: {
-  clients: ClientGroup[]; auditRows: AuditRow[]; clientNames: string[];
+  clients: ClientGroup[];
+  auditRows: AuditRow[];
+  auditClients: { id: number; name: string }[];
   uploadClients: ClienteOpcion[]; canUpload: boolean;
   configuracionIA: ConfiguracionIABalanceUI | null;
 }) {
@@ -58,7 +69,7 @@ export default function BalanceIndexClient({
       </div>
 
       {tab === "clients" && <ClientsTab clients={clients} />}
-      {tab === "audit" && <AuditTab rows={auditRows} clientNames={clientNames} />}
+      {tab === "audit" && <AuditTab rows={auditRows} clients={auditClients} />}
     </div>
   );
 }
@@ -188,15 +199,29 @@ function ClientsTab({ clients }: { clients: ClientGroup[] }) {
   );
 }
 
-function AuditTab({ rows, clientNames }: { rows: AuditRow[]; clientNames: string[] }) {
-  const pg = usePagination(rows, 50);
+function AuditTab({ rows, clients }: { rows: AuditRow[]; clients: { id: number; name: string }[] }) {
+  const [clienteId, setClienteId] = useState<string>("todos");
+  const rowsFiltradas = useMemo(
+    () => clienteId === "todos" ? rows : rows.filter((row) => row.clientId === Number(clienteId)),
+    [clienteId, rows],
+  );
+  const pg = usePagination(rowsFiltradas, 50);
   return (
     <Card>
       <div className="flex flex-wrap items-center gap-2 border-b border-ink-100 px-4 py-3">
         <h2 className="text-[13px] font-semibold text-ink-800">Audit log</h2>
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <select className="rounded-md border border-ink-200 px-2 py-1 text-[12px] text-ink-700 outline-none">
-            {clientNames.map((n) => <option key={n} value={n}>{n}</option>)}
+          <select
+            value={clienteId}
+            onChange={(event) => {
+              setClienteId(event.target.value);
+              pg.resetToFirstPage();
+            }}
+            aria-label="Filtrar bitácora por cliente"
+            className="rounded-md border border-ink-200 px-2 py-1 text-[12px] text-ink-700 outline-none"
+          >
+            <option value="todos">Todos los clientes</option>
+            {clients.map((cliente) => <option key={cliente.id} value={cliente.id}>{cliente.name}</option>)}
           </select>
           <PageSizeSelect value={pg.pageSize} onChange={pg.setPageSize} />
         </div>
@@ -224,7 +249,7 @@ function AuditTab({ rows, clientNames }: { rows: AuditRow[]; clientNames: string
                 <td className="px-4 py-2.5 text-ink-500">{r.details}</td>
               </tr>
             ))}
-            {rows.length === 0 && (
+            {rowsFiltradas.length === 0 && (
               <tr><td colSpan={6} className="px-4 py-8 text-center text-ink-400">Sin entradas en la bitácora.</td></tr>
             )}
           </tbody>

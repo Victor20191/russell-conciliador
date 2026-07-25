@@ -121,6 +121,8 @@ export type OpcionesExtraccion = {
    * aceptable se descarta y se cae a la cascada normal.
    */
   specGuardado?: MappingSpec | null;
+  /** Preferencia del cliente para documentos de extracción directa. */
+  agregarPorTercero?: boolean | null;
   /** Proveedor elegido para esta carga (solo es seleccionable fuera de producción). */
   proveedorIA?: ProveedorIABalance;
 };
@@ -319,8 +321,12 @@ export async function extraerBalance(
       modelo,
       usage: usoTokensGemini(r.usage),
     });
+    const directa =
+      opciones.agregarPorTercero == null
+        ? r.data
+        : { ...r.data, agregarPorTercero: opciones.agregarPorTercero };
     return {
-      resultado: { ...validarDirecta(r.data, params), modo: "documento" },
+      resultado: { ...validarDirecta(directa, params), modo: "documento" },
       origenExtraccion: "ia",
       spec: null,
     };
@@ -352,5 +358,9 @@ export async function extraerBalance(
   const extr = r.parsed_output;
   if (!extr) throw new Error("La IA no devolvió filas válidas del documento. Reintenta o revisa el archivo.");
   // Metadatos para la huella diagnóstica (la extracción directa no declara confianza).
-  return { resultado: { ...validarDirecta(extr, params), modo: "documento" }, origenExtraccion: "ia", spec: null };
+  const directa =
+    opciones.agregarPorTercero == null
+      ? extr
+      : { ...extr, agregarPorTercero: opciones.agregarPorTercero };
+  return { resultado: { ...validarDirecta(directa, params), modo: "documento" }, origenExtraccion: "ia", spec: null };
 }

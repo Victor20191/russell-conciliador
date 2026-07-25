@@ -20,7 +20,7 @@ export default async function BalancePage() {
   ]);
   const canUpload = crearBalanceAuth.ok;
   const whereCliente = alc.todos ? {} : { clienteId: { in: alc.clientIds } };
-  const [encabezados, carteraClientes, configuracionIA] = await Promise.all([
+  const [encabezados, carteraClientes, configuracionIA, auditoria, usuariosAuditoria] = await Promise.all([
     prisma.balancePruebaEncabezado.findMany({
       where: whereCliente,
       orderBy: { creadoEn: "desc" },
@@ -37,6 +37,25 @@ export default async function BalancePage() {
       orderBy: { name: "asc" },
     }),
     canUpload ? configuracionIABalanceUISesion() : Promise.resolve(null),
+    prisma.auditEntry.findMany({
+      where: alc.todos
+        ? { clientId: { not: null } }
+        : { clientId: { in: alc.clientIds } },
+      orderBy: { createdAt: "desc" },
+      take: 1000,
+      select: {
+        createdAt: true,
+        user: true,
+        action: true,
+        entity: true,
+        detail: true,
+        clientId: true,
+        ip: true,
+      },
+    }),
+    prisma.user.findMany({
+      select: { name: true, role: true },
+    }),
   ]);
   // Cargar balance = permiso de rol (Staff es el único operativo). El alcance
   // por cliente se verifica de nuevo en la Server Action al enviar.
@@ -88,10 +107,24 @@ export default async function BalancePage() {
       ),
     }));
 
-  // La bitácora detallada por movimiento vive ahora en /auditoria (registros_auditoria).
-  const auditRows: AuditRow[] = [];
-
-  const clientNames = clients.map((c) => c.clientName);
+  const clientePorId = new Map(carteraClientes.map((cliente) => [cliente.id, cliente.name]));
+  const rolPorUsuario = new Map(usuariosAuditoria.map((usuario) => [usuario.name, usuario.role]));
+  const auditRows: AuditRow[] = auditoria.flatMap((entrada) => {
+    if (entrada.clientId == null) return [];
+    const clientName = clientePorId.get(entrada.clientId);
+    if (!clientName) return [];
+    return [{
+      date: fmtDateTime(entrada.createdAt),
+      actor: entrada.user,
+      role: rolPorUsuario.get(entrada.user) ?? "Sistema",
+      action: entrada.action,
+      ip: entrada.ip ?? "—",
+      details: [entrada.entity, entrada.detail].filter(Boolean).join(" · "),
+      clientId: entrada.clientId,
+      clientName,
+    }];
+  });
+  const auditClients = carteraClientes.map((cliente) => ({ id: cliente.id, name: cliente.name }));
 
   return (
     <div>
@@ -102,7 +135,7 @@ export default async function BalancePage() {
       <BalanceIndexClient
         clients={clients}
         auditRows={auditRows}
-        clientNames={clientNames}
+        auditClients={auditClients}
         uploadClients={uploadClients}
         canUpload={canUpload}
         configuracionIA={configuracionIA}

@@ -20,9 +20,9 @@ import { fmtDate } from "@/lib/format";
 
 /**
  * Personalización de la CARGA DE BALANCES del cliente (ficha en Configuración ›
- * Clientes): perfiles de estructura guardados (se crean al confirmar una carga;
- * aquí se consultan/eliminan) y preferencias por defecto (hoja, signo, estándar,
- * tercero) que el asistente aplica cuando detecta al cliente por NIT.
+ * Clientes): perfiles de estructura guardados automáticamente al asociar una
+ * carga y preferencias por defecto (hoja, signo, tercero) que el asistente aplica
+ * cuando identifica o se le asigna el cliente.
  */
 export function AjustesCargaModal({
   cliente,
@@ -129,12 +129,12 @@ export function AjustesCargaModal({
               <h3 className="text-[12.5px] font-semibold text-ink-800">Perfiles de formato guardados</h3>
               <p className="text-[11.5px] leading-relaxed text-ink-500">
                 La estructura del archivo memorizada por formato: con perfil, la carga se procesa al instante y{" "}
-                <span className="font-semibold">sin IA</span>. Se guardan al confirmar una carga desde el asistente.
+                <span className="font-semibold">sin IA</span>. Se crean automáticamente en cuanto la lectura queda asociada a este cliente.
               </p>
             </div>
             {data.perfiles.length === 0 ? (
               <p className="rounded-md border border-dashed border-ink-200 bg-ink-50 px-3 py-3 text-center text-[11.5px] text-ink-400">
-                Este cliente aún no tiene perfiles. Se crearán al confirmar una carga con «Guardar este formato» marcado.
+                Este cliente aún no tiene un formato tabular memorizado. El próximo se creará automáticamente al asociar la lectura.
               </p>
             ) : (
               <div className="overflow-x-auto rounded-md border border-ink-150">
@@ -194,7 +194,7 @@ export function AjustesCargaModal({
               <div>
                 <h3 className="text-[12.5px] font-semibold text-ink-800">Correcciones por cuenta memorizadas</h3>
                 <p className="text-[11.5px] leading-relaxed text-ink-500">
-                  Los ajustes hechos en el borrador (reclasificar, invertir lados, desacoplar, omitir, re-parentar) se memorizan al
+                  Los ajustes hechos en el borrador (reclasificar, desacoplar, omitir y re-parentar) se memorizan al
                   guardar cambios y se <span className="font-semibold">re-aplican solos</span> en cada nueva carga de este cliente.
                 </p>
               </div>
@@ -266,7 +266,7 @@ export function AjustesCargaModal({
             <div>
               <h3 className="text-[12.5px] font-semibold text-ink-800">Preferencias de carga</h3>
               <p className="text-[11.5px] leading-relaxed text-ink-500">
-                Se aplican automáticamente cuando el asistente detecta a este cliente por NIT. «Auto» deja que la lectura decida.
+                Se aplican automáticamente cuando el asistente detecta o solicita este cliente. «Auto» deja que la lectura decida. El estándar contable es NIF en todas las cargas.
               </p>
             </div>
             <form action={saveAction} className="flex flex-col gap-3">
@@ -294,19 +294,12 @@ export function AjustesCargaModal({
                     <option value="magnitud">Magnitud (todo positivo)</option>
                   </select>
                 </label>
-                <label className="flex flex-col gap-1">
+                <div className="flex flex-col gap-1">
                   <span className="text-[11px] font-medium text-ink-600">Estándar contable</span>
-                  <select
-                    name="estandar"
-                    defaultValue={data.ajustes?.estandar ?? ""}
-                    className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400"
-                  >
-                    <option value="">Auto</option>
-                    <option value="NIF">NIF</option>
-                    <option value="NIIF">NIIF</option>
-                    <option value="PCGA">PCGA</option>
-                  </select>
-                </label>
+                  <div className="rounded-md border border-ink-200 bg-ink-50 px-2.5 py-2 text-[12.5px] font-semibold text-ink-700">
+                    NIF (fijo)
+                  </div>
+                </div>
                 <label className="flex flex-col gap-1">
                   <span className="text-[11px] font-medium text-ink-600">Agregar por tercero</span>
                   <select

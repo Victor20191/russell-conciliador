@@ -7,7 +7,7 @@
 // Balance: `sums`, `breakdown` (por grupo PUC), `validations` y los
 // contadores de mapeo. Es determinista y testeable en memoria
 // (`calcular.test.ts`); la persistencia y el versionado viven en la
-// Server Action `confirmarCargaBalance` (`persistirCargue`).
+// promoción oficial del borrador (`persistirCargue`).
 // ============================================================
 import { fmt } from "@/lib/format";
 import { esSaldoContrarioAccionable, UMBRALES_ALERTAS_DEFECTO, type UmbralesAlertas } from "./umbrales-alertas";

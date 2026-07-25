@@ -56,7 +56,11 @@ export async function crearMapeoCliente(_prev: ActionState | undefined, formData
       create: { clientName: cliente.name, clienteId, nit: cliente.nit, code: cuenta6, level: 6, name: cuenta6, cuenta6Russell: codigo, coincidencia: 100, origenMapeo: "manual", actualizadoPor: user?.name ?? null, actualizadoEn: new Date() },
       update: { clientName: cliente.name, nit: cliente.nit, cuenta6Russell: codigo, coincidencia: 100, origenMapeo: "manual", actualizadoPor: user?.name ?? null, actualizadoEn: new Date() },
     });
-    await logAudit({ user: user?.name ?? "Sistema", action: "CREÓ MAPEO CLIENTE", entity: cuenta6, detail: `${cuenta6} → ${codigo}` });
+    await prisma.clientAccount.updateMany({
+      where: { clienteId, code: { startsWith: cuenta6 }, NOT: { code: cuenta6 } },
+      data: { cuenta6Russell: codigo, coincidencia: 100, origenMapeo: "manual", actualizadoPor: user?.name ?? null, actualizadoEn: new Date() },
+    });
+    await logAudit({ user: user?.name ?? "Sistema", action: "CREÓ MAPEO CLIENTE", entity: cuenta6, detail: `${cuenta6} → ${codigo}`, clientId: clienteId });
     revalidatePath(PATH);
     return { ok: true };
   } catch (e) {
@@ -91,10 +95,10 @@ export async function editarMapeoCliente(_prev: ActionState | undefined, formDat
     if (row.clienteId != null) {
       await prisma.clientAccount.updateMany({
         where: { clienteId: row.clienteId, code: { startsWith: row.code }, NOT: { id } },
-        data: { cuenta6Russell: codigo, coincidencia: 100, actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
+        data: { cuenta6Russell: codigo, coincidencia: 100, origenMapeo: "manual", actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
       });
     }
-    await logAudit({ user: user?.name ?? "Sistema", action: "EDITÓ MAPEO CLIENTE", entity: row.code, detail: `${row.code} → ${codigo}` });
+    await logAudit({ user: user?.name ?? "Sistema", action: "EDITÓ MAPEO CLIENTE", entity: row.code, detail: `${row.code} → ${codigo}`, clientId: row.clienteId });
     revalidatePath(PATH);
     return { ok: true };
   } catch (e) {
@@ -133,7 +137,7 @@ export async function confirmarMapeoCliente(formData: FormData): Promise<ActionS
       where,
       data: { coincidencia: 100, origenMapeo: "manual", actualizadoPor: user?.name ?? null, actualizadoEn: new Date() },
     });
-    await logAudit({ user: user?.name ?? "Sistema", action: "CONFIRMÓ MAPEO CLIENTE", entity: todas ? (row.cuenta6Russell ?? cuenta6) : cuenta6, detail: `→ ${row.cuenta6Russell} · manual 100% (${res.count} cuenta(s)${todas ? ", todas las del estándar" : ""})` });
+    await logAudit({ user: user?.name ?? "Sistema", action: "CONFIRMÓ MAPEO CLIENTE", entity: todas ? (row.cuenta6Russell ?? cuenta6) : cuenta6, detail: `→ ${row.cuenta6Russell} · manual 100% (${res.count} cuenta(s)${todas ? ", todas las del estándar" : ""})`, clientId: row.clienteId });
     revalidatePath(PATH);
     return { ok: true };
   } catch (e) {
@@ -167,7 +171,7 @@ export async function reasignarMapeoCliente(formData: FormData): Promise<ActionS
       where,
       data: { cuenta6Russell: codigo, coincidencia: 100, origenMapeo: "manual", actualizadoPor: user?.name ?? null, actualizadoEn: new Date() },
     });
-    await logAudit({ user: user?.name ?? "Sistema", action: "REASIGNÓ MAPEO CLIENTE", entity: cuenta6, detail: `${cuenta6} → ${codigo} · manual 100% (${res.count} cuenta(s))` });
+    await logAudit({ user: user?.name ?? "Sistema", action: "REASIGNÓ MAPEO CLIENTE", entity: cuenta6, detail: `${cuenta6} → ${codigo} · manual 100% (${res.count} cuenta(s))`, clientId: row.clienteId });
     revalidatePath(PATH);
     return { ok: true };
   } catch (e) {
@@ -196,10 +200,10 @@ export async function eliminarMapeoCliente(_prev: ActionState | undefined, formD
     if (row.clienteId != null) {
       await prisma.clientAccount.updateMany({
         where: { clienteId: row.clienteId, code: { startsWith: row.code }, NOT: { id } },
-        data: { cuenta6Russell: null, coincidencia: null, actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
+        data: { cuenta6Russell: null, coincidencia: null, origenMapeo: null, actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
       });
     }
-    await logAudit({ user: user?.name ?? "Sistema", action: "ELIMINÓ MAPEO CLIENTE", entity: row.code, detail: `${row.code} → ${row.cuenta6Russell ?? "—"}` });
+    await logAudit({ user: user?.name ?? "Sistema", action: "ELIMINÓ MAPEO CLIENTE", entity: row.code, detail: `${row.code} → ${row.cuenta6Russell ?? "—"}`, clientId: row.clienteId });
     revalidatePath(PATH);
     return { ok: true };
   } catch (e) {

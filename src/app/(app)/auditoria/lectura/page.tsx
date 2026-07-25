@@ -34,8 +34,8 @@ const RESULTADOS = ["borrador", "cargado", "descartado"] as const;
 const FORMATOS = ["xlsx", "csv", "txt", "json", "pdf"] as const;
 
 // Intervención manual TOTAL del reporte (los 5 tipos de corrección).
-const manoDe = (f: { manualOmitidas: number; manualReparentadas: number; manualDesacopladas: number; manualReclasificadas: number; manualInvertidas: number }) =>
-  f.manualOmitidas + f.manualReparentadas + f.manualDesacopladas + f.manualReclasificadas + f.manualInvertidas;
+const manoDe = (f: { manualOmitidas: number; manualReparentadas: number; manualDesacopladas: number; manualReclasificadas: number }) =>
+  f.manualOmitidas + f.manualReparentadas + f.manualDesacopladas + f.manualReclasificadas;
 
 export default async function LecturaBalanceDiagPage({ searchParams }: { searchParams: Promise<{ resultado?: string; formato?: string }> }) {
   // SOLO Superadministrador (se reutiliza el permiso de auditoría de IA).
@@ -230,7 +230,7 @@ export default async function LecturaBalanceDiagPage({ searchParams }: { searchP
                     </td>
                     <td className="px-3 py-1.5">
                       {mano === 0 ? <span className="text-ink-400">—</span> : (
-                        <span className="font-mono text-[11px] text-warn-700" title={`${f.manualOmitidas} omitidas · ${f.manualReparentadas} reparentadas · ${f.manualDesacopladas} desacopladas · ${f.manualReclasificadas} reclasificadas · ${f.manualInvertidas} invertidas`}>
+                        <span className="font-mono text-[11px] text-warn-700" title={`${f.manualOmitidas} omitidas · ${f.manualReparentadas} reparentadas · ${f.manualDesacopladas} desacopladas · ${f.manualReclasificadas} reclasificadas`}>
                           {mano}
                         </span>
                       )}

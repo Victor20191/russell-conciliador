@@ -14,7 +14,7 @@ const COLS = [
   "cuadradoInicial", "cuadradoFinal", "porTercero", "terceros", "relistadoGuiones", "huerfanas",
   "repetidos", "subtotalesDuplicados", "descuadres", "codigoDigitos", "codigoGuiones", "codigoLetras",
   "partidaDobleDiff", "ecuacionDiff", "manualOmitidas", "manualReparentadas", "manualDesacopladas",
-  "manualReclasificadas", "manualInvertidas", "diagnosticoIa", "confianza",
+  "manualReclasificadas", "diagnosticoIa", "confianza",
 ] as const;
 
 const csv = (v: unknown): string => {
@@ -41,7 +41,7 @@ export async function GET() {
       codigoDigitos: h.codigoDigitos, codigoGuiones: h.codigoGuiones, codigoLetras: h.codigoLetras,
       partidaDobleDiff: h.partidaDobleDiff, ecuacionDiff: h.ecuacionDiff,
       manualOmitidas: f.manualOmitidas, manualReparentadas: f.manualReparentadas, manualDesacopladas: f.manualDesacopladas,
-      manualReclasificadas: f.manualReclasificadas, manualInvertidas: f.manualInvertidas,
+      manualReclasificadas: f.manualReclasificadas,
       diagnosticoIa: f.diagnosticoIa == null ? "" : JSON.stringify(f.diagnosticoIa),
       confianza: h.confianza,
     };

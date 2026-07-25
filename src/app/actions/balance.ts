@@ -14,9 +14,8 @@ import { createProcessNotification } from "@/lib/notifications";
 import { esErrorDisponibilidadIA, mensajeErrorBD, mensajeErrorIA } from "@/lib/errores";
 import { fmt, MESES_LARGOS } from "@/lib/format";
 import { fechaCalendarioPrisma } from "@/lib/fecha-hora";
-import { ConfirmarBalanceSchema, PayloadCargaBalanceSchema, SpecCargaBalanceSchema, type ActionState, type PayloadCargaBalance } from "@/lib/definitions";
+import { ConfirmarBalanceSchema, SpecCargaBalanceSchema, type ActionState, type PayloadCargaBalance } from "@/lib/definitions";
 import { claveNit } from "@/lib/nit";
-import { firmarPayloadServidor, validarFirmaPayloadServidor } from "@/lib/server-payload";
 import { parseBalanceWorkbook, type ImportBalanceState } from "@/lib/import/balance";
 import {
   calcularBalance,
@@ -54,6 +53,8 @@ import { registrarDiagnosticoInicial, cerrarDiagnostico, acumularIntervencionMan
 import { iaBalanceDisponible, proveedorIABalance, type ProveedorIABalance } from "@/lib/ia/proveedor-balance";
 import { proveedorIABalanceSesion } from "@/lib/ia/proveedor-balance-sesion";
 import { registrarConsumoIA, type UsoIA } from "@/lib/ia/uso";
+import { aplicarPreferenciasCarga } from "@/lib/balance/preferencias-carga";
+import { construirConfigMapeoCliente } from "@/lib/balance/mapeo-cliente-config";
 import { randomUUID } from "node:crypto";
 import { construirCuadre, marcarSubtotalesDuplicados, reclasificarRepetidos, reclasificarNoImputables, transformarTabular } from "@/lib/balance/extraccion/transformar";
 import type { FilaCruda, ParamsExtraccion, ResultadoTransform, TipoFila } from "@/lib/balance/extraccion/transformar";
@@ -61,10 +62,6 @@ import { CUADRE_NO_APLICA } from "@/lib/balance/extraccion/esquema";
 import type { CuadreTotales, Excepcion, MappingSpec, Origen, ResumenAuditoria, SpecCarga } from "@/lib/balance/extraccion/esquema";
 
 const MAX_BYTES = 20 * 1024 * 1024; // 20 MB (admite PDF)
-// v2: la firma HMAC cubre SOLO el payload compacto (loteId + metadatos); las
-// cuentas ya no viajan de regreso al servidor (el staging es la fuente de verdad).
-const CONTEXTO_PAYLOAD_BALANCE = "balance:sugerencia:v2";
-
 // Cómo se obtuvo la estructura del archivo en la lectura:
 //   perfil    → perfil guardado del cliente aplicado por huella (0 llamadas IA)
 //   ia        → cascada de detección de estructura / extracción directa
@@ -77,7 +74,6 @@ export type OrigenExtraccion = "perfil" | "ia" | "plantilla" | "manual";
 // revisión en el modal (tabla del borrador, cuadre, editor de estructura) y NO
 // viaja de regreso ni se firma.
 export type SugerenciaBalance = {
-  firma: string; // HMAC del `payload` (contexto balance:sugerencia:v2)
   payload: PayloadCargaBalance;
   render: {
     cuadre: CuadreTotales; // cuadre de las hojas contra la fila TOTALES del archivo
@@ -158,27 +154,43 @@ function mensajeCuadre(c: CuadreTotales): string {
 async function clientePorNit(nit: string | null): Promise<number | null> {
   const core = claveNit(nit ?? "").slice(0, 9);
   if (core.length < 5) return null;
-  try {
-    const clientes = await prisma.client.findMany({ select: { id: true, nit: true } });
-    return clientes.find((c) => claveNit(c.nit).slice(0, 9) === core)?.id ?? null;
-  } catch {
-    return null; // best-effort: sin cliente detectado la lectura sigue normal
-  }
+  const clientes = await prisma.client.findMany({ select: { id: true, nit: true } });
+  return clientes.find((c) => claveNit(c.nit).slice(0, 9) === core)?.id ?? null;
 }
 
 type AjustesCarga = { hojaPreferida: string | null; convencionCredito: string | null; estandar: string | null; agregarPorTercero: boolean | null; imputarSoloHojas: boolean | null; observaciones: string | null };
 
-/** Preferencias de carga guardadas del cliente (null si no tiene). Best-effort. */
+/** Preferencias de carga guardadas del cliente (null si todavía no tiene perfil base). */
 async function ajustesCargaDeCliente(clienteId: number | null): Promise<AjustesCarga | null> {
   if (clienteId == null) return null;
-  try {
-    return await prisma.ajustesCargaBalance.findUnique({
-      where: { clienteId },
-      select: { hojaPreferida: true, convencionCredito: true, estandar: true, agregarPorTercero: true, imputarSoloHojas: true, observaciones: true },
-    });
-  } catch {
-    return null;
-  }
+  return prisma.ajustesCargaBalance.findUnique({
+    where: { clienteId },
+    select: { hojaPreferida: true, convencionCredito: true, estandar: true, agregarPorTercero: true, imputarSoloHojas: true, observaciones: true },
+  });
+}
+
+/**
+ * Perfil base obligatorio del cliente. Incluso PDF/plantilla —que no tienen un
+ * mapa de columnas— quedan asociados a una fila de preferencias desde su primera
+ * carga. El estándar se crea en NIF porque es una regla fija del producto.
+ */
+async function asegurarPerfilBaseCliente(clienteId: number, actualizadoPor: string | null): Promise<void> {
+  await prisma.ajustesCargaBalance.upsert({
+    where: { clienteId },
+    create: {
+      clienteId,
+      estandar: TIPO_BALANCE_CARGA,
+      actualizadoPor,
+    },
+    update: {},
+  });
+}
+
+/** Acepta el cliente detectado solo si la sesión puede cargar balances para él. */
+async function clienteAutorizado(clienteId: number | null): Promise<number | null> {
+  if (clienteId == null) return null;
+  const scope = await authorizePermiso("balance:crear", { clientId: clienteId });
+  return scope.ok ? clienteId : null;
 }
 
 /** Fila de perfil de carga → PerfilPlano del pipeline (normaliza los enums de BD). */
@@ -276,6 +288,29 @@ async function cuentasDesdeStaging(loteId: string): Promise<CuentaCruda[]> {
   // Respeta como hojas los imputables de nivel alto (código repetido/desacople) que
   // el filtro por prefijo de `calcularBalance`/`persistirCargue` descartaría.
   return conForzarHoja(agregarStagingPorCuenta(movNetas));
+}
+
+/**
+ * Conserva el rótulo real de las cuentas agrupadoras de seis dígitos tal como
+ * venía en el archivo del cliente. El cálculo oficial solo recibe movimientos,
+ * por lo que sin esta lectura se perdería el nombre de la fila agrupadora y
+ * podría terminar guardándose el nombre del estándar Russell.
+ */
+async function nombresGrupoDesdeStaging(loteId: string): Promise<Map<string, string>> {
+  const filas = await prisma.balanceImportacionStaging.findMany({
+    where: { loteId },
+    orderBy: { filaNum: "asc" },
+    select: { codigo: true, nombre: true, tipoFila: true, tipoFilaForzado: true },
+  });
+  const nombres = new Map<string, string>();
+  const candidatas = filas.filter((fila) => limpiarCodigo(fila.codigo).length === 6 && fila.nombre.trim().length > 0);
+  // La agrupadora explícita es la fuente más fiel. Las filas de movimiento de
+  // seis dígitos quedan como respaldo para PUC planos que no exportan rollups.
+  for (const fila of [...candidatas.filter((f) => f.tipoFilaForzado === "agrupadora" || f.tipoFila === "agrupadora"), ...candidatas]) {
+    const codigo = limpiarCodigo(fila.codigo);
+    if (!nombres.has(codigo)) nombres.set(codigo, fila.nombre.trim());
+  }
+  return nombres;
 }
 
 /**
@@ -433,9 +468,8 @@ async function aplicarCorreccionesGuardadas(loteId: string, clienteId: number): 
   return plan.cambios.length;
 }
 
-// Promueve un LOTE de staging a balance OFICIAL. Núcleo compartido por el flujo
-// del modal (`confirmarCargaBalance`, con payload firmado) y por el de la página
-// de borrador (`cargarBorrador`, con el encabezado persistido). Relee el staging,
+// Promueve un LOTE de staging a balance OFICIAL desde la página del borrador
+// (`cargarBorrador`, con el encabezado persistido). Relee el staging,
 // hace el análisis por cuentas, persiste y PURGA el lote (staging + encabezado).
 type MetaPromocion = {
   loteId: string;
@@ -463,8 +497,12 @@ async function promoverStagingAOficial(p: MetaPromocion, contexto: string): Prom
   // El staging es la ÚNICA fuente: sin él no hay nada que promover (ya no existe el
   // respaldo `importReady` del payload — dejó de viajar al cliente).
   let importReadyFinal: CuentaCruda[];
+  let nombresGrupoCliente: Map<string, string>;
   try {
-    importReadyFinal = await cuentasDesdeStaging(p.loteId);
+    [importReadyFinal, nombresGrupoCliente] = await Promise.all([
+      cuentasDesdeStaging(p.loteId),
+      nombresGrupoDesdeStaging(p.loteId),
+    ]);
   } catch (e) {
     return { ok: false, message: mensajeErrorBD(contexto, e) };
   }
@@ -502,6 +540,7 @@ async function promoverStagingAOficial(p: MetaPromocion, contexto: string): Prom
       cuadreTotales, umbrales,
       proveedorIA: p.proveedorIA,
       comentarioPromocion: p.comentarioPromocion,
+      nombresGrupoCliente,
       meta: {
         estandar: TIPO_BALANCE_CARGA, convencionCredito: p.convencionCredito,
         filasLeidas: p.filasLeidas, filasExcluidas: p.filasExcluidas, filasDescuadre: p.filasDescuadre,
@@ -618,6 +657,7 @@ export async function freezeBalance(formData: FormData): Promise<ActionState> {
       action: "CONGELÓ BALANCE",
       entity: `${resultado.balance.nombreCliente} · ${resultado.balance.periodo}`,
       detail: `Versión ${resultado.balance.version} marcada como oficial`,
+      clientId: resultado.balance.clienteId,
     });
     await createProcessNotification({
       actor: user?.name,
@@ -692,13 +732,13 @@ export async function asignarCuentaEstandar(formData: FormData): Promise<ActionS
       const ahora = new Date();
       await prisma.clientAccount.upsert({
         where: { clienteId_code: { clienteId: fila.encabezado.clienteId, code: fila.cuenta6 } },
-        create: { clientName: fila.encabezado.nombreCliente, clienteId: fila.encabezado.clienteId, nit: fila.encabezado.nit, code: fila.cuenta6, level: 6, name: std.name ?? fila.cuenta6, cuenta6Russell: std.code, coincidencia: 100, origenMapeo: "manual", actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
+        create: { clientName: fila.encabezado.nombreCliente, clienteId: fila.encabezado.clienteId, nit: fila.encabezado.nit, code: fila.cuenta6, level: 6, name: fila.cuenta6, cuenta6Russell: std.code, coincidencia: 100, origenMapeo: "manual", actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
         update: { nit: fila.encabezado.nit, cuenta6Russell: std.code, coincidencia: 100, origenMapeo: "manual", actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
       });
       // Propaga el estándar a las cuentas IMPUTABLES del mismo grupo (display consistente).
       await prisma.clientAccount.updateMany({
         where: { clienteId: fila.encabezado.clienteId, code: { startsWith: fila.cuenta6 }, NOT: { code: fila.cuenta6 } },
-        data: { cuenta6Russell: std.code, coincidencia: 100, actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
+        data: { cuenta6Russell: std.code, coincidencia: 100, origenMapeo: "manual", actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
       });
     }
 
@@ -715,7 +755,7 @@ export async function asignarCuentaEstandar(formData: FormData): Promise<ActionS
     const detalleAlcance = aplicarAlGrupo
       ? `${fila.cuenta6} (${afectadas.count} cuenta(s) del grupo)`
       : `${fila.cuenta6} (solo ${fila.nombreCuenta})`;
-    await logAudit({ user: user?.name ?? "Sistema", action: "ASIGNÓ CUENTA ESTÁNDAR", entity: fila.cuenta6, detail: `${detalleAlcance} → ${std.code}` });
+    await logAudit({ user: user?.name ?? "Sistema", action: "ASIGNÓ CUENTA ESTÁNDAR", entity: fila.cuenta6, detail: `${detalleAlcance} → ${std.code}`, clientId: fila.encabezado.clienteId });
     revalidatePath(`/balance/${encId}`);
     return {
       ok: true,
@@ -732,7 +772,7 @@ export async function asignarCuentaEstandar(formData: FormData): Promise<ActionS
  * Escribe un cargue (encabezado + detalle) a partir de las cuentas ya extraídas
  * (`importReady`). Maneja versionado correlativo por (cliente, período), cálculo
  * de agregados, comparativo de cambios y bitácora. Única ruta de persistencia,
- * invocada solo por `confirmarCargaBalance`. No congela: eso lo hace `freezeBalance`.
+ * invocada solo al promover un borrador. No congela: eso lo hace `freezeBalance`.
  */
 async function persistirCargue(p: {
   clientId: number;
@@ -755,6 +795,8 @@ async function persistirCargue(p: {
   proveedorIA?: ProveedorIABalance;
   /** Justificación registrada al promover un archivo cuya ecuación no cuadra. */
   comentarioPromocion?: string | null;
+  /** Nombres reales de las agrupadoras de seis dígitos leídos del archivo. */
+  nombresGrupoCliente?: Map<string, string>;
   /** Umbrales de alerta vigentes (/config/parametros): definen cuántas validaciones
    *  quedan en «warn» y, con ello, el estado y la nota del encabezado. */
   umbrales: UmbralesAlertas;
@@ -769,20 +811,14 @@ async function persistirCargue(p: {
   // base de comparación para escribir después SOLO lo que cambió.
   const pucRows = await prisma.clientAccount.findMany({
     where: { clienteId: p.clientId },
-    select: { code: true, name: true, level: true, nit: true, clientName: true, cuenta6Russell: true, coincidencia: true, origenMapeo: true },
+    select: { id: true, code: true, name: true, level: true, nit: true, clientName: true, cuenta6Russell: true, coincidencia: true, origenMapeo: true, actualizadoEn: true },
   });
   const configRows = pucRows.filter((r) => r.cuenta6Russell != null);
   // El mapeo es por cuenta de 6 díg: derivamos el mapa cuenta_6 → estándar desde
   // CUALQUIER fila del cliente (grupo o imputable; todas comparten el estándar),
   // dando prioridad a las filas `manual`. `manualCodes` son los códigos exactos
   // marcados a mano (no se recalculan).
-  const configCliente = new Map<string, { std: string; coincidencia: number | null }>();
-  for (const r of configRows) {
-    const c6 = r.code.slice(0, 6);
-    if (!configCliente.has(c6) || r.origenMapeo === "manual") {
-      configCliente.set(c6, { std: r.cuenta6Russell as string, coincidencia: r.coincidencia != null ? Number(r.coincidencia) : null });
-    }
-  }
+  const configCliente = construirConfigMapeoCliente(configRows);
   const manualCodes = new Set(configRows.filter((r) => r.origenMapeo === "manual").map((r) => r.code));
   const pucExistente = new Map(pucRows.map((r) => [r.code, r]));
 
@@ -817,19 +853,52 @@ async function persistirCargue(p: {
   // Registra/actualiza el PUC del cliente en cuentas_cliente: una fila por cuenta
   // IMPUTABLE (cuenta 8, con su NOMBRE real) + una por grupo de 6 díg, cada una con
   // su mapeo al plan estándar. Es la memoria entre períodos y el PUC real del
-  // cliente. NO pisa filas marcadas como `manual`. Best-effort: no rompe el cargue.
+  // cliente. NO pisa filas marcadas como `manual`. Es parte del contrato de la
+  // carga: si la memoria no se puede persistir, la promoción no continúa.
   const filasDet = aFilasDetalle(calc.breakdown);
-  try {
-    const stdName = new Map(p.cuentasEstandar.map((s) => [s.code, s.name ?? s.code]));
+  {
     const nivelPorCodigo = (code: string) => (code.length >= 8 ? 8 : code.length === 6 ? 6 : code.length === 4 ? 4 : 2);
-    // Una fila por código: imputables (nombre real) y grupos de 6 díg (nombre del estándar).
+    const configCalculada = construirConfigMapeoCliente(
+      filasDet.map((f, id) => ({
+        id,
+        code: f.cuenta8,
+        cuenta6Russell: f.cuenta6Russell,
+        coincidencia: f.coincidencia,
+        origenMapeo: "automatico",
+      })),
+    );
+    // Una sola decisión canónica por grupo: la memoria existente gana; en grupos
+    // nuevos se elige de forma determinista entre los resultados del cálculo.
+    const mapeoGrupo = new Map(configCalculada);
+    for (const [cuenta6, config] of configCliente) mapeoGrupo.set(cuenta6, config);
+
+    // Una fila por código: imputables con su nombre real y grupos de seis con el
+    // rótulo REAL del PUC si ya existe; nunca el nombre del estándar Russell.
     const rows = new Map<string, { code: string; level: number; name: string; std: string | null; coincidencia: number | null }>();
     for (const f of filasDet) {
-      const coinc = f.coincidencia != null ? Number(f.coincidencia) : null;
-      rows.set(f.cuenta8, { code: f.cuenta8, level: nivelPorCodigo(f.cuenta8), name: f.nombreCuenta || f.cuenta8, std: f.cuenta6Russell, coincidencia: coinc });
+      const grupo = mapeoGrupo.get(f.cuenta6);
+      const std = grupo?.std ?? f.cuenta6Russell;
+      const coincidencia = grupo?.coincidencia ?? (f.coincidencia != null ? Number(f.coincidencia) : null);
+      rows.set(f.cuenta8, {
+        code: f.cuenta8,
+        level: nivelPorCodigo(f.cuenta8),
+        name: f.nombreCuenta || f.cuenta8,
+        std,
+        coincidencia,
+      });
       if (f.cuenta6 !== f.cuenta8 && !rows.has(f.cuenta6)) {
-        const gname = f.cuenta6Russell ? (stdName.get(f.cuenta6Russell) ?? f.cuenta6) : f.cuenta6;
-        rows.set(f.cuenta6, { code: f.cuenta6, level: 6, name: gname, std: f.cuenta6Russell, coincidencia: coinc });
+        const nombreGrupo =
+          p.nombresGrupoCliente?.get(f.cuenta6) ??
+          pucExistente.get(f.cuenta6)?.name ??
+          p.importReady.find((cuenta) => cuenta.code === f.cuenta6)?.name ??
+          f.cuenta6;
+        rows.set(f.cuenta6, {
+          code: f.cuenta6,
+          level: 6,
+          name: nombreGrupo,
+          std,
+          coincidencia,
+        });
       }
     }
     const ahoraDate = new Date();
@@ -838,7 +907,8 @@ async function persistirCargue(p: {
     // mayoría fallaba por timeout de conexión, dejando la memoria PUC incompleta.
     // El CONJUNTO de upserts y los datos de cada uno son IDÉNTICOS; solo se acota
     // cuántos viajan en paralelo (≤ pool → nunca encola de más). Sigue siendo
-    // best-effort y NO alimenta el resultado del balance (no se lee su salida).
+    // La memoria no alimenta el resultado de esta misma carga, pero sí es
+    // obligatoria para que el próximo período sea reproducible.
     // Solo se escribe lo que CAMBIÓ respecto a lo ya guardado (comparado contra la
     // lectura única de arriba): en un cliente recurrente con catálogo estable el
     // volcado pasa de ~750 upserts a ~0 escrituras por cargue.
@@ -870,8 +940,6 @@ async function persistirCargue(p: {
         ),
       );
     }
-  } catch {
-    /* el registro del PUC es best-effort: no rompe el cargue */
   }
 
   // Novedad de DESCUADRE contra el gran total del archivo (TOTALES): NO bloquea
@@ -955,6 +1023,7 @@ async function persistirCargue(p: {
     action: "CARGÓ BALANCE",
     entity: `${p.clienteName} · ${p.period}`,
     detail: `${creado.version} · ${calc.totalRows} cuentas · ${calc.mapped} mapeadas · ${calc.balanced && calc.movimientosCuadran && !descuadreTotales ? "cuadrado" : "descuadra"}${p.comentarioPromocion ? ` · Comentario: ${p.comentarioPromocion.replace(/\s+/g, " ")}` : ""}`,
+    clientId: p.clientId,
   });
   await createProcessNotification({
     actor: p.uploadedBy,
@@ -970,15 +1039,16 @@ async function persistirCargue(p: {
 /**
  * LECTURA (paso 1). Extrae las cuentas del archivo SIN escribir nada (salvo el
  * borrador en staging) y devuelve una sugerencia (NIT/período detectados +
- * cuentas + excepciones) para que la persona la revise y complete antes de
- * confirmar. No exige cliente.
+ * cuentas + excepciones). Puede detectar sin cliente para mostrar la sugerencia,
+ * pero la interfaz exige asociarlo y crear su perfil antes de ir al borrador.
  *
  * Orden de resolución de la ESTRUCTURA (tabular):
  *   1. PERFIL guardado por huella del layout → determinista, 0 llamadas IA.
  *   2. Cascada de IA (Sonnet→Opus) si hay API key.
  *   3. Parser de plantilla limpia si no hay API key ni perfil aplicable.
  * Además detecta el NIT de forma determinista para preseleccionar el cliente y
- * aplicar sus preferencias de carga (hoja preferida, estándar, signo, tercero).
+ * aplicar sus preferencias de carga (hoja preferida, signo, tercero). El estándar
+ * contable siempre es NIF por regla de negocio.
  */
 export async function leerBalance(
   _prev: LeerBalanceState,
@@ -994,6 +1064,22 @@ export async function leerBalance(
   if (archivo.size > MAX_BYTES) return { ok: false, message: "El archivo supera 20 MB." };
 
   try {
+    const clienteIdTexto = String(formData.get("clienteId") ?? "").trim();
+    let clienteExplicitoId: number | null = null;
+    if (clienteIdTexto) {
+      const candidato = Number(clienteIdTexto);
+      if (!Number.isInteger(candidato) || candidato <= 0) {
+        return { ok: false, message: "El cliente seleccionado no es válido." };
+      }
+      const [scope, existe] = await Promise.all([
+        authorizePermiso("balance:crear", { clientId: candidato }),
+        prisma.client.findUnique({ where: { id: candidato }, select: { id: true } }),
+      ]);
+      if (!scope.ok) return { ok: false, message: scope.message };
+      if (!existe) return { ok: false, message: "El cliente seleccionado ya no existe." };
+      clienteExplicitoId = candidato;
+    }
+
     const proveedorIA = await proveedorIABalanceSesion(formData.get("modeloIA"));
     // Lectura sin parámetros de cliente/período: se detecta todo del archivo
     // como sugerencia. El tipo de balance es regla fija de negocio.
@@ -1016,45 +1102,41 @@ export async function leerBalance(
 
     // ---- Contexto determinista ANTES de llamar a la IA ----
     // NIT → cliente (preselección + preferencias); huella del layout → perfil.
-    let clienteDetectadoId: number | null = null;
+    let clienteDetectadoId: number | null = clienteExplicitoId;
     let nitDeterminista: string | null = null;
     let specGuardado: MappingSpec | null = null;
+    let ajustesCliente: AjustesCarga | null = await ajustesCargaDeCliente(clienteDetectadoId);
     if (ingesta?.modo === "tabular") {
       nitDeterminista = detectarNit(ingesta.hojas);
-      clienteDetectadoId = await clientePorNit(nitDeterminista);
-      const ajustes = await ajustesCargaDeCliente(clienteDetectadoId);
-
-      // Preferencias del cliente: hoja preferida (si el usuario no eligió una y
-      // existe en el archivo) y estándar contable fijado.
-      if (!hoja && ajustes?.hojaPreferida && ingesta.hojas.some((h) => h.nombre === ajustes.hojaPreferida)) {
-        hoja = ajustes.hojaPreferida;
+      if (clienteDetectadoId == null) {
+        clienteDetectadoId = await clienteAutorizado(await clientePorNit(nitDeterminista));
+        ajustesCliente = await ajustesCargaDeCliente(clienteDetectadoId);
       }
-      if (ajustes?.estandar === "NIF" || ajustes?.estandar === "NIIF" || ajustes?.estandar === "PCGA") {
-        params.estandar = ajustes.estandar;
+
+      // Hoja preferida del cliente (si el usuario no eligió una y existe).
+      const hojaPreferida = ajustesCliente?.hojaPreferida;
+      if (!hoja && hojaPreferida && ingesta.hojas.some((h) => h.nombre === hojaPreferida)) {
+        hoja = hojaPreferida;
       }
 
       // PERFIL guardado por HUELLA del layout (0 llamadas IA si aplica): prioridad
-      // al perfil del cliente detectado por NIT; si no, el usado más recientemente.
-      // Aplicar el spec de otro cliente con el MISMO layout es correcto (misma
-      // transformación); las preferencias/preselección sí exigen NIT coincidente.
+      // estricta al cliente detectado. Nunca se reutiliza el perfil de otra empresa:
+      // dos archivos con el mismo encabezado pueden tener convenciones distintas.
       const hojasLookup = hoja ? ingesta.hojas.filter((h) => h.nombre === hoja) : ingesta.hojas;
       const candidatas = huellasCandidatas(hojasLookup.length > 0 ? hojasLookup : ingesta.hojas);
-      if (candidatas.length > 0) {
-        try {
-          const perfiles = await prisma.perfilCargaBalance.findMany({
-            where: { huella: { in: candidatas.map((c) => c.huella) } },
-            orderBy: [{ ultimoUsoEn: { sort: "desc", nulls: "last" } }, { actualizadoEn: "desc" }],
-          });
-          const perfil = perfiles.find((p) => clienteDetectadoId != null && p.clienteId === clienteDetectadoId) ?? perfiles[0] ?? null;
-          if (perfil) {
-            const plano = perfilPlanoDesdeFila(perfil);
-            // Preferencias del cliente pisan el signo/tercero del perfil.
-            if (ajustes?.convencionCredito === "firmado" || ajustes?.convencionCredito === "magnitud") plano.signoCredito = ajustes.convencionCredito;
-            if (ajustes?.agregarPorTercero != null) plano.agregarPorTercero = ajustes.agregarPorTercero;
-            specGuardado = specDesdePerfil(plano);
-          }
-        } catch {
-          specGuardado = null; // best-effort: sin perfil la lectura sigue normal
+      if (clienteDetectadoId != null && candidatas.length > 0) {
+        const perfil = await prisma.perfilCargaBalance.findFirst({
+          where: {
+            clienteId: clienteDetectadoId,
+            huella: { in: candidatas.map((c) => c.huella) },
+          },
+          orderBy: [{ ultimoUsoEn: { sort: "desc", nulls: "last" } }, { actualizadoEn: "desc" }],
+        });
+        if (perfil) {
+          specGuardado = aplicarPreferenciasCarga(
+            specDesdePerfil(perfilPlanoDesdeFila(perfil)),
+            ajustesCliente,
+          );
         }
       }
     }
@@ -1064,7 +1146,12 @@ export async function leerBalance(
     let origenExtraccion: OrigenExtraccion = "plantilla";
     if (iaBalanceDisponible(proveedorIA)) {
       const r = await extraerBalance(datosArchivo, archivo.name, params, {
-        hojaElegida: hoja, usosOut: usos, ingesta: ingesta ?? undefined, specGuardado, proveedorIA,
+        hojaElegida: hoja,
+        usosOut: usos,
+        ingesta: ingesta ?? undefined,
+        specGuardado,
+        proveedorIA,
+        agregarPorTercero: ajustesCliente?.agregarPorTercero,
       });
       extr = r.resultado;
       spec = r.spec;
@@ -1119,6 +1206,25 @@ export async function leerBalance(
       }
     }
 
+    // PDF/documento puede revelar el NIT solo después de extraer. Se asocia desde
+    // esta misma lectura si la sesión tiene alcance; de lo contrario la UI exige
+    // elegir el cliente antes de permitir ir al borrador.
+    if (clienteDetectadoId == null) {
+      const nitExtraido = nitDeterminista ?? extr.cabecera.nit.valor;
+      clienteDetectadoId = await clienteAutorizado(await clientePorNit(nitExtraido));
+      ajustesCliente = await ajustesCargaDeCliente(clienteDetectadoId);
+    }
+
+    // Las preferencias del cliente pisan también el mapa recién detectado por IA
+    // o ajustado a mano, no solo un perfil previamente guardado.
+    if (spec && ingesta?.modo === "tabular") {
+      const specPreferido = aplicarPreferenciasCarga(spec, ajustesCliente);
+      if (specPreferido !== spec) {
+        spec = specPreferido;
+        extr = transformarTabular(spec, ingesta.hojas, params);
+      }
+    }
+
     const usuario = await getCurrentUser();
 
     // Registra el consumo de tokens de la lectura/extracción (best-effort). Se
@@ -1134,7 +1240,7 @@ export async function leerBalance(
       });
     }
 
-    return await persistirLoteYSugerencia({
+    const resultado = await persistirLoteYSugerencia({
       extr,
       archivoNombre: archivo.name,
       archivoTamBytes: archivo.size,
@@ -1146,6 +1252,11 @@ export async function leerBalance(
       clienteDetectadoId,
       proveedorIA,
     });
+    const loteIdAnterior = String(formData.get("loteIdAnterior") ?? "").trim();
+    if (resultado.ok && loteIdAnterior && resultado.sugerencia?.payload.loteId !== loteIdAnterior) {
+      await reemplazarLoteAnterior(loteIdAnterior);
+    }
+    return resultado;
   } catch (e) {
     return { ok: false, message: mensajeErrorIA("leerBalance", e), errorProveedorIA: esErrorDisponibilidadIA(e) };
   }
@@ -1167,9 +1278,8 @@ type ParamsLoteSugerencia = {
 /**
  * Cola COMPARTIDA del paso 1 (la usan `leerBalance` y `reprocesarBalanceConSpec`):
  * valida el borrador, persiste el staging crudo + el encabezado de lote (con la
- * huella del layout, el origen de la extracción y el spec usado — para poder
- * guardar el PERFIL del cliente al confirmar) y arma la SugerenciaBalance v2 con
- * el payload compacto firmado.
+ * huella del layout, el origen de la extracción y el spec usado), garantiza el
+ * perfil cuando ya hay cliente y arma la sugerencia compacta para la interfaz.
  */
 async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBalanceState> {
   const { extr } = p;
@@ -1248,60 +1358,91 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
   }
   const specCarga: SpecCarga | null = specUsado ? specCargaDesdePerfil(aplanarSpec(specUsado)) : null;
 
+  // PERFIL OBLIGATORIO: todo lote que ya tenga cliente crea primero su perfil
+  // base de preferencias. Si además es tabular, guarda automáticamente el mapa
+  // estructural de este layout. Un fallo aquí bloquea el borrador: no se permite
+  // continuar con una carga asociada pero sin memoria del cliente.
+  if (p.clienteDetectadoId != null) {
+    await asegurarPerfilBaseCliente(p.clienteDetectadoId, p.usuario?.name ?? null);
+    if (huellaFinal && specCarga) {
+      const perfilGuardado = await upsertPerfilCarga({
+        clientId: p.clienteDetectadoId,
+        huella: huellaFinal,
+        specJson: specCarga,
+        origenExtraccion: p.origenExtraccion,
+        archivoNombre: p.archivoNombre,
+      });
+      if (!perfilGuardado) {
+        throw new Error("No se pudo crear el perfil estructural del cliente para este archivo.");
+      }
+    }
+  }
+
   // PASO 1 — BORRADOR persistente: staging crudo (todas las filas, sin descartar)
   // + encabezado de lote con la metadata para listarlo. Persiste hasta que se
   // CARGA (promueve a oficial) o se DESCARTA — sin purga automática.
   const loteId = randomUUID();
   const LOTE_STAGING = 1000;
-  for (let i = 0; i < extr.filasCrudas.length; i += LOTE_STAGING) {
-    await prisma.balanceImportacionStaging.createMany({
-      data: extr.filasCrudas.slice(i, i + LOTE_STAGING).map((f) => ({
-        loteId, clienteId: null, hoja: f.hoja, filaNum: f.filaNum, codigoCrudo: f.codigoCrudo,
-        codigo: f.codigo, nombre: f.nombre, nivel: f.nivel, tipoFila: f.tipoFila,
-        saldoInicial: f.saldoInicial, debitos: f.debitos, creditos: f.creditos, saldoFinal: f.saldoFinal,
-      })),
-    });
-  }
-  // Purga cualquier lectura cacheada previa del lote (p. ej. un 404 cacheado si
-  // alguien visitó la URL antes de existir el staging).
-  invalidarStagingBorrador(loteId);
-  await prisma.balanceImportacionLote.create({
-    data: {
-      loteId, clienteId: null,
-      archivoNombre: p.archivoNombre, archivoTam: tamArchivo(p.archivoTamBytes),
-      nitDetectado: nitFinal.valor,
-      periodoInicial: extr.cabecera.periodoInicial.valor ? fechaCalendarioPrisma(extr.cabecera.periodoInicial.valor) : null,
-      periodoFinal: extr.cabecera.periodoFinal.valor ? fechaCalendarioPrisma(extr.cabecera.periodoFinal.valor) : null,
-      estandar: extr.cabecera.estandar, convencionCredito: extr.resumen.convencionCredito,
-      cuentasMovimiento: extr.resumen.cuentasMovimiento, filasLeidas: extr.resumen.filasLeidas, filasExcluidas: extr.resumen.filasExcluidas,
-      partidaDobleDiff: diagFinal.partidaDobleDiff, ecuacionDiff: diagFinal.ecuacionDiff,
-      cuadrado: diagFinal.cuadrado,
-      cargadoPor: p.usuario?.name ?? null, cargadoPorId: p.usuario?.id ?? null,
-      huella: huellaFinal, origenExtraccion: p.origenExtraccion,
-      ...(specCarga ? { specJson: specCarga } : {}),
-    },
-  });
-
-  // Registra la huella diagnóstica del cargue (best-effort; sobrevive a la purga del
-  // lote al confirmar/descartar porque vive en su propia tabla).
-  await registrarDiagnosticoInicial({
-    loteId, clienteId: null, archivoNombre: p.archivoNombre,
-    modo: extr.modo ?? null,
-    formato: (p.archivoNombre.split(".").pop() ?? "").toLowerCase() || null,
-    confianza: extr.confianza ?? null,
-    diag: diagInicial,
-  });
-
-  // Correcciones por cuenta MEMORIZADAS del cliente (detectado por NIT): se
-  // re-aplican al staging recién creado — el borrador abre ya corregido, sin
-  // repetir a mano los ajustes de cargas anteriores. El resumen del lote se
-  // recalcula adentro. Best-effort: sin correcciones la lectura sigue igual.
-  if (p.clienteDetectadoId != null) {
-    try {
-      await aplicarCorreccionesGuardadas(loteId, p.clienteDetectadoId);
-    } catch {
-      /* best-effort */
+  try {
+    for (let i = 0; i < extr.filasCrudas.length; i += LOTE_STAGING) {
+      await prisma.balanceImportacionStaging.createMany({
+        data: extr.filasCrudas.slice(i, i + LOTE_STAGING).map((f) => ({
+          loteId, clienteId: p.clienteDetectadoId, hoja: f.hoja, filaNum: f.filaNum, codigoCrudo: f.codigoCrudo,
+          codigo: f.codigo, nombre: f.nombre, nivel: f.nivel, tipoFila: f.tipoFila,
+          saldoInicial: f.saldoInicial, debitos: f.debitos, creditos: f.creditos, saldoFinal: f.saldoFinal,
+        })),
+      });
     }
+    // Purga cualquier lectura cacheada previa del lote (p. ej. un 404 cacheado si
+    // alguien visitó la URL antes de existir el staging).
+    invalidarStagingBorrador(loteId);
+    await prisma.balanceImportacionLote.create({
+      data: {
+        loteId, clienteId: p.clienteDetectadoId,
+        archivoNombre: p.archivoNombre, archivoTam: tamArchivo(p.archivoTamBytes),
+        nitDetectado: nitFinal.valor,
+        periodoInicial: extr.cabecera.periodoInicial.valor ? fechaCalendarioPrisma(extr.cabecera.periodoInicial.valor) : null,
+        periodoFinal: extr.cabecera.periodoFinal.valor ? fechaCalendarioPrisma(extr.cabecera.periodoFinal.valor) : null,
+        estandar: extr.cabecera.estandar, convencionCredito: extr.resumen.convencionCredito,
+        cuentasMovimiento: extr.resumen.cuentasMovimiento, filasLeidas: extr.resumen.filasLeidas, filasExcluidas: extr.resumen.filasExcluidas,
+        partidaDobleDiff: diagFinal.partidaDobleDiff, ecuacionDiff: diagFinal.ecuacionDiff,
+        cuadrado: diagFinal.cuadrado,
+        cargadoPor: p.usuario?.name ?? null, cargadoPorId: p.usuario?.id ?? null,
+        huella: huellaFinal, origenExtraccion: p.origenExtraccion,
+        ...(specCarga ? { specJson: specCarga } : {}),
+      },
+    });
+
+    // Registra la huella diagnóstica del cargue (best-effort; sobrevive a la purga del
+    // lote al confirmar/descartar porque vive en su propia tabla).
+    await registrarDiagnosticoInicial({
+      loteId, clienteId: p.clienteDetectadoId, archivoNombre: p.archivoNombre,
+      modo: extr.modo ?? null,
+      formato: (p.archivoNombre.split(".").pop() ?? "").toLowerCase() || null,
+      confianza: extr.confianza ?? null,
+      diag: diagInicial,
+    });
+
+    // Correcciones por cuenta MEMORIZADAS del cliente (detectado por NIT): se
+    // re-aplican al staging recién creado — el borrador abre ya corregido, sin
+    // repetir a mano los ajustes de cargas anteriores. El resumen del lote se
+    // recalcula adentro.
+    if (p.clienteDetectadoId != null) {
+      await aplicarCorreccionesGuardadas(loteId, p.clienteDetectadoId);
+    }
+  } catch (error) {
+    // Nunca deja un staging parcial navegable. El perfil derivado del archivo sí
+    // puede conservarse; el lote fallido se purga y su medición queda marcada.
+    await prisma.$transaction(async (tx) => {
+      await tx.balanceImportacionStaging.deleteMany({ where: { loteId } });
+      await tx.balanceImportacionLote.deleteMany({ where: { loteId } });
+      await tx.balanceLecturaDiagnostico.updateMany({
+        where: { loteId },
+        data: { resultado: "error" },
+      });
+    });
+    invalidarStagingBorrador(loteId);
+    throw error;
   }
 
   const payload: PayloadCargaBalance = {
@@ -1331,7 +1472,6 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
     ok: true,
     excepciones: extr.excepciones,
     sugerencia: {
-      firma: firmarPayloadServidor(payload, CONTEXTO_PAYLOAD_BALANCE),
       payload,
       render: {
         cuadre: extr.cuadre,
@@ -1345,6 +1485,36 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
       },
     },
   };
+}
+
+/** Purga el borrador reemplazado y conserva su diagnóstico como reprocesado. */
+async function reemplazarLoteAnterior(loteId: string): Promise<void> {
+  const [anterior, usuario] = await Promise.all([
+    prisma.balanceImportacionLote.findUnique({
+      where: { loteId },
+      select: { clienteId: true, cargadoPorId: true },
+    }),
+    getCurrentUser(),
+  ]);
+  if (!anterior) return;
+  if (anterior.clienteId != null) {
+    const scope = await authorizePermiso("balance:crear", { clientId: anterior.clienteId });
+    if (!scope.ok) throw new Error(scope.message);
+  } else {
+    const esAdministrador = /admin/i.test(usuario?.role ?? "");
+    if (!usuario || (!esAdministrador && anterior.cargadoPorId !== usuario.id)) {
+      throw new Error("No tienes permiso para reemplazar ese borrador.");
+    }
+  }
+  await prisma.$transaction(async (tx) => {
+    await tx.balanceImportacionStaging.deleteMany({ where: { loteId } });
+    await tx.balanceImportacionLote.deleteMany({ where: { loteId } });
+    await tx.balanceLecturaDiagnostico.updateMany({
+      where: { loteId },
+      data: { resultado: "reprocesado" },
+    });
+  });
+  invalidarStagingBorrador(loteId);
 }
 
 /**
@@ -1377,6 +1547,8 @@ export async function reprocesarBalanceConSpec(
     return { ok: false, message: parsed.error.issues[0]?.message ?? "Los ajustes de estructura no son válidos." };
   }
   const loteIdAnterior = String(formData.get("loteIdAnterior") ?? "").trim();
+  const clienteIdBruto = Number(formData.get("clienteId"));
+  const clienteIdExplicito = Number.isInteger(clienteIdBruto) && clienteIdBruto > 0 ? clienteIdBruto : null;
 
   try {
     const proveedorIA = await proveedorIABalanceSesion(formData.get("modeloIA"));
@@ -1386,9 +1558,26 @@ export async function reprocesarBalanceConSpec(
       return { ok: false, message: "El editor de estructura solo aplica a archivos tabulares (Excel/CSV/TXT delimitado/JSON)." };
     }
     const params: ParamsExtraccion = { nit: null, periodoInicial: null, periodoFinal: null, estandar: TIPO_BALANCE_CARGA };
-    const spec = specDesdePerfil(aplanarSpec(parsed.data));
     const nitDeterminista = detectarNit(ingesta.hojas);
-    const clienteDetectadoId = await clientePorNit(nitDeterminista);
+    const loteAnterior = loteIdAnterior
+      ? await prisma.balanceImportacionLote.findUnique({
+          where: { loteId: loteIdAnterior },
+          select: { clienteId: true },
+        })
+      : null;
+    const candidatoCliente =
+      clienteIdExplicito ??
+      loteAnterior?.clienteId ??
+      (await clientePorNit(nitDeterminista));
+    const clienteDetectadoId = await clienteAutorizado(candidatoCliente);
+    if (candidatoCliente != null && clienteDetectadoId == null) {
+      return { ok: false, message: "No tienes alcance para cargar balances de ese cliente." };
+    }
+    const ajustesCliente = await ajustesCargaDeCliente(clienteDetectadoId);
+    const spec = aplicarPreferenciasCarga(
+      specDesdePerfil(aplanarSpec(parsed.data)),
+      ajustesCliente,
+    );
     const extr = transformarTabular(spec, ingesta.hojas, params);
     const usuario = await getCurrentUser();
 
@@ -1406,15 +1595,10 @@ export async function reprocesarBalanceConSpec(
     });
 
     // El lote anterior se purga SOLO si el reproceso quedó persistido (si falló,
-    // el borrador previo sigue disponible). Best-effort.
+    // el borrador previo sigue disponible). Conserva el historial diagnóstico
+    // marcándolo como reemplazado, en vez de dejarlo eternamente como borrador.
     if (res.ok && loteIdAnterior) {
-      try {
-        await prisma.balanceImportacionStaging.deleteMany({ where: { loteId: loteIdAnterior } });
-        await prisma.balanceImportacionLote.deleteMany({ where: { loteId: loteIdAnterior } });
-      } catch {
-        /* best-effort */
-      }
-      invalidarStagingBorrador(loteIdAnterior);
+      await reemplazarLoteAnterior(loteIdAnterior);
     }
     return res;
   } catch (e) {
@@ -1471,13 +1655,9 @@ export async function auditarCargaBalance(clienteId: number, loteId: string): Pr
     const cuentasEstandar = await getCuentasEstandar();
     const configRows = await prisma.clientAccount.findMany({
       where: { clienteId, cuenta6Russell: { not: null } },
-      select: { code: true, cuenta6Russell: true, coincidencia: true, origenMapeo: true },
+      select: { id: true, code: true, cuenta6Russell: true, coincidencia: true, origenMapeo: true, actualizadoEn: true },
     });
-    const configCliente = new Map<string, { std: string; coincidencia: number | null }>();
-    for (const r of configRows) {
-      const c6 = r.code.slice(0, 6);
-      if (!configCliente.has(c6) || r.origenMapeo === "manual") configCliente.set(c6, { std: r.cuenta6Russell as string, coincidencia: r.coincidencia != null ? Number(r.coincidencia) : null });
-    }
+    const configCliente = construirConfigMapeoCliente(configRows);
     const calc = calcularBalance(cuentas, cuentasEstandar, undefined, undefined, configCliente);
     const sinMapeo = calc.breakdown.flatMap((g) => g.items).filter((it) => !it.mapped).map((it) => ({ code: it.code, name: it.name }));
 
@@ -1489,11 +1669,7 @@ export async function auditarCargaBalance(clienteId: number, loteId: string): Pr
   }
 }
 
-/**
- * Guarda/actualiza el PERFIL de carga del cliente tras una promoción exitosa
- * (checkbox del modal). El spec y la huella salen del LOTE (leídos ANTES de la
- * promoción, que purga el lote). Best-effort: nunca tumba la carga.
- */
+/** Datos necesarios para crear o registrar el uso de un perfil estructural. */
 type ParamsPerfilCarga = {
   clientId: number;
   huella: string | null;
@@ -1505,7 +1681,8 @@ type ParamsPerfilCarga = {
 /**
  * Núcleo del upsert del PERFIL de carga (clave clienteId+huella). LANZA si la BD falla
  * (para que el llamador reporte); devuelve false si faltan datos (sin huella o spec
- * inválido). Lo usan el guardado best-effort de la carga y el botón «Guardar» del editor.
+ * inválido). Lo usan el guardado automático de cada lectura y el botón «Guardar»
+ * del editor.
  */
 async function upsertPerfilCarga(p: ParamsPerfilCarga): Promise<boolean> {
   if (!p.huella) return false;
@@ -1516,39 +1693,70 @@ async function upsertPerfilCarga(p: ParamsPerfilCarga): Promise<boolean> {
   // `ia` (automático). `manual` NUNCA se degrada por una carga automática.
   const esManual = p.origenExtraccion === "manual";
   const ahora = new Date();
-  const existia = await prisma.perfilCargaBalance.findUnique({
+  const existente = await prisma.perfilCargaBalance.findUnique({
     where: { clienteId_huella: { clienteId: p.clientId, huella: p.huella } },
-    select: { id: true },
+    select: { id: true, origen: true },
   });
   const usuario = await getCurrentUser();
-  await prisma.perfilCargaBalance.upsert({
-    where: { clienteId_huella: { clienteId: p.clientId, huella: p.huella } },
-    create: {
-      clienteId: p.clientId, huella: p.huella, ...plano,
-      origen: esManual ? "manual" : "ia",
-      vecesUsado: 1, ultimoUsoEn: ahora, archivoEjemplo: p.archivoNombre,
-      creadoPor: usuario?.name ?? null, creadoPorId: usuario?.id ?? null,
-    },
-    update: {
-      ...plano,
-      vecesUsado: { increment: 1 }, ultimoUsoEn: ahora, archivoEjemplo: p.archivoNombre,
-      ...(esManual ? { origen: "manual" } : {}),
-    },
+  if (!existente) {
+    await prisma.perfilCargaBalance.upsert({
+      where: { clienteId_huella: { clienteId: p.clientId, huella: p.huella } },
+      create: {
+        clienteId: p.clientId,
+        huella: p.huella,
+        ...plano,
+        origen: esManual ? "manual" : "ia",
+        vecesUsado: 1,
+        ultimoUsoEn: ahora,
+        archivoEjemplo: p.archivoNombre,
+        creadoPor: usuario?.name ?? null,
+        creadoPorId: usuario?.id ?? null,
+      },
+      // Carrera de dos primeras lecturas: la segunda solo registra el uso. Si
+      // fue un guardado manual sí fija su mapa; una lectura automática jamás
+      // pisa un manual que haya ganado la carrera.
+      update: {
+        ...(esManual ? { ...plano, origen: "manual" } : {}),
+        vecesUsado: { increment: 1 },
+        ultimoUsoEn: ahora,
+        archivoEjemplo: p.archivoNombre,
+      },
+    });
+  } else {
+    // Una lectura automática solo registra el uso de un perfil manual; nunca
+    // vuelve a escribir su mapa de columnas. Un guardado manual sí reemplaza el
+    // mapa completo y blinda el origen.
+    const conservarMapaManual = existente.origen === "manual" && !esManual;
+    await prisma.perfilCargaBalance.update({
+      where: { id: existente.id },
+      data: {
+        ...(!conservarMapaManual ? plano : {}),
+        vecesUsado: { increment: 1 },
+        ultimoUsoEn: ahora,
+        archivoEjemplo: p.archivoNombre,
+        ...(esManual ? { origen: "manual" } : {}),
+      },
+    });
+  }
+  // La primera hoja efectiva del cliente se convierte en su preferida. Una
+  // preferencia ya definida en Configuración nunca se sobreescribe por detección
+  // automática; un ajuste manual del editor sí expresa una nueva elección.
+  await prisma.ajustesCargaBalance.updateMany({
+    where: esManual
+      ? { clienteId: p.clientId }
+      : { clienteId: p.clientId, hojaPreferida: null },
+    data: { hojaPreferida: parsed.data.hoja },
   });
-  if (!existia) {
+  if (!existente) {
     await logAudit({
       user: usuario?.name ?? "Sistema",
       action: "GUARDÓ PERFIL de carga de balance",
       entity: `cliente ${p.clientId}`,
       detail: `huella ${p.huella} · ${esManual ? "ajustado a mano" : "detectado"} · ${p.archivoNombre}`,
+      clientId: p.clientId,
     });
   }
   return true;
-}
-
-/** Guarda el perfil tras una carga exitosa (best-effort; nunca tumba la carga). */
-async function guardarPerfilTrasCarga(p: ParamsPerfilCarga): Promise<void> {
-  try { await upsertPerfilCarga(p); } catch { /* best-effort */ }
 }
 
 /**
@@ -1577,6 +1785,8 @@ export async function guardarPerfilDesdeEditor(loteId: string, specJson: unknown
     if (clientId == null) return { ok: false, needsClient: true, message: "Elige el cliente para guardar el perfil del formato." };
     const scope = await authorizePermiso("balance:crear", { clientId });
     if (!scope.ok) return { ok: false, message: scope.message };
+    const usuario = await getCurrentUser();
+    await asegurarPerfilBaseCliente(clientId, usuario?.name ?? null);
     const ok = await upsertPerfilCarga({ clientId, huella: lote.huella, specJson: parsed.data, origenExtraccion: "manual", archivoNombre: lote.archivoNombre });
     if (!ok) return { ok: false, message: "No se pudo guardar el perfil (faltan datos del layout)." };
     revalidatePath("/config/clientes");
@@ -1615,7 +1825,7 @@ export async function guardarNotasDesdeEditor(loteId: string, observaciones: str
     const user = await getCurrentUser();
     await prisma.ajustesCargaBalance.upsert({
       where: { clienteId: clientId },
-      create: { clienteId: clientId, observaciones: notas, actualizadoPor: user?.name ?? null },
+      create: { clienteId: clientId, estandar: TIPO_BALANCE_CARGA, observaciones: notas, actualizadoPor: user?.name ?? null },
       update: { observaciones: notas, actualizadoPor: user?.name ?? null },
     });
     await logAudit({
@@ -1623,6 +1833,7 @@ export async function guardarNotasDesdeEditor(loteId: string, observaciones: str
       action: "GUARDÓ NOTAS de carga de balance",
       entity: cliente.name,
       detail: notas ? `${notas.length} caracteres` : "notas vacías",
+      clientId,
     });
     revalidatePath("/config/clientes");
     return { ok: true, message: notas ? "Notas de carga guardadas." : "Notas de carga borradas." };
@@ -1632,102 +1843,10 @@ export async function guardarNotasDesdeEditor(loteId: string, observaciones: str
 }
 
 /**
- * CONFIRMACIÓN (paso final). Recibe el cliente/período confirmados por la persona
- * + el payload COMPACTO firmado de la lectura (v2: loteId + metadatos, sin
- * cuentas — el staging es la fuente de verdad). Recalcula en el servidor los
- * agregados Y el cuadre contra TOTALES desde el staging (solo toma del payload
- * los totales del archivo, no reconstruibles sin reabrirlo). Si la persona lo
- * pidió (checkbox), guarda el spec usado como PERFIL de carga del cliente.
- */
-export async function confirmarCargaBalance(
-  _prev: ImportBalanceState,
-  formData: FormData,
-): Promise<ImportBalanceState> {
-  const authz = await authorizePermiso("balance:crear");
-  if (!authz.ok) return { ok: false, message: authz.message };
-
-  const parsed = ConfirmarBalanceSchema.safeParse({
-    clientId: formData.get("clientId"),
-    periodoInicio: formData.get("periodoInicio"),
-    periodoFin: formData.get("periodoFin"),
-  });
-  if (!parsed.success) {
-    return { ok: false, message: parsed.error.issues[0]?.message ?? "Datos inválidos." };
-  }
-  const { clientId, periodoInicio, periodoFin } = parsed.data;
-
-  const scope = await authorizePermiso("balance:crear", { clientId });
-  if (!scope.ok) return { ok: false, message: scope.message };
-
-  // El hidden `payload` trae { firma, payload } (v2). La firma se valida sobre el
-  // objeto CRUDO (la serialización canónica ordena claves) y el payload se
-  // re-valida con Zod para tipar con seguridad.
-  let bruto: { firma?: unknown; payload?: unknown };
-  try {
-    bruto = JSON.parse(String(formData.get("payload") ?? "")) as { firma?: unknown; payload?: unknown };
-  } catch {
-    return { ok: false, message: "La lectura del archivo no es válida. Vuelve a leer el archivo." };
-  }
-  if (!bruto?.payload || !validarFirmaPayloadServidor(bruto.payload, bruto.firma, CONTEXTO_PAYLOAD_BALANCE)) {
-    return { ok: false, message: "La lectura del archivo fue alterada o expiró. Vuelve a leer el archivo." };
-  }
-  const payloadParsed = PayloadCargaBalanceSchema.safeParse(bruto.payload);
-  if (!payloadParsed.success) {
-    return { ok: false, message: "La lectura del archivo no es válida. Vuelve a leer el archivo." };
-  }
-  const sug = payloadParsed.data;
-  // Se RE-autoriza con la sesión al confirmar: un payload firmado en una sesión
-  // autorizada no habilita Gemini si quien confirma ya no lo está.
-  const proveedorIA = await proveedorIABalanceSesion(sug.proveedorIA);
-
-  // El spec/huella para guardar el perfil se leen del lote ANTES de promover (la
-  // promoción purga el lote). Best-effort: sin lote igual se puede cargar.
-  let lote: { huella: string | null; specJson: unknown; origenExtraccion: string | null } | null = null;
-  try {
-    lote = await prisma.balanceImportacionLote.findUnique({
-      where: { loteId: sug.loteId },
-      select: { huella: true, specJson: true, origenExtraccion: true },
-    });
-  } catch {
-    lote = null;
-  }
-
-  // PASO 2 — promoción a oficial (relee el staging del lote, análisis por cuentas,
-  // persiste y purga). Núcleo compartido con `cargarBorrador`. La firma HMAC ata el
-  // `loteId`; sin staging no hay carga (el payload ya no lleva cuentas).
-  const res = await promoverStagingAOficial(
-    {
-      loteId: sug.loteId, clientId, periodoInicio, periodoFin, rolLabel: etiquetaRol(authz.role),
-      archivoNombre: sug.archivoNombre, archivoTam: sug.archivoTam,
-      nitDetectado: sug.nitDetectado, nitFuente: sug.nitFuente, convencionCredito: sug.convencionCredito,
-      filasLeidas: sug.filasLeidas, filasExcluidas: sug.filasExcluidas, filasDescuadre: sug.filasDescuadre,
-      cuentasMovimiento: sug.cuentasMovimiento, cuentas: sug.cuentas, cuentasAgrupadoras: sug.cuentasAgrupadoras,
-      cuadreArchivo: sug.cuadreArchivo,
-      proveedorIA,
-    },
-    "confirmarCargaBalance",
-  );
-
-  // Perfil de carga del cliente (checkbox «guardar este formato»): con la carga ya
-  // promovida y el cliente confirmado. Best-effort.
-  if (res.ok && formData.get("guardarPerfil") === "1") {
-    await guardarPerfilTrasCarga({
-      clientId,
-      huella: lote?.huella ?? sug.huella,
-      specJson: lote?.specJson ?? null,
-      origenExtraccion: sug.origenExtraccion,
-      archivoNombre: sug.archivoNombre,
-    });
-  }
-
-  return res;
-}
-
-/**
  * Carga (promueve a oficial) un BORRADOR persistido desde su página, eligiendo
  * cliente y período. Relee el staging del lote por `loteId` (fuente de verdad) y
- * reutiliza el mismo núcleo de promoción que el modal. No usa payload firmado: el
- * `loteId` viene del encabezado persistido y la autorización protege la escritura.
+ * utiliza el único núcleo de promoción. El `loteId` viene del encabezado
+ * persistido y la autorización protege la escritura.
  */
 export async function cargarBorrador(_prev: ImportBalanceState, formData: FormData): Promise<ImportBalanceState> {
   const authz = await authorizePermiso("balance:crear");
@@ -1753,11 +1872,58 @@ export async function cargarBorrador(_prev: ImportBalanceState, formData: FormDa
   const scope = await authorizePermiso("balance:crear", { clientId });
   if (!scope.ok) return { ok: false, message: scope.message };
 
-  // El encabezado (si existe) enriquece la metadata; el staging es lo que se
-  // promueve. Un borrador «huérfano» (sin encabezado) también se puede cargar.
-  const lote = await prisma.balanceImportacionLote.findUnique({ where: { loteId } });
-  const movEnStaging = await prisma.balanceImportacionStaging.count({ where: { loteId, tipoFila: "movimiento" } });
-  if (!lote && movEnStaging === 0) return { ok: false, message: "El borrador ya no existe (fue cargado o descartado)." };
+  // Compuerta defensiva del servidor: la UI no es suficiente. El lote debe tener
+  // el MISMO cliente asociado y todas sus filas deben conservar esa identidad.
+  const [lote, movEnStaging, filasStaging, filasCliente] = await Promise.all([
+    prisma.balanceImportacionLote.findUnique({ where: { loteId } }),
+    prisma.balanceImportacionStaging.count({ where: { loteId, tipoFila: "movimiento" } }),
+    prisma.balanceImportacionStaging.count({ where: { loteId } }),
+    prisma.balanceImportacionStaging.count({ where: { loteId, clienteId: clientId } }),
+  ]);
+  if (!lote || filasStaging === 0) return { ok: false, message: "El borrador ya no existe (fue cargado o descartado)." };
+  if (lote.clienteId !== clientId || filasCliente !== filasStaging) {
+    return {
+      ok: false,
+      message: "Antes de cargar debes vincular el cliente al borrador. Así se crea su perfil y se aplican sus preferencias.",
+    };
+  }
+
+  const user = await getCurrentUser();
+  await asegurarPerfilBaseCliente(clientId, user?.name ?? null);
+  if (lote.huella && lote.specJson) {
+    const perfil = await prisma.perfilCargaBalance.findUnique({
+      where: { clienteId_huella: { clienteId: clientId, huella: lote.huella } },
+      select: { id: true },
+    });
+    if (!perfil) {
+      const origen =
+        lote.origenExtraccion === "manual" ||
+        lote.origenExtraccion === "perfil" ||
+        lote.origenExtraccion === "plantilla"
+          ? lote.origenExtraccion
+          : "ia";
+      const creado = await upsertPerfilCarga({
+        clientId,
+        huella: lote.huella,
+        specJson: lote.specJson,
+        origenExtraccion: origen,
+        archivoNombre: lote.archivoNombre,
+      });
+      if (!creado) {
+        return { ok: false, message: "No se pudo garantizar el perfil estructural del cliente. Revisa el mapa del archivo." };
+      }
+    }
+  }
+
+  // Las fechas editadas dejan de ser estado efímero del formulario: se guardan
+  // antes de promover, de modo que también sobreviven si la carga oficial falla.
+  await prisma.balanceImportacionLote.update({
+    where: { loteId },
+    data: {
+      periodoInicial: fechaCalendarioPrisma(periodoInicio),
+      periodoFinal: fechaCalendarioPrisma(periodoFin),
+    },
+  });
 
   const res = await promoverStagingAOficial(
     {
@@ -1780,6 +1946,49 @@ export async function cargarBorrador(_prev: ImportBalanceState, formData: FormDa
   return res; // solo el caso de error llega aquí
 }
 
+/** Guarda el período editado del borrador sin esperar a su promoción oficial. */
+export async function actualizarPeriodoBorrador(
+  loteId: string,
+  periodoInicio: string,
+  periodoFin: string,
+): Promise<ActionState> {
+  const authz = await authorizePermiso("balance:crear");
+  if (!authz.ok) return { ok: false, message: authz.message };
+  const id = String(loteId ?? "").trim();
+  const parsed = ConfirmarBalanceSchema.safeParse({
+    clientId: 1,
+    periodoInicio,
+    periodoFin,
+  });
+  if (!id) return { ok: false, message: "Borrador inválido." };
+  if (!parsed.success) {
+    return { ok: false, message: parsed.error.issues[0]?.message ?? "Período inválido." };
+  }
+  try {
+    const lote = await prisma.balanceImportacionLote.findUnique({
+      where: { loteId: id },
+      select: { clienteId: true },
+    });
+    if (!lote) return { ok: false, message: "El borrador ya no existe." };
+    if (lote.clienteId != null) {
+      const scope = await authorizePermiso("balance:crear", { clientId: lote.clienteId });
+      if (!scope.ok) return { ok: false, message: scope.message };
+    }
+    await prisma.balanceImportacionLote.update({
+      where: { loteId: id },
+      data: {
+        periodoInicial: fechaCalendarioPrisma(parsed.data.periodoInicio),
+        periodoFinal: fechaCalendarioPrisma(parsed.data.periodoFin),
+      },
+    });
+    revalidatePath(`/balance/borradores/${id}`);
+    revalidatePath("/balance/borradores");
+    return { ok: true, message: "Período guardado." };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("actualizarPeriodoBorrador", e) };
+  }
+}
+
 /** Descarta (elimina) un borrador: borra su staging + encabezado. */
 export async function descartarBorrador(loteId: string): Promise<ActionState> {
   const authz = await authorizePermiso("balance:crear");
@@ -1787,6 +1996,14 @@ export async function descartarBorrador(loteId: string): Promise<ActionState> {
   const id = String(loteId ?? "").trim();
   if (!id) return { ok: false, message: "Borrador inválido." };
   try {
+    const lote = await prisma.balanceImportacionLote.findUnique({
+      where: { loteId: id },
+      select: { clienteId: true },
+    });
+    if (lote?.clienteId != null) {
+      const scope = await authorizePermiso("balance:crear", { clientId: lote.clienteId });
+      if (!scope.ok) return { ok: false, message: scope.message };
+    }
     // Cierra la huella diagnóstica (best-effort, ANTES de purgar): resultado descartado
     // + intervención manual acumulada.
     try {
@@ -1803,7 +2020,7 @@ export async function descartarBorrador(loteId: string): Promise<ActionState> {
     await prisma.balanceImportacionLote.deleteMany({ where: { loteId: id } });
     invalidarStagingBorrador(id);
     const user = await getCurrentUser();
-    await logAudit({ user: user?.name ?? "—", action: "DESCARTÓ BORRADOR de balance", entity: id, detail: "" });
+    await logAudit({ user: user?.name ?? "—", action: "DESCARTÓ BORRADOR de balance", entity: id, detail: "", clientId: lote?.clienteId ?? null });
     revalidatePath("/balance/borradores");
     return { ok: true, message: "Borrador descartado." };
   } catch (e) {
@@ -1829,9 +2046,8 @@ export async function descartarBorrador(loteId: string): Promise<ActionState> {
  *
  * Además de escribir el staging, MEMORIZA las correcciones por cuenta en el perfil
  * del cliente (`correcciones_carga_balance`) para re-aplicarlas solas en las
- * próximas cargas. El cliente sale del parámetro (selección de la página) →
- * encabezado del lote → NIT detectado; sin cliente resoluble solo se guarda el
- * staging (como antes). Best-effort: memorizar nunca tumba el guardado.
+ * próximas cargas. El lote debe tener el cliente asociado: no se permiten
+ * cambios sin perfil ni memorias guardadas bajo un cliente distinto.
  */
 export async function aplicarCambiosBorrador(
   loteId: string,
@@ -1851,6 +2067,21 @@ export async function aplicarCambiosBorrador(
   const pads = Object.entries(padres ?? {}).filter(([f]) => /^\d+$/.test(f));
   if (reclas.length === 0 && desac.length === 0 && omit.length === 0 && pads.length === 0) return { ok: false, message: "No hay cambios para guardar." };
   try {
+    const loteCliente = await prisma.balanceImportacionLote.findUnique({
+      where: { loteId: id },
+      select: { clienteId: true },
+    });
+    if (!loteCliente) return { ok: false, message: "El borrador ya no existe." };
+    if (loteCliente.clienteId == null) {
+      return { ok: false, message: "Vincula el cliente antes de guardar cambios para poder memorizarlos en su perfil." };
+    }
+    if (clienteId != null && clienteId !== loteCliente.clienteId) {
+      return { ok: false, message: "El cliente seleccionado no coincide con el cliente asociado al borrador." };
+    }
+    const cid = loteCliente.clienteId;
+    const scope = await authorizePermiso("balance:crear", { clientId: cid });
+    if (!scope.ok) return { ok: false, message: scope.message };
+
     // La UI filtra los destinos, pero una Server Action también es invocable por POST:
     // valida el grafo completo ANTES de cualquier escritura para evitar referencias a
     // otra fila, destinos que no agrupan o ciclos enviados desde un cliente alterado.
@@ -1905,37 +2136,25 @@ export async function aplicarCambiosBorrador(
     }
     await actualizarResumenLoteBorrador(id);
     const user = await getCurrentUser();
+    await asegurarPerfilBaseCliente(cid, user?.name ?? null);
 
     // PERFIL del cliente: memoriza las correcciones por cuenta para re-aplicarlas
-    // solas en las próximas cargas. Best-effort: nunca tumba el guardado del staging.
+    // solas en las próximas cargas. Un fallo se reporta: nunca se confirma que el
+    // cambio quedó memorizado si la persistencia del perfil falló.
     let nMemorizadas = 0;
-    try {
-      const cidParam = typeof clienteId === "number" && Number.isInteger(clienteId) && clienteId > 0 ? clienteId : null;
-      const lote = cidParam == null
-        ? await prisma.balanceImportacionLote.findUnique({ where: { loteId: id }, select: { clienteId: true, nitDetectado: true } })
-        : null;
-      const cid = cidParam ?? lote?.clienteId ?? (await clientePorNit(lote?.nitDetectado ?? null));
-      if (cid != null) {
-        const scope = await authorizePermiso("balance:crear", { clientId: cid });
-        if (scope.ok) {
-          const filas = await filasStagingCorreccion(id);
-          const correcciones = construirCorrecciones(filas, {
-            override: Object.fromEntries(reclas),
-            desacopladas: Object.fromEntries(desac),
-            omitidas: Object.fromEntries(omit),
-            padres: Object.fromEntries(pads),
-          });
-          if (correcciones.length > 0) {
-            nMemorizadas = await memorizarCorreccionesCliente(cid, correcciones, user?.name ?? null);
-            revalidatePath("/config/clientes");
-          }
-        }
-      }
-    } catch {
-      /* best-effort */
+    const filas = await filasStagingCorreccion(id);
+    const correcciones = construirCorrecciones(filas, {
+      override: Object.fromEntries(reclas),
+      desacopladas: Object.fromEntries(desac),
+      omitidas: Object.fromEntries(omit),
+      padres: Object.fromEntries(pads),
+    });
+    if (correcciones.length > 0) {
+      nMemorizadas = await memorizarCorreccionesCliente(cid, correcciones, user?.name ?? null);
+      revalidatePath("/config/clientes");
     }
 
-    await logAudit({ user: user?.name ?? "—", action: "GUARDÓ cambios en balance borrador", entity: id, detail: `${nRe} reclasificada(s), ${nDes} desacople(s), ${nOmi} omitida(s), ${nPad} re-parentada(s)${nMemorizadas > 0 ? ` · ${nMemorizadas} cuenta(s) memorizadas en el perfil del cliente` : ""}` });
+    await logAudit({ user: user?.name ?? "—", action: "GUARDÓ cambios en balance borrador", entity: id, detail: `${nRe} reclasificada(s), ${nDes} desacople(s), ${nOmi} omitida(s), ${nPad} re-parentada(s)${nMemorizadas > 0 ? ` · ${nMemorizadas} cuenta(s) memorizadas en el perfil del cliente` : ""}`, clientId: cid });
     // Huella diagnóstica: reclasificar muta el staging sin marca durable, así que se
     // acumula aquí (best-effort; los otros contadores se toman al cerrar).
     await acumularIntervencionManual(id, { reclasificadas: nRe });
@@ -1954,11 +2173,10 @@ export async function aplicarCambiosBorrador(
 
 /**
  * ASIGNA a un borrador el cliente elegido A MANO (cuando el NIT del archivo no se
- * detectó o no coincide con ningún cliente): PERSISTE el `clienteId` en el lote —
- * el borrador deja de estar «sin cliente» en la lista y la compuerta no vuelve a
- * pedirlo — y RE-APLICA sus correcciones memorizadas (la re-aplicación automática
- * de la lectura no corrió). La compuerta y el selector del borrador la llaman al
- * confirmar el cliente. Devuelve cuántas filas cambió para avisar y refrescar.
+ * detectó o no coincide con ningún cliente): crea primero su PERFIL BASE y, si el
+ * lote tiene huella/spec, su PERFIL ESTRUCTURAL; luego persiste el `clienteId` en
+ * lote, staging y diagnóstico, y aplica sus correcciones memorizadas. Por contrato
+ * no puede existir un borrador asociado a cliente sin su perfil.
  */
 export async function asignarClienteBorrador(loteId: string, clienteId: number): Promise<ActionState & { aplicadas?: number }> {
   const authz = await authorizePermiso("balance:crear");
@@ -1969,20 +2187,88 @@ export async function asignarClienteBorrador(loteId: string, clienteId: number):
   const scope = await authorizePermiso("balance:crear", { clientId: cid });
   if (!scope.ok) return { ok: false, message: scope.message };
   try {
-    const cliente = await prisma.client.findUnique({ where: { id: cid }, select: { id: true } });
+    const [cliente, lote, filasStaging, user] = await Promise.all([
+      prisma.client.findUnique({ where: { id: cid }, select: { id: true, name: true } }),
+      prisma.balanceImportacionLote.findUnique({
+        where: { loteId: id },
+        select: {
+          clienteId: true,
+          cargadoPorId: true,
+          huella: true,
+          specJson: true,
+          origenExtraccion: true,
+          archivoNombre: true,
+        },
+      }),
+      prisma.balanceImportacionStaging.count({ where: { loteId: id } }),
+      getCurrentUser(),
+    ]);
     if (!cliente) return { ok: false, message: "El cliente elegido ya no existe." };
-    // FK suave: el lote puede no existir (borrador huérfano sin encabezado);
-    // `updateMany` con 0 filas no falla y la asignación queda solo en la sesión.
-    await prisma.balanceImportacionLote.updateMany({ where: { loteId: id }, data: { clienteId: cid } });
+    if (!lote && filasStaging === 0) return { ok: false, message: "El borrador ya no existe." };
+    if (lote?.clienteId == null) {
+      const esAdministrador = /admin/i.test(user?.role ?? "");
+      if (!user || (!esAdministrador && lote?.cargadoPorId !== user.id)) {
+        return { ok: false, message: "No tienes permiso para vincular este borrador." };
+      }
+    }
+    if (lote?.clienteId != null && lote.clienteId !== cid) {
+      return {
+        ok: false,
+        message: "Este borrador ya está asociado a otro cliente. Reprocésalo con el archivo original para cambiarlo sin mezclar preferencias ni correcciones.",
+      };
+    }
+
+    await asegurarPerfilBaseCliente(cid, user?.name ?? null);
+    if (lote?.huella && lote.specJson) {
+      const origen =
+        lote.origenExtraccion === "manual" ||
+        lote.origenExtraccion === "perfil" ||
+        lote.origenExtraccion === "plantilla"
+          ? lote.origenExtraccion
+          : "ia";
+      const perfilGuardado = await upsertPerfilCarga({
+        clientId: cid,
+        huella: lote.huella,
+        specJson: lote.specJson,
+        origenExtraccion: origen,
+        archivoNombre: lote.archivoNombre,
+      });
+      if (!perfilGuardado) {
+        return { ok: false, message: "No se pudo crear el perfil estructural del cliente. Revisa el mapa del archivo y vuelve a intentarlo." };
+      }
+    }
+
+    await prisma.$transaction([
+      prisma.balanceImportacionLote.updateMany({
+        where: { loteId: id },
+        data: { clienteId: cid },
+      }),
+      prisma.balanceImportacionStaging.updateMany({
+        where: { loteId: id },
+        data: { clienteId: cid },
+      }),
+      prisma.balanceLecturaDiagnostico.updateMany({
+        where: { loteId: id },
+        data: { clienteId: cid },
+      }),
+    ]);
     const aplicadas = await aplicarCorreccionesGuardadas(id, cid);
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: "ASOCIÓ CLIENTE y perfil a borrador de balance",
+      entity: cliente.name,
+      detail: `${id} · perfil base${lote?.huella && lote.specJson ? " + perfil estructural" : ""} · ${aplicadas} corrección(es) aplicadas`,
+      clientId: cid,
+    });
     revalidatePath(`/balance/borradores/${id}`);
     revalidatePath("/balance/borradores");
+    revalidatePath("/config/clientes");
     return {
       ok: true,
       aplicadas,
       message: aplicadas > 0
-        ? `Cliente asignado al borrador. Se aplicaron ${aplicadas} corrección(es) memorizadas de su perfil.`
-        : "Cliente asignado al borrador.",
+        ? `Cliente y perfil asociados. Se aplicaron ${aplicadas} corrección(es) memorizadas.`
+        : "Cliente y perfil asociados al borrador.",
     };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("asignarClienteBorrador", e) };
@@ -2020,7 +2306,7 @@ export async function validarAlerta(input: { balanceId: number; anchor: string; 
         create: { balanceId, anchor, tipoAlerta, commentId: c.id, validadoPor: user.name, validadoPorId: user.id },
       });
     });
-    await logAudit({ user: user.name, action: "VALIDÓ alerta de balance", entity: `${balanceId}:${anchor}`, detail: tipoAlerta });
+    await logAudit({ user: user.name, action: "VALIDÓ alerta de balance", entity: `${balanceId}:${anchor}`, detail: tipoAlerta, clientId: bal.clienteId });
     revalidatePath(`/balance/${balanceId}`);
     return { ok: true, message: "Alerta validada." };
   } catch (e) {
@@ -2043,7 +2329,7 @@ export async function revertirValidacionAlerta(input: { balanceId: number; ancho
   try {
     const del = await prisma.validacionAlerta.deleteMany({ where: { balanceId, anchor } });
     const user = await getCurrentUser();
-    await logAudit({ user: user?.name ?? "—", action: "REVIRTIÓ validación de alerta", entity: `${balanceId}:${anchor}`, detail: `${del.count} validación(es)` });
+    await logAudit({ user: user?.name ?? "—", action: "REVIRTIÓ validación de alerta", entity: `${balanceId}:${anchor}`, detail: `${del.count} validación(es)`, clientId: bal.clienteId });
     revalidatePath(`/balance/${balanceId}`);
     return { ok: true, message: "Validación revertida." };
   } catch (e) {
@@ -2074,31 +2360,77 @@ export async function eliminarDetalleBalance(detalleId: number): Promise<ActionS
     if (fila.encabezado.estaCongelado) return { ok: false, message: "El balance está congelado: no se pueden eliminar cuentas." };
     const encId = fila.encabezado.id;
 
-    await prisma.balancePruebaDetalle.delete({ where: { id } });
+    const user = await getCurrentUser();
+    await asegurarPerfilBaseCliente(fila.encabezado.clienteId, user?.name ?? null);
+    const cuentasEstandar = await getCuentasEstandar();
+    await prisma.$transaction(async (tx) => {
+      await tx.balancePruebaDetalle.delete({ where: { id } });
+      // Eliminar una fila basura deja de ser una excepción de este período: se
+      // memoriza como omisión del cliente y no reaparecerá en futuras cargas.
+      await tx.correccionCargaBalance.upsert({
+        where: {
+          clienteId_cuenta: {
+            clienteId: fila.encabezado.clienteId,
+            cuenta: fila.cuenta8,
+          },
+        },
+        create: {
+          clienteId: fila.encabezado.clienteId,
+          cuenta: fila.cuenta8,
+          nombre: fila.nombreCuenta,
+          omitida: true,
+          actualizadoPor: user?.name ?? null,
+        },
+        update: {
+          nombre: fila.nombreCuenta,
+          omitida: true,
+          actualizadoPor: user?.name ?? null,
+        },
+      });
 
-    // Recalcula el resumen del encabezado desde el detalle RESTANTE (misma lógica que
-    // la carga), para que las sumas, el mapeo y las críticas queden consistentes.
-    const [restantes, cuentasEstandar] = await Promise.all([
-      prisma.balancePruebaDetalle.findMany({ where: { encabezadoId: encId }, select: { cuenta8: true, nombreCuenta: true, cuenta6Russell: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true } }),
-      getCuentasEstandar(),
-    ]);
-    const calc = reconstruirBalance(
-      restantes.map((f) => ({ cuenta8: f.cuenta8, nombreCuenta: f.nombreCuenta, cuenta6Russell: f.cuenta6Russell, saldoInicial: Number(f.saldoInicial), debitos: Number(f.debitos), creditos: Number(f.creditos), saldoFinal: Number(f.saldoFinal) })),
-      cuentasEstandar,
-    );
-    await prisma.balancePruebaEncabezado.update({
-      where: { id: encId },
-      data: {
-        sumaActivo: calc.sums?.activo ?? 0, filasTotales: calc.totalRows,
-        mapeadas: calc.mapped, sinMapear: calc.unmapped, criticas: calc.critical,
-        completitud: calc.totalRows > 0 ? Math.round((calc.mapped / calc.totalRows) * 100) : 100,
-      },
+      // Recalcula el resumen desde el detalle restante dentro de la misma
+      // transacción: eliminación, memoria y contadores quedan atómicos.
+      const restantes = await tx.balancePruebaDetalle.findMany({
+        where: { encabezadoId: encId },
+        select: {
+          cuenta8: true,
+          nombreCuenta: true,
+          cuenta6Russell: true,
+          saldoInicial: true,
+          debitos: true,
+          creditos: true,
+          saldoFinal: true,
+        },
+      });
+      const calc = reconstruirBalance(
+        restantes.map((f) => ({
+          cuenta8: f.cuenta8,
+          nombreCuenta: f.nombreCuenta,
+          cuenta6Russell: f.cuenta6Russell,
+          saldoInicial: Number(f.saldoInicial),
+          debitos: Number(f.debitos),
+          creditos: Number(f.creditos),
+          saldoFinal: Number(f.saldoFinal),
+        })),
+        cuentasEstandar,
+      );
+      await tx.balancePruebaEncabezado.update({
+        where: { id: encId },
+        data: {
+          sumaActivo: calc.sums?.activo ?? 0,
+          filasTotales: calc.totalRows,
+          mapeadas: calc.mapped,
+          sinMapear: calc.unmapped,
+          criticas: calc.critical,
+          completitud: calc.totalRows > 0 ? Math.round((calc.mapped / calc.totalRows) * 100) : 100,
+        },
+      });
     });
 
-    const user = await getCurrentUser();
-    await logAudit({ user: user?.name ?? "Sistema", action: "ELIMINÓ cuenta del balance", entity: fila.cuenta8, detail: `${fila.cuenta8} — ${fila.nombreCuenta}` });
+    await logAudit({ user: user?.name ?? "Sistema", action: "ELIMINÓ cuenta del balance", entity: fila.cuenta8, detail: `${fila.cuenta8} — ${fila.nombreCuenta}`, clientId: fila.encabezado.clienteId });
     revalidatePath(`/balance/${encId}`);
-    return { ok: true, message: `Cuenta ${fila.cuenta8} eliminada del balance.` };
+    revalidatePath("/config/clientes");
+    return { ok: true, message: `Cuenta ${fila.cuenta8} eliminada y memorizada como omisión para este cliente.` };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("eliminarDetalleBalance", e) };
   }

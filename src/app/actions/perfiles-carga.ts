@@ -8,11 +8,12 @@ import { authorizePermiso } from "@/lib/rbac";
 import { mensajeErrorBD } from "@/lib/errores";
 import { AjustesCargaSchema, type ActionState } from "@/lib/definitions";
 import { normalizarCodigoFragmentos } from "@/lib/balance/extraccion/perfil";
+import { TIPO_BALANCE_CARGA } from "@/lib/balance/tipo-balance";
 
 // Gestión de la PERSONALIZACIÓN de carga de balances por cliente:
 //   - Perfiles de carga (`perfiles_carga_balance`): la estructura del archivo
-//     memorizada por huella del layout — se listan y eliminan aquí (se CREAN al
-//     confirmar una carga desde el asistente).
+//     memorizada por huella del layout — se listan y eliminan aquí (se crean
+//     automáticamente en cuanto la lectura queda asociada al cliente).
 //   - Preferencias de carga (`ajustes_carga_balance`): defaults del cliente
 //     (hoja preferida, convención de crédito, estándar, tercero).
 // Gate: `balance:crear` (Staff y Admin) con alcance por cliente — misma política
@@ -169,6 +170,7 @@ export async function eliminarCorreccionCarga(id: number): Promise<ActionState> 
       action: "ELIMINÓ CORRECCIÓN de carga de balance",
       entity: `cliente ${correccion.clienteId}`,
       detail: `cuenta ${correccion.cuenta}${correccion.nombre ? ` — ${correccion.nombre}` : ""}`,
+      clientId: correccion.clienteId,
     });
     revalidatePath(PATH);
     return { ok: true, message: "Corrección eliminada." };
@@ -193,6 +195,7 @@ export async function limpiarCorreccionesCarga(clienteId: number): Promise<Actio
       action: "LIMPIÓ CORRECCIONES de carga de balance",
       entity: `cliente ${cid}`,
       detail: `${del.count} corrección(es)`,
+      clientId: cid,
     });
     revalidatePath(PATH);
     return { ok: true, message: `${del.count} corrección(es) eliminadas.` };
@@ -222,6 +225,7 @@ export async function eliminarPerfilCarga(id: number): Promise<ActionState> {
       action: "ELIMINÓ PERFIL de carga de balance",
       entity: `cliente ${perfil.clienteId}`,
       detail: `huella ${perfil.huella} · hoja «${perfil.hoja}»${perfil.archivoEjemplo ? ` · ${perfil.archivoEjemplo}` : ""}`,
+      clientId: perfil.clienteId,
     });
     revalidatePath(PATH);
     return { ok: true, message: "Perfil eliminado." };
@@ -238,20 +242,27 @@ export async function guardarAjustesCarga(_prev: ActionState | undefined, formDa
     clienteId: formData.get("clienteId"),
     hojaPreferida: formData.get("hojaPreferida"),
     convencionCredito: formData.get("convencionCredito"),
-    estandar: formData.get("estandar"),
     agregarPorTercero: formData.get("agregarPorTercero"),
     imputarSoloHojas: formData.get("imputarSoloHojas"),
     observaciones: formData.get("observaciones"),
   });
   if (!parsed.success) return { ok: false, message: parsed.error.issues[0]?.message ?? "Datos inválidos." };
-  const { clienteId, hojaPreferida, convencionCredito, estandar, agregarPorTercero, imputarSoloHojas, observaciones } = parsed.data;
+  const { clienteId, hojaPreferida, convencionCredito, agregarPorTercero, imputarSoloHojas, observaciones } = parsed.data;
   const scope = await authorizePermiso("balance:crear", { clientId: clienteId });
   if (!scope.ok) return { ok: false, message: scope.message };
   try {
     const cliente = await prisma.client.findUnique({ where: { id: clienteId }, select: { name: true } });
     if (!cliente) return { ok: false, message: "El cliente seleccionado ya no existe." };
     const user = await getCurrentUser();
-    const datos = { hojaPreferida, convencionCredito, estandar, agregarPorTercero, imputarSoloHojas, observaciones, actualizadoPor: user?.name ?? null };
+    const datos = {
+      hojaPreferida,
+      convencionCredito,
+      estandar: TIPO_BALANCE_CARGA,
+      agregarPorTercero,
+      imputarSoloHojas,
+      observaciones,
+      actualizadoPor: user?.name ?? null,
+    };
     await prisma.ajustesCargaBalance.upsert({
       where: { clienteId },
       create: { clienteId, ...datos },
@@ -264,11 +275,12 @@ export async function guardarAjustesCarga(_prev: ActionState | undefined, formDa
       detail: [
         hojaPreferida ? `hoja «${hojaPreferida}»` : null,
         convencionCredito ? `crédito ${convencionCredito}` : null,
-        estandar ? `estándar ${estandar}` : null,
+        `estándar ${TIPO_BALANCE_CARGA}`,
         agregarPorTercero != null ? `tercero ${agregarPorTercero ? "sí" : "no"}` : null,
         imputarSoloHojas != null ? `solo hojas ${imputarSoloHojas ? "sí" : "no"}` : null,
         observaciones ? "con notas" : null,
       ].filter(Boolean).join(" · ") || "todo en auto",
+      clientId: clienteId,
     });
     revalidatePath(PATH);
     return { ok: true, message: "Preferencias guardadas." };

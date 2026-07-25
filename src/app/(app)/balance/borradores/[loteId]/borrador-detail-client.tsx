@@ -8,7 +8,7 @@ import { Icon } from "@/components/icons";
 import { Card, Chip, PageHeader } from "@/components/ui";
 import { Modal } from "@/components/modal";
 import { fmt, fmtContable } from "@/lib/format";
-import { cargarBorrador, descartarBorrador, aplicarCambiosBorrador, asignarClienteBorrador, reprocesarBalanceConSpec, guardarPerfilDesdeEditor, guardarNotasDesdeEditor } from "@/app/actions/balance";
+import { actualizarPeriodoBorrador, cargarBorrador, descartarBorrador, aplicarCambiosBorrador, asignarClienteBorrador, reprocesarBalanceConSpec, guardarPerfilDesdeEditor, guardarNotasDesdeEditor } from "@/app/actions/balance";
 import { EditorEstructura } from "@/app/(app)/balance/cargar-balance-modal";
 import { PromptClientePerfil } from "@/app/(app)/balance/prompt-cliente-perfil";
 import type { SpecCarga } from "@/lib/balance/extraccion/esquema";
@@ -114,6 +114,7 @@ export default function BorradorDetailClient({
   const [clienteSelId, setClienteSelId] = useState<number | null>(clienteSugeridoId); // sigue las notas del cliente
   const [periodoIni, setPeriodoIni] = useState(periodoInicial ?? "");
   const [periodoFin, setPeriodoFin] = useState(periodoFinal ?? "");
+  const [guardandoPeriodo, startGuardarPeriodo] = useTransition();
   const [comentarioPromocion, setComentarioPromocion] = useState("");
   // Compuerta al entrar: sin cliente detectado por NIT, exige cliente + período
   // antes de operar (para aplicar sus preferencias/notas y no cargar a ciegas).
@@ -167,6 +168,13 @@ export default function BorradorDetailClient({
   );
   const faltaComentarioPromocion =
     advertenciaArchivoFuente && comentarioPromocion.trim().length === 0;
+  const guardarPeriodo = (inicio = periodoIni, fin = periodoFin) => {
+    if (!inicio || !fin || fin < inicio) return;
+    startGuardarPeriodo(async () => {
+      const resultado = await actualizarPeriodoBorrador(loteId, inicio, fin);
+      if (!resultado.ok) notifyError(resultado.message ?? "No se pudo guardar el período.");
+    });
+  };
 
   // AUTO-CORRECCIÓN de anidado por orden: en un export jerárquico (subtotales + auxiliares
   // como filas), «solo hojas» re-anida cada auxiliar bajo su subtotal por ORDEN. Se calcula
@@ -262,13 +270,17 @@ export default function BorradorDetailClient({
   // correcciones memorizadas (el NIT no lo detectó al leer, así que la
   // re-aplicación automática no corrió). Si cambió algo, se refresca la vista.
   const [asignandoCliente, startAsignarCliente] = useTransition();
-  const asignarCliente = (cid: number) => {
+  const asignarCliente = (cid: number, clienteAnterior: number | null = clienteSelId) => {
     startAsignarCliente(async () => {
       const r = await asignarClienteBorrador(loteId, cid);
       if (r.ok) {
         notifySuccess(r.message ?? "Cliente asignado al borrador.");
         if ((r.aplicadas ?? 0) > 0) router.refresh();
-      } else if (r.message) notifyError(r.message);
+      } else {
+        setClienteSelId(clienteAnterior);
+        if (clienteAnterior == null) setGateAbierto(true);
+        if (r.message) notifyError(r.message);
+      }
     });
   };
 
@@ -319,6 +331,7 @@ export default function BorradorDetailClient({
       fd.set("archivo", archivoFile);
       fd.set("spec", JSON.stringify(s));
       fd.set("loteIdAnterior", loteId);
+      if (clienteSelId != null) fd.set("clienteId", String(clienteSelId));
       const r = await reprocesarBalanceConSpec({}, fd);
       if (r.ok && r.sugerencia) { notifySuccess("Reprocesado sin IA."); router.push(`/balance/borradores/${r.sugerencia.payload.loteId}`); }
       else notifyError(r.message ?? "No se pudo reprocesar el archivo.");
@@ -405,7 +418,7 @@ export default function BorradorDetailClient({
         <div className="flex items-start gap-2 rounded-md border border-ok-200 bg-ok-100/40 px-3 py-2 text-[12px] text-ok-800">
           <span className="mt-px font-bold text-ok-700">✓</span>
           <span>
-            <span className="font-semibold">Perfil del cliente aplicado.</span> Se corrigieron <span className="font-semibold">{correccionesAplicadas}</span> fila(s) automáticamente con las correcciones memorizadas de cargas anteriores (reclasificaciones, lados invertidos, omisiones, desacoples y re-parentados guardados para este cliente). Revísalas; si haces nuevos ajustes y los guardas, también quedarán memorizados. Puedes ver o borrar lo memorizado en Config › Clientes › Carga de balances.
+            <span className="font-semibold">Perfil del cliente aplicado.</span> Se corrigieron <span className="font-semibold">{correccionesAplicadas}</span> fila(s) automáticamente con las correcciones memorizadas de cargas anteriores (reclasificaciones, omisiones, desacoples y re-parentados guardados para este cliente). Revísalas; si haces nuevos ajustes y los guardas, también quedarán memorizados. Puedes ver o borrar lo memorizado en Config › Clientes › Carga de balances.
           </span>
         </div>
       )}
@@ -545,10 +558,11 @@ export default function BorradorDetailClient({
           periodoFin={periodoFin}
           onConfirmar={(cid, ini, fin) => {
             setClienteSelId(cid); setPeriodoIni(ini); setPeriodoFin(fin); setGateAbierto(false);
+            guardarPeriodo(ini, fin);
             if (notasPendientes != null) { const t = notasPendientes; setNotasPendientes(null); guardarNotas(t, cid); }
             // Cliente confirmado a mano → se persiste en el lote y se re-aplican
             // sus correcciones memorizadas.
-            asignarCliente(cid);
+            asignarCliente(cid, clienteSelId);
           }}
           onClose={() => {
             setGateAbierto(false); setNotasPendientes(null);
@@ -594,23 +608,23 @@ export default function BorradorDetailClient({
                 setClienteSelId(cid);
                 // Cambio de cliente a mano → se persiste en el lote (mismo camino
                 // que la compuerta). Limpiarlo solo deja el aviso y bloquea la carga.
-                if (cid != null && cid !== anterior) asignarCliente(cid);
+                if (cid != null && cid !== anterior) asignarCliente(cid, anterior);
               }}
               name="clientId"
               className="sm:col-span-1"
             />
             <label className="flex flex-col gap-1.5">
               <span className="text-[11.5px] font-medium text-ink-600">Período desde</span>
-              <input type="date" name="periodoInicio" required value={periodoIni} onChange={(e) => setPeriodoIni(e.target.value)} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400" />
+              <input type="date" name="periodoInicio" required value={periodoIni} onChange={(e) => setPeriodoIni(e.target.value)} onBlur={() => guardarPeriodo()} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400" />
             </label>
             <label className="flex flex-col gap-1.5">
               <span className="text-[11.5px] font-medium text-ink-600">Período hasta</span>
-              <input type="date" name="periodoFin" required value={periodoFin} onChange={(e) => setPeriodoFin(e.target.value)} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400" />
+              <input type="date" name="periodoFin" required value={periodoFin} onChange={(e) => setPeriodoFin(e.target.value)} onBlur={() => guardarPeriodo()} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400" />
             </label>
           </div>
-          {asignandoCliente && (
+          {(asignandoCliente || guardandoPeriodo) && (
             <div className="text-[11.5px] font-medium text-ink-500">
-              <EstadoProcesando>Vinculando cliente</EstadoProcesando>
+              <EstadoProcesando>{asignandoCliente ? "Vinculando cliente" : "Guardando período"}</EstadoProcesando>
             </div>
           )}
           {clienteSelId == null && (
@@ -631,7 +645,7 @@ export default function BorradorDetailClient({
           <div className="flex items-center gap-2">
             <button
               type="submit"
-              disabled={cargando || hayCambios || clienteSelId == null || !periodoIni || !periodoFin || faltaComentarioPromocion}
+              disabled={cargando || asignandoCliente || guardandoPeriodo || hayCambios || clienteSelId == null || !periodoIni || !periodoFin || faltaComentarioPromocion}
               title={
                 clienteSelId == null || !periodoIni || !periodoFin
                   ? "Falta el cliente o el período"

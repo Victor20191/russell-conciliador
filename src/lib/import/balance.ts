@@ -2,7 +2,7 @@
 // Lee la hoja «Balance» (encabezados en la fila 1, datos desde la fila 2) y
 // devuelve las cuentas crudas + errores de estructura. El cálculo de agregados
 // (mapeo, sumas, validaciones) vive en `src/lib/balance/calcular.ts` y la
-// persistencia/versionado en la Server Action `confirmarCargaBalance`.
+// persistencia/versionado durante la promoción oficial del borrador.
 
 import type ExcelJS from "exceljs";
 import { celdaTexto, normalizar, cargarWorkbook } from "./xlsx";

@@ -483,10 +483,14 @@ model AuditEntry {
   action    String   @map("accion")
   entity    String   @map("entidad")
   detail    String   @map("detalle")
+  // FK suave al cliente afectado. Permite filtrar la bitácora por cartera sin
+  // inferir la empresa a partir de textos libres.
+  clientId  Int?     @map("cliente_id")
   ip        String?  @map("ip")
   createdAt DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   @@index([createdAt])
+  @@index([clientId, createdAt])
   @@map("registros_auditoria")
 }
 
@@ -620,52 +624,52 @@ model Balance {
 // Los agregados (sumas, validaciones, desglose, comparativo) se RECALCULAN desde
 // el detalle al leer (ver `src/lib/balance/calcular.ts`), no se persisten.
 model BalancePruebaEncabezado {
-  id                Int       @id @default(autoincrement()) @map("id")
+  id                   Int       @id @default(autoincrement()) @map("id")
   // FK LÓGICA a Client (solo Int, sin @relation): convención del proyecto para
   // FKs suaves hacia Client/User. `nombreCliente`/`nit` quedan denormalizados
   // para listar sin join.
-  clienteId         Int       @map("cliente_id")
-  nombreCliente     String    @map("nombre_cliente")
-  nit               String?   @map("nit")
-  periodo           String    @map("periodo") // display, p. ej. "Enero 2026"
-  periodoInicio     DateTime  @map("periodo_inicio") @db.Date
-  periodoFin        DateTime  @map("periodo_fin") @db.Date
+  clienteId            Int       @map("cliente_id")
+  nombreCliente        String    @map("nombre_cliente")
+  nit                  String?   @map("nit")
+  periodo              String    @map("periodo") // display, p. ej. "Enero 2026"
+  periodoInicio        DateTime  @map("periodo_inicio") @db.Date
+  periodoFin           DateTime  @map("periodo_fin") @db.Date
   // Versionado (un oficial por cliente/período; congelado bloquea edición).
-  version           String    @map("version")
-  esOficial         Boolean   @default(false) @map("es_oficial")
-  estaCongelado     Boolean   @default(false) @map("esta_congelado")
-  estado            String    @default("Única") @map("estado")
-  completitud       Int       @default(100) @map("completitud")
+  version              String    @map("version")
+  esOficial            Boolean   @default(false) @map("es_oficial")
+  estaCongelado        Boolean   @default(false) @map("esta_congelado")
+  estado               String    @default("Única") @map("estado")
+  completitud          Int       @default(100) @map("completitud")
   // Resumen del cargue (para listados, ficha de versión y bitácora sin recalcular).
-  archivo           String?   @map("archivo")
-  tamanoArchivo     String?   @map("tamano_archivo")
-  cargadoPor        String?   @map("cargado_por")
-  rolCarga          String?   @map("rol_carga")
-  cuadrado          Boolean   @default(true) @map("cuadrado")
+  archivo              String?   @map("archivo")
+  tamanoArchivo        String?   @map("tamano_archivo")
+  cargadoPor           String?   @map("cargado_por")
+  rolCarga             String?   @map("rol_carga")
+  cuadrado             Boolean   @default(true) @map("cuadrado")
   // Nota AUTOMÁTICA del sistema («Sin alertas» / «N validación(es) con alerta»).
   // Siempre la escribe el cargue: no la pisa el comentario del revisor.
-  nota              String?   @map("nota")
+  nota                 String?   @map("nota")
   // Comentario OBLIGATORIO que escribe el revisor al promover un borrador con
   // «advertencia del archivo fuente» (los totales cruzan pero el archivo no cumple
   // la ecuación contable). Justifica por qué se aceptó la diferencia; null = el
   // cargue no la necesitó. Autor/fecha = `cargadoPor`/`rolCarga`/`ultimaCarga`.
-  comentarioAprobacion String? @map("comentario_aprobacion")
-  sumaActivo        Decimal   @default(0) @map("suma_activo") @db.Decimal(18, 2)
-  filasTotales      Int       @default(0) @map("filas_totales")
-  mapeadas          Int       @default(0) @map("mapeadas")
-  sinMapear         Int       @default(0) @map("sin_mapear")
-  criticas          Int       @default(0) @map("criticas")
-  cambios           Int       @default(0) @map("cambios")
+  comentarioAprobacion String?   @map("comentario_aprobacion")
+  sumaActivo           Decimal   @default(0) @map("suma_activo") @db.Decimal(18, 2)
+  filasTotales         Int       @default(0) @map("filas_totales")
+  mapeadas             Int       @default(0) @map("mapeadas")
+  sinMapear            Int       @default(0) @map("sin_mapear")
+  criticas             Int       @default(0) @map("criticas")
+  cambios              Int       @default(0) @map("cambios")
   // Metadatos del ETL.
-  estandar          String?   @map("estandar")
-  convencionCredito String?   @map("convencion_credito")
-  filasLeidas       Int?      @map("filas_leidas")
-  filasExcluidas    Int?      @map("filas_excluidas")
-  filasDescuadre    Int?      @map("filas_descuadre")
-  congeladoPor      String?   @map("congelado_por")
-  congeladoEn       DateTime? @map("congelado_en") @db.Timestamptz(3)
-  ultimaCarga       DateTime? @map("ultima_carga") @db.Timestamptz(3)
-  creadoEn          DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
+  estandar             String?   @map("estandar")
+  convencionCredito    String?   @map("convencion_credito")
+  filasLeidas          Int?      @map("filas_leidas")
+  filasExcluidas       Int?      @map("filas_excluidas")
+  filasDescuadre       Int?      @map("filas_descuadre")
+  congeladoPor         String?   @map("congelado_por")
+  congeladoEn          DateTime? @map("congelado_en") @db.Timestamptz(3)
+  ultimaCarga          DateTime? @map("ultima_carga") @db.Timestamptz(3)
+  creadoEn             DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   detalles BalancePruebaDetalle[]
 
@@ -708,34 +712,34 @@ model BalancePruebaDetalle {
 // hasta que se CARGA (promueve a oficial) o se DESCARTA. FK suave a `clientes` y
 // `usuarios` (Int, sin @relation).
 model BalanceImportacionLote {
-  id                Int       @id @default(autoincrement()) @map("id")
-  loteId            String    @unique @map("lote_id")
-  clienteId         Int?      @map("cliente_id") // sugerido por NIT; null hasta cargar
-  archivoNombre     String    @map("archivo_nombre")
-  archivoTam        String?   @map("archivo_tam")
-  nitDetectado      String?   @map("nit_detectado")
-  periodoInicial    DateTime? @map("periodo_inicial") @db.Date // Fecha detectada (editable al cargar)
-  periodoFinal      DateTime? @map("periodo_final") @db.Date
-  estandar          String?   @map("estandar")
-  convencionCredito String?   @map("convencion_credito")
-  cuentasMovimiento Int       @default(0) @map("cuentas_movimiento")
-  filasLeidas       Int       @default(0) @map("filas_leidas")
-  filasExcluidas    Int       @default(0) @map("filas_excluidas")
+  id                    Int       @id @default(autoincrement()) @map("id")
+  loteId                String    @unique @map("lote_id")
+  clienteId             Int?      @map("cliente_id") // obligatorio antes de abrir/cargar el borrador
+  archivoNombre         String    @map("archivo_nombre")
+  archivoTam            String?   @map("archivo_tam")
+  nitDetectado          String?   @map("nit_detectado")
+  periodoInicial        DateTime? @map("periodo_inicial") @db.Date // Fecha detectada (editable al cargar)
+  periodoFinal          DateTime? @map("periodo_final") @db.Date
+  estandar              String?   @map("estandar")
+  convencionCredito     String?   @map("convencion_credito")
+  cuentasMovimiento     Int       @default(0) @map("cuentas_movimiento")
+  filasLeidas           Int       @default(0) @map("filas_leidas")
+  filasExcluidas        Int       @default(0) @map("filas_excluidas")
   // Snapshot de validación (para listar sin recalcular): partida doble + ecuación.
-  partidaDobleDiff  Decimal   @default(0) @map("partida_doble_diff") @db.Decimal(18, 2)
-  ecuacionDiff      Decimal   @default(0) @map("ecuacion_diff") @db.Decimal(18, 2)
-  cuadrado          Boolean   @default(false) @map("cuadrado")
-  cargadoPor        String?   @map("cargado_por")
-  cargadoPorId      Int?      @map("cargado_por_id") // dueño del borrador (FK suave a User)
-  // Trazabilidad de la extracción (para guardar el PERFIL al confirmar la carga):
+  partidaDobleDiff      Decimal   @default(0) @map("partida_doble_diff") @db.Decimal(18, 2)
+  ecuacionDiff          Decimal   @default(0) @map("ecuacion_diff") @db.Decimal(18, 2)
+  cuadrado              Boolean   @default(false) @map("cuadrado")
+  cargadoPor            String?   @map("cargado_por")
+  cargadoPorId          Int?      @map("cargado_por_id") // dueño del borrador (FK suave a User)
+  // Trazabilidad de la extracción (el PERFIL se guarda al asociar la lectura):
   // huella del layout, cómo se obtuvo el spec y el spec usado (MappingSpec plano).
-  huella            String?   @map("huella")
-  origenExtraccion  String?   @map("origen_extraccion") // perfil | ia | plantilla | manual
-  specJson          Json?     @map("spec_json")
+  huella                String?   @map("huella")
+  origenExtraccion      String?   @map("origen_extraccion") // perfil | ia | plantilla | manual
+  specJson              Json?     @map("spec_json")
   // Filas del staging corregidas AUTOMÁTICAMENTE con las correcciones memorizadas
   // del cliente (banner informativo del borrador). 0 = ninguna.
-  correccionesAplicadas Int   @default(0) @map("correcciones_aplicadas")
-  creadoEn          DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
+  correccionesAplicadas Int       @default(0) @map("correcciones_aplicadas")
+  creadoEn              DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   @@index([cargadoPorId])
   @@map("balance_importacion_lote")
@@ -747,38 +751,38 @@ model BalanceImportacionLote {
 // movimiento al modelo normalizado y PURGA el lote. FK suave a `clientes` (Int,
 // sin @relation); `clienteId` es null hasta que se confirma el cliente.
 model BalanceImportacionStaging {
-  id           Int      @id @default(autoincrement()) @map("id")
-  loteId       String   @map("lote_id") // uuid por sesión de importación
-  clienteId    Int?     @map("cliente_id") // null hasta confirmar
-  hoja         String?  @map("hoja")
-  filaNum      Int      @map("fila_num") // índice 1-based de la fila origen
-  codigoCrudo  String   @map("codigo_crudo") // texto tal cual del archivo
-  codigo       String   @map("codigo") // normalizado ("" si no numérico)
-  nombre       String   @map("nombre")
-  nivel        Int?     @map("nivel") // longitud PUC del código (2/4/6/8)
-  tipoFila     String   @map("tipo_fila") // movimiento | agrupadora | total | excluida | descuadre
+  id              Int      @id @default(autoincrement()) @map("id")
+  loteId          String   @map("lote_id") // uuid por sesión de importación
+  clienteId       Int?     @map("cliente_id") // obligatorio antes de abrir/cargar el borrador
+  hoja            String?  @map("hoja")
+  filaNum         Int      @map("fila_num") // índice 1-based de la fila origen
+  codigoCrudo     String   @map("codigo_crudo") // texto tal cual del archivo
+  codigo          String   @map("codigo") // normalizado ("" si no numérico)
+  nombre          String   @map("nombre")
+  nivel           Int?     @map("nivel") // longitud PUC del código (2/4/6/8)
+  tipoFila        String   @map("tipo_fila") // movimiento | agrupadora | total | excluida | descuadre
   // Clasificación fijada MANUALMENTE por un auditor en el borrador. Permite conservar
   // una agrupadora aunque todavía no tenga hijas, sin alterar la detección automática.
   tipoFilaForzado String?  @map("tipo_fila_forzado") // agrupadora | movimiento | null
-  saldoInicial Decimal  @default(0) @map("saldo_inicial") @db.Decimal(18, 2)
-  debitos      Decimal  @default(0) @map("debitos") @db.Decimal(18, 2)
-  creditos     Decimal  @default(0) @map("creditos") @db.Decimal(18, 2)
-  saldoFinal   Decimal  @default(0) @map("saldo_final") @db.Decimal(18, 2)
+  saldoInicial    Decimal  @default(0) @map("saldo_inicial") @db.Decimal(18, 2)
+  debitos         Decimal  @default(0) @map("debitos") @db.Decimal(18, 2)
+  creditos        Decimal  @default(0) @map("creditos") @db.Decimal(18, 2)
+  saldoFinal      Decimal  @default(0) @map("saldo_final") @db.Decimal(18, 2)
   // Desacople MANUAL: el usuario forzó que esta cuenta se anide por PREFIJO de código
   // (su padre real), no por el orden del archivo. Corrige un detalle que el ERP ubicó
   // bajo una agrupadora de código ajeno y de menor nivel (p. ej. `145020` bajo `1305`).
-  desacoplada  Boolean  @default(false) @map("desacoplada")
+  desacoplada     Boolean  @default(false) @map("desacoplada")
   // Omitir MANUAL (TRI-ESTADO): null = sin tocar (elegible para el auto-marcado del
   // re-listado con guiones), true = omitida (se conserva en el crudo pero se excluye de
   // cálculos y carga), false = RESCATADA a mano con «Incluir» (cuenta en todas partes;
   // el auto-marcado la respeta). El override manual gana siempre.
-  omitida      Boolean? @map("omitida")
+  omitida         Boolean? @map("omitida")
   // Re-parentado MANUAL (tabulador): `filaNum` de la agrupadora bajo la que el usuario
   // colgó esta fila (indentar/desindentar), cuando la anidación automática la ubica mal
   // (p. ej. un código con guiones huérfano `1105-10-19` que debe ir bajo `110510`).
   // null = sin override.
-  padreManual  Int?     @map("padre_manual")
-  creadoEn     DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+  padreManual     Int?     @map("padre_manual")
+  creadoEn        DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   @@index([loteId])
   @@index([clienteId])
@@ -802,7 +806,7 @@ model BalanceLecturaDiagnostico {
   // Cuadre AUTOMÁTICO (antes de edición manual): ¿acertó solo el modelo?
   cuadradoInicial      Boolean  @default(false) @map("cuadrado_inicial")
   // Ciclo de vida del cargue
-  resultado            String   @default("borrador") @map("resultado") // borrador | cargado | descartado
+  resultado            String   @default("borrador") @map("resultado") // borrador | reprocesado | cargado | descartado | error
   cuadradoFinal        Boolean? @map("cuadrado_final")
   // Intervención MANUAL (toma final; 0 = la heurística bastó)
   manualOmitidas       Int      @default(0) @map("manual_omitidas")
@@ -830,8 +834,8 @@ model BalanceLecturaDiagnostico {
 // (el MappingSpec de la extracción, aplanado) llaveada por la HUELLA del layout
 // (hash del encabezado normalizado + hoja). En cargas siguientes con la misma
 // huella el spec se aplica de forma DETERMINISTA (sin llamada a IA). Se guarda
-// al confirmar una carga (checkbox del asistente) y se gestiona desde la ficha
-// del cliente. FK suave a `clientes` y `usuarios` (Int, sin @relation).
+// automáticamente en cuanto la lectura queda asociada al cliente y se gestiona
+// desde su ficha. FK suave a `clientes` y `usuarios` (Int, sin @relation).
 model PerfilCargaBalance {
   id                   Int       @id @default(autoincrement()) @map("id")
   clienteId            Int       @map("cliente_id")
@@ -871,15 +875,18 @@ model PerfilCargaBalance {
 }
 
 // Preferencias por defecto del CLIENTE para la carga de balances (una fila por
-// cliente). Todos los campos son nullable = «auto»: no fuerzan nada; cuando el
-// cliente se resuelve por NIT en el paso de lectura, los valores fijados pisan
-// lo detectado. FK suave a `clientes` (Int, sin @relation).
+// cliente). Esta fila es también el PERFIL BASE obligatorio, incluso para PDF o
+// plantillas que no tienen mapa de columnas. Los campos de lectura pueden quedar
+// en null = «auto»; cuando el cliente se resuelve o se elige, los valores fijados
+// pisan lo detectado. Una migración instala además un trigger sobre `clientes`
+// para crear esta fila desde el nacimiento del cliente. FK suave a `clientes`
+// (Int, sin @relation).
 model AjustesCargaBalance {
   id                Int      @id @default(autoincrement()) @map("id")
   clienteId         Int      @unique @map("cliente_id")
   hojaPreferida     String?  @map("hoja_preferida")
   convencionCredito String?  @map("convencion_credito") // firmado | magnitud | null=auto
-  estandar          String?  @map("estandar") // NIF | NIIF | PCGA | null=auto
+  estandar          String   @default("NIF") @map("estandar") // NIF fijo por regla de negocio
   agregarPorTercero Boolean? @map("agregar_por_tercero") // null=auto
   // Export TOTALMENTE JERÁRQUICO (cada nivel exportado con su saldo = Σ del detalle,
   // p. ej. SIESA con subcuenta + auxiliares como filas imputables): imputar SOLO las
@@ -900,7 +907,7 @@ model AjustesCargaBalance {
 
 // CORRECCIONES por CUENTA memorizadas del cliente (el perfil de carga a nivel de
 // fila). Cada ajuste manual del borrador (reclasificar agrupadora↔movimiento,
-// lados invertidos, desacoplar, omitir/rescatar, re-parentar) se memoriza aquí al
+// desacoplar, omitir/rescatar, re-parentar) se memoriza aquí al
 // «Guardar cambios» y se RE-APLICA solo al leer el siguiente balance del mismo
 // cliente (por NIT, o al elegirlo en la compuerta del borrador), con las mismas
 // salvaguardas deterministas del guardado manual. La clave `cuenta` es el código

@@ -130,7 +130,10 @@ export type PayloadCargaBalance = z.infer<typeof PayloadCargaBalanceSchema>;
 // aquí se agregan las validaciones de sanidad del formulario.
 export const SpecCargaBalanceSchema = SpecCargaSchema.refine((s) => s.hoja.trim().length > 0, { error: "Indica la hoja del balance.", path: ["hoja"] })
   .refine((s) => s.primeraFilaDatos > s.filaEncabezado, { error: "La primera fila de datos debe ir después de la fila de encabezado.", path: ["primeraFilaDatos"] })
-  .refine((s) => s.columnas.codigo >= 1, { error: "Indica la columna del código de cuenta.", path: ["columnas"] });
+  .refine((s) => s.columnas.codigo >= 1 || s.columnas.codigoFragmentos.length > 0, {
+    error: "Indica la columna del código de cuenta o sus columnas fragmentadas.",
+    path: ["columnas"],
+  });
 
 // Preferencias por defecto de carga de balance POR CLIENTE (todas opcionales:
 // "" / «auto» → null = no fuerza nada).
@@ -138,7 +141,6 @@ export const AjustesCargaSchema = z.object({
   clienteId: z.coerce.number({ error: "Cliente inválido." }).int().positive({ error: "Cliente inválido." }),
   hojaPreferida: z.preprocess((v) => (typeof v === "string" && v.trim() ? v.trim() : null), z.string().max(120, { error: "El nombre de la hoja es demasiado largo." }).nullable()),
   convencionCredito: z.preprocess((v) => (v === "" || v == null ? null : v), z.enum(["firmado", "magnitud"], { error: "Convención de crédito inválida." }).nullable()),
-  estandar: z.preprocess((v) => (v === "" || v == null ? null : v), z.enum(["NIF", "NIIF", "PCGA"], { error: "Estándar contable inválido." }).nullable()),
   agregarPorTercero: z.preprocess((v) => (v === "si" ? true : v === "no" ? false : null), z.boolean().nullable()),
   imputarSoloHojas: z.preprocess((v) => (v === "si" ? true : v === "no" ? false : null), z.boolean().nullable()),
   observaciones: z.preprocess((v) => (typeof v === "string" && v.trim() ? v.trim() : null), z.string().max(2000, { error: "Las notas son demasiado largas (máx. 2000 caracteres)." }).nullable()),
