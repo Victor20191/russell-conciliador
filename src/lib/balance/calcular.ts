@@ -836,6 +836,11 @@ export type NodoBalance = {
   variation: number | null;
   mapped: boolean;
   saldoOk: boolean;
+  // Naturaleza esperada (D/C, «-» si indefinida): en las HOJAS mapeadas viene del PLAN
+  // estándar Russell (no de la clase), y las AGRUPADORAS la HEREDAN de sus cuentas — así
+  // una cuenta contra-naturaleza (p. ej. «Pérdidas acumuladas», clase 3 pero débito) no
+  // marca «Saldo contrario» en sus agrupadoras cuando el auxiliar está bien.
+  nature: string;
   critical: boolean;
   clase: string; // primer dígito (filtro Balance 1-3 / Estado de Resultado 4-7)
   detalleId: number | null; // solo hojas (nivel 8): id de balance_prueba_detalle
@@ -880,6 +885,7 @@ export function agruparJerarquia(
       variation: variacion(f.saldoInicial, f.saldoFinal),
       mapped,
       saldoOk: saldoConcuerda(f.saldoFinal, nature),
+      nature,
       critical: ref ? ref.critical : false,
       clase: c2.charAt(0),
       detalleId: f.id ?? null,
@@ -900,6 +906,16 @@ export function agruparJerarquia(
     haber: sum(hijos.map((h) => h.haber)),
     critical: hijos.some((h) => h.critical),
   });
+  // Naturaleza HEREDADA de los hijos: la común si es ÚNICA (D o C); «-» si es mixta o no
+  // hay hijos con naturaleza definida. Con «-», `saldoConcuerda` devuelve true → la
+  // agrupadora no marca «Saldo contrario». Así una cuenta contra-naturaleza (p. ej.
+  // «Pérdidas acumuladas», clase 3 pero débito) hereda la naturaleza del plan de sus
+  // auxiliares en vez de la de su clase, y un grupo MIXTO (utilidades C + pérdidas D) no
+  // se marca falsamente.
+  const naturaAgrupada = (hijos: NodoBalance[]): string => {
+    const nats = new Set(hijos.map((h) => h.nature).filter((n) => n === "D" || n === "C"));
+    return nats.size === 1 ? [...nats][0] : "-";
+  };
 
   return [...arbol.entries()]
     .sort((a, b) => a[0].localeCompare(b[0]))
@@ -912,24 +928,28 @@ export function agruparJerarquia(
             .map(([c6, v6]) => {
               v6.hojas.sort((x, y) => x.code.localeCompare(y.code));
               const a = agg(v6.hojas);
+              // Naturaleza HEREDADA de las hojas (del plan estándar), no de la clase.
+              const nature = naturaAgrupada(v6.hojas);
               return {
                 key: `${c2}/${c4}/${c6}`, nivel: 6 as const, code: v6.code, name: v6.name, ...a,
                 variation: variacion(a.prevBalance, a.balance), mapped: v6.mapped,
-                saldoOk: v6.mapped ? saldoConcuerda(a.balance, claseNatura(c2)) : true,
+                saldoOk: v6.mapped ? saldoConcuerda(a.balance, nature) : true, nature,
                 clase: c2.charAt(0), detalleId: null, std: v6.std, coincidencia: null, hijos: v6.hojas,
               } satisfies NodoBalance;
             });
           const a = agg(n6nodes);
+          const nature = naturaAgrupada(n6nodes);
           return {
             key: `${c2}/${c4}`, nivel: 4 as const, code: c4, name: sub?.nombre4.get(c4) ?? `Subgrupo ${c4}`, ...a,
-            variation: variacion(a.prevBalance, a.balance), mapped: true, saldoOk: saldoConcuerda(a.balance, claseNatura(c2)),
+            variation: variacion(a.prevBalance, a.balance), mapped: true, saldoOk: saldoConcuerda(a.balance, nature), nature,
             clase: c2.charAt(0), detalleId: null, std: null, coincidencia: null, hijos: n6nodes,
           } satisfies NodoBalance;
         });
       const a = agg(n4nodes);
+      const nature = naturaAgrupada(n4nodes);
       return {
         key: c2, nivel: 2 as const, code: c2, name: v2.name, ...a,
-        variation: variacion(a.prevBalance, a.balance), mapped: true, saldoOk: saldoConcuerda(a.balance, claseNatura(c2)),
+        variation: variacion(a.prevBalance, a.balance), mapped: true, saldoOk: saldoConcuerda(a.balance, nature), nature,
         clase: v2.clase, detalleId: null, std: null, coincidencia: null, hijos: n4nodes,
       } satisfies NodoBalance;
     });
