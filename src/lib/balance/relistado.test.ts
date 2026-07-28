@@ -66,6 +66,7 @@ describe("marcarRelistadoGuiones + construirVistaBorrador", () => {
     ];
     const vista = construirVistaBorrador(filas);
     expect(vista.relistadoGuiones).toBe(2); // se marcaron las 2 filas con guiones
+    expect(vista.filasContabilizadas).toEqual([5, 6, 7]); // las filas tachadas no pueden justificar diferencias
     // Los nodos con guiones SIGUEN en el árbol pero marcados OMITIDOS (no se pierden).
     const conGuion: { crudo: string; omitida: boolean }[] = [];
     const rec = (n: { codigoCrudo?: string; omitida?: boolean; hijos: unknown[] }) => {

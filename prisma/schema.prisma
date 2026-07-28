@@ -649,11 +649,16 @@ model BalancePruebaEncabezado {
   // Nota AUTOMÁTICA del sistema («Sin alertas» / «N validación(es) con alerta»).
   // Siempre la escribe el cargue: no la pisa el comentario del revisor.
   nota                 String?   @map("nota")
-  // Comentario OBLIGATORIO que escribe el revisor al promover un borrador con
-  // «advertencia del archivo fuente» (los totales cruzan pero el archivo no cumple
-  // la ecuación contable). Justifica por qué se aceptó la diferencia; null = el
-  // cargue no la necesitó. Autor/fecha = `cargadoPor`/`rolCarga`/`ultimaCarga`.
+  // Nota aclaratoria que escribe el revisor al promover el borrador (advertencia
+  // del archivo fuente). null = el cargue no la necesitó. Autor/fecha del cargue
+  // = `cargadoPor`/`rolCarga`/`ultimaCarga`.
   comentarioAprobacion String?   @map("comentario_aprobacion")
+  // Constancia ESTRUCTURADA de las reubicaciones entre clases contables que se
+  // aprobaron en el borrador (`RevisionReubicacionBalance[]`). Se guarda tal cual
+  // para que el balance oficial muestre la MISMA ficha que mostró el borrador
+  // (cuenta, clases origen/destino, saldo, justificación, revisor y fecha) sin
+  // depender del staging, que se purga al confirmar. null = no hubo ninguna.
+  reubicacionesAprobadas Json?   @map("reubicaciones_aprobadas")
   sumaActivo           Decimal   @default(0) @map("suma_activo") @db.Decimal(18, 2)
   filasTotales         Int       @default(0) @map("filas_totales")
   mapeadas             Int       @default(0) @map("mapeadas")

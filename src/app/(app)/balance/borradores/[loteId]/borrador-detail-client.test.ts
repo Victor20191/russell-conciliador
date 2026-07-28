@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   combinarRevisionesReubicacion,
   filtrarReubicacionesPendientes,
+  retirarConfirmacionesLocales,
 } from "./borrador-detail-client";
 import type { RevisionReubicacionStaging } from "@/lib/balance/staging-borrador";
 
@@ -17,10 +18,10 @@ describe("estado visual de las revisiones de reubicación", () => {
   it("mantiene la cuenta revisada con la confirmación de la acción mientras llega el refresh", () => {
     const riesgos = [{ filaNum: 737 }];
     const sinRevision = combinarRevisionesReubicacion([], []);
-    expect(filtrarReubicacionesPendientes(riesgos, sinRevision, {})).toEqual(riesgos);
+    expect(filtrarReubicacionesPendientes(riesgos, sinRevision)).toEqual(riesgos);
 
     const confirmada = combinarRevisionesReubicacion([], [revisionGuardada]);
-    expect(filtrarReubicacionesPendientes(riesgos, confirmada, {})).toEqual([]);
+    expect(filtrarReubicacionesPendientes(riesgos, confirmada)).toEqual([]);
     expect(confirmada.get(737)).toEqual(revisionGuardada);
   });
 
@@ -46,15 +47,22 @@ describe("estado visual de las revisiones de reubicación", () => {
     expect(combinadas.get(737)).toEqual(posterior);
   });
 
-  it("la revisión pendiente en el navegador también evita un falso bloqueo antes de guardar", () => {
-    const riesgos = [{ filaNum: 737 }];
-    const pendientes = {
-      737: {
-        justificacion: "Reubicación lista para guardar por criterio contable.",
-        memorizar: true,
-      },
-    };
+  it("retira solo la alerta cuya aprobación ya fue confirmada por el servidor", () => {
+    const riesgos = [{ filaNum: 737 }, { filaNum: 910 }];
+    const confirmada = combinarRevisionesReubicacion([], [revisionGuardada]);
 
-    expect(filtrarReubicacionesPendientes(riesgos, new Map(), pendientes)).toEqual([]);
+    expect(filtrarReubicacionesPendientes(riesgos, confirmada)).toEqual([{ filaNum: 910 }]);
+  });
+
+  it("no deja reaparecer el padre ni la revisión aprobados al guardar una reversión posterior", () => {
+    const otraRevision = { ...revisionGuardada, filaNum: 910 };
+    const resultado = retirarConfirmacionesLocales(
+      { 737: 60, 910: 75 },
+      [revisionGuardada, otraRevision],
+      [737],
+    );
+
+    expect(resultado.padresConfirmados).toEqual({ 910: 75 });
+    expect(resultado.revisionesConfirmadas).toEqual([otraRevision]);
   });
 });

@@ -15,6 +15,10 @@ import { FreezeBalanceButton } from "./freeze-balance-button";
 import { ExportarBalance } from "./exportar-balance";
 import { FlashToast } from "@/components/flash-toast";
 import { ComentarioAprobacion } from "./comentario-aprobacion";
+import {
+  construirNotasAprobacionBalance,
+  parsearRevisionesReubicacionBalance,
+} from "@/lib/balance/revisiones-reubicacion-balance";
 import Conversacion from "@/components/conversacion";
 
 export default async function BalanceDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ cargado?: string }> }) {
@@ -49,7 +53,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
     prisma.balancePruebaEncabezado.findMany({
       where: { clienteId: balance.clienteId, periodo: balance.periodo },
       orderBy: { creadoEn: "desc" },
-      select: { id: true, version: true, ultimaCarga: true, cargadoPor: true, rolCarga: true, archivo: true, tamanoArchivo: true, filasTotales: true, sumaActivo: true, cuadrado: true, nota: true, comentarioAprobacion: true, cambios: true, creadoEn: true },
+      select: { id: true, version: true, ultimaCarga: true, cargadoPor: true, rolCarga: true, archivo: true, tamanoArchivo: true, filasTotales: true, sumaActivo: true, cuadrado: true, nota: true, comentarioAprobacion: true, reubicacionesAprobadas: true, cambios: true, creadoEn: true },
     }),
     // Conteo de comentarios por cuenta (ancla) de este balance, para los badges del árbol.
     prisma.comment.groupBy({ by: ["anchor"], where: { entityType: "balance", entityId: id }, _count: { _all: true } }),
@@ -88,11 +92,22 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
 
   // Bitácora de versiones: los encabezados hermanos del mismo (cliente, período)
   // (cargados arriba en paralelo con el plan estándar).
-  const versions: Version[] = hermanos.map((h) => ({
-    v: h.version, date: h.ultimaCarga ? fmtDateTime(h.ultimaCarga) : "—", uploadedBy: h.cargadoPor ?? "—", role: h.rolCarga ?? "—",
-    file: h.archivo ?? "—", size: h.tamanoArchivo ?? "—", rows: h.filasTotales, sumA: Number(h.sumaActivo),
-    balanced: h.cuadrado, note: h.nota ?? "", approvalNote: h.comentarioAprobacion ?? "", changes: h.cambios,
-  }));
+  // La constancia de cada versión se compone al LEER: nota aclaratoria (texto) +
+  // reubicaciones aprobadas (JSON estructurado). En la bitácora va resumida; el
+  // banner de esta versión las pinta con la misma ficha que mostró el borrador.
+  const versions: Version[] = hermanos.map((h) => {
+    const reubicaciones = parsearRevisionesReubicacionBalance(h.reubicacionesAprobadas);
+    return {
+      v: h.version, date: h.ultimaCarga ? fmtDateTime(h.ultimaCarga) : "—", uploadedBy: h.cargadoPor ?? "—", role: h.rolCarga ?? "—",
+      file: h.archivo ?? "—", size: h.tamanoArchivo ?? "—", rows: h.filasTotales, sumA: Number(h.sumaActivo),
+      balanced: h.cuadrado, note: h.nota ?? "",
+      approvalNote: reubicaciones.length === 0
+        ? h.comentarioAprobacion ?? ""
+        : construirNotasAprobacionBalance(h.comentarioAprobacion, reubicaciones) ?? "",
+      changes: h.cambios,
+    };
+  });
+  const reubicacionesAprobadas = parsearRevisionesReubicacionBalance(balance.reubicacionesAprobadas);
   // Hay diff si existe una versión anterior a esta (cargada antes).
   const esta = hermanos.find((h) => h.id === id);
   const hasDiff = esta != null && hermanos.some((h) => h.creadoEn < esta.creadoEn);
@@ -136,9 +151,10 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
         <span className="font-mono">{meta.file} · {meta.fileSize} · {meta.rows} cuentas</span>
       </p>
 
-      {balance.comentarioAprobacion && (
+      {(balance.comentarioAprobacion || reubicacionesAprobadas.length > 0) && (
         <ComentarioAprobacion
           comentario={balance.comentarioAprobacion}
+          reubicaciones={reubicacionesAprobadas}
           version={`versión ${balance.version}`}
           autor={meta.uploadedBy}
           rol={balance.rolCarga ?? "—"}

@@ -55,6 +55,10 @@ import { proveedorIABalanceSesion } from "@/lib/ia/proveedor-balance-sesion";
 import { registrarConsumoIA, type UsoIA } from "@/lib/ia/uso";
 import { aplicarPreferenciasCarga } from "@/lib/balance/preferencias-carga";
 import { construirConfigMapeoCliente } from "@/lib/balance/mapeo-cliente-config";
+import {
+  evaluarRevisionesReubicacionStaging,
+  type RevisionReubicacionBalance,
+} from "@/lib/balance/revisiones-reubicacion-balance";
 import { randomUUID } from "node:crypto";
 import { construirCuadre, marcarSubtotalesDuplicados, reclasificarRepetidos, reclasificarNoImputables, transformarTabular } from "@/lib/balance/extraccion/transformar";
 import type { FilaCruda, ParamsExtraccion, ResultadoTransform, TipoFila } from "@/lib/balance/extraccion/transformar";
@@ -513,15 +517,25 @@ async function promoverStagingAOficial(p: MetaPromocion, contexto: string): Prom
   // respaldo `importReady` del payload — dejó de viajar al cliente).
   let importReadyFinal: CuentaCruda[];
   let nombresGrupoCliente: Map<string, string>;
+  let filasControlFinal: FilaStagingCorreccion[];
   try {
-    [importReadyFinal, nombresGrupoCliente] = await Promise.all([
+    [importReadyFinal, nombresGrupoCliente, filasControlFinal] = await Promise.all([
       cuentasDesdeStaging(p.loteId),
       nombresGrupoDesdeStaging(p.loteId),
+      filasStagingCorreccion(p.loteId),
     ]);
   } catch (e) {
     return { ok: false, message: mensajeErrorBD(contexto, e) };
   }
   if (importReadyFinal.length === 0) return { ok: false, message: "El borrador ya no existe o no tiene cuentas para cargar. Vuelve a leer el archivo." };
+  const revisionesFinales = evaluarRevisionesReubicacionStaging(filasControlFinal);
+  if (revisionesFinales.riesgosPendientes.length > 0) {
+    const ejemplo = revisionesFinales.riesgosPendientes[0];
+    return {
+      ok: false,
+      message: `Hay ${revisionesFinales.riesgosPendientes.length} reubicación(es) entre clases contables sin revisar. Revisa ${ejemplo.codigoCrudo || ejemplo.codigo} (${ejemplo.nombre}) antes de cargar el balance.`,
+    };
+  }
 
   // Cuadre contra la fila TOTALES del archivo (solo el flujo del modal lo trae). Σ
   // firmada: las reversas restan del lado correcto. No bloquea; marca descuadre.
@@ -555,6 +569,7 @@ async function promoverStagingAOficial(p: MetaPromocion, contexto: string): Prom
       cuadreTotales, umbrales,
       proveedorIA: p.proveedorIA,
       comentarioPromocion: p.comentarioPromocion,
+      revisionesReubicacion: revisionesFinales.revisionesAprobadas,
       nombresGrupoCliente,
       meta: {
         estandar: TIPO_BALANCE_CARGA, convencionCredito: p.convencionCredito,
@@ -810,6 +825,8 @@ async function persistirCargue(p: {
   proveedorIA?: ProveedorIABalance;
   /** Justificación registrada al promover un archivo cuya ecuación no cuadra. */
   comentarioPromocion?: string | null;
+  /** Reubicaciones entre clases aprobadas que deben sobrevivir a la purga del borrador. */
+  revisionesReubicacion?: RevisionReubicacionBalance[];
   /** Nombres reales de las agrupadoras de seis dígitos leídos del archivo. */
   nombresGrupoCliente?: Map<string, string>;
   /** Umbrales de alerta vigentes (/config/parametros): definen cuántas validaciones
@@ -971,7 +988,11 @@ async function persistirCargue(p: {
   // columna: si lo escribiera aquí, el conteo de alertas se perdería justo en los
   // cargues que lo exigen (los que traen advertencia del archivo fuente).
   const nota = alertas > 0 ? `${alertas} validación(es) con alerta` : "Sin alertas";
-  const comentarioAprobacion = p.comentarioPromocion ?? null;
+  const comentarioAprobacion = p.comentarioPromocion?.trim() || null;
+  // Las reubicaciones aprobadas se guardan ESTRUCTURADAS (no resumidas a texto):
+  // el balance oficial debe poder mostrar la misma ficha que mostró el borrador y
+  // el staging —única otra fuente— se purga al confirmar el cargue.
+  const revisionesReubicacion = p.revisionesReubicacion ?? [];
 
   const creado = await transaccionSerializable(async (tx) => {
     await tomarCandadoTransaccion(tx, `balance-cargue:${p.clientId}:${p.period}`);
@@ -1014,6 +1035,7 @@ async function persistirCargue(p: {
         version, esOficial: false, estaCongelado: false, estado: status, completitud: complete,
         archivo: p.archivoNombre, tamanoArchivo: p.archivoTam,
         cargadoPor: p.uploadedBy, rolCarga: p.rolLabel, cuadrado: calc.balanced && calc.movimientosCuadran && !descuadreTotales, nota, comentarioAprobacion,
+        reubicacionesAprobadas: revisionesReubicacion.length > 0 ? revisionesReubicacion : undefined,
         sumaActivo: calc.sums.activo, filasTotales: calc.totalRows,
         mapeadas: calc.mapped, sinMapear: calc.unmapped, criticas: calc.critical, cambios,
         estandar: p.meta.estandar, convencionCredito: p.meta.convencionCredito,
@@ -1037,7 +1059,7 @@ async function persistirCargue(p: {
     user: p.uploadedBy,
     action: "CARGÓ BALANCE",
     entity: `${p.clienteName} · ${p.period}`,
-    detail: `${creado.version} · ${calc.totalRows} cuentas · ${calc.mapped} mapeadas · ${calc.balanced && calc.movimientosCuadran && !descuadreTotales ? "cuadrado" : "descuadra"}${p.comentarioPromocion ? ` · Comentario: ${p.comentarioPromocion.replace(/\s+/g, " ")}` : ""}`,
+    detail: `${creado.version} · ${calc.totalRows} cuentas · ${calc.mapped} mapeadas · ${calc.balanced && calc.movimientosCuadran && !descuadreTotales ? "cuadrado" : "descuadra"}${p.comentarioPromocion ? ` · Comentario: ${p.comentarioPromocion.replace(/\s+/g, " ")}` : ""}${p.revisionesReubicacion?.length ? ` · ${p.revisionesReubicacion.length} reubicación(es) aprobada(s)` : ""}`,
     clientId: p.clientId,
   });
   await createProcessNotification({
@@ -1903,16 +1925,7 @@ export async function cargarBorrador(_prev: ImportBalanceState, formData: FormDa
       message: "Antes de cargar debes vincular el cliente al borrador. Así se crea su perfil y se aplican sus preferencias.",
     };
   }
-  const filasControlPorNumero = new Map(filasControl.map((fila) => [fila.filaNum, fila]));
-  const riesgosPendientes = detectarManipulacionesRiesgosas(filasControl.map((f) => ({
-    ...f,
-    nivel: /^\d+$/.test(f.codigo) ? f.codigo.length : null,
-    tipoFila: f.tipoFila as FilaBorrador["tipoFila"],
-    omitida: f.omitida ?? undefined,
-  }))).filter((riesgo) => {
-    const fila = filasControlPorNumero.get(riesgo.filaNum);
-    return !fila?.justificacionReubicacion?.trim() || fila.reubicacionRevisadaEn == null;
-  });
+  const { riesgosPendientes } = evaluarRevisionesReubicacionStaging(filasControl);
   if (riesgosPendientes.length > 0) {
     const ejemplo = riesgosPendientes[0];
     return {

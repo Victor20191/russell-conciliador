@@ -47,6 +47,16 @@ import {
   esDescuadreDelArchivoFuente,
   MAX_COMENTARIO_PROMOCION,
 } from "@/lib/balance/advertencia-archivo-fuente";
+import {
+  calcularExplicacionesClaseReubicacion,
+  filtrarHallazgosClaseResueltos,
+  type ExplicacionClaseReubicacion,
+} from "@/lib/balance/conciliacion-reubicaciones";
+import {
+  construirRevisionesReubicacionBalance,
+  nombreClaseContable,
+} from "@/lib/balance/revisiones-reubicacion-balance";
+import { ReubicacionesAprobadasPanel } from "@/components/reubicaciones-aprobadas";
 import { notifyActionState, notifySuccess, notifyError, notifyInfo } from "@/lib/client-notifications";
 import { SelectorClienteBuscable } from "@/components/selector-cliente-buscable";
 import { useSeleccionFilaTabla } from "@/app/(app)/balance/use-seleccion-fila-tabla";
@@ -61,7 +71,6 @@ import { expandirFilas, type FilasCompactas } from "@/lib/balance/filas-compacta
 import type { RevisionReubicacionStaging } from "@/lib/balance/staging-borrador";
 
 type Cliente = { id: number; name: string; nit: string; notas?: string | null };
-type RevisionPendiente = { justificacion: string; memorizar: boolean };
 
 /** Conserva la confirmación devuelta por la Server Action mientras el refresh de
  *  la ruta reemplaza las props. La versión local manda hasta que el servidor
@@ -83,10 +92,25 @@ export function combinarRevisionesReubicacion(
 export function filtrarReubicacionesPendientes<T extends { filaNum: number }>(
   riesgos: T[],
   revisionesGuardadas: ReadonlyMap<number, RevisionReubicacionStaging>,
-  revisionesPendientes: Record<number, RevisionPendiente>,
 ): T[] {
-  return riesgos.filter((riesgo) =>
-    !revisionesPendientes[riesgo.filaNum] && !revisionesGuardadas.has(riesgo.filaNum));
+  return riesgos.filter((riesgo) => !revisionesGuardadas.has(riesgo.filaNum));
+}
+
+export function retirarConfirmacionesLocales(
+  padresConfirmados: Record<number, number>,
+  revisionesConfirmadas: RevisionReubicacionStaging[],
+  filasGuardadas: Iterable<number>,
+): {
+  padresConfirmados: Record<number, number>;
+  revisionesConfirmadas: RevisionReubicacionStaging[];
+} {
+  const filas = new Set(filasGuardadas);
+  return {
+    padresConfirmados: Object.fromEntries(
+      Object.entries(padresConfirmados).filter(([filaNum]) => !filas.has(Number(filaNum))),
+    ),
+    revisionesConfirmadas: revisionesConfirmadas.filter((revision) => !filas.has(revision.filaNum)),
+  };
 }
 
 /** Aplica los cambios TEMPORALES (reclasificación / desacople / omitir / re-parentado)
@@ -164,7 +188,7 @@ export default function BorradorDetailClient({
   const [desacopladas, setDesacopladas] = useState<Record<string, boolean>>({});
   const [omitidas, setOmitidas] = useState<Record<number, boolean>>({});
   const [padres, setPadres] = useState<Record<number, number | null>>({});
-  const [revisionesPendientes, setRevisionesPendientes] = useState<Record<number, RevisionPendiente>>({});
+  const [padresConfirmadosLocalmente, setPadresConfirmadosLocalmente] = useState<Record<number, number>>({});
   const [revisionesConfirmadasLocalmente, setRevisionesConfirmadasLocalmente] = useState<RevisionReubicacionStaging[]>([]);
   const [memorizarPadres, setMemorizarPadres] = useState<Record<number, boolean>>({});
   const [mover, setMover] = useState<{ filaNum: number | null; revisar?: boolean } | null>(null);
@@ -178,6 +202,7 @@ export default function BorradorDetailClient({
   const [guardandoPerfil, startGuardarPerfil] = useTransition();
   const [promptPerfilSpec, setPromptPerfilSpec] = useState<SpecCarga | null>(null); // pide cliente al guardar perfil
   const [guardando, startGuardar] = useTransition();
+  const [aprobandoReubicacion, startAprobarReubicacion] = useTransition();
   // «Evitar doble conteo de subtotales»: en un export jerárquico (la cuenta y sus subcuentas/auxiliares
   // vienen TODAS como filas), marca como AGRUPADORA toda cuenta con detalle debajo (código
   // más largo por orden) → solo cuentan las hojas. Se expresa como overrides de
@@ -192,12 +217,16 @@ export default function BorradorDetailClient({
   }, [filas, soloHojas, override]);
   const nCambios = Object.keys(overrideEfectivo).length + Object.keys(desacopladas).length + Object.keys(omitidas).length + Object.keys(padres).length;
   const hayCambios = nCambios > 0;
+  const padresVista = useMemo(
+    () => ({ ...padresConfirmadosLocalmente, ...padres }),
+    [padres, padresConfirmadosLocalmente],
+  );
   const filasEditadas = useMemo(
-    () => aplicarCambios(filas, overrideEfectivo, desacopladas, omitidas, padres),
-    [filas, overrideEfectivo, desacopladas, omitidas, padres],
+    () => aplicarCambios(filas, overrideEfectivo, desacopladas, omitidas, padresVista),
+    [filas, overrideEfectivo, desacopladas, omitidas, padresVista],
   );
   // View-model recomputado LOCALMENTE con los cambios temporales (sin tocar la BD).
-  const { arbol, validacion, partidaDoble, hallazgos, porTercero: porTerceroCalculado, relistadoGuiones, filasOcultas, clasesCorregidas, nitTachados } = useMemo(
+  const { arbol, validacion, partidaDoble, hallazgos, porTercero: porTerceroCalculado, relistadoGuiones, filasOcultas, clasesCorregidas, nitTachados, filasContabilizadas } = useMemo(
     () => construirVistaBorrador(
       filasEditadas.map((fila) => ({ ...fila })),
       // consolidarAuxiliares: SOLO para la vista — agrupa por auxiliar los balances
@@ -215,27 +244,60 @@ export default function BorradorDetailClient({
     [revisionesReubicacion, revisionesConfirmadasLocalmente],
   );
   const revisionesGuardadasVigentes = useMemo(() => {
-    const padresOriginales = new Map(filas.map((fila) => [fila.filaNum, fila.padreManual ?? null]));
+    const padresBase = new Map(filas.map((fila) => [
+      fila.filaNum,
+      padresConfirmadosLocalmente[fila.filaNum] ?? fila.padreManual ?? null,
+    ]));
     return new Map([...revisionesGuardadasPorFila].filter(([filaNum]) =>
-      !(filaNum in padres) || padres[filaNum] === padresOriginales.get(filaNum)));
-  }, [filas, padres, revisionesGuardadasPorFila]);
+      !(filaNum in padres) || padres[filaNum] === padresBase.get(filaNum)));
+  }, [filas, padres, padresConfirmadosLocalmente, revisionesGuardadasPorFila]);
+  const filasContabilizadasSet = useMemo(
+    () => new Set(filasContabilizadas),
+    [filasContabilizadas],
+  );
+  const explicacionesClase = useMemo(
+    () => calcularExplicacionesClaseReubicacion(
+      manipulacionesRiesgosas,
+      new Set(revisionesGuardadasVigentes.keys()),
+      filasContabilizadasSet,
+      {
+        "1": validacion.activoDiff,
+        "2": validacion.pasivoDiff,
+        "3": validacion.patrimonioDiff,
+        "4": validacion.ingresosDiff,
+        "5": validacion.gastosDiff,
+        "6": validacion.costosDiff,
+      },
+    ),
+    [filasContabilizadasSet, manipulacionesRiesgosas, revisionesGuardadasVigentes, validacion],
+  );
+  const hallazgosPendientes = useMemo(
+    () => filtrarHallazgosClaseResueltos(hallazgos, explicacionesClase),
+    [explicacionesClase, hallazgos],
+  );
   const manipulacionesPendientes = useMemo(
     () => filtrarReubicacionesPendientes(
       manipulacionesRiesgosas,
       revisionesGuardadasVigentes,
-      revisionesPendientes,
     ),
-    [manipulacionesRiesgosas, revisionesPendientes, revisionesGuardadasVigentes],
+    [manipulacionesRiesgosas, revisionesGuardadasVigentes],
+  );
+  const reubicacionesAprobadas = useMemo(
+    () => construirRevisionesReubicacionBalance(
+      manipulacionesRiesgosas,
+      revisionesGuardadasVigentes.values(),
+    ),
+    [manipulacionesRiesgosas, revisionesGuardadasVigentes],
   );
   const riesgosPorFila = useMemo(
-    () => new Map(manipulacionesRiesgosas.map((riesgo) => [riesgo.filaNum, riesgo])),
-    [manipulacionesRiesgosas],
+    () => new Map(manipulacionesPendientes.map((riesgo) => [riesgo.filaNum, riesgo])),
+    [manipulacionesPendientes],
   );
   const porTercero = porTerceroDetectado || porTerceroCalculado;
   const advertenciaArchivoFuente = esDescuadreDelArchivoFuente(
     validacion,
     partidaDoble,
-    hallazgos,
+    hallazgosPendientes,
   );
   const faltaComentarioPromocion =
     advertenciaArchivoFuente && comentarioPromocion.trim().length === 0;
@@ -304,21 +366,63 @@ export default function BorradorDetailClient({
   const aplicarReubicacion = (
     filaNum: number,
     destino: number | null,
-    revision?: { justificacion: string; memorizar: boolean },
   ) => {
     setPadres((m) => ({ ...m, [filaNum]: destino }));
     setMemorizarPadres((actual) => ({
       ...actual,
-      [filaNum]: revision?.memorizar ?? (destino != null),
+      [filaNum]: destino != null,
     }));
-    setRevisionesPendientes((actual) => {
-      const siguiente = { ...actual };
-      if (revision) siguiente[filaNum] = revision;
-      else delete siguiente[filaNum];
-      return siguiente;
-    });
     setEnfoqueReubicacion((actual) => ({ origen: filaNum, destino, secuencia: (actual?.secuencia ?? 0) + 1 }));
     setMover(null);
+  };
+  const confirmarReubicacion = (
+    filaNum: number,
+    destino: number | null,
+    revision?: { justificacion: string; memorizar: boolean },
+  ) => {
+    if (!revision) {
+      aplicarReubicacion(filaNum, destino);
+      return;
+    }
+    if (destino == null) return;
+
+    startAprobarReubicacion(async () => {
+      const claveFila = String(filaNum);
+      const resultado = await aplicarCambiosBorrador(
+        loteId,
+        {},
+        {},
+        {},
+        { [claveFila]: destino },
+        clienteSelId,
+        { [claveFila]: revision },
+        { [claveFila]: revision.memorizar },
+      );
+      if (!resultado.ok) {
+        notifyError(resultado.message ?? "No se pudo aprobar el movimiento.");
+        return;
+      }
+
+      setPadresConfirmadosLocalmente((actual) => ({ ...actual, [filaNum]: destino }));
+      if (resultado.revisionesReubicacion?.length) {
+        setRevisionesConfirmadasLocalmente((actuales) =>
+          Array.from(combinarRevisionesReubicacion(actuales, resultado.revisionesReubicacion ?? []).values()),
+        );
+      }
+      setPadres((actual) => {
+        const siguiente = { ...actual };
+        delete siguiente[filaNum];
+        return siguiente;
+      });
+      setMemorizarPadres((actual) => {
+        const siguiente = { ...actual };
+        delete siguiente[filaNum];
+        return siguiente;
+      });
+      setMover(null);
+      notifySuccess("Movimiento aprobado. La justificación quedó guardada en auditoría.");
+      router.refresh();
+    });
   };
   const confirmarAgrupadora = (filaNum: number, seleccionadas: number[]) => {
     const origen = indiceReubicacion.porFila.get(filaNum);
@@ -345,7 +449,6 @@ export default function BorradorDetailClient({
     setDesacopladas({});
     setOmitidas({});
     setPadres({});
-    setRevisionesPendientes({});
     setMemorizarPadres({});
     setSoloHojas(false);
   };
@@ -360,21 +463,29 @@ export default function BorradorDetailClient({
         omitidas,
         padres,
         clienteSelId,
-        revisionesPendientes,
+        {},
         memorizarPadres,
       );
       if (r.ok) {
         notifySuccess(r.message ?? "Cambios guardados.");
+        const filasGuardadas = Object.keys(padres).map(Number);
         if (r.revisionesReubicacion?.length) {
           setRevisionesConfirmadasLocalmente((actuales) =>
             Array.from(combinarRevisionesReubicacion(actuales, r.revisionesReubicacion ?? []).values()),
+          );
+        }
+        if (filasGuardadas.length > 0) {
+          setPadresConfirmadosLocalmente((actuales) =>
+            retirarConfirmacionesLocales(actuales, [], filasGuardadas).padresConfirmados,
+          );
+          setRevisionesConfirmadasLocalmente((actuales) =>
+            retirarConfirmacionesLocales({}, actuales, filasGuardadas).revisionesConfirmadas,
           );
         }
         setOverride({});
         setDesacopladas({});
         setOmitidas({});
         setPadres({});
-        setRevisionesPendientes({});
         setMemorizarPadres({});
         setSoloHojas(false);
         router.refresh();
@@ -547,21 +658,23 @@ export default function BorradorDetailClient({
           </span>
         </div>
       )}
-      {manipulacionesRiesgosas.length > 0 && (
+      {manipulacionesPendientes.length > 0 && (
         <ManipulacionesRiesgosasPanel
-          riesgos={manipulacionesRiesgosas}
-          revisionesGuardadas={revisionesGuardadasVigentes}
-          revisionesPendientes={revisionesPendientes}
+          riesgos={manipulacionesPendientes}
           validacion={validacion}
           onRevisar={(filaNum) => setMover({ filaNum, revisar: true })}
           onDeshacer={(filaNum) => aplicarReubicacion(filaNum, null)}
         />
+      )}
+      {reubicacionesAprobadas.length > 0 && (
+        <ReubicacionesAprobadasPanel revisiones={reubicacionesAprobadas} />
       )}
       <ValidacionHeader
         v={validacion}
         pd={partidaDoble}
         ocultarEcuacion={advertenciaArchivoFuente}
         umbrales={umbrales}
+        explicacionesClase={explicacionesClase}
       />
       {advertenciaArchivoFuente ? (
         <AdvertenciaArchivoFuente
@@ -577,12 +690,12 @@ export default function BorradorDetailClient({
         // se omiten aquí para no repetirlos. Queda lo accionable: los nodos que no
         // cuadran con su desglose. La fuente conserva el contexto completo para los
         // cálculos y las correcciones deterministas del borrador.
-        const hh = hallazgos.filter((h) => h.tipo !== "partida_doble" && h.tipo !== "ecuacion" && h.tipo !== "clase");
-        const diferenciasClase = hallazgos.filter((h) => h.tipo === "clase").length;
+        const hh = hallazgosPendientes.filter((h) => h.tipo !== "partida_doble" && h.tipo !== "ecuacion" && h.tipo !== "clase");
+        const diferenciasClase = hallazgosPendientes.filter((h) => h.tipo === "clase").length;
         // Se monta SIEMPRE, con o sin hallazgos: montarlo y desmontarlo según el resultado
         // movía la tabla ~66 px en cada omisión o reclasificación (los hallazgos cambian con
         // cada edición) y el usuario perdía el punto donde iba. Colapsado su alto es fijo.
-        return <DiagnosticoPanel hallazgos={hh} diferenciasClase={diferenciasClase} manipulaciones={manipulacionesRiesgosas.length} />;
+        return <DiagnosticoPanel hallazgos={hh} diferenciasClase={diferenciasClase} manipulaciones={manipulacionesPendientes.length} />;
       })()}
 
       <Card className="overflow-hidden">
@@ -666,10 +779,9 @@ export default function BorradorDetailClient({
           revisarActual={mover.revisar}
           revisionInicial={mover.filaNum == null
             ? null
-            : revisionesPendientes[mover.filaNum]?.justificacion
-              ?? revisionesGuardadasVigentes.get(mover.filaNum)?.justificacion
-              ?? null}
-          onConfirmar={aplicarReubicacion}
+            : revisionesGuardadasVigentes.get(mover.filaNum)?.justificacion ?? null}
+          guardando={aprobandoReubicacion}
+          onConfirmar={confirmarReubicacion}
           onClose={() => setMover(null)}
         />
       )}
@@ -830,11 +942,13 @@ function ValidacionHeader({
   pd,
   ocultarEcuacion,
   umbrales,
+  explicacionesClase,
 }: {
   v: ValidacionContable;
   pd: { debitos: number; creditos: number; diff: number; cuadra: boolean };
   ocultarEcuacion: boolean;
   umbrales: UmbralesAlertas;
+  explicacionesClase: ReadonlyMap<string, ExplicacionClaseReubicacion>;
 }) {
   const ecOk = v.ecuacionCuadra;
   const pdInformativo = !pd.cuadra && esDescuadreInformativo(pd.diff, umbrales);
@@ -862,14 +976,14 @@ function ValidacionHeader({
         </div>
       )}
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-        <ClaseCard label="Activo" calc={v.activo} archivo={v.activoArchivo} cuadra={v.activoCuadra} diff={v.activoDiff} umbrales={umbrales} />
-        <ClaseCard label="Pasivo" calc={v.pasivo} archivo={v.pasivoArchivo} cuadra={v.pasivoCuadra} diff={v.pasivoDiff} umbrales={umbrales} />
-        <ClaseCard label="Patrimonio" calc={v.patrimonio} archivo={v.patrimonioArchivo} cuadra={v.patrimonioCuadra} diff={v.patrimonioDiff} umbrales={umbrales} />
+        <ClaseCard label="Activo" calc={v.activo} archivo={v.activoArchivo} cuadra={v.activoCuadra} diff={v.activoDiff} umbrales={umbrales} explicacion={explicacionesClase.get("1")} />
+        <ClaseCard label="Pasivo" calc={v.pasivo} archivo={v.pasivoArchivo} cuadra={v.pasivoCuadra} diff={v.pasivoDiff} umbrales={umbrales} explicacion={explicacionesClase.get("2")} />
+        <ClaseCard label="Patrimonio" calc={v.patrimonio} archivo={v.patrimonioArchivo} cuadra={v.patrimonioCuadra} diff={v.patrimonioDiff} umbrales={umbrales} explicacion={explicacionesClase.get("3")} />
       </div>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <MiniDato k="Ingresos" v={v.ingresos} archivo={v.ingresosArchivo} cuadra={v.ingresosCuadra} diff={v.ingresosDiff} umbrales={umbrales} />
-        <MiniDato k="Gastos" v={v.gastos} archivo={v.gastosArchivo} cuadra={v.gastosCuadra} diff={v.gastosDiff} umbrales={umbrales} />
-        <MiniDato k="Costos" v={v.costos} archivo={v.costosArchivo} cuadra={v.costosCuadra} diff={v.costosDiff} umbrales={umbrales} />
+        <MiniDato k="Ingresos" v={v.ingresos} archivo={v.ingresosArchivo} cuadra={v.ingresosCuadra} diff={v.ingresosDiff} umbrales={umbrales} explicacion={explicacionesClase.get("4")} />
+        <MiniDato k="Gastos" v={v.gastos} archivo={v.gastosArchivo} cuadra={v.gastosCuadra} diff={v.gastosDiff} umbrales={umbrales} explicacion={explicacionesClase.get("5")} />
+        <MiniDato k="Costos" v={v.costos} archivo={v.costosArchivo} cuadra={v.costosCuadra} diff={v.costosDiff} umbrales={umbrales} explicacion={explicacionesClase.get("6")} />
         <MiniDato k="Resultado" v={v.resultado} archivo={v.resultadoArchivo} cuadra={v.resultadoCuadra} diff={v.resultadoDiff} umbrales={umbrales} />
       </div>
     </div>
@@ -1075,9 +1189,10 @@ function AdvertenciaArchivoFuente({
   );
 }
 
-function ClaseCard({ label, calc, archivo, cuadra, diff, umbrales }: { label: string; calc: number; archivo: number | null; cuadra: boolean | null; diff: number | null; umbrales: UmbralesAlertas }) {
+function ClaseCard({ label, calc, archivo, cuadra, diff, umbrales, explicacion }: { label: string; calc: number; archivo: number | null; cuadra: boolean | null; diff: number | null; umbrales: UmbralesAlertas; explicacion?: ExplicacionClaseReubicacion }) {
   const informativo = cuadra === false && esDescuadreInformativo(diff, umbrales);
-  const tono = cuadra == null ? "border-ink-150 bg-ink-50" : cuadra ? "border-ok-100 bg-ok-100/40" : informativo ? "border-err-100 bg-err-100/30" : "border-err-200 bg-err-50";
+  const resuelta = cuadra === true || explicacion?.resuelta === true;
+  const tono = cuadra == null ? "border-ink-150 bg-ink-50" : resuelta ? "border-ok-100 bg-ok-100/40" : informativo ? "border-err-100 bg-err-100/30" : "border-err-200 bg-err-50";
   return (
     <div className={`rounded-md border px-3 py-2 ${tono}`}>
       <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-500">{label}</div>
@@ -1086,18 +1201,25 @@ function ClaseCard({ label, calc, archivo, cuadra, diff, umbrales }: { label: st
         <div className="mt-0.5 text-[10.5px] text-ink-400">solo calculado (sin total en archivo)</div>
       ) : cuadra ? (
         <div className="mt-0.5 text-[10.5px] text-ok-700">✓ archivo {fmt(archivo)} — cruza</div>
+      ) : explicacion?.resuelta ? (
+        <div className="mt-0.5 text-[10.5px] text-ok-700">
+          ✓ archivo {fmt(archivo)} · Δ {fmt(diff ?? 0)} explicada por {explicacion.filas.length} {explicacion.filas.length === 1 ? "reubicación aprobada" : "reubicaciones aprobadas"} · residual {fmt(explicacion.residual)}
+        </div>
       ) : (
         <div className={`mt-0.5 text-[10.5px] ${informativo ? "text-err-500" : "text-err-700"}`}>
-          archivo {fmt(archivo)} · Δ {fmt(diff ?? 0)}{informativo ? " · informativo" : ""}
+          archivo {fmt(archivo)} · Δ {fmt(diff ?? 0)}
+          {explicacion ? ` · residual ${fmt(explicacion.residual)}` : ""}
+          {informativo ? " · informativo" : ""}
         </div>
       )}
     </div>
   );
 }
 
-function MiniDato({ k, v, archivo, cuadra, diff, umbrales }: { k: string; v: number; archivo: number | null; cuadra: boolean | null; diff: number | null; umbrales: UmbralesAlertas }) {
+function MiniDato({ k, v, archivo, cuadra, diff, umbrales, explicacion }: { k: string; v: number; archivo: number | null; cuadra: boolean | null; diff: number | null; umbrales: UmbralesAlertas; explicacion?: ExplicacionClaseReubicacion }) {
   const informativo = cuadra === false && esDescuadreInformativo(diff, umbrales);
-  const tono = cuadra == null ? "border-ink-150 bg-ink-50" : cuadra ? "border-ok-100 bg-ok-100/40" : informativo ? "border-err-100 bg-err-100/30" : "border-err-200 bg-err-50";
+  const resuelta = cuadra === true || explicacion?.resuelta === true;
+  const tono = cuadra == null ? "border-ink-150 bg-ink-50" : resuelta ? "border-ok-100 bg-ok-100/40" : informativo ? "border-err-100 bg-err-100/30" : "border-err-200 bg-err-50";
   return (
     <div className={`rounded-md border px-2.5 py-1.5 ${tono}`}>
       <div className="text-[10.5px] font-semibold uppercase tracking-wide text-ink-500">{k}</div>
@@ -1106,45 +1228,32 @@ function MiniDato({ k, v, archivo, cuadra, diff, umbrales }: { k: string; v: num
         <div className="mt-0.5 text-[10px] text-ink-400">solo calculado</div>
       ) : cuadra ? (
         <div className="mt-0.5 text-[10px] text-ok-700">✓ archivo {fmt(archivo)}</div>
+      ) : explicacion?.resuelta ? (
+        <div className="mt-0.5 text-[10px] text-ok-700">
+          ✓ archivo {fmt(archivo)} · Δ {fmt(diff ?? 0)} explicada · residual {fmt(explicacion.residual)}
+        </div>
       ) : (
         <div className={`mt-0.5 text-[10px] ${informativo ? "text-err-500" : "text-err-700"}`}>
-          archivo {fmt(archivo)} · Δ {fmt(diff ?? 0)}{informativo ? " · informativo" : ""}
+          archivo {fmt(archivo)} · Δ {fmt(diff ?? 0)}
+          {explicacion ? ` · residual ${fmt(explicacion.residual)}` : ""}
+          {informativo ? " · informativo" : ""}
         </div>
       )}
     </div>
   );
 }
 
-const nombreClaseContable = (clase: string) => ({
-  "1": "Activo",
-  "2": "Pasivo",
-  "3": "Patrimonio",
-  "4": "Ingresos",
-  "5": "Gastos",
-  "6": "Costos",
-  "7": "Costos",
-}[clase] ?? `Clase ${clase}`);
-
 function ManipulacionesRiesgosasPanel({
   riesgos,
-  revisionesGuardadas,
-  revisionesPendientes,
   validacion,
   onRevisar,
   onDeshacer,
 }: {
   riesgos: ManipulacionRiesgosaBorrador[];
-  revisionesGuardadas: Map<number, RevisionReubicacionStaging>;
-  revisionesPendientes: Record<number, RevisionPendiente>;
   validacion: ValidacionContable;
   onRevisar: (filaNum: number) => void;
   onDeshacer: (filaNum: number) => void;
 }) {
-  const pendientes = filtrarReubicacionesPendientes(
-    riesgos,
-    revisionesGuardadas,
-    revisionesPendientes,
-  );
   const diferenciaClase = (clase: string): number | null => ({
     "1": validacion.activoDiff,
     "2": validacion.pasivoDiff,
@@ -1156,30 +1265,25 @@ function ManipulacionesRiesgosasPanel({
   }[clase] ?? null);
 
   return (
-    <section className={`overflow-hidden rounded-lg border border-l-4 shadow-sm ${pendientes.length > 0 ? "border-err-200 border-l-err-500 bg-err-50" : "border-warn-200 border-l-warn-500 bg-warn-50"}`}>
+    <section className="overflow-hidden rounded-lg border border-l-4 border-err-200 border-l-err-500 bg-err-50 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-3 px-4 py-3">
         <div>
-          <div className={`text-[11px] font-semibold uppercase tracking-wider ${pendientes.length > 0 ? "text-err-700" : "text-warn-700"}`}>
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-err-700">
             Control de manipulaciones manuales
           </div>
           <p className="mt-0.5 text-[12.5px] font-semibold text-ink-800">
-            {pendientes.length > 0
-              ? `${pendientes.length} reubicación(es) riesgosa(s) pendiente(s) de revisión`
-              : `${riesgos.length} reubicación(es) entre clases revisada(s)`}
+            {riesgos.length} reubicación(es) riesgosa(s) pendiente(s) de revisión
           </p>
           <p className="mt-0.5 text-[11.5px] text-ink-600">
             Estas cuentas conservan su código, pero fueron movidas manualmente a una masa contable distinta.
           </p>
         </div>
-        <span className={`rounded-full border bg-white px-2 py-1 text-[10px] font-semibold ${pendientes.length > 0 ? "border-err-200 text-err-700" : "border-warn-200 text-warn-700"}`}>
-          {pendientes.length > 0 ? "Bloquea la carga" : "Revisado"}
+        <span className="rounded-full border border-err-200 bg-white px-2 py-1 text-[10px] font-semibold text-err-700">
+          Bloquea la carga
         </span>
       </div>
       <div className="border-t border-black/5 bg-white/70">
         {riesgos.map((riesgo) => {
-          const guardada = revisionesGuardadas.get(riesgo.filaNum);
-          const pendienteLocal = revisionesPendientes[riesgo.filaNum];
-          const revisada = !!guardada || !!pendienteLocal;
           const clasesQueExplica = [riesgo.claseOrigen, riesgo.claseDestino]
             .filter((clase, indice, todas) => todas.indexOf(clase) === indice)
             .filter((clase) => {
@@ -1206,20 +1310,10 @@ function ManipulacionesRiesgosasPanel({
                     Este saldo explica el 100% de la diferencia visible en {clasesQueExplica.join(" y ")}.
                   </div>
                 )}
-                {guardada && (
-                  <div className="mt-1 text-[10.5px] text-ok-700">
-                    Revisada por {guardada.revisadaPor ?? "usuario"} · {new Date(guardada.revisadaEn).toLocaleString("es-CO")} · “{guardada.justificacion}”
-                  </div>
-                )}
-                {pendienteLocal && (
-                  <div className="mt-1 text-[10.5px] text-warn-700">
-                    Revisión lista para guardar · {pendienteLocal.memorizar ? "se repetirá en próximas cargas" : "no se memorizará"}
-                  </div>
-                )}
               </div>
               <div className="flex shrink-0 flex-wrap gap-2">
                 <button type="button" onClick={() => onRevisar(riesgo.filaNum)} className="rounded-md border border-warn-300 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-warn-800 hover:bg-warn-50">
-                  {revisada ? "Editar revisión" : "Revisar y justificar"}
+                  Revisar y justificar
                 </button>
                 <button type="button" onClick={() => onDeshacer(riesgo.filaNum)} className="rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11px] font-semibold text-blue-700 hover:bg-blue-100">
                   Deshacer y no repetir
@@ -1487,11 +1581,12 @@ function GestionarAgrupadoraModal({ indice, filaNum, onConfirmar, onClose }: {
 }
 
 /** Modal único: desde la acción global busca origen; desde la fila lo preselecciona. */
-function MoverModal({ indice, filaNumInicial, revisarActual = false, revisionInicial, onConfirmar, onClose }: {
+function MoverModal({ indice, filaNumInicial, revisarActual = false, revisionInicial, guardando = false, onConfirmar, onClose }: {
   indice: IndiceReubicacion;
   filaNumInicial: number | null;
   revisarActual?: boolean;
   revisionInicial: string | null;
+  guardando?: boolean;
   onConfirmar: (filaNum: number, destino: number | null, revision?: { justificacion: string; memorizar: boolean }) => void;
   onClose: () => void;
 }) {
@@ -1535,19 +1630,20 @@ function MoverModal({ indice, filaNumInicial, revisarActual = false, revisionIni
 
   const footer = (
     <>
-      <button type="button" onClick={onClose} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] font-semibold text-ink-600 hover:bg-ink-50">Cancelar</button>
+      <button type="button" onClick={onClose} disabled={guardando} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] font-semibold text-ink-600 hover:bg-ink-50 disabled:opacity-50">Cancelar</button>
       {origen?.padreManual != null && (
         <button
           type="button"
+          disabled={guardando}
           onClick={() => onConfirmar(origen.filaNum, null)}
-          className="rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-[12.5px] font-semibold text-blue-700 hover:bg-blue-100"
+          className="rounded-md border border-blue-200 bg-blue-50 px-3 py-1.5 text-[12.5px] font-semibold text-blue-700 hover:bg-blue-100 disabled:opacity-50"
         >
           Revertir movimiento cta
         </button>
       )}
       <button
         type="button"
-        disabled={!origen || !destino || !revisionValida}
+        disabled={!origen || !destino || !revisionValida || guardando}
         onClick={() => {
           if (!origen || !destino || !revisionValida) return;
           onConfirmar(
@@ -1558,7 +1654,11 @@ function MoverModal({ indice, filaNumInicial, revisarActual = false, revisionIni
         }}
         className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-45"
       >
-        Reubicar cuenta
+        {guardando
+          ? <EstadoProcesando>Aprobando</EstadoProcesando>
+          : cruceRiesgoso
+            ? "Aprobar movimiento"
+            : "Reubicar cuenta"}
       </button>
     </>
   );

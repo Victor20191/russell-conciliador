@@ -22,6 +22,7 @@ export type VistaBorrador = {
   filasOcultas: number; // nº de filas ocultas por defecto (pies/notas + cuentas de orden 8/9)
   clasesCorregidas: number; // nº de rollups de clase SIIGO con código placeholder corregido
   nitTachados: number; // nº de filas NIT (repiten su cuenta) tachadas (SIIGO por cuenta)
+  filasContabilizadas: number[]; // filas efectivas usadas en validación, tras omisiones/duplicados/consolidación
   diagnostico: DiagnosticoLectura; // huella observacional de la lectura (para medir)
 };
 
@@ -95,9 +96,10 @@ export function construirVistaBorrador(
   // Las filas OMITIDAS se conservan en el árbol (crudo) pero NO cuentan en los cálculos.
   const movimiento = base.filter((f) => f.tipoFila === "movimiento" && !f.omitida);
   const dup = marcarSubtotalesDuplicados(movimiento);
+  const movimientoContabilizado = movimiento.filter((f) => !dup.has(f));
+  const filasContabilizadas = movimientoContabilizado.map((f) => f.filaNum);
   const importReady: CuentaCruda[] = conForzarHoja(
-    movimiento
-      .filter((f) => !dup.has(f))
+    movimientoContabilizado
       .map((f) => ({ code: f.codigo, name: f.nombre, prevBalance: f.saldoInicial, balance: f.saldoFinal, debitos: f.debitos, creditos: f.creditos })),
   );
   const calc = calcularBalance(importReady, [], undefined, undefined, undefined, umbrales);
@@ -147,5 +149,5 @@ export function construirVistaBorrador(
     ecuacionDiff: calc.diffCuadre,
   };
 
-  return { arbol, validacion, partidaDoble, hallazgos, agrupadoras, porTercero, relistadoGuiones, filasOcultas, clasesCorregidas, nitTachados, diagnostico };
+  return { arbol, validacion, partidaDoble, hallazgos, agrupadoras, porTercero, relistadoGuiones, filasOcultas, clasesCorregidas, nitTachados, filasContabilizadas, diagnostico };
 }
