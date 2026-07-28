@@ -62,6 +62,10 @@ clipboard-*.png
 # Estado de dedupe del volcado de novedades (npm run novedades:commits)
 .claude/novedades-state.json
 
+# Salida y artefactos locales de graphify (grafo de conocimiento; no versionar)
+graphify-out/
+.graphify*
+
 # El subagente de evolución sí pertenece al proyecto; el estado local anterior
 # permanece ignorado y no se versiona.
 !.claude/

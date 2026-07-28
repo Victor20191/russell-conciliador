@@ -46,7 +46,13 @@ import {
 import { notifyActionState, notifySuccess, notifyError, notifyInfo } from "@/lib/client-notifications";
 import { SelectorClienteBuscable } from "@/components/selector-cliente-buscable";
 import { useSeleccionFilaTabla } from "@/app/(app)/balance/use-seleccion-fila-tabla";
-import { PageSizeSelect, PaginationControls, usePagination } from "@/components/pagination-controls";
+import {
+  acotarRevelado,
+  BLOQUE_REVELADO_INCREMENTO,
+  BLOQUE_REVELADO_INICIAL,
+  revelarHastaIndice,
+  siguienteRevelado,
+} from "@/components/revelado-progresivo";
 import { expandirFilas, type FilasCompactas } from "@/lib/balance/filas-compactas";
 
 type Cliente = { id: number; name: string; nit: string; notas?: string | null };
@@ -1354,7 +1360,8 @@ function MoverModal({ indice, filaNumInicial, onConfirmar, onClose }: {
 function ArbolTabla({ arbol, onReclasificar, onGestionarAgrupadora, onDesacoplar, onOmitir, posiciones, contexto, onUbicar, onDesindentar, enfoqueReubicacion, umbrales }: { arbol: NodoBorrador[]; onReclasificar: (cuenta: NodoBorrador) => void; onGestionarAgrupadora: (filaNum: number) => void; onDesacoplar: (codigo: string, desacopladaAhora: boolean) => void; onOmitir: (filaNum: number, omitidaAhora: boolean) => void; posiciones: Map<number, Posicion>; contexto: Map<number, ContextoNodo>; onUbicar: (filaNum: number) => void; onDesindentar: (filaNum: number) => void; enfoqueReubicacion: { origen: number; destino: number | null; secuencia: number } | null; umbrales: UmbralesAlertas }) {
   const { filaSeleccionada, setFilaSeleccionada, onClickFila, onDoubleClickFila } = useSeleccionFilaTabla();
   const tablaRef = useRef<HTMLDivElement>(null);
-  const pendienteEnfoqueRef = useRef<number | null>(null); // fila a enfocar cuando su página esté montada
+  const sentinelaRef = useRef<HTMLTableRowElement | null>(null); // sensor de scroll: al entrar en vista, revela el próximo bloque
+  const pendienteEnfoqueRef = useRef<number | null>(null); // fila a enfocar cuando quede revelada
   const [destinoDestacado, setDestinoDestacado] = useState<number | null>(null);
   // Expande por defecto los niveles altos y TODA rama con descuadre (para verlo).
   // Un solo recorrido post-orden: cada nodo sabe si su subárbol descuadra sin
@@ -1373,8 +1380,8 @@ function ArbolTabla({ arbol, onReclasificar, onGestionarAgrupadora, onDesacoplar
   const [abiertos, setAbiertos] = useState<Set<number>>(expandidosInicial);
   const toggle = (k: number) => setAbiertos((prev) => { const n = new Set(prev); if (n.has(k)) n.delete(k); else n.add(k); return n; });
   const codigosConHijos = useMemo(() => { const s = new Set<number>(); const rec = (n: NodoBorrador) => { if (n.hijos.length > 0) s.add(n.filaNum); n.hijos.forEach(rec); }; arbol.forEach(rec); return s; }, [arbol]);
-  const expandirTodo = () => { setAbiertos(new Set(codigosConHijos)); setPage(1); };
-  const contraerTodo = () => { setAbiertos(new Set()); setPage(1); };
+  const expandirTodo = () => { setAbiertos(new Set(codigosConHijos)); reiniciarRevelado(); };
+  const contraerTodo = () => { setAbiertos(new Set()); reiniciarRevelado(); };
 
   // Una fila que pasa a ser AGRUPADORA (al pulsar «⇄ Agrupadora») se traga como hijas las
   // filas siguientes de código más largo. Como nació sin hijos, no está en `abiertos`: la
@@ -1440,7 +1447,7 @@ function ArbolTabla({ arbol, onReclasificar, onGestionarAgrupadora, onDesacoplar
       setFilaSeleccionada(String(enfoqueReubicacion.origen));
       setDestinoDestacado(enfoqueReubicacion.destino);
       setAbiertos((prev) => new Set([...prev, ...abrir]));
-      // El scroll corre en el efecto de paginación: la fila puede caer en otra página.
+      // El scroll corre cuando el bloque que contiene la fila ya quedó montado.
       pendienteEnfoqueRef.current = enfoqueReubicacion.origen;
     });
 
@@ -1476,11 +1483,9 @@ function ArbolTabla({ arbol, onReclasificar, onGestionarAgrupadora, onDesacoplar
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [arbol, q, vista, nivelMax]);
 
-  // Filas VISIBLES aplanadas (respetando expansión y filtros), paginadas: el DOM solo
-  // monta la página actual. Pintar decenas de miles de <tr> de una vez («Expandir todo»
-  // o una búsqueda amplia en un balance por tercero de 50k+ filas) congelaba la pestaña.
-  // NO se omite ningún dato: los cálculos usan el árbol completo y todas las filas
-  // siguen disponibles navegando páginas.
+  // Filas VISIBLES aplanadas (respetando expansión y filtros). NO se omite ningún
+  // dato: los cálculos usan el árbol completo y todas las filas están disponibles;
+  // lo que se acota es cuántas se MONTAN en el DOM a la vez (ver revelado abajo).
   const filasVisibles = useMemo(() => {
     const out: { nodo: NodoBorrador; depth: number; padreCodigo: string | null }[] = [];
     const rec = (n: NodoBorrador, depth: number, padreCodigo: string | null) => {
@@ -1492,24 +1497,60 @@ function ArbolTabla({ arbol, onReclasificar, onGestionarAgrupadora, onDesacoplar
     arbolVisible.forEach((r) => rec(r, 0, null));
     return out;
   }, [arbolVisible, filtrando, abiertos]);
-  const { pageItems, page, setPage, pageSize, setPageSize, totalPages, rangeLabel } = usePagination(filasVisibles, 200);
+  const totalFilasVisibles = filasVisibles.length;
 
-  // Enfoque tras una reubicación: la fila pudo caer en OTRA página — primero se salta a
-  // su página y, con la fila ya montada, se hace el scroll (el resaltado ya está fijado).
+  // Revelado progresivo por bloques (desplazamiento continuo, sin páginas ni
+  // selector de tamaño): el DOM solo monta un bloque inicial acotado. Pintar
+  // decenas de miles de <tr> de una vez («Expandir todo» o una búsqueda amplia en
+  // un balance por tercero de 50k+ filas) congelaba la pestaña — el bloque inicial
+  // conserva esa misma protección; el sensor de scroll (más abajo) va revelando el
+  // resto mientras el usuario avanza, sin recortar la vista con una paginación.
+  const [cantidadRevelada, setCantidadRevelada] = useState(BLOQUE_REVELADO_INICIAL);
+  const revelado = acotarRevelado(cantidadRevelada, totalFilasVisibles);
+  const hayMasFilas = revelado < totalFilasVisibles;
+  const filasReveladas = useMemo(() => filasVisibles.slice(0, revelado), [filasVisibles, revelado]);
+  const reiniciarRevelado = () => setCantidadRevelada(BLOQUE_REVELADO_INICIAL);
+  const revelarMasFilas = () => setCantidadRevelada((actual) => siguienteRevelado(actual, totalFilasVisibles, BLOQUE_REVELADO_INCREMENTO));
+
+  // Sensor de scroll: cuando el centinela al final de la tabla entra en vista,
+  // revela el próximo bloque. Se reconecta si cambia si hay más por revelar o el
+  // total (p. ej. tras un filtro); el nodo centinela conserva su posición en el DOM
+  // mientras exista (React reutiliza el elemento entre renders).
+  useEffect(() => {
+    if (!hayMasFilas) return;
+    const contenedor = tablaRef.current;
+    const nodo = sentinelaRef.current;
+    if (!contenedor || !nodo || typeof IntersectionObserver === "undefined") return;
+    const observador = new IntersectionObserver(
+      (entradas) => {
+        if (entradas.some((e) => e.isIntersecting)) revelarMasFilas();
+      },
+      { root: contenedor, rootMargin: "600px 0px" },
+    );
+    observador.observe(nodo);
+    return () => observador.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hayMasFilas, totalFilasVisibles]);
+
+  // Enfoque tras una reubicación: la fila pudo caer más abajo de lo ya revelado —
+  // primero se asegura que su bloque esté montado y, ya montada, se hace el scroll
+  // (el resaltado ya está fijado).
   useEffect(() => {
     const objetivo = pendienteEnfoqueRef.current;
     if (objetivo == null) return;
     const idx = filasVisibles.findIndex((f) => f.nodo.filaNum === objetivo);
     if (idx < 0) return; // aún colapsada/filtrada: se reintenta cuando cambie la lista
-    const paginaDestino = Math.floor(idx / pageSize) + 1;
-    if (paginaDestino !== page) { setPage(paginaDestino); return; } // re-entra ya en la página
+    if (idx >= revelado) {
+      setCantidadRevelada((actual) => revelarHastaIndice(idx, actual, totalFilasVisibles, BLOQUE_REVELADO_INCREMENTO));
+      return; // re-entra ya con el bloque revelado
+    }
     pendienteEnfoqueRef.current = null;
     const timer = window.setTimeout(() => {
       tablaRef.current?.querySelector<HTMLTableRowElement>(`tr[data-selection-key="${objetivo}"]`)
         ?.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
     }, 80);
     return () => window.clearTimeout(timer);
-  }, [filasVisibles, page, pageSize, setPage]);
+  }, [filasVisibles, revelado, totalFilasVisibles]);
 
   const filaTr = ({ nodo: n, depth, padreCodigo }: { nodo: NodoBorrador; depth: number; padreCodigo: string | null }) => {
     const hasHijos = n.hijos.length > 0;
@@ -1706,10 +1747,10 @@ function ArbolTabla({ arbol, onReclasificar, onGestionarAgrupadora, onDesacoplar
   };
 
   const nivelBtn = (v: number, label: string) => (
-    <button type="button" onClick={() => { setNivelMax(v); setPage(1); }} className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${nivelMax === v ? "bg-navy-700 text-white" : "text-ink-500 hover:bg-ink-100"}`}>{label}</button>
+    <button type="button" onClick={() => { setNivelMax(v); reiniciarRevelado(); }} className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${nivelMax === v ? "bg-navy-700 text-white" : "text-ink-500 hover:bg-ink-100"}`}>{label}</button>
   );
   const vistaBtn = (v: typeof vista, label: string, count?: number) => (
-    <button type="button" onClick={() => { setVista(v); setPage(1); }} className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11.5px] font-medium ${vista === v ? "bg-navy-700 text-white" : "text-ink-600 hover:bg-ink-100"}`}>
+    <button type="button" onClick={() => { setVista(v); reiniciarRevelado(); }} className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11.5px] font-medium ${vista === v ? "bg-navy-700 text-white" : "text-ink-600 hover:bg-ink-100"}`}>
       {label}{count != null && count > 0 && <span className={`rounded-full px-1.5 text-[10px] font-semibold ${vista === v ? "bg-white/20" : "bg-warn-100 text-warn-700"}`}>{count}</span>}
     </button>
   );
@@ -1724,7 +1765,7 @@ function ArbolTabla({ arbol, onReclasificar, onGestionarAgrupadora, onDesacoplar
       <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-ink-100 bg-white px-3 py-2">
         <div className="flex items-center gap-1.5 rounded-md border border-ink-200 bg-ink-50 px-2 py-1 text-ink-400">
           <Icon name="search" size={13} />
-          <input value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} placeholder="Buscar código o cuenta…" className="w-44 bg-transparent text-[12px] text-ink-700 outline-none placeholder:text-ink-400" />
+          <input value={q} onChange={(e) => { setQ(e.target.value); reiniciarRevelado(); }} placeholder="Buscar código o cuenta…" className="w-44 bg-transparent text-[12px] text-ink-700 outline-none placeholder:text-ink-400" />
         </div>
         <div className="ml-auto flex items-center gap-0.5 rounded-md border border-ink-200 p-0.5">
           {nivelBtn(0, "Todos")}{nivelBtn(2, "N2")}{nivelBtn(4, "N4")}{nivelBtn(6, "N6")}{nivelBtn(8, "N8")}
@@ -1761,15 +1802,31 @@ function ArbolTabla({ arbol, onReclasificar, onGestionarAgrupadora, onDesacoplar
               <th className="px-2 py-1.5 text-right font-semibold">Saldo actual</th>
             </tr>
           </thead>
-          <tbody onClick={onClickFila} onDoubleClick={onDoubleClickFila}>{pageItems.length > 0 ? pageItems.map(filaTr) : <tr><td colSpan={6} className="px-3 py-6 text-center text-[12px] text-ink-400">Sin cuentas para este filtro.</td></tr>}</tbody>
+          <tbody onClick={onClickFila} onDoubleClick={onDoubleClickFila}>
+            {filasReveladas.length > 0 ? filasReveladas.map(filaTr) : <tr><td colSpan={6} className="px-3 py-6 text-center text-[12px] text-ink-400">Sin cuentas para este filtro.</td></tr>}
+            {hayMasFilas && (
+              // Centinela del scroll continuo: sin contenido ni datos de selección
+              // (no participa en clic/selección de fila), solo dispara el siguiente bloque.
+              <tr ref={sentinelaRef} aria-hidden="true">
+                <td colSpan={6} className="h-px p-0" />
+              </tr>
+            )}
+          </tbody>
         </table>
       </div>
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-ink-100 bg-white px-3 py-2">
-        <div className="text-[12px] text-ink-500">{rangeLabel}</div>
-        <div className="flex flex-wrap items-center gap-3">
-          <PageSizeSelect value={pageSize} onChange={setPageSize} />
-          <PaginationControls currentPage={page} totalPages={totalPages} onPageChange={setPage} />
+        <div className="text-[12px] text-ink-500">
+          {totalFilasVisibles === 0 ? "Sin resultados" : `Mostrando ${filasReveladas.length} de ${totalFilasVisibles}`}
         </div>
+        {hayMasFilas && (
+          <button
+            type="button"
+            onClick={revelarMasFilas}
+            className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 px-2.5 py-1.5 text-[11px] font-medium text-ink-600 hover:bg-ink-50"
+          >
+            <Icon name="chev-d" size={12} /> Cargar más filas
+          </button>
+        )}
       </div>
     </div>
   );
