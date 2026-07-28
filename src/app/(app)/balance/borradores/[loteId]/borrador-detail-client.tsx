@@ -96,7 +96,7 @@ function aplicarCambios(
 }
 
 export default function BorradorDetailClient({
-  loteId, archivoNombre, nitDetectado, periodoInicial, periodoFinal, filasCompactas, porTerceroDetectado, revisionesReubicacion, clientes, clienteSugeridoId, spec, correccionesAplicadas, umbrales,
+  loteId, archivoNombre, nitDetectado, periodoInicial, periodoFinal, filasCompactas, porTerceroDetectado, revisionesReubicacion = [], clientes, clienteSugeridoId, spec, correccionesAplicadas, umbrales,
 }: {
   loteId: string;
   archivoNombre: string;
@@ -107,7 +107,7 @@ export default function BorradorDetailClient({
    *  payload RSC en balances por tercero de decenas de miles de filas. */
   filasCompactas: FilasCompactas;
   porTerceroDetectado: boolean;
-  revisionesReubicacion: RevisionReubicacionStaging[];
+  revisionesReubicacion?: RevisionReubicacionStaging[];
   clientes: Cliente[];
   clienteSugeridoId: number | null;
   spec: SpecCarga | null;

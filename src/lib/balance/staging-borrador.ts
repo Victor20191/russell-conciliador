@@ -17,6 +17,10 @@ import type { FilaBorrador } from "./borrador";
 import { colapsarTerceros, esBalancePorTercero, esBalancePorTerceroSufijo } from "./terceros";
 import { compactarFilas, type FilasCompactas } from "./filas-compactas";
 
+// Cambiar esta versión cuando evolucione la forma serializada del staging. El
+// Data Cache persiste entre despliegues y una clave estable podría devolver a un
+// cliente nuevo un objeto creado por una versión anterior de la aplicación.
+const VERSION_CACHE_STAGING_BORRADOR = "v2";
 const tagStagingBorrador = (loteId: string) => `borrador-staging:${loteId}`;
 
 /**
@@ -215,7 +219,7 @@ export async function stagingBorradorLote(loteId: string): Promise<StagingBorrad
   if (total > MAX_FILAS_CACHE) return leerStagingBorrador(loteId);
   return unstable_cache(
     () => leerStagingBorrador(loteId),
-    ["borrador-staging", loteId],
+    ["borrador-staging", VERSION_CACHE_STAGING_BORRADOR, loteId],
     { tags: [tagStagingBorrador(loteId)], revalidate: 300 },
   )();
 }
