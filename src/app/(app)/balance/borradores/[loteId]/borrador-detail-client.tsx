@@ -61,6 +61,33 @@ import { expandirFilas, type FilasCompactas } from "@/lib/balance/filas-compacta
 import type { RevisionReubicacionStaging } from "@/lib/balance/staging-borrador";
 
 type Cliente = { id: number; name: string; nit: string; notas?: string | null };
+type RevisionPendiente = { justificacion: string; memorizar: boolean };
+
+/** Conserva la confirmación devuelta por la Server Action mientras el refresh de
+ *  la ruta reemplaza las props. La versión local manda hasta que el servidor
+ *  publique exactamente esa misma revisión en el nuevo payload RSC. */
+export function combinarRevisionesReubicacion(
+  servidor: RevisionReubicacionStaging[],
+  confirmadasLocalmente: RevisionReubicacionStaging[],
+): Map<number, RevisionReubicacionStaging> {
+  const revisiones = new Map<number, RevisionReubicacionStaging>();
+  for (const revision of [...confirmadasLocalmente, ...servidor]) {
+    const actual = revisiones.get(revision.filaNum);
+    if (!actual || revision.revisadaEn >= actual.revisadaEn) {
+      revisiones.set(revision.filaNum, revision);
+    }
+  }
+  return revisiones;
+}
+
+export function filtrarReubicacionesPendientes<T extends { filaNum: number }>(
+  riesgos: T[],
+  revisionesGuardadas: ReadonlyMap<number, RevisionReubicacionStaging>,
+  revisionesPendientes: Record<number, RevisionPendiente>,
+): T[] {
+  return riesgos.filter((riesgo) =>
+    !revisionesPendientes[riesgo.filaNum] && !revisionesGuardadas.has(riesgo.filaNum));
+}
 
 /** Aplica los cambios TEMPORALES (reclasificación / desacople / omitir / re-parentado)
  *  sobre las filas crudas, en memoria (misma lógica que guardar). */
@@ -137,7 +164,8 @@ export default function BorradorDetailClient({
   const [desacopladas, setDesacopladas] = useState<Record<string, boolean>>({});
   const [omitidas, setOmitidas] = useState<Record<number, boolean>>({});
   const [padres, setPadres] = useState<Record<number, number | null>>({});
-  const [revisionesPendientes, setRevisionesPendientes] = useState<Record<number, { justificacion: string; memorizar: boolean }>>({});
+  const [revisionesPendientes, setRevisionesPendientes] = useState<Record<number, RevisionPendiente>>({});
+  const [revisionesConfirmadasLocalmente, setRevisionesConfirmadasLocalmente] = useState<RevisionReubicacionStaging[]>([]);
   const [memorizarPadres, setMemorizarPadres] = useState<Record<number, boolean>>({});
   const [mover, setMover] = useState<{ filaNum: number | null; revisar?: boolean } | null>(null);
   const [gestionarAgrupadora, setGestionarAgrupadora] = useState<{ filaNum: number } | null>(null);
@@ -183,8 +211,8 @@ export default function BorradorDetailClient({
     [filasEditadas],
   );
   const revisionesGuardadasPorFila = useMemo(
-    () => new Map(revisionesReubicacion.map((revision) => [revision.filaNum, revision])),
-    [revisionesReubicacion],
+    () => combinarRevisionesReubicacion(revisionesReubicacion, revisionesConfirmadasLocalmente),
+    [revisionesReubicacion, revisionesConfirmadasLocalmente],
   );
   const revisionesGuardadasVigentes = useMemo(() => {
     const padresOriginales = new Map(filas.map((fila) => [fila.filaNum, fila.padreManual ?? null]));
@@ -192,8 +220,11 @@ export default function BorradorDetailClient({
       !(filaNum in padres) || padres[filaNum] === padresOriginales.get(filaNum)));
   }, [filas, padres, revisionesGuardadasPorFila]);
   const manipulacionesPendientes = useMemo(
-    () => manipulacionesRiesgosas.filter((riesgo) =>
-      !revisionesPendientes[riesgo.filaNum] && !revisionesGuardadasVigentes.has(riesgo.filaNum)),
+    () => filtrarReubicacionesPendientes(
+      manipulacionesRiesgosas,
+      revisionesGuardadasVigentes,
+      revisionesPendientes,
+    ),
     [manipulacionesRiesgosas, revisionesPendientes, revisionesGuardadasVigentes],
   );
   const riesgosPorFila = useMemo(
@@ -334,6 +365,11 @@ export default function BorradorDetailClient({
       );
       if (r.ok) {
         notifySuccess(r.message ?? "Cambios guardados.");
+        if (r.revisionesReubicacion?.length) {
+          setRevisionesConfirmadasLocalmente((actuales) =>
+            Array.from(combinarRevisionesReubicacion(actuales, r.revisionesReubicacion ?? []).values()),
+          );
+        }
         setOverride({});
         setDesacopladas({});
         setOmitidas({});
@@ -1099,13 +1135,16 @@ function ManipulacionesRiesgosasPanel({
 }: {
   riesgos: ManipulacionRiesgosaBorrador[];
   revisionesGuardadas: Map<number, RevisionReubicacionStaging>;
-  revisionesPendientes: Record<number, { justificacion: string; memorizar: boolean }>;
+  revisionesPendientes: Record<number, RevisionPendiente>;
   validacion: ValidacionContable;
   onRevisar: (filaNum: number) => void;
   onDeshacer: (filaNum: number) => void;
 }) {
-  const pendientes = riesgos.filter((riesgo) =>
-    !revisionesGuardadas.has(riesgo.filaNum) && !revisionesPendientes[riesgo.filaNum]);
+  const pendientes = filtrarReubicacionesPendientes(
+    riesgos,
+    revisionesGuardadas,
+    revisionesPendientes,
+  );
   const diferenciaClase = (clase: string): number | null => ({
     "1": validacion.activoDiff,
     "2": validacion.pasivoDiff,

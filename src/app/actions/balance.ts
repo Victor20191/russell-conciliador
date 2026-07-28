@@ -45,7 +45,7 @@ import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
 import type { UmbralesAlertas } from "@/lib/balance/umbrales-alertas";
 import { detectarManipulacionesRiesgosas, reclasificarHuerfanas, reclasificarSoloHojas, corregirCodigosPlaceholder, marcarNoContables, validarReubicacionesBorrador, type FilaBorrador } from "@/lib/balance/borrador";
 import { esBalancePorTercero, colapsarTerceros, esBalancePorTerceroSufijo, consolidarTercerosPorSufijo, marcarCuentaNit } from "@/lib/balance/terceros";
-import { invalidarStagingBorrador } from "@/lib/balance/staging-borrador";
+import { invalidarStagingBorrador, type RevisionReubicacionStaging } from "@/lib/balance/staging-borrador";
 import { marcarRelistadoGuiones } from "@/lib/balance/relistado";
 import { validarComentarioPromocion } from "@/lib/balance/advertencia-archivo-fuente";
 import { claveCuenta, construirCorrecciones, planAplicarCorrecciones, type CorreccionCuenta, type FilaStagingCorreccion } from "@/lib/balance/correcciones";
@@ -2091,7 +2091,7 @@ export async function aplicarCambiosBorrador(
   clienteId: number | null = null,
   revisionesReubicacion: Record<string, { justificacion: string; memorizar: boolean }> = {},
   memorizarPadres: Record<string, boolean> = {},
-): Promise<ActionState> {
+): Promise<ActionState & { revisionesReubicacion?: RevisionReubicacionStaging[] }> {
   const authz = await authorizePermiso("balance:crear");
   if (!authz.ok) return { ok: false, message: authz.message };
   const id = String(loteId ?? "").trim();
@@ -2171,6 +2171,7 @@ export async function aplicarCambiosBorrador(
     let nDes = 0;
     let nOmi = 0;
     let nPad = 0;
+    const revisionesGuardadas: RevisionReubicacionStaging[] = [];
     // Reclasificación en LOTE por destino (una consulta por dirección, no por código):
     // «Evitar doble conteo de subtotales» produce muchos códigos → agrupadora, así que un bucle
     // por código sería lento. Solo se voltea la fila si su tipo actual es el opuesto.
@@ -2203,6 +2204,7 @@ export async function aplicarCambiosBorrador(
       const padreManual = typeof destino === "number" && Number.isInteger(destino) ? destino : null;
       const riesgo = riesgosPorFila.get(filaNum);
       const revision = revisionesParsed.data[fila];
+      const revisadaEn = riesgo && revision ? new Date() : null;
       const r = await prisma.balanceImportacionStaging.updateMany({
         where: { loteId: id, filaNum },
         data: riesgo && revision
@@ -2211,7 +2213,7 @@ export async function aplicarCambiosBorrador(
               justificacionReubicacion: revision.justificacion,
               reubicacionRevisadaPor: user?.name ?? "—",
               reubicacionRevisadaPorId: user?.id ?? null,
-              reubicacionRevisadaEn: new Date(),
+              reubicacionRevisadaEn: revisadaEn,
             }
           : {
               padreManual,
@@ -2222,6 +2224,15 @@ export async function aplicarCambiosBorrador(
             },
       });
       nPad += r.count;
+      if (r.count > 0 && revision && revisadaEn) {
+        revisionesGuardadas.push({
+          filaNum,
+          justificacion: revision.justificacion,
+          revisadaPor: user?.name ?? "—",
+          revisadaPorId: user?.id ?? null,
+          revisadaEn: revisadaEn.toISOString(),
+        });
+      }
     }
     await actualizarResumenLoteBorrador(id);
     await asegurarPerfilBaseCliente(cid, user?.name ?? null);
@@ -2283,6 +2294,7 @@ export async function aplicarCambiosBorrador(
     return {
       ok: true,
       message: `Cambios guardados (${nTotal} fila${nTotal === 1 ? "" : "s"}).${nMemorizadas > 0 ? ` Se actualizaron ${nMemorizadas} corrección(es) del perfil.` : ""}${cuentasNoMemorizadas.size > 0 ? ` ${cuentasNoMemorizadas.size} reubicación(es) no se repetirán en próximas cargas.` : ""}`,
+      revisionesReubicacion: revisionesGuardadas,
     };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("aplicarCambiosBorrador", e) };
