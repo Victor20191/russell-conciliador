@@ -3,6 +3,7 @@ import {
   calcularBalance,
   construirValidacionContable,
   claseNatura,
+  MARGEN_CUADRE,
   aplanarBreakdown,
   compararBalances,
   consolidarPorCodigo,
@@ -183,18 +184,24 @@ describe("calcularBalance — saldo contrario en archivo de magnitud (SIGN-1)", 
   // Archivo en MAGNITUD (créditos en positivo) con UNA cuenta de crédito de saldo
   // contrario (deudor → llega negativa). El flip NO debe "corregirla" al signo de
   // su clase: debe preservar la anomalía y que V2 la detecte.
+  // Montos escalados (vs. la versión original con montos pequeños) para que la
+  // detección por PARTIDA DOBLE (nivel 1 del fix del flip) sea decisiva: con
+  // valores de magnitud comparable entre todas las cuentas, la cuenta contraria
+  // (-50.001) deja de ser un valor atípico que por sí solo domine la suma total,
+  // igual que en un balance real donde una anomalía puntual es pequeña frente al
+  // total de cuentas correctamente firmadas.
   const CUENTAS: CuentaCruda[] = [
-    { code: "110505", name: "Caja", prevBalance: 1000, balance: 2000 }, // D normal +
-    { code: "111005", name: "Bancos", prevBalance: 3000, balance: 3000 }, // D normal +
-    { code: "220505", name: "Proveedores", prevBalance: 1500, balance: 1500 }, // C normal + (magnitud)
-    { code: "240805", name: "IVA", prevBalance: 500, balance: 500 }, // C normal +
-    { code: "310505", name: "Capital", prevBalance: 4000, balance: 4000 }, // C normal +
+    { code: "110505", name: "Caja", prevBalance: 200_000, balance: 200_000 }, // D normal +
+    { code: "111005", name: "Bancos", prevBalance: 300_000, balance: 300_000 }, // D normal +
+    { code: "220505", name: "Proveedores", prevBalance: 150_000, balance: 150_000 }, // C normal + (magnitud)
+    { code: "240805", name: "IVA", prevBalance: 50_000, balance: 50_000 }, // C normal +
+    { code: "310505", name: "Capital", prevBalance: 350_000, balance: 350_000 }, // C normal +
     { code: "413505", name: "Ventas (saldo deudor)", prevBalance: 0, balance: -50_001 }, // C contrario → negativo
   ];
   const r = calcularBalance(CUENTAS, STD);
 
   it("detecta la convención magnitud y voltea los créditos normales", () => {
-    expect(r.breakdown.find((g) => g.code === "22")?.balance).toBe(-1500);
+    expect(r.breakdown.find((g) => g.code === "22")?.balance).toBe(-150_000);
   });
 
   it("preserva el saldo contrario (no lo fuerza a -|v|) y V2 alerta si supera $50.000", () => {
@@ -204,6 +211,92 @@ describe("calcularBalance — saldo contrario en archivo de magnitud (SIGN-1)", 
     const v2 = r.validations.find((v) => v.id === "V2");
     expect(v2?.status).toBe("warn");
     expect(v2?.count).toBe(1);
+  });
+});
+
+// ------------------------------------------------------------------
+// Regresión del bug de producción (lote CIB, "Balance por tercero"): la
+// convención de signos se decidía CONTANDO filas de crédito positivas vs
+// negativas. En un balance por tercero, muchas cuentas pequeñas con saldo
+// contrario legítimo (p. ej. grupo 28) le "ganan la votación" a pocas cuentas
+// grandes correctamente firmadas, y el archivo terminaba invertido aunque ya
+// cuadraba a $0 exacto. El fix decide por PARTIDA DOBLE (Σ balance firmado de
+// clases 1–7 sin flip vs con flip, la de menor |Σ| gana) y solo cae a un
+// respaldo por MAGNITUD ACUMULADA (no por conteo) cuando esa suma empata.
+// ------------------------------------------------------------------
+describe("calcularBalance — convención de signos: partida doble vs. conteo (CIB)", () => {
+  it("archivo YA firmado que cuadra a 0, con MUCHAS cuentas crédito pequeñas en saldo contrario vs POCAS grandes correctas: el flip NO se activa", () => {
+    // Pasivo: 2 cuentas grandes correctamente firmadas (−700.000 y −100.000) +
+    // 10 cuentas pequeñas del grupo 28 en saldo contrario (+2.000 c/u, +20.000
+    // en total) → por CONTEO, positivas (10) > negativas (2): el bug antiguo
+    // volteaba. Por SUMA, el archivo ya cuadra (Σ = 0) sin flip.
+    const grandes: CuentaCruda[] = [
+      { code: "220505", name: "Proveedores", prevBalance: -700_000, balance: -700_000 },
+      { code: "230505", name: "Cuentas por pagar", prevBalance: -100_000, balance: -100_000 },
+    ];
+    const pequenas: CuentaCruda[] = Array.from({ length: 10 }, (_, i) => {
+      const code = `280${String(i + 1).padStart(3, "0")}`;
+      return { code, name: `Saldo contrario tercero ${i + 1}`, prevBalance: 2_000, balance: 2_000 };
+    });
+    const CUENTAS: CuentaCruda[] = [
+      { code: "110505", name: "Caja", prevBalance: 980_000, balance: 980_000 }, // Activo
+      { code: "413505", name: "Ventas", prevBalance: -200_000, balance: -200_000 }, // Ingresos, ya firmado
+      ...grandes,
+      ...pequenas,
+    ];
+    const r = calcularBalance(CUENTAS, STD);
+
+    // El archivo YA cuadraba a 0 sin flip: se conserva tal cual.
+    expect(r.balanced).toBe(true);
+    expect(r.diffCuadre).toBe(0);
+    // Ingresos debe salir POSITIVO (antes del fix salía negativo por el flip indebido).
+    expect(r.sums.ingresos).toBe(200_000);
+    expect(r.sums.utilidad).toBe(200_000); // ingresos − gastos(0) − costos(0)
+    // Las cuentas grandes conservan su signo crudo (no se invirtieron).
+    const proveedores = r.breakdown.find((g) => g.code === "22")?.items[0];
+    expect(proveedores?.balance).toBe(-700_000);
+    // Los saldos contrarios pequeños se preservan tal cual vienen (no se "corrigen").
+    const contrario = r.breakdown.find((g) => g.code === "28")?.items[0];
+    expect(contrario?.balance).toBe(2_000);
+    expect(contrario?.saldoOk).toBe(false);
+  });
+
+  it("archivo en magnitud (todo positivo) que cuadra bajo flip: el flip SÍ se activa (preserva el comportamiento actual)", () => {
+    // Mismo patrón que arriba pero exportado en magnitud (créditos en positivo):
+    // aquí la partida doble YA es decisiva a favor del flip (no hace falta el
+    // respaldo por conteo ni por magnitud).
+    const CUENTAS: CuentaCruda[] = [
+      { code: "110505", name: "Caja", prevBalance: 1_000_000, balance: 1_000_000 }, // Activo
+      { code: "413505", name: "Ventas", prevBalance: 200_000, balance: 200_000 }, // Ingresos en magnitud
+      { code: "220505", name: "Proveedores", prevBalance: 700_000, balance: 700_000 },
+      { code: "230505", name: "Cuentas por pagar", prevBalance: 100_000, balance: 100_000 },
+    ];
+    const r = calcularBalance(CUENTAS, STD);
+    expect(r.balanced).toBe(true);
+    expect(r.diffCuadre).toBe(0);
+    expect(r.sums.ingresos).toBe(200_000);
+    expect(r.breakdown.find((g) => g.code === "22")?.items[0]?.balance).toBe(-700_000);
+  });
+
+  it("archivo en magnitud genuinamente DESCUADRADO (solo cuentas crédito, nivel 1 empata): el respaldo por magnitud acumulada decide el flip", () => {
+    // Sin ninguna cuenta débito, la suma con y sin flip SIEMPRE empata en valor
+    // absoluto (Σ = C y Σ = −C respectivamente) — nivel 1 no aporta información
+    // y se cae al respaldo por magnitud: 8.000 en créditos positivos (magnitud)
+    // vs 1.000 en créditos negativos → flip.
+    const CUENTAS: CuentaCruda[] = [
+      { code: "220505", name: "Proveedores", prevBalance: 0, balance: 5_000 },
+      { code: "230505", name: "Cuentas por pagar", prevBalance: 0, balance: 3_000 },
+      { code: "250505", name: "Obligaciones laborales", prevBalance: 0, balance: -1_000 },
+    ];
+    const r = calcularBalance(CUENTAS, STD);
+    const proveedores = r.breakdown.find((g) => g.code === "22")?.items[0];
+    expect(proveedores?.balance).toBe(-5_000); // flip aplicado
+    const obligaciones = r.breakdown.find((g) => g.code === "25")?.items[0];
+    expect(obligaciones?.balance).toBe(1_000); // saldo contrario preservado tras el flip
+    expect(obligaciones?.saldoOk).toBe(false);
+    // Descuadre genuino: no hay corrección posible, queda fuera de margen.
+    expect(r.balanced).toBe(false);
+    expect(Math.abs(r.diffCuadre)).toBeGreaterThan(MARGEN_CUADRE);
   });
 });
 
@@ -481,7 +574,15 @@ describe("construirValidacionContable — borrador A/P/Patrimonio (archivo vs ca
 
   it("patrimonio NEGATIVO (déficit) cruza con el archivo cuando las magnitudes coinciden", () => {
     // Capital (crédito, −100) + pérdidas acumuladas (débito, +180) → patrimonio neto −80 (déficit).
+    // Se agregan Caja (débito) y Proveedores (crédito, ya firmado) para que la
+    // detección de flip por partida doble tenga clases débito Y crédito y sea
+    // DECISIVA (Σ = 0 sin flip): con solo cuentas de clase 3 (todas de la misma
+    // naturaleza), el nivel 1 empataría estructuralmente por construcción — el
+    // empate no dice nada sobre esta cuenta en particular, así que se completa el
+    // archivo para que se parezca a uno real y quede fuera de ambigüedad.
     const c = calcularBalance([
+      { code: "110505", name: "Caja", prevBalance: 0, balance: 620 },
+      { code: "220505", name: "Proveedores", prevBalance: 0, balance: -700 },
       { code: "310505", name: "Capital", prevBalance: 0, balance: -100 },
       { code: "360505", name: "Pérdidas acumuladas", prevBalance: 0, balance: 180 },
     ], STD);

@@ -498,10 +498,33 @@ export function calcularBalance(
   //    (las cuentas de crédito quedan negativas). Si el archivo trae magnitudes
   //    (todo positivo), las cuentas de naturaleza crédito aparecen en positivo:
   //    se detecta y se normalizan invirtiendo su signo.
+  //
+  //    Nivel 1 (partida doble): se prueban AMBAS convenciones sobre las clases
+  //    de balance (1–7; se excluyen 8/9, igual que el cuadre de `agregarDetalle`)
+  //    y se elige la que cuadre mejor (|Σ saldos firmados| menor). Es infalible
+  //    cuando el archivo cuadra o casi cuadra: uno YA firmado da Σ≈0 sin flip;
+  //    uno en magnitudes da Σ≈0 con flip.
+  //    Nivel 2 (respaldo, solo si el nivel 1 empata o no aporta información):
+  //    se decide por MAGNITUD ACUMULADA de las cuentas crédito, NO por conteo
+  //    de filas — un conteo deja que muchas cuentas pequeñas en saldo
+  //    contrario le "ganen la votación" a pocas cuentas grandes bien firmadas
+  //    (caso real: balance por tercero con decenas de auxiliares en saldo
+  //    contrario menor frente a unas pocas cuentas grandes).
   const creditos = mapeadas.filter((m) => m.nature === "C");
-  const creditosPositivos = creditos.filter((m) => m.balance > 0).length;
-  const creditosNegativos = creditos.filter((m) => m.balance < 0).length;
-  const flip = creditos.length > 0 && creditosPositivos > creditosNegativos;
+  let flip = false;
+  if (creditos.length > 0) {
+    const paraCuadreSigno = mapeadas.filter((m) => m.code.charAt(0) !== "8" && m.code.charAt(0) !== "9");
+    const sinFlip = sum(paraCuadreSigno.map((m) => m.balance));
+    const conFlip = sum(paraCuadreSigno.map((m) => (m.nature === "C" ? -m.balance : m.balance)));
+    const EPS = 0.01; // margen de redondeo (centavos)
+    if (Math.abs(Math.abs(sinFlip) - Math.abs(conFlip)) > EPS) {
+      flip = Math.abs(conFlip) < Math.abs(sinFlip);
+    } else {
+      const magPositiva = sum(creditos.filter((m) => m.balance > 0).map((m) => Math.abs(m.balance)));
+      const magNegativa = sum(creditos.filter((m) => m.balance < 0).map((m) => Math.abs(m.balance)));
+      flip = magPositiva > magNegativa;
+    }
+  }
   // Bajo magnitud se INVIERTE el signo de las cuentas de naturaleza crédito
   // (no se fuerza a -Math.abs): así una cuenta crédito con saldo deudor —saldo
   // contrario legítimo a su naturaleza— conserva su anomalía y la validación V2
