@@ -268,6 +268,74 @@ export function construirArbolBorrador(filas: FilaBorrador[], tol = 1): NodoBorr
   return roots;
 }
 
+// ---- Detección de manipulaciones riesgosas: reclasificación de clase vía padreManual ----
+
+/** CLASE contable (primer dígito del código PUC) de una cuenta ya normalizada (`codigo`
+ *  viene "" si no es numérica, ver `FilaBorrador.codigo`). Es la clase "efectiva" porque
+ *  se lee del código YA resuelto (tras `corregirCodigosPlaceholder`, si aplicó), no de un
+ *  rótulo o nombre — el mismo criterio que usa `claseNatura` en `calcular.ts`. */
+export const claseContableBorrador = (codigo: string): string => codigo.charAt(0);
+
+/** Clases 6 (costo de ventas) y 7 (costo de producción) son intercambiables en la
+ *  práctica (el mismo desembolso se registra en una u otra según el ERP/política del
+ *  cliente): reclasificar entre ellas NO es una manipulación. Cualquier otro cruce de
+ *  clase (p. ej. 2→1, esconder un pasivo dentro del activo) sí lo es. */
+export const clasesContablesCompatibles = (a: string, b: string): boolean =>
+  a === b || (a === "6" && b === "7") || (a === "7" && b === "6");
+
+export type ManipulacionRiesgosaBorrador = {
+  filaNum: number;
+  codigo: string;
+  codigoCrudo: string;
+  nombre: string;
+  monto: number;
+  claseOrigen: string;
+  claseDestino: string;
+  destino: { filaNum: number; codigo: string; codigoCrudo: string; nombre: string };
+};
+
+/**
+ * Detecta reubicaciones MANUALES (`padreManual`, el "tabulador" del borrador) que cruzan
+ * de CLASE contable: un movimiento ACTIVO (no omitido) reasignado a mano bajo una
+ * agrupadora cuya clase efectiva difiere de la suya — p. ej. `28059501` (clase 2, pasivo)
+ * colgada bajo una cuenta de clase 1 (activo) para "esconder" el pasivo. Es la señal de
+ * manipulación más simple y más grave: cambia en qué gran masa del balance (Activo /
+ * Pasivo / Patrimonio / Ingreso / Gasto / Costo) termina reportándose la cuenta, sin
+ * tocar su código ni su saldo — por eso NO basta con mirar el árbol ya armado, hay que
+ * mirar el `padreManual` explícito.
+ *
+ * Puro (sin BD ni IA): recorre `filas`, el mismo insumo de `construirArbolBorrador`, y
+ * resuelve el destino por `filaNum` dentro de la propia lista (no necesita el árbol
+ * construido). Omite las filas `omitida` (no cuentan) y las que no tengan `padreManual`
+ * o cuyo destino no exista o no sea una cuenta numérica evaluable.
+ */
+export function detectarManipulacionesRiesgosas(filas: FilaBorrador[]): ManipulacionRiesgosaBorrador[] {
+  const porFila = new Map(filas.map((f) => [f.filaNum, f]));
+  const hallazgos: ManipulacionRiesgosaBorrador[] = [];
+  for (const f of filas) {
+    if (f.omitida) continue; // solo movimientos ACTIVOS (no tachados)
+    if (!esHojaMovimiento(f.tipoFila)) continue; // movimientos y descuadres son hojas contables
+    if (f.padreManual == null) continue; // solo reubicaciones MANUALES (tabulador)
+    const destino = porFila.get(f.padreManual);
+    if (!destino) continue; // destino inexistente (quedó huérfano tras otro cambio)
+    const claseOrigen = claseContableBorrador(f.codigo);
+    const claseDestino = claseContableBorrador(destino.codigo);
+    if (!claseOrigen || !claseDestino) continue; // código no numérico: no evaluable
+    if (clasesContablesCompatibles(claseOrigen, claseDestino)) continue;
+    hallazgos.push({
+      filaNum: f.filaNum,
+      codigo: f.codigo,
+      codigoCrudo: f.codigoCrudo,
+      nombre: f.nombre,
+      monto: f.saldoFinal,
+      claseOrigen,
+      claseDestino,
+      destino: { filaNum: destino.filaNum, codigo: destino.codigo, codigoCrudo: destino.codigoCrudo, nombre: destino.nombre },
+    });
+  }
+  return hallazgos.sort((a, b) => a.filaNum - b.filaNum);
+}
+
 /**
  * Reclasifica a MOVIMIENTO las agrupadoras HUÉRFANAS: nodos marcados como
  * agrupadora que en el árbol NO tienen ningún hijo y traen movimiento (saldo o

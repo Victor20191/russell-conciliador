@@ -49,6 +49,10 @@ type FilaStagingBD = {
   desacoplada: boolean;
   omitida: boolean | null;
   padreManual: number | null;
+  justificacionReubicacion: string | null;
+  reubicacionRevisadaPor: string | null;
+  reubicacionRevisadaPorId: number | null;
+  reubicacionRevisadaEn: Date | null;
 };
 
 function lecturaPorTercero(heuristicas: unknown): boolean {
@@ -67,6 +71,17 @@ export type StagingBorrador = {
   filasCompactas: FilasCompactas;
   /** El archivo viene abierto por tercero (heurística de lectura ∪ NIT ∪ sufijo). */
   porTercero: boolean;
+  /** Solo las pocas reubicaciones que ya fueron revisadas; viajan separadas para no
+   *  engordar cada tupla del balance con cuatro campos casi siempre nulos. */
+  revisionesReubicacion: RevisionReubicacionStaging[];
+};
+
+export type RevisionReubicacionStaging = {
+  filaNum: number;
+  justificacion: string;
+  revisadaPor: string | null;
+  revisadaPorId: number | null;
+  revisadaEn: string;
 };
 
 async function leerStagingBorrador(loteId: string): Promise<StagingBorrador | null> {
@@ -98,7 +113,11 @@ async function leerStagingBorrador(loteId: string): Promise<StagingBorrador | nu
           saldo_final AS "saldoFinal",
           desacoplada,
           omitida,
-          padre_manual AS "padreManual"
+          padre_manual AS "padreManual",
+          justificacion_reubicacion AS "justificacionReubicacion",
+          reubicacion_revisada_por AS "reubicacionRevisadaPor",
+          reubicacion_revisada_por_id AS "reubicacionRevisadaPorId",
+          reubicacion_revisada_en AS "reubicacionRevisadaEn"
         FROM balance_importacion_staging
         WHERE lote_id = ${loteId}
           AND NOT (
@@ -136,6 +155,10 @@ async function leerStagingBorrador(loteId: string): Promise<StagingBorrador | nu
           desacoplada: true,
           omitida: true,
           padreManual: true,
+          justificacionReubicacion: true,
+          reubicacionRevisadaPor: true,
+          reubicacionRevisadaPorId: true,
+          reubicacionRevisadaEn: true,
         },
       });
   if (filasStaging.length === 0) return null;
@@ -155,8 +178,23 @@ async function leerStagingBorrador(loteId: string): Promise<StagingBorrador | nu
   const porTerceroNit = esBalancePorTercero(filasCrudas);
   const filas = porTerceroNit ? colapsarTerceros(filasCrudas) : filasCrudas;
   const porTerceroSufijo = esBalancePorTerceroSufijo(filas);
+  const revisionesReubicacion = filasStaging.flatMap<RevisionReubicacionStaging>((f) =>
+    f.justificacionReubicacion && f.reubicacionRevisadaEn
+      ? [{
+          filaNum: f.filaNum,
+          justificacion: f.justificacionReubicacion,
+          revisadaPor: f.reubicacionRevisadaPor,
+          revisadaPorId: f.reubicacionRevisadaPorId,
+          revisadaEn: f.reubicacionRevisadaEn.toISOString(),
+        }]
+      : [],
+  );
 
-  return { filasCompactas: compactarFilas(filas), porTercero: porTerceroDetectado || porTerceroNit || porTerceroSufijo };
+  return {
+    filasCompactas: compactarFilas(filas),
+    porTercero: porTerceroDetectado || porTerceroNit || porTerceroSufijo,
+    revisionesReubicacion,
+  };
 }
 
 // El Data Cache rechaza entradas de más de 2 MB (con un unhandledRejection en cada

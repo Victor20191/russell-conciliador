@@ -36,6 +36,10 @@ export type FilaStagingCorreccion = {
   desacoplada: boolean;
   omitida: boolean | null;
   padreManual: number | null;
+  justificacionReubicacion?: string | null;
+  reubicacionRevisadaPor?: string | null;
+  reubicacionRevisadaPorId?: number | null;
+  reubicacionRevisadaEn?: Date | null;
 };
 
 /** Corrección memorizada por cuenta (espejo de `correcciones_carga_balance`). */

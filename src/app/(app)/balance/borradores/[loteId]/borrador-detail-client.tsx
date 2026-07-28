@@ -16,8 +16,11 @@ import type { ImportBalanceState } from "@/lib/import/balance";
 import { construirVistaBorrador } from "@/lib/balance/borrador-vm";
 import {
   compararTotalesAgrupacion,
+  clasesContablesCompatibles,
+  claseContableBorrador,
   construirIndiceReubicacion,
   contextoTabulador,
+  detectarManipulacionesRiesgosas,
   destinosReubicacion,
   esDestinoSugerido,
   normalizarBusquedaCuenta,
@@ -28,6 +31,7 @@ import {
   type CuentaReubicacion,
   type FilaBorrador,
   type IndiceReubicacion,
+  type ManipulacionRiesgosaBorrador,
   type NodoBorrador,
 } from "@/lib/balance/borrador";
 import { nombreNivelCuenta } from "@/lib/balance/nivel-cuenta";
@@ -54,6 +58,7 @@ import {
   siguienteRevelado,
 } from "@/components/revelado-progresivo";
 import { expandirFilas, type FilasCompactas } from "@/lib/balance/filas-compactas";
+import type { RevisionReubicacionStaging } from "@/lib/balance/staging-borrador";
 
 type Cliente = { id: number; name: string; nit: string; notas?: string | null };
 
@@ -91,7 +96,7 @@ function aplicarCambios(
 }
 
 export default function BorradorDetailClient({
-  loteId, archivoNombre, nitDetectado, periodoInicial, periodoFinal, filasCompactas, porTerceroDetectado, clientes, clienteSugeridoId, spec, correccionesAplicadas, umbrales,
+  loteId, archivoNombre, nitDetectado, periodoInicial, periodoFinal, filasCompactas, porTerceroDetectado, revisionesReubicacion, clientes, clienteSugeridoId, spec, correccionesAplicadas, umbrales,
 }: {
   loteId: string;
   archivoNombre: string;
@@ -102,6 +107,7 @@ export default function BorradorDetailClient({
    *  payload RSC en balances por tercero de decenas de miles de filas. */
   filasCompactas: FilasCompactas;
   porTerceroDetectado: boolean;
+  revisionesReubicacion: RevisionReubicacionStaging[];
   clientes: Cliente[];
   clienteSugeridoId: number | null;
   spec: SpecCarga | null;
@@ -131,7 +137,9 @@ export default function BorradorDetailClient({
   const [desacopladas, setDesacopladas] = useState<Record<string, boolean>>({});
   const [omitidas, setOmitidas] = useState<Record<number, boolean>>({});
   const [padres, setPadres] = useState<Record<number, number | null>>({});
-  const [mover, setMover] = useState<{ filaNum: number | null } | null>(null);
+  const [revisionesPendientes, setRevisionesPendientes] = useState<Record<number, { justificacion: string; memorizar: boolean }>>({});
+  const [memorizarPadres, setMemorizarPadres] = useState<Record<number, boolean>>({});
+  const [mover, setMover] = useState<{ filaNum: number | null; revisar?: boolean } | null>(null);
   const [gestionarAgrupadora, setGestionarAgrupadora] = useState<{ filaNum: number } | null>(null);
   const [enfoqueReubicacion, setEnfoqueReubicacion] = useState<{ origen: number; destino: number | null; secuencia: number } | null>(null);
   const [soloHojas, setSoloHojas] = useState(false); // export jerárquico: solo cuentan las hojas
@@ -156,15 +164,41 @@ export default function BorradorDetailClient({
   }, [filas, soloHojas, override]);
   const nCambios = Object.keys(overrideEfectivo).length + Object.keys(desacopladas).length + Object.keys(omitidas).length + Object.keys(padres).length;
   const hayCambios = nCambios > 0;
+  const filasEditadas = useMemo(
+    () => aplicarCambios(filas, overrideEfectivo, desacopladas, omitidas, padres),
+    [filas, overrideEfectivo, desacopladas, omitidas, padres],
+  );
   // View-model recomputado LOCALMENTE con los cambios temporales (sin tocar la BD).
   const { arbol, validacion, partidaDoble, hallazgos, porTercero: porTerceroCalculado, relistadoGuiones, filasOcultas, clasesCorregidas, nitTachados } = useMemo(
     () => construirVistaBorrador(
-      aplicarCambios(filas, overrideEfectivo, desacopladas, omitidas, padres),
+      filasEditadas.map((fila) => ({ ...fila })),
       // consolidarAuxiliares: SOLO para la vista — agrupa por auxiliar los balances
       // abiertos por NIT (mismo código repetido). El staging y la exportación no cambian.
       { preservarAgrupadorasForzadas: true, consolidarAuxiliares: true, umbrales },
     ),
-    [filas, overrideEfectivo, desacopladas, omitidas, padres, umbrales],
+    [filasEditadas, umbrales],
+  );
+  const manipulacionesRiesgosas = useMemo(
+    () => detectarManipulacionesRiesgosas(filasEditadas),
+    [filasEditadas],
+  );
+  const revisionesGuardadasPorFila = useMemo(
+    () => new Map(revisionesReubicacion.map((revision) => [revision.filaNum, revision])),
+    [revisionesReubicacion],
+  );
+  const revisionesGuardadasVigentes = useMemo(() => {
+    const padresOriginales = new Map(filas.map((fila) => [fila.filaNum, fila.padreManual ?? null]));
+    return new Map([...revisionesGuardadasPorFila].filter(([filaNum]) =>
+      !(filaNum in padres) || padres[filaNum] === padresOriginales.get(filaNum)));
+  }, [filas, padres, revisionesGuardadasPorFila]);
+  const manipulacionesPendientes = useMemo(
+    () => manipulacionesRiesgosas.filter((riesgo) =>
+      !revisionesPendientes[riesgo.filaNum] && !revisionesGuardadasVigentes.has(riesgo.filaNum)),
+    [manipulacionesRiesgosas, revisionesPendientes, revisionesGuardadasVigentes],
+  );
+  const riesgosPorFila = useMemo(
+    () => new Map(manipulacionesRiesgosas.map((riesgo) => [riesgo.filaNum, riesgo])),
+    [manipulacionesRiesgosas],
   );
   const porTercero = porTerceroDetectado || porTerceroCalculado;
   const advertenciaArchivoFuente = esDescuadreDelArchivoFuente(
@@ -236,8 +270,22 @@ export default function BorradorDetailClient({
   const onDesacoplar = (codigo: string, desacopladaAhora: boolean) => setDesacopladas((d) => ({ ...d, [codigo]: !desacopladaAhora }));
   const onOmitir = (filaNum: number, omitidaAhora: boolean) => setOmitidas((o) => ({ ...o, [filaNum]: !omitidaAhora }));
   const onUbicar = (filaNum: number) => setMover({ filaNum });
-  const aplicarReubicacion = (filaNum: number, destino: number | null) => {
+  const aplicarReubicacion = (
+    filaNum: number,
+    destino: number | null,
+    revision?: { justificacion: string; memorizar: boolean },
+  ) => {
     setPadres((m) => ({ ...m, [filaNum]: destino }));
+    setMemorizarPadres((actual) => ({
+      ...actual,
+      [filaNum]: revision?.memorizar ?? (destino != null),
+    }));
+    setRevisionesPendientes((actual) => {
+      const siguiente = { ...actual };
+      if (revision) siguiente[filaNum] = revision;
+      else delete siguiente[filaNum];
+      return siguiente;
+    });
     setEnfoqueReubicacion((actual) => ({ origen: filaNum, destino, secuencia: (actual?.secuencia ?? 0) + 1 }));
     setMover(null);
   };
@@ -261,13 +309,40 @@ export default function BorradorDetailClient({
     const p = posiciones.get(filaNum);
     if (p?.abuelo != null) aplicarReubicacion(filaNum, p.abuelo);
   };
-  const descartarCambios = () => { setOverride({}); setDesacopladas({}); setOmitidas({}); setPadres({}); setSoloHojas(false); };
+  const descartarCambios = () => {
+    setOverride({});
+    setDesacopladas({});
+    setOmitidas({});
+    setPadres({});
+    setRevisionesPendientes({});
+    setMemorizarPadres({});
+    setSoloHojas(false);
+  };
   const guardarCambios = () =>
     startGuardar(async () => {
       // El cliente seleccionado viaja para MEMORIZAR las correcciones en su perfil
       // (si no hay, el servidor lo resuelve por el lote/NIT).
-      const r = await aplicarCambiosBorrador(loteId, overrideEfectivo, desacopladas, omitidas, padres, clienteSelId);
-      if (r.ok) { notifySuccess(r.message ?? "Cambios guardados."); setOverride({}); setDesacopladas({}); setOmitidas({}); setPadres({}); setSoloHojas(false); router.refresh(); }
+      const r = await aplicarCambiosBorrador(
+        loteId,
+        overrideEfectivo,
+        desacopladas,
+        omitidas,
+        padres,
+        clienteSelId,
+        revisionesPendientes,
+        memorizarPadres,
+      );
+      if (r.ok) {
+        notifySuccess(r.message ?? "Cambios guardados.");
+        setOverride({});
+        setDesacopladas({});
+        setOmitidas({});
+        setPadres({});
+        setRevisionesPendientes({});
+        setMemorizarPadres({});
+        setSoloHojas(false);
+        router.refresh();
+      }
       else notifyError(r.message ?? "No se pudieron guardar los cambios.");
     });
 
@@ -436,6 +511,16 @@ export default function BorradorDetailClient({
           </span>
         </div>
       )}
+      {manipulacionesRiesgosas.length > 0 && (
+        <ManipulacionesRiesgosasPanel
+          riesgos={manipulacionesRiesgosas}
+          revisionesGuardadas={revisionesGuardadasVigentes}
+          revisionesPendientes={revisionesPendientes}
+          validacion={validacion}
+          onRevisar={(filaNum) => setMover({ filaNum, revisar: true })}
+          onDeshacer={(filaNum) => aplicarReubicacion(filaNum, null)}
+        />
+      )}
       <ValidacionHeader
         v={validacion}
         pd={partidaDoble}
@@ -457,10 +542,11 @@ export default function BorradorDetailClient({
         // cuadran con su desglose. La fuente conserva el contexto completo para los
         // cálculos y las correcciones deterministas del borrador.
         const hh = hallazgos.filter((h) => h.tipo !== "partida_doble" && h.tipo !== "ecuacion" && h.tipo !== "clase");
+        const diferenciasClase = hallazgos.filter((h) => h.tipo === "clase").length;
         // Se monta SIEMPRE, con o sin hallazgos: montarlo y desmontarlo según el resultado
         // movía la tabla ~66 px en cada omisión o reclasificación (los hallazgos cambian con
         // cada edición) y el usuario perdía el punto donde iba. Colapsado su alto es fijo.
-        return <DiagnosticoPanel hallazgos={hh} />;
+        return <DiagnosticoPanel hallazgos={hh} diferenciasClase={diferenciasClase} manipulaciones={manipulacionesRiesgosas.length} />;
       })()}
 
       <Card className="overflow-hidden">
@@ -516,7 +602,7 @@ export default function BorradorDetailClient({
             <button type="button" onClick={descartarCambios} disabled={!hayCambios || guardando} className="rounded-md border border-ink-300 px-3 py-1.5 text-[12px] font-medium text-ink-700 hover:bg-ink-50 disabled:opacity-45">Descartar cambios</button>
           </div>
         </div>
-        <ArbolTabla arbol={arbol} onReclasificar={onReclasificar} onGestionarAgrupadora={(filaNum) => setGestionarAgrupadora({ filaNum })} onDesacoplar={onDesacoplar} onOmitir={onOmitir} posiciones={posiciones} contexto={contexto} onUbicar={onUbicar} onDesindentar={onDesindentar} enfoqueReubicacion={enfoqueReubicacion} umbrales={umbrales} />
+        <ArbolTabla arbol={arbol} riesgosPorFila={riesgosPorFila} onReclasificar={onReclasificar} onGestionarAgrupadora={(filaNum) => setGestionarAgrupadora({ filaNum })} onDesacoplar={onDesacoplar} onOmitir={onOmitir} posiciones={posiciones} contexto={contexto} onUbicar={onUbicar} onDesindentar={onDesindentar} enfoqueReubicacion={enfoqueReubicacion} umbrales={umbrales} />
       </Card>
 
       {spec && (
@@ -538,7 +624,18 @@ export default function BorradorDetailClient({
       )}
 
       {mover != null && (
-        <MoverModal indice={indiceReubicacion} filaNumInicial={mover.filaNum} onConfirmar={aplicarReubicacion} onClose={() => setMover(null)} />
+        <MoverModal
+          indice={indiceReubicacion}
+          filaNumInicial={mover.filaNum}
+          revisarActual={mover.revisar}
+          revisionInicial={mover.filaNum == null
+            ? null
+            : revisionesPendientes[mover.filaNum]?.justificacion
+              ?? revisionesGuardadasVigentes.get(mover.filaNum)?.justificacion
+              ?? null}
+          onConfirmar={aplicarReubicacion}
+          onClose={() => setMover(null)}
+        />
       )}
 
       {gestionarAgrupadora != null && (
@@ -648,10 +745,15 @@ export default function BorradorDetailClient({
               Escribe el comentario obligatorio en la advertencia del archivo fuente para continuar.
             </p>
           ) : null}
+          {manipulacionesPendientes.length > 0 ? (
+            <p className="text-[11.5px] font-medium text-err-700">
+              Revisa y justifica {manipulacionesPendientes.length} reubicación(es) entre clases contables antes de cargar.
+            </p>
+          ) : null}
           <div className="flex items-center gap-2">
             <button
               type="submit"
-              disabled={cargando || asignandoCliente || guardandoPeriodo || hayCambios || clienteSelId == null || !periodoIni || !periodoFin || faltaComentarioPromocion}
+              disabled={cargando || asignandoCliente || guardandoPeriodo || hayCambios || clienteSelId == null || !periodoIni || !periodoFin || faltaComentarioPromocion || manipulacionesPendientes.length > 0}
               title={
                 clienteSelId == null || !periodoIni || !periodoFin
                   ? "Falta el cliente o el período"
@@ -659,6 +761,8 @@ export default function BorradorDetailClient({
                     ? "Guarda o descarta los cambios antes de cargar"
                     : faltaComentarioPromocion
                       ? "Falta el comentario obligatorio"
+                      : manipulacionesPendientes.length > 0
+                        ? "Hay reubicaciones entre clases contables pendientes de revisión"
                       : undefined
               }
               className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
@@ -975,12 +1079,128 @@ function MiniDato({ k, v, archivo, cuadra, diff, umbrales }: { k: string; v: num
   );
 }
 
+const nombreClaseContable = (clase: string) => ({
+  "1": "Activo",
+  "2": "Pasivo",
+  "3": "Patrimonio",
+  "4": "Ingresos",
+  "5": "Gastos",
+  "6": "Costos",
+  "7": "Costos",
+}[clase] ?? `Clase ${clase}`);
+
+function ManipulacionesRiesgosasPanel({
+  riesgos,
+  revisionesGuardadas,
+  revisionesPendientes,
+  validacion,
+  onRevisar,
+  onDeshacer,
+}: {
+  riesgos: ManipulacionRiesgosaBorrador[];
+  revisionesGuardadas: Map<number, RevisionReubicacionStaging>;
+  revisionesPendientes: Record<number, { justificacion: string; memorizar: boolean }>;
+  validacion: ValidacionContable;
+  onRevisar: (filaNum: number) => void;
+  onDeshacer: (filaNum: number) => void;
+}) {
+  const pendientes = riesgos.filter((riesgo) =>
+    !revisionesGuardadas.has(riesgo.filaNum) && !revisionesPendientes[riesgo.filaNum]);
+  const diferenciaClase = (clase: string): number | null => ({
+    "1": validacion.activoDiff,
+    "2": validacion.pasivoDiff,
+    "3": validacion.patrimonioDiff,
+    "4": validacion.ingresosDiff,
+    "5": validacion.gastosDiff,
+    "6": validacion.costosDiff,
+    "7": validacion.costosDiff,
+  }[clase] ?? null);
+
+  return (
+    <section className={`overflow-hidden rounded-lg border border-l-4 shadow-sm ${pendientes.length > 0 ? "border-err-200 border-l-err-500 bg-err-50" : "border-warn-200 border-l-warn-500 bg-warn-50"}`}>
+      <div className="flex flex-wrap items-start justify-between gap-3 px-4 py-3">
+        <div>
+          <div className={`text-[11px] font-semibold uppercase tracking-wider ${pendientes.length > 0 ? "text-err-700" : "text-warn-700"}`}>
+            Control de manipulaciones manuales
+          </div>
+          <p className="mt-0.5 text-[12.5px] font-semibold text-ink-800">
+            {pendientes.length > 0
+              ? `${pendientes.length} reubicación(es) riesgosa(s) pendiente(s) de revisión`
+              : `${riesgos.length} reubicación(es) entre clases revisada(s)`}
+          </p>
+          <p className="mt-0.5 text-[11.5px] text-ink-600">
+            Estas cuentas conservan su código, pero fueron movidas manualmente a una masa contable distinta.
+          </p>
+        </div>
+        <span className={`rounded-full border bg-white px-2 py-1 text-[10px] font-semibold ${pendientes.length > 0 ? "border-err-200 text-err-700" : "border-warn-200 text-warn-700"}`}>
+          {pendientes.length > 0 ? "Bloquea la carga" : "Revisado"}
+        </span>
+      </div>
+      <div className="border-t border-black/5 bg-white/70">
+        {riesgos.map((riesgo) => {
+          const guardada = revisionesGuardadas.get(riesgo.filaNum);
+          const pendienteLocal = revisionesPendientes[riesgo.filaNum];
+          const revisada = !!guardada || !!pendienteLocal;
+          const clasesQueExplica = [riesgo.claseOrigen, riesgo.claseDestino]
+            .filter((clase, indice, todas) => todas.indexOf(clase) === indice)
+            .filter((clase) => {
+              const diferencia = diferenciaClase(clase);
+              return diferencia != null && Math.abs(Math.abs(diferencia) - Math.abs(riesgo.monto)) <= 1;
+            })
+            .map(nombreClaseContable);
+          return (
+            <div key={riesgo.filaNum} className="flex flex-col gap-2 border-t border-ink-100 px-4 py-3 first:border-t-0 lg:flex-row lg:items-center">
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-mono text-[11px] text-ink-500">{riesgo.codigoCrudo || riesgo.codigo}</span>
+                  <span className="text-[12px] font-semibold text-ink-800">{riesgo.nombre}</span>
+                  <span className="rounded border border-err-200 bg-err-50 px-1.5 py-0.5 text-[10px] font-semibold text-err-700">
+                    {nombreClaseContable(riesgo.claseOrigen)} → {nombreClaseContable(riesgo.claseDestino)}
+                  </span>
+                </div>
+                <div className="mt-1 text-[11px] text-ink-600">
+                  Saldo <span className="font-semibold tabular-nums">{fmt(riesgo.monto)}</span> · destino manual{" "}
+                  <span className="font-semibold">{riesgo.destino.codigoCrudo || riesgo.destino.codigo} {riesgo.destino.nombre}</span>
+                </div>
+                {clasesQueExplica.length > 0 && (
+                  <div className="mt-1 text-[10.5px] font-medium text-err-700">
+                    Este saldo explica el 100% de la diferencia visible en {clasesQueExplica.join(" y ")}.
+                  </div>
+                )}
+                {guardada && (
+                  <div className="mt-1 text-[10.5px] text-ok-700">
+                    Revisada por {guardada.revisadaPor ?? "usuario"} · {new Date(guardada.revisadaEn).toLocaleString("es-CO")} · “{guardada.justificacion}”
+                  </div>
+                )}
+                {pendienteLocal && (
+                  <div className="mt-1 text-[10.5px] text-warn-700">
+                    Revisión lista para guardar · {pendienteLocal.memorizar ? "se repetirá en próximas cargas" : "no se memorizará"}
+                  </div>
+                )}
+              </div>
+              <div className="flex shrink-0 flex-wrap gap-2">
+                <button type="button" onClick={() => onRevisar(riesgo.filaNum)} className="rounded-md border border-warn-300 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-warn-800 hover:bg-warn-50">
+                  {revisada ? "Editar revisión" : "Revisar y justificar"}
+                </button>
+                <button type="button" onClick={() => onDeshacer(riesgo.filaNum)} className="rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11px] font-semibold text-blue-700 hover:bg-blue-100">
+                  Deshacer y no repetir
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 // ---- Diagnóstico determinista del descuadre (colapsado por defecto) ----
-function DiagnosticoPanel({ hallazgos }: { hallazgos: Hallazgo[] }) {
+function DiagnosticoPanel({ hallazgos, diferenciasClase, manipulaciones }: { hallazgos: Hallazgo[]; diferenciasClase: number; manipulaciones: number }) {
   const [abierto, setAbierto] = useState(false);
   // Sin hallazgos el panel NO desaparece (movería la tabla en cada edición): cambia a tono
   // verde y deja de ser desplegable. Colapsado, ambos estados miden lo mismo.
-  const hay = hallazgos.length > 0;
+  const total = hallazgos.length + diferenciasClase + manipulaciones;
+  const hay = total > 0;
   return (
     <div className={`rounded-lg border p-4 shadow-sm ${hay ? "border-err-100 bg-err-100/40" : "border-ok-100 bg-ok-100/40"}`}>
       <button
@@ -993,11 +1213,23 @@ function DiagnosticoPanel({ hallazgos }: { hallazgos: Hallazgo[] }) {
         <Icon name={hay ? (abierto ? "chev-d" : "chev-r") : "check"} size={14} />
         Diagnóstico del descuadre
         <span className={`ml-1 rounded-full border bg-white px-1.5 py-0.5 text-[10px] font-semibold normal-case tracking-normal ${hay ? "border-err-100 text-err-700" : "border-ok-100 text-ok-700"}`}>
-          {hay ? hallazgos.length : "sin hallazgos"}
+          {hay ? total : "sin hallazgos"}
         </span>
       </button>
       {hay && abierto && (
         <ul className="mt-2 flex flex-col gap-1.5">
+          {diferenciasClase > 0 && (
+            <li className="rounded-md border border-err-100 bg-white px-3 py-2 text-[12px]">
+              <div className="font-semibold text-ink-800">{diferenciasClase} diferencia(s) por clase contable</div>
+              <div className="mt-0.5 text-[11.5px] text-ink-600">Se muestran en las tarjetas superiores para comparar el archivo con el detalle calculado.</div>
+            </li>
+          )}
+          {manipulaciones > 0 && (
+            <li className="rounded-md border border-err-100 bg-white px-3 py-2 text-[12px]">
+              <div className="font-semibold text-ink-800">{manipulaciones} reubicación(es) manual(es) entre clases</div>
+              <div className="mt-0.5 text-[11.5px] text-ink-600">Revisa el control de manipulaciones mostrado arriba.</div>
+            </li>
+          )}
           {hallazgos.map((h, i) => {
             const tono = h.severidad === "alta" ? "border-err-100" : "border-warn-100";
             return (
@@ -1216,16 +1448,23 @@ function GestionarAgrupadoraModal({ indice, filaNum, onConfirmar, onClose }: {
 }
 
 /** Modal único: desde la acción global busca origen; desde la fila lo preselecciona. */
-function MoverModal({ indice, filaNumInicial, onConfirmar, onClose }: {
+function MoverModal({ indice, filaNumInicial, revisarActual = false, revisionInicial, onConfirmar, onClose }: {
   indice: IndiceReubicacion;
   filaNumInicial: number | null;
-  onConfirmar: (filaNum: number, destino: number | null) => void;
+  revisarActual?: boolean;
+  revisionInicial: string | null;
+  onConfirmar: (filaNum: number, destino: number | null, revision?: { justificacion: string; memorizar: boolean }) => void;
   onClose: () => void;
 }) {
   const [origenId, setOrigenId] = useState<number | null>(filaNumInicial);
-  const [destinoId, setDestinoId] = useState<number | null>(null);
+  const [destinoId, setDestinoId] = useState<number | null>(() => {
+    if (!revisarActual || filaNumInicial == null) return null;
+    return indice.porFila.get(filaNumInicial)?.padreManual ?? null;
+  });
   const [buscarOrigen, setBuscarOrigen] = useState("");
   const [buscarDestino, setBuscarDestino] = useState("");
+  const [justificacion, setJustificacion] = useState(revisionInicial ?? "");
+  const [memorizar, setMemorizar] = useState(false);
   const busquedaOrigen = useDeferredValue(normalizarBusquedaCuenta(buscarOrigen));
   const busquedaDestino = useDeferredValue(normalizarBusquedaCuenta(buscarDestino));
   const origen = origenId == null ? null : indice.porFila.get(origenId) ?? null;
@@ -1239,6 +1478,14 @@ function MoverModal({ indice, filaNumInicial, onConfirmar, onClose }: {
     return lista.slice(0, 80);
   }, [busquedaDestino, destinos]);
   const destino = destinoId == null ? null : indice.porFila.get(destinoId) ?? null;
+  const cruceRiesgoso = !!origen && !!destino
+    && (origen.tipoFila === "movimiento" || origen.tipoFila === "descuadre")
+    && !origen.omitida
+    && !clasesContablesCompatibles(
+      claseContableBorrador(origen.codigo),
+      claseContableBorrador(destino.codigo),
+    );
+  const revisionValida = !cruceRiesgoso || justificacion.trim().length >= 10;
 
   const elegirOrigen = (filaNum: number) => {
     setOrigenId(filaNum);
@@ -1261,8 +1508,15 @@ function MoverModal({ indice, filaNumInicial, onConfirmar, onClose }: {
       )}
       <button
         type="button"
-        disabled={!origen || !destino}
-        onClick={() => { if (origen && destino) onConfirmar(origen.filaNum, destino.filaNum); }}
+        disabled={!origen || !destino || !revisionValida}
+        onClick={() => {
+          if (!origen || !destino || !revisionValida) return;
+          onConfirmar(
+            origen.filaNum,
+            destino.filaNum,
+            cruceRiesgoso ? { justificacion: justificacion.trim(), memorizar } : undefined,
+          );
+        }}
         className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-45"
       >
         Reubicar cuenta
@@ -1347,17 +1601,49 @@ function MoverModal({ indice, filaNumInicial, onConfirmar, onClose }: {
         )}
 
         {origen && destino && (
-          <div className="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[11.5px] text-blue-800">
-            <Icon name="move-tree" size={14} className="mt-0.5 shrink-0" />
-            <span><span className="font-semibold">{origen.codigoCrudo} {origen.nombre}</span> quedará bajo <span className="font-semibold">{destino.codigoCrudo} {destino.nombre}</span>. Al confirmar, la tabla abrirá esa rama y resaltará la nueva ubicación.</span>
-          </div>
+          <>
+            {cruceRiesgoso ? (
+              <div className="rounded-md border border-err-200 bg-err-50 px-3 py-3 text-[11.5px] text-err-800">
+                <div className="flex items-start gap-2">
+                  <Icon name="warn" size={15} className="mt-0.5 shrink-0" />
+                  <div>
+                    <div className="font-semibold">Esta reubicación cruza clases contables</div>
+                    <p className="mt-0.5">
+                      {origen.codigoCrudo} pertenece a {nombreClaseContable(claseContableBorrador(origen.codigo))} y quedará bajo {nombreClaseContable(claseContableBorrador(destino.codigo))}. Esto puede trasladar el saldo de una masa contable a otra.
+                    </p>
+                  </div>
+                </div>
+                <label className="mt-3 block">
+                  <span className="font-semibold">Justificación excepcional</span>
+                  <textarea
+                    value={justificacion}
+                    onChange={(event) => setJustificacion(event.target.value)}
+                    maxLength={600}
+                    rows={3}
+                    placeholder="Explica por qué esta ubicación es correcta (mínimo 10 caracteres)…"
+                    className="mt-1 w-full resize-y rounded-md border border-err-200 bg-white px-2.5 py-2 text-[12px] text-ink-800 outline-none focus:border-err-400"
+                  />
+                </label>
+                <label className="mt-2 flex items-start gap-2 text-ink-700">
+                  <input type="checkbox" checked={memorizar} onChange={(event) => setMemorizar(event.target.checked)} className="mt-0.5" />
+                  <span>Aplicar esta ubicación también en próximas cargas del cliente. Déjalo desmarcado si es una excepción de este archivo.</span>
+                </label>
+                {!revisionValida && <div className="mt-1 font-medium text-err-700">La justificación debe tener al menos 10 caracteres.</div>}
+              </div>
+            ) : (
+              <div className="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[11.5px] text-blue-800">
+                <Icon name="move-tree" size={14} className="mt-0.5 shrink-0" />
+                <span><span className="font-semibold">{origen.codigoCrudo} {origen.nombre}</span> quedará bajo <span className="font-semibold">{destino.codigoCrudo} {destino.nombre}</span>. Al confirmar, la tabla abrirá esa rama y resaltará la nueva ubicación.</span>
+              </div>
+            )}
+          </>
         )}
       </div>
     </Modal>
   );
 }
 
-function ArbolTabla({ arbol, onReclasificar, onGestionarAgrupadora, onDesacoplar, onOmitir, posiciones, contexto, onUbicar, onDesindentar, enfoqueReubicacion, umbrales }: { arbol: NodoBorrador[]; onReclasificar: (cuenta: NodoBorrador) => void; onGestionarAgrupadora: (filaNum: number) => void; onDesacoplar: (codigo: string, desacopladaAhora: boolean) => void; onOmitir: (filaNum: number, omitidaAhora: boolean) => void; posiciones: Map<number, Posicion>; contexto: Map<number, ContextoNodo>; onUbicar: (filaNum: number) => void; onDesindentar: (filaNum: number) => void; enfoqueReubicacion: { origen: number; destino: number | null; secuencia: number } | null; umbrales: UmbralesAlertas }) {
+function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupadora, onDesacoplar, onOmitir, posiciones, contexto, onUbicar, onDesindentar, enfoqueReubicacion, umbrales }: { arbol: NodoBorrador[]; riesgosPorFila: Map<number, ManipulacionRiesgosaBorrador>; onReclasificar: (cuenta: NodoBorrador) => void; onGestionarAgrupadora: (filaNum: number) => void; onDesacoplar: (codigo: string, desacopladaAhora: boolean) => void; onOmitir: (filaNum: number, omitidaAhora: boolean) => void; posiciones: Map<number, Posicion>; contexto: Map<number, ContextoNodo>; onUbicar: (filaNum: number) => void; onDesindentar: (filaNum: number) => void; enfoqueReubicacion: { origen: number; destino: number | null; secuencia: number } | null; umbrales: UmbralesAlertas }) {
   const { filaSeleccionada, setFilaSeleccionada, onClickFila, onDoubleClickFila } = useSeleccionFilaTabla();
   const tablaRef = useRef<HTMLDivElement>(null);
   const sentinelaRef = useRef<HTMLTableRowElement | null>(null); // sensor de scroll: al entrar en vista, revela el próximo bloque
@@ -1457,7 +1743,7 @@ function ArbolTabla({ arbol, onReclasificar, onGestionarAgrupadora, onDesacoplar
   const needle = q.trim().toLowerCase();
   const matchQ = (n: NodoBorrador) => needle === "" || n.codigo.toLowerCase().includes(needle) || (n.nombre ?? "").toLowerCase().includes(needle);
   const filtrando = needle !== "" || vista !== "todo" || nivelMax > 0;
-  const nAlertas = useMemo(() => { let n = 0; const rec = (x: NodoBorrador) => { if (esAlertaNodo(x, umbrales)) n++; x.hijos.forEach(rec); }; arbol.forEach(rec); return n; }, [arbol, umbrales]);
+  const nAlertas = useMemo(() => { let n = 0; const rec = (x: NodoBorrador) => { if (esAlertaNodo(x, umbrales) || riesgosPorFila.has(x.filaNum)) n++; x.hijos.forEach(rec); }; arbol.forEach(rec); return n; }, [arbol, riesgosPorFila, umbrales]);
 
   // Poda del árbol según los filtros (conserva ancestros de las coincidencias).
   const arbolVisible = useMemo(() => {
@@ -1469,7 +1755,7 @@ function ArbolTabla({ arbol, onReclasificar, onGestionarAgrupadora, onDesacoplar
       return vista === "balance" ? "123".includes(d) : "4567".includes(d);
     };
     const nivelOk = (x: NodoBorrador) => nivelMax === 0 || !/^\d+$/.test(x.codigo) || x.codigo.length <= nivelMax;
-    const selfMatch = (x: NodoBorrador) => matchQ(x) && (vista !== "alertas" || esAlertaNodo(x, umbrales));
+    const selfMatch = (x: NodoBorrador) => matchQ(x) && (vista !== "alertas" || esAlertaNodo(x, umbrales) || riesgosPorFila.has(x.filaNum));
     const podar = (nodos: NodoBorrador[]): NodoBorrador[] => {
       const out: NodoBorrador[] = [];
       for (const x of nodos) {
@@ -1587,6 +1873,7 @@ function ArbolTabla({ arbol, onReclasificar, onGestionarAgrupadora, onDesacoplar
     const puedeUbicarFila = puedeUbicar(ctxFila);
     const puedeDesindentar = !!pos && pos.abuelo != null;
     const reparentada = n.padreManual != null;
+    const riesgoClase = riesgosPorFila.get(n.filaNum);
     const estadoVisualFila = esMatch
       ? "bg-blue-50 ring-1 ring-inset ring-blue-200"
       : reparentada
@@ -1637,6 +1924,14 @@ function ArbolTabla({ arbol, onReclasificar, onGestionarAgrupadora, onDesacoplar
               </button>
             )}
             {omitida && <Chip label="Omitida · no cuenta" tone="warn" />}
+            {riesgoClase && (
+              <span
+                title={`Reubicación manual entre ${nombreClaseContable(riesgoClase.claseOrigen)} y ${nombreClaseContable(riesgoClase.claseDestino)}. Debe revisarse antes de cargar.`}
+                className="rounded border border-err-200 bg-err-50 px-1.5 py-0.5 text-[10px] font-semibold text-err-700"
+              >
+                Clase cruzada {riesgoClase.claseOrigen}→{riesgoClase.claseDestino}
+              </span>
+            )}
             {n.subtotalDuplicado ? (
               <span title="Subtotal de 6 díg cuyo detalle de 8 díg (mismas 4 columnas) está mal-numerado. No se carga: su detalle ya lleva el valor.">
                 <Chip label="Subtotal duplicado · no se carga" tone="warn" />

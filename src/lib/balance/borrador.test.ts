@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { compararTotalesAgrupacion, construirArbolBorrador, construirIndiceReubicacion, contarNodos, aplanarArbolFiltrado, destinosReubicacion, esDestinoSugerido, normalizarBusquedaCuenta, reclasificarHuerfanas, marcarNoContables, corregirCodigosPlaceholder, contextoTabulador, puedeUbicar, sugerirMovimientosAgrupadora, validarReubicacionesBorrador, type FilaBorrador } from "./borrador";
+import { compararTotalesAgrupacion, construirArbolBorrador, construirIndiceReubicacion, contarNodos, aplanarArbolFiltrado, destinosReubicacion, esDestinoSugerido, normalizarBusquedaCuenta, reclasificarHuerfanas, marcarNoContables, corregirCodigosPlaceholder, contextoTabulador, puedeUbicar, sugerirMovimientosAgrupadora, validarReubicacionesBorrador, detectarManipulacionesRiesgosas, type FilaBorrador } from "./borrador";
 import { construirVistaBorrador } from "./borrador-vm";
 import { reclasificarNoImputables } from "./extraccion/transformar";
 
@@ -238,6 +238,47 @@ describe("construirArbolBorrador", () => {
     ]);
     expect(arbol[0].descuadre).toBe(0); // dentro de tolerancia
     expect(arbol[0].hijos[0].descuadre).toBeNull(); // las hojas no se validan
+  });
+});
+
+describe("detectarManipulacionesRiesgosas", () => {
+  it("detecta una cuenta de pasivo reubicada manualmente bajo activo", () => {
+    const riesgo = detectarManipulacionesRiesgosas([
+      fila(60, "13170103", "DESTINO EN ACTIVO", 0, "agrupadora"),
+      { ...fila(737, "28059501", "CONSIGNACIONES SIN IDENTIFICAR", -302_477_965.9, "movimiento"), padreManual: 60 },
+    ]);
+
+    expect(riesgo).toEqual([
+      expect.objectContaining({
+        filaNum: 737,
+        codigo: "28059501",
+        monto: -302_477_965.9,
+        claseOrigen: "2",
+        claseDestino: "1",
+        destino: expect.objectContaining({ filaNum: 60, codigo: "13170103" }),
+      }),
+    ]);
+  });
+
+  it("no alerta cuando origen y destino pertenecen a la misma clase", () => {
+    expect(detectarManipulacionesRiesgosas([
+      fila(10, "1305", "CLIENTES", 0, "agrupadora"),
+      { ...fila(11, "13809501", "OTROS DEUDORES", 10, "movimiento"), padreManual: 10 },
+    ])).toEqual([]);
+  });
+
+  it("trata las clases 6 y 7 como una misma familia de costos", () => {
+    expect(detectarManipulacionesRiesgosas([
+      fila(20, "7105", "COSTOS DE PRODUCCIÓN", 0, "agrupadora"),
+      { ...fila(21, "61359501", "COSTO DE VENTAS", 10, "movimiento"), padreManual: 20 },
+    ])).toEqual([]);
+  });
+
+  it("ignora una cuenta omitida aunque conserve el padre manual", () => {
+    expect(detectarManipulacionesRiesgosas([
+      fila(30, "1105", "CAJA", 0, "agrupadora"),
+      { ...fila(31, "28059501", "CONSIGNACIONES", -10, "movimiento"), padreManual: 30, omitida: true },
+    ])).toEqual([]);
   });
 });
 

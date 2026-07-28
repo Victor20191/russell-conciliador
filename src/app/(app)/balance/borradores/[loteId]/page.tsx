@@ -72,6 +72,7 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
         periodoFinal={lote?.periodoFinal ? fechaCalendarioISO(lote.periodoFinal) : null}
         filasCompactas={staging.filasCompactas}
         porTerceroDetectado={staging.porTercero}
+        revisionesReubicacion={staging.revisionesReubicacion}
         clientes={clientes.map((c) => ({ id: c.id, name: c.name, nit: c.nit, notas: notasPorCliente.get(c.id) ?? null }))}
         clienteSugeridoId={clienteSugeridoId}
         spec={spec}

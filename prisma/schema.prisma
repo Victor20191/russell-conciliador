@@ -782,6 +782,13 @@ model BalanceImportacionStaging {
   // (p. ej. un código con guiones huérfano `1105-10-19` que debe ir bajo `110510`).
   // null = sin override.
   padreManual     Int?     @map("padre_manual")
+  // Revisión obligatoria cuando un re-parentado manual cruza la cuenta hacia otra
+  // clase contable. Permanece en el staging mientras exista el borrador y la
+  // auditoría conserva la trazabilidad después de promoverlo.
+  justificacionReubicacion String?   @map("justificacion_reubicacion") @db.Text
+  reubicacionRevisadaPor   String?   @map("reubicacion_revisada_por")
+  reubicacionRevisadaPorId Int?      @map("reubicacion_revisada_por_id") // FK suave a usuarios
+  reubicacionRevisadaEn    DateTime? @map("reubicacion_revisada_en") @db.Timestamptz(3)
   creadoEn        DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   @@index([loteId])

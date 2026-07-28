@@ -43,12 +43,12 @@ import { mapearPorIA } from "@/lib/balance/mapeo-ia";
 import { construirVistaBorrador } from "@/lib/balance/borrador-vm";
 import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
 import type { UmbralesAlertas } from "@/lib/balance/umbrales-alertas";
-import { reclasificarHuerfanas, reclasificarSoloHojas, corregirCodigosPlaceholder, marcarNoContables, validarReubicacionesBorrador, type FilaBorrador } from "@/lib/balance/borrador";
+import { detectarManipulacionesRiesgosas, reclasificarHuerfanas, reclasificarSoloHojas, corregirCodigosPlaceholder, marcarNoContables, validarReubicacionesBorrador, type FilaBorrador } from "@/lib/balance/borrador";
 import { esBalancePorTercero, colapsarTerceros, esBalancePorTerceroSufijo, consolidarTercerosPorSufijo, marcarCuentaNit } from "@/lib/balance/terceros";
 import { invalidarStagingBorrador } from "@/lib/balance/staging-borrador";
 import { marcarRelistadoGuiones } from "@/lib/balance/relistado";
 import { validarComentarioPromocion } from "@/lib/balance/advertencia-archivo-fuente";
-import { construirCorrecciones, planAplicarCorrecciones, type CorreccionCuenta, type FilaStagingCorreccion } from "@/lib/balance/correcciones";
+import { claveCuenta, construirCorrecciones, planAplicarCorrecciones, type CorreccionCuenta, type FilaStagingCorreccion } from "@/lib/balance/correcciones";
 import { registrarDiagnosticoInicial, cerrarDiagnostico, acumularIntervencionManual } from "@/lib/balance/diagnostico-lectura-registro";
 import { iaBalanceDisponible, proveedorIABalance, type ProveedorIABalance } from "@/lib/ia/proveedor-balance";
 import { proveedorIABalanceSesion } from "@/lib/ia/proveedor-balance-sesion";
@@ -60,8 +60,17 @@ import { construirCuadre, marcarSubtotalesDuplicados, reclasificarRepetidos, rec
 import type { FilaCruda, ParamsExtraccion, ResultadoTransform, TipoFila } from "@/lib/balance/extraccion/transformar";
 import { CUADRE_NO_APLICA } from "@/lib/balance/extraccion/esquema";
 import type { CuadreTotales, Excepcion, MappingSpec, Origen, ResumenAuditoria, SpecCarga } from "@/lib/balance/extraccion/esquema";
+import { z } from "zod";
 
 const MAX_BYTES = 20 * 1024 * 1024; // 20 MB (admite PDF)
+const RevisionesReubicacionSchema = z.record(
+  z.string().regex(/^\d+$/),
+  z.object({
+    justificacion: z.string().trim().min(10).max(600),
+    memorizar: z.boolean(),
+  }),
+);
+const MemorizacionPadresSchema = z.record(z.string().regex(/^\d+$/), z.boolean());
 // Cómo se obtuvo la estructura del archivo en la lectura:
 //   perfil    → perfil guardado del cliente aplicado por huella (0 llamadas IA)
 //   ia        → cascada de detección de estructura / extracción directa
@@ -380,6 +389,8 @@ async function filasStagingCorreccion(loteId: string): Promise<FilaStagingCorrec
       filaNum: true, codigo: true, codigoCrudo: true, nombre: true, tipoFila: true, tipoFilaForzado: true,
       saldoInicial: true, debitos: true, creditos: true, saldoFinal: true,
       desacoplada: true, omitida: true, padreManual: true,
+      justificacionReubicacion: true, reubicacionRevisadaPor: true,
+      reubicacionRevisadaPorId: true, reubicacionRevisadaEn: true,
     },
   });
   return rows.map((f) => ({
@@ -387,6 +398,10 @@ async function filasStagingCorreccion(loteId: string): Promise<FilaStagingCorrec
     tipoFilaForzado: f.tipoFilaForzado === "agrupadora" || f.tipoFilaForzado === "movimiento" ? f.tipoFilaForzado : null,
     saldoInicial: Number(f.saldoInicial), debitos: Number(f.debitos), creditos: Number(f.creditos), saldoFinal: Number(f.saldoFinal),
     desacoplada: f.desacoplada, omitida: f.omitida, padreManual: f.padreManual,
+    justificacionReubicacion: f.justificacionReubicacion,
+    reubicacionRevisadaPor: f.reubicacionRevisadaPor,
+    reubicacionRevisadaPorId: f.reubicacionRevisadaPorId,
+    reubicacionRevisadaEn: f.reubicacionRevisadaEn,
   }));
 }
 
@@ -1874,17 +1889,35 @@ export async function cargarBorrador(_prev: ImportBalanceState, formData: FormDa
 
   // Compuerta defensiva del servidor: la UI no es suficiente. El lote debe tener
   // el MISMO cliente asociado y todas sus filas deben conservar esa identidad.
-  const [lote, movEnStaging, filasStaging, filasCliente] = await Promise.all([
+  const [lote, filasCliente, filasControl] = await Promise.all([
     prisma.balanceImportacionLote.findUnique({ where: { loteId } }),
-    prisma.balanceImportacionStaging.count({ where: { loteId, tipoFila: "movimiento" } }),
-    prisma.balanceImportacionStaging.count({ where: { loteId } }),
     prisma.balanceImportacionStaging.count({ where: { loteId, clienteId: clientId } }),
+    filasStagingCorreccion(loteId),
   ]);
+  const filasStaging = filasControl.length;
+  const movEnStaging = filasControl.filter((fila) => fila.tipoFila === "movimiento").length;
   if (!lote || filasStaging === 0) return { ok: false, message: "El borrador ya no existe (fue cargado o descartado)." };
   if (lote.clienteId !== clientId || filasCliente !== filasStaging) {
     return {
       ok: false,
       message: "Antes de cargar debes vincular el cliente al borrador. Así se crea su perfil y se aplican sus preferencias.",
+    };
+  }
+  const filasControlPorNumero = new Map(filasControl.map((fila) => [fila.filaNum, fila]));
+  const riesgosPendientes = detectarManipulacionesRiesgosas(filasControl.map((f) => ({
+    ...f,
+    nivel: /^\d+$/.test(f.codigo) ? f.codigo.length : null,
+    tipoFila: f.tipoFila as FilaBorrador["tipoFila"],
+    omitida: f.omitida ?? undefined,
+  }))).filter((riesgo) => {
+    const fila = filasControlPorNumero.get(riesgo.filaNum);
+    return !fila?.justificacionReubicacion?.trim() || fila.reubicacionRevisadaEn == null;
+  });
+  if (riesgosPendientes.length > 0) {
+    const ejemplo = riesgosPendientes[0];
+    return {
+      ok: false,
+      message: `Hay ${riesgosPendientes.length} reubicación(es) entre clases contables sin revisar. Revisa ${ejemplo.codigoCrudo || ejemplo.codigo} (${ejemplo.nombre}) antes de cargar el balance.`,
     };
   }
 
@@ -2056,6 +2089,8 @@ export async function aplicarCambiosBorrador(
   omitidas: Record<string, boolean> = {},
   padres: Record<string, number | null> = {},
   clienteId: number | null = null,
+  revisionesReubicacion: Record<string, { justificacion: string; memorizar: boolean }> = {},
+  memorizarPadres: Record<string, boolean> = {},
 ): Promise<ActionState> {
   const authz = await authorizePermiso("balance:crear");
   if (!authz.ok) return { ok: false, message: authz.message };
@@ -2065,6 +2100,11 @@ export async function aplicarCambiosBorrador(
   const desac = Object.entries(desacopladas ?? {}).filter(([c]) => /^\d+$/.test(c));
   const omit = Object.entries(omitidas ?? {}).filter(([f]) => /^\d+$/.test(f));
   const pads = Object.entries(padres ?? {}).filter(([f]) => /^\d+$/.test(f));
+  const revisionesParsed = RevisionesReubicacionSchema.safeParse(revisionesReubicacion ?? {});
+  const memorizarParsed = MemorizacionPadresSchema.safeParse(memorizarPadres ?? {});
+  if (!revisionesParsed.success || !memorizarParsed.success) {
+    return { ok: false, message: "La revisión de la reubicación no es válida. Verifica la justificación e inténtalo de nuevo." };
+  }
   if (reclas.length === 0 && desac.length === 0 && omit.length === 0 && pads.length === 0) return { ok: false, message: "No hay cambios para guardar." };
   try {
     const loteCliente = await prisma.balanceImportacionLote.findUnique({
@@ -2083,20 +2123,49 @@ export async function aplicarCambiosBorrador(
     if (!scope.ok) return { ok: false, message: scope.message };
 
     // La UI filtra los destinos, pero una Server Action también es invocable por POST:
-    // valida el grafo completo ANTES de cualquier escritura para evitar referencias a
-    // otra fila, destinos que no agrupan o ciclos enviados desde un cliente alterado.
+    // reconstruye y valida el estado FINAL antes de escribir. El mismo recorrido detecta
+    // cruces de clase, sin consultas por cuenta ni llamadas de IA.
+    const stagingAntes = await filasStagingCorreccion(id);
+    const tiposForzados = new Map(reclas);
+    const omitidasFinales = new Map(omit.map(([fila, on]) => [Number(fila), on]));
+    const padresFinales = new Map(pads.map(([fila, destino]) => [Number(fila), destino]));
+    const filasValidacion: FilaBorrador[] = stagingAntes.map((f) => ({
+      ...f,
+      nivel: /^\d+$/.test(f.codigo) ? f.codigo.length : null,
+      tipoFila: tiposForzados.get(f.codigo) ?? (f.tipoFila as FilaBorrador["tipoFila"]),
+      omitida: omitidasFinales.has(f.filaNum) ? omitidasFinales.get(f.filaNum) : (f.omitida ?? undefined),
+      padreManual: padresFinales.has(f.filaNum) ? padresFinales.get(f.filaNum) : f.padreManual,
+    }));
     if (pads.length > 0) {
-      const staging = await filasStagingCorreccion(id);
-      const tiposForzados = new Map(reclas);
-      const filasValidacion: FilaBorrador[] = staging.map((f) => ({
-        ...f,
-        nivel: /^\d+$/.test(f.codigo) ? f.codigo.length : null,
-        tipoFila: tiposForzados.get(f.codigo) ?? (f.tipoFila as FilaBorrador["tipoFila"]),
-        omitida: f.omitida ?? undefined,
-      }));
-      const validacionReubicacion = validarReubicacionesBorrador(filasValidacion, Object.fromEntries(pads));
+      const stagingPorFila = new Map(stagingAntes.map((fila) => [fila.filaNum, fila]));
+      // Repetir exactamente un padre MANUAL ya guardado no cambia el grafo: se
+      // admite únicamente para registrar/editar su revisión. Los cambios reales
+      // siguen pasando por la validación completa de destinos y ciclos.
+      const padsParaValidar = pads.filter(([fila, destino]) =>
+        stagingPorFila.get(Number(fila))?.padreManual !== destino || !revisionesParsed.data[fila]);
+      const validacionReubicacion = validarReubicacionesBorrador(
+        stagingAntes.map((f) => ({
+          ...f,
+          nivel: /^\d+$/.test(f.codigo) ? f.codigo.length : null,
+          tipoFila: tiposForzados.get(f.codigo) ?? (f.tipoFila as FilaBorrador["tipoFila"]),
+          omitida: omitidasFinales.has(f.filaNum) ? omitidasFinales.get(f.filaNum) : (f.omitida ?? undefined),
+        })),
+        Object.fromEntries(padsParaValidar),
+      );
       if (!validacionReubicacion.ok) return { ok: false, message: validacionReubicacion.message };
     }
+    const riesgosFinales = detectarManipulacionesRiesgosas(filasValidacion);
+    const riesgosPorFila = new Map(riesgosFinales.map((riesgo) => [riesgo.filaNum, riesgo]));
+    for (const [fila] of pads) {
+      const riesgo = riesgosPorFila.get(Number(fila));
+      if (riesgo && !revisionesParsed.data[fila]) {
+        return {
+          ok: false,
+          message: `La reubicación de ${riesgo.codigoCrudo || riesgo.codigo} cruza de la clase ${riesgo.claseOrigen} a la ${riesgo.claseDestino}. Escribe una justificación para guardarla.`,
+        };
+      }
+    }
+    const user = await getCurrentUser();
 
     let nRe = 0;
     let nDes = 0;
@@ -2130,31 +2199,80 @@ export async function aplicarCambiosBorrador(
       nOmi += r.count;
     }
     for (const [fila, destino] of pads) {
+      const filaNum = Number(fila);
       const padreManual = typeof destino === "number" && Number.isInteger(destino) ? destino : null;
-      const r = await prisma.balanceImportacionStaging.updateMany({ where: { loteId: id, filaNum: Number(fila) }, data: { padreManual } });
+      const riesgo = riesgosPorFila.get(filaNum);
+      const revision = revisionesParsed.data[fila];
+      const r = await prisma.balanceImportacionStaging.updateMany({
+        where: { loteId: id, filaNum },
+        data: riesgo && revision
+          ? {
+              padreManual,
+              justificacionReubicacion: revision.justificacion,
+              reubicacionRevisadaPor: user?.name ?? "—",
+              reubicacionRevisadaPorId: user?.id ?? null,
+              reubicacionRevisadaEn: new Date(),
+            }
+          : {
+              padreManual,
+              justificacionReubicacion: null,
+              reubicacionRevisadaPor: null,
+              reubicacionRevisadaPorId: null,
+              reubicacionRevisadaEn: null,
+            },
+      });
       nPad += r.count;
     }
     await actualizarResumenLoteBorrador(id);
-    const user = await getCurrentUser();
     await asegurarPerfilBaseCliente(cid, user?.name ?? null);
 
     // PERFIL del cliente: memoriza las correcciones por cuenta para re-aplicarlas
     // solas en las próximas cargas. Un fallo se reporta: nunca se confirma que el
     // cambio quedó memorizado si la persistencia del perfil falló.
     let nMemorizadas = 0;
-    const filas = await filasStagingCorreccion(id);
+    // `stagingAntes` ya contiene todas las claves de cuenta y destinos necesarios
+    // para construir la memoria; reutilizarlo evita una segunda lectura completa.
+    const filas = stagingAntes;
     const correcciones = construirCorrecciones(filas, {
       override: Object.fromEntries(reclas),
       desacopladas: Object.fromEntries(desac),
       omitidas: Object.fromEntries(omit),
       padres: Object.fromEntries(pads),
     });
+    const filasPorNumero = new Map(filas.map((fila) => [fila.filaNum, fila]));
+    const cuentasNoMemorizadas = new Set<string>();
+    for (const [fila] of pads) {
+      const memorizar = memorizarParsed.data[fila] ?? revisionesParsed.data[fila]?.memorizar ?? true;
+      const filaStaging = filasPorNumero.get(Number(fila));
+      const cuenta = filaStaging ? claveCuenta(filaStaging) : "";
+      if (!memorizar && cuenta) cuentasNoMemorizadas.add(cuenta);
+    }
+    // "No repetir" conserva la ubicación en ESTE borrador, pero limpia únicamente
+    // el padre memorizado de la cuenta para que no vuelva a aplicarse en otra carga.
+    for (const correccion of correcciones) {
+      if (cuentasNoMemorizadas.has(correccion.cuenta) && correccion.padreCodigo !== undefined) {
+        correccion.padreCodigo = null;
+      }
+    }
     if (correcciones.length > 0) {
       nMemorizadas = await memorizarCorreccionesCliente(cid, correcciones, user?.name ?? null);
       revalidatePath("/config/clientes");
     }
 
-    await logAudit({ user: user?.name ?? "—", action: "GUARDÓ cambios en balance borrador", entity: id, detail: `${nRe} reclasificada(s), ${nDes} desacople(s), ${nOmi} omitida(s), ${nPad} re-parentada(s)${nMemorizadas > 0 ? ` · ${nMemorizadas} cuenta(s) memorizadas en el perfil del cliente` : ""}`, clientId: cid });
+    const detalleRiesgos = pads.flatMap(([fila]) => {
+      const riesgo = riesgosPorFila.get(Number(fila));
+      const revision = revisionesParsed.data[fila];
+      return riesgo && revision
+        ? [`${riesgo.codigo}: clase ${riesgo.claseOrigen}→${riesgo.claseDestino}; ${revision.justificacion.replace(/\s+/g, " ")}`]
+        : [];
+    }).slice(0, 5).join(" | ");
+    await logAudit({
+      user: user?.name ?? "—",
+      action: "GUARDÓ cambios en balance borrador",
+      entity: id,
+      detail: `${nRe} reclasificada(s), ${nDes} desacople(s), ${nOmi} omitida(s), ${nPad} re-parentada(s)${nMemorizadas > 0 ? ` · ${nMemorizadas} corrección(es) actualizadas en el perfil` : ""}${cuentasNoMemorizadas.size > 0 ? ` · ${cuentasNoMemorizadas.size} reubicación(es) marcadas para no repetir` : ""}${detalleRiesgos ? ` · Revisiones: ${detalleRiesgos}` : ""}`,
+      clientId: cid,
+    });
     // Huella diagnóstica: reclasificar muta el staging sin marca durable, así que se
     // acumula aquí (best-effort; los otros contadores se toman al cerrar).
     await acumularIntervencionManual(id, { reclasificadas: nRe });
@@ -2164,7 +2282,7 @@ export async function aplicarCambiosBorrador(
     const nTotal = nRe + nDes + nOmi + nPad;
     return {
       ok: true,
-      message: `Cambios guardados (${nTotal} fila${nTotal === 1 ? "" : "s"}).${nMemorizadas > 0 ? ` Se memorizaron ${nMemorizadas} corrección(es) en el perfil del cliente: las próximas cargas las aplicarán solas.` : ""}`,
+      message: `Cambios guardados (${nTotal} fila${nTotal === 1 ? "" : "s"}).${nMemorizadas > 0 ? ` Se actualizaron ${nMemorizadas} corrección(es) del perfil.` : ""}${cuentasNoMemorizadas.size > 0 ? ` ${cuentasNoMemorizadas.size} reubicación(es) no se repetirán en próximas cargas.` : ""}`,
     };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("aplicarCambiosBorrador", e) };
