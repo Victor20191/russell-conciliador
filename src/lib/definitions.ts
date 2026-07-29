@@ -135,6 +135,51 @@ export const SpecCargaBalanceSchema = SpecCargaSchema.refine((s) => s.hoja.trim(
     path: ["columnas"],
   });
 
+// Edición DIRECTA de un perfil ya guardado. Es deliberadamente más estricta
+// que el contrato que recibe la IA: en la UI no aceptamos índices negativos,
+// dos fuentes simultáneas para el código ni una regla marcadora incompleta.
+// Así el perfil persistido siempre queda aplicable de forma determinista.
+export const SpecPerfilCargaEditableSchema = SpecCargaBalanceSchema
+  .refine((s) => s.hoja.trim().length <= 120, {
+    error: "El nombre de la hoja es demasiado largo (máx. 120 caracteres).",
+    path: ["hoja"],
+  })
+  .refine((s) => s.filaEncabezado >= 1 && s.primeraFilaDatos >= 2, {
+    error: "Las filas del encabezado y de los datos deben ser números positivos.",
+    path: ["filaEncabezado"],
+  })
+  .refine((s) => {
+    const escalares = Object.entries(s.columnas)
+      .filter(([campo]) => campo !== "codigoFragmentos")
+      .map(([, valor]) => valor);
+    return escalares.every((valor) => typeof valor === "number" && valor >= 0)
+      && s.columnas.codigoFragmentos.every((valor) => valor >= 1);
+  }, {
+    error: "Las columnas deben usar índices positivos; usa 0 únicamente para indicar que una columna no existe.",
+    path: ["columnas"],
+  })
+  .refine((s) => new Set(s.columnas.codigoFragmentos).size === s.columnas.codigoFragmentos.length, {
+    error: "Las columnas fragmentadas del código no pueden repetirse.",
+    path: ["columnas", "codigoFragmentos"],
+  })
+  .refine((s) => !(s.columnas.codigo >= 1 && s.columnas.codigoFragmentos.length > 0), {
+    error: "Elige una sola fuente para el código: una columna completa o varias columnas fragmentadas.",
+    path: ["columnas"],
+  })
+  .refine((s) => {
+    if (s.reglaDetalle.tipo !== "columna") return true;
+    return (s.reglaDetalle.columna ?? 0) >= 1 && (s.reglaDetalle.valor ?? "").trim().length > 0;
+  }, {
+    error: "Para detectar el detalle por una columna, indica la columna y el valor que identifica una cuenta de movimiento.",
+    path: ["reglaDetalle"],
+  });
+
+export const EditarPerfilCargaSchema = z.object({
+  id: z.coerce.number({ error: "Perfil inválido." }).int().positive({ error: "Perfil inválido." }),
+  actualizadoEn: z.string().datetime({ offset: true, error: "La versión del perfil no es válida." }),
+  estructura: SpecPerfilCargaEditableSchema,
+});
+
 // Preferencias por defecto de carga de balance POR CLIENTE (todas opcionales:
 // "" / «auto» → null = no fuerza nada).
 export const AjustesCargaSchema = z.object({

@@ -181,6 +181,15 @@ describe("Permisos globales (sin alcance de cliente)", () => {
     }
   });
 
+  test("el borrado destructivo de balances y perfiles inicia solo en roles administrativos", () => {
+    for (const r of ["Administrador", "Superadministrador"]) {
+      expect(tienePermiso(MATRIZ, r, "balance:eliminar")).toBe(true);
+    }
+    for (const r of ["Socio", "Gerente", "Senior", "Staff"]) {
+      expect(tienePermiso(MATRIZ, r, "balance:eliminar")).toBe(false);
+    }
+  });
+
   test("la lectura general está disponible para todos los roles del PDF", () => {
     for (const r of ROLES_PDF) expect(tienePermiso(MATRIZ, r, "conciliaciones:ver")).toBe(true);
   });

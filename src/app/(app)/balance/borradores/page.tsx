@@ -1,5 +1,6 @@
 import prisma from "@/lib/prisma";
 import { requirePermiso } from "@/lib/rbac";
+import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { PageHeader } from "@/components/ui";
 import { fmtCalendarDate, fmtDate } from "@/lib/format";
 import BorradoresIndexClient, { type BorradorRow } from "./borradores-index-client";
@@ -13,7 +14,7 @@ export default async function BorradoresPage() {
   // todas las filas de cada Excel. El staging puede superar fácilmente las cien mil
   // filas; agruparlo en PostgreSQL mantiene la detección de lotes huérfanos sin
   // transferirlos ni ejecutar el costoso view-model contable 83+ veces por visita.
-  const [resumenStaging, headers, clientes] = await Promise.all([
+  const [resumenStaging, headers, clientes, perfilesPorClienteRows, alcance] = await Promise.all([
     prisma.balanceImportacionStaging.groupBy({
       by: ["loteId", "tipoFila", "omitida"],
       _count: { _all: true },
@@ -36,6 +37,11 @@ export default async function BorradoresPage() {
       },
     }),
     prisma.client.findMany({ select: { id: true, name: true, nit: true } }),
+    prisma.perfilCargaBalance.groupBy({
+      by: ["clienteId"],
+      _count: { _all: true },
+    }),
+    alcanceLecturaUsuario(),
   ]);
   const headerByLote = new Map(headers.map((h) => [h.loteId, h]));
 
@@ -62,9 +68,12 @@ export default async function BorradoresPage() {
     resumenByLote.set(grupo.loteId, actual);
   }
 
-  const porNit = new Map<string, string>();
-  for (const c of clientes) porNit.set(soloDigitos(c.nit).slice(0, 9), c.name);
-  const clientePorId = new Map(clientes.map((c) => [c.id, c.name]));
+  const porNit = new Map<string, (typeof clientes)[number]>();
+  for (const c of clientes) porNit.set(soloDigitos(c.nit).slice(0, 9), c);
+  const clientePorId = new Map(clientes.map((c) => [c.id, c]));
+  const perfilesPorCliente = new Map(
+    perfilesPorClienteRows.map((fila) => [fila.clienteId, fila._count._all]),
+  );
 
   const rows: BorradorRow[] = [...resumenByLote.keys()]
     .sort((a, b) => (resumenByLote.get(b)?.creadoEn?.getTime() ?? 0) - (resumenByLote.get(a)?.creadoEn?.getTime() ?? 0))
@@ -72,15 +81,26 @@ export default async function BorradoresPage() {
       const h = headerByLote.get(loteId);
       const resumen = resumenByLote.get(loteId)!;
       const core = soloDigitos(h?.nitDetectado ?? "").slice(0, 9);
+      const cliente = h?.clienteId
+        ? (clientePorId.get(h.clienteId) ?? null)
+        : core.length >= 5
+          ? (porNit.get(core) ?? null)
+          : null;
+      const puedeGestionarPerfiles = cliente != null
+        && (alcance.todos || alcance.clientIds.includes(cliente.id));
       const partidaDobleDiff = h ? Number(h.partidaDobleDiff) : resumen.partidaDobleDiff;
       return {
         loteId,
         archivoNombre: h?.archivoNombre ?? "(sin encabezado)",
         conEncabezado: !!h,
         nitDetectado: h?.nitDetectado ?? null,
-        clienteSugerido: h?.clienteId
-          ? (clientePorId.get(h.clienteId) ?? null)
-          : core.length >= 5 ? (porNit.get(core) ?? null) : null,
+        clienteId: cliente?.id ?? null,
+        clienteSugerido: cliente?.name ?? null,
+        clienteNit: cliente?.nit ?? null,
+        perfilesEnMemoria: puedeGestionarPerfiles && cliente
+          ? (perfilesPorCliente.get(cliente.id) ?? 0)
+          : 0,
+        puedeGestionarPerfiles,
         periodo: h?.periodoInicial && h?.periodoFinal ? `${fmtCalendarDate(h.periodoInicial)} → ${fmtCalendarDate(h.periodoFinal)}` : "—",
         cuentasMovimiento: resumen.cuentasMovimiento,
         cuadrado: h?.cuadrado ?? Math.abs(partidaDobleDiff) <= 1,

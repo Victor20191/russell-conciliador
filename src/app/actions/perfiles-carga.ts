@@ -6,8 +6,13 @@ import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
 import { authorizePermiso } from "@/lib/rbac";
 import { mensajeErrorBD } from "@/lib/errores";
-import { AjustesCargaSchema, type ActionState } from "@/lib/definitions";
-import { normalizarCodigoFragmentos } from "@/lib/balance/extraccion/perfil";
+import { AjustesCargaSchema, EditarPerfilCargaSchema, type ActionState } from "@/lib/definitions";
+import {
+  aplanarSpec,
+  normalizarCodigoFragmentos,
+  specCargaDesdePerfil,
+} from "@/lib/balance/extraccion/perfil";
+import type { SpecCarga } from "@/lib/balance/extraccion/esquema";
 import { TIPO_BALANCE_CARGA } from "@/lib/balance/tipo-balance";
 
 // Gestión de la PERSONALIZACIÓN de carga de balances por cliente:
@@ -29,6 +34,7 @@ export type PerfilCargaResumen = {
   ultimoUsoEn: string | null; // ISO
   archivoEjemplo: string | null;
   resumenColumnas: string; // "código C1 · nombre C2 · débitos C5…"
+  estructura: SpecCarga;
   actualizadoEn: string; // ISO
 };
 
@@ -73,6 +79,75 @@ function letraColumna(n: number): string {
   return s;
 }
 
+/** Convierte una fila Prisma del perfil al contrato editable/persistible. */
+function estructuraDesdePerfil(p: {
+  hoja: string;
+  filaEncabezado: number;
+  primeraFilaDatos: number;
+  colCodigo: number;
+  colCodigoFragmentos: unknown;
+  colNombre: number;
+  colSaldoInicial: number;
+  colDebitos: number;
+  colCreditos: number;
+  colSaldoFinal: number;
+  colSaldoFinalDebito: number;
+  colSaldoFinalCredito: number;
+  colTercero: number;
+  signoCredito: string;
+  reglaDetalleTipo: string;
+  reglaDetalleColumna: number | null;
+  reglaDetalleValor: string | null;
+  agregarPorTercero: boolean;
+}): SpecCarga {
+  return specCargaDesdePerfil({
+    hoja: p.hoja,
+    filaEncabezado: p.filaEncabezado,
+    primeraFilaDatos: p.primeraFilaDatos,
+    colCodigo: p.colCodigo,
+    colCodigoFragmentos: normalizarCodigoFragmentos(p.colCodigoFragmentos),
+    colNombre: p.colNombre,
+    colSaldoInicial: p.colSaldoInicial,
+    colDebitos: p.colDebitos,
+    colCreditos: p.colCreditos,
+    colSaldoFinal: p.colSaldoFinal,
+    colSaldoFinalDebito: p.colSaldoFinalDebito,
+    colSaldoFinalCredito: p.colSaldoFinalCredito,
+    colTercero: p.colTercero,
+    signoCredito: p.signoCredito === "magnitud" ? "magnitud" : "firmado",
+    reglaDetalleTipo:
+      p.reglaDetalleTipo === "columna"
+        ? "columna"
+        : p.reglaDetalleTipo === "movimiento"
+          ? "movimiento"
+          : "prefijo",
+    reglaDetalleColumna: p.reglaDetalleColumna,
+    reglaDetalleValor: p.reglaDetalleValor,
+    agregarPorTercero: p.agregarPorTercero,
+  });
+}
+
+function resumenColumnas(spec: SpecCarga): string {
+  const partes: string[] = [];
+  const col = (label: string, n: number) => {
+    if (n > 0) partes.push(`${label} ${letraColumna(n)}`);
+  };
+  if (spec.columnas.codigoFragmentos.length > 0) {
+    partes.push(`código ${spec.columnas.codigoFragmentos.map(letraColumna).join("+")}`);
+  } else {
+    col("código", spec.columnas.codigo);
+  }
+  col("nombre", spec.columnas.nombre);
+  col("saldo inicial", spec.columnas.saldoInicial);
+  col("débitos", spec.columnas.debitos);
+  col("créditos", spec.columnas.creditos);
+  col("saldo final", spec.columnas.saldoFinal);
+  col("saldo final D", spec.columnas.saldoFinalDebito);
+  col("saldo final C", spec.columnas.saldoFinalCredito);
+  col("tercero", spec.columnas.tercero);
+  return partes.join(" · ");
+}
+
 /**
  * Lista los perfiles de carga y las preferencias del cliente (lectura lazy desde
  * el modal de la ficha, para no engordar el loader de la página).
@@ -99,19 +174,7 @@ export async function listarPerfilesCarga(clienteId: number): Promise<PerfilesCa
       }),
     ]);
     const perfiles: PerfilCargaResumen[] = filas.map((p) => {
-      const partes: string[] = [];
-      const col = (label: string, n: number) => { if (n > 0) partes.push(`${label} ${letraColumna(n)}`); };
-      const fragmentos = normalizarCodigoFragmentos(p.colCodigoFragmentos);
-      if (fragmentos.length > 0) partes.push(`código ${fragmentos.map(letraColumna).join("+")}`);
-      else col("código", p.colCodigo);
-      col("nombre", p.colNombre);
-      col("saldo inicial", p.colSaldoInicial);
-      col("débitos", p.colDebitos);
-      col("créditos", p.colCreditos);
-      col("saldo final", p.colSaldoFinal);
-      col("saldo final D", p.colSaldoFinalDebito);
-      col("saldo final C", p.colSaldoFinalCredito);
-      col("tercero", p.colTercero);
+      const estructura = estructuraDesdePerfil(p);
       return {
         id: p.id,
         huella: p.huella,
@@ -120,7 +183,8 @@ export async function listarPerfilesCarga(clienteId: number): Promise<PerfilesCa
         vecesUsado: p.vecesUsado,
         ultimoUsoEn: p.ultimoUsoEn?.toISOString() ?? null,
         archivoEjemplo: p.archivoEjemplo,
-        resumenColumnas: partes.join(" · "),
+        resumenColumnas: resumenColumnas(estructura),
+        estructura,
         actualizadoEn: p.actualizadoEn.toISOString(),
       };
     });
@@ -146,6 +210,121 @@ export async function listarPerfilesCarga(clienteId: number): Promise<PerfilesCa
     return { ok: true, perfiles, ajustes, correcciones };
   } catch (e) {
     return { ...vacio, message: mensajeErrorBD("listarPerfilesCarga", e) };
+  }
+}
+
+export type EditarPerfilCargaInput = {
+  id: number;
+  actualizadoEn: string;
+  estructura: SpecCarga;
+};
+
+/**
+ * Actualiza directamente el MappingSpec persistible de UN perfil.
+ *
+ * El `actualizadoEn` recibido funciona como control de concurrencia: si otra
+ * persona cambió el perfil mientras estaba abierto, no se pisan sus ajustes.
+ */
+export async function actualizarPerfilCarga(input: EditarPerfilCargaInput): Promise<ActionState> {
+  const authz = await authorizePermiso("balance:crear");
+  if (!authz.ok) return { ok: false, message: authz.message };
+
+  const parsed = EditarPerfilCargaSchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      message: parsed.error.issues[0]?.message ?? "La estructura del perfil no es válida.",
+    };
+  }
+
+  const { id, actualizadoEn } = parsed.data;
+  const estructura: SpecCarga = {
+    ...parsed.data.estructura,
+    hoja: parsed.data.estructura.hoja.trim(),
+    columnas: {
+      ...parsed.data.estructura.columnas,
+      codigoFragmentos: [...new Set(parsed.data.estructura.columnas.codigoFragmentos)],
+    },
+    reglaDetalle:
+      parsed.data.estructura.reglaDetalle.tipo === "columna"
+        ? {
+            tipo: "columna",
+            columna: parsed.data.estructura.reglaDetalle.columna,
+            valor: parsed.data.estructura.reglaDetalle.valor?.trim() ?? "",
+          }
+        : {
+            tipo: parsed.data.estructura.reglaDetalle.tipo,
+            columna: null,
+            valor: null,
+          },
+  };
+
+  try {
+    const perfil = await prisma.perfilCargaBalance.findUnique({
+      where: { id },
+      select: {
+        clienteId: true,
+        huella: true,
+        hoja: true,
+        actualizadoEn: true,
+      },
+    });
+    if (!perfil) return { ok: false, message: "El perfil ya no existe." };
+
+    const scope = await authorizePermiso("balance:crear", { clientId: perfil.clienteId });
+    if (!scope.ok) return { ok: false, message: scope.message };
+
+    const versionEsperada = new Date(actualizadoEn);
+    if (perfil.actualizadoEn.getTime() !== versionEsperada.getTime()) {
+      return {
+        ok: false,
+        message: "Este perfil cambió mientras lo estabas revisando. Ciérralo y vuelve a abrirlo para ver la versión más reciente.",
+      };
+    }
+
+    const actualizado = await prisma.perfilCargaBalance.updateMany({
+      where: {
+        id,
+        clienteId: perfil.clienteId,
+        actualizadoEn: versionEsperada,
+      },
+      data: {
+        ...aplanarSpec(estructura),
+        // Una edición humana blinda el perfil frente a futuras detecciones
+        // automáticas: las cargas solo registrarán su uso, no pisarán su mapa.
+        origen: "manual",
+      },
+    });
+    if (actualizado.count !== 1) {
+      return {
+        ok: false,
+        message: "Este perfil cambió mientras lo estabas guardando. Vuelve a abrirlo antes de intentar de nuevo.",
+      };
+    }
+
+    const user = await getCurrentUser();
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: "EDITÓ PERFIL de carga de balance",
+      entity: `cliente ${perfil.clienteId}`,
+      detail: [
+        `huella ${perfil.huella}`,
+        `hoja «${perfil.hoja}» → «${estructura.hoja}»`,
+        `filas ${estructura.filaEncabezado}/${estructura.primeraFilaDatos}`,
+        resumenColumnas(estructura) || "sin columnas opcionales",
+        `detalle ${estructura.reglaDetalle.tipo}`,
+        `crédito ${estructura.signoCredito}`,
+        `agrega terceros ${estructura.agregarPorTercero ? "sí" : "no"}`,
+      ].join(" · "),
+      clientId: perfil.clienteId,
+    });
+    revalidatePath(PATH);
+    return {
+      ok: true,
+      message: "Perfil actualizado. Las próximas cargas de este formato usarán esta estructura.",
+    };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("actualizarPerfilCarga", e) };
   }
 }
 

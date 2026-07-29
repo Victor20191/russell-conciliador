@@ -6,9 +6,9 @@
 // cliente del usuario (responsables directos + derivación del Socio),
 // que `src/lib/rbac.ts` usa para decidir el acceso.
 //
-// getMatriz usa unstable_cache (Data Cache de Next.js) con el tag
-// "rbac-matriz": persiste entre requests y se invalida solo cuando el
-// administrador edita permisos (revalidateTag desde la server action).
+// getMatriz usa unstable_cache (Data Cache de Next.js) con una clave/tag
+// versionada: persiste entre requests y se invalida cuando el administrador
+// edita permisos (updateTag desde la Server Action).
 // Las demás funciones usan React.cache() (memoización por request).
 // ============================================================
 import "server-only";
@@ -20,7 +20,10 @@ import { matrizConLegado } from "@/lib/rbac/catalogo";
 import { ROL_SOCIO, ROLES_ALCANCE_GLOBAL, derivarAsignacionesSocio } from "@/lib/rbac/jerarquia";
 import type { Matriz, Asignacion } from "@/lib/rbac/permisos";
 
-export const RBAC_CACHE_TAG = "rbac-matriz-v3";
+// Bump de versión al incorporar `balance:eliminar`: una clave nueva evita que
+// un despliegue siga sirviendo durante una hora la matriz anterior aunque la
+// migración/sincronización ya haya concedido el permiso.
+export const RBAC_CACHE_TAG = "rbac-matriz-v4";
 
 // La función interna que lee de BD (sin cache layer).
 async function leerMatrizDeBD(): Promise<Matriz> {
@@ -36,16 +39,16 @@ async function leerMatrizDeBD(): Promise<Matriz> {
   return m;
 }
 
-// unstable_cache: persiste entre requests hasta que revalidateTag(RBAC_CACHE_TAG)
+// unstable_cache: persiste entre requests hasta que updateTag(RBAC_CACHE_TAG)
 // sea llamado. Se combina con cache() para deduplicar dentro del mismo request.
-const getMatrizCached = unstable_cache(leerMatrizDeBD, ["rbac-matriz-v3"], {
+const getMatrizCached = unstable_cache(leerMatrizDeBD, [RBAC_CACHE_TAG], {
   tags: [RBAC_CACHE_TAG],
   revalidate: 3600, // revalidación máxima: 1 hora (fallback si no hay tag invalidation)
 });
 
 /**
  * Matriz rol×permiso EFECTIVA. Cacheada en el Data Cache de Next.js;
- * se invalida con revalidateTag(RBAC_CACHE_TAG) cuando el admin edita.
+ * se invalida con updateTag(RBAC_CACHE_TAG) cuando el admin edita.
  */
 export const getMatriz = cache(async (): Promise<Matriz> => {
   try {

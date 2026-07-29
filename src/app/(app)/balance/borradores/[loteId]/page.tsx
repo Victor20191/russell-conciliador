@@ -39,7 +39,7 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
   // Clientes de la cartera para el selector de carga + cliente sugerido por NIT.
   const alc = await alcancePromise;
   const filtroIds = alc.todos ? {} : { clienteId: { in: alc.clientIds } };
-  const [clientes, notasRows] = await Promise.all([
+  const [clientes, notasRows, perfilesPorClienteRows] = await Promise.all([
     prisma.client.findMany({
       where: alc.todos ? {} : { id: { in: alc.clientIds } },
       select: { id: true, name: true, nit: true },
@@ -50,8 +50,16 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
       where: { ...filtroIds, observaciones: { not: null } },
       select: { clienteId: true, observaciones: true },
     }),
+    prisma.perfilCargaBalance.groupBy({
+      by: ["clienteId"],
+      where: filtroIds,
+      _count: { _all: true },
+    }),
   ]);
   const notasPorCliente = new Map(notasRows.map((r) => [r.clienteId, r.observaciones]));
+  const perfilesPorCliente = new Map(
+    perfilesPorClienteRows.map((fila) => [fila.clienteId, fila._count._all]),
+  );
   const core = soloDigitos(lote?.nitDetectado ?? "").slice(0, 9);
   const clientePorNitId = core.length >= 5 ? (clientes.find((c) => soloDigitos(c.nit).slice(0, 9) === core)?.id ?? null) : null;
   // El cliente ya ASIGNADO al lote (al leer por NIT o a mano en la compuerta) manda
@@ -73,7 +81,13 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
         filasCompactas={staging.filasCompactas}
         porTerceroDetectado={staging.porTercero}
         revisionesReubicacion={staging.revisionesReubicacion ?? []}
-        clientes={clientes.map((c) => ({ id: c.id, name: c.name, nit: c.nit, notas: notasPorCliente.get(c.id) ?? null }))}
+        clientes={clientes.map((c) => ({
+          id: c.id,
+          name: c.name,
+          nit: c.nit,
+          notas: notasPorCliente.get(c.id) ?? null,
+          perfilesEnMemoria: perfilesPorCliente.get(c.id) ?? 0,
+        }))}
         clienteSugeridoId={clienteSugeridoId}
         spec={spec}
         correccionesAplicadas={lote?.correccionesAplicadas ?? 0}

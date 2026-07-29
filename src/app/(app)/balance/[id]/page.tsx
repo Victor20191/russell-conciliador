@@ -13,6 +13,7 @@ import BalanceDetailClient, {
 import { parseId } from "@/lib/ids";
 import { FreezeBalanceButton } from "./freeze-balance-button";
 import { ExportarBalance } from "./exportar-balance";
+import { EliminarBalanceButton } from "./eliminar-balance-button";
 import { FlashToast } from "@/components/flash-toast";
 import { ComentarioAprobacion } from "./comentario-aprobacion";
 import {
@@ -20,6 +21,7 @@ import {
   parsearRevisionesReubicacionBalance,
 } from "@/lib/balance/revisiones-reubicacion-balance";
 import Conversacion from "@/components/conversacion";
+import { PerfilesEnMemoriaControl } from "@/app/(app)/balance/perfiles-en-memoria";
 
 export default async function BalanceDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ cargado?: string }> }) {
   await requirePermiso("balance:ver");
@@ -45,9 +47,22 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
   // Agregados RECALCULADOS desde el detalle. Plan estándar (cacheado), subgrupos
   // (nombres de nivel 4/2), la bitácora y los permisos de UI se cargan en una
   // sola ola después de validar el alcance de lectura.
-  const [editarAuth, mapearAuth, cuentasEstandar, subgrupos, hermanos, comentariosGrp, validacionesRows, umbrales] = await Promise.all([
+  const [
+    editarAuth,
+    mapearAuth,
+    eliminarAuth,
+    cuentasEstandar,
+    subgrupos,
+    hermanos,
+    comentariosGrp,
+    validacionesRows,
+    umbrales,
+    balancesCliente,
+    perfilesCliente,
+  ] = await Promise.all([
     authorizePermiso("balance:editar", { clientId }),
     authorizePermiso("balance:crear", { clientId }),
+    authorizePermiso("balance:eliminar", { clientId }),
     getCuentasEstandar(),
     prisma.subgrupoEstandar.findMany({ select: { codigo: true, nombre: true, grupo: true, nombreGrupo: true } }),
     prisma.balancePruebaEncabezado.findMany({
@@ -65,6 +80,12 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
     // Umbrales de alerta vigentes (/config/parametros). Como los agregados se
     // RECALCULAN al leer, cambiarlos se refleja de inmediato en este balance.
     getUmbralesAlertas(),
+    prisma.balancePruebaEncabezado.count({
+      where: { clienteId: balance.clienteId },
+    }),
+    prisma.perfilCargaBalance.count({
+      where: { clienteId: balance.clienteId },
+    }),
   ]);
   // Editar (congelar) y mapear exigen alcance de escritura; las Server Actions
   // vuelven a verificarlo al ejecutar.
@@ -131,6 +152,16 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
         subtitle={`${balance.periodo} · versión ${balance.version}`}
         actions={
           <div className="flex items-center gap-2">
+            {puedeMapear && (
+              <PerfilesEnMemoriaControl
+                cliente={{
+                  id: balance.clienteId,
+                  name: balance.nombreCliente,
+                  nit: balance.nit ?? "",
+                  perfilesEnMemoria: perfilesCliente,
+                }}
+              />
+            )}
             {sums && <ExportarBalance id={id} />}
             {hasDiff && (
               <a href={`/balance/${id}/diff`} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 px-3 py-2 text-[12.5px] font-medium text-ink-700 hover:bg-ink-50">
@@ -141,6 +172,17 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
               <FreezeBalanceButton id={id} />
             )}
             {balance.estaCongelado && <Chip label="Congelado" tone="blue" />}
+            {eliminarAuth.ok && (
+              <EliminarBalanceButton
+                balanceId={id}
+                nombreCliente={balance.nombreCliente}
+                periodo={balance.periodo}
+                version={balance.version}
+                versionesPeriodo={hermanos.length}
+                balancesCliente={balancesCliente}
+                perfilesCliente={perfilesCliente}
+              />
+            )}
           </div>
         }
       />

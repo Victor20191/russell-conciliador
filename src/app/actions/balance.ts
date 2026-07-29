@@ -9,13 +9,18 @@ import { authorizePermiso } from "@/lib/rbac";
 import { clienteDeBalance } from "@/lib/rbac/contexto";
 import { parseId } from "@/lib/ids";
 import { parseAlcanceHomologacion, resolverAlcanceHomologacion } from "@/lib/balance/alcance-homologacion";
+import {
+  parseAlcanceEliminacionBalance,
+  resolverAlcanceEliminacionBalance,
+  type AlcanceEliminacionBalance,
+} from "@/lib/balance/alcance-eliminacion";
 import { tomarCandadoTransaccion, transaccionSerializable } from "@/lib/concurrency";
 import { createProcessNotification } from "@/lib/notifications";
 import { esErrorDisponibilidadIA, mensajeErrorBD, mensajeErrorIA } from "@/lib/errores";
 import { fmt, MESES_LARGOS } from "@/lib/format";
 import { fechaCalendarioPrisma } from "@/lib/fecha-hora";
 import { ConfirmarBalanceSchema, SpecCargaBalanceSchema, type ActionState, type PayloadCargaBalance } from "@/lib/definitions";
-import { claveNit } from "@/lib/nit";
+import { nucleoNit } from "@/lib/nit";
 import { parseBalanceWorkbook, type ImportBalanceState } from "@/lib/import/balance";
 import {
   calcularBalance,
@@ -165,10 +170,10 @@ function mensajeCuadre(c: CuadreTotales): string {
 
 /** Resuelve el cliente por NIT (núcleo de 9 dígitos, mismo criterio del selector del modal). */
 async function clientePorNit(nit: string | null): Promise<number | null> {
-  const core = claveNit(nit ?? "").slice(0, 9);
+  const core = nucleoNit(nit ?? "");
   if (core.length < 5) return null;
   const clientes = await prisma.client.findMany({ select: { id: true, nit: true } });
-  return clientes.find((c) => claveNit(c.nit).slice(0, 9) === core)?.id ?? null;
+  return clientes.find((c) => nucleoNit(c.nit) === core)?.id ?? null;
 }
 
 type AjustesCarga = { hojaPreferida: string | null; convencionCredito: string | null; estandar: string | null; agregarPorTercero: boolean | null; imputarSoloHojas: boolean | null; observaciones: string | null };
@@ -222,7 +227,12 @@ function perfilPlanoDesdeFila(p: FilaPerfilCarga): PerfilPlano {
     colDebitos: p.colDebitos, colCreditos: p.colCreditos, colSaldoFinal: p.colSaldoFinal,
     colSaldoFinalDebito: p.colSaldoFinalDebito, colSaldoFinalCredito: p.colSaldoFinalCredito, colTercero: p.colTercero,
     signoCredito: p.signoCredito === "magnitud" ? "magnitud" : "firmado",
-    reglaDetalleTipo: p.reglaDetalleTipo === "columna" ? "columna" : "prefijo",
+    reglaDetalleTipo:
+      p.reglaDetalleTipo === "columna"
+        ? "columna"
+        : p.reglaDetalleTipo === "movimiento"
+          ? "movimiento"
+          : "prefijo",
     reglaDetalleColumna: p.reglaDetalleColumna, reglaDetalleValor: p.reglaDetalleValor,
     agregarPorTercero: p.agregarPorTercero,
   };
@@ -1076,8 +1086,8 @@ async function persistirCargue(p: {
 /**
  * LECTURA (paso 1). Extrae las cuentas del archivo SIN escribir nada (salvo el
  * borrador en staging) y devuelve una sugerencia (NIT/período detectados +
- * cuentas + excepciones). Puede detectar sin cliente para mostrar la sugerencia,
- * pero la interfaz exige asociarlo y crear su perfil antes de ir al borrador.
+ * cuentas + excepciones). EXIGE el cliente desde el formulario: nunca se crea un
+ * borrador sin dueño (el NIT del archivo solo sirve para contrastar y avisar).
  *
  * Orden de resolución de la ESTRUCTURA (tabular):
  *   1. PERFIL guardado por huella del layout → determinista, 0 llamadas IA.
@@ -1100,10 +1110,18 @@ export async function leerBalance(
   }
   if (archivo.size > MAX_BYTES) return { ok: false, message: "El archivo supera 20 MB." };
 
+  // CLIENTE OBLIGATORIO ANTES DE LEER: ningún borrador puede nacer sin dueño (si
+  // no, queda huérfano en la lista y sin perfil de carga que memorizar). Además,
+  // conocerlo de entrada permite aplicar su perfil por huella (0 IA), sus ajustes
+  // y sus correcciones desde esta misma lectura.
+  const clienteIdTexto = String(formData.get("clienteId") ?? "").trim();
+  if (!clienteIdTexto) {
+    return { ok: false, message: "Selecciona el cliente (NIT) antes de leer el archivo: el borrador y su perfil de carga se crean a su nombre." };
+  }
+
   try {
-    const clienteIdTexto = String(formData.get("clienteId") ?? "").trim();
     let clienteExplicitoId: number | null = null;
-    if (clienteIdTexto) {
+    {
       const candidato = Number(clienteIdTexto);
       if (!Number.isInteger(candidato) || candidato <= 0) {
         return { ok: false, message: "El cliente seleccionado no es válido." };
@@ -1320,6 +1338,12 @@ type ParamsLoteSugerencia = {
  */
 async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBalanceState> {
   const { extr } = p;
+  // FAIL-CLOSED: sin cliente no se persiste NADA. Un borrador huérfano no puede
+  // crear el perfil de carga del layout ni re-aplicar correcciones memorizadas,
+  // así que se corta antes de escribir staging/lote.
+  if (p.clienteDetectadoId == null) {
+    return { ok: false, message: "No se puede crear el borrador sin cliente: selecciona la empresa (NIT) y vuelve a leer el archivo." };
+  }
   if (extr.importReady.length === 0) {
     return { ok: false, message: "No se leyó ninguna cuenta del archivo. Revisa las excepciones.", excepciones: extr.excepciones };
   }
@@ -1609,6 +1633,11 @@ export async function reprocesarBalanceConSpec(
     const clienteDetectadoId = await clienteAutorizado(candidatoCliente);
     if (candidatoCliente != null && clienteDetectadoId == null) {
       return { ok: false, message: "No tienes alcance para cargar balances de ese cliente." };
+    }
+    // Mismo principio que en la lectura: el reproceso también crea un borrador,
+    // así que no se permite sin cliente asociado.
+    if (clienteDetectadoId == null) {
+      return { ok: false, message: "Selecciona el cliente (NIT) antes de reprocesar: el borrador y su perfil de carga se crean a su nombre." };
     }
     const ajustesCliente = await ajustesCargaDeCliente(clienteDetectadoId);
     const spec = aplicarPreferenciasCarga(
@@ -2576,5 +2605,158 @@ export async function eliminarDetalleBalance(detalleId: number): Promise<ActionS
     return { ok: true, message: `Cuenta ${fila.cuenta8} eliminada y memorizada como omisión para este cliente.` };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("eliminarDetalleBalance", e) };
+  }
+}
+
+export type EliminarBalanceState = ActionState & {
+  balancesEliminados?: number;
+  perfilesEliminados?: number;
+};
+
+/**
+ * Elimina balances oficiales con un alcance elegido explícitamente:
+ * una versión, todas las versiones del período o todo el historial del cliente
+ * junto con sus perfiles de estructura. Los comentarios/validaciones son FKs
+ * suaves al encabezado y se purgan de forma explícita antes del balance.
+ *
+ * No elimina el cliente, borradores, preferencias generales, correcciones por
+ * cuenta ni memoria de homologación. El permiso `balance:eliminar` es
+ * independiente de cargar/editar y se vuelve a comprobar con alcance al cliente.
+ */
+export async function eliminarBalance(input: {
+  balanceId: number;
+  alcance: AlcanceEliminacionBalance;
+}): Promise<EliminarBalanceState> {
+  // Primer gate antes de validar o consultar datos enviados por el cliente.
+  const authz = await authorizePermiso("balance:eliminar");
+  if (!authz.ok) return { ok: false, message: authz.message };
+
+  const balanceId = Number(input?.balanceId);
+  const alcance = parseAlcanceEliminacionBalance(input?.alcance);
+  if (!Number.isInteger(balanceId) || balanceId <= 0 || !alcance) {
+    return {
+      ok: false,
+      message: "Selecciona de nuevo qué información deseas eliminar.",
+    };
+  }
+
+  try {
+    const referencia = await prisma.balancePruebaEncabezado.findUnique({
+      where: { id: balanceId },
+      select: {
+        id: true,
+        clienteId: true,
+        nombreCliente: true,
+        periodo: true,
+        version: true,
+      },
+    });
+    if (!referencia) {
+      return { ok: false, message: "El balance ya no existe." };
+    }
+
+    const scope = await authorizePermiso("balance:eliminar", {
+      clientId: referencia.clienteId,
+    });
+    if (!scope.ok) return { ok: false, message: scope.message };
+
+    const resultado = await transaccionSerializable(async (tx) => {
+      await tomarCandadoTransaccion(
+        tx,
+        `balance-eliminar:${referencia.clienteId}`,
+      );
+
+      // Revalida la referencia dentro de la transacción: otra sesión pudo
+      // eliminarla mientras se abría el modal.
+      const vigente = await tx.balancePruebaEncabezado.findUnique({
+        where: { id: balanceId },
+        select: { id: true, clienteId: true, periodo: true },
+      });
+      if (!vigente || vigente.clienteId !== referencia.clienteId) {
+        return {
+          ok: false as const,
+          message: "El balance ya no existe.",
+          balancesEliminados: 0,
+          perfilesEliminados: 0,
+        };
+      }
+
+      const plan = resolverAlcanceEliminacionBalance(alcance, vigente);
+      const objetivos = await tx.balancePruebaEncabezado.findMany({
+        where: plan.filtroBalance,
+        select: { id: true },
+      });
+      const ids = objetivos.map((balance) => balance.id);
+      if (ids.length === 0) {
+        return {
+          ok: false as const,
+          message: "No se encontraron balances para eliminar.",
+          balancesEliminados: 0,
+          perfilesEliminados: 0,
+        };
+      }
+
+      // `balance_id` y la conversación polimórfica son referencias suaves:
+      // se limpian explícitamente; el detalle sí cae por ON DELETE CASCADE.
+      await tx.validacionAlerta.deleteMany({
+        where: { balanceId: { in: ids } },
+      });
+      await tx.comment.deleteMany({
+        where: { entityType: "balance", entityId: { in: ids } },
+      });
+      const balances = await tx.balancePruebaEncabezado.deleteMany({
+        where: { id: { in: ids } },
+      });
+      const perfiles = plan.eliminaPerfiles
+        ? await tx.perfilCargaBalance.deleteMany({
+            where: { clienteId: referencia.clienteId },
+          })
+        : { count: 0 };
+
+      return {
+        ok: true as const,
+        balancesEliminados: balances.count,
+        perfilesEliminados: perfiles.count,
+      };
+    });
+
+    if (!resultado.ok) return resultado;
+
+    const user = await getCurrentUser();
+    const descripcionAlcance =
+      alcance === "version"
+        ? `versión ${referencia.version} de ${referencia.periodo}`
+        : alcance === "periodo"
+          ? `todas las versiones de ${referencia.periodo}`
+          : "todo el historial del cliente y sus perfiles de carga";
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action:
+        alcance === "cliente_perfiles"
+          ? "ELIMINÓ BALANCES Y PERFILES DE CARGA"
+          : "ELIMINÓ BALANCE",
+      entity: referencia.nombreCliente,
+      detail: `${descripcionAlcance} · ${resultado.balancesEliminados} balance(s) · ${resultado.perfilesEliminados} perfil(es)`,
+      clientId: referencia.clienteId,
+    });
+
+    revalidatePath("/balance");
+    revalidatePath("/dashboard");
+    if (alcance === "cliente_perfiles") revalidatePath("/config/clientes");
+
+    return {
+      ok: true,
+      message:
+        resultado.perfilesEliminados > 0
+          ? `${resultado.balancesEliminados} balance(s) y ${resultado.perfilesEliminados} perfil(es) eliminados.`
+          : `${resultado.balancesEliminados} balance(s) eliminado(s).`,
+      balancesEliminados: resultado.balancesEliminados,
+      perfilesEliminados: resultado.perfilesEliminados,
+    };
+  } catch (e) {
+    return {
+      ok: false,
+      message: mensajeErrorBD("eliminarBalance", e),
+    };
   }
 }

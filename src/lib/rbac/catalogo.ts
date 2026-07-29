@@ -149,6 +149,7 @@ export const PERMISOS: Permiso[] = [
   // de balance, abierta también a administradores de plataforma) =====
   { code: "balance:crear", module: "balance", action: "crear", label: "Cargar balance", roles: STAFF_Y_ADMIN },
   { code: "balance:editar", module: "balance", action: "editar", label: "Editar balance", roles: SOLO_STAFF },
+  { code: "balance:eliminar", module: "balance", action: "eliminar", label: "Eliminar balances y perfiles de carga", roles: SOLO_ADMIN },
   { code: "mapeo:editar", module: "mapeo", action: "editar", label: "Editar mapeo del plan estándar", roles: SOLO_STAFF },
   { code: "conciliaciones:crear", module: "conciliaciones", action: "crear", label: "Crear conciliación", roles: SOLO_STAFF },
   { code: "conciliaciones:editar", module: "conciliaciones", action: "editar", label: "Editar conciliación", roles: SOLO_STAFF },

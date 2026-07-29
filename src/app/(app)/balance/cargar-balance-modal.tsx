@@ -18,6 +18,7 @@ import { leerHojasParaPreview, columnaLetra, type CeldaCruda, type HojaPreview }
 import type { SpecCarga } from "@/lib/balance/extraccion/esquema";
 import { PromptClientePerfil } from "@/app/(app)/balance/prompt-cliente-perfil";
 import { SelectorClienteBuscable } from "@/components/selector-cliente-buscable";
+import { nitCoincide } from "@/lib/nit";
 import { EstadoProcesando } from "@/components/estado-procesando";
 import type { ImportBalanceState } from "@/lib/import/balance";
 import type { ConfiguracionIABalanceUI, ProveedorIABalance } from "@/lib/ia/proveedor-balance";
@@ -83,6 +84,9 @@ function CargarBalanceModal({
 }) {
   const [leerState, leerAction, leyendo] = useActionState<LeerBalanceState, FormData>(leerBalance, {});
   const [fileName, setFileName] = useState("");
+  // Cliente elegido ANTES de leer: es obligatorio, porque el borrador y el perfil
+  // de carga (memoria del layout) se crean a su nombre. Sin él no se lee nada.
+  const [clienteCarga, setClienteCarga] = useState<number | null>(null);
   // El File original se retiene para el EDITOR DE ESTRUCTURA (reproceso sin IA):
   // el input se desmonta al pasar a la fase de revisión.
   const [archivoFile, setArchivoFile] = useState<File | null>(null);
@@ -262,9 +266,11 @@ function CargarBalanceModal({
     });
   };
 
-  // Con Excel multi-hoja, no se puede leer hasta elegir una hoja.
+  // Con Excel multi-hoja, no se puede leer hasta elegir una hoja. Y nunca se lee
+  // sin cliente: un borrador huérfano no puede generar el perfil de carga.
   const requiereHoja = !!hojas && hojas.length >= 2;
-  const leerDeshabilitado = leyendo || inspeccionando || !fileName || clients.length === 0 || (requiereHoja && !hojaElegida);
+  const leerDeshabilitado =
+    leyendo || inspeccionando || !fileName || clients.length === 0 || clienteCarga == null || (requiereHoja && !hojaElegida);
 
   const footer =
     fase === "revisar" ? (
@@ -296,6 +302,7 @@ function CargarBalanceModal({
         form="leer-form"
         disabled={leerDeshabilitado}
         aria-busy={leyendo}
+        title={clienteCarga == null ? "Selecciona el cliente (NIT) para poder leer el archivo" : undefined}
         className="ml-auto rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
       >
         {leyendo
@@ -325,10 +332,10 @@ function CargarBalanceModal({
       ) : (
         <form id="leer-form" onSubmit={onLeerSubmit} className="flex flex-col gap-3.5">
           <p className="text-[12.5px] leading-relaxed text-ink-600">
-            Sube el balance en <span className="font-semibold">Excel (.xlsx/.xlsm/.xls), CSV, TXT (plano), JSON o PDF</span>. La plataforma
+            Elige el <span className="font-semibold">cliente</span> y sube el balance en <span className="font-semibold">Excel (.xlsx/.xlsm/.xls), CSV, TXT (plano), JSON o PDF</span>. La plataforma
             lo lee (con el <span className="font-semibold">perfil guardado del cliente</span> si el formato ya se conoce, o
-            con IA), identifica la estructura y te <span className="font-semibold">sugiere</span> los datos (cliente,
-            período, saldos). Al terminar la lectura crea un borrador para que lo revises antes de cargarlo como balance oficial.
+            con IA), identifica la estructura y te <span className="font-semibold">sugiere</span> los datos (período, saldos).
+            Al terminar la lectura crea un borrador para que lo revises antes de cargarlo como balance oficial.
           </p>
 
           {configuracionIA && (
@@ -354,6 +361,19 @@ function CargarBalanceModal({
             </div>
           ) : (
             <>
+              <div className="rounded-md border border-ink-200 bg-ink-50/60 px-3 py-2.5">
+                <SelectorClienteBuscable
+                  clients={clients}
+                  value={clienteCarga}
+                  onChange={setClienteCarga}
+                  name="clienteId"
+                />
+                <p className="mt-1.5 text-[11.5px] text-ink-600">
+                  <span className="font-semibold">Obligatorio.</span> El borrador y el perfil de carga (memoria del layout) se crean a nombre
+                  de este cliente. Se aplican de una vez sus preferencias y correcciones guardadas; el NIT del archivo se contrasta después.
+                </p>
+              </div>
+
               <label className="flex flex-col gap-1.5">
                 <span className="text-[11.5px] font-medium text-ink-600">Archivo (Excel, CSV, TXT, JSON o PDF)</span>
                 <input
@@ -500,12 +520,21 @@ function IdentificacionCliente({
   const cliente = clients.find((opcion) => opcion.id === clienteId) ?? null;
 
   if (cliente) {
+    // El NIT del archivo solo CONTRASTA con el del cliente elegido (el DV puede
+    // venir o no): si difieren, se avisa sin bloquear — puede ser un balance
+    // consolidado o un export sin NIT, pero suele ser un cliente equivocado.
+    const discrepa = nitDetectado != null && !nitCoincide(nitDetectado, cliente.nit);
     return (
       <section className="rounded-lg border border-ok-100 bg-ok-100/55 px-3.5 py-3" aria-label="Cliente identificado">
         <div className="mb-2 flex items-center gap-2 text-[12px] font-semibold text-ok-700">
           <span className="inline-flex size-5 items-center justify-center rounded-full bg-white/80" aria-hidden="true">✓</span>
           Cliente identificado
         </div>
+        {discrepa && (
+          <p className="mb-2 rounded-md border border-warn-200 bg-warn-100/70 px-2.5 py-2 text-[11.5px] font-medium text-warn-700">
+            ⚠️ El NIT leído del archivo no coincide con el del cliente seleccionado. Verifica que sea la empresa correcta antes de cargar.
+          </p>
+        )}
         <dl className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_2fr]">
           <div>
             <dt className="text-[10.5px] font-semibold uppercase tracking-wide text-ink-500">NIT leído del archivo</dt>
