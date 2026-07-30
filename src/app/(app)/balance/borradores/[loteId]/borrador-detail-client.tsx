@@ -2179,10 +2179,9 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
     if (nuevas.length > 0) setAbiertos((prev) => new Set([...prev, ...nuevas]));
   }, [codigosConHijos]);
 
-  // ---- Filtros del árbol: búsqueda, vista (Balance/Estado de Resultado/Alertas)
-  //      y nivel máximo (N2/N4/N6/N8). ----
+  // ---- Filtros del árbol: búsqueda, alertas y nivel máximo (N2/N4/N6/N8). ----
   const [q, setQ] = useState("");
-  const [vista, setVista] = useState<"todo" | "balance" | "er" | "alertas">("todo");
+  const [vista, setVista] = useState<"todo" | "alertas">("todo");
   const [nivelMax, setNivelMax] = useState(0); // 0 = todos; 2/4/6/8 = hasta ese nivel
   const [pantallaCompleta, setPantallaCompleta] = useState(false);
 
@@ -2247,26 +2246,26 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
   // Poda del árbol según los filtros (conserva ancestros de las coincidencias).
   const arbolVisible = useMemo(() => {
     if (!filtrando) return arbol;
-    const enVista = (x: NodoBorrador) => {
-      if (vista === "todo" || vista === "alertas") return true;
-      const d = x.codigo.charAt(0);
-      if (!/[1-7]/.test(d)) return true; // estructural (sucursal / orden) → no filtra por clase
-      return vista === "balance" ? "123".includes(d) : "4567".includes(d);
-    };
     const nivelOk = (x: NodoBorrador) => nivelMax === 0 || !/^\d+$/.test(x.codigo) || x.codigo.length <= nivelMax;
-    const selfMatch = (x: NodoBorrador) => matchQ(x) && (vista !== "alertas" || esAlertaNodo(x, umbrales) || riesgosPorFila.has(x.filaNum));
-    const podar = (nodos: NodoBorrador[]): NodoBorrador[] => {
+    const alerta = (x: NodoBorrador) => esAlertaNodo(x, umbrales) || riesgosPorFila.has(x.filaNum);
+    const selfMatch = (x: NodoBorrador) => matchQ(x) && (vista !== "alertas" || alerta(x));
+    // `bajoAlerta` = el nodo cuelga de una fila que alertó. En la vista «Alertas» esos
+    // descendientes se CONSERVAN aunque no alerten ellos mismos: el Δ de una agrupadora
+    // solo se puede evidenciar viendo las cuentas de movimiento/auxiliares que lo componen.
+    // Sigue respetándose el nivel máximo (N2/N4/N6/N8), que es un control explícito.
+    const podar = (nodos: NodoBorrador[], bajoAlerta: boolean): NodoBorrador[] => {
       const out: NodoBorrador[] = [];
       for (const x of nodos) {
-        if (!nivelOk(x) || !enVista(x)) continue;
-        const hijos = podar(x.hijos);
-        if (selfMatch(x) || hijos.length > 0) out.push({ ...x, hijos });
+        if (!nivelOk(x)) continue;
+        const propio = bajoAlerta || selfMatch(x);
+        const hijos = podar(x.hijos, propio && vista === "alertas");
+        if (propio || hijos.length > 0) out.push({ ...x, hijos });
       }
       return out;
     };
-    return podar(arbol);
+    return podar(arbol, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [arbol, q, vista, nivelMax]);
+  }, [arbol, q, vista, nivelMax, riesgosPorFila, umbrales]);
 
   // Filas VISIBLES aplanadas (respetando expansión y filtros). NO se omite ningún
   // dato: los cálculos usan el árbol completo y todas las filas están disponibles;
@@ -2542,12 +2541,38 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
     );
   };
 
+  // Toggle: clic selecciona; segundo clic sobre el activo vuelve al default
+  // (nivel 0 = «Todos», vista «todo»). Así se puede deseleccionar N2/N4/… o
+  // Alertas sin tener que pulsar el botón neutro a mano.
   const nivelBtn = (v: number, label: string) => (
-    <button type="button" onClick={() => { setNivelMax(v); reiniciarRevelado(); }} className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${nivelMax === v ? "bg-navy-700 text-white" : "text-ink-500 hover:bg-ink-100"}`}>{label}</button>
+    <button
+      type="button"
+      aria-pressed={nivelMax === v}
+      onClick={() => {
+        setNivelMax((prev) => (prev === v ? 0 : v));
+        reiniciarRevelado();
+      }}
+      className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${nivelMax === v ? "bg-navy-700 text-white" : "text-ink-500 hover:bg-ink-100"}`}
+    >
+      {label}
+    </button>
   );
   const vistaBtn = (v: typeof vista, label: string, count?: number) => (
-    <button type="button" onClick={() => { setVista(v); reiniciarRevelado(); }} className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11.5px] font-medium ${vista === v ? "bg-navy-700 text-white" : "text-ink-600 hover:bg-ink-100"}`}>
-      {label}{count != null && count > 0 && <span className={`rounded-full px-1.5 text-[10px] font-semibold ${vista === v ? "bg-white/20" : "bg-warn-100 text-warn-700"}`}>{count}</span>}
+    <button
+      type="button"
+      aria-pressed={vista === v}
+      onClick={() => {
+        setVista((prev) => (prev === v ? "todo" : v));
+        reiniciarRevelado();
+      }}
+      className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11.5px] font-medium ${vista === v ? "bg-navy-700 text-white" : "text-ink-600 hover:bg-ink-100"}`}
+    >
+      {label}
+      {count != null && count > 0 && (
+        <span className={`rounded-full px-1.5 text-[10px] font-semibold ${vista === v ? "bg-white/20" : "bg-warn-100 text-warn-700"}`}>
+          {count}
+        </span>
+      )}
     </button>
   );
 
@@ -2568,8 +2593,6 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
         </div>
         <span className="mx-0.5 h-4 w-px bg-ink-200" />
         {vistaBtn("todo", "Todo")}
-        {vistaBtn("balance", "Balance")}
-        {vistaBtn("er", "Estado de Resultado")}
         {vistaBtn("alertas", "Alertas", nAlertas)}
         <span className="mx-0.5 h-4 w-px bg-ink-200" />
         <button type="button" onClick={expandirTodo} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50"><Icon name="chev-d" size={12} />Expandir todo</button>
