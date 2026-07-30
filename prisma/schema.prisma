@@ -625,6 +625,10 @@ model Balance {
 // el detalle al leer (ver `src/lib/balance/calcular.ts`), no se persisten.
 model BalancePruebaEncabezado {
   id                   Int       @id @default(autoincrement()) @map("id")
+  // Idempotencia de la promoción: identifica el lote de borrador que originó
+  // este balance. Los registros históricos quedan en null; toda promoción nueva
+  // lo persiste y la restricción única impide crear otra versión desde el mismo lote.
+  loteId               String?   @unique @map("lote_id")
   // FK LÓGICA a Client (solo Int, sin @relation): convención del proyecto para
   // FKs suaves hacia Client/User. `nombreCliente`/`nit` quedan denormalizados
   // para listar sin join.
@@ -744,6 +748,10 @@ model BalanceImportacionLote {
   // Filas del staging corregidas AUTOMÁTICAMENTE con las correcciones memorizadas
   // del cliente (banner informativo del borrador). 0 = ninguna.
   correccionesAplicadas Int       @default(0) @map("correcciones_aplicadas")
+  // Versión monotónica del CONTENIDO del staging. La promoción captura este valor
+  // antes del cálculo y lo revalida dentro del commit para no consumir cambios
+  // concurrentes que no alcanzó a analizar.
+  revisionContenido      Int       @default(0) @map("revision_contenido")
   creadoEn              DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   @@index([cargadoPorId])
@@ -818,7 +826,7 @@ model BalanceLecturaDiagnostico {
   // Cuadre AUTOMÁTICO (antes de edición manual): ¿acertó solo el modelo?
   cuadradoInicial      Boolean  @default(false) @map("cuadrado_inicial")
   // Ciclo de vida del cargue
-  resultado            String   @default("borrador") @map("resultado") // borrador | reprocesado | cargado | descartado | error
+  resultado            String   @default("borrador") @map("resultado") // borrador | reemplazado | reprocesado (legado) | cargado | descartado | error
   cuadradoFinal        Boolean? @map("cuadrado_final")
   // Intervención MANUAL (toma final; 0 = la heurística bastó)
   manualOmitidas       Int      @default(0) @map("manual_omitidas")

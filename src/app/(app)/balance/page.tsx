@@ -10,6 +10,10 @@ import BalanceIndexClient, {
 import { fmtDateTime } from "@/lib/format";
 import { configuracionIABalanceUISesion } from "@/lib/ia/proveedor-balance-sesion";
 
+// La extracción asistida puede tardar hasta 10 minutos. Vercel usa este valor
+// para que la Server Action no sea terminada antes que su proveedor de IA.
+export const maxDuration = 1800;
+
 export default async function BalancePage() {
   await requirePermiso("balance:ver");
   // Cartera de lectura: cada usuario ve solo los balances de SUS clientes

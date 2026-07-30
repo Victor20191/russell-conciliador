@@ -58,6 +58,11 @@ import {
 } from "@/lib/balance/revisiones-reubicacion-balance";
 import { ReubicacionesAprobadasPanel } from "@/components/reubicaciones-aprobadas";
 import { notifyActionState, notifySuccess, notifyError, notifyInfo } from "@/lib/client-notifications";
+import {
+  esFalloTransporteCarga,
+  MENSAJE_RECUPERAR_LECTURA,
+  MENSAJE_RECUPERAR_PROMOCION,
+} from "@/lib/balance/recuperacion-red";
 import { SelectorClienteBuscable } from "@/components/selector-cliente-buscable";
 import { useSeleccionFilaTabla } from "@/app/(app)/balance/use-seleccion-fila-tabla";
 import {
@@ -153,6 +158,20 @@ function aplicarCambios(
   return out;
 }
 
+async function cargarBorradorRecuperable(
+  previo: ImportBalanceState,
+  formData: FormData,
+): Promise<ImportBalanceState> {
+  try {
+    return await cargarBorrador(previo, formData);
+  } catch (error) {
+    if (esFalloTransporteCarga(error)) {
+      return { ok: false, message: MENSAJE_RECUPERAR_PROMOCION };
+    }
+    throw error;
+  }
+}
+
 export default function BorradorDetailClient({
   loteId, archivoNombre, nitDetectado, periodoInicial, periodoFinal, filasCompactas, porTerceroDetectado, revisionesReubicacion = [], clientes, clienteSugeridoId, spec, correccionesAplicadas, umbrales,
 }: {
@@ -177,7 +196,10 @@ export default function BorradorDetailClient({
   // Una sola expansión por payload; el resto del componente trabaja con las filas
   // completas exactamente como antes.
   const filas = useMemo(() => expandirFilas(filasCompactas), [filasCompactas]);
-  const [cargarState, cargarAction, cargando] = useActionState<ImportBalanceState, FormData>(cargarBorrador, {});
+  const [cargarState, cargarAction, cargando] = useActionState<ImportBalanceState, FormData>(
+    cargarBorradorRecuperable,
+    {},
+  );
   const [descartando, startDescartar] = useTransition();
   const [confirmarDescarte, setConfirmarDescarte] = useState(false);
   const [infoFilasExcluidas, setInfoFilasExcluidas] = useState(false); // modal informativo (no se monta hasta abrirlo)
@@ -206,6 +228,7 @@ export default function BorradorDetailClient({
   const autoAplicadoRef = useRef(false);
   const [archivoFile, setArchivoFile] = useState<File | null>(null); // re-adjuntar para reprocesar sin IA
   const [reprocesando, startReproceso] = useTransition();
+  const reprocesoSolicitudRef = useRef<string | null>(null);
   const [guardandoPerfil, startGuardarPerfil] = useTransition();
   const [promptPerfilSpec, setPromptPerfilSpec] = useState<SpecCarga | null>(null); // pide cliente al guardar perfil
   const [guardando, startGuardar] = useTransition();
@@ -566,10 +589,26 @@ export default function BorradorDetailClient({
       fd.set("archivo", archivoFile);
       fd.set("spec", JSON.stringify(s));
       fd.set("loteIdAnterior", loteId);
+      reprocesoSolicitudRef.current ??= crypto.randomUUID();
+      fd.set("loteIdSolicitud", reprocesoSolicitudRef.current);
       if (clienteSelId != null) fd.set("clienteId", String(clienteSelId));
-      const r = await reprocesarBalanceConSpec({}, fd);
-      if (r.ok && r.sugerencia) { notifySuccess("Reprocesado sin IA."); router.push(`/balance/borradores/${r.sugerencia.payload.loteId}`); }
-      else notifyError(r.message ?? "No se pudo reprocesar el archivo.");
+      let r;
+      try {
+        r = await reprocesarBalanceConSpec({}, fd);
+      } catch (error) {
+        if (esFalloTransporteCarga(error)) {
+          notifyError(MENSAJE_RECUPERAR_LECTURA);
+          return;
+        }
+        throw error;
+      }
+      if (r.ok && r.sugerencia) {
+        reprocesoSolicitudRef.current = null;
+        notifySuccess("Reprocesado sin IA.");
+        router.push(`/balance/borradores/${r.sugerencia.payload.loteId}`);
+      } else {
+        notifyError(r.message ?? "No se pudo reprocesar el archivo.");
+      }
     });
   };
 
@@ -577,7 +616,12 @@ export default function BorradorDetailClient({
     // El éxito redirige EN EL SERVIDOR (a /balance/[id]) y confirma con FlashToast;
     // aquí solo se notifica el error si la carga falla.
     if (cargarState && cargarState.ok === false) notifyActionState(cargarState, { success: "Balance cargado.", error: "No se pudo cargar el balance." });
-  }, [cargarState]);
+    if (cargarState?.message === MENSAJE_RECUPERAR_PROMOCION) {
+      // Si el commit terminó antes de perderse la respuesta, el RSC resuelve el
+      // lote al balance oficial. Si aún no terminó, el borrador sigue intacto.
+      router.refresh();
+    }
+  }, [cargarState, router]);
 
   const onDescartar = () =>
     startDescartar(async () => {
@@ -936,7 +980,11 @@ export default function BorradorDetailClient({
               }
               className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
             >
-              {cargando ? <EstadoProcesando>Cargando</EstadoProcesando> : "Cargar balance"}
+              {cargando
+                ? <EstadoProcesando>Cargando</EstadoProcesando>
+                : cargarState?.message === MENSAJE_RECUPERAR_PROMOCION
+                  ? "Comprobar y continuar"
+                  : "Cargar balance"}
             </button>
             {confirmarDescarte ? (
               <span className="inline-flex items-center gap-2">

@@ -1,16 +1,22 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { requirePermiso } from "@/lib/rbac";
-import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { BackLink } from "@/components/ui";
 import { SpecCargaBalanceSchema } from "@/lib/definitions";
 import type { SpecCarga } from "@/lib/balance/extraccion/esquema";
 import { fechaCalendarioISO } from "@/lib/fecha-hora";
 import { stagingBorradorLote } from "@/lib/balance/staging-borrador";
+import {
+  contextoAccesoBorradorActual,
+  puedeVerBorrador,
+  resolverVinculoClienteBorrador,
+} from "@/lib/balance/autorizacion-borrador";
 import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
 import BorradorDetailClient from "./borrador-detail-client";
 
-const soloDigitos = (s: string) => (s ?? "").replace(/\D/g, "");
+// La homologación de un balance pesado puede incluir mapeo por IA y escritura
+// del PUC. El host debe permitir más que los 10 minutos del proveedor externo.
+export const maxDuration = 1800;
 
 export default async function BorradorDetailPage({ params }: { params: Promise<{ loteId: string }> }) {
   await requirePermiso("balance:crear");
@@ -20,10 +26,46 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
   // la metadata. Los lotes «huérfanos» (sin encabezado) se abren igual. La lectura
   // del staging (colapso de terceros incluido) está CACHEADA por lote — ver
   // `stagingBorradorLote`; toda escritura la invalida con `invalidarStagingBorrador`.
-  // El alcance depende de la sesión, así que corre fuera del caché, en paralelo.
-  const alcancePromise = alcanceLecturaUsuario();
-  const [lote, staging, umbrales] = await Promise.all([
+  // Autoriza ANTES de reconstruir un staging pesado: una URL ajena no debe disparar
+  // ese trabajo ni recibir datos del borrador.
+  const [lote, contextoAcceso] = await Promise.all([
     prisma.balanceImportacionLote.findUnique({ where: { loteId } }),
+    contextoAccesoBorradorActual(),
+  ]);
+  if (
+    lote
+    && !puedeVerBorrador(
+      {
+        clienteId: lote.clienteId,
+        cargadoPorId: lote.cargadoPorId,
+      },
+      contextoAcceso,
+    )
+  ) {
+    notFound();
+  }
+  if (!lote) {
+    // Recuperación tras perder la respuesta de red: la promoción atómica ya
+    // pudo confirmar el balance y consumir el borrador. El lote de origen queda
+    // persistido en el encabezado oficial para reenviar sin crear otra versión.
+    const balancePromovido = await prisma.balancePruebaEncabezado.findUnique({
+      where: { loteId },
+      select: { id: true, clienteId: true },
+    });
+    if (
+      balancePromovido &&
+      (
+        contextoAcceso.alcance.todos
+        || contextoAcceso.alcance.clientIds.includes(balancePromovido.clienteId)
+      )
+    ) {
+      redirect(`/balance/${balancePromovido.id}?cargado=1&recuperado=1`);
+    }
+    // Solo un usuario global puede recuperar un staging legado sin encabezado:
+    // no existe cliente ni propietario verificable para autorizar a otro rol.
+    if (!contextoAcceso.alcance.todos) notFound();
+  }
+  const [staging, umbrales] = await Promise.all([
     stagingBorradorLote(loteId),
     // Umbrales de alerta vigentes (parametrizables en /config/parametros). El
     // borrador recalcula sus validaciones en el cliente, así que viajan por props.
@@ -37,7 +79,7 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
   const spec: SpecCarga | null = specParsed?.success ? (specParsed.data as SpecCarga) : null;
 
   // Clientes de la cartera para el selector de carga + cliente sugerido por NIT.
-  const alc = await alcancePromise;
+  const alc = contextoAcceso.alcance;
   const filtroIds = alc.todos ? {} : { clienteId: { in: alc.clientIds } };
   const [clientes, notasRows, perfilesPorClienteRows] = await Promise.all([
     prisma.client.findMany({
@@ -60,12 +102,16 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
   const perfilesPorCliente = new Map(
     perfilesPorClienteRows.map((fila) => [fila.clienteId, fila._count._all]),
   );
-  const core = soloDigitos(lote?.nitDetectado ?? "").slice(0, 9);
-  const clientePorNitId = core.length >= 5 ? (clientes.find((c) => soloDigitos(c.nit).slice(0, 9) === core)?.id ?? null) : null;
-  // El cliente ya ASIGNADO al lote (al leer por NIT o a mano en la compuerta) manda
-  // sobre la re-detección por NIT; debe estar en la cartera visible del usuario.
-  const clienteAsignadoId = lote?.clienteId != null && clientes.some((c) => c.id === lote.clienteId) ? lote.clienteId : null;
-  const clienteSugeridoId = clienteAsignadoId ?? clientePorNitId;
+  const vinculoCliente = resolverVinculoClienteBorrador(
+    {
+      clienteId: lote?.clienteId ?? null,
+      nitDetectado: lote?.nitDetectado ?? null,
+    },
+    clientes,
+  );
+  const clienteSugeridoId = vinculoCliente.tipo === "sin_cliente"
+    ? null
+    : vinculoCliente.id;
 
   return (
     <div>

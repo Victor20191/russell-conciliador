@@ -14,6 +14,7 @@ import {
 import { Card, Chip, EmptyState } from "@/components/ui";
 import { fmt } from "@/lib/format";
 import { claveNit } from "@/lib/nit";
+import type { VinculoClienteBorrador } from "@/lib/balance/autorizacion-borrador";
 import { descartarBorrador } from "@/app/actions/balance";
 import { notifySuccess, notifyError } from "@/lib/client-notifications";
 import {
@@ -27,9 +28,7 @@ export type BorradorRow = {
   archivoNombre: string;
   conEncabezado: boolean;
   nitDetectado: string | null;
-  clienteId: number | null;
-  clienteSugerido: string | null;
-  clienteNit: string | null;
+  cliente: VinculoClienteBorrador;
   perfilesEnMemoria: number;
   puedeGestionarPerfiles: boolean;
   periodo: string;
@@ -37,7 +36,9 @@ export type BorradorRow = {
   cuadrado: boolean;
   partidaDobleDiff: number;
   cargadoPor: string | null;
+  creadoEn: string | null;
   fecha: string;
+  hora: string | null;
 };
 
 /** Base compartida de los botones de la columna «Acciones»: todos cuadrados y
@@ -53,22 +54,115 @@ function normalizarBusqueda(valor: string | null | undefined) {
     .trim();
 }
 
+function fechaOrdenBorrador(valor: string | null): number {
+  if (!valor) return 0;
+  const fecha = Date.parse(valor);
+  return Number.isFinite(fecha) ? fecha : 0;
+}
+
+/** Borradores vigentes (cliente persistido) primero; dentro de cada grupo, recientes. */
+export function ordenarBorradoresListado(
+  rows: readonly BorradorRow[],
+): BorradorRow[] {
+  return [...rows].sort((a, b) => {
+    const grupoA = a.cliente.tipo === "asignado" ? 0 : 1;
+    const grupoB = b.cliente.tipo === "asignado" ? 0 : 1;
+    if (grupoA !== grupoB) return grupoA - grupoB;
+    return fechaOrdenBorrador(b.creadoEn) - fechaOrdenBorrador(a.creadoEn);
+  });
+}
+
 /** Coincide si el término aparece en archivo, razón social o NIT (con o sin DV). */
 export function coincideBusquedaBorrador(
-  borrador: Pick<BorradorRow, "archivoNombre" | "clienteSugerido" | "nitDetectado">,
+  borrador: Pick<BorradorRow, "archivoNombre" | "cliente" | "nitDetectado">,
   busqueda: string,
 ): boolean {
   const termino = normalizarBusqueda(busqueda);
   if (!termino) return true;
 
   const nitBuscado = claveNit(busqueda);
-  const nitFila = claveNit(borrador.nitDetectado ?? "");
+  const nombreCliente = borrador.cliente.tipo === "sin_cliente"
+    ? null
+    : borrador.cliente.nombre;
+  const nitCliente = borrador.cliente.tipo === "sin_cliente"
+    ? null
+    : borrador.cliente.nit;
+  const nitsFila = [borrador.nitDetectado, nitCliente]
+    .map((nit) => claveNit(nit ?? ""))
+    .filter(Boolean);
 
   return (
     normalizarBusqueda(borrador.archivoNombre).includes(termino)
-    || normalizarBusqueda(borrador.clienteSugerido).includes(termino)
+    || normalizarBusqueda(nombreCliente).includes(termino)
+    || normalizarBusqueda(nitCliente).includes(termino)
     || normalizarBusqueda(borrador.nitDetectado).includes(termino)
-    || (nitBuscado.length > 0 && nitFila.includes(nitBuscado))
+    || (
+      nitBuscado.length > 0
+      && nitsFila.some((nit) => nit.includes(nitBuscado))
+    )
+  );
+}
+
+export function ClienteBorradorCelda({
+  cliente,
+  nitDetectado,
+}: {
+  cliente: VinculoClienteBorrador;
+  nitDetectado: string | null;
+}) {
+  if (cliente.tipo === "asignado") {
+    return (
+      <span className="inline-flex flex-col gap-0.5">
+        <span className="flex flex-wrap items-center gap-1.5">
+          <span className="font-medium text-ink-800">
+            {cliente.nombre ?? `Cliente #${cliente.id}`}
+          </span>
+          <span className="rounded-full border border-ok-100 bg-ok-100/40 px-1.5 py-0.5 text-[9.5px] font-semibold text-ok-700">
+            Cliente asignado
+          </span>
+        </span>
+        {(cliente.nit ?? nitDetectado) && (
+          <span className="font-mono text-[10.5px] text-ink-400">
+            {cliente.nit ?? nitDetectado}
+          </span>
+        )}
+      </span>
+    );
+  }
+
+  if (cliente.tipo === "sugerido") {
+    return (
+      <span className="inline-flex flex-col gap-0.5">
+        <span className="font-medium text-ink-700">{cliente.nombre}</span>
+        <span className="w-fit rounded-full border border-warn-300 bg-warn-50 px-2 py-0.5 text-[9.5px] font-semibold text-warn-700">
+          Histórico · sugerencia por NIT
+        </span>
+        <span className="text-[10px] text-warn-700">
+          Aún no está asignado
+        </span>
+        {(nitDetectado ?? cliente.nit) && (
+          <span className="font-mono text-[10.5px] text-ink-400">
+            {nitDetectado ?? cliente.nit}
+          </span>
+        )}
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex flex-col gap-0.5">
+      <span
+        className="w-fit rounded-full border border-warn-300 bg-warn-50 px-2 py-0.5 text-[10px] font-semibold text-warn-700"
+        title="Asignar el cliente es obligatorio: hazlo al abrir el borrador."
+      >
+        Histórico · sin cliente asignado
+      </span>
+      {nitDetectado && (
+        <span className="font-mono text-[10.5px] text-ink-400">
+          NIT detectado: {nitDetectado}
+        </span>
+      )}
+    </span>
   );
 }
 
@@ -78,9 +172,15 @@ export default function BorradoresIndexClient({ rows }: { rows: BorradorRow[] })
   const [confirmar, setConfirmar] = useState<string | null>(null);
   const [busqueda, setBusqueda] = useState("");
   const [clientePerfiles, setClientePerfiles] = useState<ClientePerfilesEnMemoria | null>(null);
+  const borradoresOrdenados = useMemo(
+    () => ordenarBorradoresListado(rows),
+    [rows],
+  );
   const borradoresFiltrados = useMemo(
-    () => rows.filter((borrador) => coincideBusquedaBorrador(borrador, busqueda)),
-    [busqueda, rows],
+    () => borradoresOrdenados.filter(
+      (borrador) => coincideBusquedaBorrador(borrador, busqueda),
+    ),
+    [borradoresOrdenados, busqueda],
   );
   const pg = usePagination(borradoresFiltrados, 50);
 
@@ -163,12 +263,10 @@ export default function BorradoresIndexClient({ rows }: { rows: BorradorRow[] })
                     {r.cargadoPor && <span className="block text-[10.5px] text-ink-400">por {r.cargadoPor}</span>}
                   </td>
                   <td className="px-3 py-2 text-ink-700">
-                    {r.clienteSugerido ?? (
-                      <span className="inline-flex items-center gap-1 rounded-full border border-warn-300 bg-warn-50 px-2 py-0.5 text-[10.5px] font-semibold text-warn-700" title="Asignar el cliente es obligatorio: hazlo al abrir el borrador.">
-                        Sin cliente — asígnalo al abrir el borrador
-                      </span>
-                    )}
-                    {r.nitDetectado && <span className="block font-mono text-[10.5px] text-ink-400">{r.nitDetectado}</span>}
+                    <ClienteBorradorCelda
+                      cliente={r.cliente}
+                      nitDetectado={r.nitDetectado}
+                    />
                   </td>
                   <td className="px-3 py-2 font-mono text-[11px] text-ink-600">{r.periodo}</td>
                   <td className="px-3 py-2 text-right tabular-nums text-ink-700">{r.cuentasMovimiento}</td>
@@ -182,22 +280,35 @@ export default function BorradoresIndexClient({ rows }: { rows: BorradorRow[] })
                       </span>
                     )}
                   </td>
-                  <td className="px-3 py-2 text-[11px] text-ink-500">{r.fecha}</td>
+                  <td className="px-3 py-2 text-[11px] text-ink-500">
+                    <span className="block whitespace-nowrap">{r.fecha}</span>
+                    {r.hora && <span className="block whitespace-nowrap text-[10px] text-ink-400">{r.hora}</span>}
+                  </td>
                   <td className="px-3 py-2">
-                    {r.puedeGestionarPerfiles && r.clienteId != null && r.clienteSugerido && r.clienteNit ? (
+                    {r.puedeGestionarPerfiles
+                    && r.cliente.tipo === "asignado"
+                    && r.cliente.nombre
+                    && r.cliente.nit ? (
                       <PerfilesEnMemoriaButton
                         cantidad={r.perfilesEnMemoria}
-                        onClick={() => setClientePerfiles({
-                          id: r.clienteId!,
-                          name: r.clienteSugerido!,
-                          nit: r.clienteNit!,
-                          perfilesEnMemoria: r.perfilesEnMemoria,
-                        })}
+                        onClick={() => {
+                          if (
+                            r.cliente.tipo !== "asignado"
+                            || !r.cliente.nombre
+                            || !r.cliente.nit
+                          ) return;
+                          setClientePerfiles({
+                            id: r.cliente.id,
+                            name: r.cliente.nombre,
+                            nit: r.cliente.nit,
+                            perfilesEnMemoria: r.perfilesEnMemoria,
+                          });
+                        }}
                         className="whitespace-nowrap"
                       />
                     ) : (
                       <span className="text-[10.5px] leading-tight text-ink-400">
-                        {r.clienteId == null
+                        {r.cliente.tipo !== "asignado"
                           ? "Asigna el cliente para verlos"
                           : "No disponible para tu cartera"}
                       </span>

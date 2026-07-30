@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import prisma from "@/lib/prisma";
+import { Prisma } from "@/generated/prisma/client";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
 import { authorizePermiso } from "@/lib/rbac";
@@ -14,7 +15,11 @@ import {
   resolverAlcanceEliminacionBalance,
   type AlcanceEliminacionBalance,
 } from "@/lib/balance/alcance-eliminacion";
-import { tomarCandadoTransaccion, transaccionSerializable } from "@/lib/concurrency";
+import {
+  tomarCandadoTransaccion,
+  transaccionSerializable,
+  type TransactionClient,
+} from "@/lib/concurrency";
 import { createProcessNotification } from "@/lib/notifications";
 import { esErrorDisponibilidadIA, mensajeErrorBD, mensajeErrorIA } from "@/lib/errores";
 import { fmt, MESES_LARGOS } from "@/lib/format";
@@ -61,10 +66,13 @@ import { registrarConsumoIA, type UsoIA } from "@/lib/ia/uso";
 import { aplicarPreferenciasCarga } from "@/lib/balance/preferencias-carga";
 import { construirConfigMapeoCliente } from "@/lib/balance/mapeo-cliente-config";
 import {
+  contextoAccesoBorradorActual,
+  puedeVerBorrador,
+} from "@/lib/balance/autorizacion-borrador";
+import {
   evaluarRevisionesReubicacionStaging,
   type RevisionReubicacionBalance,
 } from "@/lib/balance/revisiones-reubicacion-balance";
-import { randomUUID } from "node:crypto";
 import { construirCuadre, marcarSubtotalesDuplicados, reclasificarRepetidos, reclasificarNoImputables, transformarTabular } from "@/lib/balance/extraccion/transformar";
 import type { FilaCruda, ParamsExtraccion, ResultadoTransform, TipoFila } from "@/lib/balance/extraccion/transformar";
 import { CUADRE_NO_APLICA } from "@/lib/balance/extraccion/esquema";
@@ -72,6 +80,9 @@ import type { CuadreTotales, Excepcion, MappingSpec, Origen, ResumenAuditoria, S
 import { z } from "zod";
 
 const MAX_BYTES = 20 * 1024 * 1024; // 20 MB (admite PDF)
+const TIMEOUT_TRANSACCION_PROMOCION_MS = 5 * 60 * 1000;
+const TIMEOUT_TRANSACCION_BORRADOR_MS = 15 * 60 * 1000;
+const LoteIdSolicitudSchema = z.string().uuid();
 const RevisionesReubicacionSchema = z.record(
   z.string().regex(/^\d+$/),
   z.object({
@@ -123,6 +134,39 @@ type MetaEtl = {
   filasExcluidas: number;
   filasDescuadre: number;
 };
+
+type DestinoLoteSolicitud = {
+  tipo: "borrador" | "balance";
+  id: string | number;
+  clienteId: number;
+};
+
+/** UUID estable generado por el navegador y reutilizado tras fallos de red. */
+function loteIdSolicitudDesde(formData: FormData): string | null {
+  const parsed = LoteIdSolicitudSchema.safeParse(
+    String(formData.get("loteIdSolicitud") ?? "").trim(),
+  );
+  return parsed.success ? parsed.data : null;
+}
+
+/** Resuelve una solicitud ya terminada sin repetir extracción ni persistencia. */
+async function destinoLoteSolicitud(loteId: string): Promise<DestinoLoteSolicitud | null> {
+  const [balance, borrador] = await Promise.all([
+    prisma.balancePruebaEncabezado.findUnique({
+      where: { loteId },
+      select: { id: true, clienteId: true },
+    }),
+    prisma.balanceImportacionLote.findUnique({
+      where: { loteId },
+      select: { loteId: true, clienteId: true },
+    }),
+  ]);
+  if (balance) return { tipo: "balance", id: balance.id, clienteId: balance.clienteId };
+  if (borrador?.clienteId != null) {
+    return { tipo: "borrador", id: borrador.loteId, clienteId: borrador.clienteId };
+  }
+  return null;
+}
 
 /**
  * Etiqueta legible del período a partir del rango ISO `desde`/`hasta`. Si ambos
@@ -266,24 +310,16 @@ function agregarStagingPorCuenta(filas: FilaStaging[]): CuentaCruda[] {
  * la promoción (`promoverStagingAOficial`) y la auditoría pre-carga
  * (`auditarCargaBalance`), para que ambas vean lo mismo. `[]` si el lote no existe.
  */
-async function cuentasDesdeStaging(loteId: string): Promise<CuentaCruda[]> {
-  const staged = await prisma.balanceImportacionStaging.findMany({
-    where: { loteId },
-    orderBy: { filaNum: "asc" },
-    select: { filaNum: true, codigo: true, codigoCrudo: true, nombre: true, nivel: true, tipoFila: true, tipoFilaForzado: true, omitida: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
-  });
-  const filasStaging: FilaBorrador[] = staged.map((f) => ({
-    // TRI-ESTADO durable: null (BD) = «sin tocar» → undefined (elegible para el marcado
-    // del re-listado con guiones); false = RESCATADA a mano → cuenta y SÍ se carga
-    // (el override manual gana); true = omitida → no se carga.
-    filaNum: f.filaNum, codigo: f.codigo, codigoCrudo: f.codigoCrudo, nombre: f.nombre, nivel: f.nivel, tipoFila: f.tipoFila as TipoFila,
-    tipoFilaForzado: f.tipoFilaForzado === "agrupadora" || f.tipoFilaForzado === "movimiento" ? f.tipoFilaForzado : null,
-    omitida: f.omitida ?? undefined,
-    saldoInicial: Number(f.saldoInicial), debitos: Number(f.debitos), creditos: Number(f.creditos), saldoFinal: Number(f.saldoFinal),
-  }));
+function cuentasDesdeFilasStaging(filasStaging: FilaBorrador[]): CuentaCruda[] {
+  // Todas las pasadas siguientes mutan las filas. Trabajar sobre clones permite
+  // reutilizar esta misma función durante la creación atómica del borrador sin
+  // alterar los datos exactos que se insertarán en staging.
+  const filasClonadas = filasStaging.map((fila) => ({ ...fila }));
   // Balance ABIERTO POR TERCERO → colapsar el detalle y cargar por CUENTA (lógica
   // separada; los demás informes no se tocan). Las cuentas quedan como imputables.
-  let rows = esBalancePorTercero(filasStaging) ? colapsarTerceros(filasStaging) : filasStaging;
+  let rows = esBalancePorTercero(filasClonadas)
+    ? colapsarTerceros(filasClonadas)
+    : filasClonadas;
   // Tercero con NIT pegado al sufijo del código: consolida por cuenta antes de
   // aplicar las demás reglas del borrador.
   if (esBalancePorTerceroSufijo(rows)) rows = consolidarTercerosPorSufijo(rows);
@@ -311,6 +347,24 @@ async function cuentasDesdeStaging(loteId: string): Promise<CuentaCruda[]> {
   // Respeta como hojas los imputables de nivel alto (código repetido/desacople) que
   // el filtro por prefijo de `calcularBalance`/`persistirCargue` descartaría.
   return conForzarHoja(agregarStagingPorCuenta(movNetas));
+}
+
+async function cuentasDesdeStaging(loteId: string): Promise<CuentaCruda[]> {
+  const staged = await prisma.balanceImportacionStaging.findMany({
+    where: { loteId },
+    orderBy: { filaNum: "asc" },
+    select: { filaNum: true, codigo: true, codigoCrudo: true, nombre: true, nivel: true, tipoFila: true, tipoFilaForzado: true, omitida: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
+  });
+  const filasStaging: FilaBorrador[] = staged.map((f) => ({
+    // TRI-ESTADO durable: null (BD) = «sin tocar» → undefined (elegible para el marcado
+    // del re-listado con guiones); false = RESCATADA a mano → cuenta y SÍ se carga
+    // (el override manual gana); true = omitida → no se carga.
+    filaNum: f.filaNum, codigo: f.codigo, codigoCrudo: f.codigoCrudo, nombre: f.nombre, nivel: f.nivel, tipoFila: f.tipoFila as TipoFila,
+    tipoFilaForzado: f.tipoFilaForzado === "agrupadora" || f.tipoFilaForzado === "movimiento" ? f.tipoFilaForzado : null,
+    omitida: f.omitida ?? undefined,
+    saldoInicial: Number(f.saldoInicial), debitos: Number(f.debitos), creditos: Number(f.creditos), saldoFinal: Number(f.saldoFinal),
+  }));
+  return cuentasDesdeFilasStaging(filasStaging);
 }
 
 /**
@@ -341,8 +395,16 @@ async function nombresGrupoDesdeStaging(loteId: string): Promise<Map<string, str
  * El cálculo completo se paga una sola vez al guardar cambios del borrador, no
  * cada vez que cualquier usuario abre `/balance/borradores`.
  */
-async function actualizarResumenLoteBorrador(loteId: string) {
-  const staged = await prisma.balanceImportacionStaging.findMany({
+type ClienteResumenBorrador = Pick<
+  TransactionClient,
+  "balanceImportacionStaging" | "balanceImportacionLote"
+>;
+
+async function actualizarResumenLoteBorrador(
+  loteId: string,
+  db: ClienteResumenBorrador = prisma,
+) {
+  const staged = await db.balanceImportacionStaging.findMany({
     where: { loteId },
     orderBy: { filaNum: "asc" },
     select: {
@@ -382,7 +444,7 @@ async function actualizarResumenLoteBorrador(loteId: string) {
   }));
   const diagnostico = construirVistaBorrador(filas).diagnostico;
 
-  await prisma.balanceImportacionLote.updateMany({
+  await db.balanceImportacionLote.updateMany({
     where: { loteId },
     data: {
       cuentasMovimiento: diagnostico.movimientos,
@@ -395,8 +457,11 @@ async function actualizarResumenLoteBorrador(loteId: string) {
 }
 
 /** Filas del staging de un lote en el formato PURO de correcciones (Decimal→number). */
-async function filasStagingCorreccion(loteId: string): Promise<FilaStagingCorreccion[]> {
-  const rows = await prisma.balanceImportacionStaging.findMany({
+async function filasStagingCorreccion(
+  loteId: string,
+  db: Pick<TransactionClient, "balanceImportacionStaging"> = prisma,
+): Promise<FilaStagingCorreccion[]> {
+  const rows = await db.balanceImportacionStaging.findMany({
     where: { loteId },
     orderBy: { filaNum: "asc" },
     select: {
@@ -419,37 +484,212 @@ async function filasStagingCorreccion(loteId: string): Promise<FilaStagingCorrec
   }));
 }
 
+type FilaPersistenciaBorrador = FilaCruda & {
+  tipoFilaForzado: "agrupadora" | "movimiento" | null;
+  desacoplada: boolean;
+  omitida: boolean | null;
+  padreManual: number | null;
+};
+
+function filaPersistenciaAStagingCorreccion(
+  fila: FilaPersistenciaBorrador,
+): FilaStagingCorreccion {
+  return {
+    filaNum: fila.filaNum,
+    codigo: fila.codigo,
+    codigoCrudo: fila.codigoCrudo,
+    nombre: fila.nombre,
+    tipoFila: fila.tipoFila,
+    tipoFilaForzado: fila.tipoFilaForzado,
+    saldoInicial: fila.saldoInicial,
+    debitos: fila.debitos,
+    creditos: fila.creditos,
+    saldoFinal: fila.saldoFinal,
+    desacoplada: fila.desacoplada,
+    omitida: fila.omitida,
+    padreManual: fila.padreManual,
+  };
+}
+
+function filaPersistenciaABorrador(
+  fila: FilaPersistenciaBorrador,
+): FilaBorrador {
+  return {
+    filaNum: fila.filaNum,
+    codigo: fila.codigo,
+    codigoCrudo: fila.codigoCrudo,
+    nombre: fila.nombre,
+    nivel: fila.nivel,
+    tipoFila: fila.tipoFila,
+    tipoFilaForzado: fila.tipoFilaForzado,
+    desacoplada: fila.desacoplada,
+    omitida: fila.omitida ?? undefined,
+    padreManual: fila.padreManual,
+    saldoInicial: fila.saldoInicial,
+    debitos: fila.debitos,
+    creditos: fila.creditos,
+    saldoFinal: fila.saldoFinal,
+  };
+}
+
+function prepararFilasConCorreccionesGuardadas(
+  filasCrudas: FilaCruda[],
+  correcciones: CorreccionCuenta[],
+): {
+  filas: FilaPersistenciaBorrador[];
+  cuentasAplicadas: string[];
+  cantidad: number;
+} {
+  const filas: FilaPersistenciaBorrador[] = filasCrudas.map((fila) => ({
+    ...fila,
+    tipoFilaForzado: null,
+    desacoplada: false,
+    omitida: null,
+    padreManual: null,
+  }));
+  if (correcciones.length === 0) {
+    return { filas, cuentasAplicadas: [], cantidad: 0 };
+  }
+
+  const plan = planAplicarCorrecciones(
+    filas.map(filaPersistenciaAStagingCorreccion),
+    correcciones,
+  );
+  const porFila = new Map(filas.map((fila) => [fila.filaNum, fila]));
+  for (const cambio of plan.cambios) {
+    const fila = porFila.get(cambio.filaNum);
+    if (!fila) continue;
+    if (cambio.tipoFila !== undefined) fila.tipoFila = cambio.tipoFila;
+    if (cambio.tipoFilaForzado !== undefined) {
+      fila.tipoFilaForzado = cambio.tipoFilaForzado;
+    }
+    if (cambio.desacoplada !== undefined) fila.desacoplada = cambio.desacoplada;
+    if (cambio.omitida !== undefined) fila.omitida = cambio.omitida;
+    if (cambio.padreManual !== undefined) fila.padreManual = cambio.padreManual;
+  }
+  return {
+    filas,
+    cuentasAplicadas: plan.cuentasAplicadas,
+    cantidad: plan.cambios.length,
+  };
+}
+
 /**
  * MEMORIZA en el perfil del cliente las correcciones por cuenta (upsert por
  * clienteId+cuenta; solo pisa los campos que la corrección trae). LANZA si la BD
  * falla — el llamador decide si es best-effort. Devuelve cuántas cuentas quedaron.
  */
-async function memorizarCorreccionesCliente(clienteId: number, correcciones: CorreccionCuenta[], usuario: string | null): Promise<number> {
-  // Por lotes: «evitar doble conteo de subtotales» puede producir cientos de reclasificaciones
-  // y un upsert por viaje sería lento.
-  const LOTE_UPSERT = 200;
-  for (let i = 0; i < correcciones.length; i += LOTE_UPSERT) {
-    await prisma.$transaction(correcciones.slice(i, i + LOTE_UPSERT).map((c) =>
-      prisma.correccionCargaBalance.upsert({
-        where: { clienteId_cuenta: { clienteId, cuenta: c.cuenta } },
-        create: {
-          clienteId, cuenta: c.cuenta, nombre: c.nombre,
-          tipoFilaForzado: c.tipoFilaForzado,
-          desacoplada: c.desacoplada, omitida: c.omitida,
-          padreCodigo: c.padreCodigo !== undefined ? c.padreCodigo : null,
-          actualizadoPor: usuario,
-        },
-        update: {
-          ...(c.nombre ? { nombre: c.nombre } : {}),
-          ...(c.tipoFilaForzado ? { tipoFilaForzado: c.tipoFilaForzado } : {}),
-          ...(c.desacoplada != null ? { desacoplada: c.desacoplada } : {}),
-          ...(c.omitida != null ? { omitida: c.omitida } : {}),
-          ...(c.padreCodigo !== undefined ? { padreCodigo: c.padreCodigo } : {}),
-          actualizadoPor: usuario,
-        },
-      }),
-    ));
-  }
+async function memorizarCorreccionesCliente(
+  clienteId: number,
+  correcciones: CorreccionCuenta[],
+  usuario: string | null,
+  db: Pick<TransactionClient, "$executeRaw"> = prisma,
+): Promise<number> {
+  if (correcciones.length === 0) return 0;
+  const ahora = new Date();
+  const correccionesJson = JSON.stringify(
+    correcciones.map((correccion) => ({
+      cuenta: correccion.cuenta,
+      nombre: correccion.nombre,
+      actualizar_nombre: !!correccion.nombre,
+      tipo_fila_forzado: correccion.tipoFilaForzado,
+      actualizar_tipo_fila_forzado: correccion.tipoFilaForzado != null,
+      desacoplada: correccion.desacoplada,
+      actualizar_desacoplada: correccion.desacoplada != null,
+      omitida: correccion.omitida,
+      actualizar_omitida: correccion.omitida != null,
+      padre_codigo: correccion.padreCodigo ?? null,
+      actualizar_padre_codigo: correccion.padreCodigo !== undefined,
+    })),
+  );
+  // Una sentencia y un commit: evita cientos de viajes y que solo una parte del
+  // perfil quede memorizada si la conexión falla entre lotes.
+  await db.$executeRaw(Prisma.sql`
+    WITH datos AS (
+      SELECT *
+      FROM jsonb_to_recordset(${correccionesJson}::jsonb) AS entrada(
+        cuenta text,
+        nombre text,
+        actualizar_nombre boolean,
+        tipo_fila_forzado text,
+        actualizar_tipo_fila_forzado boolean,
+        desacoplada boolean,
+        actualizar_desacoplada boolean,
+        omitida boolean,
+        actualizar_omitida boolean,
+        padre_codigo text,
+        actualizar_padre_codigo boolean
+      )
+    )
+    INSERT INTO "correcciones_carga_balance" (
+      "cliente_id",
+      "cuenta",
+      "nombre",
+      "tipo_fila_forzado",
+      "desacoplada",
+      "omitida",
+      "padre_codigo",
+      "actualizado_por",
+      "creado_en",
+      "actualizado_en"
+    )
+    SELECT
+      ${clienteId},
+      dato.cuenta,
+      dato.nombre,
+      dato.tipo_fila_forzado,
+      dato.desacoplada,
+      dato.omitida,
+      dato.padre_codigo,
+      ${usuario},
+      ${ahora},
+      ${ahora}
+    FROM datos AS dato
+    ON CONFLICT ("cliente_id", "cuenta") DO UPDATE
+    SET
+      "nombre" = CASE
+        WHEN (
+          SELECT actual.actualizar_nombre
+          FROM datos AS actual
+          WHERE actual.cuenta = EXCLUDED."cuenta"
+        ) THEN EXCLUDED."nombre"
+        ELSE "correcciones_carga_balance"."nombre"
+      END,
+      "tipo_fila_forzado" = CASE
+        WHEN (
+          SELECT actual.actualizar_tipo_fila_forzado
+          FROM datos AS actual
+          WHERE actual.cuenta = EXCLUDED."cuenta"
+        ) THEN EXCLUDED."tipo_fila_forzado"
+        ELSE "correcciones_carga_balance"."tipo_fila_forzado"
+      END,
+      "desacoplada" = CASE
+        WHEN (
+          SELECT actual.actualizar_desacoplada
+          FROM datos AS actual
+          WHERE actual.cuenta = EXCLUDED."cuenta"
+        ) THEN EXCLUDED."desacoplada"
+        ELSE "correcciones_carga_balance"."desacoplada"
+      END,
+      "omitida" = CASE
+        WHEN (
+          SELECT actual.actualizar_omitida
+          FROM datos AS actual
+          WHERE actual.cuenta = EXCLUDED."cuenta"
+        ) THEN EXCLUDED."omitida"
+        ELSE "correcciones_carga_balance"."omitida"
+      END,
+      "padre_codigo" = CASE
+        WHEN (
+          SELECT actual.actualizar_padre_codigo
+          FROM datos AS actual
+          WHERE actual.cuenta = EXCLUDED."cuenta"
+        ) THEN EXCLUDED."padre_codigo"
+        ELSE "correcciones_carga_balance"."padre_codigo"
+      END,
+      "actualizado_por" = EXCLUDED."actualizado_por",
+      "actualizado_en" = EXCLUDED."actualizado_en"
+  `);
   return correcciones.length;
 }
 
@@ -457,43 +697,119 @@ async function memorizarCorreccionesCliente(clienteId: number, correcciones: Cor
  * RE-APLICA al staging de un lote las correcciones memorizadas del cliente, con
  * las mismas salvaguardas del guardado manual (ver `planAplicarCorrecciones`).
  * Actualiza el contador del lote (banner del borrador), el uso de cada corrección
- * y el resumen del encabezado. Devuelve cuántas filas cambió. LANZA si la BD
- * falla — los llamadores lo tratan como best-effort.
+ * y el resumen del encabezado EN EL MISMO COMMIT. Devuelve cuántas filas cambió.
+ * LANZA si la BD falla: nunca deja filas corregidas con contador/snapshot viejos.
  */
-async function aplicarCorreccionesGuardadas(loteId: string, clienteId: number): Promise<number> {
-  const guardadas = await prisma.correccionCargaBalance.findMany({ where: { clienteId } });
-  if (guardadas.length === 0) return 0;
-  const filas = await filasStagingCorreccion(loteId);
-  if (filas.length === 0) return 0;
-  const correcciones: CorreccionCuenta[] = guardadas.map((g) => ({
-    cuenta: g.cuenta, nombre: g.nombre,
-    tipoFilaForzado: g.tipoFilaForzado === "agrupadora" || g.tipoFilaForzado === "movimiento" ? g.tipoFilaForzado : null,
-    desacoplada: g.desacoplada, omitida: g.omitida,
-    // En un lote NUEVO `padreManual` nace null: el `padreCodigo` null memorizado
-    // (quitar override) queda inerte, como debe.
-    padreCodigo: g.padreCodigo,
-  }));
-  const plan = planAplicarCorrecciones(filas, correcciones);
-  if (plan.cambios.length === 0) return 0;
-  await prisma.$transaction(plan.cambios.map((ch) => {
-    const data: Record<string, unknown> = {};
-    if (ch.tipoFila) data.tipoFila = ch.tipoFila;
-    if (ch.tipoFilaForzado) data.tipoFilaForzado = ch.tipoFilaForzado;
-    if (ch.desacoplada !== undefined) data.desacoplada = ch.desacoplada;
-    if (ch.omitida !== undefined) data.omitida = ch.omitida;
-    if (ch.padreManual !== undefined) data.padreManual = ch.padreManual;
-    return prisma.balanceImportacionStaging.updateMany({ where: { loteId, filaNum: ch.filaNum }, data });
-  }));
-  await prisma.balanceImportacionLote.updateMany({
-    where: { loteId },
-    data: { correccionesAplicadas: { increment: plan.cambios.length } },
-  });
-  await prisma.correccionCargaBalance.updateMany({
-    where: { clienteId, cuenta: { in: plan.cuentasAplicadas } },
-    data: { vecesAplicada: { increment: 1 }, ultimoUsoEn: new Date() },
-  });
-  await actualizarResumenLoteBorrador(loteId);
-  invalidarStagingBorrador(loteId);
+async function aplicarCorreccionesGuardadasEnTransaccion(
+  tx: TransactionClient,
+  loteId: string,
+  clienteId: number,
+): Promise<number> {
+  const lote = await tx.balanceImportacionLote.findUnique({
+      where: { loteId },
+      select: { clienteId: true },
+    });
+    if (!lote || lote.clienteId !== clienteId) {
+      throw new Error("El borrador cambió de cliente o ya no existe.");
+    }
+
+    const guardadas = await tx.correccionCargaBalance.findMany({
+      where: { clienteId },
+    });
+    if (guardadas.length === 0) return 0;
+    const filas = await filasStagingCorreccion(loteId, tx);
+    if (filas.length === 0) {
+      throw new Error("El borrador no tiene filas para aplicar las correcciones.");
+    }
+    const correcciones: CorreccionCuenta[] = guardadas.map((g) => ({
+      cuenta: g.cuenta,
+      nombre: g.nombre,
+      tipoFilaForzado:
+        g.tipoFilaForzado === "agrupadora" || g.tipoFilaForzado === "movimiento"
+          ? g.tipoFilaForzado
+          : null,
+      desacoplada: g.desacoplada,
+      omitida: g.omitida,
+      // En un lote NUEVO `padreManual` nace null: el `padreCodigo` null
+      // memorizado (quitar override) queda inerte, como debe.
+      padreCodigo: g.padreCodigo,
+    }));
+    const plan = planAplicarCorrecciones(filas, correcciones);
+    if (plan.cambios.length === 0) return 0;
+
+    const cambiosJson = JSON.stringify(
+      plan.cambios.map((cambio) => ({
+        fila_num: cambio.filaNum,
+        aplicar_tipo_fila: cambio.tipoFila !== undefined,
+        tipo_fila: cambio.tipoFila ?? null,
+        aplicar_tipo_fila_forzado: cambio.tipoFilaForzado !== undefined,
+        tipo_fila_forzado: cambio.tipoFilaForzado ?? null,
+        aplicar_desacoplada: cambio.desacoplada !== undefined,
+        desacoplada: cambio.desacoplada ?? null,
+        aplicar_omitida: cambio.omitida !== undefined,
+        omitida: cambio.omitida ?? null,
+        aplicar_padre_manual: cambio.padreManual !== undefined,
+        padre_manual: cambio.padreManual ?? null,
+      })),
+    );
+    const filasActualizadas = await tx.$executeRaw(Prisma.sql`
+      UPDATE "balance_importacion_staging" AS staging
+      SET
+        "tipo_fila" = CASE
+          WHEN dato.aplicar_tipo_fila THEN dato.tipo_fila
+          ELSE staging."tipo_fila"
+        END,
+        "tipo_fila_forzado" = CASE
+          WHEN dato.aplicar_tipo_fila_forzado THEN dato.tipo_fila_forzado
+          ELSE staging."tipo_fila_forzado"
+        END,
+        "desacoplada" = CASE
+          WHEN dato.aplicar_desacoplada THEN dato.desacoplada
+          ELSE staging."desacoplada"
+        END,
+        "omitida" = CASE
+          WHEN dato.aplicar_omitida THEN dato.omitida
+          ELSE staging."omitida"
+        END,
+        "padre_manual" = CASE
+          WHEN dato.aplicar_padre_manual THEN dato.padre_manual
+          ELSE staging."padre_manual"
+        END
+      FROM jsonb_to_recordset(${cambiosJson}::jsonb) AS dato(
+        fila_num integer,
+        aplicar_tipo_fila boolean,
+        tipo_fila text,
+        aplicar_tipo_fila_forzado boolean,
+        tipo_fila_forzado text,
+        aplicar_desacoplada boolean,
+        desacoplada boolean,
+        aplicar_omitida boolean,
+        omitida boolean,
+        aplicar_padre_manual boolean,
+        padre_manual integer
+      )
+      WHERE staging."lote_id" = ${loteId}
+        AND staging."fila_num" = dato.fila_num
+    `);
+    if (filasActualizadas !== plan.cambios.length) {
+      throw new Error("No se pudieron aplicar todas las correcciones del borrador.");
+    }
+
+    const loteActualizado = await tx.balanceImportacionLote.updateMany({
+      where: { loteId, clienteId },
+      data: {
+        correccionesAplicadas: { increment: plan.cambios.length },
+        revisionContenido: { increment: 1 },
+      },
+    });
+    if (loteActualizado.count !== 1) {
+      throw new Error("No se pudo actualizar el resumen de correcciones del borrador.");
+    }
+    await tx.correccionCargaBalance.updateMany({
+      where: { clienteId, cuenta: { in: plan.cuentasAplicadas } },
+      data: { vecesAplicada: { increment: 1 }, ultimoUsoEn: new Date() },
+    });
+    await actualizarResumenLoteBorrador(loteId, tx);
   return plan.cambios.length;
 }
 
@@ -517,6 +833,7 @@ type MetaPromocion = {
   cuentasMovimiento: number;
   cuentas: number;
   cuentasAgrupadoras: number;
+  revisionContenido: number;
   cuadreArchivo: { totalDebitos: number; totalCreditos: number } | null; // solo el modal lo trae
   proveedorIA?: ProveedorIABalance;
   comentarioPromocion?: string | null;
@@ -546,6 +863,11 @@ async function promoverStagingAOficial(p: MetaPromocion, contexto: string): Prom
       message: `Hay ${revisionesFinales.riesgosPendientes.length} reubicación(es) entre clases contables sin revisar. Revisa ${ejemplo.codigoCrudo || ejemplo.codigo} (${ejemplo.nombre}) antes de cargar el balance.`,
     };
   }
+  const intervencionManual = {
+    omitidas: filasControlFinal.filter((fila) => fila.omitida === true).length,
+    reparentadas: filasControlFinal.filter((fila) => fila.padreManual != null).length,
+    desacopladas: filasControlFinal.filter((fila) => fila.desacoplada).length,
+  };
 
   // Cuadre contra la fila TOTALES del archivo (solo el flujo del modal lo trae). Σ
   // firmada: las reversas restan del lado correcto. No bloquea; marca descuadre.
@@ -571,8 +893,9 @@ async function promoverStagingAOficial(p: MetaPromocion, contexto: string): Prom
       getUmbralesAlertas(),
     ]);
 
-    const { id, version, calc } = await persistirCargue({
-      clientId: p.clientId, clienteName: cliente.name, clienteNit: cliente.nit,
+    const { id, version, calc, reutilizado } = await persistirCargue({
+      loteId: p.loteId, clientId: p.clientId, clienteName: cliente.name, clienteNit: cliente.nit,
+      revisionContenido: p.revisionContenido,
       period, periodos, importReady: importReadyFinal, cuentasEstandar,
       archivoNombre: p.archivoNombre, archivoTam: p.archivoTam,
       uploadedBy: user?.name ?? "—", uploadedById: user?.id ?? null, rolLabel: p.rolLabel,
@@ -587,29 +910,19 @@ async function promoverStagingAOficial(p: MetaPromocion, contexto: string): Prom
       },
     });
 
-    // Cierra la huella diagnóstica (best-effort, ANTES de purgar el staging): resultado
-    // + cuánta intervención manual necesitó. Nunca tumba la confirmación.
-    try {
-      const [nOmi, nPad, nDes] = await Promise.all([
-        prisma.balanceImportacionStaging.count({ where: { loteId: p.loteId, omitida: true } }),
-        prisma.balanceImportacionStaging.count({ where: { loteId: p.loteId, padreManual: { not: null } } }),
-        prisma.balanceImportacionStaging.count({ where: { loteId: p.loteId, desacoplada: true } }),
-      ]);
-      await cerrarDiagnostico({
-        loteId: p.loteId, resultado: "cargado",
-        cuadradoFinal: calc.balanced && calc.movimientosCuadran,
-        manual: { omitidas: nOmi, reparentadas: nPad, desacopladas: nDes },
-      });
-    } catch {
-      /* best-effort */
-    }
-
-    // Promovido → PURGA el lote (staging + encabezado). Best-effort.
-    try {
-      await prisma.balanceImportacionStaging.deleteMany({ where: { loteId: p.loteId } });
-      await prisma.balanceImportacionLote.deleteMany({ where: { loteId: p.loteId } });
-    } catch {
-      /* best-effort */
+    // La promoción NUEVA ya consumió staging + encabezado dentro de la misma
+    // transacción que creó el balance. El diagnóstico sobrevive a esa purga y
+    // sigue siendo best-effort; un reintento idempotente no duplica el cierre.
+    if (!reutilizado) {
+      try {
+        await cerrarDiagnostico({
+          loteId: p.loteId, resultado: "cargado",
+          cuadradoFinal: calc.balanced && calc.movimientosCuadran,
+          manual: intervencionManual,
+        });
+      } catch {
+        /* best-effort */
+      }
     }
     invalidarStagingBorrador(p.loteId);
 
@@ -815,6 +1128,8 @@ export async function asignarCuentaEstandar(formData: FormData): Promise<ActionS
  * invocada solo al promover un borrador. No congela: eso lo hace `freezeBalance`.
  */
 async function persistirCargue(p: {
+  loteId: string;
+  revisionContenido: number;
   clientId: number;
   clienteName: string;
   clienteNit: string;
@@ -842,7 +1157,7 @@ async function persistirCargue(p: {
   /** Umbrales de alerta vigentes (/config/parametros): definen cuántas validaciones
    *  quedan en «warn» y, con ello, el estado y la nota del encabezado. */
   umbrales: UmbralesAlertas;
-}): Promise<{ id: number; version: string; calc: ResultadoBalance }> {
+}): Promise<{ id: number; version: string; calc: ResultadoBalance; reutilizado: boolean }> {
   // Plan pre-tokenizado una vez y compartido entre la pasada determinista y la
   // pasada con override de IA (evita re-tokenizar el plan dos veces por cargue).
   const planTok = tokenizarPlan(p.cuentasEstandar);
@@ -898,6 +1213,15 @@ async function persistirCargue(p: {
   // cliente. NO pisa filas marcadas como `manual`. Es parte del contrato de la
   // carga: si la memoria no se puede persistir, la promoción no continúa.
   const filasDet = aFilasDetalle(calc.breakdown);
+  type FilaPucAutomatica = {
+    codigo: string;
+    nivel: number;
+    nombre: string;
+    cuenta_6_russell: string | null;
+    porcentaje_coincidencia: number | null;
+  };
+  let filasPucAEscribir: FilaPucAutomatica[] = [];
+  const actualizadoEnPuc = new Date();
   {
     const nivelPorCodigo = (code: string) => (code.length >= 8 ? 8 : code.length === 6 ? 6 : code.length === 4 ? 4 : 2);
     const configCalculada = construirConfigMapeoCliente(
@@ -943,17 +1267,11 @@ async function persistirCargue(p: {
         });
       }
     }
-    const ahoraDate = new Date();
-    // Escritura del PUC en LOTES de concurrencia ACOTADA: disparar los ~750
-    // upserts a la vez saturaba el pool (máx. ~10) contra una BD remota y la
-    // mayoría fallaba por timeout de conexión, dejando la memoria PUC incompleta.
-    // El CONJUNTO de upserts y los datos de cada uno son IDÉNTICOS; solo se acota
-    // cuántos viajan en paralelo (≤ pool → nunca encola de más). Sigue siendo
     // La memoria no alimenta el resultado de esta misma carga, pero sí es
     // obligatoria para que el próximo período sea reproducible.
     // Solo se escribe lo que CAMBIÓ respecto a lo ya guardado (comparado contra la
     // lectura única de arriba): en un cliente recurrente con catálogo estable el
-    // volcado pasa de ~750 upserts a ~0 escrituras por cargue.
+    // volcado pasa de ~750 filas a ~0 escrituras por cargue.
     const sinCambios = (r: { code: string; level: number; name: string; std: string | null; coincidencia: number | null }): boolean => {
       const e = pucExistente.get(r.code);
       if (!e) return false;
@@ -969,19 +1287,16 @@ async function persistirCargue(p: {
         e.clientName === p.clienteName
       );
     };
-    const aEscribir = [...rows.values()].filter((r) => !manualCodes.has(r.code) && !sinCambios(r));
-    const LOTE_PUC = Math.max(1, (parseInt(process.env.DB_POOL_MAX ?? "10", 10) || 10) - 2);
-    for (let i = 0; i < aEscribir.length; i += LOTE_PUC) {
-      await Promise.all(
-        aEscribir.slice(i, i + LOTE_PUC).map((r) =>
-          prisma.clientAccount.upsert({
-            where: { clienteId_code: { clienteId: p.clientId, code: r.code } },
-            create: { clientName: p.clienteName, clienteId: p.clientId, nit: p.clienteNit, code: r.code, level: r.level, name: r.name, cuenta6Russell: r.std, coincidencia: r.coincidencia, origenMapeo: "automatico", actualizadoPor: p.uploadedBy, actualizadoEn: ahoraDate },
-            update: { clientName: p.clienteName, nit: p.clienteNit, level: r.level, name: r.name, cuenta6Russell: r.std, coincidencia: r.coincidencia, origenMapeo: "automatico", actualizadoPor: p.uploadedBy, actualizadoEn: ahoraDate },
-          }),
-        ),
-      );
-    }
+    filasPucAEscribir = [...rows.values()]
+      .filter((r) => !manualCodes.has(r.code) && !sinCambios(r))
+      .sort((a, b) => a.code.localeCompare(b.code))
+      .map((r) => ({
+        codigo: r.code,
+        nivel: r.level,
+        nombre: r.name,
+        cuenta_6_russell: r.std,
+        porcentaje_coincidencia: r.coincidencia,
+      }));
   }
 
   // Novedad de DESCUADRE contra el gran total del archivo (TOTALES): NO bloquea
@@ -1005,6 +1320,100 @@ async function persistirCargue(p: {
   const revisionesReubicacion = p.revisionesReubicacion ?? [];
 
   const creado = await transaccionSerializable(async (tx) => {
+    // Candado por lote: dos confirmaciones del mismo borrador se serializan. La
+    // restricción única en `balance_prueba_encabezado.lote_id` es la defensa física.
+    await tomarCandadoTransaccion(tx, `balance-promocion:${p.loteId}`);
+    // Comparte candado con edición, asignación y descarte: el staging que se
+    // analiza no puede cambiar mientras se crea el balance y se consume el lote.
+    await tomarCandadoTransaccion(tx, `balance-borrador:${p.loteId}`);
+    const existente = await tx.balancePruebaEncabezado.findUnique({
+      where: { loteId: p.loteId },
+      select: { id: true, version: true },
+    });
+    if (existente) {
+      return { ...existente, reutilizado: true };
+    }
+
+    // Revalida la fuente dentro de la transacción que la consumirá. Si desaparece
+    // o cambia de dueño, no se crea ningún balance.
+    const [lote, filasStaging, filasDelCliente] = await Promise.all([
+      tx.balanceImportacionLote.findUnique({
+        where: { loteId: p.loteId },
+        select: { clienteId: true, revisionContenido: true },
+      }),
+      tx.balanceImportacionStaging.count({
+        where: { loteId: p.loteId },
+      }),
+      tx.balanceImportacionStaging.count({
+        where: { loteId: p.loteId, clienteId: p.clientId },
+      }),
+    ]);
+    if (
+      !lote ||
+      lote.clienteId !== p.clientId ||
+      lote.revisionContenido !== p.revisionContenido ||
+      filasStaging === 0 ||
+      filasDelCliente !== filasStaging
+    ) {
+      throw new Error("El borrador cambió durante la carga o ya no existe; no se creó ningún balance. Revísalo y vuelve a cargar.");
+    }
+
+    // PUC, balance oficial, detalle y consumo del borrador forman UN SOLO COMMIT.
+    // `jsonb_to_recordset` reemplaza cientos de upserts/viajes por una sentencia
+    // masiva. Si falla, PostgreSQL revierte también el balance y conserva el
+    // borrador. El WHERE protege un mapeo manual creado concurrentemente después
+    // de la lectura inicial.
+    if (filasPucAEscribir.length > 0) {
+      await tomarCandadoTransaccion(tx, `balance-puc:${p.clientId}`);
+      const filasPucJson = JSON.stringify(filasPucAEscribir);
+      await tx.$executeRaw(Prisma.sql`
+        INSERT INTO "cuentas_cliente" (
+          "nombre_cliente",
+          "cliente_id",
+          "nit",
+          "codigo",
+          "nivel",
+          "nombre",
+          "cuenta_6_russell",
+          "porcentaje_coincidencia",
+          "origen_mapeo",
+          "actualizado_por",
+          "actualizado_en"
+        )
+        SELECT
+          ${p.clienteName},
+          ${p.clientId},
+          ${p.clienteNit},
+          dato.codigo,
+          dato.nivel,
+          dato.nombre,
+          dato.cuenta_6_russell,
+          dato.porcentaje_coincidencia,
+          'automatico',
+          ${p.uploadedBy},
+          ${actualizadoEnPuc}
+        FROM jsonb_to_recordset(${filasPucJson}::jsonb) AS dato(
+          codigo text,
+          nivel integer,
+          nombre text,
+          cuenta_6_russell text,
+          porcentaje_coincidencia numeric
+        )
+        ON CONFLICT ("cliente_id", "codigo") DO UPDATE
+        SET
+          "nombre_cliente" = EXCLUDED."nombre_cliente",
+          "nit" = EXCLUDED."nit",
+          "nivel" = EXCLUDED."nivel",
+          "nombre" = EXCLUDED."nombre",
+          "cuenta_6_russell" = EXCLUDED."cuenta_6_russell",
+          "porcentaje_coincidencia" = EXCLUDED."porcentaje_coincidencia",
+          "origen_mapeo" = EXCLUDED."origen_mapeo",
+          "actualizado_por" = EXCLUDED."actualizado_por",
+          "actualizado_en" = EXCLUDED."actualizado_en"
+        WHERE "cuentas_cliente"."origen_mapeo" IS DISTINCT FROM 'manual'
+      `);
+    }
+
     await tomarCandadoTransaccion(tx, `balance-cargue:${p.clientId}:${p.period}`);
 
     // Versionado correlativo por (cliente, período). El candado evita que dos
@@ -1040,7 +1449,7 @@ async function persistirCargue(p: {
 
     const balance = await tx.balancePruebaEncabezado.create({
       data: {
-        clienteId: p.clientId, nombreCliente: p.clienteName, nit: p.clienteNit,
+        loteId: p.loteId, clienteId: p.clientId, nombreCliente: p.clienteName, nit: p.clienteNit,
         periodo: p.period, periodoInicio: fechaCalendarioPrisma(p.periodos.inicial), periodoFin: fechaCalendarioPrisma(p.periodos.final),
         version, esOficial: false, estaCongelado: false, estado: status, completitud: complete,
         archivo: p.archivoNombre, tamanoArchivo: p.archivoTam,
@@ -1062,25 +1471,42 @@ async function persistirCargue(p: {
       select: { id: true },
     });
 
-    return { id: balance.id, version };
-  });
+    // Consumir el borrador NO es una limpieza secundaria: forma parte del mismo
+    // commit que crea encabezado + detalle. Cualquier fallo revierte todo.
+    const stagingEliminado = await tx.balanceImportacionStaging.deleteMany({
+      where: { loteId: p.loteId },
+    });
+    if (stagingEliminado.count === 0) {
+      throw new Error("No se pudo consumir el detalle del borrador; la promoción fue revertida.");
+    }
+    const loteEliminado = await tx.balanceImportacionLote.deleteMany({
+      where: { loteId: p.loteId },
+    });
+    if (loteEliminado.count !== 1) {
+      throw new Error("No se pudo consumir el encabezado del borrador; la promoción fue revertida.");
+    }
 
-  await logAudit({
-    user: p.uploadedBy,
-    action: "CARGÓ BALANCE",
-    entity: `${p.clienteName} · ${p.period}`,
-    detail: `${creado.version} · ${calc.totalRows} cuentas · ${calc.mapped} mapeadas · ${calc.balanced && calc.movimientosCuadran && !descuadreTotales ? "cuadrado" : "descuadra"}${p.comentarioPromocion ? ` · Comentario: ${p.comentarioPromocion.replace(/\s+/g, " ")}` : ""}${p.revisionesReubicacion?.length ? ` · ${p.revisionesReubicacion.length} reubicación(es) aprobada(s)` : ""}`,
-    clientId: p.clientId,
-  });
-  await createProcessNotification({
-    actor: p.uploadedBy,
-    text: "cargó el balance de",
-    target: `${p.clienteName} · ${p.period} · ${creado.version}`,
-  });
+    return { id: balance.id, version, reutilizado: false };
+  }, { timeoutMs: TIMEOUT_TRANSACCION_PROMOCION_MS });
+
+  if (!creado.reutilizado) {
+    await logAudit({
+      user: p.uploadedBy,
+      action: "CARGÓ BALANCE",
+      entity: `${p.clienteName} · ${p.period}`,
+      detail: `${creado.version} · ${calc.totalRows} cuentas · ${calc.mapped} mapeadas · ${calc.balanced && calc.movimientosCuadran && !descuadreTotales ? "cuadrado" : "descuadra"}${p.comentarioPromocion ? ` · Comentario: ${p.comentarioPromocion.replace(/\s+/g, " ")}` : ""}${p.revisionesReubicacion?.length ? ` · ${p.revisionesReubicacion.length} reubicación(es) aprobada(s)` : ""}`,
+      clientId: p.clientId,
+    });
+    await createProcessNotification({
+      actor: p.uploadedBy,
+      text: "cargó el balance de",
+      target: `${p.clienteName} · ${p.period} · ${creado.version}`,
+    });
+  }
   revalidatePath("/", "layout");
   revalidatePath("/balance");
 
-  return { id: creado.id, version: creado.version, calc };
+  return { id: creado.id, version: creado.version, calc, reutilizado: creado.reutilizado };
 }
 
 /**
@@ -1118,23 +1544,68 @@ export async function leerBalance(
   if (!clienteIdTexto) {
     return { ok: false, message: "Selecciona el cliente (NIT) antes de leer el archivo: el borrador y su perfil de carga se crean a su nombre." };
   }
+  const loteIdSolicitud = loteIdSolicitudDesde(formData);
+  if (!loteIdSolicitud) {
+    return { ok: false, message: "La solicitud de lectura no tiene un identificador válido. Vuelve a seleccionar el archivo." };
+  }
+  const loteIdAnterior = String(formData.get("loteIdAnterior") ?? "").trim() || null;
+  if (loteIdAnterior === loteIdSolicitud) {
+    return { ok: false, message: "La nueva lectura debe usar un identificador distinto al borrador que reemplaza." };
+  }
+
+  const clienteExplicitoId = Number(clienteIdTexto);
+  if (!Number.isInteger(clienteExplicitoId) || clienteExplicitoId <= 0) {
+    return { ok: false, message: "El cliente seleccionado no es válido." };
+  }
+
+  // Preflight idempotente FUERA del try principal: `redirect()` es control de
+  // flujo de Next y no debe ser capturado como si fuera un error de extracción.
+  let destinoExistente: DestinoLoteSolicitud | null;
+  try {
+    const [scope, existe, destino] = await Promise.all([
+      authorizePermiso("balance:crear", { clientId: clienteExplicitoId }),
+      prisma.client.findUnique({ where: { id: clienteExplicitoId }, select: { id: true } }),
+      destinoLoteSolicitud(loteIdSolicitud),
+    ]);
+    if (!scope.ok) return { ok: false, message: scope.message };
+    if (!existe) return { ok: false, message: "El cliente seleccionado ya no existe." };
+    destinoExistente = destino;
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("leerBalance", e) };
+  }
+  if (destinoExistente) {
+    if (destinoExistente.clienteId !== clienteExplicitoId) {
+      return { ok: false, message: "El identificador de esta lectura ya pertenece a otro cliente." };
+    }
+    redirect(
+      destinoExistente.tipo === "balance"
+        ? `/balance/${destinoExistente.id}?cargado=1`
+        : `/balance/borradores/${destinoExistente.id}`,
+    );
+  }
 
   try {
-    let clienteExplicitoId: number | null = null;
-    {
-      const candidato = Number(clienteIdTexto);
-      if (!Number.isInteger(candidato) || candidato <= 0) {
-        return { ok: false, message: "El cliente seleccionado no es válido." };
-      }
-      const [scope, existe] = await Promise.all([
-        authorizePermiso("balance:crear", { clientId: candidato }),
-        prisma.client.findUnique({ where: { id: candidato }, select: { id: true } }),
+    if (loteIdAnterior) {
+      const [referenciaAnterior, contexto] = await Promise.all([
+        prisma.balanceImportacionLote.findUnique({
+          where: { loteId: loteIdAnterior },
+          select: { clienteId: true, cargadoPorId: true },
+        }),
+        contextoAccesoBorradorActual(),
       ]);
-      if (!scope.ok) return { ok: false, message: scope.message };
-      if (!existe) return { ok: false, message: "El cliente seleccionado ya no existe." };
-      clienteExplicitoId = candidato;
+      if (!referenciaAnterior) {
+        return { ok: false, message: "El borrador que se iba a reprocesar ya no existe." };
+      }
+      if (!puedeVerBorrador(referenciaAnterior, contexto)) {
+        return { ok: false, message: "No tienes permiso para reprocesar ese borrador." };
+      }
+      if (
+        referenciaAnterior.clienteId != null
+        && referenciaAnterior.clienteId !== clienteExplicitoId
+      ) {
+        return { ok: false, message: "El cliente elegido no corresponde al borrador que se va a reprocesar." };
+      }
     }
-
     const proveedorIA = await proveedorIABalanceSesion(formData.get("modeloIA"));
     // Lectura sin parámetros de cliente/período: se detecta todo del archivo
     // como sugerencia. El tipo de balance es regla fija de negocio.
@@ -1299,18 +1770,16 @@ export async function leerBalance(
       extr,
       archivoNombre: archivo.name,
       archivoTamBytes: archivo.size,
-      usuario: usuario ? { id: usuario.id, name: usuario.name } : null,
+      usuario: usuario ? { id: usuario.id, name: usuario.name, role: usuario.role } : null,
       origenExtraccion,
       spec,
       ingesta,
       nitDeterminista,
       clienteDetectadoId,
       proveedorIA,
+      loteIdSolicitud,
+      loteIdAnterior,
     });
-    const loteIdAnterior = String(formData.get("loteIdAnterior") ?? "").trim();
-    if (resultado.ok && loteIdAnterior && resultado.sugerencia?.payload.loteId !== loteIdAnterior) {
-      await reemplazarLoteAnterior(loteIdAnterior);
-    }
     return resultado;
   } catch (e) {
     return { ok: false, message: mensajeErrorIA("leerBalance", e), errorProveedorIA: esErrorDisponibilidadIA(e) };
@@ -1318,10 +1787,12 @@ export async function leerBalance(
 }
 
 type ParamsLoteSugerencia = {
+  loteIdSolicitud: string;
+  loteIdAnterior: string | null;
   extr: ResultadoTransform;
   archivoNombre: string;
   archivoTamBytes: number;
-  usuario: { id: number; name: string } | null;
+  usuario: { id: number; name: string; role: string } | null;
   origenExtraccion: OrigenExtraccion;
   spec: MappingSpec | null;
   ingesta: Ingesta | null;
@@ -1329,6 +1800,33 @@ type ParamsLoteSugerencia = {
   clienteDetectadoId: number | null;
   proveedorIA: ProveedorIABalance;
 };
+
+type LoteAnteriorAutorizado = {
+  clienteId: number | null;
+  cargadoPorId: number | null;
+};
+
+/**
+ * Autoriza el borrador que se reemplazará antes de cualquier escritura. La
+ * transacción vuelve a comprobar estos datos para cerrar la ventana TOCTOU.
+ */
+async function autorizarLoteAnterior(
+  loteIdAnterior: string | null,
+): Promise<LoteAnteriorAutorizado | null> {
+  if (!loteIdAnterior) return null;
+  const [anterior, contexto] = await Promise.all([
+    prisma.balanceImportacionLote.findUnique({
+      where: { loteId: loteIdAnterior },
+      select: { clienteId: true, cargadoPorId: true },
+    }),
+    contextoAccesoBorradorActual(),
+  ]);
+  if (!anterior) return null;
+  if (!puedeVerBorrador(anterior, contexto)) {
+    throw new Error("No tienes permiso para reemplazar ese borrador.");
+  }
+  return anterior;
+}
 
 /**
  * Cola COMPARTIDA del paso 1 (la usan `leerBalance` y `reprocesarBalanceConSpec`):
@@ -1338,6 +1836,9 @@ type ParamsLoteSugerencia = {
  */
 async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBalanceState> {
   const { extr } = p;
+  if (p.loteIdAnterior === p.loteIdSolicitud) {
+    return { ok: false, message: "La nueva lectura debe usar un identificador distinto al borrador que reemplaza." };
+  }
   // FAIL-CLOSED: sin cliente no se persiste NADA. Un borrador huérfano no puede
   // crear el perfil de carga del layout ni re-aplicar correcciones memorizadas,
   // así que se corta antes de escribir staging/lote.
@@ -1347,6 +1848,7 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
   if (extr.importReady.length === 0) {
     return { ok: false, message: "No se leyó ninguna cuenta del archivo. Revisa las excepciones.", excepciones: extr.excepciones };
   }
+  const loteAnteriorAutorizado = await autorizarLoteAnterior(p.loteIdAnterior);
 
   // HUELLA DIAGNÓSTICA inicial (MEDICIÓN, no afecta la lectura). Se calcula sobre un
   // CLON de las filas crudas ANTES de las reclasificaciones de abajo, para que las
@@ -1366,7 +1868,12 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
   // agrupadora para no contar doble. ANTES de reclasificarHuerfanas (para que el árbol
   // anide el detalle por orden) y de calcBorrador (para que el snapshot del encabezado
   // no cuente doble). `importReady` se sincroniza quitando los códigos promovidos.
-  const ajustesCliente = await ajustesCargaDeCliente(p.clienteDetectadoId);
+  const [ajustesCliente, correccionesGuardadas] = await Promise.all([
+    ajustesCargaDeCliente(p.clienteDetectadoId),
+    prisma.correccionCargaBalance.findMany({
+      where: { clienteId: p.clienteDetectadoId },
+    }),
+  ]);
   if (ajustesCliente?.imputarSoloHojas) {
     const promovidas = reclasificarSoloHojas(extr.filasCrudas);
     if (promovidas.length > 0) {
@@ -1382,16 +1889,47 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
   for (const f of huerfanas) {
     extr.importReady.push({ code: f.codigo, name: f.nombre, prevBalance: f.saldoInicial, balance: f.saldoFinal, debitos: f.debitos, creditos: f.creditos });
   }
-  const calcBorrador = calcularBalance(extr.importReady, []);
+  const correcciones: CorreccionCuenta[] = correccionesGuardadas.map((correccion) => ({
+    cuenta: correccion.cuenta,
+    nombre: correccion.nombre,
+    tipoFilaForzado:
+      correccion.tipoFilaForzado === "agrupadora" ||
+      correccion.tipoFilaForzado === "movimiento"
+        ? correccion.tipoFilaForzado
+        : null,
+    desacoplada: correccion.desacoplada,
+    omitida: correccion.omitida,
+    padreCodigo: correccion.padreCodigo,
+  }));
+  const preparacionCorrecciones = prepararFilasConCorreccionesGuardadas(
+    extr.filasCrudas,
+    correcciones,
+  );
+  const filasPersistencia = preparacionCorrecciones.filas;
+  const filasBorrador = filasPersistencia.map(filaPersistenciaABorrador);
+  const importReadyBorrador = cuentasDesdeFilasStaging(filasBorrador);
+  if (importReadyBorrador.length === 0) {
+    return {
+      ok: false,
+      message:
+        "Las reglas guardadas del cliente excluyen todas las cuentas del archivo. Revisa sus correcciones antes de volver a leerlo.",
+      excepciones: extr.excepciones,
+    };
+  }
+  const calcBorrador = calcularBalance(importReadyBorrador, []);
   // Snapshot FINAL para la lista: reproduce el mismo pipeline que verá el detalle,
   // ya con las preferencias y reclasificaciones aplicadas al staging definitivo.
-  const diagFinal = construirVistaBorrador(extr.filasCrudas.map((fila) => ({ ...fila }))).diagnostico;
+  const diagFinal = construirVistaBorrador(
+    filasBorrador.map((fila) => ({ ...fila })),
+  ).diagnostico;
   // Total del archivo por clase = SUMA de todas las filas totalizadoras de esa
   // clase (código "1"/"2"/"3"). En balances MULTI-SUCURSAL el ERP repite el total
   // de ACTIVO/PASIVO/PATRIMONIO por sucursal; sumarlas da el consolidado, que es
   // lo que el detalle (agregado por código entre sucursales) debe reflejar.
   const totalFilaArchivo = (clase: string) => {
-    const filas = extr.filasCrudas.filter((f) => f.codigo === clase);
+    const filas = filasPersistencia.filter(
+      (fila) => fila.codigo === clase && fila.omitida !== true,
+    );
     return filas.length > 0 ? filas.reduce((s, f) => s + f.saldoFinal, 0) : null;
   };
   const validacion = construirValidacionContable(calcBorrador, {
@@ -1439,25 +1977,85 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
     }
   }
 
-  // PASO 1 — BORRADOR persistente: staging crudo (todas las filas, sin descartar)
-  // + encabezado de lote con la metadata para listarlo. Persiste hasta que se
-  // CARGA (promueve a oficial) o se DESCARTA — sin purga automática.
-  const loteId = randomUUID();
+  // PASO 1 — BORRADOR persistente. El UUID viene del navegador y se conserva en
+  // los reintentos: es la clave idempotente de toda la lectura.
+  const loteId = p.loteIdSolicitud;
   const LOTE_STAGING = 1000;
-  try {
-    for (let i = 0; i < extr.filasCrudas.length; i += LOTE_STAGING) {
-      await prisma.balanceImportacionStaging.createMany({
-        data: extr.filasCrudas.slice(i, i + LOTE_STAGING).map((f) => ({
+  const persistencia = await prisma.$transaction(async (tx) => {
+    await tomarCandadoTransaccion(tx, `balance-lectura:${loteId}`);
+    await tomarCandadoTransaccion(tx, `balance-borrador:${loteId}`);
+    if (p.loteIdAnterior) {
+      // Serializa todos los reprocesos del mismo borrador, aunque cada intento
+      // tenga un UUID nuevo distinto.
+      await tomarCandadoTransaccion(tx, `balance-reemplazo:${p.loteIdAnterior}`);
+      await tomarCandadoTransaccion(tx, `balance-borrador:${p.loteIdAnterior}`);
+    }
+
+    // Una respuesta pudo perderse después del commit. En ese caso se reutiliza
+    // el borrador completo y jamás se insertan otra vez sus filas.
+    const [balanceExistente, loteExistente] = await Promise.all([
+      tx.balancePruebaEncabezado.findUnique({
+        where: { loteId },
+        select: { id: true, clienteId: true },
+      }),
+      tx.balanceImportacionLote.findUnique({
+        where: { loteId },
+        select: { clienteId: true },
+      }),
+    ]);
+    if (balanceExistente) {
+      if (balanceExistente.clienteId !== p.clienteDetectadoId) {
+        throw new Error("El identificador de esta lectura ya pertenece a otro cliente.");
+      }
+      return { estado: "promovido" as const, balanceId: balanceExistente.id };
+    }
+    if (loteExistente) {
+      if (loteExistente.clienteId !== p.clienteDetectadoId) {
+        throw new Error("El identificador de esta lectura ya pertenece a otro cliente.");
+      }
+      const filasExistentes = await tx.balanceImportacionStaging.count({
+        where: { loteId, clienteId: p.clienteDetectadoId },
+      });
+      if (filasExistentes === 0) {
+        throw new Error("El borrador existente no tiene filas y no puede recuperarse.");
+      }
+      return { estado: "existente" as const };
+    }
+
+    if (p.loteIdAnterior) {
+      const anterior = await tx.balanceImportacionLote.findUnique({
+        where: { loteId: p.loteIdAnterior },
+        select: { clienteId: true, cargadoPorId: true },
+      });
+      if (!anterior) {
+        throw new Error("El borrador que se iba a reemplazar ya no está disponible. Actualiza la página antes de reprocesar.");
+      }
+      if (
+        !loteAnteriorAutorizado ||
+        anterior.clienteId !== loteAnteriorAutorizado.clienteId ||
+        anterior.cargadoPorId !== loteAnteriorAutorizado.cargadoPorId
+      ) {
+        throw new Error("El borrador que se iba a reemplazar cambió durante el reproceso.");
+      }
+    }
+
+    // Encabezado y TODAS las filas se confirman en un único commit. Si el proceso
+    // se corta entre lotes, PostgreSQL revierte la transacción completa y el UUID
+    // estable permite reintentar sin dejar staging huérfano.
+    for (let i = 0; i < filasPersistencia.length; i += LOTE_STAGING) {
+      await tx.balanceImportacionStaging.createMany({
+        data: filasPersistencia.slice(i, i + LOTE_STAGING).map((f) => ({
           loteId, clienteId: p.clienteDetectadoId, hoja: f.hoja, filaNum: f.filaNum, codigoCrudo: f.codigoCrudo,
           codigo: f.codigo, nombre: f.nombre, nivel: f.nivel, tipoFila: f.tipoFila,
+          tipoFilaForzado: f.tipoFilaForzado,
+          desacoplada: f.desacoplada,
+          omitida: f.omitida,
+          padreManual: f.padreManual,
           saldoInicial: f.saldoInicial, debitos: f.debitos, creditos: f.creditos, saldoFinal: f.saldoFinal,
         })),
       });
     }
-    // Purga cualquier lectura cacheada previa del lote (p. ej. un 404 cacheado si
-    // alguien visitó la URL antes de existir el staging).
-    invalidarStagingBorrador(loteId);
-    await prisma.balanceImportacionLote.create({
+    await tx.balanceImportacionLote.create({
       data: {
         loteId, clienteId: p.clienteDetectadoId,
         archivoNombre: p.archivoNombre, archivoTam: tamArchivo(p.archivoTamBytes),
@@ -1465,15 +2063,65 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
         periodoInicial: extr.cabecera.periodoInicial.valor ? fechaCalendarioPrisma(extr.cabecera.periodoInicial.valor) : null,
         periodoFinal: extr.cabecera.periodoFinal.valor ? fechaCalendarioPrisma(extr.cabecera.periodoFinal.valor) : null,
         estandar: extr.cabecera.estandar, convencionCredito: extr.resumen.convencionCredito,
-        cuentasMovimiento: extr.resumen.cuentasMovimiento, filasLeidas: extr.resumen.filasLeidas, filasExcluidas: extr.resumen.filasExcluidas,
+        cuentasMovimiento: diagFinal.movimientos, filasLeidas: diagFinal.filas, filasExcluidas: extr.resumen.filasExcluidas,
         partidaDobleDiff: diagFinal.partidaDobleDiff, ecuacionDiff: diagFinal.ecuacionDiff,
         cuadrado: diagFinal.cuadrado,
+        correccionesAplicadas: preparacionCorrecciones.cantidad,
+        revisionContenido: 0,
         cargadoPor: p.usuario?.name ?? null, cargadoPorId: p.usuario?.id ?? null,
         huella: huellaFinal, origenExtraccion: p.origenExtraccion,
         ...(specCarga ? { specJson: specCarga } : {}),
       },
     });
+    if (preparacionCorrecciones.cuentasAplicadas.length > 0) {
+      await tx.correccionCargaBalance.updateMany({
+        where: {
+          clienteId: p.clienteDetectadoId!,
+          cuenta: { in: preparacionCorrecciones.cuentasAplicadas },
+        },
+        data: {
+          vecesAplicada: { increment: 1 },
+          ultimoUsoEn: new Date(),
+        },
+      });
+    }
 
+    if (p.loteIdAnterior) {
+      // La creación del nuevo borrador y el consumo del anterior son una única
+      // transición: cualquier fallo en esta purga revierte también encabezado y
+      // todos los bloques de staging recién insertados.
+      await tx.balanceImportacionStaging.deleteMany({
+        where: { loteId: p.loteIdAnterior },
+      });
+      const loteEliminado = await tx.balanceImportacionLote.deleteMany({
+        where: { loteId: p.loteIdAnterior },
+      });
+      if (loteEliminado.count !== 1) {
+        throw new Error("No se pudo reemplazar el borrador anterior de forma completa.");
+      }
+      await tx.balanceLecturaDiagnostico.updateMany({
+        where: { loteId: p.loteIdAnterior },
+        data: { resultado: "reemplazado" },
+      });
+    }
+    return { estado: "creado" as const };
+  }, {
+    maxWait: 5_000,
+    timeout: TIMEOUT_TRANSACCION_BORRADOR_MS,
+  });
+
+  if (persistencia.estado === "promovido") {
+    return {
+      ok: false,
+      message: `Esta lectura ya fue promovida al balance ${persistencia.balanceId}.`,
+    };
+  }
+
+  invalidarStagingBorrador(loteId);
+  if (persistencia.estado === "creado" && p.loteIdAnterior) {
+    invalidarStagingBorrador(p.loteIdAnterior);
+  }
+  if (persistencia.estado === "creado") {
     // Registra la huella diagnóstica del cargue (best-effort; sobrevive a la purga del
     // lote al confirmar/descartar porque vive en su propia tabla).
     await registrarDiagnosticoInicial({
@@ -1484,26 +2132,6 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
       diag: diagInicial,
     });
 
-    // Correcciones por cuenta MEMORIZADAS del cliente (detectado por NIT): se
-    // re-aplican al staging recién creado — el borrador abre ya corregido, sin
-    // repetir a mano los ajustes de cargas anteriores. El resumen del lote se
-    // recalcula adentro.
-    if (p.clienteDetectadoId != null) {
-      await aplicarCorreccionesGuardadas(loteId, p.clienteDetectadoId);
-    }
-  } catch (error) {
-    // Nunca deja un staging parcial navegable. El perfil derivado del archivo sí
-    // puede conservarse; el lote fallido se purga y su medición queda marcada.
-    await prisma.$transaction(async (tx) => {
-      await tx.balanceImportacionStaging.deleteMany({ where: { loteId } });
-      await tx.balanceImportacionLote.deleteMany({ where: { loteId } });
-      await tx.balanceLecturaDiagnostico.updateMany({
-        where: { loteId },
-        data: { resultado: "error" },
-      });
-    });
-    invalidarStagingBorrador(loteId);
-    throw error;
   }
 
   const payload: PayloadCargaBalance = {
@@ -1517,12 +2145,12 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
     periodoFinal: extr.cabecera.periodoFinal.valor,
     estandar: extr.cabecera.estandar,
     convencionCredito: extr.resumen.convencionCredito,
-    filasLeidas: extr.resumen.filasLeidas,
+    filasLeidas: diagFinal.filas,
     filasExcluidas: extr.resumen.filasExcluidas,
     filasDescuadre: extr.resumen.filasDescuadre,
-    cuentasMovimiento: extr.resumen.cuentasMovimiento,
-    cuentasAgrupadoras: extr.resumen.cuentasAgrupadoras,
-    cuentas: extr.importReady.length,
+    cuentasMovimiento: diagFinal.movimientos,
+    cuentasAgrupadoras: diagFinal.agrupadoras,
+    cuentas: importReadyBorrador.length,
     cuadreArchivo: extr.cuadre.detectado ? { totalDebitos: extr.cuadre.totalDebitos, totalCreditos: extr.cuadre.totalCreditos } : null,
     origenExtraccion: p.origenExtraccion,
     proveedorIA: p.proveedorIA,
@@ -1537,7 +2165,7 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
       render: {
         cuadre: extr.cuadre,
         validacion,
-        importReady: extr.importReady,
+        importReady: importReadyBorrador,
         spec: specCarga,
         encabezados,
         hojas: p.ingesta?.modo === "tabular" ? p.ingesta.hojas.map((h) => h.nombre) : [],
@@ -1546,36 +2174,6 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
       },
     },
   };
-}
-
-/** Purga el borrador reemplazado y conserva su diagnóstico como reprocesado. */
-async function reemplazarLoteAnterior(loteId: string): Promise<void> {
-  const [anterior, usuario] = await Promise.all([
-    prisma.balanceImportacionLote.findUnique({
-      where: { loteId },
-      select: { clienteId: true, cargadoPorId: true },
-    }),
-    getCurrentUser(),
-  ]);
-  if (!anterior) return;
-  if (anterior.clienteId != null) {
-    const scope = await authorizePermiso("balance:crear", { clientId: anterior.clienteId });
-    if (!scope.ok) throw new Error(scope.message);
-  } else {
-    const esAdministrador = /admin/i.test(usuario?.role ?? "");
-    if (!usuario || (!esAdministrador && anterior.cargadoPorId !== usuario.id)) {
-      throw new Error("No tienes permiso para reemplazar ese borrador.");
-    }
-  }
-  await prisma.$transaction(async (tx) => {
-    await tx.balanceImportacionStaging.deleteMany({ where: { loteId } });
-    await tx.balanceImportacionLote.deleteMany({ where: { loteId } });
-    await tx.balanceLecturaDiagnostico.updateMany({
-      where: { loteId },
-      data: { resultado: "reprocesado" },
-    });
-  });
-  invalidarStagingBorrador(loteId);
 }
 
 /**
@@ -1610,8 +2208,62 @@ export async function reprocesarBalanceConSpec(
   const loteIdAnterior = String(formData.get("loteIdAnterior") ?? "").trim();
   const clienteIdBruto = Number(formData.get("clienteId"));
   const clienteIdExplicito = Number.isInteger(clienteIdBruto) && clienteIdBruto > 0 ? clienteIdBruto : null;
+  const loteIdSolicitud = loteIdSolicitudDesde(formData);
+  if (!loteIdSolicitud) {
+    return { ok: false, message: "La solicitud de reproceso no tiene un identificador válido. Vuelve a intentarlo." };
+  }
+  if (loteIdAnterior === loteIdSolicitud) {
+    return { ok: false, message: "El reproceso debe usar un identificador distinto al borrador que reemplaza." };
+  }
+
+  // Recuperación rápida para el caso normal (el cliente viene explícito). Se
+  // ejecuta fuera del try que traduce errores para no capturar `redirect()`.
+  if (clienteIdExplicito != null) {
+    let destinoExistente: DestinoLoteSolicitud | null;
+    try {
+      destinoExistente = await destinoLoteSolicitud(loteIdSolicitud);
+    } catch (e) {
+      return { ok: false, message: mensajeErrorBD("reprocesarBalanceConSpec", e) };
+    }
+    if (destinoExistente) {
+      const scope = await authorizePermiso("balance:crear", {
+        clientId: destinoExistente.clienteId,
+      });
+      if (!scope.ok) return { ok: false, message: scope.message };
+      if (destinoExistente.clienteId !== clienteIdExplicito) {
+        return { ok: false, message: "El identificador de este reproceso ya pertenece a otro cliente." };
+      }
+      redirect(
+        destinoExistente.tipo === "balance"
+          ? `/balance/${destinoExistente.id}?cargado=1`
+          : `/balance/borradores/${destinoExistente.id}`,
+      );
+    }
+  }
 
   try {
+    if (loteIdAnterior) {
+      const [referenciaAnterior, contexto] = await Promise.all([
+        prisma.balanceImportacionLote.findUnique({
+          where: { loteId: loteIdAnterior },
+          select: { clienteId: true, cargadoPorId: true },
+        }),
+        contextoAccesoBorradorActual(),
+      ]);
+      if (!referenciaAnterior) {
+        return { ok: false, message: "El borrador que se iba a reprocesar ya no existe." };
+      }
+      if (!puedeVerBorrador(referenciaAnterior, contexto)) {
+        return { ok: false, message: "No tienes permiso para reprocesar ese borrador." };
+      }
+      if (
+        referenciaAnterior.clienteId != null
+        && clienteIdExplicito != null
+        && referenciaAnterior.clienteId !== clienteIdExplicito
+      ) {
+        return { ok: false, message: "El cliente elegido no corresponde al borrador que se va a reprocesar." };
+      }
+    }
     const proveedorIA = await proveedorIABalanceSesion(formData.get("modeloIA"));
     const datosArchivo = await archivo.arrayBuffer();
     const ingesta = await ingerir(datosArchivo, archivo.name);
@@ -1651,21 +2303,16 @@ export async function reprocesarBalanceConSpec(
       extr,
       archivoNombre: archivo.name,
       archivoTamBytes: archivo.size,
-      usuario: usuario ? { id: usuario.id, name: usuario.name } : null,
+      usuario: usuario ? { id: usuario.id, name: usuario.name, role: usuario.role } : null,
       origenExtraccion: "manual",
       spec,
       ingesta,
       nitDeterminista,
       clienteDetectadoId,
       proveedorIA,
+      loteIdSolicitud,
+      loteIdAnterior: loteIdAnterior || null,
     });
-
-    // El lote anterior se purga SOLO si el reproceso quedó persistido (si falló,
-    // el borrador previo sigue disponible). Conserva el historial diagnóstico
-    // marcándolo como reemplazado, en vez de dejarlo eternamente como borrador.
-    if (res.ok && loteIdAnterior) {
-      await reemplazarLoteAnterior(loteIdAnterior);
-    }
     return res;
   } catch (e) {
     return { ok: false, message: mensajeErrorIA("reprocesarBalanceConSpec", e), errorProveedorIA: esErrorDisponibilidadIA(e) };
@@ -1694,11 +2341,28 @@ export async function auditarCargaBalance(clienteId: number, loteId: string): Pr
   const vacio: AuditoriaCarga = { ok: false, hayPrevio: false, omisiones: [], sinMapeo: [] };
   const authz = await authorizePermiso("balance:crear");
   if (!authz.ok) return { ...vacio, message: authz.message };
-  const scope = await authorizePermiso("balance:crear", { clientId: clienteId });
-  if (!scope.ok) return { ...vacio, message: scope.message };
   const id = String(loteId ?? "").trim();
   if (!id) return { ...vacio, message: "Borrador inválido. Vuelve a leer el archivo." };
   try {
+    const [lote, contexto] = await Promise.all([
+      prisma.balanceImportacionLote.findUnique({
+        where: { loteId: id },
+        select: { clienteId: true, cargadoPorId: true },
+      }),
+      contextoAccesoBorradorActual(),
+    ]);
+    if (!lote) {
+      return { ...vacio, message: "El borrador ya no existe. Vuelve a leer el archivo." };
+    }
+    if (!puedeVerBorrador(lote, contexto)) {
+      return { ...vacio, message: "No tienes permiso para revisar ese borrador." };
+    }
+    if (lote.clienteId != null && lote.clienteId !== clienteId) {
+      return { ...vacio, message: "El cliente elegido no corresponde al borrador." };
+    }
+    const scope = await authorizePermiso("balance:crear", { clientId: clienteId });
+    if (!scope.ok) return { ...vacio, message: scope.message };
+
     // Las cuentas salen del STAGING del lote (misma vista que se promoverá al
     // confirmar) — ya no viajan de ida y vuelta por el navegador.
     const cuentas = await cuentasDesdeStaging(id);
@@ -1838,14 +2502,29 @@ export async function guardarPerfilDesdeEditor(loteId: string, specJson: unknown
   const parsed = SpecCargaBalanceSchema.safeParse(specJson);
   if (!parsed.success) return { ok: false, message: parsed.error.issues[0]?.message ?? "Los ajustes de estructura no son válidos." };
   try {
-    const lote = await prisma.balanceImportacionLote.findUnique({
-      where: { loteId: id },
-      select: { huella: true, clienteId: true, nitDetectado: true, archivoNombre: true },
-    });
+    const [lote, contexto] = await Promise.all([
+      prisma.balanceImportacionLote.findUnique({
+        where: { loteId: id },
+        select: {
+          huella: true,
+          clienteId: true,
+          cargadoPorId: true,
+          nitDetectado: true,
+          archivoNombre: true,
+        },
+      }),
+      contextoAccesoBorradorActual(),
+    ]);
     if (!lote) return { ok: false, message: "El borrador ya no existe." };
+    if (!puedeVerBorrador(lote, contexto)) {
+      return { ok: false, message: "No tienes permiso para modificar ese borrador." };
+    }
     if (!lote.huella) return { ok: false, message: "No hay huella del layout para guardar el perfil. Reprocesa una vez (sin IA) para generarla y vuelve a guardar." };
     // Cliente EXPLÍCITO (elegido en el prompt) manda; si no, el del lote o el detectado por NIT.
     const cidExpl = typeof clientIdExplicito === "number" && Number.isInteger(clientIdExplicito) && clientIdExplicito > 0 ? clientIdExplicito : null;
+    if (lote.clienteId != null && cidExpl != null && cidExpl !== lote.clienteId) {
+      return { ok: false, message: "El cliente elegido no corresponde al borrador." };
+    }
     const clientId = cidExpl ?? lote.clienteId ?? (await clientePorNit(lote.nitDetectado));
     // Sin cliente → se pide al usuario que lo elija para concluir el guardado (needsClient).
     if (clientId == null) return { ok: false, needsClient: true, message: "Elige el cliente para guardar el perfil del formato." };
@@ -1876,12 +2555,21 @@ export async function guardarNotasDesdeEditor(loteId: string, observaciones: str
   if (texto.length > 2000) return { ok: false, message: "Las notas son demasiado largas (máx. 2000 caracteres)." };
   const notas = texto || null;
   try {
-    const lote = await prisma.balanceImportacionLote.findUnique({
-      where: { loteId: id },
-      select: { clienteId: true, nitDetectado: true },
-    });
+    const [lote, contexto] = await Promise.all([
+      prisma.balanceImportacionLote.findUnique({
+        where: { loteId: id },
+        select: { clienteId: true, cargadoPorId: true, nitDetectado: true },
+      }),
+      contextoAccesoBorradorActual(),
+    ]);
     if (!lote) return { ok: false, message: "El borrador ya no existe." };
+    if (!puedeVerBorrador(lote, contexto)) {
+      return { ok: false, message: "No tienes permiso para modificar ese borrador." };
+    }
     const cidExpl = typeof clientIdExplicito === "number" && Number.isInteger(clientIdExplicito) && clientIdExplicito > 0 ? clientIdExplicito : null;
+    if (lote.clienteId != null && cidExpl != null && cidExpl !== lote.clienteId) {
+      return { ok: false, message: "El cliente elegido no corresponde al borrador." };
+    }
     const clientId = cidExpl ?? lote.clienteId ?? (await clientePorNit(lote.nitDetectado));
     if (clientId == null) return { ok: false, needsClient: true, message: "Elige el cliente para guardar las notas." };
     const scope = await authorizePermiso("balance:crear", { clientId });
@@ -1935,23 +2623,76 @@ export async function cargarBorrador(_prev: ImportBalanceState, formData: FormDa
     return { ok: false, message: comentarioValidado.message };
   }
 
+  // Reintento posterior a una respuesta perdida: el borrador ya fue consumido,
+  // pero `lote_id` permite resolver inequívocamente el balance que se alcanzó a
+  // confirmar. Reautoriza por el cliente REAL antes de redirigir.
+  const promovido = await prisma.balancePruebaEncabezado.findUnique({
+    where: { loteId },
+    select: { id: true, clienteId: true },
+  });
+  if (promovido) {
+    const scopePromovido = await authorizePermiso("balance:crear", {
+      clientId: promovido.clienteId,
+    });
+    if (!scopePromovido.ok) return { ok: false, message: scopePromovido.message };
+    if (promovido.clienteId !== clientId) {
+      return { ok: false, message: "El borrador ya fue cargado para otro cliente." };
+    }
+    redirect(`/balance/${promovido.id}?cargado=1`);
+  }
+
+  // Autoriza el lote físico antes de reconstruir su staging pesado. La selección
+  // de cliente enviada por el navegador no concede acceso por sí sola.
+  const [lote, contexto] = await Promise.all([
+    prisma.balanceImportacionLote.findUnique({ where: { loteId } }),
+    contextoAccesoBorradorActual(),
+  ]);
+  if (!lote) {
+    // Cierra la carrera entre la primera comprobación y otra promoción que haya
+    // confirmado mientras se consultaba staging/lote.
+    const promovidoMientrasSeConsultaba = await prisma.balancePruebaEncabezado.findUnique({
+      where: { loteId },
+      select: { id: true, clienteId: true },
+    });
+    if (promovidoMientrasSeConsultaba?.clienteId === clientId) {
+      redirect(`/balance/${promovidoMientrasSeConsultaba.id}?cargado=1`);
+    }
+    return { ok: false, message: "El borrador ya no existe (fue cargado o descartado)." };
+  }
+  if (!puedeVerBorrador(lote, contexto)) {
+    return { ok: false, message: "No tienes permiso para cargar ese borrador." };
+  }
+  if (lote.clienteId !== clientId) {
+    return {
+      ok: false,
+      message: "Antes de cargar debes vincular el cliente al borrador. Así se crea su perfil y se aplican sus preferencias.",
+    };
+  }
   const scope = await authorizePermiso("balance:crear", { clientId });
   if (!scope.ok) return { ok: false, message: scope.message };
 
-  // Compuerta defensiva del servidor: la UI no es suficiente. El lote debe tener
-  // el MISMO cliente asociado y todas sus filas deben conservar esa identidad.
-  const [lote, filasCliente, filasControl] = await Promise.all([
-    prisma.balanceImportacionLote.findUnique({ where: { loteId } }),
+  // Compuerta defensiva del servidor: todas las filas deben conservar la misma
+  // identidad que el encabezado.
+  const [filasCliente, filasControl] = await Promise.all([
     prisma.balanceImportacionStaging.count({ where: { loteId, clienteId: clientId } }),
     filasStagingCorreccion(loteId),
   ]);
   const filasStaging = filasControl.length;
   const movEnStaging = filasControl.filter((fila) => fila.tipoFila === "movimiento").length;
-  if (!lote || filasStaging === 0) return { ok: false, message: "El borrador ya no existe (fue cargado o descartado)." };
-  if (lote.clienteId !== clientId || filasCliente !== filasStaging) {
+  if (filasStaging === 0) {
+    const promovidoMientrasSeConsultaba = await prisma.balancePruebaEncabezado.findUnique({
+      where: { loteId },
+      select: { id: true, clienteId: true },
+    });
+    if (promovidoMientrasSeConsultaba?.clienteId === clientId) {
+      redirect(`/balance/${promovidoMientrasSeConsultaba.id}?cargado=1`);
+    }
+    return { ok: false, message: "El borrador ya no existe (fue cargado o descartado)." };
+  }
+  if (filasCliente !== filasStaging) {
     return {
       ok: false,
-      message: "Antes de cargar debes vincular el cliente al borrador. Así se crea su perfil y se aplican sus preferencias.",
+      message: "El borrador contiene filas de otro cliente y no se puede cargar.",
     };
   }
   const { riesgosPendientes } = evaluarRevisionesReubicacionStaging(filasControl);
@@ -2008,6 +2749,7 @@ export async function cargarBorrador(_prev: ImportBalanceState, formData: FormDa
       convencionCredito: lote?.convencionCredito ?? "firmado",
       filasLeidas: lote?.filasLeidas ?? 0, filasExcluidas: lote?.filasExcluidas ?? 0, filasDescuadre: 0,
       cuentasMovimiento: lote?.cuentasMovimiento ?? movEnStaging, cuentas: lote?.cuentasMovimiento ?? movEnStaging, cuentasAgrupadoras: 0,
+      revisionContenido: lote.revisionContenido,
       cuadreArchivo: null,
       comentarioPromocion: comentarioValidado.comentario,
     },
@@ -2040,21 +2782,37 @@ export async function actualizarPeriodoBorrador(
     return { ok: false, message: parsed.error.issues[0]?.message ?? "Período inválido." };
   }
   try {
-    const lote = await prisma.balanceImportacionLote.findUnique({
-      where: { loteId: id },
-      select: { clienteId: true },
-    });
+    const [lote, contexto] = await Promise.all([
+      prisma.balanceImportacionLote.findUnique({
+        where: { loteId: id },
+        select: { clienteId: true, cargadoPorId: true },
+      }),
+      contextoAccesoBorradorActual(),
+    ]);
     if (!lote) return { ok: false, message: "El borrador ya no existe." };
+    if (!puedeVerBorrador(lote, contexto)) {
+      return { ok: false, message: "No tienes permiso para modificar ese borrador." };
+    }
     if (lote.clienteId != null) {
       const scope = await authorizePermiso("balance:crear", { clientId: lote.clienteId });
       if (!scope.ok) return { ok: false, message: scope.message };
     }
-    await prisma.balanceImportacionLote.update({
-      where: { loteId: id },
-      data: {
-        periodoInicial: fechaCalendarioPrisma(parsed.data.periodoInicio),
-        periodoFinal: fechaCalendarioPrisma(parsed.data.periodoFin),
-      },
+    await transaccionSerializable(async (tx) => {
+      await tomarCandadoTransaccion(tx, `balance-borrador:${id}`);
+      const loteActual = await tx.balanceImportacionLote.findUnique({
+        where: { loteId: id },
+        select: { clienteId: true, cargadoPorId: true },
+      });
+      if (!loteActual || !puedeVerBorrador(loteActual, contexto)) {
+        throw new Error("El borrador cambió o ya no tienes permiso para modificarlo.");
+      }
+      await tx.balanceImportacionLote.update({
+        where: { loteId: id },
+        data: {
+          periodoInicial: fechaCalendarioPrisma(parsed.data.periodoInicio),
+          periodoFinal: fechaCalendarioPrisma(parsed.data.periodoFin),
+        },
+      });
     });
     revalidatePath(`/balance/borradores/${id}`);
     revalidatePath("/balance/borradores");
@@ -2071,28 +2829,74 @@ export async function descartarBorrador(loteId: string): Promise<ActionState> {
   const id = String(loteId ?? "").trim();
   if (!id) return { ok: false, message: "Borrador inválido." };
   try {
-    const lote = await prisma.balanceImportacionLote.findUnique({
-      where: { loteId: id },
-      select: { clienteId: true },
-    });
+    const [lote, contexto] = await Promise.all([
+      prisma.balanceImportacionLote.findUnique({
+        where: { loteId: id },
+        select: { clienteId: true, cargadoPorId: true },
+      }),
+      contextoAccesoBorradorActual(),
+    ]);
+    if (!lote && !contexto.alcance.todos) {
+      return { ok: false, message: "El borrador ya no existe o no tienes permiso para descartarlo." };
+    }
+    if (lote && !puedeVerBorrador(lote, contexto)) {
+      return { ok: false, message: "No tienes permiso para descartar ese borrador." };
+    }
     if (lote?.clienteId != null) {
       const scope = await authorizePermiso("balance:crear", { clientId: lote.clienteId });
       if (!scope.ok) return { ok: false, message: scope.message };
     }
-    // Cierra la huella diagnóstica (best-effort, ANTES de purgar): resultado descartado
-    // + intervención manual acumulada.
+    // Captura la intervención antes de purgar; el diagnóstico se cierra después
+    // del commit para no registrar "descartado" si la eliminación se revierte.
+    let manualDescartado = { omitidas: 0, reparentadas: 0, desacopladas: 0 };
     try {
       const [nOmi, nPad, nDes] = await Promise.all([
         prisma.balanceImportacionStaging.count({ where: { loteId: id, omitida: true } }),
         prisma.balanceImportacionStaging.count({ where: { loteId: id, padreManual: { not: null } } }),
         prisma.balanceImportacionStaging.count({ where: { loteId: id, desacoplada: true } }),
       ]);
-      await cerrarDiagnostico({ loteId: id, resultado: "descartado", manual: { omitidas: nOmi, reparentadas: nPad, desacopladas: nDes } });
+      manualDescartado = {
+        omitidas: nOmi,
+        reparentadas: nPad,
+        desacopladas: nDes,
+      };
     } catch {
       /* best-effort */
     }
-    await prisma.balanceImportacionStaging.deleteMany({ where: { loteId: id } });
-    await prisma.balanceImportacionLote.deleteMany({ where: { loteId: id } });
+    await transaccionSerializable(async (tx) => {
+      await tomarCandadoTransaccion(tx, `balance-borrador:${id}`);
+      const loteActual = await tx.balanceImportacionLote.findUnique({
+        where: { loteId: id },
+        select: { clienteId: true, cargadoPorId: true },
+      });
+      if (loteActual && !puedeVerBorrador(loteActual, contexto)) {
+        throw new Error("No tienes permiso para descartar ese borrador.");
+      }
+      if (!loteActual && !contexto.alcance.todos) {
+        throw new Error("El borrador ya no existe o no tienes permiso para descartarlo.");
+      }
+      const stagingEliminado = await tx.balanceImportacionStaging.deleteMany({
+        where: { loteId: id },
+      });
+      const loteEliminado = await tx.balanceImportacionLote.deleteMany({
+        where: { loteId: id },
+      });
+      if (loteActual && loteEliminado.count !== 1) {
+        throw new Error("No se pudo descartar el encabezado del borrador.");
+      }
+      if (!loteActual && stagingEliminado.count === 0) {
+        throw new Error("El borrador ya no existe.");
+      }
+    }, { timeoutMs: TIMEOUT_TRANSACCION_PROMOCION_MS });
+    try {
+      await cerrarDiagnostico({
+        loteId: id,
+        resultado: "descartado",
+        manual: manualDescartado,
+      });
+    } catch {
+      /* best-effort */
+    }
     invalidarStagingBorrador(id);
     const user = await getCurrentUser();
     await logAudit({ user: user?.name ?? "—", action: "DESCARTÓ BORRADOR de balance", entity: id, detail: "", clientId: lote?.clienteId ?? null });
@@ -2151,9 +2955,13 @@ export async function aplicarCambiosBorrador(
   try {
     const loteCliente = await prisma.balanceImportacionLote.findUnique({
       where: { loteId: id },
-      select: { clienteId: true },
+      select: { clienteId: true, cargadoPorId: true },
     });
     if (!loteCliente) return { ok: false, message: "El borrador ya no existe." };
+    const contexto = await contextoAccesoBorradorActual();
+    if (!puedeVerBorrador(loteCliente, contexto)) {
+      return { ok: false, message: "No tienes permiso para modificar ese borrador." };
+    }
     if (loteCliente.clienteId == null) {
       return { ok: false, message: "Vincula el cliente antes de guardar cambios para poder memorizarlos en su perfil." };
     }
@@ -2208,37 +3016,87 @@ export async function aplicarCambiosBorrador(
       }
     }
     const user = await getCurrentUser();
+    await asegurarPerfilBaseCliente(cid, user?.name ?? null);
 
-    let nRe = 0;
-    let nDes = 0;
-    let nOmi = 0;
-    let nPad = 0;
-    const revisionesGuardadas: RevisionReubicacionStaging[] = [];
+    // `stagingAntes` ya contiene todas las claves de cuenta y destinos necesarios
+    // para construir la memoria; reutilizarlo evita otra lectura completa.
+    const correcciones = construirCorrecciones(stagingAntes, {
+      override: Object.fromEntries(reclas),
+      desacopladas: Object.fromEntries(desac),
+      omitidas: Object.fromEntries(omit),
+      padres: Object.fromEntries(pads),
+    });
+    const filasPorNumero = new Map(
+      stagingAntes.map((fila) => [fila.filaNum, fila]),
+    );
+    const cuentasNoMemorizadas = new Set<string>();
+    for (const [fila] of pads) {
+      const memorizar =
+        memorizarParsed.data[fila]
+        ?? revisionesParsed.data[fila]?.memorizar
+        ?? true;
+      const filaStaging = filasPorNumero.get(Number(fila));
+      const cuenta = filaStaging ? claveCuenta(filaStaging) : "";
+      if (!memorizar && cuenta) cuentasNoMemorizadas.add(cuenta);
+    }
+    // "No repetir" conserva la ubicación en ESTE borrador, pero limpia únicamente
+    // el padre memorizado para que no vuelva a aplicarse en otra carga.
+    for (const correccion of correcciones) {
+      if (
+        cuentasNoMemorizadas.has(correccion.cuenta)
+        && correccion.padreCodigo !== undefined
+      ) {
+        correccion.padreCodigo = null;
+      }
+    }
+
+    const {
+      nRe,
+      nDes,
+      nOmi,
+      nPad,
+      nMemorizadas,
+      revisionesGuardadas,
+    } = await transaccionSerializable(async (tx) => {
+      await tomarCandadoTransaccion(tx, `balance-borrador:${id}`);
+      const loteActual = await tx.balanceImportacionLote.findUnique({
+        where: { loteId: id },
+        select: { clienteId: true },
+      });
+      if (!loteActual || loteActual.clienteId !== cid) {
+        throw new Error("El borrador cambió de cliente o ya no existe.");
+      }
+
+      let nRe = 0;
+      let nDes = 0;
+      let nOmi = 0;
+      let nPad = 0;
+      const revisionesGuardadas: RevisionReubicacionStaging[] = [];
     // Reclasificación en LOTE por destino (una consulta por dirección, no por código):
     // «Evitar doble conteo de subtotales» produce muchos códigos → agrupadora, así que un bucle
     // por código sería lento. Solo se voltea la fila si su tipo actual es el opuesto.
     const codsAgrup = reclas.filter(([, t]) => t === "agrupadora").map(([c]) => c);
     const codsMov = reclas.filter(([, t]) => t === "movimiento").map(([c]) => c);
     if (codsAgrup.length > 0) {
-      const r = await prisma.balanceImportacionStaging.updateMany({
+      const r = await tx.balanceImportacionStaging.updateMany({
         where: { loteId: id, codigo: { in: codsAgrup }, tipoFila: { in: ["movimiento", "descuadre", "agrupadora"] } },
         data: { tipoFila: "agrupadora", tipoFilaForzado: "agrupadora" },
       });
       nRe += r.count;
     }
     if (codsMov.length > 0) {
-      const r = await prisma.balanceImportacionStaging.updateMany({
+      const r = await tx.balanceImportacionStaging.updateMany({
         where: { loteId: id, codigo: { in: codsMov }, tipoFila: { in: ["movimiento", "descuadre", "agrupadora"] } },
         data: { tipoFila: "movimiento", tipoFilaForzado: "movimiento" },
       });
       nRe += r.count;
     }
     for (const [cod, on] of desac) {
-      const r = await prisma.balanceImportacionStaging.updateMany({ where: { loteId: id, codigo: cod }, data: { desacoplada: on } });
+      const r = await tx.balanceImportacionStaging.updateMany({ where: { loteId: id, codigo: cod }, data: { desacoplada: on } });
       nDes += r.count;
     }
     for (const [fila, on] of omit) {
-      const r = await prisma.balanceImportacionStaging.updateMany({ where: { loteId: id, filaNum: Number(fila) }, data: { omitida: on } });
+      const r = await tx.balanceImportacionStaging.updateMany({ where: { loteId: id, filaNum: Number(fila) }, data: { omitida: on } });
       nOmi += r.count;
     }
     for (const [fila, destino] of pads) {
@@ -2247,7 +3105,7 @@ export async function aplicarCambiosBorrador(
       const riesgo = riesgosPorFila.get(filaNum);
       const revision = revisionesParsed.data[fila];
       const revisadaEn = riesgo && revision ? new Date() : null;
-      const r = await prisma.balanceImportacionStaging.updateMany({
+      const r = await tx.balanceImportacionStaging.updateMany({
         where: { loteId: id, filaNum },
         data: riesgo && revision
           ? {
@@ -2275,42 +3133,31 @@ export async function aplicarCambiosBorrador(
           revisadaEn: revisadaEn.toISOString(),
         });
       }
-    }
-    await actualizarResumenLoteBorrador(id);
-    await asegurarPerfilBaseCliente(cid, user?.name ?? null);
-
-    // PERFIL del cliente: memoriza las correcciones por cuenta para re-aplicarlas
-    // solas en las próximas cargas. Un fallo se reporta: nunca se confirma que el
-    // cambio quedó memorizado si la persistencia del perfil falló.
-    let nMemorizadas = 0;
-    // `stagingAntes` ya contiene todas las claves de cuenta y destinos necesarios
-    // para construir la memoria; reutilizarlo evita una segunda lectura completa.
-    const filas = stagingAntes;
-    const correcciones = construirCorrecciones(filas, {
-      override: Object.fromEntries(reclas),
-      desacopladas: Object.fromEntries(desac),
-      omitidas: Object.fromEntries(omit),
-      padres: Object.fromEntries(pads),
-    });
-    const filasPorNumero = new Map(filas.map((fila) => [fila.filaNum, fila]));
-    const cuentasNoMemorizadas = new Set<string>();
-    for (const [fila] of pads) {
-      const memorizar = memorizarParsed.data[fila] ?? revisionesParsed.data[fila]?.memorizar ?? true;
-      const filaStaging = filasPorNumero.get(Number(fila));
-      const cuenta = filaStaging ? claveCuenta(filaStaging) : "";
-      if (!memorizar && cuenta) cuentasNoMemorizadas.add(cuenta);
-    }
-    // "No repetir" conserva la ubicación en ESTE borrador, pero limpia únicamente
-    // el padre memorizado de la cuenta para que no vuelva a aplicarse en otra carga.
-    for (const correccion of correcciones) {
-      if (cuentasNoMemorizadas.has(correccion.cuenta) && correccion.padreCodigo !== undefined) {
-        correccion.padreCodigo = null;
       }
-    }
-    if (correcciones.length > 0) {
-      nMemorizadas = await memorizarCorreccionesCliente(cid, correcciones, user?.name ?? null);
-      revalidatePath("/config/clientes");
-    }
+      await actualizarResumenLoteBorrador(id, tx);
+      const revisionActualizada = await tx.balanceImportacionLote.updateMany({
+        where: { loteId: id, clienteId: cid },
+        data: { revisionContenido: { increment: 1 } },
+      });
+      if (revisionActualizada.count !== 1) {
+        throw new Error("No se pudo versionar el contenido corregido del borrador.");
+      }
+      const nMemorizadas = await memorizarCorreccionesCliente(
+        cid,
+        correcciones,
+        user?.name ?? null,
+        tx,
+      );
+      return {
+        nRe,
+        nDes,
+        nOmi,
+        nPad,
+        nMemorizadas,
+        revisionesGuardadas,
+      };
+    }, { timeoutMs: TIMEOUT_TRANSACCION_PROMOCION_MS });
+    if (nMemorizadas > 0) revalidatePath("/config/clientes");
 
     const detalleRiesgos = pads.flatMap(([fila]) => {
       const riesgo = riesgosPorFila.get(Number(fila));
@@ -2359,7 +3206,7 @@ export async function asignarClienteBorrador(loteId: string, clienteId: number):
   const scope = await authorizePermiso("balance:crear", { clientId: cid });
   if (!scope.ok) return { ok: false, message: scope.message };
   try {
-    const [cliente, lote, filasStaging, user] = await Promise.all([
+    const [cliente, lote, user, contexto] = await Promise.all([
       prisma.client.findUnique({ where: { id: cid }, select: { id: true, name: true } }),
       prisma.balanceImportacionLote.findUnique({
         where: { loteId: id },
@@ -2372,18 +3219,15 @@ export async function asignarClienteBorrador(loteId: string, clienteId: number):
           archivoNombre: true,
         },
       }),
-      prisma.balanceImportacionStaging.count({ where: { loteId: id } }),
       getCurrentUser(),
+      contextoAccesoBorradorActual(),
     ]);
     if (!cliente) return { ok: false, message: "El cliente elegido ya no existe." };
-    if (!lote && filasStaging === 0) return { ok: false, message: "El borrador ya no existe." };
-    if (lote?.clienteId == null) {
-      const esAdministrador = /admin/i.test(user?.role ?? "");
-      if (!user || (!esAdministrador && lote?.cargadoPorId !== user.id)) {
-        return { ok: false, message: "No tienes permiso para vincular este borrador." };
-      }
+    if (!lote) return { ok: false, message: "El borrador ya no existe o perdió su encabezado." };
+    if (!puedeVerBorrador(lote, contexto)) {
+      return { ok: false, message: "No tienes permiso para vincular este borrador." };
     }
-    if (lote?.clienteId != null && lote.clienteId !== cid) {
+    if (lote.clienteId != null && lote.clienteId !== cid) {
       return {
         ok: false,
         message: "Este borrador ya está asociado a otro cliente. Reprocésalo con el archivo original para cambiarlo sin mezclar preferencias ni correcciones.",
@@ -2410,21 +3254,43 @@ export async function asignarClienteBorrador(loteId: string, clienteId: number):
       }
     }
 
-    await prisma.$transaction([
-      prisma.balanceImportacionLote.updateMany({
+    const aplicadas = await transaccionSerializable(async (tx) => {
+      await tomarCandadoTransaccion(tx, `balance-borrador:${id}`);
+      const loteActual = await tx.balanceImportacionLote.findUnique({
+        where: { loteId: id },
+        select: { clienteId: true, cargadoPorId: true },
+      });
+      if (
+        !loteActual
+        || !puedeVerBorrador(loteActual, contexto)
+        || (loteActual.clienteId != null && loteActual.clienteId !== cid)
+      ) {
+        throw new Error("El borrador cambió o ya no tienes permiso para vincularlo.");
+      }
+      const filasAntes = await tx.balanceImportacionStaging.count({
+        where: { loteId: id },
+      });
+      if (filasAntes === 0) {
+        throw new Error("El borrador no tiene filas para vincular.");
+      }
+      const loteActualizado = await tx.balanceImportacionLote.updateMany({
+        where: { loteId: id, clienteId: loteActual.clienteId },
+        data: { clienteId: cid },
+      });
+      const filasActualizadas = await tx.balanceImportacionStaging.updateMany({
         where: { loteId: id },
         data: { clienteId: cid },
-      }),
-      prisma.balanceImportacionStaging.updateMany({
+      });
+      if (loteActualizado.count !== 1 || filasActualizadas.count !== filasAntes) {
+        throw new Error("No se pudo asociar todo el borrador al cliente.");
+      }
+      await tx.balanceLecturaDiagnostico.updateMany({
         where: { loteId: id },
         data: { clienteId: cid },
-      }),
-      prisma.balanceLecturaDiagnostico.updateMany({
-        where: { loteId: id },
-        data: { clienteId: cid },
-      }),
-    ]);
-    const aplicadas = await aplicarCorreccionesGuardadas(id, cid);
+      });
+      return aplicarCorreccionesGuardadasEnTransaccion(tx, id, cid);
+    }, { timeoutMs: TIMEOUT_TRANSACCION_PROMOCION_MS });
+    invalidarStagingBorrador(id);
     await logAudit({
       user: user?.name ?? "Sistema",
       action: "ASOCIÓ CLIENTE y perfil a borrador de balance",

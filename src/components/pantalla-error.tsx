@@ -1,6 +1,7 @@
 "use client";
 
 import { Icon } from "@/components/icons";
+import { esFalloTransporteCarga } from "@/lib/balance/recuperacion-red";
 
 /**
  * UI compartida de los error boundaries (`error.tsx` / `global-error.tsx`).
@@ -16,6 +17,8 @@ export function PantallaError({
   retry: () => void;
   className?: string;
 }) {
+  const falloRed = esFalloTransporteCarga(error);
+
   return (
     <div
       className={`flex min-h-[60vh] flex-col items-center justify-center gap-4 px-6 text-center ${className}`}
@@ -27,9 +30,11 @@ export function PantallaError({
       <div>
         <h1 className="font-serif text-2xl text-ink-900">Algo salió mal</h1>
         <p className="mx-auto mt-2 max-w-md text-[13px] leading-relaxed text-ink-600">
-          No pudimos completar la operación. El detalle quedó registrado en el
-          servidor. Puedes reintentar; si el problema continúa, comparte el
-          código de referencia con el administrador.
+          {falloRed
+            ? "Se perdió la respuesta de red. La operación puede haber terminado en el servidor; usa Reintentar para comprobar su estado sin repetirla innecesariamente."
+            : error?.digest
+              ? "No pudimos completar la operación. El detalle quedó registrado en el servidor. Reintenta y, si continúa, comparte el código de referencia con el administrador."
+              : "No recibimos una respuesta completa. Puedes reintentar la operación; si el problema continúa, informa al administrador."}
         </p>
       </div>
 

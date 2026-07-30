@@ -19,9 +19,12 @@ export function getAnthropic(): Anthropic {
     );
   }
   cliente ??= new Anthropic({
-    // 10 min por defecto; la extracción (sobre todo de PDF) puede tardar.
+    // 10 min por llamada; la extracción (sobre todo de PDF) puede tardar.
+    // No delegamos reintentos al SDK: una cascada Sonnet→Opus con 2 reintentos
+    // por modelo podría superar incluso los 30 min del host. El flujo de balance
+    // reintenta de forma explícita e idempotente usando la identidad del lote.
     timeout: 10 * 60 * 1000,
-    maxRetries: 2,
+    maxRetries: 0,
   });
   return cliente;
 }

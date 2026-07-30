@@ -22,6 +22,10 @@ import { nitCoincide } from "@/lib/nit";
 import { EstadoProcesando } from "@/components/estado-procesando";
 import type { ImportBalanceState } from "@/lib/import/balance";
 import type { ConfiguracionIABalanceUI, ProveedorIABalance } from "@/lib/ia/proveedor-balance";
+import {
+  esFalloTransporteCarga,
+  MENSAJE_RECUPERAR_LECTURA,
+} from "@/lib/balance/recuperacion-red";
 
 /** Extensiones de Excel que pueden traer varias hojas (inspeccionables en cliente). */
 const esExcel = (name: string) => /\.(xlsx|xlsm|xls)$/i.test(name);
@@ -38,6 +42,20 @@ const MAX_PREVIEW_BYTES = 500 * 1024;
 export type ClienteOpcion = { id: number; name: string; nit: string };
 
 type Excepcion = NonNullable<ImportBalanceState["excepciones"]>[number];
+
+async function leerBalanceRecuperable(
+  previo: LeerBalanceState,
+  formData: FormData,
+): Promise<LeerBalanceState> {
+  try {
+    return await leerBalance(previo, formData);
+  } catch (error) {
+    if (esFalloTransporteCarga(error)) {
+      return { ok: false, message: MENSAJE_RECUPERAR_LECTURA };
+    }
+    throw error;
+  }
+}
 
 export function CargarBalanceButton({
   clients,
@@ -82,8 +100,15 @@ function CargarBalanceModal({
   onClose: () => void;
   onReiniciar: () => void;
 }) {
-  const [leerState, leerAction, leyendo] = useActionState<LeerBalanceState, FormData>(leerBalance, {});
+  const [leerState, leerAction, leyendo] = useActionState<LeerBalanceState, FormData>(
+    leerBalanceRecuperable,
+    {},
+  );
   const [fileName, setFileName] = useState("");
+  // UUID estable mientras el usuario conserva el mismo archivo. Si se pierde la
+  // respuesta, el reintento llega al servidor con la misma identidad y recupera
+  // el borrador ya creado en vez de generar otro.
+  const [loteIdSolicitud, setLoteIdSolicitud] = useState("");
   // Cliente elegido ANTES de leer: es obligatorio, porque el borrador y el perfil
   // de carga (memoria del layout) se crean a su nombre. Sin él no se lee nada.
   const [clienteCarga, setClienteCarga] = useState<number | null>(null);
@@ -103,9 +128,25 @@ function CargarBalanceModal({
   // Excel demasiado grande para inspeccionar en el navegador sin congelar: se omite la vista
   // previa de hojas y lo lee el servidor.
   const [archivoGrande, setArchivoGrande] = useState(false);
+  const [proveedorCarga, setProveedorCarga] = useState<ProveedorIABalance | undefined>(
+    configuracionIA?.predeterminado,
+  );
+  const [mensajeLecturaDesactualizado, setMensajeLecturaDesactualizado] = useState(false);
   // Identifica el análisis en curso: si el usuario cambia de archivo mientras se
   // lee el anterior, descartamos el resultado tardío (no pisa el estado nuevo).
   const seqRef = useRef(0);
+  const reprocesoSolicitudRef = useRef<string | null>(null);
+  const lecturaIniciadaRef = useRef(false);
+
+  // Un cambio de archivo, cliente, hoja o proveedor define una operación nueva.
+  // Si ya hubo un envío, rotamos el UUID; mientras el contexto no cambie, el
+  // botón de reintento conserva exactamente la identidad y el File originales.
+  const renovarSolicitudTrasCambio = () => {
+    if (!lecturaIniciadaRef.current || !archivoFile) return;
+    setLoteIdSolicitud(crypto.randomUUID());
+    lecturaIniciadaRef.current = false;
+    setMensajeLecturaDesactualizado(true);
+  };
 
   // Al elegir archivo: si es Excel compatible, leemos sus hojas en el navegador
   // para que el usuario elija cuál cargar cuando haya 2+. Cualquier
@@ -115,6 +156,10 @@ function CargarBalanceModal({
     const seq = ++seqRef.current;
     setFileName(file?.name ?? "");
     setArchivoFile(file);
+    setLoteIdSolicitud(file ? crypto.randomUUID() : "");
+    lecturaIniciadaRef.current = false;
+    setMensajeLecturaDesactualizado(true);
+    reprocesoSolicitudRef.current = null;
     setHojas(null);
     setHojaElegida(null);
     setArchivoGrande(false);
@@ -158,10 +203,22 @@ function CargarBalanceModal({
       fd.set("archivo", archivoFile);
       fd.set("spec", JSON.stringify(spec));
       fd.set("loteIdAnterior", loteIdAnterior);
+      reprocesoSolicitudRef.current ??= crypto.randomUUID();
+      fd.set("loteIdSolicitud", reprocesoSolicitudRef.current);
       if (proveedorIA) fd.set("modeloIA", proveedorIA);
       if (clientId != null) fd.set("clienteId", String(clientId));
-      const res = await reprocesarBalanceConSpec({}, fd);
+      let res: LeerBalanceState;
+      try {
+        res = await reprocesarBalanceConSpec({}, fd);
+      } catch (error) {
+        if (esFalloTransporteCarga(error)) {
+          notifyError(MENSAJE_RECUPERAR_LECTURA);
+          return;
+        }
+        throw error;
+      }
       if (res.ok && res.sugerencia) {
+        reprocesoSolicitudRef.current = null;
         setSugLocal(res.sugerencia);
         notifySuccess("Archivo reprocesado con la estructura ajustada (sin IA).");
       } else if (res.errorProveedorIA && res.message) {
@@ -187,6 +244,13 @@ function CargarBalanceModal({
         return;
       }
     }
+    if (!loteIdSolicitud) {
+      notifyError("No se pudo identificar esta lectura. Vuelve a seleccionar el archivo.");
+      return;
+    }
+    formData.set("loteIdSolicitud", loteIdSolicitud);
+    lecturaIniciadaRef.current = true;
+    setMensajeLecturaDesactualizado(false);
     startTransition(() => leerAction(formData));
   };
 
@@ -221,12 +285,24 @@ function CargarBalanceModal({
         fd.set("spec", JSON.stringify(sug.render.spec));
         fd.set("loteIdAnterior", loteId);
         fd.set("clienteId", String(clientId));
+        reprocesoSolicitudRef.current ??= crypto.randomUUID();
+        fd.set("loteIdSolicitud", reprocesoSolicitudRef.current);
         if (sug.payload.proveedorIA) fd.set("modeloIA", sug.payload.proveedorIA);
-        const reprocesado = await reprocesarBalanceConSpec({}, fd);
+        let reprocesado: LeerBalanceState;
+        try {
+          reprocesado = await reprocesarBalanceConSpec({}, fd);
+        } catch (error) {
+          if (esFalloTransporteCarga(error)) {
+            notifyError(MENSAJE_RECUPERAR_LECTURA);
+            return;
+          }
+          throw error;
+        }
         if (!reprocesado.ok || !reprocesado.sugerencia) {
           notifyError(reprocesado.message ?? "No se pudo aplicar el perfil del cliente al borrador.");
           return;
         }
+        reprocesoSolicitudRef.current = null;
         setSugLocal(reprocesado.sugerencia);
         setClienteManual({ loteId: reprocesado.sugerencia.payload.loteId, clientId });
         notifySuccess("Cliente y perfil asociados. Sus preferencias se aplicaron al borrador.");
@@ -243,13 +319,25 @@ function CargarBalanceModal({
         fd.set("archivo", archivoFile);
         fd.set("clienteId", String(clientId));
         fd.set("loteIdAnterior", loteId);
+        reprocesoSolicitudRef.current ??= crypto.randomUUID();
+        fd.set("loteIdSolicitud", reprocesoSolicitudRef.current);
         if (hojaElegida) fd.set("hoja", hojaElegida);
         if (sug.payload.proveedorIA) fd.set("modeloIA", sug.payload.proveedorIA);
-        const releido = await leerBalance({}, fd);
+        let releido: LeerBalanceState;
+        try {
+          releido = await leerBalance({}, fd);
+        } catch (error) {
+          if (esFalloTransporteCarga(error)) {
+            notifyError(MENSAJE_RECUPERAR_LECTURA);
+            return;
+          }
+          throw error;
+        }
         if (!releido.ok || !releido.sugerencia) {
           notifyError(releido.message ?? "No se pudo releer el archivo con las preferencias del cliente.");
           return;
         }
+        reprocesoSolicitudRef.current = null;
         setSugLocal(releido.sugerencia);
         setClienteManual({ loteId: releido.sugerencia.payload.loteId, clientId });
         notifySuccess("Cliente y perfil asociados. Sus preferencias se aplicaron al borrador.");
@@ -271,6 +359,10 @@ function CargarBalanceModal({
   const requiereHoja = !!hojas && hojas.length >= 2;
   const leerDeshabilitado =
     leyendo || inspeccionando || !fileName || clients.length === 0 || clienteCarga == null || (requiereHoja && !hojaElegida);
+  const reintentoLecturaPendiente =
+    !leyendo &&
+    !mensajeLecturaDesactualizado &&
+    leerState.message === MENSAJE_RECUPERAR_LECTURA;
 
   const footer =
     fase === "revisar" ? (
@@ -308,9 +400,12 @@ function CargarBalanceModal({
         {leyendo
           ? <EstadoProcesando etiqueta="Leyendo archivo">Leyendo</EstadoProcesando>
           : inspeccionando
-            ? <EstadoProcesando>Analizando hojas</EstadoProcesando> : requiereHoja && hojaElegida
-              ? `Leer hoja «${recortar(hojaElegida, 22)}»`
-              : "Leer archivo"}
+            ? <EstadoProcesando>Analizando hojas</EstadoProcesando>
+            : reintentoLecturaPendiente
+              ? "Reintentar lectura"
+              : requiereHoja && hojaElegida
+                ? `Leer hoja «${recortar(hojaElegida, 22)}»`
+                : "Leer archivo"}
       </button>
     );
 
@@ -344,7 +439,11 @@ function CargarBalanceModal({
                 <span className="text-[11.5px] font-medium text-ink-700">Proveedor de IA para esta carga</span>
                 <select
                   name="modeloIA"
-                  defaultValue={configuracionIA.predeterminado}
+                  value={proveedorCarga}
+                  onChange={(event) => {
+                    renovarSolicitudTrasCambio();
+                    setProveedorCarga(event.target.value as ProveedorIABalance);
+                  }}
                   className="rounded-md border border-ai-100 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-ai-700"
                 >
                   {configuracionIA.opciones.map((opcion) => (
@@ -365,7 +464,10 @@ function CargarBalanceModal({
                 <SelectorClienteBuscable
                   clients={clients}
                   value={clienteCarga}
-                  onChange={setClienteCarga}
+                  onChange={(clientId) => {
+                    renovarSolicitudTrasCambio();
+                    setClienteCarga(clientId);
+                  }}
                   name="clienteId"
                 />
                 <p className="mt-1.5 text-[11.5px] text-ink-600">
@@ -388,18 +490,29 @@ function CargarBalanceModal({
 
               {/* Hoja elegida en Excel multi-hoja; vacío en archivos de una sola hoja, CSV o PDF. */}
               <input type="hidden" name="hoja" value={hojaElegida ?? ""} />
+              <input type="hidden" name="loteIdSolicitud" value={loteIdSolicitud} />
 
               {inspeccionando && <p className="text-[12px] text-ink-500"><EstadoProcesando>Analizando las hojas del archivo</EstadoProcesando></p>}
               {archivoGrande && (
                 <p className="rounded-md border border-err-200 bg-err-50 px-3 py-2.5 text-[12px] font-medium text-err-700">
-                  <span className="font-semibold">⚠️ ¡Archivo muy pesado!</span> Su carga toma más tiempo de lo normal — no cierres esta operación mientras carga.
+                  <span className="font-semibold">⚠️ ¡Archivo muy pesado!</span> Su carga toma más tiempo de lo normal. Puedes cambiar de pestaña; si la conexión se interrumpe, Russell comprobará el mismo intento sin duplicar el borrador.
                 </p>
               )}
-              {requiereHoja && hojas && <SelectorHojas hojas={hojas} elegida={hojaElegida} onElegir={setHojaElegida} />}
+              {requiereHoja && hojas && (
+                <SelectorHojas
+                  hojas={hojas}
+                  elegida={hojaElegida}
+                  onElegir={(hoja) => {
+                    renovarSolicitudTrasCambio();
+                    setHojaElegida(hoja);
+                  }}
+                />
+              )}
             </>
           )}
 
           {leerState?.message &&
+            (leerState.message !== MENSAJE_RECUPERAR_LECTURA || reintentoLecturaPendiente) &&
             (leerState.errorProveedorIA ? (
               <div className="rounded-md border border-warn-100 bg-warn-100/40 px-3 py-2.5 text-[12px] text-warn-700">
                 <p className="font-semibold">⚠️ Inconveniente temporal del proveedor de IA</p>
@@ -409,7 +522,13 @@ function CargarBalanceModal({
                 </p>
               </div>
             ) : (
-              <p className="text-[12px] font-medium text-err-700">{leerState.message}</p>
+              <p
+                role="alert"
+                aria-live="assertive"
+                className="rounded-md border border-err-200 bg-err-50 px-3 py-2.5 text-[12px] font-medium text-err-700"
+              >
+                {leerState.message}
+              </p>
             ))}
           {leerState?.errores && leerState.errores.length > 0 && <ErroresTabla errores={leerState.errores} />}
           {leerState?.excepciones && leerState.excepciones.length > 0 && <ExcepcionesTabla excepciones={leerState.excepciones} />}

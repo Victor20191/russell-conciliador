@@ -93,6 +93,15 @@ export const fmtDateTime = (input: Date | string | null | undefined): string => 
   return `${p2(partes.dia)}/${MESES[partes.mes - 1]}/${partes.anio} ${h}:${p2(partes.minuto)} ${sufijo}`;
 };
 
+/** Solo la hora (h:mm a. m./p. m.), 12 h y locale es-CO, zona de Colombia. */
+export const fmtHora12 = (input: Date | string | null | undefined): string => {
+  if (input == null) return "—";
+  const partes = partesFechaHoraColombia(input);
+  if (!partes) return "—";
+  const { h, sufijo } = hora12(partes.hora);
+  return `${h}:${String(partes.minuto).padStart(2, "0")} ${sufijo}`;
+};
+
 export const fmtDateTimeSeconds = (input: Date | string | null | undefined): string => {
   if (input == null) return "—";
   const partes = partesFechaHoraColombia(input);

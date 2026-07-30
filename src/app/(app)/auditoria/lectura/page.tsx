@@ -30,7 +30,7 @@ function disparadas(h: Huella): string[] {
   return s;
 }
 
-const RESULTADOS = ["borrador", "cargado", "descartado"] as const;
+const RESULTADOS = ["borrador", "reemplazado", "reprocesado", "cargado", "descartado"] as const;
 const FORMATOS = ["xlsx", "csv", "txt", "json", "pdf"] as const;
 
 // Intervención manual TOTAL del reporte (los 5 tipos de corrección).
@@ -59,6 +59,9 @@ export default async function LecturaBalanceDiagPage({ searchParams }: { searchP
   const conMano = filas.filter((f) => manoDe(f) > 0).length;
   const cargados = filas.filter((f) => f.resultado === "cargado").length;
   const descartados = filas.filter((f) => f.resultado === "descartado").length;
+  const reemplazados = filas.filter(
+    (f) => f.resultado === "reemplazado" || f.resultado === "reprocesado",
+  ).length;
 
   // Enlaces de filtro (server-rendered): alterna el valor y conserva el otro filtro.
   const hrefCon = (cambios: { resultado?: string | null; formato?: string | null }): string => {
@@ -116,6 +119,7 @@ export default async function LecturaBalanceDiagPage({ searchParams }: { searchP
 
       <p className="mb-3 text-[12px] text-ink-500">
         Resultado de los cargues medidos: <span className="font-semibold text-ink-700">{fmtNum(cargados)}</span> cargado(s),{" "}
+        <span className="font-semibold text-ink-700">{fmtNum(reemplazados)}</span> reemplazado(s),{" "}
         <span className="font-semibold text-ink-700">{fmtNum(descartados)}</span> descartado(s), el resto en borrador.
       </p>
 

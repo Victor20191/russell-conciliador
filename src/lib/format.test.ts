@@ -1,5 +1,5 @@
 import { test, expect } from "vitest";
-import { pct, fmtCalendarDate, fmtContable, fmtDate, fmtDateTime, fmtDateTimeSeconds, timeAgo } from "./format";
+import { pct, fmtCalendarDate, fmtContable, fmtDate, fmtDateTime, fmtDateTimeSeconds, fmtHora12, timeAgo } from "./format";
 import { fmtPct } from "./format";
 
 test("pct redondea a porcentaje entero", () => {
@@ -32,6 +32,14 @@ test("fmtDateTime maneja medianoche y mediodía como 12 a. m./p. m.", () => {
   expect(fmtDateTime(new Date("2026-07-17T05:15:00Z"))).toBe("17/Jul/2026 12:15 a. m.");
   expect(fmtDateTime(new Date("2026-07-17T17:00:00Z"))).toBe("17/Jul/2026 12:00 p. m.");
   expect(fmtDateTime(new Date("2026-07-17T22:07:00Z"))).toBe("17/Jul/2026 5:07 p. m.");
+});
+
+test("fmtHora12 muestra solo la hora de Colombia en 12 horas", () => {
+  expect(fmtHora12(new Date("2026-07-17T04:30:45Z"))).toBe("11:30 p. m.");
+  expect(fmtHora12(new Date("2026-07-17T05:15:00Z"))).toBe("12:15 a. m.");
+  expect(fmtHora12(new Date("2026-07-17T17:00:00Z"))).toBe("12:00 p. m.");
+  expect(fmtHora12(new Date("2026-07-17T13:05:00Z"))).toBe("8:05 a. m.");
+  expect(fmtHora12(null)).toBe("—");
 });
 
 test("fmtCalendarDate conserva una fecha PostgreSQL DATE", () => {
