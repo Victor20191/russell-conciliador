@@ -27,6 +27,10 @@ import {
   esFalloTransporteCarga,
   MENSAJE_RECUPERAR_LECTURA,
 } from "@/lib/balance/recuperacion-red";
+import {
+  generarUuidV4Cliente,
+  MENSAJE_UUID_CLIENTE_NO_DISPONIBLE,
+} from "@/lib/balance/uuid-cliente";
 
 /** Extensiones de Excel que pueden traer varias hojas (inspeccionables en cliente). */
 const esExcel = (name: string) => /\.(xlsx|xlsm|xls)$/i.test(name);
@@ -43,6 +47,15 @@ const MAX_PREVIEW_BYTES = 500 * 1024;
 export type ClienteOpcion = { id: number; name: string; nit: string };
 
 type Excepcion = NonNullable<ImportBalanceState["excepciones"]>[number];
+
+function generarUuidLecturaOAvisar(): string | null {
+  try {
+    return generarUuidV4Cliente();
+  } catch {
+    notifyError(MENSAJE_UUID_CLIENTE_NO_DISPONIBLE);
+    return null;
+  }
+}
 
 async function leerBalanceRecuperable(
   previo: LeerBalanceState,
@@ -141,12 +154,20 @@ function CargarBalanceModal({
   const lecturaIniciadaRef = useRef(false);
   const clienteEnviadoRef = useRef<number | null>(null);
 
+  const obtenerSolicitudReproceso = (): string | null => {
+    if (reprocesoSolicitudRef.current) return reprocesoSolicitudRef.current;
+    const nuevaSolicitud = generarUuidLecturaOAvisar();
+    if (nuevaSolicitud) reprocesoSolicitudRef.current = nuevaSolicitud;
+    return nuevaSolicitud;
+  };
+
   // Un cambio de archivo, hoja o proveedor define una operación nueva.
   // Si ya hubo un envío, rotamos el UUID; mientras el contexto no cambie, el
   // botón de reintento conserva exactamente la identidad y el File originales.
   const renovarSolicitudTrasCambio = () => {
     if (!lecturaIniciadaRef.current || !archivoFile) return;
-    setLoteIdSolicitud(crypto.randomUUID());
+    const nuevaSolicitud = generarUuidLecturaOAvisar();
+    setLoteIdSolicitud(nuevaSolicitud ?? "");
     setClienteCarga(null);
     setSeleccionClienteActiva(false);
     clienteEnviadoRef.current = null;
@@ -160,9 +181,29 @@ function CargarBalanceModal({
   async function onArchivoChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0] ?? null;
     const seq = ++seqRef.current;
+    const nuevaSolicitud = file ? generarUuidLecturaOAvisar() : null;
+    if (file && !nuevaSolicitud) {
+      // No dejamos un archivo visible sin identidad: ese estado habilitaba el
+      // submit y terminaba en el aviso genérico antes de llegar al servidor.
+      setFileName("");
+      setArchivoFile(null);
+      setLoteIdSolicitud("");
+      setClienteCarga(null);
+      setSeleccionClienteActiva(false);
+      clienteEnviadoRef.current = null;
+      lecturaIniciadaRef.current = false;
+      setMensajeLecturaDesactualizado(true);
+      reprocesoSolicitudRef.current = null;
+      setHojas(null);
+      setHojaElegida(null);
+      setArchivoGrande(false);
+      setInspeccionando(false);
+      e.currentTarget.value = "";
+      return;
+    }
     setFileName(file?.name ?? "");
     setArchivoFile(file);
-    setLoteIdSolicitud(file ? crypto.randomUUID() : "");
+    setLoteIdSolicitud(nuevaSolicitud ?? "");
     setClienteCarga(null);
     setSeleccionClienteActiva(false);
     clienteEnviadoRef.current = null;
@@ -212,8 +253,9 @@ function CargarBalanceModal({
       fd.set("archivo", archivoFile);
       fd.set("spec", JSON.stringify(spec));
       fd.set("loteIdAnterior", loteIdAnterior);
-      reprocesoSolicitudRef.current ??= crypto.randomUUID();
-      fd.set("loteIdSolicitud", reprocesoSolicitudRef.current);
+      const loteIdSolicitudReproceso = obtenerSolicitudReproceso();
+      if (!loteIdSolicitudReproceso) return;
+      fd.set("loteIdSolicitud", loteIdSolicitudReproceso);
       if (proveedorIA) fd.set("modeloIA", proveedorIA);
       if (clientId != null) fd.set("clienteId", String(clientId));
       let res: LeerBalanceState;
@@ -351,8 +393,9 @@ function CargarBalanceModal({
         fd.set("spec", JSON.stringify(sug.render.spec));
         fd.set("loteIdAnterior", loteId);
         fd.set("clienteId", String(clientId));
-        reprocesoSolicitudRef.current ??= crypto.randomUUID();
-        fd.set("loteIdSolicitud", reprocesoSolicitudRef.current);
+        const loteIdSolicitudReproceso = obtenerSolicitudReproceso();
+        if (!loteIdSolicitudReproceso) return;
+        fd.set("loteIdSolicitud", loteIdSolicitudReproceso);
         if (sug.payload.proveedorIA) fd.set("modeloIA", sug.payload.proveedorIA);
         let reprocesado: LeerBalanceState;
         try {
@@ -385,8 +428,9 @@ function CargarBalanceModal({
         fd.set("archivo", archivoFile);
         fd.set("clienteId", String(clientId));
         fd.set("loteIdAnterior", loteId);
-        reprocesoSolicitudRef.current ??= crypto.randomUUID();
-        fd.set("loteIdSolicitud", reprocesoSolicitudRef.current);
+        const loteIdSolicitudReproceso = obtenerSolicitudReproceso();
+        if (!loteIdSolicitudReproceso) return;
+        fd.set("loteIdSolicitud", loteIdSolicitudReproceso);
         if (hojaElegida) fd.set("hoja", hojaElegida);
         if (sug.payload.proveedorIA) fd.set("modeloIA", sug.payload.proveedorIA);
         let releido: LeerBalanceState;
@@ -436,6 +480,7 @@ function CargarBalanceModal({
     leyendo
     || inspeccionando
     || !fileName
+    || !loteIdSolicitud
     || clients.length === 0
     || (segundoPasoCliente && clienteCarga == null)
     || (requiereHoja && !hojaElegida);

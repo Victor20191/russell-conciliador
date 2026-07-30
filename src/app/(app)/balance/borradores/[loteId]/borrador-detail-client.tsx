@@ -64,6 +64,10 @@ import {
   MENSAJE_RECUPERAR_LECTURA,
   MENSAJE_RECUPERAR_PROMOCION,
 } from "@/lib/balance/recuperacion-red";
+import {
+  generarUuidV4Cliente,
+  MENSAJE_UUID_CLIENTE_NO_DISPONIBLE,
+} from "@/lib/balance/uuid-cliente";
 import { SelectorClienteBuscable } from "@/components/selector-cliente-buscable";
 import { useSeleccionFilaTabla } from "@/app/(app)/balance/use-seleccion-fila-tabla";
 import {
@@ -75,6 +79,15 @@ import {
 } from "@/components/revelado-progresivo";
 import { expandirFilas, type FilasCompactas } from "@/lib/balance/filas-compactas";
 import type { RevisionReubicacionStaging } from "@/lib/balance/staging-borrador";
+
+function generarUuidReprocesoOAvisar(): string | null {
+  try {
+    return generarUuidV4Cliente();
+  } catch {
+    notifyError(MENSAJE_UUID_CLIENTE_NO_DISPONIBLE);
+    return null;
+  }
+}
 
 type Cliente = {
   id: number;
@@ -588,7 +601,10 @@ export default function BorradorDetailClient({
       fd.set("archivo", archivoFile);
       fd.set("spec", JSON.stringify(s));
       fd.set("loteIdAnterior", loteId);
-      reprocesoSolicitudRef.current ??= crypto.randomUUID();
+      if (!reprocesoSolicitudRef.current) {
+        reprocesoSolicitudRef.current = generarUuidReprocesoOAvisar();
+      }
+      if (!reprocesoSolicitudRef.current) return;
       fd.set("loteIdSolicitud", reprocesoSolicitudRef.current);
       if (clienteSelId != null) fd.set("clienteId", String(clienteSelId));
       let r;
