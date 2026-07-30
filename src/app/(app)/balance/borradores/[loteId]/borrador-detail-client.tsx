@@ -2,9 +2,10 @@
 
 import { EstadoProcesando } from "@/components/estado-procesando";
 
-import { useActionState, useDeferredValue, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useActionState, useDeferredValue, useEffect, useMemo, useRef, useState, useTransition, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import { Icon } from "@/components/icons";
+import { Icon, type IconName } from "@/components/icons";
 import { Card, Chip, PageHeader } from "@/components/ui";
 import { Modal } from "@/components/modal";
 import { fmt, fmtContable } from "@/lib/format";
@@ -36,7 +37,7 @@ import {
 } from "@/lib/balance/borrador";
 import { nombreNivelCuenta } from "@/lib/balance/nivel-cuenta";
 import type { ValidacionContable } from "@/lib/balance/calcular";
-import type { Hallazgo } from "@/lib/balance/diagnostico";
+import type { CuentaRef, Hallazgo } from "@/lib/balance/diagnostico";
 import {
   esDescuadreAccionable,
   esDescuadreInformativo,
@@ -1385,25 +1386,53 @@ function ManipulacionesRiesgosasPanel({
 // ---- Diagnóstico determinista del descuadre (colapsado por defecto) ----
 function DiagnosticoPanel({ hallazgos, diferenciasClase, manipulaciones }: { hallazgos: Hallazgo[]; diferenciasClase: number; manipulaciones: number }) {
   const [abierto, setAbierto] = useState(false);
+  // Cuentas expandidas DENTRO del panel (una por hallazgo, por índice) — el detalle de
+  // cuenta(s) es aditivo: el resumen (título + monto + detalle) sigue viéndose igual.
+  const [expandidos, setExpandidos] = useState<Set<number>>(new Set());
   // Sin hallazgos el panel NO desaparece (movería la tabla en cada edición): cambia a tono
   // verde y deja de ser desplegable. Colapsado, ambos estados miden lo mismo.
   const total = hallazgos.length + diferenciasClase + manipulaciones;
   const hay = total > 0;
+  // Solo los hallazgos tipo "nodo" traen cuenta(s) para detallar (código/nombre/montos);
+  // partida doble, ecuación y clase ya muestran su explicación completa en el resumen.
+  const indicesConDetalle = useMemo(
+    () => hallazgos.reduce<number[]>((acc, h, i) => { if (h.nodo) acc.push(i); return acc; }, []),
+    [hallazgos],
+  );
+  const toggleUno = (i: number) => setExpandidos((prev) => {
+    const siguiente = new Set(prev);
+    if (siguiente.has(i)) siguiente.delete(i); else siguiente.add(i);
+    return siguiente;
+  });
+  const expandirTodo = () => setExpandidos(new Set(indicesConDetalle));
+  const colapsarTodo = () => setExpandidos(new Set());
   return (
     <div className={`rounded-lg border p-4 shadow-sm ${hay ? "border-err-100 bg-err-100/40" : "border-ok-100 bg-ok-100/40"}`}>
-      <button
-        type="button"
-        onClick={() => setAbierto((v) => !v)}
-        disabled={!hay}
-        aria-expanded={hay ? abierto : undefined}
-        className={`flex w-full items-center gap-1.5 text-left text-[11px] font-semibold uppercase tracking-wider ${hay ? "text-err-700" : "cursor-default text-ok-700"}`}
-      >
-        <Icon name={hay ? (abierto ? "chev-d" : "chev-r") : "check"} size={14} />
-        Diagnóstico del descuadre
-        <span className={`ml-1 rounded-full border bg-white px-1.5 py-0.5 text-[10px] font-semibold normal-case tracking-normal ${hay ? "border-err-100 text-err-700" : "border-ok-100 text-ok-700"}`}>
-          {hay ? total : "sin hallazgos"}
-        </span>
-      </button>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={() => setAbierto((v) => !v)}
+          disabled={!hay}
+          aria-expanded={hay ? abierto : undefined}
+          className={`flex min-w-0 flex-1 items-center gap-1.5 text-left text-[11px] font-semibold uppercase tracking-wider ${hay ? "text-err-700" : "cursor-default text-ok-700"}`}
+        >
+          <Icon name={hay ? (abierto ? "chev-d" : "chev-r") : "check"} size={14} />
+          Diagnóstico del descuadre
+          <span className={`ml-1 rounded-full border bg-white px-1.5 py-0.5 text-[10px] font-semibold normal-case tracking-normal ${hay ? "border-err-100 text-err-700" : "border-ok-100 text-ok-700"}`}>
+            {hay ? total : "sin hallazgos"}
+          </span>
+        </button>
+        {hay && abierto && indicesConDetalle.length > 0 && (
+          <div className="flex shrink-0 items-center gap-2">
+            <button type="button" onClick={expandirTodo} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-white px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50">
+              <Icon name="chev-d" size={12} />Expandir todo
+            </button>
+            <button type="button" onClick={colapsarTodo} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-white px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50">
+              <Icon name="chev-r" size={12} />Colapsar todo
+            </button>
+          </div>
+        )}
+      </div>
       {hay && abierto && (
         <ul className="mt-2 flex flex-col gap-1.5">
           {diferenciasClase > 0 && (
@@ -1420,14 +1449,80 @@ function DiagnosticoPanel({ hallazgos, diferenciasClase, manipulaciones }: { hal
           )}
           {hallazgos.map((h, i) => {
             const tono = h.severidad === "alta" ? "border-err-100" : "border-warn-100";
+            const tieneDetalle = h.nodo != null;
+            const expandido = expandidos.has(i);
             return (
               <li key={i} className={`rounded-md border bg-white px-3 py-2 text-[12px] ${tono}`}>
-                <div className="font-semibold text-ink-800">{h.titulo} <span className="font-normal text-ink-500">· {fmt(h.monto)}</span></div>
-                <div className="mt-0.5 text-[11.5px] leading-relaxed text-ink-600">{h.detalle}</div>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="font-semibold text-ink-800">{h.titulo} <span className="font-normal text-ink-500">· {fmt(h.monto)}</span></div>
+                    <div className="mt-0.5 text-[11.5px] leading-relaxed text-ink-600">{h.detalle}</div>
+                  </div>
+                  {tieneDetalle && (
+                    <button
+                      type="button"
+                      onClick={() => toggleUno(i)}
+                      aria-expanded={expandido}
+                      className="inline-flex shrink-0 items-center gap-1 rounded-md border border-ink-200 px-2 py-1 text-[10.5px] font-medium text-ink-600 hover:bg-ink-50"
+                    >
+                      <Icon name={expandido ? "chev-d" : "chev-r"} size={11} />
+                      {expandido ? "Ocultar cuentas" : "Ver cuentas"}
+                    </button>
+                  )}
+                </div>
+                {tieneDetalle && expandido && <DetalleCuentasHallazgo hallazgo={h} />}
               </li>
             );
           })}
         </ul>
+      )}
+    </div>
+  );
+}
+
+// Detalle de cuenta(s) de un hallazgo tipo "nodo": el nodo con descuadre, las cuentas HOJA
+// (nivel más desagregado disponible del archivo — típicamente Auxiliar/8 dígitos) que cuelgan
+// de él, y la cuenta candidata en otra rama si se detectó una de magnitud equivalente. Se
+// muestra al expandir la alerta para no obligar a buscar la cuenta en el listado principal.
+function DetalleCuentasHallazgo({ hallazgo }: { hallazgo: Hallazgo }) {
+  const filas: { rol: string; cuenta: CuentaRef; destacada?: boolean }[] = [];
+  if (hallazgo.nodo) filas.push({ rol: "Nodo con descuadre", cuenta: hallazgo.nodo });
+  for (const cuenta of hallazgo.cuentas ?? []) filas.push({ rol: nombreNivelCuenta(cuenta.codigo), cuenta });
+  if (hallazgo.candidato) filas.push({ rol: "Candidata en otra rama", cuenta: hallazgo.candidato, destacada: true });
+  const restantes = (hallazgo.cuentasTotal ?? 0) - (hallazgo.cuentas?.length ?? 0);
+
+  return (
+    <div className="mt-2 overflow-x-auto rounded-md border border-ink-100">
+      <table className="w-full min-w-[600px] text-[11px]">
+        <thead>
+          <tr className="border-b border-ink-100 bg-ink-50 text-[10px] uppercase tracking-wide text-ink-500">
+            <th className="px-2 py-1 text-left font-semibold">Cuenta</th>
+            <th className="px-2 py-1 text-left font-semibold">Nombre</th>
+            <th className="px-2 py-1 text-left font-semibold">Rol</th>
+            <th className="px-2 py-1 text-right font-semibold">Saldo anterior</th>
+            <th className="px-2 py-1 text-right font-semibold">Débitos</th>
+            <th className="px-2 py-1 text-right font-semibold">Créditos</th>
+            <th className="px-2 py-1 text-right font-semibold">Saldo final</th>
+          </tr>
+        </thead>
+        <tbody>
+          {filas.map((f, i) => (
+            <tr key={i} className={`border-t border-ink-100 ${f.destacada ? "bg-blue-50/60" : ""}`}>
+              <td className="whitespace-nowrap px-2 py-1 font-mono text-ink-700">{f.cuenta.codigo}</td>
+              <td className="max-w-[220px] truncate px-2 py-1 text-ink-700" title={f.cuenta.nombre}>{f.cuenta.nombre || "—"}</td>
+              <td className="whitespace-nowrap px-2 py-1 text-ink-500">{f.rol}</td>
+              <td className="whitespace-nowrap px-2 py-1 text-right tabular-nums text-ink-600">{fmtContable(f.cuenta.saldoInicial)}</td>
+              <td className="whitespace-nowrap px-2 py-1 text-right tabular-nums text-ink-600">{fmtContable(f.cuenta.debitos)}</td>
+              <td className="whitespace-nowrap px-2 py-1 text-right tabular-nums text-ink-600">{fmtContable(f.cuenta.creditos)}</td>
+              <td className="whitespace-nowrap px-2 py-1 text-right tabular-nums font-semibold text-ink-800">{fmtContable(f.cuenta.saldoFinal)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {restantes > 0 && (
+        <div className="border-t border-ink-100 bg-ink-50 px-2 py-1 text-[10.5px] text-ink-500">
+          y {restantes} cuenta(s) más — usa el filtro «Alertas» del listado principal para verlas todas.
+        </div>
       )}
     </div>
   );
@@ -1837,6 +1932,200 @@ function MoverModal({ indice, filaNumInicial, revisarActual = false, revisionIni
   );
 }
 
+type AccionMenuCuenta = {
+  id: string;
+  icono: IconName;
+  etiqueta: string;
+  descripcion: string;
+  ejecutar: () => void;
+  deshabilitada?: boolean;
+  tono?: "normal" | "peligro";
+};
+
+function MenuAccionesCuenta({
+  filaNum,
+  codigo,
+  nombre,
+  acciones,
+}: {
+  filaNum: number;
+  codigo: string;
+  nombre: string;
+  acciones: AccionMenuCuenta[];
+}) {
+  const [abierto, setAbierto] = useState(false);
+  const [descripcionActiva, setDescripcionActiva] = useState<string | null>(null);
+  const [posicion, setPosicion] = useState({ top: 0, left: 0 });
+  const botonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const opcionesRef = useRef<Array<HTMLButtonElement | null>>([]);
+  const menuId = `acciones-cuenta-${filaNum}`;
+
+  const cerrar = () => {
+    setAbierto(false);
+    setDescripcionActiva(null);
+  };
+
+  const abrirOCerrar = () => {
+    if (abierto) {
+      cerrar();
+      return;
+    }
+    const rect = botonRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const margen = 8;
+    const ancho = Math.min(288, window.innerWidth - margen * 2);
+    const altoEstimado = Math.min(
+      window.innerHeight - margen * 2,
+      Math.max(168, acciones.length * 38 + 88),
+    );
+    const left = Math.min(
+      Math.max(margen, rect.right - ancho),
+      window.innerWidth - ancho - margen,
+    );
+    const topDebajo = rect.bottom + 4;
+    const top = topDebajo + altoEstimado <= window.innerHeight - margen
+      ? topDebajo
+      : Math.max(margen, rect.top - altoEstimado - 4);
+    setPosicion({ top, left });
+    setAbierto(true);
+  };
+
+  useEffect(() => {
+    if (!abierto) return;
+    const frame = window.requestAnimationFrame(() => {
+      opcionesRef.current.find((opcion) => opcion && !opcion.disabled)?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [abierto]);
+
+  useEffect(() => {
+    if (!abierto) return;
+    const cerrarAfuera = (event: PointerEvent) => {
+      const objetivo = event.target as Node;
+      if (!botonRef.current?.contains(objetivo) && !menuRef.current?.contains(objetivo)) cerrar();
+    };
+    const cerrarConEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      cerrar();
+      botonRef.current?.focus();
+    };
+    const cerrarAlMoverVista = (event: Event) => {
+      if (event.target instanceof Node && menuRef.current?.contains(event.target)) return;
+      cerrar();
+    };
+    document.addEventListener("pointerdown", cerrarAfuera);
+    document.addEventListener("keydown", cerrarConEscape);
+    window.addEventListener("resize", cerrarAlMoverVista);
+    window.addEventListener("scroll", cerrarAlMoverVista, true);
+    return () => {
+      document.removeEventListener("pointerdown", cerrarAfuera);
+      document.removeEventListener("keydown", cerrarConEscape);
+      window.removeEventListener("resize", cerrarAlMoverVista);
+      window.removeEventListener("scroll", cerrarAlMoverVista, true);
+    };
+  }, [abierto]);
+
+  const navegarMenu = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const opciones = opcionesRef.current.filter(
+      (opcion): opcion is HTMLButtonElement => !!opcion && !opcion.disabled,
+    );
+    if (opciones.length === 0) return;
+    const actual = opciones.indexOf(document.activeElement as HTMLButtonElement);
+    let siguiente: number | null = null;
+    if (event.key === "ArrowDown") siguiente = actual < 0 ? 0 : (actual + 1) % opciones.length;
+    if (event.key === "ArrowUp") siguiente = actual < 0 ? opciones.length - 1 : (actual - 1 + opciones.length) % opciones.length;
+    if (event.key === "Home") siguiente = 0;
+    if (event.key === "End") siguiente = opciones.length - 1;
+    if (event.key === "Tab") cerrar();
+    if (siguiente == null) return;
+    event.preventDefault();
+    opciones[siguiente]?.focus();
+  };
+
+  return (
+    <>
+      <button
+        ref={botonRef}
+        type="button"
+        aria-label={`Acciones de la cuenta ${codigo} ${nombre}`}
+        aria-haspopup="menu"
+        aria-expanded={abierto}
+        aria-controls={menuId}
+        title="Más acciones"
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.stopPropagation();
+          abrirOCerrar();
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown" && !abierto) {
+            event.preventDefault();
+            abrirOCerrar();
+          }
+        }}
+        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-ink-200 bg-white text-ink-500 shadow-sm transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-200"
+      >
+        <Icon name="more" size={15} />
+      </button>
+      {abierto && createPortal(
+        <div
+          ref={menuRef}
+          id={menuId}
+          role="menu"
+          aria-label={`Acciones de ${codigo} ${nombre}`}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => event.stopPropagation()}
+          onKeyDown={navegarMenu}
+          style={{ top: posicion.top, left: posicion.left }}
+          className="fixed z-[80] max-h-[calc(100vh-1rem)] w-72 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-lg border border-ink-200 bg-white p-1.5 text-left shadow-xl ring-1 ring-navy-900/5"
+        >
+          <div className="px-2 pb-1.5 pt-1 text-[10px] font-semibold uppercase tracking-wider text-ink-400">
+            Acciones de cuenta
+          </div>
+          <div className="flex flex-col">
+            {acciones.map((accion, indice) => (
+              <button
+                key={accion.id}
+                ref={(elemento) => { opcionesRef.current[indice] = elemento; }}
+                type="button"
+                role="menuitem"
+                disabled={accion.deshabilitada}
+                aria-describedby={`${menuId}-descripcion`}
+                onMouseEnter={() => setDescripcionActiva(accion.descripcion)}
+                onMouseLeave={() => setDescripcionActiva(null)}
+                onFocus={() => setDescripcionActiva(accion.descripcion)}
+                onClick={() => {
+                  if (accion.deshabilitada) return;
+                  cerrar();
+                  accion.ejecutar();
+                }}
+                className={`flex items-center gap-2 rounded-md px-2.5 py-2 text-left text-[11.5px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${
+                  accion.tono === "peligro"
+                    ? "text-err-700 hover:bg-err-50 focus:bg-err-50"
+                    : "text-ink-700 hover:bg-blue-50 hover:text-blue-800 focus:bg-blue-50 focus:text-blue-800"
+                } focus:outline-none`}
+              >
+                <Icon name={accion.icono} size={14} className="shrink-0" />
+                <span>{accion.etiqueta}</span>
+                <span className="sr-only">. {accion.descripcion}</span>
+              </button>
+            ))}
+          </div>
+          <div
+            id={`${menuId}-descripcion`}
+            className="mt-1 min-h-12 rounded-md border border-blue-100 bg-blue-50/70 px-2.5 py-2 text-[10.5px] leading-snug text-blue-800"
+          >
+            {descripcionActiva ?? "Pasa el cursor o enfoca una opción para ver qué hace."}
+          </div>
+        </div>,
+        document.body,
+      )}
+    </>
+  );
+}
+
 function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupadora, onDesacoplar, onOmitir, posiciones, contexto, onUbicar, onDesindentar, enfoqueReubicacion, umbrales }: { arbol: NodoBorrador[]; riesgosPorFila: Map<number, ManipulacionRiesgosaBorrador>; onReclasificar: (cuenta: NodoBorrador) => void; onGestionarAgrupadora: (filaNum: number) => void; onDesacoplar: (codigo: string, desacopladaAhora: boolean) => void; onOmitir: (filaNum: number, omitidaAhora: boolean) => void; posiciones: Map<number, Posicion>; contexto: Map<number, ContextoNodo>; onUbicar: (filaNum: number) => void; onDesindentar: (filaNum: number) => void; enfoqueReubicacion: { origen: number; destino: number | null; secuencia: number } | null; umbrales: UmbralesAlertas }) {
   const { filaSeleccionada, setFilaSeleccionada, onClickFila, onDoubleClickFila } = useSeleccionFilaTabla();
   const tablaRef = useRef<HTMLDivElement>(null);
@@ -2075,6 +2364,75 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
         : esMov
           ? "hover:bg-ink-50/60"
           : "bg-ink-50/40";
+    const accionesCuenta: AccionMenuCuenta[] = [];
+    if (numero && n.tipoFila !== "total") {
+      accionesCuenta.push({
+        id: "reubicar",
+        icono: "move-tree",
+        etiqueta: "Reubicar cuenta",
+        descripcion: "Abre el selector para mover esta cuenta bajo cualquier agrupadora válida del borrador.",
+        ejecutar: () => onUbicar(n.filaNum),
+      });
+      accionesCuenta.push({
+        id: "reclasificar",
+        icono: esMov ? "folder" : "play",
+        etiqueta: esMov ? "Convertir en agrupadora" : "Convertir en movimiento",
+        descripcion: esMov
+          ? "Convierte la cuenta en agrupadora para organizar movimientos debajo de ella."
+          : "Convierte la cuenta en movimiento para que su saldo se cargue directamente.",
+        ejecutar: () => onReclasificar(n),
+      });
+    }
+    if (esAgrupadora && n.tipoFilaForzado === "agrupadora") {
+      accionesCuenta.push({
+        id: "gestionar-movimientos",
+        icono: "plus",
+        etiqueta: "Gestionar movimientos",
+        descripcion: "Permite seleccionar o ajustar las cuentas que quedarán debajo de esta agrupadora manual.",
+        ejecutar: () => onGestionarAgrupadora(n.filaNum),
+      });
+    }
+    if (puedeDesacoplar) {
+      accionesCuenta.push({
+        id: "desacoplar",
+        icono: "link",
+        etiqueta: desacopladaAhora ? "Reacoplar cuenta" : "Desacoplar cuenta",
+        descripcion: desacopladaAhora
+          ? "Vuelve a colgar la cuenta de la agrupadora indicada por el orden original del archivo."
+          : `Saca la cuenta de ${padreCodigo ?? "la agrupadora actual"} para ubicarla bajo su padre real por código.`,
+        ejecutar: () => onDesacoplar(n.codigo, desacopladaAhora),
+      });
+    }
+    if (puedeOmitir) {
+      accionesCuenta.push({
+        id: "omitir",
+        icono: omitida ? "check" : "x",
+        etiqueta: omitida ? "Incluir de nuevo" : "Omitir del cálculo",
+        descripcion: omitida
+          ? "Incluye nuevamente este registro en los cálculos y en la carga del balance."
+          : "Excluye este registro de los cálculos y de la carga, pero lo conserva en el archivo crudo.",
+        ejecutar: () => onOmitir(n.filaNum, omitida),
+        tono: omitida ? "normal" : "peligro",
+      });
+    }
+    if (puedeUbicarFila || puedeDesindentar || reparentada) {
+      accionesCuenta.push({
+        id: "subir-nivel",
+        icono: "chev-l",
+        etiqueta: "Subir un nivel (←)",
+        descripcion: "Mueve esta fila a la agrupadora superior de su ubicación actual.",
+        ejecutar: () => onDesindentar(n.filaNum),
+        deshabilitada: !puedeDesindentar,
+      });
+      accionesCuenta.push({
+        id: "anidar",
+        icono: "chev-r",
+        etiqueta: "Mover bajo agrupadora (→)",
+        descripcion: "Elige una agrupadora de destino para anidar esta fila en una rama diferente.",
+        ejecutar: () => onUbicar(n.filaNum),
+        deshabilitada: !puedeUbicarFila,
+      });
+    }
     return (
       <tr
         key={n.filaNum}
@@ -2106,17 +2464,6 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
             <span className={`text-[12px] ${omitida ? "text-ink-400 line-through" : descuadreAccionable ? "font-semibold text-err-700 underline decoration-err-500 decoration-2 underline-offset-2" : descuadreInformativo ? "font-medium text-err-500 underline decoration-err-100 decoration-1 underline-offset-2" : "text-ink-800"}`} title={n.nombre}>
               {n.nombre}
             </span>
-            {numero && n.tipoFila !== "total" && (
-              <button
-                type="button"
-                onClick={() => onUbicar(n.filaNum)}
-                title="Reubicar esta cuenta bajo cualquier agrupadora del borrador."
-                aria-label={`Reubicar ${n.codigoCrudo} ${n.nombre}`}
-                className="inline-flex h-5 w-5 items-center justify-center rounded border border-blue-200 bg-blue-50 text-blue-700 transition hover:border-blue-400 hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-200"
-              >
-                <Icon name="move-tree" size={12} />
-              </button>
-            )}
             {omitida && <Chip label="Omitida · no cuenta" tone="warn" />}
             {riesgoClase && (
               <span
@@ -2143,26 +2490,6 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
                 Δ {fmt(n.descuadre!)}
               </span>
             )}
-            {n.tipoFila !== "total" && /^\d+$/.test(n.codigo) && (
-              <button
-                type="button"
-                onClick={() => onReclasificar(n)}
-                title={esMov ? "Convertir manualmente esta cuenta en AGRUPADORA y elegir sus movimientos." : "Marcar esta cuenta como MOVIMIENTO (se cargará su saldo)"}
-                className="rounded border border-ink-200 px-1.5 py-0.5 text-[10px] font-medium text-ink-500 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
-              >
-                {esMov ? "⇄ Agrupadora" : "⇄ Movimiento"}
-              </button>
-            )}
-            {esAgrupadora && n.tipoFilaForzado === "agrupadora" && (
-              <button
-                type="button"
-                onClick={() => onGestionarAgrupadora(n.filaNum)}
-                title="Seleccionar o ajustar los movimientos que quedarán debajo de esta agrupadora manual."
-                className="rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 hover:bg-blue-100"
-              >
-                + Movimientos
-              </button>
-            )}
             {esAgrupadora && n.tipoFilaForzado === "agrupadora" && !hasHijos && (
               <span title="La decisión manual se conserva. Si permanece vacía al cargar el balance oficial, su propio saldo se tratará como movimiento para evitar que se pierda dinero.">
                 <Chip label="Agrupadora manual sin movimientos" tone="warn" />
@@ -2176,54 +2503,18 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
                 ± magnitud
               </span>
             )}
-            {puedeDesacoplar && (
-              <button
-                type="button"
-                onClick={() => onDesacoplar(n.codigo, desacopladaAhora)}
-                title={desacopladaAhora
-                  ? "Reacoplar: volver a colgar esta cuenta de la agrupadora por orden del archivo."
-                  : `Desacoplar de ${padreCodigo}: esta cuenta cuelga de una agrupadora de código ajeno. Sácala y anídala bajo su padre real por código (prefijo).`}
-                className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold ${desacopladaAhora ? "border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100" : "border-ink-200 text-ink-500 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"}`}
-              >
-                {desacopladaAhora ? "⇄ Reacoplar" : "⇄ Desacoplar"}
-              </button>
-            )}
-            {puedeOmitir && (
-              <button
-                type="button"
-                onClick={() => onOmitir(n.filaNum, omitida)}
-                title={omitida
-                  ? "Incluir de nuevo este registro en los cálculos."
-                  : "Omitir este registro de los cálculos. Se conserva en el crudo (comparativo línea a línea en Excel) y NO se carga al balance."}
-                className={omitida
-                  ? "inline-flex items-center rounded-md border border-ink-200 px-1.5 py-0.5 text-[10px] font-semibold text-ink-500 hover:bg-ink-100"
-                  : "inline-flex items-center rounded-md border border-err-300 bg-err-100 px-1.5 py-0.5 font-bold text-err-700 hover:bg-err-200"}
-              >
-                {omitida ? "Incluir" : <Icon name="x" size={14} />}
-              </button>
-            )}
-            {(puedeUbicarFila || puedeDesindentar || reparentada) && (
-              <span className="inline-flex items-center gap-0.5" title="Tabulador: ubica esta fila en la rama correcta. → elige bajo cuál agrupadora anidarla; ← la sube un nivel.">
-                <button
-                  type="button"
-                  disabled={!puedeDesindentar}
-                  onClick={() => onDesindentar(n.filaNum)}
-                  title="Desindentar: subir esta fila un nivel (a su agrupadora superior)."
-                  className="rounded border border-ink-200 px-1 py-0.5 text-[11px] font-bold leading-none text-ink-500 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-default disabled:opacity-30 disabled:hover:border-ink-200 disabled:hover:bg-transparent disabled:hover:text-ink-500"
-                >←</button>
-                <button
-                  type="button"
-                  disabled={!puedeUbicarFila}
-                  onClick={() => onUbicar(n.filaNum)}
-                  title="Ubicar: elegir bajo cuál agrupadora anidar esta fila."
-                  className="rounded border border-ink-200 px-1 py-0.5 text-[11px] font-bold leading-none text-ink-500 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-default disabled:opacity-30 disabled:hover:border-ink-200 disabled:hover:bg-transparent disabled:hover:text-ink-500"
-                >→</button>
-                {reparentada && (
-                  <span title="Esta fila fue reubicada y se muestra sombreada en su nueva posición dentro del árbol.">
-                    <Chip label="↳ movida aquí" tone="blue" />
-                  </span>
-                )}
+            {reparentada && (
+              <span title="Esta fila fue reubicada y se muestra sombreada en su nueva posición dentro del árbol.">
+                <Chip label="↳ movida aquí" tone="blue" />
               </span>
+            )}
+            {accionesCuenta.length > 0 && (
+              <MenuAccionesCuenta
+                filaNum={n.filaNum}
+                codigo={n.codigoCrudo || n.codigo}
+                nombre={n.nombre}
+                acciones={accionesCuenta}
+              />
             )}
           </div>
         </td>

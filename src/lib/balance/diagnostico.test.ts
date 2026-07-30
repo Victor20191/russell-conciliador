@@ -64,4 +64,35 @@ describe("diagnosticarBorrador", () => {
   it("balance limpio → sin hallazgos", () => {
     expect(diagnosticarBorrador(vc(), [nodo("1", "ACTIVO", 100, { descuadre: 0 })], PD_OK)).toEqual([]);
   });
+
+  it("hallazgo de nodo incluye las cuentas hoja que cuelgan de él, ordenadas por magnitud", () => {
+    const aux1 = nodo("11050501", "BANCOLOMBIA", 100, { tipoFila: "movimiento" });
+    const aux2 = nodo("11050502", "DAVIVIENDA", 5_000, { tipoFila: "movimiento" });
+    const clientes = nodo("1105", "CAJA Y BANCOS", 6_233, { descuadre: 3_133, hijos: [aux1, aux2] });
+    const h = diagnosticarBorrador(vc(), [clientes], PD_OK);
+    const n = h.find((x) => x.tipo === "nodo");
+    expect(n?.cuentas?.map((c) => c.codigo)).toEqual(["11050502", "11050501"]); // mayor magnitud primero
+    expect(n?.cuentas?.[0]).toMatchObject({ codigo: "11050502", nombre: "DAVIVIENDA", saldoFinal: 5_000 });
+    expect(n?.cuentasTotal).toBe(2);
+  });
+
+  it("trunca la lista de cuentas afectadas y reporta el conteo real en cuentasTotal", () => {
+    const hijos = Array.from({ length: 25 }, (_, i) =>
+      nodo(`1105${String(i + 1).padStart(4, "0")}`, `CUENTA ${i + 1}`, 10, { tipoFila: "movimiento" }));
+    const clientes = nodo("1105", "CAJA Y BANCOS", 300, { descuadre: 2_500, hijos });
+    const h = diagnosticarBorrador(vc(), [clientes], PD_OK);
+    const n = h.find((x) => x.tipo === "nodo");
+    expect(n?.cuentas).toHaveLength(20);
+    expect(n?.cuentasTotal).toBe(25);
+  });
+
+  it("las referencias de cuenta (nodo/candidato) traen el detalle monetario completo", () => {
+    const desacoplada = nodo("139005", "DEUDAS DIFICIL COBRO", 2_133, { tipoFila: "movimiento", saldoInicial: 1, debitos: 2_134, creditos: 2 });
+    const clientes = nodo("1305", "CLIENTES", 2_233, { descuadre: 2_133, saldoInicial: 10, debitos: 2_240, creditos: 17, hijos: [nodo("130505", "NAL", 100, { tipoFila: "movimiento" })] });
+    const raiz = nodo("13", "CXC", 0, { hijos: [clientes, desacoplada] });
+    const h = diagnosticarBorrador(vc(), [raiz], PD_OK);
+    const n = h.find((x) => x.tipo === "nodo");
+    expect(n?.nodo).toMatchObject({ saldoInicial: 10, debitos: 2_240, creditos: 17, saldoFinal: 2_233 });
+    expect(n?.candidato).toMatchObject({ saldoInicial: 1, debitos: 2_134, creditos: 2, saldoFinal: 2_133 });
+  });
 });

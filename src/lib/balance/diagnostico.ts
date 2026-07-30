@@ -10,8 +10,16 @@ import type { NodoBorrador } from "./borrador";
 import { esDescuadreAccionable, UMBRALES_ALERTAS_DEFECTO, type UmbralesAlertas } from "./umbrales-alertas";
 
 const TOL_CANDIDATO = 1000; // cercanía para sugerir una cuenta ubicada en otra rama
+const MAX_CUENTAS_AFECTADAS = 20; // tope de cuentas hoja que se listan por hallazgo "nodo"
 
-export type CuentaRef = { codigo: string; nombre: string; saldoFinal: number };
+export type CuentaRef = {
+  codigo: string;
+  nombre: string;
+  saldoInicial: number;
+  debitos: number;
+  creditos: number;
+  saldoFinal: number;
+};
 export type Hallazgo = {
   tipo: "partida_doble" | "ecuacion" | "clase" | "nodo";
   severidad: "alta" | "media";
@@ -21,6 +29,12 @@ export type Hallazgo = {
   clase?: string; // para tipo "clase"
   nodo?: CuentaRef; // para tipo "nodo"
   candidato?: CuentaRef | null; // cuenta que podría explicar el hueco (otra rama)
+  // Cuentas HOJA (el nivel más desagregado disponible, típicamente Auxiliar/8 dígitos)
+  // que cuelgan del nodo con descuadre — se listan para que el revisor vea el detalle
+  // completo (saldo inicial/débitos/créditos/saldo final) sin ir a buscarlas en el
+  // listado principal. Puede venir truncada; `cuentasTotal` da el conteo real.
+  cuentas?: CuentaRef[];
+  cuentasTotal?: number;
 };
 
 export type PartidaDobleInfo = { debitos: number; creditos: number; diff: number; cuadra: boolean };
@@ -52,7 +66,14 @@ export function diagnosticarBorrador(
   const hallazgos: Hallazgo[] = [];
   const todos = aplanar(arbol);
   const hojas = todos.filter((n) => n.tipoFila === "movimiento");
-  const ref = (n: NodoBorrador): CuentaRef => ({ codigo: n.codigo, nombre: n.nombre, saldoFinal: n.saldoFinal });
+  const ref = (n: NodoBorrador): CuentaRef => ({
+    codigo: n.codigo,
+    nombre: n.nombre,
+    saldoInicial: n.saldoInicial,
+    debitos: n.debitos,
+    creditos: n.creditos,
+    saldoFinal: n.saldoFinal,
+  });
 
   // 1. Partida doble (débitos = créditos): el invariante más fuerte del balance.
   if (!pd.cuadra && esDescuadreAccionable(pd.diff, umbrales)) {
@@ -110,11 +131,19 @@ export function diagnosticarBorrador(
   for (const n of nodosDesc) {
     const d = n.descuadre!;
     const candidato = hojas.find((h) => h !== n && Math.abs(h.saldoFinal - d) <= TOL_CANDIDATO && !esDescendiente(h, n)) ?? null;
+    // Cuentas hoja que cuelgan de este nodo (su desglose real): se listan ordenadas por
+    // magnitud para que el revisor identifique la cuenta problemática sin buscarla en el
+    // listado principal. Se trunca a MAX_CUENTAS_AFECTADAS; `cuentasTotal` da el conteo real.
+    const cuentasAfectadas = hojas
+      .filter((h) => esDescendiente(h, n))
+      .sort((a, b) => Math.abs(b.saldoFinal) - Math.abs(a.saldoFinal));
     hallazgos.push({
       tipo: "nodo",
       severidad: "media",
       nodo: ref(n),
       candidato: candidato ? ref(candidato) : null,
+      cuentas: cuentasAfectadas.slice(0, MAX_CUENTAS_AFECTADAS).map(ref),
+      cuentasTotal: cuentasAfectadas.length,
       titulo: `${n.codigo} «${n.nombre}» no cuadra con su desglose`,
       detalle: candidato
         ? `Su total (${fmt(n.saldoFinal)}) menos la suma de sus cuentas deja ${fmt(d)}, que coincide con ${candidato.codigo} «${candidato.nombre}» (${fmt(candidato.saldoFinal)}): el detalle podría estar ubicado en otra rama.`
