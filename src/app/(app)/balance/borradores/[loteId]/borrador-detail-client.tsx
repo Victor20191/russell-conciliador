@@ -2579,7 +2579,7 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
   return (
     <div
       role="region"
-      aria-label="Tabla de movimiento del borrador"
+      aria-label="Tabla de movimiento del borrador" data-filtros-vista="todo-alertas"
       data-balance-table-fullscreen={pantallaCompleta ? "true" : undefined}
       className={pantallaCompleta ? "fixed inset-0 z-40 flex min-h-0 flex-col overflow-hidden bg-white shadow-2xl ring-1 ring-inset ring-navy-900/10" : ""}
     >

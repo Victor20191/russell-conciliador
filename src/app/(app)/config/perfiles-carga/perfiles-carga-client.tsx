@@ -1,14 +1,18 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
+import { Modal } from "@/components/modal";
 import { Card, CardHeader, Chip } from "@/components/ui";
 import {
   PageSizeSelect,
   PaginationFooter,
   usePagination,
 } from "@/components/pagination-controls";
+import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import { fmtDate } from "@/lib/format";
+import { limpiarMemoriaCargaCliente } from "@/app/actions/perfiles-carga";
 import { AjustesCargaModal } from "./ajustes-carga-modal";
 
 export type ClienteMemoriaRow = {
@@ -37,8 +41,29 @@ function normalizarBusqueda(valor: string) {
  * gestión (mismo editor de estructura que antes vivía en la ficha del cliente).
  */
 export default function PerfilesCargaClient({ clients }: { clients: ClienteMemoriaRow[] }) {
+  const router = useRouter();
   const [busqueda, setBusqueda] = useState("");
   const [gestionando, setGestionando] = useState<ClienteMemoriaRow | null>(null);
+  // Cliente cuya memoria se va a borrar por completo. La confirmación va en un
+  // modal propio (no `confirm()`) porque el borrado arrasa con formatos,
+  // correcciones y preferencias a la vez y conviene enumerar qué se pierde.
+  const [borrando, setBorrando] = useState<ClienteMemoriaRow | null>(null);
+  const [enProceso, iniciarBorrado] = useTransition();
+
+  const confirmarBorrado = () => {
+    const objetivo = borrando;
+    if (!objetivo) return;
+    iniciarBorrado(async () => {
+      const res = await limpiarMemoriaCargaCliente(objetivo.id);
+      if (res.ok) {
+        notifySuccess(res.message ?? "Memoria de carga borrada.");
+        setBorrando(null);
+        router.refresh();
+      } else {
+        notifyError(res.message ?? "No se pudo borrar la memoria de carga.");
+      }
+    });
+  };
 
   const conMemoria = (c: ClienteMemoriaRow) =>
     c.perfiles > 0 || c.correcciones > 0 || c.tienePreferencias;
@@ -180,16 +205,28 @@ export default function PerfilesCargaClient({ clients }: { clients: ClienteMemor
                     />
                   </td>
                   <td className="px-4 py-2.5 text-ink-500">{c.ultimoUso ? fmtDate(c.ultimoUso) : "—"}</td>
-                  <td className="px-4 py-2.5 text-right">
-                    <button
-                      type="button"
-                      onClick={() => setGestionando(c)}
-                      title="Ver y editar los formatos, correcciones y preferencias memorizadas para este cliente"
-                      className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[12px] font-semibold text-blue-700 transition hover:border-blue-300 hover:bg-blue-100"
-                    >
-                      <Icon name="ai" size={13} />
-                      Administrar
-                    </button>
+                  <td className="px-4 py-2.5">
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setBorrando(c)}
+                        title="Borrar TODA la memoria de carga de este cliente: formatos, correcciones y preferencias"
+                        aria-label={`Borrar la memoria de carga de ${c.name}`}
+                        className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] font-semibold text-ink-600 transition hover:border-red-300 hover:bg-red-50 hover:text-red-700"
+                      >
+                        <Icon name="trash" size={13} />
+                        Borrar todo
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setGestionando(c)}
+                        title="Ver y editar los formatos, correcciones y preferencias memorizadas para este cliente"
+                        className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[12px] font-semibold text-blue-700 transition hover:border-blue-300 hover:bg-blue-100"
+                      >
+                        <Icon name="ai" size={13} />
+                        Administrar
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -204,6 +241,53 @@ export default function PerfilesCargaClient({ clients }: { clients: ClienteMemor
           onPageChange={pg.setPage}
         />
       </Card>
+
+      <Modal
+        open={borrando !== null}
+        onClose={() => { if (!enProceso) setBorrando(null); }}
+        title="Borrar la memoria de carga del cliente"
+        size="md"
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setBorrando(null)}
+              disabled={enProceso}
+              className="rounded-md border border-ink-200 bg-white px-3 py-1.5 text-[12.5px] font-semibold text-ink-600 transition hover:bg-ink-50 disabled:opacity-60"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={confirmarBorrado}
+              disabled={enProceso}
+              className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3 py-1.5 text-[12.5px] font-semibold text-white transition hover:bg-red-700 disabled:opacity-60"
+            >
+              <Icon name="trash" size={13} />
+              {enProceso ? "Borrando…" : "Borrar todo"}
+            </button>
+          </>
+        }
+      >
+        {borrando && (
+          <div className="flex flex-col gap-3 text-[12.5px] text-ink-700">
+            <p>
+              Se borrará <strong>toda</strong> la memoria de carga de{" "}
+              <strong>{borrando.name}</strong> <span className="font-mono text-[11px] text-ink-400">({borrando.code})</span>:
+            </p>
+            <ul className="flex flex-col gap-1 rounded-md border border-ink-150 bg-ink-50 px-3 py-2 text-[12px]">
+              <li>· {borrando.perfiles} formato(s) memorizado(s)</li>
+              <li>· {borrando.correcciones} corrección(es) por cuenta</li>
+              <li>· {borrando.tienePreferencias ? "Las preferencias de carga configuradas" : "Sin preferencias configuradas"}</li>
+            </ul>
+            <p className="text-ink-500">
+              La próxima carga de este cliente volverá a detectar la estructura del archivo con IA y no
+              aplicará ningún ajuste automático por cuenta. Los balances y borradores ya cargados no se tocan.
+              Esta acción no se puede deshacer.
+            </p>
+          </div>
+        )}
+      </Modal>
 
       {gestionando && (
         <AjustesCargaModal

@@ -147,9 +147,9 @@ describe("SIIGO «por cuenta»: fila NIT que repite su cuenta (marcarCuentaNit)"
     // Bloque: Cta Nivel 4 (agrupadora) → Cuenta (total) → NIT ×2 (repiten el código).
     const filas: FilaBorrador[] = [
       fila(1, "110505", "CAJA GENERAL", 100, "agrupadora"), // Cta Nivel 4
-      fila(2, "11050505", "CAJA GENERAL", 100, "movimiento"), // Cuenta (total)
-      fila(3, "11050505", "CAJA GENERAL", 60, "movimiento"), // NIT 1 → tachar
-      fila(4, "11050505", "CAJA GENERAL", 40, "movimiento"), // NIT 2 → tachar
+      fila(2, "11050505", "CAJA GENERAL", 120, "movimiento", { saldoInicial: 50, debitos: 100, creditos: 30 }), // Cuenta (total)
+      fila(3, "11050505", "CAJA GENERAL", 70, "movimiento", { saldoInicial: 20, debitos: 60, creditos: 10 }), // NIT 1 → tachar
+      fila(4, "11050505", "CAJA GENERAL", 50, "movimiento", { saldoInicial: 30, debitos: 40, creditos: 20 }), // NIT 2 → tachar
       fila(5, "11050510", "CAJA MENOR", 0, "movimiento"), // otra Cuenta
     ];
     const n = marcarCuentaNit(filas);
@@ -185,6 +185,30 @@ describe("SIIGO «por cuenta»: fila NIT que repite su cuenta (marcarCuentaNit)"
     expect(filas.every((f) => f.omitida === undefined)).toBe(true);
   });
 
+  it("NO tacha movimientos independientes con saldo final cero y débitos/créditos reales", () => {
+    const filas: FilaBorrador[] = [
+      fila(1, "589723", "SERVICIOS", 0, "movimiento", { debitos: 20, creditos: 20 }),
+      fila(2, "589723", "SERVICIOS", 0, "movimiento", { debitos: 60, creditos: 60 }),
+      fila(3, "589723", "SERVICIOS", 0, "movimiento", { debitos: 40, creditos: 40 }),
+    ];
+
+    expect(marcarCuentaNit(filas)).toBe(0);
+    expect(filas.every((f) => f.omitida === undefined)).toBe(true);
+  });
+
+  it("SÍ tacha un duplicado real con saldo final cero cuando las cuatro columnas concilian", () => {
+    const filas: FilaBorrador[] = [
+      fila(1, "25050501", "PROVEEDORES", 0, "movimiento", { debitos: 100, creditos: 100 }),
+      fila(2, "25050501", "PROVEEDORES", 0, "movimiento", { debitos: 60, creditos: 60 }),
+      fila(3, "25050501", "PROVEEDORES", 0, "movimiento", { debitos: 40, creditos: 40 }),
+    ];
+
+    expect(marcarCuentaNit(filas)).toBe(2);
+    expect(filas[0].omitida).toBeUndefined();
+    expect(filas[1].omitida).toBe(true);
+    expect(filas[2].omitida).toBe(true);
+  });
+
   it("respeta el tri-estado: un NIT rescatado (omitida=false) no se re-tacha", () => {
     const filas: FilaBorrador[] = [
       fila(1, "11050505", "CAJA", 100, "movimiento"),
@@ -214,9 +238,9 @@ describe("consolidarAuxiliaresRepetidos (balance por tercero por auxiliar)", () 
 
   it("NO consolida un bloque «Cuenta + NIT» donde la primera YA es el total", () => {
     const filas = [
-      fila(1, "110505", "Caja", 100, "movimiento"), // total
-      fila(2, "110505", "Caja", 60, "movimiento"), // NIT
-      fila(3, "110505", "Caja", 40, "movimiento"), // NIT (60+40 = 100 = total)
+      fila(1, "110505", "Caja", 120, "movimiento", { saldoInicial: 50, debitos: 100, creditos: 30 }), // total
+      fila(2, "110505", "Caja", 70, "movimiento", { saldoInicial: 20, debitos: 60, creditos: 10 }), // NIT
+      fila(3, "110505", "Caja", 50, "movimiento", { saldoInicial: 30, debitos: 40, creditos: 20 }), // NIT
     ];
     const { consolidados, filas: out } = consolidarAuxiliaresRepetidos(filas);
     expect(consolidados).toBe(0);
@@ -230,6 +254,19 @@ describe("consolidarAuxiliaresRepetidos (balance por tercero por auxiliar)", () 
       fila(3, "13050502", "Otros", 20, "movimiento"),
     ];
     expect(consolidarAuxiliaresRepetidos(filas).consolidados).toBe(0);
+  });
+
+  it("consolida movimientos independientes con saldo final cero sin perder su rotación", () => {
+    const filas = [
+      fila(1, "589723", "Servicios", 0, "movimiento", { debitos: 20, creditos: 20 }),
+      fila(2, "589723", "Servicios", 0, "movimiento", { debitos: 60, creditos: 60 }),
+      fila(3, "589723", "Servicios", 0, "movimiento", { debitos: 40, creditos: 40 }),
+    ];
+    const { consolidados, filas: out } = consolidarAuxiliaresRepetidos(filas);
+
+    expect(consolidados).toBe(1);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ saldoInicial: 0, debitos: 120, creditos: 120, saldoFinal: 0 });
   });
 });
 
@@ -253,5 +290,23 @@ describe("construirVistaBorrador · consolidarAuxiliares (opción SOLO de vista)
     const v = construirVistaBorrador(base().map((f) => ({ ...f })));
     const aux = aplanarNodos(v.arbol).filter((n) => n.codigo === "13050501" && n.tipoFila === "movimiento");
     expect(aux.length).toBeGreaterThan(1);
+  });
+
+  it("conserva la partida doble de auxiliares con saldo final cero", () => {
+    const filas = [
+      fila(1, "5", "GASTOS", 0, "agrupadora"),
+      fila(2, "58", "OTROS GASTOS", 0, "agrupadora"),
+      fila(3, "5897", "COSTOS Y GASTOS POR DISTRIBUIR", 0, "agrupadora"),
+      fila(4, "589723", "SERVICIOS", 0, "movimiento", { debitos: 20, creditos: 20 }),
+      fila(5, "589723", "SERVICIOS", 0, "movimiento", { debitos: 60, creditos: 60 }),
+      fila(6, "589723", "SERVICIOS", 0, "movimiento", { debitos: 40, creditos: 40 }),
+    ];
+
+    const v = construirVistaBorrador(filas, { consolidarAuxiliares: true });
+    const aux = aplanarNodos(v.arbol).filter((n) => n.codigo === "589723" && n.tipoFila === "movimiento");
+
+    expect(v.nitTachados).toBe(0);
+    expect(aux).toHaveLength(1);
+    expect(v.partidaDoble).toMatchObject({ debitos: 120, creditos: 120, diff: 0, cuadra: true });
   });
 });

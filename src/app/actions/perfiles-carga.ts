@@ -386,6 +386,53 @@ export async function limpiarCorreccionesCarga(clienteId: number): Promise<Actio
   }
 }
 
+/**
+ * Borra TODA la memoria de carga del cliente de una sola vez: formatos por huella,
+ * correcciones por cuenta y preferencias. Deja al cliente como si nunca se le
+ * hubiera cargado un balance — la próxima carga vuelve a detectar la estructura
+ * con IA y no re-aplica ningún ajuste. No toca los lotes ni los balances ya
+ * cargados: solo la memoria que condiciona las lecturas futuras.
+ */
+export async function limpiarMemoriaCargaCliente(clienteId: number): Promise<ActionState> {
+  const authz = await authorizePermiso("perfiles_carga:administrar");
+  if (!authz.ok) return { ok: false, message: authz.message };
+  const cid = Number(clienteId);
+  if (!Number.isInteger(cid) || cid <= 0) return { ok: false, message: "Cliente inválido." };
+  const scope = await authorizePermiso("perfiles_carga:administrar", { clientId: cid });
+  if (!scope.ok) return { ok: false, message: scope.message };
+  try {
+    const cliente = await prisma.client.findUnique({ where: { id: cid }, select: { name: true } });
+    if (!cliente) return { ok: false, message: "El cliente seleccionado ya no existe." };
+    const [perfiles, correcciones, ajustes] = await prisma.$transaction([
+      prisma.perfilCargaBalance.deleteMany({ where: { clienteId: cid } }),
+      prisma.correccionCargaBalance.deleteMany({ where: { clienteId: cid } }),
+      prisma.ajustesCargaBalance.deleteMany({ where: { clienteId: cid } }),
+    ]);
+    const partes = [
+      `${perfiles.count} formato(s)`,
+      `${correcciones.count} corrección(es)`,
+      ajustes.count > 0 ? "preferencias" : null,
+    ].filter(Boolean).join(" · ");
+    const user = await getCurrentUser();
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: "BORRÓ LA MEMORIA de carga de balance",
+      entity: cliente.name,
+      detail: partes,
+      clientId: cid,
+    });
+    revalidatePath(PATH);
+    return {
+      ok: true,
+      message: ajustes.count > 0
+        ? `Memoria borrada: ${perfiles.count} formato(s), ${correcciones.count} corrección(es) y las preferencias.`
+        : `Memoria borrada: ${perfiles.count} formato(s) y ${correcciones.count} corrección(es).`,
+    };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("limpiarMemoriaCargaCliente", e) };
+  }
+}
+
 /** Elimina un perfil de carga (la próxima carga con ese layout volverá a usar IA). */
 export async function eliminarPerfilCarga(id: number): Promise<ActionState> {
   const authz = await authorizePermiso("perfiles_carga:administrar");

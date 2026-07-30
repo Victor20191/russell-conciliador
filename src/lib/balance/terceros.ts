@@ -157,11 +157,11 @@ export function consolidarTercerosPorSufijo(filas: FilaBorrador[]): FilaBorrador
 //
 // Otro formato (SIIGO «balance por cuenta», columna «Rompimiento»): por cada cuenta
 // imputable viene una fila «Cuenta» (el total CONSOLIDADO) SEGUIDA de sus filas «NIT»
-// (detalle por tercero) con el MISMO código y cuyos saldos SUMAN la cuenta (verificado:
-// Cuenta == Σ NIT, 0 mismatches). La fila «Cuenta» ya trae el total; las «NIT» lo
-// duplican. Se TACHAN las repeticiones (se conserva la primera de cada bloque = la
-// «Cuenta») para no doble-contar. Se detecta por el patrón —código que repite el de la
-// fila anterior— sin depender de leer la columna «Rompimiento».
+// (detalle por tercero) con el MISMO código y cuyos cuatro importes SUMAN la cuenta
+// (saldo inicial, débitos, créditos y saldo final). La fila «Cuenta» ya trae el total;
+// las «NIT» lo duplican. Se TACHAN las repeticiones (se conserva la primera de cada
+// bloque = la «Cuenta») para no doble-contar. Se detecta por el patrón —código que
+// repite el de la fila anterior— sin depender de leer la columna «Rompimiento».
 
 /**
  * TACHA (omitida, respeta el tri-estado) las filas «NIT» de un bloque «Cuenta+NIT»:
@@ -173,7 +173,7 @@ export function consolidarTercerosPorSufijo(filas: FilaBorrador[]): FilaBorrador
  * (REPLAST: `Cuenta == Σ NIT`). Si NO cuadra, son cuentas INDEPENDIENTES que colapsan al
  * mismo código tras `normalizarCodigo` (sufijos alfabéticos INAC / variantes `A`, p. ej.
  * `11100502` y `11100502INAC`, o `23703021` y `23703021A`): cada una aporta su propio
- * saldo, así que NO se tachan (tacharlas perdería plata).
+ * movimiento, así que NO se tachan (tacharlas perdería plata).
  *
  * Seguro por sí solo (sin umbral): solo mira MOVIMIENTOS y RESETEA en cualquier fila que
  * no lo sea (agrupadora/total). Así NO rompe «encabezado repetido» (dos agrupadoras) ni
@@ -188,13 +188,29 @@ export function consolidarTercerosPorSufijo(filas: FilaBorrador[]): FilaBorrador
 // consolidan en UNA fila por auxiliar (suma) — es SOLO presentación (el staging, la
 // carga oficial y la exportación no cambian; se activan con la opción del cliente).
 
+const CAMPOS_MONETARIOS = ["saldoInicial", "debitos", "creditos", "saldoFinal"] as const;
+
+/**
+ * Distingue una fila «Cuenta» consolidada de varias filas independientes que solo
+ * comparten código. Los cuatro importes deben conciliar: comparar únicamente el
+ * saldo final produce falsos positivos cuando todas las filas terminan en cero,
+ * aunque sí tengan débitos y créditos que deben conservarse.
+ */
+function primeraTotalizaResto(primera: FilaBorrador, resto: FilaBorrador[], tolerancia = 1): boolean {
+  return CAMPOS_MONETARIOS.every((campo) => {
+    const sumaResto = resto.reduce((suma, fila) => suma + fila[campo], 0);
+    return Math.abs(primera[campo] - sumaResto) <= tolerancia;
+  });
+}
+
 /**
  * Consolida corridas CONSECUTIVAS de ≥2 movimientos NO omitidos con el MISMO código en
  * una sola fila (suma saldos/débitos/créditos), conservando la primera. NO consolida un
- * bloque «Cuenta + NIT» donde la primera fila YA es el total (guarda `primera ≈ Σ resto`):
- * eso lo maneja `marcarCuentaNit`, que tacha las repeticiones. Se llama DESPUÉS de
- * `marcarCuentaNit`, así los NIT ya tachados (omitidos) no entran en el bloque. Devuelve
- * un array NUEVO (clona la primera fila de cada bloque) y cuántos bloques consolidó.
+ * bloque «Cuenta + NIT» donde la primera fila YA es el total en las cuatro columnas
+ * monetarias (`primera ≈ Σ resto`): eso lo maneja `marcarCuentaNit`, que tacha las
+ * repeticiones. Se llama DESPUÉS de `marcarCuentaNit`, así los NIT ya tachados (omitidos)
+ * no entran en el bloque. Devuelve un array NUEVO (clona la primera fila de cada bloque)
+ * y cuántos bloques consolidó.
  */
 export function consolidarAuxiliaresRepetidos(filas: FilaBorrador[]): { filas: FilaBorrador[]; consolidados: number } {
   const out: FilaBorrador[] = [];
@@ -207,10 +223,9 @@ export function consolidarAuxiliaresRepetidos(filas: FilaBorrador[]): { filas: F
     while (j < filas.length && filas[j].tipoFila === "movimiento" && filas[j].codigo === f.codigo && !filas[j].omitida) j++;
     const bloque = filas.slice(i, j);
     if (bloque.length >= 2) {
-      const sumaResto = bloque.slice(1).reduce((s, r) => s + r.saldoFinal, 0);
       // Si la PRIMERA ya es el total (bloque «Cuenta + NIT»), NO consolidar (lo tacha
       // `marcarCuentaNit`); solo se consolida el detalle por auxiliar sin fila total.
-      if (Math.abs(f.saldoFinal - sumaResto) > 1) {
+      if (!primeraTotalizaResto(f, bloque.slice(1))) {
         const consol: FilaBorrador = { ...f };
         for (const r of bloque.slice(1)) {
           consol.saldoInicial += r.saldoInicial;
@@ -243,9 +258,9 @@ export function marcarCuentaNit(filas: FilaBorrador[]): number {
     while (j < filas.length && filas[j].tipoFila === "movimiento" && filas[j].codigo === f.codigo) j++;
     const nits = filas.slice(i + 1, j);
     if (nits.length > 0) {
-      const sumaNits = nits.reduce((s, r) => s + r.saldoFinal, 0);
-      // Solo son «NIT» (duplican la cuenta) si la «Cuenta» es su total exacto.
-      if (Math.abs(f.saldoFinal - sumaNits) <= 1) {
+      // Solo son «NIT» (duplican la cuenta) si la «Cuenta» es su total exacto en
+      // saldo inicial, débitos, créditos y saldo final.
+      if (primeraTotalizaResto(f, nits)) {
         for (const r of nits) if (r.omitida === undefined) { r.omitida = true; n++; }
       }
     }
