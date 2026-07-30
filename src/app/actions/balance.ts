@@ -2703,7 +2703,7 @@ export async function guardarPerfilDesdeEditor(loteId: string, specJson: unknown
     await asegurarPerfilBaseCliente(clientId, usuario?.name ?? null);
     const ok = await upsertPerfilCarga({ clientId, huella: lote.huella, specJson: parsed.data, origenExtraccion: "manual", archivoNombre: lote.archivoNombre });
     if (!ok) return { ok: false, message: "No se pudo guardar el perfil (faltan datos del layout)." };
-    revalidatePath("/config/clientes");
+    revalidatePath("/config/perfiles-carga");
     return { ok: true, message: "Perfil de formato guardado para este cliente. Las próximas cargas del mismo layout lo aplicarán solas, sin IA." };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("guardarPerfilDesdeEditor", e) };
@@ -2758,7 +2758,7 @@ export async function guardarNotasDesdeEditor(loteId: string, observaciones: str
       detail: notas ? `${notas.length} caracteres` : "notas vacías",
       clientId,
     });
-    revalidatePath("/config/clientes");
+    revalidatePath("/config/perfiles-carga");
     return { ok: true, message: notas ? "Notas de carga guardadas." : "Notas de carga borradas." };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("guardarNotasDesdeEditor", e) };
@@ -3326,7 +3326,7 @@ export async function aplicarCambiosBorrador(
         revisionesGuardadas,
       };
     }, { timeoutMs: TIMEOUT_TRANSACCION_PROMOCION_MS });
-    if (nMemorizadas > 0) revalidatePath("/config/clientes");
+    if (nMemorizadas > 0) revalidatePath("/config/perfiles-carga");
 
     const detalleRiesgos = pads.flatMap(([fila]) => {
       const riesgo = riesgosPorFila.get(Number(fila));
@@ -3469,7 +3469,7 @@ export async function asignarClienteBorrador(loteId: string, clienteId: number):
     });
     revalidatePath(`/balance/borradores/${id}`);
     revalidatePath("/balance/borradores");
-    revalidatePath("/config/clientes");
+    revalidatePath("/config/perfiles-carga");
     return {
       ok: true,
       aplicadas,
@@ -3636,7 +3636,7 @@ export async function eliminarDetalleBalance(detalleId: number): Promise<ActionS
 
     await logAudit({ user: user?.name ?? "Sistema", action: "ELIMINÓ cuenta del balance", entity: fila.cuenta8, detail: `${fila.cuenta8} — ${fila.nombreCuenta}`, clientId: fila.encabezado.clienteId });
     revalidatePath(`/balance/${encId}`);
-    revalidatePath("/config/clientes");
+    revalidatePath("/config/perfiles-carga");
     return { ok: true, message: `Cuenta ${fila.cuenta8} eliminada y memorizada como omisión para este cliente.` };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("eliminarDetalleBalance", e) };
@@ -3777,7 +3777,7 @@ export async function eliminarBalance(input: {
 
     revalidatePath("/balance");
     revalidatePath("/dashboard");
-    if (alcance === "cliente_perfiles") revalidatePath("/config/clientes");
+    if (alcance === "cliente_perfiles") revalidatePath("/config/perfiles-carga");
 
     return {
       ok: true,

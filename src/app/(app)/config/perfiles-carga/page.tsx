@@ -30,12 +30,35 @@ export default async function PerfilesCargaPage() {
       by: ["clienteId"],
       _count: { _all: true },
     }),
-    prisma.ajustesCargaBalance.findMany({ select: { clienteId: true } }),
+    // OJO: la sola existencia de la fila NO significa «preferencias
+    // configuradas»: `asegurarPerfilBaseCliente` (balance.ts) crea un perfil
+    // base con todo en null en la PRIMERA carga de cada cliente. Solo cuenta si
+    // hay algún valor real; `estandar` se ignora porque es fijo (NIF).
+    prisma.ajustesCargaBalance.findMany({
+      select: {
+        clienteId: true,
+        hojaPreferida: true,
+        convencionCredito: true,
+        agregarPorTercero: true,
+        imputarSoloHojas: true,
+        observaciones: true,
+      },
+    }),
   ]);
 
   const perfiles = new Map(perfilesPorCliente.map((p) => [p.clienteId, p]));
   const correcciones = new Map(correccionesPorCliente.map((c) => [c.clienteId, c._count._all]));
-  const conPreferencias = new Set(ajustes.map((a) => a.clienteId));
+  const conPreferencias = new Set(
+    ajustes
+      .filter((a) =>
+        a.hojaPreferida != null
+        || a.convencionCredito != null
+        || a.agregarPorTercero != null
+        || a.imputarSoloHojas != null
+        || (a.observaciones != null && a.observaciones.trim() !== ""),
+      )
+      .map((a) => a.clienteId),
+  );
 
   const rows: ClienteMemoriaRow[] = clientes.map((c) => ({
     id: c.id,

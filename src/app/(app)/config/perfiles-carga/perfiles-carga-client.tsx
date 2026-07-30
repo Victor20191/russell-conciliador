@@ -38,7 +38,6 @@ function normalizarBusqueda(valor: string) {
  */
 export default function PerfilesCargaClient({ clients }: { clients: ClienteMemoriaRow[] }) {
   const [busqueda, setBusqueda] = useState("");
-  const [soloConMemoria, setSoloConMemoria] = useState(true);
   const [gestionando, setGestionando] = useState<ClienteMemoriaRow | null>(null);
 
   const conMemoria = (c: ClienteMemoriaRow) =>
@@ -53,12 +52,16 @@ export default function PerfilesCargaClient({ clients }: { clients: ClienteMemor
     [clients],
   );
 
+  // La pantalla lista SOLO clientes con memoria guardada, siempre. La memoria la
+  // crea el flujo de trabajo (carga y ajustes del borrador de balance), no esta
+  // pantalla: un cliente sin nada guardado no tiene qué administrar aquí.
+  const buscando = busqueda.trim() !== "";
   const filtrados = useMemo(() => {
+    const conDatos = clients.filter(conMemoria);
     const termino = normalizarBusqueda(busqueda);
+    if (!termino) return conDatos;
     const nitBuscado = busqueda.replace(/\D/g, "");
-    return clients.filter((c) => {
-      if (soloConMemoria && !conMemoria(c)) return false;
-      if (!termino) return true;
+    return conDatos.filter((c) => {
       const nitNumerico = c.nit.replace(/\D/g, "");
       return (
         normalizarBusqueda(c.name).includes(termino)
@@ -67,7 +70,7 @@ export default function PerfilesCargaClient({ clients }: { clients: ClienteMemor
         || (nitBuscado.length > 0 && nitNumerico.includes(nitBuscado))
       );
     });
-  }, [busqueda, clients, soloConMemoria]);
+  }, [busqueda, clients]);
 
   const pg = usePagination(filtrados, 50);
 
@@ -129,17 +132,9 @@ export default function PerfilesCargaClient({ clients }: { clients: ClienteMemor
               </button>
             )}
           </div>
-          <label className="flex items-center gap-2 text-[12px] font-medium text-ink-600">
-            <input
-              type="checkbox"
-              checked={soloConMemoria}
-              onChange={(evento) => {
-                setSoloConMemoria(evento.target.checked);
-                pg.resetToFirstPage();
-              }}
-            />
+          <span className="text-[11px] text-ink-400">
             Solo clientes con memoria guardada
-          </label>
+          </span>
           <PageSizeSelect value={pg.pageSize} onChange={pg.setPageSize} />
         </div>
 
@@ -160,9 +155,9 @@ export default function PerfilesCargaClient({ clients }: { clients: ClienteMemor
               {pg.pageItems.length === 0 && (
                 <tr>
                   <td colSpan={7} className="px-4 py-10 text-center text-[12.5px] text-ink-400">
-                    {soloConMemoria
-                      ? "Ningún cliente coincide. Desmarca «Solo clientes con memoria guardada» para configurar preferencias de un cliente que aún no ha cargado balances."
-                      : "No se encontraron clientes con ese código, NIT o razón social."}
+                    {buscando
+                      ? "Ningún cliente con memoria guardada coincide con ese código, NIT o razón social."
+                      : "Todavía ningún cliente tiene formatos, correcciones ni preferencias guardadas. Se crean solas al cargar un balance y ajustar su borrador."}
                   </td>
                 </tr>
               )}

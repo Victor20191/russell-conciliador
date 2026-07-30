@@ -129,14 +129,8 @@ export function AjustesCargaModal({
     });
   };
 
-  const footer = (
-    <button onClick={onClose} className="ml-auto rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] font-semibold text-ink-600 hover:bg-ink-50">
-      Cerrar
-    </button>
-  );
-
   return (
-    <Modal open onClose={onClose} title={`Perfiles en memoria · ${cliente.name}`} size="4xl" footer={footer}>
+    <Modal open onClose={onClose} title={`Perfiles en memoria · ${cliente.name}`} size="4xl">
       {cargando ? (
         <p className="px-1 py-6 text-center text-[12.5px] text-ink-400"><EstadoProcesando>Cargando perfiles y preferencias</EstadoProcesando></p>
       ) : !data?.ok ? (
