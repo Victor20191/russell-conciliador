@@ -219,6 +219,9 @@ const mocks = vi.hoisted(() => {
     })),
     puedeVerBorrador: vi.fn(() => true),
     getCurrentUser: vi.fn(),
+    ingerir: vi.fn(),
+    clientFindMany: vi.fn(),
+    registrarConsumoIA: vi.fn(async () => undefined),
     redirect: vi.fn((destino: string) => {
       throw new Error(`REDIRECT:${destino}`);
     }),
@@ -290,7 +293,7 @@ vi.mock("@/lib/prisma", () => ({
         nit: "900123456-7",
         erpId: 1,
       })),
-      findMany: vi.fn(async () => []),
+      findMany: mocks.clientFindMany,
     },
     ajustesCargaBalance: {
       findUnique: mocks.ajustesFindUnique,
@@ -376,7 +379,7 @@ vi.mock("@/lib/ia/proveedor-balance", () => ({
 vi.mock("@/lib/ia/proveedor-balance-sesion", () => ({
   proveedorIABalanceSesion: vi.fn(async () => "anthropic"),
 }));
-vi.mock("@/lib/ia/uso", () => ({ registrarConsumoIA: vi.fn(async () => undefined) }));
+vi.mock("@/lib/ia/uso", () => ({ registrarConsumoIA: mocks.registrarConsumoIA }));
 vi.mock("@/lib/balance/mapeo-ia", () => ({ mapearPorIA: vi.fn(async () => new Map()) }));
 vi.mock("@/lib/balance/mapeo-cliente-config", () => ({
   construirConfigMapeoCliente: vi.fn(() => new Map()),
@@ -441,9 +444,7 @@ vi.mock("@/lib/balance/preferencias-carga", () => ({
   aplicarPreferenciasCarga: vi.fn((spec) => spec),
 }));
 vi.mock("@/lib/balance/extraccion/ingesta", () => ({
-  ingerir: vi.fn(async () => {
-    throw new Error("Sin ingesta especializada");
-  }),
+  ingerir: mocks.ingerir,
 }));
 vi.mock("@/lib/import/balance", () => ({
   parseBalanceWorkbook: mocks.parseBalanceWorkbook,
@@ -515,12 +516,14 @@ function formPromocion() {
 function formLectura(
   loteIdSolicitud = LOTE_ID,
   loteIdAnterior: string | null = null,
+  clienteId: number | null = 7,
+  archivo: File = new File(["contenido"], "balance.xlsx"),
 ) {
   const valores = new Map<string, FormDataEntryValue>([
-    ["clienteId", "7"],
     ["loteIdSolicitud", loteIdSolicitud],
-    ["archivo", new File(["contenido"], "balance.xlsx")],
+    ["archivo", archivo],
   ]);
+  if (clienteId != null) valores.set("clienteId", String(clienteId));
   if (loteIdAnterior) valores.set("loteIdAnterior", loteIdAnterior);
   return {
     get: vi.fn((clave: string) => valores.get(clave) ?? null),
@@ -534,6 +537,19 @@ function filasImportacion(cantidad: number) {
     prevBalance: 0,
     balance: 1,
   }));
+}
+
+function ingestaTabular(nit: string | null) {
+  return {
+    modo: "tabular" as const,
+    hojas: [{
+      nombre: "Balance",
+      filas: [
+        ...(nit ? [["NIT", nit]] : []),
+        ["Código", "Nombre", "Saldo"],
+      ],
+    }],
+  };
 }
 
 describe("idempotencia y atomicidad del ciclo de balances", () => {
@@ -562,6 +578,8 @@ describe("idempotencia y atomicidad del ciclo de balances", () => {
     mocks.authorizePermiso.mockResolvedValue({ ok: true, role: "staff" });
     mocks.puedeVerBorrador.mockReturnValue(true);
     mocks.getCurrentUser.mockResolvedValue({ id: 3, name: "Analista", role: "staff" });
+    mocks.ingerir.mockRejectedValue(new Error("Sin ingesta especializada"));
+    mocks.clientFindMany.mockResolvedValue([]);
     mocks.parseBalanceWorkbook.mockResolvedValue({ filas: filasImportacion(1), errores: [] });
   });
 
@@ -621,6 +639,170 @@ describe("idempotencia y atomicidad del ciclo de balances", () => {
     expect(mocks.state.lotes).toHaveLength(1);
     expect(mocks.state.lotes[0]?.revisionContenido).toBe(1);
     expect(mocks.state.staging).toHaveLength(1);
+  });
+
+  it("muestra una revisión transitoria sin cliente y no persiste lote ni staging", async () => {
+    mocks.state.lotes.length = 0;
+    mocks.state.staging.length = 0;
+    mocks.ingerir.mockResolvedValue(ingestaTabular(null));
+
+    const resultado = await leerBalance(
+      {},
+      formLectura(LOTE_ID_NUEVO, null, null),
+    );
+
+    expect(resultado).toMatchObject({
+      ok: false,
+      requiereCliente: true,
+      nitDetectado: null,
+      sugerencia: {
+        persistida: false,
+        payload: { loteId: LOTE_ID_NUEVO },
+        render: {
+          clienteDetectadoId: null,
+          importReady: [
+            expect.objectContaining({ code: "1105050000" }),
+          ],
+        },
+      },
+    });
+    expect(mocks.parseBalanceWorkbook).toHaveBeenCalledTimes(1);
+    expect(mocks.ejecutarTransaccion).not.toHaveBeenCalled();
+    expect(mocks.state.lotes).toHaveLength(0);
+    expect(mocks.state.staging).toHaveLength(0);
+  });
+
+  it("continúa con el mismo UUID y archivo después de seleccionar el cliente manualmente", async () => {
+    mocks.state.lotes.length = 0;
+    mocks.state.staging.length = 0;
+    mocks.ingerir.mockResolvedValue(ingestaTabular(null));
+    const archivo = new File(["contenido"], "balance.xlsx");
+
+    const pendiente = await leerBalance(
+      {},
+      formLectura(LOTE_ID_NUEVO, null, null, archivo),
+    );
+    expect(pendiente.requiereCliente).toBe(true);
+    expect(pendiente.sugerencia?.persistida).toBe(false);
+    expect(mocks.state.lotes).toHaveLength(0);
+    expect(mocks.state.staging).toHaveLength(0);
+
+    const continuado = await leerBalance(
+      {},
+      formLectura(LOTE_ID_NUEVO, null, 7, archivo),
+    );
+
+    expect(continuado.ok).toBe(true);
+    expect(continuado.sugerencia?.persistida).toBe(true);
+    expect(continuado.sugerencia?.payload.loteId).toBe(LOTE_ID_NUEVO);
+    expect(mocks.state.lotes).toEqual([
+      expect.objectContaining({ loteId: LOTE_ID_NUEVO, clienteId: 7 }),
+    ]);
+    expect(mocks.state.staging).toEqual([
+      expect.objectContaining({ loteId: LOTE_ID_NUEVO, clienteId: 7 }),
+    ]);
+  });
+
+  it("reconoce un NIT autorizado, persiste una vez y recupera el mismo borrador sin cliente explícito", async () => {
+    mocks.state.lotes.length = 0;
+    mocks.state.staging.length = 0;
+    mocks.ingerir.mockResolvedValue(ingestaTabular("900123456-7"));
+    mocks.clientFindMany.mockResolvedValue([
+      { id: 7, nit: "900123456-7" },
+    ]);
+
+    const primero = await leerBalance(
+      {},
+      formLectura(LOTE_ID_NUEVO, null, null),
+    );
+    expect(primero.ok).toBe(true);
+    expect(primero.sugerencia?.persistida).toBe(true);
+    expect(primero.sugerencia?.render.clienteDetectadoId).toBe(7);
+    expect(mocks.state.lotes).toHaveLength(1);
+    expect(mocks.state.staging).toHaveLength(1);
+
+    await expect(
+      leerBalance({}, formLectura(LOTE_ID_NUEVO, null, null)),
+    ).rejects.toThrow(`REDIRECT:/balance/borradores/${LOTE_ID_NUEVO}`);
+    expect(mocks.state.lotes).toHaveLength(1);
+    expect(mocks.state.staging).toHaveLength(1);
+  });
+
+  it("pide selección y no persiste si el NIT pertenece a un cliente fuera del alcance", async () => {
+    mocks.state.lotes.length = 0;
+    mocks.state.staging.length = 0;
+    mocks.ingerir.mockResolvedValue(ingestaTabular("900123456-7"));
+    mocks.clientFindMany.mockResolvedValue([
+      { id: 7, nit: "900123456-7" },
+    ]);
+    mocks.authorizePermiso.mockImplementation(async (
+      _permiso: string,
+      opciones?: { clientId?: number },
+    ) => opciones?.clientId
+      ? { ok: false, message: "Cliente fuera del alcance." }
+      : { ok: true, role: "staff" });
+
+    const resultado = await leerBalance(
+      {},
+      formLectura(LOTE_ID_NUEVO, null, null),
+    );
+
+    expect(resultado).toMatchObject({
+      ok: false,
+      requiereCliente: true,
+      nitDetectado: "900123456",
+      sugerencia: {
+        persistida: false,
+        render: { clienteDetectadoId: null },
+      },
+    });
+    expect(mocks.ejecutarTransaccion).not.toHaveBeenCalled();
+    expect(mocks.state.lotes).toHaveLength(0);
+    expect(mocks.state.staging).toHaveLength(0);
+  });
+
+  it("permite cambiar el cliente al reprocesar un borrador cuyo archivo no traía NIT", async () => {
+    mocks.state.lotes[0]!.nitDetectado = null;
+
+    const resultado = await leerBalance(
+      {},
+      formLectura(LOTE_ID_NUEVO, LOTE_ID, 8),
+    );
+
+    expect(resultado.ok).toBe(true);
+    expect(resultado.sugerencia?.persistida).toBe(true);
+    expect(resultado.sugerencia?.render.clienteDetectadoId).toBe(8);
+    expect(mocks.state.lotes).toEqual([
+      expect.objectContaining({
+        loteId: LOTE_ID_NUEVO,
+        clienteId: 8,
+      }),
+    ]);
+    expect(mocks.state.staging).toEqual([
+      expect.objectContaining({
+        loteId: LOTE_ID_NUEVO,
+        clienteId: 8,
+      }),
+    ]);
+  });
+
+  it("impide cambiar el cliente de un borrador respaldado por el NIT del archivo", async () => {
+    const resultado = await leerBalance(
+      {},
+      formLectura(LOTE_ID_NUEVO, LOTE_ID, 8),
+    );
+
+    expect(resultado).toMatchObject({
+      ok: false,
+      message: "El cliente elegido no corresponde al borrador que se va a reprocesar.",
+    });
+    expect(mocks.ejecutarTransaccion).not.toHaveBeenCalled();
+    expect(mocks.state.lotes).toEqual([
+      expect.objectContaining({ loteId: LOTE_ID, clienteId: 7 }),
+    ]);
+    expect(mocks.state.staging).toEqual([
+      expect.objectContaining({ loteId: LOTE_ID, clienteId: 7 }),
+    ]);
   });
 
   it("revierte todos los bloques si el proceso se corta entre lotes de staging", async () => {

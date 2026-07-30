@@ -17,6 +17,35 @@ export function esFalloTransporteCarga(error: unknown): boolean {
   );
 }
 
+/**
+ * Completa el formulario con el contexto retenido por React. Es indispensable
+ * cuando el segundo paso desmonta el input de archivo: el mismo objeto `File`
+ * vuelve a viajar junto con el UUID, cliente, hoja y proveedor originales.
+ */
+export function completarFormularioLectura(
+  formData: FormData,
+  contexto: {
+    archivo: File;
+    loteIdSolicitud: string;
+    clienteId: number | null;
+    hoja: string | null;
+    proveedorIA?: string;
+  },
+): FormData {
+  formData.set("archivo", contexto.archivo);
+  formData.set("loteIdSolicitud", contexto.loteIdSolicitud);
+  formData.set("hoja", contexto.hoja ?? "");
+  if (contexto.clienteId != null) {
+    formData.set("clienteId", String(contexto.clienteId));
+  } else {
+    formData.delete("clienteId");
+  }
+  if (contexto.proveedorIA) {
+    formData.set("modeloIA", contexto.proveedorIA);
+  }
+  return formData;
+}
+
 export const MENSAJE_RECUPERAR_LECTURA =
   "Se perdió la respuesta mientras se leía el archivo. El servidor puede haber terminado. Pulsa «Reintentar lectura»: Russell comprobará la misma operación y no duplicará el borrador.";
 

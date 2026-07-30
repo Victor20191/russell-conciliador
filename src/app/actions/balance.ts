@@ -103,6 +103,8 @@ export type OrigenExtraccion = "perfil" | "ia" | "plantilla" | "manual";
 // revisión en el modal (tabla del borrador, cuadre, editor de estructura) y NO
 // viaja de regreso ni se firma.
 export type SugerenciaBalance = {
+  /** `false` identifica una revisión transitoria que todavía no tiene lote/staging. */
+  persistida: boolean;
   payload: PayloadCargaBalance;
   render: {
     cuadre: CuadreTotales; // cuadre de las hojas contra la fila TOTALES del archivo
@@ -119,6 +121,11 @@ export type SugerenciaBalance = {
 export type LeerBalanceState = {
   ok?: boolean;
   message?: string;
+  // Estado transitorio de una lectura que reconoció el archivo pero todavía no
+  // puede asociarlo a un cliente autorizado. No existe lote ni staging mientras
+  // este indicador sea true; la UI conserva el File y solicita el cliente.
+  requiereCliente?: boolean;
+  nitDetectado?: string | null;
   // true cuando el fallo fue de disponibilidad del proveedor de IA (429/529/5xx/
   // timeout): la UI aclara que es un problema del servicio externo, no del aplicativo.
   errorProveedorIA?: boolean;
@@ -126,6 +133,23 @@ export type LeerBalanceState = {
   excepciones?: Excepcion[];
   sugerencia?: SugerenciaBalance;
 };
+
+function estadoClientePendiente(
+  nitDetectado: string | null,
+  excepciones?: Excepcion[],
+  sugerencia?: SugerenciaBalance,
+): LeerBalanceState {
+  return {
+    ok: false,
+    requiereCliente: true,
+    nitDetectado,
+    message: nitDetectado
+      ? `Reconocimos el NIT ${nitDetectado}, pero no corresponde a un cliente disponible para tu usuario. Selecciona el cliente correcto para continuar con el mismo archivo.`
+      : "No pudimos reconocer el NIT del archivo. Selecciona el cliente para continuar con el mismo archivo.",
+    ...(excepciones && excepciones.length > 0 ? { excepciones } : {}),
+    ...(sugerencia ? { sugerencia } : {}),
+  };
+}
 
 type MetaEtl = {
   estandar: string;
@@ -1510,10 +1534,105 @@ async function persistirCargue(p: {
 }
 
 /**
- * LECTURA (paso 1). Extrae las cuentas del archivo SIN escribir nada (salvo el
- * borrador en staging) y devuelve una sugerencia (NIT/período detectados +
- * cuentas + excepciones). EXIGE el cliente desde el formulario: nunca se crea un
- * borrador sin dueño (el NIT del archivo solo sirve para contrastar y avisar).
+ * Revisión serializable sin persistencia. Permite mostrar cuentas y solicitar el
+ * cliente en la fase de revisión, pero su UUID aún no representa un lote real.
+ */
+function construirSugerenciaTransitoria(p: {
+  extr: ResultadoTransform;
+  spec: MappingSpec | null;
+  ingesta: Ingesta | null;
+  nitDeterminista: string | null;
+  archivoNombre: string;
+  archivoTamBytes: number;
+  loteIdSolicitud: string;
+  origenExtraccion: OrigenExtraccion;
+  proveedorIA: ProveedorIABalance;
+}): SugerenciaBalance {
+  const { extr } = p;
+  const nitFinal: Origen = p.nitDeterminista
+    ? { valor: p.nitDeterminista, fuente: "FUENTE" }
+    : extr.cabecera.nit;
+  const calc = calcularBalance(extr.importReady, []);
+  const totalFilaArchivo = (clase: string) => {
+    const filas = extr.filasCrudas.filter((fila) => fila.codigo === clase);
+    return filas.length > 0
+      ? filas.reduce((suma, fila) => suma + fila.saldoFinal, 0)
+      : null;
+  };
+  const validacion = construirValidacionContable(calc, {
+    activo: totalFilaArchivo("1"),
+    pasivo: totalFilaArchivo("2"),
+    patrimonio: totalFilaArchivo("3"),
+  });
+
+  const specCarga = p.spec
+    ? specCargaDesdePerfil(aplanarSpec(p.spec))
+    : null;
+  let huella: string | null = null;
+  let encabezados: string[] = [];
+  if (p.spec && p.ingesta?.modo === "tabular") {
+    const hoja =
+      p.ingesta.hojas.find((candidata) => candidata.nombre === p.spec?.hoja)
+      ?? p.ingesta.hojas[0];
+    const filaEncabezado = hoja?.filas[p.spec.filaEncabezado - 1];
+    if (hoja && filaEncabezado) {
+      huella = calcularHuella(hoja.nombre, filaEncabezado);
+      encabezados = filaEncabezado.map((celda) =>
+        celda == null ? "" : String(celda)
+      );
+    }
+  }
+
+  return {
+    persistida: false,
+    payload: {
+      v: 2,
+      loteId: p.loteIdSolicitud,
+      archivoNombre: p.archivoNombre,
+      archivoTam: tamArchivo(p.archivoTamBytes),
+      nitDetectado: nitFinal.valor,
+      nitFuente: nitFinal.fuente,
+      periodoInicial: extr.cabecera.periodoInicial.valor,
+      periodoFinal: extr.cabecera.periodoFinal.valor,
+      estandar: extr.cabecera.estandar,
+      convencionCredito: extr.resumen.convencionCredito,
+      filasLeidas: extr.resumen.filasLeidas,
+      filasExcluidas: extr.resumen.filasExcluidas,
+      filasDescuadre: extr.resumen.filasDescuadre,
+      cuentasMovimiento: extr.resumen.cuentasMovimiento,
+      cuentasAgrupadoras: extr.resumen.cuentasAgrupadoras,
+      cuentas: extr.importReady.length,
+      cuadreArchivo: extr.cuadre.detectado
+        ? {
+            totalDebitos: extr.cuadre.totalDebitos,
+            totalCreditos: extr.cuadre.totalCreditos,
+          }
+        : null,
+      origenExtraccion: p.origenExtraccion,
+      proveedorIA: p.proveedorIA,
+      huella,
+    },
+    render: {
+      cuadre: extr.cuadre,
+      validacion,
+      importReady: extr.importReady,
+      spec: specCarga,
+      encabezados,
+      hojas:
+        p.ingesta?.modo === "tabular"
+          ? p.ingesta.hojas.map((hoja) => hoja.nombre)
+          : [],
+      clienteDetectadoId: null,
+      proveedorIA: p.origenExtraccion === "ia" ? p.proveedorIA : null,
+    },
+  };
+}
+
+/**
+ * LECTURA (paso 1). Primero inspecciona el archivo y trata de resolver el cliente
+ * por su NIT. Si no puede hacerlo, devuelve un estado transitorio sin escribir
+ * lote ni staging; la UI conserva el File y pide selección manual. Solo después
+ * de reconocer o recibir un cliente autorizado persiste el borrador.
  *
  * Orden de resolución de la ESTRUCTURA (tabular):
  *   1. PERFIL guardado por huella del layout → determinista, 0 llamadas IA.
@@ -1536,14 +1655,7 @@ export async function leerBalance(
   }
   if (archivo.size > MAX_BYTES) return { ok: false, message: "El archivo supera 20 MB." };
 
-  // CLIENTE OBLIGATORIO ANTES DE LEER: ningún borrador puede nacer sin dueño (si
-  // no, queda huérfano en la lista y sin perfil de carga que memorizar). Además,
-  // conocerlo de entrada permite aplicar su perfil por huella (0 IA), sus ajustes
-  // y sus correcciones desde esta misma lectura.
   const clienteIdTexto = String(formData.get("clienteId") ?? "").trim();
-  if (!clienteIdTexto) {
-    return { ok: false, message: "Selecciona el cliente (NIT) antes de leer el archivo: el borrador y su perfil de carga se crean a su nombre." };
-  }
   const loteIdSolicitud = loteIdSolicitudDesde(formData);
   if (!loteIdSolicitud) {
     return { ok: false, message: "La solicitud de lectura no tiene un identificador válido. Vuelve a seleccionar el archivo." };
@@ -1553,8 +1665,11 @@ export async function leerBalance(
     return { ok: false, message: "La nueva lectura debe usar un identificador distinto al borrador que reemplaza." };
   }
 
-  const clienteExplicitoId = Number(clienteIdTexto);
-  if (!Number.isInteger(clienteExplicitoId) || clienteExplicitoId <= 0) {
+  const clienteExplicitoId = clienteIdTexto ? Number(clienteIdTexto) : null;
+  if (
+    clienteExplicitoId != null
+    && (!Number.isInteger(clienteExplicitoId) || clienteExplicitoId <= 0)
+  ) {
     return { ok: false, message: "El cliente seleccionado no es válido." };
   }
 
@@ -1562,21 +1677,33 @@ export async function leerBalance(
   // flujo de Next y no debe ser capturado como si fuera un error de extracción.
   let destinoExistente: DestinoLoteSolicitud | null;
   try {
-    const [scope, existe, destino] = await Promise.all([
-      authorizePermiso("balance:crear", { clientId: clienteExplicitoId }),
-      prisma.client.findUnique({ where: { id: clienteExplicitoId }, select: { id: true } }),
-      destinoLoteSolicitud(loteIdSolicitud),
-    ]);
-    if (!scope.ok) return { ok: false, message: scope.message };
-    if (!existe) return { ok: false, message: "El cliente seleccionado ya no existe." };
-    destinoExistente = destino;
+    destinoExistente = await destinoLoteSolicitud(loteIdSolicitud);
+    if (destinoExistente) {
+      if (
+        clienteExplicitoId != null
+        && destinoExistente.clienteId !== clienteExplicitoId
+      ) {
+        return { ok: false, message: "El identificador de esta lectura ya pertenece a otro cliente." };
+      }
+      const scopeDestino = await authorizePermiso("balance:crear", {
+        clientId: destinoExistente.clienteId,
+      });
+      if (!scopeDestino.ok) return { ok: false, message: scopeDestino.message };
+    } else if (clienteExplicitoId != null) {
+      const [scope, existe] = await Promise.all([
+        authorizePermiso("balance:crear", { clientId: clienteExplicitoId }),
+        prisma.client.findUnique({
+          where: { id: clienteExplicitoId },
+          select: { id: true },
+        }),
+      ]);
+      if (!scope.ok) return { ok: false, message: scope.message };
+      if (!existe) return { ok: false, message: "El cliente seleccionado ya no existe." };
+    }
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("leerBalance", e) };
   }
   if (destinoExistente) {
-    if (destinoExistente.clienteId !== clienteExplicitoId) {
-      return { ok: false, message: "El identificador de esta lectura ya pertenece a otro cliente." };
-    }
     redirect(
       destinoExistente.tipo === "balance"
         ? `/balance/${destinoExistente.id}?cargado=1`
@@ -1589,7 +1716,7 @@ export async function leerBalance(
       const [referenciaAnterior, contexto] = await Promise.all([
         prisma.balanceImportacionLote.findUnique({
           where: { loteId: loteIdAnterior },
-          select: { clienteId: true, cargadoPorId: true },
+          select: { clienteId: true, cargadoPorId: true, nitDetectado: true },
         }),
         contextoAccesoBorradorActual(),
       ]);
@@ -1601,12 +1728,15 @@ export async function leerBalance(
       }
       if (
         referenciaAnterior.clienteId != null
+        && clienteExplicitoId != null
         && referenciaAnterior.clienteId !== clienteExplicitoId
+        && referenciaAnterior.nitDetectado != null
       ) {
         return { ok: false, message: "El cliente elegido no corresponde al borrador que se va a reprocesar." };
       }
     }
     const proveedorIA = await proveedorIABalanceSesion(formData.get("modeloIA"));
+    const iaDisponible = iaBalanceDisponible(proveedorIA);
     // Lectura sin parámetros de cliente/período: se detecta todo del archivo
     // como sugerencia. El tipo de balance es regla fija de negocio.
     const params: ParamsExtraccion = { nit: null, periodoInicial: null, periodoFinal: null, estandar: TIPO_BALANCE_CARGA };
@@ -1638,7 +1768,6 @@ export async function leerBalance(
         clienteDetectadoId = await clienteAutorizado(await clientePorNit(nitDeterminista));
         ajustesCliente = await ajustesCargaDeCliente(clienteDetectadoId);
       }
-
       // Hoja preferida del cliente (si el usuario no eligió una y existe).
       const hojaPreferida = ajustesCliente?.hojaPreferida;
       if (!hoja && hojaPreferida && ingesta.hojas.some((h) => h.nombre === hojaPreferida)) {
@@ -1670,7 +1799,7 @@ export async function leerBalance(
     let extr: ResultadoTransform | null = null;
     let spec: MappingSpec | null = null;
     let origenExtraccion: OrigenExtraccion = "plantilla";
-    if (iaBalanceDisponible(proveedorIA)) {
+    if (iaDisponible) {
       const r = await extraerBalance(datosArchivo, archivo.name, params, {
         hojaElegida: hoja,
         usosOut: usos,
@@ -1735,10 +1864,51 @@ export async function leerBalance(
     // PDF/documento puede revelar el NIT solo después de extraer. Se asocia desde
     // esta misma lectura si la sesión tiene alcance; de lo contrario la UI exige
     // elegir el cliente antes de permitir ir al borrador.
+    const nitExtraido = nitDeterminista ?? extr.cabecera.nit.valor;
     if (clienteDetectadoId == null) {
-      const nitExtraido = nitDeterminista ?? extr.cabecera.nit.valor;
       clienteDetectadoId = await clienteAutorizado(await clientePorNit(nitExtraido));
       ajustesCliente = await ajustesCargaDeCliente(clienteDetectadoId);
+    }
+
+    const usuario = await getCurrentUser();
+
+    // El consumo externo sí debe quedar medido aunque la lectura termine
+    // esperando selección manual. Este registro no crea lote ni staging.
+    if (usos.length > 0) {
+      await registrarConsumoIA(usos, {
+        clienteId: clienteDetectadoId,
+        usuarioId: usuario?.id ?? null,
+        usuarioNombre: usuario?.name ?? null,
+        archivoNombre: archivo.name,
+        nitDetectado: nitExtraido,
+      });
+    }
+    if (clienteDetectadoId == null) {
+      if (extr.importReady.length === 0) {
+        return {
+          ok: false,
+          message: "No se leyó ninguna cuenta del archivo. Revisa las excepciones.",
+          excepciones: extr.excepciones,
+        };
+      }
+      // La revisión viaja al navegador, pero persistirLoteYSugerencia no se
+      // invoca: todavía no existe borrador, staging ni lote.
+      const sugerencia = construirSugerenciaTransitoria({
+        extr,
+        spec,
+        ingesta,
+        nitDeterminista,
+        archivoNombre: archivo.name,
+        archivoTamBytes: archivo.size,
+        loteIdSolicitud,
+        origenExtraccion,
+        proveedorIA,
+      });
+      return estadoClientePendiente(
+        nitExtraido,
+        extr.excepciones,
+        sugerencia,
+      );
     }
 
     // Las preferencias del cliente pisan también el mapa recién detectado por IA
@@ -1749,21 +1919,6 @@ export async function leerBalance(
         spec = specPreferido;
         extr = transformarTabular(spec, ingesta.hojas, params);
       }
-    }
-
-    const usuario = await getCurrentUser();
-
-    // Registra el consumo de tokens de la lectura/extracción (best-effort). Se
-    // hace aquí —aunque no haya cuentas útiles— porque la IA ya consumió tokens.
-    // El cliente detectado por NIT enriquece el registro (aún sin confirmar).
-    if (usos.length > 0) {
-      await registrarConsumoIA(usos, {
-        clienteId: clienteDetectadoId,
-        usuarioId: usuario?.id ?? null,
-        usuarioNombre: usuario?.name ?? null,
-        archivoNombre: archivo.name,
-        nitDetectado: nitDeterminista ?? extr.cabecera.nit.valor,
-      });
     }
 
     const resultado = await persistirLoteYSugerencia({
@@ -1804,6 +1959,7 @@ type ParamsLoteSugerencia = {
 type LoteAnteriorAutorizado = {
   clienteId: number | null;
   cargadoPorId: number | null;
+  nitDetectado: string | null;
 };
 
 /**
@@ -1817,7 +1973,7 @@ async function autorizarLoteAnterior(
   const [anterior, contexto] = await Promise.all([
     prisma.balanceImportacionLote.findUnique({
       where: { loteId: loteIdAnterior },
-      select: { clienteId: true, cargadoPorId: true },
+      select: { clienteId: true, cargadoPorId: true, nitDetectado: true },
     }),
     contextoAccesoBorradorActual(),
   ]);
@@ -1849,6 +2005,16 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
     return { ok: false, message: "No se leyó ninguna cuenta del archivo. Revisa las excepciones.", excepciones: extr.excepciones };
   }
   const loteAnteriorAutorizado = await autorizarLoteAnterior(p.loteIdAnterior);
+  if (
+    loteAnteriorAutorizado?.clienteId != null
+    && loteAnteriorAutorizado.clienteId !== p.clienteDetectadoId
+    && loteAnteriorAutorizado.nitDetectado != null
+  ) {
+    return {
+      ok: false,
+      message: "El cliente reconocido o seleccionado no corresponde al borrador que se va a reprocesar.",
+    };
+  }
 
   // HUELLA DIAGNÓSTICA inicial (MEDICIÓN, no afecta la lectura). Se calcula sobre un
   // CLON de las filas crudas ANTES de las reclasificaciones de abajo, para que las
@@ -2025,7 +2191,7 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
     if (p.loteIdAnterior) {
       const anterior = await tx.balanceImportacionLote.findUnique({
         where: { loteId: p.loteIdAnterior },
-        select: { clienteId: true, cargadoPorId: true },
+        select: { clienteId: true, cargadoPorId: true, nitDetectado: true },
       });
       if (!anterior) {
         throw new Error("El borrador que se iba a reemplazar ya no está disponible. Actualiza la página antes de reprocesar.");
@@ -2033,7 +2199,8 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
       if (
         !loteAnteriorAutorizado ||
         anterior.clienteId !== loteAnteriorAutorizado.clienteId ||
-        anterior.cargadoPorId !== loteAnteriorAutorizado.cargadoPorId
+        anterior.cargadoPorId !== loteAnteriorAutorizado.cargadoPorId ||
+        anterior.nitDetectado !== loteAnteriorAutorizado.nitDetectado
       ) {
         throw new Error("El borrador que se iba a reemplazar cambió durante el reproceso.");
       }
@@ -2161,6 +2328,7 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
     ok: true,
     excepciones: extr.excepciones,
     sugerencia: {
+      persistida: true,
       payload,
       render: {
         cuadre: extr.cuadre,
@@ -2246,7 +2414,7 @@ export async function reprocesarBalanceConSpec(
       const [referenciaAnterior, contexto] = await Promise.all([
         prisma.balanceImportacionLote.findUnique({
           where: { loteId: loteIdAnterior },
-          select: { clienteId: true, cargadoPorId: true },
+          select: { clienteId: true, cargadoPorId: true, nitDetectado: true },
         }),
         contextoAccesoBorradorActual(),
       ]);
@@ -2260,6 +2428,7 @@ export async function reprocesarBalanceConSpec(
         referenciaAnterior.clienteId != null
         && clienteIdExplicito != null
         && referenciaAnterior.clienteId !== clienteIdExplicito
+        && referenciaAnterior.nitDetectado != null
       ) {
         return { ok: false, message: "El cliente elegido no corresponde al borrador que se va a reprocesar." };
       }

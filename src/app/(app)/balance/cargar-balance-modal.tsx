@@ -23,6 +23,7 @@ import { EstadoProcesando } from "@/components/estado-procesando";
 import type { ImportBalanceState } from "@/lib/import/balance";
 import type { ConfiguracionIABalanceUI, ProveedorIABalance } from "@/lib/ia/proveedor-balance";
 import {
+  completarFormularioLectura,
   esFalloTransporteCarga,
   MENSAJE_RECUPERAR_LECTURA,
 } from "@/lib/balance/recuperacion-red";
@@ -109,8 +110,8 @@ function CargarBalanceModal({
   // respuesta, el reintento llega al servidor con la misma identidad y recupera
   // el borrador ya creado en vez de generar otro.
   const [loteIdSolicitud, setLoteIdSolicitud] = useState("");
-  // Cliente elegido ANTES de leer: es obligatorio, porque el borrador y el perfil
-  // de carga (memoria del layout) se crean a su nombre. Sin él no se lee nada.
+  // Solo se solicita cuando la lectura no logra reconocer un NIT asociado a la
+  // cartera autorizada. El File permanece en memoria para continuar sin adjuntar.
   const [clienteCarga, setClienteCarga] = useState<number | null>(null);
   // El File original se retiene para el EDITOR DE ESTRUCTURA (reproceso sin IA):
   // el input se desmonta al pasar a la fase de revisión.
@@ -132,18 +133,23 @@ function CargarBalanceModal({
     configuracionIA?.predeterminado,
   );
   const [mensajeLecturaDesactualizado, setMensajeLecturaDesactualizado] = useState(false);
+  const [seleccionClienteActiva, setSeleccionClienteActiva] = useState(false);
   // Identifica el análisis en curso: si el usuario cambia de archivo mientras se
   // lee el anterior, descartamos el resultado tardío (no pisa el estado nuevo).
   const seqRef = useRef(0);
   const reprocesoSolicitudRef = useRef<string | null>(null);
   const lecturaIniciadaRef = useRef(false);
+  const clienteEnviadoRef = useRef<number | null>(null);
 
-  // Un cambio de archivo, cliente, hoja o proveedor define una operación nueva.
+  // Un cambio de archivo, hoja o proveedor define una operación nueva.
   // Si ya hubo un envío, rotamos el UUID; mientras el contexto no cambie, el
   // botón de reintento conserva exactamente la identidad y el File originales.
   const renovarSolicitudTrasCambio = () => {
     if (!lecturaIniciadaRef.current || !archivoFile) return;
     setLoteIdSolicitud(crypto.randomUUID());
+    setClienteCarga(null);
+    setSeleccionClienteActiva(false);
+    clienteEnviadoRef.current = null;
     lecturaIniciadaRef.current = false;
     setMensajeLecturaDesactualizado(true);
   };
@@ -157,6 +163,9 @@ function CargarBalanceModal({
     setFileName(file?.name ?? "");
     setArchivoFile(file);
     setLoteIdSolicitud(file ? crypto.randomUUID() : "");
+    setClienteCarga(null);
+    setSeleccionClienteActiva(false);
+    clienteEnviadoRef.current = null;
     lecturaIniciadaRef.current = false;
     setMensajeLecturaDesactualizado(true);
     reprocesoSolicitudRef.current = null;
@@ -235,21 +244,29 @@ function CargarBalanceModal({
   const onLeerSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
-    const archivo = formData.get("archivo");
-    if (archivo instanceof File && archivo.size > 0) {
-      try {
-        await archivo.arrayBuffer();
-      } catch {
-        notifyError("No pudimos leer el archivo. Suele pasar cuando está ABIERTO en Excel o sincronizándose en OneDrive: ciérralo (y espera a que OneDrive termine) y vuelve a intentar.");
-        return;
-      }
+    if (!archivoFile || archivoFile.size === 0) {
+      notifyError("No se encontró el archivo original. Vuelve a seleccionarlo.");
+      return;
+    }
+    try {
+      await archivoFile.arrayBuffer();
+    } catch {
+      notifyError("No pudimos leer el archivo. Suele pasar cuando está ABIERTO en Excel o sincronizándose en OneDrive: ciérralo (y espera a que OneDrive termine) y vuelve a intentar.");
+      return;
     }
     if (!loteIdSolicitud) {
       notifyError("No se pudo identificar esta lectura. Vuelve a seleccionar el archivo.");
       return;
     }
-    formData.set("loteIdSolicitud", loteIdSolicitud);
+    completarFormularioLectura(formData, {
+      archivo: archivoFile,
+      loteIdSolicitud,
+      clienteId: clienteCarga,
+      hoja: hojaElegida,
+      proveedorIA: proveedorCarga,
+    });
     lecturaIniciadaRef.current = true;
+    clienteEnviadoRef.current = clienteCarga;
     setMensajeLecturaDesactualizado(false);
     startTransition(() => leerAction(formData));
   };
@@ -269,6 +286,55 @@ function CargarBalanceModal({
     if (!sug) return;
     const loteId = sug.payload.loteId;
     startAsignarCliente(async () => {
+      // La primera revisión sin cliente es solo memoria de React: su UUID aún
+      // no existe en BD. Reenviamos exactamente el mismo File + UUID con el
+      // cliente elegido; recién entonces leerBalance crea lote y staging.
+      if (!sug.persistida) {
+        if (!archivoFile) {
+          notifyError("No se encontró el archivo original. Vuelve a seleccionarlo.");
+          return;
+        }
+        try {
+          await archivoFile.arrayBuffer();
+        } catch {
+          notifyError("No pudimos releer el archivo original. Ciérralo en Excel y vuelve a intentarlo.");
+          return;
+        }
+        const fd = completarFormularioLectura(new FormData(), {
+          archivo: archivoFile,
+          loteIdSolicitud: loteId,
+          clienteId: clientId,
+          hoja: hojaElegida,
+          proveedorIA: sug.payload.proveedorIA ?? proveedorCarga,
+        });
+        let persistido: LeerBalanceState;
+        try {
+          persistido = await leerBalance({}, fd);
+        } catch (error) {
+          if (esFalloTransporteCarga(error)) {
+            notifyError(MENSAJE_RECUPERAR_LECTURA);
+            return;
+          }
+          throw error;
+        }
+        if (
+          !persistido.ok
+          || !persistido.sugerencia
+          || !persistido.sugerencia.persistida
+        ) {
+          notifyError(persistido.message ?? "No se pudo vincular el cliente y crear el borrador.");
+          return;
+        }
+        setClienteCarga(clientId);
+        setSugLocal(persistido.sugerencia);
+        setClienteManual({
+          loteId: persistido.sugerencia.payload.loteId,
+          clientId,
+        });
+        notifySuccess("Cliente vinculado. El borrador quedó listo para continuar.");
+        return;
+      }
+
       // Si conservamos el archivo y su mapa tabular, reprocesamos de forma
       // determinista con el cliente elegido. Así sus preferencias (signo,
       // tercero, solo-hojas) se aplican también a ESTA primera carga, no solo a
@@ -354,11 +420,25 @@ function CargarBalanceModal({
     });
   };
 
-  // Con Excel multi-hoja, no se puede leer hasta elegir una hoja. Y nunca se lee
-  // sin cliente: un borrador huérfano no puede generar el perfil de carga.
+  // Con Excel multi-hoja no se puede leer hasta elegir una hoja. El cliente solo
+  // se vuelve obligatorio si el servidor no logró reconocerlo por el NIT.
   const requiereHoja = !!hojas && hojas.length >= 2;
+  const requiereSeleccionCliente =
+    !leyendo
+    && !mensajeLecturaDesactualizado
+    && leerState.requiereCliente === true;
+  // Una vez elegido manualmente, el cliente sigue montado en el formulario
+  // durante errores/reintentos para que el próximo envío no pierda `clienteId`.
+  const mostrarSelectorCliente =
+    requiereSeleccionCliente || seleccionClienteActiva || clienteCarga != null;
+  const segundoPasoCliente = mostrarSelectorCliente;
   const leerDeshabilitado =
-    leyendo || inspeccionando || !fileName || clients.length === 0 || clienteCarga == null || (requiereHoja && !hojaElegida);
+    leyendo
+    || inspeccionando
+    || !fileName
+    || clients.length === 0
+    || (segundoPasoCliente && clienteCarga == null)
+    || (requiereHoja && !hojaElegida);
   const reintentoLecturaPendiente =
     !leyendo &&
     !mensajeLecturaDesactualizado &&
@@ -370,7 +450,15 @@ function CargarBalanceModal({
         <button type="button" onClick={onReiniciar} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] font-semibold text-ink-600 hover:bg-ink-50">
           ← Otro archivo
         </button>
-        {sug && clienteRevisionId != null ? (
+        {sug && asignandoCliente ? (
+          <button
+            type="button"
+            disabled
+            className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white opacity-60"
+          >
+            <Icon name="doc" size={13} /> <EstadoProcesando>Vinculando cliente</EstadoProcesando>
+          </button>
+        ) : sug && clienteRevisionId != null ? (
           <Link
             href={`/balance/borradores/${sug.payload.loteId}`}
             className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600"
@@ -384,7 +472,7 @@ function CargarBalanceModal({
             title="Selecciona y confirma el cliente para continuar"
             className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white opacity-60"
           >
-            <Icon name="doc" size={13} /> {asignandoCliente ? <EstadoProcesando>Vinculando cliente</EstadoProcesando> : "Selecciona el cliente"}
+            <Icon name="doc" size={13} /> Selecciona el cliente
           </button>
         ) : null}
       </div>
@@ -394,7 +482,11 @@ function CargarBalanceModal({
         form="leer-form"
         disabled={leerDeshabilitado}
         aria-busy={leyendo}
-        title={clienteCarga == null ? "Selecciona el cliente (NIT) para poder leer el archivo" : undefined}
+        title={
+          segundoPasoCliente && clienteCarga == null
+            ? "Selecciona el cliente reconocido en el archivo para continuar"
+            : undefined
+        }
         className="ml-auto rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
       >
         {leyendo
@@ -403,9 +495,11 @@ function CargarBalanceModal({
             ? <EstadoProcesando>Analizando hojas</EstadoProcesando>
             : reintentoLecturaPendiente
               ? "Reintentar lectura"
-              : requiereHoja && hojaElegida
-                ? `Leer hoja «${recortar(hojaElegida, 22)}»`
-                : "Leer archivo"}
+              : segundoPasoCliente
+                ? "Continuar con cliente"
+                : requiereHoja && hojaElegida
+                  ? `Leer hoja «${recortar(hojaElegida, 22)}»`
+                  : "Leer archivo"}
       </button>
     );
 
@@ -426,14 +520,15 @@ function CargarBalanceModal({
         />
       ) : (
         <form id="leer-form" onSubmit={onLeerSubmit} className="flex flex-col gap-3.5">
-          <p className="text-[12.5px] leading-relaxed text-ink-600">
-            Elige el <span className="font-semibold">cliente</span> y sube el balance en <span className="font-semibold">Excel (.xlsx/.xlsm/.xls), CSV, TXT (plano), JSON o PDF</span>. La plataforma
-            lo lee (con el <span className="font-semibold">perfil guardado del cliente</span> si el formato ya se conoce, o
-            con IA), identifica la estructura y te <span className="font-semibold">sugiere</span> los datos (período, saldos).
-            Al terminar la lectura crea un borrador para que lo revises antes de cargarlo como balance oficial.
-          </p>
+          {!segundoPasoCliente && (
+            <p className="text-[12.5px] leading-relaxed text-ink-600">
+              Adjunta el balance en <span className="font-semibold">Excel (.xlsx/.xlsm/.xls), CSV, TXT (plano), JSON o PDF</span>. Russell
+              escanea el archivo, reconoce el NIT e intenta asociarlo con uno de tus clientes. Si no puede reconocerlo,
+              te pedirá seleccionar el cliente antes de crear el borrador. El archivo permanece adjunto durante todo el proceso.
+            </p>
+          )}
 
-          {configuracionIA && (
+          {!segundoPasoCliente && configuracionIA && (
             <div className="rounded-md border border-ai-100 bg-ai-100/30 px-3 py-2.5">
               <label className="flex flex-col gap-1.5">
                 <span className="text-[11.5px] font-medium text-ink-700">Proveedor de IA para esta carga</span>
@@ -460,45 +555,65 @@ function CargarBalanceModal({
             </div>
           ) : (
             <>
-              <div className="rounded-md border border-ink-200 bg-ink-50/60 px-3 py-2.5">
-                <SelectorClienteBuscable
-                  clients={clients}
-                  value={clienteCarga}
-                  onChange={(clientId) => {
-                    renovarSolicitudTrasCambio();
-                    setClienteCarga(clientId);
-                  }}
-                  name="clienteId"
-                />
-                <p className="mt-1.5 text-[11.5px] text-ink-600">
-                  <span className="font-semibold">Obligatorio.</span> El borrador y el perfil de carga (memoria del layout) se crean a nombre
-                  de este cliente. Se aplican de una vez sus preferencias y correcciones guardadas; el NIT del archivo se contrasta después.
-                </p>
-              </div>
+              {!segundoPasoCliente && (
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-[11.5px] font-medium text-ink-600">Archivo (Excel, CSV, TXT, JSON o PDF)</span>
+                  <input
+                    type="file"
+                    name="archivo"
+                    accept=".xlsx,.xlsm,.xls,.csv,.txt,.json,.pdf,text/plain,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    required
+                    onChange={onArchivoChange}
+                    className="rounded-md border border-ink-200 bg-white text-[12.5px] text-ink-700 file:mr-3 file:cursor-pointer file:border-0 file:bg-navy-700 file:px-3 file:py-2 file:text-[12.5px] file:font-semibold file:text-white"
+                  />
+                </label>
+              )}
 
-              <label className="flex flex-col gap-1.5">
-                <span className="text-[11.5px] font-medium text-ink-600">Archivo (Excel, CSV, TXT, JSON o PDF)</span>
-                <input
-                  type="file"
-                  name="archivo"
-                  accept=".xlsx,.xlsm,.xls,.csv,.txt,.json,.pdf,text/plain,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                  required
-                  onChange={onArchivoChange}
-                  className="rounded-md border border-ink-200 bg-white text-[12.5px] text-ink-700 file:mr-3 file:cursor-pointer file:border-0 file:bg-navy-700 file:px-3 file:py-2 file:text-[12.5px] file:font-semibold file:text-white"
-                />
-              </label>
+              {mostrarSelectorCliente && (
+                <div className="rounded-md border border-warn-100 bg-warn-100/40 px-3 py-2.5">
+                  <SelectorClienteBuscable
+                    clients={clients}
+                    value={clienteCarga}
+                    onChange={(clientId) => {
+                      if (
+                        clientId != null
+                        && clienteEnviadoRef.current != null
+                        && clientId !== clienteEnviadoRef.current
+                      ) {
+                        renovarSolicitudTrasCambio();
+                      }
+                      setSeleccionClienteActiva(true);
+                      setClienteCarga(clientId);
+                    }}
+                    name="clienteId"
+                  />
+                  <p className="mt-1.5 text-[11.5px] text-warn-700">
+                    {requiereSeleccionCliente ? (
+                      <>
+                        <span className="font-semibold">Selección necesaria.</span> {leerState.message}
+                        <span className="mt-1 block">Elige el cliente y pulsa «Continuar con cliente».</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="font-semibold">Cliente conservado.</span> Russell mantendrá esta selección y el
+                        archivo original cuando compruebes o reintentes la lectura.
+                      </>
+                    )}
+                  </p>
+                </div>
+              )}
 
               {/* Hoja elegida en Excel multi-hoja; vacío en archivos de una sola hoja, CSV o PDF. */}
               <input type="hidden" name="hoja" value={hojaElegida ?? ""} />
               <input type="hidden" name="loteIdSolicitud" value={loteIdSolicitud} />
 
-              {inspeccionando && <p className="text-[12px] text-ink-500"><EstadoProcesando>Analizando las hojas del archivo</EstadoProcesando></p>}
-              {archivoGrande && (
+              {!segundoPasoCliente && inspeccionando && <p className="text-[12px] text-ink-500"><EstadoProcesando>Analizando las hojas del archivo</EstadoProcesando></p>}
+              {!segundoPasoCliente && archivoGrande && (
                 <p className="rounded-md border border-err-200 bg-err-50 px-3 py-2.5 text-[12px] font-medium text-err-700">
                   <span className="font-semibold">⚠️ ¡Archivo muy pesado!</span> Su carga toma más tiempo de lo normal. Puedes cambiar de pestaña; si la conexión se interrumpe, Russell comprobará el mismo intento sin duplicar el borrador.
                 </p>
               )}
-              {requiereHoja && hojas && (
+              {!segundoPasoCliente && requiereHoja && hojas && (
                 <SelectorHojas
                   hojas={hojas}
                   elegida={hojaElegida}
@@ -511,7 +626,9 @@ function CargarBalanceModal({
             </>
           )}
 
-          {leerState?.message &&
+          {!segundoPasoCliente &&
+            leerState?.message &&
+            !leerState.requiereCliente &&
             (leerState.message !== MENSAJE_RECUPERAR_LECTURA || reintentoLecturaPendiente) &&
             (leerState.errorProveedorIA ? (
               <div className="rounded-md border border-warn-100 bg-warn-100/40 px-3 py-2.5 text-[12px] text-warn-700">
@@ -530,8 +647,12 @@ function CargarBalanceModal({
                 {leerState.message}
               </p>
             ))}
-          {leerState?.errores && leerState.errores.length > 0 && <ErroresTabla errores={leerState.errores} />}
-          {leerState?.excepciones && leerState.excepciones.length > 0 && <ExcepcionesTabla excepciones={leerState.excepciones} />}
+          {!segundoPasoCliente && leerState?.errores && leerState.errores.length > 0 && (
+            <ErroresTabla errores={leerState.errores} />
+          )}
+          {!segundoPasoCliente && leerState?.excepciones && leerState.excepciones.length > 0 && (
+            <ExcepcionesTabla excepciones={leerState.excepciones} />
+          )}
         </form>
       )}
     </Modal>
@@ -566,7 +687,7 @@ function FormRevisar({
 }) {
   // El editor de estructura solo aplica si aún tenemos el File (reproceso) y la
   // lectura produjo un spec (tabular). PDF/plantilla no traen spec.
-  const puedeEditar = !!archivoFile && !!sug.render.spec;
+  const puedeEditar = sug.persistida && !!archivoFile && !!sug.render.spec;
 
   // Guardar el spec ajustado como PERFIL del cliente SIN reprocesar (para futuras cargas).
   // Si no hay cliente (ni por NIT ni en el lote), se pide elegirlo para concluir el guardado.
@@ -635,7 +756,7 @@ function IdentificacionCliente({
   asignando: boolean;
   onAsignar: (clientId: number) => void;
 }) {
-  const [seleccion, setSeleccion] = useState<number | null>(null);
+  const [seleccion, setSeleccion] = useState<number | null>(clienteId);
   const cliente = clients.find((opcion) => opcion.id === clienteId) ?? null;
 
   if (cliente) {
@@ -668,6 +789,28 @@ function IdentificacionCliente({
             <dd className="mt-0.5 truncate text-[12.5px] font-semibold text-ink-800" title={cliente.name}>{cliente.name}</dd>
           </div>
         </dl>
+        {nitDetectado == null && (
+          <div className="mt-3 border-t border-ok-200/80 pt-3">
+            <p className="mb-2 text-[11.5px] text-ink-600">
+              El archivo no traía NIT. Confirma este cliente o busca otro por razón social o NIT antes de continuar.
+            </p>
+            <div className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+              <SelectorClienteBuscable clients={clients} value={seleccion} onChange={setSeleccion} />
+              <button
+                type="button"
+                disabled={seleccion == null || seleccion === clienteId || asignando}
+                onClick={() => seleccion != null && onAsignar(seleccion)}
+                className="h-[37px] rounded-md bg-navy-700 px-3 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
+              >
+                {asignando
+                  ? <EstadoProcesando>Cambiando</EstadoProcesando>
+                  : seleccion === clienteId
+                    ? "Cliente actual"
+                    : "Cambiar cliente"}
+              </button>
+            </div>
+          </div>
+        )}
       </section>
     );
   }
