@@ -74,14 +74,12 @@ import {
 } from "@/components/revelado-progresivo";
 import { expandirFilas, type FilasCompactas } from "@/lib/balance/filas-compactas";
 import type { RevisionReubicacionStaging } from "@/lib/balance/staging-borrador";
-import { PerfilesEnMemoriaControl } from "@/app/(app)/balance/perfiles-en-memoria";
 
 type Cliente = {
   id: number;
   name: string;
   nit: string;
   notas?: string | null;
-  perfilesEnMemoria: number;
 };
 
 /** Conserva la confirmación devuelta por la Server Action mientras el refresh de
@@ -630,8 +628,6 @@ export default function BorradorDetailClient({
       else notifyError(r.message ?? "No se pudo descartar.");
     });
 
-  const clientePerfiles = clientes.find((cliente) => cliente.id === clienteSelId) ?? null;
-
   return (
     <div className="flex flex-col gap-4">
       <PageHeader
@@ -639,16 +635,6 @@ export default function BorradorDetailClient({
         subtitle="Estructura CRUDA extraída del Excel (sin homologación). Las agrupadoras cuyo total ≠ suma de sus cuentas aparecen subrayadas: ahí está el descuadre."
         actions={
           <div className="flex flex-wrap items-center justify-end gap-2">
-            {clientePerfiles && (
-              <PerfilesEnMemoriaControl
-                cliente={{
-                  id: clientePerfiles.id,
-                  name: clientePerfiles.name,
-                  nit: clientePerfiles.nit,
-                  perfilesEnMemoria: clientePerfiles.perfilesEnMemoria,
-                }}
-              />
-            )}
             {(nitTachados > 0 || filasOcultas > 0) && (
               // El detalle de por qué se tacharon/ocultaron filas es largo y solo se
               // consulta cuando algo no cuadra: vive tras este botón y el contenido
@@ -711,7 +697,7 @@ export default function BorradorDetailClient({
         <div className="flex items-start gap-2 rounded-md border border-ok-200 bg-ok-100/40 px-3 py-2 text-[12px] text-ok-800">
           <span className="mt-px font-bold text-ok-700">✓</span>
           <span>
-            <span className="font-semibold">Perfil del cliente aplicado.</span> Se corrigieron <span className="font-semibold">{correccionesAplicadas}</span> fila(s) automáticamente con las correcciones memorizadas de cargas anteriores (reclasificaciones, omisiones, desacoples y re-parentados guardados para este cliente). Revísalas; si haces nuevos ajustes y los guardas, también quedarán memorizados. Puedes verlas, editarlas o borrarlas desde <span className="font-semibold">Perfiles en memoria</span>, en la parte superior.
+            <span className="font-semibold">Perfil del cliente aplicado.</span> Se corrigieron <span className="font-semibold">{correccionesAplicadas}</span> fila(s) automáticamente con las correcciones memorizadas de cargas anteriores (reclasificaciones, omisiones, desacoples y re-parentados guardados para este cliente). Revísalas; si haces nuevos ajustes y los guardas, también quedarán memorizados. Un administrador puede verlas, editarlas o borrarlas en <span className="font-semibold">Configuración › Perfiles de carga</span>.
           </span>
         </div>
       )}
@@ -786,7 +772,7 @@ export default function BorradorDetailClient({
           <label className={`mt-2 flex cursor-pointer items-start gap-2 rounded-md border px-2.5 py-1.5 text-[12px] ${soloHojas ? "border-blue-300 bg-blue-50 text-ink-700" : "border-ink-200 bg-white text-ink-600"}`}>
             <input type="checkbox" checked={soloHojas} onChange={(e) => setSoloHojas(e.target.checked)} className="mt-0.5" />
             <span>
-              <span className="font-semibold">Evitar doble conteo de subtotales</span> (export jerárquico) — algunos ERP (p. ej. SIESA) exportan la cuenta <span className="font-semibold">y</span> sus subcuentas/auxiliares, todas con saldo: al sumarlas todas el balance queda al doble. Esto marca como <span className="font-semibold">agrupadora</span> toda cuenta que traiga detalle debajo, de modo que solo sumen las cuentas del <span className="font-semibold">último nivel</span>. Se previsualiza al instante; <span className="font-semibold">guarda</span> para persistirlo. Para automatizarlo en cada carga del cliente, abre <span className="font-semibold">Perfiles en memoria</span> en la parte superior.
+              <span className="font-semibold">Evitar doble conteo de subtotales</span> (export jerárquico) — algunos ERP (p. ej. SIESA) exportan la cuenta <span className="font-semibold">y</span> sus subcuentas/auxiliares, todas con saldo: al sumarlas todas el balance queda al doble. Esto marca como <span className="font-semibold">agrupadora</span> toda cuenta que traiga detalle debajo, de modo que solo sumen las cuentas del <span className="font-semibold">último nivel</span>. Se previsualiza al instante; <span className="font-semibold">guarda</span> para persistirlo. Para automatizarlo en cada carga del cliente, pide a un administrador que lo active en <span className="font-semibold">Configuración › Perfiles de carga</span>.
             </span>
           </label>
         </div>

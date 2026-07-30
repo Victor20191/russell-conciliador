@@ -21,7 +21,6 @@ import {
 import type { ActionState } from "@/lib/definitions";
 import { notifyActionState } from "@/lib/client-notifications";
 import { ImportClientesButton } from "./import-clientes-modal";
-import { AjustesCargaModal } from "./ajustes-carga-modal";
 
 export type ModuleRef = { id: number; name: string };
 /** Catálogo de formatos DIAN seleccionables por cliente (IVA F-300…). */
@@ -93,8 +92,8 @@ export default function ClientesClient({
   const [sector, setSector] = useState("");
   const [editing, setEditing] = useState<ClientRow | null>(null);
   const [creating, setCreating] = useState(false);
-  // Personalización de la carga de balances (perfiles + preferencias) por cliente.
-  const [ajustandoCarga, setAjustandoCarga] = useState<ClientRow | null>(null);
+  // La personalización de la carga de balances (perfiles, correcciones y
+  // preferencias) se administra en Configuración › Perfiles de carga.
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -239,13 +238,6 @@ export default function ClientesClient({
                 )}
                 <td className="whitespace-nowrap px-2 py-2 text-right">
                   <button
-                    onClick={() => setAjustandoCarga(c)}
-                    title="Carga de balances: perfiles de formato y preferencias del cliente"
-                    className="rounded p-1 text-ink-400 hover:bg-ink-100 hover:text-ink-700"
-                  >
-                    <Icon name="upload" size={14} />
-                  </button>
-                  <button
                     onClick={() => setEditing(c)}
                     title="Ver información del cliente"
                     className="rounded p-1 text-ink-400 hover:bg-ink-100 hover:text-ink-700"
@@ -302,13 +294,6 @@ export default function ClientesClient({
           dianForms={dianForms}
           personas={personas}
           aristas={aristas}
-        />
-      )}
-      {ajustandoCarga && (
-        <AjustesCargaModal
-          key={`carga-${ajustandoCarga.id}`}
-          cliente={{ id: ajustandoCarga.id, name: ajustandoCarga.name, nit: ajustandoCarga.nit }}
-          onClose={() => setAjustandoCarga(null)}
         />
       )}
     </Card>

@@ -21,9 +21,12 @@ import { TIPO_BALANCE_CARGA } from "@/lib/balance/tipo-balance";
 //     automáticamente en cuanto la lectura queda asociada al cliente).
 //   - Preferencias de carga (`ajustes_carga_balance`): defaults del cliente
 //     (hoja preferida, convención de crédito, estándar, tercero).
-// Gate: `balance:crear` (Staff y Admin) con alcance por cliente — misma política
-// que la memoria de mapeo (`mapeo-cliente.ts`). UI en Configuración › Clientes.
-const PATH = "/config/clientes";
+// Gate: `perfiles_carga:administrar` (Administrador y Superadministrador), con
+// la doble verificación de alcance por cliente que mantiene el patrón del resto
+// de acciones sobre datos de cliente. UI en Configuración › Perfiles de carga:
+// es parametrización técnica de la herramienta, no trabajo de auditoría, así que
+// no se expone en la ficha del cliente ni en las pantallas de balance.
+const PATH = "/config/perfiles-carga";
 
 export type PerfilCargaResumen = {
   id: number;
@@ -154,9 +157,9 @@ function resumenColumnas(spec: SpecCarga): string {
  */
 export async function listarPerfilesCarga(clienteId: number): Promise<PerfilesCargaState> {
   const vacio: PerfilesCargaState = { ok: false, perfiles: [], ajustes: null, correcciones: [] };
-  const authz = await authorizePermiso("balance:crear");
+  const authz = await authorizePermiso("perfiles_carga:administrar");
   if (!authz.ok) return { ...vacio, message: authz.message };
-  const scope = await authorizePermiso("balance:crear", { clientId: clienteId, modo: "lectura" });
+  const scope = await authorizePermiso("perfiles_carga:administrar", { clientId: clienteId, modo: "lectura" });
   if (!scope.ok) return { ...vacio, message: scope.message };
   try {
     const [filas, ajustes, filasCorrecciones] = await Promise.all([
@@ -226,7 +229,7 @@ export type EditarPerfilCargaInput = {
  * persona cambió el perfil mientras estaba abierto, no se pisan sus ajustes.
  */
 export async function actualizarPerfilCarga(input: EditarPerfilCargaInput): Promise<ActionState> {
-  const authz = await authorizePermiso("balance:crear");
+  const authz = await authorizePermiso("perfiles_carga:administrar");
   if (!authz.ok) return { ok: false, message: authz.message };
 
   const parsed = EditarPerfilCargaSchema.safeParse(input);
@@ -271,7 +274,7 @@ export async function actualizarPerfilCarga(input: EditarPerfilCargaInput): Prom
     });
     if (!perfil) return { ok: false, message: "El perfil ya no existe." };
 
-    const scope = await authorizePermiso("balance:crear", { clientId: perfil.clienteId });
+    const scope = await authorizePermiso("perfiles_carga:administrar", { clientId: perfil.clienteId });
     if (!scope.ok) return { ok: false, message: scope.message };
 
     const versionEsperada = new Date(actualizadoEn);
@@ -330,7 +333,7 @@ export async function actualizarPerfilCarga(input: EditarPerfilCargaInput): Prom
 
 /** Elimina UNA corrección memorizada (deja de re-aplicarse en las próximas cargas). */
 export async function eliminarCorreccionCarga(id: number): Promise<ActionState> {
-  const authz = await authorizePermiso("balance:crear");
+  const authz = await authorizePermiso("perfiles_carga:administrar");
   if (!authz.ok) return { ok: false, message: authz.message };
   const correccionId = Number(id);
   if (!Number.isInteger(correccionId) || correccionId <= 0) return { ok: false, message: "Corrección inválida." };
@@ -340,7 +343,7 @@ export async function eliminarCorreccionCarga(id: number): Promise<ActionState> 
       select: { clienteId: true, cuenta: true, nombre: true },
     });
     if (!correccion) return { ok: false, message: "La corrección ya no existe." };
-    const scope = await authorizePermiso("balance:crear", { clientId: correccion.clienteId });
+    const scope = await authorizePermiso("perfiles_carga:administrar", { clientId: correccion.clienteId });
     if (!scope.ok) return { ok: false, message: scope.message };
     await prisma.correccionCargaBalance.delete({ where: { id: correccionId } });
     const user = await getCurrentUser();
@@ -360,11 +363,11 @@ export async function eliminarCorreccionCarga(id: number): Promise<ActionState> 
 
 /** Elimina TODAS las correcciones memorizadas del cliente. */
 export async function limpiarCorreccionesCarga(clienteId: number): Promise<ActionState> {
-  const authz = await authorizePermiso("balance:crear");
+  const authz = await authorizePermiso("perfiles_carga:administrar");
   if (!authz.ok) return { ok: false, message: authz.message };
   const cid = Number(clienteId);
   if (!Number.isInteger(cid) || cid <= 0) return { ok: false, message: "Cliente inválido." };
-  const scope = await authorizePermiso("balance:crear", { clientId: cid });
+  const scope = await authorizePermiso("perfiles_carga:administrar", { clientId: cid });
   if (!scope.ok) return { ok: false, message: scope.message };
   try {
     const del = await prisma.correccionCargaBalance.deleteMany({ where: { clienteId: cid } });
@@ -385,7 +388,7 @@ export async function limpiarCorreccionesCarga(clienteId: number): Promise<Actio
 
 /** Elimina un perfil de carga (la próxima carga con ese layout volverá a usar IA). */
 export async function eliminarPerfilCarga(id: number): Promise<ActionState> {
-  const authz = await authorizePermiso("balance:crear");
+  const authz = await authorizePermiso("perfiles_carga:administrar");
   if (!authz.ok) return { ok: false, message: authz.message };
   const perfilId = Number(id);
   if (!Number.isInteger(perfilId) || perfilId <= 0) return { ok: false, message: "Perfil inválido." };
@@ -395,7 +398,7 @@ export async function eliminarPerfilCarga(id: number): Promise<ActionState> {
       select: { clienteId: true, huella: true, hoja: true, archivoEjemplo: true },
     });
     if (!perfil) return { ok: false, message: "El perfil ya no existe." };
-    const scope = await authorizePermiso("balance:crear", { clientId: perfil.clienteId });
+    const scope = await authorizePermiso("perfiles_carga:administrar", { clientId: perfil.clienteId });
     if (!scope.ok) return { ok: false, message: scope.message };
     await prisma.perfilCargaBalance.delete({ where: { id: perfilId } });
     const user = await getCurrentUser();
@@ -415,7 +418,7 @@ export async function eliminarPerfilCarga(id: number): Promise<ActionState> {
 
 /** Guarda (upsert) las preferencias de carga del cliente. */
 export async function guardarAjustesCarga(_prev: ActionState | undefined, formData: FormData): Promise<ActionState> {
-  const authz = await authorizePermiso("balance:crear");
+  const authz = await authorizePermiso("perfiles_carga:administrar");
   if (!authz.ok) return { ok: false, message: authz.message };
   const parsed = AjustesCargaSchema.safeParse({
     clienteId: formData.get("clienteId"),
@@ -427,7 +430,7 @@ export async function guardarAjustesCarga(_prev: ActionState | undefined, formDa
   });
   if (!parsed.success) return { ok: false, message: parsed.error.issues[0]?.message ?? "Datos inválidos." };
   const { clienteId, hojaPreferida, convencionCredito, agregarPorTercero, imputarSoloHojas, observaciones } = parsed.data;
-  const scope = await authorizePermiso("balance:crear", { clientId: clienteId });
+  const scope = await authorizePermiso("perfiles_carga:administrar", { clientId: clienteId });
   if (!scope.ok) return { ok: false, message: scope.message };
   try {
     const cliente = await prisma.client.findUnique({ where: { id: clienteId }, select: { name: true } });

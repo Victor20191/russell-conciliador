@@ -24,7 +24,7 @@ export default async function BalancePage() {
   ]);
   const canUpload = crearBalanceAuth.ok;
   const whereCliente = alc.todos ? {} : { clienteId: { in: alc.clientIds } };
-  const [encabezados, carteraClientes, configuracionIA, auditoria, usuariosAuditoria, perfilesPorClienteRows] = await Promise.all([
+  const [encabezados, carteraClientes, configuracionIA, auditoria, usuariosAuditoria] = await Promise.all([
     prisma.balancePruebaEncabezado.findMany({
       where: whereCliente,
       orderBy: { creadoEn: "desc" },
@@ -60,13 +60,6 @@ export default async function BalancePage() {
     prisma.user.findMany({
       select: { name: true, role: true },
     }),
-    canUpload
-      ? prisma.perfilCargaBalance.groupBy({
-          by: ["clienteId"],
-          where: whereCliente,
-          _count: { _all: true },
-        })
-      : Promise.resolve([]),
   ]);
   // Cargar balance = permiso de rol (Staff es el único operativo). El alcance
   // por cliente se verifica de nuevo en la Server Action al enviar.
@@ -85,9 +78,6 @@ export default async function BalancePage() {
     periodTs: Map<string, number>; lastTs: number;
   };
   const byClient = new Map<number, Agg>();
-  const perfilesPorCliente = new Map(
-    perfilesPorClienteRows.map((fila) => [fila.clienteId, fila._count._all]),
-  );
   for (const b of encabezados) {
     const ts = b.creadoEn.getTime();
     let g = byClient.get(b.clienteId);
@@ -116,7 +106,6 @@ export default async function BalancePage() {
     .sort((a, b) => b.lastTs - a.lastTs)
     .map((g) => ({
       clientId: g.clientId, clientName: g.clientName, clientNit: g.clientNit,
-      perfilesEnMemoria: perfilesPorCliente.get(g.clientId) ?? 0,
       periodList: [...g.periods.values()].sort(
         (x, y) => (g.periodTs.get(y.period) ?? 0) - (g.periodTs.get(x.period) ?? 0),
       ),

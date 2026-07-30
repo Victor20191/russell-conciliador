@@ -39,10 +39,11 @@ const COLUMNAS_PERFIL: {
 ];
 
 /**
- * Personalización de la CARGA DE BALANCES del cliente (ficha en Configuración ›
- * Clientes): perfiles de estructura guardados automáticamente al asociar una
- * carga y preferencias por defecto (hoja, signo, tercero) que el asistente aplica
- * cuando identifica o se le asigna el cliente.
+ * Personalización de la CARGA DE BALANCES de UN cliente, dentro de Configuración
+ * › Perfiles de carga (ruta admin-only, permiso `perfiles_carga:administrar`):
+ * perfiles de estructura guardados automáticamente al asociar una carga,
+ * correcciones por cuenta memorizadas y preferencias por defecto (hoja, signo,
+ * tercero) que el asistente aplica cuando identifica o se le asigna el cliente.
  */
 export function AjustesCargaModal({
   cliente,

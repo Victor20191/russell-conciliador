@@ -212,6 +212,14 @@ export const PERMISOS: Permiso[] = [
   // balance (diferencias y saldos contrarios). Es un criterio de MATERIALIDAD de la
   // firma, no un dato de cliente: lo fija quien administra la herramienta.
   { code: "parametros:administrar", module: "parametros", action: "administrar", label: "Administrar parámetros de alertas", roles: SOLO_ADMIN },
+
+  // ===== Perfiles de carga de balances — Administrador y Superadministrador =====
+  // Formatos memorizados por huella, correcciones por cuenta y preferencias de
+  // carga de CADA cliente. Determinan cómo la plataforma interpreta los archivos
+  // (y cuándo se salta la IA): es parametrización técnica de la herramienta, no
+  // trabajo de auditoría → sale de la ficha del cliente y de las pantallas de
+  // balance y queda en Configuración › Perfiles de carga, admin-only.
+  { code: "perfiles_carga:administrar", module: "perfiles_carga", action: "administrar", label: "Administrar perfiles de carga de balances", roles: SOLO_ADMIN },
 ];
 
 // ----- MATRIZ rol×permiso derivada del catálogo (solo roles del PDF) -----

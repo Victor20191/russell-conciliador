@@ -17,7 +17,8 @@ export type PlatformModuleKey =
   | "novedades"
   | "estructura"
   | "prompts"
-  | "parametros";
+  | "parametros"
+  | "perfiles_carga";
 
 export type PlatformModuleDefinition = {
   key: PlatformModuleKey;
@@ -227,6 +228,19 @@ export const MODULOS_PLATAFORMA: PlatformModuleDefinition[] = [
     group: "Configuración",
     icon: "settings",
     order: 210,
+    enabledForNonAdmins: false,
+    configurableForNonAdmins: false,
+  },
+  {
+    // Admin-only: la visibilidad la gobierna el permiso
+    // perfiles_carga:administrar (SOLO_ADMIN); la publicación de módulos queda
+    // inerte (configurable=false ⇒ moduloPublicadoParaRol devuelve true).
+    key: "perfiles_carga",
+    label: "Perfiles de carga",
+    description: "Formatos memorizados, correcciones por cuenta y preferencias con las que la plataforma lee los balances de cada cliente.",
+    group: "Configuración",
+    icon: "ai",
+    order: 220,
     enabledForNonAdmins: false,
     configurableForNonAdmins: false,
   },

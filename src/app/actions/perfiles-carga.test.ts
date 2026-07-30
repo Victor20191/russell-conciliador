@@ -103,7 +103,7 @@ describe("actualizarPerfilCarga", () => {
       estructura: ESTRUCTURA,
     });
 
-    expect(mocks.authorizePermiso).toHaveBeenNthCalledWith(2, "balance:crear", { clientId: 23 });
+    expect(mocks.authorizePermiso).toHaveBeenNthCalledWith(2, "perfiles_carga:administrar", { clientId: 23 });
     expect(resultado).toEqual({ ok: false, message: "Cliente fuera de alcance." });
     expect(mocks.updateMany).not.toHaveBeenCalled();
   });
@@ -148,7 +148,7 @@ describe("actualizarPerfilCarga", () => {
       clientId: 23,
       user: "Analista",
     }));
-    expect(mocks.revalidatePath).toHaveBeenCalledWith("/config/clientes");
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/config/perfiles-carga");
   });
 
   it("no pisa una edición concurrente ni registra una auditoría falsa", async () => {

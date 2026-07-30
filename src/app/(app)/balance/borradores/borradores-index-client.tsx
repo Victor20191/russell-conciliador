@@ -17,11 +17,6 @@ import { claveNit } from "@/lib/nit";
 import type { VinculoClienteBorrador } from "@/lib/balance/autorizacion-borrador";
 import { descartarBorrador } from "@/app/actions/balance";
 import { notifySuccess, notifyError } from "@/lib/client-notifications";
-import {
-  PerfilesEnMemoriaButton,
-  PerfilesEnMemoriaModal,
-  type ClientePerfilesEnMemoria,
-} from "@/app/(app)/balance/perfiles-en-memoria";
 
 export type BorradorRow = {
   loteId: string;
@@ -29,8 +24,6 @@ export type BorradorRow = {
   conEncabezado: boolean;
   nitDetectado: string | null;
   cliente: VinculoClienteBorrador;
-  perfilesEnMemoria: number;
-  puedeGestionarPerfiles: boolean;
   periodo: string;
   cuentasMovimiento: number;
   cuadrado: boolean;
@@ -113,13 +106,8 @@ export function ClienteBorradorCelda({
   if (cliente.tipo === "asignado") {
     return (
       <span className="inline-flex flex-col gap-0.5">
-        <span className="flex flex-wrap items-center gap-1.5">
-          <span className="font-medium text-ink-800">
-            {cliente.nombre ?? `Cliente #${cliente.id}`}
-          </span>
-          <span className="rounded-full border border-ok-100 bg-ok-100/40 px-1.5 py-0.5 text-[9.5px] font-semibold text-ok-700">
-            Cliente asignado
-          </span>
+        <span className="font-medium text-ink-800">
+          {cliente.nombre ?? `Cliente #${cliente.id}`}
         </span>
         {(cliente.nit ?? nitDetectado) && (
           <span className="font-mono text-[10.5px] text-ink-400">
@@ -171,7 +159,6 @@ export default function BorradoresIndexClient({ rows }: { rows: BorradorRow[] })
   const [descartando, startDescartar] = useTransition();
   const [confirmar, setConfirmar] = useState<string | null>(null);
   const [busqueda, setBusqueda] = useState("");
-  const [clientePerfiles, setClientePerfiles] = useState<ClientePerfilesEnMemoria | null>(null);
   const borradoresOrdenados = useMemo(
     () => ordenarBorradoresListado(rows),
     [rows],
@@ -248,7 +235,6 @@ export default function BorradoresIndexClient({ rows }: { rows: BorradorRow[] })
                 <th className="px-3 py-2 text-right font-semibold">Cuentas</th>
                 <th className="px-3 py-2 font-semibold">Estado</th>
                 <th className="px-3 py-2 font-semibold">Fecha</th>
-                <th className="px-3 py-2 font-semibold">Perfiles en memoria</th>
                 <th className="px-3 py-2 text-right font-semibold">Acciones</th>
               </tr>
             </thead>
@@ -283,36 +269,6 @@ export default function BorradoresIndexClient({ rows }: { rows: BorradorRow[] })
                   <td className="px-3 py-2 text-[11px] text-ink-500">
                     <span className="block whitespace-nowrap">{r.fecha}</span>
                     {r.hora && <span className="block whitespace-nowrap text-[10px] text-ink-400">{r.hora}</span>}
-                  </td>
-                  <td className="px-3 py-2">
-                    {r.puedeGestionarPerfiles
-                    && r.cliente.tipo === "asignado"
-                    && r.cliente.nombre
-                    && r.cliente.nit ? (
-                      <PerfilesEnMemoriaButton
-                        cantidad={r.perfilesEnMemoria}
-                        onClick={() => {
-                          if (
-                            r.cliente.tipo !== "asignado"
-                            || !r.cliente.nombre
-                            || !r.cliente.nit
-                          ) return;
-                          setClientePerfiles({
-                            id: r.cliente.id,
-                            name: r.cliente.nombre,
-                            nit: r.cliente.nit,
-                            perfilesEnMemoria: r.perfilesEnMemoria,
-                          });
-                        }}
-                        className="whitespace-nowrap"
-                      />
-                    ) : (
-                      <span className="text-[10.5px] leading-tight text-ink-400">
-                        {r.cliente.tipo !== "asignado"
-                          ? "Asigna el cliente para verlos"
-                          : "No disponible para tu cartera"}
-                      </span>
-                    )}
                   </td>
                   <td className="px-3 py-2">
                     {/* Acciones como iconos cuadrados del MISMO tamaño (BOTON_ACCION):
@@ -363,7 +319,7 @@ export default function BorradoresIndexClient({ rows }: { rows: BorradorRow[] })
               ))}
               {borradoresFiltrados.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-10 text-center text-[12.5px] text-ink-400">
+                  <td colSpan={7} className="px-4 py-10 text-center text-[12.5px] text-ink-400">
                     No se encontraron borradores con ese archivo, NIT o razón social.
                   </td>
                 </tr>
@@ -380,10 +336,6 @@ export default function BorradoresIndexClient({ rows }: { rows: BorradorRow[] })
           </div>
         </div>
       </Card>
-      <PerfilesEnMemoriaModal
-        cliente={clientePerfiles}
-        onClose={() => setClientePerfiles(null)}
-      />
     </div>
   );
 }

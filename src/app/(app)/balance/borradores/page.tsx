@@ -16,15 +16,12 @@ export default async function BorradoresPage() {
   const filtroClientes = contextoAcceso.alcance.todos
     ? {}
     : { id: { in: contextoAcceso.alcance.clientIds } };
-  const filtroPerfiles = contextoAcceso.alcance.todos
-    ? {}
-    : { clienteId: { in: contextoAcceso.alcance.clientIds } };
 
   // La lista usa el SNAPSHOT del encabezado en lugar de descargar y reconstruir
   // todas las filas de cada Excel. El staging puede superar fácilmente las cien mil
   // filas; agruparlo en PostgreSQL mantiene la detección de lotes huérfanos sin
   // transferirlos ni ejecutar el costoso view-model contable 83+ veces por visita.
-  const [headersConsultados, clientes, perfilesPorClienteRows] = await Promise.all([
+  const [headersConsultados, clientes] = await Promise.all([
     prisma.balanceImportacionLote.findMany({
       where: filtroLotesVisibles(contextoAcceso),
       select: {
@@ -45,11 +42,6 @@ export default async function BorradoresPage() {
     prisma.client.findMany({
       where: filtroClientes,
       select: { id: true, name: true, nit: true },
-    }),
-    prisma.perfilCargaBalance.groupBy({
-      by: ["clienteId"],
-      where: filtroPerfiles,
-      _count: { _all: true },
     }),
   ]);
   // Defensa adicional en memoria: el mismo predicado protege cualquier cambio
@@ -91,10 +83,6 @@ export default async function BorradoresPage() {
     resumenByLote.set(grupo.loteId, actual);
   }
 
-  const perfilesPorCliente = new Map(
-    perfilesPorClienteRows.map((fila) => [fila.clienteId, fila._count._all]),
-  );
-
   const rows: BorradorRow[] = [...resumenByLote.keys()]
     .map((loteId) => {
       const h = headerByLote.get(loteId);
@@ -106,9 +94,6 @@ export default async function BorradoresPage() {
         },
         clientes,
       );
-      const puedeGestionarPerfiles = cliente.tipo === "asignado"
-        && cliente.nombre != null
-        && cliente.nit != null;
       const partidaDobleDiff = h ? Number(h.partidaDobleDiff) : resumen.partidaDobleDiff;
       const creadoEn = resumen.creadoEn ?? h?.creadoEn ?? null;
       return {
@@ -117,10 +102,6 @@ export default async function BorradoresPage() {
         conEncabezado: !!h,
         nitDetectado: h?.nitDetectado ?? null,
         cliente,
-        perfilesEnMemoria: cliente.tipo === "asignado"
-          ? (perfilesPorCliente.get(cliente.id) ?? 0)
-          : 0,
-        puedeGestionarPerfiles,
         periodo: h?.periodoInicial && h?.periodoFinal ? `${fmtCalendarDate(h.periodoInicial)} → ${fmtCalendarDate(h.periodoFinal)}` : "—",
         cuentasMovimiento: resumen.cuentasMovimiento,
         cuadrado: h?.cuadrado ?? Math.abs(partidaDobleDiff) <= 1,

@@ -12,11 +12,6 @@ import {
 import { Card, Chip } from "@/components/ui";
 import { CargarBalanceButton, type ClienteOpcion } from "./cargar-balance-modal";
 import type { ConfiguracionIABalanceUI } from "@/lib/ia/proveedor-balance";
-import {
-  PerfilesEnMemoriaButton,
-  PerfilesEnMemoriaModal,
-  type ClientePerfilesEnMemoria,
-} from "./perfiles-en-memoria";
 
 export type PeriodRow = {
   period: string; versions: number; official: string | null; officialId: number | null;
@@ -25,7 +20,6 @@ export type PeriodRow = {
 };
 export type ClientGroup = {
   clientId: number; clientName: string; clientNit: string;
-  perfilesEnMemoria: number;
   periodList: PeriodRow[];
 };
 export type AuditRow = {
@@ -65,7 +59,6 @@ export default function BalanceIndexClient({
   configuracionIA: ConfiguracionIABalanceUI | null;
 }) {
   const [tab, setTab] = useState<Tab>("clients");
-  const [clientePerfiles, setClientePerfiles] = useState<ClientePerfilesEnMemoria | null>(null);
 
   return (
     <div>
@@ -75,31 +68,13 @@ export default function BalanceIndexClient({
         {canUpload && <CargarBalanceButton clients={uploadClients} configuracionIA={configuracionIA} />}
       </div>
 
-      {tab === "clients" && (
-        <ClientsTab
-          clients={clients}
-          puedeGestionarPerfiles={canUpload}
-          onAbrirPerfiles={setClientePerfiles}
-        />
-      )}
+      {tab === "clients" && <ClientsTab clients={clients} />}
       {tab === "audit" && <AuditTab rows={auditRows} clients={auditClients} />}
-      <PerfilesEnMemoriaModal
-        cliente={clientePerfiles}
-        onClose={() => setClientePerfiles(null)}
-      />
     </div>
   );
 }
 
-function ClientsTab({
-  clients,
-  puedeGestionarPerfiles,
-  onAbrirPerfiles,
-}: {
-  clients: ClientGroup[];
-  puedeGestionarPerfiles: boolean;
-  onAbrirPerfiles: (cliente: ClientePerfilesEnMemoria) => void;
-}) {
+function ClientsTab({ clients }: { clients: ClientGroup[] }) {
   const [busqueda, setBusqueda] = useState("");
   const clientesFiltrados = useMemo(() => {
     const termino = normalizarBusqueda(busqueda);
@@ -161,17 +136,6 @@ function ClientsTab({
             <h2 className="text-[13px] font-semibold text-ink-800">{c.clientName}</h2>
             <span className="font-mono text-[11px] text-ink-400">{c.clientNit}</span>
             <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-              {puedeGestionarPerfiles && (
-                <PerfilesEnMemoriaButton
-                  cantidad={c.perfilesEnMemoria}
-                  onClick={() => onAbrirPerfiles({
-                    id: c.clientId,
-                    name: c.clientName,
-                    nit: c.clientNit,
-                    perfilesEnMemoria: c.perfilesEnMemoria,
-                  })}
-                />
-              )}
               <span className="text-[11px] text-ink-400">{c.periodList.length} período(s)</span>
             </div>
           </div>

@@ -21,7 +21,6 @@ import {
   parsearRevisionesReubicacionBalance,
 } from "@/lib/balance/revisiones-reubicacion-balance";
 import Conversacion from "@/components/conversacion";
-import { PerfilesEnMemoriaControl } from "@/app/(app)/balance/perfiles-en-memoria";
 
 export default async function BalanceDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ cargado?: string }> }) {
   await requirePermiso("balance:ver");
@@ -152,16 +151,6 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
         subtitle={`${balance.periodo} · versión ${balance.version}`}
         actions={
           <div className="flex items-center gap-2">
-            {puedeMapear && (
-              <PerfilesEnMemoriaControl
-                cliente={{
-                  id: balance.clienteId,
-                  name: balance.nombreCliente,
-                  nit: balance.nit ?? "",
-                  perfilesEnMemoria: perfilesCliente,
-                }}
-              />
-            )}
             {sums && <ExportarBalance id={id} />}
             {hasDiff && (
               <a href={`/balance/${id}/diff`} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 px-3 py-2 text-[12.5px] font-medium text-ink-700 hover:bg-ink-50">

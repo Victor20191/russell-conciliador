@@ -31,8 +31,6 @@ function filaListado(
     conEncabezado: true,
     nitDetectado: null,
     cliente,
-    perfilesEnMemoria: 0,
-    puedeGestionarPerfiles: cliente.tipo === "asignado",
     periodo: "Mayo 2026",
     cuentasMovimiento: 10,
     cuadrado: true,
@@ -110,7 +108,7 @@ describe("presentación de borradores vigentes e históricos", () => {
     ]);
   });
 
-  it("marca como asignado únicamente el cliente persistido", () => {
+  it("muestra el cliente persistido sin etiqueta de estado", () => {
     const html = renderToStaticMarkup(
       createElement(ClienteBorradorCelda, {
         cliente: fila.cliente,
@@ -118,8 +116,8 @@ describe("presentación de borradores vigentes e históricos", () => {
       }),
     );
 
-    expect(html).toContain("Cliente asignado");
     expect(html).toContain("GRUPO FORMARTE S.A.S.");
+    expect(html).not.toContain("Cliente asignado");
     expect(html).not.toContain("Sugerencia por NIT");
   });
 
