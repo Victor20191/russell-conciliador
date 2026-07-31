@@ -2,14 +2,15 @@
 
 import { EstadoProcesando } from "@/components/estado-procesando";
 
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import { Card, Chip } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { fmtDateTime } from "@/lib/format";
-import { notifyActionState } from "@/lib/client-notifications";
+import { notifyActionState, notifyError, notifySuccess } from "@/lib/client-notifications";
 import { actualizarPrompt, restaurarPrompt } from "@/app/actions/prompts";
 import type { ActionState } from "@/lib/definitions";
 import type { PromptVista } from "@/lib/ia/prompts";
+import { copiarPromptAlPortapapeles } from "./portapapeles";
 
 export default function PromptsClient({ prompts }: { prompts: PromptVista[] }) {
   return (
@@ -32,6 +33,8 @@ function PromptEditor({ prompt }: { prompt: PromptVista }) {
   const [valor, setValor] = useState(prompt.contenido);
   const [contenidoPrevio, setContenidoPrevio] = useState(prompt.contenido);
   const [confirmarReset, setConfirmarReset] = useState(false);
+  const [copiado, setCopiado] = useState(false);
+  const temporizadorCopiado = useRef<number | null>(null);
 
   // Resincroniza el textarea cuando el servidor revalida (tras guardar o
   // restaurar). Patrón de ajuste de estado en render (no en efecto).
@@ -49,7 +52,36 @@ function PromptEditor({ prompt }: { prompt: PromptVista }) {
     notifyActionState(restaurarState, { success: "Prompt restaurado al predeterminado.", error: "No se pudo restaurar el prompt." });
   }, [restaurarState]);
 
+  useEffect(() => () => {
+    if (temporizadorCopiado.current != null) window.clearTimeout(temporizadorCopiado.current);
+  }, []);
+
   const sucio = valor !== prompt.contenido;
+  const limpiarEstadoCopiado = () => {
+    if (temporizadorCopiado.current != null) {
+      window.clearTimeout(temporizadorCopiado.current);
+      temporizadorCopiado.current = null;
+    }
+    setCopiado(false);
+  };
+  const copiarContenido = async () => {
+    try {
+      await copiarPromptAlPortapapeles(valor);
+      limpiarEstadoCopiado();
+      setCopiado(true);
+      temporizadorCopiado.current = window.setTimeout(() => {
+        setCopiado(false);
+        temporizadorCopiado.current = null;
+      }, 1_800);
+      notifySuccess("Prompt copiado", `El contenido visible de «${prompt.nombre}» quedó en el portapapeles.`);
+    } catch (error) {
+      limpiarEstadoCopiado();
+      notifyError(
+        "No se pudo copiar el prompt",
+        error instanceof Error ? error.message : "El navegador no permitió acceder al portapapeles.",
+      );
+    }
+  };
 
   return (
     <Card className="p-4">
@@ -62,15 +94,27 @@ function PromptEditor({ prompt }: { prompt: PromptVista }) {
           </div>
           <p className="mt-1 text-[12px] leading-relaxed text-ink-500">{prompt.descripcion}</p>
         </div>
-        <div className="shrink-0 text-right text-[11px] text-ink-400">
-          {prompt.actualizadoEn ? (
-            <>
-              Editado {fmtDateTime(prompt.actualizadoEn)}
-              {prompt.actualizadoPor ? ` · ${prompt.actualizadoPor}` : ""}
-            </>
-          ) : (
-            "Sin ediciones"
-          )}
+        <div className="ml-auto flex shrink-0 items-start gap-2">
+          <div className="pt-1 text-right text-[11px] text-ink-400">
+            {prompt.actualizadoEn ? (
+              <>
+                Editado {fmtDateTime(prompt.actualizadoEn)}
+                {prompt.actualizadoPor ? ` · ${prompt.actualizadoPor}` : ""}
+              </>
+            ) : (
+              "Sin ediciones"
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={copiarContenido}
+            aria-label={`${copiado ? "Copiado" : "Copiar contenido"}: ${prompt.nombre}`}
+            title="Copiar el contenido visible del prompt"
+            className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border transition-colors ${copiado ? "border-ok-200 bg-ok-100/50 text-ok-700" : "border-ink-200 bg-white text-ink-500 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"}`}
+          >
+            <Icon name={copiado ? "check" : "doc"} size={13} stroke={1.8} />
+            <span className="sr-only" aria-live="polite">{copiado ? "Copiado" : "Copiar"}</span>
+          </button>
         </div>
       </div>
 
@@ -79,7 +123,10 @@ function PromptEditor({ prompt }: { prompt: PromptVista }) {
         <textarea
           name="contenido"
           value={valor}
-          onChange={(e) => setValor(e.target.value)}
+          onChange={(e) => {
+            limpiarEstadoCopiado();
+            setValor(e.target.value);
+          }}
           rows={16}
           spellCheck={false}
           className="w-full resize-y rounded-md border border-ink-200 bg-ink-50/40 px-3 py-2.5 font-mono text-[12px] leading-relaxed text-ink-800 outline-none focus:border-blue-400"

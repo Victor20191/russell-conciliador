@@ -2,9 +2,12 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import {
+  AvisoAutoCorreccionSoloHojas,
   combinarRevisionesReubicacion,
+  etiquetaPerfilSoloHojas,
   filtrarReubicacionesPendientes,
   NombreCuentaArbol,
+  ProteccionSubtotalesPanel,
   retirarConfirmacionesLocales,
 } from "./borrador-detail-client";
 import type { RevisionReubicacionStaging } from "@/lib/balance/staging-borrador";
@@ -105,5 +108,46 @@ describe("nombre de cuenta con descuadre en el árbol", () => {
     expect(html).toContain("underline");
     expect(html).toContain("tabindex=\"0\"");
     expect(html).toContain("cursor-help");
+  });
+});
+
+describe("protección contra doble conteo", () => {
+  it("distingue el estado triestado configurado en el perfil", () => {
+    expect(etiquetaPerfilSoloHojas(true)).toBe("Perfil: solo hojas activo");
+    expect(etiquetaPerfilSoloHojas(false)).toBe("Perfil: forzado desactivado");
+    expect(etiquetaPerfilSoloHojas(null)).toBe("Perfil: detección automática");
+    expect(etiquetaPerfilSoloHojas(undefined)).toBe("Perfil: cliente pendiente");
+  });
+
+  it("presenta la protección estándar como estado y el forzado dentro de ajustes avanzados", () => {
+    const html = renderToStaticMarkup(
+      createElement(ProteccionSubtotalesPanel, {
+        perfilSoloHojas: true,
+        soloHojas: false,
+        autoCorregido: false,
+        analisis: { ayuda: false, n: 3 },
+        onForzar: () => undefined,
+        onDeshacer: () => undefined,
+      }),
+    );
+
+    expect(html).toContain("Protección estándar contra subtotales activa");
+    expect(html).toContain("Perfil: solo hojas activo");
+    expect(html).toContain("Ajustes avanzados de jerarquía");
+    expect(html).toContain("Forzar modo solo hojas (3)");
+    expect(html).not.toContain('type="checkbox"');
+  });
+
+  it("ofrece una acción directa para deshacer la auto-corrección", () => {
+    const html = renderToStaticMarkup(
+      createElement(AvisoAutoCorreccionSoloHojas, {
+        cuentas: 7,
+        onDeshacer: () => undefined,
+      }),
+    );
+
+    expect(html).toContain("Corrección automática de anidado");
+    expect(html).toContain("Deshacer auto-corrección");
+    expect(html).toContain("7");
   });
 });

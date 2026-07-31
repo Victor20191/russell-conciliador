@@ -81,19 +81,20 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
   // Clientes de la cartera para el selector de carga + cliente sugerido por NIT.
   const alc = contextoAcceso.alcance;
   const filtroIds = alc.todos ? {} : { clienteId: { in: alc.clientIds } };
-  const [clientes, notasRows] = await Promise.all([
+  const [clientes, ajustesRows] = await Promise.all([
     prisma.client.findMany({
       where: alc.todos ? {} : { id: { in: alc.clientIds } },
       select: { id: true, name: true, nit: true },
       orderBy: { name: "asc" },
     }),
-    // Notas de carga por cliente (particularidades del formato) para avisar al revisar.
+    // Preferencias mínimas por cliente: alimentan el estado visible de protección
+    // jerárquica y las notas del cliente seleccionado sin exponer el resto del perfil.
     prisma.ajustesCargaBalance.findMany({
-      where: { ...filtroIds, observaciones: { not: null } },
-      select: { clienteId: true, observaciones: true },
+      where: filtroIds,
+      select: { clienteId: true, observaciones: true, imputarSoloHojas: true },
     }),
   ]);
-  const notasPorCliente = new Map(notasRows.map((r) => [r.clienteId, r.observaciones]));
+  const ajustesPorCliente = new Map(ajustesRows.map((r) => [r.clienteId, r]));
   const vinculoCliente = resolverVinculoClienteBorrador(
     {
       clienteId: lote?.clienteId ?? null,
@@ -123,7 +124,8 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
           id: c.id,
           name: c.name,
           nit: c.nit,
-          notas: notasPorCliente.get(c.id) ?? null,
+          notas: ajustesPorCliente.get(c.id)?.observaciones ?? null,
+          imputarSoloHojas: ajustesPorCliente.get(c.id)?.imputarSoloHojas ?? null,
         }))}
         clienteSugeridoId={clienteSugeridoId}
         spec={spec}

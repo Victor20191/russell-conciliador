@@ -98,7 +98,129 @@ type Cliente = {
   name: string;
   nit: string;
   notas?: string | null;
+  imputarSoloHojas: boolean | null;
 };
+
+export function etiquetaPerfilSoloHojas(valor: boolean | null | undefined): string {
+  if (valor === true) return "Perfil: solo hojas activo";
+  if (valor === false) return "Perfil: forzado desactivado";
+  if (valor === null) return "Perfil: detección automática";
+  return "Perfil: cliente pendiente";
+}
+
+export function ProteccionSubtotalesPanel({
+  perfilSoloHojas,
+  soloHojas,
+  autoCorregido,
+  analisis,
+  onForzar,
+  onDeshacer,
+}: {
+  perfilSoloHojas: boolean | null | undefined;
+  soloHojas: boolean;
+  autoCorregido: boolean;
+  analisis: { ayuda: boolean; n: number } | null;
+  onForzar: () => void;
+  onDeshacer: () => void;
+}) {
+  const analizando = analisis == null;
+  const candidatas = analisis?.n ?? 0;
+  const hayCandidatas = candidatas > 0;
+
+  return (
+    <details className="group mt-2 overflow-hidden rounded-md border border-ok-100 bg-white shadow-sm">
+      <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2 px-2.5 py-2 marker:content-none">
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-ok-100 text-ok-700">
+            <Icon name="check" size={12} stroke={2} />
+          </span>
+          <span className="text-[11px] font-semibold text-ink-800">Protección estándar contra subtotales activa</span>
+          <span className={`hidden rounded-full border px-2 py-0.5 text-[9.5px] font-semibold sm:inline-flex ${perfilSoloHojas === true ? "border-blue-200 bg-blue-50 text-blue-700" : "border-ink-100 bg-ink-50 text-ink-500"}`}>
+            {etiquetaPerfilSoloHojas(perfilSoloHojas)}
+          </span>
+        </span>
+        <span className="flex items-center gap-2 text-[10.5px] font-semibold text-ink-500 transition hover:text-ink-700">
+          {soloHojas ? (
+            <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[9.5px] text-blue-700">
+              Solo hojas en vista
+            </span>
+          ) : hayCandidatas ? (
+            <span className="rounded-full border border-warn-200 bg-warn-50 px-2 py-0.5 text-[9.5px] text-warn-700">
+              {candidatas} candidata{candidatas === 1 ? "" : "s"}
+            </span>
+          ) : null}
+          <span className="flex items-center gap-1">
+            <Icon name="settings" size={11} />
+            Ajustes avanzados de jerarquía
+          </span>
+          <span className="text-ink-400 transition-transform group-open:rotate-90">
+            <Icon name="chev-r" size={12} />
+          </span>
+        </span>
+      </summary>
+      <div className="border-t border-ink-100 bg-ink-50/60 px-3 py-3">
+        <div className="flex flex-wrap items-center gap-2 sm:hidden">
+          <span className={`rounded-full border px-2 py-0.5 text-[9.5px] font-semibold ${perfilSoloHojas === true ? "border-blue-200 bg-blue-50 text-blue-700" : "border-ink-100 bg-white text-ink-500"}`}>
+            {etiquetaPerfilSoloHojas(perfilSoloHojas)}
+          </span>
+        </div>
+        <p className="mt-1 max-w-4xl text-[10.5px] leading-relaxed text-ink-500 sm:mt-0">
+          La lectura ya excluye las cuentas padre por jerarquía de código y los subtotales duplicados exactos.
+        </p>
+        <p className="mt-2 max-w-4xl text-[11px] leading-relaxed text-ink-500">
+          <span className="font-semibold text-ink-700">Forzar modo solo hojas</span> reclasifica por orden y longitud las cuentas que parecen subtotales aunque sus códigos no compartan prefijo. Úsalo solo para exports totalmente jerárquicos; en un balance mixto una cuenta puede tener saldo propio además de sus auxiliares.
+        </p>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          {soloHojas ? (
+            <button
+              type="button"
+              onClick={onDeshacer}
+              className="rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-ink-600 transition hover:bg-ink-50 hover:text-ink-800"
+            >
+              {autoCorregido ? "Deshacer auto-corrección" : "Quitar modo solo hojas"}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onForzar}
+              disabled={analizando || !hayCandidatas}
+              className="rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11px] font-semibold text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:border-ink-100 disabled:bg-ink-50 disabled:text-ink-400"
+            >
+              {analizando
+                ? "Analizando jerarquía…"
+                : hayCandidatas
+                  ? `Forzar modo solo hojas (${candidatas})`
+                  : "Sin subtotales adicionales por reclasificar"}
+            </button>
+          )}
+          <span className="text-[10px] text-ink-400">
+            La previsualización no se persiste hasta guardar los cambios.
+          </span>
+        </div>
+      </div>
+    </details>
+  );
+}
+
+export function AvisoAutoCorreccionSoloHojas({ cuentas, onDeshacer }: { cuentas: number; onDeshacer: () => void }) {
+  return (
+    <div className="flex flex-wrap items-start justify-between gap-3 rounded-md border border-ok-200 bg-ok-100/40 px-3 py-2 text-[12px] text-ok-800">
+      <div className="flex min-w-0 flex-1 items-start gap-2">
+        <span className="mt-px font-bold text-ok-700">✓</span>
+        <span>
+          <span className="font-semibold">Corrección automática de anidado.</span> Se detectó un export jerárquico con doble conteo y se re-anidaron <span className="font-semibold">{cuentas}</span> cuenta(s) por orden. Solo suman las cuentas del último nivel; revisa el resultado y guarda para fijarlo.
+        </span>
+      </div>
+      <button
+        type="button"
+        onClick={onDeshacer}
+        className="shrink-0 rounded-md border border-ok-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-ok-700 transition hover:bg-ok-100"
+      >
+        Deshacer auto-corrección
+      </button>
+    </div>
+  );
+}
 
 /** Conserva la confirmación devuelta por la Server Action mientras el refresh de
  *  la ruta reemplaza las props. La versión local manda hasta que el servidor
@@ -220,6 +342,7 @@ export default function BorradorDetailClient({
   const [confirmarDescarte, setConfirmarDescarte] = useState(false);
   const [infoFilasExcluidas, setInfoFilasExcluidas] = useState(false); // modal informativo (no se monta hasta abrirlo)
   const [clienteSelId, setClienteSelId] = useState<number | null>(clienteSugeridoId); // sigue las notas del cliente
+  const perfilSoloHojas = clientes.find((cliente) => cliente.id === clienteSelId)?.imputarSoloHojas;
   const [periodoIni, setPeriodoIni] = useState(periodoInicial ?? "");
   const [periodoFin, setPeriodoFin] = useState(periodoFinal ?? "");
   const [guardandoPeriodo, startGuardarPeriodo] = useTransition();
@@ -389,7 +512,7 @@ export default function BorradorDetailClient({
     return () => { cancelado = true; window.clearTimeout(timer); };
   }, [filas]);
   // Auto-activa la corrección UNA vez al abrir (si verifica). Reversible: el usuario puede
-  // desmarcar «solo hojas», y no se vuelve a auto-aplicar (autoAplicadoRef).
+  // deshacerla desde el aviso o el panel avanzado, y no se vuelve a aplicar (autoAplicadoRef).
   useEffect(() => {
     if (!autoAplicadoRef.current && analisisSoloHojas?.ayuda) {
       autoAplicadoRef.current = true;
@@ -397,6 +520,22 @@ export default function BorradorDetailClient({
       setAutoCorregido(true);
     }
   }, [analisisSoloHojas]);
+
+  const forzarSoloHojasManualmente = () => {
+    // Si el análisis diferido termina después del clic, no debe convertir una
+    // decisión manual en «auto-corrección» ni mostrar un origen equivocado.
+    autoAplicadoRef.current = true;
+    setAutoCorregido(false);
+    setSoloHojas(true);
+  };
+  const quitarSoloHojas = () => {
+    setSoloHojas(false);
+    setAutoCorregido(false);
+  };
+  const deshacerAutoCorreccion = () => {
+    quitarSoloHojas();
+    notifyInfo("Corrección automática deshecha. El borrador volvió a la jerarquía original.");
+  };
 
   // Posición de cada nodo en el árbol (hermano anterior + abuelo) para el TABULADOR:
   // el ← (desindentar) sube al abuelo. El → abre el modal "Ubicar" (elegir destino + lote).
@@ -529,6 +668,7 @@ export default function BorradorDetailClient({
     setPadres({});
     setMemorizarPadres({});
     setSoloHojas(false);
+    setAutoCorregido(false);
   };
   const guardarCambios = () =>
     startGuardar(async () => {
@@ -566,6 +706,7 @@ export default function BorradorDetailClient({
         setPadres({});
         setMemorizarPadres({});
         setSoloHojas(false);
+        setAutoCorregido(false);
         router.refresh();
       }
       else notifyError(r.message ?? "No se pudieron guardar los cambios.");
@@ -755,12 +896,10 @@ export default function BorradorDetailClient({
         </div>
       )}
       {soloHojas && autoCorregido && (
-        <div className="flex items-start gap-2 rounded-md border border-ok-200 bg-ok-100/40 px-3 py-2 text-[12px] text-ok-800">
-          <span className="mt-px font-bold text-ok-700">✓</span>
-          <span>
-            <span className="font-semibold">Corrección automática de anidado.</span> Se detectó un export jerárquico con doble conteo y se re-anidaron <span className="font-semibold">{analisisSoloHojas?.n ?? 0}</span> cuenta(s) por orden (solo suman las cuentas del último nivel — cada auxiliar bajo su subtotal). Revisa el resultado y pulsa <span className="font-semibold">Guardar cambios</span> para fijarlo, o desmarca «Evitar doble conteo de subtotales» abajo para revertir. Los descuadres que queden son genuinos (cuenta faltante o de signo), no de anidado.
-          </span>
-        </div>
+        <AvisoAutoCorreccionSoloHojas
+          cuentas={analisisSoloHojas?.n ?? 0}
+          onDeshacer={deshacerAutoCorreccion}
+        />
       )}
       {manipulacionesPendientes.length > 0 && (
         <ManipulacionesRiesgosasPanel
@@ -819,12 +958,14 @@ export default function BorradorDetailClient({
               </a>
             </div>
           </div>
-          <label className={`mt-2 flex cursor-pointer items-start gap-2 rounded-md border px-2.5 py-1.5 text-[12px] ${soloHojas ? "border-blue-300 bg-blue-50 text-ink-700" : "border-ink-200 bg-white text-ink-600"}`}>
-            <input type="checkbox" checked={soloHojas} onChange={(e) => setSoloHojas(e.target.checked)} className="mt-0.5" />
-            <span>
-              <span className="font-semibold">Evitar doble conteo de subtotales</span> (export jerárquico) — algunos ERP (p. ej. SIESA) exportan la cuenta <span className="font-semibold">y</span> sus subcuentas/auxiliares, todas con saldo: al sumarlas todas el balance queda al doble. Esto marca como <span className="font-semibold">agrupadora</span> toda cuenta que traiga detalle debajo, de modo que solo sumen las cuentas del <span className="font-semibold">último nivel</span>. Se previsualiza al instante; <span className="font-semibold">guarda</span> para persistirlo. Para automatizarlo en cada carga del cliente, pide a un administrador que lo active en <span className="font-semibold">Configuración › Perfiles de carga</span>.
-            </span>
-          </label>
+          <ProteccionSubtotalesPanel
+            perfilSoloHojas={perfilSoloHojas}
+            soloHojas={soloHojas}
+            autoCorregido={autoCorregido}
+            analisis={analisisSoloHojas}
+            onForzar={forzarSoloHojasManualmente}
+            onDeshacer={autoCorregido ? deshacerAutoCorreccion : quitarSoloHojas}
+          />
         </div>
         {/* Barra de guardado SIEMPRE presente. Si apareciera solo al haber cambios, el primer
             ajuste empujaría la tabla ~37 px hacia abajo (y al guardar la subiría de vuelta),
