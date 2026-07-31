@@ -1651,6 +1651,45 @@ function AyudaInstantanea({
   );
 }
 
+export function NombreCuentaArbol({
+  nombre,
+  omitida,
+  descuadrado,
+  descuadreAccionable,
+  umbralDescuadre,
+}: {
+  nombre: string;
+  omitida: boolean;
+  descuadrado: boolean;
+  descuadreAccionable: boolean;
+  umbralDescuadre: number;
+}) {
+  if (!descuadrado) {
+    return (
+      <span className={`text-[12px] ${omitida ? "text-ink-400 line-through" : "text-ink-800"}`} title={nombre}>
+        {nombre}
+      </span>
+    );
+  }
+
+  const className = `text-[12px] ${omitida ? "text-ink-400 line-through" : descuadreAccionable ? "font-semibold text-err-700 underline decoration-err-500 decoration-2 underline-offset-2" : "font-medium text-err-500 underline decoration-err-100 decoration-1 underline-offset-2"}`;
+
+  if (!descuadreAccionable) {
+    return (
+      <AyudaInstantanea
+        className={`cursor-help ${className}`}
+        texto={`${nombre} — Δ informativo (menor a ${fmt(umbralDescuadre)}): se muestra, pero no cuenta como alerta ni en el diagnóstico superior.`}
+      >
+        {nombre}
+      </AyudaInstantanea>
+    );
+  }
+
+  return (
+    <span className={className}>{nombre}</span>
+  );
+}
+
 /**
  * ¿La fila merece «Alerta»? Una AGRUPADORA cuyo total ≠ suma de sus hijos (Δ), o un
  * MOVIMIENTO problemático: con un valor de MAGNITUD (débito o crédito que vino con signo
@@ -2456,7 +2495,6 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
     const esAgrupadora = n.tipoFila === "agrupadora";
     const descuadrado = n.descuadre != null && n.descuadre !== 0;
     const descuadreAccionable = esDescuadreAccionable(n.descuadre, umbrales);
-    const descuadreInformativo = esDescuadreInformativo(n.descuadre, umbrales);
     // Magnitud: un débito o crédito que vino con signo CONTRARIO al dominante de su
     // columna se subió en negativo. Es informativo (el saldo es correcto); no hay acción.
     const magnitudAcc = esMagnitudAccionable(n.debitos) || esMagnitudAccionable(n.creditos);
@@ -2588,20 +2626,13 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
         </td>
         <td className="px-2 py-1 align-top">
           <div className="flex flex-wrap items-center gap-1.5">
-            {descuadrado ? (
-              <AyudaInstantanea
-                className={`cursor-help text-[12px] ${omitida ? "text-ink-400 line-through" : descuadreAccionable ? "font-semibold text-err-700 underline decoration-err-500 decoration-2 underline-offset-2" : "font-medium text-err-500 underline decoration-err-100 decoration-1 underline-offset-2"}`}
-                texto={descuadreAccionable
-                  ? `${n.nombre} — Δ subrayado: total del archivo − suma de las filas que cuelgan de ella (por prefijo de código). Si ≠ 0, el subtotal no cuadra con su desglose: puede ser una cuenta faltante, o que el ERP numere el detalle sin anidar por código (la plata está en otra rama).`
-                  : `${n.nombre} — Δ informativo (menor a ${fmt(umbrales.descuadre)}): se muestra, pero no cuenta como alerta ni en el diagnóstico superior.`}
-              >
-                {n.nombre}
-              </AyudaInstantanea>
-            ) : (
-              <span className={`text-[12px] ${omitida ? "text-ink-400 line-through" : "text-ink-800"}`} title={n.nombre}>
-                {n.nombre}
-              </span>
-            )}
+            <NombreCuentaArbol
+              nombre={n.nombre}
+              omitida={omitida}
+              descuadrado={descuadrado}
+              descuadreAccionable={descuadreAccionable}
+              umbralDescuadre={umbrales.descuadre}
+            />
             {omitida && <Chip label="Omitida · no cuenta" tone="warn" />}
             {riesgoClase && (
               <span

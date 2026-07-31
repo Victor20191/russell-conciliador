@@ -1,7 +1,10 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import {
   combinarRevisionesReubicacion,
   filtrarReubicacionesPendientes,
+  NombreCuentaArbol,
   retirarConfirmacionesLocales,
 } from "./borrador-detail-client";
 import type { RevisionReubicacionStaging } from "@/lib/balance/staging-borrador";
@@ -64,5 +67,43 @@ describe("estado visual de las revisiones de reubicación", () => {
 
     expect(resultado.padresConfirmados).toEqual({ 910: 75 });
     expect(resultado.revisionesConfirmadas).toEqual([otraRevision]);
+  });
+});
+
+describe("nombre de cuenta con descuadre en el árbol", () => {
+  it("conserva la señal visual sin activar ayuda al pasar el cursor", () => {
+    const html = renderToStaticMarkup(
+      createElement(NombreCuentaArbol, {
+        nombre: "GENERALES",
+        omitida: false,
+        descuadrado: true,
+        descuadreAccionable: true,
+        umbralDescuadre: 2_000,
+      }),
+    );
+
+    expect(html).toContain("GENERALES");
+    expect(html).toContain("text-err-700");
+    expect(html).toContain("underline");
+    expect(html).not.toContain("title=");
+    expect(html).not.toContain("tabindex=");
+    expect(html).not.toContain("cursor-help");
+  });
+
+  it("conserva la ayuda distinta del aviso informativo", () => {
+    const html = renderToStaticMarkup(
+      createElement(NombreCuentaArbol, {
+        nombre: "GENERALES",
+        omitida: false,
+        descuadrado: true,
+        descuadreAccionable: false,
+        umbralDescuadre: 2_000,
+      }),
+    );
+
+    expect(html).toContain("text-err-500");
+    expect(html).toContain("underline");
+    expect(html).toContain("tabindex=\"0\"");
+    expect(html).toContain("cursor-help");
   });
 });
