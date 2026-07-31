@@ -60,6 +60,11 @@ import {
   construirRevisionesReubicacionBalance,
   nombreClaseContable,
 } from "@/lib/balance/revisiones-reubicacion-balance";
+import {
+  contarPendientes,
+  detectarPropagacionesReubicacion,
+  type PropagacionReubicacion,
+} from "@/lib/balance/reubicacion-repetida";
 import { ReubicacionesAprobadasPanel } from "@/components/reubicaciones-aprobadas";
 import { notifyActionState, notifySuccess, notifyError, notifyInfo } from "@/lib/client-notifications";
 import {
@@ -202,6 +207,50 @@ export function ProteccionSubtotalesPanel({
   );
 }
 
+/** Resumen legible de los pares pendientes (los dos primeros + «y N más»). */
+export function resumirPropagaciones(props: readonly PropagacionReubicacion[]): string {
+  const pares = props.map((p) => `${p.codigoHija} → ${p.codigoPadre}`);
+  if (pares.length <= 2) return pares.join(" y ");
+  return `${pares.slice(0, 2).join(", ")} y ${pares.length - 2} par(es) más`;
+}
+
+/**
+ * El mismo par cuenta→agrupadora se repite en el archivo (balances por tercero,
+ * sucursal o centro de costo) y solo un bloque quedó anidado. Los demás dejan la
+ * agrupadora manual vacía y su saldo vuelve a contarse junto al de la cuenta hermana.
+ * La propagación NO es automática: se aplica desde aquí, con el mismo emparejamiento
+ * por bloque que usan las correcciones memorizadas del cliente.
+ */
+export function AvisoPropagacionReubicacion({
+  propagaciones,
+  onAplicar,
+}: {
+  propagaciones: PropagacionReubicacion[];
+  onAplicar: () => void;
+}) {
+  const n = contarPendientes(propagaciones);
+  if (n === 0) return null;
+  return (
+    <div className="flex flex-wrap items-start justify-between gap-3 border-b border-warn-200 bg-warn-50/70 px-3 py-2 text-[12px] text-warn-800">
+      <div className="flex min-w-0 flex-1 items-start gap-2">
+        <span className="mt-px shrink-0 text-warn-700"><Icon name="warn" size={13} /></span>
+        <span>
+          <span className="font-semibold">El anidado que hiciste se repite en el archivo.</span>{" "}
+          {resumirPropagaciones(propagaciones)}: quedan <span className="font-semibold">{n}</span> ocurrencia(s) en otros bloques sin anidar,
+          con la agrupadora vacía y riesgo de contar su saldo dos veces al cargar. Cada una se colgaría de la agrupadora de SU bloque.
+        </span>
+      </div>
+      <button
+        type="button"
+        onClick={onAplicar}
+        className="shrink-0 rounded-md border border-warn-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-warn-800 transition hover:bg-warn-100"
+      >
+        Anidar en los demás bloques ({n})
+      </button>
+    </div>
+  );
+}
+
 export function AvisoAutoCorreccionSoloHojas({ cuentas, onDeshacer }: { cuentas: number; onDeshacer: () => void }) {
   return (
     <div className="flex flex-wrap items-start justify-between gap-3 rounded-md border border-ok-200 bg-ok-100/40 px-3 py-2 text-[12px] text-ok-800">
@@ -311,7 +360,7 @@ async function cargarBorradorRecuperable(
 }
 
 export default function BorradorDetailClient({
-  loteId, archivoNombre, nitDetectado, periodoInicial, periodoFinal, filasCompactas, porTerceroDetectado, revisionesReubicacion = [], clientes, clienteSugeridoId, spec, correccionesAplicadas, umbrales,
+  loteId, archivoNombre, nitDetectado, periodoInicial, periodoFinal, filasCompactas, porTerceroDetectado, revisionesReubicacion = [], clientes, clienteSugeridoId, clientePersistido = false, spec, correccionesAplicadas, umbrales,
 }: {
   loteId: string;
   archivoNombre: string;
@@ -325,6 +374,8 @@ export default function BorradorDetailClient({
   revisionesReubicacion?: RevisionReubicacionStaging[];
   clientes: Cliente[];
   clienteSugeridoId: number | null;
+  /** false = el cliente solo está SUGERIDO por NIT y el lote sigue sin cliente en BD. */
+  clientePersistido?: boolean;
   spec: SpecCarga | null;
   correccionesAplicadas: number;
   /** Umbrales de alerta vigentes (parametrizables en /config/parametros). */
@@ -543,6 +594,36 @@ export default function BorradorDetailClient({
   const contexto = useMemo(() => contextoTabulador(arbol), [arbol]);
   const indiceReubicacion = useMemo(() => construirIndiceReubicacion(arbol), [arbol]);
 
+  // ¿El re-parentado manual vigente se repite sin resolver en otros bloques del
+  // archivo? El universo son las cuentas del ÁRBOL (sin terceros colapsados ni pies
+  // del ERP) y su padre EFECTIVO, así no se propone lo que ya cuelga bien solo.
+  const propagacionesReubicacion = useMemo(
+    () => detectarPropagacionesReubicacion(
+      indiceReubicacion.cuentas,
+      new Map(indiceReubicacion.cuentas.map((c) => [c.filaNum, c.padre])),
+      new Map(),
+    ),
+    [indiceReubicacion],
+  );
+  const aplicarPropagacionesReubicacion = () => {
+    const pendientes = propagacionesReubicacion.flatMap((p) => p.pendientes);
+    if (pendientes.length === 0) return;
+    setPadres((actual) => {
+      const siguiente = { ...actual };
+      for (const p of pendientes) siguiente[p.filaNum] = p.destino;
+      return siguiente;
+    });
+    setMemorizarPadres((actual) => {
+      const siguiente = { ...actual };
+      for (const p of pendientes) siguiente[p.filaNum] = true;
+      return siguiente;
+    });
+    notifyInfo(
+      "Anidado replicado",
+      `${pendientes.length} cuenta(s) se colgaron de la agrupadora de su propio bloque. Revisa el resultado y guarda para fijarlo.`,
+    );
+  };
+
   // Árbol AUTOMÁTICO (ignora todo `padreManual`, actual o de sesión): reconstruye la
   // misma vista con los overrides de reparentado apagados, así el resto del pipeline
   // (colapso de terceros, huérfanas, etc.) queda IGUAL al `arbol` vigente y los
@@ -717,11 +798,15 @@ export default function BorradorDetailClient({
   // correcciones memorizadas (el NIT no lo detectó al leer, así que la
   // re-aplicación automática no corrió). Si cambió algo, se refresca la vista.
   const [asignandoCliente, startAsignarCliente] = useTransition();
-  const asignarCliente = (cid: number, clienteAnterior: number | null = clienteSelId) => {
+  const asignarCliente = (
+    cid: number,
+    clienteAnterior: number | null = clienteSelId,
+    opciones: { silencioso?: boolean } = {},
+  ) => {
     startAsignarCliente(async () => {
       const r = await asignarClienteBorrador(loteId, cid);
       if (r.ok) {
-        notifySuccess(r.message ?? "Cliente asignado al borrador.");
+        if (!opciones.silencioso) notifySuccess(r.message ?? "Cliente asignado al borrador.");
         if ((r.aplicadas ?? 0) > 0) router.refresh();
       } else {
         setClienteSelId(clienteAnterior);
@@ -730,6 +815,20 @@ export default function BorradorDetailClient({
       }
     });
   };
+
+  // Cliente SUGERIDO por NIT pero aún sin persistir en el lote: la pantalla ya lo
+  // muestra seleccionado (y la compuerta no se abre), así que el usuario lo da por
+  // vinculado. Sin este vínculo el servidor sigue viendo el borrador «sin cliente» y
+  // rechaza guardar cambios, notas o el perfil. Se persiste UNA vez al abrir, en
+  // silencio; si la sesión no tiene alcance sobre ese cliente, `asignarCliente`
+  // revierte la selección y abre la compuerta.
+  const autoVinculoRef = useRef(false);
+  useEffect(() => {
+    if (autoVinculoRef.current || clientePersistido || clienteSugeridoId == null) return;
+    autoVinculoRef.current = true;
+    asignarCliente(clienteSugeridoId, null, { silencioso: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientePersistido, clienteSugeridoId]);
 
   // Reproceso determinista con el spec ajustado (editor de estructura), re-adjuntando el
   // archivo original — esta página no lo conserva. Crea un borrador NUEVO y purga este.
@@ -967,6 +1066,10 @@ export default function BorradorDetailClient({
             onDeshacer={autoCorregido ? deshacerAutoCorreccion : quitarSoloHojas}
           />
         </div>
+        <AvisoPropagacionReubicacion
+          propagaciones={propagacionesReubicacion}
+          onAplicar={aplicarPropagacionesReubicacion}
+        />
         {/* Barra de guardado SIEMPRE presente. Si apareciera solo al haber cambios, el primer
             ajuste empujaría la tabla ~37 px hacia abajo (y al guardar la subiría de vuelta),
             justo mientras el usuario trabaja en ella. Va en UNA sola línea (`truncate`) para

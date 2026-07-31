@@ -105,6 +105,11 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
   const clienteSugeridoId = vinculoCliente.tipo === "sin_cliente"
     ? null
     : vinculoCliente.id;
+  // `sugerido` = el NIT lo identifica pero el lote SIGUE sin cliente en BD. La pantalla
+  // lo preselecciona, así que el usuario lo da por vinculado; el cliente lo persiste al
+  // abrir (mismo camino que la compuerta) para que guardar cambios, notas o el perfil no
+  // fallen con «Vincula el cliente…» sobre un selector que ya muestra la empresa.
+  const clientePersistido = vinculoCliente.tipo === "asignado";
 
   return (
     <div>
@@ -128,6 +133,7 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
           imputarSoloHojas: ajustesPorCliente.get(c.id)?.imputarSoloHojas ?? null,
         }))}
         clienteSugeridoId={clienteSugeridoId}
+        clientePersistido={clientePersistido}
         spec={spec}
         correccionesAplicadas={lote?.correccionesAplicadas ?? 0}
         umbrales={umbrales}

@@ -251,6 +251,25 @@ export function construirArbolBorrador(filas: FilaBorrador[], tol = 1): NodoBorr
     const B = todos.find((n) => n.filaNum === filaNum)!;
     (gemelosDe.get(A.filaNum) ?? gemelosDe.set(A.filaNum, []).get(A.filaNum)!).push(B);
   }
+  // Aporte de un hijo al saldo de su padre. Un hijo OMITIDO no aporta su propio saldo,
+  // pero si el auditor RE-PARENTÓ a mano una cuenta bajo él (encabezado repetido del ERP
+  // que se tacha y debajo se cuelga la cuenta real), esa cuenta sí sostiene el saldo del
+  // padre: contarla 0 le pintaría un Δ por toda la rama que no existe. Solo cuentan los
+  // hijos MOVIDOS A MANO — los que la rama omitida arrastró por orden (re-listado con
+  // guiones) siguen sin aportar, que es lo correcto para ese formato.
+  const aportes = new Map<number, number>();
+  const aporte = (h: NodoBorrador): number => {
+    const memo = aportes.get(h.filaNum);
+    if (memo != null) return memo;
+    let valor = 0;
+    if (!perteneceA.has(h.filaNum) && !h.subtotalDuplicado) {
+      valor = h.omitida
+        ? h.hijos.reduce((s, nieto) => (nieto.padreManual === h.filaNum ? s + aporte(nieto) : s), 0)
+        : h.saldoFinal;
+    }
+    aportes.set(h.filaNum, valor);
+    return valor;
+  };
   const marcar = (n: NodoBorrador) => {
     for (const h of n.hijos) marcar(h);
     const atribuidos = gemelosDe.get(n.filaNum) ?? [];
@@ -258,7 +277,7 @@ export function construirArbolBorrador(filas: FilaBorrador[], tol = 1): NodoBorr
     // tachada) no computa descuadre: no cuenta, así que no debe mostrar Δ falso.
     if (n.tipoFila !== "movimiento" && !n.omitida && (n.hijos.length > 0 || atribuidos.length > 0)) {
       let suma = 0;
-      for (const h of n.hijos) if (!perteneceA.has(h.filaNum) && !h.subtotalDuplicado && !h.omitida) suma += h.saldoFinal;
+      for (const h of n.hijos) suma += aporte(h);
       for (const g of atribuidos) suma += g.saldoFinal;
       const d = n.saldoFinal - suma;
       n.descuadre = Math.abs(d) > tol ? d : 0;
@@ -360,12 +379,29 @@ export function reclasificarHuerfanas(
   const tieneMovimiento = (n: NodoBorrador) =>
     Math.abs(n.saldoFinal) > 0.005 || Math.abs(n.debitos) > 0.005 || Math.abs(n.creditos) > 0.005;
   const arbol = construirArbolBorrador(filas);
+  // ¿El subárbol aporta algo al balance? Un hijo NO omitido aporta (si es una
+  // agrupadora hueca, esta misma pasada lo vuelve movimiento). Un hijo OMITIDO no
+  // aporta por sí mismo, pero SÍ puede tener descendencia contable: es el caso de una
+  // agrupadora tachada con una cuenta real colgada debajo (p. ej. `220501 PROVEEDORES`
+  // omitida con `220505 PROVEEDORES NACIONALES` re-parentada). Mirar solo los hijos
+  // DIRECTOS daba por huérfano al abuelo (`2205`) y lo volvía imputable: su saldo se
+  // contaba además del de la nieta → DOBLE CONTEO. Memoizado por filaNum: el árbol de
+  // un balance por tercero tiene decenas de miles de nodos.
+  const conDescendencia = new Map<number, boolean>();
+  const aportaAlgo = (n: NodoBorrador): boolean => {
+    const memo = conDescendencia.get(n.filaNum);
+    if (memo != null) return memo;
+    const valor = n.hijos.some((h) => !h.omitida || aportaAlgo(h));
+    conDescendencia.set(n.filaNum, valor);
+    return valor;
+  };
   const huerfanas = new Set<number>(); // filaNum
   const rec = (n: NodoBorrador) => {
-    // Sin hijos que cuenten: 0 hijos, o TODOS omitidos (p. ej. un tercero que se coló
-    // y el usuario excluyó con ✕). Así la cuenta cuyos únicos hijos están omitidos se
-    // vuelve imputable y aporta su saldo completo, en vez de perderse como agrupadora.
-    const sinHijosReales = n.hijos.every((h) => h.omitida);
+    // Sin descendencia que cuente: 0 hijos, o todo el subárbol omitido (p. ej. terceros
+    // que se colaron y el usuario excluyó con ✕). Así la cuenta cuyo desglose entero
+    // está tachado se vuelve imputable y aporta su saldo completo, en vez de perderse
+    // como agrupadora.
+    const sinHijosReales = !aportaAlgo(n);
     // Un nodo ya OMITIDO no se recupera a movimiento: está tachado y excluido a propósito.
     const preservarManual = opciones.preservarAgrupadorasForzadas && n.tipoFilaForzado === "agrupadora";
     if (!preservarManual && n.tipoFila !== "movimiento" && !n.omitida && esNumerico(n.codigo) && sinHijosReales && !n.subtotalDuplicado && tieneMovimiento(n)) {

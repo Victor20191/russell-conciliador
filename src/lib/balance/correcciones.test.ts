@@ -155,6 +155,51 @@ describe("planAplicarCorrecciones", () => {
     expect(cambios).toEqual([{ filaNum: 6, padreManual: 5 }]);
   });
 
+  it("re-parenta POR BLOQUE cuando el mismo par se repite (balance por tercero)", () => {
+    // 220501/220505 repetidos en tres bloques: cada 220505 debe colgar de la
+    // agrupadora de SU bloque, nunca todas de la primera.
+    const filas = [
+      fila({ filaNum: 10, codigo: "220501", codigoCrudo: "220501", tipoFila: "agrupadora" }),
+      fila({ filaNum: 11, codigo: "220505", codigoCrudo: "220505" }),
+      fila({ filaNum: 20, codigo: "220501", codigoCrudo: "220501", tipoFila: "agrupadora" }),
+      fila({ filaNum: 21, codigo: "220505", codigoCrudo: "220505" }),
+      fila({ filaNum: 30, codigo: "220501", codigoCrudo: "220501", tipoFila: "agrupadora" }),
+      fila({ filaNum: 31, codigo: "220505", codigoCrudo: "220505" }),
+    ];
+    const { cambios } = planAplicarCorrecciones(filas, [
+      correccion({ cuenta: "220501", tipoFilaForzado: "agrupadora" }),
+      correccion({ cuenta: "220505", padreCodigo: "220501" }),
+    ]);
+    expect(cambios.filter((c) => c.padreManual != null)).toEqual([
+      { filaNum: 11, padreManual: 10 },
+      { filaNum: 21, padreManual: 20 },
+      { filaNum: 31, padreManual: 30 },
+    ]);
+  });
+
+  it("acepta como destino la agrupadora que la propia corrección fuerza (aún movimiento en el lote)", () => {
+    const filas = [
+      fila({ filaNum: 10, codigo: "221005", codigoCrudo: "221005" }), // llega como movimiento
+      fila({ filaNum: 11, codigo: "221006", codigoCrudo: "221006" }),
+    ];
+    const { cambios } = planAplicarCorrecciones(filas, [
+      correccion({ cuenta: "221005", tipoFilaForzado: "agrupadora" }),
+      correccion({ cuenta: "221006", padreCodigo: "221005" }),
+    ]);
+    expect(cambios).toContainEqual({ filaNum: 11, padreManual: 10 });
+  });
+
+  it("usa la ocurrencia posterior si el ERP lista el subtotal después del detalle", () => {
+    const filas = [
+      fila({ filaNum: 5, codigo: "110505", codigoCrudo: "110505" }),
+      fila({ filaNum: 6, codigo: "1105", codigoCrudo: "TOTAL 1105", tipoFila: "agrupadora" }),
+    ];
+    const { cambios } = planAplicarCorrecciones(filas, [
+      correccion({ cuenta: "110505", padreCodigo: "1105" }),
+    ]);
+    expect(cambios).toEqual([{ filaNum: 5, padreManual: 6 }]);
+  });
+
   it("padreCodigo null limpia el override solo si la fila lo tiene", () => {
     const filas = [
       fila({ filaNum: 1, codigo: "110505", codigoCrudo: "110505", padreManual: 9 }),

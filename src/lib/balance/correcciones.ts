@@ -140,7 +140,11 @@ export function construirCorrecciones(filas: FilaStagingCorreccion[], d: DeltasB
  *  - omitir/rescatar: solo filas con `omitida` SIN TOCAR en el lote destino (null) —
  *    el tri-estado manual del lote gana siempre;
  *  - re-parentar: el destino se resuelve por clave en el lote destino (preferida la
- *    fila agrupadora); si no existe, el re-parentado se salta.
+ *    fila agrupadora) y POR BLOQUE — cada ocurrencia de la cuenta se cuelga de la
+ *    ocurrencia de su agrupadora más cercana ANTERIOR (o la posterior si el ERP
+ *    lista el subtotal después). Un destino global único mezclaría el saldo de un
+ *    tercero/sucursal con el de otro en los archivos que repiten el mismo bloque.
+ *    Si no existe ninguna ocurrencia, el re-parentado se salta.
  * Devuelve los UPDATE por fila y las cuentas que efectivamente aplicaron.
  */
 export function planAplicarCorrecciones(
@@ -148,13 +152,18 @@ export function planAplicarCorrecciones(
   correcciones: CorreccionCuenta[],
 ): { cambios: CambioFila[]; cuentasAplicadas: string[] } {
   const porClave = new Map<string, FilaStagingCorreccion[]>();
-  for (const f of filas) {
+  for (const f of [...filas].sort((a, b) => a.filaNum - b.filaNum)) {
     const k = claveCuenta(f);
     if (!k) continue;
     const arr = porClave.get(k);
     if (arr) arr.push(f);
     else porClave.set(k, [f]);
   }
+  // Cuentas que estas mismas correcciones fuerzan a agrupadora: en el lote destino
+  // todavía pueden venir como movimiento, pero serán el contenedor válido.
+  const forzadasAgrupadora = new Set(
+    correcciones.filter((c) => c.tipoFilaForzado === "agrupadora").map((c) => c.cuenta),
+  );
 
   const cambios: CambioFila[] = [];
   const cuentasAplicadas: string[] = [];
@@ -162,14 +171,29 @@ export function planAplicarCorrecciones(
     const rows = porClave.get(c.cuenta) ?? [];
     if (rows.length === 0) continue;
 
-    let destino: FilaStagingCorreccion | null = null;
+    // Ocurrencias del padre memorizado, en orden de archivo. Se prefieren las que
+    // son (o serán) agrupadora; si ninguna lo es, se admiten todas.
+    let candidatos: FilaStagingCorreccion[] = [];
     if (typeof c.padreCodigo === "string" && c.padreCodigo) {
       const cand = porClave.get(c.padreCodigo) ?? [];
-      destino = cand.find((r) => r.tipoFila === "agrupadora") ?? cand[0] ?? null;
+      const agrupadoras = cand.filter(
+        (r) => r.tipoFila === "agrupadora" || forzadasAgrupadora.has(c.padreCodigo as string),
+      );
+      candidatos = agrupadoras.length > 0 ? agrupadoras : cand;
     }
+    const destinoDe = (filaNum: number): FilaStagingCorreccion | null => {
+      let anterior: FilaStagingCorreccion | null = null;
+      for (const r of candidatos) {
+        if (r.filaNum === filaNum) continue;
+        if (r.filaNum < filaNum) anterior = r;
+        else return anterior ?? r;
+      }
+      return anterior;
+    };
 
     let aplico = false;
     for (const f of rows) {
+      const destino = destinoDe(f.filaNum);
       const ch: CambioFila = { filaNum: f.filaNum };
       if (c.tipoFilaForzado && f.tipoFila !== "total") {
         if (c.tipoFilaForzado === "agrupadora" && f.tipoFila !== "agrupadora") ch.tipoFila = "agrupadora";

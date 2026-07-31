@@ -294,6 +294,26 @@ describe("omitida (excluir de cálculos, conservar en el crudo)", () => {
     // La fila omitida SIGUE en el árbol (se conserva para el comparativo línea a línea).
     expect(arbol[0].hijos.map((h) => h.codigo)).toEqual(["110505", "110599"]);
   });
+
+  it("una cuenta RE-PARENTADA a mano bajo una fila omitida sostiene el saldo del abuelo", () => {
+    const arbol = construirArbolBorrador([
+      fila(1, "2205", "NACIONALES", -100, "agrupadora"),
+      { ...fila(2, "220501", "PROVEEDORES", -100, "agrupadora"), omitida: true },
+      { ...fila(3, "220505", "PROVEEDORES NACIONALES", -100, "movimiento"), padreManual: 2 },
+    ]);
+    // 2205 = -100 y su única rama contable (la nieta movida a mano) también: sin Δ.
+    expect(arbol[0].descuadre).toBe(0);
+    expect(arbol[0].hijos[0].hijos.map((h) => h.codigo)).toEqual(["220505"]);
+  });
+
+  it("lo que la fila omitida arrastró por ORDEN (sin moverlo a mano) no aporta al abuelo", () => {
+    const arbol = construirArbolBorrador([
+      fila(1, "13", "DEUDORES", 100, "agrupadora"),
+      { ...fila(2, "1305", "CLIENTES", 500, "agrupadora"), codigoCrudo: "1305-05-05", omitida: true },
+      fila(3, "13051005", "CLIENTES NACIONALES", 35, "movimiento"), // cae bajo la omitida por orden
+    ]);
+    expect(arbol[0].descuadre).toBe(100); // la rama tachada no sostiene nada
+  });
 });
 
 describe("reclasificarNoImputables (pie/total sin código)", () => {
@@ -350,6 +370,32 @@ describe("reclasificarHuerfanas", () => {
     expect(cambiadas.map((f) => f.codigo)).toContain("1105"); // 1105 recuperada como imputable
     expect(filas.find((f) => f.codigo === "1105")?.tipoFila).toBe("movimiento");
     expect(filas.find((f) => f.codigo === "11")?.tipoFila).toBe("agrupadora"); // 11 sigue agrupando a 1105
+  });
+
+  it("NO vuelve huérfano al abuelo cuando su hijo OMITIDO tiene descendencia contable", () => {
+    // Caso ACEROS MAPA: `220501 PROVEEDORES` (encabezado repetido del ERP) se tacha y
+    // `220505 PROVEEDORES NACIONALES` se re-parenta bajo ella. `2205` conserva su único
+    // hijo omitido, pero la NIETA sí cuenta: si `2205` se volviera imputable, su saldo
+    // se sumaría además del de la nieta (doble conteo por el valor de toda la rama).
+    const filas: FilaBorrador[] = [
+      fila(1, "22", "PROVEEDORES", -100, "agrupadora"),
+      fila(2, "2205", "NACIONALES", -100, "agrupadora"),
+      { ...fila(3, "220501", "PROVEEDORES", -100, "agrupadora"), omitida: true, tipoFilaForzado: "agrupadora" as const },
+      { ...fila(4, "220505", "PROVEEDORES NACIONALES", -100, "movimiento"), padreManual: 3 },
+    ];
+    expect(reclasificarHuerfanas(filas, { preservarAgrupadorasForzadas: true })).toEqual([]);
+    expect(filas.find((f) => f.codigo === "2205")?.tipoFila).toBe("agrupadora");
+    expect(filas.find((f) => f.codigo === "22")?.tipoFila).toBe("agrupadora");
+  });
+
+  it("sí recupera la cuenta cuyo subárbol COMPLETO está omitido", () => {
+    const filas: FilaBorrador[] = [
+      fila(1, "22", "PROVEEDORES", -100, "agrupadora"),
+      fila(2, "2205", "NACIONALES", -100, "agrupadora"),
+      { ...fila(3, "220501", "PROVEEDORES", -100, "agrupadora"), omitida: true },
+      { ...fila(4, "220505", "PROVEEDORES NACIONALES", -100, "movimiento"), padreManual: 3, omitida: true },
+    ];
+    expect(reclasificarHuerfanas(filas).map((f) => f.codigo)).toEqual(["2205"]);
   });
 
   it("NO reclasifica una agrupadora sin hijos con saldo 0 (no aporta nada)", () => {
