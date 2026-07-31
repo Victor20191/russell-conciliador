@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { compararTotalesAgrupacion, construirArbolBorrador, construirIndiceReubicacion, contarNodos, aplanarArbolFiltrado, destinosReubicacion, esDestinoSugerido, normalizarBusquedaCuenta, reclasificarHuerfanas, marcarNoContables, corregirCodigosPlaceholder, contextoTabulador, puedeUbicar, sugerirMovimientosAgrupadora, validarReubicacionesBorrador, detectarManipulacionesRiesgosas, type FilaBorrador } from "./borrador";
+import { compararTotalesAgrupacion, construirArbolBorrador, construirIndiceReubicacion, construirResumenReubicacion, contarNodos, aplanarArbolFiltrado, destinosReubicacion, esDestinoSugerido, localizarNodoBorrador, normalizarBusquedaCuenta, procedenciaReubicacionFila, reclasificarHuerfanas, marcarNoContables, corregirCodigosPlaceholder, contextoTabulador, puedeUbicar, sugerirMovimientosAgrupadora, validarReubicacionesBorrador, detectarManipulacionesRiesgosas, type FilaBorrador } from "./borrador";
 import { construirVistaBorrador } from "./borrador-vm";
 import { reclasificarNoImputables } from "./extraccion/transformar";
 
@@ -656,5 +656,85 @@ describe("corregirCodigosPlaceholder + construirVistaBorrador", () => {
     expect(c5?.nombre).toBe("Otros Gastos");
     expect(!!c5?.omitida).toBe(false); // ya no es clase 8 → no se tacha
     expect(c5?.hijos.some((h) => h.codigo === "53")).toBe(true); // 53 anida bajo 5
+  });
+});
+
+describe("localizarNodoBorrador (ancestros de una fila en un árbol ya construido)", () => {
+  it("devuelve el nodo y su ruta del más alto al padre directo", () => {
+    const arbol = construirArbolBorrador([
+      fila(1, "1", "ACTIVO", 100, "agrupadora"),
+      fila(2, "11", "DISPONIBLE", 100, "agrupadora"),
+      fila(3, "1105", "CAJA", 100, "agrupadora"),
+      fila(4, "110505", "CAJA GENERAL", 100, "movimiento"),
+    ]);
+    const encontrado = localizarNodoBorrador(arbol, 4)!;
+    expect(encontrado.nodo.codigo).toBe("110505");
+    expect(encontrado.ruta.map((r) => r.codigo)).toEqual(["1", "11", "1105"]);
+  });
+
+  it("ruta vacía cuando la fila es una raíz", () => {
+    const arbol = construirArbolBorrador([fila(1, "1", "ACTIVO", 100, "agrupadora")]);
+    expect(localizarNodoBorrador(arbol, 1)!.ruta).toEqual([]);
+  });
+
+  it("null si la fila no aparece en ese árbol", () => {
+    const arbol = construirArbolBorrador([fila(1, "1", "ACTIVO", 100, "agrupadora")]);
+    expect(localizarNodoBorrador(arbol, 999)).toBeNull();
+  });
+});
+
+describe("procedenciaReubicacionFila", () => {
+  it("un override todavía en memoria es siempre «pendiente», sin importar el resto", () => {
+    expect(procedenciaReubicacionFila(true, true, 5)).toEqual({ estado: "pendiente" });
+    expect(procedenciaReubicacionFila(true, false, 0)).toEqual({ estado: "pendiente" });
+  });
+
+  it("«guardada» sin corrección automática si el lote no venía reubicado o el cliente no tiene correcciones", () => {
+    expect(procedenciaReubicacionFila(false, false, 0)).toEqual({ estado: "guardada", posibleCorreccionAutomatica: false });
+    expect(procedenciaReubicacionFila(false, true, 0)).toEqual({ estado: "guardada", posibleCorreccionAutomatica: false });
+    expect(procedenciaReubicacionFila(false, false, 4)).toEqual({ estado: "guardada", posibleCorreccionAutomatica: false });
+  });
+
+  it("«guardada» con posible corrección automática solo si venía reubicada del servidor Y hay correcciones memorizadas", () => {
+    expect(procedenciaReubicacionFila(false, true, 4)).toEqual({ estado: "guardada", posibleCorreccionAutomatica: true });
+  });
+});
+
+describe("construirResumenReubicacion (modal del chip «↳ movida aquí»)", () => {
+  const filasBase: FilaBorrador[] = [
+    fila(1, "1", "ACTIVO", 100, "agrupadora"),
+    fila(2, "11", "DISPONIBLE", 100, "agrupadora"),
+    fila(3, "1105", "CAJA", 100, "agrupadora"),
+    { ...fila(4, "110505", "CAJA GENERAL", 100, "movimiento"), padreManual: 7 }, // reubicada a mano
+    fila(5, "2", "PASIVO", 100, "agrupadora"),
+    fila(6, "21", "OBLIGACIONES", 100, "agrupadora"),
+    fila(7, "2105", "BANCOS", 100, "agrupadora"),
+  ];
+  const arbolActual = construirArbolBorrador(filasBase.map((f) => ({ ...f })));
+  const arbolOriginal = construirArbolBorrador(filasBase.map((f) => ({ ...f, padreManual: null })));
+
+  it("compara la posición automática contra la vigente y arma la cadena completa", () => {
+    const resumen = construirResumenReubicacion(4, arbolActual, arbolOriginal, false, true, 0)!;
+    expect(resumen.cuenta.codigo).toBe("110505");
+    expect(resumen.cuenta.nombre).toBe("CAJA GENERAL");
+    expect(resumen.cuenta.saldoFinal).toBe(100);
+    expect(resumen.rutaOriginal?.map((r) => r.codigo)).toEqual(["1", "11", "1105"]); // dónde estaba
+    expect(resumen.rutaActual.map((r) => r.codigo)).toEqual(["2", "21", "2105"]); // dónde quedó
+    expect(resumen.procedencia).toEqual({ estado: "guardada", posibleCorreccionAutomatica: false });
+  });
+
+  it("marca la procedencia como pendiente cuando el override es de esta sesión", () => {
+    const resumen = construirResumenReubicacion(4, arbolActual, arbolOriginal, true, true, 3)!;
+    expect(resumen.procedencia).toEqual({ estado: "pendiente" });
+  });
+
+  it("rutaOriginal es null si el árbol automático aún no se calculó (perezoso)", () => {
+    const resumen = construirResumenReubicacion(4, arbolActual, null, false, true, 0)!;
+    expect(resumen.rutaOriginal).toBeNull();
+    expect(resumen.rutaActual.length).toBeGreaterThan(0);
+  });
+
+  it("null si la fila no existe en el árbol vigente", () => {
+    expect(construirResumenReubicacion(999, arbolActual, arbolOriginal, false, false, 0)).toBeNull();
   });
 });

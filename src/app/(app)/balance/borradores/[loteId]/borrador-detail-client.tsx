@@ -2,7 +2,7 @@
 
 import { EstadoProcesando } from "@/components/estado-procesando";
 
-import { useActionState, useDeferredValue, useEffect, useMemo, useRef, useState, useTransition, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useActionState, useDeferredValue, useEffect, useMemo, useRef, useState, useTransition, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Icon, type IconName } from "@/components/icons";
@@ -20,6 +20,7 @@ import {
   clasesContablesCompatibles,
   claseContableBorrador,
   construirIndiceReubicacion,
+  construirResumenReubicacion,
   contextoTabulador,
   detectarManipulacionesRiesgosas,
   destinosReubicacion,
@@ -34,6 +35,8 @@ import {
   type IndiceReubicacion,
   type ManipulacionRiesgosaBorrador,
   type NodoBorrador,
+  type RefNodo,
+  type ResumenReubicacionFila,
 } from "@/lib/balance/borrador";
 import { nombreNivelCuenta } from "@/lib/balance/nivel-cuenta";
 import type { ValidacionContable } from "@/lib/balance/calcular";
@@ -234,6 +237,11 @@ export default function BorradorDetailClient({
   const [memorizarPadres, setMemorizarPadres] = useState<Record<number, boolean>>({});
   const [mover, setMover] = useState<{ filaNum: number | null; revisar?: boolean } | null>(null);
   const [gestionarAgrupadora, setGestionarAgrupadora] = useState<{ filaNum: number } | null>(null);
+  // Detalle del chip "↳ movida aquí": qué fila se está inspeccionando. El árbol
+  // AUTOMÁTICO (sin ningún `padreManual`) para comparar "dónde estaba" se calcula
+  // perezoso — solo tras la primera apertura — y queda memoizado.
+  const [detalleReubicacion, setDetalleReubicacion] = useState<{ filaNum: number } | null>(null);
+  const [huboAperturaReubicacion, setHuboAperturaReubicacion] = useState(false);
   const [enfoqueReubicacion, setEnfoqueReubicacion] = useState<{ origen: number; destino: number | null; secuencia: number } | null>(null);
   const [soloHojas, setSoloHojas] = useState(false); // export jerárquico: solo cuentan las hojas
   const [autoCorregido, setAutoCorregido] = useState(false); // «solo hojas» se activó por auto-corrección al abrir
@@ -394,6 +402,33 @@ export default function BorradorDetailClient({
   const posiciones = useMemo(() => construirPosiciones(arbol), [arbol]);
   const contexto = useMemo(() => contextoTabulador(arbol), [arbol]);
   const indiceReubicacion = useMemo(() => construirIndiceReubicacion(arbol), [arbol]);
+
+  // Árbol AUTOMÁTICO (ignora todo `padreManual`, actual o de sesión): reconstruye la
+  // misma vista con los overrides de reparentado apagados, así el resto del pipeline
+  // (colapso de terceros, huérfanas, etc.) queda IGUAL al `arbol` vigente y los
+  // `filaNum` siguen siendo comparables. Solo se calcula tras la primera apertura del
+  // modal "↳ movida aquí" (`huboAperturaReubicacion`) — nunca en el render de la tabla.
+  const arbolOriginal = useMemo(() => {
+    if (!huboAperturaReubicacion) return null;
+    const sinReparentar = filasEditadas.map((f) => ({ ...f, padreManual: null }));
+    return construirVistaBorrador(sinReparentar, { preservarAgrupadorasForzadas: true, consolidarAuxiliares: true, umbrales }).arbol;
+  }, [huboAperturaReubicacion, filasEditadas, umbrales]);
+  const filasPorNum = useMemo(() => new Map(filas.map((f) => [f.filaNum, f])), [filas]);
+  const abrirDetalleReubicacion = (filaNum: number) => {
+    setHuboAperturaReubicacion(true);
+    setDetalleReubicacion({ filaNum });
+  };
+  const resumenReubicacion = useMemo(() => {
+    if (!detalleReubicacion) return null;
+    const filaNum = detalleReubicacion.filaNum;
+    // "pendiente" = solo el override de ESTA sesión trae el padre nuevo (`padres`, sin
+    // guardar aún); si no está ahí, el padreManual vigente ya es el que trajo el
+    // servidor (guardado en el lote, a mano en una carga previa o re-aplicado por las
+    // correcciones memorizadas del cliente).
+    const huboOverrideSesion = filaNum in padres;
+    const veniaReubicadaDelServidor = filasPorNum.get(filaNum)?.padreManual != null;
+    return construirResumenReubicacion(filaNum, arbol, arbolOriginal, huboOverrideSesion, veniaReubicadaDelServidor, correccionesAplicadas);
+  }, [detalleReubicacion, padres, filasPorNum, arbol, arbolOriginal, correccionesAplicadas]);
 
   const onReclasificar = (cuenta: NodoBorrador) => {
     if (cuenta.tipoFila === "movimiento" || cuenta.tipoFila === "descuadre") {
@@ -783,9 +818,6 @@ export default function BorradorDetailClient({
               </a>
             </div>
           </div>
-          <div className="mt-1 text-[11px] leading-relaxed text-ink-500">
-            <span className="font-semibold text-err-700">Δ subrayado</span> en una agrupadora = su total del archivo − la suma de las filas que cuelgan de ella (por prefijo de código). Si ≠ 0, su subtotal no cuadra con su desglose: puede ser una <span className="font-semibold">cuenta faltante</span>, o que el ERP numere el detalle sin anidar por código (el subtotal y su detalle no comparten prefijo — la plata está, pero en otra rama). Usa <span className="font-semibold">⇄ Agrupadora/Movimiento</span> para corregir el tipo de una cuenta, <span className="font-semibold">⇄ Desacoplar</span> para sacar una cuenta de una agrupadora de código ajeno, la <span className="font-semibold text-err-700">✕</span> para <span className="font-semibold">omitir</span> un registro de los cálculos (se conserva en el crudo/Excel línea a línea y NO se carga al balance), y el <span className="font-semibold">tabulador ← →</span> para <span className="font-semibold">ubicar</span> una fila en la rama que quieras (→ la mete en la agrupadora de arriba; ← la sube un nivel).
-          </div>
           <label className={`mt-2 flex cursor-pointer items-start gap-2 rounded-md border px-2.5 py-1.5 text-[12px] ${soloHojas ? "border-blue-300 bg-blue-50 text-ink-700" : "border-ink-200 bg-white text-ink-600"}`}>
             <input type="checkbox" checked={soloHojas} onChange={(e) => setSoloHojas(e.target.checked)} className="mt-0.5" />
             <span>
@@ -819,7 +851,7 @@ export default function BorradorDetailClient({
             <button type="button" onClick={descartarCambios} disabled={!hayCambios || guardando} className="rounded-md border border-ink-300 px-3 py-1.5 text-[12px] font-medium text-ink-700 hover:bg-ink-50 disabled:opacity-45">Descartar cambios</button>
           </div>
         </div>
-        <ArbolTabla arbol={arbol} riesgosPorFila={riesgosPorFila} onReclasificar={onReclasificar} onGestionarAgrupadora={(filaNum) => setGestionarAgrupadora({ filaNum })} onDesacoplar={onDesacoplar} onOmitir={onOmitir} posiciones={posiciones} contexto={contexto} onUbicar={onUbicar} onDesindentar={onDesindentar} enfoqueReubicacion={enfoqueReubicacion} umbrales={umbrales} />
+        <ArbolTabla arbol={arbol} riesgosPorFila={riesgosPorFila} onReclasificar={onReclasificar} onGestionarAgrupadora={(filaNum) => setGestionarAgrupadora({ filaNum })} onDesacoplar={onDesacoplar} onOmitir={onOmitir} posiciones={posiciones} contexto={contexto} onUbicar={onUbicar} onDesindentar={onDesindentar} onVerDetalleReubicacion={abrirDetalleReubicacion} enfoqueReubicacion={enfoqueReubicacion} umbrales={umbrales} />
       </Card>
 
       {spec && (
@@ -860,6 +892,14 @@ export default function BorradorDetailClient({
           filaNum={gestionarAgrupadora.filaNum}
           onConfirmar={confirmarAgrupadora}
           onClose={() => setGestionarAgrupadora(null)}
+        />
+      )}
+
+      {resumenReubicacion && (
+        <DetalleReubicacionModal
+          resumen={resumenReubicacion}
+          riesgo={riesgosPorFila.get(resumenReubicacion.filaNum)}
+          onClose={() => setDetalleReubicacion(null)}
         />
       )}
 
@@ -1547,6 +1587,69 @@ function DetalleCuentasHallazgo({ hallazgo }: { hallazgo: Hallazgo }) {
 // ---- Árbol crudo (agrupadora / movimiento, descuadre subrayado) ----
 
 /**
+ * Ayuda al pasar el mouse: aparece al instante (el `title` nativo del navegador tarda ~1 s
+ * y se siente lento en el árbol). Portal + `position: fixed` para no quedar recortada por
+ * el `overflow` de la tabla del borrador.
+ */
+function AyudaInstantanea({
+  texto,
+  className,
+  children,
+}: {
+  texto: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [tip, setTip] = useState<{ left: number; top: number; above: boolean } | null>(null);
+
+  const mostrar = () => {
+    const el = ref.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const maxW = 320;
+    const left = Math.max(8, Math.min(r.left, window.innerWidth - maxW - 8));
+    const spaceBelow = window.innerHeight - r.bottom;
+    const above = spaceBelow < 96 && r.top > spaceBelow;
+    setTip({ left, top: above ? r.top - 6 : r.bottom + 6, above });
+  };
+
+  return (
+    <>
+      <span
+        ref={ref}
+        className={className}
+        tabIndex={0}
+        onMouseEnter={mostrar}
+        onMouseLeave={() => setTip(null)}
+        onFocus={mostrar}
+        onBlur={() => setTip(null)}
+      >
+        {children}
+      </span>
+      {tip &&
+        createPortal(
+          <div
+            role="tooltip"
+            style={{
+              position: "fixed",
+              left: tip.left,
+              top: tip.top,
+              zIndex: 80,
+              maxWidth: 320,
+              transform: tip.above ? "translateY(-100%)" : undefined,
+            }}
+            className="pointer-events-none rounded-md border border-ink-700 bg-ink-900 px-2.5 py-2 text-[11px] leading-snug text-white shadow-lg"
+          >
+            {texto}
+          </div>,
+          document.body,
+        )}
+    </>
+  );
+}
+
+/**
  * ¿La fila merece «Alerta»? Una AGRUPADORA cuyo total ≠ suma de sus hijos (Δ), o un
  * MOVIMIENTO problemático: con un valor de MAGNITUD (débito o crédito que vino con signo
  * CONTRARIO al dominante de su columna → se subió en negativo) o marcado «descuadre» (no
@@ -2142,7 +2245,7 @@ function MenuAccionesCuenta({
   );
 }
 
-function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupadora, onDesacoplar, onOmitir, posiciones, contexto, onUbicar, onDesindentar, enfoqueReubicacion, umbrales }: { arbol: NodoBorrador[]; riesgosPorFila: Map<number, ManipulacionRiesgosaBorrador>; onReclasificar: (cuenta: NodoBorrador) => void; onGestionarAgrupadora: (filaNum: number) => void; onDesacoplar: (codigo: string, desacopladaAhora: boolean) => void; onOmitir: (filaNum: number, omitidaAhora: boolean) => void; posiciones: Map<number, Posicion>; contexto: Map<number, ContextoNodo>; onUbicar: (filaNum: number) => void; onDesindentar: (filaNum: number) => void; enfoqueReubicacion: { origen: number; destino: number | null; secuencia: number } | null; umbrales: UmbralesAlertas }) {
+function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupadora, onDesacoplar, onOmitir, posiciones, contexto, onUbicar, onDesindentar, onVerDetalleReubicacion, enfoqueReubicacion, umbrales }: { arbol: NodoBorrador[]; riesgosPorFila: Map<number, ManipulacionRiesgosaBorrador>; onReclasificar: (cuenta: NodoBorrador) => void; onGestionarAgrupadora: (filaNum: number) => void; onDesacoplar: (codigo: string, desacopladaAhora: boolean) => void; onOmitir: (filaNum: number, omitidaAhora: boolean) => void; posiciones: Map<number, Posicion>; contexto: Map<number, ContextoNodo>; onUbicar: (filaNum: number) => void; onDesindentar: (filaNum: number) => void; onVerDetalleReubicacion: (filaNum: number) => void; enfoqueReubicacion: { origen: number; destino: number | null; secuencia: number } | null; umbrales: UmbralesAlertas }) {
   const { filaSeleccionada, setFilaSeleccionada, onClickFila, onDoubleClickFila } = useSeleccionFilaTabla();
   const tablaRef = useRef<HTMLDivElement>(null);
   const sentinelaRef = useRef<HTMLTableRowElement | null>(null); // sensor de scroll: al entrar en vista, revela el próximo bloque
@@ -2476,9 +2579,20 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
         </td>
         <td className="px-2 py-1 align-top">
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className={`text-[12px] ${omitida ? "text-ink-400 line-through" : descuadreAccionable ? "font-semibold text-err-700 underline decoration-err-500 decoration-2 underline-offset-2" : descuadreInformativo ? "font-medium text-err-500 underline decoration-err-100 decoration-1 underline-offset-2" : "text-ink-800"}`} title={n.nombre}>
-              {n.nombre}
-            </span>
+            {descuadrado ? (
+              <AyudaInstantanea
+                className={`cursor-help text-[12px] ${omitida ? "text-ink-400 line-through" : descuadreAccionable ? "font-semibold text-err-700 underline decoration-err-500 decoration-2 underline-offset-2" : "font-medium text-err-500 underline decoration-err-100 decoration-1 underline-offset-2"}`}
+                texto={descuadreAccionable
+                  ? `${n.nombre} — Δ subrayado: total del archivo − suma de las filas que cuelgan de ella (por prefijo de código). Si ≠ 0, el subtotal no cuadra con su desglose: puede ser una cuenta faltante, o que el ERP numere el detalle sin anidar por código (la plata está en otra rama).`
+                  : `${n.nombre} — Δ informativo (menor a ${fmt(umbrales.descuadre)}): se muestra, pero no cuenta como alerta ni en el diagnóstico superior.`}
+              >
+                {n.nombre}
+              </AyudaInstantanea>
+            ) : (
+              <span className={`text-[12px] ${omitida ? "text-ink-400 line-through" : "text-ink-800"}`} title={n.nombre}>
+                {n.nombre}
+              </span>
+            )}
             {omitida && <Chip label="Omitida · no cuenta" tone="warn" />}
             {riesgoClase && (
               <span
@@ -2496,14 +2610,14 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
               <Chip label="Total" tone="ink" />
             ) : null}
             {descuadrado && (
-              <span
-                className={`rounded px-1.5 py-0.5 text-[10.5px] ${descuadreAccionable ? "font-semibold text-err-700" : "border border-err-100 bg-err-100/35 font-medium text-err-500"}`}
-                title={descuadreAccionable
-                  ? `Total del archivo ${fmt(n.saldoFinal)} − suma de sus ${n.hijos.length} cuentas = ${fmt(n.descuadre!)}. Su subtotal no cuadra con su desglose por código.`
-                  : `Diferencia informativa menor a ${fmt(umbrales.descuadre)}: permanece visible, pero no se incluye en Alertas ni en el diagnóstico superior.`}
+              <AyudaInstantanea
+                className={`cursor-help rounded px-1.5 py-0.5 text-[10.5px] ${descuadreAccionable ? "font-semibold text-err-700" : "border border-err-100 bg-err-100/35 font-medium text-err-500"}`}
+                texto={descuadreAccionable
+                  ? `Δ subrayado = total del archivo (${fmt(n.saldoFinal)}) − suma de sus ${n.hijos.length} cuentas (por prefijo de código) = ${fmt(n.descuadre!)}. El subtotal no cuadra con su desglose: puede ser una cuenta faltante, o que el ERP numere el detalle sin anidar por código (el subtotal y su detalle no comparten prefijo — la plata está, pero en otra rama).`
+                  : `Δ informativo = ${fmt(n.descuadre!)} (menor a ${fmt(umbrales.descuadre)}). Se muestra para referencia, pero no cuenta como alerta ni en el diagnóstico superior.`}
               >
                 Δ {fmt(n.descuadre!)}
-              </span>
+              </AyudaInstantanea>
             )}
             {esAgrupadora && n.tipoFilaForzado === "agrupadora" && !hasHijos && (
               <span title="La decisión manual se conserva. Si permanece vacía al cargar el balance oficial, su propio saldo se tratará como movimiento para evitar que se pierda dinero.">
@@ -2519,9 +2633,14 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
               </span>
             )}
             {reparentada && (
-              <span title="Esta fila fue reubicada y se muestra sombreada en su nueva posición dentro del árbol.">
+              <button
+                type="button"
+                onClick={() => onVerDetalleReubicacion(n.filaNum)}
+                title="Ver el detalle de esta reubicación: dónde estaba, dónde quedó y de dónde vino el cambio."
+                className="inline-flex cursor-pointer rounded-full transition hover:opacity-80"
+              >
                 <Chip label="↳ movida aquí" tone="blue" />
-              </span>
+              </button>
             )}
             {accionesCuenta.length > 0 && (
               <MenuAccionesCuenta
@@ -2648,6 +2767,183 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
         )}
       </div>
     </div>
+  );
+}
+
+/** Sangría (px) por nivel de profundidad en la escalera de una posición del árbol. */
+const SANGRIA_NIVEL_REUBICACION = 22;
+
+/** Marca, nivel por nivel, desde dónde dejan de coincidir dos posiciones del árbol: los
+ *  niveles del prefijo común se pintan neutros y los que difieren se resaltan. */
+function nivelesComparados(ruta: RefNodo[], otra: RefNodo[] | null): { nodo: RefNodo; distinto: boolean }[] {
+  let comun = 0;
+  if (otra) {
+    while (comun < ruta.length && comun < otra.length && ruta[comun].filaNum === otra[comun].filaNum) comun++;
+  } else {
+    comun = ruta.length;
+  }
+  return ruta.map((nodo, i) => ({ nodo, distinto: i >= comun }));
+}
+
+/** Una posición del árbol como escalera VERTICAL: un nivel por línea, sangrado según su
+ *  profundidad, con la cuenta reubicada como último peldaño. Las dos posiciones del modal
+ *  ("Dónde estaba" / "Dónde quedó") comparten sangría, así que los niveles que coinciden
+ *  quedan alineados uno debajo del otro y se ve de un vistazo dónde se abre la diferencia.
+ *  `ruta` `null` = no se pudo ubicar la fila en ese árbol; `[]` = era raíz. */
+function RutaReubicacion({
+  ruta,
+  otraRuta,
+  cuenta,
+  vacioLabel,
+  tono,
+}: {
+  ruta: RefNodo[] | null;
+  otraRuta: RefNodo[] | null;
+  cuenta: RefNodo;
+  vacioLabel: string;
+  tono: "origen" | "destino";
+}) {
+  if (ruta == null) {
+    return <p className="text-[12px] text-ink-400">No fue posible reconstruir esta posición.</p>;
+  }
+  const niveles = nivelesComparados(ruta, otraRuta);
+  const resalte = tono === "destino" ? "bg-ok-100 text-ok-700" : "bg-warn-100 text-warn-700";
+  return (
+    <div>
+      {ruta.length === 0 && <p className="mb-1 text-[12px] text-ink-500">{vacioLabel}</p>}
+      <ol className="space-y-0.5">
+        {niveles.map(({ nodo, distinto }, i) => (
+          <li key={nodo.filaNum} style={{ paddingLeft: i * SANGRIA_NIVEL_REUBICACION }}>
+            <div className={`flex items-start gap-2 rounded px-1.5 py-1 ${distinto ? resalte : "text-ink-600"}`}>
+              <span aria-hidden className="w-3 shrink-0 font-mono text-[11px] leading-5 text-ink-300">{i > 0 ? "└" : ""}</span>
+              <span className="shrink-0 font-mono text-[11px] leading-5 tabular-nums opacity-80">{nodo.codigoCrudo || nodo.codigo || "—"}</span>
+              <span className="text-[12px] font-medium leading-5">{nodo.nombre}</span>
+            </div>
+          </li>
+        ))}
+        <li style={{ paddingLeft: ruta.length * SANGRIA_NIVEL_REUBICACION }}>
+          <div className="flex items-start gap-2 rounded-md border border-blue-400 bg-blue-50 px-1.5 py-1">
+            <span aria-hidden className="w-3 shrink-0 font-mono text-[11px] leading-5 text-blue-400">{ruta.length > 0 ? "└" : ""}</span>
+            <span className="shrink-0 font-mono text-[11px] leading-5 tabular-nums text-navy-600">{cuenta.codigoCrudo || cuenta.codigo || "—"}</span>
+            <span className="text-[12px] font-semibold leading-5 text-navy-800">{cuenta.nombre}</span>
+          </div>
+        </li>
+      </ol>
+    </div>
+  );
+}
+
+/**
+ * Detalle del chip "↳ movida aquí": explica dónde estaba la fila en el árbol AUTOMÁTICO
+ * del archivo (sin ningún `padreManual`), dónde quedó en el árbol vigente, y de dónde
+ * vino el cambio (override sin guardar de esta sesión / ya guardado en el borrador,
+ * posiblemente por las correcciones memorizadas del perfil del cliente). Advierte además
+ * si la reubicación cruza de clase contable (misma detección que el resto del borrador).
+ */
+function DetalleReubicacionModal({
+  resumen,
+  riesgo,
+  onClose,
+}: {
+  resumen: ResumenReubicacionFila;
+  riesgo: ManipulacionRiesgosaBorrador | undefined;
+  onClose: () => void;
+}) {
+  const { cuenta, procedencia } = resumen;
+  return (
+    <Modal open onClose={onClose} title="Detalle de la reubicación" size="xl">
+      <div className="space-y-4 text-[12.5px]">
+        <div className="rounded-md border border-ink-150 bg-ink-50 px-3 py-2.5">
+          <div className="flex flex-wrap items-baseline gap-2">
+            <span className="font-mono text-[12px] text-ink-500">{cuenta.codigoCrudo || cuenta.codigo}</span>
+            <span className="text-[13.5px] font-semibold text-ink-800">{cuenta.nombre}</span>
+          </div>
+          <div className="mt-2.5 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {([
+              ["Saldo anterior", cuenta.saldoInicial],
+              ["Débitos", cuenta.debitos],
+              ["Créditos", cuenta.creditos],
+              ["Saldo actual", cuenta.saldoFinal],
+            ] as const).map(([etiqueta, valor]) => (
+              <div key={etiqueta} className="rounded border border-ink-150 bg-white px-2 py-1.5">
+                <div className="text-[10.5px] uppercase tracking-wide text-ink-400">{etiqueta}</div>
+                <div className="mt-0.5 whitespace-nowrap tabular-nums font-semibold text-ink-800">{fmtContable(valor)}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <section className="overflow-hidden rounded-md border border-ink-150">
+          <header className="border-b border-ink-150 bg-ink-50 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-500">
+            Dónde estaba · archivo original
+          </header>
+          <div className="px-3 py-2.5">
+            <RutaReubicacion
+              ruta={resumen.rutaOriginal}
+              otraRuta={resumen.rutaActual}
+              cuenta={cuenta}
+              tono="origen"
+              vacioLabel="Nivel superior del archivo — no tenía ninguna agrupadora encima."
+            />
+          </div>
+        </section>
+
+        <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-ink-400">
+          <span className="h-px flex-1 bg-ink-150" />
+          <Icon name="chev-d" size={12} />
+          se movió a
+          <span className="h-px flex-1 bg-ink-150" />
+        </div>
+
+        <section className="overflow-hidden rounded-md border border-ink-150">
+          <header className="border-b border-ink-150 bg-ink-50 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-500">
+            Dónde quedó · posición actual
+          </header>
+          <div className="px-3 py-2.5">
+            <RutaReubicacion
+              ruta={resumen.rutaActual}
+              otraRuta={resumen.rutaOriginal}
+              cuenta={cuenta}
+              tono="destino"
+              vacioLabel="Quedó en el nivel superior del árbol, sin ninguna agrupadora encima."
+            />
+          </div>
+        </section>
+
+        <div>
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">Origen del cambio</div>
+          <div className="mt-1.5 flex flex-col items-start gap-1.5 sm:flex-row sm:gap-2.5">
+            {procedencia.estado === "pendiente" ? (
+              <>
+                <span className="shrink-0"><Chip label="Pendiente en esta sesión" tone="warn" /></span>
+                <p className="text-[12px] leading-5 text-ink-600">
+                  Se movió en esta pantalla y todavía no se guardó. Usa «Guardar cambios» para persistirlo en el borrador; «Descartar cambios» la devuelve a su posición anterior.
+                </p>
+              </>
+            ) : (
+              <>
+                <span className="shrink-0"><Chip label="Guardada en el borrador" tone="ok" /></span>
+                <p className="text-[12px] leading-5 text-ink-600">
+                  Esta posición ya está guardada en el staging del lote.
+                  {procedencia.posibleCorreccionAutomatica && (
+                    <>
+                      {" "}Como este cliente tiene correcciones memorizadas de cargas anteriores, es posible que se haya aplicado sola desde su perfil (Configuración › Perfiles de carga) en vez de haberse movido a mano en esta carga.
+                    </>
+                  )}
+                </p>
+              </>
+            )}
+          </div>
+        </div>
+
+        {riesgo && (
+          <div className="rounded-md border border-err-500 bg-err-100 px-3 py-2 text-[12px] leading-5 text-err-700">
+            <span className="font-semibold">Advertencia: cruce de clase contable.</span>{" "}
+            Esta reubicación mueve la cuenta de {nombreClaseContable(riesgo.claseOrigen)} a {nombreClaseContable(riesgo.claseDestino)}. Debe revisarse y aprobarse antes de cargar el balance.
+          </div>
+        )}
+      </div>
+    </Modal>
   );
 }
 

@@ -581,6 +581,108 @@ export function puedeUbicar(ctx: ContextoNodo | undefined): boolean {
   return !!ctx && ctx.candidatos.length > 0 && ctx.candidatos[0].filaNum !== ctx.padre;
 }
 
+// ---- Detalle de una reubicación manual (chip "↳ movida aquí" del borrador) ----
+
+export type NodoConRuta = {
+  nodo: NodoBorrador;
+  /** Ancestros por el árbol, del más alto (raíz) al padre directo — SIN incluir la
+   *  propia fila. */
+  ruta: RefNodo[];
+};
+
+/**
+ * Localiza una fila dentro de un árbol YA CONSTRUIDO y devuelve, junto al nodo, la
+ * cadena de sus ancestros. `null` si la fila no aparece en ESE árbol — puede pasar al
+ * comparar contra el árbol "automático" (sin `padreManual`) si una consolidación por
+ * tercero (que no depende de `padreManual`) dejó la fila fuera. Recorrido DFS lineal;
+ * pensado para usarse BAJO DEMANDA (al abrir el detalle de una reubicación), nunca por
+ * fila en cada render de la tabla.
+ */
+export function localizarNodoBorrador(arbol: NodoBorrador[], filaNum: number): NodoConRuta | null {
+  const ruta: RefNodo[] = [];
+  const buscar = (nodos: NodoBorrador[]): NodoBorrador | null => {
+    for (const n of nodos) {
+      if (n.filaNum === filaNum) return n;
+      const hallado = buscar(n.hijos);
+      if (hallado) {
+        ruta.unshift(aRef(n));
+        return hallado;
+      }
+    }
+    return null;
+  };
+  const nodo = buscar(arbol);
+  return nodo ? { nodo, ruta } : null;
+}
+
+export type ProcedenciaReubicacionFila =
+  | { estado: "pendiente" } // cambiada en esta sesión del navegador, aún sin «Guardar cambios»
+  | { estado: "guardada"; posibleCorreccionAutomatica: boolean }; // ya venía así en el staging del lote
+
+/**
+ * Clasifica de dónde vino la reubicación de una fila: un override todavía en memoria
+ * (sin guardar) o una posición que YA trae el staging del lote — en cuyo caso, si el
+ * cliente tiene correcciones memorizadas (`correccionesAplicadas > 0`), pudo haberla
+ * aplicado el perfil de cargas anteriores en vez de un ajuste manual en esta carga.
+ * Puro: la distinción "sin guardar" la decide el CALLER comparando el override de
+ * sesión (`padres`) contra el `padreManual` que trajo el servidor.
+ */
+export function procedenciaReubicacionFila(
+  huboOverrideSesion: boolean,
+  veniaReubicadaDelServidor: boolean,
+  correccionesAplicadas: number,
+): ProcedenciaReubicacionFila {
+  if (huboOverrideSesion) return { estado: "pendiente" };
+  return { estado: "guardada", posibleCorreccionAutomatica: veniaReubicadaDelServidor && correccionesAplicadas > 0 };
+}
+
+export type ResumenReubicacionFila = {
+  filaNum: number;
+  cuenta: RefNodo & { saldoInicial: number; debitos: number; creditos: number; saldoFinal: number };
+  /** Ancestros en el árbol AUTOMÁTICO (sin `padreManual`, tal como anida el archivo
+   *  crudo). `null` si aún no se calculó (perezoso) o si la fila quedó fuera de ese
+   *  árbol. Arreglo vacío = era raíz. */
+  rutaOriginal: RefNodo[] | null;
+  /** Ancestros en el árbol VIGENTE (con todos los `padreManual` aplicados). */
+  rutaActual: RefNodo[];
+  procedencia: ProcedenciaReubicacionFila;
+};
+
+/**
+ * Arma el resumen completo que pinta el modal del chip "↳ movida aquí": la cuenta, de
+ * dónde a dónde se movió (comparando el árbol vigente contra el automático) y de dónde
+ * vino el cambio. `null` si la fila no existe en el árbol vigente (no debería ocurrir:
+ * el chip solo se pinta sobre filas presentes en `arbolActual`).
+ */
+export function construirResumenReubicacion(
+  filaNum: number,
+  arbolActual: NodoBorrador[],
+  arbolOriginal: NodoBorrador[] | null,
+  huboOverrideSesion: boolean,
+  veniaReubicadaDelServidor: boolean,
+  correccionesAplicadas: number,
+): ResumenReubicacionFila | null {
+  const actual = localizarNodoBorrador(arbolActual, filaNum);
+  if (!actual) return null;
+  const original = arbolOriginal ? localizarNodoBorrador(arbolOriginal, filaNum) : null;
+  return {
+    filaNum,
+    cuenta: {
+      filaNum,
+      codigo: actual.nodo.codigo,
+      codigoCrudo: actual.nodo.codigoCrudo,
+      nombre: actual.nodo.nombre,
+      saldoInicial: actual.nodo.saldoInicial,
+      debitos: actual.nodo.debitos,
+      creditos: actual.nodo.creditos,
+      saldoFinal: actual.nodo.saldoFinal,
+    },
+    rutaOriginal: original ? original.ruta : null,
+    rutaActual: actual.ruta,
+    procedencia: procedenciaReubicacionFila(huboOverrideSesion, veniaReubicadaDelServidor, correccionesAplicadas),
+  };
+}
+
 // ---- Reubicación GLOBAL: buscar cualquier cuenta y anidarla bajo una agrupadora ----
 
 export type CuentaReubicacion = RefNodo & {
