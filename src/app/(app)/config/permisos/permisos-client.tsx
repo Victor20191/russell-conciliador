@@ -6,6 +6,7 @@ import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { Card, PageHeader } from "@/components/ui";
 import { Icon } from "@/components/icons";
+import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
 import { guardarNiveles, type CambioNivel } from "@/app/actions/permisos";
 import { NIVEL_META, type Nivel, type NivelTone } from "@/lib/rbac/niveles";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
@@ -373,7 +374,7 @@ function FilaModulo({
                 className="-ml-1 rounded p-0.5 text-ink-400 hover:bg-ink-100 hover:text-ink-600"
                 aria-label={abierto ? "Contraer" : "Expandir"}
               >
-                <Icon name={abierto ? "chev-d" : "chev-r"} size={14} />
+                <Icon name={chevronDivulgacion(abierto)} size={14} />
               </button>
             ) : (
               !hijo && <span className="inline-block w-[19px]" />

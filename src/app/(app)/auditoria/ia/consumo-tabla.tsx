@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Card } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { PageSizeSelect, PaginationFooter, usePagination } from "@/components/pagination-controls";
+import { chevronAccionMasiva, chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
 
 export type ConsumoRow = {
   id: number;
@@ -142,7 +143,7 @@ export default function ConsumoTabla({ rows }: { rows: ConsumoRow[] }) {
               aria-label={`${clienteContraido ? "Expandir" : "Contraer"} llamadas de ${e.cliente}`}
               title={clienteContraido ? "Expandir cliente" : "Contraer cliente"}
             >
-              <Icon name={clienteContraido ? "chev-r" : "chev-d"} size={13} className="shrink-0 text-ink-500" />
+              <Icon name={chevronDivulgacion(!clienteContraido)} size={13} className="shrink-0 text-ink-500" />
               <span className="min-w-0 truncate">{e.cliente}</span>
               <span className="shrink-0 font-normal text-ink-500">{fmtTokens(total?.llamadas ?? 0)} llamada(s)</span>
             </button>
@@ -170,7 +171,7 @@ export default function ConsumoTabla({ rows }: { rows: ConsumoRow[] }) {
               aria-label={`${fechaContraida ? "Expandir" : "Contraer"} llamadas del ${totalFecha?.label ?? fecha}`}
               title={fechaContraida ? "Expandir fecha" : "Contraer fecha"}
             >
-              <Icon name={fechaContraida ? "chev-r" : "chev-d"} size={12} className="shrink-0 text-ink-400" />
+              <Icon name={chevronDivulgacion(!fechaContraida)} size={12} className="shrink-0 text-ink-400" />
               <span className="font-mono text-ink-600">{totalFecha?.label ?? fecha}</span>
               <span className="shrink-0 font-normal text-ink-400">{fmtTokens(totalFecha?.llamadas ?? 0)} llamada(s)</span>
             </button>
@@ -212,7 +213,7 @@ export default function ConsumoTabla({ rows }: { rows: ConsumoRow[] }) {
             className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ink-200 bg-white px-2.5 text-[12px] font-semibold text-ink-600 transition hover:border-ink-300 hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-45"
             title="Expandir todo"
           >
-            <Icon name="chev-d" size={13} />
+            <Icon name={chevronAccionMasiva("expandir")} size={13} />
             Expandir
           </button>
           <button
@@ -222,7 +223,7 @@ export default function ConsumoTabla({ rows }: { rows: ConsumoRow[] }) {
             className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ink-200 bg-white px-2.5 text-[12px] font-semibold text-ink-600 transition hover:border-ink-300 hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-45"
             title="Contraer todo"
           >
-            <Icon name="chev-r" size={13} />
+            <Icon name={chevronAccionMasiva("contraer")} size={13} />
             Contraer
           </button>
         </div>

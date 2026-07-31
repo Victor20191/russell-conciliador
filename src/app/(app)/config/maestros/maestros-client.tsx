@@ -5,6 +5,7 @@ import { EstadoProcesando } from "@/components/estado-procesando";
 import { useActionState, useEffect, useId, useMemo, useState } from "react";
 import { Card } from "@/components/ui";
 import { Icon } from "@/components/icons";
+import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
 import { Modal } from "@/components/modal";
 import { PasswordInput } from "@/components/password-input";
 import {
@@ -572,7 +573,7 @@ function SuperioresField({
             >
               {resumen}
             </span>
-            <Icon name={open ? "chev-d" : "chev-r"} size={16} className="shrink-0 text-ink-500" />
+            <Icon name={chevronDivulgacion(open)} size={16} className="shrink-0 text-ink-500" />
           </button>
           {open && (
             <div
@@ -739,7 +740,7 @@ function PersonaModal({
               className="flex w-full items-center justify-between px-3 py-2.5 text-[13px] font-medium text-ink-700 hover:bg-ink-50"
             >
               Restablecer contraseña
-              <Icon name={resetOpen ? "chev-d" : "chev-r"} size={16} />
+              <Icon name={chevronDivulgacion(resetOpen)} size={16} />
             </button>
             {resetOpen && (
               <div className="flex flex-col gap-2 border-t border-ink-100 px-3 pb-3 pt-3">

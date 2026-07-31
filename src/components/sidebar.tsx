@@ -9,6 +9,7 @@ import { Avatar } from "@/components/avatar";
 import { EstadoProcesando } from "@/components/estado-procesando";
 import { workNav, configNav, type NavChild, type NavItem } from "@/lib/nav";
 import { etiquetaVersion } from "@/lib/version-app";
+import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
 import { logout } from "@/app/actions/auth";
 
 function BotonCerrarSesion() {
@@ -198,11 +199,8 @@ export default function Sidebar({
                   <span className="truncate">{it.label}</span>
                   {inDevelopment && <DevBadge />}
                   {it.count != null && <Count n={it.count} />}
-                  <span
-                    className="ml-auto opacity-50 transition-transform"
-                    style={{ transform: open ? "rotate(90deg)" : "none" }}
-                  >
-                    <Icon name="chev-r" size={11} />
+                  <span className="ml-auto opacity-50">
+                    <Icon name={chevronDivulgacion(open)} size={11} />
                   </span>
                 </button>
                 {open && (

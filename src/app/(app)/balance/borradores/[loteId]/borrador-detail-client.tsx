@@ -82,6 +82,7 @@ import {
 } from "@/components/revelado-progresivo";
 import { expandirFilas, type FilasCompactas } from "@/lib/balance/filas-compactas";
 import type { RevisionReubicacionStaging } from "@/lib/balance/staging-borrador";
+import { chevronAccionMasiva, chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
 
 function generarUuidReprocesoOAvisar(): string | null {
   try {
@@ -1472,7 +1473,7 @@ function DiagnosticoPanel({ hallazgos, diferenciasClase, manipulaciones }: { hal
           aria-expanded={hay ? abierto : undefined}
           className={`flex min-w-0 flex-1 items-center gap-1.5 text-left text-[11px] font-semibold uppercase tracking-wider ${hay ? "text-err-700" : "cursor-default text-ok-700"}`}
         >
-          <Icon name={hay ? (abierto ? "chev-d" : "chev-r") : "check"} size={14} />
+          <Icon name={hay ? chevronDivulgacion(abierto) : "check"} size={14} />
           Diagnóstico del descuadre
           <span className={`ml-1 rounded-full border bg-white px-1.5 py-0.5 text-[10px] font-semibold normal-case tracking-normal ${hay ? "border-err-100 text-err-700" : "border-ok-100 text-ok-700"}`}>
             {hay ? total : "sin hallazgos"}
@@ -1481,10 +1482,10 @@ function DiagnosticoPanel({ hallazgos, diferenciasClase, manipulaciones }: { hal
         {hay && abierto && indicesConDetalle.length > 0 && (
           <div className="flex shrink-0 items-center gap-2">
             <button type="button" onClick={expandirTodo} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-white px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50">
-              <Icon name="chev-d" size={12} />Expandir todo
+              <Icon name={chevronAccionMasiva("expandir")} size={12} />Expandir todo
             </button>
             <button type="button" onClick={colapsarTodo} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-white px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50">
-              <Icon name="chev-r" size={12} />Colapsar todo
+              <Icon name={chevronAccionMasiva("contraer")} size={12} />Colapsar todo
             </button>
           </div>
         )}
@@ -1521,7 +1522,7 @@ function DiagnosticoPanel({ hallazgos, diferenciasClase, manipulaciones }: { hal
                       aria-expanded={expandido}
                       className="inline-flex shrink-0 items-center gap-1 rounded-md border border-ink-200 px-2 py-1 text-[10.5px] font-medium text-ink-600 hover:bg-ink-50"
                     >
-                      <Icon name={expandido ? "chev-d" : "chev-r"} size={11} />
+                      <Icon name={chevronDivulgacion(expandido)} size={11} />
                       {expandido ? "Ocultar cuentas" : "Ver cuentas"}
                     </button>
                   )}
@@ -2562,7 +2563,7 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
         <td className={`px-2 py-1 align-top ${reparentada ? "border-l-[3px] border-l-blue-500" : ""}`}>
           <div className="flex items-center gap-1.5" style={{ paddingLeft: 4 + depth * 16 }}>
             {hasHijos ? (
-              <button onClick={() => toggle(n.filaNum)} className="text-ink-400 hover:text-ink-700"><Icon name={open ? "chev-d" : "chev-r"} size={13} /></button>
+              <button onClick={() => toggle(n.filaNum)} className="text-ink-400 hover:text-ink-700"><Icon name={chevronDivulgacion(open)} size={13} /></button>
             ) : (
               <span className="inline-block w-[13px]" />
             )}
@@ -2714,8 +2715,8 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
         {vistaBtn("todo", "Todo")}
         {vistaBtn("alertas", "Alertas", nAlertas)}
         <span className="mx-0.5 h-4 w-px bg-ink-200" />
-        <button type="button" onClick={expandirTodo} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50"><Icon name="chev-d" size={12} />Expandir todo</button>
-        <button type="button" onClick={contraerTodo} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50"><Icon name="chev-r" size={12} />Contraer todo</button>
+        <button type="button" onClick={expandirTodo} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50"><Icon name={chevronAccionMasiva("expandir")} size={12} />Expandir todo</button>
+        <button type="button" onClick={contraerTodo} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50"><Icon name={chevronAccionMasiva("contraer")} size={12} />Contraer todo</button>
         <button
           type="button"
           aria-pressed={pantallaCompleta}

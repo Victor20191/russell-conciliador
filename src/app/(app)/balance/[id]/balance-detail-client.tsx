@@ -14,6 +14,7 @@ import Conversacion from "@/components/conversacion";
 import type { NodoBalance } from "@/lib/balance/calcular";
 import { esSaldoContrarioAccionable, esSaldoContrarioInformativo, type UmbralesAlertas } from "@/lib/balance/umbrales-alertas";
 import { useSeleccionFilaTabla } from "@/app/(app)/balance/use-seleccion-fila-tabla";
+import { chevronAccionMasiva, chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
 
 export type ValidacionInfo = { tipo: string; por: string; en: string; comentario: string };
 // Contexto de validación de alertas que se pasa al renderizador de filas.
@@ -213,10 +214,10 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, va
           <FiltroBtn on={filtro === "alertas"} onClick={() => setFiltro("alertas")} label="Alertas" count={totalAlertas} tone="warn" />
           <span className="mx-1 h-4 w-px bg-ink-200" />
           <button onClick={expandirTodo} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 px-2 py-1 text-[11.5px] font-medium text-ink-600 hover:bg-ink-50">
-            <Icon name="chev-d" size={12} /> Expandir todo
+            <Icon name={chevronAccionMasiva("expandir")} size={12} /> Expandir todo
           </button>
           <button onClick={contraerTodo} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 px-2 py-1 text-[11.5px] font-medium text-ink-600 hover:bg-ink-50">
-            <Icon name="chev-r" size={12} /> Contraer todo
+            <Icon name={chevronAccionMasiva("contraer")} size={12} /> Contraer todo
           </button>
         </div>
       </div>
@@ -271,7 +272,7 @@ function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: 
       onClick={tieneHijos ? () => toggle(nodo.key) : undefined}
     >
       <td className="px-4 py-2 font-mono text-ink-600" style={{ paddingLeft: pad }}>
-        {tieneHijos && <span className="mr-1 inline-block align-middle text-ink-400"><Icon name={isOpen ? "chev-d" : "chev-r"} size={12} /></span>}
+        {tieneHijos && <span className="mr-1 inline-block align-middle text-ink-400"><Icon name={chevronDivulgacion(isOpen)} size={12} /></span>}
         <span className={esGrupo ? "font-semibold text-ink-700" : "text-[11.5px] text-ink-500"}>{nodo.code}</span>
         <span className="ml-2 rounded border border-ink-200 bg-white px-1.5 py-px align-middle text-[10px] font-semibold uppercase tracking-wide text-ink-500">{NIVEL_LABEL[nodo.nivel]}</span>
         {c && (c.mapeo > 0 || c.naturaleza > 0) && (

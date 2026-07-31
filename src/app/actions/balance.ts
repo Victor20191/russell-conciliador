@@ -83,6 +83,11 @@ const MAX_BYTES = 20 * 1024 * 1024; // 20 MB (admite PDF)
 const TIMEOUT_TRANSACCION_PROMOCION_MS = 5 * 60 * 1000;
 const TIMEOUT_TRANSACCION_BORRADOR_MS = 15 * 60 * 1000;
 const LoteIdSolicitudSchema = z.string().uuid();
+const ContinuarBalanceTransitorioSchema = z.object({
+  clienteId: z.coerce.number().int().positive(),
+  loteIdSolicitud: LoteIdSolicitudSchema,
+  spec: SpecCargaBalanceSchema,
+});
 const RevisionesReubicacionSchema = z.record(
   z.string().regex(/^\d+$/),
   z.object({
@@ -1756,6 +1761,14 @@ export async function leerBalance(
       ingesta = null;
     }
 
+    // Un documento (PDF/TXT no tabular) solo puede transformarse mediante
+    // extracción directa: no produce un spec reutilizable. Si todavía no hay
+    // cliente, se solicita ANTES de llamar al proveedor para que la continuación
+    // ejecute una única extracción y nunca duplique consumo de IA.
+    if (ingesta?.modo === "documento" && clienteExplicitoId == null) {
+      return estadoClientePendiente(null);
+    }
+
     // ---- Contexto determinista ANTES de llamar a la IA ----
     // NIT → cliente (preselección + preferencias); huella del layout → perfil.
     let clienteDetectadoId: number | null = clienteExplicitoId;
@@ -1931,6 +1944,7 @@ export async function leerBalance(
       ingesta,
       nitDeterminista,
       clienteDetectadoId,
+      ajustesCliente,
       proveedorIA,
       loteIdSolicitud,
       loteIdAnterior,
@@ -1938,6 +1952,146 @@ export async function leerBalance(
     return resultado;
   } catch (e) {
     return { ok: false, message: mensajeErrorIA("leerBalance", e), errorProveedorIA: esErrorDisponibilidadIA(e) };
+  }
+}
+
+/**
+ * CONTINUACIÓN determinista de una sugerencia TRANSITORIA tabular. Reingresa el
+ * archivo original en el servidor, valida el spec detectado y lo transforma sin
+ * IA con las preferencias del cliente. `persistirLoteYSugerencia` aplica después
+ * sus correcciones memorizadas y crea lote + staging con el MISMO UUID.
+ *
+ * La acción no acepta filas normalizadas del navegador: `render.importReady`
+ * sigue siendo exclusivamente visual y el servidor reconstruye todas las cuentas
+ * desde el File. El spec transitorio proviene de IA; conservar ese origen evita
+ * blindarlo incorrectamente como un ajuste manual.
+ */
+export async function continuarBalanceTransitorioConSpec(
+  _prev: LeerBalanceState,
+  formData: FormData,
+): Promise<LeerBalanceState> {
+  const authz = await authorizePermiso("balance:crear");
+  if (!authz.ok) return { ok: false, message: authz.message };
+
+  const archivo = formData.get("archivo");
+  if (!(archivo instanceof File) || archivo.size === 0) {
+    return { ok: false, message: "No se encontró el archivo original. Vuelve a leerlo." };
+  }
+  if (archivo.size > MAX_BYTES) {
+    return { ok: false, message: "El archivo supera 20 MB." };
+  }
+
+  let specBruto: unknown;
+  try {
+    specBruto = JSON.parse(String(formData.get("spec") ?? ""));
+  } catch {
+    return { ok: false, message: "La estructura detectada del archivo no es válida. Vuelve a leerlo." };
+  }
+  const parsed = ContinuarBalanceTransitorioSchema.safeParse({
+    clienteId: formData.get("clienteId"),
+    loteIdSolicitud: formData.get("loteIdSolicitud"),
+    spec: specBruto,
+  });
+  if (!parsed.success) {
+    return {
+      ok: false,
+      message: parsed.error.issues[0]?.message
+        ?? "No se pudo validar la continuación de esta lectura.",
+    };
+  }
+  const { clienteId, loteIdSolicitud } = parsed.data;
+
+  let destinoExistente: DestinoLoteSolicitud | null;
+  try {
+    destinoExistente = await destinoLoteSolicitud(loteIdSolicitud);
+    if (destinoExistente) {
+      if (destinoExistente.clienteId !== clienteId) {
+        return {
+          ok: false,
+          message: "El identificador de esta lectura ya pertenece a otro cliente.",
+        };
+      }
+      const scopeDestino = await authorizePermiso("balance:crear", {
+        clientId: destinoExistente.clienteId,
+      });
+      if (!scopeDestino.ok) return { ok: false, message: scopeDestino.message };
+    } else {
+      const [scope, cliente] = await Promise.all([
+        authorizePermiso("balance:crear", { clientId: clienteId }),
+        prisma.client.findUnique({
+          where: { id: clienteId },
+          select: { id: true },
+        }),
+      ]);
+      if (!scope.ok) return { ok: false, message: scope.message };
+      if (!cliente) {
+        return { ok: false, message: "El cliente seleccionado ya no existe." };
+      }
+    }
+  } catch (e) {
+    return {
+      ok: false,
+      message: mensajeErrorBD("continuarBalanceTransitorioConSpec", e),
+    };
+  }
+  if (destinoExistente) {
+    redirect(
+      destinoExistente.tipo === "balance"
+        ? `/balance/${destinoExistente.id}?cargado=1`
+        : `/balance/borradores/${destinoExistente.id}`,
+    );
+  }
+
+  try {
+    const proveedorIA = await proveedorIABalanceSesion(formData.get("modeloIA"));
+    const datosArchivo = await archivo.arrayBuffer();
+    const ingesta = await ingerir(datosArchivo, archivo.name);
+    if (ingesta.modo !== "tabular") {
+      return {
+        ok: false,
+        message:
+          "La continuación sin IA solo aplica a archivos tabulares. Vuelve a leer el archivo.",
+      };
+    }
+
+    const [ajustesCliente, usuario] = await Promise.all([
+      ajustesCargaDeCliente(clienteId),
+      getCurrentUser(),
+    ]);
+    const specBase = specDesdePerfil(aplanarSpec(parsed.data.spec));
+    const spec = aplicarPreferenciasCarga(specBase, ajustesCliente);
+    const params: ParamsExtraccion = {
+      nit: null,
+      periodoInicial: null,
+      periodoFinal: null,
+      estandar: TIPO_BALANCE_CARGA,
+    };
+    const extr = transformarTabular(spec, ingesta.hojas, params);
+    const nitDeterminista = detectarNit(ingesta.hojas);
+
+    return await persistirLoteYSugerencia({
+      extr,
+      archivoNombre: archivo.name,
+      archivoTamBytes: archivo.size,
+      usuario: usuario
+        ? { id: usuario.id, name: usuario.name, role: usuario.role }
+        : null,
+      origenExtraccion: "ia",
+      spec,
+      ingesta,
+      nitDeterminista,
+      clienteDetectadoId: clienteId,
+      ajustesCliente,
+      proveedorIA,
+      loteIdSolicitud,
+      loteIdAnterior: null,
+    });
+  } catch (e) {
+    return {
+      ok: false,
+      message: mensajeErrorIA("continuarBalanceTransitorioConSpec", e),
+      errorProveedorIA: false,
+    };
   }
 }
 
@@ -1953,6 +2107,7 @@ type ParamsLoteSugerencia = {
   ingesta: Ingesta | null;
   nitDeterminista: string | null;
   clienteDetectadoId: number | null;
+  ajustesCliente: AjustesCarga | null;
   proveedorIA: ProveedorIABalance;
 };
 
@@ -1985,7 +2140,7 @@ async function autorizarLoteAnterior(
 }
 
 /**
- * Cola COMPARTIDA del paso 1 (la usan `leerBalance` y `reprocesarBalanceConSpec`):
+ * Cola COMPARTIDA del paso 1 (lectura, continuación transitoria y reproceso):
  * valida el borrador, persiste el staging crudo + el encabezado de lote (con la
  * huella del layout, el origen de la extracción y el spec usado), garantiza el
  * perfil cuando ya hay cliente y arma la sugerencia compacta para la interfaz.
@@ -2034,13 +2189,10 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
   // agrupadora para no contar doble. ANTES de reclasificarHuerfanas (para que el árbol
   // anide el detalle por orden) y de calcBorrador (para que el snapshot del encabezado
   // no cuente doble). `importReady` se sincroniza quitando los códigos promovidos.
-  const [ajustesCliente, correccionesGuardadas] = await Promise.all([
-    ajustesCargaDeCliente(p.clienteDetectadoId),
-    prisma.correccionCargaBalance.findMany({
-      where: { clienteId: p.clienteDetectadoId },
-    }),
-  ]);
-  if (ajustesCliente?.imputarSoloHojas) {
+  const correccionesGuardadas = await prisma.correccionCargaBalance.findMany({
+    where: { clienteId: p.clienteDetectadoId },
+  });
+  if (p.ajustesCliente?.imputarSoloHojas) {
     const promovidas = reclasificarSoloHojas(extr.filasCrudas);
     if (promovidas.length > 0) {
       const codigosProm = new Set(promovidas.map((f) => f.codigo));
@@ -2146,7 +2298,9 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
   // PASO 1 — BORRADOR persistente. El UUID viene del navegador y se conserva en
   // los reintentos: es la clave idempotente de toda la lectura.
   const loteId = p.loteIdSolicitud;
-  const LOTE_STAGING = 1000;
+  // ~17 parámetros por fila: 2.000 mantiene cada INSERT por debajo del límite
+  // de 65.535 parámetros de PostgreSQL y reduce los viajes de archivos grandes.
+  const LOTE_STAGING = 2_000;
   const persistencia = await prisma.$transaction(async (tx) => {
     await tomarCandadoTransaccion(tx, `balance-lectura:${loteId}`);
     await tomarCandadoTransaccion(tx, `balance-borrador:${loteId}`);
@@ -2478,6 +2632,7 @@ export async function reprocesarBalanceConSpec(
       ingesta,
       nitDeterminista,
       clienteDetectadoId,
+      ajustesCliente,
       proveedorIA,
       loteIdSolicitud,
       loteIdAnterior: loteIdAnterior || null,

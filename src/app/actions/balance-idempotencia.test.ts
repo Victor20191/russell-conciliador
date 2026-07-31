@@ -4,6 +4,18 @@ const LOTE_ID = "11111111-1111-4111-8111-111111111111";
 const LOTE_ID_NUEVO = "22222222-2222-4222-8222-222222222222";
 
 const mocks = vi.hoisted(() => {
+  type AjustesCargaMock = {
+    hojaPreferida: string | null;
+    convencionCredito: string | null;
+    estandar: string | null;
+    agregarPorTercero: boolean | null;
+    imputarSoloHojas: boolean | null;
+    observaciones: string | null;
+  };
+  type SpecCargaMock = {
+    signoCredito: string;
+    [campo: string]: unknown;
+  };
   type Balance = {
     id: number;
     loteId: string | null;
@@ -222,6 +234,8 @@ const mocks = vi.hoisted(() => {
     ingerir: vi.fn(),
     clientFindMany: vi.fn(),
     registrarConsumoIA: vi.fn(async () => undefined),
+    iaBalanceDisponible: vi.fn(() => false),
+    extraerBalance: vi.fn(),
     redirect: vi.fn((destino: string) => {
       throw new Error(`REDIRECT:${destino}`);
     }),
@@ -232,9 +246,19 @@ const mocks = vi.hoisted(() => {
     registrarDiagnosticoInicial: vi.fn(),
     invalidarStagingBorrador: vi.fn(),
     ajustesUpsert: vi.fn(async () => ({})),
-    ajustesFindUnique: vi.fn(async () => null),
+    ajustesFindUnique: vi.fn<() => Promise<AjustesCargaMock | null>>(async () => null),
+    ajustesUpdateMany: vi.fn(async () => ({ count: 1 })),
     perfilFindFirst: vi.fn(async () => null),
     perfilFindUnique: vi.fn(async () => null),
+    perfilUpsert: vi.fn(async () => ({})),
+    perfilUpdate: vi.fn(async () => ({})),
+    aplicarPreferenciasCarga: vi.fn(
+      (spec: SpecCargaMock, ajustes?: AjustesCargaMock | null) => {
+        void ajustes;
+        return spec;
+      },
+    ),
+    transformarTabular: vi.fn(),
     clientAccountFindMany: vi.fn(async () => {
       if (flags.cambiarRevisionAntesCommit && state.lotes[0]) {
         state.lotes[0].revisionContenido += 1;
@@ -298,10 +322,13 @@ vi.mock("@/lib/prisma", () => ({
     ajustesCargaBalance: {
       findUnique: mocks.ajustesFindUnique,
       upsert: mocks.ajustesUpsert,
+      updateMany: mocks.ajustesUpdateMany,
     },
     perfilCargaBalance: {
       findFirst: mocks.perfilFindFirst,
       findUnique: mocks.perfilFindUnique,
+      upsert: mocks.perfilUpsert,
+      update: mocks.perfilUpdate,
     },
     clientAccount: {
       findMany: mocks.clientAccountFindMany,
@@ -373,7 +400,7 @@ vi.mock("@/lib/parametros/umbrales", () => ({
   getUmbralesAlertas: vi.fn(async () => ({ descuadre: 2000, naturaleza: 50000 })),
 }));
 vi.mock("@/lib/ia/proveedor-balance", () => ({
-  iaBalanceDisponible: vi.fn(() => false),
+  iaBalanceDisponible: mocks.iaBalanceDisponible,
   proveedorIABalance: vi.fn(() => "anthropic"),
 }));
 vi.mock("@/lib/ia/proveedor-balance-sesion", () => ({
@@ -419,7 +446,10 @@ vi.mock("@/lib/balance/extraccion/transformar", () => ({
   marcarSubtotalesDuplicados: vi.fn(() => new Set()),
   reclasificarRepetidos: vi.fn(),
   reclasificarNoImputables: vi.fn(),
-  transformarTabular: vi.fn(),
+  transformarTabular: mocks.transformarTabular,
+}));
+vi.mock("@/lib/balance/extraccion/extraer", () => ({
+  extraerBalance: mocks.extraerBalance,
 }));
 vi.mock("@/lib/balance/correcciones", () => ({
   claveCuenta: vi.fn(),
@@ -441,7 +471,7 @@ vi.mock("@/lib/balance/advertencia-archivo-fuente", () => ({
   validarComentarioPromocion: vi.fn(() => ({ ok: true, comentario: null })),
 }));
 vi.mock("@/lib/balance/preferencias-carga", () => ({
-  aplicarPreferenciasCarga: vi.fn((spec) => spec),
+  aplicarPreferenciasCarga: mocks.aplicarPreferenciasCarga,
 }));
 vi.mock("@/lib/balance/extraccion/ingesta", () => ({
   ingerir: mocks.ingerir,
@@ -454,6 +484,7 @@ import {
   actualizarPeriodoBorrador,
   asignarClienteBorrador,
   cargarBorrador,
+  continuarBalanceTransitorioConSpec,
   descartarBorrador,
   leerBalance,
 } from "./balance";
@@ -539,6 +570,31 @@ function filasImportacion(cantidad: number) {
   }));
 }
 
+const SPEC_TRANSITORIO = {
+  hoja: "Balance",
+  filaEncabezado: 1,
+  primeraFilaDatos: 2,
+  columnas: {
+    codigo: 1,
+    codigoFragmentos: [],
+    nombre: 2,
+    saldoInicial: 3,
+    debitos: 4,
+    creditos: 5,
+    saldoFinal: 6,
+    saldoFinalDebito: 0,
+    saldoFinalCredito: 0,
+    tercero: 0,
+  },
+  signoCredito: "firmado" as const,
+  reglaDetalle: {
+    tipo: "prefijo" as const,
+    columna: null,
+    valor: null,
+  },
+  agregarPorTercero: false,
+};
+
 function ingestaTabular(nit: string | null) {
   return {
     modo: "tabular" as const,
@@ -550,6 +606,89 @@ function ingestaTabular(nit: string | null) {
       ],
     }],
   };
+}
+
+function ingestaDocumento() {
+  return {
+    modo: "documento" as const,
+    documento: {
+      tipo: "pdf" as const,
+      base64: "JVBERi0xLjQ=",
+      mime: "application/pdf",
+    },
+  };
+}
+
+function resultadoTransform(cantidad = 1) {
+  const importReady = filasImportacion(cantidad);
+  return {
+    importReady,
+    filasCrudas: importReady.map((fila, indice) => ({
+      hoja: "Balance",
+      filaNum: indice + 2,
+      codigoCrudo: fila.code,
+      codigo: fila.code,
+      nombre: fila.name,
+      nivel: fila.code.length,
+      tipoFila: "movimiento" as const,
+      saldoInicial: fila.prevBalance,
+      debitos: 1,
+      creditos: 0,
+      saldoFinal: fila.balance,
+    })),
+    excepciones: [],
+    cabecera: {
+      nit: { valor: null, fuente: "NINGUNO" as const },
+      periodoInicial: { valor: null, fuente: "NINGUNO" as const },
+      periodoFinal: { valor: null, fuente: "NINGUNO" as const },
+      estandar: "NIF" as const,
+    },
+    resumen: {
+      filasLeidas: cantidad,
+      filasExcluidas: 0,
+      filasImportables: cantidad,
+      filasDescuadre: 0,
+      cuentasMovimiento: cantidad,
+      cuentasAgrupadoras: 0,
+      nit: { valor: null, fuente: "NINGUNO" as const },
+      periodoInicial: { valor: null, fuente: "NINGUNO" as const },
+      periodoFinal: { valor: null, fuente: "NINGUNO" as const },
+      estandar: "NIF" as const,
+      convencionCredito: "firmado" as const,
+    },
+    cuadre: {
+      detectado: false as const,
+      totalDebitos: 0,
+      totalCreditos: 0,
+      sumaDebitos: 0,
+      sumaCreditos: 0,
+      diferenciaDebitos: 0,
+      diferenciaCreditos: 0,
+      toleranciaDebitos: 0,
+      toleranciaCreditos: 0,
+      cuadra: true,
+    },
+    modo: "tabular" as const,
+    confianza: 0.9,
+  };
+}
+
+function formContinuacion(
+  spec: unknown = SPEC_TRANSITORIO,
+  clienteId = 7,
+  loteIdSolicitud = LOTE_ID_NUEVO,
+  archivo: File = new File(["contenido"], "balance.xlsx"),
+) {
+  const valores = new Map<string, FormDataEntryValue>([
+    ["archivo", archivo],
+    ["clienteId", String(clienteId)],
+    ["loteIdSolicitud", loteIdSolicitud],
+    ["spec", JSON.stringify(spec)],
+    ["modeloIA", "anthropic"],
+  ]);
+  return {
+    get: vi.fn((clave: string) => valores.get(clave) ?? null),
+  } as unknown as FormData;
 }
 
 describe("idempotencia y atomicidad del ciclo de balances", () => {
@@ -578,9 +717,14 @@ describe("idempotencia y atomicidad del ciclo de balances", () => {
     mocks.authorizePermiso.mockResolvedValue({ ok: true, role: "staff" });
     mocks.puedeVerBorrador.mockReturnValue(true);
     mocks.getCurrentUser.mockResolvedValue({ id: 3, name: "Analista", role: "staff" });
+    mocks.iaBalanceDisponible.mockReturnValue(false);
+    mocks.extraerBalance.mockReset();
     mocks.ingerir.mockRejectedValue(new Error("Sin ingesta especializada"));
     mocks.clientFindMany.mockResolvedValue([]);
     mocks.parseBalanceWorkbook.mockResolvedValue({ filas: filasImportacion(1), errores: [] });
+    mocks.ajustesFindUnique.mockResolvedValue(null);
+    mocks.aplicarPreferenciasCarga.mockImplementation((spec) => spec);
+    mocks.transformarTabular.mockReturnValue(resultadoTransform());
   });
 
   it("promueve dos veces el mismo lote como un único balance y conserva la misma ruta", async () => {
@@ -703,6 +847,176 @@ describe("idempotencia y atomicidad del ciclo de balances", () => {
     ]);
   });
 
+  it("vincula una sugerencia transitoria con su spec sin repetir IA ni confiar en filas del navegador", async () => {
+    mocks.state.lotes.length = 0;
+    mocks.state.staging.length = 0;
+    mocks.ingerir.mockResolvedValue(ingestaTabular(null));
+    mocks.ajustesFindUnique.mockResolvedValue({
+      hojaPreferida: null,
+      convencionCredito: "magnitud",
+      estandar: "NIF",
+      agregarPorTercero: null,
+      imputarSoloHojas: null,
+      observaciones: null,
+    });
+    mocks.aplicarPreferenciasCarga.mockImplementation((spec, ajustes) => ({
+      ...spec,
+      signoCredito: ajustes?.convencionCredito === "magnitud"
+        ? "magnitud"
+        : spec.signoCredito,
+    }));
+    mocks.correccionFindMany.mockResolvedValue([
+      {
+        cuenta: "1105050000",
+        nombre: "Cuenta 1",
+        tipoFilaForzado: null,
+        desacoplada: true,
+        omitida: null,
+        padreCodigo: null,
+      },
+    ]);
+    mocks.planAplicarCorrecciones.mockReturnValue({
+      cambios: [{ filaNum: 2, desacoplada: true }],
+      cuentasAplicadas: ["1105050000"],
+    });
+
+    const resultado = await continuarBalanceTransitorioConSpec(
+      {},
+      formContinuacion(),
+    );
+
+    expect(resultado.ok).toBe(true);
+    expect(resultado.sugerencia).toMatchObject({
+      persistida: true,
+      payload: {
+        loteId: LOTE_ID_NUEVO,
+        origenExtraccion: "ia",
+      },
+    });
+    expect(mocks.extraerBalance).not.toHaveBeenCalled();
+    expect(mocks.parseBalanceWorkbook).not.toHaveBeenCalled();
+    expect(mocks.transformarTabular).toHaveBeenCalledWith(
+      expect.objectContaining({ signoCredito: "magnitud" }),
+      expect.any(Array),
+      expect.any(Object),
+    );
+    expect(mocks.state.lotes).toEqual([
+      expect.objectContaining({
+        loteId: LOTE_ID_NUEVO,
+        clienteId: 7,
+        origenExtraccion: "ia",
+      }),
+    ]);
+    expect(mocks.state.staging).toEqual([
+      expect.objectContaining({
+        loteId: LOTE_ID_NUEVO,
+        clienteId: 7,
+        desacoplada: true,
+      }),
+    ]);
+  });
+
+  it("recupera por el mismo UUID una continuación transitoria ya persistida sin reprocesarla", async () => {
+    mocks.state.lotes.length = 0;
+    mocks.state.staging.length = 0;
+    mocks.ingerir.mockResolvedValue(ingestaTabular(null));
+
+    const primero = await continuarBalanceTransitorioConSpec(
+      {},
+      formContinuacion(),
+    );
+    expect(primero.ok).toBe(true);
+    expect(mocks.transformarTabular).toHaveBeenCalledTimes(1);
+
+    await expect(
+      continuarBalanceTransitorioConSpec({}, formContinuacion()),
+    ).rejects.toThrow(`REDIRECT:/balance/borradores/${LOTE_ID_NUEVO}`);
+    expect(mocks.transformarTabular).toHaveBeenCalledTimes(1);
+    expect(mocks.state.lotes).toHaveLength(1);
+    expect(mocks.state.staging).toHaveLength(1);
+  });
+
+  it("rechaza la continuación transitoria fuera del alcance antes de reingresar el archivo", async () => {
+    mocks.state.lotes.length = 0;
+    mocks.state.staging.length = 0;
+    mocks.authorizePermiso.mockImplementation(async (
+      _permiso: string,
+      opciones?: { clientId?: number },
+    ) => opciones?.clientId
+      ? { ok: false, message: "Cliente fuera del alcance." }
+      : { ok: true, role: "staff" });
+
+    const resultado = await continuarBalanceTransitorioConSpec(
+      {},
+      formContinuacion(),
+    );
+
+    expect(resultado).toMatchObject({
+      ok: false,
+      message: "Cliente fuera del alcance.",
+    });
+    expect(mocks.ingerir).not.toHaveBeenCalled();
+    expect(mocks.ejecutarTransaccion).not.toHaveBeenCalled();
+    expect(mocks.state.lotes).toHaveLength(0);
+    expect(mocks.state.staging).toHaveLength(0);
+  });
+
+  it("rechaza un spec transitorio alterado antes de reingresar o persistir el archivo", async () => {
+    mocks.state.lotes.length = 0;
+    mocks.state.staging.length = 0;
+
+    const resultado = await continuarBalanceTransitorioConSpec(
+      {},
+      formContinuacion({ ...SPEC_TRANSITORIO, primeraFilaDatos: 1 }),
+    );
+
+    expect(resultado.ok).toBe(false);
+    expect(mocks.ingerir).not.toHaveBeenCalled();
+    expect(mocks.transformarTabular).not.toHaveBeenCalled();
+    expect(mocks.ejecutarTransaccion).not.toHaveBeenCalled();
+    expect(mocks.state.lotes).toHaveLength(0);
+    expect(mocks.state.staging).toHaveLength(0);
+  });
+
+  it("pide cliente antes de extraer un PDF y ejecuta IA solo una vez al continuar", async () => {
+    mocks.state.lotes.length = 0;
+    mocks.state.staging.length = 0;
+    mocks.iaBalanceDisponible.mockReturnValue(true);
+    mocks.ingerir.mockResolvedValue(ingestaDocumento());
+    const extraccionDocumento = {
+      ...resultadoTransform(),
+      modo: "documento" as const,
+    };
+    mocks.extraerBalance.mockResolvedValue({
+      resultado: extraccionDocumento,
+      origenExtraccion: "ia",
+      spec: null,
+    });
+    const archivo = new File(["pdf"], "balance.pdf", {
+      type: "application/pdf",
+    });
+
+    const pendiente = await leerBalance(
+      {},
+      formLectura(LOTE_ID_NUEVO, null, null, archivo),
+    );
+    expect(pendiente).toMatchObject({
+      ok: false,
+      requiereCliente: true,
+    });
+    expect(pendiente.sugerencia).toBeUndefined();
+    expect(mocks.extraerBalance).not.toHaveBeenCalled();
+
+    const continuado = await leerBalance(
+      {},
+      formLectura(LOTE_ID_NUEVO, null, 7, archivo),
+    );
+    expect(continuado.ok).toBe(true);
+    expect(continuado.sugerencia?.persistida).toBe(true);
+    expect(mocks.extraerBalance).toHaveBeenCalledTimes(1);
+    expect(mocks.state.staging).toHaveLength(1);
+  });
+
   it("reconoce un NIT autorizado, persiste una vez y recupera el mismo borrador sin cliente explícito", async () => {
     mocks.state.lotes.length = 0;
     mocks.state.staging.length = 0;
@@ -822,6 +1136,25 @@ describe("idempotencia y atomicidad del ciclo de balances", () => {
     expect(mocks.flags.bloquesStaging).toBe(2);
     expect(mocks.state.lotes).toHaveLength(0);
     expect(mocks.state.staging).toHaveLength(0);
+  });
+
+  it("persiste completas 4.001 filas en bloques 2.000/2.000/1 sin recortar la revisión", async () => {
+    mocks.state.lotes.length = 0;
+    mocks.state.staging.length = 0;
+    mocks.parseBalanceWorkbook.mockResolvedValue({
+      filas: filasImportacion(4_001),
+      errores: [],
+    });
+
+    const resultado = await leerBalance(
+      {},
+      formLectura(LOTE_ID_NUEVO),
+    );
+
+    expect(resultado.ok).toBe(true);
+    expect(mocks.flags.bloquesStaging).toBe(3);
+    expect(mocks.state.staging).toHaveLength(4_001);
+    expect(resultado.sugerencia?.render.importReady).toHaveLength(4_001);
   });
 
   it("reutiliza el UUID de lectura después de perder la respuesta y no duplica el borrador", async () => {

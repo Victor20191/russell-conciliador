@@ -7,6 +7,7 @@ import { Modal } from "@/components/modal";
 import { fmt } from "@/lib/format";
 import {
   asignarClienteBorrador,
+  continuarBalanceTransitorioConSpec,
   leerBalance,
   reprocesarBalanceConSpec,
   guardarPerfilDesdeEditor,
@@ -31,6 +32,11 @@ import {
   generarUuidV4Cliente,
   MENSAJE_UUID_CLIENTE_NO_DISPONIBLE,
 } from "@/lib/balance/uuid-cliente";
+import {
+  capturarArchivoSnapshotCliente,
+  reconstruirArchivoDesdeSnapshot,
+  type ArchivoSnapshotCliente,
+} from "@/lib/balance/archivo-snapshot-cliente";
 
 /** Extensiones de Excel que pueden traer varias hojas (inspeccionables en cliente). */
 const esExcel = (name: string) => /\.(xlsx|xlsm|xls)$/i.test(name);
@@ -124,11 +130,12 @@ function CargarBalanceModal({
   // el borrador ya creado en vez de generar otro.
   const [loteIdSolicitud, setLoteIdSolicitud] = useState("");
   // Solo se solicita cuando la lectura no logra reconocer un NIT asociado a la
-  // cartera autorizada. El File permanece en memoria para continuar sin adjuntar.
+  // cartera autorizada. El snapshot permanece en memoria para continuar sin adjuntar.
   const [clienteCarga, setClienteCarga] = useState<number | null>(null);
-  // El File original se retiene para el EDITOR DE ESTRUCTURA (reproceso sin IA):
-  // el input se desmonta al pasar a la fase de revisión.
-  const [archivoFile, setArchivoFile] = useState<File | null>(null);
+  // Copia binaria estable del archivo. El File creado por el input puede quedar
+  // consumido tras una Server Action; de este snapshot nace un File NUEVO para
+  // cada lectura, vinculación o reproceso.
+  const archivoSnapshotRef = useRef<ArchivoSnapshotCliente | null>(null);
   // Sugerencia REPROCESADA con el editor (pisa a la de la lectura inicial).
   const [sugLocal, setSugLocal] = useState<SugerenciaBalance | null>(null);
   const [reprocesando, startReproceso] = useTransition();
@@ -154,6 +161,11 @@ function CargarBalanceModal({
   const lecturaIniciadaRef = useRef(false);
   const clienteEnviadoRef = useRef<number | null>(null);
 
+  const reconstruirArchivoRetenido = (): File | null => {
+    const snapshot = archivoSnapshotRef.current;
+    return snapshot ? reconstruirArchivoDesdeSnapshot(snapshot) : null;
+  };
+
   const obtenerSolicitudReproceso = (): string | null => {
     if (reprocesoSolicitudRef.current) return reprocesoSolicitudRef.current;
     const nuevaSolicitud = generarUuidLecturaOAvisar();
@@ -163,9 +175,9 @@ function CargarBalanceModal({
 
   // Un cambio de archivo, hoja o proveedor define una operación nueva.
   // Si ya hubo un envío, rotamos el UUID; mientras el contexto no cambie, el
-  // botón de reintento conserva exactamente la identidad y el File originales.
+  // botón de reintento conserva exactamente la identidad y los bytes originales.
   const renovarSolicitudTrasCambio = () => {
-    if (!lecturaIniciadaRef.current || !archivoFile) return;
+    if (!lecturaIniciadaRef.current || !archivoSnapshotRef.current) return;
     const nuevaSolicitud = generarUuidLecturaOAvisar();
     setLoteIdSolicitud(nuevaSolicitud ?? "");
     setClienteCarga(null);
@@ -179,31 +191,13 @@ function CargarBalanceModal({
   // para que el usuario elija cuál cargar cuando haya 2+. Cualquier
   // fallo degrada al flujo normal (la IA elige) sin bloquear.
   async function onArchivoChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0] ?? null;
+    const input = e.currentTarget;
+    const file = input.files?.[0] ?? null;
     const seq = ++seqRef.current;
     const nuevaSolicitud = file ? generarUuidLecturaOAvisar() : null;
-    if (file && !nuevaSolicitud) {
-      // No dejamos un archivo visible sin identidad: ese estado habilitaba el
-      // submit y terminaba en el aviso genérico antes de llegar al servidor.
-      setFileName("");
-      setArchivoFile(null);
-      setLoteIdSolicitud("");
-      setClienteCarga(null);
-      setSeleccionClienteActiva(false);
-      clienteEnviadoRef.current = null;
-      lecturaIniciadaRef.current = false;
-      setMensajeLecturaDesactualizado(true);
-      reprocesoSolicitudRef.current = null;
-      setHojas(null);
-      setHojaElegida(null);
-      setArchivoGrande(false);
-      setInspeccionando(false);
-      e.currentTarget.value = "";
-      return;
-    }
-    setFileName(file?.name ?? "");
-    setArchivoFile(file);
-    setLoteIdSolicitud(nuevaSolicitud ?? "");
+    archivoSnapshotRef.current = null;
+    setFileName("");
+    setLoteIdSolicitud("");
     setClienteCarga(null);
     setSeleccionClienteActiva(false);
     clienteEnviadoRef.current = null;
@@ -213,19 +207,42 @@ function CargarBalanceModal({
     setHojas(null);
     setHojaElegida(null);
     setArchivoGrande(false);
-    if (!file || !esExcel(file.name)) {
-      setInspeccionando(false);
+    setInspeccionando(false);
+
+    if (file && !nuevaSolicitud) {
+      // No dejamos un archivo visible sin identidad: ese estado habilitaba el
+      // submit y terminaba en el aviso genérico antes de llegar al servidor.
+      input.value = "";
       return;
     }
-    if (file.size > MAX_PREVIEW_BYTES) {
+    if (!file || !nuevaSolicitud) {
+      return;
+    }
+
+    let snapshot: ArchivoSnapshotCliente;
+    try {
+      snapshot = await capturarArchivoSnapshotCliente(file);
+    } catch {
+      if (seqRef.current !== seq) return;
+      notifyError("No pudimos copiar el archivo seleccionado. Ciérralo en Excel, espera a que termine de sincronizar y vuelve a intentarlo.");
+      input.value = "";
+      return;
+    }
+    if (seqRef.current !== seq) return;
+
+    archivoSnapshotRef.current = snapshot;
+    setFileName(snapshot.nombre);
+    setLoteIdSolicitud(nuevaSolicitud);
+    const archivoEstable = reconstruirArchivoDesdeSnapshot(snapshot);
+    if (!esExcel(snapshot.nombre)) return;
+    if (snapshot.contenido.byteLength > MAX_PREVIEW_BYTES) {
       // Grande: NO se parsea en el navegador (congelaría). Lo lee el servidor.
-      setInspeccionando(false);
       setArchivoGrande(true);
       return;
     }
     setInspeccionando(true);
     try {
-      const detectadas = await leerHojasParaPreview(file);
+      const detectadas = await leerHojasParaPreview(archivoEstable);
       if (seqRef.current !== seq) return; // otro archivo se eligió mientras tanto
       // Con 2+ hojas el usuario elige; con una sola la fijamos directamente. En
       // ambos casos la IA recibe SIEMPRE una hoja ya validada aquí, nunca asume.
@@ -246,9 +263,9 @@ function CargarBalanceModal({
     proveedorIA?: ProveedorIABalance,
     clientId?: number | null,
   ) => {
+    const archivoFile = reconstruirArchivoRetenido();
     if (!archivoFile) return;
     startReproceso(async () => {
-      try { await archivoFile.arrayBuffer(); } catch { notifyError("No pudimos leer el archivo. Suele pasar cuando está ABIERTO en Excel o sincronizándose en OneDrive: ciérralo e intenta de nuevo."); return; }
       const fd = new FormData();
       fd.set("archivo", archivoFile);
       fd.set("spec", JSON.stringify(spec));
@@ -280,20 +297,14 @@ function CargarBalanceModal({
     });
   };
 
-  // Antes de subir: intenta LEER el archivo en el navegador (lo mismo que hará la subida).
-  // Si está ABIERTO en Excel o sincronizándose en OneDrive, la lectura falla y el POST daría
-  // un críptico "Failed to fetch" que rompe la página. Avisamos claro y NO enviamos.
+  // Cada envío recibe un File nuevo reconstruido desde la copia estable capturada
+  // al seleccionarlo; nunca se reutiliza el objeto entregado a una Server Action.
   const onLeerSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
+    const archivoFile = reconstruirArchivoRetenido();
     if (!archivoFile || archivoFile.size === 0) {
       notifyError("No se encontró el archivo original. Vuelve a seleccionarlo.");
-      return;
-    }
-    try {
-      await archivoFile.arrayBuffer();
-    } catch {
-      notifyError("No pudimos leer el archivo. Suele pasar cuando está ABIERTO en Excel o sincronizándose en OneDrive: ciérralo (y espera a que OneDrive termine) y vuelve a intentar.");
       return;
     }
     if (!loteIdSolicitud) {
@@ -328,30 +339,39 @@ function CargarBalanceModal({
     if (!sug) return;
     const loteId = sug.payload.loteId;
     startAsignarCliente(async () => {
+      const archivoFile = reconstruirArchivoRetenido();
       // La primera revisión sin cliente es solo memoria de React: su UUID aún
-      // no existe en BD. Reenviamos exactamente el mismo File + UUID con el
-      // cliente elegido; recién entonces leerBalance crea lote y staging.
+      // no existe en BD. Si es tabular, reutilizamos el spec ya detectado para
+      // transformar de forma determinista y crear lote + staging sin repetir IA.
       if (!sug.persistida) {
         if (!archivoFile) {
           notifyError("No se encontró el archivo original. Vuelve a seleccionarlo.");
           return;
         }
-        try {
-          await archivoFile.arrayBuffer();
-        } catch {
-          notifyError("No pudimos releer el archivo original. Ciérralo en Excel y vuelve a intentarlo.");
-          return;
-        }
-        const fd = completarFormularioLectura(new FormData(), {
-          archivo: archivoFile,
-          loteIdSolicitud: loteId,
-          clienteId: clientId,
-          hoja: hojaElegida,
-          proveedorIA: sug.payload.proveedorIA ?? proveedorCarga,
-        });
         let persistido: LeerBalanceState;
         try {
-          persistido = await leerBalance({}, fd);
+          if (sug.render.spec) {
+            const fd = new FormData();
+            fd.set("archivo", archivoFile);
+            fd.set("loteIdSolicitud", loteId);
+            fd.set("clienteId", String(clientId));
+            fd.set("spec", JSON.stringify(sug.render.spec));
+            const proveedor = sug.payload.proveedorIA ?? proveedorCarga;
+            if (proveedor) fd.set("modeloIA", proveedor);
+            persistido = await continuarBalanceTransitorioConSpec({}, fd);
+          } else {
+            // Plantilla determinista sin proveedor disponible: no existe spec que
+            // reutilizar, pero tampoco IA que podamos repetir. Conserva el fallback
+            // anterior con el mismo File + UUID + cliente.
+            const fd = completarFormularioLectura(new FormData(), {
+              archivo: archivoFile,
+              loteIdSolicitud: loteId,
+              clienteId: clientId,
+              hoja: hojaElegida,
+              proveedorIA: sug.payload.proveedorIA ?? proveedorCarga,
+            });
+            persistido = await leerBalance({}, fd);
+          }
         } catch (error) {
           if (esFalloTransporteCarga(error)) {
             notifyError(MENSAJE_RECUPERAR_LECTURA);
@@ -382,12 +402,6 @@ function CargarBalanceModal({
       // tercero, solo-hojas) se aplican también a ESTA primera carga, no solo a
       // las futuras. PDF/plantilla sin spec usan la vinculación directa.
       if (archivoFile && sug.render.spec) {
-        try {
-          await archivoFile.arrayBuffer();
-        } catch {
-          notifyError("No pudimos releer el archivo original. Ciérralo en Excel y vuelve a intentarlo.");
-          return;
-        }
         const fd = new FormData();
         fd.set("archivo", archivoFile);
         fd.set("spec", JSON.stringify(sug.render.spec));
@@ -418,12 +432,6 @@ function CargarBalanceModal({
         return;
       }
       if (archivoFile) {
-        try {
-          await archivoFile.arrayBuffer();
-        } catch {
-          notifyError("No pudimos releer el archivo original para aplicar las preferencias del cliente.");
-          return;
-        }
         const fd = new FormData();
         fd.set("archivo", archivoFile);
         fd.set("clienteId", String(clientId));
@@ -556,7 +564,7 @@ function CargarBalanceModal({
           sug={sug}
           clients={clients}
           excepciones={leerState?.excepciones ?? []}
-          archivoFile={archivoFile}
+          archivoDisponible={fileName.length > 0}
           reprocesando={reprocesando}
           clienteId={clienteRevisionId}
           asignandoCliente={asignandoCliente}
@@ -708,7 +716,7 @@ function FormRevisar({
   sug,
   clients,
   excepciones,
-  archivoFile,
+  archivoDisponible,
   reprocesando,
   clienteId,
   asignandoCliente,
@@ -718,7 +726,7 @@ function FormRevisar({
   sug: SugerenciaBalance;
   clients: ClienteOpcion[];
   excepciones: Excepcion[];
-  archivoFile: File | null;
+  archivoDisponible: boolean;
   reprocesando: boolean;
   clienteId: number | null;
   asignandoCliente: boolean;
@@ -730,9 +738,9 @@ function FormRevisar({
     clientId?: number | null,
   ) => void;
 }) {
-  // El editor de estructura solo aplica si aún tenemos el File (reproceso) y la
-  // lectura produjo un spec (tabular). PDF/plantilla no traen spec.
-  const puedeEditar = sug.persistida && !!archivoFile && !!sug.render.spec;
+  // El editor de estructura solo aplica si conservamos el snapshot (reproceso) y
+  // la lectura produjo un spec (tabular). PDF/plantilla no traen spec.
+  const puedeEditar = sug.persistida && archivoDisponible && !!sug.render.spec;
 
   // Guardar el spec ajustado como PERFIL del cliente SIN reprocesar (para futuras cargas).
   // Si no hay cliente (ni por NIT ni en el lote), se pide elegirlo para concluir el guardado.
