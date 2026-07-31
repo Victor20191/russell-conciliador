@@ -165,7 +165,9 @@ export async function listarPerfilesCarga(clienteId: number): Promise<PerfilesCa
     const [filas, ajustes, filasCorrecciones] = await Promise.all([
       prisma.perfilCargaBalance.findMany({
         where: { clienteId },
-        orderBy: [{ ultimoUsoEn: { sort: "desc", nulls: "last" } }, { actualizadoEn: "desc" }],
+        // Creación y edición comparten `actualizadoEn` (@updatedAt); el más
+        // reciente va primero para que el admin vea de inmediato lo que tocó.
+        orderBy: [{ actualizadoEn: "desc" }, { creadoEn: "desc" }],
       }),
       prisma.ajustesCargaBalance.findUnique({
         where: { clienteId },
@@ -173,7 +175,7 @@ export async function listarPerfilesCarga(clienteId: number): Promise<PerfilesCa
       }),
       prisma.correccionCargaBalance.findMany({
         where: { clienteId },
-        orderBy: { cuenta: "asc" },
+        orderBy: [{ actualizadoEn: "desc" }, { cuenta: "asc" }],
       }),
     ]);
     const perfiles: PerfilCargaResumen[] = filas.map((p) => {

@@ -232,9 +232,9 @@ export const MODULOS_PLATAFORMA: PlatformModuleDefinition[] = [
     configurableForNonAdmins: false,
   },
   {
-    // Admin-only: la visibilidad la gobierna el permiso
-    // perfiles_carga:administrar (SOLO_ADMIN); la publicación de módulos queda
-    // inerte (configurable=false ⇒ moduloPublicadoParaRol devuelve true).
+    // Admin-only por permiso (`perfiles_carga:administrar` → SOLO_ADMIN), y además
+    // publicable: el Superadministrador puede dejarlo «En desarrollo» para que ni
+    // los Administradores lo vean en el menú hasta publicarlo.
     key: "perfiles_carga",
     label: "Perfiles de carga",
     description: "Formatos memorizados, correcciones por cuenta y preferencias con las que la plataforma lee los balances de cada cliente.",
@@ -242,7 +242,7 @@ export const MODULOS_PLATAFORMA: PlatformModuleDefinition[] = [
     icon: "ai",
     order: 220,
     enabledForNonAdmins: false,
-    configurableForNonAdmins: false,
+    configurableForNonAdmins: true,
   },
 ];
 

@@ -158,7 +158,7 @@ export default function PerfilesCargaClient({ clients }: { clients: ClienteMemor
             )}
           </div>
           <span className="text-[11px] text-ink-400">
-            Solo clientes con memoria guardada
+            Solo clientes con memoria · más recientes primero
           </span>
           <PageSizeSelect value={pg.pageSize} onChange={pg.setPageSize} />
         </div>
@@ -173,7 +173,7 @@ export default function PerfilesCargaClient({ clients }: { clients: ClienteMemor
                 <th className="px-4 py-2 text-right font-semibold">Correcciones</th>
                 <th className="px-4 py-2 font-semibold">Preferencias</th>
                 <th className="px-4 py-2 font-semibold">Último uso</th>
-                <th className="px-4 py-2"></th>
+                <th className="px-4 py-2 text-right font-semibold">Editar</th>
               </tr>
             </thead>
             <tbody>
@@ -206,25 +206,24 @@ export default function PerfilesCargaClient({ clients }: { clients: ClienteMemor
                   </td>
                   <td className="px-4 py-2.5 text-ink-500">{c.ultimoUso ? fmtDate(c.ultimoUso) : "—"}</td>
                   <td className="px-4 py-2.5">
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setBorrando(c)}
-                        title="Borrar TODA la memoria de carga de este cliente: formatos, correcciones y preferencias"
-                        aria-label={`Borrar la memoria de carga de ${c.name}`}
-                        className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] font-semibold text-ink-600 transition hover:border-red-300 hover:bg-red-50 hover:text-red-700"
-                      >
-                        <Icon name="trash" size={13} />
-                        Borrar todo
-                      </button>
+                    <div className="flex items-center justify-end gap-1">
                       <button
                         type="button"
                         onClick={() => setGestionando(c)}
-                        title="Ver y editar los formatos, correcciones y preferencias memorizadas para este cliente"
-                        className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[12px] font-semibold text-blue-700 transition hover:border-blue-300 hover:bg-blue-100"
+                        title="Editar formatos, correcciones y preferencias de este cliente"
+                        aria-label={`Editar la memoria de carga de ${c.name}`}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-blue-200 bg-blue-50 text-blue-700 transition hover:border-blue-300 hover:bg-blue-100"
                       >
-                        <Icon name="ai" size={13} />
-                        Administrar
+                        <Icon name="edit" size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setBorrando(c)}
+                        title="Eliminar TODA la memoria de carga de este cliente: formatos, correcciones y preferencias"
+                        aria-label={`Eliminar la memoria de carga de ${c.name}`}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-ink-200 bg-white text-ink-600 transition hover:border-red-300 hover:bg-red-50 hover:text-red-700"
+                      >
+                        <Icon name="trash" size={14} />
                       </button>
                     </div>
                   </td>

@@ -57,7 +57,11 @@ export async function guardarPublicacionModulos(
         const modulo = catalogo.get(cambio.key as PlatformModuleKey)!;
         await tx.platformModule.upsert({
           where: { key: modulo.key },
-          update: { enabledForNonAdmins: cambio.enabledForNonAdmins },
+          update: {
+            enabledForNonAdmins: cambio.enabledForNonAdmins,
+            // Reconciliar con el catálogo por si el módulo pasó de fijo a publicable.
+            configurableForNonAdmins: modulo.configurableForNonAdmins,
+          },
           create: {
             key: modulo.key,
             label: modulo.label,

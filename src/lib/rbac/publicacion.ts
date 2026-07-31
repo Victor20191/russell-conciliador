@@ -9,7 +9,7 @@ import {
   type PlatformModuleState,
 } from "@/lib/rbac/modulos-plataforma";
 
-export const PUBLICACION_MODULOS_CACHE_TAG = "publicacion-modulos-v2";
+export const PUBLICACION_MODULOS_CACHE_TAG = "publicacion-modulos-v3";
 
 async function leerPublicacionBD(): Promise<PlatformModuleState[]> {
   const filas = await prisma.platformModule.findMany({
@@ -27,16 +27,17 @@ async function leerPublicacionBD(): Promise<PlatformModuleState[]> {
       group: (fila?.group as PlatformModuleState["group"] | undefined) ?? def.group,
       icon: (fila?.icon as PlatformModuleState["icon"] | undefined) ?? def.icon,
       order: fila?.order ?? def.order,
+      // El interruptor Publicado/En desarrollo vive en BD; si el módulo es
+      // publicable lo decide SIEMPRE el catálogo (código), no la fila legacy.
       enabledForNonAdmins: fila?.enabledForNonAdmins ?? def.enabledForNonAdmins,
-      configurableForNonAdmins:
-        fila?.configurableForNonAdmins ?? def.configurableForNonAdmins,
+      configurableForNonAdmins: def.configurableForNonAdmins,
     };
   }).sort((a, b) => a.order - b.order || a.label.localeCompare(b.label));
 }
 
 const getPublicacionCached = unstable_cache(
   leerPublicacionBD,
-  ["publicacion-modulos-v2"],
+  ["publicacion-modulos-v3"],
   { tags: [PUBLICACION_MODULOS_CACHE_TAG], revalidate: 3600 },
 );
 
