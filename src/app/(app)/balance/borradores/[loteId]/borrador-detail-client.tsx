@@ -82,7 +82,7 @@ import {
 } from "@/components/revelado-progresivo";
 import { expandirFilas, type FilasCompactas } from "@/lib/balance/filas-compactas";
 import type { RevisionReubicacionStaging } from "@/lib/balance/staging-borrador";
-import { chevronAccionMasiva, chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
+import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
 
 function generarUuidReprocesoOAvisar(): string | null {
   try {
@@ -1463,6 +1463,7 @@ function DiagnosticoPanel({ hallazgos, diferenciasClase, manipulaciones }: { hal
   });
   const expandirTodo = () => setExpandidos(new Set(indicesConDetalle));
   const colapsarTodo = () => setExpandidos(new Set());
+  const hayContenidoExpandido = indicesConDetalle.some((indice) => expandidos.has(indice));
   return (
     <div className={`rounded-lg border p-4 shadow-sm ${hay ? "border-err-100 bg-err-100/40" : "border-ok-100 bg-ok-100/40"}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1482,10 +1483,10 @@ function DiagnosticoPanel({ hallazgos, diferenciasClase, manipulaciones }: { hal
         {hay && abierto && indicesConDetalle.length > 0 && (
           <div className="flex shrink-0 items-center gap-2">
             <button type="button" onClick={expandirTodo} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-white px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50">
-              <Icon name={chevronAccionMasiva("expandir")} size={12} />Expandir todo
+              <Icon name={chevronDivulgacion(hayContenidoExpandido)} size={12} />Expandir todo
             </button>
             <button type="button" onClick={colapsarTodo} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-white px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50">
-              <Icon name={chevronAccionMasiva("contraer")} size={12} />Colapsar todo
+              <Icon name={chevronDivulgacion(hayContenidoExpandido)} size={12} />Colapsar todo
             </button>
           </div>
         )}
@@ -2370,6 +2371,13 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
     return podar(arbol, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [arbol, q, vista, nivelMax, riesgosPorFila, umbrales]);
+  // Sólo cuentan ramas raíz que están desplegando contenido visible. Los filtros
+  // fuerzan abiertas las ramas resultantes sin modificar el Set persistente.
+  const hayContenidoExpandido = arbolVisible.some(
+    (nodo) =>
+      nodo.hijos.length > 0 &&
+      (filtrando || abiertos.has(nodo.filaNum)),
+  );
 
   // Filas VISIBLES aplanadas (respetando expansión y filtros). NO se omite ningún
   // dato: los cálculos usan el árbol completo y todas las filas están disponibles;
@@ -2715,8 +2723,8 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
         {vistaBtn("todo", "Todo")}
         {vistaBtn("alertas", "Alertas", nAlertas)}
         <span className="mx-0.5 h-4 w-px bg-ink-200" />
-        <button type="button" onClick={expandirTodo} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50"><Icon name={chevronAccionMasiva("expandir")} size={12} />Expandir todo</button>
-        <button type="button" onClick={contraerTodo} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50"><Icon name={chevronAccionMasiva("contraer")} size={12} />Contraer todo</button>
+        <button type="button" onClick={expandirTodo} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50"><Icon name={chevronDivulgacion(hayContenidoExpandido)} size={12} />Expandir todo</button>
+        <button type="button" onClick={contraerTodo} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50"><Icon name={chevronDivulgacion(hayContenidoExpandido)} size={12} />Contraer todo</button>
         <button
           type="button"
           aria-pressed={pantallaCompleta}

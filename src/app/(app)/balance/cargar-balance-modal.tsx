@@ -37,6 +37,7 @@ import {
   reconstruirArchivoDesdeSnapshot,
   type ArchivoSnapshotCliente,
 } from "@/lib/balance/archivo-snapshot-cliente";
+import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
 
 /** Extensiones de Excel que pueden traer varias hojas (inspeccionables en cliente). */
 const esExcel = (name: string) => /\.(xlsx|xlsm|xls)$/i.test(name);
@@ -984,15 +985,17 @@ export function EditorEstructura({
       <button
         type="button"
         onClick={() => setAbierto((v) => !v)}
+        aria-expanded={abierto}
+        aria-controls="ajustes-estructura-balance"
         className="flex w-full items-center justify-between px-3 py-2 text-[12px] font-semibold text-ink-600 hover:bg-ink-50"
       >
         <span className="inline-flex items-center gap-1.5">
           <Icon name="doc" size={13} /> Ajustar estructura del archivo
         </span>
-        <span className="text-ink-400">{abierto ? "▲" : "▼"}</span>
+        <Icon name={chevronDivulgacion(abierto)} size={12} className="text-ink-400" />
       </button>
       {abierto && (
-        <div className="flex flex-col gap-3 border-t border-ink-100 px-3 py-3">
+        <div id="ajustes-estructura-balance" className="flex flex-col gap-3 border-t border-ink-100 px-3 py-3">
           <p className="text-[11.5px] leading-relaxed text-ink-500">
             Corrige qué columna corresponde a cada dato y reprocesa al instante — <span className="font-semibold">sin IA</span>.
             Marca «no existe» cuando el archivo no trae esa columna.
@@ -1001,12 +1004,15 @@ export function EditorEstructura({
           <button
             type="button"
             onClick={() => setAyudaAbierta((v) => !v)}
+            aria-expanded={ayudaAbierta}
+            aria-controls="guia-campos-balance"
             className="inline-flex w-fit items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1 text-[11.5px] font-semibold text-blue-700 hover:bg-blue-100"
           >
-            <Icon name="doc" size={12} /> Guía detallada de los campos {ayudaAbierta ? "▲" : "▼"}
+            <Icon name="doc" size={12} /> Guía detallada de los campos
+            <Icon name={chevronDivulgacion(ayudaAbierta)} size={12} />
           </button>
           {ayudaAbierta && (
-            <div className="flex flex-col gap-3 rounded-md border border-blue-100 bg-blue-50/40 px-3 py-3 text-[11.5px] leading-relaxed text-ink-600">
+            <div id="guia-campos-balance" className="flex flex-col gap-3 rounded-md border border-blue-100 bg-blue-50/40 px-3 py-3 text-[11.5px] leading-relaxed text-ink-600">
               <div>
                 <div className="mb-1 text-[10.5px] font-semibold uppercase tracking-wider text-blue-700">Para qué sirve</div>
                 <p>Reprocesa el archivo con el mapa de columnas corregido, <span className="font-semibold">sin IA y al instante</span>. Úsalo cuando la lectura automática asignó mal una columna, la fila del encabezado, el signo del crédito o cómo se detecta el detalle. No modifica el archivo original: genera una lectura nueva que reemplaza a la anterior.</p>

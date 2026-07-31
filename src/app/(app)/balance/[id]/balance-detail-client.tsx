@@ -14,7 +14,7 @@ import Conversacion from "@/components/conversacion";
 import type { NodoBalance } from "@/lib/balance/calcular";
 import { esSaldoContrarioAccionable, esSaldoContrarioInformativo, type UmbralesAlertas } from "@/lib/balance/umbrales-alertas";
 import { useSeleccionFilaTabla } from "@/app/(app)/balance/use-seleccion-fila-tabla";
-import { chevronAccionMasiva, chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
+import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
 
 export type ValidacionInfo = { tipo: string; por: string; en: string; comentario: string };
 // Contexto de validación de alertas que se pasa al renderizador de filas.
@@ -187,8 +187,18 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, va
     return needle ? podarBusqueda(base, needle) : base;
   }, [arbol, filtro, q, validados, umbrales]);
 
-  // En el filtro "Alertas" el árbol podado se muestra totalmente expandido.
-  const openEff = useMemo(() => (filtro === "alertas" || q.trim() ? new Set(keysConHijos(visible)) : open), [filtro, visible, open, q]);
+  const clavesVisiblesConHijos = useMemo(() => keysConHijos(visible), [visible]);
+  // En el filtro "Alertas" o durante una búsqueda, el árbol podado se muestra
+  // totalmente expandido. El chevron masivo se deriva de este estado efectivo.
+  const openEff = useMemo(
+    () => (filtro === "alertas" || q.trim() ? new Set(clavesVisiblesConHijos) : open),
+    [clavesVisiblesConHijos, filtro, open, q],
+  );
+  // Sólo cuentan ramas raíz realmente visibles. Un descendiente puede conservar
+  // su llave en `open` cuando su padre se cierra, pero ya no está desplegado.
+  const hayContenidoExpandido = visible.some(
+    (nodo) => nodo.hijos.length > 0 && openEff.has(nodo.key),
+  );
 
   const toggle = (key: string) => setOpen((o) => { const n = new Set(o); if (n.has(key)) n.delete(key); else n.add(key); return n; });
   const expandirTodo = () => setOpen(new Set(keysConHijos(arbol)));
@@ -214,10 +224,10 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, va
           <FiltroBtn on={filtro === "alertas"} onClick={() => setFiltro("alertas")} label="Alertas" count={totalAlertas} tone="warn" />
           <span className="mx-1 h-4 w-px bg-ink-200" />
           <button onClick={expandirTodo} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 px-2 py-1 text-[11.5px] font-medium text-ink-600 hover:bg-ink-50">
-            <Icon name={chevronAccionMasiva("expandir")} size={12} /> Expandir todo
+            <Icon name={chevronDivulgacion(hayContenidoExpandido)} size={12} /> Expandir todo
           </button>
           <button onClick={contraerTodo} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 px-2 py-1 text-[11.5px] font-medium text-ink-600 hover:bg-ink-50">
-            <Icon name={chevronAccionMasiva("contraer")} size={12} /> Contraer todo
+            <Icon name={chevronDivulgacion(hayContenidoExpandido)} size={12} /> Contraer todo
           </button>
         </div>
       </div>

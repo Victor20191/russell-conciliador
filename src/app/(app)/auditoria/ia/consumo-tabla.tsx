@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { Card } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { PageSizeSelect, PaginationFooter, usePagination } from "@/components/pagination-controls";
-import { chevronAccionMasiva, chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
+import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
 
 export type ConsumoRow = {
   id: number;
@@ -90,6 +90,10 @@ export default function ConsumoTabla({ rows }: { rows: ConsumoRow[] }) {
     hayClientes &&
     clientes.every((cliente) => clientesContraidos.has(cliente)) &&
     fechas.every((fecha) => fechasContraidas.has(fecha));
+  // Los dos botones masivos describen el mismo estado actual. Si queda al
+  // menos un cliente desplegado, ambos chevrons apuntan hacia abajo.
+  const hayContenidoExpandido =
+    hayClientes && clientes.some((cliente) => !clientesContraidos.has(cliente));
 
   function setClienteContraido(cliente: string, contraido: boolean) {
     setClientesContraidos((actual) => {
@@ -213,7 +217,7 @@ export default function ConsumoTabla({ rows }: { rows: ConsumoRow[] }) {
             className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ink-200 bg-white px-2.5 text-[12px] font-semibold text-ink-600 transition hover:border-ink-300 hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-45"
             title="Expandir todo"
           >
-            <Icon name={chevronAccionMasiva("expandir")} size={13} />
+            <Icon name={chevronDivulgacion(hayContenidoExpandido)} size={13} />
             Expandir
           </button>
           <button
@@ -223,7 +227,7 @@ export default function ConsumoTabla({ rows }: { rows: ConsumoRow[] }) {
             className="inline-flex h-8 items-center gap-1.5 rounded-md border border-ink-200 bg-white px-2.5 text-[12px] font-semibold text-ink-600 transition hover:border-ink-300 hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-45"
             title="Contraer todo"
           >
-            <Icon name={chevronAccionMasiva("contraer")} size={13} />
+            <Icon name={chevronDivulgacion(hayContenidoExpandido)} size={13} />
             Contraer
           </button>
         </div>
