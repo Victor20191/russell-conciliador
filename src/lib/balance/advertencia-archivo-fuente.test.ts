@@ -148,6 +148,24 @@ describe("validarComentarioPromocion", () => {
     });
   });
 
+  it("conserva una nota voluntaria aunque la advertencia no sea obligatoria", () => {
+    // Regresión: una diferencia (p. ej. "diferencia desde saldo inicial") puede
+    // seguir presente en el período siguiente aunque ESE diagnóstico ya no la
+    // clasifique como advertencia del archivo fuente. El servidor no debe
+    // descartar la nota solo porque no era obligatoria — la UI depende de esto
+    // para poder ofrecer un campo de nota opcional cuando la advertencia no
+    // aplica.
+    expect(
+      validarComentarioPromocion(
+        "  Diferencia desde saldo inicial, ya explicada en el período anterior.  ",
+        false,
+      ),
+    ).toEqual({
+      ok: true,
+      comentario: "Diferencia desde saldo inicial, ya explicada en el período anterior.",
+    });
+  });
+
   it("limita la longitud antes de guardar la nota oficial", () => {
     expect(
       validarComentarioPromocion("x".repeat(MAX_COMENTARIO_PROMOCION + 1), true),

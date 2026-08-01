@@ -77,6 +77,7 @@ import {
   MENSAJE_UUID_CLIENTE_NO_DISPONIBLE,
 } from "@/lib/balance/uuid-cliente";
 import { SelectorClienteBuscable } from "@/components/selector-cliente-buscable";
+import { NotaOpcionalPromocion } from "./nota-opcional-promocion";
 import { useSeleccionFilaTabla } from "@/app/(app)/balance/use-seleccion-fila-tabla";
 import {
   acotarRevelado,
@@ -1024,7 +1025,18 @@ export default function BorradorDetailClient({
           comentario={comentarioPromocion}
           onComentarioChange={setComentarioPromocion}
         />
-      ) : null}
+      ) : (
+        // Sin advertencia obligatoria del archivo fuente no hay razón para negar
+        // la nota: una diferencia que ya se explicó en un período anterior (p. ej.
+        // "diferencia desde saldo inicial") puede seguir presente aunque esta vez
+        // el diagnóstico la clasifique distinto (o no la detecte). Sin este campo
+        // el usuario no tenía ningún lugar donde dejar constancia y la próxima
+        // versión oficial quedaba sin "Nota aclaratoria adicional".
+        <NotaOpcionalPromocion
+          comentario={comentarioPromocion}
+          onComentarioChange={setComentarioPromocion}
+        />
+      )}
 
       {(() => {
         // Partida doble y ecuación ya se ven arriba en el encabezado; el
