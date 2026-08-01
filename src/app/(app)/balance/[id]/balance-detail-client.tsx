@@ -17,6 +17,7 @@ import { useSeleccionFilaTabla } from "@/app/(app)/balance/use-seleccion-fila-ta
 import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
 import PrevalidadorTab from "./prevalidador-tab";
 import type { PrevalidadorVM } from "@/lib/balance/prevalidador/calcular";
+import type { RevisionPrevalidadorVM } from "@/lib/balance/prevalidador/servidor";
 
 export type ValidacionInfo = { tipo: string; por: string; en: string; comentario: string };
 // Contexto de validación de alertas que se pasa al renderizador de filas.
@@ -48,13 +49,14 @@ const CLASES_ER = new Set(["4", "5", "6", "7"]);
 const NIVEL_LABEL: Record<number, string> = { 1: "Clase", 2: "Grupo", 4: "Cuenta", 6: "Subcuenta", 8: "Auxiliar" };
 
 export default function BalanceDetailClient({
-  arbol, estandar, puedeMapear, validations, versions, officialVersion, warnCount, balanceId, comentarios, validaciones, puedeValidar, puedeEliminar, sums, balanced, diffCuadre, umbrales, prevalidador,
+  arbol, estandar, puedeMapear, puedeRevisarPrevalidador, estaCongelado, validations, versions, officialVersion, warnCount, balanceId, comentarios, validaciones, puedeValidar, puedeEliminar, sums, balanced, diffCuadre, umbrales, prevalidador, revisionPrevalidador,
 }: {
-  arbol: NodoBalance[]; estandar: EstandarOpcion[]; puedeMapear: boolean; validations: Validation[]; versions: Version[]; officialVersion: string; warnCount: number; balanceId: number; comentarios: Record<string, number>; validaciones: Record<string, ValidacionInfo>; puedeValidar: boolean; puedeEliminar: boolean; sums: Sums; balanced: boolean; diffCuadre: number;
+  arbol: NodoBalance[]; estandar: EstandarOpcion[]; puedeMapear: boolean; puedeRevisarPrevalidador: boolean; estaCongelado: boolean; validations: Validation[]; versions: Version[]; officialVersion: string; warnCount: number; balanceId: number; comentarios: Record<string, number>; validaciones: Record<string, ValidacionInfo>; puedeValidar: boolean; puedeEliminar: boolean; sums: Sums; balanced: boolean; diffCuadre: number;
   /** Umbrales de alerta vigentes (parametrizables en /config/parametros). */
   umbrales: UmbralesAlertas;
   /** Informe del prevalidador de homologación (recalculado al leer). */
   prevalidador: PrevalidadorVM;
+  revisionPrevalidador: RevisionPrevalidadorVM;
 }) {
   const [tab, setTab] = useState<Tab>("breakdown");
   const [filtro, setFiltro] = useState<Filtro>("todo");
@@ -73,7 +75,17 @@ export default function BalanceDetailClient({
       {tab === "validations" && <ValidationsTab validations={validations} />}
       {tab === "versions" && <VersionsTab versions={versions} officialVersion={officialVersion} />}
       {tab === "clases" && <ClasesTab sums={sums} balanced={balanced} diffCuadre={diffCuadre} />}
-      {tab === "prevalidador" && <PrevalidadorTab prevalidador={prevalidador} balanceId={balanceId} puedeEditar={puedeMapear} onIrADetalle={irAAlertas} />}
+      {tab === "prevalidador" && (
+        <PrevalidadorTab
+          prevalidador={prevalidador}
+          balanceId={balanceId}
+          puedeEditar={puedeMapear}
+          puedeRevisar={puedeRevisarPrevalidador}
+          estaCongelado={estaCongelado}
+          revision={revisionPrevalidador}
+          onIrADetalle={irAAlertas}
+        />
+      )}
     </div>
   );
 }

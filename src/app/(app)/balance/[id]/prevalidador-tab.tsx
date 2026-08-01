@@ -8,17 +8,19 @@
 // El informe NO propone ni corrige nada: pinta los números y deja un solo campo
 // editable (la cuenta del cliente, para los que no usan el prefijo habitual).
 
-import { useMemo, useState, useTransition } from "react";
+import { useActionState, useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
 import { Card, Chip } from "@/components/ui";
 import { Modal } from "@/components/modal";
 import { EstadoProcesando } from "@/components/estado-procesando";
-import { fmt } from "@/lib/format";
+import { fmt, fmtDateTime } from "@/lib/format";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import {
   guardarCuentaClientePrevalidador,
   restablecerCuentaClientePrevalidador,
+  aprobarPrevalidadorBalance,
+  revocarAprobacionPrevalidadorBalance,
 } from "@/app/actions/prevalidador";
 import {
   factorPresentacion,
@@ -26,19 +28,44 @@ import {
   type OpcionCuentaCliente,
   type PrevalidadorVM,
 } from "@/lib/balance/prevalidador/calcular";
+import type { RevisionPrevalidadorVM } from "@/lib/balance/prevalidador/servidor";
+import type { ActionState } from "@/lib/definitions";
 
 export default function PrevalidadorTab({
   prevalidador,
   balanceId,
   puedeEditar,
+  puedeRevisar,
+  estaCongelado,
+  revision,
   onIrADetalle,
 }: {
   prevalidador: PrevalidadorVM;
   balanceId: number;
   puedeEditar: boolean;
+  puedeRevisar: boolean;
+  estaCongelado: boolean;
+  revision: RevisionPrevalidadorVM;
   /** Salta a «Detalle por niveles», donde se homologan las cuentas pendientes. */
   onIrADetalle: () => void;
 }) {
+  if (prevalidador.estado === "no_disponible") {
+    return (
+      <Card>
+        <div className="flex items-start gap-2.5 px-4 py-5">
+          <span className="mt-0.5 text-err-700"><Icon name="warn" size={16} /></span>
+          <div>
+            <p className="text-[13px] font-semibold text-ink-800">Prevalidador no disponible</p>
+            <p className="mt-1 max-w-3xl text-[12.5px] leading-relaxed text-ink-600">{prevalidador.mensaje}</p>
+            <p className="mt-1 text-[11.5px] text-ink-500">
+              Por seguridad no se reemplazaron las cuentas del balance con valores predeterminados.
+            </p>
+          </div>
+        </div>
+      </Card>
+    );
+  }
+
   if (prevalidador.estado === "sin_catalogo") {
     return (
       <Card>
@@ -81,29 +108,10 @@ export default function PrevalidadorTab({
     );
   }
 
-  const { modulos, anidamientos, opcionesCliente, totalRussell, totalCliente, diferenciaTotal, filasConDiferencia } =
-    prevalidador;
-  // Catálogo servido desde los valores de fábrica (la tabla no respondió o está
-  // vacía): el informe sirve, pero no se pueden guardar cuentas propias de cliente.
-  const esFabrica = modulos.every((m) => m.filas.every((f) => f.catalogoId <= 0));
+  const { modulos, anidamientos, opcionesCliente, filasConDiferencia } = prevalidador;
 
   return (
     <div className="flex flex-col gap-3">
-      {esFabrica && (
-        <Card>
-          <div className="flex items-start gap-2.5 px-4 py-3 text-[12px] leading-relaxed text-ink-600">
-            <span className="mt-0.5 text-ink-400">
-              <Icon name="info" size={15} />
-            </span>
-            <div>
-              <span className="font-semibold text-ink-800">Catálogo de fábrica.</span> Las cuentas de abajo no se
-              están leyendo de la base de datos, así que no se puede fijar una cuenta propia por cliente. Revisa que
-              la migración del prevalidador esté aplicada y que existan cuentas en Configuración › Cuentas del
-              prevalidador.
-            </div>
-          </div>
-        </Card>
-      )}
       {anidamientos.length > 0 && (
         <Card>
           <div className="flex items-start gap-2.5 px-4 py-3">
@@ -111,10 +119,9 @@ export default function PrevalidadorTab({
               <Icon name="warn" size={15} />
             </span>
             <div className="text-[12px] leading-relaxed text-ink-600">
-              <span className="font-semibold text-ink-800">Posible doble conteo.</span>{" "}
-              {anidamientos.length} cuenta(s) de este balance son a la vez cuenta y encabezado de otras, así que su
-              saldo se suma dos veces al agrupar por prefijo. Revísalas en el borrador antes de fiarte de las
-              diferencias:{" "}
+              <span className="font-semibold text-ink-800">Agrupadoras excluidas.</span>{" "}
+              Se retiraron {anidamientos.length} fila(s) que también son encabezado de otras cuentas. Sus importes no
+              participan en el cálculo para evitar doble conteo:{" "}
               <span className="font-mono text-ink-700">
                 {anidamientos
                   .slice(0, 8)
@@ -127,6 +134,14 @@ export default function PrevalidadorTab({
         </Card>
       )}
 
+      <RevisionPrevalidador
+        balanceId={balanceId}
+        revision={revision}
+        puedeRevisar={puedeRevisar}
+        estaCongelado={estaCongelado}
+        hallazgos={filasConDiferencia}
+      />
+
       <Card>
         <div className="flex flex-wrap items-center gap-2 border-b border-ink-100 px-4 py-2.5">
           <span className="max-w-3xl text-[11.5px] text-ink-500">
@@ -137,7 +152,7 @@ export default function PrevalidadorTab({
             {filasConDiferencia === 0 ? (
               <Chip label="Sin diferencias" tone="ok" />
             ) : (
-              <Chip label={`${filasConDiferencia} con diferencia`} tone="err" />
+              <Chip label={`${filasConDiferencia} con hallazgo`} tone="err" />
             )}
           </span>
         </div>
@@ -161,13 +176,13 @@ export default function PrevalidadorTab({
               </tr>
               <tr className="border-b border-ink-100 text-[11px] uppercase tracking-wider text-ink-500">
                 <th className="border-l border-ink-150 px-4 py-2 text-left font-semibold">Cuenta</th>
-                <th className="whitespace-nowrap px-4 py-2 text-right font-semibold">Saldo final</th>
+                <th className="whitespace-nowrap px-4 py-2 text-right font-semibold">Valor comparado</th>
                 <th className="whitespace-nowrap px-4 py-2 text-right font-semibold">Total módulo</th>
                 <th className="border-l border-ink-150 px-4 py-2 text-left font-semibold">Cuenta</th>
-                <th className="whitespace-nowrap px-4 py-2 text-right font-semibold">Saldo final</th>
+                <th className="whitespace-nowrap px-4 py-2 text-right font-semibold">Valor comparado</th>
                 <th className="whitespace-nowrap px-4 py-2 text-right font-semibold">Total módulo</th>
                 <th className="whitespace-nowrap border-l border-ink-150 px-4 py-2 text-right font-semibold">
-                  Saldo final
+                  Cliente − Russell
                 </th>
                 <th className="whitespace-nowrap px-4 py-2 text-right font-semibold">Total módulo</th>
               </tr>
@@ -186,9 +201,12 @@ export default function PrevalidadorTab({
                         {f.cuentaRussell}
                       </span>
                       {f.etiqueta && <div className="text-[11px] text-ink-400">{f.etiqueta}</div>}
+                      <div className="text-[10px] text-ink-400">
+                        {f.baseCalculo === "movimiento" ? "Débitos − créditos" : "Saldo final"}
+                      </div>
                     </td>
                     <td className="whitespace-nowrap px-4 py-2.5 text-right font-mono text-ink-700">
-                      {fmt(f.russell.saldoFinal)}
+                      <ValorLado encontrada={f.russell.encontrada} valor={f.russell.saldoFinal} />
                     </td>
                     {i === 0 && (
                       <td
@@ -207,7 +225,7 @@ export default function PrevalidadorTab({
                       />
                     </td>
                     <td className="whitespace-nowrap px-4 py-2.5 text-right font-mono text-ink-700">
-                      {fmt(f.cliente.saldoFinal)}
+                      <ValorLado encontrada={f.cliente.encontrada} valor={f.cliente.saldoFinal} />
                     </td>
                     {i === 0 && (
                       <td
@@ -218,45 +236,170 @@ export default function PrevalidadorTab({
                       </td>
                     )}
                     <td className="whitespace-nowrap border-l border-ink-150 px-4 py-2.5 text-right">
-                      <Diferencia valor={f.diferencia} coincide={f.coincide} />
+                      <Diferencia
+                        valor={f.diferencia}
+                        coincide={f.coincide}
+                        encontrada={f.russell.encontrada && f.cliente.encontrada}
+                      />
                     </td>
                     {i === 0 && (
                       <td rowSpan={m.filas.length} className="whitespace-nowrap px-4 py-2.5 text-right align-top">
-                        <Diferencia valor={m.diferenciaTotal} coincide={m.coincide} fuerte />
+                        <Diferencia
+                          valor={m.diferenciaTotal}
+                          coincide={m.coincide}
+                          encontrada={m.filas.every((fila) => fila.russell.encontrada && fila.cliente.encontrada)}
+                          fuerte
+                        />
                       </td>
                     )}
                   </tr>
                 ))}
               </tbody>
             ))}
-            <tfoot>
-              <tr className="bg-ink-50 text-[12.5px] font-semibold text-ink-800">
-                <td className="px-4 py-2.5">Total</td>
-                <td className="border-l border-ink-150 px-4 py-2.5" />
-                <td className="px-4 py-2.5" />
-                <td className="whitespace-nowrap px-4 py-2.5 text-right font-mono">{fmt(totalRussell)}</td>
-                <td className="border-l border-ink-150 px-4 py-2.5" />
-                <td className="px-4 py-2.5" />
-                <td className="whitespace-nowrap px-4 py-2.5 text-right font-mono">{fmt(totalCliente)}</td>
-                <td className="border-l border-ink-150 px-4 py-2.5" />
-                <td className="whitespace-nowrap px-4 py-2.5 text-right font-mono">{fmt(diferenciaTotal)}</td>
-              </tr>
-            </tfoot>
           </table>
         </div>
 
         <div className="border-t border-ink-100 px-4 py-2.5 text-[11px] leading-relaxed text-ink-500">
-          Las cuentas de balance (clases 1 a 3) se comparan por su saldo final; las de resultado (clases 4 a 7), por el
-          movimiento del período (débitos menos créditos). Pasivo, patrimonio e ingresos se muestran en su naturaleza,
-          en positivo, igual que en «Saldos por clase». La cuenta de Russell es fija; la del cliente se puede cambiar
-          cuando ese cliente maneja el rubro en otro código, y queda guardada para todos sus períodos.
+          La base usada se muestra en cada fila y se administra en la configuración del prevalidador. Pasivo,
+          patrimonio e ingresos se presentan en su naturaleza, en positivo, igual que en «Saldos por clase». La cuenta
+          de Russell es fija; la del cliente puede cambiarse solo por otra cuenta real del mismo nivel en este balance.
         </div>
       </Card>
     </div>
   );
 }
 
-function Diferencia({ valor, coincide, fuerte }: { valor: number; coincide: boolean; fuerte?: boolean }) {
+function RevisionPrevalidador({
+  balanceId,
+  revision,
+  puedeRevisar,
+  estaCongelado,
+  hallazgos,
+}: {
+  balanceId: number;
+  revision: RevisionPrevalidadorVM;
+  puedeRevisar: boolean;
+  estaCongelado: boolean;
+  hallazgos: number;
+}) {
+  const router = useRouter();
+  const [aprobarState, aprobarAction, aprobando] = useActionState<ActionState, FormData>(aprobarPrevalidadorBalance, {});
+  const [revocarState, revocarAction, revocando] = useActionState<ActionState, FormData>(revocarAprobacionPrevalidadorBalance, {});
+
+  useEffect(() => {
+    if (aprobarState.ok) {
+      notifySuccess(aprobarState.message ?? "Prevalidador aprobado.");
+      router.refresh();
+    } else if (aprobarState.ok === false) notifyError(aprobarState.message ?? "No se pudo aprobar el prevalidador.");
+  }, [aprobarState, router]);
+  useEffect(() => {
+    if (revocarState.ok) {
+      notifySuccess(revocarState.message ?? "Aprobación revocada.");
+      router.refresh();
+    } else if (revocarState.ok === false) notifyError(revocarState.message ?? "No se pudo revocar la aprobación.");
+  }, [revocarState, router]);
+
+  const estado = revision.estado === "aprobada"
+    ? { label: "Aprobado y vigente", tone: "ok" as const }
+    : revision.estado === "desactualizada"
+      ? { label: "Aprobación desactualizada", tone: "warn" as const }
+      : revision.estado === "revocada"
+        ? { label: "Aprobación revocada", tone: "err" as const }
+        : { label: "Pendiente de aprobación", tone: "warn" as const };
+
+  return (
+    <Card className="p-4">
+      <div className="flex flex-wrap items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-[13px] font-semibold text-ink-800">Revisión previa a conciliación</h3>
+            <Chip label={estado.label} tone={estado.tone} />
+            {estaCongelado && <Chip label="Balance congelado" tone="blue" />}
+          </div>
+          <p className="mt-1 max-w-3xl text-[12px] leading-relaxed text-ink-600">
+            La conciliación exige una aprobación vigente de este informe. Cualquier cambio en saldos, homologación,
+            catálogo o cuenta alternativa cambia la huella e invalida automáticamente la revisión anterior.
+          </p>
+          {revision.actor && revision.creadoEn && (
+            <p className="mt-1.5 text-[11.5px] text-ink-500">
+              Última revisión: <span className="font-medium text-ink-700">{revision.actor}</span> · {fmtDateTime(revision.creadoEn)}
+              {revision.justificacion ? ` · ${revision.justificacion}` : ""}
+            </p>
+          )}
+        </div>
+      </div>
+
+      {puedeRevisar && !revision.vigente && (
+        <form action={aprobarAction} className="mt-3 flex flex-col gap-2 border-t border-ink-100 pt-3 sm:flex-row sm:items-end">
+          <input type="hidden" name="balanceId" value={balanceId} />
+          <label className="min-w-0 flex-1">
+            <span className="text-[11px] font-medium text-ink-600">
+              Justificación de la revisión {hallazgos > 0 ? `(${hallazgos} hallazgo(s))` : ""}
+            </span>
+            <textarea
+              name="justificacion"
+              required
+              minLength={3}
+              maxLength={2000}
+              rows={2}
+              placeholder={hallazgos > 0 ? "Explica por qué los hallazgos son aceptables para conciliar…" : "Deja constancia de la revisión realizada…"}
+              className="mt-1 w-full rounded-md border border-ink-200 px-2.5 py-2 text-[12px] text-ink-700 outline-none focus:border-blue-400"
+            />
+          </label>
+          <button
+            type="submit"
+            disabled={aprobando}
+            className="rounded-md bg-navy-700 px-3 py-2 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
+          >
+            {aprobando ? <EstadoProcesando>Aprobando</EstadoProcesando> : "Aprobar prevalidador"}
+          </button>
+        </form>
+      )}
+
+      {puedeRevisar && revision.vigente && (
+        <form action={revocarAction} className="mt-3 flex flex-col gap-2 border-t border-ink-100 pt-3 sm:flex-row sm:items-end">
+          <input type="hidden" name="balanceId" value={balanceId} />
+          <label className="min-w-0 flex-1">
+            <span className="text-[11px] font-medium text-ink-600">Motivo de revocación</span>
+            <input
+              name="justificacion"
+              required
+              minLength={3}
+              maxLength={2000}
+              placeholder="Indica por qué debe revisarse nuevamente…"
+              className="mt-1 w-full rounded-md border border-ink-200 px-2.5 py-2 text-[12px] text-ink-700 outline-none focus:border-blue-400"
+            />
+          </label>
+          <button
+            type="submit"
+            disabled={revocando}
+            className="rounded-md border border-err-100 px-3 py-2 text-[12px] font-semibold text-err-700 hover:bg-err-100/50 disabled:opacity-60"
+          >
+            {revocando ? <EstadoProcesando>Revocando</EstadoProcesando> : "Revocar aprobación"}
+          </button>
+        </form>
+      )}
+    </Card>
+  );
+}
+
+function ValorLado({ encontrada, valor }: { encontrada: boolean; valor: number }) {
+  if (!encontrada) return <span className="font-sans text-[11px] font-semibold text-warn-700">Cuenta no encontrada</span>;
+  return <>{fmt(valor)}</>;
+}
+
+function Diferencia({
+  valor,
+  coincide,
+  encontrada = true,
+  fuerte,
+}: {
+  valor: number;
+  coincide: boolean;
+  encontrada?: boolean;
+  fuerte?: boolean;
+}) {
+  if (!encontrada) return <Chip label="No encontrada" tone="warn" />;
   if (coincide) return <Chip label="OK" tone="ok" />;
   return (
     <span className={`font-mono text-err-700 ${fuerte ? "font-semibold" : ""}`} title="Los dos lados no cuadran">
@@ -284,8 +427,6 @@ function CeldaCuentaCliente({
 }) {
   const [abierto, setAbierto] = useState(false);
 
-  // Las filas de fábrica (catalogoId 0) no existen en base de datos, así que no hay
-  // a qué colgar la cuenta propia del cliente.
   const editable = puedeEditar && fila.catalogoId > 0;
 
   if (!editable) {
@@ -350,10 +491,11 @@ function ModalCuentaCliente({
   const listado = useMemo(() => {
     const t = q.trim().toLowerCase();
     const visibles = t
-      ? opciones.filter((o) => o.prefijo.startsWith(t) || o.nombre.toLowerCase().includes(t)).slice(0, 200)
-      : // Sin búsqueda: los grupos (nivel 2) y, dentro del grupo de la cuenta de
-        // Russell, también sus cuentas de 4 dígitos.
-        opciones.filter((o) => o.nivel === 2 || o.prefijo.startsWith(fila.cuentaRussell.slice(0, 2)));
+      ? opciones
+          .filter((o) => o.nivel === fila.cuentaRussell.length)
+          .filter((o) => o.prefijo.startsWith(t) || o.nombre.toLowerCase().includes(t))
+          .slice(0, 200)
+      : opciones.filter((o) => o.nivel === fila.cuentaRussell.length);
     // La cuenta vigente y la de Russell van primero: son las dos que el usuario
     // busca al abrir, y en un balance con decenas de grupos quedarían enterradas.
     const rango = (o: OpcionCuentaCliente) =>
@@ -409,7 +551,7 @@ function ModalCuentaCliente({
         <p className="text-[12px] leading-relaxed text-ink-500">
           Elige contra qué cuenta del balance del cliente se compara
           {fila.etiqueta ? ` «${fila.etiqueta}»` : ""}. Solo se listan los códigos que este balance tiene, con el saldo
-          que aportarían. La elección queda guardada para todos los períodos de este cliente.
+          que aportarían. La elección queda guardada únicamente para este balance.
         </p>
 
         <div className="relative">

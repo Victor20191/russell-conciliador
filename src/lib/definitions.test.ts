@@ -1,5 +1,14 @@
 import { test, expect } from "vitest";
-import { ModuleFieldSchema, ClientSchema, PasswordSchema, UserUpdateSchema, ActualizarUmbralSchema } from "./definitions";
+import {
+  ActualizarUmbralSchema,
+  ClientSchema,
+  CuentaClientePrevalidadorSchema,
+  ModuleFieldSchema,
+  PasswordSchema,
+  PrefijoCuentaPrevalidadorSchema,
+  RevisionPrevalidadorSchema,
+  UserUpdateSchema,
+} from "./definitions";
 
 test("ModuleFieldSchema acepta un campo válido", () => {
   const r = ModuleFieldSchema.safeParse({
@@ -138,4 +147,27 @@ test("ActualizarUmbralSchema acepta cero y rechaza vacíos, texto y montos absur
   expect(ActualizarUmbralSchema.safeParse({ clave: "descuadre", valor: "-500" }).success).toBe(true); // el signo se descarta → 500
   expect(ActualizarUmbralSchema.safeParse({ clave: "descuadre", valor: "9999999999" }).success).toBe(false);
   expect(ActualizarUmbralSchema.safeParse({ clave: "", valor: "2000" }).success).toBe(false);
+});
+
+test("el prevalidador normaliza y admite únicamente prefijos de nivel 2 o 4", () => {
+  expect(PrefijoCuentaPrevalidadorSchema.parse(" 41 ")).toBe("41");
+  expect(PrefijoCuentaPrevalidadorSchema.parse("13.30")).toBe("1330");
+  expect(PrefijoCuentaPrevalidadorSchema.parse(" 51 05 ")).toBe("5105");
+
+  for (const invalida of ["1", "133", "13301", "13-30", "abcd", ""]) {
+    expect(PrefijoCuentaPrevalidadorSchema.safeParse(invalida).success).toBe(false);
+  }
+});
+
+test("el override y la revisión validan balance, fila y justificación del servidor", () => {
+  const override = CuentaClientePrevalidadorSchema.parse({
+    balanceId: "7",
+    catalogoId: "3",
+    cuentaCliente: "28.05",
+  });
+  expect(override).toEqual({ balanceId: 7, catalogoId: 3, cuentaCliente: "2805" });
+
+  const revision = RevisionPrevalidadorSchema.parse({ balanceId: "7", justificacion: "  Revisado con soporte  " });
+  expect(revision).toEqual({ balanceId: 7, justificacion: "Revisado con soporte" });
+  expect(RevisionPrevalidadorSchema.safeParse({ balanceId: 7, justificacion: "no" }).success).toBe(false);
 });

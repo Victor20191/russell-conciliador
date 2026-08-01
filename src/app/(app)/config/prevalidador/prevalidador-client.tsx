@@ -32,9 +32,8 @@ export default function PrevalidadorConfigClient({
   return (
     <div className="flex flex-col gap-4">
       <div className="rounded-md border border-warn-100 bg-warn-100/40 px-3 py-2.5 text-[12.5px] text-warn-700">
-        Los cambios son <span className="font-semibold">retroactivos</span>: el prevalidador se recalcula cada vez que
-        se abre un balance, así que agregar, quitar o cambiar una cuenta afecta al instante a todos los balances
-        existentes, incluidos los congelados.
+        Los cambios actualizan el cálculo vigente de los balances. Toda revisión aprobada conserva su instantánea y
+        queda marcada como desactualizada si el catálogo usado para aprobar ya no coincide.
       </div>
 
       <div className="flex items-center justify-between">
@@ -134,7 +133,7 @@ function FilaEditor({
             value={cuenta}
             onChange={(e) => setCuenta(e.target.value)}
             inputMode="numeric"
-            maxLength={10}
+            maxLength={4}
             placeholder="41"
             className="w-24 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 font-mono text-[12.5px] text-ink-700 outline-none focus:border-blue-400"
           />
@@ -181,8 +180,8 @@ function FilaEditor({
         </label>
 
         <div className="ml-auto flex items-center gap-2 pb-0.5">
-          {fila && fila.clientesConCuentaPropia > 0 && (
-            <Chip label={`${fila.clientesConCuentaPropia} cliente(s) con cuenta propia`} tone="ai" />
+          {fila && fila.balancesConCuentaPropia > 0 && (
+            <Chip label={`${fila.balancesConCuentaPropia} balance(s) con cuenta propia`} tone="ai" />
           )}
           <button
             type="submit"
@@ -204,8 +203,8 @@ function FilaEditor({
             (confirmarBorrado ? (
               <div className="flex items-center gap-1.5">
                 <span className="text-[11.5px] text-ink-500">
-                  {fila.clientesConCuentaPropia > 0
-                    ? `¿Eliminar y perder ${fila.clientesConCuentaPropia} cuenta(s) propia(s) de cliente?`
+                  {fila.balancesConCuentaPropia > 0
+                    ? `¿Eliminar y perder ${fila.balancesConCuentaPropia} cuenta(s) propia(s) de balance?`
                     : "¿Eliminar?"}
                 </span>
                 <button

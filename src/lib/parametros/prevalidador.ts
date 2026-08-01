@@ -1,6 +1,6 @@
-// Carga del catálogo del PREVALIDADOR en runtime: lee las filas VIGENTES de la BD
-// (tabla `prevalidador_cuentas`, editable en /config/prevalidador) y cae al catálogo
-// de fábrica si no hay filas o la BD falla (nunca rompe la pantalla del balance).
+// Persistencia/lectura del PREVALIDADOR. Todos los loaders fallan CERRADO: un
+// catálogo vacío es un éxito vacío y un error de BD se propaga; nunca se reemplaza
+// estado persistente por valores de fábrica ni se confunde un fallo con «sin datos».
 //
 // El catálogo se cachea en el Data Cache de Next y se invalida al editar con
 // updateTag(PREVALIDADOR_CACHE_TAG) desde la Server Action — mismo patrón que
@@ -9,15 +9,16 @@ import "server-only";
 import { unstable_cache } from "next/cache";
 import prisma from "@/lib/prisma";
 import {
-  catalogoPrevalidadorDeFabrica,
   esBaseCalculo,
   normalizarPrefijo,
   ordenModulo,
+  PREVALIDADOR_MODULOS_ORDEN,
   type FilaCatalogoPrevalidador,
   type OverridePrevalidador,
 } from "@/lib/balance/prevalidador/catalogo";
 
 export const PREVALIDADOR_CACHE_TAG = "prevalidador-catalogo";
+export const MODULOS_PREVALIDADOR_APROBADOS = new Set(PREVALIDADOR_MODULOS_ORDEN);
 
 type FilaBD = {
   id: number;
@@ -44,15 +45,24 @@ const SELECT_FILA = {
 } as const;
 
 function aFilaCatalogo(f: FilaBD): FilaCatalogoPrevalidador {
+  const cuentaRussell = normalizarPrefijo(f.cuentaRussell);
+  if (!MODULOS_PREVALIDADOR_APROBADOS.has(f.module.code)) {
+    throw new Error(`El módulo ${f.module.code} no pertenece al prevalidador aprobado.`);
+  }
+  if (cuentaRussell.length !== 2 && cuentaRussell.length !== 4) {
+    throw new Error(`La cuenta ${cuentaRussell || "vacía"} del prevalidador no tiene nivel 2/4.`);
+  }
+  if (!esBaseCalculo(f.baseCalculo)) {
+    throw new Error(`La cuenta ${cuentaRussell} tiene una base de cálculo inválida.`);
+  }
   return {
     id: f.id,
     moduloCodigo: f.module.code,
     moduloNombre: f.module.name,
     moduloOrden: ordenModulo(f.module.code),
-    cuentaRussell: normalizarPrefijo(f.cuentaRussell),
+    cuentaRussell,
     etiqueta: f.etiqueta,
-    // Una base desconocida en BD (edición manual) no debe tumbar el informe.
-    baseCalculo: esBaseCalculo(f.baseCalculo) ? f.baseCalculo : "saldo",
+    baseCalculo: f.baseCalculo,
     orden: f.orden,
     activa: f.activa,
   };
@@ -61,8 +71,8 @@ function aFilaCatalogo(f: FilaBD): FilaCatalogoPrevalidador {
 /**
  * Lee el catálogo activo. NO atrapa el error a propósito: si la consulta falla,
  * `unstable_cache` no guarda nada y el siguiente request reintenta. Atraparlo aquí
- * congelaría el fallback de fábrica en la caché hasta que alguien invalidara el tag
- * a mano — que es justo lo que pasa si la app arranca antes de aplicar la migración.
+ * podría congelar un estado sintético en la caché hasta que alguien invalidara el
+ * tag a mano — justo lo que no debe pasar si la app arranca sin su migración.
  */
 async function leerCatalogoActivo(): Promise<FilaCatalogoPrevalidador[]> {
   const filas = await prisma.prevalidadorCuenta.findMany({
@@ -77,34 +87,22 @@ const catalogoCacheado = unstable_cache(leerCatalogoActivo, ["prevalidador-catal
   tags: [PREVALIDADOR_CACHE_TAG],
 });
 
-/**
- * Catálogo ACTIVO (BD → fábrica). Lo consume el loader RSC de /balance/[id].
- *
- * El fallback se resuelve FUERA de la caché: sin filas (tabla vacía) o con la BD
- * caída, el informe se sigue viendo con las cuentas de fábrica. Esas van con
- * `id: 0`, así que la UI no ofrece guardarles cuentas propias de cliente —no habría
- * a qué colgarlas— y avisa de que el catálogo no está en base de datos.
- */
+/** Catálogo ACTIVO persistido. `[]` significa vacío real; un fallo se propaga. */
 export async function getCatalogoPrevalidador(): Promise<FilaCatalogoPrevalidador[]> {
-  try {
-    const filas = await catalogoCacheado();
-    return filas.length > 0 ? filas : catalogoPrevalidadorDeFabrica();
-  } catch {
-    return catalogoPrevalidadorDeFabrica();
-  }
+  return catalogoCacheado();
 }
 
 export type FilaCatalogoVista = FilaCatalogoPrevalidador & {
   moduloId: number;
-  /** Cuántos clientes tienen una cuenta propia colgada de esta fila. */
-  clientesConCuentaPropia: number;
+  /** Cuántos balances tienen una cuenta propia colgada de esta fila. */
+  balancesConCuentaPropia: number;
   actualizadoPor: string | null;
   actualizadoEn: string | null; // ISO
 };
 
 /**
  * Vista COMPLETA para la pantalla de administración: incluye las filas inactivas y
- * el número de clientes afectados por cada una (lo necesita la confirmación de
+ * el número de balances afectados por cada una (lo necesita la confirmación de
  * borrado, que arrastra las cuentas propias por cascada). Sin caché, como
  * `getUmbralesVista()`.
  */
@@ -116,34 +114,34 @@ export async function getCatalogoPrevalidadorVista(): Promise<FilaCatalogoVista[
       select: { ...SELECT_FILA, moduloId: true },
       orderBy: [{ orden: "asc" }, { cuentaRussell: "asc" }],
     }),
-    prisma.prevalidadorCuentaCliente.groupBy({ by: ["catalogoId"], _count: { _all: true } }),
+    prisma.prevalidadorCuentaBalance.groupBy({ by: ["catalogoId"], _count: { _all: true } }),
   ]);
   const conteo = new Map(porFila.map((g) => [g.catalogoId, g._count._all]));
   return filas
     .map((f) => ({
       ...aFilaCatalogo(f),
       moduloId: f.moduloId,
-      clientesConCuentaPropia: conteo.get(f.id) ?? 0,
+      balancesConCuentaPropia: conteo.get(f.id) ?? 0,
       actualizadoPor: f.actualizadoPor,
       actualizadoEn: f.actualizadoEn ? f.actualizadoEn.toISOString() : null,
     }))
     .sort((a, b) => a.moduloOrden - b.moduloOrden || a.orden - b.orden || a.cuentaRussell.localeCompare(b.cuentaRussell));
 }
 
-/**
- * Cuentas propias del cliente, por fila del catálogo. SIN caché a propósito: son
- * por cliente, así que cachearlas exigiría un tag por cliente (o invalidar el
- * catálogo entero en cada guardado) para ahorrar un `findMany` de ≤11 filas sobre
- * un índice. No compensa.
- */
-export async function getOverridesPrevalidadorCliente(clienteId: number): Promise<OverridePrevalidador[]> {
-  try {
-    const filas = await prisma.prevalidadorCuentaCliente.findMany({
-      where: { clienteId },
-      select: { catalogoId: true, cuentaCliente: true },
-    });
-    return filas.map((f) => ({ catalogoId: f.catalogoId, cuentaCliente: normalizarPrefijo(f.cuentaCliente) }));
-  } catch {
-    return [];
-  }
+/** Overrides propios de UN balance. `[]` es éxito vacío; un fallo se propaga. */
+export async function getOverridesPrevalidadorBalance(balanceId: number): Promise<OverridePrevalidador[]> {
+  const filas = await prisma.prevalidadorCuentaBalance.findMany({
+    where: { balanceId },
+    select: { catalogoId: true, cuentaCliente: true },
+    orderBy: { catalogoId: "asc" },
+  });
+  return filas.map((f) => ({ catalogoId: f.catalogoId, cuentaCliente: normalizarPrefijo(f.cuentaCliente) }));
+}
+
+/** Último evento append-only de aprobación/revocación del balance. */
+export async function getUltimaRevisionPrevalidadorBalance(balanceId: number) {
+  return prisma.prevalidadorRevisionBalance.findFirst({
+    where: { balanceId },
+    orderBy: [{ creadoEn: "desc" }, { id: "desc" }],
+  });
 }

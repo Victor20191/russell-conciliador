@@ -73,6 +73,7 @@ import {
   evaluarRevisionesReubicacionStaging,
   type RevisionReubicacionBalance,
 } from "@/lib/balance/revisiones-reubicacion-balance";
+import { cargarContextoPrevalidadorBalance } from "@/lib/balance/prevalidador/servidor";
 import { construirCuadre, marcarSubtotalesDuplicados, reclasificarRepetidos, reclasificarNoImputables, transformarTabular } from "@/lib/balance/extraccion/transformar";
 import type { FilaCruda, ParamsExtraccion, ResultadoTransform, TipoFila } from "@/lib/balance/extraccion/transformar";
 import { CUADRE_NO_APLICA } from "@/lib/balance/extraccion/esquema";
@@ -994,6 +995,7 @@ export async function freezeBalance(formData: FormData): Promise<ActionState> {
       const referencia = await tx.balancePruebaEncabezado.findUnique({ where: { id } });
       if (!referencia) return { ok: false as const, message: "Balance inexistente." };
 
+      await tomarCandadoTransaccion(tx, "prevalidador-catalogo");
       await tomarCandadoTransaccion(tx, `balance-oficial:${referencia.clienteId}:${referencia.periodo}`);
 
       const balance = await tx.balancePruebaEncabezado.findUnique({ where: { id } });
@@ -1005,6 +1007,46 @@ export async function freezeBalance(formData: FormData): Promise<ActionState> {
           balance,
           congelado: false,
         };
+      }
+
+      // Congelar vuelve inmutable la versión oficial: dentro del MISMO candado y
+      // transacción se recalcula el prevalidador y se contrasta su huella con la
+      // última revisión. La verificación no confía en el estado que mostró la UI,
+      // porque homologación, catálogo u overrides pudieron cambiar entre clics.
+      const contextoPrevalidador = await cargarContextoPrevalidadorBalance(id, tx);
+      if (contextoPrevalidador.prevalidador.estado === "sin_catalogo") {
+        return {
+          ok: false as const,
+          message: "No se puede congelar: el prevalidador no tiene cuentas activas configuradas.",
+        };
+      }
+      if (contextoPrevalidador.prevalidador.estado === "bloqueado") {
+        return {
+          ok: false as const,
+          message: `No se puede congelar: quedan ${contextoPrevalidador.prevalidador.sinHomologar.cuentas} cuenta(s) sin homologar en el prevalidador.`,
+        };
+      }
+      if (contextoPrevalidador.prevalidador.estado === "no_disponible") {
+        return {
+          ok: false as const,
+          message: `No se puede congelar: ${contextoPrevalidador.prevalidador.mensaje}`,
+        };
+      }
+      if (contextoPrevalidador.prevalidador.estado !== "listo") {
+        return { ok: false as const, message: "No se puede congelar: el prevalidador no está listo." };
+      }
+
+      const revision = contextoPrevalidador.revision;
+      if (!revision.vigente) {
+        const message =
+          revision.estado === "pendiente"
+            ? "No se puede congelar: el prevalidador todavía no ha sido aprobado."
+            : revision.estado === "revocada"
+              ? "No se puede congelar: la aprobación del prevalidador fue revocada."
+              : revision.estado === "desactualizada"
+                ? "No se puede congelar: la aprobación del prevalidador está desactualizada. Vuelve a revisarlo y aprobarlo."
+                : "No se puede congelar: el prevalidador no tiene una aprobación vigente.";
+        return { ok: false as const, message };
       }
 
       // La versión oficial es única por (cliente, período): se desmarca cualquier otra.
@@ -1080,70 +1122,140 @@ export async function asignarCuentaEstandar(formData: FormData): Promise<ActionS
   try {
     const fila = await prisma.balancePruebaDetalle.findUnique({
       where: { id: detalleId },
-      select: { cuenta6: true, nombreCuenta: true, encabezado: { select: { id: true, clienteId: true, nombreCliente: true, nit: true } } },
+      select: {
+        cuenta6: true,
+        nombreCuenta: true,
+        encabezado: {
+          select: {
+            id: true,
+            clienteId: true,
+            nombreCliente: true,
+            nit: true,
+            periodo: true,
+            estaCongelado: true,
+          },
+        },
+      },
     });
     if (!fila) return { ok: false, message: "La cuenta del balance ya no existe." };
 
     // Alcance de escritura sobre el cliente del balance (cartera).
     const alcance = await authorizePermiso("balance:crear", { clientId: fila.encabezado.clienteId });
     if (!alcance.ok) return { ok: false, message: alcance.message };
+    if (fila.encabezado.estaCongelado) {
+      return { ok: false, message: "No se puede homologar una cuenta de un balance congelado." };
+    }
 
     // La cuenta estándar debe existir (es de 6 dígitos = nivel 6 del plan).
     const std = await prisma.standardAccount.findUnique({ where: { code: codigo }, select: { code: true, name: true } });
     if (!std) return { ok: false, message: "La cuenta estándar seleccionada no existe." };
 
-    const encId = fila.encabezado.id;
-    const planAlcance = resolverAlcanceHomologacion(alcanceMapeo, {
-      detalleId,
-      encabezadoId: encId,
-      cuenta6: fila.cuenta6,
-    });
-    const aplicarAlGrupo = planAlcance.memorizaPerfil;
-    // El usuario decide el alcance antes de homologar: una sola línea imputable
-    // o el comportamiento histórico sobre todas las cuentas del mismo nivel 6.
-    const afectadas = await prisma.balancePruebaDetalle.updateMany({
-      where: planAlcance.filtroDetalle,
-      data: { cuenta6Russell: std.code, coincidencia: 100 },
-    });
-
     const user = await getCurrentUser();
-    if (aplicarAlGrupo) {
-      // Sólo el alcance grupal actualiza la memoria de `cuentas_cliente`: esa
-      // memoria está definida por cuenta de 6 dígitos y se aplica entre períodos.
-      // Una excepción individual pertenece únicamente a este balance.
-      const ahora = new Date();
-      await prisma.clientAccount.upsert({
-        where: { clienteId_code: { clienteId: fila.encabezado.clienteId, code: fila.cuenta6 } },
-        create: { clientName: fila.encabezado.nombreCliente, clienteId: fila.encabezado.clienteId, nit: fila.encabezado.nit, code: fila.cuenta6, level: 6, name: fila.cuenta6, cuenta6Russell: std.code, coincidencia: 100, origenMapeo: "manual", actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
-        update: { nit: fila.encabezado.nit, cuenta6Russell: std.code, coincidencia: 100, origenMapeo: "manual", actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
-      });
-      // Propaga el estándar a las cuentas IMPUTABLES del mismo grupo (display consistente).
-      await prisma.clientAccount.updateMany({
-        where: { clienteId: fila.encabezado.clienteId, code: { startsWith: fila.cuenta6 }, NOT: { code: fila.cuenta6 } },
-        data: { cuenta6Russell: std.code, coincidencia: 100, origenMapeo: "manual", actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
-      });
-    }
+    const resultado = await transaccionSerializable(async (tx) => {
+      // Usa el mismo candado que `freezeBalance`: si congelar y homologar llegan
+      // simultáneamente, una operación termina antes y la otra vuelve a leer el
+      // estado definitivo dentro de la transacción.
+      await tomarCandadoTransaccion(
+        tx,
+        `balance-oficial:${fila.encabezado.clienteId}:${fila.encabezado.periodo}`,
+      );
 
-    // Recalcula contadores de mapeo del encabezado.
-    const [total, mapeadas] = await Promise.all([
-      prisma.balancePruebaDetalle.count({ where: { encabezadoId: encId } }),
-      prisma.balancePruebaDetalle.count({ where: { encabezadoId: encId, cuenta6Russell: { not: null } } }),
-    ]);
-    await prisma.balancePruebaEncabezado.update({
-      where: { id: encId },
-      data: { mapeadas, sinMapear: total - mapeadas, completitud: total > 0 ? Math.round((mapeadas / total) * 100) : 100 },
+      const filaActual = await tx.balancePruebaDetalle.findUnique({
+        where: { id: detalleId },
+        select: {
+          cuenta6: true,
+          nombreCuenta: true,
+          encabezado: {
+            select: {
+              id: true,
+              clienteId: true,
+              nombreCliente: true,
+              nit: true,
+              periodo: true,
+              estaCongelado: true,
+            },
+          },
+        },
+      });
+      if (!filaActual) {
+        return { ok: false as const, message: "La cuenta del balance ya no existe." };
+      }
+      if (
+        filaActual.encabezado.clienteId !== fila.encabezado.clienteId ||
+        filaActual.encabezado.periodo !== fila.encabezado.periodo
+      ) {
+        return {
+          ok: false as const,
+          message: "El balance cambió mientras se preparaba la homologación. Vuelve a intentarlo.",
+        };
+      }
+      if (filaActual.encabezado.estaCongelado) {
+        return { ok: false as const, message: "No se puede homologar una cuenta de un balance congelado." };
+      }
+
+      const encId = filaActual.encabezado.id;
+      const planAlcance = resolverAlcanceHomologacion(alcanceMapeo, {
+        detalleId,
+        encabezadoId: encId,
+        cuenta6: filaActual.cuenta6,
+      });
+      const aplicarAlGrupo = planAlcance.memorizaPerfil;
+      // El usuario decide el alcance antes de homologar: una sola línea imputable
+      // o el comportamiento histórico sobre todas las cuentas del mismo nivel 6.
+      const afectadas = await tx.balancePruebaDetalle.updateMany({
+        where: planAlcance.filtroDetalle,
+        data: { cuenta6Russell: std.code, coincidencia: 100 },
+      });
+
+      if (aplicarAlGrupo) {
+        // Sólo el alcance grupal actualiza la memoria de `cuentas_cliente`: esa
+        // memoria está definida por cuenta de 6 dígitos y se aplica entre períodos.
+        // Una excepción individual pertenece únicamente a este balance.
+        const ahora = new Date();
+        await tx.clientAccount.upsert({
+          where: { clienteId_code: { clienteId: filaActual.encabezado.clienteId, code: filaActual.cuenta6 } },
+          create: { clientName: filaActual.encabezado.nombreCliente, clienteId: filaActual.encabezado.clienteId, nit: filaActual.encabezado.nit, code: filaActual.cuenta6, level: 6, name: filaActual.cuenta6, cuenta6Russell: std.code, coincidencia: 100, origenMapeo: "manual", actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
+          update: { nit: filaActual.encabezado.nit, cuenta6Russell: std.code, coincidencia: 100, origenMapeo: "manual", actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
+        });
+        // Propaga el estándar a las cuentas IMPUTABLES del mismo grupo (display consistente).
+        await tx.clientAccount.updateMany({
+          where: { clienteId: filaActual.encabezado.clienteId, code: { startsWith: filaActual.cuenta6 }, NOT: { code: filaActual.cuenta6 } },
+          data: { cuenta6Russell: std.code, coincidencia: 100, origenMapeo: "manual", actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
+        });
+      }
+
+      // Recalcula contadores de mapeo del encabezado dentro del mismo commit.
+      const [total, mapeadas] = await Promise.all([
+        tx.balancePruebaDetalle.count({ where: { encabezadoId: encId } }),
+        tx.balancePruebaDetalle.count({ where: { encabezadoId: encId, cuenta6Russell: { not: null } } }),
+      ]);
+      await tx.balancePruebaEncabezado.update({
+        where: { id: encId },
+        data: { mapeadas, sinMapear: total - mapeadas, completitud: total > 0 ? Math.round((mapeadas / total) * 100) : 100 },
+      });
+
+      return {
+        ok: true as const,
+        encId,
+        clienteId: filaActual.encabezado.clienteId,
+        cuenta6: filaActual.cuenta6,
+        nombreCuenta: filaActual.nombreCuenta,
+        aplicarAlGrupo,
+        afectadas: afectadas.count,
+      };
     });
+    if (!resultado.ok) return resultado;
 
-    const detalleAlcance = aplicarAlGrupo
-      ? `${fila.cuenta6} (${afectadas.count} cuenta(s) del grupo)`
-      : `${fila.cuenta6} (solo ${fila.nombreCuenta})`;
-    await logAudit({ user: user?.name ?? "Sistema", action: "ASIGNÓ CUENTA ESTÁNDAR", entity: fila.cuenta6, detail: `${detalleAlcance} → ${std.code}`, clientId: fila.encabezado.clienteId });
-    revalidatePath(`/balance/${encId}`);
+    const detalleAlcance = resultado.aplicarAlGrupo
+      ? `${resultado.cuenta6} (${resultado.afectadas} cuenta(s) del grupo)`
+      : `${resultado.cuenta6} (solo ${resultado.nombreCuenta})`;
+    await logAudit({ user: user?.name ?? "Sistema", action: "ASIGNÓ CUENTA ESTÁNDAR", entity: resultado.cuenta6, detail: `${detalleAlcance} → ${std.code}`, clientId: resultado.clienteId });
+    revalidatePath(`/balance/${resultado.encId}`);
     return {
       ok: true,
-      message: aplicarAlGrupo
-        ? `${afectadas.count} cuenta(s) ${fila.cuenta6}* homologada(s) a ${std.code}.`
-        : `${fila.nombreCuenta} homologada a ${std.code} sin modificar las demás cuentas del grupo.`,
+      message: resultado.aplicarAlGrupo
+        ? `${resultado.afectadas} cuenta(s) ${resultado.cuenta6}* homologada(s) a ${std.code}.`
+        : `${resultado.nombreCuenta} homologada a ${std.code} sin modificar las demás cuentas del grupo.`,
     };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("asignarCuentaEstandar", e) };
@@ -3714,37 +3826,97 @@ export async function eliminarDetalleBalance(detalleId: number): Promise<ActionS
   try {
     const fila = await prisma.balancePruebaDetalle.findUnique({
       where: { id },
-      select: { cuenta8: true, nombreCuenta: true, encabezado: { select: { id: true, clienteId: true, estaCongelado: true } } },
+      select: {
+        cuenta8: true,
+        nombreCuenta: true,
+        encabezado: { select: { id: true, clienteId: true, periodo: true, estaCongelado: true } },
+      },
     });
     if (!fila) return { ok: false, message: "La cuenta del balance ya no existe." };
     const alcance = await authorizePermiso("balance:crear", { clientId: fila.encabezado.clienteId });
     if (!alcance.ok) return { ok: false, message: alcance.message };
     if (fila.encabezado.estaCongelado) return { ok: false, message: "El balance está congelado: no se pueden eliminar cuentas." };
-    const encId = fila.encabezado.id;
 
     const user = await getCurrentUser();
     await asegurarPerfilBaseCliente(fila.encabezado.clienteId, user?.name ?? null);
     const cuentasEstandar = await getCuentasEstandar();
-    await prisma.$transaction(async (tx) => {
+    const resultado = await transaccionSerializable(async (tx) => {
+      // Comparte la barrera de homologación/override/aprobación/congelación. El
+      // primer chequeo evita trabajo innecesario; esta relectura DESPUÉS del
+      // candado es la que impide borrar una cuenta de una versión que acaba de
+      // quedar congelada en una petición concurrente.
+      await tomarCandadoTransaccion(tx, "prevalidador-catalogo");
+      await tomarCandadoTransaccion(
+        tx,
+        `balance-oficial:${fila.encabezado.clienteId}:${fila.encabezado.periodo}`,
+      );
+      const filaActual = await tx.balancePruebaDetalle.findUnique({
+        where: { id },
+        select: {
+          cuenta8: true,
+          nombreCuenta: true,
+          encabezado: {
+            select: { id: true, clienteId: true, periodo: true, estaCongelado: true },
+          },
+        },
+      });
+      if (!filaActual) {
+        return { ok: false as const, message: "La cuenta del balance ya no existe." };
+      }
+      if (
+        filaActual.encabezado.clienteId !== fila.encabezado.clienteId ||
+        filaActual.encabezado.periodo !== fila.encabezado.periodo
+      ) {
+        return {
+          ok: false as const,
+          message: "El balance cambió mientras se preparaba la eliminación. Vuelve a intentarlo.",
+        };
+      }
+      if (filaActual.encabezado.estaCongelado) {
+        return { ok: false as const, message: "El balance está congelado: no se pueden eliminar cuentas." };
+      }
+
+      const encIdActual = filaActual.encabezado.id;
+      const overrides = await tx.prevalidadorCuentaBalance.findMany({
+        where: { balanceId: encIdActual },
+        select: { cuentaCliente: true },
+      });
+      for (const override of overrides) {
+        if (!filaActual.cuenta8.startsWith(override.cuentaCliente)) continue;
+        const restantesDelPrefijo = await tx.balancePruebaDetalle.count({
+          where: {
+            encabezadoId: encIdActual,
+            id: { not: id },
+            cuenta8: { startsWith: override.cuentaCliente },
+          },
+        });
+        if (restantesDelPrefijo === 0) {
+          return {
+            ok: false as const,
+            message: `No se puede eliminar la cuenta: es la última que respalda la cuenta cliente ${override.cuentaCliente} del prevalidador. Restablece primero esa comparación.`,
+          };
+        }
+      }
+
       await tx.balancePruebaDetalle.delete({ where: { id } });
       // Eliminar una fila basura deja de ser una excepción de este período: se
       // memoriza como omisión del cliente y no reaparecerá en futuras cargas.
       await tx.correccionCargaBalance.upsert({
         where: {
           clienteId_cuenta: {
-            clienteId: fila.encabezado.clienteId,
-            cuenta: fila.cuenta8,
+            clienteId: filaActual.encabezado.clienteId,
+            cuenta: filaActual.cuenta8,
           },
         },
         create: {
-          clienteId: fila.encabezado.clienteId,
-          cuenta: fila.cuenta8,
-          nombre: fila.nombreCuenta,
+          clienteId: filaActual.encabezado.clienteId,
+          cuenta: filaActual.cuenta8,
+          nombre: filaActual.nombreCuenta,
           omitida: true,
           actualizadoPor: user?.name ?? null,
         },
         update: {
-          nombre: fila.nombreCuenta,
+          nombre: filaActual.nombreCuenta,
           omitida: true,
           actualizadoPor: user?.name ?? null,
         },
@@ -3753,7 +3925,7 @@ export async function eliminarDetalleBalance(detalleId: number): Promise<ActionS
       // Recalcula el resumen desde el detalle restante dentro de la misma
       // transacción: eliminación, memoria y contadores quedan atómicos.
       const restantes = await tx.balancePruebaDetalle.findMany({
-        where: { encabezadoId: encId },
+        where: { encabezadoId: encIdActual },
         select: {
           cuenta8: true,
           nombreCuenta: true,
@@ -3777,7 +3949,7 @@ export async function eliminarDetalleBalance(detalleId: number): Promise<ActionS
         cuentasEstandar,
       );
       await tx.balancePruebaEncabezado.update({
-        where: { id: encId },
+        where: { id: encIdActual },
         data: {
           sumaActivo: calc.sums?.activo ?? 0,
           filasTotales: calc.totalRows,
@@ -3787,12 +3959,21 @@ export async function eliminarDetalleBalance(detalleId: number): Promise<ActionS
           completitud: calc.totalRows > 0 ? Math.round((calc.mapped / calc.totalRows) * 100) : 100,
         },
       });
+      return {
+        ok: true as const,
+        encId: encIdActual,
+        cuenta8: filaActual.cuenta8,
+        nombreCuenta: filaActual.nombreCuenta,
+        clienteId: filaActual.encabezado.clienteId,
+      };
     });
 
-    await logAudit({ user: user?.name ?? "Sistema", action: "ELIMINÓ cuenta del balance", entity: fila.cuenta8, detail: `${fila.cuenta8} — ${fila.nombreCuenta}`, clientId: fila.encabezado.clienteId });
-    revalidatePath(`/balance/${encId}`);
+    if (!resultado.ok) return resultado;
+
+    await logAudit({ user: user?.name ?? "Sistema", action: "ELIMINÓ cuenta del balance", entity: resultado.cuenta8, detail: `${resultado.cuenta8} — ${resultado.nombreCuenta}`, clientId: resultado.clienteId });
+    revalidatePath(`/balance/${resultado.encId}`);
     revalidatePath("/config/perfiles-carga");
-    return { ok: true, message: `Cuenta ${fila.cuenta8} eliminada y memorizada como omisión para este cliente.` };
+    return { ok: true, message: `Cuenta ${resultado.cuenta8} eliminada y memorizada como omisión para este cliente.` };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("eliminarDetalleBalance", e) };
   }
@@ -3881,6 +4062,18 @@ export async function eliminarBalance(input: {
         return {
           ok: false as const,
           message: "No se encontraron balances para eliminar.",
+          balancesEliminados: 0,
+          perfilesEliminados: 0,
+        };
+      }
+
+      const conciliacionesVinculadas = await tx.reconciliation.count({
+        where: { balancePrevalidadoId: { in: ids } },
+      });
+      if (conciliacionesVinculadas > 0) {
+        return {
+          ok: false as const,
+          message: `No se puede eliminar: ${conciliacionesVinculadas} conciliación(es) conserva(n) este balance como evidencia prevalidada.`,
           balancesEliminados: 0,
           perfilesEliminados: 0,
         };

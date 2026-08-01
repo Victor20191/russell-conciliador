@@ -11,9 +11,10 @@ import { clienteDeConciliacion, clienteDeFilaConciliacion } from "@/lib/rbac/con
 import { parseId } from "@/lib/ids";
 import { createProcessNotification } from "@/lib/notifications";
 import { mensajeErrorBD } from "@/lib/errores";
-import { transaccionSerializable } from "@/lib/concurrency";
+import { tomarCandadoTransaccion, transaccionSerializable } from "@/lib/concurrency";
 import type { ActionState } from "@/lib/definitions";
-import { anioColombia, fechaCalendarioPrisma } from "@/lib/fecha-hora";
+import { anioColombia } from "@/lib/fecha-hora";
+import { cargarContextoPrevalidadorBalance } from "@/lib/balance/prevalidador/servidor";
 
 // Patrón de autorización en dos pasos: el primer gate exige sesión +
 // permiso de rol ANTES de tocar la BD; el segundo añade el ALCANCE de
@@ -105,17 +106,47 @@ const DEMO_CROSS_ROWS: [string, string, number, number, number, number][] = [
   ["143580", "Inventarios en tránsito", 31200000, 29420000, -1780000, 6],
 ];
 
+class ErrorCompuertaPrevalidador extends Error {}
+
+type ContextoPrevalidador = Awaited<ReturnType<typeof cargarContextoPrevalidadorBalance>>;
+
+function validarCompuertaPrevalidador(
+  contexto: ContextoPrevalidador,
+  clientId: number,
+  moduloCodigo: string,
+): string | null {
+  if (contexto.balance.clienteId !== clientId) return "El balance seleccionado no pertenece al cliente de la conciliación.";
+  if (!contexto.balance.esOficial || !contexto.balance.estaCongelado) {
+    return "La conciliación exige un balance oficial y congelado del período exacto.";
+  }
+  if (contexto.prevalidador.estado === "sin_catalogo") return "No hay cuentas activas configuradas para el prevalidador.";
+  if (contexto.prevalidador.estado === "bloqueado") {
+    return `El prevalidador está bloqueado: quedan ${contexto.prevalidador.sinHomologar.cuentas} cuenta(s) sin homologar.`;
+  }
+  if (contexto.prevalidador.estado === "no_disponible") return contexto.prevalidador.mensaje;
+  if (!contexto.prevalidador.modulos.some((modulo) => modulo.codigo === moduloCodigo)) {
+    return "El módulo seleccionado no está cubierto por el catálogo vigente del prevalidador.";
+  }
+  if (!contexto.revision.vigente) {
+    return contexto.revision.estado === "desactualizada"
+      ? "La aprobación del prevalidador quedó desactualizada. Revísalo y apruébalo nuevamente antes de conciliar."
+      : contexto.revision.estado === "revocada"
+        ? "La aprobación del prevalidador fue revocada. Debe aprobarse nuevamente antes de conciliar."
+        : "El balance todavía no tiene una aprobación vigente del prevalidador.";
+  }
+  return null;
+}
+
 export async function executeReconciliation(
   _prev: ActionState | undefined,
   formData: FormData,
 ): Promise<ActionState> {
   const authz = await authorizePermiso("conciliaciones:ejecutar");
   if (!authz.ok) return { ok: false, message: authz.message };
+  const balanceId = parseId(formData.get("balanceId"));
   const clientId = parseId(formData.get("clientId"));
   const moduleId = parseId(formData.get("moduleId"));
-  const period = formData.get("period") as string;
-  const cutoff = (formData.get("cutoff") as string) || "";
-  if (!clientId || !moduleId || !period) {
+  if (!balanceId || !clientId || !moduleId) {
     return { ok: false, message: "Faltan datos para ejecutar la conciliación." };
   }
   // Ejecutar es la acción operativa por excelencia: exige cartera con escritura.
@@ -145,17 +176,35 @@ export async function executeReconciliation(
     ]);
     if (!client || !mod) return { ok: false, message: "Cliente o módulo inexistente." };
 
+    let preflight: ContextoPrevalidador;
+    try {
+      preflight = await cargarContextoPrevalidadorBalance(balanceId);
+    } catch {
+      return { ok: false, message: "No fue posible verificar de forma íntegra el prevalidador del balance seleccionado." };
+    }
+    const bloqueoPreflight = validarCompuertaPrevalidador(preflight, clientId, mod.code);
+    if (bloqueoPreflight) return { ok: false, message: bloqueoPreflight };
+
     const totalDiff = DEMO_CROSS_ROWS.reduce((s, r) => s + r[4], 0);
     const itemsDiff = DEMO_CROSS_ROWS.filter((r) => r[4] !== 0).length;
 
     const { id, code } = await transaccionSerializable(async (tx) => {
+      // Misma llave que usan homologación, override y congelamiento. La relectura
+      // dentro de la transacción elimina la ventana entre preflight y creación.
+      await tomarCandadoTransaccion(tx, "prevalidador-catalogo");
+      await tomarCandadoTransaccion(tx, `balance-oficial:${clientId}:${preflight.balance.periodo}`);
+      const contexto = await cargarContextoPrevalidadorBalance(balanceId, tx);
+      const bloqueo = validarCompuertaPrevalidador(contexto, clientId, mod.code);
+      if (bloqueo) throw new ErrorCompuertaPrevalidador(bloqueo);
+
       const temporalCode = `REC-TMP-${randomUUID()}`;
       const ahora = new Date();
       const reconciliation = await tx.reconciliation.create({
         data: {
-          code: temporalCode, clientName: client.name, clientId: client.id, module: mod.name, period,
+          code: temporalCode, clientName: client.name, clientId: client.id, module: mod.name, period: contexto.balance.periodo,
           erp: client.erp?.name ?? "", status: "REVIEW", diff: fmtSigned(totalDiff), items: itemsDiff,
-          owner: user?.name ?? "Auditor", cutoff: cutoff ? fechaCalendarioPrisma(cutoff) : null, runAt: ahora, runBy: user?.name ?? "Auditor",
+          owner: user?.name ?? "Auditor", cutoff: contexto.balance.periodoFin, runAt: ahora, runBy: user?.name ?? "Auditor",
+          balancePrevalidadoId: contexto.balance.id,
           materiality: 2000000, lastActivity: ahora,
           rows: { create: DEMO_CROSS_ROWS.map(([cuenta, desc, cont, modBal, diff, items], i) => ({ cuenta, desc, cont, mod: modBal, diff, items, order: i })) },
         },
@@ -179,15 +228,16 @@ export async function executeReconciliation(
       return { id: reconciliation.id, code };
     });
 
-    await logAudit({ user: user?.name ?? "Sistema", action: "EJECUTÓ", entity: `Cruce ${code}`, detail: `${mod.name} · ${client.name} · ${period}` });
+    await logAudit({ user: user?.name ?? "Sistema", action: "EJECUTÓ", entity: `Cruce ${code}`, detail: `${mod.name} · ${client.name} · ${preflight.balance.periodo} · balance ${balanceId}` });
     await createProcessNotification({
       actor: user?.name,
       text: "ejecutó el proceso de conciliación de",
-      target: `${client.name} · ${mod.name} · ${period}`,
+      target: `${client.name} · ${mod.name} · ${preflight.balance.periodo}`,
     });
     revalidatePath("/", "layout");
     reconciliationId = id;
   } catch (e) {
+    if (e instanceof ErrorCompuertaPrevalidador) return { ok: false, message: e.message };
     return { ok: false, message: mensajeErrorBD("executeReconciliation", e) };
   }
 

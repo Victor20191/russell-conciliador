@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Icon } from "@/components/icons";
 
-/** Menú de exportación del balance oficial a Excel: dos vistas. */
+/** Menú de exportación del balance y su prevalidador a Excel. */
 export function ExportarBalance({ id }: { id: number }) {
   const [open, setOpen] = useState(false);
   const opcion = (tipo: string, titulo: string, detalle: string) => (
@@ -31,6 +31,7 @@ export function ExportarBalance({ id }: { id: number }) {
           <div className="absolute right-0 z-20 mt-1 w-72 overflow-hidden rounded-md border border-ink-200 bg-white py-1 shadow-lg">
             {opcion("homologado", "Balance Homologado", "En el plan estándar Russell")}
             {opcion("comparativo", "Comparativo Homologado vs Cliente", "Russell vs las cuentas del cliente")}
+            {opcion("prevalidador", "Prevalidador", "Comparación por cuenta y totales de cada módulo")}
           </div>
         </>
       )}

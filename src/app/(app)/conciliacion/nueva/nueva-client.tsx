@@ -13,6 +13,14 @@ import { notifyError } from "@/lib/client-notifications";
 export type ClientOpt = { id: number; name: string; nit: string; erp: string; sector: string; configured: number[] };
 export type ModuleOpt = { id: number; code: string; name: string; icon: string };
 export type StdField = { key: string; label: string; type: string; required: boolean };
+export type BalanceOpt = {
+  id: number;
+  clientId: number;
+  period: string;
+  periodStart: string;
+  periodEnd: string;
+  version: string;
+};
 
 // IA simulada — columnas del archivo del cliente y su inferencia.
 const FILE_COLUMNS = [
@@ -42,28 +50,35 @@ const ACCOUNT_MAPPINGS = [
 const STEPS = ["Archivo", "Campos", "Cuentas", "Confirmar"];
 
 export default function NuevaClient({
-  clients, modules, fieldsByModule,
+  clients, modules, balances, fieldsByModule,
 }: {
-  clients: ClientOpt[]; modules: ModuleOpt[]; fieldsByModule: Record<number, StdField[]>;
+  clients: ClientOpt[]; modules: ModuleOpt[]; balances: BalanceOpt[]; fieldsByModule: Record<number, StdField[]>;
 }) {
   const [phase, setPhase] = useState<"scope" | "wizard">("scope");
   const [step, setStep] = useState(0);
   const [clientId, setClientId] = useState(clients[0]?.id ?? 0);
   const [moduleId, setModuleId] = useState(modules.find((m) => m.code === "INV")?.id ?? modules[0]?.id ?? 0);
-  const [period, setPeriod] = useState("2026-03");
-  const [cutoff, setCutoff] = useState("2026-03-31");
+  const [balanceId, setBalanceId] = useState(() => balances.find((b) => b.clientId === clients[0]?.id)?.id ?? 0);
 
   const client = clients.find((c) => c.id === clientId);
   const mod = modules.find((m) => m.id === moduleId);
+  const clientBalances = balances.filter((b) => b.clientId === clientId);
+  const balance = clientBalances.find((b) => b.id === balanceId);
+  const period = balance?.period ?? "";
+  const cutoff = balance?.periodEnd ?? "";
   const fields = fieldsByModule[moduleId] ?? [];
   const isConfigured = client?.configured.includes(moduleId) ?? false;
+  const changeClient = (nextClientId: number) => {
+    setClientId(nextClientId);
+    setBalanceId(balances.find((b) => b.clientId === nextClientId)?.id ?? 0);
+  };
 
   if (phase === "scope") {
     return (
       <ScopeStep
-        clients={clients} modules={modules} clientId={clientId} setClientId={setClientId}
-        moduleId={moduleId} setModuleId={setModuleId} period={period} setPeriod={setPeriod}
-        cutoff={cutoff} setCutoff={setCutoff} isConfigured={isConfigured}
+        clients={clients} modules={modules} balances={clientBalances} clientId={clientId} onClientChange={changeClient}
+        moduleId={moduleId} setModuleId={setModuleId} balanceId={balanceId} setBalanceId={setBalanceId}
+        selectedBalance={balance} isConfigured={isConfigured}
         onContinue={() => { setStep(0); setPhase("wizard"); }}
       />
     );
@@ -76,50 +91,72 @@ export default function NuevaClient({
       </button>
       <Stepper steps={STEPS} current={step} />
       <div className="mb-3 text-[12.5px] text-ink-500">
-        <b className="text-ink-800">{client?.name}</b> · {mod?.name} · {period} · corte {cutoff}
+        <b className="text-ink-800">{client?.name}</b> · {mod?.name} · {period} · {balance?.periodStart} a {cutoff} · v{balance?.version}
       </div>
 
       {step === 0 && <FileStep fields={fields} onNext={() => setStep(1)} />}
       {step === 1 && <FieldsStep fields={fields} onBack={() => setStep(0)} onNext={() => setStep(2)} />}
       {step === 2 && <AccountsStep onBack={() => setStep(1)} onNext={() => setStep(3)} />}
-      {step === 3 && <ConfirmStep clientId={clientId} moduleId={moduleId} period={period} cutoff={cutoff} clientName={client?.name ?? ""} moduleName={mod?.name ?? ""} onBack={() => setStep(2)} />}
+      {step === 3 && balance && <ConfirmStep balanceId={balance.id} clientId={clientId} moduleId={moduleId} period={period} cutoff={cutoff} clientName={client?.name ?? ""} moduleName={mod?.name ?? ""} onBack={() => setStep(2)} />}
     </div>
   );
 }
 
 function ScopeStep({
-  clients, modules, clientId, setClientId, moduleId, setModuleId, period, setPeriod, cutoff, setCutoff, isConfigured, onContinue,
+  clients, modules, balances, clientId, onClientChange, moduleId, setModuleId, balanceId, setBalanceId,
+  selectedBalance, isConfigured, onContinue,
 }: {
-  clients: ClientOpt[]; modules: ModuleOpt[]; clientId: number; setClientId: (v: number) => void;
-  moduleId: number; setModuleId: (v: number) => void; period: string; setPeriod: (v: string) => void;
-  cutoff: string; setCutoff: (v: string) => void; isConfigured: boolean; onContinue: () => void;
+  clients: ClientOpt[]; modules: ModuleOpt[]; balances: BalanceOpt[]; clientId: number;
+  onClientChange: (v: number) => void; moduleId: number; setModuleId: (v: number) => void;
+  balanceId: number; setBalanceId: (v: number) => void; selectedBalance: BalanceOpt | undefined;
+  isConfigured: boolean; onContinue: () => void;
 }) {
   const client = clients.find((c) => c.id === clientId);
   // El ERP es obligatorio para INICIAR la conciliación: sin ERP se bloquea.
   const sinErp = !!client && !client.erp;
+  const sinBalance = !selectedBalance;
   return (
     <Card className="p-5">
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <label className="flex flex-col gap-1">
           <span className="text-[11.5px] font-medium text-ink-600">Cliente</span>
-          <select value={clientId} onChange={(e) => setClientId(Number(e.target.value))} className="rounded-md border border-ink-200 px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400">
+          <select value={clientId} onChange={(e) => onClientChange(Number(e.target.value))} className="rounded-md border border-ink-200 px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400">
             {clients.map((c) => <option key={c.id} value={c.id}>{c.name} — {c.nit} — {c.erp || "sin ERP"}</option>)}
           </select>
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-[11.5px] font-medium text-ink-600">Período a conciliar</span>
-          <input type="month" value={period} onChange={(e) => setPeriod(e.target.value)} className="rounded-md border border-ink-200 px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400" />
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-[11.5px] font-medium text-ink-600">Fecha de corte</span>
-          <input type="date" value={cutoff} onChange={(e) => setCutoff(e.target.value)} className="rounded-md border border-ink-200 px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400" />
+          <span className="text-[11.5px] font-medium text-ink-600">Balance oficial congelado</span>
+          <select
+            value={balanceId}
+            onChange={(e) => setBalanceId(Number(e.target.value))}
+            disabled={balances.length === 0}
+            className="rounded-md border border-ink-200 px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400 disabled:cursor-not-allowed disabled:bg-ink-50 disabled:text-ink-400"
+          >
+            {balances.length === 0 ? (
+              <option value={0}>Sin balances elegibles</option>
+            ) : (
+              balances.map((b) => (
+                <option key={b.id} value={b.id}>{b.period} · {b.periodStart} a {b.periodEnd} · v{b.version}</option>
+              ))
+            )}
+          </select>
         </label>
       </div>
 
       {client && <div className="mt-2 text-[12px] text-ink-500">Sector: {client.sector || "—"} · {client.configured.length}/6 módulos parametrizados</div>}
+      {selectedBalance && (
+        <div className="mt-2 text-[12px] text-ink-500">
+          Período exacto del balance: {selectedBalance.periodStart} a {selectedBalance.periodEnd} · versión v{selectedBalance.version}
+        </div>
+      )}
       {sinErp && (
         <div className="mt-3 rounded-md bg-err-100 px-3 py-2 text-[12px] text-err-700">
           <b>{client?.name}</b> no tiene un ERP asignado. Asígnalo en Configuración › Clientes antes de iniciar la conciliación.
+        </div>
+      )}
+      {sinBalance && (
+        <div className="mt-3 rounded-md bg-err-100 px-3 py-2 text-[12px] text-err-700">
+          <b>{client?.name}</b> no tiene un balance oficial y congelado disponible. Debes oficializar y congelar un balance antes de iniciar la conciliación.
         </div>
       )}
 
@@ -145,7 +182,7 @@ function ScopeStep({
       </div>
 
       <div className="mt-4 flex justify-end">
-        <button onClick={onContinue} disabled={sinErp} className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-4 py-2 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-50">
+        <button onClick={onContinue} disabled={sinErp || sinBalance} className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-4 py-2 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-50">
           Continuar <Icon name="chev-r" size={14} />
         </button>
       </div>
@@ -291,9 +328,9 @@ function AccountsStep({ onBack, onNext }: { onBack: () => void; onNext: () => vo
 }
 
 function ConfirmStep({
-  clientId, moduleId, period, cutoff, clientName, moduleName, onBack,
+  balanceId, clientId, moduleId, period, cutoff, clientName, moduleName, onBack,
 }: {
-  clientId: number; moduleId: number; period: string; cutoff: string; clientName: string; moduleName: string; onBack: () => void;
+  balanceId: number; clientId: number; moduleId: number; period: string; cutoff: string; clientName: string; moduleName: string; onBack: () => void;
 }) {
   // Patrón ActionState: en éxito la acción redirige al detalle del cruce (donde
   // se confirma con un toast); en error devuelve { ok:false, message } y aquí lo
@@ -326,6 +363,7 @@ function ConfirmStep({
           <li className="flex items-center gap-2"><Icon name="check" size={12} className="text-ok-500" /> Resumen de partidas</li>
         </ul>
         <form action={formAction} className="mt-4">
+          <input type="hidden" name="balanceId" value={balanceId} />
           <input type="hidden" name="clientId" value={clientId} />
           <input type="hidden" name="moduleId" value={moduleId} />
           <input type="hidden" name="period" value={period} />

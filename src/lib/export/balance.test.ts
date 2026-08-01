@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import ExcelJS from "exceljs";
 import { agruparJerarquia, agruparPorRussell, type CuentaEstandar } from "@/lib/balance/calcular";
+import { construirPrevalidador } from "@/lib/balance/prevalidador/calcular";
 import { crearExportacionBalance } from "./balance";
 
 const STD: CuentaEstandar[] = [
@@ -98,5 +99,88 @@ describe("crearExportacionBalance", () => {
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(buf as unknown as ArrayBuffer);
     expect(wb.getWorksheet("Validación")).toBeFalsy();
+  });
+
+  it("PREVALIDADOR exporta el mismo signo, base y estado de cuentas ausentes del VM", async () => {
+    const prevalidador = construirPrevalidador(
+      [
+        {
+          cuenta8: "130505",
+          nombreCuenta: "Clientes",
+          cuenta6Russell: "130505",
+          debitos: 0,
+          creditos: 0,
+          saldoFinal: 67_466,
+        },
+        {
+          cuenta8: "610505",
+          nombreCuenta: "Cuenta mal homologada",
+          cuenta6Russell: "130510",
+          debitos: 0,
+          creditos: 0,
+          saldoFinal: 6_679_181,
+        },
+      ],
+      [
+        {
+          id: 1,
+          moduloCodigo: "CAR",
+          moduloNombre: "Cartera",
+          moduloOrden: 1,
+          cuentaRussell: "13",
+          etiqueta: "Clientes",
+          baseCalculo: "saldo",
+          orden: 10,
+          activa: true,
+        },
+        {
+          id: 2,
+          moduloCodigo: "NOM",
+          moduloNombre: "Nómina",
+          moduloOrden: 5,
+          cuentaRussell: "7205",
+          etiqueta: "Mano de obra",
+          baseCalculo: "movimiento",
+          orden: 10,
+          activa: true,
+        },
+      ],
+      [],
+    );
+
+    const buf = await crearExportacionBalance(
+      {
+        arbol,
+        grupos,
+        prevalidador,
+        revisionPrevalidador: {
+          estado: "aprobada",
+          vigente: true,
+          actor: "Ana Auditora",
+          creadoEn: "2026-08-01T15:00:00.000Z",
+          justificacion: "Diferencias revisadas",
+          huella: "a".repeat(64),
+        },
+      },
+      META,
+      "prevalidador",
+    );
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buf as unknown as ArrayBuffer);
+    const ws = wb.getWorksheet("Prevalidador")!;
+
+    expect(ws.getCell("C4").value).toBe("Saldo final");
+    expect(ws.getCell("D4").value).toBe(6_746_647);
+    expect(ws.getCell("F4").value).toBe(67_466);
+    expect(ws.getCell("G4").value).toBe(-6_679_181);
+    expect(ws.getCell("K4").value).toBe("Con diferencia");
+    expect(ws.getCell("C5").value).toBe("Débitos − créditos");
+    expect(ws.getCell("D5").value).toBe("Cuenta no encontrada");
+    expect(ws.getCell("F5").value).toBe("Cuenta no encontrada");
+    expect(ws.getCell("K5").value).toBe("Cuenta no encontrada");
+    const trazabilidad = wb.getWorksheet("Trazabilidad prevalidador")!;
+    expect(trazabilidad.getCell("B3").value).toBe("APROBADO Y VIGENTE");
+    expect(trazabilidad.getCell("B5").value).toBe("Ana Auditora");
+    expect(trazabilidad.getCell("B8").value).toBe("a".repeat(64));
   });
 });

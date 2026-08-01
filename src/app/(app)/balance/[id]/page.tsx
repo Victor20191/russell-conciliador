@@ -7,8 +7,7 @@ import { fmt, fmtDateTime } from "@/lib/format";
 import { reconstruirBalance, agruparJerarquia } from "@/lib/balance/calcular";
 import { getCuentasEstandar } from "@/lib/balance/cuentas-estandar";
 import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
-import { getCatalogoPrevalidador, getOverridesPrevalidadorCliente } from "@/lib/parametros/prevalidador";
-import { construirPrevalidador } from "@/lib/balance/prevalidador/calcular";
+import { cargarContextoPrevalidadorBalance } from "@/lib/balance/prevalidador/servidor";
 import BalanceDetailClient, {
   type Meta, type Version,
 } from "./balance-detail-client";
@@ -51,6 +50,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
   const [
     editarAuth,
     mapearAuth,
+    revisarAuth,
     eliminarAuth,
     cuentasEstandar,
     subgrupos,
@@ -60,11 +60,11 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
     umbrales,
     balancesCliente,
     perfilesCliente,
-    catalogoPrevalidador,
-    overridesPrevalidador,
+    contextoPrevalidador,
   ] = await Promise.all([
     authorizePermiso("balance:editar", { clientId }),
     authorizePermiso("balance:crear", { clientId }),
+    authorizePermiso("balance:revisar", { clientId }),
     authorizePermiso("balance:eliminar", { clientId }),
     getCuentasEstandar(),
     prisma.subgrupoEstandar.findMany({ select: { codigo: true, nombre: true, grupo: true, nombreGrupo: true } }),
@@ -89,14 +89,16 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
     prisma.perfilCargaBalance.count({
       where: { clienteId: balance.clienteId },
     }),
-    // Prevalidador: catálogo global (cacheado) + cuentas propias de este cliente.
-    getCatalogoPrevalidador(),
-    getOverridesPrevalidadorCliente(balance.clienteId),
+    // Carga estricta: un fallo de catálogo/override no puede convertirse en un
+    // informe aparentemente válido con valores predeterminados.
+    cargarContextoPrevalidadorBalance(id)
+      .then((value) => ({ ok: true as const, value }))
+      .catch(() => ({ ok: false as const })),
   ]);
   // Editar (congelar) y mapear exigen alcance de escritura; las Server Actions
   // vuelven a verificarlo al ejecutar.
   const puedeEditar = editarAuth.ok;
-  const puedeMapear = mapearAuth.ok;
+  const puedeMapear = mapearAuth.ok && !balance.estaCongelado;
   const comentariosPorAncla: Record<string, number> = {};
   for (const g of comentariosGrp) if (g.anchor) comentariosPorAncla[g.anchor] = g._count._all;
 
@@ -108,9 +110,23 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
     saldoInicial: Number(f.saldoInicial), debitos: Number(f.debitos), creditos: Number(f.creditos), saldoFinal: Number(f.saldoFinal),
   }));
   const calc = reconstruirBalance(filas, cuentasEstandar, umbrales);
-  // Prevalidador: mismas filas, agregadas por prefijo Russell vs. prefijo cliente.
-  // Se bloquea solo si quedan cuentas sin homologar (lo decide el propio cálculo).
-  const prevalidador = construirPrevalidador(filas, catalogoPrevalidador, overridesPrevalidador);
+  const prevalidador = contextoPrevalidador.ok
+    ? contextoPrevalidador.value.prevalidador
+    : {
+        estado: "no_disponible" as const,
+        mensaje: "No fue posible leer de forma íntegra el catálogo o las cuentas configuradas para este balance.",
+      };
+  const revisionPrevalidador = contextoPrevalidador.ok
+    ? contextoPrevalidador.value.revision
+    : {
+        estado: "pendiente" as const,
+        vigente: false,
+        justificacion: null,
+        actor: null,
+        creadoEn: null,
+        huella: null,
+        instantaneaDisponible: false,
+      };
   const sums = balance.detalles.length > 0 ? calc.sums : null;
   const validations = calc.validations;
   // Árbol normalizado a Russell: clase(2) → subgrupo(4) → cuenta estándar(6) → cuenta cliente(8).
@@ -227,6 +243,8 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
             arbol={arbol}
             estandar={estandarOpciones}
             puedeMapear={puedeMapear}
+            puedeRevisarPrevalidador={revisarAuth.ok}
+            estaCongelado={balance.estaCongelado}
             validations={validations}
             versions={versions}
             officialVersion={balance.version}
@@ -242,6 +260,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
 
             umbrales={umbrales}
             prevalidador={prevalidador}
+            revisionPrevalidador={revisionPrevalidador}
           />
         </>
       )}

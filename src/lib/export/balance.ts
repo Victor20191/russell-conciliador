@@ -8,9 +8,18 @@
 //    la componen, también agrupado/colapsable.
 import ExcelJS from "exceljs";
 import type { NodoBalance, RussellGroup } from "@/lib/balance/calcular";
+import type { PrevalidadorVM } from "@/lib/balance/prevalidador/calcular";
 
-export type TipoExportBalance = "homologado" | "comparativo";
+export type TipoExportBalance = "homologado" | "comparativo" | "prevalidador";
 export type MetaExportBalance = { cliente: string; periodo: string; version: string | number; generadoEn: Date };
+export type RevisionPrevalidadorExport = {
+  estado: "pendiente" | "aprobada" | "revocada" | "desactualizada";
+  vigente: boolean;
+  justificacion: string | null;
+  actor: string | null;
+  creadoEn: string | null;
+  huella: string | null;
+};
 
 const NUM_FMT = "#,##0.00;-#,##0.00";
 const HEADER_FILL: ExcelJS.Fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFEFF1F5" } };
@@ -204,8 +213,122 @@ function hojaComparativo(wb: ExcelJS.Workbook, grupos: RussellGroup[], meta: Met
   ws.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3, column: 9 } };
 }
 
+/** Vista PREVALIDADOR: consume el VM ya calculado por el dominio. No vuelve a
+ * sumar ni resta saldos, de modo que pantalla, compuerta y archivo comparten el
+ * mismo signo, exclusiones y tratamiento de cuentas ausentes. */
+function hojaPrevalidador(wb: ExcelJS.Workbook, prevalidador: PrevalidadorVM, meta: MetaExportBalance) {
+  if (prevalidador.estado !== "listo") {
+    throw new Error("El prevalidador no está disponible para exportar.");
+  }
+
+  const ws = wb.addWorksheet("Prevalidador");
+  titulo(ws, meta, "Prevalidador de homologación", 11);
+  encabezados(ws, [
+    "Módulo",
+    "Cuenta Russell",
+    "Base de cálculo",
+    "Valor Russell",
+    "Cuenta cliente",
+    "Valor cliente",
+    "Diferencia cliente − Russell",
+    "Total Russell del módulo",
+    "Total cliente del módulo",
+    "Diferencia del módulo",
+    "Estado",
+  ]);
+
+  for (const modulo of prevalidador.modulos) {
+    modulo.filas.forEach((fila, indice) => {
+      const encontrada = fila.russell.encontrada && fila.cliente.encontrada;
+      const row = ws.addRow([
+        modulo.nombre,
+        fila.cuentaRussell,
+        fila.baseCalculo === "movimiento" ? "Débitos − créditos" : "Saldo final",
+        fila.russell.encontrada ? fila.russell.saldoFinal : "Cuenta no encontrada",
+        fila.cuentaCliente,
+        fila.cliente.encontrada ? fila.cliente.saldoFinal : "Cuenta no encontrada",
+        encontrada ? fila.diferencia : "No calculable",
+        indice === 0 ? modulo.totalRussell : "",
+        indice === 0 ? modulo.totalCliente : "",
+        indice === 0 && modulo.filas.every((f) => f.russell.encontrada && f.cliente.encontrada)
+          ? modulo.diferenciaTotal
+          : indice === 0
+            ? "No calculable"
+            : "",
+        !encontrada ? "Cuenta no encontrada" : fila.coincide ? "OK" : "Con diferencia",
+      ]);
+      row.getCell(2).numFmt = "@";
+      row.getCell(5).numFmt = "@";
+      for (const columna of [4, 6, 7, 8, 9, 10]) {
+        if (typeof row.getCell(columna).value === "number") row.getCell(columna).numFmt = NUM_FMT;
+      }
+      if (indice === 0) {
+        row.getCell(1).font = { bold: true };
+        for (const columna of [8, 9, 10]) row.getCell(columna).font = { bold: true };
+      }
+    });
+  }
+
+  if (prevalidador.anidamientos.length > 0) {
+    ws.addRow([]);
+    const aviso = ws.addRow([
+      "Agrupadoras excluidas para evitar doble conteo",
+      prevalidador.anidamientos.map((a) => a.cuenta8).join(", "),
+    ]);
+    aviso.font = { italic: true, color: { argb: "FF667085" } };
+  }
+
+  [24, 16, 22, 18, 16, 18, 24, 22, 22, 22, 22].forEach((w, i) => (ws.getColumn(i + 1).width = w));
+  ws.views = [{ state: "frozen", ySplit: 3 }];
+  ws.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3, column: 11 } };
+  ws.pageSetup = {
+    orientation: "landscape",
+    fitToPage: true,
+    fitToWidth: 1,
+    fitToHeight: 0,
+    printTitlesRow: "1:3",
+  };
+}
+
+/** Deja claro si el archivo es evidencia aprobada o un cálculo de trabajo. */
+function hojaTrazabilidadPrevalidador(
+  wb: ExcelJS.Workbook,
+  revision: RevisionPrevalidadorExport | undefined,
+  meta: MetaExportBalance,
+) {
+  const ws = wb.addWorksheet("Trazabilidad prevalidador");
+  ws.mergeCells("A1:B1");
+  ws.getCell("A1").value = `Trazabilidad del prevalidador — ${meta.cliente} · ${meta.periodo} · versión v${meta.version}`;
+  ws.getCell("A1").font = { bold: true, size: 12 };
+  ws.addRow([]);
+  const estado = revision?.vigente ? "APROBADO Y VIGENTE" : `NO APROBADO · ${revision?.estado ?? "sin revisión"}`;
+  const filas: Array<[string, string]> = [
+    ["Estado", estado],
+    ["Válido para habilitar conciliación", revision?.vigente ? "Sí" : "No"],
+    ["Revisor", revision?.actor ?? "—"],
+    ["Fecha de revisión", revision?.creadoEn ?? "—"],
+    ["Justificación", revision?.justificacion ?? "—"],
+    ["Huella SHA-256", revision?.huella ?? "—"],
+  ];
+  for (const [etiqueta, valor] of filas) {
+    const row = ws.addRow([etiqueta, valor]);
+    row.getCell(1).font = { bold: true };
+  }
+  ws.getColumn(1).width = 34;
+  ws.getColumn(2).width = 90;
+  ws.getCell("B3").font = {
+    bold: true,
+    color: { argb: revision?.vigente ? "FF18794E" : "FFB42318" },
+  };
+}
+
 export async function crearExportacionBalance(
-  datos: { arbol: NodoBalance[]; grupos: RussellGroup[] },
+  datos: {
+    arbol: NodoBalance[];
+    grupos: RussellGroup[];
+    prevalidador?: PrevalidadorVM;
+    revisionPrevalidador?: RevisionPrevalidadorExport;
+  },
   meta: MetaExportBalance,
   tipo: TipoExportBalance,
 ): Promise<Buffer> {
@@ -213,7 +336,11 @@ export async function crearExportacionBalance(
   wb.creator = "Russell Conciliador";
   wb.created = meta.generadoEn;
   if (tipo === "comparativo") hojaComparativo(wb, datos.grupos, meta);
-  else {
+  else if (tipo === "prevalidador") {
+    if (!datos.prevalidador) throw new Error("Faltan los datos del prevalidador.");
+    hojaPrevalidador(wb, datos.prevalidador, meta);
+    hojaTrazabilidadPrevalidador(wb, datos.revisionPrevalidador, meta);
+  } else {
     // Homologado + pestaña de VALIDACIÓN con fórmulas vivas sobre sus subtotales.
     const clases = hojaHomologado(wb, datos.arbol, meta);
     hojaValidacion(wb, meta, clases);

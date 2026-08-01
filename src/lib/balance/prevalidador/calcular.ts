@@ -39,13 +39,18 @@ export type FilaPrevalidador = {
 export type LadoPrevalidador = {
   /** Prefijo con el que se agregó. */
   prefijo: string;
+  /** Distingue una cuenta realmente presente con valor $0 de una cuenta ausente. */
+  encontrada: boolean;
   /** Cuántas filas del detalle entraron en la suma. */
   cuentas: number;
   /** Saldo agregado, ya en convención de PRESENTACIÓN (ver `factorPresentacion`). */
   saldoFinal: number;
 };
 
-/** Cuenta del detalle que es a la vez cuenta y encabezado de otras. */
+/**
+ * Cuenta agrupadora excluida del cálculo porque coexiste con descendientes. Mantener
+ * ambas inflaría los dos lados al agregar por prefijo.
+ */
 export type AnidamientoPrevalidador = {
   cuenta8: string;
   nombreCuenta: string;
@@ -93,7 +98,7 @@ export type FilaPrevalidadorVM = {
   personalizada: boolean;
   russell: LadoPrevalidador;
   cliente: LadoPrevalidador;
-  /** `russell − cliente`, ya en convención de presentación. */
+  /** `cliente − russell`, ya en convención de presentación. */
   diferencia: number;
   coincide: boolean;
   /** Cuentas anidadas que caen en alguno de los dos prefijos de esta fila. */
@@ -115,28 +120,19 @@ export type ModuloPrevalidadorVM = {
  * incompleta es parte del contrato del cálculo, no un criterio que decida la UI.
  */
 export type PrevalidadorVM =
+  | { estado: "no_disponible"; mensaje: string }
   | { estado: "sin_catalogo" }
   | { estado: "bloqueado"; sinHomologar: ResumenSinHomologar }
   | {
       estado: "listo";
       modulos: ModuloPrevalidadorVM[];
+      /** Agrupadoras efectivamente excluidas para impedir doble conteo. */
       anidamientos: AnidamientoPrevalidador[];
       /** Prefijos del cliente presentes en el balance, para el selector de cuenta. */
       opcionesCliente: OpcionCuentaCliente[];
-      totalRussell: number;
-      totalCliente: number;
-      diferenciaTotal: number;
       filasConDiferencia: number;
       modulosConDiferencia: number;
     };
-
-/**
- * Medio peso. Los montos son `Decimal(18,2)`, así que cualquier residuo por debajo
- * de esto es ruido de coma flotante, no una diferencia real. NO se usan los umbrales
- * de materialidad de /config/parametros: dar por bueno un descuadre de $1.500 sería
- * peor que mostrarlo.
- */
-export const TOLERANCIA_PREVALIDADOR = 0.5;
 
 /**
  * Redondea a los 2 decimales del `Decimal(18,2)` para que las sumas no arrastren
@@ -198,8 +194,8 @@ export function resumenSinHomologar(filas: FilaPrevalidador[]): ResumenSinHomolo
  * movimiento tanto la agrupadora como sus hijas, ambas llegan al detalle y agregarlas
  * por prefijo las cuenta DOS VECES (ver `conForzarHoja` en `calcular.ts`).
  *
- * El prevalidador AVISA de ese riesgo; no lo corrige. La corrección real es
- * reclasificar la agrupadora en el borrador.
+ * El prevalidador excluye esas agrupadoras y devuelve esta lista para dejar visible
+ * qué filas no participaron en los importes.
  *
  * Mismo truco que `conForzarHoja`: un Set con todos los prefijos propios responde en
  * O(1) «¿este código es prefijo de otro más largo?».
@@ -301,9 +297,9 @@ function leerLado(
   factor: 1 | -1,
 ): LadoPrevalidador {
   const b = indice.get(prefijo.length)?.get(prefijo);
-  if (!b) return { prefijo, cuentas: 0, saldoFinal: 0 };
+  if (!b) return { prefijo, encontrada: false, cuentas: 0, saldoFinal: 0 };
   const bruto = base === "movimiento" ? b.movimiento : b.saldo;
-  return { prefijo, cuentas: b.cuentas, saldoFinal: redondear(factor * bruto) };
+  return { prefijo, encontrada: true, cuentas: b.cuentas, saldoFinal: redondear(factor * bruto) };
 }
 
 /**
@@ -348,13 +344,22 @@ export function construirPrevalidador(
     .map((c) => ({ ...c, cuentaRussell: normalizarPrefijo(c.cuentaRussell) }));
   if (activas.length === 0) return { estado: "sin_catalogo" };
 
-  // 2) Compuerta: con cuentas sin homologar los lados no son comparables (su saldo
+  // 2) Excluir agrupadoras que conviven con descendientes. Esas filas representan el
+  //    mismo importe resumido que luego reaparece en sus hijos y no pueden participar
+  //    en ninguna de las dos caras sin inflar el resultado. La lista se conserva en
+  //    el VM para explicar exactamente qué se excluyó.
+  const anidamientos = detectarAnidamientos(filas);
+  const codigosExcluidos = new Set(anidamientos.map((a) => a.cuenta8));
+  const filasCalculables = filas.filter((f) => !codigosExcluidos.has(limpiarCodigo(f.cuenta8)));
+
+  // 3) Compuerta: con cuentas sin homologar los lados no son comparables (su saldo
   //    falta en el lado Russell y sí está en el del cliente), así que toda diferencia
   //    sería falsa. Se bloquea el informe en vez de mostrar números engañosos.
-  const pendientes = resumenSinHomologar(filas);
+  //    Una agrupadora excluida no bloquea: tampoco aporta importe al informe.
+  const pendientes = resumenSinHomologar(filasCalculables);
   if (pendientes.cuentas > 0) return { estado: "bloqueado", sinHomologar: pendientes };
 
-  // 3) Cuenta del cliente vigente por fila (override guardado, o la misma de Russell).
+  // 4) Cuenta del cliente vigente por fila (override guardado, o la misma de Russell).
   const porCatalogoId = new Map<number, string>();
   for (const o of overrides) {
     const cuenta = normalizarPrefijo(o.cuentaCliente);
@@ -366,16 +371,34 @@ export function construirPrevalidador(
     return { ...c, cuentaCliente, personalizada: cuentaCliente !== c.cuentaRussell };
   });
 
-  // 4) Índices por prefijo. Además de las longitudes que el catálogo pide, se
+  // Dos prefijos del CLIENTE que se contienen dentro del mismo módulo harían que
+  // una misma fila participara dos veces en el total (p. ej. `22` y `2205`). La
+  // Server Action y la BD impiden crear el caso, pero el cálculo vuelve a fallar
+  // cerrado para proteger datos legados o escrituras externas.
+  for (let i = 0; i < resueltas.length; i += 1) {
+    const actual = resueltas[i];
+    for (let j = i + 1; j < resueltas.length; j += 1) {
+      const otra = resueltas[j];
+      if (actual.moduloCodigo !== otra.moduloCodigo) continue;
+      if (
+        actual.cuentaCliente.startsWith(otra.cuentaCliente) ||
+        otra.cuentaCliente.startsWith(actual.cuentaCliente)
+      ) {
+        return {
+          estado: "no_disponible",
+          mensaje: `Las cuentas cliente ${actual.cuentaCliente} y ${otra.cuentaCliente} se solapan dentro de ${actual.moduloNombre}.`,
+        };
+      }
+    }
+  }
+
+  // 5) Índices por prefijo. Además de las longitudes que el catálogo pide, se
   //    indexan siempre grupo (2) y cuenta (4): son los niveles que ofrece el
   //    selector de cuenta del cliente.
   const longitudes = [
     ...new Set([2, 4, ...resueltas.flatMap((c) => [c.cuentaRussell.length, c.cuentaCliente.length])]),
   ].sort((a, b) => a - b);
-  const { russell, cliente } = indexarPorPrefijo(filas, longitudes);
-
-  // 5) Aviso de doble conteo (no corrige: solo señala dónde no fiarse del número).
-  const anidamientos = detectarAnidamientos(filas);
+  const { russell, cliente } = indexarPorPrefijo(filasCalculables, longitudes);
 
   // 6) Filas del informe, con los datos de agrupación al lado (no dentro) para que
   //    el view-model que sale no cargue campos que la vista no necesita.
@@ -384,7 +407,7 @@ export function construirPrevalidador(
     const factor = factorPresentacion(c.cuentaRussell);
     const ladoRussell = leerLado(russell, c.cuentaRussell, c.baseCalculo, factor);
     const ladoCliente = leerLado(cliente, c.cuentaCliente, c.baseCalculo, factor);
-    const diferencia = redondear(ladoRussell.saldoFinal - ladoCliente.saldoFinal);
+    const diferencia = redondear(ladoCliente.saldoFinal - ladoRussell.saldoFinal);
     return {
       modulo: { codigo: c.moduloCodigo, nombre: c.moduloNombre },
       orden: c.orden,
@@ -398,7 +421,9 @@ export function construirPrevalidador(
         russell: ladoRussell,
         cliente: ladoCliente,
         diferencia,
-        coincide: Math.abs(diferencia) < TOLERANCIA_PREVALIDADOR,
+        // Ambos lados deben existir. Dos ausencias o una cuenta ausente con valor
+        // aparente $0 nunca equivalen a una comprobación satisfactoria.
+        coincide: ladoRussell.encontrada && ladoCliente.encontrada && diferencia === 0,
         anidamientos: anidamientos
           .filter(
             (a) =>
@@ -427,7 +452,7 @@ export function construirPrevalidador(
       const filasModulo = ordenadas.map((f) => f.vm);
       const totalRussell = redondear(filasModulo.reduce((s, f) => s + f.russell.saldoFinal, 0));
       const totalCliente = redondear(filasModulo.reduce((s, f) => s + f.cliente.saldoFinal, 0));
-      const diferenciaTotal = redondear(totalRussell - totalCliente);
+      const diferenciaTotal = redondear(totalCliente - totalRussell);
       return {
         codigo,
         nombre: ordenadas[0].modulo.nombre,
@@ -435,13 +460,12 @@ export function construirPrevalidador(
         totalRussell,
         totalCliente,
         diferenciaTotal,
-        coincide: Math.abs(diferenciaTotal) < TOLERANCIA_PREVALIDADOR,
+        coincide:
+          filasModulo.every((f) => f.russell.encontrada && f.cliente.encontrada) &&
+          diferenciaTotal === 0,
       };
     })
     .sort((a, b) => ordenModulo(a.codigo) - ordenModulo(b.codigo) || a.nombre.localeCompare(b.nombre));
-
-  const totalRussell = redondear(modulos.reduce((s, m) => s + m.totalRussell, 0));
-  const totalCliente = redondear(modulos.reduce((s, m) => s + m.totalCliente, 0));
 
   // 8) Prefijos del cliente que existen de verdad en este balance, para que elegir
   //    la cuenta sea escoger de una lista con saldos y no escribir un código a ciegas.
@@ -452,9 +476,6 @@ export function construirPrevalidador(
     modulos,
     anidamientos,
     opcionesCliente,
-    totalRussell,
-    totalCliente,
-    diferenciaTotal: redondear(totalRussell - totalCliente),
     filasConDiferencia: modulos.reduce((s, m) => s + m.filas.filter((f) => !f.coincide).length, 0),
     modulosConDiferencia: modulos.filter((m) => !m.coincide).length,
   };

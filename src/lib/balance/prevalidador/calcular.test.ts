@@ -104,9 +104,42 @@ describe("prevalidador · comparación de los dos lados", () => {
     expect(ingresos.russell.cuentas).toBe(2);
     expect(ingresos.cliente.saldoFinal).toBe(2_000);
     expect(ingresos.cliente.cuentas).toBe(1);
-    expect(ingresos.diferencia).toBe(500);
+    expect(ingresos.diferencia).toBe(-500);
     expect(ingresos.coincide).toBe(false);
     expect(vm.filasConDiferencia).toBe(1);
+  });
+
+  it("reproduce el signo y los importes exactos de la maqueta (cliente − Russell)", () => {
+    const vm = listo(
+      construirPrevalidador(
+        [
+          // Cuenta 13: cliente 67.466; una cuenta fuera del prefijo fue homologada
+          // hacia 13 y eleva Russell hasta 6.746.647.
+          fila("130505", "130505", { saldoFinal: 67_466 }),
+          fila("610505", "130510", { saldoFinal: 6_679_181 }),
+          // Cuenta 2805 (naturaleza crédito): cliente 3.557.456; Russell 35.574.567.
+          fila("280505", "280505", { saldoFinal: -3_557_456 }),
+          fila("620505", "280510", { saldoFinal: -32_017_111 }),
+        ],
+        [cat("CAR", "13", "saldo", { orden: 10 }), cat("CAR", "2805", "saldo", { orden: 20 })],
+        [],
+      ),
+    );
+
+    const cuenta13 = buscarFila(vm.modulos, "13");
+    expect(cuenta13.russell.saldoFinal).toBe(6_746_647);
+    expect(cuenta13.cliente.saldoFinal).toBe(67_466);
+    expect(cuenta13.diferencia).toBe(-6_679_181);
+
+    const cuenta2805 = buscarFila(vm.modulos, "2805");
+    expect(cuenta2805.russell.saldoFinal).toBe(35_574_567);
+    expect(cuenta2805.cliente.saldoFinal).toBe(3_557_456);
+    expect(cuenta2805.diferencia).toBe(-32_017_111);
+
+    const cartera = buscarModulo(vm.modulos, "CAR");
+    expect(cartera.totalRussell).toBe(42_321_214);
+    expect(cartera.totalCliente).toBe(3_624_922);
+    expect(cartera.diferenciaTotal).toBe(-38_696_292);
   });
 });
 
@@ -119,7 +152,9 @@ describe("prevalidador · base de cálculo", () => {
         [],
       ),
     );
-    expect(buscarFila(vm.modulos, "11").cliente.saldoFinal).toBe(100);
+    const f = buscarFila(vm.modulos, "11");
+    expect(f.baseCalculo).toBe("saldo");
+    expect(f.cliente.saldoFinal).toBe(100);
   });
 
   it("la base «movimiento» ignora el saldo acumulado", () => {
@@ -130,7 +165,9 @@ describe("prevalidador · base de cálculo", () => {
         [],
       ),
     );
-    expect(buscarFila(vm.modulos, "41").cliente.saldoFinal).toBe(800);
+    const f = buscarFila(vm.modulos, "41");
+    expect(f.baseCalculo).toBe("movimiento");
+    expect(f.cliente.saldoFinal).toBe(800);
   });
 
   it("la base configurada en el catálogo manda sobre el defecto de la clase", () => {
@@ -162,7 +199,7 @@ describe("prevalidador · convención de signo", () => {
     expect(factorPresentacion("5105")).toBe(1);
   });
 
-  it("un pasivo mayor del lado Russell da diferencia positiva", () => {
+  it("un pasivo mayor del lado Russell da diferencia negativa (cliente − Russell)", () => {
     const vm = listo(
       construirPrevalidador(
         [
@@ -176,7 +213,7 @@ describe("prevalidador · convención de signo", () => {
     const f = buscarFila(vm.modulos, "22");
     expect(f.russell.saldoFinal).toBe(1_000);
     expect(f.cliente.saldoFinal).toBe(800);
-    expect(f.diferencia).toBe(200);
+    expect(f.diferencia).toBe(-200);
   });
 
   it("usa UN SOLO factor por fila aunque el override apunte a otra clase", () => {
@@ -191,8 +228,8 @@ describe("prevalidador · convención de signo", () => {
     const f = buscarFila(vm.modulos, "15");
     expect(f.russell.saldoFinal).toBe(700);
     expect(f.cliente.saldoFinal).toBe(-300);
-    expect(f.diferencia).toBe(1_000);
-    expect(Math.abs(f.diferencia)).toBe(Math.abs(f.russell.saldoFinal - f.cliente.saldoFinal));
+    expect(f.diferencia).toBe(-1_000);
+    expect(Math.abs(f.diferencia)).toBe(Math.abs(f.cliente.saldoFinal - f.russell.saldoFinal));
   });
 });
 
@@ -221,6 +258,11 @@ describe("prevalidador · totales por módulo", () => {
     expect(cxp.totalCliente).toBe(180);
     expect(cxp.diferenciaTotal).toBe(0);
     expect(cxp.coincide).toBe(true);
+    // Los totales solo existen por módulo: un gran total cruzaría prefijos
+    // solapados de módulos distintos (por ejemplo 13 y 1330).
+    expect(vm).not.toHaveProperty("totalRussell");
+    expect(vm).not.toHaveProperty("totalCliente");
+    expect(vm).not.toHaveProperty("diferenciaTotal");
   });
 });
 
@@ -233,7 +275,7 @@ describe("prevalidador · cuenta propia del cliente (override)", () => {
     expect(f.cuentaCliente).toBe("15");
     expect(f.personalizada).toBe(false);
     expect(f.cliente.saldoFinal).toBe(0);
-    expect(f.diferencia).toBe(2_000);
+    expect(f.diferencia).toBe(-2_000);
   });
 
   it("con override 15 → 17 los dos lados cuadran", () => {
@@ -251,8 +293,9 @@ describe("prevalidador · cuenta propia del cliente (override)", () => {
       listo(construirPrevalidador(FILAS, CATALOGO, [{ catalogoId: 42, cuentaCliente: "99" }])).modulos,
       "15",
     );
-    expect(f.cliente).toEqual({ prefijo: "99", cuentas: 0, saldoFinal: 0 });
-    expect(f.diferencia).toBe(2_000);
+    expect(f.cliente).toEqual({ prefijo: "99", encontrada: false, cuentas: 0, saldoFinal: 0 });
+    expect(f.diferencia).toBe(-2_000);
+    expect(f.coincide).toBe(false);
   });
 
   it("un override igual a la cuenta de Russell no cuenta como personalizado", () => {
@@ -270,6 +313,91 @@ describe("prevalidador · cuenta propia del cliente (override)", () => {
       "15",
     );
     expect(f.cuentaCliente).toBe("15");
+  });
+
+  it("falla cerrado si dos cuentas cliente se solapan dentro del mismo módulo", () => {
+    const vm = construirPrevalidador(
+      [
+        fila("220505", "220505", { saldoFinal: -100 }),
+        fila("133005", "133005", { saldoFinal: 50 }),
+      ],
+      [
+        cat("CXP", "22", "saldo", { id: 71 }),
+        cat("CXP", "1330", "saldo", { id: 72 }),
+      ],
+      [{ catalogoId: 72, cuentaCliente: "2205" }],
+    );
+
+    expect(vm).toEqual({
+      estado: "no_disponible",
+      mensaje: "Las cuentas cliente 22 y 2205 se solapan dentro de CXP.",
+    });
+  });
+});
+
+describe("prevalidador · presencia de cuenta y exactitud a centavos", () => {
+  it("distingue una cuenta encontrada con saldo real cero", () => {
+    const f = buscarFila(
+      listo(
+        construirPrevalidador(
+          [fila("150505", "150505", { saldoFinal: 0 })],
+          [cat("AFI", "15", "saldo")],
+          [],
+        ),
+      ).modulos,
+      "15",
+    );
+
+    expect(f.russell).toMatchObject({ encontrada: true, cuentas: 1, saldoFinal: 0 });
+    expect(f.cliente).toMatchObject({ encontrada: true, cuentas: 1, saldoFinal: 0 });
+    expect(f.coincide).toBe(true);
+  });
+
+  it("dos lados ausentes nunca producen un OK", () => {
+    const vm = listo(construirPrevalidador([], [cat("AFI", "15", "saldo")], []));
+    const f = buscarFila(vm.modulos, "15");
+
+    expect(f.russell).toMatchObject({ encontrada: false, cuentas: 0, saldoFinal: 0 });
+    expect(f.cliente).toMatchObject({ encontrada: false, cuentas: 0, saldoFinal: 0 });
+    expect(f.diferencia).toBe(0);
+    expect(f.coincide).toBe(false);
+    expect(buscarModulo(vm.modulos, "AFI").coincide).toBe(false);
+    expect(vm.filasConDiferencia).toBe(1);
+  });
+
+  it("un lado ausente tampoco cuadra aunque el lado encontrado valga cero", () => {
+    const vm = listo(
+      construirPrevalidador(
+        [fila("170505", "150505", { saldoFinal: 0 })],
+        [cat("AFI", "15", "saldo")],
+        [],
+      ),
+    );
+    const f = buscarFila(vm.modulos, "15");
+
+    expect(f.russell.encontrada).toBe(true);
+    expect(f.cliente.encontrada).toBe(false);
+    expect(f.diferencia).toBe(0);
+    expect(f.coincide).toBe(false);
+  });
+
+  it("considera diferencia un solo centavo", () => {
+    const vm = listo(
+      construirPrevalidador(
+        [
+          fila("130505", "130505", { saldoFinal: 100 }),
+          fila("610505", "130510", { saldoFinal: 0.01 }),
+        ],
+        [cat("CAR", "13", "saldo")],
+        [],
+      ),
+    );
+    const f = buscarFila(vm.modulos, "13");
+
+    expect(f.russell.saldoFinal).toBe(100.01);
+    expect(f.cliente.saldoFinal).toBe(100);
+    expect(f.diferencia).toBe(-0.01);
+    expect(f.coincide).toBe(false);
   });
 });
 
@@ -295,10 +423,10 @@ describe("prevalidador · compuerta de homologación", () => {
   });
 });
 
-describe("prevalidador · aviso de doble conteo", () => {
-  it("señala las cuentas anidadas y las sigue sumando dos veces", () => {
-    // El borrador dejó como movimiento la agrupadora 1105 y su hija 110505: agregar
-    // por prefijo cuenta el saldo dos veces. El informe AVISA; corregir es del borrador.
+describe("prevalidador · exclusión de doble conteo", () => {
+  it("señala y excluye la agrupadora cuando coexiste con su descendiente", () => {
+    // El borrador dejó como movimiento la agrupadora 1105 y su hija 110505. El
+    // prevalidador conserva solamente la hija para no duplicar el mismo importe.
     const filas = [
       fila("1105", "110505", { saldoFinal: 100 }),
       fila("110505", "110505", { saldoFinal: 100 }),
@@ -309,7 +437,27 @@ describe("prevalidador · aviso de doble conteo", () => {
     ]);
     const f = buscarFila(vm.modulos, "11");
     expect(f.anidamientos).toEqual(["1105"]);
-    expect(f.cliente.saldoFinal).toBe(200);
+    expect(f.cliente.saldoFinal).toBe(100);
+    expect(f.russell.saldoFinal).toBe(100);
+    expect(f.cliente.cuentas).toBe(1);
+    expect(f.russell.cuentas).toBe(1);
+    expect(f.coincide).toBe(true);
+  });
+
+  it("una agrupadora excluida y sin homologar no bloquea a sus hijos homologados", () => {
+    const vm = construirPrevalidador(
+      [
+        fila("1105", null, { saldoFinal: 100 }),
+        fila("110505", "110505", { saldoFinal: 100 }),
+      ],
+      [cat("CAR", "11", "saldo")],
+      [],
+    );
+
+    expect(vm.estado).toBe("listo");
+    const listoVm = listo(vm);
+    expect(listoVm.anidamientos.map((a) => a.cuenta8)).toEqual(["1105"]);
+    expect(buscarFila(listoVm.modulos, "11").coincide).toBe(true);
   });
 
   it("detectarAnidamientos cuenta todos los descendientes de un mismo padre", () => {
@@ -361,15 +509,15 @@ describe("prevalidador · agregación por prefijo", () => {
     expect(buscarModulo(vm.modulos, "CXP").totalCliente).toBe(500);
   });
 
-  it("una cuenta más corta que el prefijo no cae dentro de él", () => {
+  it("una cuenta corta que no comparte el prefijo no cae dentro de él", () => {
     const vm = listo(
       construirPrevalidador(
-        [fila("13", "130505", { saldoFinal: 400 }), fila("133005", "133005", { saldoFinal: 100 })],
+        [fila("12", "130505", { saldoFinal: 400 }), fila("133005", "133005", { saldoFinal: 100 })],
         [cat("CAR", "13", "saldo"), cat("CXP", "1330", "saldo")],
         [],
       ),
     );
-    expect(buscarFila(vm.modulos, "13").cliente.saldoFinal).toBe(500);
+    expect(buscarFila(vm.modulos, "13").cliente.saldoFinal).toBe(100);
     expect(buscarFila(vm.modulos, "1330").cliente.saldoFinal).toBe(100);
     expect(buscarFila(vm.modulos, "1330").cliente.cuentas).toBe(1);
   });

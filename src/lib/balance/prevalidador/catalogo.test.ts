@@ -59,7 +59,7 @@ describe("catálogo de fábrica del prevalidador", () => {
     expect(ordenModulo("XXX")).toBe(999);
   });
 
-  it("el fallback de fábrica no es editable (id 0) y resuelve el nombre del módulo", () => {
+  it("el fixture de fábrica usa id 0 y resuelve el nombre del módulo", () => {
     const fabrica = catalogoPrevalidadorDeFabrica();
     expect(fabrica).toHaveLength(11);
     expect(fabrica.every((f) => f.id === 0 && f.activa)).toBe(true);

@@ -10,7 +10,7 @@
 //
 // Este módulo es el CATÁLOGO (forma del dato + valores de fábrica) y se mantiene
 // PURO —sin BD, sin `server-only`— para que lo compartan el cálculo, las pruebas,
-// el seed, la pantalla de administración y el fallback del cargador. Las filas
+// el seed y la pantalla de administración. Las filas
 // VIGENTES las resuelve el cargador server-only `src/lib/parametros/prevalidador.ts`
 // desde la tabla `prevalidador_cuentas`.
 //
@@ -29,7 +29,7 @@ export type BaseCalculo = "saldo" | "movimiento";
 
 /** Fila del catálogo (`prevalidador_cuentas`) ya resuelta con los datos del módulo. */
 export type FilaCatalogoPrevalidador = {
-  /** id de BD. `0` = fila de fábrica servida por el fallback: no editable. */
+  /** id de BD. `0` se reserva para fixtures de fábrica; runtime exige persistencia. */
   id: number;
   /** `Module.code`: ING | CAR | INV | AFI | CXP | NOM. */
   moduloCodigo: string;
@@ -50,7 +50,7 @@ export type FilaCatalogoPrevalidador = {
 /**
  * Cuenta del CLIENTE contra la que se compara una fila, cuando el cliente no usa el
  * mismo prefijo que Russell (p. ej. propiedad, planta y equipo en la 17 en vez de la
- * 15). Se guarda POR CLIENTE en `prevalidador_cuentas_cliente`.
+ * 15). Se guarda POR BALANCE en `prevalidador_cuentas_balance`.
  */
 export type OverridePrevalidador = {
   catalogoId: number;
@@ -58,7 +58,7 @@ export type OverridePrevalidador = {
   cuentaCliente: string;
 };
 
-/** Fila de fábrica (sin id): la usan la migración, el seed y el fallback. */
+/** Fila de fábrica (sin id): la usan la migración y el seed. */
 export type FilaFabricaPrevalidador = {
   moduloCodigo: string;
   cuentaRussell: string;
@@ -106,7 +106,7 @@ export const PREVALIDADOR_CATALOGO_FABRICA: FilaFabricaPrevalidador[] = [
   { moduloCodigo: "NOM", cuentaRussell: "7205", etiqueta: "Mano de obra · producción", baseCalculo: "movimiento", orden: 30 },
 ];
 
-/** Nombres de los módulos para el fallback (cuando no se pudo leer `modulos`). */
+/** Nombres de los módulos para construir fixtures de fábrica sin BD. */
 const NOMBRE_MODULO_FABRICA: Record<string, string> = {
   ING: "Ingresos",
   CAR: "Cartera",
@@ -121,8 +121,8 @@ export function nombreModuloFabrica(codigo: string): string {
 }
 
 /**
- * Catálogo de fábrica con la forma que consume el cálculo. `id: 0` marca las filas
- * como NO editables (no existen en BD, así que no se les puede colgar un override).
+ * Catálogo de fábrica con la forma que consume el cálculo. Solo sirve para seed,
+ * fixtures y pruebas: runtime falla cerrado y nunca lo usa como reemplazo de BD.
  */
 export function catalogoPrevalidadorDeFabrica(): FilaCatalogoPrevalidador[] {
   return PREVALIDADOR_CATALOGO_FABRICA.map((f) => ({

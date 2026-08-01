@@ -339,28 +339,34 @@ model PlatformModule {
 
 // ===== Conciliaciones =====
 model Reconciliation {
-  id           Int                     @id @default(autoincrement()) @map("id")
-  code         String                  @unique @map("codigo") // REC-2026-0418
-  client       Client?                 @relation(fields: [clientId], references: [id])
-  clientId     Int?                    @map("cliente_id")
-  clientName   String                  @map("nombre_cliente")
-  module       String                  @map("modulo")
-  period       String                  @map("periodo")
-  erp          String                  @map("erp")
-  status       String                  @map("estado") // OK | DIFF | REVIEW
-  diff         String                  @map("diferencia")
-  items        Int                     @default(0) @map("items")
-  owner        String                  @map("responsable")
-  cutoff       DateTime?               @map("corte") @db.Date
-  runAt        DateTime?               @map("ejecutado_en") @db.Timestamptz(3)
-  runBy        String?                 @map("ejecutado_por")
-  lastActivity DateTime?               @map("ultima_actividad") @db.Timestamptz(3)
-  materiality  Int                     @default(2000000) @map("materialidad")
-  rows         ReconciliationRow[]
-  comments     ReconciliationComment[]
-  createdAt    DateTime                @default(now()) @map("creado_en") @db.Timestamptz(3)
+  id                   Int                      @id @default(autoincrement()) @map("id")
+  code                 String                   @unique @map("codigo") // REC-2026-0418
+  client               Client?                  @relation(fields: [clientId], references: [id])
+  clientId             Int?                     @map("cliente_id")
+  clientName           String                   @map("nombre_cliente")
+  module               String                   @map("modulo")
+  period               String                   @map("periodo")
+  erp                  String                   @map("erp")
+  status               String                   @map("estado") // OK | DIFF | REVIEW
+  diff                 String                   @map("diferencia")
+  items                Int                      @default(0) @map("items")
+  owner                String                   @map("responsable")
+  cutoff               DateTime?                @map("corte") @db.Date
+  runAt                DateTime?                @map("ejecutado_en") @db.Timestamptz(3)
+  runBy                String?                  @map("ejecutado_por")
+  lastActivity         DateTime?                @map("ultima_actividad") @db.Timestamptz(3)
+  materiality          Int                      @default(2000000) @map("materialidad")
+  // Balance cuya aprobación del prevalidador habilitó esta conciliación. La
+  // compuerta lo llena al crearla; Restrict conserva la evidencia e impide
+  // eliminar un balance que ya habilitó una conciliación.
+  balancePrevalidado   BalancePruebaEncabezado? @relation(fields: [balancePrevalidadoId], references: [id], onDelete: Restrict)
+  balancePrevalidadoId Int?                     @map("balance_prevalidado_id")
+  rows                 ReconciliationRow[]
+  comments             ReconciliationComment[]
+  createdAt            DateTime                 @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   @@index([clientId, createdAt], map: "conciliaciones_cliente_creado_en_idx")
+  @@index([balancePrevalidadoId])
   @@index([createdAt])
   @@map("conciliaciones")
 }
@@ -625,63 +631,66 @@ model Balance {
 // Los agregados (sumas, validaciones, desglose, comparativo) se RECALCULAN desde
 // el detalle al leer (ver `src/lib/balance/calcular.ts`), no se persisten.
 model BalancePruebaEncabezado {
-  id                   Int       @id @default(autoincrement()) @map("id")
+  id                     Int       @id @default(autoincrement()) @map("id")
   // Idempotencia de la promoción: identifica el lote de borrador que originó
   // este balance. Los registros históricos quedan en null; toda promoción nueva
   // lo persiste y la restricción única impide crear otra versión desde el mismo lote.
-  loteId               String?   @unique @map("lote_id")
+  loteId                 String?   @unique @map("lote_id")
   // FK LÓGICA a Client (solo Int, sin @relation): convención del proyecto para
   // FKs suaves hacia Client/User. `nombreCliente`/`nit` quedan denormalizados
   // para listar sin join.
-  clienteId            Int       @map("cliente_id")
-  nombreCliente        String    @map("nombre_cliente")
-  nit                  String?   @map("nit")
-  periodo              String    @map("periodo") // display, p. ej. "Enero 2026"
-  periodoInicio        DateTime  @map("periodo_inicio") @db.Date
-  periodoFin           DateTime  @map("periodo_fin") @db.Date
+  clienteId              Int       @map("cliente_id")
+  nombreCliente          String    @map("nombre_cliente")
+  nit                    String?   @map("nit")
+  periodo                String    @map("periodo") // display, p. ej. "Enero 2026"
+  periodoInicio          DateTime  @map("periodo_inicio") @db.Date
+  periodoFin             DateTime  @map("periodo_fin") @db.Date
   // Versionado (un oficial por cliente/período; congelado bloquea edición).
-  version              String    @map("version")
-  esOficial            Boolean   @default(false) @map("es_oficial")
-  estaCongelado        Boolean   @default(false) @map("esta_congelado")
-  estado               String    @default("Única") @map("estado")
-  completitud          Int       @default(100) @map("completitud")
+  version                String    @map("version")
+  esOficial              Boolean   @default(false) @map("es_oficial")
+  estaCongelado          Boolean   @default(false) @map("esta_congelado")
+  estado                 String    @default("Única") @map("estado")
+  completitud            Int       @default(100) @map("completitud")
   // Resumen del cargue (para listados, ficha de versión y bitácora sin recalcular).
-  archivo              String?   @map("archivo")
-  tamanoArchivo        String?   @map("tamano_archivo")
-  cargadoPor           String?   @map("cargado_por")
-  rolCarga             String?   @map("rol_carga")
-  cuadrado             Boolean   @default(true) @map("cuadrado")
+  archivo                String?   @map("archivo")
+  tamanoArchivo          String?   @map("tamano_archivo")
+  cargadoPor             String?   @map("cargado_por")
+  rolCarga               String?   @map("rol_carga")
+  cuadrado               Boolean   @default(true) @map("cuadrado")
   // Nota AUTOMÁTICA del sistema («Sin alertas» / «N validación(es) con alerta»).
   // Siempre la escribe el cargue: no la pisa el comentario del revisor.
-  nota                 String?   @map("nota")
+  nota                   String?   @map("nota")
   // Nota aclaratoria que escribe el revisor al promover el borrador (advertencia
   // del archivo fuente). null = el cargue no la necesitó. Autor/fecha del cargue
   // = `cargadoPor`/`rolCarga`/`ultimaCarga`.
-  comentarioAprobacion String?   @map("comentario_aprobacion")
+  comentarioAprobacion   String?   @map("comentario_aprobacion")
   // Constancia ESTRUCTURADA de las reubicaciones entre clases contables que se
   // aprobaron en el borrador (`RevisionReubicacionBalance[]`). Se guarda tal cual
   // para que el balance oficial muestre la MISMA ficha que mostró el borrador
   // (cuenta, clases origen/destino, saldo, justificación, revisor y fecha) sin
   // depender del staging, que se purga al confirmar. null = no hubo ninguna.
-  reubicacionesAprobadas Json?   @map("reubicaciones_aprobadas")
-  sumaActivo           Decimal   @default(0) @map("suma_activo") @db.Decimal(18, 2)
-  filasTotales         Int       @default(0) @map("filas_totales")
-  mapeadas             Int       @default(0) @map("mapeadas")
-  sinMapear            Int       @default(0) @map("sin_mapear")
-  criticas             Int       @default(0) @map("criticas")
-  cambios              Int       @default(0) @map("cambios")
+  reubicacionesAprobadas Json?     @map("reubicaciones_aprobadas")
+  sumaActivo             Decimal   @default(0) @map("suma_activo") @db.Decimal(18, 2)
+  filasTotales           Int       @default(0) @map("filas_totales")
+  mapeadas               Int       @default(0) @map("mapeadas")
+  sinMapear              Int       @default(0) @map("sin_mapear")
+  criticas               Int       @default(0) @map("criticas")
+  cambios                Int       @default(0) @map("cambios")
   // Metadatos del ETL.
-  estandar             String?   @map("estandar")
-  convencionCredito    String?   @map("convencion_credito")
-  filasLeidas          Int?      @map("filas_leidas")
-  filasExcluidas       Int?      @map("filas_excluidas")
-  filasDescuadre       Int?      @map("filas_descuadre")
-  congeladoPor         String?   @map("congelado_por")
-  congeladoEn          DateTime? @map("congelado_en") @db.Timestamptz(3)
-  ultimaCarga          DateTime? @map("ultima_carga") @db.Timestamptz(3)
-  creadoEn             DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
+  estandar               String?   @map("estandar")
+  convencionCredito      String?   @map("convencion_credito")
+  filasLeidas            Int?      @map("filas_leidas")
+  filasExcluidas         Int?      @map("filas_excluidas")
+  filasDescuadre         Int?      @map("filas_descuadre")
+  congeladoPor           String?   @map("congelado_por")
+  congeladoEn            DateTime? @map("congelado_en") @db.Timestamptz(3)
+  ultimaCarga            DateTime? @map("ultima_carga") @db.Timestamptz(3)
+  creadoEn               DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
 
-  detalles BalancePruebaDetalle[]
+  detalles                   BalancePruebaDetalle[]
+  prevalidadorOverrides      PrevalidadorCuentaBalance[]
+  prevalidadorRevisiones     PrevalidadorRevisionBalance[]
+  conciliacionesPrevalidadas Reconciliation[]
 
   @@unique([clienteId, periodo, version])
   @@index([clienteId, periodo])
@@ -752,7 +761,7 @@ model BalanceImportacionLote {
   // Versión monotónica del CONTENIDO del staging. La promoción captura este valor
   // antes del cálculo y lo revalida dentro del commit para no consumir cambios
   // concurrentes que no alcanzó a analizar.
-  revisionContenido      Int       @default(0) @map("revision_contenido")
+  revisionContenido     Int       @default(0) @map("revision_contenido")
   creadoEn              DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   @@index([cargadoPorId])
@@ -765,37 +774,37 @@ model BalanceImportacionLote {
 // movimiento al modelo normalizado y PURGA el lote. FK suave a `clientes` (Int,
 // sin @relation); `clienteId` es null hasta que se confirma el cliente.
 model BalanceImportacionStaging {
-  id              Int      @id @default(autoincrement()) @map("id")
-  loteId          String   @map("lote_id") // uuid por sesión de importación
-  clienteId       Int?     @map("cliente_id") // obligatorio antes de abrir/cargar el borrador
-  hoja            String?  @map("hoja")
-  filaNum         Int      @map("fila_num") // índice 1-based de la fila origen
-  codigoCrudo     String   @map("codigo_crudo") // texto tal cual del archivo
-  codigo          String   @map("codigo") // normalizado ("" si no numérico)
-  nombre          String   @map("nombre")
-  nivel           Int?     @map("nivel") // longitud PUC del código (2/4/6/8)
-  tipoFila        String   @map("tipo_fila") // movimiento | agrupadora | total | excluida | descuadre
+  id                       Int       @id @default(autoincrement()) @map("id")
+  loteId                   String    @map("lote_id") // uuid por sesión de importación
+  clienteId                Int?      @map("cliente_id") // obligatorio antes de abrir/cargar el borrador
+  hoja                     String?   @map("hoja")
+  filaNum                  Int       @map("fila_num") // índice 1-based de la fila origen
+  codigoCrudo              String    @map("codigo_crudo") // texto tal cual del archivo
+  codigo                   String    @map("codigo") // normalizado ("" si no numérico)
+  nombre                   String    @map("nombre")
+  nivel                    Int?      @map("nivel") // longitud PUC del código (2/4/6/8)
+  tipoFila                 String    @map("tipo_fila") // movimiento | agrupadora | total | excluida | descuadre
   // Clasificación fijada MANUALMENTE por un auditor en el borrador. Permite conservar
   // una agrupadora aunque todavía no tenga hijas, sin alterar la detección automática.
-  tipoFilaForzado String?  @map("tipo_fila_forzado") // agrupadora | movimiento | null
-  saldoInicial    Decimal  @default(0) @map("saldo_inicial") @db.Decimal(18, 2)
-  debitos         Decimal  @default(0) @map("debitos") @db.Decimal(18, 2)
-  creditos        Decimal  @default(0) @map("creditos") @db.Decimal(18, 2)
-  saldoFinal      Decimal  @default(0) @map("saldo_final") @db.Decimal(18, 2)
+  tipoFilaForzado          String?   @map("tipo_fila_forzado") // agrupadora | movimiento | null
+  saldoInicial             Decimal   @default(0) @map("saldo_inicial") @db.Decimal(18, 2)
+  debitos                  Decimal   @default(0) @map("debitos") @db.Decimal(18, 2)
+  creditos                 Decimal   @default(0) @map("creditos") @db.Decimal(18, 2)
+  saldoFinal               Decimal   @default(0) @map("saldo_final") @db.Decimal(18, 2)
   // Desacople MANUAL: el usuario forzó que esta cuenta se anide por PREFIJO de código
   // (su padre real), no por el orden del archivo. Corrige un detalle que el ERP ubicó
   // bajo una agrupadora de código ajeno y de menor nivel (p. ej. `145020` bajo `1305`).
-  desacoplada     Boolean  @default(false) @map("desacoplada")
+  desacoplada              Boolean   @default(false) @map("desacoplada")
   // Omitir MANUAL (TRI-ESTADO): null = sin tocar (elegible para el auto-marcado del
   // re-listado con guiones), true = omitida (se conserva en el crudo pero se excluye de
   // cálculos y carga), false = RESCATADA a mano con «Incluir» (cuenta en todas partes;
   // el auto-marcado la respeta). El override manual gana siempre.
-  omitida         Boolean? @map("omitida")
+  omitida                  Boolean?  @map("omitida")
   // Re-parentado MANUAL (tabulador): `filaNum` de la agrupadora bajo la que el usuario
   // colgó esta fila (indentar/desindentar), cuando la anidación automática la ubica mal
   // (p. ej. un código con guiones huérfano `1105-10-19` que debe ir bajo `110510`).
   // null = sin override.
-  padreManual     Int?     @map("padre_manual")
+  padreManual              Int?      @map("padre_manual")
   // Revisión obligatoria cuando un re-parentado manual cruza la cuenta hacia otra
   // clase contable. Permanece en el staging mientras exista el borrador y la
   // auditoría conserva la trazabilidad después de promoverlo.
@@ -803,7 +812,7 @@ model BalanceImportacionStaging {
   reubicacionRevisadaPor   String?   @map("reubicacion_revisada_por")
   reubicacionRevisadaPorId Int?      @map("reubicacion_revisada_por_id") // FK suave a usuarios
   reubicacionRevisadaEn    DateTime? @map("reubicacion_revisada_en") @db.Timestamptz(3)
-  creadoEn        DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+  creadoEn                 DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   @@index([loteId])
   @@index([clienteId])
@@ -987,7 +996,7 @@ model PrevalidadorCuenta {
   creadoEn       DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
   actualizadoEn  DateTime @updatedAt @map("actualizado_en") @db.Timestamptz(3)
 
-  overrides PrevalidadorCuentaCliente[]
+  overrides PrevalidadorCuentaBalance[]
 
   // Único por MÓDULO (no global): impide repetir el prefijo dentro de un módulo,
   // pero deja que Russell use el mismo prefijo en dos módulos si lo necesita.
@@ -996,25 +1005,61 @@ model PrevalidadorCuenta {
   @@map("prevalidador_cuentas")
 }
 
-// Cuenta del CLIENTE contra la que se compara una fila del catálogo cuando el
-// cliente no usa el mismo prefijo que Russell (p. ej. propiedad, planta y equipo en
-// la 17 en vez de la 15). Es una preferencia POR CLIENTE: aplica a todos sus
-// períodos y versiones, igual que `ajustes_carga_balance`, para no reescribirla en
-// cada cargue mensual. FK suave a `clientes` (Int, sin @relation); FK dura al
-// catálogo (borrar una fila arrastra las cuentas propias de los clientes).
+// Cuenta del CLIENTE contra la que se compara una fila del catálogo en UN BALANCE
+// concreto. No se propaga entre períodos: cada versión conserva su propia decisión
+// y un balance congelado no admite cambios posteriores.
+model PrevalidadorCuentaBalance {
+  id             Int                     @id @default(autoincrement()) @map("id")
+  balance        BalancePruebaEncabezado @relation(fields: [balanceId], references: [id], onDelete: Cascade)
+  balanceId      Int                     @map("balance_id")
+  catalogo       PrevalidadorCuenta      @relation(fields: [catalogoId], references: [id], onDelete: Cascade)
+  catalogoId     Int                     @map("catalogo_id")
+  cuentaCliente  String                  @map("cuenta_cliente")
+  actualizadoPor String?                 @map("actualizado_por")
+  creadoEn       DateTime                @default(now()) @map("creado_en") @db.Timestamptz(3)
+  actualizadoEn  DateTime                @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+
+  @@unique([balanceId, catalogoId])
+  @@index([balanceId])
+  @@map("prevalidador_cuentas_balance")
+}
+
+// Archivo de solo conservación creado al migrar los antiguos overrides globales
+// por cliente. No participa en el cálculo; evita perder excepciones que no pudieron
+// asociarse a un balance existente o que tenían un prefijo legado inválido.
 model PrevalidadorCuentaCliente {
-  id             Int                @id @default(autoincrement()) @map("id")
-  clienteId      Int                @map("cliente_id")
-  catalogo       PrevalidadorCuenta @relation(fields: [catalogoId], references: [id], onDelete: Cascade)
-  catalogoId     Int                @map("catalogo_id")
-  cuentaCliente  String             @map("cuenta_cliente")
-  actualizadoPor String?            @map("actualizado_por")
-  creadoEn       DateTime           @default(now()) @map("creado_en") @db.Timestamptz(3)
-  actualizadoEn  DateTime           @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+  id             Int      @id @default(autoincrement()) @map("id")
+  clienteId      Int      @map("cliente_id")
+  catalogoId     Int      @map("catalogo_id")
+  cuentaCliente  String   @map("cuenta_cliente")
+  actualizadoPor String?  @map("actualizado_por")
+  creadoEn       DateTime @map("creado_en") @db.Timestamptz(3)
+  actualizadoEn  DateTime @map("actualizado_en") @db.Timestamptz(3)
+  archivadoEn    DateTime @default(now()) @map("archivado_en") @db.Timestamptz(3)
 
   @@unique([clienteId, catalogoId])
   @@index([clienteId])
-  @@map("prevalidador_cuentas_cliente")
+  @@map("prevalidador_cuentas_cliente_legacy")
+}
+
+// Historial append-only de aprobación/revocación del prevalidador. `huella`
+// identifica exactamente detalle + catálogo + overrides; `instantanea` conserva
+// el resultado que el servidor volvió a calcular dentro de la misma transacción.
+model PrevalidadorRevisionBalance {
+  id            Int                     @id @default(autoincrement()) @map("id")
+  balance       BalancePruebaEncabezado @relation(fields: [balanceId], references: [id], onDelete: Cascade)
+  balanceId     Int                     @map("balance_id")
+  estado        String                  @map("estado") // aprobada | revocada
+  justificacion String                  @map("justificacion")
+  huella        String                  @map("huella")
+  instantanea   Json?                   @map("instantanea")
+  actor         String                  @map("actor")
+  actorId       Int?                    @map("actor_id") // FK lógica a User.id
+  creadoEn      DateTime                @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  @@index([balanceId, creadoEn])
+  @@index([huella])
+  @@map("prevalidador_revisiones_balance")
 }
 
 // ===== Impuestos · DIAN =====
