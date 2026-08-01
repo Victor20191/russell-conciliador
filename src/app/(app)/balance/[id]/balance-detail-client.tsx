@@ -15,6 +15,8 @@ import type { NodoBalance } from "@/lib/balance/calcular";
 import { esSaldoContrarioAccionable, esSaldoContrarioInformativo, type UmbralesAlertas } from "@/lib/balance/umbrales-alertas";
 import { useSeleccionFilaTabla } from "@/app/(app)/balance/use-seleccion-fila-tabla";
 import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
+import PrevalidadorTab from "./prevalidador-tab";
+import type { PrevalidadorVM } from "@/lib/balance/prevalidador/calcular";
 
 export type ValidacionInfo = { tipo: string; por: string; en: string; comentario: string };
 // Contexto de validación de alertas que se pasa al renderizador de filas.
@@ -35,7 +37,7 @@ export type EstandarOpcion = { code: string; name: string };
 export type Meta = { rows: number; mapped: number; unmapped: number; critical: number; file: string; fileSize: string; frozenBy: string; frozenAt: string; uploadedBy: string; uploadedAt: string };
 export type Version = { v: string; date: string; uploadedBy: string; role: string; file: string; size: string; rows: number; sumA: number; balanced: boolean; note: string; /** Notas y aprobaciones transferidas desde el borrador. */ approvalNote: string; changes: number };
 
-type Tab = "breakdown" | "validations" | "versions" | "clases";
+type Tab = "breakdown" | "validations" | "versions" | "clases" | "prevalidador";
 type Filtro = "todo" | "balance" | "er" | "alertas";
 type Conteo = { mapeo: number; naturaleza: number };
 
@@ -46,13 +48,18 @@ const CLASES_ER = new Set(["4", "5", "6", "7"]);
 const NIVEL_LABEL: Record<number, string> = { 1: "Clase", 2: "Grupo", 4: "Cuenta", 6: "Subcuenta", 8: "Auxiliar" };
 
 export default function BalanceDetailClient({
-  arbol, estandar, puedeMapear, validations, versions, officialVersion, warnCount, balanceId, comentarios, validaciones, puedeValidar, puedeEliminar, sums, balanced, diffCuadre, umbrales,
+  arbol, estandar, puedeMapear, validations, versions, officialVersion, warnCount, balanceId, comentarios, validaciones, puedeValidar, puedeEliminar, sums, balanced, diffCuadre, umbrales, prevalidador,
 }: {
   arbol: NodoBalance[]; estandar: EstandarOpcion[]; puedeMapear: boolean; validations: Validation[]; versions: Version[]; officialVersion: string; warnCount: number; balanceId: number; comentarios: Record<string, number>; validaciones: Record<string, ValidacionInfo>; puedeValidar: boolean; puedeEliminar: boolean; sums: Sums; balanced: boolean; diffCuadre: number;
   /** Umbrales de alerta vigentes (parametrizables en /config/parametros). */
   umbrales: UmbralesAlertas;
+  /** Informe del prevalidador de homologación (recalculado al leer). */
+  prevalidador: PrevalidadorVM;
 }) {
   const [tab, setTab] = useState<Tab>("breakdown");
+  const [filtro, setFiltro] = useState<Filtro>("todo");
+  // Desde el prevalidador bloqueado se salta a las cuentas que faltan por homologar.
+  const irAAlertas = () => { setFiltro("alertas"); setTab("breakdown"); };
   return (
     <div className="mt-5">
       <div className="mb-3 flex items-center gap-2">
@@ -60,11 +67,13 @@ export default function BalanceDetailClient({
         <TabBtn on={tab === "validations"} onClick={() => setTab("validations")} label="Validaciones" count={warnCount} />
         <TabBtn on={tab === "versions"} onClick={() => setTab("versions")} label="Versiones" count={versions.length} />
         <TabBtn on={tab === "clases"} onClick={() => setTab("clases")} label="Saldos por clase" />
+        <TabBtn on={tab === "prevalidador"} onClick={() => setTab("prevalidador")} label="Prevalidador" count={prevalidador.estado === "listo" ? prevalidador.filasConDiferencia : undefined} />
       </div>
-      {tab === "breakdown" && <BreakdownTab arbol={arbol} estandar={estandar} puedeMapear={puedeMapear} balanceId={balanceId} comentarios={comentarios} validaciones={validaciones} puedeValidar={puedeValidar} puedeEliminar={puedeEliminar} umbrales={umbrales} />}
+      {tab === "breakdown" && <BreakdownTab arbol={arbol} estandar={estandar} puedeMapear={puedeMapear} balanceId={balanceId} comentarios={comentarios} validaciones={validaciones} puedeValidar={puedeValidar} puedeEliminar={puedeEliminar} umbrales={umbrales} filtro={filtro} setFiltro={setFiltro} />}
       {tab === "validations" && <ValidationsTab validations={validations} />}
       {tab === "versions" && <VersionsTab versions={versions} officialVersion={officialVersion} />}
       {tab === "clases" && <ClasesTab sums={sums} balanced={balanced} diffCuadre={diffCuadre} />}
+      {tab === "prevalidador" && <PrevalidadorTab prevalidador={prevalidador} balanceId={balanceId} puedeEditar={puedeMapear} onIrADetalle={irAAlertas} />}
     </div>
   );
 }
@@ -129,9 +138,10 @@ function contarAlertas(arbol: NodoBalance[], validados: Set<string>, umbrales: U
   return m;
 }
 
-function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, validaciones, puedeValidar, puedeEliminar, umbrales }: { arbol: NodoBalance[]; estandar: EstandarOpcion[]; puedeMapear: boolean; balanceId: number; comentarios: Record<string, number>; validaciones: Record<string, ValidacionInfo>; puedeValidar: boolean; puedeEliminar: boolean; umbrales: UmbralesAlertas }) {
+// El filtro vive en el componente padre para que el prevalidador, cuando está
+// bloqueado, pueda mandar al usuario directo a las cuentas que faltan por homologar.
+function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, validaciones, puedeValidar, puedeEliminar, umbrales, filtro, setFiltro }: { arbol: NodoBalance[]; estandar: EstandarOpcion[]; puedeMapear: boolean; balanceId: number; comentarios: Record<string, number>; validaciones: Record<string, ValidacionInfo>; puedeValidar: boolean; puedeEliminar: boolean; umbrales: UmbralesAlertas; filtro: Filtro; setFiltro: (f: Filtro) => void }) {
   const router = useRouter();
-  const [filtro, setFiltro] = useState<Filtro>("todo");
   const [q, setQ] = useState("");
   // Por defecto TODO contraído: al entrar se ve el encabezado y solo las clases,
   // colapsadas. El usuario expande lo que necesite.

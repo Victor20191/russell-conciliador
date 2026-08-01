@@ -261,12 +261,13 @@ model Sector {
 }
 
 model Module {
-  id      Int            @id @default(autoincrement()) @map("id")
-  code    String         @unique @map("codigo") // INV, CAR, NOM...
-  name    String         @map("nombre")
-  icon    String         @map("icono")
-  clients ClientModule[]
-  fields  ModuleField[]
+  id                  Int                  @id @default(autoincrement()) @map("id")
+  code                String               @unique @map("codigo") // INV, CAR, NOM...
+  name                String               @map("nombre")
+  icon                String               @map("icono")
+  clients             ClientModule[]
+  fields              ModuleField[]
+  prevalidadorCuentas PrevalidadorCuenta[]
 
   @@map("modulos")
 }
@@ -955,6 +956,65 @@ model CorreccionCargaBalance {
 
   @@unique([clienteId, cuenta])
   @@map("correcciones_carga_balance")
+}
+
+// ===== Prevalidador de homologación =====
+// Catálogo GLOBAL de plataforma: qué cuentas del plan estándar Russell se comparan
+// contra el PUC del cliente antes de conciliar, y bajo qué módulo se agrupan. El
+// informe suma las MISMAS filas de `balance_prueba_detalle` por dos columnas
+// distintas —prefijo de `cuenta_6_russell` vs. prefijo de `cuenta_8`— para destapar
+// errores de homologación. Solo cubre las cuentas de los 6 módulos del ERP que se
+// concilian; el resto del balance no se prevalida.
+//
+// Se administra en /config/prevalidador (permiso `parametros:administrar`); las 11
+// filas de fábrica las siembra la migración. NO reemplaza a `opciones_russell`
+// (tabla legado sin uso en código, con otra semántica).
+model PrevalidadorCuenta {
+  id             Int      @id @default(autoincrement()) @map("id")
+  module         Module   @relation(fields: [moduloId], references: [id], onDelete: Restrict)
+  moduloId       Int      @map("modulo_id")
+  // PREFIJO del plan estándar Russell: "41" (grupo) o "2805" (cuenta).
+  cuentaRussell  String   @map("cuenta_russell")
+  // Nombre legible; solo apoya la lectura (el informe muestra el código).
+  etiqueta       String?  @map("etiqueta")
+  // saldo = Σ saldo_final (clases 1-3) · movimiento = Σ (debitos − creditos)
+  // (clases 4-7, para no arrastrar el saldo inicial acumulado). El defecto sale de
+  // la clase, pero es editable: el criterio contable lo fija Russell, no el código.
+  baseCalculo    String   @default("saldo") @map("base_calculo")
+  orden          Int      @default(0) @map("orden")
+  activa         Boolean  @default(true) @map("activa")
+  actualizadoPor String?  @map("actualizado_por")
+  creadoEn       DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+  actualizadoEn  DateTime @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+
+  overrides PrevalidadorCuentaCliente[]
+
+  // Único por MÓDULO (no global): impide repetir el prefijo dentro de un módulo,
+  // pero deja que Russell use el mismo prefijo en dos módulos si lo necesita.
+  @@unique([moduloId, cuentaRussell])
+  @@index([activa, orden])
+  @@map("prevalidador_cuentas")
+}
+
+// Cuenta del CLIENTE contra la que se compara una fila del catálogo cuando el
+// cliente no usa el mismo prefijo que Russell (p. ej. propiedad, planta y equipo en
+// la 17 en vez de la 15). Es una preferencia POR CLIENTE: aplica a todos sus
+// períodos y versiones, igual que `ajustes_carga_balance`, para no reescribirla en
+// cada cargue mensual. FK suave a `clientes` (Int, sin @relation); FK dura al
+// catálogo (borrar una fila arrastra las cuentas propias de los clientes).
+model PrevalidadorCuentaCliente {
+  id             Int                @id @default(autoincrement()) @map("id")
+  clienteId      Int                @map("cliente_id")
+  catalogo       PrevalidadorCuenta @relation(fields: [catalogoId], references: [id], onDelete: Cascade)
+  catalogoId     Int                @map("catalogo_id")
+  cuentaCliente  String             @map("cuenta_cliente")
+  actualizadoPor String?            @map("actualizado_por")
+  creadoEn       DateTime           @default(now()) @map("creado_en") @db.Timestamptz(3)
+  actualizadoEn  DateTime           @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+
+  @@unique([clienteId, catalogoId])
+  @@index([clienteId])
+  @@map("prevalidador_cuentas_cliente")
 }
 
 // ===== Impuestos · DIAN =====

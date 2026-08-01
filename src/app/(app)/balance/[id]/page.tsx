@@ -7,6 +7,8 @@ import { fmt, fmtDateTime } from "@/lib/format";
 import { reconstruirBalance, agruparJerarquia } from "@/lib/balance/calcular";
 import { getCuentasEstandar } from "@/lib/balance/cuentas-estandar";
 import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
+import { getCatalogoPrevalidador, getOverridesPrevalidadorCliente } from "@/lib/parametros/prevalidador";
+import { construirPrevalidador } from "@/lib/balance/prevalidador/calcular";
 import BalanceDetailClient, {
   type Meta, type Version,
 } from "./balance-detail-client";
@@ -58,6 +60,8 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
     umbrales,
     balancesCliente,
     perfilesCliente,
+    catalogoPrevalidador,
+    overridesPrevalidador,
   ] = await Promise.all([
     authorizePermiso("balance:editar", { clientId }),
     authorizePermiso("balance:crear", { clientId }),
@@ -85,6 +89,9 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
     prisma.perfilCargaBalance.count({
       where: { clienteId: balance.clienteId },
     }),
+    // Prevalidador: catálogo global (cacheado) + cuentas propias de este cliente.
+    getCatalogoPrevalidador(),
+    getOverridesPrevalidadorCliente(balance.clienteId),
   ]);
   // Editar (congelar) y mapear exigen alcance de escritura; las Server Actions
   // vuelven a verificarlo al ejecutar.
@@ -101,6 +108,9 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
     saldoInicial: Number(f.saldoInicial), debitos: Number(f.debitos), creditos: Number(f.creditos), saldoFinal: Number(f.saldoFinal),
   }));
   const calc = reconstruirBalance(filas, cuentasEstandar, umbrales);
+  // Prevalidador: mismas filas, agregadas por prefijo Russell vs. prefijo cliente.
+  // Se bloquea solo si quedan cuentas sin homologar (lo decide el propio cálculo).
+  const prevalidador = construirPrevalidador(filas, catalogoPrevalidador, overridesPrevalidador);
   const sums = balance.detalles.length > 0 ? calc.sums : null;
   const validations = calc.validations;
   // Árbol normalizado a Russell: clase(2) → subgrupo(4) → cuenta estándar(6) → cuenta cliente(8).
@@ -231,6 +241,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
             diffCuadre={calc.diffCuadre}
 
             umbrales={umbrales}
+            prevalidador={prevalidador}
           />
         </>
       )}

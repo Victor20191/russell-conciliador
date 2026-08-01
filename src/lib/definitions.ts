@@ -228,6 +228,41 @@ export const ActualizarUmbralSchema = z.object({
     .refine((n) => n <= 1_000_000_000, { error: "El monto no puede superar $1.000.000.000." }),
 });
 
+// ---- Prevalidador de homologación ----
+// Prefijo de cuenta (del plan Russell o del PUC del cliente). Se acepta lo que el
+// usuario escribe con puntos o espacios («13.30», « 41 ») y se normaliza a dígitos.
+// El PUC más largo que maneja la plataforma es de 8; se deja holgura hasta 10.
+const PrefijoCuentaSchema = z
+  .string()
+  .trim()
+  .min(1, { error: "Escribe una cuenta." })
+  .transform((s) => s.replace(/[\s.]/g, ""))
+  .refine((s) => /^\d{1,10}$/.test(s), { error: "La cuenta debe tener solo dígitos (máximo 10)." });
+
+// Cuenta del CLIENTE contra la que se compara una fila del prevalidador. Se guarda
+// por cliente, pero se edita desde un balance concreto (de ahí el `balanceId`, que
+// resuelve el cliente y el alcance de escritura).
+export const CuentaClientePrevalidadorSchema = z.object({
+  balanceId: z.coerce.number({ error: "Balance inválido." }).int().positive({ error: "Balance inválido." }),
+  catalogoId: z.coerce.number({ error: "Fila inválida." }).int().positive({ error: "Fila inválida." }),
+  cuentaCliente: PrefijoCuentaSchema,
+});
+
+// Alta/edición de una fila del catálogo del prevalidador (Administrador/Superadmin).
+export const FilaPrevalidadorSchema = z.object({
+  // null = alta.
+  id: z.preprocess((v) => (v === "" || v == null ? null : v), z.coerce.number().int().positive().nullable()),
+  moduloId: z.coerce.number({ error: "Selecciona el módulo." }).int().positive({ error: "Selecciona el módulo." }),
+  cuentaRussell: PrefijoCuentaSchema,
+  etiqueta: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() ? v.trim() : null),
+    z.string().max(120, { error: "La etiqueta no puede superar 120 caracteres." }).nullable(),
+  ),
+  baseCalculo: z.enum(["saldo", "movimiento"], { error: "Base de cálculo inválida." }),
+  orden: z.coerce.number().int().min(0).max(9999).default(0),
+  activa: z.preprocess((v) => v === "si" || v === "true" || v === true, z.boolean()),
+});
+
 export const PasswordSchema = z
   .string()
   .min(10, { error: "La contraseña debe tener al menos 10 caracteres." })

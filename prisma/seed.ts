@@ -4,6 +4,7 @@ import { PrismaClient } from "../src/generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import pucMaster from "./data/puc-maestro-russell.json";
 import { fechaCalendarioPrisma } from "../src/lib/fecha-hora";
+import { PREVALIDADOR_CATALOGO_FABRICA } from "../src/lib/balance/prevalidador/catalogo";
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
 const prisma = new PrismaClient({ adapter });
@@ -31,6 +32,9 @@ async function main() {
   await prisma.reconciliation.deleteMany();
   await prisma.moduleField.deleteMany();
   await prisma.clientModule.deleteMany();
+  // El catálogo del prevalidador referencia `modulos` con FK RESTRICT: va antes.
+  await prisma.prevalidadorCuentaCliente.deleteMany();
+  await prisma.prevalidadorCuenta.deleteMany();
   await prisma.module.deleteMany();
   await prisma.client.deleteMany();
   await prisma.erp.deleteMany();
@@ -60,6 +64,19 @@ async function main() {
     (await prisma.module.findMany({ select: { id: true, code: true } }))
       .map((module) => [module.code, module.id]),
   );
+
+  // ---- Prevalidador de homologación ----
+  // Las 11 filas que definió Russell. La migración las siembra en las BD que ya
+  // existen; esto deja igual una BD creada desde cero.
+  await prisma.prevalidadorCuenta.createMany({
+    data: PREVALIDADOR_CATALOGO_FABRICA.flatMap((f) => {
+      const moduloId = moduleIdByCode.get(f.moduloCodigo);
+      return moduloId
+        ? [{ moduloId, cuentaRussell: f.cuentaRussell, etiqueta: f.etiqueta, baseCalculo: f.baseCalculo, orden: f.orden }]
+        : [];
+    }),
+    skipDuplicates: true,
+  });
 
   // ---- Campos estándar (solo Inventarios en el prototipo) ----
   const invFields: { key: string; label: string; type: string; required: boolean; hint: string | null }[] = [
