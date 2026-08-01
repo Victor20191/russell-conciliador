@@ -268,6 +268,20 @@ describe("consolidarAuxiliaresRepetidos (balance por tercero por auxiliar)", () 
     expect(out).toHaveLength(1);
     expect(out[0]).toMatchObject({ saldoInicial: 0, debitos: 120, creditos: 120, saldoFinal: 0 });
   });
+
+  it("duplicado EXACTO (filas idénticas en las 4 columnas) SÍ se suma", () => {
+    // El ERP repite el MISMO NIT+cuenta+valor (mismas 4 columnas). Aunque la primera
+    // «totaliza» al resto por ser iguales, NO es un «Cuenta+NIT»: se colapsan en UNA
+    // fila SUMADA (mantiene el total del informe, solo junta las filas visualmente).
+    const filas = [
+      fila(1, "73230204", "MANTENIMIENTO Y REPARACIONES", 575622, "movimiento", { saldoInicial: 287811, debitos: 287811 }),
+      fila(2, "73230204", "MANTENIMIENTO Y REPARACIONES", 575622, "movimiento", { saldoInicial: 287811, debitos: 287811 }),
+    ];
+    const { consolidados, filas: out } = consolidarAuxiliaresRepetidos(filas);
+    expect(consolidados).toBe(1);
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ saldoInicial: 575622, debitos: 575622, creditos: 0, saldoFinal: 1151244 });
+  });
 });
 
 describe("construirVistaBorrador · consolidarAuxiliares (opción SOLO de vista)", () => {

@@ -223,11 +223,17 @@ export function consolidarAuxiliaresRepetidos(filas: FilaBorrador[]): { filas: F
     while (j < filas.length && filas[j].tipoFila === "movimiento" && filas[j].codigo === f.codigo && !filas[j].omitida) j++;
     const bloque = filas.slice(i, j);
     if (bloque.length >= 2) {
-      // Si la PRIMERA ya es el total (bloque «Cuenta + NIT»), NO consolidar (lo tacha
-      // `marcarCuentaNit`); solo se consolida el detalle por auxiliar sin fila total.
-      if (!primeraTotalizaResto(f, bloque.slice(1))) {
+      const resto = bloque.slice(1);
+      // Duplicado EXACTO del ERP: TODAS las filas del bloque idénticas en las 4 columnas
+      // (mismo NIT/cuenta/valor listado varias veces). Se SUMAN igual que el resto de
+      // auxiliares (colapsar sin cambiar el total del informe). Solo se deja intacto un
+      // bloque «Cuenta + NIT» REAL —la primera totaliza un resto con valores DISTINTOS
+      // (su desglose)—, que `marcarCuentaNit` tacha por separado; ese sí se saltaría con
+      // `primeraTotalizaResto` cuando no quedó tachado (p. ej. rescatado a mano).
+      const todasIguales = bloque.every((r) => CAMPOS_MONETARIOS.every((campo) => r[campo] === f[campo]));
+      if (todasIguales || !primeraTotalizaResto(f, resto)) {
         const consol: FilaBorrador = { ...f };
-        for (const r of bloque.slice(1)) {
+        for (const r of resto) {
           consol.saldoInicial += r.saldoInicial;
           consol.debitos += r.debitos;
           consol.creditos += r.creditos;
@@ -236,7 +242,7 @@ export function consolidarAuxiliaresRepetidos(filas: FilaBorrador[]): { filas: F
         out.push(consol);
         consolidados++;
       } else {
-        for (const r of bloque) out.push(r); // «Cuenta + NIT»: intacto
+        for (const r of bloque) out.push(r); // «Cuenta + NIT» real: intacto
       }
       i = j;
       continue;
