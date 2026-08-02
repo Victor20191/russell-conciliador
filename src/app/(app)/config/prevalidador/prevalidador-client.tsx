@@ -13,6 +13,9 @@ import { baseCalculoPorDefecto } from "@/lib/balance/prevalidador/catalogo";
 
 type ModuloOpcion = { id: number; code: string; name: string };
 
+const CONTROL_CLASS =
+  "h-9 w-full rounded-md border border-ink-200 bg-white px-2.5 text-[12.5px] text-ink-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100";
+
 export default function PrevalidadorConfigClient({
   catalogo,
   modulos,
@@ -110,14 +113,17 @@ function FilaEditor({
   const sugerida = cuenta ? baseCalculoPorDefecto(cuenta.replace(/[\s.]/g, "")) : null;
 
   return (
-    <div className="rounded-md border border-ink-150 p-3">
-      <form action={guardarAction} className="flex flex-wrap items-end gap-3">
+    <div className="rounded-lg border border-ink-150 bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition-colors focus-within:border-blue-200">
+      <form
+        action={guardarAction}
+        className="grid grid-cols-1 gap-x-3 gap-y-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[minmax(8.5rem,1fr)_6rem_minmax(13rem,1.5fr)_minmax(13rem,1.4fr)_5rem_7rem_auto] xl:items-start"
+      >
         {fila && <input type="hidden" name="id" value={fila.id} />}
         <Campo etiqueta="Módulo">
           <select
             name="moduloId"
             defaultValue={fila?.moduloId ?? modulos[0]?.id}
-            className="rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12.5px] text-ink-700 outline-none focus:border-blue-400"
+            className={CONTROL_CLASS}
           >
             {modulos.map((m) => (
               <option key={m.id} value={m.id}>
@@ -135,7 +141,7 @@ function FilaEditor({
             inputMode="numeric"
             maxLength={4}
             placeholder="41"
-            className="w-24 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 font-mono text-[12.5px] text-ink-700 outline-none focus:border-blue-400"
+            className={`${CONTROL_CLASS} font-mono tabular-nums`}
           />
         </Campo>
 
@@ -145,7 +151,7 @@ function FilaEditor({
             defaultValue={fila?.etiqueta ?? ""}
             maxLength={120}
             placeholder="Ingresos operacionales"
-            className="w-56 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12.5px] text-ink-700 outline-none focus:border-blue-400"
+            className={CONTROL_CLASS}
           />
         </Campo>
 
@@ -156,7 +162,7 @@ function FilaEditor({
           <select
             name="baseCalculo"
             defaultValue={fila?.baseCalculo ?? "saldo"}
-            className="rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12.5px] text-ink-700 outline-none focus:border-blue-400"
+            className={CONTROL_CLASS}
           >
             <option value="saldo">Saldo final</option>
             <option value="movimiento">Movimiento (débitos − créditos)</option>
@@ -170,77 +176,97 @@ function FilaEditor({
             min={0}
             max={9999}
             defaultValue={fila?.orden ?? 10}
-            className="w-20 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12.5px] text-ink-700 outline-none focus:border-blue-400"
+            className={`${CONTROL_CLASS} font-mono tabular-nums`}
           />
         </Campo>
 
-        <label className="flex items-center gap-1.5 pb-1.5 text-[12px] text-ink-600">
-          <input type="checkbox" name="activa" value="si" defaultChecked={fila?.activa ?? true} className="accent-navy-700" />
-          Activa
-        </label>
+        <div className="flex min-w-0 flex-col gap-1">
+          <span className="text-[11px] font-medium text-ink-600">Estado</span>
+          <label className="flex h-9 cursor-pointer items-center gap-2 rounded-md border border-ink-200 bg-ink-50/60 px-2.5 text-[12px] text-ink-600 transition hover:border-ink-300 hover:bg-ink-50">
+            <input
+              type="checkbox"
+              name="activa"
+              value="si"
+              defaultChecked={fila?.activa ?? true}
+              className="h-4 w-4 rounded border-ink-300 accent-navy-700"
+            />
+            Activa
+          </label>
+        </div>
 
-        <div className="ml-auto flex items-center gap-2 pb-0.5">
-          {fila && fila.balancesConCuentaPropia > 0 && (
-            <Chip label={`${fila.balancesConCuentaPropia} balance(s) con cuenta propia`} tone="ai" />
-          )}
-          <button
-            type="submit"
-            disabled={guardando}
-            className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:opacity-50"
-          >
-            {guardando ? <EstadoProcesando>Guardando</EstadoProcesando> : fila ? "Guardar" : "Agregar"}
-          </button>
+        <div className="flex flex-wrap items-center justify-end gap-2 sm:col-span-2 lg:col-span-3 xl:col-span-1 xl:pt-5">
           {onCancelar && (
             <button
               type="button"
               onClick={onCancelar}
-              className="rounded-md border border-ink-200 px-3 py-1.5 text-[12px] font-semibold text-ink-600 hover:bg-ink-50"
+              className="inline-flex h-9 items-center justify-center rounded-md border border-ink-200 bg-white px-3 text-[12px] font-semibold text-ink-600 transition hover:border-ink-300 hover:bg-ink-50"
             >
               Cancelar
             </button>
           )}
-          {fila &&
-            (confirmarBorrado ? (
-              <div className="flex items-center gap-1.5">
-                <span className="text-[11.5px] text-ink-500">
-                  {fila.balancesConCuentaPropia > 0
-                    ? `¿Eliminar y perder ${fila.balancesConCuentaPropia} cuenta(s) propia(s) de balance?`
-                    : "¿Eliminar?"}
-                </span>
-                <button
-                  type="submit"
-                  form={`borrar-${fila.id}`}
-                  disabled={borrando}
-                  className="rounded-md border border-err-100 px-2.5 py-1.5 text-[12px] font-semibold text-err-700 hover:bg-err-100/50 disabled:opacity-60"
-                >
-                  {borrando ? <EstadoProcesando>Eliminando</EstadoProcesando> : "Sí, eliminar"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setConfirmarBorrado(false)}
-                  className="rounded-md border border-ink-200 px-2.5 py-1.5 text-[12px] font-semibold text-ink-600 hover:bg-ink-50"
-                >
-                  Cancelar
-                </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setConfirmarBorrado(true)}
-                title="Para retirarla del informe sin perder la configuración de los clientes, desmarca «Activa»."
-                className="rounded-md border border-ink-200 p-1.5 text-ink-500 hover:bg-ink-50 hover:text-err-700"
-              >
-                <Icon name="trash" size={13} />
-              </button>
-            ))}
+          <button
+            type="submit"
+            disabled={guardando}
+            className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-navy-700 px-3.5 text-[12px] font-semibold text-white shadow-sm transition hover:bg-navy-600 disabled:opacity-50"
+          >
+            {!guardando && <Icon name={fila ? "check" : "plus"} size={13} />}
+            {guardando ? <EstadoProcesando>Guardando</EstadoProcesando> : fila ? "Guardar" : "Agregar"}
+          </button>
+          {fila && (
+            <button
+              type="button"
+              onClick={() => setConfirmarBorrado(true)}
+              title="Para retirarla del informe sin perder la configuración de los balances, desmarca «Activa»."
+              aria-label={`Eliminar la cuenta ${fila.cuentaRussell} del prevalidador`}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-ink-200 bg-white text-ink-500 transition hover:border-red-200 hover:bg-red-50 hover:text-err-700"
+            >
+              <Icon name="trash" size={13} />
+            </button>
+          )}
         </div>
       </form>
 
-      {fila?.actualizadoEn && (
-        <p className="mt-2 text-[11px] text-ink-400">
-          Editado {fmtDateTime(fila.actualizadoEn)}
-          {fila.actualizadoPor ? ` · ${fila.actualizadoPor}` : ""}
-        </p>
+      {fila && (fila.actualizadoEn || fila.balancesConCuentaPropia > 0) && (
+        <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 border-t border-ink-100 pt-2.5">
+          {fila.actualizadoEn ? (
+            <p className="text-[11px] text-ink-400">
+              Editado {fmtDateTime(fila.actualizadoEn)}
+              {fila.actualizadoPor ? ` · ${fila.actualizadoPor}` : ""}
+            </p>
+          ) : (
+            <span />
+          )}
+          {fila.balancesConCuentaPropia > 0 && (
+            <Chip label={`${fila.balancesConCuentaPropia} balance(s) con cuenta propia`} tone="ai" />
+          )}
+        </div>
+      )}
+
+      {fila && confirmarBorrado && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-err-100 bg-err-100/35 px-3 py-2">
+          <span className="min-w-[220px] flex-1 text-[11.5px] text-ink-600">
+            {fila.balancesConCuentaPropia > 0
+              ? `Esta acción también eliminará ${fila.balancesConCuentaPropia} cuenta(s) propia(s) asociada(s).`
+              : `¿Eliminar la cuenta ${fila.cuentaRussell} del catálogo?`}
+          </span>
+          <button
+            type="button"
+            onClick={() => setConfirmarBorrado(false)}
+            disabled={borrando}
+            className="inline-flex h-8 items-center justify-center rounded-md border border-ink-200 bg-white px-3 text-[12px] font-semibold text-ink-600 transition hover:bg-ink-50 disabled:opacity-60"
+          >
+            Cancelar
+          </button>
+          <button
+            type="submit"
+            form={`borrar-${fila.id}`}
+            disabled={borrando}
+            className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-err-100 bg-white px-3 text-[12px] font-semibold text-err-700 transition hover:bg-err-100/60 disabled:opacity-60"
+          >
+            {!borrando && <Icon name="trash" size={12} />}
+            {borrando ? <EstadoProcesando>Eliminando</EstadoProcesando> : "Sí, eliminar"}
+          </button>
+        </div>
       )}
 
       {/* Form separado para eliminar (no puede anidarse en el de guardar). */}
@@ -255,10 +281,10 @@ function FilaEditor({
 
 function Campo({ etiqueta, ayuda, children }: { etiqueta: string; ayuda?: string; children: React.ReactNode }) {
   return (
-    <label className="flex flex-col gap-1">
+    <label className="flex min-w-0 flex-col gap-1">
       <span className="text-[11px] font-medium text-ink-600">{etiqueta}</span>
       {children}
-      {ayuda && <span className="text-[10.5px] text-ink-400">{ayuda}</span>}
+      {ayuda && <span className="text-[10.5px] leading-4 text-ink-400">{ayuda}</span>}
     </label>
   );
 }

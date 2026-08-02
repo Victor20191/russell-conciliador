@@ -6,10 +6,12 @@ import {
   combinarRevisionesReubicacion,
   etiquetaPerfilSoloHojas,
   filtrarReubicacionesPendientes,
+  GestionarAgrupadoraModal,
   NombreCuentaArbol,
   ProteccionSubtotalesPanel,
   retirarConfirmacionesLocales,
 } from "./borrador-detail-client";
+import type { CuentaReubicacion, IndiceReubicacion } from "@/lib/balance/borrador";
 import type { RevisionReubicacionStaging } from "@/lib/balance/staging-borrador";
 
 const revisionGuardada: RevisionReubicacionStaging = {
@@ -149,5 +151,67 @@ describe("protección contra doble conteo", () => {
     expect(html).toContain("Corrección automática de anidado");
     expect(html).toContain("Deshacer auto-corrección");
     expect(html).toContain("7");
+  });
+});
+
+describe("selector de movimientos de una agrupadora manual", () => {
+  it("muestra en la candidata el saldo final y no su saldo inicial", () => {
+    const origen: CuentaReubicacion = {
+      filaNum: 10,
+      codigo: "28059501",
+      codigoCrudo: "28059501",
+      nombre: "CONSIGNACIONES SIN IDENTIFICAR",
+      tipoFila: "movimiento",
+      omitida: false,
+      subtotalDuplicado: false,
+      padre: null,
+      padreManual: null,
+      ruta: [],
+      descendientes: [],
+      busqueda: "28059501 consignaciones sin identificar",
+      saldoInicial: 900,
+      debitos: 100,
+      creditos: 200,
+      saldoFinal: 800,
+    };
+    const candidata: CuentaReubicacion = {
+      filaNum: 20,
+      codigo: "11050501",
+      codigoCrudo: "11050501",
+      nombre: "CAJA GENERAL RECAUDOS",
+      tipoFila: "movimiento",
+      omitida: false,
+      subtotalDuplicado: false,
+      padre: null,
+      padreManual: null,
+      ruta: [],
+      descendientes: [],
+      busqueda: "11050501 caja general recaudos",
+      saldoInicial: 12_345.67,
+      debitos: 300,
+      creditos: 400,
+      saldoFinal: -98_765.43,
+    };
+    const cuentas = [origen, candidata];
+    const indice: IndiceReubicacion = {
+      cuentas,
+      porFila: new Map(cuentas.map((cuenta) => [cuenta.filaNum, cuenta])),
+    };
+
+    const html = renderToStaticMarkup(
+      createElement(GestionarAgrupadoraModal, {
+        indice,
+        filaNum: origen.filaNum,
+        onConfirmar: () => undefined,
+        onClose: () => undefined,
+      }),
+    );
+
+    expect(html).toContain("CAJA GENERAL RECAUDOS");
+    expect(html).toContain("Saldo actual");
+    expect(html).toContain("-$ 98.765,43");
+    expect(html).not.toContain("$ 12.345,67");
+    expect(html).toContain("tabular-nums");
+    expect(html).toContain("whitespace-nowrap");
   });
 });

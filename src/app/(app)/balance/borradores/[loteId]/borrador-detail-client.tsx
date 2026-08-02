@@ -1988,8 +1988,20 @@ const columnasComparacionAgrupadora = [
   ["saldoFinal", "Saldo actual"],
 ] as const;
 
+export function SaldoActualMovimientoAgrupadora({ saldo }: { saldo: number }) {
+  const saldoFormateado = fmtContable(saldo);
+  return (
+    <span className="col-start-2 flex shrink-0 items-baseline gap-1.5 sm:col-start-auto sm:min-w-32 sm:flex-col sm:items-end sm:gap-0 sm:text-right">
+      <span className="text-[9px] font-semibold uppercase tracking-wide text-ink-400">
+        Saldo actual
+      </span>
+      <span className="whitespace-nowrap text-[11px] font-semibold tabular-nums text-ink-800">{saldoFormateado}</span>
+    </span>
+  );
+}
+
 /** Conversión manual Movimiento → Agrupadora, con sugerencia y control informativo. */
-function GestionarAgrupadoraModal({ indice, filaNum, onConfirmar, onClose }: {
+export function GestionarAgrupadoraModal({ indice, filaNum, onConfirmar, onClose }: {
   indice: IndiceReubicacion;
   filaNum: number;
   onConfirmar: (filaNum: number, seleccionadas: number[]) => void;
@@ -2102,12 +2114,15 @@ function GestionarAgrupadoraModal({ indice, filaNum, onConfirmar, onClose }: {
                 const elegida = seleccionadas.has(cuenta.filaNum);
                 const sugerida = sugeridas.includes(cuenta.filaNum);
                 return (
-                  <label key={cuenta.filaNum} className={`flex cursor-pointer items-center gap-2 rounded-md border px-2.5 py-2 ${elegida ? "border-blue-300 bg-blue-50" : "border-transparent bg-white hover:border-blue-200 hover:bg-blue-50/50"}`}>
-                    <input type="checkbox" checked={elegida} onChange={() => alternar(cuenta.filaNum)} />
-                    <span className="w-24 shrink-0 font-mono text-[11px] text-ink-500">{cuenta.codigoCrudo}</span>
-                    <span className="min-w-0 flex-1 truncate font-medium text-ink-800" title={cuenta.nombre}>{cuenta.nombre}</span>
-                    {sugerida && <span className="shrink-0 rounded-full bg-ok-100 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-ok-700">Sugerido</span>}
-                    <span className="shrink-0 rounded border border-blue-100 bg-blue-100 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-navy-700">{nombreNivelCuenta(cuenta.codigo)} · Movimiento</span>
+                  <label key={cuenta.filaNum} className={`grid cursor-pointer grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2 gap-y-1 rounded-md border px-2.5 py-2 sm:grid-cols-[auto_6rem_minmax(0,1fr)_8rem] ${elegida ? "border-blue-300 bg-blue-50" : "border-transparent bg-white hover:border-blue-200 hover:bg-blue-50/50"}`}>
+                    <input className="row-span-3 self-start sm:row-span-1 sm:self-center" type="checkbox" checked={elegida} onChange={() => alternar(cuenta.filaNum)} />
+                    <span className="min-w-0 truncate font-mono text-[11px] text-ink-500">{cuenta.codigoCrudo}</span>
+                    <span className="col-start-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 sm:col-start-auto sm:flex-nowrap">
+                      <span className="min-w-32 flex-1 truncate font-medium text-ink-800 sm:min-w-0" title={cuenta.nombre}>{cuenta.nombre}</span>
+                      {sugerida && <span className="shrink-0 rounded-full bg-ok-100 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-ok-700">Sugerido</span>}
+                      <span className="shrink-0 rounded border border-blue-100 bg-blue-100 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-navy-700">{nombreNivelCuenta(cuenta.codigo)} · Movimiento</span>
+                    </span>
+                    <SaldoActualMovimientoAgrupadora saldo={cuenta.saldoFinal} />
                   </label>
                 );
               })}

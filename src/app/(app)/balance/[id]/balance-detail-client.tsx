@@ -241,8 +241,6 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, va
             />
           </div>
           <FiltroBtn on={filtro === "todo"} onClick={() => setFiltro("todo")} label="Todo" />
-          <FiltroBtn on={filtro === "balance"} onClick={() => setFiltro("balance")} label="Balance" />
-          <FiltroBtn on={filtro === "er"} onClick={() => setFiltro("er")} label="Estado de Resultado" />
           <FiltroBtn on={filtro === "alertas"} onClick={() => setFiltro("alertas")} label="Alertas" count={totalAlertas} tone="warn" />
           <span className="mx-1 h-4 w-px bg-ink-200" />
           <button onClick={expandirTodo} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 px-2 py-1 text-[11.5px] font-medium text-ink-600 hover:bg-ink-50">
