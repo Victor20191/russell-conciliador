@@ -367,7 +367,12 @@ function cuentasDesdeFilasStaging(filasStaging: FilaBorrador[]): CuentaCruda[] {
   marcarNoContables(rows);
   // Agrupadora huérfana (sin hijos, con saldo) → movimiento: el ERP la exportó sin
   // desglose; si no, su saldo se pierde al cargar. También recupera lotes viejos.
-  reclasificarHuerfanas(rows);
+  // PRESERVA las agrupadoras FORZADAS por el auditor (movimiento→agrupadora del
+  // borrador): sin la opción, una conversión manual cuyas hijas se asignaron por
+  // `padreManual` (hermanas de igual longitud que NUNCA anidan solas) se revertía
+  // aquí y su saldo se cargaba DOBLE (la cuenta + sus hijas). Mismo criterio que
+  // la vista del borrador, que es lo que el auditor aprobó en pantalla.
+  reclasificarHuerfanas(rows, { preservarAgrupadorasForzadas: true });
   // Filas OMITIDAS: se conservan en el crudo pero NO se vuelcan al balance oficial.
   const mov = rows.filter((f) => f.tipoFila === "movimiento" && !f.omitida);
   // Excluye subtotales DUPLICADOS (6 díg con detalle 8 díg idéntico) para no doblar.
@@ -383,7 +388,7 @@ async function cuentasDesdeStaging(loteId: string): Promise<CuentaCruda[]> {
   const staged = await prisma.balanceImportacionStaging.findMany({
     where: { loteId },
     orderBy: { filaNum: "asc" },
-    select: { filaNum: true, codigo: true, codigoCrudo: true, nombre: true, nivel: true, tipoFila: true, tipoFilaForzado: true, omitida: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
+    select: { filaNum: true, codigo: true, codigoCrudo: true, nombre: true, nivel: true, tipoFila: true, tipoFilaForzado: true, desacoplada: true, omitida: true, padreManual: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
   });
   const filasStaging: FilaBorrador[] = staged.map((f) => ({
     // TRI-ESTADO durable: null (BD) = «sin tocar» → undefined (elegible para el marcado
@@ -391,7 +396,12 @@ async function cuentasDesdeStaging(loteId: string): Promise<CuentaCruda[]> {
     // (el override manual gana); true = omitida → no se carga.
     filaNum: f.filaNum, codigo: f.codigo, codigoCrudo: f.codigoCrudo, nombre: f.nombre, nivel: f.nivel, tipoFila: f.tipoFila as TipoFila,
     tipoFilaForzado: f.tipoFilaForzado === "agrupadora" || f.tipoFilaForzado === "movimiento" ? f.tipoFilaForzado : null,
+    // Ediciones manuales GUARDADAS del borrador: sin `padreManual` el árbol de la
+    // promoción NO cuelga las hijas asignadas a mano y una agrupadora convertida
+    // quedaría "huérfana" (→ se revertiría a movimiento y contaría doble).
+    desacoplada: f.desacoplada,
     omitida: f.omitida ?? undefined,
+    padreManual: f.padreManual,
     saldoInicial: Number(f.saldoInicial), debitos: Number(f.debitos), creditos: Number(f.creditos), saldoFinal: Number(f.saldoFinal),
   }));
   return cuentasDesdeFilasStaging(filasStaging);
@@ -472,7 +482,9 @@ async function actualizarResumenLoteBorrador(
     creditos: Number(fila.creditos),
     saldoFinal: Number(fila.saldoFinal),
   }));
-  const diagnostico = construirVistaBorrador(filas).diagnostico;
+  // Mismo criterio que la vista de detalle: una agrupadora forzada a mano no se
+  // revierte aunque quede sin hijas, así los contadores de la lista coinciden.
+  const diagnostico = construirVistaBorrador(filas, { preservarAgrupadorasForzadas: true }).diagnostico;
 
   await db.balanceImportacionLote.updateMany({
     where: { loteId },
@@ -2351,6 +2363,9 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
   // ya con las preferencias y reclasificaciones aplicadas al staging definitivo.
   const diagFinal = construirVistaBorrador(
     filasBorrador.map((fila) => ({ ...fila })),
+    // Respeta el `tipoFilaForzado` que llega de las correcciones memorizadas del
+    // cliente — igual que la vista de detalle y el resumen del lote.
+    { preservarAgrupadorasForzadas: true },
   ).diagnostico;
   // Total del archivo por clase = SUMA de todas las filas totalizadoras de esa
   // clase (código "1"/"2"/"3"). En balances MULTI-SUCURSAL el ERP repite el total
