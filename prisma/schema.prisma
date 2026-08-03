@@ -990,7 +990,7 @@ model ModuloImportacionLote {
   filasExcluidas        Int       @default(0) @map("filas_excluidas")
   huella                String?   @map("huella")
   origenExtraccion      String?   @map("origen_extraccion") // perfil | ia | plantilla | manual
-  specJson              Json?     @map("spec_json")
+  specJson              Json?     @map("especificacion_json")
   correccionesAplicadas Int       @default(0) @map("correcciones_aplicadas")
   cargadoPor            String?   @map("cargado_por")
   cargadoPorId          Int?      @map("cargado_por_id")
@@ -1076,7 +1076,7 @@ model PerfilCargaModulo {
   clienteId      Int       @map("cliente_id")
   moduloCodigo   String    @map("modulo_codigo")
   huella         String    @map("huella")
-  specJson       Json      @map("spec_json") // spec de mapeo (rol interno → columna 1-based, hoja, filas)
+  specJson       Json      @map("especificacion_json") // spec de mapeo (rol interno → columna 1-based, hoja, filas)
   origen         String    @map("origen") // ia | manual (manual NUNCA se degrada a ia)
   vecesUsado     Int       @default(0) @map("veces_usado")
   ultimoUsoEn    DateTime? @map("ultimo_uso_en") @db.Timestamptz(3)
