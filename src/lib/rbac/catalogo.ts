@@ -160,6 +160,12 @@ export const PERMISOS: Permiso[] = [
   { code: "balance:revisar", module: "balance", action: "revisar", label: "Revisar balance", roles: SOLO_SENIOR },
   { code: "conciliaciones:revisar", module: "conciliaciones", action: "revisar", label: "Revisar conciliación", roles: SOLO_SENIOR },
 
+  // ===== Datos de módulos (Inventarios, Cartera, CxP, Ingresos, Activos Fijos, Nómina) =====
+  { code: "modulos_datos:ver", module: "modulos_datos", action: "ver", label: "Ver datos de módulos", roles: TODOS },
+  { code: "modulos_datos:crear", module: "modulos_datos", action: "crear", label: "Cargar datos de módulos", roles: STAFF_Y_ADMIN },
+  { code: "modulos_datos:editar", module: "modulos_datos", action: "editar", label: "Editar consolidación de módulos", roles: STAFF_Y_ADMIN },
+  { code: "modulos_datos:eliminar", module: "modulos_datos", action: "eliminar", label: "Eliminar datos de módulos", roles: SOLO_ADMIN },
+
   // ===== Supervisión — Gerente y Socio =====
   { code: "clientes:supervisar", module: "clientes", action: "supervisar", label: "Supervisar cartera de clientes", roles: SUPERVISORES },
 

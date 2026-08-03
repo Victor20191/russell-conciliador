@@ -5,6 +5,7 @@ export type PlatformModuleKey =
   | "balance"
   | "mapeo"
   | "conciliaciones"
+  | "modulos_datos"
   | "dian"
   | "auditoria"
   | "clientes"
@@ -84,6 +85,16 @@ export const MODULOS_PLATAFORMA: PlatformModuleDefinition[] = [
     group: "Trabajo",
     icon: "play",
     order: 50,
+    enabledForNonAdmins: true,
+    configurableForNonAdmins: true,
+  },
+  {
+    key: "modulos_datos",
+    label: "Módulos de conciliación",
+    description: "Carga e importación de los módulos auxiliares (Inventarios, y a futuro Activos Fijos, Cartera, CxP, Ingresos, Nómina).",
+    group: "Trabajo",
+    icon: "box",
+    order: 55,
     enabledForNonAdmins: true,
     configurableForNonAdmins: true,
   },

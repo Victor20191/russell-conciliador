@@ -967,6 +967,185 @@ model CorreccionCargaBalance {
   @@map("correcciones_carga_balance")
 }
 
+// ===== Motor GENÉRICO de importación de módulos =====
+// Los 6 módulos de conciliación (Inventarios, Cartera, Cuentas por Pagar, Ingresos,
+// Activos Fijos, Nómina) comparten UNA maquinaria: leer Excel → mapear columnas →
+// staging editable → perfiles/correcciones por cliente → promover a oficial →
+// consolidar por un CLASIFICADOR → cuenta de 4 díg. Discriminador `modulo_codigo`
+// (= `Module.code`: INV/CAR/CXP/ING/AFI/NOM). Las columnas propias de cada módulo viven
+// en `datos` (JSON); solo se promueven a columnas el `clasificador` (dimensión de
+// consolidación) y el `valor` (lo que se suma). La forma de cada módulo está en código
+// (`src/lib/modulos/descriptores.ts`), no en BD. FK suave `Int` a `clientes` (sin @relation).
+
+model ModuloImportacionLote {
+  id                    Int       @id @default(autoincrement()) @map("id")
+  moduloCodigo          String    @map("modulo_codigo") // INV | CAR | CXP | ING | AFI | NOM
+  loteId                String    @unique @map("lote_id") // uuid del navegador = idempotencia
+  clienteId             Int?      @map("cliente_id")
+  archivoNombre         String    @map("archivo_nombre")
+  archivoTam            String?   @map("archivo_tam")
+  periodoInicial        DateTime? @map("periodo_inicial") @db.Date
+  periodoFinal          DateTime? @map("periodo_final") @db.Date
+  filasLeidas           Int       @default(0) @map("filas_leidas")
+  filasExcluidas        Int       @default(0) @map("filas_excluidas")
+  huella                String?   @map("huella")
+  origenExtraccion      String?   @map("origen_extraccion") // perfil | ia | plantilla | manual
+  specJson              Json?     @map("spec_json")
+  correccionesAplicadas Int       @default(0) @map("correcciones_aplicadas")
+  cargadoPor            String?   @map("cargado_por")
+  cargadoPorId          Int?      @map("cargado_por_id")
+  creadoEn              DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
+  actualizadoEn         DateTime  @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+
+  @@index([moduloCodigo, clienteId])
+  @@map("modulo_importacion_lote")
+}
+
+model ModuloImportacionStaging {
+  id              Int      @id @default(autoincrement()) @map("id")
+  loteId          String   @map("lote_id")
+  moduloCodigo    String   @map("modulo_codigo")
+  clienteId       Int?     @map("cliente_id")
+  hoja            String?  @map("hoja")
+  filaNum         Int      @map("fila_num")
+  // Columnas COMUNES promovidas (para consolidar sin abrir el JSON):
+  clasificador    String?  @map("clasificador") // p. ej. tipo de inventario
+  valor           Decimal  @default(0) @map("valor") @db.Decimal(18, 2)
+  // Columnas propias del módulo (referencia, descripcion, cantidad, valorUnitario…):
+  datos           Json     @default("{}") @map("datos")
+  // Estado de edición manual (mismo tri-estado del balance):
+  tipoFila        String   @default("movimiento") @map("tipo_fila") // movimiento | agrupadora | total
+  tipoFilaForzado String?  @map("tipo_fila_forzado") // agrupadora | movimiento | null
+  omitida         Boolean? @map("omitida") // tri-estado: true omitir · false rescatar · null sin tocar
+  padreManual     Int?     @map("padre_manual")
+  creadoEn        DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  @@index([loteId])
+  @@index([moduloCodigo, clienteId])
+  @@map("modulo_importacion_staging")
+}
+
+model ModuloDatoEncabezado {
+  id            Int                 @id @default(autoincrement()) @map("id")
+  moduloCodigo  String              @map("modulo_codigo")
+  loteId        String?             @unique @map("lote_id") // idempotencia de promoción; null para legado
+  clienteId     Int                 @map("cliente_id")
+  nombreCliente String              @map("nombre_cliente")
+  periodo       String              @map("periodo") // etiqueta del período (p. ej. "2026-03")
+  version       Int                 @default(1) @map("version")
+  esOficial     Boolean             @default(true) @map("es_oficial")
+  estaCongelado Boolean             @default(false) @map("esta_congelado")
+  congeladoPor  String?             @map("congelado_por")
+  congeladoEn   DateTime?           @map("congelado_en") @db.Timestamptz(3)
+  filas         Int                 @default(0) @map("filas")
+  total         Decimal             @default(0) @map("total") @db.Decimal(18, 2)
+  // Novedades de la carga (estilo balance): observaciones libres + respuestas del checklist
+  // de verificación (JSON id→{respuesta, nota}). Las alertas automáticas (p. ej. negativos)
+  // NO se guardan: se recalculan al leer desde el detalle.
+  observaciones String?             @map("observaciones")
+  verificaciones Json?              @map("verificaciones")
+  cargadoPor    String?             @map("cargado_por")
+  cargadoPorId  Int?                @map("cargado_por_id")
+  creadoEn      DateTime            @default(now()) @map("creado_en") @db.Timestamptz(3)
+  detalles      ModuloDatoDetalle[]
+
+  @@unique([clienteId, moduloCodigo, periodo, version])
+  @@index([moduloCodigo, clienteId])
+  @@map("modulo_dato_encabezado")
+}
+
+model ModuloDatoDetalle {
+  id           Int                  @id @default(autoincrement()) @map("id")
+  encabezado   ModuloDatoEncabezado @relation(fields: [encabezadoId], references: [id], onDelete: Cascade)
+  encabezadoId Int                  @map("encabezado_id")
+  filaNum      Int                  @map("fila_num")
+  clasificador String?              @map("clasificador")
+  valor        Decimal              @default(0) @map("valor") @db.Decimal(18, 2)
+  datos        Json                 @default("{}") @map("datos")
+
+  @@index([encabezadoId])
+  @@index([clasificador])
+  @@map("modulo_dato_detalle")
+}
+
+// Perfil de CARGA por (cliente, módulo): memoria del mapeo de columnas del archivo,
+// llaveada por la HUELLA del layout. En cargas siguientes con la misma huella el spec se
+// aplica DETERMINISTA (0 IA). FK suave a `clientes` (Int, sin @relation).
+model PerfilCargaModulo {
+  id             Int       @id @default(autoincrement()) @map("id")
+  clienteId      Int       @map("cliente_id")
+  moduloCodigo   String    @map("modulo_codigo")
+  huella         String    @map("huella")
+  specJson       Json      @map("spec_json") // spec de mapeo (rol interno → columna 1-based, hoja, filas)
+  origen         String    @map("origen") // ia | manual (manual NUNCA se degrada a ia)
+  vecesUsado     Int       @default(0) @map("veces_usado")
+  ultimoUsoEn    DateTime? @map("ultimo_uso_en") @db.Timestamptz(3)
+  archivoEjemplo String?   @map("archivo_ejemplo")
+  creadoPor      String?   @map("creado_por")
+  creadoPorId    Int?      @map("creado_por_id")
+  creadoEn       DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
+  actualizadoEn  DateTime  @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+
+  @@unique([clienteId, moduloCodigo, huella])
+  @@index([huella])
+  @@map("perfiles_carga_modulo")
+}
+
+// Preferencias por defecto del cliente para la carga de un módulo (una fila por
+// cliente+módulo). FK suave a `clientes` (Int, sin @relation).
+model AjustesCargaModulo {
+  id             Int      @id @default(autoincrement()) @map("id")
+  clienteId      Int      @map("cliente_id")
+  moduloCodigo   String   @map("modulo_codigo")
+  hojaPreferida  String?  @map("hoja_preferida")
+  observaciones  String?  @map("observaciones") @db.Text
+  actualizadoPor String?  @map("actualizado_por")
+  creadoEn       DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+  actualizadoEn  DateTime @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+
+  @@unique([clienteId, moduloCodigo])
+  @@map("ajustes_carga_modulo")
+}
+
+// Correcciones por fila memorizadas al editar el borrador (marcar «agrupador», omitir),
+// re-aplicadas en cargas siguientes del mismo cliente+módulo. Clave estable entre
+// archivos (referencia / clasificador+referencia).
+model CorreccionCargaModulo {
+  id              Int       @id @default(autoincrement()) @map("id")
+  clienteId       Int       @map("cliente_id")
+  moduloCodigo    String    @map("modulo_codigo")
+  clave           String    @map("clave")
+  nombre          String?   @map("nombre")
+  tipoFilaForzado String?   @map("tipo_fila_forzado") // agrupadora | movimiento | null
+  omitida         Boolean?  @map("omitida") // tri-estado
+  vecesAplicada   Int       @default(0) @map("veces_aplicada")
+  ultimoUsoEn     DateTime? @map("ultimo_uso_en") @db.Timestamptz(3)
+  actualizadoPor  String?   @map("actualizado_por")
+  creadoEn        DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
+  actualizadoEn   DateTime  @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+
+  @@unique([clienteId, moduloCodigo, clave])
+  @@map("correcciones_carga_modulo")
+}
+
+// Consolidación POR CLIENTE: cada clasificador (p. ej. tipo de inventario) cruza contra
+// una cuenta de 4 díg del plan estándar. Alimenta la pestaña «Consolidado» y el futuro
+// cruce contra el balance. FK suave a `clientes` (Int, sin @relation).
+model ConsolidacionModuloCliente {
+  id             Int      @id @default(autoincrement()) @map("id")
+  clienteId      Int      @map("cliente_id")
+  moduloCodigo   String   @map("modulo_codigo")
+  clasificador   String   @map("clasificador")
+  cuenta4        String   @map("cuenta_4") // cuenta de 4 díg contra la que cruza
+  actualizadoPor String?  @map("actualizado_por")
+  creadoEn       DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+  actualizadoEn  DateTime @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+
+  @@unique([clienteId, moduloCodigo, clasificador])
+  @@index([moduloCodigo, clienteId])
+  @@map("consolidacion_modulo_cliente")
+}
+
 // ===== Prevalidador de homologación =====
 // Catálogo GLOBAL de plataforma: qué cuentas del plan estándar Russell se comparan
 // contra el PUC del cliente antes de conciliar, y bajo qué módulo se agrupan. El

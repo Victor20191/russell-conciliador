@@ -1,4 +1,5 @@
 import type { IconName } from "@/components/icons";
+import { MODULOS_IMPORT } from "@/lib/modulos/descriptores";
 
 export type NavChild = {
   label: string;
@@ -45,6 +46,22 @@ export const workNav: NavItem[] = [
       { label: "En proceso", href: "/conciliacion/en-proceso", count: 4, permiso: "conciliaciones:ver", modulo: "conciliaciones" },
       { label: "Resultados", href: "/conciliacion/resultados", permiso: "conciliaciones:ver", modulo: "conciliaciones" },
     ],
+  },
+  {
+    // Motor genérico de módulos de conciliación (Inventarios, y a futuro
+    // Activos Fijos, Cartera, CxP, Ingresos, Nómina). Los hijos se derivan del
+    // catálogo de descriptores: agregar un descriptor lo publica aquí solo.
+    label: "Módulos de conciliación",
+    href: `/modulos/${(Object.values(MODULOS_IMPORT)[0]?.codigo ?? "INV").toLowerCase()}`,
+    icon: "box",
+    permiso: "modulos_datos:ver",
+    modulo: "modulos_datos",
+    children: Object.values(MODULOS_IMPORT).map((m) => ({
+      label: m.label,
+      href: `/modulos/${m.codigo.toLowerCase()}`,
+      permiso: "modulos_datos:ver",
+      modulo: "modulos_datos",
+    })),
   },
   { label: "Impuestos · DIAN", href: "/dian", icon: "doc", count: 2, permiso: "dian:ver", modulo: "dian" },
   {
