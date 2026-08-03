@@ -224,7 +224,7 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
   if (!periodo) return { ok: false, message: "Indica el período (p. ej. 2026-03)." };
   const observaciones = String(formData.get("observaciones") ?? "").trim().slice(0, 4000) || null;
   try {
-    const lote = await prisma.moduloImportacionLote.findUnique({ where: { loteId }, select: { clienteId: true, moduloCodigo: true, periodoInicial: true, periodoFinal: true } });
+    const lote = await prisma.moduloImportacionLote.findUnique({ where: { loteId }, select: { id: true, clienteId: true, moduloCodigo: true, periodoInicial: true, periodoFinal: true } });
     if (!lote?.clienteId) return { ok: false, message: "El borrador ya no existe o no tiene cliente." };
     const scope = await authorizePermiso("modulos_datos:crear", { clientId: lote.clienteId });
     if (!scope.ok) return { ok: false, message: scope.message };
@@ -274,6 +274,11 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
         },
         select: { id: true },
       });
+      // Migra los comentarios por renglón del borrador al definitivo (mismo ancla `fila:<n>`).
+      await tx.comment.updateMany({
+        where: { entityType: "modulos_borrador", entityId: lote.id },
+        data: { entityType: "modulos_datos", entityId: enc.id },
+      });
       // Purga del borrador (staging + lote): ambos deben desaparecer con el commit.
       await tx.moduloImportacionStaging.deleteMany({ where: { loteId } });
       await tx.moduloImportacionLote.deleteMany({ where: { loteId } });
@@ -297,13 +302,14 @@ export async function descartarBorradorModulo(loteId: string): Promise<ActionSta
   const id = String(loteId ?? "").trim();
   if (!id) return { ok: false, message: "Borrador inválido." };
   try {
-    const lote = await prisma.moduloImportacionLote.findUnique({ where: { loteId: id }, select: { clienteId: true, moduloCodigo: true } });
+    const lote = await prisma.moduloImportacionLote.findUnique({ where: { loteId: id }, select: { id: true, clienteId: true, moduloCodigo: true } });
     if (!lote) return { ok: true, message: "El borrador ya no existía." };
     if (lote.clienteId) {
       const scope = await authorizePermiso("modulos_datos:crear", { clientId: lote.clienteId });
       if (!scope.ok) return { ok: false, message: scope.message };
     }
     await prisma.$transaction([
+      prisma.comment.deleteMany({ where: { entityType: "modulos_borrador", entityId: lote.id } }),
       prisma.moduloImportacionStaging.deleteMany({ where: { loteId: id } }),
       prisma.moduloImportacionLote.deleteMany({ where: { loteId: id } }),
     ]);

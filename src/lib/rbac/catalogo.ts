@@ -145,6 +145,9 @@ export const PERMISOS: Permiso[] = [
   { code: "dian:comentar", module: "dian", action: "comentar", label: "Comentar en Impuestos · DIAN", roles: TODOS },
   { code: "clientes:comentar", module: "clientes", action: "comentar", label: "Comentar en clientes", roles: TODOS },
   { code: "modulos_datos:comentar", module: "modulos_datos", action: "comentar", label: "Comentar en módulos de conciliación", roles: TODOS },
+  // Comentarios a nivel de RENGLÓN del BORRADOR (staging). Se migran al definitivo al confirmar.
+  { code: "modulos_borrador:ver", module: "modulos_borrador", action: "ver", label: "Ver comentarios del borrador de módulos", roles: TODOS },
+  { code: "modulos_borrador:comentar", module: "modulos_borrador", action: "comentar", label: "Comentar en el borrador de módulos", roles: TODOS },
 
   // ===== Operativo (crear/editar/ejecutar) — SOLO Staff (excepto la carga
   // de balance, abierta también a administradores de plataforma) =====

@@ -197,6 +197,15 @@ export const clienteDeModuloDato = cache(async (encabezadoId: number): Promise<n
   return enc?.clienteId ?? null;
 });
 
+/** Cliente de un borrador de módulo (por el id numérico del lote de staging). */
+export const clienteDeLoteModulo = cache(async (loteId: number): Promise<number | null> => {
+  const lote = await prisma.moduloImportacionLote.findUnique({
+    where: { id: loteId },
+    select: { clienteId: true },
+  });
+  return lote?.clienteId ?? null;
+});
+
 /** Cliente de una conciliación: usa la FK si existe; si no (datos legado), por nombre. */
 export const clienteDeConciliacion = cache(async (reconciliationId: number): Promise<number | null> => {
   const rec = await prisma.reconciliation.findUnique({

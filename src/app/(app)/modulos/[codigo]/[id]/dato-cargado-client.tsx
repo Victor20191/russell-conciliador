@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui";
 import { fmt, fmtNum } from "@/lib/format";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
+import ComentarioAncla from "@/components/comentario-ancla";
 import { guardarConsolidacionModulo } from "@/app/actions/modulos-datos";
 
 export type FilaDetalleVm = { filaNum: number; clasificador: string | null; valor: number; datos: Record<string, string | number | null> };
@@ -22,6 +23,8 @@ const etiquetaResp = (r: "si" | "no" | "na" | null) => (r === "si" ? "Sí" : r =
 
 export default function DatoCargadoClient({
   moduloCodigo,
+  encabezadoId,
+  comentarios,
   clienteId,
   total,
   columnas,
@@ -33,6 +36,8 @@ export default function DatoCargadoClient({
   puedeEditar,
 }: {
   moduloCodigo: string;
+  encabezadoId: number;
+  comentarios: Record<string, number>;
   clienteId: number;
   total: number;
   columnas: Columna[];
@@ -65,9 +70,9 @@ export default function DatoCargadoClient({
       </div>
 
       {tab === "consolidado" ? (
-        <ConsolidadoTab moduloCodigo={moduloCodigo} clienteId={clienteId} clasificadorEtiqueta={clasificadorEtiqueta} consolidado={consolidado} cuentas={cuentas} puedeEditar={puedeEditar} />
+        <ConsolidadoTab moduloCodigo={moduloCodigo} clienteId={clienteId} clasificadorEtiqueta={clasificadorEtiqueta} consolidado={consolidado} cuentas={cuentas} puedeEditar={puedeEditar} encabezadoId={encabezadoId} comentarios={comentarios} />
       ) : tab === "detalle" ? (
-        <DetalleTab columnas={columnas} clasificadorEtiqueta={clasificadorEtiqueta} detalle={detalle} negativosFilas={filasNovedad} />
+        <DetalleTab columnas={columnas} clasificadorEtiqueta={clasificadorEtiqueta} detalle={detalle} negativosFilas={filasNovedad} encabezadoId={encabezadoId} comentarios={comentarios} />
       ) : (
         <NovedadesTab novedades={novedades} />
       )}
@@ -82,6 +87,8 @@ function ConsolidadoTab({
   consolidado,
   cuentas,
   puedeEditar,
+  encabezadoId,
+  comentarios,
 }: {
   moduloCodigo: string;
   clienteId: number;
@@ -89,6 +96,8 @@ function ConsolidadoTab({
   consolidado: ConsolidadoVm[];
   cuentas: CuentaOpt[];
   puedeEditar: boolean;
+  encabezadoId: number;
+  comentarios: Record<string, number>;
 }) {
   const router = useRouter();
   // Prefill: si no hay cuenta guardada y el clasificador ES un código de cuenta
@@ -126,6 +135,7 @@ function ConsolidadoTab({
               <th className="px-3 py-2 text-right font-semibold">Filas</th>
               <th className="px-3 py-2 text-right font-semibold">Total</th>
               <th className="px-3 py-2 font-semibold">Cuenta (4 díg)</th>
+              <th className="px-3 py-2 text-center font-semibold">💬</th>
             </tr>
           </thead>
           <tbody>
@@ -169,6 +179,9 @@ function ConsolidadoTab({
                       <span className="text-[11.5px] font-medium text-warn-700">sin cuenta</span>
                     )}
                   </td>
+                  <td className="px-3 py-2 text-center">
+                    <ComentarioAncla tipo="modulos_datos" entityId={encabezadoId} anchor={`tipo:${c.clasificador}`} titulo={`${clasificadorEtiqueta}: ${c.clasificador}`} count={comentarios[`tipo:${c.clasificador}`] ?? 0} />
+                  </td>
                 </tr>
               );
             })}
@@ -182,7 +195,7 @@ function ConsolidadoTab({
   );
 }
 
-function DetalleTab({ columnas, clasificadorEtiqueta, detalle, negativosFilas }: { columnas: Columna[]; clasificadorEtiqueta: string; detalle: FilaDetalleVm[]; negativosFilas: Set<number> }) {
+function DetalleTab({ columnas, clasificadorEtiqueta, detalle, negativosFilas, encabezadoId, comentarios }: { columnas: Columna[]; clasificadorEtiqueta: string; detalle: FilaDetalleVm[]; negativosFilas: Set<number>; encabezadoId: number; comentarios: Record<string, number> }) {
   const esNum = (t: string) => t === "moneda" || t === "numero";
   const celda = (f: FilaDetalleVm, col: Columna) => {
     const v = f.datos[col.nombre];
@@ -213,6 +226,7 @@ function DetalleTab({ columnas, clasificadorEtiqueta, detalle, negativosFilas }:
               {columnas.map((c) => (
                 <th key={c.nombre} className={`px-2.5 py-2 font-semibold ${esNum(c.tipo) ? "text-right" : ""}`}>{c.etiqueta}</th>
               ))}
+              <th className="px-2.5 py-2 text-center font-semibold">💬</th>
             </tr>
           </thead>
           <tbody>
@@ -225,6 +239,7 @@ function DetalleTab({ columnas, clasificadorEtiqueta, detalle, negativosFilas }:
                     <span className="ml-2 font-normal text-ink-500">· {g.filas.length} ítems</span>
                   </td>
                   <td className="px-2.5 py-1.5 text-right font-semibold tabular-nums text-navy-800">{fmt(g.subtotal)}</td>
+                  <td className="px-2.5 py-1.5" />
                 </tr>
                 {g.filas.map((f) => (
                   <tr key={f.filaNum} className={`border-t border-ink-100 ${negativosFilas.has(f.filaNum) ? "bg-err-100 text-err-700" : "text-ink-700"}`}>
@@ -232,6 +247,9 @@ function DetalleTab({ columnas, clasificadorEtiqueta, detalle, negativosFilas }:
                     {columnas.map((c) => (
                       <td key={c.nombre} className={`px-2.5 py-1.5 ${esNum(c.tipo) ? "text-right tabular-nums" : ""}`}>{celda(f, c)}</td>
                     ))}
+                    <td className="px-2.5 py-1.5 text-center">
+                      <ComentarioAncla tipo="modulos_datos" entityId={encabezadoId} anchor={`fila:${f.filaNum}`} titulo={`Fila ${f.filaNum}${f.datos.referencia ? ` · ${f.datos.referencia}` : ""}`} count={comentarios[`fila:${f.filaNum}`] ?? 0} />
+                    </td>
                   </tr>
                 ))}
               </Fragment>

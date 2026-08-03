@@ -29,15 +29,18 @@ export default async function DatoModuloPage({ params }: { params: Promise<{ cod
   // ¿Puede editar la consolidación de este cliente?
   const puedeEditar = (await authorizePermiso("modulos_datos:editar", { clientId: encabezado.clienteId })).ok;
 
-  const [consolidacionRows, subgrupos] = await Promise.all([
+  const [consolidacionRows, subgrupos, comentariosGrp] = await Promise.all([
     prisma.consolidacionModuloCliente.findMany({
       where: { clienteId: encabezado.clienteId, moduloCodigo },
       select: { clasificador: true, cuenta4: true },
     }),
     prisma.subgrupoEstandar.findMany({ select: { codigo: true, nombre: true }, orderBy: { codigo: "asc" } }),
+    prisma.comment.groupBy({ by: ["anchor"], where: { entityType: "modulos_datos", entityId: encabezadoId }, _count: { _all: true } }),
   ]);
   const cuentaPorClasificador = new Map(consolidacionRows.map((r) => [r.clasificador, r.cuenta4]));
   const nombrePorCuenta = new Map(subgrupos.map((s) => [s.codigo, s.nombre]));
+  const comentariosPorAncla: Record<string, number> = {};
+  for (const g of comentariosGrp) if (g.anchor) comentariosPorAncla[g.anchor] = g._count._all;
 
   const detalleVm: FilaDetalleVm[] = encabezado.detalles.map((d) => ({
     filaNum: d.filaNum,
@@ -76,6 +79,8 @@ export default async function DatoModuloPage({ params }: { params: Promise<{ cod
       />
       <DatoCargadoClient
         moduloCodigo={moduloCodigo}
+        encabezadoId={encabezado.id}
+        comentarios={comentariosPorAncla}
         clienteId={encabezado.clienteId}
         total={Number(encabezado.total)}
         columnas={descriptor.columnas.map((c) => ({ nombre: c.nombre, etiqueta: c.etiqueta, tipo: c.tipo }))}
