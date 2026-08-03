@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   AvisoAutoCorreccionSoloHojas,
   combinarRevisionesReubicacion,
+  esAlertaNodo,
   etiquetaPerfilSoloHojas,
   filtrarReubicacionesPendientes,
   GestionarAgrupadoraModal,
@@ -11,8 +12,9 @@ import {
   ProteccionSubtotalesPanel,
   retirarConfirmacionesLocales,
 } from "./borrador-detail-client";
-import type { CuentaReubicacion, IndiceReubicacion } from "@/lib/balance/borrador";
+import type { CuentaReubicacion, IndiceReubicacion, NodoBorrador } from "@/lib/balance/borrador";
 import type { RevisionReubicacionStaging } from "@/lib/balance/staging-borrador";
+import { UMBRALES_ALERTAS_DEFECTO } from "@/lib/balance/umbrales-alertas";
 
 const revisionGuardada: RevisionReubicacionStaging = {
   filaNum: 737,
@@ -21,6 +23,59 @@ const revisionGuardada: RevisionReubicacionStaging = {
   revisadaPorId: 10,
   revisadaEn: "2026-07-28T15:00:00.000Z",
 };
+
+function agrupadoraManualVacia(
+  codigo: string,
+  montos: Partial<Pick<NodoBorrador, "saldoInicial" | "debitos" | "creditos" | "saldoFinal">> = {},
+): NodoBorrador {
+  return {
+    filaNum: 1,
+    codigo,
+    codigoCrudo: codigo,
+    nombre: "CUENTA DE PRUEBA",
+    nivel: codigo.length,
+    tipoFila: "agrupadora",
+    tipoFilaForzado: "agrupadora",
+    saldoInicial: 0,
+    debitos: 0,
+    creditos: 0,
+    saldoFinal: 0,
+    descuadre: null,
+    subtotalDuplicado: false,
+    hijos: [],
+    ...montos,
+  };
+}
+
+describe("filtro de alertas del borrador", () => {
+  it.each([
+    ["32130105", { saldoFinal: 2_128_795_465.81 }],
+    ["6160030101", { debitos: 317_282_490, creditos: 347_454, saldoFinal: 1_041_123_679 }],
+    ["73870205", { debitos: 584_000, saldoFinal: 584_000 }],
+    ["73870206", { saldoFinal: 400_000 }],
+  ])("incluye la agrupadora manual huérfana %s que aporta al descuadre", (codigo, montos) => {
+    expect(esAlertaNodo(agrupadoraManualVacia(codigo, montos), UMBRALES_ALERTAS_DEFECTO)).toBe(true);
+  });
+
+  it("usa el umbral de descuadre e incluye también el saldo inicial", () => {
+    const bajoUmbral = agrupadoraManualVacia("11050501", { saldoInicial: 1_999 });
+    const enUmbral = agrupadoraManualVacia("11050502", { saldoInicial: 2_000 });
+
+    expect(esAlertaNodo(bajoUmbral, UMBRALES_ALERTAS_DEFECTO)).toBe(false);
+    expect(esAlertaNodo(enUmbral, UMBRALES_ALERTAS_DEFECTO)).toBe(true);
+  });
+
+  it("ignora agrupadoras manuales vacías sin materialidad, con hijos o ya omitidas", () => {
+    const sinMonto = agrupadoraManualVacia("11050503");
+    const conHijo = agrupadoraManualVacia("11050504", { saldoFinal: 100_000 });
+    conHijo.hijos = [{ ...agrupadoraManualVacia("1105050401", { saldoFinal: 100_000 }), tipoFila: "movimiento", tipoFilaForzado: null }];
+    const omitida = { ...agrupadoraManualVacia("11050505", { saldoFinal: 100_000 }), omitida: true };
+
+    expect(esAlertaNodo(sinMonto, UMBRALES_ALERTAS_DEFECTO)).toBe(false);
+    expect(esAlertaNodo(conHijo, UMBRALES_ALERTAS_DEFECTO)).toBe(false);
+    expect(esAlertaNodo(omitida, UMBRALES_ALERTAS_DEFECTO)).toBe(false);
+  });
+});
 
 describe("estado visual de las revisiones de reubicación", () => {
   it("mantiene la cuenta revisada con la confirmación de la acción mientras llega el refresh", () => {
