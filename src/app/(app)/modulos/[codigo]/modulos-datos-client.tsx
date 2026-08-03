@@ -5,16 +5,22 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Modal } from "@/components/modal";
 import { Card } from "@/components/ui";
-import { fmt, fmtDate, fmtDateTime } from "@/lib/format";
+import { fmtContable, fmtDate, fmtDateTime } from "@/lib/format";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import { columnaLetra } from "@/lib/balance/extraccion/hojas-cliente";
+import ConversacionesEntidad from "@/components/conversaciones-entidad";
 import type { SpecModulo } from "@/lib/modulos/extraccion/esquema";
 import { leerDatosModulo, analizarArchivoModulo, type AnalisisModulo, type CeldaMuestra } from "@/app/actions/modulos-datos";
 
 type Cliente = { id: number; name: string; nit: string };
 type Rol = { nombre: string; etiqueta: string; tipo: string; requerido: boolean };
-type Borrador = { loteId: string; cliente: string; archivoNombre: string; filas: number; creadoEn: string };
-type Cargado = { id: number; cliente: string; periodo: string; version: number; filas: number; total: number; creadoEn: string; cargadoPor: string | null };
+type Borrador = { loteId: string; cliente: string; archivoNombre: string; filas: number; creadoEn: string; comentarios: number };
+type Cargado = { id: number; cliente: string; periodo: string; version: number; filas: number; total: number; creadoEn: string; cargadoPor: string | null; comentarios: number };
+
+function BadgeComentarios({ n }: { n: number }) {
+  if (!n) return null;
+  return <span className="inline-flex items-center gap-0.5 rounded-full bg-blue-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-blue-600" title={`${n} comentario(s)`}>💬 {n}</span>;
+}
 
 export default function ModulosDatosClient({
   moduloCodigo,
@@ -35,6 +41,7 @@ export default function ModulosDatosClient({
 }) {
   const router = useRouter();
   const [abierto, setAbierto] = useState(false);
+  const [conversando, setConversando] = useState<{ tipo: string; entityId: number; titulo: string } | null>(null);
   const ruta = `/modulos/${moduloCodigo.toLowerCase()}`;
 
   return (
@@ -60,6 +67,10 @@ export default function ModulosDatosClient({
         />
       )}
 
+      {conversando && (
+        <ConversacionesEntidad tipo={conversando.tipo} entityId={conversando.entityId} titulo={conversando.titulo} onClose={() => setConversando(null)} />
+      )}
+
       {borradores.length > 0 && (
         <Card className="p-4">
           <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-warn-700">Borradores por confirmar</div>
@@ -72,7 +83,7 @@ export default function ModulosDatosClient({
               >
                 <span className="font-medium text-ink-800">{b.cliente}</span>
                 <span className="truncate font-mono text-[11px] text-ink-500" title={b.archivoNombre}>{b.archivoNombre}</span>
-                <span className="whitespace-nowrap text-ink-500">{b.filas} filas · {fmtDate(b.creadoEn)}</span>
+                <span className="flex items-center gap-2 whitespace-nowrap text-ink-500"><BadgeComentarios n={b.comentarios} />{b.filas} filas · {fmtDate(b.creadoEn)}</span>
               </Link>
             ))}
           </div>
@@ -95,6 +106,7 @@ export default function ModulosDatosClient({
                   <th className="px-2.5 py-1.5 font-semibold">Ver.</th>
                   <th className="px-2.5 py-1.5 text-right font-semibold">Filas</th>
                   <th className="px-2.5 py-1.5 text-right font-semibold">Total</th>
+                  <th className="px-2.5 py-1.5 text-center font-semibold">💬</th>
                   <th className="px-2.5 py-1.5 font-semibold">Cargado</th>
                 </tr>
               </thead>
@@ -105,7 +117,16 @@ export default function ModulosDatosClient({
                     <td className="px-2.5 py-1.5 text-ink-600">{c.periodo}</td>
                     <td className="px-2.5 py-1.5 text-ink-500">v{c.version}</td>
                     <td className="px-2.5 py-1.5 text-right tabular-nums text-ink-600">{c.filas}</td>
-                    <td className="px-2.5 py-1.5 text-right font-semibold tabular-nums text-ink-800">{fmt(c.total)}</td>
+                    <td className="px-2.5 py-1.5 text-right font-semibold tabular-nums text-ink-800">{fmtContable(c.total)}</td>
+                    <td className="px-2.5 py-1.5 text-center">
+                      {c.comentarios ? (
+                        <button type="button" title="Ver conversaciones" onClick={(e) => { e.stopPropagation(); setConversando({ tipo: "modulos_datos", entityId: c.id, titulo: `${c.cliente} · ${c.periodo} v${c.version}` }); }}>
+                          <BadgeComentarios n={c.comentarios} />
+                        </button>
+                      ) : (
+                        <span className="text-ink-300">—</span>
+                      )}
+                    </td>
                     <td className="px-2.5 py-1.5 text-ink-500">
                       <div className="whitespace-nowrap tabular-nums">{fmtDateTime(c.creadoEn)}</div>
                       <div className="text-[11px] text-ink-400">{c.cargadoPor ?? "—"}</div>

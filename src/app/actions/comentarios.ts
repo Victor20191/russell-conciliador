@@ -6,7 +6,8 @@ import { authorizePermiso } from "@/lib/rbac";
 import { getMatriz, clienteDeBalance, clienteDeConciliacion, clienteDeModuloDato, clienteDeLoteModulo } from "@/lib/rbac/contexto";
 import { tienePermiso } from "@/lib/rbac/permisos";
 import { esEntidadComentable, etiquetaEntidad } from "@/lib/comentarios";
-import { fmtDateTime } from "@/lib/format";
+import { fmtDateTime, fmtNum, fmtContable } from "@/lib/format";
+import { descriptorModulo, type DescriptorModulo } from "@/lib/modulos/descriptores";
 import { mensajeErrorBD, registrarError } from "@/lib/errores";
 
 // ============================================================
@@ -138,6 +139,68 @@ export async function listarComentarios(
     return { ok: true, comentarios, puedeComentar: comentar.ok };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("listarComentarios", e) };
+  }
+}
+
+export type HiloComentarios = { anchor: string | null; count: number; contexto?: string };
+
+// Contexto legible de una fila de módulo: referencia · descripción · cant X · $ Y.
+function contextoFilaModulo(desc: DescriptorModulo | null, datos: Record<string, unknown>, valor: number): string {
+  const refRol = desc?.columnas.find((c) => /ref/i.test(c.nombre))?.nombre;
+  const cantRol = desc?.columnas.find((c) => c.tipo === "numero")?.nombre;
+  const ref = refRol ? datos[refRol] : null;
+  const descr = datos["descripcion"];
+  const cant = cantRol ? datos[cantRol] : null;
+  const cabeza = [ref, descr].filter((v) => v != null && v !== "").map(String).join(" · ");
+  const meta: string[] = [];
+  if (cant != null && cant !== "") meta.push(`cant ${fmtNum(Number(cant))}`);
+  meta.push(fmtContable(valor));
+  return [cabeza, meta.join(" · ")].filter(Boolean).join(" · ");
+}
+
+/** Enriquece los hilos `fila:N` de un módulo con el contexto del ítem (ref/desc/cant/costo). */
+async function enriquecerHilosModulo(tipo: string, entityId: number, hilos: HiloComentarios[]): Promise<HiloComentarios[]> {
+  const filaNums = hilos.map((h) => h.anchor).filter((a): a is string => !!a && a.startsWith("fila:")).map((a) => Number(a.slice(5))).filter(Number.isInteger);
+  if (filaNums.length === 0) return hilos;
+  let moduloCodigo = "";
+  const ctx = new Map<number, { valor: number; datos: Record<string, unknown> }>();
+  if (tipo === "modulos_datos") {
+    const enc = await prisma.moduloDatoEncabezado.findUnique({ where: { id: entityId }, select: { moduloCodigo: true } });
+    if (!enc) return hilos;
+    moduloCodigo = enc.moduloCodigo;
+    const filas = await prisma.moduloDatoDetalle.findMany({ where: { encabezadoId: entityId, filaNum: { in: filaNums } }, select: { filaNum: true, valor: true, datos: true } });
+    for (const f of filas) ctx.set(f.filaNum, { valor: Number(f.valor), datos: (f.datos ?? {}) as Record<string, unknown> });
+  } else {
+    const lote = await prisma.moduloImportacionLote.findUnique({ where: { id: entityId }, select: { moduloCodigo: true, loteId: true } });
+    if (!lote) return hilos;
+    moduloCodigo = lote.moduloCodigo;
+    const filas = await prisma.moduloImportacionStaging.findMany({ where: { loteId: lote.loteId, filaNum: { in: filaNums } }, select: { filaNum: true, valor: true, datos: true } });
+    for (const f of filas) ctx.set(f.filaNum, { valor: Number(f.valor), datos: (f.datos ?? {}) as Record<string, unknown> });
+  }
+  const desc = descriptorModulo(moduloCodigo);
+  return hilos.map((h) => {
+    if (!h.anchor?.startsWith("fila:")) return h;
+    const fila = ctx.get(Number(h.anchor.slice(5)));
+    return fila ? { ...h, contexto: contextoFilaModulo(desc, fila.datos, fila.valor) } : h;
+  });
+}
+
+/** Hilos (anclas) con comentarios de una entidad + su conteo. Para el modal «ver todas
+ *  las conversaciones» del listado. `anchor: null` = conversación general. */
+export async function resumenComentarios(tipo: string, entityId: number): Promise<HiloComentarios[]> {
+  if (!esEntidadComentable(tipo) || !Number.isSafeInteger(entityId)) return [];
+  const ver = await authorizePermiso(`${tipo}:ver`);
+  if (!ver.ok) return [];
+  const alc = await alcanceDeEntidad(tipo, entityId);
+  if (alc.scoped && !(await authorizePermiso(`${tipo}:ver`, { clientId: alc.clientId })).ok) return [];
+  try {
+    const grp = await prisma.comment.groupBy({ by: ["anchor"], where: { entityType: tipo, entityId }, _count: { _all: true } });
+    let hilos: HiloComentarios[] = grp.map((g) => ({ anchor: g.anchor, count: g._count._all }));
+    if (tipo === "modulos_datos" || tipo === "modulos_borrador") hilos = await enriquecerHilosModulo(tipo, entityId, hilos);
+    return hilos.sort((a, b) => (a.anchor === null ? -1 : b.anchor === null ? 1 : a.anchor.localeCompare(b.anchor, "es", { numeric: true })));
+  } catch (e) {
+    registrarError("resumenComentarios", e);
+    return [];
   }
 }
 

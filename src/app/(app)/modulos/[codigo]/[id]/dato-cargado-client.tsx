@@ -3,7 +3,7 @@
 import { Fragment, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui";
-import { fmt, fmtNum } from "@/lib/format";
+import { fmtContable, fmtNum } from "@/lib/format";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import ComentarioAncla from "@/components/comentario-ancla";
 import { guardarConsolidacionModulo } from "@/app/actions/modulos-datos";
@@ -66,7 +66,7 @@ export default function DatoCargadoClient({
             {t === "novedades" && alertas > 0 && <span className="ml-1.5 rounded-full bg-err-100 px-1.5 text-[10px] font-bold text-err-700">{alertas}</span>}
           </button>
         ))}
-        <span className="ml-auto text-[12px] text-ink-500">Total: <span className="font-semibold text-ink-800">{fmt(total)}</span></span>
+        <span className="ml-auto text-[12px] text-ink-500">Total: <span className="font-semibold text-ink-800">{fmtContable(total)}</span></span>
       </div>
 
       {tab === "consolidado" ? (
@@ -147,7 +147,7 @@ function ConsolidadoTab({
                 <tr key={c.clasificador} className="border-t border-ink-100">
                   <td className="px-3 py-2 font-medium text-ink-800">{c.clasificador}</td>
                   <td className="px-3 py-2 text-right tabular-nums text-ink-500">{c.filas}</td>
-                  <td className="px-3 py-2 text-right font-semibold tabular-nums text-ink-800">{fmt(c.total)}</td>
+                  <td className="px-3 py-2 text-right font-semibold tabular-nums text-ink-800">{fmtContable(c.total)}</td>
                   <td className="px-3 py-2">
                     {puedeEditar ? (
                       <div className="flex items-center gap-2">
@@ -200,7 +200,7 @@ function DetalleTab({ columnas, clasificadorEtiqueta, detalle, negativosFilas, e
   const celda = (f: FilaDetalleVm, col: Columna) => {
     const v = f.datos[col.nombre];
     if (v == null || v === "") return "—";
-    if (col.tipo === "moneda") return fmt(Number(v));
+    if (col.tipo === "moneda") return fmtContable(Number(v));
     if (col.tipo === "numero") return fmtNum(Number(v));
     return String(v);
   };
@@ -238,7 +238,7 @@ function DetalleTab({ columnas, clasificadorEtiqueta, detalle, negativosFilas, e
                     {clasificadorEtiqueta}: {g.clasificador}
                     <span className="ml-2 font-normal text-ink-500">· {g.filas.length} ítems</span>
                   </td>
-                  <td className="px-2.5 py-1.5 text-right font-semibold tabular-nums text-navy-800">{fmt(g.subtotal)}</td>
+                  <td className="px-2.5 py-1.5 text-right font-semibold tabular-nums text-navy-800">{fmtContable(g.subtotal)}</td>
                   <td className="px-2.5 py-1.5" />
                 </tr>
                 {g.filas.map((f) => (
@@ -280,7 +280,7 @@ function NovedadesTab({ novedades }: { novedades: NovedadesVm }) {
                       <td className="px-2.5 py-1.5 tabular-nums text-ink-500">{n.filaNum}</td>
                       <td className="px-2.5 py-1.5 text-ink-700">{n.referencia ?? "—"}</td>
                       <td className="px-2.5 py-1.5 text-ink-700">{n.etiqueta}</td>
-                      <td className="px-2.5 py-1.5 text-right tabular-nums font-semibold text-err-700">{fmt(n.valor)}</td>
+                      <td className="px-2.5 py-1.5 text-right tabular-nums font-semibold text-err-700">{fmtContable(n.valor)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -303,8 +303,8 @@ function NovedadesTab({ novedades }: { novedades: NovedadesVm }) {
                   <tr key={i} className="border-t border-ink-100">
                     <td className="px-2.5 py-1.5 tabular-nums text-ink-500">{d.filaNum}</td>
                     <td className="px-2.5 py-1.5 text-ink-700">{d.referencia ?? "—"}</td>
-                    <td className="px-2.5 py-1.5 text-right tabular-nums text-ink-600">{fmt(d.esperado)}</td>
-                    <td className="px-2.5 py-1.5 text-right tabular-nums font-semibold text-err-700">{fmt(d.declarado)}</td>
+                    <td className="px-2.5 py-1.5 text-right tabular-nums text-ink-600">{fmtContable(d.esperado)}</td>
+                    <td className="px-2.5 py-1.5 text-right tabular-nums font-semibold text-err-700">{fmtContable(d.declarado)}</td>
                   </tr>
                 ))}
               </tbody>
