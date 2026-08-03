@@ -188,6 +188,15 @@ export const clienteDeBalance = cache(async (balanceId: number): Promise<number 
   return balance?.clienteId ?? null;
 });
 
+/** Cliente de un dato de módulo cargado (FK directa `clienteId` en el encabezado). */
+export const clienteDeModuloDato = cache(async (encabezadoId: number): Promise<number | null> => {
+  const enc = await prisma.moduloDatoEncabezado.findUnique({
+    where: { id: encabezadoId },
+    select: { clienteId: true },
+  });
+  return enc?.clienteId ?? null;
+});
+
 /** Cliente de una conciliación: usa la FK si existe; si no (datos legado), por nombre. */
 export const clienteDeConciliacion = cache(async (reconciliationId: number): Promise<number | null> => {
   const rec = await prisma.reconciliation.findUnique({

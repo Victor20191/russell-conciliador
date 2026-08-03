@@ -144,6 +144,7 @@ export const PERMISOS: Permiso[] = [
   { code: "conciliaciones:comentar", module: "conciliaciones", action: "comentar", label: "Comentar en conciliaciones", roles: TODOS },
   { code: "dian:comentar", module: "dian", action: "comentar", label: "Comentar en Impuestos · DIAN", roles: TODOS },
   { code: "clientes:comentar", module: "clientes", action: "comentar", label: "Comentar en clientes", roles: TODOS },
+  { code: "modulos_datos:comentar", module: "modulos_datos", action: "comentar", label: "Comentar en módulos de conciliación", roles: TODOS },
 
   // ===== Operativo (crear/editar/ejecutar) — SOLO Staff (excepto la carga
   // de balance, abierta también a administradores de plataforma) =====

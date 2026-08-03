@@ -9,8 +9,53 @@ import { ModuleFieldSchema, type ActionState } from "@/lib/definitions";
 import { parseId } from "@/lib/ids";
 import { authorizePermiso } from "@/lib/rbac";
 import { mensajeErrorBD } from "@/lib/errores";
+import { MODULOS_IMPORT } from "@/lib/modulos/descriptores";
 
 const PATH = "/config/modulos";
+
+// Los campos de estos módulos los define el MOTOR de importación (descriptores en código):
+// esta acción reCarga `campos_modulo` para reflejar exactamente esas columnas (una sola
+// fuente de verdad = código). No es edición manual; es un espejo regenerable.
+const tipoBD = (t: string) => (t === "numero" || t === "moneda" ? "number" : t === "fecha" ? "date" : "string");
+
+export async function sincronizarCamposDesdeDescriptores(): Promise<ActionState> {
+  const authz = await authorizePermiso("modulos:configurar");
+  if (!authz.ok) return { ok: false, message: authz.message };
+  try {
+    let modulos = 0;
+    let campos = 0;
+    for (const d of Object.values(MODULOS_IMPORT)) {
+      const mod = await prisma.module.upsert({
+        where: { code: d.codigo },
+        create: { code: d.codigo, name: d.label, icon: "box" },
+        update: {},
+        select: { id: true },
+      });
+      await prisma.$transaction([
+        prisma.moduleField.deleteMany({ where: { moduleId: mod.id } }),
+        prisma.moduleField.createMany({
+          data: d.columnas.map((c, i) => ({
+            moduleId: mod.id,
+            key: c.nombre,
+            label: c.etiqueta,
+            type: tipoBD(c.tipo),
+            required: c.requerido,
+            hint: c.sinonimos?.length ? `Sinónimos: ${c.sinonimos.join(", ")}` : null,
+            order: i,
+          })),
+        }),
+      ]);
+      modulos++;
+      campos += d.columnas.length;
+    }
+    const user = await getCurrentUser();
+    await logAudit({ user: user?.name ?? "Sistema", action: "SINCRONIZÓ CAMPOS DE MÓDULOS", entity: "Módulos y campos", detail: `${modulos} módulos · ${campos} campos desde el motor` });
+    revalidatePath(PATH);
+    return { ok: true, message: `Sincronizados ${campos} campos en ${modulos} módulos desde el motor.` };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("sincronizarCamposDesdeDescriptores", e) };
+  }
+}
 
 export async function createModuleField(
   _prev: ActionState,

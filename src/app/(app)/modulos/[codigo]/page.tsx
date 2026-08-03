@@ -30,7 +30,7 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
     prisma.moduloDatoEncabezado.findMany({
       where: { moduloCodigo, esOficial: true, ...filtroCliente },
       orderBy: [{ creadoEn: "desc" }],
-      select: { id: true, clienteId: true, nombreCliente: true, periodo: true, version: true, filas: true, total: true, creadoEn: true },
+      select: { id: true, clienteId: true, nombreCliente: true, periodo: true, version: true, filas: true, total: true, creadoEn: true, cargadoPor: true },
     }),
   ]);
   const nombrePorCliente = new Map(clientes.map((c) => [c.id, c.name]));
@@ -62,6 +62,7 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
           filas: c.filas,
           total: Number(c.total),
           creadoEn: c.creadoEn.toISOString(),
+          cargadoPor: c.cargadoPor,
         }))}
       />
     </div>

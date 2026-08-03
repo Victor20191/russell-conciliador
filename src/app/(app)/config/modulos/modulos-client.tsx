@@ -13,6 +13,7 @@ import {
   updateModuleField,
   deleteModuleField,
   moveModuleField,
+  sincronizarCamposDesdeDescriptores,
 } from "@/app/actions/module-fields";
 import type { ActionState } from "@/lib/definitions";
 import { notifyActionState } from "@/lib/client-notifications";
@@ -26,13 +27,18 @@ export type ModuleField = {
   hint: string | null;
   order: number;
 };
+export type DescriptorColumn = { nombre: string; etiqueta: string; tipo: string; requerido: boolean; sinonimos: string[] };
 export type ModuleWithFields = {
   id: number;
   code: string;
   name: string;
   icon: string;
   fields: ModuleField[];
+  // Columnas reales que espera el motor de importación (fuente de verdad = código).
+  descriptorColumns: DescriptorColumn[] | null;
 };
+
+const tipoLabel = (t: string) => (t === "moneda" ? "moneda" : t === "numero" ? "número" : t === "fecha" ? "fecha" : "texto");
 
 const EQUIV = [
   { name: "PUC Inventarios", count: 42, version: "v3" },
@@ -46,7 +52,7 @@ function validationFor(type: string): string {
   return "texto libre";
 }
 
-export default function ModulosClient({ modules }: { modules: ModuleWithFields[] }) {
+export default function ModulosClient({ modules, puedeConfigurar }: { modules: ModuleWithFields[]; puedeConfigurar: boolean }) {
   const router = useRouter();
   const [activeId, setActiveId] = useState(modules[0]?.id ?? 0);
   const [editing, setEditing] = useState<ModuleField | null>(null);
@@ -75,7 +81,7 @@ export default function ModulosClient({ modules }: { modules: ModuleWithFields[]
               >
                 <Icon name={m.icon as IconName} size={15} />
                 <span className="truncate">{m.name}</span>
-                <span className="ml-auto text-[11px] text-ink-400">{m.fields.length}</span>
+                <span className="ml-auto text-[11px] text-ink-400">{m.descriptorColumns?.length ?? m.fields.length}</span>
               </button>
             );
           })}
@@ -84,6 +90,9 @@ export default function ModulosClient({ modules }: { modules: ModuleWithFields[]
 
       {/* Detail */}
       <div className="flex min-w-0 flex-1 flex-col gap-4">
+        {active.descriptorColumns ? (
+          <ColumnasMotor active={active} puedeConfigurar={puedeConfigurar} onSynced={() => router.refresh()} />
+        ) : (
         <Card>
           <div className="flex items-center gap-2 border-b border-ink-100 px-4 py-3">
             <h2 className="text-[13px] font-semibold text-ink-800">
@@ -229,6 +238,7 @@ export default function ModulosClient({ modules }: { modules: ModuleWithFields[]
             </div>
           )}
         </Card>
+        )}
 
         {/* Equivalencias (informativo, fiel al prototipo) */}
         <Card>
@@ -269,6 +279,66 @@ export default function ModulosClient({ modules }: { modules: ModuleWithFields[]
         />
       )}
     </div>
+  );
+}
+
+// Vista READ-ONLY de las columnas del motor de importación (fuente de verdad = código).
+function ColumnasMotor({ active, puedeConfigurar, onSynced }: { active: ModuleWithFields; puedeConfigurar: boolean; onSynced: () => void }) {
+  const cols = active.descriptorColumns ?? [];
+  return (
+    <Card>
+      <div className="flex items-center gap-2 border-b border-ink-100 px-4 py-3">
+        <h2 className="text-[13px] font-semibold text-ink-800">{active.name} · columnas del motor</h2>
+        <Chip label={`${cols.length} columna(s)`} tone="ink" />
+        {puedeConfigurar && (
+          <div className="ml-auto">
+            <ActionForm
+              action={sincronizarCamposDesdeDescriptores}
+              successMessage="Campos sincronizados desde el motor."
+              errorMessage="No se pudo sincronizar."
+              showInlineError={false}
+              onSuccess={onSynced}
+            >
+              {(pending) => (
+                <button type="submit" disabled={pending} aria-busy={pending} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] font-semibold text-ink-700 transition hover:bg-ink-50 disabled:opacity-60">
+                  {pending ? <EstadoProcesando etiqueta="Sincronizando" /> : <><Icon name="settings" size={13} /> Sincronizar a BD</>}
+                </button>
+              )}
+            </ActionForm>
+          </div>
+        )}
+      </div>
+
+      <div className="mx-4 mt-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[11.5px] leading-relaxed text-blue-800">
+        Estas columnas las define el <b>motor de importación</b> en código (los descriptores del módulo). Esta pantalla las refleja; no se editan aquí.
+        {puedeConfigurar ? " «Sincronizar a BD» actualiza la copia que usan otras pantallas (p. ej. Conciliaciones)." : ""}
+      </div>
+
+      <div className="overflow-x-auto p-4 pt-3">
+        <table className="w-full text-[12.5px]">
+          <thead>
+            <tr className="border-b border-ink-100 text-left text-[11px] uppercase tracking-wider text-ink-500">
+              <th className="px-3 py-2 font-semibold">Campo</th>
+              <th className="px-3 py-2 font-semibold">Etiqueta</th>
+              <th className="px-3 py-2 font-semibold">Tipo</th>
+              <th className="px-3 py-2 font-semibold">Requerido</th>
+              <th className="px-3 py-2 font-semibold">Sinónimos (auto-mapeo)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {cols.map((c) => (
+              <tr key={c.nombre} className="border-b border-ink-50 last:border-0">
+                <td className="px-3 py-2.5 font-mono text-navy-700">{c.nombre}</td>
+                <td className="px-3 py-2.5 text-ink-800">{c.etiqueta}</td>
+                <td className="px-3 py-2.5"><Chip label={tipoLabel(c.tipo)} tone="ink" /></td>
+                <td className="px-3 py-2.5">{c.requerido ? <Chip label="Sí" tone="err" /> : <Chip label="No" tone="ink" />}</td>
+                <td className="px-3 py-2.5 text-[11.5px] text-ink-500">{c.sinonimos.length ? c.sinonimos.join(", ") : "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
   );
 }
 

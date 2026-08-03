@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { requirePermiso, authorizePermiso } from "@/lib/rbac";
 import { PageHeader, BackLink } from "@/components/ui";
+import Conversacion from "@/components/conversacion";
 import { descriptorModulo } from "@/lib/modulos/descriptores";
 import { consolidarPorClasificador } from "@/lib/modulos/promocion";
 import { detectarNegativos, detectarDescuadres } from "@/lib/modulos/validaciones";
@@ -85,6 +86,13 @@ export default async function DatoModuloPage({ params }: { params: Promise<{ cod
         cuentas={subgrupos.map((s) => ({ codigo: s.codigo, nombre: s.nombre }))}
         puedeEditar={puedeEditar}
       />
+      <div className="mt-4">
+        <Conversacion
+          tipo="modulos_datos"
+          entityId={encabezado.id}
+          titulo={`Conversación · ${descriptor.label} · ${encabezado.nombreCliente} · ${encabezado.periodo} v${encabezado.version}`}
+        />
+      </div>
     </div>
   );
 }

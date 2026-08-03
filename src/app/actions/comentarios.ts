@@ -3,7 +3,7 @@
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { authorizePermiso } from "@/lib/rbac";
-import { getMatriz, clienteDeBalance, clienteDeConciliacion } from "@/lib/rbac/contexto";
+import { getMatriz, clienteDeBalance, clienteDeConciliacion, clienteDeModuloDato } from "@/lib/rbac/contexto";
 import { tienePermiso } from "@/lib/rbac/permisos";
 import { esEntidadComentable, etiquetaEntidad } from "@/lib/comentarios";
 import { fmtDateTime } from "@/lib/format";
@@ -34,6 +34,8 @@ async function alcanceDeEntidad(
       return { scoped: true, clientId: await clienteDeBalance(entityId) };
     case "conciliaciones":
       return { scoped: true, clientId: await clienteDeConciliacion(entityId) };
+    case "modulos_datos":
+      return { scoped: true, clientId: await clienteDeModuloDato(entityId) };
     case "clientes":
       return { scoped: true, clientId: entityId };
     default: // "dian" y cualquier otra entidad global

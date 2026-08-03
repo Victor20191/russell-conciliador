@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Modal } from "@/components/modal";
 import { Card } from "@/components/ui";
-import { fmt, fmtDate } from "@/lib/format";
+import { fmt, fmtDate, fmtDateTime } from "@/lib/format";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import { columnaLetra } from "@/lib/balance/extraccion/hojas-cliente";
 import type { SpecModulo } from "@/lib/modulos/extraccion/esquema";
@@ -14,7 +14,7 @@ import { leerDatosModulo, analizarArchivoModulo, type AnalisisModulo, type Celda
 type Cliente = { id: number; name: string; nit: string };
 type Rol = { nombre: string; etiqueta: string; tipo: string; requerido: boolean };
 type Borrador = { loteId: string; cliente: string; archivoNombre: string; filas: number; creadoEn: string };
-type Cargado = { id: number; cliente: string; periodo: string; version: number; filas: number; total: number; creadoEn: string };
+type Cargado = { id: number; cliente: string; periodo: string; version: number; filas: number; total: number; creadoEn: string; cargadoPor: string | null };
 
 export default function ModulosDatosClient({
   moduloCodigo,
@@ -106,7 +106,10 @@ export default function ModulosDatosClient({
                     <td className="px-2.5 py-1.5 text-ink-500">v{c.version}</td>
                     <td className="px-2.5 py-1.5 text-right tabular-nums text-ink-600">{c.filas}</td>
                     <td className="px-2.5 py-1.5 text-right font-semibold tabular-nums text-ink-800">{fmt(c.total)}</td>
-                    <td className="px-2.5 py-1.5 text-ink-500">{fmtDate(c.creadoEn)}</td>
+                    <td className="px-2.5 py-1.5 text-ink-500">
+                      <div className="whitespace-nowrap tabular-nums">{fmtDateTime(c.creadoEn)}</div>
+                      <div className="text-[11px] text-ink-400">{c.cargadoPor ?? "—"}</div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
