@@ -631,61 +631,65 @@ model Balance {
 // Los agregados (sumas, validaciones, desglose, comparativo) se RECALCULAN desde
 // el detalle al leer (ver `src/lib/balance/calcular.ts`), no se persisten.
 model BalancePruebaEncabezado {
-  id                     Int       @id @default(autoincrement()) @map("id")
+  id                       Int       @id @default(autoincrement()) @map("id")
   // Idempotencia de la promoción: identifica el lote de borrador que originó
   // este balance. Los registros históricos quedan en null; toda promoción nueva
   // lo persiste y la restricción única impide crear otra versión desde el mismo lote.
-  loteId                 String?   @unique @map("lote_id")
+  loteId                   String?   @unique @map("lote_id")
   // FK LÓGICA a Client (solo Int, sin @relation): convención del proyecto para
   // FKs suaves hacia Client/User. `nombreCliente`/`nit` quedan denormalizados
   // para listar sin join.
-  clienteId              Int       @map("cliente_id")
-  nombreCliente          String    @map("nombre_cliente")
-  nit                    String?   @map("nit")
-  periodo                String    @map("periodo") // display, p. ej. "Enero 2026"
-  periodoInicio          DateTime  @map("periodo_inicio") @db.Date
-  periodoFin             DateTime  @map("periodo_fin") @db.Date
+  clienteId                Int       @map("cliente_id")
+  nombreCliente            String    @map("nombre_cliente")
+  nit                      String?   @map("nit")
+  periodo                  String    @map("periodo") // display, p. ej. "Enero 2026"
+  periodoInicio            DateTime  @map("periodo_inicio") @db.Date
+  periodoFin               DateTime  @map("periodo_fin") @db.Date
   // Versionado (un oficial por cliente/período; congelado bloquea edición).
-  version                String    @map("version")
-  esOficial              Boolean   @default(false) @map("es_oficial")
-  estaCongelado          Boolean   @default(false) @map("esta_congelado")
-  estado                 String    @default("Única") @map("estado")
-  completitud            Int       @default(100) @map("completitud")
+  version                  String    @map("version")
+  esOficial                Boolean   @default(false) @map("es_oficial")
+  estaCongelado            Boolean   @default(false) @map("esta_congelado")
+  estado                   String    @default("Única") @map("estado")
+  completitud              Int       @default(100) @map("completitud")
   // Resumen del cargue (para listados, ficha de versión y bitácora sin recalcular).
-  archivo                String?   @map("archivo")
-  tamanoArchivo          String?   @map("tamano_archivo")
-  cargadoPor             String?   @map("cargado_por")
-  rolCarga               String?   @map("rol_carga")
-  cuadrado               Boolean   @default(true) @map("cuadrado")
+  archivo                  String?   @map("archivo")
+  tamanoArchivo            String?   @map("tamano_archivo")
+  cargadoPor               String?   @map("cargado_por")
+  rolCarga                 String?   @map("rol_carga")
+  cuadrado                 Boolean   @default(true) @map("cuadrado")
   // Nota AUTOMÁTICA del sistema («Sin alertas» / «N validación(es) con alerta»).
   // Siempre la escribe el cargue: no la pisa el comentario del revisor.
-  nota                   String?   @map("nota")
+  nota                     String?   @map("nota")
   // Nota aclaratoria que escribe el revisor al promover el borrador (advertencia
-  // del archivo fuente). null = el cargue no la necesitó. Autor/fecha del cargue
-  // = `cargadoPor`/`rolCarga`/`ultimaCarga`.
-  comentarioAprobacion   String?   @map("comentario_aprobacion")
+  // del archivo fuente o nota voluntaria). Autor/fecha del cargue
+  // = `cargadoPor`/`rolCarga`/`ultimaCarga`. Los dos campos siguientes distinguen
+  // de forma durable la advertencia obligatoria de una nota voluntaria y conservan
+  // la diferencia que ya no puede reconstruirse después de purgar el staging.
+  comentarioAprobacion     String?   @map("comentario_aprobacion")
+  advertenciaArchivoFuente Boolean   @default(false) @map("advertencia_archivo_fuente")
+  diferenciaArchivoFuente  Decimal?  @map("diferencia_archivo_fuente") @db.Decimal(18, 2)
   // Constancia ESTRUCTURADA de las reubicaciones entre clases contables que se
   // aprobaron en el borrador (`RevisionReubicacionBalance[]`). Se guarda tal cual
   // para que el balance oficial muestre la MISMA ficha que mostró el borrador
   // (cuenta, clases origen/destino, saldo, justificación, revisor y fecha) sin
   // depender del staging, que se purga al confirmar. null = no hubo ninguna.
-  reubicacionesAprobadas Json?     @map("reubicaciones_aprobadas")
-  sumaActivo             Decimal   @default(0) @map("suma_activo") @db.Decimal(18, 2)
-  filasTotales           Int       @default(0) @map("filas_totales")
-  mapeadas               Int       @default(0) @map("mapeadas")
-  sinMapear              Int       @default(0) @map("sin_mapear")
-  criticas               Int       @default(0) @map("criticas")
-  cambios                Int       @default(0) @map("cambios")
+  reubicacionesAprobadas   Json?     @map("reubicaciones_aprobadas")
+  sumaActivo               Decimal   @default(0) @map("suma_activo") @db.Decimal(18, 2)
+  filasTotales             Int       @default(0) @map("filas_totales")
+  mapeadas                 Int       @default(0) @map("mapeadas")
+  sinMapear                Int       @default(0) @map("sin_mapear")
+  criticas                 Int       @default(0) @map("criticas")
+  cambios                  Int       @default(0) @map("cambios")
   // Metadatos del ETL.
-  estandar               String?   @map("estandar")
-  convencionCredito      String?   @map("convencion_credito")
-  filasLeidas            Int?      @map("filas_leidas")
-  filasExcluidas         Int?      @map("filas_excluidas")
-  filasDescuadre         Int?      @map("filas_descuadre")
-  congeladoPor           String?   @map("congelado_por")
-  congeladoEn            DateTime? @map("congelado_en") @db.Timestamptz(3)
-  ultimaCarga            DateTime? @map("ultima_carga") @db.Timestamptz(3)
-  creadoEn               DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
+  estandar                 String?   @map("estandar")
+  convencionCredito        String?   @map("convencion_credito")
+  filasLeidas              Int?      @map("filas_leidas")
+  filasExcluidas           Int?      @map("filas_excluidas")
+  filasDescuadre           Int?      @map("filas_descuadre")
+  congeladoPor             String?   @map("congelado_por")
+  congeladoEn              DateTime? @map("congelado_en") @db.Timestamptz(3)
+  ultimaCarga              DateTime? @map("ultima_carga") @db.Timestamptz(3)
+  creadoEn                 DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   detalles                   BalancePruebaDetalle[]
   prevalidadorOverrides      PrevalidadorCuentaBalance[]

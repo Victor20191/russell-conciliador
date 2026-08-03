@@ -57,7 +57,14 @@ import { detectarManipulacionesRiesgosas, reclasificarHuerfanas, reclasificarSol
 import { esBalancePorTercero, colapsarTerceros, esBalancePorTerceroSufijo, consolidarTercerosPorSufijo, marcarCuentaNit } from "@/lib/balance/terceros";
 import { invalidarStagingBorrador, type RevisionReubicacionStaging } from "@/lib/balance/staging-borrador";
 import { marcarRelistadoGuiones } from "@/lib/balance/relistado";
-import { validarComentarioPromocion } from "@/lib/balance/advertencia-archivo-fuente";
+import {
+  esDescuadreDelArchivoFuente,
+  validarComentarioPromocion,
+} from "@/lib/balance/advertencia-archivo-fuente";
+import {
+  calcularExplicacionesClaseReubicacion,
+  filtrarHallazgosClaseResueltos,
+} from "@/lib/balance/conciliacion-reubicaciones";
 import { claveCuenta, construirCorrecciones, planAplicarCorrecciones, type CorreccionCuenta, type FilaStagingCorreccion } from "@/lib/balance/correcciones";
 import { registrarDiagnosticoInicial, cerrarDiagnostico, acumularIntervencionManual } from "@/lib/balance/diagnostico-lectura-registro";
 import { iaBalanceDisponible, proveedorIABalance, type ProveedorIABalance } from "@/lib/ia/proveedor-balance";
@@ -935,6 +942,61 @@ async function promoverStagingAOficial(p: MetaPromocion, contexto: string): Prom
       getUmbralesAlertas(),
     ]);
 
+    // Recalcula la advertencia desde el staging que se va a consumir. El hidden
+    // del formulario solo mejora la UX: no decide qué constancia se persiste ni
+    // permite omitir la justificación obligatoria. Esta pasada reproduce las
+    // mismas reubicaciones aprobadas y el mismo modo de vista del borrador.
+    const filasBorrador: FilaBorrador[] = filasControlFinal.map((fila) => ({
+      ...fila,
+      nivel: /^\d+$/.test(fila.codigo) ? fila.codigo.length : null,
+      tipoFila: fila.tipoFila as FilaBorrador["tipoFila"],
+      omitida: fila.omitida ?? undefined,
+    }));
+    const vistaFuente = construirVistaBorrador(
+      filasBorrador.map((fila) => ({ ...fila })),
+      {
+        preservarAgrupadorasForzadas: true,
+        consolidarAuxiliares: true,
+        umbrales,
+      },
+    );
+    const riesgosFuente = detectarManipulacionesRiesgosas(filasBorrador);
+    const filasAprobadas = new Set(
+      revisionesFinales.revisionesAprobadas.map((revision) => revision.filaNum),
+    );
+    const explicacionesFuente = calcularExplicacionesClaseReubicacion(
+      riesgosFuente,
+      filasAprobadas,
+      new Set(vistaFuente.filasContabilizadas),
+      {
+        "1": vistaFuente.validacion.activoDiff,
+        "2": vistaFuente.validacion.pasivoDiff,
+        "3": vistaFuente.validacion.patrimonioDiff,
+        "4": vistaFuente.validacion.ingresosDiff,
+        "5": vistaFuente.validacion.gastosDiff,
+        "6": vistaFuente.validacion.costosDiff,
+      },
+    );
+    const hallazgosFuente = filtrarHallazgosClaseResueltos(
+      vistaFuente.hallazgos,
+      explicacionesFuente,
+    );
+    const advertenciaArchivoFuente = esDescuadreDelArchivoFuente(
+      vistaFuente.validacion,
+      vistaFuente.partidaDoble,
+      hallazgosFuente,
+    );
+    const comentarioFuente = validarComentarioPromocion(
+      p.comentarioPromocion,
+      advertenciaArchivoFuente,
+    );
+    if (!comentarioFuente.ok) {
+      return { ok: false, message: comentarioFuente.message };
+    }
+    const diferenciaArchivoFuente = advertenciaArchivoFuente
+      ? vistaFuente.validacion.ecuacionDiff
+      : null;
+
     const { id, version, calc, reutilizado } = await persistirCargue({
       loteId: p.loteId, clientId: p.clientId, clienteName: cliente.name, clienteNit: cliente.nit,
       revisionContenido: p.revisionContenido,
@@ -943,7 +1005,9 @@ async function promoverStagingAOficial(p: MetaPromocion, contexto: string): Prom
       uploadedBy: user?.name ?? "—", uploadedById: user?.id ?? null, rolLabel: p.rolLabel,
       cuadreTotales, umbrales,
       proveedorIA: p.proveedorIA,
-      comentarioPromocion: p.comentarioPromocion,
+      comentarioPromocion: comentarioFuente.comentario,
+      advertenciaArchivoFuente,
+      diferenciaArchivoFuente,
       revisionesReubicacion: revisionesFinales.revisionesAprobadas,
       nombresGrupoCliente,
       meta: {
@@ -1303,6 +1367,9 @@ async function persistirCargue(p: {
   proveedorIA?: ProveedorIABalance;
   /** Justificación registrada al promover un archivo cuya ecuación no cuadra. */
   comentarioPromocion?: string | null;
+  /** Diagnóstico durable recalculado desde staging antes de purgar el borrador. */
+  advertenciaArchivoFuente: boolean;
+  diferenciaArchivoFuente: number | null;
   /** Reubicaciones entre clases aprobadas que deben sobrevivir a la purga del borrador. */
   revisionesReubicacion?: RevisionReubicacionBalance[];
   /** Nombres reales de las agrupadoras de seis dígitos leídos del archivo. */
@@ -1467,6 +1534,10 @@ async function persistirCargue(p: {
   // cargues que lo exigen (los que traen advertencia del archivo fuente).
   const nota = alertas > 0 ? `${alertas} validación(es) con alerta` : "Sin alertas";
   const comentarioAprobacion = p.comentarioPromocion?.trim() || null;
+  const advertenciaArchivoFuente = p.advertenciaArchivoFuente;
+  const diferenciaArchivoFuente = advertenciaArchivoFuente
+    ? p.diferenciaArchivoFuente
+    : null;
   // Las reubicaciones aprobadas se guardan ESTRUCTURADAS (no resumidas a texto):
   // el balance oficial debe poder mostrar la misma ficha que mostró el borrador y
   // el staging —única otra fuente— se purga al confirmar el cargue.
@@ -1607,6 +1678,7 @@ async function persistirCargue(p: {
         version, esOficial: false, estaCongelado: false, estado: status, completitud: complete,
         archivo: p.archivoNombre, tamanoArchivo: p.archivoTam,
         cargadoPor: p.uploadedBy, rolCarga: p.rolLabel, cuadrado: calc.balanced && calc.movimientosCuadran && !descuadreTotales, nota, comentarioAprobacion,
+        advertenciaArchivoFuente, diferenciaArchivoFuente,
         reubicacionesAprobadas: revisionesReubicacion.length > 0 ? revisionesReubicacion : undefined,
         sumaActivo: calc.sums.activo, filasTotales: calc.totalRows,
         mapeadas: calc.mapped, sinMapear: calc.unmapped, criticas: calc.critical, cambios,
@@ -3068,7 +3140,9 @@ export async function cargarBorrador(_prev: ImportBalanceState, formData: FormDa
   if (!loteId) return { ok: false, message: "Borrador inválido. Vuelve a la lista de borradores." };
   const comentarioValidado = validarComentarioPromocion(
     formData.get("comentarioPromocion"),
-    formData.get("requiereComentarioArchivoFuente") === "1",
+    // Aquí solo normaliza y limita longitud. La obligatoriedad se decide más
+    // adelante al reconstruir el staging, nunca con una bandera del navegador.
+    false,
   );
   if (!comentarioValidado.ok) {
     return { ok: false, message: comentarioValidado.message };
