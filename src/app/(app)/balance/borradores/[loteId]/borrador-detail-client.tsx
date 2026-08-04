@@ -314,6 +314,25 @@ export function retirarConfirmacionesLocales(
   };
 }
 
+export type EnfoqueCambioEstructural = {
+  origen: number;
+  destino: number | null;
+  secuencia: number;
+};
+
+/**
+ * Cada cambio estructural recibe una secuencia nueva aunque afecte dos veces la
+ * misma fila. Así React vuelve a ejecutar el enfoque y lleva al usuario a la
+ * ubicación recalculada más reciente.
+ */
+export function siguienteEnfoqueCambioEstructural(
+  actual: EnfoqueCambioEstructural | null,
+  origen: number,
+  destino: number | null = null,
+): EnfoqueCambioEstructural {
+  return { origen, destino, secuencia: (actual?.secuencia ?? 0) + 1 };
+}
+
 /** Aplica los cambios TEMPORALES (reclasificación / desacople / omitir / re-parentado)
  *  sobre las filas crudas, en memoria (misma lógica que guardar). */
 function aplicarCambios(
@@ -394,6 +413,7 @@ export default function BorradorDetailClient({
   const [descartando, startDescartar] = useTransition();
   const [confirmarDescarte, setConfirmarDescarte] = useState(false);
   const [infoFilasExcluidas, setInfoFilasExcluidas] = useState(false); // modal informativo (no se monta hasta abrirlo)
+  const [ayudaValidaciones, setAyudaValidaciones] = useState(false); // modal informativo: qué significa cada validación (no se monta hasta abrirlo)
   const [clienteSelId, setClienteSelId] = useState<number | null>(clienteSugeridoId); // sigue las notas del cliente
   const perfilSoloHojas = clientes.find((cliente) => cliente.id === clienteSelId)?.imputarSoloHojas;
   const [periodoIni, setPeriodoIni] = useState(periodoInicial ?? "");
@@ -419,7 +439,7 @@ export default function BorradorDetailClient({
   // perezoso — solo tras la primera apertura — y queda memoizado.
   const [detalleReubicacion, setDetalleReubicacion] = useState<{ filaNum: number } | null>(null);
   const [huboAperturaReubicacion, setHuboAperturaReubicacion] = useState(false);
-  const [enfoqueReubicacion, setEnfoqueReubicacion] = useState<{ origen: number; destino: number | null; secuencia: number } | null>(null);
+  const [enfoqueReubicacion, setEnfoqueReubicacion] = useState<EnfoqueCambioEstructural | null>(null);
   const [soloHojas, setSoloHojas] = useState(false); // export jerárquico: solo cuentan las hojas
   const [autoCorregido, setAutoCorregido] = useState(false); // «solo hojas» se activó por auto-corrección al abrir
   const autoAplicadoRef = useRef(false);
@@ -659,8 +679,12 @@ export default function BorradorDetailClient({
       return;
     }
     setOverride((o) => ({ ...o, [cuenta.codigo]: "movimiento" }));
+    setEnfoqueReubicacion((actual) => siguienteEnfoqueCambioEstructural(actual, cuenta.filaNum));
   };
-  const onDesacoplar = (codigo: string, desacopladaAhora: boolean) => setDesacopladas((d) => ({ ...d, [codigo]: !desacopladaAhora }));
+  const onDesacoplar = (filaNum: number, codigo: string, desacopladaAhora: boolean) => {
+    setDesacopladas((d) => ({ ...d, [codigo]: !desacopladaAhora }));
+    setEnfoqueReubicacion((actual) => siguienteEnfoqueCambioEstructural(actual, filaNum));
+  };
   const onOmitir = (filaNum: number, omitidaAhora: boolean) => setOmitidas((o) => ({ ...o, [filaNum]: !omitidaAhora }));
   const onUbicar = (filaNum: number) => setMover({ filaNum });
   const aplicarReubicacion = (
@@ -672,7 +696,7 @@ export default function BorradorDetailClient({
       ...actual,
       [filaNum]: destino != null,
     }));
-    setEnfoqueReubicacion((actual) => ({ origen: filaNum, destino, secuencia: (actual?.secuencia ?? 0) + 1 }));
+    setEnfoqueReubicacion((actual) => siguienteEnfoqueCambioEstructural(actual, filaNum, destino));
     setMover(null);
   };
   const confirmarReubicacion = (
@@ -719,6 +743,7 @@ export default function BorradorDetailClient({
         delete siguiente[filaNum];
         return siguiente;
       });
+      setEnfoqueReubicacion((actual) => siguienteEnfoqueCambioEstructural(actual, filaNum, destino));
       setMover(null);
       notifySuccess("Movimiento aprobado. La justificación quedó guardada en auditoría.");
       router.refresh();
@@ -737,7 +762,7 @@ export default function BorradorDetailClient({
       for (const hija of seleccion) siguiente[hija] = filaNum;
       return siguiente;
     });
-    setEnfoqueReubicacion((actual) => ({ origen: filaNum, destino: null, secuencia: (actual?.secuencia ?? 0) + 1 }));
+    setEnfoqueReubicacion((actual) => siguienteEnfoqueCambioEstructural(actual, filaNum));
     setGestionarAgrupadora(null);
   };
   const onDesindentar = (filaNum: number) => {
@@ -1019,6 +1044,7 @@ export default function BorradorDetailClient({
         ocultarEcuacion={advertenciaArchivoFuente}
         umbrales={umbrales}
         explicacionesClase={explicacionesClase}
+        onAyuda={() => setAyudaValidaciones(true)}
       />
       {advertenciaArchivoFuente ? (
         <AdvertenciaArchivoFuente
@@ -1050,8 +1076,18 @@ export default function BorradorDetailClient({
         // Se monta SIEMPRE, con o sin hallazgos: montarlo y desmontarlo según el resultado
         // movía la tabla ~66 px en cada omisión o reclasificación (los hallazgos cambian con
         // cada edición) y el usuario perdía el punto donde iba. Colapsado su alto es fijo.
-        return <DiagnosticoPanel hallazgos={hh} diferenciasClase={diferenciasClase} manipulaciones={manipulacionesPendientes.length} />;
+        return (
+          <DiagnosticoPanel
+            hallazgos={hh}
+            diferenciasClase={diferenciasClase}
+            manipulaciones={manipulacionesPendientes.length}
+            onAyuda={() => setAyudaValidaciones(true)}
+          />
+        );
       })()}
+      {ayudaValidaciones && (
+        <ModalAyudaValidaciones onClose={() => setAyudaValidaciones(false)} umbrales={umbrales} />
+      )}
 
       <Card className="overflow-hidden">
         <div className="border-b border-ink-100 bg-ink-50 px-3 py-2">
@@ -1308,12 +1344,14 @@ function ValidacionHeader({
   ocultarEcuacion,
   umbrales,
   explicacionesClase,
+  onAyuda,
 }: {
   v: ValidacionContable;
   pd: { debitos: number; creditos: number; diff: number; cuadra: boolean };
   ocultarEcuacion: boolean;
   umbrales: UmbralesAlertas;
   explicacionesClase: ReadonlyMap<string, ExplicacionClaseReubicacion>;
+  onAyuda: () => void;
 }) {
   const ecOk = v.ecuacionCuadra;
   const pdInformativo = !pd.cuadra && esDescuadreInformativo(pd.diff, umbrales);
@@ -1330,6 +1368,18 @@ function ValidacionHeader({
       : "border-warn-200 bg-warn-50 text-warn-700";
   return (
     <div className="flex flex-col gap-2.5">
+      <div className="flex items-center gap-1.5">
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">Validación del balance</span>
+        <button
+          type="button"
+          onClick={onAyuda}
+          aria-label="Qué significa cada validación de esta pantalla"
+          title="Qué significa cada validación de esta pantalla"
+          className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-ink-400 transition hover:text-ink-700"
+        >
+          <Icon name="info" size={13} />
+        </button>
+      </div>
       <div className={`rounded-md border px-3 py-2 text-[12px] ${tonoPartida}`}>
         <span className="font-semibold">{pd.cuadra ? "Cuadra:" : pdInformativo ? "Diferencia informativa:" : "No coinciden:"}</span> partida doble · débitos <span className="font-semibold">{fmt(pd.debitos)}</span> vs créditos <span className="font-semibold">{fmt(pd.creditos)}</span> · diferencia <span className="font-semibold">{fmt(pd.diff)}</span>
         {pdInformativo && <span> · menor a {fmt(umbrales.descuadre)}, no cuenta como alerta</span>}
@@ -1352,6 +1402,51 @@ function ValidacionHeader({
         <MiniDato k="Resultado" v={v.resultado} archivo={v.resultadoArchivo} cuadra={v.resultadoCuadra} diff={v.resultadoDiff} umbrales={umbrales} />
       </div>
     </div>
+  );
+}
+
+// ---- Modal explicativo: qué verifica cada bloque de esta pantalla ----
+// Pensado para un revisor contable: sin nombres de archivos ni funciones, solo
+// el criterio de cada chequeo. Se abre desde el icono ⓘ del resumen superior
+// y desde el del panel «Diagnóstico del descuadre» (misma puerta de entrada).
+function ModalAyudaValidaciones({ onClose, umbrales }: { onClose: () => void; umbrales: UmbralesAlertas }) {
+  return (
+    <Modal open onClose={onClose} title="Cómo leer las validaciones del borrador" size="2xl">
+      <div className="flex flex-col gap-4 text-[12.5px] leading-relaxed text-ink-700">
+        <section>
+          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">Chequeos globales (arriba)</h3>
+          <ul className="mt-1.5 flex flex-col gap-2">
+            <li>
+              <span className="font-semibold text-ink-800">«Cuadra: partida doble»</span> — compara la suma de todos los débitos contra la suma de todos los créditos de las cuentas de detalle (el nivel más desagregado) del archivo cargado. Si coinciden, la partida doble cuadra.
+            </li>
+            <li>
+              <span className="font-semibold text-ink-800">«Cuadra: Activo = Pasivo + Patrimonio + Resultado»</span> — aplica la ecuación contable sobre los saldos ya calculados a partir del detalle.
+            </li>
+            <li>
+              <span className="font-semibold text-ink-800">Las tarjetas por clase</span> (Activo, Pasivo, Patrimonio, Ingresos, Gastos, Costos, Resultado) — comparan el total que se calculó sumando el detalle cargado contra el total que trae el propio archivo para esa clase. Cuando coinciden se muestra «✓ archivo … — cruza».
+            </li>
+          </ul>
+        </section>
+        <section>
+          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">Panel «Diagnóstico del descuadre»</h3>
+          <p className="mt-1.5">
+            Este panel puede mostrar hallazgos <span className="font-semibold">aunque arriba todo diga «Cuadra»</span>. La razón es que los chequeos de arriba son <span className="font-semibold">globales</span> (se calculan con el detalle completo y se comparan contra el archivo), mientras que el diagnóstico también revisa la <span className="font-semibold">consistencia interna de cada agrupadora</span>: si el total que la agrupadora declara coincide con la suma de las cuentas que cuelgan de ella.
+          </p>
+          <p className="mt-1.5">
+            Una agrupadora puede quedar descuadrada por dentro sin que eso mueva ningún total global — por ejemplo, cuando una subcuenta quedó marcada como un subtotal repetido o le falta anidarse bajo su agrupadora: mientras tanto su aporte al padre se cuenta en cero y no altera la suma general, pero si se carga así, ese saldo corre el riesgo de contarse dos veces (o de no quedar reflejado donde corresponde).
+          </p>
+          <p className="mt-1.5">
+            En general, un hallazgo de este tipo señala <span className="font-semibold">trabajo de estructura pendiente</span> (anidar la cuenta en su agrupadora, reubicarla o, si corresponde, omitirla) más que un error del archivo en sí. El resto de hallazgos del panel corresponden a los mismos tres chequeos globales de arriba (partida doble, ecuación contable y total por clase) cuando quedan sin explicar.
+          </p>
+        </section>
+        <section>
+          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">Umbrales de alerta</h3>
+          <p className="mt-1.5">
+            Solo se reportan como alerta accionable las diferencias por encima de los umbrales configurados en <span className="font-semibold">Configuración › Parámetros</span> (hoy: {fmt(umbrales.descuadre)} para descuadres y {fmt(umbrales.naturaleza)} para saldos de naturaleza contraria). Las diferencias menores se muestran igual, marcadas como <span className="font-semibold">informativas</span>, pero no cuentan como alerta.
+          </p>
+        </section>
+      </div>
+    </Modal>
   );
 }
 
@@ -1653,7 +1748,7 @@ function ManipulacionesRiesgosasPanel({
 }
 
 // ---- Diagnóstico determinista del descuadre (colapsado por defecto) ----
-function DiagnosticoPanel({ hallazgos, diferenciasClase, manipulaciones }: { hallazgos: Hallazgo[]; diferenciasClase: number; manipulaciones: number }) {
+function DiagnosticoPanel({ hallazgos, diferenciasClase, manipulaciones, onAyuda }: { hallazgos: Hallazgo[]; diferenciasClase: number; manipulaciones: number; onAyuda: () => void }) {
   const [abierto, setAbierto] = useState(false);
   // Cuentas expandidas DENTRO del panel (una por hallazgo, por índice) — el detalle de
   // cuenta(s) es aditivo: el resumen (título + monto + detalle) sigue viéndose igual.
@@ -1679,19 +1774,30 @@ function DiagnosticoPanel({ hallazgos, diferenciasClase, manipulaciones }: { hal
   return (
     <div className={`rounded-lg border p-4 shadow-sm ${hay ? "border-err-100 bg-err-100/40" : "border-ok-100 bg-ok-100/40"}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <button
-          type="button"
-          onClick={() => setAbierto((v) => !v)}
-          disabled={!hay}
-          aria-expanded={hay ? abierto : undefined}
-          className={`flex min-w-0 flex-1 items-center gap-1.5 text-left text-[11px] font-semibold uppercase tracking-wider ${hay ? "text-err-700" : "cursor-default text-ok-700"}`}
-        >
-          <Icon name={hay ? chevronDivulgacion(abierto) : "check"} size={14} />
-          Diagnóstico del descuadre
-          <span className={`ml-1 rounded-full border bg-white px-1.5 py-0.5 text-[10px] font-semibold normal-case tracking-normal ${hay ? "border-err-100 text-err-700" : "border-ok-100 text-ok-700"}`}>
-            {hay ? total : "sin hallazgos"}
-          </span>
-        </button>
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setAbierto((v) => !v)}
+            disabled={!hay}
+            aria-expanded={hay ? abierto : undefined}
+            className={`flex min-w-0 items-center gap-1.5 text-left text-[11px] font-semibold uppercase tracking-wider ${hay ? "text-err-700" : "cursor-default text-ok-700"}`}
+          >
+            <Icon name={hay ? chevronDivulgacion(abierto) : "check"} size={14} />
+            Diagnóstico del descuadre
+            <span className={`ml-1 rounded-full border bg-white px-1.5 py-0.5 text-[10px] font-semibold normal-case tracking-normal ${hay ? "border-err-100 text-err-700" : "border-ok-100 text-ok-700"}`}>
+              {hay ? total : "sin hallazgos"}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={onAyuda}
+            aria-label="Qué significa este diagnóstico"
+            title="Qué significa este diagnóstico"
+            className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full transition ${hay ? "text-err-400 hover:text-err-700" : "text-ok-500 hover:text-ok-700"}`}
+          >
+            <Icon name="info" size={13} />
+          </button>
+        </div>
         {hay && abierto && indicesConDetalle.length > 0 && (
           <div className="flex shrink-0 items-center gap-2">
             <button type="button" onClick={expandirTodo} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-white px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50">
@@ -2526,7 +2632,7 @@ function MenuAccionesCuenta({
   );
 }
 
-function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupadora, onDesacoplar, onOmitir, posiciones, contexto, onUbicar, onDesindentar, onVerDetalleReubicacion, enfoqueReubicacion, umbrales }: { arbol: NodoBorrador[]; riesgosPorFila: Map<number, ManipulacionRiesgosaBorrador>; onReclasificar: (cuenta: NodoBorrador) => void; onGestionarAgrupadora: (filaNum: number) => void; onDesacoplar: (codigo: string, desacopladaAhora: boolean) => void; onOmitir: (filaNum: number, omitidaAhora: boolean) => void; posiciones: Map<number, Posicion>; contexto: Map<number, ContextoNodo>; onUbicar: (filaNum: number) => void; onDesindentar: (filaNum: number) => void; onVerDetalleReubicacion: (filaNum: number) => void; enfoqueReubicacion: { origen: number; destino: number | null; secuencia: number } | null; umbrales: UmbralesAlertas }) {
+function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupadora, onDesacoplar, onOmitir, posiciones, contexto, onUbicar, onDesindentar, onVerDetalleReubicacion, enfoqueReubicacion, umbrales }: { arbol: NodoBorrador[]; riesgosPorFila: Map<number, ManipulacionRiesgosaBorrador>; onReclasificar: (cuenta: NodoBorrador) => void; onGestionarAgrupadora: (filaNum: number) => void; onDesacoplar: (filaNum: number, codigo: string, desacopladaAhora: boolean) => void; onOmitir: (filaNum: number, omitidaAhora: boolean) => void; posiciones: Map<number, Posicion>; contexto: Map<number, ContextoNodo>; onUbicar: (filaNum: number) => void; onDesindentar: (filaNum: number) => void; onVerDetalleReubicacion: (filaNum: number) => void; enfoqueReubicacion: EnfoqueCambioEstructural | null; umbrales: UmbralesAlertas }) {
   const { filaSeleccionada, setFilaSeleccionada, onClickFila, onDoubleClickFila } = useSeleccionFilaTabla();
   const tablaRef = useRef<HTMLDivElement>(null);
   const sentinelaRef = useRef<HTMLTableRowElement | null>(null); // sensor de scroll: al entrar en vista, revela el próximo bloque
@@ -2592,8 +2698,9 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
   const arbolRef = useRef(arbol);
   useEffect(() => { arbolRef.current = arbol; }, [arbol]);
 
-  // Enfoca la fila reubicada. Solo corre con una reubicación NUEVA: `enfoqueReubicacion`
-  // cambia de identidad únicamente en `aplicarReubicacion` (su `secuencia` lo garantiza).
+  // Enfoca la fila tras cualquier cambio estructural que pueda modificar su posición
+  // (reparentar, reclasificar o desacoplar). `secuencia` permite repetir la acción sobre
+  // la misma cuenta y volver a desplazarse a su ubicación recalculada.
   useEffect(() => {
     if (!enfoqueReubicacion) return;
     const abrir = new Set<number>();
@@ -2805,7 +2912,7 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
         descripcion: desacopladaAhora
           ? "Vuelve a colgar la cuenta de la agrupadora indicada por el orden original del archivo."
           : `Saca la cuenta de ${padreCodigo ?? "la agrupadora actual"} para ubicarla bajo su padre real por código.`,
-        ejecutar: () => onDesacoplar(n.codigo, desacopladaAhora),
+        ejecutar: () => onDesacoplar(n.filaNum, n.codigo, desacopladaAhora),
       });
     }
     if (puedeOmitir) {

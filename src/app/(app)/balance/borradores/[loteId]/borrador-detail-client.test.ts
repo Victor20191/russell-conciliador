@@ -11,6 +11,7 @@ import {
   NombreCuentaArbol,
   ProteccionSubtotalesPanel,
   retirarConfirmacionesLocales,
+  siguienteEnfoqueCambioEstructural,
 } from "./borrador-detail-client";
 import type { CuentaReubicacion, IndiceReubicacion, NodoBorrador } from "@/lib/balance/borrador";
 import type { RevisionReubicacionStaging } from "@/lib/balance/staging-borrador";
@@ -127,6 +128,26 @@ describe("estado visual de las revisiones de reubicación", () => {
 
     expect(resultado.padresConfirmados).toEqual({ 910: 75 });
     expect(resultado.revisionesConfirmadas).toEqual([otraRevision]);
+  });
+});
+
+describe("enfoque tras cambios estructurales", () => {
+  it("crea un enfoque para la nueva ubicación de una reclasificación", () => {
+    expect(siguienteEnfoqueCambioEstructural(null, 412)).toEqual({
+      origen: 412,
+      destino: null,
+      secuencia: 1,
+    });
+  });
+
+  it("renueva la secuencia al repetir un cambio y conserva el destino cuando existe", () => {
+    const anterior = siguienteEnfoqueCambioEstructural(null, 412);
+
+    expect(siguienteEnfoqueCambioEstructural(anterior, 412, 98)).toEqual({
+      origen: 412,
+      destino: 98,
+      secuencia: 2,
+    });
   });
 });
 
