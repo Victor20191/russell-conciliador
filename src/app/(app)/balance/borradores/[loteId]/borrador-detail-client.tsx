@@ -90,6 +90,23 @@ import {
 import { expandirFilas, type FilasCompactas } from "@/lib/balance/filas-compactas";
 import type { RevisionReubicacionStaging } from "@/lib/balance/staging-borrador";
 import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
+import { useHistorialCambios } from "@/lib/ui/use-historial-cambios";
+import { DescartarCambiosBoton } from "@/components/descartar-cambios-boton";
+
+/**
+ * Fotografía de TODOS los cambios temporales de la pantalla (los que aún no se
+ * guardaron en el borrador). Es lo que se apila para poder deshacer solo el
+ * último cambio sin perder los anteriores.
+ */
+type CambiosBorrador = {
+  override: Record<string, "agrupadora" | "movimiento">;
+  desacopladas: Record<string, boolean>;
+  omitidas: Record<number, boolean>;
+  padres: Record<number, number | null>;
+  memorizarPadres: Record<number, boolean>;
+  soloHojas: boolean;
+  autoCorregido: boolean;
+};
 
 function generarUuidReprocesoOAvisar(): string | null {
   try {
@@ -429,6 +446,9 @@ export default function BorradorDetailClient({
   const [desacopladas, setDesacopladas] = useState<Record<string, boolean>>({});
   const [omitidas, setOmitidas] = useState<Record<number, boolean>>({});
   const [padres, setPadres] = useState<Record<number, number | null>>({});
+  // Pila de deshacer de esos cambios temporales: «Descartar cambios» pregunta
+  // siempre si se deshace SOLO el último o TODOS.
+  const historial = useHistorialCambios<CambiosBorrador>();
   const [padresConfirmadosLocalmente, setPadresConfirmadosLocalmente] = useState<Record<number, number>>({});
   const [revisionesConfirmadasLocalmente, setRevisionesConfirmadasLocalmente] = useState<RevisionReubicacionStaging[]>([]);
   const [memorizarPadres, setMemorizarPadres] = useState<Record<number, boolean>>({});
@@ -450,6 +470,26 @@ export default function BorradorDetailClient({
   const [promptPerfilSpec, setPromptPerfilSpec] = useState<SpecCarga | null>(null); // pide cliente al guardar perfil
   const [guardando, startGuardar] = useTransition();
   const [aprobandoReubicacion, startAprobarReubicacion] = useTransition();
+  // Fotografía del estado ANTES de cada edición, para poder deshacer paso a paso.
+  const capturarCambios = (): CambiosBorrador => ({
+    override,
+    desacopladas,
+    omitidas,
+    padres,
+    memorizarPadres,
+    soloHojas,
+    autoCorregido,
+  });
+  const registrarCambio = (descripcion: string) => historial.registrar(capturarCambios(), descripcion);
+  const restaurarCambios = (c: CambiosBorrador) => {
+    setOverride(c.override);
+    setDesacopladas(c.desacopladas);
+    setOmitidas(c.omitidas);
+    setPadres(c.padres);
+    setMemorizarPadres(c.memorizarPadres);
+    setSoloHojas(c.soloHojas);
+    setAutoCorregido(c.autoCorregido);
+  };
   // «Evitar doble conteo de subtotales»: en un export jerárquico (la cuenta y sus subcuentas/auxiliares
   // vienen TODAS como filas), marca como AGRUPADORA toda cuenta con detalle debajo (código
   // más largo por orden) → solo cuentan las hojas. Se expresa como overrides de
@@ -589,19 +629,27 @@ export default function BorradorDetailClient({
   useEffect(() => {
     if (!autoAplicadoRef.current && analisisSoloHojas?.ayuda) {
       autoAplicadoRef.current = true;
+      // Queda en el historial para que «descartar el último cambio» también
+      // pueda revertirla (además del botón «Deshacer auto-corrección»).
+      registrarCambio("Corrección automática: modo «solo hojas»");
       setSoloHojas(true);
       setAutoCorregido(true);
     }
+    // `registrarCambio` se recrea en cada render; incluirlo solo re-dispararía el
+    // efecto sin efecto real (lo guarda `autoAplicadoRef`).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [analisisSoloHojas]);
 
   const forzarSoloHojasManualmente = () => {
     // Si el análisis diferido termina después del clic, no debe convertir una
     // decisión manual en «auto-corrección» ni mostrar un origen equivocado.
     autoAplicadoRef.current = true;
+    registrarCambio("Activar «solo hojas» (evitar doble conteo de subtotales)");
     setAutoCorregido(false);
     setSoloHojas(true);
   };
   const quitarSoloHojas = () => {
+    registrarCambio("Quitar el modo «solo hojas»");
     setSoloHojas(false);
     setAutoCorregido(false);
   };
@@ -630,6 +678,7 @@ export default function BorradorDetailClient({
   const aplicarPropagacionesReubicacion = () => {
     const pendientes = propagacionesReubicacion.flatMap((p) => p.pendientes);
     if (pendientes.length === 0) return;
+    registrarCambio(`Replicar el anidado en ${pendientes.length} cuenta(s) del mismo bloque`);
     setPadres((actual) => {
       const siguiente = { ...actual };
       for (const p of pendientes) siguiente[p.filaNum] = p.destino;
@@ -678,19 +727,29 @@ export default function BorradorDetailClient({
       setGestionarAgrupadora({ filaNum: cuenta.filaNum });
       return;
     }
+    registrarCambio(`Reclasificar ${cuenta.codigo} como movimiento`);
     setOverride((o) => ({ ...o, [cuenta.codigo]: "movimiento" }));
     setEnfoqueReubicacion((actual) => siguienteEnfoqueCambioEstructural(actual, cuenta.filaNum));
   };
   const onDesacoplar = (filaNum: number, codigo: string, desacopladaAhora: boolean) => {
+    registrarCambio(`${desacopladaAhora ? "Reacoplar" : "Desacoplar"} la cuenta ${codigo}`);
     setDesacopladas((d) => ({ ...d, [codigo]: !desacopladaAhora }));
     setEnfoqueReubicacion((actual) => siguienteEnfoqueCambioEstructural(actual, filaNum));
   };
-  const onOmitir = (filaNum: number, omitidaAhora: boolean) => setOmitidas((o) => ({ ...o, [filaNum]: !omitidaAhora }));
+  const onOmitir = (filaNum: number, omitidaAhora: boolean) => {
+    registrarCambio(`${omitidaAhora ? "Incluir" : "Omitir"} la fila ${filaNum}`);
+    setOmitidas((o) => ({ ...o, [filaNum]: !omitidaAhora }));
+  };
   const onUbicar = (filaNum: number) => setMover({ filaNum });
   const aplicarReubicacion = (
     filaNum: number,
     destino: number | null,
   ) => {
+    registrarCambio(
+      destino == null
+        ? `Devolver la fila ${filaNum} a su ubicación automática`
+        : `Ubicar la fila ${filaNum} bajo la fila ${destino}`,
+    );
     setPadres((m) => ({ ...m, [filaNum]: destino }));
     setMemorizarPadres((actual) => ({
       ...actual,
@@ -753,6 +812,9 @@ export default function BorradorDetailClient({
     const origen = indiceReubicacion.porFila.get(filaNum);
     if (!origen) return;
     const seleccion = new Set(seleccionadas);
+    registrarCambio(
+      `Convertir ${origen.codigo} en agrupadora con ${seleccion.size} cuenta(s) debajo`,
+    );
     setOverride((actual) => ({ ...actual, [origen.codigo]: "agrupadora" }));
     setPadres((actual) => {
       const siguiente = { ...actual };
@@ -769,7 +831,7 @@ export default function BorradorDetailClient({
     const p = posiciones.get(filaNum);
     if (p?.abuelo != null) aplicarReubicacion(filaNum, p.abuelo);
   };
-  const descartarCambios = () => {
+  const descartarTodosLosCambios = () => {
     setOverride({});
     setDesacopladas({});
     setOmitidas({});
@@ -777,6 +839,13 @@ export default function BorradorDetailClient({
     setMemorizarPadres({});
     setSoloHojas(false);
     setAutoCorregido(false);
+    historial.limpiar();
+  };
+  const descartarUltimoCambio = () => {
+    const entrada = historial.deshacerUltimo();
+    if (!entrada) return;
+    restaurarCambios(entrada.estado);
+    notifyInfo("Último cambio deshecho", entrada.descripcion);
   };
   const guardarCambios = () =>
     startGuardar(async () => {
@@ -815,6 +884,7 @@ export default function BorradorDetailClient({
         setMemorizarPadres({});
         setSoloHojas(false);
         setAutoCorregido(false);
+        historial.limpiar();
         router.refresh();
       }
       else notifyError(r.message ?? "No se pudieron guardar los cambios.");
@@ -1142,7 +1212,15 @@ export default function BorradorDetailClient({
             <button type="button" onClick={guardarCambios} disabled={!hayCambios || guardando} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:opacity-45">
               {guardando ? <EstadoProcesando>Guardando</EstadoProcesando> : "Guardar cambios"}
             </button>
-            <button type="button" onClick={descartarCambios} disabled={!hayCambios || guardando} className="rounded-md border border-ink-300 px-3 py-1.5 text-[12px] font-medium text-ink-700 hover:bg-ink-50 disabled:opacity-45">Descartar cambios</button>
+            <DescartarCambiosBoton
+              totalCambios={nCambios}
+              descripcionUltimo={historial.ultimo?.descripcion ?? null}
+              puedeDeshacerUltimo={historial.puedeDeshacer}
+              onDescartarUltimo={descartarUltimoCambio}
+              onDescartarTodo={descartarTodosLosCambios}
+              disabled={!hayCambios || guardando}
+              className="rounded-md border border-ink-300 px-3 py-1.5 text-[12px] font-medium text-ink-700 hover:bg-ink-50 disabled:opacity-45"
+            />
           </div>
         </div>
         <ArbolTabla arbol={arbol} riesgosPorFila={riesgosPorFila} onReclasificar={onReclasificar} onGestionarAgrupadora={(filaNum) => setGestionarAgrupadora({ filaNum })} onDesacoplar={onDesacoplar} onOmitir={onOmitir} posiciones={posiciones} contexto={contexto} onUbicar={onUbicar} onDesindentar={onDesindentar} onVerDetalleReubicacion={abrirDetalleReubicacion} enfoqueReubicacion={enfoqueReubicacion} umbrales={umbrales} />
@@ -1491,6 +1569,7 @@ function AdvertenciaArchivoFuente({
       />
       <AdvertenciaArchivoFuenteDetalle
         diferencia={diferencia}
+        resumida
         accion={
           <button
             type="button"

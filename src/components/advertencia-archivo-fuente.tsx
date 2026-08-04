@@ -17,12 +17,14 @@ export function AdvertenciaArchivoFuenteDetalle({
   diferencia,
   accion,
   detalle,
+  resumida = false,
   className = "",
   tituloId = "advertencia-archivo-fuente",
 }: {
   diferencia: number;
   accion?: ReactNode;
   detalle?: ReactNode;
+  resumida?: boolean;
   className?: string;
   tituloId?: string;
 }) {
@@ -36,29 +38,43 @@ export function AdvertenciaArchivoFuenteDetalle({
           <Icon name="warn" size={18} stroke={2} />
         </span>
         <div className="min-w-0 flex-1">
-          <div className="mb-1 flex flex-wrap items-center gap-2">
+          <div className={resumida ? "" : "mb-1 flex flex-wrap items-center gap-2"}>
             <h2
               id={tituloId}
               className="text-[11px] font-semibold uppercase tracking-wider text-warn-700"
             >
               Advertencia del archivo fuente
             </h2>
-            <span className="rounded-full border border-warn-100 bg-white px-2 py-0.5 text-[10px] font-semibold text-warn-700">
-              No es un error del sistema
-            </span>
+            {resumida ? null : (
+              <span className="rounded-full border border-warn-100 bg-white px-2 py-0.5 text-[10px] font-semibold text-warn-700">
+                No es un error del sistema
+              </span>
+            )}
           </div>
-          <p className="text-[13px] font-semibold text-ink-800">
-            Los totales coinciden, pero el archivo no cumple la ecuación contable.
-          </p>
-          <p className="mt-1 max-w-4xl text-[11.5px] leading-relaxed text-ink-600">
-            Russell reprodujo correctamente los valores del archivo y no encontró
-            alertas de descuadre por cuenta. Sin embargo, Activo no es igual a
-            Pasivo + Patrimonio + Resultado: la diferencia es{" "}
-            <span className="font-semibold tabular-nums text-warn-800">
-              {fmt(diferencia)}
-            </span>
-            . Esta diferencia ya viene en el archivo de origen.
-          </p>
+          {resumida ? (
+            <p className="mt-1 text-[12px] text-ink-600">
+              <span className="font-semibold text-ink-800">No cuadra:</span>{" "}
+              Activo = Pasivo + Patrimonio + Resultado · diferencia{" "}
+              <span className="font-semibold tabular-nums text-warn-800">
+                {fmt(diferencia)}
+              </span>
+            </p>
+          ) : (
+            <>
+              <p className="text-[13px] font-semibold text-ink-800">
+                Los totales coinciden, pero el archivo no cumple la ecuación contable.
+              </p>
+              <p className="mt-1 max-w-4xl text-[11.5px] leading-relaxed text-ink-600">
+                Russell reprodujo correctamente los valores del archivo y no encontró
+                alertas de descuadre por cuenta. Sin embargo, Activo no es igual a
+                Pasivo + Patrimonio + Resultado: la diferencia es{" "}
+                <span className="font-semibold tabular-nums text-warn-800">
+                  {fmt(diferencia)}
+                </span>
+                . Esta diferencia ya viene en el archivo de origen.
+              </p>
+            </>
+          )}
           <div className="mt-2 flex flex-wrap gap-1.5">
             {INDICADORES_ARCHIVO_FUENTE.map((indicador) => (
               <span

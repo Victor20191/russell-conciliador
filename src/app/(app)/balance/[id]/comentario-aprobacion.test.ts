@@ -56,28 +56,35 @@ describe("constancias del balance oficial", () => {
     expect(html).not.toContain("Advertencia del archivo fuente");
   });
 
-  it("conserva en el oficial la advertencia completa y su justificación", () => {
+  it("muestra en el oficial la advertencia resumida y su justificación", () => {
     const html = renderToStaticMarkup(
       createElement(ComentarioAprobacion, {
-        comentario: "Diferencia revisada y confirmada con el cliente.",
+        comentario: "Comentario 3 de agosto",
         advertenciaArchivoFuente: true,
-        diferenciaArchivoFuente: -317_519_035.98,
-        version: "versión v2",
+        diferenciaArchivoFuente: 2_808_623_852.78,
+        version: "versión v3",
         autor: "Victor Rivera",
         rol: "Superadministrador",
-        fecha: "28 jul 2026",
+        fecha: "03/Ago/2026 4:29 p. m.",
       }),
     );
 
     expect(html).toContain("Advertencia del archivo fuente");
-    expect(html).toContain("No es un error del sistema");
-    expect(html).toContain("Los totales coinciden, pero el archivo no cumple la ecuación contable.");
+    expect(html).toContain(
+      "No cuadra:</span> Activo = Pasivo + Patrimonio + Resultado · diferencia",
+    );
     expect(html).toContain("Partida doble cuadrada");
     expect(html).toContain("Totales cruzan con el archivo");
     expect(html).toContain("Sin alertas por cuenta");
+    expect(html).toContain("$ 2.808.623.852,78");
     expect(html).toContain("Justificación de aprobación");
-    expect(html).toContain("Diferencia revisada y confirmada con el cliente.");
-    expect(html).toContain("versión v2");
+    expect(html).toContain("Comentario 3 de agosto");
+    expect(html).toContain("versión v3");
+    expect(html).not.toContain("No es un error del sistema");
+    expect(html).not.toContain(
+      "Los totales coinciden, pero el archivo no cumple la ecuación contable.",
+    );
+    expect(html).not.toContain("Russell reprodujo correctamente los valores del archivo");
     expect(html).not.toContain("Nota aclaratoria adicional");
   });
 });
