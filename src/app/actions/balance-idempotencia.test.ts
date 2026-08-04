@@ -22,6 +22,8 @@ const mocks = vi.hoisted(() => {
     clienteId: number;
     periodo: string;
     version: string;
+    advertenciaArchivoFuente: boolean;
+    diferenciaArchivoFuente: number | null;
   };
   type Lote = {
     loteId: string;
@@ -116,6 +118,10 @@ const mocks = vi.hoisted(() => {
       clienteId: Number(data.clienteId),
       periodo: String(data.periodo),
       version: String(data.version),
+      advertenciaArchivoFuente: Boolean(data.advertenciaArchivoFuente),
+      diferenciaArchivoFuente: data.diferenciaArchivoFuente == null
+        ? null
+        : Number(data.diferenciaArchivoFuente),
     };
     state.balances.push(balance);
     return { id: balance.id };
@@ -284,6 +290,14 @@ const mocks = vi.hoisted(() => {
       cambios: [],
       cuentasAplicadas: [],
     })),
+    construirVistaBorrador: vi.fn(),
+    esDescuadreDelArchivoFuente: vi.fn(() => false),
+    validarComentarioPromocion: vi.fn((valor: unknown, requerido: boolean) => {
+      const comentario = typeof valor === "string" && valor.trim() ? valor.trim() : null;
+      return requerido && !comentario
+        ? { ok: false as const, message: "Comentario obligatorio." }
+        : { ok: true as const, comentario };
+    }),
   };
 });
 
@@ -412,15 +426,7 @@ vi.mock("@/lib/balance/mapeo-cliente-config", () => ({
   construirConfigMapeoCliente: vi.fn(() => new Map()),
 }));
 vi.mock("@/lib/balance/borrador-vm", () => ({
-  construirVistaBorrador: vi.fn(() => ({
-    diagnostico: {
-      movimientos: 1,
-      filas: 1,
-      partidaDobleDiff: 0,
-      ecuacionDiff: 0,
-      cuadrado: true,
-    },
-  })),
+  construirVistaBorrador: mocks.construirVistaBorrador,
 }));
 vi.mock("@/lib/balance/borrador", () => ({
   detectarManipulacionesRiesgosas: vi.fn(() => []),
@@ -468,7 +474,12 @@ vi.mock("@/lib/balance/revisiones-reubicacion-balance", () => ({
   })),
 }));
 vi.mock("@/lib/balance/advertencia-archivo-fuente", () => ({
-  validarComentarioPromocion: vi.fn(() => ({ ok: true, comentario: null })),
+  esDescuadreDelArchivoFuente: mocks.esDescuadreDelArchivoFuente,
+  validarComentarioPromocion: mocks.validarComentarioPromocion,
+}));
+vi.mock("@/lib/balance/conciliacion-reubicaciones", () => ({
+  calcularExplicacionesClaseReubicacion: vi.fn(() => new Map()),
+  filtrarHallazgosClaseResueltos: vi.fn((hallazgos) => hallazgos),
 }));
 vi.mock("@/lib/balance/preferencias-carga", () => ({
   aplicarPreferenciasCarga: mocks.aplicarPreferenciasCarga,
@@ -725,6 +736,28 @@ describe("idempotencia y atomicidad del ciclo de balances", () => {
     mocks.ajustesFindUnique.mockResolvedValue(null);
     mocks.aplicarPreferenciasCarga.mockImplementation((spec) => spec);
     mocks.transformarTabular.mockReturnValue(resultadoTransform());
+    mocks.construirVistaBorrador.mockReturnValue({
+      validacion: {
+        activoDiff: 0,
+        pasivoDiff: 0,
+        patrimonioDiff: 0,
+        ingresosDiff: 0,
+        gastosDiff: 0,
+        costosDiff: 0,
+        ecuacionDiff: -2_500,
+      },
+      partidaDoble: { debitos: 100, creditos: 100, diff: 0, cuadra: true },
+      hallazgos: [],
+      filasContabilizadas: [1],
+      diagnostico: {
+        movimientos: 1,
+        filas: 1,
+        partidaDobleDiff: 0,
+        ecuacionDiff: 0,
+        cuadrado: true,
+      },
+    });
+    mocks.esDescuadreDelArchivoFuente.mockReturnValue(false);
   });
 
   it("promueve dos veces el mismo lote como un único balance y conserva la misma ruta", async () => {
@@ -735,7 +768,36 @@ describe("idempotencia y atomicidad del ciclo de balances", () => {
       .rejects.toThrow("REDIRECT:/balance/1?cargado=1");
 
     expect(mocks.state.balances).toHaveLength(1);
-    expect(mocks.state.balances[0]).toMatchObject({ loteId: LOTE_ID, version: "v1" });
+    expect(mocks.state.balances[0]).toMatchObject({
+      loteId: LOTE_ID,
+      version: "v1",
+      advertenciaArchivoFuente: false,
+      diferenciaArchivoFuente: null,
+    });
+  });
+
+  it("persiste el diagnóstico del archivo fuente junto con la justificación", async () => {
+    mocks.esDescuadreDelArchivoFuente.mockReturnValue(true);
+    const form = formPromocion();
+    form.set("comentarioPromocion", "Diferencia confirmada con el cliente.");
+
+    await expect(cargarBorrador({}, form))
+      .rejects.toThrow("REDIRECT:/balance/1?cargado=1");
+
+    expect(mocks.state.balances[0]).toMatchObject({
+      advertenciaArchivoFuente: true,
+      diferenciaArchivoFuente: -2_500,
+    });
+  });
+
+  it("recalcula en servidor la obligatoriedad y no confía en una bandera del formulario", async () => {
+    mocks.esDescuadreDelArchivoFuente.mockReturnValue(true);
+
+    const resultado = await cargarBorrador({}, formPromocion());
+
+    expect(resultado).toEqual({ ok: false, message: "Comentario obligatorio." });
+    expect(mocks.state.balances).toHaveLength(0);
+    expect(mocks.state.lotes).toHaveLength(1);
   });
 
   it("recupera el balance confirmado cuando se pierde la primera respuesta", async () => {

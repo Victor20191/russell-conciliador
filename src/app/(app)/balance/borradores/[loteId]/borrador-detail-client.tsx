@@ -66,6 +66,7 @@ import {
   type PropagacionReubicacion,
 } from "@/lib/balance/reubicacion-repetida";
 import { ReubicacionesAprobadasPanel } from "@/components/reubicaciones-aprobadas";
+import { AdvertenciaArchivoFuenteDetalle } from "@/components/advertencia-archivo-fuente";
 import { notifyActionState, notifySuccess, notifyError, notifyInfo } from "@/lib/client-notifications";
 import {
   esFalloTransporteCarga,
@@ -1210,11 +1211,6 @@ export default function BorradorDetailClient({
           className="flex flex-col gap-3"
         >
           <input type="hidden" name="loteId" value={loteId} />
-          <input
-            type="hidden"
-            name="requiereComentarioArchivoFuente"
-            value={advertenciaArchivoFuente ? "1" : "0"}
-          />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <SelectorClienteBuscable
               clients={clientes}
@@ -1391,170 +1387,130 @@ function AdvertenciaArchivoFuente({
   };
 
   return (
-    <section
-      aria-labelledby="advertencia-archivo-fuente"
-      className="overflow-hidden rounded-lg border border-warn-100 border-l-4 border-l-warn-500 bg-[#fffaf0] shadow-sm"
-    >
+    <>
       <input
         type="hidden"
         form="cargar-balance-oficial"
         name="comentarioPromocion"
         value={comentario}
       />
-      <div className="flex flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-start">
-        <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-warn-500 text-white shadow-sm">
-          <Icon name="warn" size={18} stroke={2} />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="mb-1 flex flex-wrap items-center gap-2">
-            <h2
-              id="advertencia-archivo-fuente"
-              className="text-[11px] font-semibold uppercase tracking-wider text-warn-700"
-            >
-              Advertencia del archivo fuente
-            </h2>
-            <span className="rounded-full border border-warn-100 bg-white px-2 py-0.5 text-[10px] font-semibold text-warn-700">
-              No es un error del sistema
-            </span>
-          </div>
-          <p className="text-[13px] font-semibold text-ink-800">
-            Los totales coinciden, pero el archivo no cumple la ecuación contable.
-          </p>
-          <p className="mt-1 max-w-4xl text-[11.5px] leading-relaxed text-ink-600">
-            Russell reprodujo correctamente los valores del archivo y no encontró
-            alertas de descuadre por cuenta. Sin embargo, Activo no es igual a
-            Pasivo + Patrimonio + Resultado: la diferencia es{" "}
-            <span className="font-semibold tabular-nums text-warn-800">
-              {fmt(diferencia)}
-            </span>
-            . Esta diferencia ya viene en el archivo de origen.
-          </p>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            <span className="rounded border border-ok-100 bg-white px-2 py-0.5 text-[10.5px] font-medium text-ok-700">
-              ✓ Partida doble cuadrada
-            </span>
-            <span className="rounded border border-ok-100 bg-white px-2 py-0.5 text-[10.5px] font-medium text-ok-700">
-              ✓ Totales cruzan con el archivo
-            </span>
-            <span className="rounded border border-ok-100 bg-white px-2 py-0.5 text-[10.5px] font-medium text-ok-700">
-              ✓ Sin alertas por cuenta
-            </span>
-          </div>
-        </div>
-        <button
-          type="button"
-          aria-haspopup="dialog"
-          onClick={abrirComentario}
-          className={`inline-flex w-full shrink-0 items-center justify-between gap-2 rounded-md border px-3 py-2 text-[11px] font-semibold shadow-sm transition sm:ml-auto sm:w-auto ${
-            comentarioListo
-              ? "border-ok-200 bg-white text-ok-700 hover:bg-ok-50"
-              : "border-warn-200 bg-white text-warn-700 hover:bg-warn-50"
-          }`}
-        >
-          <span className="inline-flex items-center gap-1.5">
-            <Icon name={comentarioListo ? "check" : "msg"} size={14} />
-            {comentarioListo ? "Comentario agregado" : "Comentario de aprobación"}
-          </span>
-          <span
-            className={`rounded-full px-2 py-0.5 text-[9px] uppercase tracking-wide ${
+      <AdvertenciaArchivoFuenteDetalle
+        diferencia={diferencia}
+        accion={
+          <button
+            type="button"
+            aria-haspopup="dialog"
+            onClick={abrirComentario}
+            className={`inline-flex w-full shrink-0 items-center justify-between gap-2 rounded-md border px-3 py-2 text-[11px] font-semibold shadow-sm transition sm:ml-auto sm:w-auto ${
               comentarioListo
-                ? "bg-ok-100 text-ok-700"
-                : "bg-err-100 text-err-700"
+                ? "border-ok-200 bg-white text-ok-700 hover:bg-ok-50"
+                : "border-warn-200 bg-white text-warn-700 hover:bg-warn-50"
             }`}
           >
-            {comentarioListo ? "Listo" : "Obligatorio"}
-          </span>
-          <Icon
-            name="chev-r"
-            size={12}
-          />
-        </button>
-      </div>
-      <Modal
-        open={comentarioAbierto}
-        onClose={cerrarComentario}
-        title="Comentario de aprobación"
-        size="lg"
-        footer={
-          <>
-            <button
-              type="button"
-              onClick={cerrarComentario}
-              className="rounded-md border border-ink-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-ink-600 transition hover:bg-ink-50"
+            <span className="inline-flex items-center gap-1.5">
+              <Icon name={comentarioListo ? "check" : "msg"} size={14} />
+              {comentarioListo ? "Comentario agregado" : "Comentario de aprobación"}
+            </span>
+            <span
+              className={`rounded-full px-2 py-0.5 text-[9px] uppercase tracking-wide ${
+                comentarioListo
+                  ? "bg-ok-100 text-ok-700"
+                  : "bg-err-100 text-err-700"
+              }`}
             >
-              Cancelar
-            </button>
-            <button
-              type="button"
-              onClick={guardarComentario}
-              disabled={!comentarioBorradorListo}
-              className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white transition hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Guardar comentario
-            </button>
-          </>
+              {comentarioListo ? "Listo" : "Obligatorio"}
+            </span>
+            <Icon name="chev-r" size={12} />
+          </button>
         }
-      >
-        <div className="flex flex-col gap-4">
-          <div className="flex items-start gap-3 rounded-lg border border-warn-100 bg-[#fffaf0] px-3 py-3">
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-warn-500 text-white">
-              <Icon name="warn" size={17} stroke={2} />
-            </span>
-            <div className="min-w-0">
-              <div className="text-[11px] font-semibold uppercase tracking-wider text-warn-700">
-                Justificación obligatoria
-              </div>
-              <p className="mt-1 text-[12px] leading-relaxed text-ink-600">
-                El archivo no cumple la ecuación contable. Deja constancia de la
-                revisión antes de cargarlo como balance oficial.
-              </p>
-              <div className="mt-2 inline-flex rounded-md border border-warn-100 bg-white px-2.5 py-1.5 text-[11.5px] text-ink-600">
-                Diferencia del archivo:&nbsp;
-                <span className="font-semibold tabular-nums text-warn-800">
-                  {fmt(diferencia)}
+        detalle={
+          <Modal
+            open={comentarioAbierto}
+            onClose={cerrarComentario}
+            title="Comentario de aprobación"
+            size="lg"
+            footer={
+              <>
+                <button
+                  type="button"
+                  onClick={cerrarComentario}
+                  className="rounded-md border border-ink-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-ink-600 transition hover:bg-ink-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={guardarComentario}
+                  disabled={!comentarioBorradorListo}
+                  className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white transition hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Guardar comentario
+                </button>
+              </>
+            }
+          >
+            <div className="flex flex-col gap-4">
+              <div className="flex items-start gap-3 rounded-lg border border-warn-100 bg-[#fffaf0] px-3 py-3">
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-warn-500 text-white">
+                  <Icon name="warn" size={17} stroke={2} />
                 </span>
+                <div className="min-w-0">
+                  <div className="text-[11px] font-semibold uppercase tracking-wider text-warn-700">
+                    Justificación obligatoria
+                  </div>
+                  <p className="mt-1 text-[12px] leading-relaxed text-ink-600">
+                    El archivo no cumple la ecuación contable. Deja constancia de la
+                    revisión antes de cargarlo como balance oficial.
+                  </p>
+                  <div className="mt-2 inline-flex rounded-md border border-warn-100 bg-white px-2.5 py-1.5 text-[11.5px] text-ink-600">
+                    Diferencia del archivo:&nbsp;
+                    <span className="font-semibold tabular-nums text-warn-800">
+                      {fmt(diferencia)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <label htmlFor="comentario-promocion-balance" className="flex flex-col gap-1.5">
+                <span className="flex items-center gap-2 text-[11.5px] font-semibold text-ink-700">
+                  Argumento de aprobación
+                  <span className="rounded-full bg-err-100 px-2 py-0.5 text-[9px] uppercase tracking-wide text-err-700">
+                    Obligatorio
+                  </span>
+                </span>
+                <textarea
+                  id="comentario-promocion-balance"
+                  autoFocus
+                  required
+                  maxLength={MAX_COMENTARIO_PROMOCION}
+                  rows={6}
+                  value={comentarioBorrador}
+                  onChange={(event) => setComentarioBorrador(event.target.value)}
+                  aria-describedby="ayuda-comentario-promocion contador-comentario-promocion"
+                  placeholder="Ej.: Diferencia revisada y confirmada con el cliente; corresponde al archivo fuente."
+                  className="w-full resize-none rounded-lg border border-ink-200 bg-white px-3 py-2.5 text-[12.5px] leading-relaxed text-ink-700 outline-none transition placeholder:text-ink-400 focus:border-warn-500 focus:ring-2 focus:ring-warn-100"
+                />
+              </label>
+
+              <div className="flex items-start justify-between gap-3">
+                <p
+                  id="ayuda-comentario-promocion"
+                  className="max-w-sm text-[10.5px] leading-relaxed text-ink-500"
+                >
+                  El comentario quedará visible junto con esta advertencia en la versión oficial.
+                </p>
+                <div
+                  id="contador-comentario-promocion"
+                  className="shrink-0 text-[10px] tabular-nums text-ink-400"
+                >
+                  {comentarioBorrador.length}/{MAX_COMENTARIO_PROMOCION}
+                </div>
               </div>
             </div>
-          </div>
-
-          <label htmlFor="comentario-promocion-balance" className="flex flex-col gap-1.5">
-            <span className="flex items-center gap-2 text-[11.5px] font-semibold text-ink-700">
-              Argumento de aprobación
-              <span className="rounded-full bg-err-100 px-2 py-0.5 text-[9px] uppercase tracking-wide text-err-700">
-                Obligatorio
-              </span>
-            </span>
-            <textarea
-              id="comentario-promocion-balance"
-              autoFocus
-              required
-              maxLength={MAX_COMENTARIO_PROMOCION}
-              rows={6}
-              value={comentarioBorrador}
-              onChange={(event) => setComentarioBorrador(event.target.value)}
-              aria-describedby="ayuda-comentario-promocion contador-comentario-promocion"
-              placeholder="Ej.: Diferencia revisada y confirmada con el cliente; corresponde al archivo fuente."
-              className="w-full resize-none rounded-lg border border-ink-200 bg-white px-3 py-2.5 text-[12.5px] leading-relaxed text-ink-700 outline-none transition placeholder:text-ink-400 focus:border-warn-500 focus:ring-2 focus:ring-warn-100"
-            />
-          </label>
-
-          <div className="flex items-start justify-between gap-3">
-            <p
-              id="ayuda-comentario-promocion"
-              className="max-w-sm text-[10.5px] leading-relaxed text-ink-500"
-            >
-              El comentario quedará visible en la nota de la versión oficial.
-            </p>
-            <div
-              id="contador-comentario-promocion"
-              className="shrink-0 text-[10px] tabular-nums text-ink-400"
-            >
-              {comentarioBorrador.length}/{MAX_COMENTARIO_PROMOCION}
-            </div>
-          </div>
-        </div>
-      </Modal>
-    </section>
+          </Modal>
+        }
+      />
+    </>
   );
 }
 
@@ -1947,14 +1903,27 @@ export function NombreCuentaArbol({
 }
 
 /**
- * ¿La fila merece «Alerta»? Una AGRUPADORA cuyo total ≠ suma de sus hijos (Δ), o un
+ * ¿La fila merece «Alerta»? Una AGRUPADORA cuyo total ≠ suma de sus hijos (Δ), una
+ * agrupadora fijada manualmente que quedó sin hijos pero conserva valores materiales, o un
  * MOVIMIENTO problemático: con un valor de MAGNITUD (débito o crédito que vino con signo
  * CONTRARIO al dominante de su columna → se subió en negativo) o marcado «descuadre» (no
  * cuadra en ninguna orientación). Las filas omitidas no alertan.
  */
-const esAlertaNodo = (n: NodoBorrador, umbrales: UmbralesAlertas): boolean => {
+export const esAlertaNodo = (n: NodoBorrador, umbrales: UmbralesAlertas): boolean => {
   if (esDescuadreAccionable(n.descuadre, umbrales)) return true;
   if (n.omitida) return false;
+  // Una corrección memorizada puede conservar una cuenta como AGRUPADORA aunque en
+  // este archivo ya no tenga movimientos debajo. La vista preserva esa decisión y,
+  // por tanto, su saldo queda fuera del cálculo: debe aparecer en «Alertas» para que
+  // el revisor pueda localizar la causa del descuadre superior. La materialidad usa
+  // el mismo umbral parametrizado que los demás descuadres del borrador.
+  if (
+    n.tipoFila === "agrupadora"
+    && n.tipoFilaForzado === "agrupadora"
+    && n.hijos.length === 0
+    && [n.saldoInicial, n.debitos, n.creditos, n.saldoFinal]
+      .some((valor) => esDescuadreAccionable(valor, umbrales))
+  ) return true;
   const diferenciaControl = n.saldoInicial + n.debitos - n.creditos - n.saldoFinal;
   if (n.tipoFila === "descuadre") return esDescuadreAccionable(diferenciaControl, umbrales);
   if (n.tipoFila !== "movimiento") return false;

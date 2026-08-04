@@ -208,9 +208,11 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
         <span className="font-mono">{meta.file} · {meta.fileSize} · {meta.rows} cuentas</span>
       </p>
 
-      {(balance.comentarioAprobacion || reubicacionesAprobadas.length > 0) && (
+      {(balance.comentarioAprobacion || balance.advertenciaArchivoFuente || reubicacionesAprobadas.length > 0) && (
         <ComentarioAprobacion
           comentario={balance.comentarioAprobacion}
+          advertenciaArchivoFuente={balance.advertenciaArchivoFuente}
+          diferenciaArchivoFuente={balance.diferenciaArchivoFuente != null ? Number(balance.diferenciaArchivoFuente) : null}
           reubicaciones={reubicacionesAprobadas}
           version={`versión ${balance.version}`}
           autor={meta.uploadedBy}

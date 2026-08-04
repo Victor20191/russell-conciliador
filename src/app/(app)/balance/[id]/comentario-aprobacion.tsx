@@ -1,4 +1,5 @@
 import { Icon } from "@/components/icons";
+import { AdvertenciaArchivoFuenteDetalle } from "@/components/advertencia-archivo-fuente";
 import { ReubicacionesAprobadasPanel } from "@/components/reubicaciones-aprobadas";
 import type { RevisionReubicacionBalance } from "@/lib/balance/revisiones-reubicacion-balance";
 
@@ -11,6 +12,8 @@ import type { RevisionReubicacionBalance } from "@/lib/balance/revisiones-reubic
  */
 export function ComentarioAprobacion({
   comentario,
+  advertenciaArchivoFuente = false,
+  diferenciaArchivoFuente = null,
   reubicaciones = [],
   version,
   autor,
@@ -18,15 +21,46 @@ export function ComentarioAprobacion({
   fecha,
 }: {
   comentario: string | null;
+  advertenciaArchivoFuente?: boolean;
+  diferenciaArchivoFuente?: number | null;
   reubicaciones?: RevisionReubicacionBalance[];
   version: string;
   autor: string;
   rol: string;
   fecha: string;
 }) {
+  const muestraAdvertenciaArchivoFuente =
+    advertenciaArchivoFuente && diferenciaArchivoFuente != null;
+
   return (
     <>
-      {comentario && (
+      {muestraAdvertenciaArchivoFuente && (
+        <AdvertenciaArchivoFuenteDetalle
+          diferencia={diferenciaArchivoFuente}
+          tituloId="advertencia-archivo-fuente-oficial"
+          className="mb-4"
+          detalle={comentario ? (
+            <div className="border-t border-warn-100 bg-white/55 px-4 py-3.5 sm:pl-16">
+              <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                <h3 className="text-[10.5px] font-semibold uppercase tracking-wider text-warn-700">
+                  Justificación de aprobación
+                </h3>
+                <span className="rounded-full border border-warn-100 bg-white px-2 py-0.5 text-[10px] font-semibold text-warn-700">
+                  {version}
+                </span>
+              </div>
+              <blockquote className="max-w-4xl whitespace-pre-wrap break-words text-[13px] font-medium leading-relaxed text-ink-800">
+                «{comentario}»
+              </blockquote>
+              <p className="mt-2 text-[11px] leading-relaxed text-ink-500">
+                {autor} · {rol} · {fecha} — justificación registrada antes de cargar esta
+                versión del balance.
+              </p>
+            </div>
+          ) : undefined}
+        />
+      )}
+      {comentario && !muestraAdvertenciaArchivoFuente && (
         <section
           aria-labelledby="comentario-aprobacion"
           className="mb-4 overflow-hidden rounded-lg border border-warn-100 border-l-4 border-l-warn-500 bg-[#fffaf0] shadow-sm"

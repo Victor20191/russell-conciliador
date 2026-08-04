@@ -57,7 +57,14 @@ import { detectarManipulacionesRiesgosas, reclasificarHuerfanas, reclasificarSol
 import { esBalancePorTercero, colapsarTerceros, esBalancePorTerceroSufijo, consolidarTercerosPorSufijo, marcarCuentaNit } from "@/lib/balance/terceros";
 import { invalidarStagingBorrador, type RevisionReubicacionStaging } from "@/lib/balance/staging-borrador";
 import { marcarRelistadoGuiones } from "@/lib/balance/relistado";
-import { validarComentarioPromocion } from "@/lib/balance/advertencia-archivo-fuente";
+import {
+  esDescuadreDelArchivoFuente,
+  validarComentarioPromocion,
+} from "@/lib/balance/advertencia-archivo-fuente";
+import {
+  calcularExplicacionesClaseReubicacion,
+  filtrarHallazgosClaseResueltos,
+} from "@/lib/balance/conciliacion-reubicaciones";
 import { claveCuenta, construirCorrecciones, planAplicarCorrecciones, type CorreccionCuenta, type FilaStagingCorreccion } from "@/lib/balance/correcciones";
 import { registrarDiagnosticoInicial, cerrarDiagnostico, acumularIntervencionManual } from "@/lib/balance/diagnostico-lectura-registro";
 import { iaBalanceDisponible, proveedorIABalance, type ProveedorIABalance } from "@/lib/ia/proveedor-balance";
@@ -367,7 +374,12 @@ function cuentasDesdeFilasStaging(filasStaging: FilaBorrador[]): CuentaCruda[] {
   marcarNoContables(rows);
   // Agrupadora huérfana (sin hijos, con saldo) → movimiento: el ERP la exportó sin
   // desglose; si no, su saldo se pierde al cargar. También recupera lotes viejos.
-  reclasificarHuerfanas(rows);
+  // PRESERVA las agrupadoras FORZADAS por el auditor (movimiento→agrupadora del
+  // borrador): sin la opción, una conversión manual cuyas hijas se asignaron por
+  // `padreManual` (hermanas de igual longitud que NUNCA anidan solas) se revertía
+  // aquí y su saldo se cargaba DOBLE (la cuenta + sus hijas). Mismo criterio que
+  // la vista del borrador, que es lo que el auditor aprobó en pantalla.
+  reclasificarHuerfanas(rows, { preservarAgrupadorasForzadas: true });
   // Filas OMITIDAS: se conservan en el crudo pero NO se vuelcan al balance oficial.
   const mov = rows.filter((f) => f.tipoFila === "movimiento" && !f.omitida);
   // Excluye subtotales DUPLICADOS (6 díg con detalle 8 díg idéntico) para no doblar.
@@ -383,7 +395,7 @@ async function cuentasDesdeStaging(loteId: string): Promise<CuentaCruda[]> {
   const staged = await prisma.balanceImportacionStaging.findMany({
     where: { loteId },
     orderBy: { filaNum: "asc" },
-    select: { filaNum: true, codigo: true, codigoCrudo: true, nombre: true, nivel: true, tipoFila: true, tipoFilaForzado: true, omitida: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
+    select: { filaNum: true, codigo: true, codigoCrudo: true, nombre: true, nivel: true, tipoFila: true, tipoFilaForzado: true, desacoplada: true, omitida: true, padreManual: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
   });
   const filasStaging: FilaBorrador[] = staged.map((f) => ({
     // TRI-ESTADO durable: null (BD) = «sin tocar» → undefined (elegible para el marcado
@@ -391,7 +403,12 @@ async function cuentasDesdeStaging(loteId: string): Promise<CuentaCruda[]> {
     // (el override manual gana); true = omitida → no se carga.
     filaNum: f.filaNum, codigo: f.codigo, codigoCrudo: f.codigoCrudo, nombre: f.nombre, nivel: f.nivel, tipoFila: f.tipoFila as TipoFila,
     tipoFilaForzado: f.tipoFilaForzado === "agrupadora" || f.tipoFilaForzado === "movimiento" ? f.tipoFilaForzado : null,
+    // Ediciones manuales GUARDADAS del borrador: sin `padreManual` el árbol de la
+    // promoción NO cuelga las hijas asignadas a mano y una agrupadora convertida
+    // quedaría "huérfana" (→ se revertiría a movimiento y contaría doble).
+    desacoplada: f.desacoplada,
     omitida: f.omitida ?? undefined,
+    padreManual: f.padreManual,
     saldoInicial: Number(f.saldoInicial), debitos: Number(f.debitos), creditos: Number(f.creditos), saldoFinal: Number(f.saldoFinal),
   }));
   return cuentasDesdeFilasStaging(filasStaging);
@@ -472,7 +489,9 @@ async function actualizarResumenLoteBorrador(
     creditos: Number(fila.creditos),
     saldoFinal: Number(fila.saldoFinal),
   }));
-  const diagnostico = construirVistaBorrador(filas).diagnostico;
+  // Mismo criterio que la vista de detalle: una agrupadora forzada a mano no se
+  // revierte aunque quede sin hijas, así los contadores de la lista coinciden.
+  const diagnostico = construirVistaBorrador(filas, { preservarAgrupadorasForzadas: true }).diagnostico;
 
   await db.balanceImportacionLote.updateMany({
     where: { loteId },
@@ -923,6 +942,61 @@ async function promoverStagingAOficial(p: MetaPromocion, contexto: string): Prom
       getUmbralesAlertas(),
     ]);
 
+    // Recalcula la advertencia desde el staging que se va a consumir. El hidden
+    // del formulario solo mejora la UX: no decide qué constancia se persiste ni
+    // permite omitir la justificación obligatoria. Esta pasada reproduce las
+    // mismas reubicaciones aprobadas y el mismo modo de vista del borrador.
+    const filasBorrador: FilaBorrador[] = filasControlFinal.map((fila) => ({
+      ...fila,
+      nivel: /^\d+$/.test(fila.codigo) ? fila.codigo.length : null,
+      tipoFila: fila.tipoFila as FilaBorrador["tipoFila"],
+      omitida: fila.omitida ?? undefined,
+    }));
+    const vistaFuente = construirVistaBorrador(
+      filasBorrador.map((fila) => ({ ...fila })),
+      {
+        preservarAgrupadorasForzadas: true,
+        consolidarAuxiliares: true,
+        umbrales,
+      },
+    );
+    const riesgosFuente = detectarManipulacionesRiesgosas(filasBorrador);
+    const filasAprobadas = new Set(
+      revisionesFinales.revisionesAprobadas.map((revision) => revision.filaNum),
+    );
+    const explicacionesFuente = calcularExplicacionesClaseReubicacion(
+      riesgosFuente,
+      filasAprobadas,
+      new Set(vistaFuente.filasContabilizadas),
+      {
+        "1": vistaFuente.validacion.activoDiff,
+        "2": vistaFuente.validacion.pasivoDiff,
+        "3": vistaFuente.validacion.patrimonioDiff,
+        "4": vistaFuente.validacion.ingresosDiff,
+        "5": vistaFuente.validacion.gastosDiff,
+        "6": vistaFuente.validacion.costosDiff,
+      },
+    );
+    const hallazgosFuente = filtrarHallazgosClaseResueltos(
+      vistaFuente.hallazgos,
+      explicacionesFuente,
+    );
+    const advertenciaArchivoFuente = esDescuadreDelArchivoFuente(
+      vistaFuente.validacion,
+      vistaFuente.partidaDoble,
+      hallazgosFuente,
+    );
+    const comentarioFuente = validarComentarioPromocion(
+      p.comentarioPromocion,
+      advertenciaArchivoFuente,
+    );
+    if (!comentarioFuente.ok) {
+      return { ok: false, message: comentarioFuente.message };
+    }
+    const diferenciaArchivoFuente = advertenciaArchivoFuente
+      ? vistaFuente.validacion.ecuacionDiff
+      : null;
+
     const { id, version, calc, reutilizado } = await persistirCargue({
       loteId: p.loteId, clientId: p.clientId, clienteName: cliente.name, clienteNit: cliente.nit,
       revisionContenido: p.revisionContenido,
@@ -931,7 +1005,9 @@ async function promoverStagingAOficial(p: MetaPromocion, contexto: string): Prom
       uploadedBy: user?.name ?? "—", uploadedById: user?.id ?? null, rolLabel: p.rolLabel,
       cuadreTotales, umbrales,
       proveedorIA: p.proveedorIA,
-      comentarioPromocion: p.comentarioPromocion,
+      comentarioPromocion: comentarioFuente.comentario,
+      advertenciaArchivoFuente,
+      diferenciaArchivoFuente,
       revisionesReubicacion: revisionesFinales.revisionesAprobadas,
       nombresGrupoCliente,
       meta: {
@@ -1291,6 +1367,9 @@ async function persistirCargue(p: {
   proveedorIA?: ProveedorIABalance;
   /** Justificación registrada al promover un archivo cuya ecuación no cuadra. */
   comentarioPromocion?: string | null;
+  /** Diagnóstico durable recalculado desde staging antes de purgar el borrador. */
+  advertenciaArchivoFuente: boolean;
+  diferenciaArchivoFuente: number | null;
   /** Reubicaciones entre clases aprobadas que deben sobrevivir a la purga del borrador. */
   revisionesReubicacion?: RevisionReubicacionBalance[];
   /** Nombres reales de las agrupadoras de seis dígitos leídos del archivo. */
@@ -1455,6 +1534,10 @@ async function persistirCargue(p: {
   // cargues que lo exigen (los que traen advertencia del archivo fuente).
   const nota = alertas > 0 ? `${alertas} validación(es) con alerta` : "Sin alertas";
   const comentarioAprobacion = p.comentarioPromocion?.trim() || null;
+  const advertenciaArchivoFuente = p.advertenciaArchivoFuente;
+  const diferenciaArchivoFuente = advertenciaArchivoFuente
+    ? p.diferenciaArchivoFuente
+    : null;
   // Las reubicaciones aprobadas se guardan ESTRUCTURADAS (no resumidas a texto):
   // el balance oficial debe poder mostrar la misma ficha que mostró el borrador y
   // el staging —única otra fuente— se purga al confirmar el cargue.
@@ -1595,6 +1678,7 @@ async function persistirCargue(p: {
         version, esOficial: false, estaCongelado: false, estado: status, completitud: complete,
         archivo: p.archivoNombre, tamanoArchivo: p.archivoTam,
         cargadoPor: p.uploadedBy, rolCarga: p.rolLabel, cuadrado: calc.balanced && calc.movimientosCuadran && !descuadreTotales, nota, comentarioAprobacion,
+        advertenciaArchivoFuente, diferenciaArchivoFuente,
         reubicacionesAprobadas: revisionesReubicacion.length > 0 ? revisionesReubicacion : undefined,
         sumaActivo: calc.sums.activo, filasTotales: calc.totalRows,
         mapeadas: calc.mapped, sinMapear: calc.unmapped, criticas: calc.critical, cambios,
@@ -2351,6 +2435,9 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
   // ya con las preferencias y reclasificaciones aplicadas al staging definitivo.
   const diagFinal = construirVistaBorrador(
     filasBorrador.map((fila) => ({ ...fila })),
+    // Respeta el `tipoFilaForzado` que llega de las correcciones memorizadas del
+    // cliente — igual que la vista de detalle y el resumen del lote.
+    { preservarAgrupadorasForzadas: true },
   ).diagnostico;
   // Total del archivo por clase = SUMA de todas las filas totalizadoras de esa
   // clase (código "1"/"2"/"3"). En balances MULTI-SUCURSAL el ERP repite el total
@@ -3053,7 +3140,9 @@ export async function cargarBorrador(_prev: ImportBalanceState, formData: FormDa
   if (!loteId) return { ok: false, message: "Borrador inválido. Vuelve a la lista de borradores." };
   const comentarioValidado = validarComentarioPromocion(
     formData.get("comentarioPromocion"),
-    formData.get("requiereComentarioArchivoFuente") === "1",
+    // Aquí solo normaliza y limita longitud. La obligatoriedad se decide más
+    // adelante al reconstruir el staging, nunca con una bandera del navegador.
+    false,
   );
   if (!comentarioValidado.ok) {
     return { ok: false, message: comentarioValidado.message };
