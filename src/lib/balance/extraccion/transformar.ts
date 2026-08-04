@@ -807,7 +807,7 @@ function celdaCodigo(fila: CeldaCruda[], cols: MappingSpec["columnas"]): CeldaCr
 }
 
 // Una fila "en negrita" (marca de agrupadora del ERP) = su código o su nombre en
-// negrita. `negritaFila` viene de la ingesta (solo XLSX), alineada 0-based con la fila.
+// negrita. `negritaFila` viene de la ingesta Excel, alineada 0-based con la fila.
 function filaEnNegrita(negritaFila: boolean[] | undefined, codigoCol: number | null, nombreCol: number | null): boolean {
   const cn = (col: number | null) => col != null && col >= 1 && negritaFila?.[col - 1] === true;
   return cn(nombreCol) || cn(codigoCol);

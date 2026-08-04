@@ -13,9 +13,10 @@
 import ExcelJS from "exceljs";
 
 export type CeldaCruda = string | number | boolean | null;
-// `negrita` (solo XLSX/XLSM): por cada fila de `filas`, el flag NEGRITA de cada celda
-// (alineado 0-based con la fila). Muchos ERP marcan las cuentas AGRUPADORAS en
-// negrita — es su propia clasificación, más confiable que inferir por código.
+// `negrita` (XLSX/XLSM y XLS cuando BIFF conserva el estilo): por cada fila de
+// `filas`, el flag NEGRITA de cada celda (alineado 0-based con la fila). Muchos
+// ERP marcan las cuentas AGRUPADORAS/consolidadas en negrita — es su propia
+// clasificación, más confiable que inferir por código.
 export type GridHoja = { nombre: string; filas: CeldaCruda[][]; negrita?: boolean[][] };
 
 export type DocumentoIA = { tipo: "pdf"; base64: string } | { tipo: "texto"; texto: string };
@@ -116,6 +117,113 @@ async function leerLibroExcel(data: ArrayBuffer): Promise<GridHoja[]> {
   });
 }
 
+// SheetJS 0.20 lee los VALORES de BIFF8, pero elimina el índice XF/fuente de
+// cada celda antes de exponer la hoja (incluso con `cellStyles`). Para un balance
+// por tercero esa pérdida es funcional: SIIGO distingue la cuenta consolidada
+// (negrita) de sus NIT/cédulas (sin negrita). Esta pasada mínima sobre el stream
+// `/Workbook` recupera SOLO esa señal, sin interpretar fórmulas ni valores.
+type CeldasNegritaBiff = Array<Map<number, Set<number>>>; // hoja → fila → columnas
+
+const REGISTROS_CELDA_XF = new Set([
+  0x0003, // BIFF2NUM
+  0x0004, // BIFF2STR
+  0x0006, // Formula
+  0x00d6, // RString
+  0x00fd, // LabelSst
+  0x0203, // Number
+  0x0204, // Label
+  0x0205, // BoolErr
+  0x027e, // RK
+]);
+
+function u16(bytes: Uint8Array, offset: number): number {
+  return bytes[offset] | (bytes[offset + 1] << 8);
+}
+
+function u32(bytes: Uint8Array, offset: number): number {
+  return (u16(bytes, offset) | (u16(bytes, offset + 2) << 16)) >>> 0;
+}
+
+/**
+ * Extrae las celdas en negrita de un stream BIFF5/BIFF8 ya desempaquetado.
+ * Exportada para probar la decodificación binaria con registros sintéticos;
+ * la ingesta pública sigue siendo `ingerir()`.
+ */
+export function extraerCeldasNegritaBiffXls(workbook: Uint8Array): CeldasNegritaBiff {
+  const fuentesNegrita: Array<boolean | null> = [];
+  const fuentePorXf: number[] = [];
+  const indiceHojaPorOffset = new Map<number, number>();
+  const celdas: CeldasNegritaBiff = [];
+  let siguienteHojaFisica = 0;
+  let hojaActual: number | null = null;
+
+  const marcar = (fila: number, columna: number, xf: number) => {
+    if (hojaActual == null) return;
+    const fuente = fuentePorXf[xf];
+    if (fuente == null || fuentesNegrita[fuente] !== true) return;
+    const porFila = celdas[hojaActual] ?? (celdas[hojaActual] = new Map());
+    const columnas = porFila.get(fila) ?? new Set<number>();
+    columnas.add(columna);
+    porFila.set(fila, columnas);
+  };
+
+  for (let offset = 0; offset + 4 <= workbook.length;) {
+    const tipo = u16(workbook, offset);
+    const largo = u16(workbook, offset + 2);
+    const inicio = offset + 4;
+    const fin = inicio + largo;
+    if (fin > workbook.length) break;
+
+    if (tipo === 0x0085 && largo >= 8) {
+      // BoundSheet8: `lbPlyPos` apunta al BOF físico de la hoja. Conserva el
+      // orden lógico de SheetNames aunque los substreams no vengan consecutivos.
+      indiceHojaPorOffset.set(u32(workbook, inicio), indiceHojaPorOffset.size);
+    } else if (tipo === 0x0031 && largo >= 8) {
+      // BIFF reserva el índice de fuente 4; el quinto registro es la fuente 5.
+      if (fuentesNegrita.length === 4) fuentesNegrita.push(null);
+      const peso = u16(workbook, inicio + 6); // `bls`: 400 normal, 700 negrita
+      fuentesNegrita.push(peso >= 700);
+    } else if (tipo === 0x00e0 && largo >= 2) {
+      fuentePorXf.push(u16(workbook, inicio));
+    } else if (
+      (tipo === 0x0009 || tipo === 0x0209 || tipo === 0x0409 || tipo === 0x0809)
+      && largo >= 4
+      && u16(workbook, inicio + 2) === 0x0010
+    ) {
+      hojaActual = indiceHojaPorOffset.get(offset) ?? siguienteHojaFisica;
+      siguienteHojaFisica = Math.max(siguienteHojaFisica, hojaActual + 1);
+    } else if (tipo === 0x000a) {
+      hojaActual = null;
+    } else if (hojaActual != null && REGISTROS_CELDA_XF.has(tipo) && largo >= 6) {
+      marcar(u16(workbook, inicio), u16(workbook, inicio + 2), u16(workbook, inicio + 4));
+    } else if (hojaActual != null && tipo === 0x00bd && largo >= 10) {
+      // MulRk: fila, primera columna, pares (XF + RK), última columna.
+      const fila = u16(workbook, inicio);
+      const primera = u16(workbook, inicio + 2);
+      const ultima = u16(workbook, fin - 2);
+      for (let columna = primera; columna <= ultima; columna++) {
+        const pos = inicio + 4 + (columna - primera) * 6;
+        if (pos + 2 > fin - 2) break;
+        marcar(fila, columna, u16(workbook, pos));
+      }
+    } else if (hojaActual != null && tipo === 0x00be && largo >= 8) {
+      // MulBlank: fila, primera columna, lista de XF, última columna.
+      const fila = u16(workbook, inicio);
+      const primera = u16(workbook, inicio + 2);
+      const ultima = u16(workbook, fin - 2);
+      for (let columna = primera; columna <= ultima; columna++) {
+        const pos = inicio + 4 + (columna - primera) * 2;
+        if (pos + 2 > fin - 2) break;
+        marcar(fila, columna, u16(workbook, pos));
+      }
+    }
+
+    offset = fin;
+  }
+
+  return celdas;
+}
+
 /**
  * Lee un libro binario Excel 97-2003 (.xls/BIFF) a grillas por hoja.
  *
@@ -126,7 +234,8 @@ async function leerLibroExcel(data: ArrayBuffer): Promise<GridHoja[]> {
  */
 async function leerLibroXls(data: ArrayBuffer): Promise<GridHoja[]> {
   const XLSX = await import("xlsx");
-  const wb = XLSX.read(new Uint8Array(data), {
+  const bytes = new Uint8Array(data);
+  const wb = XLSX.read(bytes, {
     type: "array",
     raw: true,
     dense: true,
@@ -137,19 +246,48 @@ async function leerLibroXls(data: ArrayBuffer): Promise<GridHoja[]> {
     bookVBA: false,
   });
 
-  return wb.SheetNames.map((nombre) => {
+  // Best-effort: un XLS válido sigue cargando aunque un productor BIFF exótico no
+  // permita recuperar estilos. Nunca se sacrifica la lectura de valores por negrita.
+  let negritasBiff: CeldasNegritaBiff = [];
+  try {
+    const cfb = XLSX.CFB.read(bytes, { type: "array" });
+    const entrada = XLSX.CFB.find(cfb, "/Workbook") ?? XLSX.CFB.find(cfb, "/Book");
+    const contenido = entrada?.content;
+    if (contenido) negritasBiff = extraerCeldasNegritaBiffXls(new Uint8Array(contenido));
+  } catch {
+    negritasBiff = [];
+  }
+
+  return wb.SheetNames.map((nombre, indiceHoja) => {
     const ws = wb.Sheets[nombre];
     if (!ws) return { nombre, filas: [] };
-    const filas = XLSX.utils
+    const ref = ws["!ref"];
+    const rango = ref ? XLSX.utils.decode_range(ref) : null;
+    const filasConHuecos = XLSX.utils
       .sheet_to_json<unknown[]>(ws, {
         header: 1,
         raw: true,
         defval: null,
-        blankrows: false,
-      })
-      .map((fila) => fila.map(celdaXls))
-      .filter(filaTieneDatos);
-    return { nombre, filas };
+        // Conserva huecos SOLO durante esta pasada para alinear la fila BIFF real
+        // con la grilla; se filtran inmediatamente igual que antes.
+        blankrows: true,
+      });
+    const filas: CeldaCruda[][] = [];
+    const negrita: boolean[][] = [];
+    let hayNegrita = false;
+    const mapaHoja = negritasBiff[indiceHoja];
+    for (let i = 0; i < filasConHuecos.length; i++) {
+      const fila = filasConHuecos[i].map(celdaXls);
+      if (!filaTieneDatos(fila)) continue;
+      filas.push(fila);
+      const filaBiff = (rango?.s.r ?? 0) + i;
+      const primeraColumna = rango?.s.c ?? 0;
+      const columnasBold = mapaHoja?.get(filaBiff);
+      const flags = fila.map((_, j) => columnasBold?.has(primeraColumna + j) === true);
+      if (flags.some(Boolean)) hayNegrita = true;
+      negrita.push(flags);
+    }
+    return hayNegrita ? { nombre, filas, negrita } : { nombre, filas };
   });
 }
 
@@ -356,7 +494,7 @@ const MAX_COLS_VISTA = 40;
  * modelo pueda referirse a filas/columnas exactas.
  * - Si la hoja excede `maxFilas`, se muestran las primeras `maxFilas − 10` y
  *   las ÚLTIMAS 10 con su índice 1-based REAL (ahí suele estar TOTALES).
- * - Las filas en negrita (solo XLSX) van marcadas `F12*:` — señal de agrupadora.
+ * - Las filas en negrita (Excel con estilo disponible) van marcadas `F12*:` — señal de agrupadora.
  * - `maxCols` se amplía hasta 40 si la hoja usa más de 25 columnas con datos.
  */
 export function construirVistaPrevia(hojas: GridHoja[], maxFilas = 60, maxCols = 25): string {
