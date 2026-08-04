@@ -98,7 +98,7 @@ import { DescartarCambiosBoton } from "@/components/descartar-cambios-boton";
  * guardaron en el borrador). Es lo que se apila para poder deshacer solo el
  * último cambio sin perder los anteriores.
  */
-type CambiosBorrador = {
+export type CambiosBorrador = {
   override: Record<string, "agrupadora" | "movimiento">;
   desacopladas: Record<string, boolean>;
   omitidas: Record<number, boolean>;
@@ -348,6 +348,53 @@ export function siguienteEnfoqueCambioEstructural(
   destino: number | null = null,
 ): EnfoqueCambioEstructural {
   return { origen, destino, secuencia: (actual?.secuencia ?? 0) + 1 };
+}
+
+/**
+ * `override`/`desacopladas` se guardan por CÓDIGO de cuenta, no por fila — pero el
+ * enfoque estructural necesita un `filaNum` para ubicar el nodo en el árbol. Se
+ * traduce con la PRIMERA fila cruda de cada código (mismo criterio que usa
+ * `consolidarAuxiliaresRepetidos` para elegir la fila representativa de un bloque
+ * "Cuenta + NIT" en balances por tercero), así el filaNum resuelto coincide con el
+ * nodo que el árbol realmente muestra para ese código.
+ */
+export function construirCodigoAFilaNum(filas: readonly Pick<FilaBorrador, "filaNum" | "codigo">[]): Map<string, number> {
+  const mapa = new Map<string, number>();
+  for (const fila of filas) {
+    if (!mapa.has(fila.codigo)) mapa.set(fila.codigo, fila.filaNum);
+  }
+  return mapa;
+}
+
+/**
+ * Cuenta(s) cuyo cambio temporal difiere entre dos fotografías de `CambiosBorrador`
+ * — se usa al deshacer «el último cambio» para saber a qué fila llevar al usuario
+ * tras revertirlo (puede quedar en otra sección/grupo: de omitida a activa, o bajo
+ * otro padre). El orden de comparación (reclasificación → desacople → omisión →
+ * re-parentado) prioriza la fila PROPIA de un cambio sobre las de sus hijas cuando
+ * un solo cambio tocó varias filas de golpe (p. ej. convertir una cuenta en
+ * agrupadora también reubica sus hijas). Los cambios globales (modo «solo hojas»)
+ * no tocan ninguna de las cuatro colecciones por cuenta y devuelven `[]` — no hay
+ * una única fila que enfocar, igual que al descartar TODOS los cambios.
+ */
+export function filasAfectadasPorCambio(
+  actual: CambiosBorrador,
+  otro: CambiosBorrador,
+  codigoAFilaNum: ReadonlyMap<string, number>,
+): number[] {
+  const filas: number[] = [];
+  const agregar = (filaNum: number | undefined) => {
+    if (filaNum != null && !filas.includes(filaNum)) filas.push(filaNum);
+  };
+  const clavesDistintas = (a: Record<string, unknown>, b: Record<string, unknown>): string[] => {
+    const claves = new Set([...Object.keys(a), ...Object.keys(b)]);
+    return [...claves].filter((clave) => a[clave] !== b[clave]);
+  };
+  for (const codigo of clavesDistintas(actual.override, otro.override)) agregar(codigoAFilaNum.get(codigo));
+  for (const codigo of clavesDistintas(actual.desacopladas, otro.desacopladas)) agregar(codigoAFilaNum.get(codigo));
+  for (const clave of clavesDistintas(actual.omitidas, otro.omitidas)) agregar(Number(clave));
+  for (const clave of clavesDistintas(actual.padres, otro.padres)) agregar(Number(clave));
+  return filas;
 }
 
 /** Aplica los cambios TEMPORALES (reclasificación / desacople / omitir / re-parentado)
@@ -689,6 +736,9 @@ export default function BorradorDetailClient({
       for (const p of pendientes) siguiente[p.filaNum] = true;
       return siguiente;
     });
+    // Replica en varias cuentas a la vez; enfoca la primera como referencia (igual
+    // criterio que «convertir en agrupadora», que también toca varias filas).
+    setEnfoqueReubicacion((actual) => siguienteEnfoqueCambioEstructural(actual, pendientes[0].filaNum));
     notifyInfo(
       "Anidado replicado",
       `${pendientes.length} cuenta(s) se colgaron de la agrupadora de su propio bloque. Revisa el resultado y guarda para fijarlo.`,
@@ -706,6 +756,9 @@ export default function BorradorDetailClient({
     return construirVistaBorrador(sinReparentar, { preservarAgrupadorasForzadas: true, consolidarAuxiliares: true, umbrales }).arbol;
   }, [huboAperturaReubicacion, filasEditadas, umbrales]);
   const filasPorNum = useMemo(() => new Map(filas.map((f) => [f.filaNum, f])), [filas]);
+  // Traduce override/desacopladas (por código) a un filaNum enfocable — ver
+  // `construirCodigoAFilaNum`. Se usa solo al descartar el último cambio.
+  const codigoAFilaNum = useMemo(() => construirCodigoAFilaNum(filas), [filas]);
   const abrirDetalleReubicacion = (filaNum: number) => {
     setHuboAperturaReubicacion(true);
     setDetalleReubicacion({ filaNum });
@@ -739,6 +792,10 @@ export default function BorradorDetailClient({
   const onOmitir = (filaNum: number, omitidaAhora: boolean) => {
     registrarCambio(`${omitidaAhora ? "Incluir" : "Omitir"} la fila ${filaNum}`);
     setOmitidas((o) => ({ ...o, [filaNum]: !omitidaAhora }));
+    // Al «Incluir» de nuevo la fila reaparece en el árbol y sí hay adónde ir; al
+    // «Omitir» desaparece y el efecto de enfoque no encuentra nada que resaltar
+    // (no-op silencioso), que es el comportamiento correcto en ese caso.
+    setEnfoqueReubicacion((actual) => siguienteEnfoqueCambioEstructural(actual, filaNum));
   };
   const onUbicar = (filaNum: number) => setMover({ filaNum });
   const aplicarReubicacion = (
@@ -844,7 +901,15 @@ export default function BorradorDetailClient({
   const descartarUltimoCambio = () => {
     const entrada = historial.deshacerUltimo();
     if (!entrada) return;
+    // La cuenta afectada se calcula ANTES de restaurar (comparando el estado
+    // vigente contra la fotografía a la que se vuelve) para saber dónde enfocar
+    // tras el descarte: puede reaparecer en otra sección/grupo (de omitida a
+    // activa, o bajo otro padre) y el efecto de enfoque expande lo necesario.
+    const afectadas = filasAfectadasPorCambio(capturarCambios(), entrada.estado, codigoAFilaNum);
     restaurarCambios(entrada.estado);
+    if (afectadas.length > 0) {
+      setEnfoqueReubicacion((actual) => siguienteEnfoqueCambioEstructural(actual, afectadas[0]));
+    }
     notifyInfo("Último cambio deshecho", entrada.descripcion);
   };
   const guardarCambios = () =>
