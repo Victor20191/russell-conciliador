@@ -53,7 +53,26 @@ function fechaOrdenBorrador(valor: string | null): number {
   return Number.isFinite(fecha) ? fecha : 0;
 }
 
-/** Borradores vigentes (cliente persistido) primero; dentro de cada grupo, recientes. */
+export type ColumnaOrdenBorrador =
+  | "archivo"
+  | "cliente"
+  | "periodo"
+  | "cuentas"
+  | "estado"
+  | "fecha";
+
+export type DireccionOrden = "asc" | "desc";
+
+function nombreClienteOrden(cliente: VinculoClienteBorrador): string {
+  if (cliente.tipo === "sin_cliente") return "";
+  return cliente.nombre ?? "";
+}
+
+function compararTexto(a: string, b: string): number {
+  return a.localeCompare(b, "es", { sensitivity: "base", numeric: true });
+}
+
+/** Orden por defecto: vigentes (cliente asignado) primero; luego más recientes. */
 export function ordenarBorradoresListado(
   rows: readonly BorradorRow[],
 ): BorradorRow[] {
@@ -63,6 +82,59 @@ export function ordenarBorradoresListado(
     if (grupoA !== grupoB) return grupoA - grupoB;
     return fechaOrdenBorrador(b.creadoEn) - fechaOrdenBorrador(a.creadoEn);
   });
+}
+
+/** Orden explícito por columna (texto A–Z / número o fecha menor–mayor). */
+export function ordenarBorradoresPorColumna(
+  rows: readonly BorradorRow[],
+  columna: ColumnaOrdenBorrador,
+  direccion: DireccionOrden,
+): BorradorRow[] {
+  const dir = direccion === "asc" ? 1 : -1;
+  return [...rows].sort((a, b) => {
+    let cmp = 0;
+    switch (columna) {
+      case "archivo":
+        cmp = compararTexto(a.archivoNombre, b.archivoNombre);
+        break;
+      case "cliente":
+        cmp =
+          compararTexto(nombreClienteOrden(a.cliente), nombreClienteOrden(b.cliente))
+          || compararTexto(a.nitDetectado ?? "", b.nitDetectado ?? "");
+        break;
+      case "periodo":
+        cmp = compararTexto(a.periodo, b.periodo);
+        break;
+      case "cuentas":
+        cmp = a.cuentasMovimiento - b.cuentasMovimiento;
+        break;
+      case "estado":
+        // Texto: Cuadrado / Descuadrado; desempate por magnitud del descuadre.
+        cmp =
+          compararTexto(
+            a.cuadrado ? "Cuadrado" : "Descuadrado",
+            b.cuadrado ? "Cuadrado" : "Descuadrado",
+          )
+          || Math.abs(a.partidaDobleDiff) - Math.abs(b.partidaDobleDiff);
+        break;
+      case "fecha":
+        cmp = fechaOrdenBorrador(a.creadoEn) - fechaOrdenBorrador(b.creadoEn);
+        break;
+    }
+    if (cmp !== 0) return cmp * dir;
+    // Desempate estable por fecha reciente y nombre de archivo.
+    return (
+      fechaOrdenBorrador(b.creadoEn) - fechaOrdenBorrador(a.creadoEn)
+      || compararTexto(a.archivoNombre, b.archivoNombre)
+    );
+  });
+}
+
+/** Texto A→Z al primer clic; números y fechas de mayor a menor. */
+export function direccionInicialColumna(
+  columna: ColumnaOrdenBorrador,
+): DireccionOrden {
+  return columna === "cuentas" || columna === "fecha" ? "desc" : "asc";
 }
 
 /** Coincide si el término aparece en archivo, razón social o NIT (con o sin DV). */
@@ -159,10 +231,14 @@ export default function BorradoresIndexClient({ rows }: { rows: BorradorRow[] })
   const [descartando, startDescartar] = useTransition();
   const [confirmar, setConfirmar] = useState<string | null>(null);
   const [busqueda, setBusqueda] = useState("");
-  const borradoresOrdenados = useMemo(
-    () => ordenarBorradoresListado(rows),
-    [rows],
-  );
+  const [ordenColumna, setOrdenColumna] = useState<ColumnaOrdenBorrador | null>(null);
+  const [ordenDir, setOrdenDir] = useState<DireccionOrden>("asc");
+
+  const borradoresOrdenados = useMemo(() => {
+    if (!ordenColumna) return ordenarBorradoresListado(rows);
+    return ordenarBorradoresPorColumna(rows, ordenColumna, ordenDir);
+  }, [rows, ordenColumna, ordenDir]);
+
   const borradoresFiltrados = useMemo(
     () => borradoresOrdenados.filter(
       (borrador) => coincideBusquedaBorrador(borrador, busqueda),
@@ -170,6 +246,50 @@ export default function BorradoresIndexClient({ rows }: { rows: BorradorRow[] })
     [borradoresOrdenados, busqueda],
   );
   const pg = usePagination(borradoresFiltrados, 50);
+
+  const cambiarOrden = (columna: ColumnaOrdenBorrador) => {
+    if (ordenColumna === columna) {
+      setOrdenDir((dir) => (dir === "asc" ? "desc" : "asc"));
+    } else {
+      setOrdenColumna(columna);
+      setOrdenDir(direccionInicialColumna(columna));
+    }
+    pg.resetToFirstPage();
+  };
+
+  const headerOrdenable = (
+    label: string,
+    columna: ColumnaOrdenBorrador,
+    alineacion: "left" | "right" = "left",
+  ) => {
+    const activo = ordenColumna === columna;
+    return (
+      <button
+        type="button"
+        onClick={() => cambiarOrden(columna)}
+        className={`inline-flex items-center gap-1 font-semibold transition hover:text-ink-800 ${
+          alineacion === "right" ? "ml-auto" : ""
+        } ${activo ? "text-ink-800" : "text-ink-500"}`}
+        aria-sort={
+          activo ? (ordenDir === "asc" ? "ascending" : "descending") : "none"
+        }
+      >
+        <span>{label}</span>
+        {activo ? (
+          <Icon
+            name="chev-d"
+            size={12}
+            className={ordenDir === "asc" ? "rotate-180" : undefined}
+          />
+        ) : (
+          <span className="inline-flex flex-col leading-none opacity-40" aria-hidden>
+            <Icon name="chev-d" size={9} className="rotate-180 -mb-px" />
+            <Icon name="chev-d" size={9} className="-mt-px" />
+          </span>
+        )}
+      </button>
+    );
+  };
 
   const onDescartar = (loteId: string) => {
     startDescartar(async () => {
@@ -229,12 +349,16 @@ export default function BorradoresIndexClient({ rows }: { rows: BorradorRow[] })
           <table className="w-full text-[12.5px]">
             <thead className="bg-ink-50 text-ink-500">
               <tr className="text-left">
-                <th className="px-3 py-2 font-semibold">Archivo</th>
-                <th className="px-3 py-2 font-semibold">Cliente / NIT</th>
-                <th className="px-3 py-2 font-semibold">Período</th>
-                <th className="px-3 py-2 text-right font-semibold">Cuentas</th>
-                <th className="px-3 py-2 font-semibold">Estado</th>
-                <th className="px-3 py-2 font-semibold">Fecha</th>
+                <th className="px-3 py-2">{headerOrdenable("Archivo", "archivo")}</th>
+                <th className="px-3 py-2">{headerOrdenable("Cliente / NIT", "cliente")}</th>
+                <th className="px-3 py-2">{headerOrdenable("Período", "periodo")}</th>
+                <th className="px-3 py-2 text-right">
+                  <div className="flex justify-end">
+                    {headerOrdenable("Cuentas", "cuentas", "right")}
+                  </div>
+                </th>
+                <th className="px-3 py-2">{headerOrdenable("Estado", "estado")}</th>
+                <th className="px-3 py-2">{headerOrdenable("Fecha", "fecha")}</th>
                 <th className="px-3 py-2 text-right font-semibold">Acciones</th>
               </tr>
             </thead>

@@ -142,5 +142,5 @@ Parsers **puros** en `src/lib/import/` (devuelven `{ filas, errores }`); la reso
 
 ### Otras convenciones
 
-- **Modales**: se cierran SOLO con la X — prohibido Escape/backdrop. Control centralizado en `src/components/modal.tsx`.
+- **Modales**: se cierran SOLO con la X del header — prohibido Escape/backdrop. Control centralizado en `src/components/modal.tsx`. **Nunca** poner un botón «Cerrar» (ni otro cuyo único efecto sea `onClose`) en el `footer`: es redundante con la X y se ha repetido en varios modales. El footer es solo para acciones de negocio (Guardar, Editar, Importar, Eliminar…) o, si aplica, un «Cancelar» emparejado con una primaria que descarte un borrador de formulario; si no hay acción de pie, omitir `footer` del todo.
 - `docs/superpowers/` contiene los specs/plans por fase del proyecto (contexto histórico, no normativo).

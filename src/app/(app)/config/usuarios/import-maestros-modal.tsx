@@ -48,14 +48,8 @@ function ImportMaestrosModal({ onClose }: { onClose: () => void }) {
       title="Importar maestros de personas"
       size="2xl"
       footer={
-        state?.ok ? (
-          <button
-            onClick={onClose}
-            className="ml-auto rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600"
-          >
-            Cerrar
-          </button>
-        ) : (
+        // Sin «Cerrar» tras éxito: la X del header ya cierra (convención de modales).
+        state?.ok ? undefined : (
           <button
             type="submit"
             form="import-maestros-form"

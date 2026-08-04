@@ -44,14 +44,22 @@ const COLUMNAS_PERFIL: {
  * perfiles de estructura guardados automáticamente al asociar una carga,
  * correcciones por cuenta memorizadas y preferencias por defecto (hoja, signo,
  * tercero) que el asistente aplica cuando identifica o se le asigna el cliente.
+ *
+ * `modo="ver"`: solo lectura (ojo en el listado). `modo="editar"`: permite
+ * cambiar y borrar. Desde «ver» se puede pasar a editar con el botón del pie.
  */
 export function AjustesCargaModal({
   cliente,
+  modo = "editar",
+  onPasarAEditar,
   onClose,
 }: {
   cliente: { id: number; name: string; nit: string };
+  modo?: "ver" | "editar";
+  onPasarAEditar?: () => void;
   onClose: () => void;
 }) {
+  const soloLectura = modo === "ver";
   const [data, setData] = useState<PerfilesCargaState | null>(null);
   const [cargando, setCargando] = useState(true);
   const [perfilAbierto, setPerfilAbierto] = useState<number | null>(null);
@@ -130,7 +138,31 @@ export function AjustesCargaModal({
   };
 
   return (
-    <Modal open onClose={onClose} title={`Perfiles en memoria · ${cliente.name}`} size="4xl">
+    <Modal
+      open
+      onClose={onClose}
+      title={`${soloLectura ? "Ver" : "Editar"} perfiles en memoria · ${cliente.name}`}
+      size="4xl"
+      footer={
+        // No hay botón «Cerrar»: el modal ya se cierra con la X del header
+        // (convención del proyecto en `src/components/modal.tsx` / CLAUDE.md).
+        soloLectura ? (
+          <div className="flex w-full items-center justify-between gap-2">
+            <span className="text-[11.5px] text-ink-400">Solo lectura · no se guarda ningún cambio</span>
+            {onPasarAEditar && (
+              <button
+                type="button"
+                onClick={onPasarAEditar}
+                className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white transition hover:bg-navy-600"
+              >
+                <Icon name="edit" size={13} />
+                Editar
+              </button>
+            )}
+          </div>
+        ) : undefined
+      }
+    >
       {cargando ? (
         <p className="px-1 py-6 text-center text-[12.5px] text-ink-400"><EstadoProcesando>Cargando perfiles y preferencias</EstadoProcesando></p>
       ) : !data?.ok ? (
@@ -139,6 +171,12 @@ export function AjustesCargaModal({
         </p>
       ) : (
         <div className="flex flex-col gap-4">
+          {soloLectura && (
+            <p className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">
+              Estás viendo la memoria de carga en solo lectura. Usa <strong>Editar</strong> si necesitas
+              cambiar formatos, correcciones o preferencias.
+            </p>
+          )}
           {/* ---- Perfiles de estructura guardados ---- */}
           <section className="flex flex-col gap-2">
             <div>
@@ -208,30 +246,37 @@ export function AjustesCargaModal({
                             className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11.5px] font-semibold text-blue-700 hover:bg-blue-100"
                           >
                             <Icon name={abierto ? "eye-off" : "eye"} size={13} />
-                            {abierto ? "Ocultar estructura" : "Ver y editar"}
+                            {abierto
+                              ? "Ocultar estructura"
+                              : soloLectura
+                                ? "Ver estructura"
+                                : "Ver y editar"}
                           </button>
-                          <button
-                            type="button"
-                            disabled={eliminando}
-                            onClick={() => eliminar(p.id)}
-                            title="Eliminar perfil (la próxima carga volverá a detectar este formato)"
-                            aria-label={`Eliminar formato ${indice + 1}`}
-                            className="rounded-md border border-transparent p-1.5 text-ink-400 hover:border-err-200 hover:bg-err-50 hover:text-err-700 disabled:opacity-50"
-                          >
-                            {eliminandoObjetivo === `perfil:${p.id}` ? (
-                              <EstadoProcesando etiqueta="Eliminando perfil" />
-                            ) : (
-                              <Icon name="trash" size={14} />
-                            )}
-                          </button>
+                          {!soloLectura && (
+                            <button
+                              type="button"
+                              disabled={eliminando}
+                              onClick={() => eliminar(p.id)}
+                              title="Eliminar perfil (la próxima carga volverá a detectar este formato)"
+                              aria-label={`Eliminar formato ${indice + 1}`}
+                              className="rounded-md border border-transparent p-1.5 text-ink-400 hover:border-err-200 hover:bg-err-50 hover:text-err-700 disabled:opacity-50"
+                            >
+                              {eliminandoObjetivo === `perfil:${p.id}` ? (
+                                <EstadoProcesando etiqueta="Eliminando perfil" />
+                              ) : (
+                                <Icon name="trash" size={14} />
+                              )}
+                            </button>
+                          )}
                         </div>
                       </div>
 
                       {abierto && (
                         <div id={`perfil-carga-${p.id}`} className="border-t border-blue-100 bg-blue-50/20 px-3.5 py-3.5">
                           <PerfilCargaDetalle
-                            key={`${p.id}:${p.actualizadoEn}`}
+                            key={`${p.id}:${p.actualizadoEn}:${modo}`}
                             perfil={p}
+                            soloLectura={soloLectura}
                             onActualizado={async () => {
                               const siguiente = await listarPerfilesCarga(cliente.id);
                               setData(siguiente);
@@ -256,7 +301,7 @@ export function AjustesCargaModal({
                   guardar cambios y se <span className="font-semibold">re-aplican solos</span> en cada nueva carga de este cliente.
                 </p>
               </div>
-              {(data.correcciones ?? []).length > 0 && (
+              {!soloLectura && (data.correcciones ?? []).length > 0 && (
                 <button
                   type="button"
                   disabled={eliminando}
@@ -285,7 +330,7 @@ export function AjustesCargaModal({
                       <th className="px-2.5 py-1.5 font-semibold">Corrección</th>
                       <th className="px-2.5 py-1.5 text-right font-semibold">Aplicada</th>
                       <th className="px-2.5 py-1.5 font-semibold">Último uso</th>
-                      <th className="px-2.5 py-1.5"></th>
+                      {!soloLectura && <th className="px-2.5 py-1.5"></th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -296,21 +341,23 @@ export function AjustesCargaModal({
                         <td className="px-2.5 py-1.5 text-ink-600">{c.resumen}</td>
                         <td className="whitespace-nowrap px-2.5 py-1.5 text-right tabular-nums text-ink-600">{c.vecesAplicada}×</td>
                         <td className="whitespace-nowrap px-2.5 py-1.5 text-ink-500">{fmtDate(c.ultimoUsoEn)}</td>
-                        <td className="px-2.5 py-1.5 text-right">
-                          <button
-                            type="button"
-                            disabled={eliminando}
-                            onClick={() => eliminarCorreccion(c.id)}
-                            title="Eliminar corrección (deja de aplicarse en las próximas cargas)"
-                            className="rounded p-1 text-ink-400 hover:bg-err-50 hover:text-err-700 disabled:opacity-50"
-                          >
-                            {eliminandoObjetivo === `correccion:${c.id}` ? (
-                              <EstadoProcesando etiqueta="Eliminando corrección" />
-                            ) : (
-                              <Icon name="x" size={13} />
-                            )}
-                          </button>
-                        </td>
+                        {!soloLectura && (
+                          <td className="px-2.5 py-1.5 text-right">
+                            <button
+                              type="button"
+                              disabled={eliminando}
+                              onClick={() => eliminarCorreccion(c.id)}
+                              title="Eliminar corrección (deja de aplicarse en las próximas cargas)"
+                              className="rounded p-1 text-ink-400 hover:bg-err-50 hover:text-err-700 disabled:opacity-50"
+                            >
+                              {eliminandoObjetivo === `correccion:${c.id}` ? (
+                                <EstadoProcesando etiqueta="Eliminando corrección" />
+                              ) : (
+                                <Icon name="x" size={13} />
+                              )}
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>
@@ -327,7 +374,11 @@ export function AjustesCargaModal({
                 Se aplican automáticamente cuando el asistente detecta o solicita este cliente. «Auto» deja que la lectura decida. El estándar contable es NIF en todas las cargas.
               </p>
             </div>
-            <form action={saveAction} className="flex flex-col gap-3">
+            <form
+              action={soloLectura ? undefined : saveAction}
+              onSubmit={soloLectura ? (e) => e.preventDefault() : undefined}
+              className="flex flex-col gap-3"
+            >
               <input type="hidden" name="clienteId" value={cliente.id} />
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <label className="flex flex-col gap-1">
@@ -337,7 +388,9 @@ export function AjustesCargaModal({
                     name="hojaPreferida"
                     defaultValue={data.ajustes?.hojaPreferida ?? ""}
                     placeholder="Auto (el usuario elige / se detecta)"
-                    className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400"
+                    readOnly={soloLectura}
+                    disabled={soloLectura}
+                    className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400 disabled:cursor-default disabled:bg-ink-50 disabled:text-ink-600"
                   />
                 </label>
                 <label className="flex flex-col gap-1">
@@ -345,7 +398,8 @@ export function AjustesCargaModal({
                   <select
                     name="convencionCredito"
                     defaultValue={data.ajustes?.convencionCredito ?? ""}
-                    className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400"
+                    disabled={soloLectura}
+                    className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400 disabled:cursor-default disabled:bg-ink-50 disabled:text-ink-600"
                   >
                     <option value="">Auto (según el archivo)</option>
                     <option value="firmado">Firmado (crédito negativo)</option>
@@ -363,7 +417,8 @@ export function AjustesCargaModal({
                   <select
                     name="agregarPorTercero"
                     defaultValue={data.ajustes?.agregarPorTercero == null ? "" : data.ajustes.agregarPorTercero ? "si" : "no"}
-                    className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400"
+                    disabled={soloLectura}
+                    className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400 disabled:cursor-default disabled:bg-ink-50 disabled:text-ink-600"
                   >
                     <option value="">Auto (según el archivo)</option>
                     <option value="si">Sí (sumar por cuenta)</option>
@@ -375,7 +430,8 @@ export function AjustesCargaModal({
                   <select
                     name="imputarSoloHojas"
                     defaultValue={data.ajustes?.imputarSoloHojas == null ? "" : data.ajustes.imputarSoloHojas ? "si" : "no"}
-                    className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400"
+                    disabled={soloLectura}
+                    className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400 disabled:cursor-default disabled:bg-ink-50 disabled:text-ink-600"
                   >
                     <option value="">Auto (no)</option>
                     <option value="si">Sí — solo suman las cuentas del último nivel</option>
@@ -392,22 +448,28 @@ export function AjustesCargaModal({
                     defaultValue={data.ajustes?.observaciones ?? ""}
                     rows={3}
                     maxLength={2000}
+                    readOnly={soloLectura}
+                    disabled={soloLectura}
                     placeholder="Particularidades del formato de este cliente para recordar en cada carga (p. ej. «duplica renglones UC/CU — se omite uno»)."
-                    className="resize-y rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] leading-relaxed text-ink-700 outline-none focus:border-blue-400"
+                    className="resize-y rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] leading-relaxed text-ink-700 outline-none focus:border-blue-400 disabled:cursor-default disabled:bg-ink-50 disabled:text-ink-600"
                   />
                   <span className="text-[10.5px] leading-relaxed text-ink-400">
                     Texto libre. Aparecen como aviso al cargar y revisar el balance de este cliente. No cambian el cálculo; sirven de memoria para el equipo.
                   </span>
                 </label>
               </div>
-              {saveState?.message && !saveState.ok && <p className="text-[12px] font-medium text-err-700">{saveState.message}</p>}
-              <button
-                type="submit"
-                disabled={guardando}
-                className="w-fit rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
-              >
-                {guardando ? <EstadoProcesando>Guardando</EstadoProcesando> : "Guardar preferencias"}
-              </button>
+              {!soloLectura && saveState?.message && !saveState.ok && (
+                <p className="text-[12px] font-medium text-err-700">{saveState.message}</p>
+              )}
+              {!soloLectura && (
+                <button
+                  type="submit"
+                  disabled={guardando}
+                  className="w-fit rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
+                >
+                  {guardando ? <EstadoProcesando>Guardando</EstadoProcesando> : "Guardar preferencias"}
+                </button>
+              )}
             </form>
           </section>
         </div>
@@ -444,9 +506,11 @@ function reglaDetalleLegible(spec: SpecCarga): string {
 
 function PerfilCargaDetalle({
   perfil,
+  soloLectura = false,
   onActualizado,
 }: {
   perfil: PerfilCargaResumen;
+  soloLectura?: boolean;
   onActualizado: () => Promise<void>;
 }) {
   const [editando, setEditando] = useState(false);
@@ -529,7 +593,7 @@ function PerfilCargaDetalle({
             este formato no trae ese dato y la plataforma aplicará su regla de cálculo.
           </p>
         </div>
-        {!editando && (
+        {!soloLectura && !editando && (
           <button
             type="button"
             onClick={() => setEditando(true)}

@@ -40,10 +40,21 @@ function normalizarBusqueda(valor: string) {
  * cuántos formatos, correcciones y preferencias tiene guardados, y el panel de
  * gestión (mismo editor de estructura que antes vivía en la ficha del cliente).
  */
+type GestionMemoria = {
+  cliente: ClienteMemoriaRow;
+  modo: "ver" | "editar";
+};
+
+/** Base compartida de los botones de la columna Acciones (mismo tamaño fila a fila). */
+const BOTON_ACCION =
+  "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border transition";
+
 export default function PerfilesCargaClient({ clients }: { clients: ClienteMemoriaRow[] }) {
   const router = useRouter();
   const [busqueda, setBusqueda] = useState("");
-  const [gestionando, setGestionando] = useState<ClienteMemoriaRow | null>(null);
+  // Ver (solo lectura) o editar la memoria de un cliente. El ojo abre en «ver»;
+  // el lápiz abre en «editar». Desde la vista se puede pasar a editar.
+  const [gestionando, setGestionando] = useState<GestionMemoria | null>(null);
   // Cliente cuya memoria se va a borrar por completo. La confirmación va en un
   // modal propio (no `confirm()`) porque el borrado arrasa con formatos,
   // correcciones y preferencias a la vez y conviene enumerar qué se pierde.
@@ -173,7 +184,7 @@ export default function PerfilesCargaClient({ clients }: { clients: ClienteMemor
                 <th className="px-4 py-2 text-right font-semibold">Correcciones</th>
                 <th className="px-4 py-2 font-semibold">Preferencias</th>
                 <th className="px-4 py-2 font-semibold">Último uso</th>
-                <th className="px-4 py-2 text-right font-semibold">Editar</th>
+                <th className="px-4 py-2 text-right font-semibold">Acciones</th>
               </tr>
             </thead>
             <tbody>
@@ -209,10 +220,19 @@ export default function PerfilesCargaClient({ clients }: { clients: ClienteMemor
                     <div className="flex items-center justify-end gap-1">
                       <button
                         type="button"
-                        onClick={() => setGestionando(c)}
+                        onClick={() => setGestionando({ cliente: c, modo: "ver" })}
+                        title="Ver formatos, correcciones y preferencias (solo lectura)"
+                        aria-label={`Ver la memoria de carga de ${c.name}`}
+                        className={`${BOTON_ACCION} border-ink-200 bg-white text-ink-600 hover:border-ink-300 hover:bg-ink-50 hover:text-ink-900`}
+                      >
+                        <Icon name="eye" size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setGestionando({ cliente: c, modo: "editar" })}
                         title="Editar formatos, correcciones y preferencias de este cliente"
                         aria-label={`Editar la memoria de carga de ${c.name}`}
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-blue-200 bg-blue-50 text-blue-700 transition hover:border-blue-300 hover:bg-blue-100"
+                        className={`${BOTON_ACCION} border-blue-200 bg-blue-50 text-blue-700 hover:border-blue-300 hover:bg-blue-100`}
                       >
                         <Icon name="edit" size={14} />
                       </button>
@@ -221,7 +241,7 @@ export default function PerfilesCargaClient({ clients }: { clients: ClienteMemor
                         onClick={() => setBorrando(c)}
                         title="Eliminar TODA la memoria de carga de este cliente: formatos, correcciones y preferencias"
                         aria-label={`Eliminar la memoria de carga de ${c.name}`}
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-ink-200 bg-white text-ink-600 transition hover:border-red-300 hover:bg-red-50 hover:text-red-700"
+                        className={`${BOTON_ACCION} border-ink-200 bg-white text-ink-600 hover:border-red-300 hover:bg-red-50 hover:text-red-700`}
                       >
                         <Icon name="trash" size={14} />
                       </button>
@@ -290,8 +310,18 @@ export default function PerfilesCargaClient({ clients }: { clients: ClienteMemor
 
       {gestionando && (
         <AjustesCargaModal
-          key={`perfiles-${gestionando.id}`}
-          cliente={{ id: gestionando.id, name: gestionando.name, nit: gestionando.nit }}
+          key={`perfiles-${gestionando.cliente.id}-${gestionando.modo}`}
+          cliente={{
+            id: gestionando.cliente.id,
+            name: gestionando.cliente.name,
+            nit: gestionando.cliente.nit,
+          }}
+          modo={gestionando.modo}
+          onPasarAEditar={() =>
+            setGestionando((actual) =>
+              actual ? { ...actual, modo: "editar" } : actual,
+            )
+          }
           onClose={() => setGestionando(null)}
         />
       )}

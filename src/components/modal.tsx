@@ -28,9 +28,15 @@ export function Modal({
   footer?: React.ReactNode;
   size?: keyof typeof ANCHOS;
 }) {
-  // Por convención del proyecto, el modal SOLO se cierra con el botón X.
-  // No se cierra por tecla Escape ni por clic en el backdrop, para evitar
-  // cierres accidentales que descarten datos del formulario.
+  // Por convención del proyecto, el modal SOLO se cierra con el botón X del
+  // header. No se cierra por tecla Escape ni por clic en el backdrop, para
+  // evitar cierres accidentales que descarten datos del formulario.
+  //
+  // El footer NO debe incluir un botón «Cerrar» (ni equivalente cuyo único
+  // efecto sea onClose): la X ya cumple ese rol. Sí van en el footer las
+  // acciones de negocio (Guardar, Editar, Importar, Eliminar…) y, si aplica,
+  // un «Cancelar» emparejado con una acción primaria que descarte un borrador
+  // de formulario sin guardar — no un cierre genérico.
   if (!open) return null;
 
   return (

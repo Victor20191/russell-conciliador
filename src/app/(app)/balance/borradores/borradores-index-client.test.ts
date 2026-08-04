@@ -4,7 +4,9 @@ import { describe, expect, it } from "vitest";
 import {
   ClienteBorradorCelda,
   coincideBusquedaBorrador,
+  direccionInicialColumna,
   ordenarBorradoresListado,
+  ordenarBorradoresPorColumna,
   type BorradorRow,
 } from "./borradores-index-client";
 import type { VinculoClienteBorrador } from "@/lib/balance/autorizacion-borrador";
@@ -149,5 +151,73 @@ describe("presentación de borradores vigentes e históricos", () => {
 
     expect(html).toContain("Histórico · sin cliente asignado");
     expect(html).toContain("NIT detectado: 900000000-1");
+  });
+});
+
+describe("ordenarBorradoresPorColumna", () => {
+  const baseCliente = {
+    tipo: "asignado",
+    id: 1,
+    nombre: "BETA SAS",
+    nit: "9001",
+  } satisfies VinculoClienteBorrador;
+
+  function fila(
+    parcial: Partial<BorradorRow> & Pick<BorradorRow, "loteId">,
+  ): BorradorRow {
+    return {
+      archivoNombre: `${parcial.loteId}.xlsx`,
+      conEncabezado: true,
+      nitDetectado: null,
+      cliente: baseCliente,
+      periodo: "01/Ene/2026 → 31/Ene/2026",
+      cuentasMovimiento: 10,
+      cuadrado: true,
+      partidaDobleDiff: 0,
+      cargadoPor: "Analista",
+      creadoEn: "2026-07-01T12:00:00.000Z",
+      fecha: "1 jul 2026",
+      hora: "07:00 a. m.",
+      ...parcial,
+    };
+  }
+
+  it("ordena archivo alfabéticamente", () => {
+    const rows = [
+      fila({ loteId: "b", archivoNombre: "zeta.xlsx" }),
+      fila({ loteId: "a", archivoNombre: "alfa.xlsx" }),
+      fila({ loteId: "c", archivoNombre: "medio.xlsx" }),
+    ];
+    expect(
+      ordenarBorradoresPorColumna(rows, "archivo", "asc").map((r) => r.loteId),
+    ).toEqual(["a", "c", "b"]);
+  });
+
+  it("ordena cuentas de mayor a menor", () => {
+    const rows = [
+      fila({ loteId: "poco", cuentasMovimiento: 10 }),
+      fila({ loteId: "mucho", cuentasMovimiento: 500 }),
+      fila({ loteId: "medio", cuentasMovimiento: 100 }),
+    ];
+    expect(
+      ordenarBorradoresPorColumna(rows, "cuentas", "desc").map((r) => r.loteId),
+    ).toEqual(["mucho", "medio", "poco"]);
+  });
+
+  it("ordena estado como texto (Cuadrado / Descuadrado)", () => {
+    const rows = [
+      fila({ loteId: "ok", cuadrado: true }),
+      fila({ loteId: "malo", cuadrado: false, partidaDobleDiff: 100 }),
+    ];
+    expect(
+      ordenarBorradoresPorColumna(rows, "estado", "asc").map((r) => r.loteId),
+    ).toEqual(["ok", "malo"]);
+  });
+
+  it("elige dirección inicial según tipo de columna", () => {
+    expect(direccionInicialColumna("archivo")).toBe("asc");
+    expect(direccionInicialColumna("cliente")).toBe("asc");
+    expect(direccionInicialColumna("cuentas")).toBe("desc");
+    expect(direccionInicialColumna("fecha")).toBe("desc");
   });
 });
