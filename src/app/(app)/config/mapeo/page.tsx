@@ -1,5 +1,6 @@
 import prisma from "@/lib/prisma";
 import { codigosEstandarConBalances } from "@/lib/balance/asociacion";
+import { ORIGEN_MANUAL_CUENTA } from "@/lib/balance/mapeo-cliente-config";
 import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { PageHeader } from "@/components/ui";
@@ -67,11 +68,18 @@ export default async function MapeoPage({ searchParams }: { searchParams: Promis
     // formulario bloquea el campo de código y el borrado de esas cuentas. Solo
     // se calcula para quien administra el plan.
     lockedStdCodesPromise,
+    // Memoria de mapeo: las reglas por grupo (nivel 6) + las EXCEPCIONES por
+    // cuenta que dejó una homologación con alcance «solo esta cuenta» (nivel 8),
+    // para que se puedan revisar y deshacer desde aquí.
     clienteId
       ? prisma.clientAccount.findMany({
-          where: { clienteId, level: 6, cuenta6Russell: { not: null } },
+          where: {
+            clienteId,
+            cuenta6Russell: { not: null },
+            OR: [{ level: 6 }, { origenMapeo: ORIGEN_MANUAL_CUENTA }],
+          },
           orderBy: { code: "asc" },
-          select: { id: true, code: true, cuenta6Russell: true, coincidencia: true, origenMapeo: true, actualizadoPor: true, actualizadoEn: true },
+          select: { id: true, code: true, name: true, level: true, cuenta6Russell: true, coincidencia: true, origenMapeo: true, actualizadoPor: true, actualizadoEn: true },
         })
       : Promise.resolve([]),
   ]);
@@ -111,6 +119,8 @@ export default async function MapeoPage({ searchParams }: { searchParams: Promis
   const mapeoCliente: MapeoClienteRow[] = mapeoRows.map((r) => ({
     id: r.id,
     cuenta6: r.code,
+    nombreCuenta: r.name,
+    nivel: r.level,
     cuenta6Russell: r.cuenta6Russell ?? "",
     nombreRussell: r.cuenta6Russell ? (stdNombre.get(r.cuenta6Russell) ?? null) : null,
     coincidencia: r.coincidencia != null ? Number(r.coincidencia) : null,

@@ -8,6 +8,7 @@ import { logAudit } from "@/lib/audit";
 import { authorizePermiso } from "@/lib/rbac";
 import { clienteDeCuentaCliente } from "@/lib/rbac/contexto";
 import { mensajeErrorBD } from "@/lib/errores";
+import { esExcepcionCuenta, ORIGEN_MANUAL_CUENTA, ORIGEN_MANUAL_GRUPO } from "@/lib/balance/mapeo-cliente-config";
 import type { ActionState } from "@/lib/definitions";
 
 // CRUD de la MEMORIA de mapeo del balance, que vive en `cuentas_cliente`: la
@@ -53,12 +54,12 @@ export async function crearMapeoCliente(_prev: ActionState | undefined, formData
     const user = await getCurrentUser();
     await prisma.clientAccount.upsert({
       where: { clienteId_code: { clienteId, code: cuenta6 } },
-      create: { clientName: cliente.name, clienteId, nit: cliente.nit, code: cuenta6, level: 6, name: cuenta6, cuenta6Russell: codigo, coincidencia: 100, origenMapeo: "manual", actualizadoPor: user?.name ?? null, actualizadoEn: new Date() },
-      update: { clientName: cliente.name, nit: cliente.nit, cuenta6Russell: codigo, coincidencia: 100, origenMapeo: "manual", actualizadoPor: user?.name ?? null, actualizadoEn: new Date() },
+      create: { clientName: cliente.name, clienteId, nit: cliente.nit, code: cuenta6, level: 6, name: cuenta6, cuenta6Russell: codigo, coincidencia: 100, origenMapeo: ORIGEN_MANUAL_GRUPO, actualizadoPor: user?.name ?? null, actualizadoEn: new Date() },
+      update: { clientName: cliente.name, nit: cliente.nit, cuenta6Russell: codigo, coincidencia: 100, origenMapeo: ORIGEN_MANUAL_GRUPO, actualizadoPor: user?.name ?? null, actualizadoEn: new Date() },
     });
     await prisma.clientAccount.updateMany({
       where: { clienteId, code: { startsWith: cuenta6 }, NOT: { code: cuenta6 } },
-      data: { cuenta6Russell: codigo, coincidencia: 100, origenMapeo: "manual", actualizadoPor: user?.name ?? null, actualizadoEn: new Date() },
+      data: { cuenta6Russell: codigo, coincidencia: 100, origenMapeo: ORIGEN_MANUAL_GRUPO, actualizadoPor: user?.name ?? null, actualizadoEn: new Date() },
     });
     await logAudit({ user: user?.name ?? "Sistema", action: "CREÓ MAPEO CLIENTE", entity: cuenta6, detail: `${cuenta6} → ${codigo}`, clientId: clienteId });
     revalidatePath(PATH);
@@ -80,25 +81,29 @@ export async function editarMapeoCliente(_prev: ActionState | undefined, formDat
   if (!parsed.success) return { ok: false, message: parsed.error.issues[0]?.message ?? "Datos inválidos." };
   const { id, codigo } = parsed.data;
   try {
-    const row = await prisma.clientAccount.findUnique({ where: { id }, select: { code: true, clienteId: true } });
+    const row = await prisma.clientAccount.findUnique({ where: { id }, select: { code: true, clienteId: true, origenMapeo: true } });
     if (!row) return { ok: false, message: "La regla de mapeo ya no existe." };
     const scope = await authorizePermiso("balance:crear", { clientId: await clienteDeCuentaCliente(id) });
     if (!scope.ok) return { ok: false, message: scope.message };
     if (!(await existeEstandar(codigo))) return { ok: false, message: "La cuenta estándar seleccionada no existe." };
+    // Editar una EXCEPCIÓN por cuenta la mantiene como excepción: promoverla a
+    // regla de grupo movería en silencio a todas sus cuentas hermanas.
+    const esExcepcion = esExcepcionCuenta(row.origenMapeo);
+    const origen = esExcepcion ? ORIGEN_MANUAL_CUENTA : ORIGEN_MANUAL_GRUPO;
     const user = await getCurrentUser();
     const ahora = new Date();
     await prisma.clientAccount.update({
       where: { id },
-      data: { cuenta6Russell: codigo, coincidencia: 100, origenMapeo: "manual", actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
+      data: { cuenta6Russell: codigo, coincidencia: 100, origenMapeo: origen, actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
     });
     // Propaga a las imputables del mismo grupo de 6 díg (display consistente).
-    if (row.clienteId != null) {
+    if (row.clienteId != null && !esExcepcion) {
       await prisma.clientAccount.updateMany({
         where: { clienteId: row.clienteId, code: { startsWith: row.code }, NOT: { id } },
-        data: { cuenta6Russell: codigo, coincidencia: 100, origenMapeo: "manual", actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
+        data: { cuenta6Russell: codigo, coincidencia: 100, origenMapeo: origen, actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
       });
     }
-    await logAudit({ user: user?.name ?? "Sistema", action: "EDITÓ MAPEO CLIENTE", entity: row.code, detail: `${row.code} → ${codigo}`, clientId: row.clienteId });
+    await logAudit({ user: user?.name ?? "Sistema", action: "EDITÓ MAPEO CLIENTE", entity: row.code, detail: `${row.code} → ${codigo}${esExcepcion ? " · solo esta cuenta" : ""}`, clientId: row.clienteId });
     revalidatePath(PATH);
     return { ok: true };
   } catch (e) {
@@ -135,7 +140,7 @@ export async function confirmarMapeoCliente(formData: FormData): Promise<ActionS
           : { clienteId: row.clienteId, code: { startsWith: cuenta6 } };
     const res = await prisma.clientAccount.updateMany({
       where,
-      data: { coincidencia: 100, origenMapeo: "manual", actualizadoPor: user?.name ?? null, actualizadoEn: new Date() },
+      data: { coincidencia: 100, origenMapeo: ORIGEN_MANUAL_GRUPO, actualizadoPor: user?.name ?? null, actualizadoEn: new Date() },
     });
     await logAudit({ user: user?.name ?? "Sistema", action: "CONFIRMÓ MAPEO CLIENTE", entity: todas ? (row.cuenta6Russell ?? cuenta6) : cuenta6, detail: `→ ${row.cuenta6Russell} · manual 100% (${res.count} cuenta(s)${todas ? ", todas las del estándar" : ""})`, clientId: row.clienteId });
     revalidatePath(PATH);
@@ -169,7 +174,7 @@ export async function reasignarMapeoCliente(formData: FormData): Promise<ActionS
     const where = row.clienteId != null ? { clienteId: row.clienteId, code: { startsWith: cuenta6 } } : { id };
     const res = await prisma.clientAccount.updateMany({
       where,
-      data: { cuenta6Russell: codigo, coincidencia: 100, origenMapeo: "manual", actualizadoPor: user?.name ?? null, actualizadoEn: new Date() },
+      data: { cuenta6Russell: codigo, coincidencia: 100, origenMapeo: ORIGEN_MANUAL_GRUPO, actualizadoPor: user?.name ?? null, actualizadoEn: new Date() },
     });
     await logAudit({ user: user?.name ?? "Sistema", action: "REASIGNÓ MAPEO CLIENTE", entity: cuenta6, detail: `${cuenta6} → ${codigo} · manual 100% (${res.count} cuenta(s))`, clientId: row.clienteId });
     revalidatePath(PATH);

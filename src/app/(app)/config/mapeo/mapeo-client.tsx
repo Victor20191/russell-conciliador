@@ -21,6 +21,7 @@ import {
   deleteStandardAccount,
 } from "@/app/actions/standard-accounts";
 import { crearSubgrupo, editarSubgrupo, eliminarSubgrupo } from "@/app/actions/subgrupos";
+import { esExcepcionCuenta, esMapeoManual } from "@/lib/balance/mapeo-cliente-config";
 import { crearMapeoCliente, editarMapeoCliente, eliminarMapeoCliente, confirmarMapeoCliente, reasignarMapeoCliente } from "@/app/actions/mapeo-cliente";
 
 export type Account = { id: number; code: string; level: number; name: string; cuenta6Russell: string | null; coincidencia: number | null; origenMapeo: string | null };
@@ -54,14 +55,21 @@ export type StdLogRow = {
 
 export type Subgrupo = { id: number; codigo: string; nombre: string; grupo: string; nombreGrupo: string; naturaleza: string };
 
-/** Una regla de la memoria de mapeo por cliente: cuenta_6 del cliente → cuenta estándar Russell. */
+/**
+ * Una regla de la memoria de mapeo por cliente → cuenta estándar Russell. Casi
+ * siempre es la cuenta_6 (regla del grupo); cuando `origen` es `manual_cuenta` es
+ * la EXCEPCIÓN de una sola cuenta imputable, dejada por una homologación con
+ * alcance «solo esta cuenta» en el detalle del balance.
+ */
 export type MapeoClienteRow = {
   id: number;
   cuenta6: string;
+  nombreCuenta: string;
+  nivel: number;
   cuenta6Russell: string;
   nombreRussell: string | null;
   coincidencia: number | null;
-  origen: string; // manual | automatico
+  origen: string; // manual | manual_cuenta | automatico
   actualizadoPor: string | null;
   actualizadoEn: string; // ISO
 };
@@ -222,7 +230,7 @@ export default function MapeoClient({
                         {sinMapeo ? (
                           <span className="text-ink-400">—</span>
                         ) : confirmado ? (
-                          <Chip label={a.origenMapeo === "manual" ? "Confirmado" : "Exacto"} tone="ok" />
+                          <Chip label={esExcepcionCuenta(a.origenMapeo) ? "Solo esta cuenta" : a.origenMapeo === "manual" ? "Confirmado" : "Exacto"} tone="ok" />
                         ) : (
                           <button type="button" onClick={() => setConfirmar(a)} className="inline-flex items-center gap-1 rounded-md border border-warn-200 bg-warn-50 px-2.5 py-1 text-[11.5px] font-semibold text-warn-700 hover:bg-warn-100">
                             <Icon name="check" size={12} /> Confirmar
@@ -411,16 +419,17 @@ function MapeoClienteTab({ rows, std, clienteId, clienteNit, puedeMapear, client
   const opciones6 = useMemo(() => std.filter((s) => s.code.length === 6), [std]);
   const needle = q.trim().toLowerCase();
   const filtered = rows
-    .filter((r) => origen === "all" || r.origen === origen)
-    .filter((r) => !needle || r.cuenta6.includes(needle) || r.cuenta6Russell.includes(needle) || (r.nombreRussell ?? "").toLowerCase().includes(needle));
+    .filter((r) => origen === "all" || (origen === "manual" ? esMapeoManual(r.origen) : r.origen === origen))
+    .filter((r) => !needle || r.cuenta6.includes(needle) || r.cuenta6Russell.includes(needle) || (r.nombreRussell ?? "").toLowerCase().includes(needle) || r.nombreCuenta.toLowerCase().includes(needle));
   const pg = usePagination(filtered, 50);
-  const manualCount = rows.filter((r) => r.origen === "manual").length;
+  const manualCount = rows.filter((r) => esMapeoManual(r.origen)).length;
+  const excepcionCount = rows.filter((r) => esExcepcionCuenta(r.origen)).length;
 
   return (
     <>
       <Card>
         <div className="border-b border-ink-100 bg-blue-50/40 px-4 py-2.5 text-[11.5px] leading-relaxed text-ink-600">
-          Memoria de mapeo de <b>{cliente}</b>{clienteNit ? <> · NIT <span className="font-mono">{clienteNit}</span></> : null} (se identifica por NIT/cliente, no por nombre): se aplica <b>automáticamente</b> al importar balances de este cliente (prioridad sobre la cascada). Lo marcado como <b>manual</b> no lo pisa el mapeo automático. Editar aquí <b>no</b> cambia balances ya cargados; aplica a las próximas importaciones.
+          Memoria de mapeo de <b>{cliente}</b>{clienteNit ? <> · NIT <span className="font-mono">{clienteNit}</span></> : null} (se identifica por NIT/cliente, no por nombre): se aplica <b>automáticamente</b> al importar balances de este cliente (prioridad sobre la cascada). Lo marcado como <b>manual</b> no lo pisa el mapeo automático. Una regla de <b>6 dígitos</b> vale para todas las cuentas del grupo; una de <b>solo esta cuenta</b> es una excepción de esa cuenta imputable y le gana a la de su grupo. Editar aquí <b>no</b> cambia balances ya cargados; aplica a las próximas importaciones.
         </div>
         <div className="flex flex-wrap items-center gap-2 border-b border-ink-100 px-4 py-3">
           <h2 className="text-[13px] font-semibold text-ink-800">Mapeo de balance por cliente</h2>
@@ -449,7 +458,7 @@ function MapeoClienteTab({ rows, std, clienteId, clienteNit, puedeMapear, client
             <table className="w-full text-[12.5px]">
               <thead>
                 <tr className="border-b border-ink-100 text-left text-[11px] uppercase tracking-wider text-ink-500">
-                  <th className="px-4 py-2 font-semibold">Cuenta cliente (6D)</th>
+                  <th className="px-4 py-2 font-semibold">Cuenta cliente</th>
                   <th className="px-4 py-2 font-semibold">Cuenta estándar Russell</th>
                   <th className="px-4 py-2 font-semibold">Origen</th>
                   <th className="px-4 py-2 font-semibold">Coincidencia</th>
@@ -464,9 +473,17 @@ function MapeoClienteTab({ rows, std, clienteId, clienteNit, puedeMapear, client
                       {puedeMapear ? (
                         <button type="button" onClick={() => setEditTarget(r)} title="Editar mapeo" className="font-mono font-semibold text-blue-600 hover:underline">{r.cuenta6}</button>
                       ) : r.cuenta6}
+                      {esExcepcionCuenta(r.origen) && r.nombreCuenta && r.nombreCuenta !== r.cuenta6 && (
+                        <span className="ml-2 font-sans text-[11.5px] font-normal text-ink-500">{r.nombreCuenta}</span>
+                      )}
                     </td>
                     <td className="px-4 py-2.5 text-ink-800"><span className="font-mono text-blue-600">{r.cuenta6Russell}</span>{r.nombreRussell ? ` · ${r.nombreRussell}` : ""}</td>
-                    <td className="px-4 py-2.5"><Chip label={r.origen === "manual" ? "Manual" : "Automático"} tone={r.origen === "manual" ? "blue" : "ink"} /></td>
+                    <td className="px-4 py-2.5">
+                      <Chip
+                        label={esExcepcionCuenta(r.origen) ? "Solo esta cuenta" : r.origen === "manual" ? "Manual" : "Automático"}
+                        tone={esMapeoManual(r.origen) ? "blue" : "ink"}
+                      />
+                    </td>
                     <td className="px-4 py-2.5 font-mono text-ink-600">{r.coincidencia != null ? `${r.coincidencia}%` : "—"}</td>
                     <td className="whitespace-nowrap px-4 py-2.5 text-[11.5px] text-ink-500">{fmtFecha(r.actualizadoEn)}{r.actualizadoPor ? ` · ${r.actualizadoPor}` : ""}</td>
                     {puedeMapear && (
@@ -484,7 +501,7 @@ function MapeoClienteTab({ rows, std, clienteId, clienteNit, puedeMapear, client
           </div>
         )}
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-ink-100 px-4 py-2.5 text-[11.5px] text-ink-500">
-          <span>{rows.length} regla(s) · {manualCount} manual(es)</span>
+          <span>{rows.length} regla(s) · {manualCount} manual(es){excepcionCount > 0 ? ` · ${excepcionCount} de solo esta cuenta` : ""}</span>
         </div>
         <PaginationFooter rangeLabel={pg.rangeLabel} currentPage={pg.page} totalPages={pg.totalPages} onPageChange={pg.setPage} />
       </Card>
@@ -538,13 +555,17 @@ function MapeoClienteForm({ mode, row, clienteId, opciones, onClose, onDelete }:
       <form id="mapeo-cliente-form" action={action} className="flex flex-col gap-4">
         {isEdit ? <input type="hidden" name="id" value={row!.id} /> : <input type="hidden" name="clienteId" value={clienteId} />}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Campo label="Cuenta del cliente (6 dígitos)">
+          <Campo label={isEdit && esExcepcionCuenta(row!.origen) ? "Cuenta del cliente" : "Cuenta del cliente (6 dígitos)"}>
             {isEdit ? (
               <input value={row!.cuenta6} readOnly className={`${INPUT_CLS} cursor-not-allowed bg-ink-50 text-ink-500`} />
             ) : (
               <input name="cuenta6" required inputMode="numeric" pattern="\d{6}" placeholder="140501" className={INPUT_CLS} />
             )}
-            <p className="text-[11px] leading-snug text-ink-500">Se aplica a TODAS las cuentas del cliente que inician con este código de 6 dígitos.</p>
+            <p className="text-[11px] leading-snug text-ink-500">
+              {isEdit && esExcepcionCuenta(row!.origen)
+                ? `Excepción de solo esta cuenta${row!.nombreCuenta && row!.nombreCuenta !== row!.cuenta6 ? ` (${row!.nombreCuenta})` : ""}: no cambia las demás cuentas del grupo ${row!.cuenta6.slice(0, 6)}.`
+                : "Se aplica a TODAS las cuentas del cliente que inician con este código de 6 dígitos."}
+            </p>
           </Campo>
           <Campo label="Cuenta estándar Russell">
             <select name="codigo" defaultValue={row?.cuenta6Russell ?? ""} required className={INPUT_CLS}>
@@ -581,7 +602,10 @@ function DeleteMapeoClienteForm({ row, onClose }: { row: MapeoClienteRow; onClos
       <form id="delete-mapeo-cliente-form" action={action} className="flex flex-col gap-4">
         <input type="hidden" name="id" value={row.id} />
         <p className="text-[13px] text-ink-600">
-          Vas a eliminar el mapeo guardado <strong className="font-mono">{row.cuenta6}</strong> → <strong className="font-mono">{row.cuenta6Russell}</strong>. En la próxima importación esa cuenta se volverá a mapear con la cascada automática.
+          Vas a eliminar el mapeo guardado <strong className="font-mono">{row.cuenta6}</strong> → <strong className="font-mono">{row.cuenta6Russell}</strong>.{" "}
+          {esExcepcionCuenta(row.origen)
+            ? `En la próxima importación esa cuenta volverá a seguir la regla de su grupo ${row.cuenta6.slice(0, 6)}.`
+            : "En la próxima importación esa cuenta se volverá a mapear con la cascada automática."}
         </p>
         {state?.message && <p className="text-[12px] text-err-700">{state.message}</p>}
       </form>

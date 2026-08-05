@@ -10,6 +10,7 @@
 // promoción oficial del borrador (`persistirCargue`).
 // ============================================================
 import { fmt } from "@/lib/format";
+import { resolverMapeoCliente } from "./mapeo-cliente-config";
 import { esSaldoContrarioAccionable, UMBRALES_ALERTAS_DEFECTO, type UmbralesAlertas } from "./umbrales-alertas";
 
 // ---- Tipos de entrada ----
@@ -440,8 +441,9 @@ export function calcularBalance(
   estandar: CuentaEstandar[],
   override?: Map<string, { std: string | null; coincidencia: number | null }>,
   planTok?: CuentaPlanTokenizada[],
-  // Configuración de mapeo GUARDADA del cliente (clave = cuenta de 6 dígitos).
-  // Tiene PRIORIDAD sobre la cascada: lo que ya se parametrizó no se recalcula.
+  // Configuración de mapeo GUARDADA del cliente (claves: cuenta de 6 dígitos para
+  // la regla del grupo y código exacto para las excepciones por cuenta). Tiene
+  // PRIORIDAD sobre la cascada: lo que ya se parametrizó no se recalcula.
   configCliente?: Map<string, { std: string | null; coincidencia: number | null }>,
   umbrales: UmbralesAlertas = UMBRALES_ALERTAS_DEFECTO,
 ): ResultadoBalance {
@@ -470,9 +472,10 @@ export function calcularBalance(
   const hojas = quitarPadresRedundantes(consolidadas.filter((c) => c.forzarHoja || !ancestros.has(c.code)));
 
   // 2) Mapeo en cascada: config guardada del cliente → exacto → descripción →
-  //    override IA. La config (por cuenta de 6 díg.) manda sobre todo lo demás.
+  //    override IA. La config manda sobre todo lo demás; dentro de ella gana la
+  //    excepción de la cuenta exacta sobre la regla de su grupo de 6 díg.
   const mapeadas = hojas.map((c) => {
-    const cfg = configCliente?.get(c.code.slice(0, 6));
+    const cfg = resolverMapeoCliente(configCliente, c.code);
     let mp: MapeoCuenta;
     if (cfg?.std) {
       mp = { std: cfg.std, coincidencia: cfg.coincidencia, mapped: true };

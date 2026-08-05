@@ -87,6 +87,16 @@ En `src/app/actions/*.ts`. El orden es: `"use server"` → autorizar (`authorize
 - `src/lib/balance/calcular.ts` — cálculo **puro** (sin BD, sin Excel): de las cuentas crudas + el plan estándar (cuentas de 6 dígitos) produce `sums`, `breakdown` (por grupo PUC), `validations` y contadores. **Los agregados NO se persisten**: se RECALCULAN al leer con `reconstruirBalance(filas, estandar)` desde el detalle. Helpers clave: `descomponerCuenta` (código→2/4/6/8), `aFilasDetalle` (desglose→filas para insertar), `construirEstadoResultado` (P&L derivado, sustituye al antiguo `incomeStatement`). Determinista y testeable (`calcular.test.ts`); la carga/versionado vive en `confirmarCargaBalance`→`persistirCargue` (`src/app/actions/balance.ts`). Las pantallas `/balance` reconstruyen los view-models en sus loaders RSC.
 - `src/lib/balance/asociacion.ts` — el vínculo balance↔plan estándar es la columna `cuenta_6_russell` del detalle (= código de la cuenta estándar). Saber si una cuenta estándar tiene balances asociados es una consulta Prisma directa sobre `balance_prueba_detalle` (antes requería SQL crudo `jsonb_array_elements` sobre el JSON). La comprobación es **global** (todos los clientes): editar/borrar una cuenta estándar afecta a toda la plataforma.
 
+### Memoria de mapeo del cliente (`cuentas_cliente`) — DOS granularidades
+
+Lo que decide cómo se homologa una cuenta del cliente en la SIGUIENTE carga vive en `cuentas_cliente.cuenta_6_russell`; `origen_mapeo` distingue el alcance de la regla (`src/lib/balance/mapeo-cliente-config.ts`, puro):
+
+- `manual` — **regla del grupo** de 6 dígitos: vale para todas sus imputables. La escriben `/config/mapeo` y la homologación del balance con alcance «todas las cuentas del grupo» (que además propaga a las imputables del grupo y pisa sus excepciones).
+- `manual_cuenta` — **excepción de una sola cuenta**: la deja la homologación del balance con alcance «solo esta cuenta». NO participa en la elección del grupo (si lo hiciera, arreglar una auxiliar movería a todas sus hermanas) y solo aplica al código exacto.
+- `automatico` — lo que dedujo la cascada (exacto → descripción → IA).
+
+`construirConfigMapeoCliente` devuelve UN mapa con las dos clases de clave (cuenta de 6 díg. y código exacto de las excepciones) y **siempre** se lee con `resolverMapeoCliente(config, code)`: cuenta exacta primero, grupo después. Ambos alcances de la homologación manual memorizan — un ajuste hecho a mano nunca se pierde entre períodos (antes «solo esta cuenta» no dejaba rastro y la carga siguiente volvía a clasificar la cuenta con la cascada). El volcado automático del PUC nunca pisa filas manuales (`esMapeoManual`).
+
 ### Umbrales de alertas parametrizables
 
 Los dos montos que separan un aviso **informativo** de una **alerta accionable** ya no están cableados: se editan en `/config/parametros` (permiso `parametros:administrar`, Administrador y Superadministrador). Son **globales** de plataforma, no por cliente.

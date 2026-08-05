@@ -469,6 +469,9 @@ function AsignarModal({ nodo, estandar, onClose }: { nodo: NodoBalance; estandar
           <div>
             <p className="text-[13px] font-semibold text-ink-800">¿A cuáles cuentas deseas aplicar este cambio?</p>
             <p className="mt-1 text-[12px] text-ink-500">Elige el alcance antes de guardar. La homologación no se ejecutará hasta que confirmes una opción.</p>
+            <p className="mt-2 rounded-md bg-blue-50 px-3 py-2 text-[11.5px] leading-relaxed text-blue-700">
+              Con cualquiera de las dos opciones el cambio queda <span className="font-semibold">memorizado para este cliente</span> y se aplica solo en las próximas cargas de balance (los balances ya cargados no se tocan). Puedes revisarlo o deshacerlo en <span className="font-semibold">Configuración › Mapeo plan estándar</span>.
+            </p>
           </div>
           <div className="grid gap-2 sm:grid-cols-2">
             <button
@@ -478,7 +481,7 @@ function AsignarModal({ nodo, estandar, onClose }: { nodo: NodoBalance; estandar
               className="group rounded-lg border border-ink-200 bg-white px-4 py-3 text-left transition hover:border-blue-300 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <span className="block text-[12.5px] font-semibold text-ink-800 group-hover:text-blue-700">Solo esta cuenta</span>
-              <span className="mt-1 block text-[11.5px] leading-relaxed text-ink-500">Modifica únicamente {nodo.code}. Las demás cuentas conservan su homologación actual.</span>
+              <span className="mt-1 block text-[11.5px] leading-relaxed text-ink-500">Modifica únicamente {nodo.code} y la memoriza como excepción de esa cuenta. Las demás cuentas del grupo {cuenta6}* conservan su homologación actual.</span>
             </button>
             <button
               type="button"
@@ -487,7 +490,7 @@ function AsignarModal({ nodo, estandar, onClose }: { nodo: NodoBalance; estandar
               className="group rounded-lg border border-navy-700 bg-navy-700 px-4 py-3 text-left text-white transition hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <span className="block text-[12.5px] font-semibold">Todas las cuentas del grupo</span>
-              <span className="mt-1 block text-[11.5px] leading-relaxed text-white/90">Conserva el comportamiento actual: aplica a todas las cuentas {cuenta6}* y memoriza el mapeo para el cliente.</span>
+              <span className="mt-1 block text-[11.5px] leading-relaxed text-white/90">Aplica a todas las cuentas {cuenta6}* y memoriza la regla del grupo (reemplaza las excepciones que hubiera en él).</span>
             </button>
           </div>
           <div className="flex items-center justify-between border-t border-ink-100 pt-3">
@@ -504,7 +507,7 @@ function AsignarModal({ nodo, estandar, onClose }: { nodo: NodoBalance; estandar
             Elige la cuenta del <span className="font-semibold">plan estándar Russell</span> (nivel 6) a la que corresponde.
           </p>
           <p className="rounded-md bg-blue-50 px-3 py-2 text-[11.5px] text-blue-700">
-            Después de elegir el destino podrás confirmar si el cambio se aplica <span className="font-semibold">solo a esta cuenta</span> o a <span className="font-semibold">todo el grupo {cuenta6}*</span>.
+            Después de elegir el destino podrás confirmar si el cambio se aplica <span className="font-semibold">solo a esta cuenta</span> o a <span className="font-semibold">todo el grupo {cuenta6}*</span>. En ambos casos queda memorizado para las próximas cargas de este cliente.
           </p>
           <input
             autoFocus
