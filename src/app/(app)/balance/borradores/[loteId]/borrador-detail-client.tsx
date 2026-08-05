@@ -8,6 +8,12 @@ import { useRouter } from "next/navigation";
 import { Icon, type IconName } from "@/components/icons";
 import { Card, Chip, PageHeader } from "@/components/ui";
 import { Modal } from "@/components/modal";
+import {
+  BotonPantallaCompleta,
+  claseScrollTabla,
+  propsRegionPantallaCompleta,
+  usePantallaCompletaTabla,
+} from "@/components/tabla-pantalla-completa";
 import { fmt, fmtContable } from "@/lib/format";
 import { actualizarPeriodoBorrador, cargarBorrador, descartarBorrador, aplicarCambiosBorrador, asignarClienteBorrador, reprocesarBalanceConSpec, guardarPerfilDesdeEditor, guardarNotasDesdeEditor } from "@/app/actions/balance";
 import { EditorEstructura } from "@/app/(app)/balance/cargar-balance-modal";
@@ -2817,21 +2823,7 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
   const [q, setQ] = useState("");
   const [vista, setVista] = useState<"todo" | "alertas">("todo");
   const [nivelMax, setNivelMax] = useState(0); // 0 = todos; 2/4/6/8 = hasta ese nivel
-  const [pantallaCompleta, setPantallaCompleta] = useState(false);
-
-  useEffect(() => {
-    if (!pantallaCompleta) return;
-    const overflowAnterior = document.body.style.overflow;
-    const salirConEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setPantallaCompleta(false);
-    };
-    document.body.style.overflow = "hidden";
-    window.addEventListener("keydown", salirConEscape);
-    return () => {
-      document.body.style.overflow = overflowAnterior;
-      window.removeEventListener("keydown", salirConEscape);
-    };
-  }, [pantallaCompleta]);
+  const { pantallaCompleta, alternar: alternarPantallaCompleta } = usePantallaCompletaTabla();
 
   // El árbol se lee para calcular la ruta a expandir, pero va por REF y NO en dependencias:
   // se reconstruye con cualquier edición (omitir, reclasificar, invertir, «solo hojas», o el
@@ -3230,8 +3222,7 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
     <div
       role="region"
       aria-label="Tabla de movimiento del borrador" data-filtros-vista="todo-alertas"
-      data-balance-table-fullscreen={pantallaCompleta ? "true" : undefined}
-      className={pantallaCompleta ? "fixed inset-0 z-40 flex min-h-0 flex-col overflow-hidden bg-white shadow-2xl ring-1 ring-inset ring-navy-900/10" : ""}
+      {...propsRegionPantallaCompleta(pantallaCompleta)}
     >
       <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-ink-100 bg-white px-3 py-2">
         <div className="flex items-center gap-1.5 rounded-md border border-ink-200 bg-ink-50 px-2 py-1 text-ink-400">
@@ -3247,21 +3238,11 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
         <span className="mx-0.5 h-4 w-px bg-ink-200" />
         <button type="button" onClick={expandirTodo} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50"><Icon name={chevronDivulgacion(hayContenidoExpandido)} size={12} />Expandir todo</button>
         <button type="button" onClick={contraerTodo} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50"><Icon name={chevronDivulgacion(hayContenidoExpandido)} size={12} />Contraer todo</button>
-        <button
-          type="button"
-          aria-pressed={pantallaCompleta}
-          onClick={() => setPantallaCompleta((actual) => !actual)}
-          title={pantallaCompleta ? "Salir de pantalla completa (Esc)" : "Abrir la tabla a pantalla completa"}
-          className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-semibold transition ${pantallaCompleta ? "border-navy-700 bg-navy-700 text-white hover:bg-navy-600" : "border-ink-200 bg-white text-ink-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"}`}
-        >
-          <Icon name={pantallaCompleta ? "minimize" : "maximize"} size={13} />
-          {pantallaCompleta ? "Salir de pantalla completa" : "Pantalla completa"}
-          {pantallaCompleta && <kbd className="ml-0.5 rounded border border-white/30 px-1 font-sans text-[9px] font-medium text-white/80">Esc</kbd>}
-        </button>
+        <BotonPantallaCompleta activa={pantallaCompleta} onToggle={alternarPantallaCompleta} />
       </div>
-      <div ref={tablaRef} className={pantallaCompleta ? "min-h-0 flex-1 overflow-auto overscroll-contain" : "max-h-[560px] overflow-auto"}>
-        <table className="balance-detail-row-hover w-full text-[11px]">
-          <thead className="sticky top-0 z-10 bg-ink-50 text-ink-500">
+      <div ref={tablaRef} className={claseScrollTabla(pantallaCompleta)}>
+        <table className="balance-detail-row-hover tabla-encabezado-fijo w-full text-[11px]">
+          <thead className="text-ink-500">
             <tr className="text-left">
               <th className="px-2 py-1.5 font-semibold">Código</th>
               <th className="px-2 py-1.5 font-semibold">Cuenta</th>

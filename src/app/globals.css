@@ -182,6 +182,28 @@ button:disabled {
     inset 0 -1px 0 color-mix(in srgb, var(--color-blue-500) 55%, transparent);
 }
 
+/* Encabezado de columnas INMÓVIL en las tablas largas (balance y borrador): los
+   títulos quedan a la vista mientras se recorren las filas. La regla va en los
+   `th` y NO en el `thead` porque Preflight fija `border-collapse: collapse`, y
+   con ese valor solo el sticky por celda se comporta igual en todos los
+   navegadores. Por lo mismo el borde inferior se dibuja con `box-shadow`: los
+   bordes de una celda sticky no se pintan al desplazarse. Requiere que el
+   contenedor de la tabla tenga su propio scroll vertical. */
+.tabla-encabezado-fijo thead th {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background-color: var(--color-ink-50);
+  box-shadow: inset 0 -1px 0 var(--color-ink-150);
+}
+
+/* Los separadores verticales del encabezado se redibujan por la misma razón. */
+.tabla-encabezado-fijo thead th[data-separador="true"] {
+  box-shadow:
+    inset 1px 0 0 var(--color-ink-150),
+    inset 0 -1px 0 var(--color-ink-150);
+}
+
 /* La ampliación tipográfica vive únicamente dentro del modo de pantalla
    completa de la tabla. La vista normal conserva su densidad original. */
 [data-balance-table-fullscreen="true"] [class~="text-[9px]"] { font-size: 10px; }

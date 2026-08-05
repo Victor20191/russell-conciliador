@@ -7,6 +7,13 @@ import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
 import { Card, Chip } from "@/components/ui";
 import { Modal } from "@/components/modal";
+import {
+  BotonPantallaCompleta,
+  CLASE_TARJETA,
+  claseScrollTabla,
+  propsRegionPantallaCompleta,
+  usePantallaCompletaTabla,
+} from "@/components/tabla-pantalla-completa";
 import { fmt, fmtPct } from "@/lib/format";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import { asignarCuentaEstandar, validarAlerta, revertirValidacionAlerta, eliminarDetalleBalance } from "@/app/actions/balance";
@@ -39,11 +46,17 @@ export type Meta = { rows: number; mapped: number; unmapped: number; critical: n
 export type Version = { v: string; date: string; uploadedBy: string; role: string; file: string; size: string; rows: number; sumA: number; balanced: boolean; note: string; /** Notas y aprobaciones transferidas desde el borrador. */ approvalNote: string; changes: number };
 
 type Tab = "breakdown" | "validations" | "versions" | "clases" | "prevalidador";
-type Filtro = "todo" | "balance" | "er" | "alertas";
+// Filtro de ALERTAS (vive en el padre: el prevalidador bloqueado salta aquí).
+// `alertas` = las dos clases juntas; los otros dos aíslan un tipo.
+type Filtro = "todo" | "alertas" | "alertas_mapeo" | "alertas_naturaleza";
+// Filtro de CLASE PUC, independiente del de alertas: se combinan.
+type Clase = "todo" | "balance" | "er";
 type Conteo = { mapeo: number; naturaleza: number };
 
 const CLASES_BALANCE = new Set(["1", "2", "3"]);
 const CLASES_ER = new Set(["4", "5", "6", "7"]);
+/** Niveles seleccionables en el filtro de profundidad (0 = sin límite). */
+const NIVELES_FILTRO = [2, 4, 6, 8] as const;
 // Nombre del nivel PUC según la longitud del código: 1=Clase, 2=Grupo, 4=Cuenta,
 // 6=Subcuenta, 8=Auxiliar (el nivel 8 es la cuenta del cliente / auxiliar).
 const NIVEL_LABEL: Record<number, string> = { 1: "Clase", 2: "Grupo", 4: "Cuenta", 6: "Subcuenta", 8: "Auxiliar" };
@@ -98,22 +111,47 @@ function keysConHijos(nodos: NodoBalance[]): string[] {
   return ks;
 }
 
-/** ¿Hoja con alerta? Cuenta sin mapear (mapeo) o con naturaleza/saldo contrario NO
- *  validada (una alerta de saldo con OK+comentario deja de contar). */
-function esHojaAlerta(n: NodoBalance, validados: Set<string>, umbrales: UmbralesAlertas): boolean {
-  const mapeado = n.nivel === 8 ? !!n.std : n.mapped;
-  return !mapeado || (esSaldoContrarioAccionable(n.balance, n.saldoOk, umbrales) && !validados.has(n.code));
+/** ¿La hoja tiene alerta de MAPEO (cuenta sin homologar al plan estándar)? */
+function esAlertaMapeo(n: NodoBalance): boolean {
+  return !(n.nivel === 8 ? !!n.std : n.mapped);
 }
 
-/** Poda el árbol dejando solo las ramas con alertas (filtro "Alertas"). */
-function podarAlertas(nodos: NodoBalance[], validados: Set<string>, umbrales: UmbralesAlertas): NodoBalance[] {
+/** ¿La hoja tiene alerta de NATURALEZA (saldo contrario) todavía sin validar? */
+function esAlertaNaturaleza(n: NodoBalance, validados: Set<string>, umbrales: UmbralesAlertas): boolean {
+  return esSaldoContrarioAccionable(n.balance, n.saldoOk, umbrales) && !validados.has(n.code);
+}
+
+/**
+ * Poda el árbol dejando solo las ramas con alertas. `tipo` acota a un solo tipo
+ * ("Sin mapeo" / "Saldo contrario"); las subcuentas sin mapeo se conservan
+ * siempre que el tipo de mapeo esté incluido, porque son la alerta misma.
+ */
+function podarAlertas(
+  nodos: NodoBalance[],
+  validados: Set<string>,
+  umbrales: UmbralesAlertas,
+  tipo: "todas" | "mapeo" | "naturaleza" = "todas",
+): NodoBalance[] {
+  const incluyeMapeo = tipo !== "naturaleza";
+  const incluyeNaturaleza = tipo !== "mapeo";
   const out: NodoBalance[] = [];
   for (const n of nodos) {
-    const hijos = podarAlertas(n.hijos, validados, umbrales);
-    const self = (n.hijos.length === 0 && esHojaAlerta(n, validados, umbrales)) || (n.nivel === 6 && !n.mapped);
-    if (hijos.length > 0 || self) out.push({ ...n, hijos });
+    const hijos = podarAlertas(n.hijos, validados, umbrales, tipo);
+    const hoja =
+      n.hijos.length === 0 &&
+      ((incluyeMapeo && esAlertaMapeo(n)) || (incluyeNaturaleza && esAlertaNaturaleza(n, validados, umbrales)));
+    const subcuentaSinMapeo = incluyeMapeo && n.nivel === 6 && !n.mapped;
+    if (hijos.length > 0 || hoja || subcuentaSinMapeo) out.push({ ...n, hijos });
   }
   return out;
+}
+
+/** Poda el árbol por profundidad: descarta lo que está por debajo de `nivelMax`. */
+function podarNivel(nodos: NodoBalance[], nivelMax: number): NodoBalance[] {
+  if (nivelMax === 0) return nodos;
+  return nodos
+    .filter((n) => n.nivel <= nivelMax)
+    .map((n) => ({ ...n, hijos: podarNivel(n.hijos, nivelMax) }));
 }
 
 /** Filtra el árbol por código/nombre: si un nodo coincide, incluye su subárbol completo; si no, solo si algún descendiente coincide. */
@@ -135,10 +173,9 @@ function contarAlertas(arbol: NodoBalance[], validados: Set<string>, umbrales: U
   const walk = (n: NodoBalance): Conteo => {
     let r: Conteo;
     if (n.hijos.length === 0) {
-      const mapeado = n.nivel === 8 ? !!n.std : n.mapped;
       r = {
-        mapeo: mapeado ? 0 : 1,
-        naturaleza: esSaldoContrarioAccionable(n.balance, n.saldoOk, umbrales) && !validados.has(n.code) ? 1 : 0,
+        mapeo: esAlertaMapeo(n) ? 1 : 0,
+        naturaleza: esAlertaNaturaleza(n, validados, umbrales) ? 1 : 0,
       };
     } else {
       r = n.hijos.reduce<Conteo>((a, h) => { const c = walk(h); return { mapeo: a.mapeo + c.mapeo, naturaleza: a.naturaleza + c.naturaleza }; }, { mapeo: 0, naturaleza: 0 });
@@ -155,6 +192,11 @@ function contarAlertas(arbol: NodoBalance[], validados: Set<string>, umbrales: U
 function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, validaciones, puedeValidar, puedeEliminar, umbrales, filtro, setFiltro }: { arbol: NodoBalance[]; estandar: EstandarOpcion[]; puedeMapear: boolean; balanceId: number; comentarios: Record<string, number>; validaciones: Record<string, ValidacionInfo>; puedeValidar: boolean; puedeEliminar: boolean; umbrales: UmbralesAlertas; filtro: Filtro; setFiltro: (f: Filtro) => void }) {
   const router = useRouter();
   const [q, setQ] = useState("");
+  // Clase PUC y profundidad son filtros PROPIOS de la tabla y se combinan con el
+  // de alertas (que vive arriba). `nivelMax` 0 = sin límite.
+  const [clase, setClase] = useState<Clase>("todo");
+  const [nivelMax, setNivelMax] = useState(0);
+  const { pantallaCompleta, alternar: alternarPantallaCompleta } = usePantallaCompletaTabla();
   // Por defecto TODO contraído: al entrar se ve el encabezado y solo las clases,
   // colapsadas. El usuario expande lo que necesite.
   const [open, setOpen] = useState<Set<string>>(() => new Set());
@@ -199,21 +241,26 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, va
   );
   const totalAlertas = totales.mapeo + totales.naturaleza;
 
+  // Los cuatro filtros se ENCADENAN (clase → alertas → nivel → búsqueda) para
+  // poder pedir, p. ej., «solo las cuentas sin mapear del estado de resultados».
   const visible = useMemo(() => {
-    let base: NodoBalance[];
-    if (filtro === "balance") base = arbol.filter((n) => CLASES_BALANCE.has(n.clase));
-    else if (filtro === "er") base = arbol.filter((n) => CLASES_ER.has(n.clase));
-    else if (filtro === "alertas") base = podarAlertas(arbol, validados, umbrales);
-    else base = arbol;
+    let base = arbol;
+    if (clase === "balance") base = base.filter((n) => CLASES_BALANCE.has(n.clase));
+    else if (clase === "er") base = base.filter((n) => CLASES_ER.has(n.clase));
+    if (filtro !== "todo") {
+      const tipo = filtro === "alertas_mapeo" ? "mapeo" : filtro === "alertas_naturaleza" ? "naturaleza" : "todas";
+      base = podarAlertas(base, validados, umbrales, tipo);
+    }
+    base = podarNivel(base, nivelMax);
     const needle = q.trim().toLowerCase();
     return needle ? podarBusqueda(base, needle) : base;
-  }, [arbol, filtro, q, validados, umbrales]);
+  }, [arbol, clase, filtro, nivelMax, q, validados, umbrales]);
 
   const clavesVisiblesConHijos = useMemo(() => keysConHijos(visible), [visible]);
   // En el filtro "Alertas" o durante una búsqueda, el árbol podado se muestra
   // totalmente expandido. El chevron masivo se deriva de este estado efectivo.
   const openEff = useMemo(
-    () => (filtro === "alertas" || q.trim() ? new Set(clavesVisiblesConHijos) : open),
+    () => (filtro !== "todo" || q.trim() ? new Set(clavesVisiblesConHijos) : open),
     [clavesVisiblesConHijos, filtro, open, q],
   );
   // Sólo cuentan ramas raíz realmente visibles. Un descendiente puede conservar
@@ -226,22 +273,54 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, va
   const expandirTodo = () => setOpen(new Set(keysConHijos(arbol)));
   const contraerTodo = () => setOpen(new Set());
 
+  const nivelBtn = (nivel: number, label: string) => (
+    <button
+      key={label}
+      type="button"
+      aria-pressed={nivelMax === nivel}
+      onClick={() => setNivelMax(nivel)}
+      className={`rounded px-1.5 py-0.5 text-[11px] font-semibold transition ${nivelMax === nivel ? "bg-navy-700 text-white" : "text-ink-500 hover:bg-ink-100"}`}
+    >
+      {label}
+    </button>
+  );
+
+  // Región propia (no `<Card>`) porque en pantalla completa deja de ser tarjeta y
+  // pasa a ser un contenedor fijo en columna; `CLASE_TARJETA` conserva el aspecto.
   return (
-    <Card>
-      <div className="flex flex-wrap items-center gap-2 border-b border-ink-100 px-4 py-2.5">
-        <span className="text-[11.5px] text-ink-500">Normalizado al <span className="font-semibold text-ink-700">plan estándar Russell</span>: grupo → cuenta → subcuenta → auxiliar (cuenta del cliente).</span>
-        <div className="ml-auto flex items-center gap-1.5">
-          <div className="mr-1 flex items-center gap-2 rounded-md border border-ink-200 bg-ink-50 px-2.5 py-1.5 text-ink-400">
-            <Icon name="search" size={14} />
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Buscar código o cuenta…"
-              className="w-48 bg-transparent text-[12.5px] text-ink-700 outline-none placeholder:text-ink-400"
-            />
-          </div>
+    <div role="region" aria-label="Detalle del balance por niveles" {...propsRegionPantallaCompleta(pantallaCompleta, CLASE_TARJETA)}>
+      <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-ink-100 bg-white px-4 py-2.5">
+        <div className="mr-1 flex items-center gap-2 rounded-md border border-ink-200 bg-ink-50 px-2.5 py-1.5 text-ink-400">
+          <Icon name="search" size={14} />
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Buscar código o cuenta…"
+            className="w-48 bg-transparent text-[12.5px] text-ink-700 outline-none placeholder:text-ink-400"
+          />
+        </div>
+        {/* Clase PUC: separa el balance (1-2-3) del estado de resultados (4-7). */}
+        <div className="flex items-center gap-0.5 rounded-md border border-ink-200 p-0.5">
+          <button type="button" aria-pressed={clase === "todo"} onClick={() => setClase("todo")} className={`rounded px-1.5 py-0.5 text-[11px] font-semibold transition ${clase === "todo" ? "bg-navy-700 text-white" : "text-ink-500 hover:bg-ink-100"}`}>Todas</button>
+          <button type="button" aria-pressed={clase === "balance"} onClick={() => setClase("balance")} className={`rounded px-1.5 py-0.5 text-[11px] font-semibold transition ${clase === "balance" ? "bg-navy-700 text-white" : "text-ink-500 hover:bg-ink-100"}`}>Balance</button>
+          <button type="button" aria-pressed={clase === "er"} onClick={() => setClase("er")} className={`rounded px-1.5 py-0.5 text-[11px] font-semibold transition ${clase === "er" ? "bg-navy-700 text-white" : "text-ink-500 hover:bg-ink-100"}`}>Resultados</button>
+        </div>
+        {/* Profundidad del árbol, igual que en el borrador. */}
+        <div className="flex items-center gap-0.5 rounded-md border border-ink-200 p-0.5">
+          {nivelBtn(0, "Todos")}
+          {NIVELES_FILTRO.map((n) => nivelBtn(n, `N${n}`))}
+        </div>
+        <div className="ml-auto flex flex-wrap items-center gap-1.5">
           <FiltroBtn on={filtro === "todo"} onClick={() => setFiltro("todo")} label="Todo" />
           <FiltroBtn on={filtro === "alertas"} onClick={() => setFiltro("alertas")} label="Alertas" count={totalAlertas} tone="warn" />
+          {/* Los dos tipos de alerta se separan porque se atacan distinto: las de
+              mapeo se resuelven homologando y las de naturaleza, revisando saldo. */}
+          {filtro !== "todo" && (
+            <>
+              <FiltroBtn on={filtro === "alertas_mapeo"} onClick={() => setFiltro(filtro === "alertas_mapeo" ? "alertas" : "alertas_mapeo")} label="Sin mapeo" count={totales.mapeo} tone="warn" />
+              <FiltroBtn on={filtro === "alertas_naturaleza"} onClick={() => setFiltro(filtro === "alertas_naturaleza" ? "alertas" : "alertas_naturaleza")} label="Saldo contrario" count={totales.naturaleza} tone="warn" />
+            </>
+          )}
           <span className="mx-1 h-4 w-px bg-ink-200" />
           <button onClick={expandirTodo} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 px-2 py-1 text-[11.5px] font-medium text-ink-600 hover:bg-ink-50">
             <Icon name={chevronDivulgacion(hayContenidoExpandido)} size={12} /> Expandir todo
@@ -249,37 +328,41 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, va
           <button onClick={contraerTodo} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 px-2 py-1 text-[11.5px] font-medium text-ink-600 hover:bg-ink-50">
             <Icon name={chevronDivulgacion(hayContenidoExpandido)} size={12} /> Contraer todo
           </button>
+          <BotonPantallaCompleta activa={pantallaCompleta} onToggle={alternarPantallaCompleta} />
         </div>
       </div>
-      <div className="overflow-x-auto">
-        <table className="balance-detail-row-hover w-full text-[12.5px]">
+      <div className={claseScrollTabla(pantallaCompleta)}>
+        <table className="balance-detail-row-hover tabla-encabezado-fijo w-full text-[12.5px]">
           <thead>
-            <tr className="border-b border-ink-100 text-left text-[11px] uppercase tracking-wider text-ink-500">
+            <tr className="text-left text-[11px] uppercase tracking-wider text-ink-500">
               <th className="px-4 py-2 font-semibold">Código</th>
               <th className="px-4 py-2 font-semibold">Cuenta</th>
               <th className="px-4 py-2 font-semibold">Mapeo estándar</th>
-              <th className="whitespace-nowrap border-l border-ink-150 px-4 py-2 text-right font-semibold">Saldo anterior</th>
-              <th className="whitespace-nowrap border-l border-ink-150 px-4 py-2 text-right font-semibold">Débito</th>
-              <th className="whitespace-nowrap border-l border-ink-150 px-4 py-2 text-right font-semibold">Crédito</th>
-              <th className="whitespace-nowrap border-l border-ink-150 px-4 py-2 text-right font-semibold">Saldo</th>
-              <th className="whitespace-nowrap border-l border-ink-150 px-4 py-2 text-right font-semibold">Var %</th>
-              <th className="border-l border-ink-150 px-4 py-2 font-semibold">Validación</th>
+              <th data-separador="true" className="whitespace-nowrap px-4 py-2 text-right font-semibold">Saldo anterior</th>
+              <th data-separador="true" className="whitespace-nowrap px-4 py-2 text-right font-semibold">Débito</th>
+              <th data-separador="true" className="whitespace-nowrap px-4 py-2 text-right font-semibold">Crédito</th>
+              <th data-separador="true" className="whitespace-nowrap px-4 py-2 text-right font-semibold">Saldo</th>
+              <th data-separador="true" className="whitespace-nowrap px-4 py-2 text-right font-semibold">Var %</th>
+              <th data-separador="true" className="px-4 py-2 font-semibold">Validación</th>
             </tr>
           </thead>
           <tbody onClick={onClickFila} onDoubleClick={onDoubleClickFila}>
             {visible.length === 0 ? (
-              <tr><td colSpan={9} className="px-4 py-6 text-center text-[12.5px] text-ink-400">{q.trim() ? "Sin cuentas que coincidan con la búsqueda." : filtro === "alertas" ? "Sin alertas de mapeo ni de naturaleza. 🎉" : "Sin cuentas para este filtro."}</td></tr>
+              <tr><td colSpan={9} className="px-4 py-6 text-center text-[12.5px] text-ink-400">{q.trim() ? "Sin cuentas que coincidan con la búsqueda." : filtro !== "todo" ? "Sin alertas para este filtro. 🎉" : "Sin cuentas para este filtro."}</td></tr>
             ) : (
               visible.flatMap((n) => filas(n, 0, openEff, toggle, puedeMapear, setAsignar, conteos, comentarios, setComentar, val, onEliminar, filaSeleccionada))
             )}
           </tbody>
         </table>
       </div>
+      <div className="shrink-0 border-t border-ink-100 bg-white px-4 py-2 text-[11.5px] text-ink-500">
+        Normalizado al <span className="font-semibold text-ink-700">plan estándar Russell</span>: grupo → cuenta → subcuenta → auxiliar (cuenta del cliente).
+      </div>
       {asignar && <AsignarModal nodo={asignar} estandar={estandar} onClose={() => setAsignar(null)} />}
       {comentar && <ComentarModal nodo={comentar} balanceId={balanceId} onClose={() => setComentar(null)} />}
       {validar && <ValidarModal nodo={validar.nodo} tipo={validar.tipo} balanceId={balanceId} onClose={() => setValidar(null)} />}
       {eliminar && <EliminarModal nodo={eliminar} onClose={() => setEliminar(null)} />}
-    </Card>
+    </div>
   );
 }
 
