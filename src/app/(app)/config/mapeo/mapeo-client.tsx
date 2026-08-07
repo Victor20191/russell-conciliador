@@ -624,8 +624,13 @@ function StandardTab({ std, canManage, logs, lockedStdCodes }: { std: StdAccount
   const [deleteTarget, setDeleteTarget] = useState<StdAccount | null>(null);
   const [logsOpen, setLogsOpen] = useState(false);
   const needle = q.trim().toLowerCase();
+  // Una búsqueda numérica se interpreta SIEMPRE como prefijo del código PUC
+  // (escribir «23» debe traer 23xxxx, no cualquier cuenta cuyo texto contenga
+  // «23»). El texto libre sigue buscando en todas las columnas.
+  const esPrefijoCodigo = /^\d+$/.test(needle);
   const rows = std.filter((s) => {
     if (!needle) return true;
+    if (esPrefijoCodigo) return s.code.startsWith(needle);
     return [s.code, s.name, s.russellAccount, s.categoryType, s.includes, s.mappingNotes]
       .some((value) => value?.toLowerCase().includes(needle));
   });
@@ -644,7 +649,7 @@ function StandardTab({ std, canManage, logs, lockedStdCodes }: { std: StdAccount
               setQ(e.target.value);
               pg.resetToFirstPage();
             }}
-            placeholder="filtrar cuenta, rubro o soporte"
+            placeholder="código (23…) o texto: rubro, soporte"
             className="w-72 rounded-md border border-ink-200 px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400"
           />
           <PageSizeSelect value={pg.pageSize} onChange={pg.setPageSize} />
