@@ -41,6 +41,9 @@ function filaListado(
     creadoEn,
     fecha: "1 may 2026",
     hora: "08:00 a. m.",
+    version: 1,
+    versionesGrupo: 1,
+    claveGrupo: null,
   };
 }
 
@@ -107,6 +110,40 @@ describe("presentación de borradores vigentes e históricos", () => {
       "asignado-antiguo",
       "historico-reciente",
       "sugerido",
+    ]);
+  });
+
+  it("mantiene juntas las versiones de un mismo (cliente, período), de la más nueva a la más vieja", () => {
+    const asignado = {
+      tipo: "asignado",
+      id: 7,
+      nombre: "Cliente vigente",
+      nit: "900123456-7",
+    } satisfies VinculoClienteBorrador;
+    const conVersion = (
+      loteId: string,
+      creadoEn: string,
+      version: number,
+      claveGrupo: string | null,
+      versionesGrupo = 1,
+    ): BorradorRow => ({
+      ...filaListado(loteId, asignado, creadoEn),
+      version,
+      versionesGrupo,
+      claveGrupo,
+    });
+    // El grupo «mayo» tiene el cargue más reciente (v2), así que va primero
+    // entero; suelto-junio queda debajo pese a ser más nuevo que mayo-v1.
+    const rows = [
+      conVersion("mayo-v1", "2026-07-01T12:00:00.000Z", 1, "c:7|Mayo 2026", 2),
+      conVersion("suelto-junio", "2026-07-10T12:00:00.000Z", 1, "c:7|Junio 2026"),
+      conVersion("mayo-v2", "2026-07-20T12:00:00.000Z", 2, "c:7|Mayo 2026", 2),
+    ];
+
+    expect(ordenarBorradoresListado(rows).map((row) => row.loteId)).toEqual([
+      "mayo-v2",
+      "mayo-v1",
+      "suelto-junio",
     ]);
   });
 
@@ -178,6 +215,9 @@ describe("ordenarBorradoresPorColumna", () => {
       creadoEn: "2026-07-01T12:00:00.000Z",
       fecha: "1 jul 2026",
       hora: "07:00 a. m.",
+      version: 1,
+      versionesGrupo: 1,
+      claveGrupo: null,
       ...parcial,
     };
   }

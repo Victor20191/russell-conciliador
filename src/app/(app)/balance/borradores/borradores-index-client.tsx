@@ -32,6 +32,12 @@ export type BorradorRow = {
   creadoEn: string | null;
   fecha: string;
   hora: string | null;
+  /** Posición cronológica dentro de su (cliente, período). 1 si no se agrupa. */
+  version: number;
+  /** Cuántos borradores vivos comparten ese (cliente, período). */
+  versionesGrupo: number;
+  /** null = sin cliente o sin período: el borrador no se agrupa con ninguno. */
+  claveGrupo: string | null;
 };
 
 /** Base compartida de los botones de la columna «Acciones»: todos cuadrados y
@@ -57,6 +63,7 @@ export type ColumnaOrdenBorrador =
   | "archivo"
   | "cliente"
   | "periodo"
+  | "version"
   | "cuentas"
   | "estado"
   | "fecha";
@@ -72,14 +79,33 @@ function compararTexto(a: string, b: string): number {
   return a.localeCompare(b, "es", { sensitivity: "base", numeric: true });
 }
 
-/** Orden por defecto: vigentes (cliente asignado) primero; luego más recientes. */
+/**
+ * Orden por defecto: vigentes (cliente asignado) primero; luego los grupos
+ * (cliente + período) por su cargue más reciente y, DENTRO de cada grupo, las
+ * versiones juntas de la más nueva a la más vieja. Así las versiones de un mismo
+ * balance quedan contiguas en vez de repartidas por el listado.
+ */
 export function ordenarBorradoresListado(
   rows: readonly BorradorRow[],
 ): BorradorRow[] {
+  const tsGrupo = new Map<string, number>();
+  for (const r of rows) {
+    if (!r.claveGrupo) continue;
+    tsGrupo.set(
+      r.claveGrupo,
+      Math.max(tsGrupo.get(r.claveGrupo) ?? 0, fechaOrdenBorrador(r.creadoEn)),
+    );
+  }
+  const tsOrden = (r: BorradorRow) =>
+    (r.claveGrupo ? tsGrupo.get(r.claveGrupo) : undefined) ?? fechaOrdenBorrador(r.creadoEn);
+
   return [...rows].sort((a, b) => {
     const grupoA = a.cliente.tipo === "asignado" ? 0 : 1;
     const grupoB = b.cliente.tipo === "asignado" ? 0 : 1;
     if (grupoA !== grupoB) return grupoA - grupoB;
+    const ts = tsOrden(b) - tsOrden(a);
+    if (ts !== 0) return ts;
+    if (a.claveGrupo && a.claveGrupo === b.claveGrupo) return b.version - a.version;
     return fechaOrdenBorrador(b.creadoEn) - fechaOrdenBorrador(a.creadoEn);
   });
 }
@@ -104,6 +130,9 @@ export function ordenarBorradoresPorColumna(
         break;
       case "periodo":
         cmp = compararTexto(a.periodo, b.periodo);
+        break;
+      case "version":
+        cmp = a.version - b.version;
         break;
       case "cuentas":
         cmp = a.cuentasMovimiento - b.cuentasMovimiento;
@@ -134,7 +163,9 @@ export function ordenarBorradoresPorColumna(
 export function direccionInicialColumna(
   columna: ColumnaOrdenBorrador,
 ): DireccionOrden {
-  return columna === "cuentas" || columna === "fecha" ? "desc" : "asc";
+  return columna === "cuentas" || columna === "fecha" || columna === "version"
+    ? "desc"
+    : "asc";
 }
 
 /** Coincide si el término aparece en archivo, razón social o NIT (con o sin DV). */
@@ -220,6 +251,42 @@ export function ClienteBorradorCelda({
       {nitDetectado && (
         <span className="font-mono text-[10.5px] text-ink-400">
           NIT detectado: {nitDetectado}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** Versión del borrador dentro de su (cliente, período). «—» cuando el lote aún
+ *  no tiene cliente o período con qué agruparse. */
+export function VersionBorradorCelda({
+  version,
+  versionesGrupo,
+  agrupado,
+}: {
+  version: number;
+  versionesGrupo: number;
+  agrupado: boolean;
+}) {
+  if (!agrupado) {
+    return (
+      <span
+        className="text-[11px] text-ink-400"
+        title="Sin cliente o sin período: aún no se agrupa con otras versiones."
+      >
+        —
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <Chip label={`v${version}`} tone={versionesGrupo > 1 ? "blue" : "ink"} />
+      {versionesGrupo > 1 && (
+        <span
+          className="text-[10.5px] text-ink-400"
+          title={`${versionesGrupo} borradores del mismo cliente y período`}
+        >
+          de {versionesGrupo}
         </span>
       )}
     </span>
@@ -352,6 +419,7 @@ export default function BorradoresIndexClient({ rows }: { rows: BorradorRow[] })
                 <th className="px-3 py-2">{headerOrdenable("Archivo", "archivo")}</th>
                 <th className="px-3 py-2">{headerOrdenable("Cliente / NIT", "cliente")}</th>
                 <th className="px-3 py-2">{headerOrdenable("Período", "periodo")}</th>
+                <th className="px-3 py-2">{headerOrdenable("Versión", "version")}</th>
                 <th className="px-3 py-2 text-right">
                   <div className="flex justify-end">
                     {headerOrdenable("Cuentas", "cuentas", "right")}
@@ -379,6 +447,13 @@ export default function BorradoresIndexClient({ rows }: { rows: BorradorRow[] })
                     />
                   </td>
                   <td className="px-3 py-2 font-mono text-[11px] text-ink-600">{r.periodo}</td>
+                  <td className="px-3 py-2">
+                    <VersionBorradorCelda
+                      version={r.version}
+                      versionesGrupo={r.versionesGrupo}
+                      agrupado={r.claveGrupo != null}
+                    />
+                  </td>
                   <td className="px-3 py-2 text-right tabular-nums text-ink-700">{r.cuentasMovimiento}</td>
                   <td className="px-3 py-2">
                     {r.cuadrado ? (
@@ -443,7 +518,7 @@ export default function BorradoresIndexClient({ rows }: { rows: BorradorRow[] })
               ))}
               {borradoresFiltrados.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-10 text-center text-[12.5px] text-ink-400">
+                  <td colSpan={8} className="px-4 py-10 text-center text-[12.5px] text-ink-400">
                     No se encontraron borradores con ese archivo, NIT o razón social.
                   </td>
                 </tr>

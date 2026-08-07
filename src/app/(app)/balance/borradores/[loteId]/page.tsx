@@ -5,12 +5,15 @@ import { BackLink } from "@/components/ui";
 import { SpecCargaBalanceSchema } from "@/lib/definitions";
 import type { SpecCarga } from "@/lib/balance/extraccion/esquema";
 import { fechaCalendarioISO } from "@/lib/fecha-hora";
+import { fmtDateTime } from "@/lib/format";
 import { stagingBorradorLote } from "@/lib/balance/staging-borrador";
 import {
   contextoAccesoBorradorActual,
+  filtroLotesVisibles,
   puedeVerBorrador,
   resolverVinculoClienteBorrador,
 } from "@/lib/balance/autorizacion-borrador";
+import { asignarVersionesBorrador } from "@/lib/balance/versiones-borrador";
 import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
 import BorradorDetailClient from "./borrador-detail-client";
 
@@ -81,7 +84,7 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
   // Clientes de la cartera para el selector de carga + cliente sugerido por NIT.
   const alc = contextoAcceso.alcance;
   const filtroIds = alc.todos ? {} : { clienteId: { in: alc.clientIds } };
-  const [clientes, ajustesRows] = await Promise.all([
+  const [clientes, ajustesRows, lotesVisibles] = await Promise.all([
     prisma.client.findMany({
       where: alc.todos ? {} : { id: { in: alc.clientIds } },
       select: { id: true, name: true, nit: true },
@@ -92,6 +95,21 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
     prisma.ajustesCargaBalance.findMany({
       where: filtroIds,
       select: { clienteId: true, observaciones: true, imputarSoloHojas: true },
+    }),
+    // Hermanos para el versionado por (cliente, período): solo los lotes que
+    // este usuario ya puede ver. Se traen los metadatos mínimos; la versión se
+    // deriva en memoria con la misma regla que el listado.
+    prisma.balanceImportacionLote.findMany({
+      where: filtroLotesVisibles(contextoAcceso),
+      select: {
+        loteId: true,
+        clienteId: true,
+        nitDetectado: true,
+        archivoNombre: true,
+        periodoInicial: true,
+        periodoFinal: true,
+        creadoEn: true,
+      },
     }),
   ]);
   const ajustesPorCliente = new Map(ajustesRows.map((r) => [r.clienteId, r]));
@@ -110,6 +128,41 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
   // abrir (mismo camino que la compuerta) para que guardar cambios, notas o el perfil no
   // fallen con «Vincula el cliente…» sobre un selector que ya muestra la empresa.
   const clientePersistido = vinculoCliente.tipo === "asignado";
+
+  // Versiones del mismo (cliente, período). Se deriva sobre TODOS los lotes
+  // visibles y luego se filtra por la clave de este, para que la numeración
+  // coincida exactamente con la del listado.
+  const versionesPorLote = asignarVersionesBorrador(
+    lotesVisibles.map((l) => {
+      const vinculo = resolverVinculoClienteBorrador(
+        { clienteId: l.clienteId, nitDetectado: l.nitDetectado },
+        clientes,
+      );
+      return {
+        loteId: l.loteId,
+        clienteId: vinculo.tipo === "sin_cliente" ? null : vinculo.id,
+        nitDetectado: l.nitDetectado,
+        periodoInicio: l.periodoInicial ? fechaCalendarioISO(l.periodoInicial) : null,
+        periodoFin: l.periodoFinal ? fechaCalendarioISO(l.periodoFinal) : null,
+        creadoEn: l.creadoEn.toISOString(),
+      };
+    }),
+  );
+  const versionActual = versionesPorLote.get(loteId) ?? null;
+  const hermanosBorrador = versionActual?.claveGrupo
+    ? lotesVisibles
+        .flatMap((l) => {
+          const v = versionesPorLote.get(l.loteId);
+          if (!v || v.claveGrupo !== versionActual.claveGrupo) return [];
+          return [{
+            loteId: l.loteId,
+            version: v.version,
+            archivoNombre: l.archivoNombre,
+            fecha: fmtDateTime(l.creadoEn),
+          }];
+        })
+        .sort((a, b) => b.version - a.version)
+    : [];
 
   return (
     <div>
@@ -137,6 +190,8 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
         spec={spec}
         correccionesAplicadas={lote?.correccionesAplicadas ?? 0}
         umbrales={umbrales}
+        version={versionActual?.claveGrupo ? versionActual.version : null}
+        hermanos={hermanosBorrador}
       />
     </div>
   );

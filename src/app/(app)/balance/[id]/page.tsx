@@ -11,6 +11,7 @@ import { cargarContextoPrevalidadorBalance } from "@/lib/balance/prevalidador/se
 import BalanceDetailClient, {
   type Meta, type Version,
 } from "./balance-detail-client";
+import { tabDesdeParametro } from "./tabs";
 import { parseId } from "@/lib/ids";
 import { FreezeBalanceButton } from "./freeze-balance-button";
 import { ExportarBalance } from "./exportar-balance";
@@ -23,10 +24,10 @@ import {
 } from "@/lib/balance/revisiones-reubicacion-balance";
 import Conversacion from "@/components/conversacion";
 
-export default async function BalanceDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ cargado?: string }> }) {
+export default async function BalanceDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ cargado?: string; tab?: string }> }) {
   await requirePermiso("balance:ver");
   const { id: rawId } = await params;
-  const { cargado } = await searchParams;
+  const { cargado, tab } = await searchParams;
   const id = parseId(rawId);
   if (!id) notFound();
   const balance = await prisma.balancePruebaEncabezado.findUnique({
@@ -71,7 +72,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
     prisma.balancePruebaEncabezado.findMany({
       where: { clienteId: balance.clienteId, periodo: balance.periodo },
       orderBy: { creadoEn: "desc" },
-      select: { id: true, version: true, ultimaCarga: true, cargadoPor: true, rolCarga: true, archivo: true, tamanoArchivo: true, filasTotales: true, sumaActivo: true, cuadrado: true, nota: true, comentarioAprobacion: true, reubicacionesAprobadas: true, cambios: true, creadoEn: true },
+      select: { id: true, version: true, esOficial: true, ultimaCarga: true, cargadoPor: true, rolCarga: true, archivo: true, tamanoArchivo: true, filasTotales: true, sumaActivo: true, cuadrado: true, nota: true, comentarioAprobacion: true, reubicacionesAprobadas: true, cambios: true, creadoEn: true },
     }),
     // Conteo de comentarios por cuenta (ancla) de este balance, para los badges del árbol.
     prisma.comment.groupBy({ by: ["anchor"], where: { entityType: "balance", entityId: id }, _count: { _all: true } }),
@@ -144,7 +145,8 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
   const versions: Version[] = hermanos.map((h) => {
     const reubicaciones = parsearRevisionesReubicacionBalance(h.reubicacionesAprobadas);
     return {
-      v: h.version, date: h.ultimaCarga ? fmtDateTime(h.ultimaCarga) : "—", uploadedBy: h.cargadoPor ?? "—", role: h.rolCarga ?? "—",
+      id: h.id, v: h.version, esOficial: h.esOficial,
+      date: h.ultimaCarga ? fmtDateTime(h.ultimaCarga) : "—", uploadedBy: h.cargadoPor ?? "—", role: h.rolCarga ?? "—",
       file: h.archivo ?? "—", size: h.tamanoArchivo ?? "—", rows: h.filasTotales, sumA: Number(h.sumaActivo),
       balanced: h.cuadrado, note: h.nota ?? "",
       approvalNote: reubicaciones.length === 0
@@ -153,6 +155,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
       changes: h.cambios,
     };
   });
+  const versionOficialId = hermanos.find((h) => h.esOficial)?.id ?? null;
   const reubicacionesAprobadas = parsearRevisionesReubicacionBalance(balance.reubicacionesAprobadas);
   // Hay diff si existe una versión anterior a esta (cargada antes).
   const esta = hermanos.find((h) => h.id === id);
@@ -224,6 +227,16 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
       {!sums && (
         <div className="rounded-lg border border-ink-150 bg-white p-6 text-[13px] text-ink-500">
           Esta versión no tiene detalle contable cargado. El detalle completo está en la versión oficial congelada.
+          {/* Sin detalle no se monta el detalle (ni su pestaña «Versiones»): sin
+              esta salida, la versión sería un callejón sin salida. */}
+          {versionOficialId != null && versionOficialId !== id && (
+            <a
+              href={`/balance/${versionOficialId}?tab=versiones`}
+              className="ml-1 font-medium text-blue-500 hover:underline"
+            >
+              Ver las {hermanos.length} versiones del período
+            </a>
+          )}
         </div>
       )}
 
@@ -249,7 +262,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
             estaCongelado={balance.estaCongelado}
             validations={validations}
             versions={versions}
-            officialVersion={balance.version}
+            tabInicial={tabDesdeParametro(tab)}
             warnCount={warnCount}
             balanceId={id}
             comentarios={comentariosPorAncla}

@@ -157,7 +157,21 @@ function ClientsTab({ clients }: { clients: ClientGroup[] }) {
                 {c.periodList.map((p) => (
                   <tr key={p.period} className="border-b border-ink-50 last:border-0 hover:bg-ink-50">
                     <td className="px-4 py-2.5 font-medium text-ink-800">{p.period}</td>
-                    <td className="px-4 py-2.5 text-right font-mono text-ink-600">{p.versions}</td>
+                    <td className="px-4 py-2.5 text-right font-mono text-ink-600">
+                      {/* El conteo abre la bitácora de versiones del período, desde
+                          donde se entra y se descarga cada versión (no solo la oficial). */}
+                      {p.officialId ? (
+                        <Link
+                          href={`/balance/${p.officialId}?tab=versiones`}
+                          title={`Ver las ${p.versions} versión(es) de ${p.period}`}
+                          className="text-blue-500 hover:underline"
+                        >
+                          {p.versions}
+                        </Link>
+                      ) : (
+                        p.versions
+                      )}
+                    </td>
                     <td className="px-4 py-2.5">{p.official ? <Chip label={`${p.official} oficial`} tone="ok" /> : <span className="text-ink-400">—</span>}</td>
                     <td className="px-4 py-2.5"><Chip label={p.status} tone={statusTone(p.status)} /></td>
                     <td className="px-4 py-2.5">

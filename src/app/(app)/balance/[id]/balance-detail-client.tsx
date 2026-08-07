@@ -3,6 +3,7 @@
 import { EstadoProcesando } from "@/components/estado-procesando";
 
 import { useMemo, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
 import { Card, Chip } from "@/components/ui";
@@ -22,6 +23,7 @@ import type { NodoBalance } from "@/lib/balance/calcular";
 import { esSaldoContrarioAccionable, esSaldoContrarioInformativo, type UmbralesAlertas } from "@/lib/balance/umbrales-alertas";
 import { useSeleccionFilaTabla } from "@/app/(app)/balance/use-seleccion-fila-tabla";
 import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
+import type { Tab } from "./tabs";
 import PrevalidadorTab from "./prevalidador-tab";
 import type { PrevalidadorVM } from "@/lib/balance/prevalidador/calcular";
 import type { RevisionPrevalidadorVM } from "@/lib/balance/prevalidador/servidor";
@@ -43,9 +45,8 @@ export type Sums = { activo: number; pasivo: number; patrimonio: number; ingreso
 export type Validation = { id: string; rule: string; status: string; detail: string; count?: number };
 export type EstandarOpcion = { code: string; name: string };
 export type Meta = { rows: number; mapped: number; unmapped: number; critical: number; file: string; fileSize: string; frozenBy: string; frozenAt: string; uploadedBy: string; uploadedAt: string };
-export type Version = { v: string; date: string; uploadedBy: string; role: string; file: string; size: string; rows: number; sumA: number; balanced: boolean; note: string; /** Notas y aprobaciones transferidas desde el borrador. */ approvalNote: string; changes: number };
+export type Version = { /** id del encabezado: abre y exporta esa versión. */ id: number; v: string; /** ¿Es la versión OFICIAL del período? */ esOficial: boolean; date: string; uploadedBy: string; role: string; file: string; size: string; rows: number; sumA: number; balanced: boolean; note: string; /** Notas y aprobaciones transferidas desde el borrador. */ approvalNote: string; changes: number };
 
-type Tab = "breakdown" | "validations" | "versions" | "clases" | "prevalidador";
 // Filtro de ALERTAS (vive en el padre: el prevalidador bloqueado salta aquí).
 // `alertas` = las dos clases juntas; los otros dos aíslan un tipo.
 type Filtro = "todo" | "alertas" | "alertas_mapeo" | "alertas_naturaleza";
@@ -62,16 +63,18 @@ const NIVELES_FILTRO = [2, 4, 6, 8] as const;
 const NIVEL_LABEL: Record<number, string> = { 1: "Clase", 2: "Grupo", 4: "Cuenta", 6: "Subcuenta", 8: "Auxiliar" };
 
 export default function BalanceDetailClient({
-  arbol, estandar, puedeMapear, puedeRevisarPrevalidador, estaCongelado, validations, versions, officialVersion, warnCount, balanceId, comentarios, validaciones, puedeValidar, puedeEliminar, sums, balanced, diffCuadre, umbrales, prevalidador, revisionPrevalidador,
+  arbol, estandar, puedeMapear, puedeRevisarPrevalidador, estaCongelado, validations, versions, warnCount, balanceId, comentarios, validaciones, puedeValidar, puedeEliminar, sums, balanced, diffCuadre, umbrales, prevalidador, revisionPrevalidador, tabInicial = null,
 }: {
-  arbol: NodoBalance[]; estandar: EstandarOpcion[]; puedeMapear: boolean; puedeRevisarPrevalidador: boolean; estaCongelado: boolean; validations: Validation[]; versions: Version[]; officialVersion: string; warnCount: number; balanceId: number; comentarios: Record<string, number>; validaciones: Record<string, ValidacionInfo>; puedeValidar: boolean; puedeEliminar: boolean; sums: Sums; balanced: boolean; diffCuadre: number;
+  arbol: NodoBalance[]; estandar: EstandarOpcion[]; puedeMapear: boolean; puedeRevisarPrevalidador: boolean; estaCongelado: boolean; validations: Validation[]; versions: Version[]; warnCount: number; balanceId: number; comentarios: Record<string, number>; validaciones: Record<string, ValidacionInfo>; puedeValidar: boolean; puedeEliminar: boolean; sums: Sums; balanced: boolean; diffCuadre: number;
+  /** Pestaña con la que abre la pantalla (viene de `?tab=`). */
+  tabInicial?: Tab | null;
   /** Umbrales de alerta vigentes (parametrizables en /config/parametros). */
   umbrales: UmbralesAlertas;
   /** Informe del prevalidador de homologación (recalculado al leer). */
   prevalidador: PrevalidadorVM;
   revisionPrevalidador: RevisionPrevalidadorVM;
 }) {
-  const [tab, setTab] = useState<Tab>("breakdown");
+  const [tab, setTab] = useState<Tab>(tabInicial ?? "breakdown");
   const [filtro, setFiltro] = useState<Filtro>("todo");
   // Desde el prevalidador bloqueado se salta a las cuentas que faltan por homologar.
   const irAAlertas = () => { setFiltro("alertas"); setTab("breakdown"); };
@@ -86,7 +89,7 @@ export default function BalanceDetailClient({
       </div>
       {tab === "breakdown" && <BreakdownTab arbol={arbol} estandar={estandar} puedeMapear={puedeMapear} balanceId={balanceId} comentarios={comentarios} validaciones={validaciones} puedeValidar={puedeValidar} puedeEliminar={puedeEliminar} umbrales={umbrales} filtro={filtro} setFiltro={setFiltro} />}
       {tab === "validations" && <ValidationsTab validations={validations} />}
-      {tab === "versions" && <VersionsTab versions={versions} officialVersion={officialVersion} />}
+      {tab === "versions" && <VersionsTab versions={versions} balanceId={balanceId} />}
       {tab === "clases" && <ClasesTab sums={sums} balanced={balanced} diffCuadre={diffCuadre} />}
       {tab === "prevalidador" && (
         <PrevalidadorTab
@@ -777,7 +780,29 @@ function ValidationsTab({ validations }: { validations: Validation[] }) {
   );
 }
 
-function VersionsTab({ versions, officialVersion }: { versions: Version[]; officialVersion: string }) {
+/** Descarga de UNA versión concreta (misma ruta que el menú del encabezado, con
+ *  el id de esa versión). El prevalidador se omite aquí a propósito: puede estar
+ *  bloqueado y responder 409, y su sitio es la pantalla de la versión. */
+function DescargaVersion({ id, version }: { id: number; version: string }) {
+  const boton = (tipo: "homologado" | "comparativo", etiqueta: string, titulo: string) => (
+    <a
+      href={`/balance/${id}/export?tipo=${tipo}`}
+      title={`${titulo} · versión ${version}`}
+      aria-label={`${titulo} de la versión ${version}`}
+      className="inline-flex items-center gap-1 rounded border border-ink-200 px-1.5 py-1 text-[10.5px] font-semibold text-ink-600 transition hover:border-ok-300 hover:bg-ok-100/40 hover:text-ok-700"
+    >
+      <Icon name="download" size={11} /> {etiqueta}
+    </a>
+  );
+  return (
+    <div className="flex items-center justify-end gap-1">
+      {boton("homologado", "Homologado", "Balance homologado al plan estándar Russell")}
+      {boton("comparativo", "Comparativo", "Comparativo homologado vs cuentas del cliente")}
+    </div>
+  );
+}
+
+function VersionsTab({ versions, balanceId }: { versions: Version[]; balanceId: number }) {
   const { filaSeleccionada, onClickFila, onDoubleClickFila } = useSeleccionFilaTabla();
   return (
     <Card>
@@ -794,12 +819,27 @@ function VersionsTab({ versions, officialVersion }: { versions: Version[]; offic
               <th className="border-l border-ink-150 px-4 py-2 font-semibold">Cuadrado</th>
               <th className="whitespace-nowrap border-l border-ink-150 px-4 py-2 text-right font-semibold">Cambios</th>
               <th className="px-4 py-2 font-semibold">Nota</th>
+              <th className="border-l border-ink-150 px-4 py-2 text-right font-semibold">Descargar</th>
             </tr>
           </thead>
           <tbody onClick={onClickFila} onDoubleClick={onDoubleClickFila}>
             {versions.map((v, i) => (
               <tr key={v.v} data-selection-key={v.v} data-selected={filaSeleccionada === v.v ? "true" : undefined} className="border-b border-ink-100 last:border-0 align-top">
-                <td className="px-4 py-2.5">{v.v === officialVersion ? <Chip label={`${v.v} · oficial`} tone="ok" /> : <Chip label={v.v} tone="ink" />}</td>
+                <td className="px-4 py-2.5">
+                  {/* La versión que se está viendo no se enlaza a sí misma; las
+                      demás abren su propia pantalla (antes solo se llegaba a
+                      ellas escribiendo la URL a mano). */}
+                  {v.id === balanceId ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <Chip label={v.esOficial ? `${v.v} · oficial` : v.v} tone={v.esOficial ? "ok" : "ink"} />
+                      <span className="text-[10.5px] text-ink-400">esta</span>
+                    </span>
+                  ) : (
+                    <Link href={`/balance/${v.id}`} title={`Abrir la versión ${v.v}`} className="inline-flex">
+                      <Chip label={v.esOficial ? `${v.v} · oficial` : v.v} tone={v.esOficial ? "ok" : "blue"} />
+                    </Link>
+                  )}
+                </td>
                 <td className="whitespace-nowrap px-4 py-2.5 font-mono text-ink-500">{v.date}</td>
                 <td className="px-4 py-2.5"><div className="font-medium text-ink-800">{v.uploadedBy}</div><div className="text-[11px] text-ink-400">{v.role}</div></td>
                 <td className="px-4 py-2.5 text-ink-600">{v.file}<div className="text-[11px] text-ink-400">{v.size}</div></td>
@@ -819,6 +859,9 @@ function VersionsTab({ versions, officialVersion }: { versions: Version[]; offic
                       {v.approvalNote}
                     </div>
                   )}
+                </td>
+                <td className="whitespace-nowrap border-l border-ink-150 px-4 py-2.5 text-right">
+                  <DescargaVersion id={v.id} version={v.v} />
                 </td>
               </tr>
             ))}

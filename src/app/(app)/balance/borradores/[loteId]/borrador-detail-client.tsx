@@ -4,6 +4,7 @@ import { EstadoProcesando } from "@/components/estado-procesando";
 
 import { useActionState, useDeferredValue, useEffect, useMemo, useRef, useState, useTransition, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon, type IconName } from "@/components/icons";
 import { Card, Chip, PageHeader } from "@/components/ui";
@@ -450,8 +451,100 @@ async function cargarBorradorRecuperable(
   }
 }
 
+export type VersionHermanaBorrador = {
+  loteId: string;
+  version: number;
+  archivoNombre: string;
+  /** Fecha/hora del cargue ya formateada en el servidor. */
+  fecha: string;
+};
+
+/**
+ * Menú de VERSIONES en borrador del mismo (cliente, período). Vive en la barra
+ * del árbol junto a los demás controles: abre cada versión y descarga su Excel
+ * crudo sin salir de esta. Solo se monta cuando hay más de una.
+ */
+function MenuVersionesBorrador({
+  loteId,
+  hermanos,
+}: {
+  loteId: string;
+  hermanos: VersionHermanaBorrador[];
+}) {
+  const [abierto, setAbierto] = useState(false);
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setAbierto((v) => !v)}
+        aria-expanded={abierto}
+        title="Versiones en borrador de este cliente y período"
+        className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50"
+      >
+        <Icon name="log" size={12} />
+        Versiones
+        <span className="rounded-full bg-ink-100 px-1.5 text-[10px] font-semibold text-ink-600">
+          {hermanos.length}
+        </span>
+        <Icon name="chev-d" size={11} />
+      </button>
+      {abierto && (
+        <>
+          <div className="fixed inset-0 z-30" onClick={() => setAbierto(false)} />
+          <div className="absolute right-0 z-40 mt-1 w-[26rem] overflow-hidden rounded-md border border-ink-200 bg-white shadow-lg">
+            <div className="border-b border-ink-100 bg-ink-50 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-500">
+              Borradores de este cliente y período
+            </div>
+            <div className="max-h-72 overflow-y-auto">
+              {hermanos.map((h) => {
+                const esta = h.loteId === loteId;
+                return (
+                  <div
+                    key={h.loteId}
+                    className={`flex items-center gap-2 border-b border-ink-50 px-3 py-2 last:border-0 ${esta ? "bg-blue-50/60" : "hover:bg-ink-50"}`}
+                  >
+                    <span className="w-14 shrink-0">
+                      {esta ? (
+                        <Chip label={`v${h.version}`} tone="blue" />
+                      ) : (
+                        <Link
+                          href={`/balance/borradores/${h.loteId}`}
+                          className="text-[12px] font-semibold text-blue-500 hover:underline"
+                        >
+                          v{h.version}
+                        </Link>
+                      )}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[11.5px] text-ink-700" title={h.archivoNombre}>
+                        {h.archivoNombre}
+                      </span>
+                      <span className="block text-[10.5px] text-ink-400">
+                        {h.fecha}
+                        {esta && " · estás aquí"}
+                      </span>
+                    </span>
+                    <a
+                      href={`/balance/borradores/${h.loteId}/export`}
+                      title={`Descargar el borrador v${h.version} a Excel`}
+                      aria-label={`Descargar el borrador v${h.version} a Excel`}
+                      className="inline-flex shrink-0 items-center gap-1 rounded border border-ink-200 px-1.5 py-1 text-[10.5px] font-semibold text-ink-600 transition hover:border-ok-300 hover:bg-ok-100/40 hover:text-ok-700"
+                    >
+                      <Icon name="download" size={11} /> Excel
+                    </a>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function BorradorDetailClient({
-  loteId, archivoNombre, nitDetectado, periodoInicial, periodoFinal, filasCompactas, porTerceroDetectado, revisionesReubicacion = [], clientes, clienteSugeridoId, clientePersistido = false, spec, correccionesAplicadas, umbrales,
+  loteId, archivoNombre, nitDetectado, periodoInicial, periodoFinal, filasCompactas, porTerceroDetectado, revisionesReubicacion = [], clientes, clienteSugeridoId, clientePersistido = false, spec, correccionesAplicadas, umbrales, version = null, hermanos = [],
 }: {
   loteId: string;
   archivoNombre: string;
@@ -471,6 +564,10 @@ export default function BorradorDetailClient({
   correccionesAplicadas: number;
   /** Umbrales de alerta vigentes (parametrizables en /config/parametros). */
   umbrales: UmbralesAlertas;
+  /** Versión de este borrador dentro de su (cliente, período). null = no se agrupa. */
+  version?: number | null;
+  /** Las demás versiones del mismo (cliente, período), de la más nueva a la más vieja. */
+  hermanos?: VersionHermanaBorrador[];
 }) {
   const router = useRouter();
   // Una sola expansión por payload; el resto del componente trabaja con las filas
@@ -1092,7 +1189,7 @@ export default function BorradorDetailClient({
   return (
     <div className="flex flex-col gap-4">
       <PageHeader
-        title={`Borrador · ${archivoNombre}`}
+        title={`Borrador${version ? ` v${version}` : ""} · ${archivoNombre}`}
         subtitle="Estructura CRUDA extraída del Excel (sin homologación). Las agrupadoras cuyo total ≠ suma de sus cuentas aparecen subrayadas: ahí está el descuadre."
         actions={
           <div className="flex flex-wrap items-center justify-end gap-2">
@@ -1294,7 +1391,7 @@ export default function BorradorDetailClient({
             />
           </div>
         </div>
-        <ArbolTabla arbol={arbol} riesgosPorFila={riesgosPorFila} onReclasificar={onReclasificar} onGestionarAgrupadora={(filaNum) => setGestionarAgrupadora({ filaNum })} onDesacoplar={onDesacoplar} onOmitir={onOmitir} posiciones={posiciones} contexto={contexto} onUbicar={onUbicar} onDesindentar={onDesindentar} onVerDetalleReubicacion={abrirDetalleReubicacion} enfoqueReubicacion={enfoqueReubicacion} umbrales={umbrales} />
+        <ArbolTabla arbol={arbol} riesgosPorFila={riesgosPorFila} onReclasificar={onReclasificar} onGestionarAgrupadora={(filaNum) => setGestionarAgrupadora({ filaNum })} onDesacoplar={onDesacoplar} onOmitir={onOmitir} posiciones={posiciones} contexto={contexto} onUbicar={onUbicar} onDesindentar={onDesindentar} onVerDetalleReubicacion={abrirDetalleReubicacion} enfoqueReubicacion={enfoqueReubicacion} umbrales={umbrales} loteId={loteId} hermanos={hermanos} />
       </Card>
 
       {spec && (
@@ -2782,7 +2879,7 @@ function MenuAccionesCuenta({
   );
 }
 
-function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupadora, onDesacoplar, onOmitir, posiciones, contexto, onUbicar, onDesindentar, onVerDetalleReubicacion, enfoqueReubicacion, umbrales }: { arbol: NodoBorrador[]; riesgosPorFila: Map<number, ManipulacionRiesgosaBorrador>; onReclasificar: (cuenta: NodoBorrador) => void; onGestionarAgrupadora: (filaNum: number) => void; onDesacoplar: (filaNum: number, codigo: string, desacopladaAhora: boolean) => void; onOmitir: (filaNum: number, omitidaAhora: boolean) => void; posiciones: Map<number, Posicion>; contexto: Map<number, ContextoNodo>; onUbicar: (filaNum: number) => void; onDesindentar: (filaNum: number) => void; onVerDetalleReubicacion: (filaNum: number) => void; enfoqueReubicacion: EnfoqueCambioEstructural | null; umbrales: UmbralesAlertas }) {
+function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupadora, onDesacoplar, onOmitir, posiciones, contexto, onUbicar, onDesindentar, onVerDetalleReubicacion, enfoqueReubicacion, umbrales, loteId, hermanos = [] }: { arbol: NodoBorrador[]; riesgosPorFila: Map<number, ManipulacionRiesgosaBorrador>; onReclasificar: (cuenta: NodoBorrador) => void; onGestionarAgrupadora: (filaNum: number) => void; onDesacoplar: (filaNum: number, codigo: string, desacopladaAhora: boolean) => void; onOmitir: (filaNum: number, omitidaAhora: boolean) => void; posiciones: Map<number, Posicion>; contexto: Map<number, ContextoNodo>; onUbicar: (filaNum: number) => void; onDesindentar: (filaNum: number) => void; onVerDetalleReubicacion: (filaNum: number) => void; enfoqueReubicacion: EnfoqueCambioEstructural | null; umbrales: UmbralesAlertas; loteId: string; hermanos?: VersionHermanaBorrador[] }) {
   const { filaSeleccionada, setFilaSeleccionada, onClickFila, onDoubleClickFila } = useSeleccionFilaTabla();
   const tablaRef = useRef<HTMLDivElement>(null);
   const sentinelaRef = useRef<HTMLTableRowElement | null>(null); // sensor de scroll: al entrar en vista, revela el próximo bloque
@@ -3236,6 +3333,7 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
         {vistaBtn("todo", "Todo")}
         {vistaBtn("alertas", "Alertas", nAlertas)}
         <span className="mx-0.5 h-4 w-px bg-ink-200" />
+        {hermanos.length > 1 && <MenuVersionesBorrador loteId={loteId} hermanos={hermanos} />}
         <button type="button" onClick={expandirTodo} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50"><Icon name={chevronDivulgacion(hayContenidoExpandido)} size={12} />Expandir todo</button>
         <button type="button" onClick={contraerTodo} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50"><Icon name={chevronDivulgacion(hayContenidoExpandido)} size={12} />Contraer todo</button>
         <BotonPantallaCompleta activa={pantallaCompleta} onToggle={alternarPantallaCompleta} />

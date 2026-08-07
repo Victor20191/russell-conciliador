@@ -22,7 +22,8 @@ import {
 } from "@/lib/concurrency";
 import { createProcessNotification } from "@/lib/notifications";
 import { esErrorDisponibilidadIA, mensajeErrorBD, mensajeErrorIA } from "@/lib/errores";
-import { fmt, MESES_LARGOS } from "@/lib/format";
+import { fmt } from "@/lib/format";
+import { etiquetaPeriodo } from "@/lib/balance/periodo";
 import { fechaCalendarioPrisma } from "@/lib/fecha-hora";
 import { ConfirmarBalanceSchema, SpecCargaBalanceSchema, type ActionState, type PayloadCargaBalance } from "@/lib/definitions";
 import { nucleoNit } from "@/lib/nit";
@@ -203,19 +204,6 @@ async function destinoLoteSolicitud(loteId: string): Promise<DestinoLoteSolicitu
     return { tipo: "borrador", id: borrador.loteId, clienteId: borrador.clienteId };
   }
   return null;
-}
-
-/**
- * Etiqueta legible del período a partir del rango ISO `desde`/`hasta`. Si ambos
- * caen en el mismo mes → «Abril 2026»; si abarcan varios meses → «Enero 2026 –
- * Abril 2026». Es la clave de versionado por período (clienteId, periodo, version).
- */
-function etiquetaPeriodo(inicio: string, fin: string): string {
-  const a = /^(\d{4})-(\d{2})/.exec(inicio);
-  const b = /^(\d{4})-(\d{2})/.exec(fin);
-  if (!a || !b) return `${inicio} – ${fin}`;
-  const nombre = (mm: string, yyyy: string) => `${MESES_LARGOS[Number(mm) - 1] ?? mm} ${yyyy}`;
-  return a[1] === b[1] && a[2] === b[2] ? nombre(b[2], b[1]) : `${nombre(a[2], a[1])} – ${nombre(b[2], b[1])}`;
 }
 
 /** Tamaño de archivo legible (KB/MB) en es-CO. */
