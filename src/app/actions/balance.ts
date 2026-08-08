@@ -22,7 +22,8 @@ import {
 } from "@/lib/concurrency";
 import { createProcessNotification } from "@/lib/notifications";
 import { esErrorDisponibilidadIA, mensajeErrorBD, mensajeErrorIA } from "@/lib/errores";
-import { fmt, MESES_LARGOS } from "@/lib/format";
+import { fmt } from "@/lib/format";
+import { etiquetaPeriodo } from "@/lib/balance/periodo";
 import { fechaCalendarioPrisma } from "@/lib/fecha-hora";
 import { ConfirmarBalanceSchema, SpecCargaBalanceSchema, type ActionState, type PayloadCargaBalance } from "@/lib/definitions";
 import { nucleoNit } from "@/lib/nit";
@@ -71,7 +72,7 @@ import { iaBalanceDisponible, proveedorIABalance, type ProveedorIABalance } from
 import { proveedorIABalanceSesion } from "@/lib/ia/proveedor-balance-sesion";
 import { registrarConsumoIA, type UsoIA } from "@/lib/ia/uso";
 import { aplicarPreferenciasCarga } from "@/lib/balance/preferencias-carga";
-import { construirConfigMapeoCliente } from "@/lib/balance/mapeo-cliente-config";
+import { construirConfigMapeoCliente, esMapeoManual, nivelPorCodigo } from "@/lib/balance/mapeo-cliente-config";
 import {
   contextoAccesoBorradorActual,
   puedeVerBorrador,
@@ -203,19 +204,6 @@ async function destinoLoteSolicitud(loteId: string): Promise<DestinoLoteSolicitu
     return { tipo: "borrador", id: borrador.loteId, clienteId: borrador.clienteId };
   }
   return null;
-}
-
-/**
- * Etiqueta legible del período a partir del rango ISO `desde`/`hasta`. Si ambos
- * caen en el mismo mes → «Abril 2026»; si abarcan varios meses → «Enero 2026 –
- * Abril 2026». Es la clave de versionado por período (clienteId, periodo, version).
- */
-function etiquetaPeriodo(inicio: string, fin: string): string {
-  const a = /^(\d{4})-(\d{2})/.exec(inicio);
-  const b = /^(\d{4})-(\d{2})/.exec(fin);
-  if (!a || !b) return `${inicio} – ${fin}`;
-  const nombre = (mm: string, yyyy: string) => `${MESES_LARGOS[Number(mm) - 1] ?? mm} ${yyyy}`;
-  return a[1] === b[1] && a[2] === b[2] ? nombre(b[2], b[1]) : `${nombre(a[2], a[1])} – ${nombre(b[2], b[1])}`;
 }
 
 /** Tamaño de archivo legible (KB/MB) en es-CO. */
@@ -1179,6 +1167,10 @@ export async function freezeBalance(formData: FormData): Promise<ActionState> {
  * profundidad del plan), así que `cuenta_6_russell` siempre apunta a ese nivel.
  * Coincidencia = 100 (asignación manual). Recalcula los contadores de mapeo del
  * encabezado.
+ *
+ * La corrección SIEMPRE se memoriza en `cuentas_cliente` para que la próxima
+ * carga del cliente la respete; el alcance solo decide la granularidad (regla del
+ * grupo de 6 díg. o excepción de esa sola cuenta).
  */
 export async function asignarCuentaEstandar(formData: FormData): Promise<ActionState> {
   // Mapear una línea del balance al plan estándar lo hacen quienes trabajan el
@@ -1200,6 +1192,7 @@ export async function asignarCuentaEstandar(formData: FormData): Promise<ActionS
       where: { id: detalleId },
       select: {
         cuenta6: true,
+        cuenta8: true,
         nombreCuenta: true,
         encabezado: {
           select: {
@@ -1240,6 +1233,7 @@ export async function asignarCuentaEstandar(formData: FormData): Promise<ActionS
         where: { id: detalleId },
         select: {
           cuenta6: true,
+          cuenta8: true,
           nombreCuenta: true,
           encabezado: {
             select: {
@@ -1274,8 +1268,10 @@ export async function asignarCuentaEstandar(formData: FormData): Promise<ActionS
         detalleId,
         encabezadoId: encId,
         cuenta6: filaActual.cuenta6,
+        cuenta8: filaActual.cuenta8,
       });
-      const aplicarAlGrupo = planAlcance.memorizaPerfil;
+      const memoria = planAlcance.memoriaCliente;
+      const aplicarAlGrupo = memoria.propagaGrupo;
       // El usuario decide el alcance antes de homologar: una sola línea imputable
       // o el comportamiento histórico sobre todas las cuentas del mismo nivel 6.
       const afectadas = await tx.balancePruebaDetalle.updateMany({
@@ -1283,20 +1279,24 @@ export async function asignarCuentaEstandar(formData: FormData): Promise<ActionS
         data: { cuenta6Russell: std.code, coincidencia: 100 },
       });
 
+      // La memoria de `cuentas_cliente` se escribe en AMBOS alcances: un ajuste
+      // hecho a mano no se puede perder en la siguiente carga. Con alcance grupal
+      // es la regla del grupo de 6 díg (`manual`, se propaga a sus imputables);
+      // con alcance individual es una EXCEPCIÓN de esa cuenta (`manual_cuenta`),
+      // que no toca al resto del grupo.
+      const ahora = new Date();
+      await tx.clientAccount.upsert({
+        where: { clienteId_code: { clienteId: filaActual.encabezado.clienteId, code: memoria.codigo } },
+        create: { clientName: filaActual.encabezado.nombreCliente, clienteId: filaActual.encabezado.clienteId, nit: filaActual.encabezado.nit, code: memoria.codigo, level: nivelPorCodigo(memoria.codigo), name: aplicarAlGrupo ? memoria.codigo : filaActual.nombreCuenta || memoria.codigo, cuenta6Russell: std.code, coincidencia: 100, origenMapeo: memoria.origen, actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
+        update: { nit: filaActual.encabezado.nit, cuenta6Russell: std.code, coincidencia: 100, origenMapeo: memoria.origen, actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
+      });
       if (aplicarAlGrupo) {
-        // Sólo el alcance grupal actualiza la memoria de `cuentas_cliente`: esa
-        // memoria está definida por cuenta de 6 dígitos y se aplica entre períodos.
-        // Una excepción individual pertenece únicamente a este balance.
-        const ahora = new Date();
-        await tx.clientAccount.upsert({
-          where: { clienteId_code: { clienteId: filaActual.encabezado.clienteId, code: filaActual.cuenta6 } },
-          create: { clientName: filaActual.encabezado.nombreCliente, clienteId: filaActual.encabezado.clienteId, nit: filaActual.encabezado.nit, code: filaActual.cuenta6, level: 6, name: filaActual.cuenta6, cuenta6Russell: std.code, coincidencia: 100, origenMapeo: "manual", actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
-          update: { nit: filaActual.encabezado.nit, cuenta6Russell: std.code, coincidencia: 100, origenMapeo: "manual", actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
-        });
-        // Propaga el estándar a las cuentas IMPUTABLES del mismo grupo (display consistente).
+        // Propaga el estándar a las cuentas IMPUTABLES del mismo grupo (display
+        // consistente) y, de paso, deja sin efecto excepciones previas: una
+        // decisión explícita de grupo manda sobre los ajustes cuenta a cuenta.
         await tx.clientAccount.updateMany({
           where: { clienteId: filaActual.encabezado.clienteId, code: { startsWith: filaActual.cuenta6 }, NOT: { code: filaActual.cuenta6 } },
-          data: { cuenta6Russell: std.code, coincidencia: 100, origenMapeo: "manual", actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
+          data: { cuenta6Russell: std.code, coincidencia: 100, origenMapeo: memoria.origen, actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
         });
       }
 
@@ -1315,6 +1315,7 @@ export async function asignarCuentaEstandar(formData: FormData): Promise<ActionS
         encId,
         clienteId: filaActual.encabezado.clienteId,
         cuenta6: filaActual.cuenta6,
+        cuenta8: filaActual.cuenta8,
         nombreCuenta: filaActual.nombreCuenta,
         aplicarAlGrupo,
         afectadas: afectadas.count,
@@ -1323,15 +1324,16 @@ export async function asignarCuentaEstandar(formData: FormData): Promise<ActionS
     if (!resultado.ok) return resultado;
 
     const detalleAlcance = resultado.aplicarAlGrupo
-      ? `${resultado.cuenta6} (${resultado.afectadas} cuenta(s) del grupo)`
-      : `${resultado.cuenta6} (solo ${resultado.nombreCuenta})`;
-    await logAudit({ user: user?.name ?? "Sistema", action: "ASIGNÓ CUENTA ESTÁNDAR", entity: resultado.cuenta6, detail: `${detalleAlcance} → ${std.code}`, clientId: resultado.clienteId });
+      ? `${resultado.cuenta6} (${resultado.afectadas} cuenta(s) del grupo) → ${std.code} · memoria del grupo`
+      : `${resultado.cuenta6} (solo ${resultado.nombreCuenta}) → ${std.code} · memoria de la cuenta ${resultado.cuenta8}`;
+    await logAudit({ user: user?.name ?? "Sistema", action: "ASIGNÓ CUENTA ESTÁNDAR", entity: resultado.cuenta6, detail: detalleAlcance, clientId: resultado.clienteId });
     revalidatePath(`/balance/${resultado.encId}`);
+    revalidatePath("/config/mapeo");
     return {
       ok: true,
       message: resultado.aplicarAlGrupo
-        ? `${resultado.afectadas} cuenta(s) ${resultado.cuenta6}* homologada(s) a ${std.code}.`
-        : `${resultado.nombreCuenta} homologada a ${std.code} sin modificar las demás cuentas del grupo.`,
+        ? `${resultado.afectadas} cuenta(s) ${resultado.cuenta6}* homologada(s) a ${std.code}. Se recordará para el grupo en las próximas cargas.`
+        : `${resultado.nombreCuenta} homologada a ${std.code} sin modificar las demás cuentas del grupo. Se recordará para la cuenta ${resultado.cuenta8} en las próximas cargas.`,
     };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("asignarCuentaEstandar", e) };
@@ -1396,7 +1398,7 @@ async function persistirCargue(p: {
   // dando prioridad a las filas `manual`. `manualCodes` son los códigos exactos
   // marcados a mano (no se recalculan).
   const configCliente = construirConfigMapeoCliente(configRows);
-  const manualCodes = new Set(configRows.filter((r) => r.origenMapeo === "manual").map((r) => r.code));
+  const manualCodes = new Set(configRows.filter((r) => esMapeoManual(r.origenMapeo)).map((r) => r.code));
   const pucExistente = new Map(pucRows.map((r) => [r.code, r]));
 
   // Barrido 0 (config guardada) + 1 (exacto) + 2 (descripción), deterministas.
@@ -1443,7 +1445,6 @@ async function persistirCargue(p: {
   let filasPucAEscribir: FilaPucAutomatica[] = [];
   const actualizadoEnPuc = new Date();
   {
-    const nivelPorCodigo = (code: string) => (code.length >= 8 ? 8 : code.length === 6 ? 6 : code.length === 4 ? 4 : 2);
     const configCalculada = construirConfigMapeoCliente(
       filasDet.map((f, id) => ({
         id,
@@ -1454,9 +1455,13 @@ async function persistirCargue(p: {
       })),
     );
     // Una sola decisión canónica por grupo: la memoria existente gana; en grupos
-    // nuevos se elige de forma determinista entre los resultados del cálculo.
+    // nuevos se elige de forma determinista entre los resultados del cálculo. Las
+    // excepciones por cuenta de `configCliente` (claves de más de 6 díg) NO entran
+    // aquí: son de una sola cuenta y su fila ya está protegida por `manualCodes`.
     const mapeoGrupo = new Map(configCalculada);
-    for (const [cuenta6, config] of configCliente) mapeoGrupo.set(cuenta6, config);
+    for (const [clave, config] of configCliente) {
+      if (clave.length === 6) mapeoGrupo.set(clave, config);
+    }
 
     // Una fila por código: imputables con su nombre real y grupos de seis con el
     // rótulo REAL del PUC si ya existe; nunca el nombre del estándar Russell.

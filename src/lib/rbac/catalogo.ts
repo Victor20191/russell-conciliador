@@ -210,6 +210,11 @@ export const PERMISOS: Permiso[] = [
   { code: "novedades:ver", module: "novedades", action: "ver", label: "Ver novedades", roles: SOLO_ADMIN },
   { code: "novedades:administrar", module: "novedades", action: "administrar", label: "Administrar novedades", roles: SOLO_ADMIN },
 
+  // ===== Mesa de ayuda — Administrador y Superadministrador =====
+  // El alta y el seguimiento del reportante son publicos; solo el personal
+  // administrativo autenticado consulta todos los tickets y registra la solucion.
+  { code: "soporte:administrar", module: "soporte", action: "administrar", label: "Administrar tickets de soporte", roles: SOLO_ADMIN },
+
   // ===== Prompts de IA — SOLO Superadministrador =====
   // Ver y editar los prompts de sistema que la plataforma envía a la IA
   // (extracción de balances, mapeo de cuentas). Es configuración global de la

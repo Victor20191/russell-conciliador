@@ -52,6 +52,10 @@ const nextConfig: NextConfig = {
   // Los balances (Excel/CSV por tercero), PDFs y fotos se suben por Server
   // Action; el límite por defecto (1 MB) rechaza estos archivos.
   experimental: {
+    // Next 16 clona el cuerpo al pasar por `proxy.ts` y, por defecto, solo
+    // conserva 10 MB. Debe acompañar el límite de Server Actions para que los
+    // Excel grandes no lleguen truncados al lector.
+    proxyClientMaxBodySize: "64mb",
     serverActions: {
       // La acción de fotos conserva su propio límite estricto de 60 MB. Este
       // margen cubre además el envoltorio multipart de la petición.

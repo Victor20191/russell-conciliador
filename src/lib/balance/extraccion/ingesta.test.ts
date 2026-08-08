@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import * as XLSX from "xlsx";
-import { construirVistaPrevia, detectarDelimitador, detectarFormato, ingerir, type GridHoja } from "./ingesta";
+import JSZip from "jszip";
+import { construirVistaPrevia, detectarDelimitador, detectarFormato, extraerCeldasNegritaBiffXls, ingerir, type GridHoja } from "./ingesta";
 
 function buf(texto: string, encoding: BufferEncoding = "utf-8"): ArrayBuffer {
   const b = Buffer.from(texto, encoding);
@@ -15,6 +16,71 @@ function libroXls(hojas: Record<string, (string | number)[][]>): ArrayBuffer {
   return XLSX.write(wb, { type: "array", bookType: "biff8" }) as ArrayBuffer;
 }
 
+async function libroXlsxConMetadataTolerada(): Promise<ArrayBuffer> {
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ["Tipo", "Referencia", "Valor total"],
+    ["Mercancía", "A-1", 1234.5],
+  ]), "Inventario");
+  const base = XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer;
+  const zip = await JSZip.loadAsync(base);
+  const ruta = "xl/worksheets/sheet1.xml";
+  const hoja = await zip.file(ruta)?.async("string");
+  if (!hoja) throw new Error("Hoja OOXML no encontrada");
+  // Algunos ERP omiten el número de una fila. Excel/SheetJS lo reparan, pero
+  // ExcelJS rechaza la metadata con «Invalid row number in model».
+  zip.file(ruta, hoja.replace('r="1"', 'r=""'));
+  const reparable = await zip.generateAsync({ type: "uint8array" });
+  return reparable.buffer.slice(
+    reparable.byteOffset,
+    reparable.byteOffset + reparable.byteLength,
+  ) as ArrayBuffer;
+}
+
+function fuentePredeterminadaNegritaXls(data: ArrayBuffer): ArrayBuffer {
+  const cfb = XLSX.CFB.read(new Uint8Array(data), { type: "array" });
+  const entrada = XLSX.CFB.find(cfb, "/Workbook") ?? XLSX.CFB.find(cfb, "/Book");
+  const bytes = entrada?.content as Uint8Array | undefined;
+  if (!bytes) throw new Error("Stream BIFF no encontrado");
+  let encontrada = false;
+  for (let offset = 0; offset + 4 <= bytes.length;) {
+    const tipo = bytes[offset] | (bytes[offset + 1] << 8);
+    const largo = bytes[offset + 2] | (bytes[offset + 3] << 8);
+    const inicio = offset + 4;
+    if (inicio + largo > bytes.length) break;
+    if (tipo === 0x0031 && largo >= 8) {
+      // `bls` de la fuente: 700 = negrita. No cambia el tamaño del CFB.
+      bytes[inicio + 6] = 0xbc;
+      bytes[inicio + 7] = 0x02;
+      encontrada = true;
+      break;
+    }
+    offset = inicio + largo;
+  }
+  if (!encontrada) throw new Error("Registro Font BIFF no encontrado");
+  return XLSX.CFB.write(cfb, { type: "array" }) as ArrayBuffer;
+}
+
+function registroBiff(tipo: number, datos: Uint8Array): Uint8Array {
+  const out = new Uint8Array(4 + datos.length);
+  out[0] = tipo & 0xff;
+  out[1] = tipo >>> 8;
+  out[2] = datos.length & 0xff;
+  out[3] = datos.length >>> 8;
+  out.set(datos, 4);
+  return out;
+}
+
+function concatenar(...partes: Uint8Array[]): Uint8Array {
+  const out = new Uint8Array(partes.reduce((total, parte) => total + parte.length, 0));
+  let offset = 0;
+  for (const parte of partes) {
+    out.set(parte, offset);
+    offset += parte.length;
+  }
+  return out;
+}
+
 describe("detectarFormato", () => {
   it("distingue txt de csv por extensión", () => {
     expect(detectarFormato("balanza.txt", buf("a\tb"))).toBe("txt");
@@ -26,6 +92,21 @@ describe("detectarFormato", () => {
     const data = libroXls({ Balance: [["Código", "Cuenta"], ["110505", "Caja"]] });
     expect(detectarFormato("balanza.XLS", data)).toBe("xls");
     expect(detectarFormato("balanza_sin_extension", data)).toBe("xls");
+  });
+});
+
+describe("ingerir Excel moderno (.xlsx)", () => {
+  it("usa el lector alterno cuando la metadata del ERP es reparable", async () => {
+    const ingesta = await ingerir(await libroXlsxConMetadataTolerada(), "inventario.xlsx");
+    expect(ingesta.modo).toBe("tabular");
+    if (ingesta.modo !== "tabular") return;
+    expect(ingesta.hojas[0]).toMatchObject({
+      nombre: "Inventario",
+      filas: [
+        ["Tipo", "Referencia", "Valor total"],
+        ["Mercancía", "A-1", 1234.5],
+      ],
+    });
   });
 });
 
@@ -48,6 +129,65 @@ describe("ingerir Excel 97-2003 (.xls)", () => {
       ["Código", "Cuenta", "Saldo"],
       ["00110505", "Caja", 1234.56],
     ]);
+  });
+
+  it("conserva la negrita BIFF del .xls y la alinea después de quitar filas vacías", async () => {
+    const data = fuentePredeterminadaNegritaXls(libroXls({
+      Balance: [
+        ["Código", "Cuenta"],
+        ["", ""],
+        ["11050501", "CUENTA CONSOLIDADA"],
+        ["900123456", "TERCERO"],
+      ],
+    }));
+
+    const ingesta = await ingerir(data, "balance.xls");
+    expect(ingesta.modo).toBe("tabular");
+    if (ingesta.modo !== "tabular") return;
+    expect(ingesta.hojas[0].filas).toHaveLength(3);
+    expect(ingesta.hojas[0].negrita).toEqual([
+      [true, true],
+      [true, true],
+      [true, true],
+    ]);
+  });
+
+  it("respeta el índice de fuente 4 reservado por BIFF", () => {
+    const font = (peso: number) => {
+      const datos = new Uint8Array(16);
+      datos[6] = peso & 0xff;
+      datos[7] = peso >>> 8;
+      return registroBiff(0x0031, datos);
+    };
+    const xf = (fuente: number) => {
+      const datos = new Uint8Array(20);
+      datos[0] = fuente & 0xff;
+      datos[1] = fuente >>> 8;
+      return registroBiff(0x00e0, datos);
+    };
+    const bofHoja = new Uint8Array([0x00, 0x06, 0x10, 0x00]);
+    const celda = (fila: number, columna: number, indiceXf: number) => {
+      const datos = new Uint8Array(14);
+      datos[0] = fila & 0xff;
+      datos[1] = fila >>> 8;
+      datos[2] = columna & 0xff;
+      datos[3] = columna >>> 8;
+      datos[4] = indiceXf & 0xff;
+      datos[5] = indiceXf >>> 8;
+      return registroBiff(0x0203, datos);
+    };
+    const workbook = concatenar(
+      font(400), font(400), font(400), font(400), font(700), // última = índice 5
+      xf(0), xf(5),
+      registroBiff(0x0809, bofHoja),
+      celda(0, 0, 0),
+      celda(1, 0, 1),
+      registroBiff(0x000a, new Uint8Array()),
+    );
+
+    const negrita = extraerCeldasNegritaBiffXls(workbook);
+    expect(negrita[0]?.get(0)?.has(0) ?? false).toBe(false);
+    expect(negrita[0]?.get(1)?.has(0)).toBe(true);
   });
 
   it("rechaza un .xls ilegible con un mensaje claro", async () => {

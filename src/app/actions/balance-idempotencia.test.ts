@@ -422,7 +422,10 @@ vi.mock("@/lib/ia/proveedor-balance-sesion", () => ({
 }));
 vi.mock("@/lib/ia/uso", () => ({ registrarConsumoIA: mocks.registrarConsumoIA }));
 vi.mock("@/lib/balance/mapeo-ia", () => ({ mapearPorIA: vi.fn(async () => new Map()) }));
-vi.mock("@/lib/balance/mapeo-cliente-config", () => ({
+// Módulo puro: solo se fuerza una memoria de mapeo vacía; el resto de helpers
+// (origen del mapeo, nivel por código) se usan tal cual.
+vi.mock("@/lib/balance/mapeo-cliente-config", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/balance/mapeo-cliente-config")>()),
   construirConfigMapeoCliente: vi.fn(() => new Map()),
 }));
 vi.mock("@/lib/balance/borrador-vm", () => ({

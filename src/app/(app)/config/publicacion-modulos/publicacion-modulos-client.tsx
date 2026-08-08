@@ -5,8 +5,10 @@ import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { guardarPublicacionModulos, type CambioPublicacionModulo } from "@/app/actions/module-publication";
 import { Card, Chip, PageHeader, StatCard } from "@/components/ui";
+import { DescartarCambiosBoton } from "@/components/descartar-cambios-boton";
 import { Icon, type IconName } from "@/components/icons";
-import { notifyError, notifySuccess } from "@/lib/client-notifications";
+import { notifyError, notifyInfo, notifySuccess } from "@/lib/client-notifications";
+import { useHistorialCambios } from "@/lib/ui/use-historial-cambios";
 import type { PlatformModuleState } from "@/lib/rbac/modulos-plataforma";
 
 type Message = { tone: "ok" | "err"; text: string } | null;
@@ -31,6 +33,8 @@ export default function PublicacionModulosClient({
   const [pending, setPending] = useState<Record<string, boolean>>({});
   const [saving, startSaving] = useTransition();
   const [msg, setMsg] = useState<Message>(null);
+  // Pila de deshacer: al descartar se pregunta si es el último cambio o todos.
+  const historial = useHistorialCambios<Record<string, boolean>>();
 
   const value = (key: string) => pending[key] ?? base[key] ?? true;
   const dirtyKeys = Object.keys(pending).filter((key) => pending[key] !== base[key]);
@@ -49,8 +53,9 @@ export default function PublicacionModulosClient({
     return [...grouped.entries()];
   }, [modules]);
 
-  function setModule(key: string, enabled: boolean) {
+  function setModule(key: string, enabled: boolean, label: string) {
     setMsg(null);
+    historial.registrar(pending, `${label} → ${enabled ? "Publicado" : "En desarrollo"}`);
     setPending((prev) => {
       const next = { ...prev };
       if (enabled === base[key]) delete next[key];
@@ -59,9 +64,18 @@ export default function PublicacionModulosClient({
     });
   }
 
-  function descartar() {
+  function descartarTodo() {
     setPending({});
     setMsg(null);
+    historial.limpiar();
+  }
+
+  function descartarUltimo() {
+    const entrada = historial.deshacerUltimo();
+    if (!entrada) return;
+    setPending(entrada.estado);
+    setMsg(null);
+    notifyInfo("Último cambio deshecho", entrada.descripcion);
   }
 
   function guardar() {
@@ -80,6 +94,7 @@ export default function PublicacionModulosClient({
           return next;
         });
         setPending({});
+        historial.limpiar();
         const text = `Publicación actualizada (${res.guardados ?? cambios.length}).`;
         setMsg({ tone: "ok", text });
         notifySuccess(text);
@@ -104,14 +119,15 @@ export default function PublicacionModulosClient({
             >
               <Icon name="settings" size={14} /> Permisos por rol
             </Link>
-            <button
-              type="button"
-              onClick={descartar}
+            <DescartarCambiosBoton
+              totalCambios={dirtyKeys.length}
+              descripcionUltimo={historial.ultimo?.descripcion ?? null}
+              puedeDeshacerUltimo={historial.puedeDeshacer}
+              onDescartarUltimo={descartarUltimo}
+              onDescartarTodo={descartarTodo}
               disabled={!dirty || saving}
               className="rounded-md border border-ink-200 bg-white px-3 py-2 text-[13px] font-medium text-ink-700 hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Descartar cambios
-            </button>
+            />
             <button
               type="button"
               onClick={guardar}
@@ -160,7 +176,7 @@ export default function PublicacionModulosClient({
                   module={module}
                   enabled={value(module.key)}
                   dirty={pending[module.key] !== undefined}
-                  onChange={(enabled) => setModule(module.key, enabled)}
+                  onChange={(enabled) => setModule(module.key, enabled, module.label)}
                 />
               ))}
             </div>

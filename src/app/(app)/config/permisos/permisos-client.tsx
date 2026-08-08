@@ -5,11 +5,13 @@ import { EstadoProcesando } from "@/components/estado-procesando";
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { Card, PageHeader } from "@/components/ui";
+import { DescartarCambiosBoton } from "@/components/descartar-cambios-boton";
 import { Icon } from "@/components/icons";
 import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
+import { useHistorialCambios } from "@/lib/ui/use-historial-cambios";
 import { guardarNiveles, type CambioNivel } from "@/app/actions/permisos";
 import { NIVEL_META, type Nivel, type NivelTone } from "@/lib/rbac/niveles";
-import { notifyError, notifySuccess } from "@/lib/client-notifications";
+import { notifyError, notifyInfo, notifySuccess } from "@/lib/client-notifications";
 
 export type RoleCol = { id: number; code: string; name: string };
 export type ModuloRow = {
@@ -59,6 +61,15 @@ export default function PermisosClient({
   const [expandido, setExpandido] = useState<Set<string>>(() => new Set());
   const [saving, startSaving] = useTransition();
   const [msg, setMsg] = useState<{ tone: "ok" | "err"; text: string } | null>(null);
+  // Pila de deshacer: al descartar se pregunta si es el último cambio o todos.
+  const historial = useHistorialCambios<Record<string, Nivel>>();
+
+  // Etiquetas legibles para describir el último cambio en la confirmación.
+  const etiquetaModulo = useMemo(() => {
+    const mapa = new Map<string, string>();
+    for (const g of grupos) for (const f of g.filas) mapa.set(f.module, f.label);
+    return mapa;
+  }, [grupos]);
 
   const valor = (roleId: number, module: string): Nivel => {
     const k = key(roleId, module);
@@ -81,6 +92,11 @@ export default function PermisosClient({
   function setCelda(roleId: number, module: string, nivel: Nivel) {
     setMsg(null);
     const k = key(roleId, module);
+    const rol = roles.find((r) => r.id === roleId)?.name ?? `Rol ${roleId}`;
+    historial.registrar(
+      pending,
+      `${rol} · ${etiquetaModulo.get(module) ?? module} → ${NIVEL_META[nivel].label}`,
+    );
     setPending((prev) => {
       const next = { ...prev };
       if (nivel === (base[k] ?? "ninguno")) delete next[k];
@@ -98,9 +114,18 @@ export default function PermisosClient({
     });
   }
 
-  function descartar() {
+  function descartarTodo() {
     setPending({});
     setMsg(null);
+    historial.limpiar();
+  }
+
+  function descartarUltimo() {
+    const entrada = historial.deshacerUltimo();
+    if (!entrada) return;
+    setPending(entrada.estado);
+    setMsg(null);
+    notifyInfo("Último cambio deshecho", entrada.descripcion);
   }
 
   function guardar() {
@@ -120,6 +145,7 @@ export default function PermisosClient({
           return next;
         });
         setPending({});
+        historial.limpiar();
         const text = `Cambios guardados (${res.guardados ?? cambios.length} celdas).`;
         setMsg({ tone: "ok", text });
         notifySuccess(text);
@@ -176,13 +202,15 @@ export default function PermisosClient({
             >
               <Icon name="download" size={14} /> Exportar
             </button>
-            <button
-              onClick={descartar}
+            <DescartarCambiosBoton
+              totalCambios={sucios.length}
+              descripcionUltimo={historial.ultimo?.descripcion ?? null}
+              puedeDeshacerUltimo={historial.puedeDeshacer}
+              onDescartarUltimo={descartarUltimo}
+              onDescartarTodo={descartarTodo}
               disabled={!dirty || saving}
               className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-white px-3 py-2 text-[13px] font-medium text-ink-700 hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Descartar cambios
-            </button>
+            />
             <button
               onClick={guardar}
               disabled={!dirty || saving}

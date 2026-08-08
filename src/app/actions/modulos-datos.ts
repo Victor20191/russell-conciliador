@@ -11,21 +11,32 @@ import { Prisma } from "@/generated/prisma/client";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
 import { authorizePermiso } from "@/lib/rbac";
-import { mensajeErrorBD } from "@/lib/errores";
+import { mensajeErrorBD, registrarError } from "@/lib/errores";
 import type { ActionState } from "@/lib/definitions";
 import { ingerir, type CeldaCruda } from "@/lib/balance/extraccion/ingesta";
 import { calcularHuella, huellasCandidatas } from "@/lib/balance/extraccion/huella";
 import { descriptorModulo } from "@/lib/modulos/descriptores";
+import { cuenta4DelModulo, prefijosCuentaModulo } from "@/lib/modulos/cuentas-modulo";
 import { SpecModuloSchema, type SpecModulo } from "@/lib/modulos/extraccion/esquema";
 import { sugerirSpec } from "@/lib/modulos/extraccion/sugerir";
 import { transformarModulo } from "@/lib/modulos/extraccion/transformar";
 import { promoverStaging, type FilaStagingModulo } from "@/lib/modulos/promocion";
+import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
 
 const rutaModulo = (codigo: string) => `/modulos/${codigo.toLowerCase()}`;
+const LOTE_STAGING_MODULO = 2_000;
+const TIMEOUT_TRANSACCION_MODULO_MS = 15 * 60 * 1000;
 const fechaISO = (v: FormDataEntryValue | null): Date | null => {
   const s = typeof v === "string" ? v.trim() : "";
   return /^\d{4}-\d{2}-\d{2}$/.test(s) ? new Date(`${s}T00:00:00`) : null;
 };
+
+function mensajeErrorLecturaArchivoModulo(contexto: string, e: unknown): string {
+  registrarError(contexto, e);
+  const mensaje = e instanceof Error ? e.message.trim() : "";
+  if (/^(No se pudo leer|El formato|Formato de archivo)/i.test(mensaje)) return mensaje;
+  return "No se pudo leer el archivo. Si es un Excel, ábrelo, guárdalo nuevamente como .xlsx e intenta otra vez.";
+}
 
 // Datos para el editor de mapeo: encabezado + filas de muestra (alineadas por columna)
 // de la MISMA grilla del servidor, para etiquetar los selectores y previsualizar el mapeo.
@@ -62,7 +73,12 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
   if (!(archivo instanceof File) || archivo.size === 0) return { ok: false, message: "Adjunta el archivo del módulo." };
 
   try {
-    const ingesta = await ingerir(await archivo.arrayBuffer(), archivo.name);
+    let ingesta: Awaited<ReturnType<typeof ingerir>>;
+    try {
+      ingesta = await ingerir(await archivo.arrayBuffer(), archivo.name);
+    } catch (e) {
+      return { ok: false, message: mensajeErrorLecturaArchivoModulo("analizarArchivoModulo.ingerir", e) };
+    }
     if (ingesta.modo !== "tabular") return { ok: false, message: "Por ahora solo se admiten archivos tabulares (Excel/CSV)." };
     const hojaElegida = String(formData.get("hoja") ?? "").trim();
     const hoja = ingesta.hojas.find((h) => h.nombre === hojaElegida) ?? ingesta.hojas[0];
@@ -112,7 +128,12 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
     const cliente = await prisma.client.findUnique({ where: { id: clienteId }, select: { name: true } });
     if (!cliente) return { ok: false, message: "El cliente seleccionado ya no existe." };
 
-    const ingesta = await ingerir(await archivo.arrayBuffer(), archivo.name);
+    let ingesta: Awaited<ReturnType<typeof ingerir>>;
+    try {
+      ingesta = await ingerir(await archivo.arrayBuffer(), archivo.name);
+    } catch (e) {
+      return { ok: false, message: mensajeErrorLecturaArchivoModulo("leerDatosModulo.ingerir", e) };
+    }
     if (ingesta.modo !== "tabular") return { ok: false, message: "Por ahora solo se admiten archivos tabulares (Excel/CSV) para módulos." };
     const hojaElegida = String(formData.get("hoja") ?? "").trim();
     const hoja = ingesta.hojas.find((h) => h.nombre === hojaElegida) ?? ingesta.hojas[0];
@@ -145,10 +166,9 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
     const user = await getCurrentUser();
 
     await prisma.$transaction(async (tx) => {
-      const LOTE = 1000;
-      for (let i = 0; i < resultado.filas.length; i += LOTE) {
+      for (let i = 0; i < resultado.filas.length; i += LOTE_STAGING_MODULO) {
         await tx.moduloImportacionStaging.createMany({
-          data: resultado.filas.slice(i, i + LOTE).map((f) => ({
+          data: resultado.filas.slice(i, i + LOTE_STAGING_MODULO).map((f) => ({
             loteId, moduloCodigo, clienteId, hoja: hoja.nombre, filaNum: f.filaNum,
             clasificador: f.clasificador, valor: f.valor, datos: f.datos, tipoFila: f.tipoFila,
           })),
@@ -171,6 +191,9 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
           update: { specJson: spec, vecesUsado: { increment: 1 }, ultimoUsoEn: new Date(), archivoEjemplo: archivo.name, ...(origen === "manual" ? { origen: "manual" } : {}) },
         });
       }
+    }, {
+      maxWait: 5_000,
+      timeout: TIMEOUT_TRANSACCION_MODULO_MS,
     });
 
     await logAudit({ user: user?.name ?? "Sistema", action: `LEYÓ archivo de ${descriptor.label}`, entity: cliente.name, detail: `${resultado.filas.length} filas · ${archivo.name}` });
@@ -323,15 +346,34 @@ export async function descartarBorradorModulo(loteId: string): Promise<ActionSta
 // ============================================================
 // CONSOLIDACIÓN por cliente: clasificador → cuenta de 4 díg (upsert / borrar).
 // ============================================================
+function normalizarCuenta4(v: string): string {
+  return String(v ?? "").replace(/\D/g, "").slice(0, 4);
+}
+
+async function validarCuenta4Modulo(moduloCodigo: string, cuenta4: string): Promise<ActionState | null> {
+  if (cuenta4.length !== 4) return { ok: false, message: "La cuenta debe ser de 4 dígitos." };
+  // Solo cuentas Russell del módulo (p. ej. INV → prefijo 14 del prevalidador).
+  const prefijos = prefijosCuentaModulo(moduloCodigo, await getCatalogoPrevalidador());
+  if (!cuenta4DelModulo(cuenta4, prefijos)) {
+    const listado = prefijos.length ? prefijos.join(", ") : "—";
+    return {
+      ok: false,
+      message: `La cuenta ${cuenta4} no pertenece al módulo ${moduloCodigo}. Usa una cuenta de estos prefijos: ${listado}.`,
+    };
+  }
+  return null;
+}
+
 export async function guardarConsolidacionModulo(input: { clienteId: number; moduloCodigo: string; clasificador: string; cuenta4: string }): Promise<ActionState> {
   const moduloCodigo = String(input.moduloCodigo ?? "").trim().toUpperCase();
   if (!descriptorModulo(moduloCodigo)) return { ok: false, message: "Módulo no soportado." };
   const authz = await authorizePermiso("modulos_datos:editar", { clientId: input.clienteId });
   if (!authz.ok) return { ok: false, message: authz.message };
   const clasificador = String(input.clasificador ?? "").trim();
-  const cuenta4 = String(input.cuenta4 ?? "").replace(/\D/g, "").slice(0, 4);
+  const cuenta4 = normalizarCuenta4(input.cuenta4);
   if (!clasificador) return { ok: false, message: "Indica el clasificador." };
-  if (cuenta4.length !== 4) return { ok: false, message: "La cuenta debe ser de 4 dígitos." };
+  const invalida = await validarCuenta4Modulo(moduloCodigo, cuenta4);
+  if (invalida) return invalida;
   try {
     const user = await getCurrentUser();
     await prisma.consolidacionModuloCliente.upsert({
@@ -339,9 +381,84 @@ export async function guardarConsolidacionModulo(input: { clienteId: number; mod
       create: { clienteId: input.clienteId, moduloCodigo, clasificador, cuenta4, actualizadoPor: user?.name ?? null },
       update: { cuenta4, actualizadoPor: user?.name ?? null },
     });
-    revalidatePath("/config/modulos-datos");
+    revalidatePath(rutaModulo(moduloCodigo));
     return { ok: true, message: "Consolidación guardada." };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("guardarConsolidacionModulo", e) };
+  }
+}
+
+/** Guarda de una vez todos los mapeos clasificador → cuenta4 del consolidado. */
+export async function guardarConsolidacionModuloLote(input: {
+  clienteId: number;
+  moduloCodigo: string;
+  filas: { clasificador: string; cuenta4: string }[];
+}): Promise<ActionState> {
+  const moduloCodigo = String(input.moduloCodigo ?? "").trim().toUpperCase();
+  if (!descriptorModulo(moduloCodigo)) return { ok: false, message: "Módulo no soportado." };
+  const authz = await authorizePermiso("modulos_datos:editar", { clientId: input.clienteId });
+  if (!authz.ok) return { ok: false, message: authz.message };
+
+  const filas = (input.filas ?? [])
+    .map((f) => ({
+      clasificador: String(f.clasificador ?? "").trim(),
+      cuenta4: normalizarCuenta4(f.cuenta4),
+    }))
+    .filter((f) => f.clasificador);
+
+  if (filas.length === 0) return { ok: false, message: "No hay cambios para guardar." };
+
+  const sinCuenta = filas.filter((f) => f.cuenta4.length !== 4);
+  if (sinCuenta.length > 0) {
+    return {
+      ok: false,
+      message: `${sinCuenta.length} fila(s) sin cuenta de 4 dígitos. Complétalas antes de guardar todo.`,
+    };
+  }
+
+  try {
+    const prefijos = prefijosCuentaModulo(moduloCodigo, await getCatalogoPrevalidador());
+    const fueraDeModulo = filas.filter((f) => !cuenta4DelModulo(f.cuenta4, prefijos));
+    if (fueraDeModulo.length > 0) {
+      const ejemplo = fueraDeModulo[0]!;
+      const listado = prefijos.length ? prefijos.join(", ") : "—";
+      return {
+        ok: false,
+        message: `La cuenta ${ejemplo.cuenta4} («${ejemplo.clasificador}») no pertenece al módulo ${moduloCodigo}. Prefijos válidos: ${listado}.`,
+      };
+    }
+
+    const user = await getCurrentUser();
+    const actor = user?.name ?? null;
+    await prisma.$transaction(
+      filas.map((f) =>
+        prisma.consolidacionModuloCliente.upsert({
+          where: {
+            clienteId_moduloCodigo_clasificador: {
+              clienteId: input.clienteId,
+              moduloCodigo,
+              clasificador: f.clasificador,
+            },
+          },
+          create: {
+            clienteId: input.clienteId,
+            moduloCodigo,
+            clasificador: f.clasificador,
+            cuenta4: f.cuenta4,
+            actualizadoPor: actor,
+          },
+          update: { cuenta4: f.cuenta4, actualizadoPor: actor },
+        }),
+      ),
+    );
+    revalidatePath(rutaModulo(moduloCodigo));
+    return {
+      ok: true,
+      message: filas.length === 1
+        ? "Consolidación guardada."
+        : `${filas.length} consolidaciones guardadas.`,
+    };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("guardarConsolidacionModuloLote", e) };
   }
 }

@@ -190,6 +190,15 @@ describe("Permisos globales (sin alcance de cliente)", () => {
     }
   });
 
+  test("la bandeja completa de soporte es exclusiva de roles administrativos", () => {
+    for (const r of ["Administrador", "Superadministrador"]) {
+      expect(tienePermiso(MATRIZ, r, "soporte:administrar")).toBe(true);
+    }
+    for (const r of ["Socio", "Gerente", "Senior", "Staff"]) {
+      expect(tienePermiso(MATRIZ, r, "soporte:administrar")).toBe(false);
+    }
+  });
+
   test("la lectura general está disponible para todos los roles del PDF", () => {
     for (const r of ROLES_PDF) expect(tienePermiso(MATRIZ, r, "conciliaciones:ver")).toBe(true);
   });

@@ -3,14 +3,18 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import {
   AvisoAutoCorreccionSoloHojas,
+  type CambiosBorrador,
   combinarRevisionesReubicacion,
+  construirCodigoAFilaNum,
   esAlertaNodo,
   etiquetaPerfilSoloHojas,
+  filasAfectadasPorCambio,
   filtrarReubicacionesPendientes,
   GestionarAgrupadoraModal,
   NombreCuentaArbol,
   ProteccionSubtotalesPanel,
   retirarConfirmacionesLocales,
+  siguienteEnfoqueCambioEstructural,
 } from "./borrador-detail-client";
 import type { CuentaReubicacion, IndiceReubicacion, NodoBorrador } from "@/lib/balance/borrador";
 import type { RevisionReubicacionStaging } from "@/lib/balance/staging-borrador";
@@ -127,6 +131,111 @@ describe("estado visual de las revisiones de reubicación", () => {
 
     expect(resultado.padresConfirmados).toEqual({ 910: 75 });
     expect(resultado.revisionesConfirmadas).toEqual([otraRevision]);
+  });
+});
+
+describe("enfoque tras cambios estructurales", () => {
+  it("crea un enfoque para la nueva ubicación de una reclasificación", () => {
+    expect(siguienteEnfoqueCambioEstructural(null, 412)).toEqual({
+      origen: 412,
+      destino: null,
+      secuencia: 1,
+    });
+  });
+
+  it("renueva la secuencia al repetir un cambio y conserva el destino cuando existe", () => {
+    const anterior = siguienteEnfoqueCambioEstructural(null, 412);
+
+    expect(siguienteEnfoqueCambioEstructural(anterior, 412, 98)).toEqual({
+      origen: 412,
+      destino: 98,
+      secuencia: 2,
+    });
+  });
+});
+
+function cambiosVacios(overrides: Partial<CambiosBorrador> = {}): CambiosBorrador {
+  return {
+    override: {},
+    desacopladas: {},
+    omitidas: {},
+    padres: {},
+    memorizarPadres: {},
+    soloHojas: false,
+    autoCorregido: false,
+    ...overrides,
+  };
+}
+
+describe("traducción código de cuenta → fila enfocable", () => {
+  it("se queda con la PRIMERA fila cruda de cada código (misma cuenta repetida por tercero)", () => {
+    const mapa = construirCodigoAFilaNum([
+      { filaNum: 10, codigo: "110505" },
+      { filaNum: 11, codigo: "110505" },
+      { filaNum: 12, codigo: "130505" },
+    ]);
+
+    expect(mapa.get("110505")).toBe(10);
+    expect(mapa.get("130505")).toBe(12);
+    expect(mapa.has("999999")).toBe(false);
+  });
+});
+
+describe("fila afectada por un cambio revertido (descartar el último cambio)", () => {
+  const codigoAFilaNum = construirCodigoAFilaNum([
+    { filaNum: 100, codigo: "110505" },
+    { filaNum: 200, codigo: "130505" },
+  ]);
+
+  it("detecta la cuenta reclasificada (override por código)", () => {
+    const actual = cambiosVacios({ override: { "110505": "movimiento" } });
+    const restaurado = cambiosVacios();
+
+    expect(filasAfectadasPorCambio(actual, restaurado, codigoAFilaNum)).toEqual([100]);
+  });
+
+  it("detecta la cuenta desacoplada/reacoplada (por código)", () => {
+    const actual = cambiosVacios({ desacopladas: { "130505": true } });
+    const restaurado = cambiosVacios();
+
+    expect(filasAfectadasPorCambio(actual, restaurado, codigoAFilaNum)).toEqual([200]);
+  });
+
+  it("detecta la fila omitida/incluida (por filaNum, sin traducción de código)", () => {
+    const actual = cambiosVacios({ omitidas: { 412: true } });
+    const restaurado = cambiosVacios();
+
+    expect(filasAfectadasPorCambio(actual, restaurado, codigoAFilaNum)).toEqual([412]);
+  });
+
+  it("detecta la fila re-parentada (por filaNum)", () => {
+    const actual = cambiosVacios({ padres: { 412: 98 } });
+    const restaurado = cambiosVacios();
+
+    expect(filasAfectadasPorCambio(actual, restaurado, codigoAFilaNum)).toEqual([412]);
+  });
+
+  it("prioriza la fila propia de un cambio que también reubicó a sus hijas (convertir en agrupadora)", () => {
+    const actual = cambiosVacios({
+      override: { "110505": "agrupadora" },
+      padres: { 412: 100, 413: 100 },
+    });
+    const restaurado = cambiosVacios();
+
+    expect(filasAfectadasPorCambio(actual, restaurado, codigoAFilaNum)).toEqual([100, 412, 413]);
+  });
+
+  it("no devuelve ninguna fila para un cambio global (modo «solo hojas»)", () => {
+    const actual = cambiosVacios({ soloHojas: true, autoCorregido: true });
+    const restaurado = cambiosVacios();
+
+    expect(filasAfectadasPorCambio(actual, restaurado, codigoAFilaNum)).toEqual([]);
+  });
+
+  it("no devuelve nada si las dos fotografías son idénticas", () => {
+    const estado = cambiosVacios({ omitidas: { 412: true } });
+
+    expect(filasAfectadasPorCambio(estado, estado, codigoAFilaNum)).toEqual([]);
   });
 });
 

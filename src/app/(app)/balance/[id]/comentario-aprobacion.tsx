@@ -37,6 +37,7 @@ export function ComentarioAprobacion({
       {muestraAdvertenciaArchivoFuente && (
         <AdvertenciaArchivoFuenteDetalle
           diferencia={diferenciaArchivoFuente}
+          resumida
           tituloId="advertencia-archivo-fuente-oficial"
           className="mb-4"
           detalle={comentario ? (

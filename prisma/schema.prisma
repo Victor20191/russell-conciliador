@@ -1568,3 +1568,28 @@ model UmbralAlerta {
 
   @@map("umbrales_alertas")
 }
+
+// ===== Mesa de ayuda publica =====
+// El reporte no requiere una cuenta de usuario. El enlace de seguimiento se
+// protege con un token aleatorio del que solo se persiste la huella SHA-256.
+// `resueltoPorId` es una FK logica a User: la solucion conserva el nombre del
+// tecnico incluso si su cuenta se desactiva o elimina posteriormente.
+model SupportTicket {
+  id                    Int       @id @default(autoincrement()) @map("id")
+  code                  String    @unique @map("codigo")
+  reporterFirstName     String    @map("nombre_reportante")
+  reporterLastName      String    @map("apellido_reportante")
+  subject               String    @map("asunto")
+  description           String    @map("descripcion")
+  status                String    @default("abierto") @map("estado") // abierto | resuelto
+  solution              String?   @map("solucion")
+  resolvedById          Int?      @map("resuelto_por_id")
+  resolvedByName        String?   @map("resuelto_por_nombre")
+  resolvedAt            DateTime? @map("resuelto_en") @db.Timestamptz(3)
+  publicAccessTokenHash String    @unique @map("token_acceso_hash")
+  createdAt             DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
+  updatedAt             DateTime  @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+
+  @@index([status, createdAt])
+  @@map("tickets_soporte")
+}

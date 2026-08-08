@@ -7,6 +7,8 @@ import {
   PasswordSchema,
   PrefijoCuentaPrevalidadorSchema,
   RevisionPrevalidadorSchema,
+  SupportTicketCreateSchema,
+  SupportTicketSolutionSchema,
   UserUpdateSchema,
 } from "./definitions";
 
@@ -147,6 +149,34 @@ test("ActualizarUmbralSchema acepta cero y rechaza vacíos, texto y montos absur
   expect(ActualizarUmbralSchema.safeParse({ clave: "descuadre", valor: "-500" }).success).toBe(true); // el signo se descarta → 500
   expect(ActualizarUmbralSchema.safeParse({ clave: "descuadre", valor: "9999999999" }).success).toBe(false);
   expect(ActualizarUmbralSchema.safeParse({ clave: "", valor: "2000" }).success).toBe(false);
+});
+
+test("el ticket publico exige nombre, apellido y detalle suficiente", () => {
+  const valido = {
+    firstName: "  Ana  ",
+    lastName: "  Pérez ",
+    subject: "No puedo ingresar al balance",
+    description: "La pantalla queda cargando después de seleccionar el archivo.",
+    website: "",
+  };
+  const parsed = SupportTicketCreateSchema.safeParse(valido);
+  expect(parsed.success).toBe(true);
+  if (parsed.success) {
+    expect(parsed.data.firstName).toBe("Ana");
+    expect(parsed.data.lastName).toBe("Pérez");
+  }
+  expect(SupportTicketCreateSchema.safeParse({ ...valido, lastName: "" }).success).toBe(false);
+  expect(SupportTicketCreateSchema.safeParse({ ...valido, website: "bot.example" }).success).toBe(false);
+});
+
+test("la solución valida ticket, versión y explicación", () => {
+  const base = {
+    ticketId: "12",
+    updatedAt: "2026-08-07T15:00:00.000Z",
+    solution: "Se restableció el acceso y se verificó el ingreso con el usuario.",
+  };
+  expect(SupportTicketSolutionSchema.safeParse(base).success).toBe(true);
+  expect(SupportTicketSolutionSchema.safeParse({ ...base, solution: "Listo" }).success).toBe(false);
 });
 
 test("el prevalidador normaliza y admite únicamente prefijos de nivel 2 o 4", () => {

@@ -4,7 +4,9 @@ import { describe, expect, it } from "vitest";
 import {
   ClienteBorradorCelda,
   coincideBusquedaBorrador,
+  direccionInicialColumna,
   ordenarBorradoresListado,
+  ordenarBorradoresPorColumna,
   type BorradorRow,
 } from "./borradores-index-client";
 import type { VinculoClienteBorrador } from "@/lib/balance/autorizacion-borrador";
@@ -39,6 +41,9 @@ function filaListado(
     creadoEn,
     fecha: "1 may 2026",
     hora: "08:00 a. m.",
+    version: 1,
+    versionesGrupo: 1,
+    claveGrupo: null,
   };
 }
 
@@ -108,6 +113,40 @@ describe("presentación de borradores vigentes e históricos", () => {
     ]);
   });
 
+  it("mantiene juntas las versiones de un mismo (cliente, período), de la más nueva a la más vieja", () => {
+    const asignado = {
+      tipo: "asignado",
+      id: 7,
+      nombre: "Cliente vigente",
+      nit: "900123456-7",
+    } satisfies VinculoClienteBorrador;
+    const conVersion = (
+      loteId: string,
+      creadoEn: string,
+      version: number,
+      claveGrupo: string | null,
+      versionesGrupo = 1,
+    ): BorradorRow => ({
+      ...filaListado(loteId, asignado, creadoEn),
+      version,
+      versionesGrupo,
+      claveGrupo,
+    });
+    // El grupo «mayo» tiene el cargue más reciente (v2), así que va primero
+    // entero; suelto-junio queda debajo pese a ser más nuevo que mayo-v1.
+    const rows = [
+      conVersion("mayo-v1", "2026-07-01T12:00:00.000Z", 1, "c:7|Mayo 2026", 2),
+      conVersion("suelto-junio", "2026-07-10T12:00:00.000Z", 1, "c:7|Junio 2026"),
+      conVersion("mayo-v2", "2026-07-20T12:00:00.000Z", 2, "c:7|Mayo 2026", 2),
+    ];
+
+    expect(ordenarBorradoresListado(rows).map((row) => row.loteId)).toEqual([
+      "mayo-v2",
+      "mayo-v1",
+      "suelto-junio",
+    ]);
+  });
+
   it("muestra el cliente persistido sin etiqueta de estado", () => {
     const html = renderToStaticMarkup(
       createElement(ClienteBorradorCelda, {
@@ -149,5 +188,76 @@ describe("presentación de borradores vigentes e históricos", () => {
 
     expect(html).toContain("Histórico · sin cliente asignado");
     expect(html).toContain("NIT detectado: 900000000-1");
+  });
+});
+
+describe("ordenarBorradoresPorColumna", () => {
+  const baseCliente = {
+    tipo: "asignado",
+    id: 1,
+    nombre: "BETA SAS",
+    nit: "9001",
+  } satisfies VinculoClienteBorrador;
+
+  function fila(
+    parcial: Partial<BorradorRow> & Pick<BorradorRow, "loteId">,
+  ): BorradorRow {
+    return {
+      archivoNombre: `${parcial.loteId}.xlsx`,
+      conEncabezado: true,
+      nitDetectado: null,
+      cliente: baseCliente,
+      periodo: "01/Ene/2026 → 31/Ene/2026",
+      cuentasMovimiento: 10,
+      cuadrado: true,
+      partidaDobleDiff: 0,
+      cargadoPor: "Analista",
+      creadoEn: "2026-07-01T12:00:00.000Z",
+      fecha: "1 jul 2026",
+      hora: "07:00 a. m.",
+      version: 1,
+      versionesGrupo: 1,
+      claveGrupo: null,
+      ...parcial,
+    };
+  }
+
+  it("ordena archivo alfabéticamente", () => {
+    const rows = [
+      fila({ loteId: "b", archivoNombre: "zeta.xlsx" }),
+      fila({ loteId: "a", archivoNombre: "alfa.xlsx" }),
+      fila({ loteId: "c", archivoNombre: "medio.xlsx" }),
+    ];
+    expect(
+      ordenarBorradoresPorColumna(rows, "archivo", "asc").map((r) => r.loteId),
+    ).toEqual(["a", "c", "b"]);
+  });
+
+  it("ordena cuentas de mayor a menor", () => {
+    const rows = [
+      fila({ loteId: "poco", cuentasMovimiento: 10 }),
+      fila({ loteId: "mucho", cuentasMovimiento: 500 }),
+      fila({ loteId: "medio", cuentasMovimiento: 100 }),
+    ];
+    expect(
+      ordenarBorradoresPorColumna(rows, "cuentas", "desc").map((r) => r.loteId),
+    ).toEqual(["mucho", "medio", "poco"]);
+  });
+
+  it("ordena estado como texto (Cuadrado / Descuadrado)", () => {
+    const rows = [
+      fila({ loteId: "ok", cuadrado: true }),
+      fila({ loteId: "malo", cuadrado: false, partidaDobleDiff: 100 }),
+    ];
+    expect(
+      ordenarBorradoresPorColumna(rows, "estado", "asc").map((r) => r.loteId),
+    ).toEqual(["ok", "malo"]);
+  });
+
+  it("elige dirección inicial según tipo de columna", () => {
+    expect(direccionInicialColumna("archivo")).toBe("asc");
+    expect(direccionInicialColumna("cliente")).toBe("asc");
+    expect(direccionInicialColumna("cuentas")).toBe("desc");
+    expect(direccionInicialColumna("fecha")).toBe("desc");
   });
 });

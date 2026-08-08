@@ -152,6 +152,43 @@ describe("calcularBalance — sin mapeo, saldo contrario y variación", () => {
   });
 });
 
+// Caso reportado por operación (IVANAGRO/REDPLAS): la cascada clasificaba
+// `21052001 FIDUCIA` (pasivo) contra `110505`. Corregir SOLO esa cuenta debe
+// sobrevivir a la siguiente carga sin arrastrar a sus hermanas del grupo.
+describe("calcularBalance — memoria de mapeo del cliente (grupo y excepción por cuenta)", () => {
+  const CUENTAS: CuentaCruda[] = [
+    { code: "21052001", name: "FIDUCIA", prevBalance: 0, balance: -4000 },
+    { code: "21052002", name: "ACEPTACIONES", prevBalance: 0, balance: -1000 },
+    { code: "110505", name: "Caja", prevBalance: 0, balance: 5000 },
+  ];
+  const itemsPorCodigo = (r: ReturnType<typeof calcularBalance>) =>
+    new Map(r.breakdown.flatMap((g) => g.items).map((i) => [i.code, i]));
+
+  it("la excepción por cuenta gana a la regla de su grupo y no toca a las hermanas", () => {
+    const items = itemsPorCodigo(
+      calcularBalance(CUENTAS, STD, undefined, undefined, new Map([
+        ["210520", { std: "110505", coincidencia: 90 }],
+        ["21052001", { std: "220505", coincidencia: 100 }],
+      ])),
+    );
+
+    expect(items.get("21052001")?.std).toBe("220505");
+    expect(items.get("21052001")?.coincidencia).toBe(100);
+    expect(items.get("21052002")?.std).toBe("110505");
+  });
+
+  it("sin excepción, toda la cuenta imputable sigue la regla del grupo", () => {
+    const items = itemsPorCodigo(
+      calcularBalance(CUENTAS, STD, undefined, undefined, new Map([
+        ["210520", { std: "220505", coincidencia: 100 }],
+      ])),
+    );
+
+    expect(items.get("21052001")?.std).toBe("220505");
+    expect(items.get("21052002")?.std).toBe("220505");
+  });
+});
+
 describe("calcularBalance — gates con margen ±$1000 (A−P=Patrimonio+Resultado)", () => {
   it("descuadre de $500 → cuadra (dentro del margen)", () => {
     const r = calcularBalance(
