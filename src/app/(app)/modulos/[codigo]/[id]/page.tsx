@@ -4,8 +4,13 @@ import { requirePermiso, authorizePermiso } from "@/lib/rbac";
 import { PageHeader, BackLink } from "@/components/ui";
 import Conversacion from "@/components/conversacion";
 import { descriptorModulo } from "@/lib/modulos/descriptores";
+import {
+  filtrarSubgruposPorModulo,
+  prefijosCuentaModulo,
+} from "@/lib/modulos/cuentas-modulo";
 import { consolidarPorClasificador } from "@/lib/modulos/promocion";
 import { detectarNegativos, detectarDescuadres } from "@/lib/modulos/validaciones";
+import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
 import DatoCargadoClient, { type FilaDetalleVm, type ConsolidadoVm, type NovedadesVm } from "./dato-cargado-client";
 
 export default async function DatoModuloPage({ params }: { params: Promise<{ codigo: string; id: string }> }) {
@@ -29,15 +34,20 @@ export default async function DatoModuloPage({ params }: { params: Promise<{ cod
   // ¿Puede editar la consolidación de este cliente?
   const puedeEditar = (await authorizePermiso("modulos_datos:editar", { clientId: encabezado.clienteId })).ok;
 
-  const [consolidacionRows, subgrupos] = await Promise.all([
+  const [consolidacionRows, subgrupos, catalogoPrevalidador] = await Promise.all([
     prisma.consolidacionModuloCliente.findMany({
       where: { clienteId: encabezado.clienteId, moduloCodigo },
       select: { clasificador: true, cuenta4: true },
     }),
     prisma.subgrupoEstandar.findMany({ select: { codigo: true, nombre: true }, orderBy: { codigo: "asc" } }),
+    getCatalogoPrevalidador(),
   ]);
   const cuentaPorClasificador = new Map(consolidacionRows.map((r) => [r.clasificador, r.cuenta4]));
+  // Nombres del plan completo (por si hay un mapeo legado fuera del módulo).
   const nombrePorCuenta = new Map(subgrupos.map((s) => [s.codigo, s.nombre]));
+  // El datalist solo ofrece cuentas Russell del módulo (p. ej. INV → 14xx).
+  const prefijosModulo = prefijosCuentaModulo(moduloCodigo, catalogoPrevalidador);
+  const cuentasModulo = filtrarSubgruposPorModulo(subgrupos, prefijosModulo);
 
   const detalleVm: FilaDetalleVm[] = encabezado.detalles.map((d) => ({
     filaNum: d.filaNum,
@@ -83,7 +93,7 @@ export default async function DatoModuloPage({ params }: { params: Promise<{ cod
         detalle={detalleVm}
         consolidado={consolidadoVm}
         novedades={novedades}
-        cuentas={subgrupos.map((s) => ({ codigo: s.codigo, nombre: s.nombre }))}
+        cuentas={cuentasModulo.map((s) => ({ codigo: s.codigo, nombre: s.nombre }))}
         puedeEditar={puedeEditar}
       />
       <div className="mt-4">
