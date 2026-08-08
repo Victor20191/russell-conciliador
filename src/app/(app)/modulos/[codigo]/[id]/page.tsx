@@ -34,7 +34,7 @@ export default async function DatoModuloPage({ params }: { params: Promise<{ cod
   // ¿Puede editar la consolidación de este cliente?
   const puedeEditar = (await authorizePermiso("modulos_datos:editar", { clientId: encabezado.clienteId })).ok;
 
-  const [consolidacionRows, subgrupos, catalogoPrevalidador, comentariosGrp] = await Promise.all([
+  const [consolidacionRows, subgrupos, catalogoPrevalidador, comentariosGrp, cuentasCliente] = await Promise.all([
     prisma.consolidacionModuloCliente.findMany({
       where: { clienteId: encabezado.clienteId, moduloCodigo },
       select: { clasificador: true, cuenta4: true },
@@ -42,6 +42,12 @@ export default async function DatoModuloPage({ params }: { params: Promise<{ cod
     prisma.subgrupoEstandar.findMany({ select: { codigo: true, nombre: true }, orderBy: { codigo: "asc" } }),
     getCatalogoPrevalidador(),
     prisma.comment.groupBy({ by: ["anchor"], where: { entityType: "modulos_datos", entityId: encabezadoId }, _count: { _all: true } }),
+    // Homologación del cliente: cuentas propias mapeadas al plan Russell (para detallar por subgrupo).
+    prisma.clientAccount.findMany({
+      where: { clienteId: encabezado.clienteId, cuenta6Russell: { not: null } },
+      select: { code: true, name: true, level: true, cuenta6Russell: true },
+      orderBy: { code: "asc" },
+    }),
   ]);
   // Un clasificador puede tener 1..N cuentas: agrupamos en lista (ordenada).
   const cuentasPorClasificador = new Map<string, string[]>();
@@ -58,6 +64,14 @@ export default async function DatoModuloPage({ params }: { params: Promise<{ cod
   // El datalist solo ofrece cuentas Russell del módulo (p. ej. INV → 14xx).
   const prefijosModulo = prefijosCuentaModulo(moduloCodigo, catalogoPrevalidador);
   const cuentasModulo = filtrarSubgruposPorModulo(subgrupos, prefijosModulo);
+  // Cuentas del CLIENTE homologadas a cada subgrupo Russell del módulo (14XX → [143505 «…»]).
+  const codigosModulo = new Set(cuentasModulo.map((c) => c.codigo));
+  const homologacionPorSubgrupo: Record<string, { codigo: string; nombre: string }[]> = {};
+  for (const a of cuentasCliente) {
+    const sub = (a.cuenta6Russell ?? "").replace(/\D/g, "").slice(0, 4);
+    if (!codigosModulo.has(sub)) continue;
+    (homologacionPorSubgrupo[sub] ??= []).push({ codigo: a.code, nombre: a.name });
+  }
 
   const detalleVm: FilaDetalleVm[] = encabezado.detalles.map((d) => ({
     filaNum: d.filaNum,
@@ -105,6 +119,7 @@ export default async function DatoModuloPage({ params }: { params: Promise<{ cod
         consolidado={consolidadoVm}
         novedades={novedades}
         cuentas={cuentasModulo.map((s) => ({ codigo: s.codigo, nombre: s.nombre }))}
+        homologacionCliente={homologacionPorSubgrupo}
         puedeEditar={puedeEditar}
       />
       <div className="mt-4">
