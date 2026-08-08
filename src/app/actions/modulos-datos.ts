@@ -21,6 +21,7 @@ import { SpecModuloSchema, type SpecModulo } from "@/lib/modulos/extraccion/esqu
 import { sugerirSpec } from "@/lib/modulos/extraccion/sugerir";
 import { transformarModulo } from "@/lib/modulos/extraccion/transformar";
 import { promoverStaging, type FilaStagingModulo } from "@/lib/modulos/promocion";
+import { refRolDe, clavesDeDetalle, decidirCarga, itemsRepetidos, remapFilas } from "@/lib/modulos/fraccionamiento";
 import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
 
 const rutaModulo = (codigo: string) => `/modulos/${codigo.toLowerCase()}`;
@@ -282,7 +283,58 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
     if (nFilas === 0) return { ok: false, message: "No hay filas imputables para cargar (todas omitidas, agrupadoras o en cero)." };
 
     const user = await getCurrentUser();
-    const encabezadoId = await prisma.$transaction(async (tx) => {
+    const refRol = refRolDe(descriptor);
+    const clavesNuevas = clavesDeDetalle(refRol, detalle);
+    const clavesDe = (filas: { clasificador: string | null; datos: unknown }[]) =>
+      clavesDeDetalle(refRol, filas.map((d) => ({ clasificador: d.clasificador, datos: (d.datos ?? {}) as Record<string, unknown> })));
+
+    const resultado = await prisma.$transaction(async (tx) => {
+      // Inventario OFICIAL vigente del período: decide agregar (fracción nueva) vs versionar (re-subida).
+      const oficial = await tx.moduloDatoEncabezado.findFirst({
+        where: { clienteId: lote.clienteId!, moduloCodigo: lote.moduloCodigo, periodo, esOficial: true },
+        orderBy: { version: "desc" },
+        include: { detalles: { select: { filaNum: true, clasificador: true, datos: true } } },
+      });
+      const modo: "nuevo" | "agregar" | "versionar" = !oficial
+        ? "nuevo"
+        : oficial.estaCongelado
+          ? "versionar"
+          : decidirCarga(clavesDe(oficial.detalles), clavesNuevas);
+
+      // ---- AGREGAR: suma la fracción al inventario oficial (NO versiona) ----
+      if (modo === "agregar" && oficial) {
+        const maxFila = oficial.detalles.reduce((m, d) => Math.max(m, d.filaNum), 0);
+        const map = remapFilas(maxFila, detalle.map((d) => d.filaNum));
+        await tx.moduloDatoDetalle.createMany({
+          data: detalle.map((d) => ({ encabezadoId: oficial.id, filaNum: map.get(d.filaNum)!, clasificador: d.clasificador, valor: d.valor, datos: d.datos as Prisma.InputJsonValue })),
+        });
+        await tx.moduloDatoEncabezado.update({
+          where: { id: oficial.id },
+          data: {
+            filas: oficial.filas + nFilas,
+            total: Number(oficial.total) + total,
+            observaciones: [oficial.observaciones, observaciones].filter(Boolean).join("\n— — —\n") || null,
+            cargadoPor: user?.name ?? null, cargadoPorId: user?.id ?? null,
+          },
+        });
+        // Reancla los comentarios del borrador al oficial según el remap de filaNum (fila:<n> → fila:<m>).
+        const coments = await tx.comment.findMany({ where: { entityType: "modulos_borrador", entityId: lote.id }, select: { id: true, anchor: true } });
+        for (const cm of coments) {
+          const m = cm.anchor?.match(/^fila:(\d+)$/);
+          const anchor = m && map.has(Number(m[1])) ? `fila:${map.get(Number(m[1]))}` : cm.anchor;
+          await tx.comment.update({ where: { id: cm.id }, data: { entityType: "modulos_datos", entityId: oficial.id, anchor } });
+        }
+        await tx.moduloImportacionStaging.deleteMany({ where: { loteId } });
+        await tx.moduloImportacionLote.deleteMany({ where: { loteId } });
+        return { encabezadoId: oficial.id, modo: "agregar" as const, repetidas: 0 };
+      }
+
+      // ---- NUEVO (v1) o VERSIONAR: encabezado con SOLO el archivo ----
+      const repetidas = modo === "versionar" && oficial ? itemsRepetidos(clavesDe(oficial.detalles), clavesNuevas) : 0;
+      if (modo === "versionar") {
+        // Las versiones anteriores del período pasan a histórico (solo la nueva queda oficial).
+        await tx.moduloDatoEncabezado.updateMany({ where: { clienteId: lote.clienteId!, moduloCodigo: lote.moduloCodigo, periodo, esOficial: true }, data: { esOficial: false } });
+      }
       const previa = await tx.moduloDatoEncabezado.findFirst({
         where: { clienteId: lote.clienteId!, moduloCodigo: lote.moduloCodigo, periodo }, orderBy: { version: "desc" }, select: { version: true },
       });
@@ -297,20 +349,22 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
         },
         select: { id: true },
       });
-      // Migra los comentarios por renglón del borrador al definitivo (mismo ancla `fila:<n>`).
-      await tx.comment.updateMany({
-        where: { entityType: "modulos_borrador", entityId: lote.id },
-        data: { entityType: "modulos_datos", entityId: enc.id },
-      });
-      // Purga del borrador (staging + lote): ambos deben desaparecer con el commit.
+      // El nuevo encabezado conserva los filaNum del staging → las anclas de comentarios coinciden.
+      await tx.comment.updateMany({ where: { entityType: "modulos_borrador", entityId: lote.id }, data: { entityType: "modulos_datos", entityId: enc.id } });
       await tx.moduloImportacionStaging.deleteMany({ where: { loteId } });
       await tx.moduloImportacionLote.deleteMany({ where: { loteId } });
-      return enc.id;
+      return { encabezadoId: enc.id, modo, repetidas };
     });
 
-    await logAudit({ user: user?.name ?? "Sistema", action: `CARGÓ ${descriptor.label}`, entity: cliente.name, detail: `${periodo} · ${nFilas} filas · total ${total}` });
+    const mensaje =
+      resultado.modo === "agregar"
+        ? `Agregado al inventario del período (${nFilas} ítems nuevos).`
+        : resultado.modo === "versionar"
+          ? `Nueva versión (re-subida: ${resultado.repetidas} referencia(s) repetida(s)).`
+          : `${descriptor.label} cargado (${nFilas} filas).`;
+    await logAudit({ user: user?.name ?? "Sistema", action: `${resultado.modo === "agregar" ? "AGREGÓ A" : "CARGÓ"} ${descriptor.label}`, entity: cliente.name, detail: `${periodo} · ${nFilas} filas · total ${total}` });
     revalidatePath(rutaModulo(lote.moduloCodigo));
-    return { ok: true, encabezadoId, message: `${descriptor.label} cargado (${nFilas} filas).` };
+    return { ok: true, encabezadoId: resultado.encabezadoId, message: mensaje };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("cargarBorradorModulo", e) };
   }
