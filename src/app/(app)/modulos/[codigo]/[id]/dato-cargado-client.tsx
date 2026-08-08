@@ -9,7 +9,7 @@ import ComentarioAncla from "@/components/comentario-ancla";
 import { guardarConsolidacionModulo, guardarConsolidacionModuloLote } from "@/app/actions/modulos-datos";
 
 export type FilaDetalleVm = { filaNum: number; clasificador: string | null; valor: number; datos: Record<string, string | number | null> };
-export type ConsolidadoVm = { clasificador: string; total: number; filas: number; cuenta4: string; nombreCuenta: string | null };
+export type ConsolidadoVm = { clasificador: string; total: number; filas: number; cuentas4: { codigo: string; nombre: string | null }[] };
 export type NovedadesVm = {
   negativos: { filaNum: number; etiqueta: string; referencia: string | null; valor: number }[];
   descuadres: { filaNum: number; referencia: string | null; etiqueta: string; declarado: number; esperado: number }[];
@@ -82,13 +82,16 @@ export default function DatoCargadoClient({
 
 const cuenta4Norm = (v: string) => v.replace(/\D/g, "").slice(0, 4);
 
-function valoresInicialesConsolidado(consolidado: ConsolidadoVm[]): Record<string, string> {
-  // Prefill: si no hay cuenta guardada y el clasificador ES un código de cuenta
-  // (empieza con ≥4 dígitos, p. ej. "14059805"), se propone su prefijo de 4 díg.
+const claveSet = (arr: string[]) => [...new Set(arr)].sort().join(",");
+
+// Conjunto INICIAL de cuentas por clasificador. Prefill: si no hay cuentas guardadas y el
+// clasificador ES un código de cuenta (≥4 díg), se propone su prefijo de 4 díg (queda «sin guardar»).
+function cuentasInicialesConsolidado(consolidado: ConsolidadoVm[]): Record<string, string[]> {
   return Object.fromEntries(consolidado.map((c) => {
+    const guardadas = c.cuentas4.map((x) => x.codigo);
+    if (guardadas.length) return [c.clasificador, guardadas];
     const digitos = c.clasificador.replace(/\D/g, "");
-    const sugerida = !c.cuenta4 && digitos.length >= 4 ? digitos.slice(0, 4) : c.cuenta4;
-    return [c.clasificador, sugerida];
+    return [c.clasificador, digitos.length >= 4 ? [digitos.slice(0, 4)] : []];
   }));
 }
 
@@ -112,71 +115,60 @@ function ConsolidadoTab({
   comentarios: Record<string, number>;
 }) {
   const router = useRouter();
-  const [valores, setValores] = useState<Record<string, string>>(() => valoresInicialesConsolidado(consolidado));
-  // Último estado persistido (para marcar filas sucias y «Guardar todos»).
-  const [guardados, setGuardados] = useState<Record<string, string>>(() =>
-    Object.fromEntries(consolidado.map((c) => [c.clasificador, c.cuenta4 ?? ""])),
+  // Cuentas (1..N) por clasificador — conjunto EDITABLE y el último persistido (para «sucias»).
+  const [valores, setValores] = useState<Record<string, string[]>>(() => cuentasInicialesConsolidado(consolidado));
+  const [guardados, setGuardados] = useState<Record<string, string[]>>(() =>
+    Object.fromEntries(consolidado.map((c) => [c.clasificador, c.cuentas4.map((x) => x.codigo)])),
   );
+  const [nuevos, setNuevos] = useState<Record<string, string>>({}); // input «agregar cuenta» por fila
   const [guardandoClave, setGuardandoClave] = useState<string | null>(null);
   const [guardandoTodo, setGuardandoTodo] = useState(false);
   const [, startGuardar] = useTransition();
   const nombrePorCuenta = useMemo(() => new Map(cuentas.map((c) => [c.codigo, c.nombre])), [cuentas]);
 
-  const filasSucias = useMemo(() => {
-    return consolidado.filter((c) => {
-      const actual = cuenta4Norm(valores[c.clasificador] ?? "");
-      const previo = cuenta4Norm(guardados[c.clasificador] ?? "");
-      return actual !== previo;
-    });
-  }, [consolidado, valores, guardados]);
-
+  const filasSucias = useMemo(
+    () => consolidado.filter((c) => claveSet(valores[c.clasificador] ?? []) !== claveSet(guardados[c.clasificador] ?? [])),
+    [consolidado, valores, guardados],
+  );
   const haySucias = filasSucias.length > 0;
   const ocupado = guardandoClave != null || guardandoTodo;
 
-  const marcarGuardadas = (filas: { clasificador: string; cuenta4: string }[]) => {
-    setGuardados((prev) => {
+  const agregarCuenta = (clasificador: string) => {
+    const cod = cuenta4Norm(nuevos[clasificador] ?? "");
+    if (cod.length !== 4) { notifyError("La cuenta debe ser de 4 dígitos."); return; }
+    setValores((p) => ({ ...p, [clasificador]: [...new Set([...(p[clasificador] ?? []), cod])].sort() }));
+    setNuevos((p) => ({ ...p, [clasificador]: "" }));
+  };
+  const quitarCuenta = (clasificador: string, cod: string) =>
+    setValores((p) => ({ ...p, [clasificador]: (p[clasificador] ?? []).filter((x) => x !== cod) }));
+
+  const marcarGuardadas = (filas: { clasificador: string; cuentas4: string[] }[]) => {
+    const aplicar = (prev: Record<string, string[]>) => {
       const next = { ...prev };
-      for (const f of filas) next[f.clasificador] = f.cuenta4;
+      for (const f of filas) next[f.clasificador] = [...f.cuentas4].sort();
       return next;
-    });
-    setValores((prev) => {
-      const next = { ...prev };
-      for (const f of filas) next[f.clasificador] = f.cuenta4;
-      return next;
-    });
+    };
+    setGuardados(aplicar);
+    setValores(aplicar);
   };
 
   const guardar = (clasificador: string) => {
-    const cuenta4 = cuenta4Norm(valores[clasificador] ?? "");
-    if (cuenta4.length !== 4) { notifyError("La cuenta debe ser de 4 dígitos."); return; }
+    const cuentas4 = valores[clasificador] ?? [];
     setGuardandoClave(clasificador);
     startGuardar(async () => {
-      const r = await guardarConsolidacionModulo({ clienteId, moduloCodigo, clasificador, cuenta4 });
+      const r = await guardarConsolidacionModulo({ clienteId, moduloCodigo, clasificador, cuentas4 });
       setGuardandoClave(null);
       if (r.ok) {
-        marcarGuardadas([{ clasificador, cuenta4 }]);
+        marcarGuardadas([{ clasificador, cuentas4 }]);
         notifySuccess(r.message ?? "Consolidación guardada.");
         router.refresh();
-      } else {
-        notifyError(r.message ?? "No se pudo guardar.");
-      }
+      } else notifyError(r.message ?? "No se pudo guardar.");
     });
   };
 
   const guardarTodos = () => {
-    if (filasSucias.length === 0) {
-      notifyError("No hay cambios para guardar.");
-      return;
-    }
-    const filas = filasSucias.map((c) => ({
-      clasificador: c.clasificador,
-      cuenta4: cuenta4Norm(valores[c.clasificador] ?? ""),
-    }));
-    const incompletas = filas.filter((f) => f.cuenta4.length !== 4);
-    if (incompletas.length > 0) {
-      notifyError(`${incompletas.length} fila(s) sin cuenta de 4 dígitos. Complétalas o revierte el cambio.`);
-      return;
-    }
+    if (filasSucias.length === 0) { notifyError("No hay cambios para guardar."); return; }
+    const filas = filasSucias.map((c) => ({ clasificador: c.clasificador, cuentas4: valores[c.clasificador] ?? [] }));
     setGuardandoTodo(true);
     startGuardar(async () => {
       const r = await guardarConsolidacionModuloLote({ clienteId, moduloCodigo, filas });
@@ -185,9 +177,7 @@ function ConsolidadoTab({
         marcarGuardadas(filas);
         notifySuccess(r.message ?? "Consolidaciones guardadas.");
         router.refresh();
-      } else {
-        notifyError(r.message ?? "No se pudieron guardar los cambios.");
-      }
+      } else notifyError(r.message ?? "No se pudieron guardar los cambios.");
     });
   };
 
@@ -217,57 +207,51 @@ function ConsolidadoTab({
               <th className="px-3 py-2 font-semibold">{clasificadorEtiqueta}</th>
               <th className="px-3 py-2 text-right font-semibold">Filas</th>
               <th className="px-3 py-2 text-right font-semibold">Total</th>
-              <th className="px-3 py-2 font-semibold">Cuenta (4 díg)</th>
+              <th className="px-3 py-2 font-semibold">Cuentas (4 díg) — una o varias</th>
               <th className="px-3 py-2 text-center font-semibold">💬</th>
             </tr>
           </thead>
           <tbody>
             {consolidado.map((c) => {
-              const cuentaActual = cuenta4Norm(valores[c.clasificador] ?? "");
-              const nombre = cuentaActual.length === 4 ? nombrePorCuenta.get(cuentaActual) ?? c.nombreCuenta : null;
-              const sinCuenta = cuentaActual.length !== 4;
-              const sucia = cuentaActual !== cuenta4Norm(guardados[c.clasificador] ?? "");
+              const asignadas = valores[c.clasificador] ?? [];
+              const sucia = claveSet(asignadas) !== claveSet(guardados[c.clasificador] ?? []);
               const guardandoEsta = guardandoClave === c.clasificador;
               return (
-                <tr key={c.clasificador} className={`border-t border-ink-100 ${sucia ? "bg-warn-100/20" : ""}`}>
+                <tr key={c.clasificador} className={`border-t border-ink-100 align-top ${sucia ? "bg-warn-100/20" : ""}`}>
                   <td className="px-3 py-2 font-medium text-ink-800">{c.clasificador}</td>
                   <td className="px-3 py-2 text-right tabular-nums text-ink-500">{c.filas}</td>
                   <td className="px-3 py-2 text-right font-semibold tabular-nums text-ink-800">{fmtContable(c.total)}</td>
                   <td className="px-3 py-2">
-                    {puedeEditar ? (
-                      <div className="flex min-w-0 flex-wrap items-center gap-2">
-                        <input
-                          list="cuentas4-modulo"
-                          value={valores[c.clasificador] ?? ""}
-                          onChange={(e) => setValores((p) => ({ ...p, [c.clasificador]: e.target.value }))}
-                          placeholder="1435"
-                          inputMode="numeric"
-                          className={`w-24 rounded-md border bg-white px-2 py-1 text-[12px] tabular-nums text-ink-700 outline-none focus:border-blue-400 ${
-                            sucia ? "border-warn-500" : "border-ink-200"
-                          }`}
-                        />
-                        <button
-                          type="button"
-                          disabled={ocupado || !sucia || sinCuenta}
-                          onClick={() => guardar(c.clasificador)}
-                          className="rounded-md border border-ok-500 bg-ok-100/40 px-2 py-1 text-[11px] font-semibold text-ok-700 hover:bg-ok-100 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          {guardandoEsta ? "…" : "Guardar"}
-                        </button>
-                        {nombre ? (
-                          <span className="text-[11.5px] text-ink-500">{nombre}</span>
-                        ) : sinCuenta ? (
-                          <span className="text-[11.5px] font-medium text-warn-700">sin cuenta</span>
-                        ) : null}
-                        {sucia && !sinCuenta && (
-                          <span className="text-[10.5px] font-semibold uppercase tracking-wide text-warn-700">sin guardar</span>
-                        )}
+                    <div className="flex min-w-0 flex-col gap-1.5">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {asignadas.length === 0 && <span className="text-[11.5px] font-medium text-warn-700">sin cuenta</span>}
+                        {asignadas.map((cod) => (
+                          <span key={cod} className="inline-flex items-center gap-1 rounded-md border border-ink-200 bg-ink-50 px-1.5 py-0.5 text-[11.5px] text-ink-700" title={nombrePorCuenta.get(cod) ?? undefined}>
+                            <span className="font-semibold">{cod}</span>
+                            {nombrePorCuenta.get(cod) && <span className="max-w-[140px] truncate text-ink-500">{nombrePorCuenta.get(cod)}</span>}
+                            {puedeEditar && <button type="button" onClick={() => quitarCuenta(c.clasificador, cod)} className="text-ink-400 hover:text-err-700" title="Quitar">×</button>}
+                          </span>
+                        ))}
                       </div>
-                    ) : c.cuenta4 ? (
-                      <span className="text-ink-700">{c.cuenta4}{c.nombreCuenta ? <span className="text-ink-500"> · {c.nombreCuenta}</span> : null}</span>
-                    ) : (
-                      <span className="text-[11.5px] font-medium text-warn-700">sin cuenta</span>
-                    )}
+                      {puedeEditar && (
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <input
+                            list="cuentas4-modulo"
+                            value={nuevos[c.clasificador] ?? ""}
+                            onChange={(e) => setNuevos((p) => ({ ...p, [c.clasificador]: e.target.value }))}
+                            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); agregarCuenta(c.clasificador); } }}
+                            placeholder="1435"
+                            inputMode="numeric"
+                            className="w-24 rounded-md border border-ink-200 bg-white px-2 py-1 text-[12px] tabular-nums text-ink-700 outline-none focus:border-blue-400"
+                          />
+                          <button type="button" onClick={() => agregarCuenta(c.clasificador)} className="rounded-md border border-ink-300 bg-white px-2 py-1 text-[11px] font-semibold text-ink-600 hover:bg-blue-50 hover:text-blue-700">+ cuenta</button>
+                          <button type="button" disabled={ocupado || !sucia} onClick={() => guardar(c.clasificador)} className="rounded-md border border-ok-500 bg-ok-100/40 px-2 py-1 text-[11px] font-semibold text-ok-700 hover:bg-ok-100 disabled:cursor-not-allowed disabled:opacity-50">
+                            {guardandoEsta ? "…" : "Guardar"}
+                          </button>
+                          {sucia && <span className="text-[10.5px] font-semibold uppercase tracking-wide text-warn-700">sin guardar</span>}
+                        </div>
+                      )}
+                    </div>
                   </td>
                   <td className="px-3 py-2 text-center">
                     <ComentarioAncla tipo="modulos_datos" entityId={encabezadoId} anchor={`tipo:${c.clasificador}`} titulo={`${clasificadorEtiqueta}: ${c.clasificador}`} count={comentarios[`tipo:${c.clasificador}`] ?? 0} />

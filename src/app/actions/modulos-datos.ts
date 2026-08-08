@@ -350,37 +350,50 @@ function normalizarCuenta4(v: string): string {
   return String(v ?? "").replace(/\D/g, "").slice(0, 4);
 }
 
-async function validarCuenta4Modulo(moduloCodigo: string, cuenta4: string): Promise<ActionState | null> {
-  if (cuenta4.length !== 4) return { ok: false, message: "La cuenta debe ser de 4 dígitos." };
-  // Solo cuentas Russell del módulo (p. ej. INV → prefijo 14 del prevalidador).
+
+// Normaliza + deduplica un conjunto de cuentas de 4 díg de un clasificador.
+function normalizarCuentas4(cuentas: string[]): string[] {
+  return [...new Set((cuentas ?? []).map(normalizarCuenta4).filter((c) => c.length === 4))];
+}
+
+// Valida que TODAS las cuentas del conjunto sean de 4 díg y del módulo (una vez).
+async function validarCuentas4Modulo(moduloCodigo: string, cuentas: string[]): Promise<ActionState | null> {
+  const invalidaLargo = cuentas.find((c) => c.length !== 4);
+  if (invalidaLargo) return { ok: false, message: "Cada cuenta debe ser de 4 dígitos." };
   const prefijos = prefijosCuentaModulo(moduloCodigo, await getCatalogoPrevalidador());
-  if (!cuenta4DelModulo(cuenta4, prefijos)) {
+  const fuera = cuentas.find((c) => !cuenta4DelModulo(c, prefijos));
+  if (fuera) {
     const listado = prefijos.length ? prefijos.join(", ") : "—";
-    return {
-      ok: false,
-      message: `La cuenta ${cuenta4} no pertenece al módulo ${moduloCodigo}. Usa una cuenta de estos prefijos: ${listado}.`,
-    };
+    return { ok: false, message: `La cuenta ${fuera} no pertenece al módulo ${moduloCodigo}. Usa una cuenta de estos prefijos: ${listado}.` };
   }
   return null;
 }
 
-export async function guardarConsolidacionModulo(input: { clienteId: number; moduloCodigo: string; clasificador: string; cuenta4: string }): Promise<ActionState> {
+// Reemplaza el CONJUNTO de cuentas de un clasificador dentro de una transacción (tx):
+// borra las que ya tenía y crea las nuevas. Conjunto vacío = deja el clasificador sin cuenta.
+function reemplazarCuentasTx(tx: Prisma.TransactionClient, clienteId: number, moduloCodigo: string, clasificador: string, cuentas: string[], actor: string | null) {
+  return [
+    tx.consolidacionModuloCliente.deleteMany({ where: { clienteId, moduloCodigo, clasificador } }),
+    ...(cuentas.length
+      ? [tx.consolidacionModuloCliente.createMany({ data: cuentas.map((cuenta4) => ({ clienteId, moduloCodigo, clasificador, cuenta4, actualizadoPor: actor })) })]
+      : []),
+  ];
+}
+
+/** Guarda el conjunto de cuentas (1..N) de UN clasificador (reemplaza lo anterior). */
+export async function guardarConsolidacionModulo(input: { clienteId: number; moduloCodigo: string; clasificador: string; cuentas4: string[] }): Promise<ActionState> {
   const moduloCodigo = String(input.moduloCodigo ?? "").trim().toUpperCase();
   if (!descriptorModulo(moduloCodigo)) return { ok: false, message: "Módulo no soportado." };
   const authz = await authorizePermiso("modulos_datos:editar", { clientId: input.clienteId });
   if (!authz.ok) return { ok: false, message: authz.message };
   const clasificador = String(input.clasificador ?? "").trim();
-  const cuenta4 = normalizarCuenta4(input.cuenta4);
   if (!clasificador) return { ok: false, message: "Indica el clasificador." };
-  const invalida = await validarCuenta4Modulo(moduloCodigo, cuenta4);
+  const cuentas4 = normalizarCuentas4(input.cuentas4);
+  const invalida = await validarCuentas4Modulo(moduloCodigo, cuentas4);
   if (invalida) return invalida;
   try {
     const user = await getCurrentUser();
-    await prisma.consolidacionModuloCliente.upsert({
-      where: { clienteId_moduloCodigo_clasificador: { clienteId: input.clienteId, moduloCodigo, clasificador } },
-      create: { clienteId: input.clienteId, moduloCodigo, clasificador, cuenta4, actualizadoPor: user?.name ?? null },
-      update: { cuenta4, actualizadoPor: user?.name ?? null },
-    });
+    await prisma.$transaction(reemplazarCuentasTx(prisma, input.clienteId, moduloCodigo, clasificador, cuentas4, user?.name ?? null));
     revalidatePath(rutaModulo(moduloCodigo));
     return { ok: true, message: "Consolidación guardada." };
   } catch (e) {
@@ -388,11 +401,11 @@ export async function guardarConsolidacionModulo(input: { clienteId: number; mod
   }
 }
 
-/** Guarda de una vez todos los mapeos clasificador → cuenta4 del consolidado. */
+/** Guarda de una vez el conjunto de cuentas de varios clasificadores (reemplaza cada uno). */
 export async function guardarConsolidacionModuloLote(input: {
   clienteId: number;
   moduloCodigo: string;
-  filas: { clasificador: string; cuenta4: string }[];
+  filas: { clasificador: string; cuentas4: string[] }[];
 }): Promise<ActionState> {
   const moduloCodigo = String(input.moduloCodigo ?? "").trim().toUpperCase();
   if (!descriptorModulo(moduloCodigo)) return { ok: false, message: "Módulo no soportado." };
@@ -400,64 +413,19 @@ export async function guardarConsolidacionModuloLote(input: {
   if (!authz.ok) return { ok: false, message: authz.message };
 
   const filas = (input.filas ?? [])
-    .map((f) => ({
-      clasificador: String(f.clasificador ?? "").trim(),
-      cuenta4: normalizarCuenta4(f.cuenta4),
-    }))
+    .map((f) => ({ clasificador: String(f.clasificador ?? "").trim(), cuentas4: normalizarCuentas4(f.cuentas4) }))
     .filter((f) => f.clasificador);
-
   if (filas.length === 0) return { ok: false, message: "No hay cambios para guardar." };
 
-  const sinCuenta = filas.filter((f) => f.cuenta4.length !== 4);
-  if (sinCuenta.length > 0) {
-    return {
-      ok: false,
-      message: `${sinCuenta.length} fila(s) sin cuenta de 4 dígitos. Complétalas antes de guardar todo.`,
-    };
-  }
+  const invalida = await validarCuentas4Modulo(moduloCodigo, filas.flatMap((f) => f.cuentas4));
+  if (invalida) return invalida;
 
   try {
-    const prefijos = prefijosCuentaModulo(moduloCodigo, await getCatalogoPrevalidador());
-    const fueraDeModulo = filas.filter((f) => !cuenta4DelModulo(f.cuenta4, prefijos));
-    if (fueraDeModulo.length > 0) {
-      const ejemplo = fueraDeModulo[0]!;
-      const listado = prefijos.length ? prefijos.join(", ") : "—";
-      return {
-        ok: false,
-        message: `La cuenta ${ejemplo.cuenta4} («${ejemplo.clasificador}») no pertenece al módulo ${moduloCodigo}. Prefijos válidos: ${listado}.`,
-      };
-    }
-
     const user = await getCurrentUser();
     const actor = user?.name ?? null;
-    await prisma.$transaction(
-      filas.map((f) =>
-        prisma.consolidacionModuloCliente.upsert({
-          where: {
-            clienteId_moduloCodigo_clasificador: {
-              clienteId: input.clienteId,
-              moduloCodigo,
-              clasificador: f.clasificador,
-            },
-          },
-          create: {
-            clienteId: input.clienteId,
-            moduloCodigo,
-            clasificador: f.clasificador,
-            cuenta4: f.cuenta4,
-            actualizadoPor: actor,
-          },
-          update: { cuenta4: f.cuenta4, actualizadoPor: actor },
-        }),
-      ),
-    );
+    await prisma.$transaction(filas.flatMap((f) => reemplazarCuentasTx(prisma, input.clienteId, moduloCodigo, f.clasificador, f.cuentas4, actor)));
     revalidatePath(rutaModulo(moduloCodigo));
-    return {
-      ok: true,
-      message: filas.length === 1
-        ? "Consolidación guardada."
-        : `${filas.length} consolidaciones guardadas.`,
-    };
+    return { ok: true, message: filas.length === 1 ? "Consolidación guardada." : `${filas.length} consolidaciones guardadas.` };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("guardarConsolidacionModuloLote", e) };
   }

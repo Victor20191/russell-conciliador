@@ -1145,8 +1145,11 @@ model ConsolidacionModuloCliente {
   creadoEn       DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
   actualizadoEn  DateTime @updatedAt @map("actualizado_en") @db.Timestamptz(3)
 
-  @@unique([clienteId, moduloCodigo, clasificador])
+  // Un clasificador puede cruzar con UNA o VARIAS cuentas de 4 díg (p. ej. el inventario
+  // globalizado contra 1405+1430+1435). La unicidad incluye la cuenta: una fila por par.
+  @@unique([clienteId, moduloCodigo, clasificador, cuenta4], map: "consolidacion_modulo_cliente_clasif_cuenta_key")
   @@index([moduloCodigo, clienteId])
+  @@index([clienteId, moduloCodigo, clasificador], map: "consolidacion_modulo_cliente_cliente_id_modulo_codigo_clasi_idx")
   @@map("consolidacion_modulo_cliente")
 }
 

@@ -43,7 +43,14 @@ export default async function DatoModuloPage({ params }: { params: Promise<{ cod
     getCatalogoPrevalidador(),
     prisma.comment.groupBy({ by: ["anchor"], where: { entityType: "modulos_datos", entityId: encabezadoId }, _count: { _all: true } }),
   ]);
-  const cuentaPorClasificador = new Map(consolidacionRows.map((r) => [r.clasificador, r.cuenta4]));
+  // Un clasificador puede tener 1..N cuentas: agrupamos en lista (ordenada).
+  const cuentasPorClasificador = new Map<string, string[]>();
+  for (const r of consolidacionRows) {
+    const lista = cuentasPorClasificador.get(r.clasificador) ?? [];
+    lista.push(r.cuenta4);
+    cuentasPorClasificador.set(r.clasificador, lista);
+  }
+  for (const [k, v] of cuentasPorClasificador) cuentasPorClasificador.set(k, [...new Set(v)].sort());
   // Nombres del plan completo (por si hay un mapeo legado fuera del módulo).
   const nombrePorCuenta = new Map(subgrupos.map((s) => [s.codigo, s.nombre]));
   const comentariosPorAncla: Record<string, number> = {};
@@ -76,8 +83,7 @@ export default async function DatoModuloPage({ params }: { params: Promise<{ cod
     clasificador: c.clasificador,
     total: c.total,
     filas: c.filas,
-    cuenta4: cuentaPorClasificador.get(c.clasificador) ?? "",
-    nombreCuenta: cuentaPorClasificador.get(c.clasificador) ? nombrePorCuenta.get(cuentaPorClasificador.get(c.clasificador)!) ?? null : null,
+    cuentas4: (cuentasPorClasificador.get(c.clasificador) ?? []).map((cod) => ({ codigo: cod, nombre: nombrePorCuenta.get(cod) ?? null })),
   }));
 
   return (
