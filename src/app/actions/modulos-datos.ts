@@ -11,7 +11,7 @@ import { Prisma } from "@/generated/prisma/client";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
 import { authorizePermiso } from "@/lib/rbac";
-import { mensajeErrorBD } from "@/lib/errores";
+import { mensajeErrorBD, registrarError } from "@/lib/errores";
 import type { ActionState } from "@/lib/definitions";
 import { ingerir, type CeldaCruda } from "@/lib/balance/extraccion/ingesta";
 import { calcularHuella, huellasCandidatas } from "@/lib/balance/extraccion/huella";
@@ -22,10 +22,19 @@ import { transformarModulo } from "@/lib/modulos/extraccion/transformar";
 import { promoverStaging, type FilaStagingModulo } from "@/lib/modulos/promocion";
 
 const rutaModulo = (codigo: string) => `/modulos/${codigo.toLowerCase()}`;
+const LOTE_STAGING_MODULO = 2_000;
+const TIMEOUT_TRANSACCION_MODULO_MS = 15 * 60 * 1000;
 const fechaISO = (v: FormDataEntryValue | null): Date | null => {
   const s = typeof v === "string" ? v.trim() : "";
   return /^\d{4}-\d{2}-\d{2}$/.test(s) ? new Date(`${s}T00:00:00`) : null;
 };
+
+function mensajeErrorLecturaArchivoModulo(contexto: string, e: unknown): string {
+  registrarError(contexto, e);
+  const mensaje = e instanceof Error ? e.message.trim() : "";
+  if (/^(No se pudo leer|El formato|Formato de archivo)/i.test(mensaje)) return mensaje;
+  return "No se pudo leer el archivo. Si es un Excel, ábrelo, guárdalo nuevamente como .xlsx e intenta otra vez.";
+}
 
 // Datos para el editor de mapeo: encabezado + filas de muestra (alineadas por columna)
 // de la MISMA grilla del servidor, para etiquetar los selectores y previsualizar el mapeo.
@@ -62,7 +71,12 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
   if (!(archivo instanceof File) || archivo.size === 0) return { ok: false, message: "Adjunta el archivo del módulo." };
 
   try {
-    const ingesta = await ingerir(await archivo.arrayBuffer(), archivo.name);
+    let ingesta: Awaited<ReturnType<typeof ingerir>>;
+    try {
+      ingesta = await ingerir(await archivo.arrayBuffer(), archivo.name);
+    } catch (e) {
+      return { ok: false, message: mensajeErrorLecturaArchivoModulo("analizarArchivoModulo.ingerir", e) };
+    }
     if (ingesta.modo !== "tabular") return { ok: false, message: "Por ahora solo se admiten archivos tabulares (Excel/CSV)." };
     const hojaElegida = String(formData.get("hoja") ?? "").trim();
     const hoja = ingesta.hojas.find((h) => h.nombre === hojaElegida) ?? ingesta.hojas[0];
@@ -112,7 +126,12 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
     const cliente = await prisma.client.findUnique({ where: { id: clienteId }, select: { name: true } });
     if (!cliente) return { ok: false, message: "El cliente seleccionado ya no existe." };
 
-    const ingesta = await ingerir(await archivo.arrayBuffer(), archivo.name);
+    let ingesta: Awaited<ReturnType<typeof ingerir>>;
+    try {
+      ingesta = await ingerir(await archivo.arrayBuffer(), archivo.name);
+    } catch (e) {
+      return { ok: false, message: mensajeErrorLecturaArchivoModulo("leerDatosModulo.ingerir", e) };
+    }
     if (ingesta.modo !== "tabular") return { ok: false, message: "Por ahora solo se admiten archivos tabulares (Excel/CSV) para módulos." };
     const hojaElegida = String(formData.get("hoja") ?? "").trim();
     const hoja = ingesta.hojas.find((h) => h.nombre === hojaElegida) ?? ingesta.hojas[0];
@@ -145,10 +164,9 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
     const user = await getCurrentUser();
 
     await prisma.$transaction(async (tx) => {
-      const LOTE = 1000;
-      for (let i = 0; i < resultado.filas.length; i += LOTE) {
+      for (let i = 0; i < resultado.filas.length; i += LOTE_STAGING_MODULO) {
         await tx.moduloImportacionStaging.createMany({
-          data: resultado.filas.slice(i, i + LOTE).map((f) => ({
+          data: resultado.filas.slice(i, i + LOTE_STAGING_MODULO).map((f) => ({
             loteId, moduloCodigo, clienteId, hoja: hoja.nombre, filaNum: f.filaNum,
             clasificador: f.clasificador, valor: f.valor, datos: f.datos, tipoFila: f.tipoFila,
           })),
@@ -171,6 +189,9 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
           update: { specJson: spec, vecesUsado: { increment: 1 }, ultimoUsoEn: new Date(), archivoEjemplo: archivo.name, ...(origen === "manual" ? { origen: "manual" } : {}) },
         });
       }
+    }, {
+      maxWait: 5_000,
+      timeout: TIMEOUT_TRANSACCION_MODULO_MS,
     });
 
     await logAudit({ user: user?.name ?? "Sistema", action: `LEYÓ archivo de ${descriptor.label}`, entity: cliente.name, detail: `${resultado.filas.length} filas · ${archivo.name}` });

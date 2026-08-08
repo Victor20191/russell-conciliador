@@ -117,6 +117,55 @@ async function leerLibroExcel(data: ArrayBuffer): Promise<GridHoja[]> {
   });
 }
 
+/**
+ * Respaldo tolerante para OOXML producido por ERPs que Excel abre/repara, pero
+ * cuya metadata no cumple estrictamente el esquema que espera ExcelJS. SheetJS
+ * se usa solo si falla el lector principal: se conservan los valores, aunque un
+ * libro reparado por esta vía puede no exponer la señal visual de negrita.
+ */
+async function leerLibroExcelAlterno(data: ArrayBuffer): Promise<GridHoja[]> {
+  const XLSX = await import("xlsx");
+  const wb = XLSX.read(new Uint8Array(data), {
+    type: "array",
+    raw: true,
+    dense: true,
+    cellDates: false,
+    cellFormula: false,
+    cellHTML: false,
+    bookVBA: false,
+  });
+
+  return wb.SheetNames.map((nombre) => {
+    const ws = wb.Sheets[nombre];
+    if (!ws) return { nombre, filas: [] };
+    const filas = XLSX.utils
+      .sheet_to_json<unknown[]>(ws, {
+        header: 1,
+        raw: true,
+        defval: null,
+        blankrows: false,
+      })
+      .map((fila) => fila.map(celdaXls))
+      .filter(filaTieneDatos);
+    return { nombre, filas };
+  });
+}
+
+async function leerLibroExcelTolerante(data: ArrayBuffer): Promise<GridHoja[]> {
+  try {
+    return await leerLibroExcel(data);
+  } catch (errorExcelJs) {
+    try {
+      return await leerLibroExcelAlterno(data);
+    } catch (errorSheetJs) {
+      throw new AggregateError(
+        [errorExcelJs, errorSheetJs],
+        "No se pudo leer el archivo de Excel. Ábrelo en Excel, guárdalo nuevamente como .xlsx e intenta otra vez.",
+      );
+    }
+  }
+}
+
 // SheetJS 0.20 lee los VALORES de BIFF8, pero elimina el índice XF/fuente de
 // cada celda antes de exponer la hoja (incluso con `cellStyles`). Para un balance
 // por tercero esa pérdida es funcional: SIIGO distingue la cuenta consolidada
@@ -461,7 +510,7 @@ export async function ingerir(data: ArrayBuffer, fileName: string): Promise<Inge
       return { modo: "documento", documento: { tipo: "texto", texto } };
     }
     case "xlsx":
-      return { modo: "tabular", hojas: await leerLibroExcel(data) };
+      return { modo: "tabular", hojas: await leerLibroExcelTolerante(data) };
     case "xls": {
       try {
         return { modo: "tabular", hojas: await leerLibroXls(data) };
@@ -474,7 +523,7 @@ export async function ingerir(data: ArrayBuffer, fileName: string): Promise<Inge
     default:
       // Último intento seguro: probar como OOXML moderno (.xlsx/.xlsm).
       try {
-        return { modo: "tabular", hojas: await leerLibroExcel(data) };
+        return { modo: "tabular", hojas: await leerLibroExcelTolerante(data) };
       } catch {
         throw new Error("Formato de archivo no reconocido. Usa Excel (.xlsx/.xlsm/.xls), CSV, TXT (plano), JSON o PDF.");
       }

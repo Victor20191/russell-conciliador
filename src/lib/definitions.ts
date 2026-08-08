@@ -34,6 +34,27 @@ export type ActionState = {
   message?: string;
 };
 
+export const SupportTicketCreateSchema = z.object({
+  firstName: z.string().trim().min(2, { error: "Ingresa tu nombre." }).max(80, { error: "El nombre es demasiado largo." }),
+  lastName: z.string().trim().min(2, { error: "Ingresa tu apellido." }).max(80, { error: "El apellido es demasiado largo." }),
+  subject: z.string().trim().min(5, { error: "Describe brevemente el motivo del ticket." }).max(160, { error: "El asunto es demasiado largo." }),
+  description: z.string().trim().min(10, { error: "Cuéntanos con un poco más de detalle qué ocurrió." }).max(5000, { error: "La descripción es demasiado larga." }),
+  // Campo trampa: los navegadores reales lo dejan vacio. Evita altas basicas de
+  // bots sin pedir CAPTCHA ni crear friccion para el usuario.
+  website: z.string().max(0, { error: "No fue posible enviar el ticket." }),
+});
+
+export const SupportTicketSolutionSchema = z.object({
+  ticketId: z.coerce.number({ error: "Ticket inválido." }).int().positive({ error: "Ticket inválido." }),
+  updatedAt: z.string().datetime({ offset: true, error: "La versión del ticket no es válida." }),
+  solution: z.string().trim().min(10, { error: "Explica cómo se solucionó la solicitud." }).max(5000, { error: "La solución es demasiado larga." }),
+});
+
+export type SupportTicketCreateState = ActionState & {
+  code?: string;
+  trackingUrl?: string;
+};
+
 export const ModuleFieldSchema = z.object({
   moduleId: z.coerce.number().int().positive(),
   key: z

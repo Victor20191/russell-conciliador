@@ -1,0 +1,24 @@
+import { createHash, randomBytes } from "node:crypto";
+import { fechaColombiaISO } from "@/lib/fecha-hora";
+
+export const ESTADO_TICKET_ABIERTO = "abierto";
+export const ESTADO_TICKET_RESUELTO = "resuelto";
+
+export function crearCodigoTicket(ahora: Date = new Date(), sufijo?: string): string {
+  const fecha = fechaColombiaISO(ahora).replaceAll("-", "");
+  const aleatorio = (sufijo ?? randomBytes(4).toString("hex")).replace(/[^a-z0-9]/gi, "").slice(0, 8).toUpperCase();
+  if (aleatorio.length !== 8) throw new Error("No fue posible generar el código del ticket.");
+  return `TKT-${fecha}-${aleatorio}`;
+}
+
+export function crearTokenAccesoTicket(): string {
+  return randomBytes(32).toString("base64url");
+}
+
+export function huellaTokenAcceso(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+export function crearUrlSeguimiento(code: string, token: string): string {
+  return `/soporte/tickets/${encodeURIComponent(code)}?acceso=${encodeURIComponent(token)}`;
+}

@@ -3,13 +3,15 @@ import type { NextRequest } from "next/server";
 import { jwtVerify } from "jose";
 import { getEncodedSessionSecret } from "@/lib/session-secret";
 
-const PUBLIC_ROUTES = ["/login"];
+function isPublicRoute(path: string): boolean {
+  return path === "/" || path === "/login" || path === "/soporte" || path.startsWith("/soporte/");
+}
 
 // Verificación optimista: solo valida la firma del JWT desde la cookie.
 // La verificación segura (DB) ocurre en el DAL (verifySession/getCurrentUser).
 export default async function proxy(req: NextRequest) {
   const path = req.nextUrl.pathname;
-  const isPublic = PUBLIC_ROUTES.includes(path);
+  const isPublic = isPublicRoute(path);
 
   const token = req.cookies.get("session")?.value;
   let authenticated = false;
@@ -29,7 +31,7 @@ export default async function proxy(req: NextRequest) {
     return res;
   }
 
-  if (isPublic && authenticated) {
+  if (path === "/login" && authenticated) {
     return NextResponse.redirect(new URL("/dashboard", req.nextUrl));
   }
 

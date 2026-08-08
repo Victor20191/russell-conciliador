@@ -29,6 +29,7 @@ const MENSAJES_PRISMA: Record<string, string> = {
   P2000: "Uno de los valores es demasiado largo para el campo.",
   P2014: "La operación rompería una relación requerida entre registros.",
   P2025: "El registro ya no existe o fue modificado por otra persona. Recarga la página e intenta de nuevo.",
+  P2028: "La carga tardó más de lo permitido y la base de datos la canceló de forma segura. Intenta nuevamente; si persiste, avisa al administrador.",
   // Conexión / disponibilidad de la base de datos
   P1000: "No se pudo autenticar contra la base de datos.",
   P1001: "No hay conexión con la base de datos. Intenta de nuevo en unos segundos.",

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import * as XLSX from "xlsx";
+import JSZip from "jszip";
 import { construirVistaPrevia, detectarDelimitador, detectarFormato, extraerCeldasNegritaBiffXls, ingerir, type GridHoja } from "./ingesta";
 
 function buf(texto: string, encoding: BufferEncoding = "utf-8"): ArrayBuffer {
@@ -13,6 +14,27 @@ function libroXls(hojas: Record<string, (string | number)[][]>): ArrayBuffer {
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(filas), nombre);
   }
   return XLSX.write(wb, { type: "array", bookType: "biff8" }) as ArrayBuffer;
+}
+
+async function libroXlsxConMetadataTolerada(): Promise<ArrayBuffer> {
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ["Tipo", "Referencia", "Valor total"],
+    ["Mercancía", "A-1", 1234.5],
+  ]), "Inventario");
+  const base = XLSX.write(wb, { type: "array", bookType: "xlsx" }) as ArrayBuffer;
+  const zip = await JSZip.loadAsync(base);
+  const ruta = "xl/worksheets/sheet1.xml";
+  const hoja = await zip.file(ruta)?.async("string");
+  if (!hoja) throw new Error("Hoja OOXML no encontrada");
+  // Algunos ERP omiten el número de una fila. Excel/SheetJS lo reparan, pero
+  // ExcelJS rechaza la metadata con «Invalid row number in model».
+  zip.file(ruta, hoja.replace('r="1"', 'r=""'));
+  const reparable = await zip.generateAsync({ type: "uint8array" });
+  return reparable.buffer.slice(
+    reparable.byteOffset,
+    reparable.byteOffset + reparable.byteLength,
+  ) as ArrayBuffer;
 }
 
 function fuentePredeterminadaNegritaXls(data: ArrayBuffer): ArrayBuffer {
@@ -70,6 +92,21 @@ describe("detectarFormato", () => {
     const data = libroXls({ Balance: [["Código", "Cuenta"], ["110505", "Caja"]] });
     expect(detectarFormato("balanza.XLS", data)).toBe("xls");
     expect(detectarFormato("balanza_sin_extension", data)).toBe("xls");
+  });
+});
+
+describe("ingerir Excel moderno (.xlsx)", () => {
+  it("usa el lector alterno cuando la metadata del ERP es reparable", async () => {
+    const ingesta = await ingerir(await libroXlsxConMetadataTolerada(), "inventario.xlsx");
+    expect(ingesta.modo).toBe("tabular");
+    if (ingesta.modo !== "tabular") return;
+    expect(ingesta.hojas[0]).toMatchObject({
+      nombre: "Inventario",
+      filas: [
+        ["Tipo", "Referencia", "Valor total"],
+        ["Mercancía", "A-1", 1234.5],
+      ],
+    });
   });
 });
 

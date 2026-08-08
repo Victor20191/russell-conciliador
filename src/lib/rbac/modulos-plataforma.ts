@@ -19,7 +19,8 @@ export type PlatformModuleKey =
   | "estructura"
   | "prompts"
   | "parametros"
-  | "perfiles_carga";
+  | "perfiles_carga"
+  | "soporte";
 
 export type PlatformModuleDefinition = {
   key: PlatformModuleKey;
@@ -254,6 +255,19 @@ export const MODULOS_PLATAFORMA: PlatformModuleDefinition[] = [
     order: 220,
     enabledForNonAdmins: false,
     configurableForNonAdmins: true,
+  },
+  {
+    // Admin-only: el portal de reporte/seguimiento vive fuera del cascaron y es
+    // publico; esta definicion corresponde exclusivamente a la bandeja interna.
+    // La visibilidad la gobierna `soporte:administrar` (SOLO_ADMIN).
+    key: "soporte",
+    label: "Tickets de soporte",
+    description: "Bandeja interna para consultar solicitudes y documentar su solucion.",
+    group: "Configuración",
+    icon: "bell",
+    order: 230,
+    enabledForNonAdmins: false,
+    configurableForNonAdmins: false,
   },
 ];
 
