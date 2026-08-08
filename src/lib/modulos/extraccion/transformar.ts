@@ -17,6 +17,9 @@ import type { SpecModulo } from "./esquema";
 export type TipoFilaModulo = "movimiento" | "agrupadora" | "total";
 export type ValorCelda = string | number | null;
 
+// Etiqueta del clasificador cuando el inventario es GLOBAL (un solo valor para todo el archivo).
+export const CLASIFICADOR_GLOBAL = "GLOBAL";
+
 export type FilaModulo = {
   filaNum: number; // 1-based en la hoja origen
   clasificador: string | null;
@@ -144,7 +147,11 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
 
     // 4) Promover clasificador + valor (los campos que consolida el descriptor), según el modo.
     let clasificador = aTexto(datos[descriptor.clasificador]);
-    if (modo === "seccion") {
+    if (modo === "global") {
+      // Inventario GLOBAL: todo el archivo cae en un único clasificador.
+      clasificador = CLASIFICADOR_GLOBAL;
+      datos[descriptor.clasificador] = CLASIFICADOR_GLOBAL;
+    } else if (modo === "seccion") {
       // El tipo del ítem es la sección vigente (la columna del clasificador trae otro dato,
       // p. ej. el código, que se conserva en su rol propio —referencia—).
       clasificador = seccionActual;

@@ -231,7 +231,7 @@ function CargarModal({
   const leer = () => {
     if (!bufferRef.current || !spec) { notifyError("Falta analizar el archivo."); return; }
     if (clienteId == null) { notifyError("Selecciona el cliente."); return; }
-    const faltantes = roles.filter((rc) => rc.requerido && (spec.columnas[rc.nombre] ?? 0) < 1);
+    const faltantes = roles.filter((rc) => rc.requerido && !(rc.nombre === clasificadorRol && modo === "global") && (spec.columnas[rc.nombre] ?? 0) < 1);
     if (faltantes.length) { notifyError("Faltan columnas obligatorias: " + faltantes.map((f) => f.etiqueta).join(", ") + "."); return; }
     startLeer(async () => {
       const fd = new FormData();
@@ -259,9 +259,15 @@ function CargarModal({
   const setCol = (rol: string, col: number) => setSpec((s) => (s ? { ...s, columnas: { ...s.columnas, [rol]: col } } : s));
   const setEnc = (v: number) => setSpec((s) => (s ? { ...s, filaEncabezado: v } : s));
   const setDat = (v: number) => setSpec((s) => (s ? { ...s, primeraFilaDatos: v } : s));
-  const modo: "columna" | "arrastrar" | "seccion" = spec?.clasificadorModo ?? (spec?.arrastrarClasificador ? "arrastrar" : "columna");
-  const setModo = (m: "columna" | "arrastrar" | "seccion") =>
+  const modo: "columna" | "arrastrar" | "seccion" | "global" = spec?.clasificadorModo ?? (spec?.arrastrarClasificador ? "arrastrar" : "columna");
+  const setModo = (m: "columna" | "arrastrar" | "seccion" | "global") =>
     setSpec((s) => (s ? { ...s, clasificadorModo: m, arrastrarClasificador: m === "arrastrar" ? true : undefined, seccionColumnaVaciaRol: m === "seccion" ? s.seccionColumnaVaciaRol ?? "descripcion" : undefined } : s));
+  // Selección del clasificador: -1 = Inventario globalizado (un solo valor); ≥1 = columna.
+  const onSelectClasificador = (v: number) => {
+    if (v === -1) { setModo("global"); return; }
+    setCol(clasificadorRol, v);
+    if (modo === "global") setModo("columna");
+  };
   const setSeccionRol = (rol: string) => setSpec((s) => (s ? { ...s, seccionColumnaVaciaRol: rol } : s));
 
   // Etiqueta de cada columna para los selectores: «C · "Encabezado" (muestra, muestra)».
@@ -393,11 +399,12 @@ function CargarModal({
                     </div>
                     <div className="flex min-w-0 flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2">
                       <select
-                        value={spec?.columnas[rc.nombre] ?? 0}
-                        onChange={(e) => setCol(rc.nombre, Number(e.target.value))}
+                        value={rc.nombre === clasificadorRol && modo === "global" ? -1 : spec?.columnas[rc.nombre] ?? 0}
+                        onChange={(e) => (rc.nombre === clasificadorRol ? onSelectClasificador(Number(e.target.value)) : setCol(rc.nombre, Number(e.target.value)))}
                         className="w-full min-w-0 flex-1 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400"
                       >
                         <option value={0}>— sin mapear —</option>
+                        {rc.nombre === clasificadorRol && <option value={-1}>🌐 Inventario globalizado (un solo valor global)</option>}
                         {opcionesColumna().map((o) => (
                           <option key={o.index1} value={o.index1}>{o.label}</option>
                         ))}
@@ -416,14 +423,18 @@ function CargarModal({
           </div>
 
           <div className="flex flex-col gap-2 rounded-md border border-ink-150 bg-ink-50 px-3 py-2.5">
-            <label className="flex min-w-0 flex-col gap-1">
-              <span className="text-[11px] font-medium text-ink-600">¿Cómo viene el {roles.find((r) => r.nombre === clasificadorRol)?.etiqueta.toLowerCase() ?? "tipo"}?</span>
-              <select value={modo} onChange={(e) => setModo(e.target.value as typeof modo)} className="w-full min-w-0 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400">
-                <option value="columna">En su propia columna, en cada fila</option>
-                <option value="arrastrar">Agrupado en su columna (una vez por bloque; se arrastra){clasifEsparso ? " · recomendado" : ""}</option>
-                <option value="seccion">En renglones de sección (encabezados de grupo) intercalados con los ítems</option>
-              </select>
-            </label>
+            {modo === "global" ? (
+              <span className="text-[11.5px] leading-snug text-ink-600">🌐 <b>Inventario globalizado</b>: todo el archivo se carga como un único inventario (un solo valor global). En el consolidado le asignas UNA cuenta.</span>
+            ) : (
+              <label className="flex min-w-0 flex-col gap-1">
+                <span className="text-[11px] font-medium text-ink-600">¿Cómo viene el {roles.find((r) => r.nombre === clasificadorRol)?.etiqueta.toLowerCase() ?? "tipo"}?</span>
+                <select value={modo} onChange={(e) => setModo(e.target.value as typeof modo)} className="w-full min-w-0 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400">
+                  <option value="columna">En su propia columna, en cada fila</option>
+                  <option value="arrastrar">Agrupado en su columna (una vez por bloque; se arrastra){clasifEsparso ? " · recomendado" : ""}</option>
+                  <option value="seccion">En renglones de sección (encabezados de grupo) intercalados con los ítems</option>
+                </select>
+              </label>
+            )}
             {modo === "seccion" && (
               <label className="flex min-w-0 flex-col gap-1">
                 <span className="text-[11px] font-medium text-ink-600">El renglón de sección se reconoce porque está vacía la columna:</span>
