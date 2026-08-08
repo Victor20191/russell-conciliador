@@ -8,7 +8,7 @@ import { Card } from "@/components/ui";
 import { SelectorClienteBuscable } from "@/components/selector-cliente-buscable";
 import { fmtContable, fmtDate, fmtDateTime } from "@/lib/format";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
-import { columnaLetra } from "@/lib/balance/extraccion/hojas-cliente";
+import { columnaLetra, leerHojasParaPreview, type HojaPreview } from "@/lib/balance/extraccion/hojas-cliente";
 import ConversacionesEntidad from "@/components/conversaciones-entidad";
 import type { SpecModulo } from "@/lib/modulos/extraccion/esquema";
 import { leerDatosModulo, analizarArchivoModulo, type AnalisisModulo, type CeldaMuestra } from "@/app/actions/modulos-datos";
@@ -166,6 +166,8 @@ function CargarModal({
   const [tieneArchivo, setTieneArchivo] = useState(false);
   const [nombreArchivo, setNombreArchivo] = useState("");
   const [clienteId, setClienteId] = useState<number | null>(null);
+  const [hojas, setHojas] = useState<HojaPreview[]>([]);
+  const [hoja, setHoja] = useState("");
   const [fase, setFase] = useState<"archivo" | "mapeo">("archivo");
   const [analisis, setAnalisis] = useState<AnalisisModulo | null>(null);
   const [spec, setSpec] = useState<SpecModulo | null>(null);
@@ -181,11 +183,17 @@ function CargarModal({
     setTieneArchivo(false);
     setAnalisis(null);
     setSpec(null);
+    setHojas([]);
+    setHoja("");
     setFase("archivo");
     try {
       bufferRef.current = await f.arrayBuffer();
       nombreRef.current = f.name;
       setNombreArchivo(f.name);
+      // Listar las hojas del libro para que el usuario elija cuál importar (como en balance).
+      const hs = await leerHojasParaPreview(f).catch(() => [] as HojaPreview[]);
+      setHojas(hs);
+      setHoja(hs[0]?.nombre ?? "");
       setTieneArchivo(true);
     } catch {
       notifyError("No pudimos leer el archivo. Suele pasar si está ABIERTO en Excel o sincronizándose en OneDrive: ciérralo e intenta de nuevo.");
@@ -194,14 +202,15 @@ function CargarModal({
     }
   };
 
-  const analizar = (hoja?: string) => {
+  const analizar = (hojaArg?: string) => {
     if (!bufferRef.current) { notifyError("Adjunta el archivo."); return; }
     if (clienteId == null) { notifyError("Selecciona el cliente."); return; }
+    const hojaElegida = hojaArg ?? hoja;
     startAnalizar(async () => {
       const fd = new FormData();
       fd.set("moduloCodigo", moduloCodigo);
       fd.set("clienteId", String(clienteId));
-      if (hoja) fd.set("hoja", hoja);
+      if (hojaElegida) fd.set("hoja", hojaElegida);
       fd.set("archivo", new File([bufferRef.current!], nombreRef.current));
       try {
         const r = await analizarArchivoModulo(fd);
@@ -323,6 +332,15 @@ function CargarModal({
             {tieneArchivo && !leyendoArchivo && <span className="text-[11px] text-ok-700">Listo: {nombreArchivo}</span>}
           </label>
 
+          {hojas.length > 1 && (
+            <label className="flex flex-col gap-1">
+              <span className="text-[11px] font-medium text-ink-600">Hoja a importar</span>
+              <select value={hoja} onChange={(e) => setHoja(e.target.value)} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-ink-700 outline-none focus:border-blue-400">
+                {hojas.map((h) => <option key={h.nombre} value={h.nombre}>{h.nombre} ({h.totalFilas} filas)</option>)}
+              </select>
+            </label>
+          )}
+
           <p className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[11.5px] leading-relaxed text-blue-800">
             Al analizar, el sistema sugiere qué columna es cada campo. En el siguiente paso podrás corregir el mapeo, marcar si el tipo viene agrupado, y se guardará el perfil para las próximas cargas de este cliente.
           </p>
@@ -336,7 +354,7 @@ function CargarModal({
           {(analisis?.hojas?.length ?? 0) > 1 && (
             <label className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
               <span className="shrink-0 text-[11px] font-medium text-ink-600">Hoja</span>
-              <select value={spec?.hoja ?? ""} onChange={(e) => analizar(e.target.value)} className="min-w-0 max-w-full rounded-md border border-ink-200 bg-white px-2 py-1.5 text-ink-700 outline-none focus:border-blue-400">
+              <select value={spec?.hoja ?? ""} onChange={(e) => { setHoja(e.target.value); analizar(e.target.value); }} className="min-w-0 max-w-full rounded-md border border-ink-200 bg-white px-2 py-1.5 text-ink-700 outline-none focus:border-blue-400">
                 {analisis?.hojas?.map((h) => <option key={h} value={h}>{h}</option>)}
               </select>
               <span className="shrink-0 text-[11px] text-ink-400">{analisis?.totalFilas} filas</span>
