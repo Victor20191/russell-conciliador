@@ -2,7 +2,9 @@
 
 import { Fragment, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Card } from "@/components/ui";
+import Link from "next/link";
+import { Card, Chip } from "@/components/ui";
+import { Icon } from "@/components/icons";
 import { fmtContable, fmtNum } from "@/lib/format";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import ComentarioAncla from "@/components/comentario-ancla";
@@ -19,7 +21,68 @@ export type FilaBorradorModulo = {
   omitida: boolean | null;
 };
 type Columna = { nombre: string; etiqueta: string; tipo: string };
+type VersionHermanaBorradorModulo = { loteId: string; version: number; archivoNombre: string; fecha: string };
 const FILTRO_NOVEDADES = "__novedades__";
+
+function MenuVersionesBorradorModulo({
+  moduloCodigo,
+  loteId,
+  hermanos,
+}: {
+  moduloCodigo: string;
+  loteId: string;
+  hermanos: VersionHermanaBorradorModulo[];
+}) {
+  const [abierto, setAbierto] = useState(false);
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setAbierto((valor) => !valor)}
+        aria-expanded={abierto}
+        title="Versiones en borrador de este cliente y período"
+        className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-white px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50"
+      >
+        <Icon name="log" size={12} />
+        Versiones
+        <span className="rounded-full bg-ink-100 px-1.5 text-[10px] font-semibold text-ink-600">{hermanos.length}</span>
+        <Icon name="chev-d" size={11} />
+      </button>
+      {abierto && (
+        <>
+          <div className="fixed inset-0 z-30" onClick={() => setAbierto(false)} />
+          <div className="absolute right-0 z-40 mt-1 w-[24rem] overflow-hidden rounded-md border border-ink-200 bg-white shadow-lg">
+            <div className="border-b border-ink-100 bg-ink-50 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-ink-500">
+              Borradores de este cliente y período
+            </div>
+            <div className="max-h-72 overflow-y-auto">
+              {hermanos.map((hermano) => {
+                const actual = hermano.loteId === loteId;
+                return (
+                  <div key={hermano.loteId} className={`flex items-center gap-2 border-b border-ink-50 px-3 py-2 last:border-0 ${actual ? "bg-blue-50/60" : "hover:bg-ink-50"}`}>
+                    <span className="w-12 shrink-0">
+                      {actual ? (
+                        <Chip label={`v${hermano.version}`} tone="blue" />
+                      ) : (
+                        <Link href={`/modulos/${moduloCodigo.toLowerCase()}/borradores/${hermano.loteId}`} className="text-[12px] font-semibold text-blue-600 hover:underline">
+                          v{hermano.version}
+                        </Link>
+                      )}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[11.5px] text-ink-700" title={hermano.archivoNombre}>{hermano.archivoNombre}</span>
+                      <span className="block text-[10.5px] text-ink-400">{hermano.fecha}{actual ? " · estás aquí" : ""}</span>
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 export default function BorradorModuloClient({
   moduloCodigo,
@@ -34,6 +97,8 @@ export default function BorradorModuloClient({
   productos,
   verificaciones,
   filas,
+  version,
+  hermanos,
 }: {
   moduloCodigo: string;
   loteId: string;
@@ -48,6 +113,8 @@ export default function BorradorModuloClient({
   productos: { resultado: string; cantidad: string; unitario: string }[];
   verificaciones: { id: string; texto: string }[];
   filas: FilaBorradorModulo[];
+  version: number | null;
+  hermanos: VersionHermanaBorradorModulo[];
 }) {
   const router = useRouter();
   const clasificadorEtiqueta = columnas.find((c) => c.nombre === clasificadorRol)?.etiqueta ?? "Tipo";
@@ -73,7 +140,9 @@ export default function BorradorModuloClient({
     [filas, overrideTipo, overrideOmit],
   );
 
-  const hayCambios = Object.keys(overrideTipo).length + Object.keys(overrideOmit).length > 0;
+  const hayCambiosFilas = Object.keys(overrideTipo).length + Object.keys(overrideOmit).length > 0;
+  const periodoCambiado = periodo !== periodoSugerido;
+  const hayCambios = hayCambiosFilas || periodoCambiado;
   // Renglón "en cero": todas las columnas numéricas en 0 → NO se lleva al definitivo.
   const enCero = (f: FilaBorradorModulo) => filaEnCero(f.datos, columnasNumericas);
   const imputables = efectivas.filter((f) => f.tipoFila === "movimiento" && f.omitida !== true && !enCero(f));
@@ -107,7 +176,7 @@ export default function BorradorModuloClient({
       const m = new Map<number, { filaNum: number; tipoFila?: string; omitida?: boolean }>();
       for (const [fn, t] of Object.entries(overrideTipo)) m.set(+fn, { ...(m.get(+fn) ?? { filaNum: +fn }), filaNum: +fn, tipoFila: t });
       for (const [fn, o] of Object.entries(overrideOmit)) m.set(+fn, { ...(m.get(+fn) ?? { filaNum: +fn }), filaNum: +fn, omitida: o });
-      const r = await aplicarCambiosBorradorModulo(loteId, [...m.values()]);
+      const r = await aplicarCambiosBorradorModulo(loteId, [...m.values()], periodo);
       if (r.ok) {
         notifySuccess(r.message ?? "Cambios guardados.");
         setOverrideTipo({});
@@ -179,7 +248,11 @@ export default function BorradorModuloClient({
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2 text-[12.5px]">
         <span className="text-ink-600">Cliente: <span className="font-semibold text-ink-800">{cliente}</span> · {imputables.length} filas imputables · total <span className="font-semibold">{fmtContable(total)}</span></span>
-        {hayCambios && <span className="text-[11.5px] font-medium text-warn-700">Tienes cambios sin guardar.</span>}
+        <span className="flex items-center gap-2">
+          {hayCambios && <span className="text-[11.5px] font-medium text-warn-700">Tienes cambios sin guardar.</span>}
+          {version && <Chip label={`Borrador v${version}`} tone="blue" />}
+          {hermanos.length > 1 && <MenuVersionesBorradorModulo moduloCodigo={moduloCodigo} loteId={loteId} hermanos={hermanos} />}
+        </span>
       </div>
 
       {/* Novedades: validación automática + checklist de verificación (arriba para que se vea siempre) */}

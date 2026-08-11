@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import prisma from "@/lib/prisma";
 import { requirePermiso, authorizePermiso } from "@/lib/rbac";
 import { PageHeader, BackLink } from "@/components/ui";
@@ -11,11 +12,18 @@ import {
 import { consolidarPorClasificador } from "@/lib/modulos/promocion";
 import { detectarNegativos, detectarDescuadres } from "@/lib/modulos/validaciones";
 import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
-import DatoCargadoClient, { type FilaDetalleVm, type ConsolidadoVm, type NovedadesVm } from "./dato-cargado-client";
+import { fmtDateTime } from "@/lib/format";
+import DatoCargadoClient, { type FilaDetalleVm, type ConsolidadoVm, type NovedadesVm, type VersionModuloVm } from "./dato-cargado-client";
 
-export default async function DatoModuloPage({ params }: { params: Promise<{ codigo: string; id: string }> }) {
+export default async function DatoModuloPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ codigo: string; id: string }>;
+  searchParams: Promise<{ tab?: string }>;
+}) {
   await requirePermiso("modulos_datos:ver");
-  const { codigo, id } = await params;
+  const [{ codigo, id }, query] = await Promise.all([params, searchParams]);
   const moduloCodigo = codigo.toUpperCase();
   const descriptor = descriptorModulo(moduloCodigo);
   const encabezadoId = Number(id);
@@ -34,7 +42,7 @@ export default async function DatoModuloPage({ params }: { params: Promise<{ cod
   // ¿Puede editar la consolidación de este cliente?
   const puedeEditar = (await authorizePermiso("modulos_datos:editar", { clientId: encabezado.clienteId })).ok;
 
-  const [consolidacionRows, subgrupos, catalogoPrevalidador, comentariosGrp, cuentasCliente] = await Promise.all([
+  const [consolidacionRows, subgrupos, catalogoPrevalidador, comentariosGrp, cuentasCliente, hermanos] = await Promise.all([
     prisma.consolidacionModuloCliente.findMany({
       where: { clienteId: encabezado.clienteId, moduloCodigo },
       select: { clasificador: true, cuenta4: true },
@@ -47,6 +55,27 @@ export default async function DatoModuloPage({ params }: { params: Promise<{ cod
       where: { clienteId: encabezado.clienteId, cuenta6Russell: { not: null } },
       select: { code: true, name: true, level: true, cuenta6Russell: true },
       orderBy: { code: "asc" },
+    }),
+    prisma.moduloDatoEncabezado.findMany({
+      where: {
+        clienteId: encabezado.clienteId,
+        moduloCodigo,
+        periodo: encabezado.periodo,
+      },
+      orderBy: [{ version: "desc" }, { ultimaCarga: "desc" }, { id: "desc" }],
+      select: {
+        id: true,
+        version: true,
+        esOficial: true,
+        filas: true,
+        total: true,
+        archivoNombre: true,
+        archivoTam: true,
+        origenExtraccion: true,
+        observaciones: true,
+        cargadoPor: true,
+        ultimaCarga: true,
+      },
     }),
   ]);
   // Un clasificador puede tener 1..N cuentas: agrupamos en lista (ordenada).
@@ -99,14 +128,36 @@ export default async function DatoModuloPage({ params }: { params: Promise<{ cod
     filas: c.filas,
     cuentas4: (cuentasPorClasificador.get(c.clasificador) ?? []).map((cod) => ({ codigo: cod, nombre: nombrePorCuenta.get(cod) ?? null })),
   }));
+  const versiones: VersionModuloVm[] = hermanos.map((hermano) => ({
+    id: hermano.id,
+    version: hermano.version,
+    esOficial: hermano.esOficial,
+    filas: hermano.filas,
+    total: Number(hermano.total),
+    archivoNombre: hermano.archivoNombre,
+    archivoTam: hermano.archivoTam,
+    origenExtraccion: hermano.origenExtraccion,
+    observaciones: hermano.observaciones,
+    cargadoPor: hermano.cargadoPor,
+    ultimaCarga: fmtDateTime(hermano.ultimaCarga),
+  }));
+  const vigente = hermanos.find((hermano) => hermano.esOficial) ?? hermanos[0] ?? null;
 
   return (
     <div>
       <div className="mb-3"><BackLink href={`/modulos/${codigo.toLowerCase()}`} label={`Volver a ${descriptor.label}`} /></div>
       <PageHeader
         title={`${descriptor.label} · ${encabezado.nombreCliente}`}
-        subtitle={`Período ${encabezado.periodo} · v${encabezado.version} · ${encabezado.filas} filas`}
+        subtitle={`Período ${encabezado.periodo} · v${encabezado.version}${encabezado.esOficial ? " vigente" : " histórica"} · ${encabezado.filas} filas`}
       />
+      {!encabezado.esOficial && vigente && vigente.id !== encabezado.id && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">
+          <span>Estás consultando una versión histórica. La versión vigente es v{vigente.version}.</span>
+          <Link href={`/modulos/${codigo.toLowerCase()}/${vigente.id}?tab=versiones`} className="font-semibold text-blue-700 hover:underline">
+            Abrir versión vigente
+          </Link>
+        </div>
+      )}
       <DatoCargadoClient
         moduloCodigo={moduloCodigo}
         encabezadoId={encabezado.id}
@@ -121,6 +172,9 @@ export default async function DatoModuloPage({ params }: { params: Promise<{ cod
         cuentas={cuentasModulo.map((s) => ({ codigo: s.codigo, nombre: s.nombre }))}
         homologacionCliente={homologacionPorSubgrupo}
         puedeEditar={puedeEditar}
+        versiones={versiones}
+        versionActualId={encabezado.id}
+        tabInicial={query.tab === "versiones" ? "versiones" : null}
       />
       <div className="mt-4">
         <Conversacion

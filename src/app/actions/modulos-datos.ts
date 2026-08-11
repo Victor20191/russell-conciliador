@@ -21,12 +21,16 @@ import { SpecModuloSchema, type SpecModulo } from "@/lib/modulos/extraccion/esqu
 import { sugerirSpec } from "@/lib/modulos/extraccion/sugerir";
 import { transformarModulo } from "@/lib/modulos/extraccion/transformar";
 import { promoverStaging, type FilaStagingModulo } from "@/lib/modulos/promocion";
-import { refRolDe, clavesDeDetalle, decidirCarga, itemsRepetidos, remapFilas } from "@/lib/modulos/fraccionamiento";
 import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
+import { tomarCandadoTransaccion, transaccionSerializable } from "@/lib/concurrency";
 
 const rutaModulo = (codigo: string) => `/modulos/${codigo.toLowerCase()}`;
 const LOTE_STAGING_MODULO = 2_000;
 const TIMEOUT_TRANSACCION_MODULO_MS = 15 * 60 * 1000;
+const tamArchivo = (bytes: number): string => {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1).replace(".", ",")} MB`;
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+};
 const fechaISO = (v: FormDataEntryValue | null): Date | null => {
   const s = typeof v === "string" ? v.trim() : "";
   return /^\d{4}-\d{2}-\d{2}$/.test(s) ? new Date(`${s}T00:00:00`) : null;
@@ -54,6 +58,29 @@ export type AnalisisModulo = {
   spec?: SpecModulo;
   origen?: "perfil" | "ia";
 };
+
+async function specPerfilModulo(
+  clienteId: number,
+  moduloCodigo: string,
+  candidatas: { huella: string }[],
+): Promise<SpecModulo | null> {
+  if (candidatas.length === 0) return null;
+  const perfiles = await prisma.perfilCargaModulo.findMany({
+    where: { clienteId, moduloCodigo, huella: { in: candidatas.map((c) => c.huella) } },
+    select: { huella: true, specJson: true },
+  });
+  const porHuella = new Map(perfiles.map((perfil) => [perfil.huella, perfil.specJson]));
+  for (const candidata of candidatas) {
+    const perfil = porHuella.get(candidata.huella);
+    if (perfil == null) continue;
+    const parsed = SpecModuloSchema.safeParse(perfil);
+    if (parsed.success) return parsed.data;
+  }
+  return null;
+}
+
+const mismoSpecModulo = (a: SpecModulo, b: SpecModulo): boolean =>
+  JSON.stringify(a) === JSON.stringify(b);
 
 // ============================================================
 // ANALIZAR: lee el archivo (SIN escribir) y devuelve la grilla del servidor + spec
@@ -87,12 +114,9 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
 
     // Spec de partida: perfil por huella si existe, si no el heurístico.
     const candidatas = huellasCandidatas([hoja]);
-    const perfil = candidatas.length
-      ? await prisma.perfilCargaModulo.findFirst({ where: { clienteId, moduloCodigo, huella: { in: candidatas.map((c) => c.huella) } } })
-      : null;
-    const perfilSpec = perfil ? SpecModuloSchema.safeParse(perfil.specJson) : null;
-    const spec = perfilSpec?.success ? perfilSpec.data : sugerirSpec(descriptor, hoja);
-    const origen: "perfil" | "ia" = perfilSpec?.success ? "perfil" : "ia";
+    const perfilSpec = await specPerfilModulo(clienteId, moduloCodigo, candidatas);
+    const spec = perfilSpec ?? sugerirSpec(descriptor, hoja);
+    const origen: "perfil" | "ia" = perfilSpec ? "perfil" : "ia";
 
     // Encabezado + primeras filas de datos (todas las columnas) para el editor y el preview.
     const ancho = hoja.filas.reduce((m, f) => Math.max(m, f?.length ?? 0), 0);
@@ -148,14 +172,16 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
       const parsed = SpecModuloSchema.safeParse(JSON.parse(specEditadoRaw));
       if (!parsed.success) return { ok: false, message: "El mapeo de columnas no es válido." };
       spec = parsed.data;
-      origen = "manual";
+      // El origen es metadata de auditoría: se recompone contra fuentes del
+      // servidor y nunca se acepta una etiqueta arbitraria enviada por el navegador.
+      const perfilSpec = await specPerfilModulo(clienteId, moduloCodigo, huellasCandidatas([hoja]));
+      if (perfilSpec && mismoSpecModulo(spec, perfilSpec)) origen = "perfil";
+      else if (mismoSpecModulo(spec, sugerirSpec(descriptor, hoja))) origen = "ia";
+      else origen = "manual";
     } else {
       const candidatas = huellasCandidatas([hoja]);
-      const perfil = candidatas.length
-        ? await prisma.perfilCargaModulo.findFirst({ where: { clienteId, moduloCodigo, huella: { in: candidatas.map((c) => c.huella) } } })
-        : null;
-      const perfilSpec = perfil ? SpecModuloSchema.safeParse(perfil.specJson) : null;
-      if (perfilSpec?.success) { spec = perfilSpec.data; origen = "perfil"; }
+      const perfilSpec = await specPerfilModulo(clienteId, moduloCodigo, candidatas);
+      if (perfilSpec) { spec = perfilSpec; origen = "perfil"; }
       else { spec = sugerirSpec(descriptor, hoja); origen = "ia"; }
     }
 
@@ -177,7 +203,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
       }
       await tx.moduloImportacionLote.create({
         data: {
-          moduloCodigo, loteId, clienteId, archivoNombre: archivo.name,
+          moduloCodigo, loteId, clienteId, archivoNombre: archivo.name, archivoTam: tamArchivo(archivo.size),
           periodoInicial: fechaISO(formData.get("periodoInicio")), periodoFinal: fechaISO(formData.get("periodoFin")),
           filasLeidas: resultado.filasLeidas, filasExcluidas: resultado.filasExcluidas,
           huella, origenExtraccion: origen, specJson: spec,
@@ -208,7 +234,11 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
 // ============================================================
 // EDITAR el borrador: marcar agrupador / omitir por fila (se guarda en el staging).
 // ============================================================
-export async function aplicarCambiosBorradorModulo(loteId: string, cambios: { filaNum: number; tipoFila?: string; omitida?: boolean | null }[]): Promise<ActionState> {
+export async function aplicarCambiosBorradorModulo(
+  loteId: string,
+  cambios: { filaNum: number; tipoFila?: string; omitida?: boolean | null }[],
+  periodo?: string,
+): Promise<ActionState> {
   const authz = await authorizePermiso("modulos_datos:crear");
   if (!authz.ok) return { ok: false, message: authz.message };
   const id = String(loteId ?? "").trim();
@@ -218,8 +248,12 @@ export async function aplicarCambiosBorradorModulo(loteId: string, cambios: { fi
     if (!lote?.clienteId) return { ok: false, message: "El borrador ya no existe o no tiene cliente." };
     const scope = await authorizePermiso("modulos_datos:crear", { clientId: lote.clienteId });
     if (!scope.ok) return { ok: false, message: scope.message };
-    await prisma.$transaction(
-      cambios.filter((c) => Number.isInteger(c.filaNum)).map((c) =>
+    const periodoNormalizado = periodo?.trim() ?? "";
+    if (periodo !== undefined && !/^\d{4}-\d{2}$/.test(periodoNormalizado)) {
+      return { ok: false, message: "Indica el período en formato AAAA-MM." };
+    }
+    await prisma.$transaction([
+      ...cambios.filter((c) => Number.isInteger(c.filaNum)).map((c) =>
         prisma.moduloImportacionStaging.updateMany({
           where: { loteId: id, filaNum: c.filaNum },
           data: {
@@ -228,7 +262,16 @@ export async function aplicarCambiosBorradorModulo(loteId: string, cambios: { fi
           },
         }),
       ),
-    );
+      ...(periodo !== undefined
+        ? [prisma.moduloImportacionLote.update({
+            where: { loteId: id },
+            data: {
+              periodoInicial: new Date(`${periodoNormalizado}-01T00:00:00`),
+              periodoFinal: new Date(`${periodoNormalizado}-01T00:00:00`),
+            },
+          })]
+        : []),
+    ]);
     revalidatePath(`${rutaModulo(lote.moduloCodigo)}/borradores/${id}`);
     return { ok: true, message: "Cambios guardados." };
   } catch (e) {
@@ -245,10 +288,25 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
   const loteId = String(formData.get("loteId") ?? "").trim();
   if (!loteId) return { ok: false, message: "Borrador inválido." };
   const periodo = String(formData.get("periodo") ?? "").trim();
-  if (!periodo) return { ok: false, message: "Indica el período (p. ej. 2026-03)." };
+  if (!/^\d{4}-\d{2}$/.test(periodo)) return { ok: false, message: "Indica el período (p. ej. 2026-03)." };
   const observaciones = String(formData.get("observaciones") ?? "").trim().slice(0, 4000) || null;
   try {
-    const lote = await prisma.moduloImportacionLote.findUnique({ where: { loteId }, select: { id: true, clienteId: true, moduloCodigo: true, periodoInicial: true, periodoFinal: true } });
+    // Reintento idempotente: si el navegador perdió la respuesta después del
+    // commit, el lote ya no existe pero su encabezado conserva el mismo UUID.
+    const yaPromovido = await prisma.moduloDatoEncabezado.findUnique({
+      where: { loteId },
+      select: { id: true, clienteId: true, version: true },
+    });
+    if (yaPromovido) {
+      const scope = await authorizePermiso("modulos_datos:crear", { clientId: yaPromovido.clienteId });
+      if (!scope.ok) return { ok: false, message: scope.message };
+      return { ok: true, encabezadoId: yaPromovido.id, message: `La versión v${yaPromovido.version} ya había sido cargada.` };
+    }
+
+    const lote = await prisma.moduloImportacionLote.findUnique({
+      where: { loteId },
+      select: { clienteId: true, moduloCodigo: true },
+    });
     if (!lote?.clienteId) return { ok: false, message: "El borrador ya no existe o no tiene cliente." };
     const scope = await authorizePermiso("modulos_datos:crear", { clientId: lote.clienteId });
     if (!scope.ok) return { ok: false, message: scope.message };
@@ -270,99 +328,120 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
 
     const cliente = await prisma.client.findUnique({ where: { id: lote.clienteId }, select: { name: true } });
     if (!cliente) return { ok: false, message: "El cliente ya no existe." };
-
-    const filasBD = await prisma.moduloImportacionStaging.findMany({ where: { loteId }, orderBy: { filaNum: "asc" } });
-    if (filasBD.length === 0) return { ok: false, message: "El borrador no tiene filas." };
-    const filas: FilaStagingModulo[] = filasBD.map((f) => ({
-      filaNum: f.filaNum, clasificador: f.clasificador, valor: Number(f.valor),
-      datos: (f.datos ?? {}) as Record<string, unknown>, tipoFila: f.tipoFila, omitida: f.omitida,
-    }));
-    // Renglones TODO en cero (todas las columnas numéricas en 0) no se llevan al definitivo.
-    const columnasNumericas = descriptor.columnas.filter((c) => c.tipo === "numero" || c.tipo === "moneda").map((c) => c.nombre);
-    const { detalle, total, filas: nFilas } = promoverStaging(filas, columnasNumericas);
-    if (nFilas === 0) return { ok: false, message: "No hay filas imputables para cargar (todas omitidas, agrupadoras o en cero)." };
-
     const user = await getCurrentUser();
-    const refRol = refRolDe(descriptor);
-    const clavesNuevas = clavesDeDetalle(refRol, detalle);
-    const clavesDe = (filas: { clasificador: string | null; datos: unknown }[]) =>
-      clavesDeDetalle(refRol, filas.map((d) => ({ clasificador: d.clasificador, datos: (d.datos ?? {}) as Record<string, unknown> })));
 
-    const resultado = await prisma.$transaction(async (tx) => {
-      // Inventario OFICIAL vigente del período: decide agregar (fracción nueva) vs versionar (re-subida).
-      const oficial = await tx.moduloDatoEncabezado.findFirst({
-        where: { clienteId: lote.clienteId!, moduloCodigo: lote.moduloCodigo, periodo, esOficial: true },
-        orderBy: { version: "desc" },
-        include: { detalles: { select: { filaNum: true, clasificador: true, datos: true } } },
+    const resultado = await transaccionSerializable(async (tx) => {
+      await tomarCandadoTransaccion(tx, `modulo-promocion:${loteId}`);
+
+      const existente = await tx.moduloDatoEncabezado.findUnique({
+        where: { loteId },
+        select: { id: true, version: true, filas: true, total: true },
       });
-      const modo: "nuevo" | "agregar" | "versionar" = !oficial
-        ? "nuevo"
-        : oficial.estaCongelado
-          ? "versionar"
-          : decidirCarga(clavesDe(oficial.detalles), clavesNuevas);
+      if (existente) return { encabezadoId: existente.id, version: existente.version, filas: existente.filas, total: Number(existente.total), reutilizado: true };
 
-      // ---- AGREGAR: suma la fracción al inventario oficial (NO versiona) ----
-      if (modo === "agregar" && oficial) {
-        const maxFila = oficial.detalles.reduce((m, d) => Math.max(m, d.filaNum), 0);
-        const map = remapFilas(maxFila, detalle.map((d) => d.filaNum));
-        await tx.moduloDatoDetalle.createMany({
-          data: detalle.map((d) => ({ encabezadoId: oficial.id, filaNum: map.get(d.filaNum)!, clasificador: d.clasificador, valor: d.valor, datos: d.datos as Prisma.InputJsonValue })),
-        });
-        await tx.moduloDatoEncabezado.update({
-          where: { id: oficial.id },
-          data: {
-            filas: oficial.filas + nFilas,
-            total: Number(oficial.total) + total,
-            observaciones: [oficial.observaciones, observaciones].filter(Boolean).join("\n— — —\n") || null,
-            cargadoPor: user?.name ?? null, cargadoPorId: user?.id ?? null,
-          },
-        });
-        // Reancla los comentarios del borrador al oficial según el remap de filaNum (fila:<n> → fila:<m>).
-        const coments = await tx.comment.findMany({ where: { entityType: "modulos_borrador", entityId: lote.id }, select: { id: true, anchor: true } });
-        for (const cm of coments) {
-          const m = cm.anchor?.match(/^fila:(\d+)$/);
-          const anchor = m && map.has(Number(m[1])) ? `fila:${map.get(Number(m[1]))}` : cm.anchor;
-          await tx.comment.update({ where: { id: cm.id }, data: { entityType: "modulos_datos", entityId: oficial.id, anchor } });
-        }
-        await tx.moduloImportacionStaging.deleteMany({ where: { loteId } });
-        await tx.moduloImportacionLote.deleteMany({ where: { loteId } });
-        return { encabezadoId: oficial.id, modo: "agregar" as const, repetidas: 0 };
+      await tomarCandadoTransaccion(tx, `modulo-borrador:${loteId}`);
+      const loteActual = await tx.moduloImportacionLote.findUnique({
+        where: { loteId },
+        select: {
+          id: true,
+          clienteId: true,
+          moduloCodigo: true,
+          archivoNombre: true,
+          archivoTam: true,
+          origenExtraccion: true,
+        },
+      });
+      if (!loteActual || loteActual.clienteId == null || loteActual.clienteId !== lote.clienteId || loteActual.moduloCodigo !== lote.moduloCodigo) {
+        throw new Error("El borrador cambió durante la carga o ya no existe; no se creó ninguna versión.");
       }
 
-      // ---- NUEVO (v1) o VERSIONAR: encabezado con SOLO el archivo ----
-      const repetidas = modo === "versionar" && oficial ? itemsRepetidos(clavesDe(oficial.detalles), clavesNuevas) : 0;
-      if (modo === "versionar") {
-        // Las versiones anteriores del período pasan a histórico (solo la nueva queda oficial).
-        await tx.moduloDatoEncabezado.updateMany({ where: { clienteId: lote.clienteId!, moduloCodigo: lote.moduloCodigo, periodo, esOficial: true }, data: { esOficial: false } });
+      const filasBD = await tx.moduloImportacionStaging.findMany({ where: { loteId }, orderBy: { filaNum: "asc" } });
+      if (filasBD.length === 0) throw new Error("El borrador no tiene filas.");
+      const filas: FilaStagingModulo[] = filasBD.map((f) => ({
+        filaNum: f.filaNum,
+        clasificador: f.clasificador,
+        valor: Number(f.valor),
+        datos: (f.datos ?? {}) as Record<string, unknown>,
+        tipoFila: f.tipoFila,
+        omitida: f.omitida,
+      }));
+      const columnasNumericas = descriptor.columnas
+        .filter((c) => c.tipo === "numero" || c.tipo === "moneda")
+        .map((c) => c.nombre);
+      const promocion = promoverStaging(filas, columnasNumericas);
+      if (promocion.filas === 0) {
+        throw new Error("No hay filas imputables para cargar (todas omitidas, agrupadoras o en cero).");
       }
+
+      // Serializa el consecutivo y el cambio de versión vigente para este grupo.
+      await tomarCandadoTransaccion(tx, `modulo-cargue:${loteActual.clienteId}:${loteActual.moduloCodigo}:${periodo}`);
       const previa = await tx.moduloDatoEncabezado.findFirst({
-        where: { clienteId: lote.clienteId!, moduloCodigo: lote.moduloCodigo, periodo }, orderBy: { version: "desc" }, select: { version: true },
+        where: { clienteId: loteActual.clienteId, moduloCodigo: loteActual.moduloCodigo, periodo },
+        orderBy: [{ version: "desc" }, { id: "desc" }],
+        select: { version: true },
       });
       const version = (previa?.version ?? 0) + 1;
+
+      // Cada confirmación es una fotografía independiente. Ningún detalle se
+      // anexa a una versión anterior: las anteriores quedan como historial.
+      await tx.moduloDatoEncabezado.updateMany({
+        where: { clienteId: loteActual.clienteId, moduloCodigo: loteActual.moduloCodigo, periodo, esOficial: true },
+        data: { esOficial: false },
+      });
+      const ahora = new Date();
       const enc = await tx.moduloDatoEncabezado.create({
         data: {
-          moduloCodigo: lote.moduloCodigo, loteId, clienteId: lote.clienteId!, nombreCliente: cliente.name,
-          periodo, version, esOficial: true, filas: nFilas, total,
-          observaciones, verificaciones: verificaciones as Prisma.InputJsonValue,
-          cargadoPor: user?.name ?? null, cargadoPorId: user?.id ?? null,
-          detalles: { create: detalle.map((d) => ({ filaNum: d.filaNum, clasificador: d.clasificador, valor: d.valor, datos: d.datos as Prisma.InputJsonValue })) },
+          moduloCodigo: loteActual.moduloCodigo,
+          loteId,
+          clienteId: loteActual.clienteId,
+          nombreCliente: cliente.name,
+          periodo,
+          version,
+          esOficial: true,
+          filas: promocion.filas,
+          total: promocion.total,
+          archivoNombre: loteActual.archivoNombre,
+          archivoTam: loteActual.archivoTam,
+          origenExtraccion: loteActual.origenExtraccion,
+          observaciones,
+          verificaciones: verificaciones as Prisma.InputJsonValue,
+          cargadoPor: user?.name ?? null,
+          cargadoPorId: user?.id ?? null,
+          ultimaCarga: ahora,
+          detalles: {
+            create: promocion.detalle.map((d) => ({
+              filaNum: d.filaNum,
+              clasificador: d.clasificador,
+              valor: d.valor,
+              datos: d.datos as Prisma.InputJsonValue,
+            })),
+          },
         },
         select: { id: true },
       });
-      // El nuevo encabezado conserva los filaNum del staging → las anclas de comentarios coinciden.
-      await tx.comment.updateMany({ where: { entityType: "modulos_borrador", entityId: lote.id }, data: { entityType: "modulos_datos", entityId: enc.id } });
-      await tx.moduloImportacionStaging.deleteMany({ where: { loteId } });
-      await tx.moduloImportacionLote.deleteMany({ where: { loteId } });
-      return { encabezadoId: enc.id, modo, repetidas };
-    });
 
-    const mensaje =
-      resultado.modo === "agregar"
-        ? `Agregado al inventario del período (${nFilas} ítems nuevos).`
-        : resultado.modo === "versionar"
-          ? `Nueva versión (re-subida: ${resultado.repetidas} referencia(s) repetida(s)).`
-          : `${descriptor.label} cargado (${nFilas} filas).`;
-    await logAudit({ user: user?.name ?? "Sistema", action: `${resultado.modo === "agregar" ? "AGREGÓ A" : "CARGÓ"} ${descriptor.label}`, entity: cliente.name, detail: `${periodo} · ${nFilas} filas · total ${total}` });
+      await tx.comment.updateMany({
+        where: { entityType: "modulos_borrador", entityId: loteActual.id },
+        data: { entityType: "modulos_datos", entityId: enc.id },
+      });
+      const stagingEliminado = await tx.moduloImportacionStaging.deleteMany({ where: { loteId } });
+      if (stagingEliminado.count === 0) throw new Error("No se pudo consumir el detalle del borrador; la promoción fue revertida.");
+      const loteEliminado = await tx.moduloImportacionLote.deleteMany({ where: { loteId } });
+      if (loteEliminado.count !== 1) throw new Error("No se pudo consumir el encabezado del borrador; la promoción fue revertida.");
+
+      return { encabezadoId: enc.id, version, filas: promocion.filas, total: promocion.total, reutilizado: false };
+    }, { timeoutMs: TIMEOUT_TRANSACCION_MODULO_MS });
+
+    const mensaje = `Nueva versión v${resultado.version} cargada (${resultado.filas} filas).`;
+    if (!resultado.reutilizado) {
+      await logAudit({
+        user: user?.name ?? "Sistema",
+        action: `CARGÓ ${descriptor.label}`,
+        entity: cliente.name,
+        detail: `${periodo} · v${resultado.version} · ${resultado.filas} filas · total ${resultado.total}`,
+        clientId: lote.clienteId,
+      });
+    }
     revalidatePath(rutaModulo(lote.moduloCodigo));
     return { ok: true, encabezadoId: resultado.encabezadoId, message: mensaje };
   } catch (e) {

@@ -2,7 +2,8 @@
 
 import { Fragment, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Card } from "@/components/ui";
+import Link from "next/link";
+import { Card, Chip } from "@/components/ui";
 import { Modal } from "@/components/modal";
 import { fmtContable, fmtNum } from "@/lib/format";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
@@ -17,6 +18,19 @@ export type NovedadesVm = {
   descuadres: { filaNum: number; referencia: string | null; etiqueta: string; declarado: number; esperado: number }[];
   observaciones: string | null;
   verificaciones: { texto: string; respuesta: "si" | "no" | "na" | null; nota: string | null }[];
+};
+export type VersionModuloVm = {
+  id: number;
+  version: number;
+  esOficial: boolean;
+  filas: number;
+  total: number;
+  archivoNombre: string | null;
+  archivoTam: string | null;
+  origenExtraccion: string | null;
+  observaciones: string | null;
+  cargadoPor: string | null;
+  ultimaCarga: string;
 };
 type Columna = { nombre: string; etiqueta: string; tipo: string };
 type CuentaOpt = { codigo: string; nombre: string };
@@ -42,6 +56,9 @@ export default function DatoCargadoClient({
   cuentas,
   homologacionCliente,
   puedeEditar,
+  versiones,
+  versionActualId,
+  tabInicial,
 }: {
   moduloCodigo: string;
   encabezadoId: number;
@@ -56,23 +73,27 @@ export default function DatoCargadoClient({
   cuentas: CuentaOpt[];
   homologacionCliente: HomologacionCliente;
   puedeEditar: boolean;
+  versiones: VersionModuloVm[];
+  versionActualId: number;
+  tabInicial: "versiones" | null;
 }) {
-  const [tab, setTab] = useState<"detalle" | "consolidado" | "novedades">("consolidado");
+  const [tab, setTab] = useState<"detalle" | "consolidado" | "novedades" | "versiones">(tabInicial ?? "consolidado");
   const filasNovedad = new Set([...novedades.negativos, ...novedades.descuadres].map((n) => n.filaNum));
   const alertas = filasNovedad.size;
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-1 border-b border-ink-150">
-        {(["consolidado", "detalle", "novedades"] as const).map((t) => (
+        {(["consolidado", "detalle", "novedades", "versiones"] as const).map((t) => (
           <button
             key={t}
             type="button"
             onClick={() => setTab(t)}
             className={`-mb-px border-b-2 px-3 py-2 text-[12.5px] font-semibold ${tab === t ? "border-navy-700 text-navy-700" : "border-transparent text-ink-500 hover:text-ink-700"}`}
           >
-            {t === "consolidado" ? "Consolidado" : t === "detalle" ? "Detalle" : "Novedades"}
+            {t === "consolidado" ? "Consolidado" : t === "detalle" ? "Detalle" : t === "novedades" ? "Novedades" : "Versiones"}
             {t === "novedades" && alertas > 0 && <span className="ml-1.5 rounded-full bg-err-100 px-1.5 text-[10px] font-bold text-err-700">{alertas}</span>}
+            {t === "versiones" && <span className="ml-1.5 rounded-full bg-ink-100 px-1.5 text-[10px] font-bold text-ink-600">{versiones.length}</span>}
           </button>
         ))}
         <span className="ml-auto text-[12px] text-ink-500">Total: <span className="font-semibold text-ink-800">{fmtContable(total)}</span></span>
@@ -82,8 +103,10 @@ export default function DatoCargadoClient({
         <ConsolidadoTab moduloCodigo={moduloCodigo} clienteId={clienteId} clasificadorEtiqueta={clasificadorEtiqueta} consolidado={consolidado} cuentas={cuentas} homologacionCliente={homologacionCliente} puedeEditar={puedeEditar} encabezadoId={encabezadoId} comentarios={comentarios} />
       ) : tab === "detalle" ? (
         <DetalleTab columnas={columnas} clasificadorEtiqueta={clasificadorEtiqueta} detalle={detalle} negativosFilas={filasNovedad} encabezadoId={encabezadoId} comentarios={comentarios} />
-      ) : (
+      ) : tab === "novedades" ? (
         <NovedadesTab novedades={novedades} />
+      ) : (
+        <VersionesTab moduloCodigo={moduloCodigo} versiones={versiones} versionActualId={versionActualId} />
       )}
     </div>
   );
@@ -760,5 +783,80 @@ function NovedadesTab({ novedades }: { novedades: NovedadesVm }) {
         )}
       </Card>
     </div>
+  );
+}
+
+const origenVersion = (origen: string | null): string => {
+  if (origen === "perfil") return "Perfil guardado";
+  if (origen === "manual") return "Mapeo manual";
+  if (origen === "ia") return "Sugerencia automática";
+  return "No registrado";
+};
+
+function VersionesTab({
+  moduloCodigo,
+  versiones,
+  versionActualId,
+}: {
+  moduloCodigo: string;
+  versiones: VersionModuloVm[];
+  versionActualId: number;
+}) {
+  return (
+    <Card className="p-0">
+      <div className="border-b border-ink-100 px-4 py-3">
+        <div className="text-[13px] font-semibold text-ink-800">Historial del período</div>
+        <p className="mt-0.5 text-[11.5px] text-ink-500">Cada carga es una fotografía independiente; puedes abrir cualquier versión sin alterar la vigente.</p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-[12px]">
+          <thead className="bg-ink-50 text-left text-[11px] uppercase tracking-wider text-ink-500">
+            <tr>
+              <th className="px-4 py-2 font-semibold">Versión</th>
+              <th className="px-4 py-2 font-semibold">Archivo</th>
+              <th className="px-4 py-2 font-semibold">Mapeo</th>
+              <th className="px-4 py-2 text-right font-semibold">Filas</th>
+              <th className="px-4 py-2 text-right font-semibold">Total</th>
+              <th className="px-4 py-2 font-semibold">Cargada</th>
+              <th className="px-4 py-2 font-semibold">Usuario</th>
+              <th className="px-4 py-2" />
+            </tr>
+          </thead>
+          <tbody>
+            {versiones.map((version) => {
+              const actual = version.id === versionActualId;
+              return (
+                <tr key={version.id} className={`border-t border-ink-100 ${actual ? "bg-blue-50/50" : "hover:bg-ink-50"}`}>
+                  <td className="px-4 py-2.5">
+                    <div className="flex items-center gap-1.5">
+                      <Chip label={`v${version.version}`} tone={version.esOficial ? "ok" : "ink"} />
+                      {version.esOficial && <span className="text-[10.5px] font-medium text-ok-700">vigente</span>}
+                    </div>
+                  </td>
+                  <td className="max-w-[240px] px-4 py-2.5">
+                    <div className="truncate text-ink-700" title={version.archivoNombre ?? "Archivo histórico sin metadata"}>{version.archivoNombre ?? "—"}</div>
+                    <div className="text-[10.5px] text-ink-400">{version.archivoTam ?? "Tamaño no registrado"}</div>
+                  </td>
+                  <td className="px-4 py-2.5 text-ink-600">{origenVersion(version.origenExtraccion)}</td>
+                  <td className="px-4 py-2.5 text-right tabular-nums text-ink-600">{version.filas}</td>
+                  <td className="px-4 py-2.5 text-right font-semibold tabular-nums text-ink-800">{fmtContable(version.total)}</td>
+                  <td className="whitespace-nowrap px-4 py-2.5 text-ink-500">{version.ultimaCarga}</td>
+                  <td className="px-4 py-2.5 text-ink-500">{version.cargadoPor ?? "—"}</td>
+                  <td className="px-4 py-2.5 text-right">
+                    {actual ? (
+                      <span className="text-[11px] font-medium text-ink-400">Estás aquí</span>
+                    ) : (
+                      <Link href={`/modulos/${moduloCodigo.toLowerCase()}/${version.id}?tab=versiones`} className="text-[12px] font-semibold text-blue-600 hover:underline">
+                        Abrir
+                      </Link>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </Card>
   );
 }

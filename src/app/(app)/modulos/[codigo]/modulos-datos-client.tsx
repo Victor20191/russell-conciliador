@@ -4,7 +4,7 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Modal } from "@/components/modal";
-import { Card } from "@/components/ui";
+import { Card, Chip } from "@/components/ui";
 import { SelectorClienteBuscable } from "@/components/selector-cliente-buscable";
 import { fmtContable, fmtDate, fmtDateTime } from "@/lib/format";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
@@ -15,8 +15,41 @@ import { leerDatosModulo, analizarArchivoModulo, type AnalisisModulo, type Celda
 
 type Cliente = { id: number; name: string; nit: string };
 type Rol = { nombre: string; etiqueta: string; tipo: string; requerido: boolean };
-type Borrador = { loteId: string; cliente: string; archivoNombre: string; filas: number; creadoEn: string; comentarios: number };
-type Cargado = { id: number; cliente: string; periodo: string; version: number; filas: number; total: number; creadoEn: string; cargadoPor: string | null; comentarios: number };
+type Borrador = {
+  loteId: string;
+  cliente: string;
+  archivoNombre: string;
+  periodo: string | null;
+  version: number;
+  versionesGrupo: number;
+  filas: number;
+  creadoEn: string;
+  comentarios: number;
+};
+type Cargado = {
+  id: number;
+  clienteId: number;
+  moduloCodigo: string;
+  cliente: string;
+  periodo: string;
+  version: number;
+  versiones: number;
+  esOficial: boolean;
+  filas: number;
+  total: number;
+  archivoNombre: string | null;
+  origenExtraccion: string | null;
+  ultimaCarga: string | null;
+  cargadoPor: string | null;
+  comentarios: number;
+};
+
+const etiquetaOrigen = (origen: string | null): string => {
+  if (origen === "perfil") return "Perfil guardado";
+  if (origen === "manual") return "Mapeo manual";
+  if (origen === "ia") return "Sugerencia automática";
+  return "Origen no registrado";
+};
 
 function BadgeComentarios({ n }: { n: number }) {
   if (!n) return null;
@@ -82,7 +115,11 @@ export default function ModulosDatosClient({
                 href={`${ruta}/borradores/${b.loteId}`}
                 className="flex items-center justify-between gap-3 py-2 text-[12.5px] hover:bg-ink-50"
               >
-                <span className="font-medium text-ink-800">{b.cliente}</span>
+                <span className="flex min-w-0 items-center gap-2 font-medium text-ink-800">
+                  <span className="truncate">{b.cliente}</span>
+                  {b.periodo && <span className="whitespace-nowrap text-[11px] font-normal text-ink-400">{b.periodo}</span>}
+                  {b.periodo && <Chip label={`v${b.version}${b.versionesGrupo > 1 ? ` de ${b.versionesGrupo}` : ""}`} tone={b.versionesGrupo > 1 ? "blue" : "ink"} />}
+                </span>
                 <span className="truncate font-mono text-[11px] text-ink-500" title={b.archivoNombre}>{b.archivoNombre}</span>
                 <span className="flex items-center gap-2 whitespace-nowrap text-ink-500"><BadgeComentarios n={b.comentarios} />{b.filas} filas · {fmtDate(b.creadoEn)}</span>
               </Link>
@@ -107,8 +144,10 @@ export default function ModulosDatosClient({
                   <th className="px-2.5 py-1.5 font-semibold">Ver.</th>
                   <th className="px-2.5 py-1.5 text-right font-semibold">Filas</th>
                   <th className="px-2.5 py-1.5 text-right font-semibold">Total</th>
+                  <th className="px-2.5 py-1.5 text-right font-semibold">Versiones</th>
+                  <th className="px-2.5 py-1.5 font-semibold">Archivo / mapeo</th>
                   <th className="px-2.5 py-1.5 text-center font-semibold">💬</th>
-                  <th className="px-2.5 py-1.5 font-semibold">Cargado</th>
+                  <th className="px-2.5 py-1.5 font-semibold">Última carga</th>
                 </tr>
               </thead>
               <tbody>
@@ -116,9 +155,23 @@ export default function ModulosDatosClient({
                   <tr key={c.id} className="cursor-pointer border-t border-ink-100 hover:bg-ink-50" onClick={() => router.push(`${ruta}/${c.id}`)}>
                     <td className="px-2.5 py-1.5 font-medium text-navy-700 underline decoration-ink-200 underline-offset-2">{c.cliente}</td>
                     <td className="px-2.5 py-1.5 text-ink-600">{c.periodo}</td>
-                    <td className="px-2.5 py-1.5 text-ink-500">v{c.version}</td>
+                    <td className="px-2.5 py-1.5"><Chip label={`v${c.version} vigente`} tone={c.esOficial ? "ok" : "blue"} /></td>
                     <td className="px-2.5 py-1.5 text-right tabular-nums text-ink-600">{c.filas}</td>
                     <td className="px-2.5 py-1.5 text-right font-semibold tabular-nums text-ink-800">{fmtContable(c.total)}</td>
+                    <td className="px-2.5 py-1.5 text-right font-mono text-ink-600">
+                      <Link
+                        href={`${ruta}/${c.id}?tab=versiones`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="font-semibold text-blue-600 hover:underline"
+                        title={`Ver las ${c.versiones} versiones de ${c.periodo}`}
+                      >
+                        {c.versiones}
+                      </Link>
+                    </td>
+                    <td className="max-w-[220px] px-2.5 py-1.5">
+                      <div className="truncate text-ink-600" title={c.archivoNombre ?? "Archivo histórico sin metadata"}>{c.archivoNombre ?? "—"}</div>
+                      <div className="text-[10.5px] text-ink-400">{etiquetaOrigen(c.origenExtraccion)}</div>
+                    </td>
                     <td className="px-2.5 py-1.5 text-center">
                       {c.comentarios ? (
                         <button type="button" title="Ver conversaciones" onClick={(e) => { e.stopPropagation(); setConversando({ tipo: "modulos_datos", entityId: c.id, titulo: `${c.cliente} · ${c.periodo} v${c.version}` }); }}>
@@ -129,7 +182,7 @@ export default function ModulosDatosClient({
                       )}
                     </td>
                     <td className="px-2.5 py-1.5 text-ink-500">
-                      <div className="whitespace-nowrap tabular-nums">{fmtDateTime(c.creadoEn)}</div>
+                      <div className="whitespace-nowrap tabular-nums">{c.ultimaCarga ? fmtDateTime(c.ultimaCarga) : "—"}</div>
                       <div className="text-[11px] text-ink-400">{c.cargadoPor ?? "—"}</div>
                     </td>
                   </tr>
@@ -231,6 +284,7 @@ function CargarModal({
   const leer = () => {
     if (!bufferRef.current || !spec) { notifyError("Falta analizar el archivo."); return; }
     if (clienteId == null) { notifyError("Selecciona el cliente."); return; }
+    if (!/^\d{4}-\d{2}$/.test(mes)) { notifyError("Selecciona el mes del inventario."); return; }
     const faltantes = roles.filter((rc) => rc.requerido && !(rc.nombre === clasificadorRol && modo === "global") && (spec.columnas[rc.nombre] ?? 0) < 1);
     if (faltantes.length) { notifyError("Faltan columnas obligatorias: " + faltantes.map((f) => f.etiqueta).join(", ") + "."); return; }
     startLeer(async () => {
@@ -316,7 +370,7 @@ function CargarModal({
         ) : (
           <>
             <button type="button" onClick={() => setFase("archivo")} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] font-semibold text-ink-600 hover:bg-ink-50">Atrás</button>
-            <button type="button" disabled={leyendo || analizando} onClick={leer} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60">
+            <button type="button" disabled={leyendo || analizando || !mes} onClick={leer} title={!mes ? "Selecciona el mes del inventario" : undefined} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60">
               {leyendo ? "Leyendo…" : "Leer y crear borrador"}
             </button>
           </>
@@ -457,7 +511,7 @@ function CargarModal({
           </div>
 
           <label className="flex w-full max-w-xs flex-col gap-1">
-            <span className="text-[11px] font-medium text-ink-600">Mes del inventario</span>
+            <span className="text-[11px] font-medium text-ink-600">Mes del inventario <span className="text-err-600">*</span></span>
             <input type="month" value={mes} onChange={(e) => setMes(e.target.value)} className="w-full rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-ink-700 outline-none focus:border-blue-400" />
           </label>
         </div>

@@ -4,6 +4,8 @@ import { requirePermiso } from "@/lib/rbac";
 import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { PageHeader } from "@/components/ui";
 import { descriptorModulo } from "@/lib/modulos/descriptores";
+import { fechaCalendarioISO } from "@/lib/fecha-hora";
+import { resumirCargasModulo, versionarYOrdenarBorradoresModulo } from "@/lib/modulos/versiones";
 import ModulosDatosClient from "./modulos-datos-client";
 
 export default async function ModuloDatosPage({ params }: { params: Promise<{ codigo: string }> }) {
@@ -25,12 +27,35 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
     prisma.moduloImportacionLote.findMany({
       where: { moduloCodigo, ...filtroCliente },
       orderBy: { creadoEn: "desc" },
-      select: { id: true, loteId: true, clienteId: true, archivoNombre: true, filasLeidas: true, creadoEn: true },
+      select: {
+        id: true,
+        loteId: true,
+        clienteId: true,
+        archivoNombre: true,
+        periodoInicial: true,
+        periodoFinal: true,
+        filasLeidas: true,
+        creadoEn: true,
+      },
     }),
     prisma.moduloDatoEncabezado.findMany({
-      where: { moduloCodigo, esOficial: true, ...filtroCliente },
-      orderBy: [{ creadoEn: "desc" }],
-      select: { id: true, clienteId: true, nombreCliente: true, periodo: true, version: true, filas: true, total: true, creadoEn: true, cargadoPor: true },
+      where: { moduloCodigo, ...filtroCliente },
+      orderBy: [{ ultimaCarga: "desc" }, { version: "desc" }],
+      select: {
+        id: true,
+        clienteId: true,
+        moduloCodigo: true,
+        nombreCliente: true,
+        periodo: true,
+        version: true,
+        esOficial: true,
+        filas: true,
+        total: true,
+        archivoNombre: true,
+        origenExtraccion: true,
+        ultimaCarga: true,
+        cargadoPor: true,
+      },
     }),
   ]);
   const nombrePorCliente = new Map(clientes.map((c) => [c.id, c.name]));
@@ -42,6 +67,38 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
   ]);
   const comentPorEnc = new Map(comentCargados.map((g) => [g.entityId, g._count._all]));
   const comentPorLote = new Map(comentBorradores.map((g) => [g.entityId, g._count._all]));
+  const borradoresVersionados = versionarYOrdenarBorradoresModulo(
+    borradores.map((b) => ({
+      loteId: b.loteId,
+      clienteId: b.clienteId,
+      moduloCodigo,
+      periodoInicial: b.periodoInicial ? fechaCalendarioISO(b.periodoInicial) : null,
+      periodoFinal: b.periodoFinal ? fechaCalendarioISO(b.periodoFinal) : null,
+      creadoEn: b.creadoEn.toISOString(),
+      cliente: b.clienteId != null ? nombrePorCliente.get(b.clienteId) ?? `Cliente ${b.clienteId}` : "(sin cliente)",
+      archivoNombre: b.archivoNombre,
+      filas: b.filasLeidas,
+      comentarios: comentPorLote.get(b.id) ?? 0,
+    })),
+  );
+  const cargadosRecientes = resumirCargasModulo(
+    cargados.map((c) => ({
+      id: c.id,
+      clienteId: c.clienteId,
+      moduloCodigo: c.moduloCodigo,
+      cliente: c.nombreCliente,
+      periodo: c.periodo,
+      version: c.version,
+      esOficial: c.esOficial,
+      filas: c.filas,
+      total: Number(c.total),
+      archivoNombre: c.archivoNombre,
+      origenExtraccion: c.origenExtraccion,
+      ultimaCarga: c.ultimaCarga.toISOString(),
+      cargadoPor: c.cargadoPor,
+      comentarios: comentPorEnc.get(c.id) ?? 0,
+    })),
+  );
 
   return (
     <div>
@@ -55,25 +112,18 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
         roles={descriptor.columnas.map((c) => ({ nombre: c.nombre, etiqueta: c.etiqueta, tipo: c.tipo, requerido: c.requerido }))}
         clasificadorRol={descriptor.clasificador}
         clientes={clientes}
-        borradores={borradores.map((b) => ({
+        borradores={borradoresVersionados.map((b) => ({
           loteId: b.loteId,
-          cliente: b.clienteId != null ? nombrePorCliente.get(b.clienteId) ?? `Cliente ${b.clienteId}` : "(sin cliente)",
+          cliente: b.cliente,
           archivoNombre: b.archivoNombre,
-          filas: b.filasLeidas,
-          creadoEn: b.creadoEn.toISOString(),
-          comentarios: comentPorLote.get(b.id) ?? 0,
+          periodo: b.periodoInicial?.slice(0, 7) ?? null,
+          version: b.version,
+          versionesGrupo: b.versionesGrupo,
+          filas: b.filas,
+          creadoEn: b.creadoEn ?? "",
+          comentarios: b.comentarios,
         }))}
-        cargados={cargados.map((c) => ({
-          id: c.id,
-          cliente: c.nombreCliente,
-          periodo: c.periodo,
-          version: c.version,
-          filas: c.filas,
-          total: Number(c.total),
-          creadoEn: c.creadoEn.toISOString(),
-          cargadoPor: c.cargadoPor,
-          comentarios: comentPorEnc.get(c.id) ?? 0,
-        }))}
+        cargados={cargadosRecientes}
       />
     </div>
   );

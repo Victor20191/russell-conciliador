@@ -1066,28 +1066,32 @@ model ModuloImportacionStaging {
 }
 
 model ModuloDatoEncabezado {
-  id            Int                 @id @default(autoincrement()) @map("id")
-  moduloCodigo  String              @map("modulo_codigo")
-  loteId        String?             @unique @map("lote_id") // idempotencia de promoción; null para legado
-  clienteId     Int                 @map("cliente_id")
-  nombreCliente String              @map("nombre_cliente")
-  periodo       String              @map("periodo") // etiqueta del período (p. ej. "2026-03")
-  version       Int                 @default(1) @map("version")
-  esOficial     Boolean             @default(true) @map("es_oficial")
-  estaCongelado Boolean             @default(false) @map("esta_congelado")
-  congeladoPor  String?             @map("congelado_por")
-  congeladoEn   DateTime?           @map("congelado_en") @db.Timestamptz(3)
-  filas         Int                 @default(0) @map("filas")
-  total         Decimal             @default(0) @map("total") @db.Decimal(18, 2)
+  id               Int                 @id @default(autoincrement()) @map("id")
+  moduloCodigo     String              @map("modulo_codigo")
+  loteId           String?             @unique @map("lote_id") // idempotencia de promoción; null para legado
+  clienteId        Int                 @map("cliente_id")
+  nombreCliente    String              @map("nombre_cliente")
+  periodo          String              @map("periodo") // etiqueta del período (p. ej. "2026-03")
+  version          Int                 @default(1) @map("version")
+  esOficial        Boolean             @default(true) @map("es_oficial")
+  estaCongelado    Boolean             @default(false) @map("esta_congelado")
+  congeladoPor     String?             @map("congelado_por")
+  congeladoEn      DateTime?           @map("congelado_en") @db.Timestamptz(3)
+  filas            Int                 @default(0) @map("filas")
+  total            Decimal             @default(0) @map("total") @db.Decimal(18, 2)
+  archivoNombre    String?             @map("archivo_nombre")
+  archivoTam       String?             @map("archivo_tam")
+  origenExtraccion String?             @map("origen_extraccion") // perfil | manual | ia
   // Novedades de la carga (estilo balance): observaciones libres + respuestas del checklist
   // de verificación (JSON id→{respuesta, nota}). Las alertas automáticas (p. ej. negativos)
   // NO se guardan: se recalculan al leer desde el detalle.
-  observaciones String?             @map("observaciones")
-  verificaciones Json?              @map("verificaciones")
-  cargadoPor    String?             @map("cargado_por")
-  cargadoPorId  Int?                @map("cargado_por_id")
-  creadoEn      DateTime            @default(now()) @map("creado_en") @db.Timestamptz(3)
-  detalles      ModuloDatoDetalle[]
+  observaciones    String?             @map("observaciones")
+  verificaciones   Json?               @map("verificaciones")
+  cargadoPor       String?             @map("cargado_por")
+  cargadoPorId     Int?                @map("cargado_por_id")
+  ultimaCarga      DateTime            @default(now()) @map("ultima_carga") @db.Timestamptz(3)
+  creadoEn         DateTime            @default(now()) @map("creado_en") @db.Timestamptz(3)
+  detalles         ModuloDatoDetalle[]
 
   @@unique([clienteId, moduloCodigo, periodo, version])
   @@index([moduloCodigo, clienteId])

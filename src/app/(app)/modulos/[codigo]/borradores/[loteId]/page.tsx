@@ -1,8 +1,11 @@
 import { notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
-import { requirePermiso } from "@/lib/rbac";
+import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import { PageHeader, BackLink } from "@/components/ui";
 import { descriptorModulo } from "@/lib/modulos/descriptores";
+import { fechaCalendarioISO } from "@/lib/fecha-hora";
+import { fmtDateTime } from "@/lib/format";
+import { versionarYOrdenarBorradoresModulo } from "@/lib/modulos/versiones";
 import BorradorModuloClient, { type FilaBorradorModulo } from "./borrador-detail-client";
 
 export default async function BorradorModuloPage({ params }: { params: Promise<{ codigo: string; loteId: string }> }) {
@@ -17,14 +20,54 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
     prisma.moduloImportacionStaging.findMany({ where: { loteId }, orderBy: { filaNum: "asc" } }),
   ]);
   if (!lote || lote.moduloCodigo !== moduloCodigo || filas.length === 0) notFound();
+  if (lote.clienteId == null) notFound();
+  const scope = await authorizePermiso("modulos_datos:crear", { clientId: lote.clienteId });
+  if (!scope.ok) notFound();
 
-  // Conteo de comentarios por renglón del borrador (ancla `fila:<n>`, anclados al lote).
-  const comentariosGrp = await prisma.comment.groupBy({ by: ["anchor"], where: { entityType: "modulos_borrador", entityId: lote.id }, _count: { _all: true } });
+  const [comentariosGrp, cliente, lotesHermanos] = await Promise.all([
+    // Conteo de comentarios por renglón del borrador (ancla `fila:<n>`, anclados al lote).
+    prisma.comment.groupBy({ by: ["anchor"], where: { entityType: "modulos_borrador", entityId: lote.id }, _count: { _all: true } }),
+    prisma.client.findUnique({ where: { id: lote.clienteId }, select: { name: true } }),
+    lote.periodoInicial && lote.periodoFinal
+      ? prisma.moduloImportacionLote.findMany({
+          where: {
+            moduloCodigo,
+            clienteId: lote.clienteId,
+            periodoInicial: lote.periodoInicial,
+            periodoFinal: lote.periodoFinal,
+          },
+          select: {
+            loteId: true,
+            clienteId: true,
+            moduloCodigo: true,
+            archivoNombre: true,
+            periodoInicial: true,
+            periodoFinal: true,
+            creadoEn: true,
+          },
+        })
+      : Promise.resolve([]),
+  ]);
   const comentariosPorAncla: Record<string, number> = {};
   for (const g of comentariosGrp) if (g.anchor) comentariosPorAncla[g.anchor] = g._count._all;
 
-  const cliente = lote.clienteId != null ? await prisma.client.findUnique({ where: { id: lote.clienteId }, select: { name: true } }) : null;
-  const periodoSugerido = lote.periodoFinal ? lote.periodoFinal.toISOString().slice(0, 7) : lote.periodoInicial ? lote.periodoInicial.toISOString().slice(0, 7) : "";
+  const periodoSugerido = lote.periodoFinal
+    ? fechaCalendarioISO(lote.periodoFinal).slice(0, 7)
+    : lote.periodoInicial
+      ? fechaCalendarioISO(lote.periodoInicial).slice(0, 7)
+      : "";
+  const hermanosVersionados = versionarYOrdenarBorradoresModulo(
+    lotesHermanos.map((hermano) => ({
+      loteId: hermano.loteId,
+      clienteId: hermano.clienteId,
+      moduloCodigo: hermano.moduloCodigo,
+      archivoNombre: hermano.archivoNombre,
+      periodoInicial: hermano.periodoInicial ? fechaCalendarioISO(hermano.periodoInicial) : null,
+      periodoFinal: hermano.periodoFinal ? fechaCalendarioISO(hermano.periodoFinal) : null,
+      creadoEn: hermano.creadoEn.toISOString(),
+    })),
+  );
+  const versionActual = hermanosVersionados.find((hermano) => hermano.loteId === loteId)?.version ?? null;
 
   const filasVm: FilaBorradorModulo[] = filas.map((f) => ({
     filaNum: f.filaNum,
@@ -40,7 +83,7 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
       <div className="mb-3"><BackLink href={`/modulos/${codigo.toLowerCase()}`} label={`Volver a ${descriptor.label}`} /></div>
       <PageHeader
         title={`Borrador · ${descriptor.label}`}
-        subtitle="Revisa el mapeo, marca renglones agrupadores (subtotales) u omítelos, y confirma la carga."
+        subtitle={`${versionActual ? `v${versionActual} · ` : ""}${lote.archivoNombre}${lote.archivoTam ? ` · ${lote.archivoTam}` : ""}. Revisa el mapeo y confirma la carga.`}
       />
       <BorradorModuloClient
         moduloCodigo={moduloCodigo}
@@ -56,6 +99,13 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
         productos={Object.entries(descriptor.derivar ?? {}).filter(([, r]) => "producto" in r).map(([resultado, r]) => ({ resultado, cantidad: (r as { producto: [string, string] }).producto[0], unitario: (r as { producto: [string, string] }).producto[1] }))}
         verificaciones={descriptor.verificaciones ?? []}
         filas={filasVm}
+        version={versionActual}
+        hermanos={hermanosVersionados.map((hermano) => ({
+          loteId: hermano.loteId,
+          version: hermano.version,
+          archivoNombre: hermano.archivoNombre,
+          fecha: hermano.creadoEn ? fmtDateTime(hermano.creadoEn) : "—",
+        }))}
       />
     </div>
   );
