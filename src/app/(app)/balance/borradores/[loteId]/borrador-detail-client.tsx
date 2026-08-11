@@ -16,10 +16,7 @@ import {
   usePantallaCompletaTabla,
 } from "@/components/tabla-pantalla-completa";
 import { fmt, fmtContable } from "@/lib/format";
-import { actualizarPeriodoBorrador, cargarBorrador, descartarBorrador, aplicarCambiosBorrador, asignarClienteBorrador, reprocesarBalanceConSpec, guardarPerfilDesdeEditor, guardarNotasDesdeEditor } from "@/app/actions/balance";
-import { EditorEstructura } from "@/app/(app)/balance/cargar-balance-modal";
-import { PromptClientePerfil } from "@/app/(app)/balance/prompt-cliente-perfil";
-import type { SpecCarga } from "@/lib/balance/extraccion/esquema";
+import { actualizarPeriodoBorrador, cargarBorrador, descartarBorrador, aplicarCambiosBorrador, asignarClienteBorrador, guardarNotasDesdeEditor } from "@/app/actions/balance";
 import type { ImportBalanceState } from "@/lib/import/balance";
 import { construirVistaBorrador } from "@/lib/balance/borrador-vm";
 import {
@@ -77,13 +74,8 @@ import { AdvertenciaArchivoFuenteDetalle } from "@/components/advertencia-archiv
 import { notifyActionState, notifySuccess, notifyError, notifyInfo } from "@/lib/client-notifications";
 import {
   esFalloTransporteCarga,
-  MENSAJE_RECUPERAR_LECTURA,
   MENSAJE_RECUPERAR_PROMOCION,
 } from "@/lib/balance/recuperacion-red";
-import {
-  generarUuidV4Cliente,
-  MENSAJE_UUID_CLIENTE_NO_DISPONIBLE,
-} from "@/lib/balance/uuid-cliente";
 import { SelectorClienteBuscable } from "@/components/selector-cliente-buscable";
 import { NotaOpcionalPromocion } from "./nota-opcional-promocion";
 import { useSeleccionFilaTabla } from "@/app/(app)/balance/use-seleccion-fila-tabla";
@@ -114,15 +106,6 @@ export type CambiosBorrador = {
   soloHojas: boolean;
   autoCorregido: boolean;
 };
-
-function generarUuidReprocesoOAvisar(): string | null {
-  try {
-    return generarUuidV4Cliente();
-  } catch {
-    notifyError(MENSAJE_UUID_CLIENTE_NO_DISPONIBLE);
-    return null;
-  }
-}
 
 type Cliente = {
   id: number;
@@ -543,8 +526,81 @@ function MenuVersionesBorrador({
   );
 }
 
+/**
+ * Notas / observaciones de carga del cliente: particularidades del formato que el
+ * equipo anota para recordarlas en cada carga. Se ven y se editan aquí (antes la
+ * edición vivía dentro del editor de estructura, que ya no se expone en el borrador).
+ */
+function NotasCargaCliente({
+  notas,
+  guardando,
+  onGuardar,
+}: {
+  notas: string | null;
+  guardando: boolean;
+  onGuardar: (texto: string) => void;
+}) {
+  const [editando, setEditando] = useState(false);
+  const [texto, setTexto] = useState("");
+  const actuales = (notas ?? "").trim();
+  const abrir = () => { setTexto(actuales); setEditando(true); };
+
+  if (!editando) {
+    return actuales ? (
+      <div className="mb-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">
+        <div className="mb-0.5 flex items-center justify-between gap-2">
+          <span className="flex items-center gap-1.5 font-semibold"><span aria-hidden>📌</span> Notas de carga de este cliente</span>
+          <button type="button" onClick={abrir} className="shrink-0 rounded-md border border-blue-300 bg-white px-2 py-0.5 text-[11.5px] font-semibold text-blue-700 hover:bg-blue-100">
+            Editar
+          </button>
+        </div>
+        <p className="whitespace-pre-wrap leading-relaxed">{actuales}</p>
+      </div>
+    ) : (
+      <button type="button" onClick={abrir} className="mb-3 inline-flex items-center gap-1.5 text-[11.5px] font-medium text-ink-500 hover:text-blue-700">
+        <span aria-hidden>📌</span> Agregar notas de carga de este cliente
+      </button>
+    );
+  }
+
+  return (
+    <div className="mb-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2">
+      <div className="text-[12px] font-semibold text-ink-700">Notas / observaciones de carga del cliente</div>
+      <p className="mt-0.5 text-[11px] leading-relaxed text-ink-500">
+        Particularidades del formato de este cliente para recordar en cada carga (p. ej. «duplica renglones UC/CU — se omite uno»). Se guardan por cliente y aparecen al cargar y revisar; no cambian el cálculo.
+      </p>
+      <textarea
+        value={texto}
+        onChange={(e) => setTexto(e.target.value)}
+        rows={3}
+        maxLength={2000}
+        placeholder="Sin notas para este cliente."
+        className="mt-1.5 w-full resize-y rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] leading-relaxed text-ink-700 outline-none focus:border-blue-400"
+      />
+      <div className="mt-2 flex items-center gap-2">
+        <button
+          type="button"
+          disabled={guardando || texto.trim() === actuales}
+          onClick={() => { onGuardar(texto.trim()); setEditando(false); }}
+          className="rounded-md border border-blue-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-blue-700 hover:bg-blue-100 disabled:opacity-60"
+        >
+          {guardando ? <EstadoProcesando>Guardando</EstadoProcesando> : "Guardar notas del cliente"}
+        </button>
+        <button
+          type="button"
+          disabled={guardando}
+          onClick={() => setEditando(false)}
+          className="rounded-md border border-ink-200 bg-white px-3 py-1.5 text-[12px] font-medium text-ink-600 hover:bg-ink-50 disabled:opacity-60"
+        >
+          Cancelar
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function BorradorDetailClient({
-  loteId, archivoNombre, nitDetectado, periodoInicial, periodoFinal, filasCompactas, porTerceroDetectado, revisionesReubicacion = [], clientes, clienteSugeridoId, clientePersistido = false, spec, correccionesAplicadas, umbrales, version = null, hermanos = [],
+  loteId, archivoNombre, nitDetectado, periodoInicial, periodoFinal, filasCompactas, porTerceroDetectado, revisionesReubicacion = [], clientes, clienteSugeridoId, clientePersistido = false, correccionesAplicadas, umbrales, version = null, hermanos = [],
 }: {
   loteId: string;
   archivoNombre: string;
@@ -560,7 +616,6 @@ export default function BorradorDetailClient({
   clienteSugeridoId: number | null;
   /** false = el cliente solo está SUGERIDO por NIT y el lote sigue sin cliente en BD. */
   clientePersistido?: boolean;
-  spec: SpecCarga | null;
   correccionesAplicadas: number;
   /** Umbrales de alerta vigentes (parametrizables en /config/parametros). */
   umbrales: UmbralesAlertas;
@@ -613,11 +668,6 @@ export default function BorradorDetailClient({
   const [soloHojas, setSoloHojas] = useState(false); // export jerárquico: solo cuentan las hojas
   const [autoCorregido, setAutoCorregido] = useState(false); // «solo hojas» se activó por auto-corrección al abrir
   const autoAplicadoRef = useRef(false);
-  const [archivoFile, setArchivoFile] = useState<File | null>(null); // re-adjuntar para reprocesar sin IA
-  const [reprocesando, startReproceso] = useTransition();
-  const reprocesoSolicitudRef = useRef<string | null>(null);
-  const [guardandoPerfil, startGuardarPerfil] = useTransition();
-  const [promptPerfilSpec, setPromptPerfilSpec] = useState<SpecCarga | null>(null); // pide cliente al guardar perfil
   const [guardando, startGuardar] = useTransition();
   const [aprobandoReubicacion, startAprobarReubicacion] = useTransition();
   // Fotografía del estado ANTES de cada edición, para poder deshacer paso a paso.
@@ -1095,29 +1145,7 @@ export default function BorradorDetailClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientePersistido, clienteSugeridoId]);
 
-  // Reproceso determinista con el spec ajustado (editor de estructura), re-adjuntando el
-  // archivo original — esta página no lo conserva. Crea un borrador NUEVO y purga este.
-  // Guardar el spec ajustado como PERFIL del cliente SIN reprocesar (para futuras cargas).
-  // Si no hay cliente (ni por NIT ni en el lote), se pide elegirlo para concluir el guardado.
-  const onGuardarPerfil = (s: SpecCarga) => {
-    startGuardarPerfil(async () => {
-      const r = await guardarPerfilDesdeEditor(loteId, s);
-      if (r.ok) { notifySuccess(r.message ?? "Perfil guardado."); return; }
-      if (r.needsClient) { setPromptPerfilSpec(s); return; } // pedir cliente
-      notifyError(r.message ?? "No se pudo guardar el perfil.");
-    });
-  };
-  const guardarPerfilConCliente = (clientId: number) => {
-    const s = promptPerfilSpec;
-    if (!s) return;
-    startGuardarPerfil(async () => {
-      const r = await guardarPerfilDesdeEditor(loteId, s, clientId);
-      if (r.ok) { notifySuccess(r.message ?? "Perfil guardado."); setPromptPerfilSpec(null); }
-      else notifyError(r.message ?? "No se pudo guardar el perfil.");
-    });
-  };
-
-  // Notas / observaciones de carga del cliente (per-cliente) desde el editor de estructura.
+  // Notas / observaciones de carga del cliente (per-cliente).
   const [guardandoNotas, startGuardarNotas] = useTransition();
   const [notasPendientes, setNotasPendientes] = useState<string | null>(null); // a guardar tras elegir cliente
   const guardarNotas = (texto: string, clienteId: number) => {
@@ -1132,40 +1160,6 @@ export default function BorradorDetailClient({
     // guarda (antes se abría la compuerta pero NO se reintentaba → las notas se perdían).
     if (clienteSelId == null) { setNotasPendientes(texto); setGateAbierto(true); notifyError("Elige el cliente para guardar las notas."); return; }
     guardarNotas(texto, clienteSelId);
-  };
-
-  const onReprocesar = (s: SpecCarga) => {
-    if (!archivoFile) { notifyError("Adjunta el archivo original para reprocesar."); return; }
-    startReproceso(async () => {
-      try { await archivoFile.arrayBuffer(); } catch { notifyError("No pudimos leer el archivo. Suele pasar cuando está ABIERTO en Excel o sincronizándose en OneDrive: ciérralo e intenta de nuevo."); return; }
-      const fd = new FormData();
-      fd.set("archivo", archivoFile);
-      fd.set("spec", JSON.stringify(s));
-      fd.set("loteIdAnterior", loteId);
-      if (!reprocesoSolicitudRef.current) {
-        reprocesoSolicitudRef.current = generarUuidReprocesoOAvisar();
-      }
-      if (!reprocesoSolicitudRef.current) return;
-      fd.set("loteIdSolicitud", reprocesoSolicitudRef.current);
-      if (clienteSelId != null) fd.set("clienteId", String(clienteSelId));
-      let r;
-      try {
-        r = await reprocesarBalanceConSpec({}, fd);
-      } catch (error) {
-        if (esFalloTransporteCarga(error)) {
-          notifyError(MENSAJE_RECUPERAR_LECTURA);
-          return;
-        }
-        throw error;
-      }
-      if (r.ok && r.sugerencia) {
-        reprocesoSolicitudRef.current = null;
-        notifySuccess("Reprocesado sin IA.");
-        router.push(`/balance/borradores/${r.sugerencia.payload.loteId}`);
-      } else {
-        notifyError(r.message ?? "No se pudo reprocesar el archivo.");
-      }
-    });
   };
 
   useEffect(() => {
@@ -1394,24 +1388,6 @@ export default function BorradorDetailClient({
         <ArbolTabla arbol={arbol} riesgosPorFila={riesgosPorFila} onReclasificar={onReclasificar} onGestionarAgrupadora={(filaNum) => setGestionarAgrupadora({ filaNum })} onDesacoplar={onDesacoplar} onOmitir={onOmitir} posiciones={posiciones} contexto={contexto} onUbicar={onUbicar} onDesindentar={onDesindentar} onVerDetalleReubicacion={abrirDetalleReubicacion} enfoqueReubicacion={enfoqueReubicacion} umbrales={umbrales} loteId={loteId} hermanos={hermanos} />
       </Card>
 
-      {spec && (
-        <Card className="p-3">
-          <div className="mb-2 rounded-md border border-ink-150 bg-ink-50 px-3 py-2 text-[11.5px] leading-relaxed text-ink-600">
-            <span className="font-semibold">Reprocesar con otra estructura (sin IA):</span> corrige el mapeo de columnas, la detección o el signo abajo. Como esta página no conserva el archivo, <span className="font-semibold">re-adjunta el archivo original</span> para reprocesar — se creará un borrador nuevo con el resultado.
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              <input
-                type="file"
-                accept=".xlsx,.xlsm,.xls,.csv,.txt,.json,.pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                onChange={(e) => setArchivoFile(e.target.files?.[0] ?? null)}
-                className="text-[12px] text-ink-700 file:mr-2 file:rounded-md file:border-0 file:bg-navy-700 file:px-2.5 file:py-1 file:text-[12px] file:font-semibold file:text-white hover:file:bg-navy-600"
-              />
-              {archivoFile && <span className="text-[11.5px] font-medium text-ok-700">✓ {archivoFile.name}</span>}
-            </div>
-          </div>
-          <EditorEstructura spec={spec} encabezados={[]} hojas={[spec.hoja]} reprocesando={reprocesando} onAplicar={onReprocesar} onGuardar={onGuardarPerfil} guardando={guardandoPerfil} notasCliente={clientes.find((c) => c.id === clienteSelId)?.notas ?? null} onGuardarNotas={onGuardarNotas} guardandoNotas={guardandoNotas} />
-        </Card>
-      )}
-
       {mover != null && (
         <MoverModal
           indice={indiceReubicacion}
@@ -1441,10 +1417,6 @@ export default function BorradorDetailClient({
           riesgo={riesgosPorFila.get(resumenReubicacion.filaNum)}
           onClose={() => setDetalleReubicacion(null)}
         />
-      )}
-
-      {promptPerfilSpec && (
-        <PromptClientePerfil clientes={clientes} guardando={guardandoPerfil} onElegir={guardarPerfilConCliente} onClose={() => setPromptPerfilSpec(null)} />
       )}
 
       {gateAbierto && (
@@ -1478,15 +1450,11 @@ export default function BorradorDetailClient({
       {/* Cargar / Descartar */}
       <Card className="p-4">
         <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Cargar como balance oficial</div>
-        {(() => {
-          const notas = clientes.find((c) => c.id === clienteSelId)?.notas?.trim();
-          return notas ? (
-            <div className="mb-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">
-              <div className="mb-0.5 flex items-center gap-1.5 font-semibold"><span aria-hidden>📌</span> Notas de carga de este cliente</div>
-              <p className="whitespace-pre-wrap leading-relaxed">{notas}</p>
-            </div>
-          ) : null;
-        })()}
+        <NotasCargaCliente
+          notas={clientes.find((c) => c.id === clienteSelId)?.notas ?? null}
+          guardando={guardandoNotas}
+          onGuardar={onGuardarNotas}
+        />
         <form
           id="cargar-balance-oficial"
           action={cargarAction}

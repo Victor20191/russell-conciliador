@@ -38,6 +38,8 @@ import {
   type ArchivoSnapshotCliente,
 } from "@/lib/balance/archivo-snapshot-cliente";
 import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
+import { mensajeTamanoBalanceNoPermitido } from "@/lib/balance/limites-archivo";
+import { cargarArchivoBalanceTemporal } from "@/lib/balance/carga-archivo-cliente";
 
 /** Extensiones de Excel que pueden traer varias hojas (inspeccionables en cliente). */
 const esExcel = (name: string) => /\.(xlsx|xlsm|xls)$/i.test(name);
@@ -150,6 +152,7 @@ function CargarBalanceModal({
   // Excel demasiado grande para inspeccionar en el navegador sin congelar: se omite la vista
   // previa de hojas y lo lee el servidor.
   const [archivoGrande, setArchivoGrande] = useState(false);
+  const [progresoSubida, setProgresoSubida] = useState<number | null>(null);
   const [proveedorCarga, setProveedorCarga] = useState<ProveedorIABalance | undefined>(
     configuracionIA?.predeterminado,
   );
@@ -165,6 +168,24 @@ function CargarBalanceModal({
   const reconstruirArchivoRetenido = (): File | null => {
     const snapshot = archivoSnapshotRef.current;
     return snapshot ? reconstruirArchivoDesdeSnapshot(snapshot) : null;
+  };
+
+  const prepararArchivoTemporal = async (
+    formData: FormData,
+    archivo: File,
+    loteId: string,
+  ): Promise<boolean> => {
+    setProgresoSubida(0);
+    try {
+      await cargarArchivoBalanceTemporal(archivo, loteId, setProgresoSubida);
+      formData.delete("archivo");
+      return true;
+    } catch (error) {
+      notifyError(error instanceof Error ? error.message : "No se pudo subir el archivo del balance.");
+      return false;
+    } finally {
+      setProgresoSubida(null);
+    }
   };
 
   const obtenerSolicitudReproceso = (): string | null => {
@@ -217,6 +238,12 @@ function CargarBalanceModal({
       return;
     }
     if (!file || !nuevaSolicitud) {
+      return;
+    }
+    const errorTamano = mensajeTamanoBalanceNoPermitido(file.name, file.size);
+    if (errorTamano) {
+      notifyError(errorTamano);
+      input.value = "";
       return;
     }
 
@@ -276,6 +303,7 @@ function CargarBalanceModal({
       fd.set("loteIdSolicitud", loteIdSolicitudReproceso);
       if (proveedorIA) fd.set("modeloIA", proveedorIA);
       if (clientId != null) fd.set("clienteId", String(clientId));
+      if (!await prepararArchivoTemporal(fd, archivoFile, loteIdSolicitudReproceso)) return;
       let res: LeerBalanceState;
       try {
         res = await reprocesarBalanceConSpec({}, fd);
@@ -298,8 +326,8 @@ function CargarBalanceModal({
     });
   };
 
-  // Cada envío recibe un File nuevo reconstruido desde la copia estable capturada
-  // al seleccionarlo; nunca se reutiliza el objeto entregado a una Server Action.
+  // La copia estable permite reintentar la carga fragmentada aunque el input haya
+  // sido limpiado o una respuesta anterior se pierda durante el procesamiento.
   const onLeerSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
@@ -319,6 +347,7 @@ function CargarBalanceModal({
       hoja: hojaElegida,
       proveedorIA: proveedorCarga,
     });
+    if (!await prepararArchivoTemporal(formData, archivoFile, loteIdSolicitud)) return;
     lecturaIniciadaRef.current = true;
     clienteEnviadoRef.current = clienteCarga;
     setMensajeLecturaDesactualizado(false);
@@ -359,6 +388,7 @@ function CargarBalanceModal({
             fd.set("spec", JSON.stringify(sug.render.spec));
             const proveedor = sug.payload.proveedorIA ?? proveedorCarga;
             if (proveedor) fd.set("modeloIA", proveedor);
+            if (!await prepararArchivoTemporal(fd, archivoFile, loteId)) return;
             persistido = await continuarBalanceTransitorioConSpec({}, fd);
           } else {
             // Plantilla determinista sin proveedor disponible: no existe spec que
@@ -371,6 +401,7 @@ function CargarBalanceModal({
               hoja: hojaElegida,
               proveedorIA: sug.payload.proveedorIA ?? proveedorCarga,
             });
+            if (!await prepararArchivoTemporal(fd, archivoFile, loteId)) return;
             persistido = await leerBalance({}, fd);
           }
         } catch (error) {
@@ -412,6 +443,7 @@ function CargarBalanceModal({
         if (!loteIdSolicitudReproceso) return;
         fd.set("loteIdSolicitud", loteIdSolicitudReproceso);
         if (sug.payload.proveedorIA) fd.set("modeloIA", sug.payload.proveedorIA);
+        if (!await prepararArchivoTemporal(fd, archivoFile, loteIdSolicitudReproceso)) return;
         let reprocesado: LeerBalanceState;
         try {
           reprocesado = await reprocesarBalanceConSpec({}, fd);
@@ -442,6 +474,7 @@ function CargarBalanceModal({
         fd.set("loteIdSolicitud", loteIdSolicitudReproceso);
         if (hojaElegida) fd.set("hoja", hojaElegida);
         if (sug.payload.proveedorIA) fd.set("modeloIA", sug.payload.proveedorIA);
+        if (!await prepararArchivoTemporal(fd, archivoFile, loteIdSolicitudReproceso)) return;
         let releido: LeerBalanceState;
         try {
           releido = await leerBalance({}, fd);
@@ -487,6 +520,7 @@ function CargarBalanceModal({
   const segundoPasoCliente = mostrarSelectorCliente;
   const leerDeshabilitado =
     leyendo
+    || progresoSubida != null
     || inspeccionando
     || !fileName
     || !loteIdSolicitud
@@ -504,13 +538,16 @@ function CargarBalanceModal({
         <button type="button" onClick={onReiniciar} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] font-semibold text-ink-600 hover:bg-ink-50">
           ← Otro archivo
         </button>
-        {sug && asignandoCliente ? (
+        {sug && (asignandoCliente || progresoSubida != null) ? (
           <button
             type="button"
             disabled
             className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white opacity-60"
           >
-            <Icon name="doc" size={13} /> <EstadoProcesando>Vinculando cliente</EstadoProcesando>
+            <Icon name="doc" size={13} />
+            <EstadoProcesando>
+              {progresoSubida != null ? `Subiendo ${progresoSubida}%` : "Vinculando cliente"}
+            </EstadoProcesando>
           </button>
         ) : sug && clienteRevisionId != null ? (
           <Link
@@ -535,7 +572,7 @@ function CargarBalanceModal({
         type="submit"
         form="leer-form"
         disabled={leerDeshabilitado}
-        aria-busy={leyendo}
+        aria-busy={leyendo || progresoSubida != null}
         title={
           segundoPasoCliente && clienteCarga == null
             ? "Selecciona el cliente reconocido en el archivo para continuar"
@@ -543,8 +580,14 @@ function CargarBalanceModal({
         }
         className="ml-auto rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
       >
-        {leyendo
-          ? <EstadoProcesando etiqueta="Leyendo archivo">Leyendo</EstadoProcesando>
+        {progresoSubida != null
+          ? (
+            <EstadoProcesando etiqueta="Subiendo archivo">
+              Subiendo {progresoSubida}%
+            </EstadoProcesando>
+          )
+          : leyendo
+            ? <EstadoProcesando etiqueta="Leyendo archivo">Leyendo</EstadoProcesando>
           : inspeccionando
             ? <EstadoProcesando>Analizando hojas</EstadoProcesando>
             : reintentoLecturaPendiente
@@ -566,9 +609,9 @@ function CargarBalanceModal({
           clients={clients}
           excepciones={leerState?.excepciones ?? []}
           archivoDisponible={fileName.length > 0}
-          reprocesando={reprocesando}
+          reprocesando={reprocesando || progresoSubida != null}
           clienteId={clienteRevisionId}
-          asignandoCliente={asignandoCliente}
+          asignandoCliente={asignandoCliente || progresoSubida != null}
           onAsignarCliente={asignarClienteRevision}
           onReprocesar={reprocesar}
         />
@@ -775,7 +818,10 @@ function FormRevisar({
         onAsignar={onAsignarCliente}
       />
 
-      <DetalleMovimiento cuentas={sug.render.importReady} />
+      <DetalleMovimiento
+        cuentas={sug.render.importReady}
+        totalCuentas={sug.render.totalCuentas}
+      />
 
       {puedeEditar && sug.render.spec && (
         <EditorEstructura
@@ -1245,11 +1291,21 @@ export function EditorEstructura({
   );
 }
 
-/** Tabla scrollable con TODAS las cuentas de movimiento del borrador. */
-function DetalleMovimiento({ cuentas }: { cuentas: SugerenciaBalance["render"]["importReady"] }) {
+/** Muestra compacta; el borrador persistido conserva todas las cuentas. */
+function DetalleMovimiento({
+  cuentas,
+  totalCuentas,
+}: {
+  cuentas: SugerenciaBalance["render"]["importReady"];
+  totalCuentas: number;
+}) {
+  const esMuestra = cuentas.length < totalCuentas;
   return (
     <div className="flex flex-col gap-1.5">
-      <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">Movimiento en borrador · {cuentas.length} cuenta(s)</div>
+      <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">
+        Movimiento en borrador · {totalCuentas} cuenta(s)
+        {esMuestra ? ` · muestra de ${cuentas.length}` : ""}
+      </div>
       <div className="max-h-72 overflow-auto rounded-md border border-ink-150">
         <table className="w-full text-[11px]">
           <thead className="sticky top-0 bg-ink-50 text-ink-500">

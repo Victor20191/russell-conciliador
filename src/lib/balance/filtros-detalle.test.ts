@@ -1,0 +1,181 @@
+import { describe, expect, it } from "vitest";
+import type { NodoBalance } from "./calcular";
+import {
+  FILTROS_COLUMNAS_DETALLE_INICIALES,
+  coincideFiltroNumerico,
+  filtrarArbolDetallePorColumnas,
+  type FiltrosColumnasDetalle,
+} from "./filtros-detalle";
+import { UMBRALES_ALERTAS_DEFECTO } from "./umbrales-alertas";
+
+function nodo(
+  code: string,
+  nivel: NodoBalance["nivel"],
+  parcial: Partial<NodoBalance> = {},
+): NodoBalance {
+  return {
+    key: `${nivel}:${code}`,
+    nivel,
+    code,
+    name: `Cuenta ${code}`,
+    prevBalance: 0,
+    balance: 0,
+    debe: 0,
+    haber: 0,
+    variation: null,
+    mapped: true,
+    saldoOk: true,
+    nature: "D",
+    critical: false,
+    clase: code.charAt(0),
+    detalleId: nivel === 8 ? Number(code.slice(-2)) : null,
+    std: nivel === 8 ? code.slice(0, 6) : null,
+    coincidencia: null,
+    hijos: [],
+    ...parcial,
+  };
+}
+
+function filtros(
+  parcial: Partial<FiltrosColumnasDetalle>,
+): FiltrosColumnasDetalle {
+  return { ...FILTROS_COLUMNAS_DETALLE_INICIALES, ...parcial };
+}
+
+const hojaCaja = nodo("11050501", 8, {
+  name: "Caja general",
+  prevBalance: 1_000_000,
+  debe: 500_000,
+  haber: 100_000,
+  balance: 1_400_000,
+  variation: 40,
+  std: "110505",
+});
+const hojaBanco = nodo("11100501", 8, {
+  name: "Banco nacional",
+  prevBalance: 2_000_000,
+  debe: 250_000,
+  haber: 250_000,
+  balance: 2_000_000,
+  variation: 0,
+  std: "111005",
+});
+const hojaSinMapeo = nodo("13050599", 8, {
+  name: "Cliente sin homologar",
+  mapped: false,
+  std: null,
+  saldoOk: false,
+  balance: -75_000,
+});
+const arbol = [
+  nodo("11", 2, {
+    name: "Disponible",
+    hijos: [
+      nodo("1105", 4, {
+        hijos: [nodo("110505", 6, { name: "Caja", hijos: [hojaCaja] })],
+      }),
+      nodo("1110", 4, {
+        hijos: [nodo("111005", 6, { name: "Bancos", hijos: [hojaBanco] })],
+      }),
+    ],
+  }),
+  nodo("13", 2, {
+    name: "Deudores",
+    mapped: false,
+    hijos: [
+      nodo("1305", 4, {
+        mapped: false,
+        hijos: [nodo("1305-SIN", 6, { mapped: false, hijos: [hojaSinMapeo] })],
+      }),
+    ],
+  }),
+];
+
+describe("coincideFiltroNumerico", () => {
+  it("admite igualdad y operadores con formato monetario colombiano", () => {
+    expect(coincideFiltroNumerico(1_400_000, "$ 1.400.000")).toBe(true);
+    expect(coincideFiltroNumerico(1_400_000, ">= 1.000.000")).toBe(true);
+    expect(coincideFiltroNumerico(40, "> 25,5")).toBe(true);
+    expect(coincideFiltroNumerico(0, "< 0")).toBe(false);
+  });
+
+  it("excluye variaciones nulas cuando hay un filtro numérico", () => {
+    expect(coincideFiltroNumerico(null, "> 0")).toBe(false);
+  });
+});
+
+describe("filtrarArbolDetallePorColumnas", () => {
+  it("combina columnas y conserva solo la coincidencia con sus ancestros", () => {
+    const resultado = filtrarArbolDetallePorColumnas(
+      arbol,
+      filtros({ cuenta: "caja", debito: "> 400000", variacion: "> 25" }),
+      new Set(),
+      UMBRALES_ALERTAS_DEFECTO,
+    );
+
+    expect(resultado).toHaveLength(1);
+    expect(resultado[0].code).toBe("11");
+    expect(resultado[0].hijos.map((hijo) => hijo.code)).toEqual(["1105"]);
+    expect(resultado[0].hijos[0].hijos[0].hijos).toEqual([hojaCaja]);
+  });
+
+  it("filtra el texto visible de mapeo y elimina grupos sin coincidencias", () => {
+    const resultado = filtrarArbolDetallePorColumnas(
+      arbol,
+      filtros({ mapeo: "sin mapeo" }),
+      new Set(),
+      UMBRALES_ALERTAS_DEFECTO,
+    );
+
+    expect(resultado.map((item) => item.code)).toEqual(["13"]);
+    expect(resultado[0].hijos[0].hijos[0].hijos[0].code).toBe("13050599");
+  });
+
+  it("distingue alertas, validaciones e informativos con los umbrales vigentes", () => {
+    const alertas = filtrarArbolDetallePorColumnas(
+      arbol,
+      filtros({ validacion: "alerta" }),
+      new Set(),
+      UMBRALES_ALERTAS_DEFECTO,
+    );
+    expect(alertas.map((item) => item.code)).toEqual(["13"]);
+
+    const validadas = filtrarArbolDetallePorColumnas(
+      arbol,
+      filtros({ validacion: "validada" }),
+      new Set(["13050599"]),
+      UMBRALES_ALERTAS_DEFECTO,
+    );
+    expect(validadas.map((item) => item.code)).toEqual(["13"]);
+
+    const informativa = nodo("13050598", 8, {
+      saldoOk: false,
+      balance: -25_000,
+      std: null,
+      mapped: false,
+    });
+    expect(filtrarArbolDetallePorColumnas(
+      [informativa],
+      filtros({ validacion: "informativa" }),
+      new Set(),
+      UMBRALES_ALERTAS_DEFECTO,
+    )).toHaveLength(1);
+  });
+
+  it("no muta el árbol original y evita clonar cuando no hay filtros", () => {
+    expect(filtrarArbolDetallePorColumnas(
+      arbol,
+      filtros({}),
+      new Set(),
+      UMBRALES_ALERTAS_DEFECTO,
+    )).toBe(arbol);
+
+    filtrarArbolDetallePorColumnas(
+      arbol,
+      filtros({ codigo: "11050501" }),
+      new Set(),
+      UMBRALES_ALERTAS_DEFECTO,
+    );
+    expect(arbol[0].hijos).toHaveLength(2);
+  });
+});

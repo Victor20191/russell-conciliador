@@ -729,6 +729,42 @@ model BalancePruebaDetalle {
   @@map("balance_prueba_detalle")
 }
 
+// Archivo temporal fragmentado para cargas de balance. Los bytes llegan en
+// partes pequeñas para no atravesar el límite de payload de una sola Function;
+// la Server Action los consume y elimina antes de iniciar la extracción.
+model BalanceArchivoTemporal {
+  loteId        String                        @id @map("lote_id")
+  usuarioId     Int                           @map("usuario_id") // FK suave a usuarios
+  nombreArchivo String                        @map("nombre_archivo")
+  tipoContenido String                        @map("tipo_contenido")
+  tamanoBytes   Int                           @map("tamano_bytes")
+  tamanoParte   Int                           @map("tamano_parte")
+  totalPartes   Int                           @map("total_partes")
+  completado    Boolean                       @default(false) @map("completado")
+  expiraEn      DateTime                      @map("expira_en") @db.Timestamptz(3)
+  creadoEn      DateTime                      @default(now()) @map("creado_en") @db.Timestamptz(3)
+  actualizadoEn DateTime                      @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+  partes        BalanceArchivoTemporalParte[]
+
+  @@index([usuarioId])
+  @@index([expiraEn])
+  @@map("balance_archivo_temporal")
+}
+
+model BalanceArchivoTemporalParte {
+  id          BigInt                 @id @default(autoincrement()) @map("id")
+  loteId      String                 @map("lote_id")
+  numero      Int                    @map("numero")
+  tamanoBytes Int                    @map("tamano_bytes")
+  contenido   Bytes                  @map("contenido")
+  creadoEn    DateTime               @default(now()) @map("creado_en") @db.Timestamptz(3)
+  archivo     BalanceArchivoTemporal @relation(fields: [loteId], references: [loteId], onDelete: Cascade)
+
+  @@unique([loteId, numero])
+  @@index([loteId])
+  @@map("balance_archivo_temporal_parte")
+}
+
 // Encabezado de un LOTE de importación (borrador persistente). Un registro por
 // lectura de archivo: guarda la metadata para LISTAR los borradores sin recalcular
 // (archivo, NIT/período detectado, snapshot de validación) y el dueño. Persiste

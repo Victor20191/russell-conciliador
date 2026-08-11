@@ -58,6 +58,8 @@ import { detectarManipulacionesRiesgosas, reclasificarHuerfanas, reclasificarSol
 import { esBalancePorTercero, colapsarTerceros, esBalancePorTerceroSufijo, consolidarTercerosPorSufijo, marcarCuentaNit } from "@/lib/balance/terceros";
 import { invalidarStagingBorrador, type RevisionReubicacionStaging } from "@/lib/balance/staging-borrador";
 import { marcarRelistadoGuiones } from "@/lib/balance/relistado";
+import { mensajeTamanoBalanceNoPermitido } from "@/lib/balance/limites-archivo";
+import { consumirArchivoBalanceTemporal } from "@/lib/balance/archivo-temporal-servidor";
 import {
   esDescuadreDelArchivoFuente,
   validarComentarioPromocion,
@@ -88,9 +90,9 @@ import { CUADRE_NO_APLICA } from "@/lib/balance/extraccion/esquema";
 import type { CuadreTotales, Excepcion, MappingSpec, Origen, ResumenAuditoria, SpecCarga } from "@/lib/balance/extraccion/esquema";
 import { z } from "zod";
 
-const MAX_BYTES = 20 * 1024 * 1024; // 20 MB (admite PDF)
 const TIMEOUT_TRANSACCION_PROMOCION_MS = 5 * 60 * 1000;
 const TIMEOUT_TRANSACCION_BORRADOR_MS = 15 * 60 * 1000;
+const MAX_CUENTAS_REVISION_MODAL = 200;
 const LoteIdSolicitudSchema = z.string().uuid();
 const ContinuarBalanceTransitorioSchema = z.object({
   clienteId: z.coerce.number().int().positive(),
@@ -124,6 +126,7 @@ export type SugerenciaBalance = {
     cuadre: CuadreTotales; // cuadre de las hojas contra la fila TOTALES del archivo
     validacion: ValidacionContable; // borrador: A/P/Patrimonio (archivo vs calculado) + ecuación
     importReady: CuentaCruda[];
+    totalCuentas: number;
     spec: SpecCarga | null; // valores iniciales del editor de estructura (null en PDF/plantilla)
     encabezados: string[]; // celdas de la fila de encabezado usada (labels del editor)
     hojas: string[]; // nombres de hojas de la ingesta (selector del editor)
@@ -178,6 +181,54 @@ type DestinoLoteSolicitud = {
   id: string | number;
   clienteId: number;
 };
+
+type ArchivoBalanceEntrada = {
+  name: string;
+  size: number;
+  arrayBuffer: () => Promise<ArrayBuffer>;
+};
+
+/**
+ * Acepta el File directo (compatibilidad con pruebas/VPS) o reconstruye la carga
+ * fragmentada que usa la UI. El temporal se consume una sola vez y sus partes se
+ * eliminan por cascada antes de iniciar el procesamiento pesado.
+ */
+async function archivoBalanceDesdeFormulario(
+  formData: FormData,
+  loteIdSolicitud: string,
+): Promise<
+  | { ok: true; archivo: ArchivoBalanceEntrada }
+  | { ok: false; message: string }
+> {
+  const directo = formData.get("archivo");
+  if (directo instanceof File && directo.size > 0) {
+    const errorTamano = mensajeTamanoBalanceNoPermitido(directo.name, directo.size);
+    return errorTamano
+      ? { ok: false, message: errorTamano }
+      : { ok: true, archivo: directo };
+  }
+
+  const usuario = await getCurrentUser();
+  if (!usuario) return { ok: false, message: "La sesión ya no es válida. Ingresa nuevamente." };
+  const temporal = await consumirArchivoBalanceTemporal({
+    loteId: loteIdSolicitud,
+    usuarioId: usuario.id,
+  });
+  if (!temporal.ok) return temporal;
+  const errorTamano = mensajeTamanoBalanceNoPermitido(
+    temporal.archivo.nombre,
+    temporal.archivo.tamano,
+  );
+  if (errorTamano) return { ok: false, message: errorTamano };
+  return {
+    ok: true,
+    archivo: {
+      name: temporal.archivo.nombre,
+      size: temporal.archivo.tamano,
+      arrayBuffer: async () => temporal.archivo.contenido,
+    },
+  };
+}
 
 /** UUID estable generado por el navegador y reutilizado tras fallos de red. */
 function loteIdSolicitudDesde(formData: FormData): string | null {
@@ -1821,7 +1872,8 @@ function construirSugerenciaTransitoria(p: {
     render: {
       cuadre: extr.cuadre,
       validacion,
-      importReady: extr.importReady,
+      importReady: extr.importReady.slice(0, MAX_CUENTAS_REVISION_MODAL),
+      totalCuentas: extr.importReady.length,
       spec: specCarga,
       encabezados,
       hojas:
@@ -1837,8 +1889,8 @@ function construirSugerenciaTransitoria(p: {
 /**
  * LECTURA (paso 1). Primero inspecciona el archivo y trata de resolver el cliente
  * por su NIT. Si no puede hacerlo, devuelve un estado transitorio sin escribir
- * lote ni staging; la UI conserva el File y pide selección manual. Solo después
- * de reconocer o recibir un cliente autorizado persiste el borrador.
+ * lote ni staging; la UI conserva una copia local y pide selección manual. Solo
+ * después de reconocer o recibir un cliente autorizado persiste el borrador.
  *
  * Orden de resolución de la ESTRUCTURA (tabular):
  *   1. PERFIL guardado por huella del layout → determinista, 0 llamadas IA.
@@ -1854,12 +1906,6 @@ export async function leerBalance(
 ): Promise<LeerBalanceState> {
   const authz = await authorizePermiso("balance:crear");
   if (!authz.ok) return { ok: false, message: authz.message };
-
-  const archivo = formData.get("archivo");
-  if (!(archivo instanceof File) || archivo.size === 0) {
-    return { ok: false, message: "Adjunta el archivo del balance (Excel, CSV, TXT, JSON o PDF)." };
-  }
-  if (archivo.size > MAX_BYTES) return { ok: false, message: "El archivo supera 20 MB." };
 
   const clienteIdTexto = String(formData.get("clienteId") ?? "").trim();
   const loteIdSolicitud = loteIdSolicitudDesde(formData);
@@ -1916,6 +1962,10 @@ export async function leerBalance(
         : `/balance/borradores/${destinoExistente.id}`,
     );
   }
+
+  const archivoResuelto = await archivoBalanceDesdeFormulario(formData, loteIdSolicitud);
+  if (!archivoResuelto.ok) return archivoResuelto;
+  const archivo = archivoResuelto.archivo;
 
   try {
     if (loteIdAnterior) {
@@ -2164,8 +2214,8 @@ export async function leerBalance(
  *
  * La acción no acepta filas normalizadas del navegador: `render.importReady`
  * sigue siendo exclusivamente visual y el servidor reconstruye todas las cuentas
- * desde el File. El spec transitorio proviene de IA; conservar ese origen evita
- * blindarlo incorrectamente como un ajuste manual.
+ * desde la carga temporal. El spec transitorio proviene de IA; conservar ese
+ * origen evita blindarlo incorrectamente como un ajuste manual.
  */
 export async function continuarBalanceTransitorioConSpec(
   _prev: LeerBalanceState,
@@ -2173,14 +2223,6 @@ export async function continuarBalanceTransitorioConSpec(
 ): Promise<LeerBalanceState> {
   const authz = await authorizePermiso("balance:crear");
   if (!authz.ok) return { ok: false, message: authz.message };
-
-  const archivo = formData.get("archivo");
-  if (!(archivo instanceof File) || archivo.size === 0) {
-    return { ok: false, message: "No se encontró el archivo original. Vuelve a leerlo." };
-  }
-  if (archivo.size > MAX_BYTES) {
-    return { ok: false, message: "El archivo supera 20 MB." };
-  }
 
   let specBruto: unknown;
   try {
@@ -2242,6 +2284,10 @@ export async function continuarBalanceTransitorioConSpec(
         : `/balance/borradores/${destinoExistente.id}`,
     );
   }
+
+  const archivoResuelto = await archivoBalanceDesdeFormulario(formData, loteIdSolicitud);
+  if (!archivoResuelto.ok) return archivoResuelto;
+  const archivo = archivoResuelto.archivo;
 
   try {
     const proveedorIA = await proveedorIABalanceSesion(formData.get("modeloIA"));
@@ -2691,7 +2737,8 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
       render: {
         cuadre: extr.cuadre,
         validacion,
-        importReady: importReadyBorrador,
+        importReady: importReadyBorrador.slice(0, MAX_CUENTAS_REVISION_MODAL),
+        totalCuentas: importReadyBorrador.length,
         spec: specCarga,
         encabezados,
         hojas: p.ingesta?.modo === "tabular" ? p.ingesta.hojas.map((h) => h.nombre) : [],
@@ -2704,8 +2751,8 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
 
 /**
  * REPROCESO determinista con el spec AJUSTADO A MANO en el editor de estructura
- * (fase revisar del modal): recibe otra vez el archivo (el navegador aún lo
- * tiene), aplica `transformarTabular` con el spec editado — SIN llamadas a IA —
+ * (fase revisar del modal): recibe otra vez la copia local del archivo, aplica
+ * `transformarTabular` con el spec editado — SIN llamadas a IA —
  * y reemplaza el lote de staging anterior. Devuelve una sugerencia nueva.
  */
 export async function reprocesarBalanceConSpec(
@@ -2714,12 +2761,6 @@ export async function reprocesarBalanceConSpec(
 ): Promise<LeerBalanceState> {
   const authz = await authorizePermiso("balance:crear");
   if (!authz.ok) return { ok: false, message: authz.message };
-
-  const archivo = formData.get("archivo");
-  if (!(archivo instanceof File) || archivo.size === 0) {
-    return { ok: false, message: "No se encontró el archivo original. Vuelve a leerlo." };
-  }
-  if (archivo.size > MAX_BYTES) return { ok: false, message: "El archivo supera 20 MB." };
 
   let specBruto: unknown;
   try {
@@ -2766,6 +2807,10 @@ export async function reprocesarBalanceConSpec(
       );
     }
   }
+
+  const archivoResuelto = await archivoBalanceDesdeFormulario(formData, loteIdSolicitud);
+  if (!archivoResuelto.ok) return archivoResuelto;
+  const archivo = archivoResuelto.archivo;
 
   try {
     if (loteIdAnterior) {

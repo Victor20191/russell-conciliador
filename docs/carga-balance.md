@@ -81,7 +81,10 @@ Sobre lo que la IA interpreta, la plataforma aplica además **controles automát
 - JSON
 - PDF
 
-Tamaño máximo por archivo: **20 MB**.
+Tamaño máximo por archivo tabular: **60 MB**. Para PDF se conservan **20 MB**
+porque el documento se envía al proveedor de IA. Los archivos grandes se cargan
+en fragmentos y los Excel se leen por streaming para evitar los límites del
+transporte y el consumo excesivo de memoria durante la extracción.
 
 ---
 

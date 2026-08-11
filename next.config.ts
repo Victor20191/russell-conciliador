@@ -49,16 +49,16 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
-  // Los balances (Excel/CSV por tercero), PDFs y fotos se suben por Server
-  // Action; el límite por defecto (1 MB) rechaza estos archivos.
+  // La UI de balance usa fragmentos pequeños, pero se conserva la entrada directa
+  // para pruebas/VPS y otros flujos de PDFs o fotos que usan Server Actions.
   experimental: {
     // Next 16 clona el cuerpo al pasar por `proxy.ts` y, por defecto, solo
-    // conserva 10 MB. Debe acompañar el límite de Server Actions para que los
-    // Excel grandes no lleguen truncados al lector.
+    // conserva 10 MB. Debe acompañar el límite de Server Actions para las
+    // entradas directas de compatibilidad y los demás archivos grandes.
     proxyClientMaxBodySize: "64mb",
     serverActions: {
-      // La acción de fotos conserva su propio límite estricto de 60 MB. Este
-      // margen cubre además el envoltorio multipart de la petición.
+      // Las acciones conservan sus propios límites por formato. Este margen
+      // cubre además el envoltorio multipart de la petición.
       bodySizeLimit: "64mb",
     },
   },

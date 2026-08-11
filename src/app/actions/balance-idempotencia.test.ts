@@ -1203,7 +1203,7 @@ describe("idempotencia y atomicidad del ciclo de balances", () => {
     expect(mocks.state.staging).toHaveLength(0);
   });
 
-  it("persiste completas 4.001 filas en bloques 2.000/2.000/1 sin recortar la revisión", async () => {
+  it("persiste 4.001 filas completas y devuelve una revisión compacta", async () => {
     mocks.state.lotes.length = 0;
     mocks.state.staging.length = 0;
     mocks.parseBalanceWorkbook.mockResolvedValue({
@@ -1219,7 +1219,8 @@ describe("idempotencia y atomicidad del ciclo de balances", () => {
     expect(resultado.ok).toBe(true);
     expect(mocks.flags.bloquesStaging).toBe(3);
     expect(mocks.state.staging).toHaveLength(4_001);
-    expect(resultado.sugerencia?.render.importReady).toHaveLength(4_001);
+    expect(resultado.sugerencia?.render.importReady).toHaveLength(200);
+    expect(resultado.sugerencia?.render.totalCuentas).toBe(4_001);
   });
 
   it("reutiliza el UUID de lectura después de perder la respuesta y no duplica el borrador", async () => {

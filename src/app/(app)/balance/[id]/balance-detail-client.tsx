@@ -27,6 +27,13 @@ import type { Tab } from "./tabs";
 import PrevalidadorTab from "./prevalidador-tab";
 import type { PrevalidadorVM } from "@/lib/balance/prevalidador/calcular";
 import type { RevisionPrevalidadorVM } from "@/lib/balance/prevalidador/servidor";
+import {
+  FILTROS_COLUMNAS_DETALLE_INICIALES,
+  filtrarArbolDetallePorColumnas,
+  hayFiltrosColumnasDetalle,
+  type FiltrosColumnasDetalle,
+  type FiltroValidacionDetalle,
+} from "@/lib/balance/filtros-detalle";
 
 export type ValidacionInfo = { tipo: string; por: string; en: string; comentario: string };
 // Contexto de validación de alertas que se pasa al renderizador de filas.
@@ -199,6 +206,9 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, va
   // de alertas (que vive arriba). `nivelMax` 0 = sin límite.
   const [clase, setClase] = useState<Clase>("todo");
   const [nivelMax, setNivelMax] = useState(0);
+  const [filtrosColumnas, setFiltrosColumnas] = useState<FiltrosColumnasDetalle>({
+    ...FILTROS_COLUMNAS_DETALLE_INICIALES,
+  });
   const { pantallaCompleta, alternar: alternarPantallaCompleta } = usePantallaCompletaTabla();
   // Por defecto TODO contraído: al entrar se ve el encabezado y solo las clases,
   // colapsadas. El usuario expande lo que necesite.
@@ -243,9 +253,11 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, va
     [arbol, conteos],
   );
   const totalAlertas = totales.mapeo + totales.naturaleza;
+  const filtrosColumnasActivos = hayFiltrosColumnasDetalle(filtrosColumnas);
 
-  // Los cuatro filtros se ENCADENAN (clase → alertas → nivel → búsqueda) para
-  // poder pedir, p. ej., «solo las cuentas sin mapear del estado de resultados».
+  // Todos los filtros se ENCADENAN (clase → alertas → nivel → búsqueda →
+  // columnas) para poder pedir, p. ej., «solo débitos > $1M de las cuentas sin
+  // mapear del estado de resultados».
   const visible = useMemo(() => {
     let base = arbol;
     if (clase === "balance") base = base.filter((n) => CLASES_BALANCE.has(n.clase));
@@ -256,15 +268,24 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, va
     }
     base = podarNivel(base, nivelMax);
     const needle = q.trim().toLowerCase();
-    return needle ? podarBusqueda(base, needle) : base;
-  }, [arbol, clase, filtro, nivelMax, q, validados, umbrales]);
+    if (needle) base = podarBusqueda(base, needle);
+    return filtrarArbolDetallePorColumnas(
+      base,
+      filtrosColumnas,
+      validados,
+      umbrales,
+    );
+  }, [arbol, clase, filtro, filtrosColumnas, nivelMax, q, validados, umbrales]);
 
   const clavesVisiblesConHijos = useMemo(() => keysConHijos(visible), [visible]);
-  // En el filtro "Alertas" o durante una búsqueda, el árbol podado se muestra
-  // totalmente expandido. El chevron masivo se deriva de este estado efectivo.
+  // En alertas, búsqueda o filtros de columna, el árbol podado se muestra
+  // totalmente expandido. `open` no se modifica: al limpiar se recupera la
+  // expansión manual que el usuario tenía antes de filtrar.
   const openEff = useMemo(
-    () => (filtro !== "todo" || q.trim() ? new Set(clavesVisiblesConHijos) : open),
-    [clavesVisiblesConHijos, filtro, open, q],
+    () => (filtro !== "todo" || q.trim() || filtrosColumnasActivos
+      ? new Set(clavesVisiblesConHijos)
+      : open),
+    [clavesVisiblesConHijos, filtro, filtrosColumnasActivos, open, q],
   );
   // Sólo cuentan ramas raíz realmente visibles. Un descendiente puede conservar
   // su llave en `open` cuando su padre se cierra, pero ya no está desplegado.
@@ -275,6 +296,13 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, va
   const toggle = (key: string) => setOpen((o) => { const n = new Set(o); if (n.has(key)) n.delete(key); else n.add(key); return n; });
   const expandirTodo = () => setOpen(new Set(keysConHijos(arbol)));
   const contraerTodo = () => setOpen(new Set());
+  const actualizarFiltroColumna = <K extends keyof FiltrosColumnasDetalle>(
+    columna: K,
+    valor: FiltrosColumnasDetalle[K],
+  ) => setFiltrosColumnas((actuales) => ({ ...actuales, [columna]: valor }));
+  const limpiarFiltrosColumnas = () => setFiltrosColumnas({
+    ...FILTROS_COLUMNAS_DETALLE_INICIALES,
+  });
 
   const nivelBtn = (nivel: number, label: string) => (
     <button
@@ -324,6 +352,15 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, va
               <FiltroBtn on={filtro === "alertas_naturaleza"} onClick={() => setFiltro(filtro === "alertas_naturaleza" ? "alertas" : "alertas_naturaleza")} label="Saldo contrario" count={totales.naturaleza} tone="warn" />
             </>
           )}
+          {filtrosColumnasActivos && (
+            <button
+              type="button"
+              onClick={limpiarFiltrosColumnas}
+              className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-700 transition hover:bg-blue-100"
+            >
+              <Icon name="x" size={11} /> Limpiar columnas
+            </button>
+          )}
           <span className="mx-1 h-4 w-px bg-ink-200" />
           <button onClick={expandirTodo} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 px-2 py-1 text-[11.5px] font-medium text-ink-600 hover:bg-ink-50">
             <Icon name={chevronDivulgacion(hayContenidoExpandido)} size={12} /> Expandir todo
@@ -338,20 +375,107 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, va
         <table className="balance-detail-row-hover tabla-encabezado-fijo w-full text-[12.5px]">
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-wider text-ink-500">
-              <th className="px-4 py-2 font-semibold">Código</th>
-              <th className="px-4 py-2 font-semibold">Cuenta</th>
-              <th className="px-4 py-2 font-semibold">Mapeo estándar</th>
-              <th data-separador="true" className="whitespace-nowrap px-4 py-2 text-right font-semibold">Saldo anterior</th>
-              <th data-separador="true" className="whitespace-nowrap px-4 py-2 text-right font-semibold">Débito</th>
-              <th data-separador="true" className="whitespace-nowrap px-4 py-2 text-right font-semibold">Crédito</th>
-              <th data-separador="true" className="whitespace-nowrap px-4 py-2 text-right font-semibold">Saldo</th>
-              <th data-separador="true" className="whitespace-nowrap px-4 py-2 text-right font-semibold">Var %</th>
-              <th data-separador="true" className="px-4 py-2 font-semibold">Validación</th>
+              <th className="min-w-48 px-4 py-2 font-semibold">
+                Código
+                <FiltroTextoColumna
+                  ariaLabel="Filtrar la columna Código"
+                  value={filtrosColumnas.codigo}
+                  onChange={(valor) => actualizarFiltroColumna("codigo", valor)}
+                  placeholder="Buscar código"
+                />
+              </th>
+              <th className="min-w-56 px-4 py-2 font-semibold">
+                Cuenta
+                <FiltroTextoColumna
+                  ariaLabel="Filtrar la columna Cuenta"
+                  value={filtrosColumnas.cuenta}
+                  onChange={(valor) => actualizarFiltroColumna("cuenta", valor)}
+                  placeholder="Buscar cuenta"
+                />
+              </th>
+              <th className="min-w-44 px-4 py-2 font-semibold">
+                Mapeo estándar
+                <FiltroTextoColumna
+                  ariaLabel="Filtrar la columna Mapeo estándar"
+                  value={filtrosColumnas.mapeo}
+                  onChange={(valor) => actualizarFiltroColumna("mapeo", valor)}
+                  placeholder="Código o sin mapeo"
+                />
+              </th>
+              <th data-separador="true" className="min-w-40 whitespace-nowrap px-4 py-2 text-right font-semibold">
+                Saldo anterior
+                <FiltroTextoColumna
+                  ariaLabel="Filtrar la columna Saldo anterior"
+                  value={filtrosColumnas.saldoAnterior}
+                  onChange={(valor) => actualizarFiltroColumna("saldoAnterior", valor)}
+                  placeholder="Ej. > 1000000"
+                  numerico
+                />
+              </th>
+              <th data-separador="true" className="min-w-36 whitespace-nowrap px-4 py-2 text-right font-semibold">
+                Débito
+                <FiltroTextoColumna
+                  ariaLabel="Filtrar la columna Débito"
+                  value={filtrosColumnas.debito}
+                  onChange={(valor) => actualizarFiltroColumna("debito", valor)}
+                  placeholder="Ej. > 0"
+                  numerico
+                />
+              </th>
+              <th data-separador="true" className="min-w-36 whitespace-nowrap px-4 py-2 text-right font-semibold">
+                Crédito
+                <FiltroTextoColumna
+                  ariaLabel="Filtrar la columna Crédito"
+                  value={filtrosColumnas.credito}
+                  onChange={(valor) => actualizarFiltroColumna("credito", valor)}
+                  placeholder="Ej. > 0"
+                  numerico
+                />
+              </th>
+              <th data-separador="true" className="min-w-36 whitespace-nowrap px-4 py-2 text-right font-semibold">
+                Saldo
+                <FiltroTextoColumna
+                  ariaLabel="Filtrar la columna Saldo"
+                  value={filtrosColumnas.saldo}
+                  onChange={(valor) => actualizarFiltroColumna("saldo", valor)}
+                  placeholder="Ej. < 0"
+                  numerico
+                />
+              </th>
+              <th data-separador="true" className="min-w-32 whitespace-nowrap px-4 py-2 text-right font-semibold">
+                Var %
+                <FiltroTextoColumna
+                  ariaLabel="Filtrar la columna Variación porcentual"
+                  value={filtrosColumnas.variacion}
+                  onChange={(valor) => actualizarFiltroColumna("variacion", valor)}
+                  placeholder="Ej. > 25"
+                  numerico
+                />
+              </th>
+              <th data-separador="true" className="min-w-44 px-4 py-2 font-semibold">
+                Validación
+                <select
+                  value={filtrosColumnas.validacion}
+                  onChange={(evento) => actualizarFiltroColumna(
+                    "validacion",
+                    evento.target.value as FiltroValidacionDetalle,
+                  )}
+                  aria-label="Filtrar la columna Validación"
+                  className={CLASE_FILTRO_COLUMNA}
+                >
+                  <option value="todas">Todas</option>
+                  <option value="ok">OK</option>
+                  <option value="alerta">Alerta pendiente</option>
+                  <option value="validada">Validada</option>
+                  <option value="informativa">Informativa</option>
+                  <option value="sin_validacion">Sin validación</option>
+                </select>
+              </th>
             </tr>
           </thead>
           <tbody onClick={onClickFila} onDoubleClick={onDoubleClickFila}>
             {visible.length === 0 ? (
-              <tr><td colSpan={9} className="px-4 py-6 text-center text-[12.5px] text-ink-400">{q.trim() ? "Sin cuentas que coincidan con la búsqueda." : filtro !== "todo" ? "Sin alertas para este filtro. 🎉" : "Sin cuentas para este filtro."}</td></tr>
+              <tr><td colSpan={9} className="px-4 py-6 text-center text-[12.5px] text-ink-400">{filtrosColumnasActivos ? "Sin cuentas que coincidan con los filtros de columna." : q.trim() ? "Sin cuentas que coincidan con la búsqueda." : filtro !== "todo" ? "Sin alertas para este filtro. 🎉" : "Sin cuentas para este filtro."}</td></tr>
             ) : (
               visible.flatMap((n) => filas(n, 0, openEff, toggle, puedeMapear, setAsignar, conteos, comentarios, setComentar, val, onEliminar, filaSeleccionada))
             )}
@@ -366,6 +490,35 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, va
       {validar && <ValidarModal nodo={validar.nodo} tipo={validar.tipo} balanceId={balanceId} onClose={() => setValidar(null)} />}
       {eliminar && <EliminarModal nodo={eliminar} onClose={() => setEliminar(null)} />}
     </div>
+  );
+}
+
+const CLASE_FILTRO_COLUMNA =
+  "mt-1 block h-7 w-full rounded-md border border-ink-200 bg-white px-2 text-[11px] font-normal normal-case tracking-normal text-ink-700 outline-none placeholder:text-ink-400 focus:border-blue-400";
+
+function FiltroTextoColumna({
+  ariaLabel,
+  value,
+  onChange,
+  placeholder,
+  numerico = false,
+}: {
+  ariaLabel: string;
+  value: string;
+  onChange: (valor: string) => void;
+  placeholder: string;
+  numerico?: boolean;
+}) {
+  return (
+    <input
+      type="text"
+      inputMode={numerico ? "decimal" : "search"}
+      value={value}
+      onChange={(evento) => onChange(evento.target.value)}
+      aria-label={ariaLabel}
+      placeholder={placeholder}
+      className={`${CLASE_FILTRO_COLUMNA} ${numerico ? "text-right" : "text-left"}`}
+    />
   );
 }
 

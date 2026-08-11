@@ -11,6 +11,7 @@
 // Solo el código toca todas las filas; al modelo se le envía una vista previa
 // (la construye el orquestador a partir de las grillas).
 import ExcelJS from "exceljs";
+import { Readable } from "node:stream";
 
 export type CeldaCruda = string | number | boolean | null;
 // `negrita` (XLSX/XLSM y XLS cuando BIFF conserva el estilo): por cada fila de
@@ -95,26 +96,45 @@ function filaTieneDatos(fila: CeldaCruda[]): boolean {
   return fila.some((c) => c != null && String(c).trim() !== "");
 }
 
-/** Lee un libro OOXML (.xlsx/.xlsm) a grillas por hoja, saltando filas vacías. */
+/**
+ * Lee un libro OOXML (.xlsx/.xlsm) a grillas por hoja, saltando filas vacías.
+ *
+ * El lector documental de ExcelJS conserva simultáneamente el XML descomprimido,
+ * el workbook completo y nuestra grilla final. En balances con cientos de miles
+ * de filas esa combinación puede multiplicar por ~100 el tamaño comprimido del
+ * archivo y agotar la memoria del proceso. El lector streaming libera cada fila
+ * de ExcelJS apenas la convertimos, pero conserva shared strings y estilos para
+ * no perder nombres, fechas ni la señal de negrita usada por balances de terceros.
+ */
 async function leerLibroExcel(data: ArrayBuffer): Promise<GridHoja[]> {
-  const wb = new ExcelJS.Workbook();
-  const carga = Buffer.from(data) as unknown as Parameters<typeof wb.xlsx.load>[0];
-  await wb.xlsx.load(carga);
+  const entrada = Readable.from([Buffer.from(data)]);
+  const wb = new ExcelJS.stream.xlsx.WorkbookReader(entrada, {
+    worksheets: "emit",
+    sharedStrings: "cache",
+    hyperlinks: "ignore",
+    styles: "cache",
+    entries: "ignore",
+  });
+  const hojas: GridHoja[] = [];
 
-  return wb.worksheets.map((ws) => {
+  for await (const ws of wb) {
+    const nombreHoja = (ws as unknown as { name?: string; id?: number }).name
+      ?? `Hoja ${String((ws as unknown as { id?: number }).id ?? hojas.length + 1)}`;
     const filas: CeldaCruda[][] = [];
     const negrita: boolean[][] = [];
-    ws.eachRow({ includeEmpty: false }, (row) => {
+    for await (const row of ws) {
       const values = (row.values as ExcelJS.CellValue[]).slice(1).map(celdaExcel);
-      if (!filaTieneDatos(values)) return;
+      if (!filaTieneDatos(values)) continue;
       filas.push(values);
       // Flag NEGRITA por celda (exceljs: `cell.font.bold`; celdas 1-based) alineado
       // 0-based con `values`. Respalda con la negrita a nivel de fila si la trae.
       const filaBold = (row as unknown as { font?: { bold?: boolean } }).font?.bold === true;
       negrita.push(values.map((_, j) => filaBold || row.getCell(j + 1).font?.bold === true));
-    });
-    return { nombre: ws.name, filas, negrita };
-  });
+    }
+    hojas.push({ nombre: nombreHoja, filas, negrita });
+  }
+
+  return hojas;
 }
 
 /**

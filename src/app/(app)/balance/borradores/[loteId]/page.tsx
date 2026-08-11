@@ -2,8 +2,6 @@ import { notFound, redirect } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { requirePermiso } from "@/lib/rbac";
 import { BackLink } from "@/components/ui";
-import { SpecCargaBalanceSchema } from "@/lib/definitions";
-import type { SpecCarga } from "@/lib/balance/extraccion/esquema";
 import { fechaCalendarioISO } from "@/lib/fecha-hora";
 import { fmtDateTime } from "@/lib/format";
 import { stagingBorradorLote } from "@/lib/balance/staging-borrador";
@@ -75,11 +73,6 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
     getUmbralesAlertas(),
   ]);
   if (!staging) notFound();
-
-  // Spec de extracción usado (si se guardó): habilita el editor de estructura en el
-  // borrador (re-adjuntando el archivo). Puede faltar (carga por plantilla sin spec).
-  const specParsed = lote?.specJson ? SpecCargaBalanceSchema.safeParse(lote.specJson) : null;
-  const spec: SpecCarga | null = specParsed?.success ? (specParsed.data as SpecCarga) : null;
 
   // Clientes de la cartera para el selector de carga + cliente sugerido por NIT.
   const alc = contextoAcceso.alcance;
@@ -187,7 +180,6 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
         }))}
         clienteSugeridoId={clienteSugeridoId}
         clientePersistido={clientePersistido}
-        spec={spec}
         correccionesAplicadas={lote?.correccionesAplicadas ?? 0}
         umbrales={umbrales}
         version={versionActual?.claveGrupo ? versionActual.version : null}

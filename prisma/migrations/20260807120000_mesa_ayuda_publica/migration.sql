@@ -31,9 +31,9 @@ CREATE UNIQUE INDEX "tickets_soporte_token_acceso_hash_key" ON "tickets_soporte"
 CREATE INDEX "tickets_soporte_estado_creado_en_idx" ON "tickets_soporte"("estado", "creado_en");
 
 INSERT INTO "modulos_plataforma"
-  ("clave", "etiqueta", "descripcion", "grupo", "icono", "orden", "habilitado_no_administradores", "bloqueable_no_administradores")
+  ("clave", "etiqueta", "descripcion", "grupo", "icono", "orden", "habilitado_no_administradores", "bloqueable_no_administradores", "creado_en", "actualizado_en")
 VALUES
-  ('soporte', 'Tickets de soporte', 'Bandeja interna para consultar solicitudes y documentar su solucion.', 'Configuración', 'bell', 230, false, false)
+  ('soporte', 'Tickets de soporte', 'Bandeja interna para consultar solicitudes y documentar su solucion.', 'Configuración', 'bell', 230, false, false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
 ON CONFLICT ("clave") DO UPDATE SET
   "etiqueta" = EXCLUDED."etiqueta",
   "descripcion" = EXCLUDED."descripcion",
