@@ -418,6 +418,135 @@ describe("transformarTabular", () => {
     expect(rr.excepciones.some((e) => e.regla === "Detalle por tercero omitido por fila consolidada")).toBe(true);
   });
 
+  it("IGB por terceros: conserva el consolidado marcado Cuenta y omite resúmenes NIT vacíos del mismo código", () => {
+    // Layout real de la variante IGB: Rompimiento (A), Tercero (B), código (F),
+    // nombre (H) y montos (K:N). La fila Cuenta es el consolidado; las filas sin
+    // tercero que reaparecen después son resúmenes de otras jerarquías del reporte.
+    const r = (
+      rompimiento: string,
+      tercero: string,
+      codigo: string,
+      nombre: string,
+      si: number,
+      db: number,
+      cr: number,
+      sf: number,
+    ): GridHoja["filas"][number] => [
+      rompimiento, tercero, "", "", "", codigo, "", nombre, "", "", si, db, cr, sf,
+    ];
+    const hojaIgb: GridHoja = {
+      nombre: "BC TERCEROS MAYO IGB",
+      filas: [
+        ["Rompimiento", "Tercero", "", "", "", "Código", "", "Cuenta", "", "", "SI", "DB", "CR", "Saldo"],
+        r("Cuenta", "", "21051045", "Obligaciones", -1_979_166_662, 387_500_000, 0, -1_591_666_662),
+        r("Auxiliar", "", "21051045", "Obligaciones", -2_169_872_455, 0, 0, -2_169_872_455),
+        r("Tercero", "900123456", "21051045", "Obligaciones", -1_000_000_000, 0, 0, -1_000_000_000),
+        r("Tercero", "900987654", "21051045", "Obligaciones", -1_169_872_455, 0, 0, -1_169_872_455),
+        r("Cuenta", "", "37050545", "Resultado", 0.01, 0, 0, 0.01),
+        r("Centro", "", "37050545", "Resultado", -3_534_525_947, 0, 0, -3_534_525_947),
+        r("Tercero", "901111111", "37050545", "Resultado", -3_534_525_947, 0, 0, -3_534_525_947),
+      ],
+    };
+    const columnas = {
+      ...spec().columnas,
+      codigo: 6,
+      nombre: 8,
+      saldoInicial: 11,
+      debitos: 12,
+      creditos: 13,
+      saldoFinal: 14,
+      tercero: 2,
+    };
+    const s = spec({
+      hoja: hojaIgb.nombre,
+      columnas,
+      reglaDetalle: { tipo: "columna", columna: 1, valor: "Cuenta" },
+      agregarPorTercero: false,
+    });
+
+    const rr = transformarTabular(s, [hojaIgb], PARAMS);
+
+    expect(rr.importReady).toEqual([
+      expect.objectContaining({ code: "21051045", prevBalance: -1_979_166_662, debitos: 387_500_000, creditos: 0, balance: -1_591_666_662 }),
+      expect.objectContaining({ code: "37050545", prevBalance: 0.01, debitos: 0, creditos: 0, balance: 0.01 }),
+    ]);
+    expect(rr.filasCrudas.map((f) => f.filaNum)).toEqual([2, 6]);
+    expect(rr.excepciones.some((e) => e.regla === "Resumen por tercero omitido por fila consolidada")).toBe(true);
+  });
+
+  it("preserva repeticiones legítimas sin evidencia de detalle por tercero", () => {
+    const hojaT: GridHoja = {
+      nombre: "Balance",
+      filas: [
+        ["Código", "Cuenta", "SI", "DB", "CR", "Saldo", "Tercero"],
+        [130505, "Sucursal A", 100, 20, 0, 120, ""],
+        [130505, "Sucursal B", 200, 30, 0, 230, ""],
+      ],
+    };
+    const s = spec({ columnas: { ...spec().columnas, tercero: 7 } });
+    const rr = transformarTabular(s, [hojaT], PARAMS);
+
+    expect(rr.importReady).toHaveLength(1);
+    expect(rr.importReady[0]).toMatchObject({ code: "130505", prevBalance: 300, debitos: 50, creditos: 0, balance: 350 });
+    expect(rr.filasCrudas).toHaveLength(2);
+    expect(rr.excepciones.some((e) => e.regla === "Resumen por tercero omitido por fila consolidada")).toBe(false);
+  });
+
+  it("preserva consolidados repetidos si el archivo no identifica una única fila consolidada", () => {
+    const hojaT: GridHoja = {
+      nombre: "Balance",
+      filas: [
+        ["Código", "Cuenta", "SI", "DB", "CR", "Saldo", "Tercero"],
+        [130505, "Sucursal A", 100, 20, 0, 120, ""],
+        [130505, "Sucursal B", 200, 30, 0, 230, ""],
+        [130505, "Detalle informativo", 300, 50, 0, 350, "T-1"],
+      ],
+    };
+    // La regla por prefijo no aporta una marca que permita decidir cuál de las dos
+    // filas vacías es consolidada global; se conserva el fallback anterior.
+    const s = spec({
+      columnas: { ...spec().columnas, tercero: 7 },
+      reglaDetalle: { tipo: "prefijo", columna: null, valor: null },
+    });
+    const rr = transformarTabular(s, [hojaT], PARAMS);
+
+    expect(rr.importReady).toHaveLength(1);
+    expect(rr.importReady[0]).toMatchObject({ code: "130505", prevBalance: 300, debitos: 50, creditos: 0, balance: 350 });
+    expect(rr.filasCrudas).toHaveLength(2);
+    expect(rr.excepciones.some((e) => e.regla === "Resumen por tercero omitido por fila consolidada")).toBe(false);
+  });
+
+  it("hace fallback si dos filas vacías están marcadas como Cuenta", () => {
+    const hojaT: GridHoja = {
+      nombre: "Balance",
+      filas: [
+        ["Rompimiento", "Tercero", "Código", "Cuenta", "SI", "DB", "CR", "Saldo"],
+        ["Cuenta", "", 130505, "Sucursal A", 100, 20, 0, 120],
+        ["Cuenta", "", 130505, "Sucursal B", 200, 30, 0, 230],
+        ["NIT", "T-1", 130505, "Detalle informativo", 300, 50, 0, 350],
+      ],
+    };
+    const s = spec({
+      columnas: {
+        ...spec().columnas,
+        codigo: 3,
+        nombre: 4,
+        saldoInicial: 5,
+        debitos: 6,
+        creditos: 7,
+        saldoFinal: 8,
+        tercero: 2,
+      },
+      reglaDetalle: { tipo: "columna", columna: 1, valor: "Cuenta" },
+    });
+    const rr = transformarTabular(s, [hojaT], PARAMS);
+
+    expect(rr.importReady).toHaveLength(1);
+    expect(rr.importReady[0]).toMatchObject({ code: "130505", prevBalance: 300, debitos: 50, creditos: 0, balance: 350 });
+    expect(rr.filasCrudas).toHaveLength(2);
+    expect(rr.excepciones.some((e) => e.regla === "Resumen por tercero omitido por fila consolidada")).toBe(false);
+  });
+
   it("sin columnas de movimiento, acepta por saldo sin validar control", () => {
     const hojaSaldo: GridHoja = {
       nombre: "Balance",

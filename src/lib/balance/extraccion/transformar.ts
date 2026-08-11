@@ -332,13 +332,27 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
   // consolidada, el detalle por tercero es una vista alternativa y se excluye.
   const codigosConConsolidado = new Set<string>();
   const codigosConDetalleTercero = new Set<string>();
+  // Candidatas consolidadas que el propio reporte marca con `reglaDetalle`
+  // (p. ej. Rompimiento=Cuenta). En reportes jerárquicos la misma cuenta puede
+  // reaparecer luego como NIT/auxiliar/centro de costo con tercero vacío. Solo es
+  // seguro elegir una fila y omitir esas vistas alternativas si hay exactamente
+  // UNA candidata marcada: sin esa prueba se preservan todas las filas vacías.
+  const filasConsolidadasMarcadasPorCodigo = new Map<string, number[]>();
   if (cols.tercero > 0) {
     for (let r = spec.primeraFilaDatos - 1; r < hoja.filas.length; r++) {
       const fila = hoja.filas[r] ?? [];
       const code = normalizarCodigo(celdaCodigo(fila, cols));
       if (!/^\d+$/.test(code)) continue;
-      if (texto(cell(fila, cols.tercero)) === "") codigosConConsolidado.add(code);
-      else codigosConDetalleTercero.add(code);
+      if (texto(cell(fila, cols.tercero)) === "") {
+        codigosConConsolidado.add(code);
+        if (filaCoincideReglaDetalle(fila, spec)) {
+          const marcadas = filasConsolidadasMarcadasPorCodigo.get(code) ?? [];
+          marcadas.push(r);
+          filasConsolidadasMarcadasPorCodigo.set(code, marcadas);
+        }
+      } else {
+        codigosConDetalleTercero.add(code);
+      }
     }
   }
   const omitirDetalleTercero = (code: string, fila: CeldaCruda[]): boolean =>
@@ -441,6 +455,7 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
   let filasExcluidas = 0;
   const parciales: FilaParcial[] = [];
   let filasDetalleTerceroExcluidas = 0;
+  let filasResumenTerceroExcluidas = 0;
   let filasTerceroNegritaExcluidas = 0; // detalle por tercero descartado por negrita
   let cuentaNegritaActual = ""; // código de la última cuenta EN NEGRITA (contexto del descarte)
   const orientacion: OrientacionControl = { directa: 0, invertida: 0, ambiguas: 0 };
@@ -523,6 +538,23 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
     if (omitirDetalleTercero(code, fila)) {
       filasExcluidas++;
       filasDetalleTerceroExcluidas++;
+      continue;
+    }
+    // Variante jerárquica del balance por terceros: puede haber más de una fila
+    // sin tercero para el mismo código (Cuenta + subtotales de dimensiones
+    // internas). La señal autoritativa es UNA única fila consolidada marcada por
+    // `reglaDetalle` (p. ej. Cuenta frente a NIT): el valor de la celda Tercero no
+    // basta, porque el ERP también deja NIT vacíos. Si la marca falta o es ambigua,
+    // las repeticiones se conservan para no borrar movimientos reales.
+    const consolidadasMarcadas = filasConsolidadasMarcadasPorCodigo.get(code) ?? [];
+    if (
+      cols.tercero > 0 &&
+      texto(cell(fila, cols.tercero)) === "" &&
+      consolidadasMarcadas.length === 1 &&
+      consolidadasMarcadas[0] !== r
+    ) {
+      filasExcluidas++;
+      filasResumenTerceroExcluidas++;
       continue;
     }
     const consolidadoConDetalleTercero = codigosConConsolidado.has(code) && codigosConDetalleTercero.has(code);
@@ -640,6 +672,16 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
       valor: `${filasDetalleTerceroExcluidas} fila(s)`,
       regla: "Detalle por tercero omitido por fila consolidada",
       accion: "Se usó la fila consolidada sin tercero del mismo código para evitar doble conteo.",
+    });
+  }
+  if (filasResumenTerceroExcluidas > 0) {
+    excepciones.push({
+      hoja: hoja.nombre,
+      fila: null,
+      campo: "tercero",
+      valor: `${filasResumenTerceroExcluidas} fila(s)`,
+      regla: "Resumen por tercero omitido por fila consolidada",
+      accion: "Se conservó la única fila consolidada marcada por la estructura del archivo para evitar sumar varias jerarquías del reporte.",
     });
   }
   if (filasTerceroNegritaExcluidas > 0) {
@@ -837,11 +879,20 @@ function prefijosDe(codigos: Iterable<string>): Set<string> {
 function esHoja(code: string, fila: CeldaCruda[], spec: MappingSpec, ancestros: Set<string>): boolean {
   const estructural = code.length >= LONGITUD_MIN_IMPUTABLE && !ancestros.has(code);
   if (spec.reglaDetalle.tipo === "columna" && spec.reglaDetalle.columna != null) {
-    const marca = texto(cell(fila, spec.reglaDetalle.columna)).toLowerCase();
-    const esperado = (spec.reglaDetalle.valor ?? "").toLowerCase().trim();
-    if (esperado) return marca === esperado && estructural;
+    const esperado = (spec.reglaDetalle.valor ?? "").trim();
+    if (esperado) return filaCoincideReglaDetalle(fila, spec) && estructural;
   }
   return estructural;
+}
+
+/** La fila coincide exactamente con el marcador estructural declarado por el
+ * mapping (p. ej. columna Rompimiento = Cuenta). Se comparte entre la selección
+ * de hojas y la deduplicación segura de reportes abiertos por tercero. */
+function filaCoincideReglaDetalle(fila: CeldaCruda[], spec: MappingSpec): boolean {
+  if (spec.reglaDetalle.tipo !== "columna" || spec.reglaDetalle.columna == null) return false;
+  const esperado = (spec.reglaDetalle.valor ?? "").toLocaleLowerCase("es").trim();
+  if (!esperado) return false;
+  return texto(cell(fila, spec.reglaDetalle.columna)).toLocaleLowerCase("es") === esperado;
 }
 
 // Mínimo de filas con código numérico "saltadas" para corregir `primeraFilaDatos`:
