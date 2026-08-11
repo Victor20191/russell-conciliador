@@ -434,6 +434,23 @@ function reemplazarCuentasTx(tx: Prisma.TransactionClient, clienteId: number, mo
   ];
 }
 
+// Bitácora de la consolidación: una sola pulsación puede reescribir decenas de
+// clasificadores (asignación masiva), así que queda registrado el alcance.
+async function auditarConsolidacion(clienteId: number, moduloCodigo: string, filas: { cuentas4: string[] }[]) {
+  const [user, cliente] = await Promise.all([
+    getCurrentUser(),
+    prisma.client.findUnique({ where: { id: clienteId }, select: { name: true } }),
+  ]);
+  const cuentas = filas.reduce((n, f) => n + f.cuentas4.length, 0);
+  await logAudit({
+    user: user?.name ?? "Sistema",
+    action: "ACTUALIZÓ consolidación de módulo",
+    entity: cliente?.name ?? `Cliente ${clienteId}`,
+    detail: `${moduloCodigo} · ${filas.length} clasificador(es) · ${cuentas} cuenta(s)`,
+    clientId: clienteId,
+  });
+}
+
 /** Guarda el conjunto de cuentas (1..N) de UN clasificador (reemplaza lo anterior). */
 export async function guardarConsolidacionModulo(input: { clienteId: number; moduloCodigo: string; clasificador: string; cuentas4: string[] }): Promise<ActionState> {
   const moduloCodigo = String(input.moduloCodigo ?? "").trim().toUpperCase();
@@ -448,6 +465,7 @@ export async function guardarConsolidacionModulo(input: { clienteId: number; mod
   try {
     const user = await getCurrentUser();
     await prisma.$transaction(reemplazarCuentasTx(prisma, input.clienteId, moduloCodigo, clasificador, cuentas4, user?.name ?? null));
+    await auditarConsolidacion(input.clienteId, moduloCodigo, [{ cuentas4 }]);
     revalidatePath(rutaModulo(moduloCodigo));
     return { ok: true, message: "Consolidación guardada." };
   } catch (e) {
@@ -478,6 +496,7 @@ export async function guardarConsolidacionModuloLote(input: {
     const user = await getCurrentUser();
     const actor = user?.name ?? null;
     await prisma.$transaction(filas.flatMap((f) => reemplazarCuentasTx(prisma, input.clienteId, moduloCodigo, f.clasificador, f.cuentas4, actor)));
+    await auditarConsolidacion(input.clienteId, moduloCodigo, filas);
     revalidatePath(rutaModulo(moduloCodigo));
     return { ok: true, message: filas.length === 1 ? "Consolidación guardada." : `${filas.length} consolidaciones guardadas.` };
   } catch (e) {

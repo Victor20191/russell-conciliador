@@ -8,6 +8,7 @@ import { fmtContable, fmtNum } from "@/lib/format";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import ComentarioAncla from "@/components/comentario-ancla";
 import { guardarConsolidacionModulo, guardarConsolidacionModuloLote } from "@/app/actions/modulos-datos";
+import { aplicarAsignacionMasiva, contarConCuentas, type ModoAsignacionMasiva } from "@/lib/modulos/consolidacion-masiva";
 
 export type FilaDetalleVm = { filaNum: number; clasificador: string | null; valor: number; datos: Record<string, string | number | null> };
 export type ConsolidadoVm = { clasificador: string; total: number; filas: number; cuentas4: { codigo: string; nombre: string | null }[] };
@@ -92,6 +93,15 @@ const cuenta4Norm = (v: string) => v.replace(/\D/g, "").slice(0, 4);
 
 const claveSet = (arr: string[]) => [...new Set(arr)].sort().join(",");
 
+// Etiqueta del clasificador en plural y minúscula, para los textos de la asignación
+// masiva: «Tipo de inventario» → «tipos de inventario», «Concepto» → «conceptos».
+function pluralClasificador(etiqueta: string): string {
+  const [cabeza, ...resto] = etiqueta.toLowerCase().split(" ");
+  if (!cabeza) return etiqueta.toLowerCase();
+  const plural = /[aeiouáéíóú]$/.test(cabeza) ? `${cabeza}s` : `${cabeza}es`;
+  return [plural, ...resto].join(" ");
+}
+
 // Conjunto INICIAL de cuentas por clasificador. Prefill: si no hay cuentas guardadas y el
 // clasificador ES un código de cuenta (≥4 díg), se propone su prefijo de 4 díg (queda «sin guardar»).
 function cuentasInicialesConsolidado(consolidado: ConsolidadoVm[]): Record<string, string[]> {
@@ -134,6 +144,9 @@ function ConsolidadoTab({
   const [nuevos, setNuevos] = useState<Record<string, string>>({}); // input «agregar cuenta» por fila
   const [guardandoClave, setGuardandoClave] = useState<string | null>(null);
   const [guardandoTodo, setGuardandoTodo] = useState(false);
+  // Selección de filas para la asignación MASIVA (una o varias cuentas a N clasificadores).
+  const [seleccion, setSeleccion] = useState<Set<string>>(new Set());
+  const [masivoAbierto, setMasivoAbierto] = useState(false);
   const [, startGuardar] = useTransition();
   const nombrePorCuenta = useMemo(() => new Map(cuentas.map((c) => [c.codigo, c.nombre])), [cuentas]);
 
@@ -143,6 +156,32 @@ function ConsolidadoTab({
   );
   const haySucias = filasSucias.length > 0;
   const ocupado = guardandoClave != null || guardandoTodo;
+
+  const clasificadores = useMemo(() => consolidado.map((c) => c.clasificador), [consolidado]);
+  // Intersección con la tabla actual: tras un refresh puede haber cambiado el consolidado.
+  const seleccionados = useMemo(() => clasificadores.filter((k) => seleccion.has(k)), [clasificadores, seleccion]);
+  const nSel = seleccionados.length;
+  const etiquetaPlural = useMemo(() => pluralClasificador(clasificadorEtiqueta), [clasificadorEtiqueta]);
+
+  const alternarSeleccion = (clasificador: string) =>
+    setSeleccion((p) => {
+      const s = new Set(p);
+      if (s.has(clasificador)) s.delete(clasificador);
+      else s.add(clasificador);
+      return s;
+    });
+  const seleccionarTodos = (activar: boolean) => setSeleccion(activar ? new Set(clasificadores) : new Set());
+  const seleccionarSinCuenta = () => setSeleccion(new Set(clasificadores.filter((k) => (valores[k] ?? []).length === 0)));
+
+  // La asignación masiva SOLO toca el estado local: las filas quedan «sucias» y se
+  // persisten por el único camino existente, «Guardar todos» (reversible antes de confirmar).
+  const aplicarMasivo = (cuentas4: string[], modo: ModoAsignacionMasiva) => {
+    setValores((p) => aplicarAsignacionMasiva(p, seleccionados, cuentas4, modo));
+    setMasivoAbierto(false);
+    notifySuccess(
+      `${cuentas4.length} cuenta${cuentas4.length === 1 ? "" : "s"} ${modo === "reemplazar" ? "reemplazan las de" : "aplicadas a"} ${nSel} ${etiquetaPlural}. Pulsa «Guardar todos» para persistir.`,
+    );
+  };
 
   const agregarCuenta = (clasificador: string) => {
     const cod = cuenta4Norm(nuevos[clasificador] ?? "");
@@ -186,6 +225,7 @@ function ConsolidadoTab({
       setGuardandoTodo(false);
       if (r.ok) {
         marcarGuardadas(filas);
+        setSeleccion(new Set());
         notifySuccess(r.message ?? "Consolidaciones guardadas.");
         router.refresh();
       } else notifyError(r.message ?? "No se pudieron guardar los cambios.");
@@ -195,26 +235,58 @@ function ConsolidadoTab({
   return (
     <Card className="p-0">
       {puedeEditar && (
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-100 bg-ink-50/60 px-3 py-2">
-          <p className="text-[11.5px] text-ink-500">
-            {haySucias
-              ? `${filasSucias.length} cambio${filasSucias.length === 1 ? "" : "s"} sin guardar`
-              : "Sin cambios pendientes"}
-          </p>
-          <button
-            type="button"
-            disabled={!haySucias || ocupado}
-            onClick={guardarTodos}
-            className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {guardandoTodo ? "Guardando…" : `Guardar todos${haySucias ? ` (${filasSucias.length})` : ""}`}
-          </button>
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-ink-100 bg-ink-50/60 px-3 py-2">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-ink-500">
+            <span className={nSel > 0 ? "font-semibold text-navy-700" : ""}>Selección: {nSel} de {clasificadores.length}</span>
+            <span className="text-ink-300">·</span>
+            <button type="button" onClick={() => seleccionarTodos(true)} className="font-medium text-blue-700 hover:underline">Todas</button>
+            <button type="button" onClick={seleccionarSinCuenta} className="font-medium text-blue-700 hover:underline">Sin cuenta</button>
+            {nSel > 0 && (
+              <button type="button" onClick={() => seleccionarTodos(false)} className="font-medium text-ink-500 hover:underline">Limpiar</button>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-[11.5px] text-ink-500">
+              {haySucias
+                ? `${filasSucias.length} cambio${filasSucias.length === 1 ? "" : "s"} sin guardar`
+                : "Sin cambios pendientes"}
+            </p>
+            <button
+              type="button"
+              disabled={nSel === 0 || ocupado}
+              onClick={() => setMasivoAbierto(true)}
+              className="rounded-md border border-blue-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
+              title={nSel === 0 ? `Marca ${etiquetaPlural} en la tabla para asignarles cuentas en bloque` : undefined}
+            >
+              Asignar cuentas{nSel > 0 ? ` (${nSel})` : ""}…
+            </button>
+            <button
+              type="button"
+              disabled={!haySucias || ocupado}
+              onClick={guardarTodos}
+              className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {guardandoTodo ? "Guardando…" : `Guardar todos${haySucias ? ` (${filasSucias.length})` : ""}`}
+            </button>
+          </div>
         </div>
       )}
       <div className="overflow-x-auto">
         <table className="w-full text-[12.5px]">
           <thead className="bg-ink-50 text-left text-ink-500">
             <tr>
+              {puedeEditar && (
+                <th className="w-9 px-3 py-2">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    aria-label={`Seleccionar todas las filas (${clasificadores.length})`}
+                    checked={clasificadores.length > 0 && nSel === clasificadores.length}
+                    ref={(el) => { if (el) el.indeterminate = nSel > 0 && nSel < clasificadores.length; }}
+                    onChange={(e) => seleccionarTodos(e.target.checked)}
+                  />
+                </th>
+              )}
               <th className="px-3 py-2 font-semibold">{clasificadorEtiqueta}</th>
               <th className="px-3 py-2 text-right font-semibold">Filas</th>
               <th className="px-3 py-2 text-right font-semibold">Total</th>
@@ -227,8 +299,20 @@ function ConsolidadoTab({
               const asignadas = valores[c.clasificador] ?? [];
               const sucia = claveSet(asignadas) !== claveSet(guardados[c.clasificador] ?? []);
               const guardandoEsta = guardandoClave === c.clasificador;
+              const marcada = seleccion.has(c.clasificador);
               return (
-                <tr key={c.clasificador} className={`border-t border-ink-100 align-top ${sucia ? "bg-warn-100/20" : ""}`}>
+                <tr key={c.clasificador} className={`border-t border-ink-100 align-top ${sucia ? "bg-warn-100/20" : marcada ? "bg-blue-50/50" : ""}`}>
+                  {puedeEditar && (
+                    <td className="px-3 py-2">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4"
+                        aria-label={`Seleccionar ${c.clasificador}`}
+                        checked={marcada}
+                        onChange={() => alternarSeleccion(c.clasificador)}
+                      />
+                    </td>
+                  )}
                   <td className="px-3 py-2 font-medium text-ink-800">{c.clasificador}</td>
                   <td className="px-3 py-2 text-right tabular-nums text-ink-500">{c.filas}</td>
                   <td className="px-3 py-2 text-right font-semibold tabular-nums text-ink-800">{fmtContable(c.total)}</td>
@@ -311,11 +395,90 @@ function ConsolidadoTab({
           onClose={() => setBuscando(null)}
         />
       )}
+      {masivoAbierto && nSel > 0 && (
+        <ModalAsignacionMasiva
+          seleccionados={seleccionados}
+          etiquetaPlural={etiquetaPlural}
+          conCuentas={contarConCuentas(valores, seleccionados)}
+          cuentas={cuentas}
+          homologacionCliente={homologacionCliente}
+          onAplicar={aplicarMasivo}
+          onClose={() => setMasivoAbierto(false)}
+        />
+      )}
     </Card>
   );
 }
 
-// Selector de cuenta Russell del módulo, con las cuentas del CLIENTE homologadas a cada una.
+// Buscador + lista de cuentas Russell del módulo con checkbox, mostrando bajo cada
+// una las cuentas del CLIENTE homologadas. Lo comparten el selector por fila y el
+// de asignación masiva; cada uno decide contra qué conjunto se marca.
+function ListaCuentasRussell({
+  cuentas,
+  homologacionCliente,
+  asignadas,
+  onToggle,
+}: {
+  cuentas: CuentaOpt[];
+  homologacionCliente: HomologacionCliente;
+  asignadas: Set<string>;
+  onToggle: (codigo: string) => void;
+}) {
+  const [q, setQ] = useState("");
+  const norm = (s: string) => s.toLowerCase();
+  const filtradas = cuentas.filter((c) => {
+    if (!q.trim()) return true;
+    const ctas = homologacionCliente[c.codigo] ?? [];
+    return norm(`${c.codigo} ${c.nombre} ${ctas.map((x) => `${x.codigo} ${x.nombre}`).join(" ")}`).includes(norm(q));
+  });
+  return (
+    <>
+      <input
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        placeholder="Buscar cuenta Russell o cuenta del cliente…"
+        className="rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12.5px] text-ink-700 outline-none focus:border-blue-400"
+      />
+      <div className="max-h-[60vh] overflow-y-auto rounded-md border border-ink-150">
+        {filtradas.length === 0 ? (
+          <div className="px-3 py-4 text-center text-[12px] text-ink-400">Sin coincidencias.</div>
+        ) : (
+          filtradas.map((c) => {
+            const ctas = homologacionCliente[c.codigo] ?? [];
+            const on = asignadas.has(c.codigo);
+            return (
+              <label key={c.codigo} className={`flex cursor-pointer items-start gap-2.5 border-b border-ink-50 px-3 py-2 last:border-0 ${on ? "bg-blue-50" : "hover:bg-ink-50"}`}>
+                <input type="checkbox" checked={on} onChange={() => onToggle(c.codigo)} className="mt-0.5 h-4 w-4 shrink-0" />
+                <div className="min-w-0">
+                  <div className="text-[12.5px] font-semibold text-ink-800">R - {c.codigo} · {c.nombre}</div>
+                  <div className="text-[11px] leading-snug text-ink-500">
+                    {ctas.length ? (
+                      <><span className="font-medium text-ink-600">Cliente:</span> {ctas.map((x) => `${x.codigo} ${x.nombre}`).join("  ·  ")}</>
+                    ) : (
+                      <span className="font-medium text-warn-700">El cliente no tiene cuentas homologadas a este subgrupo.</span>
+                    )}
+                  </div>
+                </div>
+              </label>
+            );
+          })
+        )}
+      </div>
+    </>
+  );
+}
+
+// Casilla «Todas las cuentas 14xx» (marca/desmarca el conjunto completo del módulo).
+function TodasLasCuentas({ cuentas, marcadas, onTodas }: { cuentas: CuentaOpt[]; marcadas: boolean; onTodas: (activar: boolean) => void }) {
+  return (
+    <label className="flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">
+      <input type="checkbox" checked={marcadas} onChange={(e) => onTodas(e.target.checked)} className="h-4 w-4" />
+      <span><b>Todas las cuentas {cuentas[0]?.codigo?.slice(0, 2) ?? "14"}xx</b> ({cuentas.length}) — o marca solo las necesarias abajo.</span>
+    </label>
+  );
+}
+
+// Selector de cuenta Russell del módulo para UNA fila (edita el conjunto en vivo).
 function ModalCuentas({
   clasificador,
   esGlobal,
@@ -335,57 +498,125 @@ function ModalCuentas({
   onTodas: (activar: boolean) => void;
   onClose: () => void;
 }) {
-  const [q, setQ] = useState("");
-  const norm = (s: string) => s.toLowerCase();
-  const filtradas = cuentas.filter((c) => {
-    if (!q.trim()) return true;
-    const ctas = homologacionCliente[c.codigo] ?? [];
-    return norm(`${c.codigo} ${c.nombre} ${ctas.map((x) => `${x.codigo} ${x.nombre}`).join(" ")}`).includes(norm(q));
-  });
   const todasMarcadas = cuentas.length > 0 && cuentas.every((c) => asignadas.has(c.codigo));
   return (
     <Modal open onClose={onClose} title={`Cuenta Russell · ${clasificador}`} size="lg">
       <div className="flex flex-col gap-2">
         {esGlobal && (
           // Inventario GLOBAL: puede cruzar contra TODAS las 14xx, o seleccionar/deseleccionar.
-          <label className="flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">
-            <input type="checkbox" checked={todasMarcadas} onChange={(e) => onTodas(e.target.checked)} className="h-4 w-4" />
-            <span><b>Todas las cuentas {cuentas[0]?.codigo?.slice(0, 2) ?? "14"}xx</b> ({cuentas.length}) — o marca solo las necesarias abajo.</span>
-          </label>
+          <TodasLasCuentas cuentas={cuentas} marcadas={todasMarcadas} onTodas={onTodas} />
         )}
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Buscar cuenta Russell o cuenta del cliente…"
-          className="rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12.5px] text-ink-700 outline-none focus:border-blue-400"
-        />
-        <div className="max-h-[60vh] overflow-y-auto rounded-md border border-ink-150">
-          {filtradas.length === 0 ? (
-            <div className="px-3 py-4 text-center text-[12px] text-ink-400">Sin coincidencias.</div>
-          ) : (
-            filtradas.map((c) => {
-              const ctas = homologacionCliente[c.codigo] ?? [];
-              const on = asignadas.has(c.codigo);
-              return (
-                <label key={c.codigo} className={`flex cursor-pointer items-start gap-2.5 border-b border-ink-50 px-3 py-2 last:border-0 ${on ? "bg-blue-50" : "hover:bg-ink-50"}`}>
-                  <input type="checkbox" checked={on} onChange={() => onToggle(c.codigo)} className="mt-0.5 h-4 w-4 shrink-0" />
-                  <div className="min-w-0">
-                    <div className="text-[12.5px] font-semibold text-ink-800">R - {c.codigo} · {c.nombre}</div>
-                    <div className="text-[11px] leading-snug text-ink-500">
-                      {ctas.length ? (
-                        <><span className="font-medium text-ink-600">Cliente:</span> {ctas.map((x) => `${x.codigo} ${x.nombre}`).join("  ·  ")}</>
-                      ) : (
-                        <span className="font-medium text-warn-700">El cliente no tiene cuentas homologadas a este subgrupo.</span>
-                      )}
-                    </div>
-                  </div>
-                </label>
-              );
-            })
-          )}
-        </div>
+        <ListaCuentasRussell cuentas={cuentas} homologacionCliente={homologacionCliente} asignadas={asignadas} onToggle={onToggle} />
         <p className="text-[11px] text-ink-400">Al cerrar, recuerda pulsar «Guardar» en la fila para persistir los cambios.</p>
       </div>
+    </Modal>
+  );
+}
+
+// Asignación MASIVA: elige 1..N cuentas y las aplica a todos los clasificadores
+// seleccionados. Dos pasos, para que el alcance (agregar vs reemplazar) sea una
+// decisión explícita — mismo patrón que la homologación del balance.
+const MAX_LISTADOS = 10;
+
+function ModalAsignacionMasiva({
+  seleccionados,
+  etiquetaPlural,
+  conCuentas,
+  cuentas,
+  homologacionCliente,
+  onAplicar,
+  onClose,
+}: {
+  seleccionados: string[];
+  etiquetaPlural: string;
+  conCuentas: number;
+  cuentas: CuentaOpt[];
+  homologacionCliente: HomologacionCliente;
+  onAplicar: (cuentas4: string[], modo: ModoAsignacionMasiva) => void;
+  onClose: () => void;
+}) {
+  const [sel, setSel] = useState<Set<string>>(new Set());
+  const [paso, setPaso] = useState<"elegir" | "confirmar">("elegir");
+  const elegidas = useMemo(() => [...sel].sort(), [sel]);
+  const nombrePorCuenta = useMemo(() => new Map(cuentas.map((c) => [c.codigo, c.nombre])), [cuentas]);
+  const todasMarcadas = cuentas.length > 0 && cuentas.every((c) => sel.has(c.codigo));
+  const alternar = (codigo: string) =>
+    setSel((p) => {
+      const s = new Set(p);
+      if (s.has(codigo)) s.delete(codigo);
+      else s.add(codigo);
+      return s;
+    });
+
+  const footer =
+    paso === "elegir" ? (
+      <button
+        type="button"
+        disabled={elegidas.length === 0}
+        onClick={() => setPaso("confirmar")}
+        className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        Continuar{elegidas.length > 0 ? ` (${elegidas.length} cuenta${elegidas.length === 1 ? "" : "s"})` : ""}
+      </button>
+    ) : (
+      <>
+        <button
+          type="button"
+          onClick={() => onAplicar(elegidas, "reemplazar")}
+          className="rounded-md border border-err-500 bg-white px-3 py-1.5 text-[12px] font-semibold text-err-700 hover:bg-err-100/50"
+        >
+          Reemplazar las existentes
+        </button>
+        <button
+          type="button"
+          onClick={() => onAplicar(elegidas, "agregar")}
+          className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600"
+        >
+          Agregar a las existentes
+        </button>
+      </>
+    );
+
+  return (
+    <Modal open onClose={onClose} title={`Asignar cuentas · ${seleccionados.length} ${etiquetaPlural}`} size="lg" footer={footer}>
+      {paso === "elegir" ? (
+        <div className="flex flex-col gap-2">
+          <p className="text-[12px] text-ink-600">
+            Las cuentas que marques se aplicarán a <b>{seleccionados.length}</b> {etiquetaPlural} seleccionados en la tabla.
+          </p>
+          <TodasLasCuentas cuentas={cuentas} marcadas={todasMarcadas} onTodas={(on) => setSel(on ? new Set(cuentas.map((c) => c.codigo)) : new Set())} />
+          <ListaCuentasRussell cuentas={cuentas} homologacionCliente={homologacionCliente} asignadas={sel} onToggle={alternar} />
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3">
+          <div className="rounded-md border border-ink-150 bg-ink-50/60 px-3 py-2">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">Se aplicarán</div>
+            <ul className="mt-1 flex flex-col gap-0.5">
+              {elegidas.map((cod) => (
+                <li key={cod} className="text-[12.5px] text-ink-800"><b>R - {cod}</b>{nombrePorCuenta.get(cod) ? ` · ${nombrePorCuenta.get(cod)}` : ""}</li>
+              ))}
+            </ul>
+          </div>
+          <div className="rounded-md border border-ink-150 px-3 py-2">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">A estos {seleccionados.length} {etiquetaPlural}</div>
+            <p className="mt-1 text-[12px] leading-snug text-ink-700">
+              {seleccionados.slice(0, MAX_LISTADOS).join("  ·  ")}
+              {seleccionados.length > MAX_LISTADOS && <span className="text-ink-500"> … y {seleccionados.length - MAX_LISTADOS} más</span>}
+            </p>
+            {conCuentas > 0 && (
+              <p className="mt-1.5 text-[12px] font-medium text-warn-700">
+                ⚠ {conCuentas} de ellos ya {conCuentas === 1 ? "tiene cuentas asignadas" : "tienen cuentas asignadas"}: «Agregar» las conserva, «Reemplazar» las descarta.
+              </p>
+            )}
+          </div>
+          <p className="text-[11px] text-ink-400">
+            Los cambios quedan marcados como «sin guardar»: confírmalos con «Guardar todos» en la tabla.
+          </p>
+          <button type="button" onClick={() => setPaso("elegir")} className="self-start text-[12px] font-medium text-blue-700 hover:underline">
+            ← Cambiar cuentas
+          </button>
+        </div>
+      )}
     </Modal>
   );
 }

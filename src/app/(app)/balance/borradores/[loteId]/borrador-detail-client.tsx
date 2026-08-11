@@ -52,6 +52,12 @@ import {
   type UmbralesAlertas,
 } from "@/lib/balance/umbrales-alertas";
 import {
+  FILTROS_COLUMNAS_BORRADOR_INICIALES,
+  filtrarArbolBorradorPorColumnas,
+  hayFiltrosColumnasBorrador,
+  type FiltrosColumnasBorrador,
+} from "@/lib/balance/filtros-borrador";
+import {
   esDescuadreDelArchivoFuente,
   MAX_COMENTARIO_PROMOCION,
 } from "@/lib/balance/advertencia-archivo-fuente";
@@ -2884,11 +2890,15 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
     if (nuevas.length > 0) setAbiertos((prev) => new Set([...prev, ...nuevas]));
   }, [codigosConHijos]);
 
-  // ---- Filtros del árbol: búsqueda, alertas y nivel máximo (N2/N4/N6/N8). ----
+  // ---- Filtros del árbol: búsqueda, alertas, nivel máximo y columnas. ----
   const [q, setQ] = useState("");
   const [vista, setVista] = useState<"todo" | "alertas">("todo");
   const [nivelMax, setNivelMax] = useState(0); // 0 = todos; 2/4/6/8 = hasta ese nivel
+  const [filtrosColumnas, setFiltrosColumnas] = useState<FiltrosColumnasBorrador>({
+    ...FILTROS_COLUMNAS_BORRADOR_INICIALES,
+  });
   const { pantallaCompleta, alternar: alternarPantallaCompleta } = usePantallaCompletaTabla();
+  const filtrosColumnasActivos = hayFiltrosColumnasBorrador(filtrosColumnas);
 
   // El árbol se lee para calcular la ruta a expandir, pero va por REF y NO en dependencias:
   // se reconstruye con cualquier edición (omitir, reclasificar, invertir, «solo hojas», o el
@@ -2920,6 +2930,7 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
       setQ("");
       setVista("todo");
       setNivelMax(0);
+      setFiltrosColumnas({ ...FILTROS_COLUMNAS_BORRADOR_INICIALES });
       setFilaSeleccionada(String(enfoqueReubicacion.origen));
       setDestinoDestacado(enfoqueReubicacion.destino);
       setAbiertos((prev) => new Set([...prev, ...abrir]));
@@ -2932,12 +2943,12 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
   }, [enfoqueReubicacion, setFilaSeleccionada]);
   const needle = q.trim().toLowerCase();
   const matchQ = (n: NodoBorrador) => needle === "" || n.codigo.toLowerCase().includes(needle) || (n.nombre ?? "").toLowerCase().includes(needle);
-  const filtrando = needle !== "" || vista !== "todo" || nivelMax > 0;
+  const filtrando = needle !== "" || vista !== "todo" || nivelMax > 0 || filtrosColumnasActivos;
   const nAlertas = useMemo(() => { let n = 0; const rec = (x: NodoBorrador) => { if (esAlertaNodo(x, umbrales) || riesgosPorFila.has(x.filaNum)) n++; x.hijos.forEach(rec); }; arbol.forEach(rec); return n; }, [arbol, riesgosPorFila, umbrales]);
 
   // Poda del árbol según los filtros (conserva ancestros de las coincidencias).
+  // Los filtros de columna se encadenan al final, igual que en el detalle del balance.
   const arbolVisible = useMemo(() => {
-    if (!filtrando) return arbol;
     const nivelOk = (x: NodoBorrador) => nivelMax === 0 || !/^\d+$/.test(x.codigo) || x.codigo.length <= nivelMax;
     const alerta = (x: NodoBorrador) => esAlertaNodo(x, umbrales) || riesgosPorFila.has(x.filaNum);
     const selfMatch = (x: NodoBorrador) => matchQ(x) && (vista !== "alertas" || alerta(x));
@@ -2955,9 +2966,12 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
       }
       return out;
     };
-    return podar(arbol, false);
+    const base = (needle !== "" || vista !== "todo" || nivelMax > 0)
+      ? podar(arbol, false)
+      : arbol;
+    return filtrarArbolBorradorPorColumnas(base, filtrosColumnas);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [arbol, q, vista, nivelMax, riesgosPorFila, umbrales]);
+  }, [arbol, q, vista, nivelMax, filtrosColumnas, riesgosPorFila, umbrales]);
   // Sólo cuentan ramas raíz que están desplegando contenido visible. Los filtros
   // fuerzan abiertas las ramas resultantes sin modificar el Set persistente.
   const hayContenidoExpandido = arbolVisible.some(
@@ -2994,6 +3008,17 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
   const filasReveladas = useMemo(() => filasVisibles.slice(0, revelado), [filasVisibles, revelado]);
   const reiniciarRevelado = () => setCantidadRevelada(BLOQUE_REVELADO_INICIAL);
   const revelarMasFilas = () => setCantidadRevelada((actual) => siguienteRevelado(actual, totalFilasVisibles, BLOQUE_REVELADO_INCREMENTO));
+  const actualizarFiltroColumna = <K extends keyof FiltrosColumnasBorrador>(
+    columna: K,
+    valor: FiltrosColumnasBorrador[K],
+  ) => {
+    setFiltrosColumnas((actuales) => ({ ...actuales, [columna]: valor }));
+    reiniciarRevelado();
+  };
+  const limpiarFiltrosColumnas = () => {
+    setFiltrosColumnas({ ...FILTROS_COLUMNAS_BORRADOR_INICIALES });
+    reiniciarRevelado();
+  };
 
   // Sensor de scroll: cuando el centinela al final de la tabla entra en vista,
   // revela el próximo bloque. Se reconecta si cambia si hay más por revelar o el
@@ -3300,6 +3325,15 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
         <span className="mx-0.5 h-4 w-px bg-ink-200" />
         {vistaBtn("todo", "Todo")}
         {vistaBtn("alertas", "Alertas", nAlertas)}
+        {filtrosColumnasActivos && (
+          <button
+            type="button"
+            onClick={limpiarFiltrosColumnas}
+            className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-700 transition hover:bg-blue-100"
+          >
+            <Icon name="x" size={11} /> Limpiar columnas
+          </button>
+        )}
         <span className="mx-0.5 h-4 w-px bg-ink-200" />
         {hermanos.length > 1 && <MenuVersionesBorrador loteId={loteId} hermanos={hermanos} />}
         <button type="button" onClick={expandirTodo} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50"><Icon name={chevronDivulgacion(hayContenidoExpandido)} size={12} />Expandir todo</button>
@@ -3309,17 +3343,81 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
       <div ref={tablaRef} className={claseScrollTabla(pantallaCompleta)}>
         <table className="balance-detail-row-hover tabla-encabezado-fijo w-full text-[11px]">
           <thead className="text-ink-500">
-            <tr className="text-left">
-              <th className="px-2 py-1.5 font-semibold">Código</th>
-              <th className="px-2 py-1.5 font-semibold">Cuenta</th>
-              <th className="px-2 py-1.5 text-right font-semibold">Saldo ant.</th>
-              <th className="px-2 py-1.5 text-right font-semibold">Débito</th>
-              <th className="px-2 py-1.5 text-right font-semibold">Crédito</th>
-              <th className="px-2 py-1.5 text-right font-semibold">Saldo actual</th>
+            <tr className="text-left text-[11px] uppercase tracking-wider">
+              <th className="min-w-40 px-2 py-1.5 font-semibold">
+                Código
+                <FiltroTextoColumnaBorrador
+                  ariaLabel="Filtrar la columna Código"
+                  value={filtrosColumnas.codigo}
+                  onChange={(valor) => actualizarFiltroColumna("codigo", valor)}
+                  placeholder="Buscar código"
+                />
+              </th>
+              <th className="min-w-56 px-2 py-1.5 font-semibold">
+                Cuenta
+                <FiltroTextoColumnaBorrador
+                  ariaLabel="Filtrar la columna Cuenta"
+                  value={filtrosColumnas.cuenta}
+                  onChange={(valor) => actualizarFiltroColumna("cuenta", valor)}
+                  placeholder="Buscar cuenta"
+                />
+              </th>
+              <th className="min-w-36 whitespace-nowrap px-2 py-1.5 text-right font-semibold">
+                Saldo ant.
+                <FiltroTextoColumnaBorrador
+                  ariaLabel="Filtrar la columna Saldo anterior"
+                  value={filtrosColumnas.saldoAnterior}
+                  onChange={(valor) => actualizarFiltroColumna("saldoAnterior", valor)}
+                  placeholder="Ej. > 1000000"
+                  numerico
+                />
+              </th>
+              <th className="min-w-32 whitespace-nowrap px-2 py-1.5 text-right font-semibold">
+                Débito
+                <FiltroTextoColumnaBorrador
+                  ariaLabel="Filtrar la columna Débito"
+                  value={filtrosColumnas.debito}
+                  onChange={(valor) => actualizarFiltroColumna("debito", valor)}
+                  placeholder="Ej. > 0"
+                  numerico
+                />
+              </th>
+              <th className="min-w-32 whitespace-nowrap px-2 py-1.5 text-right font-semibold">
+                Crédito
+                <FiltroTextoColumnaBorrador
+                  ariaLabel="Filtrar la columna Crédito"
+                  value={filtrosColumnas.credito}
+                  onChange={(valor) => actualizarFiltroColumna("credito", valor)}
+                  placeholder="Ej. > 0"
+                  numerico
+                />
+              </th>
+              <th className="min-w-36 whitespace-nowrap px-2 py-1.5 text-right font-semibold">
+                Saldo actual
+                <FiltroTextoColumnaBorrador
+                  ariaLabel="Filtrar la columna Saldo actual"
+                  value={filtrosColumnas.saldo}
+                  onChange={(valor) => actualizarFiltroColumna("saldo", valor)}
+                  placeholder="Ej. < 0"
+                  numerico
+                />
+              </th>
             </tr>
           </thead>
           <tbody onClick={onClickFila} onDoubleClick={onDoubleClickFila}>
-            {filasReveladas.length > 0 ? filasReveladas.map(filaTr) : <tr><td colSpan={6} className="px-3 py-6 text-center text-[12px] text-ink-400">Sin cuentas para este filtro.</td></tr>}
+            {filasReveladas.length > 0 ? filasReveladas.map(filaTr) : (
+              <tr>
+                <td colSpan={6} className="px-3 py-6 text-center text-[12px] text-ink-400">
+                  {filtrosColumnasActivos
+                    ? "Sin cuentas que coincidan con los filtros de columna."
+                    : q.trim()
+                      ? "Sin cuentas que coincidan con la búsqueda."
+                      : vista !== "todo"
+                        ? "Sin alertas para este filtro."
+                        : "Sin cuentas para este filtro."}
+                </td>
+              </tr>
+            )}
             {hayMasFilas && (
               // Centinela del scroll continuo: sin contenido ni datos de selección
               // (no participa en clic/selección de fila), solo dispara el siguiente bloque.
@@ -3345,6 +3443,35 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
         )}
       </div>
     </div>
+  );
+}
+
+const CLASE_FILTRO_COLUMNA_BORRADOR =
+  "mt-1 block h-7 w-full rounded-md border border-ink-200 bg-white px-2 text-[11px] font-normal normal-case tracking-normal text-ink-700 outline-none placeholder:text-ink-400 focus:border-blue-400";
+
+function FiltroTextoColumnaBorrador({
+  ariaLabel,
+  value,
+  onChange,
+  placeholder,
+  numerico = false,
+}: {
+  ariaLabel: string;
+  value: string;
+  onChange: (valor: string) => void;
+  placeholder: string;
+  numerico?: boolean;
+}) {
+  return (
+    <input
+      type="text"
+      inputMode={numerico ? "decimal" : "search"}
+      value={value}
+      onChange={(evento) => onChange(evento.target.value)}
+      aria-label={ariaLabel}
+      placeholder={placeholder}
+      className={`${CLASE_FILTRO_COLUMNA_BORRADOR} ${numerico ? "text-right" : "text-left"}`}
+    />
   );
 }
 
