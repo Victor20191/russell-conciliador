@@ -21,7 +21,9 @@ export const SpecModuloSchema = z.object({
   //  - "seccion"  : en RENGLONES de sección (encabezados de grupo, a veces en negrita)
   //                 intercalados con los ítems, en la MISMA columna que otro campo
   //                 (p. ej. el código). El label de la sección se hereda a los ítems.
-  clasificadorModo: z.enum(["columna", "arrastrar", "seccion"]).optional(),
+  //  - "global"   : el archivo NO trae tipo; todo se toma como un ÚNICO inventario global
+  //                 (todas las filas con el mismo clasificador). No usa columna.
+  clasificadorModo: z.enum(["columna", "arrastrar", "seccion", "global"]).optional(),
   // Modo "seccion": un renglón es ENCABEZADO DE SECCIÓN si su clasificador tiene texto y,
   // además, la columna de este rol viene VACÍA (p. ej. "descripcion" vacía = es un título,
   // no un ítem). Si el archivo trae negrita, también se detecta por negrita.

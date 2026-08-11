@@ -18,6 +18,11 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
   ]);
   if (!lote || lote.moduloCodigo !== moduloCodigo || filas.length === 0) notFound();
 
+  // Conteo de comentarios por renglón del borrador (ancla `fila:<n>`, anclados al lote).
+  const comentariosGrp = await prisma.comment.groupBy({ by: ["anchor"], where: { entityType: "modulos_borrador", entityId: lote.id }, _count: { _all: true } });
+  const comentariosPorAncla: Record<string, number> = {};
+  for (const g of comentariosGrp) if (g.anchor) comentariosPorAncla[g.anchor] = g._count._all;
+
   const cliente = lote.clienteId != null ? await prisma.client.findUnique({ where: { id: lote.clienteId }, select: { name: true } }) : null;
   const periodoSugerido = lote.periodoFinal ? lote.periodoFinal.toISOString().slice(0, 7) : lote.periodoInicial ? lote.periodoInicial.toISOString().slice(0, 7) : "";
 
@@ -40,6 +45,8 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
       <BorradorModuloClient
         moduloCodigo={moduloCodigo}
         loteId={loteId}
+        loteRowId={lote.id}
+        comentarios={comentariosPorAncla}
         cliente={cliente?.name ?? (lote.clienteId != null ? `Cliente ${lote.clienteId}` : "(sin cliente)")}
         periodoSugerido={periodoSugerido}
         columnas={descriptor.columnas.map((c) => ({ nombre: c.nombre, etiqueta: c.etiqueta, tipo: c.tipo }))}

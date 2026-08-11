@@ -6,16 +6,22 @@ import Link from "next/link";
 import { Modal } from "@/components/modal";
 import { Card } from "@/components/ui";
 import { SelectorClienteBuscable } from "@/components/selector-cliente-buscable";
-import { fmt, fmtDate, fmtDateTime } from "@/lib/format";
+import { fmtContable, fmtDate, fmtDateTime } from "@/lib/format";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
-import { columnaLetra } from "@/lib/balance/extraccion/hojas-cliente";
+import { columnaLetra, leerHojasParaPreview, type HojaPreview } from "@/lib/balance/extraccion/hojas-cliente";
+import ConversacionesEntidad from "@/components/conversaciones-entidad";
 import type { SpecModulo } from "@/lib/modulos/extraccion/esquema";
 import { leerDatosModulo, analizarArchivoModulo, type AnalisisModulo, type CeldaMuestra } from "@/app/actions/modulos-datos";
 
 type Cliente = { id: number; name: string; nit: string };
 type Rol = { nombre: string; etiqueta: string; tipo: string; requerido: boolean };
-type Borrador = { loteId: string; cliente: string; archivoNombre: string; filas: number; creadoEn: string };
-type Cargado = { id: number; cliente: string; periodo: string; version: number; filas: number; total: number; creadoEn: string; cargadoPor: string | null };
+type Borrador = { loteId: string; cliente: string; archivoNombre: string; filas: number; creadoEn: string; comentarios: number };
+type Cargado = { id: number; cliente: string; periodo: string; version: number; filas: number; total: number; creadoEn: string; cargadoPor: string | null; comentarios: number };
+
+function BadgeComentarios({ n }: { n: number }) {
+  if (!n) return null;
+  return <span className="inline-flex items-center gap-0.5 rounded-full bg-blue-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-blue-600" title={`${n} comentario(s)`}>💬 {n}</span>;
+}
 
 export default function ModulosDatosClient({
   moduloCodigo,
@@ -36,6 +42,7 @@ export default function ModulosDatosClient({
 }) {
   const router = useRouter();
   const [abierto, setAbierto] = useState(false);
+  const [conversando, setConversando] = useState<{ tipo: string; entityId: number; titulo: string } | null>(null);
   const ruta = `/modulos/${moduloCodigo.toLowerCase()}`;
 
   return (
@@ -61,6 +68,10 @@ export default function ModulosDatosClient({
         />
       )}
 
+      {conversando && (
+        <ConversacionesEntidad tipo={conversando.tipo} entityId={conversando.entityId} titulo={conversando.titulo} onClose={() => setConversando(null)} />
+      )}
+
       {borradores.length > 0 && (
         <Card className="p-4">
           <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-warn-700">Borradores por confirmar</div>
@@ -73,7 +84,7 @@ export default function ModulosDatosClient({
               >
                 <span className="font-medium text-ink-800">{b.cliente}</span>
                 <span className="truncate font-mono text-[11px] text-ink-500" title={b.archivoNombre}>{b.archivoNombre}</span>
-                <span className="whitespace-nowrap text-ink-500">{b.filas} filas · {fmtDate(b.creadoEn)}</span>
+                <span className="flex items-center gap-2 whitespace-nowrap text-ink-500"><BadgeComentarios n={b.comentarios} />{b.filas} filas · {fmtDate(b.creadoEn)}</span>
               </Link>
             ))}
           </div>
@@ -96,6 +107,7 @@ export default function ModulosDatosClient({
                   <th className="px-2.5 py-1.5 font-semibold">Ver.</th>
                   <th className="px-2.5 py-1.5 text-right font-semibold">Filas</th>
                   <th className="px-2.5 py-1.5 text-right font-semibold">Total</th>
+                  <th className="px-2.5 py-1.5 text-center font-semibold">💬</th>
                   <th className="px-2.5 py-1.5 font-semibold">Cargado</th>
                 </tr>
               </thead>
@@ -106,7 +118,16 @@ export default function ModulosDatosClient({
                     <td className="px-2.5 py-1.5 text-ink-600">{c.periodo}</td>
                     <td className="px-2.5 py-1.5 text-ink-500">v{c.version}</td>
                     <td className="px-2.5 py-1.5 text-right tabular-nums text-ink-600">{c.filas}</td>
-                    <td className="px-2.5 py-1.5 text-right font-semibold tabular-nums text-ink-800">{fmt(c.total)}</td>
+                    <td className="px-2.5 py-1.5 text-right font-semibold tabular-nums text-ink-800">{fmtContable(c.total)}</td>
+                    <td className="px-2.5 py-1.5 text-center">
+                      {c.comentarios ? (
+                        <button type="button" title="Ver conversaciones" onClick={(e) => { e.stopPropagation(); setConversando({ tipo: "modulos_datos", entityId: c.id, titulo: `${c.cliente} · ${c.periodo} v${c.version}` }); }}>
+                          <BadgeComentarios n={c.comentarios} />
+                        </button>
+                      ) : (
+                        <span className="text-ink-300">—</span>
+                      )}
+                    </td>
                     <td className="px-2.5 py-1.5 text-ink-500">
                       <div className="whitespace-nowrap tabular-nums">{fmtDateTime(c.creadoEn)}</div>
                       <div className="text-[11px] text-ink-400">{c.cargadoPor ?? "—"}</div>
@@ -145,6 +166,8 @@ function CargarModal({
   const [tieneArchivo, setTieneArchivo] = useState(false);
   const [nombreArchivo, setNombreArchivo] = useState("");
   const [clienteId, setClienteId] = useState<number | null>(null);
+  const [hojas, setHojas] = useState<HojaPreview[]>([]);
+  const [hoja, setHoja] = useState("");
   const [fase, setFase] = useState<"archivo" | "mapeo">("archivo");
   const [analisis, setAnalisis] = useState<AnalisisModulo | null>(null);
   const [spec, setSpec] = useState<SpecModulo | null>(null);
@@ -160,11 +183,17 @@ function CargarModal({
     setTieneArchivo(false);
     setAnalisis(null);
     setSpec(null);
+    setHojas([]);
+    setHoja("");
     setFase("archivo");
     try {
       bufferRef.current = await f.arrayBuffer();
       nombreRef.current = f.name;
       setNombreArchivo(f.name);
+      // Listar las hojas del libro para que el usuario elija cuál importar (como en balance).
+      const hs = await leerHojasParaPreview(f).catch(() => [] as HojaPreview[]);
+      setHojas(hs);
+      setHoja(hs[0]?.nombre ?? "");
       setTieneArchivo(true);
     } catch {
       notifyError("No pudimos leer el archivo. Suele pasar si está ABIERTO en Excel o sincronizándose en OneDrive: ciérralo e intenta de nuevo.");
@@ -173,14 +202,15 @@ function CargarModal({
     }
   };
 
-  const analizar = (hoja?: string) => {
+  const analizar = (hojaArg?: string) => {
     if (!bufferRef.current) { notifyError("Adjunta el archivo."); return; }
     if (clienteId == null) { notifyError("Selecciona el cliente."); return; }
+    const hojaElegida = hojaArg ?? hoja;
     startAnalizar(async () => {
       const fd = new FormData();
       fd.set("moduloCodigo", moduloCodigo);
       fd.set("clienteId", String(clienteId));
-      if (hoja) fd.set("hoja", hoja);
+      if (hojaElegida) fd.set("hoja", hojaElegida);
       fd.set("archivo", new File([bufferRef.current!], nombreRef.current));
       try {
         const r = await analizarArchivoModulo(fd);
@@ -201,7 +231,7 @@ function CargarModal({
   const leer = () => {
     if (!bufferRef.current || !spec) { notifyError("Falta analizar el archivo."); return; }
     if (clienteId == null) { notifyError("Selecciona el cliente."); return; }
-    const faltantes = roles.filter((rc) => rc.requerido && (spec.columnas[rc.nombre] ?? 0) < 1);
+    const faltantes = roles.filter((rc) => rc.requerido && !(rc.nombre === clasificadorRol && modo === "global") && (spec.columnas[rc.nombre] ?? 0) < 1);
     if (faltantes.length) { notifyError("Faltan columnas obligatorias: " + faltantes.map((f) => f.etiqueta).join(", ") + "."); return; }
     startLeer(async () => {
       const fd = new FormData();
@@ -229,9 +259,15 @@ function CargarModal({
   const setCol = (rol: string, col: number) => setSpec((s) => (s ? { ...s, columnas: { ...s.columnas, [rol]: col } } : s));
   const setEnc = (v: number) => setSpec((s) => (s ? { ...s, filaEncabezado: v } : s));
   const setDat = (v: number) => setSpec((s) => (s ? { ...s, primeraFilaDatos: v } : s));
-  const modo: "columna" | "arrastrar" | "seccion" = spec?.clasificadorModo ?? (spec?.arrastrarClasificador ? "arrastrar" : "columna");
-  const setModo = (m: "columna" | "arrastrar" | "seccion") =>
+  const modo: "columna" | "arrastrar" | "seccion" | "global" = spec?.clasificadorModo ?? (spec?.arrastrarClasificador ? "arrastrar" : "columna");
+  const setModo = (m: "columna" | "arrastrar" | "seccion" | "global") =>
     setSpec((s) => (s ? { ...s, clasificadorModo: m, arrastrarClasificador: m === "arrastrar" ? true : undefined, seccionColumnaVaciaRol: m === "seccion" ? s.seccionColumnaVaciaRol ?? "descripcion" : undefined } : s));
+  // Selección del clasificador: -1 = Inventario globalizado (un solo valor); ≥1 = columna.
+  const onSelectClasificador = (v: number) => {
+    if (v === -1) { setModo("global"); return; }
+    setCol(clasificadorRol, v);
+    if (modo === "global") setModo("columna");
+  };
   const setSeccionRol = (rol: string) => setSpec((s) => (s ? { ...s, seccionColumnaVaciaRol: rol } : s));
 
   // Etiqueta de cada columna para los selectores: «C · "Encabezado" (muestra, muestra)».
@@ -302,6 +338,15 @@ function CargarModal({
             {tieneArchivo && !leyendoArchivo && <span className="text-[11px] text-ok-700">Listo: {nombreArchivo}</span>}
           </label>
 
+          {hojas.length > 1 && (
+            <label className="flex flex-col gap-1">
+              <span className="text-[11px] font-medium text-ink-600">Hoja a importar</span>
+              <select value={hoja} onChange={(e) => setHoja(e.target.value)} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-ink-700 outline-none focus:border-blue-400">
+                {hojas.map((h) => <option key={h.nombre} value={h.nombre}>{h.nombre} ({h.totalFilas} filas)</option>)}
+              </select>
+            </label>
+          )}
+
           <p className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[11.5px] leading-relaxed text-blue-800">
             Al analizar, el sistema sugiere qué columna es cada campo. En el siguiente paso podrás corregir el mapeo, marcar si el tipo viene agrupado, y se guardará el perfil para las próximas cargas de este cliente.
           </p>
@@ -315,7 +360,7 @@ function CargarModal({
           {(analisis?.hojas?.length ?? 0) > 1 && (
             <label className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
               <span className="shrink-0 text-[11px] font-medium text-ink-600">Hoja</span>
-              <select value={spec?.hoja ?? ""} onChange={(e) => analizar(e.target.value)} className="min-w-0 max-w-full rounded-md border border-ink-200 bg-white px-2 py-1.5 text-ink-700 outline-none focus:border-blue-400">
+              <select value={spec?.hoja ?? ""} onChange={(e) => { setHoja(e.target.value); analizar(e.target.value); }} className="min-w-0 max-w-full rounded-md border border-ink-200 bg-white px-2 py-1.5 text-ink-700 outline-none focus:border-blue-400">
                 {analisis?.hojas?.map((h) => <option key={h} value={h}>{h}</option>)}
               </select>
               <span className="shrink-0 text-[11px] text-ink-400">{analisis?.totalFilas} filas</span>
@@ -354,11 +399,12 @@ function CargarModal({
                     </div>
                     <div className="flex min-w-0 flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2">
                       <select
-                        value={spec?.columnas[rc.nombre] ?? 0}
-                        onChange={(e) => setCol(rc.nombre, Number(e.target.value))}
+                        value={rc.nombre === clasificadorRol && modo === "global" ? -1 : spec?.columnas[rc.nombre] ?? 0}
+                        onChange={(e) => (rc.nombre === clasificadorRol ? onSelectClasificador(Number(e.target.value)) : setCol(rc.nombre, Number(e.target.value)))}
                         className="w-full min-w-0 flex-1 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400"
                       >
                         <option value={0}>— sin mapear —</option>
+                        {rc.nombre === clasificadorRol && <option value={-1}>🌐 Inventario globalizado (un solo valor global)</option>}
                         {opcionesColumna().map((o) => (
                           <option key={o.index1} value={o.index1}>{o.label}</option>
                         ))}
@@ -377,14 +423,18 @@ function CargarModal({
           </div>
 
           <div className="flex flex-col gap-2 rounded-md border border-ink-150 bg-ink-50 px-3 py-2.5">
-            <label className="flex min-w-0 flex-col gap-1">
-              <span className="text-[11px] font-medium text-ink-600">¿Cómo viene el {roles.find((r) => r.nombre === clasificadorRol)?.etiqueta.toLowerCase() ?? "tipo"}?</span>
-              <select value={modo} onChange={(e) => setModo(e.target.value as typeof modo)} className="w-full min-w-0 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400">
-                <option value="columna">En su propia columna, en cada fila</option>
-                <option value="arrastrar">Agrupado en su columna (una vez por bloque; se arrastra){clasifEsparso ? " · recomendado" : ""}</option>
-                <option value="seccion">En renglones de sección (encabezados de grupo) intercalados con los ítems</option>
-              </select>
-            </label>
+            {modo === "global" ? (
+              <span className="text-[11.5px] leading-snug text-ink-600">🌐 <b>Inventario globalizado</b>: todo el archivo se carga como un único inventario (un solo valor global). En el consolidado le asignas UNA cuenta.</span>
+            ) : (
+              <label className="flex min-w-0 flex-col gap-1">
+                <span className="text-[11px] font-medium text-ink-600">¿Cómo viene el {roles.find((r) => r.nombre === clasificadorRol)?.etiqueta.toLowerCase() ?? "tipo"}?</span>
+                <select value={modo} onChange={(e) => setModo(e.target.value as typeof modo)} className="w-full min-w-0 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400">
+                  <option value="columna">En su propia columna, en cada fila</option>
+                  <option value="arrastrar">Agrupado en su columna (una vez por bloque; se arrastra){clasifEsparso ? " · recomendado" : ""}</option>
+                  <option value="seccion">En renglones de sección (encabezados de grupo) intercalados con los ítems</option>
+                </select>
+              </label>
+            )}
             {modo === "seccion" && (
               <label className="flex min-w-0 flex-col gap-1">
                 <span className="text-[11px] font-medium text-ink-600">El renglón de sección se reconoce porque está vacía la columna:</span>

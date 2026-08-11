@@ -34,20 +34,44 @@ export default async function DatoModuloPage({ params }: { params: Promise<{ cod
   // ¿Puede editar la consolidación de este cliente?
   const puedeEditar = (await authorizePermiso("modulos_datos:editar", { clientId: encabezado.clienteId })).ok;
 
-  const [consolidacionRows, subgrupos, catalogoPrevalidador] = await Promise.all([
+  const [consolidacionRows, subgrupos, catalogoPrevalidador, comentariosGrp, cuentasCliente] = await Promise.all([
     prisma.consolidacionModuloCliente.findMany({
       where: { clienteId: encabezado.clienteId, moduloCodigo },
       select: { clasificador: true, cuenta4: true },
     }),
     prisma.subgrupoEstandar.findMany({ select: { codigo: true, nombre: true }, orderBy: { codigo: "asc" } }),
     getCatalogoPrevalidador(),
+    prisma.comment.groupBy({ by: ["anchor"], where: { entityType: "modulos_datos", entityId: encabezadoId }, _count: { _all: true } }),
+    // Homologación del cliente: cuentas propias mapeadas al plan Russell (para detallar por subgrupo).
+    prisma.clientAccount.findMany({
+      where: { clienteId: encabezado.clienteId, cuenta6Russell: { not: null } },
+      select: { code: true, name: true, level: true, cuenta6Russell: true },
+      orderBy: { code: "asc" },
+    }),
   ]);
-  const cuentaPorClasificador = new Map(consolidacionRows.map((r) => [r.clasificador, r.cuenta4]));
+  // Un clasificador puede tener 1..N cuentas: agrupamos en lista (ordenada).
+  const cuentasPorClasificador = new Map<string, string[]>();
+  for (const r of consolidacionRows) {
+    const lista = cuentasPorClasificador.get(r.clasificador) ?? [];
+    lista.push(r.cuenta4);
+    cuentasPorClasificador.set(r.clasificador, lista);
+  }
+  for (const [k, v] of cuentasPorClasificador) cuentasPorClasificador.set(k, [...new Set(v)].sort());
   // Nombres del plan completo (por si hay un mapeo legado fuera del módulo).
   const nombrePorCuenta = new Map(subgrupos.map((s) => [s.codigo, s.nombre]));
+  const comentariosPorAncla: Record<string, number> = {};
+  for (const g of comentariosGrp) if (g.anchor) comentariosPorAncla[g.anchor] = g._count._all;
   // El datalist solo ofrece cuentas Russell del módulo (p. ej. INV → 14xx).
   const prefijosModulo = prefijosCuentaModulo(moduloCodigo, catalogoPrevalidador);
   const cuentasModulo = filtrarSubgruposPorModulo(subgrupos, prefijosModulo);
+  // Cuentas del CLIENTE homologadas a cada subgrupo Russell del módulo (14XX → [143505 «…»]).
+  const codigosModulo = new Set(cuentasModulo.map((c) => c.codigo));
+  const homologacionPorSubgrupo: Record<string, { codigo: string; nombre: string }[]> = {};
+  for (const a of cuentasCliente) {
+    const sub = (a.cuenta6Russell ?? "").replace(/\D/g, "").slice(0, 4);
+    if (!codigosModulo.has(sub)) continue;
+    (homologacionPorSubgrupo[sub] ??= []).push({ codigo: a.code, nombre: a.name });
+  }
 
   const detalleVm: FilaDetalleVm[] = encabezado.detalles.map((d) => ({
     filaNum: d.filaNum,
@@ -73,8 +97,7 @@ export default async function DatoModuloPage({ params }: { params: Promise<{ cod
     clasificador: c.clasificador,
     total: c.total,
     filas: c.filas,
-    cuenta4: cuentaPorClasificador.get(c.clasificador) ?? "",
-    nombreCuenta: cuentaPorClasificador.get(c.clasificador) ? nombrePorCuenta.get(cuentaPorClasificador.get(c.clasificador)!) ?? null : null,
+    cuentas4: (cuentasPorClasificador.get(c.clasificador) ?? []).map((cod) => ({ codigo: cod, nombre: nombrePorCuenta.get(cod) ?? null })),
   }));
 
   return (
@@ -86,6 +109,8 @@ export default async function DatoModuloPage({ params }: { params: Promise<{ cod
       />
       <DatoCargadoClient
         moduloCodigo={moduloCodigo}
+        encabezadoId={encabezado.id}
+        comentarios={comentariosPorAncla}
         clienteId={encabezado.clienteId}
         total={Number(encabezado.total)}
         columnas={descriptor.columnas.map((c) => ({ nombre: c.nombre, etiqueta: c.etiqueta, tipo: c.tipo }))}
@@ -94,6 +119,7 @@ export default async function DatoModuloPage({ params }: { params: Promise<{ cod
         consolidado={consolidadoVm}
         novedades={novedades}
         cuentas={cuentasModulo.map((s) => ({ codigo: s.codigo, nombre: s.nombre }))}
+        homologacionCliente={homologacionPorSubgrupo}
         puedeEditar={puedeEditar}
       />
       <div className="mt-4">

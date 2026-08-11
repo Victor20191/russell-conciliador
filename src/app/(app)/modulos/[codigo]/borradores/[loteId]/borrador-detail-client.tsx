@@ -3,8 +3,9 @@
 import { Fragment, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui";
-import { fmt, fmtNum } from "@/lib/format";
+import { fmtContable, fmtNum } from "@/lib/format";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
+import ComentarioAncla from "@/components/comentario-ancla";
 import { consolidarPorClasificador, filaEnCero } from "@/lib/modulos/promocion";
 import { esDescuadreProducto } from "@/lib/modulos/validaciones";
 import { aplicarCambiosBorradorModulo, cargarBorradorModulo, descartarBorradorModulo } from "@/app/actions/modulos-datos";
@@ -23,6 +24,8 @@ const FILTRO_NOVEDADES = "__novedades__";
 export default function BorradorModuloClient({
   moduloCodigo,
   loteId,
+  loteRowId,
+  comentarios,
   cliente,
   periodoSugerido,
   columnas,
@@ -34,6 +37,8 @@ export default function BorradorModuloClient({
 }: {
   moduloCodigo: string;
   loteId: string;
+  loteRowId: number;
+  comentarios: Record<string, number>;
   cliente: string;
   periodoSugerido: string;
   columnas: Columna[];
@@ -137,7 +142,7 @@ export default function BorradorModuloClient({
   const celda = (f: FilaBorradorModulo, col: Columna) => {
     const v = f.datos[col.nombre];
     if (v == null || v === "") return "—";
-    if (col.tipo === "moneda") return fmt(Number(v));
+    if (col.tipo === "moneda") return fmtContable(Number(v));
     if (col.tipo === "numero") return fmtNum(Number(v));
     return String(v);
   };
@@ -173,7 +178,7 @@ export default function BorradorModuloClient({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2 text-[12.5px]">
-        <span className="text-ink-600">Cliente: <span className="font-semibold text-ink-800">{cliente}</span> · {imputables.length} filas imputables · total <span className="font-semibold">{fmt(total)}</span></span>
+        <span className="text-ink-600">Cliente: <span className="font-semibold text-ink-800">{cliente}</span> · {imputables.length} filas imputables · total <span className="font-semibold">{fmtContable(total)}</span></span>
         {hayCambios && <span className="text-[11.5px] font-medium text-warn-700">Tienes cambios sin guardar.</span>}
       </div>
 
@@ -190,7 +195,7 @@ export default function BorradorModuloClient({
         {descuadres.length > 0 && (
           <div className="rounded-md border border-err-500 bg-err-100 px-3 py-2 text-[12px] text-err-700">
             <span className="font-semibold">⚠ {descuadres.length} ítem(s) donde el valor total no cuadra con cantidad × valor unitario.</span>
-            <span className="ml-1">Filas: {descuadres.slice(0, 8).map((d) => `${d.filaNum} (esperado ${fmt(d.esperado)} vs ${fmt(d.declarado)})`).join(", ")}{descuadres.length > 8 ? "…" : ""}.</span>
+            <span className="ml-1">Filas: {descuadres.slice(0, 8).map((d) => `${d.filaNum} (esperado ${fmtContable(d.esperado)} vs ${fmtContable(d.declarado)})`).join(", ")}{descuadres.length > 8 ? "…" : ""}.</span>
           </div>
         )}
         {negativos.length === 0 && descuadres.length === 0 && (noNegativos.length > 0 || productos.length > 0) && (
@@ -244,7 +249,7 @@ export default function BorradorModuloClient({
               <button key={c.clasificador} type="button" onClick={() => setFiltro((f) => (f === c.clasificador ? null : c.clasificador))}
                 className={`rounded-md border px-3 py-1.5 text-[12px] ${activo ? "border-navy-600 bg-blue-50 font-semibold" : "border-ink-150 bg-ink-50 hover:bg-ink-100"}`}>
                 <span className="font-medium text-ink-700">{c.clasificador}</span>{" "}
-                <span className="font-semibold text-ink-900">{fmt(c.total)}</span>{" "}
+                <span className="font-semibold text-ink-900">{fmtContable(c.total)}</span>{" "}
                 <span className="text-ink-400">({c.filas})</span>
               </button>
             );
@@ -274,7 +279,7 @@ export default function BorradorModuloClient({
                       {clasificadorEtiqueta}: {g.clasificador}
                       <span className="ml-2 font-normal text-ink-500">· {g.items} ítems</span>
                     </td>
-                    <td className="px-2.5 py-1.5 text-right font-semibold tabular-nums text-navy-800">{fmt(g.subtotal)}</td>
+                    <td className="px-2.5 py-1.5 text-right font-semibold tabular-nums text-navy-800">{fmtContable(g.subtotal)}</td>
                     <td className="px-2.5 py-1.5" />
                   </tr>
                   {g.filas.map((f) => {
@@ -289,11 +294,12 @@ export default function BorradorModuloClient({
                           <td key={c.nombre} className={`px-2.5 py-1.5 ${esNum(c.tipo) ? "text-right tabular-nums" : ""}`}>{celda(f, c)}</td>
                         ))}
                         <td className="whitespace-nowrap px-2.5 py-1.5 text-center">
+                          <ComentarioAncla tipo="modulos_borrador" entityId={loteRowId} anchor={`fila:${f.filaNum}`} titulo={`Fila ${f.filaNum}${f.datos.referencia ? ` · ${f.datos.referencia}` : ""}`} count={comentarios[`fila:${f.filaNum}`] ?? 0} />
                           {cero ? (
-                            <span className="text-[10.5px] italic text-ink-400">en cero · no se carga</span>
+                            <span className="ml-1 text-[10.5px] italic text-ink-400">en cero · no se carga</span>
                           ) : (
                             <>
-                              <button type="button" onClick={() => toggleAgrupador(f)} className="mr-1 rounded border border-ink-300 bg-white px-1.5 py-0.5 text-[10.5px] font-semibold text-ink-600 hover:bg-blue-50 hover:text-blue-700" title="Marcar como agrupador (subtotal) o volver a movimiento">
+                              <button type="button" onClick={() => toggleAgrupador(f)} className="ml-1 mr-1 rounded border border-ink-300 bg-white px-1.5 py-0.5 text-[10.5px] font-semibold text-ink-600 hover:bg-blue-50 hover:text-blue-700" title="Marcar como agrupador (subtotal) o volver a movimiento">
                                 {esAgr ? "→ Movimiento" : "→ Agrupador"}
                               </button>
                               <button type="button" onClick={() => toggleOmit(f)} className="rounded border border-ink-300 bg-white px-1.5 py-0.5 text-[10.5px] font-semibold text-ink-600 hover:bg-err-100 hover:text-err-700" title="Omitir / incluir esta fila">

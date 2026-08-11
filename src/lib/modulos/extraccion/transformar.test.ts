@@ -88,6 +88,14 @@ describe("transformarModulo (INV)", () => {
     expect(r.filas.map((f) => f.clasificador)).toEqual(["1405", null]);
   });
 
+  it("modo GLOBAL: todo el archivo cae en un único clasificador (sin columna de tipo)", () => {
+    const spec: SpecModulo = { ...SPEC, columnas: { ...SPEC.columnas, tipo: 0 }, clasificadorModo: "global" };
+    const filas: CeldaCruda[][] = [ENC, ["", "REF-1", "A", 1, 10, 100], ["", "REF-2", "B", 2, 10, 200]];
+    const r = transformarModulo(INV, spec, hoja(filas));
+    expect(r.filas.map((f) => f.clasificador)).toEqual(["GLOBAL", "GLOBAL"]);
+    expect(r.filas.every((f) => f.datos.tipo === "GLOBAL")).toBe(true);
+  });
+
   it("modo SECCIÓN: el tipo va en renglones de encabezado (misma columna que el código)", () => {
     // Columna A = tipo Y referencia; el encabezado de sección tiene la Descripción vacía.
     // "Gran total" se descarta y no fija sección; IEMPAQUE clasifica a sus ítems.

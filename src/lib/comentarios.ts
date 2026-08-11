@@ -21,6 +21,7 @@ export const ENTIDADES_COMENTABLES: Record<string, EntidadComentable> = {
   dian: { tipo: "dian", label: "Impuestos · DIAN" },
   clientes: { tipo: "clientes", label: "Cliente" },
   modulos_datos: { tipo: "modulos_datos", label: "Módulo de conciliación" },
+  modulos_borrador: { tipo: "modulos_borrador", label: "Borrador de módulo" },
 };
 
 export function esEntidadComentable(tipo: string): tipo is string {

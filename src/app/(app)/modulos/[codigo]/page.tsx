@@ -25,7 +25,7 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
     prisma.moduloImportacionLote.findMany({
       where: { moduloCodigo, ...filtroCliente },
       orderBy: { creadoEn: "desc" },
-      select: { loteId: true, clienteId: true, archivoNombre: true, filasLeidas: true, creadoEn: true },
+      select: { id: true, loteId: true, clienteId: true, archivoNombre: true, filasLeidas: true, creadoEn: true },
     }),
     prisma.moduloDatoEncabezado.findMany({
       where: { moduloCodigo, esOficial: true, ...filtroCliente },
@@ -34,6 +34,14 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
     }),
   ]);
   const nombrePorCliente = new Map(clientes.map((c) => [c.id, c.name]));
+
+  // Conteo de comentarios por dato cargado (encabezado) y por borrador (lote).
+  const [comentCargados, comentBorradores] = await Promise.all([
+    prisma.comment.groupBy({ by: ["entityId"], where: { entityType: "modulos_datos", entityId: { in: cargados.map((c) => c.id) } }, _count: { _all: true } }),
+    prisma.comment.groupBy({ by: ["entityId"], where: { entityType: "modulos_borrador", entityId: { in: borradores.map((b) => b.id) } }, _count: { _all: true } }),
+  ]);
+  const comentPorEnc = new Map(comentCargados.map((g) => [g.entityId, g._count._all]));
+  const comentPorLote = new Map(comentBorradores.map((g) => [g.entityId, g._count._all]));
 
   return (
     <div>
@@ -53,6 +61,7 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
           archivoNombre: b.archivoNombre,
           filas: b.filasLeidas,
           creadoEn: b.creadoEn.toISOString(),
+          comentarios: comentPorLote.get(b.id) ?? 0,
         }))}
         cargados={cargados.map((c) => ({
           id: c.id,
@@ -63,6 +72,7 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
           total: Number(c.total),
           creadoEn: c.creadoEn.toISOString(),
           cargadoPor: c.cargadoPor,
+          comentarios: comentPorEnc.get(c.id) ?? 0,
         }))}
       />
     </div>
