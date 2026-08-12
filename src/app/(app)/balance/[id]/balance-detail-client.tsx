@@ -223,8 +223,10 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, va
   // Cuenta homologada desde el modal, para devolverle el foco cuando el árbol
   // llegue recalculado. Se identifica por `detalleId` y NO por la clave del nodo:
   // homologar cambia el padre de la hoja (clase/subgrupo/cuenta estándar), así que
-  // su `key` —que incorpora esa ruta— es distinta después del refresco.
-  const [enfoqueMapeo, setEnfoqueMapeo] = useState<{ detalleId: number; secuencia: number } | null>(null);
+  // su `key` —que incorpora esa ruta— es distinta después del refresco. Se guarda
+  // también el estándar destino: es lo que distingue el árbol ya refrescado del que
+  // sigue en pantalla mientras `router.refresh()` va en camino.
+  const [enfoqueMapeo, setEnfoqueMapeo] = useState<{ detalleId: number; codigoEstandar: string; secuencia: number } | null>(null);
   const pendienteScrollRef = useRef<string | null>(null);
   // Handler de borrado (o null si no puede): controla la visibilidad del botón.
   const onEliminar = puedeEliminar ? setEliminar : null;
@@ -315,8 +317,9 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, va
   // Devuelve el foco a la cuenta recién homologada: limpia los filtros que la
   // ocultarían (en «Sin mapeo» la fila desaparece justo al resolverse), expande la
   // ruta hasta su NUEVO padre, la deja seleccionada en azul y la desplaza a la vista.
-  // Depende de `arbol` porque el nodo solo existe tras el refresco del servidor: si
-  // aún no aparece, el efecto no hace nada y se reintenta con el siguiente árbol.
+  // Depende de `arbol` y solo actúa cuando la hoja YA cuelga del estándar destino:
+  // el árbol que hay en pantalla al confirmar todavía es el anterior, y enfocarlo
+  // dejaba el foco en la rama vieja justo antes de que la fila se mudara de sitio.
   // Al aplicarlo se consume el enfoque (`secuencia` permite repetirlo en la misma fila).
   useEffect(() => {
     if (!enfoqueMapeo) return;
@@ -324,7 +327,7 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, va
     const buscar = (nodos: NodoBalance[], acumulado: string[]): boolean => {
       for (const n of nodos) {
         const actual = [...acumulado, n.key];
-        if (n.detalleId === enfoqueMapeo.detalleId) { ruta.push(...actual); return true; }
+        if (n.detalleId === enfoqueMapeo.detalleId && n.std === enfoqueMapeo.codigoEstandar) { ruta.push(...actual); return true; }
         if (buscar(n.hijos, actual)) return true;
       }
       return false;
@@ -546,7 +549,7 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, va
           nodo={asignar}
           estandar={estandar}
           onClose={() => setAsignar(null)}
-          onAsignado={(detalleId) => setEnfoqueMapeo((actual) => ({ detalleId, secuencia: (actual?.secuencia ?? 0) + 1 }))}
+          onAsignado={(detalleId, codigoEstandar) => setEnfoqueMapeo((actual) => ({ detalleId, codigoEstandar, secuencia: (actual?.secuencia ?? 0) + 1 }))}
         />
       )}
       {comentar && <ComentarModal nodo={comentar} balanceId={balanceId} onClose={() => setComentar(null)} />}
@@ -722,7 +725,7 @@ function celdaMapeo(nodo: NodoBalance, puedeMapear: boolean, onAsignar: (n: Nodo
   );
 }
 
-function AsignarModal({ nodo, estandar, onClose, onAsignado }: { nodo: NodoBalance; estandar: EstandarOpcion[]; onClose: () => void; onAsignado: (detalleId: number) => void }) {
+function AsignarModal({ nodo, estandar, onClose, onAsignado }: { nodo: NodoBalance; estandar: EstandarOpcion[]; onClose: () => void; onAsignado: (detalleId: number, codigoEstandar: string) => void }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [q, setQ] = useState("");
@@ -754,7 +757,7 @@ function AsignarModal({ nodo, estandar, onClose, onAsignado }: { nodo: NodoBalan
         router.refresh();
         // El enfoque se pide ANTES de cerrar y se resuelve solo cuando el árbol
         // refrescado ya trae la cuenta bajo su nueva rama.
-        if (nodo.detalleId != null) onAsignado(nodo.detalleId);
+        if (nodo.detalleId != null) onAsignado(nodo.detalleId, seleccionada.code);
         onClose();
       } else notifyError(r?.message ?? "No se pudo asignar la cuenta.");
     });
