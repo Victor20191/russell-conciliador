@@ -664,6 +664,7 @@ function AsignarModal({ nodo, estandar, onClose }: { nodo: NodoBalance; estandar
   const [pending, start] = useTransition();
   const [q, setQ] = useState("");
   const [codigoSeleccionado, setCodigoSeleccionado] = useState<string | null>(null);
+  const [alcance, setAlcance] = useState<"solo" | "grupo" | null>(null);
   const clase = nodo.code.charAt(0);
   const cuenta6 = nodo.code.slice(0, 6);
 
@@ -677,8 +678,8 @@ function AsignarModal({ nodo, estandar, onClose }: { nodo: NodoBalance; estandar
     [estandar, codigoSeleccionado],
   );
 
-  const confirmar = (alcance: "solo" | "grupo") => {
-    if (!seleccionada) return;
+  const confirmar = () => {
+    if (!seleccionada || !alcance) return;
     const fd = new FormData();
     fd.set("detalleId", String(nodo.detalleId));
     fd.set("codigo", seleccionada.code);
@@ -690,8 +691,30 @@ function AsignarModal({ nodo, estandar, onClose }: { nodo: NodoBalance; estandar
     });
   };
 
+  const volverASeleccion = () => { setCodigoSeleccionado(null); setAlcance(null); };
+
+  // Las acciones de guardado van en el FOOTER del modal (siempre visible): antes
+  // vivían dentro del cuerpo con scroll y en ventanas de poca altura quedaban
+  // debajo del fold, así que el usuario elegía la cuenta y no veía cómo guardar.
+  const footer = seleccionada ? (
+    <>
+      <button type="button" disabled={pending} onClick={volverASeleccion} className="mr-auto rounded-md px-2 py-1.5 text-[12px] font-medium text-blue-600 hover:bg-blue-50 disabled:opacity-60">
+        ← Cambiar cuenta estándar
+      </button>
+      <button
+        type="button"
+        disabled={pending || !alcance}
+        onClick={confirmar}
+        title={alcance ? "Guardar la homologación con el alcance elegido" : "Elige primero el alcance del cambio"}
+        className="rounded-md bg-navy-700 px-4 py-2 text-[12.5px] font-semibold text-white transition hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {pending ? <EstadoProcesando>Homologando</EstadoProcesando> : "Guardar homologación"}
+      </button>
+    </>
+  ) : undefined;
+
   return (
-    <Modal open onClose={pending ? () => undefined : onClose} title={seleccionada ? "Confirmar alcance de la homologación" : "Asignar cuenta estándar"} size="2xl">
+    <Modal open onClose={pending ? () => undefined : onClose} title={seleccionada ? "Confirmar alcance de la homologación" : "Asignar cuenta estándar"} size="2xl" footer={footer}>
       {seleccionada ? (
         <div className="flex flex-col gap-4">
           <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-3">
@@ -713,31 +736,32 @@ function AsignarModal({ nodo, estandar, onClose }: { nodo: NodoBalance; estandar
             </p>
           </div>
           <div className="grid gap-2 sm:grid-cols-2">
-            <button
-              type="button"
-              disabled={pending}
-              onClick={() => confirmar("solo")}
-              className="group rounded-lg border border-ink-200 bg-white px-4 py-3 text-left transition hover:border-blue-300 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <span className="block text-[12.5px] font-semibold text-ink-800 group-hover:text-blue-700">Solo esta cuenta</span>
-              <span className="mt-1 block text-[11.5px] leading-relaxed text-ink-500">Modifica únicamente {nodo.code} y la memoriza como excepción de esa cuenta. Las demás cuentas del grupo {cuenta6}* conservan su homologación actual.</span>
-            </button>
-            <button
-              type="button"
-              disabled={pending}
-              onClick={() => confirmar("grupo")}
-              className="group rounded-lg border border-navy-700 bg-navy-700 px-4 py-3 text-left text-white transition hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <span className="block text-[12.5px] font-semibold">Todas las cuentas del grupo</span>
-              <span className="mt-1 block text-[11.5px] leading-relaxed text-white/90">Aplica a todas las cuentas {cuenta6}* y memoriza la regla del grupo (reemplaza las excepciones que hubiera en él).</span>
-            </button>
+            {([
+              { valor: "solo" as const, titulo: "Solo esta cuenta", detalle: `Modifica únicamente ${nodo.code} y la memoriza como excepción de esa cuenta. Las demás cuentas del grupo ${cuenta6}* conservan su homologación actual.` },
+              { valor: "grupo" as const, titulo: "Todas las cuentas del grupo", detalle: `Aplica a todas las cuentas ${cuenta6}* y memoriza la regla del grupo (reemplaza las excepciones que hubiera en él).` },
+            ]).map((opcion) => {
+              const activa = alcance === opcion.valor;
+              return (
+                <button
+                  key={opcion.valor}
+                  type="button"
+                  aria-pressed={activa}
+                  disabled={pending}
+                  onClick={() => setAlcance(opcion.valor)}
+                  className={`group rounded-lg border px-4 py-3 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${activa ? "border-navy-700 bg-navy-700 text-white" : "border-ink-200 bg-white hover:border-blue-300 hover:bg-blue-50"}`}
+                >
+                  <span className={`flex items-center gap-2 text-[12.5px] font-semibold ${activa ? "text-white" : "text-ink-800 group-hover:text-blue-700"}`}>
+                    <span aria-hidden className={`inline-flex size-3.5 shrink-0 items-center justify-center rounded-full border ${activa ? "border-white" : "border-ink-300"}`}>
+                      {activa && <span className="size-1.5 rounded-full bg-white" />}
+                    </span>
+                    {opcion.titulo}
+                  </span>
+                  <span className={`mt-1 block text-[11.5px] leading-relaxed ${activa ? "text-white/90" : "text-ink-500"}`}>{opcion.detalle}</span>
+                </button>
+              );
+            })}
           </div>
-          <div className="flex items-center justify-between border-t border-ink-100 pt-3">
-            <button type="button" disabled={pending} onClick={() => setCodigoSeleccionado(null)} className="rounded-md px-2 py-1.5 text-[12px] font-medium text-blue-600 hover:bg-blue-50 disabled:opacity-60">
-              ← Cambiar cuenta estándar
-            </button>
-            {pending ? <p className="text-[12px] text-ink-500"><EstadoProcesando>Homologando</EstadoProcesando></p> : null}
-          </div>
+          {!alcance && <p className="text-[11.5px] text-ink-500">Selecciona una de las dos opciones para habilitar <span className="font-semibold">Guardar homologación</span>.</p>}
         </div>
       ) : (
         <div className="flex flex-col gap-3">
