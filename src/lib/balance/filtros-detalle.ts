@@ -7,14 +7,12 @@ import {
 export type FiltroValidacionDetalle =
   | "todas"
   | "ok"
-  | "alerta"
-  | "informativa";
+  | "alerta";
 
 export const OPCIONES_FILTRO_VALIDACION: { value: FiltroValidacionDetalle; label: string }[] = [
   { value: "todas", label: "Todas" },
   { value: "ok", label: "OK" },
   { value: "alerta", label: "Alerta pendiente" },
-  { value: "informativa", label: "Informativa" },
 ];
 
 export type FiltrosColumnasDetalle = {
@@ -100,7 +98,7 @@ function textoMapeo(nodo: NodoBalance): string {
   return "";
 }
 
-type EstadoValidacionFila = Exclude<FiltroValidacionDetalle, "todas"> | "vacia";
+type EstadoValidacionFila = Exclude<FiltroValidacionDetalle, "todas"> | "informativa" | "vacia";
 
 function estadoValidacion(
   nodo: NodoBalance,

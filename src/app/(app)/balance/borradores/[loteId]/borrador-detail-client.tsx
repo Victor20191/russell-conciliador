@@ -3022,25 +3022,32 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hayMasFilas, totalFilasVisibles]);
 
-  // Enfoque tras una reubicación: la fila pudo caer más abajo de lo ya revelado —
-  // primero se asegura que su bloque esté montado y, ya montada, se hace el scroll
-  // (el resaltado ya está fijado).
+  // Enfoque tras una reubicación (paso 1): la fila pudo caer más abajo de lo ya
+  // revelado, así que primero se monta su bloque. El resaltado ya está fijado.
   useEffect(() => {
     const objetivo = pendienteEnfoqueRef.current;
     if (objetivo == null) return;
     const idx = filasVisibles.findIndex((f) => f.nodo.filaNum === objetivo);
-    if (idx < 0) return; // aún colapsada/filtrada: se reintenta cuando cambie la lista
-    if (idx >= revelado) {
-      setCantidadRevelada((actual) => revelarHastaIndice(idx, actual, totalFilasVisibles, BLOQUE_REVELADO_INCREMENTO));
-      return; // re-entra ya con el bloque revelado
-    }
-    pendienteEnfoqueRef.current = null;
-    const timer = window.setTimeout(() => {
-      tablaRef.current?.querySelector<HTMLTableRowElement>(`tr[data-selection-key="${objetivo}"]`)
-        ?.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
-    }, 80);
-    return () => window.clearTimeout(timer);
+    if (idx < 0 || idx < revelado) return; // fuera de la lista o ya montada
+    setCantidadRevelada((actual) => revelarHastaIndice(idx, actual, totalFilasVisibles, BLOQUE_REVELADO_INCREMENTO));
   }, [filasVisibles, revelado, totalFilasVisibles]);
+
+  // Paso 2: el scroll va contra el DOM ya montado, SIN temporizador y SIN animación.
+  // Antes se hacía con `setTimeout` + `behavior: "smooth"` y la fila se quedaba
+  // resaltada pero fuera de la vista: el cleanup del efecto cancelaba el temporizador
+  // en cuanto llegaba otro commit dentro de la espera (el sensor de scroll revelando
+  // el bloque siguiente basta), y un desplazamiento animado tampoco sobrevive a los
+  // cambios de altura que provoca ese revelado. El salto directo es inmune a ambos.
+  // Sin dependencias: la fila puede montarse uno o dos renders después, y el ref hace
+  // inocuo el resto de ejecuciones.
+  useEffect(() => {
+    const objetivo = pendienteEnfoqueRef.current;
+    if (objetivo == null) return;
+    const fila = tablaRef.current?.querySelector<HTMLTableRowElement>(`tr[data-selection-key="${objetivo}"]`);
+    if (!fila) return;
+    pendienteEnfoqueRef.current = null;
+    fila.scrollIntoView({ behavior: "auto", block: "center", inline: "nearest" });
+  });
 
   const filaTr = ({ nodo: n, depth, padreCodigo }: { nodo: NodoBorrador; depth: number; padreCodigo: string | null }) => {
     const hasHijos = n.hijos.length > 0;

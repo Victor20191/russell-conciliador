@@ -131,7 +131,7 @@ describe("filtrarArbolDetallePorColumnas", () => {
     expect(resultado[0].hijos[0].hijos[0].hijos[0].code).toBe("13050599");
   });
 
-  it("distingue alertas, OK (saldo o dado por OK) e informativos", () => {
+  it("distingue alertas y OK, y deja los informativos fuera de ambos", () => {
     const alertas = filtrarArbolDetallePorColumnas(
       arbol,
       filtros({ validacion: "alerta" }),
@@ -156,10 +156,16 @@ describe("filtrarArbolDetallePorColumnas", () => {
     });
     expect(filtrarArbolDetallePorColumnas(
       [informativa],
-      filtros({ validacion: "informativa" }),
+      filtros({ validacion: "alerta" }),
       new Set(),
       UMBRALES_ALERTAS_DEFECTO,
-    )).toHaveLength(1);
+    )).toHaveLength(0);
+    expect(filtrarArbolDetallePorColumnas(
+      [informativa],
+      filtros({ validacion: "ok" }),
+      new Set(),
+      UMBRALES_ALERTAS_DEFECTO,
+    )).toHaveLength(0);
   });
 
   it("al filtrar por OK no arrastra grupos ni filas de otro estado", () => {

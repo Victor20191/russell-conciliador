@@ -36,7 +36,7 @@ export function esAlertaNodo(n: NodoBorrador, umbrales: UmbralesAlertas): boolea
   return esMagnitudAccionable(n.debitos) || esMagnitudAccionable(n.creditos);
 }
 
-export type EstadoValidacionBorrador = Exclude<FiltroValidacionDetalle, "todas"> | "vacia";
+export type EstadoValidacionBorrador = Exclude<FiltroValidacionDetalle, "todas"> | "informativa" | "vacia";
 
 /** Replica lo que pinta la columna Validación del borrador. */
 export function estadoValidacionBorrador(
