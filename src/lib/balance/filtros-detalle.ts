@@ -8,7 +8,6 @@ export type FiltroValidacionDetalle =
   | "todas"
   | "ok"
   | "alerta"
-  | "validada"
   | "informativa"
   | "sin_validacion";
 
@@ -100,15 +99,15 @@ function estadoValidacion(
   validados: ReadonlySet<string>,
   umbrales: UmbralesAlertas,
 ): Exclude<FiltroValidacionDetalle, "todas"> {
-  // Replica exactamente lo que pinta `celdaValidacion`: con saldo correcto solo
-  // las subcuentas Russell muestran OK; los demás niveles quedan vacíos.
+  // Replica lo que pinta `celdaValidacion`. OK cubre dos casos equivalentes:
+  // saldo correcto en subcuenta Russell, o alerta a la que ya se dio OK.
   if (nodo.saldoOk) {
     return nodo.nivel === 6 && nodo.mapped ? "ok" : "sin_validacion";
   }
   if (esSaldoContrarioInformativo(nodo.balance, nodo.saldoOk, umbrales)) {
     return "informativa";
   }
-  if (validados.has(nodo.code)) return "validada";
+  if (validados.has(nodo.code)) return "ok";
   return "alerta";
 }
 

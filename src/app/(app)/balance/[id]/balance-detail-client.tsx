@@ -466,7 +466,6 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, va
                   <option value="todas">Todas</option>
                   <option value="ok">OK</option>
                   <option value="alerta">Alerta pendiente</option>
-                  <option value="validada">Validada</option>
                   <option value="informativa">Informativa</option>
                   <option value="sin_validacion">Sin validación</option>
                 </select>
@@ -588,8 +587,8 @@ function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: 
 }
 
 /** Celda de la columna "Validación": alerta de naturaleza/saldo contrario con botón
- *  "Dar OK", o el estado "Validado ✓" (con quién/cuándo/comentario) y opción de
- *  revertir. Sin alerta de saldo, muestra el "OK" de la cuenta estándar mapeada. */
+ *  "Dar OK", o el mismo "OK" si el saldo ya concuerda o si la alerta ya se dio
+ *  por buena (con quién/cuándo/comentario y opción de revertir). */
 function celdaValidacion(nodo: NodoBalance, val: ValCtx): React.ReactNode {
   if (nodo.saldoOk) return nodo.nivel === 6 && nodo.mapped ? <Chip label="OK" tone="ok" /> : null;
   const tipo = nodo.nivel === 8 ? "naturaleza" : "saldo_contrario";
@@ -608,7 +607,7 @@ function celdaValidacion(nodo: NodoBalance, val: ValCtx): React.ReactNode {
   if (v) {
     return (
       <span className="inline-flex flex-col items-start gap-1">
-        <span title={`Validado por ${v.por} · ${v.en}\n“${v.comentario}”`} className="cursor-help"><Chip label="Validado ✓" tone="ok" /></span>
+        <span title={`OK por ${v.por} · ${v.en}\n“${v.comentario}”`} className="cursor-help"><Chip label="OK" tone="ok" /></span>
         {val.puede && (
           <button type="button" disabled={val.revirtiendo} onClick={(e) => { e.stopPropagation(); val.onRevertir(nodo.code); }} title="Revertir la validación (la alerta reaparece)" className="whitespace-nowrap rounded px-1 text-[10.5px] font-medium text-ink-400 hover:bg-ink-100 hover:text-ink-600 disabled:opacity-60">
             {val.codigoRevirtiendo === nodo.code ? (

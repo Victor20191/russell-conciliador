@@ -131,7 +131,7 @@ describe("filtrarArbolDetallePorColumnas", () => {
     expect(resultado[0].hijos[0].hijos[0].hijos[0].code).toBe("13050599");
   });
 
-  it("distingue alertas, validaciones e informativos con los umbrales vigentes", () => {
+  it("distingue alertas, OK (saldo o dado por OK) e informativos", () => {
     const alertas = filtrarArbolDetallePorColumnas(
       arbol,
       filtros({ validacion: "alerta" }),
@@ -140,13 +140,13 @@ describe("filtrarArbolDetallePorColumnas", () => {
     );
     expect(alertas.map((item) => item.code)).toEqual(["13050599"]);
 
-    const validadas = filtrarArbolDetallePorColumnas(
+    const conOkManual = filtrarArbolDetallePorColumnas(
       arbol,
-      filtros({ validacion: "validada" }),
+      filtros({ validacion: "ok" }),
       new Set(["13050599"]),
       UMBRALES_ALERTAS_DEFECTO,
     );
-    expect(validadas.map((item) => item.code)).toEqual(["13050599"]);
+    expect(conOkManual.map((item) => item.code)).toEqual(["110505", "111005", "13050599"]);
 
     const informativa = nodo("13050598", 8, {
       saldoOk: false,

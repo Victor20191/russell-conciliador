@@ -3892,7 +3892,7 @@ export async function asignarClienteBorrador(loteId: string, clienteId: number):
  * VALIDA (da OK) una alerta de naturaleza/saldo contrario de una cuenta del balance.
  * Exige un COMENTARIO justificativo (obligatorio), que se publica en la conversación
  * de la cuenta (anclado por su código) y queda ligado a la validación. Tras validar,
- * la alerta se retira de la vista (deja «Validado ✓», reversible). Autoriza como
+ * la alerta se retira de la vista (deja el mismo «OK», reversible). Autoriza como
  * operar el balance: `balance:crear` + alcance de escritura sobre el cliente.
  */
 export async function validarAlerta(input: { balanceId: number; anchor: string; tipoAlerta: string; comentario: string }): Promise<ActionState> {
