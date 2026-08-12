@@ -2,7 +2,7 @@
 
 import { EstadoProcesando } from "@/components/estado-procesando";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
@@ -29,6 +29,7 @@ import type { PrevalidadorVM } from "@/lib/balance/prevalidador/calcular";
 import type { RevisionPrevalidadorVM } from "@/lib/balance/prevalidador/servidor";
 import {
   FILTROS_COLUMNAS_DETALLE_INICIALES,
+  OPCIONES_FILTRO_VALIDACION,
   filtrarArbolDetallePorColumnas,
   hayFiltrosColumnasDetalle,
   type FiltrosColumnasDetalle,
@@ -217,7 +218,14 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, va
   const [comentar, setComentar] = useState<NodoBalance | null>(null);
   const [validar, setValidar] = useState<{ nodo: NodoBalance; tipo: string } | null>(null);
   const [eliminar, setEliminar] = useState<NodoBalance | null>(null);
-  const { filaSeleccionada, onClickFila, onDoubleClickFila } = useSeleccionFilaTabla();
+  const { filaSeleccionada, setFilaSeleccionada, onClickFila, onDoubleClickFila } = useSeleccionFilaTabla();
+  const tablaRef = useRef<HTMLDivElement>(null);
+  // Cuenta homologada desde el modal, para devolverle el foco cuando el árbol
+  // llegue recalculado. Se identifica por `detalleId` y NO por la clave del nodo:
+  // homologar cambia el padre de la hoja (clase/subgrupo/cuenta estándar), así que
+  // su `key` —que incorpora esa ruta— es distinta después del refresco.
+  const [enfoqueMapeo, setEnfoqueMapeo] = useState<{ detalleId: number; secuencia: number } | null>(null);
+  const pendienteScrollRef = useRef<string | null>(null);
   // Handler de borrado (o null si no puede): controla la visibilidad del botón.
   const onEliminar = puedeEliminar ? setEliminar : null;
   const [revirtiendo, startRevertir] = useTransition();
@@ -304,6 +312,57 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, va
     ...FILTROS_COLUMNAS_DETALLE_INICIALES,
   });
 
+  // Devuelve el foco a la cuenta recién homologada: limpia los filtros que la
+  // ocultarían (en «Sin mapeo» la fila desaparece justo al resolverse), expande la
+  // ruta hasta su NUEVO padre, la deja seleccionada en azul y la desplaza a la vista.
+  // Depende de `arbol` porque el nodo solo existe tras el refresco del servidor: si
+  // aún no aparece, el efecto no hace nada y se reintenta con el siguiente árbol.
+  // Al aplicarlo se consume el enfoque (`secuencia` permite repetirlo en la misma fila).
+  useEffect(() => {
+    if (!enfoqueMapeo) return;
+    const ruta: string[] = [];
+    const buscar = (nodos: NodoBalance[], acumulado: string[]): boolean => {
+      for (const n of nodos) {
+        const actual = [...acumulado, n.key];
+        if (n.detalleId === enfoqueMapeo.detalleId) { ruta.push(...actual); return true; }
+        if (buscar(n.hijos, actual)) return true;
+      }
+      return false;
+    };
+    if (!buscar(arbol, [])) return;
+
+    // Los cambios de estado se agrupan en un frame (mismo patrón que el enfoque de
+    // reubicación del borrador) para no encadenar renders desde el cuerpo del efecto.
+    const frame = window.requestAnimationFrame(() => {
+      setQ("");
+      setClase("todo");
+      setNivelMax(0);
+      setFiltrosColumnas({ ...FILTROS_COLUMNAS_DETALLE_INICIALES });
+      setFiltro("todo");
+      // Los ancestros se abren; la propia hoja no tiene hijos que expandir.
+      setOpen((prev) => new Set([...prev, ...ruta.slice(0, -1)]));
+      const clave = ruta[ruta.length - 1];
+      setFilaSeleccionada(clave);
+      pendienteScrollRef.current = clave; // el scroll corre cuando la fila esté montada
+      setEnfoqueMapeo(null);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [arbol, enfoqueMapeo, setFiltro, setFilaSeleccionada]);
+
+  // Desplaza a la vista la fila enfocada en cuanto el commit que la revela termina.
+  // Sin lista de dependencias: la fila puede montarse uno o dos renders después de
+  // abrirse su rama, y el ref hace que este efecto sea inocuo el resto del tiempo.
+  useEffect(() => {
+    const clave = pendienteScrollRef.current;
+    if (clave == null) return;
+    const fila = Array.from(
+      tablaRef.current?.querySelectorAll<HTMLTableRowElement>("tr[data-selection-key]") ?? [],
+    ).find((tr) => tr.dataset.selectionKey === clave);
+    if (!fila) return;
+    pendienteScrollRef.current = null;
+    fila.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+  });
+
   const nivelBtn = (nivel: number, label: string) => (
     <button
       key={label}
@@ -371,7 +430,7 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, va
           <BotonPantallaCompleta activa={pantallaCompleta} onToggle={alternarPantallaCompleta} />
         </div>
       </div>
-      <div className={claseScrollTabla(pantallaCompleta)}>
+      <div ref={tablaRef} className={claseScrollTabla(pantallaCompleta)}>
         <table className="balance-detail-row-hover tabla-encabezado-fijo w-full text-[12.5px]">
           <thead>
             <tr className="text-left text-[11px] uppercase tracking-wider text-ink-500">
@@ -463,11 +522,9 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, va
                   aria-label="Filtrar la columna Validación"
                   className={CLASE_FILTRO_COLUMNA}
                 >
-                  <option value="todas">Todas</option>
-                  <option value="ok">OK</option>
-                  <option value="alerta">Alerta pendiente</option>
-                  <option value="informativa">Informativa</option>
-                  <option value="sin_validacion">Sin validación</option>
+                  {OPCIONES_FILTRO_VALIDACION.map((opcion) => (
+                    <option key={opcion.value} value={opcion.value}>{opcion.label}</option>
+                  ))}
                 </select>
               </th>
             </tr>
@@ -484,7 +541,14 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, va
       <div className="shrink-0 border-t border-ink-100 bg-white px-4 py-2 text-[11.5px] text-ink-500">
         Normalizado al <span className="font-semibold text-ink-700">plan estándar Russell</span>: grupo → cuenta → subcuenta → auxiliar (cuenta del cliente).
       </div>
-      {asignar && <AsignarModal nodo={asignar} estandar={estandar} onClose={() => setAsignar(null)} />}
+      {asignar && (
+        <AsignarModal
+          nodo={asignar}
+          estandar={estandar}
+          onClose={() => setAsignar(null)}
+          onAsignado={(detalleId) => setEnfoqueMapeo((actual) => ({ detalleId, secuencia: (actual?.secuencia ?? 0) + 1 }))}
+        />
+      )}
       {comentar && <ComentarModal nodo={comentar} balanceId={balanceId} onClose={() => setComentar(null)} />}
       {validar && <ValidarModal nodo={validar.nodo} tipo={validar.tipo} balanceId={balanceId} onClose={() => setValidar(null)} />}
       {eliminar && <EliminarModal nodo={eliminar} onClose={() => setEliminar(null)} />}
@@ -658,7 +722,7 @@ function celdaMapeo(nodo: NodoBalance, puedeMapear: boolean, onAsignar: (n: Nodo
   );
 }
 
-function AsignarModal({ nodo, estandar, onClose }: { nodo: NodoBalance; estandar: EstandarOpcion[]; onClose: () => void }) {
+function AsignarModal({ nodo, estandar, onClose, onAsignado }: { nodo: NodoBalance; estandar: EstandarOpcion[]; onClose: () => void; onAsignado: (detalleId: number) => void }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [q, setQ] = useState("");
@@ -685,8 +749,14 @@ function AsignarModal({ nodo, estandar, onClose }: { nodo: NodoBalance; estandar
     fd.set("alcance", alcance);
     start(async () => {
       const r = await asignarCuentaEstandar(fd);
-      if (r?.ok) { notifySuccess(r.message ?? "Cuenta asignada."); router.refresh(); onClose(); }
-      else notifyError(r?.message ?? "No se pudo asignar la cuenta.");
+      if (r?.ok) {
+        notifySuccess(r.message ?? "Cuenta asignada.");
+        router.refresh();
+        // El enfoque se pide ANTES de cerrar y se resuelve solo cuando el árbol
+        // refrescado ya trae la cuenta bajo su nueva rama.
+        if (nodo.detalleId != null) onAsignado(nodo.detalleId);
+        onClose();
+      } else notifyError(r?.message ?? "No se pudo asignar la cuenta.");
     });
   };
 

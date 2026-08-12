@@ -8,8 +8,14 @@ export type FiltroValidacionDetalle =
   | "todas"
   | "ok"
   | "alerta"
-  | "informativa"
-  | "sin_validacion";
+  | "informativa";
+
+export const OPCIONES_FILTRO_VALIDACION: { value: FiltroValidacionDetalle; label: string }[] = [
+  { value: "todas", label: "Todas" },
+  { value: "ok", label: "OK" },
+  { value: "alerta", label: "Alerta pendiente" },
+  { value: "informativa", label: "Informativa" },
+];
 
 export type FiltrosColumnasDetalle = {
   codigo: string;
@@ -94,15 +100,17 @@ function textoMapeo(nodo: NodoBalance): string {
   return "";
 }
 
+type EstadoValidacionFila = Exclude<FiltroValidacionDetalle, "todas"> | "vacia";
+
 function estadoValidacion(
   nodo: NodoBalance,
   validados: ReadonlySet<string>,
   umbrales: UmbralesAlertas,
-): Exclude<FiltroValidacionDetalle, "todas"> {
+): EstadoValidacionFila {
   // Replica lo que pinta `celdaValidacion`. OK cubre dos casos equivalentes:
   // saldo correcto en subcuenta Russell, o alerta a la que ya se dio OK.
   if (nodo.saldoOk) {
-    return nodo.nivel === 6 && nodo.mapped ? "ok" : "sin_validacion";
+    return nodo.nivel === 6 && nodo.mapped ? "ok" : "vacia";
   }
   if (esSaldoContrarioInformativo(nodo.balance, nodo.saldoOk, umbrales)) {
     return "informativa";

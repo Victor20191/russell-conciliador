@@ -128,6 +128,28 @@ describe("filtrarArbolBorradorPorColumnas", () => {
     expect(resultado[0].hijos[0].hijos[0].codigo).toBe("13050501");
   });
 
+  it("al filtrar por validación no arrastra agrupadoras de otro estado", () => {
+    const conDescuadre = nodo(9, "14050501", {
+      nombre: "Anticipo",
+      tipoFila: "movimiento",
+      descuadre: 80_000,
+      saldoFinal: 80_000,
+    });
+    const rama = [
+      nodo(1, "14", {
+        nombre: "Deudores varios",
+        tipoFila: "agrupadora",
+        hijos: [conDescuadre, hojaCaja],
+      }),
+    ];
+
+    const ok = filtrarArbolBorradorPorColumnas(rama, filtros({ validacion: "ok" }));
+    expect(ok.map((item) => item.codigo)).toEqual(["11050501"]);
+
+    const alertas = filtrarArbolBorradorPorColumnas(rama, filtros({ validacion: "alerta" }));
+    expect(alertas.map((item) => item.codigo)).toEqual(["14050501"]);
+  });
+
   it("no muta el árbol original y evita clonar cuando no hay filtros", () => {
     expect(filtrarArbolBorradorPorColumnas(arbol, filtros({}))).toBe(arbol);
 

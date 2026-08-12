@@ -52,11 +52,19 @@ import {
   type UmbralesAlertas,
 } from "@/lib/balance/umbrales-alertas";
 import {
+  esAlertaNodo,
+  estadoValidacionBorrador,
+} from "@/lib/balance/alerta-borrador";
+import {
   FILTROS_COLUMNAS_BORRADOR_INICIALES,
   filtrarArbolBorradorPorColumnas,
   hayFiltrosColumnasBorrador,
   type FiltrosColumnasBorrador,
 } from "@/lib/balance/filtros-borrador";
+import {
+  OPCIONES_FILTRO_VALIDACION,
+  type FiltroValidacionDetalle,
+} from "@/lib/balance/filtros-detalle";
 import {
   esDescuadreDelArchivoFuente,
   MAX_COMENTARIO_PROMOCION,
@@ -2229,33 +2237,7 @@ export function NombreCuentaArbol({
   );
 }
 
-/**
- * ¿La fila merece «Alerta»? Una AGRUPADORA cuyo total ≠ suma de sus hijos (Δ), una
- * agrupadora fijada manualmente que quedó sin hijos pero conserva valores materiales, o un
- * MOVIMIENTO problemático: con un valor de MAGNITUD (débito o crédito que vino con signo
- * CONTRARIO al dominante de su columna → se subió en negativo) o marcado «descuadre» (no
- * cuadra en ninguna orientación). Las filas omitidas no alertan.
- */
-export const esAlertaNodo = (n: NodoBorrador, umbrales: UmbralesAlertas): boolean => {
-  if (esDescuadreAccionable(n.descuadre, umbrales)) return true;
-  if (n.omitida) return false;
-  // Una corrección memorizada puede conservar una cuenta como AGRUPADORA aunque en
-  // este archivo ya no tenga movimientos debajo. La vista preserva esa decisión y,
-  // por tanto, su saldo queda fuera del cálculo: debe aparecer en «Alertas» para que
-  // el revisor pueda localizar la causa del descuadre superior. La materialidad usa
-  // el mismo umbral parametrizado que los demás descuadres del borrador.
-  if (
-    n.tipoFila === "agrupadora"
-    && n.tipoFilaForzado === "agrupadora"
-    && n.hijos.length === 0
-    && [n.saldoInicial, n.debitos, n.creditos, n.saldoFinal]
-      .some((valor) => esDescuadreAccionable(valor, umbrales))
-  ) return true;
-  const diferenciaControl = n.saldoInicial + n.debitos - n.creditos - n.saldoFinal;
-  if (n.tipoFila === "descuadre") return esDescuadreAccionable(diferenciaControl, umbrales);
-  if (n.tipoFila !== "movimiento") return false;
-  return esMagnitudAccionable(n.debitos) || esMagnitudAccionable(n.creditos);
-};
+export { esAlertaNodo } from "@/lib/balance/alerta-borrador";
 
 // Posición de cada nodo para el TABULADOR: `prev` = filaNum del hermano anterior (para
 // indentar → colgarlo de él); `abuelo` = filaNum del abuelo (para desindentar → subirlo).
@@ -2969,7 +2951,7 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
     const base = (needle !== "" || vista !== "todo" || nivelMax > 0)
       ? podar(arbol, false)
       : arbol;
-    return filtrarArbolBorradorPorColumnas(base, filtrosColumnas);
+    return filtrarArbolBorradorPorColumnas(base, filtrosColumnas, umbrales, riesgosPorFila);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [arbol, q, vista, nivelMax, filtrosColumnas, riesgosPorFila, umbrales]);
   // Sólo cuentan ramas raíz que están desplegando contenido visible. Los filtros
@@ -3269,6 +3251,7 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
         <td className="whitespace-nowrap px-2 py-1 text-right align-top tabular-nums text-ink-600">{fmtContable(n.debitos)}</td>
         <td className="whitespace-nowrap px-2 py-1 text-right align-top tabular-nums text-ink-600">{fmtContable(n.creditos)}</td>
         <td className={`whitespace-nowrap px-2 py-1 text-right align-top tabular-nums text-ink-800 ${esAgrupadora ? "font-semibold" : esMov ? "font-normal" : "font-medium"}`}>{fmtContable(n.saldoFinal)}</td>
+        <td className="whitespace-nowrap px-2 py-1 align-top">{celdaValidacionBorrador(n, umbrales, riesgosPorFila)}</td>
       </tr>
     );
   };
@@ -3402,12 +3385,28 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
                   numerico
                 />
               </th>
+              <th className="min-w-40 px-2 py-1.5 font-semibold">
+                Validación
+                <select
+                  value={filtrosColumnas.validacion}
+                  onChange={(evento) => actualizarFiltroColumna(
+                    "validacion",
+                    evento.target.value as FiltroValidacionDetalle,
+                  )}
+                  aria-label="Filtrar la columna Validación"
+                  className={CLASE_FILTRO_COLUMNA_BORRADOR}
+                >
+                  {OPCIONES_FILTRO_VALIDACION.map((opcion) => (
+                    <option key={opcion.value} value={opcion.value}>{opcion.label}</option>
+                  ))}
+                </select>
+              </th>
             </tr>
           </thead>
           <tbody onClick={onClickFila} onDoubleClick={onDoubleClickFila}>
             {filasReveladas.length > 0 ? filasReveladas.map(filaTr) : (
               <tr>
-                <td colSpan={6} className="px-3 py-6 text-center text-[12px] text-ink-400">
+                <td colSpan={7} className="px-3 py-6 text-center text-[12px] text-ink-400">
                   {filtrosColumnasActivos
                     ? "Sin cuentas que coincidan con los filtros de columna."
                     : q.trim()
@@ -3422,7 +3421,7 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
               // Centinela del scroll continuo: sin contenido ni datos de selección
               // (no participa en clic/selección de fila), solo dispara el siguiente bloque.
               <tr ref={sentinelaRef} aria-hidden="true">
-                <td colSpan={6} className="h-px p-0" />
+                <td colSpan={7} className="h-px p-0" />
               </tr>
             )}
           </tbody>
@@ -3448,6 +3447,24 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
 
 const CLASE_FILTRO_COLUMNA_BORRADOR =
   "mt-1 block h-7 w-full rounded-md border border-ink-200 bg-white px-2 text-[11px] font-normal normal-case tracking-normal text-ink-700 outline-none placeholder:text-ink-400 focus:border-blue-400";
+
+function celdaValidacionBorrador(
+  nodo: NodoBorrador,
+  umbrales: UmbralesAlertas,
+  riesgos: { has(filaNum: number): boolean },
+): ReactNode {
+  const estado = estadoValidacionBorrador(nodo, umbrales, riesgos);
+  if (estado === "ok") return <Chip label="OK" tone="ok" />;
+  if (estado === "alerta") return <Chip label="Alerta" tone="err" />;
+  if (estado === "informativa") {
+    return (
+      <span className="inline-flex items-center rounded border border-err-100 bg-err-100/35 px-1.5 py-0.5 text-[10px] font-medium text-err-500">
+        Informativo
+      </span>
+    );
+  }
+  return null;
+}
 
 function FiltroTextoColumnaBorrador({
   ariaLabel,

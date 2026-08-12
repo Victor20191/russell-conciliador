@@ -1,10 +1,17 @@
 import type { NodoBorrador } from "./borrador";
-import { coincideFiltroNumerico } from "./filtros-detalle";
+import { estadoValidacionBorrador } from "./alerta-borrador";
+import {
+  coincideFiltroNumerico,
+  type FiltroValidacionDetalle,
+} from "./filtros-detalle";
+import {
+  UMBRALES_ALERTAS_DEFECTO,
+  type UmbralesAlertas,
+} from "./umbrales-alertas";
 
 /**
  * Filtros por columna de la tabla de movimiento del borrador.
- * Solo cubre las columnas visibles (código, cuenta y montos): el borrador no
- * tiene mapeo estándar, variación ni validación de naturaleza.
+ * Misma Validación que el balance oficial (Todas / OK / Alerta / Informativa).
  */
 export type FiltrosColumnasBorrador = {
   codigo: string;
@@ -13,6 +20,7 @@ export type FiltrosColumnasBorrador = {
   debito: string;
   credito: string;
   saldo: string;
+  validacion: FiltroValidacionDetalle;
 };
 
 export const FILTROS_COLUMNAS_BORRADOR_INICIALES: FiltrosColumnasBorrador = {
@@ -22,6 +30,7 @@ export const FILTROS_COLUMNAS_BORRADOR_INICIALES: FiltrosColumnasBorrador = {
   debito: "",
   credito: "",
   saldo: "",
+  validacion: "todas",
 };
 
 function normalizarTexto(valor: string): string {
@@ -35,6 +44,8 @@ function normalizarTexto(valor: string): string {
 function coincideNodo(
   nodo: NodoBorrador,
   filtros: FiltrosColumnasBorrador,
+  umbrales: UmbralesAlertas,
+  riesgos: { has(filaNum: number): boolean },
 ): boolean {
   const codigo = normalizarTexto(filtros.codigo);
   if (codigo) {
@@ -51,7 +62,8 @@ function coincideNodo(
   if (!coincideFiltroNumerico(nodo.creditos, filtros.credito)) return false;
   if (!coincideFiltroNumerico(nodo.saldoFinal, filtros.saldo)) return false;
 
-  return true;
+  return filtros.validacion === "todas"
+    || estadoValidacionBorrador(nodo, umbrales, riesgos) === filtros.validacion;
 }
 
 export function hayFiltrosColumnasBorrador(
@@ -62,26 +74,36 @@ export function hayFiltrosColumnasBorrador(
     || filtros.saldoAnterior.trim() !== ""
     || filtros.debito.trim() !== ""
     || filtros.credito.trim() !== ""
-    || filtros.saldo.trim() !== "";
+    || filtros.saldo.trim() !== ""
+    || filtros.validacion !== "todas";
 }
 
 /**
  * Conserva cada coincidencia y su ruta de ancestros, sin incorporar hermanos
  * que no cumplen. Sin filtros devuelve el mismo array (identidad) para evitar
  * clonar árboles grandes del borrador.
+ *
+ * Si hay filtro de validación, un ancestro con OTRO estado no se conserva.
  */
 export function filtrarArbolBorradorPorColumnas(
   nodos: NodoBorrador[],
   filtros: FiltrosColumnasBorrador,
+  umbrales: UmbralesAlertas = UMBRALES_ALERTAS_DEFECTO,
+  riesgos: { has(filaNum: number): boolean } = new Set(),
 ): NodoBorrador[] {
   if (!hayFiltrosColumnasBorrador(filtros)) return nodos;
+
+  const soloEstadoValidacion = filtros.validacion !== "todas";
 
   const podar = (rama: readonly NodoBorrador[]): NodoBorrador[] => {
     const resultado: NodoBorrador[] = [];
     for (const nodo of rama) {
       const hijos = podar(nodo.hijos);
-      if (coincideNodo(nodo, filtros) || hijos.length > 0) {
+      if (coincideNodo(nodo, filtros, umbrales, riesgos)) {
         resultado.push({ ...nodo, hijos });
+      } else if (hijos.length > 0) {
+        if (soloEstadoValidacion) resultado.push(...hijos);
+        else resultado.push({ ...nodo, hijos });
       }
     }
     return resultado;
