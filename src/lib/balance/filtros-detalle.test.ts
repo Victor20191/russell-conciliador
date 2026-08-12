@@ -138,7 +138,7 @@ describe("filtrarArbolDetallePorColumnas", () => {
       new Set(),
       UMBRALES_ALERTAS_DEFECTO,
     );
-    expect(alertas.map((item) => item.code)).toEqual(["13"]);
+    expect(alertas.map((item) => item.code)).toEqual(["13050599"]);
 
     const validadas = filtrarArbolDetallePorColumnas(
       arbol,
@@ -146,7 +146,7 @@ describe("filtrarArbolDetallePorColumnas", () => {
       new Set(["13050599"]),
       UMBRALES_ALERTAS_DEFECTO,
     );
-    expect(validadas.map((item) => item.code)).toEqual(["13"]);
+    expect(validadas.map((item) => item.code)).toEqual(["13050599"]);
 
     const informativa = nodo("13050598", 8, {
       saldoOk: false,
@@ -160,6 +160,20 @@ describe("filtrarArbolDetallePorColumnas", () => {
       new Set(),
       UMBRALES_ALERTAS_DEFECTO,
     )).toHaveLength(1);
+  });
+
+  it("al filtrar por OK no arrastra grupos ni filas de otro estado", () => {
+    const resultado = filtrarArbolDetallePorColumnas(
+      arbol,
+      filtros({ validacion: "ok" }),
+      new Set(),
+      UMBRALES_ALERTAS_DEFECTO,
+    );
+
+    expect(resultado.map((item) => item.code)).toEqual(["110505", "111005"]);
+    expect(resultado.every((item) => item.nivel === 6 && item.mapped && item.saldoOk)).toBe(true);
+    expect(resultado.flatMap((item) => item.hijos)).toEqual([]);
+    expect(resultado.some((item) => item.code === "13" || item.code === "13050599")).toBe(false);
   });
 
   it("no muta el árbol original y evita clonar cuando no hay filtros", () => {

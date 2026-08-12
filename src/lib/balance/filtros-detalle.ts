@@ -155,6 +155,9 @@ export function hayFiltrosColumnasDetalle(
  * Conserva cada coincidencia y su ruta de ancestros, pero no incorpora hermanos
  * que no cumplen. El árbol original no se muta; sin filtros se devuelve tal cual
  * para evitar trabajo adicional en balances grandes.
+ *
+ * Excepción: si hay filtro de validación, un ancestro con OTRO estado no se
+ * conserva. Pedir «OK» no debe arrastrar grupos vacíos ni filas en alerta.
  */
 export function filtrarArbolDetallePorColumnas(
   nodos: NodoBalance[],
@@ -164,12 +167,17 @@ export function filtrarArbolDetallePorColumnas(
 ): NodoBalance[] {
   if (!hayFiltrosColumnasDetalle(filtros)) return nodos;
 
+  const soloEstadoValidacion = filtros.validacion !== "todas";
+
   const podar = (rama: readonly NodoBalance[]): NodoBalance[] => {
     const resultado: NodoBalance[] = [];
     for (const nodo of rama) {
       const hijos = podar(nodo.hijos);
-      if (coincideNodo(nodo, filtros, validados, umbrales) || hijos.length > 0) {
+      if (coincideNodo(nodo, filtros, validados, umbrales)) {
         resultado.push({ ...nodo, hijos });
+      } else if (hijos.length > 0) {
+        if (soloEstadoValidacion) resultado.push(...hijos);
+        else resultado.push({ ...nodo, hijos });
       }
     }
     return resultado;
