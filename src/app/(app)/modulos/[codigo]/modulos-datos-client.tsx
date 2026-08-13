@@ -1,48 +1,69 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { Modal } from "@/components/modal";
-import { Card, Chip } from "@/components/ui";
-import { SelectorClienteBuscable } from "@/components/selector-cliente-buscable";
-import { fmtContable, fmtDate, fmtDateTime } from "@/lib/format";
-import { notifyError, notifySuccess } from "@/lib/client-notifications";
-import { columnaLetra, leerHojasParaPreview, type HojaPreview } from "@/lib/balance/extraccion/hojas-cliente";
-import ConversacionesEntidad from "@/components/conversaciones-entidad";
-import type { SpecModulo } from "@/lib/modulos/extraccion/esquema";
-import { leerDatosModulo, analizarArchivoModulo, type AnalisisModulo, type CeldaMuestra } from "@/app/actions/modulos-datos";
+// Índice de un módulo (`/modulos/[codigo]`): mismo listado que Balance Borrador
+// —buscador, encabezados ordenables, chips de estado, columna de acciones y pie
+// paginado— sobre las dos tablas de la pantalla: borradores por confirmar y datos
+// cargados.
 
-type Cliente = { id: number; name: string; nit: string };
-type Rol = { nombre: string; etiqueta: string; tipo: string; requerido: boolean };
-type Borrador = {
+import { useEffect, useMemo, useState, useTransition } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { EstadoProcesando } from "@/components/estado-procesando";
+import { Icon } from "@/components/icons";
+import {
+  PageSizeSelect,
+  PaginationControls,
+  usePagination,
+  type PageSize,
+} from "@/components/pagination-controls";
+import { Card, Chip, EmptyState } from "@/components/ui";
+import ConversacionesEntidad from "@/components/conversaciones-entidad";
+import { fmtContable } from "@/lib/format";
+import { notifyError, notifySuccess } from "@/lib/client-notifications";
+import {
+  coincideBusquedaModulo,
+  direccionInicialColumnaModulo,
+  ordenarFilasModulo,
+  type ColumnaOrdenModulo,
+  type DireccionOrden,
+  type FilaListadoModulo,
+} from "@/lib/modulos/listado";
+import { descartarBorradorModulo } from "@/app/actions/modulos-datos";
+import { CargarModuloButton, type ClienteModulo, type RolModulo } from "./cargar-modulo-modal";
+
+export type BorradorModuloRow = FilaListadoModulo & {
   loteId: string;
-  cliente: string;
+  /** Id numérico del lote: ancla de los comentarios del borrador. */
+  loteRowId: number;
   archivoNombre: string;
-  periodo: string | null;
-  version: number;
   versionesGrupo: number;
-  filas: number;
-  creadoEn: string;
-  comentarios: number;
-};
-type Cargado = {
-  id: number;
-  clienteId: number;
-  moduloCodigo: string;
-  cliente: string;
-  periodo: string;
-  version: number;
-  versiones: number;
-  esOficial: boolean;
-  filas: number;
-  total: number;
-  archivoNombre: string | null;
-  origenExtraccion: string | null;
-  ultimaCarga: string | null;
+  /** null = sin cliente o sin período: el borrador no se agrupa con ninguno. */
+  claveGrupo: string | null;
+  /** Filas de movimiento omitidas a mano en el borrador. */
+  omitidas: number;
+  origen: string | null;
   cargadoPor: string | null;
+  fecha: string;
+  hora: string | null;
   comentarios: number;
 };
+
+export type CargadoModuloRow = FilaListadoModulo & {
+  id: number;
+  esOficial: boolean;
+  /** Cuántas versiones existen del mismo (cliente, período). */
+  versiones: number;
+  origen: string | null;
+  cargadoPor: string | null;
+  fecha: string;
+  hora: string | null;
+  comentarios: number;
+};
+
+/** Base compartida de los botones de la columna «Acciones»: todos cuadrados y
+ *  del MISMO tamaño, para que la columna quede alineada fila a fila. */
+const BOTON_ACCION =
+  "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border transition";
 
 const etiquetaOrigen = (origen: string | null): string => {
   if (origen === "perfil") return "Perfil guardado";
@@ -53,7 +74,185 @@ const etiquetaOrigen = (origen: string | null): string => {
 
 function BadgeComentarios({ n }: { n: number }) {
   if (!n) return null;
-  return <span className="inline-flex items-center gap-0.5 rounded-full bg-blue-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-blue-600" title={`${n} comentario(s)`}>💬 {n}</span>;
+  return (
+    <span
+      className="inline-flex items-center gap-0.5 rounded-full bg-blue-50 px-1.5 py-0.5 text-[10.5px] font-semibold text-blue-600"
+      title={`${n} comentario(s)`}
+    >
+      💬 {n}
+    </span>
+  );
+}
+
+/** Razón social + NIT, en dos renglones (igual que el listado de borradores). */
+function ClienteCelda({ nombre, nit, href }: { nombre: string; nit: string | null; href?: string }) {
+  return (
+    <span className="inline-flex flex-col gap-0.5">
+      {href ? (
+        <Link href={href} className="font-medium text-ink-800 hover:text-blue-500 hover:underline">
+          {nombre}
+        </Link>
+      ) : (
+        <span className="font-medium text-ink-800">{nombre}</span>
+      )}
+      {nit && <span className="font-mono text-[10.5px] text-ink-400">{nit}</span>}
+    </span>
+  );
+}
+
+/** Versión dentro de su (cliente, período). «—» cuando aún no se agrupa. */
+function VersionCelda({
+  version,
+  versiones,
+  agrupado,
+  href,
+}: {
+  version: number;
+  versiones: number;
+  agrupado: boolean;
+  href?: string;
+}) {
+  if (!agrupado) {
+    return (
+      <span
+        className="text-[11px] text-ink-400"
+        title="Sin cliente o sin período: aún no se agrupa con otras versiones."
+      >
+        —
+      </span>
+    );
+  }
+  const conteo = `de ${versiones}`;
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <Chip label={`v${version}`} tone={versiones > 1 ? "blue" : "ink"} />
+      {versiones > 1 && (
+        href ? (
+          <Link
+            href={href}
+            className="text-[10.5px] text-blue-500 hover:underline"
+            title={`Ver las ${versiones} versiones del período`}
+          >
+            {conteo}
+          </Link>
+        ) : (
+          <span
+            className="text-[10.5px] text-ink-400"
+            title={`${versiones} cargues del mismo cliente y período`}
+          >
+            {conteo}
+          </span>
+        )
+      )}
+    </span>
+  );
+}
+
+/** Encabezado ordenable con las flechitas del listado de borradores. */
+function HeaderOrdenable({
+  label,
+  columna,
+  activa,
+  direccion,
+  onOrdenar,
+  alineacion = "left",
+}: {
+  label: string;
+  columna: ColumnaOrdenModulo;
+  activa: ColumnaOrdenModulo | null;
+  direccion: DireccionOrden;
+  onOrdenar: (columna: ColumnaOrdenModulo) => void;
+  alineacion?: "left" | "right";
+}) {
+  const activo = activa === columna;
+  return (
+    <button
+      type="button"
+      onClick={() => onOrdenar(columna)}
+      className={`inline-flex items-center gap-1 font-semibold transition hover:text-ink-800 ${
+        alineacion === "right" ? "ml-auto" : ""
+      } ${activo ? "text-ink-800" : "text-ink-500"}`}
+      aria-sort={activo ? (direccion === "asc" ? "ascending" : "descending") : "none"}
+    >
+      <span>{label}</span>
+      {activo ? (
+        <Icon name="chev-d" size={12} className={direccion === "asc" ? "rotate-180" : undefined} />
+      ) : (
+        <span className="inline-flex flex-col leading-none opacity-40" aria-hidden>
+          <Icon name="chev-d" size={9} className="rotate-180 -mb-px" />
+          <Icon name="chev-d" size={9} className="-mt-px" />
+        </span>
+      )}
+    </button>
+  );
+}
+
+function PieTabla({
+  rangeLabel,
+  page,
+  totalPages,
+  pageSize,
+  onPageChange,
+  onPageSizeChange,
+}: {
+  rangeLabel: string;
+  page: number;
+  totalPages: number;
+  pageSize: PageSize;
+  onPageChange: (page: number) => void;
+  onPageSizeChange: (size: PageSize) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-ink-100 px-4 py-3">
+      <span className="text-[12px] text-ink-500">{rangeLabel}</span>
+      <div className="flex flex-wrap items-center gap-3">
+        <PageSizeSelect value={pageSize} onChange={onPageSizeChange} />
+        <PaginationControls currentPage={page} totalPages={totalPages} onPageChange={onPageChange} />
+      </div>
+    </div>
+  );
+}
+
+/** Estado de orden de una tabla (columna + dirección), con el ciclo del listado. */
+function useOrdenTabla() {
+  const [columna, setColumna] = useState<ColumnaOrdenModulo | null>(null);
+  const [direccion, setDireccion] = useState<DireccionOrden>("asc");
+
+  const ordenar = (siguiente: ColumnaOrdenModulo) => {
+    if (columna === siguiente) {
+      setDireccion((dir) => (dir === "asc" ? "desc" : "asc"));
+    } else {
+      setColumna(siguiente);
+      setDireccion(direccionInicialColumnaModulo(siguiente));
+    }
+  };
+
+  return { columna, direccion, ordenar };
+}
+
+/**
+ * Filtra por el buscador de la pantalla y ordena por la columna activa; el orden
+ * por defecto (sin columna) es el que ya trae el servidor. Devuelve la página
+ * visible, que vuelve a la primera al cambiar la búsqueda o el orden.
+ */
+function useListadoModulo<T extends FilaListadoModulo>(rows: T[], busqueda: string) {
+  const orden = useOrdenTabla();
+  const visibles = useMemo(() => {
+    const filtradas = rows.filter((row) => coincideBusquedaModulo(row, busqueda));
+    return orden.columna
+      ? ordenarFilasModulo(filtradas, orden.columna, orden.direccion)
+      : filtradas;
+  }, [rows, busqueda, orden.columna, orden.direccion]);
+  const pg = usePagination(visibles, 50);
+
+  // `setPage` viene de useState (identidad estable), así que el efecto solo se
+  // dispara cuando cambian de verdad la búsqueda o el orden.
+  const { setPage } = pg;
+  useEffect(() => {
+    setPage(1);
+  }, [busqueda, orden.columna, orden.direccion, setPage]);
+
+  return { ...pg, visibles, orden };
 }
 
 export default function ModulosDatosClient({
@@ -67,455 +266,453 @@ export default function ModulosDatosClient({
 }: {
   moduloCodigo: string;
   moduloLabel: string;
-  roles: Rol[];
+  roles: RolModulo[];
   clasificadorRol: string;
-  clientes: Cliente[];
-  borradores: Borrador[];
-  cargados: Cargado[];
+  clientes: ClienteModulo[];
+  borradores: BorradorModuloRow[];
+  cargados: CargadoModuloRow[];
 }) {
-  const router = useRouter();
-  const [abierto, setAbierto] = useState(false);
+  const [busqueda, setBusqueda] = useState("");
   const [conversando, setConversando] = useState<{ tipo: string; entityId: number; titulo: string } | null>(null);
   const ruta = `/modulos/${moduloCodigo.toLowerCase()}`;
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex justify-end">
-        <button
-          type="button"
-          onClick={() => setAbierto(true)}
-          className="rounded-md bg-navy-700 px-3.5 py-2 text-[12.5px] font-semibold text-white hover:bg-navy-600"
-        >
-          Cargar {moduloLabel.toLowerCase()}
-        </button>
-      </div>
-
-      {abierto && (
-        <CargarModal
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex w-full max-w-md items-center gap-2 rounded-md border border-ink-200 bg-white px-3 py-2 text-ink-400 shadow-sm focus-within:border-blue-400">
+          <Icon name="search" size={15} />
+          <input
+            type="text"
+            value={busqueda}
+            onChange={(event) => setBusqueda(event.target.value)}
+            placeholder="Buscar por archivo, NIT, razón social o período…"
+            aria-label="Buscar por archivo, NIT, razón social o período"
+            className="min-w-0 flex-1 bg-transparent text-[12.5px] text-ink-700 outline-none placeholder:text-ink-400"
+          />
+          {busqueda.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setBusqueda("")}
+              aria-label="Limpiar búsqueda"
+              title="Limpiar búsqueda"
+              className="rounded p-0.5 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700"
+            >
+              <Icon name="x" size={14} />
+            </button>
+          )}
+        </div>
+        <CargarModuloButton
           moduloCodigo={moduloCodigo}
           moduloLabel={moduloLabel}
           roles={roles}
           clasificadorRol={clasificadorRol}
           clientes={clientes}
-          onClose={() => setAbierto(false)}
+        />
+      </div>
+
+      {conversando && (
+        <ConversacionesEntidad
+          tipo={conversando.tipo}
+          entityId={conversando.entityId}
+          titulo={conversando.titulo}
+          onClose={() => setConversando(null)}
         />
       )}
 
-      {conversando && (
-        <ConversacionesEntidad tipo={conversando.tipo} entityId={conversando.entityId} titulo={conversando.titulo} onClose={() => setConversando(null)} />
-      )}
-
       {borradores.length > 0 && (
-        <Card className="p-4">
-          <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-warn-700">Borradores por confirmar</div>
-          <div className="flex flex-col divide-y divide-ink-100">
-            {borradores.map((b) => (
-              <Link
-                key={b.loteId}
-                href={`${ruta}/borradores/${b.loteId}`}
-                className="flex items-center justify-between gap-3 py-2 text-[12.5px] hover:bg-ink-50"
-              >
-                <span className="flex min-w-0 items-center gap-2 font-medium text-ink-800">
-                  <span className="truncate">{b.cliente}</span>
-                  {b.periodo && <span className="whitespace-nowrap text-[11px] font-normal text-ink-400">{b.periodo}</span>}
-                  {b.periodo && <Chip label={`v${b.version}${b.versionesGrupo > 1 ? ` de ${b.versionesGrupo}` : ""}`} tone={b.versionesGrupo > 1 ? "blue" : "ink"} />}
-                </span>
-                <span className="truncate font-mono text-[11px] text-ink-500" title={b.archivoNombre}>{b.archivoNombre}</span>
-                <span className="flex items-center gap-2 whitespace-nowrap text-ink-500"><BadgeComentarios n={b.comentarios} />{b.filas} filas · {fmtDate(b.creadoEn)}</span>
-              </Link>
-            ))}
-          </div>
-        </Card>
+        <TablaBorradores
+          rows={borradores}
+          busqueda={busqueda}
+          ruta={ruta}
+          onConversar={setConversando}
+        />
       )}
 
-      <Card className="p-4">
-        <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-ink-500">{moduloLabel} cargados</div>
-        {cargados.length === 0 ? (
-          <p className="rounded-md border border-dashed border-ink-200 bg-ink-50 px-3 py-4 text-center text-[12px] text-ink-400">
-            Aún no hay {moduloLabel.toLowerCase()} cargados. Usa «Cargar {moduloLabel.toLowerCase()}» para empezar.
-          </p>
-        ) : (
-          <div className="overflow-x-auto rounded-md border border-ink-150">
-            <table className="w-full text-[12px]">
-              <thead className="bg-ink-50 text-left text-ink-500">
-                <tr>
-                  <th className="px-2.5 py-1.5 font-semibold">Cliente</th>
-                  <th className="px-2.5 py-1.5 font-semibold">Período</th>
-                  <th className="px-2.5 py-1.5 font-semibold">Ver.</th>
-                  <th className="px-2.5 py-1.5 text-right font-semibold">Filas</th>
-                  <th className="px-2.5 py-1.5 text-right font-semibold">Total</th>
-                  <th className="px-2.5 py-1.5 text-right font-semibold">Versiones</th>
-                  <th className="px-2.5 py-1.5 font-semibold">Archivo / mapeo</th>
-                  <th className="px-2.5 py-1.5 text-center font-semibold">💬</th>
-                  <th className="px-2.5 py-1.5 font-semibold">Última carga</th>
-                </tr>
-              </thead>
-              <tbody>
-                {cargados.map((c) => (
-                  <tr key={c.id} className="cursor-pointer border-t border-ink-100 hover:bg-ink-50" onClick={() => router.push(`${ruta}/${c.id}`)}>
-                    <td className="px-2.5 py-1.5 font-medium text-navy-700 underline decoration-ink-200 underline-offset-2">{c.cliente}</td>
-                    <td className="px-2.5 py-1.5 text-ink-600">{c.periodo}</td>
-                    <td className="px-2.5 py-1.5"><Chip label={`v${c.version} vigente`} tone={c.esOficial ? "ok" : "blue"} /></td>
-                    <td className="px-2.5 py-1.5 text-right tabular-nums text-ink-600">{c.filas}</td>
-                    <td className="px-2.5 py-1.5 text-right font-semibold tabular-nums text-ink-800">{fmtContable(c.total)}</td>
-                    <td className="px-2.5 py-1.5 text-right font-mono text-ink-600">
-                      <Link
-                        href={`${ruta}/${c.id}?tab=versiones`}
-                        onClick={(e) => e.stopPropagation()}
-                        className="font-semibold text-blue-600 hover:underline"
-                        title={`Ver las ${c.versiones} versiones de ${c.periodo}`}
-                      >
-                        {c.versiones}
-                      </Link>
-                    </td>
-                    <td className="max-w-[220px] px-2.5 py-1.5">
-                      <div className="truncate text-ink-600" title={c.archivoNombre ?? "Archivo histórico sin metadata"}>{c.archivoNombre ?? "—"}</div>
-                      <div className="text-[10.5px] text-ink-400">{etiquetaOrigen(c.origenExtraccion)}</div>
-                    </td>
-                    <td className="px-2.5 py-1.5 text-center">
-                      {c.comentarios ? (
-                        <button type="button" title="Ver conversaciones" onClick={(e) => { e.stopPropagation(); setConversando({ tipo: "modulos_datos", entityId: c.id, titulo: `${c.cliente} · ${c.periodo} v${c.version}` }); }}>
-                          <BadgeComentarios n={c.comentarios} />
-                        </button>
-                      ) : (
-                        <span className="text-ink-300">—</span>
-                      )}
-                    </td>
-                    <td className="px-2.5 py-1.5 text-ink-500">
-                      <div className="whitespace-nowrap tabular-nums">{c.ultimaCarga ? fmtDateTime(c.ultimaCarga) : "—"}</div>
-                      <div className="text-[11px] text-ink-400">{c.cargadoPor ?? "—"}</div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
+      <TablaCargados
+        rows={cargados}
+        busqueda={busqueda}
+        ruta={ruta}
+        moduloLabel={moduloLabel}
+        onConversar={setConversando}
+      />
     </div>
   );
 }
 
-const celdaTxt = (v: CeldaMuestra): string => (v == null ? "" : typeof v === "number" ? String(v) : v);
+type OnConversar = (c: { tipo: string; entityId: number; titulo: string }) => void;
 
-function CargarModal({
-  moduloCodigo,
-  moduloLabel,
-  roles,
-  clasificadorRol,
-  clientes,
-  onClose,
+function TablaBorradores({
+  rows,
+  busqueda,
+  ruta,
+  onConversar,
 }: {
-  moduloCodigo: string;
-  moduloLabel: string;
-  roles: Rol[];
-  clasificadorRol: string;
-  clientes: Cliente[];
-  onClose: () => void;
+  rows: BorradorModuloRow[];
+  busqueda: string;
+  ruta: string;
+  onConversar: OnConversar;
 }) {
   const router = useRouter();
-  const bufferRef = useRef<ArrayBuffer | null>(null);
-  const nombreRef = useRef<string>("");
-  const [tieneArchivo, setTieneArchivo] = useState(false);
-  const [nombreArchivo, setNombreArchivo] = useState("");
-  const [clienteId, setClienteId] = useState<number | null>(null);
-  const [hojas, setHojas] = useState<HojaPreview[]>([]);
-  const [hoja, setHoja] = useState("");
-  const [fase, setFase] = useState<"archivo" | "mapeo">("archivo");
-  const [analisis, setAnalisis] = useState<AnalisisModulo | null>(null);
-  const [spec, setSpec] = useState<SpecModulo | null>(null);
-  const [mes, setMes] = useState("");
-  const [leyendoArchivo, setLeyendoArchivo] = useState(false);
-  const [analizando, startAnalizar] = useTransition();
-  const [leyendo, startLeer] = useTransition();
+  const [descartando, startDescartar] = useTransition();
+  const [confirmar, setConfirmar] = useState<string | null>(null);
+  const { visibles, orden, ...pg } = useListadoModulo(rows, busqueda);
 
-  const onArchivo = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    setLeyendoArchivo(true);
-    setTieneArchivo(false);
-    setAnalisis(null);
-    setSpec(null);
-    setHojas([]);
-    setHoja("");
-    setFase("archivo");
-    try {
-      bufferRef.current = await f.arrayBuffer();
-      nombreRef.current = f.name;
-      setNombreArchivo(f.name);
-      // Listar las hojas del libro para que el usuario elija cuál importar (como en balance).
-      const hs = await leerHojasParaPreview(f).catch(() => [] as HojaPreview[]);
-      setHojas(hs);
-      setHoja(hs[0]?.nombre ?? "");
-      setTieneArchivo(true);
-    } catch {
-      notifyError("No pudimos leer el archivo. Suele pasar si está ABIERTO en Excel o sincronizándose en OneDrive: ciérralo e intenta de nuevo.");
-    } finally {
-      setLeyendoArchivo(false);
-    }
-  };
-
-  const analizar = (hojaArg?: string) => {
-    if (!bufferRef.current) { notifyError("Adjunta el archivo."); return; }
-    if (clienteId == null) { notifyError("Selecciona el cliente."); return; }
-    const hojaElegida = hojaArg ?? hoja;
-    startAnalizar(async () => {
-      const fd = new FormData();
-      fd.set("moduloCodigo", moduloCodigo);
-      fd.set("clienteId", String(clienteId));
-      if (hojaElegida) fd.set("hoja", hojaElegida);
-      fd.set("archivo", new File([bufferRef.current!], nombreRef.current));
-      try {
-        const r = await analizarArchivoModulo(fd);
-        if (r.ok && r.spec) {
-          setAnalisis(r);
-          setSpec(r.spec);
-          setFase("mapeo");
-          if (r.origen === "perfil") notifySuccess("Se aplicó el perfil guardado de este cliente. Revisa y confirma.");
-        } else {
-          notifyError(r.message ?? "No se pudo analizar el archivo.");
-        }
-      } catch {
-        notifyError("No se pudo enviar el archivo al servidor. Verifica la conexión e intenta nuevamente.");
-      }
+  const onDescartar = (loteId: string) => {
+    startDescartar(async () => {
+      const r = await descartarBorradorModulo(loteId);
+      if (r.ok) notifySuccess(r.message ?? "Borrador descartado.");
+      else notifyError(r.message ?? "No se pudo descartar.");
+      setConfirmar(null);
+      router.refresh();
     });
   };
 
-  const leer = () => {
-    if (!bufferRef.current || !spec) { notifyError("Falta analizar el archivo."); return; }
-    if (clienteId == null) { notifyError("Selecciona el cliente."); return; }
-    if (!/^\d{4}-\d{2}$/.test(mes)) { notifyError("Selecciona el mes del inventario."); return; }
-    const faltantes = roles.filter((rc) => rc.requerido && !(rc.nombre === clasificadorRol && modo === "global") && (spec.columnas[rc.nombre] ?? 0) < 1);
-    if (faltantes.length) { notifyError("Faltan columnas obligatorias: " + faltantes.map((f) => f.etiqueta).join(", ") + "."); return; }
-    startLeer(async () => {
-      const fd = new FormData();
-      fd.set("moduloCodigo", moduloCodigo);
-      fd.set("clienteId", String(clienteId));
-      fd.set("hoja", spec.hoja);
-      fd.set("specJson", JSON.stringify(spec));
-      fd.set("periodoInicio", mes ? `${mes}-01` : "");
-      fd.set("periodoFin", mes ? `${mes}-01` : "");
-      fd.set("archivo", new File([bufferRef.current!], nombreRef.current));
-      try {
-        const r = await leerDatosModulo(undefined, fd);
-        if (r.ok && r.loteId) {
-          notifySuccess(r.message ?? "Archivo leído.");
-          router.push(`/modulos/${moduloCodigo.toLowerCase()}/borradores/${r.loteId}`);
-        } else {
-          notifyError(r.message ?? "No se pudo leer el archivo.");
-        }
-      } catch {
-        notifyError("No se pudo completar la carga. Verifica la conexión e intenta nuevamente.");
-      }
-    });
-  };
-
-  const setCol = (rol: string, col: number) => setSpec((s) => (s ? { ...s, columnas: { ...s.columnas, [rol]: col } } : s));
-  const setEnc = (v: number) => setSpec((s) => (s ? { ...s, filaEncabezado: v } : s));
-  const setDat = (v: number) => setSpec((s) => (s ? { ...s, primeraFilaDatos: v } : s));
-  const modo: "columna" | "arrastrar" | "seccion" | "global" = spec?.clasificadorModo ?? (spec?.arrastrarClasificador ? "arrastrar" : "columna");
-  const setModo = (m: "columna" | "arrastrar" | "seccion" | "global") =>
-    setSpec((s) => (s ? { ...s, clasificadorModo: m, arrastrarClasificador: m === "arrastrar" ? true : undefined, seccionColumnaVaciaRol: m === "seccion" ? s.seccionColumnaVaciaRol ?? "descripcion" : undefined } : s));
-  // Selección del clasificador: -1 = Inventario globalizado (un solo valor); ≥1 = columna.
-  const onSelectClasificador = (v: number) => {
-    if (v === -1) { setModo("global"); return; }
-    setCol(clasificadorRol, v);
-    if (modo === "global") setModo("columna");
-  };
-  const setSeccionRol = (rol: string) => setSpec((s) => (s ? { ...s, seccionColumnaVaciaRol: rol } : s));
-
-  // Etiqueta de cada columna para los selectores: «C · "Encabezado" (muestra, muestra)».
-  const opcionesColumna = (): { index1: number; label: string }[] => {
-    if (!analisis) return [];
-    const ancho = analisis.ancho ?? analisis.encabezado?.length ?? 0;
-    return Array.from({ length: ancho }, (_, c) => {
-      const enc = celdaTxt(analisis.encabezado?.[c] ?? null);
-      const muestras = (analisis.muestraFilas ?? []).map((f) => celdaTxt(f[c] ?? null)).filter(Boolean).slice(0, 2);
-      const tail = muestras.length ? ` (${muestras.join(", ").slice(0, 30)})` : "";
-      return { index1: c + 1, label: `${columnaLetra(c)}${enc ? ` · ${enc.slice(0, 28)}` : ""}${tail}` };
-    });
-  };
-
-  const preview = (rol: string): string[] => {
-    if (!analisis || !spec) return [];
-    const col = spec.columnas[rol] ?? 0;
-    if (col < 1) return [];
-    return (analisis.muestraFilas ?? []).slice(0, 6).map((f) => celdaTxt(f[col - 1] ?? null));
-  };
-  // ¿La columna del clasificador viene mayormente vacía? (señal de agrupación → arrastrar).
-  const clasifEsparso = (() => {
-    if (!analisis || !spec) return false;
-    const col = spec.columnas[clasificadorRol] ?? 0;
-    if (col < 1) return false;
-    const vals = (analisis.muestraFilas ?? []).map((f) => celdaTxt(f[col - 1] ?? null));
-    if (vals.length < 3) return false;
-    const vacias = vals.filter((v) => !v).length;
-    return vacias / vals.length >= 0.3;
-  })();
+  const header = (label: string, columna: ColumnaOrdenModulo, alineacion?: "left" | "right") => (
+    <HeaderOrdenable
+      label={label}
+      columna={columna}
+      activa={orden.columna}
+      direccion={orden.direccion}
+      onOrdenar={orden.ordenar}
+      alineacion={alineacion}
+    />
+  );
 
   return (
-    <Modal
-      open
-      onClose={onClose}
-      title={`Cargar ${moduloLabel.toLowerCase()}`}
-      size={fase === "mapeo" ? "2xl" : "lg"}
-      footer={
-        fase === "archivo" ? (
-          <>
-            <button type="button" onClick={onClose} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] font-semibold text-ink-600 hover:bg-ink-50">Cancelar</button>
-            <button type="button" disabled={!tieneArchivo || clienteId == null || analizando} onClick={() => analizar()} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60">
-              {analizando ? "Analizando…" : "Analizar columnas"}
-            </button>
-          </>
-        ) : (
-          <>
-            <button type="button" onClick={() => setFase("archivo")} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] font-semibold text-ink-600 hover:bg-ink-50">Atrás</button>
-            <button type="button" disabled={leyendo || analizando || !mes} onClick={leer} title={!mes ? "Selecciona el mes del inventario" : undefined} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60">
-              {leyendo ? "Leyendo…" : "Leer y crear borrador"}
-            </button>
-          </>
-        )
-      }
-    >
-      {fase === "archivo" ? (
-        <div className="flex flex-col gap-3.5 text-[12.5px]">
-          <SelectorClienteBuscable
-            clients={clientes}
-            value={clienteId}
-            onChange={setClienteId}
-          />
-
-          <label className="flex flex-col gap-1">
-            <span className="text-[11px] font-medium text-ink-600">Archivo (Excel/CSV)</span>
-            <input type="file" accept=".xlsx,.xlsm,.xls,.csv,.txt" onChange={onArchivo} className="text-[12px] text-ink-600 file:mr-3 file:rounded-md file:border-0 file:bg-ink-100 file:px-3 file:py-1.5 file:text-[12px] file:font-semibold file:text-ink-700 hover:file:bg-ink-200" />
-            {leyendoArchivo && <span className="text-[11px] text-ink-400">Leyendo archivo…</span>}
-            {tieneArchivo && !leyendoArchivo && <span className="text-[11px] text-ok-700">Listo: {nombreArchivo}</span>}
-          </label>
-
-          {hojas.length > 1 && (
-            <label className="flex flex-col gap-1">
-              <span className="text-[11px] font-medium text-ink-600">Hoja a importar</span>
-              <select value={hoja} onChange={(e) => setHoja(e.target.value)} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-ink-700 outline-none focus:border-blue-400">
-                {hojas.map((h) => <option key={h.nombre} value={h.nombre}>{h.nombre} ({h.totalFilas} filas)</option>)}
-              </select>
-            </label>
-          )}
-
-          <p className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[11.5px] leading-relaxed text-blue-800">
-            Al analizar, el sistema sugiere qué columna es cada campo. En el siguiente paso podrás corregir el mapeo, marcar si el tipo viene agrupado, y se guardará el perfil para las próximas cargas de este cliente.
-          </p>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-4 text-[12.5px]">
-          {analisis?.origen === "perfil" && (
-            <p className="rounded-md border border-ok-500 bg-ok-100/40 px-3 py-1.5 text-[11.5px] text-ok-700">Perfil guardado aplicado. Ajusta si hace falta.</p>
-          )}
-
-          {(analisis?.hojas?.length ?? 0) > 1 && (
-            <label className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-              <span className="shrink-0 text-[11px] font-medium text-ink-600">Hoja</span>
-              <select value={spec?.hoja ?? ""} onChange={(e) => { setHoja(e.target.value); analizar(e.target.value); }} className="min-w-0 max-w-full rounded-md border border-ink-200 bg-white px-2 py-1.5 text-ink-700 outline-none focus:border-blue-400">
-                {analisis?.hojas?.map((h) => <option key={h} value={h}>{h}</option>)}
-              </select>
-              <span className="shrink-0 text-[11px] text-ink-400">{analisis?.totalFilas} filas</span>
-            </label>
-          )}
-
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <label className="flex min-w-0 flex-col gap-1">
-              <span className="text-[11px] font-medium text-ink-600">Fila de encabezado</span>
-              <input type="number" min={1} value={spec?.filaEncabezado ?? 1} onChange={(e) => setEnc(Math.max(1, Number(e.target.value) || 1))} className="w-full rounded-md border border-ink-200 bg-white px-2.5 py-1.5 tabular-nums text-ink-700 outline-none focus:border-blue-400" />
-            </label>
-            <label className="flex min-w-0 flex-col gap-1">
-              <span className="text-[11px] font-medium text-ink-600">Primera fila de datos</span>
-              <input type="number" min={1} value={spec?.primeraFilaDatos ?? 2} onChange={(e) => setDat(Math.max(1, Number(e.target.value) || 1))} className="w-full rounded-md border border-ink-200 bg-white px-2.5 py-1.5 tabular-nums text-ink-700 outline-none focus:border-blue-400" />
-            </label>
-          </div>
-
-          <div className="overflow-hidden rounded-md border border-ink-150">
-            <div className="border-b border-ink-100 bg-ink-50 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Mapeo de columnas</div>
-            <div className="flex flex-col divide-y divide-ink-100">
-              {roles.map((rc) => {
-                const muestras = preview(rc.nombre);
-                const muestraTxt = muestras.filter(Boolean).slice(0, 2).join(" · ") || "—";
-                return (
-                  <div key={rc.nombre} className="flex flex-col gap-1.5 px-3 py-2.5">
-                    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                      <span className="text-[12px] font-medium leading-snug text-ink-700">
-                        {rc.etiqueta}
-                        {rc.requerido && <span className="text-err-700"> *</span>}
-                      </span>
-                      {rc.nombre === clasificadorRol && (
-                        <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide text-blue-700">
-                          clasifica
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex min-w-0 flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2">
-                      <select
-                        value={rc.nombre === clasificadorRol && modo === "global" ? -1 : spec?.columnas[rc.nombre] ?? 0}
-                        onChange={(e) => (rc.nombre === clasificadorRol ? onSelectClasificador(Number(e.target.value)) : setCol(rc.nombre, Number(e.target.value)))}
-                        className="w-full min-w-0 flex-1 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400"
+    <Card className="overflow-hidden">
+      <div className="flex items-center gap-2 border-b border-ink-100 bg-warn-50/60 px-4 py-2.5">
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-warn-700">
+          Borradores por confirmar
+        </span>
+        <span className="rounded-full bg-warn-100 px-1.5 text-[10px] font-semibold text-warn-700">
+          {rows.length}
+        </span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-[12.5px]">
+          <thead className="bg-ink-50 text-ink-500">
+            <tr className="text-left">
+              <th className="px-3 py-2">{header("Archivo", "archivo")}</th>
+              <th className="px-3 py-2">{header("Cliente / NIT", "cliente")}</th>
+              <th className="px-3 py-2">{header("Período", "periodo")}</th>
+              <th className="px-3 py-2">{header("Versión", "version")}</th>
+              <th className="px-3 py-2 text-right">
+                <div className="flex justify-end">{header("Filas", "filas", "right")}</div>
+              </th>
+              <th className="px-3 py-2 text-right">
+                <div className="flex justify-end">{header("Total", "total", "right")}</div>
+              </th>
+              <th className="px-3 py-2 font-semibold">Estado</th>
+              <th className="px-3 py-2">{header("Fecha", "fecha")}</th>
+              <th className="px-3 py-2 text-right font-semibold">Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {pg.pageItems.map((r) => (
+              <tr key={r.loteId} className="border-t border-ink-100 align-middle hover:bg-ink-50/50">
+                <td className="px-3 py-2">
+                  <span className="flex flex-wrap items-center gap-1.5">
+                    <Link
+                      href={`${ruta}/borradores/${r.loteId}`}
+                      className="font-medium text-blue-500 hover:underline"
+                    >
+                      {r.archivoNombre}
+                    </Link>
+                    {r.comentarios > 0 && (
+                      <button
+                        type="button"
+                        title="Ver conversaciones"
+                        onClick={() =>
+                          onConversar({
+                            tipo: "modulos_borrador",
+                            entityId: r.loteRowId,
+                            titulo: `${r.clienteNombre}${r.periodo ? ` · ${r.periodo}` : ""}`,
+                          })
+                        }
                       >
-                        <option value={0}>— sin mapear —</option>
-                        {rc.nombre === clasificadorRol && <option value={-1}>🌐 Inventario globalizado (un solo valor global)</option>}
-                        {opcionesColumna().map((o) => (
-                          <option key={o.index1} value={o.index1}>{o.label}</option>
-                        ))}
-                      </select>
-                      <span
-                        className="min-w-0 truncate text-[11px] leading-snug text-ink-400 sm:w-36 sm:shrink-0"
-                        title={muestras.join(" · ")}
+                        <BadgeComentarios n={r.comentarios} />
+                      </button>
+                    )}
+                  </span>
+                  <span className="block text-[10.5px] text-ink-400">{etiquetaOrigen(r.origen)}</span>
+                  {r.cargadoPor && <span className="block text-[10.5px] text-ink-400">por {r.cargadoPor}</span>}
+                </td>
+                <td className="px-3 py-2 text-ink-700">
+                  <ClienteCelda nombre={r.clienteNombre} nit={r.clienteNit} />
+                </td>
+                <td className="px-3 py-2 font-mono text-[11px] text-ink-600">{r.periodo ?? "—"}</td>
+                <td className="px-3 py-2">
+                  <VersionCelda
+                    version={r.version}
+                    versiones={r.versionesGrupo}
+                    agrupado={r.claveGrupo != null}
+                  />
+                </td>
+                <td
+                  className="px-3 py-2 text-right tabular-nums text-ink-700"
+                  title="Filas de movimiento no omitidas"
+                >
+                  {r.filas}
+                </td>
+                <td className="px-3 py-2 text-right font-semibold tabular-nums text-ink-800">
+                  {fmtContable(r.total)}
+                </td>
+                <td className="px-3 py-2">
+                  <span className="inline-flex flex-col gap-0.5">
+                    <Chip label="Por confirmar" tone="warn" />
+                    {r.omitidas > 0 && (
+                      <span className="text-[10px] text-warn-700">{r.omitidas} omitida(s)</span>
+                    )}
+                  </span>
+                </td>
+                <td className="px-3 py-2 text-[11px] text-ink-500">
+                  <span className="block whitespace-nowrap">{r.fecha}</span>
+                  {r.hora && <span className="block whitespace-nowrap text-[10px] text-ink-400">{r.hora}</span>}
+                </td>
+                <td className="px-3 py-2">
+                  {/* Acciones como iconos cuadrados del MISMO tamaño (BOTON_ACCION):
+                      revisar (ojo) y descartar (papelera). El descarte pide
+                      confirmación en el sitio, con ✓/✕ del mismo tamaño. */}
+                  <div className="flex items-center justify-end gap-1.5">
+                    <Link
+                      href={`${ruta}/borradores/${r.loteId}`}
+                      title="Revisar borrador"
+                      aria-label="Revisar borrador"
+                      className={`${BOTON_ACCION} border-ink-200 text-ink-600 hover:bg-ink-50 hover:text-ink-900`}
+                    >
+                      <Icon name="eye" size={15} />
+                    </Link>
+                    {confirmar === r.loteId ? (
+                      <>
+                        <button
+                          onClick={() => onDescartar(r.loteId)}
+                          disabled={descartando}
+                          title="Confirmar descarte"
+                          aria-label="Confirmar descarte"
+                          className={`${BOTON_ACCION} border-err-300 bg-err-100 text-err-700 hover:bg-err-200 disabled:opacity-60`}
+                        >
+                          {descartando ? <EstadoProcesando etiqueta="Descartando" /> : <Icon name="check" size={15} />}
+                        </button>
+                        <button
+                          onClick={() => setConfirmar(null)}
+                          title="Cancelar"
+                          aria-label="Cancelar descarte"
+                          className={`${BOTON_ACCION} border-ink-200 text-ink-500 hover:bg-ink-50 hover:text-ink-800`}
+                        >
+                          <Icon name="x" size={15} />
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmar(r.loteId)}
+                        title="Descartar borrador"
+                        aria-label="Descartar borrador"
+                        className={`${BOTON_ACCION} border-err-200 text-err-600 hover:bg-err-50 hover:text-err-700`}
                       >
-                        {muestraTxt}
-                      </span>
-                    </div>
+                        <Icon name="trash" size={15} />
+                      </button>
+                    )}
                   </div>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-2 rounded-md border border-ink-150 bg-ink-50 px-3 py-2.5">
-            {modo === "global" ? (
-              <span className="text-[11.5px] leading-snug text-ink-600">🌐 <b>Inventario globalizado</b>: todo el archivo se carga como un único inventario (un solo valor global). En el consolidado le asignas UNA cuenta.</span>
-            ) : (
-              <label className="flex min-w-0 flex-col gap-1">
-                <span className="text-[11px] font-medium text-ink-600">¿Cómo viene el {roles.find((r) => r.nombre === clasificadorRol)?.etiqueta.toLowerCase() ?? "tipo"}?</span>
-                <select value={modo} onChange={(e) => setModo(e.target.value as typeof modo)} className="w-full min-w-0 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400">
-                  <option value="columna">En su propia columna, en cada fila</option>
-                  <option value="arrastrar">Agrupado en su columna (una vez por bloque; se arrastra){clasifEsparso ? " · recomendado" : ""}</option>
-                  <option value="seccion">En renglones de sección (encabezados de grupo) intercalados con los ítems</option>
-                </select>
-              </label>
+                </td>
+              </tr>
+            ))}
+            {visibles.length === 0 && (
+              <tr>
+                <td colSpan={9} className="px-4 py-10 text-center text-[12.5px] text-ink-400">
+                  No se encontraron borradores con ese archivo, NIT, razón social o período.
+                </td>
+              </tr>
             )}
-            {modo === "seccion" && (
-              <label className="flex min-w-0 flex-col gap-1">
-                <span className="text-[11px] font-medium text-ink-600">El renglón de sección se reconoce porque está vacía la columna:</span>
-                <select value={spec?.seccionColumnaVaciaRol ?? "descripcion"} onChange={(e) => setSeccionRol(e.target.value)} className="w-full min-w-0 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400">
-                  {roles.filter((r) => r.nombre !== clasificadorRol).map((r) => <option key={r.nombre} value={r.nombre}>{r.etiqueta}</option>)}
-                </select>
-                <span className="text-[11px] leading-snug text-ink-500">El tipo va en la misma columna que otro campo (p. ej. el código): mapea ese campo a la misma columna del tipo. Si el archivo trae negrita, también se detecta por negrita.</span>
-                {(() => {
-                  const rolSenal = spec?.seccionColumnaVaciaRol ?? "descripcion";
-                  const colSenal = spec?.columnas[rolSenal] ?? 0;
-                  const colTipo = spec?.columnas[clasificadorRol] ?? 0;
-                  if (colSenal < 1)
-                    return <span className="text-[11px] font-semibold leading-snug text-err-700">⚠ Esa columna está «sin mapear»: mapéala arriba, o elige otra que esté vacía en los renglones de sección. Si no, no se detectaría ninguna sección.</span>;
-                  if (colSenal === colTipo)
-                    return <span className="text-[11px] font-semibold leading-snug text-err-700">⚠ Esa es la MISMA columna del tipo (nunca está vacía): elige otra —normalmente la Descripción— que sí venga vacía en los renglones de sección.</span>;
-                  return null;
-                })()}
-              </label>
-            )}
-          </div>
+          </tbody>
+        </table>
+      </div>
 
-          <label className="flex w-full max-w-xs flex-col gap-1">
-            <span className="text-[11px] font-medium text-ink-600">Mes del inventario <span className="text-err-600">*</span></span>
-            <input type="month" value={mes} onChange={(e) => setMes(e.target.value)} className="w-full rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-ink-700 outline-none focus:border-blue-400" />
-          </label>
-        </div>
-      )}
-    </Modal>
+      <PieTabla
+        rangeLabel={pg.rangeLabel}
+        page={pg.page}
+        totalPages={pg.totalPages}
+        pageSize={pg.pageSize}
+        onPageChange={pg.setPage}
+        onPageSizeChange={pg.setPageSize}
+      />
+    </Card>
+  );
+}
+
+function TablaCargados({
+  rows,
+  busqueda,
+  ruta,
+  moduloLabel,
+  onConversar,
+}: {
+  rows: CargadoModuloRow[];
+  busqueda: string;
+  ruta: string;
+  moduloLabel: string;
+  onConversar: OnConversar;
+}) {
+  const { visibles, orden, ...pg } = useListadoModulo(rows, busqueda);
+
+  const header = (label: string, columna: ColumnaOrdenModulo, alineacion?: "left" | "right") => (
+    <HeaderOrdenable
+      label={label}
+      columna={columna}
+      activa={orden.columna}
+      direccion={orden.direccion}
+      onOrdenar={orden.ordenar}
+      alineacion={alineacion}
+    />
+  );
+
+  if (rows.length === 0) {
+    return (
+      <Card>
+        <EmptyState
+          icon="doc"
+          title={`Aún no hay ${moduloLabel.toLowerCase()} cargados`}
+          description={`Usa «Cargar ${moduloLabel.toLowerCase()}» para leer el archivo del cliente. Quedará como borrador para revisarlo antes de cargarlo.`}
+        />
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="overflow-hidden">
+      <div className="flex items-center gap-2 border-b border-ink-100 px-4 py-2.5">
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">
+          {moduloLabel} cargados
+        </span>
+        <span className="rounded-full bg-ink-100 px-1.5 text-[10px] font-semibold text-ink-500">
+          {rows.length}
+        </span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-[12.5px]">
+          <thead className="bg-ink-50 text-ink-500">
+            <tr className="text-left">
+              <th className="px-3 py-2">{header("Archivo", "archivo")}</th>
+              <th className="px-3 py-2">{header("Cliente / NIT", "cliente")}</th>
+              <th className="px-3 py-2">{header("Período", "periodo")}</th>
+              <th className="px-3 py-2">{header("Versión", "version")}</th>
+              <th className="px-3 py-2 text-right">
+                <div className="flex justify-end">{header("Filas", "filas", "right")}</div>
+              </th>
+              <th className="px-3 py-2 text-right">
+                <div className="flex justify-end">{header("Total", "total", "right")}</div>
+              </th>
+              <th className="px-3 py-2 font-semibold">Estado</th>
+              <th className="px-3 py-2">{header("Última carga", "fecha")}</th>
+              <th className="px-3 py-2 text-right font-semibold">Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {pg.pageItems.map((r) => (
+              <tr key={r.id} className="border-t border-ink-100 align-middle hover:bg-ink-50/50">
+                <td className="max-w-[260px] px-3 py-2">
+                  <span className="flex flex-wrap items-center gap-1.5">
+                    {/* Los cargues antiguos no guardaron el nombre del archivo: ahí el
+                        renglón se abre por la razón social o por el ojo de «Acciones». */}
+                    {r.archivoNombre ? (
+                      <Link
+                        href={`${ruta}/${r.id}`}
+                        className="truncate font-medium text-blue-500 hover:underline"
+                        title={r.archivoNombre}
+                      >
+                        {r.archivoNombre}
+                      </Link>
+                    ) : (
+                      <span className="text-ink-400" title="Cargue histórico sin nombre de archivo">
+                        — sin archivo —
+                      </span>
+                    )}
+                    {r.comentarios > 0 && (
+                      <button
+                        type="button"
+                        title="Ver conversaciones"
+                        onClick={() =>
+                          onConversar({
+                            tipo: "modulos_datos",
+                            entityId: r.id,
+                            titulo: `${r.clienteNombre} · ${r.periodo} v${r.version}`,
+                          })
+                        }
+                      >
+                        <BadgeComentarios n={r.comentarios} />
+                      </button>
+                    )}
+                  </span>
+                  <span className="block text-[10.5px] text-ink-400">{etiquetaOrigen(r.origen)}</span>
+                  {r.cargadoPor && <span className="block text-[10.5px] text-ink-400">por {r.cargadoPor}</span>}
+                </td>
+                <td className="px-3 py-2 text-ink-700">
+                  <ClienteCelda nombre={r.clienteNombre} nit={r.clienteNit} href={`${ruta}/${r.id}`} />
+                </td>
+                <td className="px-3 py-2 font-mono text-[11px] text-ink-600">{r.periodo ?? "—"}</td>
+                <td className="px-3 py-2">
+                  <VersionCelda
+                    version={r.version}
+                    versiones={r.versiones}
+                    agrupado
+                    href={`${ruta}/${r.id}?tab=versiones`}
+                  />
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums text-ink-700">{r.filas}</td>
+                <td className="px-3 py-2 text-right font-semibold tabular-nums text-ink-800">
+                  {fmtContable(r.total)}
+                </td>
+                <td className="px-3 py-2">
+                  {r.esOficial ? (
+                    <Chip label="Vigente" tone="ok" />
+                  ) : (
+                    <Chip label="Histórica" tone="ink" />
+                  )}
+                </td>
+                <td className="px-3 py-2 text-[11px] text-ink-500">
+                  <span className="block whitespace-nowrap">{r.fecha}</span>
+                  {r.hora && <span className="block whitespace-nowrap text-[10px] text-ink-400">{r.hora}</span>}
+                </td>
+                <td className="px-3 py-2">
+                  <div className="flex items-center justify-end gap-1.5">
+                    <Link
+                      href={`${ruta}/${r.id}`}
+                      title={`Ver ${moduloLabel.toLowerCase()} cargados`}
+                      aria-label={`Ver ${moduloLabel.toLowerCase()} cargados`}
+                      className={`${BOTON_ACCION} border-ink-200 text-ink-600 hover:bg-ink-50 hover:text-ink-900`}
+                    >
+                      <Icon name="eye" size={15} />
+                    </Link>
+                    <Link
+                      href={`${ruta}/${r.id}?tab=versiones`}
+                      title="Ver versiones del período"
+                      aria-label="Ver versiones del período"
+                      className={`${BOTON_ACCION} border-ink-200 text-ink-600 hover:bg-ink-50 hover:text-ink-900`}
+                    >
+                      <Icon name="log" size={15} />
+                    </Link>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {visibles.length === 0 && (
+              <tr>
+                <td colSpan={9} className="px-4 py-10 text-center text-[12.5px] text-ink-400">
+                  No se encontraron cargues con ese archivo, NIT, razón social o período.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <PieTabla
+        rangeLabel={pg.rangeLabel}
+        page={pg.page}
+        totalPages={pg.totalPages}
+        pageSize={pg.pageSize}
+        onPageChange={pg.setPage}
+        onPageSizeChange={pg.setPageSize}
+      />
+    </Card>
   );
 }
