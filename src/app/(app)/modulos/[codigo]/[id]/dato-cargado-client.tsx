@@ -294,8 +294,8 @@ function ConsolidadoTab({
           </div>
         </div>
       )}
-      <div className="overflow-x-auto">
-        <table className="w-full text-[12.5px]">
+      <div className="max-h-[70vh] overflow-auto">
+        <table className="tabla-encabezado-fijo w-full text-[12.5px]">
           <thead className="bg-ink-50 text-left text-ink-500">
             <tr>
               {puedeEditar && (
@@ -668,8 +668,8 @@ function DetalleTab({ columnas, clasificadorEtiqueta, detalle, negativosFilas, e
   return (
     <Card className="p-0">
       <div className="max-h-[70vh] overflow-auto">
-        <table className="w-full text-[12px]">
-          <thead className="sticky top-0 bg-ink-50 text-left text-ink-500">
+        <table className="tabla-encabezado-fijo w-full text-[12px]">
+          <thead className="bg-ink-50 text-left text-ink-500">
             <tr>
               <th className="px-2.5 py-2 font-semibold">#</th>
               {columnas.map((c) => (
