@@ -21,10 +21,16 @@ import { SpecModuloSchema, type SpecModulo } from "@/lib/modulos/extraccion/esqu
 import { sugerirSpec } from "@/lib/modulos/extraccion/sugerir";
 import { transformarModulo } from "@/lib/modulos/extraccion/transformar";
 import { promoverStaging, type FilaStagingModulo } from "@/lib/modulos/promocion";
+import { refRolDe, clavesDeDetalle, decidirCarga, remapFilas } from "@/lib/modulos/fraccionamiento";
 import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
 import { tomarCandadoTransaccion, transaccionSerializable } from "@/lib/concurrency";
 
 const rutaModulo = (codigo: string) => `/modulos/${codigo.toLowerCase()}`;
+// Marca de idempotencia de un anexo (modo "agregar"): se guarda al final de las
+// observaciones del encabezado vigente para poder detectar un reintento del mismo
+// `loteId` (el anexo NO crea un encabezado propio, así que no puede reutilizar la
+// idempotencia por `ModuloDatoEncabezado.loteId` que sí tiene el modo "version").
+const marcaAnexoModulo = (loteId: string) => `[lote:${loteId}]`;
 const LOTE_STAGING_MODULO = 2_000;
 const TIMEOUT_TRANSACCION_MODULO_MS = 15 * 60 * 1000;
 const tamArchivo = (bytes: number): string => {
@@ -282,7 +288,7 @@ export async function aplicarCambiosBorradorModulo(
 // ============================================================
 // PROMOVER el borrador a oficial (staging → detalle) + purga.
 // ============================================================
-export async function cargarBorradorModulo(_prev: ActionState | undefined, formData: FormData): Promise<ActionState & { encabezadoId?: number }> {
+export async function cargarBorradorModulo(_prev: ActionState | undefined, formData: FormData): Promise<ActionState & { encabezadoId?: number; modo?: "agregar" | "version" }> {
   const authz = await authorizePermiso("modulos_datos:crear");
   if (!authz.ok) return { ok: false, message: authz.message };
   const loteId = String(formData.get("loteId") ?? "").trim();
@@ -301,6 +307,17 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
       const scope = await authorizePermiso("modulos_datos:crear", { clientId: yaPromovido.clienteId });
       if (!scope.ok) return { ok: false, message: scope.message };
       return { ok: true, encabezadoId: yaPromovido.id, message: `La versión v${yaPromovido.version} ya había sido cargada.` };
+    }
+    // Mismo reintento, pero para un anexo (modo "agregar"): el detalle ya se sumó al
+    // vigente en un intento previo, aunque este loteId no bautizó ningún encabezado.
+    const yaFusionado = await prisma.moduloDatoEncabezado.findFirst({
+      where: { observaciones: { contains: marcaAnexoModulo(loteId) } },
+      select: { id: true, clienteId: true, version: true, periodo: true },
+    });
+    if (yaFusionado) {
+      const scope = await authorizePermiso("modulos_datos:crear", { clientId: yaFusionado.clienteId });
+      if (!scope.ok) return { ok: false, message: scope.message };
+      return { ok: true, encabezadoId: yaFusionado.id, message: `Ese archivo ya se había agregado a la v${yaFusionado.version} del período ${yaFusionado.periodo}.` };
     }
 
     const lote = await prisma.moduloImportacionLote.findUnique({
@@ -337,7 +354,7 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
         where: { loteId },
         select: { id: true, version: true, filas: true, total: true },
       });
-      if (existente) return { encabezadoId: existente.id, version: existente.version, filas: existente.filas, total: Number(existente.total), reutilizado: true };
+      if (existente) return { encabezadoId: existente.id, version: existente.version, filas: existente.filas, total: Number(existente.total), aportados: existente.filas, reutilizado: true, modo: "version" as const };
 
       await tomarCandadoTransaccion(tx, `modulo-borrador:${loteId}`);
       const loteActual = await tx.moduloImportacionLote.findUnique({
@@ -373,8 +390,99 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
         throw new Error("No hay filas imputables para cargar (todas omitidas, agrupadoras o en cero).");
       }
 
-      // Serializa el consecutivo y el cambio de versión vigente para este grupo.
+      // Serializa el consecutivo y el cambio de versión vigente para este grupo (también
+      // serializa dos anexos concurrentes al mismo vigente: el segundo espera al primero).
       await tomarCandadoTransaccion(tx, `modulo-cargue:${loteActual.clienteId}:${loteActual.moduloCodigo}:${periodo}`);
+      const ahora = new Date();
+
+      // Fraccionamiento: el vigente del período (si lo hay) decide si el archivo se
+      // AGREGA (ítems nuevos → misma versión, se acumula) o si crea una VERSIÓN nueva
+      // completa (re-subida de algún ítem ya cargado, o el vigente está congelado).
+      const vigente = await tx.moduloDatoEncabezado.findFirst({
+        where: { clienteId: loteActual.clienteId, moduloCodigo: loteActual.moduloCodigo, periodo, esOficial: true },
+        select: { id: true, version: true, filas: true, total: true, observaciones: true, estaCongelado: true },
+      });
+      const refRol = refRolDe(descriptor);
+      const clavesNuevas = clavesDeDetalle(promocion.detalle, refRol);
+      let clavesExistentes = new Set<string>();
+      let maxFilaExistente = 0;
+      if (vigente) {
+        const detalleVigente = await tx.moduloDatoDetalle.findMany({
+          where: { encabezadoId: vigente.id },
+          select: { filaNum: true, clasificador: true, datos: true },
+        });
+        clavesExistentes = clavesDeDetalle(
+          detalleVigente.map((d) => ({ clasificador: d.clasificador, datos: (d.datos ?? {}) as Record<string, unknown> })),
+          refRol,
+        );
+        maxFilaExistente = detalleVigente.reduce((m, d) => Math.max(m, d.filaNum), 0);
+      }
+      const decision = decidirCarga({
+        hayVigente: !!vigente,
+        vigenteCongelado: vigente?.estaCongelado ?? false,
+        clavesNuevas,
+        clavesExistentes,
+      });
+
+      if (decision.modo === "agregar" && vigente) {
+        const { filas: detalleRemapeado, remap } = remapFilas(promocion.detalle, maxFilaExistente);
+        await tx.moduloDatoDetalle.createMany({
+          data: detalleRemapeado.map((d) => ({
+            encabezadoId: vigente.id,
+            filaNum: d.filaNum,
+            clasificador: d.clasificador,
+            valor: d.valor,
+            datos: d.datos as Prisma.InputJsonValue,
+          })),
+        });
+
+        const linea = `Anexo: ${loteActual.archivoNombre} (+${promocion.filas} ítems) · ${ahora.toISOString().slice(0, 10)}${observaciones ? ` — ${observaciones}` : ""} ${marcaAnexoModulo(loteId)}`;
+        const observacionesFinal = vigente.observaciones ? `${vigente.observaciones}\n${linea}` : linea;
+
+        await tx.moduloDatoEncabezado.update({
+          where: { id: vigente.id },
+          data: {
+            filas: { increment: promocion.filas },
+            total: { increment: promocion.total },
+            ultimaCarga: ahora,
+            cargadoPor: user?.name ?? null,
+            cargadoPorId: user?.id ?? null,
+            observaciones: observacionesFinal,
+            verificaciones: verificaciones as Prisma.InputJsonValue,
+          },
+        });
+
+        // Reancla SOLO los comentarios `fila:<n>` cuyo renglón se promovió (está en el
+        // remap); los de otras anclas, o de filas que no llegaron al oficial, migran tal cual.
+        const comentarios = await tx.comment.findMany({ where: { entityType: "modulos_borrador", entityId: loteActual.id } });
+        for (const c of comentarios) {
+          const m = /^fila:(\d+)$/.exec(c.anchor ?? "");
+          const nuevaFila = m ? remap.get(Number(m[1])) : undefined;
+          await tx.comment.update({
+            where: { id: c.id },
+            data: { entityType: "modulos_datos", entityId: vigente.id, ...(nuevaFila != null ? { anchor: `fila:${nuevaFila}` } : {}) },
+          });
+        }
+
+        const stagingEliminado = await tx.moduloImportacionStaging.deleteMany({ where: { loteId } });
+        if (stagingEliminado.count === 0) throw new Error("No se pudo consumir el detalle del borrador; la promoción fue revertida.");
+        const loteEliminado = await tx.moduloImportacionLote.deleteMany({ where: { loteId } });
+        if (loteEliminado.count !== 1) throw new Error("No se pudo consumir el encabezado del borrador; la promoción fue revertida.");
+
+        return {
+          encabezadoId: vigente.id,
+          version: vigente.version,
+          filas: vigente.filas + promocion.filas,
+          total: Number(vigente.total) + promocion.total,
+          aportados: promocion.filas,
+          reutilizado: false,
+          modo: "agregar" as const,
+        };
+      }
+
+      // VERSIÓN nueva completa (sin vigente, vigente congelado, o re-subida de un ítem):
+      // cada confirmación en este modo es una fotografía independiente. Ningún detalle se
+      // anexa a una versión anterior: las anteriores quedan como historial.
       const previa = await tx.moduloDatoEncabezado.findFirst({
         where: { clienteId: loteActual.clienteId, moduloCodigo: loteActual.moduloCodigo, periodo },
         orderBy: [{ version: "desc" }, { id: "desc" }],
@@ -382,13 +490,10 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
       });
       const version = (previa?.version ?? 0) + 1;
 
-      // Cada confirmación es una fotografía independiente. Ningún detalle se
-      // anexa a una versión anterior: las anteriores quedan como historial.
       await tx.moduloDatoEncabezado.updateMany({
         where: { clienteId: loteActual.clienteId, moduloCodigo: loteActual.moduloCodigo, periodo, esOficial: true },
         data: { esOficial: false },
       });
-      const ahora = new Date();
       const enc = await tx.moduloDatoEncabezado.create({
         data: {
           moduloCodigo: loteActual.moduloCodigo,
@@ -429,21 +534,25 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
       const loteEliminado = await tx.moduloImportacionLote.deleteMany({ where: { loteId } });
       if (loteEliminado.count !== 1) throw new Error("No se pudo consumir el encabezado del borrador; la promoción fue revertida.");
 
-      return { encabezadoId: enc.id, version, filas: promocion.filas, total: promocion.total, reutilizado: false };
+      return { encabezadoId: enc.id, version, filas: promocion.filas, total: promocion.total, aportados: promocion.filas, reutilizado: false, modo: "version" as const };
     }, { timeoutMs: TIMEOUT_TRANSACCION_MODULO_MS });
 
-    const mensaje = `Nueva versión v${resultado.version} cargada (${resultado.filas} filas).`;
+    const mensaje = resultado.modo === "agregar"
+      ? `Agregado a ${descriptor.label} del período ${periodo} (${resultado.aportados} ítems nuevos, total ${resultado.filas}).`
+      : `Nueva versión v${resultado.version} cargada (${resultado.filas} filas).`;
     if (!resultado.reutilizado) {
       await logAudit({
         user: user?.name ?? "Sistema",
-        action: `CARGÓ ${descriptor.label}`,
+        action: resultado.modo === "agregar" ? `AGREGÓ ítems a ${descriptor.label}` : `CARGÓ ${descriptor.label}`,
         entity: cliente.name,
-        detail: `${periodo} · v${resultado.version} · ${resultado.filas} filas · total ${resultado.total}`,
+        detail: resultado.modo === "agregar"
+          ? `${periodo} · v${resultado.version} · +${resultado.aportados} filas (total ${resultado.filas}) · total $ ${resultado.total}`
+          : `${periodo} · v${resultado.version} · ${resultado.filas} filas · total ${resultado.total}`,
         clientId: lote.clienteId,
       });
     }
     revalidatePath(rutaModulo(lote.moduloCodigo));
-    return { ok: true, encabezadoId: resultado.encabezadoId, message: mensaje };
+    return { ok: true, encabezadoId: resultado.encabezadoId, modo: resultado.modo, message: mensaje };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("cargarBorradorModulo", e) };
   }
