@@ -10,9 +10,20 @@ import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import ComentarioAncla from "@/components/comentario-ancla";
 import { guardarConsolidacionModulo, guardarConsolidacionModuloLote } from "@/app/actions/modulos-datos";
 import { aplicarAsignacionMasiva, contarConCuentas, type ModoAsignacionMasiva } from "@/lib/modulos/consolidacion-masiva";
+import { filtrarFilasDetalleModulo, hayFiltrosDetalleModulo, type FiltrosDetalleModulo } from "@/lib/modulos/filtros-detalle-modulo";
+import type { ResumenCruceContable } from "@/lib/modulos/cruce-contable";
 
 export type FilaDetalleVm = { filaNum: number; clasificador: string | null; valor: number; datos: Record<string, string | number | null> };
 export type ConsolidadoVm = { clasificador: string; total: number; filas: number; cuentas4: { codigo: string; nombre: string | null }[] };
+// Cruce contable (balance vs. archivos del módulo): `resumen` es null cuando NO hay
+// balance de comprobación oficial para el período del módulo (estado vacío en la UI).
+export type CruceContableVm = {
+  balanceEncontrado: boolean;
+  periodo: string;
+  nombreCliente: string;
+  resumen: ResumenCruceContable | null;
+  sinMapeoContable: { total: number; filas: number } | null;
+};
 export type NovedadesVm = {
   negativos: { filaNum: number; etiqueta: string; referencia: string | null; valor: number }[];
   descuadres: { filaNum: number; referencia: string | null; etiqueta: string; declarado: number; esperado: number }[];
@@ -52,6 +63,7 @@ export default function DatoCargadoClient({
   clasificadorEtiqueta,
   detalle,
   consolidado,
+  cruceContable,
   novedades,
   cuentas,
   homologacionCliente,
@@ -69,6 +81,7 @@ export default function DatoCargadoClient({
   clasificadorEtiqueta: string;
   detalle: FilaDetalleVm[];
   consolidado: ConsolidadoVm[];
+  cruceContable: CruceContableVm;
   novedades: NovedadesVm;
   cuentas: CuentaOpt[];
   homologacionCliente: HomologacionCliente;
@@ -77,21 +90,21 @@ export default function DatoCargadoClient({
   versionActualId: number;
   tabInicial: "versiones" | null;
 }) {
-  const [tab, setTab] = useState<"detalle" | "consolidado" | "novedades" | "versiones">(tabInicial ?? "consolidado");
+  const [tab, setTab] = useState<"detalle" | "consolidado" | "cruce" | "novedades" | "versiones">(tabInicial ?? "consolidado");
   const filasNovedad = new Set([...novedades.negativos, ...novedades.descuadres].map((n) => n.filaNum));
   const alertas = filasNovedad.size;
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-1 border-b border-ink-150">
-        {(["consolidado", "detalle", "novedades", "versiones"] as const).map((t) => (
+        {(["consolidado", "detalle", "cruce", "novedades", "versiones"] as const).map((t) => (
           <button
             key={t}
             type="button"
             onClick={() => setTab(t)}
             className={`-mb-px border-b-2 px-3 py-2 text-[12.5px] font-semibold ${tab === t ? "border-navy-700 text-navy-700" : "border-transparent text-ink-500 hover:text-ink-700"}`}
           >
-            {t === "consolidado" ? "Consolidado" : t === "detalle" ? "Detalle" : t === "novedades" ? "Novedades" : "Versiones"}
+            {t === "consolidado" ? "Consolidado" : t === "detalle" ? "Detalle" : t === "cruce" ? "Cruce contable" : t === "novedades" ? "Novedades" : "Versiones"}
             {t === "novedades" && alertas > 0 && <span className="ml-1.5 rounded-full bg-err-100 px-1.5 text-[10px] font-bold text-err-700">{alertas}</span>}
             {t === "versiones" && <span className="ml-1.5 rounded-full bg-ink-100 px-1.5 text-[10px] font-bold text-ink-600">{versiones.length}</span>}
           </button>
@@ -103,6 +116,8 @@ export default function DatoCargadoClient({
         <ConsolidadoTab moduloCodigo={moduloCodigo} clienteId={clienteId} clasificadorEtiqueta={clasificadorEtiqueta} consolidado={consolidado} cuentas={cuentas} homologacionCliente={homologacionCliente} puedeEditar={puedeEditar} encabezadoId={encabezadoId} comentarios={comentarios} />
       ) : tab === "detalle" ? (
         <DetalleTab columnas={columnas} clasificadorEtiqueta={clasificadorEtiqueta} detalle={detalle} negativosFilas={filasNovedad} encabezadoId={encabezadoId} comentarios={comentarios} />
+      ) : tab === "cruce" ? (
+        <CruceContableTab cruceContable={cruceContable} />
       ) : tab === "novedades" ? (
         <NovedadesTab novedades={novedades} />
       ) : (
@@ -653,10 +668,16 @@ function DetalleTab({ columnas, clasificadorEtiqueta, detalle, negativosFilas, e
     if (col.tipo === "numero") return fmtNum(Number(v));
     return String(v);
   };
+  const [filtros, setFiltros] = useState<FiltrosDetalleModulo>({});
+  const hayFiltros = hayFiltrosDetalleModulo(filtros);
+  const detalleFiltrado = useMemo(
+    () => filtrarFilasDetalleModulo(detalle, columnas, filtros),
+    [detalle, columnas, filtros],
+  );
   const grupos = useMemo(() => {
     const orden: string[] = [];
     const m = new Map<string, { filas: FilaDetalleVm[]; subtotal: number }>();
-    for (const f of detalle) {
+    for (const f of detalleFiltrado) {
       const k = f.clasificador?.trim() || "(sin clasificar)";
       let g = m.get(k);
       if (!g) { g = { filas: [], subtotal: 0 }; m.set(k, g); orden.push(k); }
@@ -664,12 +685,24 @@ function DetalleTab({ columnas, clasificadorEtiqueta, detalle, negativosFilas, e
       g.subtotal += f.valor;
     }
     return orden.map((k) => ({ clasificador: k, ...m.get(k)! }));
-  }, [detalle]);
+  }, [detalleFiltrado]);
   return (
     <Card className="p-0">
+      <div className="flex items-center justify-between gap-3 border-b border-ink-100 px-3 py-2 text-[12px] text-ink-500">
+        <span>
+          {hayFiltros
+            ? <><span className="font-semibold text-ink-700">{detalleFiltrado.length.toLocaleString("es-CO")}</span> de {detalle.length.toLocaleString("es-CO")} filas</>
+            : <><span className="font-semibold text-ink-700">{detalle.length.toLocaleString("es-CO")}</span> filas</>}
+        </span>
+        {hayFiltros && (
+          <button type="button" onClick={() => setFiltros({})} className="rounded-md border border-ink-200 px-2 py-1 font-medium text-ink-600 hover:bg-ink-50">
+            Limpiar filtros
+          </button>
+        )}
+      </div>
       <div className="max-h-[70vh] overflow-auto">
         <table className="w-full text-[12px]">
-          <thead className="sticky top-0 bg-ink-50 text-left text-ink-500">
+          <thead className="sticky top-0 z-10 bg-ink-50 text-left text-ink-500">
             <tr>
               <th className="px-2.5 py-2 font-semibold">#</th>
               {columnas.map((c) => (
@@ -677,8 +710,30 @@ function DetalleTab({ columnas, clasificadorEtiqueta, detalle, negativosFilas, e
               ))}
               <th className="px-2.5 py-2 text-center font-semibold">💬</th>
             </tr>
+            <tr className="bg-ink-50/95">
+              <th className="px-2.5 pb-2" />
+              {columnas.map((c) => (
+                <th key={c.nombre} className="px-1.5 pb-2 font-normal">
+                  <input
+                    type="text"
+                    value={filtros[c.nombre] ?? ""}
+                    onChange={(e) => setFiltros((prev) => ({ ...prev, [c.nombre]: e.target.value }))}
+                    placeholder={esNum(c.tipo) ? "> < = …" : "Filtrar…"}
+                    className={`w-full min-w-[80px] rounded-md border border-ink-200 bg-white px-2 py-1 text-[12px] text-ink-700 placeholder:text-ink-300 focus:border-blue-400 focus:outline-none ${esNum(c.tipo) ? "text-right" : ""}`}
+                  />
+                </th>
+              ))}
+              <th className="px-2.5 pb-2" />
+            </tr>
           </thead>
           <tbody>
+            {grupos.length === 0 && (
+              <tr>
+                <td colSpan={columnas.length + 2} className="px-2.5 py-6 text-center text-ink-400">
+                  Ninguna fila coincide con los filtros.
+                </td>
+              </tr>
+            )}
             {grupos.map((g) => (
               <Fragment key={g.clasificador}>
                 <tr className="border-t-2 border-ink-200 bg-blue-50/70">
@@ -707,6 +762,98 @@ function DetalleTab({ columnas, clasificadorEtiqueta, detalle, negativosFilas, e
         </table>
       </div>
     </Card>
+  );
+}
+
+// Cruce contable: saldo del balance de comprobación vs. valor cargado en los archivos
+// del módulo, cuenta Russell (4 díg.) por cuenta Russell. Estado vacío si no hay balance
+// oficial para el período; avisos aparte para clasificadores ambiguos y saldos contables
+// de inventario sin homologar.
+function CruceContableTab({ cruceContable }: { cruceContable: CruceContableVm }) {
+  if (!cruceContable.balanceEncontrado || !cruceContable.resumen) {
+    return (
+      <Card className="flex flex-col items-center gap-2 p-8 text-center">
+        <div className="text-[13px] font-semibold text-ink-800">No hay balance de comprobación oficial para este período</div>
+        <p className="max-w-md text-[12.5px] text-ink-500">
+          No hay balance de comprobación oficial para <b className="text-ink-700">{cruceContable.nombreCliente}</b> en el período <b className="text-ink-700">{cruceContable.periodo}</b>. Carga o marca como oficial un balance de ese período para ver el cruce.
+        </p>
+        <Link href="/balance" className="mt-1 text-[12.5px] font-semibold text-blue-700 hover:underline">
+          Ir a Balance de comprobación →
+        </Link>
+      </Card>
+    );
+  }
+
+  const { resumen, sinMapeoContable } = cruceContable;
+
+  return (
+    <div className="flex flex-col gap-4">
+      <Card className="p-0">
+        <div className="overflow-x-auto">
+          <table className="w-full text-[12.5px]">
+            <thead className="bg-ink-50 text-left text-ink-500">
+              <tr>
+                <th className="px-3 py-2 font-semibold">Cuenta</th>
+                <th className="px-3 py-2 text-right font-semibold">Contabilidad</th>
+                <th className="px-3 py-2 text-right font-semibold">Inventario (archivos)</th>
+                <th className="px-3 py-2 text-right font-semibold">Diferencia</th>
+              </tr>
+            </thead>
+            <tbody>
+              {resumen.filas.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="px-3 py-6 text-center text-ink-400">Sin cuentas para cruzar en este período.</td>
+                </tr>
+              )}
+              {resumen.filas.map((f) => (
+                <tr key={f.cuenta4} className={`border-t border-ink-100 ${f.estado === "descuadre" ? "bg-err-100/30" : ""}`}>
+                  <td className="px-3 py-2 font-medium text-ink-800">{etiquetaRussell(f.cuenta4, f.nombre)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(f.contable)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(f.inventario)}</td>
+                  <td className="px-3 py-2 text-right">
+                    <div className="flex items-center justify-end gap-1.5">
+                      {f.estado === "solo_contable" && <Chip label="Sin inventario" tone="warn" />}
+                      {f.estado === "solo_inventario" && <Chip label="Sin contabilidad" tone="warn" />}
+                      <span className={`tabular-nums font-semibold ${f.cuadra ? "text-ok-700" : "text-err-700"}`}>{fmtContable(f.diferencia)}</span>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            {resumen.filas.length > 0 && (
+              <tfoot>
+                <tr className="border-t-2 border-ink-200 bg-ink-50 font-semibold text-ink-800">
+                  <td className="px-3 py-2">Totales</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{fmtContable(resumen.totales.contable)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{fmtContable(resumen.totales.inventario)}</td>
+                  <td className={`px-3 py-2 text-right tabular-nums ${Math.abs(resumen.totales.diferencia) <= 0.01 ? "text-ok-700" : "text-err-700"}`}>{fmtContable(resumen.totales.diferencia)}</td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+      </Card>
+
+      {(resumen.sinCuenta.length > 0 || resumen.multiAsignado.length > 0 || sinMapeoContable) && (
+        <div className="flex flex-col gap-2">
+          {resumen.sinCuenta.length > 0 && (
+            <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[12px] text-warn-700">
+              <b>{resumen.sinCuenta.length}</b> {resumen.sinCuenta.length === 1 ? "clasificador" : "clasificadores"} sin cuenta Russell asignada, excluido{resumen.sinCuenta.length === 1 ? "" : "s"} del cruce: {resumen.sinCuenta.map((s) => `${s.clasificador} (${fmtContable(s.total)})`).join("  ·  ")}.
+            </div>
+          )}
+          {resumen.multiAsignado.length > 0 && (
+            <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[12px] text-warn-700">
+              <b>{resumen.multiAsignado.length}</b> {resumen.multiAsignado.length === 1 ? "clasificador está" : "clasificadores están"} asignado{resumen.multiAsignado.length === 1 ? "" : "s"} a varias cuentas, excluido{resumen.multiAsignado.length === 1 ? "" : "s"} del cruce por cuenta (ambiguo): {resumen.multiAsignado.map((s) => `${s.clasificador} → ${s.cuentas4.join(", ")} (${fmtContable(s.total)})`).join("  ·  ")}.
+            </div>
+          )}
+          {sinMapeoContable && (
+            <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">
+              El balance tiene <b>{fmtContable(sinMapeoContable.total)}</b> en {sinMapeoContable.filas} {sinMapeoContable.filas === 1 ? "cuenta" : "cuentas"} de inventario sin homologar a una cuenta Russell — no está incluido en «Contabilidad». Homológalas en la memoria de mapeo del cliente para que entren al cruce.
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
