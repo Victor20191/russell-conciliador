@@ -8,12 +8,23 @@ import { descriptorModulo } from "@/lib/modulos/descriptores";
 import {
   filtrarSubgruposPorModulo,
   prefijosCuentaModulo,
+  cuenta4DelModulo,
 } from "@/lib/modulos/cuentas-modulo";
 import { consolidarPorClasificador } from "@/lib/modulos/promocion";
 import { detectarNegativos, detectarDescuadres } from "@/lib/modulos/validaciones";
 import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
 import { fmtDateTime } from "@/lib/format";
-import DatoCargadoClient, { type FilaDetalleVm, type ConsolidadoVm, type NovedadesVm, type VersionModuloVm } from "./dato-cargado-client";
+import { construirCruceContable, type ResumenCruceContable } from "@/lib/modulos/cruce-contable";
+import DatoCargadoClient, { type FilaDetalleVm, type ConsolidadoVm, type NovedadesVm, type VersionModuloVm, type CruceContableVm } from "./dato-cargado-client";
+
+/** ¿El `periodoFin` del balance cae en el mismo año-mes que el período del módulo ("YYYY-MM")? */
+function mismoAnioMes(periodoFin: Date, periodoModulo: string): boolean {
+  const [anioStr, mesStr] = periodoModulo.split("-");
+  const anio = Number(anioStr);
+  const mes = Number(mesStr);
+  if (!Number.isInteger(anio) || !Number.isInteger(mes)) return false;
+  return periodoFin.getUTCFullYear() === anio && periodoFin.getUTCMonth() + 1 === mes;
+}
 
 export default async function DatoModuloPage({
   params,
@@ -128,6 +139,51 @@ export default async function DatoModuloPage({
     filas: c.filas,
     cuentas4: (cuentasPorClasificador.get(c.clasificador) ?? []).map((cod) => ({ codigo: cod, nombre: nombrePorCuenta.get(cod) ?? null })),
   }));
+  // Cruce contable: saldo del balance de comprobación OFICIAL vigente cuyo período
+  // (año-mes de `periodoFin`) coincida con el período del módulo, contra el consolidado
+  // por clasificador que se está viendo (`encabezadoId` actual).
+  const encabezadosBalanceOficiales = await prisma.balancePruebaEncabezado.findMany({
+    where: { clienteId: encabezado.clienteId, esOficial: true },
+    select: { id: true, periodoFin: true },
+    orderBy: [{ periodoFin: "desc" }, { id: "desc" }],
+  });
+  const balanceEmparejado = encabezadosBalanceOficiales.find((b) => mismoAnioMes(b.periodoFin, encabezado.periodo)) ?? null;
+
+  let cruceContable: ResumenCruceContable | null = null;
+  let sinMapeoContable: { total: number; filas: number } | null = null;
+  if (balanceEmparejado) {
+    const detallesBalance = await prisma.balancePruebaDetalle.findMany({
+      where: { encabezadoId: balanceEmparejado.id },
+      select: { cuenta4: true, cuenta6Russell: true, saldoFinal: true },
+    });
+    const contablePorCuenta: Record<string, number> = {};
+    let sinMapeoTotal = 0;
+    let sinMapeoFilas = 0;
+    for (const d of detallesBalance) {
+      const saldo = Number(d.saldoFinal);
+      if (d.cuenta6Russell) {
+        const sub4 = d.cuenta6Russell.replace(/\D/g, "").slice(0, 4);
+        if (codigosModulo.has(sub4)) contablePorCuenta[sub4] = (contablePorCuenta[sub4] ?? 0) + saldo;
+      } else if (cuenta4DelModulo(d.cuenta4, prefijosModulo)) {
+        sinMapeoTotal += saldo;
+        sinMapeoFilas += 1;
+      }
+    }
+    cruceContable = construirCruceContable({
+      contablePorCuenta,
+      consolidado: consolidadoVm.map((c) => ({ clasificador: c.clasificador, total: c.total, cuentas4: c.cuentas4.map((x) => x.codigo) })),
+      nombrePorCuenta: (cod) => nombrePorCuenta.get(cod) ?? null,
+    });
+    if (sinMapeoFilas > 0) sinMapeoContable = { total: sinMapeoTotal, filas: sinMapeoFilas };
+  }
+  const cruceContableVm: CruceContableVm = {
+    balanceEncontrado: balanceEmparejado != null,
+    periodo: encabezado.periodo,
+    nombreCliente: encabezado.nombreCliente,
+    resumen: cruceContable,
+    sinMapeoContable,
+  };
+
   const versiones: VersionModuloVm[] = hermanos.map((hermano) => ({
     id: hermano.id,
     version: hermano.version,
@@ -168,6 +224,7 @@ export default async function DatoModuloPage({
         clasificadorEtiqueta={descriptor.columnas.find((c) => c.nombre === descriptor.clasificador)?.etiqueta ?? "Clasificador"}
         detalle={detalleVm}
         consolidado={consolidadoVm}
+        cruceContable={cruceContableVm}
         novedades={novedades}
         cuentas={cuentasModulo.map((s) => ({ codigo: s.codigo, nombre: s.nombre }))}
         homologacionCliente={homologacionPorSubgrupo}
