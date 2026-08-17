@@ -1008,7 +1008,7 @@ function TipoBalanceRevision({
   onElegir: (apertura: AperturaBalance) => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2" role="radiogroup" aria-label="Tipo de balance">
       <span className="text-[12px] font-semibold text-ink-700">
         Tipo de balance <span className="text-warn-700">*</span>
       </span>
