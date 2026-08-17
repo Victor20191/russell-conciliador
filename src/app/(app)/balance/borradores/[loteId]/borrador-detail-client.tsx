@@ -18,12 +18,12 @@ import {
 import { fmt, fmtContable } from "@/lib/format";
 import { actualizarAperturaBorrador, actualizarPeriodoBorrador, cargarBorrador, descartarBorrador, aplicarCambiosBorrador, asignarClienteBorrador, guardarNotasDesdeEditor } from "@/app/actions/balance";
 import {
-  APERTURAS_BALANCE,
   aperturaSugerida,
   etiquetaApertura,
   parsearApertura,
   type AperturaBalance,
 } from "@/lib/balance/apertura-balance";
+import { SelectorAperturaBalance } from "@/app/(app)/balance/selector-apertura-balance";
 import type { ImportBalanceState } from "@/lib/import/balance";
 import { construirVistaBorrador } from "@/lib/balance/borrador-vm";
 import {
@@ -1532,28 +1532,18 @@ export default function BorradorDetailClient({
               <span className="text-[11.5px] font-medium text-ink-600">Período hasta</span>
               <input type="date" name="periodoFin" required value={periodoFin} onChange={(e) => setPeriodoFin(e.target.value)} onBlur={() => guardarPeriodo()} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400" />
             </label>
-            <label className="flex flex-col gap-1.5">
+            <div className="flex flex-col gap-1.5">
               <span className="text-[11.5px] font-medium text-ink-600">
                 Tipo de balance <span className="text-warn-700">*</span>
               </span>
-              <select
+              <SelectorAperturaBalance
                 name="aperturaBalance"
-                required
-                value={aperturaBalance ?? ""}
-                onChange={(e) => elegirApertura(e.target.value)}
-                aria-describedby="ayuda-tipo-balance"
-                className={`rounded-md border bg-white px-2.5 py-2 text-[12.5px] outline-none focus:border-blue-400 ${
-                  aperturaBalance ? "border-ink-200 text-ink-700" : "border-warn-300 text-ink-500"
-                }`}
-              >
-                <option value="">Selecciona…</option>
-                {APERTURAS_BALANCE.map((opcion) => (
-                  <option key={opcion.valor} value={opcion.valor} title={opcion.descripcion}>
-                    {opcion.etiqueta}
-                  </option>
-                ))}
-              </select>
-            </label>
+                value={aperturaBalance}
+                onChange={elegirApertura}
+                disabled={guardandoApertura}
+                describedBy="ayuda-tipo-balance"
+              />
+            </div>
           </div>
           {/* La lectura del archivo ya tiene una sospecha (detección de terceros):
               se ofrece como sugerencia, pero la respuesta la da el analista. */}

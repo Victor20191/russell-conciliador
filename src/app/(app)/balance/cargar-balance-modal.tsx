@@ -15,13 +15,8 @@ import {
   type LeerBalanceState,
   type SugerenciaBalance,
 } from "@/app/actions/balance";
-import {
-  APERTURAS_BALANCE,
-  aperturaSugerida,
-  etiquetaApertura,
-  parsearApertura,
-  type AperturaBalance,
-} from "@/lib/balance/apertura-balance";
+import { type AperturaBalance } from "@/lib/balance/apertura-balance";
+import { SelectorAperturaBalance } from "@/app/(app)/balance/selector-apertura-balance";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import { leerHojasParaPreview, columnaLetra, type CeldaCruda, type HojaPreview } from "@/lib/balance/extraccion/hojas-cliente";
 import type { SpecCarga } from "@/lib/balance/extraccion/esquema";
@@ -867,7 +862,6 @@ function FormRevisar({
 
       <TipoBalanceRevision
         apertura={apertura}
-        porTerceroDetectado={sug.render.porTercero}
         guardando={guardandoApertura}
         onElegir={onElegirApertura}
       />
@@ -1006,83 +1000,25 @@ function IdentificacionCliente({
  */
 function TipoBalanceRevision({
   apertura,
-  porTerceroDetectado,
   guardando,
   onElegir,
 }: {
   apertura: AperturaBalance | null;
-  porTerceroDetectado: boolean;
   guardando: boolean;
   onElegir: (apertura: AperturaBalance) => void;
 }) {
-  const sugerida = aperturaSugerida(porTerceroDetectado);
-  const elegir = (valor: string) => {
-    const parseada = parsearApertura(valor);
-    if (parseada) onElegir(parseada);
-  };
-
   return (
-    <section
-      className={`rounded-lg border px-3.5 py-3 ${
-        apertura ? "border-ok-100 bg-ok-100/55" : "border-warn-200 bg-warn-100/55"
-      }`}
-      aria-label="Tipo de balance"
-    >
-      <div className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-        <label className="flex min-w-0 flex-col gap-1.5">
-          <span className="text-[12px] font-semibold text-ink-700">
-            Tipo de balance <span className="text-warn-700">*</span>
-          </span>
-          <select
-            value={apertura ?? ""}
-            onChange={(e) => elegir(e.target.value)}
-            aria-describedby="ayuda-tipo-balance-revision"
-            className={`h-[37px] rounded-md border bg-white px-2.5 text-[12.5px] outline-none focus:border-blue-400 ${
-              apertura ? "border-ink-200 text-ink-700" : "border-warn-300 text-ink-500"
-            }`}
-          >
-            <option value="">Selecciona…</option>
-            {APERTURAS_BALANCE.map((opcion) => (
-              <option key={opcion.valor} value={opcion.valor} title={opcion.descripcion}>
-                {opcion.etiqueta}
-              </option>
-            ))}
-          </select>
-        </label>
-        {!apertura && (
-          <button
-            type="button"
-            onClick={() => onElegir(sugerida)}
-            className="h-[37px] rounded-md border border-ink-200 bg-white px-3 text-[12.5px] font-semibold text-ink-600 hover:bg-ink-50"
-          >
-            Usar «{etiquetaApertura(sugerida)}»
-          </button>
-        )}
-      </div>
-      <p id="ayuda-tipo-balance-revision" className="mt-2 text-[11.5px] text-ink-600">
-        {apertura ? (
-          <>
-            Este cargue queda registrado como{" "}
-            <span className="font-semibold text-ink-800">{etiquetaApertura(apertura)}</span>. Podrás
-            corregirlo en el borrador antes de cargarlo.
-          </>
-        ) : (
-          <>
-            <span className="font-semibold text-warn-700">Indica si el archivo es por cuenta o por terceros.</span>{" "}
-            Por la estructura leída, Russell sugiere{" "}
-            <span className="font-semibold text-ink-800">{etiquetaApertura(sugerida)}</span>
-            {porTerceroDetectado
-              ? " (se detectó detalle por tercero)."
-              : " (no se detectó detalle por tercero)."}
-          </>
-        )}
-      </p>
-      {guardando && (
-        <div className="mt-1.5 text-[11.5px] font-medium text-ink-500">
-          <EstadoProcesando>Guardando el tipo de balance</EstadoProcesando>
-        </div>
-      )}
-    </section>
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-[12px] font-semibold text-ink-700">
+        Tipo de balance <span className="text-warn-700">*</span>
+      </span>
+      <SelectorAperturaBalance
+        value={apertura}
+        onChange={onElegir}
+        disabled={guardando}
+      />
+      {guardando ? <EstadoProcesando>Guardando</EstadoProcesando> : null}
+    </div>
   );
 }
 

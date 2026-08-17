@@ -1,7 +1,7 @@
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { authorizePermiso } from "@/lib/rbac";
-import { obtenerObjeto } from "@/lib/storage/objetos";
+import { obtenerEvidenciaTicket } from "@/lib/storage/evidencias-tickets";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,7 +35,7 @@ export async function GET(
   }
 
   try {
-    const objeto = await obtenerObjeto(adjunto.objectKey);
+    const objeto = await obtenerEvidenciaTicket(adjunto.objectKey);
     if (!objeto) return new Response("No encontrado", { status: 404 });
     const body = objeto.cuerpo.buffer.slice(
       objeto.cuerpo.byteOffset,

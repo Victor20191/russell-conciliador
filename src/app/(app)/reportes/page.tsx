@@ -4,7 +4,7 @@ import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import { getCurrentUser } from "@/lib/dal";
 import { Chip, PageHeader } from "@/components/ui";
 import { fmtDateTime } from "@/lib/format";
-import { almacenamientoDisponible } from "@/lib/storage/objetos";
+import { almacenamientoEvidenciasTicketsDisponible } from "@/lib/storage/evidencias-tickets";
 import {
   etiquetaEstadoTicket,
   tonoEstadoTicket,
@@ -52,7 +52,11 @@ export default async function ReportesPage() {
                 Bandeja de Xentria
               </Link>
             )}
-            {puedeCrear.ok && <NuevaNovedadForm storageReady={almacenamientoDisponible()} />}
+            {puedeCrear.ok && (
+              <NuevaNovedadForm
+                storageReady={almacenamientoEvidenciasTicketsDisponible()}
+              />
+            )}
           </div>
         }
       />

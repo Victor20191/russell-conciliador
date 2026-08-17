@@ -33,10 +33,10 @@ import {
 import { resolverUbicacionNovedad } from "@/lib/soporte-rutas";
 import { validarImagen } from "@/lib/avatares";
 import {
-  almacenamientoDisponible,
-  eliminarObjeto,
-  subirObjeto,
-} from "@/lib/storage/objetos";
+  almacenamientoEvidenciasTicketsDisponible,
+  eliminarEvidenciaTicket,
+  subirEvidenciaTicket,
+} from "@/lib/storage/evidencias-tickets";
 
 const ADMIN_PATH = "/config/soporte";
 const USER_PATH = "/reportes";
@@ -52,7 +52,7 @@ async function persistirAdjuntos(ticketId: number, archivos: File[]): Promise<vo
   if (archivos.length > ADJUNTOS_MAX) {
     throw new Error(`Puedes adjuntar hasta ${ADJUNTOS_MAX} imágenes.`);
   }
-  if (!almacenamientoDisponible()) {
+  if (!almacenamientoEvidenciasTicketsDisponible()) {
     throw new Error("El almacenamiento de imágenes no está configurado. Avisa al administrador o envía la novedad sin capturas.");
   }
 
@@ -83,7 +83,7 @@ async function persistirAdjuntos(ticketId: number, archivos: File[]): Promise<vo
   try {
     for (const item of preparados) {
       const key = keyAdjuntoTicket(ticketId, randomBytes(8).toString("hex"), item.tipo);
-      await subirObjeto({ key, cuerpo: item.bytes, contentType: item.contentType });
+      await subirEvidenciaTicket({ key, cuerpo: item.bytes, contentType: item.contentType });
       keys.push(key);
       await prisma.supportTicketAttachment.create({
         data: {
@@ -96,7 +96,7 @@ async function persistirAdjuntos(ticketId: number, archivos: File[]): Promise<vo
       });
     }
   } catch (e) {
-    await Promise.all(keys.map((key) => eliminarObjeto(key).catch(() => {})));
+    await Promise.all(keys.map((key) => eliminarEvidenciaTicket(key).catch(() => {})));
     throw e;
   }
 }
@@ -176,7 +176,7 @@ export async function crearNovedadInterna(
   if (adjuntos.length > ADJUNTOS_MAX) {
     return { ok: false, message: `Puedes adjuntar hasta ${ADJUNTOS_MAX} imágenes.` };
   }
-  if (adjuntos.length > 0 && !almacenamientoDisponible()) {
+  if (adjuntos.length > 0 && !almacenamientoEvidenciasTicketsDisponible()) {
     return {
       ok: false,
       message: "El almacenamiento de imágenes no está configurado. Avisa al administrador o envía la novedad sin capturas.",

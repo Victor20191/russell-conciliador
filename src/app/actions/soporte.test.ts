@@ -10,9 +10,9 @@ const mocks = vi.hoisted(() => ({
   getCurrentUser: vi.fn(),
   logAudit: vi.fn(),
   revalidatePath: vi.fn(),
-  almacenamientoDisponible: vi.fn(),
-  subirObjeto: vi.fn(),
-  eliminarObjeto: vi.fn(),
+  almacenamientoEvidenciasTicketsDisponible: vi.fn(),
+  subirEvidenciaTicket: vi.fn(),
+  eliminarEvidenciaTicket: vi.fn(),
 }));
 
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }));
@@ -33,10 +33,10 @@ vi.mock("@/lib/rbac", () => ({ authorizePermiso: mocks.authorizePermiso }));
 vi.mock("@/lib/dal", () => ({ getCurrentUser: mocks.getCurrentUser }));
 vi.mock("@/lib/audit", () => ({ logAudit: mocks.logAudit }));
 vi.mock("@/lib/errores", () => ({ mensajeErrorBD: (contexto: string) => `${contexto}: error` }));
-vi.mock("@/lib/storage/objetos", () => ({
-  almacenamientoDisponible: mocks.almacenamientoDisponible,
-  subirObjeto: mocks.subirObjeto,
-  eliminarObjeto: mocks.eliminarObjeto,
+vi.mock("@/lib/storage/evidencias-tickets", () => ({
+  almacenamientoEvidenciasTicketsDisponible: mocks.almacenamientoEvidenciasTicketsDisponible,
+  subirEvidenciaTicket: mocks.subirEvidenciaTicket,
+  eliminarEvidenciaTicket: mocks.eliminarEvidenciaTicket,
 }));
 
 import { catalogoUbicacionesNovedad } from "@/lib/soporte-rutas";
@@ -89,7 +89,7 @@ describe("Server Actions de soporte", () => {
     mocks.getCurrentUser.mockResolvedValue({ id: 9, name: "Técnica Soporte" });
     mocks.findUnique.mockResolvedValue({ code: "TKT-20260807-A1B2C3D4" });
     mocks.updateMany.mockResolvedValue({ count: 1 });
-    mocks.almacenamientoDisponible.mockReturnValue(false);
+    mocks.almacenamientoEvidenciasTicketsDisponible.mockReturnValue(false);
   });
 
   it("crea el ticket público sin exigir sesión y entrega un enlace no adivinable", async () => {
@@ -203,6 +203,35 @@ describe("Server Actions de soporte", () => {
     expect(resultado.ok).toBe(false);
     expect(resultado.message).toMatch(/almacenamiento/i);
     expect(mocks.create).not.toHaveBeenCalled();
+  });
+
+  it("sube la evidencia al almacenamiento aislado de tickets", async () => {
+    mocks.almacenamientoEvidenciasTicketsDisponible.mockReturnValue(true);
+    const form = formularioNovedad();
+    form.append(
+      "adjuntos",
+      new File([new Uint8Array([0xff, 0xd8, 0xff])], "captura.jpg", {
+        type: "image/jpeg",
+      }),
+    );
+
+    const resultado = await crearNovedadInterna(undefined, form);
+
+    expect(resultado.ok).toBe(true);
+    expect(mocks.subirEvidenciaTicket).toHaveBeenCalledWith({
+      key: expect.stringMatching(/^tickets\/1\/[a-f0-9]{16}\.jpg$/),
+      cuerpo: expect.any(Uint8Array),
+      contentType: "image/jpeg",
+    });
+    expect(mocks.attachmentCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        ticketId: 1,
+        objectKey: expect.stringMatching(/^tickets\/1\/[a-f0-9]{16}\.jpg$/),
+        fileName: "captura.jpg",
+        contentType: "image/jpeg",
+        sizeBytes: 3,
+      }),
+    });
   });
 
   it("cambia el estado sin exigir solución cuando no está resuelto", async () => {
