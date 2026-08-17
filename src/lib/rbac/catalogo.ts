@@ -211,9 +211,9 @@ export const PERMISOS: Permiso[] = [
   { code: "novedades:administrar", module: "novedades", action: "administrar", label: "Administrar novedades", roles: SOLO_ADMIN },
 
   // ===== Reportes / novedades internas — todos los usuarios =====
-  // Cualquier rol autenticado monta una novedad y consulta las suyas. Solo
-  // Administrador y Superadministrador (Xentria) ven la bandeja completa,
-  // cambian estados y documentan la solución.
+  // Cualquier rol autenticado monta novedades y consulta todos los tickets
+  // internos. Solo Administrador y Superadministrador (Xentria) cambian
+  // estados y documentan la solución.
   { code: "soporte:ver", module: "soporte", action: "ver", label: "Ver reportes", roles: TODOS },
   { code: "soporte:crear", module: "soporte", action: "crear", label: "Crear reporte", roles: TODOS },
   { code: "soporte:administrar", module: "soporte", action: "administrar", label: "Administrar reportes", roles: SOLO_ADMIN },

@@ -40,10 +40,30 @@ export function detectarTipoAdjunto(bytes: Uint8Array): TipoAdjunto | null {
   return null;
 }
 
+export function urlAdjuntoTicket(id: number): string {
+  return `/api/soporte/adjuntos/${id}`;
+}
+
 export function mimeDeAdjunto(tipo: TipoAdjunto): string {
   if (tipo === "gif") return "image/gif";
   if (tipo === "svg") return "image/svg+xml";
   return mimeDeTipo(tipo);
+}
+
+/** Prefiere el MIME validado al subir. S3 a veces devuelve octet-stream y,
+ *  con nosniff, el navegador no pinta la imagen. */
+export function tipoContenidoAdjunto(
+  tipoAlmacenamiento: string | undefined,
+  tipoRegistro: string | undefined,
+): string {
+  if (tipoRegistro?.startsWith("image/")) return tipoRegistro;
+  if (tipoAlmacenamiento?.startsWith("image/")) return tipoAlmacenamiento;
+  return tipoRegistro || tipoAlmacenamiento || "application/octet-stream";
+}
+
+/** Copia propia del binario para `Response` (evita SharedArrayBuffer / buffer pooled). */
+export function cuerpoBinarioRespuesta(bytes: Uint8Array): ArrayBuffer {
+  return bytes.slice().buffer as ArrayBuffer;
 }
 
 export function validarAdjuntoTicket(bytes: Uint8Array, nombre = "archivo"): ValidacionAdjunto {

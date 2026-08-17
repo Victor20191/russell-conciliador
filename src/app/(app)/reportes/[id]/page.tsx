@@ -51,7 +51,9 @@ export default async function ReporteDetallePage({
     },
   });
   if (!ticket) notFound();
-  if (!admin.ok && ticket.createdById !== actor.id) notFound();
+  // Los tickets internos son visibles para cualquier usuario de la plataforma.
+  // Los tickets públicos permanecen privados por token salvo para Xentria.
+  if (!admin.ok && ticket.createdById === null) notFound();
 
   const resuelto = ticket.status === ESTADO_TICKET_RESUELTO && Boolean(ticket.solution);
 
@@ -95,7 +97,7 @@ export default async function ReporteDetallePage({
           </>
         ) : (
           <p className="mt-3 text-sm leading-6 text-ink-700">
-            Recibimos tu novedad. Aquí verás la respuesta cuando el equipo actualice el ticket.
+            Xentria recibió esta novedad. Aquí se verá la respuesta cuando el equipo actualice el ticket.
           </p>
         )}
       </section>

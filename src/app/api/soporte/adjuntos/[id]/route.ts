@@ -1,6 +1,8 @@
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { authorizePermiso } from "@/lib/rbac";
+import { registrarError } from "@/lib/errores";
+import { cuerpoBinarioRespuesta, tipoContenidoAdjunto } from "@/lib/soporte-adjuntos";
 import { obtenerEvidenciaTicket } from "@/lib/storage/evidencias-tickets";
 
 export const runtime = "nodejs";
@@ -19,6 +21,12 @@ export async function GET(
     return new Response("Identificador inválido", { status: 400 });
   }
 
+  const [ver, admin] = await Promise.all([
+    authorizePermiso("soporte:ver"),
+    authorizePermiso("soporte:administrar"),
+  ]);
+  if (!ver.ok) return new Response("No autorizado", { status: 403 });
+
   const adjunto = await prisma.supportTicketAttachment.findUnique({
     where: { id: adjuntoId },
     select: {
@@ -29,27 +37,24 @@ export async function GET(
   });
   if (!adjunto) return new Response("No encontrado", { status: 404 });
 
-  const admin = await authorizePermiso("soporte:administrar");
-  if (!admin.ok && adjunto.ticket.createdById !== actor.id) {
+  // La evidencia de un ticket interno sigue la misma visibilidad global del
+  // ticket. La evidencia pública conserva su acceso privado y administrativo.
+  if (!admin.ok && adjunto.ticket.createdById === null) {
     return new Response("No encontrado", { status: 404 });
   }
 
   try {
     const objeto = await obtenerEvidenciaTicket(adjunto.objectKey);
     if (!objeto) return new Response("No encontrado", { status: 404 });
-    const body = objeto.cuerpo.buffer.slice(
-      objeto.cuerpo.byteOffset,
-      objeto.cuerpo.byteOffset + objeto.cuerpo.byteLength,
-    ) as ArrayBuffer;
-    return new Response(body, {
+    return new Response(cuerpoBinarioRespuesta(objeto.cuerpo), {
       headers: {
-        "Content-Type": objeto.contentType || adjunto.contentType,
+        "Content-Type": tipoContenidoAdjunto(objeto.contentType, adjunto.contentType),
         "X-Content-Type-Options": "nosniff",
         "Cache-Control": "private, max-age=600",
-        "Content-Length": String(objeto.cuerpo.byteLength),
       },
     });
-  } catch {
+  } catch (e) {
+    registrarError("obtenerAdjuntoTicket", e);
     return new Response("No se pudo obtener la imagen", { status: 500 });
   }
 }

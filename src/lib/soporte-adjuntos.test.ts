@@ -1,5 +1,11 @@
 import { describe, expect, test } from "vitest";
-import { detectarTipoAdjunto, validarAdjuntoTicket } from "./soporte-adjuntos";
+import {
+  cuerpoBinarioRespuesta,
+  detectarTipoAdjunto,
+  tipoContenidoAdjunto,
+  urlAdjuntoTicket,
+  validarAdjuntoTicket,
+} from "./soporte-adjuntos";
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
 const GIF = new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00]);
@@ -22,9 +28,27 @@ describe("adjuntos de una novedad", () => {
     if (!r.ok) expect(r.error).toContain("logo ru.png");
   });
 
+  test("la URL del adjunto queda namespaced por id", () => {
+    expect(urlAdjuntoTicket(9)).toBe("/api/soporte/adjuntos/9");
+  });
+
   test("acepta un SVG de logo", () => {
     const r = validarAdjuntoTicket(SVG, "logo ru.png");
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.contentType).toBe("image/svg+xml");
+  });
+
+  test("el MIME del registro gana si S3 devuelve octet-stream", () => {
+    expect(tipoContenidoAdjunto("application/octet-stream", "image/svg+xml")).toBe("image/svg+xml");
+    expect(tipoContenidoAdjunto("image/png", "image/svg+xml")).toBe("image/svg+xml");
+    expect(tipoContenidoAdjunto("image/jpeg", undefined)).toBe("image/jpeg");
+  });
+
+  test("el cuerpo de la respuesta es una copia independiente", () => {
+    const origen = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
+    const copia = cuerpoBinarioRespuesta(origen);
+    expect(new Uint8Array(copia)).toEqual(origen);
+    expect(copia).not.toBe(origen.buffer);
+    expect(copia.byteLength).toBe(origen.byteLength);
   });
 });

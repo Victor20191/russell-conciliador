@@ -217,7 +217,7 @@ export default function NuevaNovedadForm({ storageReady }: { storageReady: boole
                         <img
                           src={preview.src}
                           alt={preview.nombre}
-                          className="h-28 w-full object-contain p-1"
+                          className="h-28 w-full bg-navy-800 object-contain p-2"
                         />
                         <figcaption className="truncate px-2 py-1 text-[11px] text-ink-500">{preview.nombre}</figcaption>
                       </figure>

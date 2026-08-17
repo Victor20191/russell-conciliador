@@ -26,9 +26,7 @@ export function keyAdjuntoTicket(ticketId: number, sufijo: string, tipo: TipoAdj
   return `tickets/${ticketId}/${limpio}.${tipo}`;
 }
 
-export function urlAdjuntoTicket(id: number): string {
-  return `/api/soporte/adjuntos/${id}`;
-}
+export { urlAdjuntoTicket } from "./soporte-adjuntos";
 
 export function crearCodigoTicket(ahora: Date = new Date(), sufijo?: string): string {
   const fecha = fechaColombiaISO(ahora).replaceAll("-", "");

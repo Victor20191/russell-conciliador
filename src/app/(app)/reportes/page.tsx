@@ -22,12 +22,18 @@ export default async function ReportesPage() {
   if (!actor) return null;
 
   const tickets = await prisma.supportTicket.findMany({
-    where: { createdById: actor.id },
+    // Los tickets creados dentro de la plataforma son visibles para todos los
+    // usuarios. Los tickets públicos (sin usuario creador) conservan su acceso
+    // privado por token y solo aparecen en la bandeja de Xentria.
+    where: { createdById: { not: null } },
     orderBy: { createdAt: "desc" },
     take: 200,
     select: {
       id: true,
       code: true,
+      createdById: true,
+      reporterFirstName: true,
+      reporterLastName: true,
       subject: true,
       routeLabel: true,
       menuLabel: true,
@@ -41,7 +47,7 @@ export default async function ReportesPage() {
     <div className="mx-auto max-w-6xl">
       <PageHeader
         title="Ayuda"
-        subtitle="Monta una novedad con la descripción y las capturas. Xentria la gestiona y te actualiza el estado."
+        subtitle="Consulta las novedades reportadas en la plataforma. Solo Xentria puede cambiar su estado o documentar la solución."
         actions={
           <div className="flex flex-wrap items-center gap-2">
             {admin.ok && (
@@ -63,7 +69,7 @@ export default async function ReportesPage() {
 
       {tickets.length === 0 ? (
         <div className="rounded-lg border border-dashed border-ink-200 bg-paper px-6 py-12 text-center text-sm text-ink-500">
-          Todavía no has reportado ninguna novedad.
+          Todavía no hay novedades reportadas en la plataforma.
         </div>
       ) : (
         <div className="overflow-hidden rounded-lg border border-ink-150 bg-paper">
@@ -72,6 +78,7 @@ export default async function ReportesPage() {
               <tr>
                 <th className="px-4 py-3">Código</th>
                 <th className="px-4 py-3">Asunto</th>
+                <th className="px-4 py-3">Reportado por</th>
                 <th className="px-4 py-3">Ubicación</th>
                 <th className="px-4 py-3">Estado</th>
                 <th className="px-4 py-3">Imágenes</th>
@@ -90,6 +97,11 @@ export default async function ReportesPage() {
                     <Link href={`/reportes/${ticket.id}`} className="hover:underline">
                       {ticket.subject}
                     </Link>
+                  </td>
+                  <td className="px-4 py-3 text-ink-600">
+                    {ticket.createdById === actor.id
+                      ? "Tú"
+                      : `${ticket.reporterFirstName} ${ticket.reporterLastName}`}
                   </td>
                   <td className="px-4 py-3 text-ink-600">
                     {etiquetaUbicacionNovedad(ticket.routeLabel, ticket.menuLabel) ?? "—"}

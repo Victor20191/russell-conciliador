@@ -52,7 +52,7 @@ export default async function SoporteAdminPage() {
           <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-blue-500">Configuración · Xentria</p>
           <h1 className="mt-1 font-serif text-2xl text-ink-900">Gestión de reportes</h1>
           <p className="mt-1.5 text-sm text-ink-500">
-            Revisa las novedades de los usuarios, cambia su estado y deja la respuesta visible para quien la reportó.
+            Revisa las novedades, cambia su estado y deja la respuesta visible para todos los usuarios de la plataforma.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -60,7 +60,7 @@ export default async function SoporteAdminPage() {
             href="/reportes"
             className="rounded-md border border-ink-200 bg-white px-3.5 py-2 text-[12.5px] font-semibold text-ink-700 transition hover:bg-ink-50"
           >
-            Mis reportes
+            Ver reportes
           </Link>
           <div className="rounded-md border border-ink-150 bg-white px-3.5 py-2 text-xs text-ink-600">
             <strong className="text-ink-900">{pendientes}</strong> en gestión · {tickets.length} mostrados

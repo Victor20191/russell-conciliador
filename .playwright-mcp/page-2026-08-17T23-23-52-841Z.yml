@@ -1,0 +1,111 @@
+- generic [active] [ref=f42e1]:
+  - generic [ref=f42e2]:
+    - complementary [ref=f42e3]:
+      - generic [ref=f42e4]:
+        - generic [ref=f42e12]:
+          - text: Russell Bedford
+          - generic [ref=f42e13]: Conciliador
+        - link "v1.4.0" [ref=f42e15] [cursor=pointer]:
+          - /url: /novedades
+      - generic [ref=f42e17]:
+        - generic [ref=f42e18]: Trabajo
+        - navigation [ref=f42e19]:
+          - link "Inicio" [ref=f42e20] [cursor=pointer]:
+            - /url: /dashboard
+          - button "Balance de comprobación" [ref=f42e26]
+          - button "Conciliaciones Dev" [ref=f42e36]:
+            - generic [ref=f42e40]: Conciliaciones
+            - generic [ref=f42e41]: Dev
+          - button "Módulos de conciliación" [ref=f42e46]
+          - link "Impuestos · DIAN Dev 2" [ref=f42e55] [cursor=pointer]:
+            - /url: /dian
+            - generic [ref=f42e60]: Impuestos · DIAN
+            - generic [ref=f42e61]: Dev
+            - generic [ref=f42e62]: "2"
+          - button "Auditoría Dev" [ref=f42e64]:
+            - generic [ref=f42e69]: Auditoría
+            - generic [ref=f42e70]: Dev
+          - link "Ayuda" [ref=f42e74] [cursor=pointer]:
+            - /url: /reportes
+        - generic [ref=f42e80]: Configuración
+        - navigation [ref=f42e81]:
+          - link "Gestión de reportes" [ref=f42e82] [cursor=pointer]:
+            - /url: /config/soporte
+          - link "Publicación de módulos" [ref=f42e88] [cursor=pointer]:
+            - /url: /config/publicacion-modulos
+          - link "Módulos y campos Dev" [ref=f42e94] [cursor=pointer]:
+            - /url: /config/modulos
+            - generic [ref=f42e99]: Módulos y campos
+            - generic [ref=f42e100]: Dev
+          - link "Clientes" [ref=f42e101] [cursor=pointer]:
+            - /url: /config/clientes
+          - link "Maestros" [ref=f42e109] [cursor=pointer]:
+            - /url: /config/maestros
+          - link "Mapeo plan estándar" [ref=f42e115] [cursor=pointer]:
+            - /url: /config/mapeo
+          - link "Mapeos DIAN Dev" [ref=f42e121] [cursor=pointer]:
+            - /url: /config/dian
+            - generic [ref=f42e126]: Mapeos DIAN
+            - generic [ref=f42e127]: Dev
+          - link "Usuarios" [ref=f42e128] [cursor=pointer]:
+            - /url: /config/usuarios
+          - link "Permisos por rol" [ref=f42e136] [cursor=pointer]:
+            - /url: /config/permisos
+          - link "Estructura" [ref=f42e142] [cursor=pointer]:
+            - /url: /estructura
+          - link "Novedades" [ref=f42e150] [cursor=pointer]:
+            - /url: /novedades
+          - link "Prompts de IA" [ref=f42e156] [cursor=pointer]:
+            - /url: /config/prompts
+          - link "Parámetros de alertas" [ref=f42e162] [cursor=pointer]:
+            - /url: /config/parametros
+          - link "Cuentas del prevalidador" [ref=f42e168] [cursor=pointer]:
+            - /url: /config/prevalidador
+          - link "Perfiles de carga" [ref=f42e174] [cursor=pointer]:
+            - /url: /config/perfiles-carga
+      - generic [ref=f42e180]:
+        - link "MG Victor Rivera Superadministrador" [ref=f42e181] [cursor=pointer]:
+          - /url: /perfil
+          - generic "Victor Rivera" [ref=f42e182]: MG
+          - generic [ref=f42e183]:
+            - generic [ref=f42e184]: Victor Rivera
+            - generic [ref=f42e185]: Superadministrador
+        - button "Cerrar sesión" [ref=f42e187]
+    - generic [ref=f42e191]:
+      - generic [ref=f42e192]:
+        - generic [ref=f42e193]:
+          - generic [ref=f42e194]: Reportes
+          - generic [ref=f42e196]: Detalle
+        - button "Notificaciones" [ref=f42e202]
+      - main [ref=f42e207]:
+        - generic [ref=f42e208]:
+          - link "Volver a ayuda" [ref=f42e209] [cursor=pointer]:
+            - /url: /reportes
+          - generic [ref=f42e213]:
+            - generic [ref=f42e214]:
+              - heading "Prueba" [level=1] [ref=f42e215]
+              - paragraph [ref=f42e216]: TKT-20260817-D1823A43 · russell plataforma
+            - generic [ref=f42e217]: Abierto
+          - article [ref=f42e219]:
+            - paragraph [ref=f42e220]: Balance de comprobación · Borrador Balance
+            - paragraph [ref=f42e221]: Prueba prueba Prueba prueba Prueba prueba Prueba prueba Prueba prueba
+            - paragraph [ref=f42e222]: Reportado el 17/Ago/2026 6:06 p. m.
+            - generic [ref=f42e223]:
+              - paragraph [ref=f42e224]: Imágenes adjuntas
+              - button [ref=f42e226]:
+                - img "logo ru.png" [ref=f42e227]
+                - paragraph [ref=f42e228]: logo ru.png
+          - generic [ref=f42e239]:
+            - paragraph [ref=f42e240]: Gestión de Xentria
+            - paragraph [ref=f42e241]: Xentria recibió esta novedad. Aquí se verá la respuesta cuando el equipo actualice el ticket.
+          - paragraph [ref=f42e242]:
+            - link "Cambiar estado en la bandeja" [ref=f42e243] [cursor=pointer]:
+              - /url: /config/soporte
+  - button "Open Next.js Dev Tools" [ref=f42e249] [cursor=pointer]:
+    - generic [ref=f42e259]:
+      - text: Compiling
+      - generic [ref=f42e260]:
+        - generic [ref=f42e261]: .
+        - generic [ref=f42e262]: .
+        - generic [ref=f42e263]: .
+  - alert [ref=f42e257]
