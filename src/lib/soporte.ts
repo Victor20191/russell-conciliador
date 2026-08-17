@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { fechaColombiaISO } from "@/lib/fecha-hora";
-import type { TipoImagen } from "@/lib/avatares";
+import type { TipoAdjunto } from "@/lib/soporte-adjuntos";
 
 export {
   ADJUNTO_MAX_BYTES,
@@ -19,7 +19,7 @@ export {
   type EstadoTicket,
 } from "./soporte-estados";
 
-export function keyAdjuntoTicket(ticketId: number, sufijo: string, tipo: TipoImagen): string {
+export function keyAdjuntoTicket(ticketId: number, sufijo: string, tipo: TipoAdjunto): string {
   if (/[\\/]/.test(sufijo)) throw new Error("El sufijo del adjunto no es válido.");
   const limpio = sufijo.replace(/[^a-z0-9]/gi, "").toLowerCase();
   if (!limpio) throw new Error("El sufijo del adjunto no es válido.");

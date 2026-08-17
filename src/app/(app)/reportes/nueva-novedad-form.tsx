@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { crearNovedadInterna } from "@/app/actions/soporte";
 import { Modal } from "@/components/modal";
@@ -8,6 +8,7 @@ import { EstadoProcesando } from "@/components/estado-procesando";
 import { notifyActionState } from "@/lib/client-notifications";
 import { ADJUNTOS_MAX } from "@/lib/soporte-estados";
 import { catalogoUbicacionesNovedad } from "@/lib/soporte-rutas";
+import type { SupportTicketInternalCreateState } from "@/lib/definitions";
 
 const INPUT =
   "rounded-md border border-ink-200 bg-white px-3.5 py-2.5 text-[13px] text-ink-800 outline-none transition placeholder:text-ink-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
@@ -18,14 +19,32 @@ function ErrorCampo({ mensajes }: { mensajes?: string[] }) {
 
 export default function NuevaNovedadForm({ storageReady }: { storageReady: boolean }) {
   const router = useRouter();
+  const archivosRef = useRef<File[]>([]);
   const [abierto, setAbierto] = useState(false);
-  const [state, action, pending] = useActionState(crearNovedadInterna, undefined);
-  const [previews, setPreviews] = useState<string[]>([]);
+  const [asunto, setAsunto] = useState("");
+  const [descripcion, setDescripcion] = useState("");
   const [rutaClave, setRutaClave] = useState("");
+  const [menuClave, setMenuClave] = useState("");
+  const [previews, setPreviews] = useState<{ src: string; nombre: string }[]>([]);
   const catalogo = catalogoUbicacionesNovedad();
   const rutaElegida = catalogo.find((ruta) => ruta.clave === rutaClave);
   const menus = rutaElegida?.menus ?? [];
-  const menuUnico = menus.length === 1 ? menus[0]!.clave : "";
+
+  function enviarNovedad(
+    prev: SupportTicketInternalCreateState | undefined,
+    formData: FormData,
+  ) {
+    const enForm = formData
+      .getAll("adjuntos")
+      .filter((valor): valor is File => valor instanceof File && valor.size > 0);
+    if (enForm.length === 0 && archivosRef.current.length > 0) {
+      formData.delete("adjuntos");
+      for (const archivo of archivosRef.current) formData.append("adjuntos", archivo);
+    }
+    return crearNovedadInterna(prev, formData);
+  }
+
+  const [state, dispatch, pending] = useActionState(enviarNovedad, undefined);
 
   useEffect(() => {
     notifyActionState(state, {
@@ -38,16 +57,29 @@ export default function NuevaNovedadForm({ storageReady }: { storageReady: boole
     }
   }, [state, router]);
 
-  useEffect(() => {
-    return () => {
-      for (const url of previews) URL.revokeObjectURL(url);
-    };
-  }, [previews]);
-
   function onPick(e: React.ChangeEvent<HTMLInputElement>) {
-    for (const url of previews) URL.revokeObjectURL(url);
     const files = Array.from(e.target.files ?? []).slice(0, ADJUNTOS_MAX);
-    setPreviews(files.map((file) => URL.createObjectURL(file)));
+    if (files.length === 0) return;
+    archivosRef.current = files;
+    let pendientes = files.length;
+    const leidas: { src: string; nombre: string; orden: number }[] = [];
+    files.forEach((file, orden) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        leidas.push({ src: String(reader.result ?? ""), nombre: file.name, orden });
+        pendientes -= 1;
+        if (pendientes === 0) {
+          setPreviews(leidas.sort((a, b) => a.orden - b.orden).map(({ src, nombre }) => ({ src, nombre })));
+        }
+      };
+      reader.onerror = () => {
+        pendientes -= 1;
+        if (pendientes === 0) {
+          setPreviews(leidas.sort((a, b) => a.orden - b.orden).map(({ src, nombre }) => ({ src, nombre })));
+        }
+      };
+      reader.readAsDataURL(file);
+    });
   }
 
   return (
@@ -76,7 +108,7 @@ export default function NuevaNovedadForm({ storageReady }: { storageReady: boole
           </button>
         }
       >
-        <form id="nueva-novedad" action={action} className="flex flex-col gap-4">
+        <form id="nueva-novedad" action={dispatch} className="flex flex-col gap-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="flex flex-col gap-1.5 text-xs font-semibold uppercase tracking-wider text-ink-500">
               Ruta *
@@ -84,7 +116,12 @@ export default function NuevaNovedadForm({ storageReady }: { storageReady: boole
                 name="routeKey"
                 required
                 value={rutaClave}
-                onChange={(e) => setRutaClave(e.target.value)}
+                onChange={(e) => {
+                  const siguiente = e.target.value;
+                  setRutaClave(siguiente);
+                  const ruta = catalogo.find((item) => item.clave === siguiente);
+                  setMenuClave(ruta?.menus.length === 1 ? ruta.menus[0]!.clave : "");
+                }}
                 className={INPUT}
               >
                 <option value="">Selecciona la ruta</option>
@@ -106,11 +143,11 @@ export default function NuevaNovedadForm({ storageReady }: { storageReady: boole
             <label className="flex flex-col gap-1.5 text-xs font-semibold uppercase tracking-wider text-ink-500">
               Menú *
               <select
-                key={rutaClave || "sin-ruta"}
                 name="menuKey"
                 required
                 disabled={!rutaElegida}
-                defaultValue={menuUnico}
+                value={menuClave}
+                onChange={(e) => setMenuClave(e.target.value)}
                 className={`${INPUT} disabled:bg-ink-50 disabled:text-ink-400`}
               >
                 <option value="">{rutaElegida ? "Selecciona el menú" : "Primero elige la ruta"}</option>
@@ -131,6 +168,8 @@ export default function NuevaNovedadForm({ storageReady }: { storageReady: boole
               required
               minLength={5}
               maxLength={160}
+              value={asunto}
+              onChange={(e) => setAsunto(e.target.value)}
               className={INPUT}
               placeholder="Ej. No puedo cargar el balance de marzo"
             />
@@ -145,6 +184,8 @@ export default function NuevaNovedadForm({ storageReady }: { storageReady: boole
               minLength={10}
               maxLength={5000}
               rows={7}
+              value={descripcion}
+              onChange={(e) => setDescripcion(e.target.value)}
               className={INPUT}
               placeholder="Describe qué estabas haciendo, qué ocurrió y qué esperabas ver."
             />
@@ -160,19 +201,26 @@ export default function NuevaNovedadForm({ storageReady }: { storageReady: boole
                 <input
                   name="adjuntos"
                   type="file"
-                  accept="image/jpeg,image/png,image/webp"
+                  accept="image/jpeg,image/png,image/webp,image/gif,image/svg+xml"
                   multiple
                   onChange={onPick}
                   className="text-[12.5px] text-ink-600 file:mr-3 file:rounded-md file:border-0 file:bg-ink-100 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-ink-700"
                 />
                 <p className="text-[11px] text-ink-500">
-                  Hasta {ADJUNTOS_MAX} capturas en JPG, PNG o WEBP. Máximo 4 MB cada una.
+                  Hasta {ADJUNTOS_MAX} imágenes en JPG, PNG, WEBP, GIF o SVG. Máximo 4 MB cada una.
                 </p>
                 {previews.length > 0 && (
-                  <div className="mt-1 grid grid-cols-3 gap-2">
-                    {previews.map((src) => (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img key={src} src={src} alt="" className="h-20 w-full rounded-md object-cover" />
+                  <div className="mt-2 grid grid-cols-3 gap-2">
+                    {previews.map((preview) => (
+                      <figure key={preview.nombre} className="overflow-hidden rounded-md border border-ink-150 bg-ink-50">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={preview.src}
+                          alt={preview.nombre}
+                          className="h-28 w-full object-contain p-1"
+                        />
+                        <figcaption className="truncate px-2 py-1 text-[11px] text-ink-500">{preview.nombre}</figcaption>
+                      </figure>
                     ))}
                   </div>
                 )}

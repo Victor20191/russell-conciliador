@@ -25,7 +25,7 @@ export default function AdjuntosGaleria({ adjuntos }: { adjuntos: AdjuntoVista[]
             <img
               src={urlAdjuntoTicket(adjunto.id)}
               alt={adjunto.fileName}
-              className="h-32 w-full object-cover"
+              className="h-32 w-full bg-white object-contain p-1"
             />
             <p className="truncate px-2 py-1.5 text-[11px] text-ink-500">{adjunto.fileName}</p>
           </a>

@@ -31,7 +31,7 @@ import {
   requiereSolucion,
 } from "@/lib/soporte";
 import { resolverUbicacionNovedad } from "@/lib/soporte-rutas";
-import { validarImagen } from "@/lib/avatares";
+import { validarAdjuntoTicket } from "@/lib/soporte-adjuntos";
 import {
   almacenamientoEvidenciasTicketsDisponible,
   eliminarEvidenciaTicket,
@@ -58,17 +58,17 @@ async function persistirAdjuntos(ticketId: number, archivos: File[]): Promise<vo
 
   const preparados: {
     bytes: Uint8Array;
-    tipo: "jpg" | "png" | "webp";
+    tipo: "jpg" | "png" | "webp" | "gif" | "svg";
     contentType: string;
     fileName: string;
     size: number;
   }[] = [];
   for (const archivo of archivos) {
     if (archivo.size > ADJUNTO_MAX_BYTES) {
-      throw new Error(`Cada imagen puede pesar hasta ${Math.round(ADJUNTO_MAX_BYTES / 1024 / 1024)} MB.`);
+      throw new Error(`«${archivo.name}» supera ${Math.round(ADJUNTO_MAX_BYTES / 1024 / 1024)} MB.`);
     }
     const bytes = new Uint8Array(await archivo.arrayBuffer());
-    const val = validarImagen(bytes);
+    const val = validarAdjuntoTicket(bytes, archivo.name);
     if (!val.ok) throw new Error(val.error);
     preparados.push({
       bytes,
