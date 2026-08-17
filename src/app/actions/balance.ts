@@ -133,6 +133,9 @@ export type SugerenciaBalance = {
     hojas: string[]; // nombres de hojas de la ingesta (selector del editor)
     clienteDetectadoId: number | null; // resuelto por NIT determinista en el servidor
     proveedorIA: ProveedorIABalance | null; // visible para comprobar el proveedor de la lectura
+    // ¿La lectura detectó detalle por tercero? SOLO alimenta la sugerencia del
+    // selector «Tipo de balance» de la revisión: la apertura la DECLARA el analista.
+    porTercero: boolean;
   };
 };
 
@@ -1889,6 +1892,9 @@ function construirSugerenciaTransitoria(p: {
           : [],
       clienteDetectadoId: null,
       proveedorIA: p.origenExtraccion === "ia" ? p.proveedorIA : null,
+      // La revisión transitoria no tiene diagnóstico persistido: la detección se
+      // resuelve sobre las filas crudas, que es lo mismo que mide `diagFinal`.
+      porTercero: esBalancePorTercero(extr.filasCrudas),
     },
   };
 }
@@ -2751,6 +2757,7 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
         hojas: p.ingesta?.modo === "tabular" ? p.ingesta.hojas.map((h) => h.nombre) : [],
         clienteDetectadoId: p.clienteDetectadoId,
         proveedorIA: p.origenExtraccion === "ia" ? p.proveedorIA : null,
+        porTercero: diagFinal.porTercero,
       },
     },
   };

@@ -11,6 +11,7 @@ import {
   etiquetaEstadoTicket,
   tonoEstadoTicket,
 } from "@/lib/soporte";
+import { etiquetaUbicacionNovedad } from "@/lib/soporte-rutas";
 
 export default async function SoporteAdminPage() {
   await requirePermiso("soporte:administrar");
@@ -26,6 +27,8 @@ export default async function SoporteAdminPage() {
       reporterLastName: true,
       subject: true,
       description: true,
+      routeLabel: true,
+      menuLabel: true,
       status: true,
       solution: true,
       resolvedByName: true,
@@ -89,6 +92,9 @@ export default async function SoporteAdminPage() {
                   <h2 className="mt-3 font-serif text-xl text-ink-900">{ticket.subject}</h2>
                   <p className="mt-1 text-xs text-ink-500">
                     {ticket.reporterFirstName} {ticket.reporterLastName} · {fmtDateTime(ticket.createdAt)}
+                    {etiquetaUbicacionNovedad(ticket.routeLabel, ticket.menuLabel)
+                      ? ` · ${etiquetaUbicacionNovedad(ticket.routeLabel, ticket.menuLabel)}`
+                      : ""}
                   </p>
                   <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-ink-700">{ticket.description}</p>
                   <AdjuntosGaleria adjuntos={ticket.attachments} />

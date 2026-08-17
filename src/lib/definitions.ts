@@ -53,6 +53,8 @@ export const SupportTicketSolutionSchema = z.object({
 export const SupportTicketInternalCreateSchema = z.object({
   subject: z.string().trim().min(5, { error: "Describe brevemente el motivo de la novedad." }).max(160, { error: "El asunto es demasiado largo." }),
   description: z.string().trim().min(10, { error: "Cuéntanos con un poco más de detalle qué ocurrió." }).max(5000, { error: "La descripción es demasiado larga." }),
+  routeKey: z.string().trim().min(1, { error: "Selecciona la ruta donde ocurre la novedad." }).max(160),
+  menuKey: z.string().trim().min(1, { error: "Selecciona el menú de esa ruta." }).max(160),
 });
 
 export const SupportTicketStatusSchema = z

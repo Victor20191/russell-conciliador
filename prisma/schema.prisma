@@ -1637,6 +1637,10 @@ model SupportTicket {
   reporterLastName      String                    @map("apellido_reportante")
   subject               String                    @map("asunto")
   description           String                    @map("descripcion")
+  routeKey              String?                   @map("ruta_clave")
+  routeLabel            String?                   @map("ruta_etiqueta")
+  menuKey               String?                   @map("menu_clave")
+  menuLabel             String?                   @map("menu_etiqueta")
   status                String                    @default("abierto") @map("estado") // abierto | en_proceso | resuelto | cerrado
   solution              String?                   @map("solucion")
   resolvedById          Int?                      @map("resuelto_por_id")
@@ -1649,6 +1653,7 @@ model SupportTicket {
 
   @@index([status, createdAt])
   @@index([createdById, createdAt])
+  @@index([routeKey, menuKey])
   @@map("tickets_soporte")
 }
 

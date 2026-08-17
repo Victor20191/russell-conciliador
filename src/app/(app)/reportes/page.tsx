@@ -9,6 +9,7 @@ import {
   etiquetaEstadoTicket,
   tonoEstadoTicket,
 } from "@/lib/soporte";
+import { etiquetaUbicacionNovedad } from "@/lib/soporte-rutas";
 import NuevaNovedadForm from "./nueva-novedad-form";
 
 export default async function ReportesPage() {
@@ -28,6 +29,8 @@ export default async function ReportesPage() {
       id: true,
       code: true,
       subject: true,
+      routeLabel: true,
+      menuLabel: true,
       status: true,
       createdAt: true,
       _count: { select: { attachments: true } },
@@ -37,7 +40,7 @@ export default async function ReportesPage() {
   return (
     <div className="mx-auto max-w-6xl">
       <PageHeader
-        title="Reportes"
+        title="Ayuda"
         subtitle="Monta una novedad con la descripción y las capturas. Xentria la gestiona y te actualiza el estado."
         actions={
           <div className="flex flex-wrap items-center gap-2">
@@ -65,6 +68,7 @@ export default async function ReportesPage() {
               <tr>
                 <th className="px-4 py-3">Código</th>
                 <th className="px-4 py-3">Asunto</th>
+                <th className="px-4 py-3">Ubicación</th>
                 <th className="px-4 py-3">Estado</th>
                 <th className="px-4 py-3">Imágenes</th>
                 <th className="px-4 py-3">Creado</th>
@@ -82,6 +86,9 @@ export default async function ReportesPage() {
                     <Link href={`/reportes/${ticket.id}`} className="hover:underline">
                       {ticket.subject}
                     </Link>
+                  </td>
+                  <td className="px-4 py-3 text-ink-600">
+                    {etiquetaUbicacionNovedad(ticket.routeLabel, ticket.menuLabel) ?? "—"}
                   </td>
                   <td className="px-4 py-3">
                     <Chip label={etiquetaEstadoTicket(ticket.status)} tone={tonoEstadoTicket(ticket.status)} />

@@ -7,6 +7,7 @@ import { Modal } from "@/components/modal";
 import { EstadoProcesando } from "@/components/estado-procesando";
 import { notifyActionState } from "@/lib/client-notifications";
 import { ADJUNTOS_MAX } from "@/lib/soporte-estados";
+import { catalogoUbicacionesNovedad } from "@/lib/soporte-rutas";
 
 const INPUT =
   "rounded-md border border-ink-200 bg-white px-3.5 py-2.5 text-[13px] text-ink-800 outline-none transition placeholder:text-ink-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
@@ -20,6 +21,11 @@ export default function NuevaNovedadForm({ storageReady }: { storageReady: boole
   const [abierto, setAbierto] = useState(false);
   const [state, action, pending] = useActionState(crearNovedadInterna, undefined);
   const [previews, setPreviews] = useState<string[]>([]);
+  const [rutaClave, setRutaClave] = useState("");
+  const catalogo = catalogoUbicacionesNovedad();
+  const rutaElegida = catalogo.find((ruta) => ruta.clave === rutaClave);
+  const menus = rutaElegida?.menus ?? [];
+  const menuUnico = menus.length === 1 ? menus[0]!.clave : "";
 
   useEffect(() => {
     notifyActionState(state, {
@@ -71,6 +77,53 @@ export default function NuevaNovedadForm({ storageReady }: { storageReady: boole
         }
       >
         <form id="nueva-novedad" action={action} className="flex flex-col gap-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="flex flex-col gap-1.5 text-xs font-semibold uppercase tracking-wider text-ink-500">
+              Ruta *
+              <select
+                name="routeKey"
+                required
+                value={rutaClave}
+                onChange={(e) => setRutaClave(e.target.value)}
+                className={INPUT}
+              >
+                <option value="">Selecciona la ruta</option>
+                {(["Trabajo", "Configuración"] as const).map((grupo) => (
+                  <optgroup key={grupo} label={grupo}>
+                    {catalogo
+                      .filter((ruta) => ruta.grupo === grupo)
+                      .map((ruta) => (
+                        <option key={ruta.clave} value={ruta.clave}>
+                          {ruta.etiqueta}
+                        </option>
+                      ))}
+                  </optgroup>
+                ))}
+              </select>
+              <ErrorCampo mensajes={state?.errors?.routeKey} />
+            </label>
+
+            <label className="flex flex-col gap-1.5 text-xs font-semibold uppercase tracking-wider text-ink-500">
+              Menú *
+              <select
+                key={rutaClave || "sin-ruta"}
+                name="menuKey"
+                required
+                disabled={!rutaElegida}
+                defaultValue={menuUnico}
+                className={`${INPUT} disabled:bg-ink-50 disabled:text-ink-400`}
+              >
+                <option value="">{rutaElegida ? "Selecciona el menú" : "Primero elige la ruta"}</option>
+                {menus.map((menu) => (
+                  <option key={menu.clave} value={menu.clave}>
+                    {menu.etiqueta}
+                  </option>
+                ))}
+              </select>
+              <ErrorCampo mensajes={state?.errors?.menuKey} />
+            </label>
+          </div>
+
           <label className="flex flex-col gap-1.5 text-xs font-semibold uppercase tracking-wider text-ink-500">
             Asunto *
             <input

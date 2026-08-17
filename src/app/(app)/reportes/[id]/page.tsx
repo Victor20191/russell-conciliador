@@ -10,6 +10,7 @@ import {
   etiquetaEstadoTicket,
   tonoEstadoTicket,
 } from "@/lib/soporte";
+import { etiquetaUbicacionNovedad } from "@/lib/soporte-rutas";
 import AdjuntosGaleria from "../adjuntos-galeria";
 
 export default async function ReporteDetallePage({
@@ -36,6 +37,8 @@ export default async function ReporteDetallePage({
       reporterLastName: true,
       subject: true,
       description: true,
+      routeLabel: true,
+      menuLabel: true,
       status: true,
       solution: true,
       resolvedByName: true,
@@ -54,7 +57,7 @@ export default async function ReporteDetallePage({
 
   return (
     <div className="mx-auto max-w-3xl">
-      <BackLink href="/reportes" label="Volver a reportes" />
+      <BackLink href="/reportes" label="Volver a ayuda" />
       <div className="mt-4">
         <PageHeader
           title={ticket.subject}
@@ -64,6 +67,11 @@ export default async function ReporteDetallePage({
       </div>
 
       <article className="rounded-lg border border-ink-150 bg-paper p-5 shadow-sm">
+        {etiquetaUbicacionNovedad(ticket.routeLabel, ticket.menuLabel) && (
+          <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-ink-500">
+            {etiquetaUbicacionNovedad(ticket.routeLabel, ticket.menuLabel)}
+          </p>
+        )}
         <p className="whitespace-pre-wrap text-sm leading-6 text-ink-700">{ticket.description}</p>
         <p className="mt-4 text-xs text-ink-500">Reportado el {fmtDateTime(ticket.createdAt)}</p>
         <AdjuntosGaleria adjuntos={ticket.attachments} />

@@ -30,6 +30,7 @@ import {
   nombreReportanteDesdeSesion,
   requiereSolucion,
 } from "@/lib/soporte";
+import { resolverUbicacionNovedad } from "@/lib/soporte-rutas";
 import { validarImagen } from "@/lib/avatares";
 import {
   almacenamientoDisponible,
@@ -157,9 +158,15 @@ export async function crearNovedadInterna(
   const parsed = SupportTicketInternalCreateSchema.safeParse({
     subject: formData.get("subject"),
     description: formData.get("description"),
+    routeKey: formData.get("routeKey"),
+    menuKey: formData.get("menuKey"),
   });
   if (!parsed.success) {
     return { ok: false, errors: z.flattenError(parsed.error).fieldErrors };
+  }
+  const ubicacion = resolverUbicacionNovedad(parsed.data.routeKey, parsed.data.menuKey);
+  if (!ubicacion) {
+    return { ok: false, errors: { menuKey: ["Selecciona una ruta y el menú de esa ruta."] } };
   }
 
   const actor = await getCurrentUser();
@@ -188,6 +195,10 @@ export async function crearNovedadInterna(
         reporterLastName: reportante.lastName,
         subject: parsed.data.subject,
         description: parsed.data.description,
+        routeKey: ubicacion.ruta.clave,
+        routeLabel: ubicacion.ruta.etiqueta,
+        menuKey: ubicacion.menu.clave,
+        menuLabel: ubicacion.menu.etiqueta,
         publicAccessTokenHash: huellaTokenAcceso(token),
       },
       select: { id: true },
@@ -203,7 +214,7 @@ export async function crearNovedadInterna(
       user: actor.name,
       action: "REPORTÓ NOVEDAD",
       entity: code,
-      detail: parsed.data.subject,
+      detail: `${ubicacion.ruta.etiqueta} · ${ubicacion.menu.etiqueta}: ${parsed.data.subject}`,
     });
     revalidatePath(ADMIN_PATH);
     revalidatePath(USER_PATH);

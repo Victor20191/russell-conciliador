@@ -6,6 +6,7 @@ import { Icon } from "@/components/icons";
 import { Modal } from "@/components/modal";
 import { fmt } from "@/lib/format";
 import {
+  actualizarAperturaBorrador,
   asignarClienteBorrador,
   continuarBalanceTransitorioConSpec,
   leerBalance,
@@ -14,6 +15,13 @@ import {
   type LeerBalanceState,
   type SugerenciaBalance,
 } from "@/app/actions/balance";
+import {
+  APERTURAS_BALANCE,
+  aperturaSugerida,
+  etiquetaApertura,
+  parsearApertura,
+  type AperturaBalance,
+} from "@/lib/balance/apertura-balance";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import { leerHojasParaPreview, columnaLetra, type CeldaCruda, type HojaPreview } from "@/lib/balance/extraccion/hojas-cliente";
 import type { SpecCarga } from "@/lib/balance/extraccion/esquema";
@@ -144,6 +152,15 @@ function CargarBalanceModal({
   const [reprocesando, startReproceso] = useTransition();
   const [asignandoCliente, startAsignarCliente] = useTransition();
   const [clienteManual, setClienteManual] = useState<{ loteId: string; clientId: number } | null>(null);
+  // APERTURA declarada en la revisión (`cuenta` | `tercero`). Se guarda suelta —no
+  // atada a un lote— porque la revisión puede ser TRANSITORIA (aún sin lote en BD)
+  // y porque un reproceso crea un lote nuevo: en ambos casos la declaración del
+  // analista debe sobrevivir. Quien la baja a BD es el efecto de más abajo.
+  const [aperturaRevision, setAperturaRevision] = useState<AperturaBalance | null>(null);
+  const [guardandoApertura, startGuardarApertura] = useTransition();
+  // Último `loteId|valor` ya persistido: evita reenviar la misma declaración en
+  // cada render y permite re-persistirla cuando cambia el lote.
+  const aperturaPersistidaRef = useRef<string | null>(null);
   // Hojas detectadas en el cliente (solo Excel con 2+ hojas) y la elegida por el
   // usuario. Mientras `hojas` esté presente, la elección es obligatoria.
   const [hojas, setHojas] = useState<HojaPreview[] | null>(null);
@@ -364,6 +381,27 @@ function CargarBalanceModal({
     sug && clienteManual?.loteId === sug.payload.loteId
       ? clienteManual.clientId
       : clienteDetectadoId;
+
+  // La apertura solo puede bajar a BD cuando la revisión YA tiene lote (`persistida`).
+  // Mientras sea transitoria, la elección espera en memoria; en cuanto se vincula el
+  // cliente —o un reproceso crea otro lote— este efecto la deja guardada sin que el
+  // analista tenga que volver a declararla.
+  const loteRevisionPersistido = sug?.persistida ? sug.payload.loteId : null;
+  useEffect(() => {
+    if (!loteRevisionPersistido || !aperturaRevision) return;
+    const marca = `${loteRevisionPersistido}|${aperturaRevision}`;
+    if (aperturaPersistidaRef.current === marca) return;
+    aperturaPersistidaRef.current = marca;
+    startGuardarApertura(async () => {
+      const resultado = await actualizarAperturaBorrador(loteRevisionPersistido, aperturaRevision);
+      if (!resultado.ok) {
+        // Se libera la marca para que un reintento (o el propio borrador) pueda
+        // volver a guardarla; la elección permanece visible en el selector.
+        aperturaPersistidaRef.current = null;
+        notifyError(resultado.message ?? "No se pudo guardar el tipo de balance.");
+      }
+    });
+  }, [loteRevisionPersistido, aperturaRevision]);
 
   const asignarClienteRevision = (clientId: number) => {
     if (!sug) return;
@@ -614,6 +652,9 @@ function CargarBalanceModal({
           asignandoCliente={asignandoCliente || progresoSubida != null}
           onAsignarCliente={asignarClienteRevision}
           onReprocesar={reprocesar}
+          apertura={aperturaRevision}
+          guardandoApertura={guardandoApertura}
+          onElegirApertura={setAperturaRevision}
         />
       ) : (
         <form id="leer-form" onSubmit={onLeerSubmit} className="flex flex-col gap-3.5">
@@ -766,6 +807,9 @@ function FormRevisar({
   asignandoCliente,
   onAsignarCliente,
   onReprocesar,
+  apertura,
+  guardandoApertura,
+  onElegirApertura,
 }: {
   sug: SugerenciaBalance;
   clients: ClienteOpcion[];
@@ -781,6 +825,9 @@ function FormRevisar({
     proveedorIA?: ProveedorIABalance,
     clientId?: number | null,
   ) => void;
+  apertura: AperturaBalance | null;
+  guardandoApertura: boolean;
+  onElegirApertura: (apertura: AperturaBalance) => void;
 }) {
   // El editor de estructura solo aplica si conservamos el snapshot (reproceso) y
   // la lectura produjo un spec (tabular). PDF/plantilla no traen spec.
@@ -816,6 +863,13 @@ function FormRevisar({
         clienteId={clienteId}
         asignando={asignandoCliente}
         onAsignar={onAsignarCliente}
+      />
+
+      <TipoBalanceRevision
+        apertura={apertura}
+        porTerceroDetectado={sug.render.porTercero}
+        guardando={guardandoApertura}
+        onElegir={onElegirApertura}
       />
 
       <DetalleMovimiento
@@ -939,6 +993,95 @@ function IdentificacionCliente({
           {asignando ? <EstadoProcesando>Vinculando</EstadoProcesando> : "Vincular cliente"}
         </button>
       </div>
+    </section>
+  );
+}
+
+/**
+ * APERTURA del informe DECLARADA en la revisión: ¿el archivo viene por cuenta o
+ * desglosado por tercero? Se pregunta aquí —junto a la identificación del cliente—
+ * porque es el momento en que el analista tiene el archivo a la vista. La lectura
+ * solo SUGIERE el valor; la respuesta la da la persona. Sigue siendo editable en la
+ * pantalla del borrador (ahí es donde se vuelve obligatoria para promover).
+ */
+function TipoBalanceRevision({
+  apertura,
+  porTerceroDetectado,
+  guardando,
+  onElegir,
+}: {
+  apertura: AperturaBalance | null;
+  porTerceroDetectado: boolean;
+  guardando: boolean;
+  onElegir: (apertura: AperturaBalance) => void;
+}) {
+  const sugerida = aperturaSugerida(porTerceroDetectado);
+  const elegir = (valor: string) => {
+    const parseada = parsearApertura(valor);
+    if (parseada) onElegir(parseada);
+  };
+
+  return (
+    <section
+      className={`rounded-lg border px-3.5 py-3 ${
+        apertura ? "border-ok-100 bg-ok-100/55" : "border-warn-200 bg-warn-100/55"
+      }`}
+      aria-label="Tipo de balance"
+    >
+      <div className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+        <label className="flex min-w-0 flex-col gap-1.5">
+          <span className="text-[12px] font-semibold text-ink-700">
+            Tipo de balance <span className="text-warn-700">*</span>
+          </span>
+          <select
+            value={apertura ?? ""}
+            onChange={(e) => elegir(e.target.value)}
+            aria-describedby="ayuda-tipo-balance-revision"
+            className={`h-[37px] rounded-md border bg-white px-2.5 text-[12.5px] outline-none focus:border-blue-400 ${
+              apertura ? "border-ink-200 text-ink-700" : "border-warn-300 text-ink-500"
+            }`}
+          >
+            <option value="">Selecciona…</option>
+            {APERTURAS_BALANCE.map((opcion) => (
+              <option key={opcion.valor} value={opcion.valor} title={opcion.descripcion}>
+                {opcion.etiqueta}
+              </option>
+            ))}
+          </select>
+        </label>
+        {!apertura && (
+          <button
+            type="button"
+            onClick={() => onElegir(sugerida)}
+            className="h-[37px] rounded-md border border-ink-200 bg-white px-3 text-[12.5px] font-semibold text-ink-600 hover:bg-ink-50"
+          >
+            Usar «{etiquetaApertura(sugerida)}»
+          </button>
+        )}
+      </div>
+      <p id="ayuda-tipo-balance-revision" className="mt-2 text-[11.5px] text-ink-600">
+        {apertura ? (
+          <>
+            Este cargue queda registrado como{" "}
+            <span className="font-semibold text-ink-800">{etiquetaApertura(apertura)}</span>. Podrás
+            corregirlo en el borrador antes de cargarlo.
+          </>
+        ) : (
+          <>
+            <span className="font-semibold text-warn-700">Indica si el archivo es por cuenta o por terceros.</span>{" "}
+            Por la estructura leída, Russell sugiere{" "}
+            <span className="font-semibold text-ink-800">{etiquetaApertura(sugerida)}</span>
+            {porTerceroDetectado
+              ? " (se detectó detalle por tercero)."
+              : " (no se detectó detalle por tercero)."}
+          </>
+        )}
+      </p>
+      {guardando && (
+        <div className="mt-1.5 text-[11.5px] font-medium text-ink-500">
+          <EstadoProcesando>Guardando el tipo de balance</EstadoProcesando>
+        </div>
+      )}
     </section>
   );
 }

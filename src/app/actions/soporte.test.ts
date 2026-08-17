@@ -39,7 +39,11 @@ vi.mock("@/lib/storage/objetos", () => ({
   eliminarObjeto: mocks.eliminarObjeto,
 }));
 
+import { catalogoUbicacionesNovedad } from "@/lib/soporte-rutas";
 import { cambiarEstadoTicket, crearNovedadInterna, crearTicketSoporte, guardarSolucionTicket } from "./soporte";
+
+const rutaBalance = catalogoUbicacionesNovedad().find((ruta) => ruta.etiqueta === "Balance de comprobación")!;
+const menuBorrador = rutaBalance.menus.find((menu) => menu.etiqueta === "Borrador Balance")!;
 
 function formularioReporte() {
   const form = new FormData();
@@ -55,6 +59,8 @@ function formularioNovedad() {
   const form = new FormData();
   form.set("subject", "El mapeo no guarda el ajuste");
   form.set("description", "Cambié la cuenta y al recargar volvió al valor anterior.");
+  form.set("routeKey", rutaBalance.clave);
+  form.set("menuKey", menuBorrador.clave);
   return form;
 }
 
@@ -161,6 +167,10 @@ describe("Server Actions de soporte", () => {
         reporterFirstName: "Laura",
         reporterLastName: "Staff",
         subject: "El mapeo no guarda el ajuste",
+        routeKey: rutaBalance.clave,
+        routeLabel: "Balance de comprobación",
+        menuKey: menuBorrador.clave,
+        menuLabel: "Borrador Balance",
       }),
       select: { id: true },
     });
@@ -168,6 +178,15 @@ describe("Server Actions de soporte", () => {
       action: "REPORTÓ NOVEDAD",
     }));
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/reportes");
+  });
+
+  it("rechaza un menú que no pertenece a la ruta elegida", async () => {
+    const form = formularioNovedad();
+    form.set("menuKey", "registro-de-acciones");
+    const resultado = await crearNovedadInterna(undefined, form);
+    expect(resultado.ok).toBe(false);
+    expect(resultado.errors?.menuKey?.[0]).toMatch(/ruta/i);
+    expect(mocks.create).not.toHaveBeenCalled();
   });
 
   it("no crea la novedad interna sin permiso", async () => {

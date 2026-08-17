@@ -261,10 +261,10 @@ export const MODULOS_PLATAFORMA: PlatformModuleDefinition[] = [
     // inerte (configurable=false ⇒ moduloPublicadoParaRol devuelve true);
     // la bandeja completa sigue siendo `soporte:administrar` (SOLO_ADMIN).
     key: "soporte",
-    label: "Reportes",
+    label: "Ayuda",
     description: "Novedades reportadas por los usuarios para que Xentria las gestione.",
     group: "Trabajo",
-    icon: "msg",
+    icon: "help",
     order: 55,
     enabledForNonAdmins: true,
     configurableForNonAdmins: false,
