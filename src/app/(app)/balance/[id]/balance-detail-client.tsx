@@ -21,6 +21,7 @@ import { asignarCuentaEstandar, validarAlerta, revertirValidacionAlerta, elimina
 import Conversacion from "@/components/conversacion";
 import type { NodoBalance } from "@/lib/balance/calcular";
 import { esSaldoContrarioAccionable, esSaldoContrarioInformativo, type UmbralesAlertas } from "@/lib/balance/umbrales-alertas";
+import { etiquetaApertura, parsearApertura } from "@/lib/balance/apertura-balance";
 import { useSeleccionFilaTabla } from "@/app/(app)/balance/use-seleccion-fila-tabla";
 import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
 import type { Tab } from "./tabs";
@@ -53,7 +54,7 @@ export type Sums = { activo: number; pasivo: number; patrimonio: number; ingreso
 export type Validation = { id: string; rule: string; status: string; detail: string; count?: number };
 export type EstandarOpcion = { code: string; name: string };
 export type Meta = { rows: number; mapped: number; unmapped: number; critical: number; file: string; fileSize: string; frozenBy: string; frozenAt: string; uploadedBy: string; uploadedAt: string };
-export type Version = { /** id del encabezado: abre y exporta esa versión. */ id: number; v: string; /** ¿Es la versión OFICIAL del período? */ esOficial: boolean; date: string; uploadedBy: string; role: string; file: string; size: string; rows: number; sumA: number; balanced: boolean; note: string; /** Notas y aprobaciones transferidas desde el borrador. */ approvalNote: string; changes: number };
+export type Version = { /** id del encabezado: abre y exporta esa versión. */ id: number; v: string; /** ¿Es la versión OFICIAL del período? */ esOficial: boolean; date: string; uploadedBy: string; role: string; file: string; size: string; rows: number; sumA: number; balanced: boolean; note: string; /** Notas y aprobaciones transferidas desde el borrador. */ approvalNote: string; changes: number; /** Apertura declarada al cargar (`cuenta` | `tercero`); null en cargues anteriores. */ apertura: string | null };
 
 // Filtro de ALERTAS (vive en el padre: el prevalidador bloqueado salta aquí).
 // `alertas` = las dos clases juntas; los otros dos aíslan un tipo.
@@ -1063,6 +1064,7 @@ function VersionsTab({ versions, balanceId }: { versions: Version[]; balanceId: 
               <th className="px-4 py-2 font-semibold">Fecha</th>
               <th className="px-4 py-2 font-semibold">Cargado por</th>
               <th className="px-4 py-2 font-semibold">Archivo</th>
+              <th className="px-4 py-2 font-semibold">Tipo de balance</th>
               <th className="whitespace-nowrap border-l border-ink-150 px-4 py-2 text-right font-semibold">Cuentas</th>
               <th className="whitespace-nowrap border-l border-ink-150 px-4 py-2 text-right font-semibold">Activo</th>
               <th className="border-l border-ink-150 px-4 py-2 font-semibold">Cuadrado</th>
@@ -1092,6 +1094,17 @@ function VersionsTab({ versions, balanceId }: { versions: Version[]; balanceId: 
                 <td className="whitespace-nowrap px-4 py-2.5 font-mono text-ink-500">{v.date}</td>
                 <td className="px-4 py-2.5"><div className="font-medium text-ink-800">{v.uploadedBy}</div><div className="text-[11px] text-ink-400">{v.role}</div></td>
                 <td className="px-4 py-2.5 text-ink-600">{v.file}<div className="text-[11px] text-ink-400">{v.size}</div></td>
+                <td className="px-4 py-2.5">
+                  {/* Apertura DECLARADA por quien cargó cada versión (no una heurística). */}
+                  {parsearApertura(v.apertura) ? (
+                    <Chip
+                      label={etiquetaApertura(v.apertura)}
+                      tone={parsearApertura(v.apertura) === "tercero" ? "blue" : "ink"}
+                    />
+                  ) : (
+                    <span className="text-ink-400" title="Versión cargada antes de registrar el tipo de balance.">—</span>
+                  )}
+                </td>
                 <td className="whitespace-nowrap border-l border-ink-150 px-4 py-2.5 text-right font-mono text-ink-700">{v.rows}</td>
                 <td className="whitespace-nowrap border-l border-ink-150 px-4 py-2.5 text-right font-mono text-ink-700">{fmt(v.sumA)}</td>
                 <td className="border-l border-ink-150 px-4 py-2.5">{v.balanced ? <Chip label="Sí" tone="ok" /> : <Chip label="Descuadra" tone="err" />}</td>

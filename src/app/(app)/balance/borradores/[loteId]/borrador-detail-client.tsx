@@ -16,7 +16,14 @@ import {
   usePantallaCompletaTabla,
 } from "@/components/tabla-pantalla-completa";
 import { fmt, fmtContable } from "@/lib/format";
-import { actualizarPeriodoBorrador, cargarBorrador, descartarBorrador, aplicarCambiosBorrador, asignarClienteBorrador, guardarNotasDesdeEditor } from "@/app/actions/balance";
+import { actualizarAperturaBorrador, actualizarPeriodoBorrador, cargarBorrador, descartarBorrador, aplicarCambiosBorrador, asignarClienteBorrador, guardarNotasDesdeEditor } from "@/app/actions/balance";
+import {
+  APERTURAS_BALANCE,
+  aperturaSugerida,
+  etiquetaApertura,
+  parsearApertura,
+  type AperturaBalance,
+} from "@/lib/balance/apertura-balance";
 import type { ImportBalanceState } from "@/lib/import/balance";
 import { construirVistaBorrador } from "@/lib/balance/borrador-vm";
 import {
@@ -454,6 +461,8 @@ export type VersionHermanaBorrador = {
   archivoNombre: string;
   /** Fecha/hora del cargue ya formateada en el servidor. */
   fecha: string;
+  /** Apertura declarada de esa versión (`cuenta` | `tercero`); null = sin declarar. */
+  apertura: string | null;
 };
 
 /**
@@ -518,6 +527,10 @@ function MenuVersionesBorrador({
                       </span>
                       <span className="block text-[10.5px] text-ink-400">
                         {h.fecha}
+                        {" · "}
+                        <span className={parsearApertura(h.apertura) ? "text-ink-500" : undefined}>
+                          {etiquetaApertura(h.apertura)}
+                        </span>
                         {esta && " · estás aquí"}
                       </span>
                     </span>
@@ -614,13 +627,15 @@ function NotasCargaCliente({
 }
 
 export default function BorradorDetailClient({
-  loteId, archivoNombre, nitDetectado, periodoInicial, periodoFinal, filasCompactas, porTerceroDetectado, revisionesReubicacion = [], clientes, clienteSugeridoId, clientePersistido = false, correccionesAplicadas, umbrales, version = null, hermanos = [],
+  loteId, archivoNombre, nitDetectado, periodoInicial, periodoFinal, aperturaGuardada = null, filasCompactas, porTerceroDetectado, revisionesReubicacion = [], clientes, clienteSugeridoId, clientePersistido = false, correccionesAplicadas, umbrales, version = null, hermanos = [],
 }: {
   loteId: string;
   archivoNombre: string;
   nitDetectado: string | null;
   periodoInicial: string | null;
   periodoFinal: string | null;
+  /** Apertura ya declarada para este borrador (`cuenta` | `tercero`); null = pendiente. */
+  aperturaGuardada?: string | null;
   /** Filas del staging en forma compacta (diccionario + tuplas): reduce ~5× el
    *  payload RSC en balances por tercero de decenas de miles de filas. */
   filasCompactas: FilasCompactas;
@@ -655,6 +670,14 @@ export default function BorradorDetailClient({
   const [periodoIni, setPeriodoIni] = useState(periodoInicial ?? "");
   const [periodoFin, setPeriodoFin] = useState(periodoFinal ?? "");
   const [guardandoPeriodo, startGuardarPeriodo] = useTransition();
+  // Apertura DECLARADA del informe (por cuenta / por terceros). Arranca vacía a
+  // propósito —aunque la lectura ya tenga una sospecha— para que sea una respuesta
+  // del analista y no una heurística heredada sin mirar; la detección se ofrece al
+  // lado como sugerencia. Es obligatoria para cargar el balance oficial.
+  const [aperturaBalance, setAperturaBalance] = useState<AperturaBalance | null>(
+    () => parsearApertura(aperturaGuardada),
+  );
+  const [guardandoApertura, startGuardarApertura] = useTransition();
   const [comentarioPromocion, setComentarioPromocion] = useState("");
   // Compuerta al entrar: sin cliente detectado por NIT, exige cliente + período
   // antes de operar (para aplicar sus preferencias/notas y no cargar a ciegas).
@@ -807,6 +830,18 @@ export default function BorradorDetailClient({
     startGuardarPeriodo(async () => {
       const resultado = await actualizarPeriodoBorrador(loteId, inicio, fin);
       if (!resultado.ok) notifyError(resultado.message ?? "No se pudo guardar el período.");
+    });
+  };
+  // La apertura se persiste en cuanto se elige (como el período): así sobrevive a
+  // recargas, se ve en el listado de borradores y la promoción no depende de que
+  // el navegador la reenvíe.
+  const elegirApertura = (valor: string) => {
+    const apertura = parsearApertura(valor);
+    setAperturaBalance(apertura);
+    if (!apertura) return;
+    startGuardarApertura(async () => {
+      const resultado = await actualizarAperturaBorrador(loteId, apertura);
+      if (!resultado.ok) notifyError(resultado.message ?? "No se pudo guardar el tipo de balance.");
     });
   };
 
@@ -1475,7 +1510,7 @@ export default function BorradorDetailClient({
           className="flex flex-col gap-3"
         >
           <input type="hidden" name="loteId" value={loteId} />
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
             <SelectorClienteBuscable
               clients={clientes}
               value={clienteSelId}
@@ -1497,10 +1532,60 @@ export default function BorradorDetailClient({
               <span className="text-[11.5px] font-medium text-ink-600">Período hasta</span>
               <input type="date" name="periodoFin" required value={periodoFin} onChange={(e) => setPeriodoFin(e.target.value)} onBlur={() => guardarPeriodo()} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400" />
             </label>
+            <label className="flex flex-col gap-1.5">
+              <span className="text-[11.5px] font-medium text-ink-600">
+                Tipo de balance <span className="text-warn-700">*</span>
+              </span>
+              <select
+                name="aperturaBalance"
+                required
+                value={aperturaBalance ?? ""}
+                onChange={(e) => elegirApertura(e.target.value)}
+                aria-describedby="ayuda-tipo-balance"
+                className={`rounded-md border bg-white px-2.5 py-2 text-[12.5px] outline-none focus:border-blue-400 ${
+                  aperturaBalance ? "border-ink-200 text-ink-700" : "border-warn-300 text-ink-500"
+                }`}
+              >
+                <option value="">Selecciona…</option>
+                {APERTURAS_BALANCE.map((opcion) => (
+                  <option key={opcion.valor} value={opcion.valor} title={opcion.descripcion}>
+                    {opcion.etiqueta}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
-          {(asignandoCliente || guardandoPeriodo) && (
+          {/* La lectura del archivo ya tiene una sospecha (detección de terceros):
+              se ofrece como sugerencia, pero la respuesta la da el analista. */}
+          <p id="ayuda-tipo-balance" className="text-[11px] text-ink-500">
+            {aperturaBalance ? (
+              <>
+                Este cargue queda registrado como <span className="font-semibold text-ink-700">{etiquetaApertura(aperturaBalance)}</span>. Se mostrará en las versiones del cliente, en borrador y en el balance oficial.
+              </>
+            ) : (
+              <>
+                <span className="font-semibold text-warn-700">Indica si el archivo es por cuenta o por terceros.</span>{" "}
+                Por la estructura leída, Russell sugiere{" "}
+                <button
+                  type="button"
+                  onClick={() => elegirApertura(aperturaSugerida(porTercero))}
+                  className="font-semibold text-blue-500 underline decoration-dotted underline-offset-2 hover:text-blue-600"
+                >
+                  {etiquetaApertura(aperturaSugerida(porTercero))}
+                </button>
+                {porTercero ? " (se detectó detalle por tercero)." : " (no se detectó detalle por tercero)."}
+              </>
+            )}
+          </p>
+          {(asignandoCliente || guardandoPeriodo || guardandoApertura) && (
             <div className="text-[11.5px] font-medium text-ink-500">
-              <EstadoProcesando>{asignandoCliente ? "Vinculando cliente" : "Guardando período"}</EstadoProcesando>
+              <EstadoProcesando>
+                {asignandoCliente
+                  ? "Vinculando cliente"
+                  : guardandoPeriodo
+                    ? "Guardando período"
+                    : "Guardando tipo de balance"}
+              </EstadoProcesando>
             </div>
           )}
           {clienteSelId == null && (
@@ -1526,10 +1611,12 @@ export default function BorradorDetailClient({
           <div className="flex items-center gap-2">
             <button
               type="submit"
-              disabled={cargando || asignandoCliente || guardandoPeriodo || hayCambios || clienteSelId == null || !periodoIni || !periodoFin || faltaComentarioPromocion || manipulacionesPendientes.length > 0}
+              disabled={cargando || asignandoCliente || guardandoPeriodo || guardandoApertura || hayCambios || clienteSelId == null || !periodoIni || !periodoFin || aperturaBalance == null || faltaComentarioPromocion || manipulacionesPendientes.length > 0}
               title={
                 clienteSelId == null || !periodoIni || !periodoFin
                   ? "Falta el cliente o el período"
+                  : aperturaBalance == null
+                    ? "Indica si el balance es por cuenta o por terceros"
                   : hayCambios
                     ? "Guarda o descarta los cambios antes de cargar"
                     : faltaComentarioPromocion

@@ -257,16 +257,16 @@ export const MODULOS_PLATAFORMA: PlatformModuleDefinition[] = [
     configurableForNonAdmins: true,
   },
   {
-    // Admin-only: el portal de reporte/seguimiento vive fuera del cascaron y es
-    // publico; esta definicion corresponde exclusivamente a la bandeja interna.
-    // La visibilidad la gobierna `soporte:administrar` (SOLO_ADMIN).
+    // Visible para todos los roles con `soporte:ver`. La publicación queda
+    // inerte (configurable=false ⇒ moduloPublicadoParaRol devuelve true);
+    // la bandeja completa sigue siendo `soporte:administrar` (SOLO_ADMIN).
     key: "soporte",
-    label: "Tickets de soporte",
-    description: "Bandeja interna para consultar solicitudes y documentar su solucion.",
-    group: "Configuración",
-    icon: "bell",
-    order: 230,
-    enabledForNonAdmins: false,
+    label: "Reportes",
+    description: "Novedades reportadas por los usuarios para que Xentria las gestione.",
+    group: "Trabajo",
+    icon: "msg",
+    order: 55,
+    enabledForNonAdmins: true,
     configurableForNonAdmins: false,
   },
 ];

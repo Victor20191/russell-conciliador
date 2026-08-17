@@ -210,10 +210,13 @@ export const PERMISOS: Permiso[] = [
   { code: "novedades:ver", module: "novedades", action: "ver", label: "Ver novedades", roles: SOLO_ADMIN },
   { code: "novedades:administrar", module: "novedades", action: "administrar", label: "Administrar novedades", roles: SOLO_ADMIN },
 
-  // ===== Mesa de ayuda — Administrador y Superadministrador =====
-  // El alta y el seguimiento del reportante son publicos; solo el personal
-  // administrativo autenticado consulta todos los tickets y registra la solucion.
-  { code: "soporte:administrar", module: "soporte", action: "administrar", label: "Administrar tickets de soporte", roles: SOLO_ADMIN },
+  // ===== Reportes / novedades internas — todos los usuarios =====
+  // Cualquier rol autenticado monta una novedad y consulta las suyas. Solo
+  // Administrador y Superadministrador (Xentria) ven la bandeja completa,
+  // cambian estados y documentan la solución.
+  { code: "soporte:ver", module: "soporte", action: "ver", label: "Ver reportes", roles: TODOS },
+  { code: "soporte:crear", module: "soporte", action: "crear", label: "Crear reporte", roles: TODOS },
+  { code: "soporte:administrar", module: "soporte", action: "administrar", label: "Administrar reportes", roles: SOLO_ADMIN },
 
   // ===== Prompts de IA — SOLO Superadministrador =====
   // Ver y editar los prompts de sistema que la plataforma envía a la IA

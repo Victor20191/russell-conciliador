@@ -64,6 +64,7 @@ export const workNav: NavItem[] = [
     })),
   },
   { label: "Impuestos · DIAN", href: "/dian", icon: "doc", count: 2, permiso: "dian:ver", modulo: "dian" },
+  { label: "Reportes", href: "/reportes", icon: "msg", permiso: "soporte:ver", modulo: "soporte" },
   {
     label: "Auditoría",
     href: "/auditoria",
@@ -86,7 +87,7 @@ export const workNav: NavItem[] = [
 ];
 
 export const configNav: NavItem[] = [
-  { label: "Tickets de soporte", href: "/config/soporte", icon: "bell", permiso: "soporte:administrar", modulo: "soporte" },
+  { label: "Gestión de reportes", href: "/config/soporte", icon: "msg", permiso: "soporte:administrar", modulo: "soporte" },
   { label: "Publicación de módulos", href: "/config/publicacion-modulos", icon: "eye", permiso: "publicacion_modulos:ver", modulo: "publicacion_modulos" },
   { label: "Módulos y campos", href: "/config/modulos", icon: "settings", permiso: "modulos:ver", modulo: "modulos" },
   { label: "Clientes", href: "/config/clientes", icon: "users", permiso: "clientes:configurar", modulo: "clientes" },

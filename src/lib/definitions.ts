@@ -50,9 +50,36 @@ export const SupportTicketSolutionSchema = z.object({
   solution: z.string().trim().min(10, { error: "Explica cómo se solucionó la solicitud." }).max(5000, { error: "La solución es demasiado larga." }),
 });
 
+export const SupportTicketInternalCreateSchema = z.object({
+  subject: z.string().trim().min(5, { error: "Describe brevemente el motivo de la novedad." }).max(160, { error: "El asunto es demasiado largo." }),
+  description: z.string().trim().min(10, { error: "Cuéntanos con un poco más de detalle qué ocurrió." }).max(5000, { error: "La descripción es demasiado larga." }),
+});
+
+export const SupportTicketStatusSchema = z
+  .object({
+    ticketId: z.coerce.number({ error: "Ticket inválido." }).int().positive({ error: "Ticket inválido." }),
+    updatedAt: z.string().datetime({ offset: true, error: "La versión del ticket no es válida." }),
+    status: z.enum(["abierto", "en_proceso", "resuelto", "cerrado"], { error: "El estado no es válido." }),
+    solution: z.string().trim().max(5000, { error: "La solución es demasiado larga." }).optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.status === "resuelto" && (!data.solution || data.solution.length < 10)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["solution"],
+        message: "Explica cómo se solucionó la solicitud.",
+      });
+    }
+  });
+
 export type SupportTicketCreateState = ActionState & {
   code?: string;
   trackingUrl?: string;
+};
+
+export type SupportTicketInternalCreateState = ActionState & {
+  ticketId?: number;
+  code?: string;
 };
 
 export const ModuleFieldSchema = z.object({

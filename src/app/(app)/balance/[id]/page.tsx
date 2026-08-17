@@ -7,6 +7,7 @@ import { fmt, fmtDateTime } from "@/lib/format";
 import { reconstruirBalance, agruparJerarquia } from "@/lib/balance/calcular";
 import { getCuentasEstandar } from "@/lib/balance/cuentas-estandar";
 import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
+import { etiquetaApertura, parsearApertura } from "@/lib/balance/apertura-balance";
 import { cargarContextoPrevalidadorBalance } from "@/lib/balance/prevalidador/servidor";
 import BalanceDetailClient, {
   type Meta, type Version,
@@ -72,7 +73,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
     prisma.balancePruebaEncabezado.findMany({
       where: { clienteId: balance.clienteId, periodo: balance.periodo },
       orderBy: { creadoEn: "desc" },
-      select: { id: true, version: true, esOficial: true, ultimaCarga: true, cargadoPor: true, rolCarga: true, archivo: true, tamanoArchivo: true, filasTotales: true, sumaActivo: true, cuadrado: true, nota: true, comentarioAprobacion: true, reubicacionesAprobadas: true, cambios: true, creadoEn: true },
+      select: { id: true, version: true, esOficial: true, ultimaCarga: true, cargadoPor: true, rolCarga: true, archivo: true, tamanoArchivo: true, filasTotales: true, sumaActivo: true, cuadrado: true, nota: true, comentarioAprobacion: true, reubicacionesAprobadas: true, cambios: true, aperturaBalance: true, creadoEn: true },
     }),
     // Conteo de comentarios por cuenta (ancla) de este balance, para los badges del árbol.
     prisma.comment.groupBy({ by: ["anchor"], where: { entityType: "balance", entityId: id }, _count: { _all: true } }),
@@ -153,6 +154,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
         ? h.comentarioAprobacion ?? ""
         : construirNotasAprobacionBalance(h.comentarioAprobacion, reubicaciones) ?? "",
       changes: h.cambios,
+      apertura: h.aperturaBalance,
     };
   });
   const versionOficialId = hermanos.find((h) => h.esOficial)?.id ?? null;
@@ -209,6 +211,13 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
         <span className="inline-flex items-center gap-1"><Icon name="upload" size={12} /> {meta.uploadedBy} · {meta.uploadedAt}</span>
         {balance.estaCongelado && <span className="inline-flex items-center gap-1 text-ok-700"><Icon name="check" size={12} /> Congelada por {meta.frozenBy} · {meta.frozenAt}</span>}
         <span className="font-mono">{meta.file} · {meta.fileSize} · {meta.rows} cuentas</span>
+        {/* Apertura declarada al cargar. Los balances anteriores a este dato no la pintan. */}
+        {parsearApertura(balance.aperturaBalance) && (
+          <Chip
+            label={etiquetaApertura(balance.aperturaBalance)}
+            tone={parsearApertura(balance.aperturaBalance) === "tercero" ? "blue" : "ink"}
+          />
+        )}
       </p>
 
       {(balance.comentarioAprobacion || balance.advertenciaArchivoFuente || reubicacionesAprobadas.length > 0) && (

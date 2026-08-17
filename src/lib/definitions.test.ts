@@ -8,7 +8,9 @@ import {
   PrefijoCuentaPrevalidadorSchema,
   RevisionPrevalidadorSchema,
   SupportTicketCreateSchema,
+  SupportTicketInternalCreateSchema,
   SupportTicketSolutionSchema,
+  SupportTicketStatusSchema,
   UserUpdateSchema,
 } from "./definitions";
 
@@ -177,6 +179,31 @@ test("la solución valida ticket, versión y explicación", () => {
   };
   expect(SupportTicketSolutionSchema.safeParse(base).success).toBe(true);
   expect(SupportTicketSolutionSchema.safeParse({ ...base, solution: "Listo" }).success).toBe(false);
+});
+
+test("la novedad interna solo pide asunto y descripción", () => {
+  const valido = {
+    subject: "El balance no carga",
+    description: "Al elegir el archivo la pantalla se queda en blanco.",
+  };
+  expect(SupportTicketInternalCreateSchema.safeParse(valido).success).toBe(true);
+  expect(SupportTicketInternalCreateSchema.safeParse({ ...valido, subject: "abc" }).success).toBe(false);
+});
+
+test("cambiar estado exige solución solo al marcar resuelto", () => {
+  const base = {
+    ticketId: "12",
+    updatedAt: "2026-08-07T15:00:00.000Z",
+    status: "en_proceso",
+  };
+  expect(SupportTicketStatusSchema.safeParse(base).success).toBe(true);
+  expect(SupportTicketStatusSchema.safeParse({ ...base, status: "resuelto" }).success).toBe(false);
+  expect(SupportTicketStatusSchema.safeParse({
+    ...base,
+    status: "resuelto",
+    solution: "Se corrigió la carga y el usuario pudo continuar.",
+  }).success).toBe(true);
+  expect(SupportTicketStatusSchema.safeParse({ ...base, status: "pausado" }).success).toBe(false);
 });
 
 test("el prevalidador normaliza y admite únicamente prefijos de nivel 2 o 4", () => {

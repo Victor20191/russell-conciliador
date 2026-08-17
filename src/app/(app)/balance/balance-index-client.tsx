@@ -10,6 +10,7 @@ import {
   usePagination,
 } from "@/components/pagination-controls";
 import { Card, Chip } from "@/components/ui";
+import { etiquetaApertura, parsearApertura } from "@/lib/balance/apertura-balance";
 import { CargarBalanceButton, type ClienteOpcion } from "./cargar-balance-modal";
 import type { ConfiguracionIABalanceUI } from "@/lib/ia/proveedor-balance";
 
@@ -17,6 +18,9 @@ export type PeriodRow = {
   period: string; versions: number; official: string | null; officialId: number | null;
   status: string; complete: number; lastUpload: string;
   mapped: number; unmapped: number; total: number;
+  /** Apertura declarada de la versión oficial (`cuenta` | `tercero`); null si el
+   *  cargue es anterior a este dato. */
+  apertura: string | null;
 };
 export type ClientGroup = {
   clientId: number; clientName: string; clientNit: string;
@@ -146,6 +150,7 @@ function ClientsTab({ clients }: { clients: ClientGroup[] }) {
                   <th className="px-4 py-2 font-semibold">Período</th>
                   <th className="px-4 py-2 text-right font-semibold">Versiones</th>
                   <th className="px-4 py-2 font-semibold">Versión oficial</th>
+                  <th className="px-4 py-2 font-semibold">Tipo de balance</th>
                   <th className="px-4 py-2 font-semibold">Estado</th>
                   <th className="px-4 py-2 font-semibold">Completitud</th>
                   <th className="px-4 py-2 font-semibold">Mapeo</th>
@@ -173,6 +178,12 @@ function ClientsTab({ clients }: { clients: ClientGroup[] }) {
                       )}
                     </td>
                     <td className="px-4 py-2.5">{p.official ? <Chip label={`${p.official} oficial`} tone="ok" /> : <span className="text-ink-400">—</span>}</td>
+                    <td className="px-4 py-2.5">
+                      {/* Lo declaró quien cargó la versión oficial del período. */}
+                      {parsearApertura(p.apertura)
+                        ? <Chip label={etiquetaApertura(p.apertura)} tone={parsearApertura(p.apertura) === "tercero" ? "blue" : "ink"} />
+                        : <span className="text-ink-400" title="Cargue anterior al registro del tipo de balance.">—</span>}
+                    </td>
                     <td className="px-4 py-2.5"><Chip label={p.status} tone={statusTone(p.status)} /></td>
                     <td className="px-4 py-2.5">
                       <div className="flex items-center gap-2">

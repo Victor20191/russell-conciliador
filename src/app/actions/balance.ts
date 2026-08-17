@@ -56,6 +56,7 @@ import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
 import type { UmbralesAlertas } from "@/lib/balance/umbrales-alertas";
 import { detectarManipulacionesRiesgosas, reclasificarHuerfanas, reclasificarSoloHojas, corregirCodigosPlaceholder, marcarNoContables, validarReubicacionesBorrador, type FilaBorrador } from "@/lib/balance/borrador";
 import { esBalancePorTercero, colapsarTerceros, esBalancePorTerceroSufijo, consolidarTercerosPorSufijo, marcarCuentaNit } from "@/lib/balance/terceros";
+import { etiquetaApertura, parsearApertura, type AperturaBalance } from "@/lib/balance/apertura-balance";
 import { invalidarStagingBorrador, type RevisionReubicacionStaging } from "@/lib/balance/staging-borrador";
 import { marcarRelistadoGuiones } from "@/lib/balance/relistado";
 import { mensajeTamanoBalanceNoPermitido } from "@/lib/balance/limites-archivo";
@@ -922,6 +923,8 @@ type MetaPromocion = {
   cuentas: number;
   cuentasAgrupadoras: number;
   revisionContenido: number;
+  /** Apertura DECLARADA en el borrador (obligatoria): viaja al encabezado oficial. */
+  aperturaBalance: AperturaBalance;
   cuadreArchivo: { totalDebitos: number; totalCreditos: number } | null; // solo el modal lo trae
   proveedorIA?: ProveedorIABalance;
   comentarioPromocion?: string | null;
@@ -1049,6 +1052,7 @@ async function promoverStagingAOficial(p: MetaPromocion, contexto: string): Prom
       diferenciaArchivoFuente,
       revisionesReubicacion: revisionesFinales.revisionesAprobadas,
       nombresGrupoCliente,
+      aperturaBalance: p.aperturaBalance,
       meta: {
         estandar: TIPO_BALANCE_CARGA, convencionCredito: p.convencionCredito,
         filasLeidas: p.filasLeidas, filasExcluidas: p.filasExcluidas, filasDescuadre: p.filasDescuadre,
@@ -1427,6 +1431,8 @@ async function persistirCargue(p: {
   revisionesReubicacion?: RevisionReubicacionBalance[];
   /** Nombres reales de las agrupadoras de seis dígitos leídos del archivo. */
   nombresGrupoCliente?: Map<string, string>;
+  /** Apertura declarada del informe (`cuenta` | `tercero`): se copia del borrador. */
+  aperturaBalance: AperturaBalance;
   /** Umbrales de alerta vigentes (/config/parametros): definen cuántas validaciones
    *  quedan en «warn» y, con ello, el estado y la nota del encabezado. */
   umbrales: UmbralesAlertas;
@@ -1739,6 +1745,7 @@ async function persistirCargue(p: {
         sumaActivo: calc.sums.activo, filasTotales: calc.totalRows,
         mapeadas: calc.mapped, sinMapear: calc.unmapped, criticas: calc.critical, cambios,
         estandar: p.meta.estandar, convencionCredito: p.meta.convencionCredito,
+        aperturaBalance: p.aperturaBalance,
         filasLeidas: p.meta.filasLeidas, filasExcluidas: p.meta.filasExcluidas, filasDescuadre: p.meta.filasDescuadre,
         ultimaCarga: ahora,
         detalles: {
@@ -3246,6 +3253,19 @@ export async function cargarBorrador(_prev: ImportBalanceState, formData: FormDa
   const scope = await authorizePermiso("balance:crear", { clientId });
   if (!scope.ok) return { ok: false, message: scope.message };
 
+  // Apertura del informe (por cuenta / por terceros): la declara el analista en el
+  // borrador y es OBLIGATORIA para promover. El formulario la envía y el lote la
+  // conserva; se acepta cualquiera de las dos fuentes, pero nunca se deduce sola
+  // (la detección de terceros solo sugiere el valor inicial del selector).
+  const aperturaBalance =
+    parsearApertura(formData.get("aperturaBalance")) ?? parsearApertura(lote.aperturaBalance);
+  if (!aperturaBalance) {
+    return {
+      ok: false,
+      message: "Indica si el balance es por cuenta o por terceros antes de cargarlo.",
+    };
+  }
+
   // Compuerta defensiva del servidor: todas las filas deben conservar la misma
   // identidad que el encabezado.
   const [filasCliente, filasControl] = await Promise.all([
@@ -3308,11 +3328,13 @@ export async function cargarBorrador(_prev: ImportBalanceState, formData: FormDa
 
   // Las fechas editadas dejan de ser estado efímero del formulario: se guardan
   // antes de promover, de modo que también sobreviven si la carga oficial falla.
+  // La apertura declarada viaja por el mismo camino y con el mismo motivo.
   await prisma.balanceImportacionLote.update({
     where: { loteId },
     data: {
       periodoInicial: fechaCalendarioPrisma(periodoInicio),
       periodoFinal: fechaCalendarioPrisma(periodoFin),
+      aperturaBalance,
     },
   });
 
@@ -3325,6 +3347,7 @@ export async function cargarBorrador(_prev: ImportBalanceState, formData: FormDa
       filasLeidas: lote?.filasLeidas ?? 0, filasExcluidas: lote?.filasExcluidas ?? 0, filasDescuadre: 0,
       cuentasMovimiento: lote?.cuentasMovimiento ?? movEnStaging, cuentas: lote?.cuentasMovimiento ?? movEnStaging, cuentasAgrupadoras: 0,
       revisionContenido: lote.revisionContenido,
+      aperturaBalance,
       cuadreArchivo: null,
       comentarioPromocion: comentarioValidado.comentario,
     },
@@ -3394,6 +3417,59 @@ export async function actualizarPeriodoBorrador(
     return { ok: true, message: "Período guardado." };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("actualizarPeriodoBorrador", e) };
+  }
+}
+
+/**
+ * Guarda la APERTURA declarada del borrador (`cuenta` | `tercero`) sin esperar a
+ * su promoción: así el dato sobrevive a recargas de la página y ya viaja en el
+ * listado de borradores. No toca el staging ni los cálculos.
+ */
+export async function actualizarAperturaBorrador(
+  loteId: string,
+  apertura: string,
+): Promise<ActionState> {
+  const authz = await authorizePermiso("balance:crear");
+  if (!authz.ok) return { ok: false, message: authz.message };
+  const id = String(loteId ?? "").trim();
+  if (!id) return { ok: false, message: "Borrador inválido." };
+  const valor = parsearApertura(apertura);
+  if (!valor) return { ok: false, message: "Indica si el balance es por cuenta o por terceros." };
+  try {
+    const [lote, contexto] = await Promise.all([
+      prisma.balanceImportacionLote.findUnique({
+        where: { loteId: id },
+        select: { clienteId: true, cargadoPorId: true },
+      }),
+      contextoAccesoBorradorActual(),
+    ]);
+    if (!lote) return { ok: false, message: "El borrador ya no existe." };
+    if (!puedeVerBorrador(lote, contexto)) {
+      return { ok: false, message: "No tienes permiso para modificar ese borrador." };
+    }
+    if (lote.clienteId != null) {
+      const scope = await authorizePermiso("balance:crear", { clientId: lote.clienteId });
+      if (!scope.ok) return { ok: false, message: scope.message };
+    }
+    await transaccionSerializable(async (tx) => {
+      await tomarCandadoTransaccion(tx, `balance-borrador:${id}`);
+      const loteActual = await tx.balanceImportacionLote.findUnique({
+        where: { loteId: id },
+        select: { clienteId: true, cargadoPorId: true },
+      });
+      if (!loteActual || !puedeVerBorrador(loteActual, contexto)) {
+        throw new Error("El borrador cambió o ya no tienes permiso para modificarlo.");
+      }
+      await tx.balanceImportacionLote.update({
+        where: { loteId: id },
+        data: { aperturaBalance: valor },
+      });
+    });
+    revalidatePath(`/balance/borradores/${id}`);
+    revalidatePath("/balance/borradores");
+    return { ok: true, message: `Tipo de balance guardado: ${etiquetaApertura(valor)}.` };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("actualizarAperturaBorrador", e) };
   }
 }
 

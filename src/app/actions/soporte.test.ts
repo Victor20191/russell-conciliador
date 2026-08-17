@@ -4,10 +4,15 @@ const mocks = vi.hoisted(() => ({
   create: vi.fn(),
   findUnique: vi.fn(),
   updateMany: vi.fn(),
+  delete: vi.fn(),
+  attachmentCreate: vi.fn(),
   authorizePermiso: vi.fn(),
   getCurrentUser: vi.fn(),
   logAudit: vi.fn(),
   revalidatePath: vi.fn(),
+  almacenamientoDisponible: vi.fn(),
+  subirObjeto: vi.fn(),
+  eliminarObjeto: vi.fn(),
 }));
 
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }));
@@ -17,6 +22,10 @@ vi.mock("@/lib/prisma", () => ({
       create: mocks.create,
       findUnique: mocks.findUnique,
       updateMany: mocks.updateMany,
+      delete: mocks.delete,
+    },
+    supportTicketAttachment: {
+      create: mocks.attachmentCreate,
     },
   },
 }));
@@ -24,8 +33,13 @@ vi.mock("@/lib/rbac", () => ({ authorizePermiso: mocks.authorizePermiso }));
 vi.mock("@/lib/dal", () => ({ getCurrentUser: mocks.getCurrentUser }));
 vi.mock("@/lib/audit", () => ({ logAudit: mocks.logAudit }));
 vi.mock("@/lib/errores", () => ({ mensajeErrorBD: (contexto: string) => `${contexto}: error` }));
+vi.mock("@/lib/storage/objetos", () => ({
+  almacenamientoDisponible: mocks.almacenamientoDisponible,
+  subirObjeto: mocks.subirObjeto,
+  eliminarObjeto: mocks.eliminarObjeto,
+}));
 
-import { crearTicketSoporte, guardarSolucionTicket } from "./soporte";
+import { cambiarEstadoTicket, crearNovedadInterna, crearTicketSoporte, guardarSolucionTicket } from "./soporte";
 
 function formularioReporte() {
   const form = new FormData();
@@ -37,11 +51,27 @@ function formularioReporte() {
   return form;
 }
 
+function formularioNovedad() {
+  const form = new FormData();
+  form.set("subject", "El mapeo no guarda el ajuste");
+  form.set("description", "Cambié la cuenta y al recargar volvió al valor anterior.");
+  return form;
+}
+
 function formularioSolucion() {
   const form = new FormData();
   form.set("ticketId", "14");
   form.set("updatedAt", "2026-08-07T15:00:00.000Z");
   form.set("solution", "Se restableció el acceso y se verificó el ingreso con la persona.");
+  return form;
+}
+
+function formularioEstado(status = "en_proceso", solution = "") {
+  const form = new FormData();
+  form.set("ticketId", "14");
+  form.set("updatedAt", "2026-08-07T15:00:00.000Z");
+  form.set("status", status);
+  form.set("solution", solution);
   return form;
 }
 
@@ -53,6 +83,7 @@ describe("Server Actions de soporte", () => {
     mocks.getCurrentUser.mockResolvedValue({ id: 9, name: "Técnica Soporte" });
     mocks.findUnique.mockResolvedValue({ code: "TKT-20260807-A1B2C3D4" });
     mocks.updateMany.mockResolvedValue({ count: 1 });
+    mocks.almacenamientoDisponible.mockReturnValue(false);
   });
 
   it("crea el ticket público sin exigir sesión y entrega un enlace no adivinable", async () => {
@@ -116,5 +147,67 @@ describe("Server Actions de soporte", () => {
     expect(resultado.ok).toBe(false);
     expect(resultado.message).toContain("Otra persona actualizó");
     expect(mocks.logAudit).not.toHaveBeenCalled();
+  });
+
+  it("crea una novedad interna con la sesión y sin pedir nombre", async () => {
+    mocks.authorizePermiso.mockResolvedValueOnce({ ok: true, userId: 4, role: "Staff" });
+    mocks.getCurrentUser.mockResolvedValueOnce({ id: 4, name: "Laura Staff" });
+    const resultado = await crearNovedadInterna(undefined, formularioNovedad());
+    expect(resultado.ok).toBe(true);
+    expect(resultado.ticketId).toBe(1);
+    expect(mocks.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        createdById: 4,
+        reporterFirstName: "Laura",
+        reporterLastName: "Staff",
+        subject: "El mapeo no guarda el ajuste",
+      }),
+      select: { id: true },
+    });
+    expect(mocks.logAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: "REPORTÓ NOVEDAD",
+    }));
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/reportes");
+  });
+
+  it("no crea la novedad interna sin permiso", async () => {
+    mocks.authorizePermiso.mockResolvedValueOnce({ ok: false, message: "Sin permiso." });
+    const resultado = await crearNovedadInterna(undefined, formularioNovedad());
+    expect(resultado).toEqual({ ok: false, message: "Sin permiso." });
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
+  it("rechaza imágenes si el almacenamiento no está configurado", async () => {
+    const form = formularioNovedad();
+    form.append("adjuntos", new File([new Uint8Array([0xff, 0xd8, 0xff])], "captura.jpg", { type: "image/jpeg" }));
+    const resultado = await crearNovedadInterna(undefined, form);
+    expect(resultado.ok).toBe(false);
+    expect(resultado.message).toMatch(/almacenamiento/i);
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
+  it("cambia el estado sin exigir solución cuando no está resuelto", async () => {
+    const resultado = await cambiarEstadoTicket(undefined, formularioEstado("en_proceso"));
+    expect(resultado).toEqual({ ok: true });
+    expect(mocks.updateMany).toHaveBeenCalledWith({
+      where: { id: 14, updatedAt: new Date("2026-08-07T15:00:00.000Z") },
+      data: expect.objectContaining({ status: "en_proceso" }),
+    });
+    expect(mocks.logAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: "ACTUALIZÓ ESTADO DE REPORTE",
+    }));
+  });
+
+  it("exige solución al marcar resuelto y no escribe si falta", async () => {
+    const resultado = await cambiarEstadoTicket(undefined, formularioEstado("resuelto"));
+    expect(resultado.ok).toBe(false);
+    expect(mocks.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("no cambia estado sin permiso de administración", async () => {
+    mocks.authorizePermiso.mockResolvedValueOnce({ ok: false, message: "Sin permiso." });
+    const resultado = await cambiarEstadoTicket(undefined, formularioEstado());
+    expect(resultado).toEqual({ ok: false, message: "Sin permiso." });
+    expect(mocks.updateMany).not.toHaveBeenCalled();
   });
 });

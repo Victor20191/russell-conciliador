@@ -1,8 +1,34 @@
 import { createHash, randomBytes } from "node:crypto";
 import { fechaColombiaISO } from "@/lib/fecha-hora";
+import type { TipoImagen } from "@/lib/avatares";
 
-export const ESTADO_TICKET_ABIERTO = "abierto";
-export const ESTADO_TICKET_RESUELTO = "resuelto";
+export {
+  ADJUNTO_MAX_BYTES,
+  ADJUNTOS_MAX,
+  ESTADO_TICKET_ABIERTO,
+  ESTADO_TICKET_CERRADO,
+  ESTADO_TICKET_EN_PROCESO,
+  ESTADO_TICKET_RESUELTO,
+  ESTADOS_TICKET,
+  ETIQUETA_ESTADO_TICKET,
+  esEstadoTicket,
+  etiquetaEstadoTicket,
+  nombreReportanteDesdeSesion,
+  requiereSolucion,
+  tonoEstadoTicket,
+  type EstadoTicket,
+} from "./soporte-estados";
+
+export function keyAdjuntoTicket(ticketId: number, sufijo: string, tipo: TipoImagen): string {
+  if (/[\\/]/.test(sufijo)) throw new Error("El sufijo del adjunto no es válido.");
+  const limpio = sufijo.replace(/[^a-z0-9]/gi, "").toLowerCase();
+  if (!limpio) throw new Error("El sufijo del adjunto no es válido.");
+  return `tickets/${ticketId}/${limpio}.${tipo}`;
+}
+
+export function urlAdjuntoTicket(id: number): string {
+  return `/api/soporte/adjuntos/${id}`;
+}
 
 export function crearCodigoTicket(ahora: Date = new Date(), sufijo?: string): string {
   const fecha = fechaColombiaISO(ahora).replaceAll("-", "");
