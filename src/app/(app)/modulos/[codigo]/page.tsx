@@ -6,8 +6,8 @@ import { PageHeader } from "@/components/ui";
 import { descriptorModulo } from "@/lib/modulos/descriptores";
 import { fechaCalendarioISO } from "@/lib/fecha-hora";
 import { fmtDate, fmtHora12 } from "@/lib/format";
-import { resumirCargasModulo, versionarYOrdenarBorradoresModulo } from "@/lib/modulos/versiones";
-import ModulosDatosClient, { type BorradorModuloRow, type CargadoModuloRow } from "./modulos-datos-client";
+import { agruparCargasModuloPorCliente, versionarYOrdenarBorradoresModulo } from "@/lib/modulos/versiones";
+import ModulosDatosClient, { type BorradorModuloRow, type GrupoClienteRow } from "./modulos-datos-client";
 
 export default async function ModuloDatosPage({ params }: { params: Promise<{ codigo: string }> }) {
   await requirePermiso("modulos_datos:ver");
@@ -52,6 +52,7 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
         periodo: true,
         version: true,
         esOficial: true,
+        estaCongelado: true,
         filas: true,
         total: true,
         archivoNombre: true,
@@ -112,21 +113,26 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
       comentarios: comentPorLote.get(b.id) ?? 0,
     })),
   );
-  const cargadosRecientes = resumirCargasModulo(
+  // Los cargados se muestran agrupados como en `/balance`: una tarjeta por
+  // cliente y, dentro, una fila por período con su conteo de versiones (volver a
+  // cargar el mismo archivo del período suma una versión, no otra fila suelta).
+  const gruposCargados = agruparCargasModuloPorCliente(
     cargados.map((c) => ({
       id: c.id,
       clienteId: c.clienteId,
+      clienteNombre: c.nombreCliente,
+      clienteNit: clientePorId.get(c.clienteId)?.nit ?? null,
       moduloCodigo: c.moduloCodigo,
       periodo: c.periodo,
       version: c.version,
-      ultimaCarga: c.ultimaCarga.toISOString(),
-      nombreCliente: c.nombreCliente,
       esOficial: c.esOficial,
+      estaCongelado: c.estaCongelado,
       filas: c.filas,
       total: Number(c.total),
       archivoNombre: c.archivoNombre,
       origen: c.origenExtraccion,
       cargadoPor: c.cargadoPor,
+      ultimaCarga: c.ultimaCarga.toISOString(),
       comentarios: comentPorEnc.get(c.id) ?? 0,
     })),
   );
@@ -155,23 +161,26 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
     };
   });
 
-  const filasCargados: CargadoModuloRow[] = cargadosRecientes.map((c) => ({
-    id: c.id,
-    clienteNombre: c.nombreCliente,
-    clienteNit: clientePorId.get(c.clienteId)?.nit ?? null,
-    periodo: c.periodo,
-    version: c.version,
-    versiones: c.versiones,
-    esOficial: c.esOficial,
-    filas: c.filas,
-    total: c.total,
-    archivoNombre: c.archivoNombre,
-    origen: c.origen,
-    cargadoPor: c.cargadoPor,
-    ordenFecha: c.ultimaCarga,
-    fecha: c.ultimaCarga ? fmtDate(c.ultimaCarga) : "—",
-    hora: c.ultimaCarga ? fmtHora12(c.ultimaCarga) : null,
-    comentarios: c.comentarios,
+  const filasCargados: GrupoClienteRow[] = gruposCargados.map((grupo) => ({
+    clienteId: grupo.clienteId,
+    clienteNombre: grupo.clienteNombre,
+    clienteNit: grupo.clienteNit,
+    periodos: grupo.periodos.map((p) => ({
+      periodo: p.periodo,
+      id: p.id,
+      version: p.version,
+      versiones: p.versiones,
+      esOficial: p.esOficial,
+      estaCongelado: p.estaCongelado,
+      filas: p.filas,
+      total: p.total,
+      archivoNombre: p.archivoNombre,
+      origen: p.origen,
+      cargadoPor: p.cargadoPor,
+      fecha: p.ultimaCarga ? fmtDate(p.ultimaCarga) : "—",
+      hora: p.ultimaCarga ? fmtHora12(p.ultimaCarga) : null,
+      comentarios: p.comentarios,
+    })),
   }));
 
   return (
@@ -187,7 +196,7 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
         clasificadorRol={descriptor.clasificador}
         clientes={clientes}
         borradores={filasBorradores}
-        cargados={filasCargados}
+        gruposCargados={filasCargados}
       />
     </div>
   );

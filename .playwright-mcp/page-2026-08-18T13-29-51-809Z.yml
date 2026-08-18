@@ -1,0 +1,23 @@
+- generic [ref=f1e2]:
+  - generic [ref=f1e3]:
+    - generic [ref=f1e4]: Russell BedfordConciliador
+    - generic [ref=f1e12]:
+      - heading "Plataforma de conciliación y diagnóstico contable y tributario" [level=1] [ref=f1e13]
+      - paragraph [ref=f1e14]: Balance de comprobación, conciliaciones, impuestos DIAN y auditoría — en un solo flujo de trabajo asistido por IA.
+    - generic [ref=f1e15]: © 2026 Russell Bedford Colombia · Uso interno
+  - generic [ref=f1e18]:
+    - generic [ref=f1e19]: Russell Bedford
+    - heading "Iniciar sesión" [level=2] [ref=f1e27]
+    - paragraph [ref=f1e28]: Ingresa con tu cuenta corporativa para continuar.
+    - generic [ref=f1e29]:
+      - generic [ref=f1e30]:
+        - text: Correo corporativo
+        - textbox "Correo corporativo" [ref=f1e31]:
+          - /placeholder: nombre@russellbedford.co
+      - generic [ref=f1e32]:
+        - text: Contraseña
+        - generic [ref=f1e33]:
+          - textbox "Contraseña" [ref=f1e34]:
+            - /placeholder: ••••••••
+          - button [ref=f1e35]
+      - button "Iniciar sesión" [ref=f1e39]

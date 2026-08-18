@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   coincideBusquedaModulo,
   direccionInicialColumnaModulo,
+  filtrarGruposCargaModulo,
   ordenarFilasModulo,
   type FilaListadoModulo,
 } from "./listado";
@@ -100,5 +101,55 @@ describe("direccionInicialColumnaModulo", () => {
     expect(direccionInicialColumnaModulo("total")).toBe("desc");
     expect(direccionInicialColumnaModulo("version")).toBe("desc");
     expect(direccionInicialColumnaModulo("fecha")).toBe("desc");
+  });
+});
+
+describe("filtrarGruposCargaModulo", () => {
+  const grupos = [
+    {
+      clienteNombre: "GRUPO LA CONGREGACIÓN S.A.S.",
+      clienteNit: "900368731-2",
+      periodos: [
+        { periodo: "2026-03", archivoNombre: "Inventario MARZO.xlsx" },
+        { periodo: "2026-04", archivoNombre: "Inventario ABRIL.xlsx" },
+      ],
+    },
+    {
+      clienteNombre: "QUIFARMA S.A.S.",
+      clienteNit: "890938300",
+      periodos: [{ periodo: "2026-03", archivoNombre: "Existencias.xlsx" }],
+    },
+  ];
+
+  it("sin término devuelve todos los grupos intactos", () => {
+    expect(filtrarGruposCargaModulo(grupos, "  ")).toEqual(grupos);
+  });
+
+  it("conserva la tarjeta completa cuando el término identifica al cliente", () => {
+    const r = filtrarGruposCargaModulo(grupos, "congregacion");
+    expect(r).toHaveLength(1);
+    expect(r[0].periodos).toHaveLength(2);
+  });
+
+  it("encuentra al cliente por NIT con o sin dígito de verificación", () => {
+    expect(filtrarGruposCargaModulo(grupos, "900368731").map((g) => g.clienteNit)).toEqual(["900368731-2"]);
+    expect(filtrarGruposCargaModulo(grupos, "900368731-2").map((g) => g.clienteNit)).toEqual(["900368731-2"]);
+  });
+
+  it("deja solo los períodos que coinciden y descarta la tarjeta sin coincidencias", () => {
+    const r = filtrarGruposCargaModulo(grupos, "ABRIL");
+    expect(r).toHaveLength(1);
+    expect(r[0].periodos.map((p) => p.periodo)).toEqual(["2026-04"]);
+  });
+
+  it("filtra por período en todos los clientes que lo tengan", () => {
+    const r = filtrarGruposCargaModulo(grupos, "2026-03");
+    expect(r).toHaveLength(2);
+    expect(r.flatMap((g) => g.periodos.map((p) => p.periodo))).toEqual(["2026-03", "2026-03"]);
+  });
+
+  it("no muta el grupo original al recortar sus períodos", () => {
+    filtrarGruposCargaModulo(grupos, "ABRIL");
+    expect(grupos[0].periodos).toHaveLength(2);
   });
 });

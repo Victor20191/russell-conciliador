@@ -1,9 +1,15 @@
 /**
- * Versionado y orden de los cargues del motor de módulos.
+ * Versionado, agrupación y orden de los cargues del motor de módulos.
  *
  * Los encabezados promovidos sí persisten su versión. Los borradores son
  * efímeros, por lo que su número se deriva cronológicamente por
  * (cliente, módulo, período), igual que en Balance Borrador.
+ *
+ * El índice del módulo (`/modulos/[codigo]`) NO lista un renglón por cargue:
+ * agrupa igual que `/balance` —una tarjeta por cliente y, dentro, una fila por
+ * período con su conteo de versiones—, de modo que volver a cargar el archivo
+ * del mismo cliente y período suma una versión al período en vez de agregar
+ * otra fila suelta al listado.
  */
 
 type FechaSerializada = string | null;
@@ -14,50 +20,148 @@ function marcaTiempo(fecha: FechaSerializada): number {
   return Number.isFinite(valor) ? valor : 0;
 }
 
-export type CargaModuloVersionable = {
+/** Un encabezado cargado (una VERSIÓN de un período), tal como lo lee el índice. */
+export type CargaModuloAgrupable = {
   id: number;
   clienteId: number;
+  clienteNombre: string;
+  clienteNit: string | null;
   moduloCodigo: string;
   periodo: string;
   version: number;
+  esOficial: boolean;
+  estaCongelado: boolean;
+  filas: number;
+  total: number;
+  archivoNombre: string | null;
+  origen: string | null;
+  cargadoPor: string | null;
   ultimaCarga: FechaSerializada;
-};
-
-export type ResumenCargaModulo<T extends CargaModuloVersionable> = T & {
-  versiones: number;
+  comentarios: number;
 };
 
 /**
- * Deja una fila por (cliente, módulo, período), siempre la recarga más reciente,
- * y conserva el total de versiones para enlazar su bitácora.
+ * Un período del cliente. Lo que se ve (filas, total, archivo…) es de la versión
+ * que lo REPRESENTA: su versión vigente y, si ninguna lo es —cargues legado
+ * inconsistentes—, la más reciente.
  */
-export function resumirCargasModulo<T extends CargaModuloVersionable>(
-  cargas: readonly T[],
-): ResumenCargaModulo<T>[] {
-  const grupos = new Map<string, T[]>();
+export type PeriodoCargaModulo = {
+  periodo: string;
+  /** Cuántas versiones existen del mismo (cliente, módulo, período). */
+  versiones: number;
+  /** Encabezado que se abre desde la fila. */
+  id: number;
+  version: number;
+  esOficial: boolean;
+  estaCongelado: boolean;
+  filas: number;
+  total: number;
+  archivoNombre: string | null;
+  origen: string | null;
+  cargadoPor: string | null;
+  ultimaCarga: FechaSerializada;
+  comentarios: number;
+};
+
+/** Una tarjeta del listado: el cliente y sus períodos. */
+export type GrupoClienteModulo = {
+  clienteId: number;
+  clienteNombre: string;
+  clienteNit: string | null;
+  periodos: PeriodoCargaModulo[];
+};
+
+/** La más reciente primero; a igual fecha, la versión (y el id) mayor. */
+function masReciente(a: CargaModuloAgrupable, b: CargaModuloAgrupable): number {
+  return (
+    marcaTiempo(b.ultimaCarga) - marcaTiempo(a.ultimaCarga)
+    || b.version - a.version
+    || b.id - a.id
+  );
+}
+
+/**
+ * Agrupa los cargues en clientes → períodos. La clave del cliente es el
+ * `clienteId` (NO la razón social, que está denormalizada en el encabezado: dos
+ * clientes homónimos no deben fundirse ni uno renombrado partirse) y la del
+ * período, (módulo, período). Clientes y períodos quedan ordenados por su carga
+ * más reciente.
+ */
+export function agruparCargasModuloPorCliente(
+  cargas: readonly CargaModuloAgrupable[],
+): GrupoClienteModulo[] {
+  type Agrupado = {
+    clienteId: number;
+    clienteNombre: string;
+    clienteNit: string | null;
+    ultimaCarga: number;
+    periodos: Map<string, CargaModuloAgrupable[]>;
+  };
+
+  const porCliente = new Map<number, Agrupado>();
   for (const carga of cargas) {
-    const clave = `${carga.clienteId}|${carga.moduloCodigo}|${carga.periodo}`;
-    const grupo = grupos.get(clave);
-    if (grupo) grupo.push(carga);
-    else grupos.set(clave, [carga]);
+    const ts = marcaTiempo(carga.ultimaCarga);
+    let grupo = porCliente.get(carga.clienteId);
+    if (!grupo) {
+      grupo = {
+        clienteId: carga.clienteId,
+        clienteNombre: carga.clienteNombre,
+        clienteNit: carga.clienteNit,
+        ultimaCarga: ts,
+        periodos: new Map(),
+      };
+      porCliente.set(carga.clienteId, grupo);
+    }
+    // La razón social y el NIT los aporta el cargue más reciente del cliente.
+    if (ts >= grupo.ultimaCarga) {
+      grupo.ultimaCarga = ts;
+      grupo.clienteNombre = carga.clienteNombre;
+      grupo.clienteNit = carga.clienteNit;
+    }
+    const clave = `${carga.moduloCodigo}|${carga.periodo}`;
+    const periodo = grupo.periodos.get(clave);
+    if (periodo) periodo.push(carga);
+    else grupo.periodos.set(clave, [carga]);
   }
 
-  return [...grupos.values()]
-    .map((grupo) => {
-      const ordenado = [...grupo].sort(
+  const clientes = [...porCliente.values()].sort(
+    (a, b) =>
+      b.ultimaCarga - a.ultimaCarga
+      || a.clienteNombre.localeCompare(b.clienteNombre, "es", { sensitivity: "base" }),
+  );
+
+  return clientes.map((grupo) => ({
+    clienteId: grupo.clienteId,
+    clienteNombre: grupo.clienteNombre,
+    clienteNit: grupo.clienteNit,
+    periodos: [...grupo.periodos.values()]
+      .map((versiones): PeriodoCargaModulo => {
+        const ordenadas = [...versiones].sort(masReciente);
+        const representante = ordenadas.find((v) => v.esOficial) ?? ordenadas[0];
+        return {
+          periodo: representante.periodo,
+          versiones: ordenadas.length,
+          id: representante.id,
+          version: representante.version,
+          esOficial: representante.esOficial,
+          estaCongelado: representante.estaCongelado,
+          filas: representante.filas,
+          total: representante.total,
+          archivoNombre: representante.archivoNombre,
+          origen: representante.origen,
+          cargadoPor: representante.cargadoPor,
+          // El período se ordena por su cargue más reciente, aunque la versión
+          // vigente sea una anterior (se puede volver oficial una histórica).
+          ultimaCarga: ordenadas[0].ultimaCarga,
+          comentarios: representante.comentarios,
+        };
+      })
+      .sort(
         (a, b) =>
           marcaTiempo(b.ultimaCarga) - marcaTiempo(a.ultimaCarga)
-          || b.version - a.version
-          || b.id - a.id,
-      );
-      return { ...ordenado[0], versiones: grupo.length };
-    })
-    .sort(
-      (a, b) =>
-        marcaTiempo(b.ultimaCarga) - marcaTiempo(a.ultimaCarga)
-        || b.version - a.version
-        || b.id - a.id,
-    );
+          || b.periodo.localeCompare(a.periodo),
+      ),
+  }));
 }
 
 export type BorradorModuloVersionable = {

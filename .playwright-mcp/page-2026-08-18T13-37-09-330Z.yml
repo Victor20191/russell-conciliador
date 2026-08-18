@@ -1,0 +1,630 @@
+- generic [active] [ref=f20e1]:
+  - generic [ref=f20e2]:
+    - complementary [ref=f20e3]:
+      - generic [ref=f20e4]:
+        - generic [ref=f20e12]:
+          - text: Russell Bedford
+          - generic [ref=f20e13]: Conciliador
+        - link "v1.4.0" [ref=f20e15] [cursor=pointer]:
+          - /url: /novedades
+      - generic [ref=f20e17]:
+        - generic [ref=f20e18]: Trabajo
+        - navigation [ref=f20e19]:
+          - link "Inicio" [ref=f20e20] [cursor=pointer]:
+            - /url: /dashboard
+          - button "Balance de comprobación" [ref=f20e26]
+          - button "Conciliaciones Dev" [ref=f20e36]:
+            - generic [ref=f20e40]: Conciliaciones
+            - generic [ref=f20e41]: Dev
+          - generic [ref=f20e45]:
+            - button "Módulos de conciliación" [ref=f20e46]
+            - generic [ref=f20e55]:
+              - link "Inventarios" [ref=f20e56] [cursor=pointer]:
+                - /url: /modulos/inv
+              - link "Activos Fijos" [ref=f20e59] [cursor=pointer]:
+                - /url: /modulos/afi
+              - link "Cartera" [ref=f20e62] [cursor=pointer]:
+                - /url: /modulos/car
+              - link "Cuentas por Pagar" [ref=f20e65] [cursor=pointer]:
+                - /url: /modulos/cxp
+              - link "Ingresos" [ref=f20e68] [cursor=pointer]:
+                - /url: /modulos/ing
+              - link "Nómina" [ref=f20e71] [cursor=pointer]:
+                - /url: /modulos/nom
+          - link "Impuestos · DIAN Dev 2" [ref=f20e74] [cursor=pointer]:
+            - /url: /dian
+            - generic [ref=f20e79]: Impuestos · DIAN
+            - generic [ref=f20e80]: Dev
+            - generic [ref=f20e81]: "2"
+          - button "Auditoría Dev" [ref=f20e83]:
+            - generic [ref=f20e88]: Auditoría
+            - generic [ref=f20e89]: Dev
+          - link "Ayuda" [ref=f20e93] [cursor=pointer]:
+            - /url: /reportes
+        - generic [ref=f20e99]: Configuración
+        - navigation [ref=f20e100]:
+          - link "Gestión de reportes" [ref=f20e101] [cursor=pointer]:
+            - /url: /config/soporte
+          - link "Publicación de módulos" [ref=f20e107] [cursor=pointer]:
+            - /url: /config/publicacion-modulos
+          - link "Módulos y campos Dev" [ref=f20e113] [cursor=pointer]:
+            - /url: /config/modulos
+            - generic [ref=f20e118]: Módulos y campos
+            - generic [ref=f20e119]: Dev
+          - link "Clientes" [ref=f20e120] [cursor=pointer]:
+            - /url: /config/clientes
+          - link "Maestros" [ref=f20e128] [cursor=pointer]:
+            - /url: /config/maestros
+          - link "Mapeo plan estándar" [ref=f20e134] [cursor=pointer]:
+            - /url: /config/mapeo
+          - link "Mapeos DIAN Dev" [ref=f20e140] [cursor=pointer]:
+            - /url: /config/dian
+            - generic [ref=f20e145]: Mapeos DIAN
+            - generic [ref=f20e146]: Dev
+          - link "Usuarios" [ref=f20e147] [cursor=pointer]:
+            - /url: /config/usuarios
+          - link "Permisos por rol" [ref=f20e155] [cursor=pointer]:
+            - /url: /config/permisos
+          - link "Estructura" [ref=f20e161] [cursor=pointer]:
+            - /url: /estructura
+          - link "Novedades" [ref=f20e169] [cursor=pointer]:
+            - /url: /novedades
+          - link "Prompts de IA" [ref=f20e175] [cursor=pointer]:
+            - /url: /config/prompts
+          - link "Parámetros de alertas" [ref=f20e181] [cursor=pointer]:
+            - /url: /config/parametros
+          - link "Cuentas del prevalidador" [ref=f20e187] [cursor=pointer]:
+            - /url: /config/prevalidador
+          - link "Perfiles de carga" [ref=f20e193] [cursor=pointer]:
+            - /url: /config/perfiles-carga
+      - generic [ref=f20e199]:
+        - link "MG Victor Rivera Superadministrador" [ref=f20e200] [cursor=pointer]:
+          - /url: /perfil
+          - generic "Victor Rivera" [ref=f20e201]: MG
+          - generic [ref=f20e202]:
+            - generic [ref=f20e203]: Victor Rivera
+            - generic [ref=f20e204]: Superadministrador
+        - button "Cerrar sesión" [ref=f20e206]
+    - generic [ref=f20e210]:
+      - generic [ref=f20e211]:
+        - generic [ref=f20e212]:
+          - generic [ref=f20e213]: Módulos y campos
+          - generic [ref=f20e215]: Inv
+        - button "Notificaciones" [ref=f20e221]
+      - main [ref=f20e226]:
+        - generic [ref=f20e227]:
+          - generic [ref=f20e229]:
+            - heading "Inventarios" [level=1] [ref=f20e230]
+            - paragraph [ref=f20e231]: Carga el archivo del cliente, mapea las columnas y consolida por su clasificador contra la cuenta estándar.
+          - generic [ref=f20e232]:
+            - generic [ref=f20e233]:
+              - textbox "Buscar por archivo, NIT, razón social o período" [ref=f20e238]:
+                - /placeholder: Buscar por archivo, NIT, razón social o período…
+              - button "Cargar inventarios" [ref=f20e239]
+            - generic [ref=f20e240]:
+              - generic [ref=f20e241]:
+                - generic [ref=f20e242]: Borradores por confirmar
+                - generic [ref=f20e243]: "2"
+              - table [ref=f20e245]:
+                - rowgroup [ref=f20e246]:
+                  - row [ref=f20e247]:
+                    - columnheader [ref=f20e248]:
+                      - button "Archivo" [ref=f20e249]
+                    - columnheader [ref=f20e256]:
+                      - button "Cliente / NIT" [ref=f20e257]
+                    - columnheader [ref=f20e264]:
+                      - button "Período" [ref=f20e265]
+                    - columnheader [ref=f20e272]:
+                      - button "Versión" [ref=f20e273]
+                    - columnheader [ref=f20e280]:
+                      - button "Filas" [ref=f20e282]
+                    - columnheader [ref=f20e289]:
+                      - button "Total" [ref=f20e291]
+                    - columnheader "Estado" [ref=f20e298]
+                    - columnheader [ref=f20e299]:
+                      - button "Fecha" [ref=f20e300]
+                    - columnheader "Acciones" [ref=f20e307]
+                - rowgroup [ref=f20e308]:
+                  - row [ref=f20e309]:
+                    - cell "Inventarios diciembre 2025.xlsx Mapeo manual por Victor Rivera" [ref=f20e310]:
+                      - link "Inventarios diciembre 2025.xlsx" [ref=f20e312] [cursor=pointer]:
+                        - /url: /modulos/inv/borradores/7161ec2e-40b3-40e8-9db6-8b49293b7bc5
+                      - generic [ref=f20e313]: Mapeo manual
+                      - generic [ref=f20e314]: por Victor Rivera
+                    - cell "ISUZU COLOMBIA ZONA FRANCA S.A.S. 901818446" [ref=f20e315]:
+                      - generic [ref=f20e316]:
+                        - generic [ref=f20e317]: ISUZU COLOMBIA ZONA FRANCA S.A.S.
+                        - generic [ref=f20e318]: "901818446"
+                    - cell "2025-12" [ref=f20e319]
+                    - cell "v1" [ref=f20e320]
+                    - cell "1337" [ref=f20e323]
+                    - cell "$ 1.213.931.779,53" [ref=f20e324]
+                    - cell "Por confirmar" [ref=f20e325]
+                    - cell "11/Ago/2026 10:47 a. m." [ref=f20e328]:
+                      - generic [ref=f20e329]: 11/Ago/2026
+                      - generic [ref=f20e330]: 10:47 a. m.
+                    - cell [ref=f20e331]:
+                      - generic [ref=f20e332]:
+                        - link "Revisar borrador" [ref=f20e333] [cursor=pointer]:
+                          - /url: /modulos/inv/borradores/7161ec2e-40b3-40e8-9db6-8b49293b7bc5
+                        - button "Descartar borrador" [ref=f20e337]
+                  - row [ref=f20e342]:
+                    - cell "INVENTARIO.xlsx Mapeo manual por Victor Rivera" [ref=f20e343]:
+                      - link "INVENTARIO.xlsx" [ref=f20e345] [cursor=pointer]:
+                        - /url: /modulos/inv/borradores/d4ace95f-6443-45aa-a545-4ad0ea5dc67f
+                      - generic [ref=f20e346]: Mapeo manual
+                      - generic [ref=f20e347]: por Victor Rivera
+                    - cell "ALCANTARA ASOCIADOS S.A.S 800165720" [ref=f20e348]:
+                      - generic [ref=f20e349]:
+                        - generic [ref=f20e350]: ALCANTARA ASOCIADOS S.A.S
+                        - generic [ref=f20e351]: "800165720"
+                    - cell "—" [ref=f20e352]
+                    - cell "—" [ref=f20e353]
+                    - cell "18352" [ref=f20e354]
+                    - cell "$ 30.652.938.638,00" [ref=f20e355]
+                    - cell "Por confirmar" [ref=f20e356]
+                    - cell "08/Ago/2026 10:47 a. m." [ref=f20e359]:
+                      - generic [ref=f20e360]: 08/Ago/2026
+                      - generic [ref=f20e361]: 10:47 a. m.
+                    - cell [ref=f20e362]:
+                      - generic [ref=f20e363]:
+                        - link "Revisar borrador" [ref=f20e364] [cursor=pointer]:
+                          - /url: /modulos/inv/borradores/d4ace95f-6443-45aa-a545-4ad0ea5dc67f
+                        - button "Descartar borrador" [ref=f20e368]
+              - generic [ref=f20e373]:
+                - generic [ref=f20e374]: Mostrando 1-2 de 2
+                - generic [ref=f20e375]:
+                  - generic [ref=f20e376]:
+                    - text: Mostrar
+                    - combobox "Mostrar" [ref=f20e377]:
+                      - option "50" [selected]
+                      - option "100"
+                      - option "200"
+                  - navigation "Paginación" [ref=f20e378]:
+                    - button "Ir a la primera página" [disabled] [ref=f20e379]
+                    - button "Ir a la página anterior" [disabled] [ref=f20e385]
+                    - button "Ir a la página 1" [ref=f20e389]: "1"
+                    - button "Ir a la página siguiente" [disabled] [ref=f20e390]
+                    - button "Ir a la última página" [disabled] [ref=f20e393]
+            - generic [ref=f20e399]:
+              - generic [ref=f20e400]:
+                - generic [ref=f20e401]: Inventarios cargados
+                - generic [ref=f20e402]: "9"
+                - generic [ref=f20e403]: 9 clientes
+              - generic [ref=f20e404]:
+                - generic [ref=f20e405]:
+                  - heading "QUIFARMA S.A.S." [level=2] [ref=f20e410]
+                  - generic [ref=f20e411]: "890938300"
+                  - generic [ref=f20e412]: 3 períodos
+                - table [ref=f20e414]:
+                  - rowgroup [ref=f20e415]:
+                    - row [ref=f20e416]:
+                      - columnheader "Período" [ref=f20e417]
+                      - columnheader "Versiones" [ref=f20e418]
+                      - columnheader "Versión vigente" [ref=f20e419]
+                      - columnheader "Archivo" [ref=f20e420]
+                      - columnheader "Filas" [ref=f20e421]
+                      - columnheader "Total" [ref=f20e422]
+                      - columnheader "Estado" [ref=f20e423]
+                      - columnheader "Última carga" [ref=f20e424]
+                      - columnheader [ref=f20e425]
+                  - rowgroup [ref=f20e426]:
+                    - row [ref=f20e427]:
+                      - cell "2025-12" [ref=f20e428]
+                      - cell "1" [ref=f20e429]
+                      - cell "v1 vigente" [ref=f20e430]
+                      - cell "Módulo Inventarios (1) 1.xlsx Perfil guardado por Victor Rivera" [ref=f20e432]:
+                        - link "Módulo Inventarios (1) 1.xlsx" [ref=f20e434] [cursor=pointer]:
+                          - /url: /modulos/inv/17
+                        - generic [ref=f20e435]: Perfil guardado
+                        - generic [ref=f20e436]: por Victor Rivera
+                      - cell "283" [ref=f20e437]
+                      - cell "$ 3.187.347.381,57" [ref=f20e438]
+                      - cell "Vigente" [ref=f20e439]
+                      - cell "17/Ago/2026 7:00 p. m." [ref=f20e441]:
+                        - generic [ref=f20e442]: 17/Ago/2026
+                        - generic [ref=f20e443]: 7:00 p. m.
+                      - cell [ref=f20e444]:
+                        - link "Ver" [ref=f20e445] [cursor=pointer]:
+                          - /url: /modulos/inv/17
+                    - row [ref=f20e448]:
+                      - cell "2026-05" [ref=f20e449]
+                      - cell "1" [ref=f20e450]
+                      - cell "v1 vigente" [ref=f20e451]
+                      - cell "— sin archivo — 💬 1 Origen no registrado por Victor Rivera" [ref=f20e453]:
+                        - generic [ref=f20e454]:
+                          - generic "Cargue histórico sin nombre de archivo" [ref=f20e455]: — sin archivo —
+                          - button "💬 1" [ref=f20e456]:
+                            - generic "1 comentario(s)" [ref=f20e457]: 💬 1
+                        - generic [ref=f20e458]: Origen no registrado
+                        - generic [ref=f20e459]: por Victor Rivera
+                      - cell "269" [ref=f20e460]
+                      - cell "$ 3.047.735.901,31" [ref=f20e461]
+                      - cell "Vigente" [ref=f20e462]
+                      - cell "02/Ago/2026 9:24 p. m." [ref=f20e464]:
+                        - generic [ref=f20e465]: 02/Ago/2026
+                        - generic [ref=f20e466]: 9:24 p. m.
+                      - cell [ref=f20e467]:
+                        - link "Ver" [ref=f20e468] [cursor=pointer]:
+                          - /url: /modulos/inv/5
+                    - row [ref=f20e471]:
+                      - cell "2026-06" [ref=f20e472]
+                      - cell "1" [ref=f20e473]
+                      - cell "v1 vigente" [ref=f20e474]
+                      - cell "— sin archivo — Origen no registrado por Victor Rivera" [ref=f20e476]:
+                        - generic "Cargue histórico sin nombre de archivo" [ref=f20e478]: — sin archivo —
+                        - generic [ref=f20e479]: Origen no registrado
+                        - generic [ref=f20e480]: por Victor Rivera
+                      - cell "269" [ref=f20e481]
+                      - cell "$ 3.047.735.901,31" [ref=f20e482]
+                      - cell "Vigente" [ref=f20e483]
+                      - cell "02/Ago/2026 3:25 p. m." [ref=f20e485]:
+                        - generic [ref=f20e486]: 02/Ago/2026
+                        - generic [ref=f20e487]: 3:25 p. m.
+                      - cell [ref=f20e488]:
+                        - link "Ver" [ref=f20e489] [cursor=pointer]:
+                          - /url: /modulos/inv/1
+              - generic [ref=f20e492]:
+                - generic [ref=f20e493]:
+                  - heading "EL ZARZAL S.A." [level=2] [ref=f20e498]
+                  - generic [ref=f20e499]: "890920001"
+                  - generic [ref=f20e500]: 1 período
+                - table [ref=f20e502]:
+                  - rowgroup [ref=f20e503]:
+                    - row [ref=f20e504]:
+                      - columnheader "Período" [ref=f20e505]
+                      - columnheader "Versiones" [ref=f20e506]
+                      - columnheader "Versión vigente" [ref=f20e507]
+                      - columnheader "Archivo" [ref=f20e508]
+                      - columnheader "Filas" [ref=f20e509]
+                      - columnheader "Total" [ref=f20e510]
+                      - columnheader "Estado" [ref=f20e511]
+                      - columnheader "Última carga" [ref=f20e512]
+                      - columnheader [ref=f20e513]
+                  - rowgroup [ref=f20e514]:
+                    - row [ref=f20e515]:
+                      - cell "2025-12" [ref=f20e516]
+                      - cell "1" [ref=f20e517]
+                      - cell "v1 vigente" [ref=f20e518]
+                      - cell "inventario al 31 de diciembre.xlsx Mapeo manual por russell" [ref=f20e520]:
+                        - link "inventario al 31 de diciembre.xlsx" [ref=f20e522] [cursor=pointer]:
+                          - /url: /modulos/inv/16
+                        - generic [ref=f20e523]: Mapeo manual
+                        - generic [ref=f20e524]: por russell
+                      - cell "3448" [ref=f20e525]
+                      - cell "$ 3.997.185.126,23" [ref=f20e526]
+                      - cell "Vigente" [ref=f20e527]
+                      - cell "12/Ago/2026 5:32 p. m." [ref=f20e529]:
+                        - generic [ref=f20e530]: 12/Ago/2026
+                        - generic [ref=f20e531]: 5:32 p. m.
+                      - cell [ref=f20e532]:
+                        - link "Ver" [ref=f20e533] [cursor=pointer]:
+                          - /url: /modulos/inv/16
+              - generic [ref=f20e536]:
+                - generic [ref=f20e537]:
+                  - heading "ACEROS MAPA S.A." [level=2] [ref=f20e542]
+                  - generic [ref=f20e543]: "890904459"
+                  - generic [ref=f20e544]: 1 período
+                - table [ref=f20e546]:
+                  - rowgroup [ref=f20e547]:
+                    - row [ref=f20e548]:
+                      - columnheader "Período" [ref=f20e549]
+                      - columnheader "Versiones" [ref=f20e550]
+                      - columnheader "Versión vigente" [ref=f20e551]
+                      - columnheader "Archivo" [ref=f20e552]
+                      - columnheader "Filas" [ref=f20e553]
+                      - columnheader "Total" [ref=f20e554]
+                      - columnheader "Estado" [ref=f20e555]
+                      - columnheader "Última carga" [ref=f20e556]
+                      - columnheader [ref=f20e557]
+                  - rowgroup [ref=f20e558]:
+                    - row [ref=f20e559]:
+                      - cell "2025-12" [ref=f20e560]
+                      - cell [ref=f20e561]:
+                        - link "2" [ref=f20e562] [cursor=pointer]:
+                          - /url: /modulos/inv/15?tab=versiones
+                      - cell "v2 vigente" [ref=f20e563]
+                      - cell "— sin archivo — Origen no registrado por russell" [ref=f20e565]:
+                        - generic "Cargue histórico sin nombre de archivo" [ref=f20e567]: — sin archivo —
+                        - generic [ref=f20e568]: Origen no registrado
+                        - generic [ref=f20e569]: por russell
+                      - cell "2242" [ref=f20e570]
+                      - cell "$ 26.883.851.309,56" [ref=f20e571]
+                      - cell "Vigente" [ref=f20e572]
+                      - cell "12/Ago/2026 10:34 a. m." [ref=f20e574]:
+                        - generic [ref=f20e575]: 12/Ago/2026
+                        - generic [ref=f20e576]: 10:34 a. m.
+                      - cell [ref=f20e577]:
+                        - link "Ver" [ref=f20e578] [cursor=pointer]:
+                          - /url: /modulos/inv/15
+              - generic [ref=f20e581]:
+                - generic [ref=f20e582]:
+                  - heading "CORPORACION PARQUE EXPLORA" [level=2] [ref=f20e587]
+                  - generic [ref=f20e588]: "900145472"
+                  - generic [ref=f20e589]: 1 período
+                - table [ref=f20e591]:
+                  - rowgroup [ref=f20e592]:
+                    - row [ref=f20e593]:
+                      - columnheader "Período" [ref=f20e594]
+                      - columnheader "Versiones" [ref=f20e595]
+                      - columnheader "Versión vigente" [ref=f20e596]
+                      - columnheader "Archivo" [ref=f20e597]
+                      - columnheader "Filas" [ref=f20e598]
+                      - columnheader "Total" [ref=f20e599]
+                      - columnheader "Estado" [ref=f20e600]
+                      - columnheader "Última carga" [ref=f20e601]
+                      - columnheader [ref=f20e602]
+                  - rowgroup [ref=f20e603]:
+                    - row [ref=f20e604]:
+                      - cell "2025-12" [ref=f20e605]
+                      - cell "1" [ref=f20e606]
+                      - cell "v1 vigente" [ref=f20e607]
+                      - cell "— sin archivo — Origen no registrado por russell" [ref=f20e609]:
+                        - generic "Cargue histórico sin nombre de archivo" [ref=f20e611]: — sin archivo —
+                        - generic [ref=f20e612]: Origen no registrado
+                        - generic [ref=f20e613]: por russell
+                      - cell "2277" [ref=f20e614]
+                      - cell "$ 903.381.519,00" [ref=f20e615]
+                      - cell "Vigente" [ref=f20e616]
+                      - cell "12/Ago/2026 10:28 a. m." [ref=f20e618]:
+                        - generic [ref=f20e619]: 12/Ago/2026
+                        - generic [ref=f20e620]: 10:28 a. m.
+                      - cell [ref=f20e621]:
+                        - link "Ver" [ref=f20e622] [cursor=pointer]:
+                          - /url: /modulos/inv/14
+              - generic [ref=f20e625]:
+                - generic [ref=f20e626]:
+                  - heading "ALARMAR LIMITADA" [level=2] [ref=f20e631]
+                  - generic [ref=f20e632]: "890919267"
+                  - generic [ref=f20e633]: 1 período
+                - table [ref=f20e635]:
+                  - rowgroup [ref=f20e636]:
+                    - row [ref=f20e637]:
+                      - columnheader "Período" [ref=f20e638]
+                      - columnheader "Versiones" [ref=f20e639]
+                      - columnheader "Versión vigente" [ref=f20e640]
+                      - columnheader "Archivo" [ref=f20e641]
+                      - columnheader "Filas" [ref=f20e642]
+                      - columnheader "Total" [ref=f20e643]
+                      - columnheader "Estado" [ref=f20e644]
+                      - columnheader "Última carga" [ref=f20e645]
+                      - columnheader [ref=f20e646]
+                  - rowgroup [ref=f20e647]:
+                    - row [ref=f20e648]:
+                      - cell "2025-12" [ref=f20e649]
+                      - cell [ref=f20e650]:
+                        - link "2" [ref=f20e651] [cursor=pointer]:
+                          - /url: /modulos/inv/7?tab=versiones
+                      - cell "v2 vigente" [ref=f20e652]
+                      - cell "— sin archivo — Origen no registrado por Victor Rivera" [ref=f20e654]:
+                        - generic "Cargue histórico sin nombre de archivo" [ref=f20e656]: — sin archivo —
+                        - generic [ref=f20e657]: Origen no registrado
+                        - generic [ref=f20e658]: por Victor Rivera
+                      - cell "2686" [ref=f20e659]
+                      - cell "$ 2.401.957.157,02" [ref=f20e660]
+                      - cell "Vigente" [ref=f20e661]
+                      - cell "11/Ago/2026 2:12 p. m." [ref=f20e663]:
+                        - generic [ref=f20e664]: 11/Ago/2026
+                        - generic [ref=f20e665]: 2:12 p. m.
+                      - cell [ref=f20e666]:
+                        - link "Ver" [ref=f20e667] [cursor=pointer]:
+                          - /url: /modulos/inv/7
+              - generic [ref=f20e670]:
+                - generic [ref=f20e671]:
+                  - heading "ISUZU COLOMBIA ZONA FRANCA S.A.S." [level=2] [ref=f20e676]
+                  - generic [ref=f20e677]: "901818446"
+                  - generic [ref=f20e678]: 1 período
+                - table [ref=f20e680]:
+                  - rowgroup [ref=f20e681]:
+                    - row [ref=f20e682]:
+                      - columnheader "Período" [ref=f20e683]
+                      - columnheader "Versiones" [ref=f20e684]
+                      - columnheader "Versión vigente" [ref=f20e685]
+                      - columnheader "Archivo" [ref=f20e686]
+                      - columnheader "Filas" [ref=f20e687]
+                      - columnheader "Total" [ref=f20e688]
+                      - columnheader "Estado" [ref=f20e689]
+                      - columnheader "Última carga" [ref=f20e690]
+                      - columnheader [ref=f20e691]
+                  - rowgroup [ref=f20e692]:
+                    - row [ref=f20e693]:
+                      - cell "2025-12" [ref=f20e694]
+                      - cell [ref=f20e695]:
+                        - link "2" [ref=f20e696] [cursor=pointer]:
+                          - /url: /modulos/inv/12?tab=versiones
+                      - cell "v2 vigente" [ref=f20e697]
+                      - cell "— sin archivo — Origen no registrado por Victor Rivera" [ref=f20e699]:
+                        - generic "Cargue histórico sin nombre de archivo" [ref=f20e701]: — sin archivo —
+                        - generic [ref=f20e702]: Origen no registrado
+                        - generic [ref=f20e703]: por Victor Rivera
+                      - cell "1336" [ref=f20e704]
+                      - cell "$ 1.213.931.779,53" [ref=f20e705]
+                      - cell "Vigente" [ref=f20e706]
+                      - cell "11/Ago/2026 1:58 p. m." [ref=f20e708]:
+                        - generic [ref=f20e709]: 11/Ago/2026
+                        - generic [ref=f20e710]: 1:58 p. m.
+                      - cell [ref=f20e711]:
+                        - link "Ver" [ref=f20e712] [cursor=pointer]:
+                          - /url: /modulos/inv/12
+              - generic [ref=f20e715]:
+                - generic [ref=f20e716]:
+                  - heading "LABORATORIOS DELTA S.A.S" [level=2] [ref=f20e721]
+                  - generic [ref=f20e722]: "811009393"
+                  - generic [ref=f20e723]: 4 períodos
+                - table [ref=f20e725]:
+                  - rowgroup [ref=f20e726]:
+                    - row [ref=f20e727]:
+                      - columnheader "Período" [ref=f20e728]
+                      - columnheader "Versiones" [ref=f20e729]
+                      - columnheader "Versión vigente" [ref=f20e730]
+                      - columnheader "Archivo" [ref=f20e731]
+                      - columnheader "Filas" [ref=f20e732]
+                      - columnheader "Total" [ref=f20e733]
+                      - columnheader "Estado" [ref=f20e734]
+                      - columnheader "Última carga" [ref=f20e735]
+                      - columnheader [ref=f20e736]
+                  - rowgroup [ref=f20e737]:
+                    - row [ref=f20e738]:
+                      - cell "2025-12" [ref=f20e739]
+                      - cell "1" [ref=f20e740]
+                      - cell "v1 vigente" [ref=f20e741]
+                      - cell "— sin archivo — Origen no registrado por Victor Rivera" [ref=f20e743]:
+                        - generic "Cargue histórico sin nombre de archivo" [ref=f20e745]: — sin archivo —
+                        - generic [ref=f20e746]: Origen no registrado
+                        - generic [ref=f20e747]: por Victor Rivera
+                      - cell "982" [ref=f20e748]
+                      - cell "$ 18.043.376.373,15" [ref=f20e749]
+                      - cell "Vigente" [ref=f20e750]
+                      - cell "10/Ago/2026 1:52 p. m." [ref=f20e752]:
+                        - generic [ref=f20e753]: 10/Ago/2026
+                        - generic [ref=f20e754]: 1:52 p. m.
+                      - cell [ref=f20e755]:
+                        - link "Ver" [ref=f20e756] [cursor=pointer]:
+                          - /url: /modulos/inv/10
+                    - row [ref=f20e759]:
+                      - cell "2026-04" [ref=f20e760]
+                      - cell "1" [ref=f20e761]
+                      - cell "v1 vigente" [ref=f20e762]
+                      - cell "— sin archivo — 💬 2 Origen no registrado por Victor Rivera" [ref=f20e764]:
+                        - generic [ref=f20e765]:
+                          - generic "Cargue histórico sin nombre de archivo" [ref=f20e766]: — sin archivo —
+                          - button "💬 2" [ref=f20e767]:
+                            - generic "2 comentario(s)" [ref=f20e768]: 💬 2
+                        - generic [ref=f20e769]: Origen no registrado
+                        - generic [ref=f20e770]: por Victor Rivera
+                      - cell "98" [ref=f20e771]
+                      - cell "$ 18.041.231.373,25" [ref=f20e772]
+                      - cell "Vigente" [ref=f20e773]
+                      - cell "02/Ago/2026 8:45 p. m." [ref=f20e775]:
+                        - generic [ref=f20e776]: 02/Ago/2026
+                        - generic [ref=f20e777]: 8:45 p. m.
+                      - cell [ref=f20e778]:
+                        - link "Ver" [ref=f20e779] [cursor=pointer]:
+                          - /url: /modulos/inv/4
+                    - row [ref=f20e782]:
+                      - cell "2026-05" [ref=f20e783]
+                      - cell "1" [ref=f20e784]
+                      - cell "v1 vigente" [ref=f20e785]
+                      - cell "— sin archivo — Origen no registrado por Victor Rivera" [ref=f20e787]:
+                        - generic "Cargue histórico sin nombre de archivo" [ref=f20e789]: — sin archivo —
+                        - generic [ref=f20e790]: Origen no registrado
+                        - generic [ref=f20e791]: por Victor Rivera
+                      - cell "98" [ref=f20e792]
+                      - cell "$ 18.041.231.373,25" [ref=f20e793]
+                      - cell "Vigente" [ref=f20e794]
+                      - cell "02/Ago/2026 8:36 p. m." [ref=f20e796]:
+                        - generic [ref=f20e797]: 02/Ago/2026
+                        - generic [ref=f20e798]: 8:36 p. m.
+                      - cell [ref=f20e799]:
+                        - link "Ver" [ref=f20e800] [cursor=pointer]:
+                          - /url: /modulos/inv/3
+                    - row [ref=f20e803]:
+                      - cell "2026-06" [ref=f20e804]
+                      - cell "1" [ref=f20e805]
+                      - cell "v1 vigente" [ref=f20e806]
+                      - cell "— sin archivo — Origen no registrado por Victor Rivera" [ref=f20e808]:
+                        - generic "Cargue histórico sin nombre de archivo" [ref=f20e810]: — sin archivo —
+                        - generic [ref=f20e811]: Origen no registrado
+                        - generic [ref=f20e812]: por Victor Rivera
+                      - cell "168" [ref=f20e813]
+                      - cell "$ 18.043.376.373,25" [ref=f20e814]
+                      - cell "Vigente" [ref=f20e815]
+                      - cell "02/Ago/2026 7:29 p. m." [ref=f20e817]:
+                        - generic [ref=f20e818]: 02/Ago/2026
+                        - generic [ref=f20e819]: 7:29 p. m.
+                      - cell [ref=f20e820]:
+                        - link "Ver" [ref=f20e821] [cursor=pointer]:
+                          - /url: /modulos/inv/2
+              - generic [ref=f20e824]:
+                - generic [ref=f20e825]:
+                  - heading "MELONN S.A.S." [level=2] [ref=f20e830]
+                  - generic [ref=f20e831]: "901427659"
+                  - generic [ref=f20e832]: 1 período
+                - table [ref=f20e834]:
+                  - rowgroup [ref=f20e835]:
+                    - row [ref=f20e836]:
+                      - columnheader "Período" [ref=f20e837]
+                      - columnheader "Versiones" [ref=f20e838]
+                      - columnheader "Versión vigente" [ref=f20e839]
+                      - columnheader "Archivo" [ref=f20e840]
+                      - columnheader "Filas" [ref=f20e841]
+                      - columnheader "Total" [ref=f20e842]
+                      - columnheader "Estado" [ref=f20e843]
+                      - columnheader "Última carga" [ref=f20e844]
+                      - columnheader [ref=f20e845]
+                  - rowgroup [ref=f20e846]:
+                    - row [ref=f20e847]:
+                      - cell "2025-12" [ref=f20e848]
+                      - cell "1" [ref=f20e849]
+                      - cell "v1 vigente" [ref=f20e850]
+                      - cell "— sin archivo — Origen no registrado por Victor Rivera" [ref=f20e852]:
+                        - generic "Cargue histórico sin nombre de archivo" [ref=f20e854]: — sin archivo —
+                        - generic [ref=f20e855]: Origen no registrado
+                        - generic [ref=f20e856]: por Victor Rivera
+                      - cell "37" [ref=f20e857]
+                      - cell "$ 285.413.385,14" [ref=f20e858]
+                      - cell "Vigente" [ref=f20e859]
+                      - cell "10/Ago/2026 1:12 p. m." [ref=f20e861]:
+                        - generic [ref=f20e862]: 10/Ago/2026
+                        - generic [ref=f20e863]: 1:12 p. m.
+                      - cell [ref=f20e864]:
+                        - link "Ver" [ref=f20e865] [cursor=pointer]:
+                          - /url: /modulos/inv/9
+              - generic [ref=f20e868]:
+                - generic [ref=f20e869]:
+                  - heading "SOLUCIONES PARA LA CONSTRUCCION S.A.S." [level=2] [ref=f20e874]
+                  - generic [ref=f20e875]: "811035675"
+                  - generic [ref=f20e876]: 1 período
+                - table [ref=f20e878]:
+                  - rowgroup [ref=f20e879]:
+                    - row [ref=f20e880]:
+                      - columnheader "Período" [ref=f20e881]
+                      - columnheader "Versiones" [ref=f20e882]
+                      - columnheader "Versión vigente" [ref=f20e883]
+                      - columnheader "Archivo" [ref=f20e884]
+                      - columnheader "Filas" [ref=f20e885]
+                      - columnheader "Total" [ref=f20e886]
+                      - columnheader "Estado" [ref=f20e887]
+                      - columnheader "Última carga" [ref=f20e888]
+                      - columnheader [ref=f20e889]
+                  - rowgroup [ref=f20e890]:
+                    - row [ref=f20e891]:
+                      - cell "2025-12" [ref=f20e892]
+                      - cell "1" [ref=f20e893]
+                      - cell "v1 vigente" [ref=f20e894]
+                      - cell "— sin archivo — Origen no registrado por Victor Rivera" [ref=f20e896]:
+                        - generic "Cargue histórico sin nombre de archivo" [ref=f20e898]: — sin archivo —
+                        - generic [ref=f20e899]: Origen no registrado
+                        - generic [ref=f20e900]: por Victor Rivera
+                      - cell "82" [ref=f20e901]
+                      - cell "$ 3.382.243.298,75" [ref=f20e902]
+                      - cell "Vigente" [ref=f20e903]
+                      - cell "08/Ago/2026 1:32 p. m." [ref=f20e905]:
+                        - generic [ref=f20e906]: 08/Ago/2026
+                        - generic [ref=f20e907]: 1:32 p. m.
+                      - cell [ref=f20e908]:
+                        - link "Ver" [ref=f20e909] [cursor=pointer]:
+                          - /url: /modulos/inv/8
+              - generic [ref=f20e912]:
+                - generic [ref=f20e913]: Mostrando 1-9 de 9
+                - generic [ref=f20e914]:
+                  - generic [ref=f20e915]:
+                    - text: Mostrar
+                    - combobox "Mostrar" [ref=f20e916]:
+                      - option "50" [selected]
+                      - option "100"
+                      - option "200"
+                  - navigation "Paginación" [ref=f20e917]:
+                    - button "Ir a la primera página" [disabled] [ref=f20e918]
+                    - button "Ir a la página anterior" [disabled] [ref=f20e924]
+                    - button "Ir a la página 1" [ref=f20e928]: "1"
+                    - button "Ir a la página siguiente" [disabled] [ref=f20e929]
+                    - button "Ir a la última página" [disabled] [ref=f20e932]
+  - button "Open Next.js Dev Tools" [ref=f20e943] [cursor=pointer]:
+    - generic [ref=f20e946]:
+      - text: Compiling
+      - generic [ref=f20e947]:
+        - generic [ref=f20e948]: .
+        - generic [ref=f20e949]: .
+        - generic [ref=f20e950]: .
+  - alert [ref=f20e951]

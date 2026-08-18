@@ -124,3 +124,35 @@ export function direccionInicialColumnaModulo(
     ? "asc"
     : "desc";
 }
+
+/**
+ * Filtro del buscador sobre el listado AGRUPADO de cargados (cliente → períodos).
+ *
+ * Si el término identifica al cliente (razón social o NIT, con o sin DV) se
+ * conserva la tarjeta completa; si no, se dejan solo los períodos que coinciden
+ * por su etiqueta o por el archivo, y la tarjeta desaparece si no queda ninguno.
+ */
+export function filtrarGruposCargaModulo<
+  P extends { periodo: string; archivoNombre: string | null },
+  G extends { clienteNombre: string; clienteNit: string | null; periodos: P[] },
+>(grupos: readonly G[], busqueda: string): G[] {
+  const termino = normalizarBusqueda(busqueda);
+  if (!termino) return [...grupos];
+
+  const nitBuscado = claveNit(busqueda);
+
+  return grupos.flatMap((grupo) => {
+    const coincideCliente =
+      normalizarBusqueda(grupo.clienteNombre).includes(termino)
+      || normalizarBusqueda(grupo.clienteNit).includes(termino)
+      || (nitBuscado.length > 0 && claveNit(grupo.clienteNit ?? "").includes(nitBuscado));
+    if (coincideCliente) return [grupo];
+
+    const periodos = grupo.periodos.filter(
+      (periodo) =>
+        normalizarBusqueda(periodo.periodo).includes(termino)
+        || normalizarBusqueda(periodo.archivoNombre).includes(termino),
+    );
+    return periodos.length > 0 ? [{ ...grupo, periodos }] : [];
+  });
+}

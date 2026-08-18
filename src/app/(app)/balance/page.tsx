@@ -29,7 +29,7 @@ export default async function BalancePage() {
       where: whereCliente,
       orderBy: { creadoEn: "desc" },
       select: {
-        id: true, clienteId: true, nombreCliente: true, nit: true, periodo: true, version: true,
+        id: true, clienteId: true, nombreCliente: true, nit: true, periodo: true,
         esOficial: true, estado: true, completitud: true, ultimaCarga: true,
         mapeadas: true, sinMapear: true, filasTotales: true, aperturaBalance: true, creadoEn: true,
       },
@@ -89,13 +89,13 @@ export default async function BalancePage() {
     g.periodTs.set(b.periodo, Math.max(g.periodTs.get(b.periodo) ?? 0, ts));
     let p = g.periods.get(b.periodo);
     if (!p) {
-      p = { period: b.periodo, versions: 0, official: null, officialId: null, status: b.estado, complete: b.completitud, lastUpload: b.ultimaCarga ? fmtDateTime(b.ultimaCarga) : "", mapped: b.mapeadas, unmapped: b.sinMapear, total: b.filasTotales, apertura: b.aperturaBalance };
+      p = { period: b.periodo, versions: 0, officialId: null, status: b.estado, complete: b.completitud, lastUpload: b.ultimaCarga ? fmtDateTime(b.ultimaCarga) : "", mapped: b.mapeadas, unmapped: b.sinMapear, total: b.filasTotales, apertura: b.aperturaBalance };
       g.periods.set(b.periodo, p);
     }
     p.versions += 1;
     if (!p.officialId) p.officialId = b.id; // fallback si ninguna fila es oficial
     if (b.esOficial) {
-      p.official = b.version; p.officialId = b.id; p.status = b.estado; p.complete = b.completitud; p.lastUpload = b.ultimaCarga ? fmtDateTime(b.ultimaCarga) : p.lastUpload;
+      p.officialId = b.id; p.status = b.estado; p.complete = b.completitud; p.lastUpload = b.ultimaCarga ? fmtDateTime(b.ultimaCarga) : p.lastUpload;
       p.mapped = b.mapeadas; p.unmapped = b.sinMapear; p.total = b.filasTotales; // mapeo de la versión oficial del período
       p.apertura = b.aperturaBalance; // el tipo que declaró la versión OFICIAL del período
     }
