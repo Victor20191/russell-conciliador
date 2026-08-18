@@ -773,9 +773,9 @@ function CruceContableTab({ cruceContable }: { cruceContable: CruceContableVm })
   if (!cruceContable.balanceEncontrado || !cruceContable.resumen) {
     return (
       <Card className="flex flex-col items-center gap-2 p-8 text-center">
-        <div className="text-[13px] font-semibold text-ink-800">No hay balance de comprobación oficial para este período</div>
+        <div className="text-[13px] font-semibold text-ink-800">No hay balance de comprobación confirmado para este período</div>
         <p className="max-w-md text-[12.5px] text-ink-500">
-          No hay balance de comprobación oficial para <b className="text-ink-700">{cruceContable.nombreCliente}</b> en el período <b className="text-ink-700">{cruceContable.periodo}</b>. Carga o marca como oficial un balance de ese período para ver el cruce.
+          No hay un balance de comprobación confirmado (fuera de borrador) para <b className="text-ink-700">{cruceContable.nombreCliente}</b> en el período <b className="text-ink-700">{cruceContable.periodo}</b>. Carga y confirma un balance de ese período para ver el cruce.
         </p>
         <Link href="/balance" className="mt-1 text-[12.5px] font-semibold text-blue-700 hover:underline">
           Ir a Balance de comprobación →
