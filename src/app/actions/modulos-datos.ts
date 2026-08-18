@@ -19,7 +19,7 @@ import { descriptorModulo } from "@/lib/modulos/descriptores";
 import { cuenta4DelModulo, prefijosCuentaModulo } from "@/lib/modulos/cuentas-modulo";
 import { SpecModuloSchema, type SpecModulo } from "@/lib/modulos/extraccion/esquema";
 import { sugerirSpec } from "@/lib/modulos/extraccion/sugerir";
-import { transformarModulo } from "@/lib/modulos/extraccion/transformar";
+import { transformarModulo, resultadoAReconciliacion } from "@/lib/modulos/extraccion/transformar";
 import { promoverStaging, type FilaStagingModulo } from "@/lib/modulos/promocion";
 import { refRolDe, clavesDeDetalle, decidirCarga, remapFilas } from "@/lib/modulos/fraccionamiento";
 import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
@@ -197,6 +197,12 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
     const loteId = randomUUID();
     const huella = calcularHuella(hoja.nombre, hoja.filas[spec.filaEncabezado - 1] ?? []);
     const user = await getCurrentUser();
+    // Reconciliación (red de seguridad de integridad): si quedaron filas con valor real por
+    // encima del inicio efectivo, se guarda junto al spec del LOTE (JSON libre, sin migración)
+    // para que el borrador pueda avisarlo. El perfil reutilizable (`perfilCargaModulo`) NO
+    // lleva esta marca: es información de ESTE archivo, no del layout que se memoriza.
+    const reconciliacion = resultadoAReconciliacion(resultado);
+    const specConReconciliacion = reconciliacion ? { ...spec, reconciliacion } : spec;
 
     await prisma.$transaction(async (tx) => {
       for (let i = 0; i < resultado.filas.length; i += LOTE_STAGING_MODULO) {
@@ -212,7 +218,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
           moduloCodigo, loteId, clienteId, archivoNombre: archivo.name, archivoTam: tamArchivo(archivo.size),
           periodoInicial: fechaISO(formData.get("periodoInicio")), periodoFinal: fechaISO(formData.get("periodoFin")),
           filasLeidas: resultado.filasLeidas, filasExcluidas: resultado.filasExcluidas,
-          huella, origenExtraccion: origen, specJson: spec,
+          huella, origenExtraccion: origen, specJson: specConReconciliacion,
           cargadoPor: user?.name ?? null, cargadoPorId: user?.id ?? null,
         },
       });
@@ -242,7 +248,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
 // ============================================================
 export async function aplicarCambiosBorradorModulo(
   loteId: string,
-  cambios: { filaNum: number; tipoFila?: string; omitida?: boolean | null }[],
+  cambios: { filaNum: number; tipoFila?: string; omitida?: boolean | null; clasificador?: string | null }[],
   periodo?: string,
 ): Promise<ActionState> {
   const authz = await authorizePermiso("modulos_datos:crear");
@@ -265,6 +271,8 @@ export async function aplicarCambiosBorradorModulo(
           data: {
             ...(c.tipoFila === "agrupadora" || c.tipoFila === "movimiento" ? { tipoFila: c.tipoFila, tipoFilaForzado: c.tipoFila } : {}),
             ...(c.omitida !== undefined ? { omitida: c.omitida } : {}),
+            // Agrupador manual: reasigna el clasificador de la fila (vacío → sin clasificar).
+            ...(c.clasificador !== undefined ? { clasificador: c.clasificador?.trim() ? c.clasificador.trim() : null } : {}),
           },
         }),
       ),

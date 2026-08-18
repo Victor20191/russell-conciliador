@@ -10,6 +10,7 @@ import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import ComentarioAncla from "@/components/comentario-ancla";
 import { consolidarPorClasificador, filaEnCero } from "@/lib/modulos/promocion";
 import { esDescuadreProducto } from "@/lib/modulos/validaciones";
+import type { ReconciliacionModulo } from "@/lib/modulos/extraccion/transformar";
 import { aplicarCambiosBorradorModulo, cargarBorradorModulo, descartarBorradorModulo } from "@/app/actions/modulos-datos";
 
 export type FilaBorradorModulo = {
@@ -97,6 +98,7 @@ export default function BorradorModuloClient({
   productos,
   verificaciones,
   filas,
+  reconciliacion,
   version,
   hermanos,
 }: {
@@ -113,6 +115,7 @@ export default function BorradorModuloClient({
   productos: { resultado: string; cantidad: string; unitario: string }[];
   verificaciones: { id: string; texto: string }[];
   filas: FilaBorradorModulo[];
+  reconciliacion: ReconciliacionModulo | null;
   version: number | null;
   hermanos: VersionHermanaBorradorModulo[];
 }) {
@@ -122,6 +125,8 @@ export default function BorradorModuloClient({
   const columnasNumericas = columnas.filter((c) => c.tipo === "numero" || c.tipo === "moneda").map((c) => c.nombre);
   const [overrideTipo, setOverrideTipo] = useState<Record<number, "agrupadora" | "movimiento">>({});
   const [overrideOmit, setOverrideOmit] = useState<Record<number, boolean>>({});
+  const [overrideClasif, setOverrideClasif] = useState<Record<number, string>>({});
+  const [agrupadorManual, setAgrupadorManual] = useState("");
   const [periodo, setPeriodo] = useState(periodoSugerido);
   const [respuestas, setRespuestas] = useState<Record<string, { respuesta: "si" | "no" | "na"; nota?: string }>>({});
   const [observaciones, setObservaciones] = useState("");
@@ -129,6 +134,7 @@ export default function BorradorModuloClient({
   const [guardando, startGuardar] = useTransition();
   const [cargando, startCargar] = useTransition();
   const [descartando, startDescartar] = useTransition();
+  const [seleccion, setSeleccion] = useState<Set<number>>(new Set());
 
   const efectivas = useMemo(
     () =>
@@ -136,11 +142,22 @@ export default function BorradorModuloClient({
         ...f,
         tipoFila: overrideTipo[f.filaNum] ?? f.tipoFila,
         omitida: f.filaNum in overrideOmit ? overrideOmit[f.filaNum] : f.omitida,
+        clasificador: f.filaNum in overrideClasif ? (overrideClasif[f.filaNum] || null) : f.clasificador,
       })),
-    [filas, overrideTipo, overrideOmit],
+    [filas, overrideTipo, overrideOmit, overrideClasif],
   );
 
-  const hayCambiosFilas = Object.keys(overrideTipo).length + Object.keys(overrideOmit).length > 0;
+  // Tipo/omisión ORIGINAL por fila: al aplicar en bloque, si el destino coincide con
+  // el original se borra el override (no marca «cambios sin guardar» falsos).
+  const omitOriginal = useMemo(() => new Map(filas.map((f) => [f.filaNum, f.omitida === true])), [filas]);
+  const clasifOriginal = useMemo(() => new Map(filas.map((f) => [f.filaNum, f.clasificador ?? ""])), [filas]);
+  // Agrupadores ya presentes en el archivo (para el datalist de entrada manual).
+  const agrupadoresExistentes = useMemo(
+    () => [...new Set(filas.map((f) => f.clasificador?.trim()).filter((c): c is string => !!c))].sort(),
+    [filas],
+  );
+
+  const hayCambiosFilas = Object.keys(overrideTipo).length + Object.keys(overrideOmit).length + Object.keys(overrideClasif).length > 0;
   const periodoCambiado = periodo !== periodoSugerido;
   const hayCambios = hayCambiosFilas || periodoCambiado;
   // Renglón "en cero": todas las columnas numéricas en 0 → NO se lleva al definitivo.
@@ -152,6 +169,34 @@ export default function BorradorModuloClient({
   const toggleAgrupador = (f: (typeof efectivas)[number]) =>
     setOverrideTipo((p) => ({ ...p, [f.filaNum]: f.tipoFila === "agrupadora" ? "movimiento" : "agrupadora" }));
   const toggleOmit = (f: (typeof efectivas)[number]) => setOverrideOmit((p) => ({ ...p, [f.filaNum]: f.omitida !== true }));
+
+  // Selección múltiple + acciones EN BLOQUE (reclasificar a agrupadora/movimiento u omitir/incluir
+  // varias filas a la vez). Escribe los mismos overrides que las acciones por fila.
+  const toggleSel = (filaNum: number) =>
+    setSeleccion((prev) => {
+      const n = new Set(prev);
+      if (n.has(filaNum)) n.delete(filaNum); else n.add(filaNum);
+      return n;
+    });
+  const limpiarSeleccion = () => setSeleccion(new Set());
+  // Asigna a mano un agrupador (clasificador) a todas las filas seleccionadas.
+  const asignarAgrupadorSeleccion = () => {
+    const valor = agrupadorManual.trim();
+    if (!valor || seleccion.size === 0) return;
+    setOverrideClasif((p) => {
+      const next = { ...p };
+      for (const fn of seleccion) { if ((clasifOriginal.get(fn) ?? "") === valor) delete next[fn]; else next[fn] = valor; }
+      return next;
+    });
+    setAgrupadorManual("");
+    limpiarSeleccion();
+  };
+  const omitirSeleccion = (omitida: boolean) =>
+    setOverrideOmit((p) => {
+      const next = { ...p };
+      for (const fn of seleccion) { if ((omitOriginal.get(fn) ?? false) === omitida) delete next[fn]; else next[fn] = omitida; }
+      return next;
+    });
 
   // Novedades automáticas sobre lo que SÍ se cargará (imputables):
   //  (1) existencias/costos negativos · (2) descuadre total ≠ cantidad×unitario (si el archivo trae el unitario).
@@ -173,14 +218,16 @@ export default function BorradorModuloClient({
 
   const guardar = () =>
     startGuardar(async () => {
-      const m = new Map<number, { filaNum: number; tipoFila?: string; omitida?: boolean }>();
+      const m = new Map<number, { filaNum: number; tipoFila?: string; omitida?: boolean; clasificador?: string }>();
       for (const [fn, t] of Object.entries(overrideTipo)) m.set(+fn, { ...(m.get(+fn) ?? { filaNum: +fn }), filaNum: +fn, tipoFila: t });
       for (const [fn, o] of Object.entries(overrideOmit)) m.set(+fn, { ...(m.get(+fn) ?? { filaNum: +fn }), filaNum: +fn, omitida: o });
+      for (const [fn, c] of Object.entries(overrideClasif)) m.set(+fn, { ...(m.get(+fn) ?? { filaNum: +fn }), filaNum: +fn, clasificador: c });
       const r = await aplicarCambiosBorradorModulo(loteId, [...m.values()], periodo);
       if (r.ok) {
         notifySuccess(r.message ?? "Cambios guardados.");
         setOverrideTipo({});
         setOverrideOmit({});
+        setOverrideClasif({});
         router.refresh();
       } else notifyError(r.message ?? "No se pudieron guardar los cambios.");
     });
@@ -244,6 +291,17 @@ export default function BorradorModuloClient({
   else if (filtro !== null) baseVista = baseVista.filter((g) => g.clasificador === filtro);
   const gruposVista = baseVista.filter((g) => g.filas.length > 0).map((g) => ({ ...g, ...recomputeGrupo(g.filas) }));
 
+  // Seleccionables = filas visibles que NO están «en cero» (esas no se pueden reclasificar).
+  const idsSeleccionablesVista = gruposVista.flatMap((g) => g.filas).filter((f) => !(f.tipoFila !== "agrupadora" && enCero(f))).map((f) => f.filaNum);
+  const todasVistaSeleccionadas = idsSeleccionablesVista.length > 0 && idsSeleccionablesVista.every((id) => seleccion.has(id));
+  const alternarTodasVista = () =>
+    setSeleccion((prev) => {
+      const n = new Set(prev);
+      if (todasVistaSeleccionadas) for (const id of idsSeleccionablesVista) n.delete(id);
+      else for (const id of idsSeleccionablesVista) n.add(id);
+      return n;
+    });
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2 text-[12.5px]">
@@ -258,6 +316,16 @@ export default function BorradorModuloClient({
       {/* Novedades: validación automática + checklist de verificación (arriba para que se vea siempre) */}
       <Card className="flex flex-col gap-3 p-4">
         <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">Novedades de la carga</div>
+
+        {reconciliacion && reconciliacion.filasOmitidasArriba > 0 && (
+          <div className="rounded-md border border-err-500 bg-err-100 px-3 py-2 text-[12px] text-err-700">
+            <span className="font-semibold">⚠ {reconciliacion.filasOmitidasArriba} fila(s) con valor se excluyeron al leer (posible fila de datos por encima del inicio detectado).</span>
+            {reconciliacion.muestra.length > 0 && (
+              <span className="ml-1">Filas: {reconciliacion.muestra.map((f) => `${f.filaNum} (${fmtContable(f.valor)})`).join(", ")}{reconciliacion.filasOmitidasArriba > reconciliacion.muestra.length ? "…" : ""}.</span>
+            )}
+            <span className="ml-1">Revisa el archivo o el perfil de carga en Configuración › Perfiles de carga.</span>
+          </div>
+        )}
 
         {negativos.length > 0 && (
           <div className="rounded-md border border-err-500 bg-err-100 px-3 py-2 text-[12px] text-err-700">
@@ -330,12 +398,40 @@ export default function BorradorModuloClient({
         </div>
       </Card>
 
+      {/* Barra de acciones EN BLOQUE (visible al seleccionar filas) */}
+      {seleccion.size > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-navy-600 bg-navy-700 px-3 py-2 text-[12px] text-white shadow-lg">
+          <span className="font-semibold">{seleccion.size} seleccionada{seleccion.size === 1 ? "" : "s"}</span>
+          <span className="text-white/40">·</span>
+          <span className="text-white/70">Agrupador:</span>
+          <input
+            list="agrupadores-borrador"
+            value={agrupadorManual}
+            onChange={(e) => setAgrupadorManual(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") asignarAgrupadorSeleccion(); }}
+            placeholder={`Escribe el ${clasificadorEtiqueta.toLowerCase()}…`}
+            className="min-w-[12rem] rounded border border-white/30 bg-white px-2 py-1 text-[12px] text-ink-800 placeholder:text-ink-400 outline-none"
+          />
+          <datalist id="agrupadores-borrador">
+            {agrupadoresExistentes.map((a) => <option key={a} value={a} />)}
+          </datalist>
+          <button type="button" disabled={!agrupadorManual.trim()} onClick={asignarAgrupadorSeleccion} className="rounded border border-white/30 bg-white/15 px-2 py-1 font-semibold hover:bg-white/25 disabled:opacity-50">Asignar</button>
+          <span className="ml-1 text-white/40">·</span>
+          <button type="button" onClick={() => omitirSeleccion(true)} className="rounded border border-white/30 bg-white/10 px-2 py-1 font-semibold hover:bg-white/20">Omitir</button>
+          <button type="button" onClick={() => omitirSeleccion(false)} className="rounded border border-white/30 bg-white/10 px-2 py-1 font-semibold hover:bg-white/20">Incluir</button>
+          <button type="button" onClick={limpiarSeleccion} className="ml-auto rounded border border-white/30 px-2 py-1 font-medium hover:bg-white/20">Limpiar selección</button>
+        </div>
+      )}
+
       {/* Tabla del borrador */}
       <Card className="p-0">
         <div className="overflow-x-auto">
           <table className="w-full text-[12px]">
             <thead className="bg-ink-50 text-left text-ink-500">
               <tr>
+                <th className="w-8 px-2.5 py-2 text-center">
+                  <input type="checkbox" checked={todasVistaSeleccionadas} onChange={alternarTodasVista} title="Seleccionar todo lo visible" className="cursor-pointer align-middle" />
+                </th>
                 <th className="px-2.5 py-2 font-semibold">#</th>
                 {columnas.map((c) => (
                   <th key={c.nombre} className={`px-2.5 py-2 font-semibold ${esNum(c.tipo) ? "text-right" : ""}`}>{c.etiqueta}</th>
@@ -347,6 +443,7 @@ export default function BorradorModuloClient({
               {gruposVista.map((g) => (
                 <Fragment key={g.clasificador}>
                   <tr className="border-t-2 border-ink-200 bg-blue-50/70">
+                    <td className="px-2.5 py-1.5" />
                     <td className="px-2.5 py-1.5" />
                     <td className="px-2.5 py-1.5 font-semibold text-navy-800" colSpan={Math.max(1, columnas.length - 1)}>
                       {clasificadorEtiqueta}: {g.clasificador}
@@ -361,10 +458,15 @@ export default function BorradorModuloClient({
                     const cero = !esAgr && enCero(f);
                     const neg = filasConNovedad.has(f.filaNum);
                     return (
-                      <tr key={f.filaNum} title={cero ? "Renglón en cero: no se carga al definitivo" : undefined} className={`border-t border-ink-100 ${neg && !omit ? "bg-err-100" : esAgr ? "bg-blue-50/50 font-semibold" : ""} ${omit || cero ? "text-ink-300" : neg ? "text-err-700" : "text-ink-700"} ${omit ? "line-through" : ""}`}>
+                      <tr key={f.filaNum} title={cero ? "Renglón en cero: no se carga al definitivo" : undefined} className={`border-t border-ink-100 ${seleccion.has(f.filaNum) ? "bg-blue-100/60" : neg && !omit ? "bg-err-100" : esAgr ? "bg-blue-50/50 font-semibold" : ""} ${omit || cero ? "text-ink-300" : neg ? "text-err-700" : "text-ink-700"} ${omit ? "line-through" : ""}`}>
+                        <td className="px-2.5 py-1.5 text-center">
+                          {!cero && <input type="checkbox" checked={seleccion.has(f.filaNum)} onChange={() => toggleSel(f.filaNum)} className="cursor-pointer align-middle" />}
+                        </td>
                         <td className="px-2.5 py-1.5 tabular-nums text-ink-400">{f.filaNum}</td>
                         {columnas.map((c) => (
-                          <td key={c.nombre} className={`px-2.5 py-1.5 ${esNum(c.tipo) ? "text-right tabular-nums" : ""}`}>{celda(f, c)}</td>
+                          <td key={c.nombre} className={`px-2.5 py-1.5 ${esNum(c.tipo) ? "text-right tabular-nums" : ""}`}>
+                            {c.nombre === clasificadorRol ? (f.clasificador ?? "—") : celda(f, c)}
+                          </td>
                         ))}
                         <td className="whitespace-nowrap px-2.5 py-1.5 text-center">
                           <ComentarioAncla tipo="modulos_borrador" entityId={loteRowId} anchor={`fila:${f.filaNum}`} titulo={`Fila ${f.filaNum}${f.datos.referencia ? ` · ${f.datos.referencia}` : ""}`} count={comentarios[`fila:${f.filaNum}`] ?? 0} />
