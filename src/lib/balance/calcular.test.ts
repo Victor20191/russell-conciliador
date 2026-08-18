@@ -766,3 +766,73 @@ describe("agruparJerarquia · naturaleza HEREDADA en agrupadoras (cuenta contra-
     expect(g.saldoOk).toBe(true);
   });
 });
+
+// ============================================================
+// Homologación fuera de la clase contable (V6) — novedad de operación.
+// QUIFARMA S.A.S., balance 183: cinco auxiliares de inventarios homologadas por
+// IA a `799505 Traslado o cierre de costos de producción` por parecido de nombre
+// («TRASLADOS», «TRASLADO AL COSTO»). Como las sumas y el cuadre se calculan
+// sobre el código del CLIENTE, el balance seguía cuadrando y nada lo delataba;
+// pero el árbol por estándar y el cruce contable de módulos sí clasifican por
+// `cuenta_6_russell`, y el grupo 14 pasó de $3.188.261.072,18 a $7.348.118.313,89.
+// ============================================================
+describe("validación V6 · homologación fuera de la clase contable", () => {
+  const STD_CL: CuentaEstandar[] = [
+    { code: "140505", nature: "D", critical: false, name: "Materias primas" },
+    { code: "799505", nature: "C", critical: false, name: "Traslado o cierre de costos de producción" },
+    { code: "413505", nature: "C", critical: false, name: "Ventas" },
+  ];
+  const v6 = (r: ReturnType<typeof calcularBalance>) => r.validations.find((v) => v.id === "V6")!;
+
+  it("marca la cuenta desplazada de clase y suma el saldo reubicado", () => {
+    const r = reconstruirBalance(
+      [
+        { cuenta8: "14059805", nombreCuenta: "TRASLADOS", cuenta6Russell: "799505", coincidencia: 70, saldoInicial: 0, debitos: 7_137_302_548.64, creditos: 9_941_633_282.16, saldoFinal: -2_804_330_733.52 },
+        { cuenta8: "14050501", nombreCuenta: "MATERIAS PRIMAS", cuenta6Russell: "140505", coincidencia: 100, saldoInicial: 0, debitos: 0, creditos: 0, saldoFinal: 2_804_330_733.52 },
+      ],
+      STD_CL,
+    );
+
+    expect(v6(r).status).toBe("warn");
+    expect(v6(r).count).toBe(1);
+    // Magnitud, no neto: dos cuentas cruzadas que se compensan no deben taparse.
+    expect(v6(r).detail).toContain("2.804.330.733,52");
+  });
+
+  it("queda en OK cuando toda la homologación conserva la clase", () => {
+    const r = reconstruirBalance(
+      [{ cuenta8: "14059805", nombreCuenta: "TRASLADOS", cuenta6Russell: "140505", coincidencia: 100, saldoInicial: 0, debitos: 0, creditos: 0, saldoFinal: -2_804_330_733.52 }],
+      STD_CL,
+    );
+
+    expect(v6(r).status).toBe("ok");
+    expect(v6(r).count).toBeUndefined();
+  });
+
+  it("una cuenta sin mapeo no cuenta como cruce de clase", () => {
+    const r = reconstruirBalance(
+      [{ cuenta8: "14059805", nombreCuenta: "TRASLADOS", cuenta6Russell: null, saldoInicial: 0, debitos: 0, creditos: 0, saldoFinal: -100 }],
+      STD_CL,
+    );
+
+    expect(v6(r).status).toBe("ok");
+  });
+
+  it("la memoria automática cruzada no gobierna el cálculo; la manual sí", () => {
+    const cuentas: CuentaCruda[] = [
+      { code: "14059805", name: "TRASLADOS", prevBalance: 0, balance: -2_804_330_733.52 },
+    ];
+    const automatica = calcularBalance(cuentas, STD_CL, undefined, undefined, new Map([["140598", { std: "799505", coincidencia: 70 }]]));
+    const manual = calcularBalance(cuentas, STD_CL, undefined, undefined, new Map([["140598", { std: "140505", coincidencia: 100 }]]));
+
+    // La config ya llega filtrada por `construirConfigMapeoCliente`: aquí se
+    // comprueba el efecto aguas abajo de una y otra decisión.
+    const std = (r: ReturnType<typeof calcularBalance>) =>
+      r.breakdown.flatMap((g) => g.items).find((i) => i.code === "14059805")?.std;
+
+    expect(std(automatica)).toBe("799505");
+    expect(v6(automatica).status).toBe("warn");
+    expect(std(manual)).toBe("140505");
+    expect(v6(manual).status).toBe("ok");
+  });
+});

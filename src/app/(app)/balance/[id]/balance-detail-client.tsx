@@ -21,6 +21,7 @@ import { asignarCuentaEstandar, validarAlerta, revertirValidacionAlerta, elimina
 import Conversacion from "@/components/conversacion";
 import type { NodoBalance } from "@/lib/balance/calcular";
 import { esSaldoContrarioAccionable, esSaldoContrarioInformativo, type UmbralesAlertas } from "@/lib/balance/umbrales-alertas";
+import { cruzaClaseContable } from "@/lib/balance/clase-contable";
 import { etiquetaApertura, parsearApertura } from "@/lib/balance/apertura-balance";
 import { useSeleccionFilaTabla } from "@/app/(app)/balance/use-seleccion-fila-tabla";
 import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
@@ -707,6 +708,14 @@ function celdaMapeo(nodo: NodoBalance, puedeMapear: boolean, onAsignar: (n: Nodo
       {nodo.coincidencia != null && nodo.coincidencia < 100 ? "≈" : "→"} {nodo.std}
       {nodo.coincidencia != null && (
         <span className={`rounded px-1 text-[10px] font-semibold ${nodo.coincidencia >= 85 ? "bg-ok-100 text-ok-700" : nodo.coincidencia >= 55 ? "bg-warn-100 text-warn-700" : "bg-err-100 text-err-700"}`}>{nodo.coincidencia}%</span>
+      )}
+      {/* El salto de clase contable es invisible en las sumas (se calculan sobre el
+          código del cliente) pero mueve la cuenta de estado financiero en este
+          árbol y en el cruce contable: se marca donde se puede corregir. */}
+      {cruzaClaseContable(nodo.code, nodo.std) && (
+        <span title="La cuenta estándar pertenece a otra clase contable: revisa la homologación" className="rounded bg-err-100 px-1 font-sans text-[10px] font-semibold text-err-700">
+          Otra clase
+        </span>
       )}
     </span>
   ) : (

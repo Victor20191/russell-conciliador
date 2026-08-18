@@ -10,6 +10,7 @@
 // promoción oficial del borrador (`persistirCargue`).
 // ============================================================
 import { fmt } from "@/lib/format";
+import { cruzaClaseContable } from "./clase-contable";
 import { resolverMapeoCliente } from "./mapeo-cliente-config";
 import { esSaldoContrarioAccionable, UMBRALES_ALERTAS_DEFECTO, type UmbralesAlertas } from "./umbrales-alertas";
 
@@ -624,6 +625,13 @@ function agregarDetalle(detalle: BreakdownItem[], umbrales: UmbralesAlertas): Re
 
   // 6) Validaciones.
   const sinMapeo = detalle.filter((d) => !d.mapped).length;
+  // Homologaciones que mueven la cuenta de clase contable. Es la alerta que
+  // faltaba: las sumas y el cuadre se calculan sobre el código del CLIENTE, así
+  // que un mapeo cruzado no descuadra nada y pasaba inadvertido, aunque reubique
+  // el saldo en el árbol por estándar y en el cruce contable de los módulos. Se
+  // acumula en MAGNITUD (no el neto) para que unas cuentas no tapen a otras.
+  const fueraDeClase = detalle.filter((d) => cruzaClaseContable(d.code, d.std));
+  const montoFueraDeClase = sum(fueraDeClase.map((d) => Math.abs(d.balance)));
   const contrario = detalle.filter((d) => esSaldoContrarioAccionable(d.balance, d.saldoOk, umbrales)).length;
   const contrarioInformativo = detalle.filter((d) => !d.saldoOk && !esSaldoContrarioAccionable(d.balance, d.saldoOk, umbrales)).length;
   const variaciones = detalle.filter((d) => d.variation != null && Math.abs(d.variation) > 25).length;
@@ -652,6 +660,15 @@ function agregarDetalle(detalle: BreakdownItem[], umbrales: UmbralesAlertas): Re
       status: sinMapeo > 0 ? "warn" : "ok",
       detail: sinMapeo > 0 ? `${sinMapeo} cuenta(s) sin mapeo al estándar` : `${detalle.length} cuentas validadas`,
       ...(sinMapeo > 0 ? { count: sinMapeo } : {}),
+    },
+    {
+      id: "V6",
+      rule: "Homologación fuera de la clase contable",
+      status: fueraDeClase.length > 0 ? "warn" : "ok",
+      detail: fueraDeClase.length > 0
+        ? `${fueraDeClase.length} cuenta(s) homologadas a una clase contable distinta · ${fmt(montoFueraDeClase)} en saldos reubicados`
+        : "Todas las cuentas homologadas conservan su clase contable",
+      ...(fueraDeClase.length > 0 ? { count: fueraDeClase.length } : {}),
     },
     {
       id: "V4",

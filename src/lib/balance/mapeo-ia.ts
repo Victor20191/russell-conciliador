@@ -7,6 +7,7 @@ import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { getAnthropic, conReintentoSinTemperatura } from "@/lib/anthropic";
 import { completarJsonEstructuradoGemini } from "@/lib/gemini";
+import { cruzaClaseContable } from "@/lib/balance/clase-contable";
 import { CASCADA_MAPEO } from "@/lib/ia/modelos";
 import { getPromptContenido, CLAVE_MAPEO } from "@/lib/ia/prompts";
 import { modeloIABalance, proveedorIABalance, usoTokensGemini, type ProveedorIABalance } from "@/lib/ia/proveedor-balance";
@@ -30,6 +31,27 @@ const MapeoIASchema = z.object({
 });
 
 const TAM_LOTE = 80; // cuentas por llamada (acota el tamaño de salida)
+
+/**
+ * Filtro determinista de lo que la IA devuelve. Dos condiciones, ambas
+ * obligatorias:
+ *
+ *  1. el código sugerido EXISTE en el plan (no vale inventarlo), y
+ *  2. NO cruza de clase contable (ver `clase-contable.ts`).
+ *
+ * La segunda es la que faltaba: el prompt pide respetar la clase, pero un prompt
+ * no es un contrato, y una cuenta de inventarios homologada a una de cierre de
+ * costos por parecido de nombre desplaza saldos entre estados financieros sin
+ * que ninguna validación lo note. Descartada aquí, la cuenta sigue contando como
+ * pendiente y ESCALA al siguiente tier de la cascada (que puede acertar dentro de
+ * su clase); si ninguno acierta queda sin mapear y la validación V3 la reporta,
+ * que es el desenlace correcto: mejor una cuenta visiblemente sin homologar que
+ * una homologada en silencio a la clase equivocada.
+ */
+function asignacionAceptada(cuentaCliente: string, cuenta6Russell: string, validos: Set<string>): boolean {
+  if (!cuenta6Russell || !validos.has(cuenta6Russell)) return false;
+  return !cruzaClaseContable(cuentaCliente, cuenta6Russell);
+}
 
 // Lotes 2..N de un mismo tier se lanzan en paralelo (la caché del plan ya está
 // caliente tras el lote 1). Configurable por entorno sin tocar código.
@@ -77,7 +99,7 @@ async function mapearConModelo(
       );
       usosOut?.push({ tipoOperacion: "mapeo_ia", modelo, usage: r.usage, loteIndice: loteBase + indice, cuentasLote: lote.length });
       for (const a of r.parsed_output?.asignaciones ?? []) {
-        const std = a.cuenta6Russell && validos.has(a.cuenta6Russell) ? a.cuenta6Russell : null;
+        const std = asignacionAceptada(a.cuentaCliente, a.cuenta6Russell, validos) ? a.cuenta6Russell : null;
         res.set(a.cuentaCliente, { std, coincidencia: std ? Math.round(Math.max(0, Math.min(100, a.coincidencia))) : null });
       }
     } catch {
@@ -134,7 +156,7 @@ async function mapearConGemini(
         cuentasLote: lote.length,
       });
       for (const a of r.data.asignaciones) {
-        const std = a.cuenta6Russell && validos.has(a.cuenta6Russell) ? a.cuenta6Russell : null;
+        const std = asignacionAceptada(a.cuentaCliente, a.cuenta6Russell, validos) ? a.cuenta6Russell : null;
         res.set(a.cuentaCliente, {
           std,
           coincidencia: std ? Math.round(Math.max(0, Math.min(100, a.coincidencia))) : null,

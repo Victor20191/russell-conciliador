@@ -15,6 +15,8 @@ import BalanceDetailClient, {
 import { tabDesdeParametro } from "./tabs";
 import { parseId } from "@/lib/ids";
 import { FreezeBalanceButton } from "./freeze-balance-button";
+import { ReaplicarMapeoButton } from "./reaplicar-mapeo-button";
+import { cruzaClaseContable } from "@/lib/balance/clase-contable";
 import { ExportarBalance } from "./exportar-balance";
 import { EliminarBalanceButton } from "./eliminar-balance-button";
 import { FlashToast } from "@/components/flash-toast";
@@ -112,6 +114,10 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
     saldoInicial: Number(f.saldoInicial), debitos: Number(f.debitos), creditos: Number(f.creditos), saldoFinal: Number(f.saldoFinal),
   }));
   const calc = reconstruirBalance(filas, cuentasEstandar, umbrales);
+  // Cuentas homologadas a otra clase contable (validación V6): alimentan el badge
+  // del botón de re-homologar, porque son las que la acción viene a resolver.
+  const filasFueraDeClase = filas.filter((f) => cruzaClaseContable(f.cuenta8, f.cuenta6Russell));
+  const montoFueraDeClase = filasFueraDeClase.reduce((acc, f) => acc + Math.abs(f.saldoFinal), 0);
   const prevalidador = contextoPrevalidador.ok
     ? contextoPrevalidador.value.prevalidador
     : {
@@ -187,6 +193,13 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
               <a href={`/balance/${id}/diff`} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 px-3 py-2 text-[12.5px] font-medium text-ink-700 hover:bg-ink-50">
                 <Icon name="log" size={14} /> Diff de versiones
               </a>
+            )}
+            {sums && puedeMapear && (
+              <ReaplicarMapeoButton
+                id={id}
+                fueraDeClase={filasFueraDeClase.length}
+                montoFueraDeClase={montoFueraDeClase}
+              />
             )}
             {!balance.estaCongelado && puedeEditar && (
               <FreezeBalanceButton id={id} />
