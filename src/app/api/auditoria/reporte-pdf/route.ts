@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import * as z from "zod";
-import { authorizePermiso } from "@/lib/rbac";
+import { authorizeReporteEjecutivo } from "@/lib/rbac/reporte-ejecutivo";
 import { registrarError } from "@/lib/errores";
 import { generarPdfReporteNovedades } from "@/lib/novedades/pdf";
 
@@ -26,7 +26,7 @@ function slug(texto: string): string {
 }
 
 export async function POST(req: NextRequest) {
-  const authz = await authorizePermiso("auditoria:reporte_ejecutivo");
+  const authz = await authorizeReporteEjecutivo();
   if (!authz.ok) {
     return Response.json({ message: authz.message }, { status: 403 });
   }

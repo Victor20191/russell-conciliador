@@ -21,6 +21,7 @@ import { SpecModuloSchema, type SpecModulo } from "@/lib/modulos/extraccion/esqu
 import { sugerirSpec } from "@/lib/modulos/extraccion/sugerir";
 import { transformarModulo, resultadoAReconciliacion } from "@/lib/modulos/extraccion/transformar";
 import { promoverStaging, type FilaStagingModulo } from "@/lib/modulos/promocion";
+import { anclaCruce, normalizarCuenta4 as cuenta4Justificable, validarNotaJustificacion } from "@/lib/modulos/justificaciones-cruce";
 import { refRolDe, clavesDeDetalle, decidirCarga, remapFilas } from "@/lib/modulos/fraccionamiento";
 import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
 import { tomarCandadoTransaccion, transaccionSerializable } from "@/lib/concurrency";
@@ -697,5 +698,151 @@ export async function guardarConsolidacionModuloLote(input: {
     return { ok: true, message: filas.length === 1 ? "Consolidación guardada." : `${filas.length} consolidaciones guardadas.` };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("guardarConsolidacionModuloLote", e) };
+  }
+}
+
+// ============================================================
+// Justificación de las diferencias del CRUCE CONTABLE.
+//
+// Vive por (cliente, módulo, período, cuenta Russell de 4 díg.) y no por cargue, así que
+// sobrevive a las versiones nuevas del período. Exige la misma autorización que editar la
+// consolidación (`modulos_datos:editar` + alcance de escritura sobre el cliente) y deja
+// además la nota en el hilo de comentarios de la cuenta (`cruce:XXXX`), para que quede a
+// la vista de quien revisa. El comentario es un rastro: si se borra, la justificación
+// sigue (FK suave).
+// ============================================================
+
+/** Encabezado + período al que pertenece una justificación, con el permiso ya verificado. */
+async function contextoJustificacionCruce(encabezadoId: number) {
+  if (!Number.isSafeInteger(encabezadoId)) return { ok: false as const, message: "Cargue inválido." };
+  const encabezado = await prisma.moduloDatoEncabezado.findUnique({
+    where: { id: encabezadoId },
+    select: { id: true, clienteId: true, moduloCodigo: true, periodo: true, nombreCliente: true },
+  });
+  if (!encabezado) return { ok: false as const, message: "El cargue ya no existe." };
+  const authz = await authorizePermiso("modulos_datos:editar", { clientId: encabezado.clienteId });
+  if (!authz.ok) return { ok: false as const, message: authz.message };
+  return { ok: true as const, encabezado, userId: authz.userId };
+}
+
+async function auditarJustificacionCruce(
+  encabezado: { clienteId: number; moduloCodigo: string; periodo: string; nombreCliente: string },
+  accion: string,
+  cuenta4: string,
+  detalleExtra: string,
+) {
+  const user = await getCurrentUser();
+  await logAudit({
+    user: user?.name ?? "Sistema",
+    action: accion,
+    entity: encabezado.nombreCliente,
+    detail: `${encabezado.moduloCodigo} · ${encabezado.periodo} · cuenta ${cuenta4}${detalleExtra}`,
+    clientId: encabezado.clienteId,
+  });
+}
+
+/**
+ * Justifica (o reescribe la justificación de) la diferencia de una cuenta del cruce.
+ * `diferencia` se congela para poder avisar después si el monto cambió.
+ */
+export async function justificarDiferenciaCruce(input: {
+  encabezadoId: number;
+  cuenta4: string;
+  nota: string;
+  diferencia: number;
+}): Promise<ActionState> {
+  const ctx = await contextoJustificacionCruce(input.encabezadoId);
+  if (!ctx.ok) return { ok: false, message: ctx.message };
+
+  const cuenta4 = cuenta4Justificable(String(input.cuenta4 ?? ""));
+  if (!cuenta4) return { ok: false, message: "Cuenta inválida." };
+  const nota = validarNotaJustificacion(String(input.nota ?? ""));
+  if (!nota.ok) return { ok: false, message: nota.message };
+  const diferencia = Number(input.diferencia);
+  if (!Number.isFinite(diferencia)) return { ok: false, message: "Diferencia inválida." };
+
+  const { encabezado } = ctx;
+  try {
+    const user = await getCurrentUser();
+    // El rastro en el hilo de la cuenta va primero: si falla, no se guarda una
+    // justificación que dice apuntar a un comentario inexistente.
+    const comentario = await prisma.comment.create({
+      data: {
+        entityType: "modulos_datos",
+        entityId: encabezado.id,
+        anchor: anclaCruce(cuenta4),
+        authorId: ctx.userId,
+        body: nota.nota,
+      },
+      select: { id: true },
+    });
+
+    await prisma.justificacionCruceModulo.upsert({
+      where: {
+        clienteId_moduloCodigo_periodo_cuenta4: {
+          clienteId: encabezado.clienteId,
+          moduloCodigo: encabezado.moduloCodigo,
+          periodo: encabezado.periodo,
+          cuenta4,
+        },
+      },
+      create: {
+        clienteId: encabezado.clienteId,
+        moduloCodigo: encabezado.moduloCodigo,
+        periodo: encabezado.periodo,
+        cuenta4,
+        nota: nota.nota,
+        diferencia: new Prisma.Decimal(diferencia.toFixed(2)),
+        comentarioId: comentario.id,
+        justificadoPor: user?.name ?? null,
+        justificadoPorId: ctx.userId,
+        justificadoEn: new Date(),
+      },
+      update: {
+        nota: nota.nota,
+        diferencia: new Prisma.Decimal(diferencia.toFixed(2)),
+        comentarioId: comentario.id,
+        justificadoPor: user?.name ?? null,
+        justificadoPorId: ctx.userId,
+        justificadoEn: new Date(),
+      },
+    });
+
+    await auditarJustificacionCruce(encabezado, "JUSTIFICÓ diferencia del cruce contable", cuenta4, ` · ${diferencia.toFixed(2)}`);
+    revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
+    return { ok: true, message: "Justificación guardada." };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("justificarDiferenciaCruce", e) };
+  }
+}
+
+/** Retira la justificación de una cuenta. El comentario del hilo se conserva. */
+export async function quitarJustificacionCruce(input: {
+  encabezadoId: number;
+  cuenta4: string;
+}): Promise<ActionState> {
+  const ctx = await contextoJustificacionCruce(input.encabezadoId);
+  if (!ctx.ok) return { ok: false, message: ctx.message };
+
+  const cuenta4 = cuenta4Justificable(String(input.cuenta4 ?? ""));
+  if (!cuenta4) return { ok: false, message: "Cuenta inválida." };
+
+  const { encabezado } = ctx;
+  try {
+    const borradas = await prisma.justificacionCruceModulo.deleteMany({
+      where: {
+        clienteId: encabezado.clienteId,
+        moduloCodigo: encabezado.moduloCodigo,
+        periodo: encabezado.periodo,
+        cuenta4,
+      },
+    });
+    if (borradas.count === 0) return { ok: false, message: "Esa diferencia ya no estaba justificada." };
+
+    await auditarJustificacionCruce(encabezado, "RETIRÓ la justificación del cruce contable", cuenta4, "");
+    revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
+    return { ok: true, message: "Justificación retirada." };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("quitarJustificacionCruce", e) };
   }
 }

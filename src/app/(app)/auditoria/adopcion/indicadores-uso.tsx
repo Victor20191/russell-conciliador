@@ -121,7 +121,7 @@ function RitmoDiario({ serie }: { serie?: SerieDiaUso[] | null }) {
 
 /**
  * Panel permanente de indicadores de uso de la plataforma.
- * Siempre visible en Auditoría › Uso y adopción (con o sin reporte IA).
+ * Siempre visible en Configuración › Reportes ejecutivos (con o sin reporte IA).
  */
 export function IndicadoresUso({
   periodoLabel,

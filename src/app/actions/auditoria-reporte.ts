@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
-import { authorizePermiso } from "@/lib/rbac";
+import { authorizeReporteEjecutivo } from "@/lib/rbac/reporte-ejecutivo";
 import { completarTextoGemini, mensajeErrorGemini } from "@/lib/gemini";
 import {
   evaluarAdopcion,
@@ -30,7 +30,6 @@ import {
   type ReporteEjecutivoUsoScope,
 } from "@/lib/definitions";
 
-const PERMISO = "auditoria:reporte_ejecutivo";
 const MAX_CAMBIOS_PROMPT = 80;
 const MAX_CACHE_MEMORIA = 20;
 /** Tope de filas de bitácora leídas para el resumen factual (agregación en memoria). */
@@ -498,12 +497,12 @@ function normalizarReporteHtml(texto: string): ReporteEjecutivoUso {
 
 /**
  * Genera el reporte ejecutivo de uso y adopción (HTML) con IA a partir de
- * la bitácora de auditoría y las novedades publicadas. Admin-only.
+ * la bitácora de auditoría y las novedades publicadas. Solo Superadministrador.
  */
 export async function generarReporteEjecutivoUso(
   opciones: ReporteEjecutivoUsoScope,
 ): Promise<GenerarReporteEjecutivoResult> {
-  const authz = await authorizePermiso(PERMISO);
+  const authz = await authorizeReporteEjecutivo();
   if (!authz.ok) return { ok: false, message: authz.message };
 
   const parsed = ReporteEjecutivoUsoScopeSchema.safeParse(opciones);
@@ -735,7 +734,7 @@ export async function obtenerResumenUsoAdopcion(opciones: {
     }
   | { ok: false; message: string }
 > {
-  const authz = await authorizePermiso(PERMISO);
+  const authz = await authorizeReporteEjecutivo();
   if (!authz.ok) return { ok: false, message: authz.message };
 
   const rango = parseRango(opciones.desde, opciones.hasta);

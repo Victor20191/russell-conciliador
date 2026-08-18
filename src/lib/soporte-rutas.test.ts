@@ -28,7 +28,13 @@ describe("catálogo de ruta y menú de una novedad", () => {
   test("configuración agrupa las pantallas de ese menú", () => {
     const config = catalogoUbicacionesNovedad().find((ruta) => ruta.clave === "configuracion");
     expect(config?.menus.some((menu) => menu.etiqueta === "Clientes")).toBe(true);
-    expect(config?.menus.some((menu) => menu.etiqueta === "Gestión de reportes")).toBe(true);
+    expect(config?.menus.some((menu) => menu.etiqueta === "Gestión de reportes")).toBe(false);
+  });
+
+  test("mesa de ayuda agrupa Ayuda y Gestión de reportes", () => {
+    const mesa = catalogoUbicacionesNovedad().find((ruta) => ruta.etiqueta === "Mesa de ayuda");
+    expect(mesa?.grupo).toBe("Trabajo");
+    expect(mesa?.menus.map((menu) => menu.etiqueta)).toEqual(["Ayuda", "Gestión de reportes"]);
   });
 
   test("la etiqueta junta ruta y menú para listados", () => {

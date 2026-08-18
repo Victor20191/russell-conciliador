@@ -125,8 +125,8 @@ export const PERMISOS: Permiso[] = [
   // bitácora de acciones (`auditoria:ver`).
   { code: "auditoria:accesos", module: "auditoria", action: "accesos", label: "Ver accesos y tráfico de rutas", roles: SOLO_ADMIN },
   // Reporte ejecutivo de uso y adopción: combina bitácora operativa + novedades
-  // liberadas para enviarlo al cliente. Admin de plataforma (no consulta).
-  { code: "auditoria:reporte_ejecutivo", module: "auditoria", action: "reporte_ejecutivo", label: "Generar reporte ejecutivo de uso y adopción", roles: SOLO_ADMIN },
+  // liberadas y expone información global de todos los usuarios y clientes.
+  { code: "auditoria:reporte_ejecutivo", module: "auditoria", action: "reporte_ejecutivo", label: "Generar reporte ejecutivo de uso y adopción", roles: SOLO_SUPERADMIN },
   // Consumo y costos de IA (tokens y gasto de los escaneos con Claude). Información
   // de costos de la plataforma → SOLO el Superadministrador (más restringido aún
   // que la analítica de accesos, que es admin-only).

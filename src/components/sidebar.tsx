@@ -74,7 +74,8 @@ export default function Sidebar({
   const developmentSet = new Set(modulosEnDesarrollo);
   const puedeVer = (item: NavItem | NavChild) =>
     (!item.permiso || permset.has(item.permiso)) &&
-    (!item.modulo || moduleset.has(item.modulo));
+    (!item.modulo || moduleset.has(item.modulo)) &&
+    (!item.roles || (user != null && item.roles.includes(user.role)));
   const filtrarNav = (items: NavItem[]) =>
     items.flatMap((it) => {
       const children = it.children?.filter(puedeVer);

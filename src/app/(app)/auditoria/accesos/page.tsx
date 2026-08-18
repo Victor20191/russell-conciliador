@@ -2,7 +2,7 @@ import prisma from "@/lib/prisma";
 import { PageHeader, Card, StatCard } from "@/components/ui";
 import { fmtDateTime, fmtNum, timeAgo } from "@/lib/format";
 import { workNav, configNav } from "@/lib/nav";
-import { authorizePermiso, requirePermiso } from "@/lib/rbac";
+import { requirePermiso } from "@/lib/rbac";
 import AuditoriaTabs from "../auditoria-tabs";
 import AccesosTabla, { type AccesoRow } from "./accesos-tabla";
 
@@ -21,7 +21,6 @@ export default async function AccesosPage({
   searchParams: Promise<{ dias?: string; user?: string; kind?: string }>;
 }) {
   await requirePermiso("auditoria:accesos");
-  const reporteAuth = await authorizePermiso("auditoria:reporte_ejecutivo");
   const sp = await searchParams;
 
   // Rango temporal: por defecto 30 días; "todo" sin límite.
@@ -95,7 +94,7 @@ export default async function AccesosPage({
         title="Auditoría"
         subtitle="Accesos y tráfico: quién entra, cuándo y qué rutas concentran la actividad. Los datos se acumulan a medida que los usuarios navegan."
       />
-      <AuditoriaTabs canAccesos canReporteEjecutivo={reporteAuth.ok} />
+      <AuditoriaTabs canAccesos />
 
       <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label="Accesos en el rango" value={fmtNum(total)} tone="ink" />

@@ -7,6 +7,7 @@ export type NavChild = {
   count?: number;
   permiso?: string;
   modulo?: string;
+  roles?: readonly string[];
 };
 export type NavItem = {
   label: string;
@@ -19,6 +20,7 @@ export type NavItem = {
   // página luego deniega, ni oculte pantallas a las que el usuario sí entra.
   permiso?: string;
   modulo?: string;
+  roles?: readonly string[];
 };
 
 // Estructura del menú — rutas reales (App Router) que reemplazan el enrutado por estado del prototipo
@@ -75,19 +77,27 @@ export const workNav: NavItem[] = [
       // los roles de consulta ven únicamente el registro de acciones.
       { label: "Registro de acciones", href: "/auditoria", permiso: "auditoria:ver", modulo: "auditoria" },
       { label: "Accesos y tráfico", href: "/auditoria/accesos", permiso: "auditoria:accesos", modulo: "auditoria" },
-      // Reporte ejecutivo de uso + adopción de novedades (admin de plataforma).
-      { label: "Uso y adopción", href: "/auditoria/adopcion", permiso: "auditoria:reporte_ejecutivo", modulo: "auditoria" },
       // Consumo y costos de IA: SOLO el Superadministrador (permiso auditoria:ia).
       { label: "Consumo de IA", href: "/auditoria/ia", permiso: "auditoria:ia", modulo: "auditoria" },
       // Medición del modelo de lectura de balances: mismo permiso (Superadmin).
       { label: "Lectura de balances", href: "/auditoria/lectura", permiso: "auditoria:ia", modulo: "auditoria" },
     ],
   },
-  { label: "Ayuda", href: "/reportes", icon: "help", permiso: "soporte:ver", modulo: "soporte" },
+  {
+    label: "Mesa de ayuda",
+    href: "/reportes",
+    icon: "help",
+    permiso: "soporte:ver",
+    modulo: "soporte",
+    children: [
+      { label: "Ayuda", href: "/reportes", permiso: "soporte:ver", modulo: "soporte" },
+      { label: "Gestión de reportes", href: "/config/soporte", permiso: "soporte:administrar", modulo: "soporte" },
+    ],
+  },
 ];
 
 export const configNav: NavItem[] = [
-  { label: "Gestión de reportes", href: "/config/soporte", icon: "help", permiso: "soporte:administrar", modulo: "soporte" },
+  { label: "Reportes ejecutivos", href: "/config/reportes-ejecutivos", icon: "doc", permiso: "auditoria:reporte_ejecutivo", modulo: "auditoria", roles: ["Superadministrador"] },
   { label: "Publicación de módulos", href: "/config/publicacion-modulos", icon: "eye", permiso: "publicacion_modulos:ver", modulo: "publicacion_modulos" },
   { label: "Módulos y campos", href: "/config/modulos", icon: "settings", permiso: "modulos:ver", modulo: "modulos" },
   { label: "Clientes", href: "/config/clientes", icon: "users", permiso: "clientes:configurar", modulo: "clientes" },

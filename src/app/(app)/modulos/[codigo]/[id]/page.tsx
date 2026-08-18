@@ -15,6 +15,7 @@ import { detectarNegativos, detectarDescuadres } from "@/lib/modulos/validacione
 import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
 import { fmtDateTime } from "@/lib/format";
 import { construirCruceContable, type ResumenCruceContable } from "@/lib/modulos/cruce-contable";
+import { anotarCruceConJustificaciones, type JustificacionCruce } from "@/lib/modulos/justificaciones-cruce";
 import DatoCargadoClient, { type FilaDetalleVm, type ConsolidadoVm, type NovedadesVm, type VersionModuloVm, type CruceContableVm } from "./dato-cargado-client";
 
 /** ¿El `periodoFin` del balance cae en el mismo año-mes que el período del módulo ("YYYY-MM")? */
@@ -178,12 +179,39 @@ export default async function DatoModuloPage({
     });
     if (sinMapeoFilas > 0) sinMapeoContable = { total: sinMapeoTotal, filas: sinMapeoFilas };
   }
+  // Justificaciones de las diferencias del cruce: viven por (cliente, módulo, período),
+  // NO por cargue, así que siguen visibles al abrir otra versión del mismo período.
+  const justificacionesPeriodo = await prisma.justificacionCruceModulo.findMany({
+    where: { clienteId: encabezado.clienteId, moduloCodigo, periodo: encabezado.periodo },
+    select: {
+      cuenta4: true,
+      nota: true,
+      diferencia: true,
+      comentarioId: true,
+      justificadoPor: true,
+      justificadoEn: true,
+    },
+  });
+  const justificaciones: JustificacionCruce[] = justificacionesPeriodo.map((j) => ({
+    cuenta4: j.cuenta4,
+    nota: j.nota,
+    diferencia: Number(j.diferencia),
+    comentarioId: j.comentarioId,
+    justificadoPor: j.justificadoPor,
+    justificadoEn: fmtDateTime(j.justificadoEn),
+  }));
+  const cruceAnotado = cruceContable
+    ? anotarCruceConJustificaciones(cruceContable.filas, justificaciones)
+    : null;
+
   const cruceContableVm: CruceContableVm = {
     balanceEncontrado: balanceEmparejado != null,
     periodo: encabezado.periodo,
     nombreCliente: encabezado.nombreCliente,
     resumen: cruceContable,
     sinMapeoContable,
+    filasJustificadas: cruceAnotado?.filas ?? [],
+    resumenJustificaciones: cruceAnotado?.resumen ?? null,
   };
 
   const versiones: VersionModuloVm[] = hermanos.map((hermano) => ({

@@ -181,6 +181,14 @@ describe("Permisos globales (sin alcance de cliente)", () => {
     }
   });
 
+  test("generar reportes ejecutivos es exclusivo del Superadministrador", () => {
+    for (const r of ROLES_MATRIZ) {
+      expect(tienePermiso(MATRIZ, r, "auditoria:reporte_ejecutivo")).toBe(
+        r === "Superadministrador",
+      );
+    }
+  });
+
   test("el borrado destructivo de balances y perfiles inicia solo en roles administrativos", () => {
     for (const r of ["Administrador", "Superadministrador"]) {
       expect(tienePermiso(MATRIZ, r, "balance:eliminar")).toBe(true);

@@ -4,14 +4,26 @@ import { Fragment, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, Chip } from "@/components/ui";
+import { Icon } from "@/components/icons";
 import { Modal } from "@/components/modal";
 import { fmtContable, fmtNum } from "@/lib/format";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import ComentarioAncla from "@/components/comentario-ancla";
-import { guardarConsolidacionModulo, guardarConsolidacionModuloLote } from "@/app/actions/modulos-datos";
+import {
+  guardarConsolidacionModulo,
+  guardarConsolidacionModuloLote,
+  justificarDiferenciaCruce,
+  quitarJustificacionCruce,
+} from "@/app/actions/modulos-datos";
 import { aplicarAsignacionMasiva, contarConCuentas, type ModoAsignacionMasiva } from "@/lib/modulos/consolidacion-masiva";
 import { filtrarFilasDetalleModulo, hayFiltrosDetalleModulo, type FiltrosDetalleModulo } from "@/lib/modulos/filtros-detalle-modulo";
 import type { ResumenCruceContable } from "@/lib/modulos/cruce-contable";
+import {
+  anclaCruce,
+  MAX_NOTA_JUSTIFICACION,
+  type FilaCruceJustificada,
+  type ResumenJustificaciones,
+} from "@/lib/modulos/justificaciones-cruce";
 
 export type FilaDetalleVm = { filaNum: number; clasificador: string | null; valor: number; datos: Record<string, string | number | null> };
 export type ConsolidadoVm = { clasificador: string; total: number; filas: number; cuentas4: { codigo: string; nombre: string | null }[] };
@@ -23,6 +35,9 @@ export type CruceContableVm = {
   nombreCliente: string;
   resumen: ResumenCruceContable | null;
   sinMapeoContable: { total: number; filas: number } | null;
+  /** Las filas del cruce con su justificación pegada (vacío si no hay balance). */
+  filasJustificadas: FilaCruceJustificada[];
+  resumenJustificaciones: ResumenJustificaciones | null;
 };
 export type NovedadesVm = {
   negativos: { filaNum: number; etiqueta: string; referencia: string | null; valor: number }[];
@@ -117,7 +132,7 @@ export default function DatoCargadoClient({
       ) : tab === "detalle" ? (
         <DetalleTab columnas={columnas} clasificadorEtiqueta={clasificadorEtiqueta} detalle={detalle} negativosFilas={filasNovedad} encabezadoId={encabezadoId} comentarios={comentarios} />
       ) : tab === "cruce" ? (
-        <CruceContableTab cruceContable={cruceContable} />
+        <CruceContableTab cruceContable={cruceContable} encabezadoId={encabezadoId} comentarios={comentarios} puedeEditar={puedeEditar} />
       ) : tab === "novedades" ? (
         <NovedadesTab novedades={novedades} />
       ) : (
@@ -327,7 +342,7 @@ function ConsolidadoTab({
               )}
               <th className="px-3 py-2 font-semibold">{clasificadorEtiqueta}</th>
               <th className="px-3 py-2 text-right font-semibold">Filas</th>
-              <th className="px-3 py-2 text-right font-semibold">Total</th>
+              <th className="min-w-[140px] whitespace-nowrap px-3 py-2 text-right font-semibold">Total</th>
               <th className="px-3 py-2 font-semibold">Cuentas (4 díg) — una o varias</th>
               <th className="px-3 py-2 text-center font-semibold">💬</th>
             </tr>
@@ -353,7 +368,7 @@ function ConsolidadoTab({
                   )}
                   <td className="px-3 py-2 font-medium text-ink-800">{c.clasificador}</td>
                   <td className="px-3 py-2 text-right tabular-nums text-ink-500">{c.filas}</td>
-                  <td className="px-3 py-2 text-right font-semibold tabular-nums text-ink-800">{fmtContable(c.total)}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right font-semibold tabular-nums text-ink-800">{fmtContable(c.total)}</td>
                   <td className="px-3 py-2">
                     <div className="flex min-w-0 flex-col gap-1.5">
                       <div className="flex flex-wrap items-center gap-1.5">
@@ -701,7 +716,7 @@ function DetalleTab({ columnas, clasificadorEtiqueta, detalle, negativosFilas, e
         )}
       </div>
       <div className="max-h-[70vh] overflow-auto">
-        <table className="tabla-encabezado-fijo w-full text-[12px]">
+        <table className="tabla-encabezado-fijo tabla-encabezado-doble w-full text-[12px]">
           <thead className="bg-ink-50 text-left text-ink-500">
             <tr>
               <th className="px-2.5 py-2 font-semibold">#</th>
@@ -710,7 +725,7 @@ function DetalleTab({ columnas, clasificadorEtiqueta, detalle, negativosFilas, e
               ))}
               <th className="px-2.5 py-2 text-center font-semibold">💬</th>
             </tr>
-            <tr className="bg-ink-50/95">
+            <tr className="bg-ink-50">
               <th className="px-2.5 pb-2" />
               {columnas.map((c) => (
                 <th key={c.nombre} className="px-1.5 pb-2 font-normal">
@@ -736,7 +751,7 @@ function DetalleTab({ columnas, clasificadorEtiqueta, detalle, negativosFilas, e
             )}
             {grupos.map((g) => (
               <Fragment key={g.clasificador}>
-                <tr className="border-t-2 border-ink-200 bg-blue-50/70">
+                <tr className="border-t-2 border-ink-200 bg-blue-50">
                   <td className="px-2.5 py-1.5" />
                   <td className="px-2.5 py-1.5 font-semibold text-navy-800" colSpan={Math.max(1, columnas.length - 1)}>
                     {clasificadorEtiqueta}: {g.clasificador}
@@ -769,7 +784,22 @@ function DetalleTab({ columnas, clasificadorEtiqueta, detalle, negativosFilas, e
 // del módulo, cuenta Russell (4 díg.) por cuenta Russell. Estado vacío si no hay balance
 // oficial para el período; avisos aparte para clasificadores ambiguos y saldos contables
 // de inventario sin homologar.
-function CruceContableTab({ cruceContable }: { cruceContable: CruceContableVm }) {
+function CruceContableTab({
+  cruceContable,
+  encabezadoId,
+  comentarios,
+  puedeEditar,
+}: {
+  cruceContable: CruceContableVm;
+  encabezadoId: number;
+  comentarios: Record<string, number>;
+  puedeEditar: boolean;
+}) {
+  const router = useRouter();
+  // Fila que se está justificando en el modal (null = modal cerrado).
+  const [justificando, setJustificando] = useState<FilaCruceJustificada | null>(null);
+  const [quitando, startQuitar] = useTransition();
+
   if (!cruceContable.balanceEncontrado || !cruceContable.resumen) {
     return (
       <Card className="flex flex-col items-center gap-2 p-8 text-center">
@@ -784,10 +814,23 @@ function CruceContableTab({ cruceContable }: { cruceContable: CruceContableVm })
     );
   }
 
-  const { resumen, sinMapeoContable } = cruceContable;
+  const { resumen, sinMapeoContable, filasJustificadas, resumenJustificaciones } = cruceContable;
+
+  const quitar = (fila: FilaCruceJustificada) => {
+    startQuitar(async () => {
+      const r = await quitarJustificacionCruce({ encabezadoId, cuenta4: fila.cuenta4 });
+      if (r.ok) notifySuccess(r.message ?? "Justificación retirada.");
+      else notifyError(r.message ?? "No se pudo retirar la justificación.");
+      router.refresh();
+    });
+  };
 
   return (
     <div className="flex flex-col gap-4">
+      {resumenJustificaciones && resumenJustificaciones.conDiferencia > 0 && (
+        <ResumenJustificacionesBanner resumen={resumenJustificaciones} />
+      )}
+
       <Card className="p-0">
         <div className="overflow-x-auto">
           <table className="w-full text-[12.5px]">
@@ -797,15 +840,16 @@ function CruceContableTab({ cruceContable }: { cruceContable: CruceContableVm })
                 <th className="px-3 py-2 text-right font-semibold">Contabilidad</th>
                 <th className="px-3 py-2 text-right font-semibold">Inventario (archivos)</th>
                 <th className="px-3 py-2 text-right font-semibold">Diferencia</th>
+                <th className="px-3 py-2 font-semibold">Justificación</th>
               </tr>
             </thead>
             <tbody>
-              {resumen.filas.length === 0 && (
+              {filasJustificadas.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="px-3 py-6 text-center text-ink-400">Sin cuentas para cruzar en este período.</td>
+                  <td colSpan={5} className="px-3 py-6 text-center text-ink-400">Sin cuentas para cruzar en este período.</td>
                 </tr>
               )}
-              {resumen.filas.map((f) => (
+              {filasJustificadas.map((f) => (
                 <tr key={f.cuenta4} className={`border-t border-ink-100 ${f.estado === "descuadre" ? "bg-err-100/30" : ""}`}>
                   <td className="px-3 py-2 font-medium text-ink-800">{etiquetaRussell(f.cuenta4, f.nombre)}</td>
                   <td className="px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(f.contable)}</td>
@@ -817,16 +861,28 @@ function CruceContableTab({ cruceContable }: { cruceContable: CruceContableVm })
                       <span className={`tabular-nums font-semibold ${f.cuadra ? "text-ok-700" : "text-err-700"}`}>{fmtContable(f.diferencia)}</span>
                     </div>
                   </td>
+                  <td className="max-w-[340px] px-3 py-2 align-top">
+                    <CeldaJustificacion
+                      fila={f}
+                      encabezadoId={encabezadoId}
+                      comentarios={comentarios[anclaCruce(f.cuenta4)] ?? 0}
+                      puedeEditar={puedeEditar}
+                      ocupado={quitando}
+                      onJustificar={() => setJustificando(f)}
+                      onQuitar={() => quitar(f)}
+                    />
+                  </td>
                 </tr>
               ))}
             </tbody>
-            {resumen.filas.length > 0 && (
+            {filasJustificadas.length > 0 && (
               <tfoot>
                 <tr className="border-t-2 border-ink-200 bg-ink-50 font-semibold text-ink-800">
                   <td className="px-3 py-2">Totales</td>
                   <td className="px-3 py-2 text-right tabular-nums">{fmtContable(resumen.totales.contable)}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{fmtContable(resumen.totales.inventario)}</td>
                   <td className={`px-3 py-2 text-right tabular-nums ${Math.abs(resumen.totales.diferencia) <= 0.01 ? "text-ok-700" : "text-err-700"}`}>{fmtContable(resumen.totales.diferencia)}</td>
+                  <td className="px-3 py-2" />
                 </tr>
               </tfoot>
             )}
@@ -853,7 +909,239 @@ function CruceContableTab({ cruceContable }: { cruceContable: CruceContableVm })
           )}
         </div>
       )}
+
+      {justificando && (
+        <ModalJustificacion
+          fila={justificando}
+          encabezadoId={encabezadoId}
+          onClose={() => setJustificando(null)}
+          onGuardado={() => {
+            setJustificando(null);
+            router.refresh();
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+/** Cuánto del descuadre está explicado y cuánto sigue pendiente. */
+function ResumenJustificacionesBanner({ resumen }: { resumen: ResumenJustificaciones }) {
+  const todo = resumen.pendientes === 0 && resumen.desactualizadas === 0;
+  return (
+    <div
+      className={`flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md border px-3 py-2 text-[12px] ${
+        todo ? "border-ok-500 bg-ok-100/30 text-ok-700" : "border-warn-500 bg-warn-100/30 text-warn-700"
+      }`}
+    >
+      <span className="font-semibold">
+        {resumen.justificadas} de {resumen.conDiferencia} {resumen.conDiferencia === 1 ? "diferencia justificada" : "diferencias justificadas"}
+      </span>
+      {resumen.pendientes > 0 && (
+        <span>
+          Sin justificar: <b>{resumen.pendientes}</b> ({fmtContable(resumen.montoPendiente)})
+        </span>
+      )}
+      {resumen.desactualizadas > 0 && (
+        <span title="La diferencia cambió después de escribir la justificación.">
+          Por revisar: <b>{resumen.desactualizadas}</b>
+        </span>
+      )}
+      {todo && <span>Todas las diferencias del período están justificadas.</span>}
+    </div>
+  );
+}
+
+/** Estado de la justificación de una fila + sus acciones y el hilo de la cuenta. */
+function CeldaJustificacion({
+  fila,
+  encabezadoId,
+  comentarios,
+  puedeEditar,
+  ocupado,
+  onJustificar,
+  onQuitar,
+}: {
+  fila: FilaCruceJustificada;
+  encabezadoId: number;
+  comentarios: number;
+  puedeEditar: boolean;
+  ocupado: boolean;
+  onJustificar: () => void;
+  onQuitar: () => void;
+}) {
+  const hilo = (
+    <ComentarioAncla
+      tipo="modulos_datos"
+      entityId={encabezadoId}
+      anchor={anclaCruce(fila.cuenta4)}
+      titulo={etiquetaRussell(fila.cuenta4, fila.nombre)}
+      count={comentarios}
+    />
+  );
+
+  // Cuenta que cuadra y nunca se justificó: nada que explicar.
+  if (!fila.admiteJustificacion && !fila.justificacion) {
+    return <div className="flex items-center gap-1">{hilo}</div>;
+  }
+
+  if (!fila.justificacion) {
+    return (
+      <div className="flex items-center gap-1.5">
+        {puedeEditar ? (
+          <button
+            type="button"
+            onClick={onJustificar}
+            className="inline-flex items-center gap-1 rounded-md border border-ink-200 px-2 py-1 text-[11.5px] font-semibold text-ink-600 transition hover:bg-ink-50 hover:text-ink-900"
+          >
+            <Icon name="edit" size={12} /> Justificar
+          </button>
+        ) : (
+          <Chip label="Sin justificar" tone="warn" />
+        )}
+        {hilo}
+      </div>
+    );
+  }
+
+  const { justificacion } = fila;
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex flex-wrap items-center gap-1.5">
+        {fila.desactualizada ? (
+          <span title={`La diferencia era ${fmtContable(justificacion.diferencia)} cuando se justificó y hoy es ${fmtContable(fila.diferencia)}.`}>
+            <Chip label="Revisar" tone="warn" />
+          </span>
+        ) : (
+          <Chip label={fila.admiteJustificacion ? "Justificada" : "Ya cuadra"} tone="ok" />
+        )}
+        {hilo}
+        {puedeEditar && (
+          <>
+            <button
+              type="button"
+              onClick={onJustificar}
+              title="Editar la justificación"
+              aria-label="Editar la justificación"
+              className="rounded p-0.5 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700"
+            >
+              <Icon name="edit" size={12} />
+            </button>
+            <button
+              type="button"
+              onClick={onQuitar}
+              disabled={ocupado}
+              title="Retirar la justificación"
+              aria-label="Retirar la justificación"
+              className="rounded p-0.5 text-err-500 transition hover:bg-err-50 hover:text-err-700 disabled:opacity-50"
+            >
+              <Icon name="trash" size={12} />
+            </button>
+          </>
+        )}
+      </div>
+      <p className="whitespace-pre-wrap break-words text-[11.5px] text-ink-700" title={justificacion.nota}>
+        {justificacion.nota}
+      </p>
+      <span className="text-[10.5px] text-ink-400">
+        {justificacion.justificadoPor ? `${justificacion.justificadoPor} · ` : ""}
+        {justificacion.justificadoEn}
+      </span>
+    </div>
+  );
+}
+
+/** Modal para escribir (o reescribir) la justificación de una diferencia. */
+function ModalJustificacion({
+  fila,
+  encabezadoId,
+  onClose,
+  onGuardado,
+}: {
+  fila: FilaCruceJustificada;
+  encabezadoId: number;
+  onClose: () => void;
+  onGuardado: () => void;
+}) {
+  const [nota, setNota] = useState(fila.justificacion?.nota ?? "");
+  const [guardando, startGuardar] = useTransition();
+
+  const guardar = () => {
+    const texto = nota.trim();
+    if (!texto || guardando) return;
+    startGuardar(async () => {
+      const r = await justificarDiferenciaCruce({
+        encabezadoId,
+        cuenta4: fila.cuenta4,
+        nota: texto,
+        diferencia: fila.diferencia,
+      });
+      if (r.ok) {
+        notifySuccess(r.message ?? "Justificación guardada.");
+        onGuardado();
+      } else {
+        notifyError(r.message ?? "No se pudo guardar la justificación.");
+      }
+    });
+  };
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={`Justificar diferencia · ${etiquetaRussell(fila.cuenta4, fila.nombre)}`}
+      size="lg"
+      footer={
+        <button
+          type="button"
+          onClick={guardar}
+          disabled={!nota.trim() || guardando}
+          className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-navy-800 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {guardando ? "Guardando…" : "Guardar justificación"}
+        </button>
+      }
+    >
+      <div className="flex flex-col gap-3">
+        <div className="grid grid-cols-3 gap-2 rounded-md border border-ink-150 bg-ink-50 px-3 py-2 text-[12px]">
+          <div>
+            <div className="text-ink-500">Contabilidad</div>
+            <div className="tabular-nums font-semibold text-ink-800">{fmtContable(fila.contable)}</div>
+          </div>
+          <div>
+            <div className="text-ink-500">Archivos del módulo</div>
+            <div className="tabular-nums font-semibold text-ink-800">{fmtContable(fila.inventario)}</div>
+          </div>
+          <div>
+            <div className="text-ink-500">Diferencia</div>
+            <div className="tabular-nums font-semibold text-err-700">{fmtContable(fila.diferencia)}</div>
+          </div>
+        </div>
+
+        {fila.desactualizada && fila.justificacion && (
+          <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[12px] text-warn-700">
+            La diferencia era <b>{fmtContable(fila.justificacion.diferencia)}</b> cuando se escribió esta justificación. Actualízala para dejar constancia del monto de hoy.
+          </div>
+        )}
+
+        <label className="flex flex-col gap-1">
+          <span className="text-[12px] font-semibold text-ink-700">Justificación de la diferencia</span>
+          <textarea
+            value={nota}
+            onChange={(e) => setNota(e.target.value.slice(0, MAX_NOTA_JUSTIFICACION))}
+            rows={5}
+            autoFocus
+            placeholder="Explica a qué corresponde la diferencia (p. ej. mercancía en tránsito no facturada al corte)."
+            className="resize-y rounded-md border border-ink-200 px-3 py-2 text-[12.5px] focus:outline-none focus:ring-2 focus:ring-navy-600"
+          />
+          <span className="self-end text-[10.5px] text-ink-400">{nota.length}/{MAX_NOTA_JUSTIFICACION}</span>
+        </label>
+
+        <p className="text-[11.5px] text-ink-500">
+          La justificación queda en el hilo de la cuenta y se conserva al cargar versiones nuevas de este período.
+        </p>
+      </div>
+    </Modal>
   );
 }
 

@@ -20,10 +20,10 @@ import { matrizConLegado } from "@/lib/rbac/catalogo";
 import { ROL_SOCIO, ROLES_ALCANCE_GLOBAL, derivarAsignacionesSocio } from "@/lib/rbac/jerarquia";
 import type { Matriz, Asignacion } from "@/lib/rbac/permisos";
 
-// Bump de versión al incorporar `soporte:ver` / `soporte:crear`: una clave
-// nueva evita que un despliegue siga sirviendo durante una hora la matriz
-// anterior aunque la migración/sincronización ya haya concedido el permiso.
-export const RBAC_CACHE_TAG = "rbac-matriz-v6";
+// Bump de versión al restringir `auditoria:reporte_ejecutivo` al
+// Superadministrador: una clave nueva evita que el despliegue siga sirviendo
+// durante una hora la concesión anterior del Administrador.
+export const RBAC_CACHE_TAG = "rbac-matriz-v7";
 
 // La función interna que lee de BD (sin cache layer).
 async function leerMatrizDeBD(): Promise<Matriz> {
