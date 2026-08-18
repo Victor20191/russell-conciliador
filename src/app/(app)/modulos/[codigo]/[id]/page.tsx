@@ -139,15 +139,17 @@ export default async function DatoModuloPage({
     filas: c.filas,
     cuentas4: (cuentasPorClasificador.get(c.clasificador) ?? []).map((cod) => ({ codigo: cod, nombre: nombrePorCuenta.get(cod) ?? null })),
   }));
-  // Cruce contable: saldo del balance de comprobación OFICIAL vigente cuyo período
-  // (año-mes de `periodoFin`) coincida con el período del módulo, contra el consolidado
-  // por clasificador que se está viendo (`encabezadoId` actual).
-  const encabezadosBalanceOficiales = await prisma.balancePruebaEncabezado.findMany({
-    where: { clienteId: encabezado.clienteId, esOficial: true },
+  // Cruce contable: saldo del balance de comprobación CONFIRMADO (fuera de borrador) cuyo
+  // período (año-mes de `periodoFin`) coincida con el período del módulo, contra el
+  // consolidado por clasificador que se está viendo (`encabezadoId` actual). No exige el
+  // congelado: basta con que el balance ya esté cargado. Si el período tiene una versión
+  // marcada oficial/vigente (`esOficial`) se prefiere esa; si no, la última versión cargada.
+  const balancesConfirmados = await prisma.balancePruebaEncabezado.findMany({
+    where: { clienteId: encabezado.clienteId },
     select: { id: true, periodoFin: true },
-    orderBy: [{ periodoFin: "desc" }, { id: "desc" }],
+    orderBy: [{ esOficial: "desc" }, { periodoFin: "desc" }, { id: "desc" }],
   });
-  const balanceEmparejado = encabezadosBalanceOficiales.find((b) => mismoAnioMes(b.periodoFin, encabezado.periodo)) ?? null;
+  const balanceEmparejado = balancesConfirmados.find((b) => mismoAnioMes(b.periodoFin, encabezado.periodo)) ?? null;
 
   let cruceContable: ResumenCruceContable | null = null;
   let sinMapeoContable: { total: number; filas: number } | null = null;

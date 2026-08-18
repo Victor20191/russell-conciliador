@@ -13,6 +13,7 @@ import { normalizarMonto } from "@/lib/balance/extraccion/transformar";
 import type { CeldaCruda, GridHoja } from "@/lib/balance/extraccion/ingesta";
 import type { DescriptorModulo } from "../descriptores";
 import type { SpecModulo } from "./esquema";
+import { norm, puntajeRol } from "./sugerir";
 
 export type TipoFilaModulo = "movimiento" | "agrupadora" | "total";
 export type ValorCelda = string | number | null;
@@ -30,12 +31,36 @@ export type FilaModulo = {
 
 export type ExcepcionModulo = { filaNum: number; mensaje: string };
 
+/** Fila con valor real que quedó por ENCIMA del inicio efectivo y no se cargó (ver `filasOmitidasArriba`). */
+export type FilaOmitidaModulo = { filaNum: number; valor: number };
+
 export type ResultadoTransformModulo = {
   filas: FilaModulo[];
   filasLeidas: number; // filas de datos no vacías
   filasExcluidas: number; // agrupadoras/totales (no cuentan en el valor)
   excepciones: ExcepcionModulo[];
+  // Red de seguridad de integridad: filas con VALOR real que quedaron por encima del
+  // inicio efectivo (fuera del bloque contiguo que recuperó la Parte A) y por lo tanto
+  // NO se cargaron. Debe ser 0 en el caso típico; > 0 es una señal de que el spec/perfil
+  // sigue perdiendo datos y hay que avisarlo (no descartarlo en silencio).
+  filasOmitidasArriba: number;
+  omitidasMuestra: FilaOmitidaModulo[]; // hasta 8 referencias (filaNum + valor) para el mensaje
 };
+
+/**
+ * Forma persistida de la reconciliación (Parte B) para sobrevivir a la navegación entre la
+ * lectura del archivo y el borrador: se guarda como un campo adicional dentro del JSON del
+ * spec del lote (`ModuloImportacionLote.specJson`, columna libre, sin tocar el esquema
+ * Prisma) SOLO cuando hubo algo que avisar. `resultadoAReconciliacion` arma este objeto.
+ */
+export type ReconciliacionModulo = { filasOmitidasArriba: number; muestra: FilaOmitidaModulo[] };
+
+/** Arma la reconciliación a partir del resultado del transform, o `null` si no hay nada que avisar. */
+export function resultadoAReconciliacion(resultado: ResultadoTransformModulo): ReconciliacionModulo | null {
+  return resultado.filasOmitidasArriba > 0
+    ? { filasOmitidasArriba: resultado.filasOmitidasArriba, muestra: resultado.omitidasMuestra }
+    : null;
+}
 
 /** Redondea a 2 decimales (Decimal 18,2) y normaliza el −0. */
 function redondear(v: number): number {
@@ -77,6 +102,50 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
   const clasCol = spec.columnas[descriptor.clasificador] ?? 0;
   const esTotal = (s: string) => /^(gran\s+)?total\b/i.test(s.trim());
   let ultimoClasificador: string | null = null; // modo "arrastrar" (forward-fill)
+  const rolClasificador = descriptor.columnas.find((rc) => rc.nombre === descriptor.clasificador);
+  // ¿La fila trae, en la columna del clasificador, la ETIQUETA del encabezado (sinónimo del
+  // rol)? Señal de que es el título de la columna, no una fila de datos real. Misma
+  // salvaguarda que usaban el seed del arrastre y ahora también el inicio efectivo (Parte A).
+  const esEncabezadoClasificador = (filaR: CeldaCruda[]): boolean => {
+    if (clasCol < 1 || !rolClasificador) return false;
+    const txt = aTexto(celda(filaR, clasCol));
+    return txt != null && puntajeRol(norm(txt), rolClasificador) > 0;
+  };
+
+  // PARTE A — INICIO EFECTIVO: `primeraFilaDatos` (a veces heredado de un perfil guardado)
+  // puede haber quedado fijado DEMASIADO ABAJO, dejando filas de datos reales entre el
+  // encabezado y el inicio declarado. Sube desde `primeraFilaDatos` mientras encuentre filas
+  // de DATOS contiguas (celda de valor numérica y que no sea el encabezado); se detiene en
+  // la primera fila en blanco/título (valor no numérico) o de encabezado. Si `primeraFilaDatos`
+  // ya era correcto, la fila anterior es justo el encabezado o está en blanco → no sube nada.
+  const valCol = spec.columnas[descriptor.valor] ?? 0;
+  let inicio = spec.primeraFilaDatos - 1; // 0-based, como antes
+  if (valCol >= 1) {
+    for (let r = inicio - 1; r >= 0; r--) {
+      const filaR = hoja.filas[r] ?? [];
+      const val = aNumero(celda(filaR, valCol));
+      if (val == null || esEncabezadoClasificador(filaR)) break; // frontera: detente
+      inicio = r; // fila de datos real: se recupera
+    }
+  }
+
+  // Modo "arrastrar": SEMBRAR el forward-fill cuando el clasificador del PRIMER bloque está
+  // declarado una sola vez, por ENCIMA del inicio efectivo. Sin esto, el bucle principal
+  // arranca con `ultimoClasificador = null` y las primeras filas del bloque quedan
+  // "(sin clasificar)" hasta la siguiente celda con dato. Sube desde la fila anterior al
+  // inicio buscando el primer valor no vacío de esa columna; si ese valor es la ETIQUETA del
+  // encabezado, NO se usa como semilla —sería el título de la columna, no una cuenta real— y
+  // se detiene sin sembrar.
+  if (modo === "arrastrar" && clasCol >= 1) {
+    for (let r = inicio - 1; r >= 0; r--) {
+      const valor = aTexto(celda(hoja.filas[r] ?? [], clasCol));
+      if (valor == null) continue; // fila en blanco: sigue subiendo
+      if (rolClasificador && puntajeRol(norm(valor), rolClasificador) > 0) break; // es el encabezado: no sembrar
+      ultimoClasificador = valor;
+      break;
+    }
+  }
+
   let seccionActual: string | null = null; // modo "seccion" (encabezados de grupo)
   // ¿La fila es un ENCABEZADO DE SECCIÓN? (modo "seccion"): su clasificador tiene texto y,
   // o bien la columna marcada viene vacía (título, no ítem), o el clasificador va en negrita.
@@ -92,7 +161,7 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     return marcaVacia || negrita;
   };
 
-  for (let r = spec.primeraFilaDatos - 1; r < hoja.filas.length; r++) {
+  for (let r = inicio; r < hoja.filas.length; r++) {
     const fila = hoja.filas[r] ?? [];
     const filaNum = r + 1;
 
@@ -170,5 +239,21 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     filas.push({ filaNum, clasificador, valor, datos, tipoFila });
   }
 
-  return { filas, filasLeidas, filasExcluidas, excepciones };
+  // PARTE B — RECONCILIACIÓN (red de seguridad): ¿queda alguna fila con valor real por
+  // ENCIMA del inicio efectivo que la Parte A no arrastró (p. ej. separada del bloque por
+  // un blanco/encabezado intermedio)? Con la Parte A el caso típico ya no pierde nada, pero
+  // esto garantiza que cualquier exclusión futura sea VISIBLE y no silenciosa.
+  let filasOmitidasArriba = 0;
+  const omitidasMuestra: FilaOmitidaModulo[] = [];
+  if (valCol >= 1) {
+    for (let r = 0; r < inicio; r++) {
+      const filaR = hoja.filas[r] ?? [];
+      const val = aNumero(celda(filaR, valCol));
+      if (val == null || esEncabezadoClasificador(filaR)) continue;
+      filasOmitidasArriba++;
+      if (omitidasMuestra.length < 8) omitidasMuestra.push({ filaNum: r + 1, valor: val });
+    }
+  }
+
+  return { filas, filasLeidas, filasExcluidas, excepciones, filasOmitidasArriba, omitidasMuestra };
 }

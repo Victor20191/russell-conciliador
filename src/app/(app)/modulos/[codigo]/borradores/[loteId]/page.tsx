@@ -6,6 +6,7 @@ import { descriptorModulo } from "@/lib/modulos/descriptores";
 import { fechaCalendarioISO } from "@/lib/fecha-hora";
 import { fmtDateTime } from "@/lib/format";
 import { versionarYOrdenarBorradoresModulo } from "@/lib/modulos/versiones";
+import type { ReconciliacionModulo } from "@/lib/modulos/extraccion/transformar";
 import BorradorModuloClient, { type FilaBorradorModulo } from "./borrador-detail-client";
 
 export default async function BorradorModuloPage({ params }: { params: Promise<{ codigo: string; loteId: string }> }) {
@@ -69,6 +70,12 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
   );
   const versionActual = hermanosVersionados.find((hermano) => hermano.loteId === loteId)?.version ?? null;
 
+  // Reconciliación (red de seguridad de integridad, ver transformar.ts Parte B): viaja como
+  // un campo adicional dentro del JSON del spec del lote (sin migración); ausente en lotes
+  // viejos o cuando la carga no excluyó nada por encima del inicio detectado.
+  const specConReconciliacion = lote.specJson as { reconciliacion?: ReconciliacionModulo } | null;
+  const reconciliacion = specConReconciliacion?.reconciliacion ?? null;
+
   const filasVm: FilaBorradorModulo[] = filas.map((f) => ({
     filaNum: f.filaNum,
     clasificador: f.clasificador,
@@ -99,6 +106,7 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
         productos={Object.entries(descriptor.derivar ?? {}).filter(([, r]) => "producto" in r).map(([resultado, r]) => ({ resultado, cantidad: (r as { producto: [string, string] }).producto[0], unitario: (r as { producto: [string, string] }).producto[1] }))}
         verificaciones={descriptor.verificaciones ?? []}
         filas={filasVm}
+        reconciliacion={reconciliacion}
         version={versionActual}
         hermanos={hermanosVersionados.map((hermano) => ({
           loteId: hermano.loteId,

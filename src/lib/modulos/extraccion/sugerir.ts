@@ -5,8 +5,8 @@ import type { GridHoja } from "@/lib/balance/extraccion/ingesta";
 import type { DescriptorModulo, RolColumna } from "../descriptores";
 import type { SpecModulo } from "./esquema";
 
-const sinAcentos = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "");
-const norm = (s: unknown) =>
+export const sinAcentos = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "");
+export const norm = (s: unknown) =>
   sinAcentos(String(s ?? "").toLowerCase())
     .replace(/[^a-z0-9\s]/g, " ")
     .replace(/\s+/g, " ")
@@ -16,8 +16,10 @@ const norm = (s: unknown) =>
  * Puntaje de coincidencia encabezado↔rol. Prefiere el match EXACTO, luego que el
  * encabezado CONTENGA la clave (encabezado específico), y por último que la clave
  * contenga al encabezado (fragmento débil). 0 = sin match.
+ * Exportada: `transformarModulo` la reutiliza para NO sembrar el arrastre del clasificador
+ * con la etiqueta del encabezado (ver `transformar.ts`).
  */
-function puntajeRol(headerNorm: string, rc: RolColumna): number {
+export function puntajeRol(headerNorm: string, rc: RolColumna): number {
   if (!headerNorm) return 0;
   const claves = [rc.etiqueta, rc.nombre, ...(rc.sinonimos ?? [])].map(norm).filter(Boolean);
   let mejor = 0;
