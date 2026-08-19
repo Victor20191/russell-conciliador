@@ -46,14 +46,20 @@ export async function cerrarGeneradorPdfNovedades(): Promise<void> {
 export async function generarPdfReporteNovedades({
   html,
   viewportWidth,
+  media = "screen",
+  ajustarEscalaVistaPrevia = true,
 }: {
   titulo: string;
   html: string;
   viewportWidth?: number;
+  media?: "screen" | "print";
+  ajustarEscalaVistaPrevia?: boolean;
 }): Promise<ArrayBuffer> {
-  const width = limitarAnchoVistaPrevia(viewportWidth);
+  const width = ajustarEscalaVistaPrevia
+    ? limitarAnchoVistaPrevia(viewportWidth)
+    : Math.round(ANCHO_CARTA_CSS);
   const height = Math.round(width * RELACION_CARTA);
-  const scale = Math.min(1, ANCHO_CARTA_CSS / width);
+  const scale = ajustarEscalaVistaPrevia ? Math.min(1, ANCHO_CARTA_CSS / width) : 1;
   const browser = await obtenerBrowser();
   const context = await browser.newContext({
     javaScriptEnabled: false,
@@ -74,7 +80,7 @@ export async function generarPdfReporteNovedades({
       return route.abort();
     });
 
-    await page.emulateMedia({ media: "screen" });
+    await page.emulateMedia({ media });
     await page.setContent(html, { waitUntil: "load" });
     await page.evaluate(() => document.fonts?.ready).catch(() => undefined);
     await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => undefined);

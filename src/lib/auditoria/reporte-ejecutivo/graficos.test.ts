@@ -7,6 +7,7 @@ const usoVacio: ResumenUsoFactual = {
   periodoDesde: "2026-06-01T00:00:00.000Z",
   periodoHasta: "2026-06-30T23:59:59.000Z",
   totalAcciones: 0,
+  totalConexiones: 0,
   totalUsuarios: 0,
   totalClientes: 0,
   primeraAccion: null,
@@ -14,6 +15,7 @@ const usoVacio: ResumenUsoFactual = {
   porFamilia: [],
   topAcciones: [],
   topUsuarios: [],
+  detalleUsuarios: [],
   topClientes: [],
   serieDiaria: [],
   evidencia: [],
@@ -45,6 +47,23 @@ describe("construirSeccionGraficosHtml", () => {
           { usuario: "Ana", total: 6, porFamilia: [{ nombre: "Balance de comprobación", total: 6 }] },
           { usuario: "Luis", total: 4, porFamilia: [] },
         ],
+        totalConexiones: 7,
+        detalleUsuarios: [
+          {
+            usuario: "Ana",
+            conexiones: 5,
+            totalAcciones: 6,
+            accionesPrincipales: [{ nombre: "CARGÓ BALANCE", total: 4 }],
+            porFamilia: [{ nombre: "Balance de comprobación", total: 6 }],
+          },
+          {
+            usuario: "Marta",
+            conexiones: 2,
+            totalAcciones: 0,
+            accionesPrincipales: [],
+            porFamilia: [],
+          },
+        ],
         topAcciones: [{ nombre: "CARGÓ BALANCE", total: 5 }],
         topClientes: [{ clienteId: 1, nombre: "Acme SAS", total: 3 }],
         serieDiaria: [
@@ -65,7 +84,11 @@ describe("construirSeccionGraficosHtml", () => {
 
     expect(html).toContain('id="rd-graficos-uso"');
     expect(html).toContain("Módulos y procesos más usados");
-    expect(html).toContain("Usuarios con más actividad");
+    expect(html).toContain("Usuarios con más actividad (top 5)");
+    expect(html).toContain("Detalle de actividad por usuario");
+    expect(html).toContain("inicios de sesión exitosos");
+    expect(html).toContain("CARGÓ BALANCE (4)");
+    expect(html).toContain("Sin acciones auditables registradas.");
     expect(html).toContain("Ana");
     expect(html).toContain("Acme SAS");
     expect(html).toContain("Adopción de novedades");
@@ -88,6 +111,32 @@ describe("inyectarGraficosEnHtml", () => {
     const out = inyectarGraficosEnHtml(base, charts);
     expect(out).toContain("Uso en gráficos");
     expect(out).not.toContain(">viejo<");
+    expect((out.match(/id="rd-graficos-uso"/g) ?? []).length).toBe(1);
+  });
+
+  test("reemplaza el bloque completo aunque el modelo anide <section> por gráfico", () => {
+    const charts = construirSeccionGraficosHtml({ uso: usoVacio, adopcion: adopcionVacia });
+    // Lo que devuelve un modelo que copió el bloque: secciones anidadas.
+    const base =
+      `<html><body><h1>t</h1>` +
+      `<section id="rd-graficos-uso">` +
+      `<section class="rd-chart" id="rd-chart-a">grafico viejo A</section>` +
+      `<section class="rd-chart" id="rd-chart-b">grafico viejo B</section>` +
+      `</section><footer>pie</footer></body></html>`;
+    const out = inyectarGraficosEnHtml(base, charts);
+    expect(out).toContain("Uso en gráficos");
+    expect(out).not.toContain("grafico viejo A");
+    expect(out).not.toContain("grafico viejo B");
+    expect(out).toContain("<footer>pie</footer>");
+    expect((out.match(/id="rd-graficos-uso"/g) ?? []).length).toBe(1);
+  });
+
+  test("no pierde el resto del documento si el modelo deja la sección sin cerrar", () => {
+    const charts = construirSeccionGraficosHtml({ uso: usoVacio, adopcion: adopcionVacia });
+    const base = `<html><body><h1>t</h1><section id="rd-graficos-uso"><section>a</section>`;
+    const out = inyectarGraficosEnHtml(base, charts);
+    expect(out).toContain("<h1>t</h1>");
+    expect(out).toContain("Uso en gráficos");
     expect((out.match(/id="rd-graficos-uso"/g) ?? []).length).toBe(1);
   });
 });

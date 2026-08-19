@@ -89,6 +89,66 @@ async function specPerfilModulo(
 const mismoSpecModulo = (a: SpecModulo, b: SpecModulo): boolean =>
   JSON.stringify(a) === JSON.stringify(b);
 
+/**
+ * Hoja a importar: la elegida explícitamente por el usuario; si no eligió ninguna,
+ * la HOJA PREFERIDA del cliente para este módulo (Configuración › Perfiles de carga)
+ * cuando existe en el libro; y si no, la primera. Mismo criterio que la carga de
+ * balance con `ajustes_carga_balance.hojaPreferida`.
+ */
+async function resolverHojaModulo(
+  hojas: { nombre: string }[],
+  hojaElegida: string,
+  clienteId: number,
+  moduloCodigo: string,
+): Promise<string | null> {
+  if (hojaElegida && hojas.some((h) => h.nombre === hojaElegida)) return hojaElegida;
+  if (!hojaElegida) {
+    const ajustes = await prisma.ajustesCargaModulo.findUnique({
+      where: { clienteId_moduloCodigo: { clienteId, moduloCodigo } },
+      select: { hojaPreferida: true },
+    });
+    const preferida = ajustes?.hojaPreferida?.trim();
+    if (preferida && hojas.some((h) => h.nombre === preferida)) return preferida;
+  }
+  return hojas[0]?.nombre ?? null;
+}
+
+export type PreferenciasCargaModulo = {
+  ok: boolean;
+  message?: string;
+  hojaPreferida: string | null;
+  observaciones: string | null;
+};
+
+/**
+ * Preferencias de carga del cliente en un módulo (`ajustes_carga_modulo`), para que el
+ * modal de carga preseleccione la hoja preferida y muestre las notas del equipo al
+ * elegir el cliente. Se editan en Configuración › Perfiles de carga (admin-only); aquí
+ * solo se LEEN con el permiso operativo del módulo y alcance de lectura sobre el cliente.
+ */
+export async function preferenciasCargaModulo(clienteId: number, moduloCodigo: string): Promise<PreferenciasCargaModulo> {
+  const vacio: PreferenciasCargaModulo = { ok: false, hojaPreferida: null, observaciones: null };
+  const codigo = String(moduloCodigo ?? "").trim().toUpperCase();
+  if (!descriptorModulo(codigo)) return { ...vacio, message: "Módulo no soportado." };
+  const cid = Number(clienteId);
+  if (!Number.isInteger(cid) || cid <= 0) return { ...vacio, message: "Cliente inválido." };
+  const authz = await authorizePermiso("modulos_datos:crear", { clientId: cid, modo: "lectura" });
+  if (!authz.ok) return { ...vacio, message: authz.message };
+  try {
+    const ajustes = await prisma.ajustesCargaModulo.findUnique({
+      where: { clienteId_moduloCodigo: { clienteId: cid, moduloCodigo: codigo } },
+      select: { hojaPreferida: true, observaciones: true },
+    });
+    return {
+      ok: true,
+      hojaPreferida: ajustes?.hojaPreferida?.trim() || null,
+      observaciones: ajustes?.observaciones?.trim() || null,
+    };
+  } catch (e) {
+    return { ...vacio, message: mensajeErrorBD("preferenciasCargaModulo", e) };
+  }
+}
+
 // ============================================================
 // ANALIZAR: lee el archivo (SIN escribir) y devuelve la grilla del servidor + spec
 // sugerido para que el modal edite el mapeo de columnas sobre la MISMA grilla que
@@ -116,7 +176,8 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
     }
     if (ingesta.modo !== "tabular") return { ok: false, message: "Por ahora solo se admiten archivos tabulares (Excel/CSV)." };
     const hojaElegida = String(formData.get("hoja") ?? "").trim();
-    const hoja = ingesta.hojas.find((h) => h.nombre === hojaElegida) ?? ingesta.hojas[0];
+    const nombreHoja = await resolverHojaModulo(ingesta.hojas, hojaElegida, clienteId, moduloCodigo);
+    const hoja = ingesta.hojas.find((h) => h.nombre === nombreHoja);
     if (!hoja) return { ok: false, message: "El archivo no tiene hojas legibles." };
 
     // Spec de partida: perfil por huella si existe, si no el heurístico.
@@ -168,7 +229,8 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
     }
     if (ingesta.modo !== "tabular") return { ok: false, message: "Por ahora solo se admiten archivos tabulares (Excel/CSV) para módulos." };
     const hojaElegida = String(formData.get("hoja") ?? "").trim();
-    const hoja = ingesta.hojas.find((h) => h.nombre === hojaElegida) ?? ingesta.hojas[0];
+    const nombreHoja = await resolverHojaModulo(ingesta.hojas, hojaElegida, clienteId, moduloCodigo);
+    const hoja = ingesta.hojas.find((h) => h.nombre === nombreHoja);
     if (!hoja) return { ok: false, message: "El archivo no tiene hojas legibles." };
 
     // Spec: (1) editado a mano → manual · (2) perfil por huella → perfil · (3) heurístico → auto.

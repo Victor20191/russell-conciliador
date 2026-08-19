@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
   updateMany: vi.fn(),
   delete: vi.fn(),
   attachmentCreate: vi.fn(),
+  platformModuleFindMany: vi.fn(),
+  rolePermissionFindMany: vi.fn(),
   authorizePermiso: vi.fn(),
   getCurrentUser: vi.fn(),
   logAudit: vi.fn(),
@@ -15,7 +17,10 @@ const mocks = vi.hoisted(() => ({
   eliminarEvidenciaTicket: vi.fn(),
 }));
 
-vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }));
+vi.mock("next/cache", () => ({
+  revalidatePath: mocks.revalidatePath,
+  unstable_cache: (fn: (...args: unknown[]) => unknown) => fn,
+}));
 vi.mock("@/lib/prisma", () => ({
   default: {
     supportTicket: {
@@ -26,6 +31,12 @@ vi.mock("@/lib/prisma", () => ({
     },
     supportTicketAttachment: {
       create: mocks.attachmentCreate,
+    },
+    platformModule: {
+      findMany: mocks.platformModuleFindMany,
+    },
+    rolePermission: {
+      findMany: mocks.rolePermissionFindMany,
     },
   },
 }));
@@ -184,6 +195,26 @@ describe("Server Actions de soporte", () => {
     const form = formularioNovedad();
     form.set("menuKey", "registro-de-acciones");
     const resultado = await crearNovedadInterna(undefined, form);
+    expect(resultado.ok).toBe(false);
+    expect(resultado.errors?.menuKey?.[0]).toMatch(/ruta/i);
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
+  it("rechaza una novedad sobre un módulo que está en desarrollo", async () => {
+    mocks.platformModuleFindMany.mockResolvedValueOnce([
+      {
+        id: 1,
+        key: "balance",
+        label: "Balance de comprobación",
+        description: "",
+        group: "Trabajo",
+        icon: "doc",
+        order: 20,
+        enabledForNonAdmins: false,
+        configurableForNonAdmins: true,
+      },
+    ]);
+    const resultado = await crearNovedadInterna(undefined, formularioNovedad());
     expect(resultado.ok).toBe(false);
     expect(resultado.errors?.menuKey?.[0]).toMatch(/ruta/i);
     expect(mocks.create).not.toHaveBeenCalled();

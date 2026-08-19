@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import * as z from "zod";
 import { authorizeReporteEjecutivo } from "@/lib/rbac/reporte-ejecutivo";
 import { registrarError } from "@/lib/errores";
+import { prepararHtmlReporteEjecutivoPdf } from "@/lib/auditoria/reporte-ejecutivo/pdf";
 import { generarPdfReporteNovedades } from "@/lib/novedades/pdf";
 
 export const runtime = "nodejs";
@@ -40,7 +41,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const pdf = await generarPdfReporteNovedades(parsed.data);
+    const pdf = await generarPdfReporteNovedades({
+      ...parsed.data,
+      html: prepararHtmlReporteEjecutivoPdf(parsed.data.html),
+      media: "print",
+      ajustarEscalaVistaPrevia: false,
+    });
 
     return new Response(pdf, {
       headers: {

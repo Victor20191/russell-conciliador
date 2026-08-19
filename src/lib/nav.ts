@@ -83,17 +83,6 @@ export const workNav: NavItem[] = [
       { label: "Lectura de balances", href: "/auditoria/lectura", permiso: "auditoria:ia", modulo: "auditoria" },
     ],
   },
-  {
-    label: "Mesa de ayuda",
-    href: "/reportes",
-    icon: "help",
-    permiso: "soporte:ver",
-    modulo: "soporte",
-    children: [
-      { label: "Ayuda", href: "/reportes", permiso: "soporte:ver", modulo: "soporte" },
-      { label: "Gestión de reportes", href: "/config/soporte", permiso: "soporte:administrar", modulo: "soporte" },
-    ],
-  },
 ];
 
 export const configNav: NavItem[] = [
@@ -113,5 +102,34 @@ export const configNav: NavItem[] = [
   // Comparte permiso y clave de módulo con «Parámetros de alertas»: ambos son
   // criterios de la firma que fija quien administra la herramienta.
   { label: "Cuentas del prevalidador", href: "/config/prevalidador", icon: "chart", permiso: "parametros:administrar", modulo: "parametros" },
-  { label: "Perfiles de carga", href: "/config/perfiles-carga", icon: "ai", permiso: "perfiles_carga:administrar", modulo: "perfiles_carga" },
+  {
+    // Memoria de carga por fuente: el balance en la raíz y cada módulo del motor
+    // genérico en su propia sub-ruta (`/config/perfiles-carga/inv`, …). Los hijos
+    // se derivan del catálogo de descriptores, igual que «Módulos de conciliación».
+    label: "Perfiles de carga",
+    href: "/config/perfiles-carga",
+    icon: "ai",
+    permiso: "perfiles_carga:administrar",
+    modulo: "perfiles_carga",
+    children: [
+      { label: "Balance", href: "/config/perfiles-carga", permiso: "perfiles_carga:administrar", modulo: "perfiles_carga" },
+      ...Object.values(MODULOS_IMPORT).map((m) => ({
+        label: m.label,
+        href: `/config/perfiles-carga/${m.codigo.toLowerCase()}`,
+        permiso: "perfiles_carga:administrar",
+        modulo: "perfiles_carga",
+      })),
+    ],
+  },
+  {
+    label: "Mesa de ayuda",
+    href: "/reportes",
+    icon: "help",
+    permiso: "soporte:ver",
+    modulo: "soporte",
+    children: [
+      { label: "Ayuda", href: "/reportes", permiso: "soporte:ver", modulo: "soporte" },
+      { label: "Gestión de reportes", href: "/config/soporte", permiso: "soporte:administrar", modulo: "soporte" },
+    ],
+  },
 ];

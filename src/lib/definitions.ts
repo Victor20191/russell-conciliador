@@ -1,6 +1,7 @@
 import * as z from "zod";
 import { tieneDigitosNit } from "@/lib/nit";
 import { SpecCargaSchema } from "@/lib/balance/extraccion/esquema";
+import { SpecModuloSchema } from "@/lib/modulos/extraccion/esquema";
 
 export const LoginSchema = z.object({
   email: z.email({ error: "Ingresa un correo válido." }).trim().toLowerCase(),
@@ -239,6 +240,27 @@ export const AjustesCargaSchema = z.object({
   agregarPorTercero: z.preprocess((v) => (v === "si" ? true : v === "no" ? false : null), z.boolean().nullable()),
   imputarSoloHojas: z.preprocess((v) => (v === "si" ? true : v === "no" ? false : null), z.boolean().nullable()),
   observaciones: z.preprocess((v) => (typeof v === "string" && v.trim() ? v.trim() : null), z.string().max(2000, { error: "Las notas son demasiado largas (máx. 2000 caracteres)." }).nullable()),
+});
+
+// Preferencias por defecto de carga de un MÓDULO (Inventarios, Cartera, …) POR
+// CLIENTE: una fila por (cliente, módulo) en `ajustes_carga_modulo`. Se editan en
+// Configuración › Perfiles de carga, como las del balance.
+export const AjustesCargaModuloSchema = z.object({
+  clienteId: z.coerce.number({ error: "Cliente inválido." }).int().positive({ error: "Cliente inválido." }),
+  moduloCodigo: z.string().trim().toUpperCase().min(2, { error: "Módulo inválido." }).max(10, { error: "Módulo inválido." }),
+  hojaPreferida: z.preprocess((v) => (typeof v === "string" && v.trim() ? v.trim() : null), z.string().max(120, { error: "El nombre de la hoja es demasiado largo." }).nullable()),
+  observaciones: z.preprocess((v) => (typeof v === "string" && v.trim() ? v.trim() : null), z.string().max(2000, { error: "Las notas son demasiado largas (máx. 2000 caracteres)." }).nullable()),
+});
+
+// Edición DIRECTA de un perfil de formato de MÓDULO ya guardado
+// (`perfiles_carga_modulo`). La forma genérica la valida `SpecModuloSchema`; la
+// coherencia con el descriptor del módulo (columnas obligatorias, modo del
+// clasificador) la comprueba la Server Action con `validarSpecModulo`, porque
+// depende del módulo de la fila.
+export const EditarPerfilCargaModuloSchema = z.object({
+  id: z.coerce.number({ error: "Perfil inválido." }).int().positive({ error: "Perfil inválido." }),
+  actualizadoEn: z.string().datetime({ offset: true, error: "La versión del perfil no es válida." }),
+  estructura: SpecModuloSchema,
 });
 
 // Confirmación de carga (paso 2): cliente + período desde/hasta (fechas ISO). El

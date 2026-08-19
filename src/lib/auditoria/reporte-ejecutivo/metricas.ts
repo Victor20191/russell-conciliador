@@ -51,6 +51,19 @@ export type ConteoUsuario = {
   porFamilia: ConteoNombrado[];
 };
 
+export type ConteoConexionUsuario = {
+  usuario: string;
+  total: number;
+};
+
+export type DetalleActividadUsuario = {
+  usuario: string;
+  conexiones: number;
+  totalAcciones: number;
+  accionesPrincipales: ConteoNombrado[];
+  porFamilia: ConteoNombrado[];
+};
+
 export type ConteoCliente = {
   clienteId: number;
   nombre: string;
@@ -76,6 +89,7 @@ export type ResumenUsoFactual = {
   periodoDesde: string;
   periodoHasta: string;
   totalAcciones: number;
+  totalConexiones: number;
   totalUsuarios: number;
   totalClientes: number;
   primeraAccion: string | null;
@@ -83,6 +97,7 @@ export type ResumenUsoFactual = {
   porFamilia: ConteoNombrado[];
   topAcciones: ConteoNombrado[];
   topUsuarios: ConteoUsuario[];
+  detalleUsuarios: DetalleActividadUsuario[];
   topClientes: ConteoCliente[];
   serieDiaria: SerieDia[];
   evidencia: EvidenciaAccion[];
@@ -267,6 +282,7 @@ function topN(map: Map<string, number>, n: number): ConteoNombrado[] {
  */
 export function calcularResumenUso(params: {
   eventos: EventoAuditoria[];
+  conexiones?: ConteoConexionUsuario[];
   periodoDesde: Date | string;
   periodoHasta: Date | string;
   nombresClientes?: Map<number, string> | Record<number, string>;
@@ -274,11 +290,13 @@ export function calcularResumenUso(params: {
   maxTopUsuarios?: number;
   maxTopClientes?: number;
   maxEvidencia?: number;
+  maxAccionesPorUsuario?: number;
 }): ResumenUsoFactual {
   const maxTopAcciones = params.maxTopAcciones ?? 15;
   const maxTopUsuarios = params.maxTopUsuarios ?? 12;
   const maxTopClientes = params.maxTopClientes ?? 10;
   const maxEvidencia = params.maxEvidencia ?? 50;
+  const maxAccionesPorUsuario = params.maxAccionesPorUsuario ?? 5;
 
   const nombreCliente = (id: number): string => {
     if (params.nombresClientes instanceof Map) {
@@ -294,6 +312,7 @@ export function calcularResumenUso(params: {
   const porAccion = new Map<string, number>();
   const porUsuario = new Map<string, number>();
   const porUsuarioFamilia = new Map<string, Map<string, number>>();
+  const porUsuarioAccion = new Map<string, Map<string, number>>();
   const porCliente = new Map<number, number>();
   const porDia = new Map<string, number>();
   const usuarios = new Set<string>();
@@ -318,6 +337,13 @@ export function calcularResumenUso(params: {
     porAccion.set(e.action, (porAccion.get(e.action) ?? 0) + 1);
     porUsuario.set(e.user, (porUsuario.get(e.user) ?? 0) + 1);
 
+    let ua = porUsuarioAccion.get(e.user);
+    if (!ua) {
+      ua = new Map();
+      porUsuarioAccion.set(e.user, ua);
+    }
+    ua.set(e.action, (ua.get(e.action) ?? 0) + 1);
+
     let uf = porUsuarioFamilia.get(e.user);
     if (!uf) {
       uf = new Map();
@@ -340,6 +366,42 @@ export function calcularResumenUso(params: {
     total: u.total,
     porFamilia: topN(porUsuarioFamilia.get(u.nombre) ?? new Map(), 6),
   }));
+
+  const conexionesPorUsuario = new Map<string, number>();
+  for (const conexion of params.conexiones ?? []) {
+    const usuario = conexion.usuario.trim();
+    if (!usuario || !Number.isFinite(conexion.total) || conexion.total <= 0) continue;
+    conexionesPorUsuario.set(
+      usuario,
+      (conexionesPorUsuario.get(usuario) ?? 0) + Math.floor(conexion.total),
+    );
+  }
+
+  // La tabla detallada no es un top: conserva la unión completa entre quienes
+  // iniciaron sesión y quienes dejaron acciones auditables en el período.
+  const usuariosDetalle = new Set([...porUsuario.keys(), ...conexionesPorUsuario.keys()]);
+  const detalleUsuarios: DetalleActividadUsuario[] = Array.from(usuariosDetalle)
+    .map((usuario) => ({
+      usuario,
+      conexiones: conexionesPorUsuario.get(usuario) ?? 0,
+      totalAcciones: porUsuario.get(usuario) ?? 0,
+      accionesPrincipales: topN(
+        porUsuarioAccion.get(usuario) ?? new Map(),
+        maxAccionesPorUsuario,
+      ),
+      porFamilia: topN(porUsuarioFamilia.get(usuario) ?? new Map(), 6),
+    }))
+    .sort(
+      (a, b) =>
+        b.totalAcciones - a.totalAcciones ||
+        b.conexiones - a.conexiones ||
+        a.usuario.localeCompare(b.usuario, "es"),
+    );
+
+  const totalConexiones = Array.from(conexionesPorUsuario.values()).reduce(
+    (total, conexiones) => total + conexiones,
+    0,
+  );
 
   const topClientes: ConteoCliente[] = Array.from(porCliente.entries())
     .map(([clienteId, total]) => ({
@@ -375,6 +437,7 @@ export function calcularResumenUso(params: {
     periodoDesde: aIso(params.periodoDesde),
     periodoHasta: aIso(params.periodoHasta),
     totalAcciones: params.eventos.length,
+    totalConexiones,
     totalUsuarios: usuarios.size,
     totalClientes: clientes.size,
     primeraAccion: primera,
@@ -382,6 +445,7 @@ export function calcularResumenUso(params: {
     porFamilia: topN(porFamilia, 20),
     topAcciones: topN(porAccion, maxTopAcciones),
     topUsuarios,
+    detalleUsuarios,
     topClientes,
     serieDiaria,
     evidencia,

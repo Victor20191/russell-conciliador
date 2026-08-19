@@ -9,17 +9,28 @@ import {
   etiquetaEstadoTicket,
   tonoEstadoTicket,
 } from "@/lib/soporte";
-import { etiquetaUbicacionNovedad } from "@/lib/soporte-rutas";
+import { catalogoUbicacionesNovedad, etiquetaUbicacionNovedad } from "@/lib/soporte-rutas";
+import { getPublicacionModulos } from "@/lib/rbac/publicacion";
+import { getMatriz } from "@/lib/rbac/contexto";
 import NuevaNovedadForm from "./nueva-novedad-form";
 
 export default async function ReportesPage() {
   await requirePermiso("soporte:ver");
-  const [actor, puedeCrear, admin] = await Promise.all([
+  const [actor, puedeCrear, admin, publicacionModulos, matriz] = await Promise.all([
     getCurrentUser(),
     authorizePermiso("soporte:crear"),
     authorizePermiso("soporte:administrar"),
+    getPublicacionModulos(),
+    getMatriz(),
   ]);
   if (!actor) return null;
+
+  const permisosUsuario = matriz[actor.role] ?? [];
+  const catalogo = catalogoUbicacionesNovedad({
+    modulos: publicacionModulos,
+    permisos: permisosUsuario,
+    rol: actor.role,
+  });
 
   const tickets = await prisma.supportTicket.findMany({
     // Los tickets creados dentro de la plataforma son visibles para todos los
@@ -44,7 +55,7 @@ export default async function ReportesPage() {
   });
 
   return (
-    <div className="mx-auto max-w-6xl">
+    <div className="w-full">
       <PageHeader
         title="Ayuda"
         subtitle="Consulta las novedades reportadas en la plataforma. Solo Xentria puede cambiar su estado o documentar la solución."
@@ -61,6 +72,7 @@ export default async function ReportesPage() {
             {puedeCrear.ok && (
               <NuevaNovedadForm
                 storageReady={almacenamientoEvidenciasTicketsDisponible()}
+                catalogo={catalogo}
               />
             )}
           </div>

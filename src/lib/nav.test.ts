@@ -20,9 +20,9 @@ describe("Navegación de reportes ejecutivos", () => {
     );
   });
 
-  test("agrupa Ayuda y Gestión de reportes al final de Trabajo", () => {
-    const mesa = workNav.find((item) => item.label === "Mesa de ayuda");
-    expect(workNav.at(-1)).toEqual(mesa);
+  test("agrupa Ayuda y Gestión de reportes al final del menú de Configuración", () => {
+    const mesa = configNav.find((item) => item.label === "Mesa de ayuda");
+    expect(configNav.at(-1)).toEqual(mesa);
     expect(mesa).toMatchObject({
       href: "/reportes",
       icon: "help",
@@ -38,6 +38,6 @@ describe("Navegación de reportes ejecutivos", () => {
         modulo: "soporte",
       },
     ]);
-    expect(configNav.some((item) => item.href === "/config/soporte")).toBe(false);
+    expect(workNav.some((item) => item.label === "Mesa de ayuda")).toBe(false);
   });
 });

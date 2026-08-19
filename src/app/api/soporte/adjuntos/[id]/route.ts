@@ -32,6 +32,7 @@ export async function GET(
     select: {
       objectKey: true,
       contentType: true,
+      fileName: true,
       ticket: { select: { createdById: true } },
     },
   });
@@ -46,12 +47,19 @@ export async function GET(
   try {
     const objeto = await obtenerEvidenciaTicket(adjunto.objectKey);
     if (!objeto) return new Response("No encontrado", { status: 404 });
+    const url = new URL(_req.url);
+    const esDescarga = url.searchParams.has("download") || url.searchParams.has("descargar");
+    const headers: Record<string, string> = {
+      "Content-Type": tipoContenidoAdjunto(objeto.contentType, adjunto.contentType),
+      "X-Content-Type-Options": "nosniff",
+      "Cache-Control": "private, max-age=600",
+    };
+    if (esDescarga) {
+      const nombreSeguro = (adjunto.fileName || "adjunto").replace(/[\\/"]/g, "");
+      headers["Content-Disposition"] = `attachment; filename="${nombreSeguro}"; filename*=UTF-8''${encodeURIComponent(adjunto.fileName || "adjunto")}`;
+    }
     return new Response(cuerpoBinarioRespuesta(objeto.cuerpo), {
-      headers: {
-        "Content-Type": tipoContenidoAdjunto(objeto.contentType, adjunto.contentType),
-        "X-Content-Type-Options": "nosniff",
-        "Cache-Control": "private, max-age=600",
-      },
+      headers,
     });
   } catch (e) {
     registrarError("obtenerAdjuntoTicket", e);

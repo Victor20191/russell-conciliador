@@ -12,6 +12,7 @@ import { consolidarPorClasificador, filaEnCero } from "@/lib/modulos/promocion";
 import { esDescuadreProducto } from "@/lib/modulos/validaciones";
 import type { ReconciliacionModulo } from "@/lib/modulos/extraccion/transformar";
 import { aplicarCambiosBorradorModulo, cargarBorradorModulo, descartarBorradorModulo } from "@/app/actions/modulos-datos";
+import { NotasCargaModulo } from "../../notas-carga-modulo";
 
 export type FilaBorradorModulo = {
   filaNum: number;
@@ -101,6 +102,7 @@ export default function BorradorModuloClient({
   reconciliacion,
   version,
   hermanos,
+  notasCliente = null,
 }: {
   moduloCodigo: string;
   loteId: string;
@@ -118,6 +120,8 @@ export default function BorradorModuloClient({
   reconciliacion: ReconciliacionModulo | null;
   version: number | null;
   hermanos: VersionHermanaBorradorModulo[];
+  /** Notas de carga del cliente para este módulo (Configuración › Perfiles de carga). */
+  notasCliente?: string | null;
 }) {
   const router = useRouter();
   const clasificadorEtiqueta = columnas.find((c) => c.nombre === clasificadorRol)?.etiqueta ?? "Tipo";
@@ -312,6 +316,8 @@ export default function BorradorModuloClient({
           {hermanos.length > 1 && <MenuVersionesBorradorModulo moduloCodigo={moduloCodigo} loteId={loteId} hermanos={hermanos} />}
         </span>
       </div>
+
+      {notasCliente && <NotasCargaModulo notas={notasCliente} />}
 
       {/* Novedades: validación automática + checklist de verificación (arriba para que se vea siempre) */}
       <Card className="flex flex-col gap-3 p-4">

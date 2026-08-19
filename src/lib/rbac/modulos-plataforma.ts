@@ -249,7 +249,7 @@ export const MODULOS_PLATAFORMA: PlatformModuleDefinition[] = [
     // los Administradores lo vean en el menú hasta publicarlo.
     key: "perfiles_carga",
     label: "Perfiles de carga",
-    description: "Formatos memorizados, correcciones por cuenta y preferencias con las que la plataforma lee los balances de cada cliente.",
+    description: "Formatos memorizados, correcciones por cuenta y preferencias con las que la plataforma lee los balances y los archivos de módulos (Inventarios, Cartera, CxP, Ingresos, Activos Fijos, Nómina) de cada cliente.",
     group: "Configuración",
     icon: "ai",
     order: 220,

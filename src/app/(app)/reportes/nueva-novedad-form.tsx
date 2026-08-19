@@ -7,7 +7,7 @@ import { Modal } from "@/components/modal";
 import { EstadoProcesando } from "@/components/estado-procesando";
 import { notifyActionState } from "@/lib/client-notifications";
 import { ADJUNTOS_MAX } from "@/lib/soporte-estados";
-import { catalogoUbicacionesNovedad } from "@/lib/soporte-rutas";
+import { catalogoUbicacionesNovedad, type RutaNovedad } from "@/lib/soporte-rutas";
 import type { SupportTicketInternalCreateState } from "@/lib/definitions";
 
 const INPUT =
@@ -17,7 +17,13 @@ function ErrorCampo({ mensajes }: { mensajes?: string[] }) {
   return mensajes?.[0] ? <p className="text-xs text-err-700">{mensajes[0]}</p> : null;
 }
 
-export default function NuevaNovedadForm({ storageReady }: { storageReady: boolean }) {
+export default function NuevaNovedadForm({
+  storageReady,
+  catalogo = catalogoUbicacionesNovedad(),
+}: {
+  storageReady: boolean;
+  catalogo?: RutaNovedad[];
+}) {
   const router = useRouter();
   const archivosRef = useRef<File[]>([]);
   const [abierto, setAbierto] = useState(false);
@@ -26,7 +32,6 @@ export default function NuevaNovedadForm({ storageReady }: { storageReady: boole
   const [rutaClave, setRutaClave] = useState("");
   const [menuClave, setMenuClave] = useState("");
   const [previews, setPreviews] = useState<{ src: string; nombre: string }[]>([]);
-  const catalogo = catalogoUbicacionesNovedad();
   const rutaElegida = catalogo.find((ruta) => ruta.clave === rutaClave);
   const menus = rutaElegida?.menus ?? [];
 
@@ -96,7 +101,7 @@ export default function NuevaNovedadForm({ storageReady }: { storageReady: boole
         open={abierto}
         onClose={() => setAbierto(false)}
         title="Montar una novedad"
-        size="xl"
+        size="3xl"
         footer={
           <button
             type="submit"
@@ -204,13 +209,13 @@ export default function NuevaNovedadForm({ storageReady }: { storageReady: boole
                   accept="image/jpeg,image/png,image/webp,image/gif,image/svg+xml"
                   multiple
                   onChange={onPick}
-                  className="text-[12.5px] text-ink-600 file:mr-3 file:rounded-md file:border-0 file:bg-ink-100 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-ink-700"
+                  className="rounded-md border border-ink-200 bg-white text-[12.5px] text-ink-700 file:mr-3 file:cursor-pointer file:border-0 file:bg-navy-700 file:px-3.5 file:py-2 file:text-xs file:font-semibold file:text-white hover:file:bg-navy-600 focus:outline-none"
                 />
                 <p className="text-[11px] text-ink-500">
                   Hasta {ADJUNTOS_MAX} imágenes en JPG, PNG, WEBP, GIF o SVG. Máximo 4 MB cada una.
                 </p>
                 {previews.length > 0 && (
-                  <div className="mt-2 grid grid-cols-3 gap-2">
+                  <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-5">
                     {previews.map((preview) => (
                       <figure key={preview.nombre} className="overflow-hidden rounded-md border border-ink-150 bg-ink-50">
                         {/* eslint-disable-next-line @next/next/no-img-element */}

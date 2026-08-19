@@ -10,7 +10,8 @@ import { SelectorClienteBuscable } from "@/components/selector-cliente-buscable"
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import { columnaLetra, leerHojasParaPreview, type HojaPreview } from "@/lib/balance/extraccion/hojas-cliente";
 import type { SpecModulo } from "@/lib/modulos/extraccion/esquema";
-import { leerDatosModulo, analizarArchivoModulo, type AnalisisModulo, type CeldaMuestra } from "@/app/actions/modulos-datos";
+import { leerDatosModulo, analizarArchivoModulo, preferenciasCargaModulo, type AnalisisModulo, type CeldaMuestra } from "@/app/actions/modulos-datos";
+import { NotasCargaModulo } from "./notas-carga-modulo";
 
 export type ClienteModulo = { id: number; name: string; nit: string };
 export type RolModulo = { nombre: string; etiqueta: string; tipo: string; requerido: boolean };
@@ -70,6 +71,44 @@ function CargarModal({
   const [leyendoArchivo, setLeyendoArchivo] = useState(false);
   const [analizando, startAnalizar] = useTransition();
   const [leyendo, startLeer] = useTransition();
+  // Preferencias de carga del cliente en este módulo (Configuración › Perfiles de
+  // carga): hoja preferida y notas del equipo. Se leen al elegir el cliente y la hoja
+  // preferida se preselecciona en cuanto se conocen las hojas del libro y el cliente
+  // (en cualquier orden). El usuario puede cambiarla después.
+  type PrefsCarga = { hojaPreferida: string | null; observaciones: string | null };
+  const [prefs, setPrefs] = useState<PrefsCarga | null>(null);
+  const prefsRef = useRef<PrefsCarga | null>(null);
+  const hojasRef = useRef<HojaPreview[]>([]);
+  const solicitudPrefsRef = useRef(0);
+  // La preferencia NUNCA pisa una hoja elegida a mano: si el usuario cambió la
+  // hoja antes de que llegara la respuesta de preferencias, se respeta su elección.
+  const hojaManualRef = useRef(false);
+  const elegirHojaManual = (nombre: string) => { hojaManualRef.current = true; setHoja(nombre); };
+
+  const hojaInicial = (hs: HojaPreview[]): string => {
+    const preferida = prefsRef.current?.hojaPreferida;
+    if (preferida && hs.some((h) => h.nombre === preferida)) return preferida;
+    return hs[0]?.nombre ?? "";
+  };
+
+  const elegirCliente = (id: number | null) => {
+    setClienteId(id);
+    prefsRef.current = null;
+    setPrefs(null);
+    hojaManualRef.current = false;
+    const solicitud = ++solicitudPrefsRef.current;
+    if (id == null) return;
+    preferenciasCargaModulo(id, moduloCodigo)
+      .then((r) => {
+        if (solicitud !== solicitudPrefsRef.current) return; // llegó tarde: el cliente cambió
+        const p: PrefsCarga | null = r.ok ? { hojaPreferida: r.hojaPreferida, observaciones: r.observaciones } : null;
+        prefsRef.current = p;
+        setPrefs(p);
+        const preferida = p?.hojaPreferida;
+        if (preferida && !hojaManualRef.current && hojasRef.current.some((h) => h.nombre === preferida)) setHoja(preferida);
+      })
+      .catch(() => { /* sin preferencias: se sigue con la primera hoja */ });
+  };
 
   const onArchivo = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -78,6 +117,8 @@ function CargarModal({
     setTieneArchivo(false);
     setAnalisis(null);
     setSpec(null);
+    hojasRef.current = [];
+    hojaManualRef.current = false;
     setHojas([]);
     setHoja("");
     setFase("archivo");
@@ -87,8 +128,9 @@ function CargarModal({
       setNombreArchivo(f.name);
       // Listar las hojas del libro para que el usuario elija cuál importar (como en balance).
       const hs = await leerHojasParaPreview(f).catch(() => [] as HojaPreview[]);
+      hojasRef.current = hs;
       setHojas(hs);
-      setHoja(hs[0]?.nombre ?? "");
+      setHoja(hojaInicial(hs));
       setTieneArchivo(true);
     } catch {
       notifyError("No pudimos leer el archivo. Suele pasar si está ABIERTO en Excel o sincronizándose en OneDrive: ciérralo e intenta de nuevo.");
@@ -224,7 +266,7 @@ function CargarModal({
           <SelectorClienteBuscable
             clients={clientes}
             value={clienteId}
-            onChange={setClienteId}
+            onChange={elegirCliente}
           />
 
           <label className="flex flex-col gap-1">
@@ -237,11 +279,13 @@ function CargarModal({
           {hojas.length > 1 && (
             <label className="flex flex-col gap-1">
               <span className="text-[11px] font-medium text-ink-600">Hoja a importar</span>
-              <select value={hoja} onChange={(e) => setHoja(e.target.value)} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-ink-700 outline-none focus:border-blue-400">
+              <select value={hoja} onChange={(e) => elegirHojaManual(e.target.value)} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-ink-700 outline-none focus:border-blue-400">
                 {hojas.map((h) => <option key={h.nombre} value={h.nombre}>{h.nombre} ({h.totalFilas} filas)</option>)}
               </select>
             </label>
           )}
+
+          {prefs?.observaciones && <NotasCargaModulo notas={prefs.observaciones} />}
 
           <p className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[11.5px] leading-relaxed text-blue-800">
             Al analizar, el sistema sugiere qué columna es cada campo. En el siguiente paso podrás corregir el mapeo, marcar si el tipo viene agrupado, y se guardará el perfil para las próximas cargas de este cliente.
@@ -249,6 +293,7 @@ function CargarModal({
         </div>
       ) : (
         <div className="flex flex-col gap-4 text-[12.5px]">
+          {prefs?.observaciones && <NotasCargaModulo notas={prefs.observaciones} />}
           {analisis?.origen === "perfil" && (
             <p className="rounded-md border border-ok-500 bg-ok-100/40 px-3 py-1.5 text-[11.5px] text-ok-700">Perfil guardado aplicado. Ajusta si hace falta.</p>
           )}
@@ -256,7 +301,7 @@ function CargarModal({
           {(analisis?.hojas?.length ?? 0) > 1 && (
             <label className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
               <span className="shrink-0 text-[11px] font-medium text-ink-600">Hoja</span>
-              <select value={spec?.hoja ?? ""} onChange={(e) => { setHoja(e.target.value); analizar(e.target.value); }} className="min-w-0 max-w-full rounded-md border border-ink-200 bg-white px-2 py-1.5 text-ink-700 outline-none focus:border-blue-400">
+              <select value={spec?.hoja ?? ""} onChange={(e) => { elegirHojaManual(e.target.value); analizar(e.target.value); }} className="min-w-0 max-w-full rounded-md border border-ink-200 bg-white px-2 py-1.5 text-ink-700 outline-none focus:border-blue-400">
                 {analisis?.hojas?.map((h) => <option key={h} value={h}>{h}</option>)}
               </select>
               <span className="shrink-0 text-[11px] text-ink-400">{analisis?.totalFilas} filas</span>

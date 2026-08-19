@@ -38,6 +38,7 @@ describe("GET /api/soporte/adjuntos/[id]", () => {
     mocks.findUnique.mockResolvedValue({
       objectKey: "tickets/12/captura.png",
       contentType: "image/png",
+      fileName: "captura-pantalla.png",
       ticket: { createdById: 99 },
     });
     mocks.obtenerEvidenciaTicket.mockResolvedValue({
@@ -77,15 +78,26 @@ describe("GET /api/soporte/adjuntos/[id]", () => {
     const respuesta = await llamar();
     expect(respuesta.status).toBe(200);
     expect(respuesta.headers.get("Content-Type")).toBe("image/png");
+    expect(respuesta.headers.get("Content-Disposition")).toBeNull();
     expect(new Uint8Array(await respuesta.arrayBuffer())).toEqual(
       new Uint8Array([0x89, 0x50, 0x4e, 0x47]),
     );
+  });
+
+  it("incluye Content-Disposition para forzar descarga cuando se solicita download=1", async () => {
+    const respuesta = await GET(
+      new Request("http://localhost/api/soporte/adjuntos/12?download=1"),
+      { params: Promise.resolve({ id: "12" }) },
+    );
+    expect(respuesta.status).toBe(200);
+    expect(respuesta.headers.get("Content-Disposition")).toContain('attachment; filename="captura-pantalla.png"');
   });
 
   it("oculta evidencia pública a usuarios no administradores", async () => {
     mocks.findUnique.mockResolvedValueOnce({
       objectKey: "tickets/publico/captura.png",
       contentType: "image/png",
+      fileName: "captura.png",
       ticket: { createdById: null },
     });
     const respuesta = await llamar();
@@ -102,6 +114,7 @@ describe("GET /api/soporte/adjuntos/[id]", () => {
     mocks.findUnique.mockResolvedValueOnce({
       objectKey: "tickets/publico/captura.png",
       contentType: "image/png",
+      fileName: "captura.png",
       ticket: { createdById: null },
     });
     const respuesta = await llamar();

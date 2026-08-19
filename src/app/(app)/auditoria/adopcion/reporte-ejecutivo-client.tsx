@@ -59,6 +59,8 @@ const BTN_SECUNDARIO =
   "inline-flex items-center justify-center gap-1.5 rounded-md border border-ink-150 bg-white px-3 py-2 text-[12.5px] font-semibold text-ink-700 transition hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-60";
 const BTN_ATAJO =
   "inline-flex items-center gap-1 rounded-md border border-ink-150 bg-white px-2.5 py-1 text-[11.5px] font-medium text-ink-600 transition hover:bg-ink-50";
+const BTN_ATAJO_ACTIVO =
+  "inline-flex items-center gap-1 rounded-md border border-navy-700 bg-navy-700 px-2.5 py-1 text-[11.5px] font-semibold text-white shadow-sm transition hover:bg-navy-800";
 
 function fechaLarga(iso: string): string {
   const fecha = fmtDateTimeLong(iso);
@@ -432,27 +434,31 @@ export function ReporteEjecutivoClient({
 
           <div>
             <h3 className="mb-2 text-[12.5px] font-semibold text-ink-800">Período de uso</h3>
-            <div className="mb-2 flex flex-wrap gap-1.5">
+            <div className="mb-2 flex flex-wrap gap-1.5" role="group" aria-label="Atajos de período">
               {(
                 [
                   ["7 días", 7],
                   ["30 días", 30],
                   ["90 días", 90],
                 ] as const
-              ).map(([label, n]) => (
-                <button
-                  key={label}
-                  type="button"
-                  className={BTN_ATAJO}
-                  onClick={() => {
-                    const r = haceDias(n);
-                    setDesde(r.desde);
-                    setHasta(r.hasta);
-                  }}
-                >
-                  {label}
-                </button>
-              ))}
+              ).map(([label, n]) => {
+                const rango = haceDias(n);
+                const activo = rango.desde === desde && rango.hasta === hasta;
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    aria-pressed={activo}
+                    className={activo ? BTN_ATAJO_ACTIVO : BTN_ATAJO}
+                    onClick={() => {
+                      setDesde(rango.desde);
+                      setHasta(rango.hasta);
+                    }}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="flex flex-col gap-1 text-[12px] text-ink-600">

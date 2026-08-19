@@ -237,7 +237,7 @@ export const PERMISOS: Permiso[] = [
   // (y cuándo se salta la IA): es parametrización técnica de la herramienta, no
   // trabajo de auditoría → sale de la ficha del cliente y de las pantallas de
   // balance y queda en Configuración › Perfiles de carga, admin-only.
-  { code: "perfiles_carga:administrar", module: "perfiles_carga", action: "administrar", label: "Administrar perfiles de carga de balances", roles: SOLO_ADMIN },
+  { code: "perfiles_carga:administrar", module: "perfiles_carga", action: "administrar", label: "Administrar perfiles de carga (balances y módulos)", roles: SOLO_ADMIN },
 ];
 
 // ----- MATRIZ rol×permiso derivada del catálogo (solo roles del PDF) -----

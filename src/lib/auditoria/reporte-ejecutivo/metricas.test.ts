@@ -54,6 +54,10 @@ describe("calcularResumenUso", () => {
       periodoDesde: "2026-06-01T00:00:00.000Z",
       periodoHasta: "2026-06-30T23:59:59.000Z",
       nombresClientes: { 1: "Acme SAS" },
+      conexiones: [
+        { usuario: "Ana", total: 4 },
+        { usuario: "Marta", total: 2 },
+      ],
       eventos: [
         {
           user: "Ana",
@@ -83,6 +87,7 @@ describe("calcularResumenUso", () => {
     });
 
     expect(resumen.totalAcciones).toBe(3);
+    expect(resumen.totalConexiones).toBe(6);
     expect(resumen.totalUsuarios).toBe(2);
     expect(resumen.totalClientes).toBe(1);
     expect(resumen.topClientes[0]?.nombre).toBe("Acme SAS");
@@ -90,6 +95,24 @@ describe("calcularResumenUso", () => {
     expect(resumen.porFamilia.some((f) => f.nombre.includes("Balance"))).toBe(true);
     expect(resumen.serieDiaria).toHaveLength(3);
     expect(resumen.evidencia).toHaveLength(3);
+    expect(resumen.detalleUsuarios).toEqual([
+      expect.objectContaining({
+        usuario: "Ana",
+        conexiones: 4,
+        totalAcciones: 2,
+        accionesPrincipales: [
+          { nombre: "CARGÓ BALANCE", total: 1 },
+          { nombre: "EJECUTÓ", total: 1 },
+        ],
+      }),
+      expect.objectContaining({ usuario: "Luis", conexiones: 0, totalAcciones: 1 }),
+      expect.objectContaining({
+        usuario: "Marta",
+        conexiones: 2,
+        totalAcciones: 0,
+        accionesPrincipales: [],
+      }),
+    ]);
   });
 
   test("sin eventos devuelve ceros", () => {
@@ -99,9 +122,11 @@ describe("calcularResumenUso", () => {
       eventos: [],
     });
     expect(resumen.totalAcciones).toBe(0);
+    expect(resumen.totalConexiones).toBe(0);
     expect(resumen.totalUsuarios).toBe(0);
     expect(resumen.primeraAccion).toBe(null);
     expect(resumen.evidencia).toEqual([]);
+    expect(resumen.detalleUsuarios).toEqual([]);
   });
 });
 

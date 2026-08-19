@@ -104,8 +104,8 @@ export default async function ReporteDetallePage({
 
       {admin.ok && (
         <p className="mt-4 text-xs text-ink-500">
-          <Link href="/config/soporte" className="font-semibold text-blue-500 hover:underline">
-            Cambiar estado en la bandeja
+          <Link href={`/config/soporte/${ticket.id}`} className="font-semibold text-blue-500 hover:underline">
+            Gestionar este ticket
           </Link>
         </p>
       )}

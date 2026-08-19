@@ -25,10 +25,15 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
   const scope = await authorizePermiso("modulos_datos:crear", { clientId: lote.clienteId });
   if (!scope.ok) notFound();
 
-  const [comentariosGrp, cliente, lotesHermanos] = await Promise.all([
+  const [comentariosGrp, cliente, ajustesCarga, lotesHermanos] = await Promise.all([
     // Conteo de comentarios por renglón del borrador (ancla `fila:<n>`, anclados al lote).
     prisma.comment.groupBy({ by: ["anchor"], where: { entityType: "modulos_borrador", entityId: lote.id }, _count: { _all: true } }),
     prisma.client.findUnique({ where: { id: lote.clienteId }, select: { name: true } }),
+    // Notas de carga del cliente para este módulo (Configuración › Perfiles de carga).
+    prisma.ajustesCargaModulo.findUnique({
+      where: { clienteId_moduloCodigo: { clienteId: lote.clienteId, moduloCodigo } },
+      select: { observaciones: true },
+    }),
     lote.periodoInicial && lote.periodoFinal
       ? prisma.moduloImportacionLote.findMany({
           where: {
@@ -108,6 +113,7 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
         filas={filasVm}
         reconciliacion={reconciliacion}
         version={versionActual}
+        notasCliente={ajustesCarga?.observaciones?.trim() || null}
         hermanos={hermanosVersionados.map((hermano) => ({
           loteId: hermano.loteId,
           version: hermano.version,

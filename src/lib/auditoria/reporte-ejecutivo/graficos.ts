@@ -24,6 +24,55 @@ function fmtNum(n: number): string {
   return new Intl.NumberFormat("es-CO").format(n);
 }
 
+function construirDetalleUsuariosHtml(uso: ResumenUsoFactual): string {
+  const filas = uso.detalleUsuarios.length
+    ? uso.detalleUsuarios
+        .map((usuario) => {
+          const acciones = usuario.accionesPrincipales.length
+            ? usuario.accionesPrincipales
+                .map((accion) => `${escapeHtml(accion.nombre)} (${fmtNum(accion.total)})`)
+                .join(" · ")
+            : "Sin acciones auditables registradas.";
+          const familias = usuario.porFamilia.length
+            ? `<span style="display:block;margin-top:0.25rem;font-size:10.5px;color:#626e7e;">Procesos: ${usuario.porFamilia
+                .map((familia) => escapeHtml(familia.nombre))
+                .join(" · ")}</span>`
+            : "";
+
+          return `
+      <tr class="rd-user-row" style="break-inside:avoid;page-break-inside:avoid;">
+        <td style="padding:0.62rem 0.7rem;border-bottom:1px solid #e7eaef;vertical-align:top;font-weight:600;color:#1a2330;">${escapeHtml(usuario.usuario)}</td>
+        <td style="padding:0.62rem 0.7rem;border-bottom:1px solid #e7eaef;vertical-align:top;text-align:right;font-family:ui-monospace,Menlo,monospace;font-weight:600;color:#142b4a;">${fmtNum(usuario.conexiones)}</td>
+        <td style="padding:0.62rem 0.7rem;border-bottom:1px solid #e7eaef;vertical-align:top;text-align:right;font-family:ui-monospace,Menlo,monospace;font-weight:600;color:#142b4a;">${fmtNum(usuario.totalAcciones)}</td>
+        <td style="padding:0.62rem 0.7rem;border-bottom:1px solid #e7eaef;vertical-align:top;color:#2a3441;line-height:1.4;">${acciones}${familias}</td>
+      </tr>`;
+        })
+        .join("")
+    : `<tr><td colspan="4" style="padding:0.85rem;text-align:center;color:#566273;">Sin conexiones ni acciones auditables en el período.</td></tr>`;
+
+  return `
+<section class="rd-user-detail" id="rd-detalle-usuarios" style="break-inside:auto;margin:0 0 1.25rem;padding:1rem 1.1rem;border:1px solid #dce0e7;border-radius:10px;background:#fff;">
+  <div class="rd-user-detail-heading" style="break-inside:avoid;break-after:avoid-page;page-break-after:avoid;">
+    <h3 style="margin:0 0 0.25rem;font-family:Georgia,'Times New Roman',serif;font-size:1.05rem;color:#0e1721;font-weight:600;">Detalle de actividad por usuario</h3>
+    <p style="margin:0 0 0.85rem;font-size:12px;color:#566273;">Conexiones corresponde a inicios de sesión exitosos en el período. Las acciones provienen de la bitácora auditable y se muestran sin limitar usuarios.</p>
+  </div>
+  <div style="overflow:visible;">
+    <table style="width:100%;border-collapse:collapse;table-layout:fixed;font-size:11.5px;">
+      <thead style="display:table-header-group;">
+        <tr style="background:#f2f7fc;color:#142b4a;">
+          <th style="width:20%;padding:0.55rem 0.7rem;text-align:left;border-bottom:1px solid #dce0e7;">Usuario</th>
+          <th style="width:12%;padding:0.55rem 0.7rem;text-align:right;border-bottom:1px solid #dce0e7;">Conexiones</th>
+          <th style="width:11%;padding:0.55rem 0.7rem;text-align:right;border-bottom:1px solid #dce0e7;">Acciones</th>
+          <th style="width:57%;padding:0.55rem 0.7rem;text-align:left;border-bottom:1px solid #dce0e7;">Qué realizó en la app</th>
+        </tr>
+      </thead>
+      <tbody>${filas}
+      </tbody>
+    </table>
+  </div>
+</section>`;
+}
+
 type Barra = { etiqueta: string; valor: number; sub?: string };
 
 function graficoBarrasHorizontales(params: {
@@ -149,9 +198,9 @@ export function construirSeccionGraficosHtml(params: {
 
   const usuarios = graficoBarrasHorizontales({
     id: "rd-chart-usuarios",
-    titulo: "Usuarios con más actividad",
-    subtitulo: "Top de usuarios por número de acciones en el período",
-    items: uso.topUsuarios.slice(0, 10).map((u) => ({
+    titulo: "Usuarios con más actividad (top 5)",
+    subtitulo: "Comparativo por número de acciones; el detalle siguiente conserva a todos los usuarios",
+    items: uso.topUsuarios.slice(0, 5).map((u) => ({
       etiqueta: u.usuario,
       valor: u.total,
       sub: u.porFamilia
@@ -162,6 +211,8 @@ export function construirSeccionGraficosHtml(params: {
     colorBarra: "#2f6fa7",
     vacio: "No hubo usuarios con acciones en el período.",
   });
+
+  const detalleUsuarios = construirDetalleUsuariosHtml(uso);
 
   const acciones = graficoBarrasHorizontales({
     id: "rd-chart-acciones",
@@ -217,11 +268,14 @@ ${serie
 
   return `
 <section id="${MARCA_GRAFICOS}" class="rd-graficos-uso" style="margin:1.75rem 0 2rem;">
-  <h2 style="margin:0 0 0.35rem;font-family:Georgia,'Times New Roman',serif;font-size:1.35rem;color:#0e1721;border-left:3px solid #142b4a;padding-left:0.65rem;">Uso en gráficos</h2>
-  <p style="margin:0 0 1rem;font-size:13px;color:#475160;">Distribución factual de la actividad del período. Las barras reflejan conteos exactos de la bitácora.</p>
+  <div class="rd-graficos-heading" style="break-inside:avoid;break-after:avoid-page;page-break-after:avoid;">
+    <h2 style="margin:0 0 0.35rem;font-family:Georgia,'Times New Roman',serif;font-size:1.35rem;color:#0e1721;border-left:3px solid #142b4a;padding-left:0.65rem;">Uso en gráficos</h2>
+    <p style="margin:0 0 1rem;font-size:13px;color:#475160;">Distribución factual de la actividad del período. Las barras reflejan conteos exactos de la bitácora.</p>
+  </div>
   <div style="display:grid;grid-template-columns:1fr;gap:0;">
     ${modulos}
     ${usuarios}
+    ${detalleUsuarios}
     ${acciones}
     ${clientes}
     ${adopcionChart}
@@ -234,15 +288,38 @@ ${serie
  * Inserta (o reemplaza) la sección de gráficos en el HTML del reporte.
  * Si la IA no la incluyó, se inyecta antes del footer o del cierre de body.
  */
+/**
+ * Índice donde termina la <section> abierta en `inicio`, contando anidamiento.
+ * Devuelve -1 si el HTML del modelo dejó la sección sin cerrar.
+ */
+function finDeSeccion(html: string, inicio: number): number {
+  const re = /<section\b|<\/section\s*>/gi;
+  re.lastIndex = inicio;
+  let profundidad = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) !== null) {
+    if (m[0].startsWith("</")) {
+      profundidad -= 1;
+      if (profundidad === 0) return m.index + m[0].length;
+    } else {
+      profundidad += 1;
+    }
+  }
+  return -1;
+}
+
 export function inyectarGraficosEnHtml(html: string, seccionGraficos: string): string {
   if (!seccionGraficos.trim()) return html;
 
-  // Si ya existe la marca, reemplazar el bloque completo.
-  if (html.includes(`id="${MARCA_GRAFICOS}"`) || html.includes(`id='${MARCA_GRAFICOS}'`)) {
-    return html.replace(
-      /<section\b[^>]*\bid=["']rd-graficos-uso["'][^>]*>[\s\S]*?<\/section>/i,
-      seccionGraficos.trim(),
-    );
+  // Si ya existe la marca, reemplazar el bloque completo. El reemplazo NO puede
+  // hacerse con un regex no-greedy: el bloque anida una <section> por gráfico y
+  // se cortaría en el primer </section> interno, dejando los gráficos restantes
+  // del modelo duplicados debajo de los factuales.
+  const apertura = new RegExp(`<section\\b[^>]*\\bid=["']${MARCA_GRAFICOS}["'][^>]*>`, "i").exec(html);
+  if (apertura) {
+    const fin = finDeSeccion(html, apertura.index);
+    const resto = fin > 0 ? html.slice(fin) : "";
+    return `${html.slice(0, apertura.index)}${seccionGraficos.trim()}${resto}`;
   }
 
   // Preferir insertar antes de un footer típico o de la sección de recomendaciones.

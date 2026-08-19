@@ -5,7 +5,7 @@ import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
 import { authorizeReporteEjecutivo } from "@/lib/rbac/reporte-ejecutivo";
-import { completarTextoGemini, mensajeErrorGemini } from "@/lib/gemini";
+import { completarTextoOpenCode, mensajeErrorOpenCode } from "@/lib/opencode";
 import {
   evaluarAdopcion,
   type CambioNovedadContexto,
@@ -21,6 +21,8 @@ import {
 } from "@/lib/auditoria/reporte-ejecutivo/graficos";
 import {
   MODELO_REPORTE_EJECUTIVO_USO,
+  MAX_TOKENS_REPORTE_EJECUTIVO_USO,
+  MAX_TOKENS_REPORTE_EJECUTIVO_USO_REINTENTO,
   TEMPERATURA_REPORTE_EJECUTIVO_USO,
   VERSION_PROMPT_REPORTE_EJECUTIVO_USO,
   type ReporteEjecutivoUso,
@@ -68,10 +70,6 @@ function recortarTexto(texto: string | null | undefined, max: number): string | 
 
 function crearHuella(payload: unknown): string {
   return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
-}
-
-function crearSeed(huella: string): number {
-  return Number.parseInt(huella.slice(0, 8), 16) & 0x7fffffff;
 }
 
 function leerCacheMemoria(huella: string): ReporteCacheado | null {
@@ -282,7 +280,6 @@ function construirPromptReporte(params: {
   uso: ReturnType<typeof calcularResumenUso>;
   adopcion: ReturnType<typeof evaluarAdopcion>;
   novedades: VersionContexto[];
-  graficosHtml: string;
 }): string {
   return [
     "Genera un REPORTE de uso, adopción y novedades de la plataforma Russell Diagnóstico, listo para PDF/HTML, para enviarlo al cliente (la firma de revisoría).",
@@ -319,13 +316,14 @@ function construirPromptReporte(params: {
     "   - Sección «Correcciones y mejoras» con viñetas (correccion/seguridad o items breves).",
     "",
     "5) CÓMO SE USÓ LA PLATAFORMA",
-    "   - KPIs exactos (acciones, usuarios, clientes) en tarjetas alineadas al sistema visual.",
+    "   - KPIs exactos (acciones, usuarios, clientes y conexiones si aplica) en tarjetas alineadas al sistema visual.",
     "   - Crónica breve de uso; no dump de logs.",
-    "   - INMEDIATAMENTE después de la crónica, inserta SIN MODIFICAR el bloque HTML de gráficos proporcionado abajo (incluye id=\"rd-graficos-uso\"). No reescribas las barras ni inventes otros gráficos; el bloque ya trae los conteos exactos.",
+    "   - INMEDIATAMENTE después de la crónica, escribe EXACTAMENTE esta línea y nada más en su lugar: <section id=\"rd-graficos-uso\"></section>",
+    "   - Esa sección vacía es un marcador: el sistema la reemplaza por gráficos y por el detalle factual de conexiones y acciones de cada usuario. NO dibujes barras, NO inventes tablas, NO la rellenes.",
     "",
     "6) ADOPCIÓN DE NOVEDADES EN UN VISTAZO",
     "   - Resumen usadas / sin evidencia / no medibles y % solo si viene en la base factual.",
-    "   - Lista o tabla de items con estado (además del gráfico de adopción ya incluido en el bloque de gráficos).",
+    "   - Lista o tabla de items con estado (el gráfico de adopción ya lo aporta el marcador de la sección 5).",
     "",
     "7) CIERRE",
     "   - 2–4 recomendaciones prudentes basadas solo en los datos.",
@@ -349,9 +347,8 @@ function construirPromptReporte(params: {
     "- Acento de marca: navy-700 / blue-500 (NO morado genérico de IA, NO violetas de otras marcas).",
     "- Chips/badges discretos (fondo blue-100 o ink-100, texto navy-700 o ink-700), como en la app.",
     "- Tablas limpias con encabezado ink-50/ink-100 y bordes ink-150.",
-    "- Márgenes generosos, secciones con break-inside: avoid, @media print para carta.",
+    "- Márgenes consistentes y @media print para carta. Nunca apliques break-inside: avoid a una sección contenedora grande; úsalo solo en tarjetas o filas pequeñas. Evita encabezados huérfanos con break-after: avoid.",
     "- CSS 100% autocontenido en <style>. Sin fuentes externas, sin iconos SVG decorativos innecesarios, sin emojis.",
-    "- Los gráficos de barras ya vienen con estilos inline: no los alteres.",
     "",
     "PROHIBIDO en el HTML (elementos no funcionales):",
     "- Botones, <button>, enlaces de apariencia de botón, CTAs decorativos.",
@@ -387,12 +384,14 @@ function construirPromptReporte(params: {
     "",
     "Contexto de NOVEDADES liberadas:",
     JSON.stringify(params.novedades),
-    "",
-    "BLOQUE HTML DE GRÁFICOS (insertar tal cual en la sección 5, sin alterar números ni estructura):",
-    params.graficosHtml,
   ].join("\n");
 }
 
+/**
+ * Causas por las que vale la pena repetir la llamada con menos salida: el
+ * proveedor está saturado, o tardó tanto que venció el timeout (el modelo se
+ * alarga razonando y un tope de salida menor lo acota).
+ */
 function esSaturacionProveedor(e: unknown): boolean {
   const status = e && typeof e === "object" && "status" in e ? (e as { status?: unknown }).status : undefined;
   const msg = e instanceof Error ? e.message : "";
@@ -400,7 +399,10 @@ function esSaturacionProveedor(e: unknown): boolean {
     status === 429 ||
     status === 502 ||
     status === 503 ||
-    /ResourceExhausted|request limit reached|rate limit|quota|overloaded|unavailable|temporarily/i.test(msg)
+    status === 408 ||
+    /ResourceExhausted|request limit reached|rate limit|quota|overloaded|unavailable|temporarily|tardó demasiado/i.test(
+      msg,
+    )
   );
 }
 
@@ -523,7 +525,7 @@ export async function generarReporteEjecutivoUso(
     : null;
 
   try {
-    const [eventosRaw, versiones, clientes] = await Promise.all([
+    const [eventosRaw, conexionesRaw, versiones, clientes] = await Promise.all([
       prisma.auditEntry.findMany({
         where: {
           createdAt: { gte: rango.desde, lte: rango.hasta },
@@ -538,6 +540,15 @@ export async function generarReporteEjecutivoUso(
           clientId: true,
           createdAt: true,
         },
+      }),
+      prisma.accessLog.groupBy({
+        by: ["userName"],
+        where: {
+          kind: "ingreso",
+          createdAt: { gte: rango.desde, lte: rango.hasta },
+        },
+        _count: { userName: true },
+        orderBy: { userName: "asc" },
       }),
       prisma.platformVersion.findMany({
         where: versionIds
@@ -567,6 +578,10 @@ export async function generarReporteEjecutivoUso(
     const nombresClientes = new Map(clientes.map((c) => [c.id, c.name]));
     const uso = calcularResumenUso({
       eventos,
+      conexiones: conexionesRaw.map((conexion) => ({
+        usuario: conexion.userName,
+        total: conexion._count.userName,
+      })),
       periodoDesde: rango.desde,
       periodoHasta: rango.hasta,
       nombresClientes,
@@ -634,33 +649,30 @@ export async function generarReporteEjecutivoUso(
     }
 
     const generatedAt = new Date().toISOString();
-    const prompt = construirPromptReporte({ uso, adopcion, novedades, graficosHtml });
-    const seed = crearSeed(huella);
+    const prompt = construirPromptReporte({ uso, adopcion, novedades });
     const system =
-      "Eres un redactor de reportes de adopción y registro de cambios para Russell Diagnóstico. Escribes para socios y gerentes de revisoría fiscal en Colombia. Tono claro y profesional alineado a la UI institucional de la app (navy, ink, serif en títulos). Precisión estricta: no inventas datos. Debes incluir el bloque HTML de gráficos de barras exactamente como se te entrega. No generas botones, CTAs ni controles no funcionales. No imitas marcas de terceros.";
+      "Eres un redactor de reportes de adopción y registro de cambios para Russell Diagnóstico. Escribes para socios y gerentes de revisoría fiscal en Colombia. Tono claro y profesional alineado a la UI institucional de la app (navy, ink, serif en títulos). Precisión estricta: no inventas datos. Debes incluir exactamente el marcador HTML indicado para que el sistema inserte los gráficos y el detalle factual por usuario. No generas botones, CTAs ni controles no funcionales. No imitas marcas de terceros.";
 
-    let completion: Awaited<ReturnType<typeof completarTextoGemini>>;
+    let completion: Awaited<ReturnType<typeof completarTextoOpenCode>>;
     try {
-      completion = await completarTextoGemini({
+      completion = await completarTextoOpenCode({
         model: MODELO_REPORTE_EJECUTIVO_USO,
-        maxTokens: 56_000,
+        maxTokens: MAX_TOKENS_REPORTE_EJECUTIVO_USO,
         temperature: TEMPERATURA_REPORTE_EJECUTIVO_USO,
         topP: 1,
-        seed,
-        timeoutMs: 300_000,
+        timeoutMs: 200_000,
         system,
         prompt,
       });
     } catch (e) {
       if (!esSaturacionProveedor(e)) throw e;
       await esperar(1500);
-      completion = await completarTextoGemini({
+      completion = await completarTextoOpenCode({
         model: MODELO_REPORTE_EJECUTIVO_USO,
-        maxTokens: 40_000,
+        maxTokens: MAX_TOKENS_REPORTE_EJECUTIVO_USO_REINTENTO,
         temperature: TEMPERATURA_REPORTE_EJECUTIVO_USO,
         topP: 1,
-        seed,
-        timeoutMs: 240_000,
+        timeoutMs: 150_000,
         system,
         prompt,
       });
@@ -715,7 +727,7 @@ export async function generarReporteEjecutivoUso(
       desdeCache: false,
     };
   } catch (e) {
-    return { ok: false, message: mensajeErrorGemini("generarReporteEjecutivoUso", e) };
+    return { ok: false, message: mensajeErrorOpenCode("generarReporteEjecutivoUso", e) };
   }
 }
 
@@ -743,7 +755,7 @@ export async function obtenerResumenUsoAdopcion(opciones: {
   }
 
   try {
-    const [eventosRaw, versiones, clientes] = await Promise.all([
+    const [eventosRaw, conexionesRaw, versiones, clientes] = await Promise.all([
       prisma.auditEntry.findMany({
         where: { createdAt: { gte: rango.desde, lte: rango.hasta } },
         orderBy: { createdAt: "desc" },
@@ -756,6 +768,15 @@ export async function obtenerResumenUsoAdopcion(opciones: {
           clientId: true,
           createdAt: true,
         },
+      }),
+      prisma.accessLog.groupBy({
+        by: ["userName"],
+        where: {
+          kind: "ingreso",
+          createdAt: { gte: rango.desde, lte: rango.hasta },
+        },
+        _count: { userName: true },
+        orderBy: { userName: "asc" },
       }),
       prisma.platformVersion.findMany({
         where: { status: "publicada" },
@@ -777,6 +798,10 @@ export async function obtenerResumenUsoAdopcion(opciones: {
     const nombresClientes = new Map(clientes.map((c) => [c.id, c.name]));
     const uso = calcularResumenUso({
       eventos,
+      conexiones: conexionesRaw.map((conexion) => ({
+        usuario: conexion.userName,
+        total: conexion._count.userName,
+      })),
       periodoDesde: rango.desde,
       periodoHasta: rango.hasta,
       nombresClientes,

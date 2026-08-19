@@ -38,7 +38,12 @@ export default function TicketGestionForm({
       <input type="hidden" name="ticketId" value={ticket.id} />
       <input type="hidden" name="updatedAt" value={ticket.updatedAt} />
 
-      <label htmlFor={`status-${ticket.id}`} className="text-xs font-semibold uppercase tracking-wider text-ink-500">
+      <h2 className="text-[13px] font-semibold text-ink-800">Gestión de Xentria</h2>
+      <p className="mt-1 text-[11.5px] text-ink-500">
+        El estado y la respuesta quedan visibles para quien reportó la novedad.
+      </p>
+
+      <label htmlFor={`status-${ticket.id}`} className="mt-4 text-xs font-semibold uppercase tracking-wider text-ink-500">
         Estado
       </label>
       <select

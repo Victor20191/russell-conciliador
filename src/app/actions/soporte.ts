@@ -31,6 +31,8 @@ import {
   requiereSolucion,
 } from "@/lib/soporte";
 import { resolverUbicacionNovedad } from "@/lib/soporte-rutas";
+import { getPublicacionModulos } from "@/lib/rbac/publicacion";
+import { getMatriz } from "@/lib/rbac/contexto";
 import { validarAdjuntoTicket } from "@/lib/soporte-adjuntos";
 import {
   almacenamientoEvidenciasTicketsDisponible,
@@ -164,7 +166,16 @@ export async function crearNovedadInterna(
   if (!parsed.success) {
     return { ok: false, errors: z.flattenError(parsed.error).fieldErrors };
   }
-  const ubicacion = resolverUbicacionNovedad(parsed.data.routeKey, parsed.data.menuKey);
+  const [publicacionModulos, matriz] = await Promise.all([
+    getPublicacionModulos(),
+    getMatriz(),
+  ]);
+  const permisosUsuario = matriz[authz.role] ?? [];
+  const ubicacion = resolverUbicacionNovedad(parsed.data.routeKey, parsed.data.menuKey, {
+    modulos: publicacionModulos,
+    permisos: permisosUsuario,
+    rol: authz.role,
+  });
   if (!ubicacion) {
     return { ok: false, errors: { menuKey: ["Selecciona una ruta y el menú de esa ruta."] } };
   }
@@ -282,6 +293,7 @@ export async function guardarSolucionTicket(
       detail: "El ticket quedó resuelto y la solución está visible en su enlace de seguimiento.",
     });
     revalidatePath(ADMIN_PATH);
+    revalidatePath(`${ADMIN_PATH}/${parsed.data.ticketId}`);
     revalidatePath(USER_PATH);
     revalidatePath(`${USER_PATH}/${parsed.data.ticketId}`);
     revalidatePath(`/soporte/tickets/${ticket.code}`);
@@ -353,6 +365,7 @@ export async function cambiarEstadoTicket(
       detail: `Estado: ${etiquetaEstadoTicket(parsed.data.status)}.`,
     });
     revalidatePath(ADMIN_PATH);
+    revalidatePath(`${ADMIN_PATH}/${parsed.data.ticketId}`);
     revalidatePath(USER_PATH);
     revalidatePath(`${USER_PATH}/${parsed.data.ticketId}`);
     revalidatePath(`/soporte/tickets/${ticket.code}`);
