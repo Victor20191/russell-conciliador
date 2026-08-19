@@ -7,7 +7,8 @@ import { Card, Chip, StatCard } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { Modal } from "@/components/modal";
 import { fmtDate, fmtDateTimeLong, fmtNum } from "@/lib/format";
-import { notifyError, notifySuccess } from "@/lib/client-notifications";
+import { notifyError, notifyInfo, notifySuccess } from "@/lib/client-notifications";
+import { htmlConEstilosEnLinea } from "@/lib/correo/preparar-html-correo";
 import type { ReporteEjecutivoUso } from "@/lib/auditoria/reporte-ejecutivo/reportes";
 import {
   IndicadoresUso,
@@ -114,14 +115,27 @@ function descargarBlob(blob: Blob, nombre: string): void {
   URL.revokeObjectURL(url);
 }
 
-/** Extrae estilos + cuerpo del HTML del reporte para pegar en un cliente de correo. */
+/**
+ * Deja el reporte listo para pegar en un correo. Vuelca el CSS a estilos EN
+ * LÍNEA porque Gmail elimina las etiquetas <style> del contenido pegado: con
+ * la hoja embebida el documento llega sin serif, sin azul institucional y sin
+ * tarjetas. Si el navegador no expone DOMParser, cae al fragmento con <style>
+ * embebido (Outlook de escritorio sí lo respeta).
+ */
 function prepararHtmlCorreo(htmlCompleto: string): string {
+  try {
+    return htmlConEstilosEnLinea(htmlCompleto);
+  } catch {
+    return htmlCorreoConEstilosEmbebidos(htmlCompleto);
+  }
+}
+
+function htmlCorreoConEstilosEmbebidos(htmlCompleto: string): string {
   const estilos =
     htmlCompleto.match(/<style[^>]*>([\s\S]*?)<\/style>/i)?.[1]?.trim() ?? "";
   const cuerpoMatch = htmlCompleto.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
   const cuerpo = (cuerpoMatch?.[1] ?? htmlCompleto).trim();
 
-  // Fragmento autocontenido: Gmail/Outlook respetan mejor un wrapper con estilos embebidos.
   return `<div style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;color:#1a2330;font-size:14px;line-height:1.5;">
 ${estilos ? `<style type="text/css">${estilos}</style>` : ""}
 ${cuerpo}
@@ -149,13 +163,19 @@ function htmlATextoPlano(html: string): string {
   return texto;
 }
 
+/** A partir de este tamaño Gmail corta el cuerpo con «[Mensaje recortado]». */
+const LIMITE_RECORTE_GMAIL = 102_000;
+
+type ResultadoCopiaCorreo = { conFormato: boolean; caracteres: number };
+
 /**
  * Copia el reporte al portapapeles en HTML (para Gmail/Outlook) + texto plano.
  * Luego el usuario pega (Ctrl/Cmd+V) en el borrador del correo.
  */
-async function copiarFormatoCorreo(reporte: ReporteEjecutivoUso): Promise<void> {
+async function copiarFormatoCorreo(reporte: ReporteEjecutivoUso): Promise<ResultadoCopiaCorreo> {
   const htmlCorreo = prepararHtmlCorreo(reporte.html);
   const textoPlano = htmlATextoPlano(htmlCorreo);
+  const caracteres = htmlCorreo.length;
 
   try {
     if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
@@ -165,14 +185,17 @@ async function copiarFormatoCorreo(reporte: ReporteEjecutivoUso): Promise<void> 
           "text/plain": new Blob([textoPlano], { type: "text/plain" }),
         }),
       ]);
-    } else if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(textoPlano);
-    } else {
-      throw new Error("Portapapeles no disponible en este navegador.");
+      return { conFormato: true, caracteres };
     }
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(textoPlano);
+      return { conFormato: false, caracteres };
+    }
+    throw new Error("Portapapeles no disponible en este navegador.");
   } catch {
     // Fallback legacy (algunos navegadores bloquean ClipboardItem con text/html).
     await navigator.clipboard.writeText(textoPlano);
+    return { conFormato: false, caracteres };
   }
 }
 
@@ -305,12 +328,24 @@ export function ReporteEjecutivoClient({
     setError(null);
     setCorreoPendiente(true);
     try {
-      await copiarFormatoCorreo(reporte);
+      const { conFormato, caracteres } = await copiarFormatoCorreo(reporte);
       abrirClienteCorreo(reporte);
-      notifySuccess(
-        "Formato correo copiado",
-        "Se abrió tu cliente de correo. Pega el contenido en el cuerpo (Ctrl+V o Cmd+V).",
-      );
+      if (!conFormato) {
+        notifyInfo(
+          "Copiado sin formato",
+          "Tu navegador no permitió copiar el diseño: se copió el texto. Para enviarlo con formato, adjunta el PDF.",
+        );
+      } else if (caracteres > LIMITE_RECORTE_GMAIL) {
+        notifySuccess(
+          "Formato correo copiado",
+          "Pega el contenido en el cuerpo (Ctrl+V o Cmd+V). Es un reporte extenso: si Gmail lo muestra recortado, envía mejor el PDF adjunto.",
+        );
+      } else {
+        notifySuccess(
+          "Formato correo copiado",
+          "Se abrió tu cliente de correo. Pega el contenido en el cuerpo (Ctrl+V o Cmd+V).",
+        );
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "No se pudo copiar el reporte para correo.";
       setError(msg);
