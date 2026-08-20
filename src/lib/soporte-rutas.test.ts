@@ -91,13 +91,13 @@ describe("catálogo de ruta y menú de una novedad", () => {
       permisos: ["dashboard:ver", "auditoria:reporte_ejecutivo", "soporte:ver"],
     });
     const configSuper = catalogoSuperadmin.find((r) => r.clave === "configuracion")!;
-    expect(configSuper.menus.some((m) => m.etiqueta === "Reportes ejecutivos")).toBe(true);
+    expect(configSuper.menus.some((m) => m.etiqueta === "Reportes para gerencia")).toBe(true);
 
     const catalogoStaff = catalogoUbicacionesNovedad({
       rol: "Staff",
       permisos: ["dashboard:ver", "soporte:ver"],
     });
     const configStaff = catalogoStaff.find((r) => r.clave === "configuracion");
-    expect(configStaff?.menus.some((m) => m.etiqueta === "Reportes ejecutivos")).toBe(false);
+    expect(configStaff?.menus.some((m) => m.etiqueta === "Reportes para gerencia")).toBe(false);
   });
 });

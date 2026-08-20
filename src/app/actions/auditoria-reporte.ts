@@ -28,6 +28,12 @@ import {
   type ReporteEjecutivoUso,
 } from "@/lib/auditoria/reporte-ejecutivo/reportes";
 import {
+  SISTEMA_REPORTE_EJECUTIVO,
+  construirPromptReporteEjecutivo,
+  normalizarTerminologiaVisibleReporte,
+  type NovedadReporteEjecutivoContexto,
+} from "@/lib/auditoria/reporte-ejecutivo/prompt";
+import {
   ReporteEjecutivoUsoScopeSchema,
   type ReporteEjecutivoUsoScope,
 } from "@/lib/definitions";
@@ -188,24 +194,6 @@ function parseRango(desdeRaw: string, hastaRaw: string): { desde: Date; hasta: D
   return { desde, hasta };
 }
 
-type VersionContexto = {
-  numero: string;
-  titulo: string;
-  resumen: string | null;
-  estado: string;
-  publicadoEn: string | null;
-  cambios: Array<{
-    tipo: string;
-    titulo: string;
-    descripcion: string;
-    modulo: string | null;
-    ruta: string | null;
-    comoOperar: string | null;
-    ejemplo: string | null;
-    estadoFuncionalidad: string;
-  }>;
-};
-
 function crearContextoNovedades(
   versiones: Array<{
     number: string;
@@ -224,12 +212,12 @@ function crearContextoNovedades(
       featureStatus: string;
     }>;
   }>,
-): { contexto: VersionContexto[]; totalChanges: number; includedChanges: number; planos: CambioNovedadContexto[] } {
+): { contexto: NovedadReporteEjecutivoContexto[]; totalChanges: number; includedChanges: number; planos: CambioNovedadContexto[] } {
   let includedChanges = 0;
   let totalChanges = 0;
   const planos: CambioNovedadContexto[] = [];
 
-  const contexto: VersionContexto[] = versiones.map((version) => {
+  const contexto: NovedadReporteEjecutivoContexto[] = versiones.map((version) => {
     totalChanges += version.changes.length;
     const cambios = version.changes
       .filter(() => {
@@ -274,117 +262,6 @@ function crearContextoNovedades(
   });
 
   return { contexto, totalChanges, includedChanges, planos };
-}
-
-function construirPromptReporte(params: {
-  uso: ReturnType<typeof calcularResumenUso>;
-  adopcion: ReturnType<typeof evaluarAdopcion>;
-  novedades: VersionContexto[];
-}): string {
-  return [
-    "Genera un REPORTE de uso, adopción y novedades de la plataforma Russell Diagnóstico, listo para PDF/HTML, para enviarlo al cliente (la firma de revisoría).",
-    "",
-    "TONO Y ESTRUCTURA editorial: registro de cambios / newsletter de producto (claro, humano, profesional), adaptado a software de revisoría fiscal. No copies marcas ni estilos de terceros.",
-    "",
-    "Tono editorial:",
-    "- Cercano, claro y profesional (como la UI de Russell Diagnóstico: sobrio, institucional, sin marketing vacío).",
-    "- Prioriza: qué se liberó, por qué importa al trabajo del revisor, cómo se usa, y qué pasó con el uso real en el período.",
-    "- Frases cortas y concretas. Español de Colombia.",
-    "",
-    "Entrega exclusivamente un documento HTML completo y válido. Debe empezar con <!DOCTYPE html> y contener <html>, <head>, <style> y <body>.",
-    "No incluyas Markdown, cercas de código, explicación fuera del HTML, scripts, enlaces externos, imágenes externas ni recursos remotos.",
-    "",
-    "ESTRUCTURA OBLIGATORIA del documento (orden fijo):",
-    "",
-    "1) CABECERA / PORTADA",
-    "   - Eyebrow en mayúsculas: «RUSSELL DIAGNÓSTICO» (azul institucional).",
-    "   - Título principal atractivo y legible (1–2 temas fuertes del período), en tipografía serif.",
-    "   - Subtítulo con el período exacto de la base factual de uso.",
-    "   - Lista con viñetas de 3 a 6 highlights (novedades + hallazgos de uso/adopción). Solo hechos del JSON.",
-    "   - PROHIBIDO: botones, CTAs, «Ver detalle», «Leer más», pills decorativas no informativas, o cualquier control que parezca clicable y no haga nada.",
-    "",
-    "2) INTRO NARRATIVA",
-    "   - Un párrafo de apertura con contexto del período y volumen de uso si hay datos.",
-    "   - Transición breve hacia el detalle.",
-    "",
-    "3) LO QUE LIBERAMOS (novedades principales)",
-    "   - Cada cambio relevante (nueva o mejora con contexto) es una sección H2 con el título del cambio.",
-    "   - En prosa: qué es, cómo se usa (integra comoOperar/ejemplo si existen), por qué importa, dónde encontrarlo (módulo/ruta si vienen), y estado de adopción del período si aplica.",
-    "   - ~90–180 palabras por sección principal si hay contexto; si no, sé breve.",
-    "",
-    "4) CORRECCIONES Y MEJORAS MENORES",
-    "   - Sección «Correcciones y mejoras» con viñetas (correccion/seguridad o items breves).",
-    "",
-    "5) CÓMO SE USÓ LA PLATAFORMA",
-    "   - KPIs exactos (acciones, usuarios, clientes y conexiones si aplica) en tarjetas alineadas al sistema visual.",
-    "   - Crónica breve de uso; no dump de logs.",
-    "   - INMEDIATAMENTE después de la crónica, escribe EXACTAMENTE esta línea y nada más en su lugar: <section id=\"rd-graficos-uso\"></section>",
-    "   - Esa sección vacía es un marcador: el sistema la reemplaza por gráficos y por el detalle factual de conexiones y acciones de cada usuario. NO dibujes barras, NO inventes tablas, NO la rellenes.",
-    "",
-    "6) ADOPCIÓN DE NOVEDADES EN UN VISTAZO",
-    "   - Resumen usadas / sin evidencia / no medibles y % solo si viene en la base factual.",
-    "   - Lista o tabla de items con estado (el gráfico de adopción ya lo aporta el marcador de la sección 5).",
-    "",
-    "7) CIERRE",
-    "   - 2–4 recomendaciones prudentes basadas solo en los datos.",
-    "   - Cierre breve y profesional.",
-    "   - Footer de texto: «Reporte de uso, adopción y novedades — Russell Diagnóstico».",
-    "",
-    "IDENTIDAD VISUAL OBLIGATORIA (sistema Russell Diagnóstico / app):",
-    "Usa EXACTAMENTE estos colores en el CSS (hex):",
-    "- navy-900 #091628, navy-800 #0b1f3a, navy-700 #142b4a, navy-600 #1e3a5f",
-    "- blue-500 #2f6fa7, blue-100 #e5eef7, blue-50 #f2f7fc",
-    "- ink-900 #0e1721, ink-800 #1a2330, ink-700 #2a3441, ink-600 #475160, ink-500 #566273, ink-400 #626e7e",
-    "- ink-200 #dce0e7, ink-150 #e7eaef, ink-100 #eff1f4, ink-50 #f7f8fa, paper #fbfbfc",
-    "- ok-700 #2f6b3f, ok-100 #e5f0e8; warn-700 #8a5a11, warn-100 #faefd7; err-700 #9a2a22, err-100 #f8e1de",
-    "Tipografía:",
-    "- Títulos (h1/h2): Georgia, 'Times New Roman', serif (equivalente font-serif de la app).",
-    "- Cuerpo: 'Helvetica Neue', Helvetica, Arial, sans-serif (equivalente font-sans).",
-    "- Datos/números tabulares: ui-monospace, Menlo, monospace cuando aporte.",
-    "Layout:",
-    "- Fondo general ink-50 o paper; tarjetas blancas con borde ink-150 y radio ~8–10px.",
-    "- Texto principal ink-800; secundario ink-500/600; títulos ink-900.",
-    "- Acento de marca: navy-700 / blue-500 (NO morado genérico de IA, NO violetas de otras marcas).",
-    "- Chips/badges discretos (fondo blue-100 o ink-100, texto navy-700 o ink-700), como en la app.",
-    "- Tablas limpias con encabezado ink-50/ink-100 y bordes ink-150.",
-    "- Márgenes consistentes y @media print para carta. Nunca apliques break-inside: avoid a una sección contenedora grande; úsalo solo en tarjetas o filas pequeñas. Evita encabezados huérfanos con break-after: avoid.",
-    "- CSS 100% autocontenido en <style>. Sin fuentes externas, sin iconos SVG decorativos innecesarios, sin emojis.",
-    "",
-    "PROHIBIDO en el HTML (elementos no funcionales):",
-    "- Botones, <button>, enlaces de apariencia de botón, CTAs decorativos.",
-    "- Controles clicables que no hagan nada (p. ej. «Ver detalle del período», «Leer el reporte completo»).",
-    "- Scripts, iframes, formularios, inputs, canvas, SVG de gráficos inventados.",
-    "- Enlaces externos, imágenes externas, recursos remotos.",
-    "- Decoración de marketing vacía que no aporte información.",
-    "",
-    "Reglas factuales obligatorias:",
-    "- Usa ÚNICAMENTE números, fechas, usuarios, acciones, módulos, rutas y textos de las bases factuales JSON.",
-    "- No inventes porcentajes de ahorro, costos, tiempos, promesas de producto ni métricas no presentes.",
-    "- El porcentaje de adopción solo si viene en la base (null → «No calculable» o no lo menciones como cifra).",
-    "- Distingue dato factual de interpretación prudente.",
-    "- No menciones hashes, ramas, código, APIs, Prisma, tokens, pipelines, Server Actions ni arquitectura.",
-    "- No digas que recibiste un JSON ni que eres una IA.",
-    "- Si un dato no está, escribe «No documentado» o omítelo.",
-    "- No inventes funcionalidades: solo las del contexto de novedades.",
-    "",
-    "Base factual de USO:",
-    JSON.stringify(params.uso),
-    "",
-    "Base factual de ADOPCIÓN:",
-    JSON.stringify({
-      totalCambios: params.adopcion.totalCambios,
-      evaluables: params.adopcion.evaluables,
-      usadas: params.adopcion.usadas,
-      sinEvidencia: params.adopcion.sinEvidencia,
-      noMedibles: params.adopcion.noMedibles,
-      porcentajeAdopcion: params.adopcion.porcentajeAdopcion,
-      porEstado: params.adopcion.porEstado,
-      items: params.adopcion.items,
-    }),
-    "",
-    "Contexto de NOVEDADES liberadas:",
-    JSON.stringify(params.novedades),
-  ].join("\n");
 }
 
 /**
@@ -454,11 +331,11 @@ function sanitizarHtmlReporte(html: string): string {
 function extraerTituloHtml(html: string): string {
   const title = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1];
   const h1 = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1];
-  const crudo = (title ?? h1 ?? "Reporte ejecutivo de uso y adopción")
+  const crudo = (title ?? h1 ?? "Reporte de uso y avances")
     .replace(/<[^>]+>/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-  return crudo.slice(0, 180) || "Reporte ejecutivo de uso y adopción";
+  return crudo.slice(0, 180) || "Reporte de uso y avances";
 }
 
 function envolverHtmlBasico(cuerpo: string): string {
@@ -466,7 +343,7 @@ function envolverHtmlBasico(cuerpo: string): string {
 <html lang="es">
 <head>
 <meta charset="utf-8" />
-<title>Reporte ejecutivo de uso y adopción</title>
+<title>Reporte de uso y avances</title>
 <style>
   body { font-family: Georgia, 'Times New Roman', serif; color: #1a2332; margin: 32px; line-height: 1.5; }
   h1 { font-size: 22px; }
@@ -479,7 +356,9 @@ ${cuerpo}
 }
 
 function normalizarReporteHtml(texto: string): ReporteEjecutivoUso {
-  let html = sanitizarHtmlReporte(extraerDocumentoHtml(texto));
+  let html = normalizarTerminologiaVisibleReporte(
+    sanitizarHtmlReporte(extraerDocumentoHtml(texto)),
+  );
   if (!/<html[\s>]/i.test(html)) html = envolverHtmlBasico(html);
   if (!/^<!doctype/i.test(html.trim())) html = `<!DOCTYPE html>\n${html}`;
   if (!/<body[\s>]/i.test(html)) {
@@ -492,7 +371,7 @@ function normalizarReporteHtml(texto: string): ReporteEjecutivoUso {
   }
   if (!/<\/html>/i.test(html)) html += "\n</html>";
   return {
-    titulo: extraerTituloHtml(html) || "Reporte ejecutivo de uso y adopción",
+    titulo: extraerTituloHtml(html) || "Reporte de uso y avances",
     html,
   };
 }
@@ -649,9 +528,8 @@ export async function generarReporteEjecutivoUso(
     }
 
     const generatedAt = new Date().toISOString();
-    const prompt = construirPromptReporte({ uso, adopcion, novedades });
-    const system =
-      "Eres un redactor de reportes de adopción y registro de cambios para Russell Diagnóstico. Escribes para socios y gerentes de revisoría fiscal en Colombia. Tono claro y profesional alineado a la UI institucional de la app (navy, ink, serif en títulos). Precisión estricta: no inventas datos. Debes incluir exactamente el marcador HTML indicado para que el sistema inserte los gráficos y el detalle factual por usuario. No generas botones, CTAs ni controles no funcionales. No imitas marcas de terceros.";
+    const prompt = construirPromptReporteEjecutivo({ uso, adopcion, novedades });
+    const system = SISTEMA_REPORTE_EJECUTIVO;
 
     let completion: Awaited<ReturnType<typeof completarTextoOpenCode>>;
     try {
@@ -680,7 +558,7 @@ export async function generarReporteEjecutivoUso(
 
     const report = normalizarReporteHtml(completion.text);
     if (!report.titulo.trim()) {
-      report.titulo = "Reporte ejecutivo de uso y adopción";
+      report.titulo = "Reporte de uso y avances";
     }
     // Garantiza gráficos factuales aunque el modelo omita o altere el bloque.
     report.html = inyectarGraficosEnHtml(report.html, graficosHtml);
@@ -690,7 +568,7 @@ export async function generarReporteEjecutivoUso(
       user: user?.name ?? "Sistema",
       action: "GENERÓ REPORTE IA",
       entity: "Uso y adopción",
-      detail: `Generó reporte ejecutivo con ${MODELO_REPORTE_EJECUTIVO_USO} (${uso.totalAcciones} acciones, ${uso.totalUsuarios} usuarios, ${includedChanges}/${totalChanges} novedades, ${
+      detail: `Generó reporte para gerencia con ${MODELO_REPORTE_EJECUTIVO_USO} (${uso.totalAcciones} acciones, ${uso.totalUsuarios} usuarios, ${includedChanges}/${totalChanges} novedades, ${
         versionIds ? `${versiones.length} versiones` : "versiones publicadas"
       }).`,
     });

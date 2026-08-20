@@ -97,7 +97,7 @@ function descargarHtml(reporte: ReporteEjecutivoUso): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `${slug(reporte.titulo) || "reporte-ejecutivo-uso-adopcion"}.html`;
+  a.download = `${slug(reporte.titulo) || "reporte-uso-y-avances"}.html`;
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -220,7 +220,7 @@ async function descargarPdf(reporte: ReporteEjecutivoUso, viewportWidth?: number
   }
 
   const blob = await res.blob();
-  descargarBlob(blob, `${slug(reporte.titulo) || "reporte-ejecutivo-uso-adopcion"}.pdf`);
+  descargarBlob(blob, `${slug(reporte.titulo) || "reporte-uso-y-avances"}.pdf`);
 }
 
 export function ReporteEjecutivoClient({
@@ -400,24 +400,24 @@ export function ReporteEjecutivoClient({
             </div>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <Chip label="Reporte ejecutivo IA" tone="ai" />
+                <Chip label="Reporte para gerencia" tone="ai" />
                 <span className="text-[11.5px] text-ink-500">
                   {defaultDesde} → {defaultHasta}
                 </span>
               </div>
               <h2 className="mt-1 font-serif text-lg text-ink-900">
-                Registro de cambios y uso del período
+                Resumen de uso y avances
               </h2>
               <p className="mt-1 max-w-3xl text-[13px] leading-relaxed text-ink-600">
-                Un reporte al estilo changelog: qué se liberó, por qué importa, cómo se usa y si el
-                equipo ya lo adoptó. Combina novedades con la bitácora real. Listo para enviar en PDF.
+                Lo más importante del período: cómo se usó la plataforma, qué cambió y qué conviene
+                atender. Preparado con la actividad registrada y listo para enviar en PDF.
               </p>
             </div>
           </div>
           <div className="flex w-full flex-col items-stretch gap-2 border-t border-ink-100 pt-3 sm:flex-row sm:items-center lg:w-auto lg:min-w-[240px] lg:justify-end lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
             <button onClick={abrirConfig} className={BTN_REPORTE_PRINCIPAL}>
               <Icon name="ai" size={15} />
-              {reporte ? "Regenerar con IA" : "Generar reporte ejecutivo"}
+              {reporte ? "Regenerar con IA" : "Generar reporte para gerencia"}
             </button>
             {reporte && (
               <button onClick={() => setModalAbierto(true)} className={BTN_SECUNDARIO}>
@@ -444,7 +444,7 @@ export function ReporteEjecutivoClient({
               novedades.
             </span>
           ) : (
-            "El reporte se genera bajo demanda. Elige el período de uso y las versiones de Novedades a incluir."
+            "El reporte para gerencia se genera bajo demanda. Elige el período de uso y las versiones de Novedades a incluir."
           )}
         </div>
       </Card>
@@ -452,7 +452,7 @@ export function ReporteEjecutivoClient({
       <Modal
         open={configAbierto}
         onClose={() => setConfigAbierto(false)}
-        title="Generar reporte ejecutivo"
+        title="Generar reporte para gerencia"
         size="2xl"
         footer={
           <button onClick={generar} disabled={!puedeConfirmar} className={BTN_PRIMARIO}>
@@ -464,7 +464,7 @@ export function ReporteEjecutivoClient({
         <div className="flex flex-col gap-4">
           <p className="text-[13px] leading-relaxed text-ink-600">
             Define el período de actividad de los usuarios y el alcance de las novedades liberadas.
-            La IA solo redacta a partir de datos reales de la bitácora y del changelog.
+            La IA solo redacta a partir de la actividad registrada y de los avances publicados.
           </p>
 
           <div>
@@ -634,7 +634,7 @@ export function ReporteEjecutivoClient({
         <Modal
           open={modalAbierto}
           onClose={() => setModalAbierto(false)}
-          title="Reporte ejecutivo de uso y adopción"
+          title="Reporte de uso y avances"
           size="4xl"
           footer={
             <>
@@ -684,7 +684,7 @@ export function ReporteEjecutivoClient({
           </p>
           <iframe
             ref={vistaPreviaRef}
-            title="Vista previa del reporte ejecutivo"
+            title="Vista previa del reporte para gerencia"
             srcDoc={reporte.html}
             sandbox=""
             className="mt-4 h-[68vh] w-full rounded-md border border-ink-150 bg-white"

@@ -22,7 +22,7 @@ function slug(texto: string): string {
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-|-$/g, "")
-      .slice(0, 80) || "reporte-ejecutivo-uso-adopcion"
+      .slice(0, 80) || "reporte-uso-y-avances"
   );
 }
 

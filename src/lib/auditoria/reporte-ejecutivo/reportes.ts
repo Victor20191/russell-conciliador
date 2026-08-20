@@ -11,7 +11,7 @@ export const TEMPERATURA_REPORTE_EJECUTIVO_USO =
     ? TEMPERATURA_ENV
     : 0;
 export const VERSION_PROMPT_REPORTE_EJECUTIVO_USO =
-  "reporte-ejecutivo-uso-adopcion-conexiones-v6";
+  "reporte-para-gerencia-claro-v8";
 
 /**
  * Tope de salida por intento (el reintento usa el reducido). Un reporte real

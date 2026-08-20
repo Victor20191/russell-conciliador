@@ -86,7 +86,7 @@ export const workNav: NavItem[] = [
 ];
 
 export const configNav: NavItem[] = [
-  { label: "Reportes ejecutivos", href: "/config/reportes-ejecutivos", icon: "doc", permiso: "auditoria:reporte_ejecutivo", modulo: "auditoria", roles: ["Superadministrador"] },
+  { label: "Reportes para gerencia", href: "/config/reportes-ejecutivos", icon: "doc", permiso: "auditoria:reporte_ejecutivo", modulo: "auditoria", roles: ["Superadministrador"] },
   { label: "Publicación de módulos", href: "/config/publicacion-modulos", icon: "eye", permiso: "publicacion_modulos:ver", modulo: "publicacion_modulos" },
   { label: "Módulos y campos", href: "/config/modulos", icon: "settings", permiso: "modulos:ver", modulo: "modulos" },
   { label: "Clientes", href: "/config/clientes", icon: "users", permiso: "clientes:configurar", modulo: "clientes" },

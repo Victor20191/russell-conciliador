@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { configNav, workNav } from "./nav";
 
-describe("Navegación de reportes ejecutivos", () => {
+describe("Navegación de reportes para gerencia", () => {
   test("retira la entrada antigua de Auditoría", () => {
     const auditoria = workNav.find((item) => item.href === "/auditoria");
     expect(auditoria?.children?.some((item) => item.href === "/auditoria/adopcion")).toBe(
@@ -12,7 +12,7 @@ describe("Navegación de reportes ejecutivos", () => {
   test("publica la ruta nueva en Configuración con su permiso", () => {
     expect(configNav).toContainEqual(
       expect.objectContaining({
-        label: "Reportes ejecutivos",
+        label: "Reportes para gerencia",
         href: "/config/reportes-ejecutivos",
         permiso: "auditoria:reporte_ejecutivo",
         roles: ["Superadministrador"],

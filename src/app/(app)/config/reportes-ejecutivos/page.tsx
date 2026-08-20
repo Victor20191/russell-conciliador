@@ -156,8 +156,8 @@ export default async function ReportesEjecutivosPage() {
   return (
     <div>
       <PageHeader
-        title="Reportes ejecutivos"
-        subtitle="Indicadores de uso de la plataforma, adopción de novedades y generación del reporte ejecutivo para el cliente."
+        title="Reportes para gerencia"
+        subtitle="Indicadores de uso, avances de la plataforma y generación de un reporte claro para el cliente."
       />
       <ReporteEjecutivoClient
         versions={versions}

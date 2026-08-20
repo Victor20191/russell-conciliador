@@ -59,7 +59,7 @@ function getOpenCodeApiKey(): string {
   const key = process.env.OPENCODE_API_KEY?.trim();
   if (!key) {
     throw new OpenCodeError(
-      "Falta OPENCODE_API_KEY. Configúrala en .env para generar el reporte ejecutivo con OpenCode Go.",
+      "Falta OPENCODE_API_KEY. Configúrala en .env para generar el reporte para gerencia con OpenCode Go.",
       { status: 401 },
     );
   }
