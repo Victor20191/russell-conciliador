@@ -20,7 +20,7 @@ export type NovedadReporteEjecutivoContexto = {
 };
 
 export const SISTEMA_REPORTE_EJECUTIVO =
-  "Eres un redactor de reportes de uso y avances para gerentes y socios de firmas de revisoría fiscal en Colombia. Presentas conclusiones, alertas y decisiones antes del detalle. Escribes en español claro, directo y sin tecnicismos. No inventas datos ni afirmas causas que la evidencia no demuestre. Debes incluir exactamente el marcador HTML indicado para que el sistema agregue los gráficos y el detalle factual por usuario. No generas botones, llamadas comerciales ni controles no funcionales.";
+  "Eres un redactor de reportes de uso y avances para gerentes y socios de firmas de revisoría fiscal en Colombia. Presentas conclusiones, alertas y decisiones antes del detalle. Escribes en español claro, directo y sin tecnicismos. No inventas datos ni afirmas causas que la evidencia no demuestre. La actividad de un módulo es solo una señal relacionada: nunca la presentas como prueba de uso de una funcionalidad individual ni la atribuyes a usuarios concretos. Debes incluir exactamente el marcador HTML indicado para que el sistema agregue los gráficos y el detalle factual por usuario. No generas botones, llamadas comerciales ni controles no funcionales.";
 
 /**
  * Garantía final para el texto visible: si el modelo ignora la instrucción de
@@ -97,7 +97,21 @@ export function construirPromptReporteEjecutivo(params: {
     "   - Agrupa correcciones menores en una sola lista de máximo 5 viñetas; no hagas una sección extensa por cada cambio.",
     "   - Omite rutas web, pasos técnicos y detalles de implementación. Usa cómoOperar/ejemplo solo para explicar el beneficio de forma sencilla.",
     "",
-    "6) PRÓXIMOS PASOS",
+    "6) ADOPCIÓN DE NUEVAS FUNCIONALIDADES — APARTADO OBLIGATORIO",
+    "   - Inclúyelo inmediatamente después de «Avances relevantes» y usa exactamente el título «Adopción de nuevas funcionalidades».",
+    "   - Abre con una aclaración breve y cotidiana: la clasificación observa actividad en el módulo relacionado, no demuestra que una funcionalidad individual haya sido usada ni permite atribuirla a personas concretas.",
+    "   - Separa las funcionalidades de la base de ADOPCIÓN en estos tres grupos y usa exactamente estos subtítulos:",
+    "     a) «Con actividad relacionada»: items con estado «usada».",
+    "     b) «Sin actividad relacionada»: items con estado «sin_evidencia».",
+    "     c) «No se puede medir»: items con estado «no_medible».",
+    "   - En cada grupo menciona máximo 5 funcionalidades por su título y explica en una frase qué permite afirmar la información disponible. Si quedan más, indica únicamente cuántas adicionales hay; si el grupo está vacío, escribe «No hay funcionalidades en este grupo».",
+    "   - «Sin actividad relacionada» significa que no se registraron operaciones del módulo relacionado durante el período. No significa que la funcionalidad no se haya usado.",
+    "   - «No se puede medir» significa que la información disponible no conecta esa funcionalidad con una actividad observable.",
+    "   - Si porcentajeAdopcion es numérico, muéstralo una sola vez como «Porcentaje de funcionalidades medibles con actividad relacionada». Si es null, no calcules ni muestres un porcentaje.",
+    "   - accionesEnPeriodo es el total de actividad de toda la familia o módulo relacionado; nunca lo presentes como número de usos de la funcionalidad.",
+    "   - No nombres usuarios ni deduzcas quién adoptó una funcionalidad.",
+    "",
+    "7) PRÓXIMOS PASOS",
     "   - Cierra con 2 a 4 acciones concretas, prudentes y derivadas de los datos.",
     "   - Usa verbos directos: revisar, priorizar, acompañar, medir o confirmar.",
     "   - No repitas el resumen ni agregues una despedida comercial.",
@@ -123,7 +137,9 @@ export function construirPromptReporteEjecutivo(params: {
     "- Usa únicamente números, fechas, usuarios, acciones, módulos y novedades presentes en las bases factuales.",
     "- No inventes porcentajes de ahorro, costos, tiempos, causas, promesas de producto ni métricas.",
     "- El porcentaje de adopción se muestra solo si viene en la base; si es null, escribe «No calculable» o no incluyas una cifra.",
-    "- «Sin evidencia» significa únicamente que no hay una acción medible en la información disponible; no significa que la mejora no se haya usado.",
+    "- La actividad registrada corresponde a una familia o módulo completo. No demuestra el uso de una funcionalidad individual.",
+    "- «Sin actividad relacionada» significa únicamente que no hay operaciones del módulo relacionado en la información disponible; no significa que la mejora no se haya usado.",
+    "- No atribuyas la adopción de una funcionalidad a usuarios concretos: la base no permite hacerlo.",
     "- No digas que recibiste un JSON ni que eres una IA.",
     "- Si falta un dato necesario, escribe «No documentado» o sencillamente omítelo.",
     "- No inventes funcionalidades: usa solo el contexto de novedades.",

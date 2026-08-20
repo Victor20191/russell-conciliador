@@ -91,9 +91,29 @@ describe("construirSeccionGraficosHtml", () => {
     expect(html).toContain("Sin acciones auditables registradas.");
     expect(html).toContain("Ana");
     expect(html).toContain("Acme SAS");
-    expect(html).toContain("Adopción de novedades");
+    expect(html).toContain("Adopción de nuevas funcionalidades");
+    expect(html).toContain("Con actividad relacionada");
+    expect(html).toContain("Sin actividad relacionada");
+    expect(html).toContain("No se puede medir");
+    expect(html).toContain("No confirma que una funcionalidad específica haya sido usada");
+    expect(html).toContain("66.7% de las funcionalidades medibles tienen actividad relacionada");
     expect(html).toContain("Ritmo de uso diario");
     expect(html).not.toContain("<script");
+  });
+
+  test("no inventa un porcentaje cuando no hay funcionalidades medibles", () => {
+    const html = construirSeccionGraficosHtml({
+      uso: usoVacio,
+      adopcion: {
+        ...adopcionVacia,
+        totalCambios: 1,
+        noMedibles: 1,
+        porcentajeAdopcion: null,
+      },
+    });
+
+    expect(html).toContain("Porcentaje no calculable");
+    expect(html).not.toContain("% de las funcionalidades medibles tienen actividad relacionada");
   });
 });
 

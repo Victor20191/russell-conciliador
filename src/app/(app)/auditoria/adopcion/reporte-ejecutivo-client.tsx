@@ -9,6 +9,7 @@ import { Modal } from "@/components/modal";
 import { fmtDate, fmtDateTimeLong, fmtNum } from "@/lib/format";
 import { notifyError, notifyInfo, notifySuccess } from "@/lib/client-notifications";
 import { htmlConEstilosEnLinea } from "@/lib/correo/preparar-html-correo";
+import { copiarHtmlAlPortapapeles } from "@/lib/portapapeles";
 import type { ReporteEjecutivoUso } from "@/lib/auditoria/reporte-ejecutivo/reportes";
 import {
   IndicadoresUso,
@@ -177,26 +178,8 @@ async function copiarFormatoCorreo(reporte: ReporteEjecutivoUso): Promise<Result
   const textoPlano = htmlATextoPlano(htmlCorreo);
   const caracteres = htmlCorreo.length;
 
-  try {
-    if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
-      await navigator.clipboard.write([
-        new ClipboardItem({
-          "text/html": new Blob([htmlCorreo], { type: "text/html" }),
-          "text/plain": new Blob([textoPlano], { type: "text/plain" }),
-        }),
-      ]);
-      return { conFormato: true, caracteres };
-    }
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(textoPlano);
-      return { conFormato: false, caracteres };
-    }
-    throw new Error("Portapapeles no disponible en este navegador.");
-  } catch {
-    // Fallback legacy (algunos navegadores bloquean ClipboardItem con text/html).
-    await navigator.clipboard.writeText(textoPlano);
-    return { conFormato: false, caracteres };
-  }
+  const { conFormato } = await copiarHtmlAlPortapapeles(htmlCorreo, textoPlano);
+  return { conFormato, caracteres };
 }
 
 /** Abre el cliente de correo con el asunto del reporte (el cuerpo se pega del portapapeles). */
@@ -364,13 +347,13 @@ export function ReporteEjecutivoClient({
         <StatCard label="Acciones en el período" value={fmtNum(kpis.totalAcciones)} tone="ink" />
         <StatCard label="Usuarios activos" value={fmtNum(kpis.totalUsuarios)} tone="blue" />
         <StatCard
-          label="Adopción de novedades"
+          label="Actividad relacionada con nuevas funcionalidades"
           value={adopcionLabel}
           tone="ok"
           hint={
             kpis.porcentajeAdopcion == null
               ? "sin funcionalidades evaluables"
-              : `${kpis.usadas} usadas · ${kpis.sinEvidencia} sin evidencia`
+              : `${kpis.usadas} con actividad relacionada · ${kpis.sinEvidencia} sin actividad relacionada`
           }
         />
         <StatCard

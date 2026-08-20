@@ -14,7 +14,7 @@ const vacio: Record<FamiliaProceso, number> = {
 };
 
 describe("evaluarAdopcion", () => {
-  test("marca usada / sin evidencia / no medible", () => {
+  test("clasifica por actividad de la familia sin afirmar uso individual", () => {
     const resumen = evaluarAdopcion({
       conteosPorFamilia: { ...vacio, balance: 5 },
       cambios: [
@@ -64,8 +64,11 @@ describe("evaluarAdopcion", () => {
     expect(resumen.evaluables).toBe(2);
     expect(resumen.porcentajeAdopcion).toBe(50);
     expect(resumen.items[0]?.estado).toBe("usada");
+    expect(resumen.items[0]?.estadoEtiqueta).toBe("Con actividad relacionada");
     expect(resumen.items[1]?.estado).toBe("sin_evidencia");
+    expect(resumen.items[1]?.estadoEtiqueta).toBe("Sin actividad relacionada");
     expect(resumen.items[2]?.estado).toBe("no_medible");
+    expect(resumen.items[2]?.estadoEtiqueta).toBe("No se puede medir");
   });
 
   test("sin evaluables → porcentaje null", () => {

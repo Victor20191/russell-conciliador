@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { Modal } from "@/components/modal";
 import { importarMaestros } from "@/app/actions/import-maestros";
 import { notifyActionState } from "@/lib/client-notifications";
+import { copiarTextoAlPortapapeles } from "@/lib/portapapeles";
 import type { ErrorImport, ImportMaestrosState } from "@/lib/import/maestros";
 
 export function ImportMaestrosButton() {
@@ -119,7 +120,9 @@ function ResultadoOk({
           </code>
           <button
             type="button"
-            onClick={() => navigator.clipboard?.writeText(resumen.passwordTemporal)}
+            onClick={() => {
+              void copiarTextoAlPortapapeles(resumen.passwordTemporal).catch(() => undefined);
+            }}
             className="rounded-md border border-ink-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-ink-700 hover:bg-ink-50"
           >
             Copiar

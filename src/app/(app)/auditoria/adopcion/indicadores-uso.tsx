@@ -186,10 +186,10 @@ export function IndicadoresUso({
           trackClass="bg-ink-100"
         />
         <ListaBarras
-          titulo="Adopción de novedades"
-          subtitulo="Estado de las funcionalidades liberadas vs. uso real"
+          titulo="Adopción de nuevas funcionalidades"
+          subtitulo="Actividad del módulo relacionado; no confirma el uso de una funcionalidad individual"
           items={adopcion}
-          vacio="No hay novedades publicadas para medir adopción."
+          vacio="No hay funcionalidades publicadas en el alcance para revisar."
           barClass="bg-ok-500"
           trackClass="bg-ok-100"
         />

@@ -132,15 +132,15 @@ function graficoAdopcionDonutLike(adopcion: ResumenAdopcion): string {
   if (total === 0) {
     return `
 <section class="rd-chart" id="rd-chart-adopcion" style="break-inside:avoid;margin:0 0 1.25rem;padding:1rem 1.1rem;border:1px solid #e7eaef;border-radius:10px;background:#fff;">
-  <h3 style="margin:0 0 0.25rem;font-family:Georgia,'Times New Roman',serif;font-size:1.05rem;color:#0e1721;font-weight:600;">Adopción de novedades</h3>
-  <p style="margin:0;font-size:12.5px;color:#566273;">Sin novedades evaluables en el alcance.</p>
+  <h3 style="margin:0 0 0.25rem;font-family:Georgia,'Times New Roman',serif;font-size:1.05rem;color:#0e1721;font-weight:600;">Adopción de nuevas funcionalidades</h3>
+  <p style="margin:0;font-size:12.5px;color:#566273;">No hay funcionalidades publicadas en el alcance para revisar su actividad relacionada.</p>
 </section>`;
   }
 
   const segmentos: Array<{ label: string; valor: number; color: string }> = [
-    { label: "Usadas", valor: adopcion.usadas, color: "#2f6b3f" },
-    { label: "Sin evidencia", valor: adopcion.sinEvidencia, color: "#b8801f" },
-    { label: "No medibles", valor: adopcion.noMedibles, color: "#626e7e" },
+    { label: "Con actividad relacionada", valor: adopcion.usadas, color: "#2f6b3f" },
+    { label: "Sin actividad relacionada", valor: adopcion.sinEvidencia, color: "#b8801f" },
+    { label: "No se puede medir", valor: adopcion.noMedibles, color: "#626e7e" },
   ].filter((s) => s.valor > 0);
 
   const max = Math.max(...segmentos.map((s) => s.valor), 1);
@@ -163,13 +163,14 @@ function graficoAdopcionDonutLike(adopcion: ResumenAdopcion): string {
 
   const pctAdop =
     adopcion.porcentajeAdopcion == null
-      ? "No calculable"
-      : `${adopcion.porcentajeAdopcion}% sobre evaluables`;
+      ? "Porcentaje no calculable"
+      : `${adopcion.porcentajeAdopcion}% de las funcionalidades medibles tienen actividad relacionada`;
 
   return `
 <section class="rd-chart" id="rd-chart-adopcion" style="break-inside:avoid;margin:0 0 1.25rem;padding:1rem 1.1rem;border:1px solid #e7eaef;border-radius:10px;background:#fff;">
-  <h3 style="margin:0 0 0.25rem;font-family:Georgia,'Times New Roman',serif;font-size:1.05rem;color:#0e1721;font-weight:600;">Adopción de novedades</h3>
-  <p style="margin:0 0 0.85rem;font-size:12px;color:#566273;">${escapeHtml(pctAdop)} · ${fmtNum(total)} cambios en alcance</p>
+  <h3 style="margin:0 0 0.25rem;font-family:Georgia,'Times New Roman',serif;font-size:1.05rem;color:#0e1721;font-weight:600;">Adopción de nuevas funcionalidades</h3>
+  <p style="margin:0 0 0.45rem;font-size:12px;color:#566273;">${escapeHtml(pctAdop)} · ${fmtNum(total)} funcionalidades en alcance</p>
+  <p style="margin:0 0 0.85rem;font-size:12px;color:#566273;">La actividad corresponde al módulo relacionado. No confirma que una funcionalidad específica haya sido usada ni identifica usuarios. «Sin actividad relacionada» tampoco prueba que no se haya usado.</p>
   ${filas}
 </section>`;
 }

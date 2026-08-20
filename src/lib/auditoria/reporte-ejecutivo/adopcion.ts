@@ -42,16 +42,19 @@ export type ResumenAdopcion = {
   usadas: number;
   sinEvidencia: number;
   noMedibles: number;
-  /** Porcentaje 0–100 sobre evaluables; null si no hay evaluables. */
+  /**
+   * Porcentaje 0–100 de funcionalidades medibles cuya familia tuvo alguna
+   * actividad relacionada; null si no hay funcionalidades medibles.
+   */
   porcentajeAdopcion: number | null;
   items: ItemAdopcion[];
   porEstado: Array<{ nombre: string; total: number }>;
 };
 
 const ETIQUETA_ESTADO: Record<EstadoAdopcion, string> = {
-  usada: "Usada en el período",
-  sin_evidencia: "Sin evidencia de uso",
-  no_medible: "No medible con bitácora",
+  usada: "Con actividad relacionada",
+  sin_evidencia: "Sin actividad relacionada",
+  no_medible: "No se puede medir",
 };
 
 export function evaluarAdopcion(params: {

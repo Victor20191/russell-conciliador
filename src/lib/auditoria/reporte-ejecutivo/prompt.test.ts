@@ -73,13 +73,33 @@ describe("construirPromptReporteEjecutivo", () => {
     const decisiones = prompt.indexOf("3) DECISIONES Y ASUNTOS POR ATENDER");
     const indicadores = prompt.indexOf("4) INDICADORES CLAVE DEL PERÍODO");
     const avances = prompt.indexOf("5) AVANCES RELEVANTES");
-    const pasos = prompt.indexOf("6) PRÓXIMOS PASOS");
+    const adopcionFuncionalidades = prompt.indexOf(
+      "6) ADOPCIÓN DE NUEVAS FUNCIONALIDADES — APARTADO OBLIGATORIO",
+    );
+    const pasos = prompt.indexOf("7) PRÓXIMOS PASOS");
 
     expect(resumen).toBeGreaterThan(-1);
     expect(resumen).toBeLessThan(decisiones);
     expect(decisiones).toBeLessThan(indicadores);
     expect(indicadores).toBeLessThan(avances);
-    expect(avances).toBeLessThan(pasos);
+    expect(avances).toBeLessThan(adopcionFuncionalidades);
+    expect(adopcionFuncionalidades).toBeLessThan(pasos);
+  });
+
+  test("separa la adopción según la evidencia realmente disponible", () => {
+    const prompt = construirPromptReporteEjecutivo({ uso, adopcion, novedades });
+
+    expect(prompt).toContain("Adopción de nuevas funcionalidades");
+    expect(prompt).toContain("«Con actividad relacionada»: items con estado «usada»");
+    expect(prompt).toContain("«Sin actividad relacionada»: items con estado «sin_evidencia»");
+    expect(prompt).toContain("«No se puede medir»: items con estado «no_medible»");
+    expect(prompt).toContain("no demuestra que una funcionalidad individual haya sido usada");
+    expect(prompt).toContain("No significa que la funcionalidad no se haya usado");
+    expect(prompt).toContain("Si porcentajeAdopcion es numérico");
+    expect(prompt).toContain("Si es null, no calcules ni muestres un porcentaje");
+    expect(prompt).toContain("En cada grupo menciona máximo 5 funcionalidades");
+    expect(prompt).toContain("indica únicamente cuántas adicionales hay");
+    expect(prompt).toContain("No nombres usuarios ni deduzcas quién adoptó una funcionalidad");
   });
 
   test("conserva un único marcador y limita el detalle editorial", () => {
@@ -110,6 +130,8 @@ describe("SISTEMA_REPORTE_EJECUTIVO", () => {
     expect(SISTEMA_REPORTE_EJECUTIVO).toContain("gerentes y socios");
     expect(SISTEMA_REPORTE_EJECUTIVO).toContain("sin tecnicismos");
     expect(SISTEMA_REPORTE_EJECUTIVO).toContain("No inventas datos");
+    expect(SISTEMA_REPORTE_EJECUTIVO).toContain("solo una señal relacionada");
+    expect(SISTEMA_REPORTE_EJECUTIVO).toContain("ni la atribuyes a usuarios concretos");
     expect(SISTEMA_REPORTE_EJECUTIVO).toContain("marcador HTML");
     expect(SISTEMA_REPORTE_EJECUTIVO).toContain("reportes de uso y avances");
   });

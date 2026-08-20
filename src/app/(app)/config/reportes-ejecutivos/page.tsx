@@ -147,9 +147,9 @@ export default async function ReportesEjecutivosPage() {
     topClientes: uso.topClientes.map((c) => ({ etiqueta: c.nombre, total: c.total })),
     serieDiaria: uso.serieDiaria.map((d) => ({ fecha: d.fecha, total: d.total })),
     adopcionBarras: [
-      { etiqueta: "Usadas en el período", total: adopcion.usadas },
-      { etiqueta: "Sin evidencia de uso", total: adopcion.sinEvidencia },
-      { etiqueta: "No medibles con bitácora", total: adopcion.noMedibles },
+      { etiqueta: "Con actividad relacionada", total: adopcion.usadas },
+      { etiqueta: "Sin actividad relacionada", total: adopcion.sinEvidencia },
+      { etiqueta: "No se puede medir", total: adopcion.noMedibles },
     ].filter((b) => b.total > 0 || adopcion.totalCambios > 0),
   };
 
