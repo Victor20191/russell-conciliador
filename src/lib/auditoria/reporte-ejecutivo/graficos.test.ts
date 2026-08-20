@@ -98,6 +98,16 @@ describe("construirSeccionGraficosHtml", () => {
     expect(html).toContain("No confirma que una funcionalidad específica haya sido usada");
     expect(html).toContain("66.7% de las funcionalidades medibles tienen actividad relacionada");
     expect(html).toContain("Ritmo de uso diario");
+    // El ritmo diario se muestra como tabla (fecha, día, acciones, % y comparativo).
+    expect(html).toContain("% del total");
+    expect(html).toContain("Comparativo");
+    expect(html).toContain("01/06");
+    expect(html).toContain("Lunes");
+    expect(html).toContain("02/06");
+    expect(html).toContain("Martes");
+    expect(html).toContain("Total del período mostrado");
+    expect(html).toContain("2 días con datos");
+    expect(html).not.toContain("transform:rotate(-45deg)");
     expect(html).toContain('<table role="presentation" width="100%"');
     expect(html).toContain('align="right"');
     expect(html).not.toContain("display:flex;align-items:baseline;justify-content:space-between");

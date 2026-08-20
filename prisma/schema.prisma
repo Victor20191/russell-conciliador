@@ -1546,6 +1546,28 @@ model ReporteEjecutivoUsoIA {
   @@map("reportes_ejecutivos_uso_ia")
 }
 
+// Registro de reportes ejecutivos ENVIADOS al cliente. Existe para NO repetir
+// avances ya comunicados: la siguiente generación preselecciona solo las
+// versiones de Novedades que no aparecen en ningún envío previo.
+// `enviadoPorId` es FK lógica a User (sin @relation).
+model EnvioReporteEjecutivo {
+  id             Int      @id @default(autoincrement()) @map("id")
+  titulo         String   @map("titulo")
+  periodoDesde   DateTime @map("periodo_desde") @db.Timestamptz(3)
+  periodoHasta   DateTime @map("periodo_hasta") @db.Timestamptz(3)
+  versionIds     Int[]    @map("ids_version")
+  totalNovedades Int      @default(0) @map("total_novedades")
+  totalAcciones  Int      @default(0) @map("total_acciones")
+  canal          String   @default("correo") @map("canal")
+  nota           String?  @map("nota")
+  enviadoPor     String   @map("enviado_por")
+  enviadoPorId   Int?     @map("enviado_por_id")
+  enviadoEn      DateTime @default(now()) @map("enviado_en") @db.Timestamptz(3)
+
+  @@index([enviadoEn])
+  @@map("envios_reporte_ejecutivo")
+}
+
 // ===== Consumo de IA (tokens y costos de escaneos con Claude) =====
 // Registro de uso de la API de Claude (Anthropic): UNA fila por LLAMADA a la API
 // durante el escaneo/extracción de documentos (extracción tabular, extracción de

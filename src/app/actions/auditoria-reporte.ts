@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
+import { mensajeErrorBD } from "@/lib/errores";
 import { authorizeReporteEjecutivo } from "@/lib/rbac/reporte-ejecutivo";
 import { completarTextoOpenCode, mensajeErrorOpenCode } from "@/lib/opencode";
 import {
@@ -34,9 +35,13 @@ import {
   type NovedadReporteEjecutivoContexto,
 } from "@/lib/auditoria/reporte-ejecutivo/prompt";
 import {
+  RegistroEnvioReporteSchema,
   ReporteEjecutivoUsoScopeSchema,
+  type RegistroEnvioReporte,
   type ReporteEjecutivoUsoScope,
 } from "@/lib/definitions";
+import type { EnvioReportePrevio } from "@/lib/auditoria/reporte-ejecutivo/envios";
+import { revalidatePath } from "next/cache";
 
 const MAX_CAMBIOS_PROMPT = 80;
 const MAX_CACHE_MEMORIA = 20;
@@ -54,6 +59,8 @@ export type GenerarReporteEjecutivoResult =
       totalNovedades: number;
       porcentajeAdopcion: number | null;
       desdeCache: boolean;
+      /** Versiones de Novedades realmente incluidas: es lo que se registra al marcar el envío. */
+      versionIdsIncluidos: number[];
     }
   | { ok: false; message: string };
 
@@ -445,6 +452,10 @@ export async function generarReporteEjecutivoUso(
       return { ok: false, message: "No se encontraron las versiones seleccionadas." };
     }
 
+    // Ids realmente usados (aunque el alcance haya sido «todas las publicadas»):
+    // es lo que se guarda al marcar el reporte como enviado.
+    const versionIdsIncluidos = versiones.map((v) => v.id);
+
     const eventos: EventoAuditoria[] = eventosRaw.map((e) => ({
       user: e.user,
       action: e.action,
@@ -508,6 +519,7 @@ export async function generarReporteEjecutivoUso(
         totalNovedades: cacheLocal.totalNovedades,
         porcentajeAdopcion: adopcion.porcentajeAdopcion,
         desdeCache: true,
+        versionIdsIncluidos,
       };
     }
 
@@ -524,6 +536,7 @@ export async function generarReporteEjecutivoUso(
         totalNovedades: cacheDb.totalNovedades,
         porcentajeAdopcion: adopcion.porcentajeAdopcion,
         desdeCache: true,
+        versionIdsIncluidos,
       };
     }
 
@@ -603,6 +616,7 @@ export async function generarReporteEjecutivoUso(
       totalNovedades: final.totalNovedades,
       porcentajeAdopcion: adopcion.porcentajeAdopcion,
       desdeCache: false,
+      versionIdsIncluidos,
     };
   } catch (e) {
     return { ok: false, message: mensajeErrorOpenCode("generarReporteEjecutivoUso", e) };
@@ -698,5 +712,169 @@ export async function obtenerResumenUsoAdopcion(opciones: {
     };
   } catch {
     return { ok: false, message: "No se pudo cargar el resumen de uso y adopción." };
+  }
+}
+
+/* ===== Registro de envíos: evita repetir avances ya comunicados ===== */
+
+const RUTA_REPORTES = "/config/reportes-ejecutivos";
+
+export type RegistrarEnvioResult =
+  | { ok: true; envio: EnvioReportePrevio }
+  | { ok: false; message: string };
+
+function esTablaEnviosNoDisponible(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : "";
+  return /P2021|P2022|envios_reporte_ejecutivo|does not exist|no existe/i.test(msg);
+}
+
+type FilaEnvio = {
+  id: number;
+  titulo: string;
+  periodoDesde: Date;
+  periodoHasta: Date;
+  versionIds: number[];
+  totalNovedades: number;
+  totalAcciones: number;
+  canal: string;
+  enviadoPor: string;
+  enviadoEn: Date;
+};
+
+function aEnvioPrevio(fila: FilaEnvio): EnvioReportePrevio {
+  return {
+    id: fila.id,
+    titulo: fila.titulo,
+    periodoDesde: fila.periodoDesde.toISOString(),
+    periodoHasta: fila.periodoHasta.toISOString(),
+    versionIds: fila.versionIds,
+    totalNovedades: fila.totalNovedades,
+    totalAcciones: fila.totalAcciones,
+    canal: fila.canal,
+    enviadoPor: fila.enviadoPor,
+    enviadoEn: fila.enviadoEn.toISOString(),
+  };
+}
+
+const SELECT_ENVIO = {
+  id: true,
+  titulo: true,
+  periodoDesde: true,
+  periodoHasta: true,
+  versionIds: true,
+  totalNovedades: true,
+  totalAcciones: true,
+  canal: true,
+  enviadoPor: true,
+  enviadoEn: true,
+} as const;
+
+/**
+ * Lee los envíos registrados (para los loaders RSC). Nunca lanza: si la tabla
+ * aún no existe en el entorno, la pantalla funciona como antes (sin historial).
+ */
+export async function listarEnviosReporteEjecutivo(limite = 50): Promise<EnvioReportePrevio[]> {
+  try {
+    const filas = await prisma.envioReporteEjecutivo.findMany({
+      orderBy: [{ enviadoEn: "desc" }, { id: "desc" }],
+      take: Math.min(Math.max(limite, 1), 200),
+      select: SELECT_ENVIO,
+    });
+    return filas.map(aEnvioPrevio);
+  } catch (e) {
+    if (esTablaEnviosNoDisponible(e)) return [];
+    throw e;
+  }
+}
+
+/**
+ * Marca un reporte como entregado al cliente: deja constancia del período y de
+ * las versiones de Novedades incluidas, para que el siguiente reporte solo
+ * proponga lo que aún no se ha contado.
+ */
+export async function registrarEnvioReporteEjecutivo(
+  datos: RegistroEnvioReporte,
+): Promise<RegistrarEnvioResult> {
+  const authz = await authorizeReporteEjecutivo();
+  if (!authz.ok) return { ok: false, message: authz.message };
+
+  const parsed = RegistroEnvioReporteSchema.safeParse(datos);
+  if (!parsed.success) {
+    return { ok: false, message: "No se pudo registrar el envío: los datos del reporte no son válidos." };
+  }
+
+  const rango = parseRango(parsed.data.desde, parsed.data.hasta);
+  if (!rango) {
+    return { ok: false, message: "El período del reporte no es válido." };
+  }
+
+  const versionIds = Array.from(new Set(parsed.data.versionIds)).sort((a, b) => a - b);
+
+  try {
+    const user = await getCurrentUser();
+    const fila = await prisma.envioReporteEjecutivo.create({
+      data: {
+        titulo: parsed.data.titulo,
+        periodoDesde: rango.desde,
+        periodoHasta: rango.hasta,
+        versionIds,
+        totalNovedades: parsed.data.totalNovedades,
+        totalAcciones: parsed.data.totalAcciones,
+        canal: parsed.data.canal,
+        nota: parsed.data.nota ?? null,
+        enviadoPor: user?.name ?? "Sistema",
+        enviadoPorId: user?.id ?? null,
+      },
+      select: SELECT_ENVIO,
+    });
+
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: "REGISTRÓ ENVÍO DE REPORTE",
+      entity: "Uso y adopción",
+      detail: `Marcó como enviado «${parsed.data.titulo}» (${versionIds.length} versiones de novedades, canal ${parsed.data.canal}).`,
+    });
+
+    revalidatePath(RUTA_REPORTES);
+    return { ok: true, envio: aEnvioPrevio(fila) };
+  } catch (e) {
+    if (esTablaEnviosNoDisponible(e)) {
+      return {
+        ok: false,
+        message:
+          "El historial de envíos aún no está disponible en este entorno. Aplica la migración pendiente e inténtalo de nuevo.",
+      };
+    }
+    return { ok: false, message: mensajeErrorBD("registrarEnvioReporteEjecutivo", e) };
+  }
+}
+
+/** Deshace un registro de envío hecho por error (vuelve a considerar sus versiones como pendientes). */
+export async function eliminarEnvioReporteEjecutivo(
+  id: number,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const authz = await authorizeReporteEjecutivo();
+  if (!authz.ok) return { ok: false, message: authz.message };
+
+  if (!Number.isInteger(id) || id <= 0) {
+    return { ok: false, message: "El registro de envío no es válido." };
+  }
+
+  try {
+    const user = await getCurrentUser();
+    await prisma.envioReporteEjecutivo.delete({ where: { id } });
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: "ELIMINÓ ENVÍO DE REPORTE",
+      entity: "Uso y adopción",
+      detail: `Deshizo el registro de envío #${id}; sus novedades vuelven a considerarse pendientes.`,
+    });
+    revalidatePath(RUTA_REPORTES);
+    return { ok: true };
+  } catch (e) {
+    if (esTablaEnviosNoDisponible(e)) {
+      return { ok: false, message: "El historial de envíos no está disponible en este entorno." };
+    }
+    return { ok: false, message: mensajeErrorBD("eliminarEnvioReporteEjecutivo", e) };
   }
 }

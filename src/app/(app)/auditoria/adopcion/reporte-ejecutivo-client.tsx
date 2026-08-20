@@ -2,7 +2,11 @@
 
 import { EstadoProcesando } from "@/components/estado-procesando";
 import { useMemo, useRef, useState, useTransition } from "react";
-import { generarReporteEjecutivoUso } from "@/app/actions/auditoria-reporte";
+import {
+  eliminarEnvioReporteEjecutivo,
+  generarReporteEjecutivoUso,
+  registrarEnvioReporteEjecutivo,
+} from "@/app/actions/auditoria-reporte";
 import { Card, Chip, StatCard } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { Modal } from "@/components/modal";
@@ -14,6 +18,10 @@ import {
 } from "@/lib/correo/preparar-html-correo";
 import { copiarHtmlAlPortapapeles } from "@/lib/portapapeles";
 import type { ReporteEjecutivoUso } from "@/lib/auditoria/reporte-ejecutivo/reportes";
+import type {
+  EnvioReportePrevio,
+  ResumenPendienteEnvio,
+} from "@/lib/auditoria/reporte-ejecutivo/envios";
 import {
   IndicadoresUso,
   type BarraUso,
@@ -54,7 +62,13 @@ type MetaReporte = {
   totalNovedades: number;
   porcentajeAdopcion: number | null;
   desdeCache: boolean;
+  /** Alcance con el que se generó: necesario para registrar el envío. */
+  versionIdsIncluidos: number[];
+  desde: string;
+  hasta: string;
 };
+
+type CanalEnvio = "correo" | "pdf" | "html";
 
 const BTN_PRIMARIO =
   "inline-flex items-center justify-center gap-1.5 rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white transition hover:bg-navy-700/90 disabled:cursor-not-allowed disabled:opacity-60";
@@ -207,11 +221,15 @@ export function ReporteEjecutivoClient({
   kpis,
   defaultDesde,
   defaultHasta,
+  envios,
+  pendiente,
 }: {
   versions: VersionOpcion[];
   kpis: KpisIniciales;
   defaultDesde: string;
   defaultHasta: string;
+  envios: EnvioReportePrevio[];
+  pendiente: ResumenPendienteEnvio;
 }) {
   const [isPending, startTransition] = useTransition();
   const [reporte, setReporte] = useState<ReporteEjecutivoUso | null>(null);
@@ -225,8 +243,13 @@ export function ReporteEjecutivoClient({
 
   const [desde, setDesde] = useState(defaultDesde);
   const [hasta, setHasta] = useState(defaultHasta);
-  const [modoVersiones, setModoVersiones] = useState<"publicadas" | "seleccion">("publicadas");
+  const [modoVersiones, setModoVersiones] = useState<"nuevas" | "publicadas" | "seleccion">(
+    pendiente.sinNovedadesNuevas ? "publicadas" : "nuevas",
+  );
   const [seleccion, setSeleccion] = useState<Set<number>>(new Set());
+  const [envioPendiente, setEnvioPendiente] = useState(false);
+  const [envioRegistrado, setEnvioRegistrado] = useState<EnvioReportePrevio | null>(null);
+  const [canalUsado, setCanalUsado] = useState<CanalEnvio>("correo");
 
   const cambiosSeleccionados = useMemo(
     () => versions.filter((v) => seleccion.has(v.id)).reduce((acc, v) => acc + v.changesCount, 0),
@@ -238,10 +261,19 @@ export function ReporteEjecutivoClient({
     const versionIds =
       modoVersiones === "seleccion"
         ? versions.filter((v) => seleccion.has(v.id)).map((v) => v.id)
-        : undefined;
+        : modoVersiones === "nuevas"
+          ? pendiente.versionIds
+          : undefined;
 
     if (modoVersiones === "seleccion" && (!versionIds || versionIds.length === 0)) {
       setError("Selecciona al menos una versión de Novedades.");
+      return;
+    }
+
+    if (modoVersiones === "nuevas" && (!versionIds || versionIds.length === 0)) {
+      setError(
+        "No hay novedades sin enviar. Elige otro alcance o publica una versión nueva en Novedades.",
+      );
       return;
     }
 
@@ -263,7 +295,11 @@ export function ReporteEjecutivoClient({
         totalNovedades: res.totalNovedades,
         porcentajeAdopcion: res.porcentajeAdopcion,
         desdeCache: res.desdeCache,
+        versionIdsIncluidos: res.versionIdsIncluidos,
+        desde,
+        hasta,
       });
+      setEnvioRegistrado(null);
       setConfigAbierto(false);
       setModalAbierto(true);
     });
@@ -285,7 +321,10 @@ export function ReporteEjecutivoClient({
   const puedeConfirmar =
     !isPending &&
     Boolean(desde && hasta) &&
-    (modoVersiones === "publicadas" || cambiosSeleccionados > 0 || seleccion.size > 0);
+    (modoVersiones === "publicadas" ||
+      (modoVersiones === "nuevas" && pendiente.versionIds.length > 0) ||
+      cambiosSeleccionados > 0 ||
+      seleccion.size > 0);
 
   const descargarPdfActual = async () => {
     if (!reporte || pdfPendiente) return;
@@ -294,6 +333,7 @@ export function ReporteEjecutivoClient({
     try {
       const viewportWidth = vistaPreviaRef.current?.clientWidth;
       await descargarPdf(reporte, viewportWidth ? Math.round(viewportWidth) : undefined);
+      setCanalUsado("pdf");
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo generar el PDF.");
     } finally {
@@ -308,6 +348,7 @@ export function ReporteEjecutivoClient({
     setCorreoPendiente(true);
     try {
       const { conFormato, caracteres } = await copiarFormatoCorreo(reporte);
+      setCanalUsado("correo");
       if (!conFormato) {
         notifyInfo(
           "Copiado sin formato",
@@ -332,6 +373,53 @@ export function ReporteEjecutivoClient({
       setCorreoPendiente(false);
     }
   };
+
+  /** Deja constancia de que este reporte se entregó: el próximo no repetirá sus avances. */
+  const marcarComoEnviado = () => {
+    if (!reporte || !meta || envioPendiente) return;
+    setError(null);
+    setEnvioPendiente(true);
+    startTransition(async () => {
+      const res = await registrarEnvioReporteEjecutivo({
+        titulo: reporte.titulo,
+        desde: meta.desde,
+        hasta: meta.hasta,
+        versionIds: meta.versionIdsIncluidos,
+        totalNovedades: meta.totalNovedades,
+        totalAcciones: meta.totalAcciones,
+        canal: canalUsado,
+      });
+      setEnvioPendiente(false);
+      if (!res.ok) {
+        setError(res.message);
+        notifyError("No se pudo registrar el envío", res.message);
+        return;
+      }
+      setEnvioRegistrado(res.envio);
+      notifySuccess(
+        "Envío registrado",
+        `Estas ${res.envio.versionIds.length} versiones no se volverán a proponer en el próximo reporte.`,
+      );
+    });
+  };
+
+  const deshacerEnvio = (id: number) => {
+    startTransition(async () => {
+      const res = await eliminarEnvioReporteEjecutivo(id);
+      if (!res.ok) {
+        notifyError("No se pudo deshacer", res.message);
+        return;
+      }
+      if (envioRegistrado?.id === id) setEnvioRegistrado(null);
+      notifyInfo("Registro eliminado", "Sus novedades vuelven a considerarse pendientes de enviar.");
+    });
+  };
+
+  const enviosVisibles = useMemo(() => envios.slice(0, 6), [envios]);
+  const nombreVersion = useMemo(() => {
+    const mapa = new Map(versions.map((v) => [v.id, `v${v.number}`]));
+    return (id: number) => mapa.get(id) ?? `#${id}`;
+  }, [versions]);
 
   const adopcionLabel =
     kpis.porcentajeAdopcion == null ? "—" : `${kpis.porcentajeAdopcion}%`;
@@ -427,6 +515,60 @@ export function ReporteEjecutivoClient({
         </div>
       </Card>
 
+      <Card className="overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-100 px-4 py-3 lg:px-5">
+          <div className="min-w-0">
+            <h2 className="text-[13px] font-semibold text-ink-800">Reportes enviados</h2>
+            <p className="text-[11.5px] text-ink-500">
+              Control de lo ya comunicado al cliente. Lo registrado aquí no se vuelve a proponer como
+              avance nuevo.
+            </p>
+          </div>
+          <span className="shrink-0 text-[11.5px] text-ink-500">
+            {pendiente.versionIds.length === 0
+              ? "Sin avances pendientes por comunicar"
+              : `${pendiente.totalVersiones} ${
+                  pendiente.totalVersiones === 1 ? "versión pendiente" : "versiones pendientes"
+                } · ${pendiente.totalCambios} cambios`}
+          </span>
+        </div>
+        {enviosVisibles.length === 0 ? (
+          <p className="px-4 py-4 text-[12.5px] text-ink-500 lg:px-5">
+            Aún no hay envíos registrados. Genera el reporte, envíalo y usa «Marcar como enviado»
+            para que el siguiente solo cuente lo nuevo.
+          </p>
+        ) : (
+          <ul className="divide-y divide-ink-100">
+            {enviosVisibles.map((envio) => (
+              <li
+                key={envio.id}
+                className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-[12.5px] lg:px-5"
+              >
+                <span className="font-medium text-ink-800">{fmtDate(envio.enviadoEn)}</span>
+                <span className="text-ink-500">
+                  {fmtDate(envio.periodoDesde)} → {fmtDate(envio.periodoHasta)}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-ink-600">
+                  {envio.versionIds.length === 0
+                    ? "Sin versiones asociadas"
+                    : envio.versionIds.map(nombreVersion).join(" · ")}
+                </span>
+                <span className="text-ink-400">{envio.canal}</span>
+                <span className="text-ink-400">{envio.enviadoPor}</span>
+                <button
+                  type="button"
+                  onClick={() => deshacerEnvio(envio.id)}
+                  className="shrink-0 rounded-md border border-ink-150 px-2 py-1 text-[11px] font-medium text-ink-600 transition hover:bg-ink-50"
+                  title="Deshacer: sus novedades vuelven a considerarse pendientes"
+                >
+                  Deshacer
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+
       <Modal
         open={configAbierto}
         onClose={() => setConfigAbierto(false)}
@@ -496,8 +638,47 @@ export function ReporteEjecutivoClient({
           </div>
 
           <div>
-            <h3 className="mb-2 text-[12.5px] font-semibold text-ink-800">Novedades a incluir</h3>
+            <h3 className="mb-1 text-[12.5px] font-semibold text-ink-800">Novedades a incluir</h3>
+            <p className="mb-2 text-[11.5px] leading-relaxed text-ink-500">
+              Lo que ya marcaste como enviado no se vuelve a proponer. El período de uso sí se
+              recalcula siempre con las fechas de arriba.
+            </p>
             <div className="flex flex-col gap-2.5">
+              <label
+                className={`flex items-start gap-2.5 rounded-md border px-3 py-2.5 transition ${
+                  pendiente.versionIds.length === 0
+                    ? "cursor-not-allowed border-ink-150 bg-ink-50/60 opacity-70"
+                    : modoVersiones === "nuevas"
+                      ? "cursor-pointer border-navy-600 bg-navy-700/5"
+                      : "cursor-pointer border-ink-150 hover:bg-ink-50"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="alcance-novedades"
+                  checked={modoVersiones === "nuevas"}
+                  disabled={pendiente.versionIds.length === 0}
+                  onChange={() => setModoVersiones("nuevas")}
+                  className="mt-0.5 accent-navy-700"
+                />
+                <span className="min-w-0">
+                  <span className="block text-[13px] font-medium text-ink-800">
+                    Solo lo nuevo desde el último reporte enviado
+                  </span>
+                  <span className="block text-[11.5px] text-ink-500">
+                    {pendiente.versionIds.length === 0
+                      ? "Ya enviaste todas las versiones publicadas: no hay avances nuevos que contar."
+                      : `${pendiente.totalVersiones} ${
+                          pendiente.totalVersiones === 1 ? "versión" : "versiones"
+                        } · ${pendiente.totalCambios} cambios · ${
+                          pendiente.ultimoEnvioEn
+                            ? `último envío ${fmtDate(pendiente.ultimoEnvioEn)}`
+                            : "aún sin envíos registrados"
+                        }`}
+                  </span>
+                </span>
+              </label>
+
               <label
                 className={`flex cursor-pointer items-start gap-2.5 rounded-md border px-3 py-2.5 transition ${
                   modoVersiones === "publicadas"
@@ -630,9 +811,32 @@ export function ReporteEjecutivoClient({
                   "Copiar formato correo"
                 )}
               </button>
-              <button type="button" onClick={() => descargarHtml(reporte)} className={BTN_SECUNDARIO}>
+              <button
+                type="button"
+                onClick={() => {
+                  setCanalUsado("html");
+                  descargarHtml(reporte);
+                }}
+                className={BTN_SECUNDARIO}
+              >
                 <Icon name="download" size={14} />
                 Descargar HTML
+              </button>
+              <button
+                type="button"
+                onClick={marcarComoEnviado}
+                disabled={envioPendiente || envioRegistrado != null}
+                className={BTN_SECUNDARIO}
+                title="Deja constancia de que este reporte se entregó: sus avances no se repetirán en el próximo"
+              >
+                <Icon name="check" size={14} />
+                {envioPendiente ? (
+                  <EstadoProcesando>Registrando</EstadoProcesando>
+                ) : envioRegistrado ? (
+                  "Registrado como enviado"
+                ) : (
+                  "Marcar como enviado"
+                )}
               </button>
               <button
                 type="button"
@@ -659,6 +863,21 @@ export function ReporteEjecutivoClient({
           <p className="mt-1 text-[13px] text-ink-500">
             Vista previa del documento. Cópialo en formato correo, o descárgalo en HTML o PDF para
             enviarlo al cliente.
+          </p>
+          <p className="mt-2 rounded-md bg-ink-50 px-3 py-2 text-[12px] leading-relaxed text-ink-600">
+            {envioRegistrado ? (
+              <>
+                Envío registrado el {fmtDate(envioRegistrado.enviadoEn)}: las{" "}
+                {envioRegistrado.versionIds.length}{" "}
+                {envioRegistrado.versionIds.length === 1 ? "versión" : "versiones"} incluidas no se
+                volverán a proponer en el próximo reporte.
+              </>
+            ) : (
+              <>
+                Cuando lo envíes al cliente, usa <strong>Marcar como enviado</strong>: el próximo
+                reporte propondrá solo los avances que aún no se han comunicado.
+              </>
+            )}
           </p>
           <iframe
             ref={vistaPreviaRef}

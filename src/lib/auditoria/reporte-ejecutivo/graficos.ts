@@ -24,6 +24,21 @@ function fmtNum(n: number): string {
   return new Intl.NumberFormat("es-CO").format(n);
 }
 
+const DIAS_SEMANA = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+
+/** "2026-08-20" -> "20/08" (sin zona horaria: la fecha ya viene en formato local del reporte). */
+function fechaCorta(fecha: string): string {
+  const [, mes, dia] = fecha.split("-");
+  return mes && dia ? `${dia}/${mes}` : fecha;
+}
+
+/** "2026-08-20" -> "Jueves". Se calcula en UTC para no depender de la zona del servidor. */
+function diaSemana(fecha: string): string {
+  const [anio, mes, dia] = fecha.split("-").map(Number);
+  if (!anio || !mes || !dia) return "";
+  return DIAS_SEMANA[new Date(Date.UTC(anio, mes - 1, dia)).getUTCDay()] ?? "";
+}
+
 function construirDetalleUsuariosHtml(uso: ResumenUsoFactual): string {
   const filas = uso.detalleUsuarios.length
     ? uso.detalleUsuarios
@@ -245,30 +260,61 @@ export function construirSeccionGraficosHtml(params: {
 
   const adopcionChart = graficoAdopcionDonutLike(adopcion);
 
-  // Serie diaria compacta (últimos 14 puntos si hay más).
+  // Serie diaria en tabla (últimos 14 puntos si hay más): los datos quedan
+  // legibles y alineados, en vez de barras verticales apretadas.
   const serie = uso.serieDiaria.slice(-14);
+  const totalSerie = serie.reduce((acc, d) => acc + d.total, 0);
   const maxDia = Math.max(...serie.map((d) => d.total), 1);
-  const barrasDia =
+  const cell = "padding:0.42rem 0.6rem;border-bottom:1px solid #e7eaef;";
+  const filasDia = serie
+    .map((d, i) => {
+      const ancho = pct(d.total, maxDia);
+      const pctPeriodo = totalSerie > 0 ? Math.round((d.total / totalSerie) * 1000) / 10 : 0;
+      const fondo = i % 2 === 1 ? "background:#fafbfc;" : "";
+      return `
+        <tr style="${fondo}break-inside:avoid;page-break-inside:avoid;">
+          <td style="${cell}color:#1a2330;font-weight:500;white-space:nowrap;">${escapeHtml(fechaCorta(d.fecha))}</td>
+          <td style="${cell}color:#566273;white-space:nowrap;">${escapeHtml(diaSemana(d.fecha))}</td>
+          <td style="${cell}text-align:right;font-family:ui-monospace,Menlo,monospace;font-weight:600;color:#142b4a;white-space:nowrap;">${fmtNum(d.total)}</td>
+          <td style="${cell}text-align:right;font-family:ui-monospace,Menlo,monospace;color:#566273;white-space:nowrap;">${pctPeriodo}%</td>
+          <td style="${cell}width:40%;">
+            <div style="height:8px;border-radius:999px;background:#eff1f4;overflow:hidden;">
+              <div style="height:100%;width:${ancho}%;border-radius:999px;background:#142b4a;"></div>
+            </div>
+          </td>
+        </tr>`;
+    })
+    .join("");
+
+  const tablaDia =
     serie.length === 0
       ? `<p style="margin:0;font-size:12.5px;color:#566273;">Sin actividad diaria en el período.</p>`
-      : `<div style="display:flex;align-items:flex-end;gap:4px;height:88px;padding-top:0.5rem;">
-${serie
-  .map((d) => {
-    const h = Math.max(4, Math.round((d.total / maxDia) * 80));
-    const label = d.fecha.slice(5); // MM-DD
-    return `<div style="flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;" title="${escapeHtml(d.fecha)}: ${fmtNum(d.total)}">
-  <div style="width:100%;max-width:18px;height:${h}px;border-radius:3px 3px 0 0;background:#142b4a;"></div>
-  <span style="font-size:9px;color:#626e7e;margin-top:4px;transform:rotate(-45deg);transform-origin:top center;white-space:nowrap;">${escapeHtml(label)}</span>
-</div>`;
-  })
-  .join("")}
-</div>`;
+      : `<table style="width:100%;border-collapse:collapse;table-layout:fixed;font-size:11.5px;">
+      <thead style="display:table-header-group;">
+        <tr style="background:#f2f7fc;color:#142b4a;">
+          <th style="width:14%;padding:0.5rem 0.6rem;text-align:left;border-bottom:1px solid #dce0e7;">Fecha</th>
+          <th style="width:16%;padding:0.5rem 0.6rem;text-align:left;border-bottom:1px solid #dce0e7;">Día</th>
+          <th style="width:16%;padding:0.5rem 0.6rem;text-align:right;border-bottom:1px solid #dce0e7;">Acciones</th>
+          <th style="width:14%;padding:0.5rem 0.6rem;text-align:right;border-bottom:1px solid #dce0e7;">% del total</th>
+          <th style="width:40%;padding:0.5rem 0.6rem;text-align:left;border-bottom:1px solid #dce0e7;">Comparativo</th>
+        </tr>
+      </thead>
+      <tbody>${filasDia}
+      </tbody>
+      <tfoot>
+        <tr style="background:#f7f9fb;">
+          <td colspan="2" style="padding:0.5rem 0.6rem;font-weight:600;color:#1a2330;">Total del período mostrado</td>
+          <td style="padding:0.5rem 0.6rem;text-align:right;font-family:ui-monospace,Menlo,monospace;font-weight:600;color:#142b4a;">${fmtNum(totalSerie)}</td>
+          <td colspan="2" style="padding:0.5rem 0.6rem;color:#566273;">${serie.length} ${serie.length === 1 ? "día con datos" : "días con datos"}</td>
+        </tr>
+      </tfoot>
+    </table>`;
 
   const actividadDiaria = `
 <section class="rd-chart" id="rd-chart-diario" style="break-inside:avoid;margin:0 0 1.25rem;padding:1rem 1.1rem;border:1px solid #e7eaef;border-radius:10px;background:#fff;">
   <h3 style="margin:0 0 0.25rem;font-family:Georgia,'Times New Roman',serif;font-size:1.05rem;color:#0e1721;font-weight:600;">Ritmo de uso diario</h3>
-  <p style="margin:0 0 0.35rem;font-size:12px;color:#566273;">Acciones por día${serie.length < uso.serieDiaria.length ? " (últimos 14 días con datos en el rango)" : ""}</p>
-  ${barrasDia}
+  <p style="margin:0 0 0.6rem;font-size:12px;color:#566273;">Acciones por día${serie.length < uso.serieDiaria.length ? " (últimos 14 días con datos en el rango)" : ""}</p>
+  ${tablaDia}
 </section>`;
 
   return `

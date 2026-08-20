@@ -576,3 +576,16 @@ export const ReporteEjecutivoUsoScopeSchema = z
     }
   });
 export type ReporteEjecutivoUsoScope = z.infer<typeof ReporteEjecutivoUsoScopeSchema>;
+
+/** Registro de un reporte para gerencia efectivamente entregado al cliente. */
+export const RegistroEnvioReporteSchema = z.object({
+  titulo: z.string().trim().min(1, { error: "El reporte no tiene título." }).max(200),
+  desde: z.string().trim().min(1, { error: "Indica la fecha de inicio." }).max(40),
+  hasta: z.string().trim().min(1, { error: "Indica la fecha de fin." }).max(40),
+  versionIds: z.array(z.coerce.number().int().positive()).max(1000),
+  totalNovedades: z.coerce.number().int().min(0).max(100_000).default(0),
+  totalAcciones: z.coerce.number().int().min(0).max(10_000_000).default(0),
+  canal: z.enum(["correo", "pdf", "html", "otro"]).default("correo"),
+  nota: z.string().trim().max(500).optional(),
+});
+export type RegistroEnvioReporte = z.input<typeof RegistroEnvioReporteSchema>;

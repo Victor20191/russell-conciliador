@@ -10,6 +10,8 @@ import {
   evaluarAdopcion,
   type CambioNovedadContexto,
 } from "@/lib/auditoria/reporte-ejecutivo/adopcion";
+import { listarEnviosReporteEjecutivo } from "@/app/actions/auditoria-reporte";
+import { resumirPendienteDeEnvio } from "@/lib/auditoria/reporte-ejecutivo/envios";
 import {
   ReporteEjecutivoClient,
   type KpisIniciales,
@@ -37,7 +39,7 @@ export default async function ReportesEjecutivosPage() {
   const defaultDesde = aYYYYMMDD(desde);
   const defaultHasta = aYYYYMMDD(hasta);
 
-  const [eventosRaw, versiones, clientes] = await Promise.all([
+  const [eventosRaw, versiones, clientes, envios] = await Promise.all([
     prisma.auditEntry.findMany({
       where: { createdAt: { gte: desde, lte: hasta } },
       orderBy: { createdAt: "desc" },
@@ -72,6 +74,7 @@ export default async function ReportesEjecutivosPage() {
       },
     }),
     prisma.client.findMany({ select: { id: true, name: true } }),
+    listarEnviosReporteEjecutivo(50),
   ]);
 
   const eventos: EventoAuditoria[] = eventosRaw.map((e) => ({
@@ -123,6 +126,12 @@ export default async function ReportesEjecutivosPage() {
     createdAt: v.createdAt.toISOString(),
   }));
 
+  // Qué avances aún no se le han contado al cliente (según los envíos registrados).
+  const pendiente = resumirPendienteDeEnvio({
+    versiones: versions.map((v) => ({ id: v.id, changesCount: v.changesCount })),
+    envios,
+  });
+
   const kpis: KpisIniciales = {
     totalAcciones: uso.totalAcciones,
     totalUsuarios: uso.totalUsuarios,
@@ -164,6 +173,8 @@ export default async function ReportesEjecutivosPage() {
         kpis={kpis}
         defaultDesde={defaultDesde}
         defaultHasta={defaultHasta}
+        envios={envios}
+        pendiente={pendiente}
       />
     </div>
   );
