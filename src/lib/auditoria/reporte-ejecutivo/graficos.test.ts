@@ -98,6 +98,9 @@ describe("construirSeccionGraficosHtml", () => {
     expect(html).toContain("No confirma que una funcionalidad específica haya sido usada");
     expect(html).toContain("66.7% de las funcionalidades medibles tienen actividad relacionada");
     expect(html).toContain("Ritmo de uso diario");
+    expect(html).toContain('<table role="presentation" width="100%"');
+    expect(html).toContain('align="right"');
+    expect(html).not.toContain("display:flex;align-items:baseline;justify-content:space-between");
     expect(html).not.toContain("<script");
   });
 

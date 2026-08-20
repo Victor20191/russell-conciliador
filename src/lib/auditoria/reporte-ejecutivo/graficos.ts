@@ -101,13 +101,15 @@ function graficoBarrasHorizontales(params: {
         : "";
       return `
     <div style="margin:0 0 0.65rem;">
-      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:0.75rem;margin-bottom:0.28rem;">
-        <div style="min-width:0;flex:1;">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;border-collapse:collapse;margin:0 0 0.28rem;">
+        <tbody><tr>
+        <td valign="bottom" style="padding:0;vertical-align:bottom;">
           <span style="font-size:12.5px;color:#1a2330;font-weight:500;">${escapeHtml(item.etiqueta)}</span>
           ${sub}
-        </div>
-        <span style="font-family:ui-monospace,Menlo,monospace;font-size:12px;font-weight:600;color:#142b4a;white-space:nowrap;">${fmtNum(item.valor)}</span>
-      </div>
+        </td>
+        <td valign="bottom" align="right" style="width:1%;padding:0 0 0 0.75rem;vertical-align:bottom;text-align:right;white-space:nowrap;"><span style="font-family:ui-monospace,Menlo,monospace;font-size:12px;font-weight:600;color:#142b4a;white-space:nowrap;">${fmtNum(item.valor)}</span></td>
+        </tr></tbody>
+      </table>
       <div style="height:8px;border-radius:999px;background:#eff1f4;overflow:hidden;">
         <div style="height:100%;width:${ancho}%;border-radius:999px;background:${color};"></div>
       </div>
@@ -150,10 +152,12 @@ function graficoAdopcionDonutLike(adopcion: ResumenAdopcion): string {
       const pctTotal = Math.round((s.valor / total) * 1000) / 10;
       return `
     <div style="margin:0 0 0.65rem;">
-      <div style="display:flex;justify-content:space-between;gap:0.75rem;margin-bottom:0.28rem;">
-        <span style="font-size:12.5px;color:#1a2330;font-weight:500;">${escapeHtml(s.label)}</span>
-        <span style="font-family:ui-monospace,Menlo,monospace;font-size:12px;font-weight:600;color:#142b4a;">${fmtNum(s.valor)} <span style="color:#626e7e;font-weight:500;">(${pctTotal}%)</span></span>
-      </div>
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;border-collapse:collapse;margin:0 0 0.28rem;">
+        <tbody><tr>
+        <td valign="bottom" style="padding:0;vertical-align:bottom;"><span style="font-size:12.5px;color:#1a2330;font-weight:500;">${escapeHtml(s.label)}</span></td>
+        <td valign="bottom" align="right" style="width:1%;padding:0 0 0 0.75rem;vertical-align:bottom;text-align:right;white-space:nowrap;"><span style="font-family:ui-monospace,Menlo,monospace;font-size:12px;font-weight:600;color:#142b4a;">${fmtNum(s.valor)} <span style="color:#626e7e;font-weight:500;">(${pctTotal}%)</span></span></td>
+        </tr></tbody>
+      </table>
       <div style="height:10px;border-radius:999px;background:#eff1f4;overflow:hidden;">
         <div style="height:100%;width:${ancho}%;border-radius:999px;background:${s.color};"></div>
       </div>

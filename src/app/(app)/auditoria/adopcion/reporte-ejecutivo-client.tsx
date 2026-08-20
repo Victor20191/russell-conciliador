@@ -8,7 +8,10 @@ import { Icon } from "@/components/icons";
 import { Modal } from "@/components/modal";
 import { fmtDate, fmtDateTimeLong, fmtNum } from "@/lib/format";
 import { notifyError, notifyInfo, notifySuccess } from "@/lib/client-notifications";
-import { htmlConEstilosEnLinea } from "@/lib/correo/preparar-html-correo";
+import {
+  hacerBarrasCompatiblesCorreo,
+  htmlConEstilosEnLinea,
+} from "@/lib/correo/preparar-html-correo";
 import { copiarHtmlAlPortapapeles } from "@/lib/portapapeles";
 import type { ReporteEjecutivoUso } from "@/lib/auditoria/reporte-ejecutivo/reportes";
 import {
@@ -135,7 +138,7 @@ function htmlCorreoConEstilosEmbebidos(htmlCompleto: string): string {
   const estilos =
     htmlCompleto.match(/<style[^>]*>([\s\S]*?)<\/style>/i)?.[1]?.trim() ?? "";
   const cuerpoMatch = htmlCompleto.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-  const cuerpo = (cuerpoMatch?.[1] ?? htmlCompleto).trim();
+  const cuerpo = hacerBarrasCompatiblesCorreo((cuerpoMatch?.[1] ?? htmlCompleto).trim());
 
   return `<div style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;color:#1a2330;font-size:14px;line-height:1.5;">
 ${estilos ? `<style type="text/css">${estilos}</style>` : ""}
@@ -180,13 +183,6 @@ async function copiarFormatoCorreo(reporte: ReporteEjecutivoUso): Promise<Result
 
   const { conFormato } = await copiarHtmlAlPortapapeles(htmlCorreo, textoPlano);
   return { conFormato, caracteres };
-}
-
-/** Abre el cliente de correo con el asunto del reporte (el cuerpo se pega del portapapeles). */
-function abrirClienteCorreo(reporte: ReporteEjecutivoUso): void {
-  const asunto = encodeURIComponent(reporte.titulo || "Reporte Russell Diagnóstico");
-  // Sin body largo: mailto trunca HTML/texto extenso. El cuerpo va por el portapapeles.
-  window.open(`mailto:?subject=${asunto}`, "_blank", "noopener,noreferrer");
 }
 
 async function descargarPdf(reporte: ReporteEjecutivoUso, viewportWidth?: number): Promise<void> {
@@ -305,14 +301,13 @@ export function ReporteEjecutivoClient({
     }
   };
 
-  /** Copia HTML+texto al portapapeles y abre el cliente de correo con el asunto. */
-  const copiarYAbrirCorreo = async () => {
+  /** Copia HTML+texto al portapapeles sin abrir aplicaciones ni ventanas externas. */
+  const copiarFormatoParaCorreo = async () => {
     if (!reporte || correoPendiente) return;
     setError(null);
     setCorreoPendiente(true);
     try {
       const { conFormato, caracteres } = await copiarFormatoCorreo(reporte);
-      abrirClienteCorreo(reporte);
       if (!conFormato) {
         notifyInfo(
           "Copiado sin formato",
@@ -326,7 +321,7 @@ export function ReporteEjecutivoClient({
       } else {
         notifySuccess(
           "Formato correo copiado",
-          "Se abrió tu cliente de correo. Pega el contenido en el cuerpo (Ctrl+V o Cmd+V).",
+          "El reporte quedó en tu portapapeles. Pégalo en el cuerpo del correo con Ctrl+V o Cmd+V.",
         );
       }
     } catch (e) {
@@ -623,12 +618,12 @@ export function ReporteEjecutivoClient({
             <>
               <button
                 type="button"
-                onClick={copiarYAbrirCorreo}
+                onClick={copiarFormatoParaCorreo}
                 disabled={correoPendiente}
                 className={BTN_SECUNDARIO}
-                title="Copia el reporte en formato correo y abre tu cliente de email para pegarlo y enviarlo"
+                title="Copia el reporte con formato para pegarlo en el cuerpo de un correo"
               >
-                <Icon name="send" size={14} />
+                <Icon name="doc" size={14} />
                 {correoPendiente ? (
                   <EstadoProcesando>Copiando</EstadoProcesando>
                 ) : (
