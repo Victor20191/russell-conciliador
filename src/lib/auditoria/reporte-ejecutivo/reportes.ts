@@ -11,7 +11,7 @@ export const TEMPERATURA_REPORTE_EJECUTIVO_USO =
     ? TEMPERATURA_ENV
     : 0;
 export const VERSION_PROMPT_REPORTE_EJECUTIVO_USO =
-  "reporte-para-gerencia-claro-v10";
+  "reporte-para-gerencia-claro-v11";
 
 /**
  * Tope de salida por intento (el reintento usa el reducido). Un reporte real

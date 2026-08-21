@@ -47,6 +47,8 @@ export type ConteoNombrado = {
 
 export type ConteoUsuario = {
   usuario: string;
+  /** Correo corporativo del usuario; null si el nombre de la bitácora no resuelve a una cuenta. */
+  correo: string | null;
   total: number;
   porFamilia: ConteoNombrado[];
 };
@@ -58,6 +60,8 @@ export type ConteoConexionUsuario = {
 
 export type DetalleActividadUsuario = {
   usuario: string;
+  /** Correo corporativo del usuario; null si el nombre de la bitácora no resuelve a una cuenta. */
+  correo: string | null;
   conexiones: number;
   totalAcciones: number;
   accionesPrincipales: ConteoNombrado[];
@@ -286,6 +290,8 @@ export function calcularResumenUso(params: {
   periodoDesde: Date | string;
   periodoHasta: Date | string;
   nombresClientes?: Map<number, string> | Record<number, string>;
+  /** nombre de usuario (como queda en la bitácora) → correo. */
+  correosUsuarios?: Map<string, string> | Record<string, string>;
   maxTopAcciones?: number;
   maxTopUsuarios?: number;
   maxTopClientes?: number;
@@ -306,6 +312,14 @@ export function calcularResumenUso(params: {
       return params.nombresClientes[id] ?? `Cliente #${id}`;
     }
     return `Cliente #${id}`;
+  };
+
+  const correoUsuario = (nombre: string): string | null => {
+    const fuente = params.correosUsuarios;
+    if (!fuente) return null;
+    const valor = fuente instanceof Map ? fuente.get(nombre) : fuente[nombre];
+    const correo = valor?.trim();
+    return correo ? correo : null;
   };
 
   const porFamilia = new Map<string, number>();
@@ -363,6 +377,7 @@ export function calcularResumenUso(params: {
   const topUsuariosRaw = topN(porUsuario, maxTopUsuarios);
   const topUsuarios: ConteoUsuario[] = topUsuariosRaw.map((u) => ({
     usuario: u.nombre,
+    correo: correoUsuario(u.nombre),
     total: u.total,
     porFamilia: topN(porUsuarioFamilia.get(u.nombre) ?? new Map(), 6),
   }));
@@ -383,6 +398,7 @@ export function calcularResumenUso(params: {
   const detalleUsuarios: DetalleActividadUsuario[] = Array.from(usuariosDetalle)
     .map((usuario) => ({
       usuario,
+      correo: correoUsuario(usuario),
       conexiones: conexionesPorUsuario.get(usuario) ?? 0,
       totalAcciones: porUsuario.get(usuario) ?? 0,
       accionesPrincipales: topN(

@@ -142,3 +142,23 @@ describe("conteosPorFamiliaCanon", () => {
     expect(c.dian).toBe(0);
   });
 });
+
+describe("correo del usuario", () => {
+  test("acompaña al nombre en el top y en el detalle; null si no resuelve", () => {
+    const resumen = calcularResumenUso({
+      eventos: [
+        { user: "Ana", action: "CARGÓ BALANCE", entity: "", detail: "", clientId: null, createdAt: "2026-08-10T10:00:00.000Z" },
+        { user: "Sin cuenta", action: "EJECUTÓ", entity: "", detail: "", clientId: null, createdAt: "2026-08-10T11:00:00.000Z" },
+      ],
+      conexiones: [{ usuario: "Ana", total: 3 }],
+      periodoDesde: "2026-08-01T00:00:00.000Z",
+      periodoHasta: "2026-08-31T23:59:59.999Z",
+      correosUsuarios: new Map([["Ana", "ana@russell.co"]]),
+    });
+
+    expect(resumen.topUsuarios.find((u) => u.usuario === "Ana")?.correo).toBe("ana@russell.co");
+    expect(resumen.topUsuarios.find((u) => u.usuario === "Sin cuenta")?.correo).toBe(null);
+    expect(resumen.detalleUsuarios.find((u) => u.usuario === "Ana")?.correo).toBe("ana@russell.co");
+    expect(resumen.detalleUsuarios.find((u) => u.usuario === "Sin cuenta")?.correo).toBe(null);
+  });
+});

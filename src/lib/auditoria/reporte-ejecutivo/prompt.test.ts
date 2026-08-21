@@ -19,7 +19,7 @@ const uso: ResumenUsoFactual = {
   ultimaAccion: "2026-08-18T17:00:00.000Z",
   porFamilia: [{ nombre: "Balance de comprobación", total: 200 }],
   topAcciones: [{ nombre: "CARGÓ BALANCE", total: 40 }],
-  topUsuarios: [{ usuario: "Ana", total: 100, porFamilia: [] }],
+  topUsuarios: [{ usuario: "Ana", correo: "ana@russell.co", total: 100, porFamilia: [] }],
   detalleUsuarios: [],
   topClientes: [{ clienteId: 1, nombre: "Cliente Uno", total: 90 }],
   serieDiaria: [{ fecha: "2026-08-18", total: 20 }],

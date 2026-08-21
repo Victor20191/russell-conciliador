@@ -44,13 +44,19 @@ describe("construirSeccionGraficosHtml", () => {
           { nombre: "Conciliaciones", total: 3 },
         ],
         topUsuarios: [
-          { usuario: "Ana", total: 6, porFamilia: [{ nombre: "Balance de comprobación", total: 6 }] },
-          { usuario: "Luis", total: 4, porFamilia: [] },
+          {
+            usuario: "Ana",
+            correo: "ana@russell.co",
+            total: 6,
+            porFamilia: [{ nombre: "Balance de comprobación", total: 6 }],
+          },
+          { usuario: "Luis", correo: null, total: 4, porFamilia: [] },
         ],
         totalConexiones: 7,
         detalleUsuarios: [
           {
             usuario: "Ana",
+            correo: "ana@russell.co",
             conexiones: 5,
             totalAcciones: 6,
             accionesPrincipales: [{ nombre: "CARGÓ BALANCE", total: 4 }],
@@ -58,6 +64,7 @@ describe("construirSeccionGraficosHtml", () => {
           },
           {
             usuario: "Marta",
+            correo: null,
             conexiones: 2,
             totalAcciones: 0,
             accionesPrincipales: [],

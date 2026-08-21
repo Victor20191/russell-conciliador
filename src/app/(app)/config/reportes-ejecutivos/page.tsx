@@ -3,9 +3,17 @@ import { PageHeader } from "@/components/ui";
 import { requireReporteEjecutivo } from "@/lib/rbac/reporte-ejecutivo";
 import {
   calcularResumenUso,
+  clasificarFamilia,
   conteosPorFamiliaCanon,
   type EventoAuditoria,
 } from "@/lib/auditoria/reporte-ejecutivo/metricas";
+import {
+  filtrarCambiosPublicados,
+  filtrarEventosPublicados,
+  type FiltroPublicacion,
+} from "@/lib/auditoria/reporte-ejecutivo/alcance";
+import { modulosPublicadosParaTodos } from "@/lib/rbac/publicacion";
+import { MODULOS_PLATAFORMA_KEYS } from "@/lib/rbac/modulos-plataforma";
 import {
   evaluarAdopcion,
   type CambioNovedadContexto,
@@ -39,7 +47,7 @@ export default async function ReportesEjecutivosPage() {
   const defaultDesde = aYYYYMMDD(desde);
   const defaultHasta = aYYYYMMDD(hasta);
 
-  const [eventosRaw, versiones, clientes, envios] = await Promise.all([
+  const [eventosRaw, versiones, clientes, usuarios, modulosPublicados, envios] = await Promise.all([
     prisma.auditEntry.findMany({
       where: { createdAt: { gte: desde, lte: hasta } },
       orderBy: { createdAt: "desc" },
@@ -74,17 +82,27 @@ export default async function ReportesEjecutivosPage() {
       },
     }),
     prisma.client.findMany({ select: { id: true, name: true } }),
+    prisma.user.findMany({ select: { name: true, email: true } }),
+    modulosPublicadosParaTodos(),
     listarEnviosReporteEjecutivo(50),
   ]);
 
-  const eventos: EventoAuditoria[] = eventosRaw.map((e) => ({
-    user: e.user,
-    action: e.action,
-    entity: e.entity,
-    detail: e.detail,
-    clientId: e.clientId,
-    createdAt: e.createdAt,
-  }));
+  // Alcance del tablero y del reporte: solo módulos publicados para todos los
+  // usuarios y funcionalidades ya disponibles (nada en desarrollo).
+  const filtro: FiltroPublicacion = { modulosPublicados };
+
+  const eventos: EventoAuditoria[] = filtrarEventosPublicados({
+    eventos: eventosRaw.map((e) => ({
+      user: e.user,
+      action: e.action,
+      entity: e.entity,
+      detail: e.detail,
+      clientId: e.clientId,
+      createdAt: e.createdAt,
+    })),
+    clasificar: (e) => clasificarFamilia(e.action, e.entity, e.detail),
+    filtro,
+  }).eventos;
 
   const nombresClientes = new Map(clientes.map((c) => [c.id, c.name]));
   const uso = calcularResumenUso({
@@ -92,11 +110,23 @@ export default async function ReportesEjecutivosPage() {
     periodoDesde: desde,
     periodoHasta: hasta,
     nombresClientes,
+    correosUsuarios: new Map(usuarios.map((u) => [u.name, u.email])),
   });
 
+  const cambiosPublicadosPorVersion = new Map<number, number>();
   const planos: CambioNovedadContexto[] = [];
   for (const v of versiones) {
-    for (const c of v.changes) {
+    const publicables = filtrarCambiosPublicados({
+      cambios: v.changes.map((c) => ({
+        ...c,
+        modulo: c.moduleKey,
+        estadoFuncionalidad: c.featureStatus,
+      })),
+      filtro,
+      clavesConocidas: MODULOS_PLATAFORMA_KEYS,
+    });
+    cambiosPublicadosPorVersion.set(v.id, publicables.cambios.length);
+    for (const c of publicables.cambios) {
       planos.push({
         versionNumero: v.number,
         versionTitulo: v.title,
@@ -121,7 +151,7 @@ export default async function ReportesEjecutivosPage() {
     id: v.id,
     number: v.number,
     title: v.title,
-    changesCount: v.changes.length,
+    changesCount: cambiosPublicadosPorVersion.get(v.id) ?? 0,
     releasedAt: v.releasedAt?.toISOString() ?? null,
     createdAt: v.createdAt.toISOString(),
   }));
@@ -147,9 +177,14 @@ export default async function ReportesEjecutivosPage() {
       etiqueta: u.usuario,
       total: u.total,
       detalle:
-        u.porFamilia
-          .slice(0, 2)
-          .map((f) => f.nombre)
+        [
+          u.correo ?? undefined,
+          u.porFamilia
+            .slice(0, 2)
+            .map((f) => f.nombre)
+            .join(" · ") || undefined,
+        ]
+          .filter(Boolean)
           .join(" · ") || undefined,
     })),
     topAcciones: uso.topAcciones.map((a) => ({ etiqueta: a.nombre, total: a.total })),

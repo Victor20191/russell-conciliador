@@ -13,9 +13,17 @@ import {
 } from "@/lib/auditoria/reporte-ejecutivo/adopcion";
 import {
   calcularResumenUso,
+  clasificarFamilia,
   conteosPorFamiliaCanon,
   type EventoAuditoria,
 } from "@/lib/auditoria/reporte-ejecutivo/metricas";
+import {
+  filtrarCambiosPublicados,
+  filtrarEventosPublicados,
+  type FiltroPublicacion,
+} from "@/lib/auditoria/reporte-ejecutivo/alcance";
+import { modulosPublicadosParaTodos } from "@/lib/rbac/publicacion";
+import { MODULOS_PLATAFORMA_KEYS } from "@/lib/rbac/modulos-plataforma";
 import {
   construirSeccionGraficosHtml,
   inyectarGraficosEnHtml,
@@ -219,14 +227,37 @@ function crearContextoNovedades(
       featureStatus: string;
     }>;
   }>,
-): { contexto: NovedadReporteEjecutivoContexto[]; totalChanges: number; includedChanges: number; planos: CambioNovedadContexto[] } {
+  filtro: FiltroPublicacion,
+): {
+  contexto: NovedadReporteEjecutivoContexto[];
+  totalChanges: number;
+  includedChanges: number;
+  excluidosEnDesarrollo: number;
+  excluidosNoPublicados: number;
+  planos: CambioNovedadContexto[];
+} {
   let includedChanges = 0;
   let totalChanges = 0;
+  let excluidosEnDesarrollo = 0;
+  let excluidosNoPublicados = 0;
   const planos: CambioNovedadContexto[] = [];
 
   const contexto: NovedadReporteEjecutivoContexto[] = versiones.map((version) => {
-    totalChanges += version.changes.length;
-    const cambios = version.changes
+    // Alcance del reporte: solo funcionalidades disponibles y de módulos
+    // publicados para todos los usuarios.
+    const publicables = filtrarCambiosPublicados({
+      cambios: version.changes.map((c) => ({
+        ...c,
+        modulo: c.moduleKey,
+        estadoFuncionalidad: c.featureStatus,
+      })),
+      filtro,
+      clavesConocidas: MODULOS_PLATAFORMA_KEYS,
+    });
+    excluidosEnDesarrollo += publicables.enDesarrollo;
+    excluidosNoPublicados += publicables.moduloNoPublicado;
+    totalChanges += publicables.cambios.length;
+    const cambios = publicables.cambios
       .filter(() => {
         if (includedChanges >= MAX_CAMBIOS_PROMPT) return false;
         includedChanges += 1;
@@ -268,7 +299,15 @@ function crearContextoNovedades(
     };
   });
 
-  return { contexto, totalChanges, includedChanges, planos };
+  return {
+    // Las versiones que quedaron sin avances publicables no se le cuentan al cliente.
+    contexto: contexto.filter((v) => v.cambios.length > 0),
+    totalChanges,
+    includedChanges,
+    excluidosEnDesarrollo,
+    excluidosNoPublicados,
+    planos,
+  };
 }
 
 /**
@@ -411,7 +450,7 @@ export async function generarReporteEjecutivoUso(
     : null;
 
   try {
-    const [eventosRaw, conexionesRaw, versiones, clientes] = await Promise.all([
+    const [eventosRaw, conexionesRaw, versiones, clientes, usuarios, modulosPublicados] = await Promise.all([
       prisma.auditEntry.findMany({
         where: {
           createdAt: { gte: rango.desde, lte: rango.hasta },
@@ -446,6 +485,8 @@ export async function generarReporteEjecutivoUso(
       prisma.client.findMany({
         select: { id: true, name: true },
       }),
+      prisma.user.findMany({ select: { name: true, email: true } }),
+      modulosPublicadosParaTodos(),
     ]);
 
     if (versionIds && versiones.length === 0) {
@@ -456,7 +497,7 @@ export async function generarReporteEjecutivoUso(
     // es lo que se guarda al marcar el reporte como enviado.
     const versionIdsIncluidos = versiones.map((v) => v.id);
 
-    const eventos: EventoAuditoria[] = eventosRaw.map((e) => ({
+    const eventosCrudos: EventoAuditoria[] = eventosRaw.map((e) => ({
       user: e.user,
       action: e.action,
       entity: e.entity,
@@ -465,7 +506,17 @@ export async function generarReporteEjecutivoUso(
       createdAt: e.createdAt,
     }));
 
+    // Alcance: la bitácora de módulos aún no publicados no se le reporta al cliente.
+    const filtro: FiltroPublicacion = { modulosPublicados };
+    const alcanceUso = filtrarEventosPublicados({
+      eventos: eventosCrudos,
+      clasificar: (e) => clasificarFamilia(e.action, e.entity, e.detail),
+      filtro,
+    });
+    const eventos = alcanceUso.eventos;
+
     const nombresClientes = new Map(clientes.map((c) => [c.id, c.name]));
+    const correosUsuarios = new Map(usuarios.map((u) => [u.name, u.email]));
     const uso = calcularResumenUso({
       eventos,
       conexiones: conexionesRaw.map((conexion) => ({
@@ -475,10 +526,17 @@ export async function generarReporteEjecutivoUso(
       periodoDesde: rango.desde,
       periodoHasta: rango.hasta,
       nombresClientes,
+      correosUsuarios,
     });
 
-    const { contexto: novedades, totalChanges, includedChanges, planos } =
-      crearContextoNovedades(versiones);
+    const {
+      contexto: novedades,
+      totalChanges,
+      includedChanges,
+      excluidosEnDesarrollo,
+      excluidosNoPublicados,
+      planos,
+    } = crearContextoNovedades(versiones, filtro);
 
     const conteos = conteosPorFamiliaCanon(eventos);
     const adopcion = evaluarAdopcion({ cambios: planos, conteosPorFamilia: conteos });
@@ -504,6 +562,12 @@ export async function generarReporteEjecutivoUso(
       novedades,
       includedChanges,
       totalChanges,
+      alcancePublicado: {
+        modulos: [...modulosPublicados].sort(),
+        eventosDescartados: alcanceUso.descartados,
+        cambiosEnDesarrollo: excluidosEnDesarrollo,
+        cambiosNoPublicados: excluidosNoPublicados,
+      },
       graficos: true,
     });
 
@@ -583,7 +647,7 @@ export async function generarReporteEjecutivoUso(
       entity: "Uso y adopción",
       detail: `Generó reporte para gerencia con ${MODELO_REPORTE_EJECUTIVO_USO} (${uso.totalAcciones} acciones, ${uso.totalUsuarios} usuarios, ${includedChanges}/${totalChanges} novedades, ${
         versionIds ? `${versiones.length} versiones` : "versiones publicadas"
-      }).`,
+      }). Alcance solo publicado: excluyó ${alcanceUso.descartados} acciones de módulos no publicados, ${excluidosEnDesarrollo} novedades en desarrollo y ${excluidosNoPublicados} de módulos no publicados.`,
     });
 
     const cacheado = await guardarCachePersistente({
@@ -647,7 +711,7 @@ export async function obtenerResumenUsoAdopcion(opciones: {
   }
 
   try {
-    const [eventosRaw, conexionesRaw, versiones, clientes] = await Promise.all([
+    const [eventosRaw, conexionesRaw, versiones, clientes, usuarios, modulosPublicados] = await Promise.all([
       prisma.auditEntry.findMany({
         where: { createdAt: { gte: rango.desde, lte: rango.hasta } },
         orderBy: { createdAt: "desc" },
@@ -676,16 +740,23 @@ export async function obtenerResumenUsoAdopcion(opciones: {
         include: { changes: { orderBy: [{ order: "asc" }, { id: "asc" }] } },
       }),
       prisma.client.findMany({ select: { id: true, name: true } }),
+      prisma.user.findMany({ select: { name: true, email: true } }),
+      modulosPublicadosParaTodos(),
     ]);
 
-    const eventos: EventoAuditoria[] = eventosRaw.map((e) => ({
-      user: e.user,
-      action: e.action,
-      entity: e.entity,
-      detail: e.detail,
-      clientId: e.clientId,
-      createdAt: e.createdAt,
-    }));
+    const filtro: FiltroPublicacion = { modulosPublicados };
+    const eventos = filtrarEventosPublicados({
+      eventos: eventosRaw.map((e) => ({
+        user: e.user,
+        action: e.action,
+        entity: e.entity,
+        detail: e.detail,
+        clientId: e.clientId,
+        createdAt: e.createdAt,
+      })),
+      clasificar: (e) => clasificarFamilia(e.action, e.entity, e.detail),
+      filtro,
+    }).eventos;
 
     const nombresClientes = new Map(clientes.map((c) => [c.id, c.name]));
     const uso = calcularResumenUso({
@@ -697,8 +768,9 @@ export async function obtenerResumenUsoAdopcion(opciones: {
       periodoDesde: rango.desde,
       periodoHasta: rango.hasta,
       nombresClientes,
+      correosUsuarios: new Map(usuarios.map((u) => [u.name, u.email])),
     });
-    const { planos } = crearContextoNovedades(versiones);
+    const { planos } = crearContextoNovedades(versiones, filtro);
     const adopcion = evaluarAdopcion({
       cambios: planos,
       conteosPorFamilia: conteosPorFamiliaCanon(eventos),
