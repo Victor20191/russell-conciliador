@@ -158,11 +158,18 @@ export type ResultadoFiltroCambios<T> = {
   cambios: T[];
   enDesarrollo: number;
   moduloNoPublicado: number;
+  /** Cambios descartados porque su `moduleKey` no resuelve a un módulo de la plataforma. */
+  sinModulo: number;
 };
 
 /**
  * Conserva únicamente los cambios de Novedades ya disponibles (no en desarrollo
  * ni planeados) cuyo módulo está publicado para todos los usuarios.
+ *
+ * A diferencia del uso, aquí el criterio es CERRADO: un cambio que no se puede
+ * ubicar en un módulo de la plataforma tampoco se le cuenta al cliente. Suelen
+ * ser mejoras internas o técnicas (notificaciones, refactors) que solo llenaban
+ * el grupo «No se puede medir» sin decirle nada a gerencia.
  */
 export function filtrarCambiosPublicados<T extends Pick<CambioNovedadContexto, "modulo" | "estadoFuncionalidad">>(params: {
   cambios: readonly T[];
@@ -172,6 +179,7 @@ export function filtrarCambiosPublicados<T extends Pick<CambioNovedadContexto, "
   const cambios: T[] = [];
   let enDesarrollo = 0;
   let moduloNoPublicado = 0;
+  let sinModulo = 0;
 
   for (const cambio of params.cambios) {
     if (cambio.estadoFuncionalidad?.trim().toLowerCase() !== ESTADO_FUNCIONALIDAD_PUBLICADA) {
@@ -179,6 +187,10 @@ export function filtrarCambiosPublicados<T extends Pick<CambioNovedadContexto, "
       continue;
     }
     const clave = moduloPlataformaDeClave(cambio.modulo, params.clavesConocidas);
+    if (!clave) {
+      sinModulo += 1;
+      continue;
+    }
     if (!moduloPublicadoParaTodos(clave, params.filtro)) {
       moduloNoPublicado += 1;
       continue;
@@ -186,5 +198,5 @@ export function filtrarCambiosPublicados<T extends Pick<CambioNovedadContexto, "
     cambios.push(cambio);
   }
 
-  return { cambios, enDesarrollo, moduloNoPublicado };
+  return { cambios, enDesarrollo, moduloNoPublicado, sinModulo };
 }

@@ -255,7 +255,7 @@ function crearContextoNovedades(
       clavesConocidas: MODULOS_PLATAFORMA_KEYS,
     });
     excluidosEnDesarrollo += publicables.enDesarrollo;
-    excluidosNoPublicados += publicables.moduloNoPublicado;
+    excluidosNoPublicados += publicables.moduloNoPublicado + publicables.sinModulo;
     totalChanges += publicables.cambios.length;
     const cambios = publicables.cambios
       .filter(() => {

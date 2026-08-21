@@ -194,7 +194,7 @@ export default async function ReportesEjecutivosPage() {
       { etiqueta: "Con actividad relacionada", total: adopcion.usadas },
       { etiqueta: "Sin actividad relacionada", total: adopcion.sinEvidencia },
       { etiqueta: "No se puede medir", total: adopcion.noMedibles },
-    ].filter((b) => b.total > 0 || adopcion.totalCambios > 0),
+    ].filter((b) => b.total > 0),
   };
 
   return (

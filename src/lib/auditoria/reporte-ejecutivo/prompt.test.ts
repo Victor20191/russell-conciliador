@@ -92,7 +92,7 @@ describe("construirPromptReporteEjecutivo", () => {
     expect(prompt).toContain("Adopción de nuevas funcionalidades");
     expect(prompt).toContain("«Con actividad relacionada»: items con estado «usada»");
     expect(prompt).toContain("«Sin actividad relacionada»: items con estado «sin_evidencia»");
-    expect(prompt).toContain("«No se puede medir»: items con estado «no_medible»");
+    expect(prompt).toContain("No crees un grupo «No se puede medir»");
     expect(prompt).toContain("no demuestra que una funcionalidad individual haya sido usada");
     expect(prompt).toContain("No significa que la funcionalidad no se haya usado");
     expect(prompt).toContain("Si porcentajeAdopcion es numérico");

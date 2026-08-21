@@ -123,12 +123,18 @@ describe("filtrarCambiosPublicados", () => {
     expect(r.moduloNoPublicado).toBe(1);
   });
 
-  it("conserva los cambios sin módulo identificable", () => {
+  it("descarta los cambios que no se pueden ubicar en un módulo de la plataforma", () => {
     const r = filtrarCambiosPublicados({
-      cambios: [{ modulo: null, estadoFuncionalidad: "disponible" }],
+      cambios: [
+        { modulo: null, estadoFuncionalidad: "disponible" },
+        { modulo: "notificaciones", estadoFuncionalidad: "disponible" },
+        { modulo: "balance", estadoFuncionalidad: "disponible" },
+      ],
       filtro: FILTRO,
       clavesConocidas: claves,
     });
-    expect(r.cambios).toHaveLength(1);
+    expect(r.cambios.map((c) => c.modulo)).toEqual(["balance"]);
+    expect(r.sinModulo).toBe(2);
+    expect(r.moduloNoPublicado).toBe(0);
   });
 });
