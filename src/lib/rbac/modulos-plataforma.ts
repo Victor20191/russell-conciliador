@@ -20,7 +20,8 @@ export type PlatformModuleKey =
   | "prompts"
   | "parametros"
   | "perfiles_carga"
-  | "soporte";
+  | "soporte"
+  | "entorno";
 
 export type PlatformModuleDefinition = {
   key: PlatformModuleKey;
@@ -255,6 +256,16 @@ export const MODULOS_PLATAFORMA: PlatformModuleDefinition[] = [
     order: 220,
     enabledForNonAdmins: false,
     configurableForNonAdmins: true,
+  },
+  {
+    key: "entorno",
+    label: "Variables de entorno e Integraciones",
+    description: "Configuración operativa de la plataforma (S3, IA, SMTP).",
+    group: "Configuración",
+    icon: "settings",
+    order: 225,
+    enabledForNonAdmins: false,
+    configurableForNonAdmins: false,
   },
   {
     // Visible para todos los roles con `soporte:ver`. La publicación queda

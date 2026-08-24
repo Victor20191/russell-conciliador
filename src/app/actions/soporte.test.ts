@@ -51,7 +51,13 @@ vi.mock("@/lib/storage/evidencias-tickets", () => ({
 }));
 
 import { catalogoUbicacionesNovedad } from "@/lib/soporte-rutas";
-import { cambiarEstadoTicket, crearNovedadInterna, crearTicketSoporte, guardarSolucionTicket } from "./soporte";
+import {
+  cambiarEstadoTicket,
+  crearNovedadInterna,
+  crearTicketSoporte,
+  eliminarTicketSoporte,
+  guardarSolucionTicket,
+} from "./soporte";
 
 const rutaBalance = catalogoUbicacionesNovedad().find((ruta) => ruta.etiqueta === "Balance de comprobación")!;
 const menuBorrador = rutaBalance.menus.find((menu) => menu.etiqueta === "Borrador Balance")!;
@@ -89,6 +95,13 @@ function formularioEstado(status = "en_proceso", solution = "") {
   form.set("updatedAt", "2026-08-07T15:00:00.000Z");
   form.set("status", status);
   form.set("solution", solution);
+  return form;
+}
+
+function formularioEliminar(code = "TKT-20260807-A1B2C3D4") {
+  const form = new FormData();
+  form.set("ticketId", "14");
+  form.set("code", code);
   return form;
 }
 
@@ -288,5 +301,68 @@ describe("Server Actions de soporte", () => {
     const resultado = await cambiarEstadoTicket(undefined, formularioEstado());
     expect(resultado).toEqual({ ok: false, message: "Sin permiso." });
     expect(mocks.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("elimina el ticket y borra sus imágenes del almacenamiento aislado", async () => {
+    mocks.almacenamientoEvidenciasTicketsDisponible.mockReturnValue(true);
+    mocks.eliminarEvidenciaTicket.mockResolvedValue(undefined);
+    mocks.findUnique.mockResolvedValue({
+      code: "TKT-20260807-A1B2C3D4",
+      subject: "El mapeo no guarda el ajuste",
+      attachments: [{ objectKey: "tickets/14/aa.jpg" }, { objectKey: "tickets/14/bb.png" }],
+    });
+
+    const resultado = await eliminarTicketSoporte(undefined, formularioEliminar());
+
+    expect(resultado).toEqual({ ok: true });
+    expect(mocks.authorizePermiso).toHaveBeenCalledWith("soporte:eliminar");
+    expect(mocks.eliminarEvidenciaTicket).toHaveBeenCalledWith("tickets/14/aa.jpg");
+    expect(mocks.eliminarEvidenciaTicket).toHaveBeenCalledWith("tickets/14/bb.png");
+    expect(mocks.delete).toHaveBeenCalledWith({ where: { id: 14 } });
+    expect(mocks.logAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: "ELIMINÓ REPORTE",
+      entity: "TKT-20260807-A1B2C3D4",
+    }));
+  });
+
+  it("borra el ticket aunque el almacenamiento falle y lo deja anotado en la auditoría", async () => {
+    mocks.almacenamientoEvidenciasTicketsDisponible.mockReturnValue(true);
+    mocks.eliminarEvidenciaTicket.mockRejectedValue(new Error("S3 caído"));
+    mocks.findUnique.mockResolvedValue({
+      code: "TKT-20260807-A1B2C3D4",
+      subject: "Novedad con captura",
+      attachments: [{ objectKey: "tickets/14/aa.jpg" }],
+    });
+
+    const resultado = await eliminarTicketSoporte(undefined, formularioEliminar());
+
+    expect(resultado).toEqual({ ok: true });
+    expect(mocks.delete).toHaveBeenCalledWith({ where: { id: 14 } });
+    expect(mocks.logAudit).toHaveBeenCalledWith(expect.objectContaining({
+      detail: expect.stringContaining("1 archivo(s) no se pudieron borrar"),
+    }));
+  });
+
+  it("no borra si el código de confirmación ya no corresponde al ticket", async () => {
+    mocks.findUnique.mockResolvedValue({
+      code: "TKT-20260807-OTRO0000",
+      subject: "Otro ticket",
+      attachments: [],
+    });
+
+    const resultado = await eliminarTicketSoporte(undefined, formularioEliminar());
+
+    expect(resultado.ok).toBe(false);
+    expect(mocks.delete).not.toHaveBeenCalled();
+  });
+
+  it("falla cerrado sin el permiso de eliminación, antes de tocar la BD", async () => {
+    mocks.authorizePermiso.mockResolvedValueOnce({ ok: false, message: "Sin permiso." });
+
+    const resultado = await eliminarTicketSoporte(undefined, formularioEliminar());
+
+    expect(resultado).toEqual({ ok: false, message: "Sin permiso." });
+    expect(mocks.findUnique).not.toHaveBeenCalled();
+    expect(mocks.delete).not.toHaveBeenCalled();
   });
 });

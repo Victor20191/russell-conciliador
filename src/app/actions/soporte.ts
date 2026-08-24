@@ -10,6 +10,7 @@ import { logAudit } from "@/lib/audit";
 import { mensajeErrorBD } from "@/lib/errores";
 import {
   SupportTicketCreateSchema,
+  SupportTicketDeleteSchema,
   SupportTicketInternalCreateSchema,
   SupportTicketSolutionSchema,
   SupportTicketStatusSchema,
@@ -372,5 +373,86 @@ export async function cambiarEstadoTicket(
     return { ok: true };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("cambiarEstadoTicket", e) };
+  }
+}
+
+/**
+ * Borrado definitivo de un ticket. Reservado al Superadministrador
+ * (`soporte:eliminar`): el Administrador gestiona y cierra, pero no destruye la
+ * trazabilidad de lo reportado. Sirve para depurar pruebas y duplicados.
+ *
+ * El detalle en BD lo arrastra la cascada de `SupportTicketAttachment`; los
+ * objetos del bucket aislado se borran a mano ANTES (una vez borrada la fila ya
+ * no habría forma de saber qué claves quedaron huérfanas). Si el almacenamiento
+ * falla, el borrado sigue: se registra en la auditoría cuántas imágenes
+ * quedaron sin limpiar.
+ */
+export async function eliminarTicketSoporte(
+  _prev: ActionState | undefined,
+  formData: FormData,
+): Promise<ActionState> {
+  const authz = await authorizePermiso("soporte:eliminar");
+  if (!authz.ok) return { ok: false, message: authz.message };
+
+  const parsed = SupportTicketDeleteSchema.safeParse({
+    ticketId: formData.get("ticketId"),
+    code: formData.get("code"),
+  });
+  if (!parsed.success) {
+    return { ok: false, errors: z.flattenError(parsed.error).fieldErrors };
+  }
+
+  try {
+    const [ticket, actor] = await Promise.all([
+      prisma.supportTicket.findUnique({
+        where: { id: parsed.data.ticketId },
+        select: {
+          code: true,
+          subject: true,
+          attachments: { select: { objectKey: true } },
+        },
+      }),
+      getCurrentUser(),
+    ]);
+    if (!ticket) return { ok: false, message: "El ticket ya no existe." };
+    // La confirmación viaja con el código visible: si la bandeja estaba
+    // desactualizada y el id apunta ya a otro ticket, no se borra el equivocado.
+    if (ticket.code !== parsed.data.code) {
+      return { ok: false, message: "Este ticket cambió. Recarga la página antes de eliminarlo." };
+    }
+
+    let sinLimpiar = 0;
+    if (ticket.attachments.length > 0 && almacenamientoEvidenciasTicketsDisponible()) {
+      const resultados = await Promise.all(
+        ticket.attachments.map((adjunto) =>
+          eliminarEvidenciaTicket(adjunto.objectKey).then(
+            () => true,
+            () => false,
+          ),
+        ),
+      );
+      sinLimpiar = resultados.filter((ok) => !ok).length;
+    } else {
+      sinLimpiar = ticket.attachments.length;
+    }
+
+    await prisma.supportTicket.delete({ where: { id: parsed.data.ticketId } });
+
+    await logAudit({
+      user: actor?.name ?? "Superadministrador",
+      action: "ELIMINÓ REPORTE",
+      entity: ticket.code,
+      detail:
+        `${ticket.subject}. Borrado definitivo del ticket y sus ${ticket.attachments.length} imagen(es).` +
+        (sinLimpiar > 0 ? ` ${sinLimpiar} archivo(s) no se pudieron borrar del almacenamiento.` : ""),
+    });
+    revalidatePath(ADMIN_PATH);
+    revalidatePath(`${ADMIN_PATH}/${parsed.data.ticketId}`);
+    revalidatePath(USER_PATH);
+    revalidatePath(`${USER_PATH}/${parsed.data.ticketId}`);
+    revalidatePath(`/soporte/tickets/${ticket.code}`);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("eliminarTicketSoporte", e) };
   }
 }

@@ -6,6 +6,7 @@ import { Chip, PageHeader } from "@/components/ui";
 import { fmtDateTime } from "@/lib/format";
 import { almacenamientoEvidenciasTicketsDisponible } from "@/lib/storage/evidencias-tickets";
 import {
+  ESTADO_TICKET_ABIERTO,
   etiquetaEstadoTicket,
   tonoEstadoTicket,
 } from "@/lib/soporte";
@@ -32,27 +33,36 @@ export default async function ReportesPage() {
     rol: actor.role,
   });
 
-  const tickets = await prisma.supportTicket.findMany({
-    // Los tickets creados dentro de la plataforma son visibles para todos los
-    // usuarios. Los tickets públicos (sin usuario creador) conservan su acceso
-    // privado por token y solo aparecen en la bandeja de Xentria.
-    where: { createdById: { not: null } },
-    orderBy: { createdAt: "desc" },
-    take: 200,
-    select: {
-      id: true,
-      code: true,
-      createdById: true,
-      reporterFirstName: true,
-      reporterLastName: true,
-      subject: true,
-      routeLabel: true,
-      menuLabel: true,
-      status: true,
-      createdAt: true,
-      _count: { select: { attachments: true } },
-    },
-  });
+  // Los tickets creados dentro de la plataforma son visibles para todos los
+  // usuarios. Los tickets públicos (sin usuario creador) conservan su acceso
+  // privado por token y solo aparecen en la bandeja de Xentria.
+  const whereBandejaInterna = { createdById: { not: null } };
+  const [tickets, ticketsAbiertos] = await Promise.all([
+    prisma.supportTicket.findMany({
+      where: whereBandejaInterna,
+      orderBy: { createdAt: "desc" },
+      take: 200,
+      select: {
+        id: true,
+        code: true,
+        createdById: true,
+        reporterFirstName: true,
+        reporterLastName: true,
+        subject: true,
+        routeLabel: true,
+        menuLabel: true,
+        status: true,
+        createdAt: true,
+        _count: { select: { attachments: true } },
+      },
+    }),
+    prisma.supportTicket.count({
+      where: {
+        ...whereBandejaInterna,
+        status: ESTADO_TICKET_ABIERTO,
+      },
+    }),
+  ]);
 
   return (
     <div className="w-full">
@@ -61,6 +71,10 @@ export default async function ReportesPage() {
         subtitle="Consulta las novedades reportadas en la plataforma. Solo Xentria puede cambiar su estado o documentar la solución."
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            <div className="rounded-md border border-warn-100 bg-warn-100 px-3.5 py-2 text-[12.5px] font-semibold text-warn-700">
+              <strong className="font-mono text-ink-900">{ticketsAbiertos}</strong>{" "}
+              {ticketsAbiertos === 1 ? "ticket abierto" : "tickets abiertos"}
+            </div>
             {admin.ok && (
               <Link
                 href="/config/soporte"

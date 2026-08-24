@@ -217,6 +217,11 @@ export const PERMISOS: Permiso[] = [
   { code: "soporte:ver", module: "soporte", action: "ver", label: "Ver reportes", roles: TODOS },
   { code: "soporte:crear", module: "soporte", action: "crear", label: "Crear reporte", roles: TODOS },
   { code: "soporte:administrar", module: "soporte", action: "administrar", label: "Administrar reportes", roles: SOLO_ADMIN },
+  // Borrado definitivo de un ticket (y de sus imágenes en el bucket aislado).
+  // Es irreversible y destruye la trazabilidad de lo reportado, así que se
+  // reserva al Superadministrador: el Administrador gestiona y cierra, pero no
+  // borra. Solo se usa para depurar pruebas o duplicados de la bandeja.
+  { code: "soporte:eliminar", module: "soporte", action: "eliminar", label: "Eliminar reportes", roles: SOLO_SUPERADMIN },
 
   // ===== Prompts de IA — SOLO Superadministrador =====
   // Ver y editar los prompts de sistema que la plataforma envía a la IA
@@ -230,6 +235,9 @@ export const PERMISOS: Permiso[] = [
   // balance (diferencias y saldos contrarios). Es un criterio de MATERIALIDAD de la
   // firma, no un dato de cliente: lo fija quien administra la herramienta.
   { code: "parametros:administrar", module: "parametros", action: "administrar", label: "Administrar parámetros de alertas", roles: SOLO_ADMIN },
+
+  // Variables de entorno e integraciones (APIs, SMTP, S3).
+  { code: "entorno:administrar", module: "entorno", action: "administrar", label: "Administrar variables de entorno", roles: SOLO_ADMIN },
 
   // ===== Perfiles de carga de balances — Administrador y Superadministrador =====
   // Formatos memorizados por huella, correcciones por cuenta y preferencias de

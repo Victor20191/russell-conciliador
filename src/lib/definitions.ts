@@ -75,6 +75,12 @@ export const SupportTicketStatusSchema = z
     }
   });
 
+export const SupportTicketDeleteSchema = z.object({
+  ticketId: z.coerce.number({ error: "Ticket inválido." }).int().positive({ error: "Ticket inválido." }),
+  // Confirmación explícita: el borrado es irreversible y arrastra las imágenes.
+  code: z.string().trim().min(1, { error: "Ticket inválido." }).max(40, { error: "Ticket inválido." }),
+});
+
 export type SupportTicketCreateState = ActionState & {
   code?: string;
   trackingUrl?: string;

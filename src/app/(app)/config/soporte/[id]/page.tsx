@@ -1,13 +1,14 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
-import { requirePermiso } from "@/lib/rbac";
+import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import AdjuntosGaleria from "@/app/(app)/reportes/adjuntos-galeria";
 import { BackLink, Chip } from "@/components/ui";
 import { fmtDate, fmtDateTime, fmtHora12 } from "@/lib/format";
 import { etiquetaEstadoTicket, tonoEstadoTicket } from "@/lib/soporte";
 import { etiquetaUbicacionNovedad } from "@/lib/soporte-rutas";
 import TicketGestionForm from "../ticket-gestion-form";
+import TicketEliminarBoton from "../ticket-eliminar-boton";
 
 /**
  * Detalle de un ticket para Xentria: descripción, imágenes y el panel para
@@ -20,6 +21,8 @@ export default async function SoporteTicketDetallePage({
   params: Promise<{ id: string }>;
 }) {
   await requirePermiso("soporte:administrar");
+  // Borrado definitivo: exclusivo del Superadministrador (`soporte:eliminar`).
+  const puedeEliminar = (await authorizePermiso("soporte:eliminar")).ok;
   const { id: rawId } = await params;
   const id = Number(rawId);
   if (!Number.isInteger(id) || id <= 0) notFound();
@@ -73,12 +76,24 @@ export default async function SoporteTicketDetallePage({
             Reportado por {reportante} · {fmtDateTime(ticket.createdAt)}
           </p>
         </div>
-        <Link
-          href={`/reportes/${ticket.id}`}
-          className="shrink-0 rounded-md border border-ink-200 bg-white px-3.5 py-2 text-[12.5px] font-semibold text-ink-700 transition hover:bg-ink-50"
-        >
-          Ver como usuario
-        </Link>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <Link
+            href={`/reportes/${ticket.id}`}
+            className="shrink-0 rounded-md border border-ink-200 bg-white px-3.5 py-2 text-[12.5px] font-semibold text-ink-700 transition hover:bg-ink-50"
+          >
+            Ver como usuario
+          </Link>
+          {puedeEliminar && (
+            <TicketEliminarBoton
+              ticket={{
+                id: ticket.id,
+                code: ticket.code,
+                subject: ticket.subject,
+                adjuntos: ticket.attachments.length,
+              }}
+            />
+          )}
+        </div>
       </div>
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(340px,0.8fr)] lg:items-start">
@@ -117,16 +132,6 @@ export default async function SoporteTicketDetallePage({
               updatedAt: ticket.updatedAt.toISOString(),
             }}
           />
-          <div className="rounded-md border border-ink-150 bg-white px-4 py-3 text-xs text-ink-500">
-            {ticket.resolvedByName && ticket.resolvedAt ? (
-              <>
-                <span className="font-semibold text-ink-700">Última gestión:</span> {ticket.resolvedByName} ·{" "}
-                {fmtDateTime(ticket.resolvedAt)}
-              </>
-            ) : (
-              "Este ticket todavía no ha sido gestionado por Xentria."
-            )}
-          </div>
         </aside>
       </div>
     </div>

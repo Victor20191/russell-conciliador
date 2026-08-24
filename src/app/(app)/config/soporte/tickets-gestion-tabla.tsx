@@ -28,6 +28,7 @@ import {
   type TicketFilaGestion,
 } from "@/lib/soporte-bandeja";
 import { etiquetaUbicacionNovedad } from "@/lib/soporte-rutas";
+import TicketEliminarModal, { type TicketEliminable } from "./ticket-eliminar-modal";
 
 function hrefDetalle(id: number) {
   return `/config/soporte/${id}`;
@@ -39,10 +40,17 @@ function hrefDetalle(id: number) {
  * va). Toda la fila abre el detalle en `/config/soporte/[id]`, que es donde se
  * ven las imágenes y se cambia el estado o se documenta la solución.
  */
-export default function TicketsGestionTabla({ tickets }: { tickets: TicketFilaGestion[] }) {
+export default function TicketsGestionTabla({
+  tickets,
+  puedeEliminar = false,
+}: {
+  tickets: TicketFilaGestion[];
+  puedeEliminar?: boolean;
+}) {
   const router = useRouter();
   const [busqueda, setBusqueda] = useState("");
   const [estado, setEstado] = useState<FiltroEstadoTicket>(FILTRO_ESTADO_TODOS);
+  const [aEliminar, setAEliminar] = useState<TicketEliminable | null>(null);
 
   const conteo = useMemo(() => contarTicketsPorEstado(tickets), [tickets]);
   const filtrados = useMemo(
@@ -140,12 +148,13 @@ export default function TicketsGestionTabla({ tickets }: { tickets: TicketFilaGe
                 <th className="px-4 py-2.5 font-semibold">Estado</th>
                 <th className="px-4 py-2.5 font-semibold">Última gestión</th>
                 <th className="px-4 py-2.5"></th>
+                {puedeEliminar && <th className="px-4 py-2.5 text-right font-semibold">Eliminar</th>}
               </tr>
             </thead>
             <tbody>
               {pg.pageItems.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="px-4 py-10 text-center text-[12.5px] text-ink-400">
+                  <td colSpan={puedeEliminar ? 11 : 10} className="px-4 py-10 text-center text-[12.5px] text-ink-400">
                     {hayFiltros
                       ? "Ningún ticket coincide con la búsqueda o el estado elegido."
                       : "Todavía no hay novedades reportadas."}
@@ -221,6 +230,27 @@ export default function TicketsGestionTabla({ tickets }: { tickets: TicketFilaGe
                         Abrir <Icon name="chev-r" size={12} />
                       </Link>
                     </td>
+                    {puedeEliminar && (
+                      <td className="whitespace-nowrap px-4 py-2.5 text-right">
+                        <button
+                          type="button"
+                          onClick={(evento) => {
+                            evento.stopPropagation();
+                            setAEliminar({
+                              id: ticket.id,
+                              code: ticket.code,
+                              subject: ticket.subject,
+                              adjuntos: ticket.adjuntos,
+                            });
+                          }}
+                          aria-label={`Eliminar el ticket ${ticket.code}`}
+                          title="Eliminar definitivamente"
+                          className="inline-flex items-center gap-1 rounded p-1 text-ink-400 transition hover:bg-err-100 hover:text-err-700"
+                        >
+                          <Icon name="trash" size={14} />
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 );
               })}
@@ -234,6 +264,17 @@ export default function TicketsGestionTabla({ tickets }: { tickets: TicketFilaGe
           onPageChange={pg.setPage}
         />
       </Card>
+
+      {aEliminar && (
+        <TicketEliminarModal
+          ticket={aEliminar}
+          onClose={() => setAEliminar(null)}
+          onEliminado={() => {
+            setAEliminar(null);
+            router.refresh();
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -1,11 +1,16 @@
 "use client";
 
-import { useActionState, useEffect } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { cambiarEstadoTicket } from "@/app/actions/soporte";
 import { EstadoProcesando } from "@/components/estado-procesando";
 import { notifyActionState } from "@/lib/client-notifications";
-import { ESTADOS_TICKET, ETIQUETA_ESTADO_TICKET, type EstadoTicket } from "@/lib/soporte-estados";
+import {
+  ESTADO_TICKET_CERRADO,
+  ESTADOS_TICKET,
+  ETIQUETA_ESTADO_TICKET,
+  type EstadoTicket,
+} from "@/lib/soporte-estados";
 
 export default function TicketGestionForm({
   ticket,
@@ -20,18 +25,34 @@ export default function TicketGestionForm({
 }) {
   const router = useRouter();
   const [state, action, pending] = useActionState(cambiarEstadoTicket, undefined);
+  const estadoActual = (ESTADOS_TICKET as readonly string[]).includes(ticket.status)
+    ? (ticket.status as EstadoTicket)
+    : "abierto";
+  const [estadoSeleccionado, setEstadoSeleccionado] = useState<EstadoTicket>(estadoActual);
+
+  // Re-sincroniza la selección cuando el servidor devuelve otro estado para el
+  // ticket. Se ajusta durante el render (no en un efecto) para no encadenar un
+  // segundo render con el valor viejo ya pintado.
+  const [estadoPrevio, setEstadoPrevio] = useState<EstadoTicket>(estadoActual);
+  if (estadoPrevio !== estadoActual) {
+    setEstadoPrevio(estadoActual);
+    setEstadoSeleccionado(estadoActual);
+  }
 
   useEffect(() => {
     notifyActionState(state, {
       success: `Ticket ${ticket.code} actualizado.`,
       error: "No se pudo actualizar el ticket.",
     });
-    if (state?.ok) router.refresh();
-  }, [state, router, ticket.code]);
-
-  const estadoActual = (ESTADOS_TICKET as readonly string[]).includes(ticket.status)
-    ? (ticket.status as EstadoTicket)
-    : "abierto";
+    if (state?.ok) {
+      if (estadoSeleccionado === ESTADO_TICKET_CERRADO) {
+        router.push("/config/soporte");
+        router.refresh();
+      } else {
+        router.refresh();
+      }
+    }
+  }, [state, router, ticket.code, estadoSeleccionado]);
 
   return (
     <form action={action} className="flex min-w-0 flex-col rounded-md border border-ink-150 bg-ink-50 p-4">
@@ -49,7 +70,8 @@ export default function TicketGestionForm({
       <select
         id={`status-${ticket.id}`}
         name="status"
-        defaultValue={estadoActual}
+        value={estadoSeleccionado}
+        onChange={(e) => setEstadoSeleccionado(e.target.value as EstadoTicket)}
         className="mt-2 rounded-md border border-ink-200 bg-white px-3 py-2.5 text-[13px] text-ink-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
       >
         {ESTADOS_TICKET.map((estado) => (

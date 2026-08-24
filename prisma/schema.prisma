@@ -1726,14 +1726,14 @@ model SupportTicketAttachment {
 /// La tabla la creó un `prisma db push` fuera de migraciones el 24-ago-2026 y
 /// quedó sin declarar aquí, produciendo deriva de esquema: la primera
 /// `prisma migrate dev` habría propuesto RESETEAR la base. Se declara para
-/// cerrar esa deriva; el módulo que la consume todavía no está en el repo.
+/// cerrar esa deriva; la consume el módulo `/config/entorno` (`src/lib/entorno.ts`).
 model EnvironmentVariable {
   id          Int      @id @default(autoincrement()) @map("id")
-  key         String   @unique @map("clave")
-  value       String?  @map("valor")
+  key         String   @unique @map("clave") // p. ej. ANTHROPIC_API_KEY
+  value       String?  @map("valor") // Encriptado si es secreto; texto plano si no.
   isSecret    Boolean  @default(false) @map("es_secreto")
   description String?  @map("descripcion")
-  category    String   @map("categoria")
+  category    String   @map("categoria") // API_IA, EMAIL, ALMACENAMIENTO, SISTEMA
   updatedAt   DateTime @updatedAt @map("actualizado_en") @db.Timestamptz(3)
   updatedBy   String?  @map("actualizado_por")
 

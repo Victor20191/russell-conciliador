@@ -1,6 +1,6 @@
 import Link from "next/link";
 import prisma from "@/lib/prisma";
-import { requirePermiso } from "@/lib/rbac";
+import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import { esTicketEnGestion, type TicketFilaGestion } from "@/lib/soporte-bandeja";
 import TicketsGestionTabla from "./tickets-gestion-tabla";
 
@@ -10,6 +10,9 @@ const MAX_TICKETS = 500;
 
 export default async function SoporteAdminPage() {
   await requirePermiso("soporte:administrar");
+  // El borrado definitivo es exclusivo del Superadministrador: la tabla solo
+  // pinta el control si el permiso existe (la Server Action lo revalida).
+  const puedeEliminar = (await authorizePermiso("soporte:eliminar")).ok;
 
   const tickets = await prisma.supportTicket.findMany({
     orderBy: [{ createdAt: "desc" }],
@@ -71,7 +74,7 @@ export default async function SoporteAdminPage() {
         </div>
       </div>
 
-      <TicketsGestionTabla tickets={filas} />
+      <TicketsGestionTabla tickets={filas} puedeEliminar={puedeEliminar} />
     </div>
   );
 }
