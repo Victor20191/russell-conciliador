@@ -11,10 +11,12 @@ import { mensajeErrorBD } from "@/lib/errores";
 import {
   SupportTicketCreateSchema,
   SupportTicketDeleteSchema,
+  SupportTicketDetailSchema,
   SupportTicketInternalCreateSchema,
   SupportTicketSolutionSchema,
   SupportTicketStatusSchema,
   type ActionState,
+  type DetalleTicketState,
   type SupportTicketCreateState,
   type SupportTicketInternalCreateState,
 } from "@/lib/definitions";
@@ -31,7 +33,10 @@ import {
   nombreReportanteDesdeSesion,
   requiereSolucion,
 } from "@/lib/soporte";
-import { resolverUbicacionNovedad } from "@/lib/soporte-rutas";
+import {
+  etiquetaUbicacionNovedad as resolverEtiquetaUbicacion,
+  resolverUbicacionNovedad,
+} from "@/lib/soporte-rutas";
 import { getPublicacionModulos } from "@/lib/rbac/publicacion";
 import { getMatriz } from "@/lib/rbac/contexto";
 import { validarAdjuntoTicket } from "@/lib/soporte-adjuntos";
@@ -236,6 +241,74 @@ export async function crearNovedadInterna(
       return { ok: false, message: e.message };
     }
     return { ok: false, message: mensajeErrorBD("crearNovedadInterna", e) };
+  }
+}
+
+/**
+ * Detalle de una novedad para el modal de `/reportes`, que lo pide al abrir la
+ * tarjeta en vez de traer la descripción y los adjuntos de los 200 tickets del
+ * listado. Es una LECTURA, así que replica exactamente el gate de
+ * `/reportes/[id]`: permiso `soporte:ver` y, para los tickets públicos (sin
+ * usuario creador), solo Xentria — su acceso normal es el token de seguimiento.
+ */
+export async function obtenerDetalleTicket(ticketId: number): Promise<DetalleTicketState> {
+  const authz = await authorizePermiso("soporte:ver");
+  if (!authz.ok) return { ok: false, message: authz.message };
+
+  const parsed = SupportTicketDetailSchema.safeParse({ ticketId });
+  if (!parsed.success) return { ok: false, message: "Reporte inválido." };
+
+  try {
+    const [ticket, admin] = await Promise.all([
+      prisma.supportTicket.findUnique({
+        where: { id: parsed.data.ticketId },
+        select: {
+          id: true,
+          code: true,
+          createdById: true,
+          reporterFirstName: true,
+          reporterLastName: true,
+          subject: true,
+          description: true,
+          routeLabel: true,
+          menuLabel: true,
+          status: true,
+          solution: true,
+          resolvedByName: true,
+          resolvedAt: true,
+          createdAt: true,
+          attachments: {
+            orderBy: { createdAt: "asc" },
+            select: { id: true, fileName: true },
+          },
+        },
+      }),
+      authorizePermiso("soporte:administrar"),
+    ]);
+    if (!ticket) return { ok: false, message: "Este reporte ya no existe." };
+    if (!admin.ok && ticket.createdById === null) {
+      return { ok: false, message: "Este reporte no está disponible." };
+    }
+
+    return {
+      ok: true,
+      ticket: {
+        id: ticket.id,
+        code: ticket.code,
+        subject: ticket.subject,
+        description: ticket.description,
+        reportante: `${ticket.reporterFirstName} ${ticket.reporterLastName}`,
+        ubicacion: resolverEtiquetaUbicacion(ticket.routeLabel, ticket.menuLabel),
+        status: ticket.status,
+        solution: ticket.solution,
+        resolvedByName: ticket.resolvedByName,
+        resolvedAt: ticket.resolvedAt?.toISOString() ?? null,
+        createdAt: ticket.createdAt.toISOString(),
+        adjuntos: ticket.attachments,
+      },
+    };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("obtenerDetalleTicket", e) };
   }
 }
 

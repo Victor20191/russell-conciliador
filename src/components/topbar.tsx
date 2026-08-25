@@ -34,6 +34,7 @@ const CRUMB_LABELS: Record<string, string> = {
   clientes: "Clientes",
   maestros: "Maestros",
   parametros: "Parámetros de alertas",
+  "conceptos-nomina": "Conceptos de nómina",
 };
 
 export default function Topbar({

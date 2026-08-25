@@ -57,7 +57,7 @@ export default async function DatoModuloPage({
   const [consolidacionRows, subgrupos, catalogoPrevalidador, comentariosGrp, cuentasCliente, hermanos] = await Promise.all([
     prisma.consolidacionModuloCliente.findMany({
       where: { clienteId: encabezado.clienteId, moduloCodigo },
-      select: { clasificador: true, cuenta4: true },
+      select: { clasificador: true, descripcion: true, cuenta4: true },
     }),
     prisma.subgrupoEstandar.findMany({ select: { codigo: true, nombre: true }, orderBy: { codigo: "asc" } }),
     getCatalogoPrevalidador(),
@@ -92,10 +92,16 @@ export default async function DatoModuloPage({
   ]);
   // Un clasificador puede tener 1..N cuentas: agrupamos en lista (ordenada).
   const cuentasPorClasificador = new Map<string, string[]>();
+  // Nombre legible del clasificador cuando existe (Nómina: el clasificador es el CÓDIGO
+  // del concepto y la descripción es su nombre, cargado en /config/conceptos-nomina).
+  const descripcionPorClasificador = new Map<string, string>();
   for (const r of consolidacionRows) {
     const lista = cuentasPorClasificador.get(r.clasificador) ?? [];
     lista.push(r.cuenta4);
     cuentasPorClasificador.set(r.clasificador, lista);
+    if (r.descripcion && !descripcionPorClasificador.has(r.clasificador)) {
+      descripcionPorClasificador.set(r.clasificador, r.descripcion);
+    }
   }
   for (const [k, v] of cuentasPorClasificador) cuentasPorClasificador.set(k, [...new Set(v)].sort());
   // Nombres del plan completo (por si hay un mapeo legado fuera del módulo).
@@ -136,6 +142,7 @@ export default async function DatoModuloPage({
   const consolidado = consolidarPorClasificador(detalleVm.map((d) => ({ clasificador: d.clasificador, valor: d.valor })));
   const consolidadoVm: ConsolidadoVm[] = consolidado.map((c) => ({
     clasificador: c.clasificador,
+    descripcion: descripcionPorClasificador.get(c.clasificador) ?? null,
     total: c.total,
     filas: c.filas,
     cuentas4: (cuentasPorClasificador.get(c.clasificador) ?? []).map((cod) => ({ codigo: cod, nombre: nombrePorCuenta.get(cod) ?? null })),

@@ -32,7 +32,7 @@ import {
 import { SOPORTES_MARCA_MAX, tamanoLegible, urlSoporteMarca } from "@/lib/modulos/marcas-adjuntos";
 
 export type FilaDetalleVm = { filaNum: number; clasificador: string | null; valor: number; datos: Record<string, string | number | null> };
-export type ConsolidadoVm = { clasificador: string; total: number; filas: number; cuentas4: { codigo: string; nombre: string | null }[] };
+export type ConsolidadoVm = { clasificador: string; descripcion?: string | null; total: number; filas: number; cuentas4: { codigo: string; nombre: string | null }[] };
 // Cruce contable (balance vs. archivos del módulo): `resumen` es null cuando NO hay
 // balance de comprobación oficial para el período del módulo (estado vacío en la UI).
 export type CruceContableVm = {
@@ -373,7 +373,13 @@ function ConsolidadoTab({
                       />
                     </td>
                   )}
-                  <td className="px-3 py-2 font-medium text-ink-800">{c.clasificador}</td>
+                  <td className="px-3 py-2 font-medium text-ink-800">
+                    {c.clasificador}
+                    {/* Nombre del concepto cuando el clasificador es un código (Nómina). */}
+                    {c.descripcion && (
+                      <div className="text-[11px] font-normal text-ink-500">{c.descripcion}</div>
+                    )}
+                  </td>
                   <td className="px-3 py-2 text-right tabular-nums text-ink-500">{c.filas}</td>
                   <td className="whitespace-nowrap px-3 py-2 text-right font-semibold tabular-nums text-ink-800">{fmtContable(c.total)}</td>
                   <td className="px-3 py-2">

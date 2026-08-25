@@ -698,13 +698,27 @@ async function validarCuentas4Modulo(moduloCodigo: string, cuentas: string[]): P
 
 // Reemplaza el CONJUNTO de cuentas de un clasificador dentro de una transacción (tx):
 // borra las que ya tenía y crea las nuevas. Conjunto vacío = deja el clasificador sin cuenta.
-function reemplazarCuentasTx(tx: Prisma.TransactionClient, clienteId: number, moduloCodigo: string, clasificador: string, cuentas: string[], actor: string | null) {
+// `descripcion` es el nombre legible del clasificador (Nómina: el concepto detrás del
+// código, cargado en /config/conceptos-nomina): se RE-ESCRIBE al recrear las filas para
+// que editar las cuentas a mano no borre el nombre.
+function reemplazarCuentasTx(tx: Prisma.TransactionClient, clienteId: number, moduloCodigo: string, clasificador: string, cuentas: string[], actor: string | null, descripcion: string | null = null) {
   return [
     tx.consolidacionModuloCliente.deleteMany({ where: { clienteId, moduloCodigo, clasificador } }),
     ...(cuentas.length
-      ? [tx.consolidacionModuloCliente.createMany({ data: cuentas.map((cuenta4) => ({ clienteId, moduloCodigo, clasificador, cuenta4, actualizadoPor: actor })) })]
+      ? [tx.consolidacionModuloCliente.createMany({ data: cuentas.map((cuenta4) => ({ clienteId, moduloCodigo, clasificador, descripcion, cuenta4, actualizadoPor: actor })) })]
       : []),
   ];
+}
+
+// Nombre legible ya guardado de cada clasificador, para no perderlo al reemplazar sus cuentas.
+async function descripcionesGuardadas(clienteId: number, moduloCodigo: string, clasificadores: string[]): Promise<Map<string, string>> {
+  const filas = await prisma.consolidacionModuloCliente.findMany({
+    where: { clienteId, moduloCodigo, clasificador: { in: clasificadores } },
+    select: { clasificador: true, descripcion: true },
+  });
+  const mapa = new Map<string, string>();
+  for (const f of filas) if (f.descripcion && !mapa.has(f.clasificador)) mapa.set(f.clasificador, f.descripcion);
+  return mapa;
 }
 
 // Bitácora de la consolidación: una sola pulsación puede reescribir decenas de
@@ -737,7 +751,10 @@ export async function guardarConsolidacionModulo(input: { clienteId: number; mod
   if (invalida) return invalida;
   try {
     const user = await getCurrentUser();
-    await prisma.$transaction(reemplazarCuentasTx(prisma, input.clienteId, moduloCodigo, clasificador, cuentas4, user?.name ?? null));
+    const descripciones = await descripcionesGuardadas(input.clienteId, moduloCodigo, [clasificador]);
+    await prisma.$transaction(
+      reemplazarCuentasTx(prisma, input.clienteId, moduloCodigo, clasificador, cuentas4, user?.name ?? null, descripciones.get(clasificador) ?? null),
+    );
     await auditarConsolidacion(input.clienteId, moduloCodigo, [{ cuentas4 }]);
     revalidatePath(rutaModulo(moduloCodigo));
     return { ok: true, message: "Consolidación guardada." };
@@ -768,7 +785,12 @@ export async function guardarConsolidacionModuloLote(input: {
   try {
     const user = await getCurrentUser();
     const actor = user?.name ?? null;
-    await prisma.$transaction(filas.flatMap((f) => reemplazarCuentasTx(prisma, input.clienteId, moduloCodigo, f.clasificador, f.cuentas4, actor)));
+    const descripciones = await descripcionesGuardadas(input.clienteId, moduloCodigo, filas.map((f) => f.clasificador));
+    await prisma.$transaction(
+      filas.flatMap((f) =>
+        reemplazarCuentasTx(prisma, input.clienteId, moduloCodigo, f.clasificador, f.cuentas4, actor, descripciones.get(f.clasificador) ?? null),
+      ),
+    );
     await auditarConsolidacion(input.clienteId, moduloCodigo, filas);
     revalidatePath(rutaModulo(moduloCodigo));
     return { ok: true, message: filas.length === 1 ? "Consolidación guardada." : `${filas.length} consolidaciones guardadas.` };

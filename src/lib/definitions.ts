@@ -81,6 +81,31 @@ export const SupportTicketDeleteSchema = z.object({
   code: z.string().trim().min(1, { error: "Ticket inválido." }).max(40, { error: "Ticket inválido." }),
 });
 
+export const SupportTicketDetailSchema = z.object({
+  ticketId: z.coerce.number({ error: "Reporte inválido." }).int().positive({ error: "Reporte inválido." }),
+});
+
+/** Detalle de una novedad tal como lo pinta el modal de `/reportes`. Las fechas
+ * viajan como ISO porque el modal es un componente cliente. */
+export type DetalleTicket = {
+  id: number;
+  code: string;
+  subject: string;
+  description: string;
+  reportante: string;
+  ubicacion: string | null;
+  status: string;
+  solution: string | null;
+  resolvedByName: string | null;
+  resolvedAt: string | null;
+  createdAt: string;
+  adjuntos: { id: number; fileName: string }[];
+};
+
+export type DetalleTicketState =
+  | { ok: true; ticket: DetalleTicket }
+  | { ok: false; message: string };
+
 export type SupportTicketCreateState = ActionState & {
   code?: string;
   trackingUrl?: string;

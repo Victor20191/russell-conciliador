@@ -71,6 +71,25 @@ html {
   background: var(--color-ink-50);
 }
 
+/* Desplazamiento congelado con un modal abierto ------------------------------
+   El cascarón mide exactamente la ventana, así que quien se desplaza no es el
+   documento sino sus contenedores internos (el `<main>` y el menú lateral),
+   marcados con `data-scroll-app`. Mientras `useBloqueoScrollFondo` mantenga la
+   marca en `<html>`, ninguno de ellos se mueve: la rueda sobre el velo del
+   modal ya no arrastra la página de atrás. El cuerpo del modal conserva su
+   scroll porque no lleva esa marca.
+   `scrollbar-gutter: stable` reserva siempre el ancho de la barra para que
+   ocultarla al abrir el modal no recorra el contenido unos píxeles. */
+[data-scroll-app] {
+  scrollbar-gutter: stable;
+}
+
+html[data-modal-abierto],
+html[data-modal-abierto] body,
+html[data-modal-abierto] [data-scroll-app] {
+  overflow: hidden;
+}
+
 body {
   font-family: var(--font-sans);
   font-size: 13px;

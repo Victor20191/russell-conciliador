@@ -1246,6 +1246,10 @@ model ConsolidacionModuloCliente {
   clienteId      Int      @map("cliente_id")
   moduloCodigo   String   @map("modulo_codigo")
   clasificador   String   @map("clasificador")
+  // Etiqueta legible del clasificador. En Nómina el clasificador es el CÓDIGO del
+  // concepto y esto guarda el nombre del concepto («Sueldo básico»), que llega por la
+  // carga masiva de /config/conceptos-nomina. Null = el clasificador se explica solo.
+  descripcion    String?  @map("descripcion")
   cuenta4        String   @map("cuenta_4") // cuenta de 4 díg contra la que cruza
   actualizadoPor String?  @map("actualizado_por")
   creadoEn       DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)

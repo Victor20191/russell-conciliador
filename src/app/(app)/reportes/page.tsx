@@ -2,18 +2,15 @@ import Link from "next/link";
 import prisma from "@/lib/prisma";
 import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import { getCurrentUser } from "@/lib/dal";
-import { Chip, PageHeader } from "@/components/ui";
-import { fmtDateTime } from "@/lib/format";
+import { PageHeader } from "@/components/ui";
 import { almacenamientoEvidenciasTicketsDisponible } from "@/lib/storage/evidencias-tickets";
-import {
-  ESTADO_TICKET_ABIERTO,
-  etiquetaEstadoTicket,
-  tonoEstadoTicket,
-} from "@/lib/soporte";
 import { catalogoUbicacionesNovedad, etiquetaUbicacionNovedad } from "@/lib/soporte-rutas";
+import type { TicketKanban } from "@/lib/soporte-kanban";
+import { clasificarDominioReporte } from "@/lib/soporte-dominios";
 import { getPublicacionModulos } from "@/lib/rbac/publicacion";
 import { getMatriz } from "@/lib/rbac/contexto";
 import NuevaNovedadForm from "./nueva-novedad-form";
+import TicketsVista from "./tickets-vista";
 
 export default async function ReportesPage() {
   await requirePermiso("soporte:ver");
@@ -36,33 +33,65 @@ export default async function ReportesPage() {
   // Los tickets creados dentro de la plataforma son visibles para todos los
   // usuarios. Los tickets públicos (sin usuario creador) conservan su acceso
   // privado por token y solo aparecen en la bandeja de Xentria.
+  //
+  // El tope de 200 recorta por fecha ANTES de que el listado filtre por origen:
+  // lo que se ve es «las 200 novedades más recientes», y filtrar por Russell o
+  // Xentria reparte esas 200, no rebusca más atrás en el histórico.
   const whereBandejaInterna = { createdById: { not: null } };
-  const [tickets, ticketsAbiertos] = await Promise.all([
-    prisma.supportTicket.findMany({
-      where: whereBandejaInterna,
-      orderBy: { createdAt: "desc" },
-      take: 200,
-      select: {
-        id: true,
-        code: true,
-        createdById: true,
-        reporterFirstName: true,
-        reporterLastName: true,
-        subject: true,
-        routeLabel: true,
-        menuLabel: true,
-        status: true,
-        createdAt: true,
-        _count: { select: { attachments: true } },
-      },
-    }),
-    prisma.supportTicket.count({
-      where: {
-        ...whereBandejaInterna,
-        status: ESTADO_TICKET_ABIERTO,
-      },
-    }),
-  ]);
+  const tickets = await prisma.supportTicket.findMany({
+    where: whereBandejaInterna,
+    orderBy: { createdAt: "desc" },
+    take: 200,
+    select: {
+      id: true,
+      code: true,
+      createdById: true,
+      reporterFirstName: true,
+      reporterLastName: true,
+      subject: true,
+      routeLabel: true,
+      menuLabel: true,
+      status: true,
+      createdAt: true,
+      // El tablero mueve tickets y `cambiarEstadoTicket` compara `updatedAt`
+      // para no pisar el cambio de otra persona.
+      updatedAt: true,
+      _count: { select: { attachments: true } },
+    },
+  });
+
+  // El ticket guarda quién lo creó, no su correo, y `createdById` es una FK
+  // SUAVE (sin @relation), así que el dominio del reportante no se puede pedir
+  // en el mismo `select`. Se resuelve aparte: una consulta por clave primaria
+  // sobre los ids únicos, no un N+1. Un id sin correo —usuario ya borrado—
+  // termina en «otros» y el ticket sigue apareciendo en el listado.
+  const idsCreadores = [
+    ...new Set(tickets.map((ticket) => ticket.createdById).filter((id): id is number => id !== null)),
+  ];
+  const usuarios =
+    idsCreadores.length > 0
+      ? await prisma.user.findMany({
+          where: { id: { in: idsCreadores } },
+          select: { id: true, email: true },
+        })
+      : [];
+  const correoPorId = new Map(usuarios.map((usuario) => [usuario.id, usuario.email]));
+
+  const filas: TicketKanban[] = tickets.map((ticket) => ({
+    id: ticket.id,
+    code: ticket.code,
+    subject: ticket.subject,
+    reportante: `${ticket.reporterFirstName} ${ticket.reporterLastName}`,
+    esMio: ticket.createdById === actor.id,
+    ubicacion: etiquetaUbicacionNovedad(ticket.routeLabel, ticket.menuLabel),
+    dominio: clasificarDominioReporte(
+      ticket.createdById === null ? null : correoPorId.get(ticket.createdById),
+    ),
+    status: ticket.status,
+    adjuntos: ticket._count.attachments,
+    createdAt: ticket.createdAt.toISOString(),
+    updatedAt: ticket.updatedAt.toISOString(),
+  }));
 
   return (
     <div className="w-full">
@@ -71,10 +100,6 @@ export default async function ReportesPage() {
         subtitle="Consulta las novedades reportadas en la plataforma. Solo Xentria puede cambiar su estado o documentar la solución."
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <div className="rounded-md border border-warn-100 bg-warn-100 px-3.5 py-2 text-[12.5px] font-semibold text-warn-700">
-              <strong className="font-mono text-ink-900">{ticketsAbiertos}</strong>{" "}
-              {ticketsAbiertos === 1 ? "ticket abierto" : "tickets abiertos"}
-            </div>
             {admin.ok && (
               <Link
                 href="/config/soporte"
@@ -93,56 +118,7 @@ export default async function ReportesPage() {
         }
       />
 
-      {tickets.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-ink-200 bg-paper px-6 py-12 text-center text-sm text-ink-500">
-          Todavía no hay novedades reportadas en la plataforma.
-        </div>
-      ) : (
-        <div className="overflow-hidden rounded-lg border border-ink-150 bg-paper">
-          <table className="min-w-full text-left text-[13px]">
-            <thead className="bg-ink-50 text-[11px] font-semibold uppercase tracking-wider text-ink-500">
-              <tr>
-                <th className="px-4 py-3">Código</th>
-                <th className="px-4 py-3">Asunto</th>
-                <th className="px-4 py-3">Reportado por</th>
-                <th className="px-4 py-3">Ubicación</th>
-                <th className="px-4 py-3">Estado</th>
-                <th className="px-4 py-3">Imágenes</th>
-                <th className="px-4 py-3">Creado</th>
-              </tr>
-            </thead>
-            <tbody>
-              {tickets.map((ticket) => (
-                <tr key={ticket.id} className="border-t border-ink-100">
-                  <td className="px-4 py-3 font-mono text-xs font-semibold text-ink-700">
-                    <Link href={`/reportes/${ticket.id}`} className="hover:text-navy-700 hover:underline">
-                      {ticket.code}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-3 text-ink-800">
-                    <Link href={`/reportes/${ticket.id}`} className="hover:underline">
-                      {ticket.subject}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-3 text-ink-600">
-                    {ticket.createdById === actor.id
-                      ? "Tú"
-                      : `${ticket.reporterFirstName} ${ticket.reporterLastName}`}
-                  </td>
-                  <td className="px-4 py-3 text-ink-600">
-                    {etiquetaUbicacionNovedad(ticket.routeLabel, ticket.menuLabel) ?? "—"}
-                  </td>
-                  <td className="px-4 py-3">
-                    <Chip label={etiquetaEstadoTicket(ticket.status)} tone={tonoEstadoTicket(ticket.status)} />
-                  </td>
-                  <td className="px-4 py-3 text-ink-600">{ticket._count.attachments}</td>
-                  <td className="px-4 py-3 text-ink-500">{fmtDateTime(ticket.createdAt)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <TicketsVista tickets={filas} puedeMover={admin.ok} />
     </div>
   );
 }

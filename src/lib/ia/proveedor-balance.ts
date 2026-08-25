@@ -2,6 +2,7 @@ import "server-only";
 import { iaDisponible as anthropicDisponible, MODELO_EXTRACCION } from "@/lib/anthropic";
 import { geminiDisponible } from "@/lib/gemini";
 import type { UsoTokens } from "@/lib/ia/precios";
+import { correoEsDelDominio, DOMINIO_XENTRIA } from "@/lib/dominios-correo";
 
 export type ProveedorIABalance = "anthropic" | "gemini";
 
@@ -20,12 +21,17 @@ export const MODELO_GEMINI_BALANCE =
 /**
  * Dominio corporativo cuyo personal puede usar la herramienta de pruebas
  * también en la plataforma desplegada (no solo en desarrollo local).
+ *
+ * El valor vive en `@/lib/dominios-correo` —módulo puro, sin `server-only`—
+ * porque el filtro de novedades de `/reportes` lo necesita en el cliente y este
+ * archivo no se puede importar desde allí. Se re-exporta con su nombre de
+ * siempre para no mover a los consumidores de la compuerta de IA.
  */
-export const DOMINIO_CORREO_IA_PRUEBAS = "@xentria.co";
+export { DOMINIO_XENTRIA as DOMINIO_CORREO_IA_PRUEBAS } from "@/lib/dominios-correo";
 
 /** ¿El correo pertenece al dominio corporativo autorizado? Puro y fail-closed. */
 export function correoAutorizadoIAPruebas(correo: string | null | undefined): boolean {
-  return typeof correo === "string" && correo.trim().toLowerCase().endsWith(DOMINIO_CORREO_IA_PRUEBAS);
+  return correoEsDelDominio(correo, DOMINIO_XENTRIA);
 }
 
 /**

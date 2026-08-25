@@ -37,7 +37,7 @@ export function tonoEstadoTicket(estado: string): "ok" | "warn" | "err" | "blue"
     case ESTADO_TICKET_EN_PROCESO:
       return "blue";
     case ESTADO_TICKET_CERRADO:
-      return "ok";
+      return "ink";
     default:
       return "warn";
   }

@@ -178,7 +178,7 @@ export default function Sidebar({
         )}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto pb-2">
+      <div data-scroll-app className="min-h-0 flex-1 overflow-y-auto pb-2">
         <SectionLabel>Trabajo</SectionLabel>
         <nav className="flex flex-col gap-1 px-2">
           {visibleWork.map((it) => (

@@ -92,6 +92,9 @@ export const configNav: NavItem[] = [
   { label: "Clientes", href: "/config/clientes", icon: "users", permiso: "clientes:configurar", modulo: "clientes" },
   { label: "Maestros", href: "/config/maestros", icon: "box", permiso: "maestros:ver", modulo: "maestros" },
   { label: "Mapeo plan estándar", href: "/config/mapeo", icon: "settings", permiso: "mapeo:ver", modulo: "mapeo" },
+  // Carga masiva del catálogo de conceptos de nómina (cliente/código/concepto/cuenta).
+  // Es la misma memoria del Consolidado del módulo NOM, por eso comparte su permiso.
+  { label: "Conceptos de nómina", href: "/config/conceptos-nomina", icon: "box", permiso: "modulos_datos:editar", modulo: "modulos_datos" },
   { label: "Mapeos DIAN", href: "/config/dian", icon: "doc", permiso: "mapeos_dian:ver", modulo: "mapeos_dian" },
   { label: "Usuarios", href: "/config/usuarios", icon: "users", permiso: "usuarios:ver", modulo: "usuarios" },
   { label: "Permisos por rol", href: "/config/permisos", icon: "settings", permiso: "roles:configurar", modulo: "roles" },

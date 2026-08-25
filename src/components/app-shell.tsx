@@ -57,7 +57,7 @@ export default function AppShell({
           notifications={notifications}
           onOpenMobileNav={() => setMobileNavOpen(true)}
         />
-        <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6">
+        <main data-scroll-app className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6">
           {children}
         </main>
       </div>

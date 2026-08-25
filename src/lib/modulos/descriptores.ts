@@ -44,6 +44,13 @@ export type DescriptorModulo = {
   columnas: RolColumna[];
   /** Columna que clasifica cada fila (→ consolidación `clasificador → cuenta4`). */
   clasificador: string;
+  /**
+   * Columna de respaldo cuando la del clasificador viene VACÍA en el archivo.
+   * Nómina clasifica por CÓDIGO del concepto (estable entre períodos, es lo que se
+   * carga masivamente en `/config/conceptos-nomina`), pero los archivos que no traen
+   * la columna de código siguen clasificándose por el texto del concepto.
+   */
+  clasificadorAlterno?: string;
   /** Columna monetaria que se suma en la consolidación. */
   valor: string;
   /** Derivaciones de columnas faltantes (clave = columna destino). */
@@ -175,17 +182,22 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
   },
 
   // ===== Nómina (NOM) → cuentas 51xx/72xx (gastos de personal) =====
+  // Clasifica por CÓDIGO del concepto, no por su texto: el código es lo estable entre
+  // períodos y es la llave de la carga masiva de conceptos (/config/conceptos-nomina).
+  // El archivo puede no traerlo (columna opcional): ahí manda `clasificadorAlterno`.
   NOM: {
     codigo: "NOM",
     label: "Nómina",
     columnas: [
-      col("concepto", "Concepto", "texto", true, ["concepto", "tipo", "rubro", "cuenta", "devengado"]),
+      col("codigo", "Código del concepto", "texto", false, ["codigo", "cod", "codigo concepto", "cod concepto", "codigo nomina", "id concepto"]),
+      col("concepto", "Concepto", "texto", true, ["concepto", "tipo", "rubro", "cuenta", "devengado", "descripcion"]),
       col("cedula", "Cédula / documento", "texto", true, ["cedula", "documento", "identificacion", "nit", "id"]),
       col("empleado", "Empleado", "texto", false, ["empleado", "nombre", "trabajador"]),
       col("area", "Área / centro de costo", "texto", false, ["area", "centro", "centro de costo", "dependencia"]),
       col("valor", "Valor", "moneda", true, ["valor", "monto", "total", "devengado", "pagado"]),
     ],
-    clasificador: "concepto",
+    clasificador: "codigo",
+    clasificadorAlterno: "concepto",
     valor: "valor",
     noNegativos: ["valor"],
     verificaciones: [

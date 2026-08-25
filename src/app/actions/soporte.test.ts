@@ -57,6 +57,7 @@ import {
   crearTicketSoporte,
   eliminarTicketSoporte,
   guardarSolucionTicket,
+  obtenerDetalleTicket,
 } from "./soporte";
 
 const rutaBalance = catalogoUbicacionesNovedad().find((ruta) => ruta.etiqueta === "Balance de comprobación")!;
@@ -364,5 +365,88 @@ describe("Server Actions de soporte", () => {
     expect(resultado).toEqual({ ok: false, message: "Sin permiso." });
     expect(mocks.findUnique).not.toHaveBeenCalled();
     expect(mocks.delete).not.toHaveBeenCalled();
+  });
+  describe("obtenerDetalleTicket", () => {
+    const ticketBase = {
+      id: 14,
+      code: "TKT-20260807-A1B2C3D4",
+      createdById: 3,
+      reporterFirstName: "Ana",
+      reporterLastName: "Pérez",
+      subject: "No puedo ingresar al balance",
+      description: "Al abrir /balance sale un error.",
+      routeLabel: "Balance de comprobación",
+      menuLabel: "Balance",
+      status: "abierto",
+      solution: null,
+      resolvedByName: null,
+      resolvedAt: null,
+      createdAt: new Date("2026-08-07T15:00:00.000Z"),
+      attachments: [{ id: 5, fileName: "captura.png" }],
+    };
+
+    it("entrega el detalle de un ticket interno con las fechas serializadas", async () => {
+      mocks.findUnique.mockResolvedValue(ticketBase);
+
+      const resultado = await obtenerDetalleTicket(14);
+
+      expect(mocks.authorizePermiso).toHaveBeenCalledWith("soporte:ver");
+      expect(resultado).toEqual({
+        ok: true,
+        ticket: expect.objectContaining({
+          id: 14,
+          code: "TKT-20260807-A1B2C3D4",
+          reportante: "Ana Pérez",
+          ubicacion: "Balance de comprobación · Balance",
+          createdAt: "2026-08-07T15:00:00.000Z",
+          adjuntos: [{ id: 5, fileName: "captura.png" }],
+        }),
+      });
+    });
+
+    it("oculta los tickets públicos a quien no administra soporte", async () => {
+      mocks.findUnique.mockResolvedValue({ ...ticketBase, createdById: null });
+      mocks.authorizePermiso.mockImplementation(async (permiso: string) =>
+        permiso === "soporte:administrar"
+          ? { ok: false, message: "Sin permiso." }
+          : { ok: true, userId: 9, role: "Staff" },
+      );
+
+      const resultado = await obtenerDetalleTicket(14);
+
+      expect(resultado).toEqual({ ok: false, message: "Este reporte no está disponible." });
+    });
+
+    it("deja ver un ticket público a Xentria", async () => {
+      mocks.findUnique.mockResolvedValue({ ...ticketBase, createdById: null });
+
+      const resultado = await obtenerDetalleTicket(14);
+
+      expect(resultado.ok).toBe(true);
+    });
+
+    it("exige el permiso de lectura antes de tocar la base de datos", async () => {
+      mocks.authorizePermiso.mockResolvedValue({ ok: false, message: "Sin permiso." });
+
+      const resultado = await obtenerDetalleTicket(14);
+
+      expect(resultado).toEqual({ ok: false, message: "Sin permiso." });
+      expect(mocks.findUnique).not.toHaveBeenCalled();
+    });
+
+    it("rechaza un id que no es un ticket", async () => {
+      const resultado = await obtenerDetalleTicket(0);
+
+      expect(resultado).toEqual({ ok: false, message: "Reporte inválido." });
+      expect(mocks.findUnique).not.toHaveBeenCalled();
+    });
+
+    it("avisa cuando el ticket ya no existe", async () => {
+      mocks.findUnique.mockResolvedValue(null);
+
+      const resultado = await obtenerDetalleTicket(14);
+
+      expect(resultado).toEqual({ ok: false, message: "Este reporte ya no existe." });
+    });
   });
 });
