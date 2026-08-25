@@ -729,6 +729,63 @@ model BalancePruebaDetalle {
   @@map("balance_prueba_detalle")
 }
 
+// ===== Balance ABIERTO POR TERCERO (dataset separado, para auditorías CXC/CXP) =====
+// Espeja BalancePruebaEncabezado/Detalle pero SIN colapsar por cuenta: conserva UNA
+// fila por (cuenta, tercero) para las cuentas de CXC/CXP. Aislado del balance normal
+// (no lo lee ni lo escribe): cero impacto en DIAN/prevalidador/conciliaciones.
+model BalanceTerceroEncabezado {
+  id               Int       @id @default(autoincrement()) @map("id")
+  loteId           String?   @unique @map("lote_id")
+  clienteId        Int       @map("cliente_id") // FK suave a `clientes` (Int, sin @relation)
+  nombreCliente    String    @map("nombre_cliente")
+  nit              String?   @map("nit") // NIT del CLIENTE
+  periodo          String    @map("periodo")
+  periodoInicio    DateTime  @map("periodo_inicio") @db.Date
+  periodoFin       DateTime  @map("periodo_fin") @db.Date
+  version          String    @map("version")
+  esOficial        Boolean   @default(false) @map("es_oficial")
+  estaCongelado    Boolean   @default(false) @map("esta_congelado")
+  archivo          String?   @map("archivo")
+  tamanoArchivo    String?   @map("tamano_archivo")
+  huella           String?   @map("huella")
+  origenExtraccion String?   @map("origen_extraccion")
+  cargadoPor       String?   @map("cargado_por")
+  filasTotales     Int       @default(0) @map("filas_totales")
+  ultimaCarga      DateTime? @map("ultima_carga") @db.Timestamptz(3)
+  creadoEn         DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  detalles BalanceTerceroDetalle[]
+
+  @@unique([clienteId, periodo, version])
+  @@index([clienteId, periodo])
+  @@map("balance_tercero_encabezado")
+}
+
+model BalanceTerceroDetalle {
+  id             Int                      @id @default(autoincrement()) @map("id")
+  encabezadoId   Int                      @map("encabezado_id")
+  encabezado     BalanceTerceroEncabezado @relation(fields: [encabezadoId], references: [id], onDelete: Cascade)
+  cuenta2        String                   @map("cuenta_2")
+  cuenta4        String                   @map("cuenta_4")
+  cuenta6        String                   @map("cuenta_6")
+  cuenta8        String                   @map("cuenta_8")
+  nombreCuenta   String                   @map("nombre_cuenta")
+  cuenta6Russell String?                  @map("cuenta_6_russell")
+  coincidencia   Decimal?                 @map("porcentaje_coincidencia") @db.Decimal(5, 2)
+  nitTercero     String?                  @map("nit_tercero")
+  nombreTercero  String?                  @map("nombre_tercero")
+  saldoInicial   Decimal                  @default(0) @map("saldo_inicial") @db.Decimal(18, 2)
+  debitos        Decimal                  @default(0) @map("debitos") @db.Decimal(18, 2)
+  creditos       Decimal                  @default(0) @map("creditos") @db.Decimal(18, 2)
+  saldoFinal     Decimal                  @default(0) @map("saldo_final") @db.Decimal(18, 2)
+  creadoEn       DateTime                 @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  @@index([encabezadoId])
+  @@index([cuenta4])
+  @@index([nitTercero])
+  @@map("balance_tercero_detalle")
+}
+
 // Archivo temporal fragmentado para cargas de balance. Los bytes llegan en
 // partes pequeñas para no atravesar el límite de payload de una sola Function;
 // la Server Action los consume y elimina antes de iniciar la extracción.
