@@ -304,7 +304,12 @@ const mocks = vi.hoisted(() => {
   };
 });
 
-vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+vi.mock("next/cache", () => ({
+  revalidatePath: vi.fn(),
+  revalidateTag: vi.fn(),
+  updateTag: vi.fn(),
+  unstable_cache: (fn: (...args: unknown[]) => unknown) => fn,
+}));
 vi.mock("next/navigation", () => ({ redirect: mocks.redirect }));
 vi.mock("@/lib/rbac", () => ({ authorizePermiso: mocks.authorizePermiso }));
 vi.mock("@/lib/balance/autorizacion-borrador", () => ({

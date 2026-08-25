@@ -516,13 +516,15 @@ describe("transformarTabular", () => {
     expect(rr.excepciones.some((e) => e.regla === "Resumen por tercero omitido por fila consolidada")).toBe(false);
   });
 
-  it("hace fallback si dos filas vacías están marcadas como Cuenta", () => {
+  it("conserva varias filas Cuenta y omite las dimensiones alternativas del mismo código", () => {
     const hojaT: GridHoja = {
       nombre: "Balance",
       filas: [
         ["Rompimiento", "Tercero", "Código", "Cuenta", "SI", "DB", "CR", "Saldo"],
         ["Cuenta", "", 130505, "Sucursal A", 100, 20, 0, 120],
         ["Cuenta", "", 130505, "Sucursal B", 200, 30, 0, 230],
+        ["Auxiliar", "", 130505, "Resumen por auxiliar", 300, 50, 0, 350],
+        ["Centro", "", 130505, "Resumen por centro", 300, 50, 0, 350],
         ["NIT", "T-1", 130505, "Detalle informativo", 300, 50, 0, 350],
       ],
     };
@@ -544,7 +546,40 @@ describe("transformarTabular", () => {
     expect(rr.importReady).toHaveLength(1);
     expect(rr.importReady[0]).toMatchObject({ code: "130505", prevBalance: 300, debitos: 50, creditos: 0, balance: 350 });
     expect(rr.filasCrudas).toHaveLength(2);
-    expect(rr.excepciones.some((e) => e.regla === "Resumen por tercero omitido por fila consolidada")).toBe(false);
+    expect(rr.filasCrudas.map((f) => f.filaNum)).toEqual([2, 3]);
+    expect(rr.filasCrudas.every((f) => f.tipoFila === "movimiento")).toBe(true);
+    expect(rr.excepciones.some((e) => e.regla === "Resumen por tercero omitido por fila consolidada")).toBe(true);
+  });
+
+  it("no deduplica filas Cuenta idénticas: pueden pertenecer a sucursales distintas", () => {
+    const hojaT: GridHoja = {
+      nombre: "Balance",
+      filas: [
+        ["Rompimiento", "Tercero", "Código", "Cuenta", "SI", "DB", "CR", "Saldo"],
+        ["Cuenta", "", 130505, "Sucursal A", 100, 20, 0, 120],
+        ["Cuenta", "", 130505, "Sucursal B", 100, 20, 0, 120],
+        ["Auxiliar", "", 130505, "Resumen por auxiliar", 200, 40, 0, 240],
+      ],
+    };
+    const s = spec({
+      columnas: {
+        ...spec().columnas,
+        codigo: 3,
+        nombre: 4,
+        saldoInicial: 5,
+        debitos: 6,
+        creditos: 7,
+        saldoFinal: 8,
+        tercero: 2,
+      },
+      reglaDetalle: { tipo: "columna", columna: 1, valor: "Cuenta" },
+    });
+
+    const rr = transformarTabular(s, [hojaT], PARAMS);
+
+    expect(rr.importReady).toHaveLength(1);
+    expect(rr.importReady[0]).toMatchObject({ code: "130505", prevBalance: 200, debitos: 40, creditos: 0, balance: 240 });
+    expect(rr.filasCrudas.map((f) => f.filaNum)).toEqual([2, 3]);
   });
 
   it("sin columnas de movimiento, acepta por saldo sin validar control", () => {

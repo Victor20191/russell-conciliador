@@ -332,12 +332,13 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
   // consolidada, el detalle por tercero es una vista alternativa y se excluye.
   const codigosConConsolidado = new Set<string>();
   const codigosConDetalleTercero = new Set<string>();
-  // Candidatas consolidadas que el propio reporte marca con `reglaDetalle`
+  // Filas contables que el propio reporte marca con `reglaDetalle`
   // (p. ej. Rompimiento=Cuenta). En reportes jerárquicos la misma cuenta puede
-  // reaparecer luego como NIT/auxiliar/centro de costo con tercero vacío. Solo es
-  // seguro elegir una fila y omitir esas vistas alternativas si hay exactamente
-  // UNA candidata marcada: sin esa prueba se preservan todas las filas vacías.
-  const filasConsolidadasMarcadasPorCodigo = new Map<string, number[]>();
+  // reaparecer luego como NIT/auxiliar/centro de costo con tercero vacío. Si el
+  // archivo marca una o más filas Cuenta, se conservan TODAS las marcadas y se
+  // omiten únicamente las vistas alternativas sin tercero y sin esa marca. Sin
+  // ninguna marca autoritativa se preservan todas las filas vacías (fail-safe).
+  const filasConsolidadasMarcadasPorCodigo = new Map<string, Set<number>>();
   if (cols.tercero > 0) {
     for (let r = spec.primeraFilaDatos - 1; r < hoja.filas.length; r++) {
       const fila = hoja.filas[r] ?? [];
@@ -346,8 +347,8 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
       if (texto(cell(fila, cols.tercero)) === "") {
         codigosConConsolidado.add(code);
         if (filaCoincideReglaDetalle(fila, spec)) {
-          const marcadas = filasConsolidadasMarcadasPorCodigo.get(code) ?? [];
-          marcadas.push(r);
+          const marcadas = filasConsolidadasMarcadasPorCodigo.get(code) ?? new Set<number>();
+          marcadas.add(r);
           filasConsolidadasMarcadasPorCodigo.set(code, marcadas);
         }
       } else {
@@ -542,16 +543,18 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
     }
     // Variante jerárquica del balance por terceros: puede haber más de una fila
     // sin tercero para el mismo código (Cuenta + subtotales de dimensiones
-    // internas). La señal autoritativa es UNA única fila consolidada marcada por
-    // `reglaDetalle` (p. ej. Cuenta frente a NIT): el valor de la celda Tercero no
-    // basta, porque el ERP también deja NIT vacíos. Si la marca falta o es ambigua,
+    // internas). La señal autoritativa es `reglaDetalle` (p. ej. Cuenta frente a
+    // NIT/Auxiliar/Centro): el valor de la celda Tercero no basta, porque el ERP
+    // también deja esas dimensiones vacías. Puede haber varias filas Cuenta
+    // legítimas para un mismo código, por ejemplo una por sucursal; se conservan
+    // todas y solo se excluyen las filas no marcadas. Si no existe ninguna marca,
     // las repeticiones se conservan para no borrar movimientos reales.
-    const consolidadasMarcadas = filasConsolidadasMarcadasPorCodigo.get(code) ?? [];
+    const consolidadasMarcadas = filasConsolidadasMarcadasPorCodigo.get(code) ?? new Set<number>();
     if (
       cols.tercero > 0 &&
       texto(cell(fila, cols.tercero)) === "" &&
-      consolidadasMarcadas.length === 1 &&
-      consolidadasMarcadas[0] !== r
+      consolidadasMarcadas.size > 0 &&
+      !consolidadasMarcadas.has(r)
     ) {
       filasExcluidas++;
       filasResumenTerceroExcluidas++;
