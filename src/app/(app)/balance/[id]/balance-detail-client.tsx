@@ -21,6 +21,8 @@ import { asignarCuentaEstandar, validarAlerta, revertirValidacionAlerta, elimina
 import Conversacion from "@/components/conversacion";
 import type { NodoBalance } from "@/lib/balance/calcular";
 import { esSaldoContrarioAccionable, esSaldoContrarioInformativo, type UmbralesAlertas } from "@/lib/balance/umbrales-alertas";
+import { cruzaClaseContable } from "@/lib/balance/clase-contable";
+import { etiquetaApertura, parsearApertura } from "@/lib/balance/apertura-balance";
 import { useSeleccionFilaTabla } from "@/app/(app)/balance/use-seleccion-fila-tabla";
 import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
 import type { Tab } from "./tabs";
@@ -53,7 +55,7 @@ export type Sums = { activo: number; pasivo: number; patrimonio: number; ingreso
 export type Validation = { id: string; rule: string; status: string; detail: string; count?: number };
 export type EstandarOpcion = { code: string; name: string };
 export type Meta = { rows: number; mapped: number; unmapped: number; critical: number; file: string; fileSize: string; frozenBy: string; frozenAt: string; uploadedBy: string; uploadedAt: string };
-export type Version = { /** id del encabezado: abre y exporta esa versión. */ id: number; v: string; /** ¿Es la versión OFICIAL del período? */ esOficial: boolean; date: string; uploadedBy: string; role: string; file: string; size: string; rows: number; sumA: number; balanced: boolean; note: string; /** Notas y aprobaciones transferidas desde el borrador. */ approvalNote: string; changes: number };
+export type Version = { /** id del encabezado: abre y exporta esa versión. */ id: number; v: string; /** ¿Es la versión OFICIAL del período? */ esOficial: boolean; date: string; uploadedBy: string; role: string; file: string; size: string; rows: number; sumA: number; balanced: boolean; note: string; /** Notas y aprobaciones transferidas desde el borrador. */ approvalNote: string; changes: number; /** Apertura declarada al cargar (`cuenta` | `tercero`); null en cargues anteriores. */ apertura: string | null };
 
 // Filtro de ALERTAS (vive en el padre: el prevalidador bloqueado salta aquí).
 // `alertas` = las dos clases juntas; los otros dos aíslan un tipo.
@@ -707,6 +709,14 @@ function celdaMapeo(nodo: NodoBalance, puedeMapear: boolean, onAsignar: (n: Nodo
       {nodo.coincidencia != null && (
         <span className={`rounded px-1 text-[10px] font-semibold ${nodo.coincidencia >= 85 ? "bg-ok-100 text-ok-700" : nodo.coincidencia >= 55 ? "bg-warn-100 text-warn-700" : "bg-err-100 text-err-700"}`}>{nodo.coincidencia}%</span>
       )}
+      {/* El salto de clase contable es invisible en las sumas (se calculan sobre el
+          código del cliente) pero mueve la cuenta de estado financiero en este
+          árbol y en el cruce contable: se marca donde se puede corregir. */}
+      {cruzaClaseContable(nodo.code, nodo.std) && (
+        <span title="La cuenta estándar pertenece a otra clase contable: revisa la homologación" className="rounded bg-err-100 px-1 font-sans text-[10px] font-semibold text-err-700">
+          Otra clase
+        </span>
+      )}
     </span>
   ) : (
     <Chip label="Asignar" tone="warn" />
@@ -1063,6 +1073,7 @@ function VersionsTab({ versions, balanceId }: { versions: Version[]; balanceId: 
               <th className="px-4 py-2 font-semibold">Fecha</th>
               <th className="px-4 py-2 font-semibold">Cargado por</th>
               <th className="px-4 py-2 font-semibold">Archivo</th>
+              <th className="px-4 py-2 font-semibold">Tipo de balance</th>
               <th className="whitespace-nowrap border-l border-ink-150 px-4 py-2 text-right font-semibold">Cuentas</th>
               <th className="whitespace-nowrap border-l border-ink-150 px-4 py-2 text-right font-semibold">Activo</th>
               <th className="border-l border-ink-150 px-4 py-2 font-semibold">Cuadrado</th>
@@ -1092,6 +1103,17 @@ function VersionsTab({ versions, balanceId }: { versions: Version[]; balanceId: 
                 <td className="whitespace-nowrap px-4 py-2.5 font-mono text-ink-500">{v.date}</td>
                 <td className="px-4 py-2.5"><div className="font-medium text-ink-800">{v.uploadedBy}</div><div className="text-[11px] text-ink-400">{v.role}</div></td>
                 <td className="px-4 py-2.5 text-ink-600">{v.file}<div className="text-[11px] text-ink-400">{v.size}</div></td>
+                <td className="px-4 py-2.5">
+                  {/* Apertura DECLARADA por quien cargó cada versión (no una heurística). */}
+                  {parsearApertura(v.apertura) ? (
+                    <Chip
+                      label={etiquetaApertura(v.apertura)}
+                      tone={parsearApertura(v.apertura) === "tercero" ? "blue" : "ink"}
+                    />
+                  ) : (
+                    <span className="text-ink-400" title="Versión cargada antes de registrar el tipo de balance.">—</span>
+                  )}
+                </td>
                 <td className="whitespace-nowrap border-l border-ink-150 px-4 py-2.5 text-right font-mono text-ink-700">{v.rows}</td>
                 <td className="whitespace-nowrap border-l border-ink-150 px-4 py-2.5 text-right font-mono text-ink-700">{fmt(v.sumA)}</td>
                 <td className="border-l border-ink-150 px-4 py-2.5">{v.balanced ? <Chip label="Sí" tone="ok" /> : <Chip label="Descuadra" tone="err" />}</td>

@@ -181,6 +181,14 @@ describe("Permisos globales (sin alcance de cliente)", () => {
     }
   });
 
+  test("generar reportes ejecutivos es exclusivo del Superadministrador", () => {
+    for (const r of ROLES_MATRIZ) {
+      expect(tienePermiso(MATRIZ, r, "auditoria:reporte_ejecutivo")).toBe(
+        r === "Superadministrador",
+      );
+    }
+  });
+
   test("el borrado destructivo de balances y perfiles inicia solo en roles administrativos", () => {
     for (const r of ["Administrador", "Superadministrador"]) {
       expect(tienePermiso(MATRIZ, r, "balance:eliminar")).toBe(true);
@@ -190,7 +198,11 @@ describe("Permisos globales (sin alcance de cliente)", () => {
     }
   });
 
-  test("la bandeja completa de soporte es exclusiva de roles administrativos", () => {
+  test("cualquier rol autenticado puede ver y crear reportes; la bandeja es administrativa", () => {
+    for (const r of ROLES_MATRIZ) {
+      expect(tienePermiso(MATRIZ, r, "soporte:ver")).toBe(true);
+      expect(tienePermiso(MATRIZ, r, "soporte:crear")).toBe(true);
+    }
     for (const r of ["Administrador", "Superadministrador"]) {
       expect(tienePermiso(MATRIZ, r, "soporte:administrar")).toBe(true);
     }

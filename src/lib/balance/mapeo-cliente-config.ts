@@ -7,6 +7,8 @@
 //                       «solo esta cuenta»): no participa en la decisión del
 //                       grupo y solo se aplica al código exacto.
 //   - `automatico`    → lo que dedujo la cascada (exacto/descripción/IA).
+import { cruzaClaseContable } from "./clase-contable";
+
 export const ORIGEN_AUTOMATICO = "automatico";
 export const ORIGEN_MANUAL_GRUPO = "manual";
 export const ORIGEN_MANUAL_CUENTA = "manual_cuenta";
@@ -19,6 +21,28 @@ export function esMapeoManual(origen: string | null | undefined): boolean {
 /** Excepción de una sola cuenta (no arrastra al resto del grupo de 6 dígitos). */
 export function esExcepcionCuenta(origen: string | null | undefined): boolean {
   return origen === ORIGEN_MANUAL_CUENTA;
+}
+
+/**
+ * ¿Esta fila de memoria puede gobernar la homologación de su cuenta?
+ *
+ * Una regla AUTOMÁTICA que cruza de clase contable no entra: la memoria tiene
+ * PRIORIDAD sobre toda la cascada (`calcularBalance` la consulta antes que el
+ * barrido exacto), así que un error de la IA guardado en `cuentas_cliente` se
+ * volvía permanente —nunca se volvía a revisar en las cargas siguientes— y se
+ * reaplicaba período tras período. Descartarla aquí devuelve esa cuenta a la
+ * cascada (que sí respeta la clase) sin borrar nada en base de datos, y hace la
+ * corrección retroactiva: cualquier cliente con reglas ya contaminadas se limpia
+ * en su próxima carga, cuando el volcado del PUC reescriba la fila con lo que
+ * calculó la cascada.
+ *
+ * Lo MANUAL siempre gobierna: es una decisión humana explícita y a veces cruzar
+ * de clase es justo lo que se quiere (reclasificar una cuenta mal codificada por
+ * el ERP). Ver `clase-contable.ts`.
+ */
+export function reglaMapeoAplicable(fila: FilaMapeoCliente): boolean {
+  if (esMapeoManual(fila.origenMapeo)) return true;
+  return !cruzaClaseContable(fila.code, fila.cuenta6Russell);
 }
 
 /** Nivel PUC que corresponde a la longitud del código del cliente. */
@@ -94,6 +118,9 @@ export function construirConfigMapeoCliente(
   const excepciones = new Map<string, FilaMapeoCliente>();
   for (const fila of filas) {
     if (!fila.cuenta6Russell || fila.code.length < 6) continue;
+    // Una regla automática que cruza de clase contable no gobierna: vuelve a la
+    // cascada en vez de blindar el error para siempre (`reglaMapeoAplicable`).
+    if (!reglaMapeoAplicable(fila)) continue;
     if (esExcepcionCuenta(fila.origenMapeo)) {
       // `code` es único por cliente, pero el desempate deja el resultado estable
       // aunque lleguen filas repetidas desde otra fuente.

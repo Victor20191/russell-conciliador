@@ -1,6 +1,7 @@
 import * as z from "zod";
 import { tieneDigitosNit } from "@/lib/nit";
 import { SpecCargaSchema } from "@/lib/balance/extraccion/esquema";
+import { SpecModuloSchema } from "@/lib/modulos/extraccion/esquema";
 
 export const LoginSchema = z.object({
   email: z.email({ error: "Ingresa un correo válido." }).trim().toLowerCase(),
@@ -50,9 +51,69 @@ export const SupportTicketSolutionSchema = z.object({
   solution: z.string().trim().min(10, { error: "Explica cómo se solucionó la solicitud." }).max(5000, { error: "La solución es demasiado larga." }),
 });
 
+export const SupportTicketInternalCreateSchema = z.object({
+  subject: z.string().trim().min(5, { error: "Describe brevemente el motivo de la novedad." }).max(160, { error: "El asunto es demasiado largo." }),
+  description: z.string().trim().min(10, { error: "Cuéntanos con un poco más de detalle qué ocurrió." }).max(5000, { error: "La descripción es demasiado larga." }),
+  routeKey: z.string().trim().min(1, { error: "Selecciona la ruta donde ocurre la novedad." }).max(160),
+  menuKey: z.string().trim().min(1, { error: "Selecciona el menú de esa ruta." }).max(160),
+});
+
+export const SupportTicketStatusSchema = z
+  .object({
+    ticketId: z.coerce.number({ error: "Ticket inválido." }).int().positive({ error: "Ticket inválido." }),
+    updatedAt: z.string().datetime({ offset: true, error: "La versión del ticket no es válida." }),
+    status: z.enum(["abierto", "en_proceso", "resuelto", "cerrado"], { error: "El estado no es válido." }),
+    solution: z.string().trim().max(5000, { error: "La solución es demasiado larga." }).optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.status === "resuelto" && (!data.solution || data.solution.length < 10)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["solution"],
+        message: "Explica cómo se solucionó la solicitud.",
+      });
+    }
+  });
+
+export const SupportTicketDeleteSchema = z.object({
+  ticketId: z.coerce.number({ error: "Ticket inválido." }).int().positive({ error: "Ticket inválido." }),
+  // Confirmación explícita: el borrado es irreversible y arrastra las imágenes.
+  code: z.string().trim().min(1, { error: "Ticket inválido." }).max(40, { error: "Ticket inválido." }),
+});
+
+export const SupportTicketDetailSchema = z.object({
+  ticketId: z.coerce.number({ error: "Reporte inválido." }).int().positive({ error: "Reporte inválido." }),
+});
+
+/** Detalle de una novedad tal como lo pinta el modal de `/reportes`. Las fechas
+ * viajan como ISO porque el modal es un componente cliente. */
+export type DetalleTicket = {
+  id: number;
+  code: string;
+  subject: string;
+  description: string;
+  reportante: string;
+  ubicacion: string | null;
+  status: string;
+  solution: string | null;
+  resolvedByName: string | null;
+  resolvedAt: string | null;
+  createdAt: string;
+  adjuntos: { id: number; fileName: string }[];
+};
+
+export type DetalleTicketState =
+  | { ok: true; ticket: DetalleTicket }
+  | { ok: false; message: string };
+
 export type SupportTicketCreateState = ActionState & {
   code?: string;
   trackingUrl?: string;
+};
+
+export type SupportTicketInternalCreateState = ActionState & {
+  ticketId?: number;
+  code?: string;
 };
 
 export const ModuleFieldSchema = z.object({
@@ -210,6 +271,27 @@ export const AjustesCargaSchema = z.object({
   agregarPorTercero: z.preprocess((v) => (v === "si" ? true : v === "no" ? false : null), z.boolean().nullable()),
   imputarSoloHojas: z.preprocess((v) => (v === "si" ? true : v === "no" ? false : null), z.boolean().nullable()),
   observaciones: z.preprocess((v) => (typeof v === "string" && v.trim() ? v.trim() : null), z.string().max(2000, { error: "Las notas son demasiado largas (máx. 2000 caracteres)." }).nullable()),
+});
+
+// Preferencias por defecto de carga de un MÓDULO (Inventarios, Cartera, …) POR
+// CLIENTE: una fila por (cliente, módulo) en `ajustes_carga_modulo`. Se editan en
+// Configuración › Perfiles de carga, como las del balance.
+export const AjustesCargaModuloSchema = z.object({
+  clienteId: z.coerce.number({ error: "Cliente inválido." }).int().positive({ error: "Cliente inválido." }),
+  moduloCodigo: z.string().trim().toUpperCase().min(2, { error: "Módulo inválido." }).max(10, { error: "Módulo inválido." }),
+  hojaPreferida: z.preprocess((v) => (typeof v === "string" && v.trim() ? v.trim() : null), z.string().max(120, { error: "El nombre de la hoja es demasiado largo." }).nullable()),
+  observaciones: z.preprocess((v) => (typeof v === "string" && v.trim() ? v.trim() : null), z.string().max(2000, { error: "Las notas son demasiado largas (máx. 2000 caracteres)." }).nullable()),
+});
+
+// Edición DIRECTA de un perfil de formato de MÓDULO ya guardado
+// (`perfiles_carga_modulo`). La forma genérica la valida `SpecModuloSchema`; la
+// coherencia con el descriptor del módulo (columnas obligatorias, modo del
+// clasificador) la comprueba la Server Action con `validarSpecModulo`, porque
+// depende del módulo de la fila.
+export const EditarPerfilCargaModuloSchema = z.object({
+  id: z.coerce.number({ error: "Perfil inválido." }).int().positive({ error: "Perfil inválido." }),
+  actualizadoEn: z.string().datetime({ offset: true, error: "La versión del perfil no es válida." }),
+  estructura: SpecModuloSchema,
 });
 
 // Confirmación de carga (paso 2): cliente + período desde/hasta (fechas ISO). El
@@ -525,3 +607,16 @@ export const ReporteEjecutivoUsoScopeSchema = z
     }
   });
 export type ReporteEjecutivoUsoScope = z.infer<typeof ReporteEjecutivoUsoScopeSchema>;
+
+/** Registro de un reporte para gerencia efectivamente entregado al cliente. */
+export const RegistroEnvioReporteSchema = z.object({
+  titulo: z.string().trim().min(1, { error: "El reporte no tiene título." }).max(200),
+  desde: z.string().trim().min(1, { error: "Indica la fecha de inicio." }).max(40),
+  hasta: z.string().trim().min(1, { error: "Indica la fecha de fin." }).max(40),
+  versionIds: z.array(z.coerce.number().int().positive()).max(1000),
+  totalNovedades: z.coerce.number().int().min(0).max(100_000).default(0),
+  totalAcciones: z.coerce.number().int().min(0).max(10_000_000).default(0),
+  canal: z.enum(["correo", "pdf", "html", "otro"]).default("correo"),
+  nota: z.string().trim().max(500).optional(),
+});
+export type RegistroEnvioReporte = z.input<typeof RegistroEnvioReporteSchema>;

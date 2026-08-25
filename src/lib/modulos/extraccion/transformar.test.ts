@@ -246,3 +246,55 @@ describe("sugerirSpec (INV)", () => {
     expect(spec.columnas.valorUnitario).toBe(0);
   });
 });
+
+// ===== Nómina: el clasificador es el CÓDIGO del concepto, con respaldo en el texto =====
+const NOM = MODULOS_IMPORT.NOM;
+const hojaNom = (filas: CeldaCruda[][]): GridHoja => ({ nombre: "Nómina", filas });
+const SPEC_NOM: SpecModulo = {
+  hoja: "Nómina",
+  filaEncabezado: 1,
+  primeraFilaDatos: 2,
+  columnas: { codigo: 1, concepto: 2, cedula: 3, empleado: 4, area: 5, valor: 6 },
+};
+const ENC_NOM: CeldaCruda[] = ["Código", "Concepto", "Cédula", "Empleado", "Área", "Valor"];
+
+describe("transformarModulo (NOM)", () => {
+  it("clasifica por el CÓDIGO del concepto cuando el archivo lo trae", () => {
+    const r = transformarModulo(
+      NOM,
+      SPEC_NOM,
+      hojaNom([ENC_NOM, ["001", "Sueldo básico", "1144", "Ana Ruiz", "Admón", 2500000]]),
+    );
+    expect(r.filas[0].clasificador).toBe("001");
+    expect(r.filas[0].datos.concepto).toBe("Sueldo básico");
+  });
+
+  it("sin código, cae al TEXTO del concepto (archivos que no traen la columna)", () => {
+    const spec: SpecModulo = { ...SPEC_NOM, columnas: { ...SPEC_NOM.columnas, codigo: 0 } };
+    const r = transformarModulo(
+      NOM,
+      spec,
+      hojaNom([ENC_NOM, [null, "Auxilio de transporte", "1144", "Ana Ruiz", "Admón", 140000]]),
+    );
+    expect(r.filas[0].clasificador).toBe("Auxilio de transporte");
+  });
+
+  it("la fila sin código pero con concepto no queda sin clasificar", () => {
+    const r = transformarModulo(
+      NOM,
+      SPEC_NOM,
+      hojaNom([ENC_NOM, ["001", "Sueldo básico", "1", "Ana", "A", 100], [null, "Cesantías", "1", "Ana", "A", 50]]),
+    );
+    expect(r.filas.map((f) => f.clasificador)).toEqual(["001", "Cesantías"]);
+  });
+
+  it("el sugeridor mapea «Código del concepto» sin robarse la columna del concepto", () => {
+    const h = hojaNom([
+      ["Código del concepto", "Concepto", "Cédula", "Empleado", "Centro de costo", "Valor"],
+      ["001", "Sueldo", "1", "Ana", "A", 100],
+    ]);
+    const spec = sugerirSpec(NOM, h);
+    expect(spec.columnas).toMatchObject({ codigo: 1, concepto: 2, cedula: 3, valor: 6 });
+    expect(rolesRequeridosFaltantes(NOM, spec)).toEqual([]);
+  });
+});

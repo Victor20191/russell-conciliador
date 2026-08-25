@@ -6,6 +6,7 @@ import { Icon } from "@/components/icons";
 import { Modal } from "@/components/modal";
 import { fmt } from "@/lib/format";
 import {
+  actualizarAperturaBorrador,
   asignarClienteBorrador,
   cargarBalancePorTercero,
   continuarBalanceTransitorioConSpec,
@@ -17,6 +18,8 @@ import {
   type ResultadoCargaTercero,
   type SugerenciaBalance,
 } from "@/app/actions/balance";
+import { type AperturaBalance } from "@/lib/balance/apertura-balance";
+import { SelectorAperturaBalance } from "@/app/(app)/balance/selector-apertura-balance";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import { leerHojasParaPreview, columnaLetra, type CeldaCruda, type HojaPreview } from "@/lib/balance/extraccion/hojas-cliente";
 import type { SpecCarga } from "@/lib/balance/extraccion/esquema";
@@ -147,6 +150,15 @@ function CargarBalanceModal({
   const [reprocesando, startReproceso] = useTransition();
   const [asignandoCliente, startAsignarCliente] = useTransition();
   const [clienteManual, setClienteManual] = useState<{ loteId: string; clientId: number } | null>(null);
+  // APERTURA declarada en la revisión (`cuenta` | `tercero`). Se guarda suelta —no
+  // atada a un lote— porque la revisión puede ser TRANSITORIA (aún sin lote en BD)
+  // y porque un reproceso crea un lote nuevo: en ambos casos la declaración del
+  // analista debe sobrevivir. Quien la baja a BD es el efecto de más abajo.
+  const [aperturaRevision, setAperturaRevision] = useState<AperturaBalance | null>(null);
+  const [guardandoApertura, startGuardarApertura] = useTransition();
+  // Último `loteId|valor` ya persistido: evita reenviar la misma declaración en
+  // cada render y permite re-persistirla cuando cambia el lote.
+  const aperturaPersistidaRef = useRef<string | null>(null);
   // Hojas detectadas en el cliente (solo Excel con 2+ hojas) y la elegida por el
   // usuario. Mientras `hojas` esté presente, la elección es obligatoria.
   const [hojas, setHojas] = useState<HojaPreview[] | null>(null);
@@ -370,6 +382,27 @@ function CargarBalanceModal({
     sug && clienteManual?.loteId === sug.payload.loteId
       ? clienteManual.clientId
       : clienteDetectadoId;
+
+  // La apertura solo puede bajar a BD cuando la revisión YA tiene lote (`persistida`).
+  // Mientras sea transitoria, la elección espera en memoria; en cuanto se vincula el
+  // cliente —o un reproceso crea otro lote— este efecto la deja guardada sin que el
+  // analista tenga que volver a declararla.
+  const loteRevisionPersistido = sug?.persistida ? sug.payload.loteId : null;
+  useEffect(() => {
+    if (!loteRevisionPersistido || !aperturaRevision) return;
+    const marca = `${loteRevisionPersistido}|${aperturaRevision}`;
+    if (aperturaPersistidaRef.current === marca) return;
+    aperturaPersistidaRef.current = marca;
+    startGuardarApertura(async () => {
+      const resultado = await actualizarAperturaBorrador(loteRevisionPersistido, aperturaRevision);
+      if (!resultado.ok) {
+        // Se libera la marca para que un reintento (o el propio borrador) pueda
+        // volver a guardarla; la elección permanece visible en el selector.
+        aperturaPersistidaRef.current = null;
+        notifyError(resultado.message ?? "No se pudo guardar el tipo de balance.");
+      }
+    });
+  }, [loteRevisionPersistido, aperturaRevision]);
 
   const asignarClienteRevision = (clientId: number) => {
     if (!sug) return;
@@ -641,6 +674,9 @@ function CargarBalanceModal({
           asignandoCliente={asignandoCliente || progresoSubida != null}
           onAsignarCliente={asignarClienteRevision}
           onReprocesar={reprocesar}
+          apertura={aperturaRevision}
+          guardandoApertura={guardandoApertura}
+          onElegirApertura={setAperturaRevision}
         />
       ) : (
         <form id="leer-form" onSubmit={onLeerSubmit} className="flex flex-col gap-3.5">
@@ -809,6 +845,9 @@ function FormRevisar({
   asignandoCliente,
   onAsignarCliente,
   onReprocesar,
+  apertura,
+  guardandoApertura,
+  onElegirApertura,
 }: {
   sug: SugerenciaBalance;
   clients: ClienteOpcion[];
@@ -824,6 +863,9 @@ function FormRevisar({
     proveedorIA?: ProveedorIABalance,
     clientId?: number | null,
   ) => void;
+  apertura: AperturaBalance | null;
+  guardandoApertura: boolean;
+  onElegirApertura: (apertura: AperturaBalance) => void;
 }) {
   // El editor de estructura solo aplica si conservamos el snapshot (reproceso) y
   // la lectura produjo un spec (tabular). PDF/plantilla no traen spec.
@@ -859,6 +901,12 @@ function FormRevisar({
         clienteId={clienteId}
         asignando={asignandoCliente}
         onAsignar={onAsignarCliente}
+      />
+
+      <TipoBalanceRevision
+        apertura={apertura}
+        guardando={guardandoApertura}
+        onElegir={onElegirApertura}
       />
 
       <DetalleMovimiento
@@ -1144,6 +1192,37 @@ function IdentificacionCliente({
         </button>
       </div>
     </section>
+  );
+}
+
+/**
+ * APERTURA del informe DECLARADA en la revisión: ¿el archivo viene por cuenta o
+ * desglosado por tercero? Se pregunta aquí —junto a la identificación del cliente—
+ * porque es el momento en que el analista tiene el archivo a la vista. La lectura
+ * solo SUGIERE el valor; la respuesta la da la persona. Sigue siendo editable en la
+ * pantalla del borrador (ahí es donde se vuelve obligatoria para promover).
+ */
+function TipoBalanceRevision({
+  apertura,
+  guardando,
+  onElegir,
+}: {
+  apertura: AperturaBalance | null;
+  guardando: boolean;
+  onElegir: (apertura: AperturaBalance) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2" role="radiogroup" aria-label="Tipo de balance">
+      <span className="text-[12px] font-semibold text-ink-700">
+        Tipo de balance <span className="text-warn-700">*</span>
+      </span>
+      <SelectorAperturaBalance
+        value={apertura}
+        onChange={onElegir}
+        disabled={guardando}
+      />
+      {guardando ? <EstadoProcesando>Guardando</EstadoProcesando> : null}
+    </div>
   );
 }
 

@@ -125,8 +125,8 @@ export const PERMISOS: Permiso[] = [
   // bitácora de acciones (`auditoria:ver`).
   { code: "auditoria:accesos", module: "auditoria", action: "accesos", label: "Ver accesos y tráfico de rutas", roles: SOLO_ADMIN },
   // Reporte ejecutivo de uso y adopción: combina bitácora operativa + novedades
-  // liberadas para enviarlo al cliente. Admin de plataforma (no consulta).
-  { code: "auditoria:reporte_ejecutivo", module: "auditoria", action: "reporte_ejecutivo", label: "Generar reporte ejecutivo de uso y adopción", roles: SOLO_ADMIN },
+  // liberadas y expone información global de todos los usuarios y clientes.
+  { code: "auditoria:reporte_ejecutivo", module: "auditoria", action: "reporte_ejecutivo", label: "Generar reporte para gerencia sobre uso y avances", roles: SOLO_SUPERADMIN },
   // Consumo y costos de IA (tokens y gasto de los escaneos con Claude). Información
   // de costos de la plataforma → SOLO el Superadministrador (más restringido aún
   // que la analítica de accesos, que es admin-only).
@@ -210,10 +210,18 @@ export const PERMISOS: Permiso[] = [
   { code: "novedades:ver", module: "novedades", action: "ver", label: "Ver novedades", roles: SOLO_ADMIN },
   { code: "novedades:administrar", module: "novedades", action: "administrar", label: "Administrar novedades", roles: SOLO_ADMIN },
 
-  // ===== Mesa de ayuda — Administrador y Superadministrador =====
-  // El alta y el seguimiento del reportante son publicos; solo el personal
-  // administrativo autenticado consulta todos los tickets y registra la solucion.
-  { code: "soporte:administrar", module: "soporte", action: "administrar", label: "Administrar tickets de soporte", roles: SOLO_ADMIN },
+  // ===== Reportes / novedades internas — todos los usuarios =====
+  // Cualquier rol autenticado monta novedades y consulta todos los tickets
+  // internos. Solo Administrador y Superadministrador (Xentria) cambian
+  // estados y documentan la solución.
+  { code: "soporte:ver", module: "soporte", action: "ver", label: "Ver reportes", roles: TODOS },
+  { code: "soporte:crear", module: "soporte", action: "crear", label: "Crear reporte", roles: TODOS },
+  { code: "soporte:administrar", module: "soporte", action: "administrar", label: "Administrar reportes", roles: SOLO_ADMIN },
+  // Borrado definitivo de un ticket (y de sus imágenes en el bucket aislado).
+  // Es irreversible y destruye la trazabilidad de lo reportado, así que se
+  // reserva al Superadministrador: el Administrador gestiona y cierra, pero no
+  // borra. Solo se usa para depurar pruebas o duplicados de la bandeja.
+  { code: "soporte:eliminar", module: "soporte", action: "eliminar", label: "Eliminar reportes", roles: SOLO_SUPERADMIN },
 
   // ===== Prompts de IA — SOLO Superadministrador =====
   // Ver y editar los prompts de sistema que la plataforma envía a la IA
@@ -228,13 +236,16 @@ export const PERMISOS: Permiso[] = [
   // firma, no un dato de cliente: lo fija quien administra la herramienta.
   { code: "parametros:administrar", module: "parametros", action: "administrar", label: "Administrar parámetros de alertas", roles: SOLO_ADMIN },
 
+  // Variables de entorno e integraciones (APIs, SMTP, S3).
+  { code: "entorno:administrar", module: "entorno", action: "administrar", label: "Administrar variables de entorno", roles: SOLO_ADMIN },
+
   // ===== Perfiles de carga de balances — Administrador y Superadministrador =====
   // Formatos memorizados por huella, correcciones por cuenta y preferencias de
   // carga de CADA cliente. Determinan cómo la plataforma interpreta los archivos
   // (y cuándo se salta la IA): es parametrización técnica de la herramienta, no
   // trabajo de auditoría → sale de la ficha del cliente y de las pantallas de
   // balance y queda en Configuración › Perfiles de carga, admin-only.
-  { code: "perfiles_carga:administrar", module: "perfiles_carga", action: "administrar", label: "Administrar perfiles de carga de balances", roles: SOLO_ADMIN },
+  { code: "perfiles_carga:administrar", module: "perfiles_carga", action: "administrar", label: "Administrar perfiles de carga (balances y módulos)", roles: SOLO_ADMIN },
 ];
 
 // ----- MATRIZ rol×permiso derivada del catálogo (solo roles del PDF) -----

@@ -58,6 +58,15 @@ export async function moduloDisponibleParaRol(
   return moduloPublicadoParaRol(role, moduleKey, estados);
 }
 
+/**
+ * Claves de módulo publicadas para TODOS los usuarios (no solo administradores).
+ * Es el alcance del reporte para gerencia: lo que el cliente ya puede operar.
+ */
+export async function modulosPublicadosParaTodos(): Promise<Set<string>> {
+  const estados = await getPublicacionModulos();
+  return new Set(estados.filter((m) => m.enabledForNonAdmins).map((m) => m.key));
+}
+
 export async function modulosVisiblesParaRol(role: string): Promise<string[]> {
   const estados = await getPublicacionModulos();
   return estados

@@ -2,13 +2,26 @@
 
 import { EstadoProcesando } from "@/components/estado-procesando";
 import { useMemo, useRef, useState, useTransition } from "react";
-import { generarReporteEjecutivoUso } from "@/app/actions/auditoria-reporte";
+import {
+  eliminarEnvioReporteEjecutivo,
+  generarReporteEjecutivoUso,
+  registrarEnvioReporteEjecutivo,
+} from "@/app/actions/auditoria-reporte";
 import { Card, Chip, StatCard } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { Modal } from "@/components/modal";
 import { fmtDate, fmtDateTimeLong, fmtNum } from "@/lib/format";
-import { notifyError, notifySuccess } from "@/lib/client-notifications";
+import { notifyError, notifyInfo, notifySuccess } from "@/lib/client-notifications";
+import {
+  hacerBarrasCompatiblesCorreo,
+  htmlConEstilosEnLinea,
+} from "@/lib/correo/preparar-html-correo";
+import { copiarHtmlAlPortapapeles } from "@/lib/portapapeles";
 import type { ReporteEjecutivoUso } from "@/lib/auditoria/reporte-ejecutivo/reportes";
+import type {
+  EnvioReportePrevio,
+  ResumenPendienteEnvio,
+} from "@/lib/auditoria/reporte-ejecutivo/envios";
 import {
   IndicadoresUso,
   type BarraUso,
@@ -49,7 +62,13 @@ type MetaReporte = {
   totalNovedades: number;
   porcentajeAdopcion: number | null;
   desdeCache: boolean;
+  /** Alcance con el que se generó: necesario para registrar el envío. */
+  versionIdsIncluidos: number[];
+  desde: string;
+  hasta: string;
 };
+
+type CanalEnvio = "correo" | "pdf" | "html";
 
 const BTN_PRIMARIO =
   "inline-flex items-center justify-center gap-1.5 rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white transition hover:bg-navy-700/90 disabled:cursor-not-allowed disabled:opacity-60";
@@ -59,6 +78,8 @@ const BTN_SECUNDARIO =
   "inline-flex items-center justify-center gap-1.5 rounded-md border border-ink-150 bg-white px-3 py-2 text-[12.5px] font-semibold text-ink-700 transition hover:bg-ink-50 disabled:cursor-not-allowed disabled:opacity-60";
 const BTN_ATAJO =
   "inline-flex items-center gap-1 rounded-md border border-ink-150 bg-white px-2.5 py-1 text-[11.5px] font-medium text-ink-600 transition hover:bg-ink-50";
+const BTN_ATAJO_ACTIVO =
+  "inline-flex items-center gap-1 rounded-md border border-navy-700 bg-navy-700 px-2.5 py-1 text-[11.5px] font-semibold text-white shadow-sm transition hover:bg-navy-800";
 
 function fechaLarga(iso: string): string {
   const fecha = fmtDateTimeLong(iso);
@@ -94,7 +115,7 @@ function descargarHtml(reporte: ReporteEjecutivoUso): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `${slug(reporte.titulo) || "reporte-ejecutivo-uso-adopcion"}.html`;
+  a.download = `${slug(reporte.titulo) || "reporte-uso-y-avances"}.html`;
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -112,14 +133,27 @@ function descargarBlob(blob: Blob, nombre: string): void {
   URL.revokeObjectURL(url);
 }
 
-/** Extrae estilos + cuerpo del HTML del reporte para pegar en un cliente de correo. */
+/**
+ * Deja el reporte listo para pegar en un correo. Vuelca el CSS a estilos EN
+ * LÍNEA porque Gmail elimina las etiquetas <style> del contenido pegado: con
+ * la hoja embebida el documento llega sin serif, sin azul institucional y sin
+ * tarjetas. Si el navegador no expone DOMParser, cae al fragmento con <style>
+ * embebido (Outlook de escritorio sí lo respeta).
+ */
 function prepararHtmlCorreo(htmlCompleto: string): string {
+  try {
+    return htmlConEstilosEnLinea(htmlCompleto);
+  } catch {
+    return htmlCorreoConEstilosEmbebidos(htmlCompleto);
+  }
+}
+
+function htmlCorreoConEstilosEmbebidos(htmlCompleto: string): string {
   const estilos =
     htmlCompleto.match(/<style[^>]*>([\s\S]*?)<\/style>/i)?.[1]?.trim() ?? "";
   const cuerpoMatch = htmlCompleto.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-  const cuerpo = (cuerpoMatch?.[1] ?? htmlCompleto).trim();
+  const cuerpo = hacerBarrasCompatiblesCorreo((cuerpoMatch?.[1] ?? htmlCompleto).trim());
 
-  // Fragmento autocontenido: Gmail/Outlook respetan mejor un wrapper con estilos embebidos.
   return `<div style="font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;color:#1a2330;font-size:14px;line-height:1.5;">
 ${estilos ? `<style type="text/css">${estilos}</style>` : ""}
 ${cuerpo}
@@ -147,38 +181,22 @@ function htmlATextoPlano(html: string): string {
   return texto;
 }
 
+/** A partir de este tamaño Gmail corta el cuerpo con «[Mensaje recortado]». */
+const LIMITE_RECORTE_GMAIL = 102_000;
+
+type ResultadoCopiaCorreo = { conFormato: boolean; caracteres: number };
+
 /**
  * Copia el reporte al portapapeles en HTML (para Gmail/Outlook) + texto plano.
  * Luego el usuario pega (Ctrl/Cmd+V) en el borrador del correo.
  */
-async function copiarFormatoCorreo(reporte: ReporteEjecutivoUso): Promise<void> {
+async function copiarFormatoCorreo(reporte: ReporteEjecutivoUso): Promise<ResultadoCopiaCorreo> {
   const htmlCorreo = prepararHtmlCorreo(reporte.html);
   const textoPlano = htmlATextoPlano(htmlCorreo);
+  const caracteres = htmlCorreo.length;
 
-  try {
-    if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
-      await navigator.clipboard.write([
-        new ClipboardItem({
-          "text/html": new Blob([htmlCorreo], { type: "text/html" }),
-          "text/plain": new Blob([textoPlano], { type: "text/plain" }),
-        }),
-      ]);
-    } else if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(textoPlano);
-    } else {
-      throw new Error("Portapapeles no disponible en este navegador.");
-    }
-  } catch {
-    // Fallback legacy (algunos navegadores bloquean ClipboardItem con text/html).
-    await navigator.clipboard.writeText(textoPlano);
-  }
-}
-
-/** Abre el cliente de correo con el asunto del reporte (el cuerpo se pega del portapapeles). */
-function abrirClienteCorreo(reporte: ReporteEjecutivoUso): void {
-  const asunto = encodeURIComponent(reporte.titulo || "Reporte Russell Diagnóstico");
-  // Sin body largo: mailto trunca HTML/texto extenso. El cuerpo va por el portapapeles.
-  window.open(`mailto:?subject=${asunto}`, "_blank", "noopener,noreferrer");
+  const { conFormato } = await copiarHtmlAlPortapapeles(htmlCorreo, textoPlano);
+  return { conFormato, caracteres };
 }
 
 async function descargarPdf(reporte: ReporteEjecutivoUso, viewportWidth?: number): Promise<void> {
@@ -195,7 +213,7 @@ async function descargarPdf(reporte: ReporteEjecutivoUso, viewportWidth?: number
   }
 
   const blob = await res.blob();
-  descargarBlob(blob, `${slug(reporte.titulo) || "reporte-ejecutivo-uso-adopcion"}.pdf`);
+  descargarBlob(blob, `${slug(reporte.titulo) || "reporte-uso-y-avances"}.pdf`);
 }
 
 export function ReporteEjecutivoClient({
@@ -203,11 +221,15 @@ export function ReporteEjecutivoClient({
   kpis,
   defaultDesde,
   defaultHasta,
+  envios,
+  pendiente,
 }: {
   versions: VersionOpcion[];
   kpis: KpisIniciales;
   defaultDesde: string;
   defaultHasta: string;
+  envios: EnvioReportePrevio[];
+  pendiente: ResumenPendienteEnvio;
 }) {
   const [isPending, startTransition] = useTransition();
   const [reporte, setReporte] = useState<ReporteEjecutivoUso | null>(null);
@@ -221,8 +243,13 @@ export function ReporteEjecutivoClient({
 
   const [desde, setDesde] = useState(defaultDesde);
   const [hasta, setHasta] = useState(defaultHasta);
-  const [modoVersiones, setModoVersiones] = useState<"publicadas" | "seleccion">("publicadas");
+  const [modoVersiones, setModoVersiones] = useState<"nuevas" | "publicadas" | "seleccion">(
+    pendiente.sinNovedadesNuevas ? "publicadas" : "nuevas",
+  );
   const [seleccion, setSeleccion] = useState<Set<number>>(new Set());
+  const [envioPendiente, setEnvioPendiente] = useState(false);
+  const [envioRegistrado, setEnvioRegistrado] = useState<EnvioReportePrevio | null>(null);
+  const [canalUsado, setCanalUsado] = useState<CanalEnvio>("correo");
 
   const cambiosSeleccionados = useMemo(
     () => versions.filter((v) => seleccion.has(v.id)).reduce((acc, v) => acc + v.changesCount, 0),
@@ -234,10 +261,19 @@ export function ReporteEjecutivoClient({
     const versionIds =
       modoVersiones === "seleccion"
         ? versions.filter((v) => seleccion.has(v.id)).map((v) => v.id)
-        : undefined;
+        : modoVersiones === "nuevas"
+          ? pendiente.versionIds
+          : undefined;
 
     if (modoVersiones === "seleccion" && (!versionIds || versionIds.length === 0)) {
       setError("Selecciona al menos una versión de Novedades.");
+      return;
+    }
+
+    if (modoVersiones === "nuevas" && (!versionIds || versionIds.length === 0)) {
+      setError(
+        "No hay novedades sin enviar. Elige otro alcance o publica una versión nueva en Novedades.",
+      );
       return;
     }
 
@@ -259,7 +295,11 @@ export function ReporteEjecutivoClient({
         totalNovedades: res.totalNovedades,
         porcentajeAdopcion: res.porcentajeAdopcion,
         desdeCache: res.desdeCache,
+        versionIdsIncluidos: res.versionIdsIncluidos,
+        desde,
+        hasta,
       });
+      setEnvioRegistrado(null);
       setConfigAbierto(false);
       setModalAbierto(true);
     });
@@ -281,7 +321,10 @@ export function ReporteEjecutivoClient({
   const puedeConfirmar =
     !isPending &&
     Boolean(desde && hasta) &&
-    (modoVersiones === "publicadas" || cambiosSeleccionados > 0 || seleccion.size > 0);
+    (modoVersiones === "publicadas" ||
+      (modoVersiones === "nuevas" && pendiente.versionIds.length > 0) ||
+      cambiosSeleccionados > 0 ||
+      seleccion.size > 0);
 
   const descargarPdfActual = async () => {
     if (!reporte || pdfPendiente) return;
@@ -290,6 +333,7 @@ export function ReporteEjecutivoClient({
     try {
       const viewportWidth = vistaPreviaRef.current?.clientWidth;
       await descargarPdf(reporte, viewportWidth ? Math.round(viewportWidth) : undefined);
+      setCanalUsado("pdf");
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo generar el PDF.");
     } finally {
@@ -297,18 +341,30 @@ export function ReporteEjecutivoClient({
     }
   };
 
-  /** Copia HTML+texto al portapapeles y abre el cliente de correo con el asunto. */
-  const copiarYAbrirCorreo = async () => {
+  /** Copia HTML+texto al portapapeles sin abrir aplicaciones ni ventanas externas. */
+  const copiarFormatoParaCorreo = async () => {
     if (!reporte || correoPendiente) return;
     setError(null);
     setCorreoPendiente(true);
     try {
-      await copiarFormatoCorreo(reporte);
-      abrirClienteCorreo(reporte);
-      notifySuccess(
-        "Formato correo copiado",
-        "Se abrió tu cliente de correo. Pega el contenido en el cuerpo (Ctrl+V o Cmd+V).",
-      );
+      const { conFormato, caracteres } = await copiarFormatoCorreo(reporte);
+      setCanalUsado("correo");
+      if (!conFormato) {
+        notifyInfo(
+          "Copiado sin formato",
+          "Tu navegador no permitió copiar el diseño: se copió el texto. Para enviarlo con formato, adjunta el PDF.",
+        );
+      } else if (caracteres > LIMITE_RECORTE_GMAIL) {
+        notifySuccess(
+          "Formato correo copiado",
+          "Pega el contenido en el cuerpo (Ctrl+V o Cmd+V). Es un reporte extenso: si Gmail lo muestra recortado, envía mejor el PDF adjunto.",
+        );
+      } else {
+        notifySuccess(
+          "Formato correo copiado",
+          "El reporte quedó en tu portapapeles. Pégalo en el cuerpo del correo con Ctrl+V o Cmd+V.",
+        );
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "No se pudo copiar el reporte para correo.";
       setError(msg);
@@ -317,6 +373,53 @@ export function ReporteEjecutivoClient({
       setCorreoPendiente(false);
     }
   };
+
+  /** Deja constancia de que este reporte se entregó: el próximo no repetirá sus avances. */
+  const marcarComoEnviado = () => {
+    if (!reporte || !meta || envioPendiente) return;
+    setError(null);
+    setEnvioPendiente(true);
+    startTransition(async () => {
+      const res = await registrarEnvioReporteEjecutivo({
+        titulo: reporte.titulo,
+        desde: meta.desde,
+        hasta: meta.hasta,
+        versionIds: meta.versionIdsIncluidos,
+        totalNovedades: meta.totalNovedades,
+        totalAcciones: meta.totalAcciones,
+        canal: canalUsado,
+      });
+      setEnvioPendiente(false);
+      if (!res.ok) {
+        setError(res.message);
+        notifyError("No se pudo registrar el envío", res.message);
+        return;
+      }
+      setEnvioRegistrado(res.envio);
+      notifySuccess(
+        "Envío registrado",
+        `Estas ${res.envio.versionIds.length} versiones no se volverán a proponer en el próximo reporte.`,
+      );
+    });
+  };
+
+  const deshacerEnvio = (id: number) => {
+    startTransition(async () => {
+      const res = await eliminarEnvioReporteEjecutivo(id);
+      if (!res.ok) {
+        notifyError("No se pudo deshacer", res.message);
+        return;
+      }
+      if (envioRegistrado?.id === id) setEnvioRegistrado(null);
+      notifyInfo("Registro eliminado", "Sus novedades vuelven a considerarse pendientes de enviar.");
+    });
+  };
+
+  const enviosVisibles = useMemo(() => envios.slice(0, 6), [envios]);
+  const nombreVersion = useMemo(() => {
+    const mapa = new Map(versions.map((v) => [v.id, `v${v.number}`]));
+    return (id: number) => mapa.get(id) ?? `#${id}`;
+  }, [versions]);
 
   const adopcionLabel =
     kpis.porcentajeAdopcion == null ? "—" : `${kpis.porcentajeAdopcion}%`;
@@ -327,13 +430,13 @@ export function ReporteEjecutivoClient({
         <StatCard label="Acciones en el período" value={fmtNum(kpis.totalAcciones)} tone="ink" />
         <StatCard label="Usuarios activos" value={fmtNum(kpis.totalUsuarios)} tone="blue" />
         <StatCard
-          label="Adopción de novedades"
+          label="Actividad relacionada con nuevas funcionalidades"
           value={adopcionLabel}
           tone="ok"
           hint={
             kpis.porcentajeAdopcion == null
               ? "sin funcionalidades evaluables"
-              : `${kpis.usadas} usadas · ${kpis.sinEvidencia} sin evidencia`
+              : `${kpis.usadas} con actividad relacionada · ${kpis.sinEvidencia} sin actividad relacionada`
           }
         />
         <StatCard
@@ -363,24 +466,24 @@ export function ReporteEjecutivoClient({
             </div>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <Chip label="Reporte ejecutivo IA" tone="ai" />
+                <Chip label="Reporte para gerencia" tone="ai" />
                 <span className="text-[11.5px] text-ink-500">
                   {defaultDesde} → {defaultHasta}
                 </span>
               </div>
               <h2 className="mt-1 font-serif text-lg text-ink-900">
-                Registro de cambios y uso del período
+                Resumen de uso y avances
               </h2>
               <p className="mt-1 max-w-3xl text-[13px] leading-relaxed text-ink-600">
-                Un reporte al estilo changelog: qué se liberó, por qué importa, cómo se usa y si el
-                equipo ya lo adoptó. Combina novedades con la bitácora real. Listo para enviar en PDF.
+                Lo más importante del período: cómo se usó la plataforma, qué cambió y qué conviene
+                atender. Preparado con la actividad registrada y listo para enviar en PDF.
               </p>
             </div>
           </div>
           <div className="flex w-full flex-col items-stretch gap-2 border-t border-ink-100 pt-3 sm:flex-row sm:items-center lg:w-auto lg:min-w-[240px] lg:justify-end lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
             <button onClick={abrirConfig} className={BTN_REPORTE_PRINCIPAL}>
               <Icon name="ai" size={15} />
-              {reporte ? "Regenerar con IA" : "Generar reporte ejecutivo"}
+              {reporte ? "Regenerar con IA" : "Generar reporte para gerencia"}
             </button>
             {reporte && (
               <button onClick={() => setModalAbierto(true)} className={BTN_SECUNDARIO}>
@@ -407,15 +510,69 @@ export function ReporteEjecutivoClient({
               novedades.
             </span>
           ) : (
-            "El reporte se genera bajo demanda. Elige el período de uso y las versiones de Novedades a incluir."
+            "El reporte para gerencia se genera bajo demanda. Elige el período de uso y las versiones de Novedades a incluir."
           )}
         </div>
+      </Card>
+
+      <Card className="overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-100 px-4 py-3 lg:px-5">
+          <div className="min-w-0">
+            <h2 className="text-[13px] font-semibold text-ink-800">Reportes enviados</h2>
+            <p className="text-[11.5px] text-ink-500">
+              Control de lo ya comunicado al cliente. Lo registrado aquí no se vuelve a proponer como
+              avance nuevo.
+            </p>
+          </div>
+          <span className="shrink-0 text-[11.5px] text-ink-500">
+            {pendiente.versionIds.length === 0
+              ? "Sin avances pendientes por comunicar"
+              : `${pendiente.totalVersiones} ${
+                  pendiente.totalVersiones === 1 ? "versión pendiente" : "versiones pendientes"
+                } · ${pendiente.totalCambios} cambios`}
+          </span>
+        </div>
+        {enviosVisibles.length === 0 ? (
+          <p className="px-4 py-4 text-[12.5px] text-ink-500 lg:px-5">
+            Aún no hay envíos registrados. Genera el reporte, envíalo y usa «Marcar como enviado»
+            para que el siguiente solo cuente lo nuevo.
+          </p>
+        ) : (
+          <ul className="divide-y divide-ink-100">
+            {enviosVisibles.map((envio) => (
+              <li
+                key={envio.id}
+                className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-[12.5px] lg:px-5"
+              >
+                <span className="font-medium text-ink-800">{fmtDate(envio.enviadoEn)}</span>
+                <span className="text-ink-500">
+                  {fmtDate(envio.periodoDesde)} → {fmtDate(envio.periodoHasta)}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-ink-600">
+                  {envio.versionIds.length === 0
+                    ? "Sin versiones asociadas"
+                    : envio.versionIds.map(nombreVersion).join(" · ")}
+                </span>
+                <span className="text-ink-400">{envio.canal}</span>
+                <span className="text-ink-400">{envio.enviadoPor}</span>
+                <button
+                  type="button"
+                  onClick={() => deshacerEnvio(envio.id)}
+                  className="shrink-0 rounded-md border border-ink-150 px-2 py-1 text-[11px] font-medium text-ink-600 transition hover:bg-ink-50"
+                  title="Deshacer: sus novedades vuelven a considerarse pendientes"
+                >
+                  Deshacer
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </Card>
 
       <Modal
         open={configAbierto}
         onClose={() => setConfigAbierto(false)}
-        title="Generar reporte ejecutivo"
+        title="Generar reporte para gerencia"
         size="2xl"
         footer={
           <button onClick={generar} disabled={!puedeConfirmar} className={BTN_PRIMARIO}>
@@ -427,32 +584,36 @@ export function ReporteEjecutivoClient({
         <div className="flex flex-col gap-4">
           <p className="text-[13px] leading-relaxed text-ink-600">
             Define el período de actividad de los usuarios y el alcance de las novedades liberadas.
-            La IA solo redacta a partir de datos reales de la bitácora y del changelog.
+            La IA solo redacta a partir de la actividad registrada y de los avances publicados.
           </p>
 
           <div>
             <h3 className="mb-2 text-[12.5px] font-semibold text-ink-800">Período de uso</h3>
-            <div className="mb-2 flex flex-wrap gap-1.5">
+            <div className="mb-2 flex flex-wrap gap-1.5" role="group" aria-label="Atajos de período">
               {(
                 [
                   ["7 días", 7],
                   ["30 días", 30],
                   ["90 días", 90],
                 ] as const
-              ).map(([label, n]) => (
-                <button
-                  key={label}
-                  type="button"
-                  className={BTN_ATAJO}
-                  onClick={() => {
-                    const r = haceDias(n);
-                    setDesde(r.desde);
-                    setHasta(r.hasta);
-                  }}
-                >
-                  {label}
-                </button>
-              ))}
+              ).map(([label, n]) => {
+                const rango = haceDias(n);
+                const activo = rango.desde === desde && rango.hasta === hasta;
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    aria-pressed={activo}
+                    className={activo ? BTN_ATAJO_ACTIVO : BTN_ATAJO}
+                    onClick={() => {
+                      setDesde(rango.desde);
+                      setHasta(rango.hasta);
+                    }}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="flex flex-col gap-1 text-[12px] text-ink-600">
@@ -477,8 +638,47 @@ export function ReporteEjecutivoClient({
           </div>
 
           <div>
-            <h3 className="mb-2 text-[12.5px] font-semibold text-ink-800">Novedades a incluir</h3>
+            <h3 className="mb-1 text-[12.5px] font-semibold text-ink-800">Novedades a incluir</h3>
+            <p className="mb-2 text-[11.5px] leading-relaxed text-ink-500">
+              Lo que ya marcaste como enviado no se vuelve a proponer. El período de uso sí se
+              recalcula siempre con las fechas de arriba.
+            </p>
             <div className="flex flex-col gap-2.5">
+              <label
+                className={`flex items-start gap-2.5 rounded-md border px-3 py-2.5 transition ${
+                  pendiente.versionIds.length === 0
+                    ? "cursor-not-allowed border-ink-150 bg-ink-50/60 opacity-70"
+                    : modoVersiones === "nuevas"
+                      ? "cursor-pointer border-navy-600 bg-navy-700/5"
+                      : "cursor-pointer border-ink-150 hover:bg-ink-50"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="alcance-novedades"
+                  checked={modoVersiones === "nuevas"}
+                  disabled={pendiente.versionIds.length === 0}
+                  onChange={() => setModoVersiones("nuevas")}
+                  className="mt-0.5 accent-navy-700"
+                />
+                <span className="min-w-0">
+                  <span className="block text-[13px] font-medium text-ink-800">
+                    Solo lo nuevo desde el último reporte enviado
+                  </span>
+                  <span className="block text-[11.5px] text-ink-500">
+                    {pendiente.versionIds.length === 0
+                      ? "Ya enviaste todas las versiones publicadas: no hay avances nuevos que contar."
+                      : `${pendiente.totalVersiones} ${
+                          pendiente.totalVersiones === 1 ? "versión" : "versiones"
+                        } · ${pendiente.totalCambios} cambios · ${
+                          pendiente.ultimoEnvioEn
+                            ? `último envío ${fmtDate(pendiente.ultimoEnvioEn)}`
+                            : "aún sin envíos registrados"
+                        }`}
+                  </span>
+                </span>
+              </label>
+
               <label
                 className={`flex cursor-pointer items-start gap-2.5 rounded-md border px-3 py-2.5 transition ${
                   modoVersiones === "publicadas"
@@ -593,27 +793,50 @@ export function ReporteEjecutivoClient({
         <Modal
           open={modalAbierto}
           onClose={() => setModalAbierto(false)}
-          title="Reporte ejecutivo de uso y adopción"
+          title="Reporte de uso y avances"
           size="4xl"
           footer={
             <>
               <button
                 type="button"
-                onClick={copiarYAbrirCorreo}
+                onClick={copiarFormatoParaCorreo}
                 disabled={correoPendiente}
                 className={BTN_SECUNDARIO}
-                title="Copia el reporte en formato correo y abre tu cliente de email para pegarlo y enviarlo"
+                title="Copia el reporte con formato para pegarlo en el cuerpo de un correo"
               >
-                <Icon name="send" size={14} />
+                <Icon name="doc" size={14} />
                 {correoPendiente ? (
                   <EstadoProcesando>Copiando</EstadoProcesando>
                 ) : (
                   "Copiar formato correo"
                 )}
               </button>
-              <button type="button" onClick={() => descargarHtml(reporte)} className={BTN_SECUNDARIO}>
+              <button
+                type="button"
+                onClick={() => {
+                  setCanalUsado("html");
+                  descargarHtml(reporte);
+                }}
+                className={BTN_SECUNDARIO}
+              >
                 <Icon name="download" size={14} />
                 Descargar HTML
+              </button>
+              <button
+                type="button"
+                onClick={marcarComoEnviado}
+                disabled={envioPendiente || envioRegistrado != null}
+                className={BTN_SECUNDARIO}
+                title="Deja constancia de que este reporte se entregó: sus avances no se repetirán en el próximo"
+              >
+                <Icon name="check" size={14} />
+                {envioPendiente ? (
+                  <EstadoProcesando>Registrando</EstadoProcesando>
+                ) : envioRegistrado ? (
+                  "Registrado como enviado"
+                ) : (
+                  "Marcar como enviado"
+                )}
               </button>
               <button
                 type="button"
@@ -641,9 +864,24 @@ export function ReporteEjecutivoClient({
             Vista previa del documento. Cópialo en formato correo, o descárgalo en HTML o PDF para
             enviarlo al cliente.
           </p>
+          <p className="mt-2 rounded-md bg-ink-50 px-3 py-2 text-[12px] leading-relaxed text-ink-600">
+            {envioRegistrado ? (
+              <>
+                Envío registrado el {fmtDate(envioRegistrado.enviadoEn)}: las{" "}
+                {envioRegistrado.versionIds.length}{" "}
+                {envioRegistrado.versionIds.length === 1 ? "versión" : "versiones"} incluidas no se
+                volverán a proponer en el próximo reporte.
+              </>
+            ) : (
+              <>
+                Cuando lo envíes al cliente, usa <strong>Marcar como enviado</strong>: el próximo
+                reporte propondrá solo los avances que aún no se han comunicado.
+              </>
+            )}
+          </p>
           <iframe
             ref={vistaPreviaRef}
-            title="Vista previa del reporte ejecutivo"
+            title="Vista previa del reporte para gerencia"
             srcDoc={reporte.html}
             sandbox=""
             className="mt-4 h-[68vh] w-full rounded-md border border-ink-150 bg-white"

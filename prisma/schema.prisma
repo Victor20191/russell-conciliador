@@ -683,6 +683,11 @@ model BalancePruebaEncabezado {
   // Metadatos del ETL.
   estandar                 String?   @map("estandar")
   convencionCredito        String?   @map("convencion_credito")
+  // APERTURA del informe que se cargó, DECLARADA por el analista en el borrador
+  // (obligatoria para promover): `cuenta` | `tercero`. Se copia del lote al
+  // confirmar. Solo trazabilidad: no altera el cálculo. null = cargue anterior
+  // a este dato (las pantallas muestran «—»). Ver `lib/balance/apertura-balance.ts`.
+  aperturaBalance          String?   @map("apertura_balance")
   filasLeidas              Int?      @map("filas_leidas")
   filasExcluidas           Int?      @map("filas_excluidas")
   filasDescuadre           Int?      @map("filas_descuadre")
@@ -838,6 +843,12 @@ model BalanceImportacionLote {
   periodoFinal          DateTime? @map("periodo_final") @db.Date
   estandar              String?   @map("estandar")
   convencionCredito     String?   @map("convencion_credito")
+  // APERTURA del informe DECLARADA por el analista en la pantalla del borrador:
+  // `cuenta` (una fila por cuenta) | `tercero` (cuentas desglosadas por NIT).
+  // Obligatoria para cargar el balance oficial, que la hereda. La lectura solo
+  // sugiere el valor inicial (`porTercero`); no cambia el cálculo. null = sin
+  // declarar todavía. Ver `lib/balance/apertura-balance.ts`.
+  aperturaBalance       String?   @map("apertura_balance")
   cuentasMovimiento     Int       @default(0) @map("cuentas_movimiento")
   filasLeidas           Int       @default(0) @map("filas_leidas")
   filasExcluidas        Int       @default(0) @map("filas_excluidas")
@@ -1155,6 +1166,61 @@ model ModuloDatoEncabezado {
   @@map("modulo_dato_encabezado")
 }
 
+/// MARCA DE AUDITORÍA sobre una DIFERENCIA del cruce contable de un módulo (saldo del
+/// balance de comprobación vs. valor consolidado de los archivos del módulo), por cuenta
+/// Russell de 4 dígitos. Sustituye a la antigua «justificación» de la misma tabla.
+///
+/// Como en un papel de trabajo: la cédula solo lleva la marca numerada (①②③) y el detalle
+/// —la explicación, la referencia al anexo y los soportes— vive al pie, en observaciones.
+/// `numero` es correlativo por (cliente, módulo, período) y NO se recicla: retirar una
+/// marca no renumera las demás, para que una referencia escrita fuera del sistema («ver
+/// marca 3») siga apuntando a lo mismo.
+///
+/// Se ancla al PERÍODO del cliente —no al cargue—, de modo que sobrevive a las versiones
+/// nuevas del mismo período: volver a cargar el archivo no obliga a reescribir las marcas.
+/// `diferencia` congela el monto marcado, para poder avisar cuando la diferencia actual ya
+/// no es la misma. FK suaves a cliente, usuario y comentario (el rastro en el hilo de la
+/// cuenta): borrar el comentario no borra la marca. Reversible.
+model MarcaCruceModulo {
+  id              Int                 @id @default(autoincrement()) @map("id")
+  clienteId       Int                 @map("cliente_id")
+  moduloCodigo    String              @map("modulo_codigo")
+  periodo         String              @map("periodo") // etiqueta del período (p. ej. "2025-12")
+  numero          Int                 @map("numero") // correlativo de la marca dentro del período
+  cuenta4         String              @map("cuenta_4") // cuenta Russell de 4 dígitos
+  nota            String              @map("nota") // detalle de la marca (la observación)
+  referenciaAnexo String?             @map("referencia_anexo") // p. ej. «Anexo A-3 / PT-INV-04»
+  diferencia      Decimal             @default(0) @map("diferencia") @db.Decimal(18, 2)
+  comentarioId    Int?                @map("comentario_id")
+  marcadoPor      String?             @map("marcado_por")
+  marcadoPorId    Int?                @map("marcado_por_id")
+  marcadoEn       DateTime            @default(now()) @map("marcado_en") @db.Timestamptz(3)
+  adjuntos        AdjuntoMarcaCruce[]
+
+  @@unique([clienteId, moduloCodigo, periodo, cuenta4], map: "marca_cruce_modulo_unica")
+  @@unique([clienteId, moduloCodigo, periodo, numero], map: "marca_cruce_modulo_numero_unico")
+  @@index([clienteId, moduloCodigo, periodo], map: "marca_cruce_modulo_periodo_idx")
+  @@map("marca_cruce_modulo")
+}
+
+/// Soporte de una marca de auditoría (el anexo digital: PDF, Excel, CSV o imagen).
+/// El binario vive en el almacenamiento de objetos; la BD solo guarda la clave.
+/// FK dura a la marca: retirar la marca se lleva sus soportes.
+model AdjuntoMarcaCruce {
+  id            Int              @id @default(autoincrement()) @map("id")
+  marcaId       Int              @map("marca_id")
+  claveObjeto   String           @unique @map("clave_objeto")
+  nombreArchivo String           @map("nombre_archivo")
+  tipoContenido String           @map("tipo_contenido")
+  tamanoBytes   Int              @map("tamano_bytes")
+  subidoPorId   Int?             @map("subido_por_id")
+  creadoEn      DateTime         @default(now()) @map("creado_en") @db.Timestamptz(3)
+  marca         MarcaCruceModulo @relation(fields: [marcaId], references: [id], onDelete: Cascade)
+
+  @@index([marcaId])
+  @@map("adjuntos_marca_cruce")
+}
+
 model ModuloDatoDetalle {
   id           Int                  @id @default(autoincrement()) @map("id")
   encabezado   ModuloDatoEncabezado @relation(fields: [encabezadoId], references: [id], onDelete: Cascade)
@@ -1237,6 +1303,10 @@ model ConsolidacionModuloCliente {
   clienteId      Int      @map("cliente_id")
   moduloCodigo   String   @map("modulo_codigo")
   clasificador   String   @map("clasificador")
+  // Etiqueta legible del clasificador. En Nómina el clasificador es el CÓDIGO del
+  // concepto y esto guarda el nombre del concepto («Sueldo básico»), que llega por la
+  // carga masiva de /config/conceptos-nomina. Null = el clasificador se explica solo.
+  descripcion    String?  @map("descripcion")
   cuenta4        String   @map("cuenta_4") // cuenta de 4 díg contra la que cruza
   actualizadoPor String?  @map("actualizado_por")
   creadoEn       DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
@@ -1564,6 +1634,28 @@ model ReporteEjecutivoUsoIA {
   @@map("reportes_ejecutivos_uso_ia")
 }
 
+// Registro de reportes ejecutivos ENVIADOS al cliente. Existe para NO repetir
+// avances ya comunicados: la siguiente generación preselecciona solo las
+// versiones de Novedades que no aparecen en ningún envío previo.
+// `enviadoPorId` es FK lógica a User (sin @relation).
+model EnvioReporteEjecutivo {
+  id             Int      @id @default(autoincrement()) @map("id")
+  titulo         String   @map("titulo")
+  periodoDesde   DateTime @map("periodo_desde") @db.Timestamptz(3)
+  periodoHasta   DateTime @map("periodo_hasta") @db.Timestamptz(3)
+  versionIds     Int[]    @map("ids_version")
+  totalNovedades Int      @default(0) @map("total_novedades")
+  totalAcciones  Int      @default(0) @map("total_acciones")
+  canal          String   @default("correo") @map("canal")
+  nota           String?  @map("nota")
+  enviadoPor     String   @map("enviado_por")
+  enviadoPorId   Int?     @map("enviado_por_id")
+  enviadoEn      DateTime @default(now()) @map("enviado_en") @db.Timestamptz(3)
+
+  @@index([enviadoEn])
+  @@map("envios_reporte_ejecutivo")
+}
+
 // ===== Consumo de IA (tokens y costos de escaneos con Claude) =====
 // Registro de uso de la API de Claude (Anthropic): UNA fila por LLAMADA a la API
 // durante el escaneo/extracción de documentos (extracción tabular, extracción de
@@ -1669,27 +1761,69 @@ model UmbralAlerta {
   @@map("umbrales_alertas")
 }
 
-// ===== Mesa de ayuda publica =====
-// El reporte no requiere una cuenta de usuario. El enlace de seguimiento se
-// protege con un token aleatorio del que solo se persiste la huella SHA-256.
-// `resueltoPorId` es una FK logica a User: la solucion conserva el nombre del
-// tecnico incluso si su cuenta se desactiva o elimina posteriormente.
+// ===== Reportes internos (antes mesa de ayuda publica) =====
+// Cualquier usuario autenticado puede crear una novedad. El portal publico
+// `/soporte` se conserva para reportes sin sesion. `creadoPorId` y
+// `resueltoPorId` son FK logicas a User (sin @relation): el nombre del
+// reportante/tecnico se conserva aunque la cuenta se desactive o elimine.
+// Los adjuntos viven en S3/MinIO; la BD solo guarda la clave del objeto.
 model SupportTicket {
-  id                    Int       @id @default(autoincrement()) @map("id")
-  code                  String    @unique @map("codigo")
-  reporterFirstName     String    @map("nombre_reportante")
-  reporterLastName      String    @map("apellido_reportante")
-  subject               String    @map("asunto")
-  description           String    @map("descripcion")
-  status                String    @default("abierto") @map("estado") // abierto | resuelto
-  solution              String?   @map("solucion")
-  resolvedById          Int?      @map("resuelto_por_id")
-  resolvedByName        String?   @map("resuelto_por_nombre")
-  resolvedAt            DateTime? @map("resuelto_en") @db.Timestamptz(3)
-  publicAccessTokenHash String    @unique @map("token_acceso_hash")
-  createdAt             DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
-  updatedAt             DateTime  @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+  id                    Int                       @id @default(autoincrement()) @map("id")
+  code                  String                    @unique @map("codigo")
+  createdById           Int?                      @map("creado_por_id")
+  reporterFirstName     String                    @map("nombre_reportante")
+  reporterLastName      String                    @map("apellido_reportante")
+  subject               String                    @map("asunto")
+  description           String                    @map("descripcion")
+  routeKey              String?                   @map("ruta_clave")
+  routeLabel            String?                   @map("ruta_etiqueta")
+  menuKey               String?                   @map("menu_clave")
+  menuLabel             String?                   @map("menu_etiqueta")
+  status                String                    @default("abierto") @map("estado") // abierto | en_proceso | resuelto | cerrado
+  solution              String?                   @map("solucion")
+  resolvedById          Int?                      @map("resuelto_por_id")
+  resolvedByName        String?                   @map("resuelto_por_nombre")
+  resolvedAt            DateTime?                 @map("resuelto_en") @db.Timestamptz(3)
+  publicAccessTokenHash String                    @unique @map("token_acceso_hash")
+  createdAt             DateTime                  @default(now()) @map("creado_en") @db.Timestamptz(3)
+  updatedAt             DateTime                  @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+  attachments           SupportTicketAttachment[]
 
   @@index([status, createdAt])
+  @@index([createdById, createdAt])
+  @@index([routeKey, menuKey])
   @@map("tickets_soporte")
+}
+
+model SupportTicketAttachment {
+  id          Int           @id @default(autoincrement()) @map("id")
+  ticketId    Int           @map("ticket_id")
+  objectKey   String        @unique @map("clave_objeto")
+  fileName    String        @map("nombre_archivo")
+  contentType String        @map("tipo_contenido")
+  sizeBytes   Int           @map("tamano_bytes")
+  createdAt   DateTime      @default(now()) @map("creado_en") @db.Timestamptz(3)
+  ticket      SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
+  @@map("adjuntos_ticket_soporte")
+}
+
+/// Variables de entorno administrables desde la UI.
+///
+/// La tabla la creó un `prisma db push` fuera de migraciones el 24-ago-2026 y
+/// quedó sin declarar aquí, produciendo deriva de esquema: la primera
+/// `prisma migrate dev` habría propuesto RESETEAR la base. Se declara para
+/// cerrar esa deriva; la consume el módulo `/config/entorno` (`src/lib/entorno.ts`).
+model EnvironmentVariable {
+  id          Int      @id @default(autoincrement()) @map("id")
+  key         String   @unique @map("clave") // p. ej. ANTHROPIC_API_KEY
+  value       String?  @map("valor") // Encriptado si es secreto; texto plano si no.
+  isSecret    Boolean  @default(false) @map("es_secreto")
+  description String?  @map("descripcion")
+  category    String   @map("categoria") // API_IA, EMAIL, ALMACENAMIENTO, SISTEMA
+  updatedAt   DateTime @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+  updatedBy   String?  @map("actualizado_por")
+
+  @@map("variables_entorno")
 }

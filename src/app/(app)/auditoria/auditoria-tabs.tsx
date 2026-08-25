@@ -6,21 +6,17 @@ import { usePathname } from "next/navigation";
 /**
  * Barra de pestañas de Auditoría.
  * - Accesos: permiso `auditoria:accesos`
- * - Uso y adopción: permiso `auditoria:reporte_ejecutivo`
  * El servidor decide `can*` y la página de destino vuelve a exigir el gate.
  */
 export default function AuditoriaTabs({
   canAccesos,
-  canReporteEjecutivo = false,
 }: {
   canAccesos: boolean;
-  canReporteEjecutivo?: boolean;
 }) {
   const pathname = usePathname();
   const tabs = [
     { href: "/auditoria", label: "Acciones" },
     ...(canAccesos ? [{ href: "/auditoria/accesos", label: "Accesos y tráfico" }] : []),
-    ...(canReporteEjecutivo ? [{ href: "/auditoria/adopcion", label: "Uso y adopción" }] : []),
   ];
 
   return (

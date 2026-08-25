@@ -121,7 +121,7 @@ function RitmoDiario({ serie }: { serie?: SerieDiaUso[] | null }) {
 
 /**
  * Panel permanente de indicadores de uso de la plataforma.
- * Siempre visible en Auditoría › Uso y adopción (con o sin reporte IA).
+ * Siempre visible en Configuración › Reportes ejecutivos (con o sin reporte IA).
  */
 export function IndicadoresUso({
   periodoLabel,
@@ -186,10 +186,10 @@ export function IndicadoresUso({
           trackClass="bg-ink-100"
         />
         <ListaBarras
-          titulo="Adopción de novedades"
-          subtitulo="Estado de las funcionalidades liberadas vs. uso real"
+          titulo="Adopción de nuevas funcionalidades"
+          subtitulo="Actividad del módulo relacionado; no confirma el uso de una funcionalidad individual"
           items={adopcion}
-          vacio="No hay novedades publicadas para medir adopción."
+          vacio="No hay funcionalidades publicadas en el alcance para revisar."
           barClass="bg-ok-500"
           trackClass="bg-ok-100"
         />

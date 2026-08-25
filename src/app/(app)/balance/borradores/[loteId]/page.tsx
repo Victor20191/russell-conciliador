@@ -101,6 +101,7 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
         archivoNombre: true,
         periodoInicial: true,
         periodoFinal: true,
+        aperturaBalance: true,
         creadoEn: true,
       },
     }),
@@ -152,6 +153,7 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
             version: v.version,
             archivoNombre: l.archivoNombre,
             fecha: fmtDateTime(l.creadoEn),
+            apertura: l.aperturaBalance,
           }];
         })
         .sort((a, b) => b.version - a.version)
@@ -168,6 +170,7 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
         nitDetectado={lote?.nitDetectado ?? null}
         periodoInicial={lote?.periodoInicial ? fechaCalendarioISO(lote.periodoInicial) : null}
         periodoFinal={lote?.periodoFinal ? fechaCalendarioISO(lote.periodoFinal) : null}
+        aperturaGuardada={lote?.aperturaBalance ?? null}
         filasCompactas={staging.filasCompactas}
         porTerceroDetectado={staging.porTercero}
         revisionesReubicacion={staging.revisionesReubicacion ?? []}

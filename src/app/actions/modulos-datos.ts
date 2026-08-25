@@ -21,6 +21,21 @@ import { SpecModuloSchema, type SpecModulo } from "@/lib/modulos/extraccion/esqu
 import { sugerirSpec } from "@/lib/modulos/extraccion/sugerir";
 import { transformarModulo, resultadoAReconciliacion } from "@/lib/modulos/extraccion/transformar";
 import { promoverStaging, type FilaStagingModulo } from "@/lib/modulos/promocion";
+import {
+  anclaCruce,
+  normalizarCuenta4 as cuenta4Marcable,
+  siguienteNumeroMarca,
+  validarNotaMarca,
+  validarReferenciaAnexo,
+} from "@/lib/modulos/marcas-cruce";
+import {
+  claveSoporteMarca,
+  nombreArchivoSeguro,
+  SOPORTES_MARCA_MAX,
+  validarSoporteMarca,
+  type TipoSoporteMarca,
+} from "@/lib/modulos/marcas-adjuntos";
+import { almacenamientoDisponible, eliminarObjeto, subirObjeto } from "@/lib/storage/objetos";
 import { refRolDe, clavesDeDetalle, decidirCarga, remapFilas } from "@/lib/modulos/fraccionamiento";
 import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
 import { tomarCandadoTransaccion, transaccionSerializable } from "@/lib/concurrency";
@@ -88,6 +103,66 @@ async function specPerfilModulo(
 const mismoSpecModulo = (a: SpecModulo, b: SpecModulo): boolean =>
   JSON.stringify(a) === JSON.stringify(b);
 
+/**
+ * Hoja a importar: la elegida explícitamente por el usuario; si no eligió ninguna,
+ * la HOJA PREFERIDA del cliente para este módulo (Configuración › Perfiles de carga)
+ * cuando existe en el libro; y si no, la primera. Mismo criterio que la carga de
+ * balance con `ajustes_carga_balance.hojaPreferida`.
+ */
+async function resolverHojaModulo(
+  hojas: { nombre: string }[],
+  hojaElegida: string,
+  clienteId: number,
+  moduloCodigo: string,
+): Promise<string | null> {
+  if (hojaElegida && hojas.some((h) => h.nombre === hojaElegida)) return hojaElegida;
+  if (!hojaElegida) {
+    const ajustes = await prisma.ajustesCargaModulo.findUnique({
+      where: { clienteId_moduloCodigo: { clienteId, moduloCodigo } },
+      select: { hojaPreferida: true },
+    });
+    const preferida = ajustes?.hojaPreferida?.trim();
+    if (preferida && hojas.some((h) => h.nombre === preferida)) return preferida;
+  }
+  return hojas[0]?.nombre ?? null;
+}
+
+export type PreferenciasCargaModulo = {
+  ok: boolean;
+  message?: string;
+  hojaPreferida: string | null;
+  observaciones: string | null;
+};
+
+/**
+ * Preferencias de carga del cliente en un módulo (`ajustes_carga_modulo`), para que el
+ * modal de carga preseleccione la hoja preferida y muestre las notas del equipo al
+ * elegir el cliente. Se editan en Configuración › Perfiles de carga (admin-only); aquí
+ * solo se LEEN con el permiso operativo del módulo y alcance de lectura sobre el cliente.
+ */
+export async function preferenciasCargaModulo(clienteId: number, moduloCodigo: string): Promise<PreferenciasCargaModulo> {
+  const vacio: PreferenciasCargaModulo = { ok: false, hojaPreferida: null, observaciones: null };
+  const codigo = String(moduloCodigo ?? "").trim().toUpperCase();
+  if (!descriptorModulo(codigo)) return { ...vacio, message: "Módulo no soportado." };
+  const cid = Number(clienteId);
+  if (!Number.isInteger(cid) || cid <= 0) return { ...vacio, message: "Cliente inválido." };
+  const authz = await authorizePermiso("modulos_datos:crear", { clientId: cid, modo: "lectura" });
+  if (!authz.ok) return { ...vacio, message: authz.message };
+  try {
+    const ajustes = await prisma.ajustesCargaModulo.findUnique({
+      where: { clienteId_moduloCodigo: { clienteId: cid, moduloCodigo: codigo } },
+      select: { hojaPreferida: true, observaciones: true },
+    });
+    return {
+      ok: true,
+      hojaPreferida: ajustes?.hojaPreferida?.trim() || null,
+      observaciones: ajustes?.observaciones?.trim() || null,
+    };
+  } catch (e) {
+    return { ...vacio, message: mensajeErrorBD("preferenciasCargaModulo", e) };
+  }
+}
+
 // ============================================================
 // ANALIZAR: lee el archivo (SIN escribir) y devuelve la grilla del servidor + spec
 // sugerido para que el modal edite el mapeo de columnas sobre la MISMA grilla que
@@ -115,7 +190,8 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
     }
     if (ingesta.modo !== "tabular") return { ok: false, message: "Por ahora solo se admiten archivos tabulares (Excel/CSV)." };
     const hojaElegida = String(formData.get("hoja") ?? "").trim();
-    const hoja = ingesta.hojas.find((h) => h.nombre === hojaElegida) ?? ingesta.hojas[0];
+    const nombreHoja = await resolverHojaModulo(ingesta.hojas, hojaElegida, clienteId, moduloCodigo);
+    const hoja = ingesta.hojas.find((h) => h.nombre === nombreHoja);
     if (!hoja) return { ok: false, message: "El archivo no tiene hojas legibles." };
 
     // Spec de partida: perfil por huella si existe, si no el heurístico.
@@ -167,7 +243,8 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
     }
     if (ingesta.modo !== "tabular") return { ok: false, message: "Por ahora solo se admiten archivos tabulares (Excel/CSV) para módulos." };
     const hojaElegida = String(formData.get("hoja") ?? "").trim();
-    const hoja = ingesta.hojas.find((h) => h.nombre === hojaElegida) ?? ingesta.hojas[0];
+    const nombreHoja = await resolverHojaModulo(ingesta.hojas, hojaElegida, clienteId, moduloCodigo);
+    const hoja = ingesta.hojas.find((h) => h.nombre === nombreHoja);
     if (!hoja) return { ok: false, message: "El archivo no tiene hojas legibles." };
 
     // Spec: (1) editado a mano → manual · (2) perfil por huella → perfil · (3) heurístico → auto.
@@ -621,13 +698,27 @@ async function validarCuentas4Modulo(moduloCodigo: string, cuentas: string[]): P
 
 // Reemplaza el CONJUNTO de cuentas de un clasificador dentro de una transacción (tx):
 // borra las que ya tenía y crea las nuevas. Conjunto vacío = deja el clasificador sin cuenta.
-function reemplazarCuentasTx(tx: Prisma.TransactionClient, clienteId: number, moduloCodigo: string, clasificador: string, cuentas: string[], actor: string | null) {
+// `descripcion` es el nombre legible del clasificador (Nómina: el concepto detrás del
+// código, cargado en /config/conceptos-nomina): se RE-ESCRIBE al recrear las filas para
+// que editar las cuentas a mano no borre el nombre.
+function reemplazarCuentasTx(tx: Prisma.TransactionClient, clienteId: number, moduloCodigo: string, clasificador: string, cuentas: string[], actor: string | null, descripcion: string | null = null) {
   return [
     tx.consolidacionModuloCliente.deleteMany({ where: { clienteId, moduloCodigo, clasificador } }),
     ...(cuentas.length
-      ? [tx.consolidacionModuloCliente.createMany({ data: cuentas.map((cuenta4) => ({ clienteId, moduloCodigo, clasificador, cuenta4, actualizadoPor: actor })) })]
+      ? [tx.consolidacionModuloCliente.createMany({ data: cuentas.map((cuenta4) => ({ clienteId, moduloCodigo, clasificador, descripcion, cuenta4, actualizadoPor: actor })) })]
       : []),
   ];
+}
+
+// Nombre legible ya guardado de cada clasificador, para no perderlo al reemplazar sus cuentas.
+async function descripcionesGuardadas(clienteId: number, moduloCodigo: string, clasificadores: string[]): Promise<Map<string, string>> {
+  const filas = await prisma.consolidacionModuloCliente.findMany({
+    where: { clienteId, moduloCodigo, clasificador: { in: clasificadores } },
+    select: { clasificador: true, descripcion: true },
+  });
+  const mapa = new Map<string, string>();
+  for (const f of filas) if (f.descripcion && !mapa.has(f.clasificador)) mapa.set(f.clasificador, f.descripcion);
+  return mapa;
 }
 
 // Bitácora de la consolidación: una sola pulsación puede reescribir decenas de
@@ -660,7 +751,10 @@ export async function guardarConsolidacionModulo(input: { clienteId: number; mod
   if (invalida) return invalida;
   try {
     const user = await getCurrentUser();
-    await prisma.$transaction(reemplazarCuentasTx(prisma, input.clienteId, moduloCodigo, clasificador, cuentas4, user?.name ?? null));
+    const descripciones = await descripcionesGuardadas(input.clienteId, moduloCodigo, [clasificador]);
+    await prisma.$transaction(
+      reemplazarCuentasTx(prisma, input.clienteId, moduloCodigo, clasificador, cuentas4, user?.name ?? null, descripciones.get(clasificador) ?? null),
+    );
     await auditarConsolidacion(input.clienteId, moduloCodigo, [{ cuentas4 }]);
     revalidatePath(rutaModulo(moduloCodigo));
     return { ok: true, message: "Consolidación guardada." };
@@ -691,11 +785,319 @@ export async function guardarConsolidacionModuloLote(input: {
   try {
     const user = await getCurrentUser();
     const actor = user?.name ?? null;
-    await prisma.$transaction(filas.flatMap((f) => reemplazarCuentasTx(prisma, input.clienteId, moduloCodigo, f.clasificador, f.cuentas4, actor)));
+    const descripciones = await descripcionesGuardadas(input.clienteId, moduloCodigo, filas.map((f) => f.clasificador));
+    await prisma.$transaction(
+      filas.flatMap((f) =>
+        reemplazarCuentasTx(prisma, input.clienteId, moduloCodigo, f.clasificador, f.cuentas4, actor, descripciones.get(f.clasificador) ?? null),
+      ),
+    );
     await auditarConsolidacion(input.clienteId, moduloCodigo, filas);
     revalidatePath(rutaModulo(moduloCodigo));
     return { ok: true, message: filas.length === 1 ? "Consolidación guardada." : `${filas.length} consolidaciones guardadas.` };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("guardarConsolidacionModuloLote", e) };
+  }
+}
+
+// ============================================================
+// MARCAS DE AUDITORÍA sobre las diferencias del CRUCE CONTABLE.
+//
+// Sustituyen a la antigua «justificación» escrita dentro de la celda: la cédula solo lleva
+// la marca numerada y el detalle vive al pie, en observaciones, con referencia al anexo y
+// soportes adjuntos.
+//
+// La marca vive por (cliente, módulo, período, cuenta Russell de 4 díg.) y no por cargue,
+// así que sobrevive a las versiones nuevas del período. Exige la misma autorización que
+// editar la consolidación (`modulos_datos:editar` + alcance de escritura sobre el cliente)
+// y deja además el detalle en el hilo de comentarios de la cuenta (`cruce:XXXX`), para que
+// quede a la vista de quien revisa. El comentario es un rastro: si se borra, la marca sigue
+// (FK suave). Los soportes sí son FK dura: retirar la marca se lleva sus anexos.
+// ============================================================
+
+/** Encabezado + período al que pertenece una marca, con el permiso ya verificado. */
+async function contextoMarcaCruce(encabezadoId: number) {
+  if (!Number.isSafeInteger(encabezadoId)) return { ok: false as const, message: "Cargue inválido." };
+  const encabezado = await prisma.moduloDatoEncabezado.findUnique({
+    where: { id: encabezadoId },
+    select: { id: true, clienteId: true, moduloCodigo: true, periodo: true, nombreCliente: true },
+  });
+  if (!encabezado) return { ok: false as const, message: "El cargue ya no existe." };
+  const authz = await authorizePermiso("modulos_datos:editar", { clientId: encabezado.clienteId });
+  if (!authz.ok) return { ok: false as const, message: authz.message };
+  return { ok: true as const, encabezado, userId: authz.userId };
+}
+
+async function auditarMarcaCruce(
+  encabezado: { clienteId: number; moduloCodigo: string; periodo: string; nombreCliente: string },
+  accion: string,
+  cuenta4: string,
+  detalleExtra: string,
+) {
+  const user = await getCurrentUser();
+  await logAudit({
+    user: user?.name ?? "Sistema",
+    action: accion,
+    entity: encabezado.nombreCliente,
+    detail: `${encabezado.moduloCodigo} · ${encabezado.periodo} · cuenta ${cuenta4}${detalleExtra}`,
+    clientId: encabezado.clienteId,
+  });
+}
+
+/** Los archivos que vienen del formulario de la marca, ya filtrados. */
+function soportesDelFormulario(formData: FormData): File[] {
+  return formData.getAll("soportes").filter((v): v is File => v instanceof File && v.size > 0);
+}
+
+/**
+ * Valida los soportes ANTES de tocar la BD (contenido real, no extensión) y los devuelve
+ * listos para subir. Que un anexo inválido no deje la marca escrita a medias.
+ */
+async function prepararSoportesMarca(archivos: File[], yaGuardados: number) {
+  if (archivos.length === 0) return { ok: true as const, soportes: [] };
+  if (yaGuardados + archivos.length > SOPORTES_MARCA_MAX) {
+    return {
+      ok: false as const,
+      message: `Una marca admite hasta ${SOPORTES_MARCA_MAX} soportes (ya tiene ${yaGuardados}).`,
+    };
+  }
+  if (!almacenamientoDisponible()) {
+    return {
+      ok: false as const,
+      message: "El almacenamiento de soportes no está configurado. Avisa al administrador o guarda la marca sin adjuntos.",
+    };
+  }
+
+  const soportes: { bytes: Uint8Array; tipo: TipoSoporteMarca; contentType: string; nombre: string; tamano: number }[] = [];
+  for (const archivo of archivos) {
+    const bytes = new Uint8Array(await archivo.arrayBuffer());
+    const val = validarSoporteMarca(bytes, archivo.name);
+    if (!val.ok) return { ok: false as const, message: val.error };
+    soportes.push({
+      bytes,
+      tipo: val.tipo,
+      contentType: val.contentType,
+      nombre: nombreArchivoSeguro(archivo.name, val.tipo),
+      tamano: bytes.length,
+    });
+  }
+  return { ok: true as const, soportes };
+}
+
+/**
+ * Guarda (o reescribe) la MARCA de una cuenta del cruce y sube sus soportes.
+ *
+ * `diferencia` se congela para poder avisar después si el monto cambió. El número se
+ * asigna una sola vez, al crear: reescribir el detalle no renumera la marca ni mueve su
+ * lugar en las observaciones.
+ */
+export async function guardarMarcaCruce(formData: FormData): Promise<ActionState> {
+  const encabezadoId = Number(formData.get("encabezadoId"));
+  const ctx = await contextoMarcaCruce(encabezadoId);
+  if (!ctx.ok) return { ok: false, message: ctx.message };
+
+  const cuenta4 = cuenta4Marcable(String(formData.get("cuenta4") ?? ""));
+  if (!cuenta4) return { ok: false, message: "Cuenta inválida." };
+  const nota = validarNotaMarca(String(formData.get("nota") ?? ""));
+  if (!nota.ok) return { ok: false, message: nota.message };
+  const anexo = validarReferenciaAnexo(String(formData.get("referenciaAnexo") ?? ""));
+  if (!anexo.ok) return { ok: false, message: anexo.message };
+  const diferencia = Number(formData.get("diferencia"));
+  if (!Number.isFinite(diferencia)) return { ok: false, message: "Diferencia inválida." };
+
+  const { encabezado } = ctx;
+  const llave = {
+    clienteId: encabezado.clienteId,
+    moduloCodigo: encabezado.moduloCodigo,
+    periodo: encabezado.periodo,
+    cuenta4,
+  };
+
+  try {
+    const existente = await prisma.marcaCruceModulo.findUnique({
+      where: { clienteId_moduloCodigo_periodo_cuenta4: llave },
+      select: { id: true, numero: true, _count: { select: { adjuntos: true } } },
+    });
+
+    const preparados = await prepararSoportesMarca(soportesDelFormulario(formData), existente?._count.adjuntos ?? 0);
+    if (!preparados.ok) return { ok: false, message: preparados.message };
+
+    const user = await getCurrentUser();
+    // El rastro en el hilo de la cuenta va primero: si falla, no se guarda una marca que
+    // dice apuntar a un comentario inexistente.
+    const comentario = await prisma.comment.create({
+      data: {
+        entityType: "modulos_datos",
+        entityId: encabezado.id,
+        anchor: anclaCruce(cuenta4),
+        authorId: ctx.userId,
+        body: anexo.referencia ? `${nota.nota}\n\nAnexo: ${anexo.referencia}` : nota.nota,
+      },
+      select: { id: true },
+    });
+
+    const datosComunes = {
+      nota: nota.nota,
+      referenciaAnexo: anexo.referencia,
+      diferencia: new Prisma.Decimal(diferencia.toFixed(2)),
+      comentarioId: comentario.id,
+      marcadoPor: user?.name ?? null,
+      marcadoPorId: ctx.userId,
+      marcadoEn: new Date(),
+    };
+
+    // El número se asigna dentro de una transacción serializable con candado del período:
+    // dos personas marcando cuentas distintas a la vez no pueden quedarse con el mismo
+    // número (el índice único lo impediría, pero aquí ni siquiera llegan a chocar).
+    const marca = existente
+      ? await prisma.marcaCruceModulo.update({
+          where: { id: existente.id },
+          data: datosComunes,
+          select: { id: true, numero: true },
+        })
+      : await transaccionSerializable(async (tx) => {
+          await tomarCandadoTransaccion(tx, `marca-cruce:${encabezado.clienteId}:${encabezado.moduloCodigo}:${encabezado.periodo}`);
+          const usados = await tx.marcaCruceModulo.findMany({
+            where: {
+              clienteId: encabezado.clienteId,
+              moduloCodigo: encabezado.moduloCodigo,
+              periodo: encabezado.periodo,
+            },
+            select: { numero: true },
+          });
+          return tx.marcaCruceModulo.create({
+            data: { ...llave, ...datosComunes, numero: siguienteNumeroMarca(usados.map((u) => u.numero)) },
+            select: { id: true, numero: true },
+          });
+        });
+
+    const subidos = await persistirSoportesMarca(marca.id, ctx.userId, preparados.soportes);
+
+    await auditarMarcaCruce(
+      encabezado,
+      existente ? "EDITÓ la marca del cruce contable" : "MARCÓ una diferencia del cruce contable",
+      cuenta4,
+      ` · marca ${marca.numero} · ${diferencia.toFixed(2)}${subidos ? ` · ${subidos} soporte(s)` : ""}`,
+    );
+    revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
+    return {
+      ok: true,
+      message: existente ? `Marca ${marca.numero} actualizada.` : `Marca ${marca.numero} registrada.`,
+    };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("guardarMarcaCruce", e) };
+  }
+}
+
+/**
+ * Sube los soportes y los registra. Si un archivo falla a mitad, se barre lo ya subido:
+ * un objeto huérfano en el almacenamiento no le sirve a nadie. La marca en sí ya está
+ * guardada — el detalle no se pierde porque el anexo no haya podido subir.
+ */
+async function persistirSoportesMarca(
+  marcaId: number,
+  userId: number | null,
+  soportes: { bytes: Uint8Array; tipo: TipoSoporteMarca; contentType: string; nombre: string; tamano: number }[],
+): Promise<number> {
+  if (soportes.length === 0) return 0;
+  const claves: string[] = [];
+  try {
+    for (const soporte of soportes) {
+      const clave = claveSoporteMarca(marcaId, randomUUID().slice(0, 12), soporte.tipo);
+      await subirObjeto({ key: clave, cuerpo: soporte.bytes, contentType: soporte.contentType });
+      claves.push(clave);
+      await prisma.adjuntoMarcaCruce.create({
+        data: {
+          marcaId,
+          claveObjeto: clave,
+          nombreArchivo: soporte.nombre,
+          tipoContenido: soporte.contentType,
+          tamanoBytes: soporte.tamano,
+          subidoPorId: userId,
+        },
+      });
+    }
+    return soportes.length;
+  } catch (e) {
+    await Promise.allSettled(claves.map((clave) => eliminarObjeto(clave)));
+    throw e;
+  }
+}
+
+/** Retira la marca de una cuenta y sus soportes. El comentario del hilo se conserva. */
+export async function quitarMarcaCruce(input: {
+  encabezadoId: number;
+  cuenta4: string;
+}): Promise<ActionState> {
+  const ctx = await contextoMarcaCruce(input.encabezadoId);
+  if (!ctx.ok) return { ok: false, message: ctx.message };
+
+  const cuenta4 = cuenta4Marcable(String(input.cuenta4 ?? ""));
+  if (!cuenta4) return { ok: false, message: "Cuenta inválida." };
+
+  const { encabezado } = ctx;
+  try {
+    const marca = await prisma.marcaCruceModulo.findUnique({
+      where: {
+        clienteId_moduloCodigo_periodo_cuenta4: {
+          clienteId: encabezado.clienteId,
+          moduloCodigo: encabezado.moduloCodigo,
+          periodo: encabezado.periodo,
+          cuenta4,
+        },
+      },
+      select: { id: true, numero: true, adjuntos: { select: { claveObjeto: true } } },
+    });
+    if (!marca) return { ok: false, message: "Esa diferencia ya no estaba marcada." };
+
+    // La BD manda: primero se borra la fila (cascada a los adjuntos) y después los
+    // objetos. Al revés, un fallo dejaría registros apuntando a soportes inexistentes.
+    await prisma.marcaCruceModulo.delete({ where: { id: marca.id } });
+    await Promise.allSettled(marca.adjuntos.map((a) => eliminarObjeto(a.claveObjeto)));
+
+    await auditarMarcaCruce(encabezado, "RETIRÓ la marca del cruce contable", cuenta4, ` · marca ${marca.numero}`);
+    revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
+    return { ok: true, message: `Marca ${marca.numero} retirada.` };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("quitarMarcaCruce", e) };
+  }
+}
+
+/** Elimina UN soporte de una marca, sin tocar la observación. */
+export async function eliminarSoporteMarca(input: {
+  encabezadoId: number;
+  soporteId: number;
+}): Promise<ActionState> {
+  const ctx = await contextoMarcaCruce(input.encabezadoId);
+  if (!ctx.ok) return { ok: false, message: ctx.message };
+
+  const soporteId = Number(input.soporteId);
+  if (!Number.isSafeInteger(soporteId)) return { ok: false, message: "Soporte inválido." };
+
+  const { encabezado } = ctx;
+  try {
+    const soporte = await prisma.adjuntoMarcaCruce.findUnique({
+      where: { id: soporteId },
+      select: {
+        claveObjeto: true,
+        nombreArchivo: true,
+        marca: { select: { clienteId: true, moduloCodigo: true, periodo: true, cuenta4: true, numero: true } },
+      },
+    });
+    if (!soporte) return { ok: false, message: "Ese soporte ya no existe." };
+    // El permiso se verificó sobre ESTE cargue: el soporte tiene que ser del mismo
+    // cliente, módulo y período, o el id sería una puerta a los papeles de otro cliente.
+    const m = soporte.marca;
+    if (m.clienteId !== encabezado.clienteId || m.moduloCodigo !== encabezado.moduloCodigo || m.periodo !== encabezado.periodo) {
+      return { ok: false, message: "Ese soporte no pertenece a este período." };
+    }
+
+    await prisma.adjuntoMarcaCruce.delete({ where: { id: soporteId } });
+    await eliminarObjeto(soporte.claveObjeto).catch(() => {});
+
+    await auditarMarcaCruce(encabezado, "ELIMINÓ un soporte de la marca del cruce contable", m.cuenta4, ` · marca ${m.numero} · ${soporte.nombreArchivo}`);
+    revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
+    return { ok: true, message: "Soporte eliminado." };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("eliminarSoporteMarca", e) };
   }
 }

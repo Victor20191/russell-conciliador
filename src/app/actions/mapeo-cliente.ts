@@ -9,6 +9,7 @@ import { authorizePermiso } from "@/lib/rbac";
 import { clienteDeCuentaCliente } from "@/lib/rbac/contexto";
 import { mensajeErrorBD } from "@/lib/errores";
 import { esExcepcionCuenta, ORIGEN_MANUAL_CUENTA, ORIGEN_MANUAL_GRUPO } from "@/lib/balance/mapeo-cliente-config";
+import { cruzaClaseContable } from "@/lib/balance/clase-contable";
 import type { ActionState } from "@/lib/definitions";
 
 // CRUD de la MEMORIA de mapeo del balance, que vive en `cuentas_cliente`: la
@@ -127,6 +128,18 @@ export async function confirmarMapeoCliente(formData: FormData): Promise<ActionS
     if (!row.cuenta6Russell) return { ok: false, message: "La cuenta no tiene mapeo estándar para confirmar." };
     const scope = await authorizePermiso("balance:crear", { clientId: await clienteDeCuentaCliente(id) });
     if (!scope.ok) return { ok: false, message: scope.message };
+    // Confirmar es aceptar la sugerencia AUTOMÁTICA tal cual, no elegir destino:
+    // si esa sugerencia cambia de clase contable casi siempre es un error de la
+    // cascada (un gasto de depreciación aceptado contra el activo depreciado) y
+    // confirmarlo lo blindaría —lo `manual` gobierna sobre todo lo demás y ya no
+    // se recalcula—. Para reubicar una cuenta a propósito está «Cambiar cuenta
+    // estándar», que sí es una elección explícita.
+    if (cruzaClaseContable(row.code, row.cuenta6Russell)) {
+      return {
+        ok: false,
+        message: `${row.code} está mapeada a ${row.cuenta6Russell}, de otra clase contable. Reasigna la cuenta estándar correcta antes de confirmarla.`,
+      };
+    }
     const cuenta6 = row.code.slice(0, 6);
     // `todas=1` → confirma TODAS las cuentas del cliente que mapean al mismo
     // estándar (varios grupos de 6 díg a la vez); si no, solo el grupo de la fila.
@@ -138,13 +151,24 @@ export async function confirmarMapeoCliente(formData: FormData): Promise<ActionS
         : todas && row.cuenta6Russell
           ? { clienteId: row.clienteId, cuenta6Russell: row.cuenta6Russell }
           : { clienteId: row.clienteId, code: { startsWith: cuenta6 } };
+    // El lote puede arrastrar cuentas de OTRAS clases (el filtro es por estándar
+    // o por prefijo, no por clase): se excluyen una a una para que una
+    // confirmación masiva no blinde de rebote lo que la guarda acaba de rechazar.
+    const candidatas = await prisma.clientAccount.findMany({ where, select: { id: true, code: true, cuenta6Russell: true } });
+    const confirmables = candidatas.filter((c) => !cruzaClaseContable(c.code, c.cuenta6Russell));
+    const omitidas = candidatas.length - confirmables.length;
     const res = await prisma.clientAccount.updateMany({
-      where,
+      where: { id: { in: confirmables.map((c) => c.id) } },
       data: { coincidencia: 100, origenMapeo: ORIGEN_MANUAL_GRUPO, actualizadoPor: user?.name ?? null, actualizadoEn: new Date() },
     });
-    await logAudit({ user: user?.name ?? "Sistema", action: "CONFIRMÓ MAPEO CLIENTE", entity: todas ? (row.cuenta6Russell ?? cuenta6) : cuenta6, detail: `→ ${row.cuenta6Russell} · manual 100% (${res.count} cuenta(s)${todas ? ", todas las del estándar" : ""})`, clientId: row.clienteId });
+    await logAudit({ user: user?.name ?? "Sistema", action: "CONFIRMÓ MAPEO CLIENTE", entity: todas ? (row.cuenta6Russell ?? cuenta6) : cuenta6, detail: `→ ${row.cuenta6Russell} · manual 100% (${res.count} cuenta(s)${todas ? ", todas las del estándar" : ""}${omitidas > 0 ? `; ${omitidas} omitida(s) por cambiar de clase contable` : ""})`, clientId: row.clienteId });
     revalidatePath(PATH);
-    return { ok: true };
+    return {
+      ok: true,
+      ...(omitidas > 0
+        ? { message: `${res.count} cuenta(s) confirmada(s). Se omitieron ${omitidas} que están mapeadas a otra clase contable: reasígnalas antes de confirmarlas.` }
+        : {}),
+    };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("confirmarMapeoCliente", e) };
   }

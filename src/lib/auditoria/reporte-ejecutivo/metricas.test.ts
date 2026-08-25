@@ -54,6 +54,10 @@ describe("calcularResumenUso", () => {
       periodoDesde: "2026-06-01T00:00:00.000Z",
       periodoHasta: "2026-06-30T23:59:59.000Z",
       nombresClientes: { 1: "Acme SAS" },
+      conexiones: [
+        { usuario: "Ana", total: 4 },
+        { usuario: "Marta", total: 2 },
+      ],
       eventos: [
         {
           user: "Ana",
@@ -83,6 +87,7 @@ describe("calcularResumenUso", () => {
     });
 
     expect(resumen.totalAcciones).toBe(3);
+    expect(resumen.totalConexiones).toBe(6);
     expect(resumen.totalUsuarios).toBe(2);
     expect(resumen.totalClientes).toBe(1);
     expect(resumen.topClientes[0]?.nombre).toBe("Acme SAS");
@@ -90,6 +95,24 @@ describe("calcularResumenUso", () => {
     expect(resumen.porFamilia.some((f) => f.nombre.includes("Balance"))).toBe(true);
     expect(resumen.serieDiaria).toHaveLength(3);
     expect(resumen.evidencia).toHaveLength(3);
+    expect(resumen.detalleUsuarios).toEqual([
+      expect.objectContaining({
+        usuario: "Ana",
+        conexiones: 4,
+        totalAcciones: 2,
+        accionesPrincipales: [
+          { nombre: "CARGÓ BALANCE", total: 1 },
+          { nombre: "EJECUTÓ", total: 1 },
+        ],
+      }),
+      expect.objectContaining({ usuario: "Luis", conexiones: 0, totalAcciones: 1 }),
+      expect.objectContaining({
+        usuario: "Marta",
+        conexiones: 2,
+        totalAcciones: 0,
+        accionesPrincipales: [],
+      }),
+    ]);
   });
 
   test("sin eventos devuelve ceros", () => {
@@ -99,9 +122,11 @@ describe("calcularResumenUso", () => {
       eventos: [],
     });
     expect(resumen.totalAcciones).toBe(0);
+    expect(resumen.totalConexiones).toBe(0);
     expect(resumen.totalUsuarios).toBe(0);
     expect(resumen.primeraAccion).toBe(null);
     expect(resumen.evidencia).toEqual([]);
+    expect(resumen.detalleUsuarios).toEqual([]);
   });
 });
 
@@ -115,5 +140,25 @@ describe("conteosPorFamiliaCanon", () => {
     expect(c.balance).toBe(1);
     expect(c.conciliaciones).toBe(2);
     expect(c.dian).toBe(0);
+  });
+});
+
+describe("correo del usuario", () => {
+  test("acompaña al nombre en el top y en el detalle; null si no resuelve", () => {
+    const resumen = calcularResumenUso({
+      eventos: [
+        { user: "Ana", action: "CARGÓ BALANCE", entity: "", detail: "", clientId: null, createdAt: "2026-08-10T10:00:00.000Z" },
+        { user: "Sin cuenta", action: "EJECUTÓ", entity: "", detail: "", clientId: null, createdAt: "2026-08-10T11:00:00.000Z" },
+      ],
+      conexiones: [{ usuario: "Ana", total: 3 }],
+      periodoDesde: "2026-08-01T00:00:00.000Z",
+      periodoHasta: "2026-08-31T23:59:59.999Z",
+      correosUsuarios: new Map([["Ana", "ana@russell.co"]]),
+    });
+
+    expect(resumen.topUsuarios.find((u) => u.usuario === "Ana")?.correo).toBe("ana@russell.co");
+    expect(resumen.topUsuarios.find((u) => u.usuario === "Sin cuenta")?.correo).toBe(null);
+    expect(resumen.detalleUsuarios.find((u) => u.usuario === "Ana")?.correo).toBe("ana@russell.co");
+    expect(resumen.detalleUsuarios.find((u) => u.usuario === "Sin cuenta")?.correo).toBe(null);
   });
 });

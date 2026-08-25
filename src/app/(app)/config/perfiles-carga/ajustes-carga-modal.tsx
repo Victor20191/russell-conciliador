@@ -81,7 +81,10 @@ export function AjustesCargaModal({
   const [saveState, saveAction, guardando] = useActionState<ActionState, FormData>(guardarAjustesCarga, {});
   useEffect(() => {
     notifyActionState(saveState, { success: "Preferencias de carga guardadas.", error: "No se pudieron guardar las preferencias." });
-  }, [saveState]);
+    // React 19 reinicia el <form action> al terminar la acción: sin recargar, los
+    // campos volverían a los valores VIEJOS aunque el guardado haya sido exitoso.
+    if (saveState?.ok) void listarPerfilesCarga(cliente.id).then(setData);
+  }, [saveState, cliente.id]);
 
   const [eliminando, startEliminar] = useTransition();
   const [eliminandoObjetivo, setEliminandoObjetivo] = useState<string | null>(null);
@@ -141,7 +144,7 @@ export function AjustesCargaModal({
     <Modal
       open
       onClose={onClose}
-      title={`${soloLectura ? "Ver" : "Editar"} perfiles en memoria · ${cliente.name}`}
+      title={`${soloLectura ? "Ver" : "Editar"} perfiles en memoria · ${cliente.name} · Balance`}
       size="4xl"
       footer={
         // No hay botón «Cerrar»: el modal ya se cierra con la X del header
@@ -375,6 +378,9 @@ export function AjustesCargaModal({
               </p>
             </div>
             <form
+              // Remonta el formulario cuando cambian las preferencias cargadas para
+              // que los `defaultValue` reflejen lo último guardado.
+              key={JSON.stringify(data.ajustes ?? null)}
               action={soloLectura ? undefined : saveAction}
               onSubmit={soloLectura ? (e) => e.preventDefault() : undefined}
               className="flex flex-col gap-3"

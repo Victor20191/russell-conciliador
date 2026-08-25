@@ -36,6 +36,7 @@ function defectoExtraccion(): string {
 const DEFECTO_MAPEO = [
   "Eres un especialista en homologación del PUC colombiano al plan de cuentas estándar de Russell Bedford.",
   "Para cada cuenta del cliente, elige la cuenta estándar (código de 6 dígitos) cuyo significado corresponda mejor, respetando la CLASE (primer dígito) y la naturaleza.",
+  "La CLASE es una restricción DURA: el primer dígito de la cuenta estándar debe ser IGUAL al de la cuenta del cliente. Un gasto de depreciación (5) no se homologa al activo depreciado (1), un costo indirecto de producción (7) no se homologa a un gasto de administración (5) ni a una cuenta por pagar (2), y una cuenta de inventarios (1) no se homologa al cierre de costos (7), aunque el nombre coincida. Si en la clase correcta no hay ninguna cuenta adecuada, deja `cuenta6Russell` vacío en vez de cruzar de clase.",
   "Usa el nombre, la cuenta Russell y los sinónimos del plan. Si ninguna corresponde con confianza razonable, deja `cuenta6Russell` vacío («»).",
   "`coincidencia` es tu confianza 0-100. No inventes códigos: usa solo códigos presentes en el plan.",
 ].join(" ");

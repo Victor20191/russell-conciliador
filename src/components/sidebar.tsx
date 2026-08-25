@@ -74,7 +74,8 @@ export default function Sidebar({
   const developmentSet = new Set(modulosEnDesarrollo);
   const puedeVer = (item: NavItem | NavChild) =>
     (!item.permiso || permset.has(item.permiso)) &&
-    (!item.modulo || moduleset.has(item.modulo));
+    (!item.modulo || moduleset.has(item.modulo)) &&
+    (!item.roles || (user != null && item.roles.includes(user.role)));
   const filtrarNav = (items: NavItem[]) =>
     items.flatMap((it) => {
       const children = it.children?.filter(puedeVer);
@@ -89,7 +90,7 @@ export default function Sidebar({
 
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
     const init: Record<string, boolean> = {};
-    workNav.forEach((it) => {
+    [...workNav, ...configNav].forEach((it) => {
       if (it.children && isGroupActive(pathname, it)) init[it.href] = true;
     });
     return init;
@@ -106,7 +107,7 @@ export default function Sidebar({
     setPrevPath(pathname);
     setOpenGroups((prev) => {
       const next = { ...prev };
-      workNav.forEach((it) => {
+      [...workNav, ...configNav].forEach((it) => {
         if (it.children && isGroupActive(pathname, it)) next[it.href] = true;
       });
       return next;
@@ -177,68 +178,32 @@ export default function Sidebar({
         )}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto pb-2">
+      <div data-scroll-app className="min-h-0 flex-1 overflow-y-auto pb-2">
         <SectionLabel>Trabajo</SectionLabel>
         <nav className="flex flex-col gap-1 px-2">
-          {visibleWork.map((it) => {
-            const active = isGroupActive(pathname, it);
-            const open = openGroups[it.href] ?? false;
-            if (!it.children) {
-              return <TopLink key={it.href} item={it} active={active} developmentSet={developmentSet} />;
-            }
-            const inDevelopment = !!it.modulo && developmentSet.has(it.modulo);
-            return (
-              <div key={it.href} className="min-w-0">
-                <button
-                  onClick={() => toggle(it.href)}
-                  className={`flex w-full items-center gap-2.5 rounded px-3 py-2 text-[13px] transition ${
-                    active ? "bg-white/10 text-white" : "hover:bg-white/5"
-                  }`}
-                >
-                  <span className="text-current"><Icon name={it.icon} /></span>
-                  <span className="truncate">{it.label}</span>
-                  {inDevelopment && <DevBadge />}
-                  {it.count != null && <Count n={it.count} />}
-                  <span className="ml-auto opacity-50">
-                    <Icon name={chevronDivulgacion(open)} size={11} />
-                  </span>
-                </button>
-                {open && (
-                  <div className="mb-2 mt-1.5 ml-3 flex flex-col gap-1 border-l border-white/10 pl-2.5">
-                    {it.children.map((ch) => {
-                      const childActive = isChildActive(pathname, ch.href);
-                      return (
-                        <Link
-                          key={ch.href}
-                          href={ch.href}
-                          className={`flex items-center gap-2 rounded px-2.5 py-2 text-[12.5px] transition ${
-                            childActive
-                              ? "bg-white/10 text-white"
-                              : "text-[#A9B6C8] hover:bg-white/5"
-                          }`}
-                        >
-                          <span
-                            className={`h-1 w-1 rounded-full ${
-                              childActive ? "bg-blue-400" : "bg-[#5E7290]"
-                            }`}
-                          />
-                          <span className="truncate">{ch.label}</span>
-                          {ch.modulo && developmentSet.has(ch.modulo) && <DevBadge />}
-                          {ch.count != null && <Count n={ch.count} />}
-                        </Link>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+          {visibleWork.map((it) => (
+            <NavGroupItem
+              key={it.href}
+              item={it}
+              pathname={pathname}
+              open={openGroups[it.href] ?? false}
+              onToggle={() => toggle(it.href)}
+              developmentSet={developmentSet}
+            />
+          ))}
         </nav>
 
         <SectionLabel>Configuración</SectionLabel>
         <nav className="flex flex-col gap-1 px-2">
           {visibleConfig.map((it) => (
-            <TopLink key={it.href} item={it} active={pathname === it.href} developmentSet={developmentSet} />
+            <NavGroupItem
+              key={it.href}
+              item={it}
+              pathname={pathname}
+              open={openGroups[it.href] ?? false}
+              onToggle={() => toggle(it.href)}
+              developmentSet={developmentSet}
+            />
           ))}
         </nav>
       </div>
@@ -272,6 +237,72 @@ export default function Sidebar({
       </div>
       </aside>
     </>
+  );
+}
+
+function NavGroupItem({
+  item,
+  pathname,
+  open,
+  onToggle,
+  developmentSet,
+}: {
+  item: NavItem;
+  pathname: string;
+  open: boolean;
+  onToggle: () => void;
+  developmentSet: Set<string>;
+}) {
+  const active = isGroupActive(pathname, item);
+  if (!item.children) {
+    return <TopLink item={item} active={active} developmentSet={developmentSet} />;
+  }
+  const inDevelopment = !!item.modulo && developmentSet.has(item.modulo);
+  return (
+    <div className="min-w-0">
+      <button
+        type="button"
+        onClick={onToggle}
+        className={`flex w-full items-center gap-2.5 rounded px-3 py-2 text-[13px] transition ${
+          active ? "bg-white/10 text-white" : "hover:bg-white/5"
+        }`}
+      >
+        <span className="text-current"><Icon name={item.icon} /></span>
+        <span className="truncate">{item.label}</span>
+        {inDevelopment && <DevBadge />}
+        {item.count != null && <Count n={item.count} />}
+        <span className="ml-auto opacity-50">
+          <Icon name={chevronDivulgacion(open)} size={11} />
+        </span>
+      </button>
+      {open && (
+        <div className="mb-2 mt-1.5 ml-3 flex flex-col gap-1 border-l border-white/10 pl-2.5">
+          {item.children.map((ch) => {
+            const childActive = isChildActive(pathname, ch.href);
+            return (
+              <Link
+                key={ch.href}
+                href={ch.href}
+                className={`flex items-center gap-2 rounded px-2.5 py-2 text-[12.5px] transition ${
+                  childActive
+                    ? "bg-white/10 text-white"
+                    : "text-[#A9B6C8] hover:bg-white/5"
+                }`}
+              >
+                <span
+                  className={`h-1 w-1 rounded-full ${
+                    childActive ? "bg-blue-400" : "bg-[#5E7290]"
+                  }`}
+                />
+                <span className="truncate">{ch.label}</span>
+                {ch.modulo && developmentSet.has(ch.modulo) && <DevBadge />}
+                {ch.count != null && <Count n={ch.count} />}
+              </Link>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 

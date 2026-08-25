@@ -71,6 +71,25 @@ html {
   background: var(--color-ink-50);
 }
 
+/* Desplazamiento congelado con un modal abierto ------------------------------
+   El cascarón mide exactamente la ventana, así que quien se desplaza no es el
+   documento sino sus contenedores internos (el `<main>` y el menú lateral),
+   marcados con `data-scroll-app`. Mientras `useBloqueoScrollFondo` mantenga la
+   marca en `<html>`, ninguno de ellos se mueve: la rueda sobre el velo del
+   modal ya no arrastra la página de atrás. El cuerpo del modal conserva su
+   scroll porque no lleva esa marca.
+   `scrollbar-gutter: stable` reserva siempre el ancho de la barra para que
+   ocultarla al abrir el modal no recorra el contenido unos píxeles. */
+[data-scroll-app] {
+  scrollbar-gutter: stable;
+}
+
+html[data-modal-abierto],
+html[data-modal-abierto] body,
+html[data-modal-abierto] [data-scroll-app] {
+  overflow: hidden;
+}
+
 body {
   font-family: var(--font-sans);
   font-size: 13px;
@@ -195,6 +214,17 @@ button:disabled {
   z-index: 10;
   background-color: var(--color-ink-50);
   box-shadow: inset 0 -1px 0 var(--color-ink-150);
+}
+
+/* Segunda fila del encabezado (filtros bajo los títulos): si también usara
+   top: 0 se montaría encima de la primera al hacer scroll. El alto coincide
+   con `py-2` + `text-[12px]` de Detalle. */
+.tabla-encabezado-fijo.tabla-encabezado-doble thead tr:first-child th {
+  z-index: 12;
+}
+.tabla-encabezado-fijo.tabla-encabezado-doble thead tr:nth-child(2) th {
+  top: 2.125rem;
+  z-index: 11;
 }
 
 /* Los separadores verticales del encabezado se redibujan por la misma razón. */

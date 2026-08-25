@@ -26,6 +26,7 @@ function filaListado(
   loteId: string,
   cliente: VinculoClienteBorrador,
   creadoEn: string,
+  apertura: string | null = "cuenta",
 ): BorradorRow {
   return {
     loteId,
@@ -37,6 +38,7 @@ function filaListado(
     cuentasMovimiento: 10,
     cuadrado: true,
     partidaDobleDiff: 0,
+    apertura,
     cargadoPor: "Analista",
     creadoEn,
     fecha: "1 may 2026",
@@ -211,6 +213,7 @@ describe("ordenarBorradoresPorColumna", () => {
       cuentasMovimiento: 10,
       cuadrado: true,
       partidaDobleDiff: 0,
+      apertura: "cuenta",
       cargadoPor: "Analista",
       creadoEn: "2026-07-01T12:00:00.000Z",
       fecha: "1 jul 2026",
@@ -252,6 +255,17 @@ describe("ordenarBorradoresPorColumna", () => {
     expect(
       ordenarBorradoresPorColumna(rows, "estado", "asc").map((r) => r.loteId),
     ).toEqual(["ok", "malo"]);
+  });
+
+  it("ordena el tipo de balance y deja al final los borradores sin declarar", () => {
+    const rows = [
+      fila({ loteId: "pendiente", apertura: null }),
+      fila({ loteId: "terceros", apertura: "tercero" }),
+      fila({ loteId: "cuenta", apertura: "cuenta" }),
+    ];
+    expect(
+      ordenarBorradoresPorColumna(rows, "tipo", "asc").map((r) => r.loteId),
+    ).toEqual(["cuenta", "terceros", "pendiente"]);
   });
 
   it("elige dirección inicial según tipo de columna", () => {

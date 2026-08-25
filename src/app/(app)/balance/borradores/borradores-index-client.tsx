@@ -15,6 +15,7 @@ import { Card, Chip, EmptyState } from "@/components/ui";
 import { fmt } from "@/lib/format";
 import { claveNit } from "@/lib/nit";
 import type { VinculoClienteBorrador } from "@/lib/balance/autorizacion-borrador";
+import { compararApertura, etiquetaApertura, parsearApertura } from "@/lib/balance/apertura-balance";
 import { descartarBorrador } from "@/app/actions/balance";
 import { notifySuccess, notifyError } from "@/lib/client-notifications";
 
@@ -28,6 +29,8 @@ export type BorradorRow = {
   cuentasMovimiento: number;
   cuadrado: boolean;
   partidaDobleDiff: number;
+  /** Apertura DECLARADA en el borrador (`cuenta` | `tercero`); null = aún sin declarar. */
+  apertura: string | null;
   cargadoPor: string | null;
   creadoEn: string | null;
   fecha: string;
@@ -64,6 +67,7 @@ export type ColumnaOrdenBorrador =
   | "cliente"
   | "periodo"
   | "version"
+  | "tipo"
   | "cuentas"
   | "estado"
   | "fecha";
@@ -133,6 +137,10 @@ export function ordenarBorradoresPorColumna(
         break;
       case "version":
         cmp = a.version - b.version;
+        break;
+      case "tipo":
+        // Los borradores sin declarar quedan siempre al final (ver `compararApertura`).
+        cmp = compararApertura(a.apertura, b.apertura);
         break;
       case "cuentas":
         cmp = a.cuentasMovimiento - b.cuentasMovimiento;
@@ -293,6 +301,36 @@ export function VersionBorradorCelda({
   );
 }
 
+/** Apertura declarada del cargue. «Pendiente» mientras no se responda en el borrador
+ *  (es obligatoria para cargarlo) y «—» en los borradores previos a este dato. */
+export function TipoBalanceCelda({
+  apertura,
+  conEncabezado,
+}: {
+  apertura: string | null;
+  conEncabezado: boolean;
+}) {
+  const valor = parsearApertura(apertura);
+  if (valor) {
+    return <Chip label={etiquetaApertura(valor)} tone={valor === "tercero" ? "blue" : "ink"} />;
+  }
+  if (!conEncabezado) {
+    return (
+      <span className="text-[11px] text-ink-400" title="Borrador recuperado del staging: no tiene encabezado donde registrarlo.">
+        —
+      </span>
+    );
+  }
+  return (
+    <span
+      className="w-fit rounded-full border border-warn-300 bg-warn-50 px-2 py-0.5 text-[10px] font-semibold text-warn-700"
+      title="Sin declarar. Ábrelo y responde si es por cuenta o por terceros: es obligatorio para cargarlo."
+    >
+      Pendiente
+    </span>
+  );
+}
+
 export default function BorradoresIndexClient({ rows }: { rows: BorradorRow[] }) {
   const router = useRouter();
   const [descartando, startDescartar] = useTransition();
@@ -420,6 +458,7 @@ export default function BorradoresIndexClient({ rows }: { rows: BorradorRow[] })
                 <th className="px-3 py-2">{headerOrdenable("Cliente / NIT", "cliente")}</th>
                 <th className="px-3 py-2">{headerOrdenable("Período", "periodo")}</th>
                 <th className="px-3 py-2">{headerOrdenable("Versión", "version")}</th>
+                <th className="px-3 py-2">{headerOrdenable("Tipo de balance", "tipo")}</th>
                 <th className="px-3 py-2 text-right">
                   <div className="flex justify-end">
                     {headerOrdenable("Cuentas", "cuentas", "right")}
@@ -453,6 +492,9 @@ export default function BorradoresIndexClient({ rows }: { rows: BorradorRow[] })
                       versionesGrupo={r.versionesGrupo}
                       agrupado={r.claveGrupo != null}
                     />
+                  </td>
+                  <td className="px-3 py-2">
+                    <TipoBalanceCelda apertura={r.apertura} conEncabezado={r.conEncabezado} />
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums text-ink-700">{r.cuentasMovimiento}</td>
                   <td className="px-3 py-2">
@@ -518,7 +560,7 @@ export default function BorradoresIndexClient({ rows }: { rows: BorradorRow[] })
               ))}
               {borradoresFiltrados.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-10 text-center text-[12.5px] text-ink-400">
+                  <td colSpan={9} className="px-4 py-10 text-center text-[12.5px] text-ink-400">
                     No se encontraron borradores con ese archivo, NIT o razón social.
                   </td>
                 </tr>

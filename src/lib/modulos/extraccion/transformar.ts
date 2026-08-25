@@ -215,7 +215,12 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     }
 
     // 4) Promover clasificador + valor (los campos que consolida el descriptor), según el modo.
+    // Si la columna llave viene vacía y el descriptor declara una alterna, se clasifica por
+    // ella (Nómina: sin código de concepto, clasifica por el texto del concepto).
     let clasificador = aTexto(datos[descriptor.clasificador]);
+    if (clasificador == null && descriptor.clasificadorAlterno) {
+      clasificador = aTexto(datos[descriptor.clasificadorAlterno]);
+    }
     if (modo === "global") {
       // Inventario GLOBAL: todo el archivo cae en un único clasificador.
       clasificador = CLASIFICADOR_GLOBAL;

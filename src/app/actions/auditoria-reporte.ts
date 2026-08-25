@@ -4,33 +4,53 @@ import { createHash } from "node:crypto";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
-import { authorizePermiso } from "@/lib/rbac";
-import { completarTextoGemini, mensajeErrorGemini } from "@/lib/gemini";
+import { mensajeErrorBD } from "@/lib/errores";
+import { authorizeReporteEjecutivo } from "@/lib/rbac/reporte-ejecutivo";
+import { completarTextoOpenCode, mensajeErrorOpenCode } from "@/lib/opencode";
 import {
   evaluarAdopcion,
   type CambioNovedadContexto,
 } from "@/lib/auditoria/reporte-ejecutivo/adopcion";
 import {
   calcularResumenUso,
+  clasificarFamilia,
   conteosPorFamiliaCanon,
   type EventoAuditoria,
 } from "@/lib/auditoria/reporte-ejecutivo/metricas";
+import {
+  filtrarCambiosPublicados,
+  filtrarEventosPublicados,
+  type FiltroPublicacion,
+} from "@/lib/auditoria/reporte-ejecutivo/alcance";
+import { modulosPublicadosParaTodos } from "@/lib/rbac/publicacion";
+import { MODULOS_PLATAFORMA_KEYS } from "@/lib/rbac/modulos-plataforma";
 import {
   construirSeccionGraficosHtml,
   inyectarGraficosEnHtml,
 } from "@/lib/auditoria/reporte-ejecutivo/graficos";
 import {
   MODELO_REPORTE_EJECUTIVO_USO,
+  MAX_TOKENS_REPORTE_EJECUTIVO_USO,
+  MAX_TOKENS_REPORTE_EJECUTIVO_USO_REINTENTO,
   TEMPERATURA_REPORTE_EJECUTIVO_USO,
   VERSION_PROMPT_REPORTE_EJECUTIVO_USO,
   type ReporteEjecutivoUso,
 } from "@/lib/auditoria/reporte-ejecutivo/reportes";
 import {
+  SISTEMA_REPORTE_EJECUTIVO,
+  construirPromptReporteEjecutivo,
+  normalizarTerminologiaVisibleReporte,
+  type NovedadReporteEjecutivoContexto,
+} from "@/lib/auditoria/reporte-ejecutivo/prompt";
+import {
+  RegistroEnvioReporteSchema,
   ReporteEjecutivoUsoScopeSchema,
+  type RegistroEnvioReporte,
   type ReporteEjecutivoUsoScope,
 } from "@/lib/definitions";
+import type { EnvioReportePrevio } from "@/lib/auditoria/reporte-ejecutivo/envios";
+import { revalidatePath } from "next/cache";
 
-const PERMISO = "auditoria:reporte_ejecutivo";
 const MAX_CAMBIOS_PROMPT = 80;
 const MAX_CACHE_MEMORIA = 20;
 /** Tope de filas de bitácora leídas para el resumen factual (agregación en memoria). */
@@ -47,6 +67,8 @@ export type GenerarReporteEjecutivoResult =
       totalNovedades: number;
       porcentajeAdopcion: number | null;
       desdeCache: boolean;
+      /** Versiones de Novedades realmente incluidas: es lo que se registra al marcar el envío. */
+      versionIdsIncluidos: number[];
     }
   | { ok: false; message: string };
 
@@ -69,10 +91,6 @@ function recortarTexto(texto: string | null | undefined, max: number): string | 
 
 function crearHuella(payload: unknown): string {
   return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
-}
-
-function crearSeed(huella: string): number {
-  return Number.parseInt(huella.slice(0, 8), 16) & 0x7fffffff;
 }
 
 function leerCacheMemoria(huella: string): ReporteCacheado | null {
@@ -191,24 +209,6 @@ function parseRango(desdeRaw: string, hastaRaw: string): { desde: Date; hasta: D
   return { desde, hasta };
 }
 
-type VersionContexto = {
-  numero: string;
-  titulo: string;
-  resumen: string | null;
-  estado: string;
-  publicadoEn: string | null;
-  cambios: Array<{
-    tipo: string;
-    titulo: string;
-    descripcion: string;
-    modulo: string | null;
-    ruta: string | null;
-    comoOperar: string | null;
-    ejemplo: string | null;
-    estadoFuncionalidad: string;
-  }>;
-};
-
 function crearContextoNovedades(
   versiones: Array<{
     number: string;
@@ -227,14 +227,37 @@ function crearContextoNovedades(
       featureStatus: string;
     }>;
   }>,
-): { contexto: VersionContexto[]; totalChanges: number; includedChanges: number; planos: CambioNovedadContexto[] } {
+  filtro: FiltroPublicacion,
+): {
+  contexto: NovedadReporteEjecutivoContexto[];
+  totalChanges: number;
+  includedChanges: number;
+  excluidosEnDesarrollo: number;
+  excluidosNoPublicados: number;
+  planos: CambioNovedadContexto[];
+} {
   let includedChanges = 0;
   let totalChanges = 0;
+  let excluidosEnDesarrollo = 0;
+  let excluidosNoPublicados = 0;
   const planos: CambioNovedadContexto[] = [];
 
-  const contexto: VersionContexto[] = versiones.map((version) => {
-    totalChanges += version.changes.length;
-    const cambios = version.changes
+  const contexto: NovedadReporteEjecutivoContexto[] = versiones.map((version) => {
+    // Alcance del reporte: solo funcionalidades disponibles y de módulos
+    // publicados para todos los usuarios.
+    const publicables = filtrarCambiosPublicados({
+      cambios: version.changes.map((c) => ({
+        ...c,
+        modulo: c.moduleKey,
+        estadoFuncionalidad: c.featureStatus,
+      })),
+      filtro,
+      clavesConocidas: MODULOS_PLATAFORMA_KEYS,
+    });
+    excluidosEnDesarrollo += publicables.enDesarrollo;
+    excluidosNoPublicados += publicables.moduloNoPublicado + publicables.sinModulo;
+    totalChanges += publicables.cambios.length;
+    const cambios = publicables.cambios
       .filter(() => {
         if (includedChanges >= MAX_CAMBIOS_PROMPT) return false;
         includedChanges += 1;
@@ -276,124 +299,22 @@ function crearContextoNovedades(
     };
   });
 
-  return { contexto, totalChanges, includedChanges, planos };
+  return {
+    // Las versiones que quedaron sin avances publicables no se le cuentan al cliente.
+    contexto: contexto.filter((v) => v.cambios.length > 0),
+    totalChanges,
+    includedChanges,
+    excluidosEnDesarrollo,
+    excluidosNoPublicados,
+    planos,
+  };
 }
 
-function construirPromptReporte(params: {
-  uso: ReturnType<typeof calcularResumenUso>;
-  adopcion: ReturnType<typeof evaluarAdopcion>;
-  novedades: VersionContexto[];
-  graficosHtml: string;
-}): string {
-  return [
-    "Genera un REPORTE de uso, adopción y novedades de la plataforma Russell Diagnóstico, listo para PDF/HTML, para enviarlo al cliente (la firma de revisoría).",
-    "",
-    "TONO Y ESTRUCTURA editorial: registro de cambios / newsletter de producto (claro, humano, profesional), adaptado a software de revisoría fiscal. No copies marcas ni estilos de terceros.",
-    "",
-    "Tono editorial:",
-    "- Cercano, claro y profesional (como la UI de Russell Diagnóstico: sobrio, institucional, sin marketing vacío).",
-    "- Prioriza: qué se liberó, por qué importa al trabajo del revisor, cómo se usa, y qué pasó con el uso real en el período.",
-    "- Frases cortas y concretas. Español de Colombia.",
-    "",
-    "Entrega exclusivamente un documento HTML completo y válido. Debe empezar con <!DOCTYPE html> y contener <html>, <head>, <style> y <body>.",
-    "No incluyas Markdown, cercas de código, explicación fuera del HTML, scripts, enlaces externos, imágenes externas ni recursos remotos.",
-    "",
-    "ESTRUCTURA OBLIGATORIA del documento (orden fijo):",
-    "",
-    "1) CABECERA / PORTADA",
-    "   - Eyebrow en mayúsculas: «RUSSELL DIAGNÓSTICO» (azul institucional).",
-    "   - Título principal atractivo y legible (1–2 temas fuertes del período), en tipografía serif.",
-    "   - Subtítulo con el período exacto de la base factual de uso.",
-    "   - Lista con viñetas de 3 a 6 highlights (novedades + hallazgos de uso/adopción). Solo hechos del JSON.",
-    "   - PROHIBIDO: botones, CTAs, «Ver detalle», «Leer más», pills decorativas no informativas, o cualquier control que parezca clicable y no haga nada.",
-    "",
-    "2) INTRO NARRATIVA",
-    "   - Un párrafo de apertura con contexto del período y volumen de uso si hay datos.",
-    "   - Transición breve hacia el detalle.",
-    "",
-    "3) LO QUE LIBERAMOS (novedades principales)",
-    "   - Cada cambio relevante (nueva o mejora con contexto) es una sección H2 con el título del cambio.",
-    "   - En prosa: qué es, cómo se usa (integra comoOperar/ejemplo si existen), por qué importa, dónde encontrarlo (módulo/ruta si vienen), y estado de adopción del período si aplica.",
-    "   - ~90–180 palabras por sección principal si hay contexto; si no, sé breve.",
-    "",
-    "4) CORRECCIONES Y MEJORAS MENORES",
-    "   - Sección «Correcciones y mejoras» con viñetas (correccion/seguridad o items breves).",
-    "",
-    "5) CÓMO SE USÓ LA PLATAFORMA",
-    "   - KPIs exactos (acciones, usuarios, clientes) en tarjetas alineadas al sistema visual.",
-    "   - Crónica breve de uso; no dump de logs.",
-    "   - INMEDIATAMENTE después de la crónica, inserta SIN MODIFICAR el bloque HTML de gráficos proporcionado abajo (incluye id=\"rd-graficos-uso\"). No reescribas las barras ni inventes otros gráficos; el bloque ya trae los conteos exactos.",
-    "",
-    "6) ADOPCIÓN DE NOVEDADES EN UN VISTAZO",
-    "   - Resumen usadas / sin evidencia / no medibles y % solo si viene en la base factual.",
-    "   - Lista o tabla de items con estado (además del gráfico de adopción ya incluido en el bloque de gráficos).",
-    "",
-    "7) CIERRE",
-    "   - 2–4 recomendaciones prudentes basadas solo en los datos.",
-    "   - Cierre breve y profesional.",
-    "   - Footer de texto: «Reporte de uso, adopción y novedades — Russell Diagnóstico».",
-    "",
-    "IDENTIDAD VISUAL OBLIGATORIA (sistema Russell Diagnóstico / app):",
-    "Usa EXACTAMENTE estos colores en el CSS (hex):",
-    "- navy-900 #091628, navy-800 #0b1f3a, navy-700 #142b4a, navy-600 #1e3a5f",
-    "- blue-500 #2f6fa7, blue-100 #e5eef7, blue-50 #f2f7fc",
-    "- ink-900 #0e1721, ink-800 #1a2330, ink-700 #2a3441, ink-600 #475160, ink-500 #566273, ink-400 #626e7e",
-    "- ink-200 #dce0e7, ink-150 #e7eaef, ink-100 #eff1f4, ink-50 #f7f8fa, paper #fbfbfc",
-    "- ok-700 #2f6b3f, ok-100 #e5f0e8; warn-700 #8a5a11, warn-100 #faefd7; err-700 #9a2a22, err-100 #f8e1de",
-    "Tipografía:",
-    "- Títulos (h1/h2): Georgia, 'Times New Roman', serif (equivalente font-serif de la app).",
-    "- Cuerpo: 'Helvetica Neue', Helvetica, Arial, sans-serif (equivalente font-sans).",
-    "- Datos/números tabulares: ui-monospace, Menlo, monospace cuando aporte.",
-    "Layout:",
-    "- Fondo general ink-50 o paper; tarjetas blancas con borde ink-150 y radio ~8–10px.",
-    "- Texto principal ink-800; secundario ink-500/600; títulos ink-900.",
-    "- Acento de marca: navy-700 / blue-500 (NO morado genérico de IA, NO violetas de otras marcas).",
-    "- Chips/badges discretos (fondo blue-100 o ink-100, texto navy-700 o ink-700), como en la app.",
-    "- Tablas limpias con encabezado ink-50/ink-100 y bordes ink-150.",
-    "- Márgenes generosos, secciones con break-inside: avoid, @media print para carta.",
-    "- CSS 100% autocontenido en <style>. Sin fuentes externas, sin iconos SVG decorativos innecesarios, sin emojis.",
-    "- Los gráficos de barras ya vienen con estilos inline: no los alteres.",
-    "",
-    "PROHIBIDO en el HTML (elementos no funcionales):",
-    "- Botones, <button>, enlaces de apariencia de botón, CTAs decorativos.",
-    "- Controles clicables que no hagan nada (p. ej. «Ver detalle del período», «Leer el reporte completo»).",
-    "- Scripts, iframes, formularios, inputs, canvas, SVG de gráficos inventados.",
-    "- Enlaces externos, imágenes externas, recursos remotos.",
-    "- Decoración de marketing vacía que no aporte información.",
-    "",
-    "Reglas factuales obligatorias:",
-    "- Usa ÚNICAMENTE números, fechas, usuarios, acciones, módulos, rutas y textos de las bases factuales JSON.",
-    "- No inventes porcentajes de ahorro, costos, tiempos, promesas de producto ni métricas no presentes.",
-    "- El porcentaje de adopción solo si viene en la base (null → «No calculable» o no lo menciones como cifra).",
-    "- Distingue dato factual de interpretación prudente.",
-    "- No menciones hashes, ramas, código, APIs, Prisma, tokens, pipelines, Server Actions ni arquitectura.",
-    "- No digas que recibiste un JSON ni que eres una IA.",
-    "- Si un dato no está, escribe «No documentado» o omítelo.",
-    "- No inventes funcionalidades: solo las del contexto de novedades.",
-    "",
-    "Base factual de USO:",
-    JSON.stringify(params.uso),
-    "",
-    "Base factual de ADOPCIÓN:",
-    JSON.stringify({
-      totalCambios: params.adopcion.totalCambios,
-      evaluables: params.adopcion.evaluables,
-      usadas: params.adopcion.usadas,
-      sinEvidencia: params.adopcion.sinEvidencia,
-      noMedibles: params.adopcion.noMedibles,
-      porcentajeAdopcion: params.adopcion.porcentajeAdopcion,
-      porEstado: params.adopcion.porEstado,
-      items: params.adopcion.items,
-    }),
-    "",
-    "Contexto de NOVEDADES liberadas:",
-    JSON.stringify(params.novedades),
-    "",
-    "BLOQUE HTML DE GRÁFICOS (insertar tal cual en la sección 5, sin alterar números ni estructura):",
-    params.graficosHtml,
-  ].join("\n");
-}
-
+/**
+ * Causas por las que vale la pena repetir la llamada con menos salida: el
+ * proveedor está saturado, o tardó tanto que venció el timeout (el modelo se
+ * alarga razonando y un tope de salida menor lo acota).
+ */
 function esSaturacionProveedor(e: unknown): boolean {
   const status = e && typeof e === "object" && "status" in e ? (e as { status?: unknown }).status : undefined;
   const msg = e instanceof Error ? e.message : "";
@@ -401,7 +322,10 @@ function esSaturacionProveedor(e: unknown): boolean {
     status === 429 ||
     status === 502 ||
     status === 503 ||
-    /ResourceExhausted|request limit reached|rate limit|quota|overloaded|unavailable|temporarily/i.test(msg)
+    status === 408 ||
+    /ResourceExhausted|request limit reached|rate limit|quota|overloaded|unavailable|temporarily|tardó demasiado/i.test(
+      msg,
+    )
   );
 }
 
@@ -453,11 +377,11 @@ function sanitizarHtmlReporte(html: string): string {
 function extraerTituloHtml(html: string): string {
   const title = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1];
   const h1 = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i)?.[1];
-  const crudo = (title ?? h1 ?? "Reporte ejecutivo de uso y adopción")
+  const crudo = (title ?? h1 ?? "Reporte de uso y avances")
     .replace(/<[^>]+>/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-  return crudo.slice(0, 180) || "Reporte ejecutivo de uso y adopción";
+  return crudo.slice(0, 180) || "Reporte de uso y avances";
 }
 
 function envolverHtmlBasico(cuerpo: string): string {
@@ -465,7 +389,7 @@ function envolverHtmlBasico(cuerpo: string): string {
 <html lang="es">
 <head>
 <meta charset="utf-8" />
-<title>Reporte ejecutivo de uso y adopción</title>
+<title>Reporte de uso y avances</title>
 <style>
   body { font-family: Georgia, 'Times New Roman', serif; color: #1a2332; margin: 32px; line-height: 1.5; }
   h1 { font-size: 22px; }
@@ -478,7 +402,9 @@ ${cuerpo}
 }
 
 function normalizarReporteHtml(texto: string): ReporteEjecutivoUso {
-  let html = sanitizarHtmlReporte(extraerDocumentoHtml(texto));
+  let html = normalizarTerminologiaVisibleReporte(
+    sanitizarHtmlReporte(extraerDocumentoHtml(texto)),
+  );
   if (!/<html[\s>]/i.test(html)) html = envolverHtmlBasico(html);
   if (!/^<!doctype/i.test(html.trim())) html = `<!DOCTYPE html>\n${html}`;
   if (!/<body[\s>]/i.test(html)) {
@@ -491,19 +417,19 @@ function normalizarReporteHtml(texto: string): ReporteEjecutivoUso {
   }
   if (!/<\/html>/i.test(html)) html += "\n</html>";
   return {
-    titulo: extraerTituloHtml(html) || "Reporte ejecutivo de uso y adopción",
+    titulo: extraerTituloHtml(html) || "Reporte de uso y avances",
     html,
   };
 }
 
 /**
  * Genera el reporte ejecutivo de uso y adopción (HTML) con IA a partir de
- * la bitácora de auditoría y las novedades publicadas. Admin-only.
+ * la bitácora de auditoría y las novedades publicadas. Solo Superadministrador.
  */
 export async function generarReporteEjecutivoUso(
   opciones: ReporteEjecutivoUsoScope,
 ): Promise<GenerarReporteEjecutivoResult> {
-  const authz = await authorizePermiso(PERMISO);
+  const authz = await authorizeReporteEjecutivo();
   if (!authz.ok) return { ok: false, message: authz.message };
 
   const parsed = ReporteEjecutivoUsoScopeSchema.safeParse(opciones);
@@ -524,7 +450,7 @@ export async function generarReporteEjecutivoUso(
     : null;
 
   try {
-    const [eventosRaw, versiones, clientes] = await Promise.all([
+    const [eventosRaw, conexionesRaw, versiones, clientes, usuarios, modulosPublicados] = await Promise.all([
       prisma.auditEntry.findMany({
         where: {
           createdAt: { gte: rango.desde, lte: rango.hasta },
@@ -540,6 +466,15 @@ export async function generarReporteEjecutivoUso(
           createdAt: true,
         },
       }),
+      prisma.accessLog.groupBy({
+        by: ["userName"],
+        where: {
+          kind: "ingreso",
+          createdAt: { gte: rango.desde, lte: rango.hasta },
+        },
+        _count: { userName: true },
+        orderBy: { userName: "asc" },
+      }),
       prisma.platformVersion.findMany({
         where: versionIds
           ? { id: { in: versionIds } }
@@ -550,13 +485,19 @@ export async function generarReporteEjecutivoUso(
       prisma.client.findMany({
         select: { id: true, name: true },
       }),
+      prisma.user.findMany({ select: { name: true, email: true } }),
+      modulosPublicadosParaTodos(),
     ]);
 
     if (versionIds && versiones.length === 0) {
       return { ok: false, message: "No se encontraron las versiones seleccionadas." };
     }
 
-    const eventos: EventoAuditoria[] = eventosRaw.map((e) => ({
+    // Ids realmente usados (aunque el alcance haya sido «todas las publicadas»):
+    // es lo que se guarda al marcar el reporte como enviado.
+    const versionIdsIncluidos = versiones.map((v) => v.id);
+
+    const eventosCrudos: EventoAuditoria[] = eventosRaw.map((e) => ({
       user: e.user,
       action: e.action,
       entity: e.entity,
@@ -565,16 +506,37 @@ export async function generarReporteEjecutivoUso(
       createdAt: e.createdAt,
     }));
 
+    // Alcance: la bitácora de módulos aún no publicados no se le reporta al cliente.
+    const filtro: FiltroPublicacion = { modulosPublicados };
+    const alcanceUso = filtrarEventosPublicados({
+      eventos: eventosCrudos,
+      clasificar: (e) => clasificarFamilia(e.action, e.entity, e.detail),
+      filtro,
+    });
+    const eventos = alcanceUso.eventos;
+
     const nombresClientes = new Map(clientes.map((c) => [c.id, c.name]));
+    const correosUsuarios = new Map(usuarios.map((u) => [u.name, u.email]));
     const uso = calcularResumenUso({
       eventos,
+      conexiones: conexionesRaw.map((conexion) => ({
+        usuario: conexion.userName,
+        total: conexion._count.userName,
+      })),
       periodoDesde: rango.desde,
       periodoHasta: rango.hasta,
       nombresClientes,
+      correosUsuarios,
     });
 
-    const { contexto: novedades, totalChanges, includedChanges, planos } =
-      crearContextoNovedades(versiones);
+    const {
+      contexto: novedades,
+      totalChanges,
+      includedChanges,
+      excluidosEnDesarrollo,
+      excluidosNoPublicados,
+      planos,
+    } = crearContextoNovedades(versiones, filtro);
 
     const conteos = conteosPorFamiliaCanon(eventos);
     const adopcion = evaluarAdopcion({ cambios: planos, conteosPorFamilia: conteos });
@@ -600,6 +562,12 @@ export async function generarReporteEjecutivoUso(
       novedades,
       includedChanges,
       totalChanges,
+      alcancePublicado: {
+        modulos: [...modulosPublicados].sort(),
+        eventosDescartados: alcanceUso.descartados,
+        cambiosEnDesarrollo: excluidosEnDesarrollo,
+        cambiosNoPublicados: excluidosNoPublicados,
+      },
       graficos: true,
     });
 
@@ -615,6 +583,7 @@ export async function generarReporteEjecutivoUso(
         totalNovedades: cacheLocal.totalNovedades,
         porcentajeAdopcion: adopcion.porcentajeAdopcion,
         desdeCache: true,
+        versionIdsIncluidos,
       };
     }
 
@@ -631,37 +600,34 @@ export async function generarReporteEjecutivoUso(
         totalNovedades: cacheDb.totalNovedades,
         porcentajeAdopcion: adopcion.porcentajeAdopcion,
         desdeCache: true,
+        versionIdsIncluidos,
       };
     }
 
     const generatedAt = new Date().toISOString();
-    const prompt = construirPromptReporte({ uso, adopcion, novedades, graficosHtml });
-    const seed = crearSeed(huella);
-    const system =
-      "Eres un redactor de reportes de adopción y registro de cambios para Russell Diagnóstico. Escribes para socios y gerentes de revisoría fiscal en Colombia. Tono claro y profesional alineado a la UI institucional de la app (navy, ink, serif en títulos). Precisión estricta: no inventas datos. Debes incluir el bloque HTML de gráficos de barras exactamente como se te entrega. No generas botones, CTAs ni controles no funcionales. No imitas marcas de terceros.";
+    const prompt = construirPromptReporteEjecutivo({ uso, adopcion, novedades });
+    const system = SISTEMA_REPORTE_EJECUTIVO;
 
-    let completion: Awaited<ReturnType<typeof completarTextoGemini>>;
+    let completion: Awaited<ReturnType<typeof completarTextoOpenCode>>;
     try {
-      completion = await completarTextoGemini({
+      completion = await completarTextoOpenCode({
         model: MODELO_REPORTE_EJECUTIVO_USO,
-        maxTokens: 56_000,
+        maxTokens: MAX_TOKENS_REPORTE_EJECUTIVO_USO,
         temperature: TEMPERATURA_REPORTE_EJECUTIVO_USO,
         topP: 1,
-        seed,
-        timeoutMs: 300_000,
+        timeoutMs: 200_000,
         system,
         prompt,
       });
     } catch (e) {
       if (!esSaturacionProveedor(e)) throw e;
       await esperar(1500);
-      completion = await completarTextoGemini({
+      completion = await completarTextoOpenCode({
         model: MODELO_REPORTE_EJECUTIVO_USO,
-        maxTokens: 40_000,
+        maxTokens: MAX_TOKENS_REPORTE_EJECUTIVO_USO_REINTENTO,
         temperature: TEMPERATURA_REPORTE_EJECUTIVO_USO,
         topP: 1,
-        seed,
-        timeoutMs: 240_000,
+        timeoutMs: 150_000,
         system,
         prompt,
       });
@@ -669,7 +635,7 @@ export async function generarReporteEjecutivoUso(
 
     const report = normalizarReporteHtml(completion.text);
     if (!report.titulo.trim()) {
-      report.titulo = "Reporte ejecutivo de uso y adopción";
+      report.titulo = "Reporte de uso y avances";
     }
     // Garantiza gráficos factuales aunque el modelo omita o altere el bloque.
     report.html = inyectarGraficosEnHtml(report.html, graficosHtml);
@@ -679,9 +645,9 @@ export async function generarReporteEjecutivoUso(
       user: user?.name ?? "Sistema",
       action: "GENERÓ REPORTE IA",
       entity: "Uso y adopción",
-      detail: `Generó reporte ejecutivo con ${MODELO_REPORTE_EJECUTIVO_USO} (${uso.totalAcciones} acciones, ${uso.totalUsuarios} usuarios, ${includedChanges}/${totalChanges} novedades, ${
+      detail: `Generó reporte para gerencia con ${MODELO_REPORTE_EJECUTIVO_USO} (${uso.totalAcciones} acciones, ${uso.totalUsuarios} usuarios, ${includedChanges}/${totalChanges} novedades, ${
         versionIds ? `${versiones.length} versiones` : "versiones publicadas"
-      }).`,
+      }). Alcance solo publicado: excluyó ${alcanceUso.descartados} acciones de módulos no publicados, ${excluidosEnDesarrollo} novedades en desarrollo y ${excluidosNoPublicados} de módulos no publicados.`,
     });
 
     const cacheado = await guardarCachePersistente({
@@ -714,9 +680,10 @@ export async function generarReporteEjecutivoUso(
       totalNovedades: final.totalNovedades,
       porcentajeAdopcion: adopcion.porcentajeAdopcion,
       desdeCache: false,
+      versionIdsIncluidos,
     };
   } catch (e) {
-    return { ok: false, message: mensajeErrorGemini("generarReporteEjecutivoUso", e) };
+    return { ok: false, message: mensajeErrorOpenCode("generarReporteEjecutivoUso", e) };
   }
 }
 
@@ -735,7 +702,7 @@ export async function obtenerResumenUsoAdopcion(opciones: {
     }
   | { ok: false; message: string }
 > {
-  const authz = await authorizePermiso(PERMISO);
+  const authz = await authorizeReporteEjecutivo();
   if (!authz.ok) return { ok: false, message: authz.message };
 
   const rango = parseRango(opciones.desde, opciones.hasta);
@@ -744,7 +711,7 @@ export async function obtenerResumenUsoAdopcion(opciones: {
   }
 
   try {
-    const [eventosRaw, versiones, clientes] = await Promise.all([
+    const [eventosRaw, conexionesRaw, versiones, clientes, usuarios, modulosPublicados] = await Promise.all([
       prisma.auditEntry.findMany({
         where: { createdAt: { gte: rango.desde, lte: rango.hasta } },
         orderBy: { createdAt: "desc" },
@@ -758,31 +725,52 @@ export async function obtenerResumenUsoAdopcion(opciones: {
           createdAt: true,
         },
       }),
+      prisma.accessLog.groupBy({
+        by: ["userName"],
+        where: {
+          kind: "ingreso",
+          createdAt: { gte: rango.desde, lte: rango.hasta },
+        },
+        _count: { userName: true },
+        orderBy: { userName: "asc" },
+      }),
       prisma.platformVersion.findMany({
         where: { status: "publicada" },
         orderBy: [{ order: "desc" }, { id: "desc" }],
         include: { changes: { orderBy: [{ order: "asc" }, { id: "asc" }] } },
       }),
       prisma.client.findMany({ select: { id: true, name: true } }),
+      prisma.user.findMany({ select: { name: true, email: true } }),
+      modulosPublicadosParaTodos(),
     ]);
 
-    const eventos: EventoAuditoria[] = eventosRaw.map((e) => ({
-      user: e.user,
-      action: e.action,
-      entity: e.entity,
-      detail: e.detail,
-      clientId: e.clientId,
-      createdAt: e.createdAt,
-    }));
+    const filtro: FiltroPublicacion = { modulosPublicados };
+    const eventos = filtrarEventosPublicados({
+      eventos: eventosRaw.map((e) => ({
+        user: e.user,
+        action: e.action,
+        entity: e.entity,
+        detail: e.detail,
+        clientId: e.clientId,
+        createdAt: e.createdAt,
+      })),
+      clasificar: (e) => clasificarFamilia(e.action, e.entity, e.detail),
+      filtro,
+    }).eventos;
 
     const nombresClientes = new Map(clientes.map((c) => [c.id, c.name]));
     const uso = calcularResumenUso({
       eventos,
+      conexiones: conexionesRaw.map((conexion) => ({
+        usuario: conexion.userName,
+        total: conexion._count.userName,
+      })),
       periodoDesde: rango.desde,
       periodoHasta: rango.hasta,
       nombresClientes,
+      correosUsuarios: new Map(usuarios.map((u) => [u.name, u.email])),
     });
-    const { planos } = crearContextoNovedades(versiones);
+    const { planos } = crearContextoNovedades(versiones, filtro);
     const adopcion = evaluarAdopcion({
       cambios: planos,
       conteosPorFamilia: conteosPorFamiliaCanon(eventos),
@@ -796,5 +784,169 @@ export async function obtenerResumenUsoAdopcion(opciones: {
     };
   } catch {
     return { ok: false, message: "No se pudo cargar el resumen de uso y adopción." };
+  }
+}
+
+/* ===== Registro de envíos: evita repetir avances ya comunicados ===== */
+
+const RUTA_REPORTES = "/config/reportes-ejecutivos";
+
+export type RegistrarEnvioResult =
+  | { ok: true; envio: EnvioReportePrevio }
+  | { ok: false; message: string };
+
+function esTablaEnviosNoDisponible(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : "";
+  return /P2021|P2022|envios_reporte_ejecutivo|does not exist|no existe/i.test(msg);
+}
+
+type FilaEnvio = {
+  id: number;
+  titulo: string;
+  periodoDesde: Date;
+  periodoHasta: Date;
+  versionIds: number[];
+  totalNovedades: number;
+  totalAcciones: number;
+  canal: string;
+  enviadoPor: string;
+  enviadoEn: Date;
+};
+
+function aEnvioPrevio(fila: FilaEnvio): EnvioReportePrevio {
+  return {
+    id: fila.id,
+    titulo: fila.titulo,
+    periodoDesde: fila.periodoDesde.toISOString(),
+    periodoHasta: fila.periodoHasta.toISOString(),
+    versionIds: fila.versionIds,
+    totalNovedades: fila.totalNovedades,
+    totalAcciones: fila.totalAcciones,
+    canal: fila.canal,
+    enviadoPor: fila.enviadoPor,
+    enviadoEn: fila.enviadoEn.toISOString(),
+  };
+}
+
+const SELECT_ENVIO = {
+  id: true,
+  titulo: true,
+  periodoDesde: true,
+  periodoHasta: true,
+  versionIds: true,
+  totalNovedades: true,
+  totalAcciones: true,
+  canal: true,
+  enviadoPor: true,
+  enviadoEn: true,
+} as const;
+
+/**
+ * Lee los envíos registrados (para los loaders RSC). Nunca lanza: si la tabla
+ * aún no existe en el entorno, la pantalla funciona como antes (sin historial).
+ */
+export async function listarEnviosReporteEjecutivo(limite = 50): Promise<EnvioReportePrevio[]> {
+  try {
+    const filas = await prisma.envioReporteEjecutivo.findMany({
+      orderBy: [{ enviadoEn: "desc" }, { id: "desc" }],
+      take: Math.min(Math.max(limite, 1), 200),
+      select: SELECT_ENVIO,
+    });
+    return filas.map(aEnvioPrevio);
+  } catch (e) {
+    if (esTablaEnviosNoDisponible(e)) return [];
+    throw e;
+  }
+}
+
+/**
+ * Marca un reporte como entregado al cliente: deja constancia del período y de
+ * las versiones de Novedades incluidas, para que el siguiente reporte solo
+ * proponga lo que aún no se ha contado.
+ */
+export async function registrarEnvioReporteEjecutivo(
+  datos: RegistroEnvioReporte,
+): Promise<RegistrarEnvioResult> {
+  const authz = await authorizeReporteEjecutivo();
+  if (!authz.ok) return { ok: false, message: authz.message };
+
+  const parsed = RegistroEnvioReporteSchema.safeParse(datos);
+  if (!parsed.success) {
+    return { ok: false, message: "No se pudo registrar el envío: los datos del reporte no son válidos." };
+  }
+
+  const rango = parseRango(parsed.data.desde, parsed.data.hasta);
+  if (!rango) {
+    return { ok: false, message: "El período del reporte no es válido." };
+  }
+
+  const versionIds = Array.from(new Set(parsed.data.versionIds)).sort((a, b) => a - b);
+
+  try {
+    const user = await getCurrentUser();
+    const fila = await prisma.envioReporteEjecutivo.create({
+      data: {
+        titulo: parsed.data.titulo,
+        periodoDesde: rango.desde,
+        periodoHasta: rango.hasta,
+        versionIds,
+        totalNovedades: parsed.data.totalNovedades,
+        totalAcciones: parsed.data.totalAcciones,
+        canal: parsed.data.canal,
+        nota: parsed.data.nota ?? null,
+        enviadoPor: user?.name ?? "Sistema",
+        enviadoPorId: user?.id ?? null,
+      },
+      select: SELECT_ENVIO,
+    });
+
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: "REGISTRÓ ENVÍO DE REPORTE",
+      entity: "Uso y adopción",
+      detail: `Marcó como enviado «${parsed.data.titulo}» (${versionIds.length} versiones de novedades, canal ${parsed.data.canal}).`,
+    });
+
+    revalidatePath(RUTA_REPORTES);
+    return { ok: true, envio: aEnvioPrevio(fila) };
+  } catch (e) {
+    if (esTablaEnviosNoDisponible(e)) {
+      return {
+        ok: false,
+        message:
+          "El historial de envíos aún no está disponible en este entorno. Aplica la migración pendiente e inténtalo de nuevo.",
+      };
+    }
+    return { ok: false, message: mensajeErrorBD("registrarEnvioReporteEjecutivo", e) };
+  }
+}
+
+/** Deshace un registro de envío hecho por error (vuelve a considerar sus versiones como pendientes). */
+export async function eliminarEnvioReporteEjecutivo(
+  id: number,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const authz = await authorizeReporteEjecutivo();
+  if (!authz.ok) return { ok: false, message: authz.message };
+
+  if (!Number.isInteger(id) || id <= 0) {
+    return { ok: false, message: "El registro de envío no es válido." };
+  }
+
+  try {
+    const user = await getCurrentUser();
+    await prisma.envioReporteEjecutivo.delete({ where: { id } });
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: "ELIMINÓ ENVÍO DE REPORTE",
+      entity: "Uso y adopción",
+      detail: `Deshizo el registro de envío #${id}; sus novedades vuelven a considerarse pendientes.`,
+    });
+    revalidatePath(RUTA_REPORTES);
+    return { ok: true };
+  } catch (e) {
+    if (esTablaEnviosNoDisponible(e)) {
+      return { ok: false, message: "El historial de envíos no está disponible en este entorno." };
+    }
+    return { ok: false, message: mensajeErrorBD("eliminarEnvioReporteEjecutivo", e) };
   }
 }

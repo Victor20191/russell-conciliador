@@ -24,6 +24,7 @@ const mocks = vi.hoisted(() => {
     version: string;
     advertenciaArchivoFuente: boolean;
     diferenciaArchivoFuente: number | null;
+    aperturaBalance: string | null;
   };
   type Lote = {
     loteId: string;
@@ -42,6 +43,7 @@ const mocks = vi.hoisted(() => {
     specJson: unknown;
     origenExtraccion: string | null;
     revisionContenido: number;
+    aperturaBalance: string | null;
   };
   type Staging = {
     loteId: string;
@@ -122,6 +124,7 @@ const mocks = vi.hoisted(() => {
       diferenciaArchivoFuente: data.diferenciaArchivoFuente == null
         ? null
         : Number(data.diferenciaArchivoFuente),
+      aperturaBalance: data.aperturaBalance == null ? null : String(data.aperturaBalance),
     };
     state.balances.push(balance);
     return { id: balance.id };
@@ -546,15 +549,18 @@ function loteBorrador(loteId = LOTE_ID) {
     specJson: null,
     origenExtraccion: "plantilla",
     revisionContenido: 0,
+    // Apertura declarada en el borrador: el lote la conserva y la promoción la exige.
+    aperturaBalance: null,
   };
 }
 
-function formPromocion() {
+function formPromocion(apertura: string | null = "cuenta") {
   const form = new FormData();
   form.set("clientId", "7");
   form.set("periodoInicio", "2026-01-01");
   form.set("periodoFin", "2026-01-31");
   form.set("loteId", LOTE_ID);
+  if (apertura != null) form.set("aperturaBalance", apertura);
   return form;
 }
 
@@ -777,6 +783,33 @@ describe("idempotencia y atomicidad del ciclo de balances", () => {
       advertenciaArchivoFuente: false,
       diferenciaArchivoFuente: null,
     });
+  });
+
+  it("exige declarar el tipo de balance y lo copia al encabezado oficial", async () => {
+    // Sin declaración —ni en el formulario ni memorizada en el lote— la promoción
+    // se niega: el dato nunca se deduce de la heurística de terceros.
+    const sinDeclarar = await cargarBorrador({}, formPromocion(null));
+    expect(sinDeclarar).toEqual({
+      ok: false,
+      message: "Indica si el balance es por cuenta o por terceros antes de cargarlo.",
+    });
+    expect(mocks.state.balances).toHaveLength(0);
+
+    await expect(cargarBorrador({}, formPromocion("tercero")))
+      .rejects.toThrow("REDIRECT:/balance/1?cargado=1");
+    expect(mocks.state.balances[0]).toMatchObject({ aperturaBalance: "tercero" });
+  });
+
+  it("promueve con la apertura ya guardada en el lote aunque el formulario no la reenvíe", async () => {
+    mocks.state.lotes.splice(0, mocks.state.lotes.length, {
+      ...loteBorrador(),
+      aperturaBalance: "tercero",
+    });
+
+    await expect(cargarBorrador({}, formPromocion(null)))
+      .rejects.toThrow("REDIRECT:/balance/1?cargado=1");
+
+    expect(mocks.state.balances[0]).toMatchObject({ aperturaBalance: "tercero" });
   });
 
   it("persiste el diagnóstico del archivo fuente junto con la justificación", async () => {

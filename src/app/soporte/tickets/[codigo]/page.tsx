@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { fmtDateTime } from "@/lib/format";
-import { ESTADO_TICKET_RESUELTO, huellaTokenAcceso } from "@/lib/soporte";
+import { ESTADO_TICKET_RESUELTO, etiquetaEstadoTicket, huellaTokenAcceso, tonoEstadoTicket } from "@/lib/soporte";
 
 export default async function SeguimientoTicketPage({
   params,
@@ -44,8 +44,16 @@ export default async function SeguimientoTicketPage({
                 <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#9CADC0]">Seguimiento privado</p>
                 <h1 className="mt-1 font-mono text-xl font-semibold">{ticket.code}</h1>
               </div>
-              <span className={`rounded-full px-3 py-1 text-[11px] font-semibold ${resuelto ? "bg-ok-100 text-ok-700" : "bg-warn-100 text-warn-700"}`}>
-                {resuelto ? "Resuelto" : "En atención"}
+              <span className={`rounded-full px-3 py-1 text-[11px] font-semibold ${
+                tonoEstadoTicket(ticket.status) === "ok"
+                  ? "bg-ok-100 text-ok-700"
+                  : tonoEstadoTicket(ticket.status) === "blue"
+                    ? "bg-blue-100 text-navy-700"
+                    : tonoEstadoTicket(ticket.status) === "ink"
+                      ? "bg-ink-100 text-ink-600"
+                      : "bg-warn-100 text-warn-700"
+              }`}>
+                {etiquetaEstadoTicket(ticket.status)}
               </span>
             </div>
           </div>

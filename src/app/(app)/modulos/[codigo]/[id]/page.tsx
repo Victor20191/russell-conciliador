@@ -18,6 +18,7 @@ import { construirCruceContable, type ResumenCruceContable } from "@/lib/modulos
 import { construirCruceTercero, type ResumenCruceTercero } from "@/lib/modulos/cruce-tercero";
 import { normalizarTerceroModulo } from "@/lib/modulos/tercero";
 import { agregarPorNit } from "@/lib/modulos/agregar-por-nit";
+import { anotarCruceConMarcas, type MarcaCruce } from "@/lib/modulos/marcas-cruce";
 import DatoCargadoClient, { type FilaDetalleVm, type ConsolidadoVm, type NovedadesVm, type VersionModuloVm, type CruceContableVm, type CruceTerceroVm } from "./dato-cargado-client";
 
 /** ¿El `periodoFin` del balance cae en el mismo año-mes que el período del módulo ("YYYY-MM")? */
@@ -59,7 +60,7 @@ export default async function DatoModuloPage({
   const [consolidacionRows, subgrupos, catalogoPrevalidador, comentariosGrp, cuentasCliente, hermanos] = await Promise.all([
     prisma.consolidacionModuloCliente.findMany({
       where: { clienteId: encabezado.clienteId, moduloCodigo },
-      select: { clasificador: true, cuenta4: true },
+      select: { clasificador: true, descripcion: true, cuenta4: true },
     }),
     prisma.subgrupoEstandar.findMany({ select: { codigo: true, nombre: true }, orderBy: { codigo: "asc" } }),
     getCatalogoPrevalidador(),
@@ -94,10 +95,16 @@ export default async function DatoModuloPage({
   ]);
   // Un clasificador puede tener 1..N cuentas: agrupamos en lista (ordenada).
   const cuentasPorClasificador = new Map<string, string[]>();
+  // Nombre legible del clasificador cuando existe (Nómina: el clasificador es el CÓDIGO
+  // del concepto y la descripción es su nombre, cargado en /config/conceptos-nomina).
+  const descripcionPorClasificador = new Map<string, string>();
   for (const r of consolidacionRows) {
     const lista = cuentasPorClasificador.get(r.clasificador) ?? [];
     lista.push(r.cuenta4);
     cuentasPorClasificador.set(r.clasificador, lista);
+    if (r.descripcion && !descripcionPorClasificador.has(r.clasificador)) {
+      descripcionPorClasificador.set(r.clasificador, r.descripcion);
+    }
   }
   for (const [k, v] of cuentasPorClasificador) cuentasPorClasificador.set(k, [...new Set(v)].sort());
   // Nombres del plan completo (por si hay un mapeo legado fuera del módulo).
@@ -138,6 +145,7 @@ export default async function DatoModuloPage({
   const consolidado = consolidarPorClasificador(detalleVm.map((d) => ({ clasificador: d.clasificador, valor: d.valor })));
   const consolidadoVm: ConsolidadoVm[] = consolidado.map((c) => ({
     clasificador: c.clasificador,
+    descripcion: descripcionPorClasificador.get(c.clasificador) ?? null,
     total: c.total,
     filas: c.filas,
     cuentas4: (cuentasPorClasificador.get(c.clasificador) ?? []).map((cod) => ({ codigo: cod, nombre: nombrePorCuenta.get(cod) ?? null })),
@@ -181,12 +189,47 @@ export default async function DatoModuloPage({
     });
     if (sinMapeoFilas > 0) sinMapeoContable = { total: sinMapeoTotal, filas: sinMapeoFilas };
   }
+  // Marcas de auditoría de las diferencias del cruce: viven por (cliente, módulo,
+  // período), NO por cargue, así que siguen visibles al abrir otra versión del período.
+  const marcasPeriodo = await prisma.marcaCruceModulo.findMany({
+    where: { clienteId: encabezado.clienteId, moduloCodigo, periodo: encabezado.periodo },
+    orderBy: { numero: "asc" },
+    select: {
+      cuenta4: true,
+      numero: true,
+      nota: true,
+      referenciaAnexo: true,
+      diferencia: true,
+      comentarioId: true,
+      marcadoPor: true,
+      marcadoEn: true,
+      adjuntos: {
+        orderBy: { id: "asc" },
+        select: { id: true, nombreArchivo: true, tipoContenido: true, tamanoBytes: true },
+      },
+    },
+  });
+  const marcas: MarcaCruce[] = marcasPeriodo.map((m) => ({
+    cuenta4: m.cuenta4,
+    numero: m.numero,
+    nota: m.nota,
+    referenciaAnexo: m.referenciaAnexo,
+    diferencia: Number(m.diferencia),
+    comentarioId: m.comentarioId,
+    marcadoPor: m.marcadoPor,
+    marcadoEn: fmtDateTime(m.marcadoEn),
+    adjuntos: m.adjuntos,
+  }));
+  const cruceAnotado = cruceContable ? anotarCruceConMarcas(cruceContable.filas, marcas) : null;
+
   const cruceContableVm: CruceContableVm = {
     balanceEncontrado: balanceEmparejado != null,
     periodo: encabezado.periodo,
     nombreCliente: encabezado.nombreCliente,
     resumen: cruceContable,
     sinMapeoContable,
+    filasMarcadas: cruceAnotado?.filas ?? [],
+    resumenMarcas: cruceAnotado?.resumen ?? null,
   };
 
   // Cruce por tercero (NIT): SOLO para módulos cuyo descriptor tiene columna "tercero"

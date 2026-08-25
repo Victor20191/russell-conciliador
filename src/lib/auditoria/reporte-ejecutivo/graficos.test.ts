@@ -7,6 +7,7 @@ const usoVacio: ResumenUsoFactual = {
   periodoDesde: "2026-06-01T00:00:00.000Z",
   periodoHasta: "2026-06-30T23:59:59.000Z",
   totalAcciones: 0,
+  totalConexiones: 0,
   totalUsuarios: 0,
   totalClientes: 0,
   primeraAccion: null,
@@ -14,6 +15,7 @@ const usoVacio: ResumenUsoFactual = {
   porFamilia: [],
   topAcciones: [],
   topUsuarios: [],
+  detalleUsuarios: [],
   topClientes: [],
   serieDiaria: [],
   evidencia: [],
@@ -42,8 +44,32 @@ describe("construirSeccionGraficosHtml", () => {
           { nombre: "Conciliaciones", total: 3 },
         ],
         topUsuarios: [
-          { usuario: "Ana", total: 6, porFamilia: [{ nombre: "Balance de comprobación", total: 6 }] },
-          { usuario: "Luis", total: 4, porFamilia: [] },
+          {
+            usuario: "Ana",
+            correo: "ana@russell.co",
+            total: 6,
+            porFamilia: [{ nombre: "Balance de comprobación", total: 6 }],
+          },
+          { usuario: "Luis", correo: null, total: 4, porFamilia: [] },
+        ],
+        totalConexiones: 7,
+        detalleUsuarios: [
+          {
+            usuario: "Ana",
+            correo: "ana@russell.co",
+            conexiones: 5,
+            totalAcciones: 6,
+            accionesPrincipales: [{ nombre: "CARGÓ BALANCE", total: 4 }],
+            porFamilia: [{ nombre: "Balance de comprobación", total: 6 }],
+          },
+          {
+            usuario: "Marta",
+            correo: null,
+            conexiones: 2,
+            totalAcciones: 0,
+            accionesPrincipales: [],
+            porFamilia: [],
+          },
         ],
         topAcciones: [{ nombre: "CARGÓ BALANCE", total: 5 }],
         topClientes: [{ clienteId: 1, nombre: "Acme SAS", total: 3 }],
@@ -65,12 +91,49 @@ describe("construirSeccionGraficosHtml", () => {
 
     expect(html).toContain('id="rd-graficos-uso"');
     expect(html).toContain("Módulos y procesos más usados");
-    expect(html).toContain("Usuarios con más actividad");
+    expect(html).toContain("Usuarios con más actividad (top 5)");
+    expect(html).toContain("Detalle de actividad por usuario");
+    expect(html).toContain("inicios de sesión exitosos");
+    expect(html).toContain("CARGÓ BALANCE (4)");
+    expect(html).toContain("Sin acciones auditables registradas.");
     expect(html).toContain("Ana");
     expect(html).toContain("Acme SAS");
-    expect(html).toContain("Adopción de novedades");
+    expect(html).toContain("Adopción de nuevas funcionalidades");
+    expect(html).toContain("Con actividad relacionada");
+    expect(html).toContain("Sin actividad relacionada");
+    expect(html).toContain("No se puede medir");
+    expect(html).toContain("No confirma que una funcionalidad específica haya sido usada");
+    expect(html).toContain("66.7% de las funcionalidades medibles tienen actividad relacionada");
     expect(html).toContain("Ritmo de uso diario");
+    // El ritmo diario se muestra como tabla (fecha, día, acciones, % y comparativo).
+    expect(html).toContain("% del total");
+    expect(html).toContain("Comparativo");
+    expect(html).toContain("01/06");
+    expect(html).toContain("Lunes");
+    expect(html).toContain("02/06");
+    expect(html).toContain("Martes");
+    expect(html).toContain("Total del período mostrado");
+    expect(html).toContain("2 días con datos");
+    expect(html).not.toContain("transform:rotate(-45deg)");
+    expect(html).toContain('<table role="presentation" width="100%"');
+    expect(html).toContain('align="right"');
+    expect(html).not.toContain("display:flex;align-items:baseline;justify-content:space-between");
     expect(html).not.toContain("<script");
+  });
+
+  test("no inventa un porcentaje cuando no hay funcionalidades medibles", () => {
+    const html = construirSeccionGraficosHtml({
+      uso: usoVacio,
+      adopcion: {
+        ...adopcionVacia,
+        totalCambios: 1,
+        noMedibles: 1,
+        porcentajeAdopcion: null,
+      },
+    });
+
+    expect(html).toContain("Porcentaje no calculable");
+    expect(html).not.toContain("% de las funcionalidades medibles tienen actividad relacionada");
   });
 });
 
@@ -88,6 +151,32 @@ describe("inyectarGraficosEnHtml", () => {
     const out = inyectarGraficosEnHtml(base, charts);
     expect(out).toContain("Uso en gráficos");
     expect(out).not.toContain(">viejo<");
+    expect((out.match(/id="rd-graficos-uso"/g) ?? []).length).toBe(1);
+  });
+
+  test("reemplaza el bloque completo aunque el modelo anide <section> por gráfico", () => {
+    const charts = construirSeccionGraficosHtml({ uso: usoVacio, adopcion: adopcionVacia });
+    // Lo que devuelve un modelo que copió el bloque: secciones anidadas.
+    const base =
+      `<html><body><h1>t</h1>` +
+      `<section id="rd-graficos-uso">` +
+      `<section class="rd-chart" id="rd-chart-a">grafico viejo A</section>` +
+      `<section class="rd-chart" id="rd-chart-b">grafico viejo B</section>` +
+      `</section><footer>pie</footer></body></html>`;
+    const out = inyectarGraficosEnHtml(base, charts);
+    expect(out).toContain("Uso en gráficos");
+    expect(out).not.toContain("grafico viejo A");
+    expect(out).not.toContain("grafico viejo B");
+    expect(out).toContain("<footer>pie</footer>");
+    expect((out.match(/id="rd-graficos-uso"/g) ?? []).length).toBe(1);
+  });
+
+  test("no pierde el resto del documento si el modelo deja la sección sin cerrar", () => {
+    const charts = construirSeccionGraficosHtml({ uso: usoVacio, adopcion: adopcionVacia });
+    const base = `<html><body><h1>t</h1><section id="rd-graficos-uso"><section>a</section>`;
+    const out = inyectarGraficosEnHtml(base, charts);
+    expect(out).toContain("<h1>t</h1>");
+    expect(out).toContain("Uso en gráficos");
     expect((out.match(/id="rd-graficos-uso"/g) ?? []).length).toBe(1);
   });
 });

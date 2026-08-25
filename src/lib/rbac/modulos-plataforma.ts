@@ -20,7 +20,8 @@ export type PlatformModuleKey =
   | "prompts"
   | "parametros"
   | "perfiles_carga"
-  | "soporte";
+  | "soporte"
+  | "entorno";
 
 export type PlatformModuleDefinition = {
   key: PlatformModuleKey;
@@ -249,7 +250,7 @@ export const MODULOS_PLATAFORMA: PlatformModuleDefinition[] = [
     // los Administradores lo vean en el menú hasta publicarlo.
     key: "perfiles_carga",
     label: "Perfiles de carga",
-    description: "Formatos memorizados, correcciones por cuenta y preferencias con las que la plataforma lee los balances de cada cliente.",
+    description: "Formatos memorizados, correcciones por cuenta y preferencias con las que la plataforma lee los balances y los archivos de módulos (Inventarios, Cartera, CxP, Ingresos, Activos Fijos, Nómina) de cada cliente.",
     group: "Configuración",
     icon: "ai",
     order: 220,
@@ -257,16 +258,26 @@ export const MODULOS_PLATAFORMA: PlatformModuleDefinition[] = [
     configurableForNonAdmins: true,
   },
   {
-    // Admin-only: el portal de reporte/seguimiento vive fuera del cascaron y es
-    // publico; esta definicion corresponde exclusivamente a la bandeja interna.
-    // La visibilidad la gobierna `soporte:administrar` (SOLO_ADMIN).
-    key: "soporte",
-    label: "Tickets de soporte",
-    description: "Bandeja interna para consultar solicitudes y documentar su solucion.",
+    key: "entorno",
+    label: "Variables de entorno e Integraciones",
+    description: "Configuración operativa de la plataforma (S3, IA, SMTP).",
     group: "Configuración",
-    icon: "bell",
-    order: 230,
+    icon: "settings",
+    order: 225,
     enabledForNonAdmins: false,
+    configurableForNonAdmins: false,
+  },
+  {
+    // Visible para todos los roles con `soporte:ver`. La publicación queda
+    // inerte (configurable=false ⇒ moduloPublicadoParaRol devuelve true);
+    // la bandeja completa sigue siendo `soporte:administrar` (SOLO_ADMIN).
+    key: "soporte",
+    label: "Ayuda",
+    description: "Novedades reportadas por los usuarios para que Xentria las gestione.",
+    group: "Trabajo",
+    icon: "help",
+    order: 55,
+    enabledForNonAdmins: true,
     configurableForNonAdmins: false,
   },
 ];

@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { PrismaClient } from "../src/generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import pucMaster from "./data/puc-maestro-russell.json";
+import { exigirBaseDesechable } from "./guardia-destructiva";
 import { fechaCalendarioPrisma } from "../src/lib/fecha-hora";
 import { PREVALIDADOR_CATALOGO_FABRICA } from "../src/lib/balance/prevalidador/catalogo";
 
@@ -10,6 +11,9 @@ const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
 const prisma = new PrismaClient({ adapter });
 
 async function main() {
+  // Este seed vacía las tablas de negocio: nunca debe tocar una base real.
+  await exigirBaseDesechable(prisma, "db:seed");
+
   console.log("🌱 Seeding…");
 
   // ---- Limpieza idempotente ----

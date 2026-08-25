@@ -36,6 +36,7 @@ import {
   aplanarBreakdown,
   compararBalances,
   tokenizarPlan,
+  mapearCuenta,
   limpiarCodigo,
   conForzarHoja,
   type CuentaCruda,
@@ -56,6 +57,7 @@ import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
 import type { UmbralesAlertas } from "@/lib/balance/umbrales-alertas";
 import { detectarManipulacionesRiesgosas, reclasificarHuerfanas, reclasificarSoloHojas, corregirCodigosPlaceholder, marcarNoContables, validarReubicacionesBorrador, type FilaBorrador } from "@/lib/balance/borrador";
 import { esBalancePorTercero, colapsarTerceros, esBalancePorTerceroSufijo, consolidarTercerosPorSufijo, marcarCuentaNit } from "@/lib/balance/terceros";
+import { etiquetaApertura, parsearApertura, type AperturaBalance } from "@/lib/balance/apertura-balance";
 import { invalidarStagingBorrador, type RevisionReubicacionStaging } from "@/lib/balance/staging-borrador";
 import { marcarRelistadoGuiones } from "@/lib/balance/relistado";
 import { mensajeTamanoBalanceNoPermitido } from "@/lib/balance/limites-archivo";
@@ -78,6 +80,7 @@ import { construirConfigMapeoCliente, esMapeoManual, nivelPorCodigo, resolverMap
 import { extraerBalancePorTercero, specCargaASpecPorTercero } from "@/lib/balance/extraccion/por-tercero";
 import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
 import { prefijosCuentaModulo, cuenta4DelModulo } from "@/lib/modulos/cuentas-modulo";
+import { cruzaClaseContable } from "@/lib/balance/clase-contable";
 import {
   contextoAccesoBorradorActual,
   puedeVerBorrador,
@@ -135,6 +138,9 @@ export type SugerenciaBalance = {
     hojas: string[]; // nombres de hojas de la ingesta (selector del editor)
     clienteDetectadoId: number | null; // resuelto por NIT determinista en el servidor
     proveedorIA: ProveedorIABalance | null; // visible para comprobar el proveedor de la lectura
+    // ¿La lectura detectó detalle por tercero? SOLO alimenta la sugerencia del
+    // selector «Tipo de balance» de la revisión: la apertura la DECLARA el analista.
+    porTercero: boolean;
   };
 };
 
@@ -925,6 +931,8 @@ type MetaPromocion = {
   cuentas: number;
   cuentasAgrupadoras: number;
   revisionContenido: number;
+  /** Apertura DECLARADA en el borrador (obligatoria): viaja al encabezado oficial. */
+  aperturaBalance: AperturaBalance;
   cuadreArchivo: { totalDebitos: number; totalCreditos: number } | null; // solo el modal lo trae
   proveedorIA?: ProveedorIABalance;
   comentarioPromocion?: string | null;
@@ -1052,6 +1060,7 @@ async function promoverStagingAOficial(p: MetaPromocion, contexto: string): Prom
       diferenciaArchivoFuente,
       revisionesReubicacion: revisionesFinales.revisionesAprobadas,
       nombresGrupoCliente,
+      aperturaBalance: p.aperturaBalance,
       meta: {
         estandar: TIPO_BALANCE_CARGA, convencionCredito: p.convencionCredito,
         filasLeidas: p.filasLeidas, filasExcluidas: p.filasExcluidas, filasDescuadre: p.filasDescuadre,
@@ -1395,6 +1404,146 @@ export async function asignarCuentaEstandar(formData: FormData): Promise<ActionS
 }
 
 /**
+ * Vuelve a homologar el detalle de un balance YA cargado con la cascada
+ * determinista vigente (memoria del cliente → exacto → descripción), sin IA y
+ * sin volver a leer el archivo.
+ *
+ * Existe porque `cuenta_6_russell` se persiste POR FILA al promover el borrador y
+ * las pantallas lo leen tal cual (`reconstruirBalance`): corregir el mapeo en
+ * `/config/mapeo` alimenta la memoria para las cargas siguientes, pero no toca
+ * los balances ya cargados. Sin esta acción, el único camino para arreglar un
+ * balance mal homologado era volver a cargar el archivo.
+ *
+ * Tres desenlaces por cuenta, en orden:
+ *  1. la memoria del cliente manda (incluye lo confirmado a mano en /config/mapeo);
+ *  2. si no hay memoria, decide la cascada determinista, que respeta la clase;
+ *  3. si tampoco resuelve, se CONSERVA el mapeo actual salvo que cruce de clase
+ *     contable, en cuyo caso se retira: una cuenta visiblemente sin homologar es
+ *     preferible a una homologada en silencio a otro estado financiero.
+ * Nunca inventa un mapeo nuevo con IA ni escribe memoria: solo la consume.
+ */
+export async function reaplicarMapeoBalance(formData: FormData): Promise<ActionState> {
+  const authz = await authorizePermiso("balance:crear");
+  if (!authz.ok) return { ok: false, message: authz.message };
+  const id = parseId(formData.get("id"));
+  if (!id) return { ok: false, message: "Balance inexistente." };
+  const alcance = await authorizePermiso("balance:crear", { clientId: await clienteDeBalance(id) });
+  if (!alcance.ok) return { ok: false, message: alcance.message };
+
+  try {
+    const [user, cuentasEstandar] = await Promise.all([getCurrentUser(), getCuentasEstandar()]);
+    const stdByCode = new Map(cuentasEstandar.map((s) => [s.code, s]));
+    const hayDescripcion = cuentasEstandar.some((s) => s.possibleAccounts || s.name);
+    const planTok = tokenizarPlan(cuentasEstandar);
+
+    const resultado = await transaccionSerializable(async (tx) => {
+      const referencia = await tx.balancePruebaEncabezado.findUnique({
+        where: { id },
+        select: { clienteId: true, periodo: true },
+      });
+      if (!referencia) return { ok: false as const, message: "Balance inexistente." };
+      // Mismo candado que congelar y homologar: el detalle no puede cambiar de
+      // manos mientras se reescribe.
+      await tomarCandadoTransaccion(tx, `balance-oficial:${referencia.clienteId}:${referencia.periodo}`);
+
+      const encabezado = await tx.balancePruebaEncabezado.findUnique({
+        where: { id },
+        select: { clienteId: true, periodo: true, estaCongelado: true },
+      });
+      if (!encabezado) return { ok: false as const, message: "Balance inexistente." };
+      if (encabezado.clienteId !== referencia.clienteId || encabezado.periodo !== referencia.periodo) {
+        return { ok: false as const, message: "El balance cambió mientras se preparaba la operación. Vuelve a intentarlo." };
+      }
+      if (encabezado.estaCongelado) {
+        return { ok: false as const, message: "No se puede re-homologar un balance congelado." };
+      }
+
+      const [configRows, detalles] = await Promise.all([
+        tx.clientAccount.findMany({
+          where: { clienteId: encabezado.clienteId, cuenta6Russell: { not: null } },
+          select: { id: true, code: true, cuenta6Russell: true, coincidencia: true, origenMapeo: true, actualizadoEn: true },
+        }),
+        tx.balancePruebaDetalle.findMany({
+          where: { encabezadoId: id },
+          select: { id: true, cuenta8: true, nombreCuenta: true, cuenta6Russell: true },
+        }),
+      ]);
+      const configCliente = construirConfigMapeoCliente(configRows);
+
+      // Las filas que cambian se agrupan por destino: un balance grande cabe en
+      // unos pocos `updateMany` en vez de una sentencia por cuenta.
+      const porDestino = new Map<string, { std: string | null; coincidencia: number | null; ids: number[] }>();
+      let rehomologadas = 0;
+      let retiradas = 0;
+      for (const d of detalles) {
+        const cfg = resolverMapeoCliente(configCliente, d.cuenta8);
+        let std: string | null;
+        let coincidencia: number | null;
+        if (cfg?.std) {
+          std = cfg.std;
+          coincidencia = cfg.coincidencia ?? 100;
+        } else {
+          const mp = mapearCuenta(d.cuenta8, d.nombreCuenta, stdByCode, cuentasEstandar, hayDescripcion, planTok);
+          if (mp.mapped) {
+            std = mp.std;
+            coincidencia = mp.coincidencia;
+          } else if (cruzaClaseContable(d.cuenta8, d.cuenta6Russell)) {
+            std = null; // se retira el mapeo cruzado que dejó un barrido anterior
+            coincidencia = null;
+          } else {
+            continue; // sin memoria ni cascada: se conserva el mapeo vigente
+          }
+        }
+        if (std === d.cuenta6Russell) continue;
+        if (std == null) retiradas++;
+        else rehomologadas++;
+        const clave = `${std ?? ""}|${coincidencia ?? ""}`;
+        const grupo = porDestino.get(clave);
+        if (grupo) grupo.ids.push(d.id);
+        else porDestino.set(clave, { std, coincidencia, ids: [d.id] });
+      }
+
+      for (const { std, coincidencia, ids } of porDestino.values()) {
+        await tx.balancePruebaDetalle.updateMany({
+          where: { id: { in: ids } },
+          data: { cuenta6Russell: std, coincidencia },
+        });
+      }
+
+      // Contadores del encabezado, dentro del mismo commit (igual que al homologar).
+      const [total, mapeadas] = await Promise.all([
+        tx.balancePruebaDetalle.count({ where: { encabezadoId: id } }),
+        tx.balancePruebaDetalle.count({ where: { encabezadoId: id, cuenta6Russell: { not: null } } }),
+      ]);
+      await tx.balancePruebaEncabezado.update({
+        where: { id },
+        data: { mapeadas, sinMapear: total - mapeadas, completitud: total > 0 ? Math.round((mapeadas / total) * 100) : 100 },
+      });
+
+      return { ok: true as const, clienteId: encabezado.clienteId, rehomologadas, retiradas, sinMapear: total - mapeadas };
+    });
+    if (!resultado.ok) return resultado;
+
+    const cambios = resultado.rehomologadas + resultado.retiradas;
+    if (cambios === 0) {
+      return { ok: true, message: "El mapeo de este balance ya coincide con la homologación vigente del cliente." };
+    }
+    const detalle = [
+      `${resultado.rehomologadas} re-homologada(s)`,
+      `${resultado.retiradas} mapeo(s) fuera de clase retirado(s)`,
+    ].join(" · ");
+    await logAudit({ user: user?.name ?? "Sistema", action: "RE-HOMOLOGÓ BALANCE", entity: String(id), detail: detalle, clientId: resultado.clienteId });
+    revalidatePath(`/balance/${id}`);
+    return {
+      ok: true,
+      message: `${cambios} cuenta(s) actualizada(s): ${detalle}.${resultado.sinMapear > 0 ? ` Quedan ${resultado.sinMapear} sin mapeo por homologar.` : ""}`,
+    };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("reaplicarMapeoBalance", e) };
+  }
+}
+
+/**
  * Escribe un cargue (encabezado + detalle) a partir de las cuentas ya extraídas
  * (`importReady`). Maneja versionado correlativo por (cliente, período), cálculo
  * de agregados, comparativo de cambios y bitácora. Única ruta de persistencia,
@@ -1430,6 +1579,8 @@ async function persistirCargue(p: {
   revisionesReubicacion?: RevisionReubicacionBalance[];
   /** Nombres reales de las agrupadoras de seis dígitos leídos del archivo. */
   nombresGrupoCliente?: Map<string, string>;
+  /** Apertura declarada del informe (`cuenta` | `tercero`): se copia del borrador. */
+  aperturaBalance: AperturaBalance;
   /** Umbrales de alerta vigentes (/config/parametros): definen cuántas validaciones
    *  quedan en «warn» y, con ello, el estado y la nota del encabezado. */
   umbrales: UmbralesAlertas;
@@ -1742,6 +1893,7 @@ async function persistirCargue(p: {
         sumaActivo: calc.sums.activo, filasTotales: calc.totalRows,
         mapeadas: calc.mapped, sinMapear: calc.unmapped, criticas: calc.critical, cambios,
         estandar: p.meta.estandar, convencionCredito: p.meta.convencionCredito,
+        aperturaBalance: p.aperturaBalance,
         filasLeidas: p.meta.filasLeidas, filasExcluidas: p.meta.filasExcluidas, filasDescuadre: p.meta.filasDescuadre,
         ultimaCarga: ahora,
         detalles: {
@@ -1885,6 +2037,9 @@ function construirSugerenciaTransitoria(p: {
           : [],
       clienteDetectadoId: null,
       proveedorIA: p.origenExtraccion === "ia" ? p.proveedorIA : null,
+      // La revisión transitoria no tiene diagnóstico persistido: la detección se
+      // resuelve sobre las filas crudas, que es lo mismo que mide `diagFinal`.
+      porTercero: esBalancePorTercero(extr.filasCrudas),
     },
   };
 }
@@ -2747,6 +2902,7 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
         hojas: p.ingesta?.modo === "tabular" ? p.ingesta.hojas.map((h) => h.nombre) : [],
         clienteDetectadoId: p.clienteDetectadoId,
         proveedorIA: p.origenExtraccion === "ia" ? p.proveedorIA : null,
+        porTercero: diagFinal.porTercero,
       },
     },
   };
@@ -3249,6 +3405,19 @@ export async function cargarBorrador(_prev: ImportBalanceState, formData: FormDa
   const scope = await authorizePermiso("balance:crear", { clientId });
   if (!scope.ok) return { ok: false, message: scope.message };
 
+  // Apertura del informe (por cuenta / por terceros): la declara el analista en el
+  // borrador y es OBLIGATORIA para promover. El formulario la envía y el lote la
+  // conserva; se acepta cualquiera de las dos fuentes, pero nunca se deduce sola
+  // (la detección de terceros solo sugiere el valor inicial del selector).
+  const aperturaBalance =
+    parsearApertura(formData.get("aperturaBalance")) ?? parsearApertura(lote.aperturaBalance);
+  if (!aperturaBalance) {
+    return {
+      ok: false,
+      message: "Indica si el balance es por cuenta o por terceros antes de cargarlo.",
+    };
+  }
+
   // Compuerta defensiva del servidor: todas las filas deben conservar la misma
   // identidad que el encabezado.
   const [filasCliente, filasControl] = await Promise.all([
@@ -3311,11 +3480,13 @@ export async function cargarBorrador(_prev: ImportBalanceState, formData: FormDa
 
   // Las fechas editadas dejan de ser estado efímero del formulario: se guardan
   // antes de promover, de modo que también sobreviven si la carga oficial falla.
+  // La apertura declarada viaja por el mismo camino y con el mismo motivo.
   await prisma.balanceImportacionLote.update({
     where: { loteId },
     data: {
       periodoInicial: fechaCalendarioPrisma(periodoInicio),
       periodoFinal: fechaCalendarioPrisma(periodoFin),
+      aperturaBalance,
     },
   });
 
@@ -3328,6 +3499,7 @@ export async function cargarBorrador(_prev: ImportBalanceState, formData: FormDa
       filasLeidas: lote?.filasLeidas ?? 0, filasExcluidas: lote?.filasExcluidas ?? 0, filasDescuadre: 0,
       cuentasMovimiento: lote?.cuentasMovimiento ?? movEnStaging, cuentas: lote?.cuentasMovimiento ?? movEnStaging, cuentasAgrupadoras: 0,
       revisionContenido: lote.revisionContenido,
+      aperturaBalance,
       cuadreArchivo: null,
       comentarioPromocion: comentarioValidado.comentario,
     },
@@ -3397,6 +3569,59 @@ export async function actualizarPeriodoBorrador(
     return { ok: true, message: "Período guardado." };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("actualizarPeriodoBorrador", e) };
+  }
+}
+
+/**
+ * Guarda la APERTURA declarada del borrador (`cuenta` | `tercero`) sin esperar a
+ * su promoción: así el dato sobrevive a recargas de la página y ya viaja en el
+ * listado de borradores. No toca el staging ni los cálculos.
+ */
+export async function actualizarAperturaBorrador(
+  loteId: string,
+  apertura: string,
+): Promise<ActionState> {
+  const authz = await authorizePermiso("balance:crear");
+  if (!authz.ok) return { ok: false, message: authz.message };
+  const id = String(loteId ?? "").trim();
+  if (!id) return { ok: false, message: "Borrador inválido." };
+  const valor = parsearApertura(apertura);
+  if (!valor) return { ok: false, message: "Indica si el balance es por cuenta o por terceros." };
+  try {
+    const [lote, contexto] = await Promise.all([
+      prisma.balanceImportacionLote.findUnique({
+        where: { loteId: id },
+        select: { clienteId: true, cargadoPorId: true },
+      }),
+      contextoAccesoBorradorActual(),
+    ]);
+    if (!lote) return { ok: false, message: "El borrador ya no existe." };
+    if (!puedeVerBorrador(lote, contexto)) {
+      return { ok: false, message: "No tienes permiso para modificar ese borrador." };
+    }
+    if (lote.clienteId != null) {
+      const scope = await authorizePermiso("balance:crear", { clientId: lote.clienteId });
+      if (!scope.ok) return { ok: false, message: scope.message };
+    }
+    await transaccionSerializable(async (tx) => {
+      await tomarCandadoTransaccion(tx, `balance-borrador:${id}`);
+      const loteActual = await tx.balanceImportacionLote.findUnique({
+        where: { loteId: id },
+        select: { clienteId: true, cargadoPorId: true },
+      });
+      if (!loteActual || !puedeVerBorrador(loteActual, contexto)) {
+        throw new Error("El borrador cambió o ya no tienes permiso para modificarlo.");
+      }
+      await tx.balanceImportacionLote.update({
+        where: { loteId: id },
+        data: { aperturaBalance: valor },
+      });
+    });
+    revalidatePath(`/balance/borradores/${id}`);
+    revalidatePath("/balance/borradores");
+    return { ok: true, message: `Tipo de balance guardado: ${etiquetaApertura(valor)}.` };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("actualizarAperturaBorrador", e) };
   }
 }
 

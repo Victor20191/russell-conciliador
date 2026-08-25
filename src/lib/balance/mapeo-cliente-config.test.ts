@@ -36,19 +36,22 @@ describe("construirConfigMapeoCliente", () => {
 
   // Caso reportado por operación: la IA clasificaba `21052001 FIDUCIA` (pasivo) en
   // `124505` (activo). La corrección de UNA cuenta debe sobrevivir a la siguiente
-  // carga SIN arrastrar al resto del grupo.
+  // carga SIN arrastrar al resto del grupo. El fixture usa un grupo homologado
+  // DENTRO de su clase porque una regla automática que cruza de clase ya no
+  // gobierna a las hermanas (ver el describe de más abajo): lo que aquí se prueba
+  // es la granularidad de la excepción, no la clase.
   it("memoriza la excepción por cuenta sin cambiar la regla del grupo", () => {
     const config = construirConfigMapeoCliente([
-      { id: 1, code: "210520", cuenta6Russell: "124505", coincidencia: 90, origenMapeo: "automatico" },
+      { id: 1, code: "210520", cuenta6Russell: "210599", coincidencia: 90, origenMapeo: "automatico" },
       { id: 2, code: "21052001", cuenta6Russell: "210505", coincidencia: 100, origenMapeo: "manual_cuenta" },
-      { id: 3, code: "21052002", cuenta6Russell: "124505", coincidencia: 90, origenMapeo: "automatico" },
+      { id: 3, code: "21052002", cuenta6Russell: "210599", coincidencia: 90, origenMapeo: "automatico" },
     ]);
 
-    expect(config.get("210520")?.std).toBe("124505");
+    expect(config.get("210520")?.std).toBe("210599");
     expect(resolverMapeoCliente(config, "21052001")?.std).toBe("210505");
-    expect(resolverMapeoCliente(config, "21052002")?.std).toBe("124505");
+    expect(resolverMapeoCliente(config, "21052002")?.std).toBe("210599");
     // Una cuenta nueva del grupo hereda la regla del grupo, no la excepción.
-    expect(resolverMapeoCliente(config, "21052099")?.std).toBe("124505");
+    expect(resolverMapeoCliente(config, "21052099")?.std).toBe("210599");
   });
 
   it("la excepción por cuenta no gana la elección del grupo aunque sea manual", () => {
@@ -74,5 +77,40 @@ describe("construirConfigMapeoCliente", () => {
   it("resolverMapeoCliente tolera memoria vacía", () => {
     expect(resolverMapeoCliente(undefined, "11050501")).toBeUndefined();
     expect(resolverMapeoCliente(new Map(), "11050501")).toBeUndefined();
+  });
+});
+
+// La memoria manda sobre TODA la cascada, así que un error de la IA guardado
+// como `automatico` se volvía permanente: nunca se revisaba de nuevo y se
+// reaplicaba período tras período. Caso reportado por operación (QUIFARMA):
+// `140598 TRASLADOS`, inventarios, memorizada contra `799505` (cierre de costos).
+describe("reglas automáticas que cruzan de clase contable", () => {
+  it("no gobiernan el grupo: la cuenta vuelve a la cascada", () => {
+    const config = construirConfigMapeoCliente([
+      { id: 1, code: "140598", cuenta6Russell: "799505", coincidencia: 70, origenMapeo: "automatico" },
+      { id: 2, code: "14059805", cuenta6Russell: "799505", coincidencia: 70, origenMapeo: "automatico" },
+    ]);
+
+    expect(config.size).toBe(0);
+    expect(resolverMapeoCliente(config, "14059805")).toBeUndefined();
+  });
+
+  it("no desplazan a la regla válida del mismo grupo", () => {
+    const config = construirConfigMapeoCliente([
+      { id: 1, code: "14059805", cuenta6Russell: "799505", coincidencia: 95, origenMapeo: "automatico", actualizadoEn: "2026-08-18T12:00:00Z" },
+      { id: 2, code: "14059810", cuenta6Russell: "140505", coincidencia: 80, origenMapeo: "automatico", actualizadoEn: "2026-07-01T12:00:00Z" },
+    ]);
+
+    expect(resolverMapeoCliente(config, "14059805")?.std).toBe("140505");
+  });
+
+  it("respeta el cruce de clase decidido a mano, en el grupo y en la excepción", () => {
+    const config = construirConfigMapeoCliente([
+      { id: 1, code: "140598", cuenta6Russell: "799505", coincidencia: 100, origenMapeo: "manual" },
+      { id: 2, code: "21052001", cuenta6Russell: "124505", coincidencia: 100, origenMapeo: "manual_cuenta" },
+    ]);
+
+    expect(resolverMapeoCliente(config, "14059805")?.std).toBe("799505");
+    expect(resolverMapeoCliente(config, "21052001")?.std).toBe("124505");
   });
 });

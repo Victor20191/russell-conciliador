@@ -4,19 +4,39 @@ const mocks = vi.hoisted(() => ({
   create: vi.fn(),
   findUnique: vi.fn(),
   updateMany: vi.fn(),
+  delete: vi.fn(),
+  attachmentCreate: vi.fn(),
+  platformModuleFindMany: vi.fn(),
+  rolePermissionFindMany: vi.fn(),
   authorizePermiso: vi.fn(),
   getCurrentUser: vi.fn(),
   logAudit: vi.fn(),
   revalidatePath: vi.fn(),
+  almacenamientoEvidenciasTicketsDisponible: vi.fn(),
+  subirEvidenciaTicket: vi.fn(),
+  eliminarEvidenciaTicket: vi.fn(),
 }));
 
-vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }));
+vi.mock("next/cache", () => ({
+  revalidatePath: mocks.revalidatePath,
+  unstable_cache: (fn: (...args: unknown[]) => unknown) => fn,
+}));
 vi.mock("@/lib/prisma", () => ({
   default: {
     supportTicket: {
       create: mocks.create,
       findUnique: mocks.findUnique,
       updateMany: mocks.updateMany,
+      delete: mocks.delete,
+    },
+    supportTicketAttachment: {
+      create: mocks.attachmentCreate,
+    },
+    platformModule: {
+      findMany: mocks.platformModuleFindMany,
+    },
+    rolePermission: {
+      findMany: mocks.rolePermissionFindMany,
     },
   },
 }));
@@ -24,8 +44,24 @@ vi.mock("@/lib/rbac", () => ({ authorizePermiso: mocks.authorizePermiso }));
 vi.mock("@/lib/dal", () => ({ getCurrentUser: mocks.getCurrentUser }));
 vi.mock("@/lib/audit", () => ({ logAudit: mocks.logAudit }));
 vi.mock("@/lib/errores", () => ({ mensajeErrorBD: (contexto: string) => `${contexto}: error` }));
+vi.mock("@/lib/storage/evidencias-tickets", () => ({
+  almacenamientoEvidenciasTicketsDisponible: mocks.almacenamientoEvidenciasTicketsDisponible,
+  subirEvidenciaTicket: mocks.subirEvidenciaTicket,
+  eliminarEvidenciaTicket: mocks.eliminarEvidenciaTicket,
+}));
 
-import { crearTicketSoporte, guardarSolucionTicket } from "./soporte";
+import { catalogoUbicacionesNovedad } from "@/lib/soporte-rutas";
+import {
+  cambiarEstadoTicket,
+  crearNovedadInterna,
+  crearTicketSoporte,
+  eliminarTicketSoporte,
+  guardarSolucionTicket,
+  obtenerDetalleTicket,
+} from "./soporte";
+
+const rutaBalance = catalogoUbicacionesNovedad().find((ruta) => ruta.etiqueta === "Balance de comprobación")!;
+const menuBorrador = rutaBalance.menus.find((menu) => menu.etiqueta === "Borrador Balance")!;
 
 function formularioReporte() {
   const form = new FormData();
@@ -37,11 +73,36 @@ function formularioReporte() {
   return form;
 }
 
+function formularioNovedad() {
+  const form = new FormData();
+  form.set("subject", "El mapeo no guarda el ajuste");
+  form.set("description", "Cambié la cuenta y al recargar volvió al valor anterior.");
+  form.set("routeKey", rutaBalance.clave);
+  form.set("menuKey", menuBorrador.clave);
+  return form;
+}
+
 function formularioSolucion() {
   const form = new FormData();
   form.set("ticketId", "14");
   form.set("updatedAt", "2026-08-07T15:00:00.000Z");
   form.set("solution", "Se restableció el acceso y se verificó el ingreso con la persona.");
+  return form;
+}
+
+function formularioEstado(status = "en_proceso", solution = "") {
+  const form = new FormData();
+  form.set("ticketId", "14");
+  form.set("updatedAt", "2026-08-07T15:00:00.000Z");
+  form.set("status", status);
+  form.set("solution", solution);
+  return form;
+}
+
+function formularioEliminar(code = "TKT-20260807-A1B2C3D4") {
+  const form = new FormData();
+  form.set("ticketId", "14");
+  form.set("code", code);
   return form;
 }
 
@@ -53,6 +114,7 @@ describe("Server Actions de soporte", () => {
     mocks.getCurrentUser.mockResolvedValue({ id: 9, name: "Técnica Soporte" });
     mocks.findUnique.mockResolvedValue({ code: "TKT-20260807-A1B2C3D4" });
     mocks.updateMany.mockResolvedValue({ count: 1 });
+    mocks.almacenamientoEvidenciasTicketsDisponible.mockReturnValue(false);
   });
 
   it("crea el ticket público sin exigir sesión y entrega un enlace no adivinable", async () => {
@@ -116,5 +178,275 @@ describe("Server Actions de soporte", () => {
     expect(resultado.ok).toBe(false);
     expect(resultado.message).toContain("Otra persona actualizó");
     expect(mocks.logAudit).not.toHaveBeenCalled();
+  });
+
+  it("crea una novedad interna con la sesión y sin pedir nombre", async () => {
+    mocks.authorizePermiso.mockResolvedValueOnce({ ok: true, userId: 4, role: "Staff" });
+    mocks.getCurrentUser.mockResolvedValueOnce({ id: 4, name: "Laura Staff" });
+    const resultado = await crearNovedadInterna(undefined, formularioNovedad());
+    expect(resultado.ok).toBe(true);
+    expect(resultado.ticketId).toBe(1);
+    expect(mocks.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        createdById: 4,
+        reporterFirstName: "Laura",
+        reporterLastName: "Staff",
+        subject: "El mapeo no guarda el ajuste",
+        routeKey: rutaBalance.clave,
+        routeLabel: "Balance de comprobación",
+        menuKey: menuBorrador.clave,
+        menuLabel: "Borrador Balance",
+      }),
+      select: { id: true },
+    });
+    expect(mocks.logAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: "REPORTÓ NOVEDAD",
+    }));
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/reportes");
+  });
+
+  it("rechaza un menú que no pertenece a la ruta elegida", async () => {
+    const form = formularioNovedad();
+    form.set("menuKey", "registro-de-acciones");
+    const resultado = await crearNovedadInterna(undefined, form);
+    expect(resultado.ok).toBe(false);
+    expect(resultado.errors?.menuKey?.[0]).toMatch(/ruta/i);
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
+  it("rechaza una novedad sobre un módulo que está en desarrollo", async () => {
+    mocks.platformModuleFindMany.mockResolvedValueOnce([
+      {
+        id: 1,
+        key: "balance",
+        label: "Balance de comprobación",
+        description: "",
+        group: "Trabajo",
+        icon: "doc",
+        order: 20,
+        enabledForNonAdmins: false,
+        configurableForNonAdmins: true,
+      },
+    ]);
+    const resultado = await crearNovedadInterna(undefined, formularioNovedad());
+    expect(resultado.ok).toBe(false);
+    expect(resultado.errors?.menuKey?.[0]).toMatch(/ruta/i);
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
+  it("no crea la novedad interna sin permiso", async () => {
+    mocks.authorizePermiso.mockResolvedValueOnce({ ok: false, message: "Sin permiso." });
+    const resultado = await crearNovedadInterna(undefined, formularioNovedad());
+    expect(resultado).toEqual({ ok: false, message: "Sin permiso." });
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
+  it("rechaza imágenes si el almacenamiento no está configurado", async () => {
+    const form = formularioNovedad();
+    form.append("adjuntos", new File([new Uint8Array([0xff, 0xd8, 0xff])], "captura.jpg", { type: "image/jpeg" }));
+    const resultado = await crearNovedadInterna(undefined, form);
+    expect(resultado.ok).toBe(false);
+    expect(resultado.message).toMatch(/almacenamiento/i);
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+
+  it("sube la evidencia al almacenamiento aislado de tickets", async () => {
+    mocks.almacenamientoEvidenciasTicketsDisponible.mockReturnValue(true);
+    const form = formularioNovedad();
+    form.append(
+      "adjuntos",
+      new File([new Uint8Array([0xff, 0xd8, 0xff])], "captura.jpg", {
+        type: "image/jpeg",
+      }),
+    );
+
+    const resultado = await crearNovedadInterna(undefined, form);
+
+    expect(resultado.ok).toBe(true);
+    expect(mocks.subirEvidenciaTicket).toHaveBeenCalledWith({
+      key: expect.stringMatching(/^tickets\/1\/[a-f0-9]{16}\.jpg$/),
+      cuerpo: expect.any(Uint8Array),
+      contentType: "image/jpeg",
+    });
+    expect(mocks.attachmentCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        ticketId: 1,
+        objectKey: expect.stringMatching(/^tickets\/1\/[a-f0-9]{16}\.jpg$/),
+        fileName: "captura.jpg",
+        contentType: "image/jpeg",
+        sizeBytes: 3,
+      }),
+    });
+  });
+
+  it("cambia el estado sin exigir solución cuando no está resuelto", async () => {
+    const resultado = await cambiarEstadoTicket(undefined, formularioEstado("en_proceso"));
+    expect(resultado).toEqual({ ok: true });
+    expect(mocks.updateMany).toHaveBeenCalledWith({
+      where: { id: 14, updatedAt: new Date("2026-08-07T15:00:00.000Z") },
+      data: expect.objectContaining({ status: "en_proceso" }),
+    });
+    expect(mocks.logAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: "ACTUALIZÓ ESTADO DE REPORTE",
+    }));
+  });
+
+  it("exige solución al marcar resuelto y no escribe si falta", async () => {
+    const resultado = await cambiarEstadoTicket(undefined, formularioEstado("resuelto"));
+    expect(resultado.ok).toBe(false);
+    expect(mocks.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("no cambia estado sin permiso de administración", async () => {
+    mocks.authorizePermiso.mockResolvedValueOnce({ ok: false, message: "Sin permiso." });
+    const resultado = await cambiarEstadoTicket(undefined, formularioEstado());
+    expect(resultado).toEqual({ ok: false, message: "Sin permiso." });
+    expect(mocks.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("elimina el ticket y borra sus imágenes del almacenamiento aislado", async () => {
+    mocks.almacenamientoEvidenciasTicketsDisponible.mockReturnValue(true);
+    mocks.eliminarEvidenciaTicket.mockResolvedValue(undefined);
+    mocks.findUnique.mockResolvedValue({
+      code: "TKT-20260807-A1B2C3D4",
+      subject: "El mapeo no guarda el ajuste",
+      attachments: [{ objectKey: "tickets/14/aa.jpg" }, { objectKey: "tickets/14/bb.png" }],
+    });
+
+    const resultado = await eliminarTicketSoporte(undefined, formularioEliminar());
+
+    expect(resultado).toEqual({ ok: true });
+    expect(mocks.authorizePermiso).toHaveBeenCalledWith("soporte:eliminar");
+    expect(mocks.eliminarEvidenciaTicket).toHaveBeenCalledWith("tickets/14/aa.jpg");
+    expect(mocks.eliminarEvidenciaTicket).toHaveBeenCalledWith("tickets/14/bb.png");
+    expect(mocks.delete).toHaveBeenCalledWith({ where: { id: 14 } });
+    expect(mocks.logAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: "ELIMINÓ REPORTE",
+      entity: "TKT-20260807-A1B2C3D4",
+    }));
+  });
+
+  it("borra el ticket aunque el almacenamiento falle y lo deja anotado en la auditoría", async () => {
+    mocks.almacenamientoEvidenciasTicketsDisponible.mockReturnValue(true);
+    mocks.eliminarEvidenciaTicket.mockRejectedValue(new Error("S3 caído"));
+    mocks.findUnique.mockResolvedValue({
+      code: "TKT-20260807-A1B2C3D4",
+      subject: "Novedad con captura",
+      attachments: [{ objectKey: "tickets/14/aa.jpg" }],
+    });
+
+    const resultado = await eliminarTicketSoporte(undefined, formularioEliminar());
+
+    expect(resultado).toEqual({ ok: true });
+    expect(mocks.delete).toHaveBeenCalledWith({ where: { id: 14 } });
+    expect(mocks.logAudit).toHaveBeenCalledWith(expect.objectContaining({
+      detail: expect.stringContaining("1 archivo(s) no se pudieron borrar"),
+    }));
+  });
+
+  it("no borra si el código de confirmación ya no corresponde al ticket", async () => {
+    mocks.findUnique.mockResolvedValue({
+      code: "TKT-20260807-OTRO0000",
+      subject: "Otro ticket",
+      attachments: [],
+    });
+
+    const resultado = await eliminarTicketSoporte(undefined, formularioEliminar());
+
+    expect(resultado.ok).toBe(false);
+    expect(mocks.delete).not.toHaveBeenCalled();
+  });
+
+  it("falla cerrado sin el permiso de eliminación, antes de tocar la BD", async () => {
+    mocks.authorizePermiso.mockResolvedValueOnce({ ok: false, message: "Sin permiso." });
+
+    const resultado = await eliminarTicketSoporte(undefined, formularioEliminar());
+
+    expect(resultado).toEqual({ ok: false, message: "Sin permiso." });
+    expect(mocks.findUnique).not.toHaveBeenCalled();
+    expect(mocks.delete).not.toHaveBeenCalled();
+  });
+  describe("obtenerDetalleTicket", () => {
+    const ticketBase = {
+      id: 14,
+      code: "TKT-20260807-A1B2C3D4",
+      createdById: 3,
+      reporterFirstName: "Ana",
+      reporterLastName: "Pérez",
+      subject: "No puedo ingresar al balance",
+      description: "Al abrir /balance sale un error.",
+      routeLabel: "Balance de comprobación",
+      menuLabel: "Balance",
+      status: "abierto",
+      solution: null,
+      resolvedByName: null,
+      resolvedAt: null,
+      createdAt: new Date("2026-08-07T15:00:00.000Z"),
+      attachments: [{ id: 5, fileName: "captura.png" }],
+    };
+
+    it("entrega el detalle de un ticket interno con las fechas serializadas", async () => {
+      mocks.findUnique.mockResolvedValue(ticketBase);
+
+      const resultado = await obtenerDetalleTicket(14);
+
+      expect(mocks.authorizePermiso).toHaveBeenCalledWith("soporte:ver");
+      expect(resultado).toEqual({
+        ok: true,
+        ticket: expect.objectContaining({
+          id: 14,
+          code: "TKT-20260807-A1B2C3D4",
+          reportante: "Ana Pérez",
+          ubicacion: "Balance de comprobación · Balance",
+          createdAt: "2026-08-07T15:00:00.000Z",
+          adjuntos: [{ id: 5, fileName: "captura.png" }],
+        }),
+      });
+    });
+
+    it("oculta los tickets públicos a quien no administra soporte", async () => {
+      mocks.findUnique.mockResolvedValue({ ...ticketBase, createdById: null });
+      mocks.authorizePermiso.mockImplementation(async (permiso: string) =>
+        permiso === "soporte:administrar"
+          ? { ok: false, message: "Sin permiso." }
+          : { ok: true, userId: 9, role: "Staff" },
+      );
+
+      const resultado = await obtenerDetalleTicket(14);
+
+      expect(resultado).toEqual({ ok: false, message: "Este reporte no está disponible." });
+    });
+
+    it("deja ver un ticket público a Xentria", async () => {
+      mocks.findUnique.mockResolvedValue({ ...ticketBase, createdById: null });
+
+      const resultado = await obtenerDetalleTicket(14);
+
+      expect(resultado.ok).toBe(true);
+    });
+
+    it("exige el permiso de lectura antes de tocar la base de datos", async () => {
+      mocks.authorizePermiso.mockResolvedValue({ ok: false, message: "Sin permiso." });
+
+      const resultado = await obtenerDetalleTicket(14);
+
+      expect(resultado).toEqual({ ok: false, message: "Sin permiso." });
+      expect(mocks.findUnique).not.toHaveBeenCalled();
+    });
+
+    it("rechaza un id que no es un ticket", async () => {
+      const resultado = await obtenerDetalleTicket(0);
+
+      expect(resultado).toEqual({ ok: false, message: "Reporte inválido." });
+      expect(mocks.findUnique).not.toHaveBeenCalled();
+    });
+
+    it("avisa cuando el ticket ya no existe", async () => {
+      mocks.findUnique.mockResolvedValue(null);
+
+      const resultado = await obtenerDetalleTicket(14);
+
+      expect(resultado).toEqual({ ok: false, message: "Este reporte ya no existe." });
+    });
   });
 });

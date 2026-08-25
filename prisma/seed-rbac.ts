@@ -24,11 +24,16 @@ import {
   DEMO_JERARQUIA,
   asignacionesDemo,
 } from "../src/lib/rbac/escenario-demo";
+import { exigirBaseDesechable } from "./guardia-destructiva";
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
 const prisma = new PrismaClient({ adapter });
 
 async function main() {
+  // Borra TODAS las asignaciones de responsables y la jerarquía: solo en base desechable.
+  // Para reconciliar la matriz sin destruir nada, usar `npm run db:sync:rbac`.
+  await exigirBaseDesechable(prisma, "db:seed:rbac");
+
   console.log("🌱 Seed RBAC (roles, permisos, jerarquía y responsables de prueba)…");
 
   // 1) Limpieza idempotente de las tablas RBAC (no toca usuarios/clientes).

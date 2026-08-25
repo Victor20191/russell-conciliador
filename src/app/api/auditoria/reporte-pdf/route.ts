@@ -1,7 +1,8 @@
 import type { NextRequest } from "next/server";
 import * as z from "zod";
-import { authorizePermiso } from "@/lib/rbac";
+import { authorizeReporteEjecutivo } from "@/lib/rbac/reporte-ejecutivo";
 import { registrarError } from "@/lib/errores";
+import { prepararHtmlReporteEjecutivoPdf } from "@/lib/auditoria/reporte-ejecutivo/pdf";
 import { generarPdfReporteNovedades } from "@/lib/novedades/pdf";
 
 export const runtime = "nodejs";
@@ -21,12 +22,12 @@ function slug(texto: string): string {
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-|-$/g, "")
-      .slice(0, 80) || "reporte-ejecutivo-uso-adopcion"
+      .slice(0, 80) || "reporte-uso-y-avances"
   );
 }
 
 export async function POST(req: NextRequest) {
-  const authz = await authorizePermiso("auditoria:reporte_ejecutivo");
+  const authz = await authorizeReporteEjecutivo();
   if (!authz.ok) {
     return Response.json({ message: authz.message }, { status: 403 });
   }
@@ -40,7 +41,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const pdf = await generarPdfReporteNovedades(parsed.data);
+    const pdf = await generarPdfReporteNovedades({
+      ...parsed.data,
+      html: prepararHtmlReporteEjecutivoPdf(parsed.data.html),
+      media: "print",
+      ajustarEscalaVistaPrevia: false,
+    });
 
     return new Response(pdf, {
       headers: {

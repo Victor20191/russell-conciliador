@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useActionState, useState } from "react";
 import { crearTicketSoporte } from "@/app/actions/soporte";
 import { EstadoProcesando } from "@/components/estado-procesando";
+import { copiarTextoAlPortapapeles } from "@/lib/portapapeles";
 
 const INPUT = "rounded-md border border-ink-200 bg-white px-3.5 py-2.5 text-[13px] text-ink-800 outline-none transition placeholder:text-ink-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
 
@@ -17,8 +18,13 @@ export default function SoporteForm() {
 
   if (state?.ok && state.code && state.trackingUrl) {
     const copiar = async () => {
-      await navigator.clipboard.writeText(new URL(state.trackingUrl!, window.location.origin).toString());
-      setCopiado(true);
+      const enlace = new URL(state.trackingUrl!, window.location.origin).toString();
+      try {
+        await copiarTextoAlPortapapeles(enlace);
+        setCopiado(true);
+      } catch {
+        setCopiado(false);
+      }
     };
     return (
       <div className="rounded-lg border border-ok-100 bg-ok-100 p-5" role="status">

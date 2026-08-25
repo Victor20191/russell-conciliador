@@ -47,6 +47,11 @@ next-env.d.ts
 # imágenes pegadas desde el portapapeles (no versionar)
 clipboard-*.png
 
+# artefactos locales de Playwright MCP (snapshots .yml y capturas de depuración)
+.playwright-mcp/
+login-*.png
+modulos-inv-*.png
+
 # hojas de cálculo, PDF, Word, scripts Python y texto
 *.xlsx
 *.xls

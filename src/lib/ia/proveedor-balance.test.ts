@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   configuracionIABalanceUI,
   correoAutorizadoIAPruebas,
+  DOMINIO_CORREO_IA_PRUEBAS,
   iaBalanceDisponible,
   mensajeIABalanceNoDisponible,
   modoDesarrolloIABalanceActivo,
@@ -92,6 +93,10 @@ describe("proveedorIABalance", () => {
 });
 
 describe("correoAutorizadoIAPruebas", () => {
+  it("conserva el dominio corporativo tras mudar la constante a @/lib/dominios-correo", () => {
+    expect(DOMINIO_CORREO_IA_PRUEBAS).toBe("@xentria.co");
+  });
+
   it("acepta solo correos del dominio corporativo (insensible a mayúsculas)", () => {
     expect(correoAutorizadoIAPruebas("admin@xentria.co")).toBe(true);
     expect(correoAutorizadoIAPruebas("  Luisa@XENTRIA.CO ")).toBe(true);

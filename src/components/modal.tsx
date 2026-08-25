@@ -1,6 +1,7 @@
 "use client";
 
 import { Icon } from "@/components/icons";
+import { useBloqueoScrollFondo } from "@/lib/bloqueo-scroll";
 
 // Ancho máximo del modal. `lg` (por defecto) conserva el tamaño histórico de
 // todos los modales; los formularios anchos (p. ej. clientes) piden uno mayor.
@@ -37,6 +38,11 @@ export function Modal({
   // acciones de negocio (Guardar, Editar, Importar, Eliminar…) y, si aplica,
   // un «Cancelar» emparejado con una acción primaria que descarte un borrador
   // de formulario sin guardar — no un cierre genérico.
+  //
+  // Mientras está abierto, la app de fondo NO se desplaza: el hook va antes del
+  // retorno temprano porque el orden de hooks no puede depender de `open`.
+  useBloqueoScrollFondo(open);
+
   if (!open) return null;
 
   return (

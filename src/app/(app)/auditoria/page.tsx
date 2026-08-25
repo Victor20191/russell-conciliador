@@ -7,9 +7,8 @@ import { fmtDateTimeSeconds } from "@/lib/format";
 
 export default async function AuditoriaPage({ searchParams }: { searchParams: Promise<{ q?: string; user?: string; action?: string }> }) {
   await requirePermiso("auditoria:ver");
-  const [accesosAuth, reporteAuth, sp, all] = await Promise.all([
+  const [accesosAuth, sp, all] = await Promise.all([
     authorizePermiso("auditoria:accesos"),
-    authorizePermiso("auditoria:reporte_ejecutivo"),
     searchParams,
     prisma.auditEntry.findMany({
       orderBy: { createdAt: "desc" },
@@ -20,7 +19,6 @@ export default async function AuditoriaPage({ searchParams }: { searchParams: Pr
     }),
   ]);
   const canAccesos = accesosAuth.ok;
-  const canReporteEjecutivo = reporteAuth.ok;
 
   const users = [...new Set(all.map((e) => e.user))].sort();
   const actions = [...new Set(all.map((e) => e.action))].sort();
@@ -45,7 +43,7 @@ export default async function AuditoriaPage({ searchParams }: { searchParams: Pr
   return (
     <div>
       <PageHeader title="Auditoría" subtitle="Bitácora inmutable: trazabilidad de acciones del sistema con usuario, IP y detalle." />
-      <AuditoriaTabs canAccesos={canAccesos} canReporteEjecutivo={canReporteEjecutivo} />
+      <AuditoriaTabs canAccesos={canAccesos} />
       <AuditoriaTabla rows={rows} users={users} actions={actions} />
     </div>
   );

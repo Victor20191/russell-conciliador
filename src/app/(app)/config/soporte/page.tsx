@@ -1,89 +1,80 @@
+import Link from "next/link";
 import prisma from "@/lib/prisma";
-import { requirePermiso } from "@/lib/rbac";
-import TicketSolucionForm from "./ticket-solucion-form";
-import { ESTADO_TICKET_RESUELTO } from "@/lib/soporte";
-import { fmtDateTime } from "@/lib/format";
+import { authorizePermiso, requirePermiso } from "@/lib/rbac";
+import { esTicketEnGestion, type TicketFilaGestion } from "@/lib/soporte-bandeja";
+import TicketsGestionTabla from "./tickets-gestion-tabla";
+
+// Tope de la bandeja: la tabla pagina en memoria, así que basta con traer los
+// más recientes con las columnas mínimas (nada de descripción ni adjuntos).
+const MAX_TICKETS = 500;
 
 export default async function SoporteAdminPage() {
   await requirePermiso("soporte:administrar");
+  // El borrado definitivo es exclusivo del Superadministrador: la tabla solo
+  // pinta el control si el permiso existe (la Server Action lo revalida).
+  const puedeEliminar = (await authorizePermiso("soporte:eliminar")).ok;
 
   const tickets = await prisma.supportTicket.findMany({
-    orderBy: [{ status: "asc" }, { createdAt: "desc" }],
-    take: 200,
-    // La credencial publica no se necesita en la bandeja y no debe viajar ni
-    // siquiera dentro del objeto del loader administrativo.
+    orderBy: [{ createdAt: "desc" }],
+    take: MAX_TICKETS,
     select: {
       id: true,
       code: true,
+      createdById: true,
       reporterFirstName: true,
       reporterLastName: true,
       subject: true,
-      description: true,
+      routeLabel: true,
+      menuLabel: true,
       status: true,
-      solution: true,
       resolvedByName: true,
       resolvedAt: true,
       createdAt: true,
-      updatedAt: true,
+      _count: { select: { attachments: true } },
     },
   });
-  const abiertos = tickets.filter((ticket) => ticket.status !== ESTADO_TICKET_RESUELTO).length;
+
+  const filas: TicketFilaGestion[] = tickets.map((ticket) => ({
+    id: ticket.id,
+    code: ticket.code,
+    createdById: ticket.createdById,
+    reporterFirstName: ticket.reporterFirstName,
+    reporterLastName: ticket.reporterLastName,
+    subject: ticket.subject,
+    routeLabel: ticket.routeLabel,
+    menuLabel: ticket.menuLabel,
+    status: ticket.status,
+    adjuntos: ticket._count.attachments,
+    resolvedByName: ticket.resolvedByName,
+    resolvedAt: ticket.resolvedAt?.toISOString() ?? null,
+    createdAt: ticket.createdAt.toISOString(),
+  }));
+  const pendientes = filas.filter((ticket) => esTicketEnGestion(ticket.status)).length;
 
   return (
-    <div className="mx-auto max-w-6xl">
+    <div className="w-full">
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-blue-500">Configuración · Mesa de ayuda</p>
-          <h1 className="mt-1 font-serif text-2xl text-ink-900">Tickets de soporte</h1>
-          <p className="mt-1.5 text-sm text-ink-500">Documenta cómo se resolvió cada solicitud; el reportante verá la respuesta en su enlace privado.</p>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-blue-500">Configuración · Xentria</p>
+          <h1 className="mt-1 font-serif text-2xl text-ink-900">Gestión de reportes</h1>
+          <p className="mt-1.5 text-sm text-ink-500">
+            Bandeja de novedades reportadas. Abre un ticket para ver sus imágenes, cambiar su estado y documentar la solución.
+          </p>
         </div>
-        <div className="rounded-md border border-ink-150 bg-white px-3.5 py-2 text-xs text-ink-600">
-          <strong className="text-ink-900">{abiertos}</strong> abiertos · {tickets.length} mostrados
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href="/reportes"
+            className="rounded-md border border-ink-200 bg-white px-3.5 py-2 text-[12.5px] font-semibold text-ink-700 transition hover:bg-ink-50"
+          >
+            Ver reportes
+          </Link>
+          <div className="rounded-md border border-ink-150 bg-white px-3.5 py-2 text-xs text-ink-600">
+            <strong className="text-ink-900">{pendientes}</strong> en gestión · {filas.length} mostrados
+          </div>
         </div>
       </div>
 
-      {tickets.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-ink-200 bg-paper px-6 py-12 text-center text-sm text-ink-500">
-          Todavía no hay tickets reportados.
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {tickets.map((ticket) => {
-            const resuelto = ticket.status === ESTADO_TICKET_RESUELTO && Boolean(ticket.solution);
-            return (
-              <article key={ticket.id} className="rounded-lg border border-ink-150 bg-paper shadow-sm">
-                <div className="grid gap-5 p-5 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.85fr)]">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono text-xs font-semibold text-ink-700">{ticket.code}</span>
-                      <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-semibold ${resuelto ? "bg-ok-100 text-ok-700" : "bg-warn-100 text-warn-700"}`}>
-                        {resuelto ? "Resuelto" : "Abierto"}
-                      </span>
-                    </div>
-                    <h2 className="mt-3 font-serif text-xl text-ink-900">{ticket.subject}</h2>
-                    <p className="mt-1 text-xs text-ink-500">
-                      {ticket.reporterFirstName} {ticket.reporterLastName} · {fmtDateTime(ticket.createdAt)}
-                    </p>
-                    <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-ink-700">{ticket.description}</p>
-                    {ticket.resolvedByName && ticket.resolvedAt && (
-                      <p className="mt-4 text-xs text-ink-500">Última solución: {ticket.resolvedByName} · {fmtDateTime(ticket.resolvedAt)}</p>
-                    )}
-                  </div>
-
-                  <TicketSolucionForm
-                    ticket={{
-                      id: ticket.id,
-                      code: ticket.code,
-                      solution: ticket.solution,
-                      updatedAt: ticket.updatedAt.toISOString(),
-                    }}
-                  />
-                </div>
-              </article>
-            );
-          })}
-        </div>
-      )}
+      <TicketsGestionTabla tickets={filas} puedeEliminar={puedeEliminar} />
     </div>
   );
 }
