@@ -12,6 +12,7 @@ import { guardarConsolidacionModulo, guardarConsolidacionModuloLote } from "@/ap
 import { aplicarAsignacionMasiva, contarConCuentas, type ModoAsignacionMasiva } from "@/lib/modulos/consolidacion-masiva";
 import { filtrarFilasDetalleModulo, hayFiltrosDetalleModulo, type FiltrosDetalleModulo } from "@/lib/modulos/filtros-detalle-modulo";
 import type { ResumenCruceContable } from "@/lib/modulos/cruce-contable";
+import type { ResumenCruceTercero } from "@/lib/modulos/cruce-tercero";
 
 export type FilaDetalleVm = { filaNum: number; clasificador: string | null; valor: number; datos: Record<string, string | number | null> };
 export type ConsolidadoVm = { clasificador: string; total: number; filas: number; cuentas4: { codigo: string; nombre: string | null }[] };
@@ -23,6 +24,19 @@ export type CruceContableVm = {
   nombreCliente: string;
   resumen: ResumenCruceContable | null;
   sinMapeoContable: { total: number; filas: number } | null;
+};
+// Cruce por tercero (NIT): balance abierto por tercero vs. auxiliar del módulo
+// (CAR/CXP). `aplica` es false para módulos sin columna "tercero" (p. ej. INV) — la
+// pestaña ni se muestra. `resumen` es null cuando no hay balance por tercero
+// confirmado para el período (estado vacío en la UI).
+export type CruceTerceroVm = {
+  aplica: boolean;
+  balanceEncontrado: boolean;
+  periodo: string;
+  nombreCliente: string;
+  resumen: ResumenCruceTercero | null;
+  contableSinNit: { total: number; filas: number } | null;
+  moduloSinNit: { total: number; filas: number } | null;
 };
 export type NovedadesVm = {
   negativos: { filaNum: number; etiqueta: string; referencia: string | null; valor: number }[];
@@ -64,6 +78,7 @@ export default function DatoCargadoClient({
   detalle,
   consolidado,
   cruceContable,
+  cruceTercero,
   novedades,
   cuentas,
   homologacionCliente,
@@ -82,6 +97,7 @@ export default function DatoCargadoClient({
   detalle: FilaDetalleVm[];
   consolidado: ConsolidadoVm[];
   cruceContable: CruceContableVm;
+  cruceTercero: CruceTerceroVm;
   novedades: NovedadesVm;
   cuentas: CuentaOpt[];
   homologacionCliente: HomologacionCliente;
@@ -90,21 +106,37 @@ export default function DatoCargadoClient({
   versionActualId: number;
   tabInicial: "versiones" | null;
 }) {
-  const [tab, setTab] = useState<"detalle" | "consolidado" | "cruce" | "novedades" | "versiones">(tabInicial ?? "consolidado");
+  type TabId = "detalle" | "consolidado" | "cruce" | "cruceTercero" | "novedades" | "versiones";
+  const [tab, setTab] = useState<TabId>(tabInicial ?? "consolidado");
   const filasNovedad = new Set([...novedades.negativos, ...novedades.descuadres].map((n) => n.filaNum));
   const alertas = filasNovedad.size;
+  const tabs: TabId[] = [
+    "consolidado",
+    "detalle",
+    "cruce",
+    ...(cruceTercero.aplica ? (["cruceTercero"] as const) : []),
+    "novedades",
+    "versiones",
+  ];
+  const etiquetaTab = (t: TabId) =>
+    t === "consolidado" ? "Consolidado"
+    : t === "detalle" ? "Detalle"
+    : t === "cruce" ? "Cruce contable"
+    : t === "cruceTercero" ? "Cruce por tercero"
+    : t === "novedades" ? "Novedades"
+    : "Versiones";
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center gap-1 border-b border-ink-150">
-        {(["consolidado", "detalle", "cruce", "novedades", "versiones"] as const).map((t) => (
+        {tabs.map((t) => (
           <button
             key={t}
             type="button"
             onClick={() => setTab(t)}
             className={`-mb-px border-b-2 px-3 py-2 text-[12.5px] font-semibold ${tab === t ? "border-navy-700 text-navy-700" : "border-transparent text-ink-500 hover:text-ink-700"}`}
           >
-            {t === "consolidado" ? "Consolidado" : t === "detalle" ? "Detalle" : t === "cruce" ? "Cruce contable" : t === "novedades" ? "Novedades" : "Versiones"}
+            {etiquetaTab(t)}
             {t === "novedades" && alertas > 0 && <span className="ml-1.5 rounded-full bg-err-100 px-1.5 text-[10px] font-bold text-err-700">{alertas}</span>}
             {t === "versiones" && <span className="ml-1.5 rounded-full bg-ink-100 px-1.5 text-[10px] font-bold text-ink-600">{versiones.length}</span>}
           </button>
@@ -118,6 +150,8 @@ export default function DatoCargadoClient({
         <DetalleTab columnas={columnas} clasificadorEtiqueta={clasificadorEtiqueta} detalle={detalle} negativosFilas={filasNovedad} encabezadoId={encabezadoId} comentarios={comentarios} />
       ) : tab === "cruce" ? (
         <CruceContableTab cruceContable={cruceContable} />
+      ) : tab === "cruceTercero" ? (
+        <CruceTerceroTab cruceTercero={cruceTercero} />
       ) : tab === "novedades" ? (
         <NovedadesTab novedades={novedades} />
       ) : (
@@ -849,6 +883,95 @@ function CruceContableTab({ cruceContable }: { cruceContable: CruceContableVm })
           {sinMapeoContable && (
             <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">
               El balance tiene <b>{fmtContable(sinMapeoContable.total)}</b> en {sinMapeoContable.filas} {sinMapeoContable.filas === 1 ? "cuenta" : "cuentas"} de inventario sin homologar a una cuenta Russell — no está incluido en «Contabilidad». Homológalas en la memoria de mapeo del cliente para que entren al cruce.
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Cruce por tercero: saldo del balance abierto POR TERCERO vs. el auxiliar del módulo
+// (CAR/CXP), NIT por NIT. Calcado de `CruceContableTab`: estado vacío si no hay balance
+// por tercero confirmado para el período; avisos aparte para los montos que no se
+// pudieron cruzar por falta de NIT en cada lado.
+function CruceTerceroTab({ cruceTercero }: { cruceTercero: CruceTerceroVm }) {
+  if (!cruceTercero.balanceEncontrado || !cruceTercero.resumen) {
+    return (
+      <Card className="flex flex-col items-center gap-2 p-8 text-center">
+        <div className="text-[13px] font-semibold text-ink-800">No hay balance por tercero confirmado para este período</div>
+        <p className="max-w-md text-[12.5px] text-ink-500">
+          No hay balance por tercero confirmado para <b className="text-ink-700">{cruceTercero.nombreCliente}</b> en el período <b className="text-ink-700">{cruceTercero.periodo}</b>. Cárgalo desde Balance › Abrir por tercero.
+        </p>
+        <Link href="/balance" className="mt-1 text-[12.5px] font-semibold text-blue-700 hover:underline">
+          Ir a Balance de comprobación →
+        </Link>
+      </Card>
+    );
+  }
+
+  const { resumen, contableSinNit, moduloSinNit } = cruceTercero;
+
+  return (
+    <div className="flex flex-col gap-4">
+      <Card className="p-0">
+        <div className="overflow-x-auto">
+          <table className="w-full text-[12.5px]">
+            <thead className="bg-ink-50 text-left text-ink-500">
+              <tr>
+                <th className="px-3 py-2 font-semibold">NIT</th>
+                <th className="px-3 py-2 font-semibold">Nombre</th>
+                <th className="px-3 py-2 text-right font-semibold">Contabilidad</th>
+                <th className="px-3 py-2 text-right font-semibold">Auxiliar (módulo)</th>
+                <th className="px-3 py-2 text-right font-semibold">Diferencia</th>
+              </tr>
+            </thead>
+            <tbody>
+              {resumen.filas.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-3 py-6 text-center text-ink-400">Sin terceros para cruzar en este período.</td>
+                </tr>
+              )}
+              {resumen.filas.map((f) => (
+                <tr key={f.nit} className={`border-t border-ink-100 ${f.estado === "descuadre" ? "bg-err-100/30" : ""}`}>
+                  <td className="px-3 py-2 font-medium text-ink-800">{f.nit}</td>
+                  <td className="px-3 py-2 text-ink-700">{f.nombre ?? "—"}</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(f.contable)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(f.modulo)}</td>
+                  <td className="px-3 py-2 text-right">
+                    <div className="flex items-center justify-end gap-1.5">
+                      {f.estado === "solo_contable" && <Chip label="Solo en contabilidad" tone="warn" />}
+                      {f.estado === "solo_modulo" && <Chip label="Solo en módulo" tone="warn" />}
+                      <span className={`tabular-nums font-semibold ${f.cuadra ? "text-ok-700" : "text-err-700"}`}>{fmtContable(f.diferencia)}</span>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            {resumen.filas.length > 0 && (
+              <tfoot>
+                <tr className="border-t-2 border-ink-200 bg-ink-50 font-semibold text-ink-800">
+                  <td className="px-3 py-2" colSpan={2}>Totales</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{fmtContable(resumen.totales.contable)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{fmtContable(resumen.totales.modulo)}</td>
+                  <td className={`px-3 py-2 text-right tabular-nums ${Math.abs(resumen.totales.diferencia) <= 0.01 ? "text-ok-700" : "text-err-700"}`}>{fmtContable(resumen.totales.diferencia)}</td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
+        </div>
+      </Card>
+
+      {(contableSinNit || moduloSinNit) && (
+        <div className="flex flex-col gap-2">
+          {contableSinNit && (
+            <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[12px] text-warn-700">
+              El balance por tercero tiene <b>{fmtContable(contableSinNit.total)}</b> en {contableSinNit.filas} {contableSinNit.filas === 1 ? "fila" : "filas"} sin NIT identificado — no {contableSinNit.filas === 1 ? "entró" : "entraron"} al cruce por tercero.
+            </div>
+          )}
+          {moduloSinNit && (
+            <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[12px] text-warn-700">
+              El auxiliar del módulo tiene <b>{fmtContable(moduloSinNit.total)}</b> en {moduloSinNit.filas} {moduloSinNit.filas === 1 ? "fila" : "filas"} sin NIT identificado — no {moduloSinNit.filas === 1 ? "entró" : "entraron"} al cruce por tercero.
             </div>
           )}
         </div>

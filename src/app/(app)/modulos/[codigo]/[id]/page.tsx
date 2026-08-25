@@ -15,7 +15,10 @@ import { detectarNegativos, detectarDescuadres } from "@/lib/modulos/validacione
 import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
 import { fmtDateTime } from "@/lib/format";
 import { construirCruceContable, type ResumenCruceContable } from "@/lib/modulos/cruce-contable";
-import DatoCargadoClient, { type FilaDetalleVm, type ConsolidadoVm, type NovedadesVm, type VersionModuloVm, type CruceContableVm } from "./dato-cargado-client";
+import { construirCruceTercero, type ResumenCruceTercero } from "@/lib/modulos/cruce-tercero";
+import { normalizarTerceroModulo } from "@/lib/modulos/tercero";
+import { agregarPorNit } from "@/lib/modulos/agregar-por-nit";
+import DatoCargadoClient, { type FilaDetalleVm, type ConsolidadoVm, type NovedadesVm, type VersionModuloVm, type CruceContableVm, type CruceTerceroVm } from "./dato-cargado-client";
 
 /** ¿El `periodoFin` del balance cae en el mismo año-mes que el período del módulo ("YYYY-MM")? */
 function mismoAnioMes(periodoFin: Date, periodoModulo: string): boolean {
@@ -186,6 +189,58 @@ export default async function DatoModuloPage({
     sinMapeoContable,
   };
 
+  // Cruce por tercero (NIT): SOLO para módulos cuyo descriptor tiene columna "tercero"
+  // (CAR/CXP). Mismo criterio de emparejamiento de período que el cruce contable, pero
+  // contra el balance abierto POR TERCERO del cliente (`balance_tercero_*`).
+  const tieneRolTercero = descriptor.columnas.some((c) => c.nombre === "tercero");
+  let cruceTercero: ResumenCruceTercero | null = null;
+  let balanceTerceroEncontrado = false;
+  let contableSinNit: { total: number; filas: number } | null = null;
+  let moduloSinNit: { total: number; filas: number } | null = null;
+
+  if (tieneRolTercero) {
+    const balancesTercero = await prisma.balanceTerceroEncabezado.findMany({
+      where: { clienteId: encabezado.clienteId },
+      select: { id: true, periodoFin: true },
+      orderBy: [{ esOficial: "desc" }, { periodoFin: "desc" }, { id: "desc" }],
+    });
+    const balanceTerceroEmparejado = balancesTercero.find((b) => mismoAnioMes(b.periodoFin, encabezado.periodo)) ?? null;
+    balanceTerceroEncontrado = balanceTerceroEmparejado != null;
+
+    if (balanceTerceroEmparejado) {
+      const detallesTercero = await prisma.balanceTerceroDetalle.findMany({
+        where: { encabezadoId: balanceTerceroEmparejado.id },
+        select: { cuenta4: true, nitTercero: true, nombreTercero: true, saldoFinal: true },
+      });
+      const itemsContables = detallesTercero
+        .filter((d) => cuenta4DelModulo(d.cuenta4, prefijosModulo))
+        .map((d) => ({ nit: d.nitTercero, nombre: d.nombreTercero, saldo: Number(d.saldoFinal) }));
+      const { aportes: contablePorNit, sinNit: contableSinNitCalc } = agregarPorNit(itemsContables);
+      contableSinNit = contableSinNitCalc;
+
+      // Cada fila del detalle ya llegó a `modulo_dato_detalle` como IMPUTABLE (movimiento,
+      // no omitida, no en cero): la promoción (`esImputable`) filtra antes de persistir.
+      const itemsModulo = detalleVm.map((d) => {
+        const t = normalizarTerceroModulo(d.datos.tercero as string | number | null | undefined);
+        return { nit: t.nitCanonico, nombre: t.nombre, saldo: d.valor };
+      });
+      const { aportes: moduloPorNit, sinNit: moduloSinNitCalc } = agregarPorNit(itemsModulo);
+      moduloSinNit = moduloSinNitCalc;
+
+      cruceTercero = construirCruceTercero({ contablePorNit, moduloPorNit });
+    }
+  }
+
+  const cruceTerceroVm: CruceTerceroVm = {
+    aplica: tieneRolTercero,
+    balanceEncontrado: balanceTerceroEncontrado,
+    periodo: encabezado.periodo,
+    nombreCliente: encabezado.nombreCliente,
+    resumen: cruceTercero,
+    contableSinNit,
+    moduloSinNit,
+  };
+
   const versiones: VersionModuloVm[] = hermanos.map((hermano) => ({
     id: hermano.id,
     version: hermano.version,
@@ -227,6 +282,7 @@ export default async function DatoModuloPage({
         detalle={detalleVm}
         consolidado={consolidadoVm}
         cruceContable={cruceContableVm}
+        cruceTercero={cruceTerceroVm}
         novedades={novedades}
         cuentas={cuentasModulo.map((s) => ({ codigo: s.codigo, nombre: s.nombre }))}
         homologacionCliente={homologacionPorSubgrupo}
