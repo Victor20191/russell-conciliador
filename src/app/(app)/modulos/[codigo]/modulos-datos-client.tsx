@@ -650,7 +650,15 @@ function CargadosPorCliente({
                 </tr>
               </thead>
               <tbody>
-                {grupo.periodos.map((p) => (
+                {grupo.periodos.map((p) => {
+                  // Archivos que componen la versión vigente: el principal + los anexados
+                  // por fraccionamiento. Más de uno = carga fraccionada (se avisa con chip).
+                  const archivos = archivosDeVersion(p.archivoNombre, p.hoja, p.observaciones);
+                  const anexos = archivos.filter((a) => a.esAnexo);
+                  // El principal SIEMPRE existe aunque el cargue legado no guardara su
+                  // nombre (por eso 1 + anexos, no `archivos.length`: ahí faltaría uno).
+                  const totalArchivos = 1 + anexos.length;
+                  return (
                   <tr key={p.periodo} className="border-b border-ink-50 last:border-0 hover:bg-ink-50">
                     <td className="px-4 py-2.5 font-mono font-medium text-ink-800">{p.periodo}</td>
                     <td className="px-4 py-2.5 text-right font-mono text-ink-600">
@@ -699,6 +707,19 @@ function CargadosPorCliente({
                             · hoja «{p.hoja}»
                           </span>
                         )}
+                        {/* AVISO de carga fraccionada: el período no salió de un solo
+                            archivo, sino del principal más N anexos. Se destaca aquí
+                            porque el detalle de abajo es fácil de pasar por alto. */}
+                        {anexos.length > 0 && (
+                          <span
+                            title={`Carga fraccionada: este período se armó con ${totalArchivos} archivos — ${[
+                              p.archivoNombre ?? "archivo principal (sin nombre registrado)",
+                              ...anexos.map((a) => a.archivo),
+                            ].join(" + ")}.`}
+                          >
+                            <Chip label={`${totalArchivos} archivos`} tone="warn" />
+                          </span>
+                        )}
                         {p.comentarios > 0 && (
                           <button
                             type="button"
@@ -717,24 +738,22 @@ function CargadosPorCliente({
                       </span>
                       {/* Archivos anexados por fraccionamiento (mismo período, misma
                           versión vigente): compactos, uno por línea, con su hoja. */}
-                      {archivosDeVersion(p.archivoNombre, p.hoja, p.observaciones)
-                        .filter((a) => a.esAnexo)
-                        .map((anexo, i) => (
-                          <span
-                            key={`${anexo.archivo}-${i}`}
-                            className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] text-ink-500"
-                          >
-                            <span className="rounded bg-ink-100 px-1 text-[9.5px] font-medium uppercase tracking-wide text-ink-400">
-                              anexo
-                            </span>
-                            <span className="truncate" title={anexo.archivo}>
-                              {anexo.archivo}
-                            </span>
-                            {anexo.hoja && (
-                              <span className="text-[10.5px] text-ink-400">· hoja «{anexo.hoja}»</span>
-                            )}
+                      {anexos.map((anexo, i) => (
+                        <span
+                          key={`${anexo.archivo}-${i}`}
+                          className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] text-ink-500"
+                        >
+                          <span className="rounded bg-ink-100 px-1 text-[9.5px] font-medium uppercase tracking-wide text-ink-400">
+                            anexo
                           </span>
-                        ))}
+                          <span className="truncate" title={anexo.archivo}>
+                            {anexo.archivo}
+                          </span>
+                          {anexo.hoja && (
+                            <span className="text-[10.5px] text-ink-400">· hoja «{anexo.hoja}»</span>
+                          )}
+                        </span>
+                      ))}
                       <span className="block text-[10.5px] text-ink-400">{etiquetaOrigen(p.origen)}</span>
                       {p.cargadoPor && (
                         <span className="block text-[10.5px] text-ink-400">por {p.cargadoPor}</span>
@@ -768,7 +787,8 @@ function CargadosPorCliente({
                       </Link>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

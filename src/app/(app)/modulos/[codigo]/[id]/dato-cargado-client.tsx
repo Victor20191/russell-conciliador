@@ -139,13 +139,15 @@ export default function DatoCargadoClient({
     "novedades",
     "versiones",
   ];
-  const tituloNovedades = moduloCodigo === "INV" ? "Evaluación del inventario teórico" : "Novedades";
+  // La pestaña se llama siempre «Novedades»; el nombre largo del análisis de
+  // inventarios vive como título dentro del panel.
+  const tituloPanelNovedades = moduloCodigo === "INV" ? "Evaluación del inventario teórico" : null;
   const etiquetaTab = (t: TabId) =>
     t === "consolidado" ? "Consolidado"
     : t === "detalle" ? "Detalle"
     : t === "cruce" ? "Cruce contable"
     : t === "cruceTercero" ? "Cruce por tercero"
-    : t === "novedades" ? tituloNovedades
+    : t === "novedades" ? "Novedades"
     : "Versiones";
 
   return (
@@ -175,7 +177,7 @@ export default function DatoCargadoClient({
       ) : tab === "cruceTercero" ? (
         <CruceTerceroTab cruceTercero={cruceTercero} />
       ) : tab === "novedades" ? (
-        <NovedadesTab novedades={novedades} />
+        <NovedadesTab novedades={novedades} titulo={tituloPanelNovedades} />
       ) : (
         <VersionesTab moduloCodigo={moduloCodigo} versiones={versiones} versionActualId={versionActualId} />
       )}
@@ -1571,9 +1573,10 @@ function ModalMarca({
   );
 }
 
-function NovedadesTab({ novedades }: { novedades: NovedadesVm }) {
+function NovedadesTab({ novedades, titulo }: { novedades: NovedadesVm; titulo?: string | null }) {
   return (
     <div className="flex flex-col gap-4">
+      {titulo && <h2 className="text-[15px] font-semibold text-ink-800">{titulo}</h2>}
       <Card className="p-4">
         <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Validación automática</div>
         {novedades.negativos.length === 0 ? (
