@@ -1109,32 +1109,59 @@ model ModuloDatoEncabezado {
   @@map("modulo_dato_encabezado")
 }
 
-/// Justificación de una DIFERENCIA del cruce contable de un módulo (saldo del balance
-/// de comprobación vs. valor consolidado de los archivos del módulo), por cuenta Russell
-/// de 4 dígitos.
+/// MARCA DE AUDITORÍA sobre una DIFERENCIA del cruce contable de un módulo (saldo del
+/// balance de comprobación vs. valor consolidado de los archivos del módulo), por cuenta
+/// Russell de 4 dígitos. Sustituye a la antigua «justificación» de la misma tabla.
+///
+/// Como en un papel de trabajo: la cédula solo lleva la marca numerada (①②③) y el detalle
+/// —la explicación, la referencia al anexo y los soportes— vive al pie, en observaciones.
+/// `numero` es correlativo por (cliente, módulo, período) y NO se recicla: retirar una
+/// marca no renumera las demás, para que una referencia escrita fuera del sistema («ver
+/// marca 3») siga apuntando a lo mismo.
 ///
 /// Se ancla al PERÍODO del cliente —no al cargue—, de modo que sobrevive a las versiones
-/// nuevas del mismo período: volver a cargar el archivo no obliga a reescribir las
-/// justificaciones. `diferencia` congela el monto que se justificó, para poder avisar
-/// cuando la diferencia actual ya no es la misma. FK suaves a cliente, usuario y
-/// comentario (el rastro en el hilo de la cuenta): borrar el comentario no borra la
-/// justificación. Reversible.
-model JustificacionCruceModulo {
-  id               Int      @id @default(autoincrement()) @map("id")
-  clienteId        Int      @map("cliente_id")
-  moduloCodigo     String   @map("modulo_codigo")
-  periodo          String   @map("periodo") // etiqueta del período (p. ej. "2025-12")
-  cuenta4          String   @map("cuenta_4") // cuenta Russell de 4 dígitos
-  nota             String   @map("nota")
-  diferencia       Decimal  @default(0) @map("diferencia") @db.Decimal(18, 2)
-  comentarioId     Int?     @map("comentario_id")
-  justificadoPor   String?  @map("justificado_por")
-  justificadoPorId Int?     @map("justificado_por_id")
-  justificadoEn    DateTime @default(now()) @map("justificado_en") @db.Timestamptz(3)
+/// nuevas del mismo período: volver a cargar el archivo no obliga a reescribir las marcas.
+/// `diferencia` congela el monto marcado, para poder avisar cuando la diferencia actual ya
+/// no es la misma. FK suaves a cliente, usuario y comentario (el rastro en el hilo de la
+/// cuenta): borrar el comentario no borra la marca. Reversible.
+model MarcaCruceModulo {
+  id              Int                 @id @default(autoincrement()) @map("id")
+  clienteId       Int                 @map("cliente_id")
+  moduloCodigo    String              @map("modulo_codigo")
+  periodo         String              @map("periodo") // etiqueta del período (p. ej. "2025-12")
+  numero          Int                 @map("numero") // correlativo de la marca dentro del período
+  cuenta4         String              @map("cuenta_4") // cuenta Russell de 4 dígitos
+  nota            String              @map("nota") // detalle de la marca (la observación)
+  referenciaAnexo String?             @map("referencia_anexo") // p. ej. «Anexo A-3 / PT-INV-04»
+  diferencia      Decimal             @default(0) @map("diferencia") @db.Decimal(18, 2)
+  comentarioId    Int?                @map("comentario_id")
+  marcadoPor      String?             @map("marcado_por")
+  marcadoPorId    Int?                @map("marcado_por_id")
+  marcadoEn       DateTime            @default(now()) @map("marcado_en") @db.Timestamptz(3)
+  adjuntos        AdjuntoMarcaCruce[]
 
-  @@unique([clienteId, moduloCodigo, periodo, cuenta4], map: "justificacion_cruce_modulo_unica")
-  @@index([clienteId, moduloCodigo, periodo], map: "justificacion_cruce_modulo_periodo_idx")
-  @@map("justificacion_cruce_modulo")
+  @@unique([clienteId, moduloCodigo, periodo, cuenta4], map: "marca_cruce_modulo_unica")
+  @@unique([clienteId, moduloCodigo, periodo, numero], map: "marca_cruce_modulo_numero_unico")
+  @@index([clienteId, moduloCodigo, periodo], map: "marca_cruce_modulo_periodo_idx")
+  @@map("marca_cruce_modulo")
+}
+
+/// Soporte de una marca de auditoría (el anexo digital: PDF, Excel, CSV o imagen).
+/// El binario vive en el almacenamiento de objetos; la BD solo guarda la clave.
+/// FK dura a la marca: retirar la marca se lleva sus soportes.
+model AdjuntoMarcaCruce {
+  id            Int              @id @default(autoincrement()) @map("id")
+  marcaId       Int              @map("marca_id")
+  claveObjeto   String           @unique @map("clave_objeto")
+  nombreArchivo String           @map("nombre_archivo")
+  tipoContenido String           @map("tipo_contenido")
+  tamanoBytes   Int              @map("tamano_bytes")
+  subidoPorId   Int?             @map("subido_por_id")
+  creadoEn      DateTime         @default(now()) @map("creado_en") @db.Timestamptz(3)
+  marca         MarcaCruceModulo @relation(fields: [marcaId], references: [id], onDelete: Cascade)
+
+  @@index([marcaId])
+  @@map("adjuntos_marca_cruce")
 }
 
 model ModuloDatoDetalle {

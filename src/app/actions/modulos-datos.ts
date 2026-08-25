@@ -21,7 +21,21 @@ import { SpecModuloSchema, type SpecModulo } from "@/lib/modulos/extraccion/esqu
 import { sugerirSpec } from "@/lib/modulos/extraccion/sugerir";
 import { transformarModulo, resultadoAReconciliacion } from "@/lib/modulos/extraccion/transformar";
 import { promoverStaging, type FilaStagingModulo } from "@/lib/modulos/promocion";
-import { anclaCruce, normalizarCuenta4 as cuenta4Justificable, validarNotaJustificacion } from "@/lib/modulos/justificaciones-cruce";
+import {
+  anclaCruce,
+  normalizarCuenta4 as cuenta4Marcable,
+  siguienteNumeroMarca,
+  validarNotaMarca,
+  validarReferenciaAnexo,
+} from "@/lib/modulos/marcas-cruce";
+import {
+  claveSoporteMarca,
+  nombreArchivoSeguro,
+  SOPORTES_MARCA_MAX,
+  validarSoporteMarca,
+  type TipoSoporteMarca,
+} from "@/lib/modulos/marcas-adjuntos";
+import { almacenamientoDisponible, eliminarObjeto, subirObjeto } from "@/lib/storage/objetos";
 import { refRolDe, clavesDeDetalle, decidirCarga, remapFilas } from "@/lib/modulos/fraccionamiento";
 import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
 import { tomarCandadoTransaccion, transaccionSerializable } from "@/lib/concurrency";
@@ -764,18 +778,22 @@ export async function guardarConsolidacionModuloLote(input: {
 }
 
 // ============================================================
-// Justificación de las diferencias del CRUCE CONTABLE.
+// MARCAS DE AUDITORÍA sobre las diferencias del CRUCE CONTABLE.
 //
-// Vive por (cliente, módulo, período, cuenta Russell de 4 díg.) y no por cargue, así que
-// sobrevive a las versiones nuevas del período. Exige la misma autorización que editar la
-// consolidación (`modulos_datos:editar` + alcance de escritura sobre el cliente) y deja
-// además la nota en el hilo de comentarios de la cuenta (`cruce:XXXX`), para que quede a
-// la vista de quien revisa. El comentario es un rastro: si se borra, la justificación
-// sigue (FK suave).
+// Sustituyen a la antigua «justificación» escrita dentro de la celda: la cédula solo lleva
+// la marca numerada y el detalle vive al pie, en observaciones, con referencia al anexo y
+// soportes adjuntos.
+//
+// La marca vive por (cliente, módulo, período, cuenta Russell de 4 díg.) y no por cargue,
+// así que sobrevive a las versiones nuevas del período. Exige la misma autorización que
+// editar la consolidación (`modulos_datos:editar` + alcance de escritura sobre el cliente)
+// y deja además el detalle en el hilo de comentarios de la cuenta (`cruce:XXXX`), para que
+// quede a la vista de quien revisa. El comentario es un rastro: si se borra, la marca sigue
+// (FK suave). Los soportes sí son FK dura: retirar la marca se lleva sus anexos.
 // ============================================================
 
-/** Encabezado + período al que pertenece una justificación, con el permiso ya verificado. */
-async function contextoJustificacionCruce(encabezadoId: number) {
+/** Encabezado + período al que pertenece una marca, con el permiso ya verificado. */
+async function contextoMarcaCruce(encabezadoId: number) {
   if (!Number.isSafeInteger(encabezadoId)) return { ok: false as const, message: "Cargue inválido." };
   const encabezado = await prisma.moduloDatoEncabezado.findUnique({
     where: { id: encabezadoId },
@@ -787,7 +805,7 @@ async function contextoJustificacionCruce(encabezadoId: number) {
   return { ok: true as const, encabezado, userId: authz.userId };
 }
 
-async function auditarJustificacionCruce(
+async function auditarMarcaCruce(
   encabezado: { clienteId: number; moduloCodigo: string; periodo: string; nombreCliente: string },
   accion: string,
   cuenta4: string,
@@ -803,43 +821,200 @@ async function auditarJustificacionCruce(
   });
 }
 
+/** Los archivos que vienen del formulario de la marca, ya filtrados. */
+function soportesDelFormulario(formData: FormData): File[] {
+  return formData.getAll("soportes").filter((v): v is File => v instanceof File && v.size > 0);
+}
+
 /**
- * Justifica (o reescribe la justificación de) la diferencia de una cuenta del cruce.
- * `diferencia` se congela para poder avisar después si el monto cambió.
+ * Valida los soportes ANTES de tocar la BD (contenido real, no extensión) y los devuelve
+ * listos para subir. Que un anexo inválido no deje la marca escrita a medias.
  */
-export async function justificarDiferenciaCruce(input: {
-  encabezadoId: number;
-  cuenta4: string;
-  nota: string;
-  diferencia: number;
-}): Promise<ActionState> {
-  const ctx = await contextoJustificacionCruce(input.encabezadoId);
+async function prepararSoportesMarca(archivos: File[], yaGuardados: number) {
+  if (archivos.length === 0) return { ok: true as const, soportes: [] };
+  if (yaGuardados + archivos.length > SOPORTES_MARCA_MAX) {
+    return {
+      ok: false as const,
+      message: `Una marca admite hasta ${SOPORTES_MARCA_MAX} soportes (ya tiene ${yaGuardados}).`,
+    };
+  }
+  if (!almacenamientoDisponible()) {
+    return {
+      ok: false as const,
+      message: "El almacenamiento de soportes no está configurado. Avisa al administrador o guarda la marca sin adjuntos.",
+    };
+  }
+
+  const soportes: { bytes: Uint8Array; tipo: TipoSoporteMarca; contentType: string; nombre: string; tamano: number }[] = [];
+  for (const archivo of archivos) {
+    const bytes = new Uint8Array(await archivo.arrayBuffer());
+    const val = validarSoporteMarca(bytes, archivo.name);
+    if (!val.ok) return { ok: false as const, message: val.error };
+    soportes.push({
+      bytes,
+      tipo: val.tipo,
+      contentType: val.contentType,
+      nombre: nombreArchivoSeguro(archivo.name, val.tipo),
+      tamano: bytes.length,
+    });
+  }
+  return { ok: true as const, soportes };
+}
+
+/**
+ * Guarda (o reescribe) la MARCA de una cuenta del cruce y sube sus soportes.
+ *
+ * `diferencia` se congela para poder avisar después si el monto cambió. El número se
+ * asigna una sola vez, al crear: reescribir el detalle no renumera la marca ni mueve su
+ * lugar en las observaciones.
+ */
+export async function guardarMarcaCruce(formData: FormData): Promise<ActionState> {
+  const encabezadoId = Number(formData.get("encabezadoId"));
+  const ctx = await contextoMarcaCruce(encabezadoId);
   if (!ctx.ok) return { ok: false, message: ctx.message };
 
-  const cuenta4 = cuenta4Justificable(String(input.cuenta4 ?? ""));
+  const cuenta4 = cuenta4Marcable(String(formData.get("cuenta4") ?? ""));
   if (!cuenta4) return { ok: false, message: "Cuenta inválida." };
-  const nota = validarNotaJustificacion(String(input.nota ?? ""));
+  const nota = validarNotaMarca(String(formData.get("nota") ?? ""));
   if (!nota.ok) return { ok: false, message: nota.message };
-  const diferencia = Number(input.diferencia);
+  const anexo = validarReferenciaAnexo(String(formData.get("referenciaAnexo") ?? ""));
+  if (!anexo.ok) return { ok: false, message: anexo.message };
+  const diferencia = Number(formData.get("diferencia"));
   if (!Number.isFinite(diferencia)) return { ok: false, message: "Diferencia inválida." };
 
   const { encabezado } = ctx;
+  const llave = {
+    clienteId: encabezado.clienteId,
+    moduloCodigo: encabezado.moduloCodigo,
+    periodo: encabezado.periodo,
+    cuenta4,
+  };
+
   try {
+    const existente = await prisma.marcaCruceModulo.findUnique({
+      where: { clienteId_moduloCodigo_periodo_cuenta4: llave },
+      select: { id: true, numero: true, _count: { select: { adjuntos: true } } },
+    });
+
+    const preparados = await prepararSoportesMarca(soportesDelFormulario(formData), existente?._count.adjuntos ?? 0);
+    if (!preparados.ok) return { ok: false, message: preparados.message };
+
     const user = await getCurrentUser();
-    // El rastro en el hilo de la cuenta va primero: si falla, no se guarda una
-    // justificación que dice apuntar a un comentario inexistente.
+    // El rastro en el hilo de la cuenta va primero: si falla, no se guarda una marca que
+    // dice apuntar a un comentario inexistente.
     const comentario = await prisma.comment.create({
       data: {
         entityType: "modulos_datos",
         entityId: encabezado.id,
         anchor: anclaCruce(cuenta4),
         authorId: ctx.userId,
-        body: nota.nota,
+        body: anexo.referencia ? `${nota.nota}\n\nAnexo: ${anexo.referencia}` : nota.nota,
       },
       select: { id: true },
     });
 
-    await prisma.justificacionCruceModulo.upsert({
+    const datosComunes = {
+      nota: nota.nota,
+      referenciaAnexo: anexo.referencia,
+      diferencia: new Prisma.Decimal(diferencia.toFixed(2)),
+      comentarioId: comentario.id,
+      marcadoPor: user?.name ?? null,
+      marcadoPorId: ctx.userId,
+      marcadoEn: new Date(),
+    };
+
+    // El número se asigna dentro de una transacción serializable con candado del período:
+    // dos personas marcando cuentas distintas a la vez no pueden quedarse con el mismo
+    // número (el índice único lo impediría, pero aquí ni siquiera llegan a chocar).
+    const marca = existente
+      ? await prisma.marcaCruceModulo.update({
+          where: { id: existente.id },
+          data: datosComunes,
+          select: { id: true, numero: true },
+        })
+      : await transaccionSerializable(async (tx) => {
+          await tomarCandadoTransaccion(tx, `marca-cruce:${encabezado.clienteId}:${encabezado.moduloCodigo}:${encabezado.periodo}`);
+          const usados = await tx.marcaCruceModulo.findMany({
+            where: {
+              clienteId: encabezado.clienteId,
+              moduloCodigo: encabezado.moduloCodigo,
+              periodo: encabezado.periodo,
+            },
+            select: { numero: true },
+          });
+          return tx.marcaCruceModulo.create({
+            data: { ...llave, ...datosComunes, numero: siguienteNumeroMarca(usados.map((u) => u.numero)) },
+            select: { id: true, numero: true },
+          });
+        });
+
+    const subidos = await persistirSoportesMarca(marca.id, ctx.userId, preparados.soportes);
+
+    await auditarMarcaCruce(
+      encabezado,
+      existente ? "EDITÓ la marca del cruce contable" : "MARCÓ una diferencia del cruce contable",
+      cuenta4,
+      ` · marca ${marca.numero} · ${diferencia.toFixed(2)}${subidos ? ` · ${subidos} soporte(s)` : ""}`,
+    );
+    revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
+    return {
+      ok: true,
+      message: existente ? `Marca ${marca.numero} actualizada.` : `Marca ${marca.numero} registrada.`,
+    };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("guardarMarcaCruce", e) };
+  }
+}
+
+/**
+ * Sube los soportes y los registra. Si un archivo falla a mitad, se barre lo ya subido:
+ * un objeto huérfano en el almacenamiento no le sirve a nadie. La marca en sí ya está
+ * guardada — el detalle no se pierde porque el anexo no haya podido subir.
+ */
+async function persistirSoportesMarca(
+  marcaId: number,
+  userId: number | null,
+  soportes: { bytes: Uint8Array; tipo: TipoSoporteMarca; contentType: string; nombre: string; tamano: number }[],
+): Promise<number> {
+  if (soportes.length === 0) return 0;
+  const claves: string[] = [];
+  try {
+    for (const soporte of soportes) {
+      const clave = claveSoporteMarca(marcaId, randomUUID().slice(0, 12), soporte.tipo);
+      await subirObjeto({ key: clave, cuerpo: soporte.bytes, contentType: soporte.contentType });
+      claves.push(clave);
+      await prisma.adjuntoMarcaCruce.create({
+        data: {
+          marcaId,
+          claveObjeto: clave,
+          nombreArchivo: soporte.nombre,
+          tipoContenido: soporte.contentType,
+          tamanoBytes: soporte.tamano,
+          subidoPorId: userId,
+        },
+      });
+    }
+    return soportes.length;
+  } catch (e) {
+    await Promise.allSettled(claves.map((clave) => eliminarObjeto(clave)));
+    throw e;
+  }
+}
+
+/** Retira la marca de una cuenta y sus soportes. El comentario del hilo se conserva. */
+export async function quitarMarcaCruce(input: {
+  encabezadoId: number;
+  cuenta4: string;
+}): Promise<ActionState> {
+  const ctx = await contextoMarcaCruce(input.encabezadoId);
+  if (!ctx.ok) return { ok: false, message: ctx.message };
+
+  const cuenta4 = cuenta4Marcable(String(input.cuenta4 ?? ""));
+  if (!cuenta4) return { ok: false, message: "Cuenta inválida." };
+
+  const { encabezado } = ctx;
+  try {
+    const marca = await prisma.marcaCruceModulo.findUnique({
       where: {
         clienteId_moduloCodigo_periodo_cuenta4: {
           clienteId: encabezado.clienteId,
@@ -848,63 +1023,59 @@ export async function justificarDiferenciaCruce(input: {
           cuenta4,
         },
       },
-      create: {
-        clienteId: encabezado.clienteId,
-        moduloCodigo: encabezado.moduloCodigo,
-        periodo: encabezado.periodo,
-        cuenta4,
-        nota: nota.nota,
-        diferencia: new Prisma.Decimal(diferencia.toFixed(2)),
-        comentarioId: comentario.id,
-        justificadoPor: user?.name ?? null,
-        justificadoPorId: ctx.userId,
-        justificadoEn: new Date(),
-      },
-      update: {
-        nota: nota.nota,
-        diferencia: new Prisma.Decimal(diferencia.toFixed(2)),
-        comentarioId: comentario.id,
-        justificadoPor: user?.name ?? null,
-        justificadoPorId: ctx.userId,
-        justificadoEn: new Date(),
-      },
+      select: { id: true, numero: true, adjuntos: { select: { claveObjeto: true } } },
     });
+    if (!marca) return { ok: false, message: "Esa diferencia ya no estaba marcada." };
 
-    await auditarJustificacionCruce(encabezado, "JUSTIFICÓ diferencia del cruce contable", cuenta4, ` · ${diferencia.toFixed(2)}`);
+    // La BD manda: primero se borra la fila (cascada a los adjuntos) y después los
+    // objetos. Al revés, un fallo dejaría registros apuntando a soportes inexistentes.
+    await prisma.marcaCruceModulo.delete({ where: { id: marca.id } });
+    await Promise.allSettled(marca.adjuntos.map((a) => eliminarObjeto(a.claveObjeto)));
+
+    await auditarMarcaCruce(encabezado, "RETIRÓ la marca del cruce contable", cuenta4, ` · marca ${marca.numero}`);
     revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
-    return { ok: true, message: "Justificación guardada." };
+    return { ok: true, message: `Marca ${marca.numero} retirada.` };
   } catch (e) {
-    return { ok: false, message: mensajeErrorBD("justificarDiferenciaCruce", e) };
+    return { ok: false, message: mensajeErrorBD("quitarMarcaCruce", e) };
   }
 }
 
-/** Retira la justificación de una cuenta. El comentario del hilo se conserva. */
-export async function quitarJustificacionCruce(input: {
+/** Elimina UN soporte de una marca, sin tocar la observación. */
+export async function eliminarSoporteMarca(input: {
   encabezadoId: number;
-  cuenta4: string;
+  soporteId: number;
 }): Promise<ActionState> {
-  const ctx = await contextoJustificacionCruce(input.encabezadoId);
+  const ctx = await contextoMarcaCruce(input.encabezadoId);
   if (!ctx.ok) return { ok: false, message: ctx.message };
 
-  const cuenta4 = cuenta4Justificable(String(input.cuenta4 ?? ""));
-  if (!cuenta4) return { ok: false, message: "Cuenta inválida." };
+  const soporteId = Number(input.soporteId);
+  if (!Number.isSafeInteger(soporteId)) return { ok: false, message: "Soporte inválido." };
 
   const { encabezado } = ctx;
   try {
-    const borradas = await prisma.justificacionCruceModulo.deleteMany({
-      where: {
-        clienteId: encabezado.clienteId,
-        moduloCodigo: encabezado.moduloCodigo,
-        periodo: encabezado.periodo,
-        cuenta4,
+    const soporte = await prisma.adjuntoMarcaCruce.findUnique({
+      where: { id: soporteId },
+      select: {
+        claveObjeto: true,
+        nombreArchivo: true,
+        marca: { select: { clienteId: true, moduloCodigo: true, periodo: true, cuenta4: true, numero: true } },
       },
     });
-    if (borradas.count === 0) return { ok: false, message: "Esa diferencia ya no estaba justificada." };
+    if (!soporte) return { ok: false, message: "Ese soporte ya no existe." };
+    // El permiso se verificó sobre ESTE cargue: el soporte tiene que ser del mismo
+    // cliente, módulo y período, o el id sería una puerta a los papeles de otro cliente.
+    const m = soporte.marca;
+    if (m.clienteId !== encabezado.clienteId || m.moduloCodigo !== encabezado.moduloCodigo || m.periodo !== encabezado.periodo) {
+      return { ok: false, message: "Ese soporte no pertenece a este período." };
+    }
 
-    await auditarJustificacionCruce(encabezado, "RETIRÓ la justificación del cruce contable", cuenta4, "");
+    await prisma.adjuntoMarcaCruce.delete({ where: { id: soporteId } });
+    await eliminarObjeto(soporte.claveObjeto).catch(() => {});
+
+    await auditarMarcaCruce(encabezado, "ELIMINÓ un soporte de la marca del cruce contable", m.cuenta4, ` · marca ${m.numero} · ${soporte.nombreArchivo}`);
     revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
-    return { ok: true, message: "Justificación retirada." };
+    return { ok: true, message: "Soporte eliminado." };
   } catch (e) {
-    return { ok: false, message: mensajeErrorBD("quitarJustificacionCruce", e) };
+    return { ok: false, message: mensajeErrorBD("eliminarSoporteMarca", e) };
   }
 }

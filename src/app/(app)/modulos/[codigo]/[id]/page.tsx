@@ -15,7 +15,7 @@ import { detectarNegativos, detectarDescuadres } from "@/lib/modulos/validacione
 import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
 import { fmtDateTime } from "@/lib/format";
 import { construirCruceContable, type ResumenCruceContable } from "@/lib/modulos/cruce-contable";
-import { anotarCruceConJustificaciones, type JustificacionCruce } from "@/lib/modulos/justificaciones-cruce";
+import { anotarCruceConMarcas, type MarcaCruce } from "@/lib/modulos/marcas-cruce";
 import DatoCargadoClient, { type FilaDetalleVm, type ConsolidadoVm, type NovedadesVm, type VersionModuloVm, type CruceContableVm } from "./dato-cargado-client";
 
 /** ¿El `periodoFin` del balance cae en el mismo año-mes que el período del módulo ("YYYY-MM")? */
@@ -179,30 +179,38 @@ export default async function DatoModuloPage({
     });
     if (sinMapeoFilas > 0) sinMapeoContable = { total: sinMapeoTotal, filas: sinMapeoFilas };
   }
-  // Justificaciones de las diferencias del cruce: viven por (cliente, módulo, período),
-  // NO por cargue, así que siguen visibles al abrir otra versión del mismo período.
-  const justificacionesPeriodo = await prisma.justificacionCruceModulo.findMany({
+  // Marcas de auditoría de las diferencias del cruce: viven por (cliente, módulo,
+  // período), NO por cargue, así que siguen visibles al abrir otra versión del período.
+  const marcasPeriodo = await prisma.marcaCruceModulo.findMany({
     where: { clienteId: encabezado.clienteId, moduloCodigo, periodo: encabezado.periodo },
+    orderBy: { numero: "asc" },
     select: {
       cuenta4: true,
+      numero: true,
       nota: true,
+      referenciaAnexo: true,
       diferencia: true,
       comentarioId: true,
-      justificadoPor: true,
-      justificadoEn: true,
+      marcadoPor: true,
+      marcadoEn: true,
+      adjuntos: {
+        orderBy: { id: "asc" },
+        select: { id: true, nombreArchivo: true, tipoContenido: true, tamanoBytes: true },
+      },
     },
   });
-  const justificaciones: JustificacionCruce[] = justificacionesPeriodo.map((j) => ({
-    cuenta4: j.cuenta4,
-    nota: j.nota,
-    diferencia: Number(j.diferencia),
-    comentarioId: j.comentarioId,
-    justificadoPor: j.justificadoPor,
-    justificadoEn: fmtDateTime(j.justificadoEn),
+  const marcas: MarcaCruce[] = marcasPeriodo.map((m) => ({
+    cuenta4: m.cuenta4,
+    numero: m.numero,
+    nota: m.nota,
+    referenciaAnexo: m.referenciaAnexo,
+    diferencia: Number(m.diferencia),
+    comentarioId: m.comentarioId,
+    marcadoPor: m.marcadoPor,
+    marcadoEn: fmtDateTime(m.marcadoEn),
+    adjuntos: m.adjuntos,
   }));
-  const cruceAnotado = cruceContable
-    ? anotarCruceConJustificaciones(cruceContable.filas, justificaciones)
-    : null;
+  const cruceAnotado = cruceContable ? anotarCruceConMarcas(cruceContable.filas, marcas) : null;
 
   const cruceContableVm: CruceContableVm = {
     balanceEncontrado: balanceEmparejado != null,
@@ -210,8 +218,8 @@ export default async function DatoModuloPage({
     nombreCliente: encabezado.nombreCliente,
     resumen: cruceContable,
     sinMapeoContable,
-    filasJustificadas: cruceAnotado?.filas ?? [],
-    resumenJustificaciones: cruceAnotado?.resumen ?? null,
+    filasMarcadas: cruceAnotado?.filas ?? [],
+    resumenMarcas: cruceAnotado?.resumen ?? null,
   };
 
   const versiones: VersionModuloVm[] = hermanos.map((hermano) => ({

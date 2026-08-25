@@ -10,20 +10,26 @@ import { fmtContable, fmtNum } from "@/lib/format";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import ComentarioAncla from "@/components/comentario-ancla";
 import {
+  eliminarSoporteMarca,
   guardarConsolidacionModulo,
   guardarConsolidacionModuloLote,
-  justificarDiferenciaCruce,
-  quitarJustificacionCruce,
+  guardarMarcaCruce,
+  quitarMarcaCruce,
 } from "@/app/actions/modulos-datos";
 import { aplicarAsignacionMasiva, contarConCuentas, type ModoAsignacionMasiva } from "@/lib/modulos/consolidacion-masiva";
 import { filtrarFilasDetalleModulo, hayFiltrosDetalleModulo, type FiltrosDetalleModulo } from "@/lib/modulos/filtros-detalle-modulo";
 import type { ResumenCruceContable } from "@/lib/modulos/cruce-contable";
 import {
   anclaCruce,
-  MAX_NOTA_JUSTIFICACION,
-  type FilaCruceJustificada,
-  type ResumenJustificaciones,
-} from "@/lib/modulos/justificaciones-cruce";
+  anclaObservacionMarca,
+  etiquetaMarca,
+  MAX_NOTA_MARCA,
+  MAX_REFERENCIA_ANEXO,
+  observacionesDeMarcas,
+  type FilaCruceMarcada,
+  type ResumenMarcas,
+} from "@/lib/modulos/marcas-cruce";
+import { SOPORTES_MARCA_MAX, tamanoLegible, urlSoporteMarca } from "@/lib/modulos/marcas-adjuntos";
 
 export type FilaDetalleVm = { filaNum: number; clasificador: string | null; valor: number; datos: Record<string, string | number | null> };
 export type ConsolidadoVm = { clasificador: string; total: number; filas: number; cuentas4: { codigo: string; nombre: string | null }[] };
@@ -35,9 +41,9 @@ export type CruceContableVm = {
   nombreCliente: string;
   resumen: ResumenCruceContable | null;
   sinMapeoContable: { total: number; filas: number } | null;
-  /** Las filas del cruce con su justificación pegada (vacío si no hay balance). */
-  filasJustificadas: FilaCruceJustificada[];
-  resumenJustificaciones: ResumenJustificaciones | null;
+  /** Las filas del cruce con su marca de auditoría pegada (vacío si no hay balance). */
+  filasMarcadas: FilaCruceMarcada[];
+  resumenMarcas: ResumenMarcas | null;
 };
 export type NovedadesVm = {
   negativos: { filaNum: number; etiqueta: string; referencia: string | null; valor: number }[];
@@ -108,6 +114,7 @@ export default function DatoCargadoClient({
   const [tab, setTab] = useState<"detalle" | "consolidado" | "cruce" | "novedades" | "versiones">(tabInicial ?? "consolidado");
   const filasNovedad = new Set([...novedades.negativos, ...novedades.descuadres].map((n) => n.filaNum));
   const alertas = filasNovedad.size;
+  const tituloNovedades = moduloCodigo === "INV" ? "Evaluación del inventario teórico" : "Novedades";
 
   return (
     <div className="flex flex-col gap-4">
@@ -119,7 +126,7 @@ export default function DatoCargadoClient({
             onClick={() => setTab(t)}
             className={`-mb-px border-b-2 px-3 py-2 text-[12.5px] font-semibold ${tab === t ? "border-navy-700 text-navy-700" : "border-transparent text-ink-500 hover:text-ink-700"}`}
           >
-            {t === "consolidado" ? "Consolidado" : t === "detalle" ? "Detalle" : t === "cruce" ? "Cruce contable" : t === "novedades" ? "Novedades" : "Versiones"}
+            {t === "consolidado" ? "Consolidado" : t === "detalle" ? "Detalle" : t === "cruce" ? "Cruce contable" : t === "novedades" ? tituloNovedades : "Versiones"}
             {t === "novedades" && alertas > 0 && <span className="ml-1.5 rounded-full bg-err-100 px-1.5 text-[10px] font-bold text-err-700">{alertas}</span>}
             {t === "versiones" && <span className="ml-1.5 rounded-full bg-ink-100 px-1.5 text-[10px] font-bold text-ink-600">{versiones.length}</span>}
           </button>
@@ -784,6 +791,10 @@ function DetalleTab({ columnas, clasificadorEtiqueta, detalle, negativosFilas, e
 // del módulo, cuenta Russell (4 díg.) por cuenta Russell. Estado vacío si no hay balance
 // oficial para el período; avisos aparte para clasificadores ambiguos y saldos contables
 // de inventario sin homologar.
+//
+// La cédula se lee como un papel de trabajo: la fila con diferencia lleva una MARCA
+// numerada —①②③— y la explicación entera (detalle, anexo y soportes) vive al pie, en
+// observaciones. La marca de la tabla es un enlace a su observación.
 function CruceContableTab({
   cruceContable,
   encabezadoId,
@@ -796,8 +807,8 @@ function CruceContableTab({
   puedeEditar: boolean;
 }) {
   const router = useRouter();
-  // Fila que se está justificando en el modal (null = modal cerrado).
-  const [justificando, setJustificando] = useState<FilaCruceJustificada | null>(null);
+  // Fila que se está marcando en el modal (null = modal cerrado).
+  const [marcando, setMarcando] = useState<FilaCruceMarcada | null>(null);
   const [quitando, startQuitar] = useTransition();
 
   if (!cruceContable.balanceEncontrado || !cruceContable.resumen) {
@@ -814,22 +825,21 @@ function CruceContableTab({
     );
   }
 
-  const { resumen, sinMapeoContable, filasJustificadas, resumenJustificaciones } = cruceContable;
+  const { resumen, sinMapeoContable, filasMarcadas, resumenMarcas } = cruceContable;
+  const observaciones = observacionesDeMarcas(filasMarcadas);
 
-  const quitar = (fila: FilaCruceJustificada) => {
+  const quitar = (fila: FilaCruceMarcada) => {
     startQuitar(async () => {
-      const r = await quitarJustificacionCruce({ encabezadoId, cuenta4: fila.cuenta4 });
-      if (r.ok) notifySuccess(r.message ?? "Justificación retirada.");
-      else notifyError(r.message ?? "No se pudo retirar la justificación.");
+      const r = await quitarMarcaCruce({ encabezadoId, cuenta4: fila.cuenta4 });
+      if (r.ok) notifySuccess(r.message ?? "Marca retirada.");
+      else notifyError(r.message ?? "No se pudo retirar la marca.");
       router.refresh();
     });
   };
 
   return (
     <div className="flex flex-col gap-4">
-      {resumenJustificaciones && resumenJustificaciones.conDiferencia > 0 && (
-        <ResumenJustificacionesBanner resumen={resumenJustificaciones} />
-      )}
+      {resumenMarcas && resumenMarcas.conDiferencia > 0 && <ResumenMarcasBanner resumen={resumenMarcas} />}
 
       <Card className="p-0">
         <div className="overflow-x-auto">
@@ -840,16 +850,16 @@ function CruceContableTab({
                 <th className="px-3 py-2 text-right font-semibold">Contabilidad</th>
                 <th className="px-3 py-2 text-right font-semibold">Inventario (archivos)</th>
                 <th className="px-3 py-2 text-right font-semibold">Diferencia</th>
-                <th className="px-3 py-2 font-semibold">Justificación</th>
+                <th className="w-px px-3 py-2 text-center font-semibold" title="Marca de auditoría: el detalle está al pie, en observaciones.">Marca</th>
               </tr>
             </thead>
             <tbody>
-              {filasJustificadas.length === 0 && (
+              {filasMarcadas.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-3 py-6 text-center text-ink-400">Sin cuentas para cruzar en este período.</td>
                 </tr>
               )}
-              {filasJustificadas.map((f) => (
+              {filasMarcadas.map((f) => (
                 <tr key={f.cuenta4} className={`border-t border-ink-100 ${f.estado === "descuadre" ? "bg-err-100/30" : ""}`}>
                   <td className="px-3 py-2 font-medium text-ink-800">{etiquetaRussell(f.cuenta4, f.nombre)}</td>
                   <td className="px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(f.contable)}</td>
@@ -861,21 +871,19 @@ function CruceContableTab({
                       <span className={`tabular-nums font-semibold ${f.cuadra ? "text-ok-700" : "text-err-700"}`}>{fmtContable(f.diferencia)}</span>
                     </div>
                   </td>
-                  <td className="max-w-[340px] px-3 py-2 align-top">
-                    <CeldaJustificacion
+                  <td className="whitespace-nowrap px-3 py-2 text-center align-middle">
+                    <CeldaMarca
                       fila={f}
                       encabezadoId={encabezadoId}
                       comentarios={comentarios[anclaCruce(f.cuenta4)] ?? 0}
                       puedeEditar={puedeEditar}
-                      ocupado={quitando}
-                      onJustificar={() => setJustificando(f)}
-                      onQuitar={() => quitar(f)}
+                      onMarcar={() => setMarcando(f)}
                     />
                   </td>
                 </tr>
               ))}
             </tbody>
-            {filasJustificadas.length > 0 && (
+            {filasMarcadas.length > 0 && (
               <tfoot>
                 <tr className="border-t-2 border-ink-200 bg-ink-50 font-semibold text-ink-800">
                   <td className="px-3 py-2">Totales</td>
@@ -889,6 +897,16 @@ function CruceContableTab({
           </table>
         </div>
       </Card>
+
+      <ObservacionesMarcas
+        observaciones={observaciones}
+        encabezadoId={encabezadoId}
+        comentarios={comentarios}
+        puedeEditar={puedeEditar}
+        ocupado={quitando}
+        onEditar={(fila) => setMarcando(fila)}
+        onQuitar={quitar}
+      />
 
       {(resumen.sinCuenta.length > 0 || resumen.multiAsignado.length > 0 || sinMapeoContable) && (
         <div className="flex flex-col gap-2">
@@ -910,13 +928,13 @@ function CruceContableTab({
         </div>
       )}
 
-      {justificando && (
-        <ModalJustificacion
-          fila={justificando}
+      {marcando && (
+        <ModalMarca
+          fila={marcando}
           encabezadoId={encabezadoId}
-          onClose={() => setJustificando(null)}
+          onClose={() => setMarcando(null)}
           onGuardado={() => {
-            setJustificando(null);
+            setMarcando(null);
             router.refresh();
           }}
         />
@@ -925,8 +943,8 @@ function CruceContableTab({
   );
 }
 
-/** Cuánto del descuadre está explicado y cuánto sigue pendiente. */
-function ResumenJustificacionesBanner({ resumen }: { resumen: ResumenJustificaciones }) {
+/** Cuánto del descuadre está explicado por marcas y cuánto sigue pendiente. */
+function ResumenMarcasBanner({ resumen }: { resumen: ResumenMarcas }) {
   const todo = resumen.pendientes === 0 && resumen.desactualizadas === 0;
   return (
     <div
@@ -935,40 +953,57 @@ function ResumenJustificacionesBanner({ resumen }: { resumen: ResumenJustificaci
       }`}
     >
       <span className="font-semibold">
-        {resumen.justificadas} de {resumen.conDiferencia} {resumen.conDiferencia === 1 ? "diferencia justificada" : "diferencias justificadas"}
+        {resumen.marcadas} de {resumen.conDiferencia} {resumen.conDiferencia === 1 ? "diferencia marcada" : "diferencias marcadas"}
       </span>
       {resumen.pendientes > 0 && (
         <span>
-          Sin justificar: <b>{resumen.pendientes}</b> ({fmtContable(resumen.montoPendiente)})
+          Sin marcar: <b>{resumen.pendientes}</b> ({fmtContable(resumen.montoPendiente)})
         </span>
       )}
       {resumen.desactualizadas > 0 && (
-        <span title="La diferencia cambió después de escribir la justificación.">
+        <span title="La diferencia cambió después de escribir la marca.">
           Por revisar: <b>{resumen.desactualizadas}</b>
         </span>
       )}
-      {todo && <span>Todas las diferencias del período están justificadas.</span>}
+      {todo && <span>Todas las diferencias del período están marcadas.</span>}
     </div>
   );
 }
 
-/** Estado de la justificación de una fila + sus acciones y el hilo de la cuenta. */
-function CeldaJustificacion({
+/** El número de la marca tal como se pinta en la cédula. */
+function InsigniaMarca({
+  numero,
+  tono,
+  titulo,
+}: {
+  numero: number;
+  tono: "ok" | "warn";
+  titulo: string;
+}) {
+  const colores = tono === "warn" ? "border-warn-500 bg-warn-100 text-warn-700" : "border-navy-700 bg-white text-navy-700";
+  return (
+    <span
+      title={titulo}
+      className={`inline-flex h-[22px] min-w-[22px] items-center justify-center rounded-full border px-1 text-[11.5px] font-bold tabular-nums ${colores}`}
+    >
+      {numero}
+    </span>
+  );
+}
+
+/** La marca de una fila de la cédula: número (enlace a su observación) o botón para crearla. */
+function CeldaMarca({
   fila,
   encabezadoId,
   comentarios,
   puedeEditar,
-  ocupado,
-  onJustificar,
-  onQuitar,
+  onMarcar,
 }: {
-  fila: FilaCruceJustificada;
+  fila: FilaCruceMarcada;
   encabezadoId: number;
   comentarios: number;
   puedeEditar: boolean;
-  ocupado: boolean;
-  onJustificar: () => void;
-  onQuitar: () => void;
+  onMarcar: () => void;
 }) {
   const hilo = (
     <ComentarioAncla
@@ -980,116 +1015,291 @@ function CeldaJustificacion({
     />
   );
 
-  // Cuenta que cuadra y nunca se justificó: nada que explicar.
-  if (!fila.admiteJustificacion && !fila.justificacion) {
-    return <div className="flex items-center gap-1">{hilo}</div>;
+  // Cuenta que cuadra y nunca se marcó: nada que explicar.
+  if (!fila.admiteMarca && !fila.marca) {
+    return <div className="flex items-center justify-center gap-1">{hilo}</div>;
   }
 
-  if (!fila.justificacion) {
+  if (!fila.marca) {
     return (
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center justify-center gap-1">
         {puedeEditar ? (
           <button
             type="button"
-            onClick={onJustificar}
-            className="inline-flex items-center gap-1 rounded-md border border-ink-200 px-2 py-1 text-[11.5px] font-semibold text-ink-600 transition hover:bg-ink-50 hover:text-ink-900"
+            onClick={onMarcar}
+            title="Poner una marca a esta diferencia"
+            className="inline-flex h-[22px] min-w-[22px] items-center justify-center rounded-full border border-dashed border-ink-300 px-1 text-ink-400 transition hover:border-navy-700 hover:text-navy-700"
           >
-            <Icon name="edit" size={12} /> Justificar
+            <Icon name="plus" size={12} />
           </button>
         ) : (
-          <Chip label="Sin justificar" tone="warn" />
+          <span title="Diferencia sin marca" className="text-[11.5px] font-semibold text-warn-700">
+            —
+          </span>
         )}
         {hilo}
       </div>
     );
   }
 
-  const { justificacion } = fila;
+  const { marca } = fila;
+  const titulo = fila.desactualizada
+    ? `Marca ${marca.numero} · la diferencia era ${fmtContable(marca.diferencia)} cuando se escribió y hoy es ${fmtContable(fila.diferencia)}. Ver observación al pie.`
+    : `Marca ${marca.numero} · ver la observación al pie`;
+
   return (
-    <div className="flex flex-col gap-1">
-      <div className="flex flex-wrap items-center gap-1.5">
-        {fila.desactualizada ? (
-          <span title={`La diferencia era ${fmtContable(justificacion.diferencia)} cuando se justificó y hoy es ${fmtContable(fila.diferencia)}.`}>
-            <Chip label="Revisar" tone="warn" />
-          </span>
-        ) : (
-          <Chip label={fila.admiteJustificacion ? "Justificada" : "Ya cuadra"} tone="ok" />
-        )}
-        {hilo}
-        {puedeEditar && (
-          <>
-            <button
-              type="button"
-              onClick={onJustificar}
-              title="Editar la justificación"
-              aria-label="Editar la justificación"
-              className="rounded p-0.5 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700"
-            >
-              <Icon name="edit" size={12} />
-            </button>
-            <button
-              type="button"
-              onClick={onQuitar}
-              disabled={ocupado}
-              title="Retirar la justificación"
-              aria-label="Retirar la justificación"
-              className="rounded p-0.5 text-err-500 transition hover:bg-err-50 hover:text-err-700 disabled:opacity-50"
-            >
-              <Icon name="trash" size={12} />
-            </button>
-          </>
-        )}
-      </div>
-      <p className="whitespace-pre-wrap break-words text-[11.5px] text-ink-700" title={justificacion.nota}>
-        {justificacion.nota}
-      </p>
-      <span className="text-[10.5px] text-ink-400">
-        {justificacion.justificadoPor ? `${justificacion.justificadoPor} · ` : ""}
-        {justificacion.justificadoEn}
-      </span>
+    <div className="flex items-center justify-center gap-1">
+      <a href={`#${anclaObservacionMarca(marca.numero)}`} className="inline-flex">
+        <InsigniaMarca numero={marca.numero} tono={fila.desactualizada ? "warn" : "ok"} titulo={titulo} />
+      </a>
+      {hilo}
     </div>
   );
 }
 
-/** Modal para escribir (o reescribir) la justificación de una diferencia. */
-function ModalJustificacion({
+/**
+ * La zona de observaciones: el detalle numerado de cada marca, como las notas al pie de
+ * una cédula. Aquí —y no en la tabla— viven la explicación, la referencia al anexo del
+ * papel de trabajo y los soportes adjuntos.
+ */
+function ObservacionesMarcas({
+  observaciones,
+  encabezadoId,
+  comentarios,
+  puedeEditar,
+  ocupado,
+  onEditar,
+  onQuitar,
+}: {
+  observaciones: FilaCruceMarcada[];
+  encabezadoId: number;
+  comentarios: Record<string, number>;
+  puedeEditar: boolean;
+  ocupado: boolean;
+  onEditar: (fila: FilaCruceMarcada) => void;
+  onQuitar: (fila: FilaCruceMarcada) => void;
+}) {
+  return (
+    <Card className="p-0">
+      <div className="flex items-center justify-between gap-2 border-b border-ink-100 px-3 py-2">
+        <h3 className="text-[12.5px] font-semibold text-ink-800">Observaciones · marcas de auditoría</h3>
+        {observaciones.length > 0 && (
+          <span className="text-[11px] text-ink-400">
+            {observaciones.length} {observaciones.length === 1 ? "marca" : "marcas"} en este período
+          </span>
+        )}
+      </div>
+
+      {observaciones.length === 0 ? (
+        <p className="px-3 py-5 text-center text-[12px] text-ink-400">
+          Sin marcas todavía. Pon una marca a una diferencia de la tabla y su detalle aparecerá aquí.
+        </p>
+      ) : (
+        <ol className="divide-y divide-ink-100">
+          {observaciones.map((fila) => (
+            <ObservacionMarca
+              key={fila.cuenta4}
+              fila={fila}
+              encabezadoId={encabezadoId}
+              comentarios={comentarios[anclaCruce(fila.cuenta4)] ?? 0}
+              puedeEditar={puedeEditar}
+              ocupado={ocupado}
+              onEditar={() => onEditar(fila)}
+              onQuitar={() => onQuitar(fila)}
+            />
+          ))}
+        </ol>
+      )}
+    </Card>
+  );
+}
+
+/** Una nota al pie: marca, cuenta, detalle, anexo, soportes y quién la escribió. */
+function ObservacionMarca({
+  fila,
+  encabezadoId,
+  comentarios,
+  puedeEditar,
+  ocupado,
+  onEditar,
+  onQuitar,
+}: {
+  fila: FilaCruceMarcada;
+  encabezadoId: number;
+  comentarios: number;
+  puedeEditar: boolean;
+  ocupado: boolean;
+  onEditar: () => void;
+  onQuitar: () => void;
+}) {
+  const marca = fila.marca!;
+  return (
+    <li id={anclaObservacionMarca(marca.numero)} className="flex gap-3 px-3 py-3 scroll-mt-24">
+      <div className="pt-0.5">
+        <InsigniaMarca
+          numero={marca.numero}
+          tono={fila.desactualizada ? "warn" : "ok"}
+          titulo={`Marca ${marca.numero}`}
+        />
+      </div>
+
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="text-[12.5px] font-semibold text-ink-800">{etiquetaRussell(fila.cuenta4, fila.nombre)}</span>
+          <span className={`text-[12px] font-semibold tabular-nums ${fila.cuadra ? "text-ok-700" : "text-err-700"}`}>
+            {fmtContable(fila.diferencia)}
+          </span>
+          {fila.desactualizada && (
+            <span title={`La diferencia era ${fmtContable(marca.diferencia)} cuando se escribió esta marca.`}>
+              <Chip label="Revisar" tone="warn" />
+            </span>
+          )}
+          {!fila.admiteMarca && <Chip label="Ya cuadra" tone="ok" />}
+        </div>
+
+        <p className="whitespace-pre-wrap break-words text-[12px] text-ink-700">{marca.nota}</p>
+
+        {marca.referenciaAnexo && (
+          <p className="text-[11.5px] text-ink-600">
+            <span className="font-semibold text-ink-500">Anexo:</span> {marca.referenciaAnexo}
+          </p>
+        )}
+
+        {marca.adjuntos.length > 0 && (
+          <ul className="flex flex-wrap gap-1.5">
+            {marca.adjuntos.map((a) => (
+              <li key={a.id}>
+                <a
+                  href={`${urlSoporteMarca(a.id)}?descargar=1`}
+                  className="inline-flex max-w-[260px] items-center gap-1 rounded-md border border-ink-200 bg-white px-2 py-1 text-[11px] text-ink-700 transition hover:border-blue-400 hover:text-blue-700"
+                  title={`${a.nombreArchivo} · ${tamanoLegible(a.tamanoBytes)}`}
+                >
+                  <Icon name="doc" size={11} />
+                  <span className="truncate">{a.nombreArchivo}</span>
+                  <span className="shrink-0 text-ink-400">{tamanoLegible(a.tamanoBytes)}</span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <div className="flex flex-wrap items-center gap-2 text-[10.5px] text-ink-400">
+          <span>
+            {marca.marcadoPor ? `${marca.marcadoPor} · ` : ""}
+            {marca.marcadoEn}
+          </span>
+          <ComentarioAncla
+            tipo="modulos_datos"
+            entityId={encabezadoId}
+            anchor={anclaCruce(fila.cuenta4)}
+            titulo={etiquetaRussell(fila.cuenta4, fila.nombre)}
+            count={comentarios}
+          />
+        </div>
+      </div>
+
+      {puedeEditar && (
+        <div className="flex shrink-0 items-start gap-1">
+          <button
+            type="button"
+            onClick={onEditar}
+            title="Editar la marca"
+            aria-label="Editar la marca"
+            className="rounded p-1 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700"
+          >
+            <Icon name="edit" size={13} />
+          </button>
+          <button
+            type="button"
+            onClick={onQuitar}
+            disabled={ocupado}
+            title="Retirar la marca (se lleva sus soportes)"
+            aria-label="Retirar la marca"
+            className="rounded p-1 text-err-500 transition hover:bg-err-50 hover:text-err-700 disabled:opacity-50"
+          >
+            <Icon name="trash" size={13} />
+          </button>
+        </div>
+      )}
+    </li>
+  );
+}
+
+/** Modal para poner (o reescribir) la marca de una diferencia y adjuntarle soportes. */
+function ModalMarca({
   fila,
   encabezadoId,
   onClose,
   onGuardado,
 }: {
-  fila: FilaCruceJustificada;
+  fila: FilaCruceMarcada;
   encabezadoId: number;
   onClose: () => void;
   onGuardado: () => void;
 }) {
-  const [nota, setNota] = useState(fila.justificacion?.nota ?? "");
+  const router = useRouter();
+  const [nota, setNota] = useState(fila.marca?.nota ?? "");
+  const [anexo, setAnexo] = useState(fila.marca?.referenciaAnexo ?? "");
+  const [nuevos, setNuevos] = useState<File[]>([]);
   const [guardando, startGuardar] = useTransition();
+  const [borrandoSoporte, startBorrarSoporte] = useTransition();
+
+  const yaGuardados = fila.marca?.adjuntos ?? [];
+  const cupo = SOPORTES_MARCA_MAX - yaGuardados.length - nuevos.length;
+
+  const agregar = (lista: FileList | null) => {
+    if (!lista || lista.length === 0) return;
+    const elegidos = Array.from(lista);
+    if (elegidos.length > cupo) {
+      notifyError(`Una marca admite hasta ${SOPORTES_MARCA_MAX} soportes.`);
+      return;
+    }
+    setNuevos((previos) => [...previos, ...elegidos]);
+  };
+
+  const quitarSoporte = (soporteId: number) => {
+    startBorrarSoporte(async () => {
+      const r = await eliminarSoporteMarca({ encabezadoId, soporteId });
+      if (r.ok) {
+        notifySuccess(r.message ?? "Soporte eliminado.");
+        router.refresh();
+      } else {
+        notifyError(r.message ?? "No se pudo eliminar el soporte.");
+      }
+    });
+  };
 
   const guardar = () => {
     const texto = nota.trim();
     if (!texto || guardando) return;
     startGuardar(async () => {
-      const r = await justificarDiferenciaCruce({
-        encabezadoId,
-        cuenta4: fila.cuenta4,
-        nota: texto,
-        diferencia: fila.diferencia,
-      });
+      const datos = new FormData();
+      datos.set("encabezadoId", String(encabezadoId));
+      datos.set("cuenta4", fila.cuenta4);
+      datos.set("nota", texto);
+      datos.set("referenciaAnexo", anexo.trim());
+      datos.set("diferencia", String(fila.diferencia));
+      for (const archivo of nuevos) datos.append("soportes", archivo);
+
+      const r = await guardarMarcaCruce(datos);
       if (r.ok) {
-        notifySuccess(r.message ?? "Justificación guardada.");
+        notifySuccess(r.message ?? "Marca guardada.");
         onGuardado();
       } else {
-        notifyError(r.message ?? "No se pudo guardar la justificación.");
+        notifyError(r.message ?? "No se pudo guardar la marca.");
       }
     });
   };
+
+  const titulo = fila.marca
+    ? `${etiquetaMarca(fila.marca.numero)} · ${etiquetaRussell(fila.cuenta4, fila.nombre)}`
+    : `Nueva marca · ${etiquetaRussell(fila.cuenta4, fila.nombre)}`;
 
   return (
     <Modal
       open
       onClose={onClose}
-      title={`Justificar diferencia · ${etiquetaRussell(fila.cuenta4, fila.nombre)}`}
+      title={titulo}
       size="lg"
       footer={
         <button
@@ -1098,7 +1308,7 @@ function ModalJustificacion({
           disabled={!nota.trim() || guardando}
           className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-navy-800 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {guardando ? "Guardando…" : "Guardar justificación"}
+          {guardando ? "Guardando…" : fila.marca ? "Guardar cambios" : "Poner marca"}
         </button>
       }
     >
@@ -1118,27 +1328,114 @@ function ModalJustificacion({
           </div>
         </div>
 
-        {fila.desactualizada && fila.justificacion && (
+        {fila.desactualizada && fila.marca && (
           <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[12px] text-warn-700">
-            La diferencia era <b>{fmtContable(fila.justificacion.diferencia)}</b> cuando se escribió esta justificación. Actualízala para dejar constancia del monto de hoy.
+            La diferencia era <b>{fmtContable(fila.marca.diferencia)}</b> cuando se escribió esta marca. Actualízala para dejar constancia del monto de hoy.
           </div>
         )}
 
         <label className="flex flex-col gap-1">
-          <span className="text-[12px] font-semibold text-ink-700">Justificación de la diferencia</span>
+          <span className="text-[12px] font-semibold text-ink-700">Detalle de la marca</span>
           <textarea
             value={nota}
-            onChange={(e) => setNota(e.target.value.slice(0, MAX_NOTA_JUSTIFICACION))}
+            onChange={(e) => setNota(e.target.value.slice(0, MAX_NOTA_MARCA))}
             rows={5}
             autoFocus
             placeholder="Explica a qué corresponde la diferencia (p. ej. mercancía en tránsito no facturada al corte)."
             className="resize-y rounded-md border border-ink-200 px-3 py-2 text-[12.5px] focus:outline-none focus:ring-2 focus:ring-navy-600"
           />
-          <span className="self-end text-[10.5px] text-ink-400">{nota.length}/{MAX_NOTA_JUSTIFICACION}</span>
+          <span className="self-end text-[10.5px] text-ink-400">{nota.length}/{MAX_NOTA_MARCA}</span>
         </label>
 
+        <label className="flex flex-col gap-1">
+          <span className="text-[12px] font-semibold text-ink-700">
+            Referencia al anexo <span className="font-normal text-ink-400">(opcional)</span>
+          </span>
+          <input
+            type="text"
+            value={anexo}
+            onChange={(e) => setAnexo(e.target.value.slice(0, MAX_REFERENCIA_ANEXO))}
+            placeholder="P. ej. Anexo A-3 · PT-INV-04"
+            className="rounded-md border border-ink-200 px-3 py-2 text-[12.5px] focus:outline-none focus:ring-2 focus:ring-navy-600"
+          />
+          <span className="text-[10.5px] text-ink-400">Dónde queda el soporte en el archivo del papel de trabajo.</span>
+        </label>
+
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[12px] font-semibold text-ink-700">
+            Soportes <span className="font-normal text-ink-400">(PDF, Excel, CSV o imagen · hasta {SOPORTES_MARCA_MAX})</span>
+          </span>
+
+          {yaGuardados.length > 0 && (
+            <ul className="flex flex-col gap-1">
+              {yaGuardados.map((a) => (
+                <li key={a.id} className="flex items-center gap-2 rounded-md border border-ink-150 bg-white px-2 py-1.5 text-[11.5px]">
+                  <Icon name="doc" size={12} />
+                  <a
+                    href={`${urlSoporteMarca(a.id)}?descargar=1`}
+                    className="min-w-0 flex-1 truncate text-ink-700 hover:text-blue-700 hover:underline"
+                    title={a.nombreArchivo}
+                  >
+                    {a.nombreArchivo}
+                  </a>
+                  <span className="shrink-0 text-ink-400">{tamanoLegible(a.tamanoBytes)}</span>
+                  <button
+                    type="button"
+                    onClick={() => quitarSoporte(a.id)}
+                    disabled={borrandoSoporte}
+                    title="Eliminar este soporte"
+                    aria-label="Eliminar este soporte"
+                    className="shrink-0 rounded p-0.5 text-err-500 transition hover:bg-err-50 hover:text-err-700 disabled:opacity-50"
+                  >
+                    <Icon name="trash" size={12} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {nuevos.length > 0 && (
+            <ul className="flex flex-col gap-1">
+              {nuevos.map((archivo, i) => (
+                <li key={`${archivo.name}-${i}`} className="flex items-center gap-2 rounded-md border border-dashed border-blue-300 bg-blue-50 px-2 py-1.5 text-[11.5px]">
+                  <Icon name="upload" size={12} />
+                  <span className="min-w-0 flex-1 truncate text-ink-700" title={archivo.name}>{archivo.name}</span>
+                  <span className="shrink-0 text-ink-400">{tamanoLegible(archivo.size)}</span>
+                  <button
+                    type="button"
+                    onClick={() => setNuevos((previos) => previos.filter((_, j) => j !== i))}
+                    title="Quitar de la lista"
+                    aria-label="Quitar de la lista"
+                    className="shrink-0 rounded p-0.5 text-err-500 transition hover:bg-err-50 hover:text-err-700"
+                  >
+                    <Icon name="x" size={12} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {cupo > 0 ? (
+            <label className="inline-flex w-fit cursor-pointer items-center gap-1.5 rounded-md border border-ink-200 px-2.5 py-1.5 text-[11.5px] font-semibold text-ink-600 transition hover:bg-ink-50 hover:text-ink-900">
+              <Icon name="plus" size={12} /> Adjuntar soporte
+              <input
+                type="file"
+                multiple
+                accept=".pdf,.xlsx,.xlsm,.xls,.csv,.jpg,.jpeg,.png,.webp"
+                className="hidden"
+                onChange={(e) => {
+                  agregar(e.target.files);
+                  e.target.value = "";
+                }}
+              />
+            </label>
+          ) : (
+            <span className="text-[11px] text-ink-400">Alcanzaste el máximo de {SOPORTES_MARCA_MAX} soportes.</span>
+          )}
+        </div>
+
         <p className="text-[11.5px] text-ink-500">
-          La justificación queda en el hilo de la cuenta y se conserva al cargar versiones nuevas de este período.
+          La marca queda numerada en la cédula, su detalle en observaciones y el texto en el hilo de la cuenta. Se conserva al cargar versiones nuevas de este período.
         </p>
       </div>
     </Modal>

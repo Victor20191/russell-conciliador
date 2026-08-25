@@ -151,6 +151,15 @@ Parsers **puros** en `src/lib/import/` (devuelven `{ filas, errores }`); la reso
 - **Notificaciones persistidas**: `src/lib/notifications.ts` (`createProcessNotification`) registra avisos de proceso en BD que muestra el Topbar (p. ej. enviar una conciliación a revisión).
 - **Paginación**: control reutilizable en `src/components/pagination-controls.tsx`.
 
+### Marcas de auditoría del cruce contable (módulos)
+
+La pestaña **Cruce contable** de `/modulos/[codigo]/[id]` se lee como un papel de trabajo: la cédula (tabla balance vs. archivos, por cuenta Russell de 4 díg.) solo lleva una **marca numerada** en la fila con diferencia, y el detalle vive al pie, en **Observaciones · marcas de auditoría**. Sustituye al botón «Justificar» y a la nota escrita dentro de la celda.
+
+- `src/lib/modulos/marcas-cruce.ts` — lógica **pura**: `anotarCruceConMarcas` pega la marca a su fila y resume lo pendiente (`desactualizada` cuando el monto cambió desde que se escribió), `observacionesDeMarcas` arma la lista al pie, `siguienteNumeroMarca` numera. Los números **no se reciclan** (max+1 aunque haya huecos): una referencia externa —«ver marca 3»— sigue apuntando a lo mismo.
+- `src/lib/modulos/marcas-adjuntos.ts` — validación **pura** de los soportes por MAGIC BYTES (PDF, XLSX/XLS, CSV por extensión + contenido de texto, JPG/PNG/WEBP); hasta 5 por marca y 10 MB cada uno.
+- **Persistencia**: `marca_cruce_modulo` (antes `justificacion_cruce_modulo`; la migración renombra la tabla y numera lo existente por antigüedad) + `adjuntos_marca_cruce` con FK **dura** en cascada — retirar la marca se lleva sus soportes. La marca vive por `(cliente, módulo, período, cuenta_4)`, NO por cargue: sobrevive a las versiones nuevas del período. `numero` también es único dentro del período.
+- **Acciones** en `modulos-datos.ts` (permiso `modulos_datos:editar` + alcance de escritura): `guardarMarcaCruce` recibe **FormData** (lleva archivos), asigna el número dentro de una transacción serializable con candado del período, y deja el texto en el hilo `cruce:XXXX`; `quitarMarcaCruce` y `eliminarSoporteMarca` completan el ciclo. Los binarios van al almacenamiento de objetos general (`src/lib/storage/objetos.ts`, prefijo `soportes-marcas/`) y se descargan por `/api/modulos/marcas/soportes/[id]`, que reverifica permiso Y alcance sobre el cliente de la marca.
+
 ### Otras convenciones
 
 - **Modales**: se cierran SOLO con la X del header — prohibido Escape/backdrop. Control centralizado en `src/components/modal.tsx`. **Nunca** poner un botón «Cerrar» (ni otro cuyo único efecto sea `onClose`) en el `footer`: es redundante con la X y se ha repetido en varios modales. El footer es solo para acciones de negocio (Guardar, Editar, Importar, Eliminar…) o, si aplica, un «Cancelar» emparejado con una primaria que descarte un borrador de formulario; si no hay acción de pie, omitir `footer` del todo.
