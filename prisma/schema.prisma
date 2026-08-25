@@ -1149,6 +1149,10 @@ model ModuloDatoEncabezado {
   total            Decimal             @default(0) @map("total") @db.Decimal(18, 2)
   archivoNombre    String?             @map("archivo_nombre")
   archivoTam       String?             @map("archivo_tam")
+  // Hoja importada del archivo PRINCIPAL de esta versión (la de los anexos por
+  // fraccionamiento va en la línea "Anexo: ... · hoja: ..." de `observaciones`).
+  // Solo se registra de aquí en adelante: los cargues previos quedan en null.
+  hoja             String?             @map("hoja")
   origenExtraccion String?             @map("origen_extraccion") // perfil | manual | ia
   // Novedades de la carga (estilo balance): observaciones libres + respuestas del checklist
   // de verificación (JSON id→{respuesta, nota}). Las alertas automáticas (p. ej. negativos)

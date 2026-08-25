@@ -23,6 +23,7 @@ import { Card, Chip, EmptyState } from "@/components/ui";
 import ConversacionesEntidad from "@/components/conversaciones-entidad";
 import { fmtContable } from "@/lib/format";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
+import { archivosDeVersion } from "@/lib/modulos/archivos-carga";
 import {
   coincideBusquedaModulo,
   direccionInicialColumnaModulo,
@@ -65,6 +66,10 @@ export type PeriodoModuloRow = {
   filas: number;
   total: number;
   archivoNombre: string | null;
+  /** Hoja importada del archivo principal (null en cargues previos a su registro). */
+  hoja: string | null;
+  /** De aquí se derivan los anexos por fraccionamiento (ver `archivosDeVersion`). */
+  observaciones: string | null;
   origen: string | null;
   cargadoPor: string | null;
   fecha: string;
@@ -672,7 +677,7 @@ function CargadosPorCliente({
                         </span>
                       )}
                     </td>
-                    <td className="max-w-[240px] px-4 py-2.5">
+                    <td className="max-w-[280px] px-4 py-2.5">
                       <span className="flex flex-wrap items-center gap-1.5">
                         {/* Los cargues antiguos no guardaron el nombre del archivo: ahí el
                             renglón se abre por «Ver». */}
@@ -687,6 +692,11 @@ function CargadosPorCliente({
                         ) : (
                           <span className="text-ink-400" title="Cargue histórico sin nombre de archivo">
                             — sin archivo —
+                          </span>
+                        )}
+                        {p.hoja && (
+                          <span className="text-[10.5px] text-ink-400" title="Hoja importada">
+                            · hoja «{p.hoja}»
                           </span>
                         )}
                         {p.comentarios > 0 && (
@@ -705,6 +715,26 @@ function CargadosPorCliente({
                           </button>
                         )}
                       </span>
+                      {/* Archivos anexados por fraccionamiento (mismo período, misma
+                          versión vigente): compactos, uno por línea, con su hoja. */}
+                      {archivosDeVersion(p.archivoNombre, p.hoja, p.observaciones)
+                        .filter((a) => a.esAnexo)
+                        .map((anexo, i) => (
+                          <span
+                            key={`${anexo.archivo}-${i}`}
+                            className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] text-ink-500"
+                          >
+                            <span className="rounded bg-ink-100 px-1 text-[9.5px] font-medium uppercase tracking-wide text-ink-400">
+                              anexo
+                            </span>
+                            <span className="truncate" title={anexo.archivo}>
+                              {anexo.archivo}
+                            </span>
+                            {anexo.hoja && (
+                              <span className="text-[10.5px] text-ink-400">· hoja «{anexo.hoja}»</span>
+                            )}
+                          </span>
+                        ))}
                       <span className="block text-[10.5px] text-ink-400">{etiquetaOrigen(p.origen)}</span>
                       {p.cargadoPor && (
                         <span className="block text-[10.5px] text-ink-400">por {p.cargadoPor}</span>

@@ -34,6 +34,10 @@ export type CargaModuloAgrupable = {
   filas: number;
   total: number;
   archivoNombre: string | null;
+  /** Hoja importada del archivo principal (null en cargues previos a su registro). */
+  hoja: string | null;
+  /** De aquí se derivan los anexos por fraccionamiento (ver `archivos-carga.ts`). */
+  observaciones: string | null;
   origen: string | null;
   cargadoPor: string | null;
   ultimaCarga: FechaSerializada;
@@ -57,6 +61,8 @@ export type PeriodoCargaModulo = {
   filas: number;
   total: number;
   archivoNombre: string | null;
+  hoja: string | null;
+  observaciones: string | null;
   origen: string | null;
   cargadoPor: string | null;
   ultimaCarga: FechaSerializada;
@@ -148,6 +154,8 @@ export function agruparCargasModuloPorCliente(
           filas: representante.filas,
           total: representante.total,
           archivoNombre: representante.archivoNombre,
+          hoja: representante.hoja,
+          observaciones: representante.observaciones,
           origen: representante.origen,
           cargadoPor: representante.cargadoPor,
           // El período se ordena por su cargue más reciente, aunque la versión

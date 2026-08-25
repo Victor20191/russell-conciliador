@@ -18,6 +18,8 @@ const carga = (over: Partial<CargaModuloAgrupable>): CargaModuloAgrupable => ({
   filas: 10,
   total: 1000,
   archivoNombre: "inv.xlsx",
+  hoja: "Hoja1",
+  observaciones: null,
   origen: "manual",
   cargadoPor: "Victor",
   ultimaCarga: "2026-08-01T10:00:00.000Z",

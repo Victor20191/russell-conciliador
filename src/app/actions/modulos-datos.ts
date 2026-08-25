@@ -19,6 +19,7 @@ import { descriptorModulo } from "@/lib/modulos/descriptores";
 import { cuenta4DelModulo, prefijosCuentaModulo } from "@/lib/modulos/cuentas-modulo";
 import { SpecModuloSchema, type SpecModulo } from "@/lib/modulos/extraccion/esquema";
 import { sugerirSpec } from "@/lib/modulos/extraccion/sugerir";
+import { seleccionarSugerenciasPerfil, type PerfilCandidato } from "@/lib/modulos/sugerencias-perfil";
 import { transformarModulo, resultadoAReconciliacion } from "@/lib/modulos/extraccion/transformar";
 import { promoverStaging, type FilaStagingModulo } from "@/lib/modulos/promocion";
 import {
@@ -77,7 +78,15 @@ export type AnalisisModulo = {
   encabezado?: CeldaMuestra[];
   muestraFilas?: CeldaMuestra[][];
   spec?: SpecModulo;
-  origen?: "perfil" | "ia";
+  // "sugerido" = spec exacto de otro cliente del mismo ERP (huella idéntica), NO propio.
+  origen?: "perfil" | "sugerido" | "ia";
+  // Presente solo cuando NO hay perfil propio del cliente pero sí candidatos de su ERP
+  // (con huella exacta y/o como punto de partida). Puramente indicativo: nunca obliga.
+  sugerencias?: {
+    erpName: string;
+    exacto: { clienteNombre: string; archivoEjemplo: string | null } | null;
+    lista: { clienteNombre: string; huella: string; archivoEjemplo: string | null; vecesUsado: number; spec: SpecModulo }[];
+  };
 };
 
 async function specPerfilModulo(
@@ -102,6 +111,44 @@ async function specPerfilModulo(
 
 const mismoSpecModulo = (a: SpecModulo, b: SpecModulo): boolean =>
   JSON.stringify(a) === JSON.stringify(b);
+
+/**
+ * Sugerencias de parametrización de OTROS clientes con el MISMO ERP, para cuando este
+ * cliente no tiene perfil propio guardado en este módulo. Es INDICATIVO: nunca sustituye
+ * al perfil del cliente ni obliga a nada (ver `src/lib/modulos/sugerencias-perfil.ts`).
+ * `null` si el cliente no tiene ERP o ningún otro cliente del mismo ERP tiene perfiles.
+ */
+async function sugerenciasPerfilPorErp(
+  clienteId: number,
+  erpId: number,
+  moduloCodigo: string,
+  candidatas: { huella: string }[],
+): Promise<{ erpName: string; sugerencias: ReturnType<typeof seleccionarSugerenciasPerfil> } | null> {
+  const [erp, otrosClientes] = await Promise.all([
+    prisma.erp.findUnique({ where: { id: erpId }, select: { name: true } }),
+    prisma.client.findMany({ where: { erpId, id: { not: clienteId } }, select: { id: true, name: true } }),
+  ]);
+  if (!erp || otrosClientes.length === 0) return null;
+
+  const perfiles = await prisma.perfilCargaModulo.findMany({
+    where: { moduloCodigo, clienteId: { in: otrosClientes.map((c) => c.id) } },
+    select: { clienteId: true, huella: true, specJson: true, archivoEjemplo: true, vecesUsado: true },
+  });
+  if (perfiles.length === 0) return null;
+
+  const nombrePorCliente = new Map(otrosClientes.map((c) => [c.id, c.name]));
+  const candidatosPerfil: PerfilCandidato[] = perfiles.map((p) => ({
+    clienteId: p.clienteId,
+    clienteNombre: nombrePorCliente.get(p.clienteId) ?? `Cliente ${p.clienteId}`,
+    huella: p.huella,
+    spec: p.specJson,
+    archivoEjemplo: p.archivoEjemplo,
+    vecesUsado: p.vecesUsado,
+  }));
+  const sugerencias = seleccionarSugerenciasPerfil(candidatosPerfil, candidatas.map((c) => c.huella));
+  if (!sugerencias.exacto && sugerencias.lista.length === 0) return null;
+  return { erpName: erp.name, sugerencias };
+}
 
 /**
  * Hoja a importar: la elegida explícitamente por el usuario; si no eligió ninguna,
@@ -194,11 +241,44 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
     const hoja = ingesta.hojas.find((h) => h.nombre === nombreHoja);
     if (!hoja) return { ok: false, message: "El archivo no tiene hojas legibles." };
 
-    // Spec de partida: perfil por huella si existe, si no el heurístico.
+    // Spec de partida: perfil PROPIO por huella si existe; si no, sugerencia INDICATIVA de
+    // otro cliente del mismo ERP (huella exacta) o, en último caso, el heurístico de IA.
     const candidatas = huellasCandidatas([hoja]);
     const perfilSpec = await specPerfilModulo(clienteId, moduloCodigo, candidatas);
-    const spec = perfilSpec ?? sugerirSpec(descriptor, hoja);
-    const origen: "perfil" | "ia" = perfilSpec ? "perfil" : "ia";
+    let spec: SpecModulo;
+    let origen: "perfil" | "sugerido" | "ia";
+    let sugerencias: AnalisisModulo["sugerencias"];
+    if (perfilSpec) {
+      spec = perfilSpec;
+      origen = "perfil";
+    } else {
+      const cliente = await prisma.client.findUnique({ where: { id: clienteId }, select: { erpId: true } });
+      const porErp = cliente?.erpId
+        ? await sugerenciasPerfilPorErp(clienteId, cliente.erpId, moduloCodigo, candidatas)
+        : null;
+      if (porErp?.sugerencias.exacto) {
+        spec = SpecModuloSchema.parse(porErp.sugerencias.exacto.spec);
+        origen = "sugerido";
+      } else {
+        spec = sugerirSpec(descriptor, hoja);
+        origen = "ia";
+      }
+      if (porErp) {
+        sugerencias = {
+          erpName: porErp.erpName,
+          exacto: porErp.sugerencias.exacto
+            ? { clienteNombre: porErp.sugerencias.exacto.clienteNombre, archivoEjemplo: porErp.sugerencias.exacto.archivoEjemplo }
+            : null,
+          lista: porErp.sugerencias.lista.map((p) => ({
+            clienteNombre: p.clienteNombre,
+            huella: p.huella,
+            archivoEjemplo: p.archivoEjemplo,
+            vecesUsado: p.vecesUsado,
+            spec: SpecModuloSchema.parse(p.spec),
+          })),
+        };
+      }
+    }
 
     // Encabezado + primeras filas de datos (todas las columnas) para el editor y el preview.
     const ancho = hoja.filas.reduce((m, f) => Math.max(m, f?.length ?? 0), 0);
@@ -207,7 +287,7 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
     const encabezado = rellena(hoja.filas[spec.filaEncabezado - 1]);
     const muestraFilas = hoja.filas.slice(spec.primeraFilaDatos - 1, spec.primeraFilaDatos - 1 + 12).map(rellena);
 
-    return { ok: true, hoja: hoja.nombre, hojas: ingesta.hojas.map((h) => h.nombre), totalFilas: hoja.filas.length, ancho, encabezado, muestraFilas, spec, origen };
+    return { ok: true, hoja: hoja.nombre, hojas: ingesta.hojas.map((h) => h.nombre), totalFilas: hoja.filas.length, ancho, encabezado, muestraFilas, spec, origen, sugerencias };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("analizarArchivoModulo", e) };
   }
@@ -470,6 +550,8 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
       const columnasNumericas = descriptor.columnas
         .filter((c) => c.tipo === "numero" || c.tipo === "moneda")
         .map((c) => c.nombre);
+      // Todas las filas del lote comparten hoja (una sola por archivo importado).
+      const hojaLote = filasBD.find((f) => f.hoja)?.hoja ?? null;
       const promocion = promoverStaging(filas, columnasNumericas);
       if (promocion.filas === 0) {
         throw new Error("No hay filas imputables para cargar (todas omitidas, agrupadoras o en cero).");
@@ -521,7 +603,10 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
           })),
         });
 
-        const linea = `Anexo: ${loteActual.archivoNombre} (+${promocion.filas} ítems) · ${ahora.toISOString().slice(0, 10)}${observaciones ? ` — ${observaciones}` : ""} ${marcaAnexoModulo(loteId)}`;
+        // No toca `hoja` del encabezado (es la del archivo principal); la del anexo
+        // queda en la propia línea de observaciones, junto al resto de la evidencia.
+        const hojaTxt = hojaLote ? ` · hoja: ${hojaLote}` : "";
+        const linea = `Anexo: ${loteActual.archivoNombre}${hojaTxt} (+${promocion.filas} ítems) · ${ahora.toISOString().slice(0, 10)}${observaciones ? ` — ${observaciones}` : ""} ${marcaAnexoModulo(loteId)}`;
         const observacionesFinal = vigente.observaciones ? `${vigente.observaciones}\n${linea}` : linea;
 
         await tx.moduloDatoEncabezado.update({
@@ -592,6 +677,7 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
           total: promocion.total,
           archivoNombre: loteActual.archivoNombre,
           archivoTam: loteActual.archivoTam,
+          hoja: hojaLote,
           origenExtraccion: loteActual.origenExtraccion,
           observaciones,
           verificaciones: verificaciones as Prisma.InputJsonValue,
