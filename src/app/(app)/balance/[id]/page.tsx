@@ -5,6 +5,7 @@ import { PageHeader, StatCard, Chip, BackLink } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { fmt, fmtDateTime } from "@/lib/format";
 import { reconstruirBalance, agruparJerarquia } from "@/lib/balance/calcular";
+import { ORIGEN_PENDIENTE } from "@/lib/balance/mapeo-cliente-config";
 import { getCuentasEstandar } from "@/lib/balance/cuentas-estandar";
 import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
 import { etiquetaApertura, parsearApertura } from "@/lib/balance/apertura-balance";
@@ -65,6 +66,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
     balancesCliente,
     perfilesCliente,
     contextoPrevalidador,
+    pendienteRows,
   ] = await Promise.all([
     authorizePermiso("balance:editar", { clientId }),
     authorizePermiso("balance:crear", { clientId }),
@@ -98,7 +100,14 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
     cargarContextoPrevalidadorBalance(id)
       .then((value) => ({ ok: true as const, value }))
       .catch(() => ({ ok: false as const })),
+    // Códigos del cliente marcados «Pendiente por Asignar» (grupo o cuenta
+    // exacta): solo pintan el badge, el prevalidador no cambia por esto.
+    prisma.clientAccount.findMany({
+      where: { clienteId: balance.clienteId, origenMapeo: ORIGEN_PENDIENTE },
+      select: { code: true },
+    }),
   ]);
+  const codigosPendientes = new Set(pendienteRows.map((r) => r.code));
   // Editar (congelar) y mapear exigen alcance de escritura; las Server Actions
   // vuelven a verificarlo al ejecutar.
   const puedeEditar = editarAuth.ok;
@@ -141,7 +150,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
   const nombresRussell = new Map(cuentasEstandar.map((s) => [s.code, s.name]));
   const nombre4 = new Map(subgrupos.map((s) => [s.codigo, s.nombre]));
   const nombre2 = new Map(subgrupos.map((s) => [s.grupo, s.nombreGrupo]));
-  const arbol = agruparJerarquia(filas, cuentasEstandar, nombresRussell, { nombre4, nombre2 });
+  const arbol = agruparJerarquia(filas, cuentasEstandar, nombresRussell, { nombre4, nombre2 }, codigosPendientes);
   const estandarOpciones = cuentasEstandar.map((s) => ({ code: s.code, name: s.name }));
 
   // Bitácora de versiones: los encabezados hermanos del mismo (cliente, período)

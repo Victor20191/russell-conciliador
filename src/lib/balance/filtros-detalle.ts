@@ -91,9 +91,8 @@ function textoMapeo(nodo: NodoBalance): string {
       : "sin mapeo";
   }
   if (nodo.nivel === 8) {
-    return nodo.std
-      ? `mapeado ${nodo.std}`
-      : "asignar sin mapeo";
+    if (nodo.std) return `mapeado ${nodo.std}`;
+    return nodo.pendiente ? "pendiente por asignar sin mapeo" : "asignar sin mapeo";
   }
   return "";
 }

@@ -17,7 +17,7 @@ import {
 } from "@/components/tabla-pantalla-completa";
 import { fmt, fmtPct } from "@/lib/format";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
-import { asignarCuentaEstandar, validarAlerta, revertirValidacionAlerta, eliminarDetalleBalance } from "@/app/actions/balance";
+import { asignarCuentaEstandar, marcarCuentaPendiente, quitarPendiente, validarAlerta, revertirValidacionAlerta, eliminarDetalleBalance } from "@/app/actions/balance";
 import Conversacion from "@/components/conversacion";
 import type { NodoBalance } from "@/lib/balance/calcular";
 import { esSaldoContrarioAccionable, esSaldoContrarioInformativo, type UmbralesAlertas } from "@/lib/balance/umbrales-alertas";
@@ -718,6 +718,8 @@ function celdaMapeo(nodo: NodoBalance, puedeMapear: boolean, onAsignar: (n: Nodo
         </span>
       )}
     </span>
+  ) : nodo.pendiente ? (
+    <Chip label="Pendiente por Asignar" tone="blue" />
   ) : (
     <Chip label="Asignar" tone="warn" />
   );
@@ -741,6 +743,10 @@ function AsignarModal({ nodo, estandar, onClose, onAsignado }: { nodo: NodoBalan
   const [q, setQ] = useState("");
   const [codigoSeleccionado, setCodigoSeleccionado] = useState<string | null>(null);
   const [alcance, setAlcance] = useState<"solo" | "grupo" | null>(null);
+  // `null` = pantalla inicial (elegir destino); "asignar" es el flujo existente
+  // de homologar a un estándar; "pendiente"/"quitar" dejan o quitan el
+  // marcador «Pendiente por Asignar» sin elegir ningún estándar.
+  const [accion, setAccion] = useState<"asignar" | "pendiente" | "quitar" | null>(null);
   const clase = nodo.code.charAt(0);
   const cuenta6 = nodo.code.slice(0, 6);
 
@@ -754,7 +760,7 @@ function AsignarModal({ nodo, estandar, onClose, onAsignado }: { nodo: NodoBalan
     [estandar, codigoSeleccionado],
   );
 
-  const confirmar = () => {
+  const confirmarAsignar = () => {
     if (!seleccionada || !alcance) return;
     const fd = new FormData();
     fd.set("detalleId", String(nodo.detalleId));
@@ -773,31 +779,60 @@ function AsignarModal({ nodo, estandar, onClose, onAsignado }: { nodo: NodoBalan
     });
   };
 
-  const volverASeleccion = () => { setCodigoSeleccionado(null); setAlcance(null); };
+  // Dejar/quitar pendiente no mueve la cuenta a otra rama del árbol (sigue
+  // «Sin mapeo»): basta refrescar y cerrar, sin el enfoque de `onAsignado`.
+  const confirmarPendiente = () => {
+    if (!alcance || (accion !== "pendiente" && accion !== "quitar")) return;
+    const fd = new FormData();
+    fd.set("detalleId", String(nodo.detalleId));
+    fd.set("alcance", alcance);
+    start(async () => {
+      const r = accion === "quitar" ? await quitarPendiente(fd) : await marcarCuentaPendiente(fd);
+      if (r?.ok) {
+        notifySuccess(r.message ?? "Listo.");
+        router.refresh();
+        onClose();
+      } else notifyError(r?.message ?? (accion === "quitar" ? "No se pudo quitar el pendiente." : "No se pudo dejar la cuenta pendiente."));
+    });
+  };
+
+  const volver = () => { setCodigoSeleccionado(null); setAlcance(null); setAccion(null); };
+
+  const enPasoAlcance = (accion === "asignar" && !!seleccionada) || accion === "pendiente" || accion === "quitar";
 
   // Las acciones de guardado van en el FOOTER del modal (siempre visible): antes
   // vivían dentro del cuerpo con scroll y en ventanas de poca altura quedaban
   // debajo del fold, así que el usuario elegía la cuenta y no veía cómo guardar.
-  const footer = seleccionada ? (
+  const footer = enPasoAlcance ? (
     <>
-      <button type="button" disabled={pending} onClick={volverASeleccion} className="mr-auto rounded-md px-2 py-1.5 text-[12px] font-medium text-blue-600 hover:bg-blue-50 disabled:opacity-60">
-        ← Cambiar cuenta estándar
+      <button type="button" disabled={pending} onClick={volver} className="mr-auto rounded-md px-2 py-1.5 text-[12px] font-medium text-blue-600 hover:bg-blue-50 disabled:opacity-60">
+        {accion === "asignar" ? "← Cambiar cuenta estándar" : "← Volver"}
       </button>
       <button
         type="button"
         disabled={pending || !alcance}
-        onClick={confirmar}
-        title={alcance ? "Guardar la homologación con el alcance elegido" : "Elige primero el alcance del cambio"}
+        onClick={accion === "asignar" ? confirmarAsignar : confirmarPendiente}
+        title={alcance ? "Guardar con el alcance elegido" : "Elige primero el alcance del cambio"}
         className="rounded-md bg-navy-700 px-4 py-2 text-[12.5px] font-semibold text-white transition hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {pending ? <EstadoProcesando>Homologando</EstadoProcesando> : "Guardar homologación"}
+        {pending ? (
+          <EstadoProcesando>{accion === "asignar" ? "Homologando" : accion === "quitar" ? "Quitando" : "Guardando"}</EstadoProcesando>
+        ) : accion === "asignar" ? "Guardar homologación" : accion === "quitar" ? "Quitar pendiente" : "Dejar pendiente"}
       </button>
     </>
   ) : undefined;
 
+  const titulo = accion === "asignar" && seleccionada
+    ? "Confirmar alcance de la homologación"
+    : accion === "pendiente"
+      ? "Dejar pendiente por asignar"
+      : accion === "quitar"
+        ? "Quitar pendiente por asignar"
+        : "Asignar cuenta estándar";
+
   return (
-    <Modal open onClose={pending ? () => undefined : onClose} title={seleccionada ? "Confirmar alcance de la homologación" : "Asignar cuenta estándar"} size="2xl" footer={footer}>
-      {seleccionada ? (
+    <Modal open onClose={pending ? () => undefined : onClose} title={titulo} size="2xl" footer={footer}>
+      {accion === "asignar" && seleccionada ? (
         <div className="flex flex-col gap-4">
           <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-3">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-blue-600">Homologación seleccionada</p>
@@ -817,33 +852,33 @@ function AsignarModal({ nodo, estandar, onClose, onAsignado }: { nodo: NodoBalan
               Con cualquiera de las dos opciones el cambio queda <span className="font-semibold">memorizado para este cliente</span> y se aplica solo en las próximas cargas de balance (los balances ya cargados no se tocan). Puedes revisarlo o deshacerlo en <span className="font-semibold">Configuración › Mapeo plan estándar</span>.
             </p>
           </div>
-          <div className="grid gap-2 sm:grid-cols-2">
-            {([
-              { valor: "solo" as const, titulo: "Solo esta cuenta", detalle: `Modifica únicamente ${nodo.code} y la memoriza como excepción de esa cuenta. Las demás cuentas del grupo ${cuenta6}* conservan su homologación actual.` },
-              { valor: "grupo" as const, titulo: "Todas las cuentas del grupo", detalle: `Aplica a todas las cuentas ${cuenta6}* y memoriza la regla del grupo (reemplaza las excepciones que hubiera en él).` },
-            ]).map((opcion) => {
-              const activa = alcance === opcion.valor;
-              return (
-                <button
-                  key={opcion.valor}
-                  type="button"
-                  aria-pressed={activa}
-                  disabled={pending}
-                  onClick={() => setAlcance(opcion.valor)}
-                  className={`group rounded-lg border px-4 py-3 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${activa ? "border-navy-700 bg-navy-700 text-white" : "border-ink-200 bg-white hover:border-blue-300 hover:bg-blue-50"}`}
-                >
-                  <span className={`flex items-center gap-2 text-[12.5px] font-semibold ${activa ? "text-white" : "text-ink-800 group-hover:text-blue-700"}`}>
-                    <span aria-hidden className={`inline-flex size-3.5 shrink-0 items-center justify-center rounded-full border ${activa ? "border-white" : "border-ink-300"}`}>
-                      {activa && <span className="size-1.5 rounded-full bg-white" />}
-                    </span>
-                    {opcion.titulo}
-                  </span>
-                  <span className={`mt-1 block text-[11.5px] leading-relaxed ${activa ? "text-white/90" : "text-ink-500"}`}>{opcion.detalle}</span>
-                </button>
-              );
-            })}
+          <SelectorAlcance nodo={nodo} cuenta6={cuenta6} alcance={alcance} setAlcance={setAlcance} pending={pending} accionLabel="Guardar homologación" />
+        </div>
+      ) : accion === "pendiente" || accion === "quitar" ? (
+        <div className="flex flex-col gap-4">
+          <p className="text-[12.5px] text-ink-600">
+            Cuenta del cliente <span className="font-mono font-semibold">{nodo.code}</span> — {nodo.name}.
+          </p>
+          <p className="rounded-md bg-blue-50 px-3 py-2 text-[11.5px] leading-relaxed text-blue-700">
+            {accion === "pendiente" ? (
+              <>La dejas <span className="font-semibold">sin estándar a propósito</span> en vez de homologarla ahora. Sigue contando como sin homologar (bloquea congelar/aprobar/conciliar igual que hoy) pero queda marcada con un badge propio, y la próxima carga NO intentará auto-mapearla.</>
+            ) : (
+              <>Vuelve a estar <span className="font-semibold">sin mapeo normal</span>: la próxima carga podrá auto-homologarla con la cascada, o puedes asignarla a mano.</>
+            )}
+          </p>
+          <div>
+            <p className="text-[13px] font-semibold text-ink-800">¿A cuáles cuentas deseas aplicar este cambio?</p>
+            <p className="mt-1 text-[12px] text-ink-500">Elige el alcance antes de guardar.</p>
           </div>
-          {!alcance && <p className="text-[11.5px] text-ink-500">Selecciona una de las dos opciones para habilitar <span className="font-semibold">Guardar homologación</span>.</p>}
+          <SelectorAlcance
+            nodo={nodo}
+            cuenta6={cuenta6}
+            alcance={alcance}
+            setAlcance={setAlcance}
+            pending={pending}
+            accionLabel={accion === "pendiente" ? "Dejar pendiente" : "Quitar pendiente"}
+            variante={accion}
+          />
         </div>
       ) : (
         <div className="flex flex-col gap-3">
@@ -854,6 +889,29 @@ function AsignarModal({ nodo, estandar, onClose, onAsignado }: { nodo: NodoBalan
           <p className="rounded-md bg-blue-50 px-3 py-2 text-[11.5px] text-blue-700">
             Después de elegir el destino podrás confirmar si el cambio se aplica <span className="font-semibold">solo a esta cuenta</span> o a <span className="font-semibold">todo el grupo {cuenta6}*</span>. En ambos casos queda memorizado para las próximas cargas de este cliente.
           </p>
+          {nodo.pendiente ? (
+            <div className="flex items-center justify-between gap-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2">
+              <span className="text-[11.5px] text-blue-700">Esta cuenta está marcada <span className="font-semibold">Pendiente por Asignar</span>.</span>
+              <button
+                type="button"
+                onClick={() => setAccion("quitar")}
+                className="shrink-0 rounded-md border border-blue-300 bg-white px-2.5 py-1.5 text-[11.5px] font-semibold text-blue-700 hover:bg-blue-100"
+              >
+                Quitar pendiente
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between gap-3 rounded-md border border-ink-150 bg-ink-50 px-3 py-2">
+              <span className="text-[11.5px] text-ink-600">¿Todavía no sabes a qué cuenta corresponde?</span>
+              <button
+                type="button"
+                onClick={() => setAccion("pendiente")}
+                className="shrink-0 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[11.5px] font-semibold text-ink-700 hover:bg-ink-100"
+              >
+                Dejar pendiente por asignar
+              </button>
+            </div>
+          )}
           <input
             autoFocus
             value={q}
@@ -869,7 +927,7 @@ function AsignarModal({ nodo, estandar, onClose, onAsignado }: { nodo: NodoBalan
                 <button
                   key={o.code}
                   type="button"
-                  onClick={() => setCodigoSeleccionado(o.code)}
+                  onClick={() => { setCodigoSeleccionado(o.code); setAccion("asignar"); }}
                   className="flex w-full items-center gap-3 border-b border-ink-50 px-3 py-2 text-left last:border-0 hover:bg-ink-50"
                 >
                   <span className="font-mono text-[11.5px] font-semibold text-ink-700">{o.code}</span>
@@ -882,6 +940,54 @@ function AsignarModal({ nodo, estandar, onClose, onAsignado }: { nodo: NodoBalan
         </div>
       )}
     </Modal>
+  );
+}
+
+/** Selector solo/grupo compartido entre «asignar», «dejar pendiente» y «quitar pendiente». */
+function SelectorAlcance({ nodo, cuenta6, alcance, setAlcance, pending, accionLabel, variante }: {
+  nodo: NodoBalance; cuenta6: string; alcance: "solo" | "grupo" | null; setAlcance: (a: "solo" | "grupo") => void; pending: boolean; accionLabel: string;
+  variante?: "pendiente" | "quitar";
+}) {
+  const detalleSolo = variante === "quitar"
+    ? `Quita el marcador únicamente de ${nodo.code}. Las demás cuentas del grupo ${cuenta6}* conservan el suyo si lo tuvieran.`
+    : variante === "pendiente"
+      ? `Deja pendiente únicamente ${nodo.code}, memorizado como excepción de esa cuenta. Las demás cuentas del grupo ${cuenta6}* conservan su homologación actual.`
+      : `Modifica únicamente ${nodo.code} y la memoriza como excepción de esa cuenta. Las demás cuentas del grupo ${cuenta6}* conservan su homologación actual.`;
+  const detalleGrupo = variante === "quitar"
+    ? `Quita el marcador de todas las cuentas ${cuenta6}* que lo tuvieran.`
+    : variante === "pendiente"
+      ? `Deja pendientes todas las cuentas ${cuenta6}* y memoriza la regla del grupo (reemplaza cualquier homologación previa del grupo).`
+      : `Aplica a todas las cuentas ${cuenta6}* y memoriza la regla del grupo (reemplaza las excepciones que hubiera en él).`;
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="grid gap-2 sm:grid-cols-2">
+        {([
+          { valor: "solo" as const, titulo: "Solo esta cuenta", detalle: detalleSolo },
+          { valor: "grupo" as const, titulo: "Todas las cuentas del grupo", detalle: detalleGrupo },
+        ]).map((opcion) => {
+          const activa = alcance === opcion.valor;
+          return (
+            <button
+              key={opcion.valor}
+              type="button"
+              aria-pressed={activa}
+              disabled={pending}
+              onClick={() => setAlcance(opcion.valor)}
+              className={`group rounded-lg border px-4 py-3 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${activa ? "border-navy-700 bg-navy-700 text-white" : "border-ink-200 bg-white hover:border-blue-300 hover:bg-blue-50"}`}
+            >
+              <span className={`flex items-center gap-2 text-[12.5px] font-semibold ${activa ? "text-white" : "text-ink-800 group-hover:text-blue-700"}`}>
+                <span aria-hidden className={`inline-flex size-3.5 shrink-0 items-center justify-center rounded-full border ${activa ? "border-white" : "border-ink-300"}`}>
+                  {activa && <span className="size-1.5 rounded-full bg-white" />}
+                </span>
+                {opcion.titulo}
+              </span>
+              <span className={`mt-1 block text-[11.5px] leading-relaxed ${activa ? "text-white/90" : "text-ink-500"}`}>{opcion.detalle}</span>
+            </button>
+          );
+        })}
+      </div>
+      {!alcance && <p className="text-[11.5px] text-ink-500">Selecciona una de las dos opciones para habilitar <span className="font-semibold">{accionLabel}</span>.</p>}
+    </div>
   );
 }
 

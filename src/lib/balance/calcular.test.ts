@@ -527,6 +527,51 @@ describe("calcularBalance — config de mapeo guardada del cliente", () => {
   });
 });
 
+// «Pendiente por Asignar»: el marcador debe ser STICKY entre cargas. Sin este
+// parámetro, la cascada (exacto/config/IA) volvería a mapear en automático una
+// cuenta que alguien dejó deliberadamente sin homologar.
+describe("calcularBalance — marcador «Pendiente por Asignar»", () => {
+  it("una cuenta marcada pendiente NO se mapea aunque el exacto encajaría", () => {
+    const pendientes = new Set(["110505"]);
+    const r = calcularBalance(FIRMADO, STD, undefined, undefined, undefined, undefined, pendientes);
+    const items = r.breakdown.flatMap((g) => g.items);
+    const caja = items.find((i) => i.code === "110505");
+    expect(caja?.mapped).toBe(false);
+    expect(caja?.std).toBeNull();
+    expect(caja?.coincidencia).toBeNull();
+    // Las demás cuentas del archivo siguen su cascada normal, sin efecto colateral.
+    const bancos = items.find((i) => i.code === "111005");
+    expect(bancos?.mapped).toBe(true);
+    expect(bancos?.std).toBe("111005");
+  });
+
+  it("pendiente tiene prioridad sobre la config guardada del cliente (no solo sobre el exacto)", () => {
+    const configCliente = new Map([["110505", { std: "510505", coincidencia: 100 }]]);
+    const pendientes = new Set(["110505"]);
+    const r = calcularBalance(FIRMADO, STD, undefined, undefined, configCliente, undefined, pendientes);
+    const caja = r.breakdown.flatMap((g) => g.items).find((i) => i.code === "110505");
+    expect(caja?.mapped).toBe(false);
+    expect(caja?.std).toBeNull();
+  });
+
+  it("pendiente por GRUPO (6 dígitos) alcanza a una cuenta imputable nueva sin fila propia", () => {
+    const pendientes = new Set(["110505"]); // marcado al nivel de grupo
+    const cuentas: CuentaCruda[] = [
+      { code: "11050501", name: "Caja general", prevBalance: 100, balance: 200 },
+      { code: "11050502", name: "Caja menor", prevBalance: 50, balance: 60 },
+    ];
+    const r = calcularBalance(cuentas, STD, undefined, undefined, undefined, undefined, pendientes);
+    const items = r.breakdown.flatMap((g) => g.items);
+    expect(items.every((i) => !i.mapped && i.std === null)).toBe(true);
+  });
+
+  it("sin el parámetro `pendientes` (undefined) la cascada funciona exactamente igual que antes", () => {
+    const r = calcularBalance(FIRMADO, STD);
+    const caja = r.breakdown.flatMap((g) => g.items).find((i) => i.code === "110505");
+    expect(caja?.mapped).toBe(true);
+  });
+});
+
 describe("limpiarCodigo — sufijo alfabético (INAC/A/AS) se omite", () => {
   it("descomponerCuenta quita el sufijo y normaliza el código", () => {
     expect(descomponerCuenta("236550INAC")).toEqual({ cuenta2: "23", cuenta4: "2365", cuenta6: "236550", cuenta8: "236550" });
@@ -703,6 +748,37 @@ describe("aFilasDetalle + reconstruirBalance (ida y vuelta)", () => {
     const filas = aFilasDetalle(calc.breakdown);
     const caja = filas.find((f) => f.cuenta8 === "110505");
     expect(caja).toMatchObject({ cuenta6Russell: "110505", saldoInicial: 800, saldoFinal: 1000, coincidencia: 100 });
+  });
+});
+
+describe("agruparJerarquia · marcador «Pendiente por Asignar» en las hojas", () => {
+  const FILAS = [
+    { cuenta8: "11050501", nombreCuenta: "Caja general", cuenta6Russell: null, coincidencia: null, saldoInicial: 100, debitos: 0, creditos: 0, saldoFinal: 200 },
+    { cuenta8: "11100501", nombreCuenta: "Banco nacional", cuenta6Russell: null, coincidencia: null, saldoInicial: 100, debitos: 0, creditos: 0, saldoFinal: 200 },
+  ];
+  const buscarHoja = (nodos: NodoBalance[], code: string): NodoBalance | undefined => {
+    for (const n of nodos) { if (n.code === code) return n; const h = buscarHoja(n.hijos, code); if (h) return h; }
+    return undefined;
+  };
+
+  it("marca `pendiente: true` solo en la hoja cuyo código está en el set, y solo si no tiene std", () => {
+    const arbol = agruparJerarquia(FILAS, STD, new Map(), undefined, new Set(["110505"]));
+    expect(buscarHoja(arbol, "11050501")?.pendiente).toBe(true);
+    expect(buscarHoja(arbol, "11100501")?.pendiente).toBe(false);
+  });
+
+  it("sin `pendientes` (undefined), ninguna hoja se marca", () => {
+    const arbol = agruparJerarquia(FILAS, STD, new Map());
+    expect(buscarHoja(arbol, "11050501")?.pendiente).toBe(false);
+  });
+
+  it("una cuenta YA mapeada no se pinta como pendiente aunque su código esté en el set (defensivo)", () => {
+    const filasMapeadas = [
+      { cuenta8: "11050501", nombreCuenta: "Caja general", cuenta6Russell: "110505", coincidencia: 100, saldoInicial: 100, debitos: 0, creditos: 0, saldoFinal: 200 },
+    ];
+    const arbol = agruparJerarquia(filasMapeadas, STD, new Map(), undefined, new Set(["110505"]));
+    expect(buscarHoja(arbol, "11050501")?.pendiente).toBe(false);
+    expect(buscarHoja(arbol, "11050501")?.mapped).toBe(true);
   });
 });
 

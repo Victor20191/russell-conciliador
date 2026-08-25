@@ -11,7 +11,7 @@
 // ============================================================
 import { fmt } from "@/lib/format";
 import { cruzaClaseContable } from "./clase-contable";
-import { resolverMapeoCliente } from "./mapeo-cliente-config";
+import { esPendienteCodigo, resolverMapeoCliente } from "./mapeo-cliente-config";
 import { esSaldoContrarioAccionable, UMBRALES_ALERTAS_DEFECTO, type UmbralesAlertas } from "./umbrales-alertas";
 
 // ---- Tipos de entrada ----
@@ -447,6 +447,12 @@ export function calcularBalance(
   // PRIORIDAD sobre la cascada: lo que ya se parametrizó no se recalcula.
   configCliente?: Map<string, { std: string | null; coincidencia: number | null }>,
   umbrales: UmbralesAlertas = UMBRALES_ALERTAS_DEFECTO,
+  // Códigos (grupo de 6 díg. o cuenta exacta) marcados «Pendiente por Asignar»
+  // en `cuentas_cliente`. Tienen PRIORIDAD sobre toda la cascada —incluida la
+  // config guardada, que nunca los contiene porque su estándar es null—: se
+  // fuerza `std = null` y NO se intenta mapear, para que el marcador sea
+  // STICKY entre cargas (ver `esPendienteCodigo`).
+  pendientes?: Set<string>,
 ): ResultadoBalance {
   const stdByCode = new Map(estandar.map((s) => [s.code, s]));
   const hayDescripcion = estandar.some((s) => s.possibleAccounts || s.name);
@@ -476,15 +482,22 @@ export function calcularBalance(
   //    override IA. La config manda sobre todo lo demás; dentro de ella gana la
   //    excepción de la cuenta exacta sobre la regla de su grupo de 6 díg.
   const mapeadas = hojas.map((c) => {
-    const cfg = resolverMapeoCliente(configCliente, c.code);
     let mp: MapeoCuenta;
-    if (cfg?.std) {
-      mp = { std: cfg.std, coincidencia: cfg.coincidencia, mapped: true };
+    if (esPendienteCodigo(pendientes, c.code)) {
+      // Marcador «Pendiente por Asignar»: se salta la cascada por completo,
+      // incluida la IA. La cuenta queda sin estándar hasta que alguien la
+      // asigne o quite el marcador.
+      mp = { std: null, coincidencia: null, mapped: false };
     } else {
-      mp = mapearCuenta(c.code, c.name, stdByCode, estandar, hayDescripcion, plan);
-      if (!mp.mapped) {
-        const ov = override?.get(c.code);
-        if (ov?.std) mp = { std: ov.std, coincidencia: ov.coincidencia, mapped: true };
+      const cfg = resolverMapeoCliente(configCliente, c.code);
+      if (cfg?.std) {
+        mp = { std: cfg.std, coincidencia: cfg.coincidencia, mapped: true };
+      } else {
+        mp = mapearCuenta(c.code, c.name, stdByCode, estandar, hayDescripcion, plan);
+        if (!mp.mapped) {
+          const ov = override?.get(c.code);
+          if (ov?.std) mp = { std: ov.std, coincidencia: ov.coincidencia, mapped: true };
+        }
       }
     }
     const ref = mp.std ? stdByCode.get(mp.std) : undefined;
@@ -903,6 +916,10 @@ export type NodoBalance = {
   detalleId: number | null; // solo hojas (nivel 8): id de balance_prueba_detalle
   std: string | null;
   coincidencia: number | null;
+  // Solo hojas (nivel 8): la cuenta quedó marcada «Pendiente por Asignar»
+  // (`cuentas_cliente.origen_mapeo = "pendiente"`), sin estándar a propósito.
+  // Es display puro; el prevalidador sigue tratándola como sin homologar.
+  pendiente: boolean;
   hijos: NodoBalance[];
 };
 
@@ -914,6 +931,9 @@ export function agruparJerarquia(
   estandar: CuentaEstandar[],
   nombres: Map<string, string>,
   sub?: NombresJerarquia,
+  // Códigos del cliente marcados «Pendiente por Asignar» (grupo o cuenta
+  // exacta), para pintar el badge en vez de «Asignar» en las hojas sin std.
+  pendientes?: Set<string>,
 ): NodoBalance[] {
   const stdByCode = new Map(estandar.map((s) => [s.code, s]));
   type N6 = { code: string; name: string; mapped: boolean; std: string | null; hojas: NodoBalance[] };
@@ -948,6 +968,7 @@ export function agruparJerarquia(
       detalleId: f.id ?? null,
       std: std ?? null,
       coincidencia: f.coincidencia ?? (mapped ? 100 : null),
+      pendiente: !mapped && esPendienteCodigo(pendientes, f.cuenta8),
       hijos: [],
     };
     const n2 = arbol.get(c2) ?? arbol.set(c2, { name: sub?.nombre2.get(c2) ?? GRUPOS_PUC[c2] ?? `Grupo ${c2}`, clase: c2.charAt(0), n4: new Map() }).get(c2)!;
@@ -991,7 +1012,7 @@ export function agruparJerarquia(
                 key: `${c2}/${c4}/${c6}`, nivel: 6 as const, code: v6.code, name: v6.name, ...a,
                 variation: variacion(a.prevBalance, a.balance), mapped: v6.mapped,
                 saldoOk: v6.mapped ? saldoConcuerda(a.balance, nature) : true, nature,
-                clase: c2.charAt(0), detalleId: null, std: v6.std, coincidencia: null, hijos: v6.hojas,
+                clase: c2.charAt(0), detalleId: null, std: v6.std, coincidencia: null, pendiente: false, hijos: v6.hojas,
               } satisfies NodoBalance;
             });
           const a = agg(n6nodes);
@@ -999,7 +1020,7 @@ export function agruparJerarquia(
           return {
             key: `${c2}/${c4}`, nivel: 4 as const, code: c4, name: sub?.nombre4.get(c4) ?? `Subgrupo ${c4}`, ...a,
             variation: variacion(a.prevBalance, a.balance), mapped: true, saldoOk: saldoConcuerda(a.balance, nature), nature,
-            clase: c2.charAt(0), detalleId: null, std: null, coincidencia: null, hijos: n6nodes,
+            clase: c2.charAt(0), detalleId: null, std: null, coincidencia: null, pendiente: false, hijos: n6nodes,
           } satisfies NodoBalance;
         });
       const a = agg(n4nodes);
@@ -1007,7 +1028,7 @@ export function agruparJerarquia(
       return {
         key: c2, nivel: 2 as const, code: c2, name: v2.name, ...a,
         variation: variacion(a.prevBalance, a.balance), mapped: true, saldoOk: saldoConcuerda(a.balance, nature), nature,
-        clase: v2.clase, detalleId: null, std: null, coincidencia: null, hijos: n4nodes,
+        clase: v2.clase, detalleId: null, std: null, coincidencia: null, pendiente: false, hijos: n4nodes,
       } satisfies NodoBalance;
     });
 }

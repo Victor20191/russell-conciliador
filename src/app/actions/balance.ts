@@ -76,7 +76,7 @@ import { iaBalanceDisponible, proveedorIABalance, type ProveedorIABalance } from
 import { proveedorIABalanceSesion } from "@/lib/ia/proveedor-balance-sesion";
 import { registrarConsumoIA, type UsoIA } from "@/lib/ia/uso";
 import { aplicarPreferenciasCarga } from "@/lib/balance/preferencias-carga";
-import { construirConfigMapeoCliente, esMapeoManual, nivelPorCodigo, resolverMapeoCliente } from "@/lib/balance/mapeo-cliente-config";
+import { construirConfigMapeoCliente, esPendiente, esPendienteCodigo, esProtegidoDeAutomatico, nivelPorCodigo, ORIGEN_PENDIENTE, resolverMapeoCliente } from "@/lib/balance/mapeo-cliente-config";
 import { extraerBalancePorTercero, specCargaASpecPorTercero } from "@/lib/balance/extraccion/por-tercero";
 import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
 import { prefijosCuentaModulo, cuenta4DelModulo } from "@/lib/modulos/cuentas-modulo";
@@ -1404,6 +1404,236 @@ export async function asignarCuentaEstandar(formData: FormData): Promise<ActionS
 }
 
 /**
+ * Marca una cuenta del cliente (fila de `balance_prueba_detalle`) como
+ * «Pendiente por Asignar»: en vez de forzar una homologación, la deja
+ * explícitamente SIN estándar (`cuenta_6_russell = null`) hasta que alguien la
+ * asigne o quite el marcador.
+ *
+ * Es un MARCADOR que SIGUE BLOQUEANDO: el prevalidador la sigue contando como
+ * sin homologar (bloquea congelar/aprobar/conciliar) exactamente igual que una
+ * cuenta nunca tocada — no cambia ese gate. La única diferencia es que
+ * distingue «pendiente a propósito» de «sin mirar» en la UI y evita que la
+ * cascada la auto-mapee en la siguiente carga: `persistirCargue` y
+ * `auditarCargaBalance` le pasan a `calcularBalance` los códigos marcados
+ * (`origen_mapeo = "pendiente"`) para que los salte por completo.
+ *
+ * Mismo mecanismo y alcance que `asignarCuentaEstandar`: «solo esta cuenta»
+ * memoriza la excepción por código exacto; «todas las cuentas del grupo»
+ * memoriza la regla del grupo de 6 dígitos y la propaga a sus imputables
+ * (reemplaza cualquier homologación previa, manual o automática, del grupo).
+ * Asignar una cuenta real después (`asignarCuentaEstandar`) ya la saca de
+ * pendiente: sobrescribe `origen_mapeo` a `manual`/`manual_cuenta`.
+ */
+export async function marcarCuentaPendiente(formData: FormData): Promise<ActionState> {
+  const authz = await authorizePermiso("balance:crear");
+  if (!authz.ok) return { ok: false, message: authz.message };
+
+  const detalleId = parseId(formData.get("detalleId"));
+  const alcanceMapeo = parseAlcanceHomologacion(formData.get("alcance"));
+  if (!detalleId) return { ok: false, message: "Cuenta del balance inexistente." };
+  if (!alcanceMapeo) {
+    return { ok: false, message: "Confirma si deseas dejar pendiente solo esta cuenta o todo el grupo." };
+  }
+
+  try {
+    const fila = await prisma.balancePruebaDetalle.findUnique({
+      where: { id: detalleId },
+      select: {
+        cuenta6: true,
+        cuenta8: true,
+        nombreCuenta: true,
+        encabezado: {
+          select: { id: true, clienteId: true, nombreCliente: true, nit: true, periodo: true, estaCongelado: true },
+        },
+      },
+    });
+    if (!fila) return { ok: false, message: "La cuenta del balance ya no existe." };
+
+    const alcance = await authorizePermiso("balance:crear", { clientId: fila.encabezado.clienteId });
+    if (!alcance.ok) return { ok: false, message: alcance.message };
+    if (fila.encabezado.estaCongelado) {
+      return { ok: false, message: "No se puede modificar el mapeo de un balance congelado." };
+    }
+
+    const user = await getCurrentUser();
+    const resultado = await transaccionSerializable(async (tx) => {
+      // Mismo candado que `freezeBalance`/`asignarCuentaEstandar`.
+      await tomarCandadoTransaccion(
+        tx,
+        `balance-oficial:${fila.encabezado.clienteId}:${fila.encabezado.periodo}`,
+      );
+
+      const filaActual = await tx.balancePruebaDetalle.findUnique({
+        where: { id: detalleId },
+        select: {
+          cuenta6: true,
+          cuenta8: true,
+          nombreCuenta: true,
+          encabezado: {
+            select: { id: true, clienteId: true, nombreCliente: true, nit: true, periodo: true, estaCongelado: true },
+          },
+        },
+      });
+      if (!filaActual) {
+        return { ok: false as const, message: "La cuenta del balance ya no existe." };
+      }
+      if (
+        filaActual.encabezado.clienteId !== fila.encabezado.clienteId ||
+        filaActual.encabezado.periodo !== fila.encabezado.periodo
+      ) {
+        return {
+          ok: false as const,
+          message: "El balance cambió mientras se preparaba la operación. Vuelve a intentarlo.",
+        };
+      }
+      if (filaActual.encabezado.estaCongelado) {
+        return { ok: false as const, message: "No se puede modificar el mapeo de un balance congelado." };
+      }
+
+      const encId = filaActual.encabezado.id;
+      const planAlcance = resolverAlcanceHomologacion(alcanceMapeo, {
+        detalleId,
+        encabezadoId: encId,
+        cuenta6: filaActual.cuenta6,
+        cuenta8: filaActual.cuenta8,
+      });
+      const memoria = planAlcance.memoriaCliente;
+      const aplicarAlGrupo = memoria.propagaGrupo;
+
+      const afectadas = await tx.balancePruebaDetalle.updateMany({
+        where: planAlcance.filtroDetalle,
+        data: { cuenta6Russell: null, coincidencia: null },
+      });
+
+      const ahora = new Date();
+      await tx.clientAccount.upsert({
+        where: { clienteId_code: { clienteId: filaActual.encabezado.clienteId, code: memoria.codigo } },
+        create: { clientName: filaActual.encabezado.nombreCliente, clienteId: filaActual.encabezado.clienteId, nit: filaActual.encabezado.nit, code: memoria.codigo, level: nivelPorCodigo(memoria.codigo), name: aplicarAlGrupo ? memoria.codigo : filaActual.nombreCuenta || memoria.codigo, cuenta6Russell: null, coincidencia: null, origenMapeo: ORIGEN_PENDIENTE, actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
+        update: { nit: filaActual.encabezado.nit, cuenta6Russell: null, coincidencia: null, origenMapeo: ORIGEN_PENDIENTE, actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
+      });
+      if (aplicarAlGrupo) {
+        // Propaga el marcador a las cuentas IMPUTABLES del mismo grupo, igual
+        // que `asignarCuentaEstandar`: una decisión de grupo manda sobre los
+        // ajustes cuenta a cuenta y deja sin efecto excepciones previas.
+        await tx.clientAccount.updateMany({
+          where: { clienteId: filaActual.encabezado.clienteId, code: { startsWith: filaActual.cuenta6 }, NOT: { code: filaActual.cuenta6 } },
+          data: { cuenta6Russell: null, coincidencia: null, origenMapeo: ORIGEN_PENDIENTE, actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
+        });
+      }
+
+      // Recalcula contadores de mapeo del encabezado: una cuenta pendiente
+      // cuenta como sin mapear, igual que una nunca homologada.
+      const [total, mapeadas] = await Promise.all([
+        tx.balancePruebaDetalle.count({ where: { encabezadoId: encId } }),
+        tx.balancePruebaDetalle.count({ where: { encabezadoId: encId, cuenta6Russell: { not: null } } }),
+      ]);
+      await tx.balancePruebaEncabezado.update({
+        where: { id: encId },
+        data: { mapeadas, sinMapear: total - mapeadas, completitud: total > 0 ? Math.round((mapeadas / total) * 100) : 100 },
+      });
+
+      return {
+        ok: true as const,
+        encId,
+        clienteId: filaActual.encabezado.clienteId,
+        cuenta6: filaActual.cuenta6,
+        cuenta8: filaActual.cuenta8,
+        nombreCuenta: filaActual.nombreCuenta,
+        aplicarAlGrupo,
+        afectadas: afectadas.count,
+      };
+    });
+    if (!resultado.ok) return resultado;
+
+    const detalleAlcance = resultado.aplicarAlGrupo
+      ? `${resultado.cuenta6} (${resultado.afectadas} cuenta(s) del grupo) → pendiente por asignar`
+      : `${resultado.cuenta6} (solo ${resultado.nombreCuenta}) → pendiente por asignar`;
+    await logAudit({ user: user?.name ?? "Sistema", action: "MARCÓ CUENTA PENDIENTE POR ASIGNAR", entity: resultado.cuenta6, detail: detalleAlcance, clientId: resultado.clienteId });
+    revalidatePath(`/balance/${resultado.encId}`);
+    revalidatePath("/config/mapeo");
+    return {
+      ok: true,
+      message: resultado.aplicarAlGrupo
+        ? `${resultado.afectadas} cuenta(s) ${resultado.cuenta6}* quedaron pendientes por asignar. Se recordará para el grupo en las próximas cargas.`
+        : `${resultado.nombreCuenta} quedó pendiente por asignar, sin modificar las demás cuentas del grupo. Se recordará para la cuenta ${resultado.cuenta8} en las próximas cargas.`,
+    };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("marcarCuentaPendiente", e) };
+  }
+}
+
+/**
+ * Quita el marcador «Pendiente por Asignar» de una cuenta del cliente,
+ * dejándola como «sin mapeo» normal: vuelve a estar disponible para que la
+ * cascada la homologue en la siguiente carga (o para asignarla a mano). NO
+ * toca `balance_prueba_detalle` —ya está en null desde que se marcó
+ * pendiente—, solo reescribe la memoria en `cuentas_cliente`; por eso no
+ * necesita el candado de `balance-oficial` ni bloquear por congelado (no hay
+ * nada que reescribir en el balance ya cargado).
+ *
+ * Mismo alcance que al marcar: «solo esta cuenta» limpia únicamente su propia
+ * fila; «todas las cuentas del grupo» limpia la regla del grupo (nivel 6) y
+ * todas las filas que había propagado.
+ */
+export async function quitarPendiente(formData: FormData): Promise<ActionState> {
+  const authz = await authorizePermiso("balance:crear");
+  if (!authz.ok) return { ok: false, message: authz.message };
+
+  const detalleId = parseId(formData.get("detalleId"));
+  const alcanceMapeo = parseAlcanceHomologacion(formData.get("alcance"));
+  if (!detalleId) return { ok: false, message: "Cuenta del balance inexistente." };
+  if (!alcanceMapeo) {
+    return { ok: false, message: "Confirma si deseas quitar el pendiente solo de esta cuenta o de todo el grupo." };
+  }
+
+  try {
+    const fila = await prisma.balancePruebaDetalle.findUnique({
+      where: { id: detalleId },
+      select: { cuenta6: true, cuenta8: true, encabezado: { select: { id: true, clienteId: true } } },
+    });
+    if (!fila) return { ok: false, message: "La cuenta del balance ya no existe." };
+
+    const scope = await authorizePermiso("balance:crear", { clientId: fila.encabezado.clienteId });
+    if (!scope.ok) return { ok: false, message: scope.message };
+
+    const user = await getCurrentUser();
+    const ahora = new Date();
+    const where = alcanceMapeo === "grupo"
+      ? {
+          clienteId: fila.encabezado.clienteId,
+          origenMapeo: ORIGEN_PENDIENTE,
+          OR: [{ code: fila.cuenta6 }, { code: { startsWith: fila.cuenta6 } }],
+        }
+      : { clienteId: fila.encabezado.clienteId, code: fila.cuenta8, origenMapeo: ORIGEN_PENDIENTE };
+    const { count: afectadas } = await prisma.clientAccount.updateMany({
+      where,
+      data: { origenMapeo: null, actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
+    });
+    if (afectadas === 0) {
+      return { ok: false, message: "Esta cuenta no estaba marcada como pendiente por asignar." };
+    }
+
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: "QUITÓ PENDIENTE POR ASIGNAR",
+      entity: fila.cuenta6,
+      detail: alcanceMapeo === "grupo" ? `${fila.cuenta6} (${afectadas} cuenta(s) del grupo)` : fila.cuenta8,
+      clientId: fila.encabezado.clienteId,
+    });
+    revalidatePath(`/balance/${fila.encabezado.id}`);
+    revalidatePath("/config/mapeo");
+    return {
+      ok: true,
+      message: alcanceMapeo === "grupo"
+        ? `Se quitó el marcador de pendiente a ${afectadas} cuenta(s) del grupo ${fila.cuenta6}*.`
+        : `Se quitó el marcador de pendiente de la cuenta ${fila.cuenta8}.`,
+    };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("quitarPendiente", e) };
+  }
+}
+
+/**
  * Vuelve a homologar el detalle de un balance YA cargado con la cascada
  * determinista vigente (memoria del cliente → exacto → descripción), sin IA y
  * sin volver a leer el archivo.
@@ -1603,24 +1833,38 @@ async function persistirCargue(p: {
   // dando prioridad a las filas `manual`. `manualCodes` son los códigos exactos
   // marcados a mano (no se recalculan).
   const configCliente = construirConfigMapeoCliente(configRows);
-  const manualCodes = new Set(configRows.filter((r) => esMapeoManual(r.origenMapeo)).map((r) => r.code));
+  // `manualCodes` sale de TODO `pucRows` (no solo `configRows`, filtrado por
+  // `cuenta6Russell != null`): una cuenta «Pendiente por Asignar» tiene el
+  // estándar en null a propósito, así que quedaría fuera de `configRows` pero
+  // igual debe protegerse del volcado automático (`esProtegidoDeAutomatico`).
+  const manualCodes = new Set(
+    pucRows.filter((r) => esProtegidoDeAutomatico(r.origenMapeo)).map((r) => r.code),
+  );
+  // Códigos (grupo o cuenta exacta) marcados «Pendiente por Asignar»: fuerzan
+  // `std = null` en la cascada para que el marcador sea STICKY entre cargas
+  // (no se auto-mapean, tampoco por IA — ver el barrido 3 más abajo).
+  const codigosPendientes = new Set(pucRows.filter((r) => esPendiente(r.origenMapeo)).map((r) => r.code));
   const pucExistente = new Map(pucRows.map((r) => [r.code, r]));
 
   // Barrido 0 (config guardada) + 1 (exacto) + 2 (descripción), deterministas.
-  let calc = calcularBalance(p.importReady, p.cuentasEstandar, undefined, planTok, configCliente, p.umbrales);
+  let calc = calcularBalance(p.importReady, p.cuentasEstandar, undefined, planTok, configCliente, p.umbrales, codigosPendientes);
 
   // Barrido 3 (IA): las cuentas que quedaron sin mapeo se homologan con el
   // proveedor que la frontera ya autorizó (sin él, la compuerta de entorno).
   // Best-effort: si la IA falla o no está configurada, se queda con lo determinista.
   const proveedorIA = p.proveedorIA ?? proveedorIABalance();
   if (iaBalanceDisponible(proveedorIA)) {
-    const pendientes = calc.breakdown.flatMap((g) => g.items).filter((it) => !it.mapped).map((it) => ({ code: it.code, name: it.name }));
+    // Las marcadas «Pendiente por Asignar» NO se ofrecen a la IA: el marcador
+    // bloquea toda la cascada, no solo la determinista.
+    const pendientes = calc.breakdown.flatMap((g) => g.items)
+      .filter((it) => !it.mapped && !esPendienteCodigo(codigosPendientes, it.code))
+      .map((it) => ({ code: it.code, name: it.name }));
     if (pendientes.length > 0) {
       const usos: UsoIA[] = [];
       try {
         const plan = p.cuentasEstandar.map((s) => ({ code: s.code, name: s.name ?? "", russell: s.russellAccount ?? "", posibles: s.possibleAccounts ?? "" }));
         const override = await mapearPorIA(pendientes, plan, usos, proveedorIA);
-        if (override.size > 0) calc = calcularBalance(p.importReady, p.cuentasEstandar, override, planTok, configCliente, p.umbrales);
+        if (override.size > 0) calc = calcularBalance(p.importReady, p.cuentasEstandar, override, planTok, configCliente, p.umbrales, codigosPendientes);
       } catch {
         /* la IA es opcional: si falla, no rompe el cargue */
       }
@@ -1845,6 +2089,7 @@ async function persistirCargue(p: {
           "actualizado_por" = EXCLUDED."actualizado_por",
           "actualizado_en" = EXCLUDED."actualizado_en"
         WHERE "cuentas_cliente"."origen_mapeo" IS DISTINCT FROM 'manual'
+          AND "cuentas_cliente"."origen_mapeo" IS DISTINCT FROM 'pendiente'
       `);
     }
 
@@ -3115,12 +3360,22 @@ export async function auditarCargaBalance(clienteId: number, loteId: string): Pr
 
     // (b) Sin mapeo: cascada determinista (config guardada + exacto + descripción), SIN IA.
     const cuentasEstandar = await getCuentasEstandar();
-    const configRows = await prisma.clientAccount.findMany({
-      where: { clienteId, cuenta6Russell: { not: null } },
-      select: { id: true, code: true, cuenta6Russell: true, coincidencia: true, origenMapeo: true, actualizadoEn: true },
-    });
+    const [configRows, pendienteRows] = await Promise.all([
+      prisma.clientAccount.findMany({
+        where: { clienteId, cuenta6Russell: { not: null } },
+        select: { id: true, code: true, cuenta6Russell: true, coincidencia: true, origenMapeo: true, actualizadoEn: true },
+      }),
+      // Marcadas «Pendiente por Asignar» (std null a propósito): quedan fuera de
+      // `configRows` porque no tienen estándar, pero igual deben forzar `std =
+      // null` en la cascada de esta vista previa del borrador.
+      prisma.clientAccount.findMany({
+        where: { clienteId, origenMapeo: ORIGEN_PENDIENTE },
+        select: { code: true },
+      }),
+    ]);
     const configCliente = construirConfigMapeoCliente(configRows);
-    const calc = calcularBalance(cuentas, cuentasEstandar, undefined, undefined, configCliente);
+    const codigosPendientes = new Set(pendienteRows.map((r) => r.code));
+    const calc = calcularBalance(cuentas, cuentasEstandar, undefined, undefined, configCliente, undefined, codigosPendientes);
     const sinMapeo = calc.breakdown.flatMap((g) => g.items).filter((it) => !it.mapped).map((it) => ({ code: it.code, name: it.name }));
 
     const ajustes = await ajustesCargaDeCliente(clienteId);

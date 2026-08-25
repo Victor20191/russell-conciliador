@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   construirConfigMapeoCliente,
+  esMapeoManual,
+  esPendiente,
+  esPendienteCodigo,
+  esProtegidoDeAutomatico,
+  ORIGEN_PENDIENTE,
   resolverMapeoCliente,
   type FilaMapeoCliente,
 } from "./mapeo-cliente-config";
@@ -112,5 +117,56 @@ describe("reglas automáticas que cruzan de clase contable", () => {
 
     expect(resolverMapeoCliente(config, "14059805")?.std).toBe("799505");
     expect(resolverMapeoCliente(config, "21052001")?.std).toBe("124505");
+  });
+});
+
+describe("marcador «Pendiente por Asignar»", () => {
+  it("esPendiente solo reconoce el origen exacto", () => {
+    expect(esPendiente(ORIGEN_PENDIENTE)).toBe(true);
+    expect(esPendiente("pendiente")).toBe(true);
+    expect(esPendiente("automatico")).toBe(false);
+    expect(esPendiente("manual")).toBe(false);
+    expect(esPendiente(null)).toBe(false);
+    expect(esPendiente(undefined)).toBe(false);
+  });
+
+  it("esMapeoManual NO cuenta el pendiente como manual (son cosas distintas)", () => {
+    expect(esMapeoManual(ORIGEN_PENDIENTE)).toBe(false);
+  });
+
+  it("esProtegidoDeAutomatico cubre manual, manual_cuenta y pendiente", () => {
+    expect(esProtegidoDeAutomatico("manual")).toBe(true);
+    expect(esProtegidoDeAutomatico("manual_cuenta")).toBe(true);
+    expect(esProtegidoDeAutomatico(ORIGEN_PENDIENTE)).toBe(true);
+    expect(esProtegidoDeAutomatico("automatico")).toBe(false);
+    expect(esProtegidoDeAutomatico(null)).toBe(false);
+  });
+
+  it("una fila pendiente (std=null) NO entra al mapa de config: la cascada no la ve como mapeada", () => {
+    const config = construirConfigMapeoCliente([
+      { id: 1, code: "510506", cuenta6Russell: null, coincidencia: null, origenMapeo: ORIGEN_PENDIENTE },
+      { id: 2, code: "51050601", cuenta6Russell: null, coincidencia: null, origenMapeo: ORIGEN_PENDIENTE },
+    ]);
+
+    expect(config.size).toBe(0);
+    expect(resolverMapeoCliente(config, "51050601")).toBeUndefined();
+  });
+
+  it("esPendienteCodigo resuelve por código exacto o por su grupo de 6 dígitos", () => {
+    const pendientes = new Set(["510506", "22050599"]);
+
+    // Grupo marcado pendiente: cualquier imputable del grupo, incluida una
+    // cuenta NUEVA que no tenía fila propia todavía, hereda el marcador.
+    expect(esPendienteCodigo(pendientes, "510506")).toBe(true);
+    expect(esPendienteCodigo(pendientes, "51050601")).toBe(true);
+    expect(esPendienteCodigo(pendientes, "51050699")).toBe(true);
+
+    // Excepción de una sola cuenta: no afecta a sus hermanas del grupo.
+    expect(esPendienteCodigo(pendientes, "22050599")).toBe(true);
+    expect(esPendienteCodigo(pendientes, "22050501")).toBe(false);
+
+    expect(esPendienteCodigo(pendientes, "999999")).toBe(false);
+    expect(esPendienteCodigo(undefined, "510506")).toBe(false);
+    expect(esPendienteCodigo(new Set(), "510506")).toBe(false);
   });
 });

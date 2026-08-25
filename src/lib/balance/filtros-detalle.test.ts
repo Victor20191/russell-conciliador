@@ -31,6 +31,7 @@ function nodo(
     detalleId: nivel === 8 ? Number(code.slice(-2)) : null,
     std: nivel === 8 ? code.slice(0, 6) : null,
     coincidencia: null,
+    pendiente: false,
     hijos: [],
     ...parcial,
   };
@@ -129,6 +130,41 @@ describe("filtrarArbolDetallePorColumnas", () => {
 
     expect(resultado.map((item) => item.code)).toEqual(["13"]);
     expect(resultado[0].hijos[0].hijos[0].hijos[0].code).toBe("13050599");
+  });
+
+  it("el filtro de mapeo distingue «pendiente por asignar» de un «sin mapeo» normal", () => {
+    const hojaPendiente = nodo("13050598", 8, {
+      name: "Cliente pendiente por asignar",
+      mapped: false,
+      std: null,
+      pendiente: true,
+      saldoOk: false,
+      balance: -1_000,
+    });
+    const arbolConPendiente = [
+      ...arbol,
+      nodo("14", 2, {
+        name: "Otros deudores",
+        mapped: false,
+        hijos: [
+          nodo("1405", 4, {
+            mapped: false,
+            hijos: [nodo("1405-SIN", 6, { mapped: false, hijos: [hojaPendiente] })],
+          }),
+        ],
+      }),
+    ];
+
+    // «pendiente por asignar» solo aparece en el texto de la hoja marcada: el
+    // «sin mapeo» normal (13050599, nunca marcado) queda fuera del resultado.
+    const soloPendientes = filtrarArbolDetallePorColumnas(
+      arbolConPendiente,
+      filtros({ mapeo: "pendiente por asignar" }),
+      new Set(),
+      UMBRALES_ALERTAS_DEFECTO,
+    );
+    expect(soloPendientes.map((item) => item.code)).toEqual(["14"]);
+    expect(soloPendientes[0].hijos[0].hijos[0].hijos[0].code).toBe("13050598");
   });
 
   it("distingue alertas y OK, y deja los informativos fuera de ambos", () => {

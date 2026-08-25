@@ -7,15 +7,38 @@
 //                       «solo esta cuenta»): no participa en la decisión del
 //                       grupo y solo se aplica al código exacto.
 //   - `automatico`    → lo que dedujo la cascada (exacto/descripción/IA).
+//   - `pendiente`     → marcador «Pendiente por Asignar»: la cuenta se deja
+//                       deliberadamente SIN estándar (`cuenta_6_russell = null`)
+//                       en vez de forzar una homologación. Sigue contando como
+//                       sin homologar para el prevalidador (no es un mapeo),
+//                       pero es STICKY: la cascada no debe auto-mapearla en la
+//                       siguiente carga, y el volcado automático del PUC no
+//                       debe pisarla. Ver `esPendienteCodigo`.
 import { cruzaClaseContable } from "./clase-contable";
 
 export const ORIGEN_AUTOMATICO = "automatico";
 export const ORIGEN_MANUAL_GRUPO = "manual";
 export const ORIGEN_MANUAL_CUENTA = "manual_cuenta";
+export const ORIGEN_PENDIENTE = "pendiente";
 
 /** Cualquier mapeo puesto por una persona: el volcado automático nunca lo pisa. */
 export function esMapeoManual(origen: string | null | undefined): boolean {
   return origen === ORIGEN_MANUAL_GRUPO || origen === ORIGEN_MANUAL_CUENTA;
+}
+
+/** Marcador «Pendiente por Asignar»: decisión humana de NO homologar todavía. */
+export function esPendiente(origen: string | null | undefined): boolean {
+  return origen === ORIGEN_PENDIENTE;
+}
+
+/**
+ * ¿El volcado automático del PUC (`persistirCargue`) debe respetar esta fila
+ * sin pisarla? Cubre tanto lo puesto a mano (`esMapeoManual`) como el
+ * marcador «Pendiente por Asignar»: ambos son decisiones humanas explícitas
+ * que una carga automática nunca debe revertir en silencio.
+ */
+export function esProtegidoDeAutomatico(origen: string | null | undefined): boolean {
+  return esMapeoManual(origen) || esPendiente(origen);
 }
 
 /** Excepción de una sola cuenta (no arrastra al resto del grupo de 6 dígitos). */
@@ -165,4 +188,20 @@ export function resolverMapeoCliente<T>(
 ): T | undefined {
   if (!config) return undefined;
   return config.get(code) ?? config.get(code.slice(0, 6));
+}
+
+/**
+ * ¿Esta cuenta del cliente quedó marcada «Pendiente por Asignar»? `pendientes`
+ * guarda códigos con AMBAS granularidades (grupo de 6 dígitos o excepción de
+ * una cuenta exacta), igual que `resolverMapeoCliente`: primero el código
+ * exacto y, si no hay, su grupo. Así una cuenta NUEVA que aparezca en una carga
+ * futura bajo un grupo ya marcado pendiente hereda el marcador sin tener su
+ * propia fila en `cuentas_cliente` todavía.
+ */
+export function esPendienteCodigo(
+  pendientes: Set<string> | undefined,
+  code: string,
+): boolean {
+  if (!pendientes || pendientes.size === 0) return false;
+  return pendientes.has(code) || pendientes.has(code.slice(0, 6));
 }
