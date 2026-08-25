@@ -74,7 +74,10 @@ import { iaBalanceDisponible, proveedorIABalance, type ProveedorIABalance } from
 import { proveedorIABalanceSesion } from "@/lib/ia/proveedor-balance-sesion";
 import { registrarConsumoIA, type UsoIA } from "@/lib/ia/uso";
 import { aplicarPreferenciasCarga } from "@/lib/balance/preferencias-carga";
-import { construirConfigMapeoCliente, esMapeoManual, nivelPorCodigo } from "@/lib/balance/mapeo-cliente-config";
+import { construirConfigMapeoCliente, esMapeoManual, nivelPorCodigo, resolverMapeoCliente } from "@/lib/balance/mapeo-cliente-config";
+import { extraerBalancePorTercero, specCargaASpecPorTercero } from "@/lib/balance/extraccion/por-tercero";
+import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
+import { prefijosCuentaModulo, cuenta4DelModulo } from "@/lib/modulos/cuentas-modulo";
 import {
   contextoAccesoBorradorActual,
   puedeVerBorrador,
@@ -4280,5 +4283,208 @@ export async function eliminarBalance(input: {
       ok: false,
       message: mensajeErrorBD("eliminarBalance", e),
     };
+  }
+}
+
+// ===== Balance ABIERTO POR TERCERO (auxiliar CxC/CxP) =====
+//
+// Carga AISLADA y autosuficiente: NO usa el staging ni las tablas del balance
+// normal (`balance_importacion_*`, `balance_prueba_*`). Ingiere el archivo por
+// su cuenta, extrae con `extraerBalancePorTercero` (una fila por cuenta+tercero,
+// sin colapsar), conserva SOLO las cuentas de los módulos CxC (CAR) y CxP (CXP)
+// y homologa con la MISMA memoria de mapeo del cliente (`cuentas_cliente`) que
+// usa el balance normal. Persiste en `balance_tercero_encabezado`/`_detalle`.
+// Mismo permiso y alcance por cliente que la carga de balance normal.
+const IsoFechaBalanceTercero = /^\d{4}-\d{2}-\d{2}$/;
+const CargarBalanceTerceroSchema = z
+  .object({
+    clienteId: z.coerce.number().int().positive({ error: "Selecciona el cliente." }),
+    periodoInicio: z.string().regex(IsoFechaBalanceTercero, { error: "Indica el período desde (fecha)." }),
+    periodoFin: z.string().regex(IsoFechaBalanceTercero, { error: "Indica el período hasta (fecha)." }),
+    spec: SpecCargaBalanceSchema,
+  })
+  .refine((d) => d.periodoFin >= d.periodoInicio, {
+    error: "El período hasta no puede ser anterior al período desde.",
+    path: ["periodoFin"],
+  });
+
+export type ResultadoCargaTercero = {
+  encabezadoId: number;
+  version: string;
+  filas: number;
+  terceros: number;
+  cuentas: number;
+};
+
+export async function cargarBalancePorTercero(
+  formData: FormData,
+): Promise<ActionState & { resultado?: ResultadoCargaTercero }> {
+  const authz = await authorizePermiso("balance:crear");
+  if (!authz.ok) return { ok: false, message: authz.message };
+
+  let specBruto: unknown;
+  try {
+    specBruto = JSON.parse(String(formData.get("spec") ?? ""));
+  } catch {
+    return { ok: false, message: "La estructura de columnas no es válida. Vuelve a intentarlo." };
+  }
+  const parsed = CargarBalanceTerceroSchema.safeParse({
+    clienteId: formData.get("clienteId"),
+    periodoInicio: formData.get("periodoInicio"),
+    periodoFin: formData.get("periodoFin"),
+    spec: specBruto,
+  });
+  if (!parsed.success) {
+    return { ok: false, message: parsed.error.issues[0]?.message ?? "Datos inválidos." };
+  }
+  const { clienteId, periodoInicio, periodoFin, spec } = parsed.data;
+
+  const scope = await authorizePermiso("balance:crear", { clientId: clienteId });
+  if (!scope.ok) return { ok: false, message: scope.message };
+
+  const conversion = specCargaASpecPorTercero(spec);
+  if (!conversion.ok) return { ok: false, message: conversion.message };
+
+  const loteIdSolicitud = loteIdSolicitudDesde(formData);
+  if (!loteIdSolicitud) {
+    return { ok: false, message: "La solicitud de carga no tiene un identificador válido. Vuelve a intentarlo." };
+  }
+  const archivoResuelto = await archivoBalanceDesdeFormulario(formData, loteIdSolicitud);
+  if (!archivoResuelto.ok) return archivoResuelto;
+  const archivo = archivoResuelto.archivo;
+
+  try {
+    const cliente = await prisma.client.findUnique({
+      where: { id: clienteId },
+      select: { id: true, name: true, nit: true },
+    });
+    if (!cliente) return { ok: false, message: "El cliente seleccionado ya no existe." };
+
+    const datosArchivo = await archivo.arrayBuffer();
+    const ingesta = await ingerir(datosArchivo, archivo.name);
+    if (ingesta.modo !== "tabular") {
+      return { ok: false, message: "El balance por tercero solo admite archivos tabulares (Excel/CSV/TXT delimitado/JSON)." };
+    }
+    const hoja = ingesta.hojas.find((h) => h.nombre === spec.hoja) ?? ingesta.hojas[0];
+    if (!hoja) {
+      return { ok: false, message: "No se encontró la hoja indicada en el archivo." };
+    }
+
+    const { filas: filasExtraidas, filasLeidas, filasExcluidas } = extraerBalancePorTercero(hoja, conversion.spec);
+    if (filasExtraidas.length === 0) {
+      return { ok: false, message: "No se leyó ninguna cuenta del archivo con la estructura indicada. Revisa el mapeo de columnas." };
+    }
+
+    // Solo las cuentas de los módulos CxC (CAR) y CxP (CXP): unión de sus
+    // prefijos Russell vigentes en el prevalidador. El resto del balance
+    // (todo lo que no sea cartera) se descarta al subir.
+    const catalogoPrevalidador = await getCatalogoPrevalidador();
+    const prefijosCarCxp = [
+      ...new Set([
+        ...prefijosCuentaModulo("CAR", catalogoPrevalidador),
+        ...prefijosCuentaModulo("CXP", catalogoPrevalidador),
+      ]),
+    ];
+    const filasModulo = filasExtraidas.filter((f) => cuenta4DelModulo(f.cuenta4, prefijosCarCxp));
+    if (filasModulo.length === 0) {
+      return {
+        ok: false,
+        message: "El archivo no trae cuentas de los módulos CxC/CxP. Revisa el archivo o el mapeo de columnas.",
+      };
+    }
+
+    // Homologación al plan Russell: misma memoria de mapeo (`cuentas_cliente`)
+    // que usa el balance normal, resuelta por cuenta exacta y luego por grupo.
+    const cuentasCliente = await prisma.clientAccount.findMany({
+      where: { clienteId },
+      select: { code: true, cuenta6Russell: true, coincidencia: true, origenMapeo: true, actualizadoEn: true },
+    });
+    const configMapeo = construirConfigMapeoCliente(cuentasCliente);
+    const filasHomologadas = filasModulo.map((f) => {
+      const mapeo = resolverMapeoCliente(configMapeo, f.cuenta8);
+      return { ...f, cuenta6Russell: mapeo?.std ?? null, coincidencia: mapeo?.coincidencia ?? null };
+    });
+
+    const periodo = etiquetaPeriodo(periodoInicio, periodoFin);
+    const usuario = await getCurrentUser();
+
+    const creado = await transaccionSerializable(async (tx) => {
+      await tomarCandadoTransaccion(tx, `balance-tercero-cargue:${clienteId}:${periodo}`);
+      const previas = await tx.balanceTerceroEncabezado.findMany({
+        where: { clienteId, periodo },
+        select: { id: true },
+      });
+      const version = `v${previas.length + 1}`;
+      if (previas.length > 0) {
+        await tx.balanceTerceroEncabezado.updateMany({
+          where: { clienteId, periodo },
+          data: { esOficial: false },
+        });
+      }
+      return tx.balanceTerceroEncabezado.create({
+        data: {
+          clienteId,
+          nombreCliente: cliente.name,
+          nit: cliente.nit,
+          periodo,
+          periodoInicio: fechaCalendarioPrisma(periodoInicio),
+          periodoFin: fechaCalendarioPrisma(periodoFin),
+          version,
+          esOficial: true,
+          archivo: archivo.name,
+          tamanoArchivo: tamArchivo(archivo.size),
+          origenExtraccion: "manual",
+          cargadoPor: usuario?.name ?? null,
+          filasTotales: filasHomologadas.length,
+          ultimaCarga: new Date(),
+          detalles: {
+            create: filasHomologadas.map((f) => ({
+              cuenta2: f.cuenta2,
+              cuenta4: f.cuenta4,
+              cuenta6: f.cuenta6,
+              cuenta8: f.cuenta8,
+              nombreCuenta: f.nombreCuenta,
+              cuenta6Russell: f.cuenta6Russell,
+              coincidencia: f.coincidencia,
+              nitTercero: f.nitTercero,
+              nombreTercero: f.nombreTercero,
+              saldoInicial: f.saldoInicial,
+              debitos: f.debitos,
+              creditos: f.creditos,
+              saldoFinal: f.saldoFinal,
+            })),
+          },
+        },
+        select: { id: true, version: true },
+      });
+    });
+
+    const terceros = new Set(
+      filasHomologadas.map((f) => f.nitTercero).filter((n): n is string => n != null),
+    ).size;
+    const cuentas = new Set(filasHomologadas.map((f) => f.cuenta8)).size;
+
+    await logAudit({
+      user: usuario?.name ?? "Sistema",
+      action: "CARGÓ BALANCE POR TERCERO",
+      entity: `${cliente.name} · ${periodo}`,
+      detail: `${creado.version} · ${filasHomologadas.length} fila(s) · ${terceros} tercero(s) · ${cuentas} cuenta(s) (de ${filasLeidas} leídas, ${filasExcluidas} excluidas del archivo)`,
+      clientId: clienteId,
+    });
+    revalidatePath("/balance");
+
+    return {
+      ok: true,
+      message: `Balance por tercero cargado (${creado.version}): ${filasHomologadas.length} fila(s), ${terceros} tercero(s), ${cuentas} cuenta(s) CxC/CxP.`,
+      resultado: {
+        encabezadoId: creado.id,
+        version: creado.version,
+        filas: filasHomologadas.length,
+        terceros,
+        cuentas,
+      },
+    };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("cargarBalancePorTercero", e) };
   }
 }
