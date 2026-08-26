@@ -661,7 +661,7 @@ function CargadosPorCliente({
                   <th className="px-4 py-2 text-right font-semibold">Total</th>
                   <th className="px-4 py-2 font-semibold">Estado</th>
                   <th className="px-4 py-2 font-semibold">Última carga</th>
-                  <th className="px-4 py-2"></th>
+                  <th className="px-4 py-2 text-right font-semibold">Acciones</th>
                 </tr>
               </thead>
               <tbody>
@@ -794,14 +794,17 @@ function CargadosPorCliente({
                       )}
                     </td>
                     <td className="px-4 py-2.5">
-                      {/* Ver el cargue y —solo para quien puede eliminar— retirarlo con
-                          el alcance que elija en el modal (versión / período / cliente). */}
-                      <div className="flex items-center justify-end gap-2">
+                      {/* Mismas acciones que el listado de borradores de balance: iconos
+                          cuadrados del MISMO tamaño (BOTON_ACCION) —ver el cargue y, para
+                          quien puede eliminar, retirarlo con el alcance del modal—. */}
+                      <div className="flex items-center justify-end gap-1.5">
                         <Link
                           href={`${ruta}/${p.id}`}
-                          className="inline-flex items-center gap-1 text-[12px] font-medium text-blue-500 hover:underline"
+                          title="Ver cargue"
+                          aria-label={`Ver el cargue de ${p.periodo}`}
+                          className={`${BOTON_ACCION} border-ink-200 text-ink-600 hover:bg-ink-50 hover:text-ink-900`}
                         >
-                          Ver <Icon name="chev-r" size={12} />
+                          <Icon name="eye" size={15} />
                         </Link>
                         {puedeEliminar && (
                           <EliminarDatosModuloButton
@@ -815,6 +818,7 @@ function CargadosPorCliente({
                             perfilesCliente={grupo.perfilesCliente}
                             marcasPeriodo={p.marcasPeriodo}
                             marcasCliente={grupo.marcasCliente}
+                            className={`${BOTON_ACCION} border-err-200 text-err-600 hover:bg-err-50 hover:text-err-700`}
                           />
                         )}
                       </div>
