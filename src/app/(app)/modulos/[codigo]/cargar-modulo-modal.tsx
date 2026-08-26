@@ -8,7 +8,7 @@ import { useRouter } from "next/navigation";
 import { Modal } from "@/components/modal";
 import { SelectorClienteBuscable } from "@/components/selector-cliente-buscable";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
-import { columnaLetra, leerHojasParaPreview, type HojaPreview } from "@/lib/balance/extraccion/hojas-cliente";
+import { columnaLetra } from "@/lib/balance/extraccion/hojas-cliente";
 import type { SpecModulo } from "@/lib/modulos/extraccion/esquema";
 import { leerDatosModulo, analizarArchivoModulo, preferenciasCargaModulo, type AnalisisModulo, type CeldaMuestra } from "@/app/actions/modulos-datos";
 import { NotasCargaModulo } from "./notas-carga-modulo";
@@ -57,13 +57,13 @@ function CargarModal({
   onClose: () => void;
 }) {
   const router = useRouter();
-  const bufferRef = useRef<ArrayBuffer | null>(null);
-  const nombreRef = useRef<string>("");
+  // El archivo se conserva como File sin leer ni descomprimir en el navegador.
+  // ExcelJS puede bloquear el hilo principal incluso con XLSX pequeños pero muy
+  // comprimibles; la inspección completa pertenece al Server Action.
+  const archivoRef = useRef<File | null>(null);
   const [tieneArchivo, setTieneArchivo] = useState(false);
   const [nombreArchivo, setNombreArchivo] = useState("");
   const [clienteId, setClienteId] = useState<number | null>(null);
-  const [hojas, setHojas] = useState<HojaPreview[]>([]);
-  const [hoja, setHoja] = useState("");
   const [fase, setFase] = useState<"archivo" | "mapeo">("archivo");
   const [analisis, setAnalisis] = useState<AnalisisModulo | null>(null);
   const [spec, setSpec] = useState<SpecModulo | null>(null);
@@ -71,88 +71,52 @@ function CargarModal({
   // la lista), solo para el aviso visual — puramente informativo, nunca obliga a nada.
   const [sugerenciaAplicadaDe, setSugerenciaAplicadaDe] = useState<string | null>(null);
   const [mes, setMes] = useState("");
-  const [leyendoArchivo, setLeyendoArchivo] = useState(false);
   const [analizando, startAnalizar] = useTransition();
   const [leyendo, startLeer] = useTransition();
   // Preferencias de carga del cliente en este módulo (Configuración › Perfiles de
-  // carga): hoja preferida y notas del equipo. Se leen al elegir el cliente y la hoja
-  // preferida se preselecciona en cuanto se conocen las hojas del libro y el cliente
-  // (en cualquier orden). El usuario puede cambiarla después.
+  // carga). Las notas se muestran aquí; la hoja preferida la resuelve el servidor
+  // durante el análisis, cuando ya conoce las hojas reales del libro.
   type PrefsCarga = { hojaPreferida: string | null; observaciones: string | null };
   const [prefs, setPrefs] = useState<PrefsCarga | null>(null);
-  const prefsRef = useRef<PrefsCarga | null>(null);
-  const hojasRef = useRef<HojaPreview[]>([]);
   const solicitudPrefsRef = useRef(0);
-  // La preferencia NUNCA pisa una hoja elegida a mano: si el usuario cambió la
-  // hoja antes de que llegara la respuesta de preferencias, se respeta su elección.
-  const hojaManualRef = useRef(false);
-  const elegirHojaManual = (nombre: string) => { hojaManualRef.current = true; setHoja(nombre); };
-
-  const hojaInicial = (hs: HojaPreview[]): string => {
-    const preferida = prefsRef.current?.hojaPreferida;
-    if (preferida && hs.some((h) => h.nombre === preferida)) return preferida;
-    return hs[0]?.nombre ?? "";
-  };
 
   const elegirCliente = (id: number | null) => {
     setClienteId(id);
-    prefsRef.current = null;
     setPrefs(null);
-    hojaManualRef.current = false;
     const solicitud = ++solicitudPrefsRef.current;
     if (id == null) return;
     preferenciasCargaModulo(id, moduloCodigo)
       .then((r) => {
         if (solicitud !== solicitudPrefsRef.current) return; // llegó tarde: el cliente cambió
         const p: PrefsCarga | null = r.ok ? { hojaPreferida: r.hojaPreferida, observaciones: r.observaciones } : null;
-        prefsRef.current = p;
         setPrefs(p);
-        const preferida = p?.hojaPreferida;
-        if (preferida && !hojaManualRef.current && hojasRef.current.some((h) => h.nombre === preferida)) setHoja(preferida);
       })
-      .catch(() => { /* sin preferencias: se sigue con la primera hoja */ });
+      .catch(() => { /* las preferencias son informativas; el análisis puede continuar */ });
   };
 
-  const onArchivo = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const onArchivo = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (!f) return;
-    setLeyendoArchivo(true);
     setTieneArchivo(false);
     setAnalisis(null);
     setSpec(null);
     setSugerenciaAplicadaDe(null);
-    hojasRef.current = [];
-    hojaManualRef.current = false;
-    setHojas([]);
-    setHoja("");
     setFase("archivo");
-    try {
-      bufferRef.current = await f.arrayBuffer();
-      nombreRef.current = f.name;
-      setNombreArchivo(f.name);
-      // Listar las hojas del libro para que el usuario elija cuál importar (como en balance).
-      const hs = await leerHojasParaPreview(f).catch(() => [] as HojaPreview[]);
-      hojasRef.current = hs;
-      setHojas(hs);
-      setHoja(hojaInicial(hs));
-      setTieneArchivo(true);
-    } catch {
-      notifyError("No pudimos leer el archivo. Suele pasar si está ABIERTO en Excel o sincronizándose en OneDrive: ciérralo e intenta de nuevo.");
-    } finally {
-      setLeyendoArchivo(false);
-    }
+    archivoRef.current = f;
+    setNombreArchivo(f.name);
+    setTieneArchivo(true);
   };
 
   const analizar = (hojaArg?: string) => {
-    if (!bufferRef.current) { notifyError("Adjunta el archivo."); return; }
+    if (!archivoRef.current) { notifyError("Adjunta el archivo."); return; }
     if (clienteId == null) { notifyError("Selecciona el cliente."); return; }
-    const hojaElegida = hojaArg ?? hoja;
+    const hojaElegida = hojaArg ?? "";
     startAnalizar(async () => {
       const fd = new FormData();
       fd.set("moduloCodigo", moduloCodigo);
       fd.set("clienteId", String(clienteId));
       if (hojaElegida) fd.set("hoja", hojaElegida);
-      fd.set("archivo", new File([bufferRef.current!], nombreRef.current));
+      fd.set("archivo", archivoRef.current!);
       try {
         const r = await analizarArchivoModulo(fd);
         if (r.ok && r.spec) {
@@ -171,7 +135,7 @@ function CargarModal({
   };
 
   const leer = () => {
-    if (!bufferRef.current || !spec) { notifyError("Falta analizar el archivo."); return; }
+    if (!archivoRef.current || !spec) { notifyError("Falta analizar el archivo."); return; }
     if (clienteId == null) { notifyError("Selecciona el cliente."); return; }
     if (!/^\d{4}-\d{2}$/.test(mes)) { notifyError("Selecciona el mes del inventario."); return; }
     const faltantes = roles.filter((rc) => rc.requerido && !(rc.nombre === clasificadorRol && modo === "global") && (spec.columnas[rc.nombre] ?? 0) < 1);
@@ -184,7 +148,7 @@ function CargarModal({
       fd.set("specJson", JSON.stringify(spec));
       fd.set("periodoInicio", mes ? `${mes}-01` : "");
       fd.set("periodoFin", mes ? `${mes}-01` : "");
-      fd.set("archivo", new File([bufferRef.current!], nombreRef.current));
+      fd.set("archivo", archivoRef.current!);
       try {
         const r = await leerDatosModulo(undefined, fd);
         if (r.ok && r.loteId) {
@@ -277,18 +241,8 @@ function CargarModal({
           <label className="flex flex-col gap-1">
             <span className="text-[11px] font-medium text-ink-600">Archivo (Excel/CSV)</span>
             <input type="file" accept=".xlsx,.xlsm,.xls,.csv,.txt" onChange={onArchivo} className="text-[12px] text-ink-600 file:mr-3 file:rounded-md file:border-0 file:bg-ink-100 file:px-3 file:py-1.5 file:text-[12px] file:font-semibold file:text-ink-700 hover:file:bg-ink-200" />
-            {leyendoArchivo && <span className="text-[11px] text-ink-400">Leyendo archivo…</span>}
-            {tieneArchivo && !leyendoArchivo && <span className="text-[11px] text-ok-700">Listo: {nombreArchivo}</span>}
+            {tieneArchivo && <span className="text-[11px] text-ok-700">Listo: {nombreArchivo}</span>}
           </label>
-
-          {hojas.length > 1 && (
-            <label className="flex flex-col gap-1">
-              <span className="text-[11px] font-medium text-ink-600">Hoja a importar</span>
-              <select value={hoja} onChange={(e) => elegirHojaManual(e.target.value)} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-ink-700 outline-none focus:border-blue-400">
-                {hojas.map((h) => <option key={h.nombre} value={h.nombre}>{h.nombre} ({h.totalFilas} filas)</option>)}
-              </select>
-            </label>
-          )}
 
           {prefs?.observaciones && <NotasCargaModulo notas={prefs.observaciones} />}
 
@@ -340,7 +294,7 @@ function CargarModal({
           {(analisis?.hojas?.length ?? 0) > 1 && (
             <label className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
               <span className="shrink-0 text-[11px] font-medium text-ink-600">Hoja</span>
-              <select value={spec?.hoja ?? ""} onChange={(e) => { elegirHojaManual(e.target.value); analizar(e.target.value); }} className="min-w-0 max-w-full rounded-md border border-ink-200 bg-white px-2 py-1.5 text-ink-700 outline-none focus:border-blue-400">
+              <select value={spec?.hoja ?? ""} onChange={(e) => analizar(e.target.value)} className="min-w-0 max-w-full rounded-md border border-ink-200 bg-white px-2 py-1.5 text-ink-700 outline-none focus:border-blue-400">
                 {analisis?.hojas?.map((h) => <option key={h} value={h}>{h}</option>)}
               </select>
               <span className="shrink-0 text-[11px] text-ink-400">{analisis?.totalFilas} filas</span>
