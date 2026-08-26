@@ -53,6 +53,9 @@ export type CruceContableVm = {
 export type CruceTerceroVm = {
   aplica: boolean;
   balanceEncontrado: boolean;
+  /** Cargue por tercero contra el que se cruzó, para poder abrirlo desde aquí. */
+  balanceTerceroId: number | null;
+  balanceTerceroVersion: string | null;
   periodo: string;
   nombreCliente: string;
   resumen: ResumenCruceTercero | null;
@@ -860,8 +863,8 @@ function CruceContableTab({
         <p className="max-w-md text-[12.5px] text-ink-500">
           No hay un balance de comprobación confirmado (fuera de borrador) para <b className="text-ink-700">{cruceContable.nombreCliente}</b> en el período <b className="text-ink-700">{cruceContable.periodo}</b>. Carga y confirma un balance de ese período para ver el cruce.
         </p>
-        <Link href="/balance" className="mt-1 text-[12.5px] font-semibold text-blue-700 hover:underline">
-          Ir a Balance de comprobación →
+        <Link href="/balance/terceros" className="mt-1 text-[12.5px] font-semibold text-blue-700 hover:underline">
+          Ir a Balance por tercero →
         </Link>
       </Card>
     );
@@ -1008,6 +1011,20 @@ function CruceTerceroTab({ cruceTercero }: { cruceTercero: CruceTerceroVm }) {
 
   return (
     <div className="flex flex-col gap-4">
+      {/* De dónde salió el lado contable de este cruce: se abre el cargue por
+          tercero exacto (cuentas, terceros y saldos) sin salir a buscarlo. */}
+      {cruceTercero.balanceTerceroId != null && (
+        <p className="text-[11.5px] text-ink-500">
+          Lado contable:{" "}
+          <Link
+            href={`/balance/terceros/${cruceTercero.balanceTerceroId}`}
+            className="font-semibold text-blue-600 hover:underline"
+          >
+            balance por tercero {cruceTercero.balanceTerceroVersion ?? ""} de {cruceTercero.nombreCliente}
+          </Link>
+          .
+        </p>
+      )}
       <Card className="p-0">
         <div className="overflow-x-auto">
           <table className="w-full text-[12.5px]">

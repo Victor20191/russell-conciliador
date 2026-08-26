@@ -10,7 +10,11 @@ describe("catálogo de ruta y menú de una novedad", () => {
     const catalogo = catalogoUbicacionesNovedad();
     const balance = catalogo.find((ruta) => ruta.etiqueta === "Balance de comprobación");
     expect(balance).toBeTruthy();
-    expect(balance!.menus.map((menu) => menu.etiqueta)).toEqual(["Balance", "Borrador Balance"]);
+    expect(balance!.menus.map((menu) => menu.etiqueta)).toEqual([
+      "Balance",
+      "Borrador Balance",
+      "Balance por tercero",
+    ]);
     expect(resolverUbicacionNovedad(balance!.clave, balance!.menus[1]!.clave)).toEqual({
       ruta: balance,
       menu: balance!.menus[1],

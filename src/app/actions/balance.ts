@@ -4968,3 +4968,82 @@ export async function cargarBalancePorTercero(
     return { ok: false, message: mensajeErrorBD("cargarBalancePorTercero", e) };
   }
 }
+
+/**
+ * Elimina UN cargue del balance por tercero (encabezado + su detalle, que cae por
+ * ON DELETE CASCADE). No hay alcances múltiples como en el balance normal: cada
+ * cargue es autosuficiente y se recarga entero, así que el borrado es por versión.
+ *
+ * Si la versión eliminada era la vigente y el período conserva otras, asciende la
+ * más reciente: sin ninguna oficial, el cruce por tercero de los módulos CxC/CxP
+ * se quedaría sin balance con qué comparar.
+ */
+export async function eliminarBalanceTercero(input: {
+  encabezadoId: number;
+}): Promise<ActionState> {
+  const authz = await authorizePermiso("balance:eliminar");
+  if (!authz.ok) return { ok: false, message: authz.message };
+
+  const encabezadoId = Number(input?.encabezadoId);
+  if (!Number.isInteger(encabezadoId) || encabezadoId <= 0) {
+    return { ok: false, message: "Selecciona de nuevo el cargue que deseas eliminar." };
+  }
+
+  try {
+    const referencia = await prisma.balanceTerceroEncabezado.findUnique({
+      where: { id: encabezadoId },
+      select: {
+        id: true,
+        clienteId: true,
+        nombreCliente: true,
+        periodo: true,
+        version: true,
+        esOficial: true,
+        filasTotales: true,
+      },
+    });
+    if (!referencia) return { ok: false, message: "Ese cargue ya no existe." };
+
+    const scope = await authorizePermiso("balance:eliminar", { clientId: referencia.clienteId });
+    if (!scope.ok) return { ok: false, message: scope.message };
+
+    const ascendida = await transaccionSerializable(async (tx) => {
+      await tomarCandadoTransaccion(tx, `balance-tercero-cargue:${referencia.clienteId}:${referencia.periodo}`);
+      const vigente = await tx.balanceTerceroEncabezado.findUnique({
+        where: { id: encabezadoId },
+        select: { id: true },
+      });
+      if (!vigente) return null;
+
+      await tx.balanceTerceroEncabezado.delete({ where: { id: encabezadoId } });
+
+      const restantes = await tx.balanceTerceroEncabezado.findMany({
+        where: { clienteId: referencia.clienteId, periodo: referencia.periodo },
+        select: { id: true, version: true, esOficial: true, ultimaCarga: true, creadoEn: true },
+        orderBy: [{ ultimaCarga: "desc" }, { id: "desc" }],
+      });
+      if (restantes.length === 0 || restantes.some((r) => r.esOficial)) return null;
+      await tx.balanceTerceroEncabezado.update({ where: { id: restantes[0].id }, data: { esOficial: true } });
+      return restantes[0].version;
+    });
+
+    const user = await getCurrentUser();
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: "ELIMINÓ BALANCE POR TERCERO",
+      entity: `${referencia.nombreCliente} · ${referencia.periodo}`,
+      detail: `${referencia.version} · ${referencia.filasTotales} fila(s)${ascendida ? ` · ${ascendida} quedó vigente` : ""}`,
+      clientId: referencia.clienteId,
+    });
+
+    revalidatePath("/balance/terceros");
+    revalidatePath("/balance");
+
+    return {
+      ok: true,
+      message: `Cargue ${referencia.version} de ${referencia.periodo} eliminado${ascendida ? ` · ${ascendida} quedó como vigente` : ""}.`,
+    };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("eliminarBalanceTercero", e) };
+  }
+}

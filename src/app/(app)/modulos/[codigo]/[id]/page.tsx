@@ -238,17 +238,22 @@ export default async function DatoModuloPage({
   const tieneRolTercero = descriptor.columnas.some((c) => c.nombre === "tercero");
   let cruceTercero: ResumenCruceTercero | null = null;
   let balanceTerceroEncontrado = false;
+  // Cargue por tercero emparejado (mismo año-mes): lo necesita el enlace de la pestaña.
+  let balanceTerceroRef: { id: number; version: string } | null = null;
   let contableSinNit: { total: number; filas: number } | null = null;
   let moduloSinNit: { total: number; filas: number } | null = null;
 
   if (tieneRolTercero) {
     const balancesTercero = await prisma.balanceTerceroEncabezado.findMany({
       where: { clienteId: encabezado.clienteId },
-      select: { id: true, periodoFin: true },
+      select: { id: true, periodoFin: true, version: true },
       orderBy: [{ esOficial: "desc" }, { periodoFin: "desc" }, { id: "desc" }],
     });
     const balanceTerceroEmparejado = balancesTercero.find((b) => mismoAnioMes(b.periodoFin, encabezado.periodo)) ?? null;
     balanceTerceroEncontrado = balanceTerceroEmparejado != null;
+    balanceTerceroRef = balanceTerceroEmparejado
+      ? { id: balanceTerceroEmparejado.id, version: balanceTerceroEmparejado.version }
+      : null;
 
     if (balanceTerceroEmparejado) {
       const detallesTercero = await prisma.balanceTerceroDetalle.findMany({
@@ -277,6 +282,8 @@ export default async function DatoModuloPage({
   const cruceTerceroVm: CruceTerceroVm = {
     aplica: tieneRolTercero,
     balanceEncontrado: balanceTerceroEncontrado,
+    balanceTerceroId: balanceTerceroRef?.id ?? null,
+    balanceTerceroVersion: balanceTerceroRef?.version ?? null,
     periodo: encabezado.periodo,
     nombreCliente: encabezado.nombreCliente,
     resumen: cruceTercero,

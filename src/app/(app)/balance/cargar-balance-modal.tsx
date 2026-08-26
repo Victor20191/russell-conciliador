@@ -2,6 +2,7 @@
 
 import { startTransition, useActionState, useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
 import { Modal } from "@/components/modal";
 import { fmt } from "@/lib/format";
@@ -129,6 +130,7 @@ function CargarBalanceModal({
   onClose: () => void;
   onReiniciar: () => void;
 }) {
+  const router = useRouter();
   const [leerState, leerAction, leyendo] = useActionState<LeerBalanceState, FormData>(
     leerBalanceRecuperable,
     {},
@@ -652,7 +654,7 @@ function CargarBalanceModal({
           archivoDisponible={fileName.length > 0}
           reconstruirArchivo={reconstruirArchivoRetenido}
           prepararArchivoTemporal={prepararArchivoTemporal}
-          onCargado={(mensaje) => {
+          onCargado={(mensaje, resultado) => {
             notifySuccess(mensaje);
             // Limpieza best-effort: la lectura reusada creó un borrador NORMAL
             // (staging) solo para detectar la estructura; en modo tercero no se
@@ -660,6 +662,9 @@ function CargarBalanceModal({
             // en /balance/borradores.
             descartarBorrador(sug.payload.loteId).catch(() => {});
             onClose();
+            // Este cargue NO deja borrador: va directo a `/balance/terceros`. Sin
+            // llevar al usuario hasta él, la carga parecía no haber hecho nada.
+            router.push(resultado ? `/balance/terceros/${resultado.encabezadoId}` : "/balance/terceros");
           }}
         />
       ) : fase === "revisar" && sug ? (
@@ -740,7 +745,7 @@ function CargarBalanceModal({
                   <span className="text-[12px] leading-relaxed text-ink-600">
                     <span className="font-semibold text-ink-700">Abrir por tercero (CxC/CxP).</span> Conserva el NIT de
                     cada tercero y carga solo las cuentas de cartera (clientes y proveedores); el resto del balance se
-                    descarta. Útil para cruzar contra los auxiliares de los módulos de Cartera.
+                    descarta. Útil para cruzar contra los auxiliares de los módulos de Cartera y Cuentas por pagar.
                   </span>
                 </label>
               )}
