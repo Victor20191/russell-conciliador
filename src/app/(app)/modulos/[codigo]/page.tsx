@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
-import { requirePermiso } from "@/lib/rbac";
+import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { PageHeader } from "@/components/ui";
 import { descriptorModulo } from "@/lib/modulos/descriptores";
@@ -69,7 +69,7 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
   // Conteo de comentarios por dato cargado (encabezado) y por borrador (lote).
   // Del staging solo se agrega en PostgreSQL: los borradores pueden traer decenas de
   // miles de filas y el listado únicamente necesita el conteo y el total.
-  const [comentCargados, comentBorradores, resumenStaging] = await Promise.all([
+  const [comentCargados, comentBorradores, resumenStaging, perfilesPorCliente, marcasPorPeriodo, autorizacionEliminar] = await Promise.all([
     prisma.comment.groupBy({ by: ["entityId"], where: { entityType: "modulos_datos", entityId: { in: cargados.map((c) => c.id) } }, _count: { _all: true } }),
     prisma.comment.groupBy({ by: ["entityId"], where: { entityType: "modulos_borrador", entityId: { in: borradores.map((b) => b.id) } }, _count: { _all: true } }),
     borradores.length
@@ -80,9 +80,22 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
           _sum: { valor: true },
         })
       : Promise.resolve([]),
+    // Alcances de la eliminación: perfiles de formato aprendidos y marcas del cruce
+    // que caerían con el período o con el cliente. Solo alimentan los conteos del modal.
+    prisma.perfilCargaModulo.groupBy({ by: ["clienteId"], where: { moduloCodigo, ...filtroCliente }, _count: { _all: true } }),
+    prisma.marcaCruceModulo.groupBy({ by: ["clienteId", "periodo"], where: { moduloCodigo, ...filtroCliente }, _count: { _all: true } }),
+    // `modulos_datos:eliminar` es SOLO_ADMIN (alcance global): basta el permiso de rol
+    // para pintar el botón; la acción revalida permiso Y alcance sobre el cliente.
+    authorizePermiso("modulos_datos:eliminar"),
   ]);
   const comentPorEnc = new Map(comentCargados.map((g) => [g.entityId, g._count._all]));
   const comentPorLote = new Map(comentBorradores.map((g) => [g.entityId, g._count._all]));
+  const perfilesPorClienteId = new Map(perfilesPorCliente.map((g) => [g.clienteId, g._count._all]));
+  const marcasPorClientePeriodo = new Map(marcasPorPeriodo.map((g) => [`${g.clienteId}|${g.periodo}`, g._count._all]));
+  const marcasPorClienteId = new Map<number, number>();
+  for (const g of marcasPorPeriodo) {
+    marcasPorClienteId.set(g.clienteId, (marcasPorClienteId.get(g.clienteId) ?? 0) + g._count._all);
+  }
 
   // Filas de movimiento vivas (no omitidas) y su total, más cuántas se omitieron a mano.
   const resumenPorLote = new Map<string, { filas: number; total: number; omitidas: number }>();
@@ -169,7 +182,13 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
     clienteId: grupo.clienteId,
     clienteNombre: grupo.clienteNombre,
     clienteNit: grupo.clienteNit,
+    // Alcance «todo el cliente» del modal de eliminación: cargues de TODOS sus
+    // períodos (no solo el vigente de cada uno), perfiles y marcas del cruce.
+    cargasCliente: grupo.periodos.reduce((n, p) => n + p.versiones, 0),
+    perfilesCliente: perfilesPorClienteId.get(grupo.clienteId) ?? 0,
+    marcasCliente: marcasPorClienteId.get(grupo.clienteId) ?? 0,
     periodos: grupo.periodos.map((p) => ({
+      marcasPeriodo: marcasPorClientePeriodo.get(`${grupo.clienteId}|${p.periodo}`) ?? 0,
       periodo: p.periodo,
       id: p.id,
       version: p.version,
@@ -203,6 +222,7 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
         clientes={clientes}
         borradores={filasBorradores}
         gruposCargados={filasCargados}
+        puedeEliminar={autorizacionEliminar.ok}
       />
     </div>
   );

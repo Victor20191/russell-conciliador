@@ -8,6 +8,7 @@ import {
   UMBRALES_ALERTAS_DEFECTO,
   type UmbralesAlertas,
 } from "./umbrales-alertas";
+import { codigoEmpiezaPor } from "./busqueda-cuenta";
 
 /**
  * Filtros por columna de la tabla de movimiento del borrador.
@@ -49,9 +50,7 @@ function coincideNodo(
 ): boolean {
   const codigo = normalizarTexto(filtros.codigo);
   if (codigo) {
-    const codigoNodo = normalizarTexto(nodo.codigo);
-    const codigoCrudo = normalizarTexto(nodo.codigoCrudo ?? "");
-    if (!codigoNodo.includes(codigo) && !codigoCrudo.includes(codigo)) return false;
+    if (!codigoEmpiezaPor(nodo.codigo, codigo) && !codigoEmpiezaPor(nodo.codigoCrudo, codigo)) return false;
   }
 
   const cuenta = normalizarTexto(filtros.cuenta);

@@ -34,6 +34,7 @@ import {
   type FilaListadoModulo,
 } from "@/lib/modulos/listado";
 import { descartarBorradorModulo } from "@/app/actions/modulos-datos";
+import { EliminarDatosModuloButton } from "./eliminar-datos-modulo-modal";
 import { CargarModuloButton, type ClienteModulo, type RolModulo } from "./cargar-modulo-modal";
 
 export type BorradorModuloRow = FilaListadoModulo & {
@@ -75,6 +76,8 @@ export type PeriodoModuloRow = {
   fecha: string;
   hora: string | null;
   comentarios: number;
+  /** Marcas de auditoría del cruce ancladas al período (caen al borrarlo). */
+  marcasPeriodo: number;
 };
 
 /** Una tarjeta del listado de cargados: el cliente y sus períodos. */
@@ -82,6 +85,12 @@ export type GrupoClienteRow = {
   clienteId: number;
   clienteNombre: string;
   clienteNit: string | null;
+  /** Cargues del cliente en el módulo, contando TODAS las versiones de cada período. */
+  cargasCliente: number;
+  /** Perfiles de formato aprendidos del cliente en el módulo. */
+  perfilesCliente: number;
+  /** Marcas del cruce del cliente en el módulo (todos sus períodos). */
+  marcasCliente: number;
   periodos: PeriodoModuloRow[];
 };
 
@@ -288,6 +297,7 @@ export default function ModulosDatosClient({
   clientes,
   borradores,
   gruposCargados,
+  puedeEliminar,
 }: {
   moduloCodigo: string;
   moduloLabel: string;
@@ -296,6 +306,8 @@ export default function ModulosDatosClient({
   clientes: ClienteModulo[];
   borradores: BorradorModuloRow[];
   gruposCargados: GrupoClienteRow[];
+  /** `modulos_datos:eliminar` (solo administradores): pinta la papelera del cargue. */
+  puedeEliminar: boolean;
 }) {
   const [busqueda, setBusqueda] = useState("");
   const [conversando, setConversando] = useState<{ tipo: string; entityId: number; titulo: string } | null>(null);
@@ -359,6 +371,7 @@ export default function ModulosDatosClient({
         ruta={ruta}
         moduloLabel={moduloLabel}
         onConversar={setConversando}
+        puedeEliminar={puedeEliminar}
       />
     </div>
   );
@@ -570,12 +583,14 @@ function CargadosPorCliente({
   ruta,
   moduloLabel,
   onConversar,
+  puedeEliminar,
 }: {
   grupos: GrupoClienteRow[];
   busqueda: string;
   ruta: string;
   moduloLabel: string;
   onConversar: OnConversar;
+  puedeEliminar: boolean;
 }) {
   // El buscador de la pantalla filtra la tarjeta entera cuando identifica al
   // cliente y, si no, solo los períodos que coinciden.
@@ -778,13 +793,31 @@ function CargadosPorCliente({
                         <span className="block whitespace-nowrap text-[10px] text-ink-400">{p.hora}</span>
                       )}
                     </td>
-                    <td className="px-4 py-2.5 text-right">
-                      <Link
-                        href={`${ruta}/${p.id}`}
-                        className="inline-flex items-center gap-1 text-[12px] font-medium text-blue-500 hover:underline"
-                      >
-                        Ver <Icon name="chev-r" size={12} />
-                      </Link>
+                    <td className="px-4 py-2.5">
+                      {/* Ver el cargue y —solo para quien puede eliminar— retirarlo con
+                          el alcance que elija en el modal (versión / período / cliente). */}
+                      <div className="flex items-center justify-end gap-2">
+                        <Link
+                          href={`${ruta}/${p.id}`}
+                          className="inline-flex items-center gap-1 text-[12px] font-medium text-blue-500 hover:underline"
+                        >
+                          Ver <Icon name="chev-r" size={12} />
+                        </Link>
+                        {puedeEliminar && (
+                          <EliminarDatosModuloButton
+                            encabezadoId={p.id}
+                            moduloLabel={moduloLabel}
+                            clienteNombre={grupo.clienteNombre}
+                            periodo={p.periodo}
+                            version={p.version}
+                            versionesPeriodo={p.versiones}
+                            cargasCliente={grupo.cargasCliente}
+                            perfilesCliente={grupo.perfilesCliente}
+                            marcasPeriodo={p.marcasPeriodo}
+                            marcasCliente={grupo.marcasCliente}
+                          />
+                        )}
+                      </div>
                     </td>
                   </tr>
                   );

@@ -89,6 +89,24 @@ const arbol: NodoBorrador[] = [
 ];
 
 describe("filtrarArbolBorradorPorColumnas", () => {
+  it("busca el código por prefijo y no por coincidencias internas", () => {
+    const conCodigoInterno = [
+      ...arbol,
+      nodo(9, "21", {
+        nombre: "Obligaciones",
+        tipoFila: "agrupadora",
+        hijos: [nodo(10, "211005", { nombre: "Cuenta por pagar" })],
+      }),
+    ];
+    const resultado = filtrarArbolBorradorPorColumnas(
+      conCodigoInterno,
+      filtros({ codigo: "11" }),
+    );
+
+    expect(resultado.map((item) => item.codigo)).toEqual(["11"]);
+    expect(resultado[0].hijos.map((hijo) => hijo.codigo)).toEqual(["1105", "1110"]);
+  });
+
   it("combina columnas y conserva solo la coincidencia con sus ancestros", () => {
     const resultado = filtrarArbolBorradorPorColumnas(
       arbol,

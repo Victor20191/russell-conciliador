@@ -68,6 +68,7 @@ import {
   hayFiltrosColumnasBorrador,
   type FiltrosColumnasBorrador,
 } from "@/lib/balance/filtros-borrador";
+import { coincideBusquedaCuenta } from "@/lib/balance/busqueda-cuenta";
 import {
   OPCIONES_FILTRO_VALIDACION,
   type FiltroValidacionDetalle,
@@ -3001,7 +3002,7 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
     return () => { window.cancelAnimationFrame(prepararFrame); window.clearTimeout(flashTimer); };
   }, [enfoqueReubicacion, setFilaSeleccionada]);
   const needle = q.trim().toLowerCase();
-  const matchQ = (n: NodoBorrador) => needle === "" || n.codigo.toLowerCase().includes(needle) || (n.nombre ?? "").toLowerCase().includes(needle);
+  const matchQ = (n: NodoBorrador) => coincideBusquedaCuenta([n.codigo], n.nombre, needle);
   const filtrando = needle !== "" || vista !== "todo" || nivelMax > 0 || filtrosColumnasActivos;
   const nAlertas = useMemo(() => { let n = 0; const rec = (x: NodoBorrador) => { if (esAlertaNodo(x, umbrales) || riesgosPorFila.has(x.filaNum)) n++; x.hijos.forEach(rec); }; arbol.forEach(rec); return n; }, [arbol, riesgosPorFila, umbrales]);
 

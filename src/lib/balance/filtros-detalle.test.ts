@@ -106,6 +106,25 @@ describe("coincideFiltroNumerico", () => {
 });
 
 describe("filtrarArbolDetallePorColumnas", () => {
+  it("busca el código por prefijo y no por coincidencias internas", () => {
+    const conCodigoInterno = [
+      ...arbol,
+      nodo("21", 2, {
+        name: "Obligaciones",
+        hijos: [nodo("211005", 6, { name: "Cuenta por pagar" })],
+      }),
+    ];
+    const resultado = filtrarArbolDetallePorColumnas(
+      conCodigoInterno,
+      filtros({ codigo: "11" }),
+      new Set(),
+      UMBRALES_ALERTAS_DEFECTO,
+    );
+
+    expect(resultado.map((item) => item.code)).toEqual(["11"]);
+    expect(resultado[0].hijos.map((hijo) => hijo.code)).toEqual(["1105", "1110"]);
+  });
+
   it("combina columnas y conserva solo la coincidencia con sus ancestros", () => {
     const resultado = filtrarArbolDetallePorColumnas(
       arbol,

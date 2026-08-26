@@ -37,6 +37,7 @@ import {
   type FiltrosColumnasDetalle,
   type FiltroValidacionDetalle,
 } from "@/lib/balance/filtros-detalle";
+import { coincideBusquedaCuenta } from "@/lib/balance/busqueda-cuenta";
 
 export type ValidacionInfo = { tipo: string; por: string; en: string; comentario: string };
 // Contexto de validación de alertas que se pasa al renderizador de filas.
@@ -171,7 +172,7 @@ function podarNivel(nodos: NodoBalance[], nivelMax: number): NodoBalance[] {
 function podarBusqueda(nodos: NodoBalance[], needle: string): NodoBalance[] {
   const out: NodoBalance[] = [];
   for (const n of nodos) {
-    const self = n.code.toLowerCase().includes(needle) || n.name.toLowerCase().includes(needle) || (n.std?.toLowerCase().includes(needle) ?? false);
+    const self = coincideBusquedaCuenta([n.code, n.std], n.name, needle);
     if (self) { out.push(n); continue; }
     const hijos = podarBusqueda(n.hijos, needle);
     if (hijos.length > 0) out.push({ ...n, hijos });

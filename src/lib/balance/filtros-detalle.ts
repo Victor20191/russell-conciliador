@@ -3,6 +3,7 @@ import {
   esSaldoContrarioInformativo,
   type UmbralesAlertas,
 } from "./umbrales-alertas";
+import { codigoEmpiezaPor } from "./busqueda-cuenta";
 
 export type FiltroValidacionDetalle =
   | "todas"
@@ -123,7 +124,7 @@ function coincideNodo(
   umbrales: UmbralesAlertas,
 ): boolean {
   const codigo = normalizarTexto(filtros.codigo);
-  if (codigo && !normalizarTexto(nodo.code).includes(codigo)) return false;
+  if (codigo && !codigoEmpiezaPor(nodo.code, codigo)) return false;
 
   const cuenta = normalizarTexto(filtros.cuenta);
   if (cuenta && !normalizarTexto(nodo.name).includes(cuenta)) return false;

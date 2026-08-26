@@ -16,6 +16,11 @@ import type { ActionState } from "@/lib/definitions";
 import { ingerir, type CeldaCruda } from "@/lib/balance/extraccion/ingesta";
 import { calcularHuella, huellasCandidatas } from "@/lib/balance/extraccion/huella";
 import { descriptorModulo } from "@/lib/modulos/descriptores";
+import {
+  parseAlcanceEliminacionModulo,
+  resolverAlcanceEliminacionModulo,
+  type AlcanceEliminacionModulo,
+} from "@/lib/modulos/alcance-eliminacion";
 import { cuenta4DelModulo, prefijosCuentaModulo } from "@/lib/modulos/cuentas-modulo";
 import { SpecModuloSchema, type SpecModulo } from "@/lib/modulos/extraccion/esquema";
 import { sugerirSpec } from "@/lib/modulos/extraccion/sugerir";
@@ -1185,5 +1190,176 @@ export async function eliminarSoporteMarca(input: {
     return { ok: true, message: "Soporte eliminado." };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("eliminarSoporteMarca", e) };
+  }
+}
+
+// ============================================================
+// ELIMINAR datos CARGADOS del módulo (no borradores: eso es `descartarBorradorModulo`).
+//
+// Alcance explícito —una versión, todo el período o todo el historial del cliente
+// junto con sus perfiles de formato—, resuelto en `alcance-eliminacion.ts` (puro).
+// El permiso `modulos_datos:eliminar` es independiente de cargar/editar y se
+// vuelve a comprobar con alcance sobre el cliente del cargue.
+//
+// NO se tocan: el cliente, sus borradores, sus preferencias de carga, sus
+// correcciones por fila ni la consolidación clasificador→cuenta (configuración,
+// no archivo). Sí caen con el período/cliente las marcas de auditoría del cruce
+// —quedarían apuntando a una cédula sin datos— y sus soportes.
+// ============================================================
+export type EliminarDatosModuloState = ActionState & {
+  cargasEliminadas?: number;
+  marcasEliminadas?: number;
+  perfilesEliminados?: number;
+};
+
+export async function eliminarDatosModulo(input: {
+  encabezadoId: number;
+  alcance: AlcanceEliminacionModulo;
+}): Promise<EliminarDatosModuloState> {
+  // Primer gate antes de validar o consultar nada enviado por el cliente.
+  const authz = await authorizePermiso("modulos_datos:eliminar");
+  if (!authz.ok) return { ok: false, message: authz.message };
+
+  const encabezadoId = Number(input?.encabezadoId);
+  const alcance = parseAlcanceEliminacionModulo(input?.alcance);
+  if (!Number.isInteger(encabezadoId) || encabezadoId <= 0 || !alcance) {
+    return { ok: false, message: "Selecciona de nuevo qué información deseas eliminar." };
+  }
+
+  try {
+    const referencia = await prisma.moduloDatoEncabezado.findUnique({
+      where: { id: encabezadoId },
+      select: {
+        id: true,
+        clienteId: true,
+        moduloCodigo: true,
+        nombreCliente: true,
+        periodo: true,
+        version: true,
+        archivoNombre: true,
+      },
+    });
+    if (!referencia) return { ok: false, message: "Ese cargue ya no existe." };
+
+    const scope = await authorizePermiso("modulos_datos:eliminar", { clientId: referencia.clienteId });
+    if (!scope.ok) return { ok: false, message: scope.message };
+
+    const plan = resolverAlcanceEliminacionModulo(alcance, referencia);
+
+    const resultado = await transaccionSerializable(async (tx) => {
+      await tomarCandadoTransaccion(tx, `modulo-eliminar:${referencia.moduloCodigo}:${referencia.clienteId}`);
+
+      // Se revalida dentro de la transacción: otra sesión pudo eliminarlo
+      // mientras el modal estaba abierto.
+      const vigente = await tx.moduloDatoEncabezado.findUnique({
+        where: { id: encabezadoId },
+        select: { id: true, clienteId: true, moduloCodigo: true, periodo: true },
+      });
+      if (!vigente || vigente.clienteId !== referencia.clienteId || vigente.moduloCodigo !== referencia.moduloCodigo) {
+        return { ok: false as const, message: "Ese cargue ya no existe." };
+      }
+
+      const objetivos = await tx.moduloDatoEncabezado.findMany({
+        where: plan.filtroEncabezado,
+        select: { id: true },
+      });
+      const ids = objetivos.map((e) => e.id);
+      if (ids.length === 0) return { ok: false as const, message: "No se encontraron cargues para eliminar." };
+
+      // Marcas del cruce que quedan sin cédula, con sus soportes (los binarios se
+      // borran DESPUÉS del commit: la BD manda).
+      const marcas = plan.filtroMarcas
+        ? await tx.marcaCruceModulo.findMany({
+            where: plan.filtroMarcas,
+            select: { id: true, adjuntos: { select: { claveObjeto: true } } },
+          })
+        : [];
+
+      // El hilo de conversación del cargue es una referencia polimórfica suave:
+      // se limpia explícitamente. El detalle sí cae por ON DELETE CASCADE.
+      await tx.comment.deleteMany({ where: { entityType: "modulos_datos", entityId: { in: ids } } });
+      if (marcas.length) {
+        await tx.marcaCruceModulo.deleteMany({ where: { id: { in: marcas.map((m) => m.id) } } });
+      }
+      const cargas = await tx.moduloDatoEncabezado.deleteMany({ where: { id: { in: ids } } });
+      const perfiles = plan.eliminaPerfiles
+        ? await tx.perfilCargaModulo.deleteMany({
+            where: { clienteId: referencia.clienteId, moduloCodigo: referencia.moduloCodigo },
+          })
+        : { count: 0 };
+
+      // Al borrar la versión vigente de un período que conserva otras, el período
+      // se quedaría sin ninguna marcada como oficial (y el cruce contable no
+      // tendría de dónde leer): asciende la versión más alta que sobrevive.
+      let ascendida: number | null = null;
+      if (alcance === "version") {
+        const restantes = await tx.moduloDatoEncabezado.findMany({
+          where: {
+            clienteId: referencia.clienteId,
+            moduloCodigo: referencia.moduloCodigo,
+            periodo: referencia.periodo,
+          },
+          select: { id: true, version: true, esOficial: true },
+          orderBy: { version: "desc" },
+        });
+        if (restantes.length > 0 && !restantes.some((r) => r.esOficial)) {
+          await tx.moduloDatoEncabezado.update({ where: { id: restantes[0].id }, data: { esOficial: true } });
+          ascendida = restantes[0].version;
+        }
+      }
+
+      return {
+        ok: true as const,
+        cargasEliminadas: cargas.count,
+        perfilesEliminados: perfiles.count,
+        marcasEliminadas: marcas.length,
+        claves: marcas.flatMap((m) => m.adjuntos.map((a) => a.claveObjeto)),
+        ascendida,
+      };
+    }, { timeoutMs: TIMEOUT_TRANSACCION_MODULO_MS });
+
+    if (!resultado.ok) return resultado;
+
+    // Soportes de las marcas retiradas: best-effort, ya no hay fila que los use.
+    if (resultado.claves.length) {
+      await Promise.allSettled(resultado.claves.map((clave) => eliminarObjeto(clave)));
+    }
+
+    const user = await getCurrentUser();
+    const descripcionAlcance =
+      alcance === "version"
+        ? `versión ${referencia.version} de ${referencia.periodo}`
+        : alcance === "periodo"
+          ? `todas las versiones de ${referencia.periodo}`
+          : "todo el historial del módulo y sus perfiles de carga";
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action:
+        alcance === "cliente_perfiles"
+          ? "ELIMINÓ DATOS Y PERFILES DE CARGA DE MÓDULO"
+          : "ELIMINÓ DATOS DE MÓDULO",
+      entity: referencia.nombreCliente,
+      detail: `${referencia.moduloCodigo} · ${descripcionAlcance} · ${resultado.cargasEliminadas} cargue(s) · ${resultado.marcasEliminadas} marca(s) · ${resultado.perfilesEliminados} perfil(es)`,
+      clientId: referencia.clienteId,
+    });
+
+    revalidatePath(rutaModulo(referencia.moduloCodigo));
+    revalidatePath("/dashboard");
+    if (plan.eliminaPerfiles) revalidatePath(`/config/perfiles-carga/${referencia.moduloCodigo.toLowerCase()}`);
+
+    const extras = [
+      resultado.marcasEliminadas > 0 ? `${resultado.marcasEliminadas} marca(s) del cruce` : null,
+      resultado.perfilesEliminados > 0 ? `${resultado.perfilesEliminados} perfil(es)` : null,
+      resultado.ascendida != null ? `v${resultado.ascendida} quedó como vigente` : null,
+    ].filter(Boolean);
+    return {
+      ok: true,
+      message: `${resultado.cargasEliminadas} cargue(s) eliminado(s)${extras.length ? ` · ${extras.join(" · ")}` : ""}.`,
+      cargasEliminadas: resultado.cargasEliminadas,
+      marcasEliminadas: resultado.marcasEliminadas,
+      perfilesEliminados: resultado.perfilesEliminados,
+    };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("eliminarDatosModulo", e) };
   }
 }
