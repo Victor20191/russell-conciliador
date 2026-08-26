@@ -212,7 +212,7 @@ function primeraTotalizaResto(primera: FilaBorrador, resto: FilaBorrador[], tole
  * no entran en el bloque. Devuelve un array NUEVO (clona la primera fila de cada bloque)
  * y cuántos bloques consolidó.
  */
-export function consolidarAuxiliaresRepetidos(filas: FilaBorrador[]): { filas: FilaBorrador[]; consolidados: number } {
+export function consolidarAuxiliaresRepetidos(filas: FilaBorrador[]): { filas: FilaBorrador[]; consolidados: number; absorbidas: number } {
   const out: FilaBorrador[] = [];
   let consolidados = 0;
   let i = 0;
@@ -250,7 +250,21 @@ export function consolidarAuxiliaresRepetidos(filas: FilaBorrador[]): { filas: F
     out.push(f);
     i++;
   }
-  return { filas: out, consolidados };
+  return { filas: out, consolidados, absorbidas: filas.length - out.length };
+}
+
+/**
+ * ¿Las repeticiones consolidadas revelan un balance ABIERTO POR TERCERO por AUXILIAR
+ * (cada cuenta repetida una vez por tercero), o son solo repeticiones puntuales de un
+ * informe normal POR CUENTA (variantes de sucursal, re-listados, cuentas homónimas que
+ * colapsan al mismo código)? Se decide con el MISMO criterio holgado que el resto de
+ * detecciones: mínimo de movimientos y una proporción relevante de filas absorbidas.
+ *
+ * Sin este umbral bastaba UN bloque repetido —normal en informes por cuenta— para
+ * rotular el archivo «por tercero» y mostrar el aviso de detalle de tercero colapsado.
+ */
+export function esBalancePorTerceroAuxiliar(movimientos: number, absorbidas: number): boolean {
+  return movimientos >= 20 && absorbidas / movimientos > 0.2;
 }
 
 export function marcarCuentaNit(filas: FilaBorrador[]): number {

@@ -293,12 +293,34 @@ describe("construirVistaBorrador · consolidarAuxiliares (opción SOLO de vista)
     fila(5, "13050501", "Clientes nacionales", 50, "movimiento"),
     fila(6, "13050501", "Clientes nacionales", 30, "movimiento"),
   ];
-  it("CON la opción → un auxiliar por código (agrupado por auxiliar) + porTercero", () => {
+  it("CON la opción → un auxiliar por código (agrupado por auxiliar)", () => {
     const v = construirVistaBorrador(base().map((f) => ({ ...f })), { consolidarAuxiliares: true });
     const aux = aplanarNodos(v.arbol).filter((n) => n.codigo === "13050501" && n.tipoFila === "movimiento");
     expect(aux).toHaveLength(1);
     expect(aux[0].saldoFinal).toBe(180);
-    expect(v.porTercero).toBe(true);
+  });
+
+  it("marca porTercero cuando la consolidación absorbe la MAYORÍA de los movimientos", () => {
+    // 30 auxiliares, cada uno repetido por 3 terceros: el archivo sí viene por tercero.
+    const filas = [fila(1, "13", "Deudores", 0, "agrupadora")];
+    for (let i = 0; i < 30; i++) {
+      const codigo = `130505${String(i).padStart(2, "0")}`;
+      for (let t = 0; t < 3; t++) filas.push(fila(filas.length + 1, codigo, "Clientes", 10 * (t + 1), "movimiento", { debitos: 10 * (t + 1) }));
+    }
+    expect(construirVistaBorrador(filas, { consolidarAuxiliares: true }).porTercero).toBe(true);
+  });
+
+  it("NO marca porTercero por UN puñado de códigos repetidos en un informe por cuenta", () => {
+    // Informe normal: 40 cuentas distintas y una sola repetida (variante de sucursal).
+    const filas = [fila(1, "5", "GASTOS", 0, "agrupadora")];
+    for (let i = 0; i < 40; i++) {
+      filas.push(fila(filas.length + 1, `51050${String(i).padStart(2, "0")}`, "Gasto", 100, "movimiento", { debitos: 100 }));
+    }
+    filas.push(fila(filas.length + 1, "5195099", "Gasto sucursal", 100, "movimiento", { debitos: 100 }));
+    filas.push(fila(filas.length + 1, "5195099", "Gasto sucursal", 50, "movimiento", { debitos: 50 }));
+
+    const v = construirVistaBorrador(filas, { consolidarAuxiliares: true });
+    expect(v.porTercero).toBe(false);
   });
   it("SIN la opción (export/métricas) → conserva los N renglones por NIT", () => {
     const v = construirVistaBorrador(base().map((f) => ({ ...f })));

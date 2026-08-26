@@ -4,7 +4,7 @@
 import { calcularBalance, construirValidacionContable, conForzarHoja, type CuentaCruda, type ValidacionContable } from "./calcular";
 import { marcarSubtotalesDuplicados, reclasificarRepetidos, reclasificarNoImputables } from "./extraccion/transformar";
 import { construirArbolBorrador, reclasificarHuerfanas, marcarNoContables, corregirCodigosPlaceholder, type FilaBorrador, type NodoBorrador } from "./borrador";
-import { esBalancePorTercero, colapsarTerceros, esBalancePorTerceroSufijo, consolidarTercerosPorSufijo, consolidarAuxiliaresRepetidos, marcarCuentaNit } from "./terceros";
+import { esBalancePorTercero, colapsarTerceros, esBalancePorTerceroSufijo, consolidarTercerosPorSufijo, consolidarAuxiliaresRepetidos, esBalancePorTerceroAuxiliar, marcarCuentaNit } from "./terceros";
 import { marcarRelistadoGuiones } from "./relistado";
 import { diagnosticarBorrador, type Hallazgo, type PartidaDobleInfo } from "./diagnostico";
 import { contarFormasCodigo, contarCodigosRepetidos, contarDescuadres, type DiagnosticoLectura } from "./diagnostico-lectura";
@@ -68,9 +68,15 @@ export function construirVistaBorrador(
   // ni fila «Cuenta» total): se consolida por auxiliar SOLO para la VISTA (opción del
   // cliente). La exportación y las métricas llaman SIN la opción → quedan intactas. Corre
   // DESPUÉS de `marcarCuentaNit` para no tocar los bloques «Cuenta+NIT» (ya tachados).
-  const aux = opciones.consolidarAuxiliares ? consolidarAuxiliaresRepetidos(base) : { filas: base, consolidados: 0 };
+  const movimientosAntesDeConsolidar = base.filter((f) => f.tipoFila === "movimiento" && !f.omitida).length;
+  const aux = opciones.consolidarAuxiliares ? consolidarAuxiliaresRepetidos(base) : { filas: base, consolidados: 0, absorbidas: 0 };
   base = aux.filas;
-  const porTercero = porTerceroNit || porTerceroSufijo || aux.consolidados > 0;
+  // El archivo es «por tercero» por auxiliar solo si la consolidación absorbió una
+  // PROPORCIÓN relevante de sus movimientos: un puñado de códigos repetidos es normal
+  // en un informe por cuenta (sucursales, re-listados, variantes INAC) y no debe
+  // rotularlo como abierto por tercero.
+  const porTercero = porTerceroNit || porTerceroSufijo
+    || esBalancePorTerceroAuxiliar(movimientosAntesDeConsolidar, aux.absorbidas);
   const terceros = filas.length - base.length;
   // RE-LISTADO CON GUIONES: algunos ERP re-listan cada cuenta además del código plano
   // con notación de guiones («1105-05-04» + «*SIN NOMBRE*»). Esas filas redundantes (las
