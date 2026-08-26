@@ -32,8 +32,9 @@ describe("credenciales publicas de tickets", () => {
 });
 
 describe("estados y reportante de una novedad interna", () => {
-  test("reconoce los cuatro estados operativos", () => {
+  test("reconoce los estados operativos", () => {
     expect(esEstadoTicket("abierto")).toBe(true);
+    expect(esEstadoTicket("en_evaluacion")).toBe(true);
     expect(esEstadoTicket("en_proceso")).toBe(true);
     expect(esEstadoTicket("resuelto")).toBe(true);
     expect(esEstadoTicket("cerrado")).toBe(true);
@@ -44,15 +45,18 @@ describe("estados y reportante de una novedad interna", () => {
     expect(requiereSolucion("resuelto")).toBe(true);
     expect(requiereSolucion("abierto")).toBe(false);
     expect(requiereSolucion("en_proceso")).toBe(false);
+    expect(requiereSolucion("en_evaluacion")).toBe(false);
     expect(requiereSolucion("cerrado")).toBe(false);
   });
 
   test("etiqueta y tono son estables para la UI", () => {
     expect(etiquetaEstadoTicket("en_proceso")).toBe("En proceso");
+    expect(etiquetaEstadoTicket("en_evaluacion")).toBe("En evaluación");
     expect(tonoEstadoTicket("resuelto")).toBe("ok");
     expect(tonoEstadoTicket("en_proceso")).toBe("blue");
     expect(tonoEstadoTicket("cerrado")).toBe("ink");
     expect(tonoEstadoTicket("abierto")).toBe("warn");
+    expect(tonoEstadoTicket("en_evaluacion")).toBe("ai");
   });
 
   test("parte el nombre de la sesión sin pedir nombre y apellido", () => {

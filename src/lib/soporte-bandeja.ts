@@ -1,5 +1,6 @@
 import {
   ESTADO_TICKET_ABIERTO,
+  ESTADO_TICKET_EN_EVALUACION,
   ESTADO_TICKET_EN_PROCESO,
   ESTADOS_TICKET,
   esEstadoTicket,
@@ -40,9 +41,16 @@ export function esFiltroEstadoTicket(valor: string): valor is FiltroEstadoTicket
   return valor === FILTRO_ESTADO_TODOS || valor === FILTRO_ESTADO_EN_GESTION || esEstadoTicket(valor);
 }
 
-/** Un ticket sigue «en gestión» mientras Xentria no lo haya resuelto ni cerrado. */
+/**
+ * Un ticket sigue «en gestión» mientras Xentria no lo haya resuelto ni cerrado.
+ * Una mejora «En evaluación» cuenta como pendiente: todavía debe decidirse.
+ */
 export function esTicketEnGestion(status: string): boolean {
-  return status === ESTADO_TICKET_ABIERTO || status === ESTADO_TICKET_EN_PROCESO;
+  return (
+    status === ESTADO_TICKET_ABIERTO ||
+    status === ESTADO_TICKET_EN_EVALUACION ||
+    status === ESTADO_TICKET_EN_PROCESO
+  );
 }
 
 function normalizar(valor: string): string {
@@ -79,7 +87,7 @@ export function filtrarTicketsGestion(
   });
 }
 
-/** Conteo por estado para los resúmenes del listado (siempre incluye los 4 estados). */
+/** Conteo por estado para los resúmenes del listado (siempre incluye todos los estados). */
 export function contarTicketsPorEstado(filas: readonly TicketFilaGestion[]): Record<EstadoTicket, number> {
   const conteo = Object.fromEntries(ESTADOS_TICKET.map((estado) => [estado, 0])) as Record<EstadoTicket, number>;
   for (const fila of filas) {

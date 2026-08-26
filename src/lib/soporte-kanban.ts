@@ -1,6 +1,7 @@
 import {
   ESTADO_TICKET_ABIERTO,
   ESTADO_TICKET_CERRADO,
+  ESTADO_TICKET_EN_EVALUACION,
   ESTADO_TICKET_EN_PROCESO,
   ESTADO_TICKET_RESUELTO,
   ESTADOS_TICKET,
@@ -40,7 +41,7 @@ export type TicketKanban = {
 export const COLUMNAS_KANBAN: readonly {
   estado: EstadoTicket;
   etiqueta: string;
-  tono: "warn" | "blue" | "ok" | "ink";
+  tono: "warn" | "ai" | "blue" | "ok" | "ink";
   ayuda: string;
 }[] = [
   {
@@ -48,6 +49,12 @@ export const COLUMNAS_KANBAN: readonly {
     etiqueta: ETIQUETA_ESTADO_TICKET[ESTADO_TICKET_ABIERTO],
     tono: "warn",
     ayuda: "Entró y todavía nadie la tomó.",
+  },
+  {
+    estado: ESTADO_TICKET_EN_EVALUACION,
+    etiqueta: ETIQUETA_ESTADO_TICKET[ESTADO_TICKET_EN_EVALUACION],
+    tono: "ai",
+    ayuda: "Es una mejora de la plataforma y está en estudio.",
   },
   {
     estado: ESTADO_TICKET_EN_PROCESO,
@@ -70,7 +77,7 @@ export const COLUMNAS_KANBAN: readonly {
 ] as const;
 
 /**
- * Reparte las tarjetas en las cuatro columnas conservando el orden de llegada.
+ * Reparte las tarjetas en las columnas conservando el orden de llegada.
  * Un estado desconocido (dato viejo o migración a medias) NO se pierde en
  * silencio: cae en «Abierto», que es la columna que exige atención.
  */

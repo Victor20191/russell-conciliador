@@ -4,6 +4,20 @@ import prisma from "@/lib/prisma";
 import { fmtDateTime } from "@/lib/format";
 import { ESTADO_TICKET_RESUELTO, etiquetaEstadoTicket, huellaTokenAcceso, tonoEstadoTicket } from "@/lib/soporte";
 
+/**
+ * Insignia del estado en el portal público. No usa `Chip` (este layout no
+ * comparte los componentes de la app) pero sí el MISMO tono, así que agregar
+ * un estado solo pide una entrada aquí.
+ */
+const TONO_INSIGNIA: Record<string, string> = {
+  ok: "bg-ok-100 text-ok-700",
+  blue: "bg-blue-100 text-navy-700",
+  ink: "bg-ink-100 text-ink-600",
+  ai: "bg-ai-100 text-ai-700",
+  err: "bg-err-100 text-err-700",
+  warn: "bg-warn-100 text-warn-700",
+};
+
 export default async function SeguimientoTicketPage({
   params,
   searchParams,
@@ -45,13 +59,7 @@ export default async function SeguimientoTicketPage({
                 <h1 className="mt-1 font-mono text-xl font-semibold">{ticket.code}</h1>
               </div>
               <span className={`rounded-full px-3 py-1 text-[11px] font-semibold ${
-                tonoEstadoTicket(ticket.status) === "ok"
-                  ? "bg-ok-100 text-ok-700"
-                  : tonoEstadoTicket(ticket.status) === "blue"
-                    ? "bg-blue-100 text-navy-700"
-                    : tonoEstadoTicket(ticket.status) === "ink"
-                      ? "bg-ink-100 text-ink-600"
-                      : "bg-warn-100 text-warn-700"
+                TONO_INSIGNIA[tonoEstadoTicket(ticket.status)] ?? TONO_INSIGNIA.warn
               }`}>
                 {etiquetaEstadoTicket(ticket.status)}
               </span>

@@ -68,7 +68,7 @@ export default function TicketsGestionTabla({
   return (
     <div className="flex flex-col gap-4">
       {/* Resumen por estado: cada tarjeta también filtra el listado. */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-5">
         {ESTADOS_TICKET.map((valor) => (
           <TarjetaEstado
             key={valor}
@@ -281,6 +281,7 @@ export default function TicketsGestionTabla({
 
 const ACENTO_ESTADO: Record<EstadoTicket, string> = {
   abierto: "text-warn-700",
+  en_evaluacion: "text-ai-700",
   en_proceso: "text-blue-500",
   resuelto: "text-ok-700",
   cerrado: "text-ink-600",

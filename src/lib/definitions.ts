@@ -62,7 +62,9 @@ export const SupportTicketStatusSchema = z
   .object({
     ticketId: z.coerce.number({ error: "Ticket inválido." }).int().positive({ error: "Ticket inválido." }),
     updatedAt: z.string().datetime({ offset: true, error: "La versión del ticket no es válida." }),
-    status: z.enum(["abierto", "en_proceso", "resuelto", "cerrado"], { error: "El estado no es válido." }),
+    status: z.enum(["abierto", "en_evaluacion", "en_proceso", "resuelto", "cerrado"], {
+      error: "El estado no es válido.",
+    }),
     solution: z.string().trim().max(5000, { error: "La solución es demasiado larga." }).optional(),
   })
   .superRefine((data, ctx) => {

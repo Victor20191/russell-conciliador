@@ -1783,7 +1783,7 @@ model SupportTicket {
   routeLabel            String?                   @map("ruta_etiqueta")
   menuKey               String?                   @map("menu_clave")
   menuLabel             String?                   @map("menu_etiqueta")
-  status                String                    @default("abierto") @map("estado") // abierto | en_proceso | resuelto | cerrado
+  status                String                    @default("abierto") @map("estado") // abierto | en_evaluacion | en_proceso | resuelto | cerrado
   solution              String?                   @map("solucion")
   resolvedById          Int?                      @map("resuelto_por_id")
   resolvedByName        String?                   @map("resuelto_por_nombre")

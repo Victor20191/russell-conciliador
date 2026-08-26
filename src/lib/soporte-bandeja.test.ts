@@ -31,17 +31,21 @@ const filas: TicketFilaGestion[] = [
   fila({ id: 2, status: "en_proceso", subject: "Prueba", reporterFirstName: "russell", reporterLastName: "plataforma", createdById: null }),
   fila({ id: 3, status: "resuelto", subject: "Error al cargar balance", routeLabel: "Balance de comprobación", menuLabel: "Borrador Balance" }),
   fila({ id: 4, status: "cerrado", subject: "Duplicado" }),
+  fila({ id: 5, status: "en_evaluacion", subject: "Sugerencia de tablero nuevo" }),
 ];
 
 describe("filtro del listado de gestión de reportes", () => {
   test("sin filtros devuelve todas las filas en el mismo orden", () => {
-    expect(filtrarTicketsGestion(filas, {}).map((f) => f.id)).toEqual([1, 2, 3, 4]);
-    expect(filtrarTicketsGestion(filas, { estado: FILTRO_ESTADO_TODOS, busqueda: "  " }).map((f) => f.id)).toEqual([1, 2, 3, 4]);
+    expect(filtrarTicketsGestion(filas, {}).map((f) => f.id)).toEqual([1, 2, 3, 4, 5]);
+    expect(filtrarTicketsGestion(filas, { estado: FILTRO_ESTADO_TODOS, busqueda: "  " }).map((f) => f.id)).toEqual([
+      1, 2, 3, 4, 5,
+    ]);
   });
 
-  test("«en gestión» deja solo abiertos y en proceso", () => {
-    expect(filtrarTicketsGestion(filas, { estado: FILTRO_ESTADO_EN_GESTION }).map((f) => f.id)).toEqual([1, 2]);
+  test("«en gestión» deja abiertos, en evaluación y en proceso", () => {
+    expect(filtrarTicketsGestion(filas, { estado: FILTRO_ESTADO_EN_GESTION }).map((f) => f.id)).toEqual([1, 2, 5]);
     expect(esTicketEnGestion("abierto")).toBe(true);
+    expect(esTicketEnGestion("en_evaluacion")).toBe(true);
     expect(esTicketEnGestion("en_proceso")).toBe(true);
     expect(esTicketEnGestion("resuelto")).toBe(false);
     expect(esTicketEnGestion("cerrado")).toBe(false);
@@ -54,7 +58,7 @@ describe("filtro del listado de gestión de reportes", () => {
 
   test("la búsqueda ignora acentos y mayúsculas y cubre código, asunto, reportante y ubicación", () => {
     expect(filtrarTicketsGestion(filas, { busqueda: "CONCILIACION" }).map((f) => f.id)).toEqual([1]);
-    expect(filtrarTicketsGestion(filas, { busqueda: "perez" }).map((f) => f.id)).toEqual([1, 3, 4]);
+    expect(filtrarTicketsGestion(filas, { busqueda: "perez" }).map((f) => f.id)).toEqual([1, 3, 4, 5]);
     expect(filtrarTicketsGestion(filas, { busqueda: "borrador" }).map((f) => f.id)).toEqual([3]);
     expect(filtrarTicketsGestion(filas, { busqueda: "00000002" }).map((f) => f.id)).toEqual([2]);
     expect(filtrarTicketsGestion(filas, { busqueda: "no existe" })).toEqual([]);
@@ -67,14 +71,27 @@ describe("filtro del listado de gestión de reportes", () => {
 });
 
 describe("resumen por estado", () => {
-  test("cuenta los cuatro estados aunque alguno esté en cero", () => {
-    expect(contarTicketsPorEstado(filas)).toEqual({ abierto: 1, en_proceso: 1, resuelto: 1, cerrado: 1 });
-    expect(contarTicketsPorEstado([])).toEqual({ abierto: 0, en_proceso: 0, resuelto: 0, cerrado: 0 });
+  test("cuenta todos los estados aunque alguno esté en cero", () => {
+    expect(contarTicketsPorEstado(filas)).toEqual({
+      abierto: 1,
+      en_evaluacion: 1,
+      en_proceso: 1,
+      resuelto: 1,
+      cerrado: 1,
+    });
+    expect(contarTicketsPorEstado([])).toEqual({
+      abierto: 0,
+      en_evaluacion: 0,
+      en_proceso: 0,
+      resuelto: 0,
+      cerrado: 0,
+    });
   });
 
   test("ignora estados desconocidos sin romper el conteo", () => {
     expect(contarTicketsPorEstado([fila({ id: 9, status: "raro" }), fila({ id: 10, status: "abierto" })])).toEqual({
       abierto: 1,
+      en_evaluacion: 0,
       en_proceso: 0,
       resuelto: 0,
       cerrado: 0,
@@ -85,6 +102,7 @@ describe("resumen por estado", () => {
     expect(esFiltroEstadoTicket("todos")).toBe(true);
     expect(esFiltroEstadoTicket("en_gestion")).toBe(true);
     expect(esFiltroEstadoTicket("resuelto")).toBe(true);
+    expect(esFiltroEstadoTicket("en_evaluacion")).toBe(true);
     expect(esFiltroEstadoTicket("cualquiera")).toBe(false);
   });
 });

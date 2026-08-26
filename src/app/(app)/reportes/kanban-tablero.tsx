@@ -18,6 +18,7 @@ import {
 
 const TONO_COLUMNA: Record<string, { punto: string; conteo: string; zona: string }> = {
   warn: { punto: "bg-warn-500", conteo: "bg-warn-100 text-warn-700", zona: "border-warn-500 bg-warn-100/50" },
+  ai: { punto: "bg-ai-500", conteo: "bg-ai-100 text-ai-700", zona: "border-ai-500 bg-ai-100/50" },
   blue: { punto: "bg-navy-500", conteo: "bg-blue-100 text-navy-700", zona: "border-navy-500 bg-blue-100/50" },
   ok: { punto: "bg-ok-500", conteo: "bg-ok-100 text-ok-700", zona: "border-ok-500 bg-ok-100/50" },
   ink: { punto: "bg-ink-400", conteo: "bg-ink-100 text-ink-600", zona: "border-ink-400 bg-ink-100/60" },
@@ -133,7 +134,7 @@ export default function KanbanTablero({
           : "Vista de solo lectura: solo Xentria puede mover las novedades entre columnas."}
       </p>
 
-      <div className="grid gap-3 lg:grid-cols-4">
+      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         {COLUMNAS_KANBAN.map((columna) => {
           const tono = TONO_COLUMNA[columna.tono]!;
           const enZona = zonaActiva === columna.estado;

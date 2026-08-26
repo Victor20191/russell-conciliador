@@ -81,6 +81,9 @@ export default function TicketGestionForm({
         ))}
       </select>
       {state?.errors?.status?.[0] && <p className="mt-1.5 text-xs text-err-700">{state.errors.status[0]}</p>}
+      <p className="mt-1.5 text-[11.5px] text-ink-500">
+        Usa «En evaluación» cuando la novedad no sea una falla sino una mejora de la plataforma que está en estudio.
+      </p>
 
       <label htmlFor={`solution-${ticket.id}`} className="mt-4 text-xs font-semibold uppercase tracking-wider text-ink-500">
         Respuesta / solución

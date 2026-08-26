@@ -291,6 +291,15 @@ describe("Server Actions de soporte", () => {
     }));
   });
 
+  it("acepta «En evaluación» sin solución ni sello de resolución", async () => {
+    const resultado = await cambiarEstadoTicket(undefined, formularioEstado("en_evaluacion"));
+    expect(resultado).toEqual({ ok: true });
+    const data = mocks.updateMany.mock.calls[0]![0].data;
+    expect(data).toMatchObject({ status: "en_evaluacion" });
+    expect(data).not.toHaveProperty("resolvedAt");
+    expect(data).not.toHaveProperty("solution");
+  });
+
   it("exige solución al marcar resuelto y no escribe si falta", async () => {
     const resultado = await cambiarEstadoTicket(undefined, formularioEstado("resuelto"));
     expect(resultado.ok).toBe(false);

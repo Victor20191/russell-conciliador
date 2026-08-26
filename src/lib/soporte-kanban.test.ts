@@ -42,10 +42,11 @@ describe("agruparTicketsKanban", () => {
     expect(columnas.abierto.map((t) => t.id)).toEqual([1, 3]);
     expect(columnas.resuelto.map((t) => t.id)).toEqual([2]);
     expect(columnas.en_proceso).toEqual([]);
+    expect(columnas.en_evaluacion).toEqual([]);
     expect(columnas.cerrado).toEqual([]);
   });
 
-  it("siempre devuelve las cuatro columnas aunque no haya tickets", () => {
+  it("siempre devuelve una columna por estado aunque no haya tickets", () => {
     expect(Object.keys(agruparTicketsKanban([])).sort()).toEqual([...ESTADOS_TICKET].sort());
   });
 
@@ -61,6 +62,11 @@ describe("evaluarMovimientoKanban", () => {
   it("acepta un cambio de columna normal sin pedir solución", () => {
     const mov = evaluarMovimientoKanban(filas, 1, "en_proceso");
     expect(mov).toMatchObject({ ok: true, destino: "en_proceso", pideSolucion: false });
+  });
+
+  it("mover una mejora a «En evaluación» no pide solución", () => {
+    const mov = evaluarMovimientoKanban(filas, 1, "en_evaluacion");
+    expect(mov).toMatchObject({ ok: true, destino: "en_evaluacion", pideSolucion: false });
   });
 
   it("exige la solución al mover a resuelto", () => {
