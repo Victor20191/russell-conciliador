@@ -11,7 +11,7 @@ import { ESTADOS_TICKET } from "./soporte-estados";
 function ticket(id: number, status: string): TicketKanban {
   return {
     id,
-    code: `TKT-20260825-0000000${id}`,
+    code: `TKT-${id}`,
     subject: `Novedad ${id}`,
     reportante: "Ana Pérez",
     esMio: false,

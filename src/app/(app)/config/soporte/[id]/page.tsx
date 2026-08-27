@@ -2,18 +2,19 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import prisma from "@/lib/prisma";
 import { authorizePermiso, requirePermiso } from "@/lib/rbac";
-import AdjuntosGaleria from "@/app/(app)/reportes/adjuntos-galeria";
 import { BackLink, Chip } from "@/components/ui";
 import { fmtDate, fmtDateTime, fmtHora12 } from "@/lib/format";
 import { etiquetaEstadoTicket, tonoEstadoTicket } from "@/lib/soporte";
 import { etiquetaUbicacionNovedad } from "@/lib/soporte-rutas";
+import TicketHistorial from "@/components/ticket-historial";
+import { historialDeTicket, SELECT_HISTORIAL } from "@/lib/soporte-historial";
 import TicketGestionForm from "../ticket-gestion-form";
 import TicketEliminarBoton from "../ticket-eliminar-boton";
 
 /**
- * Detalle de un ticket para Xentria: descripción, imágenes y el panel para
- * cambiar el estado o documentar la solución. El listado (`/config/soporte`)
- * solo enlaza aquí; nunca gestiona en línea.
+ * Detalle de un ticket para Xentria: los datos del reporte, el hilo completo y,
+ * al pie de ese hilo, la única caja de gestión (texto + estado). El listado
+ * (`/config/soporte`) solo enlaza aquí; nunca gestiona en línea.
  */
 export default async function SoporteTicketDetallePage({
   params,
@@ -49,12 +50,16 @@ export default async function SoporteTicketDetallePage({
         orderBy: { createdAt: "asc" },
         select: { id: true, fileName: true },
       },
+      ...SELECT_HISTORIAL,
     },
   });
   if (!ticket) notFound();
 
   const ubicacion = etiquetaUbicacionNovedad(ticket.routeLabel, ticket.menuLabel);
   const reportante = `${ticket.reporterFirstName} ${ticket.reporterLastName}`;
+  // El hilo se arma con el MISMO helper que usan la página del usuario y el
+  // modal: las tres pantallas cuentan la misma historia, en el mismo orden.
+  const historial = historialDeTicket(ticket);
 
   return (
     <div className="w-full">
@@ -96,7 +101,7 @@ export default async function SoporteTicketDetallePage({
         </div>
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(340px,0.8fr)] lg:items-start">
+      <div className="max-w-3xl">
         <article className="min-w-0 rounded-lg border border-ink-150 bg-paper p-5 shadow-sm">
           <dl className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
             <Dato etiqueta="Reportado por" valor={reportante} />
@@ -108,31 +113,34 @@ export default async function SoporteTicketDetallePage({
             </div>
           </dl>
 
-          <div className="mt-5 border-t border-ink-100 pt-5">
-            <p className="text-xs font-semibold uppercase tracking-wider text-ink-500">Descripción</p>
-            <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-ink-700">{ticket.description}</p>
-          </div>
-
-          {ticket.attachments.length > 0 ? (
-            <div className="mt-5 border-t border-ink-100 pt-1">
-              <AdjuntosGaleria adjuntos={ticket.attachments} />
+          {/* Historial completo: el reporte original, la conversación con quien
+              lo abrió y los cambios de estado. Va en esta columna —y no en el
+              panel de gestión— porque es historia del ticket, no un control:
+              sigue creciendo aunque el panel esté congelado por el cierre.
+              La descripción y las imágenes NO se repiten arriba: son la primera
+              entrada del hilo. */}
+          <section className="mt-5 border-t border-ink-100 pt-5">
+            <p className="text-xs font-semibold uppercase tracking-wider text-ink-500">
+              Historial del ticket
+            </p>
+            <div className="mt-3">
+              <TicketHistorial entradas={historial} />
             </div>
-          ) : (
-            <p className="mt-5 border-t border-ink-100 pt-4 text-xs text-ink-400">Este ticket no tiene imágenes adjuntas.</p>
-          )}
+            {/* La gestión vive AQUÍ, al pie del hilo, y no en un panel aparte:
+                escribirle a quien reportó y mover el estado son el mismo acto.
+                Tenerlos en dos formularios obligaba a elegir entre dos cajas de
+                texto que hacían lo mismo. */}
+            <TicketGestionForm
+              ticket={{
+                id: ticket.id,
+                code: ticket.code,
+                status: ticket.status,
+                tieneRespuesta: Boolean(ticket.solution),
+                updatedAt: ticket.updatedAt.toISOString(),
+              }}
+            />
+          </section>
         </article>
-
-        <aside className="flex min-w-0 flex-col gap-4 lg:sticky lg:top-16">
-          <TicketGestionForm
-            ticket={{
-              id: ticket.id,
-              code: ticket.code,
-              status: ticket.status,
-              solution: ticket.solution,
-              updatedAt: ticket.updatedAt.toISOString(),
-            }}
-          />
-        </aside>
       </div>
     </div>
   );

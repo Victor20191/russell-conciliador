@@ -78,9 +78,11 @@ function guardarVista(siguiente: Vista): void {
 export default function TicketsVista({
   tickets,
   puedeMover,
+  puedeEliminar,
 }: {
   tickets: TicketKanban[];
   puedeMover: boolean;
+  puedeEliminar: boolean;
 }) {
   const vista = useSyncExternalStore(suscribirVista, leerVista, (): Vista => "tabla");
   const [abierto, setAbierto] = useState<number | null>(null);
@@ -156,7 +158,12 @@ export default function TicketsVista({
           />
         </div>
       ) : vista === "kanban" ? (
-        <KanbanTablero tickets={visibles} puedeMover={puedeMover} onAbrir={setAbierto} />
+        <KanbanTablero
+          tickets={visibles}
+          puedeMover={puedeMover}
+          puedeEliminar={puedeEliminar}
+          onAbrir={setAbierto}
+        />
       ) : (
         <TablaTickets tickets={visibles} onAbrir={setAbierto} />
       )}
@@ -165,6 +172,7 @@ export default function TicketsVista({
         ticketId={abierto}
         onClose={() => setAbierto(null)}
         puedeGestionar={puedeMover}
+        puedeEliminar={puedeEliminar}
       />
     </div>
   );

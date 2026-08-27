@@ -28,7 +28,7 @@ import {
   type TicketFilaGestion,
 } from "@/lib/soporte-bandeja";
 import { etiquetaUbicacionNovedad } from "@/lib/soporte-rutas";
-import TicketEliminarModal, { type TicketEliminable } from "./ticket-eliminar-modal";
+import TicketEliminarModal, { type TicketEliminable } from "@/components/ticket-eliminar-modal";
 
 function hrefDetalle(id: number) {
   return `/config/soporte/${id}`;

@@ -47,8 +47,21 @@ const securityHeaders = [
     : []),
 ];
 
+// Identificador del despliegue (protección de «version skew»). Sin él, una
+// pestaña abierta con el build ANTERIOR que invoca una Server Action mientras
+// el servidor ya sirve el build NUEVO se queda colgada: la acción se ejecuta,
+// pero la respuesta nunca vuelve al navegador (botón en «Guardando…» eterno,
+// sin error en consola). Con el identificador puesto, Next detecta el desajuste
+// por la cabecera `x-nextjs-deployment-id` y fuerza una recarga completa.
+//
+// El valor se EMBEBE en el build, así que la MISMA variable debe estar
+// definida al construir y al arrancar el proceso (p. ej. el SHA del commit
+// desplegado). Si no se define, el comportamiento es el de siempre.
+const deploymentId = process.env.NEXT_DEPLOYMENT_ID?.trim() || undefined;
+
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  ...(deploymentId ? { deploymentId } : {}),
   // La UI de balance usa fragmentos pequeños, pero se conserva la entrada directa
   // para pruebas/VPS y otros flujos de PDFs o fotos que usan Server Actions.
   experimental: {

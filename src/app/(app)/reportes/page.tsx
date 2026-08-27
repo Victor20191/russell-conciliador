@@ -14,10 +14,12 @@ import TicketsVista from "./tickets-vista";
 
 export default async function ReportesPage() {
   await requirePermiso("soporte:ver");
-  const [actor, puedeCrear, admin, publicacionModulos, matriz] = await Promise.all([
+  const [actor, puedeCrear, admin, puedeEliminar, publicacionModulos, matriz] = await Promise.all([
     getCurrentUser(),
     authorizePermiso("soporte:crear"),
     authorizePermiso("soporte:administrar"),
+    // Borrado definitivo: exclusivo del Superadministrador (`soporte:eliminar`).
+    authorizePermiso("soporte:eliminar"),
     getPublicacionModulos(),
     getMatriz(),
   ]);
@@ -118,7 +120,7 @@ export default async function ReportesPage() {
         }
       />
 
-      <TicketsVista tickets={filas} puedeMover={admin.ok} />
+      <TicketsVista tickets={filas} puedeMover={admin.ok} puedeEliminar={puedeEliminar.ok} />
     </div>
   );
 }

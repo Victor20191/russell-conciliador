@@ -4,14 +4,11 @@ import prisma from "@/lib/prisma";
 import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import { getCurrentUser } from "@/lib/dal";
 import { BackLink, Chip, PageHeader } from "@/components/ui";
-import { fmtDateTime } from "@/lib/format";
-import {
-  ESTADO_TICKET_RESUELTO,
-  etiquetaEstadoTicket,
-  tonoEstadoTicket,
-} from "@/lib/soporte";
+import { etiquetaEstadoTicket, tonoEstadoTicket } from "@/lib/soporte";
 import { etiquetaUbicacionNovedad } from "@/lib/soporte-rutas";
-import AdjuntosGaleria from "../adjuntos-galeria";
+import TicketHistorial from "@/components/ticket-historial";
+import TicketMensajeForm from "@/components/ticket-mensaje-form";
+import { historialDeTicket, ladoParaEscribir, SELECT_HISTORIAL } from "@/lib/soporte-historial";
 
 export default async function ReporteDetallePage({
   params,
@@ -48,6 +45,7 @@ export default async function ReporteDetallePage({
         orderBy: { createdAt: "asc" },
         select: { id: true, fileName: true },
       },
+      ...SELECT_HISTORIAL,
     },
   });
   if (!ticket) notFound();
@@ -55,7 +53,17 @@ export default async function ReporteDetallePage({
   // Los tickets públicos permanecen privados por token salvo para Xentria.
   if (!admin.ok && ticket.createdById === null) notFound();
 
-  const resuelto = ticket.status === ESTADO_TICKET_RESUELTO && Boolean(ticket.solution);
+  const historial = historialDeTicket(ticket);
+  // Escribir en el hilo es más estrecho que verlo: cualquiera con `soporte:ver`
+  // lee las novedades de la plataforma, pero responder solo pueden Xentria y
+  // quien abrió ESTE ticket. La Server Action revalida lo mismo.
+  const lado = ladoParaEscribir({
+    administra: admin.ok,
+    usuarioId: actor.id,
+    creadoPorId: ticket.createdById,
+  });
+
+  const ubicacion = etiquetaUbicacionNovedad(ticket.routeLabel, ticket.menuLabel);
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -68,37 +76,16 @@ export default async function ReporteDetallePage({
         />
       </div>
 
-      <article className="rounded-lg border border-ink-150 bg-paper p-5 shadow-sm">
-        {etiquetaUbicacionNovedad(ticket.routeLabel, ticket.menuLabel) && (
-          <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-ink-500">
-            {etiquetaUbicacionNovedad(ticket.routeLabel, ticket.menuLabel)}
-          </p>
+      {/* El hilo completo: el reporte original con sus imágenes, la conversación
+          con Xentria y los cambios de estado. La descripción no se repite
+          arriba porque es la primera entrada del historial. */}
+      <section className="rounded-lg border border-ink-150 bg-paper p-5 shadow-sm">
+        {ubicacion && (
+          <p className="mb-4 text-xs font-semibold uppercase tracking-wider text-ink-500">{ubicacion}</p>
         )}
-        <p className="whitespace-pre-wrap text-sm leading-6 text-ink-700">{ticket.description}</p>
-        <p className="mt-4 text-xs text-ink-500">Reportado el {fmtDateTime(ticket.createdAt)}</p>
-        <AdjuntosGaleria adjuntos={ticket.attachments} />
-      </article>
-
-      <section
-        className={`mt-4 rounded-lg border p-5 ${
-          resuelto ? "border-ok-100 bg-ok-100" : "border-ink-150 bg-ink-50"
-        }`}
-      >
-        <p className={`text-xs font-semibold uppercase tracking-wider ${resuelto ? "text-ok-700" : "text-ink-500"}`}>
-          Gestión de Xentria
-        </p>
-        {ticket.solution ? (
-          <>
-            <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-ink-800">{ticket.solution}</p>
-            <p className="mt-4 text-xs text-ink-600">
-              {ticket.resolvedByName ?? "Xentria"}
-              {ticket.resolvedAt ? ` · ${fmtDateTime(ticket.resolvedAt)}` : ""}
-            </p>
-          </>
-        ) : (
-          <p className="mt-3 text-sm leading-6 text-ink-700">
-            Xentria recibió esta novedad. Aquí se verá la respuesta cuando el equipo actualice el ticket.
-          </p>
+        <TicketHistorial entradas={historial} />
+        {lado !== null && (
+          <TicketMensajeForm ticketId={ticket.id} code={ticket.code} lado={lado} />
         )}
       </section>
 

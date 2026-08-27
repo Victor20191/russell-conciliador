@@ -14,9 +14,11 @@ import {
 } from "./soporte";
 
 describe("credenciales publicas de tickets", () => {
-  test("el codigo usa la fecha de Colombia y un sufijo no adivinable", () => {
-    const fechaCercaDeMedianocheUTC = new Date("2026-08-08T03:30:00.000Z");
-    expect(crearCodigoTicket(fechaCercaDeMedianocheUTC, "a1b2c3d4")).toBe("TKT-20260807-A1B2C3D4");
+  test("el codigo es el consecutivo corto que entrega la secuencia", () => {
+    expect(crearCodigoTicket(1)).toBe("TKT-1");
+    expect(crearCodigoTicket(62)).toBe("TKT-62");
+    expect(() => crearCodigoTicket(0)).toThrow();
+    expect(() => crearCodigoTicket(1.5)).toThrow();
   });
 
   test("la huella no persiste el token publico en texto plano", () => {

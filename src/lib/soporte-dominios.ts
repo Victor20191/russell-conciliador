@@ -1,4 +1,9 @@
-import { correoEsDelDominio, DOMINIO_RUSSELL, DOMINIO_XENTRIA } from "./dominios-correo";
+import {
+  correoEsDeAlgunDominio,
+  correoEsDelDominio,
+  DOMINIO_XENTRIA,
+  DOMINIOS_RUSSELL,
+} from "./dominios-correo";
 
 /**
  * Origen de una novedad según el dominio de correo de quien la reportó: separa
@@ -37,7 +42,7 @@ export function esFiltroDominioReporte(valor: string): valor is FiltroDominioRep
  * en «otros» y no en el dominio que aparentan.
  */
 export function clasificarDominioReporte(correo: string | null | undefined): DominioReporte {
-  if (correoEsDelDominio(correo, DOMINIO_RUSSELL)) return "russell";
+  if (correoEsDeAlgunDominio(correo, DOMINIOS_RUSSELL)) return "russell";
   if (correoEsDelDominio(correo, DOMINIO_XENTRIA)) return "xentria";
   return "otros";
 }

@@ -11,7 +11,7 @@ import {
 
 function fila(parcial: Partial<TicketFilaGestion> & Pick<TicketFilaGestion, "id" | "status">): TicketFilaGestion {
   return {
-    code: `TKT-20260818-0000000${parcial.id}`,
+    code: `TKT-${parcial.id}`,
     createdById: 7,
     reporterFirstName: "Ana",
     reporterLastName: "Pérez",
@@ -60,7 +60,7 @@ describe("filtro del listado de gestión de reportes", () => {
     expect(filtrarTicketsGestion(filas, { busqueda: "CONCILIACION" }).map((f) => f.id)).toEqual([1]);
     expect(filtrarTicketsGestion(filas, { busqueda: "perez" }).map((f) => f.id)).toEqual([1, 3, 4, 5]);
     expect(filtrarTicketsGestion(filas, { busqueda: "borrador" }).map((f) => f.id)).toEqual([3]);
-    expect(filtrarTicketsGestion(filas, { busqueda: "00000002" }).map((f) => f.id)).toEqual([2]);
+    expect(filtrarTicketsGestion(filas, { busqueda: "TKT-2" }).map((f) => f.id)).toEqual([2]);
     expect(filtrarTicketsGestion(filas, { busqueda: "no existe" })).toEqual([]);
   });
 

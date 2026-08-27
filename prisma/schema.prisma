@@ -1773,6 +1773,10 @@ model UmbralAlerta {
 // Los adjuntos viven en S3/MinIO; la BD solo guarda la clave del objeto.
 model SupportTicket {
   id                    Int                       @id @default(autoincrement()) @map("id")
+  // Codigo visible corto: `TKT-<consecutivo>`. El consecutivo lo entrega la
+  // secuencia `secuencia_codigo_ticket_soporte` (creada en la migracion
+  // 20260826160000, fuera del modelo Prisma) que la Server Action consume con
+  // `nextval`. No es un secreto: el enlace publico sigue exigiendo el token.
   code                  String                    @unique @map("codigo")
   createdById           Int?                      @map("creado_por_id")
   reporterFirstName     String                    @map("nombre_reportante")
@@ -1792,11 +1796,62 @@ model SupportTicket {
   createdAt             DateTime                  @default(now()) @map("creado_en") @db.Timestamptz(3)
   updatedAt             DateTime                  @updatedAt @map("actualizado_en") @db.Timestamptz(3)
   attachments           SupportTicketAttachment[]
+  messages              SupportTicketMessage[]
+  events                SupportTicketEvent[]
 
   @@index([status, createdAt])
   @@index([createdById, createdAt])
   @@index([routeKey, menuKey])
   @@map("tickets_soporte")
+}
+
+/**
+ * Mensaje del hilo de un ticket: la conversación entre quien reportó y Xentria.
+ * Es append-only y sigue abierto después del cierre, cuando la respuesta oficial
+ * (`SupportTicket.solution`) ya quedó congelada.
+ * `authorSide` guarda de QUÉ lado vino el mensaje y no se deduce al leer: el rol
+ * de quien escribió puede cambiar después, pero el mensaje ya lo dijo alguien
+ * concreto en un momento concreto. Es lo que decide de qué lado se pinta la
+ * burbuja en el historial.
+ * `authorId` es FK SUAVE hacia `User` (como el resto de la plataforma): el nombre
+ * se guarda como instantánea para que el mensaje siga siendo legible aunque el
+ * usuario se borre.
+ */
+model SupportTicketMessage {
+  id         Int           @id @default(autoincrement()) @map("id")
+  ticketId   Int           @map("ticket_id")
+  authorId   Int?          @map("autor_id")
+  authorName String        @map("autor_nombre")
+  authorSide String        @map("autor_lado") // reportante | xentria
+  body       String        @map("contenido")
+  createdAt  DateTime      @default(now()) @map("creado_en") @db.Timestamptz(3)
+  ticket     SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId, createdAt])
+  @@map("mensajes_ticket_soporte")
+}
+
+/**
+ * Cambio de estado de un ticket, para que el historial pueda contar lo que pasó
+ * y no solo lo que se dijo. La auditoría (`logAudit`) registra lo mismo en texto
+ * libre para el tablero de accesos; esto es el dato estructurado que consume la
+ * UI del hilo, y por eso se escribe DENTRO de la misma transacción que mueve el
+ * estado: un evento sin cambio —o al revés— haría mentir al historial.
+ * Los tickets anteriores a esta tabla no tienen eventos; su cierre lo deriva
+ * `construirHistorialTicket` de `resolvedAt`/`resolvedByName`.
+ */
+model SupportTicketEvent {
+  id             Int           @id @default(autoincrement()) @map("id")
+  ticketId       Int           @map("ticket_id")
+  authorId       Int?          @map("autor_id")
+  authorName     String        @map("autor_nombre")
+  previousStatus String?       @map("estado_anterior")
+  newStatus      String        @map("estado_nuevo")
+  createdAt      DateTime      @default(now()) @map("creado_en") @db.Timestamptz(3)
+  ticket         SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId, createdAt])
+  @@map("eventos_ticket_soporte")
 }
 
 model SupportTicketAttachment {

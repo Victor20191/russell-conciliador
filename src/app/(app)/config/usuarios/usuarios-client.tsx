@@ -452,7 +452,7 @@ function CreateUserForm({
           <input
             name="email"
             type="email"
-            placeholder="correo@russellbedford.co"
+            placeholder="correo@russellbedford.com.co"
             required
             className="rounded-md border border-ink-200 px-3 py-2 text-[13px]"
           />

@@ -4,6 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
 import { Modal } from "@/components/modal";
+import TicketEliminarModal, { type TicketEliminable } from "@/components/ticket-eliminar-modal";
 import { cambiarEstadoTicket } from "@/app/actions/soporte";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import { fmtDate } from "@/lib/format";
@@ -36,14 +37,21 @@ type PendienteSolucion = { ticket: TicketKanban; destino: EstadoTicket };
  * El movimiento se pinta de inmediato (optimista) y se confirma con la Server
  * Action; si el servidor lo rechaza, la tarjeta vuelve a su columna. Pasar a
  * «Resuelto» abre el modal de la solución, porque la acción la exige.
+ *
+ * El borrado definitivo es otra puerta: solo aparece con `soporte:eliminar`
+ * (Superadministrador) y reutiliza el mismo modal de confirmación de la bandeja
+ * de Xentria. Al eliminar, la tarjeta se quita del tablero sin esperar a la
+ * revalidación, que llega enseguida con `router.refresh()`.
  */
 export default function KanbanTablero({
   tickets,
   puedeMover,
+  puedeEliminar,
   onAbrir,
 }: {
   tickets: TicketKanban[];
   puedeMover: boolean;
+  puedeEliminar: boolean;
   onAbrir: (ticketId: number) => void;
 }) {
   const router = useRouter();
@@ -52,6 +60,7 @@ export default function KanbanTablero({
   const [arrastrando, setArrastrando] = useState<number | null>(null);
   const [zonaActiva, setZonaActiva] = useState<EstadoTicket | null>(null);
   const [porResolver, setPorResolver] = useState<PendienteSolucion | null>(null);
+  const [porEliminar, setPorEliminar] = useState<TicketEliminable | null>(null);
   const [solucion, setSolucion] = useState("");
   const [errorSolucion, setErrorSolucion] = useState<string | null>(null);
 
@@ -197,6 +206,17 @@ export default function KanbanTablero({
                       }}
                       onMover={(destino) => soltarEn(destino, ticket.id)}
                       onAbrir={() => onAbrir(ticket.id)}
+                      onEliminar={
+                        puedeEliminar
+                          ? () =>
+                              setPorEliminar({
+                                id: ticket.id,
+                                code: ticket.code,
+                                subject: ticket.subject,
+                                adjuntos: ticket.adjuntos,
+                              })
+                          : undefined
+                      }
                     />
                   ))
                 )}
@@ -252,6 +272,19 @@ export default function KanbanTablero({
         />
         {errorSolucion && <p className="mt-1.5 text-[11.5px] font-semibold text-err-700">{errorSolucion}</p>}
       </Modal>
+
+      {porEliminar && (
+        <TicketEliminarModal
+          ticket={porEliminar}
+          onClose={() => setPorEliminar(null)}
+          onEliminado={() => {
+            const eliminado = porEliminar.id;
+            setPorEliminar(null);
+            setFilas((actuales) => actuales.filter((fila) => fila.id !== eliminado));
+            router.refresh();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -264,6 +297,7 @@ function TarjetaTicket({
   onDragEnd,
   onMover,
   onAbrir,
+  onEliminar,
 }: {
   ticket: TicketKanban;
   puedeMover: boolean;
@@ -272,6 +306,8 @@ function TarjetaTicket({
   onDragEnd: () => void;
   onMover: (destino: EstadoTicket) => void;
   onAbrir: () => void;
+  /** Ausente cuando la sesión no puede borrar: la tarjeta ni siquiera pinta el botón. */
+  onEliminar?: () => void;
 }) {
   return (
     <article
@@ -314,27 +350,45 @@ function TarjetaTicket({
         </span>
       </button>
 
-      {puedeMover && (
-        <label className="mx-3 mb-2.5 flex items-center gap-1.5 border-t border-ink-100 pt-2 text-[11px] text-ink-400">
-          <Icon name="move-tree" size={12} />
-          <span className="sr-only">Mover {ticket.code} a</span>
-          <select
-            value=""
-            onChange={(e) => {
-              const destino = e.target.value;
-              e.currentTarget.value = "";
-              if (destino) onMover(destino as EstadoTicket);
-            }}
-            className="w-full rounded border border-ink-200 bg-white px-1.5 py-1 text-[11px] text-ink-600 outline-none focus:border-navy-500"
-          >
-            <option value="">Mover a…</option>
-            {COLUMNAS_KANBAN.filter((columna) => columna.estado !== ticket.status).map((columna) => (
-              <option key={columna.estado} value={columna.estado}>
-                {columna.etiqueta}
-              </option>
-            ))}
-          </select>
-        </label>
+      {(puedeMover || onEliminar) && (
+        <div className="mx-3 mb-2.5 flex items-center gap-1.5 border-t border-ink-100 pt-2 text-[11px] text-ink-400">
+          {puedeMover && (
+            <label className="flex min-w-0 flex-1 items-center gap-1.5">
+              <Icon name="move-tree" size={12} />
+              <span className="sr-only">Mover {ticket.code} a</span>
+              <select
+                value=""
+                onChange={(e) => {
+                  const destino = e.target.value;
+                  e.currentTarget.value = "";
+                  if (destino) onMover(destino as EstadoTicket);
+                }}
+                className="w-full rounded border border-ink-200 bg-white px-1.5 py-1 text-[11px] text-ink-600 outline-none focus:border-navy-500"
+              >
+                <option value="">Mover a…</option>
+                {COLUMNAS_KANBAN.filter((columna) => columna.estado !== ticket.status).map((columna) => (
+                  <option key={columna.estado} value={columna.estado}>
+                    {columna.etiqueta}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {onEliminar && (
+            <button
+              type="button"
+              onClick={onEliminar}
+              title={`Eliminar ${ticket.code}`}
+              aria-label={`Eliminar ${ticket.code}`}
+              className={`inline-flex shrink-0 items-center gap-1 rounded border border-err-500/40 bg-white px-1.5 py-1 text-[11px] font-semibold text-err-700 transition hover:bg-err-100 ${
+                puedeMover ? "" : "ml-auto"
+              }`}
+            >
+              <Icon name="trash" size={12} />
+              {!puedeMover && "Eliminar"}
+            </button>
+          )}
+        </div>
       )}
     </article>
   );

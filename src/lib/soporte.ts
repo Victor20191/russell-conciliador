@@ -1,5 +1,4 @@
 import { createHash, randomBytes } from "node:crypto";
-import { fechaColombiaISO } from "@/lib/fecha-hora";
 import type { TipoAdjunto } from "@/lib/soporte-adjuntos";
 
 export {
@@ -29,11 +28,17 @@ export function keyAdjuntoTicket(ticketId: number, sufijo: string, tipo: TipoAdj
 
 export { urlAdjuntoTicket } from "./soporte-adjuntos";
 
-export function crearCodigoTicket(ahora: Date = new Date(), sufijo?: string): string {
-  const fecha = fechaColombiaISO(ahora).replaceAll("-", "");
-  const aleatorio = (sufijo ?? randomBytes(4).toString("hex")).replace(/[^a-z0-9]/gi, "").slice(0, 8).toUpperCase();
-  if (aleatorio.length !== 8) throw new Error("No fue posible generar el código del ticket.");
-  return `TKT-${fecha}-${aleatorio}`;
+/**
+ * El código visible del ticket es un consecutivo corto (`TKT-1`, `TKT-2`…): lo
+ * entrega la secuencia `secuencia_codigo_ticket_soporte` de PostgreSQL, así que
+ * aquí solo se le da formato. No es un secreto — quien abre el enlace público de
+ * seguimiento sigue necesitando el token de acceso (`crearTokenAccesoTicket`).
+ */
+export function crearCodigoTicket(consecutivo: number): string {
+  if (!Number.isInteger(consecutivo) || consecutivo < 1) {
+    throw new Error("No fue posible generar el código del ticket.");
+  }
+  return `TKT-${consecutivo}`;
 }
 
 export function crearTokenAccesoTicket(): string {

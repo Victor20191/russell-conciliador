@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
-import TicketEliminarModal, { type TicketEliminable } from "./ticket-eliminar-modal";
+import TicketEliminarModal, { type TicketEliminable } from "@/components/ticket-eliminar-modal";
 
 /**
  * Botón de borrado definitivo en el detalle del ticket. Solo lo monta la página

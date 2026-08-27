@@ -1,4 +1,5 @@
 import * as z from "zod";
+import type { EntradaHistorial } from "@/lib/soporte-historial";
 import { tieneDigitosNit } from "@/lib/nit";
 import { SpecCargaSchema } from "@/lib/balance/extraccion/esquema";
 import { SpecModuloSchema } from "@/lib/modulos/extraccion/esquema";
@@ -77,31 +78,70 @@ export const SupportTicketStatusSchema = z
     }
   });
 
+/**
+ * Una sola pasada de gestión desde la bandeja de Xentria: el texto que se le
+ * escribe a quien reportó Y el estado en que queda el ticket.
+ *
+ * Antes eran dos formularios con dos cajas de texto que, para quien gestiona,
+ * hacían lo mismo (escribir algo que el usuario va a leer). Aquí el texto es
+ * UNO solo y su destino lo decide la transición de estado, no un campo aparte:
+ * al pasar a «Resuelto» queda como la respuesta oficial; en cualquier otro caso
+ * entra al hilo como mensaje. Las reglas que dependen del estado GUARDADO se
+ * revalidan en la Server Action, que es la única que lo conoce.
+ */
+export const SupportTicketGestionSchema = z.object({
+  ticketId: z.coerce.number({ error: "Ticket inválido." }).int().positive({ error: "Ticket inválido." }),
+  updatedAt: z.string().datetime({ offset: true, error: "La versión del ticket no es válida." }),
+  status: z.enum(["abierto", "en_evaluacion", "en_proceso", "resuelto", "cerrado"], {
+    error: "El estado no es válido.",
+  }),
+  texto: z.string().trim().max(5000, { error: "El texto es demasiado largo." }).optional(),
+});
+
 export const SupportTicketDeleteSchema = z.object({
   ticketId: z.coerce.number({ error: "Ticket inválido." }).int().positive({ error: "Ticket inválido." }),
   // Confirmación explícita: el borrado es irreversible y arrastra las imágenes.
   code: z.string().trim().min(1, { error: "Ticket inválido." }).max(40, { error: "Ticket inválido." }),
 });
 
+/**
+ * Nota de seguimiento de un ticket. A diferencia de la solución oficial, se
+ * puede agregar SIEMPRE — incluido después de cerrar el ticket — y no lleva
+ * `updatedAt`: es un apunte nuevo, no la edición de algo existente, así que no
+ * hay versión que pisar.
+ */
+export const SupportTicketMessageSchema = z.object({
+  ticketId: z.coerce.number({ error: "Ticket inválido." }).int().positive({ error: "Ticket inválido." }),
+  body: z
+    .string()
+    .trim()
+    .min(5, { error: "Escribe el mensaje que quieres enviar." })
+    .max(5000, { error: "El mensaje es demasiado largo." }),
+});
+
 export const SupportTicketDetailSchema = z.object({
   ticketId: z.coerce.number({ error: "Reporte inválido." }).int().positive({ error: "Reporte inválido." }),
 });
 
+/** Una nota del hilo de seguimiento, ya lista para pintar. */
 /** Detalle de una novedad tal como lo pinta el modal de `/reportes`. Las fechas
- * viajan como ISO porque el modal es un componente cliente. */
+ * viajan como ISO porque el modal es un componente cliente.
+ *
+ * El `historial` llega ARMADO desde el servidor (`construirHistorialTicket`) y no
+ * como piezas sueltas: es el mismo hilo que pintan las páginas RSC, así que el
+ * modal no puede contar otra historia por reordenar distinto. */
 export type DetalleTicket = {
   id: number;
   code: string;
   subject: string;
-  description: string;
   reportante: string;
   ubicacion: string | null;
   status: string;
-  solution: string | null;
-  resolvedByName: string | null;
-  resolvedAt: string | null;
   createdAt: string;
   adjuntos: { id: number; fileName: string }[];
+  historial: EntradaHistorial[];
+  /** Si quien mira puede responder en el hilo (Xentria, o el autor del ticket). */
+  puedeEscribir: boolean;
 };
 
 export type DetalleTicketState =

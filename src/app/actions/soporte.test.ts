@@ -2,10 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   create: vi.fn(),
+  queryRaw: vi.fn(),
   findUnique: vi.fn(),
   updateMany: vi.fn(),
   delete: vi.fn(),
   attachmentCreate: vi.fn(),
+  messageCreate: vi.fn(),
+  eventCreate: vi.fn(),
   platformModuleFindMany: vi.fn(),
   rolePermissionFindMany: vi.fn(),
   authorizePermiso: vi.fn(),
@@ -21,8 +24,9 @@ vi.mock("next/cache", () => ({
   revalidatePath: mocks.revalidatePath,
   unstable_cache: (fn: (...args: unknown[]) => unknown) => fn,
 }));
-vi.mock("@/lib/prisma", () => ({
-  default: {
+vi.mock("@/lib/prisma", () => {
+  const cliente = {
+    $queryRaw: mocks.queryRaw,
     supportTicket: {
       create: mocks.create,
       findUnique: mocks.findUnique,
@@ -32,14 +36,28 @@ vi.mock("@/lib/prisma", () => ({
     supportTicketAttachment: {
       create: mocks.attachmentCreate,
     },
+    supportTicketMessage: {
+      create: mocks.messageCreate,
+    },
+    supportTicketEvent: {
+      create: mocks.eventCreate,
+    },
     platformModule: {
       findMany: mocks.platformModuleFindMany,
     },
     rolePermission: {
       findMany: mocks.rolePermissionFindMany,
     },
-  },
-}));
+  };
+  return {
+    default: {
+      ...cliente,
+      // El cambio de estado y su hito en el hilo van en la MISMA transacción;
+      // en las pruebas basta con correr el callback contra el cliente simulado.
+      $transaction: (fn: (tx: typeof cliente) => unknown) => fn(cliente),
+    },
+  };
+});
 vi.mock("@/lib/rbac", () => ({ authorizePermiso: mocks.authorizePermiso }));
 vi.mock("@/lib/dal", () => ({ getCurrentUser: mocks.getCurrentUser }));
 vi.mock("@/lib/audit", () => ({ logAudit: mocks.logAudit }));
@@ -52,10 +70,12 @@ vi.mock("@/lib/storage/evidencias-tickets", () => ({
 
 import { catalogoUbicacionesNovedad } from "@/lib/soporte-rutas";
 import {
+  agregarMensajeTicket,
   cambiarEstadoTicket,
   crearNovedadInterna,
   crearTicketSoporte,
   eliminarTicketSoporte,
+  gestionarTicket,
   guardarSolucionTicket,
   obtenerDetalleTicket,
 } from "./soporte";
@@ -99,7 +119,23 @@ function formularioEstado(status = "en_proceso", solution = "") {
   return form;
 }
 
-function formularioEliminar(code = "TKT-20260807-A1B2C3D4") {
+function formularioGestion(status = "abierto", texto = "") {
+  const form = new FormData();
+  form.set("ticketId", "14");
+  form.set("updatedAt", "2026-08-07T15:00:00.000Z");
+  form.set("status", status);
+  form.set("texto", texto);
+  return form;
+}
+
+function formularioMensaje(body = "Se validó con el usuario y quedó conforme.") {
+  const form = new FormData();
+  form.set("ticketId", "14");
+  form.set("body", body);
+  return form;
+}
+
+function formularioEliminar(code = "TKT-7") {
   const form = new FormData();
   form.set("ticketId", "14");
   form.set("code", code);
@@ -110,10 +146,13 @@ describe("Server Actions de soporte", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.create.mockResolvedValue({ id: 1 });
+    mocks.queryRaw.mockResolvedValue([{ consecutivo: BigInt(7) }]);
     mocks.authorizePermiso.mockResolvedValue({ ok: true, userId: 9, role: "Administrador" });
     mocks.getCurrentUser.mockResolvedValue({ id: 9, name: "Técnica Soporte" });
-    mocks.findUnique.mockResolvedValue({ code: "TKT-20260807-A1B2C3D4" });
+    mocks.findUnique.mockResolvedValue({ code: "TKT-7" });
     mocks.updateMany.mockResolvedValue({ count: 1 });
+    mocks.messageCreate.mockResolvedValue({ id: 1 });
+    mocks.eventCreate.mockResolvedValue({ id: 1 });
     mocks.almacenamientoEvidenciasTicketsDisponible.mockReturnValue(false);
   });
 
@@ -121,7 +160,7 @@ describe("Server Actions de soporte", () => {
     const resultado = await crearTicketSoporte(undefined, formularioReporte());
 
     expect(resultado.ok).toBe(true);
-    expect(resultado.code).toMatch(/^TKT-\d{8}-[A-Z0-9]{8}$/);
+    expect(resultado.code).toBe("TKT-7");
     expect(resultado.trackingUrl).toContain(`/soporte/tickets/${resultado.code}?acceso=`);
     expect(mocks.authorizePermiso).not.toHaveBeenCalled();
     expect(mocks.create).toHaveBeenCalledWith({
@@ -166,10 +205,10 @@ describe("Server Actions de soporte", () => {
     });
     expect(mocks.logAudit).toHaveBeenCalledWith(expect.objectContaining({
       action: "DOCUMENTÓ SOLUCIÓN DE TICKET",
-      entity: "TKT-20260807-A1B2C3D4",
+      entity: "TKT-7",
     }));
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/config/soporte");
-    expect(mocks.revalidatePath).toHaveBeenCalledWith("/soporte/tickets/TKT-20260807-A1B2C3D4");
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/soporte/tickets/TKT-7");
   });
 
   it("no pisa una solución concurrente ni registra una auditoría falsa", async () => {
@@ -291,6 +330,72 @@ describe("Server Actions de soporte", () => {
     }));
   });
 
+  describe("hitos del hilo", () => {
+    it("deja el cambio de estado registrado en el historial", async () => {
+      mocks.findUnique.mockResolvedValue({
+        code: "TKT-20260807-A1B2C3D4",
+        status: "abierto",
+        solution: null,
+      });
+
+      const resultado = await cambiarEstadoTicket(undefined, formularioEstado("en_proceso"));
+
+      expect(resultado).toEqual({ ok: true });
+      expect(mocks.eventCreate).toHaveBeenCalledWith({
+        data: {
+          ticketId: 14,
+          authorId: 9,
+          authorName: "Técnica Soporte",
+          previousStatus: "abierto",
+          newStatus: "en_proceso",
+        },
+      });
+    });
+
+    it("no inventa un hito cuando se reguarda el MISMO estado", async () => {
+      mocks.findUnique.mockResolvedValue({
+        code: "TKT-20260807-A1B2C3D4",
+        status: "en_proceso",
+        solution: null,
+      });
+
+      await cambiarEstadoTicket(undefined, formularioEstado("en_proceso"));
+
+      expect(mocks.updateMany).toHaveBeenCalled();
+      expect(mocks.eventCreate).not.toHaveBeenCalled();
+    });
+
+    it("no registra el hito si otra persona se adelantó y el guard optimista falla", async () => {
+      mocks.findUnique.mockResolvedValue({
+        code: "TKT-20260807-A1B2C3D4",
+        status: "abierto",
+        solution: null,
+      });
+      mocks.updateMany.mockResolvedValue({ count: 0 });
+
+      const resultado = await cambiarEstadoTicket(undefined, formularioEstado("en_proceso"));
+
+      expect(resultado.ok).toBe(false);
+      expect(mocks.eventCreate).not.toHaveBeenCalled();
+    });
+
+    it("documentar la solución también deja su hito de «Resuelto»", async () => {
+      mocks.findUnique.mockResolvedValue({ code: "TKT-20260807-A1B2C3D4", status: "en_proceso" });
+
+      await guardarSolucionTicket(undefined, formularioSolucion());
+
+      expect(mocks.eventCreate).toHaveBeenCalledWith({
+        data: {
+          ticketId: 14,
+          authorId: 9,
+          authorName: "Técnica Soporte",
+          previousStatus: "en_proceso",
+          newStatus: "resuelto",
+        },
+      });
+    });
+  });
+
   it("acepta «En evaluación» sin solución ni sello de resolución", async () => {
     const resultado = await cambiarEstadoTicket(undefined, formularioEstado("en_evaluacion"));
     expect(resultado).toEqual({ ok: true });
@@ -313,11 +418,116 @@ describe("Server Actions de soporte", () => {
     expect(mocks.updateMany).not.toHaveBeenCalled();
   });
 
+  // La bandeja gestiona con UN solo formulario: el texto y el estado viajan
+  // juntos y el destino del texto lo decide la transición, no un campo aparte.
+  describe("gestión unificada", () => {
+    beforeEach(() => {
+      mocks.findUnique.mockResolvedValue({
+        code: "TKT-20260807-A1B2C3D4",
+        status: "abierto",
+        solution: null,
+      });
+    });
+
+    it("con el mismo estado, el texto entra al hilo y el ticket no se toca", async () => {
+      const resultado = await gestionarTicket(
+        undefined,
+        formularioGestion("abierto", "Ya lo estamos revisando con el equipo."),
+      );
+
+      expect(resultado).toEqual({ ok: true });
+      expect(mocks.updateMany).not.toHaveBeenCalled();
+      expect(mocks.messageCreate).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          ticketId: 14,
+          authorSide: "xentria",
+          body: "Ya lo estamos revisando con el equipo.",
+        }),
+      });
+    });
+
+    it("al resolver por primera vez el texto queda como respuesta oficial, no como mensaje", async () => {
+      const resultado = await gestionarTicket(
+        undefined,
+        formularioGestion("resuelto", "Se restableció el acceso y se verificó con la persona."),
+      );
+
+      expect(resultado).toEqual({ ok: true });
+      expect(mocks.updateMany).toHaveBeenCalledWith({
+        where: { id: 14, updatedAt: new Date("2026-08-07T15:00:00.000Z") },
+        data: expect.objectContaining({
+          status: "resuelto",
+          solution: "Se restableció el acceso y se verificó con la persona.",
+          resolvedByName: "Técnica Soporte",
+        }),
+      });
+      expect(mocks.messageCreate).not.toHaveBeenCalled();
+    });
+
+    it("exige el texto al resolver y no escribe nada si falta", async () => {
+      const resultado = await gestionarTicket(undefined, formularioGestion("resuelto"));
+
+      expect(resultado.ok).toBe(false);
+      expect(mocks.updateMany).not.toHaveBeenCalled();
+      expect(mocks.messageCreate).not.toHaveBeenCalled();
+    });
+
+    it("nunca reescribe una respuesta ya dada: el texto se va al hilo", async () => {
+      mocks.findUnique.mockResolvedValue({
+        code: "TKT-20260807-A1B2C3D4",
+        status: "cerrado",
+        solution: "Se restableció el acceso.",
+      });
+
+      const resultado = await gestionarTicket(
+        undefined,
+        formularioGestion("resuelto", "Se reabre porque volvió a fallar."),
+      );
+
+      expect(resultado).toEqual({ ok: true });
+      expect(mocks.updateMany.mock.calls[0]![0].data).not.toHaveProperty("solution");
+      expect(mocks.messageCreate).toHaveBeenCalledWith({
+        data: expect.objectContaining({ body: "Se reabre porque volvió a fallar." }),
+      });
+    });
+
+    it("rechaza el envío vacío en vez de registrar una gestión sin contenido", async () => {
+      const resultado = await gestionarTicket(undefined, formularioGestion("abierto"));
+
+      expect(resultado.ok).toBe(false);
+      expect(mocks.updateMany).not.toHaveBeenCalled();
+      expect(mocks.messageCreate).not.toHaveBeenCalled();
+      expect(mocks.logAudit).not.toHaveBeenCalled();
+    });
+
+    it("si el guard optimista falla, el mensaje tampoco se escribe", async () => {
+      mocks.updateMany.mockResolvedValue({ count: 0 });
+
+      const resultado = await gestionarTicket(
+        undefined,
+        formularioGestion("en_proceso", "Escalado al equipo de desarrollo."),
+      );
+
+      expect(resultado.ok).toBe(false);
+      expect(mocks.messageCreate).not.toHaveBeenCalled();
+    });
+
+    it("no gestiona sin permiso de administración", async () => {
+      mocks.authorizePermiso.mockResolvedValueOnce({ ok: false, message: "Sin permiso." });
+
+      const resultado = await gestionarTicket(undefined, formularioGestion("en_proceso", "Hola."));
+
+      expect(resultado).toEqual({ ok: false, message: "Sin permiso." });
+      expect(mocks.updateMany).not.toHaveBeenCalled();
+      expect(mocks.messageCreate).not.toHaveBeenCalled();
+    });
+  });
+
   it("elimina el ticket y borra sus imágenes del almacenamiento aislado", async () => {
     mocks.almacenamientoEvidenciasTicketsDisponible.mockReturnValue(true);
     mocks.eliminarEvidenciaTicket.mockResolvedValue(undefined);
     mocks.findUnique.mockResolvedValue({
-      code: "TKT-20260807-A1B2C3D4",
+      code: "TKT-7",
       subject: "El mapeo no guarda el ajuste",
       attachments: [{ objectKey: "tickets/14/aa.jpg" }, { objectKey: "tickets/14/bb.png" }],
     });
@@ -331,7 +541,7 @@ describe("Server Actions de soporte", () => {
     expect(mocks.delete).toHaveBeenCalledWith({ where: { id: 14 } });
     expect(mocks.logAudit).toHaveBeenCalledWith(expect.objectContaining({
       action: "ELIMINÓ REPORTE",
-      entity: "TKT-20260807-A1B2C3D4",
+      entity: "TKT-7",
     }));
   });
 
@@ -339,7 +549,7 @@ describe("Server Actions de soporte", () => {
     mocks.almacenamientoEvidenciasTicketsDisponible.mockReturnValue(true);
     mocks.eliminarEvidenciaTicket.mockRejectedValue(new Error("S3 caído"));
     mocks.findUnique.mockResolvedValue({
-      code: "TKT-20260807-A1B2C3D4",
+      code: "TKT-7",
       subject: "Novedad con captura",
       attachments: [{ objectKey: "tickets/14/aa.jpg" }],
     });
@@ -355,7 +565,7 @@ describe("Server Actions de soporte", () => {
 
   it("no borra si el código de confirmación ya no corresponde al ticket", async () => {
     mocks.findUnique.mockResolvedValue({
-      code: "TKT-20260807-OTRO0000",
+      code: "TKT-8",
       subject: "Otro ticket",
       attachments: [],
     });
@@ -375,10 +585,139 @@ describe("Server Actions de soporte", () => {
     expect(mocks.findUnique).not.toHaveBeenCalled();
     expect(mocks.delete).not.toHaveBeenCalled();
   });
+  describe("respuesta congelada al cerrar", () => {
+    it("rechaza reescribir la solución de un ticket cerrado", async () => {
+      mocks.findUnique.mockResolvedValue({
+        code: "TKT-7",
+        status: "cerrado",
+        solution: "La respuesta que ya vio quien reportó.",
+      });
+
+      const resultado = await cambiarEstadoTicket(
+        undefined,
+        formularioEstado("cerrado", "Otra cosa distinta escrita después del cierre."),
+      );
+
+      expect(resultado.ok).toBe(false);
+      expect(resultado.errors?.solution?.[0]).toContain("cerrado");
+      expect(mocks.updateMany).not.toHaveBeenCalled();
+    });
+
+    it("deja reabrir un ticket cerrado sin tocar su respuesta", async () => {
+      mocks.findUnique.mockResolvedValue({
+        code: "TKT-7",
+        status: "cerrado",
+        solution: "La respuesta que ya vio quien reportó.",
+      });
+
+      const resultado = await cambiarEstadoTicket(
+        undefined,
+        formularioEstado("en_proceso", "La respuesta que ya vio quien reportó."),
+      );
+
+      expect(resultado.ok).toBe(true);
+      expect(mocks.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.not.objectContaining({ solution: expect.anything() }),
+        }),
+      );
+    });
+
+    it("bloquea también la ruta directa de guardarSolucionTicket", async () => {
+      mocks.findUnique.mockResolvedValue({ code: "TKT-7", status: "cerrado" });
+
+      const form = new FormData();
+      form.set("ticketId", "14");
+      form.set("updatedAt", "2026-08-07T15:00:00.000Z");
+      form.set("solution", "Un texto nuevo con más de diez caracteres.");
+      const resultado = await guardarSolucionTicket(undefined, form);
+
+      expect(resultado.ok).toBe(false);
+      expect(mocks.updateMany).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("agregarMensajeTicket", () => {
+    it("apila el mensaje de Xentria sin tocar el estado ni la solución", async () => {
+      mocks.findUnique.mockResolvedValue({ code: "TKT-20260807-A1B2C3D4", createdById: 44 });
+
+      const resultado = await agregarMensajeTicket(undefined, formularioMensaje());
+
+      expect(resultado.ok).toBe(true);
+      expect(mocks.authorizePermiso).toHaveBeenCalledWith("soporte:ver");
+      expect(mocks.messageCreate).toHaveBeenCalledWith({
+        data: {
+          ticketId: 14,
+          authorId: 9,
+          authorName: "Técnica Soporte",
+          authorSide: "xentria",
+          body: "Se validó con el usuario y quedó conforme.",
+        },
+      });
+      expect(mocks.updateMany).not.toHaveBeenCalled();
+      expect(mocks.revalidatePath).toHaveBeenCalledWith("/reportes");
+    });
+
+    it("deja responder a quien reportó la novedad, del lado del reportante", async () => {
+      // Un usuario cualquiera de la plataforma: ve soporte, pero no lo administra.
+      mocks.authorizePermiso.mockImplementation(async (permiso: string) =>
+        permiso === "soporte:administrar"
+          ? { ok: false, message: "Sin permiso." }
+          : { ok: true, userId: 44, role: "Staff" },
+      );
+      mocks.getCurrentUser.mockResolvedValue({ id: 44, name: "Luisa Martinez" });
+      mocks.findUnique.mockResolvedValue({ code: "TKT-20260807-A1B2C3D4", createdById: 44 });
+
+      const resultado = await agregarMensajeTicket(undefined, formularioMensaje("Ya lo probé y sigue igual."));
+
+      expect(resultado.ok).toBe(true);
+      expect(mocks.messageCreate).toHaveBeenCalledWith({
+        data: {
+          ticketId: 14,
+          authorId: 44,
+          authorName: "Luisa Martinez",
+          authorSide: "reportante",
+          body: "Ya lo probé y sigue igual.",
+        },
+      });
+    });
+
+    it("no deja escribir en el hilo de otro a quien solo tiene lectura", async () => {
+      mocks.authorizePermiso.mockImplementation(async (permiso: string) =>
+        permiso === "soporte:administrar"
+          ? { ok: false, message: "Sin permiso." }
+          : { ok: true, userId: 12, role: "Staff" },
+      );
+      mocks.findUnique.mockResolvedValue({ code: "TKT-20260807-A1B2C3D4", createdById: 44 });
+
+      const resultado = await agregarMensajeTicket(undefined, formularioMensaje());
+
+      expect(resultado.ok).toBe(false);
+      expect(mocks.messageCreate).not.toHaveBeenCalled();
+    });
+
+    it("exige el permiso de lectura antes de tocar la base de datos", async () => {
+      mocks.authorizePermiso.mockResolvedValue({ ok: false, message: "Sin permiso." });
+
+      const resultado = await agregarMensajeTicket(undefined, formularioMensaje());
+
+      expect(resultado).toEqual({ ok: false, message: "Sin permiso." });
+      expect(mocks.messageCreate).not.toHaveBeenCalled();
+      expect(mocks.findUnique).not.toHaveBeenCalled();
+    });
+
+    it("rechaza un mensaje vacío", async () => {
+      const resultado = await agregarMensajeTicket(undefined, formularioMensaje("   "));
+
+      expect(resultado.ok).toBe(false);
+      expect(mocks.messageCreate).not.toHaveBeenCalled();
+    });
+  });
+
   describe("obtenerDetalleTicket", () => {
     const ticketBase = {
       id: 14,
-      code: "TKT-20260807-A1B2C3D4",
+      code: "TKT-7",
       createdById: 3,
       reporterFirstName: "Ana",
       reporterLastName: "Pérez",
@@ -392,9 +731,19 @@ describe("Server Actions de soporte", () => {
       resolvedAt: null,
       createdAt: new Date("2026-08-07T15:00:00.000Z"),
       attachments: [{ id: 5, fileName: "captura.png" }],
+      messages: [
+        {
+          id: 2,
+          authorName: "Soporte Xentria",
+          authorSide: "xentria",
+          body: "Se validó con el usuario después del cierre.",
+          createdAt: new Date("2026-08-09T10:00:00.000Z"),
+        },
+      ],
+      events: [],
     };
 
-    it("entrega el detalle de un ticket interno con las fechas serializadas", async () => {
+    it("entrega el hilo ya armado, con las fechas serializadas", async () => {
       mocks.findUnique.mockResolvedValue(ticketBase);
 
       const resultado = await obtenerDetalleTicket(14);
@@ -404,11 +753,31 @@ describe("Server Actions de soporte", () => {
         ok: true,
         ticket: expect.objectContaining({
           id: 14,
-          code: "TKT-20260807-A1B2C3D4",
+          code: "TKT-7",
           reportante: "Ana Pérez",
           ubicacion: "Balance de comprobación · Balance",
           createdAt: "2026-08-07T15:00:00.000Z",
           adjuntos: [{ id: 5, fileName: "captura.png" }],
+          // El modal recibe el hilo listo para pintar: la descripción es la
+          // primera entrada, no un campo suelto.
+          historial: [
+            expect.objectContaining({
+              tipo: "apertura",
+              lado: "reportante",
+              autor: "Ana Pérez",
+              contenido: "Al abrir /balance sale un error.",
+              fecha: "2026-08-07T15:00:00.000Z",
+              adjuntos: [{ id: 5, fileName: "captura.png" }],
+            }),
+            expect.objectContaining({
+              tipo: "mensaje",
+              lado: "xentria",
+              autor: "Soporte Xentria",
+              contenido: "Se validó con el usuario después del cierre.",
+              fecha: "2026-08-09T10:00:00.000Z",
+            }),
+          ],
+          puedeEscribir: true,
         }),
       });
     });

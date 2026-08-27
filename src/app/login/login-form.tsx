@@ -20,7 +20,7 @@ export default function LoginForm() {
           name="email"
           type="email"
           autoComplete="email"
-          placeholder="nombre@russellbedford.co"
+          placeholder="nombre@russellbedford.com.co"
           className="rounded-md border border-ink-200 bg-white px-3.5 py-2.5 text-[13px] text-ink-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
         />
         {state?.errors?.email && (

@@ -14,15 +14,24 @@ function fila(id: number, dominio: DominioReporte) {
 }
 
 describe("clasificarDominioReporte", () => {
-  it("reconoce los dos dominios corporativos sin importar formato", () => {
-    expect(clasificarDominioReporte("admin@russellbedford.co")).toBe("russell");
+  it("reconoce los dominios corporativos sin importar formato", () => {
+    expect(clasificarDominioReporte("admin@russellbedford.com.co")).toBe("russell");
     expect(clasificarDominioReporte("  Luisa@XENTRIA.CO ")).toBe("xentria");
+  });
+
+  it("reconoce como Russell los tres buzones del personal", () => {
+    // El buzón real del personal es `.com.co`; los otros dos son cuentas
+    // antiguas y las semillas. Reconocer solo uno dejaba el filtro en cero.
+    expect(clasificarDominioReporte("ana@russellbedford.com.co")).toBe("russell");
+    expect(clasificarDominioReporte("ana@russellbedford.co")).toBe("russell");
+    expect(clasificarDominioReporte("ana@rbcol.co")).toBe("russell");
   });
 
   it("manda a «otros» los dominios que solo se parecen", () => {
     expect(clasificarDominioReporte("falso@noxentria.co")).toBe("otros");
     expect(clasificarDominioReporte("xentria.co@gmail.com")).toBe("otros");
-    expect(clasificarDominioReporte("ana@falsorussellbedford.co")).toBe("otros");
+    expect(clasificarDominioReporte("ana@falsorussellbedford.com.co")).toBe("otros");
+    expect(clasificarDominioReporte("ana@falsorbcol.co")).toBe("otros");
   });
 
   it("manda a «otros» un correo externo o ausente en vez de perder el ticket", () => {

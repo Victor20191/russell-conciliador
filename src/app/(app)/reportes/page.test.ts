@@ -57,7 +57,7 @@ const vistaRecibida = () => propsVista;
 
 function ticketBD(parcial: { id: number; createdById: number | null }) {
   return {
-    code: `TKT-20260825-0000000${parcial.id}`,
+    code: `TKT-${parcial.id}`,
     reporterFirstName: "Ana",
     reporterLastName: "Pérez",
     subject: "Novedad",
