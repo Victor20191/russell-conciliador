@@ -6,6 +6,7 @@ import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
+import { Modal } from "@/components/modal";
 import {
   PageSizeSelect,
   PaginationControls,
@@ -334,7 +335,8 @@ export function TipoBalanceCelda({
 export default function BorradoresIndexClient({ rows }: { rows: BorradorRow[] }) {
   const router = useRouter();
   const [descartando, startDescartar] = useTransition();
-  const [confirmar, setConfirmar] = useState<string | null>(null);
+  /** Borrador cuyo descarte se está confirmando en el modal (null = cerrado). */
+  const [confirmar, setConfirmar] = useState<BorradorRow | null>(null);
   const [busqueda, setBusqueda] = useState("");
   const [ordenColumna, setOrdenColumna] = useState<ColumnaOrdenBorrador | null>(null);
   const [ordenDir, setOrdenDir] = useState<DireccionOrden>("asc");
@@ -396,13 +398,20 @@ export default function BorradoresIndexClient({ rows }: { rows: BorradorRow[] })
     );
   };
 
-  const onDescartar = (loteId: string) => {
+  const onDescartar = () => {
+    if (!confirmar) return;
+    const loteId = confirmar.loteId;
     startDescartar(async () => {
       const r = await descartarBorrador(loteId);
-      if (r.ok) notifySuccess(r.message ?? "Borrador descartado.");
-      else notifyError(r.message ?? "No se pudo descartar.");
-      setConfirmar(null);
-      router.refresh();
+      // El toast se emite ANTES del refresh y fuera de la lógica de cierre:
+      // así el usuario ve la confirmación aunque la lista se vuelva a pintar.
+      if (r.ok) {
+        notifySuccess(r.message ?? "Borrador descartado.");
+        setConfirmar(null);
+        router.refresh();
+      } else {
+        notifyError(r.message ?? "No se pudo descartar.");
+      }
     });
   };
 
@@ -514,7 +523,7 @@ export default function BorradoresIndexClient({ rows }: { rows: BorradorRow[] })
                   <td className="px-3 py-2">
                     {/* Acciones como iconos cuadrados del MISMO tamaño (BOTON_ACCION):
                         revisar (ojo) y descartar (papelera). El descarte pide
-                        confirmación en el sitio, con ✓/✕ del mismo tamaño. */}
+                        confirmación en un modal (ver al final del componente). */}
                     <div className="flex items-center justify-end gap-1.5">
                       <Link
                         href={`/balance/borradores/${r.loteId}`}
@@ -524,36 +533,15 @@ export default function BorradoresIndexClient({ rows }: { rows: BorradorRow[] })
                       >
                         <Icon name="eye" size={15} />
                       </Link>
-                      {confirmar === r.loteId ? (
-                        <>
-                          <button
-                            onClick={() => onDescartar(r.loteId)}
-                            disabled={descartando}
-                            title="Confirmar descarte"
-                            aria-label="Confirmar descarte"
-                            className={`${BOTON_ACCION} border-err-300 bg-err-100 text-err-700 hover:bg-err-200 disabled:opacity-60`}
-                          >
-                            {descartando ? <EstadoProcesando etiqueta="Descartando" /> : <Icon name="check" size={15} />}
-                          </button>
-                          <button
-                            onClick={() => setConfirmar(null)}
-                            title="Cancelar"
-                            aria-label="Cancelar descarte"
-                            className={`${BOTON_ACCION} border-ink-200 text-ink-500 hover:bg-ink-50 hover:text-ink-800`}
-                          >
-                            <Icon name="x" size={15} />
-                          </button>
-                        </>
-                      ) : (
-                        <button
-                          onClick={() => setConfirmar(r.loteId)}
-                          title="Descartar borrador"
-                          aria-label="Descartar borrador"
-                          className={`${BOTON_ACCION} border-err-200 text-err-600 hover:bg-err-50 hover:text-err-700`}
-                        >
-                          <Icon name="trash" size={15} />
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => setConfirmar(r)}
+                        title="Descartar borrador"
+                        aria-label="Descartar borrador"
+                        className={`${BOTON_ACCION} border-err-200 text-err-600 hover:bg-err-50 hover:text-err-700`}
+                      >
+                        <Icon name="trash" size={15} />
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -577,6 +565,67 @@ export default function BorradoresIndexClient({ rows }: { rows: BorradorRow[] })
           </div>
         </div>
       </Card>
+      <Modal
+        open={confirmar !== null}
+        onClose={() => {
+          if (!descartando) setConfirmar(null);
+        }}
+        title="Descartar borrador"
+        size="md"
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setConfirmar(null)}
+              disabled={descartando}
+              className="rounded-md border border-ink-200 px-3 py-2 text-[12.5px] font-medium text-ink-600 hover:bg-ink-50 disabled:opacity-60"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={onDescartar}
+              disabled={descartando}
+              className="inline-flex items-center gap-1.5 rounded-md bg-err-700 px-3 py-2 text-[12.5px] font-semibold text-white hover:bg-err-700/90 disabled:opacity-60"
+            >
+              {descartando ? (
+                <EstadoProcesando etiqueta="Descartando" />
+              ) : (
+                <>
+                  <Icon name="trash" size={14} /> Descartar borrador
+                </>
+              )}
+            </button>
+          </>
+        }
+      >
+        {confirmar && (
+          <div className="space-y-4">
+            <div className="rounded-lg border border-ink-150 bg-ink-50 px-4 py-3">
+              <p className="text-[13px] font-semibold text-ink-800">{confirmar.archivoNombre}</p>
+              <p className="mt-0.5 text-[12px] text-ink-500">
+                {confirmar.cliente.tipo !== "sin_cliente" && confirmar.cliente.nombre
+                  ? confirmar.cliente.nombre
+                  : confirmar.nitDetectado
+                    ? `NIT ${confirmar.nitDetectado}`
+                    : "Sin cliente identificado"}
+                {confirmar.periodo ? ` · ${confirmar.periodo}` : ""}
+                {` · ${confirmar.cuentasMovimiento} cuenta(s)`}
+              </p>
+            </div>
+            <div className="flex gap-2 rounded-lg border border-err-200 bg-err-50 px-3 py-2.5 text-[11.5px] leading-relaxed text-err-800">
+              <span className="mt-0.5 shrink-0">
+                <Icon name="warn" size={14} />
+              </span>
+              <p>
+                Se eliminará el borrador y su lectura del archivo. Nada se ha guardado como balance
+                oficial, así que podrás volver a cargar el archivo cuando quieras. Esta acción no se
+                puede deshacer.
+              </p>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

@@ -328,8 +328,10 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
   const validarControl = tieneInicial && tieneMovimientos;
   // Reportes "balance por tercero": algunos ERP traen, para el mismo código,
   // una fila consolidada sin tercero y debajo el desglose por tercero/centro de
-  // costo. Si sumamos ambos niveles duplicamos saldos. Cuando exista la fila
-  // consolidada, el detalle por tercero es una vista alternativa y se excluye.
+  // costo. Si sumamos ambos niveles duplicamos saldos. Cuando el propio reporte
+  // marca la fila `Cuenta`, esa señal manda sobre el contenido (a veces vacío o
+  // inconsistente) de la columna tercero. Si NO trae `Cuenta`, el detalle NIT es
+  // la única fuente contable y debe conservarse/agregarse por código.
   const codigosConConsolidado = new Set<string>();
   const codigosConDetalleTercero = new Set<string>();
   // Filas contables que el propio reporte marca con `reglaDetalle`
@@ -344,20 +346,26 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
       const fila = hoja.filas[r] ?? [];
       const code = normalizarCodigo(celdaCodigo(fila, cols));
       if (!/^\d+$/.test(code)) continue;
+      if (filaCoincideReglaDetalle(fila, spec)) {
+        const marcadas = filasConsolidadasMarcadasPorCodigo.get(code) ?? new Set<number>();
+        marcadas.add(r);
+        filasConsolidadasMarcadasPorCodigo.set(code, marcadas);
+      }
       if (texto(cell(fila, cols.tercero)) === "") {
         codigosConConsolidado.add(code);
-        if (filaCoincideReglaDetalle(fila, spec)) {
-          const marcadas = filasConsolidadasMarcadasPorCodigo.get(code) ?? new Set<number>();
-          marcadas.add(r);
-          filasConsolidadasMarcadasPorCodigo.set(code, marcadas);
-        }
       } else {
         codigosConDetalleTercero.add(code);
       }
     }
   }
-  const omitirDetalleTercero = (code: string, fila: CeldaCruda[]): boolean =>
+  // Sin columna marcadora conservamos el fallback histórico: una fila sin
+  // tercero más filas con tercero del mismo código se interpreta como
+  // consolidado + detalle. Con `reglaDetalle=columna`, en cambio, solo `Cuenta`
+  // es consolidado; una fila NIT con tercero vacío no puede usarse para descartar
+  // las demás porque puede ser una contraparte legítima sin código de tercero.
+  const omitirDetalleTerceroPorConsolidadoInferido = (code: string, fila: CeldaCruda[]): boolean =>
     cols.tercero > 0 &&
+    spec.reglaDetalle.tipo !== "columna" &&
     codigosConConsolidado.has(code) &&
     codigosConDetalleTercero.has(code) &&
     texto(cell(fila, cols.tercero)) !== "";
@@ -536,11 +544,6 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
         continue; // tercero → descartar
       }
     }
-    if (omitirDetalleTercero(code, fila)) {
-      filasExcluidas++;
-      filasDetalleTerceroExcluidas++;
-      continue;
-    }
     // Variante jerárquica del balance por terceros: puede haber más de una fila
     // sin tercero para el mismo código (Cuenta + subtotales de dimensiones
     // internas). La señal autoritativa es `reglaDetalle` (p. ej. Cuenta frente a
@@ -550,17 +553,28 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
     // todas y solo se excluyen las filas no marcadas. Si no existe ninguna marca,
     // las repeticiones se conservan para no borrar movimientos reales.
     const consolidadasMarcadas = filasConsolidadasMarcadasPorCodigo.get(code) ?? new Set<number>();
-    if (
-      cols.tercero > 0 &&
-      texto(cell(fila, cols.tercero)) === "" &&
-      consolidadasMarcadas.size > 0 &&
-      !consolidadasMarcadas.has(r)
-    ) {
+    if (cols.tercero > 0 && consolidadasMarcadas.size > 0 && !consolidadasMarcadas.has(r)) {
       filasExcluidas++;
-      filasResumenTerceroExcluidas++;
+      if (filaEsDetalleTercero(fila, spec, cols)) filasDetalleTerceroExcluidas++;
+      else filasResumenTerceroExcluidas++;
+      continue;
+    }
+    if (omitirDetalleTerceroPorConsolidadoInferido(code, fila)) {
+      filasExcluidas++;
+      filasDetalleTerceroExcluidas++;
       continue;
     }
     const consolidadoConDetalleTercero = codigosConConsolidado.has(code) && codigosConDetalleTercero.has(code);
+    // SAP/otros ERP pueden omitir la fila `Cuenta` cuando un auxiliar termina en
+    // saldo neto cero, aunque sus filas NIT sí contengan saldo inicial o rotación
+    // débito/crédito. En ausencia de cualquier `Cuenta` marcada para ESE código,
+    // las filas NIT son el movimiento autoritativo: se conservan todas y la
+    // agregación posterior suma las cuatro columnas sin perder movimientos.
+    const detalleTerceroSinCuenta =
+      cols.tercero > 0 &&
+      consolidadasMarcadas.size === 0 &&
+      code.length >= LONGITUD_MIN_IMPUTABLE &&
+      filaEsDetalleTercero(fila, spec, cols);
     // ¿Es agrupadora? Con la NEGRITA como marcador (gate 80/80), la negrita manda
     // PERO no anula la evidencia estructural: un padre SIN negrita cuyo saldo ya
     // está CUBIERTO por sus hojas descendientes es agrupadora igual (importarlo
@@ -573,6 +587,8 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
     const cubiertoPorHijos = ancestros.has(code) && Math.abs((saldo ?? 0) - (saldoHojasBajo.get(code) ?? 0)) <= 1;
     const esAgrupadora = spec.reglaDetalle.tipo === "movimiento"
       ? false // "Todas son movimiento": lista plana de cuentas imputables, sin agrupadoras.
+      : detalleTerceroSinCuenta
+        ? false // sin fila Cuenta, el desglose NIT es la única fuente del movimiento
       : usaNegrita && !consolidadoConDetalleTercero
         ? filaEnNegrita(hoja.negrita?.[r], cols.codigo, cols.nombre) || cubiertoPorHijos
         : !esHoja(code, fila, spec, ancestros);
@@ -684,7 +700,7 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
       campo: "tercero",
       valor: `${filasResumenTerceroExcluidas} fila(s)`,
       regla: "Resumen por tercero omitido por fila consolidada",
-      accion: "Se conservó la única fila consolidada marcada por la estructura del archivo para evitar sumar varias jerarquías del reporte.",
+      accion: "Se conservó la fila o filas Cuenta marcadas por la estructura del archivo para evitar sumar varias jerarquías del reporte.",
     });
   }
   if (filasTerceroNegritaExcluidas > 0) {
@@ -896,6 +912,27 @@ function filaCoincideReglaDetalle(fila: CeldaCruda[], spec: MappingSpec): boolea
   const esperado = (spec.reglaDetalle.valor ?? "").toLocaleLowerCase("es").trim();
   if (!esperado) return false;
   return texto(cell(fila, spec.reglaDetalle.columna)).toLocaleLowerCase("es") === esperado;
+}
+
+/**
+ * Reconoce una fila del desglose por tercero. La columna de tercero puede venir
+ * vacía en una fila NIT legítima, por eso también se usa la etiqueta estructural
+ * del reporte (`NIT`, `Tercero` o `Detalle`). No interpreta como detalle otros
+ * rompimientos jerárquicos (`Cta Nivel`, `Auxiliar`, `Centro`, etc.).
+ */
+function filaEsDetalleTercero(
+  fila: CeldaCruda[],
+  spec: MappingSpec,
+  cols: MappingSpec["columnas"],
+): boolean {
+  if (cols.tercero <= 0) return false;
+  if (texto(cell(fila, cols.tercero)) !== "") return true;
+  if (spec.reglaDetalle.tipo !== "columna" || spec.reglaDetalle.columna == null) return false;
+  const marcador = texto(cell(fila, spec.reglaDetalle.columna))
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("es");
+  return /^(?:nit|tercero|detalle(?: por tercero)?)$/.test(marcador);
 }
 
 // Mínimo de filas con código numérico "saltadas" para corregir `primeraFilaDatos`:

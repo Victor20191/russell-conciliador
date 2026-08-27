@@ -47,6 +47,21 @@ describe("filtros de detalle de módulo", () => {
     expect(r[0].datos.referencia).toBe("532237");
   });
 
+  it("puede filtrar el valor efectivo que pinta un borrador reclasificado", () => {
+    const borrador: Array<{
+      clasificador: string;
+      datos: Record<string, string | number | null>;
+    }> = [{ clasificador: "MATERIA PRIMA", datos: { tipo: "ORIGINAL" } }];
+    const resultado = filtrarFilasDetalleModulo(
+      borrador,
+      [{ nombre: "tipo", tipo: "texto" }],
+      { tipo: "materia" },
+      (fila, columna) => columna.nombre === "tipo" ? fila.clasificador : fila.datos[columna.nombre],
+    );
+
+    expect(resultado).toEqual(borrador);
+  });
+
   it("coincideFiltroNumerico: vacío pasa, null no", () => {
     expect(coincideFiltroNumerico(5, "")).toBe(true);
     expect(coincideFiltroNumerico(null, ">1")).toBe(false);

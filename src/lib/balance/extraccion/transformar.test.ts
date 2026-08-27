@@ -516,6 +516,51 @@ describe("transformarTabular", () => {
     expect(rr.excepciones.some((e) => e.regla === "Resumen por tercero omitido por fila consolidada")).toBe(false);
   });
 
+  it("sin fila Cuenta, agrega el detalle NIT como movimiento y conserva rotación aunque el saldo neto sea cero", () => {
+    const hojaT: GridHoja = {
+      nombre: "Balance",
+      filas: [
+        ["Rompimiento", "Tercero", "Código", "Cuenta", "SI", "DB", "CR", "Saldo"],
+        ["Cta Nivel 4", "", 135535, "DESCUENTOS TRIBUTARIOS", 0, 50, 50, 0],
+        ["NIT", "", 13553501, "Descuento tributario ICA", -100, 50, 0, -50],
+        ["NIT", "T-2", 13553501, "Descuento tributario ICA", 100, 0, 50, 50],
+        ["Centro", "", 13553501, "Resumen alternativo", 0, 50, 50, 0],
+      ],
+    };
+    const s = spec({
+      columnas: {
+        ...spec().columnas,
+        codigo: 3,
+        nombre: 4,
+        saldoInicial: 5,
+        debitos: 6,
+        creditos: 7,
+        saldoFinal: 8,
+        tercero: 2,
+      },
+      reglaDetalle: { tipo: "columna", columna: 1, valor: "Cuenta" },
+      agregarPorTercero: false,
+    });
+
+    const rr = transformarTabular(s, [hojaT], PARAMS);
+
+    expect(rr.importReady).toEqual([
+      expect.objectContaining({
+        code: "13553501",
+        prevBalance: 0,
+        debitos: 50,
+        creditos: 50,
+        balance: 0,
+      }),
+    ]);
+    expect(rr.filasCrudas.filter((f) => f.filaNum === 3 || f.filaNum === 4)).toEqual([
+      expect.objectContaining({ filaNum: 3, tipoFila: "movimiento", saldoInicial: -100, debitos: 50, creditos: 0, saldoFinal: -50 }),
+      expect.objectContaining({ filaNum: 4, tipoFila: "movimiento", saldoInicial: 100, debitos: 0, creditos: 50, saldoFinal: 50 }),
+    ]);
+    expect(rr.filasCrudas.find((f) => f.filaNum === 5)?.tipoFila).toBe("agrupadora");
+    expect(rr.cuadre.partidaDobleCuadra).toBe(true);
+  });
+
   it("conserva varias filas Cuenta y omite las dimensiones alternativas del mismo código", () => {
     const hojaT: GridHoja = {
       nombre: "Balance",

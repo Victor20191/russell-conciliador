@@ -7,6 +7,10 @@ export type FiltrosDetalleModulo = Record<string, string>;
 
 export type ColumnaFiltro = { nombre: string; tipo: string };
 export type FilaFiltrable = { datos: Record<string, string | number | null> };
+export type ObtenerValorColumna<T extends FilaFiltrable> = (
+  fila: T,
+  columna: ColumnaFiltro,
+) => string | number | null | undefined;
 
 const esNumerica = (tipo: string) => tipo === "numero" || tipo === "moneda";
 
@@ -50,12 +54,20 @@ export function hayFiltrosDetalleModulo(filtros: FiltrosDetalleModulo): boolean 
   return Object.values(filtros).some((v) => v.trim() !== "");
 }
 
+const valorDesdeDatos = <T extends FilaFiltrable>(fila: T, columna: ColumnaFiltro) =>
+  fila.datos[columna.nombre];
+
 /** ¿La fila cumple TODOS los filtros de columna activos? */
-export function coincideFilaDetalle(fila: FilaFiltrable, columnas: ColumnaFiltro[], filtros: FiltrosDetalleModulo): boolean {
+export function coincideFilaDetalle<T extends FilaFiltrable>(
+  fila: T,
+  columnas: ColumnaFiltro[],
+  filtros: FiltrosDetalleModulo,
+  obtenerValor: ObtenerValorColumna<T> = valorDesdeDatos,
+): boolean {
   for (const col of columnas) {
     const f = filtros[col.nombre];
     if (!f || !f.trim()) continue;
-    const v = fila.datos[col.nombre];
+    const v = obtenerValor(fila, col);
     if (esNumerica(col.tipo)) {
       if (!coincideFiltroNumerico(v == null || v === "" ? null : Number(v), f)) return false;
     } else if (!normalizarTexto(String(v ?? "")).includes(normalizarTexto(f))) {
@@ -70,7 +82,8 @@ export function filtrarFilasDetalleModulo<T extends FilaFiltrable>(
   filas: T[],
   columnas: ColumnaFiltro[],
   filtros: FiltrosDetalleModulo,
+  obtenerValor: ObtenerValorColumna<T> = valorDesdeDatos,
 ): T[] {
   if (!hayFiltrosDetalleModulo(filtros)) return filas;
-  return filas.filter((f) => coincideFilaDetalle(f, columnas, filtros));
+  return filas.filter((f) => coincideFilaDetalle(f, columnas, filtros, obtenerValor));
 }

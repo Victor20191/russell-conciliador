@@ -10,6 +10,7 @@ import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import ComentarioAncla from "@/components/comentario-ancla";
 import { consolidarPorClasificador, filaEnCero } from "@/lib/modulos/promocion";
 import { esDescuadreProducto } from "@/lib/modulos/validaciones";
+import { filtrarFilasDetalleModulo, hayFiltrosDetalleModulo, type FiltrosDetalleModulo } from "@/lib/modulos/filtros-detalle-modulo";
 import type { ReconciliacionModulo } from "@/lib/modulos/extraccion/transformar";
 import { aplicarCambiosBorradorModulo, cargarBorradorModulo, descartarBorradorModulo } from "@/app/actions/modulos-datos";
 import { NotasCargaModulo } from "../../notas-carga-modulo";
@@ -135,6 +136,7 @@ export default function BorradorModuloClient({
   const [respuestas, setRespuestas] = useState<Record<string, { respuesta: "si" | "no" | "na"; nota?: string }>>({});
   const [observaciones, setObservaciones] = useState("");
   const [filtro, setFiltro] = useState<string | null>(null); // null = todos · FILTRO_NOVEDADES · o un clasificador
+  const [filtrosColumnas, setFiltrosColumnas] = useState<FiltrosDetalleModulo>({});
   const [guardando, startGuardar] = useTransition();
   const [cargando, startCargar] = useTransition();
   const [descartando, startDescartar] = useTransition();
@@ -142,12 +144,15 @@ export default function BorradorModuloClient({
 
   const efectivas = useMemo(
     () =>
-      filas.map((f) => ({
-        ...f,
-        tipoFila: overrideTipo[f.filaNum] ?? f.tipoFila,
-        omitida: f.filaNum in overrideOmit ? overrideOmit[f.filaNum] : f.omitida,
-        clasificador: f.filaNum in overrideClasif ? (overrideClasif[f.filaNum] || null) : f.clasificador,
-      })),
+      filas.map((f) => {
+        const clasificador = f.filaNum in overrideClasif ? (overrideClasif[f.filaNum] || null) : f.clasificador;
+        return {
+          ...f,
+          tipoFila: overrideTipo[f.filaNum] ?? f.tipoFila,
+          omitida: f.filaNum in overrideOmit ? overrideOmit[f.filaNum] : f.omitida,
+          clasificador,
+        };
+      }),
     [filas, overrideTipo, overrideOmit, overrideClasif],
   );
 
@@ -267,13 +272,27 @@ export default function BorradorModuloClient({
     return String(v);
   };
   const esNum = (t: string) => t === "moneda" || t === "numero";
+  const hayFiltrosColumnas = hayFiltrosDetalleModulo(filtrosColumnas);
+  const filasPorColumnas = useMemo(
+    () => filtrarFilasDetalleModulo(
+      efectivas,
+      columnas,
+      filtrosColumnas,
+      // La celda del clasificador pinta el valor EFECTIVO, no el crudo. El
+      // filtro debe consultar exactamente el mismo valor tras reclasificar.
+      (fila, columna) => columna.nombre === clasificadorRol
+        ? fila.clasificador
+        : fila.datos[columna.nombre],
+    ),
+    [clasificadorRol, columnas, efectivas, filtrosColumnas],
+  );
 
   // Agrupación por clasificador (tipo de inventario) preservando el orden de aparición,
   // con subtotal por grupo (solo movimientos no omitidos) para visualizar qué suma cada tipo.
   const grupos = (() => {
     const orden: string[] = [];
     const m = new Map<string, { filas: typeof efectivas; subtotal: number; items: number }>();
-    for (const f of efectivas) {
+    for (const f of filasPorColumnas) {
       const k = f.clasificador?.trim() || "(sin clasificar)";
       let g = m.get(k);
       if (!g) { g = { filas: [], subtotal: 0, items: 0 }; m.set(k, g); orden.push(k); }
@@ -294,6 +313,7 @@ export default function BorradorModuloClient({
   if (filtro === FILTRO_NOVEDADES) baseVista = baseVista.map((g) => ({ ...g, filas: g.filas.filter((f) => filasConNovedad.has(f.filaNum)) }));
   else if (filtro !== null) baseVista = baseVista.filter((g) => g.clasificador === filtro);
   const gruposVista = baseVista.filter((g) => g.filas.length > 0).map((g) => ({ ...g, ...recomputeGrupo(g.filas) }));
+  const totalFilasVisibles = gruposVista.reduce((totalVisible, grupo) => totalVisible + grupo.filas.length, 0);
 
   // Seleccionables = filas visibles que NO están «en cero» (esas no se pueden reclasificar).
   const idsSeleccionablesVista = gruposVista.flatMap((g) => g.filas).filter((f) => !(f.tipoFila !== "agrupadora" && enCero(f))).map((f) => f.filaNum);
@@ -349,15 +369,46 @@ export default function BorradorModuloClient({
           <div className="rounded-md border border-ok-500 bg-ok-100/30 px-3 py-1.5 text-[12px] text-ok-700">✓ Sin negativos ni descuadres de valor.</div>
         )}
 
+        {verificaciones.length > 0 && (
+          <div className="flex items-center justify-between gap-2 border-t border-ink-100 pt-2.5">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-600">
+              Verificaciones obligatorias
+            </span>
+            <span className={`rounded-full border px-2 py-0.5 text-[10.5px] font-semibold ${verifCompletas ? "border-ok-500 bg-ok-100/40 text-ok-700" : "border-warn-500 bg-warn-100 text-warn-700"}`}>
+              {verificaciones.filter((v) => respuestas[v.id]).length}/{verificaciones.length} respondidas
+            </span>
+          </div>
+        )}
         {verificaciones.map((v) => {
           const r = respuestas[v.id]?.respuesta;
+          const pendiente = !r;
           return (
-            <div key={v.id} className="flex flex-col gap-1.5 border-t border-ink-100 pt-2.5 first:border-0 first:pt-0">
-              <span className="text-[12.5px] text-ink-700">{v.texto}</span>
+            <div
+              key={v.id}
+              className={`flex flex-col gap-1.5 rounded-md border px-3 py-2.5 ${pendiente ? "border-warn-500 bg-warn-100/40" : "border-ok-500/60 bg-ok-100/20"}`}
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <span className={`text-[12.5px] ${pendiente ? "font-medium text-ink-800" : "text-ink-700"}`}>{v.texto}</span>
+                {pendiente ? (
+                  <span className="rounded-full border border-warn-500 bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warn-700">
+                    Pendiente · requerido
+                  </span>
+                ) : (
+                  <span className="rounded-full border border-ok-500 bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-ok-700">
+                    ✓ Respondida
+                  </span>
+                )}
+              </div>
               <div className="flex flex-wrap items-center gap-2">
                 {(["si", "no", "na"] as const).map((op) => (
                   <button key={op} type="button" onClick={() => setResp(v.id, op)}
-                    className={`rounded-md border px-2.5 py-1 text-[11.5px] font-semibold ${r === op ? "border-navy-600 bg-blue-50 text-navy-800" : "border-ink-200 text-ink-600 hover:bg-ink-50"}`}>
+                    className={`rounded-md border px-2.5 py-1 text-[11.5px] font-semibold ${
+                      r === op
+                        ? "border-navy-600 bg-navy-700 text-white"
+                        : pendiente
+                          ? "border-warn-500 bg-white text-warn-800 hover:bg-warn-100"
+                          : "border-ink-200 bg-white text-ink-600 hover:bg-ink-50"
+                    }`}>
                     {op === "si" ? "Sí" : op === "no" ? "No" : "N/A"}
                   </button>
                 ))}
@@ -373,7 +424,12 @@ export default function BorradorModuloClient({
           <textarea value={observaciones} onChange={(e) => setObservaciones(e.target.value)} rows={2}
             className="rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12.5px] text-ink-700 outline-none focus:border-blue-400" />
         </label>
-        {!verifCompletas && verificaciones.length > 0 && <span className="text-[11.5px] font-medium text-warn-700">Responde todas las verificaciones para poder confirmar.</span>}
+        {!verifCompletas && verificaciones.length > 0 && (
+          <div className="flex items-center gap-2 rounded-md border border-warn-500 bg-warn-100 px-3 py-2 text-[11.5px] font-medium text-warn-700">
+            <Icon name="warn" size={14} />
+            Responde todas las verificaciones (Sí / No / N/A) para poder confirmar la carga.
+          </div>
+        )}
       </Card>
 
       {/* Consolidado por clasificador (previsualización) — también filtra la tabla */}
@@ -431,8 +487,36 @@ export default function BorradorModuloClient({
 
       {/* Tabla del borrador */}
       <Card className="p-0">
-        <div className="overflow-x-auto">
-          <table className="w-full text-[12px]">
+        <div className="flex items-center justify-between gap-2 border-b border-ink-100 bg-ink-50 px-3 py-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-ink-500">
+            <span className="font-semibold uppercase tracking-wider">Detalle en borrador (crudo del archivo)</span>
+            <span>
+              <span className="font-semibold text-ink-700">{totalFilasVisibles.toLocaleString("es-CO")}</span>
+              {totalFilasVisibles !== efectivas.length ? ` de ${efectivas.length.toLocaleString("es-CO")}` : ""} filas visibles
+            </span>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {hayFiltrosColumnas && (
+              <button
+                type="button"
+                onClick={() => setFiltrosColumnas({})}
+                className="rounded-md border border-ink-200 bg-white px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50"
+              >
+                Limpiar filtros
+              </button>
+            )}
+            {hayCambios && <span className="text-[11px] font-medium text-warn-700">Guarda para incluir tus cambios</span>}
+            <a
+              href={`/modulos/${moduloCodigo.toLowerCase()}/borradores/${loteId}/export`}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-ok-200 bg-ok-100/40 px-2.5 py-1.5 text-[12px] font-semibold text-ok-700 hover:bg-ok-100"
+              title={hayCambios ? "El Excel exporta lo GUARDADO. Guarda tus cambios para que salgan reflejados." : "Exporta a Excel el detalle y el consolidado del borrador"}
+            >
+              <Icon name="download" size={13} /> Exportar a Excel
+            </a>
+          </div>
+        </div>
+        <div className="max-h-[70vh] overflow-auto">
+          <table className="tabla-encabezado-fijo tabla-encabezado-doble w-full text-[12px]">
             <thead className="bg-ink-50 text-left text-ink-500">
               <tr>
                 <th className="w-8 px-2.5 py-2 text-center">
@@ -444,8 +528,32 @@ export default function BorradorModuloClient({
                 ))}
                 <th className="px-2.5 py-2 text-center font-semibold">Acciones</th>
               </tr>
+              <tr className="bg-ink-50">
+                <th className="px-2.5 pb-2" />
+                <th className="px-2.5 pb-2" />
+                {columnas.map((c) => (
+                  <th key={c.nombre} className="px-1.5 pb-2 font-normal">
+                    <input
+                      type="text"
+                      value={filtrosColumnas[c.nombre] ?? ""}
+                      onChange={(e) => setFiltrosColumnas((actuales) => ({ ...actuales, [c.nombre]: e.target.value }))}
+                      aria-label={`Filtrar la columna ${c.etiqueta}`}
+                      placeholder={esNum(c.tipo) ? "> < = …" : "Filtrar…"}
+                      className={`w-full min-w-[80px] rounded-md border border-ink-200 bg-white px-2 py-1 text-[12px] text-ink-700 placeholder:text-ink-300 focus:border-blue-400 focus:outline-none ${esNum(c.tipo) ? "text-right" : ""}`}
+                    />
+                  </th>
+                ))}
+                <th className="px-2.5 pb-2" />
+              </tr>
             </thead>
             <tbody>
+              {gruposVista.length === 0 && (
+                <tr>
+                  <td colSpan={columnas.length + 3} className="px-2.5 py-6 text-center text-ink-400">
+                    Ninguna fila coincide con los filtros activos.
+                  </td>
+                </tr>
+              )}
               {gruposVista.map((g) => (
                 <Fragment key={g.clasificador}>
                   <tr className="border-t-2 border-ink-200 bg-blue-50/70">

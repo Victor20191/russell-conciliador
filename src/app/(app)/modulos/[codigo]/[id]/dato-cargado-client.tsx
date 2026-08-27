@@ -169,6 +169,13 @@ export default function DatoCargadoClient({
           </button>
         ))}
         <span className="ml-auto text-[12px] text-ink-500">Total: <span className="font-semibold text-ink-800">{fmtContable(total)}</span></span>
+        <a
+          href={`/modulos/${moduloCodigo.toLowerCase()}/${encabezadoId}/export`}
+          className="mb-1 ml-2 inline-flex shrink-0 items-center gap-1.5 rounded-md border border-ok-200 bg-ok-100/40 px-2.5 py-1.5 text-[12px] font-semibold text-ok-700 hover:bg-ok-100"
+          title="Exporta a Excel el detalle y el consolidado de este cargue"
+        >
+          <Icon name="download" size={13} /> Exportar a Excel
+        </a>
       </div>
 
       {tab === "consolidado" ? (

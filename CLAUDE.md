@@ -32,6 +32,15 @@ npm run db:load:puc         # carga el PUC maestro Russell (prisma/data/puc-maes
 npm run db:seed:comentar    # siembra el permiso/datos de comentarios
 npm run db:seed:admin-negocio   # siembra el usuario administrador de negocio
 npm run db:completar:jerarquia  # completa aristas faltantes de la jerarquía
+npm run db:seed:prompts         # siembra los prompts editables (extracción, etc.)
+npm run db:seed:novedades       # siembra versiones/novedades demo
+
+# Golden tests del borrador de balance (fixtures JSON commiteados, sin BD)
+CAPTURAR_GOLDEN=1 npx vitest run src/lib/balance/golden/capturar.test.ts   # re-captura desde staging real (dev-only)
+
+# Versionado de la plataforma (ver política en AGENTS.md)
+npm run version:release -- --bump patch|minor|major --title "..." --db   # package.json + borrador en BD; NO publica
+npm run novedades:commits       # vuelca commits del último día a /novedades como borradores (Gemini; NOVEDADES_COMMITS_SINCE)
 ```
 
 Las pruebas viven junto al código como `*.test.ts` (config en `vitest.config.ts`, entorno `node`, `SESSION_SECRET` inyectado). El cliente Prisma se regenera en `postinstall` y `prebuild`; tras editar `schema.prisma` corre `prisma generate` (o `db:migrate`).
@@ -150,6 +159,30 @@ Parsers **puros** en `src/lib/import/` (devuelven `{ filas, errores }`); la reso
 - **Toasts**: `src/lib/client-notifications.ts` emite eventos (`notifySuccess/Error/Info`) que escucha el `ActionToaster` montado en el layout (app), por lo que **persiste entre navegaciones**. `flash-toast.tsx` dispara un toast UNA vez al montar — para confirmar operaciones que terminaron con un redirect del servidor (la confirmación se emite en la página destino). `action-form.tsx` envuelve formularios de Server Action con manejo de éxito/error.
 - **Notificaciones persistidas**: `src/lib/notifications.ts` (`createProcessNotification`) registra avisos de proceso en BD que muestra el Topbar (p. ej. enviar una conciliación a revisión).
 - **Paginación**: control reutilizable en `src/components/pagination-controls.tsx`.
+
+### Motor genérico de módulos (Inventarios, Cartera, CxP, Ingresos, Activos Fijos, Nómina)
+
+Un solo pipeline parametrizado por **descriptor** — NO hay tablas ni pipelines por módulo; agregar un módulo = agregar un descriptor en `src/lib/modulos/descriptores.ts` (columnas fijas en código, con el **clasificador** —dimensión por la que se consolida a cuenta Russell de 4 díg.— y el **valor** monetario que se suma; `moduloCodigo` reutiliza los `Module.code` de `/config/modulos`: INV, CAR, CXP, ING, AFI, NOM). Extracción en `src/lib/modulos/extraccion/` (spec de mapeo de columnas, heurística en `sugerir.ts`, transformación determinista). Rutas: `/modulos/[codigo]` (índice agrupado por cliente → período → versiones, igual que `/balance`), `/modulos/[codigo]/borradores/[loteId]` (borrador efímero) y `/modulos/[codigo]/[id]` (dato cargado con pestaña **Cruce contable**). Lógica pura en `src/lib/modulos/*` (cada archivo con su `.test.ts`); la Server Action `modulos-datos.ts` es la única que toca BD.
+
+- **Versionado**: `versiones.ts` — los encabezados promovidos persisten su versión; los borradores derivan el número cronológicamente por (cliente, módulo, período).
+- **Fraccionamiento** (`fraccionamiento.ts`): un mismo (cliente, módulo, período) puede venir en varios archivos. La llave de ítem es `(clasificador, referencia)`: ítems nuevos se **agregan** al encabezado vigente; re-subir un ítem ya cargado o un vigente congelado crea una **versión nueva** completa.
+- **Cruce contable** (`cruce-contable.ts`, `cruce-tercero.ts`): compara el consolidado del módulo contra el balance por cuenta Russell de 4 díg.; las diferencias se documentan con marcas de auditoría (sección siguiente).
+
+### Versionado de cargues de balance (`(clienteId, periodo, version)`)
+
+`src/lib/balance/version-cargue.ts` — la versión **nunca se deriva del conteo** de cargues: se toma `max(vN) + 1`. Si se borra una versión intermedia, «conteo + 1» reciclaría un número y chocaría con el índice único. Los números no se reciclan (mismo principio que las marcas de cruce).
+
+### Exportación a Excel (`src/lib/export/`)
+
+Generadores **puros** con `exceljs` (`balance.ts`, `borrador.ts`, `clientes.ts`, `modulo.ts`): reciben los view-models ya resueltos por el loader RSC y devuelven el workbook; las route handlers `export/route.ts` junto a cada pantalla (p. ej. `modulos/[codigo]/[id]/export/route.ts`) reverifican permiso + alcance y sirven el archivo. Convención del módulo: hoja «Detalle» agrupada por clasificador con subtotales en negrilla/outline y total general con **fórmula viva**, más hoja «Consolidado». Las filas que no se consolidan (agrupadoras/omitidas) van con `valor = 0` para que el subtotal iguale la pantalla.
+
+### Golden tests del borrador de balance
+
+`src/lib/balance/golden.test.ts` reproduce fixtures JSON commiteados en `golden/__fixtures__/` (casos reales por cliente/ERP: SIIGO por cuenta+NIT, SAP con NIT en sufijo, multi-sucursal, clases 8/9, por tercero…) corriendo `construirVistaBorrador` vía `snapshotVista`, sin BD ni IA. Cualquier cambio en la lógica del borrador (`borrador.ts`, `relistado.ts`, `terceros.ts`, `reubicacion-*.ts`…) debe mantenerlos verdes; si el cambio es intencional, re-captura con `CAPTURAR_GOLDEN=1` (lee el staging real por `pg`, lista de lotes en `golden/capturar.test.ts`) y revisa el diff del fixture.
+
+### Prevalidador de homologación (`src/lib/balance/prevalidador/`)
+
+Informe puro que compara, sobre las MISMAS filas de `balance_prueba_detalle`, el agregado por prefijo de `cuenta6Russell` (lado Russell) contra el agregado por prefijo de `cuenta8` (código original del cliente). Si la homologación respetó la equivalencia natural, coinciden; una 6105 homologada a 4175 acusa diferencia en el prefijo 41. **No propone ni corrige**: solo agrega y avisa. Catálogo de reglas en `catalogo.ts`, huella en `huella.ts`, carga server-only en `servidor.ts`; action `prevalidador.ts`.
 
 ### Marcas de auditoría del cruce contable (módulos)
 

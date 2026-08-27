@@ -82,12 +82,22 @@ function celdaExcel(v: ExcelJS.CellValue): CeldaCruda {
   if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return v;
   if (v instanceof Date) return v.toISOString().slice(0, 10);
   if (typeof v === "object") {
+    // Celda con FÓRMULA: solo vale el resultado cacheado. El lector streaming de exceljs
+    // (4.4) OMITE `result` cuando el valor cacheado es 0 (falsy), y un libro guardado sin
+    // recalcular tampoco lo trae. En ambos casos NO hay dato: se devuelve null. Antes caía
+    // al `JSON.stringify` de abajo y el texto `{"formula":"P2427*Q2427"}` llegaba al parser
+    // numérico, que extraía los dígitos de las referencias (¡2427!) e "inventaba" un monto
+    // igual al número de fila. Nunca se debe derivar un valor del texto de una fórmula.
+    if ("formula" in v || "sharedFormula" in v) {
+      return "result" in v ? celdaExcel(v.result as ExcelJS.CellValue) : null;
+    }
     if ("result" in v) return celdaExcel(v.result as ExcelJS.CellValue);
     if ("text" in v && typeof v.text === "string") return v.text;
     if ("richText" in v && Array.isArray(v.richText)) {
       return v.richText.map((r) => r.text ?? "").join("");
     }
-    return JSON.stringify(v);
+    // Objeto desconocido (p. ej. `{error: "#DIV/0!"}`): sin dato interpretable.
+    return null;
   }
   return String(v);
 }

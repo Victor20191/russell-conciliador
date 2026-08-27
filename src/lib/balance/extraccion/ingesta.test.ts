@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import * as XLSX from "xlsx";
 import JSZip from "jszip";
+import ExcelJS from "exceljs";
 import { construirVistaPrevia, detectarDelimitador, detectarFormato, extraerCeldasNegritaBiffXls, ingerir, type GridHoja } from "./ingesta";
 
 function buf(texto: string, encoding: BufferEncoding = "utf-8"): ArrayBuffer {
@@ -107,6 +108,35 @@ describe("ingerir Excel moderno (.xlsx)", () => {
         ["Mercancía", "A-1", 1234.5],
       ],
     });
+  });
+});
+
+describe("ingerir Excel moderno (.xlsx) — celdas con fórmula", () => {
+  it("nunca deriva un monto del TEXTO de la fórmula: sin resultado cacheado → celda vacía", async () => {
+    // Regresión: exceljs (streaming) omite `result` cuando el valor cacheado es 0; antes la
+    // celda llegaba como `{"formula":"P2427*Q2427"}` y el parser numérico extraía «2427».
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("Hoja1");
+    ws.getCell("A1").value = "Referencia";
+    ws.getCell("B1").value = "Valor total";
+    ws.getCell("A2427").value = "1879";
+    ws.getCell("B2427").value = { formula: "P2427*Q2427", result: 0 };
+    ws.getCell("A2428").value = "1880";
+    ws.getCell("B2428").value = { formula: "P2428*Q2428", result: 5 };
+    ws.getCell("A2429").value = "1881";
+    ws.getCell("B2429").value = { formula: "P2429*Q2429" };
+    const buf = await wb.xlsx.writeBuffer();
+    const ingesta = await ingerir(buf as ArrayBuffer, "inventario.xlsx");
+    expect(ingesta.modo).toBe("tabular");
+    if (ingesta.modo !== "tabular") return;
+    const filas = ingesta.hojas[0].filas;
+    // exceljs conserva o pierde el `result: 0` según cómo caiga el chunk del parser XML:
+    // ambos desenlaces (0 o vacío) son «sin monto»; lo prohibido es un número inventado.
+    expect(filas[1][0]).toBe("1879");
+    expect([null, 0]).toContain(filas[1][1]);
+    expect(filas[2]).toEqual(["1880", 5]);
+    expect(filas[3]).toEqual(["1881", null]);
+    for (const f of filas) for (const c of f) expect(typeof c === "string" && c.includes("formula")).toBe(false);
   });
 });
 

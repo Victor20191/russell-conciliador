@@ -11,6 +11,7 @@ import { contarFormasCodigo, contarCodigosRepetidos, contarDescuadres, type Diag
 import { UMBRALES_ALERTAS_DEFECTO, type UmbralesAlertas } from "./umbrales-alertas";
 
 export type AgrupadoraRef = { codigo: string; nombre: string; saldoFinal: number; descuadre: number | null };
+export type TotalesPyGArchivo = { ingresos: number; gastos: number; costos: number };
 export type VistaBorrador = {
   arbol: NodoBorrador[];
   validacion: ValidacionContable;
@@ -25,6 +26,56 @@ export type VistaBorrador = {
   filasContabilizadas: number[]; // filas efectivas usadas en validación, tras omisiones/duplicados/consolidación
   diagnostico: DiagnosticoLectura; // huella observacional de la lectura (para medir)
 };
+
+const normalizarEtiquetaRaiz = (valor: string): string =>
+  valor
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("es")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+
+/**
+ * Algunos ERP numeran las SECCIONES visuales del estado de resultados con un
+ * esquema propio (p. ej. 5=Costos, 6=Gastos, 7=Otros ingresos, 8=Otros gastos),
+ * aunque las cuentas que cuelgan de ellas conservan sus códigos PUC reales.
+ *
+ * Este resolvedor solo reemplaza los TOTALES DEL ARCHIVO usados para comparar
+ * la vista: no renombra cuentas ni altera el cálculo/persistencia PUC. Es
+ * deliberadamente conservador: exige al menos una raíz inequívoca de cada
+ * categoría y hace fallback si una raíz material 4–9 es ambigua o desconocida.
+ */
+export function resolverTotalesPyGArchivo(filas: readonly FilaBorrador[]): TotalesPyGArchivo | null {
+  const raices = filas.filter(
+    (fila) => /^[4-9]$/.test(fila.codigo) && fila.tipoFila !== "movimiento" && fila.tipoFila !== "descuadre",
+  );
+  if (raices.length === 0) return null;
+
+  const totales: TotalesPyGArchivo = { ingresos: 0, gastos: 0, costos: 0 };
+  const encontradas = new Set<keyof TotalesPyGArchivo>();
+  const esMaterial = (fila: FilaBorrador): boolean =>
+    [fila.saldoInicial, fila.debitos, fila.creditos, fila.saldoFinal].some((valor) => Math.abs(valor) > 1);
+
+  for (const raiz of raices) {
+    const etiqueta = normalizarEtiquetaRaiz(raiz.nombre);
+    const candidatas: (keyof TotalesPyGArchivo)[] = [];
+    if (/\bingresos?\b/.test(etiqueta)) candidatas.push("ingresos");
+    if (/\bgastos?\b/.test(etiqueta)) candidatas.push("gastos");
+    if (/\bcostos?\b/.test(etiqueta)) candidatas.push("costos");
+
+    if (candidatas.length !== 1) {
+      if (esMaterial(raiz)) return null;
+      continue;
+    }
+    const categoria = candidatas[0];
+    totales[categoria] += raiz.saldoFinal;
+    encontradas.add(categoria);
+  }
+
+  return encontradas.has("ingresos") && encontradas.has("gastos") && encontradas.has("costos")
+    ? totales
+    : null;
+}
 
 function aplanar(nodos: NodoBorrador[]): NodoBorrador[] {
   const out: NodoBorrador[] = [];
@@ -114,11 +165,14 @@ export function construirVistaBorrador(
     const fs = base.filter((f) => f.codigo === clase && !f.omitida);
     return fs.length > 0 ? fs.reduce((s, f) => s + f.saldoFinal, 0) : null;
   };
-  const costosArchivo = [totalArchivo("6"), totalArchivo("7")].filter((v): v is number => v != null);
+  const totalesPyGPorEtiqueta = resolverTotalesPyGArchivo(base);
+  const costosArchivoPorCodigo = [totalArchivo("6"), totalArchivo("7")].filter((v): v is number => v != null);
   const validacion = construirValidacionContable(calc, {
     activo: totalArchivo("1"), pasivo: totalArchivo("2"), patrimonio: totalArchivo("3"),
-    ingresos: totalArchivo("4"), gastos: totalArchivo("5"),
-    costos: costosArchivo.length > 0 ? costosArchivo.reduce((s, v) => s + v, 0) : null,
+    ingresos: totalesPyGPorEtiqueta?.ingresos ?? totalArchivo("4"),
+    gastos: totalesPyGPorEtiqueta?.gastos ?? totalArchivo("5"),
+    costos: totalesPyGPorEtiqueta?.costos
+      ?? (costosArchivoPorCodigo.length > 0 ? costosArchivoPorCodigo.reduce((s, v) => s + v, 0) : null),
   });
   const partidaDoble: PartidaDobleInfo = {
     debitos: calc.totalDebe,

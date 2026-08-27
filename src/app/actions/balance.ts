@@ -24,6 +24,7 @@ import { createProcessNotification } from "@/lib/notifications";
 import { esErrorDisponibilidadIA, mensajeErrorBD, mensajeErrorIA } from "@/lib/errores";
 import { fmt } from "@/lib/format";
 import { etiquetaPeriodo } from "@/lib/balance/periodo";
+import { siguienteVersionCargue } from "@/lib/balance/version-cargue";
 import { fechaCalendarioPrisma } from "@/lib/fecha-hora";
 import { ConfirmarBalanceSchema, SpecCargaBalanceSchema, type ActionState, type PayloadCargaBalance } from "@/lib/definitions";
 import { nucleoNit } from "@/lib/nit";
@@ -2100,9 +2101,9 @@ async function persistirCargue(p: {
     const previas = await tx.balancePruebaEncabezado.findMany({
       where: { clienteId: p.clientId, periodo: p.period },
       orderBy: { creadoEn: "asc" },
-      select: { id: true },
+      select: { id: true, version: true },
     });
-    const version = `v${previas.length + 1}`;
+    const version = siguienteVersionCargue(previas.map((v) => v.version));
     const status = alertas > 0 ? "Con alertas" : previas.length > 0 ? "Última" : "Única";
 
     // Comparativo contra la versión previa (solo el conteo de cambios; el diff
@@ -4892,9 +4893,11 @@ export async function cargarBalancePorTercero(
       await tomarCandadoTransaccion(tx, `balance-tercero-cargue:${clienteId}:${periodo}`);
       const previas = await tx.balanceTerceroEncabezado.findMany({
         where: { clienteId, periodo },
-        select: { id: true },
+        select: { id: true, version: true },
       });
-      const version = `v${previas.length + 1}`;
+      // max+1, no conteo+1: tras eliminar una versión el conteo reciclaría el
+      // número y chocaría con el único (cliente, período, versión).
+      const version = siguienteVersionCargue(previas.map((v) => v.version));
       if (previas.length > 0) {
         await tx.balanceTerceroEncabezado.updateMany({
           where: { clienteId, periodo },
