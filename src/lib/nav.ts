@@ -53,9 +53,11 @@ export const workNav: NavItem[] = [
     ],
   },
   {
-    // Motor genérico de módulos de conciliación (Inventarios, y a futuro
-    // Activos Fijos, Cartera, CxP, Ingresos, Nómina). Los hijos se derivan del
-    // catálogo de descriptores: agregar un descriptor lo publica aquí solo.
+    // Motor genérico de módulos de conciliación (Inventarios, Cartera, CxP,
+    // Ingresos, Activos Fijos, Nómina). Los hijos se derivan del catálogo de
+    // descriptores: agregar un descriptor lo publica aquí solo. Los borradores
+    // de cada módulo NO van en el menú: viven como pestaña dentro del módulo
+    // (`/modulos/[codigo]/borradores`, ver `pestanas-modulo.tsx`).
     label: "Módulos de conciliación",
     href: `/modulos/${(Object.values(MODULOS_IMPORT)[0]?.codigo ?? "INV").toLowerCase()}`,
     icon: "box",

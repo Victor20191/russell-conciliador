@@ -255,7 +255,7 @@ export default function BorradorModuloClient({
   const descartar = () =>
     startDescartar(async () => {
       const r = await descartarBorradorModulo(loteId);
-      if (r.ok) { notifySuccess("Borrador descartado."); router.push(`/modulos/${moduloCodigo.toLowerCase()}`); }
+      if (r.ok) { notifySuccess("Borrador descartado."); router.push(`/modulos/${moduloCodigo.toLowerCase()}/borradores`); }
       else notifyError(r.message ?? "No se pudo descartar.");
     });
 

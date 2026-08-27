@@ -47,6 +47,11 @@ import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
 import { tomarCandadoTransaccion, transaccionSerializable } from "@/lib/concurrency";
 
 const rutaModulo = (codigo: string) => `/modulos/${codigo.toLowerCase()}`;
+/** Las dos pantallas que listan lotes: datos cargados (aviso de pendientes) e índice de borradores. */
+function revalidarListadosModulo(codigo: string) {
+  revalidatePath(rutaModulo(codigo));
+  revalidatePath(`${rutaModulo(codigo)}/borradores`);
+}
 // Marca de idempotencia de un anexo (modo "agregar"): se guarda al final de las
 // observaciones del encabezado vigente para poder detectar un reintento del mismo
 // `loteId` (el anexo NO crea un encabezado propio, así que no puede reutilizar la
@@ -398,7 +403,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
     });
 
     await logAudit({ user: user?.name ?? "Sistema", action: `LEYÓ archivo de ${descriptor.label}`, entity: cliente.name, detail: `${resultado.filas.length} filas · ${archivo.name}` });
-    revalidatePath(rutaModulo(moduloCodigo));
+    revalidarListadosModulo(moduloCodigo);
     return { ok: true, loteId, message: "Archivo leído. Revisa el borrador." };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("leerDatosModulo", e) };
@@ -449,6 +454,7 @@ export async function aplicarCambiosBorradorModulo(
         : []),
     ]);
     revalidatePath(`${rutaModulo(lote.moduloCodigo)}/borradores/${id}`);
+    revalidarListadosModulo(lote.moduloCodigo);
     return { ok: true, message: "Cambios guardados." };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("aplicarCambiosBorradorModulo", e) };
@@ -727,7 +733,7 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
         clientId: lote.clienteId,
       });
     }
-    revalidatePath(rutaModulo(lote.moduloCodigo));
+    revalidarListadosModulo(lote.moduloCodigo);
     return { ok: true, encabezadoId: resultado.encabezadoId, modo: resultado.modo, message: mensaje };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("cargarBorradorModulo", e) };
@@ -754,7 +760,7 @@ export async function descartarBorradorModulo(loteId: string): Promise<ActionSta
       prisma.moduloImportacionStaging.deleteMany({ where: { loteId: id } }),
       prisma.moduloImportacionLote.deleteMany({ where: { loteId: id } }),
     ]);
-    revalidatePath(rutaModulo(lote.moduloCodigo));
+    revalidarListadosModulo(lote.moduloCodigo);
     return { ok: true, message: "Borrador descartado." };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("descartarBorradorModulo", e) };
