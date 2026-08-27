@@ -28,6 +28,22 @@ export function keyAdjuntoTicket(ticketId: number, sufijo: string, tipo: TipoAdj
 
 export { urlAdjuntoTicket } from "./soporte-adjuntos";
 
+const PATRON_CODIGO_TICKET_ACTUAL = /^TKT-\d{1,9}$/;
+const PATRON_CODIGO_TICKET_ANTERIOR = /^TKT-\d{8}-[A-Z0-9]{8}$/;
+
+export function esCodigoTicketActual(codigo: string): boolean {
+  return PATRON_CODIGO_TICKET_ACTUAL.test(codigo);
+}
+
+/**
+ * Los enlaces emitidos antes del consecutivo corto conservan el código con
+ * fecha y sufijo. El token sigue siendo la credencial privada y permite
+ * resolver esos enlaces después de que la migración renumeró el código visible.
+ */
+export function esCodigoSeguimientoTicket(codigo: string): boolean {
+  return esCodigoTicketActual(codigo) || PATRON_CODIGO_TICKET_ANTERIOR.test(codigo);
+}
+
 /**
  * El código visible del ticket es un consecutivo corto (`TKT-1`, `TKT-2`…): lo
  * entrega la secuencia `secuencia_codigo_ticket_soporte` de PostgreSQL, así que

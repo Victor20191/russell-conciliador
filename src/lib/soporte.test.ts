@@ -3,6 +3,8 @@ import {
   ADJUNTOS_MAX,
   crearCodigoTicket,
   crearUrlSeguimiento,
+  esCodigoSeguimientoTicket,
+  esCodigoTicketActual,
   esEstadoTicket,
   etiquetaEstadoTicket,
   huellaTokenAcceso,
@@ -30,6 +32,15 @@ describe("credenciales publicas de tickets", () => {
 
   test("la URL codifica codigo y token", () => {
     expect(crearUrlSeguimiento("TKT 1", "abc/123")).toBe("/soporte/tickets/TKT%201?acceso=abc%2F123");
+  });
+
+  test("acepta códigos actuales y enlaces históricos sin relajar otros formatos", () => {
+    expect(esCodigoTicketActual("TKT-62")).toBe(true);
+    expect(esCodigoTicketActual("TKT-20260807-A1B2C3D4")).toBe(false);
+    expect(esCodigoSeguimientoTicket("TKT-62")).toBe(true);
+    expect(esCodigoSeguimientoTicket("TKT-20260807-A1B2C3D4")).toBe(true);
+    expect(esCodigoSeguimientoTicket("TKT-20260807-a1b2c3d4")).toBe(false);
+    expect(esCodigoSeguimientoTicket("TKT-cualquier-cosa")).toBe(false);
   });
 });
 

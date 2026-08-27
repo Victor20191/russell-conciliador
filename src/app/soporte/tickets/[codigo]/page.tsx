@@ -1,7 +1,14 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import prisma from "@/lib/prisma";
-import { etiquetaEstadoTicket, huellaTokenAcceso, tonoEstadoTicket } from "@/lib/soporte";
+import {
+  crearUrlSeguimiento,
+  esCodigoSeguimientoTicket,
+  esCodigoTicketActual,
+  etiquetaEstadoTicket,
+  huellaTokenAcceso,
+  tonoEstadoTicket,
+} from "@/lib/soporte";
 import { historialDeTicket, SELECT_HISTORIAL } from "@/lib/soporte-historial";
 import TicketHistorial from "@/components/ticket-historial";
 
@@ -28,10 +35,15 @@ export default async function SeguimientoTicketPage({
 }) {
   const [{ codigo }, query] = await Promise.all([params, searchParams]);
   const token = query.acceso;
-  if (!/^TKT-\d{1,9}$/.test(codigo) || !token || token.length < 32 || token.length > 100) notFound();
+  if (!esCodigoSeguimientoTicket(codigo) || !token || token.length < 32 || token.length > 100) notFound();
+
+  const codigoActual = esCodigoTicketActual(codigo);
 
   const ticket = await prisma.supportTicket.findFirst({
-    where: { code: codigo, publicAccessTokenHash: huellaTokenAcceso(token) },
+    where: {
+      publicAccessTokenHash: huellaTokenAcceso(token),
+      ...(codigoActual ? { code: codigo } : {}),
+    },
     select: {
       code: true,
       reporterFirstName: true,
@@ -47,6 +59,7 @@ export default async function SeguimientoTicketPage({
     },
   });
   if (!ticket) notFound();
+  if (!codigoActual && ticket.code !== codigo) redirect(crearUrlSeguimiento(ticket.code, token));
 
   // El mismo hilo que ven Xentria y el usuario en la plataforma, en solo
   // lectura: aquí no hay sesión, así que ni se escribe ni se pintan las
