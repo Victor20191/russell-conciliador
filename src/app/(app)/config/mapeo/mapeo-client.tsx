@@ -404,19 +404,30 @@ function MapeoClienteTab({ rows, std, accounts, clienteId, clienteNit, puedeMape
               <tbody>
                 {pg.pageItems.map((r) => (
                   <tr key={r.id} className="border-b border-ink-50 last:border-0 hover:bg-ink-50">
-                    <td className="px-4 py-2.5 font-mono font-semibold text-ink-700">
-                      {puedeMapear ? (
-                        <button type="button" onClick={() => setEditTarget(r)} title="Editar mapeo" className="font-mono font-semibold text-blue-600 hover:underline">{r.cuenta6}</button>
-                      ) : r.cuenta6}
-                    </td>
+                    {/* La cuenta del cliente identifica la fila y NO se edita: va como texto
+                        plano. Lo editable es la cuenta estándar, así que el clic vive allí. */}
+                    <td className="px-4 py-2.5 font-mono font-semibold text-ink-700">{r.cuenta6}</td>
                     {/* Las reglas creadas por anticipado guardan el código como nombre:
                         en esas no hay nombre del ERP que mostrar. */}
                     <td className="px-4 py-2.5 text-ink-700">{r.nombreCuenta && r.nombreCuenta !== r.cuenta6 ? r.nombreCuenta : "—"}</td>
                     <td className="px-4 py-2.5 text-ink-800">
-                      {r.cuenta6Russell ? (
+                      {puedeMapear ? (
+                        <button
+                          type="button"
+                          onClick={() => setEditTarget(r)}
+                          title={esExcepcionCuenta(r.origen)
+                            ? `Cambiar la cuenta estándar solo de ${r.cuenta6}`
+                            : `Cambiar la cuenta estándar de todo el grupo ${r.cuenta6.slice(0, 6)}`}
+                          className="text-left hover:underline"
+                        >
+                          {r.cuenta6Russell ? (
+                            <><span className="font-mono text-blue-600">{r.cuenta6Russell}</span>{r.nombreRussell ? ` · ${r.nombreRussell}` : ""}</>
+                          ) : (
+                            <Chip label="Asignar" tone="warn" />
+                          )}
+                        </button>
+                      ) : r.cuenta6Russell ? (
                         <><span className="font-mono text-blue-600">{r.cuenta6Russell}</span>{r.nombreRussell ? ` · ${r.nombreRussell}` : ""}</>
-                      ) : puedeMapear ? (
-                        <button type="button" onClick={() => setEditTarget(r)} title="Asignar cuenta estándar"><Chip label="Asignar" tone="warn" /></button>
                       ) : (
                         <Chip label="Asignar" tone="warn" />
                       )}
