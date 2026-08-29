@@ -27,6 +27,9 @@ export type FilaModulo = {
   valor: number;
   datos: Record<string, ValorCelda>; // rol → valor (todas las columnas mapeadas)
   tipoFila: TipoFilaModulo;
+  /** Tri-estado del staging: `true` entra omitida (negrita en módulos con
+   *  `negritaComoOmitida`), `undefined` la deja sin tocar. */
+  omitida?: boolean;
 };
 
 export type ExcepcionModulo = { filaNum: number; mensaje: string };
@@ -37,7 +40,7 @@ export type FilaOmitidaModulo = { filaNum: number; valor: number };
 export type ResultadoTransformModulo = {
   filas: FilaModulo[];
   filasLeidas: number; // filas de datos no vacías
-  filasExcluidas: number; // agrupadoras/totales (no cuentan en el valor)
+  filasExcluidas: number; // agrupadoras/totales/negritas omitidas (no cuentan en el valor)
   excepciones: ExcepcionModulo[];
   // Red de seguridad de integridad: filas con VALOR real que quedaron por encima del
   // inicio efectivo (fuera del bloque contiguo que recuperó la Parte A) y por lo tanto
@@ -236,12 +239,16 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     }
     const valor = redondear(aNumero(datos[descriptor.valor]) ?? 0);
 
-    // 5) Tipo de fila (agrupador por negrita → no cuenta en el valor).
-    const tipoFila: TipoFilaModulo = esAgrupadoraPorNegrita(hoja.negrita?.[r], spec, descriptor) ? "agrupadora" : "movimiento";
-    if (tipoFila === "agrupadora") filasExcluidas++;
+    // 5) Negrita = subtotal del ERP → no cuenta en el valor. Según el descriptor, se
+    //    marca `agrupadora` (rígido) o entra como movimiento OMITIDO (rescatable en el
+    //    borrador). En ambos casos queda fuera del total.
+    const enNegrita = esAgrupadoraPorNegrita(hoja.negrita?.[r], spec, descriptor);
+    const omitidaPorNegrita = enNegrita && descriptor.negritaComoOmitida === true;
+    const tipoFila: TipoFilaModulo = enNegrita && !omitidaPorNegrita ? "agrupadora" : "movimiento";
+    if (enNegrita) filasExcluidas++;
     else filasLeidas++;
 
-    filas.push({ filaNum, clasificador, valor, datos, tipoFila });
+    filas.push({ filaNum, clasificador, valor, datos, tipoFila, ...(omitidaPorNegrita ? { omitida: true } : {}) });
   }
 
   // PARTE B — RECONCILIACIÓN (red de seguridad): ¿queda alguna fila con valor real por

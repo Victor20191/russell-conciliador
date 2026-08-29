@@ -51,13 +51,29 @@ describe("transformarModulo (INV)", () => {
     expect(r.excepciones[0].mensaje).toMatch(/valorTotal/);
   });
 
-  it("marca AGRUPADORA las filas en negrita (subtotal) y no las cuenta como leídas", () => {
+  it("en INV la negrita entra como MOVIMIENTO OMITIDO (rescatable), nunca como agrupadora", () => {
     const filas = [ENC, ["Materia prima", "SUBTOTAL", "", 0, 0, 5000], ["A", "R", "D", 1, 10, 10]];
     const negrita = [[], [true, true, true, true, true, true], [false, false, false, false, false, false]];
     const r = transformarModulo(INV, SPEC, hoja(filas, negrita));
-    expect(r.filas.find((f) => f.datos.referencia === "SUBTOTAL")?.tipoFila).toBe("agrupadora");
+    const subtotal = r.filas.find((f) => f.datos.referencia === "SUBTOTAL");
+    expect(subtotal?.tipoFila).toBe("movimiento");
+    expect(subtotal?.omitida).toBe(true);
+    // La fila normal no se toca: sin marca de omisión.
+    expect(r.filas.find((f) => f.datos.referencia === "R")?.omitida).toBeUndefined();
+    // Sigue fuera del valor y fuera del conteo de leídas.
     expect(r.filasExcluidas).toBe(1);
     expect(r.filasLeidas).toBe(1);
+  });
+
+  it("un módulo SIN negritaComoOmitida mantiene la marca de agrupadora", () => {
+    const descriptorRigido = { ...INV, negritaComoOmitida: undefined };
+    const filas = [ENC, ["Materia prima", "SUBTOTAL", "", 0, 0, 5000], ["A", "R", "D", 1, 10, 10]];
+    const negrita = [[], [true, true, true, true, true, true], [false, false, false, false, false, false]];
+    const r = transformarModulo(descriptorRigido, SPEC, hoja(filas, negrita));
+    const subtotal = r.filas.find((f) => f.datos.referencia === "SUBTOTAL");
+    expect(subtotal?.tipoFila).toBe("agrupadora");
+    expect(subtotal?.omitida).toBeUndefined();
+    expect(r.filasExcluidas).toBe(1);
   });
 
   it("salta filas vacías", () => {

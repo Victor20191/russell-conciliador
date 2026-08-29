@@ -57,6 +57,15 @@ export type DescriptorModulo = {
   derivar?: Record<string, Derivacion>;
   /** Columnas que NO deberían ser negativas (existencias/costos): generan alerta automática. */
   noNegativos?: string[];
+  /**
+   * Qué hacer con las filas en NEGRITA (subtotales del ERP) al importar:
+   *  - sin bandera → se marcan `agrupadora` (no imputan, no se pueden rescatar por fila).
+   *  - `true` → entran como `movimiento` OMITIDAS: tampoco imputan, pero el borrador las
+   *    muestra tachadas con «Incluir», así que un falso positivo de la negrita se rescata
+   *    a mano en vez de quedar invisible. Inventarios lo usa porque sus archivos marcan en
+   *    negrita tanto el gran total como ítems corrientes.
+   */
+  negritaComoOmitida?: boolean;
   /** Preguntas de verificación manual que el usuario responde al confirmar la carga. */
   verificaciones?: Verificacion[];
 };
@@ -87,6 +96,9 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
       valorUnitario: { cociente: ["valorTotal", "cantidad"] },
     },
     noNegativos: ["cantidad", "valorUnitario", "valorTotal"],
+    // La negrita en los inventarios NO es confiable como «es un subtotal»: se omite por
+    // defecto (excluida del total) pero queda rescatable desde el borrador.
+    negritaComoOmitida: true,
     verificaciones: [
       { id: "consignacion_recibida", texto: "Confirme si la compañía maneja mercancías recibidas en consignación." },
       { id: "consignacion_entregada", texto: "Verifique la existencia de bienes entregados en consignación." },

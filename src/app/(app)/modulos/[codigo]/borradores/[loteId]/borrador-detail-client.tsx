@@ -10,6 +10,7 @@ import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import ComentarioAncla from "@/components/comentario-ancla";
 import { consolidarPorClasificador, filaEnCero } from "@/lib/modulos/promocion";
 import { esDescuadreProducto } from "@/lib/modulos/validaciones";
+import { detectarFilasTotalizadoras } from "@/lib/modulos/fila-totalizadora";
 import { filtrarFilasDetalleModulo, hayFiltrosDetalleModulo, type FiltrosDetalleModulo } from "@/lib/modulos/filtros-detalle-modulo";
 import type { ReconciliacionModulo } from "@/lib/modulos/extraccion/transformar";
 import { aplicarCambiosBorradorModulo, cargarBorradorModulo, descartarBorradorModulo } from "@/app/actions/modulos-datos";
@@ -128,7 +129,6 @@ export default function BorradorModuloClient({
   const clasificadorEtiqueta = columnas.find((c) => c.nombre === clasificadorRol)?.etiqueta ?? "Tipo";
   const etiquetaCol = (nombre: string) => columnas.find((c) => c.nombre === nombre)?.etiqueta ?? nombre;
   const columnasNumericas = columnas.filter((c) => c.tipo === "numero" || c.tipo === "moneda").map((c) => c.nombre);
-  const [overrideTipo, setOverrideTipo] = useState<Record<number, "agrupadora" | "movimiento">>({});
   const [overrideOmit, setOverrideOmit] = useState<Record<number, boolean>>({});
   const [overrideClasif, setOverrideClasif] = useState<Record<number, string>>({});
   const [agrupadorManual, setAgrupadorManual] = useState("");
@@ -148,12 +148,11 @@ export default function BorradorModuloClient({
         const clasificador = f.filaNum in overrideClasif ? (overrideClasif[f.filaNum] || null) : f.clasificador;
         return {
           ...f,
-          tipoFila: overrideTipo[f.filaNum] ?? f.tipoFila,
           omitida: f.filaNum in overrideOmit ? overrideOmit[f.filaNum] : f.omitida,
           clasificador,
         };
       }),
-    [filas, overrideTipo, overrideOmit, overrideClasif],
+    [filas, overrideOmit, overrideClasif],
   );
 
   // Tipo/omisión ORIGINAL por fila: al aplicar en bloque, si el destino coincide con
@@ -166,7 +165,7 @@ export default function BorradorModuloClient({
     [filas],
   );
 
-  const hayCambiosFilas = Object.keys(overrideTipo).length + Object.keys(overrideOmit).length + Object.keys(overrideClasif).length > 0;
+  const hayCambiosFilas = Object.keys(overrideOmit).length + Object.keys(overrideClasif).length > 0;
   const periodoCambiado = periodo !== periodoSugerido;
   const hayCambios = hayCambiosFilas || periodoCambiado;
   // Renglón "en cero": todas las columnas numéricas en 0 → NO se lleva al definitivo.
@@ -175,12 +174,10 @@ export default function BorradorModuloClient({
   const total = imputables.reduce((s, f) => s + f.valor, 0);
   const consolidado = consolidarPorClasificador(imputables.map((f) => ({ clasificador: f.clasificador, valor: f.valor, tipoFila: f.tipoFila })));
 
-  const toggleAgrupador = (f: (typeof efectivas)[number]) =>
-    setOverrideTipo((p) => ({ ...p, [f.filaNum]: f.tipoFila === "agrupadora" ? "movimiento" : "agrupadora" }));
   const toggleOmit = (f: (typeof efectivas)[number]) => setOverrideOmit((p) => ({ ...p, [f.filaNum]: f.omitida !== true }));
 
-  // Selección múltiple + acciones EN BLOQUE (reclasificar a agrupadora/movimiento u omitir/incluir
-  // varias filas a la vez). Escribe los mismos overrides que las acciones por fila.
+  // Selección múltiple + acciones EN BLOQUE (asignar agrupador u omitir/incluir varias filas
+  // a la vez). Escribe los mismos overrides que las acciones por fila.
   const toggleSel = (filaNum: number) =>
     setSeleccion((prev) => {
       const n = new Set(prev);
@@ -220,21 +217,22 @@ export default function BorradorModuloClient({
     if ([tot, a, b].every(Number.isFinite) && a !== 0 && b !== 0 && esDescuadreProducto(tot, a, b))
       descuadres.push({ filaNum: f.filaNum, etiqueta: etiquetaCol(p.resultado), declarado: tot, esperado: Math.round(a * b * 100) / 100 });
   }
-  const filasConNovedad = new Set([...negativos, ...descuadres].map((n) => n.filaNum));
+  // (3) Fila TOTALIZADORA imputada: su valor equivale a la suma de todas las demás, así que
+  //     casi con certeza es el gran total del archivo colado como ítem (duplicaría el módulo).
+  const totalizadoras = detectarFilasTotalizadoras(imputables.map((f) => ({ filaNum: f.filaNum, valor: f.valor })));
+  const filasConNovedad = new Set([...negativos, ...descuadres, ...totalizadoras].map((n) => n.filaNum));
   const verifCompletas = verificaciones.every((v) => respuestas[v.id]);
   const setResp = (id: string, respuesta: "si" | "no" | "na") => setRespuestas((p) => ({ ...p, [id]: { ...p[id], respuesta } }));
   const setNota = (id: string, nota: string) => setRespuestas((p) => ({ ...p, [id]: { respuesta: p[id]?.respuesta ?? "na", nota } }));
 
   const guardar = () =>
     startGuardar(async () => {
-      const m = new Map<number, { filaNum: number; tipoFila?: string; omitida?: boolean; clasificador?: string }>();
-      for (const [fn, t] of Object.entries(overrideTipo)) m.set(+fn, { ...(m.get(+fn) ?? { filaNum: +fn }), filaNum: +fn, tipoFila: t });
+      const m = new Map<number, { filaNum: number; omitida?: boolean; clasificador?: string }>();
       for (const [fn, o] of Object.entries(overrideOmit)) m.set(+fn, { ...(m.get(+fn) ?? { filaNum: +fn }), filaNum: +fn, omitida: o });
       for (const [fn, c] of Object.entries(overrideClasif)) m.set(+fn, { ...(m.get(+fn) ?? { filaNum: +fn }), filaNum: +fn, clasificador: c });
       const r = await aplicarCambiosBorradorModulo(loteId, [...m.values()], periodo);
       if (r.ok) {
         notifySuccess(r.message ?? "Cambios guardados.");
-        setOverrideTipo({});
         setOverrideOmit({});
         setOverrideClasif({});
         router.refresh();
@@ -353,6 +351,18 @@ export default function BorradorModuloClient({
           </div>
         )}
 
+        {totalizadoras.length > 0 && (
+          <div className="rounded-md border border-err-500 bg-err-100 px-3 py-2 text-[12px] text-err-700">
+            <span className="font-semibold">
+              ⚠ {totalizadoras.length === 1 ? "Hay 1 fila que parece el TOTAL del archivo" : `Hay ${totalizadoras.length} filas que parecen el TOTAL del archivo`}, no un ítem.
+            </span>
+            <span className="ml-1">
+              {totalizadoras.slice(0, 4).map((t) => `${t.filaNum} (${fmtContable(t.valor)} ≈ suma de las demás, ${fmtContable(t.resto)})`).join(", ")}
+              {totalizadoras.length > 4 ? "…" : ""}.
+            </span>
+            <span className="ml-1">Se está sumando al total: si es el gran total del ERP, omítela con «Omitir» o el módulo quedará al doble.</span>
+          </div>
+        )}
         {negativos.length > 0 && (
           <div className="rounded-md border border-err-500 bg-err-100 px-3 py-2 text-[12px] text-err-700">
             <span className="font-semibold">⚠ {new Set(negativos.map((n) => n.filaNum)).size} ítem(s) con existencias o costos negativos.</span>
@@ -365,8 +375,8 @@ export default function BorradorModuloClient({
             <span className="ml-1">Filas: {descuadres.slice(0, 8).map((d) => `${d.filaNum} (esperado ${fmtContable(d.esperado)} vs ${fmtContable(d.declarado)})`).join(", ")}{descuadres.length > 8 ? "…" : ""}.</span>
           </div>
         )}
-        {negativos.length === 0 && descuadres.length === 0 && (noNegativos.length > 0 || productos.length > 0) && (
-          <div className="rounded-md border border-ok-500 bg-ok-100/30 px-3 py-1.5 text-[12px] text-ok-700">✓ Sin negativos ni descuadres de valor.</div>
+        {negativos.length === 0 && descuadres.length === 0 && totalizadoras.length === 0 && (noNegativos.length > 0 || productos.length > 0) && (
+          <div className="rounded-md border border-ok-500 bg-ok-100/30 px-3 py-1.5 text-[12px] text-ok-700">✓ Sin negativos, descuadres de valor ni filas totalizadoras.</div>
         )}
 
         {verificaciones.length > 0 && (
@@ -587,14 +597,9 @@ export default function BorradorModuloClient({
                           {cero ? (
                             <span className="ml-1 text-[10.5px] italic text-ink-400">en cero · no se carga</span>
                           ) : (
-                            <>
-                              <button type="button" onClick={() => toggleAgrupador(f)} className="ml-1 mr-1 rounded border border-ink-300 bg-white px-1.5 py-0.5 text-[10.5px] font-semibold text-ink-600 hover:bg-blue-50 hover:text-blue-700" title="Marcar como agrupador (subtotal) o volver a movimiento">
-                                {esAgr ? "→ Movimiento" : "→ Agrupador"}
-                              </button>
-                              <button type="button" onClick={() => toggleOmit(f)} className="rounded border border-ink-300 bg-white px-1.5 py-0.5 text-[10.5px] font-semibold text-ink-600 hover:bg-err-100 hover:text-err-700" title="Omitir / incluir esta fila">
-                                {omit ? "Incluir" : "Omitir"}
-                              </button>
-                            </>
+                            <button type="button" onClick={() => toggleOmit(f)} className="ml-1 rounded border border-ink-300 bg-white px-1.5 py-0.5 text-[10.5px] font-semibold text-ink-600 hover:bg-err-100 hover:text-err-700" title="Omitir / incluir esta fila">
+                              {omit ? "Incluir" : "Omitir"}
+                            </button>
                           )}
                         </td>
                       </tr>

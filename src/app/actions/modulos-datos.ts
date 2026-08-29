@@ -377,6 +377,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
           data: resultado.filas.slice(i, i + LOTE_STAGING_MODULO).map((f) => ({
             loteId, moduloCodigo, clienteId, hoja: hoja.nombre, filaNum: f.filaNum,
             clasificador: f.clasificador, valor: f.valor, datos: f.datos, tipoFila: f.tipoFila,
+            omitida: f.omitida ?? null,
           })),
         });
       }
