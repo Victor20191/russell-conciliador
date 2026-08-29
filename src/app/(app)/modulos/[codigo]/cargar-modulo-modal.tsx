@@ -6,6 +6,7 @@
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Modal } from "@/components/modal";
+import { Icon } from "@/components/icons";
 import { SelectorClienteBuscable } from "@/components/selector-cliente-buscable";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import { columnaLetra } from "@/lib/balance/extraccion/hojas-cliente";
@@ -14,9 +15,47 @@ import { leerDatosModulo, analizarArchivoModulo, preferenciasCargaModulo, type A
 import { NotasCargaModulo } from "./notas-carga-modulo";
 
 export type ClienteModulo = { id: number; name: string; nit: string };
+
+/**
+ * Adición declarada a un cargue existente. Cuando viene, el modal fija cliente y período
+ * (el archivo se suma a ESE cargue, no a otro) y solo pide el archivo y su mapeo.
+ */
+export type AnexoModulo = { encabezadoId: number; clienteId: number; clienteNombre: string; periodo: string };
 export type RolModulo = { nombre: string; etiqueta: string; tipo: string; requerido: boolean };
 
 const celdaTxt = (v: CeldaMuestra): string => (v == null ? "" : typeof v === "number" ? String(v) : v);
+
+/**
+ * Botón «Agregar archivo» de la columna Acciones: abre el MISMO modal en modo adición.
+ * Existe porque anexar o versionar es una decisión del usuario, no algo que el sistema
+ * deba inferir de los datos — inferirlo comparando llaves (clasificador, referencia) fue
+ * la causa de que un módulo llegara a duplicarse.
+ */
+export function AgregarArchivoButton(props: {
+  moduloCodigo: string;
+  moduloLabel: string;
+  roles: RolModulo[];
+  clasificadorRol: string;
+  clientes: ClienteModulo[];
+  anexo: AnexoModulo;
+  className?: string;
+}) {
+  const [abierto, setAbierto] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setAbierto(true)}
+        title={`Agregar otro archivo al cargue de ${props.anexo.periodo} (no crea versión nueva)`}
+        aria-label={`Agregar archivo al cargue de ${props.anexo.periodo}`}
+        className={props.className}
+      >
+        <Icon name="plus" size={15} />
+      </button>
+      {abierto && <CargarModal {...props} onClose={() => setAbierto(false)} />}
+    </>
+  );
+}
 
 /** Botón «Cargar <módulo>» + su modal. */
 export function CargarModuloButton(props: {
@@ -47,6 +86,7 @@ function CargarModal({
   roles,
   clasificadorRol,
   clientes,
+  anexo,
   onClose,
 }: {
   moduloCodigo: string;
@@ -54,6 +94,7 @@ function CargarModal({
   roles: RolModulo[];
   clasificadorRol: string;
   clientes: ClienteModulo[];
+  anexo?: AnexoModulo;
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -63,14 +104,14 @@ function CargarModal({
   const archivoRef = useRef<File | null>(null);
   const [tieneArchivo, setTieneArchivo] = useState(false);
   const [nombreArchivo, setNombreArchivo] = useState("");
-  const [clienteId, setClienteId] = useState<number | null>(null);
+  const [clienteId, setClienteId] = useState<number | null>(anexo?.clienteId ?? null);
   const [fase, setFase] = useState<"archivo" | "mapeo">("archivo");
   const [analisis, setAnalisis] = useState<AnalisisModulo | null>(null);
   const [spec, setSpec] = useState<SpecModulo | null>(null);
   // Nombre del cliente cuya parametrización sugerida se aplicó (exacta o elegida a mano de
   // la lista), solo para el aviso visual — puramente informativo, nunca obliga a nada.
   const [sugerenciaAplicadaDe, setSugerenciaAplicadaDe] = useState<string | null>(null);
-  const [mes, setMes] = useState("");
+  const [mes, setMes] = useState(anexo?.periodo ?? "");
   const [analizando, startAnalizar] = useTransition();
   const [leyendo, startLeer] = useTransition();
   // Preferencias de carga del cliente en este módulo (Configuración › Perfiles de
@@ -148,6 +189,7 @@ function CargarModal({
       fd.set("specJson", JSON.stringify(spec));
       fd.set("periodoInicio", mes ? `${mes}-01` : "");
       fd.set("periodoFin", mes ? `${mes}-01` : "");
+      if (anexo) fd.set("anexoEncabezadoId", String(anexo.encabezadoId));
       fd.set("archivo", archivoRef.current!);
       try {
         const r = await leerDatosModulo(undefined, fd);
@@ -210,7 +252,7 @@ function CargarModal({
     <Modal
       open
       onClose={onClose}
-      title={`Cargar ${moduloLabel.toLowerCase()}`}
+      title={anexo ? `Agregar archivo · ${moduloLabel.toLowerCase()} ${anexo.periodo}` : `Cargar ${moduloLabel.toLowerCase()}`}
       size={fase === "mapeo" ? "2xl" : "lg"}
       footer={
         fase === "archivo" ? (
@@ -232,11 +274,21 @@ function CargarModal({
     >
       {fase === "archivo" ? (
         <div className="flex flex-col gap-3.5 text-[12.5px]">
-          <SelectorClienteBuscable
-            clients={clientes}
-            value={clienteId}
-            onChange={elegirCliente}
-          />
+          {anexo ? (
+            <div className="rounded-md border border-navy-600 bg-blue-50 px-3 py-2 text-[11.5px] leading-relaxed text-navy-800">
+              <span className="font-semibold">Este archivo se AGREGARÁ al cargue existente.</span>
+              <span className="ml-1">
+                {anexo.clienteNombre} · período {anexo.periodo}. No se crea una versión nueva y el detalle actual se conserva;
+                el archivo se suma. Cliente y período quedan fijos.
+              </span>
+            </div>
+          ) : (
+            <SelectorClienteBuscable
+              clients={clientes}
+              value={clienteId}
+              onChange={elegirCliente}
+            />
+          )}
 
           <label className="flex flex-col gap-1">
             <span className="text-[11px] font-medium text-ink-600">Archivo (Excel/CSV)</span>
@@ -392,7 +444,13 @@ function CargarModal({
 
           <label className="flex w-full max-w-xs flex-col gap-1">
             <span className="text-[11px] font-medium text-ink-600">Mes del inventario <span className="text-err-600">*</span></span>
-            <input type="month" value={mes} onChange={(e) => setMes(e.target.value)} className="w-full rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-ink-700 outline-none focus:border-blue-400" />
+            {anexo ? (
+              <span className="w-full rounded-md border border-ink-200 bg-ink-50 px-2.5 py-1.5 font-semibold text-ink-700" title="Fijo: el archivo se agrega a este período">
+                {anexo.periodo}
+              </span>
+            ) : (
+              <input type="month" value={mes} onChange={(e) => setMes(e.target.value)} className="w-full rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-ink-700 outline-none focus:border-blue-400" />
+            )}
           </label>
         </div>
       )}

@@ -6,6 +6,8 @@ import { descriptorModulo } from "@/lib/modulos/descriptores";
 import { fechaCalendarioISO } from "@/lib/fecha-hora";
 import { fmtDateTime } from "@/lib/format";
 import { versionarYOrdenarBorradoresModulo } from "@/lib/modulos/versiones";
+import { clavesDeDetalle, itemsRepetidos, llaveItem, refRolDe } from "@/lib/modulos/fraccionamiento";
+import { esImputable } from "@/lib/modulos/promocion";
 import type { ReconciliacionModulo } from "@/lib/modulos/extraccion/transformar";
 import BorradorModuloClient, { type FilaBorradorModulo } from "./borrador-detail-client";
 
@@ -81,6 +83,38 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
   const specConReconciliacion = lote.specJson as { reconciliacion?: ReconciliacionModulo } | null;
   const reconciliacion = specConReconciliacion?.reconciliacion ?? null;
 
+  // ANEXO declarado: este archivo se SUMA al encabezado que el usuario eligió con
+  // «Agregar archivo». Se resuelve aquí para avisar ANTES de confirmar si trae ítems que
+  // ese cargue ya tiene — avisar, no bloquear: la llave (clasificador, referencia) depende
+  // del mapeo de columnas y un falso positivo dejaría sin salida a un anexo legítimo.
+  let anexo: { version: number; periodo: string; repetidos: string[]; vigente: boolean } | null = null;
+  if (lote.anexoEncabezadoId != null) {
+    const destino = await prisma.moduloDatoEncabezado.findUnique({
+      where: { id: lote.anexoEncabezadoId },
+      select: { id: true, version: true, periodo: true, esOficial: true, detalles: { select: { clasificador: true, datos: true } } },
+    });
+    if (destino) {
+      const refRol = refRolDe(descriptor);
+      const columnasNumericas = descriptor.columnas.filter((c) => c.tipo === "numero" || c.tipo === "moneda").map((c) => c.nombre);
+      const existentes = clavesDeDetalle(
+        destino.detalles.map((d) => ({ clasificador: d.clasificador, datos: (d.datos ?? {}) as Record<string, unknown> })),
+        refRol,
+      );
+      // Solo cuentan las filas que realmente se promoverían (las mismas de `promoverStaging`).
+      const nuevas = new Set(
+        filas
+          .filter((f) => esImputable(f, columnasNumericas))
+          .map((f) => llaveItem(f.clasificador, refRol ? String(((f.datos ?? {}) as Record<string, unknown>)[refRol] ?? "") : "")),
+      );
+      anexo = {
+        version: destino.version,
+        periodo: destino.periodo,
+        repetidos: itemsRepetidos(nuevas, existentes),
+        vigente: destino.esOficial,
+      };
+    }
+  }
+
   const filasVm: FilaBorradorModulo[] = filas.map((f) => ({
     filaNum: f.filaNum,
     clasificador: f.clasificador,
@@ -112,6 +146,7 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
         verificaciones={descriptor.verificaciones ?? []}
         filas={filasVm}
         reconciliacion={reconciliacion}
+        anexo={anexo}
         version={versionActual}
         notasCliente={ajustesCarga?.observaciones?.trim() || null}
         hermanos={hermanosVersionados.map((hermano) => ({

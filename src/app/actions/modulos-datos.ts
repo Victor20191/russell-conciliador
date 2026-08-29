@@ -321,9 +321,33 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
   const archivo = formData.get("archivo");
   if (!(archivo instanceof File) || archivo.size === 0) return { ok: false, message: "Adjunta el archivo del módulo." };
 
+  // ANEXO declarado («Agregar archivo» desde una fila ya cargada). El destino se valida
+  // aquí, contra la BD, y NO se vuelve a confiar en lo que mande el navegador: el borrador
+  // queda sellado con el encabezado al que se sumará.
+  const anexoCrudo = formData.get("anexoEncabezadoId");
+  const anexoPedido = typeof anexoCrudo === "string" && anexoCrudo.trim() ? Number(anexoCrudo) : null;
+  if (anexoPedido != null && (!Number.isInteger(anexoPedido) || anexoPedido <= 0)) {
+    return { ok: false, message: "El cargue al que se quiere agregar el archivo no es válido." };
+  }
+
   try {
     const cliente = await prisma.client.findUnique({ where: { id: clienteId }, select: { name: true } });
     if (!cliente) return { ok: false, message: "El cliente seleccionado ya no existe." };
+
+    let anexoEncabezadoId: number | null = null;
+    if (anexoPedido != null) {
+      const destino = await prisma.moduloDatoEncabezado.findUnique({
+        where: { id: anexoPedido },
+        select: { id: true, clienteId: true, moduloCodigo: true, esOficial: true, estaCongelado: true },
+      });
+      if (!destino) return { ok: false, message: "El cargue al que ibas a agregar el archivo ya no existe." };
+      if (destino.clienteId !== clienteId || destino.moduloCodigo !== moduloCodigo) {
+        return { ok: false, message: "Ese cargue pertenece a otro cliente o módulo." };
+      }
+      if (!destino.esOficial) return { ok: false, message: "Solo se puede agregar un archivo a la versión vigente." };
+      if (destino.estaCongelado) return { ok: false, message: "Ese cargue está congelado: no admite archivos adicionales." };
+      anexoEncabezadoId = destino.id;
+    }
 
     let ingesta: Awaited<ReturnType<typeof ingerir>>;
     try {
@@ -385,6 +409,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
         data: {
           moduloCodigo, loteId, clienteId, archivoNombre: archivo.name, archivoTam: tamArchivo(archivo.size),
           periodoInicial: fechaISO(formData.get("periodoInicio")), periodoFinal: fechaISO(formData.get("periodoFin")),
+          anexoEncabezadoId,
           filasLeidas: resultado.filasLeidas, filasExcluidas: resultado.filasExcluidas,
           huella, origenExtraccion: origen, specJson: specConReconciliacion,
           cargadoPor: user?.name ?? null, cargadoPorId: user?.id ?? null,
@@ -499,7 +524,7 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
 
     const lote = await prisma.moduloImportacionLote.findUnique({
       where: { loteId },
-      select: { clienteId: true, moduloCodigo: true },
+      select: { clienteId: true, moduloCodigo: true, anexoEncabezadoId: true },
     });
     if (!lote?.clienteId) return { ok: false, message: "El borrador ya no existe o no tiene cliente." };
     const scope = await authorizePermiso("modulos_datos:crear", { clientId: lote.clienteId });
@@ -581,6 +606,10 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
         where: { clienteId: loteActual.clienteId, moduloCodigo: loteActual.moduloCodigo, periodo, esOficial: true },
         select: { id: true, version: true, filas: true, total: true, observaciones: true, estaCongelado: true },
       });
+      // El anexo solo procede sobre el MISMO encabezado que el usuario eligió. Si entre la
+      // subida y la confirmación ese cargue dejó de ser el vigente (otra versión, o se
+      // eliminó), no se anexa a ciegas: la carga sigue como versión nueva.
+      const anexoSolicitado = lote.anexoEncabezadoId != null && vigente?.id === lote.anexoEncabezadoId;
       const refRol = refRolDe(descriptor);
       const clavesNuevas = clavesDeDetalle(promocion.detalle, refRol);
       let clavesExistentes = new Set<string>();
@@ -599,6 +628,7 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
       const decision = decidirCarga({
         hayVigente: !!vigente,
         vigenteCongelado: vigente?.estaCongelado ?? false,
+        anexoSolicitado,
         clavesNuevas,
         clavesExistentes,
       });

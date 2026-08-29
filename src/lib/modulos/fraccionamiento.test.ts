@@ -74,24 +74,44 @@ describe("itemsRepetidos", () => {
 
 describe("decidirCarga", () => {
   it("sin vigente → version (v1)", () => {
-    const r = decidirCarga({ hayVigente: false, vigenteCongelado: false, clavesNuevas: new Set(["A 1"]), clavesExistentes: new Set() });
+    const r = decidirCarga({ hayVigente: false, vigenteCongelado: false, anexoSolicitado: false, clavesNuevas: new Set(["A 1"]), clavesExistentes: new Set() });
     expect(r).toEqual({ modo: "version", repetidos: [] });
   });
 
-  it("vigente congelado → version aunque no haya repetidos", () => {
-    const r = decidirCarga({ hayVigente: true, vigenteCongelado: true, clavesNuevas: new Set(["A 1"]), clavesExistentes: new Set(["B 1"]) });
+  it("carga normal sobre un vigente → version, aunque NO haya ninguna coincidencia", () => {
+    // Este es el caso que antes anexaba solo y duplicaba el módulo: sin anexo declarado,
+    // «ítems que parecen nuevos» ya no basta para acumular.
+    const r = decidirCarga({ hayVigente: true, vigenteCongelado: false, anexoSolicitado: false, clavesNuevas: new Set(["A 1", "A 2"]), clavesExistentes: new Set(["B 1"]) });
     expect(r.modo).toBe("version");
   });
 
-  it("vigente sin congelar y sin ninguna coincidencia → agregar", () => {
-    const r = decidirCarga({ hayVigente: true, vigenteCongelado: false, clavesNuevas: new Set(["A 1", "A 2"]), clavesExistentes: new Set(["B 1"]) });
+  it("carga normal sobre un vigente con llaves repetidas → version", () => {
+    const r = decidirCarga({ hayVigente: true, vigenteCongelado: false, anexoSolicitado: false, clavesNuevas: new Set(["A 1", "A 2"]), clavesExistentes: new Set(["A 1"]) });
+    expect(r.modo).toBe("version");
+    expect(r.repetidos).toEqual(["A 1"]);
+  });
+
+  it("anexo declarado sobre un vigente sin congelar → agregar", () => {
+    const r = decidirCarga({ hayVigente: true, vigenteCongelado: false, anexoSolicitado: true, clavesNuevas: new Set(["A 1", "A 2"]), clavesExistentes: new Set(["B 1"]) });
     expect(r).toEqual({ modo: "agregar", repetidos: [] });
   });
 
-  it("vigente sin congelar pero con alguna llave repetida (re-subida) → version", () => {
-    const r = decidirCarga({ hayVigente: true, vigenteCongelado: false, clavesNuevas: new Set(["A 1", "A 2"]), clavesExistentes: new Set(["A 1"]) });
-    expect(r.modo).toBe("version");
+  it("anexo declarado CON llaves repetidas → sigue siendo agregar, pero las reporta para el aviso", () => {
+    // Avisar, no bloquear: la llave (clasificador, referencia) es poco confiable y
+    // bloquear por ella dejaría sin salida a un anexo legítimo.
+    const r = decidirCarga({ hayVigente: true, vigenteCongelado: false, anexoSolicitado: true, clavesNuevas: new Set(["A 1", "A 2"]), clavesExistentes: new Set(["A 1"]) });
+    expect(r.modo).toBe("agregar");
     expect(r.repetidos).toEqual(["A 1"]);
+  });
+
+  it("anexo declarado sobre un vigente CONGELADO → version (nunca se toca un congelado)", () => {
+    const r = decidirCarga({ hayVigente: true, vigenteCongelado: true, anexoSolicitado: true, clavesNuevas: new Set(["A 1"]), clavesExistentes: new Set(["B 1"]) });
+    expect(r.modo).toBe("version");
+  });
+
+  it("anexo declarado sin vigente → version (v1): no hay a qué anexar", () => {
+    const r = decidirCarga({ hayVigente: false, vigenteCongelado: false, anexoSolicitado: true, clavesNuevas: new Set(["A 1"]), clavesExistentes: new Set() });
+    expect(r).toEqual({ modo: "version", repetidos: [] });
   });
 });
 

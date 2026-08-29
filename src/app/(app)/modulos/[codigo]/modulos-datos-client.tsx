@@ -17,7 +17,7 @@ import { fmtContable } from "@/lib/format";
 import { archivosDeVersion } from "@/lib/modulos/archivos-carga";
 import { filtrarGruposCargaModulo } from "@/lib/modulos/listado";
 import { EliminarDatosModuloButton } from "./eliminar-datos-modulo-modal";
-import { CargarModuloButton, type ClienteModulo, type RolModulo } from "./cargar-modulo-modal";
+import { AgregarArchivoButton, CargarModuloButton, type ClienteModulo, type RolModulo } from "./cargar-modulo-modal";
 import { BOTON_ACCION, BadgeComentarios, BuscadorListado, etiquetaOrigen, type OnConversar } from "./listado-compartido";
 
 /** Un período del cliente, con los datos de la versión que lo representa. */
@@ -109,7 +109,11 @@ export default function ModulosDatosClient({
         grupos={gruposCargados}
         busqueda={busqueda}
         ruta={ruta}
+        moduloCodigo={moduloCodigo}
         moduloLabel={moduloLabel}
+        roles={roles}
+        clasificadorRol={clasificadorRol}
+        clientes={clientes}
         onConversar={setConversando}
         puedeEliminar={puedeEliminar}
       />
@@ -121,14 +125,22 @@ function CargadosPorCliente({
   grupos,
   busqueda,
   ruta,
+  moduloCodigo,
   moduloLabel,
+  roles,
+  clasificadorRol,
+  clientes,
   onConversar,
   puedeEliminar,
 }: {
   grupos: GrupoClienteRow[];
   busqueda: string;
   ruta: string;
+  moduloCodigo: string;
   moduloLabel: string;
+  roles: RolModulo[];
+  clasificadorRol: string;
+  clientes: ClienteModulo[];
   onConversar: OnConversar;
   puedeEliminar: boolean;
 }) {
@@ -346,6 +358,25 @@ function CargadosPorCliente({
                         >
                           <Icon name="eye" size={15} />
                         </Link>
+                        {/* Adición explícita al cargue vigente: el usuario declara que
+                            este archivo se SUMA, en vez de dejar que el sistema lo adivine.
+                            No aplica sobre versiones históricas ni sobre un congelado. */}
+                        {p.esOficial && !p.estaCongelado && (
+                          <AgregarArchivoButton
+                            moduloCodigo={moduloCodigo}
+                            moduloLabel={moduloLabel}
+                            roles={roles}
+                            clasificadorRol={clasificadorRol}
+                            clientes={clientes}
+                            anexo={{
+                              encabezadoId: p.id,
+                              clienteId: grupo.clienteId,
+                              clienteNombre: grupo.clienteNombre,
+                              periodo: p.periodo,
+                            }}
+                            className={`${BOTON_ACCION} border-navy-600 text-navy-700 hover:bg-blue-50 hover:text-navy-800`}
+                          />
+                        )}
                         {puedeEliminar && (
                           <EliminarDatosModuloButton
                             encabezadoId={p.id}

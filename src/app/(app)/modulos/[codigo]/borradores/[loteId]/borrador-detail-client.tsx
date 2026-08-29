@@ -102,6 +102,7 @@ export default function BorradorModuloClient({
   verificaciones,
   filas,
   reconciliacion,
+  anexo,
   version,
   hermanos,
   notasCliente = null,
@@ -120,6 +121,8 @@ export default function BorradorModuloClient({
   verificaciones: { id: string; texto: string }[];
   filas: FilaBorradorModulo[];
   reconciliacion: ReconciliacionModulo | null;
+  /** Anexo declarado con «Agregar archivo»: a qué cargue se suma y qué ítems repite. */
+  anexo: { version: number; periodo: string; repetidos: string[]; vigente: boolean } | null;
   version: number | null;
   hermanos: VersionHermanaBorradorModulo[];
   /** Notas de carga del cliente para este módulo (Configuración › Perfiles de carga). */
@@ -351,6 +354,27 @@ export default function BorradorModuloClient({
           </div>
         )}
 
+        {anexo && (
+          <div className={`rounded-md border px-3 py-2 text-[12px] ${anexo.repetidos.length > 0 ? "border-err-500 bg-err-100 text-err-700" : "border-navy-600 bg-blue-50 text-navy-800"}`}>
+            <span className="font-semibold">
+              {anexo.vigente
+                ? `↳ Este archivo se AGREGARÁ a la v${anexo.version} de ${anexo.periodo}.`
+                : `↳ El cargue al que ibas a agregarlo (v${anexo.version} de ${anexo.periodo}) ya no es el vigente.`}
+            </span>
+            {!anexo.vigente ? (
+              <span className="ml-1">Al confirmar se creará una versión nueva en vez de agregarse.</span>
+            ) : anexo.repetidos.length > 0 ? (
+              <span className="ml-1">
+                ⚠ {anexo.repetidos.length} ítem(s) del archivo YA están en esa versión y quedarían duplicados:{" "}
+                {anexo.repetidos.slice(0, 6).map((k) => k.trim() || "(sin referencia)").join(", ")}
+                {anexo.repetidos.length > 6 ? "…" : ""}. Si el archivo es una re-subida y no una adición, descarta este
+                borrador y cárgalo con «Cargar {moduloCodigo === "INV" ? "inventarios" : "el módulo"}», que crea una versión nueva.
+              </span>
+            ) : (
+              <span className="ml-1">No repite ningún ítem ya cargado: se suma limpio a lo que existe.</span>
+            )}
+          </div>
+        )}
         {totalizadoras.length > 0 && (
           <div className="rounded-md border border-err-500 bg-err-100 px-3 py-2 text-[12px] text-err-700">
             <span className="font-semibold">
@@ -627,7 +651,16 @@ export default function BorradorModuloClient({
         <div className="flex items-end gap-2">
           <label className="flex flex-col gap-1">
             <span className="text-[11px] font-medium text-ink-600">Período (AAAA-MM)</span>
-            <input type="month" value={periodo} onChange={(e) => setPeriodo(e.target.value)} className="rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12.5px] text-ink-700 outline-none focus:border-blue-400" />
+            {/* En un anexo el período es el del cargue destino: cambiarlo aquí haría que la
+                confirmación dejara de encontrarlo y se convirtiera en versión nueva sin avisar. */}
+            <input
+              type="month"
+              value={periodo}
+              onChange={(e) => setPeriodo(e.target.value)}
+              disabled={anexo?.vigente === true}
+              title={anexo?.vigente ? `Fijo: este archivo se agrega al cargue de ${anexo.periodo}` : undefined}
+              className="rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12.5px] text-ink-700 outline-none focus:border-blue-400 disabled:bg-ink-50 disabled:font-semibold"
+            />
           </label>
           <button type="button" disabled={cargando || hayCambios || !verifCompletas} onClick={confirmar} title={hayCambios ? "Guarda o descarta los cambios antes de confirmar" : !verifCompletas ? "Responde las verificaciones" : undefined} className="rounded-md bg-navy-700 px-3.5 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60">
             {cargando ? "Cargando…" : "Confirmar carga"}

@@ -1099,6 +1099,11 @@ model ModuloImportacionLote {
   huella                String?   @map("huella")
   origenExtraccion      String?   @map("origen_extraccion") // perfil | ia | plantilla | manual
   specJson              Json?     @map("especificacion_json")
+  // ANEXO declarado por el usuario: encabezado ya cargado al que este archivo se suma
+  // («Agregar archivo»). `null` = carga normal, que NUNCA anexa (versiona o crea registro
+  // nuevo). FK suave: solo el Int, sin @relation — si el encabezado destino desaparece, la
+  // confirmación lo detecta y avisa en vez de arrastrar una cascada.
+  anexoEncabezadoId     Int?      @map("anexo_encabezado_id")
   correccionesAplicadas Int       @default(0) @map("correcciones_aplicadas")
   cargadoPor            String?   @map("cargado_por")
   cargadoPorId          Int?      @map("cargado_por_id")
