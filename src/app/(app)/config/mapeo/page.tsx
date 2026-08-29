@@ -69,13 +69,13 @@ export default async function MapeoPage({ searchParams }: { searchParams: Promis
     // se calcula para quien administra el plan.
     lockedStdCodesPromise,
     // Memoria de mapeo: las reglas por grupo (nivel 6) + las EXCEPCIONES por
-    // cuenta que dejó una homologación con alcance «solo esta cuenta» (nivel 8),
-    // para que se puedan revisar y deshacer desde aquí.
+    // cuenta que dejó una homologación con alcance «solo esta cuenta» (nivel 8).
+    // Incluye las de nivel 6 TODAVÍA SIN homologar: esta pestaña es la única que
+    // edita, así que también tiene que poder resolverlas (salen como «Asignar»).
     clienteId
       ? prisma.clientAccount.findMany({
           where: {
             clienteId,
-            cuenta6Russell: { not: null },
             OR: [{ level: 6 }, { origenMapeo: ORIGEN_MANUAL_CUENTA }],
           },
           orderBy: { code: "asc" },
@@ -124,7 +124,7 @@ export default async function MapeoPage({ searchParams }: { searchParams: Promis
     cuenta6Russell: r.cuenta6Russell ?? "",
     nombreRussell: r.cuenta6Russell ? (stdNombre.get(r.cuenta6Russell) ?? null) : null,
     coincidencia: r.coincidencia != null ? Number(r.coincidencia) : null,
-    origen: r.origenMapeo ?? "automatico",
+    origen: r.origenMapeo,
     actualizadoPor: r.actualizadoPor,
     actualizadoEn: r.actualizadoEn ? r.actualizadoEn.toISOString() : "",
   }));

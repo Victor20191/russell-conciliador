@@ -174,40 +174,6 @@ export async function confirmarMapeoCliente(formData: FormData): Promise<ActionS
   }
 }
 
-/**
- * Reasigna la cuenta estándar de una fila desde la tabla "Mapeo por cliente"
- * (acepta filas de nivel 6 u 8): aplica el nuevo estándar a TODO el grupo de 6
- * díg como mapeo `manual` al 100%. Acción de un solo argumento (se invoca directo
- * desde el selector con `useTransition`).
- */
-export async function reasignarMapeoCliente(formData: FormData): Promise<ActionState> {
-  const authz = await authorizePermiso("balance:crear");
-  if (!authz.ok) return { ok: false, message: authz.message };
-  const id = Number(formData.get("id"));
-  const codigo = String(formData.get("codigo") ?? "").trim();
-  if (!Number.isInteger(id) || id <= 0) return { ok: false, message: "Cuenta inexistente." };
-  if (!/^\d{6}$/.test(codigo)) return { ok: false, message: "Selecciona una cuenta estándar (6 dígitos)." };
-  try {
-    const row = await prisma.clientAccount.findUnique({ where: { id }, select: { code: true, clienteId: true } });
-    if (!row) return { ok: false, message: "La cuenta ya no existe." };
-    const scope = await authorizePermiso("balance:crear", { clientId: await clienteDeCuentaCliente(id) });
-    if (!scope.ok) return { ok: false, message: scope.message };
-    if (!(await existeEstandar(codigo))) return { ok: false, message: "La cuenta estándar seleccionada no existe." };
-    const cuenta6 = row.code.slice(0, 6);
-    const user = await getCurrentUser();
-    const where = row.clienteId != null ? { clienteId: row.clienteId, code: { startsWith: cuenta6 } } : { id };
-    const res = await prisma.clientAccount.updateMany({
-      where,
-      data: { cuenta6Russell: codigo, coincidencia: 100, origenMapeo: ORIGEN_MANUAL_GRUPO, actualizadoPor: user?.name ?? null, actualizadoEn: new Date() },
-    });
-    await logAudit({ user: user?.name ?? "Sistema", action: "REASIGNÓ MAPEO CLIENTE", entity: cuenta6, detail: `${cuenta6} → ${codigo} · manual 100% (${res.count} cuenta(s))`, clientId: row.clienteId });
-    revalidatePath(PATH);
-    return { ok: true };
-  } catch (e) {
-    return { ok: false, message: mensajeErrorBD("reasignarMapeoCliente", e) };
-  }
-}
-
 export async function eliminarMapeoCliente(_prev: ActionState | undefined, formData: FormData): Promise<ActionState> {
   const authz = await authorizePermiso("balance:crear");
   if (!authz.ok) return { ok: false, message: authz.message };

@@ -2,7 +2,7 @@
 
 import { EstadoProcesando } from "@/components/estado-procesando";
 
-import { useActionState, useEffect, useMemo, useState, useTransition } from "react";
+import { useActionState, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
 import { Card, Chip, StatCard, EmptyState } from "@/components/ui";
@@ -13,7 +13,7 @@ import {
 } from "@/components/pagination-controls";
 import { ActionForm } from "@/components/action-form";
 import { Modal } from "@/components/modal";
-import { notifyActionState, notifySuccess, notifyError } from "@/lib/client-notifications";
+import { notifyActionState } from "@/lib/client-notifications";
 import { fmtDateTimeLong } from "@/lib/format";
 import {
   createStandardAccount,
@@ -22,7 +22,7 @@ import {
 } from "@/app/actions/standard-accounts";
 import { crearSubgrupo, editarSubgrupo, eliminarSubgrupo } from "@/app/actions/subgrupos";
 import { esExcepcionCuenta, esMapeoManual } from "@/lib/balance/mapeo-cliente-config";
-import { crearMapeoCliente, editarMapeoCliente, eliminarMapeoCliente, confirmarMapeoCliente, reasignarMapeoCliente } from "@/app/actions/mapeo-cliente";
+import { crearMapeoCliente, editarMapeoCliente, eliminarMapeoCliente, confirmarMapeoCliente } from "@/app/actions/mapeo-cliente";
 
 export type Account = { id: number; code: string; level: number; name: string; cuenta6Russell: string | null; coincidencia: number | null; origenMapeo: string | null };
 export type RussellOpt = { code: string; name: string; module: string | null };
@@ -69,7 +69,7 @@ export type MapeoClienteRow = {
   cuenta6Russell: string;
   nombreRussell: string | null;
   coincidencia: number | null;
-  origen: string; // manual | manual_cuenta | automatico
+  origen: string | null; // manual | manual_cuenta | automatico · null = sin asignar
   actualizadoPor: string | null;
   actualizadoEn: string; // ISO
 };
@@ -82,16 +82,12 @@ export default function MapeoClient({
   clientNames: string[]; cliente: string; accounts: Account[]; std: StdAccount[]; subgrupos: Subgrupo[]; canManage: boolean; logs: StdLogRow[]; lockedStdCodes: string[]; mapeoCliente: MapeoClienteRow[]; clienteId: number | null; clienteNit: string | null; puedeMapear: boolean;
 }) {
   const router = useRouter();
-  const [tab, setTab] = useState<Tab>("mapping");
+  const [tab, setTab] = useState<Tab>("mapeocliente");
   const [q, setQ] = useState("");
   const [level, setLevel] = useState<"all" | "4" | "6" | "8">("all");
   const [soloPendientes, setSoloPendientes] = useState(false);
-  const [confirmar, setConfirmar] = useState<Account | null>(null);
-  const [asignar, setAsignar] = useState<Account | null>(null);
 
   const stdByCode = useMemo(() => new Map(std.map((s) => [s.code, s.name])), [std]);
-  // Opciones de cuenta estándar (nivel 6 del plan) para el selector de reasignación.
-  const opciones6 = useMemo(() => std.filter((s) => s.code.length === 6).map((s) => ({ code: s.code, name: s.name })), [std]);
   const stats = useMemo(() => ({
     total: accounts.length,
     n4: accounts.filter((a) => a.level === 4).length,
@@ -112,14 +108,22 @@ export default function MapeoClient({
   return (
     <div>
       <div className="mb-4 flex items-center gap-2">
-        <TabBtn on={tab === "mapping"} onClick={() => setTab("mapping")} label="Mapeo por cliente" count={accounts.length} />
         <TabBtn on={tab === "mapeocliente"} onClick={() => setTab("mapeocliente")} label="Mapeo balance/cliente" count={mapeoCliente.length} />
+        <TabBtn on={tab === "mapping"} onClick={() => setTab("mapping")} label="Mapeo por cliente" count={accounts.length} />
         <TabBtn on={tab === "standard"} onClick={() => setTab("standard")} label="Plan estándar Russell" count={std.length} />
         <TabBtn on={tab === "subgrupos"} onClick={() => setTab("subgrupos")} label="Subgrupos (nivel 4)" count={subgrupos.length} />
       </div>
 
       {tab === "mapping" ? (
         <>
+      {/* Informe de SOLO LECTURA: la homologación se edita en «Mapeo balance/cliente»,
+          que es la memoria que se reaplica en cada carga. Aquí solo se consulta. */}
+      <div className="mb-4 rounded-md border border-ink-200 bg-ink-50 px-3 py-2 text-[11.5px] leading-relaxed text-ink-600">
+        <b className="text-ink-700">Informe de consulta.</b> Muestra el PUC completo de <b>{cliente}</b> (N4/N6/N8) con la
+        cuenta estándar que tiene asignada hoy. No se edita desde aquí: para asignar, confirmar o quitar una homologación
+        usa la pestaña <b>Mapeo balance/cliente</b>.
+      </div>
+
       {/* KPIs */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <Card className="p-4">
@@ -144,7 +148,7 @@ export default function MapeoClient({
         <Icon name="chev-r" size={12} />
         <span className="rounded-md bg-ink-50 px-2.5 py-1.5"><b className="text-ink-700">Cuenta estándar</b> · plan Russell (6 díg)</span>
         <Icon name="chev-r" size={12} />
-        <span className="rounded-md bg-ink-50 px-2.5 py-1.5"><b className="text-ink-700">% + Confirmación</b> · fija el mapeo manual</span>
+        <span className="rounded-md bg-ink-50 px-2.5 py-1.5"><b className="text-ink-700">% + Confirmación</b> · estado del mapeo</span>
       </div>
 
       {/* Tabla */}
@@ -205,15 +209,7 @@ export default function MapeoClient({
                       <td className="px-3 py-2 font-mono text-ink-600" style={{ paddingLeft: a.level === 4 ? 12 : a.level === 6 ? 28 : 48 }}>{a.code}</td>
                       <td className="px-3 py-2 text-ink-800">{a.level !== 4 && <span className="mr-1 text-ink-400">└</span>}{a.name}</td>
                       <td className="px-3 py-2">
-                        {puedeMapear ? (
-                          <button type="button" onClick={() => setAsignar(a)} title="Cambiar la cuenta estándar (aplica a todo el grupo de 6 díg)" className="text-left hover:underline">
-                            {sinMapeo ? (
-                              <Chip label="Asignar" tone="warn" />
-                            ) : (
-                              <span className="font-mono text-[11.5px] text-blue-600">{a.cuenta6Russell}{stdByCode.get(a.cuenta6Russell!) ? <span className="ml-1 font-sans text-ink-500">· {stdByCode.get(a.cuenta6Russell!)}</span> : null}</span>
-                            )}
-                          </button>
-                        ) : sinMapeo ? (
+                        {sinMapeo ? (
                           <Chip label="Sin mapeo" tone="warn" />
                         ) : (
                           <span className="font-mono text-[11.5px] text-blue-600">{a.cuenta6Russell}{stdByCode.get(a.cuenta6Russell!) ? <span className="ml-1 font-sans text-ink-500">· {stdByCode.get(a.cuenta6Russell!)}</span> : null}</span>
@@ -232,9 +228,7 @@ export default function MapeoClient({
                         ) : confirmado ? (
                           <Chip label={esExcepcionCuenta(a.origenMapeo) ? "Solo esta cuenta" : a.origenMapeo === "manual" ? "Confirmado" : "Exacto"} tone="ok" />
                         ) : (
-                          <button type="button" onClick={() => setConfirmar(a)} className="inline-flex items-center gap-1 rounded-md border border-warn-200 bg-warn-50 px-2.5 py-1 text-[11.5px] font-semibold text-warn-700 hover:bg-warn-100">
-                            <Icon name="check" size={12} /> Confirmar
-                          </button>
+                          <Chip label="Por confirmar" tone="warn" />
                         )}
                       </td>
                     </tr>
@@ -254,15 +248,9 @@ export default function MapeoClient({
           onPageChange={pg.setPage}
         />
       </Card>
-      {confirmar && (
-        <ConfirmarMapeoModal cuenta={confirmar} accounts={accounts} stdByCode={stdByCode} onClose={() => setConfirmar(null)} />
-      )}
-      {asignar && (
-        <AsignarEstandarModal cuenta={asignar} opciones={opciones6} onClose={() => setAsignar(null)} />
-      )}
         </>
       ) : tab === "mapeocliente" ? (
-        <MapeoClienteTab rows={mapeoCliente} std={std} clienteId={clienteId} clienteNit={clienteNit} puedeMapear={puedeMapear} cliente={cliente} clientNames={clientNames} />
+        <MapeoClienteTab rows={mapeoCliente} std={std} accounts={accounts} clienteId={clienteId} clienteNit={clienteNit} puedeMapear={puedeMapear} cliente={cliente} clientNames={clientNames} />
       ) : tab === "standard" ? (
         <StandardTab std={std} canManage={canManage} logs={logs} lockedStdCodes={lockedStdCodes} />
       ) : (
@@ -333,97 +321,43 @@ function ConfirmarMapeoModal({ cuenta, accounts, stdByCode, onClose }: {
 
 // Selector (con búsqueda) para CAMBIAR la cuenta estándar de una fila. El cambio
 // aplica a todo el grupo de 6 díg como mapeo `manual` al 100%.
-function AsignarEstandarModal({ cuenta, opciones, onClose }: {
-  cuenta: Account; opciones: { code: string; name: string }[]; onClose: () => void;
-}) {
-  const router = useRouter();
-  const [pending, start] = useTransition();
-  const [q, setQ] = useState("");
-  const c6 = cuenta.code.slice(0, 6);
-  const clase = cuenta.code.charAt(0);
-
-  const filtradas = useMemo(() => {
-    const t = q.trim().toLowerCase();
-    const base = opciones.filter((o) => (t ? `${o.code} ${o.name}`.toLowerCase().includes(t) : o.code.charAt(0) === clase));
-    return base.slice(0, 200);
-  }, [opciones, q, clase]);
-
-  const elegir = (codigo: string) => {
-    const fd = new FormData();
-    fd.set("id", String(cuenta.id));
-    fd.set("codigo", codigo);
-    start(async () => {
-      const r = await reasignarMapeoCliente(fd);
-      if (r?.ok) { notifySuccess("Cuenta estándar reasignada."); router.refresh(); onClose(); }
-      else notifyError(r?.message ?? "No se pudo reasignar la cuenta.");
-    });
-  };
-
-  return (
-    <Modal open onClose={onClose} title="Cambiar cuenta estándar" size="2xl">
-      <div className="flex flex-col gap-3">
-        <p className="text-[12.5px] text-ink-600">
-          Cuenta del cliente <span className="font-mono font-semibold">{cuenta.code}</span> — {cuenta.name}.
-          Elige la cuenta del <span className="font-semibold">plan estándar Russell</span> (nivel 6).
-        </p>
-        <p className="rounded-md bg-blue-50 px-3 py-2 text-[11.5px] text-blue-700">
-          Se aplicará a <span className="font-semibold">todo el grupo {c6}</span> (sus imputables de nivel 8) como mapeo <span className="font-semibold">manual al 100%</span>.
-        </p>
-        <input
-          autoFocus
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder={`Filtra por código o nombre… (por defecto, clase ${clase})`}
-          className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400"
-        />
-        <div className="max-h-80 overflow-y-auto rounded-md border border-ink-150">
-          {filtradas.length === 0 ? (
-            <div className="px-3 py-4 text-center text-[12px] text-ink-400">Sin coincidencias.</div>
-          ) : (
-            filtradas.map((o) => (
-              <button
-                key={o.code}
-                type="button"
-                disabled={pending}
-                onClick={() => elegir(o.code)}
-                className="flex w-full items-center gap-3 border-b border-ink-50 px-3 py-2 text-left last:border-0 hover:bg-ink-50 disabled:opacity-60"
-              >
-                <span className="font-mono text-[11.5px] font-semibold text-ink-700">{o.code}</span>
-                <span className="text-[12.5px] text-ink-700">{o.name}</span>
-                {o.code === cuenta.cuenta6Russell && <span className="ml-auto"><Chip label="Actual" tone="ok" /></span>}
-              </button>
-            ))
-          )}
-        </div>
-        {pending && <p className="text-[12px] text-ink-500"><EstadoProcesando>Reasignando</EstadoProcesando></p>}
-      </div>
-    </Modal>
-  );
-}
-
 // ===== Memoria de mapeo por cliente (cuenta_6 del cliente → cuenta estándar) =====
 // Edita la tabla `cuentas_cliente`: la parametrización que se reaplica en cada
 // importación del cliente. Gate de escritura: `balance:crear` (la action revalida
 // el alcance por cartera).
 
-function MapeoClienteTab({ rows, std, clienteId, clienteNit, puedeMapear, cliente, clientNames }: {
-  rows: MapeoClienteRow[]; std: StdAccount[]; clienteId: number | null; clienteNit: string | null; puedeMapear: boolean; cliente: string; clientNames: string[];
+function MapeoClienteTab({ rows, std, accounts, clienteId, clienteNit, puedeMapear, cliente, clientNames }: {
+  rows: MapeoClienteRow[]; std: StdAccount[]; accounts: Account[]; clienteId: number | null; clienteNit: string | null; puedeMapear: boolean; cliente: string; clientNames: string[];
 }) {
   const router = useRouter();
   const [q, setQ] = useState("");
-  const [origen, setOrigen] = useState<"all" | "manual" | "automatico">("all");
+  const [origen, setOrigen] = useState<"all" | "manual" | "automatico" | "sinasignar">("all");
   const [createOpen, setCreateOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<MapeoClienteRow | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<MapeoClienteRow | null>(null);
+  const [confirmTarget, setConfirmTarget] = useState<MapeoClienteRow | null>(null);
+  const stdByCode = useMemo(() => new Map(std.map((x) => [x.code, x.name])), [std]);
+  // El modal de confirmación razona sobre cuentas del PUC: se le pasa la fila de la
+  // memoria con la forma de `Account` (comparten el id de `cuentas_cliente`).
+  const comoCuenta = (r: MapeoClienteRow): Account => ({
+    id: r.id, code: r.cuenta6, level: r.nivel, name: r.nombreCuenta,
+    cuenta6Russell: r.cuenta6Russell || null, coincidencia: r.coincidencia, origenMapeo: r.origen,
+  });
   // El selector de cuenta estándar ofrece solo cuentas de 6 dígitos (nivel 6).
   const opciones6 = useMemo(() => std.filter((s) => s.code.length === 6), [std]);
   const needle = q.trim().toLowerCase();
   const filtered = rows
-    .filter((r) => origen === "all" || (origen === "manual" ? esMapeoManual(r.origen) : r.origen === origen))
+    .filter((r) => {
+      if (origen === "all") return true;
+      if (origen === "sinasignar") return !r.cuenta6Russell;
+      if (!r.cuenta6Russell) return false;
+      return origen === "manual" ? esMapeoManual(r.origen) : r.origen === "automatico";
+    })
     .filter((r) => !needle || r.cuenta6.includes(needle) || r.cuenta6Russell.includes(needle) || (r.nombreRussell ?? "").toLowerCase().includes(needle) || r.nombreCuenta.toLowerCase().includes(needle));
   const pg = usePagination(filtered, 50);
   const manualCount = rows.filter((r) => esMapeoManual(r.origen)).length;
   const excepcionCount = rows.filter((r) => esExcepcionCuenta(r.origen)).length;
+  const sinAsignarCount = rows.filter((r) => !r.cuenta6Russell).length;
 
   return (
     <>
@@ -438,8 +372,8 @@ function MapeoClienteTab({ rows, std, clienteId, clienteNit, puedeMapear, client
           </select>
           <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
             <div className="flex overflow-hidden rounded-md border border-ink-200 text-[11.5px]">
-              {(["all", "manual", "automatico"] as const).map((o) => (
-                <button key={o} onClick={() => { setOrigen(o); pg.resetToFirstPage(); }} className={`px-2.5 py-1 ${origen === o ? "bg-navy-800 text-white" : "bg-white text-ink-600 hover:bg-ink-50"}`}>{o === "all" ? "Todos" : o === "manual" ? "Manual" : "Automático"}</button>
+              {(["all", "manual", "automatico", "sinasignar"] as const).map((o) => (
+                <button key={o} onClick={() => { setOrigen(o); pg.resetToFirstPage(); }} className={`px-2.5 py-1 ${origen === o ? "bg-navy-800 text-white" : "bg-white text-ink-600 hover:bg-ink-50"}`}>{o === "all" ? "Todos" : o === "manual" ? "Manual" : o === "automatico" ? "Automático" : "Sin asignar"}</button>
               ))}
             </div>
             <input value={q} onChange={(e) => { setQ(e.target.value); pg.resetToFirstPage(); }} placeholder="filtrar por cuenta o estándar" className="w-64 rounded-md border border-ink-200 px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400" />
@@ -459,6 +393,7 @@ function MapeoClienteTab({ rows, std, clienteId, clienteNit, puedeMapear, client
               <thead>
                 <tr className="border-b border-ink-100 text-left text-[11px] uppercase tracking-wider text-ink-500">
                   <th className="px-4 py-2 font-semibold">Cuenta cliente</th>
+                  <th className="px-4 py-2 font-semibold">Nombre cuenta (ERP)</th>
                   <th className="px-4 py-2 font-semibold">Cuenta estándar Russell</th>
                   <th className="px-4 py-2 font-semibold">Origen</th>
                   <th className="px-4 py-2 font-semibold">Coincidencia</th>
@@ -473,35 +408,66 @@ function MapeoClienteTab({ rows, std, clienteId, clienteNit, puedeMapear, client
                       {puedeMapear ? (
                         <button type="button" onClick={() => setEditTarget(r)} title="Editar mapeo" className="font-mono font-semibold text-blue-600 hover:underline">{r.cuenta6}</button>
                       ) : r.cuenta6}
-                      {esExcepcionCuenta(r.origen) && r.nombreCuenta && r.nombreCuenta !== r.cuenta6 && (
-                        <span className="ml-2 font-sans text-[11.5px] font-normal text-ink-500">{r.nombreCuenta}</span>
+                    </td>
+                    {/* Las reglas creadas por anticipado guardan el código como nombre:
+                        en esas no hay nombre del ERP que mostrar. */}
+                    <td className="px-4 py-2.5 text-ink-700">{r.nombreCuenta && r.nombreCuenta !== r.cuenta6 ? r.nombreCuenta : "—"}</td>
+                    <td className="px-4 py-2.5 text-ink-800">
+                      {r.cuenta6Russell ? (
+                        <><span className="font-mono text-blue-600">{r.cuenta6Russell}</span>{r.nombreRussell ? ` · ${r.nombreRussell}` : ""}</>
+                      ) : puedeMapear ? (
+                        <button type="button" onClick={() => setEditTarget(r)} title="Asignar cuenta estándar"><Chip label="Asignar" tone="warn" /></button>
+                      ) : (
+                        <Chip label="Asignar" tone="warn" />
                       )}
                     </td>
-                    <td className="px-4 py-2.5 text-ink-800"><span className="font-mono text-blue-600">{r.cuenta6Russell}</span>{r.nombreRussell ? ` · ${r.nombreRussell}` : ""}</td>
                     <td className="px-4 py-2.5">
                       <Chip
-                        label={esExcepcionCuenta(r.origen) ? "Solo esta cuenta" : r.origen === "manual" ? "Manual" : "Automático"}
-                        tone={esMapeoManual(r.origen) ? "blue" : "ink"}
+                        label={!r.cuenta6Russell ? "Sin asignar" : esExcepcionCuenta(r.origen) ? "Solo esta cuenta" : r.origen === "manual" ? "Manual" : "Automático"}
+                        tone={!r.cuenta6Russell ? "warn" : esMapeoManual(r.origen) ? "blue" : "ink"}
                       />
                     </td>
                     <td className="px-4 py-2.5 font-mono text-ink-600">{r.coincidencia != null ? `${r.coincidencia}%` : "—"}</td>
                     <td className="whitespace-nowrap px-4 py-2.5 text-[11.5px] text-ink-500">{fmtFecha(r.actualizadoEn)}{r.actualizadoPor ? ` · ${r.actualizadoPor}` : ""}</td>
                     {puedeMapear && (
-                      <td className="px-4 py-2.5 text-right">
-                        <button type="button" onClick={() => setDeleteTarget(r)} className="text-[12px] font-semibold text-err-700 hover:underline">Eliminar</button>
+                      /* Botones en una sola línea (`whitespace-nowrap` + flex): como enlaces
+                         sueltos se apilaban al angostarse la columna y quedaban ilegibles. */
+                      <td className="whitespace-nowrap px-4 py-2.5">
+                        <div className="flex items-center justify-end gap-1.5">
+                          {r.cuenta6Russell && (r.coincidencia == null || r.coincidencia < 100) && (
+                            <button
+                              type="button"
+                              onClick={() => setConfirmTarget(r)}
+                              title="Aceptar esta homologación y fijarla como manual al 100%"
+                              className="inline-flex items-center gap-1 rounded-md border border-warn-200 bg-warn-50 px-2 py-1 text-[11.5px] font-semibold text-warn-700 hover:bg-warn-100"
+                            >
+                              <Icon name="check" size={12} /> Confirmar
+                            </button>
+                          )}
+                          {r.cuenta6Russell && (
+                            <button
+                              type="button"
+                              onClick={() => setDeleteTarget(r)}
+                              title="Quitar la homologación: la cuenta vuelve a la cascada automática"
+                              className="inline-flex items-center gap-1 rounded-md border border-ink-200 bg-white px-2 py-1 text-[11.5px] font-semibold text-err-700 hover:border-err-200 hover:bg-err-50"
+                            >
+                              <Icon name="trash" size={12} /> Eliminar
+                            </button>
+                          )}
+                        </div>
                       </td>
                     )}
                   </tr>
                 ))}
                 {filtered.length === 0 && (
-                  <tr><td colSpan={puedeMapear ? 6 : 5} className="px-4 py-8 text-center text-ink-400">Sin reglas que coincidan con el filtro.</td></tr>
+                  <tr><td colSpan={puedeMapear ? 7 : 6} className="px-4 py-8 text-center text-ink-400">Sin cuentas que coincidan con el filtro.</td></tr>
                 )}
               </tbody>
             </table>
           </div>
         )}
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-ink-100 px-4 py-2.5 text-[11.5px] text-ink-500">
-          <span>{rows.length} regla(s) · {manualCount} manual(es){excepcionCount > 0 ? ` · ${excepcionCount} de solo esta cuenta` : ""}</span>
+          <span>{rows.length} cuenta(s) · {manualCount} manual(es){excepcionCount > 0 ? ` · ${excepcionCount} de solo esta cuenta` : ""}{sinAsignarCount > 0 ? ` · ${sinAsignarCount} sin asignar` : ""}</span>
         </div>
         <PaginationFooter rangeLabel={pg.rangeLabel} currentPage={pg.page} totalPages={pg.totalPages} onPageChange={pg.setPage} />
       </Card>
@@ -514,6 +480,9 @@ function MapeoClienteTab({ rows, std, clienteId, clienteNit, puedeMapear, client
       )}
       {puedeMapear && deleteTarget && (
         <DeleteMapeoClienteForm row={deleteTarget} onClose={() => setDeleteTarget(null)} />
+      )}
+      {puedeMapear && confirmTarget && (
+        <ConfirmarMapeoModal cuenta={comoCuenta(confirmTarget)} accounts={accounts} stdByCode={stdByCode} onClose={() => setConfirmTarget(null)} />
       )}
     </>
   );
@@ -538,7 +507,7 @@ function MapeoClienteForm({ mode, row, clienteId, opciones, onClose, onDelete }:
       open
       onClose={onClose}
       size="xl"
-      title={isEdit ? `Editar mapeo · ${row?.cuenta6}` : "Nueva regla de mapeo"}
+      title={isEdit ? `${row?.cuenta6Russell ? "Editar mapeo" : "Asignar cuenta estándar"} · ${row?.cuenta6}` : "Nueva regla de mapeo"}
       footer={
         <div className="flex w-full items-center justify-between gap-2">
           <div>
