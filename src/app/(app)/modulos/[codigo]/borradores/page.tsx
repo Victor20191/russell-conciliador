@@ -41,10 +41,23 @@ export default async function BorradoresModuloPage({ params }: { params: Promise
         origenExtraccion: true,
         cargadoPor: true,
         creadoEn: true,
+        anexoEncabezadoId: true,
       },
     }),
   ]);
   const clientePorId = new Map(clientes.map((c) => [c.id, c]));
+
+  // Anexos declarados con «Agregar archivo»: sin esto un borrador que se SUMA a un
+  // cargue existente se ve idéntico a uno que crea versión nueva, y la diferencia solo
+  // aparecía al abrirlo. Se resuelve la versión destino para poder anunciarlo en la lista.
+  const anexoIds = [...new Set(borradores.map((b) => b.anexoEncabezadoId).filter((id): id is number => id != null))];
+  const destinos = anexoIds.length
+    ? await prisma.moduloDatoEncabezado.findMany({
+        where: { id: { in: anexoIds } },
+        select: { id: true, version: true, periodo: true, esOficial: true },
+      })
+    : [];
+  const destinoPorId = new Map(destinos.map((d) => [d.id, d]));
 
   // Del staging solo se agrega en PostgreSQL: los borradores pueden traer decenas
   // de miles de filas y el listado únicamente necesita el conteo y el total.
@@ -90,8 +103,17 @@ export default async function BorradoresModuloPage({ params }: { params: Promise
       origen: b.origenExtraccion,
       cargadoPor: b.cargadoPor,
       comentarios: comentPorLote.get(b.id) ?? 0,
+      anexoEncabezadoId: b.anexoEncabezadoId,
     })),
   );
+
+  // El destino puede haber dejado de ser el vigente entre la subida y la confirmación:
+  // en ese caso la carga cae a versión nueva, y conviene avisarlo antes de abrirlo.
+  const anexoDe = (id: number | null): { version: number; periodo: string; vigente: boolean } | null => {
+    if (id == null) return null;
+    const d = destinoPorId.get(id);
+    return d ? { version: d.version, periodo: d.periodo, vigente: d.esOficial } : null;
+  };
 
   const filas: BorradorModuloRow[] = borradoresVersionados.map((b) => {
     const resumen = resumenPorLote.get(b.loteId) ?? { filas: b.filasLeidas, total: 0, omitidas: 0 };
@@ -114,6 +136,7 @@ export default async function BorradoresModuloPage({ params }: { params: Promise
       fecha: b.creadoEn ? fmtDate(b.creadoEn) : "—",
       hora: b.creadoEn ? fmtHora12(b.creadoEn) : null,
       comentarios: b.comentarios,
+      anexo: anexoDe(b.anexoEncabezadoId),
     };
   });
 

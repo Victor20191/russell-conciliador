@@ -43,6 +43,8 @@ export type BorradorModuloRow = FilaListadoModulo & {
   fecha: string;
   hora: string | null;
   comentarios: number;
+  /** Cargue al que este borrador se SUMARÁ («Agregar archivo»); null = versiona. */
+  anexo: { version: number; periodo: string; vigente: boolean } | null;
 };
 
 export default function BorradoresModuloClient({
@@ -207,8 +209,25 @@ function TablaBorradores({
                   {fmtContable(r.total)}
                 </td>
                 <td className="px-3 py-2">
-                  <span className="inline-flex flex-col gap-0.5">
+                  <span className="inline-flex flex-col items-start gap-0.5">
                     <Chip label="Por confirmar" tone="warn" />
+                    {r.anexo && (
+                      r.anexo.vigente ? (
+                        <span
+                          className="whitespace-nowrap text-[10px] font-semibold text-navy-700"
+                          title={`Al confirmar se SUMA a la v${r.anexo.version} de ${r.anexo.periodo}; no crea versión nueva`}
+                        >
+                          ↳ Anexo a v{r.anexo.version}
+                        </span>
+                      ) : (
+                        <span
+                          className="whitespace-nowrap text-[10px] font-semibold text-err-700"
+                          title={`La v${r.anexo.version} de ${r.anexo.periodo} ya no es la vigente: al confirmar se creará una versión nueva`}
+                        >
+                          ↳ Anexo a v{r.anexo.version} · ya no vigente
+                        </span>
+                      )
+                    )}
                     {r.omitidas > 0 && (
                       <span className="text-[10px] text-warn-700">{r.omitidas} omitida(s)</span>
                     )}
