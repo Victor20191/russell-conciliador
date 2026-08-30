@@ -7,12 +7,14 @@ const usoVacio: ResumenUsoFactual = {
   periodoDesde: "2026-06-01T00:00:00.000Z",
   periodoHasta: "2026-06-30T23:59:59.000Z",
   totalAcciones: 0,
+  totalNavegaciones: 0,
   totalConexiones: 0,
   totalUsuarios: 0,
   totalClientes: 0,
   primeraAccion: null,
   ultimaAccion: null,
   porFamilia: [],
+  navegacionesPorFamilia: [],
   topAcciones: [],
   topUsuarios: [],
   detalleUsuarios: [],
@@ -38,10 +40,15 @@ describe("construirSeccionGraficosHtml", () => {
       uso: {
         ...usoVacio,
         totalAcciones: 10,
+        totalNavegaciones: 15,
         totalUsuarios: 2,
         porFamilia: [
           { nombre: "Balance de comprobación", total: 7 },
           { nombre: "Conciliaciones", total: 3 },
+        ],
+        navegacionesPorFamilia: [
+          { nombre: "Inventarios", total: 11 },
+          { nombre: "Balance de comprobación", total: 4 },
         ],
         topUsuarios: [
           {
@@ -90,7 +97,10 @@ describe("construirSeccionGraficosHtml", () => {
     });
 
     expect(html).toContain('id="rd-graficos-uso"');
-    expect(html).toContain("Módulos y procesos más usados");
+    expect(html).toContain("Módulos más consultados");
+    expect(html).toContain("Procesos con más operaciones registradas");
+    expect(html).toContain("Inventarios");
+    expect(html).toContain("no se suman a las operaciones");
     expect(html).toContain("Usuarios con más actividad (top 5)");
     expect(html).toContain("Detalle de actividad por usuario");
     expect(html).toContain("inicios de sesión exitosos");

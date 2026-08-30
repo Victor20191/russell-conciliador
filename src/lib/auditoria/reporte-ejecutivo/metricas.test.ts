@@ -4,6 +4,7 @@ import {
   clasificarFamilia,
   conteosPorFamiliaCanon,
   familiaDesdeModulo,
+  familiaDesdeRuta,
 } from "./metricas";
 
 describe("clasificarFamilia", () => {
@@ -29,6 +30,24 @@ describe("clasificarFamilia", () => {
     expect(clasificarFamilia("GENERÓ REPORTE IA", "Novedades", "")).toBe("administracion");
     expect(clasificarFamilia("EDITÓ PROMPT IA")).toBe("administracion");
   });
+
+  test("clasifica las operaciones de Inventarios sin confundir otros módulos", () => {
+    expect(clasificarFamilia("LEYÓ archivo de Inventarios")).toBe("inventarios");
+    expect(clasificarFamilia("CARGÓ Inventarios")).toBe("inventarios");
+    expect(clasificarFamilia("AGREGÓ ítems a Inventarios")).toBe("inventarios");
+    for (const accion of [
+      "ACTUALIZÓ consolidación de módulo",
+      "MARCÓ una diferencia del cruce contable",
+      "EDITÓ la marca del cruce contable",
+      "RETIRÓ la marca del cruce contable",
+      "ELIMINÓ un soporte de la marca del cruce contable",
+      "ELIMINÓ DATOS DE MÓDULO",
+      "ELIMINÓ DATOS Y PERFILES DE CARGA DE MÓDULO",
+    ]) {
+      expect(clasificarFamilia(accion, "Cliente", "INV · 2025-12")).toBe("inventarios");
+      expect(clasificarFamilia(accion, "Cliente", "NOM · 2025-12")).not.toBe("inventarios");
+    }
+  });
 });
 
 describe("familiaDesdeModulo", () => {
@@ -36,6 +55,8 @@ describe("familiaDesdeModulo", () => {
     expect(familiaDesdeModulo("balance")).toBe("balance");
     expect(familiaDesdeModulo("conciliaciones")).toBe("conciliaciones");
     expect(familiaDesdeModulo("dian")).toBe("dian");
+    expect(familiaDesdeModulo("modulos_datos")).toBe("inventarios");
+    expect(familiaDesdeModulo("INV")).toBe("inventarios");
     expect(familiaDesdeModulo("novedades")).toBe("administracion");
   });
 
@@ -43,6 +64,16 @@ describe("familiaDesdeModulo", () => {
     expect(familiaDesdeModulo(null)).toBe(null);
     expect(familiaDesdeModulo("")).toBe(null);
     expect(familiaDesdeModulo("xyz_desconocido")).toBe(null);
+  });
+});
+
+describe("familiaDesdeRuta", () => {
+  test("solo expone familias operativas medibles", () => {
+    expect(familiaDesdeRuta("/modulos/inv/25")).toBe("inventarios");
+    expect(familiaDesdeRuta("/balance/borradores")).toBe("balance");
+    expect(familiaDesdeRuta("/conciliacion/resultados/8")).toBe("conciliaciones");
+    expect(familiaDesdeRuta("/config/prompts")).toBeNull();
+    expect(familiaDesdeRuta("/ruta-desconocida")).toBeNull();
   });
 });
 
@@ -57,6 +88,12 @@ describe("calcularResumenUso", () => {
       conexiones: [
         { usuario: "Ana", total: 4 },
         { usuario: "Marta", total: 2 },
+      ],
+      navegaciones: [
+        { ruta: "/modulos/inv", total: 12 },
+        { ruta: "/modulos/inv/25", total: 3 },
+        { ruta: "/balance", total: 4 },
+        { ruta: "/config/prompts", total: 30 },
       ],
       eventos: [
         {
@@ -88,6 +125,11 @@ describe("calcularResumenUso", () => {
 
     expect(resumen.totalAcciones).toBe(3);
     expect(resumen.totalConexiones).toBe(6);
+    expect(resumen.totalNavegaciones).toBe(19);
+    expect(resumen.navegacionesPorFamilia).toEqual([
+      { nombre: "Inventarios", total: 15 },
+      { nombre: "Balance de comprobación", total: 4 },
+    ]);
     expect(resumen.totalUsuarios).toBe(2);
     expect(resumen.totalClientes).toBe(1);
     expect(resumen.topClientes[0]?.nombre).toBe("Acme SAS");
@@ -123,6 +165,8 @@ describe("calcularResumenUso", () => {
     });
     expect(resumen.totalAcciones).toBe(0);
     expect(resumen.totalConexiones).toBe(0);
+    expect(resumen.totalNavegaciones).toBe(0);
+    expect(resumen.navegacionesPorFamilia).toEqual([]);
     expect(resumen.totalUsuarios).toBe(0);
     expect(resumen.primeraAccion).toBe(null);
     expect(resumen.evidencia).toEqual([]);
@@ -135,10 +179,12 @@ describe("conteosPorFamiliaCanon", () => {
     const c = conteosPorFamiliaCanon([
       { user: "A", action: "CARGÓ BALANCE", entity: "", detail: "", clientId: null, createdAt: new Date() },
       { user: "A", action: "EJECUTÓ", entity: "", detail: "", clientId: null, createdAt: new Date() },
+      { user: "A", action: "CARGÓ Inventarios", entity: "", detail: "", clientId: null, createdAt: new Date() },
       { user: "A", action: "EJECUTÓ", entity: "", detail: "", clientId: null, createdAt: new Date() },
     ]);
     expect(c.balance).toBe(1);
     expect(c.conciliaciones).toBe(2);
+    expect(c.inventarios).toBe(1);
     expect(c.dian).toBe(0);
   });
 });

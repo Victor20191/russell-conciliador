@@ -2,13 +2,16 @@ import { describe, expect, it } from "vitest";
 import {
   filtrarCambiosPublicados,
   filtrarEventosPublicados,
+  filtrarNavegacionesPublicadas,
   moduloDeEvento,
+  moduloDeNavegacion,
   moduloPlataformaDeClave,
 } from "./alcance";
 import { clasificarFamilia, type EventoAuditoria } from "./metricas";
 
 const PUBLICADOS = new Set([
   "balance",
+  "modulos_datos",
   "conciliaciones",
   "dian",
   "clientes",
@@ -46,6 +49,51 @@ describe("moduloDeEvento", () => {
   it("deja indeterminadas las acciones sin módulo claro", () => {
     const e = evento("COMENTÓ");
     expect(moduloDeEvento(e, clasificarFamilia(e.action))).toBeNull();
+  });
+
+  it("ubica las acciones de Inventarios en modulos_datos", () => {
+    const e = evento("ACTUALIZÓ consolidación de módulo", { detail: "INV · 2 clasificadores" });
+    const familia = clasificarFamilia(e.action, e.entity, e.detail);
+    expect(familia).toBe("inventarios");
+    expect(moduloDeEvento(e, familia)).toBe("modulos_datos");
+  });
+});
+
+describe("navegaciones publicadas", () => {
+  it("resuelve las rutas de Inventarios al módulo operativo", () => {
+    expect(moduloDeNavegacion("/modulos/inv")).toBe("modulos_datos");
+    expect(moduloDeNavegacion("/modulos/inv/borradores/lote-1")).toBe("modulos_datos");
+    expect(moduloDeNavegacion("/config/perfiles-carga/inv")).toBe("perfiles_carga");
+  });
+
+  it("conserva solo familias operativas publicadas", () => {
+    const r = filtrarNavegacionesPublicadas({
+      navegaciones: [
+        { ruta: "/modulos/inv", total: 89 },
+        { ruta: "/balance", total: 149 },
+        { ruta: "/config/reportes-ejecutivos", total: 7 },
+        { ruta: "/config/prompts", total: 5 },
+        { ruta: "/ruta-desconocida", total: 3 },
+      ],
+      filtro: FILTRO,
+    });
+
+    expect(r.navegaciones).toEqual([
+      { ruta: "/modulos/inv", total: 89 },
+      { ruta: "/balance", total: 149 },
+    ]);
+    expect(r.descartadas).toBe(15);
+    expect(r.modulosExcluidos).toEqual(["prompts"]);
+  });
+
+  it("descarta Inventarios cuando modulos_datos no está publicado", () => {
+    const r = filtrarNavegacionesPublicadas({
+      navegaciones: [{ ruta: "/modulos/inv", total: 12 }],
+      filtro: { modulosPublicados: new Set([...PUBLICADOS].filter((k) => k !== "modulos_datos")) },
+    });
+    expect(r.navegaciones).toEqual([]);
+    expect(r.descartadas).toBe(12);
+    expect(r.modulosExcluidos).toEqual(["modulos_datos"]);
   });
 });
 

@@ -4,6 +4,7 @@ import type { FamiliaProceso } from "./metricas";
 
 const vacio: Record<FamiliaProceso, number> = {
   balance: 0,
+  inventarios: 0,
   conciliaciones: 0,
   dian: 0,
   clientes: 0,
@@ -91,5 +92,36 @@ describe("evaluarAdopcion", () => {
     });
     expect(resumen.porcentajeAdopcion).toBe(null);
     expect(resumen.evaluables).toBe(0);
+  });
+
+  test("mide modulos_datos con la actividad operativa de Inventarios", () => {
+    const resumen = evaluarAdopcion({
+      conteosPorFamilia: { ...vacio, inventarios: 26 },
+      cambios: [
+        {
+          versionNumero: "1.10.0",
+          versionTitulo: "Revisión y exportación",
+          tipo: "nueva",
+          titulo: "Exportación a Excel de Inventarios",
+          descripcion: "…",
+          modulo: "modulos_datos",
+          ruta: "/modulos/INV",
+          comoOperar: null,
+          ejemplo: null,
+          estadoFuncionalidad: "disponible",
+        },
+      ],
+    });
+
+    expect(resumen.items[0]).toEqual(
+      expect.objectContaining({
+        familia: "inventarios",
+        familiaEtiqueta: "Inventarios",
+        accionesEnPeriodo: 26,
+        estado: "usada",
+      }),
+    );
+    expect(resumen.noMedibles).toBe(0);
+    expect(resumen.porcentajeAdopcion).toBe(100);
   });
 });

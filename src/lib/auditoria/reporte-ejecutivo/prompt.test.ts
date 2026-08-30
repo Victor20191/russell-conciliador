@@ -12,12 +12,14 @@ const uso: ResumenUsoFactual = {
   periodoDesde: "2026-08-01T00:00:00.000Z",
   periodoHasta: "2026-08-18T23:59:59.999Z",
   totalAcciones: 321,
+  totalNavegaciones: 154,
   totalConexiones: 45,
   totalUsuarios: 8,
   totalClientes: 12,
   primeraAccion: "2026-08-01T08:00:00.000Z",
   ultimaAccion: "2026-08-18T17:00:00.000Z",
   porFamilia: [{ nombre: "Balance de comprobación", total: 200 }],
+  navegacionesPorFamilia: [{ nombre: "Inventarios", total: 154 }],
   topAcciones: [{ nombre: "CARGÓ BALANCE", total: 40 }],
   topUsuarios: [{ usuario: "Ana", correo: "ana@russell.co", total: 100, porFamilia: [] }],
   detalleUsuarios: [],
@@ -100,6 +102,7 @@ describe("construirPromptReporteEjecutivo", () => {
     expect(prompt).toContain("En cada grupo menciona máximo 5 funcionalidades");
     expect(prompt).toContain("indica únicamente cuántas adicionales hay");
     expect(prompt).toContain("No nombres usuarios ni deduzcas quién adoptó una funcionalidad");
+    expect(prompt).toContain("operaciones auditables en el módulo relacionado, no simples visitas");
   });
 
   test("conserva un único marcador y limita el detalle editorial", () => {
@@ -119,6 +122,8 @@ describe("construirPromptReporteEjecutivo", () => {
     const prompt = construirPromptReporteEjecutivo({ uso, adopcion, novedades });
 
     expect(prompt).toContain('"totalAcciones":321');
+    expect(prompt).toContain('"totalNavegaciones":154');
+    expect(prompt).toContain('"navegacionesPorFamilia":[{"nombre":"Inventarios","total":154}]');
     expect(prompt).toContain('"totalConexiones":45');
     expect(prompt).toContain('"porcentajeAdopcion":100');
     expect(prompt).toContain('"titulo":"Resumen por usuario"');
@@ -133,6 +138,7 @@ describe("SISTEMA_REPORTE_EJECUTIVO", () => {
     expect(SISTEMA_REPORTE_EJECUTIVO).toContain("solo una señal relacionada");
     expect(SISTEMA_REPORTE_EJECUTIVO).toContain("ni la atribuyes a usuarios concretos");
     expect(SISTEMA_REPORTE_EJECUTIVO).toContain("marcador HTML");
+    expect(SISTEMA_REPORTE_EJECUTIVO).toContain("no sumas ni intercambias esas métricas");
     expect(SISTEMA_REPORTE_EJECUTIVO).toContain("reportes de uso y avances");
   });
 });

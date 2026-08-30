@@ -199,7 +199,7 @@ function graficoAdopcionDonutLike(adopcion: ResumenAdopcion): string {
 }
 
 /**
- * Sección completa de gráficos del reporte (módulos, usuarios, acciones, clientes, adopción).
+ * Sección completa de gráficos del reporte (consultas, operaciones, usuarios, clientes y adopción).
  * HTML autocontenido con estilos inline (compatible con PDF y correo).
  */
 export function construirSeccionGraficosHtml(params: {
@@ -208,10 +208,22 @@ export function construirSeccionGraficosHtml(params: {
 }): string {
   const { uso, adopcion } = params;
 
-  const modulos = graficoBarrasHorizontales({
-    id: "rd-chart-modulos",
-    titulo: "Módulos y procesos más usados",
-    subtitulo: "Acciones de bitácora agrupadas por familia de proceso",
+  const modulosConsultados = graficoBarrasHorizontales({
+    id: "rd-chart-modulos-consultados",
+    titulo: "Módulos más consultados",
+    subtitulo: "Visitas de navegación a familias operativas publicadas; no se suman a las operaciones",
+    items: uso.navegacionesPorFamilia.slice(0, 10).map((f) => ({
+      etiqueta: f.nombre,
+      valor: f.total,
+    })),
+    colorBarra: "#2f6fa7",
+    vacio: "No hubo consultas a módulos operativos en el período.",
+  });
+
+  const operacionesPorProceso = graficoBarrasHorizontales({
+    id: "rd-chart-operaciones-proceso",
+    titulo: "Procesos con más operaciones registradas",
+    subtitulo: "Acciones auditables agrupadas por familia de proceso; no incluyen visitas de navegación",
     items: uso.porFamilia.slice(0, 10).map((f) => ({
       etiqueta: f.nombre,
       valor: f.total,
@@ -331,10 +343,11 @@ export function construirSeccionGraficosHtml(params: {
 <section id="${MARCA_GRAFICOS}" class="rd-graficos-uso" style="margin:1.75rem 0 2rem;">
   <div class="rd-graficos-heading" style="break-inside:avoid;break-after:avoid-page;page-break-after:avoid;">
     <h2 style="margin:0 0 0.35rem;font-family:Georgia,'Times New Roman',serif;font-size:1.35rem;color:#0e1721;border-left:3px solid #142b4a;padding-left:0.65rem;">Uso en gráficos</h2>
-    <p style="margin:0 0 1rem;font-size:13px;color:#475160;">Distribución factual de la actividad del período. Las barras reflejan conteos exactos de la bitácora e incluyen únicamente módulos ya publicados para todos los usuarios.</p>
+    <p style="margin:0 0 1rem;font-size:13px;color:#475160;">Distribución factual del período. Las consultas provienen de la navegación y las operaciones de la bitácora auditable; se muestran por separado e incluyen únicamente familias operativas publicadas.</p>
   </div>
   <div style="display:grid;grid-template-columns:1fr;gap:0;">
-    ${modulos}
+    ${modulosConsultados}
+    ${operacionesPorProceso}
     ${usuarios}
     ${detalleUsuarios}
     ${acciones}

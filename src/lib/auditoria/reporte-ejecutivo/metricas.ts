@@ -3,6 +3,7 @@
 
 export type FamiliaProceso =
   | "balance"
+  | "inventarios"
   | "conciliaciones"
   | "dian"
   | "clientes"
@@ -13,6 +14,7 @@ export type FamiliaProceso =
 
 export const ETIQUETA_FAMILIA: Record<FamiliaProceso, string> = {
   balance: "Balance de comprobación",
+  inventarios: "Inventarios",
   conciliaciones: "Conciliaciones",
   dian: "Impuestos · DIAN",
   clientes: "Clientes",
@@ -25,6 +27,7 @@ export const ETIQUETA_FAMILIA: Record<FamiliaProceso, string> = {
 /** Familias operativas que prioriza el resumen ejecutivo. */
 export const FAMILIAS_OPERATIVAS: FamiliaProceso[] = [
   "balance",
+  "inventarios",
   "conciliaciones",
   "dian",
   "clientes",
@@ -55,6 +58,12 @@ export type ConteoUsuario = {
 
 export type ConteoConexionUsuario = {
   usuario: string;
+  total: number;
+};
+
+/** Conteo agregado de visitas a una ruta, proveniente de AccessLog. */
+export type ConteoNavegacionRuta = {
+  ruta: string;
   total: number;
 };
 
@@ -93,12 +102,16 @@ export type ResumenUsoFactual = {
   periodoDesde: string;
   periodoHasta: string;
   totalAcciones: number;
+  /** Visitas de navegación; nunca se suman a totalAcciones. */
+  totalNavegaciones: number;
   totalConexiones: number;
   totalUsuarios: number;
   totalClientes: number;
   primeraAccion: string | null;
   ultimaAccion: string | null;
   porFamilia: ConteoNombrado[];
+  /** Visitas agrupadas por familia, separadas de las operaciones auditables. */
+  navegacionesPorFamilia: ConteoNombrado[];
   topAcciones: ConteoNombrado[];
   topUsuarios: ConteoUsuario[];
   detalleUsuarios: DetalleActividadUsuario[];
@@ -186,6 +199,22 @@ const PREFIJOS_ADMIN = [
   "ELIMINÓ",
 ];
 
+const ACCIONES_INVENTARIOS_DIRECTAS = [
+  "LEYÓ archivo de Inventarios",
+  "CARGÓ Inventarios",
+  "AGREGÓ ítems a Inventarios",
+];
+
+const ACCIONES_INVENTARIOS_POR_DETALLE = [
+  "ACTUALIZÓ consolidación de módulo",
+  "MARCÓ una diferencia del cruce contable",
+  "EDITÓ la marca del cruce contable",
+  "RETIRÓ la marca del cruce contable",
+  "ELIMINÓ un soporte de la marca del cruce contable",
+  "ELIMINÓ DATOS DE MÓDULO",
+  "ELIMINÓ DATOS Y PERFILES DE CARGA DE MÓDULO",
+];
+
 function coincidePrefijo(action: string, prefijos: string[]): boolean {
   const a = action.trim();
   return prefijos.some((p) => a === p || a.startsWith(p));
@@ -204,6 +233,13 @@ export function clasificarFamilia(
   const ctx = `${entity} ${detail}`.toLowerCase();
 
   if (coincidePrefijo(a, PREFIJOS_BALANCE)) return "balance";
+  if (coincidePrefijo(a, ACCIONES_INVENTARIOS_DIRECTAS)) return "inventarios";
+  if (
+    coincidePrefijo(a, ACCIONES_INVENTARIOS_POR_DETALLE) &&
+    (/\binv\b/i.test(detail) || /inventarios?/i.test(`${entity} ${detail}`))
+  ) {
+    return "inventarios";
+  }
   if (coincidePrefijo(a, PREFIJOS_CONCILIACIONES)) return "conciliaciones";
   if (coincidePrefijo(a, PREFIJOS_DIAN)) return "dian";
   if (coincidePrefijo(a, PREFIJOS_CLIENTES)) return "clientes";
@@ -244,6 +280,9 @@ export function familiaDesdeModulo(moduleKey: string | null | undefined): Famili
   const k = moduleKey.trim().toLowerCase();
   if (!k) return null;
   if (k === "balance" || k.includes("balance")) return "balance";
+  if (k === "modulos_datos" || k === "inventarios" || k === "inventario" || k === "inv") {
+    return "inventarios";
+  }
   if (k === "conciliaciones" || k.includes("concili")) return "conciliaciones";
   if (k === "dian" || k.includes("dian") || k.includes("impuesto")) return "dian";
   if (k === "clientes" || k.includes("cliente")) return "clientes";
@@ -261,6 +300,21 @@ export function familiaDesdeModulo(moduleKey: string | null | undefined): Famili
   ) {
     return "administracion";
   }
+  return null;
+}
+
+/**
+ * Clasifica una ruta visitada en una familia para el bloque de consultas.
+ * La publicación se filtra antes, en `alcance.ts`; aquí solo se etiqueta.
+ */
+export function familiaDesdeRuta(ruta: string): FamiliaProceso | null {
+  const path = ruta.trim().toLowerCase().split(/[?#]/, 1)[0]?.replace(/\/+$/, "") || "/";
+  if (path === "/balance" || path.startsWith("/balance/")) return "balance";
+  if (path === "/modulos/inv" || path.startsWith("/modulos/inv/")) return "inventarios";
+  if (path === "/conciliacion" || path.startsWith("/conciliacion/")) return "conciliaciones";
+  if (path === "/dian" || path.startsWith("/dian/")) return "dian";
+  if (path === "/config/clientes" || path.startsWith("/config/clientes/")) return "clientes";
+  if (path === "/config/mapeo" || path.startsWith("/config/mapeo/")) return "mapeo";
   return null;
 }
 
@@ -287,6 +341,7 @@ function topN(map: Map<string, number>, n: number): ConteoNombrado[] {
 export function calcularResumenUso(params: {
   eventos: EventoAuditoria[];
   conexiones?: ConteoConexionUsuario[];
+  navegaciones?: ConteoNavegacionRuta[];
   periodoDesde: Date | string;
   periodoHasta: Date | string;
   nombresClientes?: Map<number, string> | Record<number, string>;
@@ -419,6 +474,19 @@ export function calcularResumenUso(params: {
     0,
   );
 
+  const porFamiliaNavegacion = new Map<string, number>();
+  let totalNavegaciones = 0;
+  for (const navegacion of params.navegaciones ?? []) {
+    const ruta = navegacion.ruta.trim();
+    if (!ruta || !Number.isFinite(navegacion.total) || navegacion.total <= 0) continue;
+    const total = Math.floor(navegacion.total);
+    const familia = familiaDesdeRuta(ruta);
+    if (!familia) continue;
+    const etiqueta = ETIQUETA_FAMILIA[familia];
+    totalNavegaciones += total;
+    porFamiliaNavegacion.set(etiqueta, (porFamiliaNavegacion.get(etiqueta) ?? 0) + total);
+  }
+
   const topClientes: ConteoCliente[] = Array.from(porCliente.entries())
     .map(([clienteId, total]) => ({
       clienteId,
@@ -453,12 +521,14 @@ export function calcularResumenUso(params: {
     periodoDesde: aIso(params.periodoDesde),
     periodoHasta: aIso(params.periodoHasta),
     totalAcciones: params.eventos.length,
+    totalNavegaciones,
     totalConexiones,
     totalUsuarios: usuarios.size,
     totalClientes: clientes.size,
     primeraAccion: primera,
     ultimaAccion: ultima,
     porFamilia: topN(porFamilia, 20),
+    navegacionesPorFamilia: topN(porFamiliaNavegacion, 20),
     topAcciones: topN(porAccion, maxTopAcciones),
     topUsuarios,
     detalleUsuarios,
@@ -478,6 +548,7 @@ function recortar(texto: string, max: number): string {
 export function conteosPorFamiliaCanon(eventos: EventoAuditoria[]): Record<FamiliaProceso, number> {
   const out: Record<FamiliaProceso, number> = {
     balance: 0,
+    inventarios: 0,
     conciliaciones: 0,
     dian: 0,
     clientes: 0,

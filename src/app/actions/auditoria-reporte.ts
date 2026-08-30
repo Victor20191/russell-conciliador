@@ -20,6 +20,7 @@ import {
 import {
   filtrarCambiosPublicados,
   filtrarEventosPublicados,
+  filtrarNavegacionesPublicadas,
   type FiltroPublicacion,
 } from "@/lib/auditoria/reporte-ejecutivo/alcance";
 import { modulosPublicadosParaTodos } from "@/lib/rbac/publicacion";
@@ -450,7 +451,7 @@ export async function generarReporteEjecutivoUso(
     : null;
 
   try {
-    const [eventosRaw, conexionesRaw, versiones, clientes, usuarios, modulosPublicados] = await Promise.all([
+    const [eventosRaw, conexionesRaw, navegacionesRaw, versiones, clientes, usuarios, modulosPublicados] = await Promise.all([
       prisma.auditEntry.findMany({
         where: {
           createdAt: { gte: rango.desde, lte: rango.hasta },
@@ -474,6 +475,15 @@ export async function generarReporteEjecutivoUso(
         },
         _count: { userName: true },
         orderBy: { userName: "asc" },
+      }),
+      prisma.accessLog.groupBy({
+        by: ["path"],
+        where: {
+          kind: "navegacion",
+          createdAt: { gte: rango.desde, lte: rango.hasta },
+        },
+        _count: { path: true },
+        orderBy: { path: "asc" },
       }),
       prisma.platformVersion.findMany({
         where: versionIds
@@ -514,6 +524,13 @@ export async function generarReporteEjecutivoUso(
       filtro,
     });
     const eventos = alcanceUso.eventos;
+    const alcanceNavegaciones = filtrarNavegacionesPublicadas({
+      navegaciones: navegacionesRaw.map((navegacion) => ({
+        ruta: navegacion.path,
+        total: navegacion._count.path,
+      })),
+      filtro,
+    });
 
     const nombresClientes = new Map(clientes.map((c) => [c.id, c.name]));
     const correosUsuarios = new Map(usuarios.map((u) => [u.name, u.email]));
@@ -523,6 +540,7 @@ export async function generarReporteEjecutivoUso(
         usuario: conexion.userName,
         total: conexion._count.userName,
       })),
+      navegaciones: alcanceNavegaciones.navegaciones,
       periodoDesde: rango.desde,
       periodoHasta: rango.hasta,
       nombresClientes,
@@ -565,6 +583,7 @@ export async function generarReporteEjecutivoUso(
       alcancePublicado: {
         modulos: [...modulosPublicados].sort(),
         eventosDescartados: alcanceUso.descartados,
+        navegacionesDescartadas: alcanceNavegaciones.descartadas,
         cambiosEnDesarrollo: excluidosEnDesarrollo,
         cambiosNoPublicados: excluidosNoPublicados,
       },
@@ -647,7 +666,7 @@ export async function generarReporteEjecutivoUso(
       entity: "Uso y adopción",
       detail: `Generó reporte para gerencia con ${MODELO_REPORTE_EJECUTIVO_USO} (${uso.totalAcciones} acciones, ${uso.totalUsuarios} usuarios, ${includedChanges}/${totalChanges} novedades, ${
         versionIds ? `${versiones.length} versiones` : "versiones publicadas"
-      }). Alcance solo publicado: excluyó ${alcanceUso.descartados} acciones de módulos no publicados, ${excluidosEnDesarrollo} novedades en desarrollo y ${excluidosNoPublicados} de módulos no publicados.`,
+      }). Registró ${uso.totalNavegaciones} navegaciones separadas de las operaciones. Alcance solo publicado: excluyó ${alcanceUso.descartados} acciones de módulos no publicados y ${alcanceNavegaciones.descartadas} navegaciones fuera de familias operativas publicadas, ${excluidosEnDesarrollo} novedades en desarrollo y ${excluidosNoPublicados} de módulos no publicados.`,
     });
 
     const cacheado = await guardarCachePersistente({
@@ -711,7 +730,7 @@ export async function obtenerResumenUsoAdopcion(opciones: {
   }
 
   try {
-    const [eventosRaw, conexionesRaw, versiones, clientes, usuarios, modulosPublicados] = await Promise.all([
+    const [eventosRaw, conexionesRaw, navegacionesRaw, versiones, clientes, usuarios, modulosPublicados] = await Promise.all([
       prisma.auditEntry.findMany({
         where: { createdAt: { gte: rango.desde, lte: rango.hasta } },
         orderBy: { createdAt: "desc" },
@@ -733,6 +752,15 @@ export async function obtenerResumenUsoAdopcion(opciones: {
         },
         _count: { userName: true },
         orderBy: { userName: "asc" },
+      }),
+      prisma.accessLog.groupBy({
+        by: ["path"],
+        where: {
+          kind: "navegacion",
+          createdAt: { gte: rango.desde, lte: rango.hasta },
+        },
+        _count: { path: true },
+        orderBy: { path: "asc" },
       }),
       prisma.platformVersion.findMany({
         where: { status: "publicada" },
@@ -757,6 +785,13 @@ export async function obtenerResumenUsoAdopcion(opciones: {
       clasificar: (e) => clasificarFamilia(e.action, e.entity, e.detail),
       filtro,
     }).eventos;
+    const navegaciones = filtrarNavegacionesPublicadas({
+      navegaciones: navegacionesRaw.map((navegacion) => ({
+        ruta: navegacion.path,
+        total: navegacion._count.path,
+      })),
+      filtro,
+    }).navegaciones;
 
     const nombresClientes = new Map(clientes.map((c) => [c.id, c.name]));
     const uso = calcularResumenUso({
@@ -765,6 +800,7 @@ export async function obtenerResumenUsoAdopcion(opciones: {
         usuario: conexion.userName,
         total: conexion._count.userName,
       })),
+      navegaciones,
       periodoDesde: rango.desde,
       periodoHasta: rango.hasta,
       nombresClientes,
