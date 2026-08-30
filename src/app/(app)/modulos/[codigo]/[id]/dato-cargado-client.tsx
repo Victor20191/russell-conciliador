@@ -17,6 +17,7 @@ import {
   quitarMarcaCruce,
 } from "@/app/actions/modulos-datos";
 import { aplicarAsignacionMasiva, contarConCuentas, type ModoAsignacionMasiva } from "@/lib/modulos/consolidacion-masiva";
+import { resolverCuenta4, mensajeResolucion } from "@/lib/modulos/resolver-cuenta4";
 import { filtrarFilasDetalleModulo, hayFiltrosDetalleModulo, type FiltrosDetalleModulo } from "@/lib/modulos/filtros-detalle-modulo";
 import type { ResumenCruceContable } from "@/lib/modulos/cruce-contable";
 import type { ResumenCruceTercero } from "@/lib/modulos/cruce-tercero";
@@ -99,6 +100,9 @@ type CuentaOpt = { codigo: string; nombre: string };
 type CuentaCliente = { codigo: string; nombre: string };
 // Cuentas del cliente homologadas a cada subgrupo Russell (14XX → [{143505, "…"}]).
 export type HomologacionCliente = Record<string, CuentaCliente[]>;
+// Índice INVERSO: cuenta del cliente → su cuenta Russell de 4 díg. SIN filtrar por módulo,
+// para poder avisar cuando la homologación cae fuera de él en vez de decir «no existe».
+export type ResolucionCliente = Record<string, { cuenta4: string; nombre: string }>;
 // Etiqueta de una cuenta Russell: «R - 1435 · Mercancías no fabricadas».
 const etiquetaRussell = (codigo: string, nombre?: string | null) => `R - ${codigo}${nombre ? ` · ${nombre}` : ""}`;
 
@@ -120,6 +124,7 @@ export default function DatoCargadoClient({
   novedades,
   cuentas,
   homologacionCliente,
+  resolucionCliente,
   puedeEditar,
   versiones,
   versionActualId,
@@ -140,6 +145,7 @@ export default function DatoCargadoClient({
   novedades: NovedadesVm;
   cuentas: CuentaOpt[];
   homologacionCliente: HomologacionCliente;
+  resolucionCliente: ResolucionCliente;
   puedeEditar: boolean;
   versiones: VersionModuloVm[];
   versionActualId: number;
@@ -194,7 +200,7 @@ export default function DatoCargadoClient({
       </div>
 
       {tab === "consolidado" ? (
-        <ConsolidadoTab moduloCodigo={moduloCodigo} clienteId={clienteId} clasificadorEtiqueta={clasificadorEtiqueta} consolidado={consolidado} cuentas={cuentas} homologacionCliente={homologacionCliente} puedeEditar={puedeEditar} encabezadoId={encabezadoId} comentarios={comentarios} />
+        <ConsolidadoTab moduloCodigo={moduloCodigo} clienteId={clienteId} clasificadorEtiqueta={clasificadorEtiqueta} consolidado={consolidado} cuentas={cuentas} homologacionCliente={homologacionCliente} resolucionCliente={resolucionCliente} moduloLabel={moduloLabel} puedeEditar={puedeEditar} encabezadoId={encabezadoId} comentarios={comentarios} />
       ) : tab === "detalle" ? (
         <DetalleTab columnas={columnas} clasificadorEtiqueta={clasificadorEtiqueta} detalle={detalle} negativosFilas={filasNovedad} encabezadoId={encabezadoId} comentarios={comentarios} />
       ) : tab === "cruce" ? (
@@ -209,8 +215,6 @@ export default function DatoCargadoClient({
     </div>
   );
 }
-
-const cuenta4Norm = (v: string) => v.replace(/\D/g, "").slice(0, 4);
 
 const claveSet = (arr: string[]) => [...new Set(arr)].sort().join(",");
 
@@ -241,6 +245,8 @@ function ConsolidadoTab({
   consolidado,
   cuentas,
   homologacionCliente,
+  resolucionCliente,
+  moduloLabel,
   puedeEditar,
   encabezadoId,
   comentarios,
@@ -251,12 +257,29 @@ function ConsolidadoTab({
   consolidado: ConsolidadoVm[];
   cuentas: CuentaOpt[];
   homologacionCliente: HomologacionCliente;
+  resolucionCliente: ResolucionCliente;
+  moduloLabel: string;
   puedeEditar: boolean;
   encabezadoId: number;
   comentarios: Record<string, number>;
 }) {
   const router = useRouter();
   const [buscando, setBuscando] = useState<string | null>(null); // clasificador cuyo selector de cuenta está abierto
+  // Entorno para resolver lo que el usuario escribe: los subgrupos válidos del módulo y la
+  // homologación del cliente (sin filtrar, para poder avisar cuando cae fuera del módulo).
+  const entornoResolucion = useMemo(() => ({
+    subgruposModulo: new Set(cuentas.map((c) => c.codigo)),
+    homologacionCliente: new Map(Object.entries(resolucionCliente)),
+  }), [cuentas, resolucionCliente]);
+  // Cuentas del CLIENTE que el desplegable ofrece: solo las que resuelven DENTRO del
+  // módulo (las de fuera se rechazan al aceptarlas, no tiene sentido sugerirlas).
+  const opcionesCliente = useMemo(
+    () => Object.entries(resolucionCliente)
+      .filter(([, d]) => entornoResolucion.subgruposModulo.has(d.cuenta4))
+      .map(([codigo, d]) => ({ codigo, etiqueta: `${codigo}${d.nombre ? ` · ${d.nombre}` : ""} → R-${d.cuenta4}` }))
+      .sort((a, b) => a.codigo.localeCompare(b.codigo)),
+    [resolucionCliente, entornoResolucion],
+  );
   // Cuentas (1..N) por clasificador — conjunto EDITABLE y el último persistido (para «sucias»).
   const [valores, setValores] = useState<Record<string, string[]>>(() => cuentasInicialesConsolidado(consolidado));
   const [guardados, setGuardados] = useState<Record<string, string[]>>(() =>
@@ -304,11 +327,15 @@ function ConsolidadoTab({
     );
   };
 
+  // El campo acepta la cuenta Russell (1435) o la del cliente (143505), que se resuelve
+  // por su homologación — NUNCA truncando, que es lo que hacía antes y daba otra cuenta
+  // en el 25,9% de las homologadas de inventario.
   const agregarCuenta = (clasificador: string) => {
-    const cod = cuenta4Norm(nuevos[clasificador] ?? "");
-    if (cod.length !== 4) { notifyError("La cuenta debe ser de 4 dígitos."); return; }
-    setValores((p) => ({ ...p, [clasificador]: [...new Set([...(p[clasificador] ?? []), cod])].sort() }));
+    const r = resolverCuenta4(nuevos[clasificador] ?? "", entornoResolucion);
+    if (!r.ok) { notifyError(mensajeResolucion(r, moduloLabel)); return; }
+    setValores((p) => ({ ...p, [clasificador]: [...new Set([...(p[clasificador] ?? []), r.cuenta4])].sort() }));
     setNuevos((p) => ({ ...p, [clasificador]: "" }));
+    if (r.via === "cliente") notifySuccess(`${r.cuentaCliente}${r.nombreCliente ? ` ${r.nombreCliente}` : ""} → R-${r.cuenta4}`);
   };
   const quitarCuenta = (clasificador: string, cod: string) =>
     setValores((p) => ({ ...p, [clasificador]: (p[clasificador] ?? []).filter((x) => x !== cod) }));
@@ -478,8 +505,9 @@ function ConsolidadoTab({
                             value={nuevos[c.clasificador] ?? ""}
                             onChange={(e) => setNuevos((p) => ({ ...p, [c.clasificador]: e.target.value }))}
                             onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); agregarCuenta(c.clasificador); } }}
-                            placeholder="1435"
+                            placeholder="1435 o 143505"
                             inputMode="numeric"
+                            title="Escribe la cuenta Russell de 4 dígitos o la cuenta del cliente: se resuelve por su homologación"
                             className="w-24 rounded-md border border-ink-200 bg-white px-2 py-1 text-[12px] tabular-nums text-ink-700 outline-none focus:border-blue-400"
                           />
                           <button type="button" onClick={() => agregarCuenta(c.clasificador)} className="rounded-md border border-ink-300 bg-white px-2 py-1 text-[11px] font-semibold text-ink-600 hover:bg-blue-50 hover:text-blue-700">+ cuenta</button>
@@ -501,8 +529,11 @@ function ConsolidadoTab({
           </tbody>
         </table>
       </div>
+      {/* Ofrece las DOS entradas: la cuenta Russell y la del cliente, esta última con su
+          destino a la vista para que se vea a dónde va antes de aceptarla. */}
       <datalist id="cuentas4-modulo">
-        {cuentas.map((c) => <option key={c.codigo} value={c.codigo}>{etiquetaRussell(c.codigo, c.nombre)}</option>)}
+        {cuentas.map((c) => <option key={`r-${c.codigo}`} value={c.codigo}>{etiquetaRussell(c.codigo, c.nombre)}</option>)}
+        {opcionesCliente.map((o) => <option key={`c-${o.codigo}`} value={o.codigo}>{o.etiqueta}</option>)}
       </datalist>
       {buscando != null && (
         <ModalCuentas
