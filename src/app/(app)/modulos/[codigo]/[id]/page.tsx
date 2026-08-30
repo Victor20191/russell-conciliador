@@ -117,8 +117,15 @@ export default async function DatoModuloPage({
   // Cuentas del CLIENTE homologadas a cada subgrupo Russell del módulo (14XX → [143505 «…»]).
   const codigosModulo = new Set(cuentasModulo.map((c) => c.codigo));
   const homologacionPorSubgrupo: Record<string, { codigo: string; nombre: string }[]> = {};
+  // Índice INVERSO (cuenta del cliente → su cuenta Russell de 4 díg) para que el campo
+  // rápido del cruce acepte que el usuario escriba su propia cuenta. Va SIN filtrar por
+  // módulo a propósito: así se puede avisar «143504 está homologada a 4175, que no
+  // pertenece a Inventarios» en vez de un «no encontrada» que haría pensar que falta
+  // parametrizarla. Quien decide si entra es `resolverCuenta4`.
+  const resolucionCliente: Record<string, { cuenta4: string; nombre: string }> = {};
   for (const a of cuentasCliente) {
     const sub = (a.cuenta6Russell ?? "").replace(/\D/g, "").slice(0, 4);
+    if (sub) resolucionCliente[a.code] = { cuenta4: sub, nombre: a.name };
     if (!codigosModulo.has(sub)) continue;
     (homologacionPorSubgrupo[sub] ??= []).push({ codigo: a.code, nombre: a.name });
   }
@@ -336,6 +343,8 @@ export default async function DatoModuloPage({
         novedades={novedades}
         cuentas={cuentasModulo.map((s) => ({ codigo: s.codigo, nombre: s.nombre }))}
         homologacionCliente={homologacionPorSubgrupo}
+        resolucionCliente={resolucionCliente}
+        moduloLabel={descriptor.label}
         puedeEditar={puedeEditar}
         versiones={versiones}
         versionActualId={encabezado.id}
