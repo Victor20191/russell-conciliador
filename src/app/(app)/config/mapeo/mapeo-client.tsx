@@ -112,6 +112,16 @@ export default function MapeoClient({
         <TabBtn on={tab === "mapping"} onClick={() => setTab("mapping")} label="Mapeo por cliente" count={accounts.length} />
         <TabBtn on={tab === "standard"} onClick={() => setTab("standard")} label="Plan estándar Russell" count={std.length} />
         <TabBtn on={tab === "subgrupos"} onClick={() => setTab("subgrupos")} label="Subgrupos (nivel 4)" count={subgrupos.length} />
+        {/* Descarga el libro con las CUATRO pestañas, una por hoja, y siempre el
+            listado completo: la búsqueda y los filtros de arriba no lo recortan. */}
+        <a
+          href={`/config/mapeo/exportar${cliente ? `?cliente=${encodeURIComponent(cliente)}` : ""}`}
+          download
+          title="Descargar un Excel con todos los PUC: plan estándar Russell, PUC del cliente, memoria de mapeo y subgrupos."
+          className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-white px-3 py-1.5 text-[12.5px] font-semibold text-ink-700 transition hover:bg-ink-50"
+        >
+          <Icon name="download" size={13} /> Exportar a Excel
+        </a>
       </div>
 
       {tab === "mapping" ? (
