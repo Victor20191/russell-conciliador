@@ -108,9 +108,6 @@ function CargarModal({
   const [fase, setFase] = useState<"archivo" | "mapeo">("archivo");
   const [analisis, setAnalisis] = useState<AnalisisModulo | null>(null);
   const [spec, setSpec] = useState<SpecModulo | null>(null);
-  // Nombre del cliente cuya parametrización sugerida se aplicó (exacta o elegida a mano de
-  // la lista), solo para el aviso visual — puramente informativo, nunca obliga a nada.
-  const [sugerenciaAplicadaDe, setSugerenciaAplicadaDe] = useState<string | null>(null);
   const [mes, setMes] = useState(anexo?.periodo ?? "");
   const [analizando, startAnalizar] = useTransition();
   const [leyendo, startLeer] = useTransition();
@@ -141,7 +138,6 @@ function CargarModal({
     setTieneArchivo(false);
     setAnalisis(null);
     setSpec(null);
-    setSugerenciaAplicadaDe(null);
     setFase("archivo");
     archivoRef.current = f;
     setNombreArchivo(f.name);
@@ -164,7 +160,6 @@ function CargarModal({
           setAnalisis(r);
           setSpec(r.spec);
           setFase("mapeo");
-          setSugerenciaAplicadaDe(r.origen === "sugerido" ? r.sugerencias?.exacto?.clienteNombre ?? null : null);
           if (r.origen === "perfil") notifySuccess("Se aplicó el perfil guardado de este cliente. Revisa y confirma.");
         } else {
           notifyError(r.message ?? "No se pudo analizar el archivo.");
@@ -308,39 +303,13 @@ function CargarModal({
           {analisis?.origen === "perfil" && (
             <p className="rounded-md border border-ok-500 bg-ok-100/40 px-3 py-1.5 text-[11.5px] text-ok-700">Perfil guardado aplicado. Ajusta si hace falta.</p>
           )}
-          {analisis?.origen === "sugerido" && analisis.sugerencias?.exacto && (
+          {/* La reutilización de una parametrización ya conocida es un mecanismo INTERNO:
+              se aplica sola cuando el layout coincide. No se le pregunta nada al usuario
+              ni se le nombra de qué cliente salió; solo se le pide que la revise. */}
+          {analisis?.origen === "sugerido" && (
             <p className="rounded-md border border-blue-300 bg-blue-50 px-3 py-1.5 text-[11.5px] text-blue-800">
-              Parametrización sugerida de otro cliente con ERP {analisis.sugerencias.erpName} (layout idéntico: {analisis.sugerencias.exacto.clienteNombre}) — revísala y ajusta si hace falta.
+              Mapeo prellenado a partir de un layout ya conocido — revísalo y ajusta si hace falta.
             </p>
-          )}
-          {(analisis?.sugerencias?.lista.length ?? 0) > 0 && (
-            <div className="flex flex-col gap-1.5 rounded-md border border-ink-150 bg-ink-50 px-3 py-2.5">
-              <span className="text-[11px] font-medium text-ink-600">
-                Otros clientes con ERP {analisis?.sugerencias?.erpName} tienen {analisis?.sugerencias?.lista.length} parametrización(es) para este módulo — puedes usar una como punto de partida:
-              </span>
-              <select
-                value=""
-                onChange={(e) => {
-                  const idx = Number(e.target.value);
-                  const elegida = analisis?.sugerencias?.lista[idx];
-                  if (elegida) {
-                    setSpec(elegida.spec);
-                    setSugerenciaAplicadaDe(elegida.clienteNombre);
-                  }
-                }}
-                className="w-full min-w-0 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400"
-              >
-                <option value="">Elegir parametrización de otro cliente…</option>
-                {analisis?.sugerencias?.lista.map((p, i) => (
-                  <option key={`${p.clienteNombre}-${p.huella}`} value={i}>
-                    {p.clienteNombre} · {p.archivoEjemplo ?? "sin archivo de ejemplo"} · usada {p.vecesUsado}×
-                  </option>
-                ))}
-              </select>
-              {sugerenciaAplicadaDe && (
-                <span className="text-[11px] text-blue-700">Aplicada la parametrización de {sugerenciaAplicadaDe}. Sigue siendo editable abajo.</span>
-              )}
-            </div>
           )}
 
           {(analisis?.hojas?.length ?? 0) > 1 && (
