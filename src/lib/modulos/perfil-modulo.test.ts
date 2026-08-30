@@ -126,3 +126,14 @@ describe("mismoSpecModuloNormalizado y descripcionModoClasificador", () => {
     expect(descripcionModoClasificador("global", "Tipo de inventario")).toMatch(/único tipo de inventario global/);
   });
 });
+
+describe("normalizarSpecModulo · subtotales", () => {
+  it("conserva el modo de subtotales solo cuando difiere de «auto»", () => {
+    const base: SpecModulo = { hoja: "H", filaEncabezado: 1, primeraFilaDatos: 2, columnas: {} };
+    expect(normalizarSpecModulo(INV, base).subtotales).toBeUndefined();
+    expect(normalizarSpecModulo(INV, { ...base, subtotales: "auto" }).subtotales).toBeUndefined();
+    expect(normalizarSpecModulo(INV, { ...base, subtotales: "nunca" }).subtotales).toBe("nunca");
+    expect(mismoSpecModuloNormalizado(INV, base, { ...base, subtotales: "auto" })).toBe(true);
+    expect(mismoSpecModuloNormalizado(INV, base, { ...base, subtotales: "rotulo" })).toBe(false);
+  });
+});

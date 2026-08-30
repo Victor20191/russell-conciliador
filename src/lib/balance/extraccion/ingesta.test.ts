@@ -297,6 +297,39 @@ describe("ingerir texto plano (.txt)", () => {
     expect(ing.hojas[0].filas[1]).toEqual([1105, "CAJA", 1000]);
   });
 
+  it("csv: una comilla a MITAD de celda (pulgadas) es literal y no se traga el resto del archivo", async () => {
+    const t = [
+      "Tipo;Referencia;Descripción;Cantidad;Vr total",
+      'Mercancía;MNF-51;Válvula de bola 1/2" bronce;480;11256000',
+      'Mercancía;MNF-54;Filtro sedimentos 10";260;9074000',
+      "Total Mercancía;;;;20330000",
+    ].join("\n");
+    const ing = await ingerir(buf(t), "inventario.csv");
+    expect(ing.modo).toBe("tabular");
+    if (ing.modo !== "tabular") return;
+    expect(ing.hojas[0].filas).toHaveLength(4);
+    expect(ing.hojas[0].filas[1]).toEqual(["Mercancía", "MNF-51", 'Válvula de bola 1/2" bronce', 480, 11256000]);
+    expect(ing.hojas[0].filas[2]).toEqual(["Mercancía", "MNF-54", 'Filtro sedimentos 10"', 260, 9074000]);
+    expect(ing.hojas[0].filas[3]).toEqual(["Total Mercancía", null, null, null, 20330000]);
+  });
+
+  it("csv: campos entrecomillados legítimos (delimitador y comilla escapada dentro) siguen funcionando", async () => {
+    const t = 'CUENTA;NOMBRE;SALDO\n1105;"CAJA; GENERAL ""PPAL""";1000\n1110;BANCOS;2000';
+    const ing = await ingerir(buf(t), "balanza.csv");
+    if (ing.modo !== "tabular") throw new Error("esperaba tabular");
+    expect(ing.hojas[0].filas[1]).toEqual([1105, 'CAJA; GENERAL "PPAL"', 1000]);
+    expect(ing.hojas[0].filas[2]).toEqual([1110, "BANCOS", 2000]);
+  });
+
+  it("csv: una comilla huérfana al INICIO de celda no pierde las filas siguientes", async () => {
+    const t = 'CUENTA;NOMBRE;SALDO\n1105;"CAJA SIN CIERRE;1000\n1110;BANCOS;2000';
+    const ing = await ingerir(buf(t), "balanza.csv");
+    if (ing.modo !== "tabular") throw new Error("esperaba tabular");
+    expect(ing.hojas[0].filas).toHaveLength(3);
+    expect(ing.hojas[0].filas[1]).toEqual([1105, '"CAJA SIN CIERRE', 1000]);
+    expect(ing.hojas[0].filas[2]).toEqual([1110, "BANCOS", 2000]);
+  });
+
   it("txt de ancho fijo (sin delimitador) → documento de texto para la IA", async () => {
     const t = "1105      CAJA GENERAL        1000\n1110      BANCOS NACIONALES   2000";
     const ing = await ingerir(buf(t), "balanza.txt");

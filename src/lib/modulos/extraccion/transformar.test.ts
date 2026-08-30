@@ -52,10 +52,12 @@ describe("transformarModulo (INV)", () => {
   });
 
   it("en INV la negrita entra como MOVIMIENTO OMITIDO (rescatable), nunca como agrupadora", () => {
-    const filas = [ENC, ["Materia prima", "SUBTOTAL", "", 0, 0, 5000], ["A", "R", "D", 1, 10, 10]];
+    // (Sin rótulo de total ni suma de bloque: si lo tuviera, pasaría a `total` — ver
+    // «subtotales del archivo» más abajo.)
+    const filas = [ENC, ["Materia prima", "NEG-1", "", 0, 0, 5000], ["A", "R", "D", 1, 10, 10]];
     const negrita = [[], [true, true, true, true, true, true], [false, false, false, false, false, false]];
     const r = transformarModulo(INV, SPEC, hoja(filas, negrita));
-    const subtotal = r.filas.find((f) => f.datos.referencia === "SUBTOTAL");
+    const subtotal = r.filas.find((f) => f.datos.referencia === "NEG-1");
     expect(subtotal?.tipoFila).toBe("movimiento");
     expect(subtotal?.omitida).toBe(true);
     // La fila normal no se toca: sin marca de omisión.
@@ -232,6 +234,88 @@ describe("transformarModulo (INV)", () => {
     ]);
     // Los encabezados de sección y el Gran total no cuentan como ítems.
     expect(items).toHaveLength(3);
+    // El «Gran total» ya no se descarta en silencio: queda como fila `total` (control).
+    expect(r.filas.find((f) => f.filaNum === 2)).toMatchObject({ tipoFila: "total", motivo: expect.stringMatching(/^gran_total:/) });
+  });
+
+  it("modo SECCIÓN: un renglón «Total <sección>» al pie del bloque queda como subtotal de esa sección", () => {
+    const spec: SpecModulo = {
+      hoja: "Inventario", filaEncabezado: 1, primeraFilaDatos: 2,
+      columnas: { tipo: 1, referencia: 1, descripcion: 2, cantidad: 5, valorUnitario: 4, valorTotal: 3 },
+      clasificadorModo: "seccion", seccionColumnaVaciaRol: "descripcion",
+    };
+    const filas: CeldaCruda[][] = [
+      ["Item", "Desc", "Costo total", "Costo uni", "Existencia"],
+      ["IEMPAQUE", null, null, null, null],
+      ["0000126", "ADHESIVO CAJA", 1000, 390, 2750],
+      ["0000016", "CAJ INDI", 2000, 257.05, 14727],
+      ["Total IEMPAQUE", null, 3000, null, null],
+      ["PLASTICOS", null, null, null, null],
+      ["0000200", "BOLSA X 100", 5000, 500, 10000],
+    ];
+    const r = transformarModulo(INV, spec, hoja(filas));
+    const total = r.filas.find((f) => f.filaNum === 5);
+    expect(total).toMatchObject({ tipoFila: "total", clasificador: "IEMPAQUE", valor: 3000, motivo: "subtotal:rotulo,aritmetica" });
+    expect(r.filas.filter((f) => f.tipoFila === "movimiento").map((f) => f.clasificador)).toEqual(["IEMPAQUE", "IEMPAQUE", "PLASTICOS"]);
+  });
+});
+
+describe("transformarModulo · subtotales del archivo", () => {
+  const filasConSubtotales: CeldaCruda[][] = [
+    ENC,
+    ["Materia prima", "R1", "Tornillo", 1, 100, 100],
+    ["Materia prima", "R2", "Tuerca", 1, 200, 200],
+    ["Total Materia prima", null, null, null, null, 300],
+    ["Producto terminado", "R3", "Mesa", 1, 50, 50],
+    ["Producto terminado", "R4", "Silla", 1, 70, 70],
+    ["Total Producto terminado", null, null, null, null, 120],
+    ["Gran total", null, null, null, null, 420],
+  ];
+
+  it("subtotales ROTULADOS por tipo → `total` con el clasificador del grupo y motivo; no cuentan como leídas", () => {
+    const r = transformarModulo(INV, SPEC, hoja(filasConSubtotales));
+    const totales = r.filas.filter((f) => f.tipoFila === "total");
+    expect(totales.map((f) => [f.filaNum, f.clasificador, f.motivo])).toEqual([
+      [4, "Materia prima", "subtotal:rotulo,sin_detalle,aritmetica"],
+      [7, "Producto terminado", "subtotal:rotulo,sin_detalle,aritmetica"],
+      [8, null, "gran_total:rotulo,sin_detalle"],
+    ]);
+    expect(totales[0].datos.tipo).toBe("Materia prima");
+    expect(totales.every((f) => f.omitida === undefined)).toBe(true);
+    expect(r.filasLeidas).toBe(4);
+    expect(r.filasExcluidas).toBe(3);
+  });
+
+  it("CSV sin negrita ni rótulo: la fila sin referencia que suma el bloque es subtotal", () => {
+    const filas: CeldaCruda[][] = [
+      ENC,
+      ["A", "R1", "x", 1, 100, 100],
+      ["A", "R2", "y", 1, 250, 250],
+      ["A", null, null, null, null, 350],
+      ["B", "R3", "z", 1, 10, 10],
+    ];
+    const r = transformarModulo(INV, SPEC, hoja(filas));
+    expect(r.filas[2]).toMatchObject({ tipoFila: "total", clasificador: "A", motivo: "subtotal:sin_detalle,aritmetica" });
+  });
+
+  it("negrita + subtotal → `total` (no OMITIDA), para que entre al control", () => {
+    const filas: CeldaCruda[][] = [ENC, ["A", "R1", "x", 1, 100, 100], ["A", "R2", "y", 1, 250, 250], ["Total A", null, null, null, null, 350]];
+    const negrita = [[], [false, false, false, false, false, false], [false, false, false, false, false, false], [true, true, true, true, true, true]];
+    const r = transformarModulo(INV, SPEC, hoja(filas, negrita));
+    expect(r.filas[2]).toMatchObject({ tipoFila: "total", motivo: "subtotal:rotulo,sin_detalle,negrita,aritmetica" });
+    expect(r.filas[2].omitida).toBeUndefined();
+  });
+
+  it("spec.subtotales = «nunca» desactiva la detección (vuelve al comportamiento anterior)", () => {
+    const r = transformarModulo(INV, { ...SPEC, subtotales: "nunca" }, hoja(filasConSubtotales));
+    expect(r.filas.every((f) => f.tipoFila === "movimiento")).toBe(true);
+    expect(r.filasLeidas).toBe(7);
+  });
+
+  it("spec.subtotales = «rotulo» ignora el subtotal sin rótulo", () => {
+    const filas: CeldaCruda[][] = [ENC, ["A", "R1", "x", 1, 100, 100], ["A", "R2", "y", 1, 250, 250], ["A", null, null, null, null, 350]];
+    const r = transformarModulo(INV, { ...SPEC, subtotales: "rotulo" }, hoja(filas));
+    expect(r.filas[2].tipoFila).toBe("movimiento");
   });
 });
 

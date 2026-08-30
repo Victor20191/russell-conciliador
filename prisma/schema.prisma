@@ -1128,8 +1128,11 @@ model ModuloImportacionStaging {
   datos           Json     @default("{}") @map("datos")
   // Estado de edición manual (mismo tri-estado del balance):
   tipoFila        String   @default("movimiento") @map("tipo_fila") // movimiento | agrupadora | total
-  tipoFilaForzado String?  @map("tipo_fila_forzado") // agrupadora | movimiento | null
+  tipoFilaForzado String?  @map("tipo_fila_forzado") // agrupadora | movimiento | total | null
   omitida         Boolean? @map("omitida") // tri-estado: true omitir · false rescatar · null sin tocar
+  // Por qué el motor clasificó la fila como `total` (subtotal del archivo), para el tooltip
+  // del borrador y auditoría. Ej.: "subtotal:rotulo,aritmetica" · "gran_total:negrita,aritmetica".
+  motivoTipoFila  String?  @map("motivo_tipo_fila")
   padreManual     Int?     @map("padre_manual")
   creadoEn        DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
 

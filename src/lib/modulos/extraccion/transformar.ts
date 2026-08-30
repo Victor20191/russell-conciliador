@@ -9,11 +9,14 @@
 //  - PROMUEVE `clasificador` y `valor` (las columnas que el descriptor marca) a campos
 //    propios, para consolidar sin abrir el JSON.
 //  - Marca AGRUPADOR las filas en NEGRITA/subrayado (subtotales); no cuentan en el valor.
+//  - Marca `total` las filas de SUBTOTAL por grupo y el gran total (`../subtotales.ts`:
+//    rótulo, sin detalle, negrita, aritmética); no cuentan en el valor y sirven de CONTROL.
 import { normalizarMonto } from "@/lib/balance/extraccion/transformar";
 import type { CeldaCruda, GridHoja } from "@/lib/balance/extraccion/ingesta";
 import type { DescriptorModulo } from "../descriptores";
 import type { SpecModulo } from "./esquema";
 import { norm, puntajeRol } from "./sugerir";
+import { columnasDetalle, detectarSubtotales, esRotuloTotal, motivoDe } from "../subtotales";
 
 export type TipoFilaModulo = "movimiento" | "agrupadora" | "total";
 export type ValorCelda = string | number | null;
@@ -30,6 +33,8 @@ export type FilaModulo = {
   /** Tri-estado del staging: `true` entra omitida (negrita en módulos con
    *  `negritaComoOmitida`), `undefined` la deja sin tocar. */
   omitida?: boolean;
+  /** Por qué el motor clasificó la fila como `total` (`motivoDe`), p. ej. «subtotal:rotulo,aritmetica». */
+  motivo?: string;
 };
 
 export type ExcepcionModulo = { filaNum: number; mensaje: string };
@@ -103,7 +108,7 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
   // Modo del clasificador. `arrastrarClasificador` legado ≡ "arrastrar".
   const modo = spec.clasificadorModo ?? (spec.arrastrarClasificador ? "arrastrar" : "columna");
   const clasCol = spec.columnas[descriptor.clasificador] ?? 0;
-  const esTotal = (s: string) => /^(gran\s+)?total\b/i.test(s.trim());
+  const esTotal = (s: string) => esRotuloTotal(s.trim());
   let ultimoClasificador: string | null = null; // modo "arrastrar" (forward-fill)
   const rolClasificador = descriptor.columnas.find((rc) => rc.nombre === descriptor.clasificador);
   // ¿La fila trae, en la columna del clasificador, la ETIQUETA del encabezado (sinónimo del
@@ -150,6 +155,8 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
   }
 
   let seccionActual: string | null = null; // modo "seccion" (encabezados de grupo)
+  // Señales crudas por fila (paralelas a `filas`) para la detección de subtotales: no van a `datos`.
+  const crudo: { negrita: boolean; rotuloClasificador: string | null }[] = [];
   // ¿La fila es un ENCABEZADO DE SECCIÓN? (modo "seccion"): su clasificador tiene texto y,
   // o bien la columna marcada viene vacía (título, no ítem), o el clasificador va en negrita.
   const rolVacioSeccion = spec.seccionColumnaVaciaRol;
@@ -178,12 +185,16 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     }
 
     // 1.5) Modo "seccion": los ENCABEZADOS de grupo fijan el clasificador de los ítems que
-    //      siguen y NO se cargan como ítems. Los totales (Gran total) se descartan y no fijan sección.
+    //      siguen y NO se cargan como ítems. Un renglón «Total …» NO fija sección: sigue
+    //      adelante como candidato a subtotal (se marca `total` abajo y sirve de control).
+    const rotuloClasificadorCrudo = clasCol >= 1 ? aTexto(celda(fila, clasCol)) : null;
     if (modo === "seccion" && esRenglonSeccion(datos, hoja.negrita?.[r])) {
       const etiqueta = aTexto(datos[descriptor.clasificador]);
-      if (etiqueta && !esTotal(etiqueta)) seccionActual = etiqueta;
-      filasExcluidas++;
-      continue;
+      if (!(etiqueta && esTotal(etiqueta))) {
+        if (etiqueta) seccionActual = etiqueta;
+        filasExcluidas++;
+        continue;
+      }
     }
 
     // 2) Fila vacía (nada útil en ninguna columna) → se salta.
@@ -249,6 +260,33 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     else filasLeidas++;
 
     filas.push({ filaNum, clasificador, valor, datos, tipoFila, ...(omitidaPorNegrita ? { omitida: true } : {}) });
+    crudo.push({ negrita: enNegrita, rotuloClasificador: rotuloClasificadorCrudo });
+  }
+
+  // 6) SUBTOTALES por grupo y gran total (`spec.subtotales`: auto | rotulo | nunca). Las filas
+  //    detectadas pasan a `total`: no imputan, no se pueden «omitir» (ya están fuera) y el
+  //    borrador las usa como CONTROL contra la Σ de los movimientos de su bloque. Una fila
+  //    en negrita que además es subtotal queda `total` (no `omitida`) para entrar al control.
+  const detecciones = detectarSubtotales(
+    filas.map((f, i) => ({ ...f, negrita: crudo[i]?.negrita, rotuloClasificador: crudo[i]?.rotuloClasificador ?? null })),
+    descriptor,
+    { modo: spec.subtotales ?? "auto", columnasDetalle: columnasDetalle(descriptor, spec) },
+  );
+  for (const d of detecciones) {
+    const f = filas[d.indice];
+    if (f.tipoFila !== "movimiento") continue;
+    if (f.omitida === true) filasExcluidas--; else filasLeidas--;
+    filasExcluidas++;
+    const grupo = d.clase === "gran_total" ? d.grupo : (d.grupo ?? f.clasificador);
+    const { omitida: _omitida, ...resto } = f;
+    void _omitida;
+    filas[d.indice] = {
+      ...resto,
+      clasificador: grupo,
+      datos: modo === "global" ? f.datos : { ...f.datos, [descriptor.clasificador]: grupo },
+      tipoFila: "total",
+      motivo: motivoDe(d),
+    };
   }
 
   // PARTE B — RECONCILIACIÓN (red de seguridad): ¿queda alguna fila con valor real por

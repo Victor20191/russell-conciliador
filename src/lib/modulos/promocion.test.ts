@@ -59,3 +59,14 @@ describe("consolidarPorClasificador", () => {
     ]);
   });
 });
+
+describe("consolidarPorClasificador · filas total", () => {
+  it("NO cuenta las filas `total` (subtotales del archivo): solo suman los movimientos", () => {
+    const c = consolidarPorClasificador([
+      { clasificador: "A", valor: 100, tipoFila: "movimiento" },
+      { clasificador: "A", valor: 200, tipoFila: "movimiento" },
+      { clasificador: "A", valor: 300, tipoFila: "total" },
+    ]);
+    expect(c).toEqual([{ clasificador: "A", total: 300, filas: 2 }]);
+  });
+});

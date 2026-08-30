@@ -51,13 +51,14 @@ export function promoverStaging(filas: FilaStagingModulo[], columnasNumericas: s
 export type ConsolidadoClasificador = { clasificador: string; total: number; filas: number };
 
 /**
- * Consolida por CLASIFICADOR (Σ valor), excluyendo agrupadoras. Base de la pestaña
- * «Consolidado» y del cruce contra la cuenta de 4 díg. `null` cae en «(sin clasificar)».
+ * Consolida por CLASIFICADOR (Σ valor), excluyendo agrupadoras y totales (subtotales del
+ * archivo): SOLO suman los movimientos. Base de la pestaña «Consolidado» y del cruce contra
+ * la cuenta de 4 díg. `null` cae en «(sin clasificar)».
  */
 export function consolidarPorClasificador(filas: Array<{ clasificador: string | null; valor: number; tipoFila?: string }>): ConsolidadoClasificador[] {
   const m = new Map<string, { total: number; filas: number }>();
   for (const f of filas) {
-    if (f.tipoFila === "agrupadora") continue;
+    if (f.tipoFila && f.tipoFila !== "movimiento") continue;
     const k = f.clasificador?.trim() || "(sin clasificar)";
     const b = m.get(k) ?? { total: 0, filas: 0 };
     b.total += f.valor;

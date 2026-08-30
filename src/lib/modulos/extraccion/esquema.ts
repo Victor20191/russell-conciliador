@@ -30,6 +30,13 @@ export const SpecModuloSchema = z.object({
   seccionColumnaVaciaRol: z.string().optional(),
   // Legado: equivalente a clasificadorModo="arrastrar" (se respeta si viene en perfiles viejos).
   arrastrarClasificador: z.boolean().optional(),
+  // Detección de filas de SUBTOTAL por clasificador (se excluyen del consolidado y sirven
+  // de CONTROL contra la Σ de los movimientos de su bloque):
+  //  - "auto" (por defecto): por rótulo («Total X»), o por suma del bloque + fila sin
+  //                          detalle / en negrita.
+  //  - "rotulo": solo las filas que digan «Total»/«Subtotal».
+  //  - "nunca" : desactivada (queda solo la negrita del transform).
+  subtotales: z.enum(["auto", "rotulo", "nunca"]).optional(),
 });
 export type SpecModulo = z.infer<typeof SpecModuloSchema>;
 

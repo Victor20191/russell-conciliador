@@ -184,11 +184,51 @@ function hojaConsolidado(wb: ExcelJS.Workbook, clasificadorEtiqueta: string, con
   celdaTotal.numFmt = NUM_FMT;
 }
 
+/** Fila del control de subtotales (borrador): subtotal del archivo vs. Σ movimientos de su bloque. */
+export type ControlExportModulo = {
+  clasificador: string;
+  filaSubtotal: number;
+  items: number;
+  sumaMovimientos: number;
+  subtotalArchivo: number;
+  diferencia: number;
+  estado: "cuadra" | "descuadre";
+};
+
+function hojaControlSubtotales(wb: ExcelJS.Workbook, clasificadorEtiqueta: string, control: ControlExportModulo[], meta: MetaExportModulo) {
+  const ws = wb.addWorksheet("Control subtotales");
+  ws.columns = [
+    { header: clasificadorEtiqueta, key: "clasificador", width: 34 },
+    { header: "Fila subtotal", key: "filaSubtotal", width: 14 },
+    { header: "Movimientos", key: "items", width: 13 },
+    { header: "Σ movimientos", key: "sumaMovimientos", width: 20 },
+    { header: "Subtotal del archivo", key: "subtotalArchivo", width: 20 },
+    { header: "Diferencia", key: "diferencia", width: 18 },
+    { header: "Estado", key: "estado", width: 12 },
+  ];
+  ws.spliceRows(1, 0, [], [], []);
+  ws.getCell("A1").value = `${meta.modulo} · ${meta.cliente} · Control de subtotales del archivo`;
+  ws.getCell("A1").font = { bold: true, size: 13 };
+  ws.getCell("A2").value = `Período ${meta.periodo} · v${meta.version} · los subtotales no se cargan: se comparan contra la suma de sus movimientos`;
+  ws.getCell("A2").font = { color: { argb: "FF6B7280" } };
+  const HEADER_ROW = 4;
+  ws.getRow(HEADER_ROW).font = { bold: true };
+  ws.getRow(HEADER_ROW).fill = HEADER_FILL;
+  ws.views = [{ state: "frozen", ySplit: HEADER_ROW }];
+  for (const c of control) {
+    const row = ws.addRow({ ...c, estado: c.estado === "cuadra" ? "Cuadra" : "Descuadre" });
+    for (const k of ["sumaMovimientos", "subtotalArchivo", "diferencia"]) row.getCell(k).numFmt = NUM_FMT;
+    if (c.estado === "descuadre") row.font = { bold: true, color: { argb: "FFB91C1C" } };
+  }
+}
+
 export async function crearExportacionModulo(input: {
   columnas: ColumnaExportModulo[];
   clasificadorEtiqueta: string;
   detalle: FilaExportModulo[];
   consolidado: ConsolidadoExportModulo[];
+  /** Solo el borrador: control de subtotales del archivo (si trae alguno). */
+  control?: ControlExportModulo[];
   meta: MetaExportModulo;
 }): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
@@ -196,5 +236,6 @@ export async function crearExportacionModulo(input: {
   wb.created = input.meta.generadoEn;
   hojaDetalle(wb, input.columnas, input.clasificadorEtiqueta, input.detalle, input.meta);
   hojaConsolidado(wb, input.clasificadorEtiqueta, input.consolidado, input.meta);
+  if (input.control && input.control.length > 0) hojaControlSubtotales(wb, input.clasificadorEtiqueta, input.control, input.meta);
   return Buffer.from(await wb.xlsx.writeBuffer());
 }

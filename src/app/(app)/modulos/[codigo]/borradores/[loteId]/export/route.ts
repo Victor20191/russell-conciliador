@@ -3,6 +3,7 @@ import prisma from "@/lib/prisma";
 import { authorizePermiso } from "@/lib/rbac";
 import { descriptorModulo } from "@/lib/modulos/descriptores";
 import { consolidarPorClasificador, filaEnCero } from "@/lib/modulos/promocion";
+import { controlSubtotales } from "@/lib/modulos/subtotales";
 import { versionarYOrdenarBorradoresModulo } from "@/lib/modulos/versiones";
 import { crearExportacionModulo } from "@/lib/export/modulo";
 import { mensajeErrorBD } from "@/lib/errores";
@@ -57,10 +58,25 @@ export async function GET(_req: Request, { params }: { params: Promise<{ codigo:
       const datos = (f.datos ?? {}) as Record<string, string | number | null>;
       const enCero = filaEnCero(datos, columnasNumericas);
       const imputable = f.tipoFila === "movimiento" && f.omitida !== true && !enCero;
-      const base = f.tipoFila === "agrupadora" ? "Agrupadora" : f.tipoFila === "total" ? "Total" : "Movimiento";
+      const base = f.tipoFila === "agrupadora"
+        ? "Agrupadora"
+        : f.tipoFila === "total"
+          ? `Subtotal del archivo · control${f.motivoTipoFila ? ` (${f.motivoTipoFila})` : ""}`
+          : "Movimiento";
       const estado = f.omitida === true ? `${base} · OMITIDA` : !imputable && enCero ? `${base} · en cero` : base;
       return { filaNum: f.filaNum, clasificador: f.clasificador, valor: imputable ? Number(f.valor) : 0, datos, estado, imputable };
     });
+    // Control de subtotales con la misma regla de imputabilidad (fila `total` vs. Σ de su bloque).
+    const ctl = controlSubtotales(
+      filas.map((f) => ({ filaNum: f.filaNum, clasificador: f.clasificador, valor: Number(f.valor), datos: (f.datos ?? {}) as Record<string, unknown>, tipoFila: f.tipoFila, omitida: f.omitida, motivo: f.motivoTipoFila })),
+      (f) => f.tipoFila === "movimiento" && f.omitida !== true && !filaEnCero(f.datos, columnasNumericas),
+    );
+    const control = [
+      ...ctl.grupos.map((g) => ({ clasificador: g.clasificador, filaSubtotal: g.filaSubtotal, items: g.bloque.items, sumaMovimientos: g.sumaMovimientos, subtotalArchivo: g.subtotalArchivo, diferencia: g.diferencia, estado: g.estado })),
+      ...(ctl.granTotal
+        ? [{ clasificador: "GRAN TOTAL", filaSubtotal: ctl.granTotal.filaNum, items: detalle.filter((d) => d.imputable).length, sumaMovimientos: ctl.granTotal.sumaMovimientos, subtotalArchivo: ctl.granTotal.subtotalArchivo, diferencia: ctl.granTotal.diferencia, estado: ctl.granTotal.estado }]
+        : []),
+    ];
     const consolidado = consolidarPorClasificador(detalle.filter((d) => d.imputable).map((d) => ({ clasificador: d.clasificador, valor: d.valor })))
       .map((c) => ({ clasificador: c.clasificador, total: c.total, filas: c.filas, cuentas4: [] }));
 
@@ -71,6 +87,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ codigo:
       clasificadorEtiqueta: descriptor.columnas.find((c) => c.nombre === descriptor.clasificador)?.etiqueta ?? "Clasificador",
       detalle,
       consolidado,
+      control,
       meta: { modulo: `Borrador · ${descriptor.label}`, cliente: cliente?.name ?? `Cliente ${lote.clienteId}`, periodo, version, archivo: lote.archivoNombre, generadoEn },
     });
     const base = lote.archivoNombre.replace(/\.[^.]+$/, "").replace(/[^\w.-]+/g, "_").slice(0, 60);

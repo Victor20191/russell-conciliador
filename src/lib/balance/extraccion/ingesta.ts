@@ -416,11 +416,18 @@ export function detectarDelimitador(texto: string, maxLineas = 50): DelimitadorP
   return null;
 }
 
-function parseDelimitado(texto: string, delimitador: DelimitadorPlano): CeldaCruda[][] {
+// Comillas según RFC 4180 con dos tolerancias para archivos «a mano»:
+//  - una comilla solo ABRE campo entrecomillado si está al INICIO de la celda; a mitad de
+//    celda es literal (`Válvula 1/2" bronce`, `Filtro 10"`). Antes se tragaba el resto del
+//    archivo (delimitadores y saltos de línea incluidos) y las filas siguientes se perdían;
+//  - si un campo abierto nunca cierra (comilla huérfana al inicio), se reinterpreta esa
+//    comilla como literal y se vuelve a parsear desde ahí.
+function parseDelimitado(texto: string, delimitador: DelimitadorPlano, comillasLiterales: ReadonlySet<number> = new Set()): CeldaCruda[][] {
   const filas: string[][] = [];
   let fila: string[] = [];
   let celda = "";
   let entreComillas = false;
+  let aperturaEn = -1;
 
   for (let i = 0; i < texto.length; i++) {
     const ch = texto[i];
@@ -438,8 +445,11 @@ function parseDelimitado(texto: string, delimitador: DelimitadorPlano): CeldaCru
       continue;
     }
 
-    if (ch === "\"") {
+    if (ch === "\"" && celda === "" && !comillasLiterales.has(i)) {
       entreComillas = true;
+      aperturaEn = i;
+    } else if (ch === "\"") {
+      celda += ch; // comilla a mitad de celda (pulgadas, apodos…): literal
     } else if (ch === delimitador) {
       fila.push(celda);
       celda = "";
@@ -451,6 +461,11 @@ function parseDelimitado(texto: string, delimitador: DelimitadorPlano): CeldaCru
     } else if (ch !== "\r") {
       celda += ch;
     }
+  }
+
+  if (entreComillas && aperturaEn >= 0) {
+    // Comilla huérfana: nunca cerró. Tratarla como literal y reintentar.
+    return parseDelimitado(texto, delimitador, new Set([...comillasLiterales, aperturaEn]));
   }
 
   fila.push(celda);

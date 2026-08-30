@@ -402,6 +402,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
             loteId, moduloCodigo, clienteId, hoja: hoja.nombre, filaNum: f.filaNum,
             clasificador: f.clasificador, valor: f.valor, datos: f.datos, tipoFila: f.tipoFila,
             omitida: f.omitida ?? null,
+            motivoTipoFila: f.motivo ?? null,
           })),
         });
       }
@@ -437,7 +438,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
 }
 
 // ============================================================
-// EDITAR el borrador: marcar agrupador / omitir por fila (se guarda en el staging).
+// EDITAR el borrador: marcar agrupador / subtotal / omitir por fila (se guarda en el staging).
 // ============================================================
 export async function aplicarCambiosBorradorModulo(
   loteId: string,
@@ -462,7 +463,11 @@ export async function aplicarCambiosBorradorModulo(
         prisma.moduloImportacionStaging.updateMany({
           where: { loteId: id, filaNum: c.filaNum },
           data: {
-            ...(c.tipoFila === "agrupadora" || c.tipoFila === "movimiento" ? { tipoFila: c.tipoFila, tipoFilaForzado: c.tipoFila } : {}),
+            // `total` = subtotal del archivo (control). Al cambiar de tipo se limpia el
+            // tri-estado `omitida` para no dejar estados mixtos (un total nunca se «omite»).
+            ...(c.tipoFila === "agrupadora" || c.tipoFila === "movimiento" || c.tipoFila === "total"
+              ? { tipoFila: c.tipoFila, tipoFilaForzado: c.tipoFila, omitida: null }
+              : {}),
             ...(c.omitida !== undefined ? { omitida: c.omitida } : {}),
             // Agrupador manual: reasigna el clasificador de la fila (vacío → sin clasificar).
             ...(c.clasificador !== undefined ? { clasificador: c.clasificador?.trim() ? c.clasificador.trim() : null } : {}),

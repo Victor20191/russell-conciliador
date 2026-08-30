@@ -122,6 +122,7 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
     datos: (f.datos ?? {}) as Record<string, string | number | null>,
     tipoFila: f.tipoFila,
     omitida: f.omitida,
+    motivo: f.motivoTipoFila,
   }));
 
   return (

@@ -20,10 +20,13 @@ import { fmtDate } from "@/lib/format";
 import type { SpecModulo } from "@/lib/modulos/extraccion/esquema";
 import {
   MODOS_CLASIFICADOR,
+  MODOS_SUBTOTALES,
   descripcionModoClasificador,
+  descripcionModoSubtotales,
   letraColumnaModulo,
   modoClasificadorDe,
   type ModoClasificador,
+  type ModoSubtotales,
 } from "@/lib/modulos/perfil-modulo";
 
 const TIPO_LEGIBLE: Record<string, string> = {
@@ -373,6 +376,9 @@ function PerfilCargaModuloDetalle({
   const modo = modoClasificadorDe(estructura);
   const modoGuardado = modoClasificadorDe(perfil.estructura);
   const rolSenal = estructura.seccionColumnaVaciaRol ?? "descripcion";
+  const modoSubtotales: ModoSubtotales = estructura.subtotales ?? "auto";
+  const cambiarModoSubtotales = (siguiente: ModoSubtotales) =>
+    setEstructura((actual) => ({ ...actual, subtotales: siguiente === "auto" ? undefined : siguiente }));
 
   const cambiarColumna = (rol: string, valor: number) => {
     const normalizado = Number.isInteger(valor) && valor >= 0 ? valor : 0;
@@ -511,6 +517,12 @@ function PerfilCargaModuloDetalle({
                 {descripcionModoClasificador(modoGuardado, etiquetaClasificador)}
               </div>
             </div>
+            <div className="rounded-md border border-ink-150 bg-white px-3 py-2.5">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-400">Subtotales del archivo</div>
+              <div className="mt-1 text-[11.5px] font-semibold leading-relaxed text-ink-700">
+                {descripcionModoSubtotales(perfil.estructura.subtotales ?? "auto")}
+              </div>
+            </div>
             {modoGuardado === "seccion" && (
               <div className="rounded-md border border-ink-150 bg-white px-3 py-2.5">
                 <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-400">Señal del renglón de sección</div>
@@ -643,6 +655,21 @@ function PerfilCargaModuloDetalle({
                 </span>
               </label>
             )}
+            <label className="flex flex-col gap-1">
+              <span className="text-[11px] font-medium text-ink-600">Subtotales del archivo</span>
+              <select
+                value={modoSubtotales}
+                onChange={(evento) => cambiarModoSubtotales(evento.target.value as ModoSubtotales)}
+                className={CLASE_INPUT}
+              >
+                {MODOS_SUBTOTALES.map((m) => (
+                  <option key={m} value={m}>{descripcionModoSubtotales(m)}</option>
+                ))}
+              </select>
+              <span className="text-[10.5px] leading-relaxed text-ink-400">
+                Las filas de subtotal no se cargan: el borrador las compara con la suma de sus movimientos y avisa si no cuadran.
+              </span>
+            </label>
           </fieldset>
 
           {error && (

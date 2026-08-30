@@ -218,6 +218,9 @@ function CargarModal({
     if (modo === "global") setModo("columna");
   };
   const setSeccionRol = (rol: string) => setSpec((s) => (s ? { ...s, seccionColumnaVaciaRol: rol } : s));
+  // Subtotales del archivo: cómo detectarlos (se excluyen del consolidado y se usan de control).
+  const modoSubtotales: "auto" | "rotulo" | "nunca" = spec?.subtotales ?? "auto";
+  const setModoSubtotales = (m: "auto" | "rotulo" | "nunca") => setSpec((s) => (s ? { ...s, subtotales: m === "auto" ? undefined : m } : s));
 
   // Etiqueta de cada columna para los selectores: «C · "Encabezado" (muestra, muestra)».
   const opcionesColumna = (): { index1: number; label: string }[] => {
@@ -440,6 +443,15 @@ function CargarModal({
                 })()}
               </label>
             )}
+            <label className="flex min-w-0 flex-col gap-1 border-t border-ink-150 pt-2">
+              <span className="text-[11px] font-medium text-ink-600">¿El archivo trae filas de subtotal por {roles.find((r) => r.nombre === clasificadorRol)?.etiqueta.toLowerCase() ?? "tipo"}?</span>
+              <select value={modoSubtotales} onChange={(e) => setModoSubtotales(e.target.value as typeof modoSubtotales)} className="w-full min-w-0 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400">
+                <option value="auto">Detectarlas automáticamente (rótulo «Total», o suma del bloque + fila sin detalle / en negrita)</option>
+                <option value="rotulo">Solo las que digan «Total» / «Subtotal»</option>
+                <option value="nunca">No trae subtotales: no detectar ninguna</option>
+              </select>
+              <span className="text-[11px] leading-snug text-ink-500">Los subtotales detectados no se cargan: el borrador los compara con la suma de sus movimientos y avisa si no cuadran. Se recuerda en el perfil de carga del cliente.</span>
+            </label>
           </div>
 
           <label className="flex w-full max-w-xs flex-col gap-1">

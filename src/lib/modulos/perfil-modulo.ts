@@ -8,6 +8,7 @@
 // descriptor (`descriptores.ts`), igual que en el wizard de carga y en el transform.
 import type { DescriptorModulo } from "./descriptores";
 import type { SpecModulo } from "./extraccion/esquema";
+export { MODOS_SUBTOTALES, descripcionModoSubtotales, type ModoSubtotales } from "./subtotales";
 
 /** Modo EFECTIVO del clasificador de un spec (resuelve el legado `arrastrarClasificador`). */
 export type ModoClasificador = NonNullable<SpecModulo["clasificadorModo"]>;
@@ -39,7 +40,9 @@ export function letraColumnaModulo(numero: number): string {
  *  - `hoja` sin espacios sobrantes;
  *  - el modo del clasificador queda explícito en `clasificadorModo` (el legado
  *    `arrastrarClasificador` se resuelve y se retira);
- *  - `seccionColumnaVaciaRol` solo tiene sentido en modo «seccion».
+ *  - `seccionColumnaVaciaRol` solo tiene sentido en modo «seccion»;
+ *  - `subtotales` solo se conserva cuando difiere del predeterminado («auto»), así los
+ *    perfiles antiguos siguen siendo equivalentes.
  * No valida: para eso está `validarSpecModulo`.
  */
 export function normalizarSpecModulo(descriptor: DescriptorModulo, spec: SpecModulo): SpecModulo {
@@ -60,6 +63,7 @@ export function normalizarSpecModulo(descriptor: DescriptorModulo, spec: SpecMod
     const rol = spec.seccionColumnaVaciaRol?.trim();
     if (rol) normalizado.seccionColumnaVaciaRol = rol;
   }
+  if (spec.subtotales === "rotulo" || spec.subtotales === "nunca") normalizado.subtotales = spec.subtotales;
   return normalizado;
 }
 
