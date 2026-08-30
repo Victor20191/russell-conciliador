@@ -11,6 +11,7 @@ import { SelectorClienteBuscable } from "@/components/selector-cliente-buscable"
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import { columnaLetra } from "@/lib/balance/extraccion/hojas-cliente";
 import type { SpecModulo } from "@/lib/modulos/extraccion/esquema";
+import { coincideMarcaSubtotal, type ModoSubtotales } from "@/lib/modulos/subtotales";
 import { leerDatosModulo, analizarArchivoModulo, preferenciasCargaModulo, type AnalisisModulo, type CeldaMuestra } from "@/app/actions/modulos-datos";
 import { NotasCargaModulo } from "./notas-carga-modulo";
 
@@ -200,6 +201,10 @@ function CargarModal({
     if (!/^\d{4}-\d{2}$/.test(mes)) { notifyError("Selecciona el período del archivo."); return; }
     const faltantes = roles.filter((rc) => rc.requerido && !(rc.nombre === clasificadorRol && modo === "global") && (spec.columnas[rc.nombre] ?? 0) < 1);
     if (faltantes.length) { notifyError("Faltan columnas obligatorias: " + faltantes.map((f) => f.etiqueta).join(", ") + "."); return; }
+    if (spec.subtotales === "manual" && (spec.subtotalesColumna ?? 0) < 1) {
+      notifyError("Indica la columna del archivo que marca las filas de subtotal.");
+      return;
+    }
     startLeer(async () => {
       const fd = new FormData();
       fd.set("moduloCodigo", moduloCodigo);
@@ -242,8 +247,22 @@ function CargarModal({
   };
   const setSeccionRol = (rol: string) => setSpec((s) => (s ? { ...s, seccionColumnaVaciaRol: rol } : s));
   // Subtotales del archivo: cómo detectarlos (se excluyen del consolidado y se usan de control).
-  const modoSubtotales: "auto" | "rotulo" | "nunca" = spec?.subtotales ?? "auto";
-  const setModoSubtotales = (m: "auto" | "rotulo" | "nunca") => setSpec((s) => (s ? { ...s, subtotales: m === "auto" ? undefined : m } : s));
+  const modoSubtotales: ModoSubtotales = spec?.subtotales ?? "auto";
+  const setModoSubtotales = (m: ModoSubtotales) =>
+    setSpec((s) =>
+      s
+        ? {
+            ...s,
+            subtotales: m === "auto" ? undefined : m,
+            // La columna marcadora solo existe en el modo manual; al salir se retira para
+            // no dejar basura en el perfil que se guarda por huella.
+            subtotalesColumna: m === "manual" ? (s.subtotalesColumna ?? 0) : undefined,
+            subtotalesTexto: m === "manual" ? s.subtotalesTexto : undefined,
+          }
+        : s,
+    );
+  const setColumnaSubtotales = (col: number) => setSpec((s) => (s ? { ...s, subtotalesColumna: col } : s));
+  const setTextoSubtotales = (t: string) => setSpec((s) => (s ? { ...s, subtotalesTexto: t || undefined } : s));
 
   // Etiqueta de cada columna para los selectores: «C · "Encabezado" (muestra, muestra)».
   const opcionesColumna = (): { index1: number; label: string }[] => {
@@ -274,6 +293,19 @@ function CargarModal({
     return vacias / vals.length >= 0.3;
   })();
   const clasificadorEtiqueta = roles.find((rol) => rol.nombre === clasificadorRol)?.etiqueta ?? "clasificador";
+  // Modo manual de subtotales: columna marcadora elegida y cuánto coincide en la muestra
+  // (la muestra son ~12 filas: sirve para confirmar la columna, no para contar el archivo).
+  const colSubtotales = spec?.subtotalesColumna ?? 0;
+  const muestraSubtotales = (() => {
+    const filas = analisis?.muestraFilas ?? [];
+    if (colSubtotales < 1) return { total: filas.length, coinciden: 0, ejemplos: [] as string[] };
+    const marcadas = filas.filter((f) => coincideMarcaSubtotal(f[colSubtotales - 1] ?? null, spec?.subtotalesTexto));
+    return {
+      total: filas.length,
+      coinciden: marcadas.length,
+      ejemplos: marcadas.slice(0, 2).map((f) => `«${celdaTxt(f[colSubtotales - 1] ?? null).slice(0, 24)}»`),
+    };
+  })();
 
   return (
     <Modal
@@ -510,13 +542,50 @@ function CargarModal({
             )}
             <label className="flex min-w-0 flex-col gap-1 border-t border-ink-150 pt-2">
               <span className="text-[11px] font-medium text-ink-600">¿El archivo trae filas de subtotal por {roles.find((r) => r.nombre === clasificadorRol)?.etiqueta.toLowerCase() ?? "tipo"}?</span>
-              <select value={modoSubtotales} onChange={(e) => setModoSubtotales(e.target.value as typeof modoSubtotales)} className="w-full min-w-0 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400">
+              <select value={modoSubtotales} onChange={(e) => setModoSubtotales(e.target.value as ModoSubtotales)} className="w-full min-w-0 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400">
                 <option value="auto">Detectarlas automáticamente (rótulo «Total», o suma del bloque + fila sin detalle / en negrita)</option>
                 <option value="rotulo">Solo las que digan «Total» / «Subtotal»</option>
                 <option value="nunca">No trae subtotales: no detectar ninguna</option>
+                <option value="manual">Indicarlas yo: la columna del archivo que las marca</option>
               </select>
               <span className="text-[11px] leading-snug text-ink-500">Los subtotales detectados no se cargan: el borrador los compara con la suma de sus movimientos y avisa si no cuadran. Se recuerda en el perfil de carga del cliente.</span>
             </label>
+            {modoSubtotales === "manual" && (
+              <div className="flex flex-col gap-2 rounded-md border border-ink-200 bg-white px-3 py-2.5">
+                <label className="flex min-w-0 flex-col gap-1">
+                  <span className="text-[11px] font-medium text-ink-600">Columna que marca la fila de subtotal <span className="text-err-600">*</span></span>
+                  <select
+                    value={colSubtotales}
+                    onChange={(e) => setColumnaSubtotales(Number(e.target.value))}
+                    className="w-full min-w-0 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400"
+                  >
+                    <option value={0}>— elige la columna —</option>
+                    {opcionesColumna().map((o) => <option key={o.index1} value={o.index1}>{o.label}</option>)}
+                  </select>
+                  <span className="text-[11px] leading-snug text-ink-500">Puede ser cualquier columna del archivo, aunque no esté mapeada arriba (p. ej. la del rótulo «Total …» o una columna que solo se llena en los subtotales).</span>
+                </label>
+                <label className="flex min-w-0 flex-col gap-1">
+                  <span className="text-[11px] font-medium text-ink-600">Texto que la marca <span className="font-normal text-ink-400">(opcional)</span></span>
+                  <input
+                    type="text"
+                    maxLength={80}
+                    value={spec?.subtotalesTexto ?? ""}
+                    onChange={(e) => setTextoSubtotales(e.target.value)}
+                    placeholder="P. ej. TOTAL — vacío: basta con que la celda traiga algo"
+                    className="w-full min-w-0 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400"
+                  />
+                </label>
+                {colSubtotales < 1 ? (
+                  <span className="text-[11px] font-semibold leading-snug text-err-700">⚠ Elige la columna: sin ella no se marcaría ninguna fila como subtotal.</span>
+                ) : (
+                  <span className="text-[11px] leading-snug text-ink-500">
+                    En las {muestraSubtotales.total} filas de muestra coinciden {muestraSubtotales.coinciden}
+                    {muestraSubtotales.ejemplos.length > 0 && <> (p. ej. {muestraSubtotales.ejemplos.join(", ")})</>}.
+                    La marca se aplica a TODO el archivo, no solo a la muestra.
+                  </span>
+                )}
+              </div>
+            )}
           </div>
 
           <label className="flex w-full max-w-xs flex-col gap-1">

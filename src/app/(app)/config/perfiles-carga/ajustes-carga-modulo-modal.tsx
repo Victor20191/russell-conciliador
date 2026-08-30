@@ -23,6 +23,7 @@ import {
   MODOS_SUBTOTALES,
   descripcionModoClasificador,
   descripcionModoSubtotales,
+  descripcionSubtotalesModulo,
   letraColumnaModulo,
   modoClasificadorDe,
   type ModoClasificador,
@@ -378,7 +379,13 @@ function PerfilCargaModuloDetalle({
   const rolSenal = estructura.seccionColumnaVaciaRol ?? "descripcion";
   const modoSubtotales: ModoSubtotales = estructura.subtotales ?? "auto";
   const cambiarModoSubtotales = (siguiente: ModoSubtotales) =>
-    setEstructura((actual) => ({ ...actual, subtotales: siguiente === "auto" ? undefined : siguiente }));
+    setEstructura((actual) => ({
+      ...actual,
+      subtotales: siguiente === "auto" ? undefined : siguiente,
+      // La columna marcadora solo vive en el modo manual: al salir se retira del perfil.
+      subtotalesColumna: siguiente === "manual" ? actual.subtotalesColumna ?? 0 : undefined,
+      subtotalesTexto: siguiente === "manual" ? actual.subtotalesTexto : undefined,
+    }));
 
   const cambiarColumna = (rol: string, valor: number) => {
     const normalizado = Number.isInteger(valor) && valor >= 0 ? valor : 0;
@@ -520,7 +527,7 @@ function PerfilCargaModuloDetalle({
             <div className="rounded-md border border-ink-150 bg-white px-3 py-2.5">
               <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-400">Subtotales del archivo</div>
               <div className="mt-1 text-[11.5px] font-semibold leading-relaxed text-ink-700">
-                {descripcionModoSubtotales(perfil.estructura.subtotales ?? "auto")}
+                {descripcionSubtotalesModulo(perfil.estructura)}
               </div>
             </div>
             {modoGuardado === "seccion" && (
@@ -670,6 +677,40 @@ function PerfilCargaModuloDetalle({
                 Las filas de subtotal no se cargan: el borrador las compara con la suma de sus movimientos y avisa si no cuadran.
               </span>
             </label>
+            {modoSubtotales === "manual" && (
+              <>
+                <label className="flex flex-col gap-1">
+                  <span className="text-[11px] font-medium text-ink-600">Columna del archivo que marca la fila de subtotal</span>
+                  <input
+                    type="number"
+                    min={1}
+                    value={estructura.subtotalesColumna ?? 0}
+                    onChange={(evento) => setEstructura((actual) => ({ ...actual, subtotalesColumna: Number(evento.target.value) }))}
+                    aria-label="Número de columna que marca las filas de subtotal"
+                    className={`${CLASE_INPUT} tabular-nums`}
+                  />
+                  <span className={`text-[10.5px] leading-relaxed ${(estructura.subtotalesColumna ?? 0) > 0 ? "font-medium text-blue-600" : "text-err-600"}`}>
+                    {(estructura.subtotalesColumna ?? 0) > 0
+                      ? ubicacionColumna(estructura.subtotalesColumna ?? 0)
+                      : "Obligatoria en el modo manual: sin ella no se marca ninguna fila."}
+                  </span>
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-[11px] font-medium text-ink-600">Texto que la marca <span className="font-normal text-ink-400">(opcional)</span></span>
+                  <input
+                    type="text"
+                    maxLength={80}
+                    value={estructura.subtotalesTexto ?? ""}
+                    onChange={(evento) => setEstructura((actual) => ({ ...actual, subtotalesTexto: evento.target.value || undefined }))}
+                    placeholder="P. ej. TOTAL"
+                    className={CLASE_INPUT}
+                  />
+                  <span className="text-[10.5px] leading-relaxed text-ink-400">
+                    Sin texto basta con que esa celda traiga algún valor; con texto, la celda debe contenerlo (sin distinguir tildes ni mayúsculas).
+                  </span>
+                </label>
+              </>
+            )}
           </fieldset>
 
           {error && (

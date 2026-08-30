@@ -17,11 +17,11 @@ import type { SpecModulo } from "./extraccion/esquema";
 import { norm } from "./extraccion/sugerir";
 import { TOLERANCIA_FILA_TOTALIZADORA, detectarFilasTotalizadoras } from "./fila-totalizadora";
 
-export type SenalSubtotal = "rotulo" | "rotulo_debil" | "sin_detalle" | "negrita" | "aritmetica" | "aritmetica_arriba";
+export type SenalSubtotal = "rotulo" | "rotulo_debil" | "sin_detalle" | "negrita" | "aritmetica" | "aritmetica_arriba" | "marca_manual";
 
 /** Preferencia del perfil de formato (`SpecModulo.subtotales`). */
-export type ModoSubtotales = "auto" | "rotulo" | "nunca";
-export const MODOS_SUBTOTALES: readonly ModoSubtotales[] = ["auto", "rotulo", "nunca"];
+export type ModoSubtotales = "auto" | "rotulo" | "nunca" | "manual";
+export const MODOS_SUBTOTALES: readonly ModoSubtotales[] = ["auto", "rotulo", "nunca", "manual"];
 
 export type FilaCandidata = {
   filaNum: number;
@@ -36,6 +36,8 @@ export type FilaCandidata = {
   rotuloClasificador?: string | null;
   /** Motivo persistido de la detección (`motivoDe`): «gran_total:…» identifica el gran total en el control. */
   motivo?: string | null;
+  /** Modo "manual": la columna marcadora elegida por el usuario señala esta fila (solo al leer). */
+  marcaManual?: boolean;
 };
 
 export type BloqueSubtotal = {
@@ -100,6 +102,19 @@ export const esRotuloTotal = (s: string): boolean => /^\s*(gran\s+)?(sub)?\s*-?t
 
 /** ¿Es el rótulo del GRAN total del archivo? («Total», «Gran total», «Total general»). */
 export const esRotuloGranTotal = (s: string): boolean => /^\s*(gran\s+total|total\s+general|total(es)?)\s*:?\s*$/i.test(s.trim());
+
+/**
+ * Modo "manual": ¿la celda de la COLUMNA MARCADORA señala que la fila es un subtotal?
+ * Sin `patron`, basta con que la celda traiga texto (columna que solo se llena en los
+ * subtotales); con `patron`, la celda debe contenerlo (normalizado, sin tildes ni
+ * mayúsculas), para columnas tipo «TIPO» donde el valor es «TOTAL», «Total bodega 3»…
+ */
+export function coincideMarcaSubtotal(celda: unknown, patron?: string | null): boolean {
+  const texto = celda == null ? "" : String(celda).trim();
+  if (!texto) return false;
+  const buscado = norm(patron ?? "");
+  return buscado ? norm(texto).includes(buscado) : true;
+}
 
 const ROTULOS_EXACTOS = new Set(["total", "totales", "subtotal", "sub total", "total general", "gran total", "sumas", "suma", "sumas iguales"]);
 
@@ -208,6 +223,10 @@ function textosDeFila(f: FilaCandidata, descriptor: DescriptorModulo): string[] 
  *  - "auto"   → lo anterior, o aritmética + (sin detalle | negrita). Un candidato con
  *               clasificador propio distinto al del bloque y sin rótulo NO es subtotal
  *               (es la primera fila del grupo siguiente).
+ *  - "manual" → SOLO las filas que el llamador marcó (`marcaManual`, resuelto con
+ *               `coincideMarcaSubtotal` sobre la columna que eligió el usuario). Ninguna
+ *               heurística añade ni quita filas: es la salida cuando el formato no encaja
+ *               en las anteriores.
  * Un rótulo fuerte que NO cuadra sigue siendo subtotal: ese es justamente el descuadre a reportar.
  */
 export function detectarSubtotales(
@@ -237,12 +256,15 @@ export function detectarSubtotales(
       senales.push(bloque.direccion === "arriba" ? "aritmetica" : "aritmetica_arriba");
     }
 
+    if (modo === "manual" && f.marcaManual === true) senales.unshift("marca_manual");
     const rotulo = senales.includes("rotulo");
     const debil = senales.includes("rotulo_debil");
     const sinDetalle = senales.includes("sin_detalle");
     const negrita = senales.includes("negrita");
     const aritmetica = senales.includes("aritmetica") || senales.includes("aritmetica_arriba");
-    let esSubtotal = rotulo || (debil && (sinDetalle || negrita || aritmetica));
+    let esSubtotal = modo === "manual"
+      ? senales.includes("marca_manual")
+      : rotulo || (debil && (sinDetalle || negrita || aritmetica));
     if (!esSubtotal && modo === "auto" && aritmetica && (sinDetalle || negrita)) {
       // Sin rótulo: si trae su propio clasificador y es OTRO que el del bloque, es un ítem
       // del grupo siguiente que casualmente vale lo mismo, no un subtotal.
@@ -268,7 +290,9 @@ export function detectarSubtotales(
   // Candidatos: (a) movimientos restantes con señal de total (rótulo/sin detalle/negrita) que
   // valgan la Σ del resto; (b) subtotales ya marcados que valgan la Σ de TODOS los restantes.
   const totalizadoras = new Set(detectarFilasTotalizadoras(restantes.map(({ f }) => ({ filaNum: f.filaNum, valor: f.valor }))).map((t) => t.filaNum));
-  for (const { f, i } of restantes) {
+  // En modo "manual" NADA se marca por cuenta propia: si el gran total no trae la marca,
+  // no es un subtotal (esa es la promesa del modo).
+  for (const { f, i } of modo === "manual" ? [] : restantes) {
     if (!totalizadoras.has(f.filaNum)) continue;
     const textos = textosDeFila(f, descriptor);
     const senales: SenalSubtotal[] = [];
@@ -286,7 +310,7 @@ export function detectarSubtotales(
     // TODO el archivo y no cuadra con su bloque es el gran total.
     const candidato = resultado.find((r) =>
       r.clase === "subtotal"
-      && (r.senales.includes("rotulo") || r.senales.includes("rotulo_debil"))
+      && (r.senales.includes("rotulo") || r.senales.includes("rotulo_debil") || r.senales.includes("marca_manual"))
       && !r.senales.includes("aritmetica") && !r.senales.includes("aritmetica_arriba")
       && Math.abs(filas[r.indice].valor - sumaRestantes) <= toleranciaSubtotal(sumaRestantes));
     if (candidato) { candidato.clase = "gran_total"; candidato.bloque = null; candidato.grupo = grupoGranTotal(filas[candidato.indice]); }
@@ -353,6 +377,8 @@ export function descripcionModoSubtotales(modo: ModoSubtotales): string {
       return "Solo por rótulo: filas que digan «Total»/«Subtotal»";
     case "nunca":
       return "Desactivada: ningún renglón se toma como subtotal (salvo negrita)";
+    case "manual":
+      return "Manual: los marca la columna que indique el usuario";
     default:
       return "Automática: por rótulo, o por suma del bloque + fila sin detalle/negrita";
   }

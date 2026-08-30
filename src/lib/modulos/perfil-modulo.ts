@@ -9,6 +9,7 @@
 import type { DescriptorModulo } from "./descriptores";
 import type { SpecModulo } from "./extraccion/esquema";
 export { MODOS_SUBTOTALES, descripcionModoSubtotales, type ModoSubtotales } from "./subtotales";
+import { descripcionModoSubtotales } from "./subtotales";
 
 /** Modo EFECTIVO del clasificador de un spec (resuelve el legado `arrastrarClasificador`). */
 export type ModoClasificador = NonNullable<SpecModulo["clasificadorModo"]>;
@@ -64,6 +65,13 @@ export function normalizarSpecModulo(descriptor: DescriptorModulo, spec: SpecMod
     if (rol) normalizado.seccionColumnaVaciaRol = rol;
   }
   if (spec.subtotales === "rotulo" || spec.subtotales === "nunca") normalizado.subtotales = spec.subtotales;
+  if (spec.subtotales === "manual") {
+    normalizado.subtotales = "manual";
+    const columna = spec.subtotalesColumna;
+    normalizado.subtotalesColumna = Number.isInteger(columna) && (columna as number) > 0 ? (columna as number) : 0;
+    const texto = spec.subtotalesTexto?.trim();
+    if (texto) normalizado.subtotalesTexto = texto;
+  }
   return normalizado;
 }
 
@@ -91,6 +99,15 @@ export function validarSpecModulo(descriptor: DescriptorModulo, spec: SpecModulo
     const exentoPorGlobal = rol.nombre === descriptor.clasificador && modo === "global";
     if (rol.requerido && !exentoPorGlobal && valor < 1) {
       return `Falta la columna obligatoria «${rol.etiqueta}».`;
+    }
+  }
+  if (spec.subtotales === "manual") {
+    const columna = spec.subtotalesColumna ?? 0;
+    if (!Number.isInteger(columna) || columna < 1) {
+      return "Indica la columna del archivo que marca las filas de subtotal.";
+    }
+    if ((spec.subtotalesTexto?.length ?? 0) > 80) {
+      return "El texto que marca las filas de subtotal es demasiado largo (máx. 80 caracteres).";
     }
   }
   if (modo === "seccion") {
@@ -131,6 +148,21 @@ export function resumenColumnasModulo(descriptor: DescriptorModulo, spec: SpecMo
     if (numero > 0) partes.push(`${rol.etiqueta.toLowerCase()} ${letraColumnaModulo(numero)}`);
   }
   return partes.join(" · ");
+}
+
+/**
+ * Descripción del ajuste de subtotales para la UI. En el modo «manual» el modo por sí solo
+ * no dice nada útil: hay que ver qué columna marca las filas y con qué texto.
+ */
+export function descripcionSubtotalesModulo(
+  spec: Pick<SpecModulo, "subtotales" | "subtotalesColumna" | "subtotalesTexto">,
+): string {
+  const modo = spec.subtotales ?? "auto";
+  if (modo !== "manual") return descripcionModoSubtotales(modo);
+  const columna = spec.subtotalesColumna ?? 0;
+  const donde = columna > 0 ? `la columna ${letraColumnaModulo(columna)}` : "una columna sin definir";
+  const texto = spec.subtotalesTexto?.trim();
+  return `Manual: los marca ${donde} ${texto ? `cuando contiene «${texto}»` : "cuando trae algún valor"}`;
 }
 
 /** Descripción del modo del clasificador para la UI, con la etiqueta del rol clasificador. */

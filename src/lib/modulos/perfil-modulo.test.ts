@@ -3,6 +3,7 @@ import { MODULOS_IMPORT } from "./descriptores";
 import type { SpecModulo } from "./extraccion/esquema";
 import {
   descripcionModoClasificador,
+  descripcionSubtotalesModulo,
   letraColumnaModulo,
   mismoSpecModuloNormalizado,
   modoClasificadorDe,
@@ -135,5 +136,27 @@ describe("normalizarSpecModulo · subtotales", () => {
     expect(normalizarSpecModulo(INV, { ...base, subtotales: "nunca" }).subtotales).toBe("nunca");
     expect(mismoSpecModuloNormalizado(INV, base, { ...base, subtotales: "auto" })).toBe(true);
     expect(mismoSpecModuloNormalizado(INV, base, { ...base, subtotales: "rotulo" })).toBe(false);
+  });
+
+  it("modo MANUAL: conserva la columna marcadora y su texto; el texto vacío se retira", () => {
+    const manual = specInv({ subtotales: "manual", subtotalesColumna: 7, subtotalesTexto: "  TOTAL  " });
+    expect(normalizarSpecModulo(INV, manual)).toMatchObject({ subtotales: "manual", subtotalesColumna: 7, subtotalesTexto: "TOTAL" });
+    expect(normalizarSpecModulo(INV, { ...manual, subtotalesTexto: "   " }).subtotalesTexto).toBeUndefined();
+    // Un modo distinto de «manual» no arrastra la columna al perfil guardado.
+    expect(normalizarSpecModulo(INV, specInv({ subtotales: "rotulo", subtotalesColumna: 7 })).subtotalesColumna).toBeUndefined();
+  });
+
+  it("modo MANUAL: exige la columna marcadora", () => {
+    expect(validarSpecModulo(INV, normalizarSpecModulo(INV, specInv({ subtotales: "manual" }))))
+      .toBe("Indica la columna del archivo que marca las filas de subtotal.");
+    expect(validarSpecModulo(INV, normalizarSpecModulo(INV, specInv({ subtotales: "manual", subtotalesColumna: 7 })))).toBeNull();
+  });
+
+  it("descripcionSubtotalesModulo explica qué columna marca y con qué texto", () => {
+    expect(descripcionSubtotalesModulo({ subtotales: "manual", subtotalesColumna: 7, subtotalesTexto: "TOTAL" }))
+      .toBe("Manual: los marca la columna G cuando contiene «TOTAL»");
+    expect(descripcionSubtotalesModulo({ subtotales: "manual", subtotalesColumna: 7 }))
+      .toBe("Manual: los marca la columna G cuando trae algún valor");
+    expect(descripcionSubtotalesModulo({})).toContain("Automática");
   });
 });

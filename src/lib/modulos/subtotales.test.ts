@@ -3,6 +3,7 @@ import { MODULOS_IMPORT } from "./descriptores";
 import {
   MINIMO_FILAS_BLOQUE,
   bloqueDeSubtotal,
+  coincideMarcaSubtotal,
   columnasDetalle,
   controlSubtotales,
   detectarSubtotales,
@@ -26,6 +27,7 @@ const fila = (p: Parcial): FilaCandidata => ({
   negrita: p.negrita,
   rotuloClasificador: p.rotuloClasificador,
   motivo: p.motivo,
+  marcaManual: p.marcaManual,
 });
 const item = (tipo: string, ref: string, valor: number, extra: Partial<FilaCandidata> = {}) =>
   fila({ clasificador: tipo, valor, datos: { tipo, referencia: ref, descripcion: `Ítem ${ref}` }, ...extra });
@@ -249,5 +251,48 @@ describe("control al peso y gran total con rótulo débil", () => {
     const filas = [car("Clientes", "F-1", 100), car("Clientes", "F-2", 200), car("Clientes", null, 300), car("Anticipos", "F-3", 40), car("Anticipos", "F-4", 60), car("Anticipos", null, 100), car("Total cartera", null, 400)];
     const det = detectarSubtotales(filas, CAR);
     expect(det.map((d) => [d.filaNum, d.clase, d.grupo])).toEqual([[3, "subtotal", "Clientes"], [6, "subtotal", "Anticipos"], [7, "gran_total", null]]);
+  });
+});
+
+describe("modo manual (columna marcadora)", () => {
+  it("coincideMarcaSubtotal: sin texto basta un valor; con texto debe contenerlo (sin tildes ni mayúsculas)", () => {
+    expect(coincideMarcaSubtotal("TOTAL")).toBe(true);
+    expect(coincideMarcaSubtotal(123)).toBe(true);
+    expect(coincideMarcaSubtotal("   ")).toBe(false);
+    expect(coincideMarcaSubtotal(null)).toBe(false);
+    expect(coincideMarcaSubtotal("Total Bodega 3", "total")).toBe(true);
+    expect(coincideMarcaSubtotal("ACUMULADO", "Total")).toBe(false);
+    expect(coincideMarcaSubtotal("Resúmen línea", "resumen")).toBe(true);
+  });
+
+  it("marca SOLO las filas señaladas por la columna y les calcula su bloque", () => {
+    reset();
+    const filas = [
+      item("A", "R1", 100), item("A", "R2", 200), item("A", "X", 300, { marcaManual: true }),
+      item("B", "R3", 50), item("B", "R4", 70), item("B", "X", 120, { marcaManual: true }),
+    ];
+    const det = detectarSubtotales(filas, INV, { modo: "manual" });
+    expect(det.map((d) => [d.filaNum, d.clase, d.grupo])).toEqual([[3, "subtotal", "A"], [6, "subtotal", "B"]]);
+    expect(det[0].senales[0]).toBe("marca_manual");
+    expect(det[0].bloque?.suma).toBe(300);
+    expect(motivoDe(det[0])).toContain("subtotal:marca_manual");
+  });
+
+  it("ninguna heurística agrega filas: un «Total A» sin marca NO es subtotal", () => {
+    reset();
+    const filas = [item("A", "R1", 100), item("A", "R2", 200), sub("A", 300, "Total A")];
+    expect(detectarSubtotales(filas, INV, { modo: "manual" })).toEqual([]);
+    expect(detectarSubtotales(filas, INV, { modo: "auto" })).toHaveLength(1);
+  });
+
+  it("una fila marcada que vale el archivo entero y no cuadra con un bloque parcial es el gran total", () => {
+    reset();
+    const filas = [
+      item("A", "R1", 100), item("A", "R2", 200), item("A", "X", 300, { marcaManual: true }),
+      item("B", "R3", 50), item("B", "R4", 70), item("B", "X", 120, { marcaManual: true }),
+      item("", "X", 420, { marcaManual: true }),
+    ];
+    const det = detectarSubtotales(filas, INV, { modo: "manual" });
+    expect(det.map((d) => [d.filaNum, d.clase])).toEqual([[3, "subtotal"], [6, "subtotal"], [7, "gran_total"]]);
   });
 });

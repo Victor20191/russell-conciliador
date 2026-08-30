@@ -11,12 +11,14 @@
 //  - Marca AGRUPADOR las filas en NEGRITA/subrayado (subtotales); no cuentan en el valor.
 //  - Marca `total` las filas de SUBTOTAL por grupo y el gran total (`../subtotales.ts`:
 //    rótulo, sin detalle, negrita, aritmética); no cuentan en el valor y sirven de CONTROL.
+//    En el modo `manual` del spec, esas filas se reconocen SOLO por la columna marcadora
+//    que indicó el usuario (`subtotalesColumna`/`subtotalesTexto`), sin heurística.
 import { normalizarMonto } from "@/lib/balance/extraccion/transformar";
 import type { CeldaCruda, GridHoja } from "@/lib/balance/extraccion/ingesta";
 import type { DescriptorModulo } from "../descriptores";
 import type { SpecModulo } from "./esquema";
 import { norm, puntajeRol } from "./sugerir";
-import { columnasDetalle, detectarSubtotales, esRotuloTotal, motivoDe } from "../subtotales";
+import { coincideMarcaSubtotal, columnasDetalle, detectarSubtotales, esRotuloTotal, motivoDe } from "../subtotales";
 
 export type TipoFilaModulo = "movimiento" | "agrupadora" | "total";
 export type ValorCelda = string | number | null;
@@ -156,7 +158,10 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
 
   let seccionActual: string | null = null; // modo "seccion" (encabezados de grupo)
   // Señales crudas por fila (paralelas a `filas`) para la detección de subtotales: no van a `datos`.
-  const crudo: { negrita: boolean; rotuloClasificador: string | null }[] = [];
+  const crudo: { negrita: boolean; rotuloClasificador: string | null; marcaManual: boolean }[] = [];
+  // Modo "manual" de subtotales: columna (1-based del ARCHIVO, no necesariamente mapeada a
+  // un rol) cuyo contenido marca las filas de subtotal.
+  const colMarcaSubtotal = spec.subtotales === "manual" ? (spec.subtotalesColumna ?? 0) : 0;
   // ¿La fila es un ENCABEZADO DE SECCIÓN? (modo "seccion"): su clasificador tiene texto y,
   // o bien la columna marcada viene vacía (título, no ítem), o el clasificador va en negrita.
   const rolVacioSeccion = spec.seccionColumnaVaciaRol;
@@ -260,15 +265,24 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     else filasLeidas++;
 
     filas.push({ filaNum, clasificador, valor, datos, tipoFila, ...(omitidaPorNegrita ? { omitida: true } : {}) });
-    crudo.push({ negrita: enNegrita, rotuloClasificador: rotuloClasificadorCrudo });
+    crudo.push({
+      negrita: enNegrita,
+      rotuloClasificador: rotuloClasificadorCrudo,
+      marcaManual: colMarcaSubtotal >= 1 && coincideMarcaSubtotal(celda(fila, colMarcaSubtotal), spec.subtotalesTexto),
+    });
   }
 
-  // 6) SUBTOTALES por grupo y gran total (`spec.subtotales`: auto | rotulo | nunca). Las filas
+  // 6) SUBTOTALES por grupo y gran total (`spec.subtotales`: auto | rotulo | nunca | manual). Las filas
   //    detectadas pasan a `total`: no imputan, no se pueden «omitir» (ya están fuera) y el
   //    borrador las usa como CONTROL contra la Σ de los movimientos de su bloque. Una fila
   //    en negrita que además es subtotal queda `total` (no `omitida`) para entrar al control.
   const detecciones = detectarSubtotales(
-    filas.map((f, i) => ({ ...f, negrita: crudo[i]?.negrita, rotuloClasificador: crudo[i]?.rotuloClasificador ?? null })),
+    filas.map((f, i) => ({
+      ...f,
+      negrita: crudo[i]?.negrita,
+      rotuloClasificador: crudo[i]?.rotuloClasificador ?? null,
+      marcaManual: crudo[i]?.marcaManual === true,
+    })),
     descriptor,
     { modo: spec.subtotales ?? "auto", columnasDetalle: columnasDetalle(descriptor, spec) },
   );

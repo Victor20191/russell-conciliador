@@ -36,7 +36,13 @@ export const SpecModuloSchema = z.object({
   //                          detalle / en negrita.
   //  - "rotulo": solo las filas que digan «Total»/«Subtotal».
   //  - "nunca" : desactivada (queda solo la negrita del transform).
-  subtotales: z.enum(["auto", "rotulo", "nunca"]).optional(),
+  //  - "manual": ninguna heurística; el usuario indica la COLUMNA que marca las filas de
+  //              subtotal (`subtotalesColumna`, 1-based sobre el archivo, puede no ser una
+  //              columna mapeada a ningún rol) y, opcionalmente, el TEXTO que la marca
+  //              (`subtotalesTexto`; vacío = basta con que la celda traiga algo).
+  subtotales: z.enum(["auto", "rotulo", "nunca", "manual"]).optional(),
+  subtotalesColumna: z.number().int().min(1).optional(),
+  subtotalesTexto: z.string().max(80).optional(),
 });
 export type SpecModulo = z.infer<typeof SpecModuloSchema>;
 

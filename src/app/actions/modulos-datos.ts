@@ -830,6 +830,13 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
     }
     spec = valorSeguro.spec;
 
+    // El modo MANUAL de subtotales se apoya en una columna elegida por el usuario: sin ella
+    // no marcaría ninguna fila y el archivo entraría con los subtotales sumados como ítems.
+    // Se rechaza en vez de degradar en silencio (el modal ya lo exige; esto es la defensa).
+    if (spec.subtotales === "manual" && (spec.subtotalesColumna ?? 0) < 1) {
+      return marcarNoProcesable("Indica la columna del archivo que marca las filas de subtotal.");
+    }
+
     const resultado = transformarModulo(descriptor, spec, hoja);
     if (resultado.filas.length === 0) {
       return marcarNoProcesable("No se leyeron filas con el mapeo actual. Ajusta las columnas.");

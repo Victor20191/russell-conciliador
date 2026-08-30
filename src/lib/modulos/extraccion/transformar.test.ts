@@ -438,3 +438,39 @@ describe("transformarModulo (NOM)", () => {
     expect(rolesRequeridosFaltantes(NOM, spec)).toEqual([]);
   });
 });
+
+describe("subtotales en modo MANUAL (columna marcadora)", () => {
+  // Archivo cuyo subtotal no lo delata ningún rótulo ni la negrita: solo una columna
+  // suelta (G) que el ERP llena únicamente en esos renglones.
+  const SPEC_MANUAL: SpecModulo = { ...SPEC, subtotales: "manual", subtotalesColumna: 7 };
+  const filas: CeldaCruda[][] = [
+    [...ENC, "Marca"],
+    ["Materia prima", "R1", "Tornillo", 1, 100, 100, null],
+    ["Materia prima", "R2", "Tuerca", 1, 200, 200, null],
+    ["Materia prima", "", "", null, null, 300, "ACUMULA"],
+    ["Producto terminado", "R3", "Mesa", 1, 50, 50, null],
+    ["Producto terminado", "R4", "Silla", 1, 70, 70, null],
+    ["Producto terminado", "", "", null, null, 120, "ACUMULA"],
+  ];
+
+  it("marca como `total` solo las filas cuya columna marcadora trae valor", () => {
+    const r = transformarModulo(INV, SPEC_MANUAL, hoja(filas));
+    expect(r.filas.filter((f) => f.tipoFila === "total").map((f) => [f.filaNum, f.valor, f.clasificador]))
+      .toEqual([[4, 300, "Materia prima"], [7, 120, "Producto terminado"]]);
+    expect(r.filas.filter((f) => f.tipoFila === "movimiento")).toHaveLength(4);
+    expect(r.filasLeidas).toBe(4);
+  });
+
+  it("con TEXTO, solo las celdas que lo contienen marcan (las demás siguen siendo movimientos)", () => {
+    const conOtra = [...filas];
+    conOtra[5] = ["Producto terminado", "R4", "Silla", 1, 70, 70, "OBS"];
+    const r = transformarModulo(INV, { ...SPEC_MANUAL, subtotalesTexto: "acumula" }, hoja(conOtra));
+    expect(r.filas.filter((f) => f.tipoFila === "total").map((f) => f.filaNum)).toEqual([4, 7]);
+    expect(r.filas.find((f) => f.filaNum === 6)?.tipoFila).toBe("movimiento");
+  });
+
+  it("sin la columna marcadora no marca nada (el modo manual no adivina)", () => {
+    const r = transformarModulo(INV, { ...SPEC_MANUAL, subtotalesColumna: undefined }, hoja(filas));
+    expect(r.filas.some((f) => f.tipoFila === "total")).toBe(false);
+  });
+});
