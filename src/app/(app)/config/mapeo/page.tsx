@@ -68,15 +68,21 @@ export default async function MapeoPage({ searchParams }: { searchParams: Promis
     // formulario bloquea el campo de código y el borrado de esas cuentas. Solo
     // se calcula para quien administra el plan.
     lockedStdCodesPromise,
-    // Memoria de mapeo: las reglas por grupo (nivel 6) + las EXCEPCIONES por
-    // cuenta que dejó una homologación con alcance «solo esta cuenta» (nivel 8).
-    // Incluye las de nivel 6 TODAVÍA SIN homologar: esta pestaña es la única que
-    // edita, así que también tiene que poder resolverlas (salen como «Asignar»).
+    // Memoria de mapeo: las reglas por grupo + las EXCEPCIONES por cuenta que dejó una
+    // homologación con alcance «solo esta cuenta» (nivel 8). Incluye las que están
+    // TODAVÍA SIN homologar: esta pestaña es la única que edita, así que también tiene
+    // que poder resolverlas (salen como «Asignar»).
+    //
+    // Nivel 4 además de 6: hay clientes que imputan movimiento directo a una cuenta de 4
+    // dígitos. El plan Russell es de 6, así que el barrido exacto de `mapearCuenta` ni se
+    // intenta con ellas (`code.length >= 6 ? … : null`) y solo las resuelve la descripción
+    // o la IA — justo las que más necesitan revisarse a mano. Su clave de memoria es el
+    // propio código de 4 dígitos, porque `descomponerCuenta` deja cuenta6 = cuenta8.
     clienteId
       ? prisma.clientAccount.findMany({
           where: {
             clienteId,
-            OR: [{ level: 6 }, { origenMapeo: ORIGEN_MANUAL_CUENTA }],
+            OR: [{ level: { in: [4, 6] } }, { origenMapeo: ORIGEN_MANUAL_CUENTA }],
           },
           orderBy: { code: "asc" },
           select: { id: true, code: true, name: true, level: true, cuenta6Russell: true, coincidencia: true, origenMapeo: true, actualizadoPor: true, actualizadoEn: true },
