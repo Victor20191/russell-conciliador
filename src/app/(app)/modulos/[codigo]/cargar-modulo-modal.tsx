@@ -14,7 +14,7 @@ import type { SpecModulo } from "@/lib/modulos/extraccion/esquema";
 import { leerDatosModulo, analizarArchivoModulo, preferenciasCargaModulo, type AnalisisModulo, type CeldaMuestra } from "@/app/actions/modulos-datos";
 import { NotasCargaModulo } from "./notas-carga-modulo";
 
-export type ClienteModulo = { id: number; name: string; nit: string };
+export type ClienteModulo = { id: number; name: string; nit: string; erp?: string | null };
 
 /**
  * Adición declarada a un cargue existente. Cuando viene, el modal fija cliente y período
@@ -105,8 +105,14 @@ function CargarModal({
   const [tieneArchivo, setTieneArchivo] = useState(false);
   const [nombreArchivo, setNombreArchivo] = useState("");
   const [clienteId, setClienteId] = useState<number | null>(anexo?.clienteId ?? null);
+  const [softwareOrigen, setSoftwareOrigen] = useState(
+    clientes.find((cliente) => cliente.id === anexo?.clienteId)?.erp ?? "",
+  );
+  const [ubicacionOrigen, setUbicacionOrigen] = useState("");
+  const [reflejoContableEsperado, setReflejoContableEsperado] = useState("");
   const [fase, setFase] = useState<"archivo" | "mapeo">("archivo");
   const [analisis, setAnalisis] = useState<AnalisisModulo | null>(null);
+  const [recepcionLoteId, setRecepcionLoteId] = useState<string | null>(null);
   const [spec, setSpec] = useState<SpecModulo | null>(null);
   // Nombre del cliente cuya parametrización sugerida se aplicó (exacta o elegida a mano de
   // la lista), solo para el aviso visual — puramente informativo, nunca obliga a nada.
@@ -122,7 +128,14 @@ function CargarModal({
   const solicitudPrefsRef = useRef(0);
 
   const elegirCliente = (id: number | null) => {
+    if (id !== clienteId) {
+      setAnalisis(null);
+      setSpec(null);
+      setRecepcionLoteId(null);
+      setFase("archivo");
+    }
     setClienteId(id);
+    setSoftwareOrigen(id == null ? "" : clientes.find((cliente) => cliente.id === id)?.erp ?? "");
     setPrefs(null);
     const solicitud = ++solicitudPrefsRef.current;
     if (id == null) return;
@@ -141,6 +154,7 @@ function CargarModal({
     setTieneArchivo(false);
     setAnalisis(null);
     setSpec(null);
+    setRecepcionLoteId(null);
     setSugerenciaAplicadaDe(null);
     setFase("archivo");
     archivoRef.current = f;
@@ -157,9 +171,14 @@ function CargarModal({
       fd.set("moduloCodigo", moduloCodigo);
       fd.set("clienteId", String(clienteId));
       if (hojaElegida) fd.set("hoja", hojaElegida);
+      if (recepcionLoteId) fd.set("recepcionLoteId", recepcionLoteId);
+      fd.set("softwareOrigen", softwareOrigen);
+      fd.set("ubicacionOrigen", ubicacionOrigen);
+      fd.set("reflejoContableEsperado", reflejoContableEsperado);
       fd.set("archivo", archivoRef.current!);
       try {
         const r = await analizarArchivoModulo(fd);
+        if (r.recepcionLoteId) setRecepcionLoteId(r.recepcionLoteId);
         if (r.ok && r.spec) {
           setAnalisis(r);
           setSpec(r.spec);
@@ -178,7 +197,7 @@ function CargarModal({
   const leer = () => {
     if (!archivoRef.current || !spec) { notifyError("Falta analizar el archivo."); return; }
     if (clienteId == null) { notifyError("Selecciona el cliente."); return; }
-    if (!/^\d{4}-\d{2}$/.test(mes)) { notifyError("Selecciona el mes del inventario."); return; }
+    if (!/^\d{4}-\d{2}$/.test(mes)) { notifyError("Selecciona el período del archivo."); return; }
     const faltantes = roles.filter((rc) => rc.requerido && !(rc.nombre === clasificadorRol && modo === "global") && (spec.columnas[rc.nombre] ?? 0) < 1);
     if (faltantes.length) { notifyError("Faltan columnas obligatorias: " + faltantes.map((f) => f.etiqueta).join(", ") + "."); return; }
     startLeer(async () => {
@@ -189,6 +208,10 @@ function CargarModal({
       fd.set("specJson", JSON.stringify(spec));
       fd.set("periodoInicio", mes ? `${mes}-01` : "");
       fd.set("periodoFin", mes ? `${mes}-01` : "");
+      fd.set("softwareOrigen", softwareOrigen);
+      fd.set("ubicacionOrigen", ubicacionOrigen);
+      fd.set("reflejoContableEsperado", reflejoContableEsperado);
+      if (recepcionLoteId) fd.set("recepcionLoteId", recepcionLoteId);
       if (anexo) fd.set("anexoEncabezadoId", String(anexo.encabezadoId));
       fd.set("archivo", archivoRef.current!);
       try {
@@ -211,7 +234,7 @@ function CargarModal({
   const modo: "columna" | "arrastrar" | "seccion" | "global" = spec?.clasificadorModo ?? (spec?.arrastrarClasificador ? "arrastrar" : "columna");
   const setModo = (m: "columna" | "arrastrar" | "seccion" | "global") =>
     setSpec((s) => (s ? { ...s, clasificadorModo: m, arrastrarClasificador: m === "arrastrar" ? true : undefined, seccionColumnaVaciaRol: m === "seccion" ? s.seccionColumnaVaciaRol ?? "descripcion" : undefined } : s));
-  // Selección del clasificador: -1 = Inventario globalizado (un solo valor); ≥1 = columna.
+  // Selección del clasificador: -1 = un solo valor global; ≥1 = columna.
   const onSelectClasificador = (v: number) => {
     if (v === -1) { setModo("global"); return; }
     setCol(clasificadorRol, v);
@@ -250,6 +273,7 @@ function CargarModal({
     const vacias = vals.filter((v) => !v).length;
     return vacias / vals.length >= 0.3;
   })();
+  const clasificadorEtiqueta = roles.find((rol) => rol.nombre === clasificadorRol)?.etiqueta ?? "clasificador";
 
   return (
     <Modal
@@ -268,7 +292,7 @@ function CargarModal({
         ) : (
           <>
             <button type="button" onClick={() => setFase("archivo")} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] font-semibold text-ink-600 hover:bg-ink-50">Atrás</button>
-            <button type="button" disabled={leyendo || analizando || !mes} onClick={leer} title={!mes ? "Selecciona el mes del inventario" : undefined} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60">
+            <button type="button" disabled={leyendo || analizando || !mes} onClick={leer} title={!mes ? "Selecciona el período del archivo" : undefined} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60">
               {leyendo ? "Leyendo…" : "Leer y crear borrador"}
             </button>
           </>
@@ -299,10 +323,46 @@ function CargarModal({
             {tieneArchivo && <span className="text-[11px] text-ok-700">Listo: {nombreArchivo}</span>}
           </label>
 
+          <div className="grid grid-cols-1 gap-3 rounded-md border border-ink-150 bg-ink-50 px-3 py-2.5 sm:grid-cols-2">
+            <label className="flex min-w-0 flex-col gap-1">
+              <span className="text-[11px] font-medium text-ink-600">Software / sistema de origen <span className="font-normal text-ink-400">(opcional)</span></span>
+              <input
+                type="text"
+                maxLength={160}
+                value={softwareOrigen}
+                onChange={(event) => setSoftwareOrigen(event.target.value)}
+                placeholder="P. ej. SIESA, Siigo, SAP"
+                className="rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400"
+              />
+            </label>
+            <label className="flex min-w-0 flex-col gap-1">
+              <span className="text-[11px] font-medium text-ink-600">Ubicación o carpeta de origen <span className="font-normal text-ink-400">(opcional)</span></span>
+              <input
+                type="text"
+                maxLength={500}
+                value={ubicacionOrigen}
+                onChange={(event) => setUbicacionOrigen(event.target.value)}
+                placeholder="P. ej. Facturación / cierres / agosto"
+                className="rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400"
+              />
+            </label>
+            <label className="flex min-w-0 flex-col gap-1 sm:col-span-2">
+              <span className="text-[11px] font-medium text-ink-600">Cómo debe reflejarse en contabilidad <span className="font-normal text-ink-400">(opcional)</span></span>
+              <textarea
+                rows={2}
+                maxLength={4000}
+                value={reflejoContableEsperado}
+                onChange={(event) => setReflejoContableEsperado(event.target.value)}
+                placeholder="Describe la cuenta, naturaleza o regla esperada; también puedes completar esta documentación después en la Bitácora."
+                className="resize-y rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400"
+              />
+            </label>
+          </div>
+
           {prefs?.observaciones && <NotasCargaModulo notas={prefs.observaciones} />}
 
           <p className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[11.5px] leading-relaxed text-blue-800">
-            Al analizar, el sistema sugiere qué columna es cada campo. En el siguiente paso podrás corregir el mapeo, marcar si el tipo viene agrupado, y se guardará el perfil para las próximas cargas de este cliente.
+            Al analizar, primero se conservan los bytes exactos del original y su SHA-256; incluso un archivo no procesable queda registrado en la Bitácora. Después podrás corregir el mapeo y completar progresivamente su documentación.
           </p>
         </div>
       ) : (
@@ -314,6 +374,11 @@ function CargarModal({
           {analisis?.origen === "sugerido" && analisis.sugerencias?.exacto && (
             <p className="rounded-md border border-blue-300 bg-blue-50 px-3 py-1.5 text-[11.5px] text-blue-800">
               Parametrización sugerida de otro cliente con ERP {analisis.sugerencias.erpName} (layout idéntico: {analisis.sugerencias.exacto.clienteNombre}) — revísala y ajusta si hace falta.
+            </p>
+          )}
+          {analisis?.advertenciaValor && (
+            <p className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[11.5px] font-medium leading-relaxed text-warn-700">
+              {analisis.advertenciaValor}
             </p>
           )}
           {(analisis?.sugerencias?.lista.length ?? 0) > 0 && (
@@ -393,7 +458,7 @@ function CargarModal({
                         className="w-full min-w-0 flex-1 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400"
                       >
                         <option value={0}>— sin mapear —</option>
-                        {rc.nombre === clasificadorRol && <option value={-1}>🌐 Inventario globalizado (un solo valor global)</option>}
+                        {rc.nombre === clasificadorRol && <option value={-1}>🌐 Un único clasificador para todo el archivo</option>}
                         {opcionesColumna().map((o) => (
                           <option key={o.index1} value={o.index1}>{o.label}</option>
                         ))}
@@ -413,7 +478,7 @@ function CargarModal({
 
           <div className="flex flex-col gap-2 rounded-md border border-ink-150 bg-ink-50 px-3 py-2.5">
             {modo === "global" ? (
-              <span className="text-[11.5px] leading-snug text-ink-600">🌐 <b>Inventario globalizado</b>: todo el archivo se carga como un único inventario (un solo valor global). En el consolidado le asignas UNA cuenta.</span>
+              <span className="text-[11.5px] leading-snug text-ink-600">🌐 <b>Clasificador global</b>: todo el archivo se carga bajo un único valor de {clasificadorEtiqueta.toLowerCase()}. En el consolidado le asignas una cuenta.</span>
             ) : (
               <label className="flex min-w-0 flex-col gap-1">
                 <span className="text-[11px] font-medium text-ink-600">¿Cómo viene el {roles.find((r) => r.nombre === clasificadorRol)?.etiqueta.toLowerCase() ?? "tipo"}?</span>
@@ -455,7 +520,7 @@ function CargarModal({
           </div>
 
           <label className="flex w-full max-w-xs flex-col gap-1">
-            <span className="text-[11px] font-medium text-ink-600">Mes del inventario <span className="text-err-600">*</span></span>
+            <span className="text-[11px] font-medium text-ink-600">Período de {moduloLabel.toLowerCase()} <span className="text-err-600">*</span></span>
             {anexo ? (
               <span className="w-full rounded-md border border-ink-200 bg-ink-50 px-2.5 py-1.5 font-semibold text-ink-700" title="Fijo: el archivo se agrega a este período">
                 {anexo.periodo}

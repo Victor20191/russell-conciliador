@@ -15,6 +15,7 @@ import { tomarCandadoTransaccion, transaccionSerializable } from "@/lib/concurre
 import type { ActionState } from "@/lib/definitions";
 import { anioColombia } from "@/lib/fecha-hora";
 import { cargarContextoPrevalidadorBalance } from "@/lib/balance/prevalidador/servidor";
+import { validarCompuertaPrevalidador } from "@/lib/modulos/compuerta-cruce";
 
 // Patrón de autorización en dos pasos: el primer gate exige sesión +
 // permiso de rol ANTES de tocar la BD; el segundo añade el ALCANCE de
@@ -110,33 +111,6 @@ class ErrorCompuertaPrevalidador extends Error {}
 
 type ContextoPrevalidador = Awaited<ReturnType<typeof cargarContextoPrevalidadorBalance>>;
 
-function validarCompuertaPrevalidador(
-  contexto: ContextoPrevalidador,
-  clientId: number,
-  moduloCodigo: string,
-): string | null {
-  if (contexto.balance.clienteId !== clientId) return "El balance seleccionado no pertenece al cliente de la conciliación.";
-  if (!contexto.balance.esOficial || !contexto.balance.estaCongelado) {
-    return "La conciliación exige un balance oficial y congelado del período exacto.";
-  }
-  if (contexto.prevalidador.estado === "sin_catalogo") return "No hay cuentas activas configuradas para el prevalidador.";
-  if (contexto.prevalidador.estado === "bloqueado") {
-    return `El prevalidador está bloqueado: quedan ${contexto.prevalidador.sinHomologar.cuentas} cuenta(s) sin homologar.`;
-  }
-  if (contexto.prevalidador.estado === "no_disponible") return contexto.prevalidador.mensaje;
-  if (!contexto.prevalidador.modulos.some((modulo) => modulo.codigo === moduloCodigo)) {
-    return "El módulo seleccionado no está cubierto por el catálogo vigente del prevalidador.";
-  }
-  if (!contexto.revision.vigente) {
-    return contexto.revision.estado === "desactualizada"
-      ? "La aprobación del prevalidador quedó desactualizada. Revísalo y apruébalo nuevamente antes de conciliar."
-      : contexto.revision.estado === "revocada"
-        ? "La aprobación del prevalidador fue revocada. Debe aprobarse nuevamente antes de conciliar."
-        : "El balance todavía no tiene una aprobación vigente del prevalidador.";
-  }
-  return null;
-}
-
 export async function executeReconciliation(
   _prev: ActionState | undefined,
   formData: FormData,
@@ -175,6 +149,17 @@ export async function executeReconciliation(
       getCurrentUser(),
     ]);
     if (!client || !mod) return { ok: false, message: "Cliente o módulo inexistente." };
+
+    // ING ya cuenta con un flujo operativo basado en archivos reales. Evita que
+    // el conciliador legado cree para ese módulo las partidas demostrativas de
+    // Inventarios definidas en DEMO_CROSS_ROWS.
+    if (mod.code.trim().toUpperCase() === "ING") {
+      return {
+        ok: false,
+        message:
+          "El módulo de Ingresos se concilia desde /modulos/ing con los datos reales cargados. El flujo legado no genera partidas demostrativas para ING.",
+      };
+    }
 
     let preflight: ContextoPrevalidador;
     try {

@@ -42,6 +42,17 @@ export type CruceContableVm = {
   nombreCliente: string;
   resumen: ResumenCruceContable | null;
   sinMapeoContable: { total: number; filas: number } | null;
+  bloqueo: string | null;
+  balanceFuente: {
+    id: number;
+    version: string;
+    periodoInicio: string;
+    periodoFin: string;
+    esOficial: boolean;
+    estaCongelado: boolean;
+  } | null;
+  /** Filas contables omitidas conservadoramente porque no resolvieron una regla activa. */
+  sinReglaContableFilas: number;
   /** Las filas del cruce con su marca de auditoría pegada (vacío si no hay balance). */
   filasMarcadas: FilaCruceMarcada[];
   resumenMarcas: ResumenMarcas | null;
@@ -61,6 +72,8 @@ export type CruceTerceroVm = {
   resumen: ResumenCruceTercero | null;
   contableSinNit: { total: number; filas: number } | null;
   moduloSinNit: { total: number; filas: number } | null;
+  /** Filas contables del módulo excluidas por falta de homologación o regla activa. */
+  contableExcluidoFilas: number;
 };
 export type NovedadesVm = {
   negativos: { filaNum: number; etiqueta: string; referencia: string | null; valor: number }[];
@@ -93,6 +106,7 @@ const etiquetaResp = (r: "si" | "no" | "na" | null) => (r === "si" ? "Sí" : r =
 
 export default function DatoCargadoClient({
   moduloCodigo,
+  moduloLabel,
   encabezadoId,
   comentarios,
   clienteId,
@@ -112,6 +126,7 @@ export default function DatoCargadoClient({
   tabInicial,
 }: {
   moduloCodigo: string;
+  moduloLabel: string;
   encabezadoId: number;
   comentarios: Record<string, number>;
   clienteId: number;
@@ -183,7 +198,7 @@ export default function DatoCargadoClient({
       ) : tab === "detalle" ? (
         <DetalleTab columnas={columnas} clasificadorEtiqueta={clasificadorEtiqueta} detalle={detalle} negativosFilas={filasNovedad} encabezadoId={encabezadoId} comentarios={comentarios} />
       ) : tab === "cruce" ? (
-        <CruceContableTab cruceContable={cruceContable} encabezadoId={encabezadoId} comentarios={comentarios} puedeEditar={puedeEditar} />
+        <CruceContableTab moduloLabel={moduloLabel} cruceContable={cruceContable} encabezadoId={encabezadoId} comentarios={comentarios} puedeEditar={puedeEditar} />
       ) : tab === "cruceTercero" ? (
         <CruceTerceroTab cruceTercero={cruceTercero} />
       ) : tab === "novedades" ? (
@@ -848,11 +863,13 @@ function DetalleTab({ columnas, clasificadorEtiqueta, detalle, negativosFilas, e
 // numerada —①②③— y la explicación entera (detalle, anexo y soportes) vive al pie, en
 // observaciones. La marca de la tabla es un enlace a su observación.
 function CruceContableTab({
+  moduloLabel,
   cruceContable,
   encabezadoId,
   comentarios,
   puedeEditar,
 }: {
+  moduloLabel: string;
   cruceContable: CruceContableVm;
   encabezadoId: number;
   comentarios: Record<string, number>;
@@ -862,6 +879,24 @@ function CruceContableTab({
   // Fila que se está marcando en el modal (null = modal cerrado).
   const [marcando, setMarcando] = useState<FilaCruceMarcada | null>(null);
   const [quitando, startQuitar] = useTransition();
+  const moduloEnMinuscula = moduloLabel.toLocaleLowerCase("es");
+
+  if (cruceContable.bloqueo) {
+    return (
+      <Card className="flex flex-col items-center gap-2 p-8 text-center">
+        <div className="text-[13px] font-semibold text-ink-800">Cruce contable no habilitado</div>
+        <p className="max-w-2xl text-[12.5px] text-warn-700">{cruceContable.bloqueo}</p>
+        {cruceContable.balanceFuente && (
+          <Link
+            href={`/balance/${cruceContable.balanceFuente.id}`}
+            className="mt-1 text-[12.5px] font-semibold text-blue-700 hover:underline"
+          >
+            Revisar balance {cruceContable.balanceFuente.version} ({cruceContable.balanceFuente.periodoInicio} a {cruceContable.balanceFuente.periodoFin}) →
+          </Link>
+        )}
+      </Card>
+    );
+  }
 
   if (!cruceContable.balanceEncontrado || !cruceContable.resumen) {
     return (
@@ -870,14 +905,14 @@ function CruceContableTab({
         <p className="max-w-md text-[12.5px] text-ink-500">
           No hay un balance de comprobación confirmado (fuera de borrador) para <b className="text-ink-700">{cruceContable.nombreCliente}</b> en el período <b className="text-ink-700">{cruceContable.periodo}</b>. Carga y confirma un balance de ese período para ver el cruce.
         </p>
-        <Link href="/balance/terceros" className="mt-1 text-[12.5px] font-semibold text-blue-700 hover:underline">
-          Ir a Balance por tercero →
+        <Link href="/balance" className="mt-1 text-[12.5px] font-semibold text-blue-700 hover:underline">
+          Ir a Balance de comprobación →
         </Link>
       </Card>
     );
   }
 
-  const { resumen, sinMapeoContable, filasMarcadas, resumenMarcas } = cruceContable;
+  const { resumen, sinMapeoContable, sinReglaContableFilas, filasMarcadas, resumenMarcas } = cruceContable;
   const observaciones = observacionesDeMarcas(filasMarcadas);
 
   const quitar = (fila: FilaCruceMarcada) => {
@@ -891,6 +926,21 @@ function CruceContableTab({
 
   return (
     <div className="flex flex-col gap-4">
+      {cruceContable.balanceFuente && (
+        <p className="text-[11.5px] text-ink-500">
+          Fuente contable: {" "}
+          <Link
+            href={`/balance/${cruceContable.balanceFuente.id}`}
+            className="font-semibold text-blue-600 hover:underline"
+          >
+            balance {cruceContable.balanceFuente.version} · {cruceContable.balanceFuente.periodoInicio} a {cruceContable.balanceFuente.periodoFin}
+          </Link>
+          {cruceContable.balanceFuente.esOficial && cruceContable.balanceFuente.estaCongelado
+            ? " · oficial y congelado · prevalidador aprobado"
+            : ""}
+          .
+        </p>
+      )}
       {resumenMarcas && resumenMarcas.conDiferencia > 0 && <ResumenMarcasBanner resumen={resumenMarcas} />}
 
       <Card className="p-0">
@@ -900,7 +950,7 @@ function CruceContableTab({
               <tr>
                 <th className="px-3 py-2 font-semibold">Cuenta</th>
                 <th className="px-3 py-2 text-right font-semibold">Contabilidad</th>
-                <th className="px-3 py-2 text-right font-semibold">Inventario (archivos)</th>
+                <th className="px-3 py-2 text-right font-semibold">{moduloLabel} (archivos)</th>
                 <th className="px-3 py-2 text-right font-semibold">Diferencia</th>
                 <th className="w-px px-3 py-2 text-center font-semibold" title="Marca de auditoría: el detalle está al pie, en observaciones.">Marca</th>
               </tr>
@@ -918,7 +968,7 @@ function CruceContableTab({
                   <td className="px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(f.inventario)}</td>
                   <td className="px-3 py-2 text-right">
                     <div className="flex items-center justify-end gap-1.5">
-                      {f.estado === "solo_contable" && <Chip label="Sin inventario" tone="warn" />}
+                      {f.estado === "solo_contable" && <Chip label={`Sin ${moduloEnMinuscula}`} tone="warn" />}
                       {f.estado === "solo_inventario" && <Chip label="Sin contabilidad" tone="warn" />}
                       <span className={`tabular-nums font-semibold ${f.cuadra ? "text-ok-700" : "text-err-700"}`}>{fmtContable(f.diferencia)}</span>
                     </div>
@@ -960,7 +1010,7 @@ function CruceContableTab({
         onQuitar={quitar}
       />
 
-      {(resumen.sinCuenta.length > 0 || resumen.multiAsignado.length > 0 || sinMapeoContable) && (
+      {(resumen.sinCuenta.length > 0 || resumen.multiAsignado.length > 0 || sinMapeoContable || sinReglaContableFilas > 0) && (
         <div className="flex flex-col gap-2">
           {resumen.sinCuenta.length > 0 && (
             <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[12px] text-warn-700">
@@ -974,7 +1024,12 @@ function CruceContableTab({
           )}
           {sinMapeoContable && (
             <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">
-              El balance tiene <b>{fmtContable(sinMapeoContable.total)}</b> en {sinMapeoContable.filas} {sinMapeoContable.filas === 1 ? "cuenta" : "cuentas"} de inventario sin homologar a una cuenta Russell — no está incluido en «Contabilidad». Homológalas en la memoria de mapeo del cliente para que entren al cruce.
+              El balance tiene <b>{fmtContable(sinMapeoContable.total)}</b> en {sinMapeoContable.filas} {sinMapeoContable.filas === 1 ? "cuenta" : "cuentas"} asociada{sinMapeoContable.filas === 1 ? "" : "s"} a {moduloEnMinuscula} sin homologar a una cuenta Russell — no está incluido en «Contabilidad». Homológalas en la memoria de mapeo del cliente para que entren al cruce.
+            </div>
+          )}
+          {sinReglaContableFilas > 0 && (
+            <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[12px] text-warn-700">
+              Se omitieron <b>{sinReglaContableFilas}</b> {sinReglaContableFilas === 1 ? "fila contable" : "filas contables"} porque no fue posible resolver una regla activa de base de cálculo y presentación para {moduloEnMinuscula}. No se usó el saldo final como sustituto.
             </div>
           )}
         </div>
@@ -982,6 +1037,7 @@ function CruceContableTab({
 
       {marcando && (
         <ModalMarca
+          moduloLabel={moduloLabel}
           fila={marcando}
           encabezadoId={encabezadoId}
           onClose={() => setMarcando(null)}
@@ -1014,7 +1070,7 @@ function CruceTerceroTab({ cruceTercero }: { cruceTercero: CruceTerceroVm }) {
     );
   }
 
-  const { resumen, contableSinNit, moduloSinNit } = cruceTercero;
+  const { resumen, contableSinNit, moduloSinNit, contableExcluidoFilas } = cruceTercero;
 
   return (
     <div className="flex flex-col gap-4">
@@ -1080,7 +1136,7 @@ function CruceTerceroTab({ cruceTercero }: { cruceTercero: CruceTerceroVm }) {
         </div>
       </Card>
 
-      {(contableSinNit || moduloSinNit) && (
+      {(contableSinNit || moduloSinNit || contableExcluidoFilas > 0) && (
         <div className="flex flex-col gap-2">
           {contableSinNit && (
             <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[12px] text-warn-700">
@@ -1090,6 +1146,11 @@ function CruceTerceroTab({ cruceTercero }: { cruceTercero: CruceTerceroVm }) {
           {moduloSinNit && (
             <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[12px] text-warn-700">
               El auxiliar del módulo tiene <b>{fmtContable(moduloSinNit.total)}</b> en {moduloSinNit.filas} {moduloSinNit.filas === 1 ? "fila" : "filas"} sin NIT identificado — no {moduloSinNit.filas === 1 ? "entró" : "entraron"} al cruce por tercero.
+            </div>
+          )}
+          {contableExcluidoFilas > 0 && (
+            <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">
+              Se excluyeron <b>{contableExcluidoFilas}</b> {contableExcluidoFilas === 1 ? "fila contable" : "filas contables"} del cruce por tercero por falta de homologación Russell o de una regla activa de base de cálculo. No se usó el saldo final como sustituto.
             </div>
           )}
         </div>
@@ -1382,11 +1443,13 @@ function ObservacionMarca({
 
 /** Modal para poner (o reescribir) la marca de una diferencia y adjuntarle soportes. */
 function ModalMarca({
+  moduloLabel,
   fila,
   encabezadoId,
   onClose,
   onGuardado,
 }: {
+  moduloLabel: string;
   fila: FilaCruceMarcada;
   encabezadoId: number;
   onClose: () => void;
@@ -1474,7 +1537,7 @@ function ModalMarca({
             <div className="tabular-nums font-semibold text-ink-800">{fmtContable(fila.contable)}</div>
           </div>
           <div>
-            <div className="text-ink-500">Archivos del módulo</div>
+            <div className="text-ink-500">Archivos de {moduloLabel.toLocaleLowerCase("es")}</div>
             <div className="tabular-nums font-semibold text-ink-800">{fmtContable(fila.inventario)}</div>
           </div>
           <div>
@@ -1496,7 +1559,7 @@ function ModalMarca({
             onChange={(e) => setNota(e.target.value.slice(0, MAX_NOTA_MARCA))}
             rows={5}
             autoFocus
-            placeholder="Explica a qué corresponde la diferencia (p. ej. mercancía en tránsito no facturada al corte)."
+            placeholder="Explica a qué corresponde la diferencia y cómo se soporta al corte."
             className="resize-y rounded-md border border-ink-200 px-3 py-2 text-[12.5px] focus:outline-none focus:ring-2 focus:ring-navy-600"
           />
           <span className="self-end text-[10.5px] text-ink-400">{nota.length}/{MAX_NOTA_MARCA}</span>
@@ -1510,7 +1573,7 @@ function ModalMarca({
             type="text"
             value={anexo}
             onChange={(e) => setAnexo(e.target.value.slice(0, MAX_REFERENCIA_ANEXO))}
-            placeholder="P. ej. Anexo A-3 · PT-INV-04"
+            placeholder="P. ej. Anexo A-3 · papel de trabajo 04"
             className="rounded-md border border-ink-200 px-3 py-2 text-[12.5px] focus:outline-none focus:ring-2 focus:ring-navy-600"
           />
           <span className="text-[10.5px] text-ink-400">Dónde queda el soporte en el archivo del papel de trabajo.</span>

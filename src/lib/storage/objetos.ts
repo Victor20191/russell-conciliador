@@ -7,7 +7,7 @@ import {
 } from "@aws-sdk/client-s3";
 
 // Almacenamiento de objetos para binarios que NO deben vivir en la base de
-// datos (fotos de perfil y soportes de las marcas de auditoría). Compatible con S3, MinIO y Cloudflare R2: el
+// datos (fotos de perfil, originales de módulos y soportes de auditoría). Compatible con S3, MinIO y Cloudflare R2: el
 // `endpoint` y `forcePathStyle` opcionales permiten apuntar a un MinIO/R2
 // propio en lugar de AWS. La BD solo guarda la `key` del objeto.
 //

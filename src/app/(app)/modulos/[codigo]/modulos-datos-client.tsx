@@ -68,6 +68,7 @@ export default function ModulosDatosClient({
   clasificadorRol,
   clientes,
   gruposCargados,
+  puedeCrear,
   puedeEliminar,
 }: {
   moduloCodigo: string;
@@ -76,6 +77,8 @@ export default function ModulosDatosClient({
   clasificadorRol: string;
   clientes: ClienteModulo[];
   gruposCargados: GrupoClienteRow[];
+  /** `modulos_datos:crear`: controla las entradas visibles al flujo de carga. */
+  puedeCrear: boolean;
   /** `modulos_datos:eliminar` (solo administradores): pinta la papelera del cargue. */
   puedeEliminar: boolean;
 }) {
@@ -87,13 +90,15 @@ export default function ModulosDatosClient({
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <BuscadorListado busqueda={busqueda} setBusqueda={setBusqueda} />
-        <CargarModuloButton
-          moduloCodigo={moduloCodigo}
-          moduloLabel={moduloLabel}
-          roles={roles}
-          clasificadorRol={clasificadorRol}
-          clientes={clientes}
-        />
+        {puedeCrear && (
+          <CargarModuloButton
+            moduloCodigo={moduloCodigo}
+            moduloLabel={moduloLabel}
+            roles={roles}
+            clasificadorRol={clasificadorRol}
+            clientes={clientes}
+          />
+        )}
       </div>
 
       {conversando && (
@@ -115,6 +120,7 @@ export default function ModulosDatosClient({
         clasificadorRol={clasificadorRol}
         clientes={clientes}
         onConversar={setConversando}
+        puedeCrear={puedeCrear}
         puedeEliminar={puedeEliminar}
       />
     </div>
@@ -131,6 +137,7 @@ function CargadosPorCliente({
   clasificadorRol,
   clientes,
   onConversar,
+  puedeCrear,
   puedeEliminar,
 }: {
   grupos: GrupoClienteRow[];
@@ -142,6 +149,7 @@ function CargadosPorCliente({
   clasificadorRol: string;
   clientes: ClienteModulo[];
   onConversar: OnConversar;
+  puedeCrear: boolean;
   puedeEliminar: boolean;
 }) {
   // El buscador de la pantalla filtra la tarjeta entera cuando identifica al
@@ -159,7 +167,9 @@ function CargadosPorCliente({
         <EmptyState
           icon="doc"
           title={`Aún no hay ${moduloLabel.toLowerCase()} cargados`}
-          description={`Usa «Cargar ${moduloLabel.toLowerCase()}» para leer el archivo del cliente. Quedará en la pestaña «Borradores» para revisarlo antes de cargarlo.`}
+          description={puedeCrear
+            ? `Usa «Cargar ${moduloLabel.toLowerCase()}» para leer el archivo del cliente. Quedará en la pestaña «Borradores» para revisarlo antes de cargarlo.`
+            : "No hay cargues disponibles dentro de tu alcance de lectura."}
         />
       </Card>
     );
@@ -361,7 +371,7 @@ function CargadosPorCliente({
                         {/* Adición explícita al cargue vigente: el usuario declara que
                             este archivo se SUMA, en vez de dejar que el sistema lo adivine.
                             No aplica sobre versiones históricas ni sobre un congelado. */}
-                        {p.esOficial && !p.estaCongelado && (
+                        {puedeCrear && p.esOficial && !p.estaCongelado && (
                           <AgregarArchivoButton
                             moduloCodigo={moduloCodigo}
                             moduloLabel={moduloLabel}

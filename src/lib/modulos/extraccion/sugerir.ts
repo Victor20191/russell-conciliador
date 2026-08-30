@@ -12,6 +12,55 @@ export const norm = (s: unknown) =>
     .replace(/\s+/g, " ")
     .trim();
 
+const ENCABEZADOS_INGRESO_NETO_SEGUROS = [
+  "subtotal",
+  "base gravable",
+  "venta neta",
+  "ingreso neto",
+  "sin iva",
+  "sin impuestos",
+  "valor sin iva",
+  "valor sin impuestos",
+];
+
+/**
+ * Un total de factura suele incluir IVA/otros impuestos y no es comparable con
+ * la cuenta 41. Se considera ambiguo salvo que el encabezado declare de forma
+ * inequívoca una base neta/sin impuestos.
+ */
+export function encabezadoValorIngresoAmbiguo(encabezado: unknown): boolean {
+  const texto = norm(encabezado);
+  if (!texto) return false;
+  if (ENCABEZADOS_INGRESO_NETO_SEGUROS.some((seguro) => texto === seguro || texto.includes(seguro))) {
+    return false;
+  }
+  return texto.split(" ").includes("total");
+}
+
+/**
+ * Invalida únicamente el rol monetario peligroso de ING; conserva el resto del
+ * perfil para que el usuario solo tenga que volver a escoger el ingreso neto.
+ */
+export function invalidarValorAmbiguoIngresos(
+  descriptor: DescriptorModulo,
+  hoja: GridHoja,
+  spec: SpecModulo,
+): { spec: SpecModulo; invalidado: boolean } {
+  if (descriptor.codigo !== "ING") return { spec, invalidado: false };
+  const columna = spec.columnas[descriptor.valor] ?? 0;
+  const encabezado = columna > 0
+    ? hoja.filas[spec.filaEncabezado - 1]?.[columna - 1]
+    : null;
+  if (!encabezadoValorIngresoAmbiguo(encabezado)) return { spec, invalidado: false };
+  return {
+    spec: {
+      ...spec,
+      columnas: { ...spec.columnas, [descriptor.valor]: 0 },
+    },
+    invalidado: true,
+  };
+}
+
 /**
  * Puntaje de coincidencia encabezado↔rol. Prefiere el match EXACTO, luego que el
  * encabezado CONTENGA la clave (encabezado específico), y por último que la clave
@@ -78,7 +127,12 @@ export function sugerirSpec(descriptor: DescriptorModulo, hoja: GridHoja): SpecM
     rolUsado.add(cand.rol);
   }
 
-  return { hoja: hoja.nombre, filaEncabezado, primeraFilaDatos: filaEncabezado + 1, columnas };
+  return invalidarValorAmbiguoIngresos(descriptor, hoja, {
+    hoja: hoja.nombre,
+    filaEncabezado,
+    primeraFilaDatos: filaEncabezado + 1,
+    columnas,
+  }).spec;
 }
 
 /** Roles requeridos que quedaron sin mapear (para avisar/bloquear en el wizard). */

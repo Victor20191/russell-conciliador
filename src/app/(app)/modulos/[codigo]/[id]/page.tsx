@@ -4,7 +4,10 @@ import prisma from "@/lib/prisma";
 import { requirePermiso, authorizePermiso } from "@/lib/rbac";
 import { PageHeader, BackLink } from "@/components/ui";
 import Conversacion from "@/components/conversacion";
-import { descriptorModulo } from "@/lib/modulos/descriptores";
+import {
+  bloqueoCrucePorVerificacionesCriticasModulo,
+  descriptorModulo,
+} from "@/lib/modulos/descriptores";
 import {
   filtrarSubgruposPorModulo,
   prefijosCuentaModulo,
@@ -19,16 +22,16 @@ import { construirCruceTercero, type ResumenCruceTercero } from "@/lib/modulos/c
 import { normalizarTerceroModulo } from "@/lib/modulos/tercero";
 import { agregarPorNit } from "@/lib/modulos/agregar-por-nit";
 import { anotarCruceConMarcas, type MarcaCruce } from "@/lib/modulos/marcas-cruce";
+import { calcularValorContableModulo } from "@/lib/modulos/valor-contable";
+import { cargarContextoPrevalidadorBalance } from "@/lib/balance/prevalidador/servidor";
+import {
+  balanceTerminaEnPeriodo,
+  cuentasAgrupadorasExcluidas,
+  seleccionarBalanceCruceModulo,
+  validarCompuertaPrevalidador,
+  validarRangoBalanceModulo,
+} from "@/lib/modulos/compuerta-cruce";
 import DatoCargadoClient, { type FilaDetalleVm, type ConsolidadoVm, type NovedadesVm, type VersionModuloVm, type CruceContableVm, type CruceTerceroVm } from "./dato-cargado-client";
-
-/** ¿El `periodoFin` del balance cae en el mismo año-mes que el período del módulo ("YYYY-MM")? */
-function mismoAnioMes(periodoFin: Date, periodoModulo: string): boolean {
-  const [anioStr, mesStr] = periodoModulo.split("-");
-  const anio = Number(anioStr);
-  const mes = Number(mesStr);
-  if (!Number.isInteger(anio) || !Number.isInteger(mes)) return false;
-  return periodoFin.getUTCFullYear() === anio && periodoFin.getUTCMonth() + 1 === mes;
-}
 
 export default async function DatoModuloPage({
   params,
@@ -150,35 +153,90 @@ export default async function DatoModuloPage({
     filas: c.filas,
     cuentas4: (cuentasPorClasificador.get(c.clasificador) ?? []).map((cod) => ({ codigo: cod, nombre: nombrePorCuenta.get(cod) ?? null })),
   }));
-  // Cruce contable: saldo del balance de comprobación CONFIRMADO (fuera de borrador) cuyo
-  // período (año-mes de `periodoFin`) coincida con el período del módulo, contra el
-  // consolidado por clasificador que se está viendo (`encabezadoId` actual). No exige el
-  // congelado: basta con que el balance ya esté cargado. Si el período tiene una versión
-  // marcada oficial/vigente (`esOficial`) se prefiere esa; si no, la última versión cargada.
+  // Cruce contable: para módulos de movimiento se prioriza el balance oficial y
+  // congelado que cubra exactamente el mes calendario. Después, la compuerta común
+  // exige que ese balance conserve una aprobación vigente del prevalidador.
   const balancesConfirmados = await prisma.balancePruebaEncabezado.findMany({
     where: { clienteId: encabezado.clienteId },
-    select: { id: true, periodoFin: true },
+    select: {
+      id: true,
+      periodoInicio: true,
+      periodoFin: true,
+      version: true,
+      esOficial: true,
+      estaCongelado: true,
+    },
     orderBy: [{ esOficial: "desc" }, { periodoFin: "desc" }, { id: "desc" }],
   });
-  const balanceEmparejado = balancesConfirmados.find((b) => mismoAnioMes(b.periodoFin, encabezado.periodo)) ?? null;
+  const balanceEmparejado = seleccionarBalanceCruceModulo(
+    balancesConfirmados,
+    catalogoPrevalidador,
+    moduloCodigo,
+    encabezado.periodo,
+  );
 
   let cruceContable: ResumenCruceContable | null = null;
   let sinMapeoContable: { total: number; filas: number } | null = null;
-  if (balanceEmparejado) {
-    const detallesBalance = await prisma.balancePruebaDetalle.findMany({
-      where: { encabezadoId: balanceEmparejado.id },
-      select: { cuenta4: true, cuenta6Russell: true, saldoFinal: true },
-    });
+  let sinReglaContableFilas = 0;
+  let bloqueoCruceContable = bloqueoCrucePorVerificacionesCriticasModulo(
+    descriptor,
+    verifGuardadas,
+  );
+  let contextoBalance: Awaited<ReturnType<typeof cargarContextoPrevalidadorBalance>> | null = null;
+  if (balanceEmparejado && !bloqueoCruceContable) {
+    try {
+      contextoBalance = await cargarContextoPrevalidadorBalance(balanceEmparejado.id);
+      bloqueoCruceContable = validarCompuertaPrevalidador(
+        contextoBalance,
+        encabezado.clienteId,
+        moduloCodigo,
+      ) ?? validarRangoBalanceModulo(contextoBalance, moduloCodigo, encabezado.periodo);
+    } catch {
+      bloqueoCruceContable = "No fue posible verificar de forma íntegra el prevalidador del balance seleccionado.";
+    }
+  }
+  if (balanceEmparejado && contextoBalance && !bloqueoCruceContable) {
+    const detallesBalance = contextoBalance.filas;
+    const catalogoCruce = contextoBalance.catalogo;
+    const cuentasAgrupadoras = cuentasAgrupadorasExcluidas(contextoBalance.prevalidador);
     const contablePorCuenta: Record<string, number> = {};
     let sinMapeoTotal = 0;
     let sinMapeoFilas = 0;
     for (const d of detallesBalance) {
-      const saldo = Number(d.saldoFinal);
+      const cuenta8 = d.cuenta8.replace(/\D/g, "");
+      if (cuentasAgrupadoras.has(cuenta8)) continue;
+      const cuenta4 = cuenta8.slice(0, 4);
+      const filaContable = {
+        debitos: d.debitos,
+        creditos: d.creditos,
+        saldoFinal: d.saldoFinal,
+      };
       if (d.cuenta6Russell) {
         const sub4 = d.cuenta6Russell.replace(/\D/g, "").slice(0, 4);
-        if (codigosModulo.has(sub4)) contablePorCuenta[sub4] = (contablePorCuenta[sub4] ?? 0) + saldo;
-      } else if (cuenta4DelModulo(d.cuenta4, prefijosModulo)) {
-        sinMapeoTotal += saldo;
+        if (!codigosModulo.has(sub4)) continue;
+        const calculo = calcularValorContableModulo({
+          moduloCodigo,
+          cuentaRussell: d.cuenta6Russell,
+          fila: filaContable,
+          catalogo: catalogoCruce,
+        });
+        if (!calculo) {
+          sinReglaContableFilas += 1;
+          continue;
+        }
+        contablePorCuenta[sub4] = (contablePorCuenta[sub4] ?? 0) + calculo.valor;
+      } else if (cuenta4DelModulo(cuenta4, prefijosModulo)) {
+        const calculo = calcularValorContableModulo({
+          moduloCodigo,
+          cuentaRussell: cuenta4,
+          fila: filaContable,
+          catalogo: catalogoCruce,
+        });
+        if (!calculo) {
+          sinReglaContableFilas += 1;
+          continue;
+        }
+        sinMapeoTotal += calculo.valor;
         sinMapeoFilas += 1;
       }
     }
@@ -188,6 +246,11 @@ export default async function DatoModuloPage({
       nombrePorCuenta: (cod) => nombrePorCuenta.get(cod) ?? null,
     });
     if (sinMapeoFilas > 0) sinMapeoContable = { total: sinMapeoTotal, filas: sinMapeoFilas };
+    if (sinReglaContableFilas > 0) {
+      bloqueoCruceContable = `Se omitieron ${sinReglaContableFilas} fila(s) contable(s) porque no tienen una regla activa aplicable. Configura y aprueba nuevamente el prevalidador antes de conciliar.`;
+      cruceContable = null;
+      sinMapeoContable = null;
+    }
   }
   // Marcas de auditoría de las diferencias del cruce: viven por (cliente, módulo,
   // período), NO por cargue, así que siguen visibles al abrir otra versión del período.
@@ -228,20 +291,35 @@ export default async function DatoModuloPage({
     nombreCliente: encabezado.nombreCliente,
     resumen: cruceContable,
     sinMapeoContable,
+    sinReglaContableFilas,
+    bloqueo: bloqueoCruceContable,
+    balanceFuente: balanceEmparejado
+      ? {
+          id: balanceEmparejado.id,
+          version: balanceEmparejado.version,
+          periodoInicio: balanceEmparejado.periodoInicio.toISOString().slice(0, 10),
+          periodoFin: balanceEmparejado.periodoFin.toISOString().slice(0, 10),
+          esOficial: balanceEmparejado.esOficial,
+          estaCongelado: balanceEmparejado.estaCongelado,
+        }
+      : null,
     filasMarcadas: cruceAnotado?.filas ?? [],
     resumenMarcas: cruceAnotado?.resumen ?? null,
   };
 
-  // Cruce por tercero (NIT): SOLO para módulos cuyo descriptor tiene columna "tercero"
-  // (CAR/CXP). Mismo criterio de emparejamiento de período que el cruce contable, pero
+  // Cruce por tercero (NIT): SOLO para módulos habilitados explícitamente (CAR/CXP).
+  // Tener una columna llamada "tercero" no prueba que el auxiliar sea apto para cruzar;
+  // Ingresos permanece fuera hasta validar una muestra real neta de impuestos. Mismo
+  // criterio de emparejamiento de período que el cruce contable, pero
   // contra el balance abierto POR TERCERO del cliente (`balance_tercero_*`).
-  const tieneRolTercero = descriptor.columnas.some((c) => c.nombre === "tercero");
+  const tieneRolTercero = descriptor.crucePorTercero === true;
   let cruceTercero: ResumenCruceTercero | null = null;
   let balanceTerceroEncontrado = false;
   // Cargue por tercero emparejado (mismo año-mes): lo necesita el enlace de la pestaña.
   let balanceTerceroRef: { id: number; version: string } | null = null;
   let contableSinNit: { total: number; filas: number } | null = null;
   let moduloSinNit: { total: number; filas: number } | null = null;
+  let contableExcluidoFilas = 0;
 
   if (tieneRolTercero) {
     const balancesTercero = await prisma.balanceTerceroEncabezado.findMany({
@@ -249,7 +327,9 @@ export default async function DatoModuloPage({
       select: { id: true, periodoFin: true, version: true },
       orderBy: [{ esOficial: "desc" }, { periodoFin: "desc" }, { id: "desc" }],
     });
-    const balanceTerceroEmparejado = balancesTercero.find((b) => mismoAnioMes(b.periodoFin, encabezado.periodo)) ?? null;
+    const balanceTerceroEmparejado = balancesTercero.find(
+      (b) => balanceTerminaEnPeriodo(b.periodoFin, encabezado.periodo),
+    ) ?? null;
     balanceTerceroEncontrado = balanceTerceroEmparejado != null;
     balanceTerceroRef = balanceTerceroEmparejado
       ? { id: balanceTerceroEmparejado.id, version: balanceTerceroEmparejado.version }
@@ -258,11 +338,40 @@ export default async function DatoModuloPage({
     if (balanceTerceroEmparejado) {
       const detallesTercero = await prisma.balanceTerceroDetalle.findMany({
         where: { encabezadoId: balanceTerceroEmparejado.id },
-        select: { cuenta4: true, nitTercero: true, nombreTercero: true, saldoFinal: true },
+        select: {
+          cuenta4: true,
+          cuenta6Russell: true,
+          nitTercero: true,
+          nombreTercero: true,
+          debitos: true,
+          creditos: true,
+          saldoFinal: true,
+        },
       });
-      const itemsContables = detallesTercero
-        .filter((d) => cuenta4DelModulo(d.cuenta4, prefijosModulo))
-        .map((d) => ({ nit: d.nitTercero, nombre: d.nombreTercero, saldo: Number(d.saldoFinal) }));
+      const itemsContables: { nit: string | null; nombre: string | null; saldo: number }[] = [];
+      for (const d of detallesTercero) {
+        if (!d.cuenta6Russell) {
+          if (cuenta4DelModulo(d.cuenta4, prefijosModulo)) contableExcluidoFilas += 1;
+          continue;
+        }
+        const sub4 = d.cuenta6Russell.replace(/\D/g, "").slice(0, 4);
+        if (!codigosModulo.has(sub4)) continue;
+        const calculo = calcularValorContableModulo({
+          moduloCodigo,
+          cuentaRussell: d.cuenta6Russell,
+          fila: {
+            debitos: Number(d.debitos),
+            creditos: Number(d.creditos),
+            saldoFinal: Number(d.saldoFinal),
+          },
+          catalogo: catalogoPrevalidador,
+        });
+        if (!calculo) {
+          contableExcluidoFilas += 1;
+          continue;
+        }
+        itemsContables.push({ nit: d.nitTercero, nombre: d.nombreTercero, saldo: calculo.valor });
+      }
       const { aportes: contablePorNit, sinNit: contableSinNitCalc } = agregarPorNit(itemsContables);
       contableSinNit = contableSinNitCalc;
 
@@ -289,6 +398,7 @@ export default async function DatoModuloPage({
     resumen: cruceTercero,
     contableSinNit,
     moduloSinNit,
+    contableExcluidoFilas,
   };
 
   const versiones: VersionModuloVm[] = hermanos.map((hermano) => ({
@@ -323,6 +433,7 @@ export default async function DatoModuloPage({
       )}
       <DatoCargadoClient
         moduloCodigo={moduloCodigo}
+        moduloLabel={descriptor.label}
         encabezadoId={encabezado.id}
         comentarios={comentariosPorAncla}
         clienteId={encabezado.clienteId}

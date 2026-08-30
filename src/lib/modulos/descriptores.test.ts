@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { MODULOS_IMPORT, descriptorModulo, modulosSoportados } from "./descriptores";
+import {
+  bloqueoAnexoPorVerificacionesCriticasModulo,
+  bloqueoCrucePorVerificacionesCriticasModulo,
+  bloqueoVerificacionesCriticasModulo,
+  MODULOS_IMPORT,
+  descriptorModulo,
+  modulosSoportados,
+} from "./descriptores";
 
 describe("descriptores de módulos", () => {
   it("registra los 6 módulos de conciliación", () => {
@@ -46,4 +53,55 @@ describe("descriptores de módulos", () => {
       });
     });
   }
+
+  it("solo habilita el cruce por tercero en auxiliares funcionalmente validados", () => {
+    expect(MODULOS_IMPORT.CAR.crucePorTercero).toBe(true);
+    expect(MODULOS_IMPORT.CXP.crucePorTercero).toBe(true);
+    expect(MODULOS_IMPORT.ING.crucePorTercero).not.toBe(true);
+  });
+
+  it("ING exige ingreso neto y no sugiere automáticamente el total de factura", () => {
+    const valor = MODULOS_IMPORT.ING.columnas.find((columna) => columna.nombre === "valor");
+    expect(valor?.etiqueta).toBe("Ingreso neto sin impuestos");
+    expect(valor?.sinonimos).toEqual(expect.arrayContaining(["subtotal", "base gravable", "venta neta", "valor sin iva"]));
+    expect(valor?.sinonimos).not.toContain("total");
+    expect(MODULOS_IMPORT.ING.verificaciones?.some((item) => item.id === "ing_sin_impuestos")).toBe(true);
+  });
+
+  it("ING solo se puede promover cuando confirma que el valor es neto de impuestos", () => {
+    expect(bloqueoVerificacionesCriticasModulo(MODULOS_IMPORT.ING, {
+      ing_sin_impuestos: { respuesta: "si" },
+    })).toBeNull();
+    for (const respuesta of ["no", "na"] as const) {
+      expect(bloqueoVerificacionesCriticasModulo(MODULOS_IMPORT.ING, {
+        ing_sin_impuestos: { respuesta },
+      })).toContain("debe responderse Sí");
+    }
+  });
+
+  it("bloquea el cruce de un ING histórico que no acredita el valor neto sin impuestos", () => {
+    expect(bloqueoCrucePorVerificacionesCriticasModulo(MODULOS_IMPORT.ING, {})).toContain(
+      "cargue histórico",
+    );
+    expect(bloqueoCrucePorVerificacionesCriticasModulo(MODULOS_IMPORT.ING, {
+      ing_sin_impuestos: { respuesta: "no" },
+    })).toContain("vuelve a cargarlo");
+    expect(bloqueoCrucePorVerificacionesCriticasModulo(MODULOS_IMPORT.ING, {
+      ing_sin_impuestos: { respuesta: "si" },
+    })).toBeNull();
+    expect(bloqueoCrucePorVerificacionesCriticasModulo(MODULOS_IMPORT.INV, {})).toBeNull();
+  });
+
+  it("impide anexar filas a un ING vigente que no estaba certificado", () => {
+    expect(bloqueoAnexoPorVerificacionesCriticasModulo(MODULOS_IMPORT.ING, {})).toContain(
+      "recarga completa",
+    );
+    expect(bloqueoAnexoPorVerificacionesCriticasModulo(MODULOS_IMPORT.ING, {
+      ing_sin_impuestos: { respuesta: "no" },
+    })).toContain("no un anexo parcial");
+    expect(bloqueoAnexoPorVerificacionesCriticasModulo(MODULOS_IMPORT.ING, {
+      ing_sin_impuestos: { respuesta: "si" },
+    })).toBeNull();
+    expect(bloqueoAnexoPorVerificacionesCriticasModulo(MODULOS_IMPORT.CAR, {})).toBeNull();
+  });
 });

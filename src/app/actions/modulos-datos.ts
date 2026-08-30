@@ -15,7 +15,11 @@ import { mensajeErrorBD, registrarError } from "@/lib/errores";
 import type { ActionState } from "@/lib/definitions";
 import { ingerir, type CeldaCruda } from "@/lib/balance/extraccion/ingesta";
 import { calcularHuella, huellasCandidatas } from "@/lib/balance/extraccion/huella";
-import { descriptorModulo } from "@/lib/modulos/descriptores";
+import {
+  bloqueoAnexoPorVerificacionesCriticasModulo,
+  bloqueoVerificacionesCriticasModulo,
+  descriptorModulo,
+} from "@/lib/modulos/descriptores";
 import {
   parseAlcanceEliminacionModulo,
   resolverAlcanceEliminacionModulo,
@@ -23,7 +27,11 @@ import {
 } from "@/lib/modulos/alcance-eliminacion";
 import { cuenta4DelModulo, prefijosCuentaModulo } from "@/lib/modulos/cuentas-modulo";
 import { SpecModuloSchema, type SpecModulo } from "@/lib/modulos/extraccion/esquema";
-import { sugerirSpec } from "@/lib/modulos/extraccion/sugerir";
+import {
+  encabezadoValorIngresoAmbiguo,
+  invalidarValorAmbiguoIngresos,
+  sugerirSpec,
+} from "@/lib/modulos/extraccion/sugerir";
 import { seleccionarSugerenciasPerfil, type PerfilCandidato } from "@/lib/modulos/sugerencias-perfil";
 import { transformarModulo, resultadoAReconciliacion } from "@/lib/modulos/extraccion/transformar";
 import { promoverStaging, type FilaStagingModulo } from "@/lib/modulos/promocion";
@@ -43,6 +51,18 @@ import {
 } from "@/lib/modulos/marcas-adjuntos";
 import { almacenamientoDisponible, eliminarObjeto, subirObjeto } from "@/lib/storage/objetos";
 import { refRolDe, clavesDeDetalle, decidirCarga, remapFilas } from "@/lib/modulos/fraccionamiento";
+import {
+  carpetaArchivoOriginalModulo,
+  claveArchivoOriginalModulo,
+  datosArchivoOriginalConservado,
+  datosArchivoOriginalConCargueEliminado,
+  datosArchivoOriginalDescartado,
+  datosArchivoOriginalNoProcesable,
+  datosArchivoOriginalPromovido,
+  datosArchivoOriginalRecibido,
+  huellaSha256Archivo,
+  tipoContenidoArchivo,
+} from "@/lib/modulos/archivo-original";
 import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
 import { tomarCandadoTransaccion, transaccionSerializable } from "@/lib/concurrency";
 
@@ -51,6 +71,7 @@ const rutaModulo = (codigo: string) => `/modulos/${codigo.toLowerCase()}`;
 function revalidarListadosModulo(codigo: string) {
   revalidatePath(rutaModulo(codigo));
   revalidatePath(`${rutaModulo(codigo)}/borradores`);
+  revalidatePath(`${rutaModulo(codigo)}/bitacora`);
 }
 // Marca de idempotencia de un anexo (modo "agregar"): se guarda al final de las
 // observaciones del encabezado vigente para poder detectar un reintento del mismo
@@ -65,8 +86,24 @@ const tamArchivo = (bytes: number): string => {
 };
 const fechaISO = (v: FormDataEntryValue | null): Date | null => {
   const s = typeof v === "string" ? v.trim() : "";
-  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? new Date(`${s}T00:00:00`) : null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const fecha = new Date(`${s}T00:00:00`);
+  return Number.isNaN(fecha.getTime()) ? null : fecha;
 };
+
+const DocumentacionArchivoModuloSchema = z.object({
+  softwareOrigen: z.string().trim().max(160, "El software de origen es demasiado largo.").transform((v) => v || null),
+  ubicacionOrigen: z.string().trim().max(500, "La ubicación de origen es demasiado larga.").transform((v) => v || null),
+  reflejoContableEsperado: z.string().trim().max(4000, "El reflejo contable esperado es demasiado largo.").transform((v) => v || null),
+});
+
+function documentacionDesdeFormulario(formData: FormData) {
+  return DocumentacionArchivoModuloSchema.safeParse({
+    softwareOrigen: String(formData.get("softwareOrigen") ?? ""),
+    ubicacionOrigen: String(formData.get("ubicacionOrigen") ?? ""),
+    reflejoContableEsperado: String(formData.get("reflejoContableEsperado") ?? ""),
+  });
+}
 
 function mensajeErrorLecturaArchivoModulo(contexto: string, e: unknown): string {
   registrarError(contexto, e);
@@ -81,6 +118,8 @@ export type CeldaMuestra = string | number | null;
 export type AnalisisModulo = {
   ok: boolean;
   message?: string;
+  /** Identifica el original ya conservado; se reutiliza al crear el borrador. */
+  recepcionLoteId?: string;
   hoja?: string;
   hojas?: string[];
   totalFilas?: number;
@@ -97,6 +136,7 @@ export type AnalisisModulo = {
     exacto: { clienteNombre: string; archivoEjemplo: string | null } | null;
     lista: { clienteNombre: string; huella: string; archivoEjemplo: string | null; vecesUsado: number; spec: SpecModulo }[];
   };
+  advertenciaValor?: string;
 };
 
 async function specPerfilModulo(
@@ -221,9 +261,9 @@ export async function preferenciasCargaModulo(clienteId: number, moduloCodigo: s
 }
 
 // ============================================================
-// ANALIZAR: lee el archivo (SIN escribir) y devuelve la grilla del servidor + spec
-// sugerido para que el modal edite el mapeo de columnas sobre la MISMA grilla que
-// luego usará el transform (cero riesgo de desalineación de índices).
+// ANALIZAR: primero conserva el original y después devuelve la grilla del servidor +
+// spec sugerido. El token de recepción permite que LEER reutilice la misma bitácora
+// y el mismo objeto, sin duplicarlos al crear el borrador.
 // ============================================================
 export async function analizarArchivoModulo(formData: FormData): Promise<AnalisisModulo> {
   const moduloCodigo = String(formData.get("moduloCodigo") ?? "").trim().toUpperCase();
@@ -237,19 +277,174 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
   if (!scope.ok) return { ok: false, message: scope.message };
   const archivo = formData.get("archivo");
   if (!(archivo instanceof File) || archivo.size === 0) return { ok: false, message: "Adjunta el archivo del módulo." };
+  const documentacion = documentacionDesdeFormulario(formData);
+  if (!documentacion.success) {
+    return { ok: false, message: documentacion.error.issues[0]?.message ?? "La documentación del archivo no es válida." };
+  }
+  if (!almacenamientoDisponible()) {
+    return {
+      ok: false,
+      message: "No se puede conservar el archivo original porque el almacenamiento de objetos no está configurado. Avisa al administrador antes de continuar.",
+    };
+  }
 
+  let recepcionLoteId: string | null = null;
+  let recepcionOriginalDisponible = false;
   try {
+    const [cliente, user] = await Promise.all([
+      prisma.client.findUnique({ where: { id: clienteId }, select: { name: true, nit: true } }),
+      getCurrentUser(),
+    ]);
+    if (!cliente) return { ok: false, message: "El cliente seleccionado ya no existe." };
+
+    let contenidoOriginal: Uint8Array;
+    try {
+      contenidoOriginal = new Uint8Array(await archivo.arrayBuffer()).slice();
+    } catch (e) {
+      return { ok: false, message: mensajeErrorLecturaArchivoModulo("analizarArchivoModulo.leerBytes", e) };
+    }
+    const huellaOriginal = huellaSha256Archivo(contenidoOriginal);
+    const recepcionPedida = String(formData.get("recepcionLoteId") ?? "").trim();
+    const existente = recepcionPedida
+      ? await prisma.archivoOriginalModulo.findUnique({
+          where: { loteId: recepcionPedida },
+          select: {
+            loteId: true,
+            clienteId: true,
+            moduloCodigo: true,
+            nombreArchivo: true,
+            tamanoBytes: true,
+            huellaSha256: true,
+            claveObjeto: true,
+            disponible: true,
+            estado: true,
+          },
+        })
+      : null;
+
+    if (recepcionPedida && (
+      !existente
+      || existente.clienteId !== clienteId
+      || existente.moduloCodigo !== moduloCodigo
+      || existente.nombreArchivo !== archivo.name
+      || existente.tamanoBytes !== contenidoOriginal.byteLength
+      || existente.huellaSha256 !== huellaOriginal
+      || !existente.claveObjeto
+      || !["recibido", "no_procesable"].includes(existente.estado)
+    )) {
+      return { ok: false, message: "La recepción previa no corresponde a este archivo, cliente o módulo. Selecciona nuevamente el archivo." };
+    }
+
+    const loteId = existente?.loteId ?? randomUUID();
+    const claveObjeto = existente?.claveObjeto ?? claveArchivoOriginalModulo({
+      moduloCodigo,
+      clienteId,
+      loteId,
+      nombreArchivo: archivo.name,
+    });
+    const tipoContenido = tipoContenidoArchivo(archivo.name, archivo.type);
+    recepcionLoteId = loteId;
+    recepcionOriginalDisponible = existente?.disponible === true;
+    if (existente) {
+      const recepcionActualizada = await prisma.archivoOriginalModulo.updateMany({
+        where: { loteId, estado: { in: ["recibido", "no_procesable"] } },
+        data: {
+          estado: "recibido",
+          softwareOrigen: documentacion.data.softwareOrigen,
+          ubicacionOrigen: documentacion.data.ubicacionOrigen,
+          reflejoContableEsperado: documentacion.data.reflejoContableEsperado,
+        },
+      });
+      if (recepcionActualizada.count !== 1) {
+        return {
+          ok: false,
+          message: "La recepción ya fue convertida en borrador o cambió mientras se analizaba. Selecciona nuevamente el archivo.",
+        };
+      }
+    } else {
+      await prisma.archivoOriginalModulo.create({
+        data: {
+          loteId,
+          clienteId,
+          nombreCliente: cliente.name,
+          nitCliente: cliente.nit,
+          moduloCodigo,
+          periodo: null,
+          nombreArchivo: archivo.name,
+          tipoContenido,
+          tamanoBytes: contenidoOriginal.byteLength,
+          huellaSha256: huellaOriginal,
+          claveObjeto,
+          ubicacionCarpeta: carpetaArchivoOriginalModulo({
+            moduloLabel: descriptor.label,
+            clienteId,
+            nitCliente: cliente.nit,
+          }),
+          softwareOrigen: documentacion.data.softwareOrigen,
+          ubicacionOrigen: documentacion.data.ubicacionOrigen,
+          reflejoContableEsperado: documentacion.data.reflejoContableEsperado,
+          ...datosArchivoOriginalRecibido(),
+          esAnexo: false,
+          cargadoPor: user?.name ?? null,
+          cargadoPorId: user?.id ?? null,
+        },
+      });
+    }
+    if (!existente?.disponible) {
+      let objetoConservado = false;
+      try {
+        await subirObjeto({ key: claveObjeto, cuerpo: contenidoOriginal, contentType: tipoContenido });
+        objetoConservado = true;
+        recepcionOriginalDisponible = true;
+        const disponibleActualizado = await prisma.archivoOriginalModulo.updateMany({
+          where: { loteId, estado: { in: ["recibido", "no_procesable"] } },
+          data: datosArchivoOriginalConservado(),
+        });
+        if (disponibleActualizado.count !== 1) {
+          return {
+            ok: false,
+            recepcionLoteId: loteId,
+            message: "La recepción cambió mientras se conservaba el original. Selecciona nuevamente el archivo.",
+          };
+        }
+      } catch (e) {
+        registrarError("analizarArchivoModulo.conservarOriginal", e);
+        await prisma.archivoOriginalModulo.updateMany({
+          where: { loteId, estado: { in: ["recibido", "no_procesable"] } },
+          data: datosArchivoOriginalNoProcesable(objetoConservado),
+        }).catch((errorEstado) => registrarError("analizarArchivoModulo.marcarNoProcesable", errorEstado));
+        return {
+          ok: false,
+          recepcionLoteId: loteId,
+          message: "No se pudo conservar el archivo original. No se analizará hasta que el almacenamiento esté disponible.",
+        };
+      }
+    }
+
+    const noProcesable = async (message: string): Promise<AnalisisModulo> => {
+      await prisma.archivoOriginalModulo.updateMany({
+        where: { loteId, estado: { in: ["recibido", "no_procesable"] } },
+        data: datosArchivoOriginalNoProcesable(recepcionOriginalDisponible),
+      }).catch((errorEstado) => registrarError("analizarArchivoModulo.marcarNoProcesable", errorEstado));
+      revalidarListadosModulo(moduloCodigo);
+      return {
+        ok: false,
+        recepcionLoteId: loteId,
+        message: `${message} El original quedó conservado y registrado como no procesable en la Bitácora.`,
+      };
+    };
+
     let ingesta: Awaited<ReturnType<typeof ingerir>>;
     try {
-      ingesta = await ingerir(await archivo.arrayBuffer(), archivo.name);
+      ingesta = await ingerir(contenidoOriginal.slice().buffer as ArrayBuffer, archivo.name);
     } catch (e) {
-      return { ok: false, message: mensajeErrorLecturaArchivoModulo("analizarArchivoModulo.ingerir", e) };
+      return noProcesable(mensajeErrorLecturaArchivoModulo("analizarArchivoModulo.ingerir", e));
     }
-    if (ingesta.modo !== "tabular") return { ok: false, message: "Por ahora solo se admiten archivos tabulares (Excel/CSV)." };
+    if (ingesta.modo !== "tabular") return noProcesable("Por ahora solo se admiten archivos tabulares (Excel/CSV).");
     const hojaElegida = String(formData.get("hoja") ?? "").trim();
     const nombreHoja = await resolverHojaModulo(ingesta.hojas, hojaElegida, clienteId, moduloCodigo);
     const hoja = ingesta.hojas.find((h) => h.nombre === nombreHoja);
-    if (!hoja) return { ok: false, message: "El archivo no tiene hojas legibles." };
+    if (!hoja) return noProcesable("El archivo no tiene hojas legibles.");
 
     // Spec de partida: perfil PROPIO por huella si existe; si no, sugerencia INDICATIVA de
     // otro cliente del mismo ERP (huella exacta) o, en último caso, el heurístico de IA.
@@ -258,8 +453,14 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
     let spec: SpecModulo;
     let origen: "perfil" | "sugerido" | "ia";
     let sugerencias: AnalisisModulo["sugerencias"];
+    let valorAmbiguoInvalidado = false;
+    const sanearValorInicial = (candidato: SpecModulo): SpecModulo => {
+      const saneado = invalidarValorAmbiguoIngresos(descriptor, hoja, candidato);
+      if (saneado.invalidado) valorAmbiguoInvalidado = true;
+      return saneado.spec;
+    };
     if (perfilSpec) {
-      spec = perfilSpec;
+      spec = sanearValorInicial(perfilSpec);
       origen = "perfil";
     } else {
       const cliente = await prisma.client.findUnique({ where: { id: clienteId }, select: { erpId: true } });
@@ -267,11 +468,18 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
         ? await sugerenciasPerfilPorErp(clienteId, cliente.erpId, moduloCodigo, candidatas)
         : null;
       if (porErp?.sugerencias.exacto) {
-        spec = SpecModuloSchema.parse(porErp.sugerencias.exacto.spec);
+        spec = sanearValorInicial(SpecModuloSchema.parse(porErp.sugerencias.exacto.spec));
         origen = "sugerido";
       } else {
         spec = sugerirSpec(descriptor, hoja);
         origen = "ia";
+        if (
+          moduloCodigo === "ING"
+          && (spec.columnas[descriptor.valor] ?? 0) < 1
+          && (hoja.filas[spec.filaEncabezado - 1] ?? []).some(encabezadoValorIngresoAmbiguo)
+        ) {
+          valorAmbiguoInvalidado = true;
+        }
       }
       if (porErp) {
         sugerencias = {
@@ -284,7 +492,11 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
             huella: p.huella,
             archivoEjemplo: p.archivoEjemplo,
             vecesUsado: p.vecesUsado,
-            spec: SpecModuloSchema.parse(p.spec),
+            spec: invalidarValorAmbiguoIngresos(
+              descriptor,
+              hoja,
+              SpecModuloSchema.parse(p.spec),
+            ).spec,
           })),
         };
       }
@@ -297,9 +509,47 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
     const encabezado = rellena(hoja.filas[spec.filaEncabezado - 1]);
     const muestraFilas = hoja.filas.slice(spec.primeraFilaDatos - 1, spec.primeraFilaDatos - 1 + 12).map(rellena);
 
-    return { ok: true, hoja: hoja.nombre, hojas: ingesta.hojas.map((h) => h.nombre), totalFilas: hoja.filas.length, ancho, encabezado, muestraFilas, spec, origen, sugerencias };
+    revalidarListadosModulo(moduloCodigo);
+    return {
+      ok: true,
+      recepcionLoteId: loteId,
+      hoja: hoja.nombre,
+      hojas: ingesta.hojas.map((h) => h.nombre),
+      totalFilas: hoja.filas.length,
+      ancho,
+      encabezado,
+      muestraFilas,
+      spec,
+      origen,
+      sugerencias,
+      ...(valorAmbiguoInvalidado
+        ? {
+            advertenciaValor:
+              "El mapeo guardado apuntaba a un total de factura ambiguo. Selecciona una columna de ingreso neto sin IVA/impuestos, subtotal o base gravable.",
+          }
+        : {}),
+    };
   } catch (e) {
-    return { ok: false, message: mensajeErrorBD("analizarArchivoModulo", e) };
+    if (recepcionLoteId) {
+      await prisma.archivoOriginalModulo.updateMany({
+        where: {
+          loteId: recepcionLoteId,
+          estado: { in: ["recibido", "no_procesable"] },
+        },
+        data: datosArchivoOriginalNoProcesable(recepcionOriginalDisponible),
+      }).catch((errorEstado) => registrarError("analizarArchivoModulo.marcarNoProcesableInesperado", errorEstado));
+      revalidarListadosModulo(moduloCodigo);
+    }
+    const message = mensajeErrorBD("analizarArchivoModulo", e);
+    return {
+      ok: false,
+      ...(recepcionLoteId ? { recepcionLoteId } : {}),
+      message: recepcionLoteId
+        ? recepcionOriginalDisponible
+          ? `${message} El original quedó conservado y registrado como no procesable en la Bitácora.`
+          : `${message} La recepción quedó registrada como no procesable, pero el original no está disponible en el almacenamiento.`
+        : message,
+    };
   }
 }
 
@@ -320,6 +570,16 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
 
   const archivo = formData.get("archivo");
   if (!(archivo instanceof File) || archivo.size === 0) return { ok: false, message: "Adjunta el archivo del módulo." };
+  const documentacion = documentacionDesdeFormulario(formData);
+  if (!documentacion.success) {
+    return { ok: false, message: documentacion.error.issues[0]?.message ?? "La documentación del archivo no es válida." };
+  }
+  if (!almacenamientoDisponible()) {
+    return {
+      ok: false,
+      message: "No se puede conservar el archivo original porque el almacenamiento de objetos no está configurado. Avisa al administrador antes de continuar.",
+    };
+  }
 
   // ANEXO declarado («Agregar archivo» desde una fila ya cargada). El destino se valida
   // aquí, contra la BD, y NO se vuelve a confiar en lo que mande el navegador: el borrador
@@ -330,15 +590,26 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
     return { ok: false, message: "El cargue al que se quiere agregar el archivo no es válido." };
   }
 
+  let loteOriginalRecibido: string | null = null;
   try {
-    const cliente = await prisma.client.findUnique({ where: { id: clienteId }, select: { name: true } });
+    const cliente = await prisma.client.findUnique({
+      where: { id: clienteId },
+      select: { name: true, nit: true },
+    });
     if (!cliente) return { ok: false, message: "El cliente seleccionado ya no existe." };
 
     let anexoEncabezadoId: number | null = null;
     if (anexoPedido != null) {
       const destino = await prisma.moduloDatoEncabezado.findUnique({
         where: { id: anexoPedido },
-        select: { id: true, clienteId: true, moduloCodigo: true, esOficial: true, estaCongelado: true },
+        select: {
+          id: true,
+          clienteId: true,
+          moduloCodigo: true,
+          esOficial: true,
+          estaCongelado: true,
+          verificaciones: true,
+        },
       });
       if (!destino) return { ok: false, message: "El cargue al que ibas a agregar el archivo ya no existe." };
       if (destino.clienteId !== clienteId || destino.moduloCodigo !== moduloCodigo) {
@@ -346,28 +617,195 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
       }
       if (!destino.esOficial) return { ok: false, message: "Solo se puede agregar un archivo a la versión vigente." };
       if (destino.estaCongelado) return { ok: false, message: "Ese cargue está congelado: no admite archivos adicionales." };
+      const bloqueoAnexo = bloqueoAnexoPorVerificacionesCriticasModulo(
+        descriptor,
+        (destino.verificaciones ?? {}) as Record<string, { respuesta: "si" | "no" | "na" } | undefined>,
+      );
+      if (bloqueoAnexo) return { ok: false, message: bloqueoAnexo };
       anexoEncabezadoId = destino.id;
+    }
+
+    let contenidoOriginal: Uint8Array;
+    try {
+      // Copia independiente y huella ANTES del parser. El analizador recibe otra
+      // copia, por lo que nunca puede mutar la evidencia que se conserva.
+      contenidoOriginal = new Uint8Array(await archivo.arrayBuffer()).slice();
+    } catch (e) {
+      return { ok: false, message: mensajeErrorLecturaArchivoModulo("leerDatosModulo.leerBytes", e) };
+    }
+
+    const user = await getCurrentUser();
+    const periodoInicial = fechaISO(formData.get("periodoInicio"));
+    const periodoFinal = fechaISO(formData.get("periodoFin"));
+    const periodoArchivo = periodoFinal?.toISOString().slice(0, 7)
+      ?? periodoInicial?.toISOString().slice(0, 7)
+      ?? null;
+    const huellaOriginal = huellaSha256Archivo(contenidoOriginal);
+    const recepcionPedida = String(formData.get("recepcionLoteId") ?? "").trim();
+    const originalRecibido = recepcionPedida
+      ? await prisma.archivoOriginalModulo.findUnique({
+          where: { loteId: recepcionPedida },
+          select: {
+            loteId: true,
+            clienteId: true,
+            moduloCodigo: true,
+            nombreArchivo: true,
+            tamanoBytes: true,
+            huellaSha256: true,
+            claveObjeto: true,
+            disponible: true,
+            estado: true,
+          },
+        })
+      : null;
+    if (recepcionPedida && (
+      !originalRecibido
+      || originalRecibido.clienteId !== clienteId
+      || originalRecibido.moduloCodigo !== moduloCodigo
+      || originalRecibido.nombreArchivo !== archivo.name
+      || originalRecibido.tamanoBytes !== contenidoOriginal.byteLength
+      || originalRecibido.huellaSha256 !== huellaOriginal
+      || !originalRecibido.claveObjeto
+      || !["recibido", "no_procesable"].includes(originalRecibido.estado)
+    )) {
+      return {
+        ok: false,
+        message: "La recepción previa no corresponde a este archivo, cliente o módulo. Selecciona nuevamente el archivo.",
+      };
+    }
+    const loteId = originalRecibido?.loteId ?? randomUUID();
+    const ubicacionCarpeta = carpetaArchivoOriginalModulo({
+      moduloLabel: descriptor.label,
+      clienteId,
+      nitCliente: cliente.nit,
+    });
+    const claveObjeto = originalRecibido?.claveObjeto ?? claveArchivoOriginalModulo({
+      moduloCodigo,
+      clienteId,
+      loteId,
+      nombreArchivo: archivo.name,
+    });
+    const tipoContenido = tipoContenidoArchivo(archivo.name, archivo.type);
+
+    // La fila durable nace ANTES de tocar S3 o interpretar el archivo. De ese modo,
+    // cualquier objeto que alcance el proveedor siempre tiene una clave y una huella
+    // rastreables en PostgreSQL, incluso si luego el parser rechaza su contenido.
+    if (originalRecibido) {
+      const recepcionActualizada = await prisma.archivoOriginalModulo.updateMany({
+        where: { loteId, estado: { in: ["recibido", "no_procesable"] } },
+        data: {
+          periodo: periodoArchivo,
+          estado: "recibido",
+          esAnexo: anexoEncabezadoId != null,
+          softwareOrigen: documentacion.data.softwareOrigen,
+          ubicacionOrigen: documentacion.data.ubicacionOrigen,
+          reflejoContableEsperado: documentacion.data.reflejoContableEsperado,
+        },
+      });
+      if (recepcionActualizada.count !== 1) {
+        return {
+          ok: false,
+          message: "La recepción ya fue procesada o cambió mientras se creaba el borrador. Selecciona nuevamente el archivo.",
+        };
+      }
+    } else {
+      await prisma.archivoOriginalModulo.create({
+        data: {
+          loteId,
+          clienteId,
+          nombreCliente: cliente.name,
+          nitCliente: cliente.nit,
+          moduloCodigo,
+          periodo: periodoArchivo,
+          nombreArchivo: archivo.name,
+          tipoContenido,
+          tamanoBytes: contenidoOriginal.byteLength,
+          huellaSha256: huellaOriginal,
+          claveObjeto,
+          ubicacionCarpeta,
+          softwareOrigen: documentacion.data.softwareOrigen,
+          ubicacionOrigen: documentacion.data.ubicacionOrigen,
+          reflejoContableEsperado: documentacion.data.reflejoContableEsperado,
+          ...datosArchivoOriginalRecibido(),
+          esAnexo: anexoEncabezadoId != null,
+          cargadoPor: user?.name ?? null,
+          cargadoPorId: user?.id ?? null,
+        },
+      });
+    }
+    loteOriginalRecibido = loteId;
+
+    let objetoConservado = originalRecibido?.disponible === true;
+    const marcarNoProcesable = async (
+      message: string,
+      contexto?: string,
+      error?: unknown,
+    ): Promise<ActionState & { loteId?: string }> => {
+      if (contexto && error !== undefined) registrarError(contexto, error);
+      try {
+        await prisma.archivoOriginalModulo.updateMany({
+          where: { loteId, estado: { in: ["recibido", "no_procesable"] } },
+          data: datosArchivoOriginalNoProcesable(objetoConservado),
+        });
+      } catch (errorEstado) {
+        registrarError("leerDatosModulo.marcarNoProcesable", errorEstado);
+      }
+      revalidarListadosModulo(moduloCodigo);
+      return { ok: false, message };
+    };
+
+    if (!objetoConservado) {
+      try {
+        await subirObjeto({ key: claveObjeto, cuerpo: contenidoOriginal, contentType: tipoContenido });
+        objetoConservado = true;
+        const disponibleActualizado = await prisma.archivoOriginalModulo.updateMany({
+          where: { loteId, estado: { in: ["recibido", "no_procesable"] } },
+          data: datosArchivoOriginalConservado(),
+        });
+        if (disponibleActualizado.count !== 1) {
+          return {
+            ok: false,
+            message: "La recepción cambió mientras se conservaba el original. Selecciona nuevamente el archivo.",
+          };
+        }
+      } catch (e) {
+        return marcarNoProcesable(
+          "No se pudo conservar el archivo original. No se creó el borrador; verifica el almacenamiento e intenta nuevamente.",
+          "leerDatosModulo.conservarOriginal",
+          e,
+        );
+      }
     }
 
     let ingesta: Awaited<ReturnType<typeof ingerir>>;
     try {
-      ingesta = await ingerir(await archivo.arrayBuffer(), archivo.name);
+      ingesta = await ingerir(contenidoOriginal.slice().buffer as ArrayBuffer, archivo.name);
     } catch (e) {
-      return { ok: false, message: mensajeErrorLecturaArchivoModulo("leerDatosModulo.ingerir", e) };
+      return marcarNoProcesable(
+        mensajeErrorLecturaArchivoModulo("leerDatosModulo.ingerir", e),
+      );
     }
-    if (ingesta.modo !== "tabular") return { ok: false, message: "Por ahora solo se admiten archivos tabulares (Excel/CSV) para módulos." };
+    if (ingesta.modo !== "tabular") {
+      return marcarNoProcesable("Por ahora solo se admiten archivos tabulares (Excel/CSV) para módulos.");
+    }
     const hojaElegida = String(formData.get("hoja") ?? "").trim();
     const nombreHoja = await resolverHojaModulo(ingesta.hojas, hojaElegida, clienteId, moduloCodigo);
     const hoja = ingesta.hojas.find((h) => h.nombre === nombreHoja);
-    if (!hoja) return { ok: false, message: "El archivo no tiene hojas legibles." };
+    if (!hoja) return marcarNoProcesable("El archivo no tiene hojas legibles.");
 
     // Spec: (1) editado a mano → manual · (2) perfil por huella → perfil · (3) heurístico → auto.
     const specEditadoRaw = formData.get("specJson");
     let spec: SpecModulo;
     let origen: "manual" | "perfil" | "ia";
     if (typeof specEditadoRaw === "string" && specEditadoRaw.trim()) {
-      const parsed = SpecModuloSchema.safeParse(JSON.parse(specEditadoRaw));
-      if (!parsed.success) return { ok: false, message: "El mapeo de columnas no es válido." };
+      let specEditado: unknown;
+      try {
+        specEditado = JSON.parse(specEditadoRaw);
+      } catch {
+        return marcarNoProcesable("El mapeo de columnas no es válido.");
+      }
+      const parsed = SpecModuloSchema.safeParse(specEditado);
+      if (!parsed.success) return marcarNoProcesable("El mapeo de columnas no es válido.");
       spec = parsed.data;
       // El origen es metadata de auditoría: se recompone contra fuentes del
       // servidor y nunca se acepta una etiqueta arbitraria enviada por el navegador.
@@ -382,12 +820,22 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
       else { spec = sugerirSpec(descriptor, hoja); origen = "ia"; }
     }
 
-    const resultado = transformarModulo(descriptor, spec, hoja);
-    if (resultado.filas.length === 0) return { ok: false, message: "No se leyeron filas con el mapeo actual. Ajusta las columnas." };
+    // Defensa en profundidad: perfiles antiguos, sugerencias ERP o un specJson
+    // manipulado no pueden volver a colar el total de factura como cuenta 41.
+    const valorSeguro = invalidarValorAmbiguoIngresos(descriptor, hoja, spec);
+    if (valorSeguro.invalidado) {
+      return marcarNoProcesable(
+        "Ingresos no admite una columna de total de factura para el cruce contable. Mapea ingreso neto sin IVA/impuestos, subtotal o base gravable.",
+      );
+    }
+    spec = valorSeguro.spec;
 
-    const loteId = randomUUID();
+    const resultado = transformarModulo(descriptor, spec, hoja);
+    if (resultado.filas.length === 0) {
+      return marcarNoProcesable("No se leyeron filas con el mapeo actual. Ajusta las columnas.");
+    }
+
     const huella = calcularHuella(hoja.nombre, hoja.filas[spec.filaEncabezado - 1] ?? []);
-    const user = await getCurrentUser();
     // Reconciliación (red de seguridad de integridad): si quedaron filas con valor real por
     // encima del inicio efectivo, se guarda junto al spec del LOTE (JSON libre, sin migración)
     // para que el borrador pueda avisarlo. El perfil reutilizable (`perfilCargaModulo`) NO
@@ -395,44 +843,74 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
     const reconciliacion = resultadoAReconciliacion(resultado);
     const specConReconciliacion = reconciliacion ? { ...spec, reconciliacion } : spec;
 
-    await prisma.$transaction(async (tx) => {
-      for (let i = 0; i < resultado.filas.length; i += LOTE_STAGING_MODULO) {
-        await tx.moduloImportacionStaging.createMany({
-          data: resultado.filas.slice(i, i + LOTE_STAGING_MODULO).map((f) => ({
-            loteId, moduloCodigo, clienteId, hoja: hoja.nombre, filaNum: f.filaNum,
-            clasificador: f.clasificador, valor: f.valor, datos: f.datos, tipoFila: f.tipoFila,
-            omitida: f.omitida ?? null,
-            motivoTipoFila: f.motivo ?? null,
-          })),
+    try {
+      await prisma.$transaction(async (tx) => {
+        for (let i = 0; i < resultado.filas.length; i += LOTE_STAGING_MODULO) {
+          await tx.moduloImportacionStaging.createMany({
+            data: resultado.filas.slice(i, i + LOTE_STAGING_MODULO).map((f) => ({
+              loteId, moduloCodigo, clienteId, hoja: hoja.nombre, filaNum: f.filaNum,
+              clasificador: f.clasificador, valor: f.valor, datos: f.datos, tipoFila: f.tipoFila,
+              omitida: f.omitida ?? null,
+              motivoTipoFila: f.motivo ?? null,
+            })),
+          });
+        }
+        await tx.moduloImportacionLote.create({
+          data: {
+            moduloCodigo, loteId, clienteId, archivoNombre: archivo.name, archivoTam: tamArchivo(archivo.size),
+            periodoInicial, periodoFinal,
+            anexoEncabezadoId,
+            filasLeidas: resultado.filasLeidas, filasExcluidas: resultado.filasExcluidas,
+            huella, origenExtraccion: origen, specJson: specConReconciliacion,
+            cargadoPor: user?.name ?? null, cargadoPorId: user?.id ?? null,
+          },
         });
-      }
-      await tx.moduloImportacionLote.create({
-        data: {
-          moduloCodigo, loteId, clienteId, archivoNombre: archivo.name, archivoTam: tamArchivo(archivo.size),
-          periodoInicial: fechaISO(formData.get("periodoInicio")), periodoFinal: fechaISO(formData.get("periodoFin")),
-          anexoEncabezadoId,
-          filasLeidas: resultado.filasLeidas, filasExcluidas: resultado.filasExcluidas,
-          huella, origenExtraccion: origen, specJson: specConReconciliacion,
-          cargadoPor: user?.name ?? null, cargadoPorId: user?.id ?? null,
-        },
+        const originalActualizado = await tx.archivoOriginalModulo.updateMany({
+          where: { loteId, estado: "recibido", disponible: true },
+          data: { estado: "borrador" },
+        });
+        if (originalActualizado.count !== 1) {
+          throw new Error("La bitácora durable del original no está disponible; no se creó el borrador.");
+        }
+        // Perfil del layout por cliente+módulo: se guarda/actualiza para las próximas cargas.
+        if (huella) {
+          await tx.perfilCargaModulo.upsert({
+            where: { clienteId_moduloCodigo_huella: { clienteId, moduloCodigo, huella } },
+            create: { clienteId, moduloCodigo, huella, specJson: spec, origen, vecesUsado: 1, ultimoUsoEn: new Date(), archivoEjemplo: archivo.name, creadoPor: user?.name ?? null, creadoPorId: user?.id ?? null },
+            update: { specJson: spec, vecesUsado: { increment: 1 }, ultimoUsoEn: new Date(), archivoEjemplo: archivo.name, ...(origen === "manual" ? { origen: "manual" } : {}) },
+          });
+        }
+      }, {
+        maxWait: 5_000,
+        timeout: TIMEOUT_TRANSACCION_MODULO_MS,
       });
-      // Perfil del layout por cliente+módulo: se guarda/actualiza para las próximas cargas.
-      if (huella) {
-        await tx.perfilCargaModulo.upsert({
-          where: { clienteId_moduloCodigo_huella: { clienteId, moduloCodigo, huella } },
-          create: { clienteId, moduloCodigo, huella, specJson: spec, origen, vecesUsado: 1, ultimoUsoEn: new Date(), archivoEjemplo: archivo.name, creadoPor: user?.name ?? null, creadoPorId: user?.id ?? null },
-          update: { specJson: spec, vecesUsado: { increment: 1 }, ultimoUsoEn: new Date(), archivoEjemplo: archivo.name, ...(origen === "manual" ? { origen: "manual" } : {}) },
-        });
-      }
-    }, {
-      maxWait: 5_000,
-      timeout: TIMEOUT_TRANSACCION_MODULO_MS,
-    });
+    } catch (e) {
+      return marcarNoProcesable(
+        mensajeErrorBD("leerDatosModulo.crearBorrador", e),
+      );
+    }
+    loteOriginalRecibido = null;
 
-    await logAudit({ user: user?.name ?? "Sistema", action: `LEYÓ archivo de ${descriptor.label}`, entity: cliente.name, detail: `${resultado.filas.length} filas · ${archivo.name}` });
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: `LEYÓ archivo de ${descriptor.label}`,
+      entity: cliente.name,
+      detail: `${resultado.filas.length} filas · ${archivo.name} · original conservado · SHA-256 ${huellaOriginal.slice(0, 12)}…`,
+      clientId: clienteId,
+    });
     revalidarListadosModulo(moduloCodigo);
     return { ok: true, loteId, message: "Archivo leído. Revisa el borrador." };
   } catch (e) {
+    if (loteOriginalRecibido) {
+      await prisma.archivoOriginalModulo.updateMany({
+        where: {
+          loteId: loteOriginalRecibido,
+          estado: { in: ["recibido", "no_procesable"] },
+        },
+        data: datosArchivoOriginalNoProcesable(false),
+      }).catch((errorEstado) => registrarError("leerDatosModulo.marcarNoProcesableInesperado", errorEstado));
+      revalidarListadosModulo(moduloCodigo);
+    }
     return { ok: false, message: mensajeErrorBD("leerDatosModulo", e) };
   }
 }
@@ -475,13 +953,19 @@ export async function aplicarCambiosBorradorModulo(
         }),
       ),
       ...(periodo !== undefined
-        ? [prisma.moduloImportacionLote.update({
-            where: { loteId: id },
-            data: {
-              periodoInicial: new Date(`${periodoNormalizado}-01T00:00:00`),
-              periodoFinal: new Date(`${periodoNormalizado}-01T00:00:00`),
-            },
-          })]
+        ? [
+            prisma.moduloImportacionLote.update({
+              where: { loteId: id },
+              data: {
+                periodoInicial: new Date(`${periodoNormalizado}-01T00:00:00`),
+                periodoFinal: new Date(`${periodoNormalizado}-01T00:00:00`),
+              },
+            }),
+            prisma.archivoOriginalModulo.updateMany({
+              where: { loteId: id },
+              data: { periodo: periodoNormalizado },
+            }),
+          ]
         : []),
     ]);
     revalidatePath(`${rutaModulo(lote.moduloCodigo)}/borradores/${id}`);
@@ -549,6 +1033,8 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
     }
     const faltan = (descriptor.verificaciones ?? []).filter((v) => !verificaciones[v.id]);
     if (faltan.length) return { ok: false, message: "Responde todas las verificaciones antes de cargar." };
+    const bloqueoCritico = bloqueoVerificacionesCriticasModulo(descriptor, verificaciones);
+    if (bloqueoCritico) return { ok: false, message: bloqueoCritico };
 
     const cliente = await prisma.client.findUnique({ where: { id: lote.clienteId }, select: { name: true } });
     if (!cliente) return { ok: false, message: "El cliente ya no existe." };
@@ -609,12 +1095,32 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
       // completa (re-subida de algún ítem ya cargado, o el vigente está congelado).
       const vigente = await tx.moduloDatoEncabezado.findFirst({
         where: { clienteId: loteActual.clienteId, moduloCodigo: loteActual.moduloCodigo, periodo, esOficial: true },
-        select: { id: true, version: true, filas: true, total: true, observaciones: true, estaCongelado: true },
+        select: {
+          id: true,
+          version: true,
+          filas: true,
+          total: true,
+          observaciones: true,
+          estaCongelado: true,
+          verificaciones: true,
+        },
       });
       // El anexo solo procede sobre el MISMO encabezado que el usuario eligió. Si entre la
       // subida y la confirmación ese cargue dejó de ser el vigente (otra versión, o se
       // eliminó), no se anexa a ciegas: la carga sigue como versión nueva.
       const anexoSolicitado = lote.anexoEncabezadoId != null && vigente?.id === lote.anexoEncabezadoId;
+      if (lote.anexoEncabezadoId != null && descriptor.verificacionesCriticasSi?.length) {
+        if (!anexoSolicitado || !vigente) {
+          throw new Error(
+            `El cargue elegido de ${descriptor.label} dejó de ser la versión vigente. El archivo no se anexó: se requiere una recarga completa como nueva versión.`,
+          );
+        }
+        const bloqueoAnexo = bloqueoAnexoPorVerificacionesCriticasModulo(
+          descriptor,
+          (vigente.verificaciones ?? {}) as Record<string, { respuesta: "si" | "no" | "na" } | undefined>,
+        );
+        if (bloqueoAnexo) throw new Error(bloqueoAnexo);
+      }
       const refRol = refRolDe(descriptor);
       const clavesNuevas = clavesDeDetalle(promocion.detalle, refRol);
       let clavesExistentes = new Set<string>();
@@ -679,6 +1185,14 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
             where: { id: c.id },
             data: { entityType: "modulos_datos", entityId: vigente.id, ...(nuevaFila != null ? { anchor: `fila:${nuevaFila}` } : {}) },
           });
+        }
+
+        const originalActualizado = await tx.archivoOriginalModulo.updateMany({
+          where: { loteId },
+          data: datosArchivoOriginalPromovido({ encabezadoId: vigente.id, periodo, esAnexo: true }),
+        });
+        if (originalActualizado.count !== 1) {
+          throw new Error("No se encontró la bitácora del archivo original; la promoción fue revertida.");
         }
 
         const stagingEliminado = await tx.moduloImportacionStaging.deleteMany({ where: { loteId } });
@@ -747,6 +1261,13 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
         where: { entityType: "modulos_borrador", entityId: loteActual.id },
         data: { entityType: "modulos_datos", entityId: enc.id },
       });
+      const originalActualizado = await tx.archivoOriginalModulo.updateMany({
+        where: { loteId },
+        data: datosArchivoOriginalPromovido({ encabezadoId: enc.id, periodo, esAnexo: false }),
+      });
+      if (originalActualizado.count !== 1) {
+        throw new Error("No se encontró la bitácora del archivo original; la promoción fue revertida.");
+      }
       const stagingEliminado = await tx.moduloImportacionStaging.deleteMany({ where: { loteId } });
       if (stagingEliminado.count === 0) throw new Error("No se pudo consumir el detalle del borrador; la promoción fue revertida.");
       const loteEliminado = await tx.moduloImportacionLote.deleteMany({ where: { loteId } });
@@ -791,15 +1312,87 @@ export async function descartarBorradorModulo(loteId: string): Promise<ActionSta
       const scope = await authorizePermiso("modulos_datos:crear", { clientId: lote.clienteId });
       if (!scope.ok) return { ok: false, message: scope.message };
     }
-    await prisma.$transaction([
-      prisma.comment.deleteMany({ where: { entityType: "modulos_borrador", entityId: lote.id } }),
-      prisma.moduloImportacionStaging.deleteMany({ where: { loteId: id } }),
-      prisma.moduloImportacionLote.deleteMany({ where: { loteId: id } }),
-    ]);
+    await prisma.$transaction(async (tx) => {
+      // Primero se exige la bitácora durable. Si falta, toda la transacción revierte
+      // y el borrador permanece intacto para no perder su única referencia al original.
+      const originalActualizado = await tx.archivoOriginalModulo.updateMany({
+        where: { loteId: id },
+        data: datosArchivoOriginalDescartado(),
+      });
+      if (originalActualizado.count !== 1) {
+        throw new Error("No se encontró la bitácora del archivo original; el descarte fue revertido.");
+      }
+
+      await tx.comment.deleteMany({ where: { entityType: "modulos_borrador", entityId: lote.id } });
+      await tx.moduloImportacionStaging.deleteMany({ where: { loteId: id } });
+      const loteEliminado = await tx.moduloImportacionLote.deleteMany({ where: { loteId: id } });
+      if (loteEliminado.count !== 1) {
+        throw new Error("No se pudo retirar el borrador; el descarte fue revertido.");
+      }
+    });
     revalidarListadosModulo(lote.moduloCodigo);
     return { ok: true, message: "Borrador descartado." };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("descartarBorradorModulo", e) };
+  }
+}
+
+// ============================================================
+// DOCUMENTACIÓN PROGRESIVA de la bitácora de originales.
+// ============================================================
+export async function actualizarDocumentacionArchivoModulo(input: {
+  archivoId: number;
+  softwareOrigen: string;
+  ubicacionOrigen: string;
+  reflejoContableEsperado: string;
+}): Promise<ActionState> {
+  const permiso = await authorizePermiso("modulos_datos:editar");
+  if (!permiso.ok) return { ok: false, message: permiso.message };
+  const archivoId = Number(input.archivoId);
+  if (!Number.isSafeInteger(archivoId) || archivoId <= 0) {
+    return { ok: false, message: "Archivo inválido." };
+  }
+
+  try {
+    const archivo = await prisma.archivoOriginalModulo.findUnique({
+      where: { id: archivoId },
+      select: {
+        id: true,
+        clienteId: true,
+        moduloCodigo: true,
+        nombreArchivo: true,
+        nombreCliente: true,
+      },
+    });
+    if (!archivo) return { ok: false, message: "El archivo ya no existe en la bitácora." };
+    const alcance = await authorizePermiso("modulos_datos:editar", { clientId: archivo.clienteId });
+    if (!alcance.ok) return { ok: false, message: alcance.message };
+
+    const parsed = DocumentacionArchivoModuloSchema.safeParse({
+      softwareOrigen: input.softwareOrigen,
+      ubicacionOrigen: input.ubicacionOrigen,
+      reflejoContableEsperado: input.reflejoContableEsperado,
+    });
+    if (!parsed.success) {
+      return { ok: false, message: parsed.error.issues[0]?.message ?? "La documentación no es válida." };
+    }
+
+    await prisma.archivoOriginalModulo.update({
+      where: { id: archivo.id },
+      data: parsed.data,
+    });
+    const user = await getCurrentUser();
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: "DOCUMENTÓ archivo original de módulo",
+      entity: archivo.nombreCliente,
+      detail: `${archivo.moduloCodigo} · ${archivo.nombreArchivo}`,
+      clientId: archivo.clienteId,
+    });
+    revalidatePath(`${rutaModulo(archivo.moduloCodigo)}/bitacora`);
+    return { ok: true, message: "Documentación del archivo actualizada." };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("actualizarDocumentacionArchivoModulo", e) };
   }
 }
 
@@ -1323,6 +1916,11 @@ export async function eliminarDatosModulo(input: {
       if (marcas.length) {
         await tx.marcaCruceModulo.deleteMany({ where: { id: { in: marcas.map((m) => m.id) } } });
       }
+      // El procesamiento se retira, pero los originales y su SHA-256 permanecen.
+      const originalesConservados = await tx.archivoOriginalModulo.updateMany({
+        where: { encabezadoId: { in: ids } },
+        data: datosArchivoOriginalConCargueEliminado(),
+      });
       const cargas = await tx.moduloDatoEncabezado.deleteMany({ where: { id: { in: ids } } });
       const perfiles = plan.eliminaPerfiles
         ? await tx.perfilCargaModulo.deleteMany({
@@ -1355,6 +1953,7 @@ export async function eliminarDatosModulo(input: {
         cargasEliminadas: cargas.count,
         perfilesEliminados: perfiles.count,
         marcasEliminadas: marcas.length,
+        originalesConservados: originalesConservados.count,
         claves: marcas.flatMap((m) => m.adjuntos.map((a) => a.claveObjeto)),
         ascendida,
       };
@@ -1381,11 +1980,11 @@ export async function eliminarDatosModulo(input: {
           ? "ELIMINÓ DATOS Y PERFILES DE CARGA DE MÓDULO"
           : "ELIMINÓ DATOS DE MÓDULO",
       entity: referencia.nombreCliente,
-      detail: `${referencia.moduloCodigo} · ${descripcionAlcance} · ${resultado.cargasEliminadas} cargue(s) · ${resultado.marcasEliminadas} marca(s) · ${resultado.perfilesEliminados} perfil(es)`,
+      detail: `${referencia.moduloCodigo} · ${descripcionAlcance} · ${resultado.cargasEliminadas} cargue(s) · ${resultado.marcasEliminadas} marca(s) · ${resultado.perfilesEliminados} perfil(es) · ${resultado.originalesConservados} original(es) conservado(s)`,
       clientId: referencia.clienteId,
     });
 
-    revalidatePath(rutaModulo(referencia.moduloCodigo));
+    revalidarListadosModulo(referencia.moduloCodigo);
     revalidatePath("/dashboard");
     if (plan.eliminaPerfiles) revalidatePath(`/config/perfiles-carga/${referencia.moduloCodigo.toLowerCase()}`);
 

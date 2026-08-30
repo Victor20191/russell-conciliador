@@ -207,6 +207,24 @@ describe("executeReconciliation · compuerta del prevalidador", () => {
     expect(mocks.reconciliationCreate).not.toHaveBeenCalled();
   });
 
+  it("dirige ING a su flujo real antes del preflight y no persiste partidas demo", async () => {
+    mocks.moduleFindUnique.mockResolvedValue({ id: MODULO_ID, code: "ING", name: "Ingresos" });
+
+    const resultado = await executeReconciliation(undefined, formulario());
+
+    expect(resultado).toEqual({
+      ok: false,
+      message:
+        "El módulo de Ingresos se concilia desde /modulos/ing con los datos reales cargados. El flujo legado no genera partidas demostrativas para ING.",
+    });
+    expect(mocks.cargarContexto).not.toHaveBeenCalled();
+    expect(mocks.transaccionSerializable).not.toHaveBeenCalled();
+    expect(mocks.reconciliationCreate).not.toHaveBeenCalled();
+    expect(mocks.clientModuleUpsert).not.toHaveBeenCalled();
+    expect(mocks.logAudit).not.toHaveBeenCalled();
+    expect(mocks.createProcessNotification).not.toHaveBeenCalled();
+  });
+
   it.each([
     [false, true],
     [true, false],

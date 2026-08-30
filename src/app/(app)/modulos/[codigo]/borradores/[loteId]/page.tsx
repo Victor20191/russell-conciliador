@@ -127,7 +127,7 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
 
   return (
     <div>
-      <div className="mb-3"><BackLink href={`/modulos/${codigo.toLowerCase()}`} label={`Volver a ${descriptor.label}`} /></div>
+      <div className="mb-3"><BackLink href={`/modulos/${codigo.toLowerCase()}/borradores`} label="Volver a Borradores" /></div>
       <PageHeader
         title={`Borrador · ${descriptor.label}`}
         subtitle={`${versionActual ? `v${versionActual} · ` : ""}${lote.archivoNombre}${lote.archivoTam ? ` · ${lote.archivoTam}` : ""}. Revisa el mapeo y confirma la carga.`}

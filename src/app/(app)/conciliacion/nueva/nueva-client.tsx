@@ -3,6 +3,7 @@
 import { EstadoProcesando } from "@/components/estado-procesando";
 
 import { useActionState, useEffect, useState } from "react";
+import Link from "next/link";
 import { Icon, type IconName } from "@/components/icons";
 import { Card, Chip } from "@/components/ui";
 import { Stepper } from "@/components/stepper";
@@ -54,14 +55,15 @@ export default function NuevaClient({
 }: {
   clients: ClientOpt[]; modules: ModuleOpt[]; balances: BalanceOpt[]; fieldsByModule: Record<number, StdField[]>;
 }) {
+  const modulesLegado = modules.filter((module) => module.code !== "ING");
   const [phase, setPhase] = useState<"scope" | "wizard">("scope");
   const [step, setStep] = useState(0);
   const [clientId, setClientId] = useState(clients[0]?.id ?? 0);
-  const [moduleId, setModuleId] = useState(modules.find((m) => m.code === "INV")?.id ?? modules[0]?.id ?? 0);
+  const [moduleId, setModuleId] = useState(modulesLegado.find((m) => m.code === "INV")?.id ?? modulesLegado[0]?.id ?? 0);
   const [balanceId, setBalanceId] = useState(() => balances.find((b) => b.clientId === clients[0]?.id)?.id ?? 0);
 
   const client = clients.find((c) => c.id === clientId);
-  const mod = modules.find((m) => m.id === moduleId);
+  const mod = modulesLegado.find((m) => m.id === moduleId);
   const clientBalances = balances.filter((b) => b.clientId === clientId);
   const balance = clientBalances.find((b) => b.id === balanceId);
   const period = balance?.period ?? "";
@@ -76,10 +78,14 @@ export default function NuevaClient({
   if (phase === "scope") {
     return (
       <ScopeStep
-        clients={clients} modules={modules} balances={clientBalances} clientId={clientId} onClientChange={changeClient}
+        clients={clients} modules={modulesLegado} balances={clientBalances} clientId={clientId} onClientChange={changeClient}
         moduleId={moduleId} setModuleId={setModuleId} balanceId={balanceId} setBalanceId={setBalanceId}
         selectedBalance={balance} isConfigured={isConfigured}
-        onContinue={() => { setStep(0); setPhase("wizard"); }}
+        onContinue={() => {
+          if (!mod) return;
+          setStep(0);
+          setPhase("wizard");
+        }}
       />
     );
   }
@@ -115,8 +121,19 @@ function ScopeStep({
   // El ERP es obligatorio para INICIAR la conciliación: sin ERP se bloquea.
   const sinErp = !!client && !client.erp;
   const sinBalance = !selectedBalance;
+  const sinModulo = !modules.some((module) => module.id === moduleId);
   return (
-    <Card className="p-5">
+    <>
+      <div role="note" className="mb-4 flex flex-col gap-2 rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-[12.5px] text-blue-800 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="font-semibold">Ingresos tiene un flujo propio de conciliación.</div>
+          <div className="mt-0.5 text-[12px]">La facturación real se carga y concilia desde el módulo de Ingresos; no usa este asistente demostrativo.</div>
+        </div>
+        <Link href="/modulos/ing" className="inline-flex shrink-0 items-center gap-1.5 font-semibold text-blue-700 hover:underline">
+          Ir a Ingresos <Icon name="chev-r" size={14} />
+        </Link>
+      </div>
+      <Card className="p-5">
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <label className="flex flex-col gap-1">
           <span className="text-[11.5px] font-medium text-ink-600">Cliente</span>
@@ -182,11 +199,12 @@ function ScopeStep({
       </div>
 
       <div className="mt-4 flex justify-end">
-        <button onClick={onContinue} disabled={sinErp || sinBalance} className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-4 py-2 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-50">
+        <button onClick={onContinue} disabled={sinErp || sinBalance || sinModulo} className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-4 py-2 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-50">
           Continuar <Icon name="chev-r" size={14} />
         </button>
       </div>
-    </Card>
+      </Card>
+    </>
   );
 }
 

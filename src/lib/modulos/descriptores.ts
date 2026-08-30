@@ -68,6 +68,10 @@ export type DescriptorModulo = {
   negritaComoOmitida?: boolean;
   /** Preguntas de verificación manual que el usuario responde al confirmar la carga. */
   verificaciones?: Verificacion[];
+  /** Verificaciones que obligatoriamente deben responderse «Sí» para promover. */
+  verificacionesCriticasSi?: string[];
+  /** Habilita el cruce NIT a NIT solo cuando el auxiliar del módulo está validado para ello. */
+  crucePorTercero?: boolean;
 };
 
 const col = (nombre: string, etiqueta: string, tipo: TipoColumna, requerido = false, sinonimos?: string[]): RolColumna => ({ nombre, etiqueta, tipo, requerido, sinonimos });
@@ -143,6 +147,7 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     clasificador: "tipo",
     valor: "saldo",
     noNegativos: ["saldo"],
+    crucePorTercero: true,
     verificaciones: [
       { id: "car_anticipos", texto: "Confirme si la cartera incluye saldos a favor de clientes (anticipos)." },
       { id: "car_vencida", texto: "Verifique la existencia de cartera vencida mayor a 360 días." },
@@ -165,6 +170,7 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     clasificador: "tipo",
     valor: "saldo",
     noNegativos: ["saldo"],
+    crucePorTercero: true,
     verificaciones: [
       { id: "cxp_vinculados", texto: "Confirme si existen cuentas por pagar a vinculados económicos." },
       { id: "cxp_exterior", texto: "Verifique la existencia de obligaciones en moneda extranjera y su reexpresión." },
@@ -172,7 +178,7 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     ],
   },
 
-  // ===== Ingresos (ING) → cuentas 41xx/42xx =====
+  // ===== Ingresos / Facturación (ING) → cuentas 41xx =====
   ING: {
     codigo: "ING",
     label: "Ingresos",
@@ -181,16 +187,18 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
       col("documento", "Documento", "texto", false, ["factura", "documento", "comprobante", "numero", "referencia"]),
       col("tercero", "Tercero / cliente", "texto", false, ["tercero", "cliente", "nombre", "nit"]),
       col("fecha", "Fecha", "fecha", false, ["fecha", "emision"]),
-      col("valor", "Valor", "moneda", true, ["valor", "monto", "total", "ingreso", "venta"]),
+      col("valor", "Ingreso neto sin impuestos", "moneda", true, ["ingreso neto", "venta neta", "subtotal", "base gravable", "valor sin iva", "valor sin impuestos", "total sin iva", "total sin impuestos", "ingreso", "venta"]),
     ],
     clasificador: "concepto",
     valor: "valor",
     // Sin noNegativos: las devoluciones/notas crédito (valores negativos) son normales en ingresos.
     verificaciones: [
+      { id: "ing_sin_impuestos", texto: "Confirme que el valor cargado corresponde al ingreso neto sin IVA ni otros impuestos y que las devoluciones o notas crédito conservan signo negativo." },
       { id: "ing_vinculados", texto: "Confirme si los ingresos incluyen operaciones con vinculados económicos." },
       { id: "ing_clasificacion", texto: "Verifique la clasificación entre ingresos operacionales y no operacionales." },
       { id: "ing_devoluciones", texto: "Confirme si las devoluciones y descuentos están correctamente registrados." },
     ],
+    verificacionesCriticasSi: ["ing_sin_impuestos"],
   },
 
   // ===== Nómina (NOM) → cuentas 51xx/72xx (gastos de personal) =====
@@ -233,4 +241,44 @@ export function esModuloSoportado(codigo: string): boolean {
 /** Códigos de módulos con importación soportada, en orden de declaración. */
 export function modulosSoportados(): string[] {
   return Object.keys(MODULOS_IMPORT);
+}
+
+export function bloqueoVerificacionesCriticasModulo(
+  descriptor: DescriptorModulo,
+  respuestas: Record<string, { respuesta: "si" | "no" | "na" } | undefined>,
+): string | null {
+  for (const id of descriptor.verificacionesCriticasSi ?? []) {
+    if (respuestas[id]?.respuesta === "si") continue;
+    const texto = descriptor.verificaciones?.find((item) => item.id === id)?.texto ?? id;
+    return `Para cargar ${descriptor.label}, la verificación «${texto}» debe responderse Sí.`;
+  }
+  return null;
+}
+
+/**
+ * Impide presentar como confiable un cruce histórico que no dejó evidencia de las
+ * confirmaciones críticas hoy exigidas por el módulo.
+ */
+export function bloqueoCrucePorVerificacionesCriticasModulo(
+  descriptor: DescriptorModulo,
+  respuestas: Record<string, { respuesta: "si" | "no" | "na" } | undefined>,
+): string | null {
+  for (const id of descriptor.verificacionesCriticasSi ?? []) {
+    if (respuestas[id]?.respuesta === "si") continue;
+    const texto = descriptor.verificaciones?.find((item) => item.id === id)?.texto ?? id;
+    return `El cargue histórico de ${descriptor.label} no acredita la verificación «${texto}» con respuesta Sí. Revisa el archivo y vuelve a cargarlo antes de usar el cruce contable.`;
+  }
+  return null;
+}
+
+/** Un anexo nunca puede certificar retroactivamente filas históricas no verificadas. */
+export function bloqueoAnexoPorVerificacionesCriticasModulo(
+  descriptor: DescriptorModulo,
+  respuestasVigentes: Record<string, { respuesta: "si" | "no" | "na" } | undefined>,
+): string | null {
+  for (const id of descriptor.verificacionesCriticasSi ?? []) {
+    if (respuestasVigentes[id]?.respuesta === "si") continue;
+    return `No se puede agregar un archivo al cargue vigente de ${descriptor.label} porque no acredita el valor neto sin impuestos. Se requiere una recarga completa como nueva versión, no un anexo parcial.`;
+  }
+  return null;
 }

@@ -1114,6 +1114,46 @@ model ModuloImportacionLote {
   @@map("modulo_importacion_lote")
 }
 
+// Bitácora NORMALIZADA de los archivos fuente recibidos por el motor genérico de
+// módulos. A diferencia del lote de importación, esta fila NO se elimina al promover
+// ni al descartar un borrador: conserva la trazabilidad del original exacto. El binario
+// vive en almacenamiento de objetos y aquí se guarda su huella SHA-256, ubicación y
+// documentación funcional. Las referencias a cliente/encabezado/lote son suaves para
+// que retirar datos procesados nunca borre el archivo original ni su bitácora.
+model ArchivoOriginalModulo {
+  id                      Int      @id @default(autoincrement()) @map("id")
+  loteId                  String?  @unique(map: "archivos_originales_modulo_lote_id_key") @map("lote_id")
+  encabezadoId            Int?     @map("encabezado_id")
+  clienteId               Int      @map("cliente_id")
+  nombreCliente           String   @map("nombre_cliente")
+  nitCliente              String?  @map("nit_cliente")
+  moduloCodigo            String   @map("modulo_codigo")
+  periodo                 String?  @map("periodo")
+  nombreArchivo           String   @map("nombre_archivo")
+  tipoContenido           String?  @map("tipo_contenido")
+  tamanoBytes             Int?     @map("tamano_bytes")
+  huellaSha256            String?  @map("huella_sha256")
+  claveObjeto             String?  @unique(map: "archivos_originales_modulo_clave_objeto_key") @map("clave_objeto")
+  ubicacionCarpeta        String   @map("ubicacion_carpeta")
+  softwareOrigen          String?  @map("software_origen")
+  ubicacionOrigen         String?  @map("ubicacion_origen")
+  reflejoContableEsperado String?  @map("reflejo_contable_esperado") @db.Text
+  estado                  String   @default("recibido") @map("estado") // recibido | no_procesable | borrador | cargado | descartado | cargue_eliminado
+  disponible              Boolean  @default(false) @map("disponible")
+  esAnexo                 Boolean  @default(false) @map("es_anexo")
+  cargadoPor              String?  @map("cargado_por")
+  cargadoPorId            Int?     @map("cargado_por_id")
+  creadoEn                DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+  actualizadoEn           DateTime @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+
+  @@index([moduloCodigo, clienteId], map: "archivos_originales_modulo_modulo_cliente_idx")
+  @@index([moduloCodigo, estado, disponible], map: "archivos_originales_modulo_estado_idx")
+  @@index([moduloCodigo, creadoEn, id], map: "archivos_originales_modulo_modulo_fecha_id_idx")
+  @@index([encabezadoId], map: "archivos_originales_modulo_encabezado_idx")
+  @@index([huellaSha256], map: "archivos_originales_modulo_huella_idx")
+  @@map("archivos_originales_modulo")
+}
+
 model ModuloImportacionStaging {
   id              Int      @id @default(autoincrement()) @map("id")
   loteId          String   @map("lote_id")

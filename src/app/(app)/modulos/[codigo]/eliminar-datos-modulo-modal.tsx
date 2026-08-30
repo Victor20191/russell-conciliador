@@ -61,23 +61,23 @@ export function EliminarDatosModuloButton({
     {
       value: "version",
       titulo: "Solo esta versión",
-      descripcion: `Elimina el archivo cargado en la v${version} de ${periodo} con sus filas. Las demás versiones, las marcas del cruce y los perfiles se conservan.`,
+      descripcion: `Elimina los datos procesados de la v${version} de ${periodo} con sus filas. El archivo original y su SHA-256 permanecen en la bitácora. Las demás versiones, las marcas del cruce y los perfiles se conservan.`,
       conteo: "1 cargue",
     },
     {
       value: "periodo",
       titulo: "Todo este período",
-      descripcion: `Elimina todas las versiones cargadas de ${periodo}${
+      descripcion: `Elimina todas las versiones procesadas de ${periodo}${
         marcasPeriodo > 0 ? " y las marcas de auditoría del cruce de ese período (con sus soportes)" : ""
-      }. Los demás períodos y los perfiles se conservan.`,
+      }. Los archivos originales permanecen en la bitácora. Los demás períodos y los perfiles se conservan.`,
       conteo: `${versionesPeriodo} cargue(s)${marcasPeriodo > 0 ? ` · ${marcasPeriodo} marca(s)` : ""}`,
     },
     {
       value: "cliente_perfiles",
       titulo: `Todos los ${modulo} del cliente y sus perfiles de carga`,
-      descripcion: `Elimina todo el historial de ${modulo} cargados del cliente${
+      descripcion: `Elimina todo el historial procesado de ${modulo} del cliente${
         marcasCliente > 0 ? ", sus marcas del cruce" : ""
-      } y las estructuras de archivo aprendidas. El cliente, los borradores, las preferencias, las correcciones y la consolidación se conservan.`,
+      } y las estructuras de archivo aprendidas. Los originales permanecen descargables en la bitácora; el cliente, los borradores, las preferencias, las correcciones y la consolidación se conservan.`,
       conteo: `${cargasCliente} cargue(s) · ${perfilesCliente} perfil(es)${
         marcasCliente > 0 ? ` · ${marcasCliente} marca(s)` : ""
       }`,
@@ -192,8 +192,8 @@ export function EliminarDatosModuloButton({
               <Icon name="warn" size={14} />
             </span>
             <p>
-              Esta acción no se puede deshacer. La bitácora conservará quién eliminó la información y el
-              alcance elegido.
+              Esta acción no se puede deshacer para los datos procesados. Los archivos originales no se borran:
+              la bitácora conserva su contenido exacto, SHA-256, autor y documentación.
             </p>
           </div>
         </div>

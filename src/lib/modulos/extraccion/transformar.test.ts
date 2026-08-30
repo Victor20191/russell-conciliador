@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { MODULOS_IMPORT } from "../descriptores";
 import { transformarModulo } from "./transformar";
-import { sugerirSpec, rolesRequeridosFaltantes } from "./sugerir";
+import { invalidarValorAmbiguoIngresos, sugerirSpec, rolesRequeridosFaltantes } from "./sugerir";
 import type { GridHoja, CeldaCruda } from "@/lib/balance/extraccion/ingesta";
 import type { SpecModulo } from "./esquema";
 
@@ -344,6 +344,46 @@ describe("sugerirSpec (INV)", () => {
     const spec = sugerirSpec(INV, h);
     expect(spec.columnas.valorTotal).toBe(3);
     expect(spec.columnas.valorUnitario).toBe(0);
+  });
+});
+
+describe("sugerirSpec (ING)", () => {
+  const ING = MODULOS_IMPORT.ING;
+
+  it.each(["Total", "Valor total", "Total factura", "Importe total"])(
+    "no sugiere automáticamente el encabezado ambiguo «%s» como ingreso neto",
+    (encabezado) => {
+      const spec = sugerirSpec(ING, hoja([
+        ["Concepto", "Documento", encabezado],
+        ["Venta", "F-1", 119_000],
+      ]));
+      expect(spec.columnas.valor).toBe(0);
+      expect(rolesRequeridosFaltantes(ING, spec)).toContain("valor");
+    },
+  );
+
+  it.each(["Subtotal", "Base gravable", "Venta neta", "Valor sin IVA", "Total sin IVA"])(
+    "sí sugiere la base neta explícita «%s»",
+    (encabezado) => {
+      const spec = sugerirSpec(ING, hoja([
+        ["Concepto", "Documento", encabezado],
+        ["Venta", "F-1", 100_000],
+      ]));
+      expect(spec.columnas.valor).toBe(3);
+    },
+  );
+
+  it("invalida el rol valor de un perfil antiguo sin perder los demás mapeos", () => {
+    const grid = hoja([["Concepto", "Documento", "Total factura"]]);
+    const anterior: SpecModulo = {
+      hoja: grid.nombre,
+      filaEncabezado: 1,
+      primeraFilaDatos: 2,
+      columnas: { concepto: 1, documento: 2, valor: 3 },
+    };
+    const resultado = invalidarValorAmbiguoIngresos(ING, grid, anterior);
+    expect(resultado.invalidado).toBe(true);
+    expect(resultado.spec.columnas).toMatchObject({ concepto: 1, documento: 2, valor: 0 });
   });
 });
 

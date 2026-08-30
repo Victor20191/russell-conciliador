@@ -22,7 +22,7 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
   const [clientes, borradoresPendientes, cargados] = await Promise.all([
     prisma.client.findMany({
       where: alc.todos ? {} : { id: { in: alc.clientIds } },
-      select: { id: true, name: true, nit: true },
+      select: { id: true, name: true, nit: true, erp: { select: { name: true } } },
       orderBy: { name: "asc" },
     }),
     // Los borradores se listan en la pestaña «Borradores»; aquí solo se cuenta
@@ -56,7 +56,7 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
   // Conteo de comentarios por dato cargado (encabezado), más los alcances de la
   // eliminación: perfiles de formato aprendidos y marcas del cruce que caerían con
   // el período o con el cliente. Solo alimentan los conteos del modal.
-  const [comentCargados, perfilesPorCliente, marcasPorPeriodo, autorizacionEliminar, autorizacionBorradores] = await Promise.all([
+  const [comentCargados, perfilesPorCliente, marcasPorPeriodo, autorizacionEliminar, autorizacionCrear] = await Promise.all([
     prisma.comment.groupBy({ by: ["entityId"], where: { entityType: "modulos_datos", entityId: { in: cargados.map((c) => c.id) } }, _count: { _all: true } }),
     prisma.perfilCargaModulo.groupBy({ by: ["clienteId"], where: { moduloCodigo, ...filtroCliente }, _count: { _all: true } }),
     prisma.marcaCruceModulo.groupBy({ by: ["clienteId", "periodo"], where: { moduloCodigo, ...filtroCliente }, _count: { _all: true } }),
@@ -134,21 +134,29 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
     <div>
       <PageHeader
         title={descriptor.label}
-        subtitle="Carga el archivo del cliente, mapea las columnas y consolida por su clasificador contra la cuenta estándar."
+        subtitle={moduloCodigo === "ING"
+          ? "Carga la facturación como ingreso neto sin IVA ni otros impuestos, conserva el original y consolida los conceptos contra las cuentas 41 de contabilidad."
+          : "Carga el archivo del cliente, mapea las columnas y consolida por su clasificador contra la cuenta estándar."}
       />
       <PestanasModulo
         moduloCodigo={moduloCodigo}
         activa="cargados"
         borradoresPendientes={borradoresPendientes}
-        puedeVerBorradores={autorizacionBorradores.ok}
+        puedeVerBorradores={autorizacionCrear.ok}
       />
       <ModulosDatosClient
         moduloCodigo={moduloCodigo}
         moduloLabel={descriptor.label}
         roles={descriptor.columnas.map((c) => ({ nombre: c.nombre, etiqueta: c.etiqueta, tipo: c.tipo, requerido: c.requerido }))}
         clasificadorRol={descriptor.clasificador}
-        clientes={clientes}
+        clientes={clientes.map((cliente) => ({
+          id: cliente.id,
+          name: cliente.name,
+          nit: cliente.nit,
+          erp: cliente.erp?.name ?? null,
+        }))}
         gruposCargados={filasCargados}
+        puedeCrear={autorizacionCrear.ok}
         puedeEliminar={autorizacionEliminar.ok}
       />
     </div>
