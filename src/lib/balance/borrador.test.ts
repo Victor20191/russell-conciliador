@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { compararTotalesAgrupacion, construirArbolBorrador, construirIndiceReubicacion, construirResumenReubicacion, contarNodos, aplanarArbolFiltrado, destinosReubicacion, esDestinoSugerido, localizarNodoBorrador, normalizarBusquedaCuenta, procedenciaReubicacionFila, reclasificarHuerfanas, marcarNoContables, corregirCodigosPlaceholder, contextoTabulador, puedeUbicar, sugerirMovimientosAgrupadora, validarReubicacionesBorrador, detectarManipulacionesRiesgosas, type FilaBorrador } from "./borrador";
+import { compararTotalesAgrupacion, construirArbolBorrador, construirIndiceReubicacion, construirResumenReubicacion, contarNodos, aplanarArbolFiltrado, destinosReubicacion, esDestinoSugerido, localizarNodoBorrador, normalizarBusquedaCuenta, procedenciaReubicacionFila, reclasificarHuerfanas, marcarNoContables, corregirCodigosPlaceholder, contextoTabulador, puedeUbicar, sugerirMovimientosAgrupadora, validarReubicacionesBorrador, detectarManipulacionesRiesgosas, transferirSubtotalesDelPie, type FilaBorrador } from "./borrador";
 import { construirVistaBorrador } from "./borrador-vm";
 import { reclasificarNoImputables } from "./extraccion/transformar";
 
@@ -782,5 +782,105 @@ describe("construirResumenReubicacion (modal del chip «↳ movida aquí»)", ()
 
   it("null si la fila no existe en el árbol vigente", () => {
     expect(construirResumenReubicacion(999, arbolActual, arbolOriginal, false, false, 0)).toBeNull();
+  });
+});
+
+// Layout de SUPER TECHOS: el grupo se ABRE con un encabezado que trae el código y cero, y
+// se CIERRA con el subtotal rotulado en la columna de código, sin código propio.
+const encabezado = (filaNum: number, codigo: string, nombre: string): FilaBorrador => ({
+  filaNum, codigo, codigoCrudo: `${codigo} ${nombre}`, nombre, nivel: codigo.length,
+  tipoFila: "agrupadora", saldoInicial: 0, debitos: 0, creditos: 0, saldoFinal: 0,
+});
+const pieTotal = (filaNum: number, nombre: string, saldoFinal: number, montos?: { ant: number; deb: number; cre: number }): FilaBorrador => ({
+  filaNum, codigo: "", codigoCrudo: `TOTAL ${nombre}`, nombre: `TOTAL${nombre}`, nivel: null,
+  tipoFila: "total", saldoInicial: montos?.ant ?? 0, debitos: montos?.deb ?? 0, creditos: montos?.cre ?? 0, saldoFinal,
+});
+
+describe("transferirSubtotalesDelPie", () => {
+  it("lleva el subtotal del pie a la agrupadora que abrió el bloque, anidando", () => {
+    const filas = [
+      encabezado(1, "1105", "CAJA"),
+      encabezado(2, "110505", "CAJA GENERAL"),
+      fila(3, "11050501", "DETALLE", 400, "movimiento"),
+      pieTotal(4, "CAJA GENERAL", 400),
+      pieTotal(5, "CAJA", 400),
+    ];
+    expect(transferirSubtotalesDelPie(filas)).toBe(2);
+    expect(filas[1].saldoFinal).toBe(400); // 110505 CAJA GENERAL
+    expect(filas[0].saldoFinal).toBe(400); // 1105 CAJA
+  });
+
+  it("transfiere los CUATRO montos, no solo el saldo final", () => {
+    const filas = [
+      encabezado(1, "1105", "CAJA"),
+      fila(2, "110505", "DETALLE", 400, "movimiento"),
+      pieTotal(3, "CAJA", 400, { ant: 311, deb: 537, cre: 366 }),
+    ];
+    transferirSubtotalesDelPie(filas);
+    expect(filas[0]).toMatchObject({ saldoInicial: 311, debitos: 537, creditos: 366, saldoFinal: 400 });
+  });
+
+  it("con nombres repetidos en bloques distintos, cada pie cierra SU bloque", () => {
+    // «TOTAL GASTOS DE PERSONAL» sale cuatro veces en el archivo real: el nombre solo no
+    // basta para emparejar, hace falta la pila.
+    const filas = [
+      encabezado(1, "5105", "GASTOS DE PERSONAL"),
+      fila(2, "510506", "SUELDOS", 200, "movimiento"),
+      pieTotal(3, "GASTOS DE PERSONAL", 200),
+      encabezado(4, "7205", "GASTOS DE PERSONAL"),
+      fila(5, "720506", "SUELDOS", 131, "movimiento"),
+      pieTotal(6, "GASTOS DE PERSONAL", 131),
+    ];
+    expect(transferirSubtotalesDelPie(filas)).toBe(2);
+    expect(filas[0].saldoFinal).toBe(200);
+    expect(filas[3].saldoFinal).toBe(131);
+  });
+
+  it("un pie sin pareja no rompe ni ensucia otra agrupadora", () => {
+    // «TOTAL DEBITOS Y CREDITOS» cierra el reporte, no un grupo.
+    const filas = [
+      encabezado(1, "1105", "CAJA"),
+      fila(2, "110505", "DETALLE", 400, "movimiento"),
+      pieTotal(3, "CAJA", 400),
+      pieTotal(4, "DEBITOS Y CREDITOS", 0),
+    ];
+    expect(transferirSubtotalesDelPie(filas)).toBe(1);
+    expect(filas[0].saldoFinal).toBe(400);
+  });
+
+  it("ignora el pie que SÍ conserva su código: ese layout lo resuelve summary-below", () => {
+    const conCodigo: FilaBorrador = {
+      filaNum: 3, codigo: "1105", codigoCrudo: "TOTAL 1105", nombre: "CAJA", nivel: 4,
+      tipoFila: "agrupadora", saldoInicial: 0, debitos: 0, creditos: 0, saldoFinal: 400,
+    };
+    const filas = [encabezado(1, "1105", "CAJA"), fila(2, "110505", "DETALLE", 400, "movimiento"), conCodigo];
+    expect(transferirSubtotalesDelPie(filas)).toBe(0);
+  });
+
+  it("el árbol completo deja las agrupadoras con su subtotal y sin Δ falso", () => {
+    // Se necesitan ≥5 agrupadoras y ≥5 pies para que la detección se active.
+    const filas: FilaBorrador[] = [];
+    let n = 1;
+    for (const [cod, nom, val] of [["1105", "CAJA", 100], ["1110", "BANCOS", 200], ["1120", "AHORROS", 300], ["1305", "CLIENTES", 400], ["1435", "MERCANCIAS", 500]] as const) {
+      filas.push(encabezado(n++, cod, nom));
+      filas.push(fila(n++, `${cod}05`, "DETALLE", val, "movimiento"));
+      filas.push(pieTotal(n++, nom, val));
+    }
+    const arbol = construirArbolBorrador(filas);
+    // Los pies siguen en el árbol como raíces sin código: `marcarNoContables` los oculta
+    // más arriba, en `construirVistaBorrador`. Aquí interesan las agrupadoras con código.
+    const agr = arbol.filter((x) => x.tipoFila !== "movimiento" && /^\d/.test(x.codigo));
+    expect(agr.map((x) => x.saldoFinal)).toEqual([100, 200, 300, 400, 500]);
+    expect(agr.every((x) => !x.descuadre)).toBe(true);
+  });
+
+  it("un layout normal (encabezado con su total) queda intacto", () => {
+    const filas = [
+      fila(1, "1105", "CAJA", 400, "agrupadora"),
+      fila(2, "110505", "CAJA GENERAL", 400, "movimiento"),
+    ];
+    const antes = JSON.stringify(filas);
+    construirArbolBorrador(filas);
+    expect(JSON.stringify(filas)).toBe(antes);
   });
 });

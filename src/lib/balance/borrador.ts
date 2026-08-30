@@ -56,6 +56,73 @@ const esNumerico = (c: string) => /^\d+$/.test(c);
 const esHojaMovimiento = (t: TipoFila) => t === "movimiento" || t === "descuadre";
 const normNombre = (s: string) => (s ?? "").trim().toUpperCase().replace(/\s+/g, " ");
 
+// Etiqueta comparable entre el encabezado de un grupo y su pie: sin acentos, sin
+// puntuación y en minúsculas, para casar «1105 CAJA» con «TOTAL CAJA». Se replica aquí
+// —en vez de importar `normalizarEtiquetaRaiz` de `borrador-vm.ts`— porque ese módulo ya
+// importa de este y traerlo crearía una dependencia circular.
+const normEtiqueta = (valor: string): string =>
+  (valor ?? "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLocaleLowerCase("es")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+
+/** «TOTAL CAJA GENERAL» → «caja general»; null si la fila no es un pie rotulado. */
+const etiquetaDelPie = (fila: FilaBorrador): string | null => {
+  const m = /^\s*(?:sub)?total\s+(.+)$/i.exec(fila.codigoCrudo ?? "");
+  return m ? normEtiqueta(m[1]) || null : null;
+};
+
+/** «1105 CAJA» → «caja»: el nombre del grupo va pegado al código en la misma celda. */
+const etiquetaDelEncabezado = (fila: FilaBorrador): string =>
+  normEtiqueta((fila.codigoCrudo ?? "").replace(/^\s*\d+\s*/, ""));
+
+/**
+ * Lleva a cada agrupadora el subtotal que su ERP dejó en un PIE SIN CÓDIGO.
+ *
+ * Tercera forma de «totales al final»: el grupo se abre con un encabezado que trae el
+ * código y CERO («1105 CAJA») y se cierra con el subtotal real rotulado en la columna de
+ * código, sin código propio («TOTAL CAJA»). Sin esto, cada agrupadora se muestra en cero
+ * y acusa un Δ falso contra sus hijas, mientras el subtotal queda oculto (los pies sin
+ * código numérico los omite `marcarNoContables`) y desligado de su grupo.
+ *
+ * El emparejamiento usa PILA + NOMBRE: un pie cierra la agrupadora abierta más interna
+ * cuya etiqueta coincida. Ninguna de las dos señales basta sola — hay nombres repetidos
+ * en bloques distintos («TOTAL GASTOS DE PERSONAL» sale cuatro veces en el archivo de
+ * referencia) y filas intercaladas que no abren bloque—; juntas emparejan el 100%.
+ *
+ * Se transfieren los CUATRO montos, no solo el saldo final: el pie los trae todos.
+ * No hay riesgo de doble conteo — `calcularBalance` solo suma filas `movimiento`, así que
+ * las agrupadoras no entran en el cálculo ni en lo que se persiste—; esto solo alimenta
+ * la presentación del árbol y el Δ, que pasa a comparar lo DECLARADO contra el detalle.
+ */
+export function transferirSubtotalesDelPie(ordenadas: FilaBorrador[]): number {
+  const abiertas: { fila: FilaBorrador; etiqueta: string }[] = [];
+  let transferidos = 0;
+  for (const fila of ordenadas) {
+    const etiquetaPie = etiquetaDelPie(fila);
+    if (etiquetaPie == null) {
+      if (!esHojaMovimiento(fila.tipoFila) && esNumerico(fila.codigo)) {
+        abiertas.push({ fila, etiqueta: etiquetaDelEncabezado(fila) });
+      }
+      continue;
+    }
+    if (esNumerico(fila.codigo)) continue; // el pie CON código lo resuelve `summaryBelow`
+    let i = -1;
+    for (let j = abiertas.length - 1; j >= 0; j--) if (abiertas[j].etiqueta === etiquetaPie) { i = j; break; }
+    if (i < 0) continue; // pie sin pareja (p. ej. «TOTAL DEBITOS Y CREDITOS»): se ignora
+    const destino = abiertas[i].fila;
+    destino.saldoInicial = fila.saldoInicial;
+    destino.debitos = fila.debitos;
+    destino.creditos = fila.creditos;
+    destino.saldoFinal = fila.saldoFinal;
+    abiertas.splice(i); // cierra ese grupo y cualquiera que siguiera abierto dentro
+    transferidos++;
+  }
+  return transferidos;
+}
+
 /**
  * Construye el bosque (varias raíces posibles) del borrador a partir de las filas
  * del staging. Nesting determinista con una pila de ancestros: cada fila cuelga de
@@ -87,6 +154,18 @@ export function construirArbolBorrador(filas: FilaBorrador[], tol = 1): NodoBorr
   const esTotalCrudo = (f: FilaBorrador) => /^\s*(?:sub)?total/i.test(f.codigoCrudo ?? "");
   const agrup = ordenadas.filter((f) => !esHojaMovimiento(f.tipoFila) && esNumerico(f.codigo));
   const summaryBelow = agrup.length > 0 && agrup.filter(esTotalCrudo).length > agrup.length / 2;
+
+  // Variante del anterior en la que el pie NO conserva el código: el encabezado trae el
+  // código en cero y el subtotal vive en una fila rotulada aparte. Se reconoce por las dos
+  // señales juntas —casi todas las agrupadoras en cero Y pies rotulados sin código—, que
+  // es lo bastante estrecho para no tocar los layouts donde el encabezado sí trae su
+  // total. Cuando aplica, el subtotal se lleva a su agrupadora ANTES de armar el árbol.
+  const piesSinCodigo = ordenadas.filter((f) => !esNumerico(f.codigo) && esTotalCrudo(f));
+  const agrupEnCero = agrup.filter((f) => f.saldoFinal === 0);
+  const subtotalEnPieSinCodigo = !summaryBelow
+    && agrup.length >= 5 && piesSinCodigo.length >= 5
+    && agrupEnCero.length > agrup.length * 0.8;
+  if (subtotalEnPieSinCodigo) transferirSubtotalesDelPie(ordenadas);
 
   if (summaryBelow) {
     const nodos = ordenadas.map((f) => ({ ...f, descuadre: null, subtotalDuplicado: dupSet.has(f), hijos: [] }) as NodoBorrador);
