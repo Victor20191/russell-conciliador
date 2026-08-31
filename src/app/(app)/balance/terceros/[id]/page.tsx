@@ -5,19 +5,16 @@ import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { BackLink, Chip, PageHeader } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { fmtCalendarDate, fmtDateTime } from "@/lib/format";
-import {
-  agruparPorCuentaTercero,
-  agruparPorTerceroBalance,
-  resumirBalanceTercero,
-  type FilaBalanceTercero,
-} from "@/lib/balance/tercero-vista";
+import type { FilaBalanceTercero } from "@/lib/balance/tercero-vista";
+import { construirArbolTercero, resumirArbolTercero } from "@/lib/balance/arbol-tercero";
 import TerceroDetailClient, { type VersionTerceroRow } from "./tercero-detail-client";
 
 /**
  * Detalle de UN cargue del balance abierto por tercero.
  *
- * Igual que en el balance normal, los agregados NO están persistidos: se
- * reconstruyen aquí desde el detalle con la lógica pura de `tercero-vista.ts`.
+ * Igual que en el balance normal, los agregados NO están persistidos: el árbol
+ * (grupo → cuenta → subcuenta → imputable → terceros) y sus totales se
+ * reconstruyen aquí desde el detalle con la lógica pura de `arbol-tercero.ts`.
  */
 export default async function BalanceTerceroDetallePage({
   params,
@@ -111,9 +108,8 @@ export default async function BalanceTerceroDetallePage({
     saldoFinal: Number(d.saldoFinal),
   }));
 
-  const resumen = resumirBalanceTercero(filas);
-  const porCuenta = agruparPorCuentaTercero(filas);
-  const porTercero = agruparPorTerceroBalance(filas);
+  const arbol = construirArbolTercero(filas);
+  const resumen = resumirArbolTercero(arbol);
 
   const versiones: VersionTerceroRow[] = hermanos.map((h) => ({
     id: h.id,
@@ -161,9 +157,8 @@ export default async function BalanceTerceroDetallePage({
       <TerceroDetailClient
         encabezadoId={encabezado.id}
         resumen={resumen}
-        porCuenta={porCuenta}
-        porTercero={porTercero}
-        filas={filas}
+        filasArchivo={filas.length}
+        arbol={arbol}
         versiones={versiones}
         puedeEliminar={eliminarAuth.ok}
       />

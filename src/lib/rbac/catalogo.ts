@@ -100,9 +100,10 @@ const TODOS = ["Socio", "Gerente", "Senior", "Staff", "Administrador", "Superadm
 const CONSULTA_Y_ADMIN = ["Socio", "Gerente", "Senior", "Administrador", "Superadministrador"]; // todos menos Staff
 const SUPERVISORES = ["Gerente", "Socio"];
 const SOLO_STAFF = ["Staff"];
-// Cargar balance: el Staff (operativo) + los administradores de plataforma
-// (alcance global), para que Administrador/Superadministrador también puedan
-// cargar balances. NO incluye editar/congelar, que sigue siendo SOLO_STAFF.
+// Cargar, editar y congelar balance: el Staff (operativo) + los administradores
+// de plataforma (alcance global). Desde el 31-ago-2026 Administrador/Superadministrador
+// también editan/congelan y aprueban el prevalidador, para que el cruce contable
+// de los módulos pueda habilitarse sin depender de un Staff y un Senior asignados.
 const STAFF_Y_ADMIN = ["Staff", "Administrador", "Superadministrador"];
 const SOLO_SENIOR = ["Senior"];
 const SOLO_ADMIN = ADMIN_PLATAFORMA;
@@ -152,7 +153,7 @@ export const PERMISOS: Permiso[] = [
   // ===== Operativo (crear/editar/ejecutar) — SOLO Staff (excepto la carga
   // de balance, abierta también a administradores de plataforma) =====
   { code: "balance:crear", module: "balance", action: "crear", label: "Cargar balance", roles: STAFF_Y_ADMIN },
-  { code: "balance:editar", module: "balance", action: "editar", label: "Editar balance", roles: SOLO_STAFF },
+  { code: "balance:editar", module: "balance", action: "editar", label: "Editar balance", roles: STAFF_Y_ADMIN },
   { code: "balance:eliminar", module: "balance", action: "eliminar", label: "Eliminar balances y perfiles de carga", roles: SOLO_ADMIN },
   { code: "mapeo:editar", module: "mapeo", action: "editar", label: "Editar mapeo del plan estándar", roles: SOLO_STAFF },
   { code: "conciliaciones:crear", module: "conciliaciones", action: "crear", label: "Crear conciliación", roles: SOLO_STAFF },
@@ -161,7 +162,7 @@ export const PERMISOS: Permiso[] = [
   { code: "dian:editar", module: "dian", action: "editar", label: "Editar declaración DIAN", roles: SOLO_STAFF },
 
   // ===== Revisión — SOLO Senior (revisa el trabajo del Staff) =====
-  { code: "balance:revisar", module: "balance", action: "revisar", label: "Revisar balance", roles: SOLO_SENIOR },
+  { code: "balance:revisar", module: "balance", action: "revisar", label: "Revisar balance", roles: SENIOR_Y_ADMIN },
   { code: "conciliaciones:revisar", module: "conciliaciones", action: "revisar", label: "Revisar conciliación", roles: SOLO_SENIOR },
 
   // ===== Datos de módulos (Inventarios, Cartera, CxP, Ingresos, Activos Fijos, Nómina) =====
