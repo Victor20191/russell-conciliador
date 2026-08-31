@@ -37,7 +37,8 @@ const CLIENTES: FilaClienteExport[] = [
     name: "Comercializadora Andina Ltda.",
     nit: "800123456-7",
     tipo: "B",
-    erpName: null, // Sin ERP
+    erpName: "SIESA legado",
+    erpsPorProceso: { CONT: null }, // pendiente explícito: no hereda el legado
     sectorName: null,
     socio: null,
     gerente: "Gerente Uno",
@@ -72,7 +73,8 @@ test("exporta una hoja Clientes con encabezados, estado de módulos y DIAN", asy
     "Razón social",
     "NIT",
     "Tipo",
-    "ERP",
+    "ERP · CONT · Contabilidad",
+    "ERP · NOM · Nómina",
     "Socio (firma)",
     "Staff (ejecuta)",
     "Inventarios",
@@ -98,7 +100,7 @@ test("exporta una hoja Clientes con encabezados, estado de módulos y DIAN", asy
   expect(cel(2, "Staff (ejecuta)")).toBe("Staff Dos; Staff Uno");
 
   // Cliente B (fila 3): sin ERP, módulo pendiente, sin socio.
-  expect(cel(3, "ERP")).toBe("Sin ERP");
+  expect(cel(3, "ERP · CONT · Contabilidad")).toBe("Pendiente / sin definir");
   expect(cel(3, "Cartera")).toBe("Pendiente");
   expect(cel(3, "Inventarios")).toBe("No activo");
   expect(cel(3, "Socio (firma)")).toBe("—");
@@ -114,6 +116,7 @@ test("incluye una hoja Resumen con el total de clientes", async () => {
   const texto = JSON.stringify(ws!.getSheetValues());
   expect(texto).toContain("Total de clientes");
   expect(texto).toContain("Clientes de la plataforma");
+  expect(texto).not.toContain("SIESA legado");
 });
 
 test("genera un archivo válido aun sin clientes", async () => {

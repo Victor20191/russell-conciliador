@@ -530,11 +530,16 @@ export async function deleteMaestroCatalogo(
 
   try {
     if (tipoParsed.data === "erp") {
-      const [erp, clientes] = await Promise.all([
+      const [erp, clientesLegado, clientesProceso] = await Promise.all([
         prisma.erp.findUnique({ where: { id }, select: { code: true, name: true } }),
-        prisma.client.count({ where: { erpId: id } }),
+        prisma.client.findMany({ where: { erpId: id }, select: { id: true } }),
+        prisma.clientErpProcess.findMany({ where: { erpId: id }, select: { clientId: true }, distinct: ["clientId"] }),
       ]);
       if (!erp) return { ok: false, message: "El ERP no existe." };
+      const clientes = new Set([
+        ...clientesLegado.map((cliente) => cliente.id),
+        ...clientesProceso.map((asignacion) => asignacion.clientId),
+      ]).size;
       if (clientes > 0) {
         return { ok: false, message: `Este ERP está asignado a ${clientes} cliente(s). Desactívalo o reasigna esos clientes antes de eliminarlo.` };
       }

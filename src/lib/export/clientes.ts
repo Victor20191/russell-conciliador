@@ -11,6 +11,7 @@
 
 import ExcelJS from "exceljs";
 import { fmtDate } from "@/lib/format";
+import { PROCESOS_ERP, type CodigoProcesoErp } from "@/lib/erp-procesos";
 
 /** Una fila de cliente ya resuelta para exportar (sin dependencias de Prisma). */
 export type FilaClienteExport = {
@@ -19,6 +20,7 @@ export type FilaClienteExport = {
   nit: string;
   tipo: string;
   erpName: string | null;
+  erpsPorProceso?: Partial<Record<CodigoProcesoErp, string | null>>;
   sectorName: string | null;
   socio: string | null;
   gerente: string | null;
@@ -51,14 +53,14 @@ const FIJAS = [
   "Razón social",
   "NIT",
   "Tipo",
-  "ERP",
+  ...PROCESOS_ERP.map((proceso) => `ERP · ${proceso.codigo} · ${proceso.nombre}`),
   "Sector",
   "Socio (firma)",
   "Gerente (valida)",
   "Senior (revisa)",
   "Staff (ejecuta)",
 ];
-const ANCHOS_FIJAS = [14, 36, 16, 8, 18, 22, 24, 24, 24, 38];
+const ANCHOS_FIJAS = [14, 36, 16, 8, ...PROCESOS_ERP.map(() => 19), 22, 24, 24, 24, 38];
 
 const BORDE = {
   top: { style: "thin" as const, color: { argb: COLOR_BORDER } },
@@ -66,6 +68,19 @@ const BORDE = {
   bottom: { style: "thin" as const, color: { argb: COLOR_BORDER } },
   right: { style: "thin" as const, color: { argb: COLOR_BORDER } },
 };
+
+function erpDeProceso(
+  cliente: FilaClienteExport,
+  codigo: CodigoProcesoErp,
+): string | null {
+  if (
+    cliente.erpsPorProceso
+    && Object.prototype.hasOwnProperty.call(cliente.erpsPorProceso, codigo)
+  ) {
+    return cliente.erpsPorProceso[codigo] ?? null;
+  }
+  return codigo === "CONT" ? cliente.erpName : null;
+}
 
 function relleno(argb: string): ExcelJS.Fill {
   return { type: "pattern", pattern: "solid", fgColor: { argb } };
@@ -132,7 +147,7 @@ function agregarResumen(
   for (const c of clientes) {
     const tipo = c.tipo?.trim() || "—";
     porTipo.set(tipo, (porTipo.get(tipo) ?? 0) + 1);
-    const erp = c.erpName?.trim() || "Sin ERP";
+    const erp = erpDeProceso(c, "CONT")?.trim() || "Sin ERP";
     porErp.set(erp, (porErp.get(erp) ?? 0) + 1);
   }
 
@@ -192,7 +207,9 @@ export async function crearExportacionClientes(
       c.name,
       c.nit,
       c.tipo,
-      c.erpName ?? "Sin ERP",
+      ...PROCESOS_ERP.map((proceso) =>
+        erpDeProceso(c, proceso.codigo) ?? "Pendiente / sin definir",
+      ),
       c.sectorName ?? "Sin sector",
       c.socio ?? "—",
       c.gerente ?? "—",

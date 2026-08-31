@@ -36,11 +36,13 @@ async function main() {
   await prisma.reconciliation.deleteMany();
   await prisma.moduleField.deleteMany();
   await prisma.clientModule.deleteMany();
+  await prisma.clientErpProcess.deleteMany();
   // El catálogo del prevalidador referencia `modulos` con FK RESTRICT: va antes.
   await prisma.prevalidadorCuentaCliente.deleteMany();
   await prisma.prevalidadorCuenta.deleteMany();
   await prisma.module.deleteMany();
   await prisma.client.deleteMany();
+  await prisma.erpProcess.deleteMany();
   await prisma.erp.deleteMany();
   await prisma.sector.deleteMany();
   await prisma.user.deleteMany();
@@ -68,6 +70,23 @@ async function main() {
     (await prisma.module.findMany({ select: { id: true, code: true } }))
       .map((module) => [module.code, module.id]),
   );
+
+  // ---- Procesos ERP por cliente ----
+  await prisma.erpProcess.createMany({
+    data: [
+      { code: "CONT", name: "Contabilidad", order: 10 },
+      { code: "NOM", name: "Nómina", order: 20 },
+      { code: "INV", name: "Inventarios", order: 30 },
+      { code: "ING", name: "Ingresos", order: 40 },
+      { code: "CAR", name: "Cartera", order: 50 },
+      { code: "CXP", name: "Cuentas por pagar", order: 60 },
+      { code: "AFI", name: "Activos fijos", order: 70 },
+    ],
+  });
+  const procesoContable = await prisma.erpProcess.findUniqueOrThrow({
+    where: { code: "CONT" },
+    select: { id: true },
+  });
 
   // ---- Prevalidador de homologación ----
   // Las 11 filas que definió Russell. La migración las siembra en las BD que ya
@@ -163,6 +182,14 @@ async function main() {
       data: {
         code: c.code, name: c.name, nit: c.nit,
         erpId: erpIdByCode.get(c.erp)!,
+        erpsPorProceso: {
+          create: {
+            processId: procesoContable.id,
+            erpId: erpIdByCode.get(c.erp)!,
+            status: "heredado",
+            source: "seed",
+          },
+        },
         sectorId: sectorIdByName.get(c.sector) ?? null,
         modules: {
           create: [

@@ -12,6 +12,11 @@ import { authorizePermiso } from "@/lib/rbac";
 import { ROL_POR_FUNCION, ROL_SOCIO } from "@/lib/rbac/jerarquia";
 import { mensajeErrorBD } from "@/lib/errores";
 import { claveNit } from "@/lib/nit";
+import {
+  PROCESOS_ERP,
+  campoErpProceso,
+  type CodigoProcesoErp,
+} from "@/lib/erp-procesos";
 
 const PATH = "/config/clientes";
 
@@ -53,10 +58,99 @@ async function dianFormIdsExist(dianFormIds: number[]): Promise<boolean> {
   return existing.length === dianFormIds.length;
 }
 
-/** ERP del catálogo maestro: debe existir y estar activo. */
+type ErpProcesoFormulario = { codigo: CodigoProcesoErp; erpId: number | null };
+type ErpProcesoPersistible = ErpProcesoFormulario & { processId: number };
+type ErpProcesoExistente = { erpId: number | null; status: string; source: string | null };
+
+/** Compatibilidad con consumidores anteriores al formulario por proceso. */
 async function erpValido(erpId: number): Promise<boolean> {
-  const erp = await prisma.erp.findUnique({ where: { id: erpId }, select: { active: true } });
+  const erp = await prisma.erp.findUnique({
+    where: { id: erpId },
+    select: { active: true },
+  });
   return erp?.active === true;
+}
+
+function parseErpsPorProceso(
+  formData: FormData,
+): { ok: true; asignaciones: ErpProcesoFormulario[] } | { ok: false; errors: Record<string, string[]> } {
+  const asignaciones: ErpProcesoFormulario[] = [];
+  const errors: Record<string, string[]> = {};
+
+  for (const proceso of PROCESOS_ERP) {
+    const campo = campoErpProceso(proceso.codigo);
+    const raw = formData.get(campo);
+    if (raw == null || raw === "") {
+      asignaciones.push({ codigo: proceso.codigo, erpId: null });
+      continue;
+    }
+    const erpId = parseId(raw);
+    if (erpId == null) {
+      errors[campo] = [`Selecciona un ERP válido para ${proceso.nombre}.`];
+      continue;
+    }
+    asignaciones.push({ codigo: proceso.codigo, erpId });
+  }
+
+  return Object.keys(errors).length > 0
+    ? { ok: false, errors }
+    : { ok: true, asignaciones };
+}
+
+async function validarErpsPorProceso(
+  asignaciones: ErpProcesoFormulario[],
+  opciones?: {
+    existentes?: Map<CodigoProcesoErp, ErpProcesoExistente>;
+    erpLegado?: number | null;
+  },
+): Promise<
+  | { ok: true; asignaciones: ErpProcesoPersistible[] }
+  | { ok: false; message: string }
+> {
+  const erpIds = [...new Set(asignaciones.flatMap((item) => item.erpId == null ? [] : [item.erpId]))];
+  const [procesos, erps] = await Promise.all([
+    prisma.erpProcess.findMany({
+      where: { active: true, code: { in: PROCESOS_ERP.map((item) => item.codigo) } },
+      select: { id: true, code: true },
+    }),
+    erpIds.length > 0
+      ? prisma.erp.findMany({
+          where: { id: { in: erpIds } },
+          select: { id: true, active: true },
+        })
+      : Promise.resolve([]),
+  ]);
+
+  const procesoPorCodigo = new Map(procesos.map((item) => [item.code, item.id]));
+  if (PROCESOS_ERP.some((item) => !procesoPorCodigo.has(item.codigo))) {
+    return { ok: false, message: "El catálogo de procesos ERP no está completo. Aplica la migración pendiente." };
+  }
+
+  const erpPorId = new Map(erps.map((item) => [item.id, item]));
+  for (const asignacion of asignaciones) {
+    if (asignacion.erpId == null) continue;
+    const erp = erpPorId.get(asignacion.erpId);
+    if (!erp) return { ok: false, message: "Selecciona sistemas ERP válidos." };
+    if (erp.active) continue;
+
+    // Un sistema que fue inactivado en el catálogo puede conservarse, pero no
+    // asignarse por primera vez ni trasladarse a otro proceso.
+    const existente = opciones?.existentes?.get(asignacion.codigo);
+    const heredadoLegado = asignacion.codigo === "CONT"
+      && !opciones?.existentes?.has(asignacion.codigo)
+      && opciones?.erpLegado === asignacion.erpId;
+    if (existente?.erpId !== asignacion.erpId && !heredadoLegado) {
+      return { ok: false, message: "No puedes asignar un ERP inactivo a un proceso nuevo." };
+    }
+  }
+
+  return {
+    ok: true,
+    asignaciones: asignaciones.map((item) => ({
+      ...item,
+      processId: procesoPorCodigo.get(item.codigo)!,
+    })),
+  };
 }
 
 /** Sector del catálogo maestro: debe existir y estar activo. */
@@ -227,12 +321,17 @@ export async function createClient(
     const existing = await prisma.client.findMany({ select: { code: true } });
     const code = nextClientCode(existing.map((c) => c.code));
 
+    const syncErpsPorProceso = formData.get("syncErpsPorProceso") === "1";
+    const erpsProceso = syncErpsPorProceso ? parseErpsPorProceso(formData) : null;
+    if (erpsProceso && !erpsProceso.ok) return { ok: false, errors: erpsProceso.errors };
+    const erpContable = erpsProceso?.asignaciones.find((item) => item.codigo === "CONT")?.erpId;
+
     const parsed = ClientSchema.safeParse({
       code,
       name: formData.get("name"),
       nit: formData.get("nit"),
       tipo: formData.get("tipo"),
-      erpId: formData.get("erpId"),
+      erpId: syncErpsPorProceso ? erpContable : formData.get("erpId"),
       sectorId: formData.get("sectorId"),
       socioId: formData.get("socioId"),
     });
@@ -244,9 +343,11 @@ export async function createClient(
     const duplicado = await clienteConMismoNit(data.nit);
     if (duplicado) return errorNitDuplicado(duplicado);
 
-    // ERP y Sector son catálogos maestros opcionales: si se indican, deben
-    // existir y estar activos (el ERP se exige al iniciar una operación).
-    if (data.erpId != null && !(await erpValido(data.erpId))) {
+    const erpsValidados = erpsProceso
+      ? await validarErpsPorProceso(erpsProceso.asignaciones)
+      : null;
+    if (erpsValidados && !erpsValidados.ok) return { ok: false, message: erpsValidados.message };
+    if (!syncErpsPorProceso && data.erpId != null && !(await erpValido(data.erpId))) {
       return { ok: false, message: "Selecciona un ERP válido." };
     }
     if (data.sectorId != null && !(await sectorValido(data.sectorId))) {
@@ -305,6 +406,17 @@ export async function createClient(
             : undefined,
         },
       });
+      if (erpsValidados?.ok) {
+        await tx.clientErpProcess.createMany({
+          data: erpsValidados.asignaciones.map((asignacion) => ({
+            clientId: cliente.id,
+            processId: asignacion.processId,
+            erpId: asignacion.erpId,
+            status: asignacion.erpId == null ? "pendiente" : "confirmado",
+            source: "manual",
+          })),
+        });
+      }
       await tx.clientAssignment.createMany({
         data: filasResponsables(responsables.data).map((r) => ({
           clientId: cliente.id,
@@ -347,16 +459,37 @@ export async function updateClient(
   if (!alcance.ok) return { ok: false, message: alcance.message };
 
   try {
-    const current = await prisma.client.findUnique({ where: { id } });
+    const current = await prisma.client.findUnique({
+      where: { id },
+      include: {
+        erpsPorProceso: {
+          select: {
+            erpId: true,
+            status: true,
+            source: true,
+            process: { select: { code: true } },
+          },
+        },
+      },
+    });
     if (!current) return { ok: false, message: "Cliente inexistente." };
 
     // El código no se edita: se conserva el ya asignado al cliente.
+    const syncErpsPorProceso = formData.get("syncErpsPorProceso") === "1";
+    if (syncErpsPorProceso) {
+      const configAuthz = await authorizePermiso("clientes:configurar", { clientId: id });
+      if (!configAuthz.ok) return { ok: false, message: configAuthz.message };
+    }
+    const erpsProceso = syncErpsPorProceso ? parseErpsPorProceso(formData) : null;
+    if (erpsProceso && !erpsProceso.ok) return { ok: false, errors: erpsProceso.errors };
+    const erpContable = erpsProceso?.asignaciones.find((item) => item.codigo === "CONT")?.erpId;
+
     const parsed = ClientSchema.safeParse({
       code: current.code,
       name: formData.get("name"),
       nit: formData.get("nit"),
       tipo: formData.get("tipo"),
-      erpId: formData.get("erpId"),
+      erpId: syncErpsPorProceso ? erpContable : formData.get("erpId"),
       sectorId: formData.get("sectorId"),
       socioId: formData.get("socioId"),
     });
@@ -368,9 +501,25 @@ export async function updateClient(
     const duplicado = await clienteConMismoNit(nit, id);
     if (duplicado) return errorNitDuplicado(duplicado);
 
-    // ERP y Sector son catálogos maestros opcionales: si se indican, deben
-    // existir y estar activos (el ERP se exige al iniciar una operación).
-    if (erpId != null && !(await erpValido(erpId))) {
+    const existentes = new Map<CodigoProcesoErp, ErpProcesoExistente>();
+    for (const asignacion of current.erpsPorProceso) {
+      const codigo = asignacion.process.code as CodigoProcesoErp;
+      if (PROCESOS_ERP.some((item) => item.codigo === codigo)) {
+        existentes.set(codigo, {
+          erpId: asignacion.erpId,
+          status: asignacion.status,
+          source: asignacion.source,
+        });
+      }
+    }
+    const erpsValidados = erpsProceso
+      ? await validarErpsPorProceso(erpsProceso.asignaciones, {
+          existentes,
+          erpLegado: current.erpId,
+        })
+      : null;
+    if (erpsValidados && !erpsValidados.ok) return { ok: false, message: erpsValidados.message };
+    if (!syncErpsPorProceso && erpId != null && !(await erpValido(erpId))) {
       return { ok: false, message: "Selecciona un ERP válido." };
     }
     if (sectorId != null && !(await sectorValido(sectorId))) {
@@ -417,6 +566,34 @@ export async function updateClient(
       // erpId/sectorId con `?? null` para poder DEJARLOS vacíos (opcionales):
       // undefined no actualizaría la columna; null la limpia explícitamente.
       await tx.client.update({ where: { id }, data: { name, nit, tipo, erpId: erpId ?? null, sectorId: sectorId ?? null, socioId } });
+
+      if (erpsValidados?.ok) {
+        for (const asignacion of erpsValidados.asignaciones) {
+          const existente = existentes.get(asignacion.codigo);
+          const sinCambio = existente?.erpId === asignacion.erpId;
+          const status = sinCambio
+            ? existente.status
+            : asignacion.erpId == null ? "pendiente" : "confirmado";
+          const source = sinCambio ? existente.source : "manual";
+          await tx.clientErpProcess.upsert({
+            where: {
+              clientId_processId: { clientId: id, processId: asignacion.processId },
+            },
+            create: {
+              clientId: id,
+              processId: asignacion.processId,
+              erpId: asignacion.erpId,
+              status,
+              source,
+            },
+            update: {
+              erpId: asignacion.erpId,
+              status,
+              source,
+            },
+          });
+        }
+      }
 
       // Sincroniza los responsables conservando la vigencia de los que siguen:
       // el upsert por (cliente, función, usuario) reactiva o crea cada

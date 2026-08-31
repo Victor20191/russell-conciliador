@@ -1,6 +1,7 @@
 "use server";
 
 import { randomUUID } from "node:crypto";
+import { resolverValorErpProceso } from "@/lib/erp-cliente";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import prisma from "@/lib/prisma";
@@ -127,24 +128,23 @@ export async function executeReconciliation(
   const alcance = await authorizePermiso("conciliaciones:ejecutar", { clientId });
   if (!alcance.ok) return { ok: false, message: alcance.message };
 
-  // GATE de operación: iniciar una conciliación exige que el cliente tenga un
-  // ERP asignado (define el origen de los auxiliares). Sin ERP se BLOQUEA con
-  // alerta (la UI ya lo impide; esto es defensa en profundidad).
-  const conErp = await prisma.client.findUnique({ where: { id: clientId }, select: { erpId: true } });
-  if (!conErp?.erpId) {
-    return {
-      ok: false,
-      message:
-        "El cliente no tiene un ERP asignado. Asígnalo en Configuración › Clientes antes de iniciar la conciliación.",
-    };
-  }
-
   // El id se captura dentro del try; el redirect() se ejecuta DESPUÉS, porque
   // redirect() funciona lanzando una excepción especial que NO debe capturarse.
   let reconciliationId: number | null = null;
   try {
     const [client, mod, user] = await Promise.all([
-      prisma.client.findUnique({ where: { id: clientId }, include: { erp: { select: { name: true } } } }),
+      prisma.client.findUnique({
+        where: { id: clientId },
+        include: {
+          erp: { select: { name: true } },
+          erpsPorProceso: {
+            select: {
+              process: { select: { code: true } },
+              erp: { select: { name: true } },
+            },
+          },
+        },
+      }),
       prisma.module.findUnique({ where: { id: moduleId } }),
       getCurrentUser(),
     ]);
@@ -158,6 +158,20 @@ export async function executeReconciliation(
         ok: false,
         message:
           "El módulo de Ingresos se concilia desde /modulos/ing con los datos reales cargados. El flujo legado no genera partidas demostrativas para ING.",
+      };
+    }
+
+    const asignacionModulo = client.erpsPorProceso?.find(
+      (asignacion) => asignacion.process.code === mod.code.trim().toUpperCase(),
+    );
+    const erpModulo = resolverValorErpProceso(
+      asignacionModulo ? { valor: asignacionModulo.erp?.name ?? null } : undefined,
+      client.erp?.name ?? null,
+    );
+    if (!erpModulo) {
+      return {
+        ok: false,
+        message: `El cliente no tiene un ERP definido para ${mod.name}. Asígnalo en Configuración › Clientes antes de iniciar la conciliación.`,
       };
     }
 
@@ -187,7 +201,7 @@ export async function executeReconciliation(
       const reconciliation = await tx.reconciliation.create({
         data: {
           code: temporalCode, clientName: client.name, clientId: client.id, module: mod.name, period: contexto.balance.periodo,
-          erp: client.erp?.name ?? "", status: "REVIEW", diff: fmtSigned(totalDiff), items: itemsDiff,
+          erp: erpModulo, status: "REVIEW", diff: fmtSigned(totalDiff), items: itemsDiff,
           owner: user?.name ?? "Auditor", cutoff: contexto.balance.periodoFin, runAt: ahora, runBy: user?.name ?? "Auditor",
           balancePrevalidadoId: contexto.balance.id,
           materiality: 2000000, lastActivity: ahora,

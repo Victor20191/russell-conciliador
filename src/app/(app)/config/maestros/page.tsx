@@ -21,6 +21,7 @@ export default async function MaestrosPage() {
     aristasBD,
     asignacionesActivas,
     clientesSocio,
+    clientesPorErpProceso,
     erpsBD,
     sectoresBD,
     clientesPorErp,
@@ -58,6 +59,11 @@ export default async function MaestrosPage() {
       where: { socioId: { not: null } },
       _count: { _all: true },
     }),
+    prisma.clientErpProcess.findMany({
+      where: { erpId: { not: null } },
+      select: { clientId: true, erpId: true },
+      distinct: ["clientId", "erpId"],
+    }),
     prisma.erp.findMany({
       orderBy: [{ order: "asc" }, { name: "asc" }],
       select: { id: true, code: true, name: true, active: true, order: true },
@@ -66,10 +72,9 @@ export default async function MaestrosPage() {
       orderBy: [{ order: "asc" }, { name: "asc" }],
       select: { id: true, code: true, name: true, active: true, order: true },
     }),
-    prisma.client.groupBy({
-      by: ["erpId"],
+    prisma.client.findMany({
       where: { erpId: { not: null } },
-      _count: { _all: true },
+      select: { id: true, erpId: true },
     }),
     prisma.client.groupBy({
       by: ["sectorId"],
@@ -86,11 +91,21 @@ export default async function MaestrosPage() {
       .filter((fila) => fila.socioId != null)
       .map((fila) => [fila.socioId!, fila._count._all]),
   );
-  const clientesPorErpId = new Map(
-    clientesPorErp
-      .filter((fila) => fila.erpId != null)
-      .map((fila) => [fila.erpId!, fila._count._all]),
-  );
+  const clientesIdsPorErp = new Map<number, Set<number>>();
+  for (const fila of clientesPorErpProceso) {
+    if (fila.erpId == null) continue;
+    const ids = clientesIdsPorErp.get(fila.erpId) ?? new Set<number>();
+    ids.add(fila.clientId);
+    clientesIdsPorErp.set(fila.erpId, ids);
+  }
+  // La sombra contable sigue contando durante la transición, sin duplicar al
+  // mismo cliente cuando también está en erps_cliente_proceso.
+  for (const fila of clientesPorErp) {
+    if (fila.erpId == null) continue;
+    const ids = clientesIdsPorErp.get(fila.erpId) ?? new Set<number>();
+    ids.add(fila.id);
+    clientesIdsPorErp.set(fila.erpId, ids);
+  }
   const clientesPorSectorId = new Map(
     clientesPorSector
       .filter((fila) => fila.sectorId != null)
@@ -120,7 +135,7 @@ export default async function MaestrosPage() {
     name: e.name,
     active: e.active,
     order: e.order,
-    clients: clientesPorErpId.get(e.id) ?? 0,
+    clients: clientesIdsPorErp.get(e.id)?.size ?? 0,
   }));
   const sectors: CatalogRow[] = sectoresBD.map((s) => ({
     id: s.id,

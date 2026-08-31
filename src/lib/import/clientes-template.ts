@@ -1,4 +1,5 @@
 import ExcelJS from "exceljs";
+import { PROCESOS_ERP } from "@/lib/erp-procesos";
 
 export type CatalogoPlantillaClientes = {
   modulos: { name: string }[];
@@ -17,7 +18,7 @@ const FIJAS = [
   "Razón social *",
   "NIT *",
   "Tipo de cliente *",
-  "ERP",
+  ...PROCESOS_ERP.map((proceso) => `ERP · ${proceso.codigo} · ${proceso.nombre}`),
   "Sector",
   "Socio (firma) *",
   "Gerente (valida) *",
@@ -172,7 +173,7 @@ function agregarInstrucciones(wb: ExcelJS.Workbook) {
   ws.addRows([
     ["Uso", "Diligencia la hoja Clientes. Borra o reemplaza las filas que empiezan por EJEMPLO."],
     ["Campos obligatorios", "Razón social, NIT, tipo de cliente, socio, gerente, senior y al menos un staff."],
-    ["ERP y sector", "Opcionales al cargar. El ERP es obligatorio para INICIAR una conciliación o cargar el balance: el sistema lo exigirá en ese momento."],
+    ["ERP y sector", "Opcionales al cargar. Registra un ERP distinto por proceso cuando aplique; CONT corresponde a contabilidad y balance."],
     ["Tipo de cliente", "Usa A, B o C."],
     ["Responsables", "Escribe los nombres exactamente como aparecen en la hoja Referencias. Staff acepta uno o varios nombres separados con punto y coma (;)."],
     ["Módulos", "Marca Sí en los módulos que debe tener el cliente y No en los que no aplican. Si dejas todo el bloque de módulos en blanco, el sistema activará todos."],
@@ -226,6 +227,12 @@ export async function crearPlantillaImportacionClientes(
     "900451227-3",
     "A",
     "SIESA",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
     "Comercio",
     referencias.socios[0] ?? "Nombre del socio",
     referencias.gerentes[0] ?? "Nombre del gerente",
@@ -239,6 +246,12 @@ export async function crearPlantillaImportacionClientes(
     "800123456-7",
     "B",
     "SAP",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
     "Servicios",
     referencias.socios[0] ?? "Nombre del socio",
     referencias.gerentes[0] ?? "Nombre del gerente",
@@ -253,7 +266,7 @@ export async function crearPlantillaImportacionClientes(
     to: `${columnaLetra(totalColumnas)}1`,
   };
 
-  const widths = [34, 18, 16, 16, 22, 26, 26, 26, 42];
+  const widths = [34, 18, 16, ...PROCESOS_ERP.map(() => 19), 22, 26, 26, 26, 42];
   headers.forEach((_, i) => {
     ws.getColumn(i + 1).width = widths[i] ?? 18;
   });
@@ -282,16 +295,25 @@ export async function crearPlantillaImportacionClientes(
 
   aplicarValidacionLista(ws, 3, '"A,B,C"', "Tipo de cliente", "Selecciona A, B o C.");
 
+  const sectorCol = 4 + PROCESOS_ERP.length;
+  const socioCol = sectorCol + 1;
+  const gerenteCol = socioCol + 1;
+  const seniorCol = gerenteCol + 1;
+  const staffCol = seniorCol + 1;
   const socioRange = rangoReferencia("A", referencias.socios.length);
-  if (socioRange) aplicarValidacionLista(ws, 6, socioRange, "Socio", "Selecciona un socio activo.");
+  if (socioRange) aplicarValidacionLista(ws, socioCol, socioRange, "Socio", "Selecciona un socio activo.");
   const gerenteRange = rangoReferencia("B", referencias.gerentes.length);
-  if (gerenteRange) aplicarValidacionLista(ws, 7, gerenteRange, "Gerente", "Selecciona un gerente activo.");
+  if (gerenteRange) aplicarValidacionLista(ws, gerenteCol, gerenteRange, "Gerente", "Selecciona un gerente activo.");
   const seniorRange = rangoReferencia("C", referencias.seniors.length);
-  if (seniorRange) aplicarValidacionLista(ws, 8, seniorRange, "Senior", "Selecciona un senior activo.");
+  if (seniorRange) aplicarValidacionLista(ws, seniorCol, seniorRange, "Senior", "Selecciona un senior activo.");
   const erpRange = rangoReferencia("J", referencias.erps.length);
-  if (erpRange) aplicarValidacionLista(ws, 4, erpRange, "ERP", "Selecciona un ERP del catálogo (o escribe uno nuevo).");
+  if (erpRange) {
+    for (let col = 4; col < sectorCol; col++) {
+      aplicarValidacionLista(ws, col, erpRange, "ERP del proceso", "Selecciona un ERP del catálogo (o escribe uno nuevo).");
+    }
+  }
   const sectorRange = rangoReferencia("K", referencias.sectores.length);
-  if (sectorRange) aplicarValidacionLista(ws, 5, sectorRange, "Sector", "Selecciona un sector del catálogo (o déjalo vacío).");
+  if (sectorRange) aplicarValidacionLista(ws, sectorCol, sectorRange, "Sector", "Selecciona un sector del catálogo (o déjalo vacío).");
 
   if (modulos.length > 0) {
     aplicarValidacionSiNo(ws, FIJAS.length + 1, FIJAS.length + modulos.length);
@@ -300,7 +322,7 @@ export async function crearPlantillaImportacionClientes(
     aplicarValidacionSiNo(ws, primeraColDian, totalColumnas);
   }
 
-  ws.getCell("I2").note = "Para varios staff, separa nombres con punto y coma (;).";
+  ws.getCell(2, staffCol).note = "Para varios staff, separa nombres con punto y coma (;).";
   ws.getCell("A2").note = "Esta fila se ignora porque contiene EJEMPLO. Puedes borrarla.";
 
   const buffer = await wb.xlsx.writeBuffer();

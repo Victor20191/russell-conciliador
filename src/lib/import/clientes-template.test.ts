@@ -30,6 +30,8 @@ test("genera una plantilla compatible con el parser de clientes", async () => {
   const headers = (ws!.getRow(1).values as unknown[]).filter(Boolean);
   expect(headers).toContain("Cartera");
   expect(headers).toContain("Inventarios");
+  expect(headers).toContain("ERP · CONT · Contabilidad");
+  expect(headers).toContain("ERP · NOM · Nómina");
   expect(headers).toContain("DIAN · IVA (F-300)");
   expect(headers).toContain("DIAN · Retención en la fuente (F-350)");
 
@@ -38,6 +40,12 @@ test("genera una plantilla compatible con el parser de clientes", async () => {
     "900100200-3",
     "A",
     "SIESA",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
     "Comercio",
     "Socio Uno",
     "Gerente Uno",

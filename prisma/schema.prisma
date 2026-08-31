@@ -208,20 +208,21 @@ model ClientAssignment {
 
 // ===== Clientes y módulos =====
 model Client {
-  id              Int              @id @default(autoincrement()) @map("id")
-  code            String           @unique @map("codigo") // p.ej. C-1042
-  name            String           @map("nombre")
-  nit             String           @unique @map("nit")
-  tipo            String           @default("C") @map("tipo_cliente") // clasificación A | B | C
-  erp             Erp?             @relation(fields: [erpId], references: [id], onDelete: Restrict)
-  erpId           Int?             @map("erp_id") // FK al catálogo erps (opcional: se exige al INICIAR una operación, no al cargar)
-  sector          Sector?          @relation(fields: [sectorId], references: [id], onDelete: Restrict)
-  sectorId        Int?             @map("sector_id") // FK al catálogo sectores (opcional: hay clientes sin sector)
-  socioId         Int?             @map("socio_id") // socio responsable (FK lógica a User.id, informativo)
+  id              Int                @id @default(autoincrement()) @map("id")
+  code            String             @unique @map("codigo") // p.ej. C-1042
+  name            String             @map("nombre")
+  nit             String             @unique @map("nit")
+  tipo            String             @default("C") @map("tipo_cliente") // clasificación A | B | C
+  erp             Erp?               @relation(fields: [erpId], references: [id], onDelete: Restrict)
+  erpId           Int?               @map("erp_id") // FK al catálogo erps (opcional: se exige al INICIAR una operación, no al cargar)
+  erpsPorProceso  ClientErpProcess[]
+  sector          Sector?            @relation(fields: [sectorId], references: [id], onDelete: Restrict)
+  sectorId        Int?               @map("sector_id") // FK al catálogo sectores (opcional: hay clientes sin sector)
+  socioId         Int?               @map("socio_id") // socio responsable (FK lógica a User.id, informativo)
   modules         ClientModule[]
   dianForms       ClientDianForm[]
   reconciliations Reconciliation[]
-  createdAt       DateTime         @default(now()) @map("creado_en") @db.Timestamptz(3)
+  createdAt       DateTime           @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   @@index([socioId])
   @@index([erpId])
@@ -234,15 +235,52 @@ model Client {
 /// SAP…). `code` es la forma canónica en MAYÚSCULAS sin acentos; `name` la
 /// etiqueta visible. Antes era texto libre en clientes.erp.
 model Erp {
-  id        Int      @id @default(autoincrement()) @map("id")
-  code      String   @unique @map("codigo") // forma canónica: SIESA, SAP, SIIGO, OFIMATICA...
-  name      String   @map("nombre") // etiqueta visible
-  active    Boolean  @default(true) @map("activo")
-  order     Int      @default(0) @map("orden")
-  clients   Client[]
-  createdAt DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+  id              Int                @id @default(autoincrement()) @map("id")
+  code            String             @unique @map("codigo") // forma canónica: SIESA, SAP, SIIGO, OFIMATICA...
+  name            String             @map("nombre") // etiqueta visible
+  active          Boolean            @default(true) @map("activo")
+  order           Int                @default(0) @map("orden")
+  clients         Client[]
+  clientProcesses ClientErpProcess[]
+  createdAt       DateTime           @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   @@map("erps")
+}
+
+/// Procesos funcionales cuyo software puede variar dentro del mismo cliente.
+/// Se mantiene separado de `Module`: CONT no es un módulo de importación y la
+/// información maestra no debe desaparecer al desactivar un módulo del cliente.
+model ErpProcess {
+  id          Int                @id @default(autoincrement()) @map("id")
+  code        String             @unique @map("codigo")
+  name        String             @map("nombre")
+  active      Boolean            @default(true) @map("activo")
+  order       Int                @default(0) @map("orden")
+  assignments ClientErpProcess[]
+  createdAt   DateTime           @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  @@map("procesos_erp")
+}
+
+/// ERP utilizado por un cliente en un proceso específico. `erpId = null` junto
+/// con estado `pendiente` representa una decisión explícita aún sin documentar.
+model ClientErpProcess {
+  id        Int        @id @default(autoincrement()) @map("id")
+  client    Client     @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  clientId  Int        @map("cliente_id")
+  process   ErpProcess @relation(fields: [processId], references: [id], onDelete: Restrict)
+  processId Int        @map("proceso_id")
+  erp       Erp?       @relation(fields: [erpId], references: [id], onDelete: Restrict)
+  erpId     Int?       @map("erp_id")
+  status    String     @default("pendiente") @map("estado") // confirmado | heredado | pendiente
+  source    String?    @map("origen") // manual | importacion | migracion
+  createdAt DateTime   @default(now()) @map("creado_en") @db.Timestamptz(3)
+  updatedAt DateTime   @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+
+  @@unique([clientId, processId], map: "erps_cliente_proceso_cliente_proceso_key")
+  @@index([processId, erpId], map: "erps_cliente_proceso_proceso_erp_idx")
+  @@index([erpId], map: "erps_cliente_proceso_erp_idx")
+  @@map("erps_cliente_proceso")
 }
 
 /// Catálogo de sectores económicos del cliente. El origen trae "N-Nombre"

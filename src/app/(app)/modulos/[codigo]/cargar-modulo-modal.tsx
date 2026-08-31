@@ -106,11 +106,12 @@ function CargarModal({
   const [tieneArchivo, setTieneArchivo] = useState(false);
   const [nombreArchivo, setNombreArchivo] = useState("");
   const [clienteId, setClienteId] = useState<number | null>(anexo?.clienteId ?? null);
-  const [softwareOrigen, setSoftwareOrigen] = useState(
-    clientes.find((cliente) => cliente.id === anexo?.clienteId)?.erp ?? "",
-  );
-  const [ubicacionOrigen, setUbicacionOrigen] = useState("");
-  const [reflejoContableEsperado, setReflejoContableEsperado] = useState("");
+  // El ERP ya forma parte del maestro del cliente: se conserva como metadato sin
+  // volver a pedírselo al usuario. La ubicación y el reflejo contable se documentan
+  // progresivamente en la Bitácora, donde siguen siendo editables.
+  const softwareOrigen = clienteId == null
+    ? ""
+    : clientes.find((cliente) => cliente.id === clienteId)?.erp ?? "";
   const [fase, setFase] = useState<"archivo" | "mapeo">("archivo");
   const [analisis, setAnalisis] = useState<AnalisisModulo | null>(null);
   const [recepcionLoteId, setRecepcionLoteId] = useState<string | null>(null);
@@ -136,7 +137,6 @@ function CargarModal({
       setFase("archivo");
     }
     setClienteId(id);
-    setSoftwareOrigen(id == null ? "" : clientes.find((cliente) => cliente.id === id)?.erp ?? "");
     setPrefs(null);
     const solicitud = ++solicitudPrefsRef.current;
     if (id == null) return;
@@ -174,8 +174,6 @@ function CargarModal({
       if (hojaElegida) fd.set("hoja", hojaElegida);
       if (recepcionLoteId) fd.set("recepcionLoteId", recepcionLoteId);
       fd.set("softwareOrigen", softwareOrigen);
-      fd.set("ubicacionOrigen", ubicacionOrigen);
-      fd.set("reflejoContableEsperado", reflejoContableEsperado);
       fd.set("archivo", archivoRef.current!);
       try {
         const r = await analizarArchivoModulo(fd);
@@ -214,8 +212,6 @@ function CargarModal({
       fd.set("periodoInicio", mes ? `${mes}-01` : "");
       fd.set("periodoFin", mes ? `${mes}-01` : "");
       fd.set("softwareOrigen", softwareOrigen);
-      fd.set("ubicacionOrigen", ubicacionOrigen);
-      fd.set("reflejoContableEsperado", reflejoContableEsperado);
       if (recepcionLoteId) fd.set("recepcionLoteId", recepcionLoteId);
       if (anexo) fd.set("anexoEncabezadoId", String(anexo.encabezadoId));
       fd.set("archivo", archivoRef.current!);
@@ -355,47 +351,7 @@ function CargarModal({
             {tieneArchivo && <span className="text-[11px] text-ok-700">Listo: {nombreArchivo}</span>}
           </label>
 
-          <div className="grid grid-cols-1 gap-3 rounded-md border border-ink-150 bg-ink-50 px-3 py-2.5 sm:grid-cols-2">
-            <label className="flex min-w-0 flex-col gap-1">
-              <span className="text-[11px] font-medium text-ink-600">Software / sistema de origen <span className="font-normal text-ink-400">(opcional)</span></span>
-              <input
-                type="text"
-                maxLength={160}
-                value={softwareOrigen}
-                onChange={(event) => setSoftwareOrigen(event.target.value)}
-                placeholder="P. ej. SIESA, Siigo, SAP"
-                className="rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400"
-              />
-            </label>
-            <label className="flex min-w-0 flex-col gap-1">
-              <span className="text-[11px] font-medium text-ink-600">Ubicación o carpeta de origen <span className="font-normal text-ink-400">(opcional)</span></span>
-              <input
-                type="text"
-                maxLength={500}
-                value={ubicacionOrigen}
-                onChange={(event) => setUbicacionOrigen(event.target.value)}
-                placeholder="P. ej. Facturación / cierres / agosto"
-                className="rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400"
-              />
-            </label>
-            <label className="flex min-w-0 flex-col gap-1 sm:col-span-2">
-              <span className="text-[11px] font-medium text-ink-600">Cómo debe reflejarse en contabilidad <span className="font-normal text-ink-400">(opcional)</span></span>
-              <textarea
-                rows={2}
-                maxLength={4000}
-                value={reflejoContableEsperado}
-                onChange={(event) => setReflejoContableEsperado(event.target.value)}
-                placeholder="Describe la cuenta, naturaleza o regla esperada; también puedes completar esta documentación después en la Bitácora."
-                className="resize-y rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400"
-              />
-            </label>
-          </div>
-
           {prefs?.observaciones && <NotasCargaModulo notas={prefs.observaciones} />}
-
-          <p className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[11.5px] leading-relaxed text-blue-800">
-            Al analizar, primero se conservan los bytes exactos del original y su SHA-256; incluso un archivo no procesable queda registrado en la Bitácora. Después podrás corregir el mapeo y completar progresivamente su documentación.
-          </p>
         </div>
       ) : (
         <div className="flex flex-col gap-4 text-[12.5px]">

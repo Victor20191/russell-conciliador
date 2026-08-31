@@ -11,6 +11,7 @@ import { requirePermiso } from "@/lib/rbac";
 import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { nextClientCode } from "@/lib/client-code";
 import { ROL_POR_FUNCION, ROL_SOCIO } from "@/lib/rbac/jerarquia";
+import { esCodigoProcesoErp } from "@/lib/erp-procesos";
 
 export default async function ClientesPage() {
   await requirePermiso("clientes:configurar");
@@ -18,7 +19,7 @@ export default async function ClientesPage() {
   // responsable; Admin/Superadmin administran todos.
   const alc = await alcanceLecturaUsuario();
   const whereCliente = alc.todos ? {} : { id: { in: alc.clientIds } };
-  const [clients, modules, dianFormsBD, erpsBD, sectoresBD, usuarios, aristasBD, asignaciones] = await Promise.all([
+  const [clients, modules, dianFormsBD, erpsBD, procesosErpBD, sectoresBD, usuarios, aristasBD, asignaciones] = await Promise.all([
     prisma.client.findMany({
       where: whereCliente,
       orderBy: { name: "asc" },
@@ -26,6 +27,14 @@ export default async function ClientesPage() {
         modules: true,
         dianForms: true,
         erp: { select: { name: true } },
+        erpsPorProceso: {
+          select: {
+            erpId: true,
+            status: true,
+            process: { select: { code: true } },
+            erp: { select: { name: true } },
+          },
+        },
         sector: { select: { name: true } },
       },
     }),
@@ -34,7 +43,12 @@ export default async function ClientesPage() {
       orderBy: { code: "asc" },
       select: { id: true, name: true, code: true },
     }),
-    prisma.erp.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.erp.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true, active: true } }),
+    prisma.erpProcess.findMany({
+      where: { active: true },
+      orderBy: [{ order: "asc" }, { name: "asc" }],
+      select: { code: true, name: true },
+    }),
     prisma.sector.findMany({ where: { active: true }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.user.findMany({
       orderBy: { name: "asc" },
@@ -79,29 +93,43 @@ export default async function ClientesPage() {
     responsablesPorCliente.set(a.clientId, lista);
   }
 
-  const rows: ClientRow[] = clients.map((c) => ({
-    id: c.id,
-    code: c.code,
-    name: c.name,
-    nit: c.nit,
-    tipo: c.tipo,
-    erpId: c.erpId,
-    erpName: c.erp?.name ?? null,
-    sectorId: c.sectorId,
-    sectorName: c.sector?.name ?? null,
-    socioId: c.socioId,
-    socioName: c.socioId != null ? (nombrePorId.get(c.socioId) ?? null) : null,
-    modules: c.modules.map((m) => ({ moduleId: m.moduleId, status: m.status })),
-    dianFormIds: c.dianForms.map((f) => f.formId),
-    responsables: responsablesPorCliente.get(c.id) ?? [],
-  }));
+  const rows: ClientRow[] = clients.map((c) => {
+    const contabilidad = c.erpsPorProceso.find((asignacion) => asignacion.process.code === "CONT");
+    return {
+      id: c.id,
+      code: c.code,
+      name: c.name,
+      nit: c.nit,
+      tipo: c.tipo,
+      erpId: contabilidad ? contabilidad.erpId : c.erpId,
+      erpName: contabilidad ? (contabilidad.erp?.name ?? null) : (c.erp?.name ?? null),
+      erpsPorProceso: c.erpsPorProceso.map((asignacion) => ({
+        processCode: asignacion.process.code,
+        erpId: asignacion.erpId,
+        erpName: asignacion.erp?.name ?? null,
+        status: asignacion.status,
+      })),
+      sectorId: c.sectorId,
+      sectorName: c.sector?.name ?? null,
+      socioId: c.socioId,
+      socioName: c.socioId != null ? (nombrePorId.get(c.socioId) ?? null) : null,
+      modules: c.modules.map((m) => ({ moduleId: m.moduleId, status: m.status })),
+      dianFormIds: c.dianForms.map((f) => f.formId),
+      responsables: responsablesPorCliente.get(c.id) ?? [],
+    };
+  });
   const mods: ModuleRef[] = modules.map((m) => ({ id: m.id, name: m.name }));
   const dianForms: DianFormRef[] = dianFormsBD.map((f) => ({
     id: f.id,
     name: f.name,
     code: f.code,
   }));
-  const erps = erpsBD.map((e) => ({ id: e.id, name: e.name }));
+  const erps = erpsBD.map((e) => ({ id: e.id, name: e.name, active: e.active }));
+  const erpProcesses = procesosErpBD.flatMap((proceso) =>
+    esCodigoProcesoErp(proceso.code)
+      ? [{ code: proceso.code, name: proceso.name }]
+      : [],
+  );
   const sectors = sectoresBD.map((s) => ({ id: s.id, name: s.name }));
   const nextCode = nextClientCode(clients.map((c) => c.code));
 
@@ -116,6 +144,7 @@ export default async function ClientesPage() {
         modules={mods}
         dianForms={dianForms}
         erps={erps}
+        erpProcesses={erpProcesses}
         sectors={sectors}
         nextCode={nextCode}
         personas={personas}

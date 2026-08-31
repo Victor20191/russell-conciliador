@@ -102,6 +102,9 @@ describe("analizarArchivoModulo · recepción durable", () => {
       huellaSha256: SHA,
       estado: "recibido",
       disponible: false,
+      softwareOrigen: null,
+      ubicacionOrigen: null,
+      reflejoContableEsperado: null,
     });
     const subida = mocks.subirObjeto.mock.calls[0][0];
     expect(subida.cuerpo).toEqual(BYTES);
@@ -134,5 +137,28 @@ describe("analizarArchivoModulo · recepción durable", () => {
     expect(mocks.subirObjeto).not.toHaveBeenCalled();
     expect(mocks.originalUpdateMany.mock.calls[1][0].data).toEqual({ estado: "no_procesable" });
     expect(resultado.message).toContain("original no está disponible");
+  });
+
+  it("un reintento que solo envía el ERP conserva ubicación y reflejo ya documentados", async () => {
+    const loteId = "d20810cb-ec7e-43a5-8fd7-a25a86646bbf";
+    mocks.originalFindUnique.mockResolvedValue({
+      loteId,
+      clienteId: 17,
+      moduloCodigo: "ING",
+      nombreArchivo: "facturacion-corrupta.xlsx",
+      tamanoBytes: BYTES.byteLength,
+      huellaSha256: SHA,
+      claveObjeto: `software/modulos/ing/clientes/17/originales/${loteId}/facturacion-corrupta.xlsx`,
+      disponible: true,
+      estado: "recibido",
+    });
+
+    const datos = formulario(loteId);
+    datos.set("softwareOrigen", "SIIGO");
+    await analizarArchivoModulo(datos);
+
+    expect(mocks.originalUpdateMany.mock.calls[0][0].data).toEqual({ estado: "recibido", softwareOrigen: "SIIGO" });
+    expect(mocks.originalUpdateMany.mock.calls[0][0].data).not.toHaveProperty("ubicacionOrigen");
+    expect(mocks.originalUpdateMany.mock.calls[0][0].data).not.toHaveProperty("reflejoContableEsperado");
   });
 });

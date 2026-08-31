@@ -5,6 +5,7 @@ import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { crearExportacionClientes, type FilaClienteExport } from "@/lib/export/clientes";
 import { mensajeErrorBD } from "@/lib/errores";
 import { fechaColombiaISO } from "@/lib/fecha-hora";
+import { esCodigoProcesoErp } from "@/lib/erp-procesos";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,6 +31,12 @@ export async function GET() {
           modules: true,
           dianForms: true,
           erp: { select: { name: true } },
+          erpsPorProceso: {
+            select: {
+              process: { select: { code: true } },
+              erp: { select: { name: true } },
+            },
+          },
           sector: { select: { name: true } },
         },
       }),
@@ -62,12 +69,20 @@ export async function GET() {
 
     const filas: FilaClienteExport[] = clients.map((c) => {
       const r = respPorCliente.get(c.id) ?? { gerente: null, senior: null, staff: [] };
+      const erpsPorProceso = Object.fromEntries(
+        c.erpsPorProceso.flatMap((asignacion) =>
+          esCodigoProcesoErp(asignacion.process.code)
+            ? [[asignacion.process.code, asignacion.erp?.name ?? null]]
+            : [],
+        ),
+      );
       return {
         code: c.code,
         name: c.name,
         nit: c.nit,
         tipo: c.tipo,
         erpName: c.erp?.name ?? null,
+        erpsPorProceso,
         sectorName: c.sector?.name ?? null,
         // El Socio NO se asigna en asignaciones_cliente: vive en Client.socioId.
         socio: c.socioId != null ? (nombrePorId.get(c.socioId) ?? null) : null,

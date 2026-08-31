@@ -7,6 +7,7 @@ import { revalidatePath } from "next/cache";
 import { randomUUID } from "crypto";
 import * as z from "zod";
 import prisma from "@/lib/prisma";
+import { resolverValorErpProceso } from "@/lib/erp-cliente";
 import { Prisma } from "@/generated/prisma/client";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
@@ -105,6 +106,21 @@ function documentacionDesdeFormulario(formData: FormData) {
   });
 }
 
+type DocumentacionArchivoModuloValidada = z.infer<typeof DocumentacionArchivoModuloSchema>;
+
+/** En una recepción existente, omitir un campo significa «conservar lo documentado»,
+ * no «borrarlo». El vaciado explícito sigue disponible desde el editor de Bitácora. */
+function cambiosDocumentacionPresentes(
+  formData: FormData,
+  documentacion: DocumentacionArchivoModuloValidada,
+): Partial<DocumentacionArchivoModuloValidada> {
+  const cambios: Partial<DocumentacionArchivoModuloValidada> = {};
+  if (formData.has("softwareOrigen")) cambios.softwareOrigen = documentacion.softwareOrigen;
+  if (formData.has("ubicacionOrigen")) cambios.ubicacionOrigen = documentacion.ubicacionOrigen;
+  if (formData.has("reflejoContableEsperado")) cambios.reflejoContableEsperado = documentacion.reflejoContableEsperado;
+  return cambios;
+}
+
 function mensajeErrorLecturaArchivoModulo(contexto: string, e: unknown): string {
   registrarError(contexto, e);
   const mensaje = e instanceof Error ? e.message.trim() : "";
@@ -176,7 +192,25 @@ async function sugerenciasPerfilPorErp(
 ): Promise<{ erpName: string; sugerencias: ReturnType<typeof seleccionarSugerenciasPerfil> } | null> {
   const [erp, otrosClientes] = await Promise.all([
     prisma.erp.findUnique({ where: { id: erpId }, select: { name: true } }),
-    prisma.client.findMany({ where: { erpId, id: { not: clienteId } }, select: { id: true, name: true } }),
+    prisma.client.findMany({
+      where: {
+        id: { not: clienteId },
+        OR: [
+          {
+            erpsPorProceso: {
+              some: { process: { code: moduloCodigo }, erpId },
+            },
+          },
+          {
+            AND: [
+              { erpsPorProceso: { none: { process: { code: moduloCodigo } } } },
+              { erpId },
+            ],
+          },
+        ],
+      },
+      select: { id: true, name: true },
+    }),
   ]);
   if (!erp || otrosClientes.length === 0) return null;
 
@@ -350,9 +384,7 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
         where: { loteId, estado: { in: ["recibido", "no_procesable"] } },
         data: {
           estado: "recibido",
-          softwareOrigen: documentacion.data.softwareOrigen,
-          ubicacionOrigen: documentacion.data.ubicacionOrigen,
-          reflejoContableEsperado: documentacion.data.reflejoContableEsperado,
+          ...cambiosDocumentacionPresentes(formData, documentacion.data),
         },
       });
       if (recepcionActualizada.count !== 1) {
@@ -463,9 +495,23 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
       spec = sanearValorInicial(perfilSpec);
       origen = "perfil";
     } else {
-      const cliente = await prisma.client.findUnique({ where: { id: clienteId }, select: { erpId: true } });
-      const porErp = cliente?.erpId
-        ? await sugerenciasPerfilPorErp(clienteId, cliente.erpId, moduloCodigo, candidatas)
+      const cliente = await prisma.client.findUnique({
+        where: { id: clienteId },
+        select: {
+          erpId: true,
+          erpsPorProceso: {
+            where: { process: { code: moduloCodigo } },
+            select: { erpId: true },
+          },
+        },
+      });
+      const asignacionProceso = cliente?.erpsPorProceso[0];
+      const erpIdProceso = resolverValorErpProceso(
+        asignacionProceso ? { valor: asignacionProceso.erpId } : undefined,
+        cliente?.erpId ?? null,
+      );
+      const porErp = erpIdProceso
+        ? await sugerenciasPerfilPorErp(clienteId, erpIdProceso, moduloCodigo, candidatas)
         : null;
       if (porErp?.sugerencias.exacto) {
         spec = sanearValorInicial(SpecModuloSchema.parse(porErp.sugerencias.exacto.spec));
@@ -697,9 +743,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
           periodo: periodoArchivo,
           estado: "recibido",
           esAnexo: anexoEncabezadoId != null,
-          softwareOrigen: documentacion.data.softwareOrigen,
-          ubicacionOrigen: documentacion.data.ubicacionOrigen,
-          reflejoContableEsperado: documentacion.data.reflejoContableEsperado,
+          ...cambiosDocumentacionPresentes(formData, documentacion.data),
         },
       });
       if (recepcionActualizada.count !== 1) {

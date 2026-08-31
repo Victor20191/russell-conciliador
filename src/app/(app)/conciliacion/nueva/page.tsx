@@ -15,7 +15,17 @@ export default async function NuevaConciliacionPage() {
     prisma.client.findMany({
       where: alc.todos ? {} : { id: { in: alc.clientIds } },
       orderBy: { name: "asc" },
-      include: { modules: true, erp: { select: { name: true } }, sector: { select: { name: true } } },
+      include: {
+        modules: true,
+        erp: { select: { name: true } },
+        erpsPorProceso: {
+          select: {
+            process: { select: { code: true } },
+            erp: { select: { name: true } },
+          },
+        },
+        sector: { select: { name: true } },
+      },
     }),
     prisma.module.findMany({ orderBy: { name: "asc" } }),
     prisma.moduleField.findMany({ orderBy: { order: "asc" } }),
@@ -37,10 +47,26 @@ export default async function NuevaConciliacionPage() {
     }),
   ]);
 
-  const clientOpts: ClientOpt[] = clients.map((c) => ({
-    id: c.id, name: c.name, nit: c.nit, erp: c.erp?.name ?? "", sector: c.sector?.name ?? "",
-    configured: c.modules.filter((m) => m.status === "configured").map((m) => m.moduleId),
-  }));
+  const clientOpts: ClientOpt[] = clients.map((c) => {
+    const asignacionPorCodigo = new Map(
+      c.erpsPorProceso.map((asignacion) => [asignacion.process.code, asignacion.erp?.name ?? ""]),
+    );
+    return {
+      id: c.id,
+      name: c.name,
+      nit: c.nit,
+      erpPorProceso: Object.fromEntries(
+        modules.map((modulo) => [
+          modulo.code,
+          asignacionPorCodigo.has(modulo.code)
+            ? asignacionPorCodigo.get(modulo.code)!
+            : (c.erp?.name ?? ""),
+        ]),
+      ),
+      sector: c.sector?.name ?? "",
+      configured: c.modules.filter((m) => m.status === "configured").map((m) => m.moduleId),
+    };
+  });
   const moduleOpts: ModuleOpt[] = modules.map((m) => ({ id: m.id, code: m.code, name: m.name, icon: m.icon }));
   const balanceOpts: BalanceOpt[] = balances.map((b) => ({
     id: b.id,

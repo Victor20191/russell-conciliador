@@ -16,6 +16,7 @@ import { resolverErp, resolverSector, type CatalogoRef } from "@/lib/import/erp-
 import { normalizar } from "@/lib/import/xlsx";
 import type { ErrorImport } from "@/lib/import/maestros";
 import { claveNit } from "@/lib/nit";
+import { PROCESOS_ERP, type CodigoProcesoErp } from "@/lib/erp-procesos";
 
 const PATH = "/config/clientes";
 const MAX_BYTES = 4 * 1024 * 1024; // 4 MB
@@ -25,7 +26,7 @@ type Resuelta = {
   name: string;
   nit: string;
   tipo: string;
-  erp: CatalogoRef | null; // opcional: el cliente puede importarse sin ERP
+  erps: Record<CodigoProcesoErp, CatalogoRef | null>;
   sector: CatalogoRef | null;
   socioId: number;
   gerenteId: number;
@@ -65,13 +66,21 @@ export async function importarClientes(
     }
 
     // ---- Catálogos para resolver nombres/códigos ----
-    const [usuarios, aristasBD, modulos, dianForms, clientes] = await Promise.all([
+    const [usuarios, aristasBD, modulos, dianForms, clientes, procesosErp] = await Promise.all([
       prisma.user.findMany({ where: { active: true }, select: { id: true, name: true, role: true } }),
       prisma.userHierarchy.findMany({ select: { superiorId: true, subordinateId: true } }),
       prisma.module.findMany({ select: { id: true, name: true } }),
       prisma.dianForm.findMany({ select: { id: true, code: true } }),
       prisma.client.findMany({ select: { code: true, nit: true } }),
+      prisma.erpProcess.findMany({
+        where: { active: true, code: { in: PROCESOS_ERP.map((proceso) => proceso.codigo) } },
+        select: { id: true, code: true },
+      }),
     ]);
+    const procesoIdPorCodigo = new Map(procesosErp.map((proceso) => [proceso.code, proceso.id]));
+    if (PROCESOS_ERP.some((proceso) => !procesoIdPorCodigo.has(proceso.codigo))) {
+      return { ok: false, message: "El catálogo de procesos ERP no está completo. Aplica la migración pendiente." };
+    }
 
     // Nombre (normalizado) → ids, por rol. Detecta homónimos (ambigüedad).
     const porRolNombre = new Map<string, Map<string, number[]>>();
@@ -175,7 +184,12 @@ export async function importarClientes(
         name: f.name,
         nit: f.nit,
         tipo: f.tipo,
-        erp: resolverErp(f.erp),
+        erps: Object.fromEntries(
+          PROCESOS_ERP.map((proceso) => [
+            proceso.codigo,
+            resolverErp(f.erps[proceso.codigo] ?? ""),
+          ]),
+        ) as Record<CodigoProcesoErp, CatalogoRef | null>,
         sector: resolverSector(f.sector),
         socioId: socio.id!,
         gerenteId: gerente.id!,
@@ -193,6 +207,24 @@ export async function importarClientes(
       };
     }
 
+    const codigosErpImportados = [...new Set(
+      resueltas.flatMap((cliente) =>
+        Object.values(cliente.erps).flatMap((erp) => erp ? [erp.code] : []),
+      ),
+    )];
+    const erpsInactivos = codigosErpImportados.length > 0
+      ? await prisma.erp.findMany({
+          where: { code: { in: codigosErpImportados }, active: false },
+          select: { name: true },
+        })
+      : [];
+    if (erpsInactivos.length > 0) {
+      return {
+        ok: false,
+        message: `No se importó ningún cliente. Reactiva o reemplaza estos ERP inactivos: ${erpsInactivos.map((erp) => erp.name).join(", ")}.`,
+      };
+    }
+
     // ---- Commit: crear clientes + parametrizaciones + responsables ----
     const codigosUsados = clientes.map((c) => c.code);
     const codigosNuevos: string[] = [];
@@ -202,7 +234,9 @@ export async function importarClientes(
       const erpsDistintos = new Map<string, string>();
       const sectoresDistintos = new Map<string, string>();
       for (const c of resueltas) {
-        if (c.erp) erpsDistintos.set(c.erp.code, c.erp.name);
+        for (const erp of Object.values(c.erps)) {
+          if (erp) erpsDistintos.set(erp.code, erp.name);
+        }
         if (c.sector) sectoresDistintos.set(c.sector.code, c.sector.name);
       }
       const erpIdPorCode = new Map<string, number>();
@@ -221,13 +255,14 @@ export async function importarClientes(
         codigosUsados.push(code);
         codigosNuevos.push(code);
 
+        const erpContable = c.erps.CONT ? erpIdPorCode.get(c.erps.CONT.code)! : null;
         const cliente = await tx.client.create({
           data: {
             code,
             name: c.name,
             nit: c.nit,
             tipo: c.tipo,
-            erpId: c.erp ? erpIdPorCode.get(c.erp.code)! : null,
+            erpId: erpContable,
             sectorId: c.sector ? sectorIdPorCode.get(c.sector.code)! : null,
             socioId: c.socioId,
             modules: c.moduleIds.length
@@ -237,6 +272,19 @@ export async function importarClientes(
               ? { create: c.dianFormIds.map((formId) => ({ formId })) }
               : undefined,
           },
+        });
+        await tx.clientErpProcess.createMany({
+          data: PROCESOS_ERP.map((proceso) => {
+            const erp = c.erps[proceso.codigo];
+            const erpId = erp ? erpIdPorCode.get(erp.code)! : null;
+            return {
+              clientId: cliente.id,
+              processId: procesoIdPorCodigo.get(proceso.codigo)!,
+              erpId,
+              status: erpId == null ? "pendiente" : "confirmado",
+              source: "importacion",
+            };
+          }),
         });
         await tx.clientAssignment.createMany({
           data: [

@@ -11,7 +11,7 @@ import { confidenceClass } from "@/lib/format";
 import { executeReconciliation } from "@/app/actions/reconciliation";
 import { notifyError } from "@/lib/client-notifications";
 
-export type ClientOpt = { id: number; name: string; nit: string; erp: string; sector: string; configured: number[] };
+export type ClientOpt = { id: number; name: string; nit: string; erpPorProceso: Record<string, string>; sector: string; configured: number[] };
 export type ModuleOpt = { id: number; code: string; name: string; icon: string };
 export type StdField = { key: string; label: string; type: string; required: boolean };
 export type BalanceOpt = {
@@ -118,8 +118,10 @@ function ScopeStep({
   isConfigured: boolean; onContinue: () => void;
 }) {
   const client = clients.find((c) => c.id === clientId);
+  const modulo = modules.find((m) => m.id === moduleId);
+  const erpModulo = modulo ? (client?.erpPorProceso[modulo.code] ?? "") : "";
   // El ERP es obligatorio para INICIAR la conciliación: sin ERP se bloquea.
-  const sinErp = !!client && !client.erp;
+  const sinErp = !!client && !erpModulo;
   const sinBalance = !selectedBalance;
   const sinModulo = !modules.some((module) => module.id === moduleId);
   return (
@@ -138,7 +140,7 @@ function ScopeStep({
         <label className="flex flex-col gap-1">
           <span className="text-[11.5px] font-medium text-ink-600">Cliente</span>
           <select value={clientId} onChange={(e) => onClientChange(Number(e.target.value))} className="rounded-md border border-ink-200 px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400">
-            {clients.map((c) => <option key={c.id} value={c.id}>{c.name} — {c.nit} — {c.erp || "sin ERP"}</option>)}
+            {clients.map((c) => <option key={c.id} value={c.id}>{c.name} — {c.nit}</option>)}
           </select>
         </label>
         <label className="flex flex-col gap-1">
@@ -161,6 +163,11 @@ function ScopeStep({
       </div>
 
       {client && <div className="mt-2 text-[12px] text-ink-500">Sector: {client.sector || "—"} · {client.configured.length}/6 módulos parametrizados</div>}
+      {modulo && (
+        <div className="mt-1 text-[12px] text-ink-500">
+          ERP de {modulo.name}: <b className="text-ink-700">{erpModulo || "pendiente / sin definir"}</b>
+        </div>
+      )}
       {selectedBalance && (
         <div className="mt-2 text-[12px] text-ink-500">
           Período exacto del balance: {selectedBalance.periodStart} a {selectedBalance.periodEnd} · versión v{selectedBalance.version}
@@ -168,7 +175,7 @@ function ScopeStep({
       )}
       {sinErp && (
         <div className="mt-3 rounded-md bg-err-100 px-3 py-2 text-[12px] text-err-700">
-          <b>{client?.name}</b> no tiene un ERP asignado. Asígnalo en Configuración › Clientes antes de iniciar la conciliación.
+          <b>{client?.name}</b> no tiene un ERP definido para {modulo?.name ?? "el módulo"}. Asígnalo en Configuración › Clientes antes de iniciar la conciliación.
         </div>
       )}
       {sinBalance && (

@@ -21,12 +21,14 @@ import {
 import type { ActionState } from "@/lib/definitions";
 import { notifyActionState } from "@/lib/client-notifications";
 import { ImportClientesButton } from "./import-clientes-modal";
+import { campoErpProceso, type CodigoProcesoErp } from "@/lib/erp-procesos";
 
 export type ModuleRef = { id: number; name: string };
 /** Catálogo de formatos DIAN seleccionables por cliente (IVA F-300…). */
 export type DianFormRef = { id: number; name: string; code: string };
 /** Catálogos maestros ERP y Sector seleccionables por cliente. */
-export type ErpRef = { id: number; name: string };
+export type ErpRef = { id: number; name: string; active: boolean };
+export type ErpProcessRef = { code: CodigoProcesoErp; name: string };
 export type SectorRef = { id: number; name: string };
 export type PersonaRef = { id: number; name: string };
 /** Candidatos por rol, ya filtrados por activos. El socio es informativo. */
@@ -46,6 +48,12 @@ export type ClientRow = {
   tipo: string;
   erpId: number | null;
   erpName: string | null;
+  erpsPorProceso: {
+    processCode: string;
+    erpId: number | null;
+    erpName: string | null;
+    status: string;
+  }[];
   sectorId: number | null;
   sectorName: string | null;
   socioId: number | null;
@@ -73,6 +81,7 @@ export default function ClientesClient({
   modules,
   dianForms,
   erps,
+  erpProcesses,
   sectors,
   nextCode,
   personas,
@@ -82,6 +91,7 @@ export default function ClientesClient({
   modules: ModuleRef[];
   dianForms: DianFormRef[];
   erps: ErpRef[];
+  erpProcesses: ErpProcessRef[];
   sectors: SectorRef[];
   nextCode: string;
   personas: Personas;
@@ -134,9 +144,9 @@ export default function ClientesClient({
           }}
           className="rounded-md border border-ink-200 px-2 py-1.5 text-[12.5px] text-ink-700 outline-none"
         >
-          <option value="">Todos los ERPs</option>
-          <option value="__sin__">Sin ERP</option>
-          {erps.map((e) => (
+          <option value="">Todos los ERP contables</option>
+          <option value="__sin__">Sin ERP contable</option>
+          {erps.filter((e) => e.active).map((e) => (
             <option key={e.id} value={e.id}>{e.name}</option>
           ))}
         </select>
@@ -180,7 +190,7 @@ export default function ClientesClient({
               <th className="px-4 py-2 font-semibold">Cliente</th>
               <th className="px-4 py-2 font-semibold">NIT</th>
               <th className="px-2 py-2 text-center font-semibold">Tipo</th>
-              <th className="px-4 py-2 font-semibold">ERP</th>
+              <th className="px-4 py-2 font-semibold">ERP contable</th>
               {modules.map((m) => (
                 <th key={m.id} className="px-2 py-2 text-center font-semibold">{m.name}</th>
               ))}
@@ -219,10 +229,10 @@ export default function ClientesClient({
                 <td className="px-4 py-2.5 text-ink-600">
                   {c.erpName ?? (
                     <span
-                      title="Sin ERP asignado: se exige antes de iniciar una conciliación o cargar el balance."
+                      title="Sin ERP contable asignado: se exige antes de iniciar una conciliación o cargar el balance."
                       className="inline-flex items-center rounded-full bg-warn-100 px-2 py-0.5 text-[10px] font-semibold text-warn-700"
                     >
-                      Sin ERP
+                      Sin ERP contable
                     </span>
                   )}
                 </td>
@@ -272,6 +282,7 @@ export default function ClientesClient({
           title="Nuevo cliente"
           action={createClient}
           erps={erps}
+          erpProcesses={erpProcesses}
           sectors={sectors}
           nextCode={nextCode}
           modules={modules}
@@ -288,6 +299,7 @@ export default function ClientesClient({
           action={updateClient}
           client={editing}
           erps={erps}
+          erpProcesses={erpProcesses}
           sectors={sectors}
           nextCode={nextCode}
           modules={modules}
@@ -347,6 +359,7 @@ function ClientModal({
   action,
   client,
   erps,
+  erpProcesses,
   sectors,
   nextCode,
   modules,
@@ -359,6 +372,7 @@ function ClientModal({
   action: (prev: ActionState, fd: FormData) => Promise<ActionState>;
   client?: ClientRow | null;
   erps: ErpRef[];
+  erpProcesses: ErpProcessRef[];
   sectors: SectorRef[];
   nextCode: string;
   modules?: ModuleRef[];
@@ -523,6 +537,7 @@ function ClientModal({
     >
       <form id="client-form" action={formAction} className="flex flex-col gap-3">
         {isEdit && <input type="hidden" name="id" value={client.id} />}
+        <input type="hidden" name="syncErpsPorProceso" value="1" />
         {/* Dos columnas (en ≥sm): Datos del cliente | Responsables. Aprovecha el
             ancho del modal y reduce el alto para que todo quepa sin scroll. */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -568,19 +583,6 @@ function ClientModal({
           </CField>
         </div>
         <div className="flex gap-3">
-          <CField label="ERP" error={state?.errors?.erpId}>
-            <select
-              name="erpId"
-              defaultValue={client?.erpId ?? ""}
-              title="Opcional al crear; se exige antes de iniciar una conciliación o cargar el balance."
-              className="w-full rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400"
-            >
-              <option value="">Sin ERP</option>
-              {erps.map((e) => (
-                <option key={e.id} value={e.id}>{e.name}</option>
-              ))}
-            </select>
-          </CField>
           <CField label="Sector" error={state?.errors?.sectorId}>
             <select
               name="sectorId"
@@ -709,6 +711,66 @@ function ClientModal({
                 <span className="text-[11px] text-err-700">{state.errors.staffIds[0]}</span>
               )}
             </div>
+          </div>
+        </div>
+
+        <div className="rounded-md border border-ink-150 bg-ink-50/60 p-3 sm:col-span-2">
+          <div className="mb-2.5 flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <div className="text-[11.5px] font-medium text-ink-700">Sistemas por proceso</div>
+              <p className="mt-0.5 text-[11px] text-ink-400">
+                Selecciona el ERP que origina la información de cada proceso. Puede ser distinto para cada uno.
+              </p>
+            </div>
+            <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
+              7 procesos
+            </span>
+          </div>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            {erpProcesses.map((proceso) => {
+              const asignacion = client?.erpsPorProceso.find(
+                (item) => item.processCode === proceso.code,
+              );
+              // El único dato legado confiable es CONT. Inferir los demás desde
+              // el ERP contable registraría información no confirmada como cierta.
+              const erpInicial = asignacion
+                ? asignacion.erpId
+                : proceso.code === "CONT"
+                  ? (client?.erpId ?? "")
+                  : "";
+              const fieldName = campoErpProceso(proceso.code);
+              return (
+                <label
+                  key={proceso.code}
+                  className="rounded-md border border-ink-150 bg-white p-2.5 transition focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-100"
+                >
+                  <span className="mb-1.5 flex items-center gap-1.5">
+                    <span className="rounded bg-navy-50 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-navy-700">
+                      {proceso.code}
+                    </span>
+                    <span className="truncate text-[11.5px] font-medium text-ink-700">
+                      {proceso.name}
+                    </span>
+                  </span>
+                  <select
+                    name={fieldName}
+                    defaultValue={erpInicial ?? ""}
+                    aria-label={`ERP de ${proceso.name}`}
+                    className="w-full rounded-md border border-ink-200 bg-white px-2 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400"
+                  >
+                    <option value="">Pendiente / sin definir</option>
+                    {erps.filter((erp) => erp.active || erp.id === erpInicial).map((erp) => (
+                      <option key={erp.id} value={erp.id}>
+                        {erp.name}{erp.active ? "" : " (inactivo)"}
+                      </option>
+                    ))}
+                  </select>
+                  {state?.errors?.[fieldName]?.map((error) => (
+                    <span key={error} className="mt-1 block text-[10.5px] text-err-600">{error}</span>
+                  ))}
+                </label>
+              );
+            })}
           </div>
         </div>
         </div>

@@ -8,6 +8,7 @@ import { fmtDate, fmtHora12 } from "@/lib/format";
 import { agruparCargasModuloPorCliente } from "@/lib/modulos/versiones";
 import ModulosDatosClient, { type GrupoClienteRow } from "./modulos-datos-client";
 import { PestanasModulo } from "./pestanas-modulo";
+import { resolverValorErpProceso } from "@/lib/erp-cliente";
 
 export default async function ModuloDatosPage({ params }: { params: Promise<{ codigo: string }> }) {
   await requirePermiso("modulos_datos:ver");
@@ -22,7 +23,16 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
   const [clientes, borradoresPendientes, cargados] = await Promise.all([
     prisma.client.findMany({
       where: alc.todos ? {} : { id: { in: alc.clientIds } },
-      select: { id: true, name: true, nit: true, erp: { select: { name: true } } },
+      select: {
+        id: true,
+        name: true,
+        nit: true,
+        erp: { select: { name: true } },
+        erpsPorProceso: {
+          where: { process: { code: moduloCodigo } },
+          select: { erp: { select: { name: true } } },
+        },
+      },
       orderBy: { name: "asc" },
     }),
     // Los borradores se listan en la pestaña «Borradores»; aquí solo se cuenta
@@ -153,7 +163,14 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
           id: cliente.id,
           name: cliente.name,
           nit: cliente.nit,
-          erp: cliente.erp?.name ?? null,
+          // Una fila explícita pendiente anula la herencia. El ERP contable
+          // legado solo se usa mientras el proceso aún no tenga asignación.
+          erp: resolverValorErpProceso(
+            cliente.erpsPorProceso[0]
+              ? { valor: cliente.erpsPorProceso[0].erp?.name ?? null }
+              : undefined,
+            cliente.erp?.name ?? null,
+          ),
         }))}
         gruposCargados={filasCargados}
         puedeCrear={autorizacionCrear.ok}

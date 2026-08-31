@@ -53,6 +53,38 @@ test("parsea cliente con responsables, módulos y DIAN", async () => {
   expect(f.dianEnBlanco).toBe(false);
 });
 
+test("distingue ERP contable, de nómina e inventarios por encabezado", async () => {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet("Clientes");
+  const headers = [
+    "Razón social *", "NIT *", "Tipo de cliente *",
+    "ERP CONTABLE", "ERP NÓMINA", "ERP INVENTARIOS", "Sector *",
+    "Socio (firma) *", "Gerente (valida) *", "Senior (revisa) *", "Staff (ejecuta) *",
+  ];
+  headers.forEach((header, index) => { ws.getRow(1).getCell(index + 1).value = header; });
+  [
+    "Cliente multiproceso", "900123", "A", "SIIGO", "BUK", "NEWSTOCK", "Comercio",
+    "Demo Socio", "Demo Gerente", "Demo Senior", "Demo Staff Uno",
+  ].forEach((valor, index) => { ws.getRow(2).getCell(index + 1).value = valor; });
+
+  const { filas, errores } = await parseClientesWorkbook((await wb.xlsx.writeBuffer()) as ArrayBuffer);
+  expect(errores).toEqual([]);
+  expect(filas[0].erps).toEqual({ CONT: "SIIGO", NOM: "BUK", INV: "NEWSTOCK" });
+  expect(filas[0].erp).toBe("SIIGO");
+});
+
+test("rechaza dos columnas ERP para el mismo proceso", async () => {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet("Clientes");
+  [
+    "Razón social *", "NIT *", "Tipo de cliente *", "ERP", "ERP CONTABLE", "Sector *",
+    "Socio *", "Gerente *", "Senior *", "Staff *",
+  ].forEach((header, index) => { ws.getRow(1).getCell(index + 1).value = header; });
+  const { filas, errores } = await parseClientesWorkbook((await wb.xlsx.writeBuffer()) as ArrayBuffer);
+  expect(filas).toEqual([]);
+  expect(errores.some((error) => /más de una columna ERP.*CONT/.test(error.mensaje))).toBe(true);
+});
+
 test("bloque de módulos/DIAN en blanco activa las banderas (→ todos por defecto)", async () => {
   const buf = await construir([
     // Solo datos + responsables; módulos y DIAN en blanco.

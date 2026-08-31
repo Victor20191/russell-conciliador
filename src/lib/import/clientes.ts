@@ -7,6 +7,10 @@
 import type ExcelJS from "exceljs";
 import { celdaTexto, normalizar, cargarWorkbook } from "./xlsx";
 import type { ErrorImport } from "./maestros";
+import {
+  PROCESOS_ERP,
+  type CodigoProcesoErp,
+} from "@/lib/erp-procesos";
 
 const HOJA = "Clientes";
 const TIPOS = ["A", "B", "C"];
@@ -16,7 +20,9 @@ export type FilaCliente = {
   name: string;
   nit: string;
   tipo: string;
+  /** ERP por proceso. `erp` se conserva como alias contable para consumidores legados. */
   erp: string;
+  erps: Partial<Record<CodigoProcesoErp, string>>;
   sector: string;
   socio: string;
   gerente: string;
@@ -48,6 +54,22 @@ function esSi(v: string): boolean {
 
 const FIJAS = ["name", "nit", "tipo", "erp", "sector", "socio", "gerente", "senior", "staff"] as const;
 
+function procesoDeEncabezadoErp(encabezadoNormalizado: string): CodigoProcesoErp | null {
+  if (!encabezadoNormalizado.includes("erp")) return null;
+  const porCodigo = PROCESOS_ERP.find((proceso) =>
+    new RegExp(`(^|\\s)${proceso.codigo.toLowerCase()}($|\\s)`).test(encabezadoNormalizado),
+  );
+  if (porCodigo) return porCodigo.codigo;
+  if (/contab|^erp\s*\*?$/.test(encabezadoNormalizado)) return "CONT";
+  if (/nomin/.test(encabezadoNormalizado)) return "NOM";
+  if (/inventar/.test(encabezadoNormalizado)) return "INV";
+  if (/ingres/.test(encabezadoNormalizado)) return "ING";
+  if (/cartera/.test(encabezadoNormalizado)) return "CAR";
+  if (/pagar|cxp/.test(encabezadoNormalizado)) return "CXP";
+  if (/activo|afi/.test(encabezadoNormalizado)) return "AFI";
+  return "CONT";
+}
+
 export async function parseClientesWorkbook(data: ArrayBuffer | Buffer): Promise<ParseClientes> {
   const wb = await cargarWorkbook(data);
   if (!wb) {
@@ -71,6 +93,8 @@ export async function parseClientesWorkbook(data: ArrayBuffer | Buffer): Promise
   // Encabezados en la fila 1. Las columnas DIAN empiezan con «DIAN»; las demás no
   // reconocidas como fijas se tratan como módulos (el encabezado es el nombre).
   const fix: Record<string, number> = {};
+  const erpCols = new Map<CodigoProcesoErp, number>();
+  const erroresEncabezado: ErrorImport[] = [];
   const modCols: { col: number; name: string }[] = [];
   const dianCols: { col: number; code: string }[] = [];
   ws.getRow(1).eachCell((cell, c) => {
@@ -82,10 +106,22 @@ export async function parseClientesWorkbook(data: ArrayBuffer | Buffer): Promise
       dianCols.push({ col: c, code: (m ? m[1] : raw).trim().toUpperCase() });
       return;
     }
+    const procesoErp = procesoDeEncabezadoErp(h);
+    if (procesoErp) {
+      if (erpCols.has(procesoErp)) {
+        erroresEncabezado.push({
+          hoja: HOJA,
+          fila: 1,
+          mensaje: `Hay más de una columna ERP para el proceso ${procesoErp}. Deja un solo encabezado por proceso.`,
+        });
+      }
+      erpCols.set(procesoErp, c);
+      if (procesoErp === "CONT") fix.erp = c;
+      return;
+    }
     if (h.includes("razon")) fix.name = c;
     else if (h.includes("nit")) fix.nit = c;
     else if (h.includes("tipo")) fix.tipo = c;
-    else if (h.includes("erp")) fix.erp = c;
     else if (h.includes("sector")) fix.sector = c;
     else if (h.includes("socio")) fix.socio = c;
     else if (h.includes("gerente")) fix.gerente = c;
@@ -94,7 +130,7 @@ export async function parseClientesWorkbook(data: ArrayBuffer | Buffer): Promise
     else modCols.push({ col: c, name: raw.trim() });
   });
 
-  const errores: ErrorImport[] = [];
+  const errores: ErrorImport[] = [...erroresEncabezado];
   const faltan = FIJAS.filter((k) => !fix[k]);
   if (faltan.length > 0) {
     errores.push({
@@ -102,8 +138,8 @@ export async function parseClientesWorkbook(data: ArrayBuffer | Buffer): Promise
       fila: 1,
       mensaje: `Encabezados incompletos: faltan columnas (${faltan.join(", ")}).`,
     });
-    return { filas: [], errores };
   }
+  if (errores.length > 0) return { filas: [], errores };
 
   const filas: FilaCliente[] = [];
   const val = (row: ExcelJS.Row, c?: number) => (c ? celdaTexto(row.getCell(c).value) : "");
@@ -116,7 +152,13 @@ export async function parseClientesWorkbook(data: ArrayBuffer | Buffer): Promise
     const name = val(row, fix.name);
     const nit = val(row, fix.nit);
     const tipoRaw = val(row, fix.tipo);
-    const erp = val(row, fix.erp);
+    const erps = Object.fromEntries(
+      [...erpCols].flatMap(([codigo, columna]) => {
+        const valor = val(row, columna);
+        return valor ? [[codigo, valor]] : [];
+      }),
+    ) as Partial<Record<CodigoProcesoErp, string>>;
+    const erp = erps.CONT ?? "";
     const sector = val(row, fix.sector);
     const socio = val(row, fix.socio);
     const gerente = val(row, fix.gerente);
@@ -124,7 +166,7 @@ export async function parseClientesWorkbook(data: ArrayBuffer | Buffer): Promise
     const staffRaw = val(row, fix.staff);
     const staff = staffRaw.split(";").map((s) => s.trim()).filter(Boolean);
 
-    if (!name && !nit && !tipoRaw && !erp && !sector && !socio && !gerente && !senior && !staffRaw)
+    if (!name && !nit && !tipoRaw && Object.keys(erps).length === 0 && !sector && !socio && !gerente && !senior && !staffRaw)
       continue; // fila vacía
 
     const tipo = tipoRaw.trim().toUpperCase();
@@ -152,7 +194,7 @@ export async function parseClientesWorkbook(data: ArrayBuffer | Buffer): Promise
     }
 
     filas.push({
-      fila: r, name, nit, tipo, erp, sector, socio, gerente, senior, staff,
+      fila: r, name, nit, tipo, erp, erps, sector, socio, gerente, senior, staff,
       modulos, dianCodes, modulosEnBlanco, dianEnBlanco,
     });
   }
