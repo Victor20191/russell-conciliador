@@ -13,8 +13,11 @@ import { ROL_POR_FUNCION, ROL_SOCIO } from "@/lib/rbac/jerarquia";
 import { mensajeErrorBD } from "@/lib/errores";
 import { claveNit } from "@/lib/nit";
 import {
+  CODIGOS_ERP_BASE,
   PROCESOS_ERP,
   campoErpProceso,
+  esCodigoProcesoErp,
+  esProcesoErpBase,
   type CodigoProcesoErp,
 } from "@/lib/erp-procesos";
 
@@ -73,15 +76,56 @@ async function erpValido(erpId: number): Promise<boolean> {
 
 function parseErpsPorProceso(
   formData: FormData,
-): { ok: true; asignaciones: ErpProcesoFormulario[] } | { ok: false; errors: Record<string, string[]> } {
+): { ok: true; asignaciones: ErpProcesoFormulario[]; retirados: CodigoProcesoErp[] } | { ok: false; errors: Record<string, string[]> } {
   const asignaciones: ErpProcesoFormulario[] = [];
   const errors: Record<string, string[]> = {};
 
-  for (const proceso of PROCESOS_ERP) {
-    const campo = campoErpProceso(proceso.codigo);
+  const codigosRaw = formData.getAll("erpProcesoCodigos").map((value) =>
+    String(value).trim().toUpperCase(),
+  );
+  const codigosUnicos = [...new Set(codigosRaw)];
+
+  if (codigosRaw.length !== codigosUnicos.length || codigosUnicos.some((codigo) => !esCodigoProcesoErp(codigo))) {
+    return {
+      ok: false,
+      errors: { erpProcesoCodigos: ["La selección de procesos ERP no es válida."] },
+    };
+  }
+  const codigos = codigosUnicos as CodigoProcesoErp[];
+  if (CODIGOS_ERP_BASE.some((codigo) => !codigos.includes(codigo))) {
+    return {
+      ok: false,
+      errors: { erpProcesoCodigos: ["Contabilidad, Nómina e Inventarios son procesos obligatorios."] },
+    };
+  }
+
+  const retiradosRaw = formData.getAll("erpProcesoRetirados").map((value) =>
+    String(value).trim().toUpperCase(),
+  );
+  const retiradosUnicos = [...new Set(retiradosRaw)];
+  if (
+    retiradosRaw.length !== retiradosUnicos.length
+    || retiradosUnicos.some((codigo) =>
+      !esCodigoProcesoErp(codigo) || esProcesoErpBase(codigo) || codigos.includes(codigo as CodigoProcesoErp),
+    )
+  ) {
+    return {
+      ok: false,
+      errors: { erpProcesoCodigos: ["La lista de procesos retirados no es válida."] },
+    };
+  }
+  const retirados = retiradosUnicos as CodigoProcesoErp[];
+
+  for (const codigo of codigos) {
+    const proceso = PROCESOS_ERP.find((item) => item.codigo === codigo)!;
+    const campo = campoErpProceso(codigo);
     const raw = formData.get(campo);
     if (raw == null || raw === "") {
-      asignaciones.push({ codigo: proceso.codigo, erpId: null });
+      if (!esProcesoErpBase(codigo)) {
+        errors[campo] = [`Selecciona el ERP de ${proceso.nombre} o retira el proceso adicional.`];
+        continue;
+      }
+      asignaciones.push({ codigo, erpId: null });
       continue;
     }
     const erpId = parseId(raw);
@@ -89,12 +133,12 @@ function parseErpsPorProceso(
       errors[campo] = [`Selecciona un ERP válido para ${proceso.nombre}.`];
       continue;
     }
-    asignaciones.push({ codigo: proceso.codigo, erpId });
+    asignaciones.push({ codigo, erpId });
   }
 
   return Object.keys(errors).length > 0
     ? { ok: false, errors }
-    : { ok: true, asignaciones };
+    : { ok: true, asignaciones, retirados };
 }
 
 async function validarErpsPorProceso(
@@ -110,7 +154,7 @@ async function validarErpsPorProceso(
   const erpIds = [...new Set(asignaciones.flatMap((item) => item.erpId == null ? [] : [item.erpId]))];
   const [procesos, erps] = await Promise.all([
     prisma.erpProcess.findMany({
-      where: { active: true, code: { in: PROCESOS_ERP.map((item) => item.codigo) } },
+      where: { active: true, code: { in: asignaciones.map((item) => item.codigo) } },
       select: { id: true, code: true },
     }),
     erpIds.length > 0
@@ -122,8 +166,8 @@ async function validarErpsPorProceso(
   ]);
 
   const procesoPorCodigo = new Map(procesos.map((item) => [item.code, item.id]));
-  if (PROCESOS_ERP.some((item) => !procesoPorCodigo.has(item.codigo))) {
-    return { ok: false, message: "El catálogo de procesos ERP no está completo. Aplica la migración pendiente." };
+  if (asignaciones.some((item) => !procesoPorCodigo.has(item.codigo))) {
+    return { ok: false, message: "Uno de los procesos ERP seleccionados no existe o está inactivo." };
   }
 
   const erpPorId = new Map(erps.map((item) => [item.id, item]));
@@ -464,6 +508,7 @@ export async function updateClient(
       include: {
         erpsPorProceso: {
           select: {
+            processId: true,
             erpId: true,
             status: true,
             source: true,
@@ -519,6 +564,14 @@ export async function updateClient(
         })
       : null;
     if (erpsValidados && !erpsValidados.ok) return { ok: false, message: erpsValidados.message };
+    const processIdsRetirados = syncErpsPorProceso
+      ? current.erpsPorProceso
+          .filter((asignacion) =>
+            !esProcesoErpBase(asignacion.process.code)
+            && erpsProceso?.retirados.includes(asignacion.process.code as CodigoProcesoErp),
+          )
+          .map((asignacion) => asignacion.processId)
+      : [];
     if (!syncErpsPorProceso && erpId != null && !(await erpValido(erpId))) {
       return { ok: false, message: "Selecciona un ERP válido." };
     }
@@ -593,6 +646,11 @@ export async function updateClient(
             },
           });
         }
+        if (processIdsRetirados.length > 0) {
+          await tx.clientErpProcess.deleteMany({
+            where: { clientId: id, processId: { in: processIdsRetirados } },
+          });
+        }
       }
 
       // Sincroniza los responsables conservando la vigencia de los que siguen:
@@ -662,7 +720,7 @@ export async function updateClient(
       user: user?.name ?? "Sistema",
       action: "ACTUALIZÓ CLIENTE",
       entity: current.code,
-      detail: `${name} · ${nit} · tipo ${tipo} · socio ${socio.nombre} · staff ${validados.nombres.staffs.join(", ")} / senior ${validados.nombres.senior} / gerente ${validados.nombres.gerente}${moduleIds != null ? ` · módulos asignados: ${moduleIds.length}` : ""}${dianFormIds != null ? ` · formatos DIAN: ${dianFormIds.length}` : ""}`,
+      detail: `${name} · ${nit} · tipo ${tipo} · socio ${socio.nombre} · staff ${validados.nombres.staffs.join(", ")} / senior ${validados.nombres.senior} / gerente ${validados.nombres.gerente}${erpsValidados?.ok ? ` · sistemas por proceso: ${erpsValidados.asignaciones.length}` : ""}${processIdsRetirados.length ? ` · procesos retirados: ${processIdsRetirados.length}` : ""}${moduleIds != null ? ` · módulos asignados: ${moduleIds.length}` : ""}${dianFormIds != null ? ` · formatos DIAN: ${dianFormIds.length}` : ""}`,
     });
     revalidatePath(PATH);
     return { ok: true };

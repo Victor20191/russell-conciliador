@@ -26,6 +26,7 @@
     "db:backfill:roles": "tsx prisma/backfill-roles.ts",
     "db:purgar:accesos": "tsx prisma/purgar-accesos.ts",
     "db:completar:jerarquia": "tsx scripts/completar_jerarquia.ts",
+    "db:importar:erps-clientes": "tsx scripts/importar-erps-clientes-por-nit.ts",
     "db:studio": "prisma studio"
   },
   "dependencies": {

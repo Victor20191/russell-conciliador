@@ -124,6 +124,7 @@ export async function cargarFilasMemoria(fuente: string): Promise<FilasMemoriaFu
           ? { valor: c.erpsPorProceso[0].erp?.name ?? null }
           : undefined,
         c.erp?.name ?? null,
+        fuente === FUENTE_BALANCE,
       ),
     })),
     acc,

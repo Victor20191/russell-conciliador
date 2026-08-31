@@ -1,5 +1,5 @@
 import ExcelJS from "exceljs";
-import { PROCESOS_ERP } from "@/lib/erp-procesos";
+import { PROCESOS_ERP_BASE } from "@/lib/erp-procesos";
 
 export type CatalogoPlantillaClientes = {
   modulos: { name: string }[];
@@ -18,7 +18,7 @@ const FIJAS = [
   "Razón social *",
   "NIT *",
   "Tipo de cliente *",
-  ...PROCESOS_ERP.map((proceso) => `ERP · ${proceso.codigo} · ${proceso.nombre}`),
+  ...PROCESOS_ERP_BASE.map((proceso) => `ERP · ${proceso.codigo} · ${proceso.nombre}`),
   "Sector",
   "Socio (firma) *",
   "Gerente (valida) *",
@@ -229,10 +229,6 @@ export async function crearPlantillaImportacionClientes(
     "SIESA",
     "",
     "",
-    "",
-    "",
-    "",
-    "",
     "Comercio",
     referencias.socios[0] ?? "Nombre del socio",
     referencias.gerentes[0] ?? "Nombre del gerente",
@@ -246,10 +242,6 @@ export async function crearPlantillaImportacionClientes(
     "800123456-7",
     "B",
     "SAP",
-    "",
-    "",
-    "",
-    "",
     "",
     "",
     "Servicios",
@@ -266,7 +258,7 @@ export async function crearPlantillaImportacionClientes(
     to: `${columnaLetra(totalColumnas)}1`,
   };
 
-  const widths = [34, 18, 16, ...PROCESOS_ERP.map(() => 19), 22, 26, 26, 26, 42];
+  const widths = [34, 18, 16, ...PROCESOS_ERP_BASE.map(() => 19), 22, 26, 26, 26, 42];
   headers.forEach((_, i) => {
     ws.getColumn(i + 1).width = widths[i] ?? 18;
   });
@@ -295,7 +287,7 @@ export async function crearPlantillaImportacionClientes(
 
   aplicarValidacionLista(ws, 3, '"A,B,C"', "Tipo de cliente", "Selecciona A, B o C.");
 
-  const sectorCol = 4 + PROCESOS_ERP.length;
+  const sectorCol = 4 + PROCESOS_ERP_BASE.length;
   const socioCol = sectorCol + 1;
   const gerenteCol = socioCol + 1;
   const seniorCol = gerenteCol + 1;

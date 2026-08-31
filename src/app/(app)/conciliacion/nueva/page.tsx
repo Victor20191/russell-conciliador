@@ -60,7 +60,7 @@ export default async function NuevaConciliacionPage() {
           modulo.code,
           asignacionPorCodigo.has(modulo.code)
             ? asignacionPorCodigo.get(modulo.code)!
-            : (c.erp?.name ?? ""),
+            : "",
         ]),
       ),
       sector: c.sector?.name ?? "",

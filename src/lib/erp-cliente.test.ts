@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { resolverValorErpProceso } from "./erp-cliente";
-import { PROCESOS_ERP, procesoErpDeModulo } from "./erp-procesos";
+import { PROCESOS_ERP, PROCESOS_ERP_BASE, procesoErpDeModulo } from "./erp-procesos";
 
 describe("ERP por proceso", () => {
   it("expone los siete procesos funcionales en el orden acordado", () => {
@@ -15,8 +15,13 @@ describe("ERP por proceso", () => {
     ]);
   });
 
-  it("usa el ERP legado únicamente cuando no existe una asignación", () => {
-    expect(resolverValorErpProceso(undefined, 7)).toBe(7);
+  it("mantiene CONT, NOM e INV como procesos base de la ficha", () => {
+    expect(PROCESOS_ERP_BASE.map((proceso) => proceso.codigo)).toEqual(["CONT", "NOM", "INV"]);
+  });
+
+  it("solo usa el ERP legado cuando el consumidor CONT lo solicita", () => {
+    expect(resolverValorErpProceso(undefined, 7)).toBeNull();
+    expect(resolverValorErpProceso(undefined, 7, true)).toBe(7);
     expect(resolverValorErpProceso({ valor: 11 }, 7)).toBe(11);
   });
 

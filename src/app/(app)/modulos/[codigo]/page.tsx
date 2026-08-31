@@ -163,8 +163,8 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
           id: cliente.id,
           name: cliente.name,
           nit: cliente.nit,
-          // Una fila explícita pendiente anula la herencia. El ERP contable
-          // legado solo se usa mientras el proceso aún no tenga asignación.
+          // Los módulos usan exclusivamente su asignación por proceso. Nunca
+          // se infiere el ERP contable como si fuera el sistema del módulo.
           erp: resolverValorErpProceso(
             cliente.erpsPorProceso[0]
               ? { valor: cliente.erpsPorProceso[0].erp?.name ?? null }

@@ -16,7 +16,7 @@ import { resolverErp, resolverSector, type CatalogoRef } from "@/lib/import/erp-
 import { normalizar } from "@/lib/import/xlsx";
 import type { ErrorImport } from "@/lib/import/maestros";
 import { claveNit } from "@/lib/nit";
-import { PROCESOS_ERP, type CodigoProcesoErp } from "@/lib/erp-procesos";
+import { PROCESOS_ERP_BASE, type CodigoProcesoErp } from "@/lib/erp-procesos";
 
 const PATH = "/config/clientes";
 const MAX_BYTES = 4 * 1024 * 1024; // 4 MB
@@ -26,7 +26,7 @@ type Resuelta = {
   name: string;
   nit: string;
   tipo: string;
-  erps: Record<CodigoProcesoErp, CatalogoRef | null>;
+  erps: Partial<Record<CodigoProcesoErp, CatalogoRef | null>>;
   sector: CatalogoRef | null;
   socioId: number;
   gerenteId: number;
@@ -73,12 +73,12 @@ export async function importarClientes(
       prisma.dianForm.findMany({ select: { id: true, code: true } }),
       prisma.client.findMany({ select: { code: true, nit: true } }),
       prisma.erpProcess.findMany({
-        where: { active: true, code: { in: PROCESOS_ERP.map((proceso) => proceso.codigo) } },
+        where: { active: true, code: { in: PROCESOS_ERP_BASE.map((proceso) => proceso.codigo) } },
         select: { id: true, code: true },
       }),
     ]);
     const procesoIdPorCodigo = new Map(procesosErp.map((proceso) => [proceso.code, proceso.id]));
-    if (PROCESOS_ERP.some((proceso) => !procesoIdPorCodigo.has(proceso.codigo))) {
+    if (PROCESOS_ERP_BASE.some((proceso) => !procesoIdPorCodigo.has(proceso.codigo))) {
       return { ok: false, message: "El catálogo de procesos ERP no está completo. Aplica la migración pendiente." };
     }
 
@@ -185,11 +185,11 @@ export async function importarClientes(
         nit: f.nit,
         tipo: f.tipo,
         erps: Object.fromEntries(
-          PROCESOS_ERP.map((proceso) => [
+          PROCESOS_ERP_BASE.map((proceso) => [
             proceso.codigo,
             resolverErp(f.erps[proceso.codigo] ?? ""),
           ]),
-        ) as Record<CodigoProcesoErp, CatalogoRef | null>,
+        ) as Partial<Record<CodigoProcesoErp, CatalogoRef | null>>,
         sector: resolverSector(f.sector),
         socioId: socio.id!,
         gerenteId: gerente.id!,
@@ -274,7 +274,7 @@ export async function importarClientes(
           },
         });
         await tx.clientErpProcess.createMany({
-          data: PROCESOS_ERP.map((proceso) => {
+          data: PROCESOS_ERP_BASE.map((proceso) => {
             const erp = c.erps[proceso.codigo];
             const erpId = erp ? erpIdPorCode.get(erp.code)! : null;
             return {

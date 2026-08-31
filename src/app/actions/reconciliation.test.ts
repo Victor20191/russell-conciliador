@@ -158,6 +158,9 @@ describe("executeReconciliation · compuerta del prevalidador", () => {
       name: "Cliente prueba",
       erpId: 2,
       erp: { name: "SIGO" },
+      erpsPorProceso: [
+        { process: { code: "INV" }, erp: { name: "SIGO" } },
+      ],
     });
     mocks.moduleFindUnique.mockResolvedValue({ id: MODULO_ID, code: "INV", name: "Inventarios" });
     mocks.getCurrentUser.mockResolvedValue({ id: 12, name: "Auditor", initials: "AU" });

@@ -11,7 +11,7 @@
 
 import ExcelJS from "exceljs";
 import { fmtDate } from "@/lib/format";
-import { PROCESOS_ERP, type CodigoProcesoErp } from "@/lib/erp-procesos";
+import { PROCESOS_ERP_BASE, type CodigoProcesoErp } from "@/lib/erp-procesos";
 
 /** Una fila de cliente ya resuelta para exportar (sin dependencias de Prisma). */
 export type FilaClienteExport = {
@@ -53,14 +53,14 @@ const FIJAS = [
   "Razón social",
   "NIT",
   "Tipo",
-  ...PROCESOS_ERP.map((proceso) => `ERP · ${proceso.codigo} · ${proceso.nombre}`),
+  ...PROCESOS_ERP_BASE.map((proceso) => `ERP · ${proceso.codigo} · ${proceso.nombre}`),
   "Sector",
   "Socio (firma)",
   "Gerente (valida)",
   "Senior (revisa)",
   "Staff (ejecuta)",
 ];
-const ANCHOS_FIJAS = [14, 36, 16, 8, ...PROCESOS_ERP.map(() => 19), 22, 24, 24, 24, 38];
+const ANCHOS_FIJAS = [14, 36, 16, 8, ...PROCESOS_ERP_BASE.map(() => 19), 22, 24, 24, 24, 38];
 
 const BORDE = {
   top: { style: "thin" as const, color: { argb: COLOR_BORDER } },
@@ -207,7 +207,7 @@ export async function crearExportacionClientes(
       c.name,
       c.nit,
       c.tipo,
-      ...PROCESOS_ERP.map((proceso) =>
+      ...PROCESOS_ERP_BASE.map((proceso) =>
         erpDeProceso(c, proceso.codigo) ?? "Pendiente / sin definir",
       ),
       c.sectorName ?? "Sin sector",
