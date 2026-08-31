@@ -7,6 +7,7 @@ import {
   columnasDetalle,
   controlSubtotales,
   detectarSubtotales,
+  estadoGeneralControlSubtotales,
   esRotuloTotal,
   motivoDe,
   type FilaCandidata,
@@ -203,13 +204,14 @@ describe("controlSubtotales", () => {
     expect(c.descuadres).toBe(0);
   });
 
-  it("omitir un ítem del grupo produce descuadre con la diferencia exacta (y el gran total también)", () => {
+  it("omitir un ítem deja el grupo sin muestra suficiente y descuadra el gran total", () => {
     const filas = armar();
     filas[1] = { ...filas[1], omitida: true };
     const c = controlSubtotales(filas);
-    expect(c.grupos[0]).toMatchObject({ sumaMovimientos: 100, subtotalArchivo: 300, diferencia: 200, estado: "descuadre" });
+    expect(c.grupos[0]).toMatchObject({ sumaMovimientos: 100, subtotalArchivo: 300, diferencia: null, estado: "no_validado" });
     expect(c.granTotal).toMatchObject({ diferencia: 200, estado: "descuadre" });
-    expect(c.descuadres).toBe(2);
+    expect(c.descuadres).toBe(1);
+    expect(c.noValidados).toBe(1);
   });
 
   it("rescatar un subtotal (pasa a movimiento) lo saca del control y descuadra al gran total", () => {
@@ -223,7 +225,8 @@ describe("controlSubtotales", () => {
   it("sin filas total → control vacío", () => {
     reset();
     const c = controlSubtotales([item("A", "R1", 1), item("A", "R2", 2)]);
-    expect(c).toEqual({ grupos: [], granTotal: null, descuadres: 0 });
+    expect(c).toEqual({ grupos: [], granTotal: null, descuadres: 0, noValidados: 0 });
+    expect(estadoGeneralControlSubtotales(c)).toBe("no_validado");
   });
 
   it("un solo grupo: el subtotal se reporta como grupo, no como gran total", () => {
@@ -231,6 +234,25 @@ describe("controlSubtotales", () => {
     const c = controlSubtotales([item("A", "R1", 1), item("A", "R2", 2), sub("A", 3, "Total A", { tipoFila: "total" })]);
     expect(c.grupos).toHaveLength(1);
     expect(c.granTotal).toBeNull();
+    expect(estadoGeneralControlSubtotales(c)).toBe("coincide");
+  });
+
+  it("una fila total sin al menos 2 movimientos comparables queda NO VALIDADA, no descuadrada contra cero", () => {
+    reset();
+    const c = controlSubtotales([item("A", "R1", 100), sub("A", 100, "Total A", { tipoFila: "total" })]);
+    expect(c.grupos[0]).toMatchObject({ estado: "no_validado", diferencia: null, sumaMovimientos: 100 });
+    expect(c.descuadres).toBe(0);
+    expect(c.noValidados).toBe(1);
+    expect(estadoGeneralControlSubtotales(c)).toBe("no_validado");
+  });
+
+  it("prioriza NO COINCIDE si hay descuadres aunque otro control no esté validado", () => {
+    const c = controlSubtotales(armar());
+    c.grupos[0].estado = "no_validado";
+    c.noValidados = 1;
+    c.grupos[1].estado = "descuadre";
+    c.descuadres = 1;
+    expect(estadoGeneralControlSubtotales(c)).toBe("no_coincide");
   });
 });
 

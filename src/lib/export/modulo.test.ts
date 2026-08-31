@@ -86,4 +86,24 @@ describe("crearExportacionModulo · borrador con estado", () => {
     expect(det.getCell("G8").value).toBe(0);
     expect(formula(det, "G5")).toBe("SUM(G6:G8)");
   });
+
+  it("exporta literalmente SÍ COINCIDE, NO COINCIDE y NO VALIDADO", async () => {
+    const wb = await abrir(await crearExportacionModulo({
+      columnas: COLUMNAS,
+      clasificadorEtiqueta: "Tipo",
+      detalle: [],
+      consolidado: [],
+      control: [
+        { clasificador: "A", filaSubtotal: 3, items: 2, sumaMovimientos: 100, subtotalArchivo: 100, diferencia: 0, estado: "cuadra" },
+        { clasificador: "B", filaSubtotal: 6, items: 2, sumaMovimientos: 90, subtotalArchivo: 100, diferencia: 10, estado: "descuadre" },
+        { clasificador: "C", filaSubtotal: 8, items: 1, sumaMovimientos: 50, subtotalArchivo: 50, diferencia: null, estado: "no_validado" },
+      ],
+      meta: META,
+    }));
+    const control = wb.getWorksheet("Control subtotales")!;
+    expect(control.getCell("G5").value).toBe("SÍ COINCIDE");
+    expect(control.getCell("G6").value).toBe("NO COINCIDE");
+    expect(control.getCell("G7").value).toBe("NO VALIDADO");
+    expect(control.getCell("F7").value).toBeNull();
+  });
 });

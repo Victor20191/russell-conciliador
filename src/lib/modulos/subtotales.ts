@@ -68,23 +68,33 @@ export type ControlGrupo = {
   sumaMovimientos: number;
   subtotalArchivo: number;
   /** subtotalArchivo − sumaMovimientos (2 decimales). */
-  diferencia: number;
-  estado: "cuadra" | "descuadre";
+  diferencia: number | null;
+  estado: "cuadra" | "descuadre" | "no_validado";
 };
 
 export type ControlGranTotal = {
   filaNum: number;
   subtotalArchivo: number;
   sumaMovimientos: number;
-  diferencia: number;
-  estado: "cuadra" | "descuadre";
+  diferencia: number | null;
+  estado: "cuadra" | "descuadre" | "no_validado";
 };
 
 export type ControlSubtotales = {
   grupos: ControlGrupo[];
   granTotal: ControlGranTotal | null;
   descuadres: number;
+  noValidados: number;
 };
+
+export type EstadoGeneralControlSubtotales = "coincide" | "no_coincide" | "no_validado";
+
+/** Estado literal del panel: nunca afirma un descuadre cuando faltan movimientos comparables. */
+export function estadoGeneralControlSubtotales(control: ControlSubtotales): EstadoGeneralControlSubtotales {
+  if (control.descuadres > 0) return "no_coincide";
+  if (control.noValidados > 0 || (control.grupos.length === 0 && control.granTotal == null)) return "no_validado";
+  return "coincide";
+}
 
 /** Un bloque de una sola fila no informa nada (la fila «cuadra» consigo misma). */
 export const MINIMO_FILAS_BLOQUE = 2;
@@ -350,12 +360,20 @@ export function controlSubtotales(
     // bloque y el todo coinciden y se reporta como grupo).
     const esGran = f.motivo?.startsWith("gran_total") || (cuadraTodo && !cuadraBloque);
     if (esGran && granTotal == null) {
-      const diferencia = redondear(f.valor - sumaTodo);
-      granTotal = { filaNum: f.filaNum, subtotalArchivo: f.valor, sumaMovimientos: sumaTodo, diferencia, estado: Math.abs(diferencia) <= TOLERANCIA_CONTROL ? "cuadra" : "descuadre" };
+      const comparable = imputables.length >= MINIMO_FILAS_BLOQUE;
+      const diferencia = comparable ? redondear(f.valor - sumaTodo) : null;
+      granTotal = {
+        filaNum: f.filaNum,
+        subtotalArchivo: f.valor,
+        sumaMovimientos: sumaTodo,
+        diferencia,
+        estado: !comparable ? "no_validado" : Math.abs(diferencia ?? 0) <= TOLERANCIA_CONTROL ? "cuadra" : "descuadre",
+      };
       continue;
     }
     const suma = bloque?.suma ?? 0;
-    const diferencia = redondear(f.valor - suma);
+    const comparable = bloque != null && bloque.indices.length >= MINIMO_FILAS_BLOQUE;
+    const diferencia = comparable ? redondear(f.valor - suma) : null;
     grupos.push({
       clasificador: (bloque?.clasificador ?? f.clasificador)?.trim() || "(sin clasificar)",
       filaSubtotal: f.filaNum,
@@ -363,11 +381,12 @@ export function controlSubtotales(
       sumaMovimientos: suma,
       subtotalArchivo: f.valor,
       diferencia,
-      estado: Math.abs(diferencia) <= TOLERANCIA_CONTROL ? "cuadra" : "descuadre",
+      estado: !comparable ? "no_validado" : Math.abs(diferencia ?? 0) <= TOLERANCIA_CONTROL ? "cuadra" : "descuadre",
     });
   }
   const descuadres = grupos.filter((g) => g.estado === "descuadre").length + (granTotal?.estado === "descuadre" ? 1 : 0);
-  return { grupos, granTotal, descuadres };
+  const noValidados = grupos.filter((g) => g.estado === "no_validado").length + (granTotal?.estado === "no_validado" ? 1 : 0);
+  return { grupos, granTotal, descuadres, noValidados };
 }
 
 /** Descripción del modo de subtotales para la UI. */

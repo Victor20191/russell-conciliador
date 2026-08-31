@@ -191,8 +191,8 @@ export type ControlExportModulo = {
   items: number;
   sumaMovimientos: number;
   subtotalArchivo: number;
-  diferencia: number;
-  estado: "cuadra" | "descuadre";
+  diferencia: number | null;
+  estado: "cuadra" | "descuadre" | "no_validado";
 };
 
 function hojaControlSubtotales(wb: ExcelJS.Workbook, clasificadorEtiqueta: string, control: ControlExportModulo[], meta: MetaExportModulo) {
@@ -216,9 +216,13 @@ function hojaControlSubtotales(wb: ExcelJS.Workbook, clasificadorEtiqueta: strin
   ws.getRow(HEADER_ROW).fill = HEADER_FILL;
   ws.views = [{ state: "frozen", ySplit: HEADER_ROW }];
   for (const c of control) {
-    const row = ws.addRow({ ...c, estado: c.estado === "cuadra" ? "Cuadra" : "Descuadre" });
+    const row = ws.addRow({
+      ...c,
+      estado: c.estado === "cuadra" ? "SÍ COINCIDE" : c.estado === "descuadre" ? "NO COINCIDE" : "NO VALIDADO",
+    });
     for (const k of ["sumaMovimientos", "subtotalArchivo", "diferencia"]) row.getCell(k).numFmt = NUM_FMT;
     if (c.estado === "descuadre") row.font = { bold: true, color: { argb: "FFB91C1C" } };
+    if (c.estado === "no_validado") row.font = { bold: true, color: { argb: "FF6B7280" } };
   }
 }
 

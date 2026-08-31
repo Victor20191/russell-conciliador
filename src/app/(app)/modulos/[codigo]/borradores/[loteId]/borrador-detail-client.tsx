@@ -16,6 +16,7 @@ import { filtrarFilasDetalleModulo, hayFiltrosDetalleModulo, type FiltrosDetalle
 import type { ReconciliacionModulo } from "@/lib/modulos/extraccion/transformar";
 import { aplicarCambiosBorradorModulo, cargarBorradorModulo, descartarBorradorModulo } from "@/app/actions/modulos-datos";
 import { NotasCargaModulo } from "../../notas-carga-modulo";
+import { ValidacionSubtotales } from "./validacion-subtotales";
 
 export type FilaBorradorModulo = {
   filaNum: number;
@@ -252,7 +253,6 @@ export default function BorradorModuloClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [efectivas],
   );
-  const hayControl = control.grupos.length > 0 || control.granTotal != null;
   const filasControlDescuadradas = [
     ...control.grupos.filter((g) => g.estado === "descuadre").map((g) => g.filaSubtotal),
     ...(control.granTotal?.estado === "descuadre" ? [control.granTotal.filaNum] : []),
@@ -423,65 +423,7 @@ export default function BorradorModuloClient({
             <span className="ml-1">Se está sumando al total: si es el gran total del ERP, omítela con «Omitir» o el módulo quedará al doble.</span>
           </div>
         )}
-        {hayControl && (
-          <div className={`rounded-md border px-3 py-2 text-[12px] ${control.descuadres > 0 ? "border-err-500 bg-err-100 text-err-700" : "border-ok-500 bg-ok-100/30 text-ok-700"}`}>
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="font-semibold">
-                {control.descuadres > 0 ? "⚠" : "✓"} Control de subtotales: el archivo trae {control.grupos.length} subtotal{control.grupos.length === 1 ? "" : "es"}
-                {control.granTotal ? " y un gran total" : ""};{" "}
-                {control.descuadres === 0 ? "todos cuadran con la suma de sus movimientos." : `${control.descuadres} no cuadra${control.descuadres === 1 ? "" : "n"} con la suma de sus movimientos.`}
-              </span>
-              <span className="text-[11px] font-normal opacity-80">Los subtotales no se cargan: solo se comparan. El consolidado sale de los movimientos.</span>
-            </div>
-            <div className="mt-2 overflow-x-auto">
-              <table className="w-full text-[11.5px]">
-                <thead>
-                  <tr className="text-left text-[10.5px] uppercase tracking-wide opacity-70">
-                    <th className="py-1 pr-3 font-semibold">{clasificadorEtiqueta}</th>
-                    <th className="py-1 pr-3 font-semibold">Fila subtotal</th>
-                    <th className="py-1 pr-3 font-semibold">Movimientos</th>
-                    <th className="py-1 pr-3 text-right font-semibold">Σ movimientos</th>
-                    <th className="py-1 pr-3 text-right font-semibold">Subtotal del archivo</th>
-                    <th className="py-1 pr-3 text-right font-semibold">Diferencia</th>
-                    <th className="py-1 font-semibold">Estado</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {control.grupos.map((g) => (
-                    <tr key={g.filaSubtotal} className="border-t border-current/10">
-                      <td className="py-1 pr-3 font-medium">{g.clasificador}</td>
-                      <td className="py-1 pr-3 tabular-nums">{g.filaSubtotal}</td>
-                      <td className="py-1 pr-3 tabular-nums">{g.bloque.items > 0 ? `${g.bloque.items} (filas ${g.bloque.desde}–${g.bloque.hasta})` : "ninguno"}</td>
-                      <td className="py-1 pr-3 text-right tabular-nums">{fmtContable(g.sumaMovimientos)}</td>
-                      <td className="py-1 pr-3 text-right tabular-nums">{fmtContable(g.subtotalArchivo)}</td>
-                      <td className={`py-1 pr-3 text-right tabular-nums ${g.estado === "descuadre" ? "font-semibold" : ""}`}>{fmtContable(g.diferencia)}</td>
-                      <td className="py-1">
-                        <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${g.estado === "cuadra" ? "border-ok-500 bg-white text-ok-700" : "border-err-500 bg-white text-err-700"}`}>
-                          {g.estado === "cuadra" ? "Cuadra" : "Descuadre"}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                  {control.granTotal && (
-                    <tr className="border-t border-current/20 font-semibold">
-                      <td className="py-1 pr-3">Gran total</td>
-                      <td className="py-1 pr-3 tabular-nums">{control.granTotal.filaNum}</td>
-                      <td className="py-1 pr-3 tabular-nums">{imputables.length}</td>
-                      <td className="py-1 pr-3 text-right tabular-nums">{fmtContable(control.granTotal.sumaMovimientos)}</td>
-                      <td className="py-1 pr-3 text-right tabular-nums">{fmtContable(control.granTotal.subtotalArchivo)}</td>
-                      <td className="py-1 pr-3 text-right tabular-nums">{fmtContable(control.granTotal.diferencia)}</td>
-                      <td className="py-1">
-                        <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-semibold ${control.granTotal.estado === "cuadra" ? "border-ok-500 bg-white text-ok-700" : "border-err-500 bg-white text-err-700"}`}>
-                          {control.granTotal.estado === "cuadra" ? "Cuadra" : "Descuadre"}
-                        </span>
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
+        <ValidacionSubtotales control={control} />
         {negativos.length > 0 && (
           <div className="rounded-md border border-err-500 bg-err-100 px-3 py-2 text-[12px] text-err-700">
             <span className="font-semibold">⚠ {new Set(negativos.map((n) => n.filaNum)).size} ítem(s) con existencias o costos negativos.</span>
@@ -494,8 +436,8 @@ export default function BorradorModuloClient({
             <span className="ml-1">Filas: {descuadres.slice(0, 8).map((d) => `${d.filaNum} (esperado ${fmtContable(d.esperado)} vs ${fmtContable(d.declarado)})`).join(", ")}{descuadres.length > 8 ? "…" : ""}.</span>
           </div>
         )}
-        {negativos.length === 0 && descuadres.length === 0 && totalizadoras.length === 0 && !hayControl && (noNegativos.length > 0 || productos.length > 0) && (
-          <div className="rounded-md border border-ok-500 bg-ok-100/30 px-3 py-1.5 text-[12px] text-ok-700">✓ Sin negativos, descuadres de valor ni filas totalizadoras.</div>
+        {negativos.length === 0 && descuadres.length === 0 && totalizadoras.length === 0 && (noNegativos.length > 0 || productos.length > 0) && (
+          <div className="rounded-md border border-ok-500 bg-ok-100/30 px-3 py-1.5 text-[12px] text-ok-700">✓ Sin negativos ni descuadres de valor en los movimientos.</div>
         )}
 
         {verificaciones.length > 0 && (
