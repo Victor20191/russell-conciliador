@@ -3,6 +3,7 @@ import { authorizePermiso } from "@/lib/rbac";
 import { getCurrentUser } from "@/lib/dal";
 import {
   completarArchivoBalanceTemporal,
+  descartarArchivoBalanceTemporal,
   iniciarArchivoBalanceTemporal,
 } from "@/lib/balance/archivo-temporal-servidor";
 import { mensajeTamanoBalanceNoPermitido } from "@/lib/balance/limites-archivo";
@@ -21,7 +22,16 @@ const CompletarSchema = z.object({
   operacion: z.literal("completar"),
   loteId: z.string().uuid(),
 });
-const SolicitudSchema = z.discriminatedUnion("operacion", [IniciarSchema, CompletarSchema]);
+// Cancelación del usuario: libera el archivo temporal a medio subir.
+const CancelarSchema = z.object({
+  operacion: z.literal("cancelar"),
+  loteId: z.string().uuid(),
+});
+const SolicitudSchema = z.discriminatedUnion("operacion", [
+  IniciarSchema,
+  CompletarSchema,
+  CancelarSchema,
+]);
 
 export async function POST(request: Request) {
   const authz = await authorizePermiso("balance:crear");
@@ -59,10 +69,16 @@ export async function POST(request: Request) {
     });
   }
 
-  const resultado = await completarArchivoBalanceTemporal({
-    loteId: parsed.data.loteId,
-    usuarioId: usuario.id,
-  });
+  const resultado =
+    parsed.data.operacion === "cancelar"
+      ? await descartarArchivoBalanceTemporal({
+          loteId: parsed.data.loteId,
+          usuarioId: usuario.id,
+        })
+      : await completarArchivoBalanceTemporal({
+          loteId: parsed.data.loteId,
+          usuarioId: usuario.id,
+        });
   return Response.json(resultado, {
     status: resultado.ok ? 200 : resultado.status,
     headers: { "Cache-Control": "no-store" },

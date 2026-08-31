@@ -9,15 +9,16 @@ import {
   actualizarAperturaBorrador,
   asignarClienteBorrador,
   continuarBalanceTransitorioConSpec,
+  descartarBorrador,
   leerBalance,
   reprocesarBalanceConSpec,
   guardarPerfilDesdeEditor,
   type LeerBalanceState,
   type SugerenciaBalance,
 } from "@/app/actions/balance";
-import { type AperturaBalance } from "@/lib/balance/apertura-balance";
+import { aperturaSugerida, type AperturaBalance } from "@/lib/balance/apertura-balance";
 import { SelectorAperturaBalance } from "@/app/(app)/balance/selector-apertura-balance";
-import { notifyError, notifySuccess } from "@/lib/client-notifications";
+import { notifyError, notifyInfo, notifySuccess } from "@/lib/client-notifications";
 import {
   debeLeerSoloNombresHojas,
   leerHojasParaPreview,
@@ -49,7 +50,11 @@ import {
 } from "@/lib/balance/archivo-snapshot-cliente";
 import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
 import { mensajeTamanoBalanceNoPermitido } from "@/lib/balance/limites-archivo";
-import { cargarArchivoBalanceTemporal } from "@/lib/balance/carga-archivo-cliente";
+import {
+  cancelarArchivoBalanceTemporal,
+  cargarArchivoBalanceTemporal,
+  esCancelacionCarga,
+} from "@/lib/balance/carga-archivo-cliente";
 
 /** Extensiones de Excel que pueden traer varias hojas (inspeccionables en cliente). */
 const esExcel = (name: string) => /\.(xlsx|xlsm|xls)$/i.test(name);
@@ -124,8 +129,46 @@ function CargarBalanceModal({
   onClose: () => void;
   onReiniciar: () => void;
 }) {
+  // CANCELACIÓN de la lectura en curso. Dos fases con alcance distinto: durante la
+  // SUBIDA el aborto es real (se cortan las peticiones y se libera el archivo
+  // temporal); una vez la Server Action está corriendo el servidor NO se puede
+  // interrumpir, así que la cancelación se vuelve un compromiso: se ignora lo que
+  // devuelva y se descarta el borrador que haya alcanzado a crear.
+  const [cancelando, setCancelando] = useState(false);
+  const subidaAbortRef = useRef<AbortController | null>(null);
+  const lecturaCanceladaRef = useRef<string | null>(null);
+
+  // Cierra la cancelación y deja el asistente listo para volver a intentar.
+  // `rearmar` reinicia el asistente entero: tras una lectura ya lanzada la
+  // identidad de la solicitud quedó quemada y no se puede reutilizar.
+  const finalizarCancelacion = (rearmar: boolean) => {
+    lecturaCanceladaRef.current = null;
+    setCancelando(false);
+    notifyInfo("Lectura cancelada.");
+    if (rearmar) onReiniciar();
+  };
+
+  // La lectura cancelada TERMINA igual en el servidor. El cierre se hace aquí —en
+  // la propia acción, no en un efecto— para poder purgar el borrador que se haya
+  // creado y devolver un estado vacío que nunca abre la fase de revisión.
+  const leerBalanceCancelable = async (
+    previo: LeerBalanceState,
+    formData: FormData,
+  ): Promise<LeerBalanceState> => {
+    const solicitud = String(formData.get("loteIdSolicitud") ?? "");
+    const resultado = await leerBalanceRecuperable(previo, formData);
+    if (!lecturaCanceladaRef.current || lecturaCanceladaRef.current !== solicitud) {
+      return resultado;
+    }
+    if (resultado.sugerencia?.persistida) {
+      void descartarBorrador(resultado.sugerencia.payload.loteId);
+    }
+    finalizarCancelacion(true);
+    return {};
+  };
+
   const [leerState, leerAction, leyendo] = useActionState<LeerBalanceState, FormData>(
-    leerBalanceRecuperable,
+    leerBalanceCancelable,
     {},
   );
   const [fileName, setFileName] = useState("");
@@ -186,14 +229,20 @@ function CargarBalanceModal({
     loteId: string,
   ): Promise<boolean> => {
     setProgresoSubida(0);
+    const control = new AbortController();
+    subidaAbortRef.current = control;
     try {
-      await cargarArchivoBalanceTemporal(archivo, loteId, setProgresoSubida);
+      await cargarArchivoBalanceTemporal(archivo, loteId, setProgresoSubida, control.signal);
       formData.delete("archivo");
       return true;
     } catch (error) {
-      notifyError(error instanceof Error ? error.message : "No se pudo subir el archivo del balance.");
+      // Cancelar no es un fallo: el aviso lo da `cancelarLectura`, no este catch.
+      if (!esCancelacionCarga(error)) {
+        notifyError(error instanceof Error ? error.message : "No se pudo subir el archivo del balance.");
+      }
       return false;
     } finally {
+      if (subidaAbortRef.current === control) subidaAbortRef.current = null;
       setProgresoSubida(null);
     }
   };
@@ -357,13 +406,33 @@ function CargarBalanceModal({
       proveedorIA: proveedorCarga,
     });
     if (!await prepararArchivoTemporal(formData, archivoFile, loteIdSolicitud)) return;
+    // El usuario canceló mientras subía el archivo: no se lanza la lectura.
+    if (lecturaCanceladaRef.current) return;
     lecturaIniciadaRef.current = true;
     clienteEnviadoRef.current = clienteCarga;
     setMensajeLecturaDesactualizado(false);
     startTransition(() => leerAction(formData));
   };
 
-  const sug = sugLocal ?? leerState?.sugerencia;
+  /**
+   * CANCELAR la lectura en curso. Si aún se está subiendo el archivo, el corte es
+   * real e inmediato. Si la Server Action ya arrancó, no hay forma de detener al
+   * servidor: se marca la lectura como abandonada, se ignora lo que devuelva y el
+   * borrador que alcance a crear se descarta en cuanto llegue la respuesta.
+   */
+  const cancelarLectura = () => {
+    if (cancelando) return;
+    const solicitud = loteIdSolicitud;
+    lecturaCanceladaRef.current = solicitud || "cancelada";
+    setCancelando(true);
+    subidaAbortRef.current?.abort();
+    // El archivo temporal a medio subir se libera de una vez (best-effort).
+    if (solicitud) void cancelarArchivoBalanceTemporal(solicitud);
+    if (!leyendo) finalizarCancelacion(false);
+  };
+
+  // Mientras se cancela, la sugerencia que llegue tarde NO abre la revisión.
+  const sug = cancelando ? null : (sugLocal ?? leerState?.sugerencia);
   const fase: "revisar" | "archivo" = sug ? "revisar" : "archivo";
   const clienteDetectadoId =
     sug?.render.clienteDetectadoId != null && clients.some((cliente) => cliente.id === sug.render.clienteDetectadoId)
@@ -374,18 +443,26 @@ function CargarBalanceModal({
       ? clienteManual.clientId
       : clienteDetectadoId;
 
+  // PRESELECCIÓN del tipo de balance: mientras el analista no elija, vale lo que
+  // detectó la lectura (filas de tercero, NIT en el sufijo o columna Tercero
+  // mapeada). Se DERIVA en el render —no se copia a estado— para que cambiar de
+  // archivo o reprocesar recalcule la sugerencia sola. Sigue siendo una respuesta
+  // editable: en cuanto el analista toca el selector, manda su elección.
+  const aperturaDetectada = sug ? aperturaSugerida(sug.render.porTercero) : null;
+  const aperturaEfectiva = aperturaRevision ?? aperturaDetectada;
+
   // La apertura solo puede bajar a BD cuando la revisión YA tiene lote (`persistida`).
   // Mientras sea transitoria, la elección espera en memoria; en cuanto se vincula el
   // cliente —o un reproceso crea otro lote— este efecto la deja guardada sin que el
   // analista tenga que volver a declararla.
   const loteRevisionPersistido = sug?.persistida ? sug.payload.loteId : null;
   useEffect(() => {
-    if (!loteRevisionPersistido || !aperturaRevision) return;
-    const marca = `${loteRevisionPersistido}|${aperturaRevision}`;
+    if (!loteRevisionPersistido || !aperturaEfectiva) return;
+    const marca = `${loteRevisionPersistido}|${aperturaEfectiva}`;
     if (aperturaPersistidaRef.current === marca) return;
     aperturaPersistidaRef.current = marca;
     startGuardarApertura(async () => {
-      const resultado = await actualizarAperturaBorrador(loteRevisionPersistido, aperturaRevision);
+      const resultado = await actualizarAperturaBorrador(loteRevisionPersistido, aperturaEfectiva);
       if (!resultado.ok) {
         // Se libera la marca para que un reintento (o el propio borrador) pueda
         // volver a guardarla; la elección permanece visible en el selector.
@@ -393,7 +470,7 @@ function CargarBalanceModal({
         notifyError(resultado.message ?? "No se pudo guardar el tipo de balance.");
       }
     });
-  }, [loteRevisionPersistido, aperturaRevision]);
+  }, [loteRevisionPersistido, aperturaEfectiva]);
 
   const asignarClienteRevision = (clientId: number) => {
     if (!sug) return;
@@ -550,6 +627,7 @@ function CargarBalanceModal({
   const segundoPasoCliente = mostrarSelectorCliente;
   const leerDeshabilitado =
     leyendo
+    || cancelando
     || progresoSubida != null
     || inspeccionando
     || !fileName
@@ -598,6 +676,22 @@ function CargarBalanceModal({
         ) : null}
       </div>
     ) : (
+      <div className="flex w-full items-center gap-2">
+        {(progresoSubida != null || leyendo || cancelando) && (
+          <button
+            type="button"
+            onClick={cancelarLectura}
+            disabled={cancelando}
+            title={
+              cancelando
+                ? "Se está cerrando la lectura"
+                : "Detener esta lectura y volver a empezar"
+            }
+            className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] font-semibold text-ink-600 transition hover:bg-ink-50 disabled:opacity-60"
+          >
+            {cancelando ? <EstadoProcesando>Cancelando</EstadoProcesando> : "Cancelar lectura"}
+          </button>
+        )}
       <button
         type="submit"
         form="leer-form"
@@ -628,6 +722,7 @@ function CargarBalanceModal({
                   ? `Leer hoja «${recortar(hojaElegida, 22)}»`
                   : "Leer archivo"}
       </button>
+      </div>
     );
 
   return (
@@ -644,7 +739,9 @@ function CargarBalanceModal({
           asignandoCliente={asignandoCliente || progresoSubida != null}
           onAsignarCliente={asignarClienteRevision}
           onReprocesar={reprocesar}
-          apertura={aperturaRevision}
+          apertura={aperturaEfectiva}
+          aperturaConfirmada={aperturaRevision != null}
+          porTerceroDetectado={sug.render.porTercero}
           guardandoApertura={guardandoApertura}
           onElegirApertura={setAperturaRevision}
         />
@@ -743,6 +840,14 @@ function CargarBalanceModal({
                   <span className="font-semibold">⚠️ ¡Archivo muy pesado!</span> Su carga toma más tiempo de lo normal. Puedes cambiar de pestaña; si la conexión se interrumpe, Russell comprobará el mismo intento sin duplicar el borrador.
                 </p>
               )}
+              {cancelando && leyendo && (
+                <p className="rounded-md border border-ink-200 bg-ink-50 px-3 py-2.5 text-[12px] text-ink-600">
+                  Se canceló la lectura. El servidor no se puede interrumpir a mitad de camino:
+                  en cuanto termine, Russell descarta lo que haya alcanzado a crear. Puedes cerrar
+                  esta ventana; si el borrador llegó a guardarse, quedará en «Borrador Balance» para
+                  descartarlo desde allí.
+                </p>
+              )}
               {!segundoPasoCliente && requiereHoja && hojas && (
                 <SelectorHojas
                   hojas={hojas}
@@ -800,6 +905,8 @@ function FormRevisar({
   onAsignarCliente,
   onReprocesar,
   apertura,
+  aperturaConfirmada,
+  porTerceroDetectado,
   guardandoApertura,
   onElegirApertura,
 }: {
@@ -818,6 +925,8 @@ function FormRevisar({
     clientId?: number | null,
   ) => void;
   apertura: AperturaBalance | null;
+  aperturaConfirmada: boolean;
+  porTerceroDetectado: boolean;
   guardandoApertura: boolean;
   onElegirApertura: (apertura: AperturaBalance) => void;
 }) {
@@ -859,6 +968,8 @@ function FormRevisar({
 
       <TipoBalanceRevision
         apertura={apertura}
+        confirmada={aperturaConfirmada}
+        porTerceroDetectado={porTerceroDetectado}
         guardando={guardandoApertura}
         onElegir={onElegirApertura}
       />
@@ -997,24 +1108,46 @@ function IdentificacionCliente({
  */
 function TipoBalanceRevision({
   apertura,
+  confirmada,
+  porTerceroDetectado,
   guardando,
   onElegir,
 }: {
   apertura: AperturaBalance | null;
+  confirmada: boolean;
+  porTerceroDetectado: boolean;
   guardando: boolean;
   onElegir: (apertura: AperturaBalance) => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-2" role="radiogroup" aria-label="Tipo de balance">
-      <span className="text-[12px] font-semibold text-ink-700">
-        Tipo de balance <span className="text-warn-700">*</span>
-      </span>
-      <SelectorAperturaBalance
-        value={apertura}
-        onChange={onElegir}
-        disabled={guardando}
-      />
-      {guardando ? <EstadoProcesando>Guardando</EstadoProcesando> : null}
+    <div className="flex flex-col gap-1">
+      <div className="flex flex-wrap items-center gap-2" role="radiogroup" aria-label="Tipo de balance">
+        <span className="text-[12px] font-semibold text-ink-700">
+          Tipo de balance <span className="text-warn-700">*</span>
+        </span>
+        <SelectorAperturaBalance
+          value={apertura}
+          onChange={onElegir}
+          disabled={guardando}
+          describedBy="ayuda-tipo-balance-revision"
+        />
+        {guardando ? <EstadoProcesando>Guardando</EstadoProcesando> : null}
+      </div>
+      {/* La preselección viene de la lectura, no del analista: se dice de dónde
+          sale para que corregirla sea una decisión informada, no un descubrimiento. */}
+      <p id="ayuda-tipo-balance-revision" className="text-[11px] text-ink-500">
+        {confirmada ? (
+          <>Declarado por ti. Se puede cambiar aquí o en el borrador.</>
+        ) : (
+          <>
+            Preseleccionado por la lectura:{" "}
+            {porTerceroDetectado
+              ? "se detectó detalle por tercero en el archivo."
+              : "no se detectó detalle por tercero."}{" "}
+            Cámbialo si no corresponde.
+          </>
+        )}
+      </p>
     </div>
   );
 }
@@ -1484,7 +1617,7 @@ function SelectorHojas({
     <div className="flex flex-col gap-2 rounded-md border border-warn-100 bg-warn-100/30 px-3 py-2.5">
       <p className="text-[12px] leading-relaxed text-warn-700">
         Este archivo tiene <span className="font-semibold">{hojas.length} hojas</span>. Selecciona cuál es el balance
-        que quieres cargar — <span className="font-semibold">la IA no elegirá por ti</span>.
+        que quieres cargar.
       </p>
       <div className="flex flex-wrap gap-1.5">
         {hojas.map((h) => {

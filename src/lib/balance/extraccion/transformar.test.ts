@@ -1013,3 +1013,61 @@ describe("transformarTabular: balance por tercero con CUENTAS EN NEGRITA", () =>
     expect(r.filasCrudas.some((f) => f.codigo === "110510")).toBe(true);
   });
 });
+
+describe("transformarTabular — filasTercero (staging paralelo del detalle por tercero)", () => {
+  it("captura el detalle de los movimientos con celda Tercero antes de agregar por cuenta", () => {
+    const hojaT: GridHoja = {
+      nombre: "Balance",
+      filas: [
+        ["Código", "Cuenta", "SI", "DB", "CR", "Saldo", "Tercero"],
+        [130505, "Cli A", 100, 500, 0, 600, "800011002 ACME SAS"],
+        [130505, "Cli B", 200, 200, 0, 400, "Cliente sin NIT"],
+      ],
+    };
+    const s = spec({ columnas: { ...spec().columnas, tercero: 7 } });
+    const rr = transformarTabular(s, [hojaT], PARAMS);
+    expect(rr.importReady).toHaveLength(1); // agregado por cuenta, como siempre
+    expect(rr.filasTercero).toHaveLength(2);
+    expect(rr.filasTercero?.[0]).toMatchObject({
+      codigo: "130505", nitTercero: "800011002", nombreTercero: "ACME SAS",
+      saldoInicial: 100, debitos: 500, creditos: 0, saldoFinal: 600,
+    });
+    expect(rr.filasTercero?.[1]).toMatchObject({ codigo: "130505", nitTercero: null, nombreTercero: "Cliente sin NIT" });
+  });
+
+  it("también captura el detalle OMITIDO por la fila consolidada (no se pierde al excluirse)", () => {
+    const B = [true, true, false, false, false, false, false];
+    const P = [false, false, false, false, false, false, false];
+    const hojaT: GridHoja = {
+      nombre: "Balance",
+      filas: [
+        ["Código", "Cuenta", "SI", "DB", "CR", "Saldo", "Tercero"],
+        [130505, "Clientes", 100, 500, 0, 600, ""],
+        [130505, "Clientes A", 40, 200, 0, 240, "Tercero A"],
+        [130505, "Clientes B", 60, 300, 0, 360, "Tercero B"],
+        [220505, "Proveedor A", -100, 0, 50, -150, "Proveedor A"],
+        [220505, "Proveedor B", -200, 0, 50, -250, "Proveedor B"],
+      ],
+      negrita: [P, B, P, P, P, P],
+    };
+    const s = spec({ agregarPorTercero: true, columnas: { ...spec().columnas, tercero: 7 } });
+    const rr = transformarTabular(s, [hojaT], PARAMS);
+    expect(rr.filasTercero).toHaveLength(4);
+    const t130505 = rr.filasTercero!.filter((f) => f.codigo === "130505");
+    expect(t130505.map((f) => f.nombreTercero)).toEqual(["Tercero A", "Tercero B"]);
+    expect(t130505[0]).toMatchObject({ saldoInicial: 40, debitos: 200, saldoFinal: 240 });
+    expect(rr.filasTercero!.filter((f) => f.codigo === "220505")).toHaveLength(2);
+  });
+
+  it("un archivo sin columna Tercero no expone filasTercero", () => {
+    const hojaN: GridHoja = {
+      nombre: "Balance",
+      filas: [
+        ["Código", "Cuenta", "SI", "DB", "CR", "Saldo"],
+        [110505, "Caja", 0, 100, 0, 100],
+      ],
+    };
+    const rr = transformarTabular(spec(), [hojaN], PARAMS);
+    expect(rr.filasTercero).toBeUndefined();
+  });
+});

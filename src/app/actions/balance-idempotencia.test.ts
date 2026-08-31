@@ -204,6 +204,20 @@ const mocks = vi.hoisted(() => {
       createMany: stagingCreateMany,
       deleteMany: stagingDeleteMany,
     },
+    balanceImportacionStagingTercero: {
+      findMany: vi.fn(async () => []),
+      createMany: vi.fn(async () => ({ count: 0 })),
+      deleteMany: vi.fn(async () => ({ count: 0 })),
+    },
+    balanceTerceroEncabezado: {
+      findUnique: vi.fn(async () => null),
+      findMany: vi.fn(async () => []),
+      updateMany: vi.fn(async () => ({ count: 0 })),
+      create: vi.fn(async () => ({ id: 900 })),
+    },
+    balanceTerceroDetalle: {
+      createMany: vi.fn(async () => ({ count: 0 })),
+    },
     balanceLecturaDiagnostico: {
       updateMany: diagnosticoUpdateMany,
     },
@@ -369,6 +383,9 @@ vi.mock("@/lib/prisma", () => ({
       updateMany: vi.fn(async () => ({ count: 1 })),
     },
     balanceImportacionStaging: mocks.tx.balanceImportacionStaging,
+    balanceImportacionStagingTercero: mocks.tx.balanceImportacionStagingTercero,
+    balanceTerceroEncabezado: mocks.tx.balanceTerceroEncabezado,
+    balanceTerceroDetalle: mocks.tx.balanceTerceroDetalle,
     correccionCargaBalance: {
       findMany: mocks.correccionFindMany,
       updateMany: vi.fn(async () => ({ count: 0 })),

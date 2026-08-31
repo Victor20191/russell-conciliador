@@ -37,7 +37,6 @@ export const workNav: NavItem[] = [
       { label: "Borrador Balance", href: "/balance/borradores", permiso: "balance:crear", modulo: "balance" },
       // Cargue AISLADO (CxC/CxP): no pasa por borradores ni por `/balance`, así que
       // necesita su propia entrada para no quedar invisible.
-      { label: "Balance por tercero", href: "/balance/terceros", permiso: "balance:ver", modulo: "balance" },
     ],
   },
   {

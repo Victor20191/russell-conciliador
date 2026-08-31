@@ -20,6 +20,7 @@ import { fmtDateTime } from "@/lib/format";
 import { construirCruceContable, type ResumenCruceContable } from "@/lib/modulos/cruce-contable";
 import { construirCruceTercero, type ResumenCruceTercero } from "@/lib/modulos/cruce-tercero";
 import { normalizarTerceroModulo } from "@/lib/modulos/tercero";
+import { filasEfectivasTercero } from "@/lib/balance/staging-tercero";
 import { agregarPorNit } from "@/lib/modulos/agregar-por-nit";
 import { anotarCruceConMarcas, type MarcaCruce } from "@/lib/modulos/marcas-cruce";
 import { calcularValorContableModulo } from "@/lib/modulos/valor-contable";
@@ -314,12 +315,14 @@ export default async function DatoModuloPage({
     resumenMarcas: cruceAnotado?.resumen ?? null,
   };
 
-  // Cruce por tercero (NIT): SOLO para módulos habilitados explícitamente (CAR/CXP).
-  // Tener una columna llamada "tercero" no prueba que el auxiliar sea apto para cruzar;
-  // Ingresos permanece fuera hasta validar una muestra real neta de impuestos. Mismo
-  // criterio de emparejamiento de período que el cruce contable, pero
-  // contra el balance abierto POR TERCERO del cliente (`balance_tercero_*`).
+  // Cruce por tercero: habilitado por descriptor en TODOS los módulos. La clave del
+  // cruce es el rol `rolCruceTercero` (default "tercero"; Nómina cruza por cédula).
+  // Mismo criterio de emparejamiento de período que el cruce contable, pero contra
+  // el balance abierto POR TERCERO del cliente (`balance_tercero_*`, capturado al
+  // confirmar el borrador con apertura «por terceros»).
   const tieneRolTercero = descriptor.crucePorTercero === true;
+  const rolCruceTercero = descriptor.rolCruceTercero ?? "tercero";
+  const rolNombreCruce = descriptor.rolNombreCruceTercero ?? null;
   let cruceTercero: ResumenCruceTercero | null = null;
   let balanceTerceroEncontrado = false;
   // Cargue por tercero emparejado (mismo año-mes): lo necesita el enlace de la pestaña.
@@ -343,10 +346,11 @@ export default async function DatoModuloPage({
       : null;
 
     if (balanceTerceroEmparejado) {
-      const detallesTercero = await prisma.balanceTerceroDetalle.findMany({
+      const detallesTerceroCrudos = await prisma.balanceTerceroDetalle.findMany({
         where: { encabezadoId: balanceTerceroEmparejado.id },
         select: {
           cuenta4: true,
+          cuenta8: true,
           cuenta6Russell: true,
           nitTercero: true,
           nombreTercero: true,
@@ -355,6 +359,9 @@ export default async function DatoModuloPage({
           saldoFinal: true,
         },
       });
+      // Dedup de la fila «propia» (cargues capturados del borrador): una cuenta
+      // con detalle usa solo sus terceros; su consolidado no infla el «sin NIT».
+      const detallesTercero = filasEfectivasTercero(detallesTerceroCrudos);
       const itemsContables: { nit: string | null; nombre: string | null; saldo: number }[] = [];
       for (const d of detallesTercero) {
         if (!d.cuenta6Russell) {
@@ -385,8 +392,9 @@ export default async function DatoModuloPage({
       // Cada fila del detalle ya llegó a `modulo_dato_detalle` como IMPUTABLE (movimiento,
       // no omitida, no en cero): la promoción (`esImputable`) filtra antes de persistir.
       const itemsModulo = detalleVm.map((d) => {
-        const t = normalizarTerceroModulo(d.datos.tercero as string | number | null | undefined);
-        return { nit: t.nitCanonico, nombre: t.nombre, saldo: d.valor };
+        const t = normalizarTerceroModulo(d.datos[rolCruceTercero] as string | number | null | undefined);
+        const nombreAparte = rolNombreCruce ? String(d.datos[rolNombreCruce] ?? "").trim() || null : null;
+        return { nit: t.nitCanonico, nombre: t.nombre ?? nombreAparte, saldo: d.valor };
       });
       const { aportes: moduloPorNit, sinNit: moduloSinNitCalc } = agregarPorNit(itemsModulo);
       moduloSinNit = moduloSinNitCalc;
@@ -406,6 +414,8 @@ export default async function DatoModuloPage({
     contableSinNit,
     moduloSinNit,
     contableExcluidoFilas,
+    etiquetaClave: rolCruceTercero === "cedula" ? "Cédula" : "NIT",
+    etiquetaNombre: rolCruceTercero === "cedula" ? "Empleado" : "Nombre",
   };
 
   const versiones: VersionModuloVm[] = hermanos.map((hermano) => ({

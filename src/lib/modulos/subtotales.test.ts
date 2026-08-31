@@ -44,7 +44,7 @@ describe("esRotuloTotal / columnasDetalle", () => {
     expect(esRotuloTotal("Tornillo total")).toBe(false);
   });
   it("las columnas de detalle son los textos que no son el clasificador ni su alterno, y solo las mapeadas si hay spec", () => {
-    expect(columnasDetalle(INV)).toEqual(["referencia", "descripcion"]);
+    expect(columnasDetalle(INV)).toEqual(["referencia", "descripcion", "tercero"]);
     expect(columnasDetalle(CAR)).toEqual(["documento", "tercero"]);
     expect(columnasDetalle(MODULOS_IMPORT.NOM)).toEqual(["cedula", "empleado", "area"]);
     expect(columnasDetalle(INV, { columnas: { referencia: 2, descripcion: 0 } })).toEqual(["referencia"]);

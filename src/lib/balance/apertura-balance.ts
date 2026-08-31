@@ -60,6 +60,27 @@ export function aperturaSugerida(porTerceroDetectado: boolean): AperturaBalance 
   return porTerceroDetectado ? "tercero" : "cuenta";
 }
 
+/**
+ * ¿La lectura vio DETALLE POR TERCERO en el archivo? Une las dos formas en que el
+ * detalle puede llegar, que ninguna señal cubre sola:
+ *
+ *  - `porFilasDetectado` — el archivo trae el tercero como FILAS propias (NIT/cédula
+ *    bajo la cuenta, o pegado al sufijo del código). Lo miden los detectores de
+ *    `terceros.ts` sobre las filas crudas.
+ *  - `filasTerceroSpec` — el archivo trae el tercero en una COLUMNA mapeada. Ahí no
+ *    quedan filas de tercero que detectar: la transformación agrega por cuenta antes
+ *    de persistir, y el único rastro es el detalle que la lectura apartó.
+ *
+ * Un balance por tercero de un ERP tipo SIIGO (columna Tercero) daba `false` con la
+ * primera señal a solas, que es justo el caso donde la apertura importa.
+ */
+export function detectoDetallePorTercero(
+  porFilasDetectado: boolean,
+  filasTerceroSpec: number,
+): boolean {
+  return porFilasDetectado || filasTerceroSpec > 0;
+}
+
 /** Orden alfabético estable por etiqueta; los cargues sin dato van al final. */
 export function compararApertura(a: unknown, b: unknown): number {
   const ea = parsearApertura(a);

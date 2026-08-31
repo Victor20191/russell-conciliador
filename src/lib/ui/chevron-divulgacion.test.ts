@@ -25,7 +25,6 @@ describe("convención cableada en UI de expandir/contraer", () => {
     "app/(app)/balance/cargar-balance-modal.tsx",
     "app/(app)/balance/borradores/[loteId]/borrador-detail-client.tsx",
     "app/(app)/balance/[id]/balance-detail-client.tsx",
-    "app/(app)/balance/terceros/[id]/tercero-detail-client.tsx",
     "app/(app)/config/maestros/maestros-client.tsx",
     "app/(app)/config/permisos/permisos-client.tsx",
     "app/(app)/config/usuarios/usuarios-client.tsx",

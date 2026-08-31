@@ -54,10 +54,18 @@ describe("descriptores de módulos", () => {
     });
   }
 
-  it("solo habilita el cruce por tercero en auxiliares funcionalmente validados", () => {
-    expect(MODULOS_IMPORT.CAR.crucePorTercero).toBe(true);
-    expect(MODULOS_IMPORT.CXP.crucePorTercero).toBe(true);
-    expect(MODULOS_IMPORT.ING.crucePorTercero).not.toBe(true);
+  it("todos los módulos habilitan el cruce por tercero con un rol de columna existente", () => {
+    for (const d of Object.values(MODULOS_IMPORT)) {
+      expect(d.crucePorTercero, d.codigo).toBe(true);
+      const rolClave = d.rolCruceTercero ?? "tercero";
+      expect(d.columnas.some((c) => c.nombre === rolClave), `${d.codigo}: rol ${rolClave}`).toBe(true);
+      if (d.rolNombreCruceTercero) {
+        expect(d.columnas.some((c) => c.nombre === d.rolNombreCruceTercero), `${d.codigo}: rol ${d.rolNombreCruceTercero}`).toBe(true);
+      }
+    }
+    // Nómina cruza por la cédula del empleado, no por un NIT de tercero.
+    expect(MODULOS_IMPORT.NOM.rolCruceTercero).toBe("cedula");
+    expect(MODULOS_IMPORT.NOM.rolNombreCruceTercero).toBe("empleado");
   });
 
   it("ING exige ingreso neto y no sugiere automáticamente el total de factura", () => {

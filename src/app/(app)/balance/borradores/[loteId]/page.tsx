@@ -66,11 +66,19 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
     // no existe cliente ni propietario verificable para autorizar a otro rol.
     if (!contextoAcceso.alcance.todos) notFound();
   }
-  const [staging, umbrales] = await Promise.all([
+  const [staging, umbrales, detalleTerceroApartado] = await Promise.all([
     stagingBorradorLote(loteId),
     // Umbrales de alerta vigentes (parametrizables en /config/parametros). El
     // borrador recalcula sus validaciones en el cliente, así que viajan por props.
     getUmbralesAlertas(),
+    // Segunda señal de apertura por tercero: cuando el tercero venía en una COLUMNA
+    // mapeada no quedan filas que detectar (la transformación agrega por cuenta),
+    // pero sí quedó el staging paralelo. Sin esto el borrador contradecía al modal.
+    // `findFirst` y no `count`: solo interesa si hay alguna.
+    prisma.balanceImportacionStagingTercero.findFirst({
+      where: { loteId },
+      select: { id: true },
+    }),
   ]);
   if (!staging) notFound();
 
@@ -172,7 +180,7 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
         periodoFinal={lote?.periodoFinal ? fechaCalendarioISO(lote.periodoFinal) : null}
         aperturaGuardada={lote?.aperturaBalance ?? null}
         filasCompactas={staging.filasCompactas}
-        porTerceroDetectado={staging.porTercero}
+        porTerceroDetectado={staging.porTercero || detalleTerceroApartado != null}
         revisionesReubicacion={staging.revisionesReubicacion ?? []}
         clientes={clientes.map((c) => ({
           id: c.id,

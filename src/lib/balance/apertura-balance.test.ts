@@ -6,6 +6,7 @@ import {
   compararApertura,
   etiquetaApertura,
   parsearApertura,
+  detectoDetallePorTercero,
 } from "./apertura-balance";
 
 describe("parsearApertura", () => {
@@ -50,6 +51,20 @@ describe("aperturaSugerida", () => {
   it("propone lo que detectó la lectura del archivo", () => {
     expect(aperturaSugerida(true)).toBe("tercero");
     expect(aperturaSugerida(false)).toBe("cuenta");
+  });
+});
+
+describe("detectoDetallePorTercero", () => {
+  it("reconoce el tercero traído como filas propias", () => {
+    expect(detectoDetallePorTercero(true, 0)).toBe(true);
+  });
+
+  it("reconoce el tercero traído en una columna mapeada (sin filas que detectar)", () => {
+    expect(detectoDetallePorTercero(false, 1011)).toBe(true);
+  });
+
+  it("un informe normal no detecta nada", () => {
+    expect(detectoDetallePorTercero(false, 0)).toBe(false);
   });
 });
 

@@ -1551,7 +1551,7 @@ export default function BorradorDetailClient({
           <p id="ayuda-tipo-balance" className="text-[11px] text-ink-500">
             {aperturaBalance ? (
               <>
-                Este cargue queda registrado como <span className="font-semibold text-ink-700">{etiquetaApertura(aperturaBalance)}</span>. Se mostrará en las versiones del cliente, en borrador y en el balance oficial.
+                Este cargue queda registrado como <span className="font-semibold text-ink-700">{etiquetaApertura(aperturaBalance)}</span>. Se mostrará en las versiones del cliente, en borrador y en el balance oficial.{aperturaBalance === "tercero" ? " Al cargar se capturará además el detalle por tercero (cuenta × NIT) para el cruce por tercero de los módulos." : ""}
               </>
             ) : (
               <>

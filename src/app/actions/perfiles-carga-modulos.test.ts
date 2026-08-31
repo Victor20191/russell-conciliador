@@ -100,7 +100,7 @@ describe("actualizarPerfilCargaModulo", () => {
       hoja: "Inventario",
       filaEncabezado: 3,
       primeraFilaDatos: 4,
-      columnas: { tipo: 2, referencia: 1, descripcion: 3, cantidad: 4, valorUnitario: 5, valorTotal: 6 },
+      columnas: { tipo: 2, referencia: 1, descripcion: 3, cantidad: 4, valorUnitario: 5, valorTotal: 6, tercero: 0 },
       clasificadorModo: "arrastrar",
     });
     expect(mocks.logAudit).toHaveBeenCalledWith(expect.objectContaining({
@@ -195,11 +195,11 @@ describe("listarPerfilesCargaModulo", () => {
     expect(res.moduloCodigo).toBe("INV");
     expect(res.moduloLabel).toBe("Inventarios");
     expect(res.clasificadorRol).toBe("tipo");
-    expect(res.roles.map((r) => r.nombre)).toEqual(["tipo", "referencia", "descripcion", "cantidad", "valorUnitario", "valorTotal"]);
+    expect(res.roles.map((r) => r.nombre)).toEqual(["tipo", "referencia", "descripcion", "cantidad", "valorUnitario", "valorTotal", "tercero"]);
     expect(res.perfiles).toHaveLength(2);
     expect(res.perfiles[0].resumenColumnas).toBe("tipo de inventario B · referencia A · descripción C · cantidad D · valor unitario E · valor total F");
     expect(res.perfiles[0].estructura.clasificadorModo).toBe("arrastrar");
-    expect(res.perfiles[1].estructura.columnas).toEqual({ tipo: 0, referencia: 0, descripcion: 0, cantidad: 0, valorUnitario: 0, valorTotal: 0 });
+    expect(res.perfiles[1].estructura.columnas).toEqual({ tipo: 0, referencia: 0, descripcion: 0, cantidad: 0, valorUnitario: 0, valorTotal: 0, tercero: 0 });
     expect(res.ajustes).toEqual({ hojaPreferida: "Inventario", observaciones: null });
     expect(mocks.authorizePermiso).toHaveBeenCalledWith("perfiles_carga:administrar", { clientId: 23, modo: "lectura" });
   });

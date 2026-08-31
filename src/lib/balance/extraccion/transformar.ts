@@ -8,6 +8,8 @@ import type { CuadreTotales, Estandar, Excepcion, ExtraccionDirecta, MappingSpec
 import { conForzarHoja } from "@/lib/balance/calcular";
 import type { CuentaCruda } from "@/lib/balance/calcular";
 import type { CeldaCruda, GridHoja } from "./ingesta";
+import type { FilaTerceroCruda } from "@/lib/balance/staging-tercero";
+import { normalizarTerceroModulo } from "@/lib/modulos/tercero";
 
 // Nivel mínimo de imputación del PUC: ninguna cuenta de MOVIMIENTO es más corta
 // que la subcuenta (6 dígitos). Clases/grupos/cuentas (1/2/4 díg.) nunca son
@@ -72,6 +74,10 @@ export type ResultadoTransform = {
   confianza?: number | null;
   // Solo modo tabular con control por fila disponible (saldo inicial + movimientos).
   orientacionControl?: OrientacionControl;
+  // Detalle por tercero (cuenta × NIT) capturado del propio spec — columna Tercero
+  // mapeada o descarte por negrita — ANTES de agregarse por cuenta. Alimenta el
+  // staging paralelo `balance_importacion_staging_tercero`; ausente si no aplica.
+  filasTercero?: FilaTerceroCruda[];
 };
 
 // ---------------- Normalización numérica ----------------
@@ -467,6 +473,10 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
   let filasResumenTerceroExcluidas = 0;
   let filasTerceroNegritaExcluidas = 0; // detalle por tercero descartado por negrita
   let cuentaNegritaActual = ""; // código de la última cuenta EN NEGRITA (contexto del descarte)
+  let nombreCuentaNegritaActual = "";
+  // Detalle por tercero del spec: se acumula aquí porque tras `agregarPorCuenta`
+  // (o el descarte por negrita) el desglose individual ya no existe.
+  const filasTercero: FilaTerceroCruda[] = [];
   const orientacion: OrientacionControl = { directa: 0, invertida: 0, ambiguas: 0 };
   // Todas las filas leídas (sin descartar), para el staging del paso 1.
   const filasCrudas: FilaCruda[] = [];
@@ -524,6 +534,25 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
       });
       return filasCrudas.length - 1;
     };
+    // Captura una fila (cuenta × tercero) para el staging paralelo. El NIT queda en
+    // su clave canónica (la misma bajo la que cruzan los módulos); sin NIT ni nombre
+    // reconocibles queda como tercero «Genérico».
+    const capturarTercero = (codigoCuenta: string, nombreCuenta: string, terceroRaw: string, m: { si: number; db: number; cr: number; saldo: number }): void => {
+      if (!codigoCuenta) return;
+      const t = normalizarTerceroModulo(terceroRaw);
+      filasTercero.push({
+        filaNum,
+        codigo: codigoCuenta,
+        codigoCrudo: codigoCrudo || null,
+        nombreCuenta: nombreCuenta || null,
+        nitTercero: t.nitCanonico,
+        nombreTercero: t.nitCanonico === null && t.nombre === null ? "Genérico" : t.nombre,
+        saldoInicial: m.si,
+        debitos: m.db,
+        creditos: m.cr,
+        saldoFinal: m.saldo,
+      });
+    };
 
     // Totales/secciones: código no numérico.
     if (!esNum) {
@@ -538,9 +567,12 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
     if (descartarTerceroNegrita) {
       if (filaEnNegrita(hoja.negrita?.[r], cols.codigo, cols.nombre)) {
         cuentaNegritaActual = code; // cuenta en negrita → nuevo contexto
+        nombreCuentaNegritaActual = name;
       } else if (cuentaNegritaActual && !code.startsWith(cuentaNegritaActual)) {
         filasExcluidas++;
         filasTerceroNegritaExcluidas++;
+        // El código de la fila descartada ES el tercero (NIT/`0`); su nombre lo completa.
+        capturarTercero(cuentaNegritaActual, nombreCuentaNegritaActual, `${codigoCrudo} ${name}`.trim(), { si: si ?? 0, db: db ?? 0, cr: cr ?? 0, saldo: saldo ?? 0 });
         continue; // tercero → descartar
       }
     }
@@ -555,13 +587,16 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
     const consolidadasMarcadas = filasConsolidadasMarcadasPorCodigo.get(code) ?? new Set<number>();
     if (cols.tercero > 0 && consolidadasMarcadas.size > 0 && !consolidadasMarcadas.has(r)) {
       filasExcluidas++;
-      if (filaEsDetalleTercero(fila, spec, cols)) filasDetalleTerceroExcluidas++;
-      else filasResumenTerceroExcluidas++;
+      if (filaEsDetalleTercero(fila, spec, cols)) {
+        filasDetalleTerceroExcluidas++;
+        capturarTercero(code, name, texto(cell(fila, cols.tercero)), { si: si ?? 0, db: db ?? 0, cr: cr ?? 0, saldo: saldo ?? 0 });
+      } else filasResumenTerceroExcluidas++;
       continue;
     }
     if (omitirDetalleTerceroPorConsolidadoInferido(code, fila)) {
       filasExcluidas++;
       filasDetalleTerceroExcluidas++;
+      capturarTercero(code, name, texto(cell(fila, cols.tercero)), { si: si ?? 0, db: db ?? 0, cr: cr ?? 0, saldo: saldo ?? 0 });
       continue;
     }
     const consolidadoConDetalleTercero = codigosConConsolidado.has(code) && codigosConDetalleTercero.has(code);
@@ -615,6 +650,13 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
     }
     const mov = elegirMovimiento(si, db, cr, saldo);
     const idx = registrar("movimiento", { si, db: mov.db, cr: mov.cr, saldo });
+    // Movimiento que ES una fila de detalle por tercero (celda Tercero con valor):
+    // se conserva y se agrega por cuenta más abajo, pero su desglose individual solo
+    // sobrevive aquí — se captura para el staging paralelo.
+    if (cols.tercero > 0) {
+      const terceroCelda = texto(cell(fila, cols.tercero));
+      if (terceroCelda !== "") capturarTercero(code, name, terceroCelda, { si, db: mov.db, cr: mov.cr, saldo });
+    }
     (crudasPorCodigo.get(code) ?? crudasPorCodigo.set(code, []).get(code)!).push(idx);
     parciales.push({
       code,
@@ -725,6 +767,7 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
     // repetido/desacople) que el filtro por prefijo de `calcularBalance` descartaría.
     importReady: conForzarHoja(importReady),
     filasCrudas,
+    ...(filasTercero.length > 0 ? { filasTercero } : {}),
     excepciones,
     resumen: {
       filasLeidas,

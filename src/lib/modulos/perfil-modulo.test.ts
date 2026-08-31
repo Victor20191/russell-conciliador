@@ -48,7 +48,7 @@ describe("normalizarSpecModulo", () => {
       columnas: { tipo: 2, referencia: -4, valorTotal: 6.5, columnaAjena: 9 },
     }));
     expect(spec.hoja).toBe("Inventario");
-    expect(spec.columnas).toEqual({ tipo: 2, referencia: 0, descripcion: 0, cantidad: 0, valorUnitario: 0, valorTotal: 0 });
+    expect(spec.columnas).toEqual({ tipo: 2, referencia: 0, descripcion: 0, cantidad: 0, valorUnitario: 0, valorTotal: 0, tercero: 0 });
     expect("columnaAjena" in spec.columnas).toBe(false);
     expect(spec.clasificadorModo).toBe("columna");
     expect(spec.arrastrarClasificador).toBeUndefined();

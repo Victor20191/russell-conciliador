@@ -60,6 +60,26 @@ export async function iniciarArchivoBalanceTemporal(args: {
   }
 }
 
+/**
+ * Descarta el archivo temporal de una lectura CANCELADA por el usuario. Borra
+ * también sus fragmentos (FK dura en cascada) y es idempotente: si ya no existe
+ * —o nunca llegó a crearse— responde ok igual. Solo el dueño puede descartarlo.
+ */
+export async function descartarArchivoBalanceTemporal(args: {
+  loteId: string;
+  usuarioId: number;
+}): Promise<ResultadoOperacion> {
+  try {
+    await prisma.balanceArchivoTemporal.deleteMany({
+      where: { loteId: args.loteId, usuarioId: args.usuarioId },
+    });
+    return { ok: true };
+  } catch {
+    // No es un error del usuario: el purgado por vigencia lo recoge después.
+    return { ok: false, message: "No se pudo liberar el archivo temporal de la lectura.", status: 500 };
+  }
+}
+
 export async function guardarParteArchivoBalance(args: {
   loteId: string;
   usuarioId: number;

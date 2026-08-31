@@ -965,6 +965,32 @@ model BalanceImportacionStaging {
   @@map("balance_importacion_staging")
 }
 
+// Staging PARALELO del detalle por tercero de un lote de importación. Se puebla al
+// LEER el archivo (única ventana en que el detalle cuenta × tercero existe completo:
+// el staging principal no guarda tercero y en el camino «columna tercero mapeada» la
+// transformación agrega por cuenta antes de persistir). Vive y muere con el staging
+// principal: la promoción, el descarte y el reemplazo por reproceso lo purgan igual.
+// Sin FK dura (mismo patrón que `balance_importacion_staging`); `fila_num` ancla con
+// la fila de origen del archivo cuando existe fila espejo en el staging principal.
+model BalanceImportacionStagingTercero {
+  id            Int      @id @default(autoincrement()) @map("id")
+  loteId        String   @map("lote_id")
+  filaNum       Int      @map("fila_num")
+  codigo        String   @map("codigo") // cuenta normalizada (ancla de herencia con el detalle promovido)
+  codigoCrudo   String?  @map("codigo_crudo")
+  nombreCuenta  String?  @map("nombre_cuenta")
+  nitTercero    String?  @map("nit_tercero") // clave canónica (nucleoNit); null = tercero genérico/sin NIT
+  nombreTercero String?  @map("nombre_tercero")
+  saldoInicial  Decimal  @default(0) @map("saldo_inicial") @db.Decimal(18, 2)
+  debitos       Decimal  @default(0) @map("debitos") @db.Decimal(18, 2)
+  creditos      Decimal  @default(0) @map("creditos") @db.Decimal(18, 2)
+  saldoFinal    Decimal  @default(0) @map("saldo_final") @db.Decimal(18, 2)
+  creadoEn      DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  @@index([loteId])
+  @@map("balance_importacion_staging_tercero")
+}
+
 // HUELLA DIAGNÓSTICA de la lectura de un balance (medición, NO afecta la lectura). Una
 // fila por evento de importación, con FK SUAVE a `lote_id`/`cliente_id` (sin @relation)
 // para que SOBREVIVA a la purga del lote/staging al confirmar o descartar. Acumula el

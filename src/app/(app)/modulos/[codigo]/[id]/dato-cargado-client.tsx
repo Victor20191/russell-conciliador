@@ -58,10 +58,10 @@ export type CruceContableVm = {
   filasMarcadas: FilaCruceMarcada[];
   resumenMarcas: ResumenMarcas | null;
 };
-// Cruce por tercero (NIT): balance abierto por tercero vs. auxiliar del módulo
-// (CAR/CXP). `aplica` es false para módulos sin columna "tercero" (p. ej. INV) — la
-// pestaña ni se muestra. `resumen` es null cuando no hay balance por tercero
-// confirmado para el período (estado vacío en la UI).
+// Cruce por tercero: balance abierto por tercero vs. auxiliar del módulo, clave a
+// clave (NIT, o cédula en Nómina). Habilitado por descriptor en todos los módulos.
+// `resumen` es null cuando el período no tiene balance por tercero capturado
+// (estado vacío en la UI). Las etiquetas de la clave vienen del descriptor.
 export type CruceTerceroVm = {
   aplica: boolean;
   balanceEncontrado: boolean;
@@ -75,6 +75,9 @@ export type CruceTerceroVm = {
   moduloSinNit: { total: number; filas: number } | null;
   /** Filas contables del módulo excluidas por falta de homologación o regla activa. */
   contableExcluidoFilas: number;
+  /** Rótulos de la clave del cruce: «NIT»/«Nombre», o «Cédula»/«Empleado» en Nómina. */
+  etiquetaClave: string;
+  etiquetaNombre: string;
 };
 export type NovedadesVm = {
   negativos: { filaNum: number; etiqueta: string; referencia: string | null; valor: number }[];
@@ -1092,7 +1095,7 @@ function CruceTerceroTab({ cruceTercero }: { cruceTercero: CruceTerceroVm }) {
       <Card className="flex flex-col items-center gap-2 p-8 text-center">
         <div className="text-[13px] font-semibold text-ink-800">No hay balance por tercero confirmado para este período</div>
         <p className="max-w-md text-[12.5px] text-ink-500">
-          No hay balance por tercero confirmado para <b className="text-ink-700">{cruceTercero.nombreCliente}</b> en el período <b className="text-ink-700">{cruceTercero.periodo}</b>. Cárgalo desde Balance › Abrir por tercero.
+          No hay balance por tercero para <b className="text-ink-700">{cruceTercero.nombreCliente}</b> en el período <b className="text-ink-700">{cruceTercero.periodo}</b>. Se genera automáticamente al confirmar el borrador del balance declarando el tipo «Por terceros».
         </p>
         <Link href="/balance" className="mt-1 text-[12.5px] font-semibold text-blue-700 hover:underline">
           Ir a Balance de comprobación →
@@ -1105,18 +1108,11 @@ function CruceTerceroTab({ cruceTercero }: { cruceTercero: CruceTerceroVm }) {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* De dónde salió el lado contable de este cruce: se abre el cargue por
-          tercero exacto (cuentas, terceros y saldos) sin salir a buscarlo. */}
+      {/* De dónde salió el lado contable de este cruce. El cargue por tercero se
+          captura al confirmar el borrador del balance; no tiene pantalla propia. */}
       {cruceTercero.balanceTerceroId != null && (
         <p className="text-[11.5px] text-ink-500">
-          Lado contable:{" "}
-          <Link
-            href={`/balance/terceros/${cruceTercero.balanceTerceroId}`}
-            className="font-semibold text-blue-600 hover:underline"
-          >
-            balance por tercero {cruceTercero.balanceTerceroVersion ?? ""} de {cruceTercero.nombreCliente}
-          </Link>
-          .
+          Lado contable: balance por tercero <b className="text-ink-700">{cruceTercero.balanceTerceroVersion ?? ""}</b> de {cruceTercero.nombreCliente} (capturado del balance de comprobación del período).
         </p>
       )}
       <Card className="p-0">
@@ -1124,8 +1120,8 @@ function CruceTerceroTab({ cruceTercero }: { cruceTercero: CruceTerceroVm }) {
           <table className="w-full text-[12.5px]">
             <thead className="bg-ink-50 text-left text-ink-500">
               <tr>
-                <th className="px-3 py-2 font-semibold">NIT</th>
-                <th className="px-3 py-2 font-semibold">Nombre</th>
+                <th className="px-3 py-2 font-semibold">{cruceTercero.etiquetaClave}</th>
+                <th className="px-3 py-2 font-semibold">{cruceTercero.etiquetaNombre}</th>
                 <th className="px-3 py-2 text-right font-semibold">Contabilidad</th>
                 <th className="px-3 py-2 text-right font-semibold">Auxiliar (módulo)</th>
                 <th className="px-3 py-2 text-right font-semibold">Diferencia</th>

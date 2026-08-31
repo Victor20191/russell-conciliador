@@ -56,9 +56,11 @@ import { mapearPorIA } from "@/lib/balance/mapeo-ia";
 import { construirVistaBorrador } from "@/lib/balance/borrador-vm";
 import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
 import type { UmbralesAlertas } from "@/lib/balance/umbrales-alertas";
+import type { FilaDetalle } from "@/lib/balance/calcular";
 import { detectarManipulacionesRiesgosas, reclasificarHuerfanas, reclasificarSoloHojas, corregirCodigosPlaceholder, marcarNoContables, validarReubicacionesBorrador, type FilaBorrador } from "@/lib/balance/borrador";
 import { esBalancePorTercero, colapsarTerceros, esBalancePorTerceroSufijo, consolidarTercerosPorSufijo, marcarCuentaNit } from "@/lib/balance/terceros";
-import { etiquetaApertura, parsearApertura, type AperturaBalance } from "@/lib/balance/apertura-balance";
+import { derivarStagingTercero, prepararCapturaTercero } from "@/lib/balance/staging-tercero";
+import { detectoDetallePorTercero, etiquetaApertura, parsearApertura, type AperturaBalance } from "@/lib/balance/apertura-balance";
 import { invalidarStagingBorrador, type RevisionReubicacionStaging } from "@/lib/balance/staging-borrador";
 import { marcarRelistadoGuiones } from "@/lib/balance/relistado";
 import { mensajeTamanoBalanceNoPermitido } from "@/lib/balance/limites-archivo";
@@ -78,9 +80,6 @@ import { proveedorIABalanceSesion } from "@/lib/ia/proveedor-balance-sesion";
 import { registrarConsumoIA, type UsoIA } from "@/lib/ia/uso";
 import { aplicarPreferenciasCarga } from "@/lib/balance/preferencias-carga";
 import { construirConfigMapeoCliente, esPendiente, esPendienteCodigo, esProtegidoDeAutomatico, nivelPorCodigo, ORIGEN_PENDIENTE, resolverMapeoCliente } from "@/lib/balance/mapeo-cliente-config";
-import { extraerBalancePorTercero, specCargaASpecPorTercero } from "@/lib/balance/extraccion/por-tercero";
-import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
-import { prefijosCuentaModulo, cuenta4DelModulo } from "@/lib/modulos/cuentas-modulo";
 import { cruzaClaseContable } from "@/lib/balance/clase-contable";
 import {
   contextoAccesoBorradorActual,
@@ -98,6 +97,9 @@ import type { CuadreTotales, Excepcion, MappingSpec, Origen, ResumenAuditoria, S
 import { z } from "zod";
 
 const TIMEOUT_TRANSACCION_PROMOCION_MS = 5 * 60 * 1000;
+// ~17 parámetros por fila: 2.000 mantiene cada INSERT masivo por debajo del límite
+// de 65.535 parámetros de PostgreSQL y reduce los viajes de archivos grandes.
+const LOTE_STAGING = 2_000;
 const TIMEOUT_TRANSACCION_BORRADOR_MS = 15 * 60 * 1000;
 const MAX_CUENTAS_REVISION_MODAL = 200;
 const LoteIdSolicitudSchema = z.string().uuid();
@@ -1342,6 +1344,15 @@ export async function asignarCuentaEstandar(formData: FormData): Promise<ActionS
         where: planAlcance.filtroDetalle,
         data: { cuenta6Russell: std.code, coincidencia: 100 },
       });
+      // Sincroniza el cargue por tercero LIGADO (mismo lote): mismas cuentas,
+      // misma homologación — así el cruce por tercero de los módulos no descuadra.
+      const terceroId = await encabezadoTerceroLigado(tx, encId);
+      if (terceroId !== null) {
+        await tx.balanceTerceroDetalle.updateMany({
+          where: { encabezadoId: terceroId, ...(aplicarAlGrupo ? { cuenta6: filaActual.cuenta6 } : { cuenta8: filaActual.cuenta8 }) },
+          data: { cuenta6Russell: std.code, coincidencia: 100 },
+        });
+      }
 
       // La memoria de `cuentas_cliente` se escribe en AMBOS alcances: un ajuste
       // hecho a mano no se puede perder en la siguiente carga. Con alcance grupal
@@ -1505,6 +1516,15 @@ export async function marcarCuentaPendiente(formData: FormData): Promise<ActionS
         where: planAlcance.filtroDetalle,
         data: { cuenta6Russell: null, coincidencia: null },
       });
+      // El marcador «pendiente» también retira la homologación del cargue por
+      // tercero ligado (misma regla que `asignarCuentaEstandar`).
+      const terceroId = await encabezadoTerceroLigado(tx, encId);
+      if (terceroId !== null) {
+        await tx.balanceTerceroDetalle.updateMany({
+          where: { encabezadoId: terceroId, ...(aplicarAlGrupo ? { cuenta6: filaActual.cuenta6 } : { cuenta8: filaActual.cuenta8 }) },
+          data: { cuenta6Russell: null, coincidencia: null },
+        });
+      }
 
       const ahora = new Date();
       await tx.clientAccount.upsert({
@@ -1703,7 +1723,7 @@ export async function reaplicarMapeoBalance(formData: FormData): Promise<ActionS
 
       // Las filas que cambian se agrupan por destino: un balance grande cabe en
       // unos pocos `updateMany` en vez de una sentencia por cuenta.
-      const porDestino = new Map<string, { std: string | null; coincidencia: number | null; ids: number[] }>();
+      const porDestino = new Map<string, { std: string | null; coincidencia: number | null; ids: number[]; cuentas: string[] }>();
       let rehomologadas = 0;
       let retiradas = 0;
       for (const d of detalles) {
@@ -1730,8 +1750,10 @@ export async function reaplicarMapeoBalance(formData: FormData): Promise<ActionS
         else rehomologadas++;
         const clave = `${std ?? ""}|${coincidencia ?? ""}`;
         const grupo = porDestino.get(clave);
-        if (grupo) grupo.ids.push(d.id);
-        else porDestino.set(clave, { std, coincidencia, ids: [d.id] });
+        if (grupo) {
+          grupo.ids.push(d.id);
+          grupo.cuentas.push(d.cuenta8);
+        } else porDestino.set(clave, { std, coincidencia, ids: [d.id], cuentas: [d.cuenta8] });
       }
 
       for (const { std, coincidencia, ids } of porDestino.values()) {
@@ -1739,6 +1761,16 @@ export async function reaplicarMapeoBalance(formData: FormData): Promise<ActionS
           where: { id: { in: ids } },
           data: { cuenta6Russell: std, coincidencia },
         });
+      }
+      // Propaga la re-homologación (solo lo que cambió) al cargue por tercero ligado.
+      const terceroId = await encabezadoTerceroLigado(tx, id);
+      if (terceroId !== null) {
+        for (const { std, coincidencia, cuentas } of porDestino.values()) {
+          await tx.balanceTerceroDetalle.updateMany({
+            where: { encabezadoId: terceroId, cuenta8: { in: cuentas } },
+            data: { cuenta6Russell: std, coincidencia },
+          });
+        }
       }
 
       // Contadores del encabezado, dentro del mismo commit (igual que al homologar).
@@ -1780,6 +1812,146 @@ export async function reaplicarMapeoBalance(formData: FormData): Promise<ActionS
  * de agregados, comparativo de cambios y bitácora. Única ruta de persistencia,
  * invocada solo al promover un borrador. No congela: eso lo hace `freezeBalance`.
  */
+type ResultadoCapturaTercero = { filas: number; terceros: number; cuentasConDetalle: number; version: string };
+
+/**
+ * id del cargue por tercero LIGADO a un balance oficial (mismo `loteId`).
+ * null = sin ligadura (cargue legado o apertura por cuenta): las sincronizaciones
+ * que lo usan se vuelven no-op.
+ */
+async function encabezadoTerceroLigado(tx: TransactionClient, encabezadoOficialId: number): Promise<number | null> {
+  const oficial = await tx.balancePruebaEncabezado.findUnique({
+    where: { id: encabezadoOficialId },
+    select: { loteId: true },
+  });
+  if (!oficial?.loteId) return null;
+  const tercero = await tx.balanceTerceroEncabezado.findUnique({
+    where: { loteId: oficial.loteId },
+    select: { id: true },
+  });
+  return tercero?.id ?? null;
+}
+
+/**
+ * Si un (cliente, período) quedó sin cargue por tercero OFICIAL, asciende el más
+ * reciente restante: el cruce por tercero de los módulos conserva un vigente.
+ */
+async function ascenderTerceroVigenteEnTransaccion(tx: TransactionClient, clienteId: number, periodo: string): Promise<void> {
+  await tomarCandadoTransaccion(tx, `balance-tercero-cargue:${clienteId}:${periodo}`);
+  const oficiales = await tx.balanceTerceroEncabezado.count({ where: { clienteId, periodo, esOficial: true } });
+  if (oficiales > 0) return;
+  const restante = await tx.balanceTerceroEncabezado.findFirst({
+    where: { clienteId, periodo },
+    orderBy: [{ ultimaCarga: "desc" }, { id: "desc" }],
+    select: { id: true },
+  });
+  if (restante) {
+    await tx.balanceTerceroEncabezado.update({ where: { id: restante.id }, data: { esOficial: true } });
+  }
+}
+
+/**
+ * CAPTURA el balance por tercero al promover un borrador cuya apertura declarada
+ * es «por terceros». Corre DENTRO de la transacción de la promoción (falla ⇒ se
+ * revierte todo, incluido el balance) y lee el staging paralelo ANTES de la purga.
+ * Hereda los ajustes del borrador vía `prepararCapturaTercero`: una cuenta omitida
+ * o reclasificada excluye a sus terceros y cada fila copia la homologación final.
+ * Devuelve null — sin crear encabezado — si no hay detalle por tercero utilizable
+ * (p. ej. SIIGO «Cuenta+NIT» sin la columna Rompimiento mapeada como Tercero).
+ */
+async function capturarBalanceTerceroEnTransaccion(tx: TransactionClient, p: {
+  loteId: string;
+  clienteId: number;
+  nombreCliente: string;
+  nitCliente: string;
+  periodo: string;
+  periodoInicio: string;
+  periodoFinal: string;
+  archivoNombre: string;
+  archivoTam: string;
+  cargadoPor: string;
+  filasDet: FilaDetalle[];
+}): Promise<ResultadoCapturaTercero | null> {
+  // Idempotencia doble con la rama `reutilizado` de la promoción: un reintento
+  // que ya creó el cargue por tercero no lo duplica (loteId es @unique).
+  const existente = await tx.balanceTerceroEncabezado.findUnique({
+    where: { loteId: p.loteId },
+    select: { id: true },
+  });
+  if (existente) return null;
+
+  const [paralelo, omitidas] = await Promise.all([
+    tx.balanceImportacionStagingTercero.findMany({
+      where: { loteId: p.loteId },
+      orderBy: { filaNum: "asc" },
+    }),
+    tx.balanceImportacionStaging.findMany({
+      where: { loteId: p.loteId, omitida: true },
+      select: { filaNum: true },
+    }),
+  ]);
+  if (paralelo.length === 0) return null;
+
+  const captura = prepararCapturaTercero(
+    paralelo.map((t) => ({
+      filaNum: t.filaNum, codigo: t.codigo, codigoCrudo: t.codigoCrudo, nombreCuenta: t.nombreCuenta,
+      nitTercero: t.nitTercero, nombreTercero: t.nombreTercero,
+      saldoInicial: Number(t.saldoInicial), debitos: Number(t.debitos), creditos: Number(t.creditos), saldoFinal: Number(t.saldoFinal),
+    })),
+    p.filasDet,
+    new Set(omitidas.map((f) => f.filaNum)),
+  );
+  // Solo filas «propias» = ningún tercero sobrevivió a los ajustes: no hay captura.
+  if (!captura.filas.some((f) => f.nitTercero !== null || f.nombreTercero !== null)) return null;
+
+  await tomarCandadoTransaccion(tx, `balance-tercero-cargue:${p.clienteId}:${p.periodo}`);
+  const previas = await tx.balanceTerceroEncabezado.findMany({
+    where: { clienteId: p.clienteId, periodo: p.periodo },
+    select: { version: true },
+  });
+  // max+1, no conteo+1 (los números de versión no se reciclan).
+  const version = siguienteVersionCargue(previas.map((v) => v.version));
+  if (previas.length > 0) {
+    await tx.balanceTerceroEncabezado.updateMany({
+      where: { clienteId: p.clienteId, periodo: p.periodo },
+      data: { esOficial: false },
+    });
+  }
+  const encabezado = await tx.balanceTerceroEncabezado.create({
+    data: {
+      loteId: p.loteId,
+      clienteId: p.clienteId,
+      nombreCliente: p.nombreCliente,
+      nit: p.nitCliente,
+      periodo: p.periodo,
+      periodoInicio: fechaCalendarioPrisma(p.periodoInicio),
+      periodoFin: fechaCalendarioPrisma(p.periodoFinal),
+      version,
+      esOficial: true,
+      archivo: p.archivoNombre,
+      tamanoArchivo: p.archivoTam,
+      origenExtraccion: "captura-borrador",
+      cargadoPor: p.cargadoPor,
+      filasTotales: captura.filas.length,
+      ultimaCarga: new Date(),
+    },
+    select: { id: true },
+  });
+  // createMany troceado (no nested create): un balance por tercero puede traer 20k+ filas.
+  for (let i = 0; i < captura.filas.length; i += LOTE_STAGING) {
+    await tx.balanceTerceroDetalle.createMany({
+      data: captura.filas.slice(i, i + LOTE_STAGING).map((f) => ({
+        encabezadoId: encabezado.id,
+        cuenta2: f.cuenta2, cuenta4: f.cuenta4, cuenta6: f.cuenta6, cuenta8: f.cuenta8,
+        nombreCuenta: f.nombreCuenta, cuenta6Russell: f.cuenta6Russell, coincidencia: f.coincidencia,
+        nitTercero: f.nitTercero, nombreTercero: f.nombreTercero,
+        saldoInicial: f.saldoInicial, debitos: f.debitos, creditos: f.creditos, saldoFinal: f.saldoFinal,
+      })),
+    });
+  }
+  return { filas: captura.filas.length, terceros: captura.terceros, cuentasConDetalle: captura.cuentasConDetalle, version };
+}
+
 async function persistirCargue(p: {
   loteId: string;
   revisionContenido: number;
@@ -2010,7 +2182,7 @@ async function persistirCargue(p: {
       select: { id: true, version: true },
     });
     if (existente) {
-      return { ...existente, reutilizado: true };
+      return { ...existente, reutilizado: true, capturaTercero: null as ResultadoCapturaTercero | null };
     }
 
     // Revalida la fuente dentro de la transacción que la consumirá. Si desaparece
@@ -2153,6 +2325,18 @@ async function persistirCargue(p: {
       select: { id: true },
     });
 
+    // Captura del balance por tercero (solo con apertura declarada «tercero»):
+    // mismo commit que el balance (falla ⇒ revierte todo) y ANTES de la purga,
+    // que es la única fuente del detalle.
+    const capturaTercero = p.aperturaBalance === "tercero"
+      ? await capturarBalanceTerceroEnTransaccion(tx, {
+          loteId: p.loteId, clienteId: p.clientId, nombreCliente: p.clienteName, nitCliente: p.clienteNit,
+          periodo: p.period, periodoInicio: p.periodos.inicial, periodoFinal: p.periodos.final,
+          archivoNombre: p.archivoNombre, archivoTam: p.archivoTam, cargadoPor: p.uploadedBy,
+          filasDet,
+        })
+      : null;
+
     // Consumir el borrador NO es una limpieza secundaria: forma parte del mismo
     // commit que crea encabezado + detalle. Cualquier fallo revierte todo.
     const stagingEliminado = await tx.balanceImportacionStaging.deleteMany({
@@ -2161,6 +2345,8 @@ async function persistirCargue(p: {
     if (stagingEliminado.count === 0) {
       throw new Error("No se pudo consumir el detalle del borrador; la promoción fue revertida.");
     }
+    // El staging paralelo por tercero puede estar legítimamente vacío: sin validación.
+    await tx.balanceImportacionStagingTercero.deleteMany({ where: { loteId: p.loteId } });
     const loteEliminado = await tx.balanceImportacionLote.deleteMany({
       where: { loteId: p.loteId },
     });
@@ -2168,7 +2354,7 @@ async function persistirCargue(p: {
       throw new Error("No se pudo consumir el encabezado del borrador; la promoción fue revertida.");
     }
 
-    return { id: balance.id, version, reutilizado: false };
+    return { id: balance.id, version, reutilizado: false, capturaTercero };
   }, { timeoutMs: TIMEOUT_TRANSACCION_PROMOCION_MS });
 
   if (!creado.reutilizado) {
@@ -2184,9 +2370,42 @@ async function persistirCargue(p: {
       text: "cargó el balance de",
       target: `${p.clienteName} · ${p.period} · ${creado.version}`,
     });
+    if (p.aperturaBalance === "tercero") {
+      if (creado.capturaTercero) {
+        await logAudit({
+          user: p.uploadedBy,
+          action: "CAPTURÓ BALANCE POR TERCERO",
+          entity: `${p.clienteName} · ${p.period}`,
+          detail: `${creado.capturaTercero.version} · ${creado.capturaTercero.filas} fila(s) · ${creado.capturaTercero.terceros} tercero(s) · ${creado.capturaTercero.cuentasConDetalle} cuenta(s) con detalle`,
+          clientId: p.clientId,
+        });
+        await createProcessNotification({
+          actor: p.uploadedBy,
+          text: "capturó el balance por tercero de",
+          target: `${p.clienteName} · ${p.period} · ${creado.capturaTercero.version}`,
+        });
+      } else {
+        // Apertura declarada «tercero» pero sin detalle utilizable (p. ej. SIIGO
+        // «Cuenta+NIT» sin la columna Rompimiento mapeada): el balance se promueve
+        // igual y se deja constancia accionable.
+        await logAudit({
+          user: p.uploadedBy,
+          action: "SIN DETALLE POR TERCERO",
+          entity: `${p.clienteName} · ${p.period}`,
+          detail: "Apertura declarada por terceros, pero el archivo no trae detalle por tercero reconocible. Si el ERP lo trae en una columna (p. ej. Rompimiento), hay que mapearla como Tercero / NIT en el editor de estructura y reprocesar.",
+          clientId: p.clientId,
+        });
+        await createProcessNotification({
+          actor: "Sistema",
+          text: "no encontró detalle por tercero en el balance de",
+          target: `${p.clienteName} · ${p.period} — mapea la columna del tercero (p. ej. Rompimiento) como «Tercero / NIT» y reprocesa si el archivo la trae`,
+        });
+      }
+    }
   }
   revalidatePath("/", "layout");
   revalidatePath("/balance");
+  revalidatePath("/balance/terceros");
 
   return { id: creado.id, version: creado.version, calc, reutilizado: creado.reutilizado };
 }
@@ -2284,8 +2503,12 @@ function construirSugerenciaTransitoria(p: {
       clienteDetectadoId: null,
       proveedorIA: p.origenExtraccion === "ia" ? p.proveedorIA : null,
       // La revisión transitoria no tiene diagnóstico persistido: la detección se
-      // resuelve sobre las filas crudas, que es lo mismo que mide `diagFinal`.
-      porTercero: esBalancePorTercero(extr.filasCrudas),
+      // resuelve sobre las filas crudas, que es lo mismo que mide `diagFinal`, más
+      // el detalle que la lectura apartó cuando el tercero venía en una columna.
+      porTercero: detectoDetallePorTercero(
+        esBalancePorTercero(extr.filasCrudas),
+        extr.filasTercero?.length ?? 0,
+      ),
     },
   };
 }
@@ -2876,6 +3099,10 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
   );
   const filasPersistencia = preparacionCorrecciones.filas;
   const filasBorrador = filasPersistencia.map(filaPersistenciaABorrador);
+  // Staging PARALELO del detalle por tercero: el spec manda (columna Tercero
+  // mapeada/negrita); sin él se derivan los formatos con la fila NIT embebida.
+  // Un informe normal produce [] y no inserta nada.
+  const stagingTercero = derivarStagingTercero(filasBorrador, extr.filasTercero ?? []);
   const importReadyBorrador = cuentasDesdeFilasStaging(filasBorrador);
   if (importReadyBorrador.length === 0) {
     return {
@@ -2952,9 +3179,6 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
   // PASO 1 — BORRADOR persistente. El UUID viene del navegador y se conserva en
   // los reintentos: es la clave idempotente de toda la lectura.
   const loteId = p.loteIdSolicitud;
-  // ~17 parámetros por fila: 2.000 mantiene cada INSERT por debajo del límite
-  // de 65.535 parámetros de PostgreSQL y reduce los viajes de archivos grandes.
-  const LOTE_STAGING = 2_000;
   const persistencia = await prisma.$transaction(async (tx) => {
     await tomarCandadoTransaccion(tx, `balance-lectura:${loteId}`);
     await tomarCandadoTransaccion(tx, `balance-borrador:${loteId}`);
@@ -3030,6 +3254,15 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
         })),
       });
     }
+    for (let i = 0; i < stagingTercero.length; i += LOTE_STAGING) {
+      await tx.balanceImportacionStagingTercero.createMany({
+        data: stagingTercero.slice(i, i + LOTE_STAGING).map((t) => ({
+          loteId, filaNum: t.filaNum, codigo: t.codigo, codigoCrudo: t.codigoCrudo,
+          nombreCuenta: t.nombreCuenta, nitTercero: t.nitTercero, nombreTercero: t.nombreTercero,
+          saldoInicial: t.saldoInicial, debitos: t.debitos, creditos: t.creditos, saldoFinal: t.saldoFinal,
+        })),
+      });
+    }
     await tx.balanceImportacionLote.create({
       data: {
         loteId, clienteId: p.clienteDetectadoId,
@@ -3066,6 +3299,9 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
       // transición: cualquier fallo en esta purga revierte también encabezado y
       // todos los bloques de staging recién insertados.
       await tx.balanceImportacionStaging.deleteMany({
+        where: { loteId: p.loteIdAnterior },
+      });
+      await tx.balanceImportacionStagingTercero.deleteMany({
         where: { loteId: p.loteIdAnterior },
       });
       const loteEliminado = await tx.balanceImportacionLote.deleteMany({
@@ -3148,7 +3384,7 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
         hojas: p.ingesta?.modo === "tabular" ? p.ingesta.hojas.map((h) => h.nombre) : [],
         clienteDetectadoId: p.clienteDetectadoId,
         proveedorIA: p.origenExtraccion === "ia" ? p.proveedorIA : null,
-        porTercero: diagFinal.porTercero,
+        porTercero: detectoDetallePorTercero(diagFinal.porTercero, extr.filasTercero?.length ?? 0),
       },
     },
   };
@@ -3937,6 +4173,7 @@ export async function descartarBorrador(loteId: string): Promise<ActionState> {
       const stagingEliminado = await tx.balanceImportacionStaging.deleteMany({
         where: { loteId: id },
       });
+      await tx.balanceImportacionStagingTercero.deleteMany({ where: { loteId: id } });
       const loteEliminado = await tx.balanceImportacionLote.deleteMany({
         where: { loteId: id },
       });
@@ -4522,6 +4759,15 @@ export async function eliminarDetalleBalance(detalleId: number): Promise<ActionS
       }
 
       await tx.balancePruebaDetalle.delete({ where: { id } });
+      // El cargue por tercero ligado pierde también las filas de esa cuenta.
+      const terceroId = await encabezadoTerceroLigado(tx, encIdActual);
+      if (terceroId !== null) {
+        await tx.balanceTerceroDetalle.deleteMany({
+          where: { encabezadoId: terceroId, cuenta8: filaActual.cuenta8 },
+        });
+        const filasTercero = await tx.balanceTerceroDetalle.count({ where: { encabezadoId: terceroId } });
+        await tx.balanceTerceroEncabezado.update({ where: { id: terceroId }, data: { filasTotales: filasTercero } });
+      }
       // Eliminar una fila basura deja de ser una excepción de este período: se
       // memoriza como omisión del cliente y no reaparecerá en futuras cargas.
       await tx.correccionCargaBalance.upsert({
@@ -4678,7 +4924,7 @@ export async function eliminarBalance(input: {
       const plan = resolverAlcanceEliminacionBalance(alcance, vigente);
       const objetivos = await tx.balancePruebaEncabezado.findMany({
         where: plan.filtroBalance,
-        select: { id: true },
+        select: { id: true, loteId: true },
       });
       const ids = objetivos.map((balance) => balance.id);
       if (ids.length === 0) {
@@ -4713,6 +4959,28 @@ export async function eliminarBalance(input: {
       const balances = await tx.balancePruebaEncabezado.deleteMany({
         where: { id: { in: ids } },
       });
+      // Los cargues por tercero LIGADOS mueren con su balance (no tienen acción
+      // de borrado propia desde el retiro de /balance/terceros); tras borrarlos
+      // se asciende la versión restante de cada período para que el cruce por
+      // tercero de los módulos conserve un vigente. Cargues legados sin loteId
+      // no se tocan.
+      const loteIds = objetivos.flatMap((b) => (b.loteId ? [b.loteId] : []));
+      if (loteIds.length > 0) {
+        const terceros = await tx.balanceTerceroEncabezado.findMany({
+          where: { loteId: { in: loteIds } },
+          select: { id: true, clienteId: true, periodo: true },
+        });
+        if (terceros.length > 0) {
+          await tx.balanceTerceroEncabezado.deleteMany({
+            where: { id: { in: terceros.map((t) => t.id) } },
+          });
+          const periodosAfectados = [...new Set(terceros.map((t) => `${t.clienteId}|${t.periodo}`))];
+          for (const clave of periodosAfectados) {
+            const sep = clave.indexOf("|");
+            await ascenderTerceroVigenteEnTransaccion(tx, Number(clave.slice(0, sep)), clave.slice(sep + 1));
+          }
+        }
+      }
       const perfiles = plan.eliminaPerfiles
         ? await tx.perfilCargaBalance.deleteMany({
             where: { clienteId: referencia.clienteId },
@@ -4764,289 +5032,5 @@ export async function eliminarBalance(input: {
       ok: false,
       message: mensajeErrorBD("eliminarBalance", e),
     };
-  }
-}
-
-// ===== Balance ABIERTO POR TERCERO (auxiliar CxC/CxP) =====
-//
-// Carga AISLADA y autosuficiente: NO usa el staging ni las tablas del balance
-// normal (`balance_importacion_*`, `balance_prueba_*`). Ingiere el archivo por
-// su cuenta, extrae con `extraerBalancePorTercero` (una fila por cuenta+tercero,
-// sin colapsar), conserva SOLO las cuentas de los módulos CxC (CAR) y CxP (CXP)
-// y homologa con la MISMA memoria de mapeo del cliente (`cuentas_cliente`) que
-// usa el balance normal. Persiste en `balance_tercero_encabezado`/`_detalle`.
-// Mismo permiso y alcance por cliente que la carga de balance normal.
-const IsoFechaBalanceTercero = /^\d{4}-\d{2}-\d{2}$/;
-const CargarBalanceTerceroSchema = z
-  .object({
-    clienteId: z.coerce.number().int().positive({ error: "Selecciona el cliente." }),
-    periodoInicio: z.string().regex(IsoFechaBalanceTercero, { error: "Indica el período desde (fecha)." }),
-    periodoFin: z.string().regex(IsoFechaBalanceTercero, { error: "Indica el período hasta (fecha)." }),
-    spec: SpecCargaBalanceSchema,
-  })
-  .refine((d) => d.periodoFin >= d.periodoInicio, {
-    error: "El período hasta no puede ser anterior al período desde.",
-    path: ["periodoFin"],
-  });
-
-export type ResultadoCargaTercero = {
-  encabezadoId: number;
-  version: string;
-  filas: number;
-  terceros: number;
-  cuentas: number;
-};
-
-export async function cargarBalancePorTercero(
-  formData: FormData,
-): Promise<ActionState & { resultado?: ResultadoCargaTercero }> {
-  const authz = await authorizePermiso("balance:crear");
-  if (!authz.ok) return { ok: false, message: authz.message };
-
-  let specBruto: unknown;
-  try {
-    specBruto = JSON.parse(String(formData.get("spec") ?? ""));
-  } catch {
-    return { ok: false, message: "La estructura de columnas no es válida. Vuelve a intentarlo." };
-  }
-  const parsed = CargarBalanceTerceroSchema.safeParse({
-    clienteId: formData.get("clienteId"),
-    periodoInicio: formData.get("periodoInicio"),
-    periodoFin: formData.get("periodoFin"),
-    spec: specBruto,
-  });
-  if (!parsed.success) {
-    return { ok: false, message: parsed.error.issues[0]?.message ?? "Datos inválidos." };
-  }
-  const { clienteId, periodoInicio, periodoFin, spec } = parsed.data;
-
-  const scope = await authorizePermiso("balance:crear", { clientId: clienteId });
-  if (!scope.ok) return { ok: false, message: scope.message };
-
-  const conversion = specCargaASpecPorTercero(spec);
-  if (!conversion.ok) return { ok: false, message: conversion.message };
-
-  const loteIdSolicitud = loteIdSolicitudDesde(formData);
-  if (!loteIdSolicitud) {
-    return { ok: false, message: "La solicitud de carga no tiene un identificador válido. Vuelve a intentarlo." };
-  }
-  const archivoResuelto = await archivoBalanceDesdeFormulario(formData, loteIdSolicitud);
-  if (!archivoResuelto.ok) return archivoResuelto;
-  const archivo = archivoResuelto.archivo;
-
-  try {
-    const cliente = await prisma.client.findUnique({
-      where: { id: clienteId },
-      select: { id: true, name: true, nit: true },
-    });
-    if (!cliente) return { ok: false, message: "El cliente seleccionado ya no existe." };
-
-    const datosArchivo = await archivo.arrayBuffer();
-    const ingesta = await ingerir(datosArchivo, archivo.name);
-    if (ingesta.modo !== "tabular") {
-      return { ok: false, message: "El balance por tercero solo admite archivos tabulares (Excel/CSV/TXT delimitado/JSON)." };
-    }
-    const hoja = ingesta.hojas.find((h) => h.nombre === spec.hoja) ?? ingesta.hojas[0];
-    if (!hoja) {
-      return { ok: false, message: "No se encontró la hoja indicada en el archivo." };
-    }
-
-    const { filas: filasExtraidas, filasLeidas, filasExcluidas } = extraerBalancePorTercero(hoja, conversion.spec);
-    if (filasExtraidas.length === 0) {
-      return { ok: false, message: "No se leyó ninguna cuenta del archivo con la estructura indicada. Revisa el mapeo de columnas." };
-    }
-
-    // Solo las cuentas de los módulos CxC (CAR) y CxP (CXP): unión de sus
-    // prefijos Russell vigentes en el prevalidador. El resto del balance
-    // (todo lo que no sea cartera) se descarta al subir.
-    const catalogoPrevalidador = await getCatalogoPrevalidador();
-    const prefijosCarCxp = [
-      ...new Set([
-        ...prefijosCuentaModulo("CAR", catalogoPrevalidador),
-        ...prefijosCuentaModulo("CXP", catalogoPrevalidador),
-      ]),
-    ];
-    const filasModulo = filasExtraidas.filter((f) => cuenta4DelModulo(f.cuenta4, prefijosCarCxp));
-    if (filasModulo.length === 0) {
-      return {
-        ok: false,
-        message: "El archivo no trae cuentas de los módulos CxC/CxP. Revisa el archivo o el mapeo de columnas.",
-      };
-    }
-
-    // Homologación al plan Russell: misma memoria de mapeo (`cuentas_cliente`)
-    // que usa el balance normal, resuelta por cuenta exacta y luego por grupo.
-    const cuentasCliente = await prisma.clientAccount.findMany({
-      where: { clienteId },
-      select: { code: true, cuenta6Russell: true, coincidencia: true, origenMapeo: true, actualizadoEn: true },
-    });
-    const configMapeo = construirConfigMapeoCliente(cuentasCliente);
-    const filasHomologadas = filasModulo.map((f) => {
-      const mapeo = resolverMapeoCliente(configMapeo, f.cuenta8);
-      return { ...f, cuenta6Russell: mapeo?.std ?? null, coincidencia: mapeo?.coincidencia ?? null };
-    });
-
-    const periodo = etiquetaPeriodo(periodoInicio, periodoFin);
-    const usuario = await getCurrentUser();
-
-    const creado = await transaccionSerializable(async (tx) => {
-      await tomarCandadoTransaccion(tx, `balance-tercero-cargue:${clienteId}:${periodo}`);
-      const previas = await tx.balanceTerceroEncabezado.findMany({
-        where: { clienteId, periodo },
-        select: { id: true, version: true },
-      });
-      // max+1, no conteo+1: tras eliminar una versión el conteo reciclaría el
-      // número y chocaría con el único (cliente, período, versión).
-      const version = siguienteVersionCargue(previas.map((v) => v.version));
-      if (previas.length > 0) {
-        await tx.balanceTerceroEncabezado.updateMany({
-          where: { clienteId, periodo },
-          data: { esOficial: false },
-        });
-      }
-      return tx.balanceTerceroEncabezado.create({
-        data: {
-          clienteId,
-          nombreCliente: cliente.name,
-          nit: cliente.nit,
-          periodo,
-          periodoInicio: fechaCalendarioPrisma(periodoInicio),
-          periodoFin: fechaCalendarioPrisma(periodoFin),
-          version,
-          esOficial: true,
-          archivo: archivo.name,
-          tamanoArchivo: tamArchivo(archivo.size),
-          origenExtraccion: "manual",
-          cargadoPor: usuario?.name ?? null,
-          filasTotales: filasHomologadas.length,
-          ultimaCarga: new Date(),
-          detalles: {
-            create: filasHomologadas.map((f) => ({
-              cuenta2: f.cuenta2,
-              cuenta4: f.cuenta4,
-              cuenta6: f.cuenta6,
-              cuenta8: f.cuenta8,
-              nombreCuenta: f.nombreCuenta,
-              cuenta6Russell: f.cuenta6Russell,
-              coincidencia: f.coincidencia,
-              nitTercero: f.nitTercero,
-              nombreTercero: f.nombreTercero,
-              saldoInicial: f.saldoInicial,
-              debitos: f.debitos,
-              creditos: f.creditos,
-              saldoFinal: f.saldoFinal,
-            })),
-          },
-        },
-        select: { id: true, version: true },
-      });
-    });
-
-    const terceros = new Set(
-      filasHomologadas.map((f) => f.nitTercero).filter((n): n is string => n != null),
-    ).size;
-    const cuentas = new Set(filasHomologadas.map((f) => f.cuenta8)).size;
-
-    await logAudit({
-      user: usuario?.name ?? "Sistema",
-      action: "CARGÓ BALANCE POR TERCERO",
-      entity: `${cliente.name} · ${periodo}`,
-      detail: `${creado.version} · ${filasHomologadas.length} fila(s) · ${terceros} tercero(s) · ${cuentas} cuenta(s) (de ${filasLeidas} leídas, ${filasExcluidas} excluidas del archivo)`,
-      clientId: clienteId,
-    });
-    revalidatePath("/balance");
-
-    return {
-      ok: true,
-      message: `Balance por tercero cargado (${creado.version}): ${filasHomologadas.length} fila(s), ${terceros} tercero(s), ${cuentas} cuenta(s) CxC/CxP.`,
-      resultado: {
-        encabezadoId: creado.id,
-        version: creado.version,
-        filas: filasHomologadas.length,
-        terceros,
-        cuentas,
-      },
-    };
-  } catch (e) {
-    return { ok: false, message: mensajeErrorBD("cargarBalancePorTercero", e) };
-  }
-}
-
-/**
- * Elimina UN cargue del balance por tercero (encabezado + su detalle, que cae por
- * ON DELETE CASCADE). No hay alcances múltiples como en el balance normal: cada
- * cargue es autosuficiente y se recarga entero, así que el borrado es por versión.
- *
- * Si la versión eliminada era la vigente y el período conserva otras, asciende la
- * más reciente: sin ninguna oficial, el cruce por tercero de los módulos CxC/CxP
- * se quedaría sin balance con qué comparar.
- */
-export async function eliminarBalanceTercero(input: {
-  encabezadoId: number;
-}): Promise<ActionState> {
-  const authz = await authorizePermiso("balance:eliminar");
-  if (!authz.ok) return { ok: false, message: authz.message };
-
-  const encabezadoId = Number(input?.encabezadoId);
-  if (!Number.isInteger(encabezadoId) || encabezadoId <= 0) {
-    return { ok: false, message: "Selecciona de nuevo el cargue que deseas eliminar." };
-  }
-
-  try {
-    const referencia = await prisma.balanceTerceroEncabezado.findUnique({
-      where: { id: encabezadoId },
-      select: {
-        id: true,
-        clienteId: true,
-        nombreCliente: true,
-        periodo: true,
-        version: true,
-        esOficial: true,
-        filasTotales: true,
-      },
-    });
-    if (!referencia) return { ok: false, message: "Ese cargue ya no existe." };
-
-    const scope = await authorizePermiso("balance:eliminar", { clientId: referencia.clienteId });
-    if (!scope.ok) return { ok: false, message: scope.message };
-
-    const ascendida = await transaccionSerializable(async (tx) => {
-      await tomarCandadoTransaccion(tx, `balance-tercero-cargue:${referencia.clienteId}:${referencia.periodo}`);
-      const vigente = await tx.balanceTerceroEncabezado.findUnique({
-        where: { id: encabezadoId },
-        select: { id: true },
-      });
-      if (!vigente) return null;
-
-      await tx.balanceTerceroEncabezado.delete({ where: { id: encabezadoId } });
-
-      const restantes = await tx.balanceTerceroEncabezado.findMany({
-        where: { clienteId: referencia.clienteId, periodo: referencia.periodo },
-        select: { id: true, version: true, esOficial: true, ultimaCarga: true, creadoEn: true },
-        orderBy: [{ ultimaCarga: "desc" }, { id: "desc" }],
-      });
-      if (restantes.length === 0 || restantes.some((r) => r.esOficial)) return null;
-      await tx.balanceTerceroEncabezado.update({ where: { id: restantes[0].id }, data: { esOficial: true } });
-      return restantes[0].version;
-    });
-
-    const user = await getCurrentUser();
-    await logAudit({
-      user: user?.name ?? "Sistema",
-      action: "ELIMINÓ BALANCE POR TERCERO",
-      entity: `${referencia.nombreCliente} · ${referencia.periodo}`,
-      detail: `${referencia.version} · ${referencia.filasTotales} fila(s)${ascendida ? ` · ${ascendida} quedó vigente` : ""}`,
-      clientId: referencia.clienteId,
-    });
-
-    revalidatePath("/balance/terceros");
-    revalidatePath("/balance");
-
-    return {
-      ok: true,
-      message: `Cargue ${referencia.version} de ${referencia.periodo} eliminado${ascendida ? ` · ${ascendida} quedó como vigente` : ""}.`,
-    };
-  } catch (e) {
-    return { ok: false, message: mensajeErrorBD("eliminarBalanceTercero", e) };
   }
 }

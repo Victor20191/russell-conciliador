@@ -13,7 +13,6 @@ describe("catálogo de ruta y menú de una novedad", () => {
     expect(balance!.menus.map((menu) => menu.etiqueta)).toEqual([
       "Balance",
       "Borrador Balance",
-      "Balance por tercero",
     ]);
     expect(resolverUbicacionNovedad(balance!.clave, balance!.menus[1]!.clave)).toEqual({
       ruta: balance,
