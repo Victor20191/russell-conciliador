@@ -2,27 +2,30 @@
 
 import { startTransition, useActionState, useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
 import { Modal } from "@/components/modal";
 import { fmt } from "@/lib/format";
 import {
   actualizarAperturaBorrador,
   asignarClienteBorrador,
-  cargarBalancePorTercero,
   continuarBalanceTransitorioConSpec,
-  descartarBorrador,
   leerBalance,
   reprocesarBalanceConSpec,
   guardarPerfilDesdeEditor,
   type LeerBalanceState,
-  type ResultadoCargaTercero,
   type SugerenciaBalance,
 } from "@/app/actions/balance";
 import { type AperturaBalance } from "@/lib/balance/apertura-balance";
 import { SelectorAperturaBalance } from "@/app/(app)/balance/selector-apertura-balance";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
-import { leerHojasParaPreview, columnaLetra, type CeldaCruda, type HojaPreview } from "@/lib/balance/extraccion/hojas-cliente";
+import {
+  debeLeerSoloNombresHojas,
+  leerHojasParaPreview,
+  leerNombresHojas,
+  columnaLetra,
+  type CeldaCruda,
+  type HojaPreview,
+} from "@/lib/balance/extraccion/hojas-cliente";
 import type { SpecCarga } from "@/lib/balance/extraccion/esquema";
 import { PromptClientePerfil } from "@/app/(app)/balance/prompt-cliente-perfil";
 import { SelectorClienteBuscable } from "@/components/selector-cliente-buscable";
@@ -50,15 +53,6 @@ import { cargarArchivoBalanceTemporal } from "@/lib/balance/carga-archivo-client
 
 /** Extensiones de Excel que pueden traer varias hojas (inspeccionables en cliente). */
 const esExcel = (name: string) => /\.(xlsx|xlsm|xls)$/i.test(name);
-
-/**
- * Umbral para NO inspeccionar el Excel en el navegador. Un xlsx comprime ~6×, así que un
- * archivo de ~500 KB en disco ya trae miles de filas; parsear el libro COMPLETO en el hilo
- * principal (`leerHojasParaPreview`) congela la página. Por encima de esto se omite la vista
- * previa de hojas: el servidor lee el archivo y la IA/perfil elige la hoja (los balances
- * grandes suelen ser de una sola hoja, así que no se pierde nada útil).
- */
-const MAX_PREVIEW_BYTES = 500 * 1024;
 
 export type ClienteOpcion = { id: number; name: string; nit: string };
 
@@ -130,7 +124,6 @@ function CargarBalanceModal({
   onClose: () => void;
   onReiniciar: () => void;
 }) {
-  const router = useRouter();
   const [leerState, leerAction, leyendo] = useActionState<LeerBalanceState, FormData>(
     leerBalanceRecuperable,
     {},
@@ -175,9 +168,6 @@ function CargarBalanceModal({
   );
   const [mensajeLecturaDesactualizado, setMensajeLecturaDesactualizado] = useState(false);
   const [seleccionClienteActiva, setSeleccionClienteActiva] = useState(false);
-  // Modo "por tercero" (CxC/CxP): NO cambia la lectura/detección del archivo (se
-  // reusa tal cual), solo el destino de la confirmación — ver `FormRevisarTercero`.
-  const [modoTercero, setModoTercero] = useState(false);
   // Identifica el análisis en curso: si el usuario cambia de archivo mientras se
   // lee el anterior, descartamos el resultado tardío (no pisa el estado nuevo).
   const seqRef = useRef(0);
@@ -283,14 +273,13 @@ function CargarBalanceModal({
     setLoteIdSolicitud(nuevaSolicitud);
     const archivoEstable = reconstruirArchivoDesdeSnapshot(snapshot);
     if (!esExcel(snapshot.nombre)) return;
-    if (snapshot.contenido.byteLength > MAX_PREVIEW_BYTES) {
-      // Grande: NO se parsea en el navegador (congelaría). Lo lee el servidor.
-      setArchivoGrande(true);
-      return;
-    }
+    const soloNombres = debeLeerSoloNombresHojas(snapshot.contenido.byteLength);
+    if (soloNombres) setArchivoGrande(true);
     setInspeccionando(true);
     try {
-      const detectadas = await leerHojasParaPreview(archivoEstable);
+      const detectadas = soloNombres
+        ? await leerNombresHojas(archivoEstable)
+        : await leerHojasParaPreview(archivoEstable);
       if (seqRef.current !== seq) return; // otro archivo se eligió mientras tanto
       // Con 2+ hojas el usuario elige; con una sola la fijamos directamente. En
       // ambos casos la IA recibe SIEMPRE una hoja ya validada aquí, nunca asume.
@@ -579,7 +568,7 @@ function CargarBalanceModal({
         <button type="button" onClick={onReiniciar} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] font-semibold text-ink-600 hover:bg-ink-50">
           ← Otro archivo
         </button>
-        {modoTercero ? null : sug && (asignandoCliente || progresoSubida != null) ? (
+        {sug && (asignandoCliente || progresoSubida != null) ? (
           <button
             type="button"
             disabled
@@ -643,31 +632,7 @@ function CargarBalanceModal({
 
   return (
     <Modal open onClose={onClose} title="Cargar balance de comprobación" size="2xl" footer={footer}>
-      {fase === "revisar" && sug && modoTercero ? (
-        <FormRevisarTercero
-          key={sug.payload.loteId}
-          sug={sug}
-          clients={clients}
-          clienteId={clienteRevisionId}
-          asignandoCliente={asignandoCliente || progresoSubida != null}
-          onAsignarCliente={asignarClienteRevision}
-          archivoDisponible={fileName.length > 0}
-          reconstruirArchivo={reconstruirArchivoRetenido}
-          prepararArchivoTemporal={prepararArchivoTemporal}
-          onCargado={(mensaje, resultado) => {
-            notifySuccess(mensaje);
-            // Limpieza best-effort: la lectura reusada creó un borrador NORMAL
-            // (staging) solo para detectar la estructura; en modo tercero no se
-            // promueve, así que se descarta para no dejar un borrador huérfano
-            // en /balance/borradores.
-            descartarBorrador(sug.payload.loteId).catch(() => {});
-            onClose();
-            // Este cargue NO deja borrador: va directo a `/balance/terceros`. Sin
-            // llevar al usuario hasta él, la carga parecía no haber hecho nada.
-            router.push(resultado ? `/balance/terceros/${resultado.encabezadoId}` : "/balance/terceros");
-          }}
-        />
-      ) : fase === "revisar" && sug ? (
+      {fase === "revisar" && sug ? (
         <FormRevisar
           key={sug.payload.loteId}
           sug={sug}
@@ -731,22 +696,6 @@ function CargarBalanceModal({
                     onChange={onArchivoChange}
                     className="rounded-md border border-ink-200 bg-white text-[12.5px] text-ink-700 file:mr-3 file:cursor-pointer file:border-0 file:bg-navy-700 file:px-3 file:py-2 file:text-[12.5px] file:font-semibold file:text-white"
                   />
-                </label>
-              )}
-
-              {!segundoPasoCliente && (
-                <label className="flex items-start gap-2 rounded-md border border-ink-150 bg-ink-50/60 px-3 py-2.5">
-                  <input
-                    type="checkbox"
-                    checked={modoTercero}
-                    onChange={(e) => setModoTercero(e.target.checked)}
-                    className="mt-0.5"
-                  />
-                  <span className="text-[12px] leading-relaxed text-ink-600">
-                    <span className="font-semibold text-ink-700">Abrir por tercero (CxC/CxP).</span> Conserva el NIT de
-                    cada tercero y carga solo las cuentas de cartera (clientes y proveedores); el resto del balance se
-                    descarta. Útil para cruzar contra los auxiliares de los módulos de Cartera y Cuentas por pagar.
-                  </span>
                 </label>
               )}
 
@@ -935,167 +884,6 @@ function FormRevisar({
         <PromptClientePerfil clientes={clients} guardando={guardandoPerfil} onElegir={guardarPerfilConCliente} onClose={() => setPromptPerfilSpec(null)} />
       )}
       {excepciones.length > 0 && <ExcepcionesTabla excepciones={excepciones} />}
-    </div>
-  );
-}
-
-/**
- * Revisión del modo "por tercero" (CxC/CxP): reusa la IDENTIFICACIÓN de cliente
- * y el EDITOR DE ESTRUCTURA ya construidos para el balance normal, pero NO
- * promueve el borrador normal. "Aplicar" del editor solo ajusta el spec en
- * memoria (sin llamar al servidor); al confirmar, el archivo original se reenvía
- * junto al spec y al período a `cargarBalancePorTercero`, que hace su propia
- * ingesta/extracción/filtro/homologación aislados del balance normal.
- */
-function FormRevisarTercero({
-  sug,
-  clients,
-  clienteId,
-  asignandoCliente,
-  onAsignarCliente,
-  archivoDisponible,
-  reconstruirArchivo,
-  prepararArchivoTemporal,
-  onCargado,
-}: {
-  sug: SugerenciaBalance;
-  clients: ClienteOpcion[];
-  clienteId: number | null;
-  asignandoCliente: boolean;
-  onAsignarCliente: (clientId: number) => void;
-  archivoDisponible: boolean;
-  reconstruirArchivo: () => File | null;
-  prepararArchivoTemporal: (formData: FormData, archivo: File, loteId: string) => Promise<boolean>;
-  onCargado: (mensaje: string, resultado?: ResultadoCargaTercero) => void;
-}) {
-  const [ed, setEd] = useState<SpecCarga | null>(sug.render.spec);
-  const [periodoInicio, setPeriodoInicio] = useState("");
-  const [periodoFin, setPeriodoFin] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [progreso, setProgreso] = useState<number | null>(null);
-  const [cargando, startCargando] = useTransition();
-
-  const tieneColumnaTercero = !!ed && ed.columnas.tercero > 0;
-  const puedeCargar =
-    !!ed && tieneColumnaTercero && clienteId != null && !!periodoInicio && !!periodoFin && archivoDisponible;
-
-  const onConfirmar = () => {
-    if (!ed || clienteId == null) return;
-    const archivoFile = reconstruirArchivo();
-    if (!archivoFile) {
-      setError("No se encontró el archivo original. Vuelve a seleccionarlo.");
-      return;
-    }
-    const loteIdCarga = generarUuidLecturaOAvisar();
-    if (!loteIdCarga) return;
-    setError(null);
-    startCargando(async () => {
-      const fd = new FormData();
-      fd.set("archivo", archivoFile);
-      fd.set("loteIdSolicitud", loteIdCarga);
-      fd.set("clienteId", String(clienteId));
-      fd.set("periodoInicio", periodoInicio);
-      fd.set("periodoFin", periodoFin);
-      fd.set("spec", JSON.stringify(ed));
-      setProgreso(0);
-      const subido = await prepararArchivoTemporal(fd, archivoFile, loteIdCarga);
-      setProgreso(null);
-      if (!subido) return;
-      let res: Awaited<ReturnType<typeof cargarBalancePorTercero>>;
-      try {
-        res = await cargarBalancePorTercero(fd);
-      } catch (err) {
-        if (esFalloTransporteCarga(err)) {
-          setError(MENSAJE_RECUPERAR_LECTURA);
-          return;
-        }
-        throw err;
-      }
-      if (!res.ok) {
-        setError(res.message ?? "No se pudo cargar el balance por tercero.");
-        return;
-      }
-      onCargado(res.message ?? "Balance por tercero cargado.", res.resultado);
-    });
-  };
-
-  return (
-    <div className="flex flex-col gap-3.5">
-      <IdentificacionCliente
-        nitDetectado={sug.payload.nitDetectado}
-        clients={clients}
-        clienteId={clienteId}
-        asignando={asignandoCliente}
-        onAsignar={onAsignarCliente}
-      />
-
-      {!ed ? (
-        <p className="rounded-md border border-err-200 bg-err-50 px-3 py-2.5 text-[12px] font-medium text-err-700">
-          El modo «por tercero» requiere un archivo tabular con columnas identificables (Excel/CSV/TXT delimitado o
-          JSON). Este archivo no produjo una estructura editable.
-        </p>
-      ) : (
-        <>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <label className="flex flex-col gap-1">
-              <span className="text-[11px] font-medium text-ink-600">Período desde</span>
-              <input
-                type="date"
-                value={periodoInicio}
-                onChange={(e) => setPeriodoInicio(e.target.value)}
-                className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700"
-              />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="text-[11px] font-medium text-ink-600">Período hasta</span>
-              <input
-                type="date"
-                value={periodoFin}
-                onChange={(e) => setPeriodoFin(e.target.value)}
-                className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700"
-              />
-            </label>
-          </div>
-
-          <EditorEstructura
-            spec={ed}
-            encabezados={sug.render.encabezados}
-            hojas={sug.render.hojas}
-            reprocesando={false}
-            onAplicar={(s) => setEd(s)}
-          />
-
-          {!tieneColumnaTercero && (
-            <p className="rounded-md border border-warn-200 bg-warn-100/50 px-3 py-2.5 text-[11.5px] text-warn-700">
-              Abre «Ajustar estructura del archivo» y mapea la columna <span className="font-semibold">Tercero / NIT</span>{" "}
-              para poder cargar por tercero.
-            </p>
-          )}
-
-          {error && (
-            <p role="alert" aria-live="assertive" className="rounded-md border border-err-200 bg-err-50 px-3 py-2.5 text-[12px] font-medium text-err-700">
-              {error}
-            </p>
-          )}
-
-          <div className="flex justify-end">
-            <button
-              type="button"
-              disabled={!puedeCargar || cargando}
-              onClick={onConfirmar}
-              className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
-            >
-              {progreso != null ? (
-                <EstadoProcesando>Subiendo {progreso}%</EstadoProcesando>
-              ) : cargando ? (
-                <EstadoProcesando>Cargando</EstadoProcesando>
-              ) : (
-                "Cargar por tercero"
-              )}
-            </button>
-          </div>
-        </>
-      )}
     </div>
   );
 }
@@ -1710,12 +1498,19 @@ function SelectorHojas({
                 on ? "border-navy-700 bg-navy-700 text-white" : "border-ink-200 bg-white text-ink-600 hover:bg-ink-50"
               }`}
             >
-              {h.nombre} <span className={on ? "text-white/90" : "text-ink-400"}>· {h.totalFilas} fila(s)</span>
+              {h.nombre}
+              {!h.vistaPreviaOmitida && (
+                <span className={on ? "text-white/90" : "text-ink-400"}> · {h.totalFilas} fila(s)</span>
+              )}
             </button>
           );
         })}
       </div>
-      {activa ? (
+      {activa?.vistaPreviaOmitida ? (
+        <p className="rounded-md border border-dashed border-ink-200 bg-white px-3 py-4 text-center text-[11.5px] text-ink-500">
+          La vista previa se omitió por el tamaño del archivo. Selecciona la hoja correcta; su contenido se validará al leerla.
+        </p>
+      ) : activa ? (
         <PreviewHoja hoja={activa} />
       ) : (
         <p className="rounded-md border border-dashed border-ink-200 bg-white px-3 py-4 text-center text-[11.5px] text-ink-400">

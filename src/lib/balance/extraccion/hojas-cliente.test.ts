@@ -1,7 +1,12 @@
 import { describe, it, expect } from "vitest";
 import ExcelJS from "exceljs";
 import * as XLSX from "xlsx";
-import { leerHojasParaPreview, columnaLetra } from "./hojas-cliente";
+import {
+  debeLeerSoloNombresHojas,
+  leerHojasParaPreview,
+  leerNombresHojas,
+  columnaLetra,
+} from "./hojas-cliente";
 
 /** Arma un .xlsx en memoria a partir de hojas (AOA) y lo expone como un File mínimo. */
 async function comoFile(hojas: Record<string, (string | number)[][]>): Promise<File> {
@@ -67,6 +72,57 @@ describe("leerHojasParaPreview", () => {
       totalColumnas: 3,
       muestra: [["Código", "Cuenta", "Saldo"], ["110505", "Caja", 1000]],
     });
+  });
+});
+
+describe("leerNombresHojas", () => {
+  it("lista las hojas modernas sin materializar sus filas", async () => {
+    const hojas = await leerNombresHojas(
+      await comoFile({
+        Balance: [["Código", "Saldo"], ["110505", 1000]],
+        Retenciones: [["Concepto", "Valor"], ["Renta", 50]],
+      }),
+    );
+
+    expect(hojas).toEqual([
+      {
+        nombre: "Balance",
+        totalFilas: 0,
+        totalColumnas: 0,
+        muestra: [],
+        vistaPreviaOmitida: true,
+      },
+      {
+        nombre: "Retenciones",
+        totalFilas: 0,
+        totalColumnas: 0,
+        muestra: [],
+        vistaPreviaOmitida: true,
+      },
+    ]);
+  });
+
+  it("ofrece la misma selección liviana para Excel 97-2003", async () => {
+    const hojas = await leerNombresHojas(
+      comoFileXls({
+        Balance: [["Código"], ["110505"]],
+        Auxiliar: [["NIT"], ["900123456"]],
+      }),
+    );
+
+    expect(hojas.map((hoja) => hoja.nombre)).toEqual(["Balance", "Auxiliar"]);
+    expect(hojas.every((hoja) => hoja.vistaPreviaOmitida && hoja.muestra.length === 0)).toBe(true);
+  });
+});
+
+describe("debeLeerSoloNombresHojas", () => {
+  it("mantiene la vista previa completa hasta 500 KiB", () => {
+    expect(debeLeerSoloNombresHojas(500 * 1024)).toBe(false);
+  });
+
+  it("cambia al índice liviano por encima de 500 KiB", () => {
+    expect(debeLeerSoloNombresHojas(500 * 1024 + 1)).toBe(true);
+    expect(debeLeerSoloNombresHojas(21_199_033)).toBe(true);
   });
 });
 

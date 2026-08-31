@@ -15,10 +15,21 @@ export type HojaPreview = {
   totalFilas: number;
   totalColumnas: number;
   muestra: CeldaCruda[][];
+  /** El archivo es grande y solo se leyó el índice de hojas, no sus celdas. */
+  vistaPreviaOmitida?: boolean;
 };
 
 const MAX_FILAS_MUESTRA = 10;
 const MAX_COLS_MUESTRA = 8;
+const MAX_PREVIEW_HOJAS_BYTES = 500 * 1024;
+
+/**
+ * Un xlsx comprime varias veces su contenido. Por encima de 500 KiB, cargar
+ * todas las celdas con ExcelJS puede congelar la interfaz; basta leer el índice.
+ */
+export function debeLeerSoloNombresHojas(tamanoBytes: number): boolean {
+  return tamanoBytes > MAX_PREVIEW_HOJAS_BYTES;
+}
 
 /**
  * Lee un Excel (.xlsx/.xlsm/.xls) en el navegador y devuelve sus hojas CON
@@ -31,6 +42,27 @@ const MAX_COLS_MUESTRA = 8;
 export async function leerHojasParaPreview(file: File): Promise<HojaPreview[]> {
   if (/\.xls$/i.test(file.name)) return leerHojasXls(file);
   return leerHojasExcelModerno(file);
+}
+
+/**
+ * Lee únicamente el índice del libro para que un Excel grande también obligue a
+ * escoger la hoja ANTES de subirlo. `bookSheets` evita descomprimir y convertir
+ * todas las celdas en el hilo principal; la lectura completa queda en el servidor.
+ */
+export async function leerNombresHojas(file: File): Promise<HojaPreview[]> {
+  const XLSX = await import("xlsx");
+  const wb = XLSX.read(new Uint8Array(await file.arrayBuffer()), {
+    type: "array",
+    bookSheets: true,
+  });
+
+  return wb.SheetNames.map((nombre) => ({
+    nombre,
+    totalFilas: 0,
+    totalColumnas: 0,
+    muestra: [],
+    vistaPreviaOmitida: true,
+  }));
 }
 
 async function leerHojasExcelModerno(file: File): Promise<HojaPreview[]> {
