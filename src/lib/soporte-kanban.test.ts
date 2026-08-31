@@ -3,12 +3,13 @@ import {
   agruparTicketsKanban,
   COLUMNAS_KANBAN,
   evaluarMovimientoKanban,
+  filtrarCartasKanbanPorAsunto,
   moverTicketKanban,
   type TicketKanban,
 } from "./soporte-kanban";
 import { ESTADOS_TICKET } from "./soporte-estados";
 
-function ticket(id: number, status: string): TicketKanban {
+function ticket(id: number, status: string, overrides: Partial<TicketKanban> = {}): TicketKanban {
   return {
     id,
     code: `TKT-${id}`,
@@ -21,6 +22,7 @@ function ticket(id: number, status: string): TicketKanban {
     adjuntos: 0,
     createdAt: "2026-08-25T10:00:00.000Z",
     updatedAt: "2026-08-25T10:00:00.000Z",
+    ...overrides,
   };
 }
 
@@ -95,5 +97,43 @@ describe("moverTicketKanban", () => {
     const siguiente = moverTicketKanban(filas, 1, "cerrado");
     expect(siguiente.map((t) => t.status)).toEqual(["cerrado", "abierto"]);
     expect(filas.map((t) => t.status)).toEqual(["abierto", "abierto"]);
+  });
+});
+
+describe("filtrarCartasKanbanPorAsunto", () => {
+  const cartas = [
+    ticket(1, "abierto", { subject: "No carga el balance de julio", reportante: "Ana Pérez" }),
+    ticket(2, "abierto", { subject: "Error al exportar el Excel", reportante: "Carlos Ruiz" }),
+    ticket(3, "abierto", { subject: "Solicitud de acceso al módulo de nómina", reportante: "María José Gómez" }),
+  ];
+
+  it("sin término devuelve todas las tarjetas sin mutar el arreglo", () => {
+    const resultado = filtrarCartasKanbanPorAsunto(cartas, "");
+    expect(resultado).toEqual(cartas);
+    expect(resultado).not.toBe(cartas);
+  });
+
+  it("un espacio en blanco cuenta como término vacío", () => {
+    expect(filtrarCartasKanbanPorAsunto(cartas, "   ")).toEqual(cartas);
+  });
+
+  it("filtra por coincidencia parcial del asunto", () => {
+    const resultado = filtrarCartasKanbanPorAsunto(cartas, "balance");
+    expect(resultado.map((t) => t.id)).toEqual([1]);
+  });
+
+  it("ignora mayúsculas y acentos", () => {
+    const resultado = filtrarCartasKanbanPorAsunto(cartas, "NOMINA");
+    expect(resultado.map((t) => t.id)).toEqual([3]);
+  });
+
+  it("sin coincidencias devuelve un arreglo vacío", () => {
+    expect(filtrarCartasKanbanPorAsunto(cartas, "inexistente")).toEqual([]);
+  });
+
+  it("no confunde el nombre del ticket con su código, ubicación o reportante", () => {
+    expect(filtrarCartasKanbanPorAsunto(cartas, "TKT-1")).toEqual([]);
+    expect(filtrarCartasKanbanPorAsunto(cartas, "Cargar balance")).toEqual([]);
+    expect(filtrarCartasKanbanPorAsunto(cartas, "Carlos Ruiz")).toEqual([]);
   });
 });

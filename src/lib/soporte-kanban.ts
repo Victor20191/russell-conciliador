@@ -131,3 +131,27 @@ export function moverTicketKanban(
 ): TicketKanban[] {
   return filas.map((fila) => (fila.id === ticketId ? { ...fila, status: destino } : fila));
 }
+
+function normalizarTextoKanban(valor: string): string {
+  return valor
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+/**
+ * Filtra las tarjetas de UNA columna por el asunto visible, que funciona como
+ * nombre del ticket en el tablero. Cada columna arma su propio término (ver el
+ * buscador desplegable del encabezado), así que buscar en «Abierto» no toca lo
+ * que se ve en «En proceso». No reordena ni muta; una búsqueda vacía devuelve
+ * todo.
+ */
+export function filtrarCartasKanbanPorAsunto(
+  cartas: readonly TicketKanban[],
+  busqueda: string,
+): TicketKanban[] {
+  const termino = normalizarTextoKanban(busqueda);
+  if (!termino) return [...cartas];
+  return cartas.filter((carta) => normalizarTextoKanban(carta.subject).includes(termino));
+}

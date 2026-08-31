@@ -13,6 +13,7 @@ import {
   agruparTicketsKanban,
   COLUMNAS_KANBAN,
   evaluarMovimientoKanban,
+  filtrarCartasKanbanPorAsunto,
   moverTicketKanban,
   type TicketKanban,
 } from "@/lib/soporte-kanban";
@@ -63,6 +64,11 @@ export default function KanbanTablero({
   const [porEliminar, setPorEliminar] = useState<TicketEliminable | null>(null);
   const [solucion, setSolucion] = useState("");
   const [errorSolucion, setErrorSolucion] = useState<string | null>(null);
+  // Buscador por columna: cada estado despliega el suyo de forma independiente
+  // y no se recuerda entre visitas (mismo criterio que el filtro de dominio de
+  // TicketsVista, para no esconder novedades sin que se note).
+  const [columnasBuscando, setColumnasBuscando] = useState<Set<EstadoTicket>>(new Set());
+  const [busquedas, setBusquedas] = useState<Partial<Record<EstadoTicket, string>>>({});
 
   // El servidor manda: cuando la revalidación trae otra lista, se descarta el
   // estado optimista. Se ajusta durante el render para no pintar un frame con
@@ -123,6 +129,20 @@ export default function KanbanTablero({
     confirmar(movimiento.ticket, movimiento.destino);
   };
 
+  // Al colapsar el buscador de una columna se olvida el término: reabrirlo
+  // arranca en blanco, para no dejar un filtro activo escondido sin control
+  // visible.
+  const alternarBusqueda = (estado: EstadoTicket) => {
+    const cerrando = columnasBuscando.has(estado);
+    setColumnasBuscando((actuales) => {
+      const siguientes = new Set(actuales);
+      if (siguientes.has(estado)) siguientes.delete(estado);
+      else siguientes.add(estado);
+      return siguientes;
+    });
+    if (cerrando) setBusquedas((actuales) => ({ ...actuales, [estado]: "" }));
+  };
+
   const guardarSolucion = () => {
     if (!porResolver) return;
     const texto = solucion.trim();
@@ -148,6 +168,11 @@ export default function KanbanTablero({
           const tono = TONO_COLUMNA[columna.tono]!;
           const enZona = zonaActiva === columna.estado;
           const cartas = columnas[columna.estado];
+          const buscando = columnasBuscando.has(columna.estado);
+          const termino = busquedas[columna.estado] ?? "";
+          const terminoActivo = termino.trim().length > 0;
+          const cartasVisibles = terminoActivo ? filtrarCartasKanbanPorAsunto(cartas, termino) : cartas;
+          const idBusqueda = `kanban-busqueda-${columna.estado}`;
           return (
             <section
               key={columna.estado}
@@ -173,14 +198,49 @@ export default function KanbanTablero({
                 enZona ? tono.zona : "border-transparent bg-ink-50/70"
               }`}
             >
-              <header className="flex items-center gap-2 px-1 pb-2.5">
-                <span className={`h-2 w-2 shrink-0 rounded-full ${tono.punto}`} />
-                <h3 className="text-[12px] font-semibold uppercase tracking-wider text-ink-600">
-                  {columna.etiqueta}
-                </h3>
-                <span className={`ml-auto rounded-full px-2 py-0.5 font-mono text-[11px] font-semibold ${tono.conteo}`}>
-                  {cartas.length}
-                </span>
+              <header className="flex flex-col gap-1.5 px-1 pb-2.5">
+                <div className="flex items-center gap-2">
+                  <span className={`h-2 w-2 shrink-0 rounded-full ${tono.punto}`} />
+                  <h3 className="text-[12px] font-semibold uppercase tracking-wider text-ink-600">
+                    {columna.etiqueta}
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => alternarBusqueda(columna.estado)}
+                    aria-expanded={buscando}
+                    aria-controls={idBusqueda}
+                    aria-label={`Buscar por nombre del ticket en ${columna.etiqueta}`}
+                    className={`rounded p-0.5 text-ink-400 transition hover:bg-ink-100 hover:text-ink-600 ${
+                      buscando ? "bg-ink-100 text-ink-600" : ""
+                    }`}
+                  >
+                    <Icon name={buscando ? "chev-d" : "chev-r"} size={12} />
+                  </button>
+                  {/* El contador SIEMPRE refleja el total de la columna, no lo
+                      que deja ver la búsqueda: buscar es una lupa, no un
+                      segundo filtro que esconda cuántas tarjetas hay en total. */}
+                  <span className={`ml-auto rounded-full px-2 py-0.5 font-mono text-[11px] font-semibold ${tono.conteo}`}>
+                    {cartas.length}
+                  </span>
+                </div>
+                {buscando && (
+                  <label className="flex items-center gap-1.5 rounded-md border border-ink-200 bg-white px-2 py-1 focus-within:border-navy-500">
+                    <Icon name="search" size={11} className="shrink-0 text-ink-400" />
+                    <span className="sr-only">Buscar por nombre del ticket en {columna.etiqueta}</span>
+                    <input
+                      id={idBusqueda}
+                      type="search"
+                      value={termino}
+                      onChange={(e) => {
+                        const valor = e.target.value;
+                        setBusquedas((actuales) => ({ ...actuales, [columna.estado]: valor }));
+                      }}
+                      placeholder="Buscar nombre del ticket…"
+                      autoFocus
+                      className="w-full min-w-0 border-none bg-transparent text-[11.5px] text-ink-700 outline-none placeholder:text-ink-400"
+                    />
+                  </label>
+                )}
               </header>
 
               <div className="flex flex-col gap-2">
@@ -188,8 +248,12 @@ export default function KanbanTablero({
                   <p className="rounded-md border border-dashed border-ink-200 px-3 py-6 text-center text-[11.5px] text-ink-400">
                     {columna.ayuda}
                   </p>
+                ) : cartasVisibles.length === 0 ? (
+                  <p className="rounded-md border border-dashed border-ink-200 px-3 py-6 text-center text-[11.5px] text-ink-400">
+                    Ningún reporte de esta columna coincide con «{termino.trim()}».
+                  </p>
                 ) : (
-                  cartas.map((ticket) => (
+                  cartasVisibles.map((ticket) => (
                     <TarjetaTicket
                       key={ticket.id}
                       ticket={ticket}
