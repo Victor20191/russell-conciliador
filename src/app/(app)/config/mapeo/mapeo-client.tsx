@@ -544,7 +544,16 @@ function MapeoClienteTab({ rows, std, accounts, clienteId, clienteNit, puedeMape
         <MapeoClienteForm mode="create" clienteId={clienteId} opciones={opciones6} onClose={() => setCreateOpen(false)} />
       )}
       {puedeMapear && editTarget && (
-        <MapeoClienteForm mode="edit" row={editTarget} opciones={opciones6} onClose={() => setEditTarget(null)} onDelete={() => { const t = editTarget; setEditTarget(null); setDeleteTarget(t); }} />
+        <MapeoClienteForm
+          mode="edit"
+          row={editTarget}
+          opciones={opciones6}
+          excepcionesDelGrupo={esExcepcionCuenta(editTarget.origen)
+            ? [] /* editar una excepción no propaga: no pisa nada */
+            : rows.filter((r) => esExcepcionCuenta(r.origen) && r.cuenta6 !== editTarget.cuenta6 && r.cuenta6.startsWith(editTarget.cuenta6))}
+          onClose={() => setEditTarget(null)}
+          onDelete={() => { const t = editTarget; setEditTarget(null); setDeleteTarget(t); }}
+        />
       )}
       {puedeMapear && deleteTarget && (
         <DeleteMapeoClienteForm row={deleteTarget} onClose={() => setDeleteTarget(null)} />
@@ -556,8 +565,11 @@ function MapeoClienteTab({ rows, std, accounts, clienteId, clienteNit, puedeMape
   );
 }
 
-function MapeoClienteForm({ mode, row, clienteId, opciones, onClose, onDelete }: {
-  mode: "create" | "edit"; row?: MapeoClienteRow; clienteId?: number; opciones: StdAccount[]; onClose: () => void; onDelete?: () => void;
+function MapeoClienteForm({ mode, row, clienteId, opciones, excepcionesDelGrupo = [], onClose, onDelete }: {
+  mode: "create" | "edit"; row?: MapeoClienteRow; clienteId?: number; opciones: StdAccount[];
+  /** Excepciones de cuenta que cuelgan de esta regla y que guardar va a REEMPLAZAR. */
+  excepcionesDelGrupo?: MapeoClienteRow[];
+  onClose: () => void; onDelete?: () => void;
 }) {
   const isEdit = mode === "edit";
   const [state, action, pending] = useActionState(isEdit ? editarMapeoCliente : crearMapeoCliente, undefined);
@@ -591,6 +603,17 @@ function MapeoClienteForm({ mode, row, clienteId, opciones, onClose, onDelete }:
     >
       <form id="mapeo-cliente-form" action={action} className="flex flex-col gap-4">
         {isEdit ? <input type="hidden" name="id" value={row!.id} /> : <input type="hidden" name="clienteId" value={clienteId} />}
+        {/* Guardar una regla de grupo propaga por PREFIJO y arrastra las excepciones de
+            cuenta que cuelgan de ella. Es intencional —una decisión de grupo manda sobre
+            las de cuenta— pero era silencioso: alguien las creó desde el balance y aquí
+            desaparecían sin aviso. */}
+        {excepcionesDelGrupo.length > 0 && (
+          <p className="rounded-md border border-warn-300 bg-warn-50 px-3 py-2 text-[12px] leading-relaxed text-warn-800">
+            <b>Guardar reemplazará {excepcionesDelGrupo.length} excepción(es) de cuenta</b> que hoy van a otro estándar:{" "}
+            {excepcionesDelGrupo.slice(0, 4).map((e) => `${e.cuenta6} → ${e.cuenta6Russell}`).join(" · ")}
+            {excepcionesDelGrupo.length > 4 ? " …" : ""}. Quedarán con el estándar que elijas aquí.
+          </p>
+        )}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Campo label={isEdit && esExcepcionCuenta(row!.origen) ? "Cuenta del cliente" : "Cuenta del cliente (6 dígitos)"}>
             {isEdit ? (
