@@ -90,7 +90,7 @@ export default async function MapeoPage({ searchParams }: { searchParams: Promis
       : Promise.resolve([]),
   ]);
 
-  const acc: Account[] = accounts.map((a) => ({ id: a.id, code: a.code, level: a.level, name: a.name, cuenta6Russell: a.cuenta6Russell, coincidencia: a.coincidencia != null ? Number(a.coincidencia) : null, origenMapeo: a.origenMapeo }));
+  const acc: Account[] = accounts.map((a) => ({ id: a.id, code: a.code, level: a.level, name: a.name, cuenta6Russell: a.cuenta6Russell, coincidencia: a.coincidencia != null ? Number(a.coincidencia) : null, origenMapeo: a.origenMapeo, actualizadoEn: a.actualizadoEn?.toISOString() ?? null }));
   const std: StdAccount[] = standard.map((s) => ({
     id: s.id,
     code: s.code,

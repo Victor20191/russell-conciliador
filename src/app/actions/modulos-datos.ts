@@ -33,7 +33,7 @@ import {
   invalidarValorAmbiguoIngresos,
   sugerirSpec,
 } from "@/lib/modulos/extraccion/sugerir";
-import { seleccionarSugerenciasPerfil, type PerfilCandidato } from "@/lib/modulos/sugerencias-perfil";
+import { seleccionarPerfilExacto, type PerfilCandidato } from "@/lib/modulos/sugerencias-perfil";
 import { letraColumnaModulo, normalizarSpecModulo, normalizarSpecModuloArchivo } from "@/lib/modulos/perfil-modulo";
 import { transformarModulo, resultadoAReconciliacion } from "@/lib/modulos/extraccion/transformar";
 import { esImputable, promoverStaging, type FilaStagingModulo } from "@/lib/modulos/promocion";
@@ -167,14 +167,10 @@ export type AnalisisModulo = {
   muestraCola?: { filaNum: number; celdas: CeldaMuestra[] }[];
   spec?: SpecModulo;
   // "sugerido" = spec exacto de otro cliente del mismo ERP (huella idéntica), NO propio.
+  // La reutilización entre clientes es un mecanismo INTERNO: se aplica sola cuando el
+  // layout coincide y no se le pregunta nada al usuario. Al navegador viaja únicamente
+  // el spec ya aplicado, sin nombre de cliente, archivo, huella, lista ni atribución.
   origen?: "perfil" | "sugerido" | "ia";
-  // Presente solo cuando NO hay perfil propio del cliente pero sí candidatos de su ERP
-  // (con huella exacta y/o como punto de partida). Puramente indicativo: nunca obliga.
-  sugerencias?: {
-    erpName: string;
-    exacto: { clienteNombre: string; archivoEjemplo: string | null } | null;
-    lista: { clienteNombre: string; huella: string; archivoEjemplo: string | null; vecesUsado: number; spec: SpecModulo }[];
-  };
   advertenciaValor?: string;
 };
 
@@ -202,59 +198,60 @@ const mismoSpecModulo = (a: SpecModulo, b: SpecModulo): boolean =>
   JSON.stringify(a) === JSON.stringify(b);
 
 /**
- * Sugerencias de parametrización de OTROS clientes con el MISMO ERP, para cuando este
- * cliente no tiene perfil propio guardado en este módulo. Es INDICATIVO: nunca sustituye
- * al perfil del cliente ni obliga a nada (ver `src/lib/modulos/sugerencias-perfil.ts`).
- * `null` si el cliente no tiene ERP o ningún otro cliente del mismo ERP tiene perfiles.
+ * Parametrización reutilizable de OTRO cliente del MISMO ERP, para cuando este cliente
+ * no tiene perfil propio guardado en el módulo. Devuelve SOLO la de huella idéntica: es
+ * un mecanismo interno que se aplica solo, sin preguntarle nada al usuario, y por eso no
+ * sale de aquí ningún dato de esos otros clientes.
+ *
+ * Los perfiles de layout DISTINTO se descartan a propósito: aplicar uno arriesgaría un
+ * mapeo de columnas equivocado, y la heurística sobre el encabezado real de este archivo
+ * es mejor punto de partida que el layout de otra empresa.
+ *
+ * `null` si no hay ERP, no hay otros clientes con ese ERP, o ninguno coincide en huella.
  */
-async function sugerenciasPerfilPorErp(
+async function specReutilizablePorErp(
   clienteId: number,
   erpId: number,
   moduloCodigo: string,
   candidatas: { huella: string }[],
-): Promise<{ erpName: string; sugerencias: ReturnType<typeof seleccionarSugerenciasPerfil> } | null> {
-  const [erp, otrosClientes] = await Promise.all([
-    prisma.erp.findUnique({ where: { id: erpId }, select: { name: true } }),
-    prisma.client.findMany({
-      where: {
-        id: { not: clienteId },
-        OR: [
-          {
-            erpsPorProceso: {
-              some: { process: { code: moduloCodigo }, erpId },
-            },
+): Promise<SpecModulo | null> {
+  const otrosClientes = await prisma.client.findMany({
+    where: {
+      id: { not: clienteId },
+      OR: [
+        {
+          erpsPorProceso: {
+            some: { process: { code: moduloCodigo }, erpId },
           },
-          {
-            AND: [
-              { erpsPorProceso: { none: { process: { code: moduloCodigo } } } },
-              { erpId },
-            ],
-          },
-        ],
-      },
-      select: { id: true, name: true },
-    }),
-  ]);
-  if (!erp || otrosClientes.length === 0) return null;
+        },
+        {
+          AND: [
+            { erpsPorProceso: { none: { process: { code: moduloCodigo } } } },
+            { erpId },
+          ],
+        },
+      ],
+    },
+    select: { id: true },
+  });
+  if (otrosClientes.length === 0) return null;
 
   const perfiles = await prisma.perfilCargaModulo.findMany({
     where: { moduloCodigo, clienteId: { in: otrosClientes.map((c) => c.id) } },
-    select: { clienteId: true, huella: true, specJson: true, archivoEjemplo: true, vecesUsado: true },
+    select: { clienteId: true, huella: true, specJson: true, vecesUsado: true },
   });
   if (perfiles.length === 0) return null;
 
-  const nombrePorCliente = new Map(otrosClientes.map((c) => [c.id, c.name]));
   const candidatosPerfil: PerfilCandidato[] = perfiles.map((p) => ({
     clienteId: p.clienteId,
-    clienteNombre: nombrePorCliente.get(p.clienteId) ?? `Cliente ${p.clienteId}`,
     huella: p.huella,
     spec: p.specJson,
-    archivoEjemplo: p.archivoEjemplo,
     vecesUsado: p.vecesUsado,
   }));
-  const sugerencias = seleccionarSugerenciasPerfil(candidatosPerfil, candidatas.map((c) => c.huella));
-  if (!sugerencias.exacto && sugerencias.lista.length === 0) return null;
-  return { erpName: erp.name, sugerencias };
+  const exacto = seleccionarPerfilExacto(candidatosPerfil, candidatas.map((c) => c.huella));
+  if (!exacto) return null;
+  const parsed = SpecModuloSchema.safeParse(exacto.spec);
+  return parsed.success ? parsed.data : null;
 }
 
 /**
@@ -507,7 +504,6 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
     const perfilSpec = await specPerfilModulo(clienteId, descriptor, candidatas);
     let spec: SpecModulo;
     let origen: "perfil" | "sugerido" | "ia";
-    let sugerencias: AnalisisModulo["sugerencias"];
     let valorAmbiguoInvalidado = false;
     const sanearValorInicial = (candidato: SpecModulo): SpecModulo => {
       const normalizado = normalizarSpecModulo(descriptor, candidato);
@@ -534,11 +530,11 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
         asignacionProceso ? { valor: asignacionProceso.erpId } : undefined,
         cliente?.erpId ?? null,
       );
-      const porErp = erpIdProceso
-        ? await sugerenciasPerfilPorErp(clienteId, erpIdProceso, moduloCodigo, candidatas)
+      const reutilizable = erpIdProceso
+        ? await specReutilizablePorErp(clienteId, erpIdProceso, moduloCodigo, candidatas)
         : null;
-      if (porErp?.sugerencias.exacto) {
-        spec = sanearValorInicial(SpecModuloSchema.parse(porErp.sugerencias.exacto.spec));
+      if (reutilizable) {
+        spec = sanearValorInicial(reutilizable);
         origen = "sugerido";
       } else {
         spec = sugerirSpec(descriptor, hoja);
@@ -550,21 +546,6 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
         ) {
           valorAmbiguoInvalidado = true;
         }
-      }
-      if (porErp) {
-        sugerencias = {
-          erpName: porErp.erpName,
-          exacto: porErp.sugerencias.exacto
-            ? { clienteNombre: porErp.sugerencias.exacto.clienteNombre, archivoEjemplo: porErp.sugerencias.exacto.archivoEjemplo }
-            : null,
-          lista: porErp.sugerencias.lista.map((p) => ({
-            clienteNombre: p.clienteNombre,
-            huella: p.huella,
-            archivoEjemplo: p.archivoEjemplo,
-            vecesUsado: p.vecesUsado,
-            spec: sanearValorInicial(SpecModuloSchema.parse(p.spec)),
-          })),
-        };
       }
     }
 
@@ -595,7 +576,6 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
       muestraCola,
       spec,
       origen,
-      sugerencias,
       ...(valorAmbiguoInvalidado
         ? {
             advertenciaValor:

@@ -22,9 +22,11 @@ import {
 } from "@/app/actions/standard-accounts";
 import { crearSubgrupo, editarSubgrupo, eliminarSubgrupo } from "@/app/actions/subgrupos";
 import { esExcepcionCuenta, esMapeoManual } from "@/lib/balance/mapeo-cliente-config";
+import { detectarAnomaliasMapeo } from "@/lib/balance/anomalias-mapeo";
+import { cruzaClaseContable } from "@/lib/balance/clase-contable";
 import { crearMapeoCliente, editarMapeoCliente, eliminarMapeoCliente, confirmarMapeoCliente } from "@/app/actions/mapeo-cliente";
 
-export type Account = { id: number; code: string; level: number; name: string; cuenta6Russell: string | null; coincidencia: number | null; origenMapeo: string | null };
+export type Account = { id: number; code: string; level: number; name: string; cuenta6Russell: string | null; coincidencia: number | null; origenMapeo: string | null; actualizadoEn: string | null };
 export type RussellOpt = { code: string; name: string; module: string | null };
 export type StdAccount = {
   id: number;
@@ -74,6 +76,12 @@ export type MapeoClienteRow = {
   actualizadoEn: string; // ISO
 };
 
+/** ¿La fila espera confirmación? Tiene estándar asignado pero la cascada no llegó al 100%.
+ *  Definición ÚNICA: la comparten el contador, el filtro y el botón de la fila, para que el
+ *  número del filtro no pueda discrepar de las filas que de verdad ofrecen «Confirmar». */
+const porConfirmar = (r: MapeoClienteRow): boolean =>
+  !!r.cuenta6Russell && (r.coincidencia == null || r.coincidencia < 100);
+
 type Tab = "mapping" | "standard" | "subgrupos" | "mapeocliente";
 
 export default function MapeoClient({
@@ -86,6 +94,15 @@ export default function MapeoClient({
   const [q, setQ] = useState("");
   const [level, setLevel] = useState<"all" | "4" | "6" | "8">("all");
   const [soloPendientes, setSoloPendientes] = useState(false);
+  const [soloAnomalias, setSoloAnomalias] = useState(false);
+  // Auxiliares cuyo mapeo NO se explica por la regla de su grupo. Es lo único que este
+  // informe muestra y la vista editable no: allí solo se listan el nivel 6 y las
+  // excepciones declaradas. Se indexa por código para pintarlo en la fila.
+  const anomalias = useMemo(() => {
+    const m = new Map<string, ReturnType<typeof detectarAnomaliasMapeo>[number]>();
+    for (const a of detectarAnomaliasMapeo(accounts)) m.set(a.code, a);
+    return m;
+  }, [accounts]);
 
   const stdByCode = useMemo(() => new Map(std.map((s) => [s.code, s.name])), [std]);
   const stats = useMemo(() => ({
@@ -100,6 +117,7 @@ export default function MapeoClient({
   const rows = accounts
     .filter((a) => level === "all" || a.level === Number(level))
     .filter((a) => !soloPendientes || (!!a.cuenta6Russell && (a.coincidencia == null || a.coincidencia < 100)))
+    .filter((a) => !soloAnomalias || anomalias.has(a.code))
     .filter((a) => !q || a.code.includes(q) || a.name.toLowerCase().includes(q.toLowerCase()));
   const pg = usePagination(rows, 50);
 
@@ -187,13 +205,25 @@ export default function MapeoClient({
             >
               <Icon name="warn" size={12} /> Por confirmar{stats.porConfirmar > 0 ? ` (${stats.porConfirmar})` : ""}
             </button>
+            {/* Lo que este informe aporta y la vista editable no. Se ordena con los cruces
+                de clase primero: son los que mueven saldo de un estado financiero a otro. */}
+            <button
+              type="button"
+              onClick={() => { setSoloAnomalias((v) => !v); pg.resetToFirstPage(); }}
+              title="Auxiliares cuya homologación no coincide con la regla de su grupo"
+              className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11.5px] font-medium transition ${soloAnomalias ? "border-err-300 bg-err-100 text-err-700" : "border-ink-200 text-ink-600 hover:bg-ink-50"}`}
+            >
+              <Icon name="warn" size={12} /> Revisar{anomalias.size > 0 ? ` (${anomalias.size})` : ""}
+            </button>
             <input value={q} onChange={(e) => { setQ(e.target.value); pg.resetToFirstPage(); }} placeholder="Filtrar por código o nombre…" className="rounded-md border border-ink-200 px-2.5 py-1.5 text-[12px] outline-none focus:border-blue-400" />
             <PageSizeSelect value={pg.pageSize} onChange={pg.setPageSize} />
           </div>
         </div>
 
         {rows.length === 0 ? (
-          soloPendientes ? (
+          soloAnomalias ? (
+            <EmptyState icon="check" title="Sin anomalías" description="Todas las cuentas auxiliares de este cliente siguen la homologación de su grupo." />
+          ) : soloPendientes ? (
             <EmptyState icon="check" title="Nada por confirmar" description="Todas las cuentas con mapeo están confirmadas o son coincidencia exacta (100%)." />
           ) : (
             <EmptyState icon="doc" title="Sin cuentas para este cliente" description="Este cliente no tiene un PUC cargado en el repositorio de mapeo." />
@@ -219,7 +249,17 @@ export default function MapeoClient({
                     <tr key={a.id} className="border-b border-ink-50 last:border-0 hover:bg-ink-50">
                       <td className="px-3 py-2"><Chip label={`N${a.level}`} tone="ink" /></td>
                       <td className="px-3 py-2 font-mono text-ink-600" style={{ paddingLeft: a.level === 4 ? 12 : a.level === 6 ? 28 : 48 }}>{a.code}</td>
-                      <td className="px-3 py-2 text-ink-800">{a.level !== 4 && <span className="mr-1 text-ink-400">└</span>}{a.name}</td>
+                      <td className="px-3 py-2 text-ink-800">
+                        {a.level !== 4 && <span className="mr-1 text-ink-400">└</span>}{a.name}
+                        {(() => {
+                          const an = anomalias.get(a.code);
+                          if (!an) return null;
+                          const etiqueta = an.cruzaClase
+                            ? `Cruza de clase · su grupo va a ${an.cuenta6RussellDelGrupo}`
+                            : `Difiere de su grupo (${an.cuenta6RussellDelGrupo})`;
+                          return <span className="ml-2"><Chip label={etiqueta} tone={an.cruzaClase ? "err" : "warn"} /></span>;
+                        })()}
+                      </td>
                       <td className="px-3 py-2">
                         {sinMapeo ? (
                           <Chip label="Sin mapeo" tone="warn" />
@@ -251,7 +291,7 @@ export default function MapeoClient({
           </div>
         )}
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-ink-100 px-4 py-2.5 text-[11.5px] text-ink-500">
-          <span>{stats.stdMapped} mapeadas al estándar de {stats.total}{stats.porConfirmar > 0 ? ` · ${stats.porConfirmar} por confirmar` : ""}</span>
+          <span>{stats.stdMapped} mapeadas al estándar de {stats.total}{stats.porConfirmar > 0 ? ` · ${stats.porConfirmar} por confirmar` : ""}{anomalias.size > 0 ? ` · ${anomalias.size} por revisar` : ""}</span>
         </div>
         <PaginationFooter
           rangeLabel={pg.rangeLabel}
@@ -344,6 +384,16 @@ function MapeoClienteTab({ rows, std, accounts, clienteId, clienteNit, puedeMape
   const router = useRouter();
   const [q, setQ] = useState("");
   const [origen, setOrigen] = useState<"all" | "manual" | "automatico" | "sinasignar">("all");
+  // Filtro aparte del de origen: aquel dice DE DÓNDE salió la regla y este filtra por
+  // coincidencia < 100. Son ejes distintos, y cruzarlos no aporta: lo manual se guarda
+  // siempre al 100% y lo sin asignar no tiene nada que confirmar, así que «por confirmar»
+  // está contenido en «automático».
+  const [soloPorConfirmar, setSoloPorConfirmar] = useState(false);
+  // Tercer eje: la homologación manda el saldo a otro estado financiero. A veces es
+  // deliberado —reclasificar una cuenta que el ERP codificó mal— por eso es un filtro
+  // para auditar y no una marca en cada fila: son 1.032 de 18.424 en la plataforma, y
+  // marcarlas todas convertiría la señal en papel tapiz.
+  const [soloCruceClase, setSoloCruceClase] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<MapeoClienteRow | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<MapeoClienteRow | null>(null);
@@ -354,6 +404,7 @@ function MapeoClienteTab({ rows, std, accounts, clienteId, clienteNit, puedeMape
   const comoCuenta = (r: MapeoClienteRow): Account => ({
     id: r.id, code: r.cuenta6, level: r.nivel, name: r.nombreCuenta,
     cuenta6Russell: r.cuenta6Russell || null, coincidencia: r.coincidencia, origenMapeo: r.origen,
+    actualizadoEn: r.actualizadoEn || null,
   });
   // El selector de cuenta estándar ofrece solo cuentas de 6 dígitos (nivel 6).
   const opciones6 = useMemo(() => std.filter((s) => s.code.length === 6), [std]);
@@ -365,11 +416,15 @@ function MapeoClienteTab({ rows, std, accounts, clienteId, clienteNit, puedeMape
       if (!r.cuenta6Russell) return false;
       return origen === "manual" ? esMapeoManual(r.origen) : r.origen === "automatico";
     })
+    .filter((r) => !soloPorConfirmar || porConfirmar(r))
+    .filter((r) => !soloCruceClase || cruzaClaseContable(r.cuenta6, r.cuenta6Russell))
     .filter((r) => !needle || r.cuenta6.includes(needle) || r.cuenta6Russell.includes(needle) || (r.nombreRussell ?? "").toLowerCase().includes(needle) || r.nombreCuenta.toLowerCase().includes(needle));
   const pg = usePagination(filtered, 50);
   const manualCount = rows.filter((r) => esMapeoManual(r.origen)).length;
   const excepcionCount = rows.filter((r) => esExcepcionCuenta(r.origen)).length;
   const sinAsignarCount = rows.filter((r) => !r.cuenta6Russell).length;
+  const porConfirmarCount = rows.filter(porConfirmar).length;
+  const cruceClaseCount = rows.filter((r) => cruzaClaseContable(r.cuenta6, r.cuenta6Russell)).length;
 
   return (
     <>
@@ -388,6 +443,23 @@ function MapeoClienteTab({ rows, std, accounts, clienteId, clienteNit, puedeMape
                 <button key={o} onClick={() => { setOrigen(o); pg.resetToFirstPage(); }} className={`px-2.5 py-1 ${origen === o ? "bg-navy-800 text-white" : "bg-white text-ink-600 hover:bg-ink-50"}`}>{o === "all" ? "Todos" : o === "manual" ? "Manual" : o === "automatico" ? "Automático" : "Sin asignar"}</button>
               ))}
             </div>
+            {/* Mismo control que la pestaña informe: eje distinto al del origen, así que va
+                aparte y no como una opción más del grupo. */}
+            <button
+              type="button"
+              onClick={() => { setSoloPorConfirmar((v) => !v); pg.resetToFirstPage(); }}
+              className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11.5px] font-medium transition ${soloPorConfirmar ? "border-warn-300 bg-warn-100 text-warn-700" : "border-ink-200 text-ink-600 hover:bg-ink-50"}`}
+            >
+              <Icon name="warn" size={12} /> Por confirmar{porConfirmarCount > 0 ? ` (${porConfirmarCount})` : ""}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setSoloCruceClase((v) => !v); pg.resetToFirstPage(); }}
+              title="La cuenta del cliente y su estándar están en clases contables distintas"
+              className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11.5px] font-medium transition ${soloCruceClase ? "border-err-300 bg-err-100 text-err-700" : "border-ink-200 text-ink-600 hover:bg-ink-50"}`}
+            >
+              <Icon name="warn" size={12} /> Cruza de clase{cruceClaseCount > 0 ? ` (${cruceClaseCount})` : ""}
+            </button>
             <input value={q} onChange={(e) => { setQ(e.target.value); pg.resetToFirstPage(); }} placeholder="filtrar por cuenta o estándar" className="w-64 rounded-md border border-ink-200 px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400" />
             <PageSizeSelect value={pg.pageSize} onChange={pg.setPageSize} />
             {puedeMapear && clienteId != null && (
@@ -457,7 +529,7 @@ function MapeoClienteTab({ rows, std, accounts, clienteId, clienteNit, puedeMape
                          sueltos se apilaban al angostarse la columna y quedaban ilegibles. */
                       <td className="whitespace-nowrap px-4 py-2.5">
                         <div className="flex items-center justify-end gap-1.5">
-                          {r.cuenta6Russell && (r.coincidencia == null || r.coincidencia < 100) && (
+                          {porConfirmar(r) && (
                             <button
                               type="button"
                               onClick={() => setConfirmTarget(r)}
@@ -490,7 +562,7 @@ function MapeoClienteTab({ rows, std, accounts, clienteId, clienteNit, puedeMape
           </div>
         )}
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-ink-100 px-4 py-2.5 text-[11.5px] text-ink-500">
-          <span>{rows.length} cuenta(s) · {manualCount} manual(es){excepcionCount > 0 ? ` · ${excepcionCount} de solo esta cuenta` : ""}{sinAsignarCount > 0 ? ` · ${sinAsignarCount} sin asignar` : ""}</span>
+          <span>{rows.length} cuenta(s) · {manualCount} manual(es){excepcionCount > 0 ? ` · ${excepcionCount} de solo esta cuenta` : ""}{porConfirmarCount > 0 ? ` · ${porConfirmarCount} por confirmar` : ""}{cruceClaseCount > 0 ? ` · ${cruceClaseCount} cruzan de clase` : ""}{sinAsignarCount > 0 ? ` · ${sinAsignarCount} sin asignar` : ""}</span>
         </div>
         <PaginationFooter rangeLabel={pg.rangeLabel} currentPage={pg.page} totalPages={pg.totalPages} onPageChange={pg.setPage} />
       </Card>
@@ -499,7 +571,16 @@ function MapeoClienteTab({ rows, std, accounts, clienteId, clienteNit, puedeMape
         <MapeoClienteForm mode="create" clienteId={clienteId} opciones={opciones6} onClose={() => setCreateOpen(false)} />
       )}
       {puedeMapear && editTarget && (
-        <MapeoClienteForm mode="edit" row={editTarget} opciones={opciones6} onClose={() => setEditTarget(null)} onDelete={() => { const t = editTarget; setEditTarget(null); setDeleteTarget(t); }} />
+        <MapeoClienteForm
+          mode="edit"
+          row={editTarget}
+          opciones={opciones6}
+          excepcionesDelGrupo={esExcepcionCuenta(editTarget.origen)
+            ? [] /* editar una excepción no propaga: no pisa nada */
+            : rows.filter((r) => esExcepcionCuenta(r.origen) && r.cuenta6 !== editTarget.cuenta6 && r.cuenta6.startsWith(editTarget.cuenta6))}
+          onClose={() => setEditTarget(null)}
+          onDelete={() => { const t = editTarget; setEditTarget(null); setDeleteTarget(t); }}
+        />
       )}
       {puedeMapear && deleteTarget && (
         <DeleteMapeoClienteForm row={deleteTarget} onClose={() => setDeleteTarget(null)} />
@@ -511,8 +592,11 @@ function MapeoClienteTab({ rows, std, accounts, clienteId, clienteNit, puedeMape
   );
 }
 
-function MapeoClienteForm({ mode, row, clienteId, opciones, onClose, onDelete }: {
-  mode: "create" | "edit"; row?: MapeoClienteRow; clienteId?: number; opciones: StdAccount[]; onClose: () => void; onDelete?: () => void;
+function MapeoClienteForm({ mode, row, clienteId, opciones, excepcionesDelGrupo = [], onClose, onDelete }: {
+  mode: "create" | "edit"; row?: MapeoClienteRow; clienteId?: number; opciones: StdAccount[];
+  /** Excepciones de cuenta que cuelgan de esta regla y que guardar va a REEMPLAZAR. */
+  excepcionesDelGrupo?: MapeoClienteRow[];
+  onClose: () => void; onDelete?: () => void;
 }) {
   const isEdit = mode === "edit";
   const [state, action, pending] = useActionState(isEdit ? editarMapeoCliente : crearMapeoCliente, undefined);
@@ -546,6 +630,17 @@ function MapeoClienteForm({ mode, row, clienteId, opciones, onClose, onDelete }:
     >
       <form id="mapeo-cliente-form" action={action} className="flex flex-col gap-4">
         {isEdit ? <input type="hidden" name="id" value={row!.id} /> : <input type="hidden" name="clienteId" value={clienteId} />}
+        {/* Guardar una regla de grupo propaga por PREFIJO y arrastra las excepciones de
+            cuenta que cuelgan de ella. Es intencional —una decisión de grupo manda sobre
+            las de cuenta— pero era silencioso: alguien las creó desde el balance y aquí
+            desaparecían sin aviso. */}
+        {excepcionesDelGrupo.length > 0 && (
+          <p className="rounded-md border border-warn-300 bg-warn-50 px-3 py-2 text-[12px] leading-relaxed text-warn-800">
+            <b>Guardar reemplazará {excepcionesDelGrupo.length} excepción(es) de cuenta</b> asociadas a este grupo:{" "}
+            {excepcionesDelGrupo.slice(0, 4).map((e) => `${e.cuenta6} → ${e.cuenta6Russell}`).join(" · ")}
+            {excepcionesDelGrupo.length > 4 ? " …" : ""}. Quedarán con el estándar que elijas aquí.
+          </p>
+        )}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Campo label={isEdit && esExcepcionCuenta(row!.origen) ? "Cuenta del cliente" : "Cuenta del cliente (6 dígitos)"}>
             {isEdit ? (

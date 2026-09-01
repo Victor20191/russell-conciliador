@@ -3065,7 +3065,7 @@ function ArbolTabla({ arbol, riesgosPorFila, onReclasificar, onGestionarAgrupado
   const [cantidadRevelada, setCantidadRevelada] = useState(BLOQUE_REVELADO_INICIAL);
   const revelado = acotarRevelado(cantidadRevelada, totalFilasVisibles);
   const hayMasFilas = revelado < totalFilasVisibles;
-  const filasReveladas = useMemo(() => filasVisibles.slice(0, revelado), [filasVisibles, revelado]);
+  const filasReveladas = filasVisibles.slice(0, revelado);
   const reiniciarRevelado = () => setCantidadRevelada(BLOQUE_REVELADO_INICIAL);
   const revelarMasFilas = () => setCantidadRevelada((actual) => siguienteRevelado(actual, totalFilasVisibles, BLOQUE_REVELADO_INCREMENTO));
   const actualizarFiltroColumna = <K extends keyof FiltrosColumnasBorrador>(
