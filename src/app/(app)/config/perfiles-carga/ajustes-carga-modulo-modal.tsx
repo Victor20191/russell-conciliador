@@ -525,7 +525,7 @@ function PerfilCargaModuloDetalle({
               </div>
             </div>
             <div className="rounded-md border border-ink-150 bg-white px-3 py-2.5">
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-400">Subtotales del archivo</div>
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-ink-400">Totales del archivo</div>
               <div className="mt-1 text-[11.5px] font-semibold leading-relaxed text-ink-700">
                 {descripcionSubtotalesModulo(perfil.estructura)}
               </div>
@@ -663,7 +663,7 @@ function PerfilCargaModuloDetalle({
               </label>
             )}
             <label className="flex flex-col gap-1">
-              <span className="text-[11px] font-medium text-ink-600">Subtotales del archivo</span>
+              <span className="text-[11px] font-medium text-ink-600">Totales del archivo</span>
               <select
                 value={modoSubtotales}
                 onChange={(evento) => cambiarModoSubtotales(evento.target.value as ModoSubtotales)}
@@ -674,19 +674,19 @@ function PerfilCargaModuloDetalle({
                 ))}
               </select>
               <span className="text-[10.5px] leading-relaxed text-ink-400">
-                Las filas de subtotal no se cargan: el borrador las compara con la suma de sus movimientos y avisa si no cuadran.
+                Las filas de total no se cargan: el borrador las compara con la suma de los movimientos y avisa si no cuadran.
               </span>
             </label>
             {modoSubtotales === "manual" && (
               <>
                 <label className="flex flex-col gap-1">
-                  <span className="text-[11px] font-medium text-ink-600">Columna del archivo que marca la fila de subtotal</span>
+                  <span className="text-[11px] font-medium text-ink-600">Columna del archivo que marca la fila de total</span>
                   <input
                     type="number"
                     min={1}
                     value={estructura.subtotalesColumna ?? 0}
                     onChange={(evento) => setEstructura((actual) => ({ ...actual, subtotalesColumna: Number(evento.target.value) }))}
-                    aria-label="Número de columna que marca las filas de subtotal"
+                    aria-label="Número de columna que marca las filas de total"
                     className={`${CLASE_INPUT} tabular-nums`}
                   />
                   <span className={`text-[10.5px] leading-relaxed ${(estructura.subtotalesColumna ?? 0) > 0 ? "font-medium text-blue-600" : "text-err-600"}`}>

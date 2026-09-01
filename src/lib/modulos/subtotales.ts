@@ -17,7 +17,7 @@ import type { SpecModulo } from "./extraccion/esquema";
 import { norm } from "./extraccion/sugerir";
 import { TOLERANCIA_FILA_TOTALIZADORA, detectarFilasTotalizadoras } from "./fila-totalizadora";
 
-export type SenalSubtotal = "rotulo" | "rotulo_debil" | "sin_detalle" | "negrita" | "aritmetica" | "aritmetica_arriba" | "marca_manual";
+export type SenalSubtotal = "rotulo" | "rotulo_debil" | "sin_detalle" | "negrita" | "aritmetica" | "aritmetica_arriba" | "marca_manual" | "cola";
 
 /** Preferencia del perfil de formato (`SpecModulo.subtotales`). */
 export type ModoSubtotales = "auto" | "rotulo" | "nunca" | "manual";
@@ -38,6 +38,8 @@ export type FilaCandidata = {
   motivo?: string | null;
   /** Modo "manual": la columna marcadora elegida por el usuario señala esta fila (solo al leer). */
   marcaManual?: boolean;
+  /** La fila fue ubicada expresamente por coordenada en ESTE archivo. */
+  marcaManualExacta?: boolean;
 };
 
 export type BloqueSubtotal = {
@@ -54,7 +56,14 @@ export type DeteccionSubtotal = {
   indice: number;
   filaNum: number;
   esSubtotal: boolean;
-  clase: "subtotal" | "gran_total" | null;
+  /**
+   * - `subtotal`     → control de un grupo (se compara contra la Σ de su bloque).
+   * - `gran_total`   → el total que el archivo declara para TODO el detalle.
+   * - `cola_control` → el resto del bloque de control al pie del archivo (cifras de
+   *   referencia y sus diferencias). Se excluye del consolidado pero NO se valida: no es
+   *   un subtotal del detalle, es una anotación del cliente.
+   */
+  clase: "subtotal" | "gran_total" | "cola_control" | null;
   senales: SenalSubtotal[];
   /** Clasificador del bloque al que pertenece el subtotal. */
   grupo: string | null;
@@ -113,16 +122,24 @@ export const esRotuloTotal = (s: string): boolean => /^\s*(gran\s+)?(sub)?\s*-?t
 /** ¿Es el rótulo del GRAN total del archivo? («Total», «Gran total», «Total general»). */
 export const esRotuloGranTotal = (s: string): boolean => /^\s*(gran\s+total|total\s+general|total(es)?)\s*:?\s*$/i.test(s.trim());
 
+const NUMERO_MARCA_SUBTOTAL = /^[+-]?(?:\d+(?:[.,]\d+)?|[.,]\d+)(?:e[+-]?\d+)?$/i;
+
 /**
  * Modo "manual": ¿la celda de la COLUMNA MARCADORA señala que la fila es un subtotal?
  * Sin `patron`, basta con que la celda traiga texto (columna que solo se llena en los
- * subtotales); con `patron`, la celda debe contenerlo (normalizado, sin tildes ni
- * mayúsculas), para columnas tipo «TIPO» donde el valor es «TOTAL», «Total bodega 3»…
+ * subtotales); con un patrón textual, la celda debe contenerlo (normalizado, sin tildes
+ * ni mayúsculas), para columnas tipo «TIPO» donde el valor es «TOTAL», «Total bodega 3»…
+ * Un patrón numérico localizado por coordenada exige igualdad exacta: «120» no puede
+ * marcar por accidente una fila cuyo valor sea «1200».
  */
 export function coincideMarcaSubtotal(celda: unknown, patron?: string | null): boolean {
   const texto = celda == null ? "" : String(celda).trim();
   if (!texto) return false;
-  const buscado = norm(patron ?? "");
+  const patronLimpio = String(patron ?? "").trim();
+  const buscado = norm(patronLimpio);
+  if (buscado && NUMERO_MARCA_SUBTOTAL.test(texto) && NUMERO_MARCA_SUBTOTAL.test(patronLimpio)) {
+    return texto === patronLimpio;
+  }
   return buscado ? norm(texto).includes(buscado) : true;
 }
 
@@ -222,6 +239,78 @@ function textosDeFila(f: FilaCandidata, descriptor: DescriptorModulo): string[] 
   return out;
 }
 
+/** Tope del bloque de cola: más allá de esto ya no es un cierre, es el archivo entero. */
+export const MAX_FILAS_COLA_CONTROL = 25;
+
+export type ColaControl = {
+  /** Índices (en `filas`) de TODAS las filas del bloque de cola, en orden de archivo. */
+  indices: number[];
+  /** Índice de la fila que declara el total del detalle. Nunca null: sin ella no hay cola. */
+  indiceGranTotal: number;
+  /** Σ de los movimientos que quedan POR ENCIMA de la cola (el detalle real). */
+  sumaDetalle: number;
+};
+
+/**
+ * BLOQUE DE CONTROL AL PIE. Muchos archivos cierran con un cuadro de cierre en vez de un
+ * renglón «Total»: «SALDO INVENTARIO DICIEMBRE 31/2025», «BALANCE DEL INVENTARIO»,
+ * «SALDO CONTABILIDAD» y las diferencias entre ellas. Ningún rótulo dice «total», así que
+ * la detección por texto no lo ve; y la aritmética global tampoco, porque esas cifras son
+ * casi iguales entre sí y se anulan al buscar «la fila que vale la Σ de las demás».
+ * Resultado sin esto: el cuadro entra como movimientos y multiplica el módulo.
+ *
+ * Criterio (puro, sin rótulos): desde el FINAL hacia arriba, toda fila cuyas columnas de
+ * DETALLE vengan vacías es cola; se corta en la primera fila con detalle. La cola solo se
+ * acepta si alguna de sus filas vale la Σ del detalle que queda arriba — esa es la
+ * EVIDENCIA. Sin evidencia devuelve null y no se toca nada: una cola sin total comprobable
+ * podría ser detalle legítimo sin referencia.
+ */
+export function detectarColaControl(
+  filas: readonly FilaCandidata[],
+  cols: readonly string[],
+): ColaControl | null {
+  // Sin columnas de detalle mapeadas no hay forma de distinguir cierre de detalle.
+  if (cols.length === 0) return null;
+  const sinDetalle = (f: FilaCandidata): boolean =>
+    cols.every((c) => vacio(f.datos[c])) && (f.tipoFila === "movimiento" || f.tipoFila === "total");
+
+  let corte = filas.length; // primer índice del bloque de cola
+  for (let i = filas.length - 1; i >= 0; i--) {
+    if (!sinDetalle(filas[i])) break;
+    corte = i;
+  }
+  const indices = filas.map((_, i) => i).filter((i) => i >= corte && esCandidata(filas[i]));
+  if (indices.length === 0 || filas.length - corte > MAX_FILAS_COLA_CONTROL) return null;
+
+  const detalle = filas.filter((f, i) => i < corte && esMovimientoConValor(f));
+  if (detalle.length < MINIMO_FILAS_BLOQUE) return null;
+  const sumaDetalle = redondear(detalle.reduce((s, f) => s + f.valor, 0));
+
+  // La primera fila de la cola (la más pegada al detalle) que valga la Σ del detalle.
+  const indiceGranTotal = indices.find((i) => Math.abs(filas[i].valor - sumaDetalle) <= toleranciaSubtotal(filas[i].valor));
+  if (indiceGranTotal == null) return null;
+  return { indices, indiceGranTotal, sumaDetalle };
+}
+
+/**
+ * Filas de control posteriores a una coordenada manual exacta. La coordenada manda sobre
+ * la aritmética; el sufijo solo se excluye si TODAS sus filas carecen de detalle. Si aparece
+ * detalle real después, no se toca el sufijo y el control del gran total acusará el descuadre.
+ */
+function colaPosteriorManualExacta(
+  filas: readonly FilaCandidata[],
+  indiceGranTotal: number,
+  cols: readonly string[],
+): number[] {
+  if (cols.length === 0) return [];
+  const posteriores = filas.slice(indiceGranTotal + 1);
+  if (posteriores.length === 0 || posteriores.length > MAX_FILAS_COLA_CONTROL) return [];
+  if (posteriores.some((f) => cols.some((c) => !vacio(f.datos[c])))) return [];
+  return filas
+    .map((_, i) => i)
+    .filter((i) => i > indiceGranTotal && esCandidata(filas[i]));
+}
+
 /**
  * Marca las filas de SUBTOTAL (por grupo) y el GRAN TOTAL de un archivo. Solo evalúa
  * movimientos con valor; procesa en orden de archivo y cada subtotal detectado queda fuera
@@ -233,10 +322,9 @@ function textosDeFila(f: FilaCandidata, descriptor: DescriptorModulo): string[] 
  *  - "auto"   → lo anterior, o aritmética + (sin detalle | negrita). Un candidato con
  *               clasificador propio distinto al del bloque y sin rótulo NO es subtotal
  *               (es la primera fila del grupo siguiente).
- *  - "manual" → SOLO las filas que el llamador marcó (`marcaManual`, resuelto con
- *               `coincideMarcaSubtotal` sobre la columna que eligió el usuario). Ninguna
- *               heurística añade ni quita filas: es la salida cuando el formato no encaja
- *               en las anteriores.
+ *  - "manual" → con coordenada exacta, ESA fila es el gran total y solo el sufijo posterior
+ *               sin columnas de detalle se excluye como cuadro de control. Sin coordenada
+ *               conserva el legado por patrón (`marcaManual`) para perfiles administrados.
  * Un rótulo fuerte que NO cuadra sigue siendo subtotal: ese es justamente el descuadre a reportar.
  */
 export function detectarSubtotales(
@@ -251,9 +339,65 @@ export function detectarSubtotales(
   const resultado: DeteccionSubtotal[] = [];
   if (modo === "nunca") return resultado;
 
+  // La coordenada que el usuario ubicó contra el original íntegro es autoridad para ESTE
+  // archivo: nunca se degrada a subtotal de grupo aunque también cuadre con el bloque previo.
+  if (modo === "manual") {
+    const indiceExacto = filas.findIndex((f) => f.marcaManualExacta === true);
+    if (indiceExacto >= 0) {
+      const exacta = filas[indiceExacto];
+      marcados.add(indiceExacto);
+      resultado.push({
+        indice: indiceExacto,
+        filaNum: exacta.filaNum,
+        esSubtotal: true,
+        clase: "gran_total",
+        senales: ["marca_manual"],
+        grupo: grupoGranTotal(exacta),
+        bloque: null,
+      });
+      for (const i of colaPosteriorManualExacta(filas, indiceExacto, cols)) {
+        marcados.add(i);
+        resultado.push({
+          indice: i,
+          filaNum: filas[i].filaNum,
+          esSubtotal: true,
+          clase: "cola_control",
+          senales: ["cola", "sin_detalle"],
+          grupo: grupoGranTotal(filas[i]),
+          bloque: null,
+        });
+      }
+    }
+  }
+
+  // FASE 0 — bloque de control al pie (solo en "auto": es aritmética, no rótulo, y los modos
+  // "rotulo"/"manual" prometen que nada se marca fuera de su criterio). Sus filas quedan
+  // marcadas de entrada, así que ni el barrido de subtotales ni el del gran total las ven.
+  const cola = modo === "auto" ? detectarColaControl(filas, cols) : null;
+  if (cola) {
+    // El RÓTULO manda sobre la cola: si la fila que cuadra con el detalle dice «Total …»,
+    // la detección normal ya sabe leerla (y distingue subtotal de gran total mejor que la
+    // aritmética sola), así que se deja pasar. Las demás filas del cierre igual se excluyen.
+    const conRotulo = textosDeFila(filas[cola.indiceGranTotal], descriptor).some(esRotuloTotal);
+    for (const i of cola.indices) {
+      const esGran = i === cola.indiceGranTotal;
+      if (esGran && conRotulo) continue;
+      marcados.add(i);
+      resultado.push({
+        indice: i,
+        filaNum: filas[i].filaNum,
+        esSubtotal: true,
+        clase: esGran ? "gran_total" : "cola_control",
+        senales: esGran ? ["cola", "sin_detalle", "aritmetica"] : ["cola", "sin_detalle"],
+        grupo: grupoGranTotal(filas[i]),
+        bloque: null,
+      });
+    }
+  }
+
   for (let i = 0; i < filas.length; i++) {
     const f = filas[i];
-    if (!esCandidata(f)) continue;
+    if (marcados.has(i) || !esCandidata(f)) continue;
     const bloque = bloqueDeSubtotal(filas, i, esMarcado);
     const grupo = bloque?.clasificador ?? f.clasificador;
     const textos = textosDeFila(f, descriptor);
@@ -395,10 +539,10 @@ export function descripcionModoSubtotales(modo: ModoSubtotales): string {
     case "rotulo":
       return "Solo por rótulo: filas que digan «Total»/«Subtotal»";
     case "nunca":
-      return "Desactivada: ningún renglón se toma como subtotal (salvo negrita)";
+      return "Desactivada: ningún renglón se toma como total (salvo negrita)";
     case "manual":
-      return "Manual: los marca la columna que indique el usuario";
+      return "Manual: los marca la celda que indique el usuario";
     default:
-      return "Automática: por rótulo, o por suma del bloque + fila sin detalle/negrita";
+      return "Automática: por rótulo, cuadro de cierre al pie, o suma del bloque + fila sin detalle/negrita";
   }
 }

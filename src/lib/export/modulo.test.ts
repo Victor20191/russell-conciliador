@@ -100,7 +100,7 @@ describe("crearExportacionModulo · borrador con estado", () => {
       ],
       meta: META,
     }));
-    const control = wb.getWorksheet("Control subtotales")!;
+    const control = wb.getWorksheet("Control totales")!;
     expect(control.getCell("G5").value).toBe("SÍ COINCIDE");
     expect(control.getCell("G6").value).toBe("NO COINCIDE");
     expect(control.getCell("G7").value).toBe("NO VALIDADO");

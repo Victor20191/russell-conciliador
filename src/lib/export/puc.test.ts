@@ -1,16 +1,14 @@
 import { test, expect } from "vitest";
 import ExcelJS from "exceljs";
-import { crearExportacionPuc, etiquetaOrigen, type DatosExportacionPuc } from "./puc";
+import { crearExportacionPuc, etiquetaNaturaleza, type DatosExportacionPuc } from "./puc";
 
 const DATOS: DatosExportacionPuc = {
-  cliente: "El Zarzal S.A",
-  clienteNit: "800123456-7",
   estandar: [
     {
       code: "110505",
       name: "Caja general",
       level: 6,
-      nature: "Débito",
+      nature: "D",
       parent: "1105",
       critical: true,
       russellAccount: "1105",
@@ -26,7 +24,7 @@ const DATOS: DatosExportacionPuc = {
       code: "413550",
       name: "Comercio al por mayor",
       level: 6,
-      nature: "Crédito",
+      nature: "C",
       parent: "4135",
       critical: false,
       russellAccount: null,
@@ -39,54 +37,24 @@ const DATOS: DatosExportacionPuc = {
       mappingNotes: "Revisar devoluciones",
     },
   ],
-  pucCliente: [
-    {
-      code: "11050501",
-      name: "Caja menor sede norte",
-      level: 8,
-      cuenta6Russell: "110505",
-      nombreRussell: "Caja general",
-      coincidencia: 100,
-      origenMapeo: "manual_cuenta",
-    },
-    {
-      code: "13050501",
-      name: "Clientes nacionales",
-      level: 8,
-      cuenta6Russell: null,
-      nombreRussell: null,
-      coincidencia: null,
-      origenMapeo: null,
-    },
-  ],
-  mapeoCliente: [
-    {
-      cuenta6: "110505",
-      nombreCuenta: "Caja",
-      nivel: 6,
-      cuenta6Russell: "110505",
-      nombreRussell: "Caja general",
-      coincidencia: 98,
-      origen: "manual",
-      actualizadoPor: "Staff Uno",
-      actualizadoEn: "2026-08-01T15:00:00.000Z",
-    },
-    {
-      cuenta6: "4135",
-      nombreCuenta: "Comercio",
-      nivel: 4,
-      cuenta6Russell: "",
-      nombreRussell: null,
-      coincidencia: null,
-      origen: null,
-      actualizadoPor: null,
-      actualizadoEn: null,
-    },
-  ],
-  subgrupos: [
-    { codigo: "1105", nombre: "Caja", grupo: "11", nombreGrupo: "Disponible", naturaleza: "Débito" },
-  ],
 };
+
+const ENCABEZADOS = [
+  "Código",
+  "Nombre",
+  "Nivel",
+  "Naturaleza",
+  "Cuenta padre",
+  "Crítica",
+  "Cuenta Russell",
+  "Tipo de categoría",
+  "Incluye",
+  "Excluye",
+  "Cuentas posibles",
+  "Documentos soporte",
+  "Soportes de control",
+  "Notas de mapeo",
+];
 
 async function abrir(datos: DatosExportacionPuc): Promise<ExcelJS.Workbook> {
   const buffer = await crearExportacionPuc(datos, new Date("2026-08-30T12:00:00.000Z"));
@@ -95,93 +63,55 @@ async function abrir(datos: DatosExportacionPuc): Promise<ExcelJS.Workbook> {
   return wb;
 }
 
-test("el libro trae las cuatro pestañas del PUC más el resumen", async () => {
+test("el libro trae UNA sola hoja con el plan estándar Russell", async () => {
   const wb = await abrir(DATOS);
-  expect(wb.worksheets.map((w) => w.name)).toEqual([
-    "Resumen",
-    "Plan estándar",
-    "PUC cliente",
-    "Mapeo cliente",
-    "Subgrupos",
-  ]);
+  expect(wb.worksheets.map((w) => w.name)).toEqual(["Plan estándar Russell"]);
 });
 
-test("cada hoja lista TODAS sus filas bajo su encabezado", async () => {
+test("la hoja lista TODAS las cuentas bajo su encabezado", async () => {
   const wb = await abrir(DATOS);
-
-  const std = wb.getWorksheet("Plan estándar")!;
-  expect(std.getRow(1).getCell(1).value).toBe("Código");
+  const std = wb.getWorksheet("Plan estándar Russell")!;
+  expect(ENCABEZADOS.map((_, i) => std.getRow(1).getCell(i + 1).value)).toEqual(ENCABEZADOS);
   expect(std.getRow(2).getCell(1).value).toBe("110505");
+  expect(std.getRow(2).getCell(2).value).toBe("Caja general");
+  expect(std.getRow(2).getCell(4).value).toBe("Débito");
+  expect(std.getRow(2).getCell(6).value).toBe("Sí");
   expect(std.getRow(3).getCell(1).value).toBe("413550");
+  expect(std.getRow(3).getCell(4).value).toBe("Crédito");
+  expect(std.getRow(3).getCell(6).value).toBe("No");
   expect(std.rowCount).toBe(1 + DATOS.estandar.length);
-
-  const puc = wb.getWorksheet("PUC cliente")!;
-  expect(puc.getRow(2).getCell(1).value).toBe("11050501");
-  expect(puc.rowCount).toBe(1 + DATOS.pucCliente.length);
-
-  const mapeo = wb.getWorksheet("Mapeo cliente")!;
-  expect(mapeo.getRow(2).getCell(1).value).toBe("110505");
-  expect(mapeo.rowCount).toBe(1 + DATOS.mapeoCliente.length);
-
-  const sub = wb.getWorksheet("Subgrupos")!;
-  expect(sub.getRow(2).getCell(1).value).toBe("1105");
-  expect(sub.rowCount).toBe(1 + DATOS.subgrupos.length);
 });
 
-test("los vacíos salen como «—» y el origen se traduce a su etiqueta", async () => {
+test("los vacíos salen como «—»", async () => {
   const wb = await abrir(DATOS);
-
-  const puc = wb.getWorksheet("PUC cliente")!;
-  // Fila 3: cuenta sin homologar → cuenta Russell, nombre y coincidencia vacíos.
-  expect(puc.getRow(3).getCell(4).value).toBe("—");
-  expect(puc.getRow(3).getCell(5).value).toBe("—");
-  expect(puc.getRow(3).getCell(6).value).toBe("—");
-  expect(puc.getRow(3).getCell(7).value).toBe("Sin asignar");
-  expect(puc.getRow(2).getCell(7).value).toBe("Manual (solo esta cuenta)");
-
-  const mapeo = wb.getWorksheet("Mapeo cliente")!;
-  expect(mapeo.getRow(2).getCell(7).value).toBe("Manual (grupo)");
-  expect(mapeo.getRow(3).getCell(4).value).toBe("—"); // cuenta6Russell = ""
-  expect(mapeo.getRow(3).getCell(8).value).toBe("—"); // nunca la tocó nadie
-  expect(mapeo.getRow(3).getCell(9).value).toBe("—");
+  const std = wb.getWorksheet("Plan estándar Russell")!;
+  // Fila 3: cuenta de ingresos con varios campos nulos.
+  expect(std.getRow(3).getCell(7).value).toBe("—"); // cuenta Russell
+  expect(std.getRow(3).getCell(8).value).toBe("—"); // tipo
+  expect(std.getRow(3).getCell(9).value).toBe("—"); // incluye
+  expect(std.getRow(3).getCell(14).value).toBe("Revisar devoluciones");
+  expect(std.getRow(2).getCell(14).value).toBe("—"); // notas nulas
 });
 
-test("el resumen cuenta las filas de cada PUC y las reglas manuales", async () => {
+test("sin cuentas el libro conserva la hoja y explica por qué está vacía", async () => {
+  const wb = await abrir({ estandar: [] });
+  expect(wb.worksheets).toHaveLength(1);
+  const std = wb.getWorksheet("Plan estándar Russell")!;
+  expect(std.rowCount).toBe(2); // encabezado + nota
+  expect(String(std.getRow(2).getCell(1).value)).toContain("no tiene cuentas cargadas");
+});
+
+test("no incluye hojas de mapeo, PUC cliente ni subgrupos", async () => {
   const wb = await abrir(DATOS);
-  const ws = wb.getWorksheet("Resumen")!;
-  const filas = new Map<string, unknown>();
-  ws.eachRow((row) => filas.set(String(row.getCell(1).value ?? ""), row.getCell(2).value));
-
-  expect(filas.get("Cliente")).toBe("El Zarzal S.A");
-  expect(filas.get("NIT")).toBe("800123456-7");
-  expect(filas.get("  Plan estándar Russell (cuentas)")).toBe(2);
-  expect(filas.get("  PUC del cliente (cuentas)")).toBe(2);
-  expect(filas.get("  · homologadas a cuenta Russell")).toBe(1);
-  expect(filas.get("  Memoria de mapeo (reglas)")).toBe(2);
-  expect(filas.get("  · fijadas a mano")).toBe(1);
-  expect(filas.get("  Subgrupos nivel 4")).toBe(1);
+  expect(wb.getWorksheet("Resumen")).toBeUndefined();
+  expect(wb.getWorksheet("PUC cliente")).toBeUndefined();
+  expect(wb.getWorksheet("Mapeo cliente")).toBeUndefined();
+  expect(wb.getWorksheet("Subgrupos")).toBeUndefined();
+  expect(wb.getWorksheet("Plan estándar")).toBeUndefined();
 });
 
-test("sin cliente el libro conserva sus hojas y explica por qué están vacías", async () => {
-  const wb = await abrir({
-    cliente: null,
-    clienteNit: null,
-    estandar: DATOS.estandar,
-    pucCliente: [],
-    mapeoCliente: [],
-    subgrupos: DATOS.subgrupos,
-  });
-
-  expect(wb.worksheets).toHaveLength(5);
-  const puc = wb.getWorksheet("PUC cliente")!;
-  expect(puc.rowCount).toBe(2); // encabezado + nota
-  expect(String(puc.getRow(2).getCell(1).value)).toContain("no hay PUC de cliente");
-  expect(wb.getWorksheet("Resumen")!.getRow(3).getCell(2).value).toBe("Sin cliente seleccionado");
-});
-
-test("etiquetaOrigen cubre los tres orígenes de `cuentas_cliente`", () => {
-  expect(etiquetaOrigen("manual").label).toBe("Manual (grupo)");
-  expect(etiquetaOrigen("manual_cuenta").label).toBe("Manual (solo esta cuenta)");
-  expect(etiquetaOrigen("automatico").label).toBe("Automático");
-  expect(etiquetaOrigen(null).label).toBe("Sin asignar");
+test("etiquetaNaturaleza traduce D/C y deja el resto intacto", () => {
+  expect(etiquetaNaturaleza("D")).toBe("Débito");
+  expect(etiquetaNaturaleza("C")).toBe("Crédito");
+  expect(etiquetaNaturaleza("Débito")).toBe("Débito");
 });

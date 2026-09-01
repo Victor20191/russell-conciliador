@@ -59,9 +59,11 @@ export async function GET(_req: Request, { params }: { params: Promise<{ codigo:
       const enCero = filaEnCero(datos, columnasNumericas);
       const imputable = f.tipoFila === "movimiento" && f.omitida !== true && !enCero;
       const base = f.tipoFila === "agrupadora"
-        ? "Agrupadora"
+        // El cuadro de cierre al pie (cifras de referencia del cliente) también llega como
+        // agrupadora: se nombra aparte para que en el Excel se vea POR QUÉ no suma.
+        ? ((f.motivoTipoFila ?? "").startsWith("cola_control") ? "Cierre del archivo · fuera del consolidado" : "Agrupadora")
         : f.tipoFila === "total"
-          ? `Subtotal del archivo · control${f.motivoTipoFila ? ` (${f.motivoTipoFila})` : ""}`
+          ? `Total del archivo · control${f.motivoTipoFila ? ` (${f.motivoTipoFila})` : ""}`
           : "Movimiento";
       const estado = f.omitida === true ? `${base} · OMITIDA` : !imputable && enCero ? `${base} · en cero` : base;
       return { filaNum: f.filaNum, clasificador: f.clasificador, valor: imputable ? Number(f.valor) : 0, datos, estado, imputable };

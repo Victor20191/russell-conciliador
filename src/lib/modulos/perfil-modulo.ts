@@ -43,10 +43,16 @@ export function letraColumnaModulo(numero: number): string {
  *    `arrastrarClasificador` se resuelve y se retira);
  *  - `seccionColumnaVaciaRol` solo tiene sentido en modo «seccion»;
  *  - `subtotales` solo se conserva cuando difiere del predeterminado («auto»), así los
- *    perfiles antiguos siguen siendo equivalentes.
+ *    perfiles antiguos siguen siendo equivalentes;
+ *  - la normalización reutilizable retira `subtotalesFila`; solo la variante del archivo
+ *    actual conserva esa coordenada efímera.
  * No valida: para eso está `validarSpecModulo`.
  */
-export function normalizarSpecModulo(descriptor: DescriptorModulo, spec: SpecModulo): SpecModulo {
+function normalizarSpecModuloInterno(
+  descriptor: DescriptorModulo,
+  spec: SpecModulo,
+  conservarCoordenadaArchivo: boolean,
+): SpecModulo {
   const columnas: Record<string, number> = {};
   for (const rol of descriptor.columnas) {
     const valor = spec.columnas[rol.nombre];
@@ -71,8 +77,22 @@ export function normalizarSpecModulo(descriptor: DescriptorModulo, spec: SpecMod
     normalizado.subtotalesColumna = Number.isInteger(columna) && (columna as number) > 0 ? (columna as number) : 0;
     const texto = spec.subtotalesTexto?.trim();
     if (texto) normalizado.subtotalesTexto = texto;
+    if (conservarCoordenadaArchivo) {
+      const fila = spec.subtotalesFila;
+      if (Number.isInteger(fila) && (fila as number) > 0) normalizado.subtotalesFila = fila;
+    }
   }
   return normalizado;
+}
+
+/** Normalización reutilizable: retira toda coordenada ligada a un archivo concreto. */
+export function normalizarSpecModulo(descriptor: DescriptorModulo, spec: SpecModulo): SpecModulo {
+  return normalizarSpecModuloInterno(descriptor, spec, false);
+}
+
+/** Normalización del archivo actual: conserva la fila exacta ya ubicada por el usuario. */
+export function normalizarSpecModuloArchivo(descriptor: DescriptorModulo, spec: SpecModulo): SpecModulo {
+  return normalizarSpecModuloInterno(descriptor, spec, true);
 }
 
 /**
@@ -151,8 +171,8 @@ export function resumenColumnasModulo(descriptor: DescriptorModulo, spec: SpecMo
 }
 
 /**
- * Descripción del ajuste de subtotales para la UI. En el modo «manual» el modo por sí solo
- * no dice nada útil: hay que ver qué columna marca las filas y con qué texto.
+ * Descripción del ajuste de totales del archivo para la UI. En el modo «manual» el modo por
+ * sí solo no dice nada útil: hay que ver qué columna marca las filas y con qué texto.
  */
 export function descripcionSubtotalesModulo(
   spec: Pick<SpecModulo, "subtotales" | "subtotalesColumna" | "subtotalesTexto">,

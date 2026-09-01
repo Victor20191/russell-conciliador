@@ -18,7 +18,13 @@ export type CeldaCruda = string | number | boolean | null;
 // `filas`, el flag NEGRITA de cada celda (alineado 0-based con la fila). Muchos
 // ERP marcan las cuentas AGRUPADORAS/consolidadas en negrita — es su propia
 // clasificación, más confiable que inferir por código.
-export type GridHoja = { nombre: string; filas: CeldaCruda[][]; negrita?: boolean[][] };
+export type GridHoja = {
+  nombre: string;
+  filas: CeldaCruda[][];
+  negrita?: boolean[][];
+  /** Número físico de cada fila en el archivo, alineado 1:1 con la grilla compacta. */
+  filasFisicas?: number[];
+};
 
 export type DocumentoIA = { tipo: "pdf"; base64: string } | { tipo: "texto"; texto: string };
 
@@ -132,16 +138,18 @@ async function leerLibroExcel(data: ArrayBuffer): Promise<GridHoja[]> {
       ?? `Hoja ${String((ws as unknown as { id?: number }).id ?? hojas.length + 1)}`;
     const filas: CeldaCruda[][] = [];
     const negrita: boolean[][] = [];
+    const filasFisicas: number[] = [];
     for await (const row of ws) {
       const values = (row.values as ExcelJS.CellValue[]).slice(1).map(celdaExcel);
       if (!filaTieneDatos(values)) continue;
       filas.push(values);
+      filasFisicas.push(row.number);
       // Flag NEGRITA por celda (exceljs: `cell.font.bold`; celdas 1-based) alineado
       // 0-based con `values`. Respalda con la negrita a nivel de fila si la trae.
       const filaBold = (row as unknown as { font?: { bold?: boolean } }).font?.bold === true;
       negrita.push(values.map((_, j) => filaBold || row.getCell(j + 1).font?.bold === true));
     }
-    hojas.push({ nombre: nombreHoja, filas, negrita });
+    hojas.push({ nombre: nombreHoja, filas, negrita, filasFisicas });
   }
 
   return hojas;
@@ -168,16 +176,22 @@ async function leerLibroExcelAlterno(data: ArrayBuffer): Promise<GridHoja[]> {
   return wb.SheetNames.map((nombre) => {
     const ws = wb.Sheets[nombre];
     if (!ws) return { nombre, filas: [] };
-    const filas = XLSX.utils
-      .sheet_to_json<unknown[]>(ws, {
-        header: 1,
-        raw: true,
-        defval: null,
-        blankrows: false,
-      })
-      .map((fila) => fila.map(celdaXls))
-      .filter(filaTieneDatos);
-    return { nombre, filas };
+    const rango = ws["!ref"] ? XLSX.utils.decode_range(ws["!ref"]!) : null;
+    const filasConHuecos = XLSX.utils.sheet_to_json<unknown[]>(ws, {
+      header: 1,
+      raw: true,
+      defval: null,
+      blankrows: true,
+    });
+    const filas: CeldaCruda[][] = [];
+    const filasFisicas: number[] = [];
+    for (let i = 0; i < filasConHuecos.length; i++) {
+      const fila = filasConHuecos[i].map(celdaXls);
+      if (!filaTieneDatos(fila)) continue;
+      filas.push(fila);
+      filasFisicas.push((rango?.s.r ?? 0) + i + 1);
+    }
+    return { nombre, filas, filasFisicas };
   });
 }
 
@@ -194,6 +208,54 @@ async function leerLibroExcelTolerante(data: ArrayBuffer): Promise<GridHoja[]> {
       );
     }
   }
+}
+
+export type ResultadoCeldaFisica = {
+  hojaExiste: boolean;
+  /** La fila está dentro del rango físico usado de la hoja, aunque esté vacía. */
+  filaExiste: boolean;
+  valor: CeldaCruda;
+};
+
+/**
+ * Consulta puntual OOXML sin construir la grilla compacta. `row.number` conserva el
+ * número físico declarado en Excel aunque el iterador no emita las filas vacías previas.
+ */
+async function leerCeldaFisicaExcel(
+  data: ArrayBuffer,
+  nombreHojaBuscada: string,
+  filaBuscada: number,
+  columnaBuscada: number,
+): Promise<ResultadoCeldaFisica> {
+  const entrada = Readable.from([Buffer.from(data)]);
+  const wb = new ExcelJS.stream.xlsx.WorkbookReader(entrada, {
+    worksheets: "emit",
+    sharedStrings: "cache",
+    hyperlinks: "ignore",
+    styles: "ignore",
+    entries: "ignore",
+  });
+  let indiceHoja = 0;
+  for await (const ws of wb) {
+    indiceHoja++;
+    const nombreHoja = (ws as unknown as { name?: string; id?: number }).name
+      ?? `Hoja ${String((ws as unknown as { id?: number }).id ?? indiceHoja)}`;
+    if (nombreHoja !== nombreHojaBuscada) continue;
+
+    let ultimaFilaFisica = 0;
+    for await (const row of ws) {
+      ultimaFilaFisica = Math.max(ultimaFilaFisica, row.number);
+      if (row.number === filaBuscada) {
+        return { hojaExiste: true, filaExiste: true, valor: celdaExcel(row.getCell(columnaBuscada).value) };
+      }
+      if (row.number > filaBuscada) {
+        // El iterador saltó la fila solicitada: existe dentro del rango, pero está vacía.
+        return { hojaExiste: true, filaExiste: true, valor: null };
+      }
+    }
+    return { hojaExiste: true, filaExiste: filaBuscada <= ultimaFilaFisica, valor: null };
+  }
+  return { hojaExiste: false, filaExiste: false, valor: null };
 }
 
 // SheetJS 0.20 lee los VALORES de BIFF8, pero elimina el índice XF/fuente de
@@ -353,6 +415,7 @@ async function leerLibroXls(data: ArrayBuffer): Promise<GridHoja[]> {
       });
     const filas: CeldaCruda[][] = [];
     const negrita: boolean[][] = [];
+    const filasFisicas: number[] = [];
     let hayNegrita = false;
     const mapaHoja = negritasBiff[indiceHoja];
     for (let i = 0; i < filasConHuecos.length; i++) {
@@ -360,13 +423,14 @@ async function leerLibroXls(data: ArrayBuffer): Promise<GridHoja[]> {
       if (!filaTieneDatos(fila)) continue;
       filas.push(fila);
       const filaBiff = (rango?.s.r ?? 0) + i;
+      filasFisicas.push(filaBiff + 1);
       const primeraColumna = rango?.s.c ?? 0;
       const columnasBold = mapaHoja?.get(filaBiff);
       const flags = fila.map((_, j) => columnasBold?.has(primeraColumna + j) === true);
       if (flags.some(Boolean)) hayNegrita = true;
       negrita.push(flags);
     }
-    return hayNegrita ? { nombre, filas, negrita } : { nombre, filas };
+    return hayNegrita ? { nombre, filas, negrita, filasFisicas } : { nombre, filas, filasFisicas };
   });
 }
 
@@ -375,6 +439,36 @@ function celdaXls(v: unknown): CeldaCruda {
   if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return v;
   if (v instanceof Date) return v.toISOString().slice(0, 10);
   return String(v);
+}
+
+/** Consulta por dirección nativa; sirve para XLS y como respaldo tolerante de OOXML. */
+async function leerCeldaFisicaSheetJs(
+  data: ArrayBuffer,
+  nombreHoja: string,
+  fila: number,
+  columna: number,
+): Promise<ResultadoCeldaFisica> {
+  const XLSX = await import("xlsx");
+  const wb = XLSX.read(new Uint8Array(data), {
+    type: "array",
+    raw: true,
+    dense: false,
+    cellDates: false,
+    cellFormula: false,
+    cellHTML: false,
+    bookVBA: false,
+  });
+  const ws = wb.Sheets[nombreHoja];
+  if (!ws) return { hojaExiste: false, filaExiste: false, valor: null };
+  const ref = ws["!ref"];
+  const ultimaFila = ref ? XLSX.utils.decode_range(ref).e.r + 1 : 0;
+  const direccion = XLSX.utils.encode_cell({ r: fila - 1, c: columna - 1 });
+  const celda = (ws as unknown as Record<string, { v?: unknown } | undefined>)[direccion];
+  return {
+    hojaExiste: true,
+    filaExiste: fila <= ultimaFila,
+    valor: celdaXls(celda?.v ?? null),
+  };
 }
 
 // Delimitadores admitidos en texto plano (CSV y archivos planos .txt de ERP).
@@ -422,7 +516,12 @@ export function detectarDelimitador(texto: string, maxLineas = 50): DelimitadorP
 //    archivo (delimitadores y saltos de línea incluidos) y las filas siguientes se perdían;
 //  - si un campo abierto nunca cierra (comilla huérfana al inicio), se reinterpreta esa
 //    comilla como literal y se vuelve a parsear desde ahí.
-function parseDelimitado(texto: string, delimitador: DelimitadorPlano, comillasLiterales: ReadonlySet<number> = new Set()): CeldaCruda[][] {
+function parseDelimitado(
+  texto: string,
+  delimitador: DelimitadorPlano,
+  comillasLiterales: ReadonlySet<number> = new Set(),
+  conservarFilasVacias = false,
+): CeldaCruda[][] {
   const filas: string[][] = [];
   let fila: string[] = [];
   let celda = "";
@@ -465,22 +564,21 @@ function parseDelimitado(texto: string, delimitador: DelimitadorPlano, comillasL
 
   if (entreComillas && aperturaEn >= 0) {
     // Comilla huérfana: nunca cerró. Tratarla como literal y reintentar.
-    return parseDelimitado(texto, delimitador, new Set([...comillasLiterales, aperturaEn]));
+    return parseDelimitado(texto, delimitador, new Set([...comillasLiterales, aperturaEn]), conservarFilasVacias);
   }
 
   fila.push(celda);
   filas.push(fila);
 
-  return filas
-    .map((r) =>
-      r.map((v) => {
-        const s = v.trim();
-        if (!s) return null;
-        const n = numeroCsv(s);
-        return n == null ? s : n;
-      }),
-    )
-    .filter(filaTieneDatos);
+  const normalizadas = filas.map((r) =>
+    r.map((v) => {
+      const s = v.trim();
+      if (!s) return null;
+      const n = numeroCsv(s);
+      return n == null ? s : n;
+    }),
+  );
+  return conservarFilasVacias ? normalizadas : normalizadas.filter(filaTieneDatos);
 }
 
 /**
@@ -490,7 +588,15 @@ function parseDelimitado(texto: string, delimitador: DelimitadorPlano, comillasL
  * perfiles guardados incluye el nombre de hoja y los .txt ya entraban por aquí.
  */
 function leerTextoPlano(texto: string, delimitador: DelimitadorPlano): GridHoja[] {
-  return [{ nombre: "csv", filas: parseDelimitado(texto, delimitador) }];
+  const filasConHuecos = parseDelimitado(texto, delimitador, new Set(), true);
+  const filas: CeldaCruda[][] = [];
+  const filasFisicas: number[] = [];
+  for (let i = 0; i < filasConHuecos.length; i++) {
+    if (!filaTieneDatos(filasConHuecos[i])) continue;
+    filas.push(filasConHuecos[i]);
+    filasFisicas.push(i + 1);
+  }
+  return [{ nombre: "csv", filas, filasFisicas }];
 }
 
 function numeroCsv(s: string): number | null {
@@ -525,9 +631,51 @@ function ingerirJson(texto: string): Ingesta {
         }),
       ),
     ];
-    return { modo: "tabular", hojas: [{ nombre: "json", filas }] };
+    return { modo: "tabular", hojas: [{ nombre: "json", filas, filasFisicas: filas.map((_, i) => i + 1) }] };
   }
   return { modo: "documento", documento: { tipo: "texto", texto } };
+}
+
+/**
+ * Lee UNA coordenada física del archivo sin alterar la grilla compacta usada por el
+ * pipeline contable. Para CSV/TXT delimitado, la fila es el número de registro incluyendo
+ * registros vacíos; para Excel es el número de fila visible en la hoja.
+ */
+export async function leerCeldaFisicaArchivo(
+  data: ArrayBuffer,
+  fileName: string,
+  nombreHoja: string,
+  fila: number,
+  columna: number,
+): Promise<ResultadoCeldaFisica> {
+  const formato = detectarFormato(fileName, data);
+  if (formato === "xlsx") {
+    try {
+      return await leerCeldaFisicaExcel(data, nombreHoja, fila, columna);
+    } catch {
+      return leerCeldaFisicaSheetJs(data, nombreHoja, fila, columna);
+    }
+  }
+  if (formato === "xls") return leerCeldaFisicaSheetJs(data, nombreHoja, fila, columna);
+  if (formato === "csv" || formato === "txt") {
+    const texto = decodificarTexto(data);
+    const delimitador = detectarDelimitador(texto) ?? (formato === "csv" ? "," : null);
+    if (!delimitador || nombreHoja !== "csv") return { hojaExiste: false, filaExiste: false, valor: null };
+    const filas = parseDelimitado(texto, delimitador, new Set(), true);
+    return {
+      hojaExiste: true,
+      filaExiste: fila <= filas.length,
+      valor: filas[fila - 1]?.[columna - 1] ?? null,
+    };
+  }
+  if (formato === "desconocido") {
+    try {
+      return await leerCeldaFisicaExcel(data, nombreHoja, fila, columna);
+    } catch {
+      return leerCeldaFisicaSheetJs(data, nombreHoja, fila, columna);
+    }
+  }
+  return { hojaExiste: false, filaExiste: false, valor: null };
 }
 
 /**

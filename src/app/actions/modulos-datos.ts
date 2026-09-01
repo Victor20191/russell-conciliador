@@ -14,7 +14,7 @@ import { logAudit } from "@/lib/audit";
 import { authorizePermiso } from "@/lib/rbac";
 import { mensajeErrorBD, registrarError } from "@/lib/errores";
 import type { ActionState } from "@/lib/definitions";
-import { ingerir, type CeldaCruda } from "@/lib/balance/extraccion/ingesta";
+import { ingerir, leerCeldaFisicaArchivo, type CeldaCruda } from "@/lib/balance/extraccion/ingesta";
 import { calcularHuella, huellasCandidatas } from "@/lib/balance/extraccion/huella";
 import {
   bloqueoAnexoPorVerificacionesCriticasModulo,
@@ -34,9 +34,10 @@ import {
   sugerirSpec,
 } from "@/lib/modulos/extraccion/sugerir";
 import { seleccionarSugerenciasPerfil, type PerfilCandidato } from "@/lib/modulos/sugerencias-perfil";
-import { normalizarSpecModulo } from "@/lib/modulos/perfil-modulo";
+import { letraColumnaModulo, normalizarSpecModulo, normalizarSpecModuloArchivo } from "@/lib/modulos/perfil-modulo";
 import { transformarModulo, resultadoAReconciliacion } from "@/lib/modulos/extraccion/transformar";
-import { promoverStaging, type FilaStagingModulo } from "@/lib/modulos/promocion";
+import { esImputable, promoverStaging, type FilaStagingModulo } from "@/lib/modulos/promocion";
+import { controlSubtotales } from "@/lib/modulos/subtotales";
 import {
   anclaCruce,
   normalizarCuenta4 as cuenta4Marcable,
@@ -51,7 +52,7 @@ import {
   validarSoporteMarca,
   type TipoSoporteMarca,
 } from "@/lib/modulos/marcas-adjuntos";
-import { almacenamientoDisponible, eliminarObjeto, subirObjeto } from "@/lib/storage/objetos";
+import { almacenamientoDisponible, eliminarObjeto, obtenerObjeto, subirObjeto } from "@/lib/storage/objetos";
 import { refRolDe, clavesDeDetalle, decidirCarga, remapFilas } from "@/lib/modulos/fraccionamiento";
 import {
   carpetaArchivoOriginalModulo,
@@ -128,9 +129,24 @@ function mensajeErrorLecturaArchivoModulo(contexto: string, e: unknown): string 
   return "No se pudo leer el archivo. Si es un Excel, ábrelo, guárdalo nuevamente como .xlsx e intenta otra vez.";
 }
 
+/** Cuántas filas del final se devuelven al editor para señalar la fila de total. */
+const FILAS_MUESTRA_COLA = 12;
+
 // Datos para el editor de mapeo: encabezado + filas de muestra (alineadas por columna)
 // de la MISMA grilla del servidor, para etiquetar los selectores y previsualizar el mapeo.
 export type CeldaMuestra = string | number | null;
+const aCeldaMuestra = (valor: CeldaCruda): CeldaMuestra => (
+  valor == null
+    ? null
+    : typeof valor === "number"
+      ? valor
+      : typeof valor === "boolean"
+        ? (valor ? 1 : 0)
+        : String(valor).replace(/\s+/g, " ").trim() || null
+);
+const textoCeldaMuestra = (valor: CeldaMuestra): string => (
+  valor == null ? "" : typeof valor === "number" ? String(valor) : valor
+);
 export type AnalisisModulo = {
   ok: boolean;
   message?: string;
@@ -142,6 +158,13 @@ export type AnalisisModulo = {
   ancho?: number;
   encabezado?: CeldaMuestra[];
   muestraFilas?: CeldaMuestra[][];
+  /**
+   * ÚLTIMAS filas con contenido de la hoja, con su número de fila real. Los archivos
+   * declaran su total AL PIE (a veces en un cuadro de cierre sin rótulos), fuera del
+   * alcance de `muestraFilas`, que solo trae las primeras. Sin esto, el selector manual de
+   * la fila de total no puede ofrecer la celda que hay que señalar.
+   */
+  muestraCola?: { filaNum: number; celdas: CeldaMuestra[] }[];
   spec?: SpecModulo;
   // "sugerido" = spec exacto de otro cliente del mismo ERP (huella idéntica), NO propio.
   origen?: "perfil" | "sugerido" | "ia";
@@ -547,10 +570,17 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
 
     // Encabezado + primeras filas de datos (todas las columnas) para el editor y el preview.
     const ancho = hoja.filas.reduce((m, f) => Math.max(m, f?.length ?? 0), 0);
-    const aCelda = (v: CeldaCruda): CeldaMuestra => (v == null ? null : typeof v === "number" ? v : typeof v === "boolean" ? (v ? 1 : 0) : String(v).replace(/\s+/g, " ").trim() || null);
-    const rellena = (fila: CeldaCruda[] | undefined): CeldaMuestra[] => Array.from({ length: ancho }, (_, c) => aCelda(fila?.[c] ?? null));
+    const rellena = (fila: CeldaCruda[] | undefined): CeldaMuestra[] => Array.from({ length: ancho }, (_, c) => aCeldaMuestra(fila?.[c] ?? null));
     const encabezado = rellena(hoja.filas[spec.filaEncabezado - 1]);
     const muestraFilas = hoja.filas.slice(spec.primeraFilaDatos - 1, spec.primeraFilaDatos - 1 + 12).map(rellena);
+    // Cola: las últimas filas CON contenido (saltando los blancos del final), que es donde
+    // el archivo pone su total y su cuadro de cierre.
+    const muestraCola: { filaNum: number; celdas: CeldaMuestra[] }[] = [];
+    for (let r = hoja.filas.length - 1; r >= spec.primeraFilaDatos - 1 && muestraCola.length < FILAS_MUESTRA_COLA; r--) {
+      const celdas = rellena(hoja.filas[r]);
+      if (celdas.every((c) => c == null || c === "")) continue;
+      muestraCola.unshift({ filaNum: hoja.filasFisicas?.[r] ?? r + 1, celdas });
+    }
 
     revalidarListadosModulo(moduloCodigo);
     return {
@@ -558,10 +588,11 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
       recepcionLoteId: loteId,
       hoja: hoja.nombre,
       hojas: ingesta.hojas.map((h) => h.nombre),
-      totalFilas: hoja.filas.length,
+      totalFilas: hoja.filasFisicas?.at(-1) ?? hoja.filas.length,
       ancho,
       encabezado,
       muestraFilas,
+      muestraCola,
       spec,
       origen,
       sugerencias,
@@ -593,6 +624,120 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
           : `${message} La recepción quedó registrada como no procesable, pero el original no está disponible en el almacenamiento.`
         : message,
     };
+  }
+}
+
+const UbicarCeldaArchivoModuloSchema = z.object({
+  moduloCodigo: z.string().trim().min(1).max(20).transform((valor) => valor.toUpperCase()),
+  clienteId: z.number().int().positive(),
+  recepcionLoteId: z.string().uuid(),
+  hoja: z.string().trim().min(1).max(200),
+  columna: z.number().int().min(1).max(16_384),
+  fila: z.number().int().min(1).max(1_048_576),
+});
+
+export type ResultadoUbicarCeldaArchivoModulo = {
+  ok: boolean;
+  message?: string;
+  valor?: CeldaMuestra;
+  direccion?: string;
+};
+
+/**
+ * Resuelve una coordenada exacta del original ya conservado durante el análisis.
+ * Devuelve solo esa celda: la fila es una ayuda efímera del modal y nunca se guarda en
+ * el perfil, porque cambia entre archivos aunque el formato sea el mismo.
+ */
+export async function ubicarCeldaArchivoModulo(
+  entrada: z.input<typeof UbicarCeldaArchivoModuloSchema>,
+): Promise<ResultadoUbicarCeldaArchivoModulo> {
+  const permiso = await authorizePermiso("modulos_datos:crear");
+  if (!permiso.ok) return { ok: false, message: permiso.message };
+
+  const validacion = UbicarCeldaArchivoModuloSchema.safeParse(entrada);
+  if (!validacion.success) {
+    return { ok: false, message: "Indica una columna y un número de fila válidos." };
+  }
+  const datos = validacion.data;
+  if (!descriptorModulo(datos.moduloCodigo)) return { ok: false, message: "Módulo no soportado." };
+
+  const alcance = await authorizePermiso("modulos_datos:crear", { clientId: datos.clienteId });
+  if (!alcance.ok) return { ok: false, message: alcance.message };
+
+  try {
+    const original = await prisma.archivoOriginalModulo.findUnique({
+      where: { loteId: datos.recepcionLoteId },
+      select: {
+        clienteId: true,
+        moduloCodigo: true,
+        nombreArchivo: true,
+        tamanoBytes: true,
+        huellaSha256: true,
+        claveObjeto: true,
+        disponible: true,
+        estado: true,
+      },
+    });
+    if (
+      !original
+      || original.clienteId !== datos.clienteId
+      || original.moduloCodigo !== datos.moduloCodigo
+      || original.estado !== "recibido"
+      || !original.disponible
+      || !original.claveObjeto?.trim()
+      || typeof original.tamanoBytes !== "number"
+      || !Number.isSafeInteger(original.tamanoBytes)
+      || original.tamanoBytes <= 0
+      || typeof original.huellaSha256 !== "string"
+      || !/^[0-9a-f]{64}$/.test(original.huellaSha256)
+    ) {
+      return { ok: false, message: "El archivo original ya no está disponible para ubicar la celda." };
+    }
+
+    const claveObjeto = original.claveObjeto as string;
+    const tamanoEsperado = original.tamanoBytes as number;
+    const huellaEsperada = original.huellaSha256 as string;
+    const objeto = await obtenerObjeto(claveObjeto);
+    if (!objeto) return { ok: false, message: "El archivo original ya no está disponible para ubicar la celda." };
+    if (
+      objeto.cuerpo.byteLength !== tamanoEsperado
+      || huellaSha256Archivo(objeto.cuerpo) !== huellaEsperada
+    ) {
+      registrarError(
+        "ubicarCeldaArchivoModulo.integridad",
+        new Error(`El objeto ${datos.recepcionLoteId} no coincide con su metadata durable.`),
+      );
+      return { ok: false, message: "El archivo original no supera la verificación de integridad." };
+    }
+
+    let celdaFisica: Awaited<ReturnType<typeof leerCeldaFisicaArchivo>>;
+    try {
+      const bytes = objeto.cuerpo.slice();
+      celdaFisica = await leerCeldaFisicaArchivo(
+        bytes.buffer as ArrayBuffer,
+        original.nombreArchivo,
+        datos.hoja,
+        datos.fila,
+        datos.columna,
+      );
+    } catch (error) {
+      return { ok: false, message: mensajeErrorLecturaArchivoModulo("ubicarCeldaArchivoModulo.leerCeldaFisica", error) };
+    }
+    if (!celdaFisica.hojaExiste) return { ok: false, message: "La hoja seleccionada ya no existe en el archivo." };
+
+    const direccion = `${letraColumnaModulo(datos.columna)}${datos.fila}`;
+    if (!celdaFisica.filaExiste) {
+      return { ok: false, message: `La fila ${datos.fila} no existe en la hoja «${datos.hoja}».` };
+    }
+    const valor = aCeldaMuestra(celdaFisica.valor);
+    const texto = textoCeldaMuestra(valor);
+    if (!texto) return { ok: false, message: `La celda ${direccion} está vacía. Elige una celda que contenga el dato marcador.` };
+    if (texto.length > 80) {
+      return { ok: false, message: `La celda ${direccion} contiene más de 80 caracteres y no puede usarse como marcador.` };
+    }
+    return { ok: true, valor, direccion };
+  } catch (error) {
+    return { ok: false, message: mensajeErrorBD("ubicarCeldaArchivoModulo", error) };
   }
 }
 
@@ -849,10 +994,11 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
       if (!parsed.success) return marcarNoProcesable("El mapeo de columnas no es válido.");
       // El origen es metadata de auditoría: se recompone contra fuentes del
       // servidor y nunca se acepta una etiqueta arbitraria enviada por el navegador.
-      spec = normalizarSpecModulo(descriptor, parsed.data);
+      spec = normalizarSpecModuloArchivo(descriptor, parsed.data);
+      const specReutilizable = normalizarSpecModulo(descriptor, spec);
       const perfilSpec = await specPerfilModulo(clienteId, descriptor, huellasCandidatas([hoja]));
-      if (perfilSpec && mismoSpecModulo(spec, perfilSpec)) origen = "perfil";
-      else if (mismoSpecModulo(spec, normalizarSpecModulo(descriptor, sugerirSpec(descriptor, hoja)))) origen = "ia";
+      if (perfilSpec && mismoSpecModulo(specReutilizable, perfilSpec)) origen = "perfil";
+      else if (mismoSpecModulo(specReutilizable, normalizarSpecModulo(descriptor, sugerirSpec(descriptor, hoja)))) origen = "ia";
       else origen = "manual";
     } else {
       const candidatas = huellasCandidatas([hoja]);
@@ -864,7 +1010,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
     // Defensa en profundidad: perfiles antiguos, sugerencias ERP o un specJson
     // manipulado solo conservan roles vigentes del descriptor. Después se aplica la
     // protección específica que impide colar un total de factura como cuenta 41.
-    spec = normalizarSpecModulo(descriptor, spec);
+    spec = normalizarSpecModuloArchivo(descriptor, spec);
     const valorSeguro = invalidarValorAmbiguoIngresos(descriptor, hoja, spec);
     if (valorSeguro.invalidado) {
       return marcarNoProcesable(
@@ -873,16 +1019,43 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
     }
     spec = valorSeguro.spec;
 
-    // El modo MANUAL de subtotales se apoya en una columna elegida por el usuario: sin ella
-    // no marcaría ninguna fila y el archivo entraría con los subtotales sumados como ítems.
-    // Se rechaza en vez de degradar en silencio (el modal ya lo exige; esto es la defensa).
-    if (spec.subtotales === "manual" && (spec.subtotalesColumna ?? 0) < 1) {
-      return marcarNoProcesable("Indica la columna del archivo que marca las filas de subtotal.");
+    // La coordenada manual es autoridad solo para ESTE original. Nunca se acepta una fila
+    // heredada del perfil ni se confía en el texto enviado por el navegador: se vuelve a
+    // resolver contra la grilla íntegra y el servidor fija el patrón real de esa celda.
+    if (spec.subtotales === "manual") {
+      const columna = spec.subtotalesColumna ?? 0;
+      const fila = spec.subtotalesFila ?? 0;
+      if (columna < 1) return marcarNoProcesable("Indica la columna del archivo donde está el total.");
+      if (!Number.isInteger(fila) || fila < 1) {
+        return marcarNoProcesable("Ubica la celda exacta del total para este archivo antes de crear el borrador.");
+      }
+      const indiceFila = hoja.filasFisicas
+        ? hoja.filasFisicas.findIndex((numero) => numero === fila)
+        : fila - 1;
+      const valorUbicado = indiceFila >= 0 ? aCeldaMuestra(hoja.filas[indiceFila]?.[columna - 1] ?? null) : null;
+      const textoUbicado = textoCeldaMuestra(valorUbicado);
+      if (!textoUbicado) {
+        return marcarNoProcesable(`La celda ${letraColumnaModulo(columna)}${fila} no existe o está vacía en este archivo.`);
+      }
+      if (textoUbicado.length > 80) {
+        return marcarNoProcesable(`La celda ${letraColumnaModulo(columna)}${fila} no puede usarse como total porque supera 80 caracteres.`);
+      }
+      spec = { ...spec, subtotalesColumna: columna, subtotalesFila: fila, subtotalesTexto: textoUbicado };
     }
 
     const resultado = transformarModulo(descriptor, spec, hoja);
     if (resultado.filas.length === 0) {
       return marcarNoProcesable("No se leyeron filas con el mapeo actual. Ajusta las columnas.");
+    }
+    if (
+      spec.subtotales === "manual"
+      && !resultado.filas.some((fila) => (
+        fila.filaNum === spec.subtotalesFila
+        && fila.tipoFila === "total"
+        && fila.motivo?.startsWith("gran_total:marca_manual")
+      ))
+    ) {
+      return marcarNoProcesable("La fila exacta indicada no pudo convertirse en el total del archivo con el mapeo actual.");
     }
 
     const huella = calcularHuella(hoja.nombre, hoja.filas[spec.filaEncabezado - 1] ?? []);
@@ -892,6 +1065,9 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
     // lleva esta marca: es información de ESTE archivo, no del layout que se memoriza.
     const reconciliacion = resultadoAReconciliacion(resultado);
     const specConReconciliacion = reconciliacion ? { ...spec, reconciliacion } : spec;
+    // La columna y el patrón pertenecen al formato; la fila física pertenece solo a este
+    // lote. La normalización reutilizable la retira antes de guardar/actualizar el perfil.
+    const specPerfil = normalizarSpecModulo(descriptor, spec);
 
     try {
       await prisma.$transaction(async (tx) => {
@@ -926,8 +1102,8 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
         if (huella) {
           await tx.perfilCargaModulo.upsert({
             where: { clienteId_moduloCodigo_huella: { clienteId, moduloCodigo, huella } },
-            create: { clienteId, moduloCodigo, huella, specJson: spec, origen, vecesUsado: 1, ultimoUsoEn: new Date(), archivoEjemplo: archivo.name, creadoPor: user?.name ?? null, creadoPorId: user?.id ?? null },
-            update: { specJson: spec, vecesUsado: { increment: 1 }, ultimoUsoEn: new Date(), archivoEjemplo: archivo.name, ...(origen === "manual" ? { origen: "manual" } : {}) },
+            create: { clienteId, moduloCodigo, huella, specJson: specPerfil, origen, vecesUsado: 1, ultimoUsoEn: new Date(), archivoEjemplo: archivo.name, creadoPor: user?.name ?? null, creadoPorId: user?.id ?? null },
+            update: { specJson: specPerfil, vecesUsado: { increment: 1 }, ultimoUsoEn: new Date(), archivoEjemplo: archivo.name, ...(origen === "manual" ? { origen: "manual" } : {}) },
           });
         }
       }, {
@@ -1124,6 +1300,7 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
         datos: (f.datos ?? {}) as Record<string, unknown>,
         tipoFila: f.tipoFila,
         omitida: f.omitida,
+        motivo: f.motivoTipoFila,
       }));
       const columnasNumericas = descriptor.columnas
         .filter((c) => c.tipo === "numero" || c.tipo === "moneda")
@@ -1131,6 +1308,14 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
       // Todas las filas del lote comparten hoja (una sola por archivo importado).
       const hojaLote = filasBD.find((f) => f.hoja)?.hoja ?? null;
       const promocion = promoverStaging(filas, columnasNumericas);
+      // VALIDACIÓN DEL ARCHIVO: mismo cálculo que muestra el borrador, para que el cargue
+      // conserve EL MISMO veredicto. Hay que hacerlo aquí: la fila del total no es imputable
+      // y el staging se purga en esta misma transacción, así que después ya no se puede
+      // reconstruir desde el detalle.
+      const granTotalArchivo = controlSubtotales(
+        filas,
+        (f) => esImputable({ tipoFila: f.tipoFila, omitida: f.omitida ?? null, datos: f.datos } as FilaStagingModulo, columnasNumericas),
+      ).granTotal;
       if (promocion.filas === 0) {
         throw new Error("No hay filas imputables para cargar (todas omitidas, agrupadoras o en cero).");
       }
@@ -1153,6 +1338,9 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
           observaciones: true,
           estaCongelado: true,
           verificaciones: true,
+          totalDeclarado: true,
+          archivosDelCargue: true,
+          archivosConTotal: true,
         },
       });
       // El anexo solo procede sobre el MISMO encabezado que el usuario eligió. Si entre la
@@ -1212,11 +1400,24 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
         const linea = `Anexo: ${loteActual.archivoNombre}${hojaTxt} (+${promocion.filas} ítems) · ${ahora.toISOString().slice(0, 10)}${observaciones ? ` — ${observaciones}` : ""} ${marcaAnexoModulo(loteId)}`;
         const observacionesFinal = vigente.observaciones ? `${vigente.observaciones}\n${linea}` : linea;
 
+        // El declarado se ACUMULA archivo a archivo (no se puede usar `increment`: sobre una
+        // columna null daría null). `filaTotalDeclarado` se pierde a propósito — con dos
+        // archivos ya no señala una fila concreta —, y la cobertura queda registrada para no
+        // presentar como descuadre lo que solo es un anexo sin total al pie.
+        const archivosConTotal = (vigente.archivosConTotal ?? 0) + (granTotalArchivo ? 1 : 0);
+        const declaradoAcumulado = archivosConTotal === 0
+          ? null
+          : Number(vigente.totalDeclarado ?? 0) + (granTotalArchivo?.subtotalArchivo ?? 0);
+
         await tx.moduloDatoEncabezado.update({
           where: { id: vigente.id },
           data: {
             filas: { increment: promocion.filas },
             total: { increment: promocion.total },
+            totalDeclarado: declaradoAcumulado,
+            filaTotalDeclarado: null,
+            archivosDelCargue: (vigente.archivosDelCargue ?? 1) + 1,
+            archivosConTotal,
             ultimaCarga: ahora,
             cargadoPor: user?.name ?? null,
             cargadoPorId: user?.id ?? null,
@@ -1286,6 +1487,10 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
           esOficial: true,
           filas: promocion.filas,
           total: promocion.total,
+          totalDeclarado: granTotalArchivo?.subtotalArchivo ?? null,
+          filaTotalDeclarado: granTotalArchivo?.filaNum ?? null,
+          archivosDelCargue: 1,
+          archivosConTotal: granTotalArchivo ? 1 : 0,
           archivoNombre: loteActual.archivoNombre,
           archivoTam: loteActual.archivoTam,
           hoja: hojaLote,

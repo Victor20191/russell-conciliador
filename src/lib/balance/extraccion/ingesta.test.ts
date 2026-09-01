@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import * as XLSX from "xlsx";
 import JSZip from "jszip";
 import ExcelJS from "exceljs";
-import { construirVistaPrevia, detectarDelimitador, detectarFormato, extraerCeldasNegritaBiffXls, ingerir, type GridHoja } from "./ingesta";
+import { construirVistaPrevia, detectarDelimitador, detectarFormato, extraerCeldasNegritaBiffXls, ingerir, leerCeldaFisicaArchivo, type GridHoja } from "./ingesta";
 
 function buf(texto: string, encoding: BufferEncoding = "utf-8"): ArrayBuffer {
   const b = Buffer.from(texto, encoding);
@@ -111,6 +111,59 @@ describe("ingerir Excel moderno (.xlsx)", () => {
   });
 });
 
+describe("leerCeldaFisicaArchivo", () => {
+  it("resuelve M1347 por su fila física en XLSX/XLSM aunque haya 1345 filas vacías previas", async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("Inventario");
+    ws.getCell("A1").value = "Encabezado";
+    ws.getCell("M1347").value = 1_200_978_578.51;
+    const data = await wb.xlsx.writeBuffer() as ArrayBuffer;
+
+    await expect(leerCeldaFisicaArchivo(data, "inventario.xlsx", "Inventario", 1347, 13)).resolves.toEqual({
+      hojaExiste: true,
+      filaExiste: true,
+      valor: 1_200_978_578.51,
+    });
+    await expect(leerCeldaFisicaArchivo(data, "inventario.xlsm", "Inventario", 1347, 13)).resolves.toEqual({
+      hojaExiste: true,
+      filaExiste: true,
+      valor: 1_200_978_578.51,
+    });
+
+    // La ruta contable sigue compactando los huecos; esta corrección no altera su grilla.
+    const compacta = await ingerir(data, "inventario.xlsx");
+    expect(compacta.modo).toBe("tabular");
+    if (compacta.modo === "tabular") {
+      expect(compacta.hojas[0].filas).toHaveLength(2);
+      expect(compacta.hojas[0].filasFisicas).toEqual([1, 1347]);
+      expect(compacta.hojas[0].filas[1][12]).toBe(1_200_978_578.51);
+    }
+  });
+
+  it("usa la dirección física en XLS y conserva registros vacíos al consultar CSV", async () => {
+    const xls = libroXls({ Balance: [["Encabezado"], [], [], ["", 77]] });
+    await expect(leerCeldaFisicaArchivo(xls, "balance.xls", "Balance", 4, 2)).resolves.toEqual({
+      hojaExiste: true,
+      filaExiste: true,
+      valor: 77,
+    });
+
+    const csv = buf("A,B\n\n,\nX,99");
+    await expect(leerCeldaFisicaArchivo(csv, "datos.csv", "csv", 4, 2)).resolves.toEqual({
+      hojaExiste: true,
+      filaExiste: true,
+      valor: 99,
+    });
+
+    const xlsCompacto = await ingerir(xls, "balance.xls");
+    expect(xlsCompacto.modo).toBe("tabular");
+    if (xlsCompacto.modo === "tabular") expect(xlsCompacto.hojas[0].filasFisicas).toEqual([1, 4]);
+    const csvCompacto = await ingerir(csv, "datos.csv");
+    expect(csvCompacto.modo).toBe("tabular");
+    if (csvCompacto.modo === "tabular") expect(csvCompacto.hojas[0].filasFisicas).toEqual([1, 4]);
+  });
+});
+
 describe("ingerir Excel moderno (.xlsx) — celdas con fórmula", () => {
   it("nunca deriva un monto del TEXTO de la fórmula: sin resultado cacheado → celda vacía", async () => {
     // Regresión: exceljs (streaming) omite `result` cuando el valor cacheado es 0; antes la
@@ -136,6 +189,7 @@ describe("ingerir Excel moderno (.xlsx) — celdas con fórmula", () => {
     expect([null, 0]).toContain(filas[1][1]);
     expect(filas[2]).toEqual(["1880", 5]);
     expect(filas[3]).toEqual(["1881", null]);
+    expect(ingesta.hojas[0].filasFisicas).toEqual([1, 2427, 2428, 2429]);
     for (const f of filas) for (const c of f) expect(typeof c === "string" && c.includes("formula")).toBe(false);
   });
 });

@@ -16,7 +16,7 @@ import { filtrarFilasDetalleModulo, hayFiltrosDetalleModulo, type FiltrosDetalle
 import type { ReconciliacionModulo } from "@/lib/modulos/extraccion/transformar";
 import { aplicarCambiosBorradorModulo, cargarBorradorModulo, descartarBorradorModulo } from "@/app/actions/modulos-datos";
 import { NotasCargaModulo } from "../../notas-carga-modulo";
-import { ValidacionSubtotales } from "./validacion-subtotales";
+import { ValidacionArchivo } from "../../validacion-archivo";
 
 export type FilaBorradorModulo = {
   filaNum: number;
@@ -253,6 +253,9 @@ export default function BorradorModuloClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [efectivas],
   );
+  // Contadores que acompañan al cuadre en el panel: se leen de lo MISMO que se cargará,
+  // así que omitir o rescatar filas los mueve junto con la Σ de movimientos.
+  const resumenValidacion = { items: imputables.length, sumaMovimientos: total };
   const filasControlDescuadradas = [
     ...control.grupos.filter((g) => g.estado === "descuadre").map((g) => g.filaSubtotal),
     ...(control.granTotal?.estado === "descuadre" ? [control.granTotal.filaNum] : []),
@@ -423,7 +426,7 @@ export default function BorradorModuloClient({
             <span className="ml-1">Se está sumando al total: si es el gran total del ERP, omítela con «Omitir» o el módulo quedará al doble.</span>
           </div>
         )}
-        <ValidacionSubtotales control={control} />
+        <ValidacionArchivo control={control} resumen={resumenValidacion} />
         {negativos.length > 0 && (
           <div className="rounded-md border border-err-500 bg-err-100 px-3 py-2 text-[12px] text-err-700">
             <span className="font-semibold">⚠ {new Set(negativos.map((n) => n.filaNum)).size} ítem(s) con existencias o costos negativos.</span>
@@ -552,7 +555,7 @@ export default function BorradorModuloClient({
           <span className="ml-1 text-white/40">·</span>
           <button type="button" onClick={() => omitirSeleccion(true)} className="rounded border border-white/30 bg-white/10 px-2 py-1 font-semibold hover:bg-white/20">Omitir</button>
           <button type="button" onClick={() => omitirSeleccion(false)} className="rounded border border-white/30 bg-white/10 px-2 py-1 font-semibold hover:bg-white/20">Incluir</button>
-          <button type="button" onClick={marcarSubtotalSeleccion} title="Tratar las filas seleccionadas como subtotales del archivo: no se cargan y se usan como control" className="rounded border border-white/30 bg-white/10 px-2 py-1 font-semibold hover:bg-white/20">Marcar subtotal</button>
+          <button type="button" onClick={marcarSubtotalSeleccion} title="Tratar las filas seleccionadas como totales del archivo: no se cargan y se usan como control" className="rounded border border-white/30 bg-white/10 px-2 py-1 font-semibold hover:bg-white/20">Marcar total</button>
           <button type="button" onClick={limpiarSeleccion} className="ml-auto rounded border border-white/30 px-2 py-1 font-medium hover:bg-white/20">Limpiar selección</button>
         </div>
       )}
@@ -643,12 +646,18 @@ export default function BorradorModuloClient({
                     const esTot = f.tipoFila === "total";
                     const omit = f.omitida === true;
                     const cero = !esAgr && !esTot && enCero(f);
+                    // Resto del cuadro de cierre del archivo (cifras de referencia del cliente
+                    // y sus diferencias): fuera del cálculo y sin validar, porque no son
+                    // subtotales del detalle. Se muestran para que quede claro que se vieron.
+                    const esCierre = esAgr && (f.motivo ?? "").startsWith("cola_control");
                     const neg = filasConNovedad.has(f.filaNum);
                     const tituloFila = cero
                       ? "Renglón en cero: no se carga al definitivo"
                       : esTot
-                        ? `Subtotal del archivo — excluido, usado como control${f.motivo ? ` (${f.motivo})` : ""}`
-                        : undefined;
+                        ? `Fila de total del archivo — excluida, usada como control${f.motivo ? ` (${f.motivo})` : ""}`
+                        : esCierre
+                          ? "Cifra del cuadro de cierre del archivo — excluida del consolidado"
+                          : undefined;
                     return (
                       <tr key={f.filaNum} title={tituloFila} className={`border-t border-ink-100 ${seleccion.has(f.filaNum) ? "bg-blue-100/60" : neg && !omit ? "bg-err-100" : esAgr || esTot ? "bg-blue-50/50 font-semibold" : ""} ${omit || cero ? "text-ink-300" : neg ? "text-err-700" : esTot ? "text-ink-500" : "text-ink-700"} ${omit ? "line-through" : ""}`}>
                         <td className="px-2.5 py-1.5 text-center">
@@ -664,10 +673,17 @@ export default function BorradorModuloClient({
                           <ComentarioAncla tipo="modulos_borrador" entityId={loteRowId} anchor={`fila:${f.filaNum}`} titulo={`Fila ${f.filaNum}${f.datos.referencia ? ` · ${f.datos.referencia}` : ""}`} count={comentarios[`fila:${f.filaNum}`] ?? 0} />
                           {cero ? (
                             <span className="ml-1 text-[10.5px] italic text-ink-400">en cero · no se carga</span>
+                          ) : esCierre ? (
+                            <>
+                              <span className="ml-1 text-[10.5px] italic text-ink-500">cierre del archivo · no se carga</span>
+                              <button type="button" onClick={() => setTipo(f.filaNum, "movimiento")} className="ml-1 rounded border border-ink-300 bg-white px-1.5 py-0.5 text-[10.5px] font-semibold text-ink-600 hover:bg-ok-100 hover:text-ok-700" title="No es parte del cierre: incluirla como ítem">
+                                Incluir
+                              </button>
+                            </>
                           ) : esTot ? (
                             <>
-                              <span className="ml-1 text-[10.5px] italic text-ink-500">subtotal · control</span>
-                              <button type="button" onClick={() => setTipo(f.filaNum, "movimiento")} className="ml-1 rounded border border-ink-300 bg-white px-1.5 py-0.5 text-[10.5px] font-semibold text-ink-600 hover:bg-ok-100 hover:text-ok-700" title="No es un subtotal: incluirla como ítem">
+                              <span className="ml-1 text-[10.5px] italic text-ink-500">total del archivo · control</span>
+                              <button type="button" onClick={() => setTipo(f.filaNum, "movimiento")} className="ml-1 rounded border border-ink-300 bg-white px-1.5 py-0.5 text-[10.5px] font-semibold text-ink-600 hover:bg-ok-100 hover:text-ok-700" title="No es una fila de total: incluirla como ítem">
                                 Incluir
                               </button>
                             </>

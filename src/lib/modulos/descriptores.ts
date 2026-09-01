@@ -100,7 +100,7 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     columnas: [
       col("tipo", "Tipo de inventario", "texto", true, ["tipo", "clase", "categoria", "grupo inventario", "cuenta", "cuenta lm"]),
       col("referencia", "Referencia", "texto", false, ["referencia", "ref", "codigo", "sku", "item", "articulo", "producto", "id de pieza", "id pieza", "pieza", "id"]),
-      col("descripcion", "Descripción", "texto", false, ["descripcion", "detalle", "nombre"]),
+      col("descripcion", "Descripción", "texto", false, ["descripcion", "detalle", "nombre", "desc item", "desc articulo", "desc producto", "nombre item"]),
       col("cantidad", "Cantidad", "numero", false, ["cantidad", "cant", "unidades", "existencia", "qty"]),
       col("valorUnitario", "Valor unitario", "moneda", false, ["valor unitario", "vr unitario", "costo unitario", "precio unitario", "unitario"]),
       col("valorTotal", "Valor total", "moneda", true, ["valor total", "vr total", "costo total", "valor", "total", "valor liquidable", "liquidable"]),

@@ -11,8 +11,15 @@ import { SelectorClienteBuscable } from "@/components/selector-cliente-buscable"
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import { columnaLetra } from "@/lib/balance/extraccion/hojas-cliente";
 import type { SpecModulo } from "@/lib/modulos/extraccion/esquema";
-import { coincideMarcaSubtotal, type ModoSubtotales } from "@/lib/modulos/subtotales";
-import { leerDatosModulo, analizarArchivoModulo, preferenciasCargaModulo, type AnalisisModulo, type CeldaMuestra } from "@/app/actions/modulos-datos";
+import type { ModoSubtotales } from "@/lib/modulos/subtotales";
+import {
+  leerDatosModulo,
+  analizarArchivoModulo,
+  preferenciasCargaModulo,
+  ubicarCeldaArchivoModulo,
+  type AnalisisModulo,
+  type CeldaMuestra,
+} from "@/app/actions/modulos-datos";
 import { NotasCargaModulo } from "./notas-carga-modulo";
 
 export type ClienteModulo = { id: number; name: string; nit: string; erp?: string | null };
@@ -25,6 +32,14 @@ export type AnexoModulo = { encabezadoId: number; clienteId: number; clienteNomb
 export type RolModulo = { nombre: string; etiqueta: string; tipo: string; requerido: boolean };
 
 const celdaTxt = (v: CeldaMuestra): string => (v == null ? "" : typeof v === "number" ? String(v) : v);
+const formatoNumeroMarca = new Intl.NumberFormat("es-CO", { maximumFractionDigits: 6 });
+const celdaTxtVisible = (v: CeldaMuestra): string => (
+  typeof v === "number" ? formatoNumeroMarca.format(v) : celdaTxt(v)
+);
+const sinCoordenadaDeArchivo = (valor: SpecModulo): SpecModulo => ({
+  ...valor,
+  subtotalesFila: undefined,
+});
 
 /**
  * Botón «Agregar archivo» de la columna Acciones: abre el MISMO modal en modo adición.
@@ -122,6 +137,14 @@ function CargarModal({
   const [mes, setMes] = useState(anexo?.periodo ?? "");
   const [analizando, startAnalizar] = useTransition();
   const [leyendo, startLeer] = useTransition();
+  const [ubicandoCelda, startUbicarCelda] = useTransition();
+  // La fila solo sirve para resolver una coordenada de ESTE archivo (p. ej. M1347).
+  // El perfil conserva columna+contenido, nunca la fila, porque cambia en cada cargue.
+  const [filaMarcaTotales, setFilaMarcaTotales] = useState("");
+  const [direccionMarcaTotales, setDireccionMarcaTotales] = useState<string | null>(null);
+  const [valorMarcaTotalesVisible, setValorMarcaTotalesVisible] = useState<CeldaMuestra>(null);
+  const [marcaManualLista, setMarcaManualLista] = useState(false);
+  const solicitudCeldaRef = useRef(0);
   // Preferencias de carga del cliente en este módulo (Configuración › Perfiles de
   // carga). Las notas se muestran aquí; la hoja preferida la resuelve el servidor
   // durante el análisis, cuando ya conoce las hojas reales del libro.
@@ -131,9 +154,14 @@ function CargarModal({
 
   const elegirCliente = (id: number | null) => {
     if (id !== clienteId) {
+      solicitudCeldaRef.current += 1;
       setAnalisis(null);
       setSpec(null);
       setRecepcionLoteId(null);
+      setFilaMarcaTotales("");
+      setDireccionMarcaTotales(null);
+      setValorMarcaTotalesVisible(null);
+      setMarcaManualLista(false);
       setFase("archivo");
     }
     setClienteId(id);
@@ -157,6 +185,11 @@ function CargarModal({
     setSpec(null);
     setRecepcionLoteId(null);
     setSugerenciaAplicadaDe(null);
+    solicitudCeldaRef.current += 1;
+    setFilaMarcaTotales("");
+    setDireccionMarcaTotales(null);
+    setValorMarcaTotalesVisible(null);
+    setMarcaManualLista(false);
     setFase("archivo");
     archivoRef.current = f;
     setNombreArchivo(f.name);
@@ -180,7 +213,14 @@ function CargarModal({
         if (r.recepcionLoteId) setRecepcionLoteId(r.recepcionLoteId);
         if (r.ok && r.spec) {
           setAnalisis(r);
-          setSpec(r.spec);
+          // El perfil recuerda el formato, no una coordenada de un archivo anterior.
+          // Incluso si llegara un perfil legado contaminado, este cargue debe ubicarla otra vez.
+          setSpec(sinCoordenadaDeArchivo(r.spec));
+          solicitudCeldaRef.current += 1;
+          setFilaMarcaTotales("");
+          setDireccionMarcaTotales(null);
+          setValorMarcaTotalesVisible(null);
+          setMarcaManualLista(false);
           setFase("mapeo");
           setSugerenciaAplicadaDe(r.origen === "sugerido" ? r.sugerencias?.exacto?.clienteNombre ?? null : null);
           if (r.origen === "perfil") notifySuccess("Se aplicó el perfil guardado de este cliente. Revisa y confirma.");
@@ -199,8 +239,17 @@ function CargarModal({
     if (!/^\d{4}-\d{2}$/.test(mes)) { notifyError("Selecciona el período del archivo."); return; }
     const faltantes = roles.filter((rc) => rc.requerido && !(rc.nombre === clasificadorRol && modo === "global") && (spec.columnas[rc.nombre] ?? 0) < 1);
     if (faltantes.length) { notifyError("Faltan columnas obligatorias: " + faltantes.map((f) => f.etiqueta).join(", ") + "."); return; }
-    if (spec.subtotales === "manual" && (spec.subtotalesColumna ?? 0) < 1) {
-      notifyError("Indica la columna del archivo que marca las filas de subtotal.");
+    const filaManual = Number(filaMarcaTotales);
+    if (
+      spec.subtotales === "manual"
+      && (
+        (spec.subtotalesColumna ?? 0) < 1
+        || !marcaManualLista
+        || !Number.isInteger(filaManual)
+        || spec.subtotalesFila !== filaManual
+      )
+    ) {
+      notifyError("Selecciona la columna, escribe la fila y ubica la celda que marca el total.");
       return;
     }
     startLeer(async () => {
@@ -244,7 +293,12 @@ function CargarModal({
   const setSeccionRol = (rol: string) => setSpec((s) => (s ? { ...s, seccionColumnaVaciaRol: rol } : s));
   // Subtotales del archivo: cómo detectarlos (se excluyen del consolidado y se usan de control).
   const modoSubtotales: ModoSubtotales = spec?.subtotales ?? "auto";
-  const setModoSubtotales = (m: ModoSubtotales) =>
+  const setModoSubtotales = (m: ModoSubtotales) => {
+    solicitudCeldaRef.current += 1;
+    setFilaMarcaTotales("");
+    setDireccionMarcaTotales(null);
+    setValorMarcaTotalesVisible(null);
+    setMarcaManualLista(false);
     setSpec((s) =>
       s
         ? {
@@ -254,21 +308,82 @@ function CargarModal({
             // no dejar basura en el perfil que se guarda por huella.
             subtotalesColumna: m === "manual" ? (s.subtotalesColumna ?? 0) : undefined,
             subtotalesTexto: m === "manual" ? s.subtotalesTexto : undefined,
+            subtotalesFila: undefined,
           }
         : s,
     );
-  const setColumnaSubtotales = (col: number) => setSpec((s) => (s ? { ...s, subtotalesColumna: col } : s));
-  const setTextoSubtotales = (t: string) => setSpec((s) => (s ? { ...s, subtotalesTexto: t || undefined } : s));
+  };
+  const setColumnaMarcaTotales = (columna: number) => {
+    solicitudCeldaRef.current += 1;
+    setFilaMarcaTotales("");
+    setDireccionMarcaTotales(null);
+    setValorMarcaTotalesVisible(null);
+    setMarcaManualLista(false);
+    setSpec((s) => (s ? {
+      ...s,
+      subtotalesColumna: columna || undefined,
+      subtotalesFila: undefined,
+      subtotalesTexto: undefined,
+    } : s));
+  };
+  const cambiarFilaMarcaTotales = (fila: string) => {
+    solicitudCeldaRef.current += 1;
+    setFilaMarcaTotales(fila);
+    setDireccionMarcaTotales(null);
+    setValorMarcaTotalesVisible(null);
+    setMarcaManualLista(false);
+    // Una coordenada modificada todavía no está validada. Retirar el texto evita que
+    // «Leer» use accidentalmente el marcador anterior o el comodín «cualquier valor».
+    setSpec((s) => (s ? { ...s, subtotalesFila: undefined, subtotalesTexto: undefined } : s));
+  };
+  const ubicarMarcaTotales = () => {
+    const columna = spec?.subtotalesColumna ?? 0;
+    const fila = Number(filaMarcaTotales);
+    if (columna < 1) { notifyError("Selecciona la columna donde está el dato."); return; }
+    if (!Number.isInteger(fila) || fila < 1) { notifyError("Escribe un número de fila válido."); return; }
+    if (!analisis?.hoja || !recepcionLoteId || clienteId == null) {
+      notifyError("No se puede ubicar la celda sin volver a analizar el archivo.");
+      return;
+    }
+    const solicitud = ++solicitudCeldaRef.current;
+    startUbicarCelda(async () => {
+      try {
+        const resultado = await ubicarCeldaArchivoModulo({
+          moduloCodigo,
+          clienteId,
+          recepcionLoteId,
+          hoja: analisis.hoja!,
+          columna,
+          fila,
+        });
+        if (solicitud !== solicitudCeldaRef.current) return;
+        if (!resultado.ok || resultado.valor == null || !resultado.direccion) {
+          notifyError(resultado.message ?? "No se pudo ubicar la celda.");
+          return;
+        }
+        const texto = celdaTxt(resultado.valor);
+        setSpec((s) => (s ? {
+          ...s,
+          subtotalesColumna: columna,
+          subtotalesFila: fila,
+          subtotalesTexto: texto,
+        } : s));
+        setDireccionMarcaTotales(resultado.direccion);
+        setValorMarcaTotalesVisible(resultado.valor);
+        setMarcaManualLista(true);
+      } catch {
+        if (solicitud === solicitudCeldaRef.current) notifyError("No se pudo ubicar la celda. Verifica la conexión e intenta nuevamente.");
+      }
+    });
+  };
 
-  // Etiqueta de cada columna para los selectores: «C · "Encabezado" (muestra, muestra)».
+  // Etiqueta de cada columna para los selectores: «C · Encabezado».
   const opcionesColumna = (): { index1: number; label: string }[] => {
     if (!analisis) return [];
     const ancho = analisis.ancho ?? analisis.encabezado?.length ?? 0;
     return Array.from({ length: ancho }, (_, c) => {
       const enc = celdaTxt(analisis.encabezado?.[c] ?? null);
-      const muestras = (analisis.muestraFilas ?? []).map((f) => celdaTxt(f[c] ?? null)).filter(Boolean).slice(0, 2);
-      const tail = muestras.length ? ` (${muestras.join(", ").slice(0, 30)})` : "";
-      return { index1: c + 1, label: `${columnaLetra(c)}${enc ? ` · ${enc.slice(0, 28)}` : ""}${tail}` };
+      return { index1: c + 1, label: `${columnaLetra(c)}${enc ? ` · ${enc.slice(0, 28)}` : ""}` };
     });
   };
 
@@ -289,19 +404,8 @@ function CargarModal({
     return vacias / vals.length >= 0.3;
   })();
   const clasificadorEtiqueta = roles.find((rol) => rol.nombre === clasificadorRol)?.etiqueta ?? "clasificador";
-  // Modo manual de subtotales: columna marcadora elegida y cuánto coincide en la muestra
-  // (la muestra son ~12 filas: sirve para confirmar la columna, no para contar el archivo).
+  // Modo manual de subtotales: columna marcadora elegida en el archivo.
   const colSubtotales = spec?.subtotalesColumna ?? 0;
-  const muestraSubtotales = (() => {
-    const filas = analisis?.muestraFilas ?? [];
-    if (colSubtotales < 1) return { total: filas.length, coinciden: 0, ejemplos: [] as string[] };
-    const marcadas = filas.filter((f) => coincideMarcaSubtotal(f[colSubtotales - 1] ?? null, spec?.subtotalesTexto));
-    return {
-      total: filas.length,
-      coinciden: marcadas.length,
-      ejemplos: marcadas.slice(0, 2).map((f) => `«${celdaTxt(f[colSubtotales - 1] ?? null).slice(0, 24)}»`),
-    };
-  })();
 
   return (
     <Modal
@@ -380,7 +484,12 @@ function CargarModal({
                   const idx = Number(e.target.value);
                   const elegida = analisis?.sugerencias?.lista[idx];
                   if (elegida) {
-                    setSpec(elegida.spec);
+                    solicitudCeldaRef.current += 1;
+                    setSpec(sinCoordenadaDeArchivo(elegida.spec));
+                    setFilaMarcaTotales("");
+                    setDireccionMarcaTotales(null);
+                    setValorMarcaTotalesVisible(null);
+                    setMarcaManualLista(false);
                     setSugerenciaAplicadaDe(elegida.clienteNombre);
                   }
                 }}
@@ -497,47 +606,68 @@ function CargarModal({
               </label>
             )}
             <label className="flex min-w-0 flex-col gap-1 border-t border-ink-150 pt-2">
-              <span className="text-[11px] font-medium text-ink-600">¿El archivo trae filas de subtotal por {roles.find((r) => r.nombre === clasificadorRol)?.etiqueta.toLowerCase() ?? "tipo"}?</span>
+              <span className="text-[11px] font-medium text-ink-600">¿El archivo trae filas de TOTAL (al pie, o por {roles.find((r) => r.nombre === clasificadorRol)?.etiqueta.toLowerCase() ?? "tipo"})?</span>
               <select value={modoSubtotales} onChange={(e) => setModoSubtotales(e.target.value as ModoSubtotales)} className="w-full min-w-0 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400">
-                <option value="auto">Detectarlas automáticamente (rótulo «Total», o suma del bloque + fila sin detalle / en negrita)</option>
+                <option value="auto">Detectarlas automáticamente (rótulo «Total», cuadro de cierre al pie, o suma del bloque + fila sin detalle / en negrita)</option>
                 <option value="rotulo">Solo las que digan «Total» / «Subtotal»</option>
-                <option value="nunca">No trae subtotales: no detectar ninguna</option>
-                <option value="manual">Indicarlas yo: la columna del archivo que las marca</option>
+                <option value="nunca">No trae totales: no detectar ninguna</option>
+                <option value="manual">Indicarlas yo: señalo la celda del archivo que las marca</option>
               </select>
-              <span className="text-[11px] leading-snug text-ink-500">Los subtotales detectados no se cargan: el borrador los compara con la suma de sus movimientos y avisa si no cuadran. Se recuerda en el perfil de carga del cliente.</span>
+              <span className="text-[11px] leading-snug text-ink-500">Las filas de total NO se cargan: el borrador las compara con la suma de los movimientos y avisa si no cuadran. El perfil recuerda el modo y la columna; la fila exacta se ubica de nuevo en cada archivo.</span>
             </label>
             {modoSubtotales === "manual" && (
               <div className="flex flex-col gap-2 rounded-md border border-ink-200 bg-white px-3 py-2.5">
-                <label className="flex min-w-0 flex-col gap-1">
-                  <span className="text-[11px] font-medium text-ink-600">Columna que marca la fila de subtotal <span className="text-err-600">*</span></span>
-                  <select
-                    value={colSubtotales}
-                    onChange={(e) => setColumnaSubtotales(Number(e.target.value))}
-                    className="w-full min-w-0 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400"
+                <span className="text-[11px] font-medium text-ink-600">Celda que marca la fila de total <span className="text-err-600">*</span></span>
+                <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_8rem_auto] sm:items-end">
+                  <label className="flex min-w-0 flex-col gap-1">
+                    <span className="text-[10.5px] text-ink-500">Columna del dato</span>
+                    <select
+                      value={colSubtotales}
+                      onChange={(e) => setColumnaMarcaTotales(Number(e.target.value))}
+                      className="w-full min-w-0 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400"
+                    >
+                      <option value={0}>— elige —</option>
+                      {opcionesColumna().map((opcion) => (
+                        <option key={opcion.index1} value={opcion.index1}>{opcion.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="flex min-w-0 flex-col gap-1">
+                    <span className="text-[10.5px] text-ink-500">Número de fila</span>
+                    <input
+                      type="number"
+                      min={1}
+                      step={1}
+                      inputMode="numeric"
+                      value={filaMarcaTotales}
+                      onChange={(e) => cambiarFilaMarcaTotales(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          ubicarMarcaTotales();
+                        }
+                      }}
+                      placeholder="1347"
+                      className="w-full rounded-md border border-ink-200 bg-white px-2.5 py-1.5 tabular-nums text-[12px] text-ink-700 outline-none focus:border-blue-400"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={ubicarMarcaTotales}
+                    disabled={ubicandoCelda || colSubtotales < 1 || !filaMarcaTotales}
+                    className="rounded-md border border-blue-300 bg-blue-50 px-3 py-1.5 text-[12px] font-semibold text-blue-800 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    <option value={0}>— elige la columna —</option>
-                    {opcionesColumna().map((o) => <option key={o.index1} value={o.index1}>{o.label}</option>)}
-                  </select>
-                  <span className="text-[11px] leading-snug text-ink-500">Puede ser cualquier columna del archivo, aunque no esté mapeada arriba (p. ej. la del rótulo «Total …» o una columna que solo se llena en los subtotales).</span>
-                </label>
-                <label className="flex min-w-0 flex-col gap-1">
-                  <span className="text-[11px] font-medium text-ink-600">Texto que la marca <span className="font-normal text-ink-400">(opcional)</span></span>
-                  <input
-                    type="text"
-                    maxLength={80}
-                    value={spec?.subtotalesTexto ?? ""}
-                    onChange={(e) => setTextoSubtotales(e.target.value)}
-                    placeholder="P. ej. TOTAL — vacío: basta con que la celda traiga algo"
-                    className="w-full min-w-0 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400"
-                  />
-                </label>
-                {colSubtotales < 1 ? (
-                  <span className="text-[11px] font-semibold leading-snug text-err-700">⚠ Elige la columna: sin ella no se marcaría ninguna fila como subtotal.</span>
+                    {ubicandoCelda ? "Ubicando…" : "Ubicar celda"}
+                  </button>
+                </div>
+                <span className="text-[11px] leading-snug text-ink-500">
+                  Selecciona la columna y escribe la fila. La plataforma leerá la coordenada exacta —por ejemplo, columna M + fila 1347 = M1347— y usará su contenido para reconocer el total.
+                </span>
+                {!marcaManualLista ? (
+                  <span className="text-[11px] font-semibold leading-snug text-err-700">⚠ Ubica una celda con contenido antes de crear el borrador.</span>
                 ) : (
-                  <span className="text-[11px] leading-snug text-ink-500">
-                    En las {muestraSubtotales.total} filas de muestra coinciden {muestraSubtotales.coinciden}
-                    {muestraSubtotales.ejemplos.length > 0 && <> (p. ej. {muestraSubtotales.ejemplos.join(", ")})</>}.
-                    La marca se aplica a TODO el archivo, no solo a la muestra.
+                  <span className="rounded-md border border-ok-500 bg-ok-100/40 px-2.5 py-1.5 text-[11px] font-medium leading-snug text-ok-700">
+                    {direccionMarcaTotales} ubicada: «{celdaTxtVisible(valorMarcaTotalesVisible)}».
                   </span>
                 )}
               </div>

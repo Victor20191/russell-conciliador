@@ -8,6 +8,7 @@ import {
   mismoSpecModuloNormalizado,
   modoClasificadorDe,
   normalizarSpecModulo,
+  normalizarSpecModuloArchivo,
   resumenColumnasModulo,
   validarSpecModulo,
 } from "./perfil-modulo";
@@ -139,9 +140,16 @@ describe("normalizarSpecModulo · subtotales", () => {
     expect(mismoSpecModuloNormalizado(INV, base, { ...base, subtotales: "rotulo" })).toBe(false);
   });
 
-  it("modo MANUAL: conserva la columna marcadora y su texto; el texto vacío se retira", () => {
-    const manual = specInv({ subtotales: "manual", subtotalesColumna: 7, subtotalesTexto: "  TOTAL  " });
+  it("modo MANUAL: el perfil conserva columna+texto pero nunca la fila efímera del archivo", () => {
+    const manual = specInv({ subtotales: "manual", subtotalesColumna: 7, subtotalesFila: 1347, subtotalesTexto: "  TOTAL  " });
     expect(normalizarSpecModulo(INV, manual)).toMatchObject({ subtotales: "manual", subtotalesColumna: 7, subtotalesTexto: "TOTAL" });
+    expect(normalizarSpecModulo(INV, manual).subtotalesFila).toBeUndefined();
+    expect(normalizarSpecModuloArchivo(INV, manual)).toMatchObject({
+      subtotales: "manual",
+      subtotalesColumna: 7,
+      subtotalesFila: 1347,
+      subtotalesTexto: "TOTAL",
+    });
     expect(normalizarSpecModulo(INV, { ...manual, subtotalesTexto: "   " }).subtotalesTexto).toBeUndefined();
     // Un modo distinto de «manual» no arrastra la columna al perfil guardado.
     expect(normalizarSpecModulo(INV, specInv({ subtotales: "rotulo", subtotalesColumna: 7 })).subtotalesColumna).toBeUndefined();

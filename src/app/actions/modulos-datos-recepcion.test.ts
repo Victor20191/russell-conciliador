@@ -10,7 +10,9 @@ const mocks = vi.hoisted(() => ({
   originalCreate: vi.fn(),
   originalUpdateMany: vi.fn(),
   subirObjeto: vi.fn(),
+  obtenerObjeto: vi.fn(),
   ingerir: vi.fn(),
+  leerCeldaFisicaArchivo: vi.fn(),
   revalidatePath: vi.fn(),
   registrarError: vi.fn(),
 }));
@@ -29,9 +31,13 @@ vi.mock("@/lib/errores", () => ({
 vi.mock("@/lib/storage/objetos", () => ({
   almacenamientoDisponible: () => true,
   subirObjeto: mocks.subirObjeto,
+  obtenerObjeto: mocks.obtenerObjeto,
   eliminarObjeto: vi.fn(),
 }));
-vi.mock("@/lib/balance/extraccion/ingesta", () => ({ ingerir: mocks.ingerir }));
+vi.mock("@/lib/balance/extraccion/ingesta", () => ({
+  ingerir: mocks.ingerir,
+  leerCeldaFisicaArchivo: mocks.leerCeldaFisicaArchivo,
+}));
 vi.mock("@/lib/prisma", () => ({
   default: {
     client: { findUnique: mocks.clientFindUnique },
@@ -43,7 +49,7 @@ vi.mock("@/lib/prisma", () => ({
   },
 }));
 
-import { analizarArchivoModulo } from "./modulos-datos";
+import { analizarArchivoModulo, ubicarCeldaArchivoModulo } from "./modulos-datos";
 
 const BYTES = new Uint8Array([80, 75, 3, 4, 0, 255, 10]);
 const SHA = createHash("sha256").update(BYTES).digest("hex");
@@ -160,5 +166,68 @@ describe("analizarArchivoModulo · recepción durable", () => {
     expect(mocks.originalUpdateMany.mock.calls[0][0].data).toEqual({ estado: "recibido", softwareOrigen: "SIIGO" });
     expect(mocks.originalUpdateMany.mock.calls[0][0].data).not.toHaveProperty("ubicacionOrigen");
     expect(mocks.originalUpdateMany.mock.calls[0][0].data).not.toHaveProperty("reflejoContableEsperado");
+  });
+});
+
+describe("ubicarCeldaArchivoModulo", () => {
+  const loteId = "d20810cb-ec7e-43a5-8fd7-a25a86646bbf";
+  const entrada = {
+    moduloCodigo: "INV",
+    clienteId: 17,
+    recepcionLoteId: loteId,
+    hoja: "Inventario",
+    columna: 13,
+    fila: 1347,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.authorizePermiso.mockResolvedValue({ ok: true });
+    mocks.originalFindUnique.mockResolvedValue({
+      clienteId: 17,
+      moduloCodigo: "INV",
+      nombreArchivo: "inventario.xlsx",
+      tamanoBytes: BYTES.byteLength,
+      huellaSha256: SHA,
+      claveObjeto: `software/modulos/inv/clientes/17/originales/${loteId}/inventario.xlsx`,
+      disponible: true,
+      estado: "recibido",
+    });
+    mocks.obtenerObjeto.mockResolvedValue({ cuerpo: BYTES, contentType: "application/octet-stream" });
+    mocks.leerCeldaFisicaArchivo.mockResolvedValue({
+      hojaExiste: true,
+      filaExiste: true,
+      valor: 1_200_978_578.51,
+    });
+  });
+
+  it("lee la coordenada exacta del original íntegro y devuelve solo su contenido", async () => {
+    await expect(ubicarCeldaArchivoModulo(entrada)).resolves.toEqual({
+      ok: true,
+      direccion: "M1347",
+      valor: 1_200_978_578.51,
+    });
+    expect(mocks.authorizePermiso).toHaveBeenNthCalledWith(1, "modulos_datos:crear");
+    expect(mocks.authorizePermiso).toHaveBeenNthCalledWith(2, "modulos_datos:crear", { clientId: 17 });
+    expect(mocks.leerCeldaFisicaArchivo).toHaveBeenCalledWith(
+      expect.any(ArrayBuffer),
+      "inventario.xlsx",
+      "Inventario",
+      1347,
+      13,
+    );
+  });
+
+  it("rechaza el objeto cuando su contenido no coincide con la metadata durable", async () => {
+    mocks.obtenerObjeto.mockResolvedValue({ cuerpo: new Uint8Array([...BYTES, 99]), contentType: "application/octet-stream" });
+
+    const resultado = await ubicarCeldaArchivoModulo(entrada);
+
+    expect(resultado).toEqual({ ok: false, message: "El archivo original no supera la verificación de integridad." });
+    expect(mocks.leerCeldaFisicaArchivo).not.toHaveBeenCalled();
+    expect(mocks.registrarError).toHaveBeenCalledWith(
+      "ubicarCeldaArchivoModulo.integridad",
+      expect.any(Error),
+    );
   });
 });

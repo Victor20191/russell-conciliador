@@ -21,6 +21,8 @@ import { resolverCuenta4, mensajeResolucion } from "@/lib/modulos/resolver-cuent
 import { filtrarFilasDetalleModulo, hayFiltrosDetalleModulo, type FiltrosDetalleModulo } from "@/lib/modulos/filtros-detalle-modulo";
 import type { ResumenCruceContable } from "@/lib/modulos/cruce-contable";
 import type { ResumenCruceTercero } from "@/lib/modulos/cruce-tercero";
+import type { ValidacionCargue } from "@/lib/modulos/validacion-cargue";
+import { ValidacionArchivo } from "../validacion-archivo";
 import {
   anclaCruce,
   anclaObservacionMarca,
@@ -84,6 +86,9 @@ export type NovedadesVm = {
   descuadres: { filaNum: number; referencia: string | null; etiqueta: string; declarado: number; esperado: number }[];
   observaciones: string | null;
   verificaciones: { texto: string; respuesta: "si" | "no" | "na" | null; nota: string | null }[];
+  /** Total declarado por el archivo vs. Σ cargada, congelado al promover. `null` en los
+   *  cargues anteriores a esta validación: ahí el panel no se muestra. */
+  validacionArchivo: ValidacionCargue | null;
 };
 export type VersionModuloVm = {
   id: number;
@@ -1691,6 +1696,16 @@ function NovedadesTab({ novedades, titulo }: { novedades: NovedadesVm; titulo?: 
   return (
     <div className="flex flex-col gap-4">
       {titulo && <h2 className="text-[15px] font-semibold text-ink-800">{titulo}</h2>}
+      {novedades.validacionArchivo && (
+        <Card className="p-4">
+          <ValidacionArchivo
+            control={novedades.validacionArchivo.control}
+            resumen={novedades.validacionArchivo.resumen}
+            origen={novedades.validacionArchivo.origen}
+            modo="cargado"
+          />
+        </Card>
+      )}
       <Card className="p-4">
         <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Validación automática</div>
         {novedades.negativos.length === 0 ? (

@@ -1271,6 +1271,20 @@ model ModuloDatoEncabezado {
   // NO se guardan: se recalculan al leer desde el detalle.
   observaciones    String?             @map("observaciones")
   verificaciones   Json?               @map("verificaciones")
+  // VALIDACIÓN DEL ARCHIVO, congelada al promover. A diferencia del resto de novedades, el
+  // total que el archivo DECLARA al pie no se puede recalcular desde el detalle: la fila que
+  // lo trae no es imputable y el staging —única fuente— se purga en la misma transacción.
+  /// Σ de los totales declarados por los archivos de esta versión (acumula con los anexos).
+  /// null = ningún archivo declaró un total comparable.
+  totalDeclarado     Decimal? @map("total_declarado") @db.Decimal(18, 2)
+  /// Fila del total dentro del archivo. Solo identifica algo cuando la versión la compone UN
+  /// archivo; al anexar otro deja de señalar una fila concreta y queda en null.
+  filaTotalDeclarado Int?     @map("fila_total_declarado")
+  /// Cuántos archivos componen la versión y cuántos de ellos declararon total: sin el par, un
+  /// anexo sin total al pie haría ver como descuadre lo que solo es cobertura parcial.
+  /// null en los cargues ANTERIORES a esta validación (ahí el panel no se muestra).
+  archivosDelCargue  Int?     @map("archivos_del_cargue")
+  archivosConTotal   Int?     @map("archivos_con_total")
   cargadoPor       String?             @map("cargado_por")
   cargadoPorId     Int?                @map("cargado_por_id")
   ultimaCarga      DateTime            @default(now()) @map("ultima_carga") @db.Timestamptz(3)

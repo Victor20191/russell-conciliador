@@ -117,7 +117,18 @@ export function sugerirSpec(descriptor: DescriptorModulo, hoja: GridHoja): SpecM
       if (s > 0) candidatos.push({ col: c + 1, rol: rc.nombre, score: s });
     }
   }
-  candidatos.sort((a, b) => b.score - a.score);
+  // Desempate: el match DÉBIL (la clave contiene al encabezado) puntúa `headerNorm.length`
+  // para TODOS los roles que lo contengan, así que un encabezado genérico como «COSTO»
+  // empata entre «costo total» (valorTotal) y «costo unitario» (valorUnitario). Sin criterio,
+  // ganaba el rol declarado primero en el descriptor y el archivo quedaba mapeado al
+  // unitario: el valor total se DERIVABA como cantidad × unitario y el módulo se multiplicaba.
+  // A igual puntaje gana el rol REQUERIDO (el que el archivo debe traer sí o sí); el opcional
+  // se deriva después. Último criterio: la columna más a la izquierda, para ser determinista.
+  const esRequerido = new Map(descriptor.columnas.map((rc) => [rc.nombre, rc.requerido === true]));
+  candidatos.sort((a, b) =>
+    b.score - a.score
+    || Number(esRequerido.get(b.rol) ?? false) - Number(esRequerido.get(a.rol) ?? false)
+    || a.col - b.col);
   const colUsada = new Set<number>();
   const rolUsado = new Set<string>();
   for (const cand of candidatos) {

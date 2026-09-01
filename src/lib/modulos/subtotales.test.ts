@@ -6,6 +6,8 @@ import {
   coincideMarcaSubtotal,
   columnasDetalle,
   controlSubtotales,
+  detectarColaControl,
+  MAX_FILAS_COLA_CONTROL,
   detectarSubtotales,
   estadoGeneralControlSubtotales,
   esRotuloTotal,
@@ -29,6 +31,7 @@ const fila = (p: Parcial): FilaCandidata => ({
   rotuloClasificador: p.rotuloClasificador,
   motivo: p.motivo,
   marcaManual: p.marcaManual,
+  marcaManualExacta: p.marcaManualExacta,
 });
 const item = (tipo: string, ref: string, valor: number, extra: Partial<FilaCandidata> = {}) =>
   fila({ clasificador: tipo, valor, datos: { tipo, referencia: ref, descripcion: `Ítem ${ref}` }, ...extra });
@@ -287,6 +290,13 @@ describe("modo manual (columna marcadora)", () => {
     expect(coincideMarcaSubtotal("Resúmen línea", "resumen")).toBe(true);
   });
 
+  it("coincideMarcaSubtotal: una marca numérica localizada exige igualdad exacta", () => {
+    expect(coincideMarcaSubtotal(1_200_978_578.51, "1200978578.51")).toBe(true);
+    expect(coincideMarcaSubtotal(1_200_978_578.51, "1200978578")).toBe(false);
+    expect(coincideMarcaSubtotal("1200978578.51", "1200978578.51")).toBe(true);
+    expect(coincideMarcaSubtotal("1200978578.510", "1200978578.51")).toBe(false);
+  });
+
   it("marca SOLO las filas señaladas por la columna y les calcula su bloque", () => {
     reset();
     const filas = [
@@ -316,5 +326,110 @@ describe("modo manual (columna marcadora)", () => {
     ];
     const det = detectarSubtotales(filas, INV, { modo: "manual" });
     expect(det.map((d) => [d.filaNum, d.clase])).toEqual([[3, "subtotal"], [6, "subtotal"], [7, "gran_total"]]);
+  });
+
+  it("la coordenada exacta es el único gran total aunque el mismo valor aparezca antes", () => {
+    reset();
+    const filas = [
+      item("A", "R1", 100),
+      item("A", "R2", 200),
+      item("A", "CONTROL", 300, { marcaManual: false }),
+      item("", "", 300, { marcaManual: true, marcaManualExacta: true }),
+    ];
+
+    const det = detectarSubtotales(filas, INV, { modo: "manual" });
+
+    expect(det.map((d) => [d.filaNum, d.clase])).toEqual([[4, "gran_total"]]);
+    expect(det[0].senales).toEqual(["marca_manual"]);
+  });
+
+  it("no excluye el sufijo si después del total exacto aparece detalle real", () => {
+    reset();
+    const filas = [
+      item("A", "R1", 100),
+      item("A", "R2", 200),
+      item("", "", 300, { marcaManual: true, marcaManualExacta: true }),
+      sub(null, -0.5, null),
+      item("B", "R3", 50),
+    ];
+
+    const det = detectarSubtotales(filas, INV, { modo: "manual" });
+
+    expect(det.map((d) => [d.filaNum, d.clase])).toEqual([[3, "gran_total"]]);
+  });
+});
+
+// Cierre al pie SIN rótulos: el caso de los inventarios reales, que terminan con un cuadro
+// de conciliación («SALDO INVENTARIO…», «BALANCE DEL INVENTARIO», «SALDO CONTABILIDAD» y sus
+// diferencias). Ninguna fila dice «total» y las cifras son casi iguales entre sí, así que ni
+// el rótulo ni la aritmética global las veían: entraban como ítems y multiplicaban el módulo.
+describe("detectarColaControl · cierre sin rótulos al pie del archivo", () => {
+  // Fila del cuadro de cierre: sin referencia ni descripción, el texto va en otra columna.
+  const cierre = (valor: number, extra: Partial<FilaCandidata> = {}) =>
+    fila({ clasificador: null, valor, datos: { tipo: null, referencia: null, descripcion: null }, ...extra });
+
+  it("marca gran total la fila que vale la Σ del detalle y descarta el resto del cuadro", () => {
+    reset();
+    const filas = [
+      item("A", "R1", 1_000), item("A", "R2", 2_000), item("B", "R3", 3_000),
+      cierre(6_000),   // SALDO INVENTARIO = Σ del detalle
+      cierre(6_000.5), // BALANCE DEL INVENTARIO (referencia del cliente)
+      cierre(-0.5),    // la diferencia entre ambos
+      cierre(5_999.9), // SALDO CONTABILIDAD
+    ];
+    const det = detectarSubtotales(filas, INV, { modo: "auto" });
+    expect(det.map((d) => [d.filaNum, d.clase])).toEqual([[4, "gran_total"], [5, "cola_control"], [6, "cola_control"], [7, "cola_control"]]);
+    expect(motivoDe(det[0])).toBe("gran_total:cola,sin_detalle,aritmetica");
+  });
+
+  it("cuadra el control contra la Σ de movimientos una vez el cuadro queda fuera", () => {
+    reset();
+    const filas: FilaCandidata[] = [
+      item("A", "R1", 1_000), item("A", "R2", 2_000), item("B", "R3", 3_000),
+      cierre(6_000, { tipoFila: "total", motivo: "gran_total:cola,sin_detalle,aritmetica" }),
+      cierre(6_000.5, { tipoFila: "agrupadora" }),
+      cierre(5_999.9, { tipoFila: "agrupadora" }),
+    ];
+    const ctl = controlSubtotales(filas);
+    expect(ctl.granTotal).toMatchObject({ filaNum: 4, subtotalArchivo: 6_000, sumaMovimientos: 6_000, diferencia: 0, estado: "cuadra" });
+    expect(ctl.grupos).toEqual([]);
+    expect(estadoGeneralControlSubtotales(ctl)).toBe("coincide");
+  });
+
+  it("sin una fila que cuadre con el detalle no toca nada (podría ser detalle sin referencia)", () => {
+    reset();
+    const filas = [item("A", "R1", 1_000), item("A", "R2", 2_000), cierre(999), cierre(888)];
+    expect(detectarColaControl(filas, columnasDetalle(INV))).toBeNull();
+    expect(detectarSubtotales(filas, INV, { modo: "auto" })).toEqual([]);
+  });
+
+  it("el rótulo manda: si la fila que cuadra dice «Total general», la clasifica el rótulo", () => {
+    reset();
+    const filas = [
+      item("A", "R1", 1_000), item("A", "R2", 2_000), item("B", "R3", 3_000),
+      // Mismo cierre, pero esta vez el archivo SÍ rotula su total.
+      fila({ clasificador: "Total general", valor: 6_000, datos: { tipo: "Total general", referencia: null, descripcion: null }, rotuloClasificador: "Total general" }),
+      cierre(5_999.5), // cifra de referencia del cliente: igual queda descartada
+    ];
+    const det = detectarSubtotales(filas, INV, { modo: "auto" });
+    const total = det.find((d) => d.filaNum === 4);
+    expect(total?.clase).toBe("gran_total");
+    expect(total?.senales).toContain("rotulo"); // por rótulo, no por la cola
+    expect(det.find((d) => d.filaNum === 5)?.clase).toBe("cola_control");
+  });
+
+  it("solo actúa en modo «auto»: «rotulo» y «manual» conservan su promesa", () => {
+    reset();
+    const filas = [item("A", "R1", 1_000), item("A", "R2", 2_000), cierre(3_000), cierre(2_999)];
+    expect(detectarSubtotales(filas, INV, { modo: "rotulo" })).toEqual([]);
+    expect(detectarSubtotales(filas, INV, { modo: "manual" })).toEqual([]);
+    expect(detectarSubtotales(filas, INV, { modo: "auto" })).toHaveLength(2);
+  });
+
+  it("no se come el archivo: una cola más larga que el tope no es un cierre", () => {
+    reset();
+    const detalle = [item("A", "R1", 1_000), item("A", "R2", 2_000)];
+    const colaLarga = Array.from({ length: MAX_FILAS_COLA_CONTROL + 1 }, (_, i) => cierre(i === 0 ? 3_000 : 10 + i));
+    expect(detectarColaControl([...detalle, ...colaLarga], columnasDetalle(INV))).toBeNull();
   });
 });

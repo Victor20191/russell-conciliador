@@ -11,8 +11,8 @@
 //  - Marca AGRUPADOR las filas en NEGRITA/subrayado (subtotales); no cuentan en el valor.
 //  - Marca `total` las filas de SUBTOTAL por grupo y el gran total (`../subtotales.ts`:
 //    rótulo, sin detalle, negrita, aritmética); no cuentan en el valor y sirven de CONTROL.
-//    En el modo `manual` del spec, esas filas se reconocen SOLO por la columna marcadora
-//    que indicó el usuario (`subtotalesColumna`/`subtotalesTexto`), sin heurística.
+//    En el modo `manual`, una coordenada ubicada en el archivo actual manda como gran total;
+//    los perfiles legados sin coordenada conservan el patrón columna+texto.
 import { normalizarMonto } from "@/lib/balance/extraccion/transformar";
 import type { CeldaCruda, GridHoja } from "@/lib/balance/extraccion/ingesta";
 import type { DescriptorModulo } from "../descriptores";
@@ -106,6 +106,7 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
   let filasLeidas = 0;
   let filasExcluidas = 0;
   const esNumerica = new Map(descriptor.columnas.map((c) => [c.nombre, c.tipo === "numero" || c.tipo === "moneda"]));
+  const filaFisicaDe = (indice: number): number => hoja.filasFisicas?.[indice] ?? indice + 1;
 
   // Modo del clasificador. `arrastrarClasificador` legado ≡ "arrastrar".
   const modo = spec.clasificadorModo ?? (spec.arrastrarClasificador ? "arrastrar" : "columna");
@@ -158,7 +159,7 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
 
   let seccionActual: string | null = null; // modo "seccion" (encabezados de grupo)
   // Señales crudas por fila (paralelas a `filas`) para la detección de subtotales: no van a `datos`.
-  const crudo: { negrita: boolean; rotuloClasificador: string | null; marcaManual: boolean }[] = [];
+  const crudo: { negrita: boolean; rotuloClasificador: string | null; marcaManual: boolean; marcaManualExacta: boolean }[] = [];
   // Modo "manual" de subtotales: columna (1-based del ARCHIVO, no necesariamente mapeada a
   // un rol) cuyo contenido marca las filas de subtotal.
   const colMarcaSubtotal = spec.subtotales === "manual" ? (spec.subtotalesColumna ?? 0) : 0;
@@ -178,7 +179,8 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
 
   for (let r = inicio; r < hoja.filas.length; r++) {
     const fila = hoja.filas[r] ?? [];
-    const filaNum = r + 1;
+    const filaNum = filaFisicaDe(r);
+    const marcaManualExacta = colMarcaSubtotal >= 1 && spec.subtotalesFila === filaNum;
 
     // 1) Leer cada columna mapeada según su tipo.
     const datos: Record<string, ValorCelda> = {};
@@ -193,7 +195,7 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     //      siguen y NO se cargan como ítems. Un renglón «Total …» NO fija sección: sigue
     //      adelante como candidato a subtotal (se marca `total` abajo y sirve de control).
     const rotuloClasificadorCrudo = clasCol >= 1 ? aTexto(celda(fila, clasCol)) : null;
-    if (modo === "seccion" && esRenglonSeccion(datos, hoja.negrita?.[r])) {
+    if (modo === "seccion" && !marcaManualExacta && esRenglonSeccion(datos, hoja.negrita?.[r])) {
       const etiqueta = aTexto(datos[descriptor.clasificador]);
       if (!(etiqueta && esTotal(etiqueta))) {
         if (etiqueta) seccionActual = etiqueta;
@@ -258,7 +260,8 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     // 5) Negrita = subtotal del ERP → no cuenta en el valor. Según el descriptor, se
     //    marca `agrupadora` (rígido) o entra como movimiento OMITIDO (rescatable en el
     //    borrador). En ambos casos queda fuera del total.
-    const enNegrita = esAgrupadoraPorNegrita(hoja.negrita?.[r], spec, descriptor);
+    // La coordenada validada es autoridad incluso si el ERP pinta el total en negrita.
+    const enNegrita = !marcaManualExacta && esAgrupadoraPorNegrita(hoja.negrita?.[r], spec, descriptor);
     const omitidaPorNegrita = enNegrita && descriptor.negritaComoOmitida === true;
     const tipoFila: TipoFilaModulo = enNegrita && !omitidaPorNegrita ? "agrupadora" : "movimiento";
     if (enNegrita) filasExcluidas++;
@@ -268,7 +271,12 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     crudo.push({
       negrita: enNegrita,
       rotuloClasificador: rotuloClasificadorCrudo,
-      marcaManual: colMarcaSubtotal >= 1 && coincideMarcaSubtotal(celda(fila, colMarcaSubtotal), spec.subtotalesTexto),
+      marcaManual: marcaManualExacta || (
+        spec.subtotalesFila == null
+        && colMarcaSubtotal >= 1
+        && coincideMarcaSubtotal(celda(fila, colMarcaSubtotal), spec.subtotalesTexto)
+      ),
+      marcaManualExacta,
     });
   }
 
@@ -282,6 +290,7 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
       negrita: crudo[i]?.negrita,
       rotuloClasificador: crudo[i]?.rotuloClasificador ?? null,
       marcaManual: crudo[i]?.marcaManual === true,
+      marcaManualExacta: crudo[i]?.marcaManualExacta === true,
     })),
     descriptor,
     { modo: spec.subtotales ?? "auto", columnasDetalle: columnasDetalle(descriptor, spec) },
@@ -294,6 +303,14 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     const grupo = d.clase === "gran_total" ? d.grupo : (d.grupo ?? f.clasificador);
     const { omitida: _omitida, ...resto } = f;
     void _omitida;
+    // El resto del bloque de control al pie (cifras de referencia del cliente y sus
+    // diferencias) sale del consolidado como AGRUPADORA: no imputa y tampoco entra al
+    // control, porque no es un subtotal del detalle y compararlo daría descuadres falsos.
+    // Conserva su rótulo original para que el borrador siga mostrando de qué cifra se trata.
+    if (d.clase === "cola_control") {
+      filas[d.indice] = { ...resto, tipoFila: "agrupadora", motivo: motivoDe(d) };
+      continue;
+    }
     filas[d.indice] = {
       ...resto,
       clasificador: grupo,
@@ -315,7 +332,7 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
       const val = aNumero(celda(filaR, valCol));
       if (val == null || esEncabezadoClasificador(filaR)) continue;
       filasOmitidasArriba++;
-      if (omitidasMuestra.length < 8) omitidasMuestra.push({ filaNum: r + 1, valor: val });
+      if (omitidasMuestra.length < 8) omitidasMuestra.push({ filaNum: filaFisicaDe(r), valor: val });
     }
   }
 

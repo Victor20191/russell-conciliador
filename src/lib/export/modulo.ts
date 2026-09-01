@@ -196,18 +196,18 @@ export type ControlExportModulo = {
 };
 
 function hojaControlSubtotales(wb: ExcelJS.Workbook, clasificadorEtiqueta: string, control: ControlExportModulo[], meta: MetaExportModulo) {
-  const ws = wb.addWorksheet("Control subtotales");
+  const ws = wb.addWorksheet("Control totales");
   ws.columns = [
     { header: clasificadorEtiqueta, key: "clasificador", width: 34 },
     { header: "Fila subtotal", key: "filaSubtotal", width: 14 },
     { header: "Movimientos", key: "items", width: 13 },
     { header: "Σ movimientos", key: "sumaMovimientos", width: 20 },
-    { header: "Subtotal del archivo", key: "subtotalArchivo", width: 20 },
+    { header: "Total del archivo", key: "subtotalArchivo", width: 20 },
     { header: "Diferencia", key: "diferencia", width: 18 },
     { header: "Estado", key: "estado", width: 12 },
   ];
   ws.spliceRows(1, 0, [], [], []);
-  ws.getCell("A1").value = `${meta.modulo} · ${meta.cliente} · Control de subtotales del archivo`;
+  ws.getCell("A1").value = `${meta.modulo} · ${meta.cliente} · Control de totales del archivo`;
   ws.getCell("A1").font = { bold: true, size: 13 };
   ws.getCell("A2").value = `Período ${meta.periodo} · v${meta.version} · los subtotales no se cargan: se comparan contra la suma de sus movimientos`;
   ws.getCell("A2").font = { color: { argb: "FF6B7280" } };

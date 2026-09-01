@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { MODULOS_IMPORT } from "../descriptores";
 import { transformarModulo } from "./transformar";
 import { invalidarValorAmbiguoIngresos, sugerirSpec, rolesRequeridosFaltantes } from "./sugerir";
+import { controlSubtotales } from "../subtotales";
 import type { GridHoja, CeldaCruda } from "@/lib/balance/extraccion/ingesta";
 import type { SpecModulo } from "./esquema";
 
@@ -346,6 +347,23 @@ describe("sugerirSpec (INV)", () => {
     expect(spec.columnas.valorUnitario).toBe(0);
   });
 
+  it("«COSTO» a secas es el valor TOTAL, no el unitario (empate: gana el rol requerido)", () => {
+    // Caso real de los inventarios: el archivo trae CANTIDAD y COSTO, donde COSTO ya es el
+    // costo de la línea. «costo» es fragmento tanto de «costo unitario» como de «costo total»,
+    // así que ambos roles puntúan igual; si gana el unitario, el valor total se DERIVA como
+    // cantidad × unitario y el módulo queda multiplicado por la cantidad.
+    const h = hoja([["Categoria", "Referencia", "Cantidad", "Costo"], ["1", "R-1", 23, 5_349_020.53]]);
+    const spec = sugerirSpec(INV, h);
+    expect(spec.columnas.valorTotal).toBe(4);
+    expect(spec.columnas.valorUnitario).toBe(0);
+    expect(transformarModulo(INV, spec, h).filas[0].valor).toBe(5_349_020.53);
+  });
+
+  it("con AMBAS columnas explícitas cada una va a su rol (el desempate no las toca)", () => {
+    const h = hoja([["Tipo", "Referencia", "Cantidad", "Costo unitario", "Costo total"], ["A", "R", 2, 5, 10]]);
+    expect(sugerirSpec(INV, h).columnas).toMatchObject({ valorUnitario: 4, valorTotal: 5 });
+  });
+
   it("no sugiere ni transforma el rol histórico tercero/proveedor", () => {
     const h = hoja([
       ["Tipo", "Referencia", "Valor total", "Proveedor"],
@@ -488,5 +506,97 @@ describe("subtotales en modo MANUAL (columna marcadora)", () => {
   it("sin la columna marcadora no marca nada (el modo manual no adivina)", () => {
     const r = transformarModulo(INV, { ...SPEC_MANUAL, subtotalesColumna: undefined }, hoja(filas));
     expect(r.filas.some((f) => f.tipoFila === "total")).toBe(false);
+  });
+
+  it("usa la fila física exacta como gran total y excluye el cuadro de control posterior", () => {
+    const filaM = (
+      tipo: CeldaCruda,
+      referencia: CeldaCruda,
+      descripcion: CeldaCruda,
+      cantidad: CeldaCruda,
+      valor: CeldaCruda,
+      rotuloControl: CeldaCruda = null,
+    ) => {
+      const celdas: CeldaCruda[] = Array.from({ length: 13 }, () => null);
+      celdas[0] = referencia;
+      celdas[2] = descripcion;
+      celdas[5] = tipo;
+      // En INVENTARIO.xlsx el cuadro de cierre se rotula en una columna auxiliar no
+      // mapeada; no debe confundirse con referencia/descripcion de un movimiento.
+      celdas[7] = rotuloControl;
+      celdas[11] = cantidad;
+      celdas[12] = valor;
+      return celdas;
+    };
+    const spec: SpecModulo = {
+      hoja: "Inventario",
+      filaEncabezado: 1,
+      primeraFilaDatos: 2,
+      columnas: { tipo: 6, referencia: 1, descripcion: 3, cantidad: 12, valorUnitario: 0, valorTotal: 13 },
+      subtotales: "manual",
+      subtotalesColumna: 13,
+      subtotalesFila: 1347,
+      subtotalesTexto: "6000",
+    };
+    const filas = [
+      filaM("Categoría", "Referencia", "Descripción", "Cantidad", "Costo"),
+      filaM("A", "R1", "Ítem 1", 1, 1_000),
+      filaM("A", "R2", "Ítem 2", 1, 2_000),
+      filaM("B", "R3", "Ítem 3", 1, 3_000),
+      filaM(null, null, null, null, 6_000, "SALDO INVENTARIO"),
+      filaM(null, null, null, null, 6_000.5, "BALANCE INVENTARIO"),
+      filaM(null, null, null, null, -0.5),
+      filaM(null, null, null, null, 5_999.9, "SALDO CONTABILIDAD"),
+      filaM(null, null, null, null, -0.1),
+      filaM(null, null, null, null, 5_999.9),
+      filaM(null, null, null, null, 0.1),
+    ];
+    const grid: GridHoja = {
+      nombre: "Inventario",
+      filas,
+      filasFisicas: [1, 2, 3, 4, 1347, 1349, 1350, 1351, 1352, 1355, 1357],
+    };
+
+    const r = transformarModulo(INV, spec, grid);
+
+    expect(r.filas.filter((f) => f.tipoFila === "movimiento").map((f) => f.filaNum)).toEqual([2, 3, 4]);
+    expect(r.filas.find((f) => f.filaNum === 1347)).toMatchObject({
+      tipoFila: "total",
+      valor: 6_000,
+      motivo: "gran_total:marca_manual",
+    });
+    expect(r.filas.filter((f) => f.tipoFila === "agrupadora").map((f) => f.filaNum))
+      .toEqual([1349, 1350, 1351, 1352, 1355, 1357]);
+    expect(r.filasLeidas).toBe(3);
+    expect(r.filasExcluidas).toBe(7);
+    expect(controlSubtotales(r.filas).granTotal).toMatchObject({
+      filaNum: 1347,
+      sumaMovimientos: 6_000,
+      subtotalArchivo: 6_000,
+      estado: "cuadra",
+    });
+  });
+
+  it("no excluye ni oculta detalle real posterior a la coordenada exacta", () => {
+    const spec: SpecModulo = {
+      ...SPEC_MANUAL,
+      subtotalesFila: 4,
+      subtotalesTexto: "300",
+    };
+    const conDetallePosterior: CeldaCruda[][] = [
+      [...ENC, "Marca"],
+      ["A", "R1", "Ítem 1", 1, 100, 100, null],
+      ["A", "R2", "Ítem 2", 1, 200, 200, null],
+      [null, null, null, null, null, 300, 300],
+      [null, null, null, null, null, -0.5, null],
+      ["B", "R3", "Detalle posterior", 1, 50, 50, null],
+    ];
+
+    const r = transformarModulo(INV, spec, hoja(conDetallePosterior));
+
+    expect(r.filas.find((f) => f.filaNum === 4)).toMatchObject({ tipoFila: "total", motivo: "gran_total:marca_manual" });
+    expect(r.filas.find((f) => f.filaNum === 5)?.tipoFila).toBe("movimiento");
+    expect(r.filas.find((f) => f.filaNum === 6)?.tipoFila).toBe("movimiento");
+    expect(controlSubtotales(r.filas).granTotal?.estado).toBe("descuadre");
   });
 });

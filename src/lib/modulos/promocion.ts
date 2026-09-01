@@ -8,6 +8,8 @@ export type FilaStagingModulo = {
   datos: Record<string, unknown>;
   tipoFila: string; // movimiento | agrupadora | total
   omitida: boolean | null; // tri-estado
+  /** Motivo de la detección («gran_total:…», «subtotal:…»): identifica el total del archivo. */
+  motivo?: string | null;
 };
 
 export type FilaDetalleModulo = {

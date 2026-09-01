@@ -36,13 +36,16 @@ export const SpecModuloSchema = z.object({
   //                          detalle / en negrita.
   //  - "rotulo": solo las filas que digan «Total»/«Subtotal».
   //  - "nunca" : desactivada (queda solo la negrita del transform).
-  //  - "manual": ninguna heurística; el usuario indica la COLUMNA que marca las filas de
-  //              subtotal (`subtotalesColumna`, 1-based sobre el archivo, puede no ser una
-  //              columna mapeada a ningún rol) y, opcionalmente, el TEXTO que la marca
-  //              (`subtotalesTexto`; vacío = basta con que la celda traiga algo).
+  //  - "manual": en una carga nueva, el usuario ubica una coordenada exacta
+  //              (`subtotalesColumna` + `subtotalesFila`) y el servidor vuelve a leer su
+  //              contenido (`subtotalesTexto`) del original. El perfil reutilizable retiene
+  //              columna+texto para describir el formato, pero nunca la fila del archivo.
   subtotales: z.enum(["auto", "rotulo", "nunca", "manual"]).optional(),
   subtotalesColumna: z.number().int().min(1).optional(),
   subtotalesTexto: z.string().max(80).optional(),
+  // Coordenada EFÍMERA del archivo actual. Autoriza exactamente una fila como gran total;
+  // nunca se copia al perfil reutilizable porque la posición puede cambiar en otro archivo.
+  subtotalesFila: z.number().int().min(1).max(1_048_576).optional(),
 });
 export type SpecModulo = z.infer<typeof SpecModuloSchema>;
 
