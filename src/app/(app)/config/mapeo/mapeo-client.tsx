@@ -23,6 +23,7 @@ import {
 import { crearSubgrupo, editarSubgrupo, eliminarSubgrupo } from "@/app/actions/subgrupos";
 import { esExcepcionCuenta, esMapeoManual } from "@/lib/balance/mapeo-cliente-config";
 import { detectarAnomaliasMapeo } from "@/lib/balance/anomalias-mapeo";
+import { cruzaClaseContable } from "@/lib/balance/clase-contable";
 import { crearMapeoCliente, editarMapeoCliente, eliminarMapeoCliente, confirmarMapeoCliente } from "@/app/actions/mapeo-cliente";
 
 export type Account = { id: number; code: string; level: number; name: string; cuenta6Russell: string | null; coincidencia: number | null; origenMapeo: string | null };
@@ -378,6 +379,11 @@ function MapeoClienteTab({ rows, std, accounts, clienteId, clienteNit, puedeMape
   // siempre al 100% y lo sin asignar no tiene nada que confirmar, así que «por confirmar»
   // está contenido en «automático».
   const [soloPorConfirmar, setSoloPorConfirmar] = useState(false);
+  // Tercer eje: la homologación manda el saldo a otro estado financiero. A veces es
+  // deliberado —reclasificar una cuenta que el ERP codificó mal— por eso es un filtro
+  // para auditar y no una marca en cada fila: son 1.032 de 18.424 en la plataforma, y
+  // marcarlas todas convertiría la señal en papel tapiz.
+  const [soloCruceClase, setSoloCruceClase] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<MapeoClienteRow | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<MapeoClienteRow | null>(null);
@@ -400,12 +406,14 @@ function MapeoClienteTab({ rows, std, accounts, clienteId, clienteNit, puedeMape
       return origen === "manual" ? esMapeoManual(r.origen) : r.origen === "automatico";
     })
     .filter((r) => !soloPorConfirmar || porConfirmar(r))
+    .filter((r) => !soloCruceClase || cruzaClaseContable(r.cuenta6, r.cuenta6Russell))
     .filter((r) => !needle || r.cuenta6.includes(needle) || r.cuenta6Russell.includes(needle) || (r.nombreRussell ?? "").toLowerCase().includes(needle) || r.nombreCuenta.toLowerCase().includes(needle));
   const pg = usePagination(filtered, 50);
   const manualCount = rows.filter((r) => esMapeoManual(r.origen)).length;
   const excepcionCount = rows.filter((r) => esExcepcionCuenta(r.origen)).length;
   const sinAsignarCount = rows.filter((r) => !r.cuenta6Russell).length;
   const porConfirmarCount = rows.filter(porConfirmar).length;
+  const cruceClaseCount = rows.filter((r) => cruzaClaseContable(r.cuenta6, r.cuenta6Russell)).length;
 
   return (
     <>
@@ -432,6 +440,14 @@ function MapeoClienteTab({ rows, std, accounts, clienteId, clienteNit, puedeMape
               className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11.5px] font-medium transition ${soloPorConfirmar ? "border-warn-300 bg-warn-100 text-warn-700" : "border-ink-200 text-ink-600 hover:bg-ink-50"}`}
             >
               <Icon name="warn" size={12} /> Por confirmar{porConfirmarCount > 0 ? ` (${porConfirmarCount})` : ""}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setSoloCruceClase((v) => !v); pg.resetToFirstPage(); }}
+              title="La cuenta del cliente y su estándar están en clases contables distintas"
+              className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11.5px] font-medium transition ${soloCruceClase ? "border-err-300 bg-err-100 text-err-700" : "border-ink-200 text-ink-600 hover:bg-ink-50"}`}
+            >
+              <Icon name="warn" size={12} /> Cruza de clase{cruceClaseCount > 0 ? ` (${cruceClaseCount})` : ""}
             </button>
             <input value={q} onChange={(e) => { setQ(e.target.value); pg.resetToFirstPage(); }} placeholder="filtrar por cuenta o estándar" className="w-64 rounded-md border border-ink-200 px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400" />
             <PageSizeSelect value={pg.pageSize} onChange={pg.setPageSize} />
@@ -535,7 +551,7 @@ function MapeoClienteTab({ rows, std, accounts, clienteId, clienteNit, puedeMape
           </div>
         )}
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-ink-100 px-4 py-2.5 text-[11.5px] text-ink-500">
-          <span>{rows.length} cuenta(s) · {manualCount} manual(es){excepcionCount > 0 ? ` · ${excepcionCount} de solo esta cuenta` : ""}{porConfirmarCount > 0 ? ` · ${porConfirmarCount} por confirmar` : ""}{sinAsignarCount > 0 ? ` · ${sinAsignarCount} sin asignar` : ""}</span>
+          <span>{rows.length} cuenta(s) · {manualCount} manual(es){excepcionCount > 0 ? ` · ${excepcionCount} de solo esta cuenta` : ""}{porConfirmarCount > 0 ? ` · ${porConfirmarCount} por confirmar` : ""}{cruceClaseCount > 0 ? ` · ${cruceClaseCount} cruzan de clase` : ""}{sinAsignarCount > 0 ? ` · ${sinAsignarCount} sin asignar` : ""}</span>
         </div>
         <PaginationFooter rangeLabel={pg.rangeLabel} currentPage={pg.page} totalPages={pg.totalPages} onPageChange={pg.setPage} />
       </Card>
