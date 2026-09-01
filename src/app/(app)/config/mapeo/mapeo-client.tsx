@@ -22,6 +22,7 @@ import {
 } from "@/app/actions/standard-accounts";
 import { crearSubgrupo, editarSubgrupo, eliminarSubgrupo } from "@/app/actions/subgrupos";
 import { esExcepcionCuenta, esMapeoManual } from "@/lib/balance/mapeo-cliente-config";
+import { detectarAnomaliasMapeo } from "@/lib/balance/anomalias-mapeo";
 import { crearMapeoCliente, editarMapeoCliente, eliminarMapeoCliente, confirmarMapeoCliente } from "@/app/actions/mapeo-cliente";
 
 export type Account = { id: number; code: string; level: number; name: string; cuenta6Russell: string | null; coincidencia: number | null; origenMapeo: string | null };
@@ -92,6 +93,15 @@ export default function MapeoClient({
   const [q, setQ] = useState("");
   const [level, setLevel] = useState<"all" | "4" | "6" | "8">("all");
   const [soloPendientes, setSoloPendientes] = useState(false);
+  const [soloAnomalias, setSoloAnomalias] = useState(false);
+  // Auxiliares cuyo mapeo NO se explica por la regla de su grupo. Es lo único que este
+  // informe muestra y la vista editable no: allí solo se listan el nivel 6 y las
+  // excepciones declaradas. Se indexa por código para pintarlo en la fila.
+  const anomalias = useMemo(() => {
+    const m = new Map<string, ReturnType<typeof detectarAnomaliasMapeo>[number]>();
+    for (const a of detectarAnomaliasMapeo(accounts.map((x) => ({ code: x.code, level: x.level, cuenta6Russell: x.cuenta6Russell, origenMapeo: x.origenMapeo })))) m.set(a.code, a);
+    return m;
+  }, [accounts]);
 
   const stdByCode = useMemo(() => new Map(std.map((s) => [s.code, s.name])), [std]);
   const stats = useMemo(() => ({
@@ -106,6 +116,7 @@ export default function MapeoClient({
   const rows = accounts
     .filter((a) => level === "all" || a.level === Number(level))
     .filter((a) => !soloPendientes || (!!a.cuenta6Russell && (a.coincidencia == null || a.coincidencia < 100)))
+    .filter((a) => !soloAnomalias || anomalias.has(a.code))
     .filter((a) => !q || a.code.includes(q) || a.name.toLowerCase().includes(q.toLowerCase()));
   const pg = usePagination(rows, 50);
 
@@ -181,13 +192,25 @@ export default function MapeoClient({
             >
               <Icon name="warn" size={12} /> Por confirmar{stats.porConfirmar > 0 ? ` (${stats.porConfirmar})` : ""}
             </button>
+            {/* Lo que este informe aporta y la vista editable no. Se ordena con los cruces
+                de clase primero: son los que mueven saldo de un estado financiero a otro. */}
+            <button
+              type="button"
+              onClick={() => { setSoloAnomalias((v) => !v); pg.resetToFirstPage(); }}
+              title="Auxiliares cuya homologación no coincide con la regla de su grupo"
+              className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11.5px] font-medium transition ${soloAnomalias ? "border-err-300 bg-err-100 text-err-700" : "border-ink-200 text-ink-600 hover:bg-ink-50"}`}
+            >
+              <Icon name="warn" size={12} /> Revisar{anomalias.size > 0 ? ` (${anomalias.size})` : ""}
+            </button>
             <input value={q} onChange={(e) => { setQ(e.target.value); pg.resetToFirstPage(); }} placeholder="Filtrar por código o nombre…" className="rounded-md border border-ink-200 px-2.5 py-1.5 text-[12px] outline-none focus:border-blue-400" />
             <PageSizeSelect value={pg.pageSize} onChange={pg.setPageSize} />
           </div>
         </div>
 
         {rows.length === 0 ? (
-          soloPendientes ? (
+          soloAnomalias ? (
+            <EmptyState icon="check" title="Sin anomalías" description="Todas las cuentas auxiliares de este cliente siguen la homologación de su grupo." />
+          ) : soloPendientes ? (
             <EmptyState icon="check" title="Nada por confirmar" description="Todas las cuentas con mapeo están confirmadas o son coincidencia exacta (100%)." />
           ) : (
             <EmptyState icon="doc" title="Sin cuentas para este cliente" description="Este cliente no tiene un PUC cargado en el repositorio de mapeo." />
@@ -213,7 +236,19 @@ export default function MapeoClient({
                     <tr key={a.id} className="border-b border-ink-50 last:border-0 hover:bg-ink-50">
                       <td className="px-3 py-2"><Chip label={`N${a.level}`} tone="ink" /></td>
                       <td className="px-3 py-2 font-mono text-ink-600" style={{ paddingLeft: a.level === 4 ? 12 : a.level === 6 ? 28 : 48 }}>{a.code}</td>
-                      <td className="px-3 py-2 text-ink-800">{a.level !== 4 && <span className="mr-1 text-ink-400">└</span>}{a.name}</td>
+                      <td className="px-3 py-2 text-ink-800">
+                        {a.level !== 4 && <span className="mr-1 text-ink-400">└</span>}{a.name}
+                        {(() => {
+                          const an = anomalias.get(a.code);
+                          if (!an) return null;
+                          const etiqueta = an.motivo === "sin-grupo"
+                            ? "Su grupo no tiene regla"
+                            : an.cruzaClase
+                              ? `Cruza de clase · su grupo va a ${an.cuenta6RussellDelGrupo}`
+                              : `Difiere de su grupo (${an.cuenta6RussellDelGrupo})`;
+                          return <span className="ml-2"><Chip label={etiqueta} tone={an.cruzaClase ? "err" : "warn"} /></span>;
+                        })()}
+                      </td>
                       <td className="px-3 py-2">
                         {sinMapeo ? (
                           <Chip label="Sin mapeo" tone="warn" />
@@ -245,7 +280,7 @@ export default function MapeoClient({
           </div>
         )}
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-ink-100 px-4 py-2.5 text-[11.5px] text-ink-500">
-          <span>{stats.stdMapped} mapeadas al estándar de {stats.total}{stats.porConfirmar > 0 ? ` · ${stats.porConfirmar} por confirmar` : ""}</span>
+          <span>{stats.stdMapped} mapeadas al estándar de {stats.total}{stats.porConfirmar > 0 ? ` · ${stats.porConfirmar} por confirmar` : ""}{anomalias.size > 0 ? ` · ${anomalias.size} por revisar` : ""}</span>
         </div>
         <PaginationFooter
           rangeLabel={pg.rangeLabel}
