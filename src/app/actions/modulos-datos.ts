@@ -72,7 +72,6 @@ const rutaModulo = (codigo: string) => `/modulos/${codigo.toLowerCase()}`;
 function revalidarListadosModulo(codigo: string) {
   revalidatePath(rutaModulo(codigo));
   revalidatePath(`${rutaModulo(codigo)}/borradores`);
-  revalidatePath(`${rutaModulo(codigo)}/bitacora`);
 }
 // Marca de idempotencia de un anexo (modo "agregar"): se guarda al final de las
 // observaciones del encabezado vigente para poder detectar un reintento del mismo
@@ -1440,7 +1439,6 @@ export async function actualizarDocumentacionArchivoModulo(input: {
       detail: `${archivo.moduloCodigo} · ${archivo.nombreArchivo}`,
       clientId: archivo.clienteId,
     });
-    revalidatePath(`${rutaModulo(archivo.moduloCodigo)}/bitacora`);
     return { ok: true, message: "Documentación del archivo actualizada." };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("actualizarDocumentacionArchivoModulo", e) };

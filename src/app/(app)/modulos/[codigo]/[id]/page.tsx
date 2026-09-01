@@ -315,14 +315,15 @@ export default async function DatoModuloPage({
     resumenMarcas: cruceAnotado?.resumen ?? null,
   };
 
-  // Cruce por tercero: habilitado por descriptor en TODOS los módulos. La clave del
-  // cruce es el rol `rolCruceTercero` (default "tercero"; Nómina cruza por cédula).
+  // Cruce por tercero: la configuración tipada del descriptor decide si el módulo
+  // consulta el balance por tercero y presenta la pestaña. Cambiar la disponibilidad
+  // no requiere tocar este loader ni el componente cliente.
   // Mismo criterio de emparejamiento de período que el cruce contable, pero contra
   // el balance abierto POR TERCERO del cliente (`balance_tercero_*`, capturado al
   // confirmar el borrador con apertura «por terceros»).
-  const tieneRolTercero = descriptor.crucePorTercero === true;
-  const rolCruceTercero = descriptor.rolCruceTercero ?? "tercero";
-  const rolNombreCruce = descriptor.rolNombreCruceTercero ?? null;
+  const tieneRolTercero = descriptor.crucePorTercero.habilitado;
+  const rolCruceTercero = descriptor.crucePorTercero.rolClave ?? "tercero";
+  const rolNombreCruce = descriptor.crucePorTercero.rolNombre ?? null;
   let cruceTercero: ResumenCruceTercero | null = null;
   let balanceTerceroEncontrado = false;
   // Cargue por tercero emparejado (mismo año-mes): lo necesita el enlace de la pestaña.

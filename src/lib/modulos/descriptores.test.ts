@@ -54,18 +54,23 @@ describe("descriptores de módulos", () => {
     });
   }
 
-  it("todos los módulos habilitan el cruce por tercero con un rol de columna existente", () => {
+  it("habilita el cruce por tercero solo en CxC, CxP e Ingresos", () => {
+    const habilitados = Object.values(MODULOS_IMPORT)
+      .filter((d) => d.crucePorTercero.habilitado)
+      .map((d) => d.codigo)
+      .sort();
+    expect(habilitados).toEqual(["CAR", "CXP", "ING"]);
+
     for (const d of Object.values(MODULOS_IMPORT)) {
-      expect(d.crucePorTercero, d.codigo).toBe(true);
-      const rolClave = d.rolCruceTercero ?? "tercero";
+      const rolClave = d.crucePorTercero.rolClave ?? "tercero";
       expect(d.columnas.some((c) => c.nombre === rolClave), `${d.codigo}: rol ${rolClave}`).toBe(true);
-      if (d.rolNombreCruceTercero) {
-        expect(d.columnas.some((c) => c.nombre === d.rolNombreCruceTercero), `${d.codigo}: rol ${d.rolNombreCruceTercero}`).toBe(true);
+      if (d.crucePorTercero.rolNombre) {
+        expect(d.columnas.some((c) => c.nombre === d.crucePorTercero.rolNombre), `${d.codigo}: rol ${d.crucePorTercero.rolNombre}`).toBe(true);
       }
     }
-    // Nómina cruza por la cédula del empleado, no por un NIT de tercero.
-    expect(MODULOS_IMPORT.NOM.rolCruceTercero).toBe("cedula");
-    expect(MODULOS_IMPORT.NOM.rolNombreCruceTercero).toBe("empleado");
+    // La parametrización queda lista para reactivar Nómina sin reconstruir sus roles.
+    expect(MODULOS_IMPORT.NOM.crucePorTercero.rolClave).toBe("cedula");
+    expect(MODULOS_IMPORT.NOM.crucePorTercero.rolNombre).toBe("empleado");
   });
 
   it("ING exige ingreso neto y no sugiere automáticamente el total de factura", () => {

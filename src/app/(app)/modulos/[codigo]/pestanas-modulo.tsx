@@ -1,12 +1,12 @@
 import Link from "next/link";
 
-// Pestañas de un módulo: «Cargados» (`/modulos/[codigo]`, lo oficial),
-// «Borradores» (lo pendiente de confirmar) y «Bitácora» (originales durables).
+// Pestañas de un módulo: «Cargados» (`/modulos/[codigo]`, lo oficial) y
+// «Borradores» (lo pendiente de confirmar).
 // Son enlaces reales —cada pestaña es su propia ruta con su `loading.tsx`— y
 // la activa la decide la página, no el pathname del cliente. La pestaña de
 // borradores exige `modulos_datos:crear`, igual que su pantalla: los roles de
 // consulta no la ven.
-export type PestanaModulo = "cargados" | "borradores" | "bitacora";
+export type PestanaModulo = "cargados" | "borradores";
 
 export function PestanasModulo({
   moduloCodigo,
@@ -26,7 +26,6 @@ export function PestanasModulo({
     ...(puedeVerBorradores
       ? [{ id: "borradores" as const, label: "Borradores", href: `${ruta}/borradores`, contador: borradoresPendientes }]
       : []),
-    { id: "bitacora", label: "Bitácora de archivos", href: `${ruta}/bitacora` },
   ];
 
   return (

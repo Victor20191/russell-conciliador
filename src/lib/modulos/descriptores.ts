@@ -37,6 +37,19 @@ export type Derivacion = { producto: [string, string] } | { cociente: [string, s
 /** Punto de verificación MANUAL al cargar (checklist de novedades, estilo balance). */
 export type Verificacion = { id: string; texto: string };
 
+/**
+ * Configuración del cruce entre el auxiliar del módulo y el balance por tercero.
+ * La activación es explícita por módulo para que habilitarlo o retirarlo no requiera
+ * cambiar la página, las consultas ni la pestaña que presentan el resultado.
+ */
+export interface ConfiguracionCrucePorTercero {
+  habilitado: boolean;
+  /** Rol que identifica al tercero (default `"tercero"`). */
+  rolClave?: string;
+  /** Rol con el nombre del tercero cuando viene en una columna aparte. */
+  rolNombre?: string;
+}
+
 export type DescriptorModulo = {
   /** Código del módulo (= `Module.code`). */
   codigo: string;
@@ -70,13 +83,8 @@ export type DescriptorModulo = {
   verificaciones?: Verificacion[];
   /** Verificaciones que obligatoriamente deben responderse «Sí» para promover. */
   verificacionesCriticasSi?: string[];
-  /** Habilita el cruce NIT a NIT solo cuando el auxiliar del módulo está validado para ello. */
-  crucePorTercero?: boolean;
-  /** Rol de columna que identifica al tercero en el cruce (default `"tercero"`).
-   *  Nómina cruza por la CÉDULA del empleado, no por un NIT de tercero. */
-  rolCruceTercero?: string;
-  /** Rol de columna con el NOMBRE del tercero cuando viene aparte (p. ej. `empleado`). */
-  rolNombreCruceTercero?: string;
+  /** Compuerta única del cruce por tercero y sus roles de columna. */
+  crucePorTercero: ConfiguracionCrucePorTercero;
 };
 
 const col = (nombre: string, etiqueta: string, tipo: TipoColumna, requerido = false, sinonimos?: string[]): RolColumna => ({ nombre, etiqueta, tipo, requerido, sinonimos });
@@ -109,7 +117,7 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     // La negrita en los inventarios NO es confiable como «es un subtotal»: se omite por
     // defecto (excluida del total) pero queda rescatable desde el borrador.
     negritaComoOmitida: true,
-    crucePorTercero: true,
+    crucePorTercero: { habilitado: false },
     verificaciones: [
       { id: "consignacion_recibida", texto: "Confirme si la compañía maneja mercancías recibidas en consignación." },
       { id: "consignacion_entregada", texto: "Verifique la existencia de bienes entregados en consignación." },
@@ -133,7 +141,7 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     clasificador: "grupo",
     valor: "costo",
     noNegativos: ["costo"],
-    crucePorTercero: true,
+    crucePorTercero: { habilitado: false },
     verificaciones: [
       { id: "afi_leasing", texto: "Confirme si existen activos adquiridos mediante leasing financiero." },
       { id: "afi_depreciados", texto: "Verifique el tratamiento de los activos totalmente depreciados que siguen en uso." },
@@ -156,7 +164,7 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     clasificador: "tipo",
     valor: "saldo",
     noNegativos: ["saldo"],
-    crucePorTercero: true,
+    crucePorTercero: { habilitado: true },
     verificaciones: [
       { id: "car_anticipos", texto: "Confirme si la cartera incluye saldos a favor de clientes (anticipos)." },
       { id: "car_vencida", texto: "Verifique la existencia de cartera vencida mayor a 360 días." },
@@ -179,7 +187,7 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     clasificador: "tipo",
     valor: "saldo",
     noNegativos: ["saldo"],
-    crucePorTercero: true,
+    crucePorTercero: { habilitado: true },
     verificaciones: [
       { id: "cxp_vinculados", texto: "Confirme si existen cuentas por pagar a vinculados económicos." },
       { id: "cxp_exterior", texto: "Verifique la existencia de obligaciones en moneda extranjera y su reexpresión." },
@@ -201,7 +209,7 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     clasificador: "concepto",
     valor: "valor",
     // Sin noNegativos: las devoluciones/notas crédito (valores negativos) son normales en ingresos.
-    crucePorTercero: true,
+    crucePorTercero: { habilitado: true },
     verificaciones: [
       { id: "ing_sin_impuestos", texto: "Confirme que el valor cargado corresponde al ingreso neto sin IVA ni otros impuestos y que las devoluciones o notas crédito conservan signo negativo." },
       { id: "ing_vinculados", texto: "Confirme si los ingresos incluyen operaciones con vinculados económicos." },
@@ -230,10 +238,12 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     clasificadorAlterno: "concepto",
     valor: "valor",
     noNegativos: ["valor"],
-    // El cruce por tercero de nómina es contra la CÉDULA del empleado.
-    crucePorTercero: true,
-    rolCruceTercero: "cedula",
-    rolNombreCruceTercero: "empleado",
+    // Si se reactiva, el cruce por tercero de nómina es contra la CÉDULA del empleado.
+    crucePorTercero: {
+      habilitado: false,
+      rolClave: "cedula",
+      rolNombre: "empleado",
+    },
     verificaciones: [
       { id: "nom_contratistas", texto: "Confirme si la nómina incluye pagos a contratistas por prestación de servicios." },
       { id: "nom_prestaciones", texto: "Verifique la provisión de prestaciones sociales del período." },

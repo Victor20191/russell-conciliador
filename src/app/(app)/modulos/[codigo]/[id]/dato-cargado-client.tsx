@@ -59,7 +59,7 @@ export type CruceContableVm = {
   resumenMarcas: ResumenMarcas | null;
 };
 // Cruce por tercero: balance abierto por tercero vs. auxiliar del módulo, clave a
-// clave (NIT, o cédula en Nómina). Habilitado por descriptor en todos los módulos.
+// clave. La compuerta tipada del descriptor lo habilita hoy en CAR, CXP e ING.
 // `resumen` es null cuando el período no tiene balance por tercero capturado
 // (estado vacío en la UI). Las etiquetas de la clave vienen del descriptor.
 export type CruceTerceroVm = {
