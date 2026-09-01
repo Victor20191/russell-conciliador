@@ -45,10 +45,11 @@ describe("normalizarSpecModulo", () => {
   it("conserva solo los roles del descriptor, completa faltantes con 0 y limpia índices inválidos", () => {
     const spec = normalizarSpecModulo(INV, specInv({
       hoja: "  Inventario ",
-      columnas: { tipo: 2, referencia: -4, valorTotal: 6.5, columnaAjena: 9 },
+      columnas: { tipo: 2, referencia: -4, valorTotal: 6.5, tercero: 7, columnaAjena: 9 },
     }));
     expect(spec.hoja).toBe("Inventario");
-    expect(spec.columnas).toEqual({ tipo: 2, referencia: 0, descripcion: 0, cantidad: 0, valorUnitario: 0, valorTotal: 0, tercero: 0 });
+    expect(spec.columnas).toEqual({ tipo: 2, referencia: 0, descripcion: 0, cantidad: 0, valorUnitario: 0, valorTotal: 0 });
+    expect("tercero" in spec.columnas).toBe(false);
     expect("columnaAjena" in spec.columnas).toBe(false);
     expect(spec.clasificadorModo).toBe("columna");
     expect(spec.arrastrarClasificador).toBeUndefined();

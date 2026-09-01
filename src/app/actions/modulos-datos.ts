@@ -34,6 +34,7 @@ import {
   sugerirSpec,
 } from "@/lib/modulos/extraccion/sugerir";
 import { seleccionarSugerenciasPerfil, type PerfilCandidato } from "@/lib/modulos/sugerencias-perfil";
+import { normalizarSpecModulo } from "@/lib/modulos/perfil-modulo";
 import { transformarModulo, resultadoAReconciliacion } from "@/lib/modulos/extraccion/transformar";
 import { promoverStaging, type FilaStagingModulo } from "@/lib/modulos/promocion";
 import {
@@ -156,12 +157,12 @@ export type AnalisisModulo = {
 
 async function specPerfilModulo(
   clienteId: number,
-  moduloCodigo: string,
+  descriptor: NonNullable<ReturnType<typeof descriptorModulo>>,
   candidatas: { huella: string }[],
 ): Promise<SpecModulo | null> {
   if (candidatas.length === 0) return null;
   const perfiles = await prisma.perfilCargaModulo.findMany({
-    where: { clienteId, moduloCodigo, huella: { in: candidatas.map((c) => c.huella) } },
+    where: { clienteId, moduloCodigo: descriptor.codigo, huella: { in: candidatas.map((c) => c.huella) } },
     select: { huella: true, specJson: true },
   });
   const porHuella = new Map(perfiles.map((perfil) => [perfil.huella, perfil.specJson]));
@@ -169,7 +170,7 @@ async function specPerfilModulo(
     const perfil = porHuella.get(candidata.huella);
     if (perfil == null) continue;
     const parsed = SpecModuloSchema.safeParse(perfil);
-    if (parsed.success) return parsed.data;
+    if (parsed.success) return normalizarSpecModulo(descriptor, parsed.data);
   }
   return null;
 }
@@ -480,13 +481,14 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
     // Spec de partida: perfil PROPIO por huella si existe; si no, sugerencia INDICATIVA de
     // otro cliente del mismo ERP (huella exacta) o, en último caso, el heurístico de IA.
     const candidatas = huellasCandidatas([hoja]);
-    const perfilSpec = await specPerfilModulo(clienteId, moduloCodigo, candidatas);
+    const perfilSpec = await specPerfilModulo(clienteId, descriptor, candidatas);
     let spec: SpecModulo;
     let origen: "perfil" | "sugerido" | "ia";
     let sugerencias: AnalisisModulo["sugerencias"];
     let valorAmbiguoInvalidado = false;
     const sanearValorInicial = (candidato: SpecModulo): SpecModulo => {
-      const saneado = invalidarValorAmbiguoIngresos(descriptor, hoja, candidato);
+      const normalizado = normalizarSpecModulo(descriptor, candidato);
+      const saneado = invalidarValorAmbiguoIngresos(descriptor, hoja, normalizado);
       if (saneado.invalidado) valorAmbiguoInvalidado = true;
       return saneado.spec;
     };
@@ -537,11 +539,7 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
             huella: p.huella,
             archivoEjemplo: p.archivoEjemplo,
             vecesUsado: p.vecesUsado,
-            spec: invalidarValorAmbiguoIngresos(
-              descriptor,
-              hoja,
-              SpecModuloSchema.parse(p.spec),
-            ).spec,
+            spec: sanearValorInicial(SpecModuloSchema.parse(p.spec)),
           })),
         };
       }
@@ -849,22 +847,24 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
       }
       const parsed = SpecModuloSchema.safeParse(specEditado);
       if (!parsed.success) return marcarNoProcesable("El mapeo de columnas no es válido.");
-      spec = parsed.data;
       // El origen es metadata de auditoría: se recompone contra fuentes del
       // servidor y nunca se acepta una etiqueta arbitraria enviada por el navegador.
-      const perfilSpec = await specPerfilModulo(clienteId, moduloCodigo, huellasCandidatas([hoja]));
+      spec = normalizarSpecModulo(descriptor, parsed.data);
+      const perfilSpec = await specPerfilModulo(clienteId, descriptor, huellasCandidatas([hoja]));
       if (perfilSpec && mismoSpecModulo(spec, perfilSpec)) origen = "perfil";
-      else if (mismoSpecModulo(spec, sugerirSpec(descriptor, hoja))) origen = "ia";
+      else if (mismoSpecModulo(spec, normalizarSpecModulo(descriptor, sugerirSpec(descriptor, hoja)))) origen = "ia";
       else origen = "manual";
     } else {
       const candidatas = huellasCandidatas([hoja]);
-      const perfilSpec = await specPerfilModulo(clienteId, moduloCodigo, candidatas);
+      const perfilSpec = await specPerfilModulo(clienteId, descriptor, candidatas);
       if (perfilSpec) { spec = perfilSpec; origen = "perfil"; }
       else { spec = sugerirSpec(descriptor, hoja); origen = "ia"; }
     }
 
     // Defensa en profundidad: perfiles antiguos, sugerencias ERP o un specJson
-    // manipulado no pueden volver a colar el total de factura como cuenta 41.
+    // manipulado solo conservan roles vigentes del descriptor. Después se aplica la
+    // protección específica que impide colar un total de factura como cuenta 41.
+    spec = normalizarSpecModulo(descriptor, spec);
     const valorSeguro = invalidarValorAmbiguoIngresos(descriptor, hoja, spec);
     if (valorSeguro.invalidado) {
       return marcarNoProcesable(

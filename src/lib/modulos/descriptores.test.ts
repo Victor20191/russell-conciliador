@@ -61,7 +61,14 @@ describe("descriptores de módulos", () => {
       .sort();
     expect(habilitados).toEqual(["CAR", "CXP", "ING"]);
 
+    const conRolGenericoTercero = Object.values(MODULOS_IMPORT)
+      .filter((d) => d.columnas.some((c) => c.nombre === "tercero"))
+      .map((d) => d.codigo)
+      .sort();
+    expect(conRolGenericoTercero).toEqual(["CAR", "CXP", "ING"]);
+
     for (const d of Object.values(MODULOS_IMPORT)) {
+      if (!d.crucePorTercero.habilitado && !d.crucePorTercero.rolClave) continue;
       const rolClave = d.crucePorTercero.rolClave ?? "tercero";
       expect(d.columnas.some((c) => c.nombre === rolClave), `${d.codigo}: rol ${rolClave}`).toBe(true);
       if (d.crucePorTercero.rolNombre) {

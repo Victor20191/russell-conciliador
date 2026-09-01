@@ -345,6 +345,22 @@ describe("sugerirSpec (INV)", () => {
     expect(spec.columnas.valorTotal).toBe(3);
     expect(spec.columnas.valorUnitario).toBe(0);
   });
+
+  it("no sugiere ni transforma el rol histórico tercero/proveedor", () => {
+    const h = hoja([
+      ["Tipo", "Referencia", "Valor total", "Proveedor"],
+      ["Materia prima", "R-1", 100, "900123456 ACME"],
+    ]);
+    const sugerido = sugerirSpec(INV, h);
+    expect(sugerido.columnas).not.toHaveProperty("tercero");
+
+    const legado: SpecModulo = {
+      ...sugerido,
+      columnas: { ...sugerido.columnas, tercero: 4 },
+    };
+    const transformado = transformarModulo(INV, legado, h);
+    expect(transformado.filas[0]?.datos).not.toHaveProperty("tercero");
+  });
 });
 
 describe("sugerirSpec (ING)", () => {
