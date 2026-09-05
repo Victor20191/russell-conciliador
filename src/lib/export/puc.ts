@@ -3,11 +3,11 @@
 // filas ya resueltas por la Route Handler y devuelve el Buffer del .xlsx. La
 // lectura de BD y el permiso viven en la Route Handler.
 //
-// El libro tiene UNA sola hoja — «Plan estándar Russell» — con el catálogo
-// completo. No incluye mapeo por cliente, memoria de homologación ni subgrupos.
-// Los filtros y la búsqueda de la pantalla no recortan la descarga.
+// Árbol completo 1/2/4/6 y detalle de subcuentas. Los filtros de la pantalla
+// no recortan la descarga. El catálogo del cliente es independiente.
 
 import ExcelJS from "exceljs";
+import { construirPucRussell, profundidadPuc, type CuentaCuatroPuc, type FilaPucRussell } from "@/lib/balance/puc-estandar";
 
 /** Una cuenta del plan estándar Russell (pestaña «Plan estándar Russell»). */
 export type FilaPucEstandar = {
@@ -29,9 +29,10 @@ export type FilaPucEstandar = {
 
 export type DatosExportacionPuc = {
   estandar: FilaPucEstandar[];
+  subgrupos?: CuentaCuatroPuc[];
 };
 
-const HOJA_ESTANDAR = "Plan estándar Russell";
+const HOJA_ESTANDAR = "Plan Estándar";
 
 const COLOR_HEADER = "FF0F2744";
 const COLOR_FILL = "FFFFFFFF";
@@ -171,6 +172,25 @@ export async function crearExportacionPuc(
   const wb = new ExcelJS.Workbook();
   wb.creator = "Russell LFM";
   wb.created = generadoEn;
+
+  const arbol = construirPucRussell(datos.estandar, datos.subgrupos ?? []);
+  const hojaPuc = agregarHoja<FilaPucRussell>(wb, "PUC Estándar Russell", [
+    { header: "Código", width: 16, valor: (f) => f.codigo, mono: true },
+    { header: "Nombre", width: 64, valor: (f) => f.nombre },
+    { header: "Nivel", width: 10, valor: (f) => f.nivel, align: "center" },
+    { header: "Naturaleza", width: 16, valor: (f) => f.naturaleza ? etiquetaNaturaleza(f.naturaleza) : null },
+    { header: "Cuenta padre", width: 16, valor: (f) => f.padre, mono: true },
+  ], arbol, "El PUC estándar no tiene cuentas cargadas.");
+  arbol.forEach((fila, i) => {
+    const row = hojaPuc.getRow(i + 2);
+    row.outlineLevel = profundidadPuc(fila.nivel);
+    row.getCell(1).numFmt = "@";
+    row.getCell(2).alignment = { vertical: "middle", indent: profundidadPuc(fila.nivel), wrapText: true };
+    if (fila.nivel <= 2) row.eachCell((cell) => {
+      cell.font = { bold: true, color: { argb: fila.nivel === 1 ? "FFFFFFFF" : "FF0F2744" } };
+      cell.fill = relleno(fila.nivel === 1 ? COLOR_HEADER : "FFE9EFF5");
+    });
+  });
 
   agregarHoja(
     wb,

@@ -10,8 +10,7 @@ export const dynamic = "force-dynamic";
 
 /**
  * Descarga el Excel del plan estándar Russell que muestra /config/mapeo.
- * Una sola hoja: el catálogo completo de cuentas estándar. No incluye el PUC
- * del cliente, la memoria de mapeo ni los subgrupos.
+ * Árbol completo 1/2/4/6 y detalle de subcuentas. No incluye memoria del cliente.
  */
 export async function GET() {
   // Mismo permiso que la página: quien puede verla, exporta.
@@ -21,9 +20,13 @@ export async function GET() {
   }
 
   try {
-    const standard = await prisma.standardAccount.findMany({ orderBy: { code: "asc" } });
+    const [standard, subgrupos] = await Promise.all([
+      prisma.standardAccount.findMany({ orderBy: { code: "asc" } }),
+      prisma.subgrupoEstandar.findMany({ orderBy: { codigo: "asc" } }),
+    ]);
 
     const datos: DatosExportacionPuc = {
+      subgrupos,
       estandar: standard.map((s) => ({
         code: s.code,
         name: s.name,

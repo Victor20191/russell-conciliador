@@ -1,5 +1,5 @@
 import { test, expect } from "vitest";
-import { pct, fmtCalendarDate, fmtContable, fmtDate, fmtDateTime, fmtDateTimeSeconds, fmtHora12, timeAgo } from "./format";
+import { pct, fmtCalendarDate, fmtContable, fmtDate, fmtDateTime, fmtDateTimeLong, fmtDateTimeSeconds, fmtHora12, timeAgo } from "./format";
 import { fmtPct } from "./format";
 
 test("pct redondea a porcentaje entero", () => {
@@ -68,4 +68,13 @@ test("fmtPct formatea con signo y 1 decimal", () => {
 
 test("fmtPct devuelve guion para null", () => {
   expect(fmtPct(null)).toBe("—");
+});
+
+test("el formato de fecha largo hidrata con separadores estables y zona Colombia", () => {
+  expect(fmtDateTimeLong("2026-09-01T14:14:00Z")).toBe("1/09/2026, 9:14 a. m.");
+  expect(fmtDateTimeLong("2026-09-02T04:15:00Z")).toBe("1/09/2026, 11:15 p. m.");
+  expect(fmtDateTimeLong("2026-09-01T17:00:00Z")).toBe("1/09/2026, 12:00 p. m.");
+  expect(fmtDateTimeLong("2026-09-01T05:00:00Z")).toBe("1/09/2026, 12:00 a. m.");
+  expect(fmtDateTimeLong(null)).toBe("—");
+  expect(fmtDateTimeLong("inválida")).toBe("—");
 });

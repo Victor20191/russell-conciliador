@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Card, Chip, EmptyState } from "@/components/ui";
 import { Icon } from "@/components/icons";
@@ -37,7 +38,8 @@ export function MapeoClienteTab({ accounts, std, anomalias, clienteId, clienteNi
   const niveles = useMemo(() => [...new Set(accounts.map((a) => a.level))].sort((a, b) => a - b), [accounts]);
   const pendientes = accounts.filter(porConfirmar).length;
   const cruces = accounts.filter((a) => cruzaClaseContable(a.code, a.cuenta6Russell)).length;
-  const sinAsignar = accounts.filter((a) => !a.cuenta6Russell).length;
+  const sinAsignar = accounts.filter((a) => !a.derivada && !a.cuenta6Russell).length;
+  const agrupadoras = accounts.filter((a) => a.derivada).length;
   const needle = q.trim().toLowerCase();
   const rows = useMemo(() => accounts.filter((a) => {
     if (nivel !== "all" && a.level !== Number(nivel)) return false;
@@ -104,16 +106,16 @@ export function MapeoClienteTab({ accounts, std, anomalias, clienteId, clienteNi
                     {a.cuenta6Russell ? <><span className="font-mono text-blue-600">{a.cuenta6Russell}</span><span className="mt-0.5 block text-[12px] text-ink-600">{nombreStd}</span></> : <Chip label="Asignar" tone="warn" />}
                   </button> : <span>{a.cuenta6Russell ? `${a.cuenta6Russell} · ${nombreStd ?? ""}` : "—"}</span>}
                 </td>
-                <td className="px-3 py-3"><Chip label={!a.enMemoria ? "Último balance" : !a.cuenta6Russell ? "Sin asignar" : esExcepcionCuenta(a.origenMapeo) ? "Solo esta cuenta" : esMapeoManual(a.origenMapeo) ? "Manual" : "Automático"} tone={esMapeoManual(a.origenMapeo) ? "blue" : "ink"} /></td>
+                <td className="px-3 py-3"><Chip label={a.derivada ? "Agrupadora" : !a.enMemoria ? "Último balance" : !a.cuenta6Russell ? "Sin asignar" : esExcepcionCuenta(a.origenMapeo) ? "Solo esta cuenta" : esMapeoManual(a.origenMapeo) ? "Manual" : "Automático"} tone={esMapeoManual(a.origenMapeo) ? "blue" : "ink"} /></td>
                 <td className="px-3 py-3 font-mono text-ink-600">{a.coincidencia != null ? `${a.coincidencia}%` : "—"}</td>
-                <td className="px-3 py-3 text-[11px] text-ink-500">{a.actualizadoEn ? fmtDateTimeLong(a.actualizadoEn) : "—"}{a.actualizadoPor && <span className="block">{a.actualizadoPor}</span>}</td>
+                <td className="px-3 py-3 text-[11px] text-ink-500">{a.actualizadoEn ? fmtDateTimeLong(a.actualizadoEn) : "—"}{a.actualizadoPor && <span className="block">{a.actualizadoPor}</span>}<OrigenHomologacion cuenta={a} /></td>
                 {puedeMapear && <td className="px-3 py-3">{a.code.length >= 4 && <button type="button" onClick={() => onEditar(a)} className="rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[11.5px] font-semibold text-navy-700 hover:bg-blue-50">{an ? "Corregir" : porConfirmar(a) ? "Confirmar / editar" : "Editar"}</button>}</td>}
               </tr>;
             })}{rows.length === 0 && <tr><td colSpan={puedeMapear ? 7 : 6} className="px-4 py-8 text-center text-ink-500">{revisar ? "No hay inconsistencias que coincidan con estos filtros." : "No hay cuentas que coincidan con estos filtros."}</td></tr>}</tbody>
           </table>
         </div>
       )}
-      <div className="border-t border-ink-100 px-4 py-2.5 text-[11.5px] text-ink-500">{accounts.length} cuentas acumuladas · {sinAsignar} sin asignar · {niveles.map((n) => `N${n}`).join(" / ")}</div>
+      <div className="border-t border-ink-100 px-4 py-2.5 text-[11.5px] text-ink-500">{accounts.length - agrupadoras} cuentas registradas{agrupadoras > 0 ? ` · ${agrupadoras} agrupadoras reconstruidas` : ""} · {sinAsignar} sin asignar · {niveles.map((n) => `N${n}`).join(" / ")}</div>
       <PaginationFooter rangeLabel={pg.rangeLabel} currentPage={pg.page} totalPages={pg.totalPages} onPageChange={pg.setPage} />
     </Card>
   );
@@ -172,7 +174,7 @@ export function HomologacionClienteForm({ cuenta, clienteId, std, accounts, onCl
         <input type="hidden" name="clienteId" value={clienteId} /><input type="hidden" name="alcance" value={alcance} /><input type="hidden" name="aplicarExistentes" value={aplicarExistentes ? "1" : "0"} />
         <fieldset disabled={pending} className="space-y-4">
           <label className="block text-[12px] font-semibold text-ink-700">Cuenta del cliente<input name="cuentaCliente" value={cuentaCliente} readOnly={!!cuenta} onChange={(e) => setCuentaCliente(e.target.value.trim())} pattern="\d{4,30}" required inputMode="numeric" placeholder="Código completo de la cuenta" className={`${INPUT} mt-1 font-mono ${cuenta ? "bg-ink-50" : ""}`} /></label>
-          {cuenta && <p className="text-[12px] text-ink-600">{cuenta.name}{!cuenta.enMemoria && <span className="mt-1 block">Cuenta recuperada de balances históricos. Al guardar se incorporará a la memoria del cliente.</span>}</p>}
+          {cuenta && <div className="text-[12px] text-ink-600"><p>{cuenta.name}</p><OrigenHomologacion cuenta={cuenta} />{!cuenta.enMemoria && <p className="mt-1">{cuenta.derivada ? "Agrupadora reconstruida a partir de los códigos del cliente; su nombre original no está registrado. Una regla individual se aplica solo a este código exacto." : "Cuenta recuperada de balances históricos."} Al guardar se incorporará a la memoria del cliente.</p>}</div>}
           <div className="grid gap-2 sm:grid-cols-2">
             <label className="block text-[12px] font-semibold text-ink-700">Buscar cuenta estándar<input value={busquedaStd} onChange={(e) => setBusquedaStd(e.target.value)} placeholder="Código o nombre Russell" className={`${INPUT} mt-1 font-normal`} /></label>
             <label className="block text-[12px] font-semibold text-ink-700">Cuenta estándar Russell<select name="codigo" required value={codigo} onChange={(e) => setCodigo(e.target.value)} className={`${INPUT} mt-1 font-normal`}><option value="">Selecciona una cuenta</option>{opciones.map((s) => <option key={s.code} value={s.code}>{s.code} · {s.name}</option>)}</select></label>
@@ -196,4 +198,16 @@ export function HomologacionClienteForm({ cuenta, clienteId, std, accounts, onCl
       </form>
     )}
   </Modal>;
+}
+
+
+function OrigenHomologacion({ cuenta }: { cuenta: CuentaPucCliente }) {
+  const p = cuenta.procedencia;
+  if (cuenta.derivada) return <span className="mt-1 block text-ink-400">Estructura por código</span>;
+  if (!p) return <span className="mt-1 block text-ink-400">Origen no registrado</span>;
+  if (p.fuente === "configuracion") return <span className="mt-1 block">Configuración del cliente</span>;
+  const etiqueta = `${p.fuente === "historico" ? "Referencia" : p.fuente === "carga" ? "Carga" : "Edición"} · ${p.periodo ?? "Balance"}${p.version ? ` · ${p.version}` : ""}`;
+  return cuenta.balanceDisponible && p.balance_id
+    ? <Link href={`/balance/${p.balance_id}`} className="mt-1 block text-blue-600 hover:underline">{etiqueta}</Link>
+    : <span className="mt-1 block">{etiqueta}{p.balance_id ? " · balance no disponible" : ""}</span>;
 }

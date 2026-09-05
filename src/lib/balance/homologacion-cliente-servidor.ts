@@ -1,3 +1,4 @@
+import { procedenciaConfiguracion } from "./procedencia-mapeo";
 // Homologación manual del PUC acumulado del cliente (`/config/mapeo`) contra
 // los balances YA CARGADOS. Complementa `alcance-homologacion.ts` (que resuelve
 // el alcance sobre el ÚNICO encabezado que se está viendo) con la variante que
@@ -309,6 +310,7 @@ export async function escribirMemoriaHomologacionCliente(
       origenMapeo: params.origen,
       actualizadoPor: params.actualizadoPor,
       actualizadoEn: ahora,
+      procedenciaMapeo: procedenciaConfiguracion(),
     },
     update: {
       nit: params.nit,
@@ -317,6 +319,7 @@ export async function escribirMemoriaHomologacionCliente(
       origenMapeo: params.origen,
       actualizadoPor: params.actualizadoPor,
       actualizadoEn: ahora,
+      procedenciaMapeo: procedenciaConfiguracion(),
     },
   });
 
@@ -342,6 +345,7 @@ export async function escribirMemoriaHomologacionCliente(
       origenMapeo: ORIGEN_MANUAL_GRUPO,
       actualizadoPor: params.actualizadoPor,
       actualizadoEn: ahora,
+      procedenciaMapeo: procedenciaConfiguracion(),
     },
   });
   return { excepcionesAfectadas };

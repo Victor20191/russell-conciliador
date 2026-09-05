@@ -3,9 +3,8 @@
 import { EstadoProcesando } from "@/components/estado-procesando";
 
 import { useActionState, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
-import { Card, Chip, StatCard, EmptyState } from "@/components/ui";
+import { Card, Chip } from "@/components/ui";
 import {
   PageSizeSelect,
   PaginationFooter,
@@ -20,9 +19,9 @@ import {
   deleteStandardAccount,
 } from "@/app/actions/standard-accounts";
 import { crearSubgrupo, editarSubgrupo, eliminarSubgrupo } from "@/app/actions/subgrupos";
-import { esExcepcionCuenta } from "@/lib/balance/mapeo-cliente-config";
 import { detectarAnomaliasMapeo } from "@/lib/balance/anomalias-mapeo";
 import { MapeoClienteTab, HomologacionClienteForm } from "./homologacion-client";
+import { construirPucRussell, filtrarPucRussell, profundidadPuc, type FilaPucRussell } from "@/lib/balance/puc-estandar";
 import type { CuentaPucCliente } from "@/lib/balance/catalogo-puc-cliente";
 
 export type Account = CuentaPucCliente;
@@ -56,229 +55,33 @@ export type StdLogRow = {
 
 export type Subgrupo = { id: number; codigo: string; nombre: string; grupo: string; nombreGrupo: string; naturaleza: string };
 
-type Tab = "mapping" | "standard" | "subgrupos" | "mapeocliente";
+type Tab = "cliente" | "puc" | "standard";
 
 export default function MapeoClient({
   clientNames, cliente, accounts, std, subgrupos, canManage, logs, lockedStdCodes, clienteId, clienteNit, puedeMapear,
 }: {
   clientNames: string[]; cliente: string; accounts: Account[]; std: StdAccount[]; subgrupos: Subgrupo[]; canManage: boolean; logs: StdLogRow[]; lockedStdCodes: string[]; clienteId: number | null; clienteNit: string | null; puedeMapear: boolean;
 }) {
-  const router = useRouter();
-  const [tab, setTab] = useState<Tab>("mapeocliente");
-  const [q, setQ] = useState("");
-  const [level, setLevel] = useState("all");
+  const [tab, setTab] = useState<Tab>("cliente");
   const [editTarget, setEditTarget] = useState<Account | null | undefined>(undefined);
-  const niveles = useMemo(() => [...new Set(accounts.map((a) => a.level))].sort((a, b) => a - b), [accounts]);
-  const [soloPendientes, setSoloPendientes] = useState(false);
-  const [soloAnomalias, setSoloAnomalias] = useState(false);
-  // Una sola detección para el informe y la vista editable; las cuentas recuperadas
-  // del histórico no se interpretan como reglas de la memoria.
-  const anomalias = useMemo(() => {
-    const m = new Map<string, ReturnType<typeof detectarAnomaliasMapeo>[number]>();
-    for (const a of detectarAnomaliasMapeo(accounts.filter((a) => a.enMemoria))) m.set(a.code, a);
-    return m;
-  }, [accounts]);
-
-  const stdByCode = useMemo(() => new Map(std.map((s) => [s.code, s.name])), [std]);
-  const stats = useMemo(() => ({
-    total: accounts.length,
-    stdMapped: accounts.filter((a) => a.cuenta6Russell).length,
-    porConfirmar: accounts.filter((a) => a.cuenta6Russell && (a.coincidencia == null || a.coincidencia < 100)).length,
-  }), [accounts]);
-
-  const rows = accounts
-    .filter((a) => level === "all" || a.level === Number(level))
-    .filter((a) => !soloPendientes || (!!a.cuenta6Russell && (a.coincidencia == null || a.coincidencia < 100)))
-    .filter((a) => !soloAnomalias || anomalias.has(a.code))
-    .filter((a) => !q || a.code.includes(q) || a.name.toLowerCase().includes(q.toLowerCase()));
-  const pg = usePagination(rows, 50);
-
-  const stdCoverage = stats.total > 0 ? Math.round((stats.stdMapped / stats.total) * 100) : 0;
-
+  const anomalias = useMemo(() => new Map(detectarAnomaliasMapeo(accounts.filter((a) => a.enMemoria)).map((a) => [a.code, a])), [accounts]);
+  const puc = useMemo(() => construirPucRussell(std, subgrupos), [std, subgrupos]);
   return (
     <div>
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <TabBtn on={tab === "mapeocliente"} onClick={() => setTab("mapeocliente")} label="Mapeo balance/cliente" count={accounts.length} />
-        <TabBtn on={tab === "mapping"} onClick={() => setTab("mapping")} label="Mapeo por cliente" count={accounts.length} />
-        <TabBtn on={tab === "standard"} onClick={() => setTab("standard")} label="Plan estándar Russell" count={std.length} />
-        <TabBtn on={tab === "subgrupos"} onClick={() => setTab("subgrupos")} label="Subgrupos (nivel 4)" count={subgrupos.length} />
-        {/* Descarga SOLO el plan estándar Russell (catálogo completo). Vive en la barra de
-            pestañas, así que se ve también desde las otras tres: el rótulo dice QUÉ baja
-            para que desde «Mapeo por cliente» o «Subgrupos» no se espere el contenido de
-            esa pestaña. */}
-        <a
-          href="/config/mapeo/exportar"
-          download
-          title="Descargar el plan de cuentas estándar Russell en Excel. Solo baja ese catálogo: no incluye el PUC del cliente, la memoria de mapeo ni los subgrupos."
-          className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-white px-3 py-1.5 text-[12.5px] font-semibold text-ink-700 transition hover:bg-ink-50"
-        >
-          <Icon name="download" size={13} /> Exportar plan estándar
+      <div className="mb-4 flex flex-wrap items-center gap-2" role="tablist" aria-label="Planes de cuentas">
+        <TabBtn on={tab === "cliente"} onClick={() => setTab("cliente")} label="Homologación por cliente" count={accounts.length} />
+        <TabBtn on={tab === "puc"} onClick={() => setTab("puc")} label="PUC Estándar Russell" count={puc.length} />
+        <TabBtn on={tab === "standard"} onClick={() => setTab("standard")} label="Plan Estándar" count={std.length} />
+        <a href="/config/mapeo/exportar" download title="Descargar PUC completo (niveles 1, 2, 4 y 6) y detalle de subcuentas" className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-white px-3 py-1.5 text-[12.5px] font-semibold text-ink-700 hover:bg-ink-50">
+          <Icon name="download" size={13} /> Descargar PUC completo
         </a>
       </div>
-
-      {tab === "mapping" ? (
-        <>
-      {/* El informe comparte el editor de homologación con la vista del PUC. */}
-      <div className="mb-4 rounded-md border border-ink-200 bg-ink-50 px-3 py-2 text-[11.5px] leading-relaxed text-ink-600">
-        <b className="text-ink-700">Informe de consulta.</b> Muestra el PUC completo de <b>{cliente}</b> (todos los niveles) con la
-        cuenta estándar que tiene asignada hoy. Puedes corregir una cuenta desde su estándar o administrar el catálogo en <b>Mapeo balance/cliente</b>.
-      </div>
-
-      {/* KPIs */}
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <Card className="p-4">
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">Cliente</div>
-          <div className="mt-1 text-[15px] font-semibold text-ink-900">{cliente}</div>
-          <div className="mt-1 text-[12px] text-ink-500">PUC del cliente</div>
-        </Card>
-        <Card className="p-4">
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">Cuentas del cliente</div>
-          <div className="mt-1 font-mono text-2xl font-semibold text-ink-900">{stats.total}</div>
-          <div className="mt-1 flex flex-wrap gap-1.5">
-            {niveles.map((n) => <Chip key={n} label={`N${n}`} tone="ink" />)}
-          </div>
-        </Card>
-        <StatCard label="Mapeadas a estándar" value={`${stats.stdMapped}/${stats.total}`} hint={`${stdCoverage}% cobertura`} tone="ok" />
-        <StatCard label="Por confirmar" value={String(stats.porConfirmar)} hint="coincidencia < 100%" tone={stats.porConfirmar > 0 ? "warn" : "ok"} />
-      </div>
-
-      {/* Leyenda */}
-      <div className="mt-4 flex flex-wrap items-center gap-2 text-[12px] text-ink-500">
-        <span className="rounded-md bg-ink-50 px-2.5 py-1.5"><b className="text-ink-700">Cuenta del cliente</b> · PUC (todos los niveles)</span>
-        <Icon name="chev-r" size={12} />
-        <span className="rounded-md bg-ink-50 px-2.5 py-1.5"><b className="text-ink-700">Cuenta estándar</b> · plan Russell (6 díg)</span>
-        <Icon name="chev-r" size={12} />
-        <span className="rounded-md bg-ink-50 px-2.5 py-1.5"><b className="text-ink-700">% + Confirmación</b> · estado del mapeo</span>
-      </div>
-
-      {/* Tabla */}
-      <Card className="mt-4">
-        <div className="flex flex-wrap items-center gap-2 border-b border-ink-100 px-4 py-3">
-          <h2 className="text-[13px] font-semibold text-ink-800">Parametrización cuenta a cuenta</h2>
-          <select
-            value={cliente}
-            onChange={(e) => router.push(`/config/mapeo?cliente=${encodeURIComponent(e.target.value)}`)}
-            className="rounded-md border border-ink-200 px-2 py-1 text-[12px] text-ink-700 outline-none"
-          >
-            {clientNames.map((n) => <option key={n} value={n}>{n}</option>)}
-          </select>
-          <div className="ml-auto flex flex-wrap items-center gap-2">
-            <div className="flex flex-wrap overflow-hidden rounded-md border border-ink-200 text-[11.5px]">
-              {["all", ...niveles.map(String)].map((l) => (
-                <button key={l} onClick={() => { setLevel(l); pg.resetToFirstPage(); }} className={`px-2.5 py-1 ${level === l ? "bg-navy-800 text-white" : "bg-white text-ink-600 hover:bg-ink-50"}`}>{l === "all" ? "Todos" : `N${l}`}</button>
-              ))}
-            </div>
-            <button
-              type="button"
-              onClick={() => { setSoloPendientes((v) => !v); pg.resetToFirstPage(); }}
-              className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11.5px] font-medium transition ${soloPendientes ? "border-warn-300 bg-warn-100 text-warn-700" : "border-ink-200 text-ink-600 hover:bg-ink-50"}`}
-            >
-              <Icon name="warn" size={12} /> Por confirmar{stats.porConfirmar > 0 ? ` (${stats.porConfirmar})` : ""}
-            </button>
-            {/* Lo que este informe aporta y la vista editable no. Se ordena con los cruces
-                de clase primero: son los que mueven saldo de un estado financiero a otro. */}
-            <button
-              type="button"
-              onClick={() => { setSoloAnomalias((v) => !v); pg.resetToFirstPage(); }}
-              title="Auxiliares cuya homologación no coincide con la regla de su grupo"
-              className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11.5px] font-medium transition ${soloAnomalias ? "border-err-300 bg-err-100 text-err-700" : "border-ink-200 text-ink-600 hover:bg-ink-50"}`}
-            >
-              <Icon name="warn" size={12} /> Revisar{anomalias.size > 0 ? ` (${anomalias.size})` : ""}
-            </button>
-            <input value={q} onChange={(e) => { setQ(e.target.value); pg.resetToFirstPage(); }} placeholder="Filtrar por código o nombre…" className="rounded-md border border-ink-200 px-2.5 py-1.5 text-[12px] outline-none focus:border-blue-400" />
-            <PageSizeSelect value={pg.pageSize} onChange={pg.setPageSize} />
-          </div>
-        </div>
-
-        {rows.length === 0 ? (
-          soloAnomalias ? (
-            <EmptyState icon="check" title="Sin anomalías" description="Todas las cuentas auxiliares de este cliente siguen la homologación de su grupo." />
-          ) : soloPendientes ? (
-            <EmptyState icon="check" title="Nada por confirmar" description="Todas las cuentas con mapeo están confirmadas o son coincidencia exacta (100%)." />
-          ) : (
-            <EmptyState icon="doc" title="Sin cuentas para este cliente" description="Este cliente no tiene un PUC cargado en el repositorio de mapeo." />
-          )
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-[12.5px]">
-              <thead>
-                <tr className="border-b border-ink-100 text-left text-[11px] uppercase tracking-wider text-ink-500">
-                  <th className="px-3 py-2 font-semibold">Nivel</th>
-                  <th className="px-3 py-2 font-semibold">Código</th>
-                  <th className="px-3 py-2 font-semibold">Nombre cuenta (ERP)</th>
-                  <th className="px-3 py-2 font-semibold">Cuenta estándar (balance)</th>
-                  <th className="px-3 py-2 font-semibold">% Coincidencia</th>
-                  <th className="px-3 py-2 font-semibold">Confirmación</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pg.pageItems.map((a) => {
-                  const sinMapeo = !a.cuenta6Russell;
-                  const confirmado = a.coincidencia != null && a.coincidencia >= 100;
-                  return (
-                    <tr key={a.id} className="border-b border-ink-50 last:border-0 hover:bg-ink-50">
-                      <td className="px-3 py-2"><Chip label={`N${a.level}`} tone="ink" /></td>
-                      <td className="px-3 py-2 font-mono text-ink-600" style={{ paddingLeft: 12 + Math.max(0, a.level - 4) * 5 }}>{a.code}</td>
-                      <td className="px-3 py-2 text-ink-800">
-                        {a.level !== 4 && <span className="mr-1 text-ink-400">└</span>}{a.name}
-                        {(() => {
-                          const an = anomalias.get(a.code);
-                          if (!an) return null;
-                          const etiqueta = an.cruzaClase
-                            ? `Cruza de clase · su grupo va a ${an.cuenta6RussellDelGrupo}`
-                            : `Difiere de su grupo (${an.cuenta6RussellDelGrupo})`;
-                          return <span className="ml-2"><Chip label={etiqueta} tone={an.cruzaClase ? "err" : "warn"} /></span>;
-                        })()}
-                      </td>
-                      <td className="px-3 py-2">
-                        {puedeMapear && a.code.length >= 4 ? (
-                          <button type="button" onClick={() => setEditTarget(a)} className="text-left text-blue-600 hover:underline" title={`Editar homologación de ${a.code}`}>{a.cuenta6Russell ? `${a.cuenta6Russell} · ${stdByCode.get(a.cuenta6Russell) ?? ""}` : "Asignar"}</button>
-                        ) : sinMapeo ? (
-                          <Chip label="Sin mapeo" tone="warn" />
-                        ) : (
-                          <span className="font-mono text-[11.5px] text-blue-600">{a.cuenta6Russell}{stdByCode.get(a.cuenta6Russell!) ? <span className="ml-1 font-sans text-ink-500">· {stdByCode.get(a.cuenta6Russell!)}</span> : null}</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2">
-                        {sinMapeo || a.coincidencia == null ? (
-                          <span className="text-ink-400">—</span>
-                        ) : (
-                          <span className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${a.coincidencia >= 85 ? "bg-ok-100 text-ok-700" : a.coincidencia >= 55 ? "bg-warn-100 text-warn-700" : "bg-err-100 text-err-700"}`}>{a.coincidencia}%</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2">
-                        {sinMapeo ? (
-                          <span className="text-ink-400">—</span>
-                        ) : confirmado ? (
-                          <Chip label={esExcepcionCuenta(a.origenMapeo) ? "Solo esta cuenta" : a.origenMapeo === "manual" ? "Confirmado" : "Exacto"} tone="ok" />
-                        ) : (
-                          <Chip label="Por confirmar" tone="warn" />
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-ink-100 px-4 py-2.5 text-[11.5px] text-ink-500">
-          <span>{stats.stdMapped} mapeadas al estándar de {stats.total}{stats.porConfirmar > 0 ? ` · ${stats.porConfirmar} por confirmar` : ""}{anomalias.size > 0 ? ` · ${anomalias.size} por revisar` : ""}</span>
-        </div>
-        <PaginationFooter
-          rangeLabel={pg.rangeLabel}
-          currentPage={pg.page}
-          totalPages={pg.totalPages}
-          onPageChange={pg.setPage}
-        />
-      </Card>
-        </>
-      ) : tab === "mapeocliente" ? (
+      {tab === "cliente" ? (
         <MapeoClienteTab accounts={accounts} std={std} anomalias={anomalias} clienteId={clienteId} clienteNit={clienteNit} puedeMapear={puedeMapear} cliente={cliente} clientNames={clientNames} onEditar={setEditTarget} />
       ) : tab === "standard" ? (
         <StandardTab std={std} canManage={canManage} logs={logs} lockedStdCodes={lockedStdCodes} />
       ) : (
-        <SubgruposTab subgrupos={subgrupos} canManage={canManage} />
+        <PucEstandarTab puc={puc} subgrupos={subgrupos} std={std} canManage={canManage} lockedStdCodes={lockedStdCodes} />
       )}
       {puedeMapear && clienteId != null && editTarget !== undefined && (
         <HomologacionClienteForm cuenta={editTarget} clienteId={clienteId} std={std} accounts={accounts} onClose={() => setEditTarget(undefined)} />
@@ -341,7 +144,7 @@ function StandardTab({ std, canManage, logs, lockedStdCodes }: { std: StdAccount
                 onClick={() => setCreateOpen(true)}
                 className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-800"
               >
-                Nueva cuenta
+                Nueva Subcuenta
               </button>
             </>
           )}
@@ -479,7 +282,7 @@ function StandardAccountForm({
       open
       onClose={onClose}
       size="3xl"
-      title={isEdit ? `Editar cuenta estándar · ${a?.code}` : "Nueva cuenta estándar"}
+      title={isEdit ? `Editar cuenta estándar · ${a?.code}` : "Nueva Subcuenta"}
       footer={
         <div className="flex w-full items-center justify-between gap-2">
           <div>
@@ -501,7 +304,7 @@ function StandardAccountForm({
             disabled={pending}
             className="rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-60"
           >
-            {pending ? <EstadoProcesando>Guardando</EstadoProcesando> : isEdit ? "Guardar cambios" : "Crear cuenta"}
+            {pending ? <EstadoProcesando>Guardando</EstadoProcesando> : isEdit ? "Guardar cambios" : "Crear subcuenta"}
           </button>
         </div>
       }
@@ -528,7 +331,7 @@ function StandardAccountForm({
             <input name="name" defaultValue={a?.name ?? ""} required className={INPUT_CLS} />
           </Campo>
           <Campo label="Nivel">
-            <input name="level" type="number" min={1} max={12} defaultValue={a?.level ?? 1} required className={INPUT_CLS} />
+            <input name="level" type="number" min={1} max={12} defaultValue={a?.level ?? 6} required className={INPUT_CLS} />
           </Campo>
           <Campo label="Naturaleza">
             <select name="nature" defaultValue={a?.nature ?? "D"} required className={INPUT_CLS}>
@@ -704,7 +507,7 @@ function LogsModal({ logs, onClose }: { logs: StdLogRow[]; onClose: () => void }
 
 function TabBtn({ on, onClick, label, count }: { on: boolean; onClick: () => void; label: string; count: number }) {
   return (
-    <button onClick={onClick} className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12.5px] font-medium transition ${on ? "bg-navy-800 text-white" : "text-ink-600 hover:bg-ink-100"}`}>
+    <button type="button" role="tab" aria-selected={on} onClick={onClick} className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12.5px] font-medium transition ${on ? "bg-navy-800 text-white" : "text-ink-600 hover:bg-ink-100"}`}>
       {label}
       <span className={`rounded-full px-1.5 text-[10px] font-semibold ${on ? "bg-white/20 text-white" : "bg-ink-100 text-ink-500"}`}>{count}</span>
     </button>
@@ -713,89 +516,53 @@ function TabBtn({ on, onClick, label, count }: { on: boolean; onClick: () => voi
 
 // ===== Subgrupos del plan estándar (nivel 4) — solo Administrador edita =====
 
-function SubgruposTab({ subgrupos, canManage }: { subgrupos: Subgrupo[]; canManage: boolean }) {
+function PucEstandarTab({ puc, subgrupos, std, canManage, lockedStdCodes }: {
+  puc: FilaPucRussell[]; subgrupos: Subgrupo[]; std: StdAccount[]; canManage: boolean; lockedStdCodes: string[];
+}) {
   const [q, setQ] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Subgrupo | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Subgrupo | null>(null);
-  const needle = q.trim().toLowerCase();
-  const rows = subgrupos.filter((s) => !needle || [s.codigo, s.nombre, s.grupo, s.nombreGrupo].some((v) => v.toLowerCase().includes(needle)));
-  const pg = usePagination(rows, 50);
-
-  return (
-    <>
-      <Card>
-        <div className="flex flex-wrap items-center gap-2 border-b border-ink-100 px-4 py-3">
-          <h2 className="text-[13px] font-semibold text-ink-800">Subgrupos del plan estándar (nivel 4)</h2>
-          <Chip label={`${pg.total} subgrupos`} tone="ink" />
-          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-            <input
-              value={q}
-              onChange={(e) => { setQ(e.target.value); pg.resetToFirstPage(); }}
-              placeholder="filtrar código, subgrupo o grupo"
-              className="w-72 rounded-md border border-ink-200 px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400"
-            />
-            <PageSizeSelect value={pg.pageSize} onChange={pg.setPageSize} />
-            {canManage && (
-              <button type="button" onClick={() => setCreateOpen(true)} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-800">
-                Nuevo subgrupo
-              </button>
-            )}
-          </div>
+  const [subcuenta, setSubcuenta] = useState<StdAccount | null>(null);
+  const filas = useMemo(() => filtrarPucRussell(puc, q), [puc, q]);
+  const cuentas4 = useMemo(() => new Map(subgrupos.map((s) => [s.codigo, s])), [subgrupos]);
+  const cuentas6 = useMemo(() => new Map(std.map((s) => [s.code, s])), [std]);
+  return <>
+    <Card>
+      <div className="flex flex-wrap items-center gap-3 border-b border-ink-100 px-4 py-3">
+        <div><h2 className="text-[13px] font-semibold text-ink-800">PUC Estándar Russell</h2><p className="mt-1 text-[12px] text-ink-500">Clases · grupos · cuentas · subcuentas</p></div>
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <input aria-label="Buscar en el PUC estándar" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Código o nombre de cuenta…" className="w-72 max-w-full rounded-md border border-ink-200 px-3 py-2 text-[12px] outline-none focus:border-blue-400" />
+          {canManage && <button type="button" onClick={() => setCreateOpen(true)} className="rounded-md bg-navy-700 px-3 py-2 text-[12px] font-semibold text-white hover:bg-navy-800">Nueva Cuenta</button>}
         </div>
-        {canManage && (
-          <div className="border-b border-ink-100 bg-blue-50/40 px-4 py-2 text-[11.5px] text-ink-600">
-            Estos nombres alimentan los <b>niveles 4 y 2</b> del balance normalizado. Haz clic en el <b>código</b> para editar.
-          </div>
-        )}
-        <div className="overflow-x-auto">
-          <table className="w-full text-[12.5px]">
-            <thead>
-              <tr className="border-b border-ink-100 text-left text-[11px] uppercase tracking-wider text-ink-500">
-                <th className="px-4 py-2 font-semibold">Código (4D)</th>
-                <th className="px-4 py-2 font-semibold">Subgrupo</th>
-                <th className="px-4 py-2 font-semibold">Grupo (2D)</th>
-                <th className="px-4 py-2 font-semibold">Nombre grupo</th>
-                <th className="px-4 py-2 font-semibold">Naturaleza</th>
-              </tr>
-            </thead>
-            <tbody>
-              {pg.pageItems.map((s) => (
-                <tr key={s.id} className="border-b border-ink-50 last:border-0 hover:bg-ink-50">
-                  <td className="px-4 py-2.5 font-mono text-ink-600">
-                    {canManage ? (
-                      <button type="button" onClick={() => setEditTarget(s)} title="Editar subgrupo" className="font-mono font-semibold text-blue-600 hover:underline">{s.codigo}</button>
-                    ) : (
-                      s.codigo
-                    )}
-                  </td>
-                  <td className="min-w-56 px-4 py-2.5 font-medium text-ink-800">{s.nombre}</td>
-                  <td className="px-4 py-2.5 font-mono text-ink-500">{s.grupo}</td>
-                  <td className="min-w-44 px-4 py-2.5 text-ink-700">{s.nombreGrupo}</td>
-                  <td className="px-4 py-2.5"><Chip label={s.naturaleza === "D" ? "Débito" : "Crédito"} tone="ink" /></td>
-                </tr>
-              ))}
-              {rows.length === 0 && (
-                <tr><td colSpan={5} className="px-4 py-8 text-center text-ink-400">Sin subgrupos que coincidan con el filtro.</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-        <PaginationFooter rangeLabel={pg.rangeLabel} currentPage={pg.page} totalPages={pg.totalPages} onPageChange={pg.setPage} />
-      </Card>
-
-      {canManage && createOpen && <SubgrupoForm mode="create" onClose={() => setCreateOpen(false)} />}
-      {canManage && editTarget && (
-        <SubgrupoForm
-          mode="edit"
-          subgrupo={editTarget}
-          onClose={() => setEditTarget(null)}
-          onDelete={() => { const t = editTarget; setEditTarget(null); setDeleteTarget(t); }}
-        />
-      )}
-      {canManage && deleteTarget && <DeleteSubgrupoForm subgrupo={deleteTarget} onClose={() => setDeleteTarget(null)} />}
-    </>
-  );
+      </div>
+      <div className="max-h-[70vh] overflow-auto">
+        <table className="tabla-encabezado-fijo w-full text-[12.5px]">
+          <thead className="bg-ink-50 text-left text-[11px] uppercase tracking-wider text-ink-500"><tr><th className="px-4 py-2">Nivel</th><th className="px-4 py-2">Código / nombre</th><th className="px-4 py-2">Naturaleza</th></tr></thead>
+          <tbody>{filas.map((fila) => {
+            const editable = canManage && fila.catalogada && fila.nivel >= 4;
+            const abrir = () => {
+              if (fila.nivel === 4) setEditTarget(cuentas4.get(fila.codigo) ?? null);
+              else setSubcuenta(cuentas6.get(fila.codigo) ?? null);
+            };
+            return <tr key={fila.codigo} className={`border-b border-ink-100 ${fila.nivel === 1 ? "bg-navy-800 text-white" : fila.nivel === 2 ? "bg-blue-50 font-semibold text-navy-800" : "text-ink-700 hover:bg-ink-50"}`}>
+              <td className="w-20 px-4 py-2.5 text-[11px]">N{fila.nivel}</td>
+              <td className="py-2.5 pr-4" style={{ paddingLeft: 16 + profundidadPuc(fila.nivel) * 22 }}>
+                {editable ? <button type="button" onClick={abrir} className="text-left hover:text-blue-700 hover:underline" title={`Editar ${fila.codigo}`}><span className="mr-3 font-mono font-semibold">{fila.codigo}</span>{fila.nombre}</button> : <><span className="mr-3 font-mono font-semibold">{fila.codigo}</span>{fila.nombre}</>}
+                {fila.nivel === 4 && !fila.catalogada && <span className="ml-2 text-[11px] text-ink-400">Sin ficha de cuenta</span>}
+              </td>
+              <td className="w-36 px-4 py-2.5">{fila.naturaleza === "D" ? "Débito" : fila.naturaleza === "C" ? "Crédito" : "—"}</td>
+            </tr>;
+          })}{filas.length === 0 && <tr><td colSpan={3} className="px-4 py-8 text-center text-ink-500">No hay cuentas que coincidan.</td></tr>}</tbody>
+        </table>
+      </div>
+      <div className="border-t border-ink-100 px-4 py-2.5 text-[11.5px] text-ink-500">{filas.length} de {puc.length} registros · niveles 1, 2, 4 y 6 · la descarga incluye el PUC completo</div>
+    </Card>
+    {canManage && createOpen && <SubgrupoForm mode="create" onClose={() => setCreateOpen(false)} />}
+    {canManage && editTarget && <SubgrupoForm mode="edit" subgrupo={editTarget} onClose={() => setEditTarget(null)} onDelete={() => { setDeleteTarget(editTarget); setEditTarget(null); }} />}
+    {canManage && deleteTarget && <DeleteSubgrupoForm subgrupo={deleteTarget} onClose={() => setDeleteTarget(null)} />}
+    {canManage && subcuenta && <StandardAccountForm mode="edit" account={subcuenta} locked={lockedStdCodes.includes(subcuenta.code)} onClose={() => setSubcuenta(null)} />}
+  </>;
 }
 
 function SubgrupoForm({ mode, subgrupo, onClose, onDelete }: { mode: "create" | "edit"; subgrupo?: Subgrupo; onClose: () => void; onDelete?: () => void }) {
@@ -816,7 +583,7 @@ function SubgrupoForm({ mode, subgrupo, onClose, onDelete }: { mode: "create" | 
       open
       onClose={onClose}
       size="xl"
-      title={isEdit ? `Editar subgrupo · ${s?.codigo}` : "Nuevo subgrupo"}
+      title={isEdit ? `Editar subgrupo · ${s?.codigo}` : "Nueva Cuenta"}
       footer={
         <div className="flex w-full items-center justify-between gap-2">
           <div>
@@ -827,7 +594,7 @@ function SubgrupoForm({ mode, subgrupo, onClose, onDelete }: { mode: "create" | 
             )}
           </div>
           <button type="submit" form="subgrupo-form" disabled={pending} className="rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-60">
-            {pending ? <EstadoProcesando>Guardando</EstadoProcesando> : isEdit ? "Guardar cambios" : "Crear subgrupo"}
+            {pending ? <EstadoProcesando>Guardando</EstadoProcesando> : isEdit ? "Guardar cambios" : "Crear cuenta"}
           </button>
         </div>
       }
@@ -835,7 +602,7 @@ function SubgrupoForm({ mode, subgrupo, onClose, onDelete }: { mode: "create" | 
       <form id="subgrupo-form" action={action} className="flex flex-col gap-4">
         {isEdit && <input type="hidden" name="id" value={s!.id} />}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Campo label="Código del subgrupo (4 dígitos)">
+          <Campo label="Código de la cuenta (4 dígitos)">
             <input name="codigo" defaultValue={s?.codigo ?? ""} required inputMode="numeric" pattern="\d{4}" placeholder="1105" className={INPUT_CLS} />
             <p className="text-[11px] leading-snug text-ink-500">El grupo (nivel 2) se deriva de los 2 primeros dígitos.</p>
           </Campo>
@@ -845,7 +612,7 @@ function SubgrupoForm({ mode, subgrupo, onClose, onDelete }: { mode: "create" | 
               <option value="C">Crédito</option>
             </select>
           </Campo>
-          <Campo label="Nombre del subgrupo (nivel 4)" full>
+          <Campo label="Nombre de la cuenta (nivel 4)" full>
             <input name="nombre" defaultValue={s?.nombre ?? ""} required placeholder="Caja" className={INPUT_CLS} />
           </Campo>
           <Campo label="Nombre del grupo (nivel 2)" full>

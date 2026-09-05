@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useMemo, useState, useTransition } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, useTransition, type RefObject } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, Chip } from "@/components/ui";
@@ -18,6 +18,8 @@ import {
 } from "@/app/actions/modulos-datos";
 import { aplicarAsignacionMasiva, contarConCuentas, type ModoAsignacionMasiva } from "@/lib/modulos/consolidacion-masiva";
 import { resolverCuenta4, mensajeResolucion } from "@/lib/modulos/resolver-cuenta4";
+import { useAutoguardadoConsolidacion } from "@/lib/modulos/usar-autoguardado-consolidacion";
+import type { SnapshotAutoguardadoConsolidacion } from "@/lib/modulos/autoguardado-consolidacion";
 import { filtrarFilasDetalleModulo, hayFiltrosDetalleModulo, type FiltrosDetalleModulo } from "@/lib/modulos/filtros-detalle-modulo";
 import type { ResumenCruceContable } from "@/lib/modulos/cruce-contable";
 import type { ResumenCruceTercero } from "@/lib/modulos/cruce-tercero";
@@ -161,6 +163,7 @@ export default function DatoCargadoClient({
 }) {
   type TabId = "detalle" | "consolidado" | "cruce" | "cruceTercero" | "novedades" | "versiones";
   const [tab, setTab] = useState<TabId>(tabInicial ?? "consolidado");
+  const comprobarSalidaConsolidado = useRef<(() => boolean) | null>(null);
   const filasNovedad = new Set([...novedades.negativos, ...novedades.descuadres].map((n) => n.filaNum));
   const alertas = filasNovedad.size;
   const tabs: TabId[] = [
@@ -189,7 +192,7 @@ export default function DatoCargadoClient({
           <button
             key={t}
             type="button"
-            onClick={() => setTab(t)}
+            onClick={() => { if (comprobarSalidaConsolidado.current?.() !== false) setTab(t); }}
             className={`-mb-px border-b-2 px-3 py-2 text-[12.5px] font-semibold ${tab === t ? "border-navy-700 text-navy-700" : "border-transparent text-ink-500 hover:text-ink-700"}`}
           >
             {etiquetaTab(t)}
@@ -208,7 +211,7 @@ export default function DatoCargadoClient({
       </div>
 
       {tab === "consolidado" ? (
-        <ConsolidadoTab moduloCodigo={moduloCodigo} clienteId={clienteId} clasificadorEtiqueta={clasificadorEtiqueta} consolidado={consolidado} cuentas={cuentas} homologacionCliente={homologacionCliente} resolucionCliente={resolucionCliente} moduloLabel={moduloLabel} puedeEditar={puedeEditar} encabezadoId={encabezadoId} comentarios={comentarios} />
+        <ConsolidadoTab key={moduloCodigo === "INV" ? encabezadoId : undefined} comprobarSalidaRef={comprobarSalidaConsolidado} moduloCodigo={moduloCodigo} clienteId={clienteId} clasificadorEtiqueta={clasificadorEtiqueta} consolidado={consolidado} cuentas={cuentas} homologacionCliente={homologacionCliente} resolucionCliente={resolucionCliente} moduloLabel={moduloLabel} puedeEditar={puedeEditar} encabezadoId={encabezadoId} comentarios={comentarios} />
       ) : tab === "detalle" ? (
         <DetalleTab columnas={columnas} clasificadorEtiqueta={clasificadorEtiqueta} detalle={detalle} negativosFilas={filasNovedad} encabezadoId={encabezadoId} comentarios={comentarios} />
       ) : tab === "cruce" ? (
@@ -246,7 +249,45 @@ function cuentasInicialesConsolidado(consolidado: ConsolidadoVm[]): Record<strin
   }));
 }
 
+// Feedback visible del autoguardado (solo Inventarios): Guardando… / Guardado / Error
+// (con «Reintentar», sin ocultar la falla) / Cambios pendientes… mientras corre la pausa.
+function EstadoAutoguardadoIndicador({
+  snapshot,
+  onReintentar,
+}: {
+  snapshot: SnapshotAutoguardadoConsolidacion;
+  onReintentar: () => void;
+}) {
+  if (snapshot.estado === "guardando") {
+    return <span className="text-[11.5px] font-medium text-ink-500">Guardando…</span>;
+  }
+  if (snapshot.estado === "error") {
+    return (
+      <div className="flex items-center gap-2">
+        <span className="text-[11.5px] font-semibold text-err-700">
+          Error al guardar{snapshot.mensaje ? `: ${snapshot.mensaje}` : ""}
+        </span>
+        <button
+          type="button"
+          onClick={onReintentar}
+          className="rounded-md border border-err-500 bg-white px-2 py-1 text-[11px] font-semibold text-err-700 hover:bg-err-100/50"
+        >
+          Reintentar
+        </button>
+      </div>
+    );
+  }
+  if (snapshot.estado === "pendiente") {
+    return <span className="text-[11.5px] font-medium text-warn-700">Cambios pendientes…</span>;
+  }
+  if (snapshot.estado === "guardado") {
+    return <span className="text-[11.5px] font-medium text-ok-700">Guardado</span>;
+  }
+  return <span className="text-[11.5px] text-ink-400">Los cambios se guardan automáticamente.</span>;
+}
+
 function ConsolidadoTab({
+  comprobarSalidaRef,
   moduloCodigo,
   clienteId,
   clasificadorEtiqueta,
@@ -259,6 +300,7 @@ function ConsolidadoTab({
   encabezadoId,
   comentarios,
 }: {
+  comprobarSalidaRef: RefObject<(() => boolean) | null>;
   moduloCodigo: string;
   clienteId: number;
   clasificadorEtiqueta: string;
@@ -272,6 +314,9 @@ function ConsolidadoTab({
   comentarios: Record<string, number>;
 }) {
   const router = useRouter();
+  // El autoguardado (debounce + LOTE, sin botón «Guardar») es SOLO para Inventarios por
+  // ahora; los demás módulos conservan el guardado manual explícito sin ningún cambio.
+  const esInventarios = moduloCodigo === "INV";
   const [buscando, setBuscando] = useState<string | null>(null); // clasificador cuyo selector de cuenta está abierto
   // Entorno para resolver lo que el usuario escribe: los subgrupos válidos del módulo y la
   // homologación del cliente (sin filtrar, para poder avisar cuando cae fuera del módulo).
@@ -302,6 +347,53 @@ function ConsolidadoTab({
   const [, startGuardar] = useTransition();
   const nombrePorCuenta = useMemo(() => new Map(cuentas.map((c) => [c.codigo, c.nombre])), [cuentas]);
 
+  // Filtro de VISTA «Todas / Sin cuenta asignada» (solo Inventarios): se basa en la
+  // asignación GUARDADA (`guardados`), nunca en la sugerencia de prefill sin confirmar
+  // que trae `valores` — de lo contrario un clasificador con solo la propuesta automática
+  // (aún sin persistir) se vería como «con cuenta» y no aparecería en el filtro.
+  const [filtroVista, setFiltroVista] = useState<"todas" | "sinCuenta">("todas");
+  const sinCuentaGuardada = useMemo(
+    () => consolidado.filter((c) => (guardados[c.clasificador] ?? []).length === 0).length,
+    [consolidado, guardados],
+  );
+  const consolidadoVisible = useMemo(
+    () => (esInventarios && filtroVista === "sinCuenta"
+      ? consolidado.filter((c) => (guardados[c.clasificador] ?? []).length === 0)
+      : consolidado),
+    [consolidado, guardados, filtroVista, esInventarios],
+  );
+
+  const marcarGuardadas = (filas: { clasificador: string; cuentas4: string[] }[]) => {
+    const aplicar = (prev: Record<string, string[]>) => {
+      const next = { ...prev };
+      for (const f of filas) next[f.clasificador] = [...f.cuentas4].sort();
+      return next;
+    };
+    setGuardados(aplicar);
+    if (!esInventarios) setValores(aplicar);
+  };
+
+  // Autoguardado (solo Inventarios): cada edición explícita se «programa»; el controlador
+  // decide cuándo y qué enviar (pausa corta + LOTE + una sola solicitud en vuelo). NUNCA se
+  // programa nada al montar (los prefills de `cuentasInicialesConsolidado` quedan «sin
+  // guardar» hasta que el usuario los toque).
+  const autosave = useAutoguardadoConsolidacion(
+    async (filas) => {
+      const r = await guardarConsolidacionModuloLote({ clienteId, moduloCodigo, filas });
+      if (r.ok) marcarGuardadas(filas);
+      else notifyError(r.message ?? "No se pudieron guardar los cambios de inventarios.");
+      return { ok: r.ok === true, message: r.message };
+    },
+    esInventarios && puedeEditar,
+  );
+  useEffect(() => {
+    comprobarSalidaRef.current = autosave.puedeSalir;
+    return () => { comprobarSalidaRef.current = null; };
+  }, [comprobarSalidaRef, autosave.puedeSalir]);
+  const anotarAutoguardado = (clasificador: string, cuentas4: string[]) => {
+    if (esInventarios) autosave.programar(clasificador, cuentas4);
+  };
+
   const filasSucias = useMemo(
     () => consolidado.filter((c) => claveSet(valores[c.clasificador] ?? []) !== claveSet(guardados[c.clasificador] ?? [])),
     [consolidado, valores, guardados],
@@ -309,7 +401,7 @@ function ConsolidadoTab({
   const haySucias = filasSucias.length > 0;
   const ocupado = guardandoClave != null || guardandoTodo;
 
-  const clasificadores = useMemo(() => consolidado.map((c) => c.clasificador), [consolidado]);
+  const clasificadores = useMemo(() => consolidadoVisible.map((c) => c.clasificador), [consolidadoVisible]);
   // Intersección con la tabla actual: tras un refresh puede haber cambiado el consolidado.
   const seleccionados = useMemo(() => clasificadores.filter((k) => seleccion.has(k)), [clasificadores, seleccion]);
   const nSel = seleccionados.length;
@@ -325,13 +417,17 @@ function ConsolidadoTab({
   const seleccionarTodos = (activar: boolean) => setSeleccion(activar ? new Set(clasificadores) : new Set());
   const seleccionarSinCuenta = () => setSeleccion(new Set(clasificadores.filter((k) => (valores[k] ?? []).length === 0)));
 
-  // La asignación masiva SOLO toca el estado local: las filas quedan «sucias» y se
-  // persisten por el único camino existente, «Guardar todos» (reversible antes de confirmar).
+  // La asignación masiva SOLO toca el estado local: en Inventarios el autoguardado la
+  // persiste sola (pausa corta + LOTE); en los demás módulos sigue quedando «sucia» hasta
+  // «Guardar todos» (reversible antes de confirmar).
   const aplicarMasivo = (cuentas4: string[], modo: ModoAsignacionMasiva) => {
-    setValores((p) => aplicarAsignacionMasiva(p, seleccionados, cuentas4, modo));
+    const siguiente = aplicarAsignacionMasiva(valores, seleccionados, cuentas4, modo);
+    setValores(siguiente);
+    if (esInventarios) for (const clasificador of seleccionados) anotarAutoguardado(clasificador, siguiente[clasificador] ?? []);
     setMasivoAbierto(false);
     notifySuccess(
-      `${cuentas4.length} cuenta${cuentas4.length === 1 ? "" : "s"} ${modo === "reemplazar" ? "reemplazan las de" : "aplicadas a"} ${nSel} ${etiquetaPlural}. Pulsa «Guardar todos» para persistir.`,
+      `${cuentas4.length} cuenta${cuentas4.length === 1 ? "" : "s"} ${modo === "reemplazar" ? "reemplazan las de" : "aplicadas a"} ${nSel} ${etiquetaPlural}.`
+      + (esInventarios ? " Guardando automáticamente…" : " Pulsa «Guardar todos» para persistir."),
     );
   };
 
@@ -341,21 +437,16 @@ function ConsolidadoTab({
   const agregarCuenta = (clasificador: string) => {
     const r = resolverCuenta4(nuevos[clasificador] ?? "", entornoResolucion);
     if (!r.ok) { notifyError(mensajeResolucion(r, moduloLabel)); return; }
-    setValores((p) => ({ ...p, [clasificador]: [...new Set([...(p[clasificador] ?? []), r.cuenta4])].sort() }));
+    const nuevasCuentas = [...new Set([...(valores[clasificador] ?? []), r.cuenta4])].sort();
+    setValores((p) => ({ ...p, [clasificador]: nuevasCuentas }));
+    anotarAutoguardado(clasificador, nuevasCuentas);
     setNuevos((p) => ({ ...p, [clasificador]: "" }));
     if (r.via === "cliente") notifySuccess(`${r.cuentaCliente}${r.nombreCliente ? ` ${r.nombreCliente}` : ""} → R-${r.cuenta4}`);
   };
-  const quitarCuenta = (clasificador: string, cod: string) =>
-    setValores((p) => ({ ...p, [clasificador]: (p[clasificador] ?? []).filter((x) => x !== cod) }));
-
-  const marcarGuardadas = (filas: { clasificador: string; cuentas4: string[] }[]) => {
-    const aplicar = (prev: Record<string, string[]>) => {
-      const next = { ...prev };
-      for (const f of filas) next[f.clasificador] = [...f.cuentas4].sort();
-      return next;
-    };
-    setGuardados(aplicar);
-    setValores(aplicar);
+  const quitarCuenta = (clasificador: string, cod: string) => {
+    const nuevasCuentas = (valores[clasificador] ?? []).filter((x) => x !== cod);
+    setValores((p) => ({ ...p, [clasificador]: nuevasCuentas }));
+    anotarAutoguardado(clasificador, nuevasCuentas);
   };
 
   const guardar = (clasificador: string) => {
@@ -390,6 +481,25 @@ function ConsolidadoTab({
 
   return (
     <Card className="p-0">
+      {esInventarios && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-ink-100 bg-ink-50/40 px-3 py-2 text-[11.5px]">
+          <span className="text-ink-500">Mostrar:</span>
+          <button
+            type="button"
+            onClick={() => setFiltroVista("todas")}
+            className={`rounded-full border px-2.5 py-1 font-semibold ${filtroVista === "todas" ? "border-navy-700 bg-navy-700 text-white" : "border-ink-200 bg-white text-ink-600 hover:bg-ink-50"}`}
+          >
+            Todas ({consolidado.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setFiltroVista("sinCuenta")}
+            className={`rounded-full border px-2.5 py-1 font-semibold ${filtroVista === "sinCuenta" ? "border-warn-500 bg-warn-100 text-warn-700" : "border-ink-200 bg-white text-ink-600 hover:bg-ink-50"}`}
+          >
+            Sin cuenta asignada ({sinCuentaGuardada})
+          </button>
+        </div>
+      )}
       {puedeEditar && (
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-ink-100 bg-ink-50/60 px-3 py-2">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] text-ink-500">
@@ -402,11 +512,15 @@ function ConsolidadoTab({
             )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-[11.5px] text-ink-500">
-              {haySucias
-                ? `${filasSucias.length} cambio${filasSucias.length === 1 ? "" : "s"} sin guardar`
-                : "Sin cambios pendientes"}
-            </p>
+            {esInventarios ? (
+              <EstadoAutoguardadoIndicador snapshot={autosave.snapshot} onReintentar={autosave.reintentar} />
+            ) : (
+              <p className="text-[11.5px] text-ink-500">
+                {haySucias
+                  ? `${filasSucias.length} cambio${filasSucias.length === 1 ? "" : "s"} sin guardar`
+                  : "Sin cambios pendientes"}
+              </p>
+            )}
             <button
               type="button"
               disabled={nSel === 0 || ocupado}
@@ -416,14 +530,16 @@ function ConsolidadoTab({
             >
               Asignar cuentas{nSel > 0 ? ` (${nSel})` : ""}…
             </button>
-            <button
-              type="button"
-              disabled={!haySucias || ocupado}
-              onClick={guardarTodos}
-              className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {guardandoTodo ? "Guardando…" : `Guardar todos${haySucias ? ` (${filasSucias.length})` : ""}`}
-            </button>
+            {!esInventarios && (
+              <button
+                type="button"
+                disabled={!haySucias || ocupado}
+                onClick={guardarTodos}
+                className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {guardandoTodo ? "Guardando…" : `Guardar todos${haySucias ? ` (${filasSucias.length})` : ""}`}
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -451,7 +567,14 @@ function ConsolidadoTab({
             </tr>
           </thead>
           <tbody>
-            {consolidado.map((c) => {
+            {esInventarios && filtroVista === "sinCuenta" && consolidadoVisible.length === 0 && (
+              <tr>
+                <td colSpan={puedeEditar ? 6 : 5} className="px-3 py-6 text-center text-ink-400">
+                  Ningún grupo coincide con el filtro «Sin cuenta asignada».
+                </td>
+              </tr>
+            )}
+            {consolidadoVisible.map((c) => {
               const asignadas = valores[c.clasificador] ?? [];
               const sucia = claveSet(asignadas) !== claveSet(guardados[c.clasificador] ?? []);
               const guardandoEsta = guardandoClave === c.clasificador;
@@ -520,10 +643,18 @@ function ConsolidadoTab({
                           />
                           <button type="button" onClick={() => agregarCuenta(c.clasificador)} className="rounded-md border border-ink-300 bg-white px-2 py-1 text-[11px] font-semibold text-ink-600 hover:bg-blue-50 hover:text-blue-700">+ cuenta</button>
                           <button type="button" onClick={() => setBuscando(c.clasificador)} className="rounded-md border border-blue-300 bg-white px-2 py-1 text-[11px] font-semibold text-blue-700 hover:bg-blue-50">Buscar…</button>
-                          <button type="button" disabled={ocupado || !sucia} onClick={() => guardar(c.clasificador)} className="rounded-md border border-ok-500 bg-ok-100/40 px-2 py-1 text-[11px] font-semibold text-ok-700 hover:bg-ok-100 disabled:cursor-not-allowed disabled:opacity-50">
-                            {guardandoEsta ? "…" : "Guardar"}
-                          </button>
-                          {sucia && <span className="text-[10.5px] font-semibold uppercase tracking-wide text-warn-700">sin guardar</span>}
+                          {esInventarios ? (
+                            // Inventarios se autoguarda: sin botón manual. El estado global
+                            // (Guardando/Guardado/Error) vive en la barra superior.
+                            sucia && <span className="text-[10.5px] font-semibold uppercase tracking-wide text-ink-400">pendiente…</span>
+                          ) : (
+                            <>
+                              <button type="button" disabled={ocupado || !sucia} onClick={() => guardar(c.clasificador)} className="rounded-md border border-ok-500 bg-ok-100/40 px-2 py-1 text-[11px] font-semibold text-ok-700 hover:bg-ok-100 disabled:cursor-not-allowed disabled:opacity-50">
+                                {guardandoEsta ? "…" : "Guardar"}
+                              </button>
+                              {sucia && <span className="text-[10.5px] font-semibold uppercase tracking-wide text-warn-700">sin guardar</span>}
+                            </>
+                          )}
                         </div>
                       )}
                     </div>
@@ -550,14 +681,18 @@ function ConsolidadoTab({
           cuentas={cuentas}
           homologacionCliente={homologacionCliente}
           asignadas={new Set(valores[buscando] ?? [])}
-          onToggle={(cod) =>
-            setValores((p) => {
-              const set = new Set(p[buscando] ?? []);
-              if (set.has(cod)) set.delete(cod); else set.add(cod);
-              return { ...p, [buscando]: [...set].sort() };
-            })
-          }
-          onTodas={(on) => setValores((p) => ({ ...p, [buscando]: on ? cuentas.map((cc) => cc.codigo).sort() : [] }))}
+          onToggle={(cod) => {
+            const set = new Set(valores[buscando] ?? []);
+            if (set.has(cod)) set.delete(cod); else set.add(cod);
+            const nuevasCuentas = [...set].sort();
+            setValores((p) => ({ ...p, [buscando]: nuevasCuentas }));
+            anotarAutoguardado(buscando, nuevasCuentas);
+          }}
+          onTodas={(on) => {
+            const nuevasCuentas = on ? cuentas.map((cc) => cc.codigo).sort() : [];
+            setValores((p) => ({ ...p, [buscando]: nuevasCuentas }));
+            anotarAutoguardado(buscando, nuevasCuentas);
+          }}
           onClose={() => setBuscando(null)}
         />
       )}

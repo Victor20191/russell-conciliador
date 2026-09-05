@@ -1,5 +1,6 @@
 "use server";
 
+import { procedenciaConfiguracion } from "@/lib/balance/procedencia-mapeo";
 import * as z from "zod";
 import { revalidatePath } from "next/cache";
 import prisma from "@/lib/prisma";
@@ -55,12 +56,12 @@ export async function crearMapeoCliente(_prev: ActionState | undefined, formData
     const user = await getCurrentUser();
     await prisma.clientAccount.upsert({
       where: { clienteId_code: { clienteId, code: cuenta6 } },
-      create: { clientName: cliente.name, clienteId, nit: cliente.nit, code: cuenta6, level: 6, name: cuenta6, cuenta6Russell: codigo, coincidencia: 100, origenMapeo: ORIGEN_MANUAL_GRUPO, actualizadoPor: user?.name ?? null, actualizadoEn: new Date() },
-      update: { clientName: cliente.name, nit: cliente.nit, cuenta6Russell: codigo, coincidencia: 100, origenMapeo: ORIGEN_MANUAL_GRUPO, actualizadoPor: user?.name ?? null, actualizadoEn: new Date() },
+      create: { clientName: cliente.name, clienteId, nit: cliente.nit, code: cuenta6, level: 6, name: cuenta6, cuenta6Russell: codigo, coincidencia: 100, origenMapeo: ORIGEN_MANUAL_GRUPO, actualizadoPor: user?.name ?? null, procedenciaMapeo: procedenciaConfiguracion(), actualizadoEn: new Date() },
+      update: { clientName: cliente.name, nit: cliente.nit, cuenta6Russell: codigo, coincidencia: 100, origenMapeo: ORIGEN_MANUAL_GRUPO, actualizadoPor: user?.name ?? null, procedenciaMapeo: procedenciaConfiguracion(), actualizadoEn: new Date() },
     });
     await prisma.clientAccount.updateMany({
       where: { clienteId, code: { startsWith: cuenta6 }, NOT: { code: cuenta6 } },
-      data: { cuenta6Russell: codigo, coincidencia: 100, origenMapeo: ORIGEN_MANUAL_GRUPO, actualizadoPor: user?.name ?? null, actualizadoEn: new Date() },
+      data: { cuenta6Russell: codigo, coincidencia: 100, origenMapeo: ORIGEN_MANUAL_GRUPO, actualizadoPor: user?.name ?? null, procedenciaMapeo: procedenciaConfiguracion(), actualizadoEn: new Date() },
     });
     await logAudit({ user: user?.name ?? "Sistema", action: "CREÓ MAPEO CLIENTE", entity: cuenta6, detail: `${cuenta6} → ${codigo}`, clientId: clienteId });
     revalidatePath(PATH);
@@ -95,13 +96,13 @@ export async function editarMapeoCliente(_prev: ActionState | undefined, formDat
     const ahora = new Date();
     await prisma.clientAccount.update({
       where: { id },
-      data: { cuenta6Russell: codigo, coincidencia: 100, origenMapeo: origen, actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
+      data: { cuenta6Russell: codigo, coincidencia: 100, origenMapeo: origen, actualizadoPor: user?.name ?? null, procedenciaMapeo: procedenciaConfiguracion(), actualizadoEn: ahora },
     });
     // Propaga a las imputables del mismo grupo de 6 díg (display consistente).
     if (row.clienteId != null && !esExcepcion) {
       await prisma.clientAccount.updateMany({
         where: { clienteId: row.clienteId, code: { startsWith: row.code }, NOT: { id } },
-        data: { cuenta6Russell: codigo, coincidencia: 100, origenMapeo: origen, actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
+        data: { cuenta6Russell: codigo, coincidencia: 100, origenMapeo: origen, actualizadoPor: user?.name ?? null, procedenciaMapeo: procedenciaConfiguracion(), actualizadoEn: ahora },
       });
     }
     await logAudit({ user: user?.name ?? "Sistema", action: "EDITÓ MAPEO CLIENTE", entity: row.code, detail: `${row.code} → ${codigo}${esExcepcion ? " · solo esta cuenta" : ""}`, clientId: row.clienteId });
@@ -159,7 +160,7 @@ export async function confirmarMapeoCliente(formData: FormData): Promise<ActionS
     const omitidas = candidatas.length - confirmables.length;
     const res = await prisma.clientAccount.updateMany({
       where: { id: { in: confirmables.map((c) => c.id) } },
-      data: { coincidencia: 100, origenMapeo: ORIGEN_MANUAL_GRUPO, actualizadoPor: user?.name ?? null, actualizadoEn: new Date() },
+      data: { coincidencia: 100, origenMapeo: ORIGEN_MANUAL_GRUPO, actualizadoPor: user?.name ?? null, procedenciaMapeo: procedenciaConfiguracion(), actualizadoEn: new Date() },
     });
     await logAudit({ user: user?.name ?? "Sistema", action: "CONFIRMÓ MAPEO CLIENTE", entity: todas ? (row.cuenta6Russell ?? cuenta6) : cuenta6, detail: `→ ${row.cuenta6Russell} · manual 100% (${res.count} cuenta(s)${todas ? ", todas las del estándar" : ""}${omitidas > 0 ? `; ${omitidas} omitida(s) por cambiar de clase contable` : ""})`, clientId: row.clienteId });
     revalidatePath(PATH);
@@ -189,14 +190,14 @@ export async function eliminarMapeoCliente(_prev: ActionState | undefined, formD
     const ahora = new Date();
     await prisma.clientAccount.update({
       where: { id },
-      data: { cuenta6Russell: null, coincidencia: null, origenMapeo: null, actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
+      data: { cuenta6Russell: null, coincidencia: null, origenMapeo: null, actualizadoPor: user?.name ?? null, procedenciaMapeo: procedenciaConfiguracion(), actualizadoEn: ahora },
     });
     // Solo una regla de seis dígitos representa un grupo. Retirar una cuenta
     // larga no debe borrar las reglas de códigos más largos que empiezan igual.
     if (row.clienteId != null && row.code.length === 6) {
       await prisma.clientAccount.updateMany({
         where: { clienteId: row.clienteId, code: { startsWith: row.code }, NOT: { id } },
-        data: { cuenta6Russell: null, coincidencia: null, origenMapeo: null, actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
+        data: { cuenta6Russell: null, coincidencia: null, origenMapeo: null, actualizadoPor: user?.name ?? null, procedenciaMapeo: procedenciaConfiguracion(), actualizadoEn: ahora },
       });
     }
     await logAudit({ user: user?.name ?? "Sistema", action: "ELIMINÓ MAPEO CLIENTE", entity: row.code, detail: `${row.code} → ${row.cuenta6Russell ?? "—"}`, clientId: row.clienteId });

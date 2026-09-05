@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { consolidarPucCliente } from "./catalogo-puc-cliente";
+import { completarJerarquiaCliente, consolidarPucCliente } from "./catalogo-puc-cliente";
 
 const cuenta = (id: number, code: string, cuenta6Russell: string | null = "110505") => ({
   id, code, name: `Cuenta ${code}`, cuenta6Russell, coincidencia: 100,
@@ -7,6 +7,21 @@ const cuenta = (id: number, code: string, cuenta6Russell: string | null = "11050
 });
 
 describe("PUC acumulado del cliente", () => {
+  it("recupera los nombres originales sin reemplazar una homologación manual", () => {
+    const r = consolidarPucCliente([{ ...cuenta(1, "110505"), name: "110505" }], [], [
+      { ...cuenta(10, "1105", null), name: "Efectivo ERP" },
+      { ...cuenta(10, "110505", null), name: "Caja ERP" },
+    ]);
+    expect(r[0]).toMatchObject({ code: "1105", name: "Efectivo ERP", enMemoria: false });
+    expect(r[1]).toMatchObject({ name: "Caja ERP", cuenta6Russell: "110505", enMemoria: true });
+  });
+  it("completa agrupadoras ausentes sin inventar reglas ni reemplazar cuentas existentes", () => {
+    const original = consolidarPucCliente([cuenta(1, "110505"), cuenta(2, "11050501010101")], []);
+    const r = completarJerarquiaCliente(original);
+    expect(r.map((c) => c.level)).toEqual([4, 6, 8, 10, 12, 14]);
+    expect(r[0]).toMatchObject({ code: "1105", derivada: true, cuenta6Russell: null, enMemoria: false });
+    expect(r[1]).toEqual(original[0]);
+  });
   it("excluye totales sin código y rótulos legados del catálogo de cuentas", () => {
     expect(consolidarPucCliente([cuenta(1, ""), cuenta(2, "Total"), cuenta(3, "110505")], [cuenta(4, " ")]).map((c) => c.code)).toEqual(["110505"]);
   });

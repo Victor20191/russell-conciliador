@@ -1,6 +1,7 @@
 import prisma from "@/lib/prisma";
 import { codigosEstandarConBalances } from "@/lib/balance/asociacion";
-import { consolidarPucCliente } from "@/lib/balance/catalogo-puc-cliente";
+import { leerProcedenciaMapeo } from "@/lib/balance/procedencia-mapeo";
+import { completarJerarquiaCliente, consolidarPucCliente } from "@/lib/balance/catalogo-puc-cliente";
 import { Prisma } from "@/generated/prisma/client";
 import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
@@ -49,7 +50,7 @@ export default async function MapeoPage({ searchParams }: { searchParams: Promis
   const clienteRow = cliente ? balances.find((b) => b.nombreCliente === cliente) ?? null : null;
   const clienteId = clienteRow?.clienteId ?? null;
   const clienteNit = clienteRow?.nit ?? null;
-  const [puedeMapear, accounts, standard, subgruposRows, logs, lockedStdCodes, historicas] = await Promise.all([
+  const [puedeMapear, accounts, standard, subgruposRows, logs, lockedStdCodes, historicas, originales] = await Promise.all([
     clienteId
       ? authorizePermiso("balance:crear", { clientId: clienteId }).then((result) => result.ok)
       : Promise.resolve(false),
@@ -57,7 +58,7 @@ export default async function MapeoPage({ searchParams }: { searchParams: Promis
       ? prisma.clientAccount.findMany({
           where: { clienteId },
           orderBy: [{ order: "asc" }, { code: "asc" }],
-          select: { id: true, code: true, name: true, cuenta6Russell: true, coincidencia: true, origenMapeo: true, actualizadoPor: true, actualizadoEn: true },
+          select: { id: true, code: true, name: true, cuenta6Russell: true, coincidencia: true, origenMapeo: true, actualizadoPor: true, actualizadoEn: true, procedenciaMapeo: true },
         })
       : Promise.resolve([]),
     standardPromise,
@@ -72,23 +73,49 @@ export default async function MapeoPage({ searchParams }: { searchParams: Promis
     // Incluye códigos de cargas históricas que aún no estén en la memoria. La
     // deduplicación se hace en PostgreSQL, sin traer todas las filas al proceso.
     clienteId
-      ? prisma.$queryRaw<Array<{ id: number; code: string; name: string; cuenta6Russell: string | null; coincidencia: Prisma.Decimal | null; actualizadoEn: Date }>>(Prisma.sql`
+      ? prisma.$queryRaw<Array<{ id: number; code: string; name: string; cuenta6Russell: string | null; coincidencia: Prisma.Decimal | null; actualizadoEn: Date; balanceId: number; periodo: string; version: string }>>(Prisma.sql`
           SELECT DISTINCT ON (d.cuenta_8)
             d.id, d.cuenta_8 AS code, d.nombre_cuenta AS name,
             d.cuenta_6_russell AS "cuenta6Russell",
-            d.porcentaje_coincidencia AS coincidencia, d.editado_en AS "actualizadoEn"
+            d.porcentaje_coincidencia AS coincidencia, d.editado_en AS "actualizadoEn",
+            e.id AS "balanceId", e.periodo, e.version
           FROM balance_prueba_detalle d
           JOIN balance_prueba_encabezado e ON e.id = d.encabezado_id
           WHERE e.cliente_id = ${clienteId}
           ORDER BY d.cuenta_8, e.creado_en DESC, e.id DESC, d.id DESC
         `)
       : Promise.resolve([]),
+    clienteId
+      ? prisma.$queryRaw<Array<{ id: number; code: string; name: string; periodo: string; version: string }>>(Prisma.sql`
+          SELECT DISTINCT ON (cuenta->>'codigo') e.id, cuenta->>'codigo' AS code,
+            cuenta->>'nombre' AS name, e.periodo, e.version
+          FROM balance_prueba_encabezado e
+          CROSS JOIN LATERAL jsonb_array_elements(
+            CASE WHEN jsonb_typeof(e.puc_cliente) = 'array' THEN e.puc_cliente ELSE '[]'::jsonb END
+          ) cuenta
+          WHERE e.cliente_id = ${clienteId}
+          ORDER BY cuenta->>'codigo', e.creado_en DESC, e.id DESC
+        `)
+      : Promise.resolve([]),
   ]);
 
-  const acc: Account[] = consolidarPucCliente(
-    accounts.map((a) => ({ ...a, coincidencia: a.coincidencia != null ? Number(a.coincidencia) : null, actualizadoEn: a.actualizadoEn?.toISOString() ?? null })),
-    historicas.map((a) => ({ ...a, coincidencia: a.coincidencia != null ? Number(a.coincidencia) : null, actualizadoEn: a.actualizadoEn.toISOString(), origenMapeo: null, actualizadoPor: null })),
-  );
+  const acc: Account[] = completarJerarquiaCliente(consolidarPucCliente(
+    accounts.map(({ procedenciaMapeo, ...a }) => ({ ...a, procedencia: leerProcedenciaMapeo(procedenciaMapeo), coincidencia: a.coincidencia != null ? Number(a.coincidencia) : null, actualizadoEn: a.actualizadoEn?.toISOString() ?? null })),
+    historicas.map((a) => ({ ...a, procedencia: { fuente: "historico" as const, balance_id: a.balanceId, periodo: a.periodo, version: a.version }, coincidencia: a.coincidencia != null ? Number(a.coincidencia) : null, actualizadoEn: a.actualizadoEn.toISOString(), origenMapeo: null, actualizadoPor: null })),
+    originales.map((a) => ({ ...a, cuenta6Russell: null, coincidencia: null, origenMapeo: null, actualizadoPor: null, actualizadoEn: null, procedencia: { fuente: "historico" as const, balance_id: a.id, periodo: a.periodo, version: a.version } })),
+  ));
+  const idsOrigen = [...new Set(acc.flatMap((a) => a.procedencia?.balance_id ? [a.procedencia.balance_id] : []))];
+  const origenes = clienteId && idsOrigen.length ? await prisma.balancePruebaEncabezado.findMany({
+    where: { clienteId, id: { in: idsOrigen } }, select: { id: true, periodo: true, version: true },
+  }) : [];
+  const porOrigen = new Map(origenes.map((o) => [o.id, o]));
+  for (const a of acc) {
+    if (!a.procedencia?.balance_id) continue;
+    const origen = porOrigen.get(a.procedencia.balance_id);
+    a.balanceDisponible = !!origen;
+    if (origen) a.procedencia = { ...a.procedencia, periodo: origen.periodo, version: origen.version };
+  }
+
   const std: StdAccount[] = standard.map((s) => ({
     id: s.id,
     code: s.code,

@@ -240,6 +240,15 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
             tone={parsearApertura(balance.aperturaBalance) === "tercero" ? "blue" : "ink"}
           />
         )}
+        {/* Visor interno de solo lectura: compara la homologación y el saldo de cada
+            cuenta contra su detalle por tercero ligado (mismo loteId). Solo tiene
+            sentido cuando esta versión declaró apertura «por terceros» y trae su
+            propio detalle cargado. */}
+        {parsearApertura(balance.aperturaBalance) === "tercero" && sums && (
+          <a href={`/balance/${id}/terceros`} className="inline-flex items-center gap-1 font-medium text-blue-500 hover:underline">
+            <Icon name="link" size={12} /> Ver por terceros
+          </a>
+        )}
       </p>
 
       {(balance.comentarioAprobacion || balance.advertenciaArchivoFuente || reubicacionesAprobadas.length > 0) && (

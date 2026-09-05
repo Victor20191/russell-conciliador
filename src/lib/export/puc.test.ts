@@ -63,14 +63,14 @@ async function abrir(datos: DatosExportacionPuc): Promise<ExcelJS.Workbook> {
   return wb;
 }
 
-test("el libro trae UNA sola hoja con el plan estándar Russell", async () => {
+test("el libro incluye el PUC completo y el detalle de subcuentas", async () => {
   const wb = await abrir(DATOS);
-  expect(wb.worksheets.map((w) => w.name)).toEqual(["Plan estándar Russell"]);
+  expect(wb.worksheets.map((w) => w.name)).toEqual(["PUC Estándar Russell", "Plan Estándar"]);
 });
 
 test("la hoja lista TODAS las cuentas bajo su encabezado", async () => {
   const wb = await abrir(DATOS);
-  const std = wb.getWorksheet("Plan estándar Russell")!;
+  const std = wb.getWorksheet("Plan Estándar")!;
   expect(ENCABEZADOS.map((_, i) => std.getRow(1).getCell(i + 1).value)).toEqual(ENCABEZADOS);
   expect(std.getRow(2).getCell(1).value).toBe("110505");
   expect(std.getRow(2).getCell(2).value).toBe("Caja general");
@@ -84,7 +84,7 @@ test("la hoja lista TODAS las cuentas bajo su encabezado", async () => {
 
 test("los vacíos salen como «—»", async () => {
   const wb = await abrir(DATOS);
-  const std = wb.getWorksheet("Plan estándar Russell")!;
+  const std = wb.getWorksheet("Plan Estándar")!;
   // Fila 3: cuenta de ingresos con varios campos nulos.
   expect(std.getRow(3).getCell(7).value).toBe("—"); // cuenta Russell
   expect(std.getRow(3).getCell(8).value).toBe("—"); // tipo
@@ -95,8 +95,8 @@ test("los vacíos salen como «—»", async () => {
 
 test("sin cuentas el libro conserva la hoja y explica por qué está vacía", async () => {
   const wb = await abrir({ estandar: [] });
-  expect(wb.worksheets).toHaveLength(1);
-  const std = wb.getWorksheet("Plan estándar Russell")!;
+  expect(wb.worksheets).toHaveLength(2);
+  const std = wb.getWorksheet("Plan Estándar")!;
   expect(std.rowCount).toBe(2); // encabezado + nota
   expect(String(std.getRow(2).getCell(1).value)).toContain("no tiene cuentas cargadas");
 });
@@ -107,11 +107,27 @@ test("no incluye hojas de mapeo, PUC cliente ni subgrupos", async () => {
   expect(wb.getWorksheet("PUC cliente")).toBeUndefined();
   expect(wb.getWorksheet("Mapeo cliente")).toBeUndefined();
   expect(wb.getWorksheet("Subgrupos")).toBeUndefined();
-  expect(wb.getWorksheet("Plan estándar")).toBeUndefined();
+  expect(wb.getWorksheet("PUC Estándar Russell")).toBeDefined();
 });
 
 test("etiquetaNaturaleza traduce D/C y deja el resto intacto", () => {
   expect(etiquetaNaturaleza("D")).toBe("Débito");
   expect(etiquetaNaturaleza("C")).toBe("Crédito");
   expect(etiquetaNaturaleza("Débito")).toBe("Débito");
+});
+
+
+test("la descarga conserva padres, naturaleza propia y cuentas N4 sin descendientes", async () => {
+  const wb = await abrir({ ...DATOS, subgrupos: [
+    { codigo: "1105", nombre: "Caja ERP", grupo: "11", nombreGrupo: "Disponible", naturaleza: "C" },
+    { codigo: "1110", nombre: "Bancos", grupo: "11", nombreGrupo: "Disponible", naturaleza: "D" },
+  ] });
+  const hoja = wb.getWorksheet("PUC Estándar Russell")!;
+  const porCodigo = new Map<string, ExcelJS.Row>();
+  hoja.eachRow((row, n) => { if (n > 1) porCodigo.set(String(row.getCell(1).value), row); });
+  expect([...porCodigo.keys()]).toEqual(["1", "11", "1105", "110505", "1110", "4", "41", "4135", "413550"]);
+  expect(porCodigo.get("1105")!.getCell(4).value).toBe("Crédito");
+  expect(porCodigo.get("110505")!.getCell(4).value).toBe("Débito");
+  expect(porCodigo.get("110505")!.getCell(2).alignment.indent).toBe(3);
+  expect(porCodigo.get("1110")!.getCell(2).value).toBe("Bancos");
 });
