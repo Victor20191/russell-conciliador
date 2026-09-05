@@ -191,8 +191,9 @@ export async function eliminarMapeoCliente(_prev: ActionState | undefined, formD
       where: { id },
       data: { cuenta6Russell: null, coincidencia: null, origenMapeo: null, actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
     });
-    // Limpia también las imputables del mismo grupo de 6 díg.
-    if (row.clienteId != null) {
+    // Solo una regla de seis dígitos representa un grupo. Retirar una cuenta
+    // larga no debe borrar las reglas de códigos más largos que empiezan igual.
+    if (row.clienteId != null && row.code.length === 6) {
       await prisma.clientAccount.updateMany({
         where: { clienteId: row.clienteId, code: { startsWith: row.code }, NOT: { id } },
         data: { cuenta6Russell: null, coincidencia: null, origenMapeo: null, actualizadoPor: user?.name ?? null, actualizadoEn: ahora },

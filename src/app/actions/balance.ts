@@ -2262,6 +2262,7 @@ async function persistirCargue(p: {
           "actualizado_por" = EXCLUDED."actualizado_por",
           "actualizado_en" = EXCLUDED."actualizado_en"
         WHERE "cuentas_cliente"."origen_mapeo" IS DISTINCT FROM 'manual'
+          AND "cuentas_cliente"."origen_mapeo" IS DISTINCT FROM 'manual_cuenta'
           AND "cuentas_cliente"."origen_mapeo" IS DISTINCT FROM 'pendiente'
       `);
     }

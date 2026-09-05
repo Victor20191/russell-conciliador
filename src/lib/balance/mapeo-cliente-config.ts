@@ -70,7 +70,7 @@ export function reglaMapeoAplicable(fila: FilaMapeoCliente): boolean {
 
 /** Nivel PUC que corresponde a la longitud del código del cliente. */
 export function nivelPorCodigo(code: string): number {
-  return code.length >= 8 ? 8 : code.length === 6 ? 6 : code.length === 4 ? 4 : 2;
+  return code.length;
 }
 
 export type FilaMapeoCliente = {
@@ -140,11 +140,11 @@ export function construirConfigMapeoCliente(
   const grupos = new Map<string, FilaMapeoCliente[]>();
   const excepciones = new Map<string, FilaMapeoCliente>();
   for (const fila of filas) {
-    if (!fila.cuenta6Russell || fila.code.length < 6) continue;
+    if (!fila.cuenta6Russell || fila.code.length < 4) continue;
     // Una regla automática que cruza de clase contable no gobierna: vuelve a la
     // cascada en vez de blindar el error para siempre (`reglaMapeoAplicable`).
     if (!reglaMapeoAplicable(fila)) continue;
-    if (esExcepcionCuenta(fila.origenMapeo)) {
+    if (esExcepcionCuenta(fila.origenMapeo) || fila.code.length < 6) {
       // `code` es único por cliente, pero el desempate deja el resultado estable
       // aunque lleguen filas repetidas desde otra fuente.
       const previa = excepciones.get(fila.code);

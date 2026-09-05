@@ -5,12 +5,29 @@ import {
   esPendiente,
   esPendienteCodigo,
   esProtegidoDeAutomatico,
+  nivelPorCodigo,
   ORIGEN_PENDIENTE,
   resolverMapeoCliente,
   type FilaMapeoCliente,
 } from "./mapeo-cliente-config";
 
 describe("construirConfigMapeoCliente", () => {
+  it("conserva niveles reales y aplica las excepciones largas por código exacto", () => {
+    const codes = ["11050501", "1105050101", "110505010101", "11050501010101"];
+    expect(codes.map(nivelPorCodigo)).toEqual([8, 10, 12, 14]);
+    const config = construirConfigMapeoCliente([
+      { code: "110505", cuenta6Russell: "110505", coincidencia: 100, origenMapeo: "manual" },
+      { code: "1105050101", cuenta6Russell: "110510", coincidencia: 100, origenMapeo: "manual_cuenta" },
+    ]);
+    expect(resolverMapeoCliente(config, "1105050101")?.std).toBe("110510");
+    expect(resolverMapeoCliente(config, "110505010101")?.std).toBe("110505");
+  });
+
+  it("memoriza una cuenta imputable de cuatro dígitos sin afectar sus descendientes", () => {
+    const config = construirConfigMapeoCliente([{ code: "1105", cuenta6Russell: "110505", coincidencia: 100, origenMapeo: "manual_cuenta" }]);
+    expect(resolverMapeoCliente(config, "1105")?.std).toBe("110505");
+    expect(resolverMapeoCliente(config, "11051001")).toBeUndefined();
+  });
   it("elige el manual sin depender del orden de entrada", () => {
     const filas: FilaMapeoCliente[] = [
       { id: 1, code: "110505", cuenta6Russell: "110501", coincidencia: 100, origenMapeo: "automatico" },

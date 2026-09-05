@@ -1,6 +1,7 @@
 import prisma from "@/lib/prisma";
 import { codigosEstandarConBalances } from "@/lib/balance/asociacion";
-import { ORIGEN_MANUAL_CUENTA } from "@/lib/balance/mapeo-cliente-config";
+import { consolidarPucCliente } from "@/lib/balance/catalogo-puc-cliente";
+import { Prisma } from "@/generated/prisma/client";
 import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { PageHeader } from "@/components/ui";
@@ -9,7 +10,6 @@ import MapeoClient, {
   type StdAccount,
   type StdLogRow,
   type Subgrupo,
-  type MapeoClienteRow,
 } from "./mapeo-client";
 
 export default async function MapeoPage({ searchParams }: { searchParams: Promise<{ cliente?: string }> }) {
@@ -49,7 +49,7 @@ export default async function MapeoPage({ searchParams }: { searchParams: Promis
   const clienteRow = cliente ? balances.find((b) => b.nombreCliente === cliente) ?? null : null;
   const clienteId = clienteRow?.clienteId ?? null;
   const clienteNit = clienteRow?.nit ?? null;
-  const [puedeMapear, accounts, standard, subgruposRows, logs, lockedStdCodes, mapeoRows] = await Promise.all([
+  const [puedeMapear, accounts, standard, subgruposRows, logs, lockedStdCodes, historicas] = await Promise.all([
     clienteId
       ? authorizePermiso("balance:crear", { clientId: clienteId }).then((result) => result.ok)
       : Promise.resolve(false),
@@ -57,6 +57,7 @@ export default async function MapeoPage({ searchParams }: { searchParams: Promis
       ? prisma.clientAccount.findMany({
           where: { clienteId },
           orderBy: [{ order: "asc" }, { code: "asc" }],
+          select: { id: true, code: true, name: true, cuenta6Russell: true, coincidencia: true, origenMapeo: true, actualizadoPor: true, actualizadoEn: true },
         })
       : Promise.resolve([]),
     standardPromise,
@@ -68,29 +69,26 @@ export default async function MapeoPage({ searchParams }: { searchParams: Promis
     // formulario bloquea el campo de código y el borrado de esas cuentas. Solo
     // se calcula para quien administra el plan.
     lockedStdCodesPromise,
-    // Memoria de mapeo: las reglas por grupo + las EXCEPCIONES por cuenta que dejó una
-    // homologación con alcance «solo esta cuenta» (nivel 8). Incluye las que están
-    // TODAVÍA SIN homologar: esta pestaña es la única que edita, así que también tiene
-    // que poder resolverlas (salen como «Asignar»).
-    //
-    // Nivel 4 además de 6: hay clientes que imputan movimiento directo a una cuenta de 4
-    // dígitos. El plan Russell es de 6, así que el barrido exacto de `mapearCuenta` ni se
-    // intenta con ellas (`code.length >= 6 ? … : null`) y solo las resuelve la descripción
-    // o la IA — justo las que más necesitan revisarse a mano. Su clave de memoria es el
-    // propio código de 4 dígitos, porque `descomponerCuenta` deja cuenta6 = cuenta8.
+    // Incluye códigos de cargas históricas que aún no estén en la memoria. La
+    // deduplicación se hace en PostgreSQL, sin traer todas las filas al proceso.
     clienteId
-      ? prisma.clientAccount.findMany({
-          where: {
-            clienteId,
-            OR: [{ level: { in: [4, 6] } }, { origenMapeo: ORIGEN_MANUAL_CUENTA }],
-          },
-          orderBy: { code: "asc" },
-          select: { id: true, code: true, name: true, level: true, cuenta6Russell: true, coincidencia: true, origenMapeo: true, actualizadoPor: true, actualizadoEn: true },
-        })
+      ? prisma.$queryRaw<Array<{ id: number; code: string; name: string; cuenta6Russell: string | null; coincidencia: Prisma.Decimal | null; actualizadoEn: Date }>>(Prisma.sql`
+          SELECT DISTINCT ON (d.cuenta_8)
+            d.id, d.cuenta_8 AS code, d.nombre_cuenta AS name,
+            d.cuenta_6_russell AS "cuenta6Russell",
+            d.porcentaje_coincidencia AS coincidencia, d.editado_en AS "actualizadoEn"
+          FROM balance_prueba_detalle d
+          JOIN balance_prueba_encabezado e ON e.id = d.encabezado_id
+          WHERE e.cliente_id = ${clienteId}
+          ORDER BY d.cuenta_8, e.creado_en DESC, e.id DESC, d.id DESC
+        `)
       : Promise.resolve([]),
   ]);
 
-  const acc: Account[] = accounts.map((a) => ({ id: a.id, code: a.code, level: a.level, name: a.name, cuenta6Russell: a.cuenta6Russell, coincidencia: a.coincidencia != null ? Number(a.coincidencia) : null, origenMapeo: a.origenMapeo, actualizadoEn: a.actualizadoEn?.toISOString() ?? null }));
+  const acc: Account[] = consolidarPucCliente(
+    accounts.map((a) => ({ ...a, coincidencia: a.coincidencia != null ? Number(a.coincidencia) : null, actualizadoEn: a.actualizadoEn?.toISOString() ?? null })),
+    historicas.map((a) => ({ ...a, coincidencia: a.coincidencia != null ? Number(a.coincidencia) : null, actualizadoEn: a.actualizadoEn.toISOString(), origenMapeo: null, actualizadoPor: null })),
+  );
   const std: StdAccount[] = standard.map((s) => ({
     id: s.id,
     code: s.code,
@@ -119,26 +117,10 @@ export default async function MapeoPage({ searchParams }: { searchParams: Promis
   const subgrupos: Subgrupo[] = subgruposRows.map((s) => ({
     id: s.id, codigo: s.codigo, nombre: s.nombre, grupo: s.grupo, nombreGrupo: s.nombreGrupo, naturaleza: s.naturaleza,
   }));
-  // Memoria de mapeo del cliente seleccionado: cuenta_6 del cliente → cuenta
-  // estándar Russell (con su nombre), origen y % de coincidencia.
-  const stdNombre = new Map(std.map((s) => [s.code, s.name]));
-  const mapeoCliente: MapeoClienteRow[] = mapeoRows.map((r) => ({
-    id: r.id,
-    cuenta6: r.code,
-    nombreCuenta: r.name,
-    nivel: r.level,
-    cuenta6Russell: r.cuenta6Russell ?? "",
-    nombreRussell: r.cuenta6Russell ? (stdNombre.get(r.cuenta6Russell) ?? null) : null,
-    coincidencia: r.coincidencia != null ? Number(r.coincidencia) : null,
-    origen: r.origenMapeo,
-    actualizadoPor: r.actualizadoPor,
-    actualizadoEn: r.actualizadoEn ? r.actualizadoEn.toISOString() : "",
-  }));
-
   return (
     <div>
       <PageHeader title="Mapeo plan estándar" subtitle="Configuración de las cuentas del PUC del cliente contra el plan estándar de Russell Bedford y su módulo de conciliación." />
-      <MapeoClient clientNames={clientNames} cliente={cliente} accounts={acc} std={std} subgrupos={subgrupos} canManage={canManage} logs={stdLogs} lockedStdCodes={lockedStdCodes} mapeoCliente={mapeoCliente} clienteId={clienteId} clienteNit={clienteNit} puedeMapear={puedeMapear} />
+      <MapeoClient key={clienteId} clientNames={clientNames} cliente={cliente} accounts={acc} std={std} subgrupos={subgrupos} canManage={canManage} logs={stdLogs} lockedStdCodes={lockedStdCodes} clienteId={clienteId} clienteNit={clienteNit} puedeMapear={puedeMapear} />
     </div>
   );
 }
