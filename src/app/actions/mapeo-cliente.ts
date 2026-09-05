@@ -8,16 +8,22 @@ import { logAudit } from "@/lib/audit";
 import { authorizePermiso } from "@/lib/rbac";
 import { clienteDeCuentaCliente } from "@/lib/rbac/contexto";
 import { mensajeErrorBD } from "@/lib/errores";
+import { parseId } from "@/lib/ids";
 import { esExcepcionCuenta, ORIGEN_MANUAL_CUENTA, ORIGEN_MANUAL_GRUPO } from "@/lib/balance/mapeo-cliente-config";
+import { planAlinearConGrupo } from "@/lib/balance/anomalias-mapeo";
 import { cruzaClaseContable } from "@/lib/balance/clase-contable";
 import type { ActionState } from "@/lib/definitions";
 
 // CRUD de la MEMORIA de mapeo del balance, que vive en `cuentas_cliente`: la
-// parametrización cuenta_6 del cliente → cuenta estándar Russell que se reaplica
-// en cada importación. Editar/crear marca el origen como `manual` (no lo pisa el
-// mapeo automático). NO modifica balances ya cargados; aplica a futuras cargas.
-// "Eliminar" sólo limpia el mapeo del balance (no borra la fila: puede sostener
-// el mapeo de conciliación). Gate: `balance:crear` (Staff y Admin), por cliente.
+// parametrización cuenta del cliente → cuenta estándar Russell que se reaplica
+// en cada importación. Editar/crear una cuenta de 4/6 dígitos fija la regla del
+// GRUPO (`manual`, propaga por prefijo); editar una AUXILIAR (8+ dígitos) deja una
+// EXCEPCIÓN de esa sola cuenta (`manual_cuenta`), el mismo contrato que «solo esta
+// cuenta» en el detalle del balance. Nada de esto lo pisa el mapeo automático.
+// NO modifica balances ya cargados; aplica a futuras cargas (para lo ya cargado:
+// `reaplicarMapeoBalancesCliente` en `balance.ts`). "Eliminar" sólo limpia el
+// mapeo del balance (no borra la fila: puede sostener el mapeo de conciliación).
+// Gate: `balance:crear` (Staff y Admin), por cliente.
 const PATH = "/config/mapeo";
 
 async function existeEstandar(codigo: string): Promise<boolean> {
@@ -88,8 +94,12 @@ export async function editarMapeoCliente(_prev: ActionState | undefined, formDat
     if (!scope.ok) return { ok: false, message: scope.message };
     if (!(await existeEstandar(codigo))) return { ok: false, message: "La cuenta estándar seleccionada no existe." };
     // Editar una EXCEPCIÓN por cuenta la mantiene como excepción: promoverla a
-    // regla de grupo movería en silencio a todas sus cuentas hermanas.
-    const esExcepcion = esExcepcionCuenta(row.origenMapeo);
+    // regla de grupo movería en silencio a todas sus cuentas hermanas. Y cualquier
+    // AUXILIAR (más de 6 dígitos) editada desde aquí es también una excepción: el
+    // clic fue sobre esa cuenta, no sobre su grupo. Dejarla `manual` de grupo la
+    // haría ganar la elección del grupo (manual > automático) y arrastrar a sus
+    // hermanas en la próxima carga.
+    const esExcepcion = esExcepcionCuenta(row.origenMapeo) || row.code.length > 6;
     const origen = esExcepcion ? ORIGEN_MANUAL_CUENTA : ORIGEN_MANUAL_GRUPO;
     const user = await getCurrentUser();
     const ahora = new Date();
@@ -203,5 +213,106 @@ export async function eliminarMapeoCliente(_prev: ActionState | undefined, formD
     return { ok: true };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("eliminarMapeoCliente", e) };
+  }
+}
+
+/**
+ * «Alinear con el grupo»: una auxiliar cuya homologación difiere de la regla de su
+ * grupo (lo que el filtro «Revisar» señala) vuelve a seguirla. Copia la regla
+ * gobernante con su mismo origen (`planAlinearConGrupo`), así que nunca fabrica una
+ * fila manual bajo un grupo automático. Solo toca ESA fila.
+ */
+export async function alinearMapeoConGrupo(formData: FormData): Promise<ActionState> {
+  const authz = await authorizePermiso("balance:crear");
+  if (!authz.ok) return { ok: false, message: authz.message };
+  const id = parseId(formData.get("id"));
+  if (!id) return { ok: false, message: "Cuenta inexistente." };
+  try {
+    const row = await prisma.clientAccount.findUnique({
+      where: { id },
+      select: { code: true, clienteId: true, cuenta6Russell: true, origenMapeo: true },
+    });
+    if (!row) return { ok: false, message: "La cuenta ya no existe." };
+    if (row.clienteId == null) return { ok: false, message: "La cuenta no está ligada a un cliente." };
+    if (row.code.length <= 6) {
+      return { ok: false, message: "Solo una cuenta auxiliar se alinea con su grupo: las de 6 dígitos SON la regla del grupo." };
+    }
+    const scope = await authorizePermiso("balance:crear", { clientId: await clienteDeCuentaCliente(id) });
+    if (!scope.ok) return { ok: false, message: scope.message };
+    const cuenta6 = row.code.slice(0, 6);
+    const grupo = await prisma.clientAccount.findMany({
+      where: { clienteId: row.clienteId, code: { startsWith: cuenta6 } },
+      select: { id: true, code: true, level: true, cuenta6Russell: true, coincidencia: true, origenMapeo: true, actualizadoEn: true },
+    });
+    const plan = planAlinearConGrupo(
+      grupo.map((c) => ({ ...c, coincidencia: c.coincidencia != null ? Number(c.coincidencia) : null })),
+      row.code,
+    );
+    if (!plan) {
+      return { ok: false, message: `El grupo ${cuenta6} no tiene una regla vigente con la que alinear la cuenta ${row.code}.` };
+    }
+    if (plan.cuenta6Russell === row.cuenta6Russell && plan.origenMapeo === row.origenMapeo) {
+      return { ok: true, message: `La cuenta ${row.code} ya sigue la regla de su grupo.` };
+    }
+    const user = await getCurrentUser();
+    await prisma.clientAccount.update({
+      where: { id },
+      data: { cuenta6Russell: plan.cuenta6Russell, coincidencia: plan.coincidencia, origenMapeo: plan.origenMapeo, actualizadoPor: user?.name ?? null, actualizadoEn: new Date() },
+    });
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: "ALINEÓ MAPEO CON GRUPO",
+      entity: row.code,
+      detail: `${row.code}: ${row.cuenta6Russell ?? "—"} → ${plan.cuenta6Russell} (regla del grupo ${cuenta6}, fila ${plan.reglaCode}, ${plan.origenMapeo})`,
+      clientId: row.clienteId,
+    });
+    revalidatePath(PATH);
+    return { ok: true, message: `${row.code} vuelve a seguir a su grupo → ${plan.cuenta6Russell}. Aplica a las próximas cargas; para los balances ya cargados usa «Reaplicar a balances cargados».` };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("alinearMapeoConGrupo", e) };
+  }
+}
+
+/**
+ * «Mantener como excepción»: declara que la divergencia de una auxiliar es
+ * intencional. La fila pasa a `manual_cuenta` al 100% con su estándar actual: deja
+ * de contarse como anomalía, le gana a la regla de su grupo solo para ese código y
+ * no participa en la elección del grupo. Mismo contrato que «solo esta cuenta» en
+ * el detalle del balance.
+ */
+export async function declararExcepcionMapeo(formData: FormData): Promise<ActionState> {
+  const authz = await authorizePermiso("balance:crear");
+  if (!authz.ok) return { ok: false, message: authz.message };
+  const id = parseId(formData.get("id"));
+  if (!id) return { ok: false, message: "Cuenta inexistente." };
+  try {
+    const row = await prisma.clientAccount.findUnique({
+      where: { id },
+      select: { code: true, clienteId: true, cuenta6Russell: true, origenMapeo: true },
+    });
+    if (!row) return { ok: false, message: "La cuenta ya no existe." };
+    if (!row.cuenta6Russell) {
+      return { ok: false, message: "La cuenta no tiene estándar asignado: asígnalo antes de declararla excepción." };
+    }
+    if (row.code.length <= 6) return { ok: false, message: "Solo una cuenta auxiliar puede ser excepción de su grupo." };
+    const scope = await authorizePermiso("balance:crear", { clientId: await clienteDeCuentaCliente(id) });
+    if (!scope.ok) return { ok: false, message: scope.message };
+    if (esExcepcionCuenta(row.origenMapeo)) return { ok: true, message: `${row.code} ya es una excepción de solo esta cuenta.` };
+    const user = await getCurrentUser();
+    await prisma.clientAccount.update({
+      where: { id },
+      data: { coincidencia: 100, origenMapeo: ORIGEN_MANUAL_CUENTA, actualizadoPor: user?.name ?? null, actualizadoEn: new Date() },
+    });
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: "DECLARÓ EXCEPCIÓN DE MAPEO",
+      entity: row.code,
+      detail: `${row.code} → ${row.cuenta6Russell} · solo esta cuenta`,
+      clientId: row.clienteId,
+    });
+    revalidatePath(PATH);
+    return { ok: true, message: `${row.code} queda como excepción de solo esta cuenta → ${row.cuenta6Russell}.` };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("declararExcepcionMapeo", e) };
   }
 }

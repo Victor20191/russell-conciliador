@@ -18,12 +18,16 @@
 // siguiente carga. Marcarlas sería reportar lo que el sistema ya protege: sobre los datos
 // reales eran 12 de 21, más de la mitad del ruido.
 //
-// AVISA, no corrige — mismo principio que el prevalidador. Corregir se hace en la vista
-// editable, que es la única que escribe.
+// AVISA, no corrige — mismo principio que el prevalidador. Corregir se hace desde la
+// misma fila («Resolver»): `planAlinearConGrupo` describe qué escribir para volver a la
+// regla del grupo; declararla excepción es la otra salida y la ejecuta la action.
 
 import {
   construirConfigMapeoCliente,
+  elegirReglaGrupo,
   esExcepcionCuenta,
+  ORIGEN_AUTOMATICO,
+  ORIGEN_MANUAL_GRUPO,
   reglaMapeoAplicable,
 } from "./mapeo-cliente-config";
 
@@ -92,4 +96,41 @@ export function detectarAnomaliasMapeo(cuentas: readonly CuentaMapeo[]): Anomali
   return anomalias.sort(
     (a, b) => Number(b.cruzaClase) - Number(a.cruzaClase) || a.code.localeCompare(b.code),
   );
+}
+
+/** Qué escribir en una auxiliar para que vuelva a seguir la regla de su grupo. */
+export type PlanAlineacion = {
+  cuenta6Russell: string;
+  coincidencia: number | null;
+  origenMapeo: string;
+  /** Código de la fila que gobierna el grupo: la evidencia que va a la bitácora. */
+  reglaCode: string;
+};
+
+/**
+ * Plan para «Alinear con el grupo»: copia la regla que gobierna el grupo de la cuenta
+ * con el MISMO origen que ella. Si el grupo es manual, la fila queda manual al 100%
+ * —exactamente lo que propaga una regla de grupo al guardarse—; si es automático,
+ * queda automática con la coincidencia del grupo.
+ *
+ * Nunca deja una fila `manual` bajo un grupo automático: esa fila ganaría la elección
+ * del grupo (manual > automático) y congelaría a todas sus hermanas en el estándar
+ * viejo cuando la cascada volviera a decidir. Es justo la trampa que la alineación
+ * pretende deshacer, no crear.
+ *
+ * `null` si el grupo no tiene regla vigente con la que alinear.
+ */
+export function planAlinearConGrupo(
+  cuentas: readonly CuentaMapeo[],
+  code: string,
+): PlanAlineacion | null {
+  const regla = elegirReglaGrupo(cuentas, code.slice(0, 6));
+  if (!regla?.cuenta6Russell) return null;
+  const manual = regla.origenMapeo === ORIGEN_MANUAL_GRUPO;
+  return {
+    cuenta6Russell: regla.cuenta6Russell,
+    coincidencia: manual ? 100 : regla.coincidencia == null ? null : Number(regla.coincidencia),
+    origenMapeo: manual ? ORIGEN_MANUAL_GRUPO : ORIGEN_AUTOMATICO,
+    reglaCode: regla.code,
+  };
 }

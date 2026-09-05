@@ -205,3 +205,29 @@ export function esPendienteCodigo(
   if (!pendientes || pendientes.size === 0) return false;
   return pendientes.has(code) || pendientes.has(code.slice(0, 6));
 }
+
+/**
+ * Fila que GOBIERNA un grupo de seis dígitos entre `filas`: aplica el mismo orden
+ * canónico que `construirConfigMapeoCliente` (manual > exacta de nivel 6 > más
+ * reciente > mayor coincidencia > código/id) y descarta lo que no puede gobernar:
+ * filas sin estándar, códigos cortos, reglas automáticas que cruzan de clase y
+ * excepciones de cuenta. `undefined` si nadie gobierna el grupo.
+ *
+ * Sirve para explicar UNA decisión —qué regla manda sobre esta auxiliar y de dónde
+ * sale— sin construir el mapa completo; el mapa sigue siendo la autoridad de la carga.
+ */
+export function elegirReglaGrupo(
+  filas: readonly FilaMapeoCliente[],
+  cuenta6: string,
+): FilaMapeoCliente | undefined {
+  const candidatas = filas.filter(
+    (f) =>
+      !!f.cuenta6Russell &&
+      f.code.length >= 6 &&
+      f.code.slice(0, 6) === cuenta6 &&
+      !esExcepcionCuenta(f.origenMapeo) &&
+      reglaMapeoAplicable(f),
+  );
+  if (candidatas.length === 0) return undefined;
+  return [...candidatas].sort((a, b) => comparar(a, b, cuenta6))[0];
+}

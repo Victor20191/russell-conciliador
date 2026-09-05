@@ -121,7 +121,13 @@ export const fmtDateTimeLong = (input: EntradaFecha | null | undefined): string 
     dateStyle: "medium",
     timeStyle: "short",
     hour12: true,
-  }).format(fecha);
+  })
+    .format(fecha)
+    // ICU de Node y el del navegador no coinciden en el espacio que separa la hora
+    // de «a. m.»/«p. m.» (U+202F / U+00A0 / U+0020): la MISMA fecha renderizada en
+    // el servidor y en el cliente difería en un carácter invisible y React tiraba
+    // toda la tabla por «hydration mismatch». Se normaliza a espacio normal.
+    .replace(/[\u202f\u00a0]/g, " ");
 };
 
 export const timeAgo = (input: Date | string, now: Date = new Date()): string => {

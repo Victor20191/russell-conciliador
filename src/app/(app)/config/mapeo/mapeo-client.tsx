@@ -21,12 +21,36 @@ import {
   deleteStandardAccount,
 } from "@/app/actions/standard-accounts";
 import { crearSubgrupo, editarSubgrupo, eliminarSubgrupo } from "@/app/actions/subgrupos";
-import { esExcepcionCuenta, esMapeoManual } from "@/lib/balance/mapeo-cliente-config";
-import { detectarAnomaliasMapeo } from "@/lib/balance/anomalias-mapeo";
+import { esExcepcionCuenta, esMapeoManual, esPendiente } from "@/lib/balance/mapeo-cliente-config";
+import { detectarAnomaliasMapeo, planAlinearConGrupo, type AnomaliaMapeo } from "@/lib/balance/anomalias-mapeo";
 import { cruzaClaseContable } from "@/lib/balance/clase-contable";
-import { crearMapeoCliente, editarMapeoCliente, eliminarMapeoCliente, confirmarMapeoCliente } from "@/app/actions/mapeo-cliente";
+import { coincideBusquedaPuc, normalizarBusqueda } from "@/lib/balance/busqueda-puc";
+import {
+  crearMapeoCliente,
+  editarMapeoCliente,
+  eliminarMapeoCliente,
+  confirmarMapeoCliente,
+  alinearMapeoConGrupo,
+  declararExcepcionMapeo,
+} from "@/app/actions/mapeo-cliente";
+import { reaplicarMapeoBalancesCliente } from "@/app/actions/balance";
 
-export type Account = { id: number; code: string; level: number; name: string; cuenta6Russell: string | null; coincidencia: number | null; origenMapeo: string | null; actualizadoEn: string | null };
+/**
+ * Cuenta del PUC del cliente tal como vive en `cuentas_cliente`, con su memoria de
+ * mapeo. Es la ÚNICA fila de la pestaña «Mapeo balance/cliente»: el PUC completo a
+ * todos los niveles, editable en cualquiera de ellos.
+ */
+export type Account = {
+  id: number;
+  code: string;
+  level: number; // 4 | 6 | 8 en BD (todo lo de 8+ dígitos se guarda como 8)
+  name: string;
+  cuenta6Russell: string | null;
+  coincidencia: number | null;
+  origenMapeo: string | null; // manual | manual_cuenta | automatico | pendiente · null = sin asignar
+  actualizadoPor: string | null;
+  actualizadoEn: string | null; // ISO
+};
 export type RussellOpt = { code: string; name: string; module: string | null };
 export type StdAccount = {
   id: number;
@@ -57,83 +81,45 @@ export type StdLogRow = {
 
 export type Subgrupo = { id: number; codigo: string; nombre: string; grupo: string; nombreGrupo: string; naturaleza: string };
 
-/**
- * Una regla de la memoria de mapeo por cliente → cuenta estándar Russell. Casi
- * siempre es la cuenta_6 (regla del grupo); cuando `origen` es `manual_cuenta` es
- * la EXCEPCIÓN de una sola cuenta imputable, dejada por una homologación con
- * alcance «solo esta cuenta» en el detalle del balance.
- */
-export type MapeoClienteRow = {
-  id: number;
-  cuenta6: string;
-  nombreCuenta: string;
-  nivel: number;
-  cuenta6Russell: string;
-  nombreRussell: string | null;
-  coincidencia: number | null;
-  origen: string | null; // manual | manual_cuenta | automatico · null = sin asignar
-  actualizadoPor: string | null;
-  actualizadoEn: string; // ISO
-};
+/** Balances cargados del cliente seleccionado: lo que «Reaplicar a balances cargados» recorre. */
+export type BalancesCliente = { total: number; congelados: number };
 
+/**
+ * Nivel que se MUESTRA: la longitud real del código (N4, N6, N8, N10, N12…). La base
+ * colapsa todo lo de 8+ dígitos en `nivel = 8` (`nivelPorCodigo`), pero el PUC del
+ * cliente sí distingue esos niveles y es lo que operación necesita ver para ubicar una
+ * cuenta sin abrir balance por balance.
+ */
+const nivelVisual = (code: string): number => code.length;
+/** Sangría del árbol: un paso por cada par de dígitos a partir del nivel 4. */
+const profundidad = (code: string): number => Math.max(0, Math.ceil((code.length - 4) / 2));
+/** Auxiliar = más de 6 dígitos: su edición es siempre una excepción de esa sola cuenta. */
+const esAuxiliar = (code: string): boolean => code.length > 6;
 /** ¿La fila espera confirmación? Tiene estándar asignado pero la cascada no llegó al 100%.
  *  Definición ÚNICA: la comparten el contador, el filtro y el botón de la fila, para que el
  *  número del filtro no pueda discrepar de las filas que de verdad ofrecen «Confirmar». */
-const porConfirmar = (r: MapeoClienteRow): boolean =>
-  !!r.cuenta6Russell && (r.coincidencia == null || r.coincidencia < 100);
+const porConfirmar = (a: Account): boolean =>
+  !!a.cuenta6Russell && (a.coincidencia == null || a.coincidencia < 100);
 
-type Tab = "mapping" | "standard" | "subgrupos" | "mapeocliente";
+type Tab = "puc" | "standard" | "subgrupos";
 
 export default function MapeoClient({
-  clientNames, cliente, accounts, std, subgrupos, canManage, logs, lockedStdCodes, mapeoCliente, clienteId, clienteNit, puedeMapear,
+  clientNames, cliente, accounts, std, subgrupos, canManage, logs, lockedStdCodes, clienteId, clienteNit, puedeMapear, balancesCliente,
 }: {
-  clientNames: string[]; cliente: string; accounts: Account[]; std: StdAccount[]; subgrupos: Subgrupo[]; canManage: boolean; logs: StdLogRow[]; lockedStdCodes: string[]; mapeoCliente: MapeoClienteRow[]; clienteId: number | null; clienteNit: string | null; puedeMapear: boolean;
+  clientNames: string[]; cliente: string; accounts: Account[]; std: StdAccount[]; subgrupos: Subgrupo[]; canManage: boolean; logs: StdLogRow[]; lockedStdCodes: string[]; clienteId: number | null; clienteNit: string | null; puedeMapear: boolean; balancesCliente: BalancesCliente;
 }) {
-  const router = useRouter();
-  const [tab, setTab] = useState<Tab>("mapeocliente");
-  const [q, setQ] = useState("");
-  const [level, setLevel] = useState<"all" | "4" | "6" | "8">("all");
-  const [soloPendientes, setSoloPendientes] = useState(false);
-  const [soloAnomalias, setSoloAnomalias] = useState(false);
-  // Auxiliares cuyo mapeo NO se explica por la regla de su grupo. Es lo único que este
-  // informe muestra y la vista editable no: allí solo se listan el nivel 6 y las
-  // excepciones declaradas. Se indexa por código para pintarlo en la fila.
-  const anomalias = useMemo(() => {
-    const m = new Map<string, ReturnType<typeof detectarAnomaliasMapeo>[number]>();
-    for (const a of detectarAnomaliasMapeo(accounts)) m.set(a.code, a);
-    return m;
-  }, [accounts]);
-
-  const stdByCode = useMemo(() => new Map(std.map((s) => [s.code, s.name])), [std]);
-  const stats = useMemo(() => ({
-    total: accounts.length,
-    n4: accounts.filter((a) => a.level === 4).length,
-    n6: accounts.filter((a) => a.level === 6).length,
-    n8: accounts.filter((a) => a.level === 8).length,
-    stdMapped: accounts.filter((a) => a.cuenta6Russell).length,
-    porConfirmar: accounts.filter((a) => a.cuenta6Russell && (a.coincidencia == null || a.coincidencia < 100)).length,
-  }), [accounts]);
-
-  const rows = accounts
-    .filter((a) => level === "all" || a.level === Number(level))
-    .filter((a) => !soloPendientes || (!!a.cuenta6Russell && (a.coincidencia == null || a.coincidencia < 100)))
-    .filter((a) => !soloAnomalias || anomalias.has(a.code))
-    .filter((a) => !q || a.code.includes(q) || a.name.toLowerCase().includes(q.toLowerCase()));
-  const pg = usePagination(rows, 50);
-
-  const stdCoverage = stats.total > 0 ? Math.round((stats.stdMapped / stats.total) * 100) : 0;
+  const [tab, setTab] = useState<Tab>("puc");
 
   return (
     <div>
       <div className="mb-4 flex items-center gap-2">
-        <TabBtn on={tab === "mapeocliente"} onClick={() => setTab("mapeocliente")} label="Mapeo balance/cliente" count={mapeoCliente.length} />
-        <TabBtn on={tab === "mapping"} onClick={() => setTab("mapping")} label="Mapeo por cliente" count={accounts.length} />
+        <TabBtn on={tab === "puc"} onClick={() => setTab("puc")} label="Mapeo balance/cliente" count={accounts.length} />
         <TabBtn on={tab === "standard"} onClick={() => setTab("standard")} label="Plan estándar Russell" count={std.length} />
         <TabBtn on={tab === "subgrupos"} onClick={() => setTab("subgrupos")} label="Subgrupos (nivel 4)" count={subgrupos.length} />
         {/* Descarga SOLO el plan estándar Russell (catálogo completo). Vive en la barra de
-            pestañas, así que se ve también desde las otras tres: el rótulo dice QUÉ baja
-            para que desde «Mapeo por cliente» o «Subgrupos» no se espere el contenido de
-            esa pestaña. */}
+            pestañas, así que se ve también desde las otras dos: el rótulo dice QUÉ baja
+            para que desde «Mapeo balance/cliente» o «Subgrupos» no se espere el contenido
+            de esa pestaña. */}
         <a
           href="/config/mapeo/exportar"
           download
@@ -144,45 +130,152 @@ export default function MapeoClient({
         </a>
       </div>
 
-      {tab === "mapping" ? (
-        <>
-      {/* Informe de SOLO LECTURA: la homologación se edita en «Mapeo balance/cliente»,
-          que es la memoria que se reaplica en cada carga. Aquí solo se consulta. */}
-      <div className="mb-4 rounded-md border border-ink-200 bg-ink-50 px-3 py-2 text-[11.5px] leading-relaxed text-ink-600">
-        <b className="text-ink-700">Informe de consulta.</b> Muestra el PUC completo de <b>{cliente}</b> (N4/N6/N8) con la
-        cuenta estándar que tiene asignada hoy. No se edita desde aquí: para asignar, confirmar o quitar una homologación
-        usa la pestaña <b>Mapeo balance/cliente</b>.
-      </div>
+      {tab === "puc" ? (
+        <PucClienteTab accounts={accounts} std={std} clienteId={clienteId} clienteNit={clienteNit} puedeMapear={puedeMapear} cliente={cliente} clientNames={clientNames} balancesCliente={balancesCliente} />
+      ) : tab === "standard" ? (
+        <StandardTab std={std} canManage={canManage} logs={logs} lockedStdCodes={lockedStdCodes} />
+      ) : (
+        <SubgruposTab subgrupos={subgrupos} canManage={canManage} />
+      )}
+    </div>
+  );
+}
 
+// ===== PUC del cliente a todos los niveles + memoria de mapeo (una sola vista) =====
+//
+// Antes eran dos pestañas: un informe de solo lectura con el PUC completo y el botón
+// «Revisar», y una vista editable que solo listaba nivel 4/6 y las excepciones ya
+// declaradas. Las auxiliares (8+ dígitos) solo se podían corregir desde el detalle de
+// un balance que las contuviera y, como cada balance trae un subconjunto distinto de
+// cuentas, había que buscarlas balance por balance. Aquí se edita en cualquier nivel:
+//   - nivel 4/6 → regla del GRUPO (`manual`, propaga por prefijo);
+//   - auxiliar  → EXCEPCIÓN de esa sola cuenta (`manual_cuenta`), el mismo contrato que
+//                 «solo esta cuenta» en el balance;
+//   - anomalía  → «Resolver»: alinear con el grupo o declararla excepción;
+// y «Reaplicar a balances cargados» lleva la memoria corregida a lo ya cargado.
+// Gate de escritura: `balance:crear` (la action revalida el alcance por cartera).
+
+const SEG_CLS = (on: boolean) => `px-2.5 py-1 ${on ? "bg-navy-800 text-white" : "bg-white text-ink-600 hover:bg-ink-50"}`;
+
+function PucClienteTab({ accounts, std, clienteId, clienteNit, puedeMapear, cliente, clientNames, balancesCliente }: {
+  accounts: Account[]; std: StdAccount[]; clienteId: number | null; clienteNit: string | null; puedeMapear: boolean; cliente: string; clientNames: string[]; balancesCliente: BalancesCliente;
+}) {
+  const router = useRouter();
+  const [q, setQ] = useState("");
+  const [nivel, setNivel] = useState<number | "all">("all");
+  const [origen, setOrigen] = useState<"all" | "manual" | "automatico" | "sinasignar">("all");
+  // Ejes distintos al del origen (aquel dice DE DÓNDE salió la regla): coincidencia
+  // < 100, homologación a otra clase contable y anomalías frente a la regla del grupo.
+  const [soloPorConfirmar, setSoloPorConfirmar] = useState(false);
+  const [soloCruceClase, setSoloCruceClase] = useState(false);
+  const [soloAnomalias, setSoloAnomalias] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [reaplicarOpen, setReaplicarOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<Account | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Account | null>(null);
+  const [confirmTarget, setConfirmTarget] = useState<Account | null>(null);
+  const [anomaliaTarget, setAnomaliaTarget] = useState<Account | null>(null);
+
+  const stdByCode = useMemo(() => new Map(std.map((s) => [s.code, s.name])), [std]);
+  // El selector de cuenta estándar ofrece solo cuentas de 6 dígitos (nivel 6).
+  const opciones6 = useMemo(() => std.filter((s) => s.code.length === 6), [std]);
+  // Árbol: el orden lexicográfico por código deja cada grupo seguido de sus auxiliares.
+  const rows = useMemo(() => [...accounts].sort((a, b) => a.code.localeCompare(b.code)), [accounts]);
+  // Auxiliares cuyo mapeo NO se explica por la regla de su grupo. Se indexa por código
+  // para pintarlo en la fila y ofrecer «Resolver».
+  const anomalias = useMemo(() => {
+    const m = new Map<string, AnomaliaMapeo>();
+    for (const a of detectarAnomaliasMapeo(accounts)) m.set(a.code, a);
+    return m;
+  }, [accounts]);
+  // Niveles reales del PUC de ESTE cliente (por longitud del código): el filtro
+  // ofrece solo los que existen.
+  const niveles = useMemo(() => [...new Set(accounts.map((a) => nivelVisual(a.code)))].sort((a, b) => a - b), [accounts]);
+  const stats = useMemo(() => ({
+    total: accounts.length,
+    porNivel: niveles.map((n) => ({ nivel: n, count: accounts.filter((a) => nivelVisual(a.code) === n).length })),
+    stdMapped: accounts.filter((a) => a.cuenta6Russell).length,
+    porConfirmar: accounts.filter(porConfirmar).length,
+    manual: accounts.filter((a) => esMapeoManual(a.origenMapeo)).length,
+    excepciones: accounts.filter((a) => esExcepcionCuenta(a.origenMapeo)).length,
+    sinAsignar: accounts.filter((a) => !a.cuenta6Russell).length,
+    cruceClase: accounts.filter((a) => cruzaClaseContable(a.code, a.cuenta6Russell)).length,
+  }), [accounts, niveles]);
+
+  const needle = normalizarBusqueda(q);
+  const filtered = rows
+    .filter((a) => nivel === "all" || nivelVisual(a.code) === nivel)
+    .filter((a) => {
+      if (origen === "all") return true;
+      if (origen === "sinasignar") return !a.cuenta6Russell;
+      if (!a.cuenta6Russell) return false;
+      return origen === "manual" ? esMapeoManual(a.origenMapeo) : a.origenMapeo === "automatico";
+    })
+    .filter((a) => !soloPorConfirmar || porConfirmar(a))
+    .filter((a) => !soloCruceClase || cruzaClaseContable(a.code, a.cuenta6Russell))
+    .filter((a) => !soloAnomalias || anomalias.has(a.code))
+    .filter((a) => coincideBusquedaPuc(a, needle, stdByCode));
+  const pg = usePagination(filtered, 50);
+  const stdCoverage = stats.total > 0 ? Math.round((stats.stdMapped / stats.total) * 100) : 0;
+  const resetPg = () => pg.resetToFirstPage();
+
+  return (
+    <>
       {/* KPIs */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <Card className="p-4">
           <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">Cliente</div>
-          <div className="mt-1 text-[15px] font-semibold text-ink-900">{cliente}</div>
-          <div className="mt-1 text-[12px] text-ink-500">PUC del cliente</div>
+          <div className="mt-1 text-[15px] font-semibold text-ink-900">{cliente || "—"}</div>
+          <div className="mt-1 text-[12px] text-ink-500">{clienteNit ? <>NIT <span className="font-mono">{clienteNit}</span></> : "PUC del cliente"}</div>
         </Card>
         <Card className="p-4">
           <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">Cuentas del cliente</div>
           <div className="mt-1 font-mono text-2xl font-semibold text-ink-900">{stats.total}</div>
-          <div className="mt-1 flex gap-1.5">
-            <Chip label={`N4 · ${stats.n4}`} tone="ink" /><Chip label={`N6 · ${stats.n6}`} tone="ink" /><Chip label={`N8 · ${stats.n8}`} tone="ink" />
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            {stats.porNivel.map((n) => <Chip key={n.nivel} label={`N${n.nivel} · ${n.count}`} tone="ink" />)}
           </div>
         </Card>
         <StatCard label="Mapeadas a estándar" value={`${stats.stdMapped}/${stats.total}`} hint={`${stdCoverage}% cobertura`} tone="ok" />
-        <StatCard label="Por confirmar" value={String(stats.porConfirmar)} hint="coincidencia < 100%" tone={stats.porConfirmar > 0 ? "warn" : "ok"} />
+        <StatCard label="Por revisar" value={String(anomalias.size)} hint={`${stats.porConfirmar} por confirmar · ${stats.cruceClase} cruzan de clase`} tone={anomalias.size > 0 ? "warn" : "ok"} />
       </div>
 
-      {/* Leyenda */}
-      <div className="mt-4 flex flex-wrap items-center gap-2 text-[12px] text-ink-500">
-        <span className="rounded-md bg-ink-50 px-2.5 py-1.5"><b className="text-ink-700">Cuenta del cliente</b> · PUC (N4/N6/N8)</span>
-        <Icon name="chev-r" size={12} />
-        <span className="rounded-md bg-ink-50 px-2.5 py-1.5"><b className="text-ink-700">Cuenta estándar</b> · plan Russell (6 díg)</span>
-        <Icon name="chev-r" size={12} />
-        <span className="rounded-md bg-ink-50 px-2.5 py-1.5"><b className="text-ink-700">% + Confirmación</b> · estado del mapeo</span>
-      </div>
-
-      {/* Tabla */}
       <Card className="mt-4">
+        <div className="border-b border-ink-100 bg-blue-50/40 px-4 py-2.5 text-[11.5px] leading-relaxed text-ink-600">
+          PUC completo de <b>{cliente}</b> a todos los niveles que usa (acumulado de todas sus cargas) con su memoria de mapeo, que se aplica <b>automáticamente</b> al importar balances de este cliente (prioridad sobre la cascada). Editar una cuenta de <b>4 o 6 dígitos</b> fija la regla de todo su grupo; editar una <b>auxiliar</b> deja una excepción de <b>solo esa cuenta</b>, que le gana a la regla de su grupo. Lo <b>manual</b> no lo pisa el mapeo automático. Editar aquí <b>no</b> cambia balances ya cargados: usa <b>Reaplicar a balances cargados</b> para llevarles la memoria corregida.
+        </div>
+        {/* Barra de búsqueda sobre el PUC COMPLETO del cliente: es la respuesta a «para
+            encontrar una cuenta específica hay que buscar balance por balance». Numérico =
+            prefijo del código (o de la estándar); texto = nombre del ERP o de la estándar,
+            sin tildes ni mayúsculas. Se combina con los filtros de abajo. */}
+        <div className="border-b border-ink-100 px-4 py-3">
+          <div className="relative">
+            <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-ink-400"><Icon name="search" size={15} /></span>
+            <input
+              value={q}
+              onChange={(e) => { setQ(e.target.value); resetPg(); }}
+              placeholder="Buscar en el PUC del cliente: código (prefijo, p. ej. 6165), nombre de la cuenta o cuenta estándar Russell…"
+              aria-label="Buscar cuenta en el PUC del cliente"
+              className="w-full rounded-md border border-ink-200 bg-white py-2 pl-9 pr-28 text-[13px] text-ink-800 outline-none placeholder:text-ink-400 focus:border-blue-400"
+            />
+            {q && (
+              <button
+                type="button"
+                onClick={() => { setQ(""); resetPg(); }}
+                title="Limpiar búsqueda"
+                className="absolute inset-y-1 right-1.5 inline-flex items-center gap-1 rounded-md px-2 text-[11.5px] font-semibold text-ink-500 hover:bg-ink-100 hover:text-ink-700"
+              >
+                <Icon name="x" size={12} /> Limpiar
+              </button>
+            )}
+          </div>
+          {needle && clienteId != null && (
+            <p className="mt-1.5 text-[11.5px] text-ink-500">
+              <b className="text-ink-700">{filtered.length}</b> cuenta(s) coinciden con «{q.trim()}»
+              {/^\d+$/.test(needle) ? " (código o cuenta estándar que empieza por ese número)" : " (en el nombre de la cuenta o de la estándar)"}
+              {filtered.length !== rows.length && (nivel !== "all" || origen !== "all" || soloPorConfirmar || soloCruceClase || soloAnomalias) ? " · los filtros de abajo también aplican" : ""}.
+            </p>
+          )}
+        </div>
         <div className="flex flex-wrap items-center gap-2 border-b border-ink-100 px-4 py-3">
           <h2 className="text-[13px] font-semibold text-ink-800">Parametrización cuenta a cuenta</h2>
           <select
@@ -192,41 +285,74 @@ export default function MapeoClient({
           >
             {clientNames.map((n) => <option key={n} value={n}>{n}</option>)}
           </select>
-          <div className="ml-auto flex items-center gap-2">
+          {puedeMapear && clienteId != null && (
+            <div className="ml-auto flex items-center gap-2">
+              {balancesCliente.total > 0 && (
+              <button
+                type="button"
+                onClick={() => setReaplicarOpen(true)}
+                title="Llevar la memoria de mapeo vigente a los balances ya cargados de este cliente"
+                className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-ink-700 hover:bg-ink-50"
+              >
+                <Icon name="play" size={12} /> Reaplicar a balances cargados
+              </button>
+              )}
+              <button type="button" onClick={() => setCreateOpen(true)} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-800">Nueva regla</button>
+            </div>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-2 border-b border-ink-100 px-4 py-2.5">
+          <div className="flex flex-wrap items-center gap-2">
             <div className="flex overflow-hidden rounded-md border border-ink-200 text-[11.5px]">
-              {(["all", "4", "6", "8"] as const).map((l) => (
-                <button key={l} onClick={() => { setLevel(l); pg.resetToFirstPage(); }} className={`px-2.5 py-1 ${level === l ? "bg-navy-800 text-white" : "bg-white text-ink-600 hover:bg-ink-50"}`}>{l === "all" ? "Todos" : `N${l}`}</button>
+              <button type="button" onClick={() => { setNivel("all"); resetPg(); }} className={SEG_CLS(nivel === "all")}>Todos</button>
+              {niveles.map((n) => (
+                <button key={n} type="button" onClick={() => { setNivel(n); resetPg(); }} className={SEG_CLS(nivel === n)}>N{n}</button>
               ))}
             </div>
-            <button
-              type="button"
-              onClick={() => { setSoloPendientes((v) => !v); pg.resetToFirstPage(); }}
-              className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11.5px] font-medium transition ${soloPendientes ? "border-warn-300 bg-warn-100 text-warn-700" : "border-ink-200 text-ink-600 hover:bg-ink-50"}`}
-            >
-              <Icon name="warn" size={12} /> Por confirmar{stats.porConfirmar > 0 ? ` (${stats.porConfirmar})` : ""}
-            </button>
-            {/* Lo que este informe aporta y la vista editable no. Se ordena con los cruces
-                de clase primero: son los que mueven saldo de un estado financiero a otro. */}
-            <button
-              type="button"
-              onClick={() => { setSoloAnomalias((v) => !v); pg.resetToFirstPage(); }}
-              title="Auxiliares cuya homologación no coincide con la regla de su grupo"
-              className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11.5px] font-medium transition ${soloAnomalias ? "border-err-300 bg-err-100 text-err-700" : "border-ink-200 text-ink-600 hover:bg-ink-50"}`}
-            >
-              <Icon name="warn" size={12} /> Revisar{anomalias.size > 0 ? ` (${anomalias.size})` : ""}
-            </button>
-            <input value={q} onChange={(e) => { setQ(e.target.value); pg.resetToFirstPage(); }} placeholder="Filtrar por código o nombre…" className="rounded-md border border-ink-200 px-2.5 py-1.5 text-[12px] outline-none focus:border-blue-400" />
+            <div className="flex overflow-hidden rounded-md border border-ink-200 text-[11.5px]">
+              {(["all", "manual", "automatico", "sinasignar"] as const).map((o) => (
+                <button key={o} type="button" onClick={() => { setOrigen(o); resetPg(); }} className={SEG_CLS(origen === o)}>{o === "all" ? "Todos" : o === "manual" ? "Manual" : o === "automatico" ? "Automático" : "Sin asignar"}</button>
+              ))}
+            </div>
+            <FiltroToggle
+              on={soloPorConfirmar}
+              tone="warn"
+              onClick={() => { setSoloPorConfirmar((v) => !v); resetPg(); }}
+              label={`Por confirmar${stats.porConfirmar > 0 ? ` (${stats.porConfirmar})` : ""}`}
+            />
+            <FiltroToggle
+              on={soloCruceClase}
+              tone="err"
+              title="La cuenta del cliente y su estándar están en clases contables distintas"
+              onClick={() => { setSoloCruceClase((v) => !v); resetPg(); }}
+              label={`Cruza de clase${stats.cruceClase > 0 ? ` (${stats.cruceClase})` : ""}`}
+            />
+            {/* Se ordena con los cruces de clase primero: son los que mueven saldo de un
+                estado financiero a otro. */}
+            <FiltroToggle
+              on={soloAnomalias}
+              tone="err"
+              title="Auxiliares cuya homologación no coincide con la regla de su grupo y nadie declaró excepción"
+              onClick={() => { setSoloAnomalias((v) => !v); resetPg(); }}
+              label={`Revisar${anomalias.size > 0 ? ` (${anomalias.size})` : ""}`}
+            />
+          </div>
+          <div className="ml-auto">
             <PageSizeSelect value={pg.pageSize} onChange={pg.setPageSize} />
           </div>
         </div>
 
-        {rows.length === 0 ? (
+        {clienteId == null ? (
+          <EmptyState icon="doc" title="Sin cliente" description="Selecciona un cliente con balances para ver y editar su PUC y su memoria de mapeo." />
+        ) : rows.length === 0 ? (
+          <EmptyState icon="doc" title="Sin cuentas para este cliente" description="Este cliente aún no tiene PUC en el repositorio de mapeo. Se irá creando al cargar balances o al crear reglas a mano." />
+        ) : filtered.length === 0 ? (
           soloAnomalias ? (
-            <EmptyState icon="check" title="Sin anomalías" description="Todas las cuentas auxiliares de este cliente siguen la homologación de su grupo." />
-          ) : soloPendientes ? (
+            <EmptyState icon="check" title="Sin anomalías" description="Todas las cuentas auxiliares de este cliente siguen la homologación de su grupo o son excepciones declaradas." />
+          ) : soloPorConfirmar ? (
             <EmptyState icon="check" title="Nada por confirmar" description="Todas las cuentas con mapeo están confirmadas o son coincidencia exacta (100%)." />
           ) : (
-            <EmptyState icon="doc" title="Sin cuentas para este cliente" description="Este cliente no tiene un PUC cargado en el repositorio de mapeo." />
+            <EmptyState icon="search" title="Sin coincidencias" description={needle ? `Ninguna cuenta coincide con «${q.trim()}»${nivel !== "all" || origen !== "all" || soloPorConfirmar || soloCruceClase ? " con los filtros aplicados" : ""}.` : "Ninguna cuenta coincide con los filtros aplicados."} />
           )
         ) : (
           <div className="overflow-x-auto">
@@ -234,55 +360,109 @@ export default function MapeoClient({
               <thead>
                 <tr className="border-b border-ink-100 text-left text-[11px] uppercase tracking-wider text-ink-500">
                   <th className="px-3 py-2 font-semibold">Nivel</th>
-                  <th className="px-3 py-2 font-semibold">Código</th>
+                  <th className="px-3 py-2 font-semibold">Cuenta cliente</th>
                   <th className="px-3 py-2 font-semibold">Nombre cuenta (ERP)</th>
-                  <th className="px-3 py-2 font-semibold">Cuenta estándar (balance)</th>
-                  <th className="px-3 py-2 font-semibold">% Coincidencia</th>
-                  <th className="px-3 py-2 font-semibold">Confirmación</th>
+                  <th className="px-3 py-2 font-semibold">Cuenta estándar Russell</th>
+                  <th className="px-3 py-2 font-semibold">Origen</th>
+                  <th className="px-3 py-2 font-semibold">Coincidencia</th>
+                  <th className="px-3 py-2 font-semibold">Actualizado</th>
+                  {puedeMapear && <th className="px-3 py-2 text-right font-semibold">Acciones</th>}
                 </tr>
               </thead>
               <tbody>
                 {pg.pageItems.map((a) => {
-                  const sinMapeo = !a.cuenta6Russell;
-                  const confirmado = a.coincidencia != null && a.coincidencia >= 100;
+                  const an = anomalias.get(a.code);
+                  const stdName = a.cuenta6Russell ? stdByCode.get(a.cuenta6Russell) : undefined;
+                  const auxiliar = esAuxiliar(a.code);
+                  const prof = profundidad(a.code);
                   return (
                     <tr key={a.id} className="border-b border-ink-50 last:border-0 hover:bg-ink-50">
-                      <td className="px-3 py-2"><Chip label={`N${a.level}`} tone="ink" /></td>
-                      <td className="px-3 py-2 font-mono text-ink-600" style={{ paddingLeft: a.level === 4 ? 12 : a.level === 6 ? 28 : 48 }}>{a.code}</td>
-                      <td className="px-3 py-2 text-ink-800">
-                        {a.level !== 4 && <span className="mr-1 text-ink-400">└</span>}{a.name}
-                        {(() => {
-                          const an = anomalias.get(a.code);
-                          if (!an) return null;
-                          const etiqueta = an.cruzaClase
-                            ? `Cruza de clase · su grupo va a ${an.cuenta6RussellDelGrupo}`
-                            : `Difiere de su grupo (${an.cuenta6RussellDelGrupo})`;
-                          return <span className="ml-2"><Chip label={etiqueta} tone={an.cruzaClase ? "err" : "warn"} /></span>;
-                        })()}
+                      <td className="px-3 py-2"><Chip label={`N${nivelVisual(a.code)}`} tone="ink" /></td>
+                      {/* La cuenta del cliente identifica la fila y NO se edita: va como texto
+                          plano con la sangría del árbol. Lo editable es la cuenta estándar. */}
+                      <td className="whitespace-nowrap px-3 py-2 font-mono font-semibold text-ink-700" style={{ paddingLeft: 12 + prof * 16 }}>
+                        {prof > 0 && <span className="mr-1 font-sans font-normal text-ink-400">└</span>}{a.code}
                       </td>
-                      <td className="px-3 py-2">
-                        {sinMapeo ? (
-                          <Chip label="Sin mapeo" tone="warn" />
-                        ) : (
-                          <span className="font-mono text-[11.5px] text-blue-600">{a.cuenta6Russell}{stdByCode.get(a.cuenta6Russell!) ? <span className="ml-1 font-sans text-ink-500">· {stdByCode.get(a.cuenta6Russell!)}</span> : null}</span>
+                      <td className="px-3 py-2 text-ink-800">
+                        {/* Las reglas creadas por anticipado guardan el código como nombre:
+                            en esas no hay nombre del ERP que mostrar. */}
+                        {a.name && a.name !== a.code ? a.name : <span className="text-ink-400">—</span>}
+                        {an && (
+                          <span className="ml-2">
+                            <Chip
+                              label={an.cruzaClase ? `Cruza de clase · su grupo va a ${an.cuenta6RussellDelGrupo}` : `Difiere de su grupo (${an.cuenta6RussellDelGrupo})`}
+                              tone={an.cruzaClase ? "err" : "warn"}
+                            />
+                          </span>
                         )}
                       </td>
+                      <td className="px-3 py-2 text-ink-800">
+                        {puedeMapear ? (
+                          <button
+                            type="button"
+                            onClick={() => setEditTarget(a)}
+                            title={auxiliar ? `Cambiar la cuenta estándar solo de ${a.code}` : `Cambiar la cuenta estándar de todo el grupo ${a.code}`}
+                            className="text-left hover:underline"
+                          >
+                            {a.cuenta6Russell ? (
+                              <><span className="font-mono text-blue-600">{a.cuenta6Russell}</span>{stdName ? ` · ${stdName}` : ""}</>
+                            ) : (
+                              <Chip label="Asignar" tone="warn" />
+                            )}
+                          </button>
+                        ) : a.cuenta6Russell ? (
+                          <><span className="font-mono text-blue-600">{a.cuenta6Russell}</span>{stdName ? ` · ${stdName}` : ""}</>
+                        ) : (
+                          <Chip label="Sin mapeo" tone="warn" />
+                        )}
+                      </td>
+                      <td className="px-3 py-2"><OrigenChip a={a} /></td>
                       <td className="px-3 py-2">
-                        {sinMapeo || a.coincidencia == null ? (
+                        {!a.cuenta6Russell || a.coincidencia == null ? (
                           <span className="text-ink-400">—</span>
                         ) : (
                           <span className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${a.coincidencia >= 85 ? "bg-ok-100 text-ok-700" : a.coincidencia >= 55 ? "bg-warn-100 text-warn-700" : "bg-err-100 text-err-700"}`}>{a.coincidencia}%</span>
                         )}
                       </td>
-                      <td className="px-3 py-2">
-                        {sinMapeo ? (
-                          <span className="text-ink-400">—</span>
-                        ) : confirmado ? (
-                          <Chip label={esExcepcionCuenta(a.origenMapeo) ? "Solo esta cuenta" : a.origenMapeo === "manual" ? "Confirmado" : "Exacto"} tone="ok" />
-                        ) : (
-                          <Chip label="Por confirmar" tone="warn" />
-                        )}
-                      </td>
+                      <td className="whitespace-nowrap px-3 py-2 text-[11.5px] text-ink-500">{a.actualizadoEn ? fmtFecha(a.actualizadoEn) : "—"}{a.actualizadoPor ? ` · ${a.actualizadoPor}` : ""}</td>
+                      {puedeMapear && (
+                        /* Botones en una sola línea (`whitespace-nowrap` + flex): como enlaces
+                           sueltos se apilaban al angostarse la columna y quedaban ilegibles. */
+                        <td className="whitespace-nowrap px-3 py-2">
+                          <div className="flex items-center justify-end gap-1.5">
+                            {an && (
+                              <button
+                                type="button"
+                                onClick={() => setAnomaliaTarget(a)}
+                                title="Alinear con la regla del grupo o declararla excepción de solo esta cuenta"
+                                className="inline-flex items-center gap-1 rounded-md border border-err-200 bg-err-50 px-2 py-1 text-[11.5px] font-semibold text-err-700 hover:bg-err-100"
+                              >
+                                <Icon name="warn" size={12} /> Resolver
+                              </button>
+                            )}
+                            {!an && porConfirmar(a) && (
+                              <button
+                                type="button"
+                                onClick={() => setConfirmTarget(a)}
+                                title="Aceptar esta homologación y fijarla como manual al 100%"
+                                className="inline-flex items-center gap-1 rounded-md border border-warn-200 bg-warn-50 px-2 py-1 text-[11.5px] font-semibold text-warn-700 hover:bg-warn-100"
+                              >
+                                <Icon name="check" size={12} /> Confirmar
+                              </button>
+                            )}
+                            {a.cuenta6Russell && (
+                              <button
+                                type="button"
+                                onClick={() => setDeleteTarget(a)}
+                                title={auxiliar ? "Quitar la homologación de esta cuenta: volverá a seguir la regla de su grupo" : "Quitar la homologación: el grupo vuelve a la cascada automática"}
+                                className="inline-flex items-center gap-1 rounded-md border border-ink-200 bg-white px-2 py-1 text-[11.5px] font-semibold text-err-700 hover:border-err-200 hover:bg-err-50"
+                              >
+                                <Icon name="trash" size={12} /> Eliminar
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
@@ -291,25 +471,69 @@ export default function MapeoClient({
           </div>
         )}
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-ink-100 px-4 py-2.5 text-[11.5px] text-ink-500">
-          <span>{stats.stdMapped} mapeadas al estándar de {stats.total}{stats.porConfirmar > 0 ? ` · ${stats.porConfirmar} por confirmar` : ""}{anomalias.size > 0 ? ` · ${anomalias.size} por revisar` : ""}</span>
+          <span>
+            {stats.total} cuenta(s) · {stats.stdMapped} mapeadas · {stats.manual} manual(es)
+            {stats.excepciones > 0 ? ` · ${stats.excepciones} de solo esta cuenta` : ""}
+            {stats.porConfirmar > 0 ? ` · ${stats.porConfirmar} por confirmar` : ""}
+            {anomalias.size > 0 ? ` · ${anomalias.size} por revisar` : ""}
+            {stats.cruceClase > 0 ? ` · ${stats.cruceClase} cruzan de clase` : ""}
+            {stats.sinAsignar > 0 ? ` · ${stats.sinAsignar} sin asignar` : ""}
+          </span>
         </div>
-        <PaginationFooter
-          rangeLabel={pg.rangeLabel}
-          currentPage={pg.page}
-          totalPages={pg.totalPages}
-          onPageChange={pg.setPage}
-        />
+        <PaginationFooter rangeLabel={pg.rangeLabel} currentPage={pg.page} totalPages={pg.totalPages} onPageChange={pg.setPage} />
       </Card>
-        </>
-      ) : tab === "mapeocliente" ? (
-        <MapeoClienteTab rows={mapeoCliente} std={std} accounts={accounts} clienteId={clienteId} clienteNit={clienteNit} puedeMapear={puedeMapear} cliente={cliente} clientNames={clientNames} />
-      ) : tab === "standard" ? (
-        <StandardTab std={std} canManage={canManage} logs={logs} lockedStdCodes={lockedStdCodes} />
-      ) : (
-        <SubgruposTab subgrupos={subgrupos} canManage={canManage} />
+
+      {puedeMapear && clienteId != null && createOpen && (
+        <MapeoClienteForm mode="create" clienteId={clienteId} opciones={opciones6} onClose={() => setCreateOpen(false)} />
       )}
-    </div>
+      {puedeMapear && editTarget && (
+        <MapeoClienteForm
+          mode="edit"
+          row={editTarget}
+          opciones={opciones6}
+          excepcionesDelGrupo={esExcepcionCuenta(editTarget.origenMapeo) || esAuxiliar(editTarget.code)
+            ? [] /* editar una excepción o una auxiliar no propaga: no pisa nada */
+            : rows.filter((r) => esExcepcionCuenta(r.origenMapeo) && r.code !== editTarget.code && r.code.startsWith(editTarget.code))}
+          onClose={() => setEditTarget(null)}
+          onDelete={editTarget.cuenta6Russell ? () => { const t = editTarget; setEditTarget(null); setDeleteTarget(t); } : undefined}
+        />
+      )}
+      {puedeMapear && deleteTarget && (
+        <DeleteMapeoClienteForm row={deleteTarget} onClose={() => setDeleteTarget(null)} />
+      )}
+      {puedeMapear && confirmTarget && (
+        <ConfirmarMapeoModal cuenta={confirmTarget} accounts={accounts} stdByCode={stdByCode} onClose={() => setConfirmTarget(null)} />
+      )}
+      {puedeMapear && anomaliaTarget && anomalias.get(anomaliaTarget.code) && (
+        <ResolverAnomaliaModal cuenta={anomaliaTarget} anomalia={anomalias.get(anomaliaTarget.code)!} accounts={accounts} stdByCode={stdByCode} onClose={() => setAnomaliaTarget(null)} />
+      )}
+      {puedeMapear && clienteId != null && reaplicarOpen && (
+        <ReaplicarBalancesModal clienteId={clienteId} cliente={cliente} balances={balancesCliente} onClose={() => setReaplicarOpen(false)} />
+      )}
+    </>
   );
+}
+
+function FiltroToggle({ on, tone, label, title, onClick }: { on: boolean; tone: "warn" | "err"; label: string; title?: string; onClick: () => void }) {
+  const onCls = tone === "err" ? "border-err-300 bg-err-100 text-err-700" : "border-warn-300 bg-warn-100 text-warn-700";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11.5px] font-medium transition ${on ? onCls : "border-ink-200 text-ink-600 hover:bg-ink-50"}`}
+    >
+      <Icon name="warn" size={12} /> {label}
+    </button>
+  );
+}
+
+function OrigenChip({ a }: { a: Account }) {
+  if (esPendiente(a.origenMapeo)) return <Chip label="Pendiente por asignar" tone="warn" />;
+  if (!a.cuenta6Russell) return <Chip label="Sin asignar" tone="warn" />;
+  if (esExcepcionCuenta(a.origenMapeo)) return <Chip label="Solo esta cuenta" tone="blue" />;
+  if (a.origenMapeo === "manual") return <Chip label="Manual" tone="blue" />;
+  return <Chip label="Automático" tone="ink" />;
 }
 
 // Caja de confirmación: confirma el mapeo de una cuenta como MANUAL al 100%. Por
@@ -371,234 +595,139 @@ function ConfirmarMapeoModal({ cuenta, accounts, stdByCode, onClose }: {
   );
 }
 
-// Selector (con búsqueda) para CAMBIAR la cuenta estándar de una fila. El cambio
-// aplica a todo el grupo de 6 díg como mapeo `manual` al 100%.
-// ===== Memoria de mapeo por cliente (cuenta_6 del cliente → cuenta estándar) =====
-// Edita la tabla `cuentas_cliente`: la parametrización que se reaplica en cada
-// importación del cliente. Gate de escritura: `balance:crear` (la action revalida
-// el alcance por cartera).
-
-function MapeoClienteTab({ rows, std, accounts, clienteId, clienteNit, puedeMapear, cliente, clientNames }: {
-  rows: MapeoClienteRow[]; std: StdAccount[]; accounts: Account[]; clienteId: number | null; clienteNit: string | null; puedeMapear: boolean; cliente: string; clientNames: string[];
+// «Resolver» una anomalía: la auxiliar difiere de la regla de su grupo y nadie la
+// declaró excepción. Dos salidas, ambas explícitas: volver a la regla del grupo o
+// dejar la divergencia como excepción de solo esta cuenta. Antes el informe solo la
+// señalaba y había que ir al balance —a uno que contuviera la cuenta— a corregirla.
+function ResolverAnomaliaModal({ cuenta, anomalia, accounts, stdByCode, onClose }: {
+  cuenta: Account; anomalia: AnomaliaMapeo; accounts: Account[]; stdByCode: Map<string, string>; onClose: () => void;
 }) {
   const router = useRouter();
-  const [q, setQ] = useState("");
-  const [origen, setOrigen] = useState<"all" | "manual" | "automatico" | "sinasignar">("all");
-  // Filtro aparte del de origen: aquel dice DE DÓNDE salió la regla y este filtra por
-  // coincidencia < 100. Son ejes distintos, y cruzarlos no aporta: lo manual se guarda
-  // siempre al 100% y lo sin asignar no tiene nada que confirmar, así que «por confirmar»
-  // está contenido en «automático».
-  const [soloPorConfirmar, setSoloPorConfirmar] = useState(false);
-  // Tercer eje: la homologación manda el saldo a otro estado financiero. A veces es
-  // deliberado —reclasificar una cuenta que el ERP codificó mal— por eso es un filtro
-  // para auditar y no una marca en cada fila: son 1.032 de 18.424 en la plataforma, y
-  // marcarlas todas convertiría la señal en papel tapiz.
-  const [soloCruceClase, setSoloCruceClase] = useState(false);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [editTarget, setEditTarget] = useState<MapeoClienteRow | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<MapeoClienteRow | null>(null);
-  const [confirmTarget, setConfirmTarget] = useState<MapeoClienteRow | null>(null);
-  const stdByCode = useMemo(() => new Map(std.map((x) => [x.code, x.name])), [std]);
-  // El modal de confirmación razona sobre cuentas del PUC: se le pasa la fila de la
-  // memoria con la forma de `Account` (comparten el id de `cuentas_cliente`).
-  const comoCuenta = (r: MapeoClienteRow): Account => ({
-    id: r.id, code: r.cuenta6, level: r.nivel, name: r.nombreCuenta,
-    cuenta6Russell: r.cuenta6Russell || null, coincidencia: r.coincidencia, origenMapeo: r.origen,
-    actualizadoEn: r.actualizadoEn || null,
-  });
-  // El selector de cuenta estándar ofrece solo cuentas de 6 dígitos (nivel 6).
-  const opciones6 = useMemo(() => std.filter((s) => s.code.length === 6), [std]);
-  const needle = q.trim().toLowerCase();
-  const filtered = rows
-    .filter((r) => {
-      if (origen === "all") return true;
-      if (origen === "sinasignar") return !r.cuenta6Russell;
-      if (!r.cuenta6Russell) return false;
-      return origen === "manual" ? esMapeoManual(r.origen) : r.origen === "automatico";
-    })
-    .filter((r) => !soloPorConfirmar || porConfirmar(r))
-    .filter((r) => !soloCruceClase || cruzaClaseContable(r.cuenta6, r.cuenta6Russell))
-    .filter((r) => !needle || r.cuenta6.includes(needle) || r.cuenta6Russell.includes(needle) || (r.nombreRussell ?? "").toLowerCase().includes(needle) || r.nombreCuenta.toLowerCase().includes(needle));
-  const pg = usePagination(filtered, 50);
-  const manualCount = rows.filter((r) => esMapeoManual(r.origen)).length;
-  const excepcionCount = rows.filter((r) => esExcepcionCuenta(r.origen)).length;
-  const sinAsignarCount = rows.filter((r) => !r.cuenta6Russell).length;
-  const porConfirmarCount = rows.filter(porConfirmar).length;
-  const cruceClaseCount = rows.filter((r) => cruzaClaseContable(r.cuenta6, r.cuenta6Russell)).length;
+  const [modo, setModo] = useState<"alinear" | "excepcion">("alinear");
+  // Misma autoridad que usará la action: qué regla gobierna el grupo y con qué origen
+  // quedará la fila. Si no hay plan, alinear no es posible y solo queda la excepción.
+  const plan = useMemo(() => planAlinearConGrupo(accounts, cuenta.code), [accounts, cuenta.code]);
+  const grupo = cuenta.code.slice(0, 6);
+  const nombre = (code: string | null | undefined) => (code ? stdByCode.get(code) : undefined);
+  const action = modo === "alinear" ? alinearMapeoConGrupo : declararExcepcionMapeo;
 
   return (
-    <>
-      <Card>
-        <div className="border-b border-ink-100 bg-blue-50/40 px-4 py-2.5 text-[11.5px] leading-relaxed text-ink-600">
-          Memoria de mapeo de <b>{cliente}</b>{clienteNit ? <> · NIT <span className="font-mono">{clienteNit}</span></> : null} (se identifica por NIT/cliente, no por nombre): se aplica <b>automáticamente</b> al importar balances de este cliente (prioridad sobre la cascada). Lo marcado como <b>manual</b> no lo pisa el mapeo automático. Una regla de <b>6 dígitos</b> vale para todas las cuentas del grupo; una de <b>solo esta cuenta</b> es una excepción de esa cuenta imputable y le gana a la de su grupo. Editar aquí <b>no</b> cambia balances ya cargados; aplica a las próximas importaciones.
+    <Modal
+      open
+      onClose={onClose}
+      size="xl"
+      title={`Resolver homologación · ${cuenta.code}`}
+      footer={
+        /* `key={modo}`: cada opción llama a una action distinta; remontar el formulario al
+           cambiar evita que un envío en curso mezcle la acción anterior con la nueva. */
+        <ActionForm
+          key={modo}
+          action={action}
+          successMessage={modo === "alinear" ? "Cuenta alineada con su grupo." : "Excepción declarada."}
+          errorMessage="No se pudo resolver la homologación."
+          showInlineError={false}
+          onSuccess={() => { router.refresh(); onClose(); }}
+        >
+          {(pending) => (
+            <>
+              <input type="hidden" name="id" value={cuenta.id} />
+              <button type="submit" disabled={pending || (modo === "alinear" && !plan)} className="rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-60">
+                {pending ? <EstadoProcesando>Guardando</EstadoProcesando> : modo === "alinear" ? "Alinear con el grupo" : "Mantener como excepción"}
+              </button>
+            </>
+          )}
+        </ActionForm>
+      }
+    >
+      <div className="flex flex-col gap-3 text-[13px] text-ink-700">
+        <p>
+          La cuenta <span className="font-mono font-semibold">{cuenta.code}</span>{cuenta.name && cuenta.name !== cuenta.code ? ` — ${cuenta.name}` : ""} está homologada a{" "}
+          <span className="font-mono text-blue-600">{anomalia.cuenta6Russell}</span>{nombre(anomalia.cuenta6Russell) ? ` · ${nombre(anomalia.cuenta6Russell)}` : ""}, pero su grupo{" "}
+          <span className="font-mono">{grupo}</span> va a <span className="font-mono text-blue-600">{anomalia.cuenta6RussellDelGrupo}</span>{nombre(anomalia.cuenta6RussellDelGrupo) ? ` · ${nombre(anomalia.cuenta6RussellDelGrupo)}` : ""}.
+          {anomalia.cruzaClase && <> <b className="text-err-700">Cruza de clase contable:</b> mueve saldo a otro estado financiero.</>}
+        </p>
+        <label className={`flex items-start gap-2 rounded-md border border-ink-150 px-3 py-2.5 ${plan ? "cursor-pointer hover:bg-ink-50" : "cursor-not-allowed opacity-60"}`}>
+          <input type="radio" name="modo" checked={modo === "alinear"} disabled={!plan} onChange={() => setModo("alinear")} className="mt-0.5 h-4 w-4 border-ink-300 text-navy-600 focus:ring-navy-600" />
+          <span className="text-[12.5px]">
+            <b>Alinear con el grupo</b> → <span className="font-mono">{plan?.cuenta6Russell ?? anomalia.cuenta6RussellDelGrupo}</span>
+            <span className="mt-0.5 block text-ink-500">
+              {plan
+                ? `La cuenta vuelve a seguir la regla de su grupo (${plan.origenMapeo === "manual" ? "manual al 100%" : `automática${plan.coincidencia != null ? ` al ${plan.coincidencia}%` : ""}`}, igual que sus hermanas). Solo cambia esta fila.`
+                : "El grupo no tiene una regla vigente con la que alinear esta cuenta."}
+            </span>
+          </span>
+        </label>
+        <label className="flex cursor-pointer items-start gap-2 rounded-md border border-ink-150 px-3 py-2.5 hover:bg-ink-50">
+          <input type="radio" name="modo" checked={modo === "excepcion"} onChange={() => setModo("excepcion")} className="mt-0.5 h-4 w-4 border-ink-300 text-navy-600 focus:ring-navy-600" />
+          <span className="text-[12.5px]">
+            <b>Mantener como excepción de solo esta cuenta</b> → <span className="font-mono">{anomalia.cuenta6Russell}</span>
+            <span className="mt-0.5 block text-ink-500">La divergencia es intencional: queda como manual al 100%, le gana a la regla del grupo solo para este código y deja de aparecer en «Revisar».</span>
+          </span>
+        </label>
+        <div className="rounded-md bg-blue-50 px-3 py-2 text-[12px] text-blue-700">
+          Aplica a las próximas cargas. Para los balances ya cargados usa <b>Reaplicar a balances cargados</b>.
         </div>
-        <div className="flex flex-wrap items-center gap-2 border-b border-ink-100 px-4 py-3">
-          <h2 className="text-[13px] font-semibold text-ink-800">Mapeo de balance por cliente</h2>
-          <select value={cliente} onChange={(e) => router.push(`/config/mapeo?cliente=${encodeURIComponent(e.target.value)}`)} className="rounded-md border border-ink-200 px-2 py-1 text-[12px] text-ink-700 outline-none">
-            {clientNames.map((n) => <option key={n} value={n}>{n}</option>)}
-          </select>
-          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-            <div className="flex overflow-hidden rounded-md border border-ink-200 text-[11.5px]">
-              {(["all", "manual", "automatico", "sinasignar"] as const).map((o) => (
-                <button key={o} onClick={() => { setOrigen(o); pg.resetToFirstPage(); }} className={`px-2.5 py-1 ${origen === o ? "bg-navy-800 text-white" : "bg-white text-ink-600 hover:bg-ink-50"}`}>{o === "all" ? "Todos" : o === "manual" ? "Manual" : o === "automatico" ? "Automático" : "Sin asignar"}</button>
-              ))}
-            </div>
-            {/* Mismo control que la pestaña informe: eje distinto al del origen, así que va
-                aparte y no como una opción más del grupo. */}
-            <button
-              type="button"
-              onClick={() => { setSoloPorConfirmar((v) => !v); pg.resetToFirstPage(); }}
-              className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11.5px] font-medium transition ${soloPorConfirmar ? "border-warn-300 bg-warn-100 text-warn-700" : "border-ink-200 text-ink-600 hover:bg-ink-50"}`}
-            >
-              <Icon name="warn" size={12} /> Por confirmar{porConfirmarCount > 0 ? ` (${porConfirmarCount})` : ""}
-            </button>
-            <button
-              type="button"
-              onClick={() => { setSoloCruceClase((v) => !v); pg.resetToFirstPage(); }}
-              title="La cuenta del cliente y su estándar están en clases contables distintas"
-              className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11.5px] font-medium transition ${soloCruceClase ? "border-err-300 bg-err-100 text-err-700" : "border-ink-200 text-ink-600 hover:bg-ink-50"}`}
-            >
-              <Icon name="warn" size={12} /> Cruza de clase{cruceClaseCount > 0 ? ` (${cruceClaseCount})` : ""}
-            </button>
-            <input value={q} onChange={(e) => { setQ(e.target.value); pg.resetToFirstPage(); }} placeholder="filtrar por cuenta o estándar" className="w-64 rounded-md border border-ink-200 px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400" />
-            <PageSizeSelect value={pg.pageSize} onChange={pg.setPageSize} />
-            {puedeMapear && clienteId != null && (
-              <button type="button" onClick={() => setCreateOpen(true)} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-800">Nueva regla</button>
-            )}
-          </div>
-        </div>
-        {clienteId == null ? (
-          <EmptyState icon="doc" title="Sin cliente" description="Selecciona un cliente con balances para ver y editar su memoria de mapeo." />
-        ) : rows.length === 0 ? (
-          <EmptyState icon="doc" title="Sin reglas guardadas" description="Aún no hay mapeo guardado para este cliente. Se irá creando al cargar balances o al asignar cuentas a mano en el detalle del balance." />
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-[12.5px]">
-              <thead>
-                <tr className="border-b border-ink-100 text-left text-[11px] uppercase tracking-wider text-ink-500">
-                  <th className="px-4 py-2 font-semibold">Cuenta cliente</th>
-                  <th className="px-4 py-2 font-semibold">Nombre cuenta (ERP)</th>
-                  <th className="px-4 py-2 font-semibold">Cuenta estándar Russell</th>
-                  <th className="px-4 py-2 font-semibold">Origen</th>
-                  <th className="px-4 py-2 font-semibold">Coincidencia</th>
-                  <th className="px-4 py-2 font-semibold">Actualizado</th>
-                  {puedeMapear && <th className="px-4 py-2 text-right font-semibold">Acciones</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {pg.pageItems.map((r) => (
-                  <tr key={r.id} className="border-b border-ink-50 last:border-0 hover:bg-ink-50">
-                    {/* La cuenta del cliente identifica la fila y NO se edita: va como texto
-                        plano. Lo editable es la cuenta estándar, así que el clic vive allí. */}
-                    <td className="px-4 py-2.5 font-mono font-semibold text-ink-700">{r.cuenta6}</td>
-                    {/* Las reglas creadas por anticipado guardan el código como nombre:
-                        en esas no hay nombre del ERP que mostrar. */}
-                    <td className="px-4 py-2.5 text-ink-700">{r.nombreCuenta && r.nombreCuenta !== r.cuenta6 ? r.nombreCuenta : "—"}</td>
-                    <td className="px-4 py-2.5 text-ink-800">
-                      {puedeMapear ? (
-                        <button
-                          type="button"
-                          onClick={() => setEditTarget(r)}
-                          title={esExcepcionCuenta(r.origen)
-                            ? `Cambiar la cuenta estándar solo de ${r.cuenta6}`
-                            : `Cambiar la cuenta estándar de todo el grupo ${r.cuenta6.slice(0, 6)}`}
-                          className="text-left hover:underline"
-                        >
-                          {r.cuenta6Russell ? (
-                            <><span className="font-mono text-blue-600">{r.cuenta6Russell}</span>{r.nombreRussell ? ` · ${r.nombreRussell}` : ""}</>
-                          ) : (
-                            <Chip label="Asignar" tone="warn" />
-                          )}
-                        </button>
-                      ) : r.cuenta6Russell ? (
-                        <><span className="font-mono text-blue-600">{r.cuenta6Russell}</span>{r.nombreRussell ? ` · ${r.nombreRussell}` : ""}</>
-                      ) : (
-                        <Chip label="Asignar" tone="warn" />
-                      )}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <Chip
-                        label={!r.cuenta6Russell ? "Sin asignar" : esExcepcionCuenta(r.origen) ? "Solo esta cuenta" : r.origen === "manual" ? "Manual" : "Automático"}
-                        tone={!r.cuenta6Russell ? "warn" : esMapeoManual(r.origen) ? "blue" : "ink"}
-                      />
-                    </td>
-                    <td className="px-4 py-2.5 font-mono text-ink-600">{r.coincidencia != null ? `${r.coincidencia}%` : "—"}</td>
-                    <td className="whitespace-nowrap px-4 py-2.5 text-[11.5px] text-ink-500">{fmtFecha(r.actualizadoEn)}{r.actualizadoPor ? ` · ${r.actualizadoPor}` : ""}</td>
-                    {puedeMapear && (
-                      /* Botones en una sola línea (`whitespace-nowrap` + flex): como enlaces
-                         sueltos se apilaban al angostarse la columna y quedaban ilegibles. */
-                      <td className="whitespace-nowrap px-4 py-2.5">
-                        <div className="flex items-center justify-end gap-1.5">
-                          {porConfirmar(r) && (
-                            <button
-                              type="button"
-                              onClick={() => setConfirmTarget(r)}
-                              title="Aceptar esta homologación y fijarla como manual al 100%"
-                              className="inline-flex items-center gap-1 rounded-md border border-warn-200 bg-warn-50 px-2 py-1 text-[11.5px] font-semibold text-warn-700 hover:bg-warn-100"
-                            >
-                              <Icon name="check" size={12} /> Confirmar
-                            </button>
-                          )}
-                          {r.cuenta6Russell && (
-                            <button
-                              type="button"
-                              onClick={() => setDeleteTarget(r)}
-                              title="Quitar la homologación: la cuenta vuelve a la cascada automática"
-                              className="inline-flex items-center gap-1 rounded-md border border-ink-200 bg-white px-2 py-1 text-[11.5px] font-semibold text-err-700 hover:border-err-200 hover:bg-err-50"
-                            >
-                              <Icon name="trash" size={12} /> Eliminar
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    )}
-                  </tr>
-                ))}
-                {filtered.length === 0 && (
-                  <tr><td colSpan={puedeMapear ? 7 : 6} className="px-4 py-8 text-center text-ink-400">Sin cuentas que coincidan con el filtro.</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-ink-100 px-4 py-2.5 text-[11.5px] text-ink-500">
-          <span>{rows.length} cuenta(s) · {manualCount} manual(es){excepcionCount > 0 ? ` · ${excepcionCount} de solo esta cuenta` : ""}{porConfirmarCount > 0 ? ` · ${porConfirmarCount} por confirmar` : ""}{cruceClaseCount > 0 ? ` · ${cruceClaseCount} cruzan de clase` : ""}{sinAsignarCount > 0 ? ` · ${sinAsignarCount} sin asignar` : ""}</span>
-        </div>
-        <PaginationFooter rangeLabel={pg.rangeLabel} currentPage={pg.page} totalPages={pg.totalPages} onPageChange={pg.setPage} />
-      </Card>
+      </div>
+    </Modal>
+  );
+}
 
-      {puedeMapear && clienteId != null && createOpen && (
-        <MapeoClienteForm mode="create" clienteId={clienteId} opciones={opciones6} onClose={() => setCreateOpen(false)} />
-      )}
-      {puedeMapear && editTarget && (
-        <MapeoClienteForm
-          mode="edit"
-          row={editTarget}
-          opciones={opciones6}
-          excepcionesDelGrupo={esExcepcionCuenta(editTarget.origen)
-            ? [] /* editar una excepción no propaga: no pisa nada */
-            : rows.filter((r) => esExcepcionCuenta(r.origen) && r.cuenta6 !== editTarget.cuenta6 && r.cuenta6.startsWith(editTarget.cuenta6))}
-          onClose={() => setEditTarget(null)}
-          onDelete={() => { const t = editTarget; setEditTarget(null); setDeleteTarget(t); }}
-        />
-      )}
-      {puedeMapear && deleteTarget && (
-        <DeleteMapeoClienteForm row={deleteTarget} onClose={() => setDeleteTarget(null)} />
-      )}
-      {puedeMapear && confirmTarget && (
-        <ConfirmarMapeoModal cuenta={comoCuenta(confirmTarget)} accounts={accounts} stdByCode={stdByCode} onClose={() => setConfirmTarget(null)} />
-      )}
-    </>
+// Lleva la memoria vigente a TODOS los balances ya cargados del cliente (los no
+// congelados), sin abrirlos uno por uno. Es el cierre del ciclo: sin esto, corregir
+// aquí y ver el efecto exigía volver al balance igual que antes.
+function ReaplicarBalancesModal({ clienteId, cliente, balances, onClose }: {
+  clienteId: number; cliente: string; balances: BalancesCliente; onClose: () => void;
+}) {
+  const router = useRouter();
+  const editables = balances.total - balances.congelados;
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      size="xl"
+      title="Reaplicar la memoria a los balances cargados"
+      footer={
+        <ActionForm action={reaplicarMapeoBalancesCliente} successMessage="Balances re-homologados." errorMessage="No se pudieron re-homologar los balances." showInlineError={false} onSuccess={() => { router.refresh(); onClose(); }}>
+          {(pending) => (
+            <>
+              <input type="hidden" name="clienteId" value={clienteId} />
+              <button type="submit" disabled={pending || editables === 0} className="rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-60">
+                {pending ? <EstadoProcesando>Re-homologando</EstadoProcesando> : `Reaplicar a ${editables} balance(s)`}
+              </button>
+            </>
+          )}
+        </ActionForm>
+      }
+    >
+      <div className="flex flex-col gap-3 text-[13px] text-ink-700">
+        <p>
+          Vuelve a homologar el detalle de los <b>{editables}</b> balance(s) cargados de <b>{cliente}</b> con la memoria de mapeo vigente (memoria del cliente → exacto → descripción), sin IA y sin volver a leer los archivos.
+          {balances.congelados > 0 ? <> Los <b>{balances.congelados}</b> congelado(s) no se tocan.</> : null}
+        </p>
+        <ul className="list-disc space-y-1 pl-5 text-[12.5px] text-ink-600">
+          <li>Cada cuenta toma la regla de su memoria; si no hay, decide la cascada determinista, que respeta la clase contable.</li>
+          <li>Si tampoco resuelve, conserva el mapeo actual salvo que cruce de clase: en ese caso lo retira.</li>
+          <li>Nunca inventa un mapeo nuevo con IA ni escribe memoria: solo la consume.</li>
+        </ul>
+        <div className="rounded-md bg-blue-50 px-3 py-2 text-[12px] text-blue-700">
+          Es la misma operación que «Re-homologar» en el detalle de un balance, aplicada a todos a la vez. Cada balance se procesa en su propia transacción.
+        </div>
+      </div>
+    </Modal>
   );
 }
 
 function MapeoClienteForm({ mode, row, clienteId, opciones, excepcionesDelGrupo = [], onClose, onDelete }: {
-  mode: "create" | "edit"; row?: MapeoClienteRow; clienteId?: number; opciones: StdAccount[];
+  mode: "create" | "edit"; row?: Account; clienteId?: number; opciones: StdAccount[];
   /** Excepciones de cuenta que cuelgan de esta regla y que guardar va a REEMPLAZAR. */
-  excepcionesDelGrupo?: MapeoClienteRow[];
+  excepcionesDelGrupo?: Account[];
   onClose: () => void; onDelete?: () => void;
 }) {
   const isEdit = mode === "edit";
+  // Una auxiliar editada desde aquí es SIEMPRE una excepción de esa sola cuenta (la
+  // action lo garantiza): el clic fue sobre esa cuenta, no sobre su grupo.
+  const esExcepcion = isEdit && (esExcepcionCuenta(row!.origenMapeo) || esAuxiliar(row!.code));
   const [state, action, pending] = useActionState(isEdit ? editarMapeoCliente : crearMapeoCliente, undefined);
 
   useEffect(() => {
@@ -614,7 +743,7 @@ function MapeoClienteForm({ mode, row, clienteId, opciones, excepcionesDelGrupo 
       open
       onClose={onClose}
       size="xl"
-      title={isEdit ? `${row?.cuenta6Russell ? "Editar mapeo" : "Asignar cuenta estándar"} · ${row?.cuenta6}` : "Nueva regla de mapeo"}
+      title={isEdit ? `${row?.cuenta6Russell ? "Editar mapeo" : "Asignar cuenta estándar"} · ${row?.code}` : "Nueva regla de mapeo"}
       footer={
         <div className="flex w-full items-center justify-between gap-2">
           <div>
@@ -637,21 +766,23 @@ function MapeoClienteForm({ mode, row, clienteId, opciones, excepcionesDelGrupo 
         {excepcionesDelGrupo.length > 0 && (
           <p className="rounded-md border border-warn-300 bg-warn-50 px-3 py-2 text-[12px] leading-relaxed text-warn-800">
             <b>Guardar reemplazará {excepcionesDelGrupo.length} excepción(es) de cuenta</b> asociadas a este grupo:{" "}
-            {excepcionesDelGrupo.slice(0, 4).map((e) => `${e.cuenta6} → ${e.cuenta6Russell}`).join(" · ")}
+            {excepcionesDelGrupo.slice(0, 4).map((e) => `${e.code} → ${e.cuenta6Russell}`).join(" · ")}
             {excepcionesDelGrupo.length > 4 ? " …" : ""}. Quedarán con el estándar que elijas aquí.
           </p>
         )}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Campo label={isEdit && esExcepcionCuenta(row!.origen) ? "Cuenta del cliente" : "Cuenta del cliente (6 dígitos)"}>
+          <Campo label={esExcepcion ? "Cuenta del cliente" : "Cuenta del cliente (6 dígitos)"}>
             {isEdit ? (
-              <input value={row!.cuenta6} readOnly className={`${INPUT_CLS} cursor-not-allowed bg-ink-50 text-ink-500`} />
+              <input value={row!.code} readOnly className={`${INPUT_CLS} cursor-not-allowed bg-ink-50 text-ink-500`} />
             ) : (
               <input name="cuenta6" required inputMode="numeric" pattern="\d{6}" placeholder="140501" className={INPUT_CLS} />
             )}
             <p className="text-[11px] leading-snug text-ink-500">
-              {isEdit && esExcepcionCuenta(row!.origen)
-                ? `Excepción de solo esta cuenta${row!.nombreCuenta && row!.nombreCuenta !== row!.cuenta6 ? ` (${row!.nombreCuenta})` : ""}: no cambia las demás cuentas del grupo ${row!.cuenta6.slice(0, 6)}.`
-                : "Se aplica a TODAS las cuentas del cliente que inician con este código de 6 dígitos."}
+              {esExcepcion
+                ? `Excepción de solo esta cuenta${row!.name && row!.name !== row!.code ? ` (${row!.name})` : ""}: no cambia las demás cuentas del grupo ${row!.code.slice(0, 6)} y le gana a la regla del grupo en las próximas cargas.`
+                : isEdit && row!.code.length < 6
+                  ? `Se aplica a esta cuenta de ${row!.code.length} dígitos y a TODAS las cuentas del cliente que inician con ella.`
+                  : "Se aplica a TODAS las cuentas del cliente que inician con este código de 6 dígitos."}
             </p>
           </Campo>
           <Campo label="Cuenta estándar Russell">
@@ -667,8 +798,9 @@ function MapeoClienteForm({ mode, row, clienteId, opciones, excepcionesDelGrupo 
   );
 }
 
-function DeleteMapeoClienteForm({ row, onClose }: { row: MapeoClienteRow; onClose: () => void }) {
+function DeleteMapeoClienteForm({ row, onClose }: { row: Account; onClose: () => void }) {
   const [state, action, pending] = useActionState(eliminarMapeoCliente, undefined);
+  const excepcionOAuxiliar = esExcepcionCuenta(row.origenMapeo) || esAuxiliar(row.code);
 
   useEffect(() => {
     notifyActionState(state, { success: "Regla eliminada.", error: "No se pudo eliminar la regla." });
@@ -689,10 +821,10 @@ function DeleteMapeoClienteForm({ row, onClose }: { row: MapeoClienteRow; onClos
       <form id="delete-mapeo-cliente-form" action={action} className="flex flex-col gap-4">
         <input type="hidden" name="id" value={row.id} />
         <p className="text-[13px] text-ink-600">
-          Vas a eliminar el mapeo guardado <strong className="font-mono">{row.cuenta6}</strong> → <strong className="font-mono">{row.cuenta6Russell}</strong>.{" "}
-          {esExcepcionCuenta(row.origen)
-            ? `En la próxima importación esa cuenta volverá a seguir la regla de su grupo ${row.cuenta6.slice(0, 6)}.`
-            : "En la próxima importación esa cuenta se volverá a mapear con la cascada automática."}
+          Vas a eliminar el mapeo guardado <strong className="font-mono">{row.code}</strong> → <strong className="font-mono">{row.cuenta6Russell}</strong>.{" "}
+          {excepcionOAuxiliar
+            ? `En la próxima importación esa cuenta volverá a seguir la regla de su grupo ${row.code.slice(0, 6)} (o la cascada automática si el grupo no tiene regla).`
+            : "En la próxima importación esa cuenta y las de su grupo se volverán a mapear con la cascada automática."}
         </p>
         {state?.message && <p className="text-[12px] text-err-700">{state.message}</p>}
       </form>
