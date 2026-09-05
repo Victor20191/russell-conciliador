@@ -741,11 +741,31 @@ model BalancePruebaEncabezado {
   prevalidadorOverrides      PrevalidadorCuentaBalance[]
   prevalidadorRevisiones     PrevalidadorRevisionBalance[]
   conciliacionesPrevalidadas Reconciliation[]
+  crucesComoCuenta          BalanceCruceApertura[] @relation("CruceAperturaCuenta")
+  crucesComoTercero         BalanceCruceApertura[] @relation("CruceAperturaTercero")
 
   @@unique([clienteId, periodo, version])
   @@index([clienteId, periodo])
   @@index([nombreCliente])
   @@map("balance_prueba_encabezado")
+}
+
+// Evidencia por PAREJA de archivos confirmados. Una inconsistencia es permanente
+// hasta eliminar uno de sus archivos (FK CASCADE); no modifica oficialidad/cuadre.
+model BalanceCruceApertura {
+  id                Int                      @id @default(autoincrement()) @map("id")
+  balanceCuentaId   Int                      @map("balance_cuenta_id")
+  balanceTerceroId  Int                      @map("balance_tercero_id")
+  balanceCuenta    BalancePruebaEncabezado   @relation("CruceAperturaCuenta", fields: [balanceCuentaId], references: [id], onDelete: Cascade)
+  balanceTercero   BalancePruebaEncabezado   @relation("CruceAperturaTercero", fields: [balanceTerceroId], references: [id], onDelete: Cascade)
+  inconsistente    Boolean                  @default(false) @map("inconsistente")
+  resultado        Json                     @map("resultado")
+  creadoEn         DateTime                 @default(now()) @map("creado_en") @db.Timestamptz(3)
+  actualizadoEn    DateTime                 @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+
+  @@unique([balanceCuentaId, balanceTerceroId])
+  @@index([balanceTerceroId])
+  @@map("balance_cruce_aperturas")
 }
 
 model BalancePruebaDetalle {

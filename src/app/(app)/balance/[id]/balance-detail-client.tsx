@@ -55,7 +55,7 @@ export type Sums = { activo: number; pasivo: number; patrimonio: number; ingreso
 export type Validation = { id: string; rule: string; status: string; detail: string; count?: number };
 export type EstandarOpcion = { code: string; name: string };
 export type Meta = { rows: number; mapped: number; unmapped: number; critical: number; file: string; fileSize: string; frozenBy: string; frozenAt: string; uploadedBy: string; uploadedAt: string };
-export type Version = { /** id del encabezado: abre y exporta esa versión. */ id: number; v: string; /** ¿Es la versión OFICIAL del período? */ esOficial: boolean; date: string; uploadedBy: string; role: string; file: string; size: string; rows: number; sumA: number; balanced: boolean; note: string; /** Notas y aprobaciones transferidas desde el borrador. */ approvalNote: string; changes: number; /** Apertura declarada al cargar (`cuenta` | `tercero`); null en cargues anteriores. */ apertura: string | null };
+export type Version = { /** id del encabezado: abre y exporta esa versión. */ id: number; v: string; /** ¿Es la versión OFICIAL del período? */ esOficial: boolean; date: string; uploadedBy: string; role: string; file: string; size: string; rows: number; sumA: number; balanced: boolean; note: string; /** Notas y aprobaciones transferidas desde el borrador. */ approvalNote: string; changes: number; /** Apertura declarada al cargar (`cuenta` | `tercero`); null en cargues anteriores. */ apertura: string | null; inconsistenteAperturas?: boolean };
 
 // Filtro de ALERTAS (vive en el padre: el prevalidador bloqueado salta aquí).
 // `alertas` = las dos clases juntas; los otros dos aíslan un tipo.
@@ -1078,7 +1078,7 @@ function VersionsTab({ versions, balanceId }: { versions: Version[]; balanceId: 
                 </td>
                 <td className="whitespace-nowrap px-4 py-2.5 font-mono text-ink-500">{v.date}</td>
                 <td className="px-4 py-2.5"><div className="font-medium text-ink-800">{v.uploadedBy}</div><div className="text-[11px] text-ink-400">{v.role}</div></td>
-                <td className="px-4 py-2.5 text-ink-600">{v.file}<div className="text-[11px] text-ink-400">{v.size}</div></td>
+                <td className="px-4 py-2.5 text-ink-600">{v.file}{v.inconsistenteAperturas && <div className="mt-1"><a href={`/balance/${v.id}#cruce-aperturas`}><Chip label="Inconsistente entre aperturas" tone="err" /></a></div>}<div className="text-[11px] text-ink-400">{v.size}</div></td>
                 <td className="px-4 py-2.5">
                   {/* Apertura DECLARADA por quien cargó cada versión (no una heurística). */}
                   {parsearApertura(v.apertura) ? (

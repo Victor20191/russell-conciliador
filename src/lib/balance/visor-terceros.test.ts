@@ -54,11 +54,16 @@ describe("construirComparacionCuentasTerceros", () => {
   });
 
   it("suma los movimientos repetidos de una cuenta antes de comparar", () => {
+    // Las dos filas del balance (repetidas) deben sumar los CUATRO componentes
+    // y coincidir con el único lado tercero; no solo el saldo final.
     const [fila] = construirComparacionCuentasTerceros(
-      [cuentaBalance({ saldoFinal: 400 }), cuentaBalance({ saldoFinal: 600 })], [filaTercero()],
+      [cuentaBalance({ debitos: 400, saldoFinal: 400 }), cuentaBalance({ debitos: 600, saldoFinal: 600 })],
+      [filaTercero({ debitos: 1000, saldoFinal: 1000 })],
     );
     expect(fila.saldoFinalBalance).toBe(1000);
+    expect(fila.debitosBalance).toBe(1000);
     expect(fila.tieneDiferencia).toBe(false);
+    expect(fila.tieneDiferenciaImportes).toBe(false);
   });
 
   it("detecta homologaciones distintas entre movimientos de la misma cuenta", () => {
@@ -141,6 +146,79 @@ describe("construirComparacionCuentasTerceros", () => {
       [filaTercero({ cuenta8: "20000000" }), filaTercero({ cuenta8: "10000000" })],
     );
     expect(filas.map((f) => f.cuenta8)).toEqual(["10000000", "20000000"]);
+  });
+});
+
+describe("comparación de los cuatro componentes (SI/Db/Cr/SF): tieneDiferenciaImportes/diferenciasMontos", () => {
+  it("no inventa diferencia de importes cuando los cuatro componentes coinciden", () => {
+    const [fila] = construirComparacionCuentasTerceros([cuentaBalance()], [filaTercero()]);
+    expect(fila.tieneDiferenciaImportes).toBe(false);
+    expect(fila.diferenciasMontos).toEqual({ saldoInicial: 0, debitos: 0, creditos: 0, saldoFinal: 0 });
+    expect(fila.montosBalance).toEqual({ saldoInicial: 0, debitos: 1000, creditos: 0, saldoFinal: 1000 });
+    expect(fila.montosTercero).toEqual({ saldoInicial: 0, debitos: 1000, creditos: 0, saldoFinal: 1000 });
+  });
+
+  it("débito y crédito compensados: el saldo final cuadra pero los movimientos difieren", () => {
+    // El balance registra 900/0 y el tercero 1200/300: mismo saldo final (900) por compensación.
+    const [fila] = construirComparacionCuentasTerceros(
+      [cuentaBalance({ debitos: 900, creditos: 0, saldoFinal: 900 })],
+      [filaTercero({ debitos: 1200, creditos: 300, saldoFinal: 900 })],
+    );
+    expect(fila.diferenciaSaldo).toBe(false); // compatibilidad: el SF antiguo no ve el problema
+    expect(fila.tieneDiferenciaImportes).toBe(true); // la nueva comparación sí lo detecta
+    expect(fila.tieneDiferencia).toBe(true);
+    expect(fila.diferenciasMontos).toEqual({ saldoInicial: 0, debitos: -300, creditos: -300, saldoFinal: 0 });
+  });
+
+  it("saldo inicial diferente con débito, crédito y saldo final iguales", () => {
+    const [fila] = construirComparacionCuentasTerceros(
+      [cuentaBalance({ saldoInicial: 500, debitos: 1000, creditos: 0, saldoFinal: 1500 })],
+      [filaTercero({ saldoInicial: 300, debitos: 1000, creditos: 0, saldoFinal: 1500 })],
+    );
+    expect(fila.diferenciaSaldo).toBe(false);
+    expect(fila.tieneDiferenciaImportes).toBe(true);
+    expect(fila.diferenciasMontos).toEqual({ saldoInicial: 200, debitos: 0, creditos: 0, saldoFinal: 0 });
+  });
+
+  it("un centavo de diferencia en el saldo final es inconsistencia: no hay umbral de materialidad", () => {
+    const [fila] = construirComparacionCuentasTerceros(
+      [cuentaBalance({ saldoFinal: 1000 })],
+      [filaTercero({ saldoFinal: 999.99 })],
+    );
+    expect(fila.diferenciaSaldo).toBe(false); // el umbral antiguo (> 0.01) tolera exactamente un centavo
+    expect(fila.tieneDiferenciaImportes).toBe(true);
+    expect(fila.diferenciasMontos.saldoFinal).toBe(0.01);
+  });
+
+  it("compara los importes por su signo, no por su valor absoluto", () => {
+    const [fila] = construirComparacionCuentasTerceros(
+      [cuentaBalance({ saldoInicial: -100, debitos: 0, creditos: 0, saldoFinal: -100 })],
+      [filaTercero({ saldoInicial: 100, debitos: 0, creditos: 0, saldoFinal: 100 })],
+    );
+    expect(fila.tieneDiferenciaImportes).toBe(true);
+    expect(fila.diferenciasMontos).toEqual({ saldoInicial: -200, debitos: 0, creditos: 0, saldoFinal: -200 });
+  });
+
+  it("no inventa diferencia de importes cuando falta un lado (incompleta)", () => {
+    const [fila] = construirComparacionCuentasTerceros([cuentaBalance({ cuenta8: "51950101" })], []);
+    expect(fila.tieneDiferenciaImportes).toBe(false);
+    expect(fila.diferenciasMontos).toEqual({ saldoInicial: 0, debitos: 0, creditos: 0, saldoFinal: 0 });
+    expect(fila.montosTercero).toEqual({ saldoInicial: 0, debitos: 0, creditos: 0, saldoFinal: 0 });
+  });
+
+  it("deduplica la fila propia en montosTercero cuando conviven con terceros reales", () => {
+    const filas = [filaPropia({ saldoFinal: 1500, debitos: 1500, saldoInicial: 0 }), filaTercero({ saldoFinal: 900, debitos: 900 }), filaTercero({ nitTercero: "800999888", nombreTercero: "Cliente B", saldoFinal: 600, debitos: 600 })];
+    const [fila] = construirComparacionCuentasTerceros([cuentaBalance({ debitos: 1500, saldoFinal: 1500 })], filas);
+    expect(fila.montosTercero).toEqual({ saldoInicial: 0, debitos: 1500, creditos: 0, saldoFinal: 1500 });
+    expect(fila.tieneDiferenciaImportes).toBe(false);
+  });
+
+  it("una cuenta sin terceros reales conserva su fila propia en montosTercero", () => {
+    const [fila] = construirComparacionCuentasTerceros([cuentaBalance({ cuenta8: "14350501", saldoFinal: 300 })], [
+      filaPropia({ cuenta8: "14350501", saldoFinal: 300 }),
+    ]);
+    expect(fila.montosTercero).toEqual({ saldoInicial: 0, debitos: 1000, creditos: 0, saldoFinal: 300 });
+    expect(fila.tieneDiferenciaImportes).toBe(false);
   });
 });
 

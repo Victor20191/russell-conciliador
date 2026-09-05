@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const LOTE_ID = "11111111-1111-4111-8111-111111111111";
 const LOTE_ID_NUEVO = "22222222-2222-4222-8222-222222222222";
+const controlAperturas = vi.hoisted(() => vi.fn(async () => true));
+vi.mock("@/lib/balance/cruce-aperturas-servidor", () => ({ revisarCrucesAperturasSeguro: controlAperturas }));
 
 const mocks = vi.hoisted(() => {
   type AjustesCargaMock = {
@@ -806,6 +808,18 @@ describe("idempotencia y atomicidad del ciclo de balances", () => {
       advertenciaArchivoFuente: false,
       diferenciaArchivoFuente: null,
     });
+  });
+
+  it("ejecuta el control solo después del commit y un fallo del control no revierte la carga", async () => {
+    controlAperturas.mockImplementationOnce(async () => {
+      expect(mocks.state.balances).toHaveLength(1);
+      expect(mocks.state.staging).toHaveLength(0);
+      expect(mocks.state.lotes).toHaveLength(0);
+      return false;
+    });
+    await expect(cargarBorrador({}, formPromocion())).rejects.toThrow("REDIRECT:/balance/1?cargado=1");
+    expect(mocks.state.balances).toHaveLength(1);
+    expect(controlAperturas).toHaveBeenCalledWith(1, 7, "Analista");
   });
 
   it("conserva agrupadoras originales y enlaza la procedencia antes de purgar el borrador", async () => {

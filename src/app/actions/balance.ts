@@ -1,6 +1,7 @@
 "use server";
 
 import { procedenciaBalance } from "@/lib/balance/procedencia-mapeo";
+import { revisarCrucesAperturasSeguro } from "@/lib/balance/cruce-aperturas-servidor";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import prisma from "@/lib/prisma";
@@ -2385,6 +2386,10 @@ async function persistirCargue(p: {
     return { id: balance.id, version, reutilizado: false, capturaTercero };
   }, { timeoutMs: TIMEOUT_TRANSACCION_PROMOCION_MS });
 
+  // Control posterior al commit: solo lee importes confirmados. Un descuadre o
+  // un fallo de este control no cambia la promoción ni el procesamiento del borrador.
+  await revisarCrucesAperturasSeguro(creado.id, p.clientId, p.uploadedBy);
+
   if (!creado.reutilizado) {
     await logAudit({
       user: p.uploadedBy,
@@ -3893,6 +3898,7 @@ export async function cargarBorrador(_prev: ImportBalanceState, formData: FormDa
     if (promovido.clienteId !== clientId) {
       return { ok: false, message: "El borrador ya fue cargado para otro cliente." };
     }
+    await revisarCrucesAperturasSeguro(promovido.id, promovido.clienteId);
     redirect(`/balance/${promovido.id}?cargado=1`);
   }
 

@@ -127,6 +127,15 @@ describe("filtros del árbol de terceros", () => {
     const filtrado = filtrarArbolVisorTerceros(base, { ...filtro, soloDiferencias: true });
     expect(plana(filtrado).filter((n) => n.comparacion).map((n) => n.code)).toEqual(["13050502"]);
   });
+  it("solo diferencias detecta un débito/crédito compensado aunque el saldo final cuadre", () => {
+    // El tercero reporta 100/30 en vez de 80/10: el saldo final (100) coincide con el balance,
+    // pero débito y crédito difieren en 20 cada uno (se compensan). El filtro antiguo (por SF) no lo vería.
+    const base = crear([cuenta(), cuenta({ cuenta8: "13050502" })], [tercero(), tercero({ cuenta8: "13050502", debitos: 100, creditos: 30 })]);
+    const cuentaCompensada = plana(base).find((n) => n.code === "13050502")!;
+    expect(cuentaCompensada.comparacion).toMatchObject({ diferenciaSaldo: false, tieneDiferenciaImportes: true });
+    const filtrado = filtrarArbolVisorTerceros(base, { ...filtro, soloDiferencias: true });
+    expect(plana(filtrado).filter((n) => n.comparacion).map((n) => n.code)).toEqual(["13050502"]);
+  });
   it("filtra incompletas y valores numéricos inválidos sin fabricar resultados", () => {
     expect(filtrarArbolVisorTerceros(arbol, { ...filtro, columnas: { ...filtro.columnas, validacion: "incompleta" } })).toEqual([]);
     expect(filtrarArbolVisorTerceros(arbol, { ...filtro, columnas: { ...filtro.columnas, saldo: "> texto" } })).toEqual([]);

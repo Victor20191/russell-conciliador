@@ -29,6 +29,7 @@ export default async function BalancePage() {
       where: whereCliente,
       orderBy: { creadoEn: "desc" },
       select: {
+        _count: { select: { crucesComoCuenta: { where: { inconsistente: true } }, crucesComoTercero: { where: { inconsistente: true } } } },
         id: true, clienteId: true, nombreCliente: true, nit: true, periodo: true,
         esOficial: true, estado: true, completitud: true, ultimaCarga: true,
         mapeadas: true, sinMapear: true, filasTotales: true, aperturaBalance: true, creadoEn: true,
@@ -93,6 +94,7 @@ export default async function BalancePage() {
       g.periods.set(b.periodo, p);
     }
     p.versions += 1;
+    if (b._count.crucesComoCuenta + b._count.crucesComoTercero > 0) p.inconsistentesAperturas = (p.inconsistentesAperturas ?? 0) + 1;
     if (!p.officialId) p.officialId = b.id; // fallback si ninguna fila es oficial
     if (b.esOficial) {
       p.officialId = b.id; p.status = b.estado; p.complete = b.completitud; p.lastUpload = b.ultimaCarga ? fmtDateTime(b.ultimaCarga) : p.lastUpload;

@@ -15,6 +15,7 @@ import { CargarBalanceButton, type ClienteOpcion } from "./cargar-balance-modal"
 import type { ConfiguracionIABalanceUI } from "@/lib/ia/proveedor-balance";
 
 export type PeriodRow = {
+  inconsistentesAperturas?: number;
   period: string; versions: number; officialId: number | null;
   status: string; complete: number; lastUpload: string;
   mapped: number; unmapped: number; total: number;
@@ -182,7 +183,7 @@ function ClientsTab({ clients }: { clients: ClientGroup[] }) {
                         ? <Chip label={etiquetaApertura(p.apertura)} tone={parsearApertura(p.apertura) === "tercero" ? "blue" : "ink"} />
                         : <span className="text-ink-400" title="Cargue anterior al registro del tipo de balance.">—</span>}
                     </td>
-                    <td className="px-4 py-2.5"><Chip label={p.status} tone={statusTone(p.status)} /></td>
+                    <td className="px-4 py-2.5"><Chip label={p.status} tone={statusTone(p.status)} />{p.inconsistentesAperturas ? <a href={`/balance/${p.officialId}?tab=versiones`} className="mt-1 block"><Chip label={`${p.inconsistentesAperturas} archivo(s) inconsistente(s)`} tone="err" /></a> : null}</td>
                     <td className="px-4 py-2.5">
                       <div className="flex items-center gap-2">
                         <div className="h-1.5 w-14 overflow-hidden rounded-full bg-ink-150">
