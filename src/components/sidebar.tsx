@@ -53,6 +53,7 @@ export default function Sidebar({
   appVersion = null,
   mobileOpen = false,
   onCloseMobile,
+  desktopCollapsed = false,
 }: {
   user: { name: string; role: string; initials: string; avatarUrl?: string | null } | null;
   permisos: string[];
@@ -62,6 +63,7 @@ export default function Sidebar({
   appVersion?: { number: string; title: string | null } | null;
   mobileOpen?: boolean;
   onCloseMobile?: () => void;
+  desktopCollapsed?: boolean;
 }) {
   const pathname = usePathname();
 
@@ -126,9 +128,10 @@ export default function Sidebar({
         />
       )}
       <aside
+        id="app-sidebar"
         className={`fixed inset-y-0 left-0 z-50 flex h-dvh w-[232px] shrink-0 flex-col border-r border-navy-900 bg-navy-800 text-[#C9D4E2] transition-transform duration-200 lg:sticky lg:top-0 lg:z-auto lg:translate-x-0 ${
           mobileOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full lg:translate-x-0"
-        }`}
+        } ${desktopCollapsed ? "lg:hidden" : ""}`}
       >
       {/* Marca + versión de la plataforma */}
       <div className="border-b border-white/10 px-[18px] py-3.5">
@@ -209,7 +212,7 @@ export default function Sidebar({
       </div>
 
       {/* Usuario + logout */}
-      <div className="flex items-center gap-2.5 border-t border-white/10 px-[18px] py-3">
+      <div className="flex items-center gap-2.5 border-t border-white/10 px-[18px] py-3 lg:pr-8">
         <Link
           href="/perfil"
           onClick={onCloseMobile}

@@ -6,6 +6,7 @@ import Sidebar from "@/components/sidebar";
 import Topbar, { type NotificationDTO } from "@/components/topbar";
 import { ActionToaster } from "@/components/action-toaster";
 import AccessTracker from "@/components/access-tracker";
+import { Icon } from "@/components/icons";
 
 /**
  * Cascarón de la app (cliente) que coordina el estado compartido entre el
@@ -32,6 +33,7 @@ export default function AppShell({
   children: React.ReactNode;
 }) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [desktopNavCollapsed, setDesktopNavCollapsed] = useState(false);
   const pathname = usePathname();
 
   // Cerrar el drawer al cambiar de ruta (ajuste de estado en render, sin efecto).
@@ -51,7 +53,21 @@ export default function AppShell({
         appVersion={appVersion}
         mobileOpen={mobileNavOpen}
         onCloseMobile={() => setMobileNavOpen(false)}
+        desktopCollapsed={desktopNavCollapsed}
       />
+      <button
+        type="button"
+        aria-label={desktopNavCollapsed ? "Mostrar barra de navegación" : "Ocultar barra de navegación"}
+        title={desktopNavCollapsed ? "Mostrar barra de navegación" : "Ocultar barra de navegación"}
+        aria-controls="app-sidebar"
+        aria-expanded={!desktopNavCollapsed}
+        onClick={() => setDesktopNavCollapsed((collapsed) => !collapsed)}
+        className={`fixed bottom-0 z-30 hidden h-9 w-5 items-center justify-center border-l border-white/10 bg-navy-800 text-[#A9B6C8] transition-colors hover:bg-navy-900 hover:text-white focus-visible:bg-navy-900 focus-visible:text-white focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue-400 lg:flex ${
+          desktopNavCollapsed ? "left-0 rounded-tr-md shadow-md" : "left-[212px]"
+        }`}
+      >
+        <Icon name={desktopNavCollapsed ? "chev-r" : "chev-l"} size={14} />
+      </button>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <Topbar
           notifications={notifications}

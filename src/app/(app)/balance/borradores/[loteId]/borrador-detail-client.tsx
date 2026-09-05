@@ -1,6 +1,8 @@
 "use client";
 
 import { EstadoProcesando } from "@/components/estado-procesando";
+import { EstadoGuardado } from "@/components/estado-guardado";
+import { useEstadoGuardado } from "@/lib/usar-estado-guardado";
 
 import { useActionState, useDeferredValue, useEffect, useMemo, useRef, useState, useTransition, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -671,6 +673,9 @@ export default function BorradorDetailClient({
   const [periodoIni, setPeriodoIni] = useState(periodoInicial ?? "");
   const [periodoFin, setPeriodoFin] = useState(periodoFinal ?? "");
   const [guardandoPeriodo, startGuardarPeriodo] = useTransition();
+  const guardadoPeriodo = useEstadoGuardado();
+  const guardadoApertura = useEstadoGuardado();
+  const guardadoCliente = useEstadoGuardado();
   // Apertura DECLARADA del informe (por cuenta / por terceros). Arranca vacía a
   // propósito —aunque la lectura ya tenga una sospecha— para que sea una respuesta
   // del analista y no una heurística heredada sin mirar; la detección se ofrece al
@@ -829,8 +834,10 @@ export default function BorradorDetailClient({
   const guardarPeriodo = (inicio = periodoIni, fin = periodoFin) => {
     if (!inicio || !fin || fin < inicio) return;
     startGuardarPeriodo(async () => {
-      const resultado = await actualizarPeriodoBorrador(loteId, inicio, fin);
-      if (!resultado.ok) notifyError(resultado.message ?? "No se pudo guardar el período.");
+      await guardadoPeriodo.ejecutar(
+        () => actualizarPeriodoBorrador(loteId, inicio, fin),
+        { exito: "Período guardado.", error: "No se pudo guardar el período. Revisa las fechas e inténtalo de nuevo." },
+      );
     });
   };
   // La apertura se persiste en cuanto se elige (como el período): así sobrevive a
@@ -839,10 +846,13 @@ export default function BorradorDetailClient({
   const elegirApertura = (valor: string) => {
     const apertura = parsearApertura(valor);
     setAperturaBalance(apertura);
+    guardadoApertura.descartar();
     if (!apertura) return;
     startGuardarApertura(async () => {
-      const resultado = await actualizarAperturaBorrador(loteId, apertura);
-      if (!resultado.ok) notifyError(resultado.message ?? "No se pudo guardar el tipo de balance.");
+      await guardadoApertura.ejecutar(
+        () => actualizarAperturaBorrador(loteId, apertura),
+        { exito: "Tipo de balance guardado.", error: "No se pudo guardar el tipo de balance." },
+      );
     });
   };
 
@@ -1169,14 +1179,16 @@ export default function BorradorDetailClient({
     opciones: { silencioso?: boolean } = {},
   ) => {
     startAsignarCliente(async () => {
-      const r = await asignarClienteBorrador(loteId, cid);
-      if (r.ok) {
+      const r = await guardadoCliente.ejecutar(
+        () => asignarClienteBorrador(loteId, cid),
+        { exito: "Cliente guardado en el borrador.", error: "No se pudo vincular el cliente al borrador." },
+      );
+      if (r?.ok) {
         if (!opciones.silencioso) notifySuccess(r.message ?? "Cliente asignado al borrador.");
         if ((r.aplicadas ?? 0) > 0) router.refresh();
       } else {
         setClienteSelId(clienteAnterior);
         if (clienteAnterior == null) setGateAbierto(true);
-        if (r.message) notifyError(r.message);
       }
     });
   };
@@ -1185,7 +1197,7 @@ export default function BorradorDetailClient({
   // muestra seleccionado (y la compuerta no se abre), así que el usuario lo da por
   // vinculado. Sin este vínculo el servidor sigue viendo el borrador «sin cliente» y
   // rechaza guardar cambios, notas o el perfil. Se persiste UNA vez al abrir, en
-  // silencio; si la sesión no tiene alcance sobre ese cliente, `asignarCliente`
+  // con confirmación junto al selector; si la sesión no tiene alcance, `asignarCliente`
   // revierte la selección y abre la compuerta.
   const autoVinculoRef = useRef(false);
   useEffect(() => {
@@ -1518,6 +1530,7 @@ export default function BorradorDetailClient({
               onChange={(cid) => {
                 const anterior = clienteSelId;
                 setClienteSelId(cid);
+                guardadoCliente.descartar();
                 // Cambio de cliente a mano → se persiste en el lote (mismo camino
                 // que la compuerta). Limpiarlo solo deja el aviso y bloquea la carga.
                 if (cid != null && cid !== anterior) asignarCliente(cid, anterior);
@@ -1527,11 +1540,11 @@ export default function BorradorDetailClient({
             />
             <label className="flex flex-col gap-1.5">
               <span className="text-[11.5px] font-medium text-ink-600">Período desde</span>
-              <input type="date" name="periodoInicio" required value={periodoIni} onChange={(e) => setPeriodoIni(e.target.value)} onBlur={() => guardarPeriodo()} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400" />
+              <input type="date" name="periodoInicio" required value={periodoIni} onChange={(e) => { setPeriodoIni(e.target.value); guardadoPeriodo.descartar(); }} onBlur={() => guardarPeriodo()} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400" />
             </label>
             <label className="flex flex-col gap-1.5">
               <span className="text-[11.5px] font-medium text-ink-600">Período hasta</span>
-              <input type="date" name="periodoFin" required value={periodoFin} onChange={(e) => setPeriodoFin(e.target.value)} onBlur={() => guardarPeriodo()} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400" />
+              <input type="date" name="periodoFin" required value={periodoFin} onChange={(e) => { setPeriodoFin(e.target.value); guardadoPeriodo.descartar(); }} onBlur={() => guardarPeriodo()} className="rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] text-ink-700 outline-none focus:border-blue-400" />
             </label>
             <div className="flex flex-col gap-1.5">
               <span className="text-[11.5px] font-medium text-ink-600">
@@ -1568,17 +1581,31 @@ export default function BorradorDetailClient({
               </>
             )}
           </p>
-          {(asignandoCliente || guardandoPeriodo || guardandoApertura) && (
-            <div className="text-[11.5px] font-medium text-ink-500">
-              <EstadoProcesando>
-                {asignandoCliente
-                  ? "Vinculando cliente"
-                  : guardandoPeriodo
-                    ? "Guardando período"
-                    : "Guardando tipo de balance"}
-              </EstadoProcesando>
-            </div>
-          )}
+          <p className="text-[11px] text-ink-500">
+            El cliente y el tipo de balance se guardan al elegirlos; el período, al salir del campo.
+            Los cambios de la tabla requieren «Guardar cambios».
+          </p>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            {guardadoCliente.estado !== "inactivo" && (
+              <span className="inline-flex flex-wrap items-center gap-1.5 text-[11.5px] text-ink-500">
+                Cliente:
+                <EstadoGuardado {...guardadoCliente} />
+                {guardadoCliente.estado === "error" && <span>Vuelve a elegir el cliente para intentarlo de nuevo.</span>}
+              </span>
+            )}
+            {guardadoPeriodo.estado !== "inactivo" && (
+              <span className="inline-flex flex-wrap items-center gap-1.5 text-[11.5px] text-ink-500">
+                Período:
+                <EstadoGuardado {...guardadoPeriodo} onReintentar={() => guardarPeriodo()} />
+              </span>
+            )}
+            {guardadoApertura.estado !== "inactivo" && (
+              <span className="inline-flex flex-wrap items-center gap-1.5 text-[11.5px] text-ink-500">
+                Tipo de balance:
+                <EstadoGuardado {...guardadoApertura} onReintentar={aperturaBalance ? () => elegirApertura(aperturaBalance) : undefined} />
+              </span>
+            )}
+          </div>
           {clienteSelId == null && (
             <span className="inline-flex flex-wrap items-center gap-2 text-[11px] text-warn-700">
               {nitDetectado ? <>NIT detectado <span className="font-mono">{nitDetectado}</span> sin cliente coincidente.</> : <>No se detectó el cliente.</>}

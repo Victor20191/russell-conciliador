@@ -262,7 +262,7 @@ function CargarModal({
       try {
         const r = await leerDatosModulo(undefined, fd);
         if (r.ok && r.loteId) {
-          notifySuccess(r.message ?? "Archivo leído.");
+          notifySuccess("Borrador guardado", "El archivo quedó guardado como borrador. Revisa y confirma la carga para finalizar.");
           router.push(`/modulos/${moduloCodigo.toLowerCase()}/borradores/${r.loteId}`);
         } else {
           notifyError(r.message ?? "No se pudo leer el archivo.");

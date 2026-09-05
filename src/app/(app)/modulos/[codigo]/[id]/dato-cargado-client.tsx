@@ -7,7 +7,7 @@ import { Card, Chip } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { Modal } from "@/components/modal";
 import { fmtContable, fmtNum } from "@/lib/format";
-import { notifyError, notifySuccess } from "@/lib/client-notifications";
+import { notifyError, notifyInfo, notifySuccess } from "@/lib/client-notifications";
 import ComentarioAncla from "@/components/comentario-ancla";
 import {
   eliminarSoporteMarca,
@@ -21,7 +21,7 @@ import {
 import { aplicarAsignacionMasiva, contarConCuentas, type ModoAsignacionMasiva } from "@/lib/modulos/consolidacion-masiva";
 import { resolverCuenta4, mensajeResolucion } from "@/lib/modulos/resolver-cuenta4";
 import { useAutoguardadoConsolidacion } from "@/lib/modulos/usar-autoguardado-consolidacion";
-import type { SnapshotAutoguardadoConsolidacion } from "@/lib/modulos/autoguardado-consolidacion";
+import { EstadoGuardado } from "@/components/estado-guardado";
 import { filtrarFilasDetalleModulo, hayFiltrosDetalleModulo, type FiltrosDetalleModulo } from "@/lib/modulos/filtros-detalle-modulo";
 import type { ResumenCruceContable } from "@/lib/modulos/cruce-contable";
 import type { ResumenCruceTercero } from "@/lib/modulos/cruce-tercero";
@@ -273,43 +273,6 @@ function cuentasInicialesConsolidado(consolidado: ConsolidadoVm[]): Record<strin
   }));
 }
 
-// Feedback visible del autoguardado (solo Inventarios): Guardando… / Guardado / Error
-// (con «Reintentar», sin ocultar la falla) / Cambios pendientes… mientras corre la pausa.
-function EstadoAutoguardadoIndicador({
-  snapshot,
-  onReintentar,
-}: {
-  snapshot: SnapshotAutoguardadoConsolidacion;
-  onReintentar: () => void;
-}) {
-  if (snapshot.estado === "guardando") {
-    return <span className="text-[11.5px] font-medium text-ink-500">Guardando…</span>;
-  }
-  if (snapshot.estado === "error") {
-    return (
-      <div className="flex items-center gap-2">
-        <span className="text-[11.5px] font-semibold text-err-700">
-          Error al guardar{snapshot.mensaje ? `: ${snapshot.mensaje}` : ""}
-        </span>
-        <button
-          type="button"
-          onClick={onReintentar}
-          className="rounded-md border border-err-500 bg-white px-2 py-1 text-[11px] font-semibold text-err-700 hover:bg-err-100/50"
-        >
-          Reintentar
-        </button>
-      </div>
-    );
-  }
-  if (snapshot.estado === "pendiente") {
-    return <span className="text-[11.5px] font-medium text-warn-700">Cambios pendientes…</span>;
-  }
-  if (snapshot.estado === "guardado") {
-    return <span className="text-[11.5px] font-medium text-ok-700">Guardado</span>;
-  }
-  return <span className="text-[11.5px] text-ink-400">Los cambios se guardan automáticamente.</span>;
-}
-
 function ConsolidadoTab({
   comprobarSalidaRef,
   moduloCodigo,
@@ -449,9 +412,9 @@ function ConsolidadoTab({
     setValores(siguiente);
     if (esInventarios) for (const clasificador of seleccionados) anotarAutoguardado(clasificador, siguiente[clasificador] ?? []);
     setMasivoAbierto(false);
-    notifySuccess(
+    notifyInfo(
       `${cuentas4.length} cuenta${cuentas4.length === 1 ? "" : "s"} ${modo === "reemplazar" ? "reemplazan las de" : "aplicadas a"} ${nSel} ${etiquetaPlural}.`
-      + (esInventarios ? " Guardando automáticamente…" : " Pulsa «Guardar todos» para persistir."),
+      + (esInventarios ? " Cambios pendientes de guardado automático." : " Pulsa «Guardar todos» para persistir."),
     );
   };
 
@@ -465,7 +428,7 @@ function ConsolidadoTab({
     setValores((p) => ({ ...p, [clasificador]: nuevasCuentas }));
     anotarAutoguardado(clasificador, nuevasCuentas);
     setNuevos((p) => ({ ...p, [clasificador]: "" }));
-    if (r.via === "cliente") notifySuccess(`${r.cuentaCliente}${r.nombreCliente ? ` ${r.nombreCliente}` : ""} → R-${r.cuenta4}`);
+    if (r.via === "cliente") notifyInfo(`${r.cuentaCliente}${r.nombreCliente ? ` ${r.nombreCliente}` : ""} → R-${r.cuenta4}`);
   };
   const quitarCuenta = (clasificador: string, cod: string) => {
     const nuevasCuentas = (valores[clasificador] ?? []).filter((x) => x !== cod);
@@ -537,7 +500,7 @@ function ConsolidadoTab({
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {esInventarios ? (
-              <EstadoAutoguardadoIndicador snapshot={autosave.snapshot} onReintentar={autosave.reintentar} />
+              <EstadoGuardado estado={autosave.snapshot.estado} mensaje={autosave.snapshot.mensaje ?? undefined} onReintentar={autosave.reintentar} />
             ) : (
               <p className="text-[11.5px] text-ink-500">
                 {haySucias

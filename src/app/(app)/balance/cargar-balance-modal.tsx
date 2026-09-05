@@ -32,6 +32,8 @@ import { PromptClientePerfil } from "@/app/(app)/balance/prompt-cliente-perfil";
 import { SelectorClienteBuscable } from "@/components/selector-cliente-buscable";
 import { nitCoincide } from "@/lib/nit";
 import { EstadoProcesando } from "@/components/estado-procesando";
+import { EstadoGuardado } from "@/components/estado-guardado";
+import { useEstadoGuardado } from "@/lib/usar-estado-guardado";
 import type { ImportBalanceState } from "@/lib/import/balance";
 import type { ConfiguracionIABalanceUI, ProveedorIABalance } from "@/lib/ia/proveedor-balance";
 import {
@@ -191,12 +193,8 @@ function CargarBalanceModal({
   // APERTURA declarada en la revisión (`cuenta` | `tercero`). Se guarda suelta —no
   // atada a un lote— porque la revisión puede ser TRANSITORIA (aún sin lote en BD)
   // y porque un reproceso crea un lote nuevo: en ambos casos la declaración del
-  // analista debe sobrevivir. Quien la baja a BD es el efecto de más abajo.
+  // analista debe sobrevivir. TipoBalanceRevision la persiste al tener un lote.
   const [aperturaRevision, setAperturaRevision] = useState<AperturaBalance | null>(null);
-  const [guardandoApertura, startGuardarApertura] = useTransition();
-  // Último `loteId|valor` ya persistido: evita reenviar la misma declaración en
-  // cada render y permite re-persistirla cuando cambia el lote.
-  const aperturaPersistidaRef = useRef<string | null>(null);
   // Hojas detectadas en el cliente (solo Excel con 2+ hojas) y la elegida por el
   // usuario. Mientras `hojas` esté presente, la elección es obligatoria.
   const [hojas, setHojas] = useState<HojaPreview[] | null>(null);
@@ -450,27 +448,6 @@ function CargarBalanceModal({
   // editable: en cuanto el analista toca el selector, manda su elección.
   const aperturaDetectada = sug ? aperturaSugerida(sug.render.porTercero) : null;
   const aperturaEfectiva = aperturaRevision ?? aperturaDetectada;
-
-  // La apertura solo puede bajar a BD cuando la revisión YA tiene lote (`persistida`).
-  // Mientras sea transitoria, la elección espera en memoria; en cuanto se vincula el
-  // cliente —o un reproceso crea otro lote— este efecto la deja guardada sin que el
-  // analista tenga que volver a declararla.
-  const loteRevisionPersistido = sug?.persistida ? sug.payload.loteId : null;
-  useEffect(() => {
-    if (!loteRevisionPersistido || !aperturaEfectiva) return;
-    const marca = `${loteRevisionPersistido}|${aperturaEfectiva}`;
-    if (aperturaPersistidaRef.current === marca) return;
-    aperturaPersistidaRef.current = marca;
-    startGuardarApertura(async () => {
-      const resultado = await actualizarAperturaBorrador(loteRevisionPersistido, aperturaEfectiva);
-      if (!resultado.ok) {
-        // Se libera la marca para que un reintento (o el propio borrador) pueda
-        // volver a guardarla; la elección permanece visible en el selector.
-        aperturaPersistidaRef.current = null;
-        notifyError(resultado.message ?? "No se pudo guardar el tipo de balance.");
-      }
-    });
-  }, [loteRevisionPersistido, aperturaEfectiva]);
 
   const asignarClienteRevision = (clientId: number) => {
     if (!sug) return;
@@ -742,7 +719,6 @@ function CargarBalanceModal({
           apertura={aperturaEfectiva}
           aperturaConfirmada={aperturaRevision != null}
           porTerceroDetectado={sug.render.porTercero}
-          guardandoApertura={guardandoApertura}
           onElegirApertura={setAperturaRevision}
         />
       ) : (
@@ -907,7 +883,6 @@ function FormRevisar({
   apertura,
   aperturaConfirmada,
   porTerceroDetectado,
-  guardandoApertura,
   onElegirApertura,
 }: {
   sug: SugerenciaBalance;
@@ -927,7 +902,6 @@ function FormRevisar({
   apertura: AperturaBalance | null;
   aperturaConfirmada: boolean;
   porTerceroDetectado: boolean;
-  guardandoApertura: boolean;
   onElegirApertura: (apertura: AperturaBalance) => void;
 }) {
   // El editor de estructura solo aplica si conservamos el snapshot (reproceso) y
@@ -958,6 +932,12 @@ function FormRevisar({
 
   return (
     <div className="flex flex-col gap-3.5">
+      <p role="status" className={`inline-flex items-start gap-2 rounded-md px-3 py-2 text-[12px] ${sug.persistida ? "bg-ok-100 text-ok-700" : "bg-warn-100 text-warn-700"}`}>
+        <Icon name={sug.persistida ? "check" : "info"} size={15} />
+        {sug.persistida
+          ? "Archivo guardado como borrador. Puedes continuar la revisión."
+          : "Vista previa sin guardar. Vincula un cliente para guardar el borrador."}
+      </p>
       <IdentificacionCliente
         nitDetectado={sug.payload.nitDetectado}
         clients={clients}
@@ -970,7 +950,7 @@ function FormRevisar({
         apertura={apertura}
         confirmada={aperturaConfirmada}
         porTerceroDetectado={porTerceroDetectado}
-        guardando={guardandoApertura}
+        loteId={sug.persistida ? sug.payload.loteId : null}
         onElegir={onElegirApertura}
       />
 
@@ -1110,15 +1090,35 @@ function TipoBalanceRevision({
   apertura,
   confirmada,
   porTerceroDetectado,
-  guardando,
+  loteId,
   onElegir,
 }: {
   apertura: AperturaBalance | null;
   confirmada: boolean;
   porTerceroDetectado: boolean;
-  guardando: boolean;
+  loteId: string | null;
   onElegir: (apertura: AperturaBalance) => void;
 }) {
+  const { estado, mensaje, ejecutar, descartar } = useEstadoGuardado();
+  const [guardando, startGuardar] = useTransition();
+  const [reintento, setReintento] = useState(0);
+  const aperturaEnviadaRef = useRef<string | null>(null);
+
+  // Una vista previa sin cliente aún no tiene lote. La confirmación solo llega
+  // después de persistir la apertura del lote que se está revisando.
+  useEffect(() => {
+    if (!loteId || !apertura) return;
+    const marca = `${loteId}|${apertura}|${reintento}`;
+    if (aperturaEnviadaRef.current === marca) return;
+    aperturaEnviadaRef.current = marca;
+    startGuardar(async () => {
+      await ejecutar(
+        () => actualizarAperturaBorrador(loteId, apertura),
+        { exito: "Tipo de balance guardado.", error: "No se pudo guardar el tipo de balance." },
+      );
+    });
+  }, [loteId, apertura, ejecutar, reintento]);
+
   return (
     <div className="flex flex-col gap-1">
       <div className="flex flex-wrap items-center gap-2" role="radiogroup" aria-label="Tipo de balance">
@@ -1127,11 +1127,15 @@ function TipoBalanceRevision({
         </span>
         <SelectorAperturaBalance
           value={apertura}
-          onChange={onElegir}
+          onChange={(valor) => { descartar(); onElegir(valor); }}
           disabled={guardando}
           describedBy="ayuda-tipo-balance-revision"
         />
-        {guardando ? <EstadoProcesando>Guardando</EstadoProcesando> : null}
+        {loteId ? (
+          <EstadoGuardado estado={estado} mensaje={mensaje} onReintentar={() => setReintento((valor) => valor + 1)} />
+        ) : (
+          <span className="text-[11.5px] text-warn-700">Se guardará al vincular un cliente.</span>
+        )}
       </div>
       {/* La preselección viene de la lectura, no del analista: se dice de dónde
           sale para que corregirla sea una decisión informada, no un descubrimiento. */}
