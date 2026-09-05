@@ -23,6 +23,7 @@ import Conversacion from "@/components/conversacion";
 import type { NodoBalance } from "@/lib/balance/calcular";
 import { esSaldoContrarioAccionable, esSaldoContrarioInformativo, type UmbralesAlertas } from "@/lib/balance/umbrales-alertas";
 import { cruzaClaseContable } from "@/lib/balance/clase-contable";
+import { DistintivoCuentaEnFirme, type BloqueoCuentaVm } from "./conciliacion-en-firme";
 import { etiquetaApertura, parsearApertura } from "@/lib/balance/apertura-balance";
 import { useSeleccionFilaTabla } from "@/app/(app)/balance/use-seleccion-fila-tabla";
 import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
@@ -73,9 +74,11 @@ const NIVELES_FILTRO = [2, 4, 6, 8] as const;
 const NIVEL_LABEL: Record<number, string> = { 1: "Clase", 2: "Grupo", 4: "Cuenta", 6: "Subcuenta", 8: "Auxiliar" };
 
 export default function BalanceDetailClient({
-  arbol, estandar, puedeMapear, puedeRevisarPrevalidador, estaCongelado, validations, versions, warnCount, balanceId, comentarios, validaciones, puedeValidar, puedeEliminar, sums, balanced, diffCuadre, umbrales, prevalidador, revisionPrevalidador, tabInicial = null,
+  arbol, estandar, puedeMapear, puedeRevisarPrevalidador, estaCongelado, validations, versions, warnCount, balanceId, comentarios, validaciones, puedeValidar, puedeEliminar, bloqueos = {}, sums, balanced, diffCuadre, umbrales, prevalidador, revisionPrevalidador, tabInicial = null,
 }: {
   arbol: NodoBalance[]; estandar: EstandarOpcion[]; puedeMapear: boolean; puedeRevisarPrevalidador: boolean; estaCongelado: boolean; validations: Validation[]; versions: Version[]; warnCount: number; balanceId: number; comentarios: Record<string, number>; validaciones: Record<string, ValidacionInfo>; puedeValidar: boolean; puedeEliminar: boolean; sums: Sums; balanced: boolean; diffCuadre: number;
+  /** Cuentas (cuenta_8) en firme por una conciliación cerrada de un módulo. */
+  bloqueos?: Record<string, BloqueoCuentaVm>;
   /** Pestaña con la que abre la pantalla (viene de `?tab=`). */
   tabInicial?: Tab | null;
   /** Umbrales de alerta vigentes (parametrizables en /config/parametros). */
@@ -97,7 +100,7 @@ export default function BalanceDetailClient({
         <TabBtn on={tab === "clases"} onClick={() => setTab("clases")} label="Saldos por clase" />
         <TabBtn on={tab === "prevalidador"} onClick={() => setTab("prevalidador")} label="Prevalidador" count={prevalidador.estado === "listo" ? prevalidador.filasConDiferencia : undefined} />
       </div>
-      {tab === "breakdown" && <BreakdownTab arbol={arbol} estandar={estandar} puedeMapear={puedeMapear} balanceId={balanceId} comentarios={comentarios} validaciones={validaciones} puedeValidar={puedeValidar} puedeEliminar={puedeEliminar} umbrales={umbrales} filtro={filtro} setFiltro={setFiltro} />}
+      {tab === "breakdown" && <BreakdownTab arbol={arbol} estandar={estandar} puedeMapear={puedeMapear} balanceId={balanceId} comentarios={comentarios} validaciones={validaciones} puedeValidar={puedeValidar} puedeEliminar={puedeEliminar} bloqueos={bloqueos} umbrales={umbrales} filtro={filtro} setFiltro={setFiltro} />}
       {tab === "validations" && <ValidationsTab validations={validations} />}
       {tab === "versions" && <VersionsTab versions={versions} balanceId={balanceId} />}
       {tab === "clases" && <ClasesTab sums={sums} balanced={balanced} diffCuadre={diffCuadre} />}
@@ -202,7 +205,7 @@ function contarAlertas(arbol: NodoBalance[], validados: Set<string>, umbrales: U
 
 // El filtro vive en el componente padre para que el prevalidador, cuando está
 // bloqueado, pueda mandar al usuario directo a las cuentas que faltan por homologar.
-function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, validaciones, puedeValidar, puedeEliminar, umbrales, filtro, setFiltro }: { arbol: NodoBalance[]; estandar: EstandarOpcion[]; puedeMapear: boolean; balanceId: number; comentarios: Record<string, number>; validaciones: Record<string, ValidacionInfo>; puedeValidar: boolean; puedeEliminar: boolean; umbrales: UmbralesAlertas; filtro: Filtro; setFiltro: (f: Filtro) => void }) {
+function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, validaciones, puedeValidar, puedeEliminar, bloqueos, umbrales, filtro, setFiltro }: { arbol: NodoBalance[]; estandar: EstandarOpcion[]; puedeMapear: boolean; balanceId: number; comentarios: Record<string, number>; validaciones: Record<string, ValidacionInfo>; puedeValidar: boolean; puedeEliminar: boolean; bloqueos: Record<string, BloqueoCuentaVm>; umbrales: UmbralesAlertas; filtro: Filtro; setFiltro: (f: Filtro) => void }) {
   const router = useRouter();
   const [q, setQ] = useState("");
   // Clase PUC y profundidad son filtros PROPIOS de la tabla y se combinan con el
@@ -442,7 +445,7 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, va
             {visible.length === 0 ? (
               <tr><td colSpan={9} className="px-4 py-6 text-center text-[12.5px] text-ink-400">{filtrosColumnasActivos ? "Sin cuentas que coincidan con los filtros de columna." : q.trim() ? "Sin cuentas que coincidan con la búsqueda." : filtro !== "todo" ? "Sin alertas para este filtro. 🎉" : "Sin cuentas para este filtro."}</td></tr>
             ) : (
-              visible.flatMap((n) => filas(n, 0, openEff, toggle, puedeMapear, setAsignar, conteos, comentarios, setComentar, val, onEliminar, filaSeleccionada))
+              visible.flatMap((n) => filas(n, 0, openEff, toggle, puedeMapear, setAsignar, conteos, comentarios, setComentar, val, onEliminar, filaSeleccionada, bloqueos))
             )}
           </tbody>
         </table>
@@ -466,7 +469,7 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, va
 }
 
 /** Renderiza recursivamente las filas (nodo + hijos si está expandido). */
-function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: string) => void, puedeMapear: boolean, onAsignar: (n: NodoBalance) => void, conteos: Map<string, Conteo>, comentarios: Record<string, number>, onComentar: (n: NodoBalance) => void, val: ValCtx, onEliminar: ((n: NodoBalance) => void) | null, filaSeleccionada: string | null): React.ReactElement[] {
+function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: string) => void, puedeMapear: boolean, onAsignar: (n: NodoBalance) => void, conteos: Map<string, Conteo>, comentarios: Record<string, number>, onComentar: (n: NodoBalance) => void, val: ValCtx, onEliminar: ((n: NodoBalance) => void) | null, filaSeleccionada: string | null, bloqueos: Record<string, BloqueoCuentaVm>): React.ReactElement[] {
   const tieneHijos = nodo.hijos.length > 0;
   const isOpen = open.has(nodo.key);
   const esGrupo = nodo.nivel !== 8;
@@ -497,6 +500,7 @@ function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: 
       <td className={`px-4 py-2 ${esGrupo ? "font-semibold text-ink-800" : "text-ink-700"}`}>
         {nodo.name}
         {nodo.critical && nodo.nivel === 8 && <span className="ml-2"><Chip label="Crítica" tone="warn" /></span>}
+        {nodo.nivel === 8 && bloqueos[nodo.code] && <span className="ml-2 inline-block align-middle"><DistintivoCuentaEnFirme bloqueo={bloqueos[nodo.code]} /></span>}
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); onComentar(nodo); }}
@@ -522,7 +526,7 @@ function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: 
   );
 
   if (!tieneHijos || !isOpen) return [fila];
-  return [fila, ...nodo.hijos.flatMap((h) => filas(h, depth + 1, open, toggle, puedeMapear, onAsignar, conteos, comentarios, onComentar, val, onEliminar, filaSeleccionada))];
+  return [fila, ...nodo.hijos.flatMap((h) => filas(h, depth + 1, open, toggle, puedeMapear, onAsignar, conteos, comentarios, onComentar, val, onEliminar, filaSeleccionada, bloqueos))];
 }
 
 /** Celda de la columna "Validación": alerta de naturaleza/saldo contrario con botón

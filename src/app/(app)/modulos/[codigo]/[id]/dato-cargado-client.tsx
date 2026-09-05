@@ -15,6 +15,8 @@ import {
   guardarConsolidacionModuloLote,
   guardarMarcaCruce,
   quitarMarcaCruce,
+  cerrarConciliacionModulo,
+  desbloquearConciliacion,
 } from "@/app/actions/modulos-datos";
 import { aplicarAsignacionMasiva, contarConCuentas, type ModoAsignacionMasiva } from "@/lib/modulos/consolidacion-masiva";
 import { resolverCuenta4, mensajeResolucion } from "@/lib/modulos/resolver-cuenta4";
@@ -36,6 +38,7 @@ import {
   type ResumenMarcas,
 } from "@/lib/modulos/marcas-cruce";
 import { SOPORTES_MARCA_MAX, tamanoLegible, urlSoporteMarca } from "@/lib/modulos/marcas-adjuntos";
+import { MAX_JUSTIFICACION_DESBLOQUEO, MIN_JUSTIFICACION_DESBLOQUEO } from "@/lib/conciliacion/cuentas-bloqueo";
 
 export type FilaDetalleVm = { filaNum: number; clasificador: string | null; valor: number; datos: Record<string, string | number | null> };
 export type ConsolidadoVm = { clasificador: string; descripcion?: string | null; total: number; filas: number; cuentas4: { codigo: string; nombre: string | null }[] };
@@ -61,6 +64,27 @@ export type CruceContableVm = {
   /** Las filas del cruce con su marca de auditoría pegada (vacío si no hay balance). */
   filasMarcadas: FilaCruceMarcada[];
   resumenMarcas: ResumenMarcas | null;
+  /** Conciliación en firme del (cliente, módulo, período). */
+  conciliacion: CierreConciliacionVm;
+};
+export type CierreConciliacionVm = {
+  cierre: {
+    id: number;
+    enFirme: boolean;
+    balancePeriodo: string;
+    balanceEncabezadoId: number;
+    moduloDatoEncabezadoId: number;
+    cuentasBloqueadas: number;
+    cerradoPor: string;
+    cerradoEn: string;
+    desbloqueadoPor: string | null;
+    desbloqueadoEn: string | null;
+    justificacionDesbloqueo: string | null;
+  } | null;
+  puedeCerrar: boolean;
+  puedeDesbloquear: boolean;
+  /** Por qué NO se puede cerrar todavía (null = cerrable). */
+  motivoNoCerrable: string | null;
 };
 // Cruce por tercero: balance abierto por tercero vs. auxiliar del módulo, clave a
 // clave. La compuerta tipada del descriptor lo habilita hoy en CAR, CXP e ING.
@@ -1055,8 +1079,14 @@ function CruceContableTab({
   const [quitando, startQuitar] = useTransition();
   const moduloEnMinuscula = moduloLabel.toLocaleLowerCase("es");
 
+  const panelFirme = cruceContable.conciliacion.cierre?.enFirme
+    ? <ConciliacionEnFirmePanel conciliacion={cruceContable.conciliacion} encabezadoId={encabezadoId} moduloLabel={moduloLabel} />
+    : null;
+
   if (cruceContable.bloqueo) {
     return (
+      <div className="flex flex-col gap-4">
+      {panelFirme}
       <Card className="flex flex-col items-center gap-2 p-8 text-center">
         <div className="text-[13px] font-semibold text-ink-800">Cruce contable no habilitado</div>
         <p className="max-w-2xl text-[12.5px] text-warn-700">{cruceContable.bloqueo}</p>
@@ -1069,11 +1099,14 @@ function CruceContableTab({
           </Link>
         )}
       </Card>
+      </div>
     );
   }
 
   if (!cruceContable.balanceEncontrado || !cruceContable.resumen) {
     return (
+      <div className="flex flex-col gap-4">
+      {panelFirme}
       <Card className="flex flex-col items-center gap-2 p-8 text-center">
         <div className="text-[13px] font-semibold text-ink-800">No hay balance de comprobación confirmado para este período</div>
         <p className="max-w-md text-[12.5px] text-ink-500">
@@ -1083,6 +1116,7 @@ function CruceContableTab({
           Ir a Balance de comprobación →
         </Link>
       </Card>
+      </div>
     );
   }
 
@@ -1116,6 +1150,8 @@ function CruceContableTab({
         </p>
       )}
       {resumenMarcas && resumenMarcas.conDiferencia > 0 && <ResumenMarcasBanner resumen={resumenMarcas} />}
+
+      <ConciliacionEnFirmePanel conciliacion={cruceContable.conciliacion} encabezadoId={encabezadoId} moduloLabel={moduloLabel} />
 
       <Card className="p-0">
         <div className="overflow-x-auto">
@@ -1327,6 +1363,160 @@ function CruceTerceroTab({ cruceTercero }: { cruceTercero: CruceTerceroVm }) {
 }
 
 /** Cuánto del descuadre está explicado por marcas y cuánto sigue pendiente. */
+/**
+ * Conciliación EN FIRME: botón «Cerrar conciliación» (senior/gerente asignado) cuando el
+ * cruce cuadra o todas sus diferencias tienen marca; una vez cerrada, el banner con
+ * quién y cuándo, y la acción «Desbloquear» con justificación obligatoria.
+ */
+function ConciliacionEnFirmePanel({
+  conciliacion,
+  encabezadoId,
+  moduloLabel,
+}: {
+  conciliacion: CierreConciliacionVm;
+  encabezadoId: number;
+  moduloLabel: string;
+}) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [confirmarCierre, setConfirmarCierre] = useState(false);
+  const [desbloqueando, setDesbloqueando] = useState(false);
+  const [justificacion, setJustificacion] = useState("");
+  const { cierre, puedeCerrar, puedeDesbloquear, motivoNoCerrable } = conciliacion;
+  const enFirme = cierre?.enFirme === true;
+
+  const cerrar = () => {
+    start(async () => {
+      const r = await cerrarConciliacionModulo({ encabezadoId });
+      if (r.ok) {
+        notifySuccess(r.message ?? "Conciliación en firme.");
+        setConfirmarCierre(false);
+      } else notifyError(r.message ?? "No se pudo cerrar la conciliación.");
+      router.refresh();
+    });
+  };
+  const desbloquear = () => {
+    if (!cierre) return;
+    start(async () => {
+      const r = await desbloquearConciliacion({ cierreId: cierre.id, justificacion });
+      if (r.ok) {
+        notifySuccess(r.message ?? "Conciliación desbloqueada.");
+        setDesbloqueando(false);
+        setJustificacion("");
+      } else notifyError(r.message ?? "No se pudo desbloquear la conciliación.");
+      router.refresh();
+    });
+  };
+
+  if (enFirme && cierre) {
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-md border border-navy-700/30 bg-navy-700/5 px-3 py-2 text-[12px] text-ink-800">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="inline-flex items-center gap-1 font-semibold text-navy-700"><Icon name="check" size={13} /> Conciliación en firme</span>
+          <span>cerró <b>{cierre.cerradoPor}</b> · {cierre.cerradoEn}</span>
+          <span className="text-ink-500">
+            {cierre.cuentasBloqueadas} cuenta(s) del balance <b className="text-ink-700">{cierre.balancePeriodo}</b> bloqueada(s) · cargue #{cierre.moduloDatoEncabezadoId}
+          </span>
+          <Link href={`/balance/${cierre.balanceEncabezadoId}`} className="font-semibold text-blue-600 hover:underline">Ver balance →</Link>
+        </div>
+        {puedeDesbloquear && (
+          <button
+            type="button"
+            onClick={() => setDesbloqueando(true)}
+            className="inline-flex items-center gap-1 rounded-md border border-warn-500 bg-white px-2.5 py-1 text-[12px] font-semibold text-warn-700 hover:bg-warn-100"
+          >
+            Desbloquear
+          </button>
+        )}
+        <Modal
+          open={desbloqueando}
+          onClose={() => setDesbloqueando(false)}
+          title={`Desbloquear conciliación · ${moduloLabel} · ${cierre.balancePeriodo}`}
+          footer={
+            <button
+              type="button"
+              onClick={desbloquear}
+              disabled={pending || justificacion.trim().length < MIN_JUSTIFICACION_DESBLOQUEO}
+              className="inline-flex items-center gap-1.5 rounded-md bg-warn-700 px-3 py-2 text-[12.5px] font-semibold text-white hover:bg-warn-500 disabled:opacity-60"
+            >
+              {pending ? "Desbloqueando…" : "Desbloquear conciliación"}
+            </button>
+          }
+        >
+          <div className="flex flex-col gap-3 text-[12.5px] text-ink-700">
+            <p>
+              Al desbloquear, las <b>{cierre.cuentasBloqueadas}</b> cuenta(s) del balance <b>{cierre.balancePeriodo}</b> vuelven a ser editables: se podrá cargar una versión nueva, congelar otra versión y cambiar su homologación. La justificación queda en la bitácora de auditoría.
+            </p>
+            <label className="flex flex-col gap-1">
+              <span className="text-[11.5px] font-semibold text-ink-600">Justificación (obligatoria, mínimo {MIN_JUSTIFICACION_DESBLOQUEO} caracteres)</span>
+              <textarea
+                value={justificacion}
+                onChange={(e) => setJustificacion(e.target.value.slice(0, MAX_JUSTIFICACION_DESBLOQUEO))}
+                rows={4}
+                autoFocus
+                placeholder="Por qué se reabre la conciliación (p. ej. el cliente envió un balance corregido)…"
+                className="w-full rounded-md border border-ink-200 px-2.5 py-2 text-[12.5px] outline-none focus:border-blue-400"
+              />
+              <span className="text-right text-[10.5px] text-ink-400">{justificacion.length}/{MAX_JUSTIFICACION_DESBLOQUEO}</span>
+            </label>
+          </div>
+        </Modal>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-md border border-ink-150 bg-white px-3 py-2 text-[12px] text-ink-700">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span className="font-semibold text-ink-800">Conciliación abierta</span>
+        {cierre && !cierre.enFirme && (
+          <span className="text-ink-500" title={cierre.justificacionDesbloqueo ?? undefined}>
+            desbloqueó <b>{cierre.desbloqueadoPor ?? "—"}</b> · {cierre.desbloqueadoEn ?? "—"} (antes cerró {cierre.cerradoPor} · {cierre.cerradoEn})
+          </span>
+        )}
+        {motivoNoCerrable ? (
+          <span className="text-warn-700">{motivoNoCerrable}</span>
+        ) : (
+          <span className="text-ink-500">El cruce está listo para cerrarse en firme.</span>
+        )}
+      </div>
+      {puedeCerrar && (
+        <button
+          type="button"
+          onClick={() => setConfirmarCierre(true)}
+          disabled={!!motivoNoCerrable}
+          title={motivoNoCerrable ?? "Cerrar la conciliación y bloquear las cuentas del módulo en el balance"}
+          className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <Icon name="check" size={13} /> Cerrar conciliación
+        </button>
+      )}
+      <Modal
+        open={confirmarCierre}
+        onClose={() => setConfirmarCierre(false)}
+        title={`Cerrar conciliación · ${moduloLabel}`}
+        footer={
+          <button
+            type="button"
+            onClick={cerrar}
+            disabled={pending}
+            className="inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-2 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60"
+          >
+            {pending ? "Cerrando…" : "Cerrar en firme"}
+          </button>
+        }
+      >
+        <div className="flex flex-col gap-2 text-[12.5px] text-ink-700">
+          <p>
+            Las cuentas del balance homologadas a las cuentas de <b>{moduloLabel}</b> quedarán <b>en firme</b> para este período: no se podrá cargar una versión del balance que las modifique, congelar otra versión ni cambiar su homologación.
+          </p>
+          <p className="text-ink-500">Solo el senior o gerente asignado al cliente podrá desbloquearla, con una justificación que queda en la bitácora.</p>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
 function ResumenMarcasBanner({ resumen }: { resumen: ResumenMarcas }) {
   const todo = resumen.pendientes === 0 && resumen.desactualizadas === 0;
   return (

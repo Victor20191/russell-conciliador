@@ -57,6 +57,16 @@ import { esTransformacionAceptable } from "@/lib/balance/extraccion/validacion";
 import { mapearPorIA } from "@/lib/balance/mapeo-ia";
 import { construirVistaBorrador } from "@/lib/balance/borrador-vm";
 import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
+import {
+  bloqueoHomologacionBalance,
+  cierresFirmes,
+  cierresFirmesDeBalance,
+  cuentasBloqueadas,
+  ErrorConciliacionEnFirme,
+  exigirCargueCompatibleConCierres,
+  registrarIntentoBloqueado,
+} from "@/lib/conciliacion/verificar-bloqueo";
+import { mensajeConciliacionEnFirme } from "@/lib/conciliacion/cuentas-bloqueo";
 import type { UmbralesAlertas } from "@/lib/balance/umbrales-alertas";
 import type { FilaDetalle } from "@/lib/balance/calcular";
 import { detectarManipulacionesRiesgosas, reclasificarHuerfanas, reclasificarSoloHojas, corregirCodigosPlaceholder, marcarNoContables, validarReubicacionesBorrador, type FilaBorrador } from "@/lib/balance/borrador";
@@ -1109,6 +1119,9 @@ async function promoverStagingAOficial(p: MetaPromocion, contexto: string): Prom
       },
     };
   } catch (e) {
+    // El bloqueo por conciliación en firme es un rechazo de negocio, no un fallo
+    // de BD: el usuario debe ver qué módulo y qué cuentas lo impiden.
+    if (e instanceof ErrorConciliacionEnFirme) return { ok: false, message: e.message };
     return { ok: false, message: mensajeErrorBD(contexto, e) };
   }
 }
@@ -1141,6 +1154,12 @@ export async function freezeBalance(formData: FormData): Promise<ActionState> {
           balance,
           congelado: false,
         };
+      }
+      // Conciliación EN FIRME: congelar otra versión cambiaría el balance oficial
+      // sobre el que se cerró el cruce de un módulo.
+      const cierresPeriodo = (await cierresFirmes(balance.clienteId, balance.periodo, tx)).filter((c) => c.balanceEncabezadoId !== id);
+      if (cierresPeriodo.length > 0) {
+        return { ok: false as const, message: mensajeConciliacionEnFirme(cierresPeriodo), bloqueadoPor: cierresPeriodo, balance };
       }
 
       // Congelar vuelve inmutable la versión oficial: dentro del MISMO candado y
@@ -1207,7 +1226,17 @@ export async function freezeBalance(formData: FormData): Promise<ActionState> {
       };
     });
 
-    if (!resultado.ok) return resultado;
+    if (!resultado.ok) {
+      if ("bloqueadoPor" in resultado && resultado.bloqueadoPor) {
+        await registrarIntentoBloqueado({
+          clienteId: resultado.balance.clienteId,
+          entidad: `${resultado.balance.nombreCliente} · ${resultado.balance.periodo}`,
+          operacion: `Congelar la versión ${resultado.balance.version} como oficial`,
+          cierres: resultado.bloqueadoPor,
+        });
+      }
+      return { ok: false, message: resultado.message };
+    }
     if (!resultado.congelado) return { ok: true, message: resultado.message };
 
     await logAudit({
@@ -1331,6 +1360,20 @@ export async function asignarCuentaEstandar(formData: FormData): Promise<ActionS
       }
       if (filaActual.encabezado.estaCongelado) {
         return { ok: false as const, message: "No se puede homologar una cuenta de un balance congelado." };
+      }
+      // Conciliación EN FIRME: ni tocar una cuenta conciliada ni homologar una cuenta
+      // nueva hacia las cuentas Russell de un módulo cerrado en este período.
+      const bloqueoFirme = await bloqueoHomologacionBalance({
+        clienteId: filaActual.encabezado.clienteId,
+        balancePeriodo: filaActual.encabezado.periodo,
+        cuenta8: filaActual.cuenta8,
+        cuenta6: filaActual.cuenta6,
+        alcanceGrupo: alcanceMapeo === "grupo",
+        codigoDestino: std.code,
+      }, tx);
+      if (bloqueoFirme) {
+        await registrarIntentoBloqueado({ clienteId: filaActual.encabezado.clienteId, entidad: `${filaActual.encabezado.nombreCliente} · ${filaActual.encabezado.periodo}`, operacion: `Homologar ${filaActual.cuenta8} → ${std.code}`, cierres: bloqueoFirme.cierres });
+        return { ok: false as const, message: bloqueoFirme.message };
       }
 
       const encId = filaActual.encabezado.id;
@@ -1504,6 +1547,19 @@ export async function marcarCuentaPendiente(formData: FormData): Promise<ActionS
       }
       if (filaActual.encabezado.estaCongelado) {
         return { ok: false as const, message: "No se puede modificar el mapeo de un balance congelado." };
+      }
+      // Conciliación EN FIRME: dejar pendiente retira la homologación de la cuenta.
+      const bloqueoFirme = await bloqueoHomologacionBalance({
+        clienteId: filaActual.encabezado.clienteId,
+        balancePeriodo: filaActual.encabezado.periodo,
+        cuenta8: filaActual.cuenta8,
+        cuenta6: filaActual.cuenta6,
+        alcanceGrupo: alcanceMapeo === "grupo",
+        codigoDestino: null,
+      }, tx);
+      if (bloqueoFirme) {
+        await registrarIntentoBloqueado({ clienteId: filaActual.encabezado.clienteId, entidad: `${filaActual.encabezado.nombreCliente} · ${filaActual.encabezado.periodo}`, operacion: `Dejar pendiente ${filaActual.cuenta8}`, cierres: bloqueoFirme.cierres });
+        return { ok: false as const, message: bloqueoFirme.message };
       }
 
       const encId = filaActual.encabezado.id;
@@ -1758,6 +1814,15 @@ export async function reaplicarMapeoBalance(formData: FormData): Promise<ActionS
           grupo.ids.push(d.id);
           grupo.cuentas.push(d.cuenta8);
         } else porDestino.set(clave, { std, coincidencia, ids: [d.id], cuentas: [d.cuenta8] });
+      }
+
+      // Conciliación EN FIRME: la re-homologación no puede tocar cuentas conciliadas.
+      const cuentasQueCambian = [...porDestino.values()].flatMap((g) => g.cuentas);
+      const enFirme = await cuentasBloqueadas(encabezado.clienteId, encabezado.periodo, { cuentas: cuentasQueCambian }, tx);
+      if (enFirme.length > 0) {
+        const cierres = [...new Map(enFirme.map((b) => [b.cierre.id, b.cierre])).values()];
+        await registrarIntentoBloqueado({ clienteId: encabezado.clienteId, entidad: String(id), operacion: "Re-homologar balance", cierres, detalle: enFirme.slice(0, 5).map((b) => b.cuenta8).join(", ") });
+        return { ok: false as const, message: mensajeConciliacionEnFirme(cierres, enFirme.slice(0, 3).map((b) => ({ cuenta8: b.cuenta8, motivo: "homologacion" as const, detalle: `${b.cuenta8} está conciliada` }))) };
       }
 
       for (const { std, coincidencia, ids } of porDestino.values()) {
@@ -2278,6 +2343,11 @@ async function persistirCargue(p: {
 
     await tomarCandadoTransaccion(tx, `balance-cargue:${p.clientId}:${p.period}`);
 
+    // Conciliación EN FIRME: si un módulo cerró su cruce contra este período, la
+    // versión nueva no puede alterar las cuentas conciliadas (importes, homologación,
+    // ausencia) ni meter cuentas nuevas al módulo. Lanza y revierte todo el commit.
+    await exigirCargueCompatibleConCierres(p.clientId, p.period, filasDet, tx);
+
     // Versionado correlativo por (cliente, período). El candado evita que dos
     // cargues simultáneos calculen la misma versión antes de insertar.
     const previas = await tx.balancePruebaEncabezado.findMany({
@@ -2384,7 +2454,19 @@ async function persistirCargue(p: {
     }
 
     return { id: balance.id, version, reutilizado: false, capturaTercero };
-  }, { timeoutMs: TIMEOUT_TRANSACCION_PROMOCION_MS });
+  }, { timeoutMs: TIMEOUT_TRANSACCION_PROMOCION_MS }).catch(async (e: unknown) => {
+    if (e instanceof ErrorConciliacionEnFirme) {
+      await registrarIntentoBloqueado({
+        clienteId: p.clientId,
+        entidad: `${p.clienteName} · ${p.period}`,
+        operacion: "Cargar nueva versión del balance",
+        cierres: e.cierres,
+        detalle: e.violaciones.slice(0, 5).map((v) => v.detalle).join("; "),
+        usuario: p.uploadedBy,
+      });
+    }
+    throw e;
+  });
 
   // Control posterior al commit: solo lee importes confirmados. Un descuadre o
   // un fallo de este control no cambia la promoción ni el procesamiento del borrador.
@@ -4770,6 +4852,19 @@ export async function eliminarDetalleBalance(detalleId: number): Promise<ActionS
       if (filaActual.encabezado.estaCongelado) {
         return { ok: false as const, message: "El balance está congelado: no se pueden eliminar cuentas." };
       }
+      // Conciliación EN FIRME: una cuenta conciliada no se elimina de ninguna versión del período.
+      const bloqueoFirme = await bloqueoHomologacionBalance({
+        clienteId: filaActual.encabezado.clienteId,
+        balancePeriodo: filaActual.encabezado.periodo,
+        cuenta8: filaActual.cuenta8,
+        cuenta6: filaActual.cuenta8.slice(0, 6),
+        alcanceGrupo: false,
+        codigoDestino: null,
+      }, tx);
+      if (bloqueoFirme) {
+        await registrarIntentoBloqueado({ clienteId: filaActual.encabezado.clienteId, entidad: `${fila.encabezado.periodo}`, operacion: `Eliminar la cuenta ${filaActual.cuenta8} del balance`, cierres: bloqueoFirme.cierres });
+        return { ok: false as const, message: bloqueoFirme.message };
+      }
 
       const encIdActual = filaActual.encabezado.id;
       const overrides = await tx.prevalidadorCuentaBalance.findMany({
@@ -4966,6 +5061,18 @@ export async function eliminarBalance(input: {
         return {
           ok: false as const,
           message: "No se encontraron balances para eliminar.",
+          balancesEliminados: 0,
+          perfilesEliminados: 0,
+        };
+      }
+
+      // Conciliación EN FIRME: el balance conciliado por un módulo no se elimina.
+      const cierresEnFirme = await cierresFirmesDeBalance(ids, tx);
+      if (cierresEnFirme.length > 0) {
+        await registrarIntentoBloqueado({ clienteId: referencia.clienteId, entidad: `${referencia.nombreCliente} · ${referencia.periodo}`, operacion: "Eliminar balance", cierres: cierresEnFirme });
+        return {
+          ok: false as const,
+          message: mensajeConciliacionEnFirme(cierresEnFirme),
           balancesEliminados: 0,
           perfilesEliminados: 0,
         };

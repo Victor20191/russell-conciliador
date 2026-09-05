@@ -2044,3 +2044,64 @@ model EnvironmentVariable {
 
   @@map("variables_entorno")
 }
+
+// ===== Conciliación en firme de un módulo contra el balance =====
+// Al cerrar la conciliación de un módulo (Cruce contable de /modulos/[codigo]/[id]),
+// las cuentas del balance que pertenecen al módulo quedan EN FIRME para ese período:
+// no se puede cargar una versión que las cambie, congelar otra versión ni editar su
+// homologación, hasta un desbloqueo justificado por el senior o gerente del cliente.
+// Vive en tablas propias llaveadas por (cliente, período, cuenta) —NO en el detalle
+// del balance— porque el balance está versionado y el bloqueo debe impedir
+// precisamente la versión nueva.
+
+/// Un cierre por (cliente, módulo, período del módulo). Se reutiliza al volver a
+/// cerrar tras un desbloqueo: los EVENTOS (cierre, desbloqueo, intento bloqueado)
+/// quedan en `registros_auditoria`.
+model ConciliacionModuloCierre {
+  id                      Int                           @id @default(autoincrement()) @map("id")
+  clienteId               Int                           @map("cliente_id") // FK suave a clientes
+  moduloCodigo            String                        @map("modulo_codigo")
+  periodo                 String                        @map("periodo") // período del módulo, p. ej. "2026-03"
+  balancePeriodo          String                        @map("balance_periodo") // etiqueta del balance, p. ej. "Marzo 2026"
+  moduloDatoEncabezadoId  Int                           @map("modulo_dato_encabezado_id") // FK suave a modulo_dato_encabezado
+  balanceEncabezadoId     Int                           @map("balance_encabezado_id") // FK suave: balance conciliado
+  cuentasRussell          Json                          @map("cuentas_russell") // cuentas Russell (4 díg.) del módulo conciliadas
+  estado                  String                        @default("firme") @map("estado") // firme | desbloqueado
+  cerradoPorId            Int?                          @map("cerrado_por_id")
+  cerradoPor              String                        @map("cerrado_por")
+  cerradoEn               DateTime                      @default(now()) @map("cerrado_en") @db.Timestamptz(3)
+  desbloqueadoPorId       Int?                          @map("desbloqueado_por_id")
+  desbloqueadoPor         String?                       @map("desbloqueado_por")
+  desbloqueadoEn          DateTime?                     @map("desbloqueado_en") @db.Timestamptz(3)
+  justificacionDesbloqueo String?                       @map("justificacion_desbloqueo")
+  cuentas                 CuentaBloqueadaConciliacion[]
+
+  @@unique([clienteId, moduloCodigo, periodo], map: "conciliacion_modulo_cierre_unico")
+  @@index([clienteId, balancePeriodo, estado], map: "conciliacion_modulo_cierre_balance_idx")
+  @@index([balanceEncabezadoId], map: "conciliacion_modulo_cierre_balance_id_idx")
+  @@map("conciliacion_modulo_cierre")
+}
+
+/// Una fila por cuenta ORIGINAL del cliente (cuenta_8) bloqueada por un cierre en
+/// firme. Congela la homologación y los cuatro importes que se conciliaron: la
+/// verificación de una versión nueva compara contra este snapshot. Al desbloquear se
+/// borran (la comprobación es «existe fila»); caen en cascada con el cierre.
+model CuentaBloqueadaConciliacion {
+  id                     Int                      @id @default(autoincrement()) @map("id")
+  cierreId               Int                      @map("cierre_id")
+  cierre                 ConciliacionModuloCierre @relation(fields: [cierreId], references: [id], onDelete: Cascade)
+  clienteId              Int                      @map("cliente_id")
+  periodo                String                   @map("periodo") // = etiqueta del período del BALANCE
+  cuenta                 String                   @map("cuenta") // cuenta_8 del cliente
+  cuenta6Russell         String?                  @map("cuenta_6_russell")
+  saldoInicial           Decimal                  @default(0) @map("saldo_inicial") @db.Decimal(18, 2)
+  debitos                Decimal                  @default(0) @map("debitos") @db.Decimal(18, 2)
+  creditos               Decimal                  @default(0) @map("creditos") @db.Decimal(18, 2)
+  saldoFinal             Decimal                  @default(0) @map("saldo_final") @db.Decimal(18, 2)
+  moduloCodigo           String                   @map("modulo_codigo")
+  moduloDatoEncabezadoId Int                      @map("modulo_dato_encabezado_id")
+
+  @@unique([cierreId, cuenta], map: "cuenta_bloqueada_conciliacion_unica")
+  @@index([clienteId, periodo, cuenta], map: "cuenta_bloqueada_conciliacion_idx")
+  @@map("cuenta_bloqueada_conciliacion")
+}

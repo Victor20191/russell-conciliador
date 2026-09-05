@@ -6,6 +6,17 @@ const mocks = vi.hoisted(() => ({
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("@/lib/prisma", () => ({ default: { clientAccount: { findUnique: mocks.findUnique, update: mocks.update, updateMany: mocks.updateMany } } }));
 vi.mock("@/lib/rbac", () => ({ authorizePermiso: mocks.authorize }));
+vi.mock("@/lib/conciliacion/verificar-bloqueo", () => ({
+  bloqueoHomologacionBalance: vi.fn(async () => null),
+  bloqueoMemoriaHomologacion: vi.fn(async () => null),
+  cierresFirmes: vi.fn(async () => []),
+  cierresFirmesDeBalance: vi.fn(async () => []),
+  cuentasBloqueadas: vi.fn(async () => []),
+  exigirCargueCompatibleConCierres: vi.fn(async () => undefined),
+  registrarIntentoBloqueado: vi.fn(async () => undefined),
+  autorizarCierreConciliacion: vi.fn(async () => ({ ok: true, userId: 1, role: "Senior" })),
+  ErrorConciliacionEnFirme: class ErrorConciliacionEnFirme extends Error {},
+}));
 vi.mock("@/lib/rbac/contexto", () => ({ clienteDeCuentaCliente: mocks.cliente }));
 vi.mock("@/lib/dal", () => ({ getCurrentUser: vi.fn(async () => ({ name: "Prueba" })) }));
 vi.mock("@/lib/audit", () => ({ logAudit: vi.fn() }));

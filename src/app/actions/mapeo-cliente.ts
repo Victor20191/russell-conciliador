@@ -12,6 +12,7 @@ import { mensajeErrorBD } from "@/lib/errores";
 import { esExcepcionCuenta, ORIGEN_MANUAL_CUENTA, ORIGEN_MANUAL_GRUPO } from "@/lib/balance/mapeo-cliente-config";
 import { cruzaClaseContable } from "@/lib/balance/clase-contable";
 import type { ActionState } from "@/lib/definitions";
+import { bloqueoMemoriaHomologacion, registrarIntentoBloqueado } from "@/lib/conciliacion/verificar-bloqueo";
 
 // CRUD de la MEMORIA de mapeo del balance, que vive en `cuentas_cliente`: la
 // parametrización cuenta_6 del cliente → cuenta estándar Russell que se reaplica
@@ -53,6 +54,11 @@ export async function crearMapeoCliente(_prev: ActionState | undefined, formData
       select: { cuenta6Russell: true },
     });
     if (existe?.cuenta6Russell) return { ok: false, message: `Ya hay una regla de mapeo para la cuenta ${cuenta6} de este cliente.` };
+    const bloqueoFirme = await bloqueoMemoriaHomologacion({ clienteId, codigo: cuenta6, alcanceGrupo: true });
+    if (bloqueoFirme) {
+      await registrarIntentoBloqueado({ clienteId, entidad: cliente.name, operacion: `Crear regla de mapeo ${cuenta6} → ${codigo}`, cierres: bloqueoFirme.cierres });
+      return { ok: false, message: bloqueoFirme.message };
+    }
     const user = await getCurrentUser();
     await prisma.clientAccount.upsert({
       where: { clienteId_code: { clienteId, code: cuenta6 } },
@@ -92,6 +98,13 @@ export async function editarMapeoCliente(_prev: ActionState | undefined, formDat
     // regla de grupo movería en silencio a todas sus cuentas hermanas.
     const esExcepcion = esExcepcionCuenta(row.origenMapeo);
     const origen = esExcepcion ? ORIGEN_MANUAL_CUENTA : ORIGEN_MANUAL_GRUPO;
+    if (row.clienteId != null) {
+      const bloqueoFirme = await bloqueoMemoriaHomologacion({ clienteId: row.clienteId, codigo: row.code, alcanceGrupo: !esExcepcion });
+      if (bloqueoFirme) {
+        await registrarIntentoBloqueado({ clienteId: row.clienteId, entidad: row.code, operacion: `Editar regla de mapeo ${row.code} → ${codigo}`, cierres: bloqueoFirme.cierres });
+        return { ok: false, message: bloqueoFirme.message };
+      }
+    }
     const user = await getCurrentUser();
     const ahora = new Date();
     await prisma.clientAccount.update({
@@ -185,6 +198,13 @@ export async function eliminarMapeoCliente(_prev: ActionState | undefined, formD
     if (!row) return { ok: false, message: "La regla de mapeo ya no existe." };
     const scope = await authorizePermiso("balance:crear", { clientId: await clienteDeCuentaCliente(id) });
     if (!scope.ok) return { ok: false, message: scope.message };
+    if (row.clienteId != null) {
+      const bloqueoFirme = await bloqueoMemoriaHomologacion({ clienteId: row.clienteId, codigo: row.code, alcanceGrupo: row.code.length === 6 });
+      if (bloqueoFirme) {
+        await registrarIntentoBloqueado({ clienteId: row.clienteId, entidad: row.code, operacion: `Quitar regla de mapeo ${row.code}`, cierres: bloqueoFirme.cierres });
+        return { ok: false, message: bloqueoFirme.message };
+      }
+    }
     // Sólo limpia el mapeo del balance; conserva la fila (puede tener conciliación).
     const user = await getCurrentUser();
     const ahora = new Date();

@@ -32,6 +32,7 @@ import {
   normalizarAlcanceHomologacionCliente,
 } from "@/lib/balance/homologacion-cliente-servidor";
 import type { ActionState } from "@/lib/definitions";
+import { bloqueoMemoriaHomologacion, registrarIntentoBloqueado } from "@/lib/conciliacion/verificar-bloqueo";
 
 const PATH_MAPEO = "/config/mapeo";
 const PATH_BALANCE = "/balance";
@@ -94,6 +95,15 @@ export async function guardarHomologacionCliente(
 
     const user = await getCurrentUser();
     const actualizadoPor = user?.name ?? null;
+
+    // Conciliación EN FIRME: la memoria no distingue período, así que una cuenta (o
+    // grupo) conciliada en cualquier período del cliente no cambia de homologación
+    // hasta que el senior o gerente desbloquee la conciliación.
+    const bloqueoFirme = await bloqueoMemoriaHomologacion({ clienteId, codigo: codigoMemoria, alcanceGrupo: propagaGrupo });
+    if (bloqueoFirme) {
+      await registrarIntentoBloqueado({ clienteId, entidad: cliente.name, operacion: `Homologar (PUC) ${codigoMemoria} → ${codigo}`, cierres: bloqueoFirme.cierres });
+      return { ok: false, message: bloqueoFirme.message };
+    }
 
     const resultado = await transaccionSerializable(async (tx) => {
       // Mismo candado y mismo orden que usa la carga (`persistirCargue`) para

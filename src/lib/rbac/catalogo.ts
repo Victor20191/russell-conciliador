@@ -111,6 +111,9 @@ const SOLO_ADMIN = ADMIN_PLATAFORMA;
 // administrador de la plataforma, también gestiona la configuración de negocio
 // (clientes y sus responsables).
 const SENIOR_Y_ADMIN = ["Senior", "Administrador", "Superadministrador"];
+// Cierre/desbloqueo de la conciliación en firme: revisor (Senior) y validador
+// (Gerente) del cliente, más el Superadministrador.
+const SENIOR_GERENTE_Y_SUPERADMIN = ["Senior", "Gerente", "Superadministrador"];
 
 export const PERMISOS: Permiso[] = [
   // ===== Lectura (consulta) — módulos derivados de nav.ts =====
@@ -164,6 +167,12 @@ export const PERMISOS: Permiso[] = [
   // ===== Revisión — SOLO Senior (revisa el trabajo del Staff) =====
   { code: "balance:revisar", module: "balance", action: "revisar", label: "Revisar balance", roles: SENIOR_Y_ADMIN },
   { code: "conciliaciones:revisar", module: "conciliaciones", action: "revisar", label: "Revisar conciliación", roles: SOLO_SENIOR },
+  // Conciliación EN FIRME de un módulo contra el balance (Cruce contable): cerrarla
+  // bloquea las cuentas del módulo en ese período; desbloquearla exige justificación.
+  // Ambas las ejercen el senior o gerente ASIGNADO al cliente (la Server Action
+  // verifica además la asignación); el Superadministrador conserva alcance global.
+  { code: "conciliaciones:cerrar", module: "conciliaciones", action: "cerrar", label: "Cerrar conciliación de módulo (en firme)", roles: SENIOR_GERENTE_Y_SUPERADMIN },
+  { code: "conciliaciones:desbloquear", module: "conciliaciones", action: "desbloquear", label: "Desbloquear conciliación en firme", roles: SENIOR_GERENTE_Y_SUPERADMIN },
 
   // ===== Datos de módulos (Inventarios, Cartera, CxP, Ingresos, Activos Fijos, Nómina) =====
   { code: "modulos_datos:ver", module: "modulos_datos", action: "ver", label: "Ver datos de módulos", roles: TODOS },

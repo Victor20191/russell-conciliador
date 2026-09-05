@@ -29,6 +29,8 @@ import {
 import Conversacion from "@/components/conversacion";
 import { cargarEstadoCrucesAperturas } from "@/lib/balance/cruce-aperturas-servidor";
 import { CruceAperturasPanel } from "./cruce-aperturas-panel";
+import { cierresFirmes, cuentasBloqueadas } from "@/lib/conciliacion/verificar-bloqueo";
+import { ConciliacionEnFirmeBanner, type BloqueoCuentaVm, type CierreFirmeVm } from "./conciliacion-en-firme";
 
 export default async function BalanceDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ cargado?: string; tab?: string }> }) {
   await requirePermiso("balance:ver");
@@ -70,6 +72,8 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
     contextoPrevalidador,
     pendienteRows,
     crucesAperturas,
+    cierresPeriodo,
+    bloqueadasPeriodo,
   ] = await Promise.all([
     authorizePermiso("balance:editar", { clientId }),
     authorizePermiso("balance:crear", { clientId }),
@@ -110,7 +114,30 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
       select: { code: true },
     }),
     cargarEstadoCrucesAperturas(id, clientId),
+    // Conciliación EN FIRME del período (cualquier módulo): cierres + cuentas bloqueadas.
+    cierresFirmes(clientId, balance.periodo),
+    cuentasBloqueadas(clientId, balance.periodo),
   ]);
+  const cierresVm: CierreFirmeVm[] = cierresPeriodo.map((c) => ({
+    id: c.id,
+    moduloCodigo: c.moduloCodigo,
+    periodo: c.periodo,
+    moduloDatoEncabezadoId: c.moduloDatoEncabezadoId,
+    balanceEncabezadoId: c.balanceEncabezadoId,
+    cerradoPor: c.cerradoPor,
+    cerradoEn: fmtDateTime(c.cerradoEn),
+    cuentas: bloqueadasPeriodo.filter((b) => b.cierre.id === c.id).length,
+  }));
+  // Distintivo por cuenta (hoja del árbol): quién la cerró, desde qué cargue y cuándo.
+  const bloqueos: Record<string, BloqueoCuentaVm> = {};
+  for (const b of bloqueadasPeriodo) {
+    bloqueos[b.cuenta8] = {
+      moduloCodigo: b.cierre.moduloCodigo,
+      moduloDatoEncabezadoId: b.cierre.moduloDatoEncabezadoId,
+      cerradoPor: b.cierre.cerradoPor,
+      cerradoEn: fmtDateTime(b.cierre.cerradoEn),
+    };
+  }
   const codigosPendientes = new Set(pendienteRows.map((r) => r.code));
   // Editar (congelar) y mapear exigen alcance de escritura; las Server Actions
   // vuelven a verificarlo al ejecutar.
@@ -258,6 +285,8 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
 
       <CruceAperturasPanel balanceId={id} estado={crucesAperturas} puedeRevisar={editarAuth.ok || mapearAuth.ok} />
 
+      {cierresVm.length > 0 && <ConciliacionEnFirmeBanner cierres={cierresVm} balanceId={id} periodo={balance.periodo} />}
+
       {(balance.comentarioAprobacion || balance.advertenciaArchivoFuente || reubicacionesAprobadas.length > 0) && (
         <ComentarioAprobacion
           comentario={balance.comentarioAprobacion}
@@ -316,6 +345,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
             validaciones={validaciones}
             puedeValidar={puedeMapear}
             puedeEliminar={puedeMapear && !balance.estaCongelado}
+            bloqueos={bloqueos}
             sums={sums}
             balanced={calc.balanced}
             diffCuadre={calc.diffCuadre}

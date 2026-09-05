@@ -68,6 +68,16 @@ import {
 } from "@/lib/modulos/archivo-original";
 import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
 import { tomarCandadoTransaccion, transaccionSerializable } from "@/lib/concurrency";
+import { cargarInsumosCruceModulo, construirCruceContableModulo } from "@/lib/modulos/cruce-contable-servidor";
+import {
+  cuentasBloqueoDelModulo,
+  cuentasRussellDelCruce,
+  ESTADO_CIERRE_DESBLOQUEADO,
+  ESTADO_CIERRE_FIRME,
+  evaluarCierreConciliacion,
+  validarJustificacionDesbloqueo,
+} from "@/lib/conciliacion/cuentas-bloqueo";
+import { autorizarCierreConciliacion } from "@/lib/conciliacion/verificar-bloqueo";
 
 const rutaModulo = (codigo: string) => `/modulos/${codigo.toLowerCase()}`;
 /** Las dos pantallas que listan lotes: datos cargados (aviso de pendientes) e índice de borradores. */
@@ -2236,5 +2246,209 @@ export async function eliminarDatosModulo(input: {
     };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("eliminarDatosModulo", e) };
+  }
+}
+
+// ============================================================
+// CONCILIACIÓN EN FIRME: cerrar el cruce contable de un módulo bloquea, para ese
+// período, las cuentas del balance que pertenecen al módulo (ver
+// `src/lib/conciliacion/`). Cerrar y desbloquear lo hacen el senior o gerente
+// ASIGNADO al cliente (permisos `conciliaciones:cerrar` / `conciliaciones:desbloquear`
+// + asignación vigente; el Superadministrador pasa por alcance global). El estado
+// vive en `conciliacion_modulo_cierre` + `cuenta_bloqueada_conciliacion`; los
+// eventos, en `registros_auditoria`.
+// ============================================================
+
+/** Cierra la conciliación del módulo: crea (o reactiva) el cierre y bloquea las cuentas. */
+export async function cerrarConciliacionModulo(input: { encabezadoId: number }): Promise<ActionState> {
+  const encabezadoId = Number(input?.encabezadoId);
+  if (!Number.isSafeInteger(encabezadoId) || encabezadoId <= 0) return { ok: false, message: "Cargue inválido." };
+
+  try {
+    const insumos = await cargarInsumosCruceModulo(encabezadoId);
+    if (!insumos) return { ok: false, message: "El cargue ya no existe." };
+    const { encabezado } = insumos;
+
+    const authz = await autorizarCierreConciliacion("conciliaciones:cerrar", encabezado.clienteId);
+    if (!authz.ok) return { ok: false, message: authz.message };
+
+    const cruce = await construirCruceContableModulo(insumos);
+    if (cruce.bloqueo) return { ok: false, message: `No se puede cerrar: ${cruce.bloqueo}` };
+    if (!cruce.balanceEmparejado || !cruce.cruceContable) {
+      return { ok: false, message: "No hay balance de comprobación confirmado para este período: no hay nada que cerrar." };
+    }
+    const evaluacion = evaluarCierreConciliacion(cruce.cruceContable, cruce.resumenMarcas);
+    if (!evaluacion.ok) return { ok: false, message: `No se puede cerrar: ${evaluacion.motivo}` };
+
+    const cuentasRussell = cuentasRussellDelCruce(cruce.cruceContable);
+    const balance = cruce.balanceEmparejado;
+    const user = await getCurrentUser();
+    const actor = user?.name ?? "Sistema";
+
+    const resultado = await transaccionSerializable(async (tx) => {
+      // Mismo candado que congelar/homologar el balance del período: el detalle que
+      // se congela aquí no puede cambiar mientras se calcula el snapshot.
+      await tomarCandadoTransaccion(tx, `balance-oficial:${encabezado.clienteId}:${balance.periodo}`);
+      await tomarCandadoTransaccion(tx, `conciliacion-cierre:${encabezado.clienteId}:${encabezado.moduloCodigo}:${encabezado.periodo}`);
+
+      const existente = await tx.conciliacionModuloCierre.findUnique({
+        where: { clienteId_moduloCodigo_periodo: { clienteId: encabezado.clienteId, moduloCodigo: encabezado.moduloCodigo, periodo: encabezado.periodo } },
+        select: { id: true, estado: true, cerradoPor: true, cerradoEn: true },
+      });
+      if (existente && existente.estado === ESTADO_CIERRE_FIRME) {
+        return { ok: true as const, idempotente: true, cierreId: existente.id, cuentas: 0, cerradoPor: existente.cerradoPor };
+      }
+
+      // Detalle del balance conciliado (la fuente del cruce) + su detalle por tercero
+      // ligado (mismas cuentas): el snapshot cubre ambos almacenes.
+      const [detalle, terceroLigado] = await Promise.all([
+        tx.balancePruebaDetalle.findMany({
+          where: { encabezadoId: balance.id },
+          select: { cuenta8: true, cuenta6Russell: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
+        }),
+        tx.balancePruebaEncabezado.findUnique({ where: { id: balance.id }, select: { loteId: true, estaCongelado: true, esOficial: true } }),
+      ]);
+      if (!terceroLigado || !terceroLigado.esOficial || !terceroLigado.estaCongelado) {
+        return { ok: false as const, message: "El balance del período dejó de ser oficial y congelado. Vuelve a abrir el cruce." };
+      }
+      const filasTercero = terceroLigado.loteId
+        ? await tx.balanceTerceroDetalle.findMany({
+            where: { encabezado: { loteId: terceroLigado.loteId } },
+            select: { cuenta8: true, cuenta6Russell: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
+          })
+        : [];
+      const aFila = (f: { cuenta8: string; cuenta6Russell: string | null; saldoInicial: Prisma.Decimal; debitos: Prisma.Decimal; creditos: Prisma.Decimal; saldoFinal: Prisma.Decimal }) => ({
+        cuenta8: f.cuenta8,
+        cuenta6Russell: f.cuenta6Russell,
+        saldoInicial: Number(f.saldoInicial),
+        debitos: Number(f.debitos),
+        creditos: Number(f.creditos),
+        saldoFinal: Number(f.saldoFinal),
+      });
+      // El detalle principal manda (importes oficiales); el tercero solo aporta
+      // cuentas que no estén ya en el principal.
+      const bloqueadas = cuentasBloqueoDelModulo([...detalle.map(aFila), ...filasTercero.map(aFila)], cuentasRussell);
+      if (bloqueadas.length === 0) {
+        return { ok: false as const, message: "Ninguna cuenta del balance está homologada a las cuentas del módulo: no hay nada que bloquear." };
+      }
+
+      const datosCierre = {
+        balancePeriodo: balance.periodo,
+        moduloDatoEncabezadoId: encabezado.id,
+        balanceEncabezadoId: balance.id,
+        cuentasRussell,
+        estado: ESTADO_CIERRE_FIRME,
+        cerradoPorId: authz.userId,
+        cerradoPor: actor,
+        cerradoEn: new Date(),
+        desbloqueadoPorId: null,
+        desbloqueadoPor: null,
+        desbloqueadoEn: null,
+        justificacionDesbloqueo: null,
+      };
+      const cierre = existente
+        ? await tx.conciliacionModuloCierre.update({ where: { id: existente.id }, data: datosCierre, select: { id: true } })
+        : await tx.conciliacionModuloCierre.create({
+            data: { clienteId: encabezado.clienteId, moduloCodigo: encabezado.moduloCodigo, periodo: encabezado.periodo, ...datosCierre },
+            select: { id: true },
+          });
+      await tx.cuentaBloqueadaConciliacion.deleteMany({ where: { cierreId: cierre.id } });
+      await tx.cuentaBloqueadaConciliacion.createMany({
+        data: bloqueadas.map((b) => ({
+          cierreId: cierre.id,
+          clienteId: encabezado.clienteId,
+          periodo: balance.periodo,
+          cuenta: b.cuenta8,
+          cuenta6Russell: b.cuenta6Russell,
+          saldoInicial: new Prisma.Decimal(b.saldoInicial.toFixed(2)),
+          debitos: new Prisma.Decimal(b.debitos.toFixed(2)),
+          creditos: new Prisma.Decimal(b.creditos.toFixed(2)),
+          saldoFinal: new Prisma.Decimal(b.saldoFinal.toFixed(2)),
+          moduloCodigo: encabezado.moduloCodigo,
+          moduloDatoEncabezadoId: encabezado.id,
+        })),
+      });
+      return { ok: true as const, idempotente: false, cierreId: cierre.id, cuentas: bloqueadas.length, cerradoPor: actor };
+    });
+    if (!resultado.ok) return resultado;
+    if (resultado.idempotente) {
+      return { ok: true, message: `La conciliación ya estaba en firme (cerró ${resultado.cerradoPor}).` };
+    }
+
+    await logAudit({
+      user: actor,
+      action: "CERRÓ CONCILIACIÓN (EN FIRME)",
+      entity: encabezado.nombreCliente,
+      detail: `${encabezado.moduloCodigo} · ${encabezado.periodo} · cargue #${encabezado.id} · balance #${balance.id} ${balance.version} (${balance.periodo}) · ${resultado.cuentas} cuenta(s) bloqueada(s) · cuentas Russell ${cuentasRussell.join(", ")}`,
+      clientId: encabezado.clienteId,
+    });
+    revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
+    revalidatePath(`/balance/${balance.id}`);
+    revalidatePath("/balance");
+    return { ok: true, message: `Conciliación en firme: ${resultado.cuentas} cuenta(s) del balance ${balance.periodo} quedaron bloqueadas.` };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("cerrarConciliacionModulo", e) };
+  }
+}
+
+const DesbloquearSchema = z.object({
+  cierreId: z.coerce.number().int().positive(),
+  justificacion: z.string(),
+});
+
+/** Desbloquea una conciliación en firme (senior/gerente asignado), con justificación obligatoria. */
+export async function desbloquearConciliacion(input: { cierreId: number; justificacion: string }): Promise<ActionState> {
+  const parsed = DesbloquearSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, message: "Datos inválidos." };
+  const validacion = validarJustificacionDesbloqueo(parsed.data.justificacion);
+  if (!validacion.ok) return { ok: false, message: validacion.message };
+  const { cierreId } = parsed.data;
+
+  try {
+    const cierre = await prisma.conciliacionModuloCierre.findUnique({
+      where: { id: cierreId },
+      select: { id: true, clienteId: true, moduloCodigo: true, periodo: true, balancePeriodo: true, balanceEncabezadoId: true, moduloDatoEncabezadoId: true, estado: true, cerradoPor: true },
+    });
+    if (!cierre) return { ok: false, message: "El cierre ya no existe." };
+
+    const authz = await autorizarCierreConciliacion("conciliaciones:desbloquear", cierre.clienteId);
+    if (!authz.ok) return { ok: false, message: authz.message };
+
+    const user = await getCurrentUser();
+    const actor = user?.name ?? "Sistema";
+    const resultado = await transaccionSerializable(async (tx) => {
+      await tomarCandadoTransaccion(tx, `conciliacion-cierre:${cierre.clienteId}:${cierre.moduloCodigo}:${cierre.periodo}`);
+      const actual = await tx.conciliacionModuloCierre.findUnique({ where: { id: cierreId }, select: { estado: true } });
+      if (!actual) return { ok: false as const, message: "El cierre ya no existe." };
+      if (actual.estado !== ESTADO_CIERRE_FIRME) return { ok: false as const, message: "La conciliación ya estaba desbloqueada." };
+      const { count } = await tx.cuentaBloqueadaConciliacion.deleteMany({ where: { cierreId } });
+      await tx.conciliacionModuloCierre.update({
+        where: { id: cierreId },
+        data: {
+          estado: ESTADO_CIERRE_DESBLOQUEADO,
+          desbloqueadoPorId: authz.userId,
+          desbloqueadoPor: actor,
+          desbloqueadoEn: new Date(),
+          justificacionDesbloqueo: validacion.justificacion,
+        },
+      });
+      return { ok: true as const, cuentas: count };
+    });
+    if (!resultado.ok) return resultado;
+
+    const cliente = await prisma.client.findUnique({ where: { id: cierre.clienteId }, select: { name: true } });
+    await logAudit({
+      user: actor,
+      action: "DESBLOQUEÓ CONCILIACIÓN",
+      entity: cliente?.name ?? String(cierre.clienteId),
+      detail: `${cierre.moduloCodigo} · ${cierre.periodo} · cargue #${cierre.moduloDatoEncabezadoId} · balance #${cierre.balanceEncabezadoId} (${cierre.balancePeriodo}) · ${resultado.cuentas} cuenta(s) liberada(s) · cerró ${cierre.cerradoPor} · Justificación: ${validacion.justificacion}`,
+      clientId: cierre.clienteId,
+    });
+    revalidatePath(`${rutaModulo(cierre.moduloCodigo)}/${cierre.moduloDatoEncabezadoId}`);
+    revalidatePath(`/balance/${cierre.balanceEncabezadoId}`);
+    revalidatePath("/balance");
+    return { ok: true, message: `Conciliación desbloqueada: ${resultado.cuentas} cuenta(s) liberada(s). La justificación quedó en la bitácora.` };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("desbloquearConciliacion", e) };
   }
 }

@@ -4,10 +4,7 @@ import prisma from "@/lib/prisma";
 import { requirePermiso, authorizePermiso } from "@/lib/rbac";
 import { PageHeader, BackLink } from "@/components/ui";
 import Conversacion from "@/components/conversacion";
-import {
-  bloqueoCrucePorVerificacionesCriticasModulo,
-  descriptorModulo,
-} from "@/lib/modulos/descriptores";
+import { descriptorModulo } from "@/lib/modulos/descriptores";
 import {
   filtrarSubgruposPorModulo,
   prefijosCuentaModulo,
@@ -18,22 +15,16 @@ import { validacionDelCargue } from "@/lib/modulos/validacion-cargue";
 import { detectarNegativos, detectarDescuadres } from "@/lib/modulos/validaciones";
 import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
 import { fmtDateTime } from "@/lib/format";
-import { construirCruceContable, type ResumenCruceContable } from "@/lib/modulos/cruce-contable";
 import { construirCruceTercero, type ResumenCruceTercero } from "@/lib/modulos/cruce-tercero";
 import { normalizarTerceroModulo } from "@/lib/modulos/tercero";
 import { filasEfectivasTercero } from "@/lib/balance/staging-tercero";
 import { agregarPorNit } from "@/lib/modulos/agregar-por-nit";
-import { anotarCruceConMarcas, type MarcaCruce } from "@/lib/modulos/marcas-cruce";
 import { calcularValorContableModulo } from "@/lib/modulos/valor-contable";
-import { cargarContextoPrevalidadorBalance } from "@/lib/balance/prevalidador/servidor";
-import {
-  balanceTerminaEnPeriodo,
-  cuentasAgrupadorasExcluidas,
-  seleccionarBalanceCruceModulo,
-  validarCompuertaPrevalidador,
-  validarRangoBalanceModulo,
-} from "@/lib/modulos/compuerta-cruce";
-import DatoCargadoClient, { type FilaDetalleVm, type ConsolidadoVm, type NovedadesVm, type VersionModuloVm, type CruceContableVm, type CruceTerceroVm } from "./dato-cargado-client";
+import { balanceTerminaEnPeriodo } from "@/lib/modulos/compuerta-cruce";
+import { construirCruceContableModulo } from "@/lib/modulos/cruce-contable-servidor";
+import { ESTADO_CIERRE_FIRME, evaluarCierreConciliacion } from "@/lib/conciliacion/cuentas-bloqueo";
+import { autorizarCierreConciliacion } from "@/lib/conciliacion/verificar-bloqueo";
+import DatoCargadoClient, { type FilaDetalleVm, type ConsolidadoVm, type NovedadesVm, type VersionModuloVm, type CruceContableVm, type CruceTerceroVm, type CierreConciliacionVm } from "./dato-cargado-client";
 
 export default async function DatoModuloPage({
   params,
@@ -173,158 +164,81 @@ export default async function DatoModuloPage({
     filas: c.filas,
     cuentas4: (cuentasPorClasificador.get(c.clasificador) ?? []).map((cod) => ({ codigo: cod, nombre: nombrePorCuenta.get(cod) ?? null })),
   }));
-  // Cruce contable: para módulos de movimiento se prioriza el balance oficial y
-  // congelado que cubra exactamente el mes calendario. Después, la compuerta común
-  // exige que ese balance conserve una aprobación vigente del prevalidador.
-  const balancesConfirmados = await prisma.balancePruebaEncabezado.findMany({
-    where: { clienteId: encabezado.clienteId },
-    select: {
-      id: true,
-      periodoInicio: true,
-      periodoFin: true,
-      version: true,
-      esOficial: true,
-      estaCongelado: true,
+  // Cruce contable (balance vs. archivos del módulo): el MISMO cálculo que verifica
+  // la Server Action al cerrar la conciliación (`cruce-contable-servidor.ts`).
+  const cruce = await construirCruceContableModulo({
+    encabezado: {
+      id: encabezado.id,
+      clienteId: encabezado.clienteId,
+      nombreCliente: encabezado.nombreCliente,
+      moduloCodigo,
+      periodo: encabezado.periodo,
+      verificaciones: encabezado.verificaciones,
+      detalles: detalleVm.map((d) => ({ clasificador: d.clasificador, valor: d.valor })),
     },
-    orderBy: [{ esOficial: "desc" }, { periodoFin: "desc" }, { id: "desc" }],
-  });
-  const balanceEmparejado = seleccionarBalanceCruceModulo(
-    balancesConfirmados,
+    consolidacionRows,
+    subgrupos,
     catalogoPrevalidador,
-    moduloCodigo,
-    encabezado.periodo,
-  );
-
-  let cruceContable: ResumenCruceContable | null = null;
-  let sinMapeoContable: { total: number; filas: number } | null = null;
-  let sinReglaContableFilas = 0;
-  let bloqueoCruceContable = bloqueoCrucePorVerificacionesCriticasModulo(
-    descriptor,
-    verifGuardadas,
-  );
-  let contextoBalance: Awaited<ReturnType<typeof cargarContextoPrevalidadorBalance>> | null = null;
-  if (balanceEmparejado && !bloqueoCruceContable) {
-    try {
-      contextoBalance = await cargarContextoPrevalidadorBalance(balanceEmparejado.id);
-      bloqueoCruceContable = validarCompuertaPrevalidador(
-        contextoBalance,
-        encabezado.clienteId,
-        moduloCodigo,
-      ) ?? validarRangoBalanceModulo(contextoBalance, moduloCodigo, encabezado.periodo);
-    } catch {
-      bloqueoCruceContable = "No fue posible verificar de forma íntegra el prevalidador del balance seleccionado.";
-    }
-  }
-  if (balanceEmparejado && contextoBalance && !bloqueoCruceContable) {
-    const detallesBalance = contextoBalance.filas;
-    const catalogoCruce = contextoBalance.catalogo;
-    const cuentasAgrupadoras = cuentasAgrupadorasExcluidas(contextoBalance.prevalidador);
-    const contablePorCuenta: Record<string, number> = {};
-    let sinMapeoTotal = 0;
-    let sinMapeoFilas = 0;
-    for (const d of detallesBalance) {
-      const cuenta8 = d.cuenta8.replace(/\D/g, "");
-      if (cuentasAgrupadoras.has(cuenta8)) continue;
-      const cuenta4 = cuenta8.slice(0, 4);
-      const filaContable = {
-        debitos: d.debitos,
-        creditos: d.creditos,
-        saldoFinal: d.saldoFinal,
-      };
-      if (d.cuenta6Russell) {
-        const sub4 = d.cuenta6Russell.replace(/\D/g, "").slice(0, 4);
-        if (!codigosModulo.has(sub4)) continue;
-        const calculo = calcularValorContableModulo({
-          moduloCodigo,
-          cuentaRussell: d.cuenta6Russell,
-          fila: filaContable,
-          catalogo: catalogoCruce,
-        });
-        if (!calculo) {
-          sinReglaContableFilas += 1;
-          continue;
-        }
-        contablePorCuenta[sub4] = (contablePorCuenta[sub4] ?? 0) + calculo.valor;
-      } else if (cuenta4DelModulo(cuenta4, prefijosModulo)) {
-        const calculo = calcularValorContableModulo({
-          moduloCodigo,
-          cuentaRussell: cuenta4,
-          fila: filaContable,
-          catalogo: catalogoCruce,
-        });
-        if (!calculo) {
-          sinReglaContableFilas += 1;
-          continue;
-        }
-        sinMapeoTotal += calculo.valor;
-        sinMapeoFilas += 1;
-      }
-    }
-    cruceContable = construirCruceContable({
-      contablePorCuenta,
-      consolidado: consolidadoVm.map((c) => ({ clasificador: c.clasificador, total: c.total, cuentas4: c.cuentas4.map((x) => x.codigo) })),
-      nombrePorCuenta: (cod) => nombrePorCuenta.get(cod) ?? null,
-    });
-    if (sinMapeoFilas > 0) sinMapeoContable = { total: sinMapeoTotal, filas: sinMapeoFilas };
-    if (sinReglaContableFilas > 0) {
-      bloqueoCruceContable = `Se omitieron ${sinReglaContableFilas} fila(s) contable(s) porque no tienen una regla activa aplicable. Configura y aprueba nuevamente el prevalidador antes de conciliar.`;
-      cruceContable = null;
-      sinMapeoContable = null;
-    }
-  }
-  // Marcas de auditoría de las diferencias del cruce: viven por (cliente, módulo,
-  // período), NO por cargue, así que siguen visibles al abrir otra versión del período.
-  const marcasPeriodo = await prisma.marcaCruceModulo.findMany({
-    where: { clienteId: encabezado.clienteId, moduloCodigo, periodo: encabezado.periodo },
-    orderBy: { numero: "asc" },
-    select: {
-      cuenta4: true,
-      numero: true,
-      nota: true,
-      referenciaAnexo: true,
-      diferencia: true,
-      comentarioId: true,
-      marcadoPor: true,
-      marcadoEn: true,
-      adjuntos: {
-        orderBy: { id: "asc" },
-        select: { id: true, nombreArchivo: true, tipoContenido: true, tamanoBytes: true },
-      },
-    },
   });
-  const marcas: MarcaCruce[] = marcasPeriodo.map((m) => ({
-    cuenta4: m.cuenta4,
-    numero: m.numero,
-    nota: m.nota,
-    referenciaAnexo: m.referenciaAnexo,
-    diferencia: Number(m.diferencia),
-    comentarioId: m.comentarioId,
-    marcadoPor: m.marcadoPor,
-    marcadoEn: fmtDateTime(m.marcadoEn),
-    adjuntos: m.adjuntos,
-  }));
-  const cruceAnotado = cruceContable ? anotarCruceConMarcas(cruceContable.filas, marcas) : null;
+  const balanceEmparejado = cruce.balanceEmparejado;
+
+  // Conciliación en firme del (cliente, módulo, período): estado + quién puede
+  // cerrar/desbloquear (senior o gerente asignado; Superadministrador por alcance).
+  const [cierreRow, cerrarAuth, desbloquearAuth] = await Promise.all([
+    prisma.conciliacionModuloCierre.findUnique({
+      where: { clienteId_moduloCodigo_periodo: { clienteId: encabezado.clienteId, moduloCodigo, periodo: encabezado.periodo } },
+      select: {
+        id: true, estado: true, balancePeriodo: true, balanceEncabezadoId: true, moduloDatoEncabezadoId: true,
+        cerradoPor: true, cerradoEn: true, desbloqueadoPor: true, desbloqueadoEn: true, justificacionDesbloqueo: true,
+        _count: { select: { cuentas: true } },
+      },
+    }),
+    autorizarCierreConciliacion("conciliaciones:cerrar", encabezado.clienteId),
+    autorizarCierreConciliacion("conciliaciones:desbloquear", encabezado.clienteId),
+  ]);
+  const evaluacionCierre = cruce.cruceContable ? evaluarCierreConciliacion(cruce.cruceContable, cruce.resumenMarcas) : null;
+  const cierreVm: CierreConciliacionVm = {
+    cierre: cierreRow
+      ? {
+          id: cierreRow.id,
+          enFirme: cierreRow.estado === ESTADO_CIERRE_FIRME,
+          balancePeriodo: cierreRow.balancePeriodo,
+          balanceEncabezadoId: cierreRow.balanceEncabezadoId,
+          moduloDatoEncabezadoId: cierreRow.moduloDatoEncabezadoId,
+          cuentasBloqueadas: cierreRow._count.cuentas,
+          cerradoPor: cierreRow.cerradoPor,
+          cerradoEn: fmtDateTime(cierreRow.cerradoEn),
+          desbloqueadoPor: cierreRow.desbloqueadoPor,
+          desbloqueadoEn: cierreRow.desbloqueadoEn ? fmtDateTime(cierreRow.desbloqueadoEn) : null,
+          justificacionDesbloqueo: cierreRow.justificacionDesbloqueo,
+        }
+      : null,
+    puedeCerrar: cerrarAuth.ok,
+    puedeDesbloquear: desbloquearAuth.ok,
+    motivoNoCerrable: evaluacionCierre && !evaluacionCierre.ok ? evaluacionCierre.motivo : null,
+  };
 
   const cruceContableVm: CruceContableVm = {
     balanceEncontrado: balanceEmparejado != null,
     periodo: encabezado.periodo,
     nombreCliente: encabezado.nombreCliente,
-    resumen: cruceContable,
-    sinMapeoContable,
-    sinReglaContableFilas,
-    bloqueo: bloqueoCruceContable,
+    resumen: cruce.cruceContable,
+    sinMapeoContable: cruce.sinMapeoContable,
+    sinReglaContableFilas: cruce.sinReglaContableFilas,
+    bloqueo: cruce.bloqueo,
     balanceFuente: balanceEmparejado
       ? {
           id: balanceEmparejado.id,
           version: balanceEmparejado.version,
-          periodoInicio: balanceEmparejado.periodoInicio.toISOString().slice(0, 10),
-          periodoFin: balanceEmparejado.periodoFin.toISOString().slice(0, 10),
+          periodoInicio: balanceEmparejado.periodoInicio,
+          periodoFin: balanceEmparejado.periodoFin,
           esOficial: balanceEmparejado.esOficial,
           estaCongelado: balanceEmparejado.estaCongelado,
         }
       : null,
-    filasMarcadas: cruceAnotado?.filas ?? [],
-    resumenMarcas: cruceAnotado?.resumen ?? null,
+    filasMarcadas: cruce.filasMarcadas,
+    resumenMarcas: cruce.resumenMarcas,
+    conciliacion: cierreVm,
   };
 
   // Cruce por tercero: la configuración tipada del descriptor decide si el módulo
