@@ -10,6 +10,7 @@
 // Sin BD ni `server-only`: recibe filas ya resueltas por el loader del servidor.
 import { filasEfectivasTercero, esFilaPropiaDeCuenta } from "./staging-tercero";
 import type { IdentidadTercero } from "./identidad-tercero";
+import { MONTOS_CERO, sumarMontos, diferenciasMontos as calcularDiferenciasMontos, montosCuadran, type Montos4 } from "./montos-cruce";
 
 /** Tolerancia numérica para comparar montos (redondeos de Decimal→number). */
 const EPSILON_SALDO = 0.01;
@@ -70,17 +71,25 @@ export type ComparacionCuentaTerceros = {
   cuenta6RussellTercero: string | null;
   /** Las filas de tercero de esta cuenta traen MÁS de una homologación distinta entre sí. */
   homologacionInconsistente: boolean;
-  /** Σ saldoFinal de las filas EFECTIVAS (`filasEfectivasTercero`: sin doble conteo de la fila propia). */
+  /** Σ saldoFinal de las filas EFECTIVAS (`filasEfectivasTercero`: sin doble conteo de la fila propia). Conservado por compatibilidad; ver `montosTercero`. */
   saldoConsolidadoTercero: number;
+  /** Los cuatro componentes (SI/Db/Cr/SF) del lado balance para esta cuenta; `MONTOS_CERO` si no existe en el balance. */
+  montosBalance: Montos4;
+  /** Los cuatro componentes consolidados EFECTIVOS del lado tercero (misma deduplicación que `saldoConsolidadoTercero`); `MONTOS_CERO` si no hay filas. */
+  montosTercero: Montos4;
+  /** Diferencia firmada por componente: `montosBalance - montosTercero`. `MONTOS_CERO` cuando falta un lado (no se inventa una diferencia sin datos del otro lado). */
+  diferenciasMontos: Montos4;
   /** Todas las filas crudas del lado tercero para esta cuenta (incluida la propia, si existe). */
   terceros: TerceroVisor[];
   /** La homologación del balance no coincide con la consolidada del lado tercero (o esta es inconsistente). */
   diferenciaHomologacion: boolean;
-  /** El saldo final del balance no coincide con el consolidado efectivo del lado tercero. */
+  /** El saldo final del balance no coincide con el consolidado efectivo del lado tercero (tolerancia de redondeo). Conservado por compatibilidad; el saldo final es uno de los cuatro componentes de `diferenciasMontos`/`tieneDiferenciaImportes`, que NO toleran redondeo. */
   diferenciaSaldo: boolean;
+  /** Cualquiera de los cuatro componentes (SI/Db/Cr/SF) difiere, aunque sea en un centavo: sin umbral de materialidad. */
+  tieneDiferenciaImportes: boolean;
   /** Falta un lado completo: la cuenta no aparece en el balance o no aparece en el detalle por tercero. */
   incompleto: boolean;
-  /** Resumen para filtrar: incompleto o alguna de las dos diferencias anteriores. */
+  /** Resumen para filtrar: incompleto o alguna diferencia (homologación o cualquier componente de importes). */
   tieneDiferencia: boolean;
 };
 
@@ -100,11 +109,8 @@ export function construirComparacionCuentasTerceros(
   const homologacionesBalance = new Map<string, Set<string>>();
   for (const f of filasBalance) {
     const previa = balancePorCuenta.get(f.cuenta8);
-    balancePorCuenta.set(f.cuenta8, previa ? {
-      ...previa, saldoInicial: previa.saldoInicial + f.saldoInicial,
-      debitos: previa.debitos + f.debitos, creditos: previa.creditos + f.creditos,
-      saldoFinal: previa.saldoFinal + f.saldoFinal,
-    } : { ...f });
+    const montos: Montos4 = { saldoInicial: f.saldoInicial, debitos: f.debitos, creditos: f.creditos, saldoFinal: f.saldoFinal };
+    balancePorCuenta.set(f.cuenta8, previa ? { ...previa, ...sumarMontos(previa, montos) } : { ...f });
     const homologaciones = homologacionesBalance.get(f.cuenta8) ?? new Set<string>();
     homologaciones.add(claveHomologacion(f.cuenta6Russell));
     homologacionesBalance.set(f.cuenta8, homologaciones);
@@ -133,11 +139,22 @@ export function construirComparacionCuentasTerceros(
       ? null
       : (efectivas[0]?.cuenta6Russell ?? null);
 
-    const saldoConsolidadoTercero = efectivas.reduce((acc, t) => acc + t.saldoFinal, 0);
+    const montosTercero = efectivas.reduce<Montos4>(
+      (acc, t) => sumarMontos(acc, { saldoInicial: t.saldoInicial, debitos: t.debitos, creditos: t.creditos, saldoFinal: t.saldoFinal }),
+      MONTOS_CERO,
+    );
+    const saldoConsolidadoTercero = montosTercero.saldoFinal;
 
     const enBalance = b != null;
     const enTercero = filasCuenta.length > 0;
     const incompleto = !enBalance || !enTercero;
+
+    const montosBalance: Montos4 = b
+      ? { saldoInicial: b.saldoInicial, debitos: b.debitos, creditos: b.creditos, saldoFinal: b.saldoFinal }
+      : MONTOS_CERO;
+    // Sin datos de un lado no se inventa una diferencia (mismo criterio que diferenciaHomologacion).
+    const diferencias = enBalance && enTercero ? calcularDiferenciasMontos(montosBalance, montosTercero) : MONTOS_CERO;
+    const tieneDiferenciaImportes = enBalance && enTercero && !montosCuadran(diferencias);
 
     const diferenciaHomologacion =
       enBalance && enTercero && (homologacionInconsistente || (homologacionesBalance.get(cuenta8)?.size ?? 0) > 1 || b!.cuenta6Russell !== cuenta6RussellTercero);
@@ -157,6 +174,9 @@ export function construirComparacionCuentasTerceros(
       cuenta6RussellTercero,
       homologacionInconsistente,
       saldoConsolidadoTercero,
+      montosBalance,
+      montosTercero,
+      diferenciasMontos: diferencias,
       terceros: filasCuenta.map((t) => ({
         nitTercero: t.nitTercero,
         nombreTercero: t.nombreTercero,
@@ -170,8 +190,9 @@ export function construirComparacionCuentasTerceros(
       })),
       diferenciaHomologacion,
       diferenciaSaldo,
+      tieneDiferenciaImportes,
       incompleto,
-      tieneDiferencia: incompleto || diferenciaHomologacion || diferenciaSaldo,
+      tieneDiferencia: incompleto || diferenciaHomologacion || diferenciaSaldo || tieneDiferenciaImportes,
     });
   }
 

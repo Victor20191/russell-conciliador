@@ -12,6 +12,7 @@ import type { ResumenComparacionTerceros } from "@/lib/balance/visor-terceros";
 import { useSeleccionFilaTabla } from "../../use-seleccion-fila-tabla";
 import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
 import { ETIQUETAS_IDENTIDAD, estadoIdentidadTercero, type EstadoIdentidadTercero } from "@/lib/balance/identidad-tercero";
+import { ComparacionImportes } from "./comparacion-importes";
 
 export type FuenteTercero = { version: string; archivo: string; filas: number; origen: string };
 const NIVELES = [2, 4, 6, 8];
@@ -78,7 +79,7 @@ export default function TercerosClient({ arbol, resumen, fuenteTercero }: {
         </div>
         <div className="ml-auto flex flex-wrap items-center gap-1.5">
           <button type="button" aria-pressed={!soloDiferencias} onClick={() => { setSoloDiferencias(false); setCerradosEnFiltro(new Set()); }} className={claseBoton(!soloDiferencias)}>Todo</button>
-          <button type="button" title="Incluye diferencias de saldo o mapeo y cuentas sin contraparte" aria-pressed={soloDiferencias} onClick={() => { setSoloDiferencias((v) => !v); setCerradosEnFiltro(new Set()); }} className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-semibold ${soloDiferencias ? "border-warn-300 bg-warn-100 text-warn-700" : "border-ink-200 text-ink-600 hover:bg-ink-50"}`}><Icon name="warn" size={11} /> Solo con diferencia ({resumen.conDiferencia})</button>
+          <button type="button" title="Incluye diferencias en saldo inicial, débitos, créditos, saldo final o mapeo y cuentas sin contraparte" aria-pressed={soloDiferencias} onClick={() => { setSoloDiferencias((v) => !v); setCerradosEnFiltro(new Set()); }} className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-semibold ${soloDiferencias ? "border-warn-300 bg-warn-100 text-warn-700" : "border-ink-200 text-ink-600 hover:bg-ink-50"}`}><Icon name="warn" size={11} /> Solo con diferencia ({resumen.conDiferencia})</button>
           {columnasActivas && <button type="button" onClick={() => { setColumnas({ ...FILTROS_COLUMNAS_DETALLE_INICIALES }); setCerradosEnFiltro(new Set()); }} className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-700"><Icon name="x" size={11} /> Limpiar columnas</button>}
           <span className="mx-1 h-4 w-px bg-ink-200" />
           <button type="button" onClick={() => { setOpen(new Set(claves)); setCerradosEnFiltro(new Set()); }} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 px-2 py-1 text-[11.5px] font-medium text-ink-600 hover:bg-ink-50"><Icon name={chevronDivulgacion(hayContenidoExpandido)} size={12} /> Expandir todo</button>
@@ -138,7 +139,8 @@ function Fila({ nodo: n, profundidad, abiertos, toggle, seleccionada }: {
           <span className={estadoIdentidadTercero(n.identidadTercero) === "identificado" ? "text-ok-700" : "text-warn-700"}>{ETIQUETAS_IDENTIDAD[estadoIdentidadTercero(n.identidadTercero)]}</span>
         </div>}
         {n.tipo === "tercero" && (n.movimientos ?? 0) > 1 && <span className="ml-2 whitespace-nowrap text-[10.5px] text-ink-400">{n.movimientos} movimientos</span>}
-        {c && (c.diferenciaSaldo || !c.enBalance) && <div className="mt-0.5 text-[11px] font-normal text-warn-700">Σ terceros: {fmt(c.saldoConsolidadoTercero)}{c.enBalance ? ` · Diferencia: ${fmt(c.saldoFinalBalance - c.saldoConsolidadoTercero)}` : " · Sin cuenta en el balance"}</div>}
+        {c && !c.enBalance && <div className="mt-0.5 text-[11px] font-normal text-warn-700">Σ terceros: {fmt(c.saldoConsolidadoTercero)} · Sin cuenta en el balance</div>}
+        {c && <ComparacionImportes montosBalance={c.montosBalance} montosTercero={c.montosTercero} diferenciasMontos={c.diferenciasMontos} enBalance={c.enBalance} enTercero={c.enTercero} sinDesglose={n.esFilaPropia} />}
       </td>
       <td className="px-4 py-2">
         {n.mapeoInconsistente ? <Chip label="Inconsistente" tone="warn" /> : grupo ? n.nivel === 6 ? <Chip label={n.mapped ? "Russell" : "Sin mapeo"} tone={n.mapped ? "ok" : "warn"} /> : null : n.std ? <span className="inline-flex items-center gap-1.5 font-mono text-[11.5px] text-blue-500">→ {n.std}</span> : <Chip label="Sin mapeo" tone="warn" />}
@@ -157,9 +159,9 @@ function Estado({ nodo: n }: { nodo: NodoVisorTerceros }) {
   const c = n.comparacion;
   if (c) {
     if (c.incompleto) return <Chip label={!c.enBalance ? "Sin cuenta en balance" : "Sin detalle por tercero"} tone="err" />;
-    if (c.diferenciaHomologacion && c.diferenciaSaldo) return <Chip label="Mapeo y saldo difieren" tone="err" />;
+    if (c.diferenciaHomologacion && c.tieneDiferenciaImportes) return <Chip label="Mapeo e importes difieren" tone="err" />;
     if (c.diferenciaHomologacion) return <Chip label="Mapeo difiere" tone="warn" />;
-    if (c.diferenciaSaldo) return <Chip label="Saldo difiere" tone="warn" />;
+    if (c.tieneDiferenciaImportes) return <Chip label="Importes difieren" tone="warn" />;
     return <Chip label={n.esFilaPropia ? "Sin desagregar" : "OK"} tone={n.esFilaPropia ? "ink" : "ok"} />;
   }
   if (n.tipo === "cuenta") return n.diferencias ? <Chip label={`${n.diferencias} con diferencia`} tone="warn" /> : n.nivel === 6 ? <Chip label="OK" tone="ok" /> : null;

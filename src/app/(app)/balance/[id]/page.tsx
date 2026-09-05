@@ -27,6 +27,8 @@ import {
   parsearRevisionesReubicacionBalance,
 } from "@/lib/balance/revisiones-reubicacion-balance";
 import Conversacion from "@/components/conversacion";
+import { cargarEstadoCrucesAperturas } from "@/lib/balance/cruce-aperturas-servidor";
+import { CruceAperturasPanel } from "./cruce-aperturas-panel";
 
 export default async function BalanceDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ cargado?: string; tab?: string }> }) {
   await requirePermiso("balance:ver");
@@ -67,6 +69,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
     perfilesCliente,
     contextoPrevalidador,
     pendienteRows,
+    crucesAperturas,
   ] = await Promise.all([
     authorizePermiso("balance:editar", { clientId }),
     authorizePermiso("balance:crear", { clientId }),
@@ -77,7 +80,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
     prisma.balancePruebaEncabezado.findMany({
       where: { clienteId: balance.clienteId, periodo: balance.periodo },
       orderBy: { creadoEn: "desc" },
-      select: { id: true, version: true, esOficial: true, ultimaCarga: true, cargadoPor: true, rolCarga: true, archivo: true, tamanoArchivo: true, filasTotales: true, sumaActivo: true, cuadrado: true, nota: true, comentarioAprobacion: true, reubicacionesAprobadas: true, cambios: true, aperturaBalance: true, creadoEn: true },
+      select: { _count: { select: { crucesComoCuenta: { where: { inconsistente: true } }, crucesComoTercero: { where: { inconsistente: true } } } }, id: true, version: true, esOficial: true, ultimaCarga: true, cargadoPor: true, rolCarga: true, archivo: true, tamanoArchivo: true, filasTotales: true, sumaActivo: true, cuadrado: true, nota: true, comentarioAprobacion: true, reubicacionesAprobadas: true, cambios: true, aperturaBalance: true, creadoEn: true },
     }),
     // Conteo de comentarios por cuenta (ancla) de este balance, para los badges del árbol.
     prisma.comment.groupBy({ by: ["anchor"], where: { entityType: "balance", entityId: id }, _count: { _all: true } }),
@@ -106,6 +109,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
       where: { clienteId: balance.clienteId, origenMapeo: ORIGEN_PENDIENTE },
       select: { code: true },
     }),
+    cargarEstadoCrucesAperturas(id, clientId),
   ]);
   const codigosPendientes = new Set(pendienteRows.map((r) => r.code));
   // Editar (congelar) y mapear exigen alcance de escritura; las Server Actions
@@ -170,6 +174,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
         : construirNotasAprobacionBalance(h.comentarioAprobacion, reubicaciones) ?? "",
       changes: h.cambios,
       apertura: h.aperturaBalance,
+      inconsistenteAperturas: h._count.crucesComoCuenta + h._count.crucesComoTercero > 0,
     };
   });
   const versionOficialId = hermanos.find((h) => h.esOficial)?.id ?? null;
@@ -190,7 +195,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
 
   return (
     <div>
-      {cargado && <FlashToast title="Balance cargado" message="El borrador se promovió a balance oficial." clearParam="cargado" />}
+      {cargado && <FlashToast tone={crucesAperturas.pares.some((p) => p.inconsistente) || crucesAperturas.pendiente ? "info" : "success"} title="Balance cargado" message={crucesAperturas.pares.some((p) => p.inconsistente) ? "Se detectaron inconsistencias entre aperturas. Ambos archivos quedan marcados; revisa las cuentas en el panel." : crucesAperturas.pendiente ? "La carga se completó. La validación entre archivos está pendiente; puedes reintentarla desde el panel." : "El borrador se confirmó como balance."} clearParam="cargado" />}
       <div className="mb-3"><BackLink href="/balance" label="Balance de comprobación" /></div>
       <PageHeader
         title={balance.nombreCliente}
@@ -250,6 +255,8 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
           </a>
         )}
       </p>
+
+      <CruceAperturasPanel balanceId={id} estado={crucesAperturas} puedeRevisar={editarAuth.ok || mapearAuth.ok} />
 
       {(balance.comentarioAprobacion || balance.advertenciaArchivoFuente || reubicacionesAprobadas.length > 0) && (
         <ComentarioAprobacion
