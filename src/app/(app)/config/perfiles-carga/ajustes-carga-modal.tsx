@@ -35,6 +35,9 @@ const COLUMNAS_PERFIL: {
   { key: "saldoFinal", nombre: "Saldo final único", explicacion: "Saldo final cuando viene en una sola columna." },
   { key: "saldoFinalDebito", nombre: "Saldo final débito", explicacion: "Parte débito cuando el saldo final viene separado." },
   { key: "saldoFinalCredito", nombre: "Saldo final crédito", explicacion: "Parte crédito cuando el saldo final viene separado." },
+  { key: "nombreTercero", nombre: "Nombre / razón social del tercero", explicacion: "Columna opcional con el nombre del tercero; independiente del nombre de la cuenta." },
+  { key: "tipoDocumentoTercero", nombre: "Tipo de documento del tercero", explicacion: "Columna opcional con NIT, CC, CE, TI o Pasaporte. No se deduce por longitud." },
+  { key: "dvTercero", nombre: "DV del tercero", explicacion: "Dígito de verificación, solo cuando está en una columna separada." },
   { key: "tercero", nombre: "Tercero / NIT", explicacion: "Identificación del tercero para sumar por cuenta." },
 ];
 
@@ -656,7 +659,7 @@ function PerfilCargaDetalle({
                   <td className="px-3 py-2 text-center"><Chip label="Obligatoria" tone="blue" /></td>
                 </tr>
                 {COLUMNAS_PERFIL.map((columna) => {
-                  const numero = perfil.estructura.columnas[columna.key];
+                  const numero = perfil.estructura.columnas[columna.key] ?? 0;
                   const usada = numero > 0;
                   return (
                     <tr key={columna.key} className="border-t border-ink-100">
@@ -827,7 +830,7 @@ function PerfilCargaDetalle({
 
             <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
               {COLUMNAS_PERFIL.map((columna) => {
-                const numero = estructura.columnas[columna.key];
+                const numero = estructura.columnas[columna.key] ?? 0;
                 return (
                   <label key={columna.key} className="flex flex-col gap-1 rounded-md border border-ink-150 p-2.5">
                     <span className="text-[11px] font-semibold text-ink-700">{columna.nombre}</span>

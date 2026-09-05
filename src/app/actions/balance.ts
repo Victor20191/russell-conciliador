@@ -60,6 +60,7 @@ import type { UmbralesAlertas } from "@/lib/balance/umbrales-alertas";
 import type { FilaDetalle } from "@/lib/balance/calcular";
 import { detectarManipulacionesRiesgosas, reclasificarHuerfanas, reclasificarSoloHojas, corregirCodigosPlaceholder, marcarNoContables, validarReubicacionesBorrador, type FilaBorrador } from "@/lib/balance/borrador";
 import { esBalancePorTercero, colapsarTerceros, esBalancePorTerceroSufijo, consolidarTercerosPorSufijo, marcarCuentaNit } from "@/lib/balance/terceros";
+import { leerIdentidadTercero } from "@/lib/balance/identidad-tercero";
 import { derivarStagingTercero, prepararCapturaTercero } from "@/lib/balance/staging-tercero";
 import { detectoDetallePorTercero, etiquetaApertura, parsearApertura, type AperturaBalance } from "@/lib/balance/apertura-balance";
 import { invalidarStagingBorrador, type RevisionReubicacionStaging } from "@/lib/balance/staging-borrador";
@@ -348,7 +349,7 @@ async function clienteAutorizado(clienteId: number | null): Promise<number | nul
 type FilaPerfilCarga = {
   hoja: string; filaEncabezado: number; primeraFilaDatos: number;
   colCodigo: number; colCodigoFragmentos: unknown; colNombre: number; colSaldoInicial: number; colDebitos: number; colCreditos: number;
-  colSaldoFinal: number; colSaldoFinalDebito: number; colSaldoFinalCredito: number; colTercero: number;
+  colSaldoFinal: number; colSaldoFinalDebito: number; colSaldoFinalCredito: number; colTercero: number; colNombreTercero?: number; colTipoDocumentoTercero?: number; colDvTercero?: number;
   signoCredito: string; reglaDetalleTipo: string; reglaDetalleColumna: number | null; reglaDetalleValor: string | null;
   agregarPorTercero: boolean;
 };
@@ -359,6 +360,7 @@ function perfilPlanoDesdeFila(p: FilaPerfilCarga): PerfilPlano {
     colNombre: p.colNombre, colSaldoInicial: p.colSaldoInicial,
     colDebitos: p.colDebitos, colCreditos: p.colCreditos, colSaldoFinal: p.colSaldoFinal,
     colSaldoFinalDebito: p.colSaldoFinalDebito, colSaldoFinalCredito: p.colSaldoFinalCredito, colTercero: p.colTercero,
+    colNombreTercero: p.colNombreTercero, colTipoDocumentoTercero: p.colTipoDocumentoTercero, colDvTercero: p.colDvTercero,
     signoCredito: p.signoCredito === "magnitud" ? "magnitud" : "firmado",
     reglaDetalleTipo:
       p.reglaDetalleTipo === "columna"
@@ -1897,6 +1899,7 @@ async function capturarBalanceTerceroEnTransaccion(tx: TransactionClient, p: {
     paralelo.map((t) => ({
       filaNum: t.filaNum, codigo: t.codigo, codigoCrudo: t.codigoCrudo, nombreCuenta: t.nombreCuenta,
       nitTercero: t.nitTercero, nombreTercero: t.nombreTercero,
+      identidadTercero: leerIdentidadTercero(t.identidadTercero),
       saldoInicial: Number(t.saldoInicial), debitos: Number(t.debitos), creditos: Number(t.creditos), saldoFinal: Number(t.saldoFinal),
     })),
     p.filasDet,
@@ -1946,6 +1949,7 @@ async function capturarBalanceTerceroEnTransaccion(tx: TransactionClient, p: {
         cuenta2: f.cuenta2, cuenta4: f.cuenta4, cuenta6: f.cuenta6, cuenta8: f.cuenta8,
         nombreCuenta: f.nombreCuenta, cuenta6Russell: f.cuenta6Russell, coincidencia: f.coincidencia,
         nitTercero: f.nitTercero, nombreTercero: f.nombreTercero,
+        identidadTercero: f.identidadTercero,
         saldoInicial: f.saldoInicial, debitos: f.debitos, creditos: f.creditos, saldoFinal: f.saldoFinal,
       })),
     });
@@ -3283,6 +3287,7 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
         data: stagingTercero.slice(i, i + LOTE_STAGING).map((t) => ({
           loteId, filaNum: t.filaNum, codigo: t.codigo, codigoCrudo: t.codigoCrudo,
           nombreCuenta: t.nombreCuenta, nitTercero: t.nitTercero, nombreTercero: t.nombreTercero,
+          identidadTercero: t.identidadTercero,
           saldoInicial: t.saldoInicial, debitos: t.debitos, creditos: t.creditos, saldoFinal: t.saldoFinal,
         })),
       });

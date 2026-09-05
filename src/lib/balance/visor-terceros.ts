@@ -9,6 +9,7 @@
 //
 // Sin BD ni `server-only`: recibe filas ya resueltas por el loader del servidor.
 import { filasEfectivasTercero, esFilaPropiaDeCuenta } from "./staging-tercero";
+import type { IdentidadTercero } from "./identidad-tercero";
 
 /** Tolerancia numérica para comparar montos (redondeos de Decimal→number). */
 const EPSILON_SALDO = 0.01;
@@ -27,6 +28,7 @@ export type FilaCuentaBalanceVisor = {
 };
 
 export type FilaDetalleTerceroVisor = {
+  identidadTercero?: IdentidadTercero;
   cuenta8: string;
   nombreCuenta: string;
   nitTercero: string | null;
@@ -40,6 +42,7 @@ export type FilaDetalleTerceroVisor = {
 
 /** Una fila del detalle por tercero, ya lista para pintar. */
 export type TerceroVisor = {
+  identidadTercero?: IdentidadTercero;
   nitTercero: string | null;
   nombreTercero: string | null;
   /** Fila «propia» de la cuenta (sin NIT ni nombre de tercero, `staging-tercero.ts`): no es un tercero real. */
@@ -157,6 +160,7 @@ export function construirComparacionCuentasTerceros(
       terceros: filasCuenta.map((t) => ({
         nitTercero: t.nitTercero,
         nombreTercero: t.nombreTercero,
+        ...(t.identidadTercero ? { identidadTercero: t.identidadTercero } : {}),
         esFilaPropia: esFilaPropiaDeCuenta(t),
         cuenta6Russell: t.cuenta6Russell,
         saldoInicial: t.saldoInicial,

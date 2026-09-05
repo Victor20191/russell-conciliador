@@ -1164,6 +1164,9 @@ const ROLES_COLUMNA: { key: RolColumna; label: string; requerida?: boolean }[] =
   { key: "saldoFinalDebito", label: "Saldo final · débito" },
   { key: "saldoFinalCredito", label: "Saldo final · crédito" },
   { key: "tercero", label: "Tercero / NIT" },
+  { key: "nombreTercero", label: "Nombre / razón social del tercero" },
+  { key: "tipoDocumentoTercero", label: "Tipo de documento del tercero" },
+  { key: "dvTercero", label: "DV del tercero (si está separado)" },
 ];
 
 /**
@@ -1289,6 +1292,7 @@ export function EditorEstructura({
                   <div><dt className="inline font-semibold">Débitos / Créditos:</dt> <dd className="inline">los movimientos débito y crédito del período.</dd></div>
                   <div><dt className="inline font-semibold">Saldo final (una columna):</dt> <dd className="inline">úsala cuando el saldo final viene en <span className="font-semibold">una sola</span> columna. En ese caso deja «no existe» las dos de abajo.</dd></div>
                   <div><dt className="inline font-semibold">Saldo final · débito / · crédito:</dt> <dd className="inline">úsalas cuando el saldo final viene en <span className="font-semibold">dos</span> columnas separadas (una para saldos débito y otra para crédito). Entonces deja «no existe» el «saldo final (una columna)».</dd></div>
+                  <div><dt className="inline font-semibold">Nombre, tipo de documento y DV del tercero:</dt> <dd className="inline">opcionales; selecciona sus columnas solo si el archivo las trae. El tipo debe estar escrito como NIT, CC, CE, TI o Pasaporte. El documento se conserva completo y los datos faltantes quedan pendientes de identificación.</dd></div>
                   <div><dt className="inline font-semibold">Tercero / NIT:</dt> <dd className="inline">la columna del NIT/cédula del tercero (en balances por tercero). «no existe» si el archivo no la trae.</dd></div>
                 </dl>
               </div>
@@ -1347,7 +1351,7 @@ export function EditorEstructura({
                   {rol.requerida && <span className="text-err-600"> *</span>}
                 </span>
                 <select
-                  value={ed.columnas[rol.key]}
+                  value={ed.columnas[rol.key] ?? 0}
                   onChange={(e) => setCol(rol.key, Number(e.target.value))}
                   className="rounded-md border border-ink-200 bg-white px-2 py-1.5 text-[12px] text-ink-700"
                 >

@@ -19,6 +19,9 @@ export type PerfilPlano = {
   colSaldoFinalDebito: number;
   colSaldoFinalCredito: number;
   colTercero: number;
+  colNombreTercero?: number;
+  colTipoDocumentoTercero?: number;
+  colDvTercero?: number;
   signoCredito: ConvencionSigno;
   reglaDetalleTipo: "prefijo" | "columna" | "movimiento";
   reglaDetalleColumna: number | null;
@@ -42,6 +45,9 @@ export function aplanarSpec(spec: SpecCarga): PerfilPlano {
     colSaldoFinalDebito: spec.columnas.saldoFinalDebito,
     colSaldoFinalCredito: spec.columnas.saldoFinalCredito,
     colTercero: spec.columnas.tercero,
+    colNombreTercero: spec.columnas.nombreTercero ?? 0,
+    colTipoDocumentoTercero: spec.columnas.tipoDocumentoTercero ?? 0,
+    colDvTercero: spec.columnas.dvTercero ?? 0,
     signoCredito: spec.signoCredito,
     reglaDetalleTipo: spec.reglaDetalle.tipo,
     reglaDetalleColumna: spec.reglaDetalle.columna,
@@ -67,6 +73,9 @@ export function specCargaDesdePerfil(p: PerfilPlano): SpecCarga {
       saldoFinalDebito: p.colSaldoFinalDebito,
       saldoFinalCredito: p.colSaldoFinalCredito,
       tercero: p.colTercero,
+      ...(p.colNombreTercero ? { nombreTercero: p.colNombreTercero } : {}),
+      ...(p.colTipoDocumentoTercero ? { tipoDocumentoTercero: p.colTipoDocumentoTercero } : {}),
+      ...(p.colDvTercero ? { dvTercero: p.colDvTercero } : {}),
     },
     signoCredito: p.signoCredito,
     reglaDetalle: {

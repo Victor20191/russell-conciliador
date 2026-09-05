@@ -4,7 +4,10 @@ import { requirePermiso } from "@/lib/rbac";
 import { PageHeader, BackLink, Card, EmptyState } from "@/components/ui";
 import { parseId } from "@/lib/ids";
 import { etiquetaApertura } from "@/lib/balance/apertura-balance";
-import { construirComparacionCuentasTerceros } from "@/lib/balance/visor-terceros";
+import { construirComparacionCuentasTerceros, resumirComparacionTerceros } from "@/lib/balance/visor-terceros";
+import { construirArbolVisorTerceros } from "@/lib/balance/arbol-visor-terceros";
+import { leerIdentidadTercero, completarNombresDelMismoArchivo } from "@/lib/balance/identidad-tercero";
+import { getCuentasEstandar } from "@/lib/balance/cuentas-estandar";
 import TercerosClient from "./terceros-client";
 
 /**
@@ -60,6 +63,7 @@ export default async function BalanceTercerosPage({ params }: { params: Promise<
         where: { encabezadoId: encabezadoTercero.id },
         select: {
           cuenta8: true, nombreCuenta: true, nitTercero: true, nombreTercero: true, cuenta6Russell: true,
+          identidadTercero: true,
           saldoInicial: true, debitos: true, creditos: true, saldoFinal: true,
         },
       })
@@ -87,19 +91,28 @@ export default async function BalanceTercerosPage({ params }: { params: Promise<
     creditos: Number(f.creditos),
     saldoFinal: Number(f.saldoFinal),
   }));
-  const filasTercero = filasTerceroRaw.map((f) => ({
+  const filasTercero = completarNombresDelMismoArchivo(filasTerceroRaw.map((f) => ({
     cuenta8: f.cuenta8,
     nombreCuenta: f.nombreCuenta,
     nitTercero: f.nitTercero,
     nombreTercero: f.nombreTercero,
+    identidadTercero: leerIdentidadTercero(f.identidadTercero),
     cuenta6Russell: f.cuenta6Russell,
     saldoInicial: Number(f.saldoInicial),
     debitos: Number(f.debitos),
     creditos: Number(f.creditos),
     saldoFinal: Number(f.saldoFinal),
-  }));
+  })));
 
   const comparaciones = vinculado ? construirComparacionCuentasTerceros(filasBalance, filasTercero) : [];
+  const [estandar, subgrupos] = vinculado ? await Promise.all([
+    getCuentasEstandar(),
+    prisma.subgrupoEstandar.findMany({ select: { codigo: true, nombre: true, grupo: true, nombreGrupo: true } }),
+  ]) : [[], []];
+  const arbol = construirArbolVisorTerceros(comparaciones, estandar, {
+    nombre4: new Map(subgrupos.map((s) => [s.codigo, s.nombre])),
+    nombre2: new Map(subgrupos.map((s) => [s.grupo, s.nombreGrupo])),
+  });
 
   return (
     <div>
@@ -115,7 +128,8 @@ export default async function BalanceTercerosPage({ params }: { params: Promise<
         </Card>
       ) : (
         <TercerosClient
-          comparaciones={comparaciones}
+          arbol={arbol}
+          resumen={resumirComparacionTerceros(comparaciones)}
           fuenteTercero={{
             version: encabezadoTercero!.version,
             archivo: encabezadoTercero!.archivo ?? "—",

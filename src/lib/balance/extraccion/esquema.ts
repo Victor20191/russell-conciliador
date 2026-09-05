@@ -65,7 +65,14 @@ export const ColumnasSchema = z
     tercero: z.number().int(),
   })
   .describe("Índices de columna 1-based (A=1). Usa 0 cuando la columna no exista (no null).");
-export type Columnas = z.infer<typeof ColumnasSchema>;
+// Complementos del editor/perfil. El contrato de IA permanece igual; estos roles
+// no participan en detección, agregación ni validación contable.
+export const ColumnasCargaSchema = ColumnasSchema.extend({
+  nombreTercero: z.number().int().min(0).optional(),
+  tipoDocumentoTercero: z.number().int().min(0).optional(),
+  dvTercero: z.number().int().min(0).optional(),
+});
+export type Columnas = z.infer<typeof ColumnasCargaSchema>;
 
 // Cómo reconocer una fila de DETALLE (cuenta de MOVIMIENTO/hoja) vs. una fila
 // padre/agrupadora. La plataforma detecta las hojas de forma DETERMINISTA por
@@ -109,7 +116,7 @@ export const MappingSpecSchema = z.object({
     ),
   notas: z.string().nullable(),
 });
-export type MappingSpec = z.infer<typeof MappingSpecSchema>;
+export type MappingSpec = Omit<z.infer<typeof MappingSpecSchema>, "columnas"> & { columnas: Columnas };
 
 // Subconjunto EDITABLE/PERSISTIBLE del MappingSpec: lo que el usuario puede
 // ajustar en el editor de estructura y lo que se guarda en el perfil de carga
@@ -123,7 +130,7 @@ export const SpecCargaSchema = MappingSpecSchema.pick({
   signoCredito: true,
   reglaDetalle: true,
   agregarPorTercero: true,
-});
+}).extend({ columnas: ColumnasCargaSchema });
 export type SpecCarga = z.infer<typeof SpecCargaSchema>;
 
 // Una fila ya normalizada (columnas del prompt, sin NIT/periodo que son del cabecera).
