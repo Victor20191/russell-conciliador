@@ -68,6 +68,19 @@ export function reglaMapeoAplicable(fila: FilaMapeoCliente): boolean {
   return !cruzaClaseContable(fila.code, fila.cuenta6Russell);
 }
 
+/**
+ * ¿Este código puede ser una cuenta del PUC del cliente? Solo dígitos. Las filas
+ * de pie de un archivo («Total general», «Totales», «Procesado en: …») llegaban
+ * al detalle con código VACÍO en cargues de julio de 2026 —antes de que
+ * `reclasificarNoImputables` las apartara— y el volcado del PUC las escribía en
+ * `cuentas_cliente` como una cuenta más (código "", nivel 2). Son inertes para la
+ * homologación (`construirConfigMapeoCliente` ignora códigos cortos) pero
+ * ensucian el PUC del cliente en /config/mapeo. El volcado las descarta con esto.
+ */
+export function esCodigoCuentaCliente(code: string): boolean {
+  return /^\d+$/.test(code);
+}
+
 /** Nivel PUC que corresponde a la longitud del código del cliente. */
 export function nivelPorCodigo(code: string): number {
   return code.length >= 8 ? 8 : code.length === 6 ? 6 : code.length === 4 ? 4 : 2;

@@ -38,6 +38,7 @@ npm run db:seed:novedades       # siembra versiones/novedades demo
 npm run db:load:subgrupos       # carga los subgrupos estándar
 npm run db:importar:erps-clientes  # asigna ERP a clientes por NIT desde un Excel
 npm run db:purgar:accesos       # purga la bitácora de accesos
+npm run db:purgar:cuentas-sin-codigo  # borra filas «fantasma» de cuentas_cliente con código no numérico (dry-run; --aplicar / --revertir <snapshot>)
 
 # Golden tests del borrador de balance (fixtures JSON commiteados, sin BD)
 CAPTURAR_GOLDEN=1 npx vitest run src/lib/balance/golden/capturar.test.ts   # re-captura desde staging real (dev-only)

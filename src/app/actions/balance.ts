@@ -79,7 +79,7 @@ import { iaBalanceDisponible, proveedorIABalance, type ProveedorIABalance } from
 import { proveedorIABalanceSesion } from "@/lib/ia/proveedor-balance-sesion";
 import { registrarConsumoIA, type UsoIA } from "@/lib/ia/uso";
 import { aplicarPreferenciasCarga } from "@/lib/balance/preferencias-carga";
-import { construirConfigMapeoCliente, esPendiente, esPendienteCodigo, esProtegidoDeAutomatico, nivelPorCodigo, ORIGEN_PENDIENTE, resolverMapeoCliente } from "@/lib/balance/mapeo-cliente-config";
+import { construirConfigMapeoCliente, esCodigoCuentaCliente, esPendiente, esPendienteCodigo, esProtegidoDeAutomatico, nivelPorCodigo, ORIGEN_PENDIENTE, resolverMapeoCliente } from "@/lib/balance/mapeo-cliente-config";
 import { cruzaClaseContable } from "@/lib/balance/clase-contable";
 import {
   contextoAccesoBorradorActual,
@@ -2211,6 +2211,9 @@ async function persistirCargue(p: {
     // rótulo REAL del PUC si ya existe; nunca el nombre del estándar Russell.
     const rows = new Map<string, { code: string; level: number; name: string; std: string | null; coincidencia: number | null }>();
     for (const f of filasDet) {
+      // Un pie de archivo sin código («Total general», «Procesado en: …») no es una
+      // cuenta del PUC: no se memoriza aunque hubiera llegado al detalle.
+      if (!esCodigoCuentaCliente(f.cuenta8)) continue;
       const grupo = mapeoGrupo.get(f.cuenta6);
       const std = grupo?.std ?? f.cuenta6Russell;
       const coincidencia = grupo?.coincidencia ?? (f.coincidencia != null ? Number(f.coincidencia) : null);

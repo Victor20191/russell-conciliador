@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   construirConfigMapeoCliente,
   elegirReglaGrupo,
+  esCodigoCuentaCliente,
   esMapeoManual,
   esPendiente,
   esPendienteCodigo,
@@ -201,5 +202,16 @@ describe("elegirReglaGrupo", () => {
       { id: 1, code: "616560", cuenta6Russell: "151605", coincidencia: 100, origenMapeo: "manual" },
     ];
     expect(elegirReglaGrupo(filas, "616560")?.id).toBe(1);
+  });
+});
+
+describe("esCodigoCuentaCliente", () => {
+  it("acepta solo códigos numéricos: los pies de archivo sin código no son cuentas", () => {
+    expect(esCodigoCuentaCliente("110505")).toBe(true);
+    expect(esCodigoCuentaCliente("4160050115")).toBe(true);
+    expect(esCodigoCuentaCliente("")).toBe(false);
+    expect(esCodigoCuentaCliente("Totales")).toBe(false);
+    expect(esCodigoCuentaCliente("Procesado en: Mayo 06 2026 16:03")).toBe(false);
+    expect(esCodigoCuentaCliente("1105-05")).toBe(false);
   });
 });
