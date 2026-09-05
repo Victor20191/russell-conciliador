@@ -726,6 +726,9 @@ model BalancePruebaEncabezado {
   // confirmar. Solo trazabilidad: no altera el cálculo. null = cargue anterior
   // a este dato (las pantallas muestran «—»). Ver `lib/balance/apertura-balance.ts`.
   aperturaBalance          String?   @map("apertura_balance")
+  // Catálogo original (incluye agrupadoras). El detalle contable conserva solo
+  // imputables; este snapshot evita perder los nombres del PUC al purgar staging.
+  pucCliente               Json?     @map("puc_cliente")
   filasLeidas              Int?      @map("filas_leidas")
   filasExcluidas           Int?      @map("filas_excluidas")
   filasDescuadre           Int?      @map("filas_descuadre")
@@ -817,6 +820,7 @@ model BalanceTerceroDetalle {
   coincidencia   Decimal?                 @map("porcentaje_coincidencia") @db.Decimal(5, 2)
   nitTercero     String?                  @map("nit_tercero")
   nombreTercero  String?                  @map("nombre_tercero")
+  identidadTercero Json?                  @map("identidad_tercero")
   saldoInicial   Decimal                  @default(0) @map("saldo_inicial") @db.Decimal(18, 2)
   debitos        Decimal                  @default(0) @map("debitos") @db.Decimal(18, 2)
   creditos       Decimal                  @default(0) @map("creditos") @db.Decimal(18, 2)
@@ -981,6 +985,7 @@ model BalanceImportacionStagingTercero {
   nombreCuenta  String?  @map("nombre_cuenta")
   nitTercero    String?  @map("nit_tercero") // clave canónica (nucleoNit); null = tercero genérico/sin NIT
   nombreTercero String?  @map("nombre_tercero")
+  identidadTercero Json? @map("identidad_tercero")
   saldoInicial  Decimal  @default(0) @map("saldo_inicial") @db.Decimal(18, 2)
   debitos       Decimal  @default(0) @map("debitos") @db.Decimal(18, 2)
   creditos      Decimal  @default(0) @map("creditos") @db.Decimal(18, 2)
@@ -1056,6 +1061,9 @@ model PerfilCargaBalance {
   colSaldoFinalDebito  Int       @map("col_saldo_final_debito")
   colSaldoFinalCredito Int       @map("col_saldo_final_credito")
   colTercero           Int       @map("col_tercero")
+  colNombreTercero        Int       @default(0) @map("col_nombre_tercero")
+  colTipoDocumentoTercero Int       @default(0) @map("col_tipo_documento_tercero")
+  colDvTercero            Int       @default(0) @map("col_dv_tercero")
   signoCredito         String    @map("signo_credito") // firmado | magnitud
   reglaDetalleTipo     String    @map("regla_detalle_tipo") // prefijo | columna
   reglaDetalleColumna  Int?      @map("regla_detalle_columna")
@@ -1658,6 +1666,10 @@ model ClientAccount {
   origenMapeo     String?        @map("origen_mapeo") // manual | automatico
   actualizadoPor  String?        @map("actualizado_por")
   actualizadoEn   DateTime?      @map("actualizado_en") @db.Timestamptz(3)
+
+  // Procedencia de la última decisión. Los registros anteriores quedan sin
+  // procedencia; no se atribuyen a un balance por cercanía de fechas.
+  procedenciaMapeo Json?         @map("procedencia_mapeo")
 
   // Conciliación llavea por (nombre_cliente, código); el BALANCE llavea por
   // (cliente_id, código) — inmutable, a prueba de cambios de nombre.

@@ -24,9 +24,11 @@ import {
 } from "./terceros";
 import { normalizarTerceroModulo } from "@/lib/modulos/tercero";
 import { nucleoNit } from "@/lib/nit";
+import { reconocerIdentidadTercero, type IdentidadTercero } from "./identidad-tercero";
 
 /** Fila del staging paralelo: UNA por (cuenta, tercero) tal como vino en el archivo. */
 export type FilaTerceroCruda = {
+  identidadTercero?: IdentidadTercero;
   filaNum: number;
   /** Código NORMALIZADO de la cuenta a la que pertenece el tercero (ancla de herencia). */
   codigo: string;
@@ -43,6 +45,7 @@ export type FilaTerceroCruda = {
 
 /** Fila lista para insertar en `balance_tercero_detalle` al capturar. */
 export type FilaCapturaTercero = {
+  identidadTercero?: IdentidadTercero;
   cuenta2: string;
   cuenta4: string;
   cuenta6: string;
@@ -105,6 +108,7 @@ function derivarFormatoFilaAparte(filas: readonly FilaStagingEntrada[]): FilaTer
         nombreCuenta: cuentaActual.nombre || null,
         nitTercero: t.nitCanonico,
         nombreTercero: t.nombre,
+        identidadTercero: reconocerIdentidadTercero({ documento: esGenerico ? "" : f.codigoCrudo || f.codigo, nombre: t.nombre || (f.nombre !== cuentaActual.nombre && f.nombre !== f.codigoCrudo && f.nombre !== f.codigo ? f.nombre : null) }),
         saldoInicial: f.saldoInicial,
         debitos: f.debitos,
         creditos: f.creditos,
@@ -141,6 +145,7 @@ function derivarFormatoSufijo(filas: readonly FilaStagingEntrada[]): FilaTercero
       nombreCuenta: f.nombre || null,
       nitTercero: nit,
       nombreTercero: nombre,
+      identidadTercero: reconocerIdentidadTercero({ documento: nit ? SUFIJO_NIT_FINAL.exec((f.codigoCrudo ?? "").trim())?.[1] : "" }),
       saldoInicial: f.saldoInicial,
       debitos: f.debitos,
       creditos: f.creditos,
@@ -211,6 +216,7 @@ export function prepararCapturaTercero(
         nitTercero: t.nitTercero,
         // El genérico conserva su rótulo; sin nombre, el NIT ya identifica.
         nombreTercero: t.nombreTercero,
+        ...(t.identidadTercero ? { identidadTercero: t.identidadTercero } : {}),
         saldoInicial: t.saldoInicial,
         debitos: t.debitos,
         creditos: t.creditos,

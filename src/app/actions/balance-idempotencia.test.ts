@@ -180,6 +180,7 @@ const mocks = vi.hoisted(() => {
   });
 
   const tx = {
+    clientAccount: { updateMany: vi.fn(async () => ({ count: 1 })) },
     $executeRaw: vi.fn(async () => {
       if (flags.fallarPuc) throw new Error("Fallo inyectado al persistir el PUC");
       state.escriturasPuc.push("puc-atomico");
@@ -805,6 +806,19 @@ describe("idempotencia y atomicidad del ciclo de balances", () => {
       advertenciaArchivoFuente: false,
       diferenciaArchivoFuente: null,
     });
+  });
+
+  it("conserva agrupadoras originales y enlaza la procedencia antes de purgar el borrador", async () => {
+    mocks.state.staging.push({ ...mocks.state.staging[0], filaNum: 2, codigo: "1105", nombre: "Caja del ERP", tipoFila: "agrupadora" });
+    await expect(cargarBorrador({}, formPromocion())).rejects.toThrow("REDIRECT:/balance/1?cargado=1");
+    expect(mocks.tx.balancePruebaEncabezado.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ pucCliente: expect.arrayContaining([{ codigo: "1105", nombre: "Caja del ERP" }]) }),
+    }));
+    expect(mocks.tx.clientAccount.updateMany).toHaveBeenCalledWith({
+      where: { clienteId: 7, procedenciaMapeo: { path: ["lote_id"], equals: LOTE_ID }, origenMapeo: "automatico" },
+      data: { procedenciaMapeo: { fuente: "carga", balance_id: 1, lote_id: LOTE_ID, periodo: expect.any(String), version: "v1" } },
+    });
+    expect(mocks.state.staging).toHaveLength(0);
   });
 
   it("exige declarar el tipo de balance y lo copia al encabezado oficial", async () => {

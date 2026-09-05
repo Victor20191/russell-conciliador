@@ -6,8 +6,7 @@
 // grupo vale para todas sus imputables. Lo normal es que las auxiliares de 8 dígitos hereden
 // esa regla —sobre los datos reales de la plataforma, 27.554 de 27.596, el 99,85%— y por eso
 // el informe del PUC completo es casi todo ruido. Las pocas que NO la heredan son
-// justamente las que nadie mira: no salen en la vista editable, que solo lista el nivel 6 y
-// las excepciones declaradas.
+// se destacan en la vista editable del PUC completo para poder corregirlas allí.
 //
 // Y el prevalidador tampoco las cubre del todo: vigila solo los prefijos que alimentan los
 // seis módulos de conciliación, así que las que caen fuera de esos prefijos no las ve nadie.
@@ -54,7 +53,7 @@ export type AnomaliaMapeo = {
 };
 
 /**
- * Auxiliares (nivel 8) cuyo mapeo no se explica por la regla de su grupo Y que además
+ * Auxiliares de cualquier longitud cuyo mapeo no se explica por la regla de su grupo y que además
  * gobiernan de verdad la próxima carga.
  *
  * Se excluyen dos cosas a propósito:
@@ -73,7 +72,7 @@ export function detectarAnomaliasMapeo(cuentas: readonly CuentaMapeo[]): Anomali
 
   const anomalias: AnomaliaMapeo[] = [];
   for (const c of cuentas) {
-    if (c.level !== 8 || !c.cuenta6Russell) continue;
+    if (c.code.length <= 6 || !c.cuenta6Russell) continue;
     if (esExcepcionCuenta(c.origenMapeo)) continue;
     if (!reglaMapeoAplicable({ code: c.code, cuenta6Russell: c.cuenta6Russell, coincidencia: null, origenMapeo: c.origenMapeo })) continue;
 

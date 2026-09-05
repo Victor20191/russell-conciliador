@@ -10,6 +10,7 @@ import type { CuentaCruda } from "@/lib/balance/calcular";
 import type { CeldaCruda, GridHoja } from "./ingesta";
 import type { FilaTerceroCruda } from "@/lib/balance/staging-tercero";
 import { normalizarTerceroModulo } from "@/lib/modulos/tercero";
+import { reconocerIdentidadTercero } from "@/lib/balance/identidad-tercero";
 
 // Nivel mínimo de imputación del PUC: ninguna cuenta de MOVIMIENTO es más corta
 // que la subcuenta (6 dígitos). Clases/grupos/cuentas (1/2/4 díg.) nunca son
@@ -547,6 +548,12 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
         nombreCuenta: nombreCuenta || null,
         nitTercero: t.nitCanonico,
         nombreTercero: t.nitCanonico === null && t.nombre === null ? "Genérico" : t.nombre,
+        identidadTercero: reconocerIdentidadTercero({
+          documento: cols.tercero > 0 ? cell(fila, cols.tercero) : terceroRaw,
+          nombre: cell(fila, cols.nombreTercero ?? 0),
+          tipo: cell(fila, cols.tipoDocumentoTercero ?? 0),
+          dv: cell(fila, cols.dvTercero ?? 0),
+        }),
         saldoInicial: m.si,
         debitos: m.db,
         creditos: m.cr,

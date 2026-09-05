@@ -1,5 +1,6 @@
 "use server";
 
+import { procedenciaBalance } from "@/lib/balance/procedencia-mapeo";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import prisma from "@/lib/prisma";
@@ -59,6 +60,7 @@ import type { UmbralesAlertas } from "@/lib/balance/umbrales-alertas";
 import type { FilaDetalle } from "@/lib/balance/calcular";
 import { detectarManipulacionesRiesgosas, reclasificarHuerfanas, reclasificarSoloHojas, corregirCodigosPlaceholder, marcarNoContables, validarReubicacionesBorrador, type FilaBorrador } from "@/lib/balance/borrador";
 import { esBalancePorTercero, colapsarTerceros, esBalancePorTerceroSufijo, consolidarTercerosPorSufijo, marcarCuentaNit } from "@/lib/balance/terceros";
+import { leerIdentidadTercero } from "@/lib/balance/identidad-tercero";
 import { derivarStagingTercero, prepararCapturaTercero } from "@/lib/balance/staging-tercero";
 import { detectoDetallePorTercero, etiquetaApertura, parsearApertura, type AperturaBalance } from "@/lib/balance/apertura-balance";
 import { invalidarStagingBorrador, type RevisionReubicacionStaging } from "@/lib/balance/staging-borrador";
@@ -347,7 +349,7 @@ async function clienteAutorizado(clienteId: number | null): Promise<number | nul
 type FilaPerfilCarga = {
   hoja: string; filaEncabezado: number; primeraFilaDatos: number;
   colCodigo: number; colCodigoFragmentos: unknown; colNombre: number; colSaldoInicial: number; colDebitos: number; colCreditos: number;
-  colSaldoFinal: number; colSaldoFinalDebito: number; colSaldoFinalCredito: number; colTercero: number;
+  colSaldoFinal: number; colSaldoFinalDebito: number; colSaldoFinalCredito: number; colTercero: number; colNombreTercero?: number; colTipoDocumentoTercero?: number; colDvTercero?: number;
   signoCredito: string; reglaDetalleTipo: string; reglaDetalleColumna: number | null; reglaDetalleValor: string | null;
   agregarPorTercero: boolean;
 };
@@ -358,6 +360,7 @@ function perfilPlanoDesdeFila(p: FilaPerfilCarga): PerfilPlano {
     colNombre: p.colNombre, colSaldoInicial: p.colSaldoInicial,
     colDebitos: p.colDebitos, colCreditos: p.colCreditos, colSaldoFinal: p.colSaldoFinal,
     colSaldoFinalDebito: p.colSaldoFinalDebito, colSaldoFinalCredito: p.colSaldoFinalCredito, colTercero: p.colTercero,
+    colNombreTercero: p.colNombreTercero, colTipoDocumentoTercero: p.colTipoDocumentoTercero, colDvTercero: p.colDvTercero,
     signoCredito: p.signoCredito === "magnitud" ? "magnitud" : "firmado",
     reglaDetalleTipo:
       p.reglaDetalleTipo === "columna"
@@ -1362,8 +1365,8 @@ export async function asignarCuentaEstandar(formData: FormData): Promise<ActionS
       const ahora = new Date();
       await tx.clientAccount.upsert({
         where: { clienteId_code: { clienteId: filaActual.encabezado.clienteId, code: memoria.codigo } },
-        create: { clientName: filaActual.encabezado.nombreCliente, clienteId: filaActual.encabezado.clienteId, nit: filaActual.encabezado.nit, code: memoria.codigo, level: nivelPorCodigo(memoria.codigo), name: aplicarAlGrupo ? memoria.codigo : filaActual.nombreCuenta || memoria.codigo, cuenta6Russell: std.code, coincidencia: 100, origenMapeo: memoria.origen, actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
-        update: { nit: filaActual.encabezado.nit, cuenta6Russell: std.code, coincidencia: 100, origenMapeo: memoria.origen, actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
+        create: { clientName: filaActual.encabezado.nombreCliente, clienteId: filaActual.encabezado.clienteId, nit: filaActual.encabezado.nit, code: memoria.codigo, level: nivelPorCodigo(memoria.codigo), name: aplicarAlGrupo ? memoria.codigo : filaActual.nombreCuenta || memoria.codigo, cuenta6Russell: std.code, coincidencia: 100, origenMapeo: memoria.origen, actualizadoPor: user?.name ?? null, procedenciaMapeo: procedenciaBalance(filaActual.encabezado), actualizadoEn: ahora },
+        update: { nit: filaActual.encabezado.nit, cuenta6Russell: std.code, coincidencia: 100, origenMapeo: memoria.origen, actualizadoPor: user?.name ?? null, procedenciaMapeo: procedenciaBalance(filaActual.encabezado), actualizadoEn: ahora },
       });
       if (aplicarAlGrupo) {
         // Propaga el estándar a las cuentas IMPUTABLES del mismo grupo (display
@@ -1371,7 +1374,7 @@ export async function asignarCuentaEstandar(formData: FormData): Promise<ActionS
         // decisión explícita de grupo manda sobre los ajustes cuenta a cuenta.
         await tx.clientAccount.updateMany({
           where: { clienteId: filaActual.encabezado.clienteId, code: { startsWith: filaActual.cuenta6 }, NOT: { code: filaActual.cuenta6 } },
-          data: { cuenta6Russell: std.code, coincidencia: 100, origenMapeo: memoria.origen, actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
+          data: { cuenta6Russell: std.code, coincidencia: 100, origenMapeo: memoria.origen, actualizadoPor: user?.name ?? null, procedenciaMapeo: procedenciaBalance(filaActual.encabezado), actualizadoEn: ahora },
         });
       }
 
@@ -1529,8 +1532,8 @@ export async function marcarCuentaPendiente(formData: FormData): Promise<ActionS
       const ahora = new Date();
       await tx.clientAccount.upsert({
         where: { clienteId_code: { clienteId: filaActual.encabezado.clienteId, code: memoria.codigo } },
-        create: { clientName: filaActual.encabezado.nombreCliente, clienteId: filaActual.encabezado.clienteId, nit: filaActual.encabezado.nit, code: memoria.codigo, level: nivelPorCodigo(memoria.codigo), name: aplicarAlGrupo ? memoria.codigo : filaActual.nombreCuenta || memoria.codigo, cuenta6Russell: null, coincidencia: null, origenMapeo: ORIGEN_PENDIENTE, actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
-        update: { nit: filaActual.encabezado.nit, cuenta6Russell: null, coincidencia: null, origenMapeo: ORIGEN_PENDIENTE, actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
+        create: { clientName: filaActual.encabezado.nombreCliente, clienteId: filaActual.encabezado.clienteId, nit: filaActual.encabezado.nit, code: memoria.codigo, level: nivelPorCodigo(memoria.codigo), name: aplicarAlGrupo ? memoria.codigo : filaActual.nombreCuenta || memoria.codigo, cuenta6Russell: null, coincidencia: null, origenMapeo: ORIGEN_PENDIENTE, actualizadoPor: user?.name ?? null, procedenciaMapeo: procedenciaBalance(filaActual.encabezado), actualizadoEn: ahora },
+        update: { nit: filaActual.encabezado.nit, cuenta6Russell: null, coincidencia: null, origenMapeo: ORIGEN_PENDIENTE, actualizadoPor: user?.name ?? null, procedenciaMapeo: procedenciaBalance(filaActual.encabezado), actualizadoEn: ahora },
       });
       if (aplicarAlGrupo) {
         // Propaga el marcador a las cuentas IMPUTABLES del mismo grupo, igual
@@ -1538,7 +1541,7 @@ export async function marcarCuentaPendiente(formData: FormData): Promise<ActionS
         // ajustes cuenta a cuenta y deja sin efecto excepciones previas.
         await tx.clientAccount.updateMany({
           where: { clienteId: filaActual.encabezado.clienteId, code: { startsWith: filaActual.cuenta6 }, NOT: { code: filaActual.cuenta6 } },
-          data: { cuenta6Russell: null, coincidencia: null, origenMapeo: ORIGEN_PENDIENTE, actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
+          data: { cuenta6Russell: null, coincidencia: null, origenMapeo: ORIGEN_PENDIENTE, actualizadoPor: user?.name ?? null, procedenciaMapeo: procedenciaBalance(filaActual.encabezado), actualizadoEn: ahora },
         });
       }
 
@@ -1610,7 +1613,7 @@ export async function quitarPendiente(formData: FormData): Promise<ActionState> 
   try {
     const fila = await prisma.balancePruebaDetalle.findUnique({
       where: { id: detalleId },
-      select: { cuenta6: true, cuenta8: true, encabezado: { select: { id: true, clienteId: true } } },
+      select: { cuenta6: true, cuenta8: true, encabezado: { select: { id: true, clienteId: true, periodo: true } } },
     });
     if (!fila) return { ok: false, message: "La cuenta del balance ya no existe." };
 
@@ -1628,7 +1631,7 @@ export async function quitarPendiente(formData: FormData): Promise<ActionState> 
       : { clienteId: fila.encabezado.clienteId, code: fila.cuenta8, origenMapeo: ORIGEN_PENDIENTE };
     const { count: afectadas } = await prisma.clientAccount.updateMany({
       where,
-      data: { origenMapeo: null, actualizadoPor: user?.name ?? null, actualizadoEn: ahora },
+      data: { origenMapeo: null, actualizadoPor: user?.name ?? null, procedenciaMapeo: procedenciaBalance(fila.encabezado), actualizadoEn: ahora },
     });
     if (afectadas === 0) {
       return { ok: false, message: "Esta cuenta no estaba marcada como pendiente por asignar." };
@@ -1896,6 +1899,7 @@ async function capturarBalanceTerceroEnTransaccion(tx: TransactionClient, p: {
     paralelo.map((t) => ({
       filaNum: t.filaNum, codigo: t.codigo, codigoCrudo: t.codigoCrudo, nombreCuenta: t.nombreCuenta,
       nitTercero: t.nitTercero, nombreTercero: t.nombreTercero,
+      identidadTercero: leerIdentidadTercero(t.identidadTercero),
       saldoInicial: Number(t.saldoInicial), debitos: Number(t.debitos), creditos: Number(t.creditos), saldoFinal: Number(t.saldoFinal),
     })),
     p.filasDet,
@@ -1945,6 +1949,7 @@ async function capturarBalanceTerceroEnTransaccion(tx: TransactionClient, p: {
         cuenta2: f.cuenta2, cuenta4: f.cuenta4, cuenta6: f.cuenta6, cuenta8: f.cuenta8,
         nombreCuenta: f.nombreCuenta, cuenta6Russell: f.cuenta6Russell, coincidencia: f.coincidencia,
         nitTercero: f.nitTercero, nombreTercero: f.nombreTercero,
+        identidadTercero: f.identidadTercero,
         saldoInicial: f.saldoInicial, debitos: f.debitos, creditos: f.creditos, saldoFinal: f.saldoFinal,
       })),
     });
@@ -2229,7 +2234,8 @@ async function persistirCargue(p: {
           "porcentaje_coincidencia",
           "origen_mapeo",
           "actualizado_por",
-          "actualizado_en"
+          "actualizado_en",
+          "procedencia_mapeo"
         )
         SELECT
           ${p.clienteName},
@@ -2242,7 +2248,8 @@ async function persistirCargue(p: {
           dato.porcentaje_coincidencia,
           'automatico',
           ${p.uploadedBy},
-          ${actualizadoEnPuc}
+          ${actualizadoEnPuc},
+          ${JSON.stringify({ fuente: "carga", lote_id: p.loteId, periodo: p.period })}::jsonb
         FROM jsonb_to_recordset(${filasPucJson}::jsonb) AS dato(
           codigo text,
           nivel integer,
@@ -2260,8 +2267,10 @@ async function persistirCargue(p: {
           "porcentaje_coincidencia" = EXCLUDED."porcentaje_coincidencia",
           "origen_mapeo" = EXCLUDED."origen_mapeo",
           "actualizado_por" = EXCLUDED."actualizado_por",
-          "actualizado_en" = EXCLUDED."actualizado_en"
+          "actualizado_en" = EXCLUDED."actualizado_en",
+          "procedencia_mapeo" = EXCLUDED."procedencia_mapeo"
         WHERE "cuentas_cliente"."origen_mapeo" IS DISTINCT FROM 'manual'
+          AND "cuentas_cliente"."origen_mapeo" IS DISTINCT FROM 'manual_cuenta'
           AND "cuentas_cliente"."origen_mapeo" IS DISTINCT FROM 'pendiente'
       `);
     }
@@ -2299,6 +2308,15 @@ async function persistirCargue(p: {
       cambios = diff.summary.added + diff.summary.changed + diff.summary.removed;
     }
 
+    const catalogoFuente = await tx.balanceImportacionStaging.findMany({
+      where: { loteId: p.loteId, OR: [{ omitida: false }, { omitida: null }] },
+      select: { codigo: true, nombre: true, tipoFila: true },
+      orderBy: { filaNum: "asc" },
+    });
+    const pucCliente = [...new Map(catalogoFuente
+      .filter((f) => /^\d{4,30}$/.test(f.codigo ?? "") && (f.tipoFila === "movimiento" || f.tipoFila === "agrupadora"))
+      .map((f) => [f.codigo, { codigo: f.codigo!, nombre: f.nombre ?? f.codigo! }])).values()];
+
     const balance = await tx.balancePruebaEncabezado.create({
       data: {
         loteId: p.loteId, clienteId: p.clientId, nombreCliente: p.clienteName, nit: p.clienteNit,
@@ -2312,6 +2330,7 @@ async function persistirCargue(p: {
         mapeadas: calc.mapped, sinMapear: calc.unmapped, criticas: calc.critical, cambios,
         estandar: p.meta.estandar, convencionCredito: p.meta.convencionCredito,
         aperturaBalance: p.aperturaBalance,
+        pucCliente,
         filasLeidas: p.meta.filasLeidas, filasExcluidas: p.meta.filasExcluidas, filasDescuadre: p.meta.filasDescuadre,
         ultimaCarga: ahora,
         detalles: {
@@ -2324,6 +2343,15 @@ async function persistirCargue(p: {
       },
       select: { id: true },
     });
+
+    // Completa la procedencia solo de las filas escritas por este cargue. Las
+    // decisiones manuales concurrentes no llevan este lote y quedan intactas.
+    if (filasPucAEscribir.length > 0) {
+      await tx.clientAccount.updateMany({
+        where: { clienteId: p.clientId, procedenciaMapeo: { path: ["lote_id"], equals: p.loteId }, origenMapeo: "automatico" },
+        data: { procedenciaMapeo: { fuente: "carga", balance_id: balance.id, lote_id: p.loteId, periodo: p.period, version } },
+      });
+    }
 
     // Captura del balance por tercero (solo con apertura declarada «tercero»):
     // mismo commit que el balance (falla ⇒ revierte todo) y ANTES de la purga,
@@ -3259,6 +3287,7 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
         data: stagingTercero.slice(i, i + LOTE_STAGING).map((t) => ({
           loteId, filaNum: t.filaNum, codigo: t.codigo, codigoCrudo: t.codigoCrudo,
           nombreCuenta: t.nombreCuenta, nitTercero: t.nitTercero, nombreTercero: t.nombreTercero,
+          identidadTercero: t.identidadTercero,
           saldoInicial: t.saldoInicial, debitos: t.debitos, creditos: t.creditos, saldoFinal: t.saldoFinal,
         })),
       });

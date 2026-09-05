@@ -57,6 +57,15 @@ describe("aplanarSpec ↔ specCargaDesdePerfil", () => {
     expect(plano.reglaDetalleColumna).toBe(7);
     expect(plano.reglaDetalleValor).toBe("I");
   });
+
+  it("conserva los roles opcionales de identidad sin afectar perfiles anteriores", () => {
+    const enriquecido: MappingSpec = {
+      ...SPEC,
+      columnas: { ...SPEC.columnas, tercero: 7, nombreTercero: 8, tipoDocumentoTercero: 9, dvTercero: 10 },
+    };
+    expect(specCargaDesdePerfil(aplanarSpec(enriquecido)).columnas).toEqual(enriquecido.columnas);
+    expect(specCargaDesdePerfil(aplanarSpec(SPEC)).columnas).toEqual(SPEC.columnas);
+  });
 });
 
 describe("equivalencia de transformación (perfil ↔ spec original)", () => {

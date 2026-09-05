@@ -97,6 +97,9 @@ function estructuraDesdePerfil(p: {
   colSaldoFinalDebito: number;
   colSaldoFinalCredito: number;
   colTercero: number;
+  colNombreTercero?: number;
+  colTipoDocumentoTercero?: number;
+  colDvTercero?: number;
   signoCredito: string;
   reglaDetalleTipo: string;
   reglaDetalleColumna: number | null;
@@ -117,6 +120,7 @@ function estructuraDesdePerfil(p: {
     colSaldoFinalDebito: p.colSaldoFinalDebito,
     colSaldoFinalCredito: p.colSaldoFinalCredito,
     colTercero: p.colTercero,
+    colNombreTercero: p.colNombreTercero, colTipoDocumentoTercero: p.colTipoDocumentoTercero, colDvTercero: p.colDvTercero,
     signoCredito: p.signoCredito === "magnitud" ? "magnitud" : "firmado",
     reglaDetalleTipo:
       p.reglaDetalleTipo === "columna"
@@ -148,6 +152,9 @@ function resumenColumnas(spec: SpecCarga): string {
   col("saldo final D", spec.columnas.saldoFinalDebito);
   col("saldo final C", spec.columnas.saldoFinalCredito);
   col("tercero", spec.columnas.tercero);
+  col("nombre tercero", spec.columnas.nombreTercero ?? 0);
+  col("tipo documento tercero", spec.columnas.tipoDocumentoTercero ?? 0);
+  col("DV tercero", spec.columnas.dvTercero ?? 0);
   return partes.join(" · ");
 }
 

@@ -12,6 +12,12 @@ const cuenta = (
 });
 
 describe("detectarAnomaliasMapeo", () => {
+  it.each([8, 10, 12, 14])("detecta divergencias N%i con etiquetas nuevas y legadas", (nivel) => {
+    const code = "120535" + "01".repeat((nivel - 6) / 2);
+    const filas = [cuenta("120535", "120595"), { ...cuenta(code, "129905"), level: nivel }];
+    expect(detectarAnomaliasMapeo(filas)).toMatchObject([{ code, cuenta6RussellDelGrupo: "120595" }]);
+    expect(detectarAnomaliasMapeo(filas.map((c) => c.code === code ? { ...c, level: 8 } : c))).toHaveLength(1);
+  });
   it("no reporta la auxiliar que hereda la regla de su grupo", () => {
     // Es el 99,85% de los datos reales: si esto fallara, el filtro sería inútil.
     expect(detectarAnomaliasMapeo([

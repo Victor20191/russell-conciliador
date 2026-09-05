@@ -3,15 +3,13 @@
 import { EstadoProcesando } from "@/components/estado-procesando";
 
 import { useActionState, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
-import { Card, Chip, StatCard, EmptyState } from "@/components/ui";
+import { Card, Chip } from "@/components/ui";
 import {
   PageSizeSelect,
   PaginationFooter,
   usePagination,
 } from "@/components/pagination-controls";
-import { ActionForm } from "@/components/action-form";
 import { Modal } from "@/components/modal";
 import { notifyActionState } from "@/lib/client-notifications";
 import { fmtDateTimeLong } from "@/lib/format";
@@ -21,12 +19,12 @@ import {
   deleteStandardAccount,
 } from "@/app/actions/standard-accounts";
 import { crearSubgrupo, editarSubgrupo, eliminarSubgrupo } from "@/app/actions/subgrupos";
-import { esExcepcionCuenta, esMapeoManual } from "@/lib/balance/mapeo-cliente-config";
 import { detectarAnomaliasMapeo } from "@/lib/balance/anomalias-mapeo";
-import { cruzaClaseContable } from "@/lib/balance/clase-contable";
-import { crearMapeoCliente, editarMapeoCliente, eliminarMapeoCliente, confirmarMapeoCliente } from "@/app/actions/mapeo-cliente";
+import { MapeoClienteTab, HomologacionClienteForm } from "./homologacion-client";
+import { construirPucRussell, filtrarPucRussell, profundidadPuc, type FilaPucRussell } from "@/lib/balance/puc-estandar";
+import type { CuentaPucCliente } from "@/lib/balance/catalogo-puc-cliente";
 
-export type Account = { id: number; code: string; level: number; name: string; cuenta6Russell: string | null; coincidencia: number | null; origenMapeo: string | null; actualizadoEn: string | null };
+export type Account = CuentaPucCliente;
 export type RussellOpt = { code: string; name: string; module: string | null };
 export type StdAccount = {
   id: number;
@@ -57,646 +55,38 @@ export type StdLogRow = {
 
 export type Subgrupo = { id: number; codigo: string; nombre: string; grupo: string; nombreGrupo: string; naturaleza: string };
 
-/**
- * Una regla de la memoria de mapeo por cliente → cuenta estándar Russell. Casi
- * siempre es la cuenta_6 (regla del grupo); cuando `origen` es `manual_cuenta` es
- * la EXCEPCIÓN de una sola cuenta imputable, dejada por una homologación con
- * alcance «solo esta cuenta» en el detalle del balance.
- */
-export type MapeoClienteRow = {
-  id: number;
-  cuenta6: string;
-  nombreCuenta: string;
-  nivel: number;
-  cuenta6Russell: string;
-  nombreRussell: string | null;
-  coincidencia: number | null;
-  origen: string | null; // manual | manual_cuenta | automatico · null = sin asignar
-  actualizadoPor: string | null;
-  actualizadoEn: string; // ISO
-};
-
-/** ¿La fila espera confirmación? Tiene estándar asignado pero la cascada no llegó al 100%.
- *  Definición ÚNICA: la comparten el contador, el filtro y el botón de la fila, para que el
- *  número del filtro no pueda discrepar de las filas que de verdad ofrecen «Confirmar». */
-const porConfirmar = (r: MapeoClienteRow): boolean =>
-  !!r.cuenta6Russell && (r.coincidencia == null || r.coincidencia < 100);
-
-type Tab = "mapping" | "standard" | "subgrupos" | "mapeocliente";
+type Tab = "cliente" | "puc" | "standard";
 
 export default function MapeoClient({
-  clientNames, cliente, accounts, std, subgrupos, canManage, logs, lockedStdCodes, mapeoCliente, clienteId, clienteNit, puedeMapear,
+  clientNames, cliente, accounts, std, subgrupos, canManage, logs, lockedStdCodes, clienteId, clienteNit, puedeMapear,
 }: {
-  clientNames: string[]; cliente: string; accounts: Account[]; std: StdAccount[]; subgrupos: Subgrupo[]; canManage: boolean; logs: StdLogRow[]; lockedStdCodes: string[]; mapeoCliente: MapeoClienteRow[]; clienteId: number | null; clienteNit: string | null; puedeMapear: boolean;
+  clientNames: string[]; cliente: string; accounts: Account[]; std: StdAccount[]; subgrupos: Subgrupo[]; canManage: boolean; logs: StdLogRow[]; lockedStdCodes: string[]; clienteId: number | null; clienteNit: string | null; puedeMapear: boolean;
 }) {
-  const router = useRouter();
-  const [tab, setTab] = useState<Tab>("mapeocliente");
-  const [q, setQ] = useState("");
-  const [level, setLevel] = useState<"all" | "4" | "6" | "8">("all");
-  const [soloPendientes, setSoloPendientes] = useState(false);
-  const [soloAnomalias, setSoloAnomalias] = useState(false);
-  // Auxiliares cuyo mapeo NO se explica por la regla de su grupo. Es lo único que este
-  // informe muestra y la vista editable no: allí solo se listan el nivel 6 y las
-  // excepciones declaradas. Se indexa por código para pintarlo en la fila.
-  const anomalias = useMemo(() => {
-    const m = new Map<string, ReturnType<typeof detectarAnomaliasMapeo>[number]>();
-    for (const a of detectarAnomaliasMapeo(accounts)) m.set(a.code, a);
-    return m;
-  }, [accounts]);
-
-  const stdByCode = useMemo(() => new Map(std.map((s) => [s.code, s.name])), [std]);
-  const stats = useMemo(() => ({
-    total: accounts.length,
-    n4: accounts.filter((a) => a.level === 4).length,
-    n6: accounts.filter((a) => a.level === 6).length,
-    n8: accounts.filter((a) => a.level === 8).length,
-    stdMapped: accounts.filter((a) => a.cuenta6Russell).length,
-    porConfirmar: accounts.filter((a) => a.cuenta6Russell && (a.coincidencia == null || a.coincidencia < 100)).length,
-  }), [accounts]);
-
-  const rows = accounts
-    .filter((a) => level === "all" || a.level === Number(level))
-    .filter((a) => !soloPendientes || (!!a.cuenta6Russell && (a.coincidencia == null || a.coincidencia < 100)))
-    .filter((a) => !soloAnomalias || anomalias.has(a.code))
-    .filter((a) => !q || a.code.includes(q) || a.name.toLowerCase().includes(q.toLowerCase()));
-  const pg = usePagination(rows, 50);
-
-  const stdCoverage = stats.total > 0 ? Math.round((stats.stdMapped / stats.total) * 100) : 0;
-
+  const [tab, setTab] = useState<Tab>("cliente");
+  const [editTarget, setEditTarget] = useState<Account | null | undefined>(undefined);
+  const anomalias = useMemo(() => new Map(detectarAnomaliasMapeo(accounts.filter((a) => a.enMemoria)).map((a) => [a.code, a])), [accounts]);
+  const puc = useMemo(() => construirPucRussell(std, subgrupos), [std, subgrupos]);
   return (
     <div>
-      <div className="mb-4 flex items-center gap-2">
-        <TabBtn on={tab === "mapeocliente"} onClick={() => setTab("mapeocliente")} label="Mapeo balance/cliente" count={mapeoCliente.length} />
-        <TabBtn on={tab === "mapping"} onClick={() => setTab("mapping")} label="Mapeo por cliente" count={accounts.length} />
-        <TabBtn on={tab === "standard"} onClick={() => setTab("standard")} label="Plan estándar Russell" count={std.length} />
-        <TabBtn on={tab === "subgrupos"} onClick={() => setTab("subgrupos")} label="Subgrupos (nivel 4)" count={subgrupos.length} />
-        {/* Descarga SOLO el plan estándar Russell (catálogo completo). Vive en la barra de
-            pestañas, así que se ve también desde las otras tres: el rótulo dice QUÉ baja
-            para que desde «Mapeo por cliente» o «Subgrupos» no se espere el contenido de
-            esa pestaña. */}
-        <a
-          href="/config/mapeo/exportar"
-          download
-          title="Descargar el plan de cuentas estándar Russell en Excel. Solo baja ese catálogo: no incluye el PUC del cliente, la memoria de mapeo ni los subgrupos."
-          className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-white px-3 py-1.5 text-[12.5px] font-semibold text-ink-700 transition hover:bg-ink-50"
-        >
-          <Icon name="download" size={13} /> Exportar plan estándar
+      <div className="mb-4 flex flex-wrap items-center gap-2" role="tablist" aria-label="Planes de cuentas">
+        <TabBtn on={tab === "cliente"} onClick={() => setTab("cliente")} label="Homologación por cliente" count={accounts.length} />
+        <TabBtn on={tab === "puc"} onClick={() => setTab("puc")} label="PUC Estándar Russell" count={puc.length} />
+        <TabBtn on={tab === "standard"} onClick={() => setTab("standard")} label="Plan Estándar" count={std.length} />
+        <a href="/config/mapeo/exportar" download title="Descargar PUC completo (niveles 1, 2, 4 y 6) y detalle de subcuentas" className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-white px-3 py-1.5 text-[12.5px] font-semibold text-ink-700 hover:bg-ink-50">
+          <Icon name="download" size={13} /> Descargar PUC completo
         </a>
       </div>
-
-      {tab === "mapping" ? (
-        <>
-      {/* Informe de SOLO LECTURA: la homologación se edita en «Mapeo balance/cliente»,
-          que es la memoria que se reaplica en cada carga. Aquí solo se consulta. */}
-      <div className="mb-4 rounded-md border border-ink-200 bg-ink-50 px-3 py-2 text-[11.5px] leading-relaxed text-ink-600">
-        <b className="text-ink-700">Informe de consulta.</b> Muestra el PUC completo de <b>{cliente}</b> (N4/N6/N8) con la
-        cuenta estándar que tiene asignada hoy. No se edita desde aquí: para asignar, confirmar o quitar una homologación
-        usa la pestaña <b>Mapeo balance/cliente</b>.
-      </div>
-
-      {/* KPIs */}
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <Card className="p-4">
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">Cliente</div>
-          <div className="mt-1 text-[15px] font-semibold text-ink-900">{cliente}</div>
-          <div className="mt-1 text-[12px] text-ink-500">PUC del cliente</div>
-        </Card>
-        <Card className="p-4">
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-ink-500">Cuentas del cliente</div>
-          <div className="mt-1 font-mono text-2xl font-semibold text-ink-900">{stats.total}</div>
-          <div className="mt-1 flex gap-1.5">
-            <Chip label={`N4 · ${stats.n4}`} tone="ink" /><Chip label={`N6 · ${stats.n6}`} tone="ink" /><Chip label={`N8 · ${stats.n8}`} tone="ink" />
-          </div>
-        </Card>
-        <StatCard label="Mapeadas a estándar" value={`${stats.stdMapped}/${stats.total}`} hint={`${stdCoverage}% cobertura`} tone="ok" />
-        <StatCard label="Por confirmar" value={String(stats.porConfirmar)} hint="coincidencia < 100%" tone={stats.porConfirmar > 0 ? "warn" : "ok"} />
-      </div>
-
-      {/* Leyenda */}
-      <div className="mt-4 flex flex-wrap items-center gap-2 text-[12px] text-ink-500">
-        <span className="rounded-md bg-ink-50 px-2.5 py-1.5"><b className="text-ink-700">Cuenta del cliente</b> · PUC (N4/N6/N8)</span>
-        <Icon name="chev-r" size={12} />
-        <span className="rounded-md bg-ink-50 px-2.5 py-1.5"><b className="text-ink-700">Cuenta estándar</b> · plan Russell (6 díg)</span>
-        <Icon name="chev-r" size={12} />
-        <span className="rounded-md bg-ink-50 px-2.5 py-1.5"><b className="text-ink-700">% + Confirmación</b> · estado del mapeo</span>
-      </div>
-
-      {/* Tabla */}
-      <Card className="mt-4">
-        <div className="flex flex-wrap items-center gap-2 border-b border-ink-100 px-4 py-3">
-          <h2 className="text-[13px] font-semibold text-ink-800">Parametrización cuenta a cuenta</h2>
-          <select
-            value={cliente}
-            onChange={(e) => router.push(`/config/mapeo?cliente=${encodeURIComponent(e.target.value)}`)}
-            className="rounded-md border border-ink-200 px-2 py-1 text-[12px] text-ink-700 outline-none"
-          >
-            {clientNames.map((n) => <option key={n} value={n}>{n}</option>)}
-          </select>
-          <div className="ml-auto flex items-center gap-2">
-            <div className="flex overflow-hidden rounded-md border border-ink-200 text-[11.5px]">
-              {(["all", "4", "6", "8"] as const).map((l) => (
-                <button key={l} onClick={() => { setLevel(l); pg.resetToFirstPage(); }} className={`px-2.5 py-1 ${level === l ? "bg-navy-800 text-white" : "bg-white text-ink-600 hover:bg-ink-50"}`}>{l === "all" ? "Todos" : `N${l}`}</button>
-              ))}
-            </div>
-            <button
-              type="button"
-              onClick={() => { setSoloPendientes((v) => !v); pg.resetToFirstPage(); }}
-              className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11.5px] font-medium transition ${soloPendientes ? "border-warn-300 bg-warn-100 text-warn-700" : "border-ink-200 text-ink-600 hover:bg-ink-50"}`}
-            >
-              <Icon name="warn" size={12} /> Por confirmar{stats.porConfirmar > 0 ? ` (${stats.porConfirmar})` : ""}
-            </button>
-            {/* Lo que este informe aporta y la vista editable no. Se ordena con los cruces
-                de clase primero: son los que mueven saldo de un estado financiero a otro. */}
-            <button
-              type="button"
-              onClick={() => { setSoloAnomalias((v) => !v); pg.resetToFirstPage(); }}
-              title="Auxiliares cuya homologación no coincide con la regla de su grupo"
-              className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11.5px] font-medium transition ${soloAnomalias ? "border-err-300 bg-err-100 text-err-700" : "border-ink-200 text-ink-600 hover:bg-ink-50"}`}
-            >
-              <Icon name="warn" size={12} /> Revisar{anomalias.size > 0 ? ` (${anomalias.size})` : ""}
-            </button>
-            <input value={q} onChange={(e) => { setQ(e.target.value); pg.resetToFirstPage(); }} placeholder="Filtrar por código o nombre…" className="rounded-md border border-ink-200 px-2.5 py-1.5 text-[12px] outline-none focus:border-blue-400" />
-            <PageSizeSelect value={pg.pageSize} onChange={pg.setPageSize} />
-          </div>
-        </div>
-
-        {rows.length === 0 ? (
-          soloAnomalias ? (
-            <EmptyState icon="check" title="Sin anomalías" description="Todas las cuentas auxiliares de este cliente siguen la homologación de su grupo." />
-          ) : soloPendientes ? (
-            <EmptyState icon="check" title="Nada por confirmar" description="Todas las cuentas con mapeo están confirmadas o son coincidencia exacta (100%)." />
-          ) : (
-            <EmptyState icon="doc" title="Sin cuentas para este cliente" description="Este cliente no tiene un PUC cargado en el repositorio de mapeo." />
-          )
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-[12.5px]">
-              <thead>
-                <tr className="border-b border-ink-100 text-left text-[11px] uppercase tracking-wider text-ink-500">
-                  <th className="px-3 py-2 font-semibold">Nivel</th>
-                  <th className="px-3 py-2 font-semibold">Código</th>
-                  <th className="px-3 py-2 font-semibold">Nombre cuenta (ERP)</th>
-                  <th className="px-3 py-2 font-semibold">Cuenta estándar (balance)</th>
-                  <th className="px-3 py-2 font-semibold">% Coincidencia</th>
-                  <th className="px-3 py-2 font-semibold">Confirmación</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pg.pageItems.map((a) => {
-                  const sinMapeo = !a.cuenta6Russell;
-                  const confirmado = a.coincidencia != null && a.coincidencia >= 100;
-                  return (
-                    <tr key={a.id} className="border-b border-ink-50 last:border-0 hover:bg-ink-50">
-                      <td className="px-3 py-2"><Chip label={`N${a.level}`} tone="ink" /></td>
-                      <td className="px-3 py-2 font-mono text-ink-600" style={{ paddingLeft: a.level === 4 ? 12 : a.level === 6 ? 28 : 48 }}>{a.code}</td>
-                      <td className="px-3 py-2 text-ink-800">
-                        {a.level !== 4 && <span className="mr-1 text-ink-400">└</span>}{a.name}
-                        {(() => {
-                          const an = anomalias.get(a.code);
-                          if (!an) return null;
-                          const etiqueta = an.cruzaClase
-                            ? `Cruza de clase · su grupo va a ${an.cuenta6RussellDelGrupo}`
-                            : `Difiere de su grupo (${an.cuenta6RussellDelGrupo})`;
-                          return <span className="ml-2"><Chip label={etiqueta} tone={an.cruzaClase ? "err" : "warn"} /></span>;
-                        })()}
-                      </td>
-                      <td className="px-3 py-2">
-                        {sinMapeo ? (
-                          <Chip label="Sin mapeo" tone="warn" />
-                        ) : (
-                          <span className="font-mono text-[11.5px] text-blue-600">{a.cuenta6Russell}{stdByCode.get(a.cuenta6Russell!) ? <span className="ml-1 font-sans text-ink-500">· {stdByCode.get(a.cuenta6Russell!)}</span> : null}</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2">
-                        {sinMapeo || a.coincidencia == null ? (
-                          <span className="text-ink-400">—</span>
-                        ) : (
-                          <span className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${a.coincidencia >= 85 ? "bg-ok-100 text-ok-700" : a.coincidencia >= 55 ? "bg-warn-100 text-warn-700" : "bg-err-100 text-err-700"}`}>{a.coincidencia}%</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2">
-                        {sinMapeo ? (
-                          <span className="text-ink-400">—</span>
-                        ) : confirmado ? (
-                          <Chip label={esExcepcionCuenta(a.origenMapeo) ? "Solo esta cuenta" : a.origenMapeo === "manual" ? "Confirmado" : "Exacto"} tone="ok" />
-                        ) : (
-                          <Chip label="Por confirmar" tone="warn" />
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-ink-100 px-4 py-2.5 text-[11.5px] text-ink-500">
-          <span>{stats.stdMapped} mapeadas al estándar de {stats.total}{stats.porConfirmar > 0 ? ` · ${stats.porConfirmar} por confirmar` : ""}{anomalias.size > 0 ? ` · ${anomalias.size} por revisar` : ""}</span>
-        </div>
-        <PaginationFooter
-          rangeLabel={pg.rangeLabel}
-          currentPage={pg.page}
-          totalPages={pg.totalPages}
-          onPageChange={pg.setPage}
-        />
-      </Card>
-        </>
-      ) : tab === "mapeocliente" ? (
-        <MapeoClienteTab rows={mapeoCliente} std={std} accounts={accounts} clienteId={clienteId} clienteNit={clienteNit} puedeMapear={puedeMapear} cliente={cliente} clientNames={clientNames} />
+      {tab === "cliente" ? (
+        <MapeoClienteTab accounts={accounts} std={std} anomalias={anomalias} clienteId={clienteId} clienteNit={clienteNit} puedeMapear={puedeMapear} cliente={cliente} clientNames={clientNames} onEditar={setEditTarget} />
       ) : tab === "standard" ? (
         <StandardTab std={std} canManage={canManage} logs={logs} lockedStdCodes={lockedStdCodes} />
       ) : (
-        <SubgruposTab subgrupos={subgrupos} canManage={canManage} />
+        <PucEstandarTab puc={puc} subgrupos={subgrupos} std={std} canManage={canManage} lockedStdCodes={lockedStdCodes} />
+      )}
+      {puedeMapear && clienteId != null && editTarget !== undefined && (
+        <HomologacionClienteForm cuenta={editTarget} clienteId={clienteId} std={std} accounts={accounts} onClose={() => setEditTarget(undefined)} />
       )}
     </div>
-  );
-}
-
-// Caja de confirmación: confirma el mapeo de una cuenta como MANUAL al 100%. Por
-// defecto aplica a TODAS las cuentas del cliente que mapean al mismo estándar
-// (varios grupos de 6 díg a la vez, p. ej. todas las imputables → 158405); si se
-// desmarca, confirma solo el grupo de 6 díg de la fila.
-function ConfirmarMapeoModal({ cuenta, accounts, stdByCode, onClose }: {
-  cuenta: Account; accounts: Account[]; stdByCode: Map<string, string>; onClose: () => void;
-}) {
-  const router = useRouter();
-  const [todas, setTodas] = useState(true);
-  const c6 = cuenta.code.slice(0, 6);
-  const std = cuenta.cuenta6Russell;
-  const stdName = std ? stdByCode.get(std) : undefined;
-  const grupoCount = accounts.filter((x) => x.code.slice(0, 6) === c6).length;
-  const estandarCount = accounts.filter((x) => x.cuenta6Russell === std).length;
-  const estandarPend = accounts.filter((x) => x.cuenta6Russell === std && (x.coincidencia == null || x.coincidencia < 100)).length;
-  const total = todas ? estandarCount : grupoCount;
-
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      size="xl"
-      title="Confirmar mapeo estándar"
-      footer={
-        <ActionForm action={confirmarMapeoCliente} successMessage="Mapeo confirmado." errorMessage="No se pudo confirmar el mapeo." showInlineError={false} onSuccess={() => { router.refresh(); onClose(); }}>
-          {(pending) => (
-            <>
-              <input type="hidden" name="id" value={cuenta.id} />
-              <input type="hidden" name="todas" value={todas ? "1" : "0"} />
-              <button type="submit" disabled={pending} className="rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-60">
-                {pending ? <EstadoProcesando>Confirmando</EstadoProcesando> : `Confirmar ${total} cuenta(s)`}
-              </button>
-            </>
-          )}
-        </ActionForm>
-      }
-    >
-      <div className="flex flex-col gap-3 text-[13px] text-ink-700">
-        <p>
-          La cuenta <span className="font-mono font-semibold">{cuenta.code}</span> — {cuenta.name} mapea a{" "}
-          <span className="font-mono text-blue-600">{std}</span>{stdName ? ` · ${stdName}` : ""} con <b>{cuenta.coincidencia ?? "—"}%</b> de coincidencia.
-        </p>
-        <label className="flex cursor-pointer items-start gap-2 rounded-md border border-ink-150 px-3 py-2.5 hover:bg-ink-50">
-          <input type="checkbox" checked={todas} onChange={(e) => setTodas(e.target.checked)} className="mt-0.5 h-4 w-4 rounded border-ink-300 text-navy-600 focus:ring-navy-600" />
-          <span className="text-[12.5px]">
-            <b>Aplicar a todas las cuentas que mapean a {std}{stdName ? ` · ${stdName}` : ""}</b>
-            <span className="mt-0.5 block text-ink-500">
-              {estandarCount} cuenta(s) en total · {estandarPend} pendiente(s). Si lo desmarcas, se confirma solo el grupo <span className="font-mono">{c6}</span> ({grupoCount} cuenta(s)).
-            </span>
-          </span>
-        </label>
-        <div className="rounded-md bg-blue-50 px-3 py-2 text-[12px] text-blue-700">
-          Las cuentas quedarán como mapeo <b>manual al 100%</b> y ya no se recalcularán (ni con IA) en próximas cargas de balance.
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
-// Selector (con búsqueda) para CAMBIAR la cuenta estándar de una fila. El cambio
-// aplica a todo el grupo de 6 díg como mapeo `manual` al 100%.
-// ===== Memoria de mapeo por cliente (cuenta_6 del cliente → cuenta estándar) =====
-// Edita la tabla `cuentas_cliente`: la parametrización que se reaplica en cada
-// importación del cliente. Gate de escritura: `balance:crear` (la action revalida
-// el alcance por cartera).
-
-function MapeoClienteTab({ rows, std, accounts, clienteId, clienteNit, puedeMapear, cliente, clientNames }: {
-  rows: MapeoClienteRow[]; std: StdAccount[]; accounts: Account[]; clienteId: number | null; clienteNit: string | null; puedeMapear: boolean; cliente: string; clientNames: string[];
-}) {
-  const router = useRouter();
-  const [q, setQ] = useState("");
-  const [origen, setOrigen] = useState<"all" | "manual" | "automatico" | "sinasignar">("all");
-  // Filtro aparte del de origen: aquel dice DE DÓNDE salió la regla y este filtra por
-  // coincidencia < 100. Son ejes distintos, y cruzarlos no aporta: lo manual se guarda
-  // siempre al 100% y lo sin asignar no tiene nada que confirmar, así que «por confirmar»
-  // está contenido en «automático».
-  const [soloPorConfirmar, setSoloPorConfirmar] = useState(false);
-  // Tercer eje: la homologación manda el saldo a otro estado financiero. A veces es
-  // deliberado —reclasificar una cuenta que el ERP codificó mal— por eso es un filtro
-  // para auditar y no una marca en cada fila: son 1.032 de 18.424 en la plataforma, y
-  // marcarlas todas convertiría la señal en papel tapiz.
-  const [soloCruceClase, setSoloCruceClase] = useState(false);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [editTarget, setEditTarget] = useState<MapeoClienteRow | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<MapeoClienteRow | null>(null);
-  const [confirmTarget, setConfirmTarget] = useState<MapeoClienteRow | null>(null);
-  const stdByCode = useMemo(() => new Map(std.map((x) => [x.code, x.name])), [std]);
-  // El modal de confirmación razona sobre cuentas del PUC: se le pasa la fila de la
-  // memoria con la forma de `Account` (comparten el id de `cuentas_cliente`).
-  const comoCuenta = (r: MapeoClienteRow): Account => ({
-    id: r.id, code: r.cuenta6, level: r.nivel, name: r.nombreCuenta,
-    cuenta6Russell: r.cuenta6Russell || null, coincidencia: r.coincidencia, origenMapeo: r.origen,
-    actualizadoEn: r.actualizadoEn || null,
-  });
-  // El selector de cuenta estándar ofrece solo cuentas de 6 dígitos (nivel 6).
-  const opciones6 = useMemo(() => std.filter((s) => s.code.length === 6), [std]);
-  const needle = q.trim().toLowerCase();
-  const filtered = rows
-    .filter((r) => {
-      if (origen === "all") return true;
-      if (origen === "sinasignar") return !r.cuenta6Russell;
-      if (!r.cuenta6Russell) return false;
-      return origen === "manual" ? esMapeoManual(r.origen) : r.origen === "automatico";
-    })
-    .filter((r) => !soloPorConfirmar || porConfirmar(r))
-    .filter((r) => !soloCruceClase || cruzaClaseContable(r.cuenta6, r.cuenta6Russell))
-    .filter((r) => !needle || r.cuenta6.includes(needle) || r.cuenta6Russell.includes(needle) || (r.nombreRussell ?? "").toLowerCase().includes(needle) || r.nombreCuenta.toLowerCase().includes(needle));
-  const pg = usePagination(filtered, 50);
-  const manualCount = rows.filter((r) => esMapeoManual(r.origen)).length;
-  const excepcionCount = rows.filter((r) => esExcepcionCuenta(r.origen)).length;
-  const sinAsignarCount = rows.filter((r) => !r.cuenta6Russell).length;
-  const porConfirmarCount = rows.filter(porConfirmar).length;
-  const cruceClaseCount = rows.filter((r) => cruzaClaseContable(r.cuenta6, r.cuenta6Russell)).length;
-
-  return (
-    <>
-      <Card>
-        <div className="border-b border-ink-100 bg-blue-50/40 px-4 py-2.5 text-[11.5px] leading-relaxed text-ink-600">
-          Memoria de mapeo de <b>{cliente}</b>{clienteNit ? <> · NIT <span className="font-mono">{clienteNit}</span></> : null} (se identifica por NIT/cliente, no por nombre): se aplica <b>automáticamente</b> al importar balances de este cliente (prioridad sobre la cascada). Lo marcado como <b>manual</b> no lo pisa el mapeo automático. Una regla de <b>6 dígitos</b> vale para todas las cuentas del grupo; una de <b>solo esta cuenta</b> es una excepción de esa cuenta imputable y le gana a la de su grupo. Editar aquí <b>no</b> cambia balances ya cargados; aplica a las próximas importaciones.
-        </div>
-        <div className="flex flex-wrap items-center gap-2 border-b border-ink-100 px-4 py-3">
-          <h2 className="text-[13px] font-semibold text-ink-800">Mapeo de balance por cliente</h2>
-          <select value={cliente} onChange={(e) => router.push(`/config/mapeo?cliente=${encodeURIComponent(e.target.value)}`)} className="rounded-md border border-ink-200 px-2 py-1 text-[12px] text-ink-700 outline-none">
-            {clientNames.map((n) => <option key={n} value={n}>{n}</option>)}
-          </select>
-          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-            <div className="flex overflow-hidden rounded-md border border-ink-200 text-[11.5px]">
-              {(["all", "manual", "automatico", "sinasignar"] as const).map((o) => (
-                <button key={o} onClick={() => { setOrigen(o); pg.resetToFirstPage(); }} className={`px-2.5 py-1 ${origen === o ? "bg-navy-800 text-white" : "bg-white text-ink-600 hover:bg-ink-50"}`}>{o === "all" ? "Todos" : o === "manual" ? "Manual" : o === "automatico" ? "Automático" : "Sin asignar"}</button>
-              ))}
-            </div>
-            {/* Mismo control que la pestaña informe: eje distinto al del origen, así que va
-                aparte y no como una opción más del grupo. */}
-            <button
-              type="button"
-              onClick={() => { setSoloPorConfirmar((v) => !v); pg.resetToFirstPage(); }}
-              className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11.5px] font-medium transition ${soloPorConfirmar ? "border-warn-300 bg-warn-100 text-warn-700" : "border-ink-200 text-ink-600 hover:bg-ink-50"}`}
-            >
-              <Icon name="warn" size={12} /> Por confirmar{porConfirmarCount > 0 ? ` (${porConfirmarCount})` : ""}
-            </button>
-            <button
-              type="button"
-              onClick={() => { setSoloCruceClase((v) => !v); pg.resetToFirstPage(); }}
-              title="La cuenta del cliente y su estándar están en clases contables distintas"
-              className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11.5px] font-medium transition ${soloCruceClase ? "border-err-300 bg-err-100 text-err-700" : "border-ink-200 text-ink-600 hover:bg-ink-50"}`}
-            >
-              <Icon name="warn" size={12} /> Cruza de clase{cruceClaseCount > 0 ? ` (${cruceClaseCount})` : ""}
-            </button>
-            <input value={q} onChange={(e) => { setQ(e.target.value); pg.resetToFirstPage(); }} placeholder="filtrar por cuenta o estándar" className="w-64 rounded-md border border-ink-200 px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400" />
-            <PageSizeSelect value={pg.pageSize} onChange={pg.setPageSize} />
-            {puedeMapear && clienteId != null && (
-              <button type="button" onClick={() => setCreateOpen(true)} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-800">Nueva regla</button>
-            )}
-          </div>
-        </div>
-        {clienteId == null ? (
-          <EmptyState icon="doc" title="Sin cliente" description="Selecciona un cliente con balances para ver y editar su memoria de mapeo." />
-        ) : rows.length === 0 ? (
-          <EmptyState icon="doc" title="Sin reglas guardadas" description="Aún no hay mapeo guardado para este cliente. Se irá creando al cargar balances o al asignar cuentas a mano en el detalle del balance." />
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-[12.5px]">
-              <thead>
-                <tr className="border-b border-ink-100 text-left text-[11px] uppercase tracking-wider text-ink-500">
-                  <th className="px-4 py-2 font-semibold">Cuenta cliente</th>
-                  <th className="px-4 py-2 font-semibold">Nombre cuenta (ERP)</th>
-                  <th className="px-4 py-2 font-semibold">Cuenta estándar Russell</th>
-                  <th className="px-4 py-2 font-semibold">Origen</th>
-                  <th className="px-4 py-2 font-semibold">Coincidencia</th>
-                  <th className="px-4 py-2 font-semibold">Actualizado</th>
-                  {puedeMapear && <th className="px-4 py-2 text-right font-semibold">Acciones</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {pg.pageItems.map((r) => (
-                  <tr key={r.id} className="border-b border-ink-50 last:border-0 hover:bg-ink-50">
-                    {/* La cuenta del cliente identifica la fila y NO se edita: va como texto
-                        plano. Lo editable es la cuenta estándar, así que el clic vive allí. */}
-                    <td className="px-4 py-2.5 font-mono font-semibold text-ink-700">{r.cuenta6}</td>
-                    {/* Las reglas creadas por anticipado guardan el código como nombre:
-                        en esas no hay nombre del ERP que mostrar. */}
-                    <td className="px-4 py-2.5 text-ink-700">{r.nombreCuenta && r.nombreCuenta !== r.cuenta6 ? r.nombreCuenta : "—"}</td>
-                    <td className="px-4 py-2.5 text-ink-800">
-                      {puedeMapear ? (
-                        <button
-                          type="button"
-                          onClick={() => setEditTarget(r)}
-                          title={esExcepcionCuenta(r.origen)
-                            ? `Cambiar la cuenta estándar solo de ${r.cuenta6}`
-                            : `Cambiar la cuenta estándar de todo el grupo ${r.cuenta6.slice(0, 6)}`}
-                          className="text-left hover:underline"
-                        >
-                          {r.cuenta6Russell ? (
-                            <><span className="font-mono text-blue-600">{r.cuenta6Russell}</span>{r.nombreRussell ? ` · ${r.nombreRussell}` : ""}</>
-                          ) : (
-                            <Chip label="Asignar" tone="warn" />
-                          )}
-                        </button>
-                      ) : r.cuenta6Russell ? (
-                        <><span className="font-mono text-blue-600">{r.cuenta6Russell}</span>{r.nombreRussell ? ` · ${r.nombreRussell}` : ""}</>
-                      ) : (
-                        <Chip label="Asignar" tone="warn" />
-                      )}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <Chip
-                        label={!r.cuenta6Russell ? "Sin asignar" : esExcepcionCuenta(r.origen) ? "Solo esta cuenta" : r.origen === "manual" ? "Manual" : "Automático"}
-                        tone={!r.cuenta6Russell ? "warn" : esMapeoManual(r.origen) ? "blue" : "ink"}
-                      />
-                    </td>
-                    <td className="px-4 py-2.5 font-mono text-ink-600">{r.coincidencia != null ? `${r.coincidencia}%` : "—"}</td>
-                    <td className="whitespace-nowrap px-4 py-2.5 text-[11.5px] text-ink-500">{fmtFecha(r.actualizadoEn)}{r.actualizadoPor ? ` · ${r.actualizadoPor}` : ""}</td>
-                    {puedeMapear && (
-                      /* Botones en una sola línea (`whitespace-nowrap` + flex): como enlaces
-                         sueltos se apilaban al angostarse la columna y quedaban ilegibles. */
-                      <td className="whitespace-nowrap px-4 py-2.5">
-                        <div className="flex items-center justify-end gap-1.5">
-                          {porConfirmar(r) && (
-                            <button
-                              type="button"
-                              onClick={() => setConfirmTarget(r)}
-                              title="Aceptar esta homologación y fijarla como manual al 100%"
-                              className="inline-flex items-center gap-1 rounded-md border border-warn-200 bg-warn-50 px-2 py-1 text-[11.5px] font-semibold text-warn-700 hover:bg-warn-100"
-                            >
-                              <Icon name="check" size={12} /> Confirmar
-                            </button>
-                          )}
-                          {r.cuenta6Russell && (
-                            <button
-                              type="button"
-                              onClick={() => setDeleteTarget(r)}
-                              title="Quitar la homologación: la cuenta vuelve a la cascada automática"
-                              className="inline-flex items-center gap-1 rounded-md border border-ink-200 bg-white px-2 py-1 text-[11.5px] font-semibold text-err-700 hover:border-err-200 hover:bg-err-50"
-                            >
-                              <Icon name="trash" size={12} /> Eliminar
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    )}
-                  </tr>
-                ))}
-                {filtered.length === 0 && (
-                  <tr><td colSpan={puedeMapear ? 7 : 6} className="px-4 py-8 text-center text-ink-400">Sin cuentas que coincidan con el filtro.</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-ink-100 px-4 py-2.5 text-[11.5px] text-ink-500">
-          <span>{rows.length} cuenta(s) · {manualCount} manual(es){excepcionCount > 0 ? ` · ${excepcionCount} de solo esta cuenta` : ""}{porConfirmarCount > 0 ? ` · ${porConfirmarCount} por confirmar` : ""}{cruceClaseCount > 0 ? ` · ${cruceClaseCount} cruzan de clase` : ""}{sinAsignarCount > 0 ? ` · ${sinAsignarCount} sin asignar` : ""}</span>
-        </div>
-        <PaginationFooter rangeLabel={pg.rangeLabel} currentPage={pg.page} totalPages={pg.totalPages} onPageChange={pg.setPage} />
-      </Card>
-
-      {puedeMapear && clienteId != null && createOpen && (
-        <MapeoClienteForm mode="create" clienteId={clienteId} opciones={opciones6} onClose={() => setCreateOpen(false)} />
-      )}
-      {puedeMapear && editTarget && (
-        <MapeoClienteForm
-          mode="edit"
-          row={editTarget}
-          opciones={opciones6}
-          excepcionesDelGrupo={esExcepcionCuenta(editTarget.origen)
-            ? [] /* editar una excepción no propaga: no pisa nada */
-            : rows.filter((r) => esExcepcionCuenta(r.origen) && r.cuenta6 !== editTarget.cuenta6 && r.cuenta6.startsWith(editTarget.cuenta6))}
-          onClose={() => setEditTarget(null)}
-          onDelete={() => { const t = editTarget; setEditTarget(null); setDeleteTarget(t); }}
-        />
-      )}
-      {puedeMapear && deleteTarget && (
-        <DeleteMapeoClienteForm row={deleteTarget} onClose={() => setDeleteTarget(null)} />
-      )}
-      {puedeMapear && confirmTarget && (
-        <ConfirmarMapeoModal cuenta={comoCuenta(confirmTarget)} accounts={accounts} stdByCode={stdByCode} onClose={() => setConfirmTarget(null)} />
-      )}
-    </>
-  );
-}
-
-function MapeoClienteForm({ mode, row, clienteId, opciones, excepcionesDelGrupo = [], onClose, onDelete }: {
-  mode: "create" | "edit"; row?: MapeoClienteRow; clienteId?: number; opciones: StdAccount[];
-  /** Excepciones de cuenta que cuelgan de esta regla y que guardar va a REEMPLAZAR. */
-  excepcionesDelGrupo?: MapeoClienteRow[];
-  onClose: () => void; onDelete?: () => void;
-}) {
-  const isEdit = mode === "edit";
-  const [state, action, pending] = useActionState(isEdit ? editarMapeoCliente : crearMapeoCliente, undefined);
-
-  useEffect(() => {
-    notifyActionState(state, {
-      success: isEdit ? "Mapeo actualizado." : "Regla creada.",
-      error: isEdit ? "No se pudo actualizar el mapeo." : "No se pudo crear la regla.",
-    });
-    if (state?.ok) onClose();
-  }, [state, isEdit, onClose]);
-
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      size="xl"
-      title={isEdit ? `${row?.cuenta6Russell ? "Editar mapeo" : "Asignar cuenta estándar"} · ${row?.cuenta6}` : "Nueva regla de mapeo"}
-      footer={
-        <div className="flex w-full items-center justify-between gap-2">
-          <div>
-            {isEdit && onDelete && (
-              <button type="button" onClick={onDelete} className="rounded-md border border-err-200 px-3 py-2 text-[13px] font-semibold text-err-700 hover:bg-err-50">Eliminar</button>
-            )}
-          </div>
-          <button type="submit" form="mapeo-cliente-form" disabled={pending} className="rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-60">
-            {pending ? <EstadoProcesando>Guardando</EstadoProcesando> : isEdit ? "Guardar cambios" : "Crear regla"}
-          </button>
-        </div>
-      }
-    >
-      <form id="mapeo-cliente-form" action={action} className="flex flex-col gap-4">
-        {isEdit ? <input type="hidden" name="id" value={row!.id} /> : <input type="hidden" name="clienteId" value={clienteId} />}
-        {/* Guardar una regla de grupo propaga por PREFIJO y arrastra las excepciones de
-            cuenta que cuelgan de ella. Es intencional —una decisión de grupo manda sobre
-            las de cuenta— pero era silencioso: alguien las creó desde el balance y aquí
-            desaparecían sin aviso. */}
-        {excepcionesDelGrupo.length > 0 && (
-          <p className="rounded-md border border-warn-300 bg-warn-50 px-3 py-2 text-[12px] leading-relaxed text-warn-800">
-            <b>Guardar reemplazará {excepcionesDelGrupo.length} excepción(es) de cuenta</b> asociadas a este grupo:{" "}
-            {excepcionesDelGrupo.slice(0, 4).map((e) => `${e.cuenta6} → ${e.cuenta6Russell}`).join(" · ")}
-            {excepcionesDelGrupo.length > 4 ? " …" : ""}. Quedarán con el estándar que elijas aquí.
-          </p>
-        )}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Campo label={isEdit && esExcepcionCuenta(row!.origen) ? "Cuenta del cliente" : "Cuenta del cliente (6 dígitos)"}>
-            {isEdit ? (
-              <input value={row!.cuenta6} readOnly className={`${INPUT_CLS} cursor-not-allowed bg-ink-50 text-ink-500`} />
-            ) : (
-              <input name="cuenta6" required inputMode="numeric" pattern="\d{6}" placeholder="140501" className={INPUT_CLS} />
-            )}
-            <p className="text-[11px] leading-snug text-ink-500">
-              {isEdit && esExcepcionCuenta(row!.origen)
-                ? `Excepción de solo esta cuenta${row!.nombreCuenta && row!.nombreCuenta !== row!.cuenta6 ? ` (${row!.nombreCuenta})` : ""}: no cambia las demás cuentas del grupo ${row!.cuenta6.slice(0, 6)}.`
-                : "Se aplica a TODAS las cuentas del cliente que inician con este código de 6 dígitos."}
-            </p>
-          </Campo>
-          <Campo label="Cuenta estándar Russell">
-            <select name="codigo" defaultValue={row?.cuenta6Russell ?? ""} required className={INPUT_CLS}>
-              <option value="">— Selecciona —</option>
-              {opciones.map((o) => <option key={o.code} value={o.code}>{o.code} · {o.name}</option>)}
-            </select>
-          </Campo>
-        </div>
-        {state?.message && <p className="text-[12px] text-err-700">{state.message}</p>}
-      </form>
-    </Modal>
-  );
-}
-
-function DeleteMapeoClienteForm({ row, onClose }: { row: MapeoClienteRow; onClose: () => void }) {
-  const [state, action, pending] = useActionState(eliminarMapeoCliente, undefined);
-
-  useEffect(() => {
-    notifyActionState(state, { success: "Regla eliminada.", error: "No se pudo eliminar la regla." });
-    if (state?.ok) onClose();
-  }, [state, onClose]);
-
-  return (
-    <Modal
-      open
-      onClose={onClose}
-      title="Eliminar regla de mapeo"
-      footer={
-        <button type="submit" form="delete-mapeo-cliente-form" disabled={pending} className="rounded-md bg-err-700 px-4 py-2 text-[13px] font-semibold text-white hover:bg-err-700/90 disabled:opacity-60">
-          {pending ? <EstadoProcesando>Eliminando</EstadoProcesando> : "Eliminar"}
-        </button>
-      }
-    >
-      <form id="delete-mapeo-cliente-form" action={action} className="flex flex-col gap-4">
-        <input type="hidden" name="id" value={row.id} />
-        <p className="text-[13px] text-ink-600">
-          Vas a eliminar el mapeo guardado <strong className="font-mono">{row.cuenta6}</strong> → <strong className="font-mono">{row.cuenta6Russell}</strong>.{" "}
-          {esExcepcionCuenta(row.origen)
-            ? `En la próxima importación esa cuenta volverá a seguir la regla de su grupo ${row.cuenta6.slice(0, 6)}.`
-            : "En la próxima importación esa cuenta se volverá a mapear con la cascada automática."}
-        </p>
-        {state?.message && <p className="text-[12px] text-err-700">{state.message}</p>}
-      </form>
-    </Modal>
   );
 }
 
@@ -754,7 +144,7 @@ function StandardTab({ std, canManage, logs, lockedStdCodes }: { std: StdAccount
                 onClick={() => setCreateOpen(true)}
                 className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-800"
               >
-                Nueva cuenta
+                Nueva Subcuenta
               </button>
             </>
           )}
@@ -892,7 +282,7 @@ function StandardAccountForm({
       open
       onClose={onClose}
       size="3xl"
-      title={isEdit ? `Editar cuenta estándar · ${a?.code}` : "Nueva cuenta estándar"}
+      title={isEdit ? `Editar cuenta estándar · ${a?.code}` : "Nueva Subcuenta"}
       footer={
         <div className="flex w-full items-center justify-between gap-2">
           <div>
@@ -914,7 +304,7 @@ function StandardAccountForm({
             disabled={pending}
             className="rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-60"
           >
-            {pending ? <EstadoProcesando>Guardando</EstadoProcesando> : isEdit ? "Guardar cambios" : "Crear cuenta"}
+            {pending ? <EstadoProcesando>Guardando</EstadoProcesando> : isEdit ? "Guardar cambios" : "Crear subcuenta"}
           </button>
         </div>
       }
@@ -941,7 +331,7 @@ function StandardAccountForm({
             <input name="name" defaultValue={a?.name ?? ""} required className={INPUT_CLS} />
           </Campo>
           <Campo label="Nivel">
-            <input name="level" type="number" min={1} max={12} defaultValue={a?.level ?? 1} required className={INPUT_CLS} />
+            <input name="level" type="number" min={1} max={12} defaultValue={a?.level ?? 6} required className={INPUT_CLS} />
           </Campo>
           <Campo label="Naturaleza">
             <select name="nature" defaultValue={a?.nature ?? "D"} required className={INPUT_CLS}>
@@ -1064,7 +454,7 @@ function LogsModal({ logs, onClose }: { logs: StdLogRow[]; onClose: () => void }
           <p className="text-[12px] text-ink-500">
             Movimientos sobre las cuentas estándar (crear · editar · eliminar). {logs.length} registro(s).
           </p>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex flex-wrap items-center gap-2">
             <input
               value={q}
               onChange={(e) => {
@@ -1117,7 +507,7 @@ function LogsModal({ logs, onClose }: { logs: StdLogRow[]; onClose: () => void }
 
 function TabBtn({ on, onClick, label, count }: { on: boolean; onClick: () => void; label: string; count: number }) {
   return (
-    <button onClick={onClick} className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12.5px] font-medium transition ${on ? "bg-navy-800 text-white" : "text-ink-600 hover:bg-ink-100"}`}>
+    <button type="button" role="tab" aria-selected={on} onClick={onClick} className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12.5px] font-medium transition ${on ? "bg-navy-800 text-white" : "text-ink-600 hover:bg-ink-100"}`}>
       {label}
       <span className={`rounded-full px-1.5 text-[10px] font-semibold ${on ? "bg-white/20 text-white" : "bg-ink-100 text-ink-500"}`}>{count}</span>
     </button>
@@ -1126,89 +516,53 @@ function TabBtn({ on, onClick, label, count }: { on: boolean; onClick: () => voi
 
 // ===== Subgrupos del plan estándar (nivel 4) — solo Administrador edita =====
 
-function SubgruposTab({ subgrupos, canManage }: { subgrupos: Subgrupo[]; canManage: boolean }) {
+function PucEstandarTab({ puc, subgrupos, std, canManage, lockedStdCodes }: {
+  puc: FilaPucRussell[]; subgrupos: Subgrupo[]; std: StdAccount[]; canManage: boolean; lockedStdCodes: string[];
+}) {
   const [q, setQ] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Subgrupo | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Subgrupo | null>(null);
-  const needle = q.trim().toLowerCase();
-  const rows = subgrupos.filter((s) => !needle || [s.codigo, s.nombre, s.grupo, s.nombreGrupo].some((v) => v.toLowerCase().includes(needle)));
-  const pg = usePagination(rows, 50);
-
-  return (
-    <>
-      <Card>
-        <div className="flex flex-wrap items-center gap-2 border-b border-ink-100 px-4 py-3">
-          <h2 className="text-[13px] font-semibold text-ink-800">Subgrupos del plan estándar (nivel 4)</h2>
-          <Chip label={`${pg.total} subgrupos`} tone="ink" />
-          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
-            <input
-              value={q}
-              onChange={(e) => { setQ(e.target.value); pg.resetToFirstPage(); }}
-              placeholder="filtrar código, subgrupo o grupo"
-              className="w-72 rounded-md border border-ink-200 px-2.5 py-1.5 text-[12.5px] outline-none focus:border-blue-400"
-            />
-            <PageSizeSelect value={pg.pageSize} onChange={pg.setPageSize} />
-            {canManage && (
-              <button type="button" onClick={() => setCreateOpen(true)} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-800">
-                Nuevo subgrupo
-              </button>
-            )}
-          </div>
+  const [subcuenta, setSubcuenta] = useState<StdAccount | null>(null);
+  const filas = useMemo(() => filtrarPucRussell(puc, q), [puc, q]);
+  const cuentas4 = useMemo(() => new Map(subgrupos.map((s) => [s.codigo, s])), [subgrupos]);
+  const cuentas6 = useMemo(() => new Map(std.map((s) => [s.code, s])), [std]);
+  return <>
+    <Card>
+      <div className="flex flex-wrap items-center gap-3 border-b border-ink-100 px-4 py-3">
+        <div><h2 className="text-[13px] font-semibold text-ink-800">PUC Estándar Russell</h2><p className="mt-1 text-[12px] text-ink-500">Clases · grupos · cuentas · subcuentas</p></div>
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <input aria-label="Buscar en el PUC estándar" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Código o nombre de cuenta…" className="w-72 max-w-full rounded-md border border-ink-200 px-3 py-2 text-[12px] outline-none focus:border-blue-400" />
+          {canManage && <button type="button" onClick={() => setCreateOpen(true)} className="rounded-md bg-navy-700 px-3 py-2 text-[12px] font-semibold text-white hover:bg-navy-800">Nueva Cuenta</button>}
         </div>
-        {canManage && (
-          <div className="border-b border-ink-100 bg-blue-50/40 px-4 py-2 text-[11.5px] text-ink-600">
-            Estos nombres alimentan los <b>niveles 4 y 2</b> del balance normalizado. Haz clic en el <b>código</b> para editar.
-          </div>
-        )}
-        <div className="overflow-x-auto">
-          <table className="w-full text-[12.5px]">
-            <thead>
-              <tr className="border-b border-ink-100 text-left text-[11px] uppercase tracking-wider text-ink-500">
-                <th className="px-4 py-2 font-semibold">Código (4D)</th>
-                <th className="px-4 py-2 font-semibold">Subgrupo</th>
-                <th className="px-4 py-2 font-semibold">Grupo (2D)</th>
-                <th className="px-4 py-2 font-semibold">Nombre grupo</th>
-                <th className="px-4 py-2 font-semibold">Naturaleza</th>
-              </tr>
-            </thead>
-            <tbody>
-              {pg.pageItems.map((s) => (
-                <tr key={s.id} className="border-b border-ink-50 last:border-0 hover:bg-ink-50">
-                  <td className="px-4 py-2.5 font-mono text-ink-600">
-                    {canManage ? (
-                      <button type="button" onClick={() => setEditTarget(s)} title="Editar subgrupo" className="font-mono font-semibold text-blue-600 hover:underline">{s.codigo}</button>
-                    ) : (
-                      s.codigo
-                    )}
-                  </td>
-                  <td className="min-w-56 px-4 py-2.5 font-medium text-ink-800">{s.nombre}</td>
-                  <td className="px-4 py-2.5 font-mono text-ink-500">{s.grupo}</td>
-                  <td className="min-w-44 px-4 py-2.5 text-ink-700">{s.nombreGrupo}</td>
-                  <td className="px-4 py-2.5"><Chip label={s.naturaleza === "D" ? "Débito" : "Crédito"} tone="ink" /></td>
-                </tr>
-              ))}
-              {rows.length === 0 && (
-                <tr><td colSpan={5} className="px-4 py-8 text-center text-ink-400">Sin subgrupos que coincidan con el filtro.</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-        <PaginationFooter rangeLabel={pg.rangeLabel} currentPage={pg.page} totalPages={pg.totalPages} onPageChange={pg.setPage} />
-      </Card>
-
-      {canManage && createOpen && <SubgrupoForm mode="create" onClose={() => setCreateOpen(false)} />}
-      {canManage && editTarget && (
-        <SubgrupoForm
-          mode="edit"
-          subgrupo={editTarget}
-          onClose={() => setEditTarget(null)}
-          onDelete={() => { const t = editTarget; setEditTarget(null); setDeleteTarget(t); }}
-        />
-      )}
-      {canManage && deleteTarget && <DeleteSubgrupoForm subgrupo={deleteTarget} onClose={() => setDeleteTarget(null)} />}
-    </>
-  );
+      </div>
+      <div className="max-h-[70vh] overflow-auto">
+        <table className="tabla-encabezado-fijo w-full text-[12.5px]">
+          <thead className="bg-ink-50 text-left text-[11px] uppercase tracking-wider text-ink-500"><tr><th className="px-4 py-2">Nivel</th><th className="px-4 py-2">Código / nombre</th><th className="px-4 py-2">Naturaleza</th></tr></thead>
+          <tbody>{filas.map((fila) => {
+            const editable = canManage && fila.catalogada && fila.nivel >= 4;
+            const abrir = () => {
+              if (fila.nivel === 4) setEditTarget(cuentas4.get(fila.codigo) ?? null);
+              else setSubcuenta(cuentas6.get(fila.codigo) ?? null);
+            };
+            return <tr key={fila.codigo} className={`border-b border-ink-100 ${fila.nivel === 1 ? "bg-navy-800 text-white" : fila.nivel === 2 ? "bg-blue-50 font-semibold text-navy-800" : "text-ink-700 hover:bg-ink-50"}`}>
+              <td className="w-20 px-4 py-2.5 text-[11px]">N{fila.nivel}</td>
+              <td className="py-2.5 pr-4" style={{ paddingLeft: 16 + profundidadPuc(fila.nivel) * 22 }}>
+                {editable ? <button type="button" onClick={abrir} className="text-left hover:text-blue-700 hover:underline" title={`Editar ${fila.codigo}`}><span className="mr-3 font-mono font-semibold">{fila.codigo}</span>{fila.nombre}</button> : <><span className="mr-3 font-mono font-semibold">{fila.codigo}</span>{fila.nombre}</>}
+                {fila.nivel === 4 && !fila.catalogada && <span className="ml-2 text-[11px] text-ink-400">Sin ficha de cuenta</span>}
+              </td>
+              <td className="w-36 px-4 py-2.5">{fila.naturaleza === "D" ? "Débito" : fila.naturaleza === "C" ? "Crédito" : "—"}</td>
+            </tr>;
+          })}{filas.length === 0 && <tr><td colSpan={3} className="px-4 py-8 text-center text-ink-500">No hay cuentas que coincidan.</td></tr>}</tbody>
+        </table>
+      </div>
+      <div className="border-t border-ink-100 px-4 py-2.5 text-[11.5px] text-ink-500">{filas.length} de {puc.length} registros · niveles 1, 2, 4 y 6 · la descarga incluye el PUC completo</div>
+    </Card>
+    {canManage && createOpen && <SubgrupoForm mode="create" onClose={() => setCreateOpen(false)} />}
+    {canManage && editTarget && <SubgrupoForm mode="edit" subgrupo={editTarget} onClose={() => setEditTarget(null)} onDelete={() => { setDeleteTarget(editTarget); setEditTarget(null); }} />}
+    {canManage && deleteTarget && <DeleteSubgrupoForm subgrupo={deleteTarget} onClose={() => setDeleteTarget(null)} />}
+    {canManage && subcuenta && <StandardAccountForm mode="edit" account={subcuenta} locked={lockedStdCodes.includes(subcuenta.code)} onClose={() => setSubcuenta(null)} />}
+  </>;
 }
 
 function SubgrupoForm({ mode, subgrupo, onClose, onDelete }: { mode: "create" | "edit"; subgrupo?: Subgrupo; onClose: () => void; onDelete?: () => void }) {
@@ -1229,7 +583,7 @@ function SubgrupoForm({ mode, subgrupo, onClose, onDelete }: { mode: "create" | 
       open
       onClose={onClose}
       size="xl"
-      title={isEdit ? `Editar subgrupo · ${s?.codigo}` : "Nuevo subgrupo"}
+      title={isEdit ? `Editar subgrupo · ${s?.codigo}` : "Nueva Cuenta"}
       footer={
         <div className="flex w-full items-center justify-between gap-2">
           <div>
@@ -1240,7 +594,7 @@ function SubgrupoForm({ mode, subgrupo, onClose, onDelete }: { mode: "create" | 
             )}
           </div>
           <button type="submit" form="subgrupo-form" disabled={pending} className="rounded-md bg-navy-700 px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-60">
-            {pending ? <EstadoProcesando>Guardando</EstadoProcesando> : isEdit ? "Guardar cambios" : "Crear subgrupo"}
+            {pending ? <EstadoProcesando>Guardando</EstadoProcesando> : isEdit ? "Guardar cambios" : "Crear cuenta"}
           </button>
         </div>
       }
@@ -1248,7 +602,7 @@ function SubgrupoForm({ mode, subgrupo, onClose, onDelete }: { mode: "create" | 
       <form id="subgrupo-form" action={action} className="flex flex-col gap-4">
         {isEdit && <input type="hidden" name="id" value={s!.id} />}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Campo label="Código del subgrupo (4 dígitos)">
+          <Campo label="Código de la cuenta (4 dígitos)">
             <input name="codigo" defaultValue={s?.codigo ?? ""} required inputMode="numeric" pattern="\d{4}" placeholder="1105" className={INPUT_CLS} />
             <p className="text-[11px] leading-snug text-ink-500">El grupo (nivel 2) se deriva de los 2 primeros dígitos.</p>
           </Campo>
@@ -1258,7 +612,7 @@ function SubgrupoForm({ mode, subgrupo, onClose, onDelete }: { mode: "create" | 
               <option value="C">Crédito</option>
             </select>
           </Campo>
-          <Campo label="Nombre del subgrupo (nivel 4)" full>
+          <Campo label="Nombre de la cuenta (nivel 4)" full>
             <input name="nombre" defaultValue={s?.nombre ?? ""} required placeholder="Caja" className={INPUT_CLS} />
           </Campo>
           <Campo label="Nombre del grupo (nivel 2)" full>

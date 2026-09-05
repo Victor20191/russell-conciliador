@@ -1,5 +1,5 @@
 // Helpers de formato (portados de components.jsx) — locale y zona de Colombia.
-import { aFecha, partesFechaHoraColombia, ZONA_HORARIA_COLOMBIA, type EntradaFecha } from "@/lib/fecha-hora";
+import { aFecha, partesFechaHoraColombia, type EntradaFecha } from "@/lib/fecha-hora";
 
 export const fmt = (n: number | null | undefined): string => {
   if (n == null) return "—";
@@ -114,14 +114,12 @@ export const fmtDateTimeSeconds = (input: Date | string | null | undefined): str
 /** Formato largo consistente para interfaces cliente y servidor. */
 export const fmtDateTimeLong = (input: EntradaFecha | null | undefined): string => {
   if (input == null) return "—";
-  const fecha = aFecha(input);
-  if (!fecha) return "—";
-  return new Intl.DateTimeFormat("es-CO", {
-    timeZone: ZONA_HORARIA_COLOMBIA,
-    dateStyle: "medium",
-    timeStyle: "short",
-    hour12: true,
-  }).format(fecha);
+  const partes = partesFechaHoraColombia(input);
+  if (!partes) return "—";
+  const { h, sufijo } = hora12(partes.hora);
+  // ICU puede producir espacios distintos en Node y en el navegador. Los
+  // separadores y el período del día son explícitos para que SSR hidrate igual.
+  return `${partes.dia}/${String(partes.mes).padStart(2, "0")}/${partes.anio}, ${h}:${String(partes.minuto).padStart(2, "0")} ${sufijo}`;
 };
 
 export const timeAgo = (input: Date | string, now: Date = new Date()): string => {

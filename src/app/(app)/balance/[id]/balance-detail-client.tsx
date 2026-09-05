@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
 import { Card, Chip } from "@/components/ui";
+import { EncabezadoTablaBalance, CeldasImportesBalance } from "@/components/tabla-columnas-balance";
 import { Modal } from "@/components/modal";
 import {
   BotonPantallaCompleta,
@@ -15,7 +16,7 @@ import {
   propsRegionPantallaCompleta,
   usePantallaCompletaTabla,
 } from "@/components/tabla-pantalla-completa";
-import { fmt, fmtPct } from "@/lib/format";
+import { fmt } from "@/lib/format";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import { asignarCuentaEstandar, marcarCuentaPendiente, quitarPendiente, validarAlerta, revertirValidacionAlerta, eliminarDetalleBalance } from "@/app/actions/balance";
 import Conversacion from "@/components/conversacion";
@@ -31,11 +32,9 @@ import type { PrevalidadorVM } from "@/lib/balance/prevalidador/calcular";
 import type { RevisionPrevalidadorVM } from "@/lib/balance/prevalidador/servidor";
 import {
   FILTROS_COLUMNAS_DETALLE_INICIALES,
-  OPCIONES_FILTRO_VALIDACION,
   filtrarArbolDetallePorColumnas,
   hayFiltrosColumnasDetalle,
   type FiltrosColumnasDetalle,
-  type FiltroValidacionDetalle,
 } from "@/lib/balance/filtros-detalle";
 import { coincideBusquedaCuenta } from "@/lib/balance/busqueda-cuenta";
 
@@ -438,103 +437,7 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, va
       </div>
       <div ref={tablaRef} className={claseScrollTabla(pantallaCompleta)}>
         <table className="balance-detail-row-hover tabla-encabezado-fijo w-full text-[12.5px]">
-          <thead>
-            <tr className="text-left text-[11px] uppercase tracking-wider text-ink-500">
-              <th className="min-w-48 px-4 py-2 font-semibold">
-                Código
-                <FiltroTextoColumna
-                  ariaLabel="Filtrar la columna Código"
-                  value={filtrosColumnas.codigo}
-                  onChange={(valor) => actualizarFiltroColumna("codigo", valor)}
-                  placeholder="Buscar código"
-                />
-              </th>
-              <th className="min-w-56 px-4 py-2 font-semibold">
-                Cuenta
-                <FiltroTextoColumna
-                  ariaLabel="Filtrar la columna Cuenta"
-                  value={filtrosColumnas.cuenta}
-                  onChange={(valor) => actualizarFiltroColumna("cuenta", valor)}
-                  placeholder="Buscar cuenta"
-                />
-              </th>
-              <th className="min-w-44 px-4 py-2 font-semibold">
-                Mapeo estándar
-                <FiltroTextoColumna
-                  ariaLabel="Filtrar la columna Mapeo estándar"
-                  value={filtrosColumnas.mapeo}
-                  onChange={(valor) => actualizarFiltroColumna("mapeo", valor)}
-                  placeholder="Código o sin mapeo"
-                />
-              </th>
-              <th data-separador="true" className="min-w-40 whitespace-nowrap px-4 py-2 text-right font-semibold">
-                Saldo anterior
-                <FiltroTextoColumna
-                  ariaLabel="Filtrar la columna Saldo anterior"
-                  value={filtrosColumnas.saldoAnterior}
-                  onChange={(valor) => actualizarFiltroColumna("saldoAnterior", valor)}
-                  placeholder="Ej. > 1000000"
-                  numerico
-                />
-              </th>
-              <th data-separador="true" className="min-w-36 whitespace-nowrap px-4 py-2 text-right font-semibold">
-                Débito
-                <FiltroTextoColumna
-                  ariaLabel="Filtrar la columna Débito"
-                  value={filtrosColumnas.debito}
-                  onChange={(valor) => actualizarFiltroColumna("debito", valor)}
-                  placeholder="Ej. > 0"
-                  numerico
-                />
-              </th>
-              <th data-separador="true" className="min-w-36 whitespace-nowrap px-4 py-2 text-right font-semibold">
-                Crédito
-                <FiltroTextoColumna
-                  ariaLabel="Filtrar la columna Crédito"
-                  value={filtrosColumnas.credito}
-                  onChange={(valor) => actualizarFiltroColumna("credito", valor)}
-                  placeholder="Ej. > 0"
-                  numerico
-                />
-              </th>
-              <th data-separador="true" className="min-w-36 whitespace-nowrap px-4 py-2 text-right font-semibold">
-                Saldo
-                <FiltroTextoColumna
-                  ariaLabel="Filtrar la columna Saldo"
-                  value={filtrosColumnas.saldo}
-                  onChange={(valor) => actualizarFiltroColumna("saldo", valor)}
-                  placeholder="Ej. < 0"
-                  numerico
-                />
-              </th>
-              <th data-separador="true" className="min-w-32 whitespace-nowrap px-4 py-2 text-right font-semibold">
-                Var %
-                <FiltroTextoColumna
-                  ariaLabel="Filtrar la columna Variación porcentual"
-                  value={filtrosColumnas.variacion}
-                  onChange={(valor) => actualizarFiltroColumna("variacion", valor)}
-                  placeholder="Ej. > 25"
-                  numerico
-                />
-              </th>
-              <th data-separador="true" className="min-w-44 px-4 py-2 font-semibold">
-                Validación
-                <select
-                  value={filtrosColumnas.validacion}
-                  onChange={(evento) => actualizarFiltroColumna(
-                    "validacion",
-                    evento.target.value as FiltroValidacionDetalle,
-                  )}
-                  aria-label="Filtrar la columna Validación"
-                  className={CLASE_FILTRO_COLUMNA}
-                >
-                  {OPCIONES_FILTRO_VALIDACION.map((opcion) => (
-                    <option key={opcion.value} value={opcion.value}>{opcion.label}</option>
-                  ))}
-                </select>
-              </th>
-            </tr>
-          </thead>
+          <EncabezadoTablaBalance filtros={filtrosColumnas} onChange={actualizarFiltroColumna} />
           <tbody onClick={onClickFila} onDoubleClick={onDoubleClickFila}>
             {visible.length === 0 ? (
               <tr><td colSpan={9} className="px-4 py-6 text-center text-[12.5px] text-ink-400">{filtrosColumnasActivos ? "Sin cuentas que coincidan con los filtros de columna." : q.trim() ? "Sin cuentas que coincidan con la búsqueda." : filtro !== "todo" ? "Sin alertas para este filtro. 🎉" : "Sin cuentas para este filtro."}</td></tr>
@@ -559,35 +462,6 @@ function BreakdownTab({ arbol, estandar, puedeMapear, balanceId, comentarios, va
       {validar && <ValidarModal nodo={validar.nodo} tipo={validar.tipo} balanceId={balanceId} onClose={() => setValidar(null)} />}
       {eliminar && <EliminarModal nodo={eliminar} onClose={() => setEliminar(null)} />}
     </div>
-  );
-}
-
-const CLASE_FILTRO_COLUMNA =
-  "mt-1 block h-7 w-full rounded-md border border-ink-200 bg-white px-2 text-[11px] font-normal normal-case tracking-normal text-ink-700 outline-none placeholder:text-ink-400 focus:border-blue-400";
-
-function FiltroTextoColumna({
-  ariaLabel,
-  value,
-  onChange,
-  placeholder,
-  numerico = false,
-}: {
-  ariaLabel: string;
-  value: string;
-  onChange: (valor: string) => void;
-  placeholder: string;
-  numerico?: boolean;
-}) {
-  return (
-    <input
-      type="text"
-      inputMode={numerico ? "decimal" : "search"}
-      value={value}
-      onChange={(evento) => onChange(evento.target.value)}
-      aria-label={ariaLabel}
-      placeholder={placeholder}
-      className={`${CLASE_FILTRO_COLUMNA} ${numerico ? "text-right" : "text-left"}`}
-    />
   );
 }
 
@@ -643,12 +517,7 @@ function filas(nodo: NodoBalance, depth: number, open: Set<string>, toggle: (k: 
         )}
       </td>
       <td className="px-4 py-2">{celdaMapeo(nodo, puedeMapear, onAsignar)}</td>
-      <td className="whitespace-nowrap border-l border-ink-150 px-4 py-2 text-right font-mono text-ink-400">{fmt(nodo.prevBalance)}</td>
-      <td className="whitespace-nowrap border-l border-ink-150 px-4 py-2 text-right font-mono text-ink-600">{fmt(nodo.debe)}</td>
-      <td className="whitespace-nowrap border-l border-ink-150 px-4 py-2 text-right font-mono text-ink-600">{fmt(nodo.haber)}</td>
-      <td className={`whitespace-nowrap border-l border-ink-150 px-4 py-2 text-right font-mono ${esGrupo ? "font-semibold text-ink-800" : "text-ink-700"}`}>{fmt(nodo.balance)}</td>
-      <td className={`whitespace-nowrap border-l border-ink-150 px-4 py-2 text-right font-mono ${nodo.variation != null && Math.abs(nodo.variation) > 25 ? "text-warn-700" : "text-ink-600"}`}>{fmtPct(nodo.variation)}</td>
-      <td className="whitespace-nowrap border-l border-ink-150 px-4 py-2">{celdaValidacion(nodo, val)}</td>
+      <CeldasImportesBalance anterior={nodo.prevBalance} debito={nodo.debe} credito={nodo.haber} saldo={nodo.balance} variacion={nodo.variation} grupo={esGrupo} validacion={celdaValidacion(nodo, val)} />
     </tr>
   );
 

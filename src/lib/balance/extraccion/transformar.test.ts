@@ -1015,6 +1015,31 @@ describe("transformarTabular: balance por tercero con CUENTAS EN NEGRITA", () =>
 });
 
 describe("transformarTabular — filasTercero (staging paralelo del detalle por tercero)", () => {
+  it("agregar columnas de identidad no cambia filas, clasificación ni importes del borrador", () => {
+    const hojaT: GridHoja = {
+      nombre: "Balance",
+      filas: [
+        ["Código", "Cuenta", "SI", "DB", "CR", "Saldo", "Documento", "Nombre tercero", "Tipo", "DV"],
+        [130505, "Clientes", 100, 500, 200, 400, "0012345678", "Ana Pérez", "CC", ""],
+        [130505, "Clientes", 20, 50, 10, 60, "900123456", "ACME SAS", "NIT", "7"],
+      ],
+    };
+    const base = transformarTabular(spec({ columnas: { ...spec().columnas, tercero: 7 } }), [hojaT], PARAMS);
+    const enriquecida = transformarTabular(spec({
+      columnas: { ...spec().columnas, tercero: 7, nombreTercero: 8, tipoDocumentoTercero: 9, dvTercero: 10 },
+    }), [hojaT], PARAMS);
+
+    expect(enriquecida.filasCrudas).toEqual(base.filasCrudas);
+    expect(enriquecida.importReady).toEqual(base.importReady);
+    expect(enriquecida.resumen).toEqual(base.resumen);
+    expect(enriquecida.filasTercero?.[0].identidadTercero).toMatchObject({
+      tipoDocumento: "CC", numeroDocumento: "0012345678", nombre: "Ana Pérez",
+    });
+    expect(enriquecida.filasTercero?.[1].identidadTercero).toMatchObject({
+      tipoDocumento: "NIT", numeroDocumento: "900123456", digitoVerificacion: "7", nombre: "ACME SAS",
+    });
+  });
+
   it("captura el detalle de los movimientos con celda Tercero antes de agregar por cuenta", () => {
     const hojaT: GridHoja = {
       nombre: "Balance",
