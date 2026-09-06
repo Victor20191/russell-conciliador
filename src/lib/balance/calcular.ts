@@ -56,7 +56,16 @@ export type ResultadoBalance = {
   mapped: number;
   unmapped: number;
   critical: number;
+  // Convención de signo DETECTADA en el archivo al calcular. Solo la fija
+  // `calcularBalance`; `reconstruirBalance` la deja indefinida porque sobre el
+  // detalle persistido (ya firmado) la convención de origen no se conoce.
+  convencionSigno?: ConvencionSignoDetectada;
+  // Correctoras (naturaleza distinta a la de su clase) que conservaron el signo del
+  // archivo por la convención relativa a la clase. 0 en cualquier otra convención.
+  correctorasConservadas?: number;
 };
+
+export type ConvencionSignoDetectada = "firmado" | "magnitud" | "relativo_clase";
 
 // Margen absoluto (COP) para los gates contables del cargue: el balance se
 // promueve igual, pero queda marcado CUADRADO solo si AMBAS identidades caen
@@ -542,15 +551,56 @@ export function calcularBalance(
       flip = magPositiva > magNegativa;
     }
   }
+
+  // Tercera convención: signo RELATIVO A LA CLASE (World Office). Cada saldo viene
+  // con signo según SUME o RESTE al total de su clase: pasivos, patrimonio e
+  // ingresos en positivo (igual que en magnitud), pero una CORRECTORA —cuenta cuya
+  // naturaleza difiere de la de su clase, p. ej. depreciación acumulada: clase 1
+  // débito, naturaleza crédito— llega YA firmada en negativo, porque resta del
+  // activo. El flip por naturaleza de la cuenta la invertiría de más: en FUNDACIÓN
+  // INFANTIL SANTIAGO CORAZÓN las tres depreciaciones (−240.594.668) pasaron a
+  // positivo y el activo quedó inflado en exactamente el doble (481.189.336)
+  // frente al total que declara el propio archivo.
+  //
+  // Se detecta SOLO con flip (el archivo ya se leyó como magnitud), SOLO sobre las
+  // correctoras homologadas (sin plan estándar no existen: `nature = claseNatura`,
+  // así que el borrador nunca entra aquí) y por MAGNITUD, no por conteo —mismo
+  // principio que el nivel 2 del flip—: si las correctoras que llegan restando
+  // (negativas) pesan más que las que llegan sumando, el archivo firma relativo a
+  // la clase y la inversión se decide por la naturaleza de la CLASE, no de la
+  // cuenta. Para toda cuenta cuya naturaleza coincide con su clase ambos criterios
+  // dan lo mismo: solo cambian las correctoras. Sin flip, sin correctoras o con
+  // correctoras positivas (magnitud pura) el resultado es idéntico al de antes.
+  const esCorrectora = (m: { code: string; nature: string }) => {
+    const deClase = claseNatura(m.code);
+    return m.nature !== "-" && deClase !== "-" && m.nature !== deClase;
+  };
+  let relativoAClase = false;
+  let correctorasConservadas = 0;
+  if (flip) {
+    const correctoras = mapeadas.filter((m) => esCorrectora(m) && m.balance !== 0);
+    if (correctoras.length > 0) {
+      const restan = sum(correctoras.filter((m) => m.balance < 0).map((m) => Math.abs(m.balance)));
+      const suman = sum(correctoras.filter((m) => m.balance > 0).map((m) => Math.abs(m.balance)));
+      relativoAClase = restan > suman;
+      if (relativoAClase) correctorasConservadas = correctoras.length;
+    }
+  }
+
   // Bajo magnitud se INVIERTE el signo de las cuentas de naturaleza crédito
   // (no se fuerza a -Math.abs): así una cuenta crédito con saldo deudor —saldo
   // contrario legítimo a su naturaleza— conserva su anomalía y la validación V2
   // la detecta, en vez de "corregirla" silenciosamente al signo de su clase.
-  const aSigno = (nature: string, v: number) => (flip ? (nature === "C" ? -v : v) : v);
+  // Con la convención relativa a la clase manda la naturaleza de la CLASE.
+  const aSigno = (nature: string, code: string, v: number) => {
+    if (!flip) return v;
+    const natParaSigno = relativoAClase ? claseNatura(code) : nature;
+    return natParaSigno === "C" ? -v : v;
+  };
 
   const detalle: BreakdownItem[] = mapeadas.map((m) => {
-    const balance = aSigno(m.nature, m.balance);
-    const prevBalance = aSigno(m.nature, m.prevBalance);
+    const balance = aSigno(m.nature, m.code, m.balance);
+    const prevBalance = aSigno(m.nature, m.code, m.prevBalance);
     return {
       code: m.code,
       name: m.name,
@@ -568,7 +618,10 @@ export function calcularBalance(
     };
   });
 
-  return agregarDetalle(detalle, umbrales);
+  const resultado = agregarDetalle(detalle, umbrales);
+  resultado.convencionSigno = !flip ? "firmado" : relativoAClase ? "relativo_clase" : "magnitud";
+  resultado.correctorasConservadas = correctorasConservadas;
+  return resultado;
 }
 
 /**

@@ -2480,6 +2480,18 @@ async function persistirCargue(p: {
       detail: `${creado.version} · ${calc.totalRows} cuentas · ${calc.mapped} mapeadas · ${calc.balanced && calc.movimientosCuadran && !descuadreTotales ? "cuadrado" : "descuadra"}${p.comentarioPromocion ? ` · Comentario: ${p.comentarioPromocion.replace(/\s+/g, " ")}` : ""}${p.revisionesReubicacion?.length ? ` · ${p.revisionesReubicacion.length} reubicación(es) aprobada(s)` : ""}`,
       clientId: p.clientId,
     });
+    // Trazabilidad de la convención de signo relativa a la clase: deja constancia de
+    // que las correctoras del activo se conservaron con el signo del archivo en vez
+    // de invertirse. Solo observabilidad; no cambia datos ni flujo.
+    if (calc.convencionSigno === "relativo_clase") {
+      await logAudit({
+        user: p.uploadedBy,
+        action: "CONVENCIÓN RELATIVA A LA CLASE",
+        entity: `${p.clienteName} · ${p.period}`,
+        detail: `${creado.version} · ${calc.correctorasConservadas ?? 0} correctora(s) conservada(s) con su signo del archivo`,
+        clientId: p.clientId,
+      });
+    }
     await createProcessNotification({
       actor: p.uploadedBy,
       text: "cargó el balance de",

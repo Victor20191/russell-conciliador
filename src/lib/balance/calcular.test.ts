@@ -252,6 +252,97 @@ describe("calcularBalance — saldo contrario en archivo de magnitud (SIGN-1)", 
 });
 
 // ------------------------------------------------------------------
+// Tercera convención de signo: RELATIVO A LA CLASE (World Office). Caso real
+// FUNDACIÓN INFANTIL SANTIAGO CORAZÓN: pasivos/patrimonio/ingresos en positivo
+// (como magnitud) pero la depreciación acumulada —correctora: clase 1, naturaleza
+// crédito— YA firmada en negativo. El flip por naturaleza de la cuenta la volteaba
+// de más y el activo quedaba inflado en 2× su saldo (481.189.336 contra el total
+// que declara el archivo). La regla nueva solo puede activarse con flip, sobre
+// correctoras homologadas que lleguen negativas; en cualquier otro caso la salida
+// es byte-idéntica a la anterior — y los bloques FIRMADO/MAGNITUD/SIGN-1/CIB de
+// este archivo son la prueba de no regresión.
+// ------------------------------------------------------------------
+const STD_WO: CuentaEstandar[] = [
+  ...STD,
+  { code: "159205", nature: "C", critical: false }, // Depreciación acumulada (correctora)
+  { code: "139905", nature: "C", critical: false }, // Provisión de cartera (correctora)
+  { code: "169805", nature: "C", critical: false }, // Amortización acumulada (correctora)
+  { code: "189595", nature: "D", critical: false }, // Comodato: clase 1 y naturaleza D → NO es correctora
+];
+
+// Forma del archivo real. |Σ sin flip| = 1.720.000 y |Σ con flip| = 480.000 → el
+// nivel 1 elige flip; la conversión correcta (por clase) suma exactamente 0.
+const RELATIVO_CLASE: CuentaCruda[] = [
+  { code: "110505", name: "Caja", prevBalance: 1_000_000, balance: 1_000_000 }, // D normal
+  { code: "159205", name: "Depreciación acumulada", prevBalance: -240_000, balance: -240_000 }, // correctora YA firmada
+  { code: "189595", name: "Bienes en comodato", prevBalance: -100_000, balance: -100_000 }, // clase 1, nat. D: saldo crédito legítimo (control)
+  { code: "220505", name: "Proveedores", prevBalance: 300_000, balance: 300_000 }, // C normal, magnitud
+  { code: "310505", name: "Capital", prevBalance: 160_000, balance: 160_000 }, // C normal, magnitud
+  { code: "413505", name: "Ventas", prevBalance: 400_000, balance: 400_000 }, // C normal, magnitud
+  { code: "510505", name: "Gastos admin", prevBalance: 200_000, balance: 200_000 }, // D normal
+];
+const item = (r: ReturnType<typeof calcularBalance>, code: string) => r.breakdown.flatMap((g) => g.items).find((it) => it.code === code);
+
+describe("calcularBalance — convención relativa a la clase (World Office)", () => {
+  it("conserva la correctora ya firmada, invierte las clases crédito y cuadra al total del archivo", () => {
+    const r = calcularBalance(RELATIVO_CLASE, STD_WO);
+    expect(r.convencionSigno).toBe("relativo_clase");
+    expect(r.correctorasConservadas).toBe(1);
+    expect(item(r, "220505")?.balance).toBe(-300_000); // flip activo: el pasivo sí se invierte
+    expect(item(r, "159205")?.balance).toBe(-240_000); // la depreciación NO se invierte
+    expect(item(r, "189595")?.balance).toBe(-100_000); // el comodato (nat. D) queda como llegó
+    expect(r.sums.activo).toBe(660_000); // 1.000.000 − 240.000 − 100.000: el total que declararía el archivo
+    expect(r.balanced).toBe(true);
+    // V2 ya no acusa a la depreciación como contraria; el comodato sí lo es (saldo crédito en nat. D).
+    expect(item(r, "159205")?.saldoOk).toBe(true);
+    expect(item(r, "189595")?.saldoOk).toBe(false);
+  });
+
+  it("no dispara en magnitud pura: con la correctora en positivo el comportamiento es el de siempre", () => {
+    const MAGNITUD_PURA = RELATIVO_CLASE.map((c) => ({ ...c, prevBalance: Math.abs(c.prevBalance), balance: Math.abs(c.balance) }));
+    const r = calcularBalance(MAGNITUD_PURA, STD_WO);
+    expect(r.convencionSigno).toBe("magnitud");
+    expect(r.correctorasConservadas).toBe(0);
+    expect(item(r, "159205")?.balance).toBe(-240_000); // flip por naturaleza de la cuenta, como antes
+    expect(item(r, "189595")?.balance).toBe(100_000); // nat. D: no se toca
+    expect(r.sums.activo).toBe(860_000);
+  });
+
+  it("no dispara sin correctoras homologadas: contra el plan sin 159205 la cuenta es de clase y no hay evidencia", () => {
+    const r = calcularBalance(RELATIVO_CLASE, STD);
+    expect(r.convencionSigno).toBe("magnitud");
+    expect(r.correctorasConservadas).toBe(0);
+    // Sin estándar, 159205 hereda la naturaleza de su clase (D) y el flip no la toca: sale como llegó.
+    expect(item(r, "159205")?.balance).toBe(-240_000);
+  });
+
+  it("decide por magnitud, no por conteo: dos correctoras negativas pequeñas no le ganan a una positiva grande", () => {
+    const VOTO: CuentaCruda[] = [
+      { code: "110505", name: "Caja", prevBalance: 1_000_000, balance: 1_000_000 },
+      { code: "159205", name: "Depreciación acumulada", prevBalance: 500_000, balance: 500_000 }, // correctora en positivo (magnitud)
+      { code: "139905", name: "Provisión cartera", prevBalance: -1_000, balance: -1_000 }, // correctora negativa, pequeña
+      { code: "169805", name: "Amortización", prevBalance: -2_000, balance: -2_000 }, // correctora negativa, pequeña
+      { code: "220505", name: "Proveedores", prevBalance: 800_000, balance: 800_000 },
+      { code: "310505", name: "Capital", prevBalance: 400_000, balance: 400_000 },
+      { code: "413505", name: "Ventas", prevBalance: 297_000, balance: 297_000 },
+    ];
+    const r = calcularBalance(VOTO, STD_WO);
+    expect(r.convencionSigno).toBe("magnitud"); // 3.000 restando < 500.000 sumando
+    expect(item(r, "159205")?.balance).toBe(-500_000); // regla anterior: se invierte por naturaleza
+  });
+
+  it("un archivo ya firmado nunca entra: mismo resultado con o sin correctoras en el plan", () => {
+    const conWo = calcularBalance(FIRMADO, STD_WO);
+    const sinWo = calcularBalance(FIRMADO, STD);
+    expect(conWo.convencionSigno).toBe("firmado");
+    expect(conWo.correctorasConservadas).toBe(0);
+    expect(conWo.sums).toEqual(sinWo.sums);
+    expect(conWo.breakdown.flatMap((g) => g.items).map((it) => [it.code, it.balance]))
+      .toEqual(sinWo.breakdown.flatMap((g) => g.items).map((it) => [it.code, it.balance]));
+  });
+});
+
+// ------------------------------------------------------------------
 // Regresión del bug de producción (lote CIB, "Balance por tercero"): la
 // convención de signos se decidía CONTANDO filas de crédito positivas vs
 // negativas. En un balance por tercero, muchas cuentas pequeñas con saldo
