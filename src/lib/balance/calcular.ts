@@ -63,6 +63,11 @@ export type ResultadoBalance = {
   // Correctoras (naturaleza distinta a la de su clase) que conservaron el signo del
   // archivo por la convención relativa a la clase. 0 en cualquier otra convención.
   correctorasConservadas?: number;
+  // Factor de signo que se aplicó a CADA cuenta (por `cuenta8`): +1 conservada, −1
+  // invertida. Es la misma decisión de `aSigno`, expuesta para que la captura por
+  // tercero firme los saldos de cada tercero igual que quedó su cuenta en el detalle
+  // oficial — de lo contrario el visor y los cruces comparan firmado contra crudo.
+  signoAplicado?: ReadonlyMap<string, 1 | -1>;
 };
 
 export type ConvencionSignoDetectada = "firmado" | "magnitud" | "relativo_clase";
@@ -592,13 +597,18 @@ export function calcularBalance(
   // contrario legítimo a su naturaleza— conserva su anomalía y la validación V2
   // la detecta, en vez de "corregirla" silenciosamente al signo de su clase.
   // Con la convención relativa a la clase manda la naturaleza de la CLASE.
-  const aSigno = (nature: string, code: string, v: number) => {
-    if (!flip) return v;
+  const factorSigno = (nature: string, code: string): 1 | -1 => {
+    if (!flip) return 1;
     const natParaSigno = relativoAClase ? claseNatura(code) : nature;
-    return natParaSigno === "C" ? -v : v;
+    return natParaSigno === "C" ? -1 : 1;
   };
+  const aSigno = (nature: string, code: string, v: number) => (factorSigno(nature, code) === -1 ? -v : v);
+  // Se registra por `cuenta8` —la misma llave con que `aFilasDetalle` persiste la
+  // cuenta— para que la captura por tercero encuentre el factor de cada una.
+  const signoAplicado = new Map<string, 1 | -1>();
 
   const detalle: BreakdownItem[] = mapeadas.map((m) => {
+    signoAplicado.set(descomponerCuenta(m.code).cuenta8, factorSigno(m.nature, m.code));
     const balance = aSigno(m.nature, m.code, m.balance);
     const prevBalance = aSigno(m.nature, m.code, m.prevBalance);
     return {
@@ -621,6 +631,7 @@ export function calcularBalance(
   const resultado = agregarDetalle(detalle, umbrales);
   resultado.convencionSigno = !flip ? "firmado" : relativoAClase ? "relativo_clase" : "magnitud";
   resultado.correctorasConservadas = correctorasConservadas;
+  resultado.signoAplicado = signoAplicado;
   return resultado;
 }
 

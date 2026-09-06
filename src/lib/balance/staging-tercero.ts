@@ -165,10 +165,27 @@ function derivarFormatoSufijo(filas: readonly FilaStagingEntrada[]): FilaTercero
  * dataset cubre TODAS las cuentas (una 14xx sin terceros existe para el cruce de
  * Inventarios) y el árbol por tercero puede exponer el descuadre declarado − Σ.
  */
+/**
+ * Firma un saldo de tercero con el factor de su cuenta. `-v || 0` evita persistir
+ * un `-0`. Los MOVIMIENTOS no pasan por aquí: en el detalle oficial también quedan
+ * en magnitud (ver `debe`/`haber` en `calcularBalance`).
+ */
+const firmarSaldoTercero = (v: number, factor: 1 | -1): number => (factor === -1 ? -v || 0 : v);
+
 export function prepararCapturaTercero(
   stagingTercero: readonly FilaTerceroCruda[],
   filasDet: readonly FilaDetalle[],
   filaNumsOmitidas: ReadonlySet<number>,
+  /**
+   * Factor de signo por `cuenta8` que `calcularBalance` aplicó al detalle oficial
+   * (`ResultadoBalance.signoAplicado`). Las filas de tercero vienen CRUDAS del
+   * archivo; sin este factor, un archivo en magnitud deja la fila propia firmada
+   * (−) y sus terceros en positivo, y todo lo que compara los dos lados —visor por
+   * terceros, cruce entre aperturas, cruce por tercero de los módulos, que además
+   * presupone entrada firmada— acusa diferencias que no existen. Opcional: sin él
+   * (cargues legados, archivos ya firmados) la captura es idéntica a la de antes.
+   */
+  signoPorCuenta?: ReadonlyMap<string, 1 | -1>,
 ): { filas: FilaCapturaTercero[]; terceros: number; cuentasConDetalle: number } {
   const tercerosPorCuenta = new Map<string, FilaTerceroCruda[]>();
   for (const t of stagingTercero) {
@@ -203,6 +220,7 @@ export function prepararCapturaTercero(
     const terceros = tercerosPorCuenta.get(det.cuenta8);
     if (!terceros) continue;
     cuentasConDetalle++;
+    const factor = signoPorCuenta?.get(det.cuenta8) ?? 1;
     for (const t of terceros) {
       if (t.nitTercero) nits.add(t.nitTercero);
       filas.push({
@@ -217,10 +235,10 @@ export function prepararCapturaTercero(
         // El genérico conserva su rótulo; sin nombre, el NIT ya identifica.
         nombreTercero: t.nombreTercero,
         ...(t.identidadTercero ? { identidadTercero: t.identidadTercero } : {}),
-        saldoInicial: t.saldoInicial,
+        saldoInicial: firmarSaldoTercero(t.saldoInicial, factor),
         debitos: t.debitos,
         creditos: t.creditos,
-        saldoFinal: t.saldoFinal,
+        saldoFinal: firmarSaldoTercero(t.saldoFinal, factor),
       });
     }
   }

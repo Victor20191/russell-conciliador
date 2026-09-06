@@ -156,6 +156,29 @@ describe("prepararCapturaTercero — herencia de ajustes y fila propia", () => {
     expect(r.cuentasConDetalle).toBe(1);
   });
 
+  it("firma los saldos de cada tercero con el factor de su cuenta; movimientos y fila propia intactos", () => {
+    // Archivo en MAGNITUD: los terceros llegan +100/+200 y su cuenta quedó invertida (−300)
+    // en el detalle oficial. Sin factor, la fila propia y sus terceros tendrían signos opuestos.
+    const conMov: FilaTerceroCruda[] = staging.map((t) => ({ ...t, saldoInicial: 50, debitos: 30, creditos: 10 }));
+    const dets = [
+      detalle({ cuenta8: "11050501", cuenta6Russell: "110505", coincidencia: 100, saldoInicial: -50, saldoFinal: -300 }),
+      detalle({ cuenta8: "13050501", saldoFinal: 500 }),
+    ];
+    const r = prepararCapturaTercero(conMov, dets, new Set(), new Map([["11050501", -1], ["13050501", 1]]));
+    const t1105 = r.filas.filter((f) => f.cuenta8 === "11050501" && f.nitTercero !== null);
+    expect(t1105.map((f) => [f.saldoInicial, f.saldoFinal])).toEqual([[-50, -100], [-50, -200]]);
+    expect(t1105.every((f) => f.debitos === 30 && f.creditos === 10)).toBe(true); // movimientos: magnitud, sin factor
+    expect(r.filas[0]).toMatchObject({ cuenta8: "11050501", nitTercero: null, saldoFinal: -300 }); // propia: ya firmada del detalle
+    expect(r.filas.find((f) => f.cuenta8 === "13050501" && f.nitTercero !== null)?.saldoFinal).toBe(500); // factor +1: intacto
+  });
+
+  it("sin factores —cargues legados, archivo ya firmado— la captura es idéntica a la de antes", () => {
+    const dets = [detalle({ cuenta8: "11050501" })];
+    const sinFactor = prepararCapturaTercero(staging, dets, new Set());
+    const conUnos = prepararCapturaTercero(staging, dets, new Set(), new Map([["11050501", 1]]));
+    expect(conUnos).toEqual(sinFactor);
+  });
+
   it("una cuenta que no quedó en el balance excluye a sus terceros", () => {
     const dets = [detalle({ cuenta8: "11050501" })];
     const r = prepararCapturaTercero(staging, dets, new Set());

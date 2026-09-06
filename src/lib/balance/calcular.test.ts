@@ -298,6 +298,20 @@ describe("calcularBalance — convención relativa a la clase (World Office)", (
     expect(item(r, "189595")?.saldoOk).toBe(false);
   });
 
+  it("expone el factor de signo por cuenta que aplicó, para que la captura por tercero firme igual", () => {
+    const r = calcularBalance(RELATIVO_CLASE, STD_WO);
+    expect(r.signoAplicado?.get("159205")).toBe(1); // correctora conservada
+    expect(r.signoAplicado?.get("189595")).toBe(1); // clase 1: se conserva
+    expect(r.signoAplicado?.get("220505")).toBe(-1); // pasivo en magnitud: se invierte
+    expect(r.signoAplicado?.get("413505")).toBe(-1);
+    expect(r.signoAplicado?.get("510505")).toBe(1);
+    // Magnitud pura: la correctora sí se invierte. Firmado: nada se invierte.
+    const mag = calcularBalance(RELATIVO_CLASE.map((c) => ({ ...c, prevBalance: Math.abs(c.prevBalance), balance: Math.abs(c.balance) })), STD_WO);
+    expect(mag.signoAplicado?.get("159205")).toBe(-1);
+    const fir = calcularBalance(FIRMADO, STD_WO);
+    expect([...fir.signoAplicado!.values()].every((f) => f === 1)).toBe(true);
+  });
+
   it("no dispara en magnitud pura: con la correctora en positivo el comportamiento es el de siempre", () => {
     const MAGNITUD_PURA = RELATIVO_CLASE.map((c) => ({ ...c, prevBalance: Math.abs(c.prevBalance), balance: Math.abs(c.balance) }));
     const r = calcularBalance(MAGNITUD_PURA, STD_WO);

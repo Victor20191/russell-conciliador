@@ -1940,6 +1940,8 @@ async function capturarBalanceTerceroEnTransaccion(tx: TransactionClient, p: {
   archivoTam: string;
   cargadoPor: string;
   filasDet: FilaDetalle[];
+  /** Factor de signo por cuenta8 que aplicó `calcularBalance`; firma los saldos de cada tercero igual que su cuenta. */
+  signoPorCuenta?: ReadonlyMap<string, 1 | -1>;
 }): Promise<ResultadoCapturaTercero | null> {
   // Idempotencia doble con la rama `reutilizado` de la promoción: un reintento
   // que ya creó el cargue por tercero no lo duplica (loteId es @unique).
@@ -1970,6 +1972,7 @@ async function capturarBalanceTerceroEnTransaccion(tx: TransactionClient, p: {
     })),
     p.filasDet,
     new Set(omitidas.map((f) => f.filaNum)),
+    p.signoPorCuenta,
   );
   // Solo filas «propias» = ningún tercero sobrevivió a los ajustes: no hay captura.
   if (!captura.filas.some((f) => f.nitTercero !== null || f.nombreTercero !== null)) return null;
@@ -2433,6 +2436,7 @@ async function persistirCargue(p: {
           periodo: p.period, periodoInicio: p.periodos.inicial, periodoFinal: p.periodos.final,
           archivoNombre: p.archivoNombre, archivoTam: p.archivoTam, cargadoPor: p.uploadedBy,
           filasDet,
+          signoPorCuenta: calc.signoAplicado,
         })
       : null;
 
