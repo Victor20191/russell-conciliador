@@ -3,6 +3,7 @@
 import { EstadoProcesando } from "@/components/estado-procesando";
 
 import { useState } from "react";
+import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Icon } from "@/components/icons";
 import { ActionForm } from "@/components/action-form";
@@ -37,6 +38,9 @@ const CRUMB_LABELS: Record<string, string> = {
   "conceptos-nomina": "Conceptos de nómina",
 };
 
+// Agrupadores de navegación que no tienen una página propia.
+const CRUMB_GROUPS = new Set(["/config", "/conciliacion", "/modulos"]);
+
 export default function Topbar({
   notifications,
   onOpenMobileNav,
@@ -53,13 +57,13 @@ export default function Topbar({
   const crumbs = pathname
     .split("/")
     .filter(Boolean)
-    .map((seg) => {
-      if (CRUMB_LABELS[seg]) return CRUMB_LABELS[seg];
-      // Los segmentos numéricos son IDs internos de detalle.
-      if (/^[1-9]\d*$/.test(seg)) return "Detalle";
-      return seg.charAt(0).toUpperCase() + seg.slice(1);
+    .map((seg, index, segments) => {
+      const href = `/${segments.slice(0, index + 1).join("/")}`;
+      const label = CRUMB_LABELS[seg]
+        ?? (/^[1-9]\d*$/.test(seg) ? "Detalle" : seg.charAt(0).toUpperCase() + seg.slice(1));
+      return { href, label };
     });
-  if (crumbs.length === 0) crumbs.push("Inicio");
+  if (crumbs.length === 0) crumbs.push({ href: "/", label: "Inicio" });
 
   return (
     <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-ink-150 bg-white/90 px-4 py-2.5 backdrop-blur sm:px-5">
@@ -73,18 +77,20 @@ export default function Topbar({
         <Icon name="menu" size={18} />
       </button>
       {/* Breadcrumbs */}
-      <div className="flex min-w-0 items-center gap-1.5 text-[12.5px] text-ink-500">
+      <nav aria-label="Ruta de navegación" className="flex min-w-0 items-center gap-1.5 text-[12.5px] text-ink-500">
         {crumbs.map((c, i) => (
-          <span key={i} className="flex items-center gap-1.5">
+          <span key={c.href} className="flex min-w-0 items-center gap-1.5">
             {i > 0 && <Icon name="chev-r" size={11} className="text-ink-400" />}
             {i === crumbs.length - 1 ? (
-              <b className="truncate text-ink-800">{c}</b>
+              <b aria-current="page" className="truncate text-ink-800">{c.label}</b>
+            ) : CRUMB_GROUPS.has(c.href) ? (
+              <span className="truncate">{c.label}</span>
             ) : (
-              <span className="truncate">{c}</span>
+              <Link href={c.href} className="truncate rounded-sm hover:text-blue-500 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500">{c.label}</Link>
             )}
           </span>
         ))}
-      </div>
+      </nav>
 
       <div className="ml-auto flex items-center gap-2.5">
         <div className="relative">

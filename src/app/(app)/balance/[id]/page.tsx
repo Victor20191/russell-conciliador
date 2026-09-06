@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import prisma from "@/lib/prisma";
 import { authorizePermiso, requirePermiso } from "@/lib/rbac";
 import { PageHeader, StatCard, Chip, BackLink } from "@/components/ui";
@@ -28,7 +29,6 @@ import {
 } from "@/lib/balance/revisiones-reubicacion-balance";
 import Conversacion from "@/components/conversacion";
 import { cargarEstadoCrucesAperturas } from "@/lib/balance/cruce-aperturas-servidor";
-import { CruceAperturasPanel } from "./cruce-aperturas-panel";
 import { cierresFirmes, cuentasBloqueadas } from "@/lib/conciliacion/verificar-bloqueo";
 import { ConciliacionEnFirmeBanner, type BloqueoCuentaVm, type CierreFirmeVm } from "./conciliacion-en-firme";
 
@@ -222,7 +222,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
 
   return (
     <div>
-      {cargado && <FlashToast tone={crucesAperturas.pares.some((p) => p.inconsistente) || crucesAperturas.pendiente ? "info" : "success"} title="Balance cargado" message={crucesAperturas.pares.some((p) => p.inconsistente) ? "Se detectaron inconsistencias entre aperturas. Ambos archivos quedan marcados; revisa las cuentas en el panel." : crucesAperturas.pendiente ? "La carga se completó. La validación entre archivos está pendiente; puedes reintentarla desde el panel." : "El borrador se confirmó como balance."} clearParam="cargado" />}
+      {cargado && <FlashToast tone={crucesAperturas.pares.some((p) => p.inconsistente) || crucesAperturas.pendiente ? "info" : "success"} title="Balance cargado" message={crucesAperturas.pares.some((p) => p.inconsistente) ? "Se detectaron inconsistencias entre aperturas. Ambos archivos quedan marcados; revisa el detalle en Terceros." : crucesAperturas.pendiente ? "La carga se completó. La validación entre archivos está pendiente; puedes reintentarla desde Terceros." : "El borrador se confirmó como balance."} clearParam="cargado" />}
       <div className="mb-3"><BackLink href="/balance" label="Balance de comprobación" /></div>
       <PageHeader
         title={balance.nombreCliente}
@@ -283,7 +283,18 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
         )}
       </p>
 
-      <CruceAperturasPanel balanceId={id} estado={crucesAperturas} puedeRevisar={editarAuth.ok || mapearAuth.ok} />
+      {(crucesAperturas.pares.some((p) => p.inconsistente) || crucesAperturas.pendiente) && (
+        <section id="cruce-aperturas" aria-label="Estado de validación entre aperturas" className={`my-4 flex scroll-mt-20 flex-wrap items-center justify-between gap-3 rounded-2xl px-4 py-3 font-semibold sm:rounded-full ${crucesAperturas.pares.some((p) => p.inconsistente) ? "bg-err-100 text-err-700" : "bg-warn-100 text-warn-700"}`}>
+          <p className="text-[13px]">
+            {crucesAperturas.pares.some((p) => p.inconsistente)
+              ? "Hay inconsistencias entre los archivos del balance. Consulta el detalle en Terceros."
+              : "La validación entre archivos está pendiente. Puedes revisarla en Terceros."}
+          </p>
+          <Link href={`/balance/${id}/terceros`} className="text-[13px] font-semibold underline underline-offset-2 hover:no-underline">
+            Revisar en Terceros
+          </Link>
+        </section>
+      )}
 
       {cierresVm.length > 0 && <ConciliacionEnFirmeBanner cierres={cierresVm} balanceId={id} periodo={balance.periodo} />}
 
