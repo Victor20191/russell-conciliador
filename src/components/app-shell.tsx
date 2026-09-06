@@ -62,7 +62,7 @@ export default function AppShell({
         aria-controls="app-sidebar"
         aria-expanded={!desktopNavCollapsed}
         onClick={() => setDesktopNavCollapsed((collapsed) => !collapsed)}
-        className={`fixed bottom-0 z-30 hidden w-5 items-center justify-center border-l border-navy-800 bg-navy-800 text-[#A9B6C8] transition-colors hover:bg-navy-800 hover:text-white focus-visible:bg-navy-800 focus-visible:text-white focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue-400 lg:flex ${
+        className={`fixed bottom-0 z-30 hidden w-5 items-center justify-center border-l border-navy-800 bg-navy-800 text-[#A9B6C8] transition-colors hover:bg-[color-mix(in_srgb,var(--color-navy-800),white_6%)] hover:text-white focus-visible:bg-navy-800 focus-visible:text-white focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue-400 lg:flex ${
           desktopNavCollapsed ? "left-0 h-9 rounded-tr-md shadow-md" : "left-[212px] h-[57px] border-t border-t-white/10"
         }`}
       >
