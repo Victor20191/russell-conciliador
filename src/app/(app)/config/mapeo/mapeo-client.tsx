@@ -21,8 +21,9 @@ import {
 import { crearSubgrupo, editarSubgrupo, eliminarSubgrupo } from "@/app/actions/subgrupos";
 import { detectarAnomaliasMapeo } from "@/lib/balance/anomalias-mapeo";
 import { MapeoClienteTab, HomologacionClienteForm } from "./homologacion-client";
-import { construirPucRussell, filtrarPucRussell, profundidadPuc, type FilaPucRussell } from "@/lib/balance/puc-estandar";
+import { colapsarPucHastaNivel, construirPucRussell, filasVisiblesPuc, filtrarPucRussell, profundidadPuc, type FilaPucRussell } from "@/lib/balance/puc-estandar";
 import type { CuentaPucCliente } from "@/lib/balance/catalogo-puc-cliente";
+import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
 
 export type Account = CuentaPucCliente;
 export type RussellOpt = { code: string; name: string; module: string | null };
@@ -524,23 +525,62 @@ function PucEstandarTab({ puc, subgrupos, std, canManage, lockedStdCodes }: {
   const [editTarget, setEditTarget] = useState<Subgrupo | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Subgrupo | null>(null);
   const [subcuenta, setSubcuenta] = useState<StdAccount | null>(null);
-  const filas = useMemo(() => filtrarPucRussell(puc, q), [puc, q]);
+  const [colapsadosCatalogo, setColapsadosCatalogo] = useState<Set<string>>(() => new Set());
+  const [colapsadosBusqueda, setColapsadosBusqueda] = useState<Set<string>>(() => new Set());
+  const [nivelMostrado, setNivelMostrado] = useState<FilaPucRussell["nivel"]>(6);
+  // La búsqueda abre sus resultados sin perder las ramas elegidas en el catálogo.
+  const buscando = q.trim().length > 0;
+  const colapsados = buscando ? colapsadosBusqueda : colapsadosCatalogo;
+  const setColapsados = buscando ? setColapsadosBusqueda : setColapsadosCatalogo;
+  const filtradas = useMemo(() => filtrarPucRussell(puc, q), [puc, q]);
+  const ramas = useMemo(() => new Set(filtradas.flatMap((fila) => fila.padre ? [fila.padre] : [])), [filtradas]);
+  const filas = useMemo(() => filasVisiblesPuc(filtradas, colapsados), [filtradas, colapsados]);
+  const hayContenidoExpandido = filas.some((fila) => ramas.has(fila.codigo) && !colapsados.has(fila.codigo));
   const cuentas4 = useMemo(() => new Map(subgrupos.map((s) => [s.codigo, s])), [subgrupos]);
   const cuentas6 = useMemo(() => new Map(std.map((s) => [s.code, s])), [std]);
+  const alternarRama = (codigo: string) => setColapsados((actuales) => {
+    const siguientes = new Set(actuales);
+    if (siguientes.has(codigo)) siguientes.delete(codigo);
+    else siguientes.add(codigo);
+    return siguientes;
+  });
   return <>
     <Card>
       <div className="flex flex-wrap items-center gap-3 border-b border-ink-100 px-4 py-3">
         <div><h2 className="text-[13px] font-semibold text-ink-800">PUC Estándar Russell</h2><p className="mt-1 text-[12px] text-ink-500">Clases · grupos · cuentas · subcuentas</p></div>
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <input aria-label="Buscar en el PUC estándar" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Código o nombre de cuenta…" className="w-72 max-w-full rounded-md border border-ink-200 px-3 py-2 text-[12px] outline-none focus:border-blue-400" />
+          <input aria-label="Buscar en el PUC estándar" value={q} onChange={(e) => { setQ(e.target.value); setColapsadosBusqueda(new Set()); }} placeholder="Código o nombre de cuenta…" className="w-72 max-w-full rounded-md border border-ink-200 px-3 py-2 text-[12px] outline-none focus:border-blue-400" />
           {canManage && <button type="button" onClick={() => setCreateOpen(true)} className="rounded-md bg-navy-700 px-3 py-2 text-[12px] font-semibold text-white hover:bg-navy-800">Nueva Cuenta</button>}
         </div>
+      </div>
+      <div className="flex flex-wrap items-center justify-end gap-2 border-b border-ink-100 bg-ink-50/50 px-4 py-2">
+        <button type="button" onClick={() => setColapsados(new Set(ramas))} disabled={ramas.size === 0} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] font-medium text-ink-700 hover:bg-ink-50 disabled:opacity-50">
+          <span aria-hidden="true"><Icon name={chevronDivulgacion(hayContenidoExpandido)} size={13} /></span> Colapsar todo
+        </button>
+        <button type="button" onClick={() => setColapsados(colapsarPucHastaNivel(filtradas, nivelMostrado))} disabled={ramas.size === 0} className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] font-medium text-ink-700 hover:bg-ink-50 disabled:opacity-50">
+          <span aria-hidden="true"><Icon name={chevronDivulgacion(hayContenidoExpandido)} size={13} /></span> Expandir todo
+        </button>
+        <label className="flex items-center gap-2 text-[12px] text-ink-600 sm:ml-2">
+          Mostrar hasta
+          <select aria-label="Mostrar PUC hasta el nivel" value={nivelMostrado} onChange={(e) => {
+            const nivel = Number(e.target.value) as FilaPucRussell["nivel"];
+            setNivelMostrado(nivel);
+            setColapsados(colapsarPucHastaNivel(filtradas, nivel));
+          }} className="rounded-md border border-ink-200 bg-white px-3 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400">
+            <option value="1">N1 · Clases</option>
+            <option value="2">N2 · Grupos</option>
+            <option value="4">N4 · Cuentas</option>
+            <option value="6">N6 · Subcuentas</option>
+          </select>
+        </label>
       </div>
       <div className="max-h-[70vh] overflow-auto">
         <table className="tabla-encabezado-fijo w-full text-[12.5px]">
           <thead className="bg-ink-50 text-left text-[11px] uppercase tracking-wider text-ink-500"><tr><th className="px-4 py-2">Nivel</th><th className="px-4 py-2">Código / nombre</th><th className="px-4 py-2">Naturaleza</th></tr></thead>
           <tbody>{filas.map((fila) => {
             const editable = canManage && fila.catalogada && fila.nivel >= 4;
+            const tieneHijos = ramas.has(fila.codigo);
+            const expandida = !colapsados.has(fila.codigo);
             const abrir = () => {
               if (fila.nivel === 4) setEditTarget(cuentas4.get(fila.codigo) ?? null);
               else setSubcuenta(cuentas6.get(fila.codigo) ?? null);
@@ -548,15 +588,24 @@ function PucEstandarTab({ puc, subgrupos, std, canManage, lockedStdCodes }: {
             return <tr key={fila.codigo} className={`border-b border-ink-100 ${fila.nivel === 1 ? "bg-navy-800 text-white" : fila.nivel === 2 ? "bg-blue-50 font-semibold text-navy-800" : "text-ink-700 hover:bg-ink-50"}`}>
               <td className="w-20 px-4 py-2.5 text-[11px]">N{fila.nivel}</td>
               <td className="py-2.5 pr-4" style={{ paddingLeft: 16 + profundidadPuc(fila.nivel) * 22 }}>
-                {editable ? <button type="button" onClick={abrir} className="text-left hover:text-blue-700 hover:underline" title={`Editar ${fila.codigo}`}><span className="mr-3 font-mono font-semibold">{fila.codigo}</span>{fila.nombre}</button> : <><span className="mr-3 font-mono font-semibold">{fila.codigo}</span>{fila.nombre}</>}
-                {fila.nivel === 4 && !fila.catalogada && <span className="ml-2 text-[11px] text-ink-400">Sin ficha de cuenta</span>}
+                <div className="flex items-center gap-2">
+                  {tieneHijos ? (
+                    <button type="button" onClick={() => alternarRama(fila.codigo)} aria-expanded={expandida} aria-label={`${expandida ? "Colapsar" : "Expandir"} ${fila.codigo} ${fila.nombre}`} title={expandida ? "Colapsar nivel" : "Expandir nivel"} className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded transition-colors focus-visible:outline-2 focus-visible:outline-blue-400 ${fila.nivel === 1 ? "hover:bg-white/10" : "hover:bg-ink-100"}`}>
+                      <span aria-hidden="true"><Icon name={chevronDivulgacion(expandida)} size={14} /></span>
+                    </button>
+                  ) : <span className="w-6 shrink-0" aria-hidden="true" />}
+                  <div>
+                    {editable ? <button type="button" onClick={abrir} className="text-left hover:text-blue-700 hover:underline" title={`Editar ${fila.codigo}`}><span className="mr-3 font-mono font-semibold">{fila.codigo}</span>{fila.nombre}</button> : <><span className="mr-3 font-mono font-semibold">{fila.codigo}</span>{fila.nombre}</>}
+                    {fila.nivel === 4 && !fila.catalogada && <span className="ml-2 text-[11px] text-ink-400">Sin ficha de cuenta</span>}
+                  </div>
+                </div>
               </td>
               <td className="w-36 px-4 py-2.5">{fila.naturaleza === "D" ? "Débito" : fila.naturaleza === "C" ? "Crédito" : "—"}</td>
             </tr>;
           })}{filas.length === 0 && <tr><td colSpan={3} className="px-4 py-8 text-center text-ink-500">No hay cuentas que coincidan.</td></tr>}</tbody>
         </table>
       </div>
-      <div className="border-t border-ink-100 px-4 py-2.5 text-[11.5px] text-ink-500">{filas.length} de {puc.length} registros · niveles 1, 2, 4 y 6 · la descarga incluye el PUC completo</div>
+      <div className="border-t border-ink-100 px-4 py-2.5 text-[11.5px] text-ink-500">{filas.length} de {puc.length} registros visibles · niveles 1, 2, 4 y 6 · la descarga incluye el PUC completo</div>
     </Card>
     {canManage && createOpen && <SubgrupoForm mode="create" onClose={() => setCreateOpen(false)} />}
     {canManage && editTarget && <SubgrupoForm mode="edit" subgrupo={editTarget} onClose={() => setEditTarget(null)} onDelete={() => { setDeleteTarget(editTarget); setEditTarget(null); }} />}

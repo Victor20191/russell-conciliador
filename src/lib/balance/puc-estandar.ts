@@ -49,3 +49,22 @@ export function filtrarPucRussell(filas: readonly FilaPucRussell[], busqueda: st
   const encontradas = filas.filter((f) => /^\d+$/.test(q) ? f.codigo.startsWith(q) : `${f.codigo} ${f.nombre}`.toLocaleLowerCase("es").includes(q));
   return filas.filter((f) => encontradas.some((e) => e.codigo.startsWith(f.codigo) || f.codigo.startsWith(e.codigo)));
 }
+
+/** Oculta los descendientes de cualquier ancestro cerrado, conservando la rama. */
+export function filasVisiblesPuc(filas: readonly FilaPucRussell[], colapsados: ReadonlySet<string>): FilaPucRussell[] {
+  const padres = new Map(filas.map((fila) => [fila.codigo, fila.padre]));
+  return filas.filter((fila) => {
+    let padre = fila.padre;
+    while (padre) {
+      if (colapsados.has(padre)) return false;
+      padre = padres.get(padre) ?? null;
+    }
+    return true;
+  });
+}
+
+/** Abre hasta el nivel elegido y deja cerradas las ramas de mayor detalle. */
+export function colapsarPucHastaNivel(filas: readonly FilaPucRussell[], nivel: FilaPucRussell["nivel"]): Set<string> {
+  const ramas = new Set(filas.flatMap((fila) => fila.padre ? [fila.padre] : []));
+  return new Set(filas.filter((fila) => fila.nivel >= nivel && ramas.has(fila.codigo)).map((fila) => fila.codigo));
+}

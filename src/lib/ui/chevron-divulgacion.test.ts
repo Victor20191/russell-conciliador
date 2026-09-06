@@ -27,6 +27,7 @@ describe("convención cableada en UI de expandir/contraer", () => {
     "app/(app)/balance/[id]/balance-detail-client.tsx",
     "app/(app)/balance/[id]/terceros/terceros-client.tsx",
     "app/(app)/config/maestros/maestros-client.tsx",
+    "app/(app)/config/mapeo/mapeo-client.tsx",
     "app/(app)/config/permisos/permisos-client.tsx",
     "app/(app)/config/usuarios/usuarios-client.tsx",
     "components/sidebar.tsx",
