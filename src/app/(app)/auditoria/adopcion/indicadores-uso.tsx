@@ -1,5 +1,6 @@
 "use client";
 
+import { useId, useState } from "react";
 import { Card } from "@/components/ui";
 import { fmtNum } from "@/lib/format";
 
@@ -12,6 +13,7 @@ export type BarraUso = {
 export type SerieDiaUso = {
   fecha: string; // YYYY-MM-DD
   total: number;
+  usuarios?: { usuario: string; total: number }[];
 };
 
 function anchoBarra(valor: number, max: number): number {
@@ -77,11 +79,13 @@ function ListaBarras({
 }
 
 function RitmoDiario({ serie }: { serie?: SerieDiaUso[] | null }) {
+  const [diaActivo, setDiaActivo] = useState<number | null>(null);
+  const tooltipId = useId();
   const puntos = Array.isArray(serie) ? serie.slice(-21) : [];
   const max = puntos.reduce((m, p) => Math.max(m, Number(p?.total) || 0), 0) || 1;
 
   return (
-    <Card className="p-4 lg:col-span-2">
+    <Card className="min-w-0 p-4 lg:col-span-2">
       <h2 className="text-[13px] font-semibold text-ink-800">Ritmo de uso diario</h2>
       <p className="mt-0.5 text-[11.5px] text-ink-500">
         Acciones por día en el período
@@ -92,7 +96,7 @@ function RitmoDiario({ serie }: { serie?: SerieDiaUso[] | null }) {
           Sin actividad diaria registrada en el período.
         </p>
       ) : (
-        <div className="mt-4 flex h-28 items-end gap-1">
+        <div className="relative mt-4 flex h-28 items-end gap-1">
           {puntos.map((d, index) => {
             const total = Number(d?.total) || 0;
             const h = Math.max(4, Math.round((total / max) * 100));
@@ -100,14 +104,57 @@ function RitmoDiario({ serie }: { serie?: SerieDiaUso[] | null }) {
             return (
               <div
                 key={`${fecha}-${index}`}
-                className="flex min-w-0 flex-1 flex-col items-center justify-end"
-                title={`${fecha}: ${fmtNum(total)} acciones`}
+                className="flex h-full min-w-0 flex-1 flex-col items-center"
+                onMouseEnter={() => setDiaActivo(index)}
+                onMouseLeave={() => setDiaActivo(null)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") setDiaActivo(null);
+                }}
               >
-                <div
-                  className="w-full max-w-[14px] rounded-t-sm bg-navy-700"
-                  style={{ height: `${h}%` }}
-                />
-                <span className="mt-1 max-w-full truncate text-[9px] text-ink-400">
+                <div className="flex min-h-0 w-full flex-1 items-end justify-center">
+                  <button
+                    type="button"
+                    aria-label={`${fecha}: ${fmtNum(total)} acciones`}
+                    aria-describedby={diaActivo === index ? tooltipId : undefined}
+                    onFocus={() => setDiaActivo(index)}
+                    onBlur={() => setDiaActivo(null)}
+                    onClick={() => setDiaActivo(index)}
+                    className="w-full max-w-[14px] cursor-pointer rounded-t-sm bg-navy-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy-700"
+                    style={{ height: `${h}%` }}
+                  />
+                </div>
+                {diaActivo === index && (
+                  <div
+                    id={tooltipId}
+                    role="tooltip"
+                    className="absolute bottom-full z-50 max-h-80 w-80 max-w-full overflow-y-auto rounded-xl border border-ink-150 bg-white text-[12px] text-ink-800 shadow-lg"
+                    style={{ left: `clamp(0px, calc(${((index + 0.5) / puntos.length) * 100}% - 10rem), max(0px, calc(100% - 20rem)))` }}
+                  >
+                    <div className="flex items-center justify-between gap-3 border-b border-ink-150 bg-ink-50 px-3 py-2.5">
+                      <span className="font-semibold text-navy-800">{fecha.split("-").reverse().join("/")}</span>
+                      <span className="rounded-full bg-navy-700 px-2 py-0.5 text-[11px] font-semibold text-white">
+                        {fmtNum(total)} {total === 1 ? "acción" : "acciones"}
+                      </span>
+                    </div>
+                    <table className="w-full table-fixed border-collapse text-left">
+                      <thead className="text-[10px] uppercase tracking-wide text-ink-500">
+                        <tr>
+                          <th scope="col" className="px-3 py-2 font-semibold">Usuario</th>
+                          <th scope="col" className="w-20 px-3 py-2 text-right font-semibold">Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(d.usuarios ?? []).map((u) => (
+                          <tr key={u.usuario} className="border-t border-ink-100 even:bg-ink-50">
+                            <td className="break-words px-3 py-2 leading-snug">{u.usuario}</td>
+                            <td className="px-3 py-2 text-right align-top font-mono font-semibold tabular-nums text-navy-700">{fmtNum(u.total)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                <span className="mt-1 max-w-full shrink-0 truncate text-[9px] text-ink-400">
                   {fecha.slice(5)}
                 </span>
               </div>

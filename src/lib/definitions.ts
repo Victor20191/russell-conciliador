@@ -627,6 +627,7 @@ export type ReporteNovedadesScope = z.infer<typeof ReporteNovedadesScopeSchema>;
 // `versionIds` vacío o ausente → todas las versiones publicadas de Novedades.
 export const ReporteEjecutivoUsoScopeSchema = z
   .object({
+    actualizar: z.boolean().optional(),
     desde: z.string().trim().min(1, { error: "Indica la fecha de inicio." }).max(40),
     hasta: z.string().trim().min(1, { error: "Indica la fecha de fin." }).max(40),
     versionIds: z.array(z.coerce.number().int().positive()).max(1000).optional(),

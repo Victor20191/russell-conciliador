@@ -189,7 +189,11 @@ export default async function ReportesEjecutivosPage() {
     })),
     topAcciones: uso.topAcciones.map((a) => ({ etiqueta: a.nombre, total: a.total })),
     topClientes: uso.topClientes.map((c) => ({ etiqueta: c.nombre, total: c.total })),
-    serieDiaria: uso.serieDiaria.map((d) => ({ fecha: d.fecha, total: d.total })),
+    serieDiaria: uso.serieDiaria.map((d) => ({
+      fecha: d.fecha,
+      total: d.total,
+      usuarios: d.usuarios,
+    })),
     adopcionBarras: [
       { etiqueta: "Con actividad relacionada", total: adopcion.usadas },
       { etiqueta: "Sin actividad relacionada", total: adopcion.sinEvidencia },

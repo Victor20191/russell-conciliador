@@ -120,7 +120,7 @@ function graficoBarrasHorizontales(params: {
         : "";
       return `
     <div style="margin:0 0 0.65rem;">
-      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;border-collapse:collapse;margin:0 0 0.28rem;">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;table-layout:auto;border-collapse:collapse;margin:0 0 0.28rem;">
         <tbody><tr>
         <td valign="bottom" style="padding:0;vertical-align:bottom;">
           <span style="font-size:12.5px;color:#1a2330;font-weight:500;">${escapeHtml(item.etiqueta)}</span>
@@ -171,7 +171,7 @@ function graficoAdopcionDonutLike(adopcion: ResumenAdopcion): string {
       const pctTotal = Math.round((s.valor / total) * 1000) / 10;
       return `
     <div style="margin:0 0 0.65rem;">
-      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;border-collapse:collapse;margin:0 0 0.28rem;">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;table-layout:auto;border-collapse:collapse;margin:0 0 0.28rem;">
         <tbody><tr>
         <td valign="bottom" style="padding:0;vertical-align:bottom;"><span style="font-size:12.5px;color:#1a2330;font-weight:500;">${escapeHtml(s.label)}</span></td>
         <td valign="bottom" align="right" style="width:1%;padding:0 0 0 0.75rem;vertical-align:bottom;text-align:right;white-space:nowrap;"><span style="font-family:ui-monospace,Menlo,monospace;font-size:12px;font-weight:600;color:#142b4a;">${fmtNum(s.valor)} <span style="color:#626e7e;font-weight:500;">(${pctTotal}%)</span></span></td>
