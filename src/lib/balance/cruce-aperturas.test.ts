@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { construirCruceAperturas, seleccionarParesAperturas, type CandidatoApertura, type FilaCuentaCruce, type FilaTerceroCruce } from "./cruce-aperturas";
+import { construirCruceAperturas, esDiferenciaReal, seleccionarParesAperturas, type CandidatoApertura, type FilaCuentaCruce, type FilaTerceroCruce } from "./cruce-aperturas";
 import { CAMPOS_MONTOS } from "./montos-cruce";
 
 const cuenta: FilaCuentaCruce = { cuenta8: "11051001010101", nombreCuenta: "Caja", saldoInicial: 100, debitos: 50, creditos: -10, saldoFinal: 140 };
@@ -23,10 +23,36 @@ describe("comparación independiente de los cuatro componentes", () => {
   it("mantiene signos; no compara valores absolutos", () => {
     expect(construirCruceAperturas([cuenta], [{ ...tercero, creditos: 10 }]).filas[0].diff.creditos).toBe(-20);
   });
-  it("marca cuentas ausentes aun con importe cero", () => {
+  // CAMBIO DELIBERADO de criterio: antes una cuenta ausente se marcaba `solo_*` aunque
+  // el lado presente viniera en ceros. Ausencia y ceros son el MISMO hecho económico
+  // (no hubo movimiento), y contarlo llenaba el informe de ruido: 771 de 1.729 filas
+  // reales, el 45 %. La ausencia sigue siendo diferencia cuando hay importes de por medio.
+  it("NO marca diferencia si la cuenta falta en un archivo y en el otro viene en ceros", () => {
     const cero = { ...cuenta, saldoInicial: 0, debitos: 0, creditos: 0, saldoFinal: 0 };
-    expect(construirCruceAperturas([cero], []).filas[0].estado).toBe("solo_cuenta");
-    expect(construirCruceAperturas([], [{ ...tercero, ...cero }]).filas[0].estado).toBe("solo_tercero");
+    expect(construirCruceAperturas([cero], []).filas[0].estado).toBe("cuadra");
+    expect(construirCruceAperturas([], [{ ...tercero, ...cero }]).filas[0].estado).toBe("cuadra");
+    // Y el par entero queda consistente: es lo único que los separaba.
+    expect(construirCruceAperturas([cero], []).cuadra).toBe(true);
+  });
+
+  it("sigue marcando la cuenta ausente cuando el lado presente trae importes", () => {
+    expect(construirCruceAperturas([cuenta], []).filas[0].estado).toBe("solo_cuenta");
+    expect(construirCruceAperturas([], [tercero]).filas[0].estado).toBe("solo_tercero");
+    expect(construirCruceAperturas([cuenta], []).cuadra).toBe(false);
+  });
+
+  it("basta UN componente distinto de cero para que la ausencia sea diferencia", () => {
+    // Caso real: filas que solo mueven saldo inicial o créditos. Si se mirara únicamente
+    // el saldo final se colarían como cuadre.
+    const soloSaldoInicial = { ...cuenta, saldoInicial: 1, debitos: 0, creditos: 0, saldoFinal: 0 };
+    const soloCreditos = { ...cuenta, saldoInicial: 0, debitos: 0, creditos: -1, saldoFinal: 0 };
+    expect(construirCruceAperturas([soloSaldoInicial], []).filas[0].estado).toBe("solo_cuenta");
+    expect(construirCruceAperturas([soloCreditos], []).filas[0].estado).toBe("solo_cuenta");
+  });
+
+  it("una cuenta en ceros a AMBOS lados tampoco es diferencia", () => {
+    const cero = { ...cuenta, saldoInicial: 0, debitos: 0, creditos: 0, saldoFinal: 0 };
+    expect(construirCruceAperturas([cero], [{ ...tercero, ...cero }]).filas[0].estado).toBe("cuadra");
   });
   it("suma movimientos repetidos sin deduplicarlos ni recortar códigos largos", () => {
     const r = construirCruceAperturas([cuenta, cuenta], [tercero, tercero]);
@@ -52,6 +78,29 @@ describe("comparación independiente de los cuatro componentes", () => {
   });
   it("el ruido binario no genera alertas en importes a centavos", () => {
     expect(construirCruceAperturas([{ ...cuenta, debitos: 0.1 + 0.2 }], [{ ...tercero, debitos: 0.3 }]).cuadra).toBe(true);
+  });
+});
+
+describe("depuración de informes ya guardados", () => {
+  // Los informes calculados con el criterio anterior siguen en BD: un par marcado
+  // inconsistente no se recalcula (regla de adherencia), así que la lectura los filtra
+  // con el MISMO predicado. Caso real: el par de IGB guardó 1.348 filas, 765 de ellas
+  // cuentas ausentes de un archivo y en ceros en el otro.
+  const ceros = { saldoInicial: 0, debitos: 0, creditos: 0, saldoFinal: 0 };
+  const guardada = (diff: typeof ceros) => ({ cuenta8: "11050505", nombre: "CAJA GENERAL", cuenta: ceros, tercero: ceros, diff, estado: "solo_tercero" as const, sinDesgloseTercero: false });
+
+  it("descarta la fila legada cuya diferencia es toda cero", () => {
+    expect(esDiferenciaReal(guardada(ceros))).toBe(false);
+  });
+
+  it("conserva la fila legada con cualquier componente distinto de cero", () => {
+    expect(esDiferenciaReal(guardada({ ...ceros, debitos: 39_361_058 }))).toBe(true);
+    expect(esDiferenciaReal(guardada({ ...ceros, saldoInicial: -0.01 }))).toBe(true);
+  });
+
+  it("filtra una lista mixta dejando solo las diferencias reales", () => {
+    const filas = [guardada(ceros), guardada({ ...ceros, creditos: -1 }), guardada(ceros)];
+    expect(filas.filter(esDiferenciaReal)).toHaveLength(1);
   });
 });
 

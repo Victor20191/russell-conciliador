@@ -5,7 +5,7 @@ import { tomarCandadoTransaccion, transaccionSerializable, type TransactionClien
 import { registrarError } from "@/lib/errores";
 import { createProcessNotification } from "@/lib/notifications";
 import { logAudit } from "@/lib/audit";
-import { construirCruceAperturas, seleccionarParesAperturas } from "./cruce-aperturas";
+import { construirCruceAperturas, esDiferenciaReal, seleccionarParesAperturas } from "./cruce-aperturas";
 
 const cabeceraSelect = {
   id: true, clienteId: true, aperturaBalance: true, loteId: true,
@@ -114,7 +114,18 @@ export async function cargarEstadoCrucesAperturas(balanceId: number, clienteId: 
         orderBy: [{ inconsistente: "desc" }, { id: "desc" }],
       }),
     ]);
-    const pares = registros.map((r) => ({ id: r.id, inconsistente: r.inconsistente, actualizadoEn: r.actualizadoEn.toISOString(), cuenta: r.balanceCuenta, tercero: r.balanceTercero, resultado: SnapshotSchema.parse(r.resultado) }));
+    // Los informes guardados antes de este criterio listan cuentas ausentes de un
+    // archivo que en el otro venían en ceros: no son diferencias, y como un par
+    // inconsistente ya no se recalcula, se depuran aquí al leer. El veredicto
+    // (`inconsistente`) NO se toca: retirarlo sigue siendo potestad de eliminar un archivo.
+    const pares = registros.map((r) => {
+      const resultado = SnapshotSchema.parse(r.resultado);
+      return {
+        id: r.id, inconsistente: r.inconsistente, actualizadoEn: r.actualizadoEn.toISOString(),
+        cuenta: r.balanceCuenta, tercero: r.balanceTercero,
+        resultado: { ...resultado, filas: resultado.filas.filter(esDiferenciaReal) },
+      };
+    });
     const pendiente = esperados.pares.some((p) => !registros.some((r) => r.balanceCuentaId === p.balanceCuentaId && r.balanceTerceroId === p.balanceTerceroId));
     return { disponible: true, pendiente, motivo: esperados.motivo, pares };
   } catch (error) {

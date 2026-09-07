@@ -51,11 +51,30 @@ export function construirCruceAperturas(porCuenta: readonly FilaCuentaCruce[], p
     totalTercero = sumarMontos(totalTercero, tercero);
     return {
       cuenta8, nombre: c?.nombreCuenta || t?.nombreCuenta || cuenta8, cuenta, tercero, diff,
-      estado: !c ? "solo_tercero" : !t ? "solo_cuenta" : montosCuadran(diff) ? "cuadra" : "descuadre",
+      // El veredicto lo dan los IMPORTES, no la presencia. Una cuenta que falta en un
+      // archivo y en el otro viene TODA en ceros es el mismo hecho económico —no hubo
+      // movimiento— y contarla como diferencia inundaba el informe: en el par de IGB
+      // (1.348 filas) 765 eran exactamente eso, el 57 %. Si el lado presente trae algún
+      // importe, la ausencia sí es una diferencia y se conserva como `solo_*`.
+      estado: montosCuadran(diff) ? "cuadra" : !c ? "solo_tercero" : !t ? "solo_cuenta" : "descuadre",
       sinDesgloseTercero: !!t && !conDesglose.has(cuenta8),
     };
   });
   return { filas, cuadra: filas.every((f) => f.estado === "cuadra"), totales: { cuenta: totalCuenta, tercero: totalTercero, diff: diferenciasMontos(totalCuenta, totalTercero) } };
+}
+
+/**
+ * ¿Esta fila del informe es una diferencia REAL? Único criterio: que algún importe
+ * difiera. La ausencia de la cuenta en un archivo no basta —si el otro lado viene en
+ * ceros, no hubo movimiento y no hay nada que conciliar.
+ *
+ * Se exporta porque los informes YA GUARDADOS se calcularon con el criterio anterior y
+ * no se recalculan: un par marcado inconsistente es adherente por regla de producto
+ * (`revisarCrucesAperturas` lo salta), así que la lectura los depura con este mismo
+ * predicado en vez de reescribir la base.
+ */
+export function esDiferenciaReal(fila: { diff: Montos4 }): boolean {
+  return !montosCuadran(fila.diff);
 }
 
 export type CandidatoApertura = {

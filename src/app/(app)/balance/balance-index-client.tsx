@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import Link from "next/link";
 import { Icon } from "@/components/icons";
 import {
@@ -15,17 +15,35 @@ import { CargarBalanceButton, type ClienteOpcion } from "./cargar-balance-modal"
 import type { ConfiguracionIABalanceUI } from "@/lib/ia/proveedor-balance";
 
 export type PeriodRow = {
-  inconsistentesAperturas?: number;
+  /** Clave estable del renglón (período + apertura). Dos aperturas del mismo período
+   *  son dos renglones, así que el nombre del período ya no alcanza como `key`. */
+  key: string;
   period: string; versions: number; officialId: number | null;
   status: string; complete: number; lastUpload: string;
   mapped: number; unmapped: number; total: number;
-  /** Apertura declarada de la versión oficial (`cuenta` | `tercero`); null si el
-   *  cargue es anterior a este dato. */
+  /** Apertura bajo la que se lista el renglón (`cuenta` | `tercero`); null cuando el
+   *  cargue es anterior a este dato y el período no permite deducirla. */
   apertura: string | null;
+  /** Versiones de ESTE renglón que el cruce marcó inconsistentes contra la otra apertura. */
+  inconsistentes: number;
+};
+/**
+ * Un período del cliente. Casi siempre trae un solo renglón; trae dos cuando el cliente
+ * entregó el mismo período POR CUENTA y POR TERCEROS, que no son versiones sucesivas
+ * sino dos archivos que coexisten y se validan entre sí. En ese caso el período se
+ * rotula UNA vez y las aperturas cuelgan debajo, para que ninguna quede oculta detrás
+ * de la otra: antes ganaba la más reciente y la otra desaparecía del listado, aun
+ * estando marcada como inconsistente.
+ */
+export type PeriodGroup = {
+  period: string;
+  /** El período trae las dos aperturas: se rotula aparte y sus renglones van colgados. */
+  paralelo: boolean;
+  rows: PeriodRow[];
 };
 export type ClientGroup = {
   clientId: number; clientName: string; clientNit: string;
-  periodList: PeriodRow[];
+  periodList: PeriodGroup[];
 };
 export type AuditRow = {
   date: string;
@@ -159,52 +177,11 @@ function ClientsTab({ clients }: { clients: ClientGroup[] }) {
                 </tr>
               </thead>
               <tbody>
-                {c.periodList.map((p) => (
-                  <tr key={p.period} className="border-b border-ink-50 last:border-0 hover:bg-ink-50">
-                    <td className="px-4 py-2.5 font-medium text-ink-800">{p.period}</td>
-                    <td className="px-4 py-2.5 text-right font-mono text-ink-600">
-                      {/* El conteo abre la bitácora de versiones del período, desde
-                          donde se entra y se descarga cada versión (no solo la oficial). */}
-                      {p.officialId ? (
-                        <Link
-                          href={`/balance/${p.officialId}?tab=versiones`}
-                          title={`Ver las ${p.versions} versión(es) de ${p.period}`}
-                          className="text-blue-500 hover:underline"
-                        >
-                          {p.versions}
-                        </Link>
-                      ) : (
-                        p.versions
-                      )}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      {/* Lo declaró quien cargó la versión oficial del período. */}
-                      {parsearApertura(p.apertura)
-                        ? <Chip label={etiquetaApertura(p.apertura)} tone={parsearApertura(p.apertura) === "tercero" ? "blue" : "ink"} />
-                        : <span className="text-ink-400" title="Cargue anterior al registro del tipo de balance.">—</span>}
-                    </td>
-                    <td className="px-4 py-2.5"><Chip label={p.status} tone={statusTone(p.status)} />{p.inconsistentesAperturas ? <a href={`/balance/${p.officialId}?tab=versiones`} className="mt-1 block"><Chip label={`${p.inconsistentesAperturas} archivo(s) inconsistente(s)`} tone="err" /></a> : null}</td>
-                    <td className="px-4 py-2.5">
-                      <div className="flex items-center gap-2">
-                        <div className="h-1.5 w-14 overflow-hidden rounded-full bg-ink-150">
-                          <div className={`h-full ${p.complete === 100 ? "bg-ok-500" : "bg-warn-500"}`} style={{ width: `${p.complete}%` }} />
-                        </div>
-                        <span className="font-mono text-[11px] text-ink-500">{p.complete}%</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <span className="font-mono text-[11px] text-ink-600">{p.mapped}/{p.total}</span>
-                      {p.unmapped > 0 && <span className="ml-1.5"><Chip label={`${p.unmapped} sin mapeo`} tone="warn" /></span>}
-                    </td>
-                    <td className="px-4 py-2.5 text-ink-500">{p.lastUpload}</td>
-                    <td className="px-4 py-2.5 text-right">
-                      {p.officialId && (
-                        <Link href={`/balance/${p.officialId}`} className="inline-flex items-center gap-1 text-[12px] font-medium text-blue-500 hover:underline">
-                          Ver <Icon name="chev-r" size={12} />
-                        </Link>
-                      )}
-                    </td>
-                  </tr>
+                {c.periodList.map((g) => (
+                  <Fragment key={g.period}>
+                    {g.paralelo && <FilaRotuloPeriodo grupo={g} />}
+                    {g.rows.map((p) => <FilaPeriodo key={p.key} p={p} colgada={g.paralelo} />)}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
@@ -222,6 +199,101 @@ function ClientsTab({ clients }: { clients: ClientGroup[] }) {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Rótulo de un período que llegó con las dos aperturas: lo nombra una sola vez y avisa
+ * si los archivos no cuadran entre sí. El aviso cuenta APERTURAS marcadas (no versiones),
+ * que es lo que el usuario ve colgando debajo.
+ */
+function FilaRotuloPeriodo({ grupo }: { grupo: PeriodGroup }) {
+  const marcadas = grupo.rows.filter((r) => r.inconsistentes > 0).length;
+  const destino = grupo.rows.find((r) => r.officialId)?.officialId ?? null;
+  return (
+    <tr className="border-b border-ink-50 bg-ink-50/70">
+      <td className="px-4 py-2.5 font-medium text-ink-800">{grupo.period}</td>
+      <td className="px-4 py-2.5" />
+      <td className="px-4 py-2.5 text-[11px] text-ink-500">{grupo.rows.length} aperturas</td>
+      <td className="px-4 py-2.5" colSpan={5}>
+        {marcadas > 0 && destino && (
+          <Link
+            href={`/balance/${destino}#cruce-aperturas`}
+            title="Los archivos del período no cuadran entre sí. Abre la validación cruzada por apertura."
+          >
+            <Chip label={`${marcadas} apertura${marcadas === 1 ? "" : "s"} inconsistente${marcadas === 1 ? "" : "s"}`} tone="err" />
+          </Link>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+/** Un renglón del listado. `colgada` = pende de un rótulo de período que ya lo nombró. */
+function FilaPeriodo({ p, colgada }: { p: PeriodRow; colgada: boolean }) {
+  const apertura = parsearApertura(p.apertura);
+  const etiquetaFila = colgada ? `${p.period} · ${etiquetaApertura(p.apertura)}` : p.period;
+  return (
+    <tr className="border-b border-ink-50 last:border-0 hover:bg-ink-50">
+      <td className={`px-4 py-2.5 font-medium text-ink-800 ${colgada ? "pl-9" : ""}`}>
+        {colgada
+          ? <><span aria-hidden className="text-ink-300">└</span><span className="sr-only">{p.period}</span></>
+          : p.period}
+      </td>
+      <td className="px-4 py-2.5 text-right font-mono text-ink-600">
+        {/* El conteo abre la bitácora de versiones del período, desde donde se entra y
+            se descarga cada versión (no solo la oficial). */}
+        {p.officialId ? (
+          <Link
+            href={`/balance/${p.officialId}?tab=versiones`}
+            title={`Ver las ${p.versions} versión(es) de ${etiquetaFila}`}
+            className="text-blue-500 hover:underline"
+          >
+            {p.versions}
+          </Link>
+        ) : (
+          p.versions
+        )}
+      </td>
+      <td className="px-4 py-2.5">
+        {/* Lo declaró quien cargó el archivo; en un período partido es la clave del renglón. */}
+        {apertura
+          ? <Chip label={etiquetaApertura(p.apertura)} tone={apertura === "tercero" ? "blue" : "ink"} />
+          : <span className="text-ink-400" title="Cargue anterior al registro del tipo de balance.">—</span>}
+      </td>
+      <td className="px-4 py-2.5">
+        <Chip label={p.status} tone={statusTone(p.status)} />
+        {p.inconsistentes > 0 && p.officialId ? (
+          <Link
+            href={`/balance/${p.officialId}#cruce-aperturas`}
+            className="mt-1 block"
+            title="Este archivo no cuadra contra el de la otra apertura."
+          >
+            <Chip label={colgada ? "Inconsistente" : `${p.inconsistentes} archivo(s) inconsistente(s)`} tone="err" />
+          </Link>
+        ) : null}
+      </td>
+      <td className="px-4 py-2.5">
+        <div className="flex items-center gap-2">
+          <div className="h-1.5 w-14 overflow-hidden rounded-full bg-ink-150">
+            <div className={`h-full ${p.complete === 100 ? "bg-ok-500" : "bg-warn-500"}`} style={{ width: `${p.complete}%` }} />
+          </div>
+          <span className="font-mono text-[11px] text-ink-500">{p.complete}%</span>
+        </div>
+      </td>
+      <td className="px-4 py-2.5">
+        <span className="font-mono text-[11px] text-ink-600">{p.mapped}/{p.total}</span>
+        {p.unmapped > 0 && <span className="ml-1.5"><Chip label={`${p.unmapped} sin mapeo`} tone="warn" /></span>}
+      </td>
+      <td className="px-4 py-2.5 text-ink-500">{p.lastUpload}</td>
+      <td className="px-4 py-2.5 text-right">
+        {p.officialId && (
+          <Link href={`/balance/${p.officialId}`} className="inline-flex items-center gap-1 text-[12px] font-medium text-blue-500 hover:underline" title={`Abrir ${etiquetaFila}`}>
+            Ver <Icon name="chev-r" size={12} />
+          </Link>
+        )}
+      </td>
+    </tr>
   );
 }
 

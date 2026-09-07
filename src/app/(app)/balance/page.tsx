@@ -4,9 +4,17 @@ import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { PageHeader } from "@/components/ui";
 import BalanceIndexClient, {
   type ClientGroup,
+  type PeriodGroup,
   type PeriodRow,
   type AuditRow,
 } from "./balance-index-client";
+import { compararApertura } from "@/lib/balance/apertura-balance";
+import {
+  aperturaDeListado,
+  aperturasDeclaradasPorGrupo,
+  claveRenglonApertura,
+  periodoConAperturasParalelas,
+} from "@/lib/balance/agrupacion-aperturas";
 import { fmtDateTime } from "@/lib/format";
 import { configuracionIABalanceUISesion } from "@/lib/ia/proveedor-balance-sesion";
 
@@ -66,19 +74,33 @@ export default async function BalancePage() {
   // por cliente se verifica de nuevo en la Server Action al enviar.
   const uploadClients = canUpload ? carteraClientes : [];
 
-  // Agrupar por cliente → períodos. La clave es el clienteId (NO el nombre, que
-  // es denormalizado: dos clientes homónimos no deben fusionarse y un cliente
-  // renombrado no debe partirse). El mapeo (mapeadas/sinMapear/total) se lleva a
-  // nivel de PERÍODO (su versión oficial), no de cliente, para no mezclar
+  // Agrupar por cliente → períodos → renglones. La clave de cliente es el clienteId
+  // (NO el nombre, que es denormalizado: dos clientes homónimos no deben fusionarse y
+  // un cliente renombrado no debe partirse). El mapeo (mapeadas/sinMapear/total) se
+  // lleva a nivel de RENGLÓN (su versión oficial), no de cliente, para no mezclar
   // períodos. A la frontera RSC→client se pasan SOLO objetos planos serializables.
+  //
+  // Un período se PARTE en un renglón por apertura cuando el cliente entregó las dos
+  // («por cuenta» y «por terceros»): son dos archivos que coexisten y se cruzan entre
+  // sí, no versiones sucesivas del mismo, y antes el más reciente ocultaba al otro —
+  // incluso estando ambos marcados como inconsistentes. La regla (y el cuidado con los
+  // cargues legados sin apertura declarada) vive en `agrupacion-aperturas.ts`.
+  const clavePeriodo = (b: { clienteId: number; periodo: string }) => `${b.clienteId}::${b.periodo}`;
+  const aperturasPorPeriodo = aperturasDeclaradasPorGrupo(
+    encabezados.map((b) => ({ clave: clavePeriodo(b), aperturaBalance: b.aperturaBalance })),
+  );
+
   type Agg = {
     clientId: number; clientName: string; clientNit: string;
-    periods: Map<string, PeriodRow>;
+    periods: Map<string, PeriodGroup>;
     // Sello de orden por última carga/recarga: el `creadoEn` más reciente de cada
     // período y del cliente entero (cada cargue/recargue crea un encabezado nuevo).
     periodTs: Map<string, number>; lastTs: number;
   };
   const byClient = new Map<number, Agg>();
+  // Índice auxiliar de renglones por período: `PeriodGroup.rows` viaja como arreglo
+  // plano al cliente, pero acá hace falta ubicarlos por apertura mientras se agregan.
+  const filasPorPeriodo = new Map<string, Map<string, PeriodRow>>();
   for (const b of encabezados) {
     const ts = b.creadoEn.getTime();
     let g = byClient.get(b.clienteId);
@@ -88,30 +110,48 @@ export default async function BalancePage() {
     }
     g.lastTs = Math.max(g.lastTs, ts);
     g.periodTs.set(b.periodo, Math.max(g.periodTs.get(b.periodo) ?? 0, ts));
-    let p = g.periods.get(b.periodo);
+
+    const claveP = clavePeriodo(b);
+    const declaradas = aperturasPorPeriodo.get(claveP);
+    const apertura = aperturaDeListado(b.aperturaBalance, declaradas);
+    const claveFila = claveRenglonApertura(claveP, apertura);
+    // Marcado por el cruce de aperturas: este archivo no cuadra contra su contraparte.
+    const inconsistente = b._count.crucesComoCuenta + b._count.crucesComoTercero > 0;
+
+    let grupo = g.periods.get(b.periodo);
+    if (!grupo) {
+      grupo = { period: b.periodo, paralelo: periodoConAperturasParalelas(declaradas), rows: [] };
+      g.periods.set(b.periodo, grupo);
+      filasPorPeriodo.set(claveP, new Map());
+    }
+    const filas = filasPorPeriodo.get(claveP)!;
+    let p = filas.get(claveFila);
     if (!p) {
-      p = { period: b.periodo, versions: 0, officialId: null, status: b.estado, complete: b.completitud, lastUpload: b.ultimaCarga ? fmtDateTime(b.ultimaCarga) : "", mapped: b.mapeadas, unmapped: b.sinMapear, total: b.filasTotales, apertura: b.aperturaBalance };
-      g.periods.set(b.periodo, p);
+      p = { key: claveFila, period: b.periodo, apertura, versions: 0, officialId: null, status: b.estado, complete: b.completitud, lastUpload: b.ultimaCarga ? fmtDateTime(b.ultimaCarga) : "", mapped: b.mapeadas, unmapped: b.sinMapear, total: b.filasTotales, inconsistentes: 0 };
+      filas.set(claveFila, p);
+      grupo.rows.push(p);
     }
     p.versions += 1;
-    if (b._count.crucesComoCuenta + b._count.crucesComoTercero > 0) p.inconsistentesAperturas = (p.inconsistentesAperturas ?? 0) + 1;
-    if (!p.officialId) p.officialId = b.id; // fallback si ninguna fila es oficial
+    if (inconsistente) p.inconsistentes += 1;
+    if (!p.officialId) p.officialId = b.id; // fallback si ninguna versión es oficial
     if (b.esOficial) {
       p.officialId = b.id; p.status = b.estado; p.complete = b.completitud; p.lastUpload = b.ultimaCarga ? fmtDateTime(b.ultimaCarga) : p.lastUpload;
-      p.mapped = b.mapeadas; p.unmapped = b.sinMapear; p.total = b.filasTotales; // mapeo de la versión oficial del período
-      p.apertura = b.aperturaBalance; // el tipo que declaró la versión OFICIAL del período
+      p.mapped = b.mapeadas; p.unmapped = b.sinMapear; p.total = b.filasTotales; // mapeo de la versión oficial del renglón
     }
+    // `p.apertura` NO se repisa con la versión oficial: es la clave del renglón, y en un
+    // período partido cada renglón tiene la suya por construcción.
   }
 
-  // Orden por última carga/recarga (más reciente primero): tanto los clientes
-  // como los períodos dentro de cada cliente.
+  // Orden por última carga/recarga (más reciente primero): tanto los clientes como los
+  // períodos dentro de cada cliente. Dentro de un período partido, las aperturas van en
+  // orden estable («Por cuenta», «Por terceros», y los cargues sin declarar al final).
   const clients: ClientGroup[] = [...byClient.values()]
     .sort((a, b) => b.lastTs - a.lastTs)
     .map((g) => ({
       clientId: g.clientId, clientName: g.clientName, clientNit: g.clientNit,
-      periodList: [...g.periods.values()].sort(
-        (x, y) => (g.periodTs.get(y.period) ?? 0) - (g.periodTs.get(x.period) ?? 0),
-      ),
+      periodList: [...g.periods.values()]
+        .sort((x, y) => (g.periodTs.get(y.period) ?? 0) - (g.periodTs.get(x.period) ?? 0))
+        .map((grupo) => ({ ...grupo, rows: [...grupo.rows].sort((x, y) => compararApertura(x.apertura, y.apertura)) })),
     }));
 
   const clientePorId = new Map(carteraClientes.map((cliente) => [cliente.id, cliente.name]));
