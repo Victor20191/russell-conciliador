@@ -86,7 +86,7 @@ export default function Topbar({
             ) : CRUMB_GROUPS.has(c.href) ? (
               <span className="truncate">{c.label}</span>
             ) : (
-              <Link href={c.href} className="truncate rounded-sm hover:text-blue-500 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500">{c.label}</Link>
+              <Link href={c.href} className="truncate rounded-sm font-medium text-blue-500 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500">{c.label}</Link>
             )}
           </span>
         ))}

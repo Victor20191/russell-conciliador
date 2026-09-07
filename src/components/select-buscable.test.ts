@@ -47,3 +47,34 @@ describe("coincideOpcionBuscable", () => {
     expect(coincideOpcionBuscable(sinSub, "pasivo")).toBe(false);
   });
 });
+
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { SelectBuscable } from "./select-buscable";
+
+describe("SelectBuscable render", () => {
+  it("muestra el spinner de carga cuando cargando es true", () => {
+    const html = renderToStaticMarkup(
+      createElement(SelectBuscable, {
+        opciones: [{ value: "1", label: "REDPLAS S.A.S" }],
+        value: "1",
+        onChange: () => {},
+        cargando: true,
+      })
+    );
+    expect(html).toContain("animate-spin");
+    expect(html).toContain('aria-label="Cargando…"');
+  });
+
+  it("no muestra el spinner cuando cargando es false", () => {
+    const html = renderToStaticMarkup(
+      createElement(SelectBuscable, {
+        opciones: [{ value: "1", label: "REDPLAS S.A.S" }],
+        value: "1",
+        onChange: () => {},
+        cargando: false,
+      })
+    );
+    expect(html).not.toContain("animate-spin");
+  });
+});

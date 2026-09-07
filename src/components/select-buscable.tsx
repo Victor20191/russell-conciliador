@@ -41,6 +41,7 @@ export function SelectBuscable({
   className = "",
   permitirLimpiar = true,
   ariaLabel,
+  cargando = false,
 }: {
   opciones: OpcionBuscable[];
   value: string;
@@ -50,8 +51,16 @@ export function SelectBuscable({
   className?: string;
   permitirLimpiar?: boolean;
   ariaLabel?: string;
+  cargando?: boolean;
 }) {
-  const seleccionada = opciones.find((opcion) => opcion.value === value) ?? null;
+  const [seleccionLocal, setSeleccionLocal] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSeleccionLocal(null);
+  }, [value]);
+
+  const valorEfectivo = seleccionLocal ?? value;
+  const seleccionada = opciones.find((opcion) => opcion.value === valorEfectivo) ?? null;
   const [busqueda, setBusqueda] = useState("");
   const [abierto, setAbierto] = useState(false);
   const [indiceActivo, setIndiceActivo] = useState(0);
@@ -83,10 +92,10 @@ export function SelectBuscable({
 
   useEffect(() => {
     if (abierto) {
-      const idx = opcionesVisibles.findIndex((o) => o.value === value);
+      const idx = opcionesVisibles.findIndex((o) => o.value === valorEfectivo);
       setIndiceActivo(idx >= 0 ? idx : 0);
     }
-  }, [abierto, value]);
+  }, [abierto, valorEfectivo]);
 
   useEffect(() => {
     if (!abierto) return;
@@ -100,6 +109,7 @@ export function SelectBuscable({
     setBusqueda("");
     setAbierto(false);
     setIndiceActivo(0);
+    setSeleccionLocal(opcion.value);
     onChange(opcion.value);
   };
 
@@ -182,7 +192,17 @@ export function SelectBuscable({
           className="min-w-0 flex-1 bg-transparent px-2.5 py-2 text-[12.5px] text-ink-700 outline-none placeholder:text-ink-400"
         />
 
-        {(busqueda !== "" || (permitirLimpiar && value !== "")) && (
+        {cargando && (
+          <span
+            role="status"
+            aria-label="Cargando…"
+            className="inline-flex shrink-0 items-center justify-center px-1 text-blue-600"
+          >
+            <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-blue-600 border-r-transparent motion-reduce:animate-none" />
+          </span>
+        )}
+
+        {!cargando && (busqueda !== "" || (permitirLimpiar && valorEfectivo !== "")) && (
           <button
             type="button"
             onClick={limpiarSeleccion}
@@ -194,12 +214,14 @@ export function SelectBuscable({
         )}
         <button
           type="button"
+          disabled={cargando}
           onClick={() => {
+            if (cargando) return;
             setAbierto((actual) => !actual);
             inputRef.current?.focus();
           }}
           aria-label={abierto ? "Cerrar lista" : "Mostrar lista"}
-          className="mr-1 rounded p-1 text-ink-400 transition hover:bg-ink-50 hover:text-ink-700"
+          className="mr-1 rounded p-1 text-ink-400 transition hover:bg-ink-50 hover:text-ink-700 disabled:opacity-50"
         >
           <Icon name="chev-d" size={14} className={`transition ${abierto ? "rotate-180" : ""}`} />
         </button>
@@ -218,7 +240,7 @@ export function SelectBuscable({
                   key={opcion.value}
                   id={`${idBase}-opcion-${opcion.value}`}
                   role="option"
-                  aria-selected={opcion.value === value}
+                  aria-selected={opcion.value === valorEfectivo}
                   onMouseEnter={() => setIndiceActivo(index)}
                   onMouseDown={(event) => {
                     event.preventDefault();
@@ -236,7 +258,7 @@ export function SelectBuscable({
                       </span>
                     )}
                   </div>
-                  {opcion.value === value && <Icon name="check" size={13} className="ml-1 shrink-0 text-ok-600" />}
+                  {opcion.value === valorEfectivo && <Icon name="check" size={13} className="ml-1 shrink-0 text-ok-600" />}
                 </div>
               ))}
               {coincidencias.length > opcionesVisibles.length && (

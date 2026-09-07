@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useMemo, useState } from "react";
+import { useActionState, useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Card, Chip, EmptyState } from "@/components/ui";
@@ -29,6 +29,7 @@ export function MapeoClienteTab({ accounts, std, anomalias, clienteId, clienteNi
   cliente: string; clientNames: string[]; clientOptions?: Array<{ nombre: string; nit: string | null }>; onEditar: (cuenta: CuentaPucCliente | null) => void;
 }) {
   const router = useRouter();
+  const [isPending, startTransition] = useTransition();
   const [q, setQ] = useState("");
   const [nivel, setNivel] = useState("all");
   const [origen, setOrigen] = useState("all");
@@ -68,7 +69,17 @@ export function MapeoClienteTab({ accounts, std, anomalias, clienteId, clienteNi
   return (
     <Card>
       <div className="border-b border-ink-100 bg-blue-50/40 px-4 py-3 text-[12px] leading-relaxed text-ink-600">
-        <b className="text-ink-800">PUC acumulado de {cliente}</b>{clienteNit ? <> · NIT <span className="font-mono">{clienteNit}</span></> : null}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <b className="text-ink-800">PUC acumulado de {cliente}</b>{clienteNit ? <> · NIT <span className="font-mono">{clienteNit}</span></> : null}
+          </div>
+          {isPending && (
+            <span className="inline-flex items-center gap-1.5 text-[11.5px] font-medium text-blue-700 animate-pulse">
+              <span className="h-3 w-3 animate-spin rounded-full border-2 border-blue-600 border-r-transparent motion-reduce:animate-none" />
+              Cargando plan de cuentas…
+            </span>
+          )}
+        </div>
         <p className="mt-1">Reúne las cuentas de sus distintos balances y las reglas guardadas, en todos los niveles. Cada homologación se conserva para próximas cargas; al guardar puedes aplicarla también a balances existentes.</p>
       </div>
       <div className="flex flex-wrap items-center gap-3 border-b border-ink-100 px-4 py-3">
@@ -77,9 +88,12 @@ export function MapeoClienteTab({ accounts, std, anomalias, clienteId, clienteNi
           ariaLabel="Cliente del PUC"
           opciones={opcionesClientes}
           value={cliente}
+          cargando={isPending}
           onChange={(nuevoCliente) => {
             if (nuevoCliente && nuevoCliente !== cliente) {
-              router.push(`/config/mapeo-cliente?cliente=${encodeURIComponent(nuevoCliente)}`);
+              startTransition(() => {
+                router.push(`/config/mapeo-cliente?cliente=${encodeURIComponent(nuevoCliente)}`);
+              });
             }
           }}
           placeholder="Buscar cliente o NIT…"
@@ -108,7 +122,7 @@ export function MapeoClienteTab({ accounts, std, anomalias, clienteId, clienteNi
         ))}
       </div>
       {!clienteId || accounts.length === 0 ? <EmptyState icon="doc" title="Sin cuentas" description="Selecciona un cliente con balances o crea su primera regla de homologación." /> : (
-        <div className="overflow-x-auto">
+        <div className={`overflow-x-auto transition-opacity duration-200 ${isPending ? "opacity-40 pointer-events-none" : ""}`}>
           <table className="w-full text-[12.5px]">
             <thead><tr className="border-b border-ink-100 text-left text-[11px] uppercase tracking-wider text-ink-500">
               {["Nivel", "Cuenta cliente / nombre ERP", "Cuenta estándar Russell", "Origen", "Coincidencia", "Actualizado", ...(puedeMapear ? ["Acciones"] : [])].map((h) => <th key={h} className="px-3 py-2 font-semibold">{h}</th>)}

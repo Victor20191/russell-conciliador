@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import prisma from "@/lib/prisma";
 import { authorizePermiso, requirePermiso } from "@/lib/rbac";
-import { PageHeader, StatCard, Chip, BackLink } from "@/components/ui";
+import { PageHeader, StatCard, Chip } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { fmt, fmtDateTime } from "@/lib/format";
 import { reconstruirBalance, agruparJerarquia } from "@/lib/balance/calcular";
@@ -75,6 +75,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
     crucesAperturas,
     cierresPeriodo,
     bloqueadasPeriodo,
+    terceroLigado,
   ] = await Promise.all([
     authorizePermiso("balance:editar", { clientId }),
     authorizePermiso("balance:crear", { clientId }),
@@ -118,6 +119,13 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
     // Conciliación EN FIRME del período (cualquier módulo): cierres + cuentas bloqueadas.
     cierresFirmes(clientId, balance.periodo),
     cuentasBloqueadas(clientId, balance.periodo),
+    // Captura por tercero LIGADA a este cargue (misma llave `loteId` que usa la
+    // promoción y el visor). Un cargue con apertura «tercero» pero sin captura
+    // (archivo sin detalle reconocible, evento «SIN DETALLE POR TERCERO») no
+    // ofrece el visor: no habría nada que mostrar.
+    balance.loteId
+      ? prisma.balanceTerceroEncabezado.findUnique({ where: { loteId: balance.loteId, clienteId: balance.clienteId }, select: { id: true } })
+      : Promise.resolve(null),
   ]);
   const cierresVm: CierreFirmeVm[] = cierresPeriodo.map((c) => ({
     id: c.id,
@@ -245,7 +253,6 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
   return (
     <div>
       {cargado && <FlashToast tone={crucesAperturas.pares.some((p) => p.inconsistente) || crucesAperturas.pendiente ? "info" : "success"} title="Balance cargado" message={crucesAperturas.pares.some((p) => p.inconsistente) ? "Se detectaron inconsistencias entre aperturas. Ambos archivos quedan marcados; revisa el detalle en Terceros." : crucesAperturas.pendiente ? "La carga se completó. La validación entre archivos está pendiente; puedes reintentarla desde Terceros." : "El borrador se confirmó como balance."} clearParam="cargado" />}
-      <div className="mb-3"><BackLink href="/balance" label="Balance de comprobación" /></div>
       <PageHeader
         title={balance.nombreCliente}
         subtitle={`${balance.periodo} · versión ${balance.version}`}
@@ -297,8 +304,8 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
         {/* Visor interno de solo lectura: compara la homologación y el saldo de cada
             cuenta contra su detalle por tercero ligado (mismo loteId). Solo tiene
             sentido cuando esta versión declaró apertura «por terceros» y trae su
-            propio detalle cargado. */}
-        {parsearApertura(balance.aperturaBalance) === "tercero" && sums && (
+            propio detalle cargado (captura ligada por loteId). */}
+        {parsearApertura(balance.aperturaBalance) === "tercero" && sums && terceroLigado && (
           <a href={`/balance/${id}/terceros`} className="inline-flex items-center gap-1 font-medium text-blue-500 hover:underline">
             <Icon name="link" size={12} /> Ver por terceros
           </a>
