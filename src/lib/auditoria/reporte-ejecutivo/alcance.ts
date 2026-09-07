@@ -52,6 +52,7 @@ const MODULO_POR_RUTA: Array<[string, string]> = [
   ["/config/modulos", "modulos"],
   ["/config/clientes", "clientes"],
   ["/config/maestros", "maestros"],
+  ["/config/mapeo-cliente", "mapeo"],
   ["/config/mapeo", "mapeo"],
   ["/config/dian", "mapeos_dian"],
   ["/config/usuarios", "usuarios"],

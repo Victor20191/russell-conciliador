@@ -3,16 +3,34 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Icon } from "@/components/icons";
 
-export type OpcionBuscable = { value: string; label: string };
+export type OpcionBuscable = {
+  value: string;
+  label: string;
+  sublabel?: string;
+};
 
 const LIMITE_OPCIONES = 50;
 
-const normalizarBusqueda = (valor: string) =>
+const soloDigitos = (valor: string) => valor.replace(/\D/g, "");
+
+export const normalizarBusqueda = (valor: string) =>
   valor
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLocaleLowerCase("es-CO")
     .trim();
+
+export function coincideOpcionBuscable(opcion: OpcionBuscable, busqueda: string): boolean {
+  const texto = normalizarBusqueda(busqueda);
+  if (!texto) return true;
+  if (normalizarBusqueda(opcion.label).includes(texto)) return true;
+  if (opcion.sublabel) {
+    if (normalizarBusqueda(opcion.sublabel).includes(texto)) return true;
+    const digitos = soloDigitos(busqueda);
+    if (digitos.length > 0 && soloDigitos(opcion.sublabel).includes(digitos)) return true;
+  }
+  return false;
+}
 
 export function SelectBuscable({
   opciones,
@@ -21,6 +39,8 @@ export function SelectBuscable({
   placeholder = "Buscar…",
   sinResultados = "No se encontraron opciones.",
   className = "",
+  permitirLimpiar = true,
+  ariaLabel,
 }: {
   opciones: OpcionBuscable[];
   value: string;
@@ -28,6 +48,8 @@ export function SelectBuscable({
   placeholder?: string;
   sinResultados?: string;
   className?: string;
+  permitirLimpiar?: boolean;
+  ariaLabel?: string;
 }) {
   const seleccionada = opciones.find((opcion) => opcion.value === value) ?? null;
   const [busqueda, setBusqueda] = useState("");
@@ -39,9 +61,8 @@ export function SelectBuscable({
   const listboxId = `${idBase}-lista`;
 
   const coincidencias = useMemo(() => {
-    const texto = normalizarBusqueda(busqueda);
-    if (!texto) return opciones;
-    return opciones.filter((opcion) => normalizarBusqueda(opcion.label).includes(texto));
+    if (!busqueda.trim()) return opciones;
+    return opciones.filter((opcion) => coincideOpcionBuscable(opcion, busqueda));
   }, [busqueda, opciones]);
 
   const opcionesVisibles = useMemo(
@@ -59,6 +80,13 @@ export function SelectBuscable({
     document.addEventListener("pointerdown", cerrarAlHacerClickAfuera);
     return () => document.removeEventListener("pointerdown", cerrarAlHacerClickAfuera);
   }, []);
+
+  useEffect(() => {
+    if (abierto) {
+      const idx = opcionesVisibles.findIndex((o) => o.value === value);
+      setIndiceActivo(idx >= 0 ? idx : 0);
+    }
+  }, [abierto, value]);
 
   useEffect(() => {
     if (!abierto) return;
@@ -79,7 +107,9 @@ export function SelectBuscable({
     setBusqueda("");
     setAbierto(true);
     setIndiceActivo(0);
-    onChange("");
+    if (permitirLimpiar) {
+      onChange("");
+    }
     requestAnimationFrame(() => inputRef.current?.focus());
   };
 
@@ -90,7 +120,16 @@ export function SelectBuscable({
   };
 
   return (
-    <div ref={contenedorRef} className={`relative ${className}`}>
+    <div
+      ref={contenedorRef}
+      className={`relative ${className}`}
+      onBlur={(event) => {
+        if (!contenedorRef.current?.contains(event.relatedTarget as Node)) {
+          setAbierto(false);
+          setBusqueda("");
+        }
+      }}
+    >
       <div className="flex items-center rounded-md border border-ink-200 bg-white text-ink-400 transition focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100">
         <Icon name="search" size={14} className="ml-2.5 shrink-0" />
         <input
@@ -99,6 +138,7 @@ export function SelectBuscable({
           role="combobox"
           autoComplete="off"
           aria-autocomplete="list"
+          aria-label={ariaLabel}
           aria-controls={listboxId}
           aria-expanded={abierto}
           aria-activedescendant={
@@ -108,7 +148,15 @@ export function SelectBuscable({
           }
           value={busqueda !== "" ? busqueda : (seleccionada?.label ?? "")}
           placeholder={placeholder}
-          onFocus={() => setAbierto(true)}
+          onFocus={() => {
+            setAbierto(true);
+            requestAnimationFrame(() => inputRef.current?.select());
+          }}
+          onClick={() => {
+            if (busqueda === "") {
+              inputRef.current?.select();
+            }
+          }}
           onChange={(event) => actualizarBusqueda(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "ArrowDown") {
@@ -134,7 +182,7 @@ export function SelectBuscable({
           className="min-w-0 flex-1 bg-transparent px-2.5 py-2 text-[12.5px] text-ink-700 outline-none placeholder:text-ink-400"
         />
 
-        {(busqueda !== "" || value !== "") && (
+        {(busqueda !== "" || (permitirLimpiar && value !== "")) && (
           <button
             type="button"
             onClick={limpiarSeleccion}
@@ -180,8 +228,15 @@ export function SelectBuscable({
                     index === indiceActivo ? "bg-blue-50 text-navy-800" : "text-ink-700 hover:bg-ink-50"
                   }`}
                 >
-                  <span className="min-w-0 truncate font-medium">{opcion.label}</span>
-                  {opcion.value === value && <Icon name="check" size={13} className="shrink-0 text-ok-600" />}
+                  <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
+                    <span className="min-w-0 truncate font-medium">{opcion.label}</span>
+                    {opcion.sublabel && (
+                      <span className="shrink-0 font-mono text-[11.5px] text-ink-500">
+                        {opcion.sublabel}
+                      </span>
+                    )}
+                  </div>
+                  {opcion.value === value && <Icon name="check" size={13} className="ml-1 shrink-0 text-ok-600" />}
                 </div>
               ))}
               {coincidencias.length > opcionesVisibles.length && (

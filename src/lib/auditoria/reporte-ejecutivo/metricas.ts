@@ -315,7 +315,7 @@ export function familiaDesdeRuta(ruta: string): FamiliaProceso | null {
   if (path === "/conciliacion" || path.startsWith("/conciliacion/")) return "conciliaciones";
   if (path === "/dian" || path.startsWith("/dian/")) return "dian";
   if (path === "/config/clientes" || path.startsWith("/config/clientes/")) return "clientes";
-  if (path === "/config/mapeo" || path.startsWith("/config/mapeo/")) return "mapeo";
+  if (path === "/config/mapeo" || path.startsWith("/config/mapeo/") || path === "/config/mapeo-cliente") return "mapeo";
   return null;
 }
 

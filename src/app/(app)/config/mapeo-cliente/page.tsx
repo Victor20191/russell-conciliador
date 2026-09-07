@@ -26,6 +26,16 @@ export default async function MapeoCuentasClientePage({ searchParams }: { search
     orderBy: { nombreCliente: "asc" },
   });
   const clientNames = [...new Set(balances.map((b) => b.nombreCliente))];
+  const nitPorNombre = new Map<string, string>();
+  for (const b of balances) {
+    if (b.nombreCliente && b.nit && !nitPorNombre.has(b.nombreCliente)) {
+      nitPorNombre.set(b.nombreCliente, b.nit);
+    }
+  }
+  const clientOptions = clientNames.map((nombre) => ({
+    nombre,
+    nit: nitPorNombre.get(nombre) ?? null,
+  }));
   const cliente = sp.cliente && clientNames.includes(sp.cliente) ? sp.cliente : (clientNames.includes("El Zarzal S.A") ? "El Zarzal S.A" : clientNames[0] ?? "");
 
   // Memoria de mapeo por cliente: clienteId del cliente seleccionado + flag de
@@ -119,7 +129,7 @@ export default async function MapeoCuentasClientePage({ searchParams }: { search
   return (
     <div>
       <PageHeader title="Mapeo cuentas cliente" subtitle="Homologación del PUC de cada cliente contra el plan estándar de Russell Bedford." />
-      <MapeoClienteClient key={clienteId} clientNames={clientNames} cliente={cliente} accounts={acc} std={std} clienteId={clienteId} clienteNit={clienteNit} puedeMapear={puedeMapear} />
+      <MapeoClienteClient key={clienteId} clientNames={clientNames} clientOptions={clientOptions} cliente={cliente} accounts={acc} std={std} clienteId={clienteId} clienteNit={clienteNit} puedeMapear={puedeMapear} />
     </div>
   );
 }

@@ -17,15 +17,16 @@ import type { AnomaliaMapeo } from "@/lib/balance/anomalias-mapeo";
 import type { CuentaPucCliente } from "@/lib/balance/catalogo-puc-cliente";
 import { consultarImpactoHomologacionCliente, guardarHomologacionCliente } from "@/app/actions/homologacion-cliente";
 import { eliminarMapeoCliente } from "@/app/actions/mapeo-cliente";
+import { SelectBuscable, type OpcionBuscable } from "@/components/select-buscable";
 import type { StdAccount } from "@/lib/balance/tipos-mapeo";
 
 const INPUT = "w-full rounded-md border border-ink-200 bg-white px-3 py-2 text-[12.5px] text-ink-800 outline-none focus:border-blue-400";
 const porConfirmar = (c: CuentaPucCliente) => !!c.cuenta6Russell && (c.coincidencia == null || c.coincidencia < 100);
 
-export function MapeoClienteTab({ accounts, std, anomalias, clienteId, clienteNit, puedeMapear, cliente, clientNames, onEditar }: {
+export function MapeoClienteTab({ accounts, std, anomalias, clienteId, clienteNit, puedeMapear, cliente, clientNames, clientOptions, onEditar }: {
   accounts: CuentaPucCliente[]; std: StdAccount[]; anomalias: Map<string, AnomaliaMapeo>;
   clienteId: number | null; clienteNit: string | null; puedeMapear: boolean;
-  cliente: string; clientNames: string[]; onEditar: (cuenta: CuentaPucCliente | null) => void;
+  cliente: string; clientNames: string[]; clientOptions?: Array<{ nombre: string; nit: string | null }>; onEditar: (cuenta: CuentaPucCliente | null) => void;
 }) {
   const router = useRouter();
   const [q, setQ] = useState("");
@@ -36,6 +37,16 @@ export function MapeoClienteTab({ accounts, std, anomalias, clienteId, clienteNi
   const [cruce, setCruce] = useState(false);
   const nombres = useMemo(() => new Map(std.map((s) => [s.code, s.name])), [std]);
   const niveles = useMemo(() => [...new Set(accounts.map((a) => a.level))].sort((a, b) => a - b), [accounts]);
+  const opcionesClientes: OpcionBuscable[] = useMemo(() => {
+    if (clientOptions && clientOptions.length > 0) {
+      return clientOptions.map((c) => ({
+        value: c.nombre,
+        label: c.nombre,
+        sublabel: c.nit ?? undefined,
+      }));
+    }
+    return clientNames.map((n) => ({ value: n, label: n }));
+  }, [clientNames, clientOptions]);
   const pendientes = accounts.filter(porConfirmar).length;
   const cruces = accounts.filter((a) => cruzaClaseContable(a.code, a.cuenta6Russell)).length;
   const sinAsignar = accounts.filter((a) => a.tipoFila !== "agrupadora" && !a.cuenta6Russell).length;
@@ -62,9 +73,20 @@ export function MapeoClienteTab({ accounts, std, anomalias, clienteId, clienteNi
       </div>
       <div className="flex flex-wrap items-center gap-3 border-b border-ink-100 px-4 py-3">
         <h2 className="text-[13px] font-semibold text-ink-800">Mapeo de balance por cliente</h2>
-        <select aria-label="Cliente del PUC" value={cliente} onChange={(e) => router.push(`/config/mapeo-cliente?cliente=${encodeURIComponent(e.target.value)}`)} className="max-w-full rounded-md border border-ink-200 px-2 py-1.5 text-[12px]">
-          {clientNames.map((n) => <option key={n} value={n}>{n}</option>)}
-        </select>
+        <SelectBuscable
+          ariaLabel="Cliente del PUC"
+          opciones={opcionesClientes}
+          value={cliente}
+          onChange={(nuevoCliente) => {
+            if (nuevoCliente && nuevoCliente !== cliente) {
+              router.push(`/config/mapeo-cliente?cliente=${encodeURIComponent(nuevoCliente)}`);
+            }
+          }}
+          placeholder="Buscar cliente o NIT…"
+          sinResultados="No se encontraron clientes."
+          permitirLimpiar={false}
+          className="w-72 sm:w-80"
+        />
         <div className="ml-auto flex items-center gap-2">
           <PageSizeSelect value={pg.pageSize} onChange={pg.setPageSize} />
           {puedeMapear && clienteId != null && <button type="button" onClick={() => onEditar(null)} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-800">Nueva regla</button>}

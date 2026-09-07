@@ -12,16 +12,16 @@ import { HomologacionClienteForm, MapeoClienteTab } from "./homologacion-client"
  * anomalías de la memoria vigente.
  */
 export default function MapeoClienteClient({
-  clientNames, cliente, accounts, std, clienteId, clienteNit, puedeMapear,
+  clientNames, clientOptions, cliente, accounts, std, clienteId, clienteNit, puedeMapear,
 }: {
-  clientNames: string[]; cliente: string; accounts: CuentaPucCliente[]; std: StdAccount[];
+  clientNames: string[]; clientOptions?: Array<{ nombre: string; nit: string | null }>; cliente: string; accounts: CuentaPucCliente[]; std: StdAccount[];
   clienteId: number | null; clienteNit: string | null; puedeMapear: boolean;
 }) {
   const [editTarget, setEditTarget] = useState<CuentaPucCliente | null | undefined>(undefined);
   const anomalias = useMemo(() => new Map(detectarAnomaliasMapeo(accounts.filter((a) => a.enMemoria)).map((a) => [a.code, a])), [accounts]);
   return (
     <div>
-      <MapeoClienteTab accounts={accounts} std={std} anomalias={anomalias} clienteId={clienteId} clienteNit={clienteNit} puedeMapear={puedeMapear} cliente={cliente} clientNames={clientNames} onEditar={setEditTarget} />
+      <MapeoClienteTab accounts={accounts} std={std} anomalias={anomalias} clienteId={clienteId} clienteNit={clienteNit} puedeMapear={puedeMapear} cliente={cliente} clientNames={clientNames} clientOptions={clientOptions} onEditar={setEditTarget} />
       {puedeMapear && clienteId != null && editTarget !== undefined && (
         <HomologacionClienteForm cuenta={editTarget} clienteId={clienteId} std={std} accounts={accounts} onClose={() => setEditTarget(undefined)} />
       )}
