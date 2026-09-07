@@ -188,6 +188,72 @@ export function mensajeConciliacionEnFirme(
   return `${base} Esta operación altera cuentas conciliadas: ${muestra}${resto}. Pide al senior o gerente del cliente que desbloquee la conciliación para continuar.`;
 }
 
+/** Cierre en firme reducido a lo que necesita la decisión de congelar (forma estructural de `CierreFirme`). */
+export type CierreParaCongelar = {
+  id: number;
+  moduloCodigo: string;
+  periodo: string;
+  balancePeriodo: string;
+  balanceEncabezadoId: number;
+  moduloDatoEncabezadoId: number;
+  cerradoPor: string;
+  cuentasRussell: string[];
+};
+
+export type DecisionCongelar =
+  | { tipo: "sin_cierres" }
+  | { tipo: "mismo_balance" }
+  | { tipo: "traslado"; cierres: CierreParaCongelar[]; cuentasEnFirme: number }
+  | { tipo: "bloqueado"; cierres: CierreParaCongelar[]; violaciones: ViolacionBloqueo[] };
+
+/**
+ * ¿Se puede congelar como oficial un balance en un período con conciliaciones en firme?
+ *
+ * Cargar una versión nueva ya se juzga por CONTENIDO (`evaluarCambiosBloqueados`): entra
+ * si no altera ninguna cuenta en firme ni mete cuentas nuevas al módulo cerrado.
+ * Congelarla se juzgaba por IDENTIDAD —cualquier cierre que apuntara a otro balance la
+ * rechazaba— y obligaba a un desbloqueo con justificación para una versión que la
+ * plataforma acababa de admitir precisamente por no tocar la conciliación. Aquí se
+ * aplica el mismo predicado a las dos operaciones:
+ *
+ *  - sin cierres, o todos apuntando ya a este balance → se congela como siempre;
+ *  - algún cierre apunta a OTRO balance y las cuentas en firme son idénticas →
+ *    `traslado`: se puede congelar y ese cierre debe pasar a esta versión (la foto por
+ *    cuenta no cambia: es idéntica por definición del predicado);
+ *  - alguna cuenta en firme cambia → `bloqueado`, con el detalle de qué cambió.
+ *
+ * `cuentasEnFirme` cuenta las cuentas de los cierres que se trasladan; si las filas
+ * traen `cierreId`, las de un cierre que ya apunta a este balance no se cuentan.
+ */
+export function decidirCongelarConCierres(p: {
+  balanceId: number;
+  cierres: readonly CierreParaCongelar[];
+  bloqueadas: readonly (CuentaBloqueada & { cierreId?: number })[];
+  filasNuevas: readonly FilaDetalleBloqueo[];
+}): DecisionCongelar {
+  if (p.cierres.length === 0) return { tipo: "sin_cierres" };
+  const ajenos = p.cierres.filter((c) => c.balanceEncabezadoId !== p.balanceId);
+  if (ajenos.length === 0) return { tipo: "mismo_balance" };
+  const cerradas = new Set(ajenos.flatMap((c) => c.cuentasRussell));
+  const violaciones = evaluarCambiosBloqueados(p.bloqueadas, p.filasNuevas, cerradas);
+  if (violaciones.length > 0) return { tipo: "bloqueado", cierres: ajenos, violaciones };
+  const ajenosIds = new Set(ajenos.map((c) => c.id));
+  const cuentasEnFirme = p.bloqueadas.filter((b) => b.cierreId == null || ajenosIds.has(b.cierreId)).length;
+  return { tipo: "traslado", cierres: ajenos, cuentasEnFirme };
+}
+
+/** Texto único —modal y auditoría— del traslado del cierre a la versión que se congela. */
+export function mensajeTrasladoCierre(
+  cierres: readonly Pick<CierreParaCongelar, "moduloCodigo" | "periodo" | "moduloDatoEncabezadoId" | "cerradoPor">[],
+  cuentasEnFirme: number,
+): string {
+  const lista = cierres
+    .map((c) => `${c.moduloCodigo} · ${c.periodo} (cargue #${c.moduloDatoEncabezadoId}, cerró ${c.cerradoPor})`)
+    .join("; ");
+  const plural = cuentasEnFirme === 1 ? "cuenta en firme idéntica" : "cuentas en firme idénticas";
+  return `Esta versión conserva ${cuentasEnFirme} ${plural} en importes y homologación. Al congelarla como oficial, el cierre de ${lista} pasará a esta versión.`;
+}
+
 /** Validación de la justificación del desbloqueo (obligatoria). */
 export function validarJustificacionDesbloqueo(texto: string): { ok: true; justificacion: string } | { ok: false; message: string } {
   const justificacion = (texto ?? "").replace(/\s+/g, " ").trim();

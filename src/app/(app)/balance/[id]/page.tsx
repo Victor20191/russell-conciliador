@@ -31,6 +31,7 @@ import Conversacion from "@/components/conversacion";
 import { cargarEstadoCrucesAperturas } from "@/lib/balance/cruce-aperturas-servidor";
 import { cierresFirmes, cuentasBloqueadas } from "@/lib/conciliacion/verificar-bloqueo";
 import { ConciliacionEnFirmeBanner, type BloqueoCuentaVm, type CierreFirmeVm } from "./conciliacion-en-firme";
+import { decidirCongelarConCierres, mensajeConciliacionEnFirme, mensajeTrasladoCierre } from "@/lib/conciliacion/cuentas-bloqueo";
 
 export default async function BalanceDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ cargado?: string; tab?: string }> }) {
   await requirePermiso("balance:ver");
@@ -154,6 +155,27 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
     saldoInicial: Number(f.saldoInicial), debitos: Number(f.debitos), creditos: Number(f.creditos), saldoFinal: Number(f.saldoFinal),
   }));
   const calc = reconstruirBalance(filas, cuentasEstandar, umbrales);
+  // Congelar en un período con conciliación en firme: qué debe pintar el botón. La
+  // decisión que manda es la de la acción, dentro de su transacción; esto solo evita
+  // ofrecer un clic que va a fallar y explica el traslado antes de confirmarlo.
+  const decisionCongelar = !balance.estaCongelado && cierresPeriodo.length > 0
+    ? decidirCongelarConCierres({
+        balanceId: id,
+        cierres: cierresPeriodo,
+        bloqueadas: bloqueadasPeriodo.map((b) => ({ ...b, cierreId: b.cierre.id })),
+        filasNuevas: filas,
+      })
+    : null;
+  const trasladoCongelar = decisionCongelar?.tipo === "traslado"
+    ? {
+        mensaje: mensajeTrasladoCierre(decisionCongelar.cierres, decisionCongelar.cuentasEnFirme),
+        cierres: decisionCongelar.cierres.map((c) => ({ modulo: c.moduloCodigo, periodo: c.periodo, cargue: c.moduloDatoEncabezadoId, cerradoPor: c.cerradoPor })),
+        cuentasEnFirme: decisionCongelar.cuentasEnFirme,
+      }
+    : null;
+  const bloqueoCongelar = decisionCongelar?.tipo === "bloqueado"
+    ? mensajeConciliacionEnFirme(decisionCongelar.cierres, decisionCongelar.violaciones)
+    : null;
   // Cuentas homologadas a otra clase contable (validación V6): alimentan el badge
   // del botón de re-homologar, porque son las que la acción viene a resolver.
   const filasFueraDeClase = filas.filter((f) => cruzaClaseContable(f.cuenta8, f.cuenta6Russell));
@@ -243,7 +265,7 @@ export default async function BalanceDetailPage({ params, searchParams }: { para
               />
             )}
             {!balance.estaCongelado && puedeEditar && (
-              <FreezeBalanceButton id={id} />
+              <FreezeBalanceButton id={id} traslado={trasladoCongelar} bloqueo={bloqueoCongelar} />
             )}
             {balance.estaCongelado && <Chip label="Congelado" tone="blue" />}
             {eliminarAuth.ok && (

@@ -66,7 +66,7 @@ import {
   exigirCargueCompatibleConCierres,
   registrarIntentoBloqueado,
 } from "@/lib/conciliacion/verificar-bloqueo";
-import { mensajeConciliacionEnFirme } from "@/lib/conciliacion/cuentas-bloqueo";
+import { decidirCongelarConCierres, mensajeConciliacionEnFirme, mensajeTrasladoCierre } from "@/lib/conciliacion/cuentas-bloqueo";
 import type { UmbralesAlertas } from "@/lib/balance/umbrales-alertas";
 import type { FilaDetalle } from "@/lib/balance/calcular";
 import { detectarManipulacionesRiesgosas, reclasificarHuerfanas, reclasificarSoloHojas, corregirCodigosPlaceholder, marcarNoContables, validarReubicacionesBorrador, type FilaBorrador } from "@/lib/balance/borrador";
@@ -1155,11 +1155,51 @@ export async function freezeBalance(formData: FormData): Promise<ActionState> {
           congelado: false,
         };
       }
-      // Conciliación EN FIRME: congelar otra versión cambiaría el balance oficial
-      // sobre el que se cerró el cruce de un módulo.
-      const cierresPeriodo = (await cierresFirmes(balance.clienteId, balance.periodo, tx)).filter((c) => c.balanceEncabezadoId !== id);
-      if (cierresPeriodo.length > 0) {
-        return { ok: false as const, message: mensajeConciliacionEnFirme(cierresPeriodo), bloqueadoPor: cierresPeriodo, balance };
+      // Conciliación EN FIRME. Congelar otra versión cambia el balance oficial sobre el
+      // que se cerró el cruce de un módulo, así que se juzga con el MISMO predicado que
+      // ya admite o rechaza CARGAR esa versión (`evaluarCambiosBloqueados`): si las
+      // cuentas en firme son idénticas, se congela y el cierre se traslada a esta versión
+      // —con confirmación explícita del usuario—; si alguna cambia, se rechaza con el
+      // detalle. La decisión se toma aquí dentro, en la transacción; la UI solo anticipa.
+      const cierresPeriodo = await cierresFirmes(balance.clienteId, balance.periodo, tx);
+      const cierresAjenos = cierresPeriodo.filter((c) => c.balanceEncabezadoId !== id);
+      let traslado: { cierres: typeof cierresAjenos; cuentasEnFirme: number } | null = null;
+      if (cierresAjenos.length > 0) {
+        // Mismo candado que toma el desbloqueo: no cruzarse con uno concurrente.
+        for (const c of cierresAjenos) {
+          await tomarCandadoTransaccion(tx, `conciliacion-cierre:${balance.clienteId}:${c.moduloCodigo}:${c.periodo}`);
+        }
+        const [bloqueadas, filasNuevas] = await Promise.all([
+          cuentasBloqueadas(balance.clienteId, balance.periodo, undefined, tx),
+          tx.balancePruebaDetalle.findMany({
+            where: { encabezadoId: id },
+            select: { cuenta8: true, cuenta6Russell: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
+          }),
+        ]);
+        const decision = decidirCongelarConCierres({
+          balanceId: id,
+          cierres: cierresPeriodo,
+          bloqueadas: bloqueadas.map((b) => ({ ...b, cierreId: b.cierre.id })),
+          filasNuevas: filasNuevas.map((f) => ({
+            cuenta8: f.cuenta8, cuenta6Russell: f.cuenta6Russell,
+            saldoInicial: Number(f.saldoInicial), debitos: Number(f.debitos), creditos: Number(f.creditos), saldoFinal: Number(f.saldoFinal),
+          })),
+        });
+        if (decision.tipo === "bloqueado") {
+          return { ok: false as const, message: mensajeConciliacionEnFirme(cierresAjenos, decision.violaciones), bloqueadoPor: cierresAjenos, balance };
+        }
+        if (decision.tipo === "traslado") {
+          // Fail-closed: sin la confirmación del formulario no se traslada nada. No es un
+          // intento de manipulación, así que no se audita como bloqueado.
+          if (formData.get("confirmarTraslado") !== "1") {
+            return {
+              ok: false as const,
+              message: `${mensajeTrasladoCierre(cierresAjenos, decision.cuentasEnFirme)} Confírmalo desde «Congelar como oficial».`,
+              balance,
+            };
+          }
+          traslado = { cierres: cierresAjenos, cuentasEnFirme: decision.cuentasEnFirme };
+        }
       }
 
       // Congelar vuelve inmutable la versión oficial: dentro del MISMO candado y
@@ -1218,11 +1258,24 @@ export async function freezeBalance(formData: FormData): Promise<ActionState> {
         },
       });
 
+      // Traslado del cierre: el balance conciliado pasa a ser esta versión. La foto por
+      // cuenta no cambia (idéntica por el predicado); la protección contra eliminar el
+      // balance conciliado y el enlace «Ver balance» del módulo siguen al nuevo oficial.
+      if (traslado) {
+        await tx.conciliacionModuloCierre.updateMany({
+          where: { id: { in: traslado.cierres.map((c) => c.id) } },
+          data: { balanceEncabezadoId: id },
+        });
+      }
+
       return {
         ok: true as const,
-        message: "Balance congelado como oficial.",
+        message: traslado
+          ? "Balance congelado como oficial. El cierre de la conciliación pasó a esta versión."
+          : "Balance congelado como oficial.",
         balance,
         congelado: true,
+        traslado,
       };
     });
 
@@ -1251,6 +1304,20 @@ export async function freezeBalance(formData: FormData): Promise<ActionState> {
       text: "congeló el balance oficial de",
       target: `${resultado.balance.nombreCliente} · ${resultado.balance.periodo} · ${resultado.balance.version}`,
     });
+    if ("traslado" in resultado && resultado.traslado) {
+      // Una entrada por cierre trasladado, con el balance de origen y el de destino.
+      for (const c of resultado.traslado.cierres) {
+        await logAudit({
+          user: user?.name ?? "Sistema",
+          action: "TRASLADÓ CIERRE DE CONCILIACIÓN",
+          entity: `${resultado.balance.nombreCliente} · ${resultado.balance.periodo}`,
+          detail: `${c.moduloCodigo} · ${c.periodo} · cargue #${c.moduloDatoEncabezadoId} · balance #${c.balanceEncabezadoId} → #${id} (${resultado.balance.version}) · ${resultado.traslado.cuentasEnFirme} cuenta(s) en firme idéntica(s) · cerró ${c.cerradoPor}`,
+          clientId: resultado.balance.clienteId,
+        });
+        revalidatePath(`/balance/${c.balanceEncabezadoId}`);
+      }
+      revalidatePath("/modulos/[codigo]/[id]", "page");
+    }
     revalidatePath("/", "layout");
     revalidatePath("/balance");
     revalidatePath(`/balance/${id}`);
