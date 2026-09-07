@@ -837,7 +837,7 @@ describe("idempotencia y atomicidad del ciclo de balances", () => {
     mocks.state.staging.push({ ...mocks.state.staging[0], filaNum: 2, codigo: "1105", nombre: "Caja del ERP", tipoFila: "agrupadora" });
     await expect(cargarBorrador({}, formPromocion())).rejects.toThrow("REDIRECT:/balance/1?cargado=1");
     expect(mocks.tx.balancePruebaEncabezado.create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ pucCliente: expect.arrayContaining([{ codigo: "1105", nombre: "Caja del ERP" }]) }),
+      data: expect.objectContaining({ pucCliente: expect.arrayContaining([{ codigo: "1105", nombre: "Caja del ERP", tipo_fila: "agrupadora" }, expect.objectContaining({ tipo_fila: "movimiento" })]) }),
     }));
     expect(mocks.tx.clientAccount.updateMany).toHaveBeenCalledWith({
       where: { clienteId: 7, procedenciaMapeo: { path: ["lote_id"], equals: LOTE_ID }, origenMapeo: "automatico" },

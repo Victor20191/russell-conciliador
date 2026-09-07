@@ -1517,7 +1517,7 @@ export async function asignarCuentaEstandar(formData: FormData): Promise<ActionS
       : `${resultado.cuenta6} (solo ${resultado.nombreCuenta}) → ${std.code} · memoria de la cuenta ${resultado.cuenta8}`;
     await logAudit({ user: user?.name ?? "Sistema", action: "ASIGNÓ CUENTA ESTÁNDAR", entity: resultado.cuenta6, detail: detalleAlcance, clientId: resultado.clienteId });
     revalidatePath(`/balance/${resultado.encId}`);
-    revalidatePath("/config/mapeo");
+    revalidatePath("/config/mapeo-cliente");
     return {
       ok: true,
       message: resultado.aplicarAlGrupo
@@ -1698,7 +1698,7 @@ export async function marcarCuentaPendiente(formData: FormData): Promise<ActionS
       : `${resultado.cuenta6} (solo ${resultado.nombreCuenta}) → pendiente por asignar`;
     await logAudit({ user: user?.name ?? "Sistema", action: "MARCÓ CUENTA PENDIENTE POR ASIGNAR", entity: resultado.cuenta6, detail: detalleAlcance, clientId: resultado.clienteId });
     revalidatePath(`/balance/${resultado.encId}`);
-    revalidatePath("/config/mapeo");
+    revalidatePath("/config/mapeo-cliente");
     return {
       ok: true,
       message: resultado.aplicarAlGrupo
@@ -1769,7 +1769,7 @@ export async function quitarPendiente(formData: FormData): Promise<ActionState> 
       clientId: fila.encabezado.clienteId,
     });
     revalidatePath(`/balance/${fila.encabezado.id}`);
-    revalidatePath("/config/mapeo");
+    revalidatePath("/config/mapeo-cliente");
     return {
       ok: true,
       message: alcanceMapeo === "grupo"
@@ -2456,7 +2456,7 @@ async function persistirCargue(p: {
     });
     const pucCliente = [...new Map(catalogoFuente
       .filter((f) => /^\d{4,30}$/.test(f.codigo ?? "") && (f.tipoFila === "movimiento" || f.tipoFila === "agrupadora"))
-      .map((f) => [f.codigo, { codigo: f.codigo!, nombre: f.nombre ?? f.codigo! }])).values()];
+      .map((f) => [f.codigo, { codigo: f.codigo!, nombre: f.nombre ?? f.codigo!, tipo_fila: f.tipoFila }])).values()];
 
     const balance = await tx.balancePruebaEncabezado.create({
       data: {

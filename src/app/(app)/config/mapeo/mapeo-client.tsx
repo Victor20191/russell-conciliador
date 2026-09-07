@@ -19,73 +19,37 @@ import {
   deleteStandardAccount,
 } from "@/app/actions/standard-accounts";
 import { crearSubgrupo, editarSubgrupo, eliminarSubgrupo } from "@/app/actions/subgrupos";
-import { detectarAnomaliasMapeo } from "@/lib/balance/anomalias-mapeo";
-import { MapeoClienteTab, HomologacionClienteForm } from "./homologacion-client";
+import type { StdAccount, StdLogRow, Subgrupo } from "@/lib/balance/tipos-mapeo";
 import { colapsarPucHastaNivel, construirPucRussell, filasVisiblesPuc, filtrarPucRussell, profundidadPuc, type FilaPucRussell } from "@/lib/balance/puc-estandar";
 import type { CuentaPucCliente } from "@/lib/balance/catalogo-puc-cliente";
 import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
 
 export type Account = CuentaPucCliente;
 export type RussellOpt = { code: string; name: string; module: string | null };
-export type StdAccount = {
-  id: number;
-  code: string;
-  name: string;
-  level: number;
-  nature: string;
-  parent: string | null;
-  critical: boolean;
-  russellAccount: string | null;
-  categoryType: string | null;
-  includes: string | null;
-  excludes: string | null;
-  possibleAccounts: string | null;
-  supportingDocuments: string | null;
-  controlSupports: string | null;
-  mappingNotes: string | null;
-};
-/** Fila de la bitácora dedicada del plan estándar (movimientos). */
-export type StdLogRow = {
-  id: number;
-  code: string;
-  action: string;
-  user: string;
-  detail: string;
-  createdAt: string; // ISO
-};
+export type { StdAccount, StdLogRow, Subgrupo };
 
-export type Subgrupo = { id: number; codigo: string; nombre: string; grupo: string; nombreGrupo: string; naturaleza: string };
-
-type Tab = "cliente" | "puc" | "standard";
+type Tab = "puc" | "standard";
 
 export default function MapeoClient({
-  clientNames, cliente, accounts, std, subgrupos, canManage, logs, lockedStdCodes, clienteId, clienteNit, puedeMapear,
+  std, subgrupos, canManage, logs, lockedStdCodes,
 }: {
-  clientNames: string[]; cliente: string; accounts: Account[]; std: StdAccount[]; subgrupos: Subgrupo[]; canManage: boolean; logs: StdLogRow[]; lockedStdCodes: string[]; clienteId: number | null; clienteNit: string | null; puedeMapear: boolean;
+  std: StdAccount[]; subgrupos: Subgrupo[]; canManage: boolean; logs: StdLogRow[]; lockedStdCodes: string[];
 }) {
-  const [tab, setTab] = useState<Tab>("cliente");
-  const [editTarget, setEditTarget] = useState<Account | null | undefined>(undefined);
-  const anomalias = useMemo(() => new Map(detectarAnomaliasMapeo(accounts.filter((a) => a.enMemoria)).map((a) => [a.code, a])), [accounts]);
+  const [tab, setTab] = useState<Tab>("puc");
   const puc = useMemo(() => construirPucRussell(std, subgrupos), [std, subgrupos]);
   return (
     <div>
       <div className="mb-4 flex flex-wrap items-center gap-2" role="tablist" aria-label="Planes de cuentas">
-        <TabBtn on={tab === "cliente"} onClick={() => setTab("cliente")} label="Homologación por cliente" count={accounts.length} />
         <TabBtn on={tab === "puc"} onClick={() => setTab("puc")} label="PUC Estándar Russell" count={puc.length} />
         <TabBtn on={tab === "standard"} onClick={() => setTab("standard")} label="Plan Estándar" count={std.length} />
         <a href="/config/mapeo/exportar" download title="Descargar PUC completo (niveles 1, 2, 4 y 6) y detalle de subcuentas" className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-white px-3 py-1.5 text-[12.5px] font-semibold text-ink-700 hover:bg-ink-50">
           <Icon name="download" size={13} /> Descargar PUC completo
         </a>
       </div>
-      {tab === "cliente" ? (
-        <MapeoClienteTab accounts={accounts} std={std} anomalias={anomalias} clienteId={clienteId} clienteNit={clienteNit} puedeMapear={puedeMapear} cliente={cliente} clientNames={clientNames} onEditar={setEditTarget} />
-      ) : tab === "standard" ? (
+      {tab === "standard" ? (
         <StandardTab std={std} canManage={canManage} logs={logs} lockedStdCodes={lockedStdCodes} />
       ) : (
         <PucEstandarTab puc={puc} subgrupos={subgrupos} std={std} canManage={canManage} lockedStdCodes={lockedStdCodes} />
-      )}
-      {puedeMapear && clienteId != null && editTarget !== undefined && (
-        <HomologacionClienteForm cuenta={editTarget} clienteId={clienteId} std={std} accounts={accounts} onClose={() => setEditTarget(undefined)} />
       )}
     </div>
   );

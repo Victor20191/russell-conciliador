@@ -96,6 +96,10 @@ export const configNav: NavItem[] = [
   { label: "Clientes", href: "/config/clientes", icon: "users", permiso: "clientes:configurar", modulo: "clientes" },
   { label: "Maestros", href: "/config/maestros", icon: "box", permiso: "maestros:ver", modulo: "maestros" },
   { label: "Mapeo plan estándar", href: "/config/mapeo", icon: "settings", permiso: "mapeo:ver", modulo: "mapeo" },
+  // Homologación del PUC de cada cliente. Vivía como pestaña de «Mapeo plan
+  // estándar»; se separó porque es trabajo por cliente y no configuración del
+  // plan Russell. Comparte permiso y módulo con aquella pantalla.
+  { label: "Mapeo cuentas cliente", href: "/config/mapeo-cliente", icon: "settings", permiso: "mapeo:ver", modulo: "mapeo" },
   // Carga masiva del catálogo de conceptos de nómina (cliente/código/concepto/cuenta).
   // Es la misma memoria del Consolidado del módulo NOM, por eso comparte su permiso.
   { label: "Conceptos de nómina", href: "/config/conceptos-nomina", icon: "box", permiso: "modulos_datos:editar", modulo: "modulos_datos" },

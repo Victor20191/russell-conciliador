@@ -20,7 +20,7 @@ import { bloqueoMemoriaHomologacion, registrarIntentoBloqueado } from "@/lib/con
 // mapeo automático). NO modifica balances ya cargados; aplica a futuras cargas.
 // "Eliminar" sólo limpia el mapeo del balance (no borra la fila: puede sostener
 // el mapeo de conciliación). Gate: `balance:crear` (Staff y Admin), por cliente.
-const PATH = "/config/mapeo";
+const PATH = "/config/mapeo-cliente";
 
 async function existeEstandar(codigo: string): Promise<boolean> {
   return (await prisma.standardAccount.findUnique({ where: { code: codigo }, select: { code: true } })) != null;

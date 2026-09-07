@@ -34,7 +34,7 @@ import {
 import type { ActionState } from "@/lib/definitions";
 import { bloqueoMemoriaHomologacion, registrarIntentoBloqueado } from "@/lib/conciliacion/verificar-bloqueo";
 
-const PATH_MAPEO = "/config/mapeo";
+const PATH_MAPEO = "/config/mapeo-cliente";
 const PATH_BALANCE = "/balance";
 const PATH_MODULOS = "/modulos";
 

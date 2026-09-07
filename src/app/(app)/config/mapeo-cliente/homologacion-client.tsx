@@ -17,7 +17,7 @@ import type { AnomaliaMapeo } from "@/lib/balance/anomalias-mapeo";
 import type { CuentaPucCliente } from "@/lib/balance/catalogo-puc-cliente";
 import { consultarImpactoHomologacionCliente, guardarHomologacionCliente } from "@/app/actions/homologacion-cliente";
 import { eliminarMapeoCliente } from "@/app/actions/mapeo-cliente";
-import type { StdAccount } from "./mapeo-client";
+import type { StdAccount } from "@/lib/balance/tipos-mapeo";
 
 const INPUT = "w-full rounded-md border border-ink-200 bg-white px-3 py-2 text-[12.5px] text-ink-800 outline-none focus:border-blue-400";
 const porConfirmar = (c: CuentaPucCliente) => !!c.cuenta6Russell && (c.coincidencia == null || c.coincidencia < 100);
@@ -38,15 +38,15 @@ export function MapeoClienteTab({ accounts, std, anomalias, clienteId, clienteNi
   const niveles = useMemo(() => [...new Set(accounts.map((a) => a.level))].sort((a, b) => a - b), [accounts]);
   const pendientes = accounts.filter(porConfirmar).length;
   const cruces = accounts.filter((a) => cruzaClaseContable(a.code, a.cuenta6Russell)).length;
-  const sinAsignar = accounts.filter((a) => !a.derivada && !a.cuenta6Russell).length;
-  const agrupadoras = accounts.filter((a) => a.derivada).length;
+  const sinAsignar = accounts.filter((a) => a.tipoFila !== "agrupadora" && !a.cuenta6Russell).length;
+  const agrupadoras = accounts.filter((a) => a.tipoFila === "agrupadora").length;
   const needle = q.trim().toLowerCase();
   const rows = useMemo(() => accounts.filter((a) => {
     if (nivel !== "all" && a.level !== Number(nivel)) return false;
     if (revisar && !anomalias.has(a.code)) return false;
     if (confirmar && !porConfirmar(a)) return false;
     if (cruce && !cruzaClaseContable(a.code, a.cuenta6Russell)) return false;
-    if (origen === "sinasignar" && a.cuenta6Russell) return false;
+    if (origen === "sinasignar" && (a.cuenta6Russell || a.tipoFila === "agrupadora")) return false;
     if (origen === "manual" && !esMapeoManual(a.origenMapeo)) return false;
     if (origen === "automatico" && a.origenMapeo !== "automatico") return false;
     return !needle || [a.code, a.name, a.cuenta6Russell, nombres.get(a.cuenta6Russell ?? "")].some((v) => v?.toLowerCase().includes(needle));
@@ -62,7 +62,7 @@ export function MapeoClienteTab({ accounts, std, anomalias, clienteId, clienteNi
       </div>
       <div className="flex flex-wrap items-center gap-3 border-b border-ink-100 px-4 py-3">
         <h2 className="text-[13px] font-semibold text-ink-800">Mapeo de balance por cliente</h2>
-        <select aria-label="Cliente del PUC" value={cliente} onChange={(e) => router.push(`/config/mapeo?cliente=${encodeURIComponent(e.target.value)}`)} className="max-w-full rounded-md border border-ink-200 px-2 py-1.5 text-[12px]">
+        <select aria-label="Cliente del PUC" value={cliente} onChange={(e) => router.push(`/config/mapeo-cliente?cliente=${encodeURIComponent(e.target.value)}`)} className="max-w-full rounded-md border border-ink-200 px-2 py-1.5 text-[12px]">
           {clientNames.map((n) => <option key={n} value={n}>{n}</option>)}
         </select>
         <div className="ml-auto flex items-center gap-2">
@@ -103,10 +103,10 @@ export function MapeoClienteTab({ accounts, std, anomalias, clienteId, clienteNi
                 </td>
                 <td className="min-w-52 px-3 py-3">
                   {puedeMapear && a.code.length >= 4 ? <button type="button" onClick={() => onEditar(a)} title={`Editar homologación de ${a.code}`} className="text-left hover:underline">
-                    {a.cuenta6Russell ? <><span className="font-mono text-blue-600">{a.cuenta6Russell}</span><span className="mt-0.5 block text-[12px] text-ink-600">{nombreStd}</span></> : <Chip label="Asignar" tone="warn" />}
+                    {a.cuenta6Russell ? <><span className="font-mono text-blue-600">{a.cuenta6Russell}</span><span className="mt-0.5 block text-[12px] text-ink-600">{nombreStd}</span></> : <Chip label={a.tipoFila === "agrupadora" ? "Regla de agrupación" : "Asignar"} tone={a.tipoFila === "agrupadora" ? "ink" : "warn"} />}
                   </button> : <span>{a.cuenta6Russell ? `${a.cuenta6Russell} · ${nombreStd ?? ""}` : "—"}</span>}
                 </td>
-                <td className="px-3 py-3"><Chip label={a.derivada ? "Agrupadora" : !a.enMemoria ? "Último balance" : !a.cuenta6Russell ? "Sin asignar" : esExcepcionCuenta(a.origenMapeo) ? "Solo esta cuenta" : esMapeoManual(a.origenMapeo) ? "Manual" : "Automático"} tone={esMapeoManual(a.origenMapeo) ? "blue" : "ink"} /></td>
+                <td className="px-3 py-3"><Chip label={a.tipoFila === "agrupadora" && !a.cuenta6Russell ? "Agrupadora" : !a.enMemoria ? "Último balance" : !a.cuenta6Russell ? "Sin asignar" : esExcepcionCuenta(a.origenMapeo) ? "Solo esta cuenta" : esMapeoManual(a.origenMapeo) ? "Manual" : "Automático"} tone={esMapeoManual(a.origenMapeo) ? "blue" : "ink"} /></td>
                 <td className="px-3 py-3 font-mono text-ink-600">{a.coincidencia != null ? `${a.coincidencia}%` : "—"}</td>
                 <td className="px-3 py-3 text-[11px] text-ink-500">{a.actualizadoEn ? fmtDateTimeLong(a.actualizadoEn) : "—"}{a.actualizadoPor && <span className="block">{a.actualizadoPor}</span>}<OrigenHomologacion cuenta={a} /></td>
                 {puedeMapear && <td className="px-3 py-3">{a.code.length >= 4 && <button type="button" onClick={() => onEditar(a)} className="rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[11.5px] font-semibold text-navy-700 hover:bg-blue-50">{an ? "Corregir" : porConfirmar(a) ? "Confirmar / editar" : "Editar"}</button>}</td>}
@@ -115,7 +115,7 @@ export function MapeoClienteTab({ accounts, std, anomalias, clienteId, clienteNi
           </table>
         </div>
       )}
-      <div className="border-t border-ink-100 px-4 py-2.5 text-[11.5px] text-ink-500">{accounts.length - agrupadoras} cuentas registradas{agrupadoras > 0 ? ` · ${agrupadoras} agrupadoras reconstruidas` : ""} · {sinAsignar} sin asignar · {niveles.map((n) => `N${n}`).join(" / ")}</div>
+      <div className="border-t border-ink-100 px-4 py-2.5 text-[11.5px] text-ink-500">{accounts.length - agrupadoras} cuentas registradas{agrupadoras > 0 ? ` · ${agrupadoras} agrupadoras` : ""} · {sinAsignar} sin asignar · {niveles.map((n) => `N${n}`).join(" / ")}</div>
       <PaginationFooter rangeLabel={pg.rangeLabel} currentPage={pg.page} totalPages={pg.totalPages} onPageChange={pg.setPage} />
     </Card>
   );
@@ -174,7 +174,7 @@ export function HomologacionClienteForm({ cuenta, clienteId, std, accounts, onCl
         <input type="hidden" name="clienteId" value={clienteId} /><input type="hidden" name="alcance" value={alcance} /><input type="hidden" name="aplicarExistentes" value={aplicarExistentes ? "1" : "0"} />
         <fieldset disabled={pending} className="space-y-4">
           <label className="block text-[12px] font-semibold text-ink-700">Cuenta del cliente<input name="cuentaCliente" value={cuentaCliente} readOnly={!!cuenta} onChange={(e) => setCuentaCliente(e.target.value.trim())} pattern="\d{4,30}" required inputMode="numeric" placeholder="Código completo de la cuenta" className={`${INPUT} mt-1 font-mono ${cuenta ? "bg-ink-50" : ""}`} /></label>
-          {cuenta && <div className="text-[12px] text-ink-600"><p>{cuenta.name}</p><OrigenHomologacion cuenta={cuenta} />{!cuenta.enMemoria && <p className="mt-1">{cuenta.derivada ? "Agrupadora reconstruida a partir de los códigos del cliente; su nombre original no está registrado. Una regla individual se aplica solo a este código exacto." : "Cuenta recuperada de balances históricos."} Al guardar se incorporará a la memoria del cliente.</p>}</div>}
+          {cuenta && <div className="text-[12px] text-ink-600"><p>{cuenta.name}</p><OrigenHomologacion cuenta={cuenta} />{!cuenta.enMemoria && <p className="mt-1">{cuenta.tipoFila === "agrupadora" ? "Agrupadora del catálogo del cliente. No se cuenta como movimiento pendiente de homologación." : "Cuenta recuperada de balances históricos."} Al guardar se incorporará a la memoria del cliente.</p>}</div>}
           <div className="grid gap-2 sm:grid-cols-2">
             <label className="block text-[12px] font-semibold text-ink-700">Buscar cuenta estándar<input value={busquedaStd} onChange={(e) => setBusquedaStd(e.target.value)} placeholder="Código o nombre Russell" className={`${INPUT} mt-1 font-normal`} /></label>
             <label className="block text-[12px] font-semibold text-ink-700">Cuenta estándar Russell<select name="codigo" required value={codigo} onChange={(e) => setCodigo(e.target.value)} className={`${INPUT} mt-1 font-normal`}><option value="">Selecciona una cuenta</option>{opciones.map((s) => <option key={s.code} value={s.code}>{s.code} · {s.name}</option>)}</select></label>
@@ -203,7 +203,6 @@ export function HomologacionClienteForm({ cuenta, clienteId, std, accounts, onCl
 
 function OrigenHomologacion({ cuenta }: { cuenta: CuentaPucCliente }) {
   const p = cuenta.procedencia;
-  if (cuenta.derivada) return <span className="mt-1 block text-ink-400">Estructura por código</span>;
   if (!p) return <span className="mt-1 block text-ink-400">Origen no registrado</span>;
   if (p.fuente === "configuracion") return <span className="mt-1 block">Configuración del cliente</span>;
   const etiqueta = `${p.fuente === "historico" ? "Referencia" : p.fuente === "carga" ? "Carga" : "Edición"} · ${p.periodo ?? "Balance"}${p.version ? ` · ${p.version}` : ""}`;
