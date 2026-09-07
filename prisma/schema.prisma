@@ -1354,6 +1354,7 @@ model MarcaCruceModulo {
   marcadoPorId    Int?                @map("marcado_por_id")
   marcadoEn       DateTime            @default(now()) @map("marcado_en") @db.Timestamptz(3)
   adjuntos        AdjuntoMarcaCruce[]
+  noModulares     CuentaNoModularCruce[]
 
   @@unique([clienteId, moduloCodigo, periodo, cuenta4], map: "marca_cruce_modulo_unica")
   @@unique([clienteId, moduloCodigo, periodo, numero], map: "marca_cruce_modulo_numero_unico")
@@ -1377,6 +1378,25 @@ model AdjuntoMarcaCruce {
 
   @@index([marcaId])
   @@map("adjuntos_marca_cruce")
+}
+
+/// Cuenta del cliente marcada como NO MODULAR dentro de una marca del cruce contable:
+/// no hace parte de la conciliación del módulo y su saldo se resta de «Contabilidad»
+/// al calcular la diferencia ajustada. Cuelga de la marca (FK en cascada, como los
+/// adjuntos): sin marca no hay exclusión, y la nota de la marca es la justificación.
+/// `valor_al_marcar` es solo constancia; lo que se resta es el valor ACTUAL de la cuenta.
+model CuentaNoModularCruce {
+  id            Int              @id @default(autoincrement()) @map("id")
+  marcaId       Int              @map("marca_id")
+  cuenta8       String           @map("cuenta_8")
+  nombreCuenta  String           @map("nombre_cuenta")
+  valorAlMarcar Decimal          @default(0) @map("valor_al_marcar") @db.Decimal(18, 2)
+  creadoEn      DateTime         @default(now()) @map("creado_en") @db.Timestamptz(3)
+  marca         MarcaCruceModulo @relation(fields: [marcaId], references: [id], onDelete: Cascade)
+
+  @@unique([marcaId, cuenta8], map: "cuenta_no_modular_cruce_unica")
+  @@index([marcaId])
+  @@map("cuenta_no_modular_cruce")
 }
 
 model ModuloDatoDetalle {
