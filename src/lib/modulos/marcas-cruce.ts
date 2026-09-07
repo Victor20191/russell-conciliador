@@ -15,7 +15,7 @@
  * versiones, se congela el que se marcó: si la diferencia actual ya no coincide, la fila
  * queda `desactualizada` para que alguien la revise en vez de darla por explicada.
  */
-import type { FilaCruceContable } from "./cruce-contable";
+import type { FilaCruceContable, HijoContableCruce } from "./cruce-contable";
 
 /** Tolerancia por defecto del cruce (la misma de `construirCruceContable`). */
 export const TOLERANCIA_CRUCE = 0.01;
@@ -26,6 +26,14 @@ export type AdjuntoMarca = {
   nombreArchivo: string;
   tipoContenido: string;
   tamanoBytes: number;
+};
+
+/** Cuenta del cliente excluida por esta marca: no hace parte de la conciliación del módulo. */
+export type CuentaNoModular = {
+  cuenta8: string;
+  nombre: string;
+  /** Lo que valía la cuenta cuando se excluyó (constancia; se resta el valor actual). */
+  valorAlMarcar: number;
 };
 
 export type MarcaCruce = {
@@ -43,6 +51,8 @@ export type MarcaCruce = {
   /** Comentario del hilo de la cuenta donde quedó el rastro, si se registró. */
   comentarioId: number | null;
   adjuntos: AdjuntoMarca[];
+  /** Cuentas del cliente que esta marca excluyó de la conciliación (puede estar vacío). */
+  noModulares: CuentaNoModular[];
 };
 
 export type FilaCruceMarcada = FilaCruceContable & {
@@ -158,6 +168,45 @@ export function anclaObservacionMarca(numero: number): string {
 export function normalizarCuenta4(valor: string): string | null {
   const soloDigitos = (valor ?? "").replace(/\D/g, "");
   return soloDigitos.length === 4 ? soloDigitos : null;
+}
+
+/**
+ * Valida las cuentas que el usuario marcó como NO MODULARES: normaliza a dígitos,
+ * deduplica y exige que cada una sea hija de la fila del cruce que se está marcando.
+ * Una selección vacía es válida: la marca sigue siendo una explicación sin exclusión.
+ *
+ * Se valida contra el cruce VIGENTE (no contra lo que mandó el formulario) porque entre
+ * abrir el modal y guardar pudo recargarse el módulo o cambiar la homologación.
+ */
+export function validarNoModulares(
+  seleccion: readonly string[],
+  hijos: readonly HijoContableCruce[],
+): { ok: true; cuentas8: string[] } | { ok: false; message: string } {
+  const validas = new Set(hijos.map((h) => h.cuenta8));
+  const elegidas = new Set<string>();
+  for (const cruda of seleccion) {
+    const cuenta8 = String(cruda ?? "").replace(/\D/g, "");
+    if (!cuenta8) continue;
+    if (!validas.has(cuenta8)) {
+      return { ok: false, message: `La cuenta ${cuenta8} ya no aparece en esta fila del cruce. Recarga la pantalla e inténtalo de nuevo.` };
+    }
+    elegidas.add(cuenta8);
+  }
+  return { ok: true, cuentas8: [...elegidas].sort() };
+}
+
+/**
+ * Diferencia de la fila una vez restadas las cuentas no modulares elegidas. Es la cifra
+ * que se congela en la marca, y la calcula el servidor sobre el cruce vigente.
+ */
+export function diferenciaAjustada(
+  fila: Pick<FilaCruceContable, "contable" | "inventario">,
+  hijos: readonly HijoContableCruce[],
+  seleccion: readonly string[],
+): number {
+  const elegidas = new Set(seleccion);
+  const excluido = hijos.reduce((suma, h) => (elegidas.has(h.cuenta8) ? suma + h.valor : suma), 0);
+  return redondear(fila.contable - excluido - fila.inventario);
 }
 
 export const MAX_NOTA_MARCA = 2000;

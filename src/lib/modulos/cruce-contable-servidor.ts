@@ -15,7 +15,7 @@ import { fmtDateTime } from "@/lib/format";
 import { descriptorModulo, bloqueoCrucePorVerificacionesCriticasModulo } from "@/lib/modulos/descriptores";
 import { cuenta4DelModulo, filtrarSubgruposPorModulo, prefijosCuentaModulo } from "@/lib/modulos/cuentas-modulo";
 import { consolidarPorClasificador } from "@/lib/modulos/promocion";
-import { construirCruceContable, type ResumenCruceContable } from "@/lib/modulos/cruce-contable";
+import { construirCruceContable, type HijoContableCruce, type ResumenCruceContable } from "@/lib/modulos/cruce-contable";
 import { anotarCruceConMarcas, type FilaCruceMarcada, type MarcaCruce, type ResumenMarcas } from "@/lib/modulos/marcas-cruce";
 import { calcularValorContableModulo } from "@/lib/modulos/valor-contable";
 import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
@@ -56,6 +56,8 @@ export type ResultadoCruceModulo = {
   balanceEmparejado: BalanceFuenteCruce | null;
   bloqueo: string | null;
   cruceContable: ResumenCruceContable | null;
+  /** Cuentas del cliente que aportan a cada fila del cruce (el desglose al expandir). */
+  detalleContablePorCuenta: Record<string, HijoContableCruce[]>;
   sinMapeoContable: { total: number; filas: number } | null;
   sinReglaContableFilas: number;
   marcas: MarcaCruce[];
@@ -158,9 +160,25 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
       bloqueo = "No fue posible verificar de forma íntegra el prevalidador del balance seleccionado.";
     }
   }
+  // Las marcas se leen ANTES de agregar: traen las cuentas marcadas NO MODULARES, que se
+  // descuentan del lado contable al construir el cruce. Viven por (cliente, módulo,
+  // período), NO por cargue.
+  const marcasPeriodo = await prisma.marcaCruceModulo.findMany({
+    where: { clienteId: encabezado.clienteId, moduloCodigo, periodo: encabezado.periodo },
+    orderBy: { numero: "asc" },
+    select: {
+      cuenta4: true, numero: true, nota: true, referenciaAnexo: true, diferencia: true, comentarioId: true, marcadoPor: true, marcadoEn: true,
+      adjuntos: { orderBy: { id: "asc" }, select: { id: true, nombreArchivo: true, tipoContenido: true, tamanoBytes: true } },
+      noModulares: { orderBy: { cuenta8: "asc" }, select: { cuenta8: true, nombreCuenta: true, valorAlMarcar: true } },
+    },
+  });
+  const excluidas = new Set(marcasPeriodo.flatMap((m) => m.noModulares.map((n) => n.cuenta8)));
+
+  const detalleContablePorCuenta: Record<string, HijoContableCruce[]> = {};
   if (emparejado && contextoBalance && !bloqueo) {
     const cuentasAgrupadoras = cuentasAgrupadorasExcluidas(contextoBalance.prevalidador);
     const contablePorCuenta: Record<string, number> = {};
+    const noModularPorCuenta: Record<string, number> = {};
     let sinMapeoTotal = 0;
     let sinMapeoFilas = 0;
     for (const d of contextoBalance.filas) {
@@ -177,6 +195,11 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
           continue;
         }
         contablePorCuenta[sub4] = (contablePorCuenta[sub4] ?? 0) + calculo.valor;
+        // Desglose de la fila: qué cuentas del cliente la componen y cuáles quedaron
+        // marcadas como no modulares (su valor se descuenta del lado contable).
+        const noModular = excluidas.has(cuenta8);
+        (detalleContablePorCuenta[sub4] ??= []).push({ cuenta8, nombre: d.nombreCuenta, valor: calculo.valor, noModular });
+        if (noModular) noModularPorCuenta[sub4] = (noModularPorCuenta[sub4] ?? 0) + calculo.valor;
       } else if (cuenta4DelModulo(cuenta4, prefijosModulo)) {
         const calculo = calcularValorContableModulo({ moduloCodigo, cuentaRussell: cuenta4, fila: filaContable, catalogo: contextoBalance.catalogo });
         if (!calculo) {
@@ -187,8 +210,10 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
         sinMapeoFilas += 1;
       }
     }
+    for (const lista of Object.values(detalleContablePorCuenta)) lista.sort((a, b) => a.cuenta8.localeCompare(b.cuenta8));
     cruceContable = construirCruceContable({
       contablePorCuenta,
+      noModularPorCuenta,
       consolidado: consolidado.map((c) => ({ clasificador: c.clasificador, total: c.total, cuentas4: cuentasPorClasificador.get(c.clasificador) ?? [] })),
       nombrePorCuenta: (cod) => nombrePorCuenta.get(cod) ?? null,
     });
@@ -200,15 +225,6 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
     }
   }
 
-  // Marcas de auditoría: viven por (cliente, módulo, período), NO por cargue.
-  const marcasPeriodo = await prisma.marcaCruceModulo.findMany({
-    where: { clienteId: encabezado.clienteId, moduloCodigo, periodo: encabezado.periodo },
-    orderBy: { numero: "asc" },
-    select: {
-      cuenta4: true, numero: true, nota: true, referenciaAnexo: true, diferencia: true, comentarioId: true, marcadoPor: true, marcadoEn: true,
-      adjuntos: { orderBy: { id: "asc" }, select: { id: true, nombreArchivo: true, tipoContenido: true, tamanoBytes: true } },
-    },
-  });
   const marcas: MarcaCruce[] = marcasPeriodo.map((m) => ({
     cuenta4: m.cuenta4,
     numero: m.numero,
@@ -219,6 +235,7 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
     marcadoPor: m.marcadoPor,
     marcadoEn: fmtDateTime(m.marcadoEn),
     adjuntos: m.adjuntos,
+    noModulares: m.noModulares.map((n) => ({ cuenta8: n.cuenta8, nombre: n.nombreCuenta, valorAlMarcar: Number(n.valorAlMarcar) })),
   }));
   const anotado = cruceContable ? anotarCruceConMarcas(cruceContable.filas, marcas) : null;
 
@@ -226,6 +243,7 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
     balanceEmparejado,
     bloqueo,
     cruceContable,
+    detalleContablePorCuenta,
     sinMapeoContable,
     sinReglaContableFilas,
     marcas,
@@ -239,6 +257,7 @@ function vacio(balanceEmparejado: BalanceFuenteCruce | null, bloqueo: string | n
     balanceEmparejado,
     bloqueo,
     cruceContable: null,
+    detalleContablePorCuenta: {},
     sinMapeoContable: null,
     sinReglaContableFilas: 0,
     marcas: [],

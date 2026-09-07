@@ -30,6 +30,7 @@ describe("convención cableada en UI de expandir/contraer", () => {
     "app/(app)/config/mapeo/mapeo-client.tsx",
     "app/(app)/config/permisos/permisos-client.tsx",
     "app/(app)/config/usuarios/usuarios-client.tsx",
+    "app/(app)/modulos/[codigo]/[id]/dato-cargado-client.tsx",
     "components/sidebar.tsx",
   ].sort();
 

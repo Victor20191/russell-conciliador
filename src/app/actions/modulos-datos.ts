@@ -40,8 +40,10 @@ import { esImputable, promoverStaging, type FilaStagingModulo } from "@/lib/modu
 import { controlSubtotales } from "@/lib/modulos/subtotales";
 import {
   anclaCruce,
+  diferenciaAjustada,
   normalizarCuenta4 as cuenta4Marcable,
   siguienteNumeroMarca,
+  validarNoModulares,
   validarNotaMarca,
   validarReferenciaAnexo,
 } from "@/lib/modulos/marcas-cruce";
@@ -1871,10 +1873,38 @@ export async function guardarMarcaCruce(formData: FormData): Promise<ActionState
   if (!nota.ok) return { ok: false, message: nota.message };
   const anexo = validarReferenciaAnexo(String(formData.get("referenciaAnexo") ?? ""));
   if (!anexo.ok) return { ok: false, message: anexo.message };
-  const diferencia = Number(formData.get("diferencia"));
-  if (!Number.isFinite(diferencia)) return { ok: false, message: "Diferencia inválida." };
 
   const { encabezado } = ctx;
+
+  // La diferencia y las cuentas no modulares NO se toman del formulario: se recalculan
+  // sobre el cruce vigente (la misma función que pinta la pestaña). Entre abrir el modal
+  // y guardar pudo recargarse el módulo o cambiar la homologación.
+  let seleccionNoModular: string[] = [];
+  try {
+    const crudo = String(formData.get("noModulares") ?? "").trim();
+    if (crudo) {
+      const parseado: unknown = JSON.parse(crudo);
+      if (!Array.isArray(parseado)) return { ok: false, message: "Selección de cuentas no modulares inválida." };
+      seleccionNoModular = parseado.map((c) => String(c));
+    }
+  } catch {
+    return { ok: false, message: "Selección de cuentas no modulares inválida." };
+  }
+
+  const insumosMarca = await cargarInsumosCruceModulo(encabezadoId);
+  if (!insumosMarca) return { ok: false, message: "El cargue ya no existe." };
+  const cruceVigente = await construirCruceContableModulo(insumosMarca);
+  if (!cruceVigente.cruceContable) {
+    return { ok: false, message: cruceVigente.bloqueo ?? "El cruce contable no está disponible en este momento." };
+  }
+  const filaVigente = cruceVigente.cruceContable.filas.find((f) => f.cuenta4 === cuenta4);
+  if (!filaVigente) return { ok: false, message: "Esa cuenta ya no aparece en el cruce. Recarga la pantalla." };
+  const hijos = cruceVigente.detalleContablePorCuenta[cuenta4] ?? [];
+  const noModulares = validarNoModulares(seleccionNoModular, hijos);
+  if (!noModulares.ok) return { ok: false, message: noModulares.message };
+  const excluidas = hijos.filter((h) => noModulares.cuentas8.includes(h.cuenta8));
+  const diferencia = diferenciaAjustada(filaVigente, hijos, noModulares.cuentas8);
+
   const llave = {
     clienteId: encabezado.clienteId,
     moduloCodigo: encabezado.moduloCodigo,
@@ -1893,14 +1923,18 @@ export async function guardarMarcaCruce(formData: FormData): Promise<ActionState
 
     const user = await getCurrentUser();
     // El rastro en el hilo de la cuenta va primero: si falla, no se guarda una marca que
-    // dice apuntar a un comentario inexistente.
+    // dice apuntar a un comentario inexistente. Las cuentas excluidas quedan escritas en
+    // el hilo: sin eso, la conversación no explicaría por qué bajó la diferencia.
+    const lineaNoModulares = excluidas.length
+      ? `\n\nCuentas no modulares: ${excluidas.map((h) => `${h.cuenta8} ${h.nombre} (${h.valor.toFixed(2)})`).join(" · ")}`
+      : "";
     const comentario = await prisma.comment.create({
       data: {
         entityType: "modulos_datos",
         entityId: encabezado.id,
         anchor: anclaCruce(cuenta4),
         authorId: ctx.userId,
-        body: anexo.referencia ? `${nota.nota}\n\nAnexo: ${anexo.referencia}` : nota.nota,
+        body: `${nota.nota}${anexo.referencia ? `\n\nAnexo: ${anexo.referencia}` : ""}${lineaNoModulares}`,
       },
       select: { id: true },
     });
@@ -1917,28 +1951,44 @@ export async function guardarMarcaCruce(formData: FormData): Promise<ActionState
 
     // El número se asigna dentro de una transacción serializable con candado del período:
     // dos personas marcando cuentas distintas a la vez no pueden quedarse con el mismo
-    // número (el índice único lo impediría, pero aquí ni siquiera llegan a chocar).
-    const marca = existente
-      ? await prisma.marcaCruceModulo.update({
-          where: { id: existente.id },
-          data: datosComunes,
-          select: { id: true, numero: true },
-        })
-      : await transaccionSerializable(async (tx) => {
-          await tomarCandadoTransaccion(tx, `marca-cruce:${encabezado.clienteId}:${encabezado.moduloCodigo}:${encabezado.periodo}`);
-          const usados = await tx.marcaCruceModulo.findMany({
-            where: {
-              clienteId: encabezado.clienteId,
-              moduloCodigo: encabezado.moduloCodigo,
-              periodo: encabezado.periodo,
-            },
-            select: { numero: true },
-          });
-          return tx.marcaCruceModulo.create({
-            data: { ...llave, ...datosComunes, numero: siguienteNumeroMarca(usados.map((u) => u.numero)) },
+    // número (el índice único lo impediría, pero aquí ni siquiera llegan a chocar). Las
+    // cuentas no modulares se reemplazan en el MISMO commit que la marca: nunca queda una
+    // exclusión a medias ni una marca cuyo texto no corresponda a lo que se restó.
+    const filasNoModulares = excluidas.map((h) => ({
+      cuenta8: h.cuenta8,
+      nombreCuenta: h.nombre,
+      valorAlMarcar: new Prisma.Decimal(h.valor.toFixed(2)),
+    }));
+    const marca = await transaccionSerializable(async (tx) => {
+      await tomarCandadoTransaccion(tx, `marca-cruce:${encabezado.clienteId}:${encabezado.moduloCodigo}:${encabezado.periodo}`);
+      const guardada = existente
+        ? await tx.marcaCruceModulo.update({
+            where: { id: existente.id },
+            data: datosComunes,
             select: { id: true, numero: true },
-          });
+          })
+        : await (async () => {
+            const usados = await tx.marcaCruceModulo.findMany({
+              where: {
+                clienteId: encabezado.clienteId,
+                moduloCodigo: encabezado.moduloCodigo,
+                periodo: encabezado.periodo,
+              },
+              select: { numero: true },
+            });
+            return tx.marcaCruceModulo.create({
+              data: { ...llave, ...datosComunes, numero: siguienteNumeroMarca(usados.map((u) => u.numero)) },
+              select: { id: true, numero: true },
+            });
+          })();
+      await tx.cuentaNoModularCruce.deleteMany({ where: { marcaId: guardada.id } });
+      if (filasNoModulares.length > 0) {
+        await tx.cuentaNoModularCruce.createMany({
+          data: filasNoModulares.map((f) => ({ ...f, marcaId: guardada.id })),
         });
+      }
+      return guardada;
+    });
 
     const subidos = await persistirSoportesMarca(marca.id, ctx.userId, preparados.soportes);
 
@@ -1946,7 +1996,7 @@ export async function guardarMarcaCruce(formData: FormData): Promise<ActionState
       encabezado,
       existente ? "EDITÓ la marca del cruce contable" : "MARCÓ una diferencia del cruce contable",
       cuenta4,
-      ` · marca ${marca.numero} · ${diferencia.toFixed(2)}${subidos ? ` · ${subidos} soporte(s)` : ""}`,
+      ` · marca ${marca.numero} · ${diferencia.toFixed(2)}${subidos ? ` · ${subidos} soporte(s)` : ""}${excluidas.length ? ` · ${excluidas.length} cuenta(s) no modular(es)` : ""}`,
     );
     revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
     return {
@@ -2015,7 +2065,7 @@ export async function quitarMarcaCruce(input: {
           cuenta4,
         },
       },
-      select: { id: true, numero: true, adjuntos: { select: { claveObjeto: true } } },
+      select: { id: true, numero: true, adjuntos: { select: { claveObjeto: true } }, _count: { select: { noModulares: true } } },
     });
     if (!marca) return { ok: false, message: "Esa diferencia ya no estaba marcada." };
 
@@ -2024,7 +2074,14 @@ export async function quitarMarcaCruce(input: {
     await prisma.marcaCruceModulo.delete({ where: { id: marca.id } });
     await Promise.allSettled(marca.adjuntos.map((a) => eliminarObjeto(a.claveObjeto)));
 
-    await auditarMarcaCruce(encabezado, "RETIRÓ la marca del cruce contable", cuenta4, ` · marca ${marca.numero}`);
+    // La cascada de la FK se lleva las cuentas no modulares: la fila vuelve a su
+    // diferencia bruta en el siguiente render.
+    await auditarMarcaCruce(
+      encabezado,
+      "RETIRÓ la marca del cruce contable",
+      cuenta4,
+      ` · marca ${marca.numero}${marca._count.noModulares ? ` · liberó ${marca._count.noModulares} cuenta(s) no modular(es)` : ""}`,
+    );
     revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
     return { ok: true, message: `Marca ${marca.numero} retirada.` };
   } catch (e) {

@@ -1,14 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { construirCruceContable } from "./cruce-contable";
+import type { HijoContableCruce } from "./cruce-contable";
 import {
   admiteMarca,
   anclaCruce,
   anclaObservacionMarca,
   anotarCruceConMarcas,
+  diferenciaAjustada,
   etiquetaMarca,
   normalizarCuenta4,
   observacionesDeMarcas,
   siguienteNumeroMarca,
+  validarNoModulares,
   validarNotaMarca,
   validarReferenciaAnexo,
   type MarcaCruce,
@@ -34,7 +37,52 @@ const marca = (over: Partial<MarcaCruce> & { cuenta4: string }): MarcaCruce => (
   marcadoEn: "18/Ago/2026 8:07 a. m.",
   comentarioId: 10,
   adjuntos: [],
+  noModulares: [],
   ...over,
+});
+
+const hijos: HijoContableCruce[] = [
+  { cuenta8: "14350501", nombre: "MERCANCÍAS", valor: 4_000_000, noModular: false },
+  { cuenta8: "145508", nombre: "AJUSTE INVENTARIO", valor: -24_716, noModular: true },
+];
+
+describe("validarNoModulares", () => {
+  it("acepta las cuentas que sí son hijas de la fila, deduplicadas y ordenadas", () => {
+    expect(validarNoModulares(["145508", "14350501", "145508"], hijos)).toEqual({
+      ok: true,
+      cuentas8: ["14350501", "145508"],
+    });
+  });
+
+  it("una selección vacía es válida: la marca explica sin excluir", () => {
+    expect(validarNoModulares([], hijos)).toEqual({ ok: true, cuentas8: [] });
+  });
+
+  it("rechaza una cuenta que no pertenece a la fila del cruce vigente", () => {
+    const r = validarNoModulares(["99999999"], hijos);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.message).toContain("99999999");
+  });
+
+  it("normaliza el ruido de la entrada y descarta lo que no tiene dígitos", () => {
+    expect(validarNoModulares([" 145-508 ", "", "  "], hijos)).toEqual({ ok: true, cuentas8: ["145508"] });
+  });
+});
+
+describe("diferenciaAjustada", () => {
+  it("resta el valor de las cuentas elegidas al lado contable", () => {
+    expect(diferenciaAjustada({ contable: 4_000_000, inventario: 3_000_000 }, hijos, ["14350501"])).toBe(-3_000_000);
+  });
+
+  it("sin selección devuelve la diferencia de siempre", () => {
+    expect(diferenciaAjustada({ contable: 500, inventario: 300 }, hijos, [])).toBe(200);
+  });
+
+  it("respeta el signo de una cuenta correctora negativa", () => {
+    // Excluir −24.716 SUBE la diferencia: 500 − (−24.716) − 300.
+    expect(diferenciaAjustada({ contable: 500, inventario: 300 }, hijos, ["145508"])).toBe(24_916);
+  });
 });
 
 describe("admiteMarca", () => {

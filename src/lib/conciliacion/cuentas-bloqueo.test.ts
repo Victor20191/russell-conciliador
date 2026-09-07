@@ -77,6 +77,7 @@ describe("evaluarCierreConciliacion", () => {
     marcadoEn: "hoy",
     comentarioId: null,
     adjuntos: [],
+    noModulares: [],
   });
 
   it("cierra cuando el cruce cuadra", () => {

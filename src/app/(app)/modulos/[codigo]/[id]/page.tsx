@@ -238,6 +238,7 @@ export default async function DatoModuloPage({
       : null,
     filasMarcadas: cruce.filasMarcadas,
     resumenMarcas: cruce.resumenMarcas,
+    detalleContablePorCuenta: cruce.detalleContablePorCuenta,
     conciliacion: cierreVm,
   };
 
