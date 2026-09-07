@@ -1800,6 +1800,8 @@ model ReporteNovedadesIA {
 model ReporteEjecutivoUsoIA {
   id             Int      @id @default(autoincrement()) @map("id")
   huellaContexto String   @unique @map("huella_contexto")
+  claveAlcance   String?  @map("clave_alcance")
+  metadatos      Json?    @map("metadatos")
   modelo         String   @map("modelo")
   titulo         String   @map("titulo")
   html           String   @map("html")
@@ -1813,6 +1815,7 @@ model ReporteEjecutivoUsoIA {
   actualizadoEn  DateTime @updatedAt @map("actualizado_en") @db.Timestamptz(3)
 
   @@index([modelo])
+  @@index([claveAlcance, creadoEn])
   @@map("reportes_ejecutivos_uso_ia")
 }
 

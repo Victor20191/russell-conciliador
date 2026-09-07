@@ -157,6 +157,116 @@ describe("calcularResumenUso", () => {
     ]);
   });
 
+  test("desglosa todos los usuarios por día sin aplicar el límite del top", () => {
+    const resumen = calcularResumenUso({
+      periodoDesde: "2026-06-01T00:00:00.000Z",
+      periodoHasta: "2026-06-30T23:59:59.000Z",
+      maxTopUsuarios: 1,
+      eventos: [
+        ["Luis", "2026-06-02T10:00:00.000Z"],
+        ["Zoe", "2026-06-01T10:00:00.000Z"],
+        ["Ana", "2026-06-01T11:00:00.000Z"],
+        ["Luis", "2026-06-01T12:00:00.000Z"],
+        ["Luis", "2026-06-01T13:00:00.000Z"],
+        // Se conserva la misma fecha UTC usada para el total diario.
+        ["Ana", "2026-06-01T23:30:00-05:00"],
+      ].map(([user, createdAt]) => ({
+        user,
+        createdAt,
+        action: "CARGÓ BALANCE",
+        entity: "Balance",
+        detail: "",
+        clientId: null,
+      })),
+    });
+
+    expect(resumen.topUsuarios).toHaveLength(1);
+    expect(resumen.serieDiaria).toEqual([
+      {
+        fecha: "2026-06-01",
+        total: 4,
+        usuarios: [
+          { usuario: "Luis", total: 2 },
+          { usuario: "Ana", total: 1 },
+          { usuario: "Zoe", total: 1 },
+        ],
+      },
+      {
+        fecha: "2026-06-02",
+        total: 2,
+        usuarios: [
+          { usuario: "Ana", total: 1 },
+          { usuario: "Luis", total: 1 },
+        ],
+      },
+    ]);
+    for (const dia of resumen.serieDiaria) {
+      expect(dia.usuarios?.reduce((total, usuario) => total + usuario.total, 0)).toBe(dia.total);
+    }
+  });
+
+  test("excluye automatizaciones de uso y adopción sin alterar la auditoría", () => {
+    const humanos = ["Ana", "Administrador de sistemas", "Sistema de Juan", "Juan Sistema"];
+    const automaticos = ["Sistema", "  sIsTeMa  ", "Sistema (script rehomologar-fuera-de-clase)", " SISTEMA   ( script   nocturno ) "];
+    const eventos = [...automaticos, ...humanos].map((user, index) => ({
+      user,
+      action: index < automaticos.length ? "CARGÓ Inventarios" : "CARGÓ BALANCE",
+      entity: "",
+      detail: "",
+      clientId: index < automaticos.length ? 99 : 1,
+      createdAt: `2026-06-${index < automaticos.length ? "01" : "02"}T10:00:00.000Z`,
+    }));
+    const conexiones = [...automaticos, ...humanos].map((usuario) => ({ usuario, total: 2 }));
+    const originales = structuredClone({ eventos, conexiones });
+    const resumen = calcularResumenUso({
+      periodoDesde: "2026-06-01T00:00:00.000Z",
+      periodoHasta: "2026-06-30T23:59:59.000Z",
+      eventos,
+      conexiones,
+    });
+
+    expect(resumen.totalAcciones).toBe(4);
+    expect(resumen.totalUsuarios).toBe(4);
+    expect(resumen.totalClientes).toBe(1);
+    expect(resumen.totalConexiones).toBe(8);
+    expect(resumen.primeraAccion).toBe("2026-06-02T10:00:00.000Z");
+    expect(resumen.ultimaAccion).toBe(resumen.primeraAccion);
+    expect(resumen.topUsuarios.map((u) => u.usuario).sort()).toEqual([...humanos].sort());
+    expect(resumen.detalleUsuarios.map((u) => u.usuario).sort()).toEqual([...humanos].sort());
+    expect(resumen.topClientes).toEqual([{ clienteId: 1, nombre: "Cliente #1", total: 4 }]);
+    expect(resumen.topAcciones).toEqual([{ nombre: "CARGÓ BALANCE", total: 4 }]);
+    expect(resumen.porFamilia).toEqual([{ nombre: "Balance de comprobación", total: 4 }]);
+    expect(resumen.evidencia).toHaveLength(4);
+    expect(resumen.evidencia.map((e) => e.usuario).sort()).toEqual([...humanos].sort());
+    expect(resumen.serieDiaria).toHaveLength(1);
+    expect(resumen.serieDiaria[0]).toMatchObject({ fecha: "2026-06-02", total: 4 });
+    expect(resumen.serieDiaria[0].usuarios?.map((u) => u.usuario).sort()).toEqual([...humanos].sort());
+    const adopcion = conteosPorFamiliaCanon(eventos);
+    expect(adopcion.balance).toBe(4);
+    expect(adopcion.inventarios).toBe(0);
+    expect({ eventos, conexiones }).toEqual(originales);
+  });
+
+  test("solo actividad del sistema devuelve un resumen vacío", () => {
+    const resumen = calcularResumenUso({
+      periodoDesde: "2026-06-01T00:00:00.000Z",
+      periodoHasta: "2026-06-30T23:59:59.000Z",
+      eventos: [{ user: "Sistema", action: "CARGÓ BALANCE", entity: "", detail: "", clientId: 1, createdAt: base }],
+      conexiones: [{ usuario: "Sistema (script)", total: 3 }],
+    });
+    expect(resumen).toMatchObject({
+      totalAcciones: 0,
+      totalUsuarios: 0,
+      totalClientes: 0,
+      totalConexiones: 0,
+      primeraAccion: null,
+      ultimaAccion: null,
+      serieDiaria: [],
+      evidencia: [],
+      detalleUsuarios: [],
+    });
+  });
+
   test("sin eventos devuelve ceros", () => {
     const resumen = calcularResumenUso({
       periodoDesde: "2026-06-01T00:00:00.000Z",

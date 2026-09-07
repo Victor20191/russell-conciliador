@@ -34,6 +34,7 @@ export function protocoloDeModelo(model: string): ProtocoloOpenCode {
 }
 
 export type CompletarOpenCodeParams = {
+  sessionId: string;
   model: string;
   system?: string;
   prompt: string;
@@ -41,6 +42,7 @@ export type CompletarOpenCodeParams = {
   temperature?: number;
   topP?: number;
   timeoutMs?: number;
+  signal?: AbortSignal;
 };
 
 export class OpenCodeError extends Error {
@@ -242,6 +244,7 @@ function peticion(
 }
 
 async function solicitarOpenCode({
+  sessionId,
   model,
   system,
   prompt,
@@ -249,7 +252,10 @@ async function solicitarOpenCode({
   temperature = 0,
   topP = 1,
   timeoutMs = 240_000,
+  signal,
 }: CompletarOpenCodeParams): Promise<Resultado> {
+  signal?.throwIfAborted();
+  if (!sessionId.trim()) throw new OpenCodeError("Falta el identificador de sesión de OpenCode.", { status: 400 });
   if (!prompt.trim()) throw new OpenCodeError("La solicitud a OpenCode no contiene texto.", { status: 400 });
 
   const protocolo = protocoloDeModelo(model);
@@ -268,8 +274,12 @@ async function solicitarOpenCode({
   try {
     const res = await fetch(`${OPENCODE_API_BASE}${ruta}`, {
       method: "POST",
-      signal: controller.signal,
-      headers,
+      signal: signal ? AbortSignal.any([signal, controller.signal]) : controller.signal,
+      headers: {
+        ...headers,
+        "x-opencode-session": sessionId.trim(),
+        "User-Agent": "russell-lfm/reporte-ejecutivo",
+      },
       body: JSON.stringify(body),
     });
 
@@ -321,6 +331,7 @@ async function solicitarOpenCode({
 
     return resultado;
   } catch (e) {
+    signal?.throwIfAborted();
     if (e instanceof DOMException && e.name === "AbortError") {
       throw new OpenCodeError("La generación del reporte tardó demasiado.", { status: 408 });
     }
@@ -355,6 +366,9 @@ export function mensajeErrorOpenCode(contexto: string, e: unknown): string {
   }
   if (/ModelError|is not supported|model_not_found/i.test(msg)) {
     return "OpenCode no reconoce el modelo configurado. Revisa OPENCODE_MODEL en el entorno del servidor.";
+  }
+  if (/MissingSessionID|Missing session ID|identificador de sesión de OpenCode/i.test(msg)) {
+    return "OpenCode requiere un identificador de sesión para generar el reporte. Revisa que la integración envíe la cabecera x-opencode-session.";
   }
   if (/AuthError|Missing API key/i.test(msg) || status === 401 || status === 403) {
     return "OpenCode rechazó las credenciales. Verifica OPENCODE_API_KEY.";

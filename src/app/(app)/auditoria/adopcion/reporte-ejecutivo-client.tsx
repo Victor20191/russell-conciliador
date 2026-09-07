@@ -1,10 +1,10 @@
 "use client";
 
 import { EstadoProcesando } from "@/components/estado-procesando";
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
   eliminarEnvioReporteEjecutivo,
-  generarReporteEjecutivoUso,
+  type GenerarReporteEjecutivoResult,
   registrarEnvioReporteEjecutivo,
 } from "@/app/actions/auditoria-reporte";
 import { Card, Chip, StatCard } from "@/components/ui";
@@ -231,7 +231,11 @@ export function ReporteEjecutivoClient({
   envios: EnvioReportePrevio[];
   pendiente: ResumenPendienteEnvio;
 }) {
-  const [isPending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
+  const [generando, setGenerando] = useState(false);
+  const [actualizarDatos, setActualizarDatos] = useState(false);
+  const solicitudRef = useRef<AbortController | null>(null);
+  useEffect(() => () => solicitudRef.current?.abort(), []);
   const [reporte, setReporte] = useState<ReporteEjecutivoUso | null>(null);
   const [meta, setMeta] = useState<MetaReporte | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -256,7 +260,16 @@ export function ReporteEjecutivoClient({
     [versions, seleccion],
   );
 
-  const generar = () => {
+  const cancelarGeneracion = () => {
+    solicitudRef.current?.abort();
+    solicitudRef.current = null;
+    setGenerando(false);
+    setError(null);
+    notifyInfo("Generación cancelada", "Puedes ajustar el alcance y generar otro reporte.");
+  };
+
+  const generar = async () => {
+    if (solicitudRef.current) return;
     setError(null);
     const versionIds =
       modoVersiones === "seleccion"
@@ -277,12 +290,18 @@ export function ReporteEjecutivoClient({
       return;
     }
 
-    startTransition(async () => {
-      const res = await generarReporteEjecutivoUso({
-        desde,
-        hasta,
-        versionIds,
+    const solicitud = new AbortController();
+    solicitudRef.current = solicitud;
+    setGenerando(true);
+    try {
+      const response = await fetch("/api/auditoria/reporte-ejecutivo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ desde, hasta, versionIds, actualizar: actualizarDatos }),
+        signal: solicitud.signal,
       });
+      const res = (await response.json()) as GenerarReporteEjecutivoResult;
+      if (solicitud.signal.aborted || solicitudRef.current !== solicitud) return;
       if (!res.ok) {
         setError(res.message);
         return;
@@ -302,11 +321,21 @@ export function ReporteEjecutivoClient({
       setEnvioRegistrado(null);
       setConfigAbierto(false);
       setModalAbierto(true);
-    });
+    } catch (e) {
+      if (!solicitud.signal.aborted && solicitudRef.current === solicitud) {
+        setError(e instanceof Error ? e.message : "No se pudo generar el reporte.");
+      }
+    } finally {
+      if (solicitudRef.current === solicitud) {
+        solicitudRef.current = null;
+        setGenerando(false);
+      }
+    }
   };
 
   const abrirConfig = () => {
     setError(null);
+    setActualizarDatos(false);
     setConfigAbierto(true);
   };
 
@@ -319,7 +348,7 @@ export function ReporteEjecutivoClient({
     });
 
   const puedeConfirmar =
-    !isPending &&
+    !generando &&
     Boolean(desde && hasta) &&
     (modoVersiones === "publicadas" ||
       (modoVersiones === "nuevas" && pendiente.versionIds.length > 0) ||
@@ -483,7 +512,7 @@ export function ReporteEjecutivoClient({
           <div className="flex w-full flex-col items-stretch gap-2 border-t border-ink-100 pt-3 sm:flex-row sm:items-center lg:w-auto lg:min-w-[240px] lg:justify-end lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
             <button onClick={abrirConfig} className={BTN_REPORTE_PRINCIPAL}>
               <Icon name="ai" size={15} />
-              {reporte ? "Regenerar con IA" : "Generar reporte para gerencia"}
+              {reporte ? "Consultar o actualizar reporte" : "Generar reporte para gerencia"}
             </button>
             {reporte && (
               <button onClick={() => setModalAbierto(true)} className={BTN_SECUNDARIO}>
@@ -571,14 +600,24 @@ export function ReporteEjecutivoClient({
 
       <Modal
         open={configAbierto}
-        onClose={() => setConfigAbierto(false)}
+        onClose={() => {
+          if (solicitudRef.current) cancelarGeneracion();
+          setConfigAbierto(false);
+        }}
         title="Generar reporte para gerencia"
         size="2xl"
         footer={
-          <button onClick={generar} disabled={!puedeConfirmar} className={BTN_PRIMARIO}>
-            <Icon name="ai" size={14} />
-            {isPending ? <EstadoProcesando>Generando</EstadoProcesando> : "Generar reporte"}
-          </button>
+          <>
+            {generando && (
+              <button type="button" onClick={cancelarGeneracion} className={BTN_SECUNDARIO}>
+                Cancelar
+              </button>
+            )}
+            <button onClick={generar} disabled={!puedeConfirmar} className={BTN_PRIMARIO}>
+              <Icon name="ai" size={14} />
+              {generando ? <EstadoProcesando>Generando</EstadoProcesando> : "Generar reporte"}
+            </button>
+          </>
         }
       >
         <div className="flex flex-col gap-4">
@@ -587,6 +626,14 @@ export function ReporteEjecutivoClient({
             La IA solo redacta a partir de la actividad registrada y de los avances publicados.
           </p>
 
+          <div className="rounded-lg border border-ink-150 bg-ink-50 p-3 text-[12px] text-ink-600">
+            <p>El mismo período y alcance recupera el reporte guardado, con sus cifras y fecha de corte originales.</p>
+            <label className="mt-2 flex cursor-pointer items-start gap-2 font-medium text-ink-800">
+              <input type="checkbox" className="mt-0.5 accent-navy-700" checked={actualizarDatos}
+                disabled={generando} onChange={(event) => setActualizarDatos(event.target.checked)} />
+              Actualizar con datos nuevos y guardar otra revisión
+            </label>
+          </div>
           <div>
             <h3 className="mb-2 text-[12.5px] font-semibold text-ink-800">Período de uso</h3>
             <div className="mb-2 flex flex-wrap gap-1.5" role="group" aria-label="Atajos de período">
@@ -640,8 +687,7 @@ export function ReporteEjecutivoClient({
           <div>
             <h3 className="mb-1 text-[12.5px] font-semibold text-ink-800">Novedades a incluir</h3>
             <p className="mb-2 text-[11.5px] leading-relaxed text-ink-500">
-              Lo que ya marcaste como enviado no se vuelve a proponer. El período de uso sí se
-              recalcula siempre con las fechas de arriba.
+              Lo que ya marcaste como enviado no se vuelve a proponer. Las cifras se conservan al recuperar un reporte guardado; solo se recalculan si solicitas actualizarlo.
             </p>
             <div className="flex flex-col gap-2.5">
               <label

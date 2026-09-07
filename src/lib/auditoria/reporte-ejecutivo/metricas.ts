@@ -96,6 +96,7 @@ export type EvidenciaAccion = {
 export type SerieDia = {
   fecha: string; // YYYY-MM-DD
   total: number;
+  usuarios?: { usuario: string; total: number }[];
 };
 
 export type ResumenUsoFactual = {
@@ -327,6 +328,12 @@ function diaClave(d: Date | string): string {
   return aIso(d).slice(0, 10);
 }
 
+/** Actor técnico sin persona identificada; no modifica la bitácora original. */
+function esActorSistema(usuario: string): boolean {
+  const normalizado = usuario.trim().replace(/\s+/g, " ");
+  return /^sistema(?:\s*\([^()]*\))?$/i.test(normalizado);
+}
+
 function topN(map: Map<string, number>, n: number): ConteoNombrado[] {
   return Array.from(map.entries())
     .map(([nombre, total]) => ({ nombre, total }))
@@ -384,15 +391,16 @@ export function calcularResumenUso(params: {
   const porUsuarioAccion = new Map<string, Map<string, number>>();
   const porCliente = new Map<number, number>();
   const porDia = new Map<string, number>();
+  const porDiaUsuario = new Map<string, Map<string, number>>();
   const usuarios = new Set<string>();
   const clientes = new Set<number>();
 
   let primera: string | null = null;
   let ultima: string | null = null;
 
-  const ordenados = [...params.eventos].sort(
-    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-  );
+  const ordenados = params.eventos
+    .filter((e) => !esActorSistema(e.user) && e.action !== "GENERÓ REPORTE IA")
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
   for (const e of ordenados) {
     const familia = clasificarFamilia(e.action, e.entity, e.detail);
@@ -427,6 +435,12 @@ export function calcularResumenUso(params: {
 
     const dia = diaClave(e.createdAt);
     porDia.set(dia, (porDia.get(dia) ?? 0) + 1);
+    let usuariosDia = porDiaUsuario.get(dia);
+    if (!usuariosDia) {
+      usuariosDia = new Map();
+      porDiaUsuario.set(dia, usuariosDia);
+    }
+    usuariosDia.set(e.user, (usuariosDia.get(e.user) ?? 0) + 1);
   }
 
   const topUsuariosRaw = topN(porUsuario, maxTopUsuarios);
@@ -440,7 +454,7 @@ export function calcularResumenUso(params: {
   const conexionesPorUsuario = new Map<string, number>();
   for (const conexion of params.conexiones ?? []) {
     const usuario = conexion.usuario.trim();
-    if (!usuario || !Number.isFinite(conexion.total) || conexion.total <= 0) continue;
+    if (!usuario || esActorSistema(usuario) || !Number.isFinite(conexion.total) || conexion.total <= 0) continue;
     conexionesPorUsuario.set(
       usuario,
       (conexionesPorUsuario.get(usuario) ?? 0) + Math.floor(conexion.total),
@@ -497,7 +511,13 @@ export function calcularResumenUso(params: {
     .slice(0, maxTopClientes);
 
   const serieDiaria: SerieDia[] = Array.from(porDia.entries())
-    .map(([fecha, total]) => ({ fecha, total }))
+    .map(([fecha, total]) => ({
+      fecha,
+      total,
+      usuarios: Array.from(porDiaUsuario.get(fecha) ?? [])
+        .map(([usuario, cantidad]) => ({ usuario, total: cantidad }))
+        .sort((a, b) => b.total - a.total || a.usuario.localeCompare(b.usuario, "es")),
+    }))
     .sort((a, b) => a.fecha.localeCompare(b.fecha));
 
   // Evidencia: las más recientes primero (recortada).
@@ -520,7 +540,7 @@ export function calcularResumenUso(params: {
   return {
     periodoDesde: aIso(params.periodoDesde),
     periodoHasta: aIso(params.periodoHasta),
-    totalAcciones: params.eventos.length,
+    totalAcciones: ordenados.length,
     totalNavegaciones,
     totalConexiones,
     totalUsuarios: usuarios.size,
@@ -558,6 +578,7 @@ export function conteosPorFamiliaCanon(eventos: EventoAuditoria[]): Record<Famil
     otros: 0,
   };
   for (const e of eventos) {
+    if (esActorSistema(e.user) || e.action === "GENERÓ REPORTE IA") continue;
     const f = clasificarFamilia(e.action, e.entity, e.detail);
     out[f] += 1;
   }

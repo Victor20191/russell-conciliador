@@ -1,3 +1,5 @@
+import { ajustarMaquetacionReporte } from "./maquetacion";
+
 const MARCA_ESTILOS_IMPRESION = "rd-estilos-impresion";
 
 const ESTILOS_IMPRESION = `<style id="${MARCA_ESTILOS_IMPRESION}">
@@ -112,6 +114,7 @@ const ESTILOS_IMPRESION = `<style id="${MARCA_ESTILOS_IMPRESION}">
  * indivisibles secciones completas y producen páginas casi vacías.
  */
 export function prepararHtmlReporteEjecutivoPdf(html: string): string {
+  html = ajustarMaquetacionReporte(html);
   if (!html.trim() || html.includes(`id="${MARCA_ESTILOS_IMPRESION}"`)) return html;
   if (/<\/head>/i.test(html)) {
     return html.replace(/<\/head>/i, `${ESTILOS_IMPRESION}\n</head>`);

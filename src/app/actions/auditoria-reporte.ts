@@ -1,6 +1,7 @@
 "use server";
 
-import { createHash } from "node:crypto";
+import { randomUUID } from "node:crypto";
+import { setTimeout as esperarAbortable } from "node:timers/promises";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
@@ -25,21 +26,16 @@ import {
 } from "@/lib/auditoria/reporte-ejecutivo/alcance";
 import { modulosPublicadosParaTodos } from "@/lib/rbac/publicacion";
 import { MODULOS_PLATAFORMA_KEYS } from "@/lib/rbac/modulos-plataforma";
-import {
-  construirSeccionGraficosHtml,
-  inyectarGraficosEnHtml,
-} from "@/lib/auditoria/reporte-ejecutivo/graficos";
+import { construirDocumentoConsistente, construirPromptLecturaConsistente, parsearLecturaConsistente } from "@/lib/auditoria/reporte-ejecutivo/documento";
+import { claveAlcanceReporte, leerInstantanea, guardarInstantanea } from "@/lib/auditoria/reporte-ejecutivo/instantaneas";
 import {
   MODELO_REPORTE_EJECUTIVO_USO,
   MAX_TOKENS_REPORTE_EJECUTIVO_USO,
   MAX_TOKENS_REPORTE_EJECUTIVO_USO_REINTENTO,
   TEMPERATURA_REPORTE_EJECUTIVO_USO,
-  VERSION_PROMPT_REPORTE_EJECUTIVO_USO,
   type ReporteEjecutivoUso,
 } from "@/lib/auditoria/reporte-ejecutivo/reportes";
 import {
-  SISTEMA_REPORTE_EJECUTIVO,
-  construirPromptReporteEjecutivo,
   normalizarTerminologiaVisibleReporte,
   type NovedadReporteEjecutivoContexto,
 } from "@/lib/auditoria/reporte-ejecutivo/prompt";
@@ -52,8 +48,6 @@ import {
 import type { EnvioReportePrevio } from "@/lib/auditoria/reporte-ejecutivo/envios";
 import { revalidatePath } from "next/cache";
 
-const MAX_CAMBIOS_PROMPT = 80;
-const MAX_CACHE_MEMORIA = 20;
 /** Tope de filas de bitácora leídas para el resumen factual (agregación en memoria). */
 const MAX_EVENTOS_AUDITORIA = 25_000;
 
@@ -73,117 +67,11 @@ export type GenerarReporteEjecutivoResult =
     }
   | { ok: false; message: string };
 
-type ReporteCacheado = {
-  report: ReporteEjecutivoUso;
-  generatedAt: string;
-  totalAcciones: number;
-  totalUsuarios: number;
-  totalNovedades: number;
-};
-
-const cacheMemoria = new Map<string, ReporteCacheado>();
-
 function recortarTexto(texto: string | null | undefined, max: number): string | null {
   if (!texto) return null;
   const limpio = texto.trim();
   if (limpio.length <= max) return limpio;
   return `${limpio.slice(0, max - 1).trim()}…`;
-}
-
-function crearHuella(payload: unknown): string {
-  return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
-}
-
-function leerCacheMemoria(huella: string): ReporteCacheado | null {
-  return cacheMemoria.get(huella) ?? null;
-}
-
-function guardarCacheMemoria(huella: string, cacheado: ReporteCacheado): void {
-  if (cacheMemoria.size >= MAX_CACHE_MEMORIA) {
-    const primero = cacheMemoria.keys().next().value;
-    if (primero) cacheMemoria.delete(primero);
-  }
-  cacheMemoria.set(huella, cacheado);
-}
-
-function esCacheNoDisponible(e: unknown): boolean {
-  const msg = e instanceof Error ? e.message : "";
-  return /P2021|P2022|reportes_ejecutivos_uso_ia|does not exist|no existe/i.test(msg);
-}
-
-async function leerCachePersistente(huella: string): Promise<ReporteCacheado | null> {
-  try {
-    const row = await prisma.reporteEjecutivoUsoIA.findUnique({
-      where: { huellaContexto: huella },
-      select: {
-        titulo: true,
-        html: true,
-        totalAcciones: true,
-        totalUsuarios: true,
-        totalNovedades: true,
-        actualizadoEn: true,
-      },
-    });
-    if (!row) return null;
-    return {
-      report: { titulo: row.titulo, html: row.html },
-      generatedAt: row.actualizadoEn.toISOString(),
-      totalAcciones: row.totalAcciones,
-      totalUsuarios: row.totalUsuarios,
-      totalNovedades: row.totalNovedades,
-    };
-  } catch (e) {
-    if (esCacheNoDisponible(e)) return null;
-    throw e;
-  }
-}
-
-async function guardarCachePersistente(params: {
-  huella: string;
-  report: ReporteEjecutivoUso;
-  periodoDesde: Date;
-  periodoHasta: Date;
-  totalAcciones: number;
-  totalUsuarios: number;
-  totalNovedades: number;
-  userId: number | null;
-}): Promise<ReporteCacheado | null> {
-  try {
-    const creado = await prisma.reporteEjecutivoUsoIA.create({
-      data: {
-        huellaContexto: params.huella,
-        modelo: MODELO_REPORTE_EJECUTIVO_USO,
-        titulo: params.report.titulo,
-        html: params.report.html,
-        periodoDesde: params.periodoDesde,
-        periodoHasta: params.periodoHasta,
-        totalAcciones: params.totalAcciones,
-        totalUsuarios: params.totalUsuarios,
-        totalNovedades: params.totalNovedades,
-        creadoPorId: params.userId,
-      },
-      select: {
-        titulo: true,
-        html: true,
-        totalAcciones: true,
-        totalUsuarios: true,
-        totalNovedades: true,
-        creadoEn: true,
-      },
-    });
-    return {
-      report: { titulo: creado.titulo, html: creado.html },
-      generatedAt: creado.creadoEn.toISOString(),
-      totalAcciones: creado.totalAcciones,
-      totalUsuarios: creado.totalUsuarios,
-      totalNovedades: creado.totalNovedades,
-    };
-  } catch (e) {
-    if (esCacheNoDisponible(e)) return null;
-    const existente = await leerCachePersistente(params.huella);
-    if (existente) return existente;
-    throw e;
-  }
 }
 
 /** Normaliza ISO o YYYY-MM-DD a inicio/fin de día UTC del rango inclusive. */
@@ -260,7 +148,6 @@ function crearContextoNovedades(
     totalChanges += publicables.cambios.length;
     const cambios = publicables.cambios
       .filter(() => {
-        if (includedChanges >= MAX_CAMBIOS_PROMPT) return false;
         includedChanges += 1;
         return true;
       })
@@ -330,8 +217,8 @@ function esSaturacionProveedor(e: unknown): boolean {
   );
 }
 
-function esperar(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+async function esperar(ms: number, signal?: AbortSignal): Promise<void> {
+  await esperarAbortable(ms, undefined, { signal });
 }
 
 function limpiarCercasCodigo(texto: string): string {
@@ -429,6 +316,7 @@ function normalizarReporteHtml(texto: string): ReporteEjecutivoUso {
  */
 export async function generarReporteEjecutivoUso(
   opciones: ReporteEjecutivoUsoScope,
+  signal?: AbortSignal,
 ): Promise<GenerarReporteEjecutivoResult> {
   const authz = await authorizeReporteEjecutivo();
   if (!authz.ok) return { ok: false, message: authz.message };
@@ -451,13 +339,22 @@ export async function generarReporteEjecutivoUso(
     : null;
 
   try {
-    const [eventosRaw, conexionesRaw, navegacionesRaw, versiones, clientes, usuarios, modulosPublicados] = await Promise.all([
-      prisma.auditEntry.findMany({
+    signal?.throwIfAborted();
+    const clave = claveAlcanceReporte(rango.desde, rango.hasta, versionIds);
+    const anterior = await leerInstantanea(clave);
+    signal?.throwIfAborted();
+    if (anterior && !parsed.data.actualizar) {
+      return { ok: true, ...anterior, desdeCache: true };
+    }
+    const corte = new Date(Math.min(Date.now(), rango.hasta.getTime()));
+    const [[eventosRaw, conexionesRaw, navegacionesRaw, versiones, clientes, usuarios], modulosPublicados] = await Promise.all([
+      prisma.$transaction(async (tx) => Promise.all([
+      tx.auditEntry.findMany({
         where: {
-          createdAt: { gte: rango.desde, lte: rango.hasta },
+          createdAt: { gte: rango.desde, lte: corte },
         },
-        orderBy: { createdAt: "desc" },
-        take: MAX_EVENTOS_AUDITORIA,
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: MAX_EVENTOS_AUDITORIA + 1,
         select: {
           user: true,
           action: true,
@@ -467,40 +364,45 @@ export async function generarReporteEjecutivoUso(
           createdAt: true,
         },
       }),
-      prisma.accessLog.groupBy({
+      tx.accessLog.groupBy({
         by: ["userName"],
         where: {
           kind: "ingreso",
-          createdAt: { gte: rango.desde, lte: rango.hasta },
+          createdAt: { gte: rango.desde, lte: corte },
         },
         _count: { userName: true },
         orderBy: { userName: "asc" },
       }),
-      prisma.accessLog.groupBy({
+      tx.accessLog.groupBy({
         by: ["path"],
         where: {
           kind: "navegacion",
-          createdAt: { gte: rango.desde, lte: rango.hasta },
+          createdAt: { gte: rango.desde, lte: corte },
         },
         _count: { path: true },
         orderBy: { path: "asc" },
       }),
-      prisma.platformVersion.findMany({
+      tx.platformVersion.findMany({
         where: versionIds
-          ? { id: { in: versionIds } }
+          ? { id: { in: versionIds }, status: "publicada" }
           : { status: "publicada" },
         orderBy: [{ order: "desc" }, { id: "desc" }],
         include: { changes: { orderBy: [{ order: "asc" }, { id: "asc" }] } },
       }),
-      prisma.client.findMany({
+      tx.client.findMany({
         select: { id: true, name: true },
       }),
-      prisma.user.findMany({ select: { name: true, email: true } }),
+      tx.user.findMany({ select: { name: true, email: true } }),
+      ]), { isolationLevel: "RepeatableRead" }),
       modulosPublicadosParaTodos(),
     ]);
 
-    if (versionIds && versiones.length === 0) {
-      return { ok: false, message: "No se encontraron las versiones seleccionadas." };
+    signal?.throwIfAborted();
+    if (eventosRaw.length > MAX_EVENTOS_AUDITORIA) {
+      return { ok: false, message: "El período supera el límite de movimientos del reporte. Reduce el rango para obtener cifras completas." };
+    }
+    if (versionIds && versiones.length !== versionIds.length) {
+      return { ok: false, message: "Una o más versiones seleccionadas no están publicadas. Revisa el alcance." };
     }
 
     // Ids realmente usados (aunque el alcance haya sido «todas las publicadas»):
@@ -558,78 +460,16 @@ export async function generarReporteEjecutivoUso(
 
     const conteos = conteosPorFamiliaCanon(eventos);
     const adopcion = evaluarAdopcion({ cambios: planos, conteosPorFamilia: conteos });
-    const graficosHtml = construirSeccionGraficosHtml({ uso, adopcion });
+    const prompt = construirPromptLecturaConsistente({ uso, adopcion, novedades });
+    const system = "Selecciona únicamente interpretaciones prudentes permitidas. No calcules cifras ni generes HTML.";
 
-    const huella = crearHuella({
-      versionPrompt: VERSION_PROMPT_REPORTE_EJECUTIVO_USO,
-      modelo: MODELO_REPORTE_EJECUTIVO_USO,
-      temperatura: TEMPERATURA_REPORTE_EJECUTIVO_USO,
-      desde: rango.desde.toISOString(),
-      hasta: rango.hasta.toISOString(),
-      versionIds: versionIds ?? "publicadas",
-      uso,
-      adopcion: {
-        totalCambios: adopcion.totalCambios,
-        evaluables: adopcion.evaluables,
-        usadas: adopcion.usadas,
-        sinEvidencia: adopcion.sinEvidencia,
-        noMedibles: adopcion.noMedibles,
-        porcentajeAdopcion: adopcion.porcentajeAdopcion,
-        items: adopcion.items,
-      },
-      novedades,
-      includedChanges,
-      totalChanges,
-      alcancePublicado: {
-        modulos: [...modulosPublicados].sort(),
-        eventosDescartados: alcanceUso.descartados,
-        navegacionesDescartadas: alcanceNavegaciones.descartadas,
-        cambiosEnDesarrollo: excluidosEnDesarrollo,
-        cambiosNoPublicados: excluidosNoPublicados,
-      },
-      graficos: true,
-    });
-
-    const cacheLocal = leerCacheMemoria(huella);
-    if (cacheLocal) {
-      return {
-        ok: true,
-        report: cacheLocal.report,
-        model: MODELO_REPORTE_EJECUTIVO_USO,
-        generatedAt: cacheLocal.generatedAt,
-        totalAcciones: cacheLocal.totalAcciones,
-        totalUsuarios: cacheLocal.totalUsuarios,
-        totalNovedades: cacheLocal.totalNovedades,
-        porcentajeAdopcion: adopcion.porcentajeAdopcion,
-        desdeCache: true,
-        versionIdsIncluidos,
-      };
-    }
-
-    const cacheDb = await leerCachePersistente(huella);
-    if (cacheDb) {
-      guardarCacheMemoria(huella, cacheDb);
-      return {
-        ok: true,
-        report: cacheDb.report,
-        model: MODELO_REPORTE_EJECUTIVO_USO,
-        generatedAt: cacheDb.generatedAt,
-        totalAcciones: cacheDb.totalAcciones,
-        totalUsuarios: cacheDb.totalUsuarios,
-        totalNovedades: cacheDb.totalNovedades,
-        porcentajeAdopcion: adopcion.porcentajeAdopcion,
-        desdeCache: true,
-        versionIdsIncluidos,
-      };
-    }
-
-    const generatedAt = new Date().toISOString();
-    const prompt = construirPromptReporteEjecutivo({ uso, adopcion, novedades });
-    const system = SISTEMA_REPORTE_EJECUTIVO;
-
+    signal?.throwIfAborted();
+    const sessionId = randomUUID();
     let completion: Awaited<ReturnType<typeof completarTextoOpenCode>>;
     try {
       completion = await completarTextoOpenCode({
+        sessionId,
+        signal,
         model: MODELO_REPORTE_EJECUTIVO_USO,
         maxTokens: MAX_TOKENS_REPORTE_EJECUTIVO_USO,
         temperature: TEMPERATURA_REPORTE_EJECUTIVO_USO,
@@ -639,9 +479,12 @@ export async function generarReporteEjecutivoUso(
         prompt,
       });
     } catch (e) {
+      signal?.throwIfAborted();
       if (!esSaturacionProveedor(e)) throw e;
-      await esperar(1500);
+      await esperar(1500, signal);
       completion = await completarTextoOpenCode({
+        sessionId,
+        signal,
         model: MODELO_REPORTE_EJECUTIVO_USO,
         maxTokens: MAX_TOKENS_REPORTE_EJECUTIVO_USO_REINTENTO,
         temperature: TEMPERATURA_REPORTE_EJECUTIVO_USO,
@@ -652,14 +495,27 @@ export async function generarReporteEjecutivoUso(
       });
     }
 
-    const report = normalizarReporteHtml(completion.text);
-    if (!report.titulo.trim()) {
-      report.titulo = "Reporte de uso y avances";
-    }
-    // Garantiza gráficos factuales aunque el modelo omita o altere el bloque.
-    report.html = inyectarGraficosEnHtml(report.html, graficosHtml);
+    signal?.throwIfAborted();
+    const report = normalizarReporteHtml(construirDocumentoConsistente({
+      uso, adopcion, novedades, lecturaIA: parsearLecturaConsistente(completion.text),
+      corte: corte.toISOString(),
+    }).html);
 
     const user = await getCurrentUser();
+    signal?.throwIfAborted();
+
+
+    signal?.throwIfAborted();
+    const final = await guardarInstantanea({
+      clave, anteriorId: anterior?.id ?? null, report,
+      modelo: MODELO_REPORTE_EJECUTIVO_USO,
+      desde: rango.desde, hasta: rango.hasta,
+      totalAcciones: uso.totalAcciones, totalUsuarios: uso.totalUsuarios,
+      totalNovedades: adopcion.totalCambios, porcentajeAdopcion: adopcion.porcentajeAdopcion,
+      versionIdsIncluidos, corte: corte.toISOString(),
+      fuente: { uso, adopcion, novedades }, userId: user?.id ?? null,
+    });
+    signal?.throwIfAborted();
     await logAudit({
       user: user?.name ?? "Sistema",
       action: "GENERÓ REPORTE IA",
@@ -668,40 +524,9 @@ export async function generarReporteEjecutivoUso(
         versionIds ? `${versiones.length} versiones` : "versiones publicadas"
       }). Registró ${uso.totalNavegaciones} navegaciones separadas de las operaciones. Alcance solo publicado: excluyó ${alcanceUso.descartados} acciones de módulos no publicados y ${alcanceNavegaciones.descartadas} navegaciones fuera de familias operativas publicadas, ${excluidosEnDesarrollo} novedades en desarrollo y ${excluidosNoPublicados} de módulos no publicados.`,
     });
-
-    const cacheado = await guardarCachePersistente({
-      huella,
-      report,
-      periodoDesde: rango.desde,
-      periodoHasta: rango.hasta,
-      totalAcciones: uso.totalAcciones,
-      totalUsuarios: uso.totalUsuarios,
-      totalNovedades: adopcion.totalCambios,
-      userId: user?.id ?? null,
-    });
-
-    const final = cacheado ?? {
-      report,
-      generatedAt,
-      totalAcciones: uso.totalAcciones,
-      totalUsuarios: uso.totalUsuarios,
-      totalNovedades: adopcion.totalCambios,
-    };
-    guardarCacheMemoria(huella, final);
-
-    return {
-      ok: true,
-      report: final.report,
-      model: MODELO_REPORTE_EJECUTIVO_USO,
-      generatedAt: final.generatedAt,
-      totalAcciones: final.totalAcciones,
-      totalUsuarios: final.totalUsuarios,
-      totalNovedades: final.totalNovedades,
-      porcentajeAdopcion: adopcion.porcentajeAdopcion,
-      desdeCache: false,
-      versionIdsIncluidos,
-    };
+    return { ok: true, ...final, desdeCache: false };
   } catch (e) {
+    if (signal?.aborted) return { ok: false, message: "Generación cancelada." };
     return { ok: false, message: mensajeErrorOpenCode("generarReporteEjecutivoUso", e) };
   }
 }
