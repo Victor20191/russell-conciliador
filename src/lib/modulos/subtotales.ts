@@ -169,8 +169,13 @@ function esRotuloDebil(texto: string): boolean {
  * un falso positivo.
  */
 export function columnasDetalle(descriptor: DescriptorModulo, spec?: Pick<SpecModulo, "columnas">): string[] {
-  return descriptor.columnas
-    .filter((c) => c.tipo === "texto" && c.nombre !== descriptor.clasificador && c.nombre !== descriptor.clasificadorAlterno)
+  const declarados = descriptor.rolesDetalle;
+  const candidatos = declarados
+    ? descriptor.columnas.filter((c) => declarados.includes(c.nombre))
+    : descriptor.columnas.filter(
+      (c) => c.tipo === "texto" && c.nombre !== descriptor.clasificador && c.nombre !== descriptor.clasificadorAlterno,
+    );
+  return candidatos
     .filter((c) => !spec || (spec.columnas[c.nombre] ?? 0) >= 1)
     .map((c) => c.nombre);
 }
@@ -404,7 +409,18 @@ export function detectarSubtotales(
     const senales: SenalSubtotal[] = [];
     if (textos.some((t) => esRotuloFuerte(t, grupo) || (f.clasificador != null && esRotuloFuerte(t, f.clasificador)))) senales.push("rotulo");
     else if (textos.some(esRotuloDebil)) senales.push("rotulo_debil");
-    if (cols.length > 0 && cols.every((c) => vacio(f.datos[c])) && (f.clasificador != null || f.rotuloClasificador != null)) senales.push("sin_detalle");
+    // La exigencia de clasificador evita el falso positivo en los módulos donde las
+    // columnas «de detalle» se DEDUCEN (todo texto que no sea el clasificador): sin un
+    // grupo al que pertenecer, cualquier fila escueta parecería un subtotal. Cuando el
+    // descriptor las DECLARA (`rolesDetalle`) esa cautela sobra y además estorba: Cartera
+    // no siempre tiene clasificador —la mitad de los reportes no trae cuenta contable— y
+    // sin esto sus «Total <tercero>» se imputaban, duplicando la cartera del cliente.
+    const detalleDeclarado = descriptor.rolesDetalle != null;
+    if (
+      cols.length > 0
+      && cols.every((c) => vacio(f.datos[c]))
+      && (detalleDeclarado || f.clasificador != null || f.rotuloClasificador != null)
+    ) senales.push("sin_detalle");
     if (f.negrita === true) senales.push("negrita");
     if (bloque && bloque.indices.length >= MINIMO_FILAS_BLOQUE && Math.abs(f.valor - bloque.suma) <= toleranciaSubtotal(f.valor)) {
       senales.push(bloque.direccion === "arriba" ? "aritmetica" : "aritmetica_arriba");

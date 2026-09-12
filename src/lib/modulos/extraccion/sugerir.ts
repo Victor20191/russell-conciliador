@@ -3,6 +3,7 @@
 // encabezado. Da un punto de partida para el wizard; el usuario lo corrige a mano.
 import type { GridHoja } from "@/lib/balance/extraccion/ingesta";
 import type { DescriptorModulo, RolColumna } from "../descriptores";
+import { esRotuloEdad } from "../cartera/edades";
 import type { SpecModulo } from "./esquema";
 
 export const sinAcentos = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "");
@@ -91,6 +92,9 @@ function detectarEncabezado(descriptor: DescriptorModulo, hoja: GridHoja, maxFil
     for (const celda of fila) {
       const h = norm(celda);
       if (descriptor.columnas.some((rc) => puntajeRol(h, rc) > 0)) score += 1;
+      // Una columna de familia (un balde de edad) también identifica el encabezado: sin
+      // esto, en SIESA ganaba la fila del supra-rótulo «Vencido» sobre la de los rangos.
+      else if (descriptor.familiasDinamicas?.some((f) => f.detector(celda))) score += 1;
     }
     if (score > mejorScore) {
       mejorScore = score;
@@ -98,6 +102,70 @@ function detectarEncabezado(descriptor: DescriptorModulo, hoja: GridHoja, maxFil
     }
   }
   return mejorFila;
+}
+
+/**
+ * Columnas de cada FAMILIA dinámica presentes en el encabezado, con su rótulo literal y su
+ * clase. Se resuelven ANTES del reparto de roles y sus columnas quedan fuera de él: si no,
+ * un balde rotulado «Total 90» compite por el rol `total` y se lleva el saldo de la fila.
+ */
+export function detectarFamilias(
+  descriptor: DescriptorModulo,
+  header: readonly unknown[],
+): NonNullable<SpecModulo["familias"]> | undefined {
+  const familias = descriptor.familiasDinamicas ?? [];
+  if (familias.length === 0) return undefined;
+  const salida: NonNullable<SpecModulo["familias"]> = {};
+  for (const familia of familias) {
+    const columnas: NonNullable<SpecModulo["familias"]>[string] = [];
+    for (let c = 0; c < header.length; c++) {
+      const celda = header[c];
+      if (celda == null || String(celda).trim() === "") continue;
+      if (!familia.detector(celda)) continue;
+      const clase = descriptor.codigo === "CAR" ? esRotuloEdad(celda)?.clase : undefined;
+      columnas.push({
+        columna: c + 1,
+        etiqueta: String(celda).replace(/\s+/g, " ").trim().slice(0, 80),
+        ...(clase ? { clase } : {}),
+      });
+    }
+    if (columnas.length) salida[familia.nombre] = columnas;
+  }
+  return Object.keys(salida).length > 0 ? salida : undefined;
+}
+
+/**
+ * ¿El archivo trae el tercero en una fila de CABECERA con sus documentos debajo? Se decide
+ * con los datos, no con el encabezado: se cuentan las filas donde el identificador viene
+ * solo (sin documento) y las que traen documento sin identificador. Si ambas formas son
+ * frecuentes, el reporte es jerárquico.
+ */
+export function detectarTerceroModo(
+  hoja: GridHoja,
+  spec: Pick<SpecModulo, "primeraFilaDatos" | "columnas">,
+  rolClave: string,
+  maxFilas = 200,
+): "columna" | "cabecera" {
+  const colClave = spec.columnas[rolClave] ?? 0;
+  const colDocumento = spec.columnas.documento ?? 0;
+  if (colClave < 1 || colDocumento < 1) return "columna";
+  let soloClave = 0;
+  let soloDocumento = 0;
+  let total = 0;
+  const desde = Math.max(0, spec.primeraFilaDatos - 1);
+  const hasta = Math.min(hoja.filas.length, desde + maxFilas);
+  for (let r = desde; r < hasta; r++) {
+    const fila = hoja.filas[r] ?? [];
+    const clave = String(fila[colClave - 1] ?? "").trim();
+    const documento = String(fila[colDocumento - 1] ?? "").trim();
+    if (!clave && !documento) continue;
+    total++;
+    if (clave && !documento) soloClave++;
+    else if (!clave && documento) soloDocumento++;
+  }
+  if (total === 0) return "columna";
+  const UMBRAL = 0.15;
+  return soloClave / total > UMBRAL && soloDocumento / total > UMBRAL ? "cabecera" : "columna";
 }
 
 /**
@@ -109,8 +177,16 @@ export function sugerirSpec(descriptor: DescriptorModulo, hoja: GridHoja): SpecM
   const header = hoja.filas[filaEncabezado - 1] ?? [];
   const columnas: Record<string, number> = Object.fromEntries(descriptor.columnas.map((rc) => [rc.nombre, 0]));
 
+  // Las familias se reservan PRIMERO y sus columnas salen del reparto de roles.
+  const familias = detectarFamilias(descriptor, header);
+  const reservadas = new Set<number>();
+  for (const columnasFamilia of Object.values(familias ?? {})) {
+    for (const c of columnasFamilia) reservadas.add(c.columna);
+  }
+
   const candidatos: { col: number; rol: string; score: number }[] = [];
   for (let c = 0; c < header.length; c++) {
+    if (reservadas.has(c + 1)) continue;
     const h = norm(header[c]);
     for (const rc of descriptor.columnas) {
       const s = puntajeRol(h, rc);
@@ -138,12 +214,30 @@ export function sugerirSpec(descriptor: DescriptorModulo, hoja: GridHoja): SpecM
     rolUsado.add(cand.rol);
   }
 
-  return invalidarValorAmbiguoIngresos(descriptor, hoja, {
+  const base: SpecModulo = {
     hoja: hoja.nombre,
     filaEncabezado,
     primeraFilaDatos: filaEncabezado + 1,
     columnas,
-  }).spec;
+    ...(familias ? { familias } : {}),
+  };
+  if (familias) base.edadesModo = "ancho";
+  else if (descriptor.familiasDinamicas?.length && (columnas.edadEtiqueta ?? 0) >= 1) base.edadesModo = "largo";
+  else if (descriptor.familiasDinamicas?.length) base.edadesModo = "ninguna";
+
+  const rolClave = descriptor.crucePorTercero.rolClave;
+  if (rolClave && descriptor.arrastrables?.includes(rolClave)) {
+    base.terceroModo = detectarTerceroModo(hoja, base, rolClave);
+    // El arrastre se propone SIEMPRE, no solo en los reportes jerárquicos. En cartera un
+    // renglón pertenece por fuerza a algún tercero, y varios ERP imprimen el identificador
+    // una sola vez por bloque aunque la fila que lo trae sea ya un documento (World Office
+    // deja así 21 filas por 115 millones). Donde cada fila trae lo suyo, heredar no cambia
+    // nada: solo actúa cuando la celda viene vacía.
+    base.arrastrarRoles = descriptor.arrastrables.filter((rol) => (columnas[rol] ?? 0) >= 1);
+    if (base.arrastrarRoles.length === 0) delete base.arrastrarRoles;
+  }
+
+  return invalidarValorAmbiguoIngresos(descriptor, hoja, base).spec;
 }
 
 /** Roles requeridos que quedaron sin mapear (para avisar/bloquear en el wizard). */

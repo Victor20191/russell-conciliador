@@ -34,6 +34,50 @@ export function letraColumnaModulo(numero: number): string {
 }
 
 /**
+ * Traduce las claves de un mapa rol→columna por el `aliasLegado` del descriptor. Permite
+ * renombrar un rol sin invalidar los perfiles ya guardados por huella: el mapeo del cliente
+ * sobrevive al cambio. El nombre NUEVO manda si ambos vienen.
+ */
+export function aplicarAliasLegado(
+  descriptor: DescriptorModulo,
+  columnas: Record<string, number>,
+): Record<string, number> {
+  const alias = descriptor.aliasLegado;
+  if (!alias) return columnas;
+  const salida: Record<string, number> = { ...columnas };
+  for (const [viejo, nuevo] of Object.entries(alias)) {
+    const valor = columnas[viejo];
+    if (!Number.isInteger(valor) || (valor as number) <= 0) continue;
+    const yaTieneNuevo = Number.isInteger(columnas[nuevo]) && (columnas[nuevo] as number) > 0;
+    if (!yaTieneNuevo) salida[nuevo] = valor as number;
+  }
+  return salida;
+}
+
+/** Familias declaradas por el descriptor, saneadas: columna ≥ 1, etiqueta con texto, sin
+ *  columnas repetidas dentro de la misma familia, ordenadas por columna. */
+function normalizarFamilias(
+  descriptor: DescriptorModulo,
+  familias: SpecModulo["familias"],
+): SpecModulo["familias"] | undefined {
+  const declaradas = descriptor.familiasDinamicas?.map((f) => f.nombre) ?? [];
+  if (declaradas.length === 0 || !familias) return undefined;
+  const salida: NonNullable<SpecModulo["familias"]> = {};
+  for (const nombre of declaradas) {
+    const columnas = familias[nombre];
+    if (!Array.isArray(columnas)) continue;
+    const vistas = new Set<number>();
+    const limpias = columnas
+      .filter((c) => Number.isInteger(c.columna) && c.columna >= 1 && typeof c.etiqueta === "string" && c.etiqueta.trim() !== "")
+      .map((c) => ({ columna: c.columna, etiqueta: c.etiqueta.trim().slice(0, 80), ...(c.clase ? { clase: c.clase } : {}) }))
+      .filter((c) => (vistas.has(c.columna) ? false : (vistas.add(c.columna), true)))
+      .sort((a, b) => a.columna - b.columna);
+    if (limpias.length) salida[nombre] = limpias;
+  }
+  return Object.keys(salida).length > 0 ? salida : undefined;
+}
+
+/**
  * Normaliza un spec contra su descriptor para dejarlo APLICABLE de forma determinista:
  *  - conserva únicamente los roles del descriptor (los desconocidos se descartan) y
  *    completa con 0 los que falten;
@@ -53,9 +97,12 @@ function normalizarSpecModuloInterno(
   spec: SpecModulo,
   conservarCoordenadaArchivo: boolean,
 ): SpecModulo {
+  // Un rol renombrado no debe dejar huérfano el perfil guardado del cliente: antes de
+  // descartar lo desconocido, se traduce por el mapa de alias del descriptor.
+  const origen = aplicarAliasLegado(descriptor, spec.columnas);
   const columnas: Record<string, number> = {};
   for (const rol of descriptor.columnas) {
-    const valor = spec.columnas[rol.nombre];
+    const valor = origen[rol.nombre];
     columnas[rol.nombre] = Number.isInteger(valor) && (valor as number) > 0 ? (valor as number) : 0;
   }
   const modo = modoClasificadorDe(spec);
@@ -69,6 +116,30 @@ function normalizarSpecModuloInterno(
   if (modo === "seccion") {
     const rol = spec.seccionColumnaVaciaRol?.trim();
     if (rol) normalizado.seccionColumnaVaciaRol = rol;
+    const senales = spec.seccionSenal?.filter((s, i, todas) => todas.indexOf(s) === i);
+    if (senales?.length) normalizado.seccionSenal = senales;
+    const rolLleno = spec.seccionColumnaLlenaRol?.trim();
+    if (rolLleno) normalizado.seccionColumnaLlenaRol = rolLleno;
+  }
+  // Los campos siguientes existen para los módulos que los necesitan. Cada uno se conserva
+  // SOLO si el descriptor declara la capacidad de la que depende: así un perfil viejo, uno
+  // copiado de otro módulo o uno manipulado no introduce comportamiento donde el motor no
+  // lo espera, y los módulos que no los usan normalizan exactamente igual que antes.
+  if (descriptor.familiasDinamicas?.length) {
+    const familias = normalizarFamilias(descriptor, spec.familias);
+    if (familias) normalizado.familias = familias;
+    if (spec.edadesModo) normalizado.edadesModo = spec.edadesModo;
+  }
+  if (descriptor.arrastrables?.length) {
+    if (spec.terceroModo) normalizado.terceroModo = spec.terceroModo;
+    const arrastrar = (spec.arrastrarRoles ?? []).filter((rol) => descriptor.arrastrables!.includes(rol));
+    if (arrastrar.length) normalizado.arrastrarRoles = [...new Set(arrastrar)];
+  }
+  // El NIVEL de la fila y el ORIGEN de la cartera solo significan algo donde la
+  // conciliación es por tercero contra cuentas de seis dígitos declaradas.
+  if (descriptor.crucePorTercero.cuentasRussell6?.length) {
+    if (spec.nivel) normalizado.nivel = spec.nivel;
+    if (spec.origenCartera) normalizado.origenCartera = spec.origenCartera;
   }
   if (spec.subtotales === "rotulo" || spec.subtotales === "nunca") normalizado.subtotales = spec.subtotales;
   if (spec.subtotales === "manual") {
@@ -144,6 +215,34 @@ export function validarSpecModulo(descriptor: DescriptorModulo, spec: SpecModulo
       return `La columna «${definicion.etiqueta}» no puede ser la misma del clasificador: en los renglones de sección nunca estaría vacía.`;
     }
   }
+  const errorFamilias = validarFamiliasSpec(descriptor, spec);
+  if (errorFamilias) return errorFamilias;
+  return null;
+}
+
+/** Las columnas de una familia no pueden pisar un rol ya mapeado ni repetirse entre sí. */
+function validarFamiliasSpec(descriptor: DescriptorModulo, spec: SpecModulo): string | null {
+  const declaradas = descriptor.familiasDinamicas ?? [];
+  if (declaradas.length === 0) return null;
+  const deRoles = new Map<number, string>();
+  for (const rol of descriptor.columnas) {
+    const col = spec.columnas[rol.nombre] ?? 0;
+    if (col >= 1) deRoles.set(col, rol.etiqueta);
+  }
+  const usadas = new Map<number, string>();
+  for (const familia of declaradas) {
+    for (const columna of spec.familias?.[familia.nombre] ?? []) {
+      const choqueRol = deRoles.get(columna.columna);
+      if (choqueRol) {
+        return `La columna «${columna.etiqueta}» de ${familia.etiqueta.toLowerCase()} ya está asignada a «${choqueRol}»; una columna no puede cumplir dos papeles.`;
+      }
+      const choqueFamilia = usadas.get(columna.columna);
+      if (choqueFamilia) {
+        return `La columna «${columna.etiqueta}» de ${familia.etiqueta.toLowerCase()} está repetida (ya figura como «${choqueFamilia}»).`;
+      }
+      usadas.set(columna.columna, columna.etiqueta);
+    }
+  }
   return null;
 }
 
@@ -166,6 +265,16 @@ export function resumenColumnasModulo(descriptor: DescriptorModulo, spec: SpecMo
     }
     const numero = spec.columnas[rol.nombre] ?? 0;
     if (numero > 0) partes.push(`${rol.etiqueta.toLowerCase()} ${letraColumnaModulo(numero)}`);
+  }
+  // Las familias no se enumeran columna a columna (pueden ser nueve): se resumen por su
+  // rango y su cantidad, que es lo que el administrador necesita reconocer de un vistazo.
+  for (const familia of descriptor.familiasDinamicas ?? []) {
+    const columnas = spec.familias?.[familia.nombre] ?? [];
+    if (columnas.length === 0) continue;
+    const primera = letraColumnaModulo(columnas[0].columna);
+    const ultima = letraColumnaModulo(columnas[columnas.length - 1].columna);
+    const rango = columnas.length === 1 ? primera : `${primera}–${ultima}`;
+    partes.push(`${familia.etiqueta.toLowerCase()} ${rango} (${columnas.length})`);
   }
   return partes.join(" · ");
 }

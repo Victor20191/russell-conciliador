@@ -61,11 +61,14 @@ describe("descriptores de módulos", () => {
       .sort();
     expect(habilitados).toEqual(["CAR", "CXP", "ING"]);
 
+    // Cartera dejó el rol genérico `tercero` por uno propio (`nit`, requerido): sus
+    // reportes traen el identificador y el nombre en columnas separadas y el NIT es el
+    // único campo sin el cual no hay conciliación posible (RF-CXC-01).
     const conRolGenericoTercero = Object.values(MODULOS_IMPORT)
       .filter((d) => d.columnas.some((c) => c.nombre === "tercero"))
       .map((d) => d.codigo)
       .sort();
-    expect(conRolGenericoTercero).toEqual(["CAR", "CXP", "ING"]);
+    expect(conRolGenericoTercero).toEqual(["CXP", "ING"]);
 
     for (const d of Object.values(MODULOS_IMPORT)) {
       if (!d.crucePorTercero.habilitado && !d.crucePorTercero.rolClave) continue;
@@ -123,5 +126,60 @@ describe("descriptores de módulos", () => {
       ing_sin_impuestos: { respuesta: "si" },
     })).toBeNull();
     expect(bloqueoAnexoPorVerificacionesCriticasModulo(MODULOS_IMPORT.CAR, {})).toBeNull();
+  });
+});
+
+describe("contratos nuevos del descriptor (solo Cartera los usa hoy)", () => {
+  const CAR = MODULOS_IMPORT.CAR;
+
+  it("los demás módulos NO declaran ninguno: su comportamiento no cambia", () => {
+    for (const d of Object.values(MODULOS_IMPORT)) {
+      if (d.codigo === "CAR") continue;
+      expect(d.familiasDinamicas, d.codigo).toBeUndefined();
+      expect(d.valorDerivado, d.codigo).toBeUndefined();
+      expect(d.arrastrables, d.codigo).toBeUndefined();
+      expect(d.rolesLlaveItem, d.codigo).toBeUndefined();
+      expect(d.usarNegritaComoEstructura, d.codigo).toBeUndefined();
+      expect(d.aliasLegado, d.codigo).toBeUndefined();
+    }
+  });
+
+  it("Cartera declara la familia de rangos de vencimiento con su detector", () => {
+    const familia = CAR.familiasDinamicas?.find((f) => f.nombre === "edades");
+    expect(familia).toBeDefined();
+    expect(familia?.tipo).toBe("moneda");
+    expect(familia?.detector("1 - 30 DIAS")).toBe(true);
+    expect(familia?.detector("POR VENCER")).toBe(true);
+    expect(familia?.detector("Valor Total")).toBe(false);
+  });
+
+  it("Cartera deriva el saldo de las edades y deja que la suma mande (RF-CXC-09)", () => {
+    expect(CAR.valorDerivado).toEqual({ deFamilia: "edades", prevalece: "familia" });
+    // La familia de la que deriva tiene que existir.
+    expect(CAR.familiasDinamicas?.some((f) => f.nombre === CAR.valorDerivado?.deFamilia)).toBe(true);
+  });
+
+  it("Cartera no rechaza saldos negativos: un anticipo es alerta, no error", () => {
+    expect(CAR.noNegativos).toBeUndefined();
+  });
+
+  it("los roles declarados en los contratos existen en las columnas", () => {
+    const declarados = new Set(CAR.columnas.map((c) => c.nombre));
+    for (const rol of [...(CAR.arrastrables ?? []), ...(CAR.rolesLlaveItem ?? [])]) {
+      expect(declarados.has(rol), rol).toBe(true);
+    }
+    for (const nuevo of Object.values(CAR.aliasLegado ?? {})) {
+      expect(declarados.has(nuevo), nuevo).toBe(true);
+    }
+  });
+
+  it("el cruce por tercero de Cartera acota el lado contable a las tres cuentas acordadas", () => {
+    expect(CAR.crucePorTercero.cuentasRussell6).toEqual(["130505", "130510", "280505"]);
+    expect(CAR.crucePorTercero.exigidoParaCierre).toBe(true);
+    // Ningún otro módulo acota por cuenta de seis dígitos todavía.
+    for (const d of Object.values(MODULOS_IMPORT)) {
+      if (d.codigo === "CAR") continue;
+      expect(d.crucePorTercero.cuentasRussell6, d.codigo).toBeUndefined();
+    }
   });
 });

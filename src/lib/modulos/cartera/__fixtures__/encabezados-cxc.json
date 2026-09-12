@@ -1,0 +1,402 @@
+{
+  "ilimitada": {
+    "software": "ILIMITADA",
+    "archivo": "2. CXC_ILIMITADA_KP EMPAQUES_ Cartera Edades Dic 31-2025.xlsx",
+    "hoja": "H2 DICIEMBRE",
+    "hojas": [
+      "H2 DICIEMBRE"
+    ],
+    "filaEncabezado": 3,
+    "filasTotales": 129,
+    "encabezado": [
+      "CODIGO",
+      "NOMBRE",
+      "1 - 30 DIAS",
+      "31 - 60 DIAS",
+      "61 - 90 DIAS",
+      "91 - 120 DIAS",
+      "121 - 150 DIAS",
+      "151 - 180 DIAS",
+      "181 - 210 DIAS",
+      "211 - 240 DIAS",
+      "POR VENCER"
+    ]
+  },
+  "libra": {
+    "software": "LIBRA",
+    "archivo": "2. CXC_LIBRA_COMESTIBLES DAN_CARTERA CORTE 31-12-2025.xlsx",
+    "hoja": "CARTERA",
+    "hojas": [
+      "CARTERA",
+      "CARTERA >360 DÍAS"
+    ],
+    "filaEncabezado": 5,
+    "filasTotales": 9008,
+    "encabezado": [
+      "AGENCIA",
+      "RESPONSABLE CLIENTE",
+      "CUENTA",
+      "FECHA FACTURA",
+      "FECHA VENCIMIENTO",
+      "NIT",
+      "RAZON SOCIAL",
+      "IMPORTE",
+      "DOCUMENTO",
+      "SERIE JUSTIFICANTE",
+      "JUSTIFICANTE",
+      "FORMA COBRO",
+      "ZONA",
+      "CANAL",
+      "EDAD",
+      "CODIGO RAPIDO",
+      "RAZON SOCIAL PADRE"
+    ]
+  },
+  "ofimatica": {
+    "software": "OFIMATICA",
+    "archivo": "2. CXC_OFIMATICA_METROPLUS_Módulo CxC.xlsx",
+    "hoja": "CXC POR EDADES",
+    "hojas": [
+      "CXC POR EDADES"
+    ],
+    "filaEncabezado": 4,
+    "filasTotales": 8,
+    "encabezado": [
+      "NIT",
+      "Proveedor / Acreedor",
+      "Valor Total",
+      "0-30 días",
+      "31-60 días",
+      "61-90 días",
+      "Más de 90 días"
+    ]
+  },
+  "sap-igb": {
+    "software": "SAP",
+    "archivo": "2. CXC_SAP_IGB_Módulo CxC.xlsx",
+    "hoja": "cartera",
+    "hojas": [
+      "cartera"
+    ],
+    "filaEncabezado": 1,
+    "filasTotales": 26279,
+    "encabezado": [
+      "Código de cliente",
+      "Nombre del cliente",
+      "Acuerdo global",
+      "Tipo",
+      "Nº documento",
+      "Número de plazos",
+      "Fecha de contabilización",
+      "Fecha de vencimiento",
+      "Número de referencia del SN",
+      "Saldo vencido",
+      "Sin vencer",
+      "Código de método de pago",
+      "0-20",
+      "61 - 90",
+      "91 - 180",
+      "181+",
+      "Deuda dudosa",
+      "Código SN de consolidación",
+      "Nombre SN de consolidación"
+    ]
+  },
+  "sap-motozone": {
+    "software": "SAP",
+    "archivo": "2. CXC_SAP_MOTOZONE_Módulo CxC.xlsx",
+    "hoja": "Cartera.",
+    "hojas": [
+      "Cartera.",
+      "Cartera"
+    ],
+    "filaEncabezado": 1,
+    "filasTotales": 5796,
+    "encabezado": [
+      "Código de cliente",
+      "Nombre del cliente",
+      "Acuerdo global",
+      "Tipo",
+      "Nº documento",
+      "Número de plazos",
+      "Fecha de contabilización",
+      "Fecha de vencimiento",
+      "Número de referencia del SN",
+      "Saldo vencido",
+      "Abono futuro",
+      "Código de método de pago",
+      "0 - 60",
+      "61 - 90",
+      "91 - 180",
+      "181 - 360",
+      "361+",
+      "Deuda dudosa",
+      "Código SN de consolidación",
+      "Nombre SN de consolidación"
+    ]
+  },
+  "siesa-aceros": {
+    "software": "SIESA",
+    "archivo": "2. CXC_SIESA_Aceros Mapa_Cxc 2025.xls",
+    "hoja": "Hoja 1",
+    "hojas": [
+      "Hoja 1"
+    ],
+    "filaEncabezado": 6,
+    "filasTotales": 842,
+    "encabezado": [
+      "Código",
+      null,
+      "Descripción",
+      null,
+      null,
+      null,
+      null,
+      "#Ter.",
+      null,
+      null,
+      "Cupo",
+      null,
+      "Saldo",
+      "Posfechados",
+      null,
+      null,
+      null
+    ]
+  },
+  "siesa-mineralin-edades": {
+    "software": "SIESA",
+    "archivo": "2. CXC_SIESA_Mineralin_Cxc por edades al 31 dic 2025 (1).xls",
+    "hoja": "Hoja 1",
+    "hojas": [
+      "Hoja 1"
+    ],
+    "filaEncabezado": 8,
+    "filasTotales": 507,
+    "encabezado": [
+      "Código",
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      "#Ter.",
+      null,
+      "Corriente",
+      "De 1 a 90",
+      "De 91 a 180",
+      "De 181 a 360",
+      "De 361 o mas",
+      "Total",
+      null,
+      null
+    ]
+  },
+  "siesa-mineralin-detalle": {
+    "software": "SIESA",
+    "archivo": "2. CXC_SIESA_Mineralin_Detalle de cartera.xls",
+    "hoja": "Hoja 1",
+    "hojas": [
+      "Hoja 1"
+    ],
+    "filaEncabezado": 7,
+    "filasTotales": 1327,
+    "encabezado": [
+      null,
+      "Documento",
+      "Fecha",
+      "F.Vcto.",
+      "Plazo",
+      "Venc.",
+      "Vendedor",
+      "#Ter.",
+      null,
+      "Notas",
+      "Cupo",
+      null,
+      "Saldo",
+      "Posfechados",
+      null,
+      null
+    ]
+  },
+  "siesa-plasmar": {
+    "software": "SIESA",
+    "archivo": "2. CXC_SIESA_PLASMAR_4.2-4.3-4.4-4.5-4.6-4.7 Cartera por edades 31.12.2025 (1) (1).xlsx",
+    "hoja": "COP",
+    "hojas": [
+      "COP",
+      "USD"
+    ],
+    "filaEncabezado": 4,
+    "filasTotales": 1102,
+    "encabezado": [
+      "Cliente",
+      "Nombre_Cliente",
+      "T_Dcto",
+      "Documento",
+      "F_Expedic",
+      "F_Vencim",
+      "DiasVc",
+      "Deuda",
+      "Pagado",
+      "Saldo",
+      "Edades",
+      "Observacion"
+    ]
+  },
+  "siesa-zarzal": {
+    "software": "SIESA",
+    "archivo": "2. CXC_SIESA_ZARZAL_CXC edades.xls",
+    "hoja": "Hoja 1",
+    "hojas": [
+      "Hoja 1"
+    ],
+    "filaEncabezado": 8,
+    "filasTotales": 11706,
+    "encabezado": [
+      null,
+      null,
+      null,
+      "Documento",
+      "Fecha",
+      "F.Vcto.",
+      "Plazo",
+      "Venc.",
+      "Vendedor",
+      "#Ter.",
+      null,
+      "Corriente",
+      "De 1 a 30",
+      "De 31 a 60",
+      "De 61 a 90",
+      "De 91 a 120",
+      "De 121 a 360",
+      "De 361 o mas",
+      "Total",
+      null,
+      null
+    ]
+  },
+  "sievensoft": {
+    "software": "SIEVENSOFT",
+    "archivo": "2. CXC_SIEVENSOFT_CAMARA DE COMERCIO_Módulo.xlsx",
+    "hoja": "ANEXO CARTERA",
+    "hojas": [
+      "ANEXO CARTERA"
+    ],
+    "filaEncabezado": 1,
+    "filasTotales": 62,
+    "encabezado": [
+      "NIT",
+      "NOMBRE",
+      "T.OP.",
+      "# DOC.",
+      "F. DOC.",
+      "F. VENC.",
+      "# DV",
+      "SALDO",
+      "SIN VENCER",
+      "0 a 30 DIAS",
+      "30 A 60 DIAS",
+      "60 A 90 DIAS",
+      "90 A 120 DIAS",
+      "120 A 180 DIAS",
+      "180 A 360 DIAS",
+      "MAS DE 360"
+    ]
+  },
+  "siigo-kakaraka": {
+    "software": "SIIGO",
+    "archivo": "2. CXC_SIIGO_KAKARAKA_Módulo CxC.xlsx",
+    "hoja": "Hoja1",
+    "hojas": [
+      "Hoja1"
+    ],
+    "filaEncabezado": 4,
+    "filasTotales": 288,
+    "encabezado": [
+      "NIT",
+      "DIG.VER.",
+      "TERCERO",
+      "SUCURS",
+      "NOMBRE",
+      "CUENTA",
+      "CTA",
+      "DESCRIPCION",
+      "SALDO",
+      "VALOR VENCIDO",
+      "COMPROBANTE",
+      "FECHA",
+      "FEC-VENCE",
+      "<== 90-",
+      "DE 89- A 60-",
+      "DE 59- A 30-",
+      "DE 29- A 1-",
+      "0 ==>"
+    ]
+  },
+  "siigo-pure-nature": {
+    "software": "SIIGO",
+    "archivo": "2. CXC_SIIGO_PURE NATURE_02. Estado de cuenta.xlsx",
+    "hoja": "Estado de cuenta",
+    "hojas": [
+      "Estado de cuenta",
+      "Auxiliar"
+    ],
+    "filaEncabezado": 4,
+    "filasTotales": 31,
+    "encabezado": [
+      "Identificación",
+      "Cliente",
+      "Sucursal",
+      "Documento",
+      "Fecha vencimiento",
+      "Centro de costo",
+      "Cobrador",
+      "Vendedor",
+      "Ciudad",
+      "Vencido 1 a 30",
+      "Vencido 31 a 60",
+      "Vencido 61 a 90",
+      "Vencido más de 91",
+      "Saldo por vencer",
+      "Saldo a favor",
+      "Total cartera"
+    ]
+  },
+  "world-office": {
+    "software": "WORLD OFFICE",
+    "archivo": "2. CXC_X_SANTIAGO_CARTERA A DICIEMBRE 31 2025.xlsx",
+    "hoja": "cxc a di 31 2025",
+    "hojas": [
+      "cxc a di 31 2025"
+    ],
+    "filaEncabezado": 4,
+    "filasTotales": 218,
+    "encabezado": [
+      "Nombres_Etiqueta",
+      "Nombres",
+      "Identificacion",
+      "EMail",
+      "Personalizado1",
+      "Sucursal",
+      "Dirección",
+      "Ciudad_",
+      "Telefono",
+      "Vendedor",
+      "Doc",
+      "Num",
+      "Fecha",
+      "Fecha Vence",
+      "Valor Total",
+      "Por Vencer",
+      "1 A 30",
+      "31 A 60",
+      "61 A 90",
+      "Más De 90",
+      "NumDias"
+    ]
+  }
+}

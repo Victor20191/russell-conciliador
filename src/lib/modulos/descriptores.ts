@@ -9,6 +9,8 @@
 // procesa es genérico. `moduloCodigo` reutiliza los `Module.code` de `/config/modulos`
 // (INV, CAR, CXP, ING, AFI, NOM) para alinear con los «campos mínimos» y `ClientModule`.
 
+import { esRotuloEdad } from "./cartera/edades";
+
 // "numero" = cantidad/conteo (miles, sin $); "moneda" = monto en pesos (con $).
 export type TipoColumna = "texto" | "numero" | "moneda" | "fecha";
 
@@ -48,7 +50,51 @@ export interface ConfiguracionCrucePorTercero {
   rolClave?: string;
   /** Rol con el nombre del tercero cuando viene en una columna aparte. */
   rolNombre?: string;
+  /** Rol con el dígito de verificación, cuando el reporte lo trae en columna aparte. */
+  rolDv?: string;
+  /** Rol con la sucursal/agencia del tercero. */
+  rolSucursal?: string;
+  /**
+   * Cuentas Russell de SEIS dígitos contra las que se concilia el módulo. Acota el lado
+   * contable dentro de las cuentas de 4 díg. del prevalidador: Cartera concilia
+   * 130505/130510/280505, no todo el grupo 13 (RF-CXC-04/05). Lo que el tercero tenga en
+   * las demás cuentas del grupo se informa aparte, sin entrar al renglón.
+   * Vacío/ausente = sin acotar (comportamiento actual).
+   */
+  cuentasRussell6?: readonly string[];
+  /** El cierre en firme del módulo exige además que el cruce por tercero esté resuelto. */
+  exigidoParaCierre?: boolean;
 }
+
+/**
+ * FAMILIA de columnas dinámicas: un grupo de columnas cuyo NÚMERO y cuyos RÓTULOS los pone
+ * el archivo, no el descriptor. Nace con los rangos de vencimiento de cartera, donde cada
+ * ERP publica entre 4 y 9 baldes («1 - 30 DIAS», «De 1 a 90», «<== 90-») y ninguno coincide
+ * con otro: declararlos como columnas fijas era imposible.
+ *
+ * El sugeridor detecta las columnas con `detector`, las retira del reparto de roles y las
+ * guarda en `SpecModulo.familias[nombre]`; el transform las lee a `datos[nombre]` como un
+ * objeto `rótulo → valor`.
+ */
+export type FamiliaDinamica = {
+  /** Clave interna, p. ej. "edades". Es la llave en el spec y en `datos`. */
+  nombre: string;
+  etiqueta: string;
+  tipo: TipoColumna;
+  /** ¿El encabezado de esta columna pertenece a la familia? (puro, sin estado). */
+  detector: (encabezado: unknown) => boolean;
+};
+
+/**
+ * Deriva el VALOR monetario de la fila a partir de una familia cuando el archivo no trae
+ * la columna de total, o cuando la trae vacía. `prevalece: "familia"` implementa la regla
+ * acordada con la firma para cartera (RF-CXC-09): si la suma de las edades y el total
+ * reportado difieren, manda la suma de las edades.
+ */
+export type ValorDerivadoFamilia = {
+  deFamilia: string;
+  prevalece: "familia" | "columna";
+};
 
 export type DescriptorModulo = {
   /** Código del módulo (= `Module.code`). */
@@ -85,6 +131,48 @@ export type DescriptorModulo = {
   verificacionesCriticasSi?: string[];
   /** Compuerta única del cruce por tercero y sus roles de columna. */
   crucePorTercero: ConfiguracionCrucePorTercero;
+  /**
+   * Columnas cuyo número y rótulos los pone el ARCHIVO (ver `FamiliaDinamica`). Un módulo
+   * que no las declara se comporta exactamente como antes: el spec descarta cualquier
+   * familia guardada y el transform no lee ninguna.
+   */
+  familiasDinamicas?: FamiliaDinamica[];
+  /** De dónde sale `valor` cuando la columna del descriptor no basta. */
+  valorDerivado?: ValorDerivadoFamilia;
+  /**
+   * Roles que admiten FORWARD-FILL: el archivo los imprime una vez (en una cabecera o en
+   * la primera fila del bloque) y las filas siguientes los heredan. Hasta ahora solo el
+   * clasificador podía arrastrarse; los reportes jerárquicos de cartera necesitan arrastrar
+   * también el tercero y su nombre.
+   */
+  arrastrables?: string[];
+  /**
+   * Roles que identifican un ÍTEM para el fraccionamiento (`fraccionamiento.ts`). Sin esto
+   * la llave se deduce por el nombre del rol (`/ref/i`), que en cartera no existe y deja la
+   * llave en solo el clasificador: dos facturas distintas del mismo tercero se leían como
+   * el mismo ítem.
+   */
+  rolesLlaveItem?: string[];
+  /**
+   * La NEGRITA del archivo marca estructura (encabezados de cuenta, subtotales por
+   * tercero) y no solo decoración. Habilita la compuerta que verifica esa correlación
+   * antes de usarla; sin ella la negrita nunca reclasifica una fila.
+   */
+  usarNegritaComoEstructura?: boolean;
+  /**
+   * Roles de texto que están LLENOS en una fila de detalle y VACÍOS en un subtotal (señal
+   * `sin_detalle` de `subtotales.ts`). Por defecto se deducen: todo texto que no sea el
+   * clasificador. Cartera lo declara porque su descriptor tiene nueve columnas de texto y
+   * la mayoría (moneda, rango de edad, marca de sección) también viene vacía en las filas
+   * de detalle: deducirlas apagaría la señal o la volvería un falso positivo.
+   */
+  rolesDetalle?: string[];
+  /**
+   * Roles que cambiaron de nombre: `{ nombreViejo: nombreNuevo }`. Los perfiles guardados
+   * y el `datos` de los cargues anteriores se leen a través de este mapa, así que renombrar
+   * un rol no deja huérfana la memoria del cliente.
+   */
+  aliasLegado?: Record<string, string>;
 };
 
 const col = (nombre: string, etiqueta: string, tipo: TipoColumna, requerido = false, sinonimos?: string[]): RolColumna => ({ nombre, etiqueta, tipo, requerido, sinonimos });
@@ -147,22 +235,74 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     ],
   },
 
-  // ===== Cartera / Cuentas por cobrar (CAR) → cuentas 13xx =====
+  // ===== Cartera / Cuentas por cobrar (CAR) → 130505, 130510 y 280505 =====
+  // Se concilia POR TERCERO (NIT), no por agrupador: cada NIT es un renglón (RF-CXC-02).
+  // Los catorce reportes reales de clientes analizados se reparten en cinco formas —resumen
+  // por tercero, documentos planos (con la edad en columna o como etiqueta), jerárquico
+  // tercero→documentos, y documentos con subtotales rotulados—, así que casi ninguna
+  // columna puede exigirse salvo el identificador del tercero.
   CAR: {
     codigo: "CAR",
     label: "Cartera",
     columnas: [
-      col("tipo", "Tipo de cartera", "texto", true, ["tipo", "clase", "cartera", "cuenta", "concepto"]),
-      col("documento", "Documento / factura", "texto", true, ["factura", "documento", "comprobante", "referencia", "numero"]),
-      col("tercero", "Tercero / cliente", "texto", false, ["tercero", "cliente", "nombre", "razon social", "nit"]),
-      col("fecha", "Fecha", "fecha", false, ["fecha", "emision"]),
-      col("vencimiento", "Vencimiento", "fecha", false, ["vencimiento", "vence", "fecha vencimiento"]),
-      col("saldo", "Saldo", "moneda", true, ["saldo", "valor", "saldo pendiente", "monto", "total"]),
+      // «Código» a secas NO es una cuenta contable: en la mitad de los reportes es el
+      // identificador del tercero. La cuenta se reconoce por su propio nombre.
+      col("cuenta", "Cuenta contable del archivo", "texto", false, ["cuenta", "cta", "cuenta contable", "codigo contable", "codigo cuenta"]),
+      col("nit", "NIT / cédula del tercero", "texto", true, ["nit", "identificacion", "tercero", "cliente", "codigo", "codigo de cliente", "cedula", "documento identidad"]),
+      // Sin «descripcion»: en SIIGO rotula la descripción de la CUENTA y le ganaba a la
+      // columna que se llama «NOMBRE». Donde el nombre del tercero vive bajo «Descripción»
+      // (SIESA jerárquico) lo resuelve el modo de identificador compartido, que lo toma de
+      // la columna contigua a la del identificador.
+      col("nombre", "Nombre / razón social", "texto", false, ["nombre", "nombres", "razon social", "nombre del cliente", "nombre tercero", "proveedor acreedor", "deudor"]),
+      col("dv", "Dígito de verificación", "texto", false, ["dig ver", "digito verificacion", "digito de verificacion"]),
+      col("sucursal", "Sucursal / agencia", "texto", false, ["sucursal", "sucurs", "agencia"]),
+      // Sin «doc» ni «justificante»: el primero rotula el TIPO en World Office y el segundo
+      // es una columna paralela de LIBRA que le ganaba a la que se llama «DOCUMENTO».
+      col("documento", "Documento / factura", "texto", false, ["documento", "factura", "comprobante", "n documento", "num", "numero documento"]),
+      col("tipoDocumento", "Tipo de documento", "texto", false, ["tipo documento", "t dcto", "t op", "doc", "serie"]),
+      col("fecha", "Fecha del documento", "fecha", false, ["fecha", "fecha factura", "f expedic", "fecha de contabilizacion", "f doc", "emision"]),
+      col("vencimiento", "Fecha de vencimiento", "fecha", false, ["vencimiento", "vence", "f vcto", "fec vence", "fecha vencimiento", "f venc", "f vencim"]),
+      col("diasVencidos", "Días vencidos", "numero", false, ["dias vencidos", "diasvc", "numdias", "dias de mora", "dias"]),
+      col("total", "Saldo / total", "moneda", false, ["saldo", "total", "valor total", "total cartera", "importe", "saldo pendiente", "monto"]),
+      col("edadEtiqueta", "Rango de edad (etiqueta)", "texto", false, ["edad", "edades", "rango", "estado cartera"]),
+      col("moneda", "Moneda", "texto", false, ["moneda", "divisa"]),
+      col("tasaCambio", "Tasa de cambio", "numero", false, ["tc", "trm", "tasa de cambio", "tasa cambio"]),
+      col("marcaSeccion", "Marca de renglón de cuenta", "texto", false, ["ter", "no terceros", "cantidad terceros"]),
     ],
-    clasificador: "tipo",
-    valor: "saldo",
-    noNegativos: ["saldo"],
-    crucePorTercero: { habilitado: true },
+    // Las columnas de vencimiento las pone el archivo: entre 4 y 9, con rótulos distintos
+    // en cada ERP. Ver `src/lib/modulos/cartera/edades.ts`.
+    familiasDinamicas: [
+      {
+        nombre: "edades",
+        etiqueta: "Rangos de vencimiento",
+        tipo: "moneda",
+        detector: (encabezado: unknown) => esRotuloEdad(encabezado) != null,
+      },
+    ],
+    clasificador: "cuenta",
+    valor: "total",
+    // RF-CXC-06/09: si el archivo no trae total, el saldo es la suma de las edades; si trae
+    // ambos y difieren, manda la suma de las edades y la diferencia se alerta.
+    valorDerivado: { deFamilia: "edades", prevalece: "familia" },
+    // Sin `noNegativos`: un saldo negativo es un anticipo o una nota crédito sin cruzar —se
+    // alerta como «naturaleza contraria», nunca se rechaza el cargue.
+    arrastrables: ["nit", "nombre", "cuenta"],
+    rolesLlaveItem: ["nit", "documento"],
+    // Un renglón de cartera es un DOCUMENTO; los subtotales por tercero o por cuenta lo
+    // traen vacío. El NIT no sirve de señal: los reportes jerárquicos lo repiten en la
+    // fila de subtotal del propio tercero.
+    rolesDetalle: ["documento", "tipoDocumento"],
+    usarNegritaComoEstructura: true,
+    aliasLegado: { saldo: "total", tercero: "nit", tipo: "cuenta" },
+    crucePorTercero: {
+      habilitado: true,
+      rolClave: "nit",
+      rolNombre: "nombre",
+      rolDv: "dv",
+      rolSucursal: "sucursal",
+      cuentasRussell6: ["130505", "130510", "280505"],
+      exigidoParaCierre: true,
+    },
     verificaciones: [
       { id: "car_anticipos", texto: "Confirme si la cartera incluye saldos a favor de clientes (anticipos)." },
       { id: "car_vencida", texto: "Verifique la existencia de cartera vencida mayor a 360 días." },
