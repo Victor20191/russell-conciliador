@@ -37,6 +37,17 @@ export type FilaModulo = {
   omitida?: boolean;
   /** Por qué el motor clasificó la fila como `total` (`motivoDe`), p. ej. «subtotal:rotulo,aritmetica». */
   motivo?: string;
+  // ===== Columnas de FAMILIA (rótulo del ERP → importe). Solo los módulos que las declaran.
+  /** Importe de cada balde, llaveado por su rótulo LITERAL («De 1 a 90», «POR VENCER»). */
+  familias?: Record<string, Record<string, number>>;
+  /** Σ de los baldes que suman (excluye los de clase `excluir`, p. ej. «Deuda dudosa»). */
+  sumaFamilia?: number;
+  /** El valor que declaraba la columna del descriptor, cuando existe y se derivó otro. */
+  valorReportado?: number | null;
+  /** De dónde salió `valor`: la columna, la familia, o ambas coincidiendo. */
+  origenValor?: "columna" | "familia" | "columna_y_familia";
+  /** Saldo que la CABECERA de un tercero declara para todo su bloque (`terceroModo`). */
+  saldoDeclarado?: number;
 };
 
 export type ExcepcionModulo = { filaNum: number; mensaje: string };
@@ -123,19 +134,61 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     return txt != null && puntajeRol(norm(txt), rolClasificador) > 0;
   };
 
+  /**
+   * ¿La fila ES la de encabezado? Se reconoce por su CONTENIDO, no por su número: el spec
+   * puede venir de un perfil memorizado y el ERP mover el encabezado una fila arriba o abajo
+   * de un mes a otro (una línea de banner de más o de menos) sin cambiar su huella.
+   *
+   * Hace falta porque la señal de «esto no es un dato» que usaban las redes de seguridad era
+   * «la celda de valor no es numérica», y eso deja de servir en cuanto la columna de valor es
+   * un rango de vencimiento: `normalizarMonto("1 - 30 DIAS")` da 130. Sin esta comprobación,
+   * la Parte A se traga la propia fila de encabezado y la Parte B la denuncia como perdida.
+   */
+  const esFilaDeEncabezado = (filaR: CeldaCruda[]): boolean => {
+    if (esEncabezadoClasificador(filaR)) return true;
+    // Una columna de familia cuyo contenido es su propio rótulo: es el encabezado, literal.
+    for (const f of familiasSpec) {
+      for (const c of f.columnas) {
+        const txt = aTexto(celda(filaR, c.columna));
+        if (txt != null && norm(txt) === norm(c.etiqueta)) return true;
+      }
+    }
+    // O dos o más columnas mapeadas que contienen el nombre de su propio rol.
+    let coincidencias = 0;
+    for (const rc of descriptor.columnas) {
+      const col = spec.columnas[rc.nombre] ?? 0;
+      if (col < 1) continue;
+      const txt = aTexto(celda(filaR, col));
+      if (txt != null && puntajeRol(norm(txt), rc) > 0 && ++coincidencias >= 2) return true;
+    }
+    return false;
+  };
+
   // PARTE A — INICIO EFECTIVO: `primeraFilaDatos` (a veces heredado de un perfil guardado)
   // puede haber quedado fijado DEMASIADO ABAJO, dejando filas de datos reales entre el
   // encabezado y el inicio declarado. Sube desde `primeraFilaDatos` mientras encuentre filas
   // de DATOS contiguas (celda de valor numérica y que no sea el encabezado); se detiene en
   // la primera fila en blanco/título (valor no numérico) o de encabezado. Si `primeraFilaDatos`
   // ya era correcto, la fila anterior es justo el encabezado o está en blanco → no sube nada.
-  const valCol = spec.columnas[descriptor.valor] ?? 0;
+  // Columnas de cada FAMILIA declarada por el descriptor y presentes en el spec.
+  const familiasSpec = (descriptor.familiasDinamicas ?? [])
+    .map((f) => ({ nombre: f.nombre, columnas: spec.familias?.[f.nombre] ?? [] }))
+    .filter((f) => f.columnas.length > 0);
+  const hayFamilias = familiasSpec.length > 0;
+
+  // Cuando el archivo NO trae la columna del descriptor (ILIMITADA no publica total) pero sí
+  // los baldes, el primero hace de columna de valor para las redes de seguridad (inicio
+  // efectivo y reconciliación). Sin esto se apagan en silencio justo donde más se necesitan.
+  const valCol = (spec.columnas[descriptor.valor] ?? 0) || (familiasSpec[0]?.columnas[0]?.columna ?? 0);
+  // Tope duro: NADA por encima del encabezado es dato. Antes bastaba con que la celda de
+  // valor no fuera numérica para detenerse, pero un rótulo como «1 - 30 DIAS» sí parsea
+  // como número y la red se tragaba la propia fila de encabezado.
   let inicio = spec.primeraFilaDatos - 1; // 0-based, como antes
   if (valCol >= 1) {
     for (let r = inicio - 1; r >= 0; r--) {
       const filaR = hoja.filas[r] ?? [];
       const val = aNumero(celda(filaR, valCol));
-      if (val == null || esEncabezadoClasificador(filaR)) break; // frontera: detente
+      if (val == null || esFilaDeEncabezado(filaR)) break; // frontera: detente
       inicio = r; // fila de datos real: se recupera
     }
   }
@@ -158,6 +211,29 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
   }
 
   let seccionActual: string | null = null; // modo "seccion" (encabezados de grupo)
+  // Forward-fill de roles que el archivo imprime UNA vez: en la cabecera del tercero
+  // (`terceroModo: "cabecera"`) o en la primera fila de su bloque. Solo se arrastran los
+  // roles que el descriptor autoriza y el spec declara.
+  const rolesArrastrados = (spec.arrastrarRoles ?? []).filter(
+    (rol) => (descriptor.arrastrables ?? []).includes(rol) && (spec.columnas[rol] ?? 0) >= 1,
+  );
+  const ultimoPorRol = new Map<string, string>();
+  // Reporte jerárquico: una fila trae el tercero y sus documentos van debajo sin él.
+  const rolClave = descriptor.crucePorTercero.rolClave;
+  const modoCabecera = spec.terceroModo === "cabecera"
+    && !!rolClave
+    && (spec.columnas[rolClave] ?? 0) >= 1
+    && (spec.columnas.documento ?? 0) >= 1;
+
+  // Roles que IDENTIFICAN una fila (a quién y a qué documento corresponde). Una fila con
+  // importe pero sin ninguno de ellos no es un ítem: es un pie de página del ERP («SBS
+  // 1.25.0»), una fila de porcentajes o un resto de formato. Sumarla mete plata de nadie
+  // en la conciliación. Solo aplica a los módulos que declaran su llave de ítem.
+  const rolesIdentidad = [
+    ...(descriptor.rolesLlaveItem ?? []),
+    ...(descriptor.crucePorTercero.rolNombre ? [descriptor.crucePorTercero.rolNombre] : []),
+  ].filter((rol) => (spec.columnas[rol] ?? 0) >= 1);
+  const exigeIdentidad = (descriptor.rolesLlaveItem?.length ?? 0) > 0 && rolesIdentidad.length > 0;
   // Señales crudas por fila (paralelas a `filas`) para la detección de subtotales: no van a `datos`.
   const crudo: { negrita: boolean; rotuloClasificador: string | null; marcaManual: boolean; marcaManualExacta: boolean }[] = [];
   // Modo "manual" de subtotales: columna (1-based del ARCHIVO, no necesariamente mapeada a
@@ -204,12 +280,36 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
       }
     }
 
-    // 2) Fila vacía (nada útil en ninguna columna) → se salta.
-    const vacia = descriptor.columnas.every((rc) => {
+    // 1.6) Columnas de FAMILIA: `{ rótulo del ERP → importe }` por familia, más la Σ de los
+    //      baldes que suman. Un balde de clase `excluir` («Deuda dudosa» de SAP) se guarda
+    //      —el auditor tiene que verlo— pero no entra en la suma: ya está contado en los otros.
+    let familias: Record<string, Record<string, number>> | undefined;
+    let sumaFamilia: number | undefined;
+    if (hayFamilias) {
+      familias = {};
+      let suma = 0;
+      for (const f of familiasSpec) {
+        const baldes: Record<string, number> = {};
+        for (const c of f.columnas) {
+          const v = aNumero(celda(fila, c.columna));
+          baldes[c.etiqueta] = v == null ? 0 : v;
+          if (v != null && c.clase !== "excluir") suma += v;
+        }
+        familias[f.nombre] = baldes;
+      }
+      sumaFamilia = redondear(suma);
+    }
+
+    // 2) Fila vacía (nada útil en ninguna columna) → se salta. Los baldes cuentan: en
+    //    SIESA Zarzal el importe del documento vive SOLO en su balde y la columna «Total»
+    //    viene en cero, así que sin esto se perderían miles de documentos.
+    const vaciaEnRoles = descriptor.columnas.every((rc) => {
       const v = datos[rc.nombre];
       return v == null || v === "" || v === 0;
     });
-    if (vacia) continue;
+    const vaciaEnFamilias = !familias
+      || Object.values(familias).every((baldes) => Object.values(baldes).every((v) => v === 0));
+    if (vaciaEnRoles && vaciaEnFamilias) continue;
 
     // 3) Derivaciones: producto (a×b) o cociente (a÷b). Solo rellenan la columna
     //    destino cuando falta; el producto además avisa si el archivo la trae y no cuadra.
@@ -255,19 +355,124 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
       if (clasificador != null) ultimoClasificador = clasificador;
       else { clasificador = ultimoClasificador; datos[descriptor.clasificador] = clasificador; }
     }
-    const valor = redondear(aNumero(datos[descriptor.valor]) ?? 0);
+
+    // 4.5) Forward-fill de los roles arrastrables: la fila que los trae los fija; las de
+    //      abajo que vengan en blanco los heredan. Nunca se siembra desde una fila
+    //      rotulada «Total …»: sería sembrar con el subtotal, no con el dato.
+    // Los valores PROPIOS de la fila, antes de heredar nada: son los que distinguen una
+    // cabecera de tercero (identificador sí, documento no) de uno de sus documentos.
+    const claveEnLaFila = rolClave ? aTexto(datos[rolClave]) : null;
+    const documentoEnLaFila = aTexto(datos.documento);
+    // Identidad PROPIA: la que la fila trae antes de heredar nada. Un pie de página del ERP
+    // que quede debajo del último tercero heredaría su NIT y pasaría por cartera; lo que lo
+    // delata es que no trae identidad suya.
+    const tieneIdentidadPropia = rolesIdentidad.some((rol) => aTexto(datos[rol]) != null);
+    const rotuloDeFila = rotuloClasificadorCrudo ?? claveEnLaFila;
+    const esFilaDeTotal = rotuloDeFila != null && esTotal(rotuloDeFila);
+    const esCabeceraTercero = modoCabecera && !esFilaDeTotal && claveEnLaFila != null && documentoEnLaFila == null;
+    for (const rol of rolesArrastrados) {
+      const propio = aTexto(datos[rol]);
+      if (propio != null) {
+        if (!esFilaDeTotal) ultimoPorRol.set(rol, propio);
+      } else {
+        const heredado = ultimoPorRol.get(rol);
+        if (heredado != null) datos[rol] = heredado;
+      }
+    }
+
+    // 4.6) Valor de la fila. Con familias declaradas, la Σ de los baldes MANDA sobre la
+    //      columna de total (regla acordada con la firma: si difieren, la verdad es la
+    //      suma de las edades). La columna se conserva para poder alertar la diferencia.
+    const valorColumna = aNumero(datos[descriptor.valor]);
+    let valor = redondear(valorColumna ?? 0);
+    let valorReportado: number | null | undefined;
+    let origenValor: FilaModulo["origenValor"];
+    if (hayFamilias && descriptor.valorDerivado) {
+      const desdeFamilia = redondear(sumaFamilia ?? 0);
+      const hayColumna = valorColumna != null && redondear(valorColumna) !== 0;
+      const hayFamilia = desdeFamilia !== 0;
+      if (descriptor.valorDerivado.prevalece === "familia" && hayFamilia) {
+        valor = desdeFamilia;
+        origenValor = hayColumna ? "columna_y_familia" : "familia";
+      } else if (!hayColumna && hayFamilia) {
+        valor = desdeFamilia;
+        origenValor = "familia";
+      } else {
+        origenValor = "columna";
+      }
+      valorReportado = valorColumna;
+    }
 
     // 5) Negrita = subtotal del ERP → no cuenta en el valor. Según el descriptor, se
     //    marca `agrupadora` (rígido) o entra como movimiento OMITIDO (rescatable en el
     //    borrador). En ambos casos queda fuera del total.
     // La coordenada validada es autoridad incluso si el ERP pinta el total en negrita.
+    // 5.a) CABECERA DE TERCERO (reporte jerárquico): trae el identificador y el saldo del
+    //      bloque, y sus documentos van debajo. NO imputa —sumaría dos veces lo mismo— pero
+    //      su saldo se conserva como DECLARADO para contrastarlo contra la Σ de sus
+    //      documentos: en SAP y SIESA ese control cuadra al centavo y certifica la lectura.
+    if (esCabeceraTercero) {
+      filasExcluidas++;
+      filas.push({
+        filaNum,
+        clasificador,
+        valor: 0,
+        datos,
+        tipoFila: "agrupadora",
+        motivo: "subtotal_tercero:cabecera",
+        saldoDeclarado: valor,
+        ...(familias ? { familias, sumaFamilia } : {}),
+      });
+      crudo.push({
+        negrita: hoja.negrita?.[r]?.some(Boolean) === true,
+        rotuloClasificador: rotuloClasificadorCrudo,
+        marcaManual: false,
+        marcaManualExacta: false,
+      });
+      continue;
+    }
+
+    // 5.b) Fila SIN IDENTIDAD: trae importe pero no dice de quién ni de qué documento es.
+    //      Son los pies del ERP y las filas de porcentaje. Quedan como agrupadora (fuera
+    //      del total) pero visibles en el borrador, para que se puedan rescatar si la
+    //      detección se equivoca.
+    if (exigeIdentidad && !esFilaDeTotal && !tieneIdentidadPropia) {
+      filasExcluidas++;
+      filas.push({
+        filaNum,
+        clasificador,
+        valor: 0,
+        datos,
+        tipoFila: "agrupadora",
+        motivo: "sin_identificador",
+        ...(familias ? { familias, sumaFamilia } : {}),
+      });
+      crudo.push({
+        negrita: hoja.negrita?.[r]?.some(Boolean) === true,
+        rotuloClasificador: rotuloClasificadorCrudo,
+        marcaManual: false,
+        marcaManualExacta: false,
+      });
+      continue;
+    }
+
     const enNegrita = !marcaManualExacta && esAgrupadoraPorNegrita(hoja.negrita?.[r], spec, descriptor);
     const omitidaPorNegrita = enNegrita && descriptor.negritaComoOmitida === true;
     const tipoFila: TipoFilaModulo = enNegrita && !omitidaPorNegrita ? "agrupadora" : "movimiento";
     if (enNegrita) filasExcluidas++;
     else filasLeidas++;
 
-    filas.push({ filaNum, clasificador, valor, datos, tipoFila, ...(omitidaPorNegrita ? { omitida: true } : {}) });
+    filas.push({
+      filaNum,
+      clasificador,
+      valor,
+      datos,
+      tipoFila,
+      ...(omitidaPorNegrita ? { omitida: true } : {}),
+      ...(familias ? { familias, sumaFamilia } : {}),
+      ...(valorReportado !== undefined ? { valorReportado } : {}),
+      ...(origenValor ? { origenValor } : {}),
+    });
     crudo.push({
       negrita: enNegrita,
       rotuloClasificador: rotuloClasificadorCrudo,
@@ -327,10 +532,13 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
   let filasOmitidasArriba = 0;
   const omitidasMuestra: FilaOmitidaModulo[] = [];
   if (valCol >= 1) {
-    for (let r = 0; r < inicio; r++) {
+    let porEncimaDelEncabezado = false;
+    for (let r = inicio - 1; r >= 0; r--) {
       const filaR = hoja.filas[r] ?? [];
+      if (esFilaDeEncabezado(filaR)) { porEncimaDelEncabezado = true; continue; }
+      if (porEncimaDelEncabezado) continue; // banner y metadatos del ERP: no son datos perdidos
       const val = aNumero(celda(filaR, valCol));
-      if (val == null || esEncabezadoClasificador(filaR)) continue;
+      if (val == null) continue;
       filasOmitidasArriba++;
       if (omitidasMuestra.length < 8) omitidasMuestra.push({ filaNum: filaFisicaDe(r), valor: val });
     }

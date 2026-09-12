@@ -741,8 +741,8 @@ model BalancePruebaEncabezado {
   prevalidadorOverrides      PrevalidadorCuentaBalance[]
   prevalidadorRevisiones     PrevalidadorRevisionBalance[]
   conciliacionesPrevalidadas Reconciliation[]
-  crucesComoCuenta          BalanceCruceApertura[] @relation("CruceAperturaCuenta")
-  crucesComoTercero         BalanceCruceApertura[] @relation("CruceAperturaTercero")
+  crucesComoCuenta           BalanceCruceApertura[]        @relation("CruceAperturaCuenta")
+  crucesComoTercero          BalanceCruceApertura[]        @relation("CruceAperturaTercero")
 
   @@unique([clienteId, periodo, version])
   @@index([clienteId, periodo])
@@ -753,15 +753,15 @@ model BalancePruebaEncabezado {
 // Evidencia por PAREJA de archivos confirmados. Una inconsistencia es permanente
 // hasta eliminar uno de sus archivos (FK CASCADE); no modifica oficialidad/cuadre.
 model BalanceCruceApertura {
-  id                Int                      @id @default(autoincrement()) @map("id")
-  balanceCuentaId   Int                      @map("balance_cuenta_id")
-  balanceTerceroId  Int                      @map("balance_tercero_id")
-  balanceCuenta    BalancePruebaEncabezado   @relation("CruceAperturaCuenta", fields: [balanceCuentaId], references: [id], onDelete: Cascade)
-  balanceTercero   BalancePruebaEncabezado   @relation("CruceAperturaTercero", fields: [balanceTerceroId], references: [id], onDelete: Cascade)
-  inconsistente    Boolean                  @default(false) @map("inconsistente")
-  resultado        Json                     @map("resultado")
-  creadoEn         DateTime                 @default(now()) @map("creado_en") @db.Timestamptz(3)
-  actualizadoEn    DateTime                 @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+  id               Int                     @id @default(autoincrement()) @map("id")
+  balanceCuentaId  Int                     @map("balance_cuenta_id")
+  balanceTerceroId Int                     @map("balance_tercero_id")
+  balanceCuenta    BalancePruebaEncabezado @relation("CruceAperturaCuenta", fields: [balanceCuentaId], references: [id], onDelete: Cascade)
+  balanceTercero   BalancePruebaEncabezado @relation("CruceAperturaTercero", fields: [balanceTerceroId], references: [id], onDelete: Cascade)
+  inconsistente    Boolean                 @default(false) @map("inconsistente")
+  resultado        Json                    @map("resultado")
+  creadoEn         DateTime                @default(now()) @map("creado_en") @db.Timestamptz(3)
+  actualizadoEn    DateTime                @updatedAt @map("actualizado_en") @db.Timestamptz(3)
 
   @@unique([balanceCuentaId, balanceTerceroId])
   @@index([balanceTerceroId])
@@ -828,28 +828,36 @@ model BalanceTerceroEncabezado {
 }
 
 model BalanceTerceroDetalle {
-  id             Int                      @id @default(autoincrement()) @map("id")
-  encabezadoId   Int                      @map("encabezado_id")
-  encabezado     BalanceTerceroEncabezado @relation(fields: [encabezadoId], references: [id], onDelete: Cascade)
-  cuenta2        String                   @map("cuenta_2")
-  cuenta4        String                   @map("cuenta_4")
-  cuenta6        String                   @map("cuenta_6")
-  cuenta8        String                   @map("cuenta_8")
-  nombreCuenta   String                   @map("nombre_cuenta")
-  cuenta6Russell String?                  @map("cuenta_6_russell")
-  coincidencia   Decimal?                 @map("porcentaje_coincidencia") @db.Decimal(5, 2)
-  nitTercero     String?                  @map("nit_tercero")
-  nombreTercero  String?                  @map("nombre_tercero")
-  identidadTercero Json?                  @map("identidad_tercero")
-  saldoInicial   Decimal                  @default(0) @map("saldo_inicial") @db.Decimal(18, 2)
-  debitos        Decimal                  @default(0) @map("debitos") @db.Decimal(18, 2)
-  creditos       Decimal                  @default(0) @map("creditos") @db.Decimal(18, 2)
-  saldoFinal     Decimal                  @default(0) @map("saldo_final") @db.Decimal(18, 2)
-  creadoEn       DateTime                 @default(now()) @map("creado_en") @db.Timestamptz(3)
+  id               Int                      @id @default(autoincrement()) @map("id")
+  encabezadoId     Int                      @map("encabezado_id")
+  encabezado       BalanceTerceroEncabezado @relation(fields: [encabezadoId], references: [id], onDelete: Cascade)
+  cuenta2          String                   @map("cuenta_2")
+  cuenta4          String                   @map("cuenta_4")
+  cuenta6          String                   @map("cuenta_6")
+  cuenta8          String                   @map("cuenta_8")
+  nombreCuenta     String                   @map("nombre_cuenta")
+  cuenta6Russell   String?                  @map("cuenta_6_russell")
+  coincidencia     Decimal?                 @map("porcentaje_coincidencia") @db.Decimal(5, 2)
+  nitTercero       String?                  @map("nit_tercero")
+  nombreTercero    String?                  @map("nombre_tercero")
+  identidadTercero Json?                    @map("identidad_tercero")
+  /// Clave CANÓNICA del tercero para cruzar contra el auxiliar de un módulo. Difiere de
+  /// `nitTercero`, que se guarda siempre como núcleo de 9 dígitos: truncar ahí fusiona
+  /// cédulas de 10 que solo difieren en el último dígito (en un archivo real de SAP hay
+  /// 1.917), y esas personas distintas caían en el mismo renglón de la conciliación. Aquí
+  /// el documento va completo y el dígito de verificación solo se retira cuando lo es de
+  /// verdad. `nitTercero` sigue siendo la llave histórica: esto es aditivo.
+  claveTercero     String?                  @map("clave_tercero")
+  saldoInicial     Decimal                  @default(0) @map("saldo_inicial") @db.Decimal(18, 2)
+  debitos          Decimal                  @default(0) @map("debitos") @db.Decimal(18, 2)
+  creditos         Decimal                  @default(0) @map("creditos") @db.Decimal(18, 2)
+  saldoFinal       Decimal                  @default(0) @map("saldo_final") @db.Decimal(18, 2)
+  creadoEn         DateTime                 @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   @@index([encabezadoId])
   @@index([cuenta4])
   @@index([nitTercero])
+  @@index([encabezadoId, claveTercero], map: "balance_tercero_detalle_encabezado_clave_idx")
   @@map("balance_tercero_detalle")
 }
 
@@ -997,20 +1005,20 @@ model BalanceImportacionStaging {
 // Sin FK dura (mismo patrón que `balance_importacion_staging`); `fila_num` ancla con
 // la fila de origen del archivo cuando existe fila espejo en el staging principal.
 model BalanceImportacionStagingTercero {
-  id            Int      @id @default(autoincrement()) @map("id")
-  loteId        String   @map("lote_id")
-  filaNum       Int      @map("fila_num")
-  codigo        String   @map("codigo") // cuenta normalizada (ancla de herencia con el detalle promovido)
-  codigoCrudo   String?  @map("codigo_crudo")
-  nombreCuenta  String?  @map("nombre_cuenta")
-  nitTercero    String?  @map("nit_tercero") // clave canónica (nucleoNit); null = tercero genérico/sin NIT
-  nombreTercero String?  @map("nombre_tercero")
-  identidadTercero Json? @map("identidad_tercero")
-  saldoInicial  Decimal  @default(0) @map("saldo_inicial") @db.Decimal(18, 2)
-  debitos       Decimal  @default(0) @map("debitos") @db.Decimal(18, 2)
-  creditos      Decimal  @default(0) @map("creditos") @db.Decimal(18, 2)
-  saldoFinal    Decimal  @default(0) @map("saldo_final") @db.Decimal(18, 2)
-  creadoEn      DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+  id               Int      @id @default(autoincrement()) @map("id")
+  loteId           String   @map("lote_id")
+  filaNum          Int      @map("fila_num")
+  codigo           String   @map("codigo") // cuenta normalizada (ancla de herencia con el detalle promovido)
+  codigoCrudo      String?  @map("codigo_crudo")
+  nombreCuenta     String?  @map("nombre_cuenta")
+  nitTercero       String?  @map("nit_tercero") // clave canónica (nucleoNit); null = tercero genérico/sin NIT
+  nombreTercero    String?  @map("nombre_tercero")
+  identidadTercero Json?    @map("identidad_tercero")
+  saldoInicial     Decimal  @default(0) @map("saldo_inicial") @db.Decimal(18, 2)
+  debitos          Decimal  @default(0) @map("debitos") @db.Decimal(18, 2)
+  creditos         Decimal  @default(0) @map("creditos") @db.Decimal(18, 2)
+  saldoFinal       Decimal  @default(0) @map("saldo_final") @db.Decimal(18, 2)
+  creadoEn         DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   @@index([loteId])
   @@map("balance_importacion_staging_tercero")
@@ -1064,40 +1072,40 @@ model BalanceLecturaDiagnostico {
 // automáticamente en cuanto la lectura queda asociada al cliente y se gestiona
 // desde su ficha. FK suave a `clientes` y `usuarios` (Int, sin @relation).
 model PerfilCargaBalance {
-  id                   Int       @id @default(autoincrement()) @map("id")
-  clienteId            Int       @map("cliente_id")
-  huella               String    @map("huella") // sha256 hex corto (16) del encabezado+hoja
+  id                      Int       @id @default(autoincrement()) @map("id")
+  clienteId               Int       @map("cliente_id")
+  huella                  String    @map("huella") // sha256 hex corto (16) del encabezado+hoja
   // ---- MappingSpec aplanado (columnas 1-based, A=1; 0 = la columna no existe) ----
-  hoja                 String    @map("hoja")
-  filaEncabezado       Int       @map("fila_encabezado")
-  primeraFilaDatos     Int       @map("primera_fila_datos")
-  colCodigo            Int       @map("col_codigo")
-  colCodigoFragmentos  Json      @default("[]") @map("col_codigo_fragmentos")
-  colNombre            Int       @map("col_nombre")
-  colSaldoInicial      Int       @map("col_saldo_inicial")
-  colDebitos           Int       @map("col_debitos")
-  colCreditos          Int       @map("col_creditos")
-  colSaldoFinal        Int       @map("col_saldo_final")
-  colSaldoFinalDebito  Int       @map("col_saldo_final_debito")
-  colSaldoFinalCredito Int       @map("col_saldo_final_credito")
-  colTercero           Int       @map("col_tercero")
+  hoja                    String    @map("hoja")
+  filaEncabezado          Int       @map("fila_encabezado")
+  primeraFilaDatos        Int       @map("primera_fila_datos")
+  colCodigo               Int       @map("col_codigo")
+  colCodigoFragmentos     Json      @default("[]") @map("col_codigo_fragmentos")
+  colNombre               Int       @map("col_nombre")
+  colSaldoInicial         Int       @map("col_saldo_inicial")
+  colDebitos              Int       @map("col_debitos")
+  colCreditos             Int       @map("col_creditos")
+  colSaldoFinal           Int       @map("col_saldo_final")
+  colSaldoFinalDebito     Int       @map("col_saldo_final_debito")
+  colSaldoFinalCredito    Int       @map("col_saldo_final_credito")
+  colTercero              Int       @map("col_tercero")
   colNombreTercero        Int       @default(0) @map("col_nombre_tercero")
   colTipoDocumentoTercero Int       @default(0) @map("col_tipo_documento_tercero")
   colDvTercero            Int       @default(0) @map("col_dv_tercero")
-  signoCredito         String    @map("signo_credito") // firmado | magnitud
-  reglaDetalleTipo     String    @map("regla_detalle_tipo") // prefijo | columna
-  reglaDetalleColumna  Int?      @map("regla_detalle_columna")
-  reglaDetalleValor    String?   @map("regla_detalle_valor")
-  agregarPorTercero    Boolean   @default(false) @map("agregar_por_tercero")
+  signoCredito            String    @map("signo_credito") // firmado | magnitud
+  reglaDetalleTipo        String    @map("regla_detalle_tipo") // prefijo | columna
+  reglaDetalleColumna     Int?      @map("regla_detalle_columna")
+  reglaDetalleValor       String?   @map("regla_detalle_valor")
+  agregarPorTercero       Boolean   @default(false) @map("agregar_por_tercero")
   // ---- metadatos del perfil ----
-  origen               String    @map("origen") // ia | manual (manual NUNCA se degrada a ia)
-  vecesUsado           Int       @default(0) @map("veces_usado")
-  ultimoUsoEn          DateTime? @map("ultimo_uso_en") @db.Timestamptz(3)
-  archivoEjemplo       String?   @map("archivo_ejemplo") // nombre del archivo que originó el perfil
-  creadoPor            String?   @map("creado_por")
-  creadoPorId          Int?      @map("creado_por_id")
-  creadoEn             DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
-  actualizadoEn        DateTime  @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+  origen                  String    @map("origen") // ia | manual (manual NUNCA se degrada a ia)
+  vecesUsado              Int       @default(0) @map("veces_usado")
+  ultimoUsoEn             DateTime? @map("ultimo_uso_en") @db.Timestamptz(3)
+  archivoEjemplo          String?   @map("archivo_ejemplo") // nombre del archivo que originó el perfil
+  creadoPor               String?   @map("creado_por")
+  creadoPorId             Int?      @map("creado_por_id")
+  creadoEn                DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
+  actualizadoEn           DateTime  @updatedAt @map("actualizado_en") @db.Timestamptz(3)
 
   @@unique([clienteId, huella])
   @@index([huella])
@@ -1274,50 +1282,67 @@ model ModuloImportacionStaging {
 }
 
 model ModuloDatoEncabezado {
-  id               Int                 @id @default(autoincrement()) @map("id")
-  moduloCodigo     String              @map("modulo_codigo")
-  loteId           String?             @unique @map("lote_id") // idempotencia de promoción; null para legado
-  clienteId        Int                 @map("cliente_id")
-  nombreCliente    String              @map("nombre_cliente")
-  periodo          String              @map("periodo") // etiqueta del período (p. ej. "2026-03")
-  version          Int                 @default(1) @map("version")
-  esOficial        Boolean             @default(true) @map("es_oficial")
-  estaCongelado    Boolean             @default(false) @map("esta_congelado")
-  congeladoPor     String?             @map("congelado_por")
-  congeladoEn      DateTime?           @map("congelado_en") @db.Timestamptz(3)
-  filas            Int                 @default(0) @map("filas")
-  total            Decimal             @default(0) @map("total") @db.Decimal(18, 2)
-  archivoNombre    String?             @map("archivo_nombre")
-  archivoTam       String?             @map("archivo_tam")
+  id                 Int                 @id @default(autoincrement()) @map("id")
+  moduloCodigo       String              @map("modulo_codigo")
+  loteId             String?             @unique @map("lote_id") // idempotencia de promoción; null para legado
+  clienteId          Int                 @map("cliente_id")
+  nombreCliente      String              @map("nombre_cliente")
+  periodo            String              @map("periodo") // etiqueta del período (p. ej. "2026-03")
+  version            Int                 @default(1) @map("version")
+  esOficial          Boolean             @default(true) @map("es_oficial")
+  estaCongelado      Boolean             @default(false) @map("esta_congelado")
+  congeladoPor       String?             @map("congelado_por")
+  congeladoEn        DateTime?           @map("congelado_en") @db.Timestamptz(3)
+  filas              Int                 @default(0) @map("filas")
+  total              Decimal             @default(0) @map("total") @db.Decimal(18, 2)
+  archivoNombre      String?             @map("archivo_nombre")
+  archivoTam         String?             @map("archivo_tam")
   // Hoja importada del archivo PRINCIPAL de esta versión (la de los anexos por
   // fraccionamiento va en la línea "Anexo: ... · hoja: ..." de `observaciones`).
   // Solo se registra de aquí en adelante: los cargues previos quedan en null.
-  hoja             String?             @map("hoja")
-  origenExtraccion String?             @map("origen_extraccion") // perfil | manual | ia
+  hoja               String?             @map("hoja")
+  origenExtraccion   String?             @map("origen_extraccion") // perfil | manual | ia
   // Novedades de la carga (estilo balance): observaciones libres + respuestas del checklist
   // de verificación (JSON id→{respuesta, nota}). Las alertas automáticas (p. ej. negativos)
   // NO se guardan: se recalculan al leer desde el detalle.
-  observaciones    String?             @map("observaciones")
-  verificaciones   Json?               @map("verificaciones")
+  observaciones      String?             @map("observaciones")
+  verificaciones     Json?               @map("verificaciones")
   // VALIDACIÓN DEL ARCHIVO, congelada al promover. A diferencia del resto de novedades, el
   // total que el archivo DECLARA al pie no se puede recalcular desde el detalle: la fila que
   // lo trae no es imputable y el staging —única fuente— se purga en la misma transacción.
   /// Σ de los totales declarados por los archivos de esta versión (acumula con los anexos).
   /// null = ningún archivo declaró un total comparable.
-  totalDeclarado     Decimal? @map("total_declarado") @db.Decimal(18, 2)
+  totalDeclarado     Decimal?            @map("total_declarado") @db.Decimal(18, 2)
   /// Fila del total dentro del archivo. Solo identifica algo cuando la versión la compone UN
   /// archivo; al anexar otro deja de señalar una fila concreta y queda en null.
-  filaTotalDeclarado Int?     @map("fila_total_declarado")
+  filaTotalDeclarado Int?                @map("fila_total_declarado")
   /// Cuántos archivos componen la versión y cuántos de ellos declararon total: sin el par, un
   /// anexo sin total al pie haría ver como descuadre lo que solo es cobertura parcial.
   /// null en los cargues ANTERIORES a esta validación (ahí el panel no se muestra).
-  archivosDelCargue  Int?     @map("archivos_del_cargue")
-  archivosConTotal   Int?     @map("archivos_con_total")
-  cargadoPor       String?             @map("cargado_por")
-  cargadoPorId     Int?                @map("cargado_por_id")
-  ultimaCarga      DateTime            @default(now()) @map("ultima_carga") @db.Timestamptz(3)
-  creadoEn         DateTime            @default(now()) @map("creado_en") @db.Timestamptz(3)
-  detalles         ModuloDatoDetalle[]
+  archivosDelCargue  Int?                @map("archivos_del_cargue")
+  archivosConTotal   Int?                @map("archivos_con_total")
+  // ===== Cartera (CAR). Null en los demás módulos y en los cargues anteriores. =====
+  /// Qué representa una fila del nivel que IMPUTA en este período: `tercero` (resumen por
+  /// NIT con sus edades) o `documento` (una fila por factura). Es uno solo: si llega un
+  /// archivo del otro nivel, entra como CONTROL y se compara por NIT, nunca suma.
+  nivelSaldo         String?             @map("nivel_saldo")
+  /// Fecha de corte de la cartera. Por defecto el fin del período; se puede corregir
+  /// cuando el reporte se generó a otra fecha (ocurre: un cliente entregó un corte de
+  /// julio para un período de junio).
+  fechaCorte         DateTime?           @map("fecha_corte") @db.Date
+  /// Rótulos de los rangos de vencimiento del archivo, en orden, con su clase:
+  /// `[{ etiqueta, clase, orden }]`. Los pone el ERP (de 4 a 9 baldes, distintos en cada
+  /// uno), así que las columnas de la pantalla salen de aquí y no del código.
+  rangosEdades       Json?               @map("rangos_edades")
+  /// TRM de cierre con la que se convirtió a pesos la cartera en divisa (130510).
+  trmCierre          Decimal?            @map("trm_cierre") @db.Decimal(12, 4)
+  cargadoPor         String?             @map("cargado_por")
+  cargadoPorId       Int?                @map("cargado_por_id")
+  ultimaCarga        DateTime            @default(now()) @map("ultima_carga") @db.Timestamptz(3)
+  creadoEn           DateTime            @default(now()) @map("creado_en") @db.Timestamptz(3)
+  detalles           ModuloDatoDetalle[]
+
+  saldosTercero CarteraSaldoTercero[]
 
   @@unique([clienteId, moduloCodigo, periodo, version])
   @@index([moduloCodigo, clienteId])
@@ -1340,19 +1365,19 @@ model ModuloDatoEncabezado {
 /// no es la misma. FK suaves a cliente, usuario y comentario (el rastro en el hilo de la
 /// cuenta): borrar el comentario no borra la marca. Reversible.
 model MarcaCruceModulo {
-  id              Int                 @id @default(autoincrement()) @map("id")
-  clienteId       Int                 @map("cliente_id")
-  moduloCodigo    String              @map("modulo_codigo")
-  periodo         String              @map("periodo") // etiqueta del período (p. ej. "2025-12")
-  numero          Int                 @map("numero") // correlativo de la marca dentro del período
-  cuenta4         String              @map("cuenta_4") // cuenta Russell de 4 dígitos
-  nota            String              @map("nota") // detalle de la marca (la observación)
-  referenciaAnexo String?             @map("referencia_anexo") // p. ej. «Anexo A-3 / PT-INV-04»
-  diferencia      Decimal             @default(0) @map("diferencia") @db.Decimal(18, 2)
-  comentarioId    Int?                @map("comentario_id")
-  marcadoPor      String?             @map("marcado_por")
-  marcadoPorId    Int?                @map("marcado_por_id")
-  marcadoEn       DateTime            @default(now()) @map("marcado_en") @db.Timestamptz(3)
+  id              Int                    @id @default(autoincrement()) @map("id")
+  clienteId       Int                    @map("cliente_id")
+  moduloCodigo    String                 @map("modulo_codigo")
+  periodo         String                 @map("periodo") // etiqueta del período (p. ej. "2025-12")
+  numero          Int                    @map("numero") // correlativo de la marca dentro del período
+  cuenta4         String                 @map("cuenta_4") // cuenta Russell de 4 dígitos
+  nota            String                 @map("nota") // detalle de la marca (la observación)
+  referenciaAnexo String?                @map("referencia_anexo") // p. ej. «Anexo A-3 / PT-INV-04»
+  diferencia      Decimal                @default(0) @map("diferencia") @db.Decimal(18, 2)
+  comentarioId    Int?                   @map("comentario_id")
+  marcadoPor      String?                @map("marcado_por")
+  marcadoPorId    Int?                   @map("marcado_por_id")
+  marcadoEn       DateTime               @default(now()) @map("marcado_en") @db.Timestamptz(3)
   adjuntos        AdjuntoMarcaCruce[]
   noModulares     CuentaNoModularCruce[]
 
@@ -1400,17 +1425,84 @@ model CuentaNoModularCruce {
 }
 
 model ModuloDatoDetalle {
-  id           Int                  @id @default(autoincrement()) @map("id")
-  encabezado   ModuloDatoEncabezado @relation(fields: [encabezadoId], references: [id], onDelete: Cascade)
-  encabezadoId Int                  @map("encabezado_id")
-  filaNum      Int                  @map("fila_num")
-  clasificador String?              @map("clasificador")
-  valor        Decimal              @default(0) @map("valor") @db.Decimal(18, 2)
-  datos        Json                 @default("{}") @map("datos")
+  id            Int                  @id @default(autoincrement()) @map("id")
+  encabezado    ModuloDatoEncabezado @relation(fields: [encabezadoId], references: [id], onDelete: Cascade)
+  encabezadoId  Int                  @map("encabezado_id")
+  filaNum       Int                  @map("fila_num")
+  clasificador  String?              @map("clasificador")
+  valor         Decimal              @default(0) @map("valor") @db.Decimal(18, 2)
+  datos         Json                 @default("{}") @map("datos")
+  // ===== Cartera (CAR). Null/true en los demás módulos: su comportamiento no cambia. =====
+  /// Qué representa esta fila: `tercero` o `documento`. Un mismo período puede guardar los
+  /// dos —cinco de los catorce formatos reales traen ambos en el mismo archivo—, pero solo
+  /// el nivel declarado en el encabezado imputa.
+  nivel         String?              @map("nivel")
+  /// ¿Esta fila SUMA al total del período? Las cabeceras de tercero de un reporte
+  /// jerárquico y las filas de un archivo de control se guardan —el auditor las necesita
+  /// para contrastar— pero no imputan. Se conservan en el detalle, y no aparte, para que
+  /// el borrador, las versiones, los anexos y la exportación sigan teniendo UNA sola fuente.
+  imputable     Boolean              @default(true) @map("imputable")
+  /// Clave canónica del tercero (`claveTerceroCanonica`), ya resuelta al leer el archivo:
+  /// el cruce por NIT no vuelve a parsear el JSON de 26.000 filas en cada consulta.
+  nitCanonico   String?              @map("nit_canonico")
+  /// Cuenta contable TAL COMO la trae el archivo (6-8 díg.), cuando la trae: nueve de los
+  /// catorce formatos no la publican. Se homologa a la cuenta Russell al cruzar.
+  cuentaCliente String?              @map("cuenta_cliente")
+  /// `nacional` | `exterior`: separa 130505 de 130510, que se factura en divisa y sufre
+  /// conversión de tasa cada mes.
+  origenCartera String?              @map("origen_cartera")
 
   @@index([encabezadoId])
   @@index([clasificador])
+  @@index([encabezadoId, nitCanonico], map: "modulo_dato_detalle_encabezado_nit_idx")
   @@map("modulo_dato_detalle")
+}
+
+/// SALDO POR TERCERO de un cargue de cartera: agregado DERIVADO del detalle, no una
+/// segunda fuente de verdad. Se reconstruye entero con `materializarSaldosTercero()`.
+///
+/// Existe por dos razones concretas. Primera, el cruce por NIT y la pantalla de terceros
+/// necesitan el saldo agregado por tercero, y recalcularlo abriendo el JSON de cada fila en
+/// cada render no escala (un archivo real de SAP trae 26.279 filas y 4.424 terceros).
+/// Segunda, un mismo período puede tener dos archivos —el resumen por edades y el detalle
+/// por documento—: aquí conviven como filas de distinto `origen` y compararlos por tercero
+/// es un JOIN, que es justo el control que pidió la firma.
+///
+/// `origen`: `imputable` (viene del nivel que suma) · `agregado` (Σ de los documentos de un
+/// tercero) · `declarado` (lo que el propio archivo dice que vale ese tercero: la cabecera
+/// de un reporte jerárquico o un archivo de control). Contrastar `declarado` contra
+/// `agregado` certifica que el archivo se leyó bien: en SAP y SIESA cuadra al centavo.
+model CarteraSaldoTercero {
+  id             Int                  @id @default(autoincrement()) @map("id")
+  encabezadoId   Int                  @map("encabezado_id")
+  encabezado     ModuloDatoEncabezado @relation(fields: [encabezadoId], references: [id], onDelete: Cascade)
+  /// Archivo del que salió (un período puede componerse de varios).
+  loteId         String               @map("lote_id")
+  nivel          String               @map("nivel") // tercero | documento
+  origen         String               @map("origen") // imputable | agregado | declarado
+  /// Cuenta del archivo, "" cuando no la trae (la mayoría de los formatos).
+  cuentaCliente  String               @default("") @map("cuenta_cliente")
+  origenCartera  String               @default("") @map("origen_cartera") // nacional | exterior | ""
+  /// Clave canónica del NIT, o `~NOMBRE` para los terceros sin identificador numérico
+  /// («CONSUMIDOR FINAL», «Genérico»), que se emparejan a mano.
+  claveTercero   String               @map("clave_tercero")
+  nitOriginal    String?              @map("nit_original")
+  dv             String?              @map("dv")
+  sucursal       String?              @map("sucursal")
+  nombre         String?              @map("nombre")
+  saldo          Decimal              @default(0) @map("saldo") @db.Decimal(18, 2)
+  /// Lo que declaraba la columna de total, cuando existe y difiere de la Σ de las edades.
+  saldoReportado Decimal?             @map("saldo_reportado") @db.Decimal(18, 2)
+  sumaEdades     Decimal?             @map("suma_edades") @db.Decimal(18, 2)
+  /// `{ rótulo del ERP → importe }`, con los rótulos literales del archivo.
+  edades         Json?                @map("edades")
+  documentos     Int                  @default(0) @map("documentos")
+  diasMax        Int?                 @map("dias_max")
+  creadoEn       DateTime             @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  @@unique([encabezadoId, loteId, nivel, origen, cuentaCliente, origenCartera, claveTercero], map: "cartera_saldo_tercero_unico")
+  @@index([encabezadoId, claveTercero], map: "cartera_saldo_tercero_clave_idx")
+  @@map("cartera_saldo_tercero")
 }
 
 // Perfil de CARGA por (cliente, módulo): memoria del mapeo de columnas del archivo,
@@ -1709,7 +1801,7 @@ model ClientAccount {
 
   // Procedencia de la última decisión. Los registros anteriores quedan sin
   // procedencia; no se atribuyen a un balance por cercanía de fechas.
-  procedenciaMapeo Json?         @map("procedencia_mapeo")
+  procedenciaMapeo Json? @map("procedencia_mapeo")
 
   // Conciliación llavea por (nombre_cliente, código); el BALANCE llavea por
   // (cliente_id, código) — inmutable, a prueba de cambios de nombre.

@@ -31,10 +31,19 @@ export function filaEnCero(datos: Record<string, unknown>, columnasNumericas: st
   });
 }
 
-/** ¿Fila IMPUTABLE al dato oficial? Solo movimientos NO omitidos y NO en cero; las
- *  agrupadoras (subtotales), las omitidas y los renglones en cero no van al oficial. */
+/**
+ * ¿Fila IMPUTABLE al dato oficial? Solo movimientos NO omitidos y NO en cero; las
+ * agrupadoras (subtotales), las omitidas y los renglones en cero no van al oficial.
+ *
+ * El «en cero» mira PRIMERO el `valor` ya promovido. Antes solo miraba las columnas
+ * numéricas del descriptor, y eso descartaba en silencio las filas cuyo importe no vive en
+ * ninguna de ellas: en un reporte real de cartera, 7.908 de 10.131 documentos traen la
+ * columna «Total» en cero porque su importe está en el balde de vencimiento que les
+ * corresponde. Con `valor` ≠ 0 la fila imputa, venga de donde venga ese valor.
+ */
 export function esImputable(f: Pick<FilaStagingModulo, "tipoFila" | "omitida">, columnasNumericas: string[] = []): boolean {
   if (f.tipoFila !== "movimiento" || f.omitida === true) return false;
+  if ("valor" in f && Number((f as FilaStagingModulo).valor) !== 0) return true;
   if (columnasNumericas.length && "datos" in f) return !filaEnCero((f as FilaStagingModulo).datos, columnasNumericas);
   return true;
 }

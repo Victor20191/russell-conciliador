@@ -6,7 +6,7 @@ import { descriptorModulo } from "@/lib/modulos/descriptores";
 import { fechaCalendarioISO } from "@/lib/fecha-hora";
 import { fmtDateTime } from "@/lib/format";
 import { versionarYOrdenarBorradoresModulo } from "@/lib/modulos/versiones";
-import { clavesDeDetalle, itemsRepetidos, llaveItem, refRolDe } from "@/lib/modulos/fraccionamiento";
+import { clavesDeDetalle, itemsRepetidos, llaveItem, rolesLlaveItemDe } from "@/lib/modulos/fraccionamiento";
 import { esImputable } from "@/lib/modulos/promocion";
 import type { ReconciliacionModulo } from "@/lib/modulos/extraccion/transformar";
 import BorradorModuloClient, { type FilaBorradorModulo } from "./borrador-detail-client";
@@ -94,17 +94,17 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
       select: { id: true, version: true, periodo: true, esOficial: true, detalles: { select: { clasificador: true, datos: true } } },
     });
     if (destino) {
-      const refRol = refRolDe(descriptor);
+      const rolesLlave = rolesLlaveItemDe(descriptor);
       const columnasNumericas = descriptor.columnas.filter((c) => c.tipo === "numero" || c.tipo === "moneda").map((c) => c.nombre);
       const existentes = clavesDeDetalle(
         destino.detalles.map((d) => ({ clasificador: d.clasificador, datos: (d.datos ?? {}) as Record<string, unknown> })),
-        refRol,
+        rolesLlave,
       );
       // Solo cuentan las filas que realmente se promoverían (las mismas de `promoverStaging`).
       const nuevas = new Set(
         filas
           .filter((f) => esImputable(f, columnasNumericas))
-          .map((f) => llaveItem(f.clasificador, refRol ? String(((f.datos ?? {}) as Record<string, unknown>)[refRol] ?? "") : "")),
+          .map((f) => llaveItem(f.clasificador, rolesLlave.map((rol) => String(((f.datos ?? {}) as Record<string, unknown>)[rol] ?? "")))),
       );
       anexo = {
         version: destino.version,

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { authorizePermiso } from "@/lib/rbac";
 import { descriptorModulo } from "@/lib/modulos/descriptores";
-import { consolidarPorClasificador, filaEnCero } from "@/lib/modulos/promocion";
+import { consolidarPorClasificador, esImputable } from "@/lib/modulos/promocion";
 import { controlSubtotales } from "@/lib/modulos/subtotales";
 import { versionarYOrdenarBorradoresModulo } from "@/lib/modulos/versiones";
 import { crearExportacionModulo } from "@/lib/export/modulo";
@@ -56,8 +56,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ codigo:
     // no omitidos y con algún valor consolidan.
     const detalle = filas.map((f) => {
       const datos = (f.datos ?? {}) as Record<string, string | number | null>;
-      const enCero = filaEnCero(datos, columnasNumericas);
-      const imputable = f.tipoFila === "movimiento" && f.omitida !== true && !enCero;
+      const imputable = esImputable({ tipoFila: f.tipoFila, omitida: f.omitida ?? null, valor: Number(f.valor), datos } as Parameters<typeof esImputable>[0], columnasNumericas);
+      const enCero = !imputable && f.tipoFila === "movimiento" && f.omitida !== true;
       const base = f.tipoFila === "agrupadora"
         // El cuadro de cierre al pie (cifras de referencia del cliente) también llega como
         // agrupadora: se nombra aparte para que en el Excel se vea POR QUÉ no suma.
@@ -71,7 +71,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ codigo:
     // Control de subtotales con la misma regla de imputabilidad (fila `total` vs. Σ de su bloque).
     const ctl = controlSubtotales(
       filas.map((f) => ({ filaNum: f.filaNum, clasificador: f.clasificador, valor: Number(f.valor), datos: (f.datos ?? {}) as Record<string, unknown>, tipoFila: f.tipoFila, omitida: f.omitida, motivo: f.motivoTipoFila })),
-      (f) => f.tipoFila === "movimiento" && f.omitida !== true && !filaEnCero(f.datos, columnasNumericas),
+      (f) => esImputable({ tipoFila: f.tipoFila, omitida: f.omitida ?? null, valor: f.valor, datos: f.datos } as Parameters<typeof esImputable>[0], columnasNumericas),
     );
     const control = [
       ...ctl.grupos.map((g) => ({ clasificador: g.clasificador, filaSubtotal: g.filaSubtotal, items: g.bloque.items, sumaMovimientos: g.sumaMovimientos, subtotalArchivo: g.subtotalArchivo, diferencia: g.diferencia, estado: g.estado })),

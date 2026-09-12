@@ -29,6 +29,28 @@ describe("esImputable", () => {
   });
 });
 
+describe("esImputable · el valor manda sobre las columnas del descriptor", () => {
+  const base = { filaNum: 1, clasificador: "130505", datos: {}, tipoFila: "movimiento", omitida: null };
+
+  it("imputa una fila cuyo importe NO vive en ninguna columna numérica del descriptor", () => {
+    // Caso real: en un reporte de cartera de SIESA, 7.908 de 10.131 documentos traen la
+    // columna «Total» en cero porque su importe está en el balde de vencimiento. Mirando
+    // solo las columnas del descriptor se descartaban en silencio.
+    const fila = { ...base, valor: 2_500_000, datos: { total: 0, diasVencidos: 0 } };
+    expect(esImputable(fila, ["total", "diasVencidos"])).toBe(true);
+  });
+
+  it("sigue descartando la fila que de verdad está en cero", () => {
+    const fila = { ...base, valor: 0, datos: { total: 0, diasVencidos: 0 } };
+    expect(esImputable(fila, ["total", "diasVencidos"])).toBe(false);
+  });
+
+  it("un valor negativo imputa: un anticipo es un saldo, no una fila vacía", () => {
+    const fila = { ...base, valor: -180_000, datos: { total: -180_000 } };
+    expect(esImputable(fila, ["total"])).toBe(true);
+  });
+});
+
 describe("promoverStaging", () => {
   it("toma solo imputables, suma el total y arma el detalle", () => {
     const r = promoverStaging([

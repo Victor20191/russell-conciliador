@@ -37,6 +37,9 @@ import { seleccionarPerfilExacto, type PerfilCandidato } from "@/lib/modulos/sug
 import { letraColumnaModulo, normalizarSpecModulo, normalizarSpecModuloArchivo } from "@/lib/modulos/perfil-modulo";
 import { transformarModulo, resultadoAReconciliacion } from "@/lib/modulos/extraccion/transformar";
 import { esImputable, promoverStaging, type FilaStagingModulo } from "@/lib/modulos/promocion";
+import { datosConExtrasCartera, filaCarteraDesdeDetalle, rotulosDeEdades } from "@/lib/modulos/cartera/detalle-cartera";
+import { materializarSaldosTercero, type NivelCartera } from "@/lib/modulos/cartera/saldos-tercero";
+import { normalizarTerceroCartera } from "@/lib/modulos/cartera/tercero-cartera";
 import { controlSubtotales } from "@/lib/modulos/subtotales";
 import {
   anclaCruce,
@@ -55,7 +58,7 @@ import {
   type TipoSoporteMarca,
 } from "@/lib/modulos/marcas-adjuntos";
 import { almacenamientoDisponible, eliminarObjeto, obtenerObjeto, subirObjeto } from "@/lib/storage/objetos";
-import { refRolDe, clavesDeDetalle, decidirCarga, remapFilas } from "@/lib/modulos/fraccionamiento";
+import { rolesLlaveItemDe, clavesDeDetalle, decidirCarga, remapFilas } from "@/lib/modulos/fraccionamiento";
 import {
   carpetaArchivoOriginalModulo,
   claveArchivoOriginalModulo,
@@ -69,7 +72,7 @@ import {
   tipoContenidoArchivo,
 } from "@/lib/modulos/archivo-original";
 import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
-import { tomarCandadoTransaccion, transaccionSerializable } from "@/lib/concurrency";
+import { tomarCandadoTransaccion, transaccionSerializable, type TransactionClient } from "@/lib/concurrency";
 import { cargarInsumosCruceModulo, construirCruceContableModulo } from "@/lib/modulos/cruce-contable-servidor";
 import {
   cuentasBloqueoDelModulo,
@@ -93,6 +96,93 @@ function revalidarListadosModulo(codigo: string) {
 // idempotencia por `ModuloDatoEncabezado.loteId` que sí tiene el modo "version").
 const marcaAnexoModulo = (loteId: string) => `[lote:${loteId}]`;
 const LOTE_STAGING_MODULO = 2_000;
+
+/**
+ * Un cargue de cartera solo se promueve si TODO su saldo quedó atribuido a algún tercero.
+ *
+ * La conciliación de este módulo es por NIT: un cargue cuyo total cuadra pero cuyo detalle
+ * no se puede repartir entre terceros produciría una pantalla de terceros incompleta y un
+ * cruce que parece tener diferencias donde solo hay lectura a medias. Es preferible
+ * rechazarlo con el monto a la vista —el usuario corrige el mapeo y vuelve a cargar— que
+ * dejar pasar un dato que nadie va a poder explicar.
+ */
+function exigirCarteraAtribuida(sinAtribuir: { filas: number; monto: number }) {
+  if (sinAtribuir.monto === 0) return;
+  const monto = sinAtribuir.monto.toLocaleString("es-CO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  throw new Error(
+    `No se pudo identificar el tercero de ${sinAtribuir.filas} fila(s) por $ ${monto}. `
+    + "La conciliación de cartera es por NIT, así que el cargue se revirtió: revisa el mapeo "
+    + "de la columna del NIT en el borrador y vuelve a cargarlo.",
+  );
+}
+
+/**
+ * Reconstruye `cartera_saldo_tercero` de un cargue ENTERO a partir de su detalle.
+ *
+ * Se rehace completo, no de forma incremental, por dos razones: es idempotente (un anexo
+ * que se reintenta no duplica nada) y deja explícito que la tabla es un DERIVADO —si
+ * alguna vez discrepa del detalle, el detalle manda y esto lo repara.
+ *
+ * Devuelve lo que no se pudo atribuir a ningún tercero. El llamador decide qué hacer con
+ * ello: nunca se descarta en silencio, que es justo el defecto que esta tabla evita.
+ */
+async function materializarCarteraEnTransaccion(
+  tx: TransactionClient,
+  encabezadoId: number,
+  loteId: string,
+  nivelImputable: NivelCartera,
+): Promise<{ filas: number; monto: number }> {
+  const detalle = await tx.moduloDatoDetalle.findMany({
+    where: { encabezadoId },
+    select: {
+      filaNum: true, valor: true, datos: true,
+      nivel: true, imputable: true, cuentaCliente: true, origenCartera: true,
+    },
+    orderBy: { filaNum: "asc" },
+  });
+
+  const { saldos, sinAtribuir } = materializarSaldosTercero(
+    detalle.map((d) => filaCarteraDesdeDetalle(
+      {
+        filaNum: d.filaNum,
+        valor: Number(d.valor),
+        datos: (d.datos ?? {}) as Record<string, unknown>,
+        nivel: d.nivel,
+        imputable: d.imputable,
+        cuentaCliente: d.cuentaCliente,
+        origenCartera: d.origenCartera,
+      },
+      nivelImputable,
+    )),
+    { loteId, nivelImputable },
+  );
+
+  await tx.carteraSaldoTercero.deleteMany({ where: { encabezadoId } });
+  for (let i = 0; i < saldos.length; i += LOTE_STAGING_MODULO) {
+    await tx.carteraSaldoTercero.createMany({
+      data: saldos.slice(i, i + LOTE_STAGING_MODULO).map((s) => ({
+        encabezadoId,
+        loteId: s.loteId,
+        nivel: s.nivel,
+        origen: s.origen,
+        cuentaCliente: s.cuentaCliente,
+        origenCartera: s.origenCartera,
+        claveTercero: s.claveTercero,
+        nitOriginal: s.nitOriginal,
+        dv: s.dv,
+        sucursal: s.sucursal,
+        nombre: s.nombre,
+        saldo: s.saldo,
+        saldoReportado: s.saldoReportado,
+        sumaEdades: s.sumaEdades,
+        edades: (s.edades ?? undefined) as Prisma.InputJsonValue | undefined,
+        documentos: s.documentos,
+        diasMax: s.diasMax,
+      })),
+    });
+  }
+  return sinAtribuir;
+}
 const TIMEOUT_TRANSACCION_MODULO_MS = 15 * 60 * 1000;
 const tamArchivo = (bytes: number): string => {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1).replace(".", ",")} MB`;
@@ -1067,7 +1157,13 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
           await tx.moduloImportacionStaging.createMany({
             data: resultado.filas.slice(i, i + LOTE_STAGING_MODULO).map((f) => ({
               loteId, moduloCodigo, clienteId, hoja: hoja.nombre, filaNum: f.filaNum,
-              clasificador: f.clasificador, valor: f.valor, datos: f.datos, tipoFila: f.tipoFila,
+              clasificador: f.clasificador, valor: f.valor, tipoFila: f.tipoFila,
+              // Lo que el transform calcula aparte de los roles (baldes de vencimiento, su
+              // suma, el saldo que declaraba la columna de total, el que declara una
+              // cabecera de tercero) viaja DENTRO de `datos`: es el único campo que el
+              // motor lleva del staging al detalle. Sin esto se perdería en esta frontera.
+              // Para los módulos sin familias devuelve el mismo objeto, sin copiarlo.
+              datos: datosConExtrasCartera(f.datos, f) as Prisma.InputJsonValue,
               omitida: f.omitida ?? null,
               motivoTipoFila: f.motivo ?? null,
             })),
@@ -1277,6 +1373,9 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
           archivoNombre: true,
           archivoTam: true,
           origenExtraccion: true,
+          // El spec dice qué representa una fila de ESTE archivo (por tercero o por
+          // documento) y de dónde viene la cartera; ambos se persisten en el cargue.
+          specJson: true,
         },
       });
       if (!loteActual || loteActual.clienteId == null || loteActual.clienteId !== lote.clienteId || loteActual.moduloCodigo !== lote.moduloCodigo) {
@@ -1311,6 +1410,43 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
       if (promocion.filas === 0) {
         throw new Error("No hay filas imputables para cargar (todas omitidas, agrupadoras o en cero).");
       }
+
+      // ===== CARTERA: nivel de la fila, identidad del tercero y saldo materializado =====
+      // Todo lo que sigue es inerte para los módulos que no concilian por tercero contra
+      // cuentas de seis dígitos declaradas (hoy, todos menos CAR).
+      const cartera = descriptor.crucePorTercero.cuentasRussell6?.length ? (() => {
+        const specLote = (loteActual.specJson ?? {}) as Record<string, unknown>;
+        const columnasSpec = (specLote.columnas ?? {}) as Record<string, number>;
+        const nivel: NivelCartera = specLote.nivel === "tercero" || specLote.nivel === "documento"
+          ? specLote.nivel
+          // Sin declaración explícita: si el archivo mapea una columna de documento, cada
+          // fila es un documento; si no, cada fila es el resumen de un tercero.
+          : (columnasSpec.documento ?? 0) >= 1 ? "documento" : "tercero";
+        const origenDeclarado = specLote.origenCartera === "nacional" || specLote.origenCartera === "exterior"
+          ? specLote.origenCartera
+          : null;
+        // Las CABECERAS de tercero no imputan —sumarían dos veces lo mismo— pero se guardan
+        // en el detalle: su saldo declarado es la contraparte del control que certifica que
+        // el archivo se leyó bien. Conservarlas aquí, y no solo en el agregado, es lo que
+        // permite reconstruir ese agregado desde el detalle.
+        const cabeceras = filas.filter((f) => f.motivo === "subtotal_tercero:cabecera");
+        return { nivel, origenDeclarado, cabeceras };
+      })() : null;
+
+      /** Columnas propias de cartera para una fila del detalle. */
+      const columnasCartera = (f: { datos: Record<string, unknown> }, imputable: boolean) => {
+        if (!cartera) return {};
+        const t = normalizarTerceroCartera({
+          nit: f.datos.nit, dv: f.datos.dv, nombre: f.datos.nombre, sucursal: f.datos.sucursal,
+        });
+        return {
+          nivel: cartera.nivel,
+          imputable,
+          nitCanonico: t.claveCanonica,
+          cuentaCliente: typeof f.datos.cuenta === "string" ? f.datos.cuenta : null,
+          origenCartera: cartera.origenDeclarado ?? t.origenSugerido,
+        };
+      };
 
       // Serializa el consecutivo y el cambio de versión vigente para este grupo (también
       // serializa dos anexos concurrentes al mismo vigente: el segundo espera al primero).
@@ -1351,8 +1487,8 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
         );
         if (bloqueoAnexo) throw new Error(bloqueoAnexo);
       }
-      const refRol = refRolDe(descriptor);
-      const clavesNuevas = clavesDeDetalle(promocion.detalle, refRol);
+      const rolesLlave = rolesLlaveItemDe(descriptor);
+      const clavesNuevas = clavesDeDetalle(promocion.detalle, rolesLlave);
       let clavesExistentes = new Set<string>();
       let maxFilaExistente = 0;
       if (vigente) {
@@ -1362,7 +1498,7 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
         });
         clavesExistentes = clavesDeDetalle(
           detalleVigente.map((d) => ({ clasificador: d.clasificador, datos: (d.datos ?? {}) as Record<string, unknown> })),
-          refRol,
+          rolesLlave,
         );
         maxFilaExistente = detalleVigente.reduce((m, d) => Math.max(m, d.filaNum), 0);
       }
@@ -1383,8 +1519,25 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
             clasificador: d.clasificador,
             valor: d.valor,
             datos: d.datos as Prisma.InputJsonValue,
+            ...columnasCartera(d, true),
           })),
         });
+        if (cartera && cartera.cabeceras.length > 0) {
+          const { filas: cabecerasRemapeadas } = remapFilas(
+            cartera.cabeceras.map((f) => ({ filaNum: f.filaNum, clasificador: f.clasificador, valor: 0, datos: f.datos })),
+            maxFilaExistente + detalleRemapeado.length,
+          );
+          await tx.moduloDatoDetalle.createMany({
+            data: cabecerasRemapeadas.map((d) => ({
+              encabezadoId: vigente.id,
+              filaNum: d.filaNum,
+              clasificador: d.clasificador,
+              valor: 0,
+              datos: d.datos as Prisma.InputJsonValue,
+              ...columnasCartera(d, false),
+            })),
+          });
+        }
 
         // No toca `hoja` del encabezado (es la del archivo principal); la del anexo
         // queda en la propia línea de observaciones, junto al resto de la evidencia.
@@ -1415,8 +1568,19 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
             cargadoPorId: user?.id ?? null,
             observaciones: observacionesFinal,
             verificaciones: verificaciones as Prisma.InputJsonValue,
+            ...(cartera
+              ? { rangosEdades: rotulosDeEdades([...promocion.detalle]) as Prisma.InputJsonValue }
+              : {}),
           },
         });
+
+        // El agregado por tercero se rehace con el detalle COMPLETO del cargue, no solo con
+        // lo que trajo este anexo: el saldo de un tercero puede venir repartido entre los
+        // archivos del período.
+        if (cartera) {
+          const sinAtribuir = await materializarCarteraEnTransaccion(tx, vigente.id, loteId, cartera.nivel);
+          exigirCarteraAtribuida(sinAtribuir);
+        }
 
         // Reancla SOLO los comentarios `fila:<n>` cuyo renglón se promovió (está en el
         // remap); los de otras anclas, o de filas que no llegaron al oficial, migran tal cual.
@@ -1489,20 +1653,44 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
           origenExtraccion: loteActual.origenExtraccion,
           observaciones,
           verificaciones: verificaciones as Prisma.InputJsonValue,
+          ...(cartera
+            ? {
+              nivelSaldo: cartera.nivel,
+              // Los rótulos de los baldes se congelan aquí para que la pantalla sepa qué
+              // columnas pintar sin abrir el JSON de cada una de las filas.
+              rangosEdades: rotulosDeEdades(promocion.detalle) as Prisma.InputJsonValue,
+            }
+            : {}),
           cargadoPor: user?.name ?? null,
           cargadoPorId: user?.id ?? null,
           ultimaCarga: ahora,
           detalles: {
-            create: promocion.detalle.map((d) => ({
-              filaNum: d.filaNum,
-              clasificador: d.clasificador,
-              valor: d.valor,
-              datos: d.datos as Prisma.InputJsonValue,
-            })),
+            create: [
+              ...promocion.detalle.map((d) => ({
+                filaNum: d.filaNum,
+                clasificador: d.clasificador,
+                valor: d.valor,
+                datos: d.datos as Prisma.InputJsonValue,
+                ...columnasCartera(d, true),
+              })),
+              // Cabeceras de tercero: no imputan, pero sostienen el control.
+              ...(cartera?.cabeceras ?? []).map((f) => ({
+                filaNum: f.filaNum,
+                clasificador: f.clasificador,
+                valor: 0,
+                datos: f.datos as Prisma.InputJsonValue,
+                ...columnasCartera(f, false),
+              })),
+            ],
           },
         },
         select: { id: true },
       });
+
+      if (cartera) {
+        const sinAtribuir = await materializarCarteraEnTransaccion(tx, enc.id, loteId, cartera.nivel);
+        exigirCarteraAtribuida(sinAtribuir);
+      }
 
       await tx.comment.updateMany({
         where: { entityType: "modulos_borrador", entityId: loteActual.id },

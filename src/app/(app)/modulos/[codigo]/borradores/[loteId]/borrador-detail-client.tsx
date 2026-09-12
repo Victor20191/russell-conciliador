@@ -8,7 +8,7 @@ import { Icon } from "@/components/icons";
 import { fmtContable, fmtNum } from "@/lib/format";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import ComentarioAncla from "@/components/comentario-ancla";
-import { consolidarPorClasificador, filaEnCero } from "@/lib/modulos/promocion";
+import { consolidarPorClasificador, esImputable } from "@/lib/modulos/promocion";
 import { esDescuadreProducto } from "@/lib/modulos/validaciones";
 import { detectarFilasTotalizadoras } from "@/lib/modulos/fila-totalizadora";
 import { controlSubtotales } from "@/lib/modulos/subtotales";
@@ -182,9 +182,12 @@ export default function BorradorModuloClient({
   const hayCambiosFilas = Object.keys(overrideOmit).length + Object.keys(overrideClasif).length + Object.keys(overrideTipo).length > 0;
   const periodoCambiado = periodo !== periodoSugerido;
   const hayCambios = hayCambiosFilas || periodoCambiado;
-  // Renglón "en cero": todas las columnas numéricas en 0 → NO se lleva al definitivo.
-  const enCero = (f: FilaBorradorModulo) => filaEnCero(f.datos, columnasNumericas);
-  const imputables = efectivas.filter((f) => f.tipoFila === "movimiento" && f.omitida !== true && !enCero(f));
+  // MISMA regla que la promoción, llamando a la misma función: lo que el usuario aprueba
+  // aquí tiene que ser exactamente lo que se carga. Duplicar el criterio ya se pagó una vez
+  // —una fila cuyo importe vive en un balde de vencimiento cuenta para la carga pero no
+  // contaba aquí, así que el borrador mostraba un total y se promovía otro.
+  const imputables = efectivas.filter((f) => esImputable({ tipoFila: f.tipoFila, omitida: f.omitida ?? null, valor: f.valor, datos: f.datos } as Parameters<typeof esImputable>[0], columnasNumericas));
+  const enCero = (f: FilaBorradorModulo) => f.tipoFila === "movimiento" && f.omitida !== true && !imputables.includes(f);
   const total = imputables.reduce((s, f) => s + f.valor, 0);
   const consolidado = consolidarPorClasificador(imputables.map((f) => ({ clasificador: f.clasificador, valor: f.valor, tipoFila: f.tipoFila })));
 
