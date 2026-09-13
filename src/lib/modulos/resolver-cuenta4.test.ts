@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolverCuenta4, mensajeResolucion, type EntornoResolucion } from "./resolver-cuenta4";
+import { resolverCuenta4, resolverCuentaRussell, mensajeResolucion, type EntornoResolucion } from "./resolver-cuenta4";
 
 // Subgrupos de Inventarios y homologaciones REALES tomadas de la plataforma: son los casos
 // donde truncar a 4 dígitos daba una cuenta distinta de la homologada.
@@ -85,5 +85,48 @@ describe("mensajeResolucion", () => {
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(mensajeResolucion(r, "Inventarios")).toContain("Buscar");
+  });
+});
+
+describe("resolverCuenta4 a 6 dígitos (Nómina)", () => {
+  // Homologación real de Kakaraka: sus cuentas de gasto de personal van a las Russell de 6.
+  const ENTORNO_NOM: EntornoResolucion = {
+    nivel: 6,
+    subgruposModulo: new Set(["510506", "510530", "520506", "720505", "730505"]),
+    homologacionCliente: new Map([
+      ["510506", { cuenta4: "5105", cuenta6: "510506", nombre: "SUELDOS" }],
+      ["520518", { cuenta4: "5205", cuenta6: "520595", nombre: "COMISIONES" }], // homologada a «Otros», fuera de la lista
+      ["510545", { cuenta4: "5105", cuenta6: null, nombre: "AUXILIOS" }], // homologada solo al subgrupo
+      ["250505", { cuenta4: "2505", cuenta6: "250505", nombre: "SALARIOS POR PAGAR" }],
+    ]),
+  };
+
+  it("acepta la cuenta Russell de 6 tal cual y rechaza el subgrupo de 4", () => {
+    expect(resolverCuenta4("510506", ENTORNO_NOM)).toEqual({ ok: true, cuenta4: "510506", via: "russell" });
+    expect(resolverCuenta4("5105", ENTORNO_NOM)).toEqual({ ok: false, motivo: "no-encontrada", entrada: "5105" });
+  });
+
+  it("resuelve la cuenta del cliente por su homologación de 6, nunca truncando", () => {
+    expect(resolverCuenta4("510506", { ...ENTORNO_NOM, subgruposModulo: new Set(["510530"]) })).toMatchObject({
+      ok: false, motivo: "fuera-del-modulo", cuenta4Real: "510506",
+    });
+    expect(resolverCuenta4("520518", ENTORNO_NOM)).toEqual({
+      ok: false, motivo: "fuera-del-modulo", entrada: "520518", cuenta4Real: "520595", nombreCliente: "COMISIONES",
+    });
+    expect(resolverCuenta4("250505", ENTORNO_NOM)).toMatchObject({ motivo: "fuera-del-modulo", cuenta4Real: "250505" });
+  });
+
+  it("avisa cuando el cliente está homologado solo al subgrupo y el módulo cruza a 6", () => {
+    const r = resolverCuenta4("510545", ENTORNO_NOM);
+    expect(r).toEqual({ ok: false, motivo: "sin-nivel", entrada: "510545", cuenta4Real: "5105", nombreCliente: "AUXILIOS" });
+    if (r.ok) return;
+    expect(mensajeResolucion(r, "Nómina", 6)).toContain("solo al subgrupo 5105");
+  });
+
+  it("resolverCuentaRussell fija el nivel sin tocar el entorno", () => {
+    const { nivel: _nivel, ...sinNivel } = ENTORNO_NOM;
+    void _nivel;
+    expect(resolverCuentaRussell("510506", sinNivel, 6)).toMatchObject({ ok: true, cuenta4: "510506" });
+    expect(resolverCuentaRussell("510506", sinNivel, 4)).toMatchObject({ ok: false, motivo: "fuera-del-modulo" });
   });
 });

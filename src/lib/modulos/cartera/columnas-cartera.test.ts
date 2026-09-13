@@ -51,6 +51,11 @@ describe("columnasDetalleModulo", () => {
     expect(new Set(cols.map((c) => c.nombre)).size).toBe(cols.length);
   });
 
+  it("marca la columna del valor, que muestra el saldo con que suma la fila", () => {
+    expect(columnasDetalleModulo(CAR, []).filter((c) => c.esValor).map((c) => c.nombre)).toEqual([CAR.valor]);
+    expect(columnasDetalleModulo(INV, []).filter((c) => c.esValor).map((c) => c.nombre)).toEqual([INV.valor]);
+  });
+
   it("un cargue de cartera sin rangos se ve como antes", () => {
     expect(columnasDetalleModulo(CAR, []).map((c) => c.nombre))
       .toEqual(CAR.columnas.map((c) => c.nombre));

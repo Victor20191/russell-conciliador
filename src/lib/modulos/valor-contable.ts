@@ -49,8 +49,10 @@ export function resolverReglaContableModulo(
 export function valorPresentadoSegunRegla(
   fila: MovimientoContableModulo,
   regla: Pick<ReglaContableModulo, "cuentaRussell" | "baseCalculo">,
+  baseEfectiva?: BaseCalculo,
 ): number {
-  const bruto = regla.baseCalculo === "movimiento"
+  const base = baseEfectiva ?? regla.baseCalculo;
+  const bruto = base === "movimiento"
     ? fila.debitos - fila.creditos
     : fila.saldoFinal;
   return redondear(factorPresentacion(regla.cuentaRussell) * bruto);
@@ -61,6 +63,17 @@ export function calcularValorContableModulo(args: {
   cuentaRussell: string | null | undefined;
   fila: MovimientoContableModulo;
   catalogo: readonly ReglaContableModulo[];
+  /**
+   * Base que MANDA sobre la del catálogo: Nómina lee por saldo el balance del mes final de un
+   * rango que arranca en enero (D7), aunque su regla sea de movimiento.
+   */
+  baseEfectiva?: BaseCalculo;
+  /**
+   * Naturaleza del módulo (Cartera «D», CxP «C»). Con ella todas sus cuentas se leen con el MISMO
+   * factor —«D» con el signo del balance, «C» invertido— y no con el de cada cuenta: un anticipo
+   * 2805 resta en Cartera igual que en el auxiliar, en vez de mostrarse positivo por ser pasivo.
+   */
+  naturaleza?: "D" | "C";
 }): { valor: number; baseCalculo: BaseCalculo; cuentaRegla: string } | null {
   const regla = resolverReglaContableModulo(
     args.moduloCodigo,
@@ -68,18 +81,16 @@ export function calcularValorContableModulo(args: {
     args.catalogo,
   );
   if (!regla) return null;
-  return {
-    valor: valorPresentadoSegunRegla(args.fila, regla),
-    baseCalculo: regla.baseCalculo,
-    cuentaRegla: normalizarPrefijo(regla.cuentaRussell),
-  };
+  const baseCalculo = args.baseEfectiva ?? regla.baseCalculo;
+  const valor = args.naturaleza
+    ? redondear((args.naturaleza === "C" ? -1 : 1) * (baseCalculo === "movimiento" ? args.fila.debitos - args.fila.creditos : args.fila.saldoFinal))
+    : valorPresentadoSegunRegla(args.fila, regla, args.baseEfectiva);
+  return { valor, baseCalculo, cuentaRegla: normalizarPrefijo(regla.cuentaRussell) };
 }
 
 /**
- * Valor contable de una fila para el cruce POR TERCERO. Con la naturaleza del módulo
- * declarada, todas sus cuentas se leen con el MISMO factor —«D» con el signo del balance,
- * «C» invertido—, de modo que un anticipo resta del saldo del tercero igual que en el
- * auxiliar. Sin naturaleza se conserva el factor por cuenta del prevalidador.
+ * Valor contable de una fila para el cruce POR TERCERO: la misma lectura del cruce contable, con la
+ * naturaleza del módulo. Sin naturaleza se conserva el factor por cuenta del prevalidador.
  */
 export function calcularValorContableTercero(args: {
   moduloCodigo: string;
@@ -88,12 +99,7 @@ export function calcularValorContableTercero(args: {
   catalogo: readonly ReglaContableModulo[];
   naturaleza?: "D" | "C";
 }): { valor: number; baseCalculo: BaseCalculo; cuentaRegla: string } | null {
-  const calculo = calcularValorContableModulo(args);
-  if (!calculo || !args.naturaleza) return calculo;
-  const bruto = calculo.baseCalculo === "movimiento"
-    ? args.fila.debitos - args.fila.creditos
-    : args.fila.saldoFinal;
-  return { ...calculo, valor: redondear((args.naturaleza === "C" ? -1 : 1) * bruto) };
+  return calcularValorContableModulo(args);
 }
 
 function redondear(valor: number): number {

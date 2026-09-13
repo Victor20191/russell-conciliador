@@ -15,6 +15,8 @@ export type ColumnaDetalle = {
   nombre: string;
   etiqueta: string;
   tipo: string;
+  /** La columna del valor del descriptor: su celda muestra el saldo con que suma la fila. */
+  esValor?: boolean;
   /** Dónde leer el valor dentro de `datos` cuando la columna la puso el archivo. */
   familia?: { clave: string; etiqueta: string };
 };
@@ -53,6 +55,7 @@ export function columnasDetalleModulo(
     nombre: c.nombre,
     etiqueta: c.etiqueta,
     tipo: c.tipo as string,
+    ...(c.nombre === descriptor.valor ? { esValor: true } : {}),
   }));
   if (!descriptor.familiasDinamicas?.length) return delDescriptor;
 

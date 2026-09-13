@@ -10,9 +10,12 @@
 // se descartan las hojas con la firma de un balance (saldo inicial, débitos/créditos, saldo
 // final) o de una hoja de trabajo (conciliación, diferencia, tabla dinámica). Es solo una
 // propuesta: el wizard deja cambiarla y explica qué descartó.
+//
+// Las hojas OCULTAS del libro (restos de la plantilla del auditor: «Balance a Julio», «Hoja3»)
+// nunca se proponen: solo se toman si el usuario las pide por su nombre.
 import type { GridHoja } from "@/lib/balance/extraccion/ingesta";
 import type { DescriptorModulo } from "../descriptores";
-import { sugerirSpec } from "./sugerir";
+import { rolesRequeridosFaltantes, sugerirSpec } from "./sugerir";
 
 /** Filas que se analizan de cada hoja: el encabezado se busca en las 15 primeras. */
 const FILAS_MUESTRA = 60;
@@ -30,6 +33,8 @@ export type PuntajeHoja = {
   puntaje: number;
   /** Fila de encabezado (1-based) que detecta el sugeridor en la hoja. */
   filaEncabezado: number;
+  /** La hoja está oculta en el libro: se clasifica igual, pero no se propone. */
+  oculta: boolean;
 };
 
 export type SeleccionHoja = {
@@ -37,6 +42,11 @@ export type SeleccionHoja = {
   propuesta: string | null;
   /** Todas las hojas con datos tienen la firma de un balance: el archivo no es un auxiliar. */
   soloBalances: boolean;
+  /**
+   * Ninguna hoja visible parece el auxiliar del módulo (todas son balances, hojas de trabajo o
+   * no traen los roles requeridos): el libro no es el módulo. Nómina lo rechaza (D5).
+   */
+  sinAuxiliar: boolean;
   puntajes: PuntajeHoja[];
 };
 
@@ -47,10 +57,21 @@ const SALDO_INICIAL = /\bsaldo (inicial|anterior)\b/;
 const SALDO_FINAL = /\bsaldo (final|actual)\b/;
 const MOVIMIENTO = /\b(debitos?|creditos?|debe|haber)\b/;
 const TITULO_BALANCE = /comprobacion de saldos|balance de prueba|sumas y saldos|balance (por|con) terceros/;
-/** Nombre de hoja del papel de trabajo del auditor. */
-const NOMBRE_HOJA_TRABAJO = /concilia|\bdif(erencias?)?\b|resumen|cruce|^td\b|tabla dinamica|^marcas?\b|^trm\b|^ht\b|russell/;
-/** Rótulos de tabla dinámica y del encabezado de un papel de trabajo. */
-const ROTULO_HOJA_TRABAJO = /etiquetas de (fila|columna)|^suma de |^total general$|\(en blanco\)|papel de trabajo|russell bedford|tipo de trabajo/;
+/**
+ * Nombre de hoja del papel de trabajo del auditor. Las de nómina vienen de los libros reales
+ * (PLASMAR, Santiago Corazón, Pure Nature, Motozone, KP): la conciliación del módulo, las
+ * provisiones y la seguridad social del auditor, el balance por terceros pegado, los anexos,
+ * las hojas de prestaciones (vacaciones, cesantías, intereses, prima) y los restos de plantilla.
+ */
+const NOMBRE_HOJA_TRABAJO = /concilia|\bdif(erencias?)?\b|resumen|cruce|^td\b|tabla dinamica|^marcas?\b|^trm\b|^ht\b|russell|modulo vs cont|provision|parafiscal|seguridad social|\bbp (tercero|general)|informe historico|revisi|sumaria|validaci|controles|balance a\b|comprobante|^vacaciones\b|^cesantias\b|^intereses\b|^prima\b|^conceptos\b|d\s*&\s*i|hanna|retencion|equivalencia|maestro|movi?miento contable/;
+/**
+ * Rótulos de un papel de trabajo o de una tabla dinámica, en los TÍTULOS que preceden al
+ * encabezado. «Suma de …» solo cuenta ahí: en el encabezado es una columna normal (Buk exporta
+ * «Suma de Valor» como nombre de la columna del importe).
+ */
+const ROTULO_HOJA_TRABAJO = /etiquetas de (fila|columna)|^suma de |^total general$|\(en blanco\)|papel de trabajo|russell bedford|tipo de trabajo|corte de la revision|elaborado por/;
+/** Lo que delata un papel de trabajo incluso en su fila de encabezado. */
+const ROTULO_ENCABEZADO_TRABAJO = /etiquetas de (fila|columna)|^total general$|\(en blanco\)|papel de trabajo|russell bedford/;
 
 const RANGO: Record<ClaseHoja, number> = { auxiliar: 0, otra: 1, hoja_trabajo: 1, balance: 2, vacia: 3 };
 
@@ -59,8 +80,9 @@ function textos(filas: GridHoja["filas"]): string[] {
 }
 
 function puntuarHoja(descriptor: DescriptorModulo, hoja: GridHoja): PuntajeHoja {
+  const oculta = hoja.oculta === true;
   const conDatos = hoja.filas.some((f) => (f ?? []).some((c) => c != null && String(c).trim() !== ""));
-  if (!conDatos) return { nombre: hoja.nombre, clase: "vacia", puntaje: 0, filaEncabezado: 1 };
+  if (!conDatos) return { nombre: hoja.nombre, clase: "vacia", puntaje: 0, filaEncabezado: 1, oculta };
 
   const muestra: GridHoja = {
     nombre: hoja.nombre,
@@ -77,7 +99,7 @@ function puntuarHoja(descriptor: DescriptorModulo, hoja: GridHoja): PuntajeHoja 
   }
   const edades = Object.values(spec.familias ?? {}).reduce((n, columnas) => n + columnas.length, 0);
   if (edades >= 2) puntaje += 3;
-  const base = { nombre: hoja.nombre, puntaje, filaEncabezado: spec.filaEncabezado };
+  const base = { nombre: hoja.nombre, puntaje, filaEncabezado: spec.filaEncabezado, oculta };
 
   // Los rótulos se leen hasta el encabezado (y la fila siguiente, donde algunos balances
   // parten el suyo en dos): más abajo ya hay datos, y un proveedor puede llamarse como la firma.
@@ -88,34 +110,41 @@ function puntuarHoja(descriptor: DescriptorModulo, hoja: GridHoja): PuntajeHoja 
   // Un balance no trae rangos de vencimiento.
   if (edades < 2 && (firmaBalance || rotulos.some((t) => TITULO_BALANCE.test(t)))) return { ...base, clase: "balance" };
 
-  const hastaEncabezado = textos(hoja.filas.slice(0, Math.min(spec.filaEncabezado, FILAS_ROTULOS)));
+  const antesDelEncabezado = textos(hoja.filas.slice(0, Math.min(spec.filaEncabezado - 1, FILAS_ROTULOS)));
   const encabezado = (hoja.filas[spec.filaEncabezado - 1] ?? []).map(normalizar);
   if (
     NOMBRE_HOJA_TRABAJO.test(normalizar(hoja.nombre))
-    || hastaEncabezado.some((t) => ROTULO_HOJA_TRABAJO.test(t))
+    || antesDelEncabezado.some((t) => ROTULO_HOJA_TRABAJO.test(t))
+    || encabezado.some((t) => ROTULO_ENCABEZADO_TRABAJO.test(t))
     || encabezado.includes("diferencia")
   ) {
     return { ...base, clase: "hoja_trabajo" };
   }
 
-  const conRequeridos = requeridos.every((rol) => (spec.columnas[rol] ?? 0) >= 1);
+  // Los requeridos cuentan con sus alternos (Nómina: devengo/deducción valen por el valor).
+  const conRequeridos = rolesRequeridosFaltantes(descriptor, spec).length === 0;
   return { ...base, clase: conRequeridos && puntaje >= PUNTAJE_AUXILIAR ? "auxiliar" : "otra" };
 }
 
 /**
- * Hoja que se propone cargar: la PRIMERA del libro que parece un auxiliar. Entre auxiliares no
- * decide el puntaje: la hoja en dólares reconoce más roles (moneda, tasa) que la de pesos que
- * la precede, y dos hojas gemelas se resuelven como antes, por la primera. Si ninguna parece
- * auxiliar, la de más roles reconocidos, con los balances al final.
+ * Hoja que se propone cargar: la PRIMERA hoja VISIBLE del libro que parece un auxiliar. Entre
+ * auxiliares no decide el puntaje: la hoja en dólares reconoce más roles (moneda, tasa) que la
+ * de pesos que la precede, y dos hojas gemelas se resuelven como antes, por la primera. Si
+ * ninguna parece auxiliar, la de más roles reconocidos, con los balances al final; las ocultas
+ * solo si no queda nada visible.
  */
 export function seleccionarHojaModulo(descriptor: DescriptorModulo, hojas: readonly GridHoja[]): SeleccionHoja {
   const puntajes = hojas.map((hoja) => puntuarHoja(descriptor, hoja));
   const conDatos = puntajes.filter((p) => p.clase !== "vacia");
   const mejor = [...conDatos].sort((a, b) =>
-    RANGO[a.clase] - RANGO[b.clase] || (a.clase === "auxiliar" ? 0 : b.puntaje - a.puntaje))[0] ?? null;
+    Number(a.oculta) - Number(b.oculta)
+    || RANGO[a.clase] - RANGO[b.clase]
+    || (a.clase === "auxiliar" ? 0 : b.puntaje - a.puntaje))[0] ?? null;
+  const visibles = conDatos.filter((p) => !p.oculta);
   return {
     propuesta: mejor?.nombre ?? null,
     soloBalances: conDatos.length > 0 && conDatos.every((p) => p.clase === "balance"),
+    sinAuxiliar: conDatos.length > 0 && !visibles.some((p) => p.clase === "auxiliar"),
     puntajes,
   };
 }
@@ -141,17 +170,22 @@ export function avisoSeleccionHoja(puntajes: readonly PuntajeHoja[], hojaCargada
   }
 
   const otras = puntajes.filter((p) => p.nombre !== hojaCargada && p.clase !== "vacia");
-  const nombres = (clase: ClaseHoja) => otras.filter((p) => p.clase === clase).map((p) => p.nombre);
+  const nombres = (clase: ClaseHoja) => otras.filter((p) => p.clase === clase && !p.oculta).map((p) => p.nombre);
   const balances = nombres("balance");
   const deTrabajo = nombres("hoja_trabajo");
   const auxiliares = nombres("auxiliar");
+  const ocultas = otras.filter((p) => p.oculta).map((p) => p.nombre);
   const partes: string[] = [];
+  if (cargada.oculta) {
+    partes.push(`La hoja «${hojaCargada}» está oculta en el libro: confirma que es la que hay que cargar.`);
+  }
   if (cargada.clase === "hoja_trabajo") {
     partes.push(`La hoja «${hojaCargada}» parece una hoja de trabajo (conciliación, diferencias o tabla dinámica), no el auxiliar del módulo.`);
   }
   const descartes = [
     balances.length > 0 ? `${lista(balances)} (${balances.length === 1 ? "balance" : "balances"})` : null,
     deTrabajo.length > 0 ? `${lista(deTrabajo)} (${deTrabajo.length === 1 ? "hoja de trabajo" : "hojas de trabajo"})` : null,
+    ocultas.length > 0 ? `${lista(ocultas)} (${ocultas.length === 1 ? "oculta" : "ocultas"})` : null,
   ].filter((d): d is string => d != null);
   if (descartes.length > 0) partes.push(`Se lee «${hojaCargada}»; no se tomaron ${descartes.join(" ni ")}.`);
   if (auxiliares.length > 0) {

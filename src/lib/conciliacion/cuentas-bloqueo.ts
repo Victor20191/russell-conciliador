@@ -40,9 +40,14 @@ export function cuenta4Russell(cuenta6Russell: string | null | undefined): strin
   return c.length === 4 ? c : null;
 }
 
-/** Cuentas Russell (4 díg.) que participan en el cruce del módulo: las de la cédula. */
+/**
+ * Cuentas Russell (4 díg.) que participan en el cruce del módulo: las de la cédula. En una
+ * cédula a 6 dígitos (Nómina) la clave de la fila es la cuenta completa: aquí se reduce al
+ * subgrupo, que es lo que `cuentasRussell` del cierre siempre ha guardado; las cuentas de 6
+ * que acotan el bloqueo viajan aparte en `cuentasRussell6`.
+ */
 export function cuentasRussellDelCruce(cruce: Pick<ResumenCruceContable, "filas">): string[] {
-  return [...new Set(cruce.filas.map((f) => f.cuenta4))].sort();
+  return [...new Set(cruce.filas.map((f) => f.cuenta4.replace(/\D/g, "").slice(0, 4)).filter((c) => c.length === 4))].sort();
 }
 
 /**

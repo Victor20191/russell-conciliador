@@ -3,10 +3,13 @@ import {
   bloqueoAnexoPorVerificacionesCriticasModulo,
   bloqueoCrucePorVerificacionesCriticasModulo,
   bloqueoVerificacionesCriticasModulo,
+  CUENTAS_RUSSELL_NOMINA,
   MODULOS_IMPORT,
   descriptorModulo,
   modulosSoportados,
+  nivelCruceModulo,
 } from "./descriptores";
+import PUC_MAESTRO from "../../../prisma/data/puc-maestro-russell.json";
 
 describe("descriptores de módulos", () => {
   it("registra los 6 módulos de conciliación", () => {
@@ -83,6 +86,23 @@ describe("descriptores de módulos", () => {
     expect(MODULOS_IMPORT.NOM.crucePorTercero.rolNombre).toBe("empleado");
   });
 
+  it("Nómina cruza a 6 dígitos contra las 25 cuentas de gasto y costo de personal (RF-NOM-05)", () => {
+    expect(nivelCruceModulo(MODULOS_IMPORT.NOM)).toBe(6);
+    for (const d of Object.values(MODULOS_IMPORT)) {
+      if (d.codigo !== "NOM") expect(nivelCruceModulo(d), d.codigo).toBe(4);
+    }
+    expect(CUENTAS_RUSSELL_NOMINA).toHaveLength(25);
+    expect(new Set(CUENTAS_RUSSELL_NOMINA).size).toBe(25);
+    expect(MODULOS_IMPORT.NOM.crucePorTercero.cuentasRussell6).toBe(CUENTAS_RUSSELL_NOMINA);
+    // Solo gasto y costo: ninguna cuenta de pasivo laboral (25xx) ni fuera de 5105/5205/7205/7305.
+    for (const cuenta of CUENTAS_RUSSELL_NOMINA) {
+      expect(cuenta, cuenta).toMatch(/^(5105|5205|7205|7305)\d{2}$/);
+    }
+    // Y todas existen en el PUC maestro Russell.
+    const codigos = new Set(PUC_MAESTRO.accounts.map((a) => a.code));
+    for (const cuenta of CUENTAS_RUSSELL_NOMINA) expect(codigos.has(cuenta), cuenta).toBe(true);
+  });
+
   it("ING exige ingreso neto y no sugiere automáticamente el total de factura", () => {
     const valor = MODULOS_IMPORT.ING.columnas.find((columna) => columna.nombre === "valor");
     expect(valor?.etiqueta).toBe("Ingreso neto sin impuestos");
@@ -137,11 +157,17 @@ describe("contratos nuevos del descriptor (Cartera y Cuentas por Pagar)", () => 
       if (d.codigo === "CAR" || d.codigo === "CXP") continue;
       expect(d.familiasDinamicas, d.codigo).toBeUndefined();
       expect(d.valorDerivado, d.codigo).toBeUndefined();
+      // Nómina arrastra, identifica sus ítems y usa la negrita desde su descriptor v2 (F1);
+      // Inventarios, Ingresos y Activos Fijos siguen sin nada de esto.
+      if (d.codigo === "NOM") continue;
       expect(d.arrastrables, d.codigo).toBeUndefined();
       expect(d.rolesLlaveItem, d.codigo).toBeUndefined();
       expect(d.usarNegritaComoEstructura, d.codigo).toBeUndefined();
       expect(d.aliasLegado, d.codigo).toBeUndefined();
+      expect(d.nomina, d.codigo).toBeUndefined();
     }
+    expect(MODULOS_IMPORT.NOM.nomina).toEqual({ periodoPorFila: true, valorPorNaturaleza: true, normalizarFechas: true });
+    expect(MODULOS_IMPORT.NOM.aliasLegado).toEqual({ area: "agrupador" });
   });
 
   it("Cartera declara la familia de rangos de vencimiento con su detector", () => {
@@ -177,10 +203,11 @@ describe("contratos nuevos del descriptor (Cartera y Cuentas por Pagar)", () => 
     expect(CAR.crucePorTercero.cuentasRussell6).toEqual(["130505", "130510", "280505"]);
     expect(CAR.crucePorTercero.exigidoParaCierre).toBe(true);
     expect(CAR.crucePorTercero.detalleTercero).toBe(true);
-    // Ningún otro módulo acota por cuenta de seis dígitos todavía.
+    // Fuera de Cartera, CxP y Nómina (que acota su cédula de 6 dígitos sin cruce por tercero)
+    // ningún módulo acota por cuenta de seis dígitos ni concilia por tercero con detalle.
     for (const d of Object.values(MODULOS_IMPORT)) {
       if (d.codigo === "CAR" || d.codigo === "CXP") continue;
-      expect(d.crucePorTercero.cuentasRussell6, d.codigo).toBeUndefined();
+      if (d.codigo !== "NOM") expect(d.crucePorTercero.cuentasRussell6, d.codigo).toBeUndefined();
       expect(d.crucePorTercero.detalleTercero, d.codigo).toBeUndefined();
     }
   });

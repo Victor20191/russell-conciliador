@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, Chip } from "@/components/ui";
 import { Icon } from "@/components/icons";
-import { fmtContable, fmtNum } from "@/lib/format";
+import { fmtContable } from "@/lib/format";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import ComentarioAncla from "@/components/comentario-ancla";
 import { consolidarPorClasificador, esImputable } from "@/lib/modulos/promocion";
@@ -13,6 +13,8 @@ import { esDescuadreProducto } from "@/lib/modulos/validaciones";
 import { detectarFilasTotalizadoras } from "@/lib/modulos/fila-totalizadora";
 import { controlSubtotales } from "@/lib/modulos/subtotales";
 import { filtrarFilasDetalleModulo, hayFiltrosDetalleModulo, type FiltrosDetalleModulo } from "@/lib/modulos/filtros-detalle-modulo";
+import { columnasVisiblesDetalle, textoCeldaDetalle, tituloCeldaDetalle, valorColumnaDetalle } from "@/lib/modulos/celda-detalle-modulo";
+import { controlSeccion, esRenglonEstructura, etiquetaRenglonNoSuma, indiceColumnaValor, totalesDeclaradosPorCuenta } from "@/lib/modulos/renglones-archivo";
 import type { ReconciliacionModulo } from "@/lib/modulos/extraccion/transformar";
 import { aplicarCambiosBorradorModulo, cargarBorradorModulo, descartarBorradorModulo } from "@/app/actions/modulos-datos";
 import { NotasCargaModulo } from "../../notas-carga-modulo";
@@ -30,16 +32,8 @@ export type FilaBorradorModulo = {
   /** Por qué el motor marcó la fila como subtotal (`total`), si aplica. */
   motivo?: string | null;
 };
-type Columna = { nombre: string; etiqueta: string; tipo: string; familia?: { clave: string; etiqueta: string } };
+type Columna = { nombre: string; etiqueta: string; tipo: string; esValor?: boolean; familia?: { clave: string; etiqueta: string } };
 
-/** Importe de un balde dentro del mapa que el transform dejó en `datos`. */
-function valorDeBalde(
-  datos: Record<string, string | number | null>,
-  familia: { clave: string; etiqueta: string },
-): number | null {
-  const mapa = (datos as unknown as Record<string, Record<string, number> | undefined>)[familia.clave];
-  return mapa?.[familia.etiqueta] ?? null;
-}
 type VersionHermanaBorradorModulo = { loteId: string; version: number; archivoNombre: string; fecha: string };
 const FILTRO_NOVEDADES = "__novedades__";
 
@@ -110,9 +104,10 @@ export default function BorradorModuloClient({
   comentarios,
   cliente,
   periodoSugerido,
-  columnas,
+  columnas: columnasDelCargue,
   nivelCartera,
   clasificadorRol,
+  valorRol,
   noNegativos,
   productos,
   verificaciones,
@@ -147,9 +142,14 @@ export default function BorradorModuloClient({
   notasCliente?: string | null;
 }) {
   const router = useRouter();
-  const clasificadorEtiqueta = columnas.find((c) => c.nombre === clasificadorRol)?.etiqueta ?? "Tipo";
-  const etiquetaCol = (nombre: string) => columnas.find((c) => c.nombre === nombre)?.etiqueta ?? nombre;
-  const columnasNumericas = columnas.filter((c) => !c.familia && (c.tipo === "numero" || c.tipo === "moneda")).map((c) => c.nombre);
+  const clasificadorEtiqueta = columnasDelCargue.find((c) => c.nombre === clasificadorRol)?.etiqueta ?? "Tipo";
+  const etiquetaCol = (nombre: string) => columnasDelCargue.find((c) => c.nombre === nombre)?.etiqueta ?? nombre;
+  const columnasNumericas = columnasDelCargue.filter((c) => !c.familia && (c.tipo === "numero" || c.tipo === "moneda")).map((c) => c.nombre);
+  // Columnas vacías en todo el cargue y rangos que no suman: ocultas hasta que se pidan.
+  const [verTodasColumnas, setVerTodasColumnas] = useState(false);
+  const visibilidadColumnas = useMemo(() => columnasVisiblesDetalle(columnasDelCargue, filas, [clasificadorRol]), [columnasDelCargue, filas, clasificadorRol]);
+  const columnas = verTodasColumnas ? columnasDelCargue : visibilidadColumnas.visibles;
+  const idxValor = indiceColumnaValor(columnas);
   const [overrideOmit, setOverrideOmit] = useState<Record<number, boolean>>({});
   // Subtotal del archivo ↔ movimiento: rescatar un falso positivo («Incluir» en una fila
   // `total`) o marcar a mano uno que el motor no detectó («Marcar subtotal»).
@@ -341,13 +341,8 @@ export default function BorradorModuloClient({
       else notifyError(r.message ?? "No se pudo descartar.");
     });
 
-  const celda = (f: FilaBorradorModulo, col: Columna) => {
-    const v = f.datos[col.nombre];
-    if (v == null || v === "") return "—";
-    if (col.tipo === "moneda") return fmtContable(Number(v));
-    if (col.tipo === "numero") return fmtNum(Number(v));
-    return String(v);
-  };
+  // Saldo efectivo, rangos de vencimiento y fechas: ver `celda-detalle-modulo.ts`.
+  const celda = (f: FilaBorradorModulo, col: Columna) => textoCeldaDetalle(valorColumnaDetalle(f, col), col);
   const esNum = (t: string) => t === "moneda" || t === "numero";
   const hayFiltrosColumnas = hayFiltrosDetalleModulo(filtrosColumnas);
   const filasPorColumnas = useMemo(
@@ -359,19 +354,23 @@ export default function BorradorModuloClient({
       // filtro debe consultar exactamente el mismo valor tras reclasificar.
       (fila, columna) => columna.nombre === clasificadorRol
         ? fila.clasificador
-        : columna.familia
-          ? valorDeBalde(fila.datos, columna.familia)
-          : fila.datos[columna.nombre],
+        : valorColumnaDetalle(fila, columna),
     ),
     [clasificadorRol, columnas, efectivas, filtrosColumnas],
   );
 
   // Agrupación por clasificador (tipo de inventario) preservando el orden de aparición,
   // con subtotal por grupo (solo movimientos no omitidos) para visualizar qué suma cada tipo.
+  // Renglones del archivo que ordenan el reporte pero no son ítems (la cuenta de SIESA con su
+  // total, las filas de porcentajes, el pie): ocultos de entrada; su total va al encabezado del grupo.
+  const [verEstructura, setVerEstructura] = useState(false);
+  const renglonesEstructura = efectivas.filter((f) => esRenglonEstructura(f)).length;
+  const declaradoPorCuenta = useMemo(() => totalesDeclaradosPorCuenta(efectivas, valorRol), [efectivas, valorRol]);
   const grupos = (() => {
     const orden: string[] = [];
     const m = new Map<string, { filas: typeof efectivas; subtotal: number; items: number }>();
     for (const f of filasPorColumnas) {
+      if (!verEstructura && esRenglonEstructura(f)) continue;
       const k = f.clasificador?.trim() || "(sin clasificar)";
       let g = m.get(k);
       if (!g) { g = { filas: [], subtotal: 0, items: 0 }; m.set(k, g); orden.push(k); }
@@ -619,6 +618,26 @@ export default function BorradorModuloClient({
                 Limpiar filtros
               </button>
             )}
+            {renglonesEstructura > 0 && (
+              <button
+                type="button"
+                onClick={() => setVerEstructura((v) => !v)}
+                title="Renglones de cuenta, filas de porcentajes y pies del reporte: no suman al total"
+                className="rounded-md border border-ink-200 bg-white px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50"
+              >
+                {verEstructura ? "Ocultar renglones de cuenta" : `Mostrar renglones de cuenta del archivo (${renglonesEstructura})`}
+              </button>
+            )}
+            {visibilidadColumnas.ocultas.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setVerTodasColumnas((v) => !v)}
+                title={verTodasColumnas ? "Oculta las columnas sin datos y los rangos que no suman al saldo" : `Ocultas: ${visibilidadColumnas.ocultas.map((c) => c.etiqueta).join(", ")}`}
+                className="rounded-md border border-ink-200 bg-white px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50"
+              >
+                {verTodasColumnas ? "Ocultar columnas sin datos" : `Mostrar todas las columnas (${visibilidadColumnas.ocultas.length} ocultas)`}
+              </button>
+            )}
             {hayCambios && <span className="text-[11px] font-medium text-warn-700">Guarda para incluir tus cambios</span>}
             <a
               href={`/modulos/${moduloCodigo.toLowerCase()}/borradores/${loteId}/export`}
@@ -673,12 +692,28 @@ export default function BorradorModuloClient({
                   <tr className="border-t-2 border-ink-200 bg-blue-50/70">
                     <td className="px-2.5 py-1.5" />
                     <td className="px-2.5 py-1.5" />
-                    <td className="px-2.5 py-1.5 font-semibold text-navy-800" colSpan={Math.max(1, columnas.length - 1)}>
+                    <td className="px-2.5 py-1.5 font-semibold text-navy-800" colSpan={Math.max(1, idxValor >= 1 ? idxValor : columnas.length - 1)}>
                       {clasificadorEtiqueta}: {g.clasificador}
                       <span className="ml-2 font-normal text-ink-500">· {g.items} ítems</span>
+                      {(() => {
+                        const declarado = declaradoPorCuenta.get(g.clasificador);
+                        // Un grupo sin ítems (el pie del reporte con su «cuenta» 1) no tiene qué comparar.
+                        if (declarado == null || g.items === 0) return null;
+                        const ctl = controlSeccion(declarado, g.subtotal);
+                        // Solo con la cuenta completa a la vista tiene sentido decir si cuadra.
+                        const completa = !hayFiltrosColumnas && filtro === null;
+                        return (
+                          <span className="ml-2 font-normal text-ink-500" title="Total que el archivo imprime en el renglón de la cuenta">
+                            · el archivo declara {fmtContable(declarado)}
+                            {completa && (ctl.cuadra
+                              ? <span className="ml-1 font-semibold text-ok-700">· cuadra</span>
+                              : <span className="ml-1 font-semibold text-err-700">· difiere {fmtContable(ctl.diferencia)}</span>)}
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td className="px-2.5 py-1.5 text-right font-semibold tabular-nums text-navy-800">{fmtContable(g.subtotal)}</td>
-                    <td className="px-2.5 py-1.5" />
+                    <td className="px-2.5 py-1.5" colSpan={idxValor >= 1 ? columnas.length - idxValor : 1} />
                   </tr>
                   {g.filas.map((f) => {
                     const esAgr = f.tipoFila === "agrupadora";
@@ -696,15 +731,17 @@ export default function BorradorModuloClient({
                         ? `Fila de total del archivo — excluida, usada como control${f.motivo ? ` (${f.motivo})` : ""}`
                         : esCierre
                           ? "Cifra del cuadro de cierre del archivo — excluida del consolidado"
-                          : undefined;
+                          : esAgr
+                            ? "Renglón del archivo que no es un ítem: no suma al total"
+                            : undefined;
                     return (
-                      <tr key={f.filaNum} title={tituloFila} className={`border-t border-ink-100 ${seleccion.has(f.filaNum) ? "bg-blue-100/60" : neg && !omit ? "bg-err-100" : esAgr || esTot ? "bg-blue-50/50 font-semibold" : ""} ${omit || cero ? "text-ink-300" : neg ? "text-err-700" : esTot ? "text-ink-500" : "text-ink-700"} ${omit ? "line-through" : ""}`}>
+                      <tr key={f.filaNum} title={tituloFila} className={`border-t border-ink-100 ${seleccion.has(f.filaNum) ? "bg-blue-100/60" : neg && !omit ? "bg-err-100" : esTot ? "bg-blue-50/50 font-semibold" : esAgr ? "bg-ink-50 italic" : ""} ${omit || cero ? "text-ink-300" : neg ? "text-err-700" : esTot || esAgr ? "text-ink-500" : "text-ink-700"} ${omit ? "line-through" : ""}`}>
                         <td className="px-2.5 py-1.5 text-center">
                           {!cero && <input type="checkbox" checked={seleccion.has(f.filaNum)} onChange={() => toggleSel(f.filaNum)} className="cursor-pointer align-middle" />}
                         </td>
                         <td className="px-2.5 py-1.5 tabular-nums text-ink-400">{f.filaNum}</td>
                         {columnas.map((c) => (
-                          <td key={c.nombre} className={`px-2.5 py-1.5 ${esNum(c.tipo) ? "text-right tabular-nums" : ""}`}>
+                          <td key={c.nombre} title={c.nombre === clasificadorRol ? undefined : tituloCeldaDetalle(f, c)} className={`px-2.5 py-1.5 ${esNum(c.tipo) ? "text-right tabular-nums" : ""}`}>
                             {c.nombre === clasificadorRol ? (f.clasificador ?? "—") : celda(f, c)}
                           </td>
                         ))}
@@ -723,6 +760,13 @@ export default function BorradorModuloClient({
                             <>
                               <span className="ml-1 text-[10.5px] italic text-ink-500">total del archivo · control</span>
                               <button type="button" onClick={() => setTipo(f.filaNum, "movimiento")} className="ml-1 rounded border border-ink-300 bg-white px-1.5 py-0.5 text-[10.5px] font-semibold text-ink-600 hover:bg-ok-100 hover:text-ok-700" title="No es una fila de total: incluirla como ítem">
+                                Incluir
+                              </button>
+                            </>
+                          ) : esAgr ? (
+                            <>
+                              <span className="ml-1 text-[10.5px] italic text-ink-500">{etiquetaRenglonNoSuma(f.motivo)}</span>
+                              <button type="button" onClick={() => setTipo(f.filaNum, "movimiento")} className="ml-1 rounded border border-ink-300 bg-white px-1.5 py-0.5 text-[10.5px] font-semibold text-ink-600 hover:bg-ok-100 hover:text-ok-700" title="Es un ítem: incluirlo en el total">
                                 Incluir
                               </button>
                             </>

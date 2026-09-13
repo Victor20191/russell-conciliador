@@ -246,6 +246,9 @@ export function validarAuxiliarTercero(input: {
         agregar(atipicos, { filaNum: f.filaNum, tercero: terceroDe(f), documento, vencimiento });
         continue;
       }
+      // Un saldo a favor del tercero (nota crédito, anticipo) no envejece: los ERP lo dejan en
+      // corriente con 0 días (SIESA de Zarzal, 5.146 documentos). Ya lo señala «saldos contrarios».
+      if (f.valor < 0) continue;
       const diasAlCorte = diasEntre(vencimiento, fechaCorte);
       const diasArchivo = numero(f.datos.diasVencidos);
       if (diasArchivo != null && Number.isInteger(diasArchivo)) {

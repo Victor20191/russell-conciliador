@@ -66,6 +66,15 @@ describe("cuentasRussellDelCruce", () => {
     });
     expect(cuentasRussellDelCruce(cruce)).toEqual(["1405", "1435"]);
   });
+
+  it("reduce al subgrupo las claves de una cédula a 6 dígitos (Nómina)", () => {
+    const cruce = construirCruceContable({
+      contablePorCuenta: { "510506": 100, "510530": 20, "720505": 5 },
+      consolidado: [{ clasificador: "001", total: 100, cuentas4: ["510506"] }],
+      nombrePorCuenta: () => null,
+    });
+    expect(cuentasRussellDelCruce(cruce)).toEqual(["5105", "7205"]);
+  });
 });
 
 describe("evaluarCierreConciliacion", () => {

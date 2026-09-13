@@ -93,6 +93,8 @@ export function CruceTerceroTab({
   const [filtro, setFiltro] = useState<Filtro>("todos");
   const [busqueda, setBusqueda] = useState("");
   const [limite, setLimite] = useState(PAGINA);
+  // Terceros en cero en los dos lados: ocultos de entrada. Se ven con su tarjeta, al buscarlos o a pedido.
+  const [verSinSaldo, setVerSinSaldo] = useState(false);
   const [marcando, setMarcando] = useState<FilaCruceTerceroMarcada | null>(null);
   const [emparejando, setEmparejando] = useState<FilaCruceTerceroMarcada | null>(null);
   const [ocupado, startAccion] = useTransition();
@@ -100,9 +102,13 @@ export function CruceTerceroTab({
   const filtradas = useMemo(() => {
     if (!resumen) return [];
     const consulta = normalizar(busqueda);
+    const ocultarSinSaldo = filtro === "todos" && !verSinSaldo && !consulta;
     return resumen.filas.filter((f) =>
-      cumpleFiltro(f, filtro) && (!consulta || normalizar(`${f.clave} ${f.nombre ?? ""}`).includes(consulta)));
-  }, [resumen, filtro, busqueda]);
+      cumpleFiltro(f, filtro)
+      && !(ocultarSinSaldo && f.estado === "sin_saldo")
+      && (!consulta || normalizar(`${f.clave} ${f.nombre ?? ""}`).includes(consulta)));
+  }, [resumen, filtro, busqueda, verSinSaldo]);
+  const cantidadSinSaldo = useMemo(() => (resumen?.filas ?? []).filter((f) => f.estado === "sin_saldo").length, [resumen]);
   const observaciones = useMemo(
     () => (resumen?.filas ?? []).filter((f) => f.marca != null).sort((a, b) => a.marca!.numero - b.marca!.numero),
     [resumen],
@@ -167,6 +173,7 @@ export function CruceTerceroTab({
     ...(resumen.sinNit > 0 ? [{ filtro: "sin_nit" as const, titulo: "Sin NIT", cantidad: resumen.sinNit, monto: null, tono: "text-ink-700" }] : []),
     ...(resumen.porNucleo > 0 ? [{ filtro: "por_nucleo" as const, titulo: "Emparejados por núcleo", cantidad: resumen.porNucleo, monto: null, tono: "text-warn-700" }] : []),
     ...(resumen.sugerenciasPorNombre > 0 ? [{ filtro: "sugeridos" as const, titulo: "Mismo nombre en el otro lado", cantidad: resumen.sugerenciasPorNombre * 2, monto: null, tono: "text-blue-700" }] : []),
+    ...(cantidadSinSaldo > 0 ? [{ filtro: "sin_saldo" as const, titulo: "Sin saldo", cantidad: cantidadSinSaldo, monto: null, tono: "text-ink-500" }] : []),
   ];
   const elegir = (siguiente: Filtro) => {
     setFiltro((actual) => (actual === siguiente ? "todos" : siguiente));
@@ -237,6 +244,16 @@ export function CruceTerceroTab({
         />
         <span className="text-[12px] text-ink-500">
           {contar(filtradas.length)} de {contar(resumen.filas.length)} terceros
+          {filtro === "todos" && !busqueda.trim() && cantidadSinSaldo > 0 && (
+            <button
+              type="button"
+              onClick={() => { setVerSinSaldo((v) => !v); setLimite(PAGINA); }}
+              className="ml-2 font-semibold text-blue-700 hover:underline"
+              title="Terceros en cero en la contabilidad y en el auxiliar"
+            >
+              {verSinSaldo ? `Ocultar los ${contar(cantidadSinSaldo)} sin saldo` : `Mostrar los ${contar(cantidadSinSaldo)} sin saldo`}
+            </button>
+          )}
           {filtro !== "todos" && (
             <button type="button" onClick={() => elegir(filtro)} className="ml-2 font-semibold text-blue-700 hover:underline">Quitar filtro</button>
           )}
@@ -265,7 +282,7 @@ export function CruceTerceroTab({
                 </tr>
               )}
               {filtradas.slice(0, limite).map((f) => (
-                <tr key={f.clave} className={`border-t border-ink-100 ${f.estado === "descuadre" ? "bg-err-100/30" : ""}`}>
+                <tr key={f.clave} className={`border-t border-ink-100 ${f.estado === "descuadre" ? "bg-err-100/30" : f.estado === "sin_saldo" ? "text-ink-400" : ""}`}>
                   <td className="whitespace-nowrap px-3 py-2 font-medium text-ink-800">{f.sinNit ? "—" : f.clave}</td>
                   <td className="px-3 py-2 text-ink-700">{f.nombre ?? "—"}</td>
                   {mostrarCuentas && cuentas.map((c) => (

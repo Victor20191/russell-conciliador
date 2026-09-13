@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { authorizePermiso } from "@/lib/rbac";
-import { descriptorModulo } from "@/lib/modulos/descriptores";
+import { descriptorModulo, nivelCruceModulo } from "@/lib/modulos/descriptores";
 import { consolidarPorClasificador } from "@/lib/modulos/promocion";
-import { crearExportacionModulo, type CruceTerceroExportModulo } from "@/lib/export/modulo";
-import { cargarInsumosCruceModulo, construirCruceContableModulo } from "@/lib/modulos/cruce-contable-servidor";
+import { crearExportacionModulo, type ColumnaExportModulo, type CruceNominaExportModulo, type CruceTerceroExportModulo } from "@/lib/export/modulo";
+import { columnasDetalleModulo } from "@/lib/modulos/cartera/columnas-cartera";
+import { cargarCuentasEstandarCruce, cargarInsumosCruceModulo, construirCruceContableModulo } from "@/lib/modulos/cruce-contable-servidor";
+import { claveCruceContable } from "@/lib/modulos/cuentas-modulo";
+import { claveConsolidado } from "@/lib/modulos/nomina/clave-consolidado";
 import { cruceTerceroDeCargue, etiquetasCruceTercero } from "@/lib/modulos/cruce-tercero-servidor";
 import { mensajeErrorBD } from "@/lib/errores";
 import { fechaColombiaISO } from "@/lib/fecha-hora";
@@ -32,18 +35,26 @@ export async function GET(_req: Request, { params }: { params: Promise<{ codigo:
     const scope = await authorizePermiso("modulos_datos:ver", { clientId: encabezado.clienteId });
     if (!scope.ok) return NextResponse.json({ message: scope.message }, { status: 403 });
 
-    const [consolidacionRows, subgrupos] = await Promise.all([
+    // Misma clave que la pantalla: subgrupo de 4 dígitos, o la cuenta Russell completa en Nómina.
+    const nivel = nivelCruceModulo(descriptor);
+    const [consolidacionRows, subgrupos, cuentasEstandar] = await Promise.all([
       prisma.consolidacionModuloCliente.findMany({
         where: { clienteId: encabezado.clienteId, moduloCodigo },
-        select: { clasificador: true, descripcion: true, cuenta4: true },
+        select: { clasificador: true, agrupador: true, descripcion: true, cuenta4: true, cuenta6: true },
       }),
       prisma.subgrupoEstandar.findMany({ select: { codigo: true, nombre: true } }),
+      nivel === 6 ? cargarCuentasEstandarCruce(descriptor.crucePorTercero.cuentasRussell6) : Promise.resolve([]),
     ]);
-    const nombrePorCuenta = new Map(subgrupos.map((s) => [s.codigo, s.nombre]));
+    const nombrePorCuenta = new Map([...subgrupos, ...cuentasEstandar].map((s) => [s.codigo, s.nombre]));
     const cuentasPorClasificador = new Map<string, string[]>();
     const descripcionPorClasificador = new Map<string, string>();
+    // Nómina consolida por (concepto, centro de costo): la clave del renglón lleva el agrupador
+    // y la homologación se lee por esa misma clave («1 ∥ GYA»), con la base del concepto de respaldo.
+    const porAgrupador = descriptor.nomina != null;
     for (const r of consolidacionRows) {
-      cuentasPorClasificador.set(r.clasificador, [...(cuentasPorClasificador.get(r.clasificador) ?? []), r.cuenta4]);
+      const clave = nivel === 6 ? claveCruceContable(r.cuenta6, 6) : r.cuenta4;
+      const llave = porAgrupador ? claveConsolidado(r.clasificador, r.agrupador) : r.clasificador;
+      if (clave) cuentasPorClasificador.set(llave, [...(cuentasPorClasificador.get(llave) ?? []), clave]);
       if (r.descripcion && !descripcionPorClasificador.has(r.clasificador)) descripcionPorClasificador.set(r.clasificador, r.descripcion);
     }
 
@@ -53,14 +64,26 @@ export async function GET(_req: Request, { params }: { params: Promise<{ codigo:
       valor: Number(d.valor),
       datos: (d.datos ?? {}) as Record<string, string | number | null>,
     }));
-    const consolidado = consolidarPorClasificador(detalle).map((c) => ({
+    const consolidado = consolidarPorClasificador(
+      detalle.map((d) => ({ ...d, agrupador: porAgrupador ? (d.datos.agrupador == null ? null : String(d.datos.agrupador)) : null })),
+      { porAgrupador },
+    ).map((c) => ({
       clasificador: c.clasificador,
-      descripcion: descripcionPorClasificador.get(c.clasificador) ?? null,
+      descripcion: descripcionPorClasificador.get(c.codigo ?? c.clasificador) ?? null,
       total: c.total,
       filas: c.filas,
-      cuentas4: [...new Set(cuentasPorClasificador.get(c.clasificador) ?? [])].sort().map((cod) => ({ codigo: cod, nombre: nombrePorCuenta.get(cod) ?? null })),
+      cuentas4: [...new Set(cuentasPorClasificador.get(c.clasificador) ?? (c.agrupador ? cuentasPorClasificador.get(c.codigo ?? c.clasificador) : undefined) ?? [])].sort().map((cod) => ({ codigo: cod, nombre: nombrePorCuenta.get(cod) ?? null })),
     }));
 
+    // Nómina: vista por subcuenta PUC y control de deducciones, el mismo cálculo de la pestaña.
+    let cruceNomina: CruceNominaExportModulo | undefined;
+    if (descriptor.nomina) {
+      const insumos = await cargarInsumosCruceModulo(encabezado.id);
+      const cruce = insumos ? await construirCruceContableModulo(insumos) : null;
+      if (cruce?.nomina && (cruce.nomina.vistaSubcuenta || cruce.nomina.control)) {
+        cruceNomina = { vistaSubcuenta: cruce.nomina.vistaSubcuenta, control: cruce.nomina.control, rango: cruce.nomina.rango, base: cruce.nomina.base };
+      }
+    }
     // Cruce por tercero: el mismo cálculo de la pestaña, con sus marcas y emparejamientos.
     let cruceTercero: CruceTerceroExportModulo | undefined;
     if (descriptor.crucePorTercero.habilitado) {
@@ -78,11 +101,13 @@ export async function GET(_req: Request, { params }: { params: Promise<{ codigo:
 
     const generadoEn = new Date();
     const buffer = await crearExportacionModulo({
-      columnas: descriptor.columnas.map((c) => ({ nombre: c.nombre, etiqueta: c.etiqueta, tipo: c.tipo })),
+      // Las de la pantalla: con los rangos de vencimiento del cargue y el saldo efectivo.
+      columnas: columnasDetalleModulo(descriptor, encabezado.rangosEdades).map((c) => ({ ...c, tipo: c.tipo as ColumnaExportModulo["tipo"] })),
       clasificadorEtiqueta: descriptor.columnas.find((c) => c.nombre === descriptor.clasificador)?.etiqueta ?? "Clasificador",
       detalle,
       consolidado,
       ...(cruceTercero ? { cruceTercero } : {}),
+      ...(cruceNomina ? { cruceNomina } : {}),
       meta: {
         modulo: descriptor.label,
         cliente: encabezado.nombreCliente,

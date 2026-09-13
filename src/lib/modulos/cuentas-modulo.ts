@@ -56,3 +56,52 @@ export function filtrarSubgruposPorModulo<T extends SubgrupoOpcion>(
   if (prefijos.length === 0) return [];
   return subgrupos.filter((s) => cuenta4DelModulo(s.codigo, prefijos));
 }
+
+// ===== Cédula contable a 6 dígitos (`nivelCruce: 6` del descriptor) =====
+// Nómina cruza contra la cuenta Russell completa (510506 «Sueldos» y 510530 «Cesantías» son
+// renglones distintos, RF-NOM-05). Los módulos a 4 dígitos siguen llaveando por el subgrupo;
+// estas funciones deciden la clave de cada fila del balance y qué cuentas ofrece el módulo
+// para homologar, según el nivel.
+
+export type NivelCruce = 4 | 6;
+
+/**
+ * Clave de la cédula contable de una fila del balance homologada a `cuenta6Russell`: el
+ * subgrupo (4) o la cuenta completa (6). `null` si la homologación no alcanza ese nivel (una
+ * fila homologada a un subgrupo de 4 dígitos no puede entrar a una cédula de 6).
+ */
+export function claveCruceContable(cuenta6Russell: string | null | undefined, nivel: NivelCruce): string | null {
+  const digitos = normalizarPrefijo(cuenta6Russell);
+  if (digitos.length < nivel) return null;
+  return digitos.slice(0, nivel);
+}
+
+/**
+ * ¿La cuenta Russell (del nivel del cruce) pertenece al módulo? A 4 dígitos manda el prefijo
+ * del prevalidador; a 6, además, la lista explícita de cuentas del descriptor
+ * (`crucePorTercero.cuentasRussell6`) cuando la hay: Nómina concilia 510506 pero no 510548.
+ */
+export function cuentaDelModulo(
+  cuenta: string,
+  nivel: NivelCruce,
+  prefijos: readonly string[],
+  cuentasRussell6?: readonly string[] | null,
+): boolean {
+  const codigo = normalizarPrefijo(cuenta);
+  if (codigo.length !== nivel) return false;
+  if (!cuenta4DelModulo(codigo.slice(0, 4), prefijos)) return false;
+  if (nivel === 6 && cuentasRussell6?.length) return cuentasRussell6.includes(codigo);
+  return true;
+}
+
+/**
+ * Cuentas estándar de 6 dígitos que el módulo ofrece para homologar (el datalist del
+ * consolidado y la validación de la Server Action), en el orden del plan.
+ */
+export function filtrarCuentasEstandarPorModulo<T extends SubgrupoOpcion>(
+  cuentas: readonly T[],
+  prefijos: readonly string[],
+  cuentasRussell6?: readonly string[] | null,
+): T[] {
+  return cuentas.filter((c) => cuentaDelModulo(c.codigo, 6, prefijos, cuentasRussell6));
+}

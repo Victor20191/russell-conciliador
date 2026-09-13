@@ -135,3 +135,69 @@ describe("avisoSeleccionHoja", () => {
     expect(avisoSeleccionHoja(puntajes, "HT")).toMatch(/^La hoja «HT» parece una hoja de trabajo .* no se tomaron «BLC TCROS» \(balance\)\. La hoja «CXP» también parece un auxiliar/);
   });
 });
+
+describe("libros de nómina del auditor", () => {
+  const NOM = descriptorModulo("NOM")!;
+  const nominaBuk = (nombre: string, oculta = false): GridHoja => ({
+    nombre,
+    ...(oculta ? { oculta: true } : {}),
+    filas: [
+      ["Tipo de Documento", "Mes", "Número de Documento", "Nombre", "Fecha de paga", "Centro de Costo", "Concepto", "Clasificación", "Suma de Valor"],
+      ["Cédula de Ciudadanía", "2025-09-01", "1.000.396.862", "Silva Arias Richard", "2025-09-15", "MODPR04", "Salario Ordinario", "Ganancias", 754455],
+      ["Cédula de Ciudadanía", "2025-09-01", "1.000.396.862", "Silva Arias Richard", "2025-09-15", "MODPR04", "Auxilio De Transporte", "Ganancias", 100000],
+    ],
+  });
+  const conciliacionModulo = hoja("Conciliación del módulo", [
+    ["RUSSELL BEDFORD GCT S.A.S."],
+    ["NOMBRE DEL CLIENTE:", "PLASMAR S.A.S"],
+    ["NOMBRE DEL PAPEL DE TRABAJO:", "CONCILIACION CONCEPTOS NOMINA"],
+    ["Concepto", "Valor nomina", "Cuenta", "Valor según contabilidad", "Diferencia"],
+    ["Salario Ordinario", 2041458658, 72050601, 10601829, 0],
+  ]);
+  const balanceOculto: GridHoja = {
+    nombre: "Balance a Julio", oculta: true,
+    filas: [["Cuenta", "Nombre", "Saldo inicial", "Débitos", "Créditos", "Saldo final"], ["510506", "SUELDOS", 1, 2, 3, 4]],
+  };
+  const provisiones = hoja("PROVISIONES", [["Identificación", "Nombre", "Cesantías", "Prima", "Vacaciones", "Total Provisiones"], [4909298, "ALFONSO", 1, 2, 3, 6]]);
+
+  it("propone la hoja del módulo y descarta la conciliación del auditor, las provisiones y el balance oculto", () => {
+    const seleccion = seleccionarHojaModulo(NOM, [conciliacionModulo, provisiones, nominaBuk("Nomina"), balanceOculto]);
+    expect(seleccion.propuesta).toBe("Nomina");
+    expect(seleccion.sinAuxiliar).toBe(false);
+    const clases = Object.fromEntries(seleccion.puntajes.map((p) => [p.nombre, p.clase]));
+    expect(clases).toMatchObject({ "Conciliación del módulo": "hoja_trabajo", PROVISIONES: "hoja_trabajo", Nomina: "auxiliar", "Balance a Julio": "balance" });
+    expect(avisoSeleccionHoja(seleccion.puntajes, "Nomina")).toContain("«Balance a Julio» (oculta)");
+  });
+
+  it("nunca propone una hoja oculta aunque sea el mejor auxiliar; solo si el usuario la nombra", () => {
+    const seleccion = seleccionarHojaModulo(NOM, [nominaBuk("Nomina (oculta)", true), provisiones]);
+    expect(seleccion.propuesta).toBe("PROVISIONES");
+    expect(seleccion.sinAuxiliar).toBe(true);
+    expect(avisoSeleccionHoja(seleccion.puntajes, "Nomina (oculta)")).toContain("está oculta en el libro");
+  });
+
+  it("un libro auxiliar de todas las cuentas (World Office) o un catálogo de conceptos no es el módulo", () => {
+    const auxiliarContable = hoja("ExportarAExcel", [
+      ["SAVIOS S.A.S"],
+      ["Cuenta", "Tercero", "Fecha", "Nota", "Cheque", "Doc Num", "Debitos", "Creditos", "Saldo"],
+      ["11100501 BANCOLOMBIA", null, "2024-12-31", "SALDO INICIAL", null, null, 170581044.99, 0, 170581044.99],
+    ]);
+    expect(seleccionarHojaModulo(NOM, [auxiliarContable]).sinAuxiliar).toBe(true);
+    const catalogo = hoja("CONCEPTOS DE NOMINA", [
+      ["TIPO CONCEPTO", "CODIGO SIIGO", "NOMBRE", "CUENTA"],
+      ["INGRESO", "01", "SALARIO BASICO", "0005060000"],
+    ]);
+    expect(seleccionarHojaModulo(NOM, [catalogo]).sinAuxiliar).toBe(true);
+  });
+
+  it("un reporte de nómina con devengo y deducción, sin columna de valor, sí es el auxiliar", () => {
+    const siesa = hoja("Modulo", [
+      ["Tercero", "Descripción", "Nit", "Concepto", "Descripción Concepto", "Horas Movto.", "Devengo", "Deducción"],
+      [1052392543, "MONTAÑEZ SUAREZ", 1052392543, "601", "PRESTAMO EMPRESA", 0, 0, 166667],
+      [1052392543, "MONTAÑEZ SUAREZ", 1052392543, "104", "VACACIONES", 112, 1819350, 0],
+    ]);
+    const seleccion = seleccionarHojaModulo(NOM, [siesa]);
+    expect(seleccion.puntajes[0].clase).toBe("auxiliar");
+    expect(seleccion.sinAuxiliar).toBe(false);
+  });
+});

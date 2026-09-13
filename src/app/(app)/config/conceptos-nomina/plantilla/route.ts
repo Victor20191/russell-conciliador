@@ -4,7 +4,9 @@ import { authorizePermiso } from "@/lib/rbac";
 import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { crearPlantillaConceptosNomina } from "@/lib/import/conceptos-nomina-template";
 import { MODULO_CONCEPTOS_NOMINA } from "@/lib/import/conceptos-nomina";
-import { cuenta4DelModulo, prefijosCuentaModulo } from "@/lib/modulos/cuentas-modulo";
+import { filtrarCuentasEstandarPorModulo, prefijosCuentaModulo } from "@/lib/modulos/cuentas-modulo";
+import { descriptorModulo } from "@/lib/modulos/descriptores";
+import { cargarCuentasEstandarCruce } from "@/lib/modulos/cruce-contable-servidor";
 import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
 import { mensajeErrorBD } from "@/lib/errores";
 
@@ -24,18 +26,20 @@ export async function GET() {
 
   try {
     const alc = await alcanceLecturaUsuario();
-    const [clientes, subgrupos, catalogo] = await Promise.all([
+    // Nómina cruza a 6 dígitos: las referencias son las cuentas Russell completas del módulo.
+    const cuentasRussell6 = descriptorModulo(MODULO_CONCEPTOS_NOMINA)?.crucePorTercero.cuentasRussell6 ?? null;
+    const [clientes, cuentasEstandar, catalogo] = await Promise.all([
       prisma.client.findMany({
         where: alc.todos ? {} : { id: { in: alc.clientIds } },
         orderBy: { name: "asc" },
         select: { code: true, name: true, nit: true },
       }),
-      prisma.subgrupoEstandar.findMany({ orderBy: { codigo: "asc" }, select: { codigo: true, nombre: true } }),
+      cargarCuentasEstandarCruce(cuentasRussell6),
       getCatalogoPrevalidador(),
     ]);
 
     const prefijos = prefijosCuentaModulo(MODULO_CONCEPTOS_NOMINA, catalogo);
-    const cuentas = subgrupos.filter((s) => cuenta4DelModulo(s.codigo, prefijos));
+    const cuentas = filtrarCuentasEstandarPorModulo(cuentasEstandar, prefijos, cuentasRussell6);
 
     const buffer = await crearPlantillaConceptosNomina({ clientes, cuentas });
     const body = buffer.buffer.slice(

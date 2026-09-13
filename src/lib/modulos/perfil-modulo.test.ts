@@ -187,7 +187,36 @@ describe("regresión: los módulos sin familias no cambian", () => {
     columnas: Object.fromEntries(MODULOS_IMPORT[modulo].columnas.map((c, i) => [c.nombre, i + 1])),
   });
 
-  for (const modulo of ["INV", "AFI", "ING", "NOM"] as const) {
+  it("NOM: descarta lo de cartera, conserva su arrastre y el rango del cargue solo en la variante del archivo", () => {
+    const NOM = MODULOS_IMPORT.NOM;
+    const base = { ...specDe("NOM"), columnas: { ...specDe("NOM").columnas, periodo: 2, cedula: 5, empleado: 6 } };
+    const contaminado = {
+      ...base,
+      familias: { edades: [{ columna: 9, etiqueta: "1 - 30 DIAS", clase: "vencido" as const }] },
+      edadesModo: "ancho" as const,
+      arrastrarRoles: ["tercero", "periodo", "empleado"],
+      nivel: "documento" as const,
+      origenCartera: "exterior" as const,
+      invertirSigno: true,
+      periodoDesde: "2025-01",
+      periodoHasta: "2025-12",
+    };
+    const reutilizable = normalizarSpecModulo(NOM, contaminado);
+    expect(reutilizable.familias).toBeUndefined();
+    expect(reutilizable.nivel).toBeUndefined();
+    expect(reutilizable.origenCartera).toBeUndefined();
+    expect(reutilizable.invertirSigno).toBeUndefined();
+    // «tercero» no es arrastrable en Nómina; el período y el empleado sí.
+    expect(reutilizable.arrastrarRoles).toEqual(["periodo", "empleado"]);
+    // El rango de meses es de ESTE archivo: nunca va al perfil del cliente…
+    expect(reutilizable.periodoDesde).toBeUndefined();
+    expect(reutilizable.periodoHasta).toBeUndefined();
+    // …pero sí acompaña al spec del lote.
+    const delArchivo = normalizarSpecModuloArchivo(NOM, contaminado);
+    expect(delArchivo).toMatchObject({ periodoDesde: "2025-01", periodoHasta: "2025-12" });
+  });
+
+  for (const modulo of ["INV", "AFI", "ING"] as const) {
     it(`${modulo}: los campos nuevos se descartan al normalizar`, () => {
       const limpio = normalizarSpecModulo(MODULOS_IMPORT[modulo], specDe(modulo));
       const contaminado = normalizarSpecModulo(MODULOS_IMPORT[modulo], {

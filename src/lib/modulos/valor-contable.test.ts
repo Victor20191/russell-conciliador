@@ -112,3 +112,40 @@ describe("valor contable del cruce por tercero", () => {
     expect(descriptorModulo("CAR")?.crucePorTercero.naturaleza).toBe("D");
   });
 });
+
+describe("valor contable del cruce contable con la naturaleza del módulo", () => {
+  const catalogoModulos: ReglaContableModulo[] = [
+    regla("CAR", "13", "saldo"),
+    regla("CAR", "28", "saldo"),
+    regla("CXP", "22", "saldo"),
+    regla("CXP", "1330", "saldo"),
+    regla("NOM", "5105", "movimiento"),
+  ];
+  const conSaldo = (saldoFinal: number) => ({ saldoFinal, debitos: 0, creditos: 0 });
+
+  it("Cartera (D): el anticipo 2805 queda negativo como en el auxiliar y los clientes 1305 no cambian", () => {
+    // Aceros Mapa: el balance trae la 2805 en −1.295.115.489,85 (crédito) y el auxiliar también.
+    const car = (cuentaRussell: string, saldoFinal: number, naturaleza?: "D" | "C") =>
+      calcularValorContableModulo({ moduloCodigo: "CAR", cuentaRussell, fila: conSaldo(saldoFinal), catalogo: catalogoModulos, naturaleza })?.valor;
+    expect(car("280505", -1_295_115_489.85, "D")).toBe(-1_295_115_489.85);
+    expect(car("280505", -1_295_115_489.85)).toBe(1_295_115_489.85); // sin naturaleza: factor del pasivo
+    expect(car("130505", 24_317_578_654.59, "D")).toBe(24_317_578_654.59);
+  });
+
+  it("CxP (C): la deuda 2205 sigue positiva y el anticipo 1330 pasa a restar", () => {
+    const cxp = (cuentaRussell: string, saldoFinal: number) =>
+      calcularValorContableModulo({ moduloCodigo: "CXP", cuentaRussell, fila: conSaldo(saldoFinal), catalogo: catalogoModulos, naturaleza: "C" })?.valor;
+    expect(cxp("220505", -1_250)).toBe(1_250);
+    expect(cxp("133005", 300)).toBe(-300);
+  });
+
+  it("la base efectiva de Nómina manda con o sin naturaleza", () => {
+    expect(calcularValorContableModulo({
+      moduloCodigo: "NOM",
+      cuentaRussell: "510506",
+      fila: { saldoFinal: 9_000, debitos: 700, creditos: 100 },
+      catalogo: catalogoModulos,
+      baseEfectiva: "saldo",
+    })?.valor).toBe(9_000);
+  });
+});

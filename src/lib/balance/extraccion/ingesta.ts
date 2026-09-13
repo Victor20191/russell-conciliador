@@ -24,6 +24,12 @@ export type GridHoja = {
   negrita?: boolean[][];
   /** Número físico de cada fila en el archivo, alineado 1:1 con la grilla compacta. */
   filasFisicas?: number[];
+  /**
+   * La hoja está OCULTA en el libro (`state="hidden"`/`veryHidden`). Los libros de conciliación
+   * del auditor esconden restos de la plantilla («Balance a Julio», «Hoja3») que no deben
+   * proponerse como el auxiliar del módulo; se leen igual por si el usuario las pide.
+   */
+  oculta?: boolean;
 };
 
 export type DocumentoIA = { tipo: "pdf"; base64: string } | { tipo: "texto"; texto: string };
@@ -244,9 +250,11 @@ async function leerLibroExcelAlterno(data: ArrayBuffer): Promise<GridHoja[]> {
     bookVBA: false,
   });
 
-  return wb.SheetNames.map((nombre) => {
+  const ocultaEn = (i: number) => (wb.Workbook?.Sheets?.[i]?.Hidden ?? 0) !== 0;
+  return wb.SheetNames.map((nombre, indiceHoja) => {
     const ws = wb.Sheets[nombre];
-    if (!ws) return { nombre, filas: [] };
+    const oculta = ocultaEn(indiceHoja) ? { oculta: true } : {};
+    if (!ws) return { nombre, filas: [], ...oculta };
     const rango = ws["!ref"] ? XLSX.utils.decode_range(ws["!ref"]!) : null;
     const filasConHuecos = XLSX.utils.sheet_to_json<unknown[]>(ws, {
       header: 1,
@@ -262,11 +270,47 @@ async function leerLibroExcelAlterno(data: ArrayBuffer): Promise<GridHoja[]> {
       filas.push(fila);
       filasFisicas.push((rango?.s.r ?? 0) + i + 1);
     }
-    return { nombre, filas, filasFisicas };
+    return { nombre, filas, filasFisicas, ...oculta };
   });
 }
 
+/**
+ * Nombres de las hojas OCULTAS de un libro OOXML, leídos de `xl/workbook.xml`: ninguno de los
+ * tres lectores (streaming, documental, SheetJS) expone el estado de forma uniforme y el
+ * streaming ni siquiera lo lee. Best-effort: un libro sin ese XML devuelve el conjunto vacío.
+ */
+async function hojasOcultasXlsx(data: ArrayBuffer): Promise<Set<string>> {
+  const ocultas = new Set<string>();
+  try {
+    const JSZip = (await import("jszip")).default;
+    const zip = await JSZip.loadAsync(data);
+    const xml = await zip.file("xl/workbook.xml")?.async("string");
+    if (!xml) return ocultas;
+    const desescapar = (s: string) => s
+      .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"").replace(/&apos;/g, "'").replace(/&amp;/g, "&");
+    for (const m of xml.matchAll(/<sheet\b([^>]*)\/?>/g)) {
+      const atributos = m[1];
+      if (!/\bstate="(hidden|veryHidden)"/.test(atributos)) continue;
+      const nombre = /\bname="([^"]*)"/.exec(atributos)?.[1];
+      if (nombre != null) ocultas.add(desescapar(nombre));
+    }
+  } catch {
+    // Sin estado de hojas: todas se tratan como visibles.
+  }
+  return ocultas;
+}
+
+function marcarOcultas(hojas: GridHoja[], ocultas: ReadonlySet<string>): GridHoja[] {
+  if (ocultas.size === 0) return hojas;
+  return hojas.map((h) => (ocultas.has(h.nombre) ? { ...h, oculta: true } : h));
+}
+
 async function leerLibroExcelTolerante(data: ArrayBuffer): Promise<GridHoja[]> {
+  const [hojas, ocultas] = await Promise.all([leerLibroExcelTolerableSinEstado(data), hojasOcultasXlsx(data)]);
+  return marcarOcultas(hojas, ocultas);
+}
+
+async function leerLibroExcelTolerableSinEstado(data: ArrayBuffer): Promise<GridHoja[]> {
   const cabeDocumental = data.byteLength <= LIMITE_LECTOR_DOCUMENTAL_BYTES;
   let errorExcelJs: unknown;
   try {
@@ -494,7 +538,9 @@ async function leerLibroXls(data: ArrayBuffer): Promise<GridHoja[]> {
 
   return wb.SheetNames.map((nombre, indiceHoja) => {
     const ws = wb.Sheets[nombre];
-    if (!ws) return { nombre, filas: [] };
+    // Estado de la hoja en el BIFF: 0 visible, 1 oculta, 2 muy oculta.
+    const oculta = (wb.Workbook?.Sheets?.[indiceHoja]?.Hidden ?? 0) !== 0 ? { oculta: true } : {};
+    if (!ws) return { nombre, filas: [], ...oculta };
     const ref = ws["!ref"];
     const rango = ref ? XLSX.utils.decode_range(ref) : null;
     const filasConHuecos = XLSX.utils
@@ -523,7 +569,7 @@ async function leerLibroXls(data: ArrayBuffer): Promise<GridHoja[]> {
       if (flags.some(Boolean)) hayNegrita = true;
       negrita.push(flags);
     }
-    return hayNegrita ? { nombre, filas, negrita, filasFisicas } : { nombre, filas, filasFisicas };
+    return hayNegrita ? { nombre, filas, negrita, filasFisicas, ...oculta } : { nombre, filas, filasFisicas, ...oculta };
   });
 }
 

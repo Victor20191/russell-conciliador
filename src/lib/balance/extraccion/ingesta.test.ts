@@ -540,3 +540,22 @@ describe("construirVistaPrevia", () => {
     expect(vista).not.toContain("C26=");
   });
 });
+
+describe("hojas ocultas", () => {
+  it("marca `oculta` las hojas hidden/veryHidden de un .xlsx y deja visibles las demás", async () => {
+    const wb = new ExcelJS.Workbook();
+    wb.addWorksheet("Nomina").addRows([["Cédula", "Concepto", "Valor"], [1, "Sueldo", 100]]);
+    const oculta = wb.addWorksheet("Balance a Julio");
+    oculta.addRows([["Cuenta", "Saldo"], ["5105", 1]]);
+    oculta.state = "hidden";
+    const muyOculta = wb.addWorksheet("Hoja3");
+    muyOculta.addRows([["x"], [1]]);
+    muyOculta.state = "veryHidden";
+    const data = (await wb.xlsx.writeBuffer()) as ArrayBuffer;
+
+    const ingesta = await ingerir(data, "conciliacion.xlsx");
+    expect(ingesta.modo).toBe("tabular");
+    if (ingesta.modo !== "tabular") return;
+    expect(ingesta.hojas.map((h) => [h.nombre, h.oculta === true])).toEqual([["Nomina", false], ["Balance a Julio", true], ["Hoja3", true]]);
+  });
+});

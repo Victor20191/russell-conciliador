@@ -148,6 +148,11 @@ function normalizarSpecModuloInterno(
       if (spec.fechaCorte) normalizado.fechaCorte = spec.fechaCorte;
     }
   }
+  // El rango de meses del cargue de nómina es de ESTE archivo (el perfil es del formato).
+  if (descriptor.nomina?.periodoPorFila && conservarCoordenadaArchivo) {
+    if (spec.periodoDesde && /^\d{4}-\d{2}$/.test(spec.periodoDesde)) normalizado.periodoDesde = spec.periodoDesde;
+    if (spec.periodoHasta && /^\d{4}-\d{2}$/.test(spec.periodoHasta)) normalizado.periodoHasta = spec.periodoHasta;
+  }
   if (spec.subtotales === "rotulo" || spec.subtotales === "nunca") normalizado.subtotales = spec.subtotales;
   if (spec.subtotales === "manual") {
     normalizado.subtotales = "manual";

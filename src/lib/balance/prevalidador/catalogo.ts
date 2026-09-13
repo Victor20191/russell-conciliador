@@ -88,9 +88,11 @@ export function ordenModulo(codigo: string): number {
 }
 
 /**
- * Las 11 filas que Russell definió por correo (grupos de 2 dígitos y cuentas de 4).
- * La migración `20260801120000_prevalidador_homologacion` las siembra con estos
- * mismos valores; a partir de ahí manda la BD y esto queda como respaldo.
+ * Las 11 filas que Russell definió por correo (grupos de 2 dígitos y cuentas de 4), más
+ * la 7305 de Nómina (RF-NOM-05: el módulo concilia también la mano de obra indirecta,
+ * 730505). La migración `20260801120000_prevalidador_homologacion` siembra las 11 y
+ * `20260913160000_nomina_cruce_seis_digitos` la 7305, con estos mismos valores; a partir
+ * de ahí manda la BD y esto queda como respaldo.
  */
 export const PREVALIDADOR_CATALOGO_FABRICA: FilaFabricaPrevalidador[] = [
   { moduloCodigo: "ING", cuentaRussell: "41", etiqueta: "Ingresos operacionales", baseCalculo: "movimiento", orden: 10 },
@@ -104,6 +106,7 @@ export const PREVALIDADOR_CATALOGO_FABRICA: FilaFabricaPrevalidador[] = [
   { moduloCodigo: "NOM", cuentaRussell: "5105", etiqueta: "Gastos de personal · administración", baseCalculo: "movimiento", orden: 10 },
   { moduloCodigo: "NOM", cuentaRussell: "5205", etiqueta: "Gastos de personal · ventas", baseCalculo: "movimiento", orden: 20 },
   { moduloCodigo: "NOM", cuentaRussell: "7205", etiqueta: "Mano de obra · producción", baseCalculo: "movimiento", orden: 30 },
+  { moduloCodigo: "NOM", cuentaRussell: "7305", etiqueta: "Mano de obra indirecta", baseCalculo: "movimiento", orden: 40 },
 ];
 
 /** Nombres de los módulos para construir fixtures de fábrica sin BD. */

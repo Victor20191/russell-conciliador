@@ -169,6 +169,17 @@ describe("validarAuxiliarTercero · fecha de corte y días", () => {
     expect(r.edadVsCorte.filas.map((f) => [f.filaNum, f.rango, f.diasAlCorte])).toEqual([[2, "1 a 30", -15], [3, "Sin vencer", 121]]);
   });
 
+  it("un saldo a favor (nota crédito, anticipo) no envejece: no se le exigen días ni rango", () => {
+    // SIESA de Zarzal: la nota crédito vencida hace 97 días sigue en corriente con 0 días.
+    const r = conCorte([
+      fila({ filaNum: 1, valor: -25_160, nitCanonico: "1000414786", datos: { vencimiento: "2025-09-25", diasVencidos: 0, [CLAVE_EDADES]: { Corriente: -25_160 } } }),
+      fila({ filaNum: 2, valor: 398_500, nitCanonico: "1000414786", datos: { vencimiento: "2025-12-22", diasVencidos: 9, [CLAVE_EDADES]: { "De 1 a 30": 398_500 } } }),
+      fila({ filaNum: 3, valor: -100, nitCanonico: "900000001", datos: { vencimiento: "2202-06-09" } }),
+    ]);
+    expect([r.diasVsCorte.cantidad, r.edadVsCorte.cantidad]).toEqual([0, 0]);
+    expect(r.vencimientosAtipicos.filas.map((f) => f.filaNum)).toEqual([3]);
+  });
+
   it("sin fecha de corte no evalúa los días", () => {
     const r = validarAuxiliarTercero({ filas: [documento(1, { vencimiento: "2025-12-19", diasVencidos: 99 })], cruce: null, umbralNaturaleza: 50_000 });
     expect([r.corte, r.diasVsCorte.cantidad]).toEqual([{ fecha: null, deducido: null }, 0]);

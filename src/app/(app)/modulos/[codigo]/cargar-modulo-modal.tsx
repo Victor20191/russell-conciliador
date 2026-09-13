@@ -510,6 +510,15 @@ function CargarModal({
               {analisis.advertenciaHojas}
             </p>
           )}
+          {/* Nómina: los meses que trae el archivo, para declarar el período viendo lo que hay. Las
+              filas de otros meses no entran al cargue. */}
+          {analisis?.periodosDetectados && analisis.periodosDetectados.length > 0 && (
+            <p className="rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-[11.5px] leading-relaxed text-blue-800">
+              <b>Períodos en el archivo:</b>{" "}
+              {analisis.periodosDetectados.map((p) => `${p.periodo} (${p.filas.toLocaleString("es-CO")} filas · $ ${p.valor.toLocaleString("es-CO", { maximumFractionDigits: 0 })})`).join(" · ")}.
+              {analisis.periodosDetectados.length > 1 && " Solo entran al cargue las filas del período que declares abajo."}
+            </p>
+          )}
 
           {(analisis?.hojas?.length ?? 0) > 1 && (
             <label className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">

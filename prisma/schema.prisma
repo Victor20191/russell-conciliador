@@ -1288,6 +1288,9 @@ model ModuloDatoEncabezado {
   clienteId          Int                 @map("cliente_id")
   nombreCliente      String              @map("nombre_cliente")
   periodo            String              @map("periodo") // etiqueta del período (p. ej. "2026-03")
+  /// Nómina: mes INICIAL del rango del cargue («2025-01» en un acumulado enero–diciembre);
+  /// `periodo` sigue siendo el mes final (llave de versiones, marcas y cierre). Null = un mes.
+  periodoDesde       String?             @map("periodo_desde")
   version            Int                 @default(1) @map("version")
   esOficial          Boolean             @default(true) @map("es_oficial")
   estaCongelado      Boolean             @default(false) @map("esta_congelado")
@@ -1611,16 +1614,55 @@ model ConsolidacionModuloCliente {
   // carga masiva de /config/conceptos-nomina. Null = el clasificador se explica solo.
   descripcion    String?  @map("descripcion")
   cuenta4        String   @map("cuenta_4") // cuenta de 4 díg contra la que cruza
+  /// Cuenta Russell de SEIS dígitos en los módulos que cruzan a ese nivel (Nómina,
+  /// `nivelCruce: 6` del descriptor): 510506 y no solo 5105. `cuenta4` conserva su prefijo
+  /// para que los módulos y lectores a 4 dígitos no cambien. Vacío ('') en los demás módulos:
+  /// entra en la llave única, así que no puede ser null.
+  cuenta6        String   @default("") @map("cuenta_6")
+  // ===== Nómina: homologación de conceptos (RF-NOM-08/10). Vacíos/null en los demás módulos. =====
+  /// Grupo de cuenta contable del concepto (catálogo RF-NOM-02: sueldos, cesantías, prima…).
+  grupo          String?  @map("grupo")
+  /// Subcuenta PUC (dígitos 5-6) de la cuenta del cliente: 06 sueldos, 27 aux. transporte… Es la
+  /// llave de la vista del cruce por subcuenta sumando clases (el papel del auditor).
+  subcuentaPuc   String?  @map("subcuenta_puc")
+  /// Centro de costo / grupo del archivo al que aplica la fila ('' = a todos). Con él un mismo
+  /// concepto cruza contra 510506 en administración y 720505 en producción.
+  agrupador      String   @default("") @map("agrupador")
+  /// Cuenta contable del cliente de la que salió la homologación (RF-NOM-07/10), solo dígitos;
+  /// '' cuando la fila se creó a mano con la cuenta Russell. Entra en la llave única: dos
+  /// cuentas del cliente homologadas a la misma Russell son dos filas.
+  cuentaCliente  String   @default("") @map("cuenta_cliente")
+  /// carga_masiva | manual | sugerido_nombre | sugerido_balance
+  origen         String   @default("manual") @map("origen")
   actualizadoPor String?  @map("actualizado_por")
   creadoEn       DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
   actualizadoEn  DateTime @updatedAt @map("actualizado_en") @db.Timestamptz(3)
 
   // Un clasificador puede cruzar con UNA o VARIAS cuentas de 4 díg (p. ej. el inventario
   // globalizado contra 1405+1430+1435). La unicidad incluye la cuenta: una fila por par.
-  @@unique([clienteId, moduloCodigo, clasificador, cuenta4], map: "consolidacion_modulo_cliente_clasif_cuenta_key")
+  @@unique([clienteId, moduloCodigo, clasificador, agrupador, cuenta4, cuenta6, cuentaCliente], map: "consolidacion_modulo_cliente_clasif_agrupador_cuenta_key")
   @@index([moduloCodigo, clienteId])
   @@index([clienteId, moduloCodigo, clasificador], map: "consolidacion_modulo_cliente_cliente_id_modulo_codigo_clasi_idx")
   @@map("consolidacion_modulo_cliente")
+}
+
+/// CLASE contable por AGRUPADOR del archivo de un módulo (Nómina): «GYA → 51, MOD → 72, MOI → 73»
+/// (Buk), «CP → 72, GV → 52, GA → 51» (SIESA). El agrupador decide la clase de gasto (51
+/// administración, 52 ventas, 72 mano de obra directa, 73 indirecta) y el concepto homologado
+/// pone la subcuenta. Memoria del cliente. FK suave a `clientes` (Int, sin @relation).
+model ClaseAgrupadorModulo {
+  id             Int      @id @default(autoincrement()) @map("id")
+  clienteId      Int      @map("cliente_id")
+  moduloCodigo   String   @map("modulo_codigo")
+  agrupador      String   @map("agrupador")
+  /// 51 | 52 | 61 | 72 | 73
+  clase          String   @map("clase")
+  actualizadoPor String?  @map("actualizado_por")
+  creadoEn       DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+  actualizadoEn  DateTime @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+
+  @@unique([clienteId, moduloCodigo, agrupador], map: "clase_agrupador_modulo_unico")
+  @@map("clase_agrupador_modulo")
 }
 
 // ===== Prevalidador de homologación =====
@@ -2205,6 +2247,26 @@ model EnvironmentVariable {
 /// Un cierre por (cliente, módulo, período del módulo). Se reutiliza al volver a
 /// cerrar tras un desbloqueo: los EVENTOS (cierre, desbloqueo, intento bloqueado)
 /// quedan en `registros_auditoria`.
+/// REPARTO del cruce de un módulo (Nómina, RF-NOM-12 / D4): porción de un concepto homologado
+/// a VARIAS cuentas Russell (510506 / 520506 / 720505) que va a cada una, definida por el
+/// auditor y sugerida proporcional al movimiento del balance. Vive por (cliente, módulo,
+/// período, clave del consolidado «concepto ∥ agrupador», cuenta), no por cargue. FK suaves.
+model RepartoCruceModulo {
+  id            Int      @id @default(autoincrement()) @map("id")
+  clienteId     Int      @map("cliente_id")
+  moduloCodigo  String   @map("modulo_codigo")
+  periodo       String   @map("periodo")
+  clasificador  String   @map("clasificador")
+  cuentaRussell String   @map("cuenta_russell")
+  valor         Decimal  @default(0) @map("valor") @db.Decimal(18, 2)
+  definidoPor   String?  @map("definido_por")
+  definidoEn    DateTime @default(now()) @map("definido_en") @db.Timestamptz(3)
+
+  @@unique([clienteId, moduloCodigo, periodo, clasificador, cuentaRussell], map: "reparto_cruce_modulo_unico")
+  @@index([clienteId, moduloCodigo, periodo], map: "reparto_cruce_modulo_periodo_idx")
+  @@map("reparto_cruce_modulo")
+}
+
 model ConciliacionModuloCierre {
   id                      Int                           @id @default(autoincrement()) @map("id")
   clienteId               Int                           @map("cliente_id") // FK suave a clientes

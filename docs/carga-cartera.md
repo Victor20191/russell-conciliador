@@ -32,17 +32,31 @@ que dicen el origen.
 
 ## 2. Revisión (`/modulos/[codigo]/[id]`)
 
+- **Detalle.** «Saldo / total» muestra el saldo con que suma la fila: cuando salió de los rangos
+  de vencimiento (SIESA deja el total del documento en $0) o de la divisa con la TRM, lo que traía
+  el archivo queda en el tooltip. Las fechas se guardan en ISO, también las que llegan como serial
+  de Excel. Lo mismo en el borrador y en la exportación. La tabla oculta de entrada las columnas
+  sin datos en el cargue y los rangos que no suman (cupo, posfechados, deterioro…); «Mostrar todas
+  las columnas» las trae de vuelta. La exportación las lleva todas. Los renglones de cuenta del
+  archivo (SIESA), las filas de porcentajes y los pies también se ocultan: el total que el archivo
+  imprime para la cuenta queda en el encabezado del grupo con «cuadra» o la diferencia, y los
+  encabezados de tercero se ven en cursiva, rotulados «no suma».
+- **Cruce contable.** Por cuenta Russell de 4 dígitos, con el signo del módulo (Cartera débito, CxP
+  crédito): un anticipo resta en los dos lados, como en el auxiliar (la 2805 en Cartera, la 1330 en
+  CxP), en vez de mostrarse con la naturaleza de su propia cuenta.
 - **Cruce por tercero.** El mismo balance y las mismas compuertas del cruce contable, contra el
   detalle por tercero ligado a ese balance. Un renglón por tercero con la contabilidad por cuenta de
   6 dígitos y el auxiliar nacional/exterior. Las cuentas del grupo que no son del módulo y las que
-  no tienen detalle por tercero se informan aparte.
+  no tienen detalle por tercero se informan aparte. Los terceros sin saldo en ningún lado se ocultan de
+  entrada: se ven con la tarjeta «Sin saldo», al buscarlos o con «Mostrar los n sin saldo».
 - **Emparejar.** Un tercero que solo está en el auxiliar (típicamente sin NIT) se empareja con uno
   del balance; hay sugerencias por nombre. Vale para todos los períodos o solo para el del cargue.
 - **Marcas.** Toda diferencia por tercero admite marca; desde el umbral de descuadre de
   `/config/parametros` la exige el cierre.
 - **Novedades.** Edades vs total, documentos repetidos por el mismo valor entre terceros, colisión
   de claves, saldos contrarios a la naturaleza, días vencidos y rangos de edad contra la fecha de
-  corte, vencimientos imposibles y la fecha a la que el archivo calculó sus días cuando no es la
+  corte (en los saldos a cargo del tercero: una nota crédito o un anticipo no envejece), vencimientos
+  imposibles y la fecha a la que el archivo calculó sus días cuando no es la
   del cargue. La fecha de corte se puede cambiar desde la pestaña del cruce por tercero.
 
 ## 3. Cierre en firme

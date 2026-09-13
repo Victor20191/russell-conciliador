@@ -92,3 +92,23 @@ describe("consolidarPorClasificador · filas total", () => {
     expect(c).toEqual([{ clasificador: "A", total: 300, filas: 2 }]);
   });
 });
+
+it("consolidarPorClasificador por agrupador (Nómina): un concepto en dos centros son dos renglones", () => {
+  const r = consolidarPorClasificador(
+    [
+      { clasificador: "1", valor: 100, agrupador: "GYA" },
+      { clasificador: "1", valor: 50, agrupador: "MOD" },
+      { clasificador: "1", valor: 25, agrupador: "GYA" },
+      { clasificador: "2", valor: 10, agrupador: null },
+      { clasificador: "2", valor: 5, tipoFila: "total", agrupador: "" },
+    ],
+    { porAgrupador: true },
+  );
+  expect(r).toEqual([
+    { clasificador: "1 ∥ GYA", total: 125, filas: 2, codigo: "1", agrupador: "GYA" },
+    { clasificador: "1 ∥ MOD", total: 50, filas: 1, codigo: "1", agrupador: "MOD" },
+    { clasificador: "2", total: 10, filas: 1, codigo: "2", agrupador: "" },
+  ]);
+  // Sin la opción, el agrupador se ignora (los demás módulos no cambian).
+  expect(consolidarPorClasificador([{ clasificador: "1", valor: 1, agrupador: "GYA" }, { clasificador: "1", valor: 1, agrupador: "MOD" }])).toEqual([{ clasificador: "1", total: 2, filas: 2 }]);
+});

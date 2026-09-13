@@ -7,12 +7,23 @@
 // Puro (sin BD): recibe los view-models ya resueltos por el loader RSC.
 import ExcelJS from "exceljs";
 import type { EstadoCruceTercero, FilaCruceTerceroCartera, ResumenCruceTerceroCartera } from "@/lib/modulos/cartera/cruce-tercero-cartera";
+import type { ControlDeduccionesNomina, VistaSubcuentaNomina } from "@/lib/modulos/nomina/cruce-nomina";
+import { fechaDeCelda, valorColumnaDetalle } from "@/lib/modulos/celda-detalle-modulo";
 
-export type ColumnaExportModulo = { nombre: string; etiqueta: string; tipo: "texto" | "numero" | "moneda" | "fecha" };
+/** `esValor` y `familia`, como en la pantalla: el saldo efectivo y los rangos de vencimiento. */
+export type ColumnaExportModulo = { nombre: string; etiqueta: string; tipo: "texto" | "numero" | "moneda" | "fecha"; esValor?: boolean; familia?: { clave: string; etiqueta: string } };
 /** `estado` (opcional, solo borradores): «Movimiento», «Agrupadora», «OMITIDA»… Si alguna
  *  fila lo trae, se agrega la columna «Estado». `valor` debe venir en 0 para las filas
  *  que NO se consolidan (agrupadoras/omitidas/en cero), así el subtotal iguala la pantalla. */
-export type FilaExportModulo = { filaNum: number; clasificador: string | null; valor: number; datos: Record<string, string | number | null>; estado?: string | null };
+export type FilaExportModulo = {
+  filaNum: number;
+  clasificador: string | null;
+  valor: number;
+  datos: Record<string, string | number | null>;
+  estado?: string | null;
+  /** Valor de la fila aunque no consolide (borradores): lo muestra la columna del saldo. */
+  saldo?: number;
+};
 export type ConsolidadoExportModulo = {
   clasificador: string;
   descripcion?: string | null;
@@ -53,8 +64,8 @@ function celda(v: string | number | null | undefined, tipo: ColumnaExportModulo[
     return Number.isFinite(n) ? n : String(v);
   }
   if (tipo === "fecha") {
-    const d = typeof v === "string" ? new Date(v) : null;
-    return d && !Number.isNaN(d.getTime()) ? d : String(v);
+    const iso = fechaDeCelda(v);
+    return iso ? new Date(`${iso}T00:00:00Z`) : String(v);
   }
   return String(v);
 }
@@ -112,7 +123,7 @@ function hojaDetalle(
     ws.mergeCells(rowGrupo.number, 1, rowGrupo.number, nCols - 1);
     const primera = rowGrupo.number + 1;
     for (const f of g.filas) {
-      const valores: ExcelJS.CellValue[] = [f.filaNum, ...columnas.map((c) => celda(f.datos[c.nombre], c.tipo)), ...(conEstado ? [f.estado ?? null] : []), f.valor];
+      const valores: ExcelJS.CellValue[] = [f.filaNum, ...columnas.map((c) => celda(valorColumnaDetalle({ valor: f.saldo ?? f.valor, datos: f.datos }, c), c.tipo)), ...(conEstado ? [f.estado ?? null] : []), f.valor];
       const row = ws.addRow(valores);
       row.outlineLevel = 1;
       columnas.forEach((c, i) => {
@@ -323,6 +334,102 @@ function hojaCruceTercero(wb: ExcelJS.Workbook, cruce: CruceTerceroExportModulo,
   }
 }
 
+/** Nómina: vista por subcuenta PUC y control de deducciones, tal como los muestra la pestaña. */
+export type CruceNominaExportModulo = {
+  vistaSubcuenta: VistaSubcuentaNomina | null;
+  control: ControlDeduccionesNomina | null;
+  rango: { desde: string; hasta: string };
+  base: string | null;
+};
+
+function hojaCruceSubcuenta(wb: ExcelJS.Workbook, nomina: CruceNominaExportModulo, meta: MetaExportModulo) {
+  const vista = nomina.vistaSubcuenta;
+  if (!vista) return;
+  const ws = wb.addWorksheet("Cruce por subcuenta");
+  ws.columns = [
+    { header: "Subcuenta", key: "subcuenta", width: 12 },
+    { header: "Concepto contable", key: "etiqueta", width: 36 },
+    { header: "Cuenta / concepto", key: "cuenta", width: 16 },
+    { header: "Nombre", key: "nombre", width: 40 },
+    { header: "Saldo contable", key: "contable", width: 20 },
+    { header: "Saldo nómina", key: "modulo", width: 20 },
+    { header: "Diferencia", key: "diferencia", width: 18 },
+    { header: "Estado", key: "estado", width: 18 },
+  ];
+  ws.spliceRows(1, 0, [], [], []);
+  ws.getCell("A1").value = `${meta.modulo} · ${meta.cliente} · Cruce por subcuenta PUC sumando clases`;
+  ws.getCell("A1").font = { bold: true, size: 13 };
+  ws.getCell("A2").value = `Rango ${nomina.rango.desde} a ${nomina.rango.hasta} · v${meta.version} · base ${nomina.base === "saldo_acumulado" ? "saldo acumulado" : "movimiento"}`;
+  ws.getCell("A2").font = { color: { argb: "FF6B7280" } };
+  const HEADER_ROW = 4;
+  ws.getRow(HEADER_ROW).font = { bold: true };
+  ws.getRow(HEADER_ROW).fill = HEADER_FILL;
+  ws.views = [{ state: "frozen", ySplit: HEADER_ROW }];
+  const num = ["contable", "modulo", "diferencia"];
+  const estado: Record<string, string> = { cuadra: "Cuadra", descuadre: "Diferencia", solo_contable: "Solo contabilidad", solo_modulo: "Solo nómina" };
+  for (const f of vista.filas) {
+    const fila = ws.addRow({ subcuenta: f.subcuenta, etiqueta: f.etiqueta, contable: f.contable, modulo: f.modulo, diferencia: f.diferencia, estado: estado[f.estado] ?? f.estado });
+    fila.font = { bold: true, color: f.estado === "descuadre" ? { argb: "FFB91C1C" } : undefined };
+    for (const k of num) fila.getCell(k).numFmt = NUM_FMT;
+    for (const c of f.cuentas) {
+      const r = ws.addRow({ cuenta: c.cuenta8, nombre: `${c.nombre} (clase ${c.clase})`, contable: c.valor });
+      r.getCell("contable").numFmt = NUM_FMT;
+      r.outlineLevel = 1;
+    }
+    for (const c of f.conceptos) {
+      const r = ws.addRow({ cuenta: c.codigo + (c.agrupador ? ` · ${c.agrupador}` : ""), nombre: c.descripcion ?? "", modulo: c.total });
+      r.getCell("modulo").numFmt = NUM_FMT;
+      r.outlineLevel = 1;
+    }
+  }
+  const total = ws.addRow({ subcuenta: "Totales", contable: vista.totales.contable, modulo: vista.totales.modulo, diferencia: vista.totales.diferencia });
+  total.font = { bold: true };
+  total.fill = TOTAL_FILL;
+  for (const k of num) total.getCell(k).numFmt = NUM_FMT;
+  if (vista.sinSubcuenta.length > 0) {
+    ws.addRow({});
+    for (const c of vista.sinSubcuenta) {
+      const r = ws.addRow({ etiqueta: "Sin subcuenta conocida", cuenta: c.codigo, nombre: c.descripcion ?? "", modulo: c.total });
+      r.getCell("modulo").numFmt = NUM_FMT;
+      r.font = { color: { argb: "FF6B7280" } };
+    }
+  }
+}
+
+function hojaControlDeducciones(wb: ExcelJS.Workbook, nomina: CruceNominaExportModulo, meta: MetaExportModulo) {
+  const control = nomina.control;
+  if (!control || control.filas.length === 0) return;
+  const ws = wb.addWorksheet("Control de deducciones");
+  ws.columns = [
+    { header: "Cuenta del cliente", key: "cuenta", width: 18 },
+    { header: "Nombre", key: "nombre", width: 36 },
+    { header: "Cuentas del balance", key: "balance", width: 28 },
+    { header: "Conceptos", key: "conceptos", width: 44 },
+    { header: "Saldo contable", key: "contable", width: 20 },
+    { header: "Saldo nómina", key: "modulo", width: 20 },
+    { header: "Diferencia", key: "diferencia", width: 18 },
+  ];
+  ws.spliceRows(1, 0, [], [], []);
+  ws.getCell("A1").value = `${meta.modulo} · ${meta.cliente} · Control de deducciones`;
+  ws.getCell("A1").font = { bold: true, size: 13 };
+  ws.getCell("A2").value = `Rango ${nomina.rango.desde} a ${nomina.rango.hasta} · v${meta.version} · solo informa, no suma al gasto`;
+  ws.getCell("A2").font = { color: { argb: "FF6B7280" } };
+  const HEADER_ROW = 4;
+  ws.getRow(HEADER_ROW).font = { bold: true };
+  ws.getRow(HEADER_ROW).fill = HEADER_FILL;
+  ws.views = [{ state: "frozen", ySplit: HEADER_ROW }];
+  const num = ["contable", "modulo", "diferencia"];
+  for (const f of control.filas) {
+    const r = ws.addRow({ cuenta: f.cuentaCliente, nombre: f.nombre ?? "", balance: f.cuentasBalance.join(", "), conceptos: f.conceptos.map((c) => `${c.codigo}${c.descripcion ? ` ${c.descripcion}` : ""}`).join(" · "), contable: f.contable, modulo: f.modulo, diferencia: f.diferencia });
+    for (const k of num) r.getCell(k).numFmt = NUM_FMT;
+    if (!f.cuadra) r.font = { color: { argb: "FFB91C1C" } };
+  }
+  const total = ws.addRow({ cuenta: "Totales", contable: control.totales.contable, modulo: control.totales.modulo, diferencia: control.totales.diferencia });
+  total.font = { bold: true };
+  total.fill = TOTAL_FILL;
+  for (const k of num) total.getCell(k).numFmt = NUM_FMT;
+}
+
 export async function crearExportacionModulo(input: {
   columnas: ColumnaExportModulo[];
   clasificadorEtiqueta: string;
@@ -332,6 +439,8 @@ export async function crearExportacionModulo(input: {
   control?: ControlExportModulo[];
   /** Solo el dato cargado de los módulos que cruzan por tercero. */
   cruceTercero?: CruceTerceroExportModulo;
+  /** Solo Nómina: vista por subcuenta y control de deducciones. */
+  cruceNomina?: CruceNominaExportModulo;
   meta: MetaExportModulo;
 }): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
@@ -341,5 +450,9 @@ export async function crearExportacionModulo(input: {
   hojaConsolidado(wb, input.clasificadorEtiqueta, input.consolidado, input.meta);
   if (input.control && input.control.length > 0) hojaControlSubtotales(wb, input.clasificadorEtiqueta, input.control, input.meta);
   if (input.cruceTercero) hojaCruceTercero(wb, input.cruceTercero, input.meta);
+  if (input.cruceNomina) {
+    hojaCruceSubcuenta(wb, input.cruceNomina, input.meta);
+    hojaControlDeducciones(wb, input.cruceNomina, input.meta);
+  }
   return Buffer.from(await wb.xlsx.writeBuffer());
 }

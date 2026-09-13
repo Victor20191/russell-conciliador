@@ -21,6 +21,9 @@ import { norm, puntajeRol } from "./sugerir";
 import { coincideMarcaSubtotal, columnasDetalle, detectarSubtotales, esRotuloTotal, motivoDe } from "../subtotales";
 import { archivoConDocumentos, esIdentificadorVacio, esNumeroDocumento, rolDeCeldaCompartida } from "../cartera/identificador-compartido";
 import { aPesos, esMonedaExtranjera, montoConDivisa } from "../cartera/moneda";
+import { evaluarFilaNomina, nombreSinCedula, normalizarCedula } from "../nomina/valor-nomina";
+import { codigoConceptoCanonico } from "../nomina/homologacion";
+import { parsearAnio, parsearFechaCelda, rangoDeFila, rangoDentroDelCargue, type RangoMeses } from "../nomina/periodo";
 
 export type TipoFilaModulo = "movimiento" | "agrupadora" | "total";
 export type ValorCelda = string | number | null;
@@ -319,10 +322,26 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     });
   }
 
+  // ===== NÓMINA (ver `ConfiguracionNomina`) =====
+  const nomina = descriptor.nomina ?? null;
+  // Roles mapeados en el spec (los que el archivo trae) y, de ellos, los de texto: la regla
+  // del valor mira los primeros y el pie repetido del ERP los segundos.
+  const rolesMapeados = new Set(descriptor.columnas.filter((rc) => (spec.columnas[rc.nombre] ?? 0) >= 1).map((rc) => rc.nombre));
+  const rolesTextoMapeados = descriptor.columnas.filter((rc) => rc.tipo === "texto" && rolesMapeados.has(rc.nombre)).map((rc) => rc.nombre);
+  // Rango de meses del cargue y año de contexto para los períodos que no lo traen («PERIODO 3»).
+  const rangoCargue: RangoMeses | null = nomina?.periodoPorFila && (spec.periodoDesde || spec.periodoHasta)
+    ? { desde: spec.periodoDesde ?? spec.periodoHasta!, hasta: spec.periodoHasta ?? spec.periodoDesde! }
+    : null;
+  const anioCargue = rangoCargue ? parsearAnio(rangoCargue.hasta.slice(0, 4)) : null;
+
   for (let r = inicio; r < hoja.filas.length; r++) {
     const fila = hoja.filas[r] ?? [];
     const filaNum = filaFisicaDe(r);
     const marcaManualExacta = colMarcaSubtotal >= 1 && spec.subtotalesFila === filaNum;
+
+    // Nómina: el ERP repite el encabezado al cambiar de página (o el auditor pegó dos reportes
+    // uno debajo del otro). Se reconoce por contenido y no entra como dato.
+    if (nomina && r !== spec.filaEncabezado - 1 && esFilaDeEncabezado(fila)) continue;
 
     // 1) Leer cada columna mapeada según su tipo.
     const datos: Record<string, ValorCelda> = {};
@@ -331,7 +350,13 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
       const col = spec.columnas[rc.nombre] ?? 0;
       if (col < 1) { datos[rc.nombre] = null; continue; }
       const raw = celda(fila, col);
-      if (!esNumerica.get(rc.nombre)) { datos[rc.nombre] = aTexto(raw); continue; }
+      if (!esNumerica.get(rc.nombre)) {
+        // Las fechas en ISO (también las que llegan como serial de Excel sin estilo): el
+        // período de la fila (Nómina) y las validaciones contra la fecha de corte (Cartera, CxP)
+        // las comparan como texto.
+        datos[rc.nombre] = rc.tipo === "fecha" && (nomina?.normalizarFechas || conDetalleTercero) ? parsearFechaCelda(raw) ?? aTexto(raw) : aTexto(raw);
+        continue;
+      }
       // Importe en moneda extranjera escrito como texto («USD (54,323.40)», SAP): con la TRM de
       // cierre se convierte a pesos y la divisa queda como constancia; sin ella no se lee como
       // pesos, pero se avisa para que no desaparezca en silencio.
@@ -602,6 +627,70 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
       }
       valor = origenValor === "familia" || origenValor === "columna_y_familia" ? (sumaFamilia ?? 0) : aPesos(valor, trmCierre);
       if (valorReportado != null) valorReportado = aPesos(valorReportado, trmCierre);
+    }
+
+    // 4.8) NÓMINA: valor con signo por naturaleza, cédula normalizada, período de la fila y
+    //      exclusiones propias (neto de Novasoft, pie repetido, sin concepto, fuera del rango
+    //      del cargue). Las excluidas quedan como agrupadora, visibles y rescatables.
+    let exclusionNomina: string | null = null;
+    if (nomina) {
+      // NOMINAI imprime «001 - BASICO» y «8032318 - GALLEGO GUZMAN»: código y nombre juntos.
+      const conceptoCrudo = aTexto(datos.concepto);
+      if (conceptoCrudo && aTexto(datos.codigo) == null && !rolesMapeados.has("codigo")) {
+        const m = /^([A-Za-z]?\d{1,6})\s*-\s*(.+)$/.exec(conceptoCrudo);
+        if (m) { datos.codigo = m[1]; datos.concepto = m[2].trim(); clasificador = m[1]; }
+      }
+      // El código de concepto se guarda CANÓNICO (« 01 », «001» y «1» son el mismo concepto):
+      // así llavea igual en la memoria de homologación, en el catálogo del ERP y en el cruce.
+      const codigoCrudo = aTexto(datos.codigo);
+      if (codigoCrudo != null) {
+        const canonico = codigoConceptoCanonico(codigoCrudo);
+        if (canonico) { datos.codigo = canonico; if (clasificador === codigoCrudo) clasificador = canonico; }
+      }
+      const cedula = normalizarCedula(datos.cedula ?? datos.empleado);
+      if (cedula) datos.cedula = cedula;
+      const empleadoCrudo = aTexto(datos.empleado);
+      if (empleadoCrudo) datos.empleado = nombreSinCedula(empleadoCrudo.replace(/^\s*\d{2,12}\s*-?\s*/, "")) ?? empleadoCrudo;
+      if (nomina.valorPorNaturaleza) {
+        const ev = evaluarFilaNomina(datos, rolesMapeados, rolesTextoMapeados);
+        valor = ev.valor;
+        if (ev.naturaleza) datos.naturaleza = ev.naturaleza;
+        if (ev.excluir) exclusionNomina = ev.excluir;
+      }
+      if (nomina.periodoPorFila) {
+        const rango = rangoDeFila(
+          { fecha: datos.fecha, fechaCorte: datos.fechaCorte, periodo: datos.periodo, mes: datos.mes, anio: datos.anio, periodoDesde: datos.periodoDesde, periodoHasta: datos.periodoHasta },
+          anioCargue,
+        );
+        if (rango) {
+          datos.periodoDesde = rango.desde;
+          datos.periodoHasta = rango.hasta;
+          if (rangoCargue && !rangoDentroDelCargue(rango, rangoCargue)) exclusionNomina ??= "fuera_de_periodo";
+        } else {
+          datos.periodoDesde = rangoCargue?.desde ?? null;
+          datos.periodoHasta = rangoCargue?.hasta ?? null;
+        }
+      }
+    }
+    // Un rótulo «Total …» en cualquier columna de texto de nómina es un SUBTOTAL del archivo:
+    // «TOTALES» por empleado (Novasoft), «Total <concepto>» y «Total <empleado>» (Santiago
+    // Corazón, en la columna del nombre), «Total general» (Ofimática, en la del grupo). No
+    // imputa y se conserva con su cifra como control; sin esto el total por empleado, que
+    // ninguna aritmética por concepto reconoce, entraba como movimiento y duplicaba el archivo.
+    const rotuloTotalNomina = nomina
+      ? rolesTextoMapeados.map((rol) => aTexto(datos[rol])).find((t): t is string => t != null && esTotal(t)) ?? null
+      : null;
+    if (rotuloTotalNomina != null) {
+      filasExcluidas++;
+      filas.push({ filaNum, clasificador, valor, datos, tipoFila: "total", motivo: "subtotal:rotulo" });
+      crudo.push({ negrita: hoja.negrita?.[r]?.some(Boolean) === true, rotuloClasificador: rotuloClasificadorCrudo ?? rotuloTotalNomina, marcaManual: false, marcaManualExacta: false });
+      continue;
+    }
+    if (exclusionNomina) {
+      filasExcluidas++;
+      filas.push({ filaNum, clasificador, valor: 0, datos, tipoFila: "agrupadora", motivo: exclusionNomina });
+      crudo.push({ negrita: hoja.negrita?.[r]?.some(Boolean) === true, rotuloClasificador: rotuloClasificadorCrudo, marcaManual: false, marcaManualExacta: false });
+      continue;
     }
 
     // 5) Negrita = subtotal del ERP → no cuenta en el valor. Según el descriptor, se

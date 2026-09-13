@@ -51,7 +51,9 @@ describe("esRotuloTotal / columnasDetalle", () => {
     // Cartera las DECLARA (`rolesDetalle`): de sus nueve columnas de texto, solo el
     // documento distingue un renglón de detalle de un subtotal por tercero o por cuenta.
     expect(columnasDetalle(CAR)).toEqual(["documento", "tipoDocumento"]);
-    expect(columnasDetalle(MODULOS_IMPORT.NOM)).toEqual(["cedula", "empleado", "area"]);
+    // Nómina también las declara: un «Total <concepto>» de Santiago Corazón viene sin cédula
+    // ni empleado, pero el centro de costo y el tipo suelen faltar también en el detalle.
+    expect(columnasDetalle(MODULOS_IMPORT.NOM)).toEqual(["cedula", "empleado"]);
     expect(columnasDetalle(INV, { columnas: { referencia: 2, descripcion: 0 } })).toEqual(["referencia"]);
   });
 });

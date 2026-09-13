@@ -526,10 +526,234 @@ export function sugerirSpec(descriptor: DescriptorModulo, hoja: GridHoja): SpecM
     }
   }
 
+  if (descriptor.nomina) ajustarRolesNomina(descriptor, hoja, base);
+
   return invalidarValorAmbiguoIngresos(descriptor, hoja, base).spec;
 }
 
-/** Roles requeridos que quedaron sin mapear (para avisar/bloquear en el wizard). */
+/**
+ * Roles requeridos que quedaron sin mapear (para avisar/bloquear en el wizard). El rol de
+ * VALOR no falta cuando el archivo trae alguno de sus alternos (devengo/deducción,
+ * débito/crédito en Nómina): el valor de la fila se deriva de ellos.
+ */
 export function rolesRequeridosFaltantes(descriptor: DescriptorModulo, spec: SpecModulo): string[] {
-  return descriptor.columnas.filter((rc) => rc.requerido && (spec.columnas[rc.nombre] ?? 0) < 1).map((rc) => rc.nombre);
+  const alternoMapeado = (descriptor.valorAlterno ?? []).some((rol) => (spec.columnas[rol] ?? 0) >= 1);
+  return descriptor.columnas
+    .filter((rc) => rc.requerido && (spec.columnas[rc.nombre] ?? 0) < 1)
+    .filter((rc) => !(rc.nombre === descriptor.valor && alternoMapeado))
+    .map((rc) => rc.nombre);
+}
+
+// ===== Nómina: ambigüedades que solo el CONTENIDO resuelve =====
+// «Concepto» es el CÓDIGO en Novasoft, SIESA, SIIGO y Ofimática (y el nombre va en «Nombre
+// concepto»/«Descripción»/«Descripción Concepto») pero es el NOMBRE en Buk y Santiago Corazón;
+// «Empleado» es la cédula en Ofimática y «cédula + nombre» en SIIGO; «Descripción» es el nombre
+// del empleado en SIESA y el del concepto en SIIGO; «Cuenta Contable» de Buk trae 1/3/31, que
+// no son cuentas; «GRUPO» de LIBRA es la clase (51/52/72/73) y «Total» de Ofimática es el neto.
+// Se mira una muestra de las filas de datos y se corrige el reparto por puntaje.
+
+/** Muestra de valores no vacíos de una columna (1-based), desde la primera fila de datos. */
+function muestraColumna(hoja: GridHoja, primeraFila: number, col: number, max = 40): string[] {
+  const valores: string[] = [];
+  for (let r = primeraFila - 1; r < hoja.filas.length && valores.length < max; r++) {
+    const v = hoja.filas[r]?.[col - 1];
+    if (v == null || v === "") continue;
+    valores.push(String(v).trim());
+  }
+  return valores;
+}
+const proporcion = (valores: string[], pred: (v: string) => boolean): number =>
+  valores.length === 0 ? 0 : valores.filter(pred).length / valores.length;
+/** Código de concepto: dígitos o letra+dígitos cortos («001», «C001», «0005», «SOLID», «RETE»). */
+const ES_CODIGO = /^[A-Za-z]{0,5}\d{1,6}$|^[A-Z]{3,6}$/;
+const ES_DIGITOS = /^[\d.]+(-\d{1,2})?$/;
+/** «8032318 - GALLEGO GUZMAN» (NOMINAI), «3348656 URIBE ALVAREZ» (SIIGO): cédula y nombre en la misma celda. */
+const ES_CODIGO_Y_NOMBRE = /^\d{4,12}\s*(?:-\s*)?[A-Za-zÁÉÍÓÚÑ]/;
+/** Cuenta contable del cliente: seis o más dígitos. */
+const ES_CUENTA = /^\d{6,10}$/;
+
+/** Rótulos que solo trae una tabla dinámica o un resumen del auditor. */
+const ROTULO_TABLA_LATERAL = /etiquetas de (fila|columna)|^suma de |^total general$|\(en blanco\)/;
+
+/**
+ * Primera columna (1-based) de una tabla LATERAL pegada a la derecha del detalle, o 0 si no la
+ * hay. Se busca la primera columna con encabezado vacío tras la que vuelve a haber encabezados,
+ * y se decide por tres señales: rótulos de tabla dinámica, encabezados repetidos del bloque
+ * principal, o un bloque con menos del 20 % de las filas llenas del principal.
+ */
+export function columnaDeCorteLateral(hoja: GridHoja, spec: Pick<SpecModulo, "filaEncabezado" | "primeraFilaDatos">): number {
+  const header = hoja.filas[spec.filaEncabezado - 1] ?? [];
+  const textoEnc = (c: number) => norm(header[c - 1]);
+  let primeraLlena = 0;
+  for (let c = 1; c <= header.length; c++) if (textoEnc(c)) { primeraLlena = c; break; }
+  if (primeraLlena === 0) return 0;
+  let hueco = 0;
+  for (let c = primeraLlena + 1; c <= header.length; c++) {
+    if (!textoEnc(c)) { hueco = c; break; }
+  }
+  if (hueco === 0) return 0;
+  let inicioLateral = 0;
+  for (let c = hueco + 1; c <= header.length; c++) if (textoEnc(c)) { inicioLateral = c; break; }
+  if (inicioLateral === 0) return 0;
+
+  const principales = new Set<string>();
+  for (let c = primeraLlena; c < hueco; c++) if (textoEnc(c)) principales.add(textoEnc(c));
+  const laterales: string[] = [];
+  for (let c = inicioLateral; c <= header.length; c++) if (textoEnc(c)) laterales.push(textoEnc(c));
+  const conRotulo = laterales.some((t) => ROTULO_TABLA_LATERAL.test(t));
+  const repetidos = laterales.filter((t) => principales.has(t)).length >= Math.max(1, Math.ceil(laterales.length / 2));
+
+  const filasPrincipal = hoja.filas.slice(spec.primeraFilaDatos - 1);
+  const llenas = (desde: number, hasta: number) =>
+    filasPrincipal.filter((f) => f.slice(desde - 1, hasta).some((v) => v != null && String(v).trim() !== "")).length;
+  const llenasPrincipal = llenas(primeraLlena, hueco - 1);
+  const llenasLateral = llenas(inicioLateral, header.length);
+  const pocaAltura = llenasPrincipal >= 50 && llenasLateral <= llenasPrincipal * 0.2;
+
+  return conRotulo || repetidos || pocaAltura ? hueco : 0;
+}
+
+function ajustarRolesNomina(descriptor: DescriptorModulo, hoja: GridHoja, spec: SpecModulo): void {
+  const header = hoja.filas[spec.filaEncabezado - 1] ?? [];
+  const cols = spec.columnas;
+  const primera = spec.primeraFilaDatos;
+  const usada = (c: number) => Object.values(cols).includes(c);
+  const encabezado = (c: number) => norm(header[c - 1]);
+  const muestra = (c: number) => muestraColumna(hoja, primera, c);
+  const esTexto = (c: number) => proporcion(muestra(c), (v) => /[A-Za-zÁÉÍÓÚÑáéíóúñ]/.test(v)) >= 0.6;
+  const vecinaTexto = (desde: number, patron: RegExp): number => {
+    for (let c = desde + 1; c <= Math.min(desde + 3, header.length); c++) {
+      if (usada(c) || !encabezado(c)) continue;
+      if (patron.test(encabezado(c)) && esTexto(c)) return c;
+    }
+    return 0;
+  };
+
+  const esCodigos = (c: number) => { const v = muestra(c); return v.length > 0 && proporcion(v, (x) => ES_CODIGO.test(x)) >= 0.7; };
+
+  // 0) Nada por coincidencia DÉBIL (la clave contiene al encabezado): con 25 roles y sinónimos
+  //    cortos, «Cia» cae en agrupador por «dependen-cia» y «Concepto_» en código por «concepto
+  //    codigo». En Nómina un rol se gana con el encabezado exacto o que lo contenga.
+  for (const rc of descriptor.columnas) {
+    const c = cols[rc.nombre] ?? 0;
+    if (c >= 1 && puntajeRol(encabezado(c), rc) < 500) cols[rc.nombre] = 0;
+  }
+  // 0a) TABLA LATERAL: los libros del auditor pegan una tabla dinámica o un resumen a la
+  //     derecha del detalle, separados por una columna vacía (PLASMAR: «Etiquetas de fila |
+  //     Suma de Suma de Valor»; Pure Nature: «Novedad | Tipo | TOTAL» con 28 filas). Sus
+  //     columnas se reconocen porque repiten encabezados del bloque principal, traen rótulos
+  //     de tabla dinámica o tienen muchas menos filas llenas, y salen del mapeo: sumarlas
+  //     duplicaría el archivo.
+  const corteLateral = columnaDeCorteLateral(hoja, spec);
+  if (corteLateral > 0) {
+    for (const rc of descriptor.columnas) if ((cols[rc.nombre] ?? 0) >= corteLateral) cols[rc.nombre] = 0;
+  }
+  // 0b) Un código de concepto tiene que parecer código («001», «C001», «buk_salario»): una
+  //     columna con nombres («Concepto_» = «Aportes al ICBF») no lo es. Vacía se respeta.
+  if ((cols.codigo ?? 0) >= 1) {
+    const v = muestra(cols.codigo);
+    if (v.length > 0 && proporcion(v, (x) => /^\S{1,40}$/.test(x)) < 0.7) cols.codigo = 0;
+  }
+
+  // 1) La columna rotulada exactamente «Concepto» con contenido de CÓDIGO es el código
+  //    (Novasoft, SIESA, SIIGO, Ofimática); el nombre es la vecina de la derecha. Un «Código
+  //    interno contrato» que el puntaje haya tomado por código cede ante ella.
+  const colConceptoExacto = header.findIndex((h) => norm(h) === "concepto") + 1;
+  if (colConceptoExacto >= 1 && esCodigos(colConceptoExacto) && cols.codigo !== colConceptoExacto) {
+    if (cols.concepto === colConceptoExacto) cols.concepto = 0;
+    cols.codigo = colConceptoExacto;
+    if ((cols.concepto ?? 0) < 1) cols.concepto = vecinaTexto(colConceptoExacto, /concepto|descripci|nombre/);
+  }
+  // 1b) Cédula sin columna: un «Empleado» numérico que perdió el rol frente a «Nombre_Empleado»
+  //     (Ofimática), o cualquier «Tercero»/«Documento» con cédulas.
+  if ((cols.cedula ?? 0) < 1) {
+    const candidata = header.findIndex((h, i) => !usada(i + 1) && /empleado|cedula|identificaci|documento|nit|tercero/.test(norm(h)) && proporcion(muestra(i + 1), (v) => ES_DIGITOS.test(v)) >= 0.7);
+    if (candidata >= 0) cols.cedula = candidata + 1;
+  }
+  // 2) Cédula y empleado. La columna del empleado con contenido numérico es la cédula y el
+  //    nombre está en la vecina («Empleado» → «Nombre_Empleado», Ofimática); con «cédula +
+  //    nombre» en una sola celda (SIIGO «EMPLEADO», NOMINAI «8032318 - GALLEGO») la cédula
+  //    sale de esa misma celda y el nombre limpio de «Nombre», si existe; y el nombre es
+  //    siempre la columna pegada a la cédula, no un «Descripción Grp. Empleados» lejano.
+  const colEmpleado = cols.empleado ?? 0;
+  if (colEmpleado >= 1) {
+    const valores = muestra(colEmpleado);
+    if ((cols.cedula ?? 0) < 1 && proporcion(valores, (v) => ES_DIGITOS.test(v)) >= 0.7) {
+      cols.cedula = colEmpleado;
+      cols.empleado = vecinaTexto(colEmpleado, /nombre|descripci|empleado|trabajador/);
+    } else if (proporcion(valores, (v) => ES_CODIGO_Y_NOMBRE.test(v)) >= 0.7) {
+      if ((cols.cedula ?? 0) < 1) cols.cedula = colEmpleado;
+      const nombre = header.findIndex((h, i) => !usada(i + 1) && /^nombre/.test(norm(h)) && esTexto(i + 1));
+      if (nombre >= 0) cols.empleado = nombre + 1;
+    }
+  }
+  // Cédula mapeada a una columna vacía (Heinsohn «Código Empleado») cuando hay otra con cédulas.
+  if ((cols.cedula ?? 0) >= 1 && muestra(cols.cedula).length === 0) {
+    const otra = header.findIndex((h, i) => !usada(i + 1) && /cedula|identificaci|documento|nit/.test(norm(h)) && proporcion(muestra(i + 1), (v) => ES_DIGITOS.test(v)) >= 0.7);
+    if (otra >= 0) cols.cedula = otra + 1;
+  }
+  // El nombre del empleado es la PRIMERA columna de texto a la derecha de la cédula (SIESA
+  //  «Tercero | Descripción», SIIGO «Cédula | Nombre»); un «Descripción Grp. Empleados» más
+  //  lejos no lo es aunque el encabezado diga «empleado».
+  if ((cols.cedula ?? 0) >= 1) {
+    for (let c = cols.cedula + 1; c <= Math.min(cols.cedula + 3, header.length); c++) {
+      if (!encabezado(c) || !esTexto(c)) continue;
+      const otroRol = Object.entries(cols).find(([rol, col]) => col === c && rol !== "empleado");
+      if (!otroRol && /nombre|descripci|empleado|trabajador|\bsn\b/.test(encabezado(c))) cols.empleado = c;
+      break;
+    }
+  }
+  // 3) «Cuenta contable» que no trae cuentas (Buk: 1, 3, 31) no es la cuenta.
+  const colCuenta = cols.cuenta ?? 0;
+  if (colCuenta >= 1 && proporcion(muestra(colCuenta), (v) => ES_CUENTA.test(v.replace(/\D/g, ""))) < 0.6) cols.cuenta = 0;
+  // 4) Con devengo/deducción en columnas aparte, el valor sale de ellas: un «Total» a su lado
+  //    es el neto de la fila (Ofimática) y un «Valor IBC período anterior» (SIESA) no es nada.
+  const colValor = cols.valor ?? 0;
+  if (colValor >= 1 && ((cols.devengo ?? 0) >= 1 || (cols.deduccion ?? 0) >= 1)) {
+    if (/total|neto/.test(encabezado(colValor)) && (cols.neto ?? 0) < 1) cols.neto = colValor;
+    cols.valor = 0;
+  }
+  // 4b) El TIPO solo sirve si de verdad dice devengo/deducción («Ingreso», «Ganancias»,
+  //     «Deducción», «Naturaleza: Devengo»); «Tipo contrato», «Tipo MM» o una columna vacía no.
+  const colTipo = cols.tipo ?? 0;
+  if (colTipo >= 1 && proporcion(muestra(colTipo), (v) => /ingres|deduc|devengo|ganancia|provision|aporte|egreso|descuent|sobregiro|percep/i.test(v)) < 0.5) {
+    cols.tipo = 0;
+  }
+  // 5) «GRUPO» con la clase contable (51/52/72/73) es el agrupador aunque haya centro de costo.
+  const colGrupo = header.findIndex((h) => norm(h) === "grupo") + 1;
+  if (colGrupo >= 1 && colGrupo !== cols.agrupador && proporcion(muestra(colGrupo), (v) => /^(51|52|61|72|73)$/.test(v)) >= 0.8) {
+    cols.agrupador = colGrupo;
+  }
+  // 6) Un «Mes» que trae fechas completas es el período de la quincena (Buk), no el mes suelto.
+  const colMes = cols.mes ?? 0;
+  if (colMes >= 1 && (cols.periodo ?? 0) < 1 && proporcion(muestra(colMes), (v) => /^\d{4}-\d{2}-\d{2}/.test(v)) >= 0.8) {
+    cols.periodo = colMes;
+    cols.mes = 0;
+  }
+  // 6b) Rango del acumulado SIIGO: «De» y «A» con AAAAMM. Por rótulo exacto y contenido; y si el
+  //     puntaje les dio otra cosa («Desde» con fechas de contrato), se limpia.
+  const esAaaamm = (c: number) => proporcion(muestra(c), (v) => /^(19|20)\d{2}(0[1-9]|1[0-2])$/.test(v)) >= 0.7;
+  for (const [rol, rotulos] of [["periodoDesde", /^(de|desde)$/], ["periodoHasta", /^(a|hasta)$/]] as const) {
+    if ((cols[rol] ?? 0) >= 1 && !esAaaamm(cols[rol])) cols[rol] = 0;
+    if ((cols[rol] ?? 0) < 1) {
+      const c = header.findIndex((h, i) => !usada(i + 1) && rotulos.test(norm(h)) && esAaaamm(i + 1));
+      if (c >= 0) cols[rol] = c + 1;
+    }
+  }
+  // 7) Los roles de fecha se leen como fechas; «Fecha Ing» (ingreso del empleado), «Fecha
+  //    alta/baja/retiro» no son ninguna, y una fecha casi siempre vacía («Fecha Final TNL»
+  //    de SIESA, solo en las incapacidades) tampoco decide el período.
+  for (const rol of ["fecha", "fechaCorte"] as const) {
+    const c = cols[rol] ?? 0;
+    if (c < 1) continue;
+    if (/ingres|\bing\b|alta|baja|retiro|nacim|tnl|ant\b/.test(encabezado(c))) { cols[rol] = 0; continue; }
+    const llenas = muestraColumna(hoja, primera, c, 60).length;
+    const total = Math.min(60, Math.max(0, hoja.filas.length - (primera - 1)));
+    if (total > 0 && llenas / total < 0.3) cols[rol] = 0;
+  }
+  // 8) Los roles que se arrastran (mes, concepto, empleado impresos una vez por bloque) se
+  //    recalculan con el mapeo ya corregido: el reparto inicial los fijó antes de estos ajustes.
+  const arrastrar = (descriptor.arrastrables ?? []).filter((rol) => (cols[rol] ?? 0) >= 1);
+  if (arrastrar.length) spec.arrastrarRoles = arrastrar;
+  else delete spec.arrastrarRoles;
 }

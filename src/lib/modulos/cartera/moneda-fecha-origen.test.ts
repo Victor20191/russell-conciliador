@@ -71,3 +71,9 @@ describe("origen de la cartera", () => {
     expect(ubicadorCuentaCliente(cuentas, { usarPropia: true })("280505")).toBe("280505");
   });
 });
+
+describe("fechaISO · serial de Excel escrito como texto", () => {
+  it("lo convierte como el número (el .xls de Zarzal guarda «46018» sin estilo)", () => {
+    expect([fechaISO("46018"), fechaISO(" 46022 "), fechaISO("4602"), fechaISO("460180")]).toEqual(["2025-12-27", "2025-12-31", null, null]);
+  });
+});

@@ -17,13 +17,15 @@ function fechaValida(anio: number, mes: number, dia: number): string | null {
   return fecha.toISOString().slice(0, 10);
 }
 
-/** Fecha ISO (AAAA-MM-DD) de una celda: ISO, «dd/mm/aaaa» o número de serie de Excel. */
+/** Fecha ISO (AAAA-MM-DD) de una celda: ISO, «dd/mm/aaaa» o número de serie de Excel (también escrito como texto). */
 export function fechaISO(valor: unknown): string | null {
   if (typeof valor === "number" && Number.isFinite(valor)) {
     if (valor < 20_000 || valor > 80_000) return null;
     return new Date(EPOCA_EXCEL + Math.round(valor) * DIA_MS).toISOString().slice(0, 10);
   }
   const texto = String(valor ?? "").trim();
+  // El serial también llega como TEXTO cuando la celda se guardó tal cual («46018»).
+  if (/^\d{5}$/.test(texto)) return fechaISO(Number(texto));
   const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(texto);
   if (iso) return fechaValida(Number(iso[1]), Number(iso[2]), Number(iso[3]));
   const local = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/.exec(texto);

@@ -1,6 +1,8 @@
 // Lógica PURA de promoción (staging → detalle oficial) y consolidación por clasificador.
 // Sin BD: las Server Actions leen el staging, llaman estas funciones y persisten.
 
+import { claveConsolidado } from "./nomina/clave-consolidado";
+
 export type FilaStagingModulo = {
   filaNum: number;
   clasificador: string | null;
@@ -59,24 +61,46 @@ export function promoverStaging(filas: FilaStagingModulo[], columnasNumericas: s
   return { detalle, total, filas: imputables.length };
 }
 
-export type ConsolidadoClasificador = { clasificador: string; total: number; filas: number };
+export type ConsolidadoClasificador = {
+  /** El clasificador o, con `porAgrupador`, la clave «clasificador ∥ agrupador». */
+  clasificador: string;
+  total: number;
+  filas: number;
+  /** Solo con `porAgrupador`: el clasificador a secas y el agrupador ('' si la fila no trae). */
+  codigo?: string;
+  agrupador?: string;
+};
 
 /**
  * Consolida por CLASIFICADOR (Σ valor), excluyendo agrupadoras y totales (subtotales del
  * archivo): SOLO suman los movimientos. Base de la pestaña «Consolidado» y del cruce contra
  * la cuenta de 4 díg. `null` cae en «(sin clasificar)».
+ *
+ * Con `porAgrupador` (Nómina) el renglón es el par (clasificador, agrupador): un mismo concepto
+ * en dos centros de costo son dos renglones, porque pueden ir a cuentas distintas (510506 en
+ * administración, 720505 en producción). La clave del renglón se serializa con
+ * `claveConsolidado` para que la pestaña, sus acciones y las anclas sigan llaveando por un
+ * solo string.
  */
-export function consolidarPorClasificador(filas: Array<{ clasificador: string | null; valor: number; tipoFila?: string }>): ConsolidadoClasificador[] {
-  const m = new Map<string, { total: number; filas: number }>();
+export function consolidarPorClasificador(
+  filas: Array<{ clasificador: string | null; valor: number; tipoFila?: string; agrupador?: string | null }>,
+  opciones?: { porAgrupador?: boolean },
+): ConsolidadoClasificador[] {
+  const porAgrupador = opciones?.porAgrupador === true;
+  const m = new Map<string, { total: number; filas: number; codigo: string; agrupador: string }>();
   for (const f of filas) {
     if (f.tipoFila && f.tipoFila !== "movimiento") continue;
-    const k = f.clasificador?.trim() || "(sin clasificar)";
-    const b = m.get(k) ?? { total: 0, filas: 0 };
+    const codigo = f.clasificador?.trim() || "(sin clasificar)";
+    const agrupador = porAgrupador ? String(f.agrupador ?? "").trim() : "";
+    const k = porAgrupador ? claveConsolidado(codigo, agrupador) : codigo;
+    const b = m.get(k) ?? { total: 0, filas: 0, codigo, agrupador };
     b.total += f.valor;
     b.filas += 1;
     m.set(k, b);
   }
   return [...m.entries()]
-    .map(([clasificador, b]) => ({ clasificador, total: redondear(b.total), filas: b.filas }))
+    .map(([clasificador, b]) => (porAgrupador
+      ? { clasificador, total: redondear(b.total), filas: b.filas, codigo: b.codigo, agrupador: b.agrupador }
+      : { clasificador, total: redondear(b.total), filas: b.filas }))
     .sort((a, b) => Math.abs(b.total) - Math.abs(a.total) || a.clasificador.localeCompare(b.clasificador));
 }
