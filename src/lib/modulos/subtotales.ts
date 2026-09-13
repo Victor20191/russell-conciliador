@@ -317,6 +317,40 @@ function colaPosteriorManualExacta(
 }
 
 /**
+ * Un archivo tiene UN solo gran total. Las distintas pasadas de la detección (cola de
+ * control, rótulo, aritmética sobre lo que queda) pueden llegar cada una a un candidato, y
+ * `controlSubtotales` toma el primero: en un reporte de SIESA eso era el encabezado de una
+ * SECCIÓN —que vale la suma de su propio bloque— en vez del «Total» del pie, y el panel
+ * reportaba un descuadre de 1,85 millones donde la diferencia real era de un peso.
+ *
+ * Gana la evidencia más fuerte: la coordenada que ubicó el usuario, luego el rótulo, luego
+ * la cola de control, luego la aritmética sola. A igualdad, el más cercano al pie, que es
+ * donde los ERP imprimen el gran total.
+ *
+ * Los perdedores se DEGRADAN a subtotal; no se descartan. Descartarlos devolvería la fila
+ * al detalle como movimiento y, si no va en negrita, IMPUTARÍA: la plata se contaría dos
+ * veces. Como subtotal sigue fuera del consolidado y entra al control de su grupo.
+ */
+export function resolverGranTotalUnico(
+  detecciones: DeteccionSubtotal[],
+  filas: readonly FilaCandidata[],
+): DeteccionSubtotal[] {
+  const grandes = detecciones.filter((d) => d.clase === "gran_total");
+  if (grandes.length <= 1) return detecciones;
+  const peso = (d: DeteccionSubtotal): number =>
+    d.senales.includes("marca_manual") ? 4
+      : d.senales.includes("rotulo") ? 3
+        : d.senales.includes("cola") ? 2
+          : 1;
+  const ganador = grandes.reduce((mejor, d) =>
+    peso(d) > peso(mejor) || (peso(d) === peso(mejor) && d.indice > mejor.indice) ? d : mejor);
+  return detecciones.map((d) =>
+    d.clase !== "gran_total" || d === ganador
+      ? d
+      : { ...d, clase: "subtotal" as const, grupo: filas[d.indice]?.clasificador ?? null, bloque: null });
+}
+
+/**
  * Marca las filas de SUBTOTAL (por grupo) y el GRAN TOTAL de un archivo. Solo evalúa
  * movimientos con valor; procesa en orden de archivo y cada subtotal detectado queda fuera
  * de los bloques siguientes.
@@ -485,7 +519,7 @@ export function detectarSubtotales(
       && Math.abs(filas[r.indice].valor - sumaRestantes) <= toleranciaSubtotal(sumaRestantes));
     if (candidato) { candidato.clase = "gran_total"; candidato.bloque = null; candidato.grupo = grupoGranTotal(filas[candidato.indice]); }
   }
-  return resultado.sort((a, b) => a.indice - b.indice);
+  return resolverGranTotalUnico(resultado, filas).sort((a, b) => a.indice - b.indice);
 }
 
 /** Motivo legible/persistible de una detección: «subtotal:rotulo,aritmetica». */

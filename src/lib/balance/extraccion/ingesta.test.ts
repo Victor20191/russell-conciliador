@@ -38,6 +38,30 @@ async function libroXlsxConMetadataTolerada(): Promise<ArrayBuffer> {
   ) as ArrayBuffer;
 }
 
+/**
+ * Libro con la hoja ANTES que `sharedStrings.xml` y `styles.xml` dentro del zip, el orden en
+ * que llegan algunos exportes reales (el auxiliar de CxP de Helisa): el lector streaming de
+ * ExcelJS emite esa hoja sin haber leído sus textos ni sus estilos.
+ */
+async function libroXlsxHojaAntesQueTextos(): Promise<ArrayBuffer> {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet("Hoja1");
+  ws.getRow(2).values = ["NOMBRE DEL ACREEDOR", "CUENTA", "TOTAL CXP"];
+  ws.getRow(2).font = { bold: true };
+  ws.getRow(3).values = ["APORTES EN LINEA SA", 23359509, 80794100];
+  const base = await JSZip.loadAsync(await wb.xlsx.writeBuffer());
+  const orden = ["[Content_Types].xml", "_rels/.rels", "xl/workbook.xml", "xl/_rels/workbook.xml.rels", "xl/worksheets/sheet1.xml", "xl/theme/theme1.xml", "xl/styles.xml", "xl/sharedStrings.xml"];
+  const posicion = (nombre: string) => (orden.includes(nombre) ? orden.indexOf(nombre) : orden.length);
+  const reordenado = new JSZip();
+  const nombres = Object.keys(base.files).filter((n) => !base.files[n].dir).sort((a, b) => posicion(a) - posicion(b));
+  for (const nombre of nombres) {
+    const contenido = await base.file(nombre)?.async("uint8array");
+    if (contenido) reordenado.file(nombre, contenido);
+  }
+  const bytes = await reordenado.generateAsync({ type: "uint8array", compression: "DEFLATE" });
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+}
+
 function fuentePredeterminadaNegritaXls(data: ArrayBuffer): ArrayBuffer {
   const cfb = XLSX.CFB.read(new Uint8Array(data), { type: "array" });
   const entrada = XLSX.CFB.find(cfb, "/Workbook") ?? XLSX.CFB.find(cfb, "/Book");
@@ -108,6 +132,24 @@ describe("ingerir Excel moderno (.xlsx)", () => {
         ["Mercancía", "A-1", 1234.5],
       ],
     });
+  });
+
+  it("relee el libro cuando la hoja viene antes que sus textos y estilos en el zip", async () => {
+    const data = await libroXlsxHojaAntesQueTextos();
+    const ingesta = await ingerir(data, "CUENTAS POR PAGAR.xlsx");
+    expect(ingesta.modo).toBe("tabular");
+    if (ingesta.modo !== "tabular") return;
+    expect(ingesta.hojas[0]).toMatchObject({
+      nombre: "Hoja1",
+      filas: [
+        ["NOMBRE DEL ACREEDOR", "CUENTA", "TOTAL CXP"],
+        ["APORTES EN LINEA SA", 23359509, 80794100],
+      ],
+      filasFisicas: [2, 3],
+    });
+    expect(ingesta.hojas[0].negrita).toEqual([[true, true, true], [false, false, false]]);
+    await expect(leerCeldaFisicaArchivo(data, "CUENTAS POR PAGAR.xlsx", "Hoja1", 3, 1))
+      .resolves.toEqual({ hojaExiste: true, filaExiste: true, valor: "APORTES EN LINEA SA" });
   });
 });
 

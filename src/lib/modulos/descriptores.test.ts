@@ -68,7 +68,7 @@ describe("descriptores de módulos", () => {
       .filter((d) => d.columnas.some((c) => c.nombre === "tercero"))
       .map((d) => d.codigo)
       .sort();
-    expect(conRolGenericoTercero).toEqual(["CXP", "ING"]);
+    expect(conRolGenericoTercero).toEqual(["ING"]);
 
     for (const d of Object.values(MODULOS_IMPORT)) {
       if (!d.crucePorTercero.habilitado && !d.crucePorTercero.rolClave) continue;
@@ -129,12 +129,12 @@ describe("descriptores de módulos", () => {
   });
 });
 
-describe("contratos nuevos del descriptor (solo Cartera los usa hoy)", () => {
+describe("contratos nuevos del descriptor (Cartera y Cuentas por Pagar)", () => {
   const CAR = MODULOS_IMPORT.CAR;
 
   it("los demás módulos NO declaran ninguno: su comportamiento no cambia", () => {
     for (const d of Object.values(MODULOS_IMPORT)) {
-      if (d.codigo === "CAR") continue;
+      if (d.codigo === "CAR" || d.codigo === "CXP") continue;
       expect(d.familiasDinamicas, d.codigo).toBeUndefined();
       expect(d.valorDerivado, d.codigo).toBeUndefined();
       expect(d.arrastrables, d.codigo).toBeUndefined();
@@ -176,10 +176,21 @@ describe("contratos nuevos del descriptor (solo Cartera los usa hoy)", () => {
   it("el cruce por tercero de Cartera acota el lado contable a las tres cuentas acordadas", () => {
     expect(CAR.crucePorTercero.cuentasRussell6).toEqual(["130505", "130510", "280505"]);
     expect(CAR.crucePorTercero.exigidoParaCierre).toBe(true);
+    expect(CAR.crucePorTercero.detalleTercero).toBe(true);
     // Ningún otro módulo acota por cuenta de seis dígitos todavía.
     for (const d of Object.values(MODULOS_IMPORT)) {
-      if (d.codigo === "CAR") continue;
+      if (d.codigo === "CAR" || d.codigo === "CXP") continue;
       expect(d.crucePorTercero.cuentasRussell6, d.codigo).toBeUndefined();
+      expect(d.crucePorTercero.detalleTercero, d.codigo).toBeUndefined();
     }
+  });
+
+  it("Cuentas por Pagar concilia contra las doce cuentas depuradas de RF-CXP-06, con naturaleza crédito", () => {
+    const CXP = MODULOS_IMPORT.CXP;
+    expect(CXP.crucePorTercero).toMatchObject({ habilitado: true, rolClave: "nit", naturaleza: "C", detalleTercero: true, exigidoParaCierre: true });
+    expect(CXP.crucePorTercero.cuentasRussell6).toEqual(["220505", "221005", "233510", "233520", "233525", "233530", "233540", "233555", "233595", "133005", "133010", "133095"]);
+    expect(CXP.valorDerivado).toEqual({ deFamilia: "edades", prevalece: "columna" });
+    expect(CXP.noNegativos).toBeUndefined();
+    expect(CXP.columnas.find((c) => c.nombre === "nit")?.requerido).toBe(true);
   });
 });

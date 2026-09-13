@@ -1342,7 +1342,7 @@ model ModuloDatoEncabezado {
   creadoEn           DateTime            @default(now()) @map("creado_en") @db.Timestamptz(3)
   detalles           ModuloDatoDetalle[]
 
-  saldosTercero CarteraSaldoTercero[]
+  saldosTercero SaldoTerceroModulo[]
 
   @@unique([clienteId, moduloCodigo, periodo, version])
   @@index([moduloCodigo, clienteId])
@@ -1370,7 +1370,11 @@ model MarcaCruceModulo {
   moduloCodigo    String                 @map("modulo_codigo")
   periodo         String                 @map("periodo") // etiqueta del período (p. ej. "2025-12")
   numero          Int                    @map("numero") // correlativo de la marca dentro del período
-  cuenta4         String                 @map("cuenta_4") // cuenta Russell de 4 dígitos
+  /// `cuenta4` (una cuenta de la cédula contable) o `tercero` (un tercero del cruce por tercero).
+  dimension       String                 @default("cuenta4") @map("dimension")
+  cuenta4         String?                @map("cuenta_4") // cuenta Russell de 4 dígitos; null en las marcas de tercero
+  /// Clave del tercero en las marcas de dimensión `tercero`; null en las de cuenta.
+  clave           String?                @map("clave")
   nota            String                 @map("nota") // detalle de la marca (la observación)
   referenciaAnexo String?                @map("referencia_anexo") // p. ej. «Anexo A-3 / PT-INV-04»
   diferencia      Decimal                @default(0) @map("diferencia") @db.Decimal(18, 2)
@@ -1383,8 +1387,35 @@ model MarcaCruceModulo {
 
   @@unique([clienteId, moduloCodigo, periodo, cuenta4], map: "marca_cruce_modulo_unica")
   @@unique([clienteId, moduloCodigo, periodo, numero], map: "marca_cruce_modulo_numero_unico")
+  @@unique([clienteId, moduloCodigo, periodo, clave], map: "marca_cruce_modulo_tercero_unica")
   @@index([clienteId, moduloCodigo, periodo], map: "marca_cruce_modulo_periodo_idx")
   @@map("marca_cruce_modulo")
+}
+
+/// EMPAREJAMIENTO MANUAL de un tercero del auxiliar de un módulo con un tercero del balance por
+/// terceros (RF-CXC-12; D4 de CxP): «el tercero X del auxiliar es el Y del balance». Es memoria del
+/// cliente, no dato de un cargue: con `periodo` vacío vale para todos los períodos, y uno del
+/// período prevalece sobre el general. N:1: varias claves del auxiliar pueden ir al mismo tercero.
+model EmparejamientoTerceroModulo {
+  id            Int      @id @default(autoincrement()) @map("id")
+  clienteId     Int      @map("cliente_id") // FK suave a clientes
+  moduloCodigo  String   @map("modulo_codigo")
+  /// Período del módulo («2025-12») o "" para todos los períodos.
+  periodo       String   @default("") @map("periodo")
+  claveModulo   String   @map("clave_modulo")
+  claveBalance  String   @map("clave_balance")
+  nombreModulo  String?  @map("nombre_modulo")
+  nombreBalance String?  @map("nombre_balance")
+  /// `manual` | `sugerido_nombre` (el usuario confirmó una sugerencia por nombre).
+  origen        String   @default("manual") @map("origen")
+  nota          String?  @map("nota")
+  creadoPor     String?  @map("creado_por")
+  creadoPorId   Int?     @map("creado_por_id")
+  creadoEn      DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  @@unique([clienteId, moduloCodigo, periodo, claveModulo], map: "emparejamiento_tercero_modulo_unico")
+  @@index([clienteId, moduloCodigo], map: "emparejamiento_tercero_modulo_cliente_idx")
+  @@map("emparejamiento_tercero_modulo")
 }
 
 /// Soporte de una marca de auditoría (el anexo digital: PDF, Excel, CSV o imagen).
@@ -1472,7 +1503,9 @@ model ModuloDatoDetalle {
 /// tercero) · `declarado` (lo que el propio archivo dice que vale ese tercero: la cabecera
 /// de un reporte jerárquico o un archivo de control). Contrastar `declarado` contra
 /// `agregado` certifica que el archivo se leyó bien: en SAP y SIESA cuadra al centavo.
-model CarteraSaldoTercero {
+/// Saldos por tercero de los módulos con detalle por tercero (Cartera y CxP). La tabla física
+/// conserva el nombre con el que nació en Cartera.
+model SaldoTerceroModulo {
   id             Int                  @id @default(autoincrement()) @map("id")
   encabezadoId   Int                  @map("encabezado_id")
   encabezado     ModuloDatoEncabezado @relation(fields: [encabezadoId], references: [id], onDelete: Cascade)
@@ -2181,6 +2214,11 @@ model ConciliacionModuloCierre {
   moduloDatoEncabezadoId  Int                           @map("modulo_dato_encabezado_id") // FK suave a modulo_dato_encabezado
   balanceEncabezadoId     Int                           @map("balance_encabezado_id") // FK suave: balance conciliado
   cuentasRussell          Json                          @map("cuentas_russell") // cuentas Russell (4 díg.) del módulo conciliadas
+  /// Cuentas Russell de 6 dígitos cuando el módulo concilia por tercero (Cartera, CxP): el bloqueo se
+  /// limita a ellas. Null en los cierres anteriores, que siguen bloqueando por cuenta de 4.
+  cuentasRussell6         Json?                         @map("cuentas_russell_6")
+  /// Evidencia del cruce por tercero al cerrar: totales, conteos y huella SHA-256 de clave → diferencia.
+  resumenCruceTercero     Json?                         @map("resumen_cruce_tercero")
   estado                  String                        @default("firme") @map("estado") // firme | desbloqueado
   cerradoPorId            Int?                          @map("cerrado_por_id")
   cerradoPor              String                        @map("cerrado_por")

@@ -51,11 +51,14 @@ type Entrada = {
 /** Etiqueta del tipo de documento delante del número («NIT», «CC», «C.C.», «Cédula»). */
 const ETIQUETA_DOCUMENTO = /^(nit|c\.?c\.?|cedula|c[eé]dula|ti|ce|pas(?:aporte)?)\s*[:.\-]?\s*/i;
 
-/** Prefijo alfabético corto de SAP delante de un número largo («C900123456»). */
-const PREFIJO_SAP = /^([A-Za-z]{1,2})(?=\d{5,}$)/;
+/** Prefijo alfabético corto delante de un número largo: SAP «C900123456», PLASMAR «B 63222913». */
+const PREFIJO_SAP = /^([A-Za-z]{1,2})\s?(?=\d{5,}$)/;
 
-/** Marca de cartera del exterior que SIEVENSOFT antepone al identificador. */
-const PREFIJO_EXTERIOR = /^(EXT)[\s\-]?(?=\d)/i;
+/** Marca de tercero del exterior: SIEVENSOFT «EXT000123», SAP «EIN911144442», RUT, USCC, TIN, VAT. */
+const PREFIJO_EXTERIOR = /^(EXT|EIN|RUT|USCC|TIN|VAT)[\s\-:]?(?=\d)/i;
+
+/** LIBRA exporta el retorno de carro de la celda como el literal «_x000D_». */
+const limpiarExcel = (v: unknown): unknown => (typeof v === "string" ? v.replace(/_x000D_/gi, " ") : v);
 
 /**
  * Sufijo de sucursal de SIESA. El separador es OPCIONAL: el ERP lo pega al número
@@ -92,8 +95,8 @@ const texto = (v: unknown): string => (v == null ? "" : String(v).replace(/\s+/g
  */
 export function normalizarTerceroCartera(entrada: Entrada): TerceroCartera {
   const observaciones: string[] = [];
-  let bruto = texto(entrada.nit);
-  const nombreColumna = texto(entrada.nombre) || null;
+  let bruto = texto(limpiarExcel(entrada.nit));
+  const nombreColumna = texto(limpiarExcel(entrada.nombre)) || null;
   let sucursal = texto(entrada.sucursal) || null;
   let dv = texto(entrada.dv) || null;
   let origenSugerido: OrigenCartera | null = null;
@@ -155,7 +158,7 @@ export function normalizarTerceroCartera(entrada: Entrada): TerceroCartera {
   }
 
   const conPrefijo = PREFIJO_SAP.exec(bruto);
-  if (conPrefijo) bruto = bruto.slice(conPrefijo[1].length);
+  if (conPrefijo) bruto = bruto.slice(conPrefijo[0].length);
 
   // Si hasta aquí no quedaron dígitos, el texto es realmente un nombre (o basura): se
   // delega al normalizador genérico, que sabe separar «NIT nombre» en una sola celda.

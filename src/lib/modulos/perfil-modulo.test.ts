@@ -187,7 +187,7 @@ describe("regresión: los módulos sin familias no cambian", () => {
     columnas: Object.fromEntries(MODULOS_IMPORT[modulo].columnas.map((c, i) => [c.nombre, i + 1])),
   });
 
-  for (const modulo of ["INV", "AFI", "ING", "CXP", "NOM"] as const) {
+  for (const modulo of ["INV", "AFI", "ING", "NOM"] as const) {
     it(`${modulo}: los campos nuevos se descartan al normalizar`, () => {
       const limpio = normalizarSpecModulo(MODULOS_IMPORT[modulo], specDe(modulo));
       const contaminado = normalizarSpecModulo(MODULOS_IMPORT[modulo], {
@@ -198,10 +198,22 @@ describe("regresión: los módulos sin familias no cambian", () => {
         arrastrarRoles: ["tercero"],
         nivel: "documento",
         origenCartera: "exterior",
+        invertirSigno: true,
       });
       expect(JSON.stringify(contaminado)).toBe(JSON.stringify(limpio));
     });
   }
+
+  it("Cuentas por Pagar traduce su perfil anterior y conserva los campos del detalle por tercero", () => {
+    const CXP = MODULOS_IMPORT.CXP;
+    const legado = normalizarSpecModulo(CXP, { hoja: "CXP", filaEncabezado: 1, primeraFilaDatos: 2, columnas: { tipo: 1, documento: 2, tercero: 3, saldo: 6 } });
+    expect(legado.columnas).toMatchObject({ cuenta: 1, documento: 2, nit: 3, total: 6 });
+    const conservado = normalizarSpecModulo(CXP, {
+      hoja: "CXP", filaEncabezado: 1, primeraFilaDatos: 2, columnas: { nit: 1 },
+      nivel: "tercero", invertirSigno: true, terceroModo: "cabecera",
+    });
+    expect(conservado).toMatchObject({ nivel: "tercero", invertirSigno: true, terceroModo: "cabecera" });
+  });
 
   it("Cartera SÍ los conserva", () => {
     const conservado = normalizarSpecModulo(CAR, {
@@ -291,5 +303,29 @@ describe("validarSpecModulo · familias", () => {
 
   it("sin familia también pasa: hay reportes de cartera sin antigüedad", () => {
     expect(validarSpecModulo(CAR, base(undefined))).toBeNull();
+  });
+});
+
+describe("normalizarSpecModulo · moneda, TRM de cierre y fecha de corte", () => {
+  const specUsd = {
+    hoja: "USD",
+    filaEncabezado: 1,
+    primeraFilaDatos: 2,
+    columnas: { nit: 1, total: 2 },
+    monedaArchivo: "USD",
+    trmCierre: 3757.08,
+    fechaCorte: "2025-12-31",
+  } as SpecModulo;
+
+  it("el perfil memoriza la moneda del formato, pero la TRM y la fecha de corte son del cargue", () => {
+    const reutilizable = normalizarSpecModulo(CAR, specUsd);
+    expect(reutilizable.monedaArchivo).toBe("USD");
+    expect([reutilizable.trmCierre, reutilizable.fechaCorte]).toEqual([undefined, undefined]);
+    expect(normalizarSpecModuloArchivo(CAR, specUsd)).toMatchObject({ monedaArchivo: "USD", trmCierre: 3757.08, fechaCorte: "2025-12-31" });
+  });
+
+  it("los módulos sin detalle por tercero no conservan nada de esto", () => {
+    const inv = normalizarSpecModuloArchivo(INV, specInv({ monedaArchivo: "USD", trmCierre: 4000, fechaCorte: "2025-12-31" }));
+    expect([inv.monedaArchivo, inv.trmCierre, inv.fechaCorte]).toEqual([undefined, undefined, undefined]);
   });
 });

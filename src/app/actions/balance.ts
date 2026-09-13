@@ -72,7 +72,7 @@ import type { FilaDetalle } from "@/lib/balance/calcular";
 import { detectarManipulacionesRiesgosas, reclasificarHuerfanas, reclasificarSoloHojas, corregirCodigosPlaceholder, marcarNoContables, validarReubicacionesBorrador, type FilaBorrador } from "@/lib/balance/borrador";
 import { esBalancePorTercero, colapsarTerceros, esBalancePorTerceroSufijo, consolidarTercerosPorSufijo, marcarCuentaNit } from "@/lib/balance/terceros";
 import { leerIdentidadTercero } from "@/lib/balance/identidad-tercero";
-import { derivarStagingTercero, prepararCapturaTercero } from "@/lib/balance/staging-tercero";
+import { claveTerceroDeCaptura, derivarStagingTercero, prepararCapturaTercero } from "@/lib/balance/staging-tercero";
 import { detectoDetallePorTercero, etiquetaApertura, parsearApertura, type AperturaBalance } from "@/lib/balance/apertura-balance";
 import { invalidarStagingBorrador, type RevisionReubicacionStaging } from "@/lib/balance/staging-borrador";
 import { marcarRelistadoGuiones } from "@/lib/balance/relistado";
@@ -2086,6 +2086,7 @@ async function capturarBalanceTerceroEnTransaccion(tx: TransactionClient, p: {
         nombreCuenta: f.nombreCuenta, cuenta6Russell: f.cuenta6Russell, coincidencia: f.coincidencia,
         nitTercero: f.nitTercero, nombreTercero: f.nombreTercero,
         identidadTercero: f.identidadTercero,
+        claveTercero: claveTerceroDeCaptura(f),
         saldoInicial: f.saldoInicial, debitos: f.debitos, creditos: f.creditos, saldoFinal: f.saldoFinal,
       })),
     });

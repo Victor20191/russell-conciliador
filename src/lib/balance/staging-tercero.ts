@@ -23,7 +23,7 @@ import {
   esFilaTerceroSufijo,
 } from "./terceros";
 import { normalizarTerceroModulo } from "@/lib/modulos/tercero";
-import { nucleoNit } from "@/lib/nit";
+import { claveTerceroCanonica, nucleoNit } from "@/lib/nit";
 import { reconocerIdentidadTercero, type IdentidadTercero } from "./identidad-tercero";
 
 /** Fila del staging paralelo: UNA por (cuenta, tercero) tal como vino en el archivo. */
@@ -267,4 +267,14 @@ export function filasEfectivasTercero<T extends { cuenta8: string; nitTercero: s
   const cuentasConDetalle = new Set<string>();
   for (const f of filas) if (!esFilaPropiaDeCuenta(f)) cuentasConDetalle.add(f.cuenta8);
   return filas.filter((f) => !esFilaPropiaDeCuenta(f) || !cuentasConDetalle.has(f.cuenta8));
+}
+
+/**
+ * Clave canónica del tercero de una fila capturada (`balance_tercero_detalle.clave_tercero`):
+ * el documento COMPLETO de la identidad cuando el archivo lo trae y, si no, el NIT guardado.
+ * La fila propia de la cuenta no tiene tercero ni clave. Es la llave con la que los módulos
+ * con detalle por tercero cruzan; `nit_tercero` sigue siendo el núcleo de 9 histórico.
+ */
+export function claveTerceroDeCaptura(fila: Pick<FilaCapturaTercero, "identidadTercero" | "nitTercero">): string | null {
+  return claveTerceroCanonica(fila.identidadTercero?.numeroDocumento ?? fila.nitTercero);
 }

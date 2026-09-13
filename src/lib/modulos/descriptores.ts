@@ -62,8 +62,30 @@ export interface ConfiguracionCrucePorTercero {
    * Vacío/ausente = sin acotar (comportamiento actual).
    */
   cuentasRussell6?: readonly string[];
+  /**
+   * El módulo concilia por tercero con DETALLE: guarda el nivel de cada fila (tercero o
+   * documento), su imputabilidad, la clave canónica del NIT, la cuenta y el origen del
+   * archivo; materializa los saldos por tercero y exige que todo el saldo quede atribuido.
+   * Es lo que comparten Cartera y Cuentas por Pagar. Ausente = cruce por tercero simple.
+   */
+  detalleTercero?: boolean;
+  /**
+   * Cuentas Russell de 6 dígitos que dicen el ORIGEN de una fila por su cuenta: la del exterior
+   * (se factura en divisa) y la nacional. El resto de cuentas del módulo no deciden el origen.
+   */
+  cuentasExterior?: string[];
+  cuentasNacional?: string[];
   /** El cierre en firme del módulo exige además que el cruce por tercero esté resuelto. */
   exigidoParaCierre?: boolean;
+  /**
+   * Naturaleza del MÓDULO para el lado contable del cruce por tercero: «D» (cartera) lee
+   * todas sus cuentas con el signo del balance (débito +, crédito −) y «C» (cuentas por
+   * pagar) con el signo invertido. El factor por cuenta del prevalidador muestra positiva
+   * cada cuenta según su clase, y así un anticipo (280505 en cartera) SUMABA al saldo del
+   * tercero en vez de restarlo, como sí lo resta el auxiliar: una diferencia falsa del doble
+   * del anticipo. Ausente = factor por cuenta (comportamiento anterior).
+   */
+  naturaleza?: "D" | "C";
 }
 
 /**
@@ -301,7 +323,11 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
       rolDv: "dv",
       rolSucursal: "sucursal",
       cuentasRussell6: ["130505", "130510", "280505"],
+      cuentasNacional: ["130505"],
+      cuentasExterior: ["130510"],
       exigidoParaCierre: true,
+      naturaleza: "D",
+      detalleTercero: true,
     },
     verificaciones: [
       { id: "car_anticipos", texto: "Confirme si la cartera incluye saldos a favor de clientes (anticipos)." },
@@ -310,22 +336,71 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     ],
   },
 
-  // ===== Cuentas por Pagar (CXP) → cuentas 22xx/23xx =====
+  // ===== Cuentas por Pagar (CXP) → 2205/2210/2335 y anticipos 1330 =====
+  // Estructura análoga a Cartera, contra el pasivo (RF-CXP-01…14): comparte su motor de
+  // detalle por tercero. Lo propio de CxP sale de los 16 auxiliares reales analizados: el
+  // saldo de la columna manda sobre las edades (SAP deja sin edad los documentos por
+  // vencer), varios ERP imprimen la deuda en negativo y SIIGO pone el saldo del proveedor
+  // solo en la primera fila de su bloque.
   CXP: {
     codigo: "CXP",
     label: "Cuentas por Pagar",
     columnas: [
-      col("tipo", "Tipo de cuenta por pagar", "texto", true, ["tipo", "clase", "cuenta", "concepto"]),
-      col("documento", "Documento / factura", "texto", true, ["factura", "documento", "comprobante", "referencia", "numero"]),
-      col("tercero", "Tercero / proveedor", "texto", false, ["tercero", "proveedor", "nombre", "razon social", "nit"]),
-      col("fecha", "Fecha", "fecha", false, ["fecha", "emision"]),
-      col("vencimiento", "Vencimiento", "fecha", false, ["vencimiento", "vence", "fecha vencimiento"]),
-      col("saldo", "Saldo", "moneda", true, ["saldo", "valor", "saldo pendiente", "monto", "total"]),
+      col("cuenta", "Cuenta contable del archivo", "texto", false, ["cuenta", "cta", "cuenta contable", "codigo contable", "codigo cuenta", "cuenta asociada"]),
+      col("nit", "NIT / cédula del proveedor", "texto", true, ["nit", "identificacion", "tercero", "proveedor", "codigo", "codigo de proveedor", "cod provedor", "cod proveedor", "cedula", "documento identidad"]),
+      col("nombre", "Nombre / razón social", "texto", false, ["nombre", "nombres", "razon social", "nombre tercero", "nombre proveedor", "nombre de acreedor", "nombre del acreedor", "nombre acreedor", "proveedor acreedor"]),
+      col("dv", "Dígito de verificación", "texto", false, ["dig ver", "digito verificacion", "digito de verificacion"]),
+      col("sucursal", "Sucursal / agencia", "texto", false, ["sucursal", "sucurs", "agencia"]),
+      col("documento", "Documento / factura", "texto", false, ["documento", "factura", "comprobante", "n documento", "no documento", "num", "numero documento", "nro dcto", "nro fact", "nro factura"]),
+      col("tipoDocumento", "Tipo de documento", "texto", false, ["tipo documento", "tipo dcto", "tipo", "t dcto", "t op", "doc", "serie"]),
+      // Sin «fecha de contabilización»: en SAP convive con «Fecha de documento» y le ganaba.
+      col("fecha", "Fecha del documento", "fecha", false, ["fecha", "fecha factura", "fecha de documento", "fecha dcto", "fech exp", "f expedic", "fecha asiento", "f doc", "emision"]),
+      col("vencimiento", "Fecha de vencimiento", "fecha", false, ["vencimiento", "vence", "f vcto", "fec vence", "fecha vence", "fecha vencimiento", "fecha de vencimiento", "fech ven", "f venc", "f vencim"]),
+      col("diasVencidos", "Días vencidos", "numero", false, ["dias vencidos", "dias vcto", "dias ven", "d m", "numdias", "dias de mora", "dias"]),
+      // «Saldo vencido» es, en SAP, el saldo ABIERTO del documento, no solo lo vencido.
+      col("total", "Saldo del documento o del proveedor", "moneda", false, ["saldo", "total", "valor total", "importe", "saldo pendiente", "monto", "saldo vencido", "total proveedor", "total cxp", "deuda pesos", "saldo cop"]),
+      // Sin sinónimos: lo propone el sugeridor cuando la columna de saldo solo trae dato en la
+      // primera fila de cada bloque (SIIGO). Es el control del proveedor; nunca imputa.
+      col("saldoTercero", "Saldo del proveedor (1.ª fila del bloque)", "moneda", false, []),
+      col("edadEtiqueta", "Rango de edad (etiqueta)", "texto", false, ["edad", "edades", "rango"]),
+      col("moneda", "Moneda", "texto", false, ["moneda", "divisa"]),
+      col("tasaCambio", "Tasa de cambio", "numero", false, ["tc", "trm", "tasa de cambio", "tasa cambio", "t cambio"]),
+      col("marcaSeccion", "Marca de renglón de cuenta", "texto", false, ["ter", "no terceros", "cantidad terceros"]),
     ],
-    clasificador: "tipo",
-    valor: "saldo",
-    noNegativos: ["saldo"],
-    crucePorTercero: { habilitado: true },
+    familiasDinamicas: [
+      {
+        nombre: "edades",
+        etiqueta: "Rangos de vencimiento",
+        tipo: "moneda",
+        detector: (encabezado: unknown) => esRotuloEdad(encabezado) != null,
+      },
+    ],
+    clasificador: "cuenta",
+    valor: "total",
+    // D2 (12/Sep/2026): manda el saldo de la columna. Las edades dan el valor solo cuando la
+    // columna no viene o viene en cero (SIESA Zarzal); si ambas vienen y difieren, se alerta.
+    valorDerivado: { deFamilia: "edades", prevalece: "columna" },
+    // Sin «noNegativos»: un anticipo o una nota a favor es un saldo negativo legítimo.
+    arrastrables: ["nit", "nombre", "cuenta"],
+    rolesLlaveItem: ["nit", "documento"],
+    rolesDetalle: ["documento", "tipoDocumento"],
+    usarNegritaComoEstructura: true,
+    // Perfiles guardados con el descriptor anterior (tipo/tercero/saldo).
+    aliasLegado: { saldo: "total", tercero: "nit", tipo: "cuenta" },
+    crucePorTercero: {
+      habilitado: true,
+      rolClave: "nit",
+      rolNombre: "nombre",
+      rolDv: "dv",
+      rolSucursal: "sucursal",
+      // D1 (12/Sep/2026): RF-CXP-06 depurado contra el PUC Russell.
+      cuentasRussell6: ["220505", "221005", "233510", "233520", "233525", "233530", "233540", "233555", "233595", "133005", "133010", "133095"],
+      cuentasNacional: ["220505"],
+      cuentasExterior: ["221005"],
+      exigidoParaCierre: true,
+      naturaleza: "C",
+      detalleTercero: true,
+    },
     verificaciones: [
       { id: "cxp_vinculados", texto: "Confirme si existen cuentas por pagar a vinculados económicos." },
       { id: "cxp_exterior", texto: "Verifique la existencia de obligaciones en moneda extranjera y su reexpresión." },

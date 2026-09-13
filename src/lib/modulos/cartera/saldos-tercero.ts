@@ -185,7 +185,9 @@ export function materializarSaldosTercero(
     // la contraparte del control.
     if (fila.saldoDeclarado != null) {
       acumular({ ...fila, nivel: "tercero" }, "declarado", fila.saldoDeclarado, 0);
-      continue;
+      // Una cabecera no imputa. Un DOCUMENTO que además trae el saldo de su proveedor (SIIGO lo
+      // imprime en la primera fila del bloque) sí: declara el bloque y suma lo suyo.
+      if (!fila.imputable) continue;
     }
     if (!fila.imputable) {
       // Filas del nivel de CONTROL (el archivo que no suma en este período).

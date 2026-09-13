@@ -222,6 +222,177 @@ describe("el encabezado se reconoce por su contenido, no por su número de fila"
   });
 });
 
+describe("el gran total en negrita entra al control del archivo", () => {
+  // Ofimática imprime su total al pie EN NEGRITA. Si la negrita decidía «agrupadora» antes
+  // de detectar subtotales, esa fila nunca llegaba al control: el panel «Validación del
+  // archivo» quedaba mudo, y en el archivo real hay 0,50 de diferencia que nadie veía.
+  const ofimatica = () => hoja(
+    "CXC POR EDADES",
+    [
+      ["NIT", "Proveedor / Acreedor", "Valor Total", "0-30 días", "Más de 90 días"],
+      ["890905211-1", "MUNICIPIO DE MEDELLIN", 4, 4, 0],
+      ["890907106-5", "MUNICIPIO DE ENVIGADO", 1000, 400, 600],
+      [null, "TOTAL CUENTAS POR COBRAR", 1004, 404, 600],
+    ],
+    [[], [false, false, false, false, false], [false, false, false, false, false], [true, true, true, true, true]],
+  );
+
+  it("la fila del total se reconoce como total, no como agrupadora", () => {
+    const r = transformarModulo(CAR, specDe(ofimatica()), ofimatica());
+    const pie = r.filas.find((f) => f.datos.nombre === "TOTAL CUENTAS POR COBRAR");
+    expect(pie?.tipoFila).toBe("total");
+    // Con un solo grupo, esa fila vale lo mismo como subtotal del bloque que como gran total,
+    // y el motor la toma como subtotal. Lo que importa es que ENTRA al control: antes era
+    // agrupadora y el panel no la veía.
+    expect(pie?.motivo).toMatch(/^(gran_total|subtotal)/);
+  });
+
+  it("y sigue sin sumar: el total imputado son los dos terceros", () => {
+    const r = transformarModulo(CAR, specDe(ofimatica()), ofimatica());
+    expect(movimientos(r).map((f) => f.valor)).toEqual([4, 1000]);
+    expect(r.filasLeidas).toBe(2);
+  });
+
+  it("una fila en negrita que NO es subtotal vuelve a agrupadora y no imputa", () => {
+    const h = hoja(
+      "H",
+      [
+        ["NIT", "NOMBRE", "Valor Total", "0-30 días"],
+        ["800197463", "UNO", 100, 100],
+        ["890904478", "DOS · SEÑALADO EN NEGRITA", 999, 999],
+      ],
+      [[], [false, false, false, false], [true, true, true, true]],
+    );
+    const r = transformarModulo(CAR, specDe(h), h);
+    const negrita = r.filas.find((f) => f.datos.nit === "890904478");
+    expect(negrita?.tipoFila).toBe("agrupadora");
+    expect(movimientos(r).map((f) => f.valor)).toEqual([100]);
+    expect(r.filasLeidas + r.filasExcluidas).toBe(2);
+  });
+
+  it("los módulos sin `usarNegritaComoEstructura` no cambian: la negrita sigue decidiendo al leer", () => {
+    const rigido = { ...CAR, usarNegritaComoEstructura: undefined };
+    const r = transformarModulo(rigido, specDe(ofimatica()), ofimatica());
+    expect(r.filas.find((f) => f.datos.nombre === "TOTAL CUENTAS POR COBRAR")?.tipoFila).toBe("agrupadora");
+  });
+});
+
+describe("reportes jerárquicos de SIESA: secciones de cuenta e identificador compartido", () => {
+  // Cinco terceros con un documento cada uno bajo una sección de cuenta, con los valores y la
+  // negrita de los archivos reales: la sección y las cabeceras de tercero van en negrita; los
+  // documentos, en letra normal.
+  const NITS = ["1000294846", "10078880", "0992796928001", "647406", "72771"];
+  const NOMBRES = ["JUNIELES MARTINEZ CAROLAY", "JARAMILLO ECHEVERRI OVIDIO", "BIOMEDIZIN SA", "PAREJA GARCIA JUAN", "MOSTRADOR VENTAS"];
+  const DOCS = ["001-FVM-00735278-000", "001-FVM-00737239-000", "001-NCM-00492829-000", "002-FVP-00012263-000", "003-FVU-00130626-000"];
+  const SALDOS = [100, 200, 300, 400, 500];
+  /** Negrita en toda la fila para las filas que cumplan el predicado (índice 0 = encabezado). */
+  const negritaDe = (filas: unknown[][], enNegrita: (i: number) => boolean) =>
+    filas.map((f, i) => (i === 0 ? [] : f.map(() => enNegrita(i))));
+  // Sección (fila 1), cabeceras de tercero (filas pares hasta la 10) y total (fila 12).
+  const negritaJerarquica = (i: number) => i === 1 || (i >= 2 && i <= 12 && i % 2 === 0);
+
+  const esperarJerarquia = (r: ReturnType<typeof transformarModulo>, cuenta: string) => {
+    const docs = movimientos(r);
+    expect(docs.map((f) => f.valor)).toEqual(SALDOS);
+    expect(docs.map((f) => f.datos.nit)).toEqual(NITS);
+    expect(docs.map((f) => f.datos.nombre)).toEqual(NOMBRES);
+    expect(docs.every((f) => f.clasificador === cuenta)).toBe(true);
+    const cabeceras = r.filas.filter((f) => f.motivo === "subtotal_tercero:cabecera");
+    expect(cabeceras.map((f) => f.datos.nit)).toEqual(NITS);
+    expect(cabeceras.map((f) => f.saldoDeclarado)).toEqual(SALDOS);
+    // La sección no inventa un tercero con el código de la cuenta, y no imputa.
+    const secciones = r.filas.filter((f) => f.motivo === "seccion_cuenta");
+    expect(secciones.map((f) => [f.clasificador, f.tipoFila, f.datos.nit])).toEqual([[cuenta, "agrupadora", null]]);
+  };
+
+  it("Zarzal: cuenta, tercero y documento en la MISMA columna, y el «Total» en otra", () => {
+    const filas: (string | number | null)[][] = [
+      [null, null, null, "Documento", "Fecha", "F.Vcto.", "#Ter.", "Corriente", "Total"],
+      [null, null, null, "13050500", " NACIONALES", null, 5, 1500, 1500],
+      ...NITS.flatMap((nit, i) => [
+        [null, null, null, nit, "  " + NOMBRES[i], null, null, SALDOS[i], SALDOS[i]],
+        [null, null, null, DOCS[i], 46009 + i, 46025 + i, null, SALDOS[i], 0],
+      ]),
+      [null, null, "Total", null, null, null, null, 1500, 1500],
+      [null, null, "Siesa Enterprise Net 1.25.0", null, null, null, null, null, null],
+    ];
+    const h = hoja("Hoja 1", filas, negritaDe(filas, negritaJerarquica));
+    const spec = specDe(h);
+    expect(spec.columnas.nit).toBe(4);
+    expect(spec.columnas.documento).toBe(4);
+    expect(spec.terceroModo).toBe("cabecera");
+    const r = transformarModulo(CAR, spec, h);
+    esperarJerarquia(r, "13050500");
+    // El nombre sale de la columna «Fecha» de la cabecera, que ahí no trae fecha.
+    expect(r.filas.find((f) => f.motivo === "subtotal_tercero:cabecera")?.datos.fecha).toBeNull();
+    // El «Total» de la columna 3 entra al control del archivo y no imputa.
+    const pie = r.filas.find((f) => f.filaNum === 13);
+    expect(pie?.tipoFila).toBe("total");
+    expect(pie?.valor).toBe(1500);
+  });
+
+  it("detalle de Mineralin: identificador en una columna SIN encabezado y «*» en los documentos", () => {
+    const filas: (string | number | null)[][] = [
+      [null, "Documento", "Fecha", "F.Vcto.", "#Ter.", "Saldo"],
+      ["13050505", null, "CLIENTES NACIONALES", null, 5, 1500],
+      ...NITS.flatMap((nit, i) => [
+        [nit, null, " " + NOMBRES[i], null, null, SALDOS[i]],
+        [i % 2 === 0 ? "*" : null, DOCS[i], 45762 + i, 45763 + i, null, SALDOS[i]],
+      ]),
+      ["Total", null, null, null, null, 1500],
+      ["SBS 1.25.0", null, null, null, null, "Pág."],
+    ];
+    const h = hoja("Hoja 1", filas, negritaDe(filas, negritaJerarquica));
+    const spec = specDe(h);
+    expect(spec.columnas.nit).toBe(1);
+    expect(spec.terceroModo).toBe("cabecera");
+    const r = transformarModulo(CAR, spec, h);
+    esperarJerarquia(r, "13050505");
+    expect(r.filas.find((f) => f.filaNum === 13)?.tipoFila).toBe("total");
+    // El pie del ERP no se vuelve la cabecera de un tercero «SBS 1.25.0».
+    expect(r.filas.some((f) => f.datos.nit === "SBS 1.25.0")).toBe(false);
+  });
+
+  it("resumen de Aceros Mapa (sin documentos): aquí la negrita marca la CUENTA y el tercero va en letra normal", () => {
+    const filas: (string | number | null)[][] = [
+      ["Código", null, "Descripción", "#Ter.", "Saldo"],
+      ["2805", null, "  ANTICIPOS Y AVANCES RECIBIDOS", null, -300],
+      ["280505", null, "     DE CLIENTES CREDITO", null, -300],
+      ["800161633", null, "      CONSTRUCTORA LAS GALIAS", null, -100],
+      ["800240559", null, "      H2O CONTROL INGENIERIA", null, -200],
+      ["28", null, " OTROS PASIVOS NO FINANCIEROS", 2, -300],
+      ["Total", null, null, null, -300],
+    ];
+    const h = hoja("Hoja 1", filas, negritaDe(filas, (i) => i === 1 || i === 2 || i === 5 || i === 6));
+    const spec = specDe(h);
+    expect(spec.terceroModo).not.toBe("cabecera");
+    const r = transformarModulo(CAR, spec, h);
+    expect(movimientos(r).map((f) => [f.datos.nit, f.datos.nombre, f.clasificador, f.valor])).toEqual([
+      ["800161633", "CONSTRUCTORA LAS GALIAS", "280505", -100],
+      ["800240559", "H2O CONTROL INGENIERIA", "280505", -200],
+    ]);
+    expect(r.filas.filter((f) => f.motivo === "seccion_cuenta").map((f) => f.clasificador)).toEqual(["2805", "280505", "28"]);
+    expect(r.filas.find((f) => f.filaNum === 7)?.tipoFila).toBe("total");
+  });
+
+  it("fuera de SIESA, un «Total» sin identidad en una columna sin rol sigue siendo una fila sin dueño", () => {
+    // En SIIGO y World Office esas filas son subtotales por tercero: tomarlas como candidatas
+    // llenaba el panel de descuadres falsos. Solo el formato con «#Ter.» las rescata.
+    const filas: (string | number | null)[][] = [
+      ["NIT", "Nombre", "Saldo", null],
+      ["800161633", "CONSTRUCTORA LAS GALIAS", 100, null],
+      ["800240559", "H2O CONTROL INGENIERIA", 200, null],
+      [null, null, 300, "Total"],
+    ];
+    const h = hoja("Hoja 1", filas);
+    const r = transformarModulo(CAR, specDe(h), h);
+    const pie = r.filas.find((f) => f.filaNum === 4);
+    expect(pie?.tipoFila).toBe("agrupadora");
+    expect(pie?.motivo).toBe("sin_identificador");
+    expect(movimientos(r).map((f) => f.valor)).toEqual([100, 200]);
+  });
+});
+
 describe("filas que NO son cartera", () => {
   it("un pie del ERP con importe pero sin identidad no suma", () => {
     // Mismo defecto que la fila de «clase 0» del balance: plata que no es de nadie. Queda

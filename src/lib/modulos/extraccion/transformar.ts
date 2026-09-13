@@ -19,6 +19,8 @@ import type { DescriptorModulo } from "../descriptores";
 import type { SpecModulo } from "./esquema";
 import { norm, puntajeRol } from "./sugerir";
 import { coincideMarcaSubtotal, columnasDetalle, detectarSubtotales, esRotuloTotal, motivoDe } from "../subtotales";
+import { archivoConDocumentos, esIdentificadorVacio, esNumeroDocumento, rolDeCeldaCompartida } from "../cartera/identificador-compartido";
+import { aPesos, esMonedaExtranjera, montoConDivisa } from "../cartera/moneda";
 
 export type TipoFilaModulo = "movimiento" | "agrupadora" | "total";
 export type ValorCelda = string | number | null;
@@ -48,6 +50,10 @@ export type FilaModulo = {
   origenValor?: "columna" | "familia" | "columna_y_familia";
   /** Saldo que la CABECERA de un tercero declara para todo su bloque (`terceroModo`). */
   saldoDeclarado?: number;
+  /** Importe en divisa del que salió `valor` (hoja en USD o celda «USD (54,323.40)»), su moneda y la TRM. */
+  saldoDivisa?: number;
+  moneda?: string;
+  trm?: number;
 };
 
 export type ExcepcionModulo = { filaNum: number; mensaje: string };
@@ -89,6 +95,8 @@ function redondear(v: number): number {
 }
 
 const celda = (fila: CeldaCruda[], col1: number): CeldaCruda => (col1 >= 1 ? (fila[col1 - 1] ?? null) : null);
+/** Importe con código de divisa escrito como texto: «USD (54,323.40)», «EUR 1.200,00». */
+const MONTO_EN_DIVISA = /^[A-Z]{3}\s*\(?-?[\d.,]+\)?$/;
 const aTexto = (c: CeldaCruda): string | null => (c == null ? null : String(c).replace(/\s+/g, " ").trim() || null);
 const aNumero = (c: CeldaCruda): number | null =>
   typeof c === "number" ? c : typeof c === "boolean" ? (c ? 1 : 0) : c == null ? null : normalizarMonto(String(c));
@@ -175,6 +183,12 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     .map((f) => ({ nombre: f.nombre, columnas: spec.familias?.[f.nombre] ?? [] }))
     .filter((f) => f.columnas.length > 0);
   const hayFamilias = familiasSpec.length > 0;
+  // Convención de signo del archivo (CxP): la deuda que el ERP imprime en negativo se guarda
+  // en positivo. Se aplica a los importes al leerlos, así el valor, las edades, el saldo
+  // declarado y los controles quedan todos en la misma convención.
+  const conDetalleTercero = descriptor.crucePorTercero.detalleTercero === true;
+  const factorSigno = spec.invertirSigno === true && conDetalleTercero ? -1 : 1;
+  const conSigno = (v: number | null): number | null => (v == null || v === 0 ? v : v * factorSigno);
 
   // Cuando el archivo NO trae la columna del descriptor (ILIMITADA no publica total) pero sí
   // los baldes, el primero hace de columna de valor para las redes de seguridad (inicio
@@ -234,8 +248,49 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     ...(descriptor.crucePorTercero.rolNombre ? [descriptor.crucePorTercero.rolNombre] : []),
   ].filter((rol) => (spec.columnas[rol] ?? 0) >= 1);
   const exigeIdentidad = (descriptor.rolesLlaveItem?.length ?? 0) > 0 && rolesIdentidad.length > 0;
+
+  // ===== SIESA: secciones de cuenta e identificador compartido =====
+  // SIESA imprime en la columna del identificador, según la fila, la CUENTA contable (con
+  // «#Ter.», la cantidad de terceros de la sección), el TERCERO y —en Zarzal, que no le da
+  // columna propia— el número del DOCUMENTO. El motor asigna un rol por columna: sin esto la
+  // cuenta se leía como un tercero y en Zarzal ningún documento tenía dueño.
+  // Solo en los módulos con detalle por tercero (Cartera, CxP) y cuando el archivo trae
+  // «#Ter.»: es la firma del formato, y fuera de él
+  // la negrita no significa lo mismo.
+  const rolIdentificador = rolClave ?? "";
+  const colIdentidad = rolIdentificador ? (spec.columnas[rolIdentificador] ?? 0) : 0;
+  const colMarcaSeccion = spec.columnas.marcaSeccion ?? 0;
+  const colDocumento = spec.columnas.documento ?? 0;
+  const rolNombre = descriptor.crucePorTercero.rolNombre ?? "";
+  const formatoSiesa = descriptor.crucePorTercero.detalleTercero === true
+    && colIdentidad >= 1
+    && colMarcaSeccion >= 1;
+  const columnaCompartida = formatoSiesa && colIdentidad === colDocumento;
+  // La negrita significa cosas OPUESTAS según el archivo traiga o no documentos (ver
+  // «identificador-compartido.ts»): se decide una vez, mirando la columna del documento.
+  const hayDocumentos = formatoSiesa && colDocumento >= 1
+    && archivoConDocumentos(hoja.filas.slice(inicio).map((f) => celda(f ?? [], colDocumento)));
+  // Lo que la sección y la cabecera del tercero declaran una vez y sus filas heredan.
+  let ultimaCuentaSeccion: string | null = null;
+  let ultimoNombreTercero: string | null = null;
+  /** Primer texto con letras a la derecha del identificador que no es un documento: el nombre. */
+  const nombreJuntoAlIdentificador = (filaR: CeldaCruda[]): { nombre: string; columna: number } | null => {
+    for (let c = colIdentidad + 1; c <= colIdentidad + 3; c++) {
+      const v = aTexto(celda(filaR, c));
+      if (v != null && /[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/.test(v) && !esNumeroDocumento(v)) return { nombre: v, columna: c };
+    }
+    return null;
+  };
+  // Filas que esperan a la detección de subtotales y, si no resultan subtotal, vuelven a
+  // agrupadora con este motivo.
+  const motivoAlDegradar = new Map<number, string>();
+  // Fila rotulada de proveedor (SEVEN): el identificador solo existe en esas filas.
+  const filaTercero = conDetalleTercero && rolIdentificador ? spec.filaTercero ?? null : null;
   // Señales crudas por fila (paralelas a `filas`) para la detección de subtotales: no van a `datos`.
   const crudo: { negrita: boolean; rotuloClasificador: string | null; marcaManual: boolean; marcaManualExacta: boolean }[] = [];
+  // Filas en negrita cuya clasificación se decide DESPUÉS de detectar subtotales (ver
+  // «negrita diferida» más abajo). Solo en módulos con `usarNegritaComoEstructura`.
+  const negritaDiferida = new Set<number>();
   // Modo "manual" de subtotales: columna (1-based del ARCHIVO, no necesariamente mapeada a
   // un rol) cuyo contenido marca las filas de subtotal.
   const colMarcaSubtotal = spec.subtotales === "manual" ? (spec.subtotalesColumna ?? 0) : 0;
@@ -253,6 +308,17 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     return marcaVacia || negrita;
   };
 
+  // Importes en DIVISA, de toda la hoja (`spec.monedaArchivo`) o de una celda con su código: se
+  // convierten a pesos con la TRM de cierre del cargue (D3 de Cartera). Sin TRM no se inventa.
+  const trmCierre = conDetalleTercero && spec.trmCierre != null && spec.trmCierre > 0 ? spec.trmCierre : null;
+  const monedaArchivo = conDetalleTercero && esMonedaExtranjera(spec.monedaArchivo) ? (spec.monedaArchivo as string) : null;
+  if (monedaArchivo && !trmCierre) {
+    excepciones.push({
+      filaNum: spec.primeraFilaDatos,
+      mensaje: `Los importes están en ${monedaArchivo} y falta la TRM de cierre: se leyeron sin convertir a pesos.`,
+    });
+  }
+
   for (let r = inicio; r < hoja.filas.length; r++) {
     const fila = hoja.filas[r] ?? [];
     const filaNum = filaFisicaDe(r);
@@ -260,11 +326,116 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
 
     // 1) Leer cada columna mapeada según su tipo.
     const datos: Record<string, ValorCelda> = {};
+    let divisaFila: { moneda: string; valor: number } | null = null;
     for (const rc of descriptor.columnas) {
       const col = spec.columnas[rc.nombre] ?? 0;
       if (col < 1) { datos[rc.nombre] = null; continue; }
       const raw = celda(fila, col);
-      datos[rc.nombre] = esNumerica.get(rc.nombre) ? aNumero(raw) : aTexto(raw);
+      if (!esNumerica.get(rc.nombre)) { datos[rc.nombre] = aTexto(raw); continue; }
+      // Importe en moneda extranjera escrito como texto («USD (54,323.40)», SAP): con la TRM de
+      // cierre se convierte a pesos y la divisa queda como constancia; sin ella no se lee como
+      // pesos, pero se avisa para que no desaparezca en silencio.
+      if (conDetalleTercero && rc.tipo === "moneda" && typeof raw === "string" && MONTO_EN_DIVISA.test(raw.trim())) {
+        const enDivisa = montoConDivisa(raw);
+        if (enDivisa && trmCierre) {
+          const divisa = conSigno(enDivisa.valor) ?? 0;
+          datos[rc.nombre] = aPesos(divisa, trmCierre);
+          if (rc.nombre === descriptor.valor || !divisaFila) divisaFila = { moneda: enDivisa.moneda, valor: divisa };
+          continue;
+        }
+        datos[rc.nombre] = null;
+        excepciones.push({ filaNum, mensaje: "Importe en moneda extranjera sin convertir en «" + rc.etiqueta + "»: " + raw.trim() + ". Indica la TRM de cierre para convertirlo a pesos." });
+        continue;
+      }
+      datos[rc.nombre] = rc.tipo === "moneda" ? conSigno(aNumero(raw)) : aNumero(raw);
+    }
+
+    // 1.2) SIESA · marcas de relleno en los roles de identidad («*» en la columna del NIT de
+    //      los documentos de Mineralin): no identifican a nadie, y dejarlas impediría que el
+    //      documento heredara el tercero de su cabecera.
+    if (formatoSiesa) {
+      for (const rol of rolesIdentidad) if (esIdentificadorVacio(datos[rol])) datos[rol] = null;
+    }
+
+    // 1.3) SIESA · la celda del identificador deja UN solo rol —cuenta, tercero o documento—
+    //      antes del arrastre y de la cabecera, que así trabajan igual que con columnas
+    //      separadas. «Total» se deja tal cual: lo resuelve la detección de totales.
+    let esSeccionCuenta = false;
+    const identificador = formatoSiesa ? aTexto(celda(fila, colIdentidad)) : null;
+    if (formatoSiesa && !(identificador != null && esTotal(identificador))) {
+      const negritaIdentificador = hoja.negrita?.[r]?.[colIdentidad - 1] === true;
+      let rolCelda = rolDeCeldaCompartida({
+        valor: identificador,
+        negrita: negritaIdentificador,
+        marcaSeccion: celda(fila, colMarcaSeccion),
+        hayDocumentos,
+      });
+      // Con documentos, la negrita sin «#Ter.» marca al tercero aunque su identificador no sea
+      // solo dígitos (pasaportes, códigos del exterior): perderlo haría que sus documentos
+      // heredaran el tercero anterior.
+      if (rolCelda === "otro" && hayDocumentos && negritaIdentificador) rolCelda = "tercero";
+
+      if (rolCelda === "cuenta") {
+        // Encabezado de sección: fija la cuenta de lo que sigue y no es de ningún tercero.
+        esSeccionCuenta = true;
+        ultimaCuentaSeccion = identificador;
+        ultimoNombreTercero = null;
+        ultimoPorRol.delete(rolIdentificador);
+        ultimoPorRol.delete(rolNombre);
+        datos[rolIdentificador] = null;
+        if (colDocumento >= 1) datos.documento = null;
+        datos[descriptor.clasificador] = identificador;
+      } else {
+        // Con documentos, la columna solo identifica al tercero en su cabecera; en el resumen
+        // (sin documentos) el tercero va en letra normal y cualquier texto puede serlo.
+        if (rolCelda === "vacia" || (hayDocumentos && rolCelda !== "tercero")) datos[rolIdentificador] = null;
+        if (columnaCompartida && rolCelda !== "documento") datos.documento = null;
+
+        // Nombre del tercero cuando su rol no tiene columna: SIESA lo imprime junto al
+        // identificador, en la columna que el encabezado rotula «Fecha» (en las filas de
+        // documento ahí va la fecha). Lo toma la fila del tercero y lo heredan sus documentos.
+        if (rolNombre && (spec.columnas[rolNombre] ?? 0) < 1) {
+          if (rolCelda === "tercero") {
+            const hallado = nombreJuntoAlIdentificador(fila);
+            ultimoNombreTercero = hallado?.nombre ?? null;
+            if (hallado) {
+              datos[rolNombre] = hallado.nombre;
+              // La columna prestada no trae su propio dato en la fila del tercero.
+              for (const rc of descriptor.columnas) {
+                if (rc.nombre !== rolNombre && (spec.columnas[rc.nombre] ?? 0) === hallado.columna) datos[rc.nombre] = null;
+              }
+            }
+          } else if (hayDocumentos && aTexto(datos.documento) != null && ultimoNombreTercero != null) {
+            datos[rolNombre] = ultimoNombreTercero;
+          }
+        }
+
+        // La cuenta de la sección vigente clasifica a sus terceros y documentos: cada fila sabe
+        // a qué cuenta pertenece y los bloques de control no cruzan de una cuenta a otra.
+        const conIdentidad = aTexto(datos[rolIdentificador]) != null || aTexto(datos.documento) != null;
+        if (conIdentidad && ultimaCuentaSeccion != null && aTexto(datos[descriptor.clasificador]) == null) {
+          datos[descriptor.clasificador] = ultimaCuentaSeccion;
+        }
+      }
+    }
+
+    // 1.4) Fila rotulada de proveedor (SEVEN): solo ella identifica al proveedor. En las demás
+    //      la columna del NIT trae otro dato (el consecutivo del documento, o el nombre en
+    //      «TOTAL PROVEEDOR»), así que se vacía y el documento hereda el de su cabecera.
+    let esFilaRotuladaTercero = false;
+    if (filaTercero) {
+      const rotuloFila = aTexto(celda(fila, filaTercero.columnaRotulo));
+      if (rotuloFila != null && norm(rotuloFila) === norm(filaTercero.texto)) {
+        esFilaRotuladaTercero = true;
+        const nombreFila = filaTercero.columnaNombre ? aTexto(celda(fila, filaTercero.columnaNombre)) : null;
+        datos[rolIdentificador] = aTexto(celda(fila, filaTercero.columnaClave));
+        if (rolNombre) datos[rolNombre] = nombreFila;
+        ultimoNombreTercero = nombreFila;
+        for (const rol of descriptor.rolesDetalle ?? []) datos[rol] = null;
+      } else {
+        datos[rolIdentificador] = null;
+        if (rolNombre && (spec.columnas[rolNombre] ?? 0) < 1 && aTexto(datos.documento) != null) datos[rolNombre] = ultimoNombreTercero;
+      }
     }
 
     // 1.5) Modo "seccion": los ENCABEZADOS de grupo fijan el clasificador de los ítems que
@@ -291,7 +462,7 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
       for (const f of familiasSpec) {
         const baldes: Record<string, number> = {};
         for (const c of f.columnas) {
-          const v = aNumero(celda(fila, c.columna));
+          const v = conSigno(aNumero(celda(fila, c.columna)));
           baldes[c.etiqueta] = v == null ? 0 : v;
           if (v != null && c.clase !== "excluir") suma += v;
         }
@@ -367,7 +538,15 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     // que quede debajo del último tercero heredaría su NIT y pasaría por cartera; lo que lo
     // delata es que no trae identidad suya.
     const tieneIdentidadPropia = rolesIdentidad.some((rol) => aTexto(datos[rol]) != null);
-    const rotuloDeFila = rotuloClasificadorCrudo ?? claveEnLaFila;
+    // Fila sin identidad propia que dice «Total» en una columna sin rol (Zarzal lo imprime en
+    // la tercera, lejos del identificador): es el total del archivo, no un pie sin dueño. Solo
+    // se busca en filas sin identidad (en las demás, «TOTAL ENERGIES» es un cliente) y solo en
+    // SIESA: en SIIGO y World Office esas filas son subtotales por tercero y, como candidatas,
+    // llenaban el panel «Validación del archivo» de descuadres falsos.
+    const rotuloTotalSuelto = formatoSiesa && exigeIdentidad && !tieneIdentidadPropia && rotuloClasificadorCrudo == null && claveEnLaFila == null
+      ? (fila.map((c) => aTexto(c)).find((t): t is string => t != null && esTotal(t)) ?? null)
+      : null;
+    const rotuloDeFila = rotuloClasificadorCrudo ?? claveEnLaFila ?? rotuloTotalSuelto;
     const esFilaDeTotal = rotuloDeFila != null && esTotal(rotuloDeFila);
     const esCabeceraTercero = modoCabecera && !esFilaDeTotal && claveEnLaFila != null && documentoEnLaFila == null;
     for (const rol of rolesArrastrados) {
@@ -403,6 +582,28 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
       valorReportado = valorColumna;
     }
 
+    // 4.7) Hoja en DIVISA: todo se leyó en la divisa y se convierte a pesos con la TRM de cierre
+    //      —baldes, su suma, el valor y el total reportado—, dejando la divisa como constancia.
+    let saldoDivisa: number | undefined = divisaFila?.valor;
+    let monedaFila: string | undefined = divisaFila?.moneda;
+    if (monedaArchivo && trmCierre) {
+      saldoDivisa = valor;
+      monedaFila = monedaArchivo;
+      if (familias) {
+        let suma = 0;
+        for (const f of familiasSpec) {
+          const baldes = familias[f.nombre];
+          for (const c of f.columnas) {
+            baldes[c.etiqueta] = aPesos(baldes[c.etiqueta] ?? 0, trmCierre);
+            if (c.clase !== "excluir") suma += baldes[c.etiqueta];
+          }
+        }
+        sumaFamilia = redondear(suma);
+      }
+      valor = origenValor === "familia" || origenValor === "columna_y_familia" ? (sumaFamilia ?? 0) : aPesos(valor, trmCierre);
+      if (valorReportado != null) valorReportado = aPesos(valorReportado, trmCierre);
+    }
+
     // 5) Negrita = subtotal del ERP → no cuenta en el valor. Según el descriptor, se
     //    marca `agrupadora` (rígido) o entra como movimiento OMITIDO (rescatable en el
     //    borrador). En ambos casos queda fuera del total.
@@ -420,7 +621,8 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
         datos,
         tipoFila: "agrupadora",
         motivo: "subtotal_tercero:cabecera",
-        saldoDeclarado: valor,
+        // La fila rotulada de SEVEN solo nombra al proveedor: no declara su saldo.
+        ...(esFilaRotuladaTercero ? {} : { saldoDeclarado: valor }),
         ...(familias ? { familias, sumaFamilia } : {}),
       });
       crudo.push({
@@ -436,7 +638,8 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     //      Son los pies del ERP y las filas de porcentaje. Quedan como agrupadora (fuera
     //      del total) pero visibles en el borrador, para que se puedan rescatar si la
     //      detección se equivoca.
-    if (exigeIdentidad && !esFilaDeTotal && !tieneIdentidadPropia) {
+    // Una SECCIÓN de cuenta de SIESA entra por la misma puerta: tampoco es de ningún tercero.
+    if (esSeccionCuenta || (exigeIdentidad && !esFilaDeTotal && !tieneIdentidadPropia)) {
       filasExcluidas++;
       filas.push({
         filaNum,
@@ -444,7 +647,7 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
         valor: 0,
         datos,
         tipoFila: "agrupadora",
-        motivo: "sin_identificador",
+        motivo: esSeccionCuenta ? "seccion_cuenta" : "sin_identificador",
         ...(familias ? { familias, sumaFamilia } : {}),
       });
       crudo.push({
@@ -458,9 +661,24 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
 
     const enNegrita = !marcaManualExacta && esAgrupadoraPorNegrita(hoja.negrita?.[r], spec, descriptor);
     const omitidaPorNegrita = enNegrita && descriptor.negritaComoOmitida === true;
-    const tipoFila: TipoFilaModulo = enNegrita && !omitidaPorNegrita ? "agrupadora" : "movimiento";
-    if (enNegrita) filasExcluidas++;
+    // Con `usarNegritaComoEstructura` la negrita NO decide aquí. La fila entra como
+    // CANDIDATA —movimiento con la señal de negrita— para que la detección de subtotales
+    // pueda reconocer el gran total que el ERP imprime en negrita al pie. Si no resulta
+    // subtotal, recupera su clasificación de siempre justo después de detectar.
+    const diferir = (enNegrita && !omitidaPorNegrita && descriptor.usarNegritaComoEstructura === true)
+      // El «Total» suelto también espera a la detección; si no resulta subtotal, vuelve a ser
+      // lo que era —una fila sin dueño— y nunca imputa.
+      || rotuloTotalSuelto != null;
+    const tipoFila: TipoFilaModulo = enNegrita && !omitidaPorNegrita && !diferir ? "agrupadora" : "movimiento";
+    // La diferida cuenta como leída por ahora: la detección de subtotales y la degradación
+    // posterior hacen el traspaso a excluidas con la misma contabilidad que ya usan.
+    if (enNegrita && !diferir) filasExcluidas++;
     else filasLeidas++;
+    if (diferir) negritaDiferida.add(filas.length);
+    if (rotuloTotalSuelto != null) motivoAlDegradar.set(filas.length, "sin_identificador");
+    // Saldo del proveedor impreso en la 1.ª fila de su bloque (SIIGO): control, nunca imputa.
+    const saldoBloqueLeido = aNumero(datos.saldoTercero);
+    const saldoDelBloque = saldoBloqueLeido != null && monedaArchivo && trmCierre ? aPesos(saldoBloqueLeido, trmCierre) : saldoBloqueLeido;
 
     filas.push({
       filaNum,
@@ -472,10 +690,12 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
       ...(familias ? { familias, sumaFamilia } : {}),
       ...(valorReportado !== undefined ? { valorReportado } : {}),
       ...(origenValor ? { origenValor } : {}),
+      ...(saldoDivisa != null && monedaFila && trmCierre ? { saldoDivisa, moneda: monedaFila, trm: trmCierre } : {}),
+      ...(saldoDelBloque != null && saldoDelBloque !== 0 ? { saldoDeclarado: redondear(saldoDelBloque) } : {}),
     });
     crudo.push({
       negrita: enNegrita,
-      rotuloClasificador: rotuloClasificadorCrudo,
+      rotuloClasificador: rotuloClasificadorCrudo ?? rotuloTotalSuelto,
       marcaManual: marcaManualExacta || (
         spec.subtotalesFila == null
         && colMarcaSubtotal >= 1
@@ -506,8 +726,11 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     if (f.omitida === true) filasExcluidas--; else filasLeidas--;
     filasExcluidas++;
     const grupo = d.clase === "gran_total" ? d.grupo : (d.grupo ?? f.clasificador);
-    const { omitida: _omitida, ...resto } = f;
+    // Un total del archivo no declara el saldo de ningún proveedor: si trajera el del bloque
+    // (el «Total <proveedor>» de SIIGO), se contaría dos veces en el control.
+    const { omitida: _omitida, saldoDeclarado: _saldoDeclarado, ...resto } = f;
     void _omitida;
+    void _saldoDeclarado;
     // El resto del bloque de control al pie (cifras de referencia del cliente y sus
     // diferencias) sale del consolidado como AGRUPADORA: no imputa y tampoco entra al
     // control, porque no es un subtotal del detalle y compararlo daría descuadres falsos.
@@ -523,6 +746,23 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
       tipoFila: "total",
       motivo: motivoDe(d),
     };
+  }
+
+  // NEGRITA DIFERIDA: la fila en negrita que la detección NO reconoció como subtotal
+  // recupera su clasificación de siempre —agrupadora, fuera del consolidado—. Diferir solo
+  // sirvió para que el gran total en negrita pudiera entrar al control del archivo.
+  for (const i of negritaDiferida) {
+    const f = filas[i];
+    if (!f || f.tipoFila !== "movimiento") continue;
+    // Una fila con su propio documento es un documento aunque venga en negrita (PLASMAR marca
+    // así tres facturas): la negrita estructura cabeceras y totales, no el detalle.
+    if (conDetalleTercero && (descriptor.rolesDetalle ?? []).some((rol) => aTexto(f.datos[rol] ?? null) != null)) continue;
+    filasLeidas--;
+    filasExcluidas++;
+    const motivo = motivoAlDegradar.get(i);
+    const { saldoDeclarado: _saldoDeclarado, ...sinDeclarado } = f;
+    void _saldoDeclarado;
+    filas[i] = { ...sinDeclarado, tipoFila: "agrupadora", ...(motivo ? { motivo } : {}) };
   }
 
   // PARTE B — RECONCILIACIÓN (red de seguridad): ¿queda alguna fila con valor real por

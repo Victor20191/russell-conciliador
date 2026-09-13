@@ -66,6 +66,7 @@ export default function ModulosDatosClient({
   moduloLabel,
   roles,
   clasificadorRol,
+  conNivelCartera,
   clientes,
   gruposCargados,
   puedeCrear,
@@ -75,6 +76,8 @@ export default function ModulosDatosClient({
   moduloLabel: string;
   roles: RolModulo[];
   clasificadorRol: string;
+  /** El módulo concilia por tercero: la carga declara qué es una fila y de dónde viene. */
+  conNivelCartera: boolean;
   clientes: ClienteModulo[];
   gruposCargados: GrupoClienteRow[];
   /** `modulos_datos:crear`: controla las entradas visibles al flujo de carga. */
@@ -96,6 +99,7 @@ export default function ModulosDatosClient({
             moduloLabel={moduloLabel}
             roles={roles}
             clasificadorRol={clasificadorRol}
+            conNivelCartera={conNivelCartera}
             clientes={clientes}
           />
         )}
@@ -114,6 +118,7 @@ export default function ModulosDatosClient({
         grupos={gruposCargados}
         busqueda={busqueda}
         ruta={ruta}
+        conNivelCartera={conNivelCartera}
         moduloCodigo={moduloCodigo}
         moduloLabel={moduloLabel}
         roles={roles}
@@ -135,6 +140,7 @@ function CargadosPorCliente({
   moduloLabel,
   roles,
   clasificadorRol,
+  conNivelCartera,
   clientes,
   onConversar,
   puedeCrear,
@@ -147,6 +153,7 @@ function CargadosPorCliente({
   moduloLabel: string;
   roles: RolModulo[];
   clasificadorRol: string;
+  conNivelCartera: boolean;
   clientes: ClienteModulo[];
   onConversar: OnConversar;
   puedeCrear: boolean;
@@ -376,6 +383,7 @@ function CargadosPorCliente({
                             moduloCodigo={moduloCodigo}
                             moduloLabel={moduloLabel}
                             roles={roles}
+                            conNivelCartera={conNivelCartera}
                             clasificadorRol={clasificadorRol}
                             clientes={clientes}
                             anexo={{

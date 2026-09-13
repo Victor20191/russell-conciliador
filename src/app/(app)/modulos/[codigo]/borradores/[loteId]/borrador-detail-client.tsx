@@ -17,6 +17,8 @@ import type { ReconciliacionModulo } from "@/lib/modulos/extraccion/transformar"
 import { aplicarCambiosBorradorModulo, cargarBorradorModulo, descartarBorradorModulo } from "@/app/actions/modulos-datos";
 import { NotasCargaModulo } from "../../notas-carga-modulo";
 import { ValidacionArchivo } from "../../validacion-archivo";
+import { compararSaldosTercero, materializarSaldosTercero, type NivelCartera } from "@/lib/modulos/cartera/saldos-tercero";
+import { filaCarteraDesdeDetalle, leerSaldoDeclarado } from "@/lib/modulos/cartera/detalle-cartera";
 
 export type FilaBorradorModulo = {
   filaNum: number;
@@ -28,7 +30,16 @@ export type FilaBorradorModulo = {
   /** Por qué el motor marcó la fila como subtotal (`total`), si aplica. */
   motivo?: string | null;
 };
-type Columna = { nombre: string; etiqueta: string; tipo: string };
+type Columna = { nombre: string; etiqueta: string; tipo: string; familia?: { clave: string; etiqueta: string } };
+
+/** Importe de un balde dentro del mapa que el transform dejó en `datos`. */
+function valorDeBalde(
+  datos: Record<string, string | number | null>,
+  familia: { clave: string; etiqueta: string },
+): number | null {
+  const mapa = (datos as unknown as Record<string, Record<string, number> | undefined>)[familia.clave];
+  return mapa?.[familia.etiqueta] ?? null;
+}
 type VersionHermanaBorradorModulo = { loteId: string; version: number; archivoNombre: string; fecha: string };
 const FILTRO_NOVEDADES = "__novedades__";
 
@@ -100,6 +111,7 @@ export default function BorradorModuloClient({
   cliente,
   periodoSugerido,
   columnas,
+  nivelCartera,
   clasificadorRol,
   noNegativos,
   productos,
@@ -118,6 +130,8 @@ export default function BorradorModuloClient({
   cliente: string;
   periodoSugerido: string;
   columnas: Columna[];
+  /** Qué representa una fila de este archivo (lo declara el wizard). */
+  nivelCartera: NivelCartera;
   clasificadorRol: string;
   valorRol: string;
   noNegativos: string[];
@@ -135,7 +149,7 @@ export default function BorradorModuloClient({
   const router = useRouter();
   const clasificadorEtiqueta = columnas.find((c) => c.nombre === clasificadorRol)?.etiqueta ?? "Tipo";
   const etiquetaCol = (nombre: string) => columnas.find((c) => c.nombre === nombre)?.etiqueta ?? nombre;
-  const columnasNumericas = columnas.filter((c) => c.tipo === "numero" || c.tipo === "moneda").map((c) => c.nombre);
+  const columnasNumericas = columnas.filter((c) => !c.familia && (c.tipo === "numero" || c.tipo === "moneda")).map((c) => c.nombre);
   const [overrideOmit, setOverrideOmit] = useState<Record<number, boolean>>({});
   // Subtotal del archivo ↔ movimiento: rescatar un falso positivo («Incluir» en una fila
   // `total`) o marcar a mano uno que el motor no detectó («Marcar subtotal»).
@@ -178,6 +192,26 @@ export default function BorradorModuloClient({
     () => [...new Set(filas.map((f) => f.clasificador?.trim()).filter((c): c is string => !!c))].sort(),
     [filas],
   );
+
+  // Control por TERCERO: solo tiene sentido cuando el archivo declara un saldo por cada
+  // uno (las cabeceras de un reporte jerárquico). Se calcula aquí, sobre las filas ya
+  // editadas, para que omitir o rescatar una fila se refleje al instante.
+  const controlTercero = useMemo(() => {
+    if (!efectivas.some((f) => leerSaldoDeclarado(f.datos) != null)) return null;
+    const { saldos } = materializarSaldosTercero(
+      efectivas.map((f) => filaCarteraDesdeDetalle(
+        {
+          filaNum: f.filaNum,
+          valor: f.valor,
+          datos: f.datos,
+          imputable: f.tipoFila === "movimiento" && f.omitida !== true,
+        },
+        nivelCartera,
+      )),
+      { loteId, nivelImputable: nivelCartera },
+    );
+    return compararSaldosTercero(saldos);
+  }, [efectivas, loteId, nivelCartera]);
 
   const hayCambiosFilas = Object.keys(overrideOmit).length + Object.keys(overrideClasif).length + Object.keys(overrideTipo).length > 0;
   const periodoCambiado = periodo !== periodoSugerido;
@@ -325,7 +359,9 @@ export default function BorradorModuloClient({
       // filtro debe consultar exactamente el mismo valor tras reclasificar.
       (fila, columna) => columna.nombre === clasificadorRol
         ? fila.clasificador
-        : fila.datos[columna.nombre],
+        : columna.familia
+          ? valorDeBalde(fila.datos, columna.familia)
+          : fila.datos[columna.nombre],
     ),
     [clasificadorRol, columnas, efectivas, filtrosColumnas],
   );
@@ -429,7 +465,7 @@ export default function BorradorModuloClient({
             <span className="ml-1">Se está sumando al total: si es el gran total del ERP, omítela con «Omitir» o el módulo quedará al doble.</span>
           </div>
         )}
-        <ValidacionArchivo control={control} resumen={resumenValidacion} />
+        <ValidacionArchivo control={control} resumen={resumenValidacion} controlTercero={controlTercero} />
         {negativos.length > 0 && (
           <div className="rounded-md border border-err-500 bg-err-100 px-3 py-2 text-[12px] text-err-700">
             <span className="font-semibold">⚠ {new Set(negativos.map((n) => n.filaNum)).size} ítem(s) con existencias o costos negativos.</span>

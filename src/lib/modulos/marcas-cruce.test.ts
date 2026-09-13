@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { construirCruceContable } from "./cruce-contable";
 import type { HijoContableCruce } from "./cruce-contable";
+import { construirCruceTerceroCartera } from "./cartera/cruce-tercero-cartera";
 import {
   admiteMarca,
   anclaCruce,
+  anclaCruceTercero,
   anclaObservacionMarca,
   anotarCruceConMarcas,
+  anotarCruceTerceroConMarcas,
   diferenciaAjustada,
   etiquetaMarca,
   normalizarCuenta4,
@@ -218,5 +221,56 @@ describe("validarReferenciaAnexo", () => {
     expect(validarReferenciaAnexo("  Anexo A-3  ")).toEqual({ ok: true, referencia: "Anexo A-3" });
     expect(validarReferenciaAnexo("x".repeat(121))).toMatchObject({ ok: false });
     expect(validarReferenciaAnexo("x".repeat(120))).toMatchObject({ ok: true });
+  });
+});
+
+describe("marcas del cruce por tercero", () => {
+  const cruceTercero = construirCruceTerceroCartera({
+    contable: [
+      { clave: "900000001", cuenta6: "130505", valor: 10_000, nombre: "UNO" },
+      { clave: "900000002", cuenta6: "130505", valor: 1_000, nombre: "DOS" },
+      { clave: "900000003", cuenta6: "130505", valor: 500, nombre: "TRES" },
+      { clave: "900000004", cuenta6: "130505", valor: 700, nombre: "CUATRO" },
+    ],
+    modulo: [
+      { clave: "900000001", saldo: 4_000, nombre: null, origenCartera: null, cuenta6: null },
+      { clave: "900000002", saldo: 900, nombre: null, origenCartera: null, cuenta6: null },
+      { clave: "900000004", saldo: 700, nombre: null, origenCartera: null, cuenta6: null },
+      { clave: "900000005", saldo: 3_000, nombre: null, origenCartera: null, cuenta6: null },
+    ],
+    cuentasModulo: ["130505"],
+  });
+  const marcaTercero = (clave: string, diferencia: number, numero: number) =>
+    marca({ dimension: "tercero", clave, cuenta4: "", diferencia, numero });
+
+  it("toda diferencia admite marca, pero para cerrar solo se exige desde el umbral", () => {
+    const { filas, resumen } = anotarCruceTerceroConMarcas(
+      cruceTercero.filas,
+      [marcaTercero("900000001", 6_000, 4), marca({ cuenta4: "1305", numero: 1 })],
+      { umbralDescuadre: 2_000 },
+    );
+    const porClave = Object.fromEntries(filas.map((f) => [f.clave, [f.admiteMarca, f.requiereMarca, f.marca?.numero ?? null, f.desactualizada]]));
+    expect(porClave).toEqual({
+      "900000001": [true, true, 4, false], // diferencia de 6.000, marcada
+      "900000002": [true, false, null, false], // 100: bajo el umbral
+      "900000003": [true, false, null, false], // solo en contabilidad por 500
+      "900000004": [false, false, null, false], // cuadra
+      "900000005": [true, true, null, false], // solo en el auxiliar por 3.000
+    });
+    expect(resumen).toEqual({ conDiferencia: 2, marcadas: 1, pendientes: 1, desactualizadas: 0, montoPendiente: -3_000, bajoUmbral: 2 });
+  });
+
+  it("marca desactualizada cuando la diferencia del tercero cambió", () => {
+    const { resumen } = anotarCruceTerceroConMarcas(cruceTercero.filas, [marcaTercero("900000001", 5_000, 4)], { umbralDescuadre: 2_000 });
+    expect(resumen).toMatchObject({ marcadas: 1, desactualizadas: 1 });
+  });
+
+  it("la cédula contable no toma las marcas de tercero, aunque coincida el texto", () => {
+    const { filas } = anotarCruceConMarcas(cruce(), [marca({ dimension: "tercero", clave: "1435", cuenta4: "1435", numero: 9 })]);
+    expect(filas.every((f) => f.marca === null)).toBe(true);
+  });
+
+  it("ancla del hilo de un tercero", () => {
+    expect(anclaCruceTercero("~CONSUMIDOR FINAL")).toBe("tercero:~CONSUMIDOR FINAL");
   });
 });

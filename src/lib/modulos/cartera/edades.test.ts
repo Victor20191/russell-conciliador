@@ -153,3 +153,17 @@ describe("claseSuma", () => {
     expect(claseSuma("excluir")).toBe(false);
   });
 });
+
+describe("rótulos de los auxiliares de CxP", () => {
+  it("«91 - MÁS» es un balde abierto desde 91 días", () => {
+    expect(esRotuloEdad("91 - MÁS")).toEqual({ clase: "vencido", desde: 91 });
+  });
+
+  it("«Saldo vencido» de SAP no es un balde: es el saldo del documento", () => {
+    expect(esRotuloEdad("Saldo vencido")).toBeNull();
+  });
+
+  it("«Total No Vencido» no es un balde: sumarlo duplicaría lo por vencer", () => {
+    expect(esRotuloEdad("Total No Vencido")).toBeNull();
+  });
+});

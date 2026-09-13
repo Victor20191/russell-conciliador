@@ -6,6 +6,7 @@
 //  - "Consolidado": total por clasificador con sus cuentas Russell (4 díg.) asignadas.
 // Puro (sin BD): recibe los view-models ya resueltos por el loader RSC.
 import ExcelJS from "exceljs";
+import type { EstadoCruceTercero, FilaCruceTerceroCartera, ResumenCruceTerceroCartera } from "@/lib/modulos/cartera/cruce-tercero-cartera";
 
 export type ColumnaExportModulo = { nombre: string; etiqueta: string; tipo: "texto" | "numero" | "moneda" | "fecha" };
 /** `estado` (opcional, solo borradores): «Movimiento», «Agrupadora», «OMITIDA»… Si alguna
@@ -226,6 +227,102 @@ function hojaControlSubtotales(wb: ExcelJS.Workbook, clasificadorEtiqueta: strin
   }
 }
 
+/** Cruce por tercero del cargue, tal como lo muestra la pestaña. */
+export type CruceTerceroExportModulo = {
+  /** Con la marca de cada tercero cuando la tiene. */
+  resumen: Omit<ResumenCruceTerceroCartera, "filas"> & {
+    filas: (FilaCruceTerceroCartera & { marca?: { numero: number; nota: string } | null })[];
+  };
+  etiquetaClave: string;
+  etiquetaNombre: string;
+  /** De qué balance salió el lado contable, para el subtítulo. */
+  fuente: string;
+};
+
+const ESTADO_CRUCE_TERCERO: Record<EstadoCruceTercero, string> = {
+  cuadra: "Cuadra",
+  descuadre: "Diferencia",
+  solo_contable: "Solo en contabilidad",
+  solo_modulo: "Solo en el módulo",
+  sin_saldo: "Sin saldo",
+};
+
+function hojaCruceTercero(wb: ExcelJS.Workbook, cruce: CruceTerceroExportModulo, meta: MetaExportModulo) {
+  const ws = wb.addWorksheet("Cruce por tercero");
+  const { resumen } = cruce;
+  const numericas = [...resumen.cuentas.map((c) => `c${c}`), "contable", "nacional", "exterior", "modulo", "diferencia"];
+  ws.columns = [
+    { header: cruce.etiquetaClave, key: "clave", width: 16 },
+    { header: cruce.etiquetaNombre, key: "nombre", width: 40 },
+    ...resumen.cuentas.map((c) => ({ header: c, key: `c${c}`, width: 18 })),
+    { header: "Contabilidad", key: "contable", width: 20 },
+    { header: "Módulo nacional", key: "nacional", width: 20 },
+    { header: "Módulo exterior", key: "exterior", width: 20 },
+    { header: "Módulo", key: "modulo", width: 20 },
+    { header: "Diferencia", key: "diferencia", width: 18 },
+    { header: "Estado", key: "estado", width: 22 },
+    { header: "Observación", key: "observacion", width: 48 },
+  ];
+  ws.spliceRows(1, 0, [], [], []);
+  ws.getCell("A1").value = `${meta.modulo} · ${meta.cliente} · Cruce por tercero`;
+  ws.getCell("A1").font = { bold: true, size: 13 };
+  ws.getCell("A2").value = `Período ${meta.periodo} · v${meta.version} · ${cruce.fuente}`;
+  ws.getCell("A2").font = { color: { argb: "FF6B7280" } };
+  const HEADER_ROW = 4;
+  ws.getRow(HEADER_ROW).font = { bold: true };
+  ws.getRow(HEADER_ROW).fill = HEADER_FILL;
+  ws.views = [{ state: "frozen", ySplit: HEADER_ROW }];
+
+  for (const f of resumen.filas) {
+    const row = ws.addRow({
+      clave: f.sinNit ? null : f.clave,
+      nombre: f.nombre,
+      ...Object.fromEntries(resumen.cuentas.map((c) => [`c${c}`, f.contable.porCuenta[c] ?? 0])),
+      contable: f.contable.total,
+      nacional: f.modulo.nacional + f.modulo.sinOrigen,
+      exterior: f.modulo.exterior,
+      modulo: f.modulo.total,
+      diferencia: f.diferencia,
+      estado: ESTADO_CRUCE_TERCERO[f.estado],
+      observacion: [
+        f.sinNit ? "Sin NIT" : null,
+        f.claveModuloPorNucleo ? `Emparejado por núcleo con ${f.claveModuloPorNucleo}` : null,
+        f.sugerenciaPorNombre
+          ? `Mismo nombre que ${f.sugerenciaPorNombre.clave.startsWith("~") ? "un tercero sin NIT" : f.sugerenciaPorNombre.clave} del otro lado`
+          : null,
+        f.emparejadoDesde.length > 0 ? `Emparejado con ${f.emparejadoDesde.join(", ")} del auxiliar` : null,
+        f.marca ? `Marca ${f.marca.numero}: ${f.marca.nota}` : null,
+      ].filter(Boolean).join(" · ") || null,
+    });
+    for (const k of numericas) row.getCell(k).numFmt = NUM_FMT;
+    if (f.estado !== "cuadra" && f.estado !== "sin_saldo") row.font = { color: { argb: "FFB91C1C" } };
+  }
+  const total = ws.addRow({
+    clave: "Totales",
+    ...Object.fromEntries(resumen.cuentas.map((c) => [`c${c}`, resumen.totales.porCuenta[c] ?? 0])),
+    contable: resumen.totales.contable,
+    modulo: resumen.totales.modulo,
+    diferencia: resumen.totales.diferencia,
+  });
+  total.font = { bold: true };
+  total.fill = TOTAL_FILL;
+  for (const k of numericas) total.getCell(k).numFmt = NUM_FMT;
+
+  const notas: [string, number][] = [
+    ["Contabilidad en cuentas que no hacen parte del módulo", resumen.contableFueraDelModulo.total],
+    ["Contabilidad en cuentas sin detalle por tercero", resumen.contableSinTercero.total],
+    ["Auxiliar en cuentas homologadas fuera del módulo", resumen.moduloFueraDelModulo.total],
+    ["Auxiliar sin tercero identificado", resumen.moduloSinTercero.total],
+  ];
+  ws.addRow({});
+  for (const [texto, valor] of notas) {
+    if (valor === 0) continue;
+    const row = ws.addRow({ nombre: texto, contable: valor });
+    row.getCell("contable").numFmt = NUM_FMT;
+    row.font = { color: { argb: "FF6B7280" } };
+  }
+}
+
 export async function crearExportacionModulo(input: {
   columnas: ColumnaExportModulo[];
   clasificadorEtiqueta: string;
@@ -233,6 +330,8 @@ export async function crearExportacionModulo(input: {
   consolidado: ConsolidadoExportModulo[];
   /** Solo el borrador: control de subtotales del archivo (si trae alguno). */
   control?: ControlExportModulo[];
+  /** Solo el dato cargado de los módulos que cruzan por tercero. */
+  cruceTercero?: CruceTerceroExportModulo;
   meta: MetaExportModulo;
 }): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
@@ -241,5 +340,6 @@ export async function crearExportacionModulo(input: {
   hojaDetalle(wb, input.columnas, input.clasificadorEtiqueta, input.detalle, input.meta);
   hojaConsolidado(wb, input.clasificadorEtiqueta, input.consolidado, input.meta);
   if (input.control && input.control.length > 0) hojaControlSubtotales(wb, input.clasificadorEtiqueta, input.control, input.meta);
+  if (input.cruceTercero) hojaCruceTercero(wb, input.cruceTercero, input.meta);
   return Buffer.from(await wb.xlsx.writeBuffer());
 }

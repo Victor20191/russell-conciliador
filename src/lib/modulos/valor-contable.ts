@@ -75,6 +75,27 @@ export function calcularValorContableModulo(args: {
   };
 }
 
+/**
+ * Valor contable de una fila para el cruce POR TERCERO. Con la naturaleza del módulo
+ * declarada, todas sus cuentas se leen con el MISMO factor —«D» con el signo del balance,
+ * «C» invertido—, de modo que un anticipo resta del saldo del tercero igual que en el
+ * auxiliar. Sin naturaleza se conserva el factor por cuenta del prevalidador.
+ */
+export function calcularValorContableTercero(args: {
+  moduloCodigo: string;
+  cuentaRussell: string | null | undefined;
+  fila: MovimientoContableModulo;
+  catalogo: readonly ReglaContableModulo[];
+  naturaleza?: "D" | "C";
+}): { valor: number; baseCalculo: BaseCalculo; cuentaRegla: string } | null {
+  const calculo = calcularValorContableModulo(args);
+  if (!calculo || !args.naturaleza) return calculo;
+  const bruto = calculo.baseCalculo === "movimiento"
+    ? args.fila.debitos - args.fila.creditos
+    : args.fila.saldoFinal;
+  return { ...calculo, valor: redondear((args.naturaleza === "C" ? -1 : 1) * bruto) };
+}
+
 function redondear(valor: number): number {
   return Math.round(valor * 100) / 100 + 0 || 0;
 }

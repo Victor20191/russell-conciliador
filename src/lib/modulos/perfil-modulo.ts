@@ -88,8 +88,8 @@ function normalizarFamilias(
  *  - `seccionColumnaVaciaRol` solo tiene sentido en modo «seccion»;
  *  - `subtotales` solo se conserva cuando difiere del predeterminado («auto»), así los
  *    perfiles antiguos siguen siendo equivalentes;
- *  - la normalización reutilizable retira `subtotalesFila`; solo la variante del archivo
- *    actual conserva esa coordenada efímera.
+ *  - la normalización reutilizable retira `subtotalesFila`, la TRM de cierre y la fecha de
+ *    corte; solo la variante del archivo actual conserva esos datos del cargue.
  * No valida: para eso está `validarSpecModulo`.
  */
 function normalizarSpecModuloInterno(
@@ -136,10 +136,17 @@ function normalizarSpecModuloInterno(
     if (arrastrar.length) normalizado.arrastrarRoles = [...new Set(arrastrar)];
   }
   // El NIVEL de la fila y el ORIGEN de la cartera solo significan algo donde la
-  // conciliación es por tercero contra cuentas de seis dígitos declaradas.
-  if (descriptor.crucePorTercero.cuentasRussell6?.length) {
+  // conciliación es por tercero con detalle (Cartera, CxP).
+  if (descriptor.crucePorTercero.detalleTercero) {
     if (spec.nivel) normalizado.nivel = spec.nivel;
     if (spec.origenCartera) normalizado.origenCartera = spec.origenCartera;
+    if (spec.invertirSigno === true) normalizado.invertirSigno = true;
+    if (spec.filaTercero?.texto.trim()) normalizado.filaTercero = { ...spec.filaTercero, texto: spec.filaTercero.texto.trim() };
+    if (spec.monedaArchivo && spec.monedaArchivo !== "COP") normalizado.monedaArchivo = spec.monedaArchivo;
+    if (conservarCoordenadaArchivo) {
+      if (spec.trmCierre != null && spec.trmCierre > 0) normalizado.trmCierre = spec.trmCierre;
+      if (spec.fechaCorte) normalizado.fechaCorte = spec.fechaCorte;
+    }
   }
   if (spec.subtotales === "rotulo" || spec.subtotales === "nunca") normalizado.subtotales = spec.subtotales;
   if (spec.subtotales === "manual") {

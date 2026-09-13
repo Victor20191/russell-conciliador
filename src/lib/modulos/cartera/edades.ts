@@ -48,7 +48,8 @@ const RANGO_ABIERTO = [
   // El «días» va en medio en esta forma («241 DIAS O MAS»), no al final: sin admitirlo, el
   // balde no se reconoce, su importe sale del saldo y además la columna queda libre para
   // que otro rol se la lleve.
-  /^(?:de\s+)?(\d{1,4})\s*(?:d[ií]as?\s*)?(?:\+|o\s+m[aá]s|y\s+m[aá]s|en\s+adelante)$/,
+  // «91 - MÁS» (auxiliar de CxP de Ofimática): el guion también abre el balde.
+  /^(?:de\s+)?(\d{1,4})\s*(?:d[ií]as?\s*)?(?:\+|-\s*m[aá]s|o\s+m[aá]s|y\s+m[aá]s|en\s+adelante)$/,
 ];
 
 /** Lo NO vencido: «POR VENCER», «Sin vencer», «Corriente», «Abono futuro», «Vigente». */

@@ -4,6 +4,8 @@
 import type { GridHoja } from "@/lib/balance/extraccion/ingesta";
 import type { DescriptorModulo, RolColumna } from "../descriptores";
 import { esRotuloEdad } from "../cartera/edades";
+import { esIdentificadorVacio } from "../cartera/identificador-compartido";
+import { monedaPorNombreHoja } from "../cartera/moneda";
 import type { SpecModulo } from "./esquema";
 
 export const sinAcentos = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "");
@@ -88,6 +90,10 @@ function detectarEncabezado(descriptor: DescriptorModulo, hoja: GridHoja, maxFil
   const lim = Math.min(hoja.filas.length, maxFilas);
   for (let r = 0; r < lim; r++) {
     const fila = hoja.filas[r] ?? [];
+    // Fila de METADATOS del reporte («Fecha de corte: … | Cifras: PESOS | Moneda: COP»): sus
+    // rótulos terminan en dos puntos y nombran roles del módulo sin serlo; en SIESA le ganaban
+    // al encabezado real. Solo en los módulos con detalle por tercero.
+    if (descriptor.crucePorTercero.detalleTercero && fila.filter((c) => typeof c === "string" && /:\s*$/.test(c)).length >= 2) continue;
     let score = 0;
     for (const celda of fila) {
       const h = norm(celda);
@@ -122,7 +128,7 @@ export function detectarFamilias(
       const celda = header[c];
       if (celda == null || String(celda).trim() === "") continue;
       if (!familia.detector(celda)) continue;
-      const clase = descriptor.codigo === "CAR" ? esRotuloEdad(celda)?.clase : undefined;
+      const clase = familia.nombre === "edades" ? esRotuloEdad(celda)?.clase : undefined;
       columnas.push({
         columna: c + 1,
         etiqueta: String(celda).replace(/\s+/g, " ").trim().slice(0, 80),
@@ -151,27 +157,245 @@ export function detectarTerceroModo(
   if (colClave < 1 || colDocumento < 1) return "columna";
   let soloClave = 0;
   let soloDocumento = 0;
+  let ambos = 0;
   let total = 0;
   const desde = Math.max(0, spec.primeraFilaDatos - 1);
   const hasta = Math.min(hoja.filas.length, desde + maxFilas);
   for (let r = desde; r < hasta; r++) {
     const fila = hoja.filas[r] ?? [];
-    const clave = String(fila[colClave - 1] ?? "").trim();
+    // La marca de relleno del ERP («*» en los documentos de Mineralin) no es un identificador:
+    // contarla como tal hace que un reporte jerárquico parezca plano.
+    const claveCruda = String(fila[colClave - 1] ?? "").trim();
+    const clave = esIdentificadorVacio(claveCruda) ? "" : claveCruda;
     const documento = String(fila[colDocumento - 1] ?? "").trim();
     if (!clave && !documento) continue;
     total++;
     if (clave && !documento) soloClave++;
     else if (!clave && documento) soloDocumento++;
+    else ambos++;
   }
   if (total === 0) return "columna";
   const UMBRAL = 0.15;
-  return soloClave / total > UMBRAL && soloDocumento / total > UMBRAL ? "cabecera" : "columna";
+  if (soloClave / total > UMBRAL && soloDocumento / total > UMBRAL) return "cabecera";
+  // Muchos documentos por proveedor diluyen las cabeceras por debajo del umbral (SAP Redplas:
+  // 21 de 179 filas). Si ninguna fila trae identificador y documento a la vez, es jerárquico.
+  return ambos === 0 && soloClave >= 3 && soloDocumento >= 3 ? "cabecera" : "columna";
 }
 
 /**
  * Sugiere un `SpecModulo` para una hoja: detecta encabezado y asigna columnas a roles de
  * forma greedy (mayor puntaje primero; cada columna y cada rol se usan una sola vez).
  */
+/**
+ * Columna del identificador del tercero reconocida por su CONTENIDO, para los reportes de
+ * SIESA donde ningún encabezado la nombra: en Zarzal comparte la columna «Documento» y en el
+ * detalle de Mineralin va en una columna sin encabezado. La delatan los dígitos EN NEGRITA de
+ * las cabeceras de tercero y de sección, intercalados con el resto de filas.
+ *
+ * Solo mira la columna del documento y las que no tienen encabezado ni rol, y solo en archivos
+ * con «#Ter.» y negrita: sin esas dos señales no hay evidencia fiable y devuelve 0.
+ */
+export function columnaIdentificadorPorContenido(
+  hoja: GridHoja,
+  filaEncabezado: number,
+  columnas: Readonly<Record<string, number>>,
+  reservadas: ReadonlySet<number>,
+  maxFilas = 400,
+): number {
+  const negrita = hoja.negrita;
+  if (!negrita || (columnas.marcaSeccion ?? 0) < 1) return 0;
+  const header = hoja.filas[filaEncabezado - 1] ?? [];
+  const ocupante = new Map<number, string>();
+  for (const [rol, col] of Object.entries(columnas)) if (col >= 1) ocupante.set(col, rol);
+  const ancho = hoja.filas.reduce((m, f) => Math.max(m, f?.length ?? 0), 0);
+  const desde = filaEncabezado; // 0-based: primera fila de datos
+  const hasta = Math.min(hoja.filas.length, desde + maxFilas);
+  let mejor = 0;
+  let mejorPuntaje = 0;
+  for (let c = 1; c <= ancho; c++) {
+    if (reservadas.has(c)) continue;
+    const rol = ocupante.get(c);
+    const sinEncabezado = String(header[c - 1] ?? "").trim() === "";
+    if (!(rol === "documento" || (!rol && sinEncabezado))) continue;
+    let conValor = 0;
+    let enNegrita = 0;
+    for (let r = desde; r < hasta; r++) {
+      const v = String((hoja.filas[r] ?? [])[c - 1] ?? "").trim();
+      if (esIdentificadorVacio(v)) continue;
+      conValor++;
+      if (/^\d{5,13}$/.test(v) && negrita[r]?.[c - 1] === true) enNegrita++;
+    }
+    if (enNegrita >= 5 && enNegrita / conValor >= 0.05 && enNegrita > mejorPuntaje) {
+      mejor = c;
+      mejorPuntaje = enNegrita;
+    }
+  }
+  return mejor;
+}
+
+/** ¿Algún texto de la fila es un rótulo de total («Total», «TOTAL PROVEEDOR», «Total general»)? */
+const esFilaConRotuloTotal = (fila: readonly unknown[]): boolean =>
+  fila.some((c) => typeof c === "string" && /^\s*(?:sub\s*)?totale?s?\b/i.test(c));
+
+/** Valor de una fila para votar su signo: la columna de valor o, sin ella, la Σ de las edades. */
+function valorParaVoto(fila: readonly unknown[], spec: Pick<SpecModulo, "columnas" | "familias">, rolValor: string): number {
+  const colValor = spec.columnas[rolValor] ?? 0;
+  const v = colValor >= 1 ? fila[colValor - 1] : null;
+  if (typeof v === "number" && v !== 0) return v;
+  let suma = 0;
+  for (const c of spec.familias?.edades ?? []) {
+    if (c.clase === "excluir") continue;
+    const x = fila[c.columna - 1];
+    if (typeof x === "number") suma += x;
+  }
+  return suma;
+}
+
+/**
+ * ¿El archivo imprime la deuda en NEGATIVO? Vota el signo de las filas con valor, sin las de
+ * total: 4 de los 16 auxiliares de CxP reales (SAP Business One, ILIMITADA) presentan el
+ * pasivo con signo contable, y el módulo lo guarda en positivo.
+ */
+export function detectarConvencionSigno(
+  hoja: GridHoja,
+  spec: Pick<SpecModulo, "primeraFilaDatos" | "columnas" | "familias">,
+  rolValor: string,
+  maxFilas = 2000,
+): boolean {
+  let positivos = 0;
+  let negativos = 0;
+  const desde = Math.max(0, spec.primeraFilaDatos - 1);
+  const hasta = Math.min(hoja.filas.length, desde + maxFilas);
+  for (let r = desde; r < hasta; r++) {
+    const fila = hoja.filas[r] ?? [];
+    if (esFilaConRotuloTotal(fila)) continue;
+    const v = valorParaVoto(fila, spec, rolValor);
+    if (v > 0) positivos++;
+    else if (v < 0) negativos++;
+  }
+  return negativos >= 3 && negativos > positivos;
+}
+
+/** Un número de «días vencidos» por encima de esto (50 años) es un importe. */
+const MAX_DIAS_VENCIDOS = 18_300;
+
+/**
+ * ¿La columna mapeada como días vencidos trae días? «Vencido» de Helisa entra por el sinónimo
+ * «dias vencidos» y es un importe. Los días son enteros de pocas cifras: si la mayoría de los
+ * valores no lo son, la columna no es de días.
+ */
+function columnaConDias(hoja: GridHoja, primeraFilaDatos: number, columna: number, maxFilas = 500): boolean {
+  let numeros = 0;
+  let noDias = 0;
+  const desde = Math.max(0, primeraFilaDatos - 1);
+  const hasta = Math.min(hoja.filas.length, desde + maxFilas);
+  for (let r = desde; r < hasta; r++) {
+    const v = hoja.filas[r]?.[columna - 1];
+    if (typeof v !== "number" || v === 0) continue;
+    numeros++;
+    if (!Number.isInteger(v) || Math.abs(v) > MAX_DIAS_VENCIDOS) noDias++;
+  }
+  return numeros === 0 || noDias * 2 <= numeros;
+}
+
+/**
+ * ¿La columna de valor es el SALDO DEL BLOQUE y no el del documento? SIIGO lo imprime solo en
+ * la primera fila de cada proveedor-cuenta y deja el importe de cada documento en las edades:
+ * tomarlo como valor contaría el saldo del proveedor en cada documento del bloque. Se
+ * reconoce porque, entre las filas con edades, la columna viene llena en pocas y casi siempre
+ * en la primera del bloque.
+ */
+export function detectarSaldoDeBloque(
+  hoja: GridHoja,
+  spec: Pick<SpecModulo, "primeraFilaDatos" | "columnas" | "familias">,
+  rolValor: string,
+  rolClave: string,
+  maxFilas = 2000,
+): boolean {
+  const colValor = spec.columnas[rolValor] ?? 0;
+  const colClave = spec.columnas[rolClave] ?? 0;
+  const colCuenta = spec.columnas.cuenta ?? 0;
+  const baldes = spec.familias?.edades ?? [];
+  if (colValor < 1 || colClave < 1 || baldes.length === 0) return false;
+  let conEdades = 0;
+  let conValor = 0;
+  let enPrimeraDelBloque = 0;
+  let continuaciones = 0;
+  let bloqueAnterior: string | null = null;
+  const desde = Math.max(0, spec.primeraFilaDatos - 1);
+  const hasta = Math.min(hoja.filas.length, desde + maxFilas);
+  for (let r = desde; r < hasta; r++) {
+    const fila = hoja.filas[r] ?? [];
+    if (esFilaConRotuloTotal(fila)) continue;
+    const clave = String(fila[colClave - 1] ?? "").trim();
+    const cuenta = colCuenta >= 1 ? String(fila[colCuenta - 1] ?? "").trim() : "";
+    const bloque = clave ? clave + "|" + cuenta : null;
+    // Neto de las edades: un proveedor en cero con un débito y un crédito que se compensan
+    // (Mineralin) no es un documento con importe.
+    let netoEdades = 0;
+    for (const c of baldes) {
+      const x = fila[c.columna - 1];
+      if (typeof x === "number" && c.clase !== "excluir") netoEdades += x;
+    }
+    const tieneEdades = Math.abs(netoEdades) >= 0.005;
+    if (tieneEdades) {
+      conEdades++;
+      const v = fila[colValor - 1];
+      if (typeof v === "number" && v !== 0) {
+        conValor++;
+        if (bloque != null && bloque !== bloqueAnterior) enPrimeraDelBloque++;
+      } else if (bloque != null && bloque === bloqueAnterior) {
+        continuaciones++;
+      }
+    }
+    if (bloque != null) bloqueAnterior = bloque;
+  }
+  // Sin filas de continuación no hay bloque: cada proveedor es una fila y la columna es su saldo.
+  return conEdades >= 5 && conValor > 0 && continuaciones > 0 && conValor / conEdades < 0.6 && enPrimeraDelBloque / conValor >= 0.8;
+}
+
+/**
+ * Fila ROTULADA de proveedor (SEVEN): «PROVEEDOR | 10126963 | HERNAN OROZCO» en las columnas de
+ * tipo, número y factura, con los documentos debajo. El NIT no tiene columna propia: vive a la
+ * derecha del rótulo, solo en esas filas. Se reconoce porque el mismo texto se repite en una de
+ * las primeras columnas y casi siempre lleva dígitos de identificador al lado.
+ */
+export function detectarFilaTercero(
+  hoja: GridHoja,
+  primeraFilaDatos: number,
+  maxFilas = 600,
+): NonNullable<SpecModulo["filaTercero"]> | null {
+  const conteo = new Map<string, { columna: number; texto: string; filas: number; conClave: number; conNombre: number }>();
+  const desde = Math.max(0, primeraFilaDatos - 1);
+  const hasta = Math.min(hoja.filas.length, desde + maxFilas);
+  for (let r = desde; r < hasta; r++) {
+    const fila = hoja.filas[r] ?? [];
+    for (let c = 0; c < Math.min(fila.length, 6); c++) {
+      const v = fila[c];
+      if (typeof v !== "string") continue;
+      const texto = v.replace(/\s+/g, " ").trim();
+      if (!/^[A-Za-zÁÉÍÓÚÑáéíóúñ .]{3,20}$/.test(texto) || /total/i.test(texto)) continue;
+      const k = c + "|" + texto.toUpperCase();
+      const e = conteo.get(k) ?? { columna: c + 1, texto, filas: 0, conClave: 0, conNombre: 0 };
+      e.filas++;
+      if (/^\d{5,13}$/.test(String(fila[c + 1] ?? "").trim())) e.conClave++;
+      if (typeof fila[c + 2] === "string" && /[A-Za-z]/.test(fila[c + 2] as string)) e.conNombre++;
+      conteo.set(k, e);
+    }
+  }
+  let mejor: { columna: number; texto: string; filas: number; conClave: number; conNombre: number } | null = null;
+  for (const e of conteo.values()) {
+    if (e.filas >= 5 && e.conClave / e.filas >= 0.8 && (!mejor || e.filas > mejor.filas)) mejor = e;
+  }
+  if (!mejor) return null;
+  return {
+    columnaRotulo: mejor.columna,
+    texto: mejor.texto,
+    columnaClave: mejor.columna + 1,
+    ...(mejor.conNombre / mejor.filas >= 0.8 ? { columnaNombre: mejor.columna + 2 } : {}),
+  };
+}
+
 export function sugerirSpec(descriptor: DescriptorModulo, hoja: GridHoja): SpecModulo {
   const filaEncabezado = detectarEncabezado(descriptor, hoja);
   const header = hoja.filas[filaEncabezado - 1] ?? [];
@@ -214,6 +438,22 @@ export function sugerirSpec(descriptor: DescriptorModulo, hoja: GridHoja): SpecM
     rolUsado.add(cand.rol);
   }
 
+  // Identificador del tercero por CONTENIDO cuando ningún encabezado lo nombró (SIESA).
+  const rolIdentificador = descriptor.crucePorTercero.rolClave;
+  if (descriptor.crucePorTercero.detalleTercero && rolIdentificador && (columnas[rolIdentificador] ?? 0) < 1) {
+    const col = columnaIdentificadorPorContenido(hoja, filaEncabezado, columnas, reservadas);
+    if (col >= 1) columnas[rolIdentificador] = col;
+  }
+  // Fila rotulada de proveedor (SEVEN), cuando ni el encabezado ni el contenido dieron el NIT.
+  let filaTercero: SpecModulo["filaTercero"] | null = null;
+  if (descriptor.crucePorTercero.detalleTercero && rolIdentificador && (columnas[rolIdentificador] ?? 0) < 1) {
+    filaTercero = detectarFilaTercero(hoja, filaEncabezado + 1);
+    if (filaTercero) {
+      for (const rol of Object.keys(columnas)) if (columnas[rol] === filaTercero.columnaClave) columnas[rol] = 0;
+      columnas[rolIdentificador] = filaTercero.columnaClave;
+    }
+  }
+
   const base: SpecModulo = {
     hoja: hoja.nombre,
     filaEncabezado,
@@ -228,6 +468,13 @@ export function sugerirSpec(descriptor: DescriptorModulo, hoja: GridHoja): SpecM
   const rolClave = descriptor.crucePorTercero.rolClave;
   if (rolClave && descriptor.arrastrables?.includes(rolClave)) {
     base.terceroModo = detectarTerceroModo(hoja, base, rolClave);
+    // Identificador y documento en la MISMA columna: cada fila trae uno u otro, así que el
+    // conteo de detectarTerceroModo no los puede separar. Es jerárquico por construcción.
+    if ((columnas[rolClave] ?? 0) >= 1 && columnas[rolClave] === columnas.documento) base.terceroModo = "cabecera";
+    if (filaTercero) {
+      base.filaTercero = filaTercero;
+      base.terceroModo = "cabecera";
+    }
     // El arrastre se propone SIEMPRE, no solo en los reportes jerárquicos. En cartera un
     // renglón pertenece por fuerza a algún tercero, y varios ERP imprimen el identificador
     // una sola vez por bloque aunque la fila que lo trae sea ya un documento (World Office
@@ -235,6 +482,48 @@ export function sugerirSpec(descriptor: DescriptorModulo, hoja: GridHoja): SpecM
     // nada: solo actúa cuando la celda viene vacía.
     base.arrastrarRoles = descriptor.arrastrables.filter((rol) => (columnas[rol] ?? 0) >= 1);
     if (base.arrastrarRoles.length === 0) delete base.arrastrarRoles;
+  }
+
+  const colDias = columnas.diasVencidos ?? 0;
+  if (descriptor.crucePorTercero.detalleTercero && colDias >= 1 && !columnaConDias(hoja, base.primeraFilaDatos, colDias)) {
+    columnas.diasVencidos = 0;
+  }
+
+  // Cuentas por pagar (manda la columna): el saldo pendiente sobre el valor original, el saldo
+  // del bloque de SIIGO y la convención de signo del archivo.
+  if (descriptor.crucePorTercero.detalleTercero && descriptor.valorDerivado?.prevalece === "columna") {
+    // «saldoTercero» no tiene sinónimos: solo lo asigna la detección del saldo del bloque. El
+    // reparto por puntaje se lo daría a cualquier «Saldo» sobrante por coincidencia débil.
+    if ("saldoTercero" in columnas) columnas.saldoTercero = 0;
+    const colValor = columnas[descriptor.valor] ?? 0;
+    // SEVEN trae «TOTAL» (valor original de la factura) antes de «SALDO» (lo pendiente).
+    if (colValor >= 1 && norm(header[colValor - 1]) === "total") {
+      const usadas = new Set(Object.values(columnas).filter((c) => c >= 1));
+      const colSaldo = header.findIndex((h, i) => !usadas.has(i + 1) && !reservadas.has(i + 1) && norm(h) === "saldo");
+      if (colSaldo >= 0) columnas[descriptor.valor] = colSaldo + 1;
+    }
+    if (
+      base.terceroModo !== "cabecera"
+      && rolClave
+      && descriptor.columnas.some((c) => c.nombre === "saldoTercero")
+      && detectarSaldoDeBloque(hoja, base, descriptor.valor, rolClave)
+    ) {
+      columnas.saldoTercero = columnas[descriptor.valor];
+      columnas[descriptor.valor] = 0;
+    }
+  }
+  if (descriptor.crucePorTercero.naturaleza === "C" && detectarConvencionSigno(hoja, base, descriptor.valor)) {
+    base.invertirSigno = true;
+  }
+
+  // Hoja entera en divisa («USD», «EUR»): sus importes se convierten con la TRM de cierre. Si el
+  // encabezado ya trae una columna en pesos (PLASMAR «Deuda_Pesos»), manda esa y no hay divisa.
+  if (descriptor.crucePorTercero.detalleTercero) {
+    const moneda = monedaPorNombreHoja(hoja.nombre);
+    if (moneda && !header.some((h) => /(^|[^a-z])(pesos|cop)([^a-z]|$)/.test(norm(h)))) {
+      base.monedaArchivo = moneda;
+      base.origenCartera = "exterior";
+    }
   }
 
   return invalidarValorAmbiguoIngresos(descriptor, hoja, base).spec;

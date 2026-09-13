@@ -3,14 +3,17 @@ import prisma from "@/lib/prisma";
 import { authorizePermiso } from "@/lib/rbac";
 import { descriptorModulo } from "@/lib/modulos/descriptores";
 import { consolidarPorClasificador } from "@/lib/modulos/promocion";
-import { crearExportacionModulo } from "@/lib/export/modulo";
+import { crearExportacionModulo, type CruceTerceroExportModulo } from "@/lib/export/modulo";
+import { cargarInsumosCruceModulo, construirCruceContableModulo } from "@/lib/modulos/cruce-contable-servidor";
+import { cruceTerceroDeCargue, etiquetasCruceTercero } from "@/lib/modulos/cruce-tercero-servidor";
 import { mensajeErrorBD } from "@/lib/errores";
 import { fechaColombiaISO } from "@/lib/fecha-hora";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** Descarga a Excel el dato cargado del módulo (hojas «Detalle» y «Consolidado»).
+/** Descarga a Excel el dato cargado del módulo (hojas «Detalle» y «Consolidado», y «Cruce por
+ *  tercero» en los módulos que lo tienen, con el mismo cálculo de la pestaña).
  *  Mismo permiso y alcance por cliente que la página. */
 export async function GET(_req: Request, { params }: { params: Promise<{ codigo: string; id: string }> }) {
   const authz = await authorizePermiso("modulos_datos:ver");
@@ -58,12 +61,28 @@ export async function GET(_req: Request, { params }: { params: Promise<{ codigo:
       cuentas4: [...new Set(cuentasPorClasificador.get(c.clasificador) ?? [])].sort().map((cod) => ({ codigo: cod, nombre: nombrePorCuenta.get(cod) ?? null })),
     }));
 
+    // Cruce por tercero: el mismo cálculo de la pestaña, con sus marcas y emparejamientos.
+    let cruceTercero: CruceTerceroExportModulo | undefined;
+    if (descriptor.crucePorTercero.habilitado) {
+      const insumos = await cargarInsumosCruceModulo(encabezado.id);
+      const cruce = insumos ? await construirCruceContableModulo(insumos) : null;
+      const tercero = insumos && cruce ? await cruceTerceroDeCargue(insumos, cruce) : null;
+      if (tercero?.resumen && cruce?.balanceEmparejado) {
+        cruceTercero = {
+          resumen: tercero.resumen,
+          ...etiquetasCruceTercero(descriptor),
+          fuente: `Balance ${cruce.balanceEmparejado.version} al ${cruce.balanceEmparejado.periodoFin}${tercero.balanceTercero ? ` · detalle por tercero ${tercero.balanceTercero.version}` : ""}`,
+        };
+      }
+    }
+
     const generadoEn = new Date();
     const buffer = await crearExportacionModulo({
       columnas: descriptor.columnas.map((c) => ({ nombre: c.nombre, etiqueta: c.etiqueta, tipo: c.tipo })),
       clasificadorEtiqueta: descriptor.columnas.find((c) => c.nombre === descriptor.clasificador)?.etiqueta ?? "Clasificador",
       detalle,
       consolidado,
+      ...(cruceTercero ? { cruceTercero } : {}),
       meta: {
         modulo: descriptor.label,
         cliente: encabezado.nombreCliente,

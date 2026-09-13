@@ -10,7 +10,6 @@ import { fmtContable, fmtNum } from "@/lib/format";
 import { notifyError, notifyInfo, notifySuccess } from "@/lib/client-notifications";
 import ComentarioAncla from "@/components/comentario-ancla";
 import {
-  eliminarSoporteMarca,
   guardarConsolidacionModulo,
   guardarConsolidacionModuloLote,
   guardarMarcaCruce,
@@ -26,7 +25,10 @@ import { filtrarFilasDetalleModulo, hayFiltrosDetalleModulo, type FiltrosDetalle
 import type { HijoContableCruce, ResumenCruceContable } from "@/lib/modulos/cruce-contable";
 import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
 import { ListaNoModulares, ResumenNoModulares } from "../lista-no-modulares";
-import type { ResumenCruceTercero } from "@/lib/modulos/cruce-tercero";
+import { CruceTerceroTab, type CruceTerceroVm } from "./cruce-tercero-tab";
+import { EditorSoportesMarca, InsigniaMarca, ListaSoportesMarca } from "./soportes-marca";
+import { ValidacionesTerceroPanel } from "./validaciones-tercero-panel";
+import type { ValidacionesTercero } from "@/lib/modulos/cartera/validaciones-tercero";
 import type { ValidacionCargue } from "@/lib/modulos/validacion-cargue";
 import { ValidacionArchivo } from "../validacion-archivo";
 import {
@@ -39,7 +41,6 @@ import {
   type FilaCruceMarcada,
   type ResumenMarcas,
 } from "@/lib/modulos/marcas-cruce";
-import { SOPORTES_MARCA_MAX, tamanoLegible, urlSoporteMarca } from "@/lib/modulos/marcas-adjuntos";
 import { MAX_JUSTIFICACION_DESBLOQUEO, MIN_JUSTIFICACION_DESBLOQUEO } from "@/lib/conciliacion/cuentas-bloqueo";
 
 export type FilaDetalleVm = { filaNum: number; clasificador: string | null; valor: number; datos: Record<string, string | number | null> };
@@ -68,6 +69,8 @@ export type CruceContableVm = {
   resumenMarcas: ResumenMarcas | null;
   /** Cuentas del cliente que componen cada fila: el desglose que se ve al expandirla. */
   detalleContablePorCuenta: Record<string, HijoContableCruce[]>;
+  /** Parte de «Contabilidad» que está en cuentas Russell de seis que el módulo no concilia. */
+  fueraDelModulo: { total: number; filas: number; porCuenta: Record<string, number> } | null;
   /** Conciliación en firme del (cliente, módulo, período). */
   conciliacion: CierreConciliacionVm;
 };
@@ -90,32 +93,14 @@ export type CierreConciliacionVm = {
   /** Por qué NO se puede cerrar todavía (null = cerrable). */
   motivoNoCerrable: string | null;
 };
-// Cruce por tercero: balance abierto por tercero vs. auxiliar del módulo, clave a
-// clave. La compuerta tipada del descriptor lo habilita hoy en CAR, CXP e ING.
-// `resumen` es null cuando el período no tiene balance por tercero capturado
-// (estado vacío en la UI). Las etiquetas de la clave vienen del descriptor.
-export type CruceTerceroVm = {
-  aplica: boolean;
-  balanceEncontrado: boolean;
-  /** Cargue por tercero contra el que se cruzó, para poder abrirlo desde aquí. */
-  balanceTerceroId: number | null;
-  balanceTerceroVersion: string | null;
-  periodo: string;
-  nombreCliente: string;
-  resumen: ResumenCruceTercero | null;
-  contableSinNit: { total: number; filas: number } | null;
-  moduloSinNit: { total: number; filas: number } | null;
-  /** Filas contables del módulo excluidas por falta de homologación o regla activa. */
-  contableExcluidoFilas: number;
-  /** Rótulos de la clave del cruce: «NIT»/«Nombre», o «Cédula»/«Empleado» en Nómina. */
-  etiquetaClave: string;
-  etiquetaNombre: string;
-};
+export type { CruceTerceroVm } from "./cruce-tercero-tab";
 export type NovedadesVm = {
   negativos: { filaNum: number; etiqueta: string; referencia: string | null; valor: number }[];
   descuadres: { filaNum: number; referencia: string | null; etiqueta: string; declarado: number; esperado: number }[];
   observaciones: string | null;
   verificaciones: { texto: string; respuesta: "si" | "no" | "na" | null; nota: string | null }[];
+  /** Cartera y CxP: validaciones del auxiliar por tercero (reemplazan las de existencias). */
+  tercero?: ValidacionesTercero | null;
   /** Total declarado por el archivo vs. Σ cargada, congelado al promover. `null` en los
    *  cargues anteriores a esta validación: ahí el panel no se muestra. */
   validacionArchivo: ValidacionCargue | null;
@@ -133,7 +118,18 @@ export type VersionModuloVm = {
   cargadoPor: string | null;
   ultimaCarga: string;
 };
-type Columna = { nombre: string; etiqueta: string; tipo: string };
+/**
+ * Una columna de la tabla de detalle. Casi todas salen del descriptor, pero los módulos con
+ * columnas dinámicas (los rangos de vencimiento de cartera: entre 4 y 9, con rótulos que
+ * pone cada ERP) añaden las suyas leyendo el JSON de la fila, no un rol fijo.
+ */
+type Columna = {
+  nombre: string;
+  etiqueta: string;
+  tipo: string;
+  /** Clave dentro del mapa de baldes de `datos`. Solo en las columnas por archivo. */
+  familia?: { clave: string; etiqueta: string };
+};
 type CuentaOpt = { codigo: string; nombre: string };
 type CuentaCliente = { codigo: string; nombre: string };
 // Cuentas del cliente homologadas a cada subgrupo Russell (14XX → [{143505, "…"}]).
@@ -193,7 +189,7 @@ export default function DatoCargadoClient({
   const [tab, setTab] = useState<TabId>(tabInicial ?? "consolidado");
   const comprobarSalidaConsolidado = useRef<(() => boolean) | null>(null);
   const filasNovedad = new Set([...novedades.negativos, ...novedades.descuadres].map((n) => n.filaNum));
-  const alertas = filasNovedad.size;
+  const alertas = filasNovedad.size + (novedades.tercero?.total ?? 0);
   const tabs: TabId[] = [
     "consolidado",
     "detalle",
@@ -245,7 +241,12 @@ export default function DatoCargadoClient({
       ) : tab === "cruce" ? (
         <CruceContableTab moduloLabel={moduloLabel} cruceContable={cruceContable} encabezadoId={encabezadoId} comentarios={comentarios} puedeEditar={puedeEditar} />
       ) : tab === "cruceTercero" ? (
-        <CruceTerceroTab cruceTercero={cruceTercero} />
+        <div className="flex flex-col gap-4">
+          {cruceContable.balanceEncontrado && (
+            <ConciliacionEnFirmePanel conciliacion={cruceContable.conciliacion} encabezadoId={encabezadoId} moduloLabel={moduloLabel} />
+          )}
+          <CruceTerceroTab cruceTercero={cruceTercero} encabezadoId={encabezadoId} comentarios={comentarios} puedeEditar={puedeEditar} />
+        </div>
       ) : tab === "novedades" ? (
         <NovedadesTab novedades={novedades} titulo={tituloPanelNovedades} />
       ) : (
@@ -916,8 +917,13 @@ function ModalAsignacionMasiva({
 function DetalleTab({ columnas, clasificadorEtiqueta, detalle, negativosFilas, encabezadoId, comentarios }: { columnas: Columna[]; clasificadorEtiqueta: string; detalle: FilaDetalleVm[]; negativosFilas: Set<number>; encabezadoId: number; comentarios: Record<string, number> }) {
   const esNum = (t: string) => t === "moneda" || t === "numero";
   const celda = (f: FilaDetalleVm, col: Columna) => {
-    const v = f.datos[col.nombre];
-    if (v == null || v === "") return "—";
+    // El mapa de baldes vive en `datos` bajo una clave reservada; el tipo declarado de
+    // `datos` es plano, así que aquí hay que ensancharlo para leerlo.
+    const baldes = col.familia
+      ? (f.datos as unknown as Record<string, Record<string, number> | undefined>)[col.familia.clave]
+      : undefined;
+    const v = col.familia ? (baldes?.[col.familia.etiqueta] ?? null) : f.datos[col.nombre];
+    if (v == null || v === "" || (col.familia && v === 0)) return "—";
     if (col.tipo === "moneda") return fmtContable(Number(v));
     if (col.tipo === "numero") return fmtNum(Number(v));
     return String(v);
@@ -1096,7 +1102,7 @@ function CruceContableTab({
     );
   }
 
-  const { resumen, sinMapeoContable, sinReglaContableFilas, filasMarcadas, resumenMarcas, detalleContablePorCuenta } = cruceContable;
+  const { resumen, sinMapeoContable, sinReglaContableFilas, filasMarcadas, resumenMarcas, detalleContablePorCuenta, fueraDelModulo } = cruceContable;
   const observaciones = observacionesDeMarcas(filasMarcadas);
   const hijosDe = (cuenta4: string) => detalleContablePorCuenta[cuenta4] ?? [];
 
@@ -1260,7 +1266,7 @@ function CruceContableTab({
         onQuitar={quitar}
       />
 
-      {(resumen.sinCuenta.length > 0 || resumen.multiAsignado.length > 0 || sinMapeoContable || sinReglaContableFilas > 0) && (
+      {(resumen.sinCuenta.length > 0 || resumen.multiAsignado.length > 0 || sinMapeoContable || sinReglaContableFilas > 0 || fueraDelModulo) && (
         <div className="flex flex-col gap-2">
           {resumen.sinCuenta.length > 0 && (
             <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[12px] text-warn-700">
@@ -1275,6 +1281,11 @@ function CruceContableTab({
           {sinMapeoContable && (
             <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">
               El balance tiene <b>{fmtContable(sinMapeoContable.total)}</b> en {sinMapeoContable.filas} {sinMapeoContable.filas === 1 ? "cuenta" : "cuentas"} asociada{sinMapeoContable.filas === 1 ? "" : "s"} a {moduloEnMinuscula} sin homologar a una cuenta Russell — no está incluido en «Contabilidad». Homológalas en la memoria de mapeo del cliente para que entren al cruce.
+            </div>
+          )}
+          {fueraDelModulo && (
+            <div className="rounded-md border border-ink-200 bg-ink-50 px-3 py-2 text-[12px] text-ink-700">
+              «Contabilidad» incluye <b>{fmtContable(fueraDelModulo.total)}</b> de {fueraDelModulo.filas} {fueraDelModulo.filas === 1 ? "cuenta" : "cuentas"} que no hacen parte de {moduloEnMinuscula} ({Object.keys(fueraDelModulo.porCuenta).join(", ")}): esta cédula compara por cuenta de 4 dígitos, pero el cruce por tercero no las concilia.
             </div>
           )}
           {sinReglaContableFilas > 0 && (
@@ -1297,107 +1308,6 @@ function CruceContableTab({
             router.refresh();
           }}
         />
-      )}
-    </div>
-  );
-}
-
-// Cruce por tercero: saldo del balance abierto POR TERCERO vs. el auxiliar del módulo
-// (CAR/CXP), NIT por NIT. Calcado de `CruceContableTab`: estado vacío si no hay balance
-// por tercero confirmado para el período; avisos aparte para los montos que no se
-// pudieron cruzar por falta de NIT en cada lado.
-function CruceTerceroTab({ cruceTercero }: { cruceTercero: CruceTerceroVm }) {
-  if (!cruceTercero.balanceEncontrado || !cruceTercero.resumen) {
-    return (
-      <Card className="flex flex-col items-center gap-2 p-8 text-center">
-        <div className="text-[13px] font-semibold text-ink-800">No hay balance por tercero confirmado para este período</div>
-        <p className="max-w-md text-[12.5px] text-ink-500">
-          No hay balance por tercero para <b className="text-ink-700">{cruceTercero.nombreCliente}</b> en el período <b className="text-ink-700">{cruceTercero.periodo}</b>. Se genera automáticamente al confirmar el borrador del balance declarando el tipo «Por terceros».
-        </p>
-        <Link href="/balance" className="mt-1 text-[12.5px] font-semibold text-blue-700 hover:underline">
-          Ir a Balance de comprobación →
-        </Link>
-      </Card>
-    );
-  }
-
-  const { resumen, contableSinNit, moduloSinNit, contableExcluidoFilas } = cruceTercero;
-
-  return (
-    <div className="flex flex-col gap-4">
-      {/* De dónde salió el lado contable de este cruce. El cargue por tercero se
-          captura al confirmar el borrador del balance; no tiene pantalla propia. */}
-      {cruceTercero.balanceTerceroId != null && (
-        <p className="text-[11.5px] text-ink-500">
-          Lado contable: balance por tercero <b className="text-ink-700">{cruceTercero.balanceTerceroVersion ?? ""}</b> de {cruceTercero.nombreCliente} (capturado del balance de comprobación del período).
-        </p>
-      )}
-      <Card className="p-0">
-        <div className="overflow-x-auto">
-          <table className="w-full text-[12.5px]">
-            <thead className="bg-ink-50 text-left text-ink-500">
-              <tr>
-                <th className="px-3 py-2 font-semibold">{cruceTercero.etiquetaClave}</th>
-                <th className="px-3 py-2 font-semibold">{cruceTercero.etiquetaNombre}</th>
-                <th className="px-3 py-2 text-right font-semibold">Contabilidad</th>
-                <th className="px-3 py-2 text-right font-semibold">Auxiliar (módulo)</th>
-                <th className="px-3 py-2 text-right font-semibold">Diferencia</th>
-              </tr>
-            </thead>
-            <tbody>
-              {resumen.filas.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="px-3 py-6 text-center text-ink-400">Sin terceros para cruzar en este período.</td>
-                </tr>
-              )}
-              {resumen.filas.map((f) => (
-                <tr key={f.nit} className={`border-t border-ink-100 ${f.estado === "descuadre" ? "bg-err-100/30" : ""}`}>
-                  <td className="px-3 py-2 font-medium text-ink-800">{f.nit}</td>
-                  <td className="px-3 py-2 text-ink-700">{f.nombre ?? "—"}</td>
-                  <td className="px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(f.contable)}</td>
-                  <td className="px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(f.modulo)}</td>
-                  <td className="px-3 py-2 text-right">
-                    <div className="flex items-center justify-end gap-1.5">
-                      {f.estado === "solo_contable" && <Chip label="Solo en contabilidad" tone="warn" />}
-                      {f.estado === "solo_modulo" && <Chip label="Solo en módulo" tone="warn" />}
-                      <span className={`tabular-nums font-semibold ${f.cuadra ? "text-ok-700" : "text-err-700"}`}>{fmtContable(f.diferencia)}</span>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-            {resumen.filas.length > 0 && (
-              <tfoot>
-                <tr className="border-t-2 border-ink-200 bg-ink-50 font-semibold text-ink-800">
-                  <td className="px-3 py-2" colSpan={2}>Totales</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{fmtContable(resumen.totales.contable)}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{fmtContable(resumen.totales.modulo)}</td>
-                  <td className={`px-3 py-2 text-right tabular-nums ${Math.abs(resumen.totales.diferencia) <= 0.01 ? "text-ok-700" : "text-err-700"}`}>{fmtContable(resumen.totales.diferencia)}</td>
-                </tr>
-              </tfoot>
-            )}
-          </table>
-        </div>
-      </Card>
-
-      {(contableSinNit || moduloSinNit || contableExcluidoFilas > 0) && (
-        <div className="flex flex-col gap-2">
-          {contableSinNit && (
-            <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[12px] text-warn-700">
-              El balance por tercero tiene <b>{fmtContable(contableSinNit.total)}</b> en {contableSinNit.filas} {contableSinNit.filas === 1 ? "fila" : "filas"} sin NIT identificado — no {contableSinNit.filas === 1 ? "entró" : "entraron"} al cruce por tercero.
-            </div>
-          )}
-          {moduloSinNit && (
-            <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[12px] text-warn-700">
-              El auxiliar del módulo tiene <b>{fmtContable(moduloSinNit.total)}</b> en {moduloSinNit.filas} {moduloSinNit.filas === 1 ? "fila" : "filas"} sin NIT identificado — no {moduloSinNit.filas === 1 ? "entró" : "entraron"} al cruce por tercero.
-            </div>
-          )}
-          {contableExcluidoFilas > 0 && (
-            <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">
-              Se excluyeron <b>{contableExcluidoFilas}</b> {contableExcluidoFilas === 1 ? "fila contable" : "filas contables"} del cruce por tercero por falta de homologación Russell o de una regla activa de base de cálculo. No se usó el saldo final como sustituto.
-            </div>
-          )}
-        </div>
       )}
     </div>
   );
@@ -1584,27 +1494,6 @@ function ResumenMarcasBanner({ resumen }: { resumen: ResumenMarcas }) {
   );
 }
 
-/** El número de la marca tal como se pinta en la cédula. */
-function InsigniaMarca({
-  numero,
-  tono,
-  titulo,
-}: {
-  numero: number;
-  tono: "ok" | "warn";
-  titulo: string;
-}) {
-  const colores = tono === "warn" ? "border-warn-500 bg-warn-100 text-warn-700" : "border-navy-700 bg-white text-navy-700";
-  return (
-    <span
-      title={titulo}
-      className={`inline-flex h-[22px] min-w-[22px] items-center justify-center rounded-full border px-1 text-[11.5px] font-bold tabular-nums ${colores}`}
-    >
-      {numero}
-    </span>
-  );
-}
-
 /** La marca de una fila de la cédula: número (enlace a su observación) o botón para crearla. */
 function CeldaMarca({
   fila,
@@ -1781,23 +1670,7 @@ function ObservacionMarca({
           </p>
         )}
 
-        {marca.adjuntos.length > 0 && (
-          <ul className="flex flex-wrap gap-1.5">
-            {marca.adjuntos.map((a) => (
-              <li key={a.id}>
-                <a
-                  href={`${urlSoporteMarca(a.id)}?descargar=1`}
-                  className="inline-flex max-w-[260px] items-center gap-1 rounded-md border border-ink-200 bg-white px-2 py-1 text-[11px] text-ink-700 transition hover:border-blue-400 hover:text-blue-700"
-                  title={`${a.nombreArchivo} · ${tamanoLegible(a.tamanoBytes)}`}
-                >
-                  <Icon name="doc" size={11} />
-                  <span className="truncate">{a.nombreArchivo}</span>
-                  <span className="shrink-0 text-ink-400">{tamanoLegible(a.tamanoBytes)}</span>
-                </a>
-              </li>
-            ))}
-          </ul>
-        )}
+        <ListaSoportesMarca adjuntos={marca.adjuntos} />
 
         <div className="flex flex-wrap items-center gap-2 text-[10.5px] text-ink-400">
           <span>
@@ -1857,7 +1730,6 @@ function ModalMarca({
   onClose: () => void;
   onGuardado: () => void;
 }) {
-  const router = useRouter();
   const [nota, setNota] = useState(fila.marca?.nota ?? "");
   const [anexo, setAnexo] = useState(fila.marca?.referenciaAnexo ?? "");
   const [nuevos, setNuevos] = useState<File[]>([]);
@@ -1876,33 +1748,6 @@ function ModalMarca({
   const totalNoModular = hijos.reduce((suma, h) => (noModulares.has(h.cuenta8) ? suma + h.valor : suma), 0);
   const difAjustada = fila.contable - totalNoModular - fila.inventario;
   const [guardando, startGuardar] = useTransition();
-  const [borrandoSoporte, startBorrarSoporte] = useTransition();
-
-  const yaGuardados = fila.marca?.adjuntos ?? [];
-  const cupo = SOPORTES_MARCA_MAX - yaGuardados.length - nuevos.length;
-
-  const agregar = (lista: FileList | null) => {
-    if (!lista || lista.length === 0) return;
-    const elegidos = Array.from(lista);
-    if (elegidos.length > cupo) {
-      notifyError(`Una marca admite hasta ${SOPORTES_MARCA_MAX} soportes.`);
-      return;
-    }
-    setNuevos((previos) => [...previos, ...elegidos]);
-  };
-
-  const quitarSoporte = (soporteId: number) => {
-    startBorrarSoporte(async () => {
-      const r = await eliminarSoporteMarca({ encabezadoId, soporteId });
-      if (r.ok) {
-        notifySuccess(r.message ?? "Soporte eliminado.");
-        router.refresh();
-      } else {
-        notifyError(r.message ?? "No se pudo eliminar el soporte.");
-      }
-    });
-  };
-
   const guardar = () => {
     const texto = nota.trim();
     if (!texto || guardando) return;
@@ -2012,78 +1857,7 @@ function ModalMarca({
           <span className="text-[10.5px] text-ink-400">Dónde queda el soporte en el archivo del papel de trabajo.</span>
         </label>
 
-        <div className="flex flex-col gap-1.5">
-          <span className="text-[12px] font-semibold text-ink-700">
-            Soportes <span className="font-normal text-ink-400">(PDF, Excel, CSV o imagen · hasta {SOPORTES_MARCA_MAX})</span>
-          </span>
-
-          {yaGuardados.length > 0 && (
-            <ul className="flex flex-col gap-1">
-              {yaGuardados.map((a) => (
-                <li key={a.id} className="flex items-center gap-2 rounded-md border border-ink-150 bg-white px-2 py-1.5 text-[11.5px]">
-                  <Icon name="doc" size={12} />
-                  <a
-                    href={`${urlSoporteMarca(a.id)}?descargar=1`}
-                    className="min-w-0 flex-1 truncate text-ink-700 hover:text-blue-700 hover:underline"
-                    title={a.nombreArchivo}
-                  >
-                    {a.nombreArchivo}
-                  </a>
-                  <span className="shrink-0 text-ink-400">{tamanoLegible(a.tamanoBytes)}</span>
-                  <button
-                    type="button"
-                    onClick={() => quitarSoporte(a.id)}
-                    disabled={borrandoSoporte}
-                    title="Eliminar este soporte"
-                    aria-label="Eliminar este soporte"
-                    className="shrink-0 rounded p-0.5 text-err-500 transition hover:bg-err-50 hover:text-err-700 disabled:opacity-50"
-                  >
-                    <Icon name="trash" size={12} />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-
-          {nuevos.length > 0 && (
-            <ul className="flex flex-col gap-1">
-              {nuevos.map((archivo, i) => (
-                <li key={`${archivo.name}-${i}`} className="flex items-center gap-2 rounded-md border border-dashed border-blue-300 bg-blue-50 px-2 py-1.5 text-[11.5px]">
-                  <Icon name="upload" size={12} />
-                  <span className="min-w-0 flex-1 truncate text-ink-700" title={archivo.name}>{archivo.name}</span>
-                  <span className="shrink-0 text-ink-400">{tamanoLegible(archivo.size)}</span>
-                  <button
-                    type="button"
-                    onClick={() => setNuevos((previos) => previos.filter((_, j) => j !== i))}
-                    title="Quitar de la lista"
-                    aria-label="Quitar de la lista"
-                    className="shrink-0 rounded p-0.5 text-err-500 transition hover:bg-err-50 hover:text-err-700"
-                  >
-                    <Icon name="x" size={12} />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-
-          {cupo > 0 ? (
-            <label className="inline-flex w-fit cursor-pointer items-center gap-1.5 rounded-md border border-ink-200 px-2.5 py-1.5 text-[11.5px] font-semibold text-ink-600 transition hover:bg-ink-50 hover:text-ink-900">
-              <Icon name="plus" size={12} /> Adjuntar soporte
-              <input
-                type="file"
-                multiple
-                accept=".pdf,.xlsx,.xlsm,.xls,.csv,.jpg,.jpeg,.png,.webp"
-                className="hidden"
-                onChange={(e) => {
-                  agregar(e.target.files);
-                  e.target.value = "";
-                }}
-              />
-            </label>
-          ) : (
-            <span className="text-[11px] text-ink-400">Alcanzaste el máximo de {SOPORTES_MARCA_MAX} soportes.</span>
-          )}
-        </div>
+        <EditorSoportesMarca encabezadoId={encabezadoId} yaGuardados={fila.marca?.adjuntos ?? []} nuevos={nuevos} onCambiarNuevos={setNuevos} />
 
         <p className="text-[11.5px] text-ink-500">
           La marca queda numerada en la cédula, su detalle en observaciones y el texto en el hilo de la cuenta. Se conserva al cargar versiones nuevas de este período.
@@ -2107,6 +1881,10 @@ function NovedadesTab({ novedades, titulo }: { novedades: NovedadesVm; titulo?: 
           />
         </Card>
       )}
+      {novedades.tercero ? (
+        <ValidacionesTerceroPanel validaciones={novedades.tercero} />
+      ) : (
+        <>
       <Card className="p-4">
         <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Validación automática</div>
         {novedades.negativos.length === 0 ? (
@@ -2155,6 +1933,8 @@ function NovedadesTab({ novedades, titulo }: { novedades: NovedadesVm; titulo?: 
           </div>
         )}
       </Card>
+        </>
+      )}
 
       <Card className="p-4">
         <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Verificaciones</div>

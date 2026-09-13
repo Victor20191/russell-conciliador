@@ -191,3 +191,15 @@ describe("compararSaldosTercero · el control que certifica la lectura", () => {
     expect(r.totales.declarado).toBe(0);
   });
 });
+
+describe("materializarSaldosTercero · documento que declara el saldo de su proveedor (SIIGO)", () => {
+  it("declara el bloque y además suma lo suyo", () => {
+    const { saldos } = materializarSaldosTercero([
+      { filaNum: 1, valor: 1000, imputable: true, nivel: "documento", saldoDeclarado: 1500, nit: "900123456" },
+      { filaNum: 2, valor: 500, imputable: true, nivel: "documento", nit: "900123456" },
+    ], { loteId: "L", nivelImputable: "documento" });
+    expect(saldos.find((s) => s.origen === "declarado")?.saldo).toBe(1500);
+    expect(saldos.find((s) => s.origen === "agregado")?.saldo).toBe(1500);
+    expect(compararSaldosTercero(saldos).conDiferencia).toBe(0);
+  });
+});

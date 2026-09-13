@@ -87,6 +87,25 @@ export const SpecModuloSchema = z.object({
   // usuario al cargar; el cruce y las reglas de anexo dependen de ellos.
   nivel: z.enum(["tercero", "documento"]).optional(),
   origenCartera: z.enum(["nacional", "exterior", "mixta"]).optional(),
+  // Convención de signo del archivo: true cuando el ERP imprime la deuda en NEGATIVO (SAP
+  // Business One, ILIMITADA). El módulo guarda siempre deuda +, anticipo −; se sugiere por
+  // voto y se memoriza en el perfil del cliente.
+  invertirSigno: z.boolean().optional(),
+  // Moneda de los importes cuando NO son pesos (hoja «USD» de Plasmar): se leen en la divisa y
+  // se convierten con la TRM de cierre. Es del formato y se memoriza en el perfil.
+  monedaArchivo: z.string().regex(/^[A-Z]{3}$/).optional(),
+  // TRM de cierre (pesos por unidad de divisa) y fecha de corte de ESTE archivo: son del cargue,
+  // no del formato, así que nunca se guardan en el perfil del cliente.
+  trmCierre: z.number().positive().optional(),
+  fechaCorte: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  // Fila ROTULADA de tercero (SEVEN): «PROVEEDOR | NIT | nombre» en columnas de otros roles, con
+  // los documentos debajo. El identificador solo existe en esas filas.
+  filaTercero: z.object({
+    columnaRotulo: z.number().int().positive(),
+    texto: z.string().min(1),
+    columnaClave: z.number().int().positive(),
+    columnaNombre: z.number().int().positive().optional(),
+  }).optional(),
 });
 export type SpecModulo = z.infer<typeof SpecModuloSchema>;
 

@@ -22,6 +22,10 @@ export const CLAVE_SUMA_EDADES = "_sumaEdades";
 export const CLAVE_SALDO_REPORTADO = "_saldoReportado";
 export const CLAVE_ORIGEN_VALOR = "_origenValor";
 export const CLAVE_SALDO_DECLARADO = "_saldoDeclarado";
+/** Importe en divisa del que salió el valor en pesos, su moneda y la TRM con que se convirtió. */
+export const CLAVE_SALDO_DIVISA = "_saldoDivisa";
+export const CLAVE_MONEDA = "_moneda";
+export const CLAVE_TRM = "_trm";
 
 export const CLAVES_CARTERA = [
   CLAVE_EDADES,
@@ -29,6 +33,9 @@ export const CLAVES_CARTERA = [
   CLAVE_SALDO_REPORTADO,
   CLAVE_ORIGEN_VALOR,
   CLAVE_SALDO_DECLARADO,
+  CLAVE_SALDO_DIVISA,
+  CLAVE_MONEDA,
+  CLAVE_TRM,
 ] as const;
 
 /** Lo que el transform produce además de los roles. */
@@ -38,6 +45,9 @@ export type ExtrasCartera = {
   valorReportado?: number | null;
   origenValor?: "columna" | "familia" | "columna_y_familia";
   saldoDeclarado?: number;
+  saldoDivisa?: number;
+  moneda?: string;
+  trm?: number;
 };
 
 /**
@@ -54,7 +64,8 @@ export function datosConExtrasCartera(
     || extras.sumaFamilia != null
     || extras.valorReportado != null
     || extras.origenValor != null
-    || extras.saldoDeclarado != null;
+    || extras.saldoDeclarado != null
+    || extras.saldoDivisa != null;
   if (!hayAlgo) return datos;
 
   const salida: Record<string, unknown> = { ...datos };
@@ -63,6 +74,11 @@ export function datosConExtrasCartera(
   if (extras.valorReportado != null) salida[CLAVE_SALDO_REPORTADO] = extras.valorReportado;
   if (extras.origenValor != null) salida[CLAVE_ORIGEN_VALOR] = extras.origenValor;
   if (extras.saldoDeclarado != null) salida[CLAVE_SALDO_DECLARADO] = extras.saldoDeclarado;
+  if (extras.saldoDivisa != null) {
+    salida[CLAVE_SALDO_DIVISA] = extras.saldoDivisa;
+    if (extras.moneda) salida[CLAVE_MONEDA] = extras.moneda;
+    if (extras.trm != null) salida[CLAVE_TRM] = extras.trm;
+  }
   return salida;
 }
 
@@ -143,4 +159,12 @@ export function rotulosDeEdades(filas: readonly { datos: Record<string, unknown>
     for (const etiqueta of Object.keys(leerEdades(f.datos ?? {}) ?? {})) vistos.add(etiqueta);
   }
   return [...vistos];
+}
+
+/** La divisa de una fila, si su valor en pesos salió de un importe en divisa. */
+export function leerDivisa(datos: Record<string, unknown>): { saldoDivisa: number; moneda: string | null; trm: number | null } | null {
+  const saldoDivisa = numero(datos[CLAVE_SALDO_DIVISA]);
+  if (saldoDivisa == null) return null;
+  const moneda = typeof datos[CLAVE_MONEDA] === "string" ? (datos[CLAVE_MONEDA] as string) : null;
+  return { saldoDivisa, moneda, trm: numero(datos[CLAVE_TRM]) };
 }

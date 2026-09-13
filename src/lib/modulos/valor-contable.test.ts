@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { ReglaContableModulo } from "./valor-contable";
 import {
   calcularValorContableModulo,
+  calcularValorContableTercero,
   resolverReglaContableModulo,
 } from "./valor-contable";
+import { descriptorModulo } from "./descriptores";
 
 const regla = (
   moduloCodigo: string,
@@ -80,5 +82,33 @@ describe("valor contable para cruces de módulos", () => {
       fila: { saldoFinal: -1, debitos: 0, creditos: 1 },
       catalogo,
     })).toBeNull();
+  });
+});
+
+describe("valor contable del cruce por tercero", () => {
+  const catalogoCartera: ReglaContableModulo[] = [regla("CAR", "13", "saldo"), regla("CAR", "2805", "saldo")];
+  const saldo = (saldoFinal: number) => ({ saldoFinal, debitos: 0, creditos: 0 });
+  const tercero = (cuentaRussell: string, saldoFinal: number, naturaleza?: "D" | "C", catalogo = catalogoCartera, moduloCodigo = "CAR") =>
+    calcularValorContableTercero({ moduloCodigo, cuentaRussell, fila: saldo(saldoFinal), catalogo, naturaleza })?.valor ?? null;
+
+  it("cartera (naturaleza D): el anticipo de 280505 RESTA del saldo del tercero, como en el auxiliar", () => {
+    expect((tercero("130505", 100, "D") ?? 0) + (tercero("280505", -30, "D") ?? 0)).toBe(70);
+  });
+
+  it("sin naturaleza conserva el factor por cuenta: el mismo anticipo se sumaría", () => {
+    expect((tercero("130505", 100) ?? 0) + (tercero("280505", -30) ?? 0)).toBe(130);
+  });
+
+  it("naturaleza C invierte todas las cuentas del módulo por igual", () => {
+    const cxp: ReglaContableModulo[] = [regla("CXP", "22", "saldo"), regla("CXP", "1330", "saldo")];
+    expect([tercero("220505", -500, "C", cxp, "CXP"), tercero("133005", 200, "C", cxp, "CXP")]).toEqual([500, -200]);
+  });
+
+  it("una cuenta sin regla del módulo sigue fuera del cruce", () => {
+    expect(tercero("510506", 1, "D")).toBeNull();
+  });
+
+  it("Cartera declara naturaleza D", () => {
+    expect(descriptorModulo("CAR")?.crucePorTercero.naturaleza).toBe("D");
   });
 });

@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { derivarStagingTercero, filasEfectivasTercero, prepararCapturaTercero, type FilaTerceroCruda } from "./staging-tercero";
+import { claveTerceroDeCaptura, derivarStagingTercero, filasEfectivasTercero, prepararCapturaTercero, type FilaTerceroCruda } from "./staging-tercero";
+import { dvNit } from "@/lib/nit";
+import type { IdentidadTercero } from "./identidad-tercero";
 import type { FilaDetalle } from "./calcular";
 
 type Entrada = Parameters<typeof derivarStagingTercero>[0][number];
@@ -212,5 +214,28 @@ describe("filasEfectivasTercero — dedup de la fila propia", () => {
   it("un cargue legado sin filas propias pasa intacto", () => {
     const filas = [fp("13050501", "800011002", "ACME", 10), fp("13050501", null, "Genérico", 5)];
     expect(filasEfectivasTercero(filas)).toEqual(filas);
+  });
+});
+
+describe("claveTerceroDeCaptura", () => {
+  const identidad = (numeroDocumento: string | null): IdentidadTercero => ({
+    version: 1, documentoOriginal: numeroDocumento ?? "", tipoOriginal: "", dvOriginal: "", tipoDocumento: null,
+    numeroDocumento, digitoVerificacion: null, nombre: null, origen: "archivo", observaciones: [],
+  });
+
+  it("toma el documento completo de la identidad: una cédula de 10 dígitos no se trunca", () => {
+    const base = "112838597";
+    const cedula = `${base}${((dvNit(base) ?? 0) + 1) % 10}`;
+    expect(claveTerceroDeCaptura({ identidadTercero: identidad(cedula), nitTercero: base })).toBe(cedula);
+  });
+
+  it("retira el dígito de verificación solo cuando lo es", () => {
+    const base = "900123456";
+    expect(claveTerceroDeCaptura({ identidadTercero: identidad(`${base}${dvNit(base)}`), nitTercero: base })).toBe(base);
+  });
+
+  it("sin identidad usa el NIT guardado; la fila propia de la cuenta no tiene clave", () => {
+    expect(claveTerceroDeCaptura({ nitTercero: "900123456" })).toBe("900123456");
+    expect(claveTerceroDeCaptura({ nitTercero: null })).toBeNull();
   });
 });

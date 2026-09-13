@@ -150,3 +150,24 @@ describe("claveSinNit", () => {
     expect(esClaveSinNit("900123456")).toBe(false);
   });
 });
+
+describe("normalizarTerceroCartera · identificadores de los auxiliares de CxP", () => {
+  it("EIN con prefijo de letras es un tercero del exterior", () => {
+    const t = normalizarTerceroCartera({ nit: "EIN911144442" });
+    expect(t.claveCanonica).toBe("911144442");
+    expect(t.origenSugerido).toBe("exterior");
+  });
+
+  it("retira el retorno de carro que LIBRA exporta como «_x000D_»", () => {
+    expect(normalizarTerceroCartera({ nit: "900123456-7_x000D_", nombre: "ACME SAS_x000D_" }))
+      .toMatchObject({ claveCanonica: "900123456", dv: "7", nombre: "ACME SAS" });
+  });
+
+  it("letra y espacio delante del número (PLASMAR «B 63222913»)", () => {
+    expect(normalizarTerceroCartera({ nit: "B 63222913 " }).claveCanonica).toBe("63222913");
+  });
+
+  it("espacio dentro del número (PLASMAR «31 1256556»)", () => {
+    expect(normalizarTerceroCartera({ nit: "31 1256556" }).claveCanonica).toBe("311256556");
+  });
+});

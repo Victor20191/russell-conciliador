@@ -16,6 +16,7 @@
  * queda `desactualizada` para que alguien la revise en vez de darla por explicada.
  */
 import type { FilaCruceContable, HijoContableCruce } from "./cruce-contable";
+import type { FilaCruceTerceroCartera } from "./cartera/cruce-tercero-cartera";
 
 /** Tolerancia por defecto del cruce (la misma de `construirCruceContable`). */
 export const TOLERANCIA_CRUCE = 0.01;
@@ -36,8 +37,16 @@ export type CuentaNoModular = {
   valorAlMarcar: number;
 };
 
+/** Qué explica una marca: una cuenta de la cédula contable o un tercero del cruce por tercero. */
+export type DimensionMarca = "cuenta4" | "tercero";
+
 export type MarcaCruce = {
+  /** Sin valor, una marca de cuenta (las marcas anteriores al cruce por tercero). */
+  dimension?: DimensionMarca;
+  /** Cuenta Russell de 4 dígitos; vacía en las marcas de tercero. */
   cuenta4: string;
+  /** Clave del tercero en las marcas de dimensión `tercero`. */
+  clave?: string | null;
   /** Correlativo dentro del período; es lo que se pinta en la cédula. */
   numero: number;
   nota: string;
@@ -73,6 +82,8 @@ export type ResumenMarcas = {
   desactualizadas: number;
   /** Suma de las diferencias todavía sin marcar. */
   montoPendiente: number;
+  /** Cruce por tercero: diferencias por debajo del umbral de descuadre, que no exigen marca. */
+  bajoUmbral?: number;
 };
 
 const redondear = (v: number): number => Math.round(v * 100) / 100 + 0 || 0;
@@ -95,7 +106,7 @@ export function anotarCruceConMarcas(
   opciones?: { tolerancia?: number },
 ): { filas: FilaCruceMarcada[]; resumen: ResumenMarcas } {
   const tolerancia = opciones?.tolerancia ?? TOLERANCIA_CRUCE;
-  const porCuenta = new Map(marcas.map((m) => [m.cuenta4, m]));
+  const porCuenta = new Map(marcas.filter((m) => (m.dimension ?? "cuenta4") === "cuenta4").map((m) => [m.cuenta4, m]));
 
   const anotadas: FilaCruceMarcada[] = filas.map((fila) => {
     const marca = porCuenta.get(fila.cuenta4) ?? null;
@@ -235,4 +246,79 @@ export function validarReferenciaAnexo(
     return { ok: false, message: `La referencia al anexo no puede superar ${MAX_REFERENCIA_ANEXO} caracteres.` };
   }
   return { ok: true, referencia: limpia };
+}
+
+// ===== Marcas del cruce POR TERCERO =====
+
+/** Un tercero del cruce con su marca. */
+export type FilaCruceTerceroMarcada = FilaCruceTerceroCartera & {
+  /** No cuadra: admite marca, también las diferencias pequeñas que el auditor quiera explicar. */
+  admiteMarca: boolean;
+  /** La diferencia alcanza el umbral de descuadre de `/config/parametros`: sin marca, impide cerrar. */
+  requiereMarca: boolean;
+  marca: MarcaCruce | null;
+  desactualizada: boolean;
+};
+
+export const MAX_CLAVE_TERCERO = 200;
+
+/** Clave de tercero utilizable en una marca o un emparejamiento: texto no vacío y acotado. */
+export function normalizarClaveTercero(valor: unknown): string | null {
+  const clave = String(valor ?? "").trim();
+  return clave && clave.length <= MAX_CLAVE_TERCERO ? clave : null;
+}
+
+/** Ancla del hilo de comentarios de un tercero del cruce (`tercero:900123456`). */
+export function anclaCruceTercero(clave: string): string {
+  return `tercero:${clave}`;
+}
+
+/**
+ * Pega a cada tercero del cruce su marca y resume lo pendiente. Toda diferencia admite marca
+ * —también los terceros que solo están en un lado—, pero para cerrar solo se exige en las que
+ * alcanzan el umbral de descuadre: por debajo se informan en `bajoUmbral`.
+ */
+export function anotarCruceTerceroConMarcas(
+  filas: readonly FilaCruceTerceroCartera[],
+  marcas: readonly MarcaCruce[],
+  opciones: { umbralDescuadre: number; tolerancia?: number },
+): { filas: FilaCruceTerceroMarcada[]; resumen: ResumenMarcas } {
+  const tolerancia = opciones.tolerancia ?? TOLERANCIA_CRUCE;
+  const porClave = new Map(
+    marcas.filter((m) => m.dimension === "tercero" && m.clave).map((m) => [m.clave as string, m]),
+  );
+
+  const anotadas: FilaCruceTerceroMarcada[] = filas.map((fila) => {
+    const marca = porClave.get(fila.clave) ?? null;
+    const admite = fila.estado !== "cuadra" && fila.estado !== "sin_saldo";
+    return {
+      ...fila,
+      admiteMarca: admite,
+      requiereMarca: admite && Math.abs(fila.diferencia) >= opciones.umbralDescuadre,
+      marca,
+      desactualizada: marca != null && admite && Math.abs(fila.diferencia - marca.diferencia) > tolerancia,
+    };
+  });
+
+  const resumen = anotadas.reduce<ResumenMarcas>(
+    (acc, fila) => {
+      if (!fila.admiteMarca) return acc;
+      if (!fila.requiereMarca) {
+        acc.bajoUmbral = (acc.bajoUmbral ?? 0) + 1;
+        return acc;
+      }
+      acc.conDiferencia += 1;
+      if (fila.marca) {
+        acc.marcadas += 1;
+        if (fila.desactualizada) acc.desactualizadas += 1;
+      } else {
+        acc.pendientes += 1;
+        acc.montoPendiente = redondear(acc.montoPendiente + fila.diferencia);
+      }
+      return acc;
+    },
+    { conDiferencia: 0, marcadas: 0, pendientes: 0, desactualizadas: 0, montoPendiente: 0, bajoUmbral: 0 },
+  );
+
+  return { filas: anotadas, resumen };
 }

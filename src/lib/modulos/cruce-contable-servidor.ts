@@ -63,6 +63,12 @@ export type ResultadoCruceModulo = {
   marcas: MarcaCruce[];
   filasMarcadas: FilaCruceMarcada[];
   resumenMarcas: ResumenMarcas | null;
+  /**
+   * Del saldo contable de las cuentas de 4 dígitos, lo que está en cuentas Russell de seis que
+   * el módulo no concilia (en Cartera, 130515 de trabajadores). Informativo: la cédula lo
+   * incluye porque compara por cuenta de 4; el cruce por tercero no lo concilia.
+   */
+  fueraDelModulo: { total: number; filas: number; porCuenta: Record<string, number> } | null;
 };
 
 export async function cargarInsumosCruceModulo(encabezadoId: number): Promise<InsumosCruceModulo | null> {
@@ -147,6 +153,8 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
   let cruceContable: ResumenCruceContable | null = null;
   let sinMapeoContable: { total: number; filas: number } | null = null;
   let sinReglaContableFilas = 0;
+  const cuentasRussell6 = descriptor.crucePorTercero.cuentasRussell6?.length ? new Set(descriptor.crucePorTercero.cuentasRussell6) : null;
+  const fuera = { total: 0, filas: 0, porCuenta: {} as Record<string, number> };
   let bloqueo = bloqueoCrucePorVerificacionesCriticasModulo(descriptor, verifGuardadas);
   let contextoBalance: Awaited<ReturnType<typeof cargarContextoPrevalidadorBalance>> | null = null;
 
@@ -164,7 +172,7 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
   // descuentan del lado contable al construir el cruce. Viven por (cliente, módulo,
   // período), NO por cargue.
   const marcasPeriodo = await prisma.marcaCruceModulo.findMany({
-    where: { clienteId: encabezado.clienteId, moduloCodigo, periodo: encabezado.periodo },
+    where: { clienteId: encabezado.clienteId, moduloCodigo, periodo: encabezado.periodo, dimension: "cuenta4" },
     orderBy: { numero: "asc" },
     select: {
       cuenta4: true, numero: true, nota: true, referenciaAnexo: true, diferencia: true, comentarioId: true, marcadoPor: true, marcadoEn: true,
@@ -195,6 +203,12 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
           continue;
         }
         contablePorCuenta[sub4] = (contablePorCuenta[sub4] ?? 0) + calculo.valor;
+        const russell6 = d.cuenta6Russell.replace(/\D/g, "").slice(0, 6);
+        if (cuentasRussell6 && !cuentasRussell6.has(russell6)) {
+          fuera.total += calculo.valor;
+          fuera.filas += 1;
+          fuera.porCuenta[russell6] = (fuera.porCuenta[russell6] ?? 0) + calculo.valor;
+        }
         // Desglose de la fila: qué cuentas del cliente la componen y cuáles quedaron
         // marcadas como no modulares (su valor se descuenta del lado contable).
         const noModular = excluidas.has(cuenta8);
@@ -226,7 +240,8 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
   }
 
   const marcas: MarcaCruce[] = marcasPeriodo.map((m) => ({
-    cuenta4: m.cuenta4,
+    dimension: "cuenta4",
+    cuenta4: m.cuenta4 ?? "",
     numero: m.numero,
     nota: m.nota,
     referenciaAnexo: m.referenciaAnexo,
@@ -249,6 +264,13 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
     marcas,
     filasMarcadas: anotado?.filas ?? [],
     resumenMarcas: anotado?.resumen ?? null,
+    fueraDelModulo: cruceContable && fuera.filas > 0
+      ? {
+          total: Math.round(fuera.total * 100) / 100,
+          filas: fuera.filas,
+          porCuenta: Object.fromEntries(Object.entries(fuera.porCuenta).sort(([a], [b]) => a.localeCompare(b)).map(([c, v]) => [c, Math.round(v * 100) / 100])),
+        }
+      : null,
   };
 }
 
@@ -263,5 +285,6 @@ function vacio(balanceEmparejado: BalanceFuenteCruce | null, bloqueo: string | n
     marcas: [],
     filasMarcadas: [],
     resumenMarcas: null,
+    fueraDelModulo: null,
   };
 }
