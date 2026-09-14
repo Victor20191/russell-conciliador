@@ -3,8 +3,8 @@
 // Cuando un Excel trae varias hojas (Balance, Retenciones, Parámetros…), el
 // usuario debe elegir explícitamente la hoja del balance: la IA no asume. Este
 // módulo lee el libro en el navegador —ExcelJS para .xlsx/.xlsm y SheetJS para
-// .xls, igual que la ingesta del servidor— para listar las hojas con contenido
-// y una vista previa, SIN subir el archivo.
+// .xls/.xlsb, igual que la ingesta del servidor— para listar las hojas con
+// contenido y una vista previa, SIN subir el archivo.
 
 import type ExcelJS from "exceljs";
 
@@ -40,6 +40,7 @@ export function debeLeerSoloNombresHojas(tamanoBytes: number): boolean {
  * normal donde la IA elige).
  */
 export async function leerHojasParaPreview(file: File): Promise<HojaPreview[]> {
+  if (/\.xlsb$/i.test(file.name)) return leerHojasXlsb(file);
   if (/\.xls$/i.test(file.name)) return leerHojasXls(file);
   return leerHojasExcelModerno(file);
 }
@@ -93,6 +94,41 @@ async function leerHojasXls(file: File): Promise<HojaPreview[]> {
     raw: true,
     dense: true,
     sheetRows: 65_536,
+    cellDates: false,
+    cellFormula: false,
+    cellHTML: false,
+    bookVBA: false,
+  });
+
+  const hojas: HojaPreview[] = [];
+  for (const nombre of wb.SheetNames) {
+    const ws = wb.Sheets[nombre];
+    if (!ws) continue;
+    const filas = XLSX.utils
+      .sheet_to_json<unknown[]>(ws, {
+        header: 1,
+        raw: true,
+        defval: null,
+        blankrows: false,
+      })
+      .map((fila) => fila.map(celdaXls))
+      .filter(filaTieneDatos);
+    if (filas.length === 0) continue;
+    hojas.push(crearPreview(nombre, filas));
+  }
+  return hojas;
+}
+
+/**
+ * Lee un libro Excel binario (.xlsb) en el navegador con SheetJS. A diferencia
+ * de .xls, .xlsb no limita las filas a 65.536: no se fija `sheetRows`.
+ */
+async function leerHojasXlsb(file: File): Promise<HojaPreview[]> {
+  const XLSX = await import("xlsx");
+  const wb = XLSX.read(new Uint8Array(await file.arrayBuffer()), {
+    type: "array",
+    raw: true,
+    dense: true,
     cellDates: false,
     cellFormula: false,
     cellHTML: false,

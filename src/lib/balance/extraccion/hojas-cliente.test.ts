@@ -29,6 +29,15 @@ function comoFileXls(hojas: Record<string, (string | number)[][]>): File {
   return { name: "balance.xls", arrayBuffer: async () => ab } as unknown as File;
 }
 
+function comoFileXlsb(hojas: Record<string, (string | number)[][]>): File {
+  const wb = XLSX.utils.book_new();
+  for (const [nombre, filas] of Object.entries(hojas)) {
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(filas), nombre);
+  }
+  const ab = XLSX.write(wb, { type: "array", bookType: "xlsb" }) as ArrayBuffer;
+  return { name: "balance.xlsb", arrayBuffer: async () => ab } as unknown as File;
+}
+
 describe("leerHojasParaPreview", () => {
   it("lista las hojas con contenido en orden, con su conteo y vista previa", async () => {
     const hojas = await leerHojasParaPreview(
@@ -73,6 +82,26 @@ describe("leerHojasParaPreview", () => {
       muestra: [["Código", "Cuenta", "Saldo"], ["110505", "Caja", 1000]],
     });
   });
+
+  it("ofrece la misma selección multihoja para un Excel binario (.xlsb)", async () => {
+    const hojas = await leerHojasParaPreview(
+      comoFileXlsb({
+        Balance: [["Código", "Cuenta", "Saldo"], ["110505", "Caja", 1000]],
+        Retenciones: [["Concepto", "Valor"], ["Renta", 50]],
+      }),
+    );
+    expect(hojas.map((hoja) => hoja.nombre)).toEqual(["Balance", "Retenciones"]);
+    expect(hojas[0]).toMatchObject({
+      totalFilas: 2,
+      totalColumnas: 3,
+      muestra: [["Código", "Cuenta", "Saldo"], ["110505", "Caja", 1000]],
+    });
+  });
+
+  it("descarta las hojas vacías de un .xlsb (no se ofrecen para elegir)", async () => {
+    const hojas = await leerHojasParaPreview(comoFileXlsb({ Balance: [["A"], ["1"]], Vacia: [] }));
+    expect(hojas.map((h) => h.nombre)).toEqual(["Balance"]);
+  });
 });
 
 describe("leerNombresHojas", () => {
@@ -105,6 +134,18 @@ describe("leerNombresHojas", () => {
   it("ofrece la misma selección liviana para Excel 97-2003", async () => {
     const hojas = await leerNombresHojas(
       comoFileXls({
+        Balance: [["Código"], ["110505"]],
+        Auxiliar: [["NIT"], ["900123456"]],
+      }),
+    );
+
+    expect(hojas.map((hoja) => hoja.nombre)).toEqual(["Balance", "Auxiliar"]);
+    expect(hojas.every((hoja) => hoja.vistaPreviaOmitida && hoja.muestra.length === 0)).toBe(true);
+  });
+
+  it("ofrece la misma selección liviana para un Excel binario (.xlsb)", async () => {
+    const hojas = await leerNombresHojas(
+      comoFileXlsb({
         Balance: [["Código"], ["110505"]],
         Auxiliar: [["NIT"], ["900123456"]],
       }),

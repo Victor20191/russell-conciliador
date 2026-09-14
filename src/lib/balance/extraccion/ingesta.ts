@@ -1,6 +1,6 @@
 // Ingesta de archivos para la extracción de balances.
 //
-// Convierte el archivo subido (xlsx/xls/csv/txt/json/pdf) en una representación
+// Convierte el archivo subido (xlsx/xls/xlsb/csv/txt/json/pdf) en una representación
 // que el pipeline pueda usar:
 //   - modo "tabular": grillas (matriz de celdas) por hoja → ruta de detección de
 //     estructura + transformación determinista. CSV y TXT delimitado (tab, pipe,
@@ -11,7 +11,7 @@
 // Solo el código toca todas las filas; al modelo se le envía una vista previa
 // (la construye el orquestador a partir de las grillas).
 import ExcelJS from "exceljs";
-import { Readable } from "node:stream";
+import { PassThrough, Readable } from "node:stream";
 
 export type CeldaCruda = string | number | boolean | null;
 // `negrita` (XLSX/XLSM y XLS cuando BIFF conserva el estilo): por cada fila de
@@ -88,9 +88,8 @@ function celdaExcel(v: ExcelJS.CellValue): CeldaCruda {
   if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return v;
   if (v instanceof Date) return v.toISOString().slice(0, 10);
   if (typeof v === "object") {
-    // Celda con FÓRMULA: solo vale el resultado cacheado. El lector streaming de exceljs
-    // (4.4) OMITE `result` cuando el valor cacheado es 0 (falsy), y un libro guardado sin
-    // recalcular tampoco lo trae. En ambos casos NO hay dato: se devuelve null. Antes caía
+    // Celda con FÓRMULA: solo vale el resultado cacheado. Un libro guardado sin
+    // recalcular puede no traerlo: en ese caso no hay dato y se devuelve null. Antes caía
     // al `JSON.stringify` de abajo y el texto `{"formula":"P2427*Q2427"}` llegaba al parser
     // numérico, que extraía los dígitos de las referencias (¡2427!) e "inventaba" un monto
     // igual al número de fila. Nunca se debe derivar un valor del texto de una fórmula.
@@ -108,8 +107,53 @@ function celdaExcel(v: ExcelJS.CellValue): CeldaCruda {
   return String(v);
 }
 
+function valorCeldaExcel(celda: ExcelJS.Cell): CeldaCruda {
+  // `cell.value` omite los resultados falsy en ExcelJS 4.4. Su getter público
+  // `result` conserva el cero cacheado y distingue las fórmulas sin resultado.
+  return celdaExcel(celda.type === ExcelJS.ValueType.Formula ? celda.result : celda.value);
+}
+
 function filaTieneDatos(fila: CeldaCruda[]): boolean {
   return fila.some((c) => c != null && String(c).trim() !== "");
+}
+
+/**
+ * ExcelJS necesita relaciones, estilos y textos antes de emitir una hoja.
+ * Algunos ERP los guardan al final del ZIP; la rama temporal de ExcelJS 4.4
+ * puede perder entradas posteriores sin error. Ordenamos solo la entrada de
+ * lectura: los XML se transmiten por streams, sin construir otro libro en memoria.
+ * El archivo original permanece intacto y ExcelJS sigue interpretando sus textos
+ * enriquecidos, estilos y relaciones con sus parsers habituales.
+ */
+async function entradaExcelOrdenada(data: ArrayBuffer): Promise<Readable> {
+  const { default: JSZip } = await import("jszip");
+  const zip = await JSZip.loadAsync(data);
+  const nombres = Object.keys(zip.files).filter((nombre) => !zip.files[nombre].dir);
+  const primeraHoja = nombres.findIndex((nombre) => /^xl\/worksheets\/sheet\d+\.xml$/.test(nombre));
+  const previos = ["xl/_rels/workbook.xml.rels", "xl/workbook.xml", "xl/styles.xml", "xl/sharedStrings.xml"];
+  const requiereOrden = primeraHoja >= 0 && (
+    !zip.file("xl/sharedStrings.xml") ||
+    previos.some((nombre) => nombres.indexOf(nombre) > primeraHoja)
+  );
+  if (!requiereOrden) return Readable.from([Buffer.from(data)]);
+
+  const ordenado = new JSZip();
+  for (const nombre of [...previos, ...nombres.filter((nombre) => !previos.includes(nombre))]) {
+    const entrada = zip.file(nombre);
+    if (entrada) ordenado.file(nombre, entrada.nodeStream(), { createFolders: false });
+    else if (nombre === "xl/sharedStrings.xml") {
+      // Una tabla vacía permite la lectura directa de libros con inline strings.
+      // No agrega celdas ni cambia los valores del documento.
+      ordenado.file(nombre, '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="0" uniqueCount="0"/>', { createFolders: false });
+    }
+  }
+  // JSZip usa su propia implementación de Readable; ExcelJS comprueba que
+  // recibe un stream nativo de Node. El adaptador conserva la contrapresión.
+  const entrada = new PassThrough();
+  const comprimido = ordenado.generateNodeStream({ streamFiles: true, compression: "DEFLATE", compressionOptions: { level: 1 } });
+  comprimido.on("error", (error) => entrada.destroy(error));
+  comprimido.pipe(entrada);
+  return entrada;
 }
 
 /**
@@ -123,7 +167,7 @@ function filaTieneDatos(fila: CeldaCruda[]): boolean {
  * no perder nombres, fechas ni la señal de negrita usada por balances de terceros.
  */
 async function leerLibroExcel(data: ArrayBuffer): Promise<GridHoja[]> {
-  const entrada = Readable.from([Buffer.from(data)]);
+  const entrada = await entradaExcelOrdenada(data);
   const wb = new ExcelJS.stream.xlsx.WorkbookReader(entrada, {
     worksheets: "emit",
     sharedStrings: "cache",
@@ -140,7 +184,7 @@ async function leerLibroExcel(data: ArrayBuffer): Promise<GridHoja[]> {
     const negrita: boolean[][] = [];
     const filasFisicas: number[] = [];
     for await (const row of ws) {
-      const values = (row.values as ExcelJS.CellValue[]).slice(1).map(celdaExcel);
+      const values = (row.values as ExcelJS.CellValue[]).slice(1).map((_, j) => valorCeldaExcel(row.getCell(j + 1)));
       if (!filaTieneDatos(values)) continue;
       filas.push(values);
       filasFisicas.push(row.number);
@@ -227,7 +271,7 @@ async function leerCeldaFisicaExcel(
   filaBuscada: number,
   columnaBuscada: number,
 ): Promise<ResultadoCeldaFisica> {
-  const entrada = Readable.from([Buffer.from(data)]);
+  const entrada = await entradaExcelOrdenada(data);
   const wb = new ExcelJS.stream.xlsx.WorkbookReader(entrada, {
     worksheets: "emit",
     sharedStrings: "cache",
@@ -246,7 +290,7 @@ async function leerCeldaFisicaExcel(
     for await (const row of ws) {
       ultimaFilaFisica = Math.max(ultimaFilaFisica, row.number);
       if (row.number === filaBuscada) {
-        return { hojaExiste: true, filaExiste: true, valor: celdaExcel(row.getCell(columnaBuscada).value) };
+        return { hojaExiste: true, filaExiste: true, valor: valorCeldaExcel(row.getCell(columnaBuscada)) };
       }
       if (row.number > filaBuscada) {
         // El iterador saltó la fila solicitada: existe dentro del rango, pero está vacía.
@@ -439,6 +483,63 @@ function celdaXls(v: unknown): CeldaCruda {
   if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") return v;
   if (v instanceof Date) return v.toISOString().slice(0, 10);
   return String(v);
+}
+
+/**
+ * Exige el contenedor XLSB antes de usar SheetJS, que también acepta texto
+ * plano. Así se rechazan CSV, TXT o XLSX renombrados con extensión .xlsb.
+ */
+async function validarContenedorXlsb(data: ArrayBuffer): Promise<void> {
+  const { default: JSZip } = await import("jszip");
+  let zip: Awaited<ReturnType<typeof JSZip.loadAsync>>;
+  try {
+    zip = await JSZip.loadAsync(data);
+  } catch {
+    throw new Error("El archivo no es un contenedor ZIP válido (.xlsb es un paquete OPC comprimido).");
+  }
+  if (!zip.file("xl/workbook.bin")) {
+    throw new Error("El contenedor no incluye xl/workbook.bin: no es un libro .xlsb (BIFF12) válido.");
+  }
+}
+
+/**
+ * Lee XLSB con valores guardados, sin ejecutar fórmulas ni macros. Conserva
+ * las filas físicas y permite superar las 65.536 filas de XLS. Este lector
+ * no recupera la negrita de XLSB; los perfiles no deben depender de ella.
+ */
+async function leerLibroXlsb(data: ArrayBuffer): Promise<GridHoja[]> {
+  await validarContenedorXlsb(data);
+  const XLSX = await import("xlsx");
+  const wb = XLSX.read(new Uint8Array(data), {
+    type: "array",
+    raw: true,
+    dense: true,
+    cellDates: false,
+    cellFormula: false,
+    cellHTML: false,
+    bookVBA: false,
+  });
+
+  return wb.SheetNames.map((nombre) => {
+    const ws = wb.Sheets[nombre];
+    if (!ws) return { nombre, filas: [] };
+    const rango = ws["!ref"] ? XLSX.utils.decode_range(ws["!ref"]!) : null;
+    const filasConHuecos = XLSX.utils.sheet_to_json<unknown[]>(ws, {
+      header: 1,
+      raw: true,
+      defval: null,
+      blankrows: true,
+    });
+    const filas: CeldaCruda[][] = [];
+    const filasFisicas: number[] = [];
+    for (let i = 0; i < filasConHuecos.length; i++) {
+      const fila = filasConHuecos[i].map(celdaXls);
+      if (!filaTieneDatos(fila)) continue;
+      filas.push(fila);
+      filasFisicas.push((rango?.s.r ?? 0) + i + 1);
+    }
+    return { nombre, filas, filasFisicas };
+  });
 }
 
 /** Consulta por dirección nativa; sirve para XLS y como respaldo tolerante de OOXML. */
@@ -657,6 +758,7 @@ export async function leerCeldaFisicaArchivo(
     }
   }
   if (formato === "xls") return leerCeldaFisicaSheetJs(data, nombreHoja, fila, columna);
+  if (formato === "xlsb") return leerCeldaFisicaSheetJs(data, nombreHoja, fila, columna);
   if (formato === "csv" || formato === "txt") {
     const texto = decodificarTexto(data);
     const delimitador = detectarDelimitador(texto) ?? (formato === "csv" ? "," : null);
@@ -711,14 +813,19 @@ export async function ingerir(data: ArrayBuffer, fileName: string): Promise<Inge
         throw new Error("No se pudo leer el archivo .xls. Verifica que sea un libro de Excel 97-2003 válido y que no tenga contraseña.");
       }
     }
-    case "xlsb":
-      throw new Error("El formato .xlsb no se procesa. Guarda el archivo como .xlsx, .xls o usa CSV, TXT, JSON o PDF.");
+    case "xlsb": {
+      try {
+        return { modo: "tabular", hojas: await leerLibroXlsb(data) };
+      } catch {
+        throw new Error("No se pudo leer el archivo .xlsb. Verifica que sea un libro de Excel binario (.xlsb) válido y que no tenga contraseña.");
+      }
+    }
     default:
       // Último intento seguro: probar como OOXML moderno (.xlsx/.xlsm).
       try {
         return { modo: "tabular", hojas: await leerLibroExcelTolerante(data) };
       } catch {
-        throw new Error("Formato de archivo no reconocido. Usa Excel (.xlsx/.xlsm/.xls), CSV, TXT (plano), JSON o PDF.");
+        throw new Error("Formato de archivo no reconocido. Usa Excel (.xlsx/.xlsm/.xls/.xlsb), CSV, TXT (plano), JSON o PDF.");
       }
   }
 }

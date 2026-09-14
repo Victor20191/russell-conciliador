@@ -51,7 +51,7 @@ import { getCuentasEstandar } from "@/lib/balance/cuentas-estandar";
 import { TIPO_BALANCE_CARGA } from "@/lib/balance/tipo-balance";
 import { extraerBalance } from "@/lib/balance/extraccion/extraer";
 import { ingerir, type Ingesta } from "@/lib/balance/extraccion/ingesta";
-import { huellasCandidatas, detectarNit, calcularHuella } from "@/lib/balance/extraccion/huella";
+import { huellasCandidatasBalance, detectarNit, calcularHuella } from "@/lib/balance/extraccion/huella";
 import { aplanarSpec, normalizarCodigoFragmentos, specDesdePerfil, specCargaDesdePerfil, type PerfilPlano } from "@/lib/balance/extraccion/perfil";
 import { esTransformacionAceptable } from "@/lib/balance/extraccion/validacion";
 import { mapearPorIA } from "@/lib/balance/mapeo-ia";
@@ -2867,7 +2867,7 @@ export async function leerBalance(
       // estricta al cliente detectado. Nunca se reutiliza el perfil de otra empresa:
       // dos archivos con el mismo encabezado pueden tener convenciones distintas.
       const hojasLookup = hoja ? ingesta.hojas.filter((h) => h.nombre === hoja) : ingesta.hojas;
-      const candidatas = huellasCandidatas(hojasLookup.length > 0 ? hojasLookup : ingesta.hojas);
+      const candidatas = huellasCandidatasBalance(hojasLookup.length > 0 ? hojasLookup : ingesta.hojas);
       if (clienteDetectadoId != null && candidatas.length > 0) {
         const perfil = await prisma.perfilCargaBalance.findFirst({
           where: {

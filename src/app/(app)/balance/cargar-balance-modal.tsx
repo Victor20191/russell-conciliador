@@ -59,7 +59,7 @@ import {
 } from "@/lib/balance/carga-archivo-cliente";
 
 /** Extensiones de Excel que pueden traer varias hojas (inspeccionables en cliente). */
-const esExcel = (name: string) => /\.(xlsx|xlsm|xls)$/i.test(name);
+const esExcel = (name: string) => /\.(xlsx|xlsm|xls|xlsb)$/i.test(name);
 
 export type ClienteOpcion = { id: number; name: string; nit: string };
 
@@ -725,7 +725,7 @@ function CargarBalanceModal({
         <form id="leer-form" onSubmit={onLeerSubmit} className="flex flex-col gap-3.5">
           {!segundoPasoCliente && (
             <p className="text-[12.5px] leading-relaxed text-ink-600">
-              Adjunta el balance en <span className="font-semibold">Excel (.xlsx/.xlsm/.xls), CSV, TXT (plano), JSON o PDF</span>. Russell
+              Adjunta el balance en <span className="font-semibold">Excel (.xlsx/.xlsm/.xls/.xlsb), CSV, TXT (plano), JSON o PDF</span>. Russell
               escanea el archivo, reconoce el NIT e intenta asociarlo con uno de tus clientes. Si no puede reconocerlo,
               te pedirá seleccionar el cliente antes de crear el borrador. El archivo permanece adjunto durante todo el proceso.
             </p>
@@ -764,7 +764,7 @@ function CargarBalanceModal({
                   <input
                     type="file"
                     name="archivo"
-                    accept=".xlsx,.xlsm,.xls,.csv,.txt,.json,.pdf,text/plain,application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    accept=".xlsx,.xlsm,.xls,.xlsb,.csv,.txt,.json,.pdf,text/plain,application/pdf,application/vnd.ms-excel,application/vnd.ms-excel.sheet.binary.macroEnabled.12,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     required
                     onChange={onArchivoChange}
                     className="rounded-md border border-ink-200 bg-white text-[12.5px] text-ink-700 file:mr-3 file:cursor-pointer file:border-0 file:bg-navy-700 file:px-3 file:py-2 file:text-[12.5px] file:font-semibold file:text-white"

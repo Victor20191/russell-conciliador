@@ -15,6 +15,33 @@ import {
 import type { MappingSpec } from "./esquema";
 import type { GridHoja } from "./ingesta";
 
+describe("subtotales al pie en negrita", () => {
+  it("conserva las cuentas de un reporte paginado y no las captura como terceros", () => {
+    const filas: GridHoja["filas"] = [["Código", "Nombre", "SI", "DB", "CR", "Saldo"]];
+    const negrita: boolean[][] = [Array(6).fill(true)];
+    const cuentas: string[] = [];
+    for (let i = 0; i < 24; i++) {
+      const credito = i >= 12;
+      const padre = String((credito ? 220500 : 110500) + i);
+      const codigo = `${padre}01`;
+      cuentas.push(codigo);
+      const montos = [0, credito ? 0 : 100, credito ? 100 : 0, credito ? -100 : 100];
+      filas.push([codigo, "Cuenta contable", ...montos]);
+      negrita.push(Array(6).fill(false));
+      filas.push([`${i % 2 ? "SUBTOTAL" : "TOTAL"} ${padre}`, "Subtotal de la cuenta", ...montos]);
+      negrita.push(Array(6).fill(true));
+    }
+    filas.push(["", "Totales Prueba", 0, 1200, 1200, 0]);
+    negrita.push(Array(6).fill(true));
+    const resultado = transformarTabular(spec(), [{ nombre: "Balance", filas, negrita }], PARAMS);
+    expect(resultado.importReady.map((c) => c.code)).toEqual(cuentas);
+    expect(resultado.filasTercero ?? []).toHaveLength(0);
+    expect(resultado.cuadre.cuadra).toBe(true);
+    expect(resultado.cuadre.sumaDebitos).toBe(1200);
+    expect(resultado.cuadre.sumaCreditos).toBe(1200);
+  });
+});
+
 const PARAMS: ParamsExtraccion = {
   nit: "900.451.227-3",
   periodoInicial: "2026-05-01",
@@ -1094,5 +1121,141 @@ describe("transformarTabular — filasTercero (staging paralelo del detalle por 
     };
     const rr = transformarTabular(spec(), [hojaN], PARAMS);
     expect(rr.filasTercero).toBeUndefined();
+  });
+});
+
+describe("transformarTabular — detalle por tercero con código «-NIT» (guion inicial, Zeus SpreadsheetML)", () => {
+  it("captura el detalle bajo su cuenta explícita, sin columna Tercero mapeada", () => {
+    const hojaZ: GridHoja = {
+      nombre: "Balance",
+      filas: [
+        ["Código", "Cuenta", "SI", "DB", "CR", "Saldo"],
+        ["120505", "INVERSIONES TEMPORALES", 0, 0, 0, 0], // cuenta consolidada, sin saldo propio
+        ["-800111222", "BANCO PRUEBA SA", 0, 1000, 0, 1000], // detalle por tercero
+        ["-900222333", "FIDUCIARIA PRUEBA SA", 0, 0, 0, 0], // detalle por tercero, sin movimiento
+        ["TOTAL 120505       ", "INVERSIONES TEMPORALES", 0, 1000, 0, 1000], // subtotal que cierra el bloque
+      ],
+    };
+    const rr = transformarTabular(spec(), [hojaZ], PARAMS);
+    expect(rr.filasTercero).toHaveLength(2);
+    expect(rr.filasTercero?.[0]).toMatchObject({
+      codigo: "120505",
+      nitTercero: "800111222",
+      nombreTercero: "BANCO PRUEBA SA",
+      identidadTercero: { numeroDocumento: "800111222" },
+      debitos: 1000,
+      saldoFinal: 1000,
+    });
+    expect(rr.filasTercero?.[1]).toMatchObject({
+      codigo: "120505",
+      nitTercero: "900222333",
+      nombreTercero: "FIDUCIARIA PRUEBA SA",
+      saldoFinal: 0,
+    });
+    // Las filas "-NIT" NO son código de cuenta imputable: siguen clasificadas "total",
+    // igual que antes de capturar el detalle (el cambio es puramente aditivo).
+    const filasGuion = rr.filasCrudas.filter((f) => f.codigoCrudo.startsWith("-"));
+    expect(filasGuion).toHaveLength(2);
+    expect(filasGuion.every((f) => f.tipoFila === "total" && f.codigo === "")).toBe(true);
+    // El saldo real de la cuenta (lo que reporta el TOTAL que cierra el bloque) se
+    // sigue viendo reflejado en lo importable; la captura del tercero no lo pierde.
+    expect(rr.importReady.some((c) => c.code === "120505" && c.balance === 1000)).toBe(true);
+    expect(rr.excepciones.some((e) => /capturado \(código con guion inicial\)/.test(e.regla))).toBe(true);
+  });
+
+  it("NO confunde un guion INTERNO jerárquico (1105-05-01) con el patrón de tercero", () => {
+    const hojaJ: GridHoja = {
+      nombre: "Balance",
+      filas: [
+        ["Código", "Cuenta", "SI", "DB", "CR", "Saldo"],
+        ["1105-05-01", "CAJA GENERAL", 0, 100, 0, 100], // notación PUC con guiones, NO es tercero
+      ],
+    };
+    const rr = transformarTabular(spec(), [hojaJ], PARAMS);
+    expect(rr.filasTercero).toBeUndefined();
+    expect(rr.filasCrudas).toHaveLength(1);
+    expect(rr.filasCrudas[0]).toMatchObject({ codigo: "11050501", tipoFila: "movimiento" });
+    expect(rr.importReady).toEqual([{ code: "11050501", name: "CAJA GENERAL", prevBalance: 0, balance: 100, debitos: 100, creditos: 0 }]);
+  });
+
+  it("no interfiere con la detección de TOTAL/subtotal de otra cuenta sin detalle por tercero", () => {
+    const hojaM: GridHoja = {
+      nombre: "Balance",
+      filas: [
+        ["Código", "Cuenta", "SI", "DB", "CR", "Saldo"],
+        ["110505", "CAJA GENERAL", 0, 500, 0, 500], // cuenta normal, sin desglose por tercero
+        ["TOTAL 1105", "CAJA", 0, 500, 0, 500], // subtotal normal (código MÁS CORTO = agrupadora)
+        ["120505", "INVERSIONES TEMPORALES", 0, 0, 0, 0],
+        ["-800111222", "BANCO PRUEBA SA", 0, 1000, 0, 1000],
+        ["TOTAL 120505       ", "INVERSIONES TEMPORALES", 0, 1000, 0, 1000],
+      ],
+    };
+    const rr = transformarTabular(spec(), [hojaM], PARAMS);
+    // El subtotal "TOTAL 1105" (agrupadora por prefijo) se sigue excluyendo igual que
+    // antes; no genera detalle por tercero porque su código NO empieza con guion.
+    expect(rr.filasCrudas.find((f) => f.codigoCrudo === "TOTAL 1105")?.tipoFila).toBe("agrupadora");
+    expect(rr.filasTercero).toHaveLength(1);
+    expect(rr.filasTercero?.[0]).toMatchObject({ codigo: "120505", nitTercero: "800111222" });
+    // El movimiento de la cuenta SIN desglose por tercero se sigue importando igual.
+    expect(rr.importReady.some((c) => c.code === "110505" && c.balance === 500)).toBe(true);
+  });
+
+  it("límite: código «-NIT» SIN cuenta explícita previa en el bloque no se captura ni rompe", () => {
+    const hojaS: GridHoja = {
+      nombre: "Balance",
+      filas: [
+        ["Código", "Cuenta", "SI", "DB", "CR", "Saldo"],
+        ["-800111222", "BANCO PRUEBA SA", 0, 1000, 0, 1000], // huérfano: ninguna cuenta antes
+      ],
+    };
+    const rr = transformarTabular(spec(), [hojaS], PARAMS);
+    expect(rr.filasTercero ?? []).toHaveLength(0);
+    expect(rr.filasCrudas).toHaveLength(1);
+    expect(rr.filasCrudas[0]).toMatchObject({ tipoFila: "total", codigo: "" });
+  });
+
+  it("preserva el bloque a través de un encabezado de página y lo cierra al llegar a TOTAL", () => {
+    const rr = transformarTabular(spec(), [{ nombre: "Balance", filas: [
+      ["Código", "Cuenta", "SI", "DB", "CR", "Saldo"],
+      ["120505", "INVERSIONES", null, null, null, null],
+      ["-800111222", "BANCO PRUEBA", 0, 100, 0, 100],
+      ["Listado de Anexos de Balance"],
+      ["Código", "Cuenta", "SI", "DB", "CR", "Saldo"],
+      ["-900222333", "FIDUCIARIA PRUEBA", 0, 200, 0, 200],
+      ["TOTAL 120505", "INVERSIONES", 0, 300, 0, 300],
+      ["-800333444", "HUÉRFANO", 0, 500, 0, 500],
+    ] }], PARAMS);
+    expect(rr.filasTercero?.map((f) => f.nitTercero)).toEqual(["800111222", "900222333"]);
+    expect(rr.importReady).toContainEqual({ code: "120505", name: "INVERSIONES", prevBalance: 0, debitos: 300, creditos: 0, balance: 300 });
+  });
+
+  it("no atribuye números negativos a terceros sin un bloque confirmado de la misma cuenta", () => {
+    const rr = transformarTabular(spec(), [{ nombre: "Balance", filas: [
+      ["Código", "Cuenta", "SI", "DB", "CR", "Saldo"],
+      ["110505", "CAJA", 0, 100, 0, 100],
+      ["-900111222", "VALOR NEGATIVO", 0, 100, 0, 100],
+      ["TOTAL 110505", "CAJA", 0, 100, 0, 100],
+      ["120505", "INVERSIONES", null, null, null, null],
+      ["-800111222", "BLOQUE INCOMPLETO", 0, 100, 0, 100],
+      ["TOTAL 1205", "TOTAL DE OTRA CUENTA", 0, 100, 0, 100],
+    ] }], PARAMS);
+    expect(rr.filasTercero ?? []).toHaveLength(0);
+  });
+
+  it("conserva documentos alfanuméricos y DV explícitos sin convertirlos en cuentas ni deducir su tipo", () => {
+    const rr = transformarTabular(spec(), [{ nombre: "Balance", filas: [
+      ["Código", "Cuenta", "SI", "DB", "CR", "Saldo"],
+      ["130505", "CLIENTES", null, null, null, null],
+      ["-14AK44723", "CLIENTE EXTERIOR", 0, 100, 0, 100],
+      ["-900123456-7", "SOCIEDAD LOCAL", 0, 200, 0, 200],
+      ["-CGONNYPML", "OTRO CLIENTE", 0, 0, 0, 0],
+      ["TOTAL 130505", "CLIENTES", 0, 300, 0, 300],
+    ] }], PARAMS);
+    expect(rr.filasTercero).toHaveLength(3);
+    expect(rr.filasTercero?.[0]).toMatchObject({ codigo: "130505", nitTercero: null, nombreTercero: "CLIENTE EXTERIOR", identidadTercero: { numeroDocumento: "14AK44723", tipoDocumento: null } });
+    expect(rr.filasTercero?.[1]).toMatchObject({ codigo: "130505", nitTercero: "900123456", nombreTercero: "SOCIEDAD LOCAL", identidadTercero: { numeroDocumento: "900123456", digitoVerificacion: "7" } });
+    expect(rr.filasTercero?.[2]).toMatchObject({ codigo: "130505", nitTercero: null, nombreTercero: "OTRO CLIENTE", identidadTercero: { numeroDocumento: "CGONNYPML", tipoDocumento: null } });
+    expect([...new Set(rr.importReady.map((c) => c.code))]).toEqual(["130505"]);
+    expect(rr.importReady.reduce((s, c) => s + (c.debitos ?? 0), 0)).toBe(300);
   });
 });
