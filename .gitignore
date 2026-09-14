@@ -80,3 +80,7 @@ graphify-out/
 
 # snapshots de reversión de scripts/rehomologar-fuera-de-clase.ts (datos de producción)
 scripts/.snapshots/
+
+# Datos de clientes y scripts temporales locales (no versionar)
+/outputs/
+/_tmp_*

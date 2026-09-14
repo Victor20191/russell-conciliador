@@ -60,7 +60,8 @@ const PATH = "/config/conceptos-nomina";
 const RUTA_MODULO = `/modulos/${MODULO_CONCEPTOS_NOMINA.toLowerCase()}`;
 const MAX_BYTES = 12 * 1024 * 1024; // 12 MB (los libros de conciliación traen más hojas que el catálogo)
 
-export const ORIGEN_CARGA_MASIVA = "carga_masiva";
+// Sin `export`: un archivo "use server" solo puede exportar funciones async.
+const ORIGEN_CARGA_MASIVA = "carga_masiva";
 
 type EntradaResuelta = ConceptoCatalogoEntrada & { clienteId: number; nombreCliente: string; hoja: string };
 
