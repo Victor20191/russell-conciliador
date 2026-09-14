@@ -12,10 +12,12 @@ import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import { columnaLetra } from "@/lib/balance/extraccion/hojas-cliente";
 import type { SpecModulo } from "@/lib/modulos/extraccion/esquema";
 import type { ModoSubtotales } from "@/lib/modulos/subtotales";
+import { finDePeriodo } from "@/lib/modulos/cartera/fecha-corte";
 import {
   leerDatosModulo,
   analizarArchivoModulo,
   preferenciasCargaModulo,
+  sugerirTrmCierre,
   ubicarCeldaArchivoModulo,
   type AnalisisModulo,
   type CeldaMuestra,
@@ -52,6 +54,7 @@ export function AgregarArchivoButton(props: {
   moduloLabel: string;
   roles: RolModulo[];
   clasificadorRol: string;
+  conNivelCartera: boolean;
   clientes: ClienteModulo[];
   anexo: AnexoModulo;
   className?: string;
@@ -79,6 +82,7 @@ export function CargarModuloButton(props: {
   moduloLabel: string;
   roles: RolModulo[];
   clasificadorRol: string;
+  conNivelCartera: boolean;
   clientes: ClienteModulo[];
 }) {
   const [abierto, setAbierto] = useState(false);
@@ -100,6 +104,7 @@ function CargarModal({
   moduloCodigo,
   moduloLabel,
   roles,
+  conNivelCartera,
   clasificadorRol,
   clientes,
   anexo,
@@ -109,6 +114,7 @@ function CargarModal({
   moduloLabel: string;
   roles: RolModulo[];
   clasificadorRol: string;
+  conNivelCartera: boolean;
   clientes: ClienteModulo[];
   anexo?: AnexoModulo;
   onClose: () => void;
@@ -234,6 +240,10 @@ function CargarModal({
     if (!/^\d{4}-\d{2}$/.test(mes)) { notifyError("Selecciona el período del archivo."); return; }
     const faltantes = roles.filter((rc) => rc.requerido && !(rc.nombre === clasificadorRol && modo === "global") && (spec.columnas[rc.nombre] ?? 0) < 1);
     if (faltantes.length) { notifyError("Faltan columnas obligatorias: " + faltantes.map((f) => f.etiqueta).join(", ") + "."); return; }
+    if (conNivelCartera && spec.monedaArchivo && spec.monedaArchivo !== "COP" && !(spec.trmCierre && spec.trmCierre > 0)) {
+      notifyError(`Indica la TRM de cierre: los importes están en ${spec.monedaArchivo}.`);
+      return;
+    }
     const filaManual = Number(filaMarcaTotales);
     if (
       spec.subtotales === "manual"
@@ -286,6 +296,30 @@ function CargarModal({
     if (modo === "global") setModo("columna");
   };
   const setSeccionRol = (rol: string) => setSpec((s) => (s ? { ...s, seccionColumnaVaciaRol: rol } : s));
+  // Qué representa una fila de ESTE archivo y de dónde viene su cartera. Lo declara quien
+  // carga porque el archivo no siempre lo dice: un mismo cliente entrega un mes el resumen
+  // por tercero y otro el detalle por documento, y de eso depende qué suma y qué es control.
+  const nivelCartera = spec?.nivel ?? ((spec?.columnas.documento ?? 0) >= 1 ? "documento" : "tercero");
+  const setNivelCartera = (n: "tercero" | "documento") => setSpec((s) => (s ? { ...s, nivel: n } : s));
+  const origenCartera = spec?.origenCartera ?? "nacional";
+  const setOrigenCartera = (o: "nacional" | "exterior" | "mixta") => setSpec((s) => (s ? { ...s, origenCartera: o } : s));
+  // Moneda de los importes (del formato), TRM de cierre y fecha de corte (de ESTE cargue).
+  const monedaArchivo = spec?.monedaArchivo ?? "COP";
+  const setMonedaArchivo = (m: string) =>
+    setSpec((s) => (s ? { ...s, monedaArchivo: m === "COP" ? undefined : m, ...(m !== "COP" && !s.origenCartera ? { origenCartera: "exterior" as const } : {}) } : s));
+  const fechaCorte = spec?.fechaCorte ?? (mes ? finDePeriodo(mes) ?? "" : "");
+  const setFechaCorte = (f: string) => setSpec((s) => (s ? { ...s, fechaCorte: f || undefined } : s));
+  const setTrmCierre = (v: string) => setSpec((s) => (s ? { ...s, trmCierre: Number(v) > 0 ? Number(v) : undefined } : s));
+  const [consultandoTrm, startConsultarTrm] = useTransition();
+  const usarTrmOficial = () => {
+    if (!fechaCorte) return;
+    startConsultarTrm(async () => {
+      const r = await sugerirTrmCierre({ fecha: fechaCorte });
+      if (r.ok && r.trm) setSpec((s) => (s ? { ...s, trmCierre: Math.round((r.trm as number) * 100) / 100 } : s));
+      else notifyError(r.message ?? "No se pudo consultar la TRM oficial.");
+    });
+  };
+  const rangosDetectados = spec?.familias?.edades ?? [];
   // Subtotales del archivo: cómo detectarlos (se excluyen del consolidado y se usan de control).
   const modoSubtotales: ModoSubtotales = spec?.subtotales ?? "auto";
   const setModoSubtotales = (m: ModoSubtotales) => {
@@ -471,6 +505,20 @@ function CargarModal({
               {analisis.advertenciaValor}
             </p>
           )}
+          {analisis?.advertenciaHojas && (
+            <p className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[11.5px] font-medium leading-relaxed text-warn-700">
+              {analisis.advertenciaHojas}
+            </p>
+          )}
+          {/* Nómina: los meses que trae el archivo, para declarar el período viendo lo que hay. Las
+              filas de otros meses no entran al cargue. */}
+          {analisis?.periodosDetectados && analisis.periodosDetectados.length > 0 && (
+            <p className="rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-[11.5px] leading-relaxed text-blue-800">
+              <b>Períodos en el archivo:</b>{" "}
+              {analisis.periodosDetectados.map((p) => `${p.periodo} (${p.filas.toLocaleString("es-CO")} filas · $ ${p.valor.toLocaleString("es-CO", { maximumFractionDigits: 0 })})`).join(" · ")}.
+              {analisis.periodosDetectados.length > 1 && " Solo entran al cargue las filas del período que declares abajo."}
+            </p>
+          )}
 
           {(analisis?.hojas?.length ?? 0) > 1 && (
             <label className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
@@ -537,6 +585,90 @@ function CargarModal({
             </div>
           </div>
 
+          {conNivelCartera && (
+            <div className="mb-2 flex flex-col gap-2 rounded-md border border-ink-150 bg-ink-50 px-3 py-2.5">
+              <label className="flex min-w-0 flex-col gap-1">
+                <span className="text-[11px] font-medium text-ink-600">¿Qué es cada fila de este archivo?</span>
+                <select value={nivelCartera} onChange={(e) => setNivelCartera(e.target.value as "tercero" | "documento")} className="w-full min-w-0 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400">
+                  <option value="tercero">Un tercero con su saldo (resumen por edades)</option>
+                  <option value="documento">Un documento (factura, nota) del tercero</option>
+                </select>
+                <span className="text-[11px] leading-snug text-ink-500">Un período suma por UN solo nivel. Si además cargas el otro, entra como control y se compara tercero por tercero.</span>
+              </label>
+              <label className="flex min-w-0 flex-col gap-1">
+                <span className="text-[11px] font-medium text-ink-600">¿De dónde es esta cartera?</span>
+                <select value={origenCartera} onChange={(e) => setOrigenCartera(e.target.value as "nacional" | "exterior" | "mixta")} className="w-full min-w-0 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400">
+                  <option value="nacional">Nacional</option>
+                  <option value="exterior">Del exterior (se factura en divisa)</option>
+                  <option value="mixta">Mixta: lo dice la cuenta de cada fila</option>
+                </select>
+              </label>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <label className="flex min-w-0 flex-col gap-1">
+                  <span className="text-[11px] font-medium text-ink-600">Moneda de los importes</span>
+                  <select value={monedaArchivo} onChange={(e) => setMonedaArchivo(e.target.value)} className="w-full min-w-0 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400">
+                    <option value="COP">Pesos (COP)</option>
+                    <option value="USD">Dólares (USD)</option>
+                    <option value="EUR">Euros (EUR)</option>
+                  </select>
+                </label>
+                <label className="flex min-w-0 flex-col gap-1">
+                  <span className="text-[11px] font-medium text-ink-600">TRM de cierre{monedaArchivo !== "COP" ? " (obligatoria)" : ""}</span>
+                  <span className="flex min-w-0 gap-1">
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={spec?.trmCierre ?? ""}
+                      onChange={(e) => setTrmCierre(e.target.value)}
+                      placeholder="Pesos por unidad"
+                      className="w-full min-w-0 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400"
+                    />
+                    <button
+                      type="button"
+                      onClick={usarTrmOficial}
+                      disabled={consultandoTrm || !fechaCorte}
+                      title="Consultar la TRM oficial de la fecha de corte"
+                      className="shrink-0 rounded-md border border-ink-200 bg-white px-2 text-[11px] font-semibold text-ink-600 hover:border-navy-700 hover:text-navy-700 disabled:opacity-50"
+                    >
+                      {consultandoTrm ? "…" : "Oficial"}
+                    </button>
+                  </span>
+                </label>
+                <label className="flex min-w-0 flex-col gap-1">
+                  <span className="text-[11px] font-medium text-ink-600">Fecha de corte</span>
+                  <input
+                    type="date"
+                    value={fechaCorte}
+                    onChange={(e) => setFechaCorte(e.target.value)}
+                    className="w-full min-w-0 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400"
+                  />
+                </label>
+              </div>
+              <span className="text-[11px] leading-snug text-ink-500">
+                {monedaArchivo !== "COP"
+                  ? `Los importes se leen en ${monedaArchivo} y se convierten a pesos con la TRM de cierre; la divisa queda en cada fila.`
+                  : "La TRM de cierre solo se usa si el archivo trae importes con su divisa escrita («USD (54,323.40)»). Contra la fecha de corte se miden los días vencidos y las edades."}
+              </span>
+              <div className="border-t border-ink-150 pt-2">
+                <span className="text-[11px] font-medium text-ink-600">Rangos de vencimiento detectados</span>
+                {rangosDetectados.length === 0 ? (
+                  <p className="mt-1 text-[11px] leading-snug text-ink-500">Ninguno. El saldo saldrá de la columna de total.</p>
+                ) : (
+                  <>
+                    <ul className="mt-1 flex flex-wrap gap-1">
+                      {rangosDetectados.map((r) => (
+                        <li key={r.columna} className={`rounded border px-1.5 py-0.5 text-[10.5px] ${r.clase === "excluir" ? "border-warn-500 bg-warn-100/40 text-warn-700" : "border-ink-200 bg-white text-ink-600"}`}>
+                          {r.etiqueta}{r.clase === "excluir" ? " · no suma" : ""}
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="mt-1 text-[11px] leading-snug text-ink-500">El saldo de cada fila es la SUMA de estos rangos; si el archivo trae además una columna de total y no coincide, manda la suma y la diferencia se avisa.</p>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
           <div className="flex flex-col gap-2 rounded-md border border-ink-150 bg-ink-50 px-3 py-2.5">
             {modo === "global" ? (
               <span className="text-[11.5px] leading-snug text-ink-600">🌐 <b>Clasificador global</b>: todo el archivo se carga bajo un único valor de {clasificadorEtiqueta.toLowerCase()}. En el consolidado le asignas una cuenta.</span>

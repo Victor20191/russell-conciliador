@@ -1,8 +1,16 @@
 import { test, expect } from "vitest";
 import ExcelJS from "exceljs";
-import { parseConceptosNominaWorkbook, HOJA_CONCEPTOS } from "./conceptos-nomina";
+import { parseConceptosNominaWorkbook, partirCuentas, HOJA_CONCEPTOS } from "./conceptos-nomina";
 
-const HEADERS = ["Cliente (NIT o código) *", "Código *", "Concepto *", "Cuenta (4 dígitos) *"];
+/** Encabezados de la plantilla RF-NOM-08 (cliente / grupo / código / nombre / cuenta del cliente + centro opcional). */
+const HEADERS = [
+  "Cliente (NIT o código) *",
+  "Grupo de cuenta contable",
+  "Código del concepto *",
+  "Nombre del concepto *",
+  "Cuenta contable del cliente *",
+  "Centro de costo / clase",
+];
 
 async function construir(filas: (string | null)[][], hoja = HOJA_CONCEPTOS, headers = HEADERS) {
   const wb = new ExcelJS.Workbook();
@@ -12,47 +20,66 @@ async function construir(filas: (string | null)[][], hoja = HOJA_CONCEPTOS, head
   return (await wb.xlsx.writeBuffer()) as ArrayBuffer;
 }
 
-test("parsea conceptos de varios clientes", async () => {
+test("parsea conceptos de varios clientes con grupo, cuenta del cliente y centro", async () => {
   const buf = await construir([
-    ["900.451.227-3", "001", "Sueldo básico", "5105"],
-    ["C-1042", "002", "Auxilio de transporte", "5105"],
+    ["900.451.227-3", "Sueldos", "001", "Sueldo básico", "51050601", null],
+    ["C-1042", "Auxilio de transporte", "002", "Auxilio de transporte", "510595", "GYA"],
+    ["C-1042", null, "002", "Auxilio de transporte", "72052701", "MOD"],
   ]);
   const { filas, errores } = await parseConceptosNominaWorkbook(buf);
   expect(errores).toEqual([]);
-  expect(filas).toHaveLength(2);
-  expect(filas[0]).toMatchObject({
-    fila: 2,
-    cliente: "900.451.227-3",
-    codigo: "001",
-    concepto: "Sueldo básico",
-    cuentas4: ["5105"],
-  });
-  expect(filas[1].cliente).toBe("C-1042");
+  expect(filas).toHaveLength(3);
+  // El código se canoniza: «001» y «1» son el mismo concepto.
+  expect(filas[0]).toMatchObject({ fila: 2, cliente: "900.451.227-3", grupo: "sueldos", codigo: "1", concepto: "Sueldo básico", cuentas: ["51050601"], agrupador: "" });
+  expect(filas[1]).toMatchObject({ cliente: "C-1042", grupo: "auxilio_transporte", codigo: "2", cuentas: ["510595"], agrupador: "GYA" });
+  expect(filas[2]).toMatchObject({ grupo: null, codigo: "2", cuentas: ["72052701"], agrupador: "MOD" });
 });
 
 test("una fila admite varias cuentas separadas con «;» y las deduplica", async () => {
-  const buf = await construir([["900", "010", "Cesantías", "5105 ; 7205; 5105"]]);
+  const buf = await construir([["900", null, "010", "Cesantías", "510530 ; 720510; 510530"]]);
   const { filas, errores } = await parseConceptosNominaWorkbook(buf);
   expect(errores).toEqual([]);
-  expect(filas[0].cuentas4).toEqual(["5105", "7205"]);
+  expect(filas[0].cuentas).toEqual(["510530", "720510"]);
 });
 
-test("la cuenta se normaliza a 4 dígitos (acepta separadores y códigos largos)", async () => {
-  const buf = await construir([["900", "020", "Prima", "51.05"]]);
+test("la cuenta acepta separadores pero NUNCA se trunca: el subgrupo de 4 se rechaza con pista", async () => {
+  const buf = await construir([["900", null, "020", "Prima", "51.05.36"]]);
   const { filas } = await parseConceptosNominaWorkbook(buf);
-  expect(filas[0].cuentas4).toEqual(["5105"]);
+  expect(filas[0].cuentas).toEqual(["510536"]);
 
-  const largo = await construir([["900", "021", "Prima", "510506"]]);
-  const r = await parseConceptosNominaWorkbook(largo);
-  expect(r.filas[0].cuentas4).toEqual(["5105"]);
+  const subgrupo = await construir([["900", null, "021", "Prima", "5105"]]);
+  const r = await parseConceptosNominaWorkbook(subgrupo);
+  expect(r.filas).toEqual([]);
+  expect(r.errores[0].mensaje).toMatch(/es el subgrupo; escribe la cuenta contable del cliente/);
+
+  // La cuenta del cliente de 8 o 10 dígitos (51050601, 0005060000 de SIIGO) SÍ se acepta: la
+  // Server Action la lleva a Russell.
+  const largo = await construir([["900", null, "022", "Prima", "51053601; 0005360000"]]);
+  const l = await parseConceptosNominaWorkbook(largo);
+  expect(l.errores).toEqual([]);
+  expect(l.filas[0].cuentas).toEqual(["51053601", "0005360000"]);
 });
 
-test("los cuatro campos son requeridos", async () => {
+test("partirCuentas", () => {
+  expect(partirCuentas("510506;720505")).toEqual({ cuentas: ["510506", "720505"], errores: [] });
+  expect(partirCuentas("51")).toMatchObject({ cuentas: [] });
+  expect(partirCuentas("51").errores[0]).toMatch(/Cuenta inválida/);
+  expect(partirCuentas("")).toEqual({ cuentas: [], errores: [] });
+});
+
+test("un grupo que no está en el catálogo se rechaza (no se adivina)", async () => {
+  const buf = await construir([["900", "Gastos varios", "030", "Bono", "510595"]]);
+  const { filas, errores } = await parseConceptosNominaWorkbook(buf);
+  expect(filas).toEqual([]);
+  expect(errores[0].mensaje).toMatch(/Grupo de cuenta contable no reconocido: «Gastos varios»/);
+});
+
+test("los cuatro campos requeridos siguen siéndolo; grupo y centro son opcionales", async () => {
   const buf = await construir([
-    [null, "001", "Sueldo", "5105"],
-    ["900", null, "Sueldo", "5105"],
-    ["900", "002", null, "5105"],
-    ["900", "003", "Sueldo", null],
+    [null, null, "001", "Sueldo", "510506"],
+    ["900", null, null, "Sueldo", "510506"],
+    ["900", null, "002", null, "510506"],
+    ["900", null, "003", "Sueldo", null],
   ]);
   const { filas, errores } = await parseConceptosNominaWorkbook(buf);
   expect(filas).toEqual([]);
@@ -63,20 +90,14 @@ test("los cuatro campos son requeridos", async () => {
   expect(errores[3].mensaje).toMatch(/cuenta/i);
 });
 
-test("rechaza una cuenta que no llega a 4 dígitos", async () => {
-  const buf = await construir([["900", "001", "Sueldo", "51"]]);
-  const { filas, errores } = await parseConceptosNominaWorkbook(buf);
-  expect(filas).toEqual([]);
-  expect(errores[0].mensaje).toMatch(/Cuenta inválida/);
-});
-
-test("delata el mismo código repetido para un cliente", async () => {
+test("delata el mismo código repetido para un cliente y el mismo centro", async () => {
   const buf = await construir([
-    ["900", "001", "Sueldo básico", "5105"],
-    ["900", "001", "Sueldo básico", "7205"],
+    ["900", null, "001", "Sueldo básico", "510506"],
+    ["900", null, "1", "Sueldo básico", "720505"],
+    ["900", null, "001", "Sueldo básico", "720505", "MOD"],
   ]);
   const { filas, errores } = await parseConceptosNominaWorkbook(buf);
-  expect(filas).toHaveLength(1);
+  expect(filas).toHaveLength(2);
   expect(errores).toHaveLength(1);
   expect(errores[0].fila).toBe(3);
   expect(errores[0].mensaje).toMatch(/ya venía para este cliente en la fila 2/);
@@ -84,8 +105,8 @@ test("delata el mismo código repetido para un cliente", async () => {
 
 test("el mismo código en clientes distintos no es duplicado", async () => {
   const buf = await construir([
-    ["900", "001", "Sueldo básico", "5105"],
-    ["800", "001", "Sueldo básico", "5105"],
+    ["900", null, "001", "Sueldo básico", "510506"],
+    ["800", null, "001", "Sueldo básico", "510506"],
   ]);
   const { filas, errores } = await parseConceptosNominaWorkbook(buf);
   expect(errores).toEqual([]);
@@ -94,45 +115,54 @@ test("el mismo código en clientes distintos no es duplicado", async () => {
 
 test("salta filas vacías y de EJEMPLO", async () => {
   const buf = await construir([
-    ["900", "001", "EJEMPLO — borrar esta fila", "5105"],
-    [null, null, null, null],
-    ["900", "002", "Sueldo básico", "5105"],
+    ["900", null, "001", "EJEMPLO — borrar esta fila", "510506"],
+    [null, null, null, null, null],
+    ["900", null, "002", "Sueldo básico", "510506"],
   ]);
   const { filas, errores } = await parseConceptosNominaWorkbook(buf);
   expect(errores).toEqual([]);
   expect(filas).toHaveLength(1);
-  expect(filas[0].codigo).toBe("002");
+  expect(filas[0].codigo).toBe("2");
 });
 
 test("sin la hoja «Conceptos» devuelve un error de estructura", async () => {
-  const buf = await construir([["900", "001", "Sueldo", "5105"]], "Hoja1");
+  const buf = await construir([["900", null, "001", "Sueldo", "510506"]], "Hoja1");
   const { filas, errores } = await parseConceptosNominaWorkbook(buf);
   expect(filas).toEqual([]);
   expect(errores[0].mensaje).toMatch(/No se encontró la hoja/);
 });
 
 test("delata encabezados faltantes sin procesar filas", async () => {
-  const buf = await construir([["900", "001", "Sueldo"]], HOJA_CONCEPTOS, [
-    "Cliente *",
-    "Código *",
-    "Concepto *",
-  ]);
+  const buf = await construir([["900", "001", "Sueldo"]], HOJA_CONCEPTOS, ["Cliente *", "Código *", "Concepto *"]);
   const { filas, errores } = await parseConceptosNominaWorkbook(buf);
   expect(filas).toEqual([]);
   expect(errores).toHaveLength(1);
-  expect(errores[0].mensaje).toMatch(/faltan columnas \(Cuenta/);
+  expect(errores[0].mensaje).toMatch(/faltan columnas \(Cuenta contable del cliente/);
 });
 
-test("«Código del concepto» no se confunde con la columna del concepto", async () => {
-  const buf = await construir([["900", "001", "Sueldo básico", "5105"]], HOJA_CONCEPTOS, [
+test("la plantilla ANTERIOR (cliente / código / concepto / cuenta Russell) sigue leyéndose", async () => {
+  const buf = await construir([["900", "001", "Sueldo básico", "510506"]], HOJA_CONCEPTOS, [
+    "Cliente (NIT o código) *",
+    "Código *",
+    "Concepto *",
+    "Cuenta (6 dígitos) *",
+  ]);
+  const { filas, errores } = await parseConceptosNominaWorkbook(buf);
+  expect(errores).toEqual([]);
+  expect(filas[0]).toMatchObject({ codigo: "1", concepto: "Sueldo básico", cuentas: ["510506"], grupo: null, agrupador: "" });
+});
+
+test("«Código del concepto» no se confunde con la columna del concepto ni «Grupo de cuenta» con la cuenta", async () => {
+  const buf = await construir([["900", "Prima", "001", "Sueldo básico", "510506"]], HOJA_CONCEPTOS, [
     "NIT del cliente",
+    "Grupo de cuenta contable",
     "Código del concepto",
     "Concepto",
     "Cuenta Russell",
   ]);
   const { filas, errores } = await parseConceptosNominaWorkbook(buf);
   expect(errores).toEqual([]);
-  expect(filas[0]).toMatchObject({ codigo: "001", concepto: "Sueldo básico" });
+  expect(filas[0]).toMatchObject({ codigo: "1", concepto: "Sueldo básico", grupo: "prima", cuentas: ["510506"] });
 });
 
 test("un archivo que no es .xlsx devuelve el error de archivo", async () => {

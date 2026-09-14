@@ -46,6 +46,71 @@ export const SpecModuloSchema = z.object({
   // Coordenada EFÍMERA del archivo actual. Autoriza exactamente una fila como gran total;
   // nunca se copia al perfil reutilizable porque la posición puede cambiar en otro archivo.
   subtotalesFila: z.number().int().min(1).max(1_048_576).optional(),
+
+  // ===== Columnas cuyo número y rótulos los pone el ARCHIVO (ver `FamiliaDinamica`) =====
+  // Llaveado por el nombre de la familia («edades»). Un módulo que no declara familias en
+  // su descriptor las descarta al normalizar, así que esto es inerte para INV/AFI/NOM/…
+  familias: z.record(
+    z.string(),
+    z.array(z.object({
+      columna: z.number().int().min(1),
+      // Rótulo LITERAL del ERP («De 1 a 90», «<== 90-», «POR VENCER»): es la llave con la
+      // que el detalle guarda el valor y la que se pinta como encabezado de la columna.
+      etiqueta: z.string().min(1).max(80),
+      // Qué hace ese balde con el saldo del tercero. `excluir` = el archivo lo imprime pero
+      // ya está contado en los demás (p. ej. «Deuda dudosa» de SAP).
+      clase: z.enum(["corriente", "vencido", "saldo_favor", "excluir"]).optional(),
+    })),
+  ).optional(),
+  // Cómo viene la antigüedad: en columnas («ancho»), como etiqueta de una columna
+  // («largo»), o no viene. Solo informa a la UI y a las validaciones.
+  edadesModo: z.enum(["ancho", "largo", "ninguna"]).optional(),
+
+  // ===== Forma del identificador del tercero (módulos que concilian por NIT) =====
+  //  - "columna"  : el NIT viene en cada fila (por defecto).
+  //  - "cabecera" : una fila trae el tercero y sus documentos van DEBAJO sin NIT (SAP,
+  //                 SIESA detalle); las filas de abajo lo heredan por forward-fill.
+  terceroModo: z.enum(["columna", "cabecera"]).optional(),
+  // Roles adicionales que se arrastran hacia abajo cuando el archivo los imprime una sola
+  // vez. Se validan contra `descriptor.arrastrables`.
+  arrastrarRoles: z.array(z.string()).optional(),
+
+  // Señales que marcan un renglón de SECCIÓN, en orden de preferencia. Amplía el modo
+  // "seccion" del clasificador, que hasta ahora solo sabía mirar una columna vacía.
+  //  - "columnaVacia" : el comportamiento actual (`seccionColumnaVaciaRol`).
+  //  - "columnaLlena" : otra columna trae dato SOLO en las secciones (SIESA: «#Ter.»).
+  //  - "negrita"      : el ERP marca en negrita los encabezados de cuenta.
+  seccionSenal: z.array(z.enum(["columnaVacia", "columnaLlena", "negrita"])).optional(),
+  seccionColumnaLlenaRol: z.string().optional(),
+
+  // Qué representa una fila del archivo y de dónde viene la cartera. Los declara el
+  // usuario al cargar; el cruce y las reglas de anexo dependen de ellos.
+  nivel: z.enum(["tercero", "documento"]).optional(),
+  origenCartera: z.enum(["nacional", "exterior", "mixta"]).optional(),
+  // Convención de signo del archivo: true cuando el ERP imprime la deuda en NEGATIVO (SAP
+  // Business One, ILIMITADA). El módulo guarda siempre deuda +, anticipo −; se sugiere por
+  // voto y se memoriza en el perfil del cliente.
+  invertirSigno: z.boolean().optional(),
+  // Moneda de los importes cuando NO son pesos (hoja «USD» de Plasmar): se leen en la divisa y
+  // se convierten con la TRM de cierre. Es del formato y se memoriza en el perfil.
+  monedaArchivo: z.string().regex(/^[A-Z]{3}$/).optional(),
+  // TRM de cierre (pesos por unidad de divisa) y fecha de corte de ESTE archivo: son del cargue,
+  // no del formato, así que nunca se guardan en el perfil del cliente.
+  trmCierre: z.number().positive().optional(),
+  fechaCorte: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  // Fila ROTULADA de tercero (SEVEN): «PROVEEDOR | NIT | nombre» en columnas de otros roles, con
+  // los documentos debajo. El identificador solo existe en esas filas.
+  filaTercero: z.object({
+    columnaRotulo: z.number().int().positive(),
+    texto: z.string().min(1),
+    columnaClave: z.number().int().positive(),
+    columnaNombre: z.number().int().positive().optional(),
+  }).optional(),
+  // ===== Nómina: rango de meses del CARGUE («YYYY-MM»), declarado por el usuario =====
+  // Las filas cuyo período no toca el rango quedan fuera (`fuera_de_periodo`). Es del cargue,
+  // no del formato: nunca se guarda en el perfil del cliente.
+  periodoDesde: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+  periodoHasta: z.string().regex(/^\d{4}-\d{2}$/).optional(),
 });
 export type SpecModulo = z.infer<typeof SpecModuloSchema>;
 

@@ -169,8 +169,13 @@ function esRotuloDebil(texto: string): boolean {
  * un falso positivo.
  */
 export function columnasDetalle(descriptor: DescriptorModulo, spec?: Pick<SpecModulo, "columnas">): string[] {
-  return descriptor.columnas
-    .filter((c) => c.tipo === "texto" && c.nombre !== descriptor.clasificador && c.nombre !== descriptor.clasificadorAlterno)
+  const declarados = descriptor.rolesDetalle;
+  const candidatos = declarados
+    ? descriptor.columnas.filter((c) => declarados.includes(c.nombre))
+    : descriptor.columnas.filter(
+      (c) => c.tipo === "texto" && c.nombre !== descriptor.clasificador && c.nombre !== descriptor.clasificadorAlterno,
+    );
+  return candidatos
     .filter((c) => !spec || (spec.columnas[c.nombre] ?? 0) >= 1)
     .map((c) => c.nombre);
 }
@@ -312,6 +317,40 @@ function colaPosteriorManualExacta(
 }
 
 /**
+ * Un archivo tiene UN solo gran total. Las distintas pasadas de la detección (cola de
+ * control, rótulo, aritmética sobre lo que queda) pueden llegar cada una a un candidato, y
+ * `controlSubtotales` toma el primero: en un reporte de SIESA eso era el encabezado de una
+ * SECCIÓN —que vale la suma de su propio bloque— en vez del «Total» del pie, y el panel
+ * reportaba un descuadre de 1,85 millones donde la diferencia real era de un peso.
+ *
+ * Gana la evidencia más fuerte: la coordenada que ubicó el usuario, luego el rótulo, luego
+ * la cola de control, luego la aritmética sola. A igualdad, el más cercano al pie, que es
+ * donde los ERP imprimen el gran total.
+ *
+ * Los perdedores se DEGRADAN a subtotal; no se descartan. Descartarlos devolvería la fila
+ * al detalle como movimiento y, si no va en negrita, IMPUTARÍA: la plata se contaría dos
+ * veces. Como subtotal sigue fuera del consolidado y entra al control de su grupo.
+ */
+export function resolverGranTotalUnico(
+  detecciones: DeteccionSubtotal[],
+  filas: readonly FilaCandidata[],
+): DeteccionSubtotal[] {
+  const grandes = detecciones.filter((d) => d.clase === "gran_total");
+  if (grandes.length <= 1) return detecciones;
+  const peso = (d: DeteccionSubtotal): number =>
+    d.senales.includes("marca_manual") ? 4
+      : d.senales.includes("rotulo") ? 3
+        : d.senales.includes("cola") ? 2
+          : 1;
+  const ganador = grandes.reduce((mejor, d) =>
+    peso(d) > peso(mejor) || (peso(d) === peso(mejor) && d.indice > mejor.indice) ? d : mejor);
+  return detecciones.map((d) =>
+    d.clase !== "gran_total" || d === ganador
+      ? d
+      : { ...d, clase: "subtotal" as const, grupo: filas[d.indice]?.clasificador ?? null, bloque: null });
+}
+
+/**
  * Marca las filas de SUBTOTAL (por grupo) y el GRAN TOTAL de un archivo. Solo evalúa
  * movimientos con valor; procesa en orden de archivo y cada subtotal detectado queda fuera
  * de los bloques siguientes.
@@ -404,7 +443,18 @@ export function detectarSubtotales(
     const senales: SenalSubtotal[] = [];
     if (textos.some((t) => esRotuloFuerte(t, grupo) || (f.clasificador != null && esRotuloFuerte(t, f.clasificador)))) senales.push("rotulo");
     else if (textos.some(esRotuloDebil)) senales.push("rotulo_debil");
-    if (cols.length > 0 && cols.every((c) => vacio(f.datos[c])) && (f.clasificador != null || f.rotuloClasificador != null)) senales.push("sin_detalle");
+    // La exigencia de clasificador evita el falso positivo en los módulos donde las
+    // columnas «de detalle» se DEDUCEN (todo texto que no sea el clasificador): sin un
+    // grupo al que pertenecer, cualquier fila escueta parecería un subtotal. Cuando el
+    // descriptor las DECLARA (`rolesDetalle`) esa cautela sobra y además estorba: Cartera
+    // no siempre tiene clasificador —la mitad de los reportes no trae cuenta contable— y
+    // sin esto sus «Total <tercero>» se imputaban, duplicando la cartera del cliente.
+    const detalleDeclarado = descriptor.rolesDetalle != null;
+    if (
+      cols.length > 0
+      && cols.every((c) => vacio(f.datos[c]))
+      && (detalleDeclarado || f.clasificador != null || f.rotuloClasificador != null)
+    ) senales.push("sin_detalle");
     if (f.negrita === true) senales.push("negrita");
     if (bloque && bloque.indices.length >= MINIMO_FILAS_BLOQUE && Math.abs(f.valor - bloque.suma) <= toleranciaSubtotal(f.valor)) {
       senales.push(bloque.direccion === "arriba" ? "aritmetica" : "aritmetica_arriba");
@@ -469,7 +519,7 @@ export function detectarSubtotales(
       && Math.abs(filas[r.indice].valor - sumaRestantes) <= toleranciaSubtotal(sumaRestantes));
     if (candidato) { candidato.clase = "gran_total"; candidato.bloque = null; candidato.grupo = grupoGranTotal(filas[candidato.indice]); }
   }
-  return resultado.sort((a, b) => a.indice - b.indice);
+  return resolverGranTotalUnico(resultado, filas).sort((a, b) => a.indice - b.indice);
 }
 
 /** Motivo legible/persistible de una detección: «subtotal:rotulo,aritmetica». */

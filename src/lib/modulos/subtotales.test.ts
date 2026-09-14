@@ -48,8 +48,12 @@ describe("esRotuloTotal / columnasDetalle", () => {
   });
   it("las columnas de detalle son los textos que no son el clasificador ni su alterno, y solo las mapeadas si hay spec", () => {
     expect(columnasDetalle(INV)).toEqual(["referencia", "descripcion"]);
-    expect(columnasDetalle(CAR)).toEqual(["documento", "tercero"]);
-    expect(columnasDetalle(MODULOS_IMPORT.NOM)).toEqual(["cedula", "empleado", "area"]);
+    // Cartera las DECLARA (`rolesDetalle`): de sus nueve columnas de texto, solo el
+    // documento distingue un renglón de detalle de un subtotal por tercero o por cuenta.
+    expect(columnasDetalle(CAR)).toEqual(["documento", "tipoDocumento"]);
+    // Nómina también las declara: un «Total <concepto>» de Santiago Corazón viene sin cédula
+    // ni empleado, pero el centro de costo y el tipo suelen faltar también en el detalle.
+    expect(columnasDetalle(MODULOS_IMPORT.NOM)).toEqual(["cedula", "empleado"]);
     expect(columnasDetalle(INV, { columnas: { referencia: 2, descripcion: 0 } })).toEqual(["referencia"]);
   });
 });

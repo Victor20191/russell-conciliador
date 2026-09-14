@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import ExcelJS from "exceljs";
 import { crearExportacionModulo, type ColumnaExportModulo } from "./modulo";
+import { construirCruceTerceroCartera } from "@/lib/modulos/cartera/cruce-tercero-cartera";
 
 const COLUMNAS: ColumnaExportModulo[] = [
   { nombre: "tipo", etiqueta: "Tipo de inventario", tipo: "texto" },
@@ -105,5 +106,39 @@ describe("crearExportacionModulo · borrador con estado", () => {
     expect(control.getCell("G6").value).toBe("NO COINCIDE");
     expect(control.getCell("G7").value).toBe("NO VALIDADO");
     expect(control.getCell("F7").value).toBeNull();
+  });
+});
+
+describe("crearExportacionModulo · cruce por tercero", () => {
+  it("agrega la hoja con un renglón por tercero, las cuentas en columnas y los totales", async () => {
+    const resumen = construirCruceTerceroCartera({
+      contable: [
+        { clave: "900123456", cuenta6: "130505", valor: 1_000, nombre: "CLIENTE UNO" },
+        { clave: "900123456", cuenta6: "280505", valor: -200, nombre: null },
+        { clave: "~CONSUMIDOR FINAL", cuenta6: "130505", valor: 50, nombre: "Consumidor final" },
+      ],
+      modulo: [
+        { clave: "900123456", saldo: 700, nombre: null, origenCartera: "nacional", cuenta6: null },
+        { clave: "~CONSUMIDOR FINAL", saldo: 50, nombre: null, origenCartera: null, cuenta6: null },
+      ],
+      cuentasModulo: ["130505", "130510", "280505"],
+    });
+    const wb = await abrir(await crearExportacionModulo({
+      columnas: COLUMNAS,
+      clasificadorEtiqueta: "Cuenta",
+      detalle: [],
+      consolidado: [],
+      meta: { ...META, modulo: "Cartera" },
+      cruceTercero: { resumen, etiquetaClave: "NIT", etiquetaNombre: "Nombre", fuente: "Balance v1 al 2026-03-31" },
+    }));
+    const ws = wb.getWorksheet("Cruce por tercero")!;
+    // Solo las cuentas con saldo: 130510 no aparece.
+    expect(["A4", "B4", "C4", "D4", "E4", "F4", "G4", "H4", "I4", "J4", "K4"].map((ref) => ws.getCell(ref).value)).toEqual([
+      "NIT", "Nombre", "130505", "280505", "Contabilidad", "Módulo nacional", "Módulo exterior", "Módulo", "Diferencia", "Estado", "Observación",
+    ]);
+    expect([ws.getCell("A5").value, ws.getCell("C5").value, ws.getCell("D5").value, ws.getCell("E5").value, ws.getCell("H5").value, ws.getCell("I5").value, ws.getCell("J5").value])
+      .toEqual(["900123456", 1_000, -200, 800, 700, 100, "Diferencia"]);
+    expect([ws.getCell("B6").value, ws.getCell("J6").value, ws.getCell("K6").value]).toEqual(["Consumidor final", "Cuadra", "Sin NIT"]);
+    expect([ws.getCell("A7").value, ws.getCell("E7").value, ws.getCell("H7").value, ws.getCell("I7").value]).toEqual(["Totales", 850, 750, 100]);
   });
 });

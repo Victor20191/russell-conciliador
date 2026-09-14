@@ -1,0 +1,166 @@
+{
+  "_": "Encabezados REALES de los archivos de nómina de la taxonomía (Downloads/MODULOS ORIG/NOMINA), con dos filas de datos de muestra (el sugeridor decide varios roles por contenido) y el mapeo esperado (columna 1-based; 0 = sin mapear). Los roles que no se listan en `esperado` no se verifican.",
+  "archivos": [
+    {
+      "id": "dan-libra",
+      "cliente": "Comestibles DAN", "software": "LIBRA", "hoja": "Datos",
+      "header": ["EJERCICIO", "PERIODO", "PERNOM ID", "PRODUCTOR", "CEDULA", "NOMBRE COMPLETO", "CONCEPTO", "NOMBRE CONCEPTO", "DIAS", "MES", "VALOR", "CENTRO CONTABLE", "CUENTA CONTABLE", "EMPRESA", "CARGO", "GRUPO", "NOMBRE", "FECHA ALTA", "FECHA BAJA", "SALARIO BASE", "CESANTIAS", "TIPO CONTRATO", "SEXO", "ENTIDAD_PROVEEDOR", "SITUACION"],
+      "filas": [
+        [2025, 1, 1, "00161A01", 1026130554, "COLORADO ACEVEDO, JUAN DIEGO", "C001", "SALARIO", 10, "january", 569274, 11, 720506, "001", "OPERARIO EMPAQUES", 72, "MANO OBRA DIRECTA", "2011-09-12", null, 1950905, "PROTECCION S.A.", "Contrato término fijo", "M", "05620", "A"],
+        [2025, 1, 1, "00161A01", 1026130554, "COLORADO ACEVEDO, JUAN DIEGO", "C003", "AUXILIO TRANSPORTE", 10, "january", 66667, 11, 720527, "001", "OPERARIO EMPAQUES", 72, "MANO OBRA DIRECTA", "2011-09-12", null, 1950905, "PROTECCION S.A.", "Contrato término fijo", "M", "05620", "A"],
+        [2025, 1, 1, "00161A01", 1026130554, "COLORADO ACEVEDO, JUAN DIEGO", "CO01", "APORTE SALUD", 10, "january", -22771, 11, 237005, "001", "OPERARIO EMPAQUES", 72, "MANO OBRA DIRECTA", "2011-09-12", null, 1950905, "PROTECCION S.A.", "Contrato término fijo", "M", "05620", "A"]
+      ],
+      "esperado": { "anio": 1, "periodo": 2, "cedula": 5, "empleado": 6, "codigo": 7, "concepto": 8, "cantidad": 9, "mes": 10, "valor": 11, "cuenta": 13, "agrupador": 16, "tipo": 0, "fecha": 0, "fechaCorte": 0 },
+      "faltantes": []
+    },
+    {
+      "id": "kp-nominai",
+      "cliente": "KP Empaques", "software": "NOMINAI", "hoja": "Hoja1",
+      "header": ["Centro de Costo", "Empleado", "Concepto", "Turno", "Salario Hora", "Vinculación", "Préstamo", "Tiempo", "Valor", "Mes"],
+      "filas": [
+        ["100101 - DIRECTORES Y JEFES DE AREA", "8032318 - GALLEGO GUZMAN MARVIN", "001 - BASICO", "001 - BASICO", "17,828.4522", "Ausente", null, 61.33, 1093479, "Enero"],
+        ["100101 - DIRECTORES Y JEFES DE AREA", "8032318 - GALLEGO GUZMAN MARVIN", "031 - INT. CESANTIAS", "001 - BASICO", "17,828.4522", "Ausente", null, 0, 491634, "Enero"],
+        ["100101 - DIRECTORES Y JEFES DE AREA", "8032318 - GALLEGO GUZMAN MARVIN", "541 - DEDUC. FESERT", "001 - BASICO", "17,828.4522", "Ausente", "000002777", 0, 22500, "Enero"]
+      ],
+      "esperado": { "agrupador": 1, "cedula": 2, "empleado": 2, "concepto": 3, "codigo": 0, "cantidad": 8, "valor": 9, "mes": 10 },
+      "faltantes": []
+    },
+    {
+      "id": "tulc-heinsohn-sap",
+      "cliente": "TULC", "software": "Heinsohn → asientos SAP", "hoja": "15-01-2025 (8426)",
+      "header": ["Cuenta de mayor/Código SN", "Cuenta de mayor/Nombre SN", "Cuenta asociada", "Débito", "Crédito", "Comentarios", "Proyecto", "Socio de negocio", "Tipo MM", "Código indicador de impuesto", "Base de impuesto", "Tarifa Impuesto", "Código concepto MM", "Notas IFRS", "Valor imp. Saludable", "Fecha Liquidación", "Número Reconciliación"],
+      "filas": [
+        [39184912, "LILIANA MARIA CARDONA LOPEZ", 13200701, 49502, null, "NÓMINA 15 DE ENERO 2025", 12179, 39184912, "Normal", 0, 0, 0, null, null, 0, "2025-01-15", null],
+        [39184912, "LILIANA MARIA CARDONA LOPEZ", 23700501, null, 49502, "NÓMINA 15 DE ENERO 2025", 12179, 39184912, "Normal", 0, 0, 0, null, null, 0, "2025-01-15", null]
+      ],
+      "esperado": { "cedula": 1, "empleado": 2, "cuenta": 3, "debito": 4, "credito": 5, "tipo": 0, "fecha": 16, "concepto": 0 },
+      "faltantes": ["concepto"]
+    },
+    {
+      "id": "tulc-conceptos",
+      "cliente": "TULC (Transportes Unidos La Ceja)", "software": "Heinsohn", "hoja": "ReporteAcumuladosConceptoXLS",
+      "header": ["Mes", "Código Concepto", "Concepto", "Cédula", "Código Empleado", "Empleado", "Valor", "Cantidad", "Unidad Liquidación"],
+      "filas": [
+        ["2025-01-30", null, "AFC BANCO BANCOLOMBIA", 75083542, null, "Santiago Bernal Londoño", "2.700.000,00", null, null],
+        ["2025-01-30", null, "AHORRO CONFIAR", 1036785036, null, "Diego Alejandro Castro Castro", "200.000,00", 0, "DIA"],
+        ["2025-01-30", null, "AHORRO CONFIAR", 4339427, null, "Edier Gregorio Gallego Ocampo", "20.000,00", 0, "DIA"]
+      ],
+      "esperado": { "periodo": 1, "mes": 0, "codigo": 2, "concepto": 3, "cedula": 4, "empleado": 6, "valor": 7, "cantidad": 8 },
+      "faltantes": []
+    },
+    {
+      "id": "metroplus-ofimatica",
+      "cliente": "METROPLUS", "software": "Ofimática", "hoja": "Reporte",
+      "header": ["Consecutivo", "Tipo_Dcto", "Grupo", "Nombre_Grupo", "Empleado", "Nombre_Empleado", "Fecha_Inicial", "Fecha_Final", "Concepto", "Nombre_Concepto", "Centro_Costo", "Dia_pago", "Horas", "Percepcion", "Deduccion", "Total"],
+      "filas": [
+        [21578, "LN", "01", "QUINCENAL", 1020400944, "ALEXANDRA MARIA PATIÑO RESTREPO", "2025-01-01", "2025-01-15", "100", "SALARIO BÁSICO", 100301, 15, 120, 1469379, 0, 1469379],
+        [21578, "LN", "01", "QUINCENAL", 1020400944, "ALEXANDRA MARIA PATIÑO RESTREPO", "2025-01-01", "2025-01-15", "200", "DEDUCCION SALUD", 100301, 15, 0, 0, -195917, -195917],
+        [22270, "LN", "03", "DIRECTIVOS", 91529806, "WILLIAM ALBERTO GOMEZ RAMIREZ", "2025-11-16", "2025-11-30", "SOLID", "FONDO DE SOLIDARIDAD PENSIONAL", 100201, 15, 0, 0, -203984, -203984]
+      ],
+      "esperado": { "tipoDocumento": 2, "cedula": 5, "empleado": 6, "fechaCorte": 7, "fecha": 8, "codigo": 9, "concepto": 10, "agrupador": 11, "cantidad": 13, "devengo": 14, "deduccion": 15, "neto": 16, "valor": 0 },
+      "faltantes": []
+    },
+    {
+      "id": "igb-novasoft",
+      "cliente": "IGB / Motozone / Redplas", "software": "Novasoft (exportado desde SAP)", "hoja": "MODULO",
+      "header": ["CODIGO EMPLEADO", "NOMBRES EMPLEADO", "CONCEPTO", "NOMBRE CONCEPTO", "CANTIDAD", "DEVENGOS", "DEDUCCIONES", "PAGOS INDIRECTOS", "NETO PAGADO", "TIPO DE LIQUIDACION", "FECHA DE CORTE", "FECHA DE LIQUIDACION", "ORIGEN", "COMPAÑIA", "SUCURSAL", "CENTRO DE COSTOS", "SUELDO BASICO", "CARGO"],
+      "filas": [
+        [1000101305, "ZAPATA CANO MARIANO ANDRES", "001050", "Apoyo Sostenimiento", 4, 94900, 0, 0, 0, "Liquidación de Nómina", "2025-03-31", "2025-03-16", "HISTORICOS", "IGB MOTORCYCLE PARTS S A S", "PRINCIPAL", "LOGISTICA- LA ESTRELLA", 1746882, "PRACTICANTE LOGISTICA"],
+        [1000101305, "ZAPATA CANO MARIANO ANDRES", "999901", "Neto a Pagar", 0, 0, 0, 0, 94900, "Liquidación de Nómina", "2025-03-31", "2025-03-16", "HISTORICOS", "IGB MOTORCYCLE PARTS S A S", "PRINCIPAL", "LOGISTICA- LA ESTRELLA", 1746882, "PRACTICANTE LOGISTICA"],
+        [1000101305, "ZAPATA CANO MARIANO ANDRES", "002205", "Salud Empleado", 0, 0, 14236, 0, 0, "Liquidación de Nómina", "2025-04-15", "2025-04-01", "HISTORICOS", "IGB MOTORCYCLE PARTS S A S", "PRINCIPAL", "LOGISTICA- LA ESTRELLA", 1746882, "PRACTICANTE LOGISTICA"]
+      ],
+      "esperado": { "cedula": 1, "empleado": 2, "codigo": 3, "concepto": 4, "cantidad": 5, "devengo": 6, "deduccion": 7, "neto": 9, "tipoDocumento": 10, "fechaCorte": 11, "fecha": 12, "agrupador": 16, "tipo": 0, "valor": 0 },
+      "faltantes": []
+    },
+    {
+      "id": "mineralin-siesa",
+      "cliente": "Laboratorios Mineralin", "software": "SIESA", "hoja": "Modulo",
+      "header": ["Contrato", "Cia", "Tercero", "Descripción", "Nit", "Concepto", "Descripción Concepto", "Horas Movto.", "Devengo", "Deducción", "Origen", "Código interno contrato", "Id Entidad ARL del contrato", "Desc Entidad ARL del contrato", "Id Entidad EPS del contrato", "Desc Entidad EPS del contrato", "Nombre de compañia", "Horas referencia lapso"],
+      "filas": [
+        [1, 1, 1052392543, "MONTAÑEZ SUAREZ ANGELA PATRICIA", 1052392543, "601", "PRESTAMO EMPRESA", 0, 0, 166667, "Manual", 15, "01", "BOLIVAR", "01", "EPS SURA", "LABORATORIOS MINERALIN SAS", 240],
+        [1, 1, 1052392543, "MONTAÑEZ SUAREZ ANGELA PATRICIA", 1052392543, "104", "VACACIONES", 112, 1819350, 0, "Automático", 15, "01", "BOLIVAR", "01", "EPS SURA", "LABORATORIOS MINERALIN SAS", 240]
+      ],
+      "esperado": { "cedula": 3, "empleado": 4, "codigo": 6, "concepto": 7, "cantidad": 8, "devengo": 9, "deduccion": 10, "valor": 0, "fecha": 0 },
+      "faltantes": []
+    },
+    {
+      "id": "zarzal-siesa",
+      "cliente": "El Zarzal", "software": "SIESA", "hoja": "Sheet0",
+      "header": ["Consecutivo Docto.", "Tercero", "Descripción", "Tipo Docto.", "Concepto", "Descripción Concepto", "Horas Movto.", "Sueldo en liquidación", "Naturaleza", "Dias", "Devengo", "Deducción", "Descripción Grp. Empleados", "Descripción C. Costos", "Cargo contrato", "Grupo Empleados", "Origen", "Dias TNL", "Fecha Inicial TNL", "Fecha Final TNL", "Fecha Ant.", "Grupo de CCostos", "Id motivo retiro", "Notas Motivo de retiro", "Descripción Grupo de CCostos", "C.O. Movimiento", "Descripción C.O. Movimiento", "C.O. Contrato", "Contrato", "Periodo", "Neto a pagar", "Fecha ingreso", "Fecha retiro", "Desc Entidad ARL del contrato", "Desc Entidad EPS del contrato", "Id Entidad ARL del contrato", "Id Entidad EPS del contrato", "Nombre de compañia", "Horas parámetros", "Horas referencia lapso", "Valor IBC período anterior", "Porcentaje ARL", "Cargo movimiento"],
+      "filas": [
+        [625, 3563245, "VALENCIA LOPEZ ANDRES CAMILO", "NLV", "501", "DEDUCCION SALUD", 0, 5685000, "Deduccion", 0, 0, 151600, "PRODUCCION INDIRECTA", "GENERALES DE PRODUCCION", "LÍDER DE GESTIÓN GANADERA", "004", "Automático", null, null, null, null, "CP", null, null, "COSTOS DE PRODUCCION", "002", "PLANTA BELLO", "002", 1, 202501, -151600, "2023-01-17", null, "ARL COLMENA", "EPS SURA", "14-25", "EPS010", "EL ZARZAL S.A.", 7.33, 220, 5685000, 4.35, null],
+        [626, 3563245, "VALENCIA LOPEZ ANDRES CAMILO", "NNQ", "001", "SUELDO BASICO", 220, 5685000, "Devengo", 30, 5685000, 0, "PRODUCCION INDIRECTA", "GENERALES DE PRODUCCION", "LÍDER DE GESTIÓN GANADERA", "004", "Automático", null, null, null, null, "CP", null, null, "COSTOS DE PRODUCCION", "002", "PLANTA BELLO", "002", 1, 202501, 5685000, "2023-01-17", null, "ARL COLMENA", "EPS SURA", "14-25", "EPS010", "EL ZARZAL S.A.", 7.33, 220, 5685000, 4.35, null]
+      ],
+      "esperado": { "cedula": 2, "empleado": 3, "tipoDocumento": 4, "codigo": 5, "concepto": 6, "cantidad": 7, "tipo": 9, "devengo": 11, "deduccion": 12, "agrupador": 22, "periodo": 30, "neto": 31, "valor": 0, "fecha": 0, "fechaCorte": 0 },
+      "faltantes": []
+    },
+    {
+      "id": "camara-sievensoft",
+      "cliente": "Cámara de Comercio", "software": "SIEVENSOFT (interfaz contable)", "hoja": "NOMINA CONTABILIDAD",
+      "header": ["TER_CODA", "CUE_CODI", "ARB_CODC", "ARB_CODP", "ARB_CODA", "TOP_CODI", "MCO_NUME", "MCO_FECH", "tipo", "DMC_REFE", "DMC_VADB", "DMC_VACR", "MCO_DESC"],
+      "filas": [
+        [800088702, 13609503, 14400, 19999999, 20, 7030, 262, "2025-12-31", null, "INCAPACIDAD ENT", 13724133, 0, "INTERFAZ NOMINA CAUSACION CONTABLE TERCEROS"],
+        [43123456, 51050601, 14400, 19999999, 20, 7030, 262, "2025-12-31", null, "SUELDO", 2500000, 0, "INTERFAZ NOMINA CAUSACION CONTABLE TERCEROS"]
+      ],
+      "esperado": { "cedula": 1, "cuenta": 2, "agrupador": 5, "fecha": 8, "tipo": 0, "concepto": 10, "debito": 11, "credito": 12, "valor": 0 },
+      "faltantes": []
+    },
+    {
+      "id": "kakaraka-siigo",
+      "cliente": "Kakaraka", "software": "SIIGO", "hoja": "ACUMULADOS DE NOMINA",
+      "header": ["EMPLEADO", "Cédula", "Nombre", "Fecha Ing", "C.Cos.", "Sueldo", "De", "A", "Concepto", "Descripción", "Valor"],
+      "filas": [
+        [" 3348656 URIBE ALVAREZ LUIS FERNANDO ", 3348656, "URIBE ALVAREZ LUIS FERNANDO ", "1986-01-01", 1, 9632000, 202501, 202512, "001 ", "SALARIO BASICO ", 109804800],
+        [" 3348656 URIBE ALVAREZ LUIS FERNANDO ", 3348656, "URIBE ALVAREZ LUIS FERNANDO ", "1986-01-01", 1, 9632000, 202501, 202512, "211 ", "RETENCION EN LA FUENTE ", -5868000],
+        [" 3570524 OSORIO FRANCO JUAN DAVID ", 3570524, "OSORIO FRANCO JUAN DAVID ", "2024-05-02", 10, 1746000, 202501, 202512, "029 ", "BONIFICACION ", 698400]
+      ],
+      "esperado": { "cedula": 2, "empleado": 3, "fecha": 0, "agrupador": 5, "periodoDesde": 7, "periodoHasta": 8, "codigo": 9, "concepto": 10, "valor": 11 },
+      "faltantes": []
+    },
+    {
+      "id": "incodol-siesa",
+      "cliente": "INCODOL", "software": "SIESA", "hoja": "Modulo nómina 2025",
+      "header": ["Cia", "Tercero", "Descripción", "Nit", "Grupo Empleados", "Descripción Grp. Empleados", "Grupo de CCostos", "Descripción C. Costos", "Descripción c.costo contrato", "Descripción Grupo de CCostos", "Cargo contrato", "Contrato", "Periodo", "Tipo Docto.", "Consecutivo Docto.", "Concepto", "Descripción Concepto", "Horas Movto.", "Devengo", "Deducción", "Base Gravable", "Origen", "Código interno contrato", "Id Entidad ARL del contrato", "Desc Entidad ARL del contrato", "Id Entidad EPS del contrato", "Desc Entidad EPS del contrato", "Nombre de compañia", "Horas referencia lapso", "Horas parámetros"],
+      "filas": [
+        [1, 3805391, "VERGARA BOLAÑO ANTONIO TADEO", 3805391, "001", "ADMINISTRATIVOS-ASISTENCIAL", "CV", "INGENIERIA BIOMEDICA", "MANTENIMIENTO", "GASTO DE VENTA", "TECNICO EN SISTEMA DE REFIGERACION", 1, 202501, "NLQ", 1, "406", "VACACIONES", 99.67, 0, 0, 0, "Automático", 489, "14-11", "ARL SURA (ANTES SURATEP)", "EPS002", "SALUD TOTAL EPS", "INSTITUTO COLOMBIANO DEL DOLOR SAS", 220, 7.33],
+        [1, 3805391, "VERGARA BOLAÑO ANTONIO TADEO", 3805391, "001", "ADMINISTRATIVOS-ASISTENCIAL", "CV", "INGENIERIA BIOMEDICA", "MANTENIMIENTO", "GASTO DE VENTA", "TECNICO EN SISTEMA DE REFIGERACION", 1, 202501, "NLQ", 1, "001", "SUELDO BASICO", 220, 3200000, 0, 3200000, "Automático", 489, "14-11", "ARL SURA (ANTES SURATEP)", "EPS002", "SALUD TOTAL EPS", "INSTITUTO COLOMBIANO DEL DOLOR SAS", 220, 7.33]
+      ],
+      "esperado": { "cedula": 2, "empleado": 3, "agrupador": 7, "periodo": 13, "tipoDocumento": 14, "codigo": 16, "concepto": 17, "cantidad": 18, "devengo": 19, "deduccion": 20, "valor": 0 },
+      "faltantes": []
+    },
+    {
+      "id": "plasmar-buk",
+      "cliente": "PLASMAR", "software": "Buk (libro del auditor)", "hoja": "Nomina",
+      "header": ["Tipo de Documento", "Mes", "Número de Documento", "Nombre", "Ficha", "Estado", "Empresa", "División", "Cargo", "Fecha de paga", "Centro de Costo", "Cuenta Contable", "Concepto", "Cantidad Horas", "Días Trabajados", "Clasificación", "Suma de Valor", "Código Interno Buk", "Tipo Cuenta Contable", "Categoria", "Administrativo", "Ventas", "Mano de Obra Directa", "Mano de Obra Indirecta", "Tercero", "Centro Costo", null, "Etiquetas de fila", "Suma de Suma de Valor"],
+      "filas": [
+        ["Cédula de Ciudadanía", "2025-09-01", "1.000.396.862", "Silva Arias Richard", "F1", "inactivo", "PLASMAR S.A.S.", "PRODUCCION/Laminación/PLASMAR", "AYUDANTE DE LAMINACIÓN", "2025-09-15", "MODPR04-Mano de obra directa laminación", "1", "Salario Ordinario", 0, 15, "Ganancias", 754455, "buk_salario", "item", "Nomina", 51050601, 52050601, 72050601, 73050601, "Cedula Empleado", "Si", null, "Aguinaldo", 48425000],
+        ["Cédula de Ciudadanía", "2025-09-01", "1.000.396.862", "Silva Arias Richard", "F1", "inactivo", "PLASMAR S.A.S.", "PRODUCCION/Laminación/PLASMAR", "AYUDANTE DE LAMINACIÓN", "2025-09-15", "MODPR04-Mano de obra directa laminación", "1.0", "Auxilio De Transporte", 0, 15, "Ganancias", 100000, "buk_auxilio_de_transporte", "item", "Nomina", 51052701, 52052701, 72052701, 73052701, "Cedula Empleado", "Si", null, "Ajuste Horas Extra", 2234167],
+        ["Cédula de Ciudadanía", "2025-09-01", "1.000.396.862", "Silva Arias Richard", "F1", "inactivo", "PLASMAR S.A.S.", "PRODUCCION/Laminación/PLASMAR", "AYUDANTE DE LAMINACIÓN", "2025-09-15", "MODPR04-Mano de obra directa laminación", "3", "Hora Extra Nocturna Dominical", 16, 15, "Ganancias", 262419, "sobretiempo", "general", "Nomina", 8888, 999, 111, 222, "Cedula Empleado", "No", null, "Ajuste Nomina", 2728910]
+      ],
+      "esperado": { "periodo": 2, "mes": 0, "cedula": 3, "empleado": 4, "fecha": 10, "agrupador": 11, "cuenta": 0, "concepto": 13, "codigo": 18, "cantidad": 14, "tipo": 16, "valor": 17, "cuentaAdmin": 21, "cuentaVentas": 22, "cuentaMOD": 23, "cuentaMOI": 24 },
+      "faltantes": []
+    },
+    {
+      "id": "santiago-corazon",
+      "cliente": "Fundación Santiago Corazón", "software": "libro del auditor", "hoja": "Nomina",
+      "header": ["Nombres", "Conceptos", "Concepto_", "prefijo", "No Documento", "Fecha", "cantidad", "Valor"],
+      "filas": [
+        ["ANA MARIA BETANCOURT O - CC 43590224", "Aportes al ICBF", "Aportes al ICBF", null, "Nómina 113", "2025-01-31", 13, 61100],
+        ["ANA MARIA BETANCOURT O - CC 43590224", "Aportes al ICBF", "Aportes al ICBF", null, "Nómina 114", "2025-02-15", 15, 70500]
+      ],
+      "esperado": { "empleado": 1, "cedula": 0, "concepto": 2, "codigo": 0, "tipoDocumento": 5, "fecha": 6, "cantidad": 7, "valor": 8 },
+      "faltantes": []
+    },
+    {
+      "id": "pure-nature",
+      "cliente": "Pure Nature Class Gold", "software": "libro del auditor", "hoja": "DETALLES DE NOMINA",
+      "header": ["Identificación", "Nombre empleado", "No contrato", "Periodo", "Mes", "Año", "Centro de costo", "Origen", "Novedad", "Tipo", "Horas/Días", "Valor total", null, null, "Novedad", "Tipo", "TOTAL"],
+      "filas": [
+        [4909298, "ALFONSO GIANPIERO ABREU DELGADO", 4909298, "Q2", 1, 2026, null, "Detallados", "Sueldo", "Ingreso", 15, 1013702, null, null, "Aux. de transporte/Aux. de conectividad", "Ingreso", 49271152.82],
+        [4909298, "ALFONSO GIANPIERO ABREU DELGADO", 4909298, "Q2", 1, 2026, null, "Detallados", "Fondo de salud", "Deducción", 0, 40548, null, null, "Bonificaciones no salarial", "Ingreso", 11995000]
+      ],
+      "esperado": { "cedula": 1, "empleado": 2, "periodo": 4, "mes": 5, "anio": 6, "agrupador": 7, "concepto": 9, "tipo": 10, "cantidad": 11, "valor": 12 },
+      "faltantes": []
+    }
+  ]
+}

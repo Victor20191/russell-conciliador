@@ -6,8 +6,9 @@ import { descriptorModulo } from "@/lib/modulos/descriptores";
 import { fechaCalendarioISO } from "@/lib/fecha-hora";
 import { fmtDateTime } from "@/lib/format";
 import { versionarYOrdenarBorradoresModulo } from "@/lib/modulos/versiones";
-import { clavesDeDetalle, itemsRepetidos, llaveItem, refRolDe } from "@/lib/modulos/fraccionamiento";
+import { clavesDeDetalle, itemsRepetidos, llaveItem, rolesLlaveItemDe } from "@/lib/modulos/fraccionamiento";
 import { esImputable } from "@/lib/modulos/promocion";
+import { columnasDetalleModulo } from "@/lib/modulos/cartera/columnas-cartera";
 import type { ReconciliacionModulo } from "@/lib/modulos/extraccion/transformar";
 import BorradorModuloClient, { type FilaBorradorModulo } from "./borrador-detail-client";
 
@@ -94,17 +95,17 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
       select: { id: true, version: true, periodo: true, esOficial: true, detalles: { select: { clasificador: true, datos: true } } },
     });
     if (destino) {
-      const refRol = refRolDe(descriptor);
+      const rolesLlave = rolesLlaveItemDe(descriptor);
       const columnasNumericas = descriptor.columnas.filter((c) => c.tipo === "numero" || c.tipo === "moneda").map((c) => c.nombre);
       const existentes = clavesDeDetalle(
         destino.detalles.map((d) => ({ clasificador: d.clasificador, datos: (d.datos ?? {}) as Record<string, unknown> })),
-        refRol,
+        rolesLlave,
       );
       // Solo cuentan las filas que realmente se promoverían (las mismas de `promoverStaging`).
       const nuevas = new Set(
         filas
           .filter((f) => esImputable(f, columnasNumericas))
-          .map((f) => llaveItem(f.clasificador, refRol ? String(((f.datos ?? {}) as Record<string, unknown>)[refRol] ?? "") : "")),
+          .map((f) => llaveItem(f.clasificador, rolesLlave.map((rol) => String(((f.datos ?? {}) as Record<string, unknown>)[rol] ?? "")))),
       );
       anexo = {
         version: destino.version,
@@ -114,6 +115,18 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
       };
     }
   }
+
+  // Los rangos de vencimiento que detectó la lectura viven en el spec del LOTE (aquí el
+  // cargue todavía no existe), y de ahí salen las columnas por archivo de la tabla.
+  const familiasDelLote = ((lote.specJson ?? {}) as { familias?: Record<string, { etiqueta: string }[]> }).familias;
+  const specDelLote = (lote.specJson ?? {}) as { nivel?: string; columnas?: Record<string, number> };
+  const nivelDelLote: "tercero" | "documento" = specDelLote.nivel === "tercero" || specDelLote.nivel === "documento"
+    ? specDelLote.nivel
+    : (specDelLote.columnas?.documento ?? 0) >= 1 ? "documento" : "tercero";
+  const columnasDelBorrador = columnasDetalleModulo(
+    descriptor,
+    (familiasDelLote?.edades ?? []).map((e) => e.etiqueta),
+  );
 
   const filasVm: FilaBorradorModulo[] = filas.map((f) => ({
     filaNum: f.filaNum,
@@ -139,7 +152,8 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
         comentarios={comentariosPorAncla}
         cliente={cliente?.name ?? (lote.clienteId != null ? `Cliente ${lote.clienteId}` : "(sin cliente)")}
         periodoSugerido={periodoSugerido}
-        columnas={descriptor.columnas.map((c) => ({ nombre: c.nombre, etiqueta: c.etiqueta, tipo: c.tipo }))}
+        columnas={columnasDelBorrador}
+        nivelCartera={nivelDelLote}
         clasificadorRol={descriptor.clasificador}
         valorRol={descriptor.valor}
         noNegativos={descriptor.noNegativos ?? []}

@@ -439,7 +439,7 @@ describe("transformarModulo (NOM)", () => {
       SPEC_NOM,
       hojaNom([ENC_NOM, ["001", "Sueldo básico", "1144", "Ana Ruiz", "Admón", 2500000]]),
     );
-    expect(r.filas[0].clasificador).toBe("001");
+    expect(r.filas[0].clasificador).toBe("1"); // código CANÓNICO: «001» y «1» son el mismo concepto
     expect(r.filas[0].datos.concepto).toBe("Sueldo básico");
   });
 
@@ -459,7 +459,7 @@ describe("transformarModulo (NOM)", () => {
       SPEC_NOM,
       hojaNom([ENC_NOM, ["001", "Sueldo básico", "1", "Ana", "A", 100], [null, "Cesantías", "1", "Ana", "A", 50]]),
     );
-    expect(r.filas.map((f) => f.clasificador)).toEqual(["001", "Cesantías"]);
+    expect(r.filas.map((f) => f.clasificador)).toEqual(["1", "Cesantías"]);
   });
 
   it("el sugeridor mapea «Código del concepto» sin robarse la columna del concepto", () => {

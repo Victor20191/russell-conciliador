@@ -4,27 +4,33 @@ import prisma from "@/lib/prisma";
 import { requirePermiso, authorizePermiso } from "@/lib/rbac";
 import { PageHeader, BackLink } from "@/components/ui";
 import Conversacion from "@/components/conversacion";
-import { descriptorModulo } from "@/lib/modulos/descriptores";
+import { CUENTAS_RUSSELL_NOMINA, descriptorModulo, nivelCruceModulo } from "@/lib/modulos/descriptores";
 import {
+  claveCruceContable,
+  filtrarCuentasEstandarPorModulo,
   filtrarSubgruposPorModulo,
   prefijosCuentaModulo,
-  cuenta4DelModulo,
 } from "@/lib/modulos/cuentas-modulo";
 import { consolidarPorClasificador } from "@/lib/modulos/promocion";
 import { validacionDelCargue } from "@/lib/modulos/validacion-cargue";
 import { detectarNegativos, detectarDescuadres } from "@/lib/modulos/validaciones";
 import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
 import { fmtDateTime } from "@/lib/format";
-import { construirCruceTercero, type ResumenCruceTercero } from "@/lib/modulos/cruce-tercero";
-import { normalizarTerceroModulo } from "@/lib/modulos/tercero";
-import { filasEfectivasTercero } from "@/lib/balance/staging-tercero";
-import { agregarPorNit } from "@/lib/modulos/agregar-por-nit";
-import { calcularValorContableModulo } from "@/lib/modulos/valor-contable";
-import { balanceTerminaEnPeriodo } from "@/lib/modulos/compuerta-cruce";
-import { construirCruceContableModulo } from "@/lib/modulos/cruce-contable-servidor";
+import { columnasDetalleModulo } from "@/lib/modulos/cartera/columnas-cartera";
+import { cargarCuentasEstandarCruce, construirCruceContableModulo } from "@/lib/modulos/cruce-contable-servidor";
+import { construirCruceTerceroModulo, etiquetasCruceTercero } from "@/lib/modulos/cruce-tercero-servidor";
+import { validarAuxiliarTercero } from "@/lib/modulos/cartera/validaciones-tercero";
+import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
+import { finDePeriodo } from "@/lib/modulos/cartera/fecha-corte";
+import { CLAVE_MONEDA } from "@/lib/modulos/cartera/detalle-cartera";
+import { fechaCalendarioISO } from "@/lib/fecha-hora";
 import { ESTADO_CIERRE_FIRME, evaluarCierreConciliacion } from "@/lib/conciliacion/cuentas-bloqueo";
 import { autorizarCierreConciliacion } from "@/lib/conciliacion/verificar-bloqueo";
-import DatoCargadoClient, { type FilaDetalleVm, type ConsolidadoVm, type NovedadesVm, type VersionModuloVm, type CruceContableVm, type CruceTerceroVm, type CierreConciliacionVm } from "./dato-cargado-client";
+import DatoCargadoClient, { type FilaDetalleVm, type ConsolidadoVm, type AgrupadorVm, type NovedadesVm, type VersionModuloVm, type CruceContableVm, type CruceTerceroVm, type CierreConciliacionVm } from "./dato-cargado-client";
+import { construirConsolidadoNomina } from "@/lib/modulos/nomina/consolidado-nomina";
+import { validarNomina } from "@/lib/modulos/nomina/validaciones-nomina";
+import { esClaseNomina, type ClaseNomina } from "@/lib/modulos/nomina/homologacion";
+import { construirConfigMapeoCliente } from "@/lib/balance/mapeo-cliente-config";
 
 export default async function DatoModuloPage({
   params,
@@ -53,18 +59,21 @@ export default async function DatoModuloPage({
   // ¿Puede editar la consolidación de este cliente?
   const puedeEditar = (await authorizePermiso("modulos_datos:editar", { clientId: encabezado.clienteId })).ok;
 
-  const [consolidacionRows, subgrupos, catalogoPrevalidador, comentariosGrp, cuentasCliente, hermanos] = await Promise.all([
+  // Nivel de la cédula contable: subgrupo de 4 dígitos, o la cuenta Russell completa en Nómina.
+  const nivel = nivelCruceModulo(descriptor);
+  const [consolidacionRows, subgrupos, cuentasEstandar, catalogoPrevalidador, comentariosGrp, cuentasCliente, hermanos, reglasClaseRows] = await Promise.all([
     prisma.consolidacionModuloCliente.findMany({
       where: { clienteId: encabezado.clienteId, moduloCodigo },
-      select: { clasificador: true, descripcion: true, cuenta4: true },
+      select: { clasificador: true, agrupador: true, descripcion: true, cuenta4: true, cuenta6: true, grupo: true, subcuentaPuc: true, cuentaCliente: true },
     }),
     prisma.subgrupoEstandar.findMany({ select: { codigo: true, nombre: true }, orderBy: { codigo: "asc" } }),
+    nivel === 6 ? cargarCuentasEstandarCruce(descriptor.crucePorTercero.cuentasRussell6) : Promise.resolve([]),
     getCatalogoPrevalidador(),
     prisma.comment.groupBy({ by: ["anchor"], where: { entityType: "modulos_datos", entityId: encabezadoId }, _count: { _all: true } }),
     // Homologación del cliente: cuentas propias mapeadas al plan Russell (para detallar por subgrupo).
     prisma.clientAccount.findMany({
       where: { clienteId: encabezado.clienteId, cuenta6Russell: { not: null } },
-      select: { code: true, name: true, level: true, cuenta6Russell: true },
+      select: { code: true, name: true, level: true, cuenta6Russell: true, coincidencia: true, origenMapeo: true, actualizadoEn: true },
       orderBy: { code: "asc" },
     }),
     prisma.moduloDatoEncabezado.findMany({
@@ -88,6 +97,10 @@ export default async function DatoModuloPage({
         ultimaCarga: true,
       },
     }),
+    // Nómina: clase contable por centro de costo / clase del archivo (GYA → 51, MOD → 72).
+    descriptor.nomina
+      ? prisma.claseAgrupadorModulo.findMany({ where: { clienteId: encabezado.clienteId, moduloCodigo }, select: { agrupador: true, clase: true } })
+      : Promise.resolve([] as { agrupador: string; clase: string }[]),
   ]);
   // Un clasificador puede tener 1..N cuentas: agrupamos en lista (ordenada).
   const cuentasPorClasificador = new Map<string, string[]>();
@@ -95,35 +108,47 @@ export default async function DatoModuloPage({
   // del concepto y la descripción es su nombre, cargado en /config/conceptos-nomina).
   const descripcionPorClasificador = new Map<string, string>();
   for (const r of consolidacionRows) {
-    const lista = cuentasPorClasificador.get(r.clasificador) ?? [];
-    lista.push(r.cuenta4);
-    cuentasPorClasificador.set(r.clasificador, lista);
+    // A 6 dígitos solo cuenta la homologación completa: una fila con cuenta4 y sin cuenta6
+    // (guardada antes de que el módulo cruzara a 6) deja el concepto «sin cuenta».
+    const clave = nivel === 6 ? claveCruceContable(r.cuenta6, 6) : r.cuenta4;
+    if (clave) {
+      const lista = cuentasPorClasificador.get(r.clasificador) ?? [];
+      lista.push(clave);
+      cuentasPorClasificador.set(r.clasificador, lista);
+    }
     if (r.descripcion && !descripcionPorClasificador.has(r.clasificador)) {
       descripcionPorClasificador.set(r.clasificador, r.descripcion);
     }
   }
   for (const [k, v] of cuentasPorClasificador) cuentasPorClasificador.set(k, [...new Set(v)].sort());
   // Nombres del plan completo (por si hay un mapeo legado fuera del módulo).
-  const nombrePorCuenta = new Map(subgrupos.map((s) => [s.codigo, s.nombre]));
+  const nombrePorCuenta = new Map([
+    ...subgrupos.map((s) => [s.codigo, s.nombre] as const),
+    ...cuentasEstandar.map((c) => [c.codigo, c.nombre] as const),
+  ]);
   const comentariosPorAncla: Record<string, number> = {};
   for (const g of comentariosGrp) if (g.anchor) comentariosPorAncla[g.anchor] = g._count._all;
-  // El datalist solo ofrece cuentas Russell del módulo (p. ej. INV → 14xx).
+  // El datalist solo ofrece cuentas Russell del módulo (p. ej. INV → 14xx; Nómina → 510506…).
   const prefijosModulo = prefijosCuentaModulo(moduloCodigo, catalogoPrevalidador);
-  const cuentasModulo = filtrarSubgruposPorModulo(subgrupos, prefijosModulo);
-  // Cuentas del CLIENTE homologadas a cada subgrupo Russell del módulo (14XX → [143505 «…»]).
+  const cuentasModulo = nivel === 6
+    ? filtrarCuentasEstandarPorModulo(cuentasEstandar, prefijosModulo, descriptor.crucePorTercero.cuentasRussell6)
+    : filtrarSubgruposPorModulo(subgrupos, prefijosModulo);
+  // Cuentas del CLIENTE homologadas a cada cuenta Russell del módulo (14XX → [143505 «…»]).
   const codigosModulo = new Set(cuentasModulo.map((c) => c.codigo));
   const homologacionPorSubgrupo: Record<string, { codigo: string; nombre: string }[]> = {};
-  // Índice INVERSO (cuenta del cliente → su cuenta Russell de 4 díg) para que el campo
+  // Índice INVERSO (cuenta del cliente → su cuenta Russell de 4 y de 6 díg) para que el campo
   // rápido del cruce acepte que el usuario escriba su propia cuenta. Va SIN filtrar por
   // módulo a propósito: así se puede avisar «143504 está homologada a 4175, que no
   // pertenece a Inventarios» en vez de un «no encontrada» que haría pensar que falta
   // parametrizarla. Quien decide si entra es `resolverCuenta4`.
-  const resolucionCliente: Record<string, { cuenta4: string; nombre: string }> = {};
+  const resolucionCliente: Record<string, { cuenta4: string; cuenta6: string | null; nombre: string }> = {};
   for (const a of cuentasCliente) {
     const sub = (a.cuenta6Russell ?? "").replace(/\D/g, "").slice(0, 4);
-    if (sub) resolucionCliente[a.code] = { cuenta4: sub, nombre: a.name };
-    if (!codigosModulo.has(sub)) continue;
-    (homologacionPorSubgrupo[sub] ??= []).push({ codigo: a.code, nombre: a.name });
+    if (!sub) continue;
+    resolucionCliente[a.code] = { cuenta4: sub, cuenta6: claveCruceContable(a.cuenta6Russell, 6), nombre: a.name };
+    const clave = nivel === 6 ? claveCruceContable(a.cuenta6Russell, 6) : sub;
+    if (!clave || !codigosModulo.has(clave)) continue;
+    (homologacionPorSubgrupo[clave] ??= []).push({ codigo: a.code, nombre: a.name });
   }
 
   const detalleVm: FilaDetalleVm[] = encabezado.detalles.map((d) => ({
@@ -156,14 +181,38 @@ export default async function DatoModuloPage({
     }),
   };
 
+  // Nómina: un renglón por (concepto, centro de costo) con la memoria guardada para ese par y la
+  // sugerencia de homologación (cuenta del archivo, memoria + regla de clase, grupo por nombre).
+  const reglasClase = new Map(reglasClaseRows.filter((r) => esClaseNomina(r.clase)).map((r) => [r.agrupador, r.clase as ClaseNomina]));
+  const consolidadoNomina = descriptor.nomina
+    ? construirConsolidadoNomina({
+        detalle: detalleVm,
+        memoria: consolidacionRows.map((r) => ({ ...r, cuenta6: r.cuenta6 ?? "" })),
+        reglasClase,
+        mapeoCliente: new Map([...construirConfigMapeoCliente(cuentasCliente).entries()].map(([k, v]) => [k, v.std])),
+        cuentasRussell6: descriptor.crucePorTercero.cuentasRussell6 ?? CUENTAS_RUSSELL_NOMINA,
+      })
+    : null;
   const consolidado = consolidarPorClasificador(detalleVm.map((d) => ({ clasificador: d.clasificador, valor: d.valor })));
-  const consolidadoVm: ConsolidadoVm[] = consolidado.map((c) => ({
-    clasificador: c.clasificador,
-    descripcion: descripcionPorClasificador.get(c.clasificador) ?? null,
-    total: c.total,
-    filas: c.filas,
-    cuentas4: (cuentasPorClasificador.get(c.clasificador) ?? []).map((cod) => ({ codigo: cod, nombre: nombrePorCuenta.get(cod) ?? null })),
-  }));
+  const consolidadoVm: ConsolidadoVm[] = consolidadoNomina
+    ? consolidadoNomina.renglones.map((c) => ({
+        clasificador: c.clasificador,
+        codigo: c.codigo,
+        agrupador: c.agrupador,
+        descripcion: c.descripcion,
+        total: c.total,
+        filas: c.filas,
+        cuentas4: c.cuentas.map((cod) => ({ codigo: cod, nombre: nombrePorCuenta.get(cod) ?? null })),
+        sugerencia: c.sugerencia,
+      }))
+    : consolidado.map((c) => ({
+        clasificador: c.clasificador,
+        descripcion: descripcionPorClasificador.get(c.clasificador) ?? null,
+        total: c.total,
+        filas: c.filas,
+        cuentas4: (cuentasPorClasificador.get(c.clasificador) ?? []).map((cod) => ({ codigo: cod, nombre: nombrePorCuenta.get(cod) ?? null })),
+      }));
+  const agrupadoresVm: AgrupadorVm[] = consolidadoNomina?.agrupadores ?? [];
   // Cruce contable (balance vs. archivos del módulo): el MISMO cálculo que verifica
   // la Server Action al cerrar la conciliación (`cruce-contable-servidor.ts`).
   const cruce = await construirCruceContableModulo({
@@ -173,14 +222,46 @@ export default async function DatoModuloPage({
       nombreCliente: encabezado.nombreCliente,
       moduloCodigo,
       periodo: encabezado.periodo,
+      periodoDesde: encabezado.periodoDesde,
       verificaciones: encabezado.verificaciones,
-      detalles: detalleVm.map((d) => ({ clasificador: d.clasificador, valor: d.valor })),
+      detalles: detalleVm.map((d) => ({ clasificador: d.clasificador, valor: d.valor, datos: d.datos })),
     },
     consolidacionRows,
     subgrupos,
+    cuentasEstandar,
     catalogoPrevalidador,
   });
   const balanceEmparejado = cruce.balanceEmparejado;
+
+  // Cruce por tercero (la compuerta tipada del descriptor decide si el módulo lo tiene). Se
+  // resuelve antes del estado del cierre porque en Cartera y CxP la conciliación no se cierra
+  // sin él. Mismo balance y compuertas del cruce contable, contra el detalle por tercero ligado.
+  const cruceTercero = descriptor.crucePorTercero.habilitado
+    ? await construirCruceTerceroModulo({
+        encabezado: {
+          id: encabezado.id,
+          clienteId: encabezado.clienteId,
+          moduloCodigo,
+          periodo: encabezado.periodo,
+          total: Number(encabezado.total),
+          nivelSaldo: encabezado.nivelSaldo,
+          detalles: encabezado.detalles.map((d) => ({
+            filaNum: d.filaNum,
+            valor: Number(d.valor),
+            datos: (d.datos ?? {}) as Record<string, unknown>,
+            nivel: d.nivel,
+            imputable: d.imputable,
+            cuentaCliente: d.cuentaCliente,
+            origenCartera: d.origenCartera,
+          })),
+        },
+        balanceEmparejado,
+        bloqueo: cruce.bloqueo,
+        subgrupos,
+        catalogoPrevalidador,
+        consolidacionRows,
+      })
+    : null;
 
   // Conciliación en firme del (cliente, módulo, período): estado + quién puede
   // cerrar/desbloquear (senior o gerente asignado; Superadministrador por alcance).
@@ -196,7 +277,16 @@ export default async function DatoModuloPage({
     autorizarCierreConciliacion("conciliaciones:cerrar", encabezado.clienteId),
     autorizarCierreConciliacion("conciliaciones:desbloquear", encabezado.clienteId),
   ]);
-  const evaluacionCierre = cruce.cruceContable ? evaluarCierreConciliacion(cruce.cruceContable, cruce.resumenMarcas) : null;
+  const exigeTercero = descriptor.crucePorTercero.habilitado && descriptor.crucePorTercero.exigidoParaCierre === true;
+  const evaluacionCierre = cruce.cruceContable
+    ? evaluarCierreConciliacion(
+        cruce.cruceContable,
+        cruce.resumenMarcas,
+        exigeTercero
+          ? { exigido: true, estado: cruceTercero?.estado ?? "sin_balance", mensaje: cruceTercero?.mensaje ?? null, resumenMarcas: cruceTercero?.resumenMarcas ?? null }
+          : null,
+      )
+    : null;
   const cierreVm: CierreConciliacionVm = {
     cierre: cierreRow
       ? {
@@ -239,112 +329,87 @@ export default async function DatoModuloPage({
     filasMarcadas: cruce.filasMarcadas,
     resumenMarcas: cruce.resumenMarcas,
     detalleContablePorCuenta: cruce.detalleContablePorCuenta,
+    fueraDelModulo: cruce.fueraDelModulo,
     conciliacion: cierreVm,
+    nomina: cruce.nomina,
   };
 
-  // Cruce por tercero: la configuración tipada del descriptor decide si el módulo
-  // consulta el balance por tercero y presenta la pestaña. Cambiar la disponibilidad
-  // no requiere tocar este loader ni el componente cliente.
-  // Mismo criterio de emparejamiento de período que el cruce contable, pero contra
-  // el balance abierto POR TERCERO del cliente (`balance_tercero_*`, capturado al
-  // confirmar el borrador con apertura «por terceros»).
-  const tieneRolTercero = descriptor.crucePorTercero.habilitado;
-  const rolCruceTercero = descriptor.crucePorTercero.rolClave ?? "tercero";
-  const rolNombreCruce = descriptor.crucePorTercero.rolNombre ?? null;
-  let cruceTercero: ResumenCruceTercero | null = null;
-  let balanceTerceroEncontrado = false;
-  // Cargue por tercero emparejado (mismo año-mes): lo necesita el enlace de la pestaña.
-  let balanceTerceroRef: { id: number; version: string } | null = null;
-  let contableSinNit: { total: number; filas: number } | null = null;
-  let moduloSinNit: { total: number; filas: number } | null = null;
-  let contableExcluidoFilas = 0;
-
-  if (tieneRolTercero) {
-    const balancesTercero = await prisma.balanceTerceroEncabezado.findMany({
-      where: { clienteId: encabezado.clienteId },
-      select: { id: true, periodoFin: true, version: true },
-      orderBy: [{ esOficial: "desc" }, { periodoFin: "desc" }, { id: "desc" }],
-    });
-    const balanceTerceroEmparejado = balancesTercero.find(
-      (b) => balanceTerminaEnPeriodo(b.periodoFin, encabezado.periodo),
-    ) ?? null;
-    balanceTerceroEncontrado = balanceTerceroEmparejado != null;
-    balanceTerceroRef = balanceTerceroEmparejado
-      ? { id: balanceTerceroEmparejado.id, version: balanceTerceroEmparejado.version }
-      : null;
-
-    if (balanceTerceroEmparejado) {
-      const detallesTerceroCrudos = await prisma.balanceTerceroDetalle.findMany({
-        where: { encabezadoId: balanceTerceroEmparejado.id },
-        select: {
-          cuenta4: true,
-          cuenta8: true,
-          cuenta6Russell: true,
-          nitTercero: true,
-          nombreTercero: true,
-          debitos: true,
-          creditos: true,
-          saldoFinal: true,
-        },
-      });
-      // Dedup de la fila «propia» (cargues capturados del borrador): una cuenta
-      // con detalle usa solo sus terceros; su consolidado no infla el «sin NIT».
-      const detallesTercero = filasEfectivasTercero(detallesTerceroCrudos);
-      const itemsContables: { nit: string | null; nombre: string | null; saldo: number }[] = [];
-      for (const d of detallesTercero) {
-        if (!d.cuenta6Russell) {
-          if (cuenta4DelModulo(d.cuenta4, prefijosModulo)) contableExcluidoFilas += 1;
-          continue;
-        }
-        const sub4 = d.cuenta6Russell.replace(/\D/g, "").slice(0, 4);
-        if (!codigosModulo.has(sub4)) continue;
-        const calculo = calcularValorContableModulo({
-          moduloCodigo,
-          cuentaRussell: d.cuenta6Russell,
-          fila: {
-            debitos: Number(d.debitos),
-            creditos: Number(d.creditos),
-            saldoFinal: Number(d.saldoFinal),
-          },
-          catalogo: catalogoPrevalidador,
-        });
-        if (!calculo) {
-          contableExcluidoFilas += 1;
-          continue;
-        }
-        itemsContables.push({ nit: d.nitTercero, nombre: d.nombreTercero, saldo: calculo.valor });
-      }
-      const { aportes: contablePorNit, sinNit: contableSinNitCalc } = agregarPorNit(itemsContables);
-      contableSinNit = contableSinNitCalc;
-
-      // Cada fila del detalle ya llegó a `modulo_dato_detalle` como IMPUTABLE (movimiento,
-      // no omitida, no en cero): la promoción (`esImputable`) filtra antes de persistir.
-      const itemsModulo = detalleVm.map((d) => {
-        const t = normalizarTerceroModulo(d.datos[rolCruceTercero] as string | number | null | undefined);
-        const nombreAparte = rolNombreCruce ? String(d.datos[rolNombreCruce] ?? "").trim() || null : null;
-        return { nit: t.nitCanonico, nombre: t.nombre ?? nombreAparte, saldo: d.valor };
-      });
-      const { aportes: moduloPorNit, sinNit: moduloSinNitCalc } = agregarPorNit(itemsModulo);
-      moduloSinNit = moduloSinNitCalc;
-
-      cruceTercero = construirCruceTercero({ contablePorNit, moduloPorNit });
-    }
-  }
-
+  // Fecha de corte y divisa del cargue (Cartera, CxP): contra la fecha se miden días y edades.
+  const fechaCorte = encabezado.fechaCorte ? fechaCalendarioISO(encabezado.fechaCorte) : finDePeriodo(encabezado.periodo);
+  const monedasCargue = [...new Set(
+    encabezado.detalles
+      .map((d) => (d.datos as Record<string, unknown> | null)?.[CLAVE_MONEDA])
+      .filter((m): m is string => typeof m === "string"),
+  )].sort();
   const cruceTerceroVm: CruceTerceroVm = {
-    aplica: tieneRolTercero,
-    balanceEncontrado: balanceTerceroEncontrado,
-    balanceTerceroId: balanceTerceroRef?.id ?? null,
-    balanceTerceroVersion: balanceTerceroRef?.version ?? null,
+    aplica: descriptor.crucePorTercero.habilitado,
     periodo: encabezado.periodo,
     nombreCliente: encabezado.nombreCliente,
-    resumen: cruceTercero,
-    contableSinNit,
-    moduloSinNit,
-    contableExcluidoFilas,
-    etiquetaClave: rolCruceTercero === "cedula" ? "Cédula" : "NIT",
-    etiquetaNombre: rolCruceTercero === "cedula" ? "Empleado" : "Nombre",
+    estado: cruceTercero?.estado ?? "sin_balance",
+    mensaje: cruceTercero?.mensaje ?? null,
+    balance: balanceEmparejado
+      ? {
+          id: balanceEmparejado.id,
+          version: balanceEmparejado.version,
+          periodoFin: balanceEmparejado.periodoFin,
+          esOficial: balanceEmparejado.esOficial,
+          estaCongelado: balanceEmparejado.estaCongelado,
+        }
+      : null,
+    balanceTercero: cruceTercero?.balanceTercero ?? null,
+    resumen: cruceTercero?.resumen ?? null,
+    resumenMarcas: cruceTercero?.resumenMarcas ?? null,
+    emparejamientos: cruceTercero?.emparejamientos ?? [],
+    umbralDescuadre: cruceTercero?.umbralDescuadre ?? 0,
+    parametros: descriptor.crucePorTercero.detalleTercero
+      ? {
+          fechaCorte,
+          fechaCorteDeclarada: encabezado.fechaCorte != null,
+          trmCierre: encabezado.trmCierre == null ? null : Number(encabezado.trmCierre),
+          monedas: monedasCargue,
+        }
+      : null,
+    contableExcluidoFilas: cruceTercero?.contableExcluidoFilas ?? 0,
+    contableNoModular: cruceTercero?.contableNoModular ?? { total: 0, filas: 0, cuentas: [] },
+    moduloDerivadoDelDetalle: cruceTercero?.moduloDerivadoDelDetalle ?? false,
+    moduloNoAtribuido: cruceTercero?.moduloNoAtribuido ?? 0,
+    ...etiquetasCruceTercero(descriptor),
   };
+
+  // Cartera y CxP: validaciones del auxiliar por tercero, recalculadas al leer sobre el detalle
+  // y el cruce recién construidos (edades vs total, documentos repetidos, claves, naturaleza).
+  const novedadesVm: NovedadesVm = descriptor.nomina
+    ? {
+        ...novedades,
+        // Nómina: netos por fila, conceptos sin cuenta / con reparto, deducciones de control,
+        // cédulas con varios nombres y meses del archivo, sobre el mismo consolidado del cruce.
+        nomina: validarNomina({
+          detalle: encabezado.detalles.map((d) => ({ filaNum: d.filaNum, valor: Number(d.valor), datos: (d.datos ?? {}) as Record<string, unknown> })),
+          renglones: cruce.nomina?.renglones ?? consolidadoNomina?.renglones ?? [],
+        }),
+      }
+    : descriptor.crucePorTercero.detalleTercero
+    ? {
+        ...novedades,
+        tercero: validarAuxiliarTercero({
+          filas: encabezado.detalles.map((d) => ({
+            filaNum: d.filaNum,
+            valor: Number(d.valor),
+            imputable: d.imputable,
+            nitCanonico: d.nitCanonico,
+            datos: (d.datos ?? {}) as Record<string, unknown>,
+          })),
+          cruce: cruceTercero?.resumen ?? null,
+          naturaleza: descriptor.crucePorTercero.naturaleza,
+          umbralNaturaleza: (await getUmbralesAlertas()).naturaleza,
+          fechaCorte,
+        }),
+      }
+    : novedades;
+
+  // Columnas de la tabla de detalle: las del descriptor más, cuando el archivo las trajo,
+  // una por cada rango de vencimiento. Ver `columnas-cartera.ts`.
+  const columnasDeLaTabla = columnasDetalleModulo(descriptor, encabezado.rangosEdades);
 
   const versiones: VersionModuloVm[] = hermanos.map((hermano) => ({
     id: hermano.id,
@@ -383,16 +448,18 @@ export default async function DatoModuloPage({
         comentarios={comentariosPorAncla}
         clienteId={encabezado.clienteId}
         total={Number(encabezado.total)}
-        columnas={descriptor.columnas.map((c) => ({ nombre: c.nombre, etiqueta: c.etiqueta, tipo: c.tipo }))}
+        columnas={columnasDeLaTabla}
         clasificadorEtiqueta={descriptor.columnas.find((c) => c.nombre === descriptor.clasificador)?.etiqueta ?? "Clasificador"}
         detalle={detalleVm}
         consolidado={consolidadoVm}
         cruceContable={cruceContableVm}
         cruceTercero={cruceTerceroVm}
-        novedades={novedades}
+        novedades={novedadesVm}
         cuentas={cuentasModulo.map((s) => ({ codigo: s.codigo, nombre: s.nombre }))}
+        nivelCruce={nivel}
         homologacionCliente={homologacionPorSubgrupo}
         resolucionCliente={resolucionCliente}
+        agrupadores={agrupadoresVm}
         puedeEditar={puedeEditar}
         versiones={versiones}
         versionActualId={encabezado.id}

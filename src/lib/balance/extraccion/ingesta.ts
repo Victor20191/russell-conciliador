@@ -24,6 +24,12 @@ export type GridHoja = {
   negrita?: boolean[][];
   /** Número físico de cada fila en el archivo, alineado 1:1 con la grilla compacta. */
   filasFisicas?: number[];
+  /**
+   * La hoja está OCULTA en el libro (`state="hidden"`/`veryHidden`). Los libros de conciliación
+   * del auditor esconden restos de la plantilla («Balance a Julio», «Hoja3») que no deben
+   * proponerse como el auxiliar del módulo; se leen igual por si el usuario las pide.
+   */
+  oculta?: boolean;
 };
 
 export type DocumentoIA = { tipo: "pdf"; base64: string } | { tipo: "texto"; texto: string };
@@ -113,6 +119,44 @@ function filaTieneDatos(fila: CeldaCruda[]): boolean {
 }
 
 /**
+ * Texto compartido que el lector streaming no resolvió: la celda llega como
+ * `{sharedString: n}` y `celdaExcel` la convertiría en una celda vacía sin avisar.
+ */
+function esTextoCompartidoSinResolver(v: ExcelJS.CellValue): boolean {
+  return v != null && typeof v === "object" && "sharedString" in v;
+}
+
+/** El lector streaming emitió una hoja sin sus textos: el libro se relee con otro lector. */
+class LecturaExcelIncompleta extends Error {
+  constructor() {
+    super("El lector streaming de Excel no resolvió los textos compartidos del libro.");
+    this.name = "LecturaExcelIncompleta";
+  }
+}
+
+/**
+ * Tope para releer un libro con el lector documental de ExcelJS, que resuelve textos y
+ * estilos en cualquier orden pero ocupa varias veces el tamaño del archivo (ver
+ * `leerLibroExcel`). Por encima, un libro sin textos se relee con SheetJS, sin negrita.
+ */
+const LIMITE_LECTOR_DOCUMENTAL_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Flag NEGRITA por celda (exceljs: `cell.font.bold`; celdas 1-based) alineado 0-based con
+ * `values`. Respalda con la negrita a nivel de fila si la trae.
+ */
+function negritaFilaExcel(row: ExcelJS.Row, values: CeldaCruda[]): boolean[] {
+  const filaBold = (row as unknown as { font?: { bold?: boolean } }).font?.bold === true;
+  return values.map((_, j) => filaBold || row.getCell(j + 1).font?.bold === true);
+}
+
+type LecturaExcel = {
+  hojas: GridHoja[];
+  /** Alguna hoja se emitió antes de leer `styles.xml`: su negrita y sus fechas se perdieron. */
+  sinEstilos: boolean;
+};
+
+/**
  * Lee un libro OOXML (.xlsx/.xlsm) a grillas por hoja, saltando filas vacías.
  *
  * El lector documental de ExcelJS conserva simultáneamente el XML descomprimido,
@@ -121,8 +165,15 @@ function filaTieneDatos(fila: CeldaCruda[]): boolean {
  * archivo y agotar la memoria del proceso. El lector streaming libera cada fila
  * de ExcelJS apenas la convertimos, pero conserva shared strings y estilos para
  * no perder nombres, fechas ni la señal de negrita usada por balances de terceros.
+ *
+ * Algunos libros pequeños guardan la hoja ANTES que `sharedStrings.xml` y `styles.xml`
+ * dentro del zip (el auxiliar de CxP de Helisa, un catálogo de conceptos de nómina de
+ * SIIGO). Con ese orden el lector streaming emite la hoja sin haber leído los textos ni los
+ * estilos: los nombres llegan como `{sharedString: n}` y la negrita se pierde. Sin textos
+ * la lectura se aborta (`LecturaExcelIncompleta`); sin estilos se devuelve marcada
+ * `sinEstilos`. En ambos casos `leerLibroExcelTolerante` relee el libro.
  */
-async function leerLibroExcel(data: ArrayBuffer): Promise<GridHoja[]> {
+async function leerLibroExcel(data: ArrayBuffer): Promise<LecturaExcel> {
   const entrada = Readable.from([Buffer.from(data)]);
   const wb = new ExcelJS.stream.xlsx.WorkbookReader(entrada, {
     worksheets: "emit",
@@ -132,27 +183,53 @@ async function leerLibroExcel(data: ArrayBuffer): Promise<GridHoja[]> {
     entries: "ignore",
   });
   const hojas: GridHoja[] = [];
+  const lector = wb as unknown as { styles?: unknown };
+  let sinEstilos = false;
 
   for await (const ws of wb) {
+    // Lo que el lector ya había leído cuando emitió la hoja.
+    if (lector.styles === undefined) sinEstilos = true;
     const nombreHoja = (ws as unknown as { name?: string; id?: number }).name
       ?? `Hoja ${String((ws as unknown as { id?: number }).id ?? hojas.length + 1)}`;
     const filas: CeldaCruda[][] = [];
     const negrita: boolean[][] = [];
     const filasFisicas: number[] = [];
     for await (const row of ws) {
-      const values = (row.values as ExcelJS.CellValue[]).slice(1).map(celdaExcel);
+      const crudos = (row.values as ExcelJS.CellValue[]).slice(1);
+      if (crudos.some(esTextoCompartidoSinResolver)) throw new LecturaExcelIncompleta();
+      const values = crudos.map(celdaExcel);
       if (!filaTieneDatos(values)) continue;
       filas.push(values);
       filasFisicas.push(row.number);
-      // Flag NEGRITA por celda (exceljs: `cell.font.bold`; celdas 1-based) alineado
-      // 0-based con `values`. Respalda con la negrita a nivel de fila si la trae.
-      const filaBold = (row as unknown as { font?: { bold?: boolean } }).font?.bold === true;
-      negrita.push(values.map((_, j) => filaBold || row.getCell(j + 1).font?.bold === true));
+      negrita.push(negritaFilaExcel(row, values));
     }
     hojas.push({ nombre: nombreHoja, filas, negrita, filasFisicas });
   }
 
-  return hojas;
+  return { hojas, sinEstilos };
+}
+
+/**
+ * Relectura documental (ExcelJS no streaming) de un libro que el lector streaming dejó
+ * incompleto. Resuelve textos y estilos sin importar el orden de las entradas del zip y
+ * conserva la negrita; solo se usa hasta `LIMITE_LECTOR_DOCUMENTAL_BYTES`.
+ */
+async function leerLibroExcelDocumental(data: ArrayBuffer): Promise<GridHoja[]> {
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(data);
+  return wb.worksheets.map((ws) => {
+    const filas: CeldaCruda[][] = [];
+    const negrita: boolean[][] = [];
+    const filasFisicas: number[] = [];
+    ws.eachRow({ includeEmpty: false }, (row) => {
+      const values = (row.values as ExcelJS.CellValue[]).slice(1).map(celdaExcel);
+      if (!filaTieneDatos(values)) return;
+      filas.push(values);
+      filasFisicas.push(row.number);
+      negrita.push(negritaFilaExcel(row, values));
+    });
+    return { nombre: ws.name, filas, negrita, filasFisicas };
+  });
 }
 
 /**
@@ -173,9 +250,11 @@ async function leerLibroExcelAlterno(data: ArrayBuffer): Promise<GridHoja[]> {
     bookVBA: false,
   });
 
-  return wb.SheetNames.map((nombre) => {
+  const ocultaEn = (i: number) => (wb.Workbook?.Sheets?.[i]?.Hidden ?? 0) !== 0;
+  return wb.SheetNames.map((nombre, indiceHoja) => {
     const ws = wb.Sheets[nombre];
-    if (!ws) return { nombre, filas: [] };
+    const oculta = ocultaEn(indiceHoja) ? { oculta: true } : {};
+    if (!ws) return { nombre, filas: [], ...oculta };
     const rango = ws["!ref"] ? XLSX.utils.decode_range(ws["!ref"]!) : null;
     const filasConHuecos = XLSX.utils.sheet_to_json<unknown[]>(ws, {
       header: 1,
@@ -191,22 +270,76 @@ async function leerLibroExcelAlterno(data: ArrayBuffer): Promise<GridHoja[]> {
       filas.push(fila);
       filasFisicas.push((rango?.s.r ?? 0) + i + 1);
     }
-    return { nombre, filas, filasFisicas };
+    return { nombre, filas, filasFisicas, ...oculta };
   });
 }
 
-async function leerLibroExcelTolerante(data: ArrayBuffer): Promise<GridHoja[]> {
+/**
+ * Nombres de las hojas OCULTAS de un libro OOXML, leídos de `xl/workbook.xml`: ninguno de los
+ * tres lectores (streaming, documental, SheetJS) expone el estado de forma uniforme y el
+ * streaming ni siquiera lo lee. Best-effort: un libro sin ese XML devuelve el conjunto vacío.
+ */
+async function hojasOcultasXlsx(data: ArrayBuffer): Promise<Set<string>> {
+  const ocultas = new Set<string>();
   try {
-    return await leerLibroExcel(data);
-  } catch (errorExcelJs) {
-    try {
-      return await leerLibroExcelAlterno(data);
-    } catch (errorSheetJs) {
-      throw new AggregateError(
-        [errorExcelJs, errorSheetJs],
-        "No se pudo leer el archivo de Excel. Ábrelo en Excel, guárdalo nuevamente como .xlsx e intenta otra vez.",
-      );
+    const JSZip = (await import("jszip")).default;
+    const zip = await JSZip.loadAsync(data);
+    const xml = await zip.file("xl/workbook.xml")?.async("string");
+    if (!xml) return ocultas;
+    const desescapar = (s: string) => s
+      .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"").replace(/&apos;/g, "'").replace(/&amp;/g, "&");
+    for (const m of xml.matchAll(/<sheet\b([^>]*)\/?>/g)) {
+      const atributos = m[1];
+      if (!/\bstate="(hidden|veryHidden)"/.test(atributos)) continue;
+      const nombre = /\bname="([^"]*)"/.exec(atributos)?.[1];
+      if (nombre != null) ocultas.add(desescapar(nombre));
     }
+  } catch {
+    // Sin estado de hojas: todas se tratan como visibles.
+  }
+  return ocultas;
+}
+
+function marcarOcultas(hojas: GridHoja[], ocultas: ReadonlySet<string>): GridHoja[] {
+  if (ocultas.size === 0) return hojas;
+  return hojas.map((h) => (ocultas.has(h.nombre) ? { ...h, oculta: true } : h));
+}
+
+async function leerLibroExcelTolerante(data: ArrayBuffer): Promise<GridHoja[]> {
+  const [hojas, ocultas] = await Promise.all([leerLibroExcelTolerableSinEstado(data), hojasOcultasXlsx(data)]);
+  return marcarOcultas(hojas, ocultas);
+}
+
+async function leerLibroExcelTolerableSinEstado(data: ArrayBuffer): Promise<GridHoja[]> {
+  const cabeDocumental = data.byteLength <= LIMITE_LECTOR_DOCUMENTAL_BYTES;
+  let errorExcelJs: unknown;
+  try {
+    const { hojas, sinEstilos } = await leerLibroExcel(data);
+    if (!sinEstilos || !cabeDocumental) return hojas;
+    // Hoja emitida antes que sus estilos: se relee para recuperar la negrita y las fechas. Si
+    // la relectura falla, vale la lectura streaming, que sí trae los valores.
+    try {
+      return await leerLibroExcelDocumental(data);
+    } catch {
+      return hojas;
+    }
+  } catch (error) {
+    errorExcelJs = error;
+  }
+  if (errorExcelJs instanceof LecturaExcelIncompleta && cabeDocumental) {
+    try {
+      return await leerLibroExcelDocumental(data);
+    } catch {
+      // Sigue con el lector alterno.
+    }
+  }
+  try {
+    return await leerLibroExcelAlterno(data);
+  } catch (errorSheetJs) {
+    throw new AggregateError(
+      [errorExcelJs, errorSheetJs],
+      "No se pudo leer el archivo de Excel. Ábrelo en Excel, guárdalo nuevamente como .xlsx e intenta otra vez.",
+    );
   }
 }
 
@@ -246,7 +379,11 @@ async function leerCeldaFisicaExcel(
     for await (const row of ws) {
       ultimaFilaFisica = Math.max(ultimaFilaFisica, row.number);
       if (row.number === filaBuscada) {
-        return { hojaExiste: true, filaExiste: true, valor: celdaExcel(row.getCell(columnaBuscada).value) };
+        const valor = row.getCell(columnaBuscada).value;
+        // Texto que el lector no alcanzó a resolver (ver `leerLibroExcel`): el llamador
+        // repite la consulta con SheetJS.
+        if (esTextoCompartidoSinResolver(valor)) throw new LecturaExcelIncompleta();
+        return { hojaExiste: true, filaExiste: true, valor: celdaExcel(valor) };
       }
       if (row.number > filaBuscada) {
         // El iterador saltó la fila solicitada: existe dentro del rango, pero está vacía.
@@ -401,7 +538,9 @@ async function leerLibroXls(data: ArrayBuffer): Promise<GridHoja[]> {
 
   return wb.SheetNames.map((nombre, indiceHoja) => {
     const ws = wb.Sheets[nombre];
-    if (!ws) return { nombre, filas: [] };
+    // Estado de la hoja en el BIFF: 0 visible, 1 oculta, 2 muy oculta.
+    const oculta = (wb.Workbook?.Sheets?.[indiceHoja]?.Hidden ?? 0) !== 0 ? { oculta: true } : {};
+    if (!ws) return { nombre, filas: [], ...oculta };
     const ref = ws["!ref"];
     const rango = ref ? XLSX.utils.decode_range(ref) : null;
     const filasConHuecos = XLSX.utils
@@ -430,7 +569,7 @@ async function leerLibroXls(data: ArrayBuffer): Promise<GridHoja[]> {
       if (flags.some(Boolean)) hayNegrita = true;
       negrita.push(flags);
     }
-    return hayNegrita ? { nombre, filas, negrita, filasFisicas } : { nombre, filas, filasFisicas };
+    return hayNegrita ? { nombre, filas, negrita, filasFisicas, ...oculta } : { nombre, filas, filasFisicas, ...oculta };
   });
 }
 

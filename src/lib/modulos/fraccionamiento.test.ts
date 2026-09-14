@@ -6,6 +6,7 @@ import {
   llaveItem,
   refRolDe,
   remapFilas,
+  rolesLlaveItemDe,
 } from "./fraccionamiento";
 import { descriptorModulo } from "./descriptores";
 import type { FilaDetalleModulo } from "./promocion";
@@ -22,6 +23,49 @@ describe("refRolDe", () => {
   it("devuelve null para Cartera/CxP (documento no matchea /ref/i)", () => {
     expect(refRolDe(descriptorModulo("CAR")!)).toBeNull();
     expect(refRolDe(descriptorModulo("CXP")!)).toBeNull();
+  });
+});
+
+describe("rolesLlaveItemDe", () => {
+  it("cae en la deducción histórica cuando el descriptor no declara nada", () => {
+    expect(rolesLlaveItemDe(descriptorModulo("INV")!)).toEqual(["referencia"]);
+    expect(rolesLlaveItemDe(descriptorModulo("AFI")!)).toEqual([]);
+  });
+
+  it("Cartera identifica el ítem por (NIT, documento)", () => {
+    // Sin esto la llave quedaba solo en el clasificador y todas las facturas de un mismo
+    // tercero se leían como el mismo ítem.
+    expect(rolesLlaveItemDe(descriptorModulo("CAR")!)).toEqual(["nit", "documento"]);
+  });
+
+  it("ignora un rol declarado que ya no existe en las columnas", () => {
+    const inventado = { ...descriptorModulo("CAR")!, rolesLlaveItem: ["nit", "fantasma"] };
+    expect(rolesLlaveItemDe(inventado)).toEqual(["nit"]);
+  });
+});
+
+describe("llaveItem con varias referencias", () => {
+  it("distingue dos facturas del mismo tercero", () => {
+    expect(llaveItem("130505", ["900123456", "FV-001"]))
+      .not.toBe(llaveItem("130505", ["900123456", "FV-002"]));
+  });
+
+  it("distingue la misma factura de dos terceros", () => {
+    expect(llaveItem("130505", ["900123456", "FV-001"]))
+      .not.toBe(llaveItem("130505", ["800987654", "FV-001"]));
+  });
+
+  it("no colisiona al repartir el texto entre las dos referencias", () => {
+    expect(llaveItem("C", ["AB", "C"])).not.toBe(llaveItem("C", ["A", "BC"]));
+  });
+
+  it("una sola referencia se comporta igual que antes", () => {
+    expect(llaveItem("MERCANCIA", ["REF-001"])).toBe(llaveItem("MERCANCIA", "REF-001"));
+    expect(llaveItem("MERCANCIA", [])).toBe(llaveItem("MERCANCIA", null));
+  });
+
+  it("las referencias vacías al final no cambian la llave", () => {
+    expect(llaveItem("130505", ["900123456", ""])).toBe(llaveItem("130505", "900123456"));
   });
 });
 

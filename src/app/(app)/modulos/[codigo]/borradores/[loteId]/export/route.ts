@@ -2,10 +2,11 @@ import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { authorizePermiso } from "@/lib/rbac";
 import { descriptorModulo } from "@/lib/modulos/descriptores";
-import { consolidarPorClasificador, filaEnCero } from "@/lib/modulos/promocion";
+import { consolidarPorClasificador, esImputable } from "@/lib/modulos/promocion";
 import { controlSubtotales } from "@/lib/modulos/subtotales";
 import { versionarYOrdenarBorradoresModulo } from "@/lib/modulos/versiones";
-import { crearExportacionModulo } from "@/lib/export/modulo";
+import { crearExportacionModulo, type ColumnaExportModulo } from "@/lib/export/modulo";
+import { columnasDetalleModulo } from "@/lib/modulos/cartera/columnas-cartera";
 import { mensajeErrorBD } from "@/lib/errores";
 import { fechaCalendarioISO, fechaColombiaISO } from "@/lib/fecha-hora";
 
@@ -56,8 +57,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ codigo:
     // no omitidos y con algún valor consolidan.
     const detalle = filas.map((f) => {
       const datos = (f.datos ?? {}) as Record<string, string | number | null>;
-      const enCero = filaEnCero(datos, columnasNumericas);
-      const imputable = f.tipoFila === "movimiento" && f.omitida !== true && !enCero;
+      const imputable = esImputable({ tipoFila: f.tipoFila, omitida: f.omitida ?? null, valor: Number(f.valor), datos } as Parameters<typeof esImputable>[0], columnasNumericas);
+      const enCero = !imputable && f.tipoFila === "movimiento" && f.omitida !== true;
       const base = f.tipoFila === "agrupadora"
         // El cuadro de cierre al pie (cifras de referencia del cliente) también llega como
         // agrupadora: se nombra aparte para que en el Excel se vea POR QUÉ no suma.
@@ -66,12 +67,12 @@ export async function GET(_req: Request, { params }: { params: Promise<{ codigo:
           ? `Total del archivo · control${f.motivoTipoFila ? ` (${f.motivoTipoFila})` : ""}`
           : "Movimiento";
       const estado = f.omitida === true ? `${base} · OMITIDA` : !imputable && enCero ? `${base} · en cero` : base;
-      return { filaNum: f.filaNum, clasificador: f.clasificador, valor: imputable ? Number(f.valor) : 0, datos, estado, imputable };
+      return { filaNum: f.filaNum, clasificador: f.clasificador, valor: imputable ? Number(f.valor) : 0, saldo: Number(f.valor), datos, estado, imputable };
     });
     // Control de subtotales con la misma regla de imputabilidad (fila `total` vs. Σ de su bloque).
     const ctl = controlSubtotales(
       filas.map((f) => ({ filaNum: f.filaNum, clasificador: f.clasificador, valor: Number(f.valor), datos: (f.datos ?? {}) as Record<string, unknown>, tipoFila: f.tipoFila, omitida: f.omitida, motivo: f.motivoTipoFila })),
-      (f) => f.tipoFila === "movimiento" && f.omitida !== true && !filaEnCero(f.datos, columnasNumericas),
+      (f) => esImputable({ tipoFila: f.tipoFila, omitida: f.omitida ?? null, valor: f.valor, datos: f.datos } as Parameters<typeof esImputable>[0], columnasNumericas),
     );
     const control = [
       ...ctl.grupos.map((g) => ({ clasificador: g.clasificador, filaSubtotal: g.filaSubtotal, items: g.bloque.items, sumaMovimientos: g.sumaMovimientos, subtotalArchivo: g.subtotalArchivo, diferencia: g.diferencia, estado: g.estado })),
@@ -85,7 +86,11 @@ export async function GET(_req: Request, { params }: { params: Promise<{ codigo:
     const periodo = lote.periodoFinal ? fechaCalendarioISO(lote.periodoFinal).slice(0, 7) : lote.periodoInicial ? fechaCalendarioISO(lote.periodoInicial).slice(0, 7) : "sin-periodo";
     const generadoEn = new Date();
     const buffer = await crearExportacionModulo({
-      columnas: descriptor.columnas.map((c) => ({ nombre: c.nombre, etiqueta: c.etiqueta, tipo: c.tipo })),
+      // Las de la pantalla: con los rangos de vencimiento que detectó la lectura y el saldo efectivo.
+      columnas: columnasDetalleModulo(
+        descriptor,
+        ((lote.specJson ?? {}) as { familias?: { edades?: { etiqueta: string }[] } }).familias?.edades?.map((e) => e.etiqueta),
+      ).map((c) => ({ ...c, tipo: c.tipo as ColumnaExportModulo["tipo"] })),
       clasificadorEtiqueta: descriptor.columnas.find((c) => c.nombre === descriptor.clasificador)?.etiqueta ?? "Clasificador",
       detalle,
       consolidado,

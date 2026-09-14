@@ -10,10 +10,11 @@ import {
 } from "./catalogo";
 
 describe("catálogo de fábrica del prevalidador", () => {
-  it("trae las 11 filas que definió Russell, sin duplicados", () => {
-    expect(PREVALIDADOR_CATALOGO_FABRICA).toHaveLength(11);
+  it("trae las 11 filas que definió Russell más la 7305 de Nómina, sin duplicados", () => {
+    expect(PREVALIDADOR_CATALOGO_FABRICA).toHaveLength(12);
     const claves = PREVALIDADOR_CATALOGO_FABRICA.map((f) => `${f.moduloCodigo}|${f.cuentaRussell}`);
-    expect(new Set(claves).size).toBe(11);
+    expect(new Set(claves).size).toBe(12);
+    expect(claves).toContain("NOM|7305");
   });
 
   it("solo usa módulos conocidos y cubre los seis del ERP", () => {
@@ -61,7 +62,7 @@ describe("catálogo de fábrica del prevalidador", () => {
 
   it("el fixture de fábrica usa id 0 y resuelve el nombre del módulo", () => {
     const fabrica = catalogoPrevalidadorDeFabrica();
-    expect(fabrica).toHaveLength(11);
+    expect(fabrica).toHaveLength(12);
     expect(fabrica.every((f) => f.id === 0 && f.activa)).toBe(true);
     expect(fabrica.find((f) => f.cuentaRussell === "15")?.moduloNombre).toBe("Activos fijos");
   });

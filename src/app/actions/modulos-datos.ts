@@ -20,13 +20,14 @@ import {
   bloqueoAnexoPorVerificacionesCriticasModulo,
   bloqueoVerificacionesCriticasModulo,
   descriptorModulo,
+  nivelCruceModulo,
 } from "@/lib/modulos/descriptores";
 import {
   parseAlcanceEliminacionModulo,
   resolverAlcanceEliminacionModulo,
   type AlcanceEliminacionModulo,
 } from "@/lib/modulos/alcance-eliminacion";
-import { cuenta4DelModulo, prefijosCuentaModulo } from "@/lib/modulos/cuentas-modulo";
+import { cuentaDelModulo, prefijosCuentaModulo, type NivelCruce } from "@/lib/modulos/cuentas-modulo";
 import { SpecModuloSchema, type SpecModulo } from "@/lib/modulos/extraccion/esquema";
 import {
   encabezadoValorIngresoAmbiguo,
@@ -36,13 +37,30 @@ import {
 import { seleccionarPerfilExacto, type PerfilCandidato } from "@/lib/modulos/sugerencias-perfil";
 import { letraColumnaModulo, normalizarSpecModulo, normalizarSpecModuloArchivo } from "@/lib/modulos/perfil-modulo";
 import { transformarModulo, resultadoAReconciliacion } from "@/lib/modulos/extraccion/transformar";
+import { resumirPeriodos, type ResumenPeriodo } from "@/lib/modulos/nomina/periodo";
+import { claveConsolidado, partirClaveConsolidado } from "@/lib/modulos/nomina/clave-consolidado";
+import { CLASES_NOMINA } from "@/lib/modulos/nomina/homologacion";
+import { validarReparto } from "@/lib/modulos/nomina/cruce-nomina";
 import { esImputable, promoverStaging, type FilaStagingModulo } from "@/lib/modulos/promocion";
+import { CLAVE_MONEDA, datosConExtrasCartera, filaCarteraDesdeDetalle, rotulosDeEdades } from "@/lib/modulos/cartera/detalle-cartera";
+import { esMonedaExtranjera, validarTrm } from "@/lib/modulos/cartera/moneda";
+import { fechaISO as fechaDeCelda, finDePeriodo } from "@/lib/modulos/cartera/fecha-corte";
+import { resolverOrigenCartera } from "@/lib/modulos/cartera/origen-cartera";
+import { fechaCalendarioISO, fechaCalendarioPrisma } from "@/lib/fecha-hora";
+import { getTRM } from "@/lib/ia/trm";
+import { materializarSaldosTercero, type NivelCartera } from "@/lib/modulos/cartera/saldos-tercero";
+import { normalizarTerceroCartera } from "@/lib/modulos/cartera/tercero-cartera";
+import { avisoHojasGemelas, hojasConMismoEncabezado } from "@/lib/modulos/hojas-gemelas";
+import { avisoSeleccionHoja, seleccionarHojaModulo } from "@/lib/modulos/extraccion/seleccion-hoja";
 import { controlSubtotales } from "@/lib/modulos/subtotales";
 import {
   anclaCruce,
+  anclaCruceTercero,
   diferenciaAjustada,
-  normalizarCuenta4 as cuenta4Marcable,
+  MAX_NOTA_MARCA,
+  normalizarClaveTercero,
   siguienteNumeroMarca,
+  type DimensionMarca,
   validarNoModulares,
   validarNotaMarca,
   validarReferenciaAnexo,
@@ -55,7 +73,7 @@ import {
   type TipoSoporteMarca,
 } from "@/lib/modulos/marcas-adjuntos";
 import { almacenamientoDisponible, eliminarObjeto, obtenerObjeto, subirObjeto } from "@/lib/storage/objetos";
-import { refRolDe, clavesDeDetalle, decidirCarga, remapFilas } from "@/lib/modulos/fraccionamiento";
+import { rolesLlaveItemDe, clavesDeDetalle, decidirCarga, remapFilas } from "@/lib/modulos/fraccionamiento";
 import {
   carpetaArchivoOriginalModulo,
   claveArchivoOriginalModulo,
@@ -69,8 +87,12 @@ import {
   tipoContenidoArchivo,
 } from "@/lib/modulos/archivo-original";
 import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
-import { tomarCandadoTransaccion, transaccionSerializable } from "@/lib/concurrency";
+import { tomarCandadoTransaccion, transaccionSerializable, type TransactionClient } from "@/lib/concurrency";
 import { cargarInsumosCruceModulo, construirCruceContableModulo } from "@/lib/modulos/cruce-contable-servidor";
+import { cargarContextoPrevalidadorBalance } from "@/lib/balance/prevalidador/servidor";
+import { cruceTerceroDeCargue } from "@/lib/modulos/cruce-tercero-servidor";
+import { validarEmparejamientoTercero } from "@/lib/modulos/cartera/cruce-tercero-cartera";
+import { evidenciaCruceTercero } from "@/lib/conciliacion/evidencia-cruce-tercero";
 import {
   cuentasBloqueoDelModulo,
   cuentasRussellDelCruce,
@@ -93,6 +115,93 @@ function revalidarListadosModulo(codigo: string) {
 // idempotencia por `ModuloDatoEncabezado.loteId` que sí tiene el modo "version").
 const marcaAnexoModulo = (loteId: string) => `[lote:${loteId}]`;
 const LOTE_STAGING_MODULO = 2_000;
+
+/**
+ * Un cargue de cartera solo se promueve si TODO su saldo quedó atribuido a algún tercero.
+ *
+ * La conciliación de este módulo es por NIT: un cargue cuyo total cuadra pero cuyo detalle
+ * no se puede repartir entre terceros produciría una pantalla de terceros incompleta y un
+ * cruce que parece tener diferencias donde solo hay lectura a medias. Es preferible
+ * rechazarlo con el monto a la vista —el usuario corrige el mapeo y vuelve a cargar— que
+ * dejar pasar un dato que nadie va a poder explicar.
+ */
+function exigirCarteraAtribuida(sinAtribuir: { filas: number; monto: number }) {
+  if (sinAtribuir.monto === 0) return;
+  const monto = sinAtribuir.monto.toLocaleString("es-CO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  throw new Error(
+    `No se pudo identificar el tercero de ${sinAtribuir.filas} fila(s) por $ ${monto}. `
+    + "La conciliación de cartera es por NIT, así que el cargue se revirtió: revisa el mapeo "
+    + "de la columna del NIT en el borrador y vuelve a cargarlo.",
+  );
+}
+
+/**
+ * Reconstruye `cartera_saldo_tercero` de un cargue ENTERO a partir de su detalle.
+ *
+ * Se rehace completo, no de forma incremental, por dos razones: es idempotente (un anexo
+ * que se reintenta no duplica nada) y deja explícito que la tabla es un DERIVADO —si
+ * alguna vez discrepa del detalle, el detalle manda y esto lo repara.
+ *
+ * Devuelve lo que no se pudo atribuir a ningún tercero. El llamador decide qué hacer con
+ * ello: nunca se descarta en silencio, que es justo el defecto que esta tabla evita.
+ */
+async function materializarCarteraEnTransaccion(
+  tx: TransactionClient,
+  encabezadoId: number,
+  loteId: string,
+  nivelImputable: NivelCartera,
+): Promise<{ filas: number; monto: number }> {
+  const detalle = await tx.moduloDatoDetalle.findMany({
+    where: { encabezadoId },
+    select: {
+      filaNum: true, valor: true, datos: true,
+      nivel: true, imputable: true, cuentaCliente: true, origenCartera: true,
+    },
+    orderBy: { filaNum: "asc" },
+  });
+
+  const { saldos, sinAtribuir } = materializarSaldosTercero(
+    detalle.map((d) => filaCarteraDesdeDetalle(
+      {
+        filaNum: d.filaNum,
+        valor: Number(d.valor),
+        datos: (d.datos ?? {}) as Record<string, unknown>,
+        nivel: d.nivel,
+        imputable: d.imputable,
+        cuentaCliente: d.cuentaCliente,
+        origenCartera: d.origenCartera,
+      },
+      nivelImputable,
+    )),
+    { loteId, nivelImputable },
+  );
+
+  await tx.saldoTerceroModulo.deleteMany({ where: { encabezadoId } });
+  for (let i = 0; i < saldos.length; i += LOTE_STAGING_MODULO) {
+    await tx.saldoTerceroModulo.createMany({
+      data: saldos.slice(i, i + LOTE_STAGING_MODULO).map((s) => ({
+        encabezadoId,
+        loteId: s.loteId,
+        nivel: s.nivel,
+        origen: s.origen,
+        cuentaCliente: s.cuentaCliente,
+        origenCartera: s.origenCartera,
+        claveTercero: s.claveTercero,
+        nitOriginal: s.nitOriginal,
+        dv: s.dv,
+        sucursal: s.sucursal,
+        nombre: s.nombre,
+        saldo: s.saldo,
+        saldoReportado: s.saldoReportado,
+        sumaEdades: s.sumaEdades,
+        edades: (s.edades ?? undefined) as Prisma.InputJsonValue | undefined,
+        documentos: s.documentos,
+        diasMax: s.diasMax,
+      })),
+    });
+  }
+  return sinAtribuir;
+}
 const TIMEOUT_TRANSACCION_MODULO_MS = 15 * 60 * 1000;
 const tamArchivo = (bytes: number): string => {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1).replace(".", ",")} MB`;
@@ -184,6 +293,19 @@ export type AnalisisModulo = {
   // el spec ya aplicado, sin nombre de cliente, archivo, huella, lista ni atribución.
   origen?: "perfil" | "sugerido" | "ia";
   advertenciaValor?: string;
+  /**
+   * El libro trae otra hoja con exactamente el mismo formato que la elegida. No se bloquea
+   * —a veces es legítimo—, pero se avisa: si es la misma cartera exportada en otro momento,
+   * los totales de cada hoja cuadran por sí solos y ningún control detectaría la equivocada.
+   * En Cartera y CxP explica además qué hojas del libro no se tomaron (balances, hojas de
+   * trabajo) y cuáles otras también parecen un auxiliar.
+   */
+  advertenciaHojas?: string;
+  /**
+   * Nómina: meses (o rangos, en un acumulado) que trae el archivo con el mapeo propuesto,
+   * con filas y valor de cada uno. Guía el rango del cargue que declara el usuario.
+   */
+  periodosDetectados?: ResumenPeriodo[];
 };
 
 async function specPerfilModulo(
@@ -273,10 +395,12 @@ async function specReutilizablePorErp(
  * balance con `ajustes_carga_balance.hojaPreferida`.
  */
 async function resolverHojaModulo(
-  hojas: { nombre: string }[],
+  hojas: { nombre: string; oculta?: boolean }[],
   hojaElegida: string,
   clienteId: number,
   moduloCodigo: string,
+  /** Hoja propuesta por contenido (`seleccionarHojaModulo`); sin ella, la primera VISIBLE del libro. */
+  propuesta: string | null = null,
 ): Promise<string | null> {
   if (hojaElegida && hojas.some((h) => h.nombre === hojaElegida)) return hojaElegida;
   if (!hojaElegida) {
@@ -287,7 +411,8 @@ async function resolverHojaModulo(
     const preferida = ajustes?.hojaPreferida?.trim();
     if (preferida && hojas.some((h) => h.nombre === preferida)) return preferida;
   }
-  return hojas[0]?.nombre ?? null;
+  // Una hoja oculta (resto de la plantilla del auditor) solo se toma si el usuario la nombra.
+  return propuesta ?? hojas.find((h) => !h.oculta)?.nombre ?? hojas[0]?.nombre ?? null;
 }
 
 export type PreferenciasCargaModulo = {
@@ -505,8 +630,26 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
       return noProcesable(mensajeErrorLecturaArchivoModulo("analizarArchivoModulo.ingerir", e));
     }
     if (ingesta.modo !== "tabular") return noProcesable("Por ahora solo se admiten archivos tabulares (Excel/CSV).");
+    // Cartera y CxP: los libros de conciliación traen el auxiliar junto al balance por terceros
+    // y a hojas de trabajo. La hoja se propone por su contenido, y un archivo que solo trae
+    // balances no se procesa como auxiliar.
+    const seleccionHoja = descriptor.crucePorTercero.detalleTercero === true || descriptor.nomina != null
+      ? seleccionarHojaModulo(descriptor, ingesta.hojas)
+      : null;
+    if (seleccionHoja?.soloBalances) {
+      return noProcesable("Este archivo es un balance (saldo inicial, débitos, créditos y saldo final), no un auxiliar del módulo: cárgalo en Balance.");
+    }
+    // Nómina (D5): de un libro se lee solo la hoja del módulo; un archivo sin ninguna (un libro
+    // auxiliar de todas las cuentas, un catálogo de conceptos, una lista de empleados) no es el
+    // módulo y no se carga como tal.
+    if (descriptor.nomina && seleccionHoja?.sinAuxiliar) {
+      return noProcesable(
+        "Este archivo no trae una hoja de nómina (detalle por concepto con su valor, devengo o deducción). "
+        + "Si es la relación de conceptos, cárgala en Configuración › Conceptos de nómina; si es un balance, en Balance.",
+      );
+    }
     const hojaElegida = String(formData.get("hoja") ?? "").trim();
-    const nombreHoja = await resolverHojaModulo(ingesta.hojas, hojaElegida, clienteId, moduloCodigo);
+    const nombreHoja = await resolverHojaModulo(ingesta.hojas, hojaElegida, clienteId, moduloCodigo, seleccionHoja?.propuesta ?? null);
     const hoja = ingesta.hojas.find((h) => h.nombre === nombreHoja);
     if (!hoja) return noProcesable("El archivo no tiene hojas legibles.");
 
@@ -575,12 +718,42 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
       muestraCola.unshift({ filaNum: hoja.filasFisicas?.[r] ?? r + 1, celdas });
     }
 
+    // HOJAS GEMELAS: otra hoja del libro con exactamente el mismo formato. No se bloquea
+    // —a veces es legítimo—, pero se avisa: si es la misma cartera exportada en otro
+    // momento, cada hoja cuadra consigo misma y ningún control delataría la equivocada.
+    // El encabezado de cada hoja se ubica con el mismo sugeridor que la hoja elegida (en
+    // Cartera y CxP ya lo ubicó la selección de hoja).
+    const encabezadoSeleccion = new Map(seleccionHoja?.puntajes.map((p) => [p.nombre, p.filaEncabezado]) ?? []);
+    const avisoGemelas = ingesta.hojas.length > 1
+      ? avisoHojasGemelas(
+        hojasConMismoEncabezado(ingesta.hojas.map((h) => {
+          const filaEncabezado = h.nombre === hoja.nombre
+            ? spec.filaEncabezado
+            : encabezadoSeleccion.get(h.nombre) ?? sugerirSpec(descriptor, h).filaEncabezado;
+          return { nombre: h.nombre, encabezado: h.filas[filaEncabezado - 1] ?? [] };
+        })),
+        hoja.nombre,
+      )
+      : null;
+    const avisoHoja = seleccionHoja ? avisoSeleccionHoja(seleccionHoja.puntajes, hoja.nombre) : null;
+    const advertenciaHojas = [avisoHoja, avisoGemelas].filter((aviso): aviso is string => aviso != null).join(" ") || null;
+
+    // Nómina: qué meses trae el archivo (con el mapeo propuesto), para que el usuario declare
+    // el rango del cargue viendo lo que hay: un acumulado anual, una quincena o un mes.
+    const periodosDetectados = descriptor.nomina?.periodoPorFila
+      ? resumirPeriodos(transformarModulo(descriptor, spec, hoja).filas.map((f) => ({
+          periodoDesde: f.datos.periodoDesde, periodoHasta: f.datos.periodoHasta, valor: f.valor, tipoFila: f.tipoFila,
+        })))
+      : null;
+
     revalidarListadosModulo(moduloCodigo);
     return {
       ok: true,
       recepcionLoteId: loteId,
       hoja: hoja.nombre,
       hojas: ingesta.hojas.map((h) => h.nombre),
+      ...(advertenciaHojas ? { advertenciaHojas } : {}),
+      ...(periodosDetectados?.length ? { periodosDetectados } : {}),
       totalFilas: hoja.filasFisicas?.at(-1) ?? hoja.filas.length,
       ancho,
       encabezado,
@@ -1011,6 +1184,19 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
     }
     spec = valorSeguro.spec;
 
+    // Nómina: el rango de meses del cargue viaja en el spec de ESTE archivo (nunca al perfil):
+    // las filas de otros meses quedan fuera del cargue y se avisan.
+    if (descriptor.nomina?.periodoPorFila) {
+      const desde = periodoInicial?.toISOString().slice(0, 7);
+      const hasta = periodoFinal?.toISOString().slice(0, 7);
+      spec = { ...spec, ...(desde ? { periodoDesde: desde } : {}), ...(hasta ? { periodoHasta: hasta } : {}) };
+    }
+
+    // Importes en divisa: sin la TRM de cierre se leerían dólares como si fueran pesos.
+    if (descriptor.crucePorTercero.detalleTercero && esMonedaExtranjera(spec.monedaArchivo) && !(spec.trmCierre != null && spec.trmCierre > 0)) {
+      return marcarNoProcesable(`Los importes de esta hoja están en ${spec.monedaArchivo}: indica la TRM de cierre para convertirlos a pesos.`);
+    }
+
     // La coordenada manual es autoridad solo para ESTE original. Nunca se acepta una fila
     // heredada del perfil ni se confía en el texto enviado por el navegador: se vuelve a
     // resolver contra la grilla íntegra y el servidor fija el patrón real de esa celda.
@@ -1067,7 +1253,13 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
           await tx.moduloImportacionStaging.createMany({
             data: resultado.filas.slice(i, i + LOTE_STAGING_MODULO).map((f) => ({
               loteId, moduloCodigo, clienteId, hoja: hoja.nombre, filaNum: f.filaNum,
-              clasificador: f.clasificador, valor: f.valor, datos: f.datos, tipoFila: f.tipoFila,
+              clasificador: f.clasificador, valor: f.valor, tipoFila: f.tipoFila,
+              // Lo que el transform calcula aparte de los roles (baldes de vencimiento, su
+              // suma, el saldo que declaraba la columna de total, el que declara una
+              // cabecera de tercero) viaja DENTRO de `datos`: es el único campo que el
+              // motor lleva del staging al detalle. Sin esto se perdería en esta frontera.
+              // Para los módulos sin familias devuelve el mismo objeto, sin copiarlo.
+              datos: datosConExtrasCartera(f.datos, f) as Prisma.InputJsonValue,
               omitida: f.omitida ?? null,
               motivoTipoFila: f.motivo ?? null,
             })),
@@ -1197,6 +1389,15 @@ export async function aplicarCambiosBorradorModulo(
 // ============================================================
 // PROMOVER el borrador a oficial (staging → detalle) + purga.
 // ============================================================
+/**
+ * Mes inicial del rango del cargue (`periodo_desde`), solo en Nómina y solo cuando el
+ * rango declarado en el wizard arranca antes del mes final; null = un solo mes.
+ */
+function periodoDesdeDelLote(moduloCodigo: string, periodoInicial: Date | null | undefined, periodo: string): string | null {
+  if (!descriptorModulo(moduloCodigo)?.nomina || !periodoInicial) return null;
+  const desde = periodoInicial.toISOString().slice(0, 7);
+  return /^d{4}-d{2}$/.test(desde) && desde < periodo ? desde : null;
+}
 export async function cargarBorradorModulo(_prev: ActionState | undefined, formData: FormData): Promise<ActionState & { encabezadoId?: number; modo?: "agregar" | "version" }> {
   const authz = await authorizePermiso("modulos_datos:crear");
   if (!authz.ok) return { ok: false, message: authz.message };
@@ -1277,6 +1478,11 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
           archivoNombre: true,
           archivoTam: true,
           origenExtraccion: true,
+          // El spec dice qué representa una fila de ESTE archivo (por tercero o por
+          // documento) y de dónde viene la cartera; ambos se persisten en el cargue.
+          specJson: true,
+          // Nómina: el rango declarado del cargue (D7) se congela en el encabezado.
+          periodoInicial: true,
         },
       });
       if (!loteActual || loteActual.clienteId == null || loteActual.clienteId !== lote.clienteId || loteActual.moduloCodigo !== lote.moduloCodigo) {
@@ -1312,6 +1518,58 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
         throw new Error("No hay filas imputables para cargar (todas omitidas, agrupadoras o en cero).");
       }
 
+      // ===== CARTERA: nivel de la fila, identidad del tercero y saldo materializado =====
+      // Todo lo que sigue es inerte para los módulos sin detalle por tercero
+      // (crucePorTercero.detalleTercero: Cartera y, cuando exista, CxP).
+      const cartera = descriptor.crucePorTercero.detalleTercero ? (() => {
+        const specLote = (loteActual.specJson ?? {}) as Record<string, unknown>;
+        const columnasSpec = (specLote.columnas ?? {}) as Record<string, number>;
+        const nivel: NivelCartera = specLote.nivel === "tercero" || specLote.nivel === "documento"
+          ? specLote.nivel
+          // Sin declaración explícita: si el archivo mapea una columna de documento, cada
+          // fila es un documento; si no, cada fila es el resumen de un tercero.
+          : (columnasSpec.documento ?? 0) >= 1 ? "documento" : "tercero";
+        const origenDeclarado = specLote.origenCartera === "nacional" || specLote.origenCartera === "exterior"
+          ? specLote.origenCartera
+          : null;
+        // Las CABECERAS de tercero no imputan —sumarían dos veces lo mismo— pero se guardan
+        // en el detalle: su saldo declarado es la contraparte del control que certifica que
+        // el archivo se leyó bien. Conservarlas aquí, y no solo en el agregado, es lo que
+        // permite reconstruir ese agregado desde el detalle.
+        const cabeceras = filas.filter((f) => f.motivo === "subtotal_tercero:cabecera");
+        return {
+          nivel,
+          origenDeclarado,
+          cabeceras,
+          fechaCorte: fechaDeCelda(specLote.fechaCorte),
+          trmCierre: validarTrm(specLote.trmCierre),
+          monedaArchivo: typeof specLote.monedaArchivo === "string" ? specLote.monedaArchivo : null,
+        };
+      })() : null;
+      // Fecha de corte del cargue: la que declaró quien cargó o, por defecto, el fin del período.
+      const fechaCorteCargue = cartera ? cartera.fechaCorte ?? finDePeriodo(periodo) : null;
+
+      /** Columnas propias de cartera para una fila del detalle. */
+      const columnasCartera = (f: { datos: Record<string, unknown> }, imputable: boolean) => {
+        if (!cartera) return {};
+        const t = normalizarTerceroCartera({
+          nit: f.datos.nit, dv: f.datos.dv, nombre: f.datos.nombre, sucursal: f.datos.sucursal,
+        });
+        return {
+          nivel: cartera.nivel,
+          imputable,
+          nitCanonico: t.claveCanonica,
+          cuentaCliente: typeof f.datos.cuenta === "string" ? f.datos.cuenta : null,
+          // Sin la cuenta del archivo: en el cruce por tercero manda la cuenta asignada en el
+          // Consolidado (`origenPorAsignacion`); esto es el respaldo cuando la asignación no decide.
+          origenCartera: resolverOrigenCartera({
+            declarado: cartera.origenDeclarado as "nacional" | "exterior" | null,
+            moneda: typeof f.datos[CLAVE_MONEDA] === "string" ? (f.datos[CLAVE_MONEDA] as string) : cartera.monedaArchivo,
+            sugerido: t.origenSugerido,
+          }),
+        };
+      };
+
       // Serializa el consecutivo y el cambio de versión vigente para este grupo (también
       // serializa dos anexos concurrentes al mismo vigente: el segundo espera al primero).
       await tomarCandadoTransaccion(tx, `modulo-cargue:${loteActual.clienteId}:${loteActual.moduloCodigo}:${periodo}`);
@@ -1333,6 +1591,8 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
           totalDeclarado: true,
           archivosDelCargue: true,
           archivosConTotal: true,
+          trmCierre: true,
+          fechaCorte: true,
         },
       });
       // El anexo solo procede sobre el MISMO encabezado que el usuario eligió. Si entre la
@@ -1351,8 +1611,8 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
         );
         if (bloqueoAnexo) throw new Error(bloqueoAnexo);
       }
-      const refRol = refRolDe(descriptor);
-      const clavesNuevas = clavesDeDetalle(promocion.detalle, refRol);
+      const rolesLlave = rolesLlaveItemDe(descriptor);
+      const clavesNuevas = clavesDeDetalle(promocion.detalle, rolesLlave);
       let clavesExistentes = new Set<string>();
       let maxFilaExistente = 0;
       if (vigente) {
@@ -1362,7 +1622,7 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
         });
         clavesExistentes = clavesDeDetalle(
           detalleVigente.map((d) => ({ clasificador: d.clasificador, datos: (d.datos ?? {}) as Record<string, unknown> })),
-          refRol,
+          rolesLlave,
         );
         maxFilaExistente = detalleVigente.reduce((m, d) => Math.max(m, d.filaNum), 0);
       }
@@ -1375,6 +1635,11 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
       });
 
       if (decision.modo === "agregar" && vigente) {
+        // Todo el período se convierte con UNA TRM de cierre: un anexo con otra tasa dejaría pesos
+        // de dos tasas distintas en el mismo cargue.
+        if (cartera?.trmCierre != null && vigente.trmCierre != null && Math.abs(Number(vigente.trmCierre) - cartera.trmCierre) > 0.00005) {
+          throw new Error(`El cargue de ${periodo} ya usa una TRM de cierre de ${Number(vigente.trmCierre)} y este archivo trae ${cartera.trmCierre}. Usa la misma TRM para que todo el período quede en la misma tasa.`);
+        }
         const { filas: detalleRemapeado, remap } = remapFilas(promocion.detalle, maxFilaExistente);
         await tx.moduloDatoDetalle.createMany({
           data: detalleRemapeado.map((d) => ({
@@ -1383,8 +1648,25 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
             clasificador: d.clasificador,
             valor: d.valor,
             datos: d.datos as Prisma.InputJsonValue,
+            ...columnasCartera(d, true),
           })),
         });
+        if (cartera && cartera.cabeceras.length > 0) {
+          const { filas: cabecerasRemapeadas } = remapFilas(
+            cartera.cabeceras.map((f) => ({ filaNum: f.filaNum, clasificador: f.clasificador, valor: 0, datos: f.datos })),
+            maxFilaExistente + detalleRemapeado.length,
+          );
+          await tx.moduloDatoDetalle.createMany({
+            data: cabecerasRemapeadas.map((d) => ({
+              encabezadoId: vigente.id,
+              filaNum: d.filaNum,
+              clasificador: d.clasificador,
+              valor: 0,
+              datos: d.datos as Prisma.InputJsonValue,
+              ...columnasCartera(d, false),
+            })),
+          });
+        }
 
         // No toca `hoja` del encabezado (es la del archivo principal); la del anexo
         // queda en la propia línea de observaciones, junto al resto de la evidencia.
@@ -1408,6 +1690,8 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
             total: { increment: promocion.total },
             totalDeclarado: declaradoAcumulado,
             filaTotalDeclarado: null,
+            ...(cartera?.trmCierre != null && vigente.trmCierre == null ? { trmCierre: new Prisma.Decimal(cartera.trmCierre.toFixed(4)) } : {}),
+            ...(cartera && fechaCorteCargue && vigente.fechaCorte == null ? { fechaCorte: fechaCalendarioPrisma(fechaCorteCargue) } : {}),
             archivosDelCargue: (vigente.archivosDelCargue ?? 1) + 1,
             archivosConTotal,
             ultimaCarga: ahora,
@@ -1415,8 +1699,19 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
             cargadoPorId: user?.id ?? null,
             observaciones: observacionesFinal,
             verificaciones: verificaciones as Prisma.InputJsonValue,
+            ...(cartera
+              ? { rangosEdades: rotulosDeEdades([...promocion.detalle]) as Prisma.InputJsonValue }
+              : {}),
           },
         });
+
+        // El agregado por tercero se rehace con el detalle COMPLETO del cargue, no solo con
+        // lo que trajo este anexo: el saldo de un tercero puede venir repartido entre los
+        // archivos del período.
+        if (cartera) {
+          const sinAtribuir = await materializarCarteraEnTransaccion(tx, vigente.id, loteId, cartera.nivel);
+          exigirCarteraAtribuida(sinAtribuir);
+        }
 
         // Reancla SOLO los comentarios `fila:<n>` cuyo renglón se promovió (está en el
         // remap); los de otras anclas, o de filas que no llegaron al oficial, migran tal cual.
@@ -1475,6 +1770,8 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
           clienteId: loteActual.clienteId,
           nombreCliente: cliente.name,
           periodo,
+          // Nómina (D7): mes inicial del rango del cargue cuando no es el mismo mes final.
+          periodoDesde: periodoDesdeDelLote(loteActual.moduloCodigo, loteActual.periodoInicial, periodo),
           version,
           esOficial: true,
           filas: promocion.filas,
@@ -1489,20 +1786,46 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
           origenExtraccion: loteActual.origenExtraccion,
           observaciones,
           verificaciones: verificaciones as Prisma.InputJsonValue,
+          ...(cartera
+            ? {
+              nivelSaldo: cartera.nivel,
+              fechaCorte: fechaCorteCargue ? fechaCalendarioPrisma(fechaCorteCargue) : null,
+              ...(cartera.trmCierre != null ? { trmCierre: new Prisma.Decimal(cartera.trmCierre.toFixed(4)) } : {}),
+              // Los rótulos de los baldes se congelan aquí para que la pantalla sepa qué
+              // columnas pintar sin abrir el JSON de cada una de las filas.
+              rangosEdades: rotulosDeEdades(promocion.detalle) as Prisma.InputJsonValue,
+            }
+            : {}),
           cargadoPor: user?.name ?? null,
           cargadoPorId: user?.id ?? null,
           ultimaCarga: ahora,
           detalles: {
-            create: promocion.detalle.map((d) => ({
-              filaNum: d.filaNum,
-              clasificador: d.clasificador,
-              valor: d.valor,
-              datos: d.datos as Prisma.InputJsonValue,
-            })),
+            create: [
+              ...promocion.detalle.map((d) => ({
+                filaNum: d.filaNum,
+                clasificador: d.clasificador,
+                valor: d.valor,
+                datos: d.datos as Prisma.InputJsonValue,
+                ...columnasCartera(d, true),
+              })),
+              // Cabeceras de tercero: no imputan, pero sostienen el control.
+              ...(cartera?.cabeceras ?? []).map((f) => ({
+                filaNum: f.filaNum,
+                clasificador: f.clasificador,
+                valor: 0,
+                datos: f.datos as Prisma.InputJsonValue,
+                ...columnasCartera(f, false),
+              })),
+            ],
           },
         },
         select: { id: true },
       });
+
+      if (cartera) {
+        const sinAtribuir = await materializarCarteraEnTransaccion(tx, enc.id, loteId, cartera.nivel);
+        exigirCarteraAtribuida(sinAtribuir);
+      }
 
       await tx.comment.updateMany({
         where: { entityType: "modulos_borrador", entityId: loteActual.id },
@@ -1643,27 +1966,42 @@ export async function actualizarDocumentacionArchivoModulo(input: {
 }
 
 // ============================================================
-// CONSOLIDACIÓN por cliente: clasificador → cuenta de 4 díg (upsert / borrar).
+// CONSOLIDACIÓN por cliente: clasificador → cuenta Russell (upsert / borrar).
+// La cuenta es el subgrupo de 4 díg., o la cuenta completa de 6 en los módulos que
+// cruzan a ese nivel (Nómina, `nivelCruce: 6`): ahí `cuenta_4` conserva el prefijo y
+// `cuenta_6` la cuenta entera.
 // ============================================================
-function normalizarCuenta4(v: string): string {
-  return String(v ?? "").replace(/\D/g, "").slice(0, 4);
+/** Cuenta de una marca de la cédula: la clave del renglón, de 4 o de 6 dígitos según el módulo. */
+function cuentaMarcable(v: string): string {
+  const digitos = String(v ?? "").replace(/\D/g, "");
+  return digitos.length === 4 || digitos.length === 6 ? digitos : "";
 }
 
-
-// Normaliza + deduplica un conjunto de cuentas de 4 díg de un clasificador.
-function normalizarCuentas4(cuentas: string[]): string[] {
-  return [...new Set((cuentas ?? []).map(normalizarCuenta4).filter((c) => c.length === 4))];
+// Normaliza + deduplica un conjunto de cuentas de un clasificador, al nivel del módulo.
+// NUNCA trunca: una cuenta de 6 en un módulo a 4 (o de 4 en uno a 6) se descarta y la
+// validación la delata, en vez de convertirla en silencio en otra cuenta.
+function normalizarCuentasCruce(cuentas: string[], nivel: NivelCruce): string[] {
+  return [...new Set((cuentas ?? []).map((c) => String(c ?? "").replace(/\D/g, "")).filter((c) => c.length === nivel))];
 }
 
-// Valida que TODAS las cuentas del conjunto sean de 4 díg y del módulo (una vez).
-async function validarCuentas4Modulo(moduloCodigo: string, cuentas: string[]): Promise<ActionState | null> {
-  const invalidaLargo = cuentas.find((c) => c.length !== 4);
-  if (invalidaLargo) return { ok: false, message: "Cada cuenta debe ser de 4 dígitos." };
+// Valida que TODAS las cuentas del conjunto sean del nivel y del módulo (una vez). A 6
+// dígitos exige además que la cuenta exista en el plan estándar y, si el descriptor acota
+// la lista (Nómina), que esté en ella.
+async function validarCuentasModulo(moduloCodigo: string, cuentas: string[], nivel: NivelCruce, entradas: number): Promise<ActionState | null> {
+  if (cuentas.length !== entradas) return { ok: false, message: `Cada cuenta debe ser Russell de ${nivel} dígitos.` };
+  const descriptor = descriptorModulo(moduloCodigo);
+  const cuentasRussell6 = descriptor?.crucePorTercero.cuentasRussell6 ?? null;
   const prefijos = prefijosCuentaModulo(moduloCodigo, await getCatalogoPrevalidador());
-  const fuera = cuentas.find((c) => !cuenta4DelModulo(c, prefijos));
+  const fuera = cuentas.find((c) => !cuentaDelModulo(c, nivel, prefijos, cuentasRussell6));
   if (fuera) {
-    const listado = prefijos.length ? prefijos.join(", ") : "—";
-    return { ok: false, message: `La cuenta ${fuera} no pertenece al módulo ${moduloCodigo}. Usa una cuenta de estos prefijos: ${listado}.` };
+    const listado = nivel === 6 && cuentasRussell6?.length ? cuentasRussell6.join(", ") : prefijos.length ? prefijos.join(", ") : "—";
+    return { ok: false, message: `La cuenta ${fuera} no pertenece al módulo ${moduloCodigo}. Usa una cuenta de ${nivel === 6 && cuentasRussell6?.length ? "estas" : "estos prefijos"}: ${listado}.` };
+  }
+  if (nivel === 6) {
+    const existentes = await prisma.standardAccount.findMany({ where: { code: { in: cuentas } }, select: { code: true } });
+    const conocidas = new Set(existentes.map((e) => e.code));
+    const inexistente = cuentas.find((c) => !conocidas.has(c));
+    if (inexistente) return { ok: false, message: `La cuenta ${inexistente} no existe en el plan estándar Russell.` };
   }
   return null;
 }
@@ -1673,23 +2011,56 @@ async function validarCuentas4Modulo(moduloCodigo: string, cuentas: string[]): P
 // `descripcion` es el nombre legible del clasificador (Nómina: el concepto detrás del
 // código, cargado en /config/conceptos-nomina): se RE-ESCRIBE al recrear las filas para
 // que editar las cuentas a mano no borre el nombre.
-function reemplazarCuentasTx(tx: Prisma.TransactionClient, clienteId: number, moduloCodigo: string, clasificador: string, cuentas: string[], actor: string | null, descripcion: string | null = null) {
+// En Nómina la fila lleva además el AGRUPADOR (centro de costo / clase del archivo, '' = a
+// todos) y conserva lo que la carga masiva supo del concepto (grupo RF-NOM-02, subcuenta PUC,
+// cuenta del cliente): editar la cuenta Russell a mano no borra esa memoria.
+type MemoriaConcepto = { descripcion: string | null; grupo: string | null; subcuentaPuc: string | null; cuentaCliente: string };
+function reemplazarCuentasTx(tx: Prisma.TransactionClient, clienteId: number, moduloCodigo: string, clasificador: string, cuentas: string[], actor: string | null, memoria: Partial<MemoriaConcepto> | null = null, agrupador = "") {
+  const descripcion = memoria?.descripcion ?? null;
   return [
-    tx.consolidacionModuloCliente.deleteMany({ where: { clienteId, moduloCodigo, clasificador } }),
+    tx.consolidacionModuloCliente.deleteMany({ where: { clienteId, moduloCodigo, clasificador, agrupador } }),
     ...(cuentas.length
-      ? [tx.consolidacionModuloCliente.createMany({ data: cuentas.map((cuenta4) => ({ clienteId, moduloCodigo, clasificador, descripcion, cuenta4, actualizadoPor: actor })) })]
+      ? [tx.consolidacionModuloCliente.createMany({
+          data: cuentas.map((cuenta) => ({
+            clienteId, moduloCodigo, clasificador, agrupador, descripcion, actualizadoPor: actor,
+            cuenta4: cuenta.slice(0, 4),
+            cuenta6: cuenta.length === 6 ? cuenta : "",
+            grupo: memoria?.grupo ?? null,
+            subcuentaPuc: memoria?.subcuentaPuc ?? null,
+            cuentaCliente: memoria?.cuentaCliente ?? "",
+            origen: "manual",
+          })),
+        })]
       : []),
   ];
 }
 
-// Nombre legible ya guardado de cada clasificador, para no perderlo al reemplazar sus cuentas.
-async function descripcionesGuardadas(clienteId: number, moduloCodigo: string, clasificadores: string[]): Promise<Map<string, string>> {
+// Lo ya guardado de cada clasificador (nombre, grupo, subcuenta, cuenta del cliente), para no
+// perderlo al reemplazar sus cuentas. Llave: la clave del consolidado («1» o «1 ∥ GYA»); las
+// filas con agrupador heredan el nombre y el grupo de la memoria base del concepto.
+async function memoriaGuardada(clienteId: number, moduloCodigo: string, claves: string[]): Promise<Map<string, MemoriaConcepto>> {
+  const clasificadores = [...new Set(claves.map((k) => partirClaveConsolidado(k).clasificador))];
   const filas = await prisma.consolidacionModuloCliente.findMany({
     where: { clienteId, moduloCodigo, clasificador: { in: clasificadores } },
-    select: { clasificador: true, descripcion: true },
+    select: { clasificador: true, agrupador: true, descripcion: true, grupo: true, subcuentaPuc: true, cuentaCliente: true },
   });
-  const mapa = new Map<string, string>();
-  for (const f of filas) if (f.descripcion && !mapa.has(f.clasificador)) mapa.set(f.clasificador, f.descripcion);
+  const mapa = new Map<string, MemoriaConcepto>();
+  const fundir = (clave: string, f: typeof filas[number]) => {
+    const previa = mapa.get(clave) ?? { descripcion: null, grupo: null, subcuentaPuc: null, cuentaCliente: "" };
+    mapa.set(clave, {
+      descripcion: previa.descripcion ?? f.descripcion,
+      grupo: previa.grupo ?? f.grupo,
+      subcuentaPuc: previa.subcuentaPuc ?? f.subcuentaPuc,
+      cuentaCliente: previa.cuentaCliente || f.cuentaCliente,
+    });
+  };
+  // Primero la fila exacta, luego la base del concepto (sin agrupador) como respaldo.
+  for (const f of filas) fundir(claveConsolidado(f.clasificador, f.agrupador), f);
+  for (const clave of claves) {
+    const { clasificador, agrupador } = partirClaveConsolidado(clave);
+    if (!agrupador) continue;
+    for (const f of filas) if (f.clasificador === clasificador && !f.agrupador) fundir(clave, { ...f, cuentaCliente: "" });
+  }
   return mapa;
 }
 
@@ -1713,19 +2084,24 @@ async function auditarConsolidacion(clienteId: number, moduloCodigo: string, fil
 /** Guarda el conjunto de cuentas (1..N) de UN clasificador (reemplaza lo anterior). */
 export async function guardarConsolidacionModulo(input: { clienteId: number; moduloCodigo: string; clasificador: string; cuentas4: string[] }): Promise<ActionState> {
   const moduloCodigo = String(input.moduloCodigo ?? "").trim().toUpperCase();
-  if (!descriptorModulo(moduloCodigo)) return { ok: false, message: "Módulo no soportado." };
+  const descriptor = descriptorModulo(moduloCodigo);
+  if (!descriptor) return { ok: false, message: "Módulo no soportado." };
   const authz = await authorizePermiso("modulos_datos:editar", { clientId: input.clienteId });
   if (!authz.ok) return { ok: false, message: authz.message };
-  const clasificador = String(input.clasificador ?? "").trim();
+  const clave = String(input.clasificador ?? "").trim();
+  // En Nómina la clave del renglón puede traer el agrupador («1 ∥ GYA»); en los demás módulos
+  // el agrupador queda vacío y el clasificador es la clave entera.
+  const { clasificador, agrupador } = descriptor.nomina ? partirClaveConsolidado(clave) : { clasificador: clave, agrupador: "" };
   if (!clasificador) return { ok: false, message: "Indica el clasificador." };
-  const cuentas4 = normalizarCuentas4(input.cuentas4);
-  const invalida = await validarCuentas4Modulo(moduloCodigo, cuentas4);
+  const nivel = nivelCruceModulo(descriptor);
+  const cuentas4 = normalizarCuentasCruce(input.cuentas4, nivel);
+  const invalida = await validarCuentasModulo(moduloCodigo, cuentas4, nivel, new Set((input.cuentas4 ?? []).map((c) => String(c ?? "").replace(/\D/g, ""))).size);
   if (invalida) return invalida;
   try {
     const user = await getCurrentUser();
-    const descripciones = await descripcionesGuardadas(input.clienteId, moduloCodigo, [clasificador]);
+    const memoria = await memoriaGuardada(input.clienteId, moduloCodigo, [clave]);
     await prisma.$transaction(
-      reemplazarCuentasTx(prisma, input.clienteId, moduloCodigo, clasificador, cuentas4, user?.name ?? null, descripciones.get(clasificador) ?? null),
+      reemplazarCuentasTx(prisma, input.clienteId, moduloCodigo, clasificador, cuentas4, user?.name ?? null, memoria.get(clave) ?? null, agrupador),
     );
     await auditarConsolidacion(input.clienteId, moduloCodigo, [{ cuentas4 }]);
     revalidatePath(rutaModulo(moduloCodigo));
@@ -1742,32 +2118,184 @@ export async function guardarConsolidacionModuloLote(input: {
   filas: { clasificador: string; cuentas4: string[] }[];
 }): Promise<ActionState> {
   const moduloCodigo = String(input.moduloCodigo ?? "").trim().toUpperCase();
-  if (!descriptorModulo(moduloCodigo)) return { ok: false, message: "Módulo no soportado." };
+  const descriptor = descriptorModulo(moduloCodigo);
+  if (!descriptor) return { ok: false, message: "Módulo no soportado." };
   const authz = await authorizePermiso("modulos_datos:editar", { clientId: input.clienteId });
   if (!authz.ok) return { ok: false, message: authz.message };
 
+  const nivel = nivelCruceModulo(descriptor);
   const filas = (input.filas ?? [])
-    .map((f) => ({ clasificador: String(f.clasificador ?? "").trim(), cuentas4: normalizarCuentas4(f.cuentas4) }))
+    .map((f) => ({ clasificador: String(f.clasificador ?? "").trim(), cuentas4: normalizarCuentasCruce(f.cuentas4, nivel) }))
     .filter((f) => f.clasificador);
+  const partir = (clave: string) => (descriptor.nomina ? partirClaveConsolidado(clave) : { clasificador: clave, agrupador: "" });
   if (filas.length === 0) return { ok: false, message: "No hay cambios para guardar." };
 
-  const invalida = await validarCuentas4Modulo(moduloCodigo, filas.flatMap((f) => f.cuentas4));
+  const entradas = new Set((input.filas ?? []).flatMap((f) => (f.cuentas4 ?? []).map((c) => String(c ?? "").replace(/\D/g, "")))).size;
+  const invalida = await validarCuentasModulo(moduloCodigo, [...new Set(filas.flatMap((f) => f.cuentas4))], nivel, entradas);
   if (invalida) return invalida;
 
   try {
     const user = await getCurrentUser();
     const actor = user?.name ?? null;
-    const descripciones = await descripcionesGuardadas(input.clienteId, moduloCodigo, filas.map((f) => f.clasificador));
+    const memoria = await memoriaGuardada(input.clienteId, moduloCodigo, filas.map((f) => f.clasificador));
     await prisma.$transaction(
-      filas.flatMap((f) =>
-        reemplazarCuentasTx(prisma, input.clienteId, moduloCodigo, f.clasificador, f.cuentas4, actor, descripciones.get(f.clasificador) ?? null),
-      ),
+      filas.flatMap((f) => {
+        const { clasificador, agrupador } = partir(f.clasificador);
+        return reemplazarCuentasTx(prisma, input.clienteId, moduloCodigo, clasificador, f.cuentas4, actor, memoria.get(f.clasificador) ?? null, agrupador);
+      }),
     );
     await auditarConsolidacion(input.clienteId, moduloCodigo, filas);
     revalidatePath(rutaModulo(moduloCodigo));
     return { ok: true, message: filas.length === 1 ? "Consolidación guardada." : `${filas.length} consolidaciones guardadas.` };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("guardarConsolidacionModuloLote", e) };
+  }
+}
+
+// ============================================================
+// CLASE contable por AGRUPADOR (Nómina): «GYA → 51», «MOD → 72». Memoria del cliente que
+// decide, con el concepto homologado, la cuenta Russell por centro de costo (RF-NOM-12).
+// ============================================================
+const ClaseAgrupadorSchema = z.object({
+  clienteId: z.number().int().positive(),
+  moduloCodigo: z.string().trim().toUpperCase(),
+  agrupador: z.string().trim().min(1, "Indica el agrupador.").max(120),
+  clase: z.enum(CLASES_NOMINA).nullable(),
+});
+
+/** Guarda (o quita, con `clase: null`) la clase contable de un agrupador del archivo. */
+export async function guardarClaseAgrupador(input: { clienteId: number; moduloCodigo: string; agrupador: string; clase: string | null }): Promise<ActionState> {
+  const parsed = ClaseAgrupadorSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, message: parsed.error.issues[0]?.message ?? "Datos inválidos." };
+  const { clienteId, moduloCodigo, agrupador, clase } = parsed.data;
+  const descriptor = descriptorModulo(moduloCodigo);
+  if (!descriptor?.nomina) return { ok: false, message: "Las clases por agrupador solo aplican a Nómina." };
+  const authz = await authorizePermiso("modulos_datos:editar", { clientId: clienteId });
+  if (!authz.ok) return { ok: false, message: authz.message };
+  try {
+    const user = await getCurrentUser();
+    const actor = user?.name ?? null;
+    if (clase == null) {
+      await prisma.claseAgrupadorModulo.deleteMany({ where: { clienteId, moduloCodigo, agrupador } });
+    } else {
+      await prisma.claseAgrupadorModulo.upsert({
+        where: { clienteId_moduloCodigo_agrupador: { clienteId, moduloCodigo, agrupador } },
+        create: { clienteId, moduloCodigo, agrupador, clase, actualizadoPor: actor },
+        update: { clase, actualizadoPor: actor },
+      });
+    }
+    const cliente = await prisma.client.findUnique({ where: { id: clienteId }, select: { name: true } });
+    await logAudit({
+      user: actor ?? "Sistema",
+      action: clase == null ? "QUITÓ clase de agrupador" : "FIJÓ clase de agrupador",
+      entity: cliente?.name ?? `Cliente ${clienteId}`,
+      detail: `${moduloCodigo} · «${agrupador}»${clase ? ` → ${clase}` : ""}`,
+      clientId: clienteId,
+    });
+    revalidatePath(rutaModulo(moduloCodigo));
+    return { ok: true, message: clase == null ? "Clase retirada." : `«${agrupador}» → clase ${clase}.` };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("guardarClaseAgrupador", e) };
+  }
+}
+
+// ============================================================
+// REPARTO del cruce (Nómina, RF-NOM-12 / D4): la porción de un concepto homologado a varias
+// cuentas Russell que va a cada una. Vive por (cliente, módulo, período, clave del
+// consolidado); la sugerencia proporcional al balance la calcula el cruce y el auditor la
+// confirma o la corrige aquí. La Σ del reparto debe cerrar con el total del concepto.
+// ============================================================
+const RepartoSchema = z.object({
+  encabezadoId: z.number().int().positive(),
+  clasificador: z.string().trim().min(1, "Indica el concepto."),
+  valores: z.record(z.string().regex(/^\d{6}$/, "Cuenta Russell de 6 dígitos."), z.number().finite()),
+});
+
+/** Guarda (o quita, con `valores` vacío) el reparto de UN concepto del cruce de Nómina. */
+export async function guardarRepartoCruce(input: { encabezadoId: number; clasificador: string; valores: Record<string, number> }): Promise<ActionState> {
+  const parsed = RepartoSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, message: parsed.error.issues[0]?.message ?? "Datos inválidos." };
+  const { encabezadoId, clasificador, valores } = parsed.data;
+  const encabezado = await prisma.moduloDatoEncabezado.findUnique({ where: { id: encabezadoId }, select: { clienteId: true, moduloCodigo: true, periodo: true, nombreCliente: true } });
+  if (!encabezado) return { ok: false, message: "El dato no existe." };
+  const descriptor = descriptorModulo(encabezado.moduloCodigo);
+  if (!descriptor?.nomina) return { ok: false, message: "El reparto del cruce solo aplica a Nómina." };
+  const authz = await authorizePermiso("modulos_datos:editar", { clientId: encabezado.clienteId });
+  if (!authz.ok) return { ok: false, message: authz.message };
+  try {
+    const insumos = await cargarInsumosCruceModulo(encabezadoId);
+    const cruce = insumos ? await construirCruceContableModulo(insumos) : null;
+    const renglon = cruce?.nomina?.renglones.find((r) => r.clasificador === clasificador);
+    if (!renglon) return { ok: false, message: `El concepto «${clasificador}» no está en el consolidado de este cargue.` };
+    const limpios = Object.fromEntries(Object.entries(valores).filter(([, v]) => v !== 0));
+    if (Object.keys(limpios).length > 0) {
+      const invalido = validarReparto(renglon.total, limpios);
+      if (invalido) return { ok: false, message: invalido };
+      const cuentasRussell6 = descriptor.crucePorTercero.cuentasRussell6 ?? [];
+      const fuera = Object.keys(limpios).find((c) => !cuentasRussell6.includes(c));
+      if (fuera) return { ok: false, message: `La cuenta ${fuera} no pertenece al módulo de Nómina.` };
+    }
+    const user = await getCurrentUser();
+    const actor = user?.name ?? null;
+    const where = { clienteId: encabezado.clienteId, moduloCodigo: encabezado.moduloCodigo, periodo: encabezado.periodo, clasificador };
+    await prisma.$transaction([
+      prisma.repartoCruceModulo.deleteMany({ where }),
+      ...(Object.keys(limpios).length > 0
+        ? [prisma.repartoCruceModulo.createMany({ data: Object.entries(limpios).map(([cuentaRussell, valor]) => ({ ...where, cuentaRussell, valor: new Prisma.Decimal(valor.toFixed(2)), definidoPor: actor })) })]
+        : []),
+    ]);
+    await logAudit({
+      user: actor ?? "Sistema",
+      action: Object.keys(limpios).length > 0 ? "DEFINIÓ reparto del cruce" : "QUITÓ reparto del cruce",
+      entity: encabezado.nombreCliente,
+      detail: `${encabezado.moduloCodigo} ${encabezado.periodo} · «${clasificador}» → ${Object.entries(limpios).map(([c, v]) => `${c}: ${v}`).join(", ") || "sin reparto"}`,
+      clientId: encabezado.clienteId,
+    });
+    revalidatePath(rutaModulo(encabezado.moduloCodigo));
+    return { ok: true, message: Object.keys(limpios).length > 0 ? "Reparto guardado." : "Reparto retirado." };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("guardarRepartoCruce", e) };
+  }
+}
+
+/**
+ * Aplica de una vez el reparto SUGERIDO (proporcional al movimiento del balance, D4) a todos
+ * los conceptos del cargue que cruzan contra varias cuentas y aún no tienen reparto.
+ */
+export async function aplicarRepartosSugeridos(input: { encabezadoId: number }): Promise<ActionState & { aplicados?: number }> {
+  const encabezadoId = Number(input.encabezadoId);
+  if (!Number.isInteger(encabezadoId)) return { ok: false, message: "Dato inválido." };
+  const encabezado = await prisma.moduloDatoEncabezado.findUnique({ where: { id: encabezadoId }, select: { clienteId: true, moduloCodigo: true, periodo: true, nombreCliente: true } });
+  if (!encabezado) return { ok: false, message: "El dato no existe." };
+  if (!descriptorModulo(encabezado.moduloCodigo)?.nomina) return { ok: false, message: "El reparto del cruce solo aplica a Nómina." };
+  const authz = await authorizePermiso("modulos_datos:editar", { clientId: encabezado.clienteId });
+  if (!authz.ok) return { ok: false, message: authz.message };
+  try {
+    const insumos = await cargarInsumosCruceModulo(encabezadoId);
+    const cruce = insumos ? await construirCruceContableModulo(insumos) : null;
+    if (!cruce?.nomina || cruce.bloqueo || !cruce.cruceContable) return { ok: false, message: cruce?.bloqueo ?? "El cruce no está disponible: hace falta el balance del período." };
+    const pendientes = cruce.nomina.repartosPendientes.filter((p) => Object.values(p.sugerido).some((v) => v !== 0));
+    if (pendientes.length === 0) return { ok: true, message: "No hay conceptos pendientes de reparto.", aplicados: 0 };
+    const user = await getCurrentUser();
+    const actor = user?.name ?? null;
+    const base = { clienteId: encabezado.clienteId, moduloCodigo: encabezado.moduloCodigo, periodo: encabezado.periodo };
+    await prisma.$transaction([
+      prisma.repartoCruceModulo.deleteMany({ where: { ...base, clasificador: { in: pendientes.map((p) => p.clasificador) } } }),
+      prisma.repartoCruceModulo.createMany({
+        data: pendientes.flatMap((p) => Object.entries(p.sugerido).filter(([, v]) => v !== 0).map(([cuentaRussell, valor]) => ({ ...base, clasificador: p.clasificador, cuentaRussell, valor: new Prisma.Decimal(valor.toFixed(2)), definidoPor: actor }))),
+      }),
+    ]);
+    await logAudit({
+      user: actor ?? "Sistema",
+      action: "APLICÓ repartos sugeridos del cruce",
+      entity: encabezado.nombreCliente,
+      detail: `${encabezado.moduloCodigo} ${encabezado.periodo} · ${pendientes.length} concepto(s) repartidos proporcionalmente al balance`,
+      clientId: encabezado.clienteId,
+    });
+    revalidatePath(rutaModulo(encabezado.moduloCodigo));
+    return { ok: true, message: `${pendientes.length} concepto(s) repartidos según el balance. Revísalos y ajusta los que haga falta.`, aplicados: pendientes.length };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("aplicarRepartosSugeridos", e) };
   }
 }
 
@@ -1802,7 +2330,8 @@ async function contextoMarcaCruce(encabezadoId: number) {
 async function auditarMarcaCruce(
   encabezado: { clienteId: number; moduloCodigo: string; periodo: string; nombreCliente: string },
   accion: string,
-  cuenta4: string,
+  /** Qué explica la marca: «cuenta 1435» o «tercero 900123456». */
+  objetivo: string,
   detalleExtra: string,
 ) {
   const user = await getCurrentUser();
@@ -1810,7 +2339,7 @@ async function auditarMarcaCruce(
     user: user?.name ?? "Sistema",
     action: accion,
     entity: encabezado.nombreCliente,
-    detail: `${encabezado.moduloCodigo} · ${encabezado.periodo} · cuenta ${cuenta4}${detalleExtra}`,
+    detail: `${encabezado.moduloCodigo} · ${encabezado.periodo} · ${objetivo}${detalleExtra}`,
     clientId: encabezado.clienteId,
   });
 }
@@ -1856,7 +2385,8 @@ async function prepararSoportesMarca(archivos: File[], yaGuardados: number) {
 }
 
 /**
- * Guarda (o reescribe) la MARCA de una cuenta del cruce y sube sus soportes.
+ * Guarda (o reescribe) la MARCA de una cuenta del cruce contable —o de un tercero del cruce por
+ * tercero (`dimension=tercero` + `clave`)— y sube sus soportes.
  *
  * `diferencia` se congela para poder avisar después si el monto cambió. El número se
  * asigna una sola vez, al crear: reescribir el detalle no renumera la marca ni mueve su
@@ -1867,8 +2397,11 @@ export async function guardarMarcaCruce(formData: FormData): Promise<ActionState
   const ctx = await contextoMarcaCruce(encabezadoId);
   if (!ctx.ok) return { ok: false, message: ctx.message };
 
-  const cuenta4 = cuenta4Marcable(String(formData.get("cuenta4") ?? ""));
-  if (!cuenta4) return { ok: false, message: "Cuenta inválida." };
+  const dimension: DimensionMarca = formData.get("dimension") === "tercero" ? "tercero" : "cuenta4";
+  const cuenta4 = dimension === "cuenta4" ? cuentaMarcable(String(formData.get("cuenta4") ?? "")) : null;
+  const clave = dimension === "tercero" ? normalizarClaveTercero(formData.get("clave")) : null;
+  if (dimension === "cuenta4" && !cuenta4) return { ok: false, message: "Cuenta inválida." };
+  if (dimension === "tercero" && !clave) return { ok: false, message: "Tercero inválido." };
   const nota = validarNotaMarca(String(formData.get("nota") ?? ""));
   if (!nota.ok) return { ok: false, message: nota.message };
   const anexo = validarReferenciaAnexo(String(formData.get("referenciaAnexo") ?? ""));
@@ -1876,45 +2409,65 @@ export async function guardarMarcaCruce(formData: FormData): Promise<ActionState
 
   const { encabezado } = ctx;
 
-  // La diferencia y las cuentas no modulares NO se toman del formulario: se recalculan
-  // sobre el cruce vigente (la misma función que pinta la pestaña). Entre abrir el modal
-  // y guardar pudo recargarse el módulo o cambiar la homologación.
+  // Las cuentas no modulares solo existen en la cédula contable.
   let seleccionNoModular: string[] = [];
-  try {
-    const crudo = String(formData.get("noModulares") ?? "").trim();
-    if (crudo) {
-      const parseado: unknown = JSON.parse(crudo);
-      if (!Array.isArray(parseado)) return { ok: false, message: "Selección de cuentas no modulares inválida." };
-      seleccionNoModular = parseado.map((c) => String(c));
+  if (cuenta4) {
+    try {
+      const crudo = String(formData.get("noModulares") ?? "").trim();
+      if (crudo) {
+        const parseado: unknown = JSON.parse(crudo);
+        if (!Array.isArray(parseado)) return { ok: false, message: "Selección de cuentas no modulares inválida." };
+        seleccionNoModular = parseado.map((c) => String(c));
+      }
+    } catch {
+      return { ok: false, message: "Selección de cuentas no modulares inválida." };
     }
-  } catch {
-    return { ok: false, message: "Selección de cuentas no modulares inválida." };
   }
 
+  // La diferencia (y en la cédula, las cuentas no modulares) NO se toma del formulario: se
+  // recalcula sobre el cruce vigente, la misma función que pinta la pestaña. Entre abrir el
+  // modal y guardar pudo recargarse el módulo, cambiar la homologación o emparejarse un tercero.
   const insumosMarca = await cargarInsumosCruceModulo(encabezadoId);
   if (!insumosMarca) return { ok: false, message: "El cargue ya no existe." };
   const cruceVigente = await construirCruceContableModulo(insumosMarca);
-  if (!cruceVigente.cruceContable) {
-    return { ok: false, message: cruceVigente.bloqueo ?? "El cruce contable no está disponible en este momento." };
+  let diferencia: number;
+  let excluidas: { cuenta8: string; nombre: string; valor: number }[] = [];
+  if (cuenta4) {
+    if (!cruceVigente.cruceContable) {
+      return { ok: false, message: cruceVigente.bloqueo ?? "El cruce contable no está disponible en este momento." };
+    }
+    const filaVigente = cruceVigente.cruceContable.filas.find((f) => f.cuenta4 === cuenta4);
+    if (!filaVigente) return { ok: false, message: "Esa cuenta ya no aparece en el cruce. Recarga la pantalla." };
+    const hijos = cruceVigente.detalleContablePorCuenta[cuenta4] ?? [];
+    const noModulares = validarNoModulares(seleccionNoModular, hijos);
+    if (!noModulares.ok) return { ok: false, message: noModulares.message };
+    excluidas = hijos.filter((h) => noModulares.cuentas8.includes(h.cuenta8));
+    diferencia = diferenciaAjustada(filaVigente, hijos, noModulares.cuentas8);
+  } else {
+    const tercero = await cruceTerceroDeCargue(insumosMarca, cruceVigente);
+    if (!tercero?.resumen) {
+      return { ok: false, message: tercero?.mensaje ?? "El cruce por tercero no está disponible en este momento." };
+    }
+    const filaTercero = tercero.resumen.filas.find((f) => f.clave === clave);
+    if (!filaTercero) return { ok: false, message: "Ese tercero ya no aparece en el cruce. Recarga la pantalla." };
+    diferencia = filaTercero.diferencia;
   }
-  const filaVigente = cruceVigente.cruceContable.filas.find((f) => f.cuenta4 === cuenta4);
-  if (!filaVigente) return { ok: false, message: "Esa cuenta ya no aparece en el cruce. Recarga la pantalla." };
-  const hijos = cruceVigente.detalleContablePorCuenta[cuenta4] ?? [];
-  const noModulares = validarNoModulares(seleccionNoModular, hijos);
-  if (!noModulares.ok) return { ok: false, message: noModulares.message };
-  const excluidas = hijos.filter((h) => noModulares.cuentas8.includes(h.cuenta8));
-  const diferencia = diferenciaAjustada(filaVigente, hijos, noModulares.cuentas8);
 
-  const llave = {
-    clienteId: encabezado.clienteId,
-    moduloCodigo: encabezado.moduloCodigo,
-    periodo: encabezado.periodo,
-    cuenta4,
-  };
+  const llaveMarca = cuenta4
+    ? { dimension: "cuenta4" as const, cuenta4, clave: null }
+    : { dimension: "tercero" as const, cuenta4: null, clave: clave as string };
+  const objetivo = cuenta4 ? `cuenta ${cuenta4}` : `tercero ${clave}`;
+  const cruceDeLaMarca = cuenta4 ? "cruce contable" : "cruce por tercero";
 
   try {
-    const existente = await prisma.marcaCruceModulo.findUnique({
-      where: { clienteId_moduloCodigo_periodo_cuenta4: llave },
+    const existente = await prisma.marcaCruceModulo.findFirst({
+      where: {
+        clienteId: encabezado.clienteId,
+        moduloCodigo: encabezado.moduloCodigo,
+        periodo: encabezado.periodo,
+        dimension: llaveMarca.dimension,
+        ...(llaveMarca.dimension === "cuenta4" ? { cuenta4: llaveMarca.cuenta4 } : { clave: llaveMarca.clave }),
+      },
       select: { id: true, numero: true, _count: { select: { adjuntos: true } } },
     });
 
@@ -1922,9 +2475,9 @@ export async function guardarMarcaCruce(formData: FormData): Promise<ActionState
     if (!preparados.ok) return { ok: false, message: preparados.message };
 
     const user = await getCurrentUser();
-    // El rastro en el hilo de la cuenta va primero: si falla, no se guarda una marca que
-    // dice apuntar a un comentario inexistente. Las cuentas excluidas quedan escritas en
-    // el hilo: sin eso, la conversación no explicaría por qué bajó la diferencia.
+    // El rastro en el hilo va primero: si falla, no se guarda una marca que dice apuntar a un
+    // comentario inexistente. Las cuentas excluidas quedan escritas en el hilo: sin eso, la
+    // conversación no explicaría por qué bajó la diferencia.
     const lineaNoModulares = excluidas.length
       ? `\n\nCuentas no modulares: ${excluidas.map((h) => `${h.cuenta8} ${h.nombre} (${h.valor.toFixed(2)})`).join(" · ")}`
       : "";
@@ -1932,7 +2485,7 @@ export async function guardarMarcaCruce(formData: FormData): Promise<ActionState
       data: {
         entityType: "modulos_datos",
         entityId: encabezado.id,
-        anchor: anclaCruce(cuenta4),
+        anchor: llaveMarca.dimension === "cuenta4" ? anclaCruce(llaveMarca.cuenta4) : anclaCruceTercero(llaveMarca.clave),
         authorId: ctx.userId,
         body: `${nota.nota}${anexo.referencia ? `\n\nAnexo: ${anexo.referencia}` : ""}${lineaNoModulares}`,
       },
@@ -1950,10 +2503,10 @@ export async function guardarMarcaCruce(formData: FormData): Promise<ActionState
     };
 
     // El número se asigna dentro de una transacción serializable con candado del período:
-    // dos personas marcando cuentas distintas a la vez no pueden quedarse con el mismo
-    // número (el índice único lo impediría, pero aquí ni siquiera llegan a chocar). Las
-    // cuentas no modulares se reemplazan en el MISMO commit que la marca: nunca queda una
-    // exclusión a medias ni una marca cuyo texto no corresponda a lo que se restó.
+    // dos personas marcando a la vez no pueden quedarse con el mismo número (el índice único lo
+    // impediría, pero aquí ni siquiera llegan a chocar). Cuentas y terceros comparten la
+    // numeración del período. Las cuentas no modulares se reemplazan en el MISMO commit que la
+    // marca: nunca queda una exclusión a medias ni una marca cuyo texto no corresponda a lo restado.
     const filasNoModulares = excluidas.map((h) => ({
       cuenta8: h.cuenta8,
       nombreCuenta: h.nombre,
@@ -1977,7 +2530,14 @@ export async function guardarMarcaCruce(formData: FormData): Promise<ActionState
               select: { numero: true },
             });
             return tx.marcaCruceModulo.create({
-              data: { ...llave, ...datosComunes, numero: siguienteNumeroMarca(usados.map((u) => u.numero)) },
+              data: {
+                clienteId: encabezado.clienteId,
+                moduloCodigo: encabezado.moduloCodigo,
+                periodo: encabezado.periodo,
+                ...llaveMarca,
+                ...datosComunes,
+                numero: siguienteNumeroMarca(usados.map((u) => u.numero)),
+              },
               select: { id: true, numero: true },
             });
           })();
@@ -1994,8 +2554,8 @@ export async function guardarMarcaCruce(formData: FormData): Promise<ActionState
 
     await auditarMarcaCruce(
       encabezado,
-      existente ? "EDITÓ la marca del cruce contable" : "MARCÓ una diferencia del cruce contable",
-      cuenta4,
+      existente ? `EDITÓ la marca del ${cruceDeLaMarca}` : `MARCÓ una diferencia del ${cruceDeLaMarca}`,
+      objetivo,
       ` · marca ${marca.numero} · ${diferencia.toFixed(2)}${subidos ? ` · ${subidos} soporte(s)` : ""}${excluidas.length ? ` · ${excluidas.length} cuenta(s) no modular(es)` : ""}`,
     );
     revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
@@ -2043,27 +2603,30 @@ async function persistirSoportesMarca(
   }
 }
 
-/** Retira la marca de una cuenta y sus soportes. El comentario del hilo se conserva. */
+/** Retira la marca de una cuenta o de un tercero y sus soportes. El comentario del hilo se conserva. */
 export async function quitarMarcaCruce(input: {
   encabezadoId: number;
-  cuenta4: string;
+  cuenta4?: string;
+  /** Clave del tercero, en las marcas del cruce por tercero. */
+  clave?: string;
 }): Promise<ActionState> {
   const ctx = await contextoMarcaCruce(input.encabezadoId);
   if (!ctx.ok) return { ok: false, message: ctx.message };
 
-  const cuenta4 = cuenta4Marcable(String(input.cuenta4 ?? ""));
-  if (!cuenta4) return { ok: false, message: "Cuenta inválida." };
+  const porTercero = input.clave != null;
+  const clave = porTercero ? normalizarClaveTercero(input.clave) : null;
+  const cuenta4 = porTercero ? null : cuentaMarcable(String(input.cuenta4 ?? ""));
+  if (porTercero && !clave) return { ok: false, message: "Tercero inválido." };
+  if (!porTercero && !cuenta4) return { ok: false, message: "Cuenta inválida." };
 
   const { encabezado } = ctx;
   try {
-    const marca = await prisma.marcaCruceModulo.findUnique({
+    const marca = await prisma.marcaCruceModulo.findFirst({
       where: {
-        clienteId_moduloCodigo_periodo_cuenta4: {
-          clienteId: encabezado.clienteId,
-          moduloCodigo: encabezado.moduloCodigo,
-          periodo: encabezado.periodo,
-          cuenta4,
-        },
+        clienteId: encabezado.clienteId,
+        moduloCodigo: encabezado.moduloCodigo,
+        periodo: encabezado.periodo,
+        ...(clave ? { dimension: "tercero", clave } : { dimension: "cuenta4", cuenta4: cuenta4 ?? undefined }),
       },
       select: { id: true, numero: true, adjuntos: { select: { claveObjeto: true } }, _count: { select: { noModulares: true } } },
     });
@@ -2078,8 +2641,8 @@ export async function quitarMarcaCruce(input: {
     // diferencia bruta en el siguiente render.
     await auditarMarcaCruce(
       encabezado,
-      "RETIRÓ la marca del cruce contable",
-      cuenta4,
+      clave ? "RETIRÓ la marca del cruce por tercero" : "RETIRÓ la marca del cruce contable",
+      clave ? `tercero ${clave}` : `cuenta ${cuenta4}`,
       ` · marca ${marca.numero}${marca._count.noModulares ? ` · liberó ${marca._count.noModulares} cuenta(s) no modular(es)` : ""}`,
     );
     revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
@@ -2107,7 +2670,7 @@ export async function eliminarSoporteMarca(input: {
       select: {
         claveObjeto: true,
         nombreArchivo: true,
-        marca: { select: { clienteId: true, moduloCodigo: true, periodo: true, cuenta4: true, numero: true } },
+        marca: { select: { clienteId: true, moduloCodigo: true, periodo: true, dimension: true, cuenta4: true, clave: true, numero: true } },
       },
     });
     if (!soporte) return { ok: false, message: "Ese soporte ya no existe." };
@@ -2121,11 +2684,215 @@ export async function eliminarSoporteMarca(input: {
     await prisma.adjuntoMarcaCruce.delete({ where: { id: soporteId } });
     await eliminarObjeto(soporte.claveObjeto).catch(() => {});
 
-    await auditarMarcaCruce(encabezado, "ELIMINÓ un soporte de la marca del cruce contable", m.cuenta4, ` · marca ${m.numero} · ${soporte.nombreArchivo}`);
+    const deTercero = m.dimension === "tercero";
+    await auditarMarcaCruce(
+      encabezado,
+      `ELIMINÓ un soporte de la marca del cruce ${deTercero ? "por tercero" : "contable"}`,
+      deTercero ? `tercero ${m.clave}` : `cuenta ${m.cuenta4}`,
+      ` · marca ${m.numero} · ${soporte.nombreArchivo}`,
+    );
     revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
     return { ok: true, message: "Soporte eliminado." };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("eliminarSoporteMarca", e) };
+  }
+}
+
+// ============================================================
+// FECHA DE CORTE y TRM de cierre de un cargue (Cartera, CxP).
+// ============================================================
+
+/** TRM oficial de una fecha, para sugerirla como TRM de cierre al cargar. */
+export async function sugerirTrmCierre(input: { fecha: string }): Promise<ActionState & { trm?: number }> {
+  const authz = await authorizePermiso("modulos_datos:crear");
+  if (!authz.ok) return { ok: false, message: authz.message };
+  const fecha = fechaDeCelda(input?.fecha);
+  if (!fecha) return { ok: false, message: "Fecha inválida." };
+  try {
+    return { ok: true, trm: await getTRM(new Date(`${fecha}T12:00:00-05:00`)) };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("sugerirTrmCierre", e) };
+  }
+}
+
+/**
+ * Cambia la fecha de corte de un cargue. No toca importes: es la fecha contra la que se miden los
+ * días vencidos y las edades, que se recalculan al leer. No se cambia con la conciliación en firme.
+ */
+export async function actualizarFechaCorteModulo(input: { encabezadoId: number; fechaCorte: string }): Promise<ActionState> {
+  const ctx = await contextoMarcaCruce(Number(input?.encabezadoId));
+  if (!ctx.ok) return { ok: false, message: ctx.message };
+  const fechaCorte = fechaDeCelda(input?.fechaCorte);
+  if (!fechaCorte) return { ok: false, message: "Fecha de corte inválida." };
+  const { encabezado } = ctx;
+  if (!descriptorModulo(encabezado.moduloCodigo)?.crucePorTercero.detalleTercero) {
+    return { ok: false, message: "Este módulo no maneja fecha de corte." };
+  }
+  try {
+    const cierre = await prisma.conciliacionModuloCierre.findFirst({
+      where: { clienteId: encabezado.clienteId, moduloCodigo: encabezado.moduloCodigo, periodo: encabezado.periodo, estado: ESTADO_CIERRE_FIRME },
+      select: { id: true },
+    });
+    if (cierre) return { ok: false, message: "La conciliación del período está en firme: desbloquéala para cambiar la fecha de corte." };
+    const anterior = await prisma.moduloDatoEncabezado.findUnique({ where: { id: encabezado.id }, select: { fechaCorte: true } });
+    await prisma.moduloDatoEncabezado.update({ where: { id: encabezado.id }, data: { fechaCorte: fechaCalendarioPrisma(fechaCorte) } });
+    const user = await getCurrentUser();
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: "CAMBIÓ la fecha de corte del cargue",
+      entity: encabezado.nombreCliente,
+      detail: `${encabezado.moduloCodigo} · ${encabezado.periodo} · cargue #${encabezado.id} · ${anterior?.fechaCorte ? fechaCalendarioISO(anterior.fechaCorte) : "fin del período"} → ${fechaCorte}`,
+      clientId: encabezado.clienteId,
+    });
+    revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
+    return { ok: true, message: `Fecha de corte del cargue: ${fechaCorte.split("-").reverse().join("/")}.` };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("actualizarFechaCorteModulo", e) };
+  }
+}
+
+// ============================================================
+// EMPAREJAMIENTO MANUAL de terceros del cruce por tercero (RF-CXC-12; D4 de CxP).
+//
+// «El tercero X del auxiliar es el Y del balance». Es memoria del cliente: por defecto vale
+// para todos sus períodos y se puede acotar al del cargue. Se valida contra el cruce vigente y
+// no se toca donde la conciliación del módulo está en firme: cambiaría lo que se cerró.
+// ============================================================
+
+const EmparejarTerceroSchema = z.object({
+  encabezadoId: z.coerce.number().int().positive(),
+  claveModulo: z.string(),
+  claveBalance: z.string(),
+  alcance: z.enum(["todos", "periodo"]),
+  origen: z.enum(["manual", "sugerido_nombre"]),
+  nota: z.string().optional(),
+});
+
+/** Períodos en firme que el emparejamiento alteraría: el mensaje para quien empareja, o null. */
+async function cierreQueImpideEmparejar(
+  encabezado: { clienteId: number; moduloCodigo: string },
+  periodo: string,
+): Promise<string | null> {
+  const cierres = await prisma.conciliacionModuloCierre.findMany({
+    where: {
+      clienteId: encabezado.clienteId,
+      moduloCodigo: encabezado.moduloCodigo,
+      estado: ESTADO_CIERRE_FIRME,
+      ...(periodo ? { periodo } : {}),
+    },
+    select: { periodo: true },
+    orderBy: { periodo: "asc" },
+  });
+  if (cierres.length === 0) return null;
+  const lista = cierres.map((c) => c.periodo).join(", ");
+  return periodo
+    ? `La conciliación de ${lista} está en firme: desbloquéala para cambiar sus emparejamientos.`
+    : `La conciliación de ${lista} está en firme y un emparejamiento para todos los períodos también la cambiaría: acótalo a este período o desbloquea esos períodos.`;
+}
+
+/** Empareja un tercero que solo está en el auxiliar con uno del balance (N:1). */
+export async function emparejarTerceroCruce(input: z.input<typeof EmparejarTerceroSchema>): Promise<ActionState> {
+  const parsed = EmparejarTerceroSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, message: "Datos inválidos." };
+  const ctx = await contextoMarcaCruce(parsed.data.encabezadoId);
+  if (!ctx.ok) return { ok: false, message: ctx.message };
+  const claveModulo = normalizarClaveTercero(parsed.data.claveModulo);
+  const claveBalance = normalizarClaveTercero(parsed.data.claveBalance);
+  if (!claveModulo || !claveBalance) return { ok: false, message: "Tercero inválido." };
+  const nota = (parsed.data.nota ?? "").trim();
+  if (nota.length > MAX_NOTA_MARCA) return { ok: false, message: `La nota no puede superar ${MAX_NOTA_MARCA} caracteres.` };
+
+  const { encabezado } = ctx;
+  const periodo = parsed.data.alcance === "todos" ? "" : encabezado.periodo;
+  try {
+    const bloqueo = await cierreQueImpideEmparejar(encabezado, periodo);
+    if (bloqueo) return { ok: false, message: bloqueo };
+
+    const insumos = await cargarInsumosCruceModulo(encabezado.id);
+    if (!insumos) return { ok: false, message: "El cargue ya no existe." };
+    const tercero = await cruceTerceroDeCargue(insumos, await construirCruceContableModulo(insumos));
+    if (!tercero?.resumen) {
+      return { ok: false, message: tercero?.mensaje ?? "El cruce por tercero no está disponible en este momento." };
+    }
+    const valido = validarEmparejamientoTercero(tercero.resumen, claveModulo, claveBalance);
+    if (!valido.ok) return { ok: false, message: valido.message };
+    const nombreModulo = tercero.resumen.filas.find((f) => f.clave === claveModulo)?.nombre ?? null;
+    const nombreBalance = tercero.resumen.filas.find((f) => f.clave === claveBalance)?.nombre ?? null;
+
+    const user = await getCurrentUser();
+    const datos = {
+      claveBalance,
+      nombreModulo,
+      nombreBalance,
+      origen: parsed.data.origen,
+      nota: nota || null,
+      creadoPor: user?.name ?? null,
+      creadoPorId: ctx.userId,
+      creadoEn: new Date(),
+    };
+    await prisma.emparejamientoTerceroModulo.upsert({
+      where: {
+        clienteId_moduloCodigo_periodo_claveModulo: {
+          clienteId: encabezado.clienteId,
+          moduloCodigo: encabezado.moduloCodigo,
+          periodo,
+          claveModulo,
+        },
+      },
+      create: { clienteId: encabezado.clienteId, moduloCodigo: encabezado.moduloCodigo, periodo, claveModulo, ...datos },
+      update: datos,
+    });
+
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: "EMPAREJÓ un tercero del cruce por tercero",
+      entity: encabezado.nombreCliente,
+      detail: `${encabezado.moduloCodigo} · ${periodo || "todos los períodos"} · ${claveModulo}${nombreModulo ? ` (${nombreModulo})` : ""} → ${claveBalance}${nombreBalance ? ` (${nombreBalance})` : ""}${parsed.data.origen === "sugerido_nombre" ? " · sugerido por nombre" : ""}${nota ? ` · ${nota}` : ""}`,
+      clientId: encabezado.clienteId,
+    });
+    revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
+    return { ok: true, message: `Emparejado con ${nombreBalance ?? claveBalance}.` };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("emparejarTerceroCruce", e) };
+  }
+}
+
+/** Deshace un emparejamiento: los dos terceros vuelven a verse por separado en el cruce. */
+export async function quitarEmparejamientoTercero(input: { encabezadoId: number; emparejamientoId: number }): Promise<ActionState> {
+  const ctx = await contextoMarcaCruce(Number(input?.encabezadoId));
+  if (!ctx.ok) return { ok: false, message: ctx.message };
+  const emparejamientoId = Number(input?.emparejamientoId);
+  if (!Number.isSafeInteger(emparejamientoId) || emparejamientoId <= 0) return { ok: false, message: "Emparejamiento inválido." };
+
+  const { encabezado } = ctx;
+  try {
+    const emparejamiento = await prisma.emparejamientoTerceroModulo.findUnique({ where: { id: emparejamientoId } });
+    // El permiso se verificó sobre ESTE cargue: el emparejamiento tiene que ser de su cliente y
+    // su módulo, y valer para su período; si no, el id sería una puerta a otro cliente.
+    if (
+      !emparejamiento
+      || emparejamiento.clienteId !== encabezado.clienteId
+      || emparejamiento.moduloCodigo !== encabezado.moduloCodigo
+      || (emparejamiento.periodo !== "" && emparejamiento.periodo !== encabezado.periodo)
+    ) {
+      return { ok: false, message: "Ese emparejamiento ya no existe." };
+    }
+    const bloqueo = await cierreQueImpideEmparejar(encabezado, emparejamiento.periodo);
+    if (bloqueo) return { ok: false, message: bloqueo };
+
+    await prisma.emparejamientoTerceroModulo.delete({ where: { id: emparejamientoId } });
+    const user = await getCurrentUser();
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: "DESHIZO el emparejamiento de un tercero",
+      entity: encabezado.nombreCliente,
+      detail: `${encabezado.moduloCodigo} · ${emparejamiento.periodo || "todos los períodos"} · ${emparejamiento.claveModulo} → ${emparejamiento.claveBalance}`,
+      clientId: encabezado.clienteId,
+    });
+    revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
+    return { ok: true, message: "Emparejamiento deshecho." };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("quitarEmparejamientoTercero", e) };
   }
 }
 
@@ -2334,10 +3101,24 @@ export async function cerrarConciliacionModulo(input: { encabezadoId: number }):
     if (!cruce.balanceEmparejado || !cruce.cruceContable) {
       return { ok: false, message: "No hay balance de comprobación confirmado para este período: no hay nada que cerrar." };
     }
-    const evaluacion = evaluarCierreConciliacion(cruce.cruceContable, cruce.resumenMarcas);
+    // Donde el módulo lo exige (Cartera, CxP), el cruce por tercero también tiene que estar
+    // conciliado: disponible y con marca en toda diferencia desde el umbral de descuadre.
+    const descriptor = descriptorModulo(encabezado.moduloCodigo);
+    const exigeTercero = descriptor?.crucePorTercero.habilitado === true && descriptor.crucePorTercero.exigidoParaCierre === true;
+    const tercero = exigeTercero ? await cruceTerceroDeCargue(insumos, cruce) : null;
+    const evaluacion = evaluarCierreConciliacion(
+      cruce.cruceContable,
+      cruce.resumenMarcas,
+      exigeTercero
+        ? { exigido: true, estado: tercero?.estado ?? "sin_balance", mensaje: tercero?.mensaje ?? null, resumenMarcas: tercero?.resumenMarcas ?? null }
+        : null,
+    );
     if (!evaluacion.ok) return { ok: false, message: `No se puede cerrar: ${evaluacion.motivo}` };
 
     const cuentasRussell = cuentasRussellDelCruce(cruce.cruceContable);
+    // Con las cuentas de 6 dígitos del módulo, el bloqueo se limita a ellas (130515 no).
+    const cuentasRussell6 = descriptor?.crucePorTercero.cuentasRussell6?.length ? [...descriptor.crucePorTercero.cuentasRussell6] : null;
+    const evidenciaTercero = tercero?.resumen ? evidenciaCruceTercero(tercero.resumen, tercero.resumenMarcas) : null;
     const balance = cruce.balanceEmparejado;
     const user = await getCurrentUser();
     const actor = user?.name ?? "Sistema";
@@ -2363,10 +3144,19 @@ export async function cerrarConciliacionModulo(input: { encabezadoId: number }):
           where: { encabezadoId: balance.id },
           select: { cuenta8: true, cuenta6Russell: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
         }),
-        tx.balancePruebaEncabezado.findUnique({ where: { id: balance.id }, select: { loteId: true, estaCongelado: true, esOficial: true } }),
+        tx.balancePruebaEncabezado.findUnique({ where: { id: balance.id }, select: { loteId: true } }),
       ]);
-      if (!terceroLigado || !terceroLigado.esOficial || !terceroLigado.estaCongelado) {
-        return { ok: false as const, message: "El balance del período dejó de ser oficial y congelado. Vuelve a abrir el cruce." };
+      if (!terceroLigado) {
+        return { ok: false as const, message: "El balance del período ya no existe. Vuelve a abrir el cruce." };
+      }
+      // Congelar el balance NO es requisito para conciliar: lo que vuelve inmutables las
+      // cuentas del módulo es ESTE cierre. Como la versión sigue editable entre que se
+      // calculó el cruce y este commit, se releen bajo el candado el prevalidador y su
+      // huella (detalle, homologación, catálogo y overrides) y se exige que sean los mismos
+      // que vio el usuario, con la aprobación todavía vigente.
+      const contextoActual = await cargarContextoPrevalidadorBalance(balance.id, tx);
+      if (cruce.huellaBalance == null || contextoActual.huella !== cruce.huellaBalance || !contextoActual.revision.vigente) {
+        return { ok: false as const, message: "El balance del período cambió mientras se cerraba la conciliación. Vuelve a abrir el cruce." };
       }
       const filasTercero = terceroLigado.loteId
         ? await tx.balanceTerceroDetalle.findMany({
@@ -2384,7 +3174,7 @@ export async function cerrarConciliacionModulo(input: { encabezadoId: number }):
       });
       // El detalle principal manda (importes oficiales); el tercero solo aporta
       // cuentas que no estén ya en el principal.
-      const bloqueadas = cuentasBloqueoDelModulo([...detalle.map(aFila), ...filasTercero.map(aFila)], cuentasRussell);
+      const bloqueadas = cuentasBloqueoDelModulo([...detalle.map(aFila), ...filasTercero.map(aFila)], cuentasRussell, cuentasRussell6);
       if (bloqueadas.length === 0) {
         return { ok: false as const, message: "Ninguna cuenta del balance está homologada a las cuentas del módulo: no hay nada que bloquear." };
       }
@@ -2394,6 +3184,8 @@ export async function cerrarConciliacionModulo(input: { encabezadoId: number }):
         moduloDatoEncabezadoId: encabezado.id,
         balanceEncabezadoId: balance.id,
         cuentasRussell,
+        cuentasRussell6: cuentasRussell6 ?? Prisma.DbNull,
+        resumenCruceTercero: evidenciaTercero ? (evidenciaTercero as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
         estado: ESTADO_CIERRE_FIRME,
         cerradoPorId: authz.userId,
         cerradoPor: actor,
@@ -2436,7 +3228,7 @@ export async function cerrarConciliacionModulo(input: { encabezadoId: number }):
       user: actor,
       action: "CERRÓ CONCILIACIÓN (EN FIRME)",
       entity: encabezado.nombreCliente,
-      detail: `${encabezado.moduloCodigo} · ${encabezado.periodo} · cargue #${encabezado.id} · balance #${balance.id} ${balance.version} (${balance.periodo}) · ${resultado.cuentas} cuenta(s) bloqueada(s) · cuentas Russell ${cuentasRussell.join(", ")}`,
+      detail: `${encabezado.moduloCodigo} · ${encabezado.periodo} · cargue #${encabezado.id} · balance #${balance.id} ${balance.version} (${balance.periodo}) · ${resultado.cuentas} cuenta(s) bloqueada(s) · cuentas Russell ${(cuentasRussell6 ?? cuentasRussell).join(", ")}${evidenciaTercero ? ` · cruce por tercero: ${evidenciaTercero.terceros} tercero(s), ${evidenciaTercero.marcas.marcadas} marca(s), huella ${evidenciaTercero.huella.slice(0, 12)}` : ""}`,
       clientId: encabezado.clienteId,
     });
     revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);

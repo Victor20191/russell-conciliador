@@ -17,6 +17,7 @@
 // NO bloquea la carga: es un control de auditoría. El consolidado sale SIEMPRE de los
 // movimientos, nunca de las filas de total.
 import { useState } from "react";
+import type { ResumenControlTercero } from "@/lib/modulos/cartera/saldos-tercero";
 import { Chip } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { Modal } from "@/components/modal";
@@ -81,6 +82,7 @@ export function ValidacionArchivo({
   resumen,
   modo = "borrador",
   origen,
+  controlTercero,
 }: {
   control: ControlSubtotales;
   resumen: ResumenValidacionArchivo;
@@ -88,6 +90,13 @@ export function ValidacionArchivo({
   modo?: "borrador" | "cargado";
   /** Solo en un cargue: de cuántos archivos salió el total (los anexos pueden no traerlo). */
   origen?: OrigenTotalDeclarado;
+  /**
+   * Control por TERCERO, cuando el archivo declara un saldo por cada uno (la cabecera de
+   * un reporte jerárquico, o un segundo archivo cargado como control). Es un contraste
+   * distinto del total al pie: verifica que el detalle se repartió bien entre terceros,
+   * no solo que suma lo mismo.
+   */
+  controlTercero?: ResumenControlTercero | null;
 }) {
   const [ayuda, setAyuda] = useState(false);
   const gran = control.granTotal;
@@ -158,6 +167,34 @@ export function ValidacionArchivo({
           </>
         )}
       </div>
+
+      {controlTercero && controlTercero.filas.length > 0 && (() => {
+        const cuadra = controlTercero.conDiferencia === 0;
+        const tono: Estado = cuadra ? "cuadra" : "descuadre";
+        const peores = controlTercero.filas
+          .filter((f) => f.estado !== "cuadra")
+          .sort((a, b) => Math.abs(b.diferencia) - Math.abs(a.diferencia))
+          .slice(0, 4);
+        return (
+          <div className={`rounded-md border px-3 py-2 text-[12px] ${TONO[tono]}`}>
+            {cuadra ? (
+              <>
+                <span className="font-semibold">Cuadra por tercero:</span> lo que el archivo declara para cada uno de sus{" "}
+                {fmtNum(controlTercero.filas.length)} terceros coincide con la suma de su detalle{" "}
+                (<span className="font-semibold">{fmtContable(controlTercero.totales.declarado)}</span>).
+              </>
+            ) : (
+              <>
+                <span className="font-semibold">No coincide por tercero:</span>{" "}
+                {fmtNum(controlTercero.conDiferencia)} de {fmtNum(controlTercero.filas.length)} terceros difieren
+                {" "}(Δ <span className="font-semibold">{fmtContable(controlTercero.totales.diferencia)}</span>).{" "}
+                {peores.map((f) => `${f.nombre ?? f.claveTercero}: declara ${fmtContable(f.declarado)} vs ${fmtContable(f.calculado)}`).join("; ")}
+                {controlTercero.conDiferencia > peores.length ? "…" : "."}
+              </>
+            )}
+          </div>
+        );
+      })()}
 
       {gruposDescuadrados.length > 0 && (
         <div className="rounded-md border border-err-200 bg-err-50 px-3 py-2 text-[11.5px] text-err-700">

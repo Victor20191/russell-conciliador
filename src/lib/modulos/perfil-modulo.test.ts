@@ -97,10 +97,13 @@ describe("validarSpecModulo", () => {
     expect(validarSpecModulo(INV, valido)).toBeNull();
   });
 
-  it("funciona con cualquier descriptor (Cartera exige tipo, documento y saldo)", () => {
-    const cartera: SpecModulo = { hoja: "Cartera", filaEncabezado: 1, primeraFilaDatos: 2, columnas: { tipo: 1, documento: 2, tercero: 3 } };
-    expect(validarSpecModulo(CAR, normalizarSpecModulo(CAR, cartera))).toBe("Falta la columna obligatoria «Saldo».");
-    expect(validarSpecModulo(CAR, normalizarSpecModulo(CAR, { ...cartera, columnas: { ...cartera.columnas, saldo: 7 } }))).toBeNull();
+  it("funciona con cualquier descriptor (Cartera solo exige el NIT del tercero)", () => {
+    // Cartera se concilia por NIT: es el único campo sin el cual no hay conciliación. El
+    // documento y el saldo son opcionales porque hay reportes por tercero sin documento
+    // (ILIMITADA, Ofimática) y reportes cuyo saldo solo vive en los baldes de edad (Zarzal).
+    const cartera: SpecModulo = { hoja: "Cartera", filaEncabezado: 1, primeraFilaDatos: 2, columnas: { cuenta: 1, documento: 2, total: 3 } };
+    expect(validarSpecModulo(CAR, normalizarSpecModulo(CAR, cartera))).toBe("Falta la columna obligatoria «NIT / cédula del tercero».");
+    expect(validarSpecModulo(CAR, normalizarSpecModulo(CAR, { ...cartera, columnas: { ...cartera.columnas, nit: 7 } }))).toBeNull();
   });
 });
 
@@ -167,5 +170,191 @@ describe("normalizarSpecModulo · subtotales", () => {
     expect(descripcionSubtotalesModulo({ subtotales: "manual", subtotalesColumna: 7 }))
       .toBe("Manual: los marca la columna G cuando trae algún valor");
     expect(descripcionSubtotalesModulo({})).toContain("Automática");
+  });
+});
+
+/**
+ * Los campos nuevos del spec (familias, modo del tercero, nivel…) son opcionales y solo
+ * los usa Cartera. Este bloque fija que NINGÚN otro módulo cambia de comportamiento: un
+ * spec guardado de INV/AFI/ING/CXP/NOM normaliza EXACTAMENTE igual que antes, aunque el
+ * perfil traiga campos nuevos (p. ej. copiado a mano o migrado de otro módulo).
+ */
+describe("regresión: los módulos sin familias no cambian", () => {
+  const specDe = (modulo: keyof typeof MODULOS_IMPORT): SpecModulo => ({
+    hoja: "Hoja1",
+    filaEncabezado: 1,
+    primeraFilaDatos: 2,
+    columnas: Object.fromEntries(MODULOS_IMPORT[modulo].columnas.map((c, i) => [c.nombre, i + 1])),
+  });
+
+  it("NOM: descarta lo de cartera, conserva su arrastre y el rango del cargue solo en la variante del archivo", () => {
+    const NOM = MODULOS_IMPORT.NOM;
+    const base = { ...specDe("NOM"), columnas: { ...specDe("NOM").columnas, periodo: 2, cedula: 5, empleado: 6 } };
+    const contaminado = {
+      ...base,
+      familias: { edades: [{ columna: 9, etiqueta: "1 - 30 DIAS", clase: "vencido" as const }] },
+      edadesModo: "ancho" as const,
+      arrastrarRoles: ["tercero", "periodo", "empleado"],
+      nivel: "documento" as const,
+      origenCartera: "exterior" as const,
+      invertirSigno: true,
+      periodoDesde: "2025-01",
+      periodoHasta: "2025-12",
+    };
+    const reutilizable = normalizarSpecModulo(NOM, contaminado);
+    expect(reutilizable.familias).toBeUndefined();
+    expect(reutilizable.nivel).toBeUndefined();
+    expect(reutilizable.origenCartera).toBeUndefined();
+    expect(reutilizable.invertirSigno).toBeUndefined();
+    // «tercero» no es arrastrable en Nómina; el período y el empleado sí.
+    expect(reutilizable.arrastrarRoles).toEqual(["periodo", "empleado"]);
+    // El rango de meses es de ESTE archivo: nunca va al perfil del cliente…
+    expect(reutilizable.periodoDesde).toBeUndefined();
+    expect(reutilizable.periodoHasta).toBeUndefined();
+    // …pero sí acompaña al spec del lote.
+    const delArchivo = normalizarSpecModuloArchivo(NOM, contaminado);
+    expect(delArchivo).toMatchObject({ periodoDesde: "2025-01", periodoHasta: "2025-12" });
+  });
+
+  for (const modulo of ["INV", "AFI", "ING"] as const) {
+    it(`${modulo}: los campos nuevos se descartan al normalizar`, () => {
+      const limpio = normalizarSpecModulo(MODULOS_IMPORT[modulo], specDe(modulo));
+      const contaminado = normalizarSpecModulo(MODULOS_IMPORT[modulo], {
+        ...specDe(modulo),
+        familias: { edades: [{ columna: 9, etiqueta: "1 - 30 DIAS", clase: "vencido" }] },
+        edadesModo: "ancho",
+        terceroModo: "cabecera",
+        arrastrarRoles: ["tercero"],
+        nivel: "documento",
+        origenCartera: "exterior",
+        invertirSigno: true,
+      });
+      expect(JSON.stringify(contaminado)).toBe(JSON.stringify(limpio));
+    });
+  }
+
+  it("Cuentas por Pagar traduce su perfil anterior y conserva los campos del detalle por tercero", () => {
+    const CXP = MODULOS_IMPORT.CXP;
+    const legado = normalizarSpecModulo(CXP, { hoja: "CXP", filaEncabezado: 1, primeraFilaDatos: 2, columnas: { tipo: 1, documento: 2, tercero: 3, saldo: 6 } });
+    expect(legado.columnas).toMatchObject({ cuenta: 1, documento: 2, nit: 3, total: 6 });
+    const conservado = normalizarSpecModulo(CXP, {
+      hoja: "CXP", filaEncabezado: 1, primeraFilaDatos: 2, columnas: { nit: 1 },
+      nivel: "tercero", invertirSigno: true, terceroModo: "cabecera",
+    });
+    expect(conservado).toMatchObject({ nivel: "tercero", invertirSigno: true, terceroModo: "cabecera" });
+  });
+
+  it("Cartera SÍ los conserva", () => {
+    const conservado = normalizarSpecModulo(CAR, {
+      hoja: "CARTERA",
+      filaEncabezado: 1,
+      primeraFilaDatos: 2,
+      columnas: { nit: 1, nombre: 2 },
+      familias: { edades: [{ columna: 4, etiqueta: "31 - 60 DIAS", clase: "vencido" }, { columna: 3, etiqueta: "1 - 30 DIAS", clase: "vencido" }] },
+      edadesModo: "ancho",
+      terceroModo: "cabecera",
+      arrastrarRoles: ["nit", "inventado"],
+      nivel: "documento",
+      origenCartera: "nacional",
+    });
+    // Ordenadas por columna, y los roles no arrastrables del descriptor se descartan.
+    expect(conservado.familias?.edades.map((c) => c.columna)).toEqual([3, 4]);
+    expect(conservado.arrastrarRoles).toEqual(["nit"]);
+    expect(conservado).toMatchObject({ edadesModo: "ancho", terceroModo: "cabecera", nivel: "documento", origenCartera: "nacional" });
+  });
+
+  it("descarta columnas de familia inválidas o repetidas", () => {
+    const spec = normalizarSpecModulo(CAR, {
+      hoja: "H",
+      filaEncabezado: 1,
+      primeraFilaDatos: 2,
+      columnas: { nit: 1 },
+      familias: {
+        edades: [
+          { columna: 0, etiqueta: "sin columna" },
+          { columna: 3, etiqueta: "  " },
+          { columna: 4, etiqueta: "1 - 30 DIAS" },
+          { columna: 4, etiqueta: "repetida" },
+        ],
+        inventada: [{ columna: 9, etiqueta: "x" }],
+      },
+    });
+    expect(spec.familias?.edades).toEqual([{ columna: 4, etiqueta: "1 - 30 DIAS" }]);
+    expect(spec.familias?.inventada).toBeUndefined();
+  });
+});
+
+describe("aliasLegado: un rol renombrado no deja huérfano el perfil guardado", () => {
+  it("Cartera lee el spec viejo (tipo/tercero/saldo) con los roles nuevos", () => {
+    // Así quedó guardado el único perfil CAR que existe en producción, del descriptor v1.
+    const viejo: SpecModulo = {
+      hoja: "CARTERA",
+      filaEncabezado: 1,
+      primeraFilaDatos: 2,
+      columnas: { tipo: 3, documento: 9, tercero: 6, saldo: 8 },
+    };
+    const migrado = normalizarSpecModulo(CAR, viejo);
+    expect(migrado.columnas).toMatchObject({ cuenta: 3, nit: 6, total: 8, documento: 9 });
+    // Y con el mapeo recuperado, el spec vuelve a ser válido sin intervención del usuario.
+    expect(validarSpecModulo(CAR, migrado)).toBeNull();
+  });
+
+  it("el nombre nuevo manda si el spec trae los dos", () => {
+    const mixto: SpecModulo = {
+      hoja: "H",
+      filaEncabezado: 1,
+      primeraFilaDatos: 2,
+      columnas: { tercero: 6, nit: 1 },
+    };
+    expect(normalizarSpecModulo(CAR, mixto).columnas.nit).toBe(1);
+  });
+
+  it("un módulo sin alias no traduce nada", () => {
+    const spec = normalizarSpecModulo(INV, specInv({ columnas: { tipo: 2, saldo: 5 } }));
+    expect(spec.columnas.tipo).toBe(2);
+    expect(spec.columnas).not.toHaveProperty("total");
+  });
+});
+
+describe("validarSpecModulo · familias", () => {
+  const base = (familias: SpecModulo["familias"]): SpecModulo => normalizarSpecModulo(CAR, {
+    hoja: "H", filaEncabezado: 1, primeraFilaDatos: 2, columnas: { nit: 1, total: 2 }, familias,
+  });
+
+  it("una columna no puede ser a la vez rol y balde de edad", () => {
+    expect(validarSpecModulo(CAR, base({ edades: [{ columna: 2, etiqueta: "1 - 30 DIAS" }] })))
+      .toMatch(/ya está asignada a «Saldo \/ total»/);
+  });
+
+  it("una familia bien formada pasa", () => {
+    expect(validarSpecModulo(CAR, base({ edades: [{ columna: 3, etiqueta: "1 - 30 DIAS" }, { columna: 4, etiqueta: "31 - 60 DIAS" }] }))).toBeNull();
+  });
+
+  it("sin familia también pasa: hay reportes de cartera sin antigüedad", () => {
+    expect(validarSpecModulo(CAR, base(undefined))).toBeNull();
+  });
+});
+
+describe("normalizarSpecModulo · moneda, TRM de cierre y fecha de corte", () => {
+  const specUsd = {
+    hoja: "USD",
+    filaEncabezado: 1,
+    primeraFilaDatos: 2,
+    columnas: { nit: 1, total: 2 },
+    monedaArchivo: "USD",
+    trmCierre: 3757.08,
+    fechaCorte: "2025-12-31",
+  } as SpecModulo;
+
+  it("el perfil memoriza la moneda del formato, pero la TRM y la fecha de corte son del cargue", () => {
+    const reutilizable = normalizarSpecModulo(CAR, specUsd);
+    expect(reutilizable.monedaArchivo).toBe("USD");
+    expect([reutilizable.trmCierre, reutilizable.fechaCorte]).toEqual([undefined, undefined]);
+    expect(normalizarSpecModuloArchivo(CAR, specUsd)).toMatchObject({ monedaArchivo: "USD", trmCierre: 3757.08, fechaCorte: "2025-12-31" });
+  });
+
+  it("los módulos sin detalle por tercero no conservan nada de esto", () => {
+    const inv = normalizarSpecModuloArchivo(INV, specInv({ monedaArchivo: "USD", trmCierre: 4000, fechaCorte: "2025-12-31" }));
+    expect([inv.monedaArchivo, inv.trmCierre, inv.fechaCorte]).toEqual([undefined, undefined, undefined]);
   });
 });

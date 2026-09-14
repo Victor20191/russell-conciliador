@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { construirCruceContable } from "@/lib/modulos/cruce-contable";
-import { anotarCruceConMarcas, type MarcaCruce } from "@/lib/modulos/marcas-cruce";
+import { anotarCruceConMarcas, type MarcaCruce, type ResumenMarcas } from "@/lib/modulos/marcas-cruce";
 import {
+  alcanceDeCierres,
+  entraEnAlcance,
   cuentasBloqueoDelModulo,
   cuentasRussellDelCruce,
   decidirCongelarConCierres,
@@ -63,6 +65,15 @@ describe("cuentasRussellDelCruce", () => {
       nombrePorCuenta: () => null,
     });
     expect(cuentasRussellDelCruce(cruce)).toEqual(["1405", "1435"]);
+  });
+
+  it("reduce al subgrupo las claves de una cédula a 6 dígitos (Nómina)", () => {
+    const cruce = construirCruceContable({
+      contablePorCuenta: { "510506": 100, "510530": 20, "720505": 5 },
+      consolidado: [{ clasificador: "001", total: 100, cuentas4: ["510506"] }],
+      nombrePorCuenta: () => null,
+    });
+    expect(cuentasRussellDelCruce(cruce)).toEqual(["5105", "7205"]);
   });
 });
 
@@ -254,5 +265,59 @@ describe("esResponsableSeniorOGerente", () => {
     expect(esResponsableSeniorOGerente([{ ...base, role: "senior", userId: 7, active: false }], 7, ahora)).toBe(false);
     expect(esResponsableSeniorOGerente([{ ...base, role: "senior", userId: 7, validUntil: new Date("2026-08-01T00:00:00Z") }], 7, ahora)).toBe(false);
     expect(esResponsableSeniorOGerente([{ ...base, role: "senior", userId: 8 }], 7, ahora)).toBe(false);
+  });
+});
+
+describe("cierre por cuentas Russell de 6 dígitos (Cartera y CxP)", () => {
+  const CARTERA6 = ["130505", "130510", "280505"];
+  const cartera: FilaDetalleBloqueo[] = [
+    fila("13050501", "130505", { saldoFinal: 900 }),
+    fila("13051501", "130515", { saldoFinal: 40 }), // trabajadores: fuera del módulo
+    fila("28050501", "280505", { saldoFinal: -30 }),
+  ];
+
+  it("bloquea solo las cuentas del módulo: 130515 no queda en firme", () => {
+    expect(cuentasBloqueoDelModulo(cartera, ["1305", "2805"], CARTERA6).map((b) => b.cuenta8)).toEqual(["13050501", "28050501"]);
+  });
+
+  it("una cuenta nueva homologada a 130515 no entra al módulo cerrado; una a 130510 sí", () => {
+    const bloqueadas = cuentasBloqueoDelModulo(cartera, ["1305", "2805"], CARTERA6);
+    const alcance = alcanceDeCierres([{ cuentasRussell: ["1305", "2805"], cuentasRussell6: CARTERA6 }]);
+    const nuevas = [...cartera, fila("13051502", "130515", { saldoFinal: 5 }), fila("13051001", "130510", { saldoFinal: 7 })];
+    expect(evaluarCambiosBloqueados(bloqueadas, nuevas, alcance).map((v) => [v.cuenta8, v.motivo])).toEqual([["13051001", "nueva_en_modulo"]]);
+  });
+
+  it("los cierres anteriores, sin cuentas de 6, siguen comparando por cuenta de 4", () => {
+    const alcance = alcanceDeCierres([{ cuentasRussell: ["1435"] }, { cuentasRussell: ["1305"], cuentasRussell6: ["130505"] }]);
+    expect([...alcance.cuentas4]).toEqual(["1435"]);
+    expect([...alcance.cuentas6]).toEqual(["130505"]);
+    expect(entraEnAlcance("143599", alcance)).toBe(true);
+    expect(entraEnAlcance("130515", alcance)).toBe(false);
+    expect(entraEnAlcance("130505", alcance)).toBe(true);
+    expect(entraEnAlcance(null, alcance)).toBe(false);
+  });
+});
+
+describe("evaluarCierreConciliacion con cruce por tercero", () => {
+  const cuadra = construirCruceContable({
+    contablePorCuenta: { "1305": 100 },
+    consolidado: [{ clasificador: "CARTERA", total: 100, cuentas4: ["1305"] }],
+    nombrePorCuenta: () => null,
+  });
+  const marcas = (p: Partial<ResumenMarcas>): ResumenMarcas => ({ conDiferencia: 0, marcadas: 0, pendientes: 0, desactualizadas: 0, montoPendiente: 0, ...p });
+
+  it("exige el cruce por tercero disponible y sin diferencias pendientes o desactualizadas", () => {
+    expect(evaluarCierreConciliacion(cuadra, null, { exigido: true, estado: "sin_detalle_tercero", mensaje: "El balance v1 del período no conserva detalle por tercero.", resumenMarcas: null }))
+      .toEqual({ ok: false, motivo: "El cruce por tercero es obligatorio para cerrar y no está disponible: El balance v1 del período no conserva detalle por tercero." });
+    expect(evaluarCierreConciliacion(cuadra, null, { exigido: true, estado: "listo", mensaje: null, resumenMarcas: marcas({ conDiferencia: 3, marcadas: 1, pendientes: 2 }) }))
+      .toMatchObject({ ok: false, motivo: expect.stringContaining("2 diferencia(s) por tercero sin marca") });
+    expect(evaluarCierreConciliacion(cuadra, null, { exigido: true, estado: "listo", mensaje: null, resumenMarcas: marcas({ conDiferencia: 1, marcadas: 1, desactualizadas: 1 }) }))
+      .toMatchObject({ ok: false });
+    expect(evaluarCierreConciliacion(cuadra, null, { exigido: true, estado: "listo", mensaje: null, resumenMarcas: marcas({ conDiferencia: 2, marcadas: 2, bajoUmbral: 5 }) }))
+      .toEqual({ ok: true });
+  });
+
+  it("donde no se exige, el cruce por tercero no condiciona el cierre", () => {
+    expect(evaluarCierreConciliacion(cuadra, null, { exigido: false, estado: "sin_balance", mensaje: null, resumenMarcas: null })).toEqual({ ok: true });
   });
 });

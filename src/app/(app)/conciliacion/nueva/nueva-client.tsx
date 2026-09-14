@@ -21,6 +21,8 @@ export type BalanceOpt = {
   periodStart: string;
   periodEnd: string;
   version: string;
+  esOficial: boolean;
+  estaCongelado: boolean;
 };
 
 // IA simulada — columnas del archivo del cliente y su inferencia.
@@ -144,7 +146,7 @@ function ScopeStep({
           </select>
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-[11.5px] font-medium text-ink-600">Balance oficial congelado</span>
+          <span className="text-[11.5px] font-medium text-ink-600">Balance del período</span>
           <select
             value={balanceId}
             onChange={(e) => setBalanceId(Number(e.target.value))}
@@ -155,7 +157,7 @@ function ScopeStep({
               <option value={0}>Sin balances elegibles</option>
             ) : (
               balances.map((b) => (
-                <option key={b.id} value={b.id}>{b.period} · {b.periodStart} a {b.periodEnd} · v{b.version}</option>
+                <option key={b.id} value={b.id}>{b.period} · {b.periodStart} a {b.periodEnd} · v{b.version}{b.esOficial ? " · oficial" : ""}</option>
               ))
             )}
           </select>
@@ -180,7 +182,7 @@ function ScopeStep({
       )}
       {sinBalance && (
         <div className="mt-3 rounded-md bg-err-100 px-3 py-2 text-[12px] text-err-700">
-          <b>{client?.name}</b> no tiene un balance oficial y congelado disponible. Debes oficializar y congelar un balance antes de iniciar la conciliación.
+          <b>{client?.name}</b> no tiene un balance de comprobación confirmado. Carga y confirma un balance del período antes de iniciar la conciliación (no hace falta congelarlo).
         </div>
       )}
 

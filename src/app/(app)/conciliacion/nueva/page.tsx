@@ -31,11 +31,9 @@ export default async function NuevaConciliacionPage() {
     prisma.moduleField.findMany({ orderBy: { order: "asc" } }),
     prisma.balancePruebaEncabezado.findMany({
       where: {
-        esOficial: true,
-        estaCongelado: true,
         ...(alc.todos ? {} : { clienteId: { in: alc.clientIds } }),
       },
-      orderBy: [{ periodoFin: "desc" }, { creadoEn: "desc" }],
+      orderBy: [{ periodoFin: "desc" }, { esOficial: "desc" }, { creadoEn: "desc" }],
       select: {
         id: true,
         clienteId: true,
@@ -43,6 +41,8 @@ export default async function NuevaConciliacionPage() {
         periodoInicio: true,
         periodoFin: true,
         version: true,
+        esOficial: true,
+        estaCongelado: true,
       },
     }),
   ]);
@@ -75,6 +75,8 @@ export default async function NuevaConciliacionPage() {
     periodStart: fechaCalendarioISO(b.periodoInicio),
     periodEnd: fechaCalendarioISO(b.periodoFin),
     version: b.version,
+    esOficial: b.esOficial,
+    estaCongelado: b.estaCongelado,
   }));
   const fieldsByModule: Record<number, StdField[]> = {};
   for (const f of fields) {

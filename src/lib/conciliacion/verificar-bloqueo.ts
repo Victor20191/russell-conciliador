@@ -15,7 +15,8 @@ import { authorizePermiso, type AuthzResult } from "@/lib/rbac";
 import { ROLES_ALCANCE_GLOBAL } from "@/lib/rbac/jerarquia";
 import type { TransactionClient } from "@/lib/concurrency";
 import {
-  cuenta4Russell,
+  alcanceDeCierres,
+  entraEnAlcance,
   ESTADO_CIERRE_FIRME,
   esResponsableSeniorOGerente,
   evaluarCambiosBloqueados,
@@ -37,6 +38,8 @@ export type CierreFirme = {
   cerradoPor: string;
   cerradoEn: Date;
   cuentasRussell: string[];
+  /** Cuentas de 6 dígitos del cierre (Cartera, CxP); vacío en los cierres por cuenta de 4. */
+  cuentasRussell6: string[];
 };
 
 export type CuentaBloqueadaConCierre = CuentaBloqueada & { cierre: CierreFirme };
@@ -63,6 +66,7 @@ function aCierre(c: {
   cerradoPor: string;
   cerradoEn: Date;
   cuentasRussell: unknown;
+  cuentasRussell6: unknown;
 }): CierreFirme {
   return {
     id: c.id,
@@ -74,6 +78,7 @@ function aCierre(c: {
     cerradoPor: c.cerradoPor,
     cerradoEn: c.cerradoEn,
     cuentasRussell: Array.isArray(c.cuentasRussell) ? c.cuentasRussell.map(String) : [],
+    cuentasRussell6: Array.isArray(c.cuentasRussell6) ? c.cuentasRussell6.map(String) : [],
   };
 }
 
@@ -87,6 +92,7 @@ const SELECT_CIERRE = {
   cerradoPor: true,
   cerradoEn: true,
   cuentasRussell: true,
+  cuentasRussell6: true,
 } as const;
 
 /** Cierres EN FIRME de un cliente; con `balancePeriodo` se acota al período del balance. */
@@ -207,7 +213,7 @@ export async function exigirCargueCompatibleConCierres(
   const cierres = await cierresFirmes(clienteId, balancePeriodo, db);
   if (cierres.length === 0) return;
   const bloqueadas = await cuentasBloqueadas(clienteId, balancePeriodo, undefined, db);
-  const cerradas = new Set(cierres.flatMap((c) => c.cuentasRussell));
+  const cerradas = alcanceDeCierres(cierres);
   const violaciones = evaluarCambiosBloqueados(bloqueadas, filasNuevas, cerradas);
   if (violaciones.length > 0) throw new ErrorConciliacionEnFirme(cierres, violaciones);
 }
@@ -246,9 +252,9 @@ export async function bloqueoHomologacionBalance(
       ),
     };
   }
-  const destino4 = cuenta4Russell(p.codigoDestino);
-  if (destino4) {
-    const cierres = (await cierresFirmes(p.clienteId, p.balancePeriodo, db)).filter((c) => c.cuentasRussell.includes(destino4));
+  if (p.codigoDestino) {
+    const cierres = (await cierresFirmes(p.clienteId, p.balancePeriodo, db))
+      .filter((c) => entraEnAlcance(p.codigoDestino, alcanceDeCierres([c])));
     if (cierres.length > 0) {
       return {
         cierres,

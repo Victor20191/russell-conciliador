@@ -5,7 +5,12 @@
 /** nombre de columna del descriptor → texto del filtro (vacío = sin filtro). */
 export type FiltrosDetalleModulo = Record<string, string>;
 
-export type ColumnaFiltro = { nombre: string; tipo: string };
+/**
+ * Una columna filtrable. `familia` la traen las columnas que puso el ARCHIVO y no el
+ * descriptor (los rangos de vencimiento de cartera): su valor no está en una clave plana de
+ * `datos`, así que quien filtra tiene que resolverlo con `ObtenerValorColumna`.
+ */
+export type ColumnaFiltro = { nombre: string; tipo: string; familia?: { clave: string; etiqueta: string } };
 export type FilaFiltrable = { datos: Record<string, string | number | null> };
 export type ObtenerValorColumna<T extends FilaFiltrable> = (
   fila: T,

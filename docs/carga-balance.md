@@ -118,7 +118,7 @@ Algunos archivos no son balances de comprobación completos y la plataforma los 
 - **Ver el balance:** muestra los grandes totales (activo, pasivo, patrimonio, utilidad), el detalle por grupos de cuentas con su mapeo al estándar, las validaciones y el historial de versiones.
 - **Exportar el balance homologado:** genera un Excel donde el número y la descripción del nivel, el código de cuenta y la descripción de la cuenta aparecen en columnas independientes.
 - **Comparar versiones:** evidencia qué cuentas se agregaron, se quitaron o cambiaron entre una versión y otra.
-- **Congelar como oficial:** fija la versión definitiva del período; es la que consumen DIAN y Conciliaciones.
+- **Congelar como oficial:** fija la versión definitiva del período (la que consume DIAN y la que prefieren las conciliaciones de los módulos). No es un requisito para conciliar: sin oficial, el cruce de un módulo usa la versión más reciente del período, y al cerrar la conciliación quedan en firme solo las cuentas de ese módulo.
 
 ---
 
