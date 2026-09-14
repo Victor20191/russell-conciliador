@@ -461,11 +461,8 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
       naturaleza: "C",
       detalleTercero: true,
     },
-    verificaciones: [
-      { id: "cxp_vinculados", texto: "Confirme si existen cuentas por pagar a vinculados económicos." },
-      { id: "cxp_exterior", texto: "Verifique la existencia de obligaciones en moneda extranjera y su reexpresión." },
-      { id: "cxp_conciliatorias", texto: "Confirme si hay partidas conciliatorias sin identificar." },
-    ],
+    // Sin verificaciones manuales al cargar: el borrador no pide confirmar vinculados, moneda
+    // extranjera ni partidas conciliatorias (los cargues anteriores conservan sus respuestas).
   },
 
   // ===== Ingresos / Facturación (ING) → cuentas 41xx =====
