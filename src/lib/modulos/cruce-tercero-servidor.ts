@@ -18,8 +18,8 @@ import "server-only";
  */
 import prisma from "@/lib/prisma";
 import { fmtDateTime } from "@/lib/format";
-import { descriptorModulo, type DescriptorModulo } from "@/lib/modulos/descriptores";
-import { cuenta4DelModulo, filtrarSubgruposPorModulo, prefijosCuentaModulo } from "@/lib/modulos/cuentas-modulo";
+import { descriptorModulo, nivelCruceModulo, type DescriptorModulo } from "@/lib/modulos/descriptores";
+import { claveCruceContable, cuenta4DelModulo, filtrarSubgruposPorModulo, prefijosCuentaModulo } from "@/lib/modulos/cuentas-modulo";
 import { calcularValorContableTercero } from "@/lib/modulos/valor-contable";
 import { esFilaPropiaDeCuenta, filasEfectivasTercero } from "@/lib/balance/staging-tercero";
 import { leerIdentidadTercero } from "@/lib/balance/identidad-tercero";
@@ -28,7 +28,7 @@ import { normalizarTerceroModulo } from "@/lib/modulos/tercero";
 import { claveSinNit } from "@/lib/modulos/cartera/tercero-cartera";
 import { materializarSaldosTercero } from "@/lib/modulos/cartera/saldos-tercero";
 import { filaCarteraDesdeDetalle } from "@/lib/modulos/cartera/detalle-cartera";
-import { ubicadorCuentaCliente } from "@/lib/modulos/cartera/origen-cartera";
+import { origenPorAsignacion } from "@/lib/modulos/cartera/origen-cartera";
 import {
   construirCruceTerceroCartera,
   type MovimientoContableTercero,
@@ -69,8 +69,11 @@ export type InsumosCruceTercero = {
   bloqueo: string | null;
   subgrupos: readonly { codigo: string; nombre: string }[];
   catalogoPrevalidador: InsumosCruceModulo["catalogoPrevalidador"];
-  /** Homologación del cliente, para ubicar la cuenta que trae el archivo del módulo. */
-  cuentasCliente: readonly { code: string; cuenta6Russell: string | null }[];
+  /**
+   * Asignaciones del Consolidado del cliente (cuenta del archivo → cuenta Russell). Deciden qué saldos
+   * del auxiliar entran al cruce y su origen nacional/exterior; la homologación del balance no interviene.
+   */
+  consolidacionRows: InsumosCruceModulo["consolidacionRows"];
   /** Umbral de descuadre ya resuelto por quien llama; sin él se lee de `/config/parametros`. */
   umbralDescuadre?: number;
 };
@@ -108,6 +111,8 @@ export type ResultadoCruceTerceroModulo = {
   umbralDescuadre: number;
   /** Filas contables del módulo sin homologación Russell o sin regla activa. */
   contableExcluidoFilas: number;
+  /** Detalle del balance en cuentas marcadas «no modulares» en el cruce contable: sus NIT no se listan. */
+  contableNoModular: { total: number; filas: number; cuentas: string[] };
   /** El cargue es anterior a los saldos materializados: el lado módulo se calculó del detalle. */
   moduloDerivadoDelDetalle: boolean;
   /** Parte del total del cargue que no quedó atribuida a ningún tercero (debe ser 0). */
@@ -138,6 +143,7 @@ const resultado = (
   emparejamientos: [],
   umbralDescuadre: 0,
   contableExcluidoFilas: 0,
+  contableNoModular: { total: 0, filas: 0, cuentas: [] },
   moduloDerivadoDelDetalle: false,
   moduloNoAtribuido: 0,
 });
@@ -226,7 +232,7 @@ export async function construirCruceTerceroModulo(insumos: InsumosCruceTercero):
   const prefijos = prefijosCuentaModulo(encabezado.moduloCodigo, insumos.catalogoPrevalidador);
   const codigosModulo = new Set(filtrarSubgruposPorModulo([...insumos.subgrupos], prefijos).map((s) => s.codigo));
 
-  const [crudas, emparejamientos, marcas, umbrales] = await Promise.all([
+  const [crudas, emparejamientos, marcas, umbrales, noModularesRows] = await Promise.all([
     prisma.balanceTerceroDetalle.findMany({
       where: {
         encabezadoId: balanceTercero.id,
@@ -241,13 +247,34 @@ export async function construirCruceTerceroModulo(insumos: InsumosCruceTercero):
     emparejamientosDelPeriodo(encabezado.clienteId, encabezado.moduloCodigo, encabezado.periodo),
     marcasTerceroDelPeriodo(encabezado.clienteId, encabezado.moduloCodigo, encabezado.periodo),
     insumos.umbralDescuadre != null ? Promise.resolve({ descuadre: insumos.umbralDescuadre }) : getUmbralesAlertas(),
+    // Cuentas del cliente marcadas «no modulares» en el cruce contable del período (la misma marca).
+    prisma.cuentaNoModularCruce.findMany({
+      where: { marca: { clienteId: encabezado.clienteId, moduloCodigo: encabezado.moduloCodigo, periodo: encabezado.periodo, dimension: "cuenta4" } },
+      select: { cuenta8: true },
+    }),
   ]);
 
   // ===== Lado contable =====
   let contableExcluidoFilas = 0;
   const movimientos: MovimientoContableTercero[] = [];
+  // Las cuentas marcadas «no modulares» en el cruce contable no entran: ni sus terceros ni su fila propia.
+  const noModulares = new Set(noModularesRows.map((n) => n.cuenta8.replace(/\D/g, "")));
+  const esNoModular = (d: (typeof crudas)[number]) => noModulares.has(String(d.cuenta8 ?? "").replace(/\D/g, ""));
+  const contableNoModular = { total: 0, cuentas: new Set<string>() };
+  for (const d of filasEfectivasTercero(crudas.filter(esNoModular))) {
+    contableNoModular.cuentas.add(String(d.cuenta8 ?? "").replace(/\D/g, ""));
+    if (!d.cuenta6Russell) continue;
+    const calculo = calcularValorContableTercero({
+      moduloCodigo: encabezado.moduloCodigo,
+      cuentaRussell: d.cuenta6Russell,
+      fila: { debitos: Number(d.debitos), creditos: Number(d.creditos), saldoFinal: Number(d.saldoFinal) },
+      catalogo: insumos.catalogoPrevalidador,
+      naturaleza: descriptor.crucePorTercero.naturaleza,
+    });
+    if (calculo) contableNoModular.total += calculo.valor;
+  }
   // Dedup de la fila «propia»: una cuenta con detalle usa solo sus terceros.
-  for (const d of filasEfectivasTercero(crudas)) {
+  for (const d of filasEfectivasTercero(crudas.filter((d) => !esNoModular(d)))) {
     if (!d.cuenta6Russell) {
       if (cuenta4DelModulo(d.cuenta4, prefijos)) contableExcluidoFilas += 1;
       continue;
@@ -282,7 +309,19 @@ export async function construirCruceTerceroModulo(insumos: InsumosCruceTercero):
   let moduloDerivadoDelDetalle = false;
   let saldosModulo: SaldoModuloTercero[];
   if (conDetalle) {
-    const cuenta6DelArchivo = ubicadorCuentaCliente(insumos.cuentasCliente);
+    // Qué cuentas del módulo tiene asignadas en el Consolidado cada cuenta del archivo. La cuenta del
+    // archivo solo IDENTIFICA el renglón del Consolidado (misma clave que `consolidarPorClasificador`);
+    // lo que decide si el saldo entra, y su origen nacional/exterior, es la cuenta asignada.
+    const listaModulo = new Set(descriptor.crucePorTercero.cuentasRussell6 ?? []);
+    const porAsignacion = nivelCruceModulo(descriptor) === 6 && listaModulo.size > 0;
+    const asignadas = new Map<string, string[]>();
+    for (const r of insumos.consolidacionRows) {
+      const cuenta = claveCruceContable(r.cuenta6, 6);
+      if (!cuenta || !listaModulo.has(cuenta)) continue;
+      const clave = r.clasificador.trim();
+      asignadas.set(clave, [...new Set([...(asignadas.get(clave) ?? []), cuenta])].sort());
+    }
+    const cuentasDe = (cuentaArchivo: string | null | undefined) => asignadas.get(cuentaArchivo?.trim() || "(sin clasificar)") ?? [];
     const materializados = await prisma.saldoTerceroModulo.findMany({
       where: { encabezadoId: encabezado.id, origen: { in: ["imputable", "agregado"] } },
       select: { claveTercero: true, nombre: true, saldo: true, origenCartera: true, cuentaCliente: true },
@@ -296,13 +335,19 @@ export async function construirCruceTerceroModulo(insumos: InsumosCruceTercero):
         { loteId: "detalle", nivelImputable: nivel },
       ).saldos.filter((s) => s.origen !== "declarado");
     }
-    saldosModulo = fuente.map((s) => ({
-      clave: s.claveTercero,
-      nombre: s.nombre,
-      saldo: s.saldo,
-      origenCartera: origenDe(s.origenCartera),
-      cuenta6: cuenta6DelArchivo(s.cuentaCliente),
-    }));
+    saldosModulo = fuente.map((s) => {
+      const cuentas = porAsignacion ? cuentasDe(s.cuentaCliente) : [];
+      return {
+        clave: s.claveTercero,
+        nombre: s.nombre,
+        saldo: s.saldo,
+        origenCartera: origenPorAsignacion(cuentas, descriptor.crucePorTercero.cuentasExterior, descriptor.crucePorTercero.cuentasNacional)
+          ?? origenDe(s.origenCartera),
+        cuenta6: cuentas[0] ?? null,
+        sinCuentaDelModulo: porAsignacion && cuentas.length === 0,
+        cuentaArchivo: s.cuentaCliente,
+      };
+    });
   } else {
     const rolClave = descriptor.crucePorTercero.rolClave ?? "tercero";
     const rolNombre = descriptor.crucePorTercero.rolNombre ?? null;
@@ -332,6 +377,7 @@ export async function construirCruceTerceroModulo(insumos: InsumosCruceTercero):
     emparejamientos,
     umbralDescuadre: umbrales.descuadre,
     contableExcluidoFilas,
+    contableNoModular: { total: redondear(contableNoModular.total), filas: contableNoModular.cuentas.size, cuentas: [...contableNoModular.cuentas].sort() },
     moduloDerivadoDelDetalle,
     moduloNoAtribuido: Math.abs(noAtribuido) <= 0.01 ? 0 : noAtribuido,
   };
@@ -340,7 +386,7 @@ export async function construirCruceTerceroModulo(insumos: InsumosCruceTercero):
 /**
  * El cruce por tercero de un cargue a partir de los insumos y el resultado del cruce contable
  * que ya calculó quien llama (acciones de marca, emparejamiento y cierre; exportación). Carga lo
- * que el cruce contable no necesita: el detalle con la identidad del tercero y la homologación.
+ * que el cruce contable no necesita: el detalle con la identidad del tercero.
  * `null` si el módulo no cruza por tercero o el cargue ya no existe.
  */
 export async function cruceTerceroDeCargue(
@@ -349,20 +395,14 @@ export async function cruceTerceroDeCargue(
 ): Promise<ResultadoCruceTerceroModulo | null> {
   const descriptor = descriptorModulo(insumos.encabezado.moduloCodigo);
   if (!descriptor?.crucePorTercero.habilitado) return null;
-  const [encabezado, cuentasCliente] = await Promise.all([
-    prisma.moduloDatoEncabezado.findUnique({
-      where: { id: insumos.encabezado.id },
-      select: {
-        total: true,
-        nivelSaldo: true,
-        detalles: { select: { filaNum: true, valor: true, datos: true, nivel: true, imputable: true, cuentaCliente: true, origenCartera: true } },
-      },
-    }),
-    prisma.clientAccount.findMany({
-      where: { clienteId: insumos.encabezado.clienteId, cuenta6Russell: { not: null } },
-      select: { code: true, cuenta6Russell: true },
-    }),
-  ]);
+  const encabezado = await prisma.moduloDatoEncabezado.findUnique({
+    where: { id: insumos.encabezado.id },
+    select: {
+      total: true,
+      nivelSaldo: true,
+      detalles: { select: { filaNum: true, valor: true, datos: true, nivel: true, imputable: true, cuentaCliente: true, origenCartera: true } },
+    },
+  });
   if (!encabezado) return null;
   return construirCruceTerceroModulo({
     encabezado: {
@@ -386,6 +426,6 @@ export async function cruceTerceroDeCargue(
     bloqueo: cruce.bloqueo,
     subgrupos: insumos.subgrupos,
     catalogoPrevalidador: insumos.catalogoPrevalidador,
-    cuentasCliente,
+    consolidacionRows: insumos.consolidacionRows,
   });
 }

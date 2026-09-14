@@ -33,8 +33,12 @@ export type SaldoModuloTercero = {
   nombre: string | null;
   saldo: number;
   origenCartera: "nacional" | "exterior" | null;
-  /** Cuenta Russell de seis dígitos de la cuenta que trae el archivo, si la trae y está homologada. */
+  /** Cuenta Russell de seis dígitos asignada en el Consolidado a la cuenta del archivo, si hay una. */
   cuenta6: string | null;
+  /** La cuenta del archivo no tiene asignada en el Consolidado ninguna cuenta del módulo: no entra al cruce. */
+  sinCuentaDelModulo?: boolean;
+  /** Cuenta del archivo tal como la trae el auxiliar, para decir cuáles faltan por asignar. */
+  cuentaArchivo?: string | null;
 };
 
 export type EstadoCruceTercero = "cuadra" | "descuadre" | "solo_contable" | "solo_modulo" | "sin_saldo";
@@ -78,8 +82,8 @@ export type ResumenCruceTerceroCartera = {
   contableFueraDelModulo: AcumuladoCuentas;
   /** Filas propias de las cuentas del módulo que no tienen detalle por tercero. */
   contableSinTercero: AcumuladoCuentas;
-  /** Del auxiliar, saldos en cuentas del archivo homologadas fuera del módulo. */
-  moduloFueraDelModulo: { total: number; filas: number };
+  /** Del auxiliar, saldos en cuentas del archivo sin una cuenta del módulo asignada en el Consolidado. */
+  moduloFueraDelModulo: AcumuladoCuentas;
   /** Del auxiliar, filas sin tercero identificado. */
   moduloSinTercero: { total: number; filas: number };
 };
@@ -160,7 +164,7 @@ export function construirCruceTerceroCartera(input: {
   const modulo = new Map<string, { nacional: number; exterior: number; sinOrigen: number; total: number; nombre: string | null }>();
   const contableFuera: AcumuladoCuentas = { total: 0, filas: 0, porCuenta: {} };
   const contableSinTercero: AcumuladoCuentas = { total: 0, filas: 0, porCuenta: {} };
-  const moduloFuera = { total: 0, filas: 0 };
+  const moduloFuera: AcumuladoCuentas = { total: 0, filas: 0, porCuenta: {} };
   const moduloSinTercero = { total: 0, filas: 0 };
   const reLlave = new Map(
     (input.emparejamientos ?? []).filter((e) => e.claveModulo !== e.claveBalance).map((e) => [e.claveModulo, e.claveBalance]),
@@ -184,9 +188,8 @@ export function construirCruceTerceroCartera(input: {
   }
 
   for (const s of input.modulo) {
-    if (delModulo && s.cuenta6 && !delModulo.has(s.cuenta6)) {
-      moduloFuera.total += s.saldo;
-      moduloFuera.filas += 1;
+    if (s.sinCuentaDelModulo || (delModulo && s.cuenta6 && !delModulo.has(s.cuenta6))) {
+      acumular(moduloFuera, s.cuentaArchivo?.trim() || s.cuenta6 || "(sin cuenta)", s.saldo);
       continue;
     }
     if (!s.clave) {
@@ -298,7 +301,7 @@ export function construirCruceTerceroCartera(input: {
     sugerenciasPorNombre,
     contableFueraDelModulo: cerrar(contableFuera),
     contableSinTercero: cerrar(contableSinTercero),
-    moduloFueraDelModulo: { total: redondear(moduloFuera.total), filas: moduloFuera.filas },
+    moduloFueraDelModulo: cerrar(moduloFuera),
     moduloSinTercero: { total: redondear(moduloSinTercero.total), filas: moduloSinTercero.filas },
   };
 }

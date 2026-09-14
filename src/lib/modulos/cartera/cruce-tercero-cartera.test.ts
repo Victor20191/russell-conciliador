@@ -62,8 +62,23 @@ describe("construirCruceTerceroCartera", () => {
     expect(r.filas[0]).toMatchObject({ clave: "900123456", estado: "cuadra" });
     expect(r.contableFueraDelModulo).toEqual({ total: 100, filas: 2, porCuenta: { "130515": 40, "130520": 60 } });
     expect(r.contableSinTercero).toEqual({ total: 25, filas: 1, porCuenta: { "130505": 25 } });
-    expect(r.moduloFueraDelModulo).toEqual({ total: 40, filas: 1 });
+    expect(r.moduloFueraDelModulo).toEqual({ total: 40, filas: 1, porCuenta: { "130515": 40 } });
     expect(r.moduloSinTercero).toEqual({ total: 7, filas: 1 });
+  });
+
+  it("lo que el Consolidado no asignó a una cuenta del módulo no entra y se dice qué cuenta del archivo falta", () => {
+    // CxP de Aceros Mapa: 241205 (industria y comercio) no es una cuenta del módulo.
+    const r = construirCruceTerceroCartera({
+      contable: [contable("900123456", "220505", 100)],
+      modulo: [
+        modulo("900123456", 100, { cuenta6: "220505", cuentaArchivo: "22050501" }),
+        modulo("890399011", 49_249_000, { sinCuentaDelModulo: true, cuentaArchivo: "241205" }),
+        modulo("890980093", 231_649_000, { sinCuentaDelModulo: true, cuentaArchivo: "241205" }),
+      ],
+      cuentasModulo: CXP,
+    });
+    expect(r.filas.map((f) => [f.clave, f.estado])).toEqual([["900123456", "cuadra"]]);
+    expect(r.moduloFueraDelModulo).toEqual({ total: 280_898_000, filas: 2, porCuenta: { "241205": 280_898_000 } });
   });
 
   it("clasifica y ordena: diferencias por magnitud, luego lo que cuadra y al final lo que no tiene saldo", () => {

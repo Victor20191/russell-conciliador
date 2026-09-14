@@ -36,6 +36,8 @@ export type CruceTerceroVm = {
   /** Fecha de corte y divisa del cargue (Cartera, CxP); null en los demás módulos. */
   parametros: ParametrosCargueVm | null;
   contableExcluidoFilas: number;
+  /** Cuentas marcadas «no modulares» en el cruce contable: sus NIT no se listan. */
+  contableNoModular: { total: number; filas: number; cuentas: string[] };
   moduloDerivadoDelDetalle: boolean;
   moduloNoAtribuido: number;
   /** Rótulos de la clave del cruce: «NIT»/«Nombre», o «Cédula»/«Empleado» en Nómina. */
@@ -414,10 +416,17 @@ export function CruceTerceroTab({
         {(resumen.moduloFueraDelModulo.filas > 0 || resumen.moduloSinTercero.filas > 0 || cruceTercero.moduloNoAtribuido !== 0) && (
           <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[12px] text-warn-700">
             Del auxiliar no entraron al cruce:
-            {resumen.moduloFueraDelModulo.filas > 0 && <> <b>{fmtContable(resumen.moduloFueraDelModulo.total)}</b> en cuentas del archivo homologadas fuera del módulo;</>}
+            {resumen.moduloFueraDelModulo.filas > 0 && <> <b>{fmtContable(resumen.moduloFueraDelModulo.total)}</b> en cuentas del archivo sin una cuenta del módulo asignada en Consolidado ({Object.entries(resumen.moduloFueraDelModulo.porCuenta).map(([cuenta, valor]) => `${cuenta} ${fmtContable(valor)}`).join(" · ")});</>}
             {resumen.moduloSinTercero.filas > 0 && <> <b>{fmtContable(resumen.moduloSinTercero.total)}</b> en {contar(resumen.moduloSinTercero.filas)} {resumen.moduloSinTercero.filas === 1 ? "fila" : "filas"} sin tercero identificado;</>}
             {cruceTercero.moduloNoAtribuido !== 0 && <> <b>{fmtContable(cruceTercero.moduloNoAtribuido)}</b> que no quedaron atribuidos a ningún tercero al cargar;</>}
-            {" "}revísalos en el detalle del cargue.
+            {resumen.moduloFueraDelModulo.filas > 0 ? " asigna esas cuentas en la pestaña Consolidado o" : ""}{" "}revísalos en el detalle del cargue.
+          </div>
+        )}
+        {cruceTercero.contableNoModular.filas > 0 && (
+          <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">
+            Se excluyeron <b>{fmtContable(cruceTercero.contableNoModular.total)}</b> de {contar(cruceTercero.contableNoModular.filas)}{" "}
+            {cruceTercero.contableNoModular.filas === 1 ? "cuenta marcada no modular" : "cuentas marcadas no modulares"} en el cruce contable
+            ({cruceTercero.contableNoModular.cuentas.join(", ")}): sus NIT no se listan.
           </div>
         )}
         {cruceTercero.contableExcluidoFilas > 0 && (

@@ -45,7 +45,7 @@ import { esImputable, promoverStaging, type FilaStagingModulo } from "@/lib/modu
 import { CLAVE_MONEDA, datosConExtrasCartera, filaCarteraDesdeDetalle, rotulosDeEdades } from "@/lib/modulos/cartera/detalle-cartera";
 import { esMonedaExtranjera, validarTrm } from "@/lib/modulos/cartera/moneda";
 import { fechaISO as fechaDeCelda, finDePeriodo } from "@/lib/modulos/cartera/fecha-corte";
-import { resolverOrigenCartera, ubicadorCuentaCliente } from "@/lib/modulos/cartera/origen-cartera";
+import { resolverOrigenCartera } from "@/lib/modulos/cartera/origen-cartera";
 import { fechaCalendarioISO, fechaCalendarioPrisma } from "@/lib/fecha-hora";
 import { getTRM } from "@/lib/ia/trm";
 import { materializarSaldosTercero, type NivelCartera } from "@/lib/modulos/cartera/saldos-tercero";
@@ -1546,17 +1546,6 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
           monedaArchivo: typeof specLote.monedaArchivo === "string" ? specLote.monedaArchivo : null,
         };
       })() : null;
-      // La cuenta que trae cada fila decide su origen (130510 exterior, 130505 nacional): se ubica
-      // por la homologación del cliente o, si no está homologada, por sus propios dígitos PUC.
-      const ubicarCuenta = cartera
-        ? ubicadorCuentaCliente(
-            await tx.clientAccount.findMany({
-              where: { clienteId: loteActual.clienteId, cuenta6Russell: { not: null } },
-              select: { code: true, cuenta6Russell: true },
-            }),
-            { usarPropia: true },
-          )
-        : null;
       // Fecha de corte del cargue: la que declaró quien cargó o, por defecto, el fin del período.
       const fechaCorteCargue = cartera ? cartera.fechaCorte ?? finDePeriodo(periodo) : null;
 
@@ -1571,10 +1560,9 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
           imputable,
           nitCanonico: t.claveCanonica,
           cuentaCliente: typeof f.datos.cuenta === "string" ? f.datos.cuenta : null,
+          // Sin la cuenta del archivo: en el cruce por tercero manda la cuenta asignada en el
+          // Consolidado (`origenPorAsignacion`); esto es el respaldo cuando la asignación no decide.
           origenCartera: resolverOrigenCartera({
-            cuenta6: ubicarCuenta?.(f.datos.cuenta) ?? null,
-            cuentasExterior: descriptor.crucePorTercero.cuentasExterior,
-            cuentasNacional: descriptor.crucePorTercero.cuentasNacional,
             declarado: cartera.origenDeclarado as "nacional" | "exterior" | null,
             moneda: typeof f.datos[CLAVE_MONEDA] === "string" ? (f.datos[CLAVE_MONEDA] as string) : cartera.monedaArchivo,
             sugerido: t.origenSugerido,

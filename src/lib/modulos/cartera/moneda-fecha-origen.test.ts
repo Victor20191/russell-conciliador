@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { aPesos, esMonedaExtranjera, monedaPorNombreHoja, montoConDivisa, normalizarMoneda, validarTrm } from "./moneda";
 import { deducirFechaCorte, diasEntre, fechaISO, finDePeriodo, sumarDias } from "./fecha-corte";
-import { resolverOrigenCartera, ubicadorCuentaCliente } from "./origen-cartera";
+import { origenPorAsignacion, resolverOrigenCartera } from "./origen-cartera";
 
 describe("moneda", () => {
   it("normaliza códigos y nombres, y descarta lo que no es una moneda", () => {
@@ -53,22 +53,24 @@ describe("fecha de corte", () => {
 });
 
 describe("origen de la cartera", () => {
-  const base = { cuentasExterior: ["130510"], cuentasNacional: ["130505"], declarado: null, moneda: null, sugerido: null } as const;
+  const base = { declarado: null, moneda: null, sugerido: null } as const;
 
-  it("manda la cuenta de la fila, luego lo declarado, la moneda y la sugerencia", () => {
-    expect(resolverOrigenCartera({ ...base, cuenta6: "130510", declarado: "nacional" })).toBe("exterior");
-    expect(resolverOrigenCartera({ ...base, cuenta6: "130505", declarado: "exterior" })).toBe("nacional");
-    expect(resolverOrigenCartera({ ...base, cuenta6: null, declarado: "exterior" })).toBe("exterior");
-    expect(resolverOrigenCartera({ ...base, cuenta6: null, declarado: "mixta", moneda: "USD" })).toBe("exterior");
-    expect(resolverOrigenCartera({ ...base, cuenta6: "138025", declarado: "mixta", sugerido: "exterior" })).toBe("exterior");
-    expect(resolverOrigenCartera({ ...base, cuenta6: null })).toBeNull();
+  it("al cargar: lo declarado, luego la moneda y la sugerencia; la cuenta del archivo no interviene", () => {
+    expect(resolverOrigenCartera({ ...base, declarado: "nacional" })).toBe("nacional");
+    expect(resolverOrigenCartera({ ...base, declarado: "exterior" })).toBe("exterior");
+    expect(resolverOrigenCartera({ ...base, declarado: "mixta", moneda: "USD" })).toBe("exterior");
+    expect(resolverOrigenCartera({ ...base, declarado: "mixta", sugerido: "exterior" })).toBe("exterior");
+    expect(resolverOrigenCartera({ ...base })).toBeNull();
   });
 
-  it("ubica la cuenta del archivo por la homologación del cliente o, si se pide, por sus propios dígitos", () => {
-    const cuentas = [{ code: "13051001", cuenta6Russell: "130510" }, { code: "1305", cuenta6Russell: "130505" }];
-    const ubicar = ubicadorCuentaCliente(cuentas);
-    expect([ubicar("13051001"), ubicar("13050599"), ubicar("280505"), ubicar(null)]).toEqual(["130510", "130505", null, null]);
-    expect(ubicadorCuentaCliente(cuentas, { usarPropia: true })("280505")).toBe("280505");
+  it("al leer: manda la cuenta asignada en el Consolidado cuando decide", () => {
+    const exterior = ["130510"];
+    const nacional = ["130505"];
+    expect(origenPorAsignacion(["130510"], exterior, nacional)).toBe("exterior");
+    expect(origenPorAsignacion(["130505"], exterior, nacional)).toBe("nacional");
+    expect(origenPorAsignacion(["130505", "130510"], exterior, nacional)).toBeNull(); // mixta
+    expect(origenPorAsignacion(["280505"], exterior, nacional)).toBeNull(); // anticipos: manda lo guardado
+    expect(origenPorAsignacion([], exterior, nacional)).toBeNull();
   });
 });
 

@@ -259,7 +259,7 @@ export default async function DatoModuloPage({
         bloqueo: cruce.bloqueo,
         subgrupos,
         catalogoPrevalidador,
-        cuentasCliente,
+        consolidacionRows,
       })
     : null;
 
@@ -370,6 +370,7 @@ export default async function DatoModuloPage({
         }
       : null,
     contableExcluidoFilas: cruceTercero?.contableExcluidoFilas ?? 0,
+    contableNoModular: cruceTercero?.contableNoModular ?? { total: 0, filas: 0, cuentas: [] },
     moduloDerivadoDelDetalle: cruceTercero?.moduloDerivadoDelDetalle ?? false,
     moduloNoAtribuido: cruceTercero?.moduloNoAtribuido ?? 0,
     ...etiquetasCruceTercero(descriptor),

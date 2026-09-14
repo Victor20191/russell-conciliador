@@ -322,7 +322,7 @@ function hojaCruceTercero(wb: ExcelJS.Workbook, cruce: CruceTerceroExportModulo,
   const notas: [string, number][] = [
     ["Contabilidad en cuentas que no hacen parte del módulo", resumen.contableFueraDelModulo.total],
     ["Contabilidad en cuentas sin detalle por tercero", resumen.contableSinTercero.total],
-    ["Auxiliar en cuentas homologadas fuera del módulo", resumen.moduloFueraDelModulo.total],
+    ["Auxiliar en cuentas sin cuenta del módulo asignada en Consolidado", resumen.moduloFueraDelModulo.total],
     ["Auxiliar sin tercero identificado", resumen.moduloSinTercero.total],
   ];
   ws.addRow({});

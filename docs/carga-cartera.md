@@ -28,8 +28,8 @@ que dicen el origen.
      cargue y no se guardan en el perfil.
 6. **Borrador y confirmación.** Al confirmar se guarda el detalle, el saldo por tercero
    (`cartera_saldo_tercero`), la TRM y la fecha de corte del encabezado, y el origen de cada fila:
-   la cuenta de la fila (130510/221005 exterior, 130505/220505 nacional), lo declarado, la moneda y
-   la forma del identificador. Un anexo del período con otra TRM se rechaza.
+   lo declarado, la moneda y la forma del identificador. En el cruce por tercero manda la cuenta
+   asignada en Consolidado (130510/221005 exterior, 130505/220505 nacional). Un anexo del período con otra TRM se rechaza.
 
 ## 2. Revisión (`/modulos/[codigo]/[id]`)
 
@@ -48,7 +48,9 @@ que dicen el origen.
 - **Cruce contable.** Por cuenta Russell de 6 dígitos, con el signo del módulo (Cartera débito, CxP
   crédito): un anticipo resta en los dos lados, como en el auxiliar (la 2805 en Cartera, la 1330 en
   CxP), en vez de mostrarse con la naturaleza de su propia cuenta.
-- **Cruce por tercero.** El mismo balance y las mismas compuertas del cruce contable, contra el
+- **Cruce por tercero.** Del auxiliar entran los NIT de las cuentas del archivo asignadas en
+  Consolidado a una cuenta del módulo; del balance, los NIT de esas cuentas sin las marcadas no
+  modulares en el cruce contable. El mismo balance y las mismas compuertas del cruce contable, contra el
   detalle por tercero ligado a ese balance. Un renglón por tercero con la contabilidad por cuenta de
   6 dígitos y el auxiliar nacional/exterior. Las cuentas del grupo que no son del módulo y las que
   no tienen detalle por tercero se informan aparte. Los terceros sin saldo en ningún lado se ocultan de
