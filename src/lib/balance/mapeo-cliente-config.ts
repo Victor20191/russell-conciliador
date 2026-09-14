@@ -68,6 +68,19 @@ export function reglaMapeoAplicable(fila: FilaMapeoCliente): boolean {
   return !cruzaClaseContable(fila.code, fila.cuenta6Russell);
 }
 
+/**
+ * ¿Este código puede ser una cuenta del PUC del cliente? Solo dígitos. Las filas
+ * de pie de un archivo («Total general», «Totales», «Procesado en: …») llegaban
+ * al detalle con código VACÍO en cargues de julio de 2026 —antes de que
+ * `reclasificarNoImputables` las apartara— y el volcado del PUC las escribía en
+ * `cuentas_cliente` como una cuenta más (código "", nivel 2). Son inertes para la
+ * homologación (`construirConfigMapeoCliente` ignora códigos cortos) pero
+ * ensucian el PUC del cliente en /config/mapeo. El volcado las descarta con esto.
+ */
+export function esCodigoCuentaCliente(code: string): boolean {
+  return /^\d+$/.test(code);
+}
+
 /** Nivel PUC que corresponde a la longitud del código del cliente. */
 export function nivelPorCodigo(code: string): number {
   return code.length;
@@ -204,4 +217,30 @@ export function esPendienteCodigo(
 ): boolean {
   if (!pendientes || pendientes.size === 0) return false;
   return pendientes.has(code) || pendientes.has(code.slice(0, 6));
+}
+
+/**
+ * Fila que GOBIERNA un grupo de seis dígitos entre `filas`: aplica el mismo orden
+ * canónico que `construirConfigMapeoCliente` (manual > exacta de nivel 6 > más
+ * reciente > mayor coincidencia > código/id) y descarta lo que no puede gobernar:
+ * filas sin estándar, códigos cortos, reglas automáticas que cruzan de clase y
+ * excepciones de cuenta. `undefined` si nadie gobierna el grupo.
+ *
+ * Sirve para explicar UNA decisión —qué regla manda sobre esta auxiliar y de dónde
+ * sale— sin construir el mapa completo; el mapa sigue siendo la autoridad de la carga.
+ */
+export function elegirReglaGrupo(
+  filas: readonly FilaMapeoCliente[],
+  cuenta6: string,
+): FilaMapeoCliente | undefined {
+  const candidatas = filas.filter(
+    (f) =>
+      !!f.cuenta6Russell &&
+      f.code.length >= 6 &&
+      f.code.slice(0, 6) === cuenta6 &&
+      !esExcepcionCuenta(f.origenMapeo) &&
+      reglaMapeoAplicable(f),
+  );
+  if (candidatas.length === 0) return undefined;
+  return [...candidatas].sort((a, b) => comparar(a, b, cuenta6))[0];
 }

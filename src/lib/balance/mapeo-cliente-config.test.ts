@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   construirConfigMapeoCliente,
+  elegirReglaGrupo,
+  esCodigoCuentaCliente,
   esMapeoManual,
   esPendiente,
   esPendienteCodigo,
@@ -185,5 +187,48 @@ describe("marcador «Pendiente por Asignar»", () => {
     expect(esPendienteCodigo(pendientes, "999999")).toBe(false);
     expect(esPendienteCodigo(undefined, "510506")).toBe(false);
     expect(esPendienteCodigo(new Set(), "510506")).toBe(false);
+  });
+});
+
+describe("elegirReglaGrupo", () => {
+  it("elige la misma fila que gobierna en construirConfigMapeoCliente", () => {
+    const filas: FilaMapeoCliente[] = [
+      { id: 1, code: "110505", cuenta6Russell: "110501", coincidencia: 100, origenMapeo: "automatico" },
+      { id: 2, code: "11050501", cuenta6Russell: "110599", coincidencia: 100, origenMapeo: "manual" },
+      { id: 3, code: "11050502", cuenta6Russell: "110595", coincidencia: 100, origenMapeo: "manual_cuenta" },
+    ];
+    const elegida = elegirReglaGrupo(filas, "110505");
+    expect(elegida?.id).toBe(2);
+    expect(elegida?.cuenta6Russell).toBe(construirConfigMapeoCliente(filas).get("110505")?.std);
+    // Mismo resultado sin depender del orden de entrada.
+    expect(elegirReglaGrupo([...filas].reverse(), "110505")?.id).toBe(2);
+  });
+
+  it("descarta excepciones, automáticas que cruzan de clase, códigos cortos y otros grupos", () => {
+    const filas: FilaMapeoCliente[] = [
+      { id: 1, code: "4160", cuenta6Russell: "410530", coincidencia: 100, origenMapeo: "manual" },
+      { id: 2, code: "416005", cuenta6Russell: "616005", coincidencia: 90, origenMapeo: "automatico" },
+      { id: 3, code: "41600501", cuenta6Russell: "410530", coincidencia: 100, origenMapeo: "manual_cuenta" },
+      { id: 4, code: "416010", cuenta6Russell: "410510", coincidencia: 100, origenMapeo: "manual" },
+    ];
+    expect(elegirReglaGrupo(filas, "416005")).toBeUndefined();
+  });
+
+  it("una manual que cruza de clase sí gobierna: es una decisión humana", () => {
+    const filas: FilaMapeoCliente[] = [
+      { id: 1, code: "616560", cuenta6Russell: "151605", coincidencia: 100, origenMapeo: "manual" },
+    ];
+    expect(elegirReglaGrupo(filas, "616560")?.id).toBe(1);
+  });
+});
+
+describe("esCodigoCuentaCliente", () => {
+  it("acepta solo códigos numéricos: los pies de archivo sin código no son cuentas", () => {
+    expect(esCodigoCuentaCliente("110505")).toBe(true);
+    expect(esCodigoCuentaCliente("4160050115")).toBe(true);
+    expect(esCodigoCuentaCliente("")).toBe(false);
+    expect(esCodigoCuentaCliente("Totales")).toBe(false);
+    expect(esCodigoCuentaCliente("Procesado en: Mayo 06 2026 16:03")).toBe(false);
+    expect(esCodigoCuentaCliente("1105-05")).toBe(false);
   });
 });

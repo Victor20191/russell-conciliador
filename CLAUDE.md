@@ -38,6 +38,7 @@ npm run db:seed:novedades       # siembra versiones/novedades demo
 npm run db:load:subgrupos       # carga los subgrupos estándar
 npm run db:importar:erps-clientes  # asigna ERP a clientes por NIT desde un Excel
 npm run db:purgar:accesos       # purga la bitácora de accesos
+npm run db:purgar:cuentas-sin-codigo  # borra filas «fantasma» de cuentas_cliente con código no numérico (dry-run; --aplicar / --revertir <snapshot>)
 
 # Golden tests del borrador de balance (fixtures JSON commiteados, sin BD)
 CAPTURAR_GOLDEN=1 npx vitest run src/lib/balance/golden/capturar.test.ts   # re-captura desde staging real (dev-only)
@@ -122,6 +123,8 @@ Lo que decide cómo se homologa una cuenta del cliente en la SIGUIENTE carga viv
 **Jerarquía y procedencia**: cada promoción conserva las cuentas originales, incluidas las agrupadoras y sus nombres, en `balance_prueba_encabezado.puc_cliente` antes de purgar staging. El PUC acumula esos catálogos con la memoria y el detalle histórico. No se crean prefijos ausentes como cuentas. El catálogo conserva `tipo_fila` (movimiento/agrupadora); los snapshots legados se contrastan con el detalle de su propio balance. Las agrupadoras no cuentan como movimientos sin asignar. Los resúmenes de clase rellenados con ceros se excluyen cuando el catálogo más reciente acredita que son agrupadoras, salvo una decisión manual explícita o movimiento posterior. La memoria automática sin respaldo ni homologación se omite; se conservan los grupos memorizados con descendientes reales, las reglas guardadas y las decisiones manuales. Los cambios de homologación nuevos registran `cuentas_cliente.procedencia_mapeo` (configuración, edición en balance o carga; balance/lote/período cuando aplica). La vista muestra autor, fecha y enlace al balance de origen si sigue disponible para ese cliente. El historial anterior queda «Origen no registrado» cuando no hay evidencia.
 
 **Plan Russell en `/config/mapeo`** (solo el plan; la homologación por cliente vive en `/config/mapeo-cliente`): «PUC Estándar Russell» muestra N1/N2/N4/N6 con sangría y naturaleza propia en N4/N6; «Nueva Cuenta» conserva el CRUD de N4. «Plan Estándar» conserva el detalle de subcuentas y «Nueva Subcuenta» inicia en nivel 6. La descarga completa contiene el árbol y el detalle en hojas separadas, aunque haya un filtro en pantalla. No cambia las reglas de congelado ni la compuerta de conciliación. Las decisiones de Santi sobre congelado/reemplazo, comparación entre tipos de cargue y cuentas no modulares quedan pendientes.
+
+**Acciones heredadas de la rama `balance-russell-prueba-2`** (sin UI propia hoy; la pantalla vigente es `/config/mapeo-cliente`): `alinearMapeoConGrupo` (copia la regla gobernante con su MISMO origen vía `planAlinearConGrupo`/`elegirReglaGrupo`) y `declararExcepcionMapeo` (→ `manual_cuenta` al 100%) en `mapeo-cliente.ts`, ambas con la guarda de conciliación en firme; `reaplicarMapeoBalancesCliente` en `balance.ts` re-homologa todos los balances no congelados del cliente, uno por transacción, con el mismo núcleo (`rehomologarBalance`) que «Re-homologar» del detalle. `editarMapeoCliente` deja SIEMPRE excepción `manual_cuenta` al editar una auxiliar (más de 6 dígitos). El volcado del PUC descarta códigos no numéricos (`esCodigoCuentaCliente`).
 
 ### Umbrales de alertas parametrizables
 
