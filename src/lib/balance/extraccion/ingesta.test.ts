@@ -17,6 +17,33 @@ function libroXls(hojas: Record<string, (string | number)[][]>): ArrayBuffer {
   return XLSX.write(wb, { type: "array", bookType: "biff8" }) as ArrayBuffer;
 }
 
+function libroXlsb(hojas: Record<string, (string | number | null)[][]>): ArrayBuffer {
+  const wb = XLSX.utils.book_new();
+  for (const [nombre, filas] of Object.entries(hojas)) {
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(filas), nombre);
+  }
+  return XLSX.write(wb, { type: "array", bookType: "xlsb" }) as ArrayBuffer;
+}
+
+/** Libro .xlsb con celdas de fórmula: una con cache != 0 y otra con cache === 0 (falsy). */
+function libroXlsbConFormulas(): ArrayBuffer {
+  const wb = XLSX.utils.book_new();
+  const ws: XLSX.WorkSheet = {
+    A1: { t: "s", v: "Código" },
+    B1: { t: "s", v: "Nombre" },
+    C1: { t: "s", v: "Saldo" },
+    A2: { t: "s", v: "110505" }, // código texto: no debe convertirse a número
+    B2: { t: "s", v: "Caja general" },
+    C2: { t: "n", v: 555, f: "SUM(1,554)" }, // fórmula con valor cacheado != 0
+    A3: { t: "s", v: "110510" },
+    B3: { t: "s", v: "Caja menor" },
+    C3: { t: "n", v: 0, f: "C2-555" }, // fórmula con valor cacheado === 0 (falsy)
+    "!ref": "A1:C3",
+  };
+  XLSX.utils.book_append_sheet(wb, ws, "Balance");
+  return XLSX.write(wb, { type: "array", bookType: "xlsb" }) as ArrayBuffer;
+}
+
 async function libroXlsxConMetadataTolerada(): Promise<ArrayBuffer> {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
@@ -121,6 +148,37 @@ describe("detectarFormato", () => {
 });
 
 describe("ingerir Excel moderno (.xlsx)", () => {
+  it("conserva textos, negrita y coordenadas cuando las hojas preceden a sus metadatos", async () => {
+    const libro = new ExcelJS.Workbook();
+    const hoja = libro.addWorksheet("Balance");
+    hoja.getCell("A3").value = "Cuenta";
+    hoja.getCell("A3").font = { bold: true };
+    hoja.getCell("B3").value = { richText: [{ text: "Descripción " }, { text: "& nombre" }] };
+    hoja.getCell("A5").value = "001105";
+    hoja.getCell("B5").value = "Caja <principal>";
+    hoja.getCell("C5").value = { formula: "1-1", result: 0 };
+    libro.addWorksheet("Otra hoja").getCell("A1").value = "Segundo informe";
+    const zip = await JSZip.loadAsync(await libro.xlsx.writeBuffer());
+    const entradas = Object.keys(zip.files).filter((nombre) => !zip.files[nombre].dir);
+    const reordenado = new JSZip();
+    for (const nombre of [
+      ...entradas.filter((nombre) => /^xl\/worksheets\/sheet\d+\.xml$/.test(nombre)),
+      ...entradas.filter((nombre) => !/^xl\/worksheets\/sheet\d+\.xml$/.test(nombre)),
+    ]) reordenado.file(nombre, await zip.files[nombre].async("uint8array"), { createFolders: false });
+    const bytes = await reordenado.generateAsync({ type: "arraybuffer", compression: "DEFLATE" });
+    for (let intento = 0; intento < 3; intento++) {
+      const leido = await ingerir(bytes, "balance.xlsx");
+      expect(leido.modo).toBe("tabular");
+      if (leido.modo !== "tabular") throw new Error("Se esperaba una tabla");
+      expect(leido.hojas[0].filas[0].slice(0, 2)).toEqual(["Cuenta", "Descripción & nombre"]);
+      expect(leido.hojas[0].filas[1]).toEqual(["001105", "Caja <principal>", 0]);
+      expect(leido.hojas[0].filasFisicas).toEqual([3, 5]);
+      expect(leido.hojas[0].negrita?.[0][0]).toBe(true);
+      expect(leido.hojas[1].filas).toEqual([["Segundo informe"]]);
+    }
+    expect((await leerCeldaFisicaArchivo(bytes, "balance.xlsx", "Balance", 5, 3)).valor).toBe(0);
+  });
+
   it("usa el lector alterno cuando la metadata del ERP es reparable", async () => {
     const ingesta = await ingerir(await libroXlsxConMetadataTolerada(), "inventario.xlsx");
     expect(ingesta.modo).toBe("tabular");
@@ -321,8 +379,119 @@ describe("ingerir Excel 97-2003 (.xls)", () => {
     await expect(ingerir(cfbTruncado, "balance.xls")).rejects.toThrow(/Excel 97-2003 válido/i);
   });
 
-  it("mantiene .xlsb fuera del alcance", async () => {
-    await expect(ingerir(buf("no soy xlsb"), "balance.xlsb")).rejects.toThrow(/\.xlsb no se procesa/i);
+});
+
+describe("ingerir Excel binario (.xlsb)", () => {
+  it("lee un libro .xlsb con varias hojas, saltando filas vacías y conservando la fila física", async () => {
+    const data = libroXlsb({
+      Balance: [
+        ["Código", "Cuenta"],
+        ["1105", "Caja"],
+        [null, null],
+        ["1110", "Bancos"],
+      ],
+      Retenciones: [["Concepto", "Valor"], ["Rete IVA", 1000]],
+    });
+    const ingesta = await ingerir(data, "balance.xlsb");
+    expect(ingesta.modo).toBe("tabular");
+    if (ingesta.modo !== "tabular") return;
+    expect(ingesta.hojas).toHaveLength(2);
+
+    const [balance, retenciones] = ingesta.hojas;
+    expect(balance.nombre).toBe("Balance");
+    // La fila vacía (física #4) se omite de la grilla compacta, pero las
+    // filas físicas de las que sí traen datos se conservan (1, 2 y 4→ la de "Bancos" es la física #4).
+    expect(balance.filas).toEqual([
+      ["Código", "Cuenta"],
+      ["1105", "Caja"],
+      ["1110", "Bancos"],
+    ]);
+    expect(balance.filasFisicas).toEqual([1, 2, 4]);
+
+    expect(retenciones.nombre).toBe("Retenciones");
+    expect(retenciones.filas).toEqual([["Concepto", "Valor"], ["Rete IVA", 1000]]);
+  });
+
+  it("conserva el valor cacheado de una fórmula .xlsb aunque sea 0 (falsy) y no interpreta códigos texto como número", async () => {
+    const ingesta = await ingerir(libroXlsbConFormulas(), "balance.xlsb");
+    expect(ingesta.modo).toBe("tabular");
+    if (ingesta.modo !== "tabular") return;
+    const [hoja] = ingesta.hojas;
+    expect(hoja.filas).toEqual([
+      ["Código", "Nombre", "Saldo"],
+      ["110505", "Caja general", 555],
+      ["110510", "Caja menor", 0],
+    ]);
+    // Los códigos de cuenta son texto, no números (aunque parezcan numéricos).
+    expect(typeof hoja.filas[1][0]).toBe("string");
+  });
+
+  it("no trunca en 65.536 filas como sí ocurre en .xls (BIFF8)", async () => {
+    // El escritor .xlsb de SheetJS recorre todo el rango declarado en `!ref`
+    // (ocupado o no): usar un rango disperso —solo encabezado y última fila
+    // pobladas— mantiene la prueba honesta sin pagar el costo de poblar 65.540
+    // filas reales; lo que se verifica es que la ÚLTIMA fila (más allá del
+    // tope BIFF8 de 65.536) sobrevive a la lectura, y que NO se fija ningún
+    // `sheetRows` como sí ocurre en el lector de .xls.
+    const ULTIMA_FILA = 65_540;
+    const wb = XLSX.utils.book_new();
+    const ws: XLSX.WorkSheet = {
+      A1: { t: "s", v: "Código" },
+      B1: { t: "s", v: "Valor" },
+      [`A${ULTIMA_FILA}`]: { t: "s", v: "C-ULTIMA" },
+      [`B${ULTIMA_FILA}`]: { t: "n", v: 999 },
+      "!ref": `A1:B${ULTIMA_FILA}`,
+    };
+    XLSX.utils.book_append_sheet(wb, ws, "Balance");
+    const data = XLSX.write(wb, { type: "array", bookType: "xlsb" }) as ArrayBuffer;
+
+    const ingesta = await ingerir(data, "balance.xlsb");
+    expect(ingesta.modo).toBe("tabular");
+    if (ingesta.modo !== "tabular") return;
+    const hoja = ingesta.hojas[0];
+    expect(hoja.filas).toEqual([
+      ["Código", "Valor"],
+      ["C-ULTIMA", 999],
+    ]);
+    // La fila física de la última fila conserva su número real (65.540), no un
+    // índice recortado a 65.536.
+    expect(hoja.filasFisicas).toEqual([1, ULTIMA_FILA]);
+  }, 60_000);
+
+  it("rechaza un .xlsb ilegible con un mensaje claro", async () => {
+    const zipTruncado = Uint8Array.from([0x50, 0x4b, 0x03, 0x04, 0, 0, 0, 0, 0, 0]).buffer;
+    await expect(ingerir(zipTruncado, "balance.xlsb")).rejects.toThrow(/\.xlsb.*válido/i);
+  });
+
+  it("rechaza texto plano disfrazado de .xlsb en vez de leerlo como una hoja inventada", async () => {
+    // SheetJS es tolerante: si `XLSX.read` no reconoce ninguna firma de libro
+    // cae a un parser de texto plano y devuelve un "Sheet1" de una columna con
+    // el contenido partido por líneas, SIN lanzar. Sin la validación previa del
+    // contenedor ZIP (xl/workbook.bin), este CSV renombrado a .xlsb se colaría
+    // como un balance de una sola cuenta inventada en vez de fallar.
+    await expect(
+      ingerir(buf("codigo,cuenta,saldo\n1105,Caja,1000\n"), "balance.xlsb"),
+    ).rejects.toThrow(/\.xlsb.*válido/i);
+  });
+
+  it("rechaza un .zip válido sin xl/workbook.bin (p. ej. un .xlsx renombrado a .xlsb)", async () => {
+    const zip = new JSZip();
+    zip.file("hola.txt", "esto es un zip cualquiera, no un libro BIFF12");
+    const data = await zip.generateAsync({ type: "arraybuffer" });
+    await expect(ingerir(data, "balance.xlsb")).rejects.toThrow(/\.xlsb.*válido/i);
+  });
+
+  it("leerCeldaFisicaArchivo resuelve una coordenada de un .xlsb", async () => {
+    const data = libroXlsb({
+      Balance: [
+        ["Código", "Cuenta"],
+        ["1105", "Caja"],
+        [null, null],
+        ["1110", "Bancos"],
+      ],
+    });
+    const celda = await leerCeldaFisicaArchivo(data, "balance.xlsb", "Balance", 4, 2);
+    expect(celda).toEqual({ hojaExiste: true, filaExiste: true, valor: "Bancos" });
   });
 });
 

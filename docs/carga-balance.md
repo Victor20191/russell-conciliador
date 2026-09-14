@@ -66,6 +66,8 @@ La inteligencia artificial actúa como un **asistente contable experto en lectur
 
 Sobre lo que la IA interpreta, la plataforma aplica además **controles automáticos** (descritos en el punto 7) para asegurar que la carga sea correcta y no dependa solo del criterio del modelo.
 
+El cargador admite también Excel binario (`.xlsb`), con selección de hoja y lectura de los valores guardados. En este formato no recupera la negrita; sus perfiles deben distinguir las cuentas por códigos, columnas o niveles. La búsqueda de perfiles de balance considera las primeras 60 filas no vacías, para reconocer reportes que empiezan con parámetros del sistema contable. Los rótulos `TOTAL` y `SUBTOTAL` seguidos de una cuenta al pie del detalle no se usan como evidencia de cabeceras de terceros por su negrita.
+
 ### Por qué es eficiente y confiable
 
 - **Eficiente:** para archivos grandes (miles de cuentas), la IA se concentra en **entender la estructura** del archivo y la plataforma procesa el resto de las filas de forma automática. Así la carga es rápida y de bajo costo, incluso con balances extensos.

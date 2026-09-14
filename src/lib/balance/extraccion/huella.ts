@@ -60,6 +60,11 @@ export function huellasCandidatas(hojas: GridHoja[], maxFilas = 15): HuellaCandi
   return candidatas;
 }
 
+/** Incluye los encabezados posteriores al bloque técnico de exports como SAP. */
+export function huellasCandidatasBalance(hojas: GridHoja[]): HuellaCandidata[] {
+  return huellasCandidatas(hojas, 60);
+}
+
 // ---------------- Detección determinista de NIT ----------------
 
 // Label + número en la MISMA celda: «NIT: 890.903.938-8», «N.I.T 800123456»,

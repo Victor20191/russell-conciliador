@@ -284,6 +284,49 @@ function resolverCabecera(
 
 type FilaParcial = { code: string; name: string; si: number; db: number; cr: number; saldo: number };
 
+// Rótulo de encabezado que identifica SIN AMBIGÜEDAD la columna del NOMBRE del
+// tercero (razón social), distinta de "Nombre cuenta contable" (no trae
+// tercero/proveedor/cliente) y de dimensiones sin identidad propia como
+// "Sucursal"/"Centro de costo".
+const ENCABEZADO_NOMBRE_TERCERO = /(nombre|raz[oó]n)\s*(de\s*|del\s*)?(tercero|proveedor|cliente|acreedor|deudor|social)/i;
+
+/**
+ * Sana en LECTURA (sin tocar el perfil guardado) un spec que mapeó la columna
+ * del DOCUMENTO del tercero (`tercero`) pero no la de su NOMBRE
+ * (`nombreTercero`): algunos perfiles quedaron guardados así porque el modelo
+ * no marcó esa columna al crear el perfil. Busca en la fila de encabezado
+ * declarada (`spec.filaEncabezado`) una columna aún sin uso cuyo rótulo
+ * identifique el nombre del tercero. Sin exactamente una coincidencia no
+ * resuelve nada (no adivina entre "Nombre cuenta contable" y "Sucursal").
+ */
+export function resolverColumnaNombreTercero(spec: MappingSpec, hoja: GridHoja): MappingSpec["columnas"] {
+  const cols = spec.columnas;
+  if (cols.nombreTercero || cols.tercero <= 0) return cols;
+  const encabezado = hoja.filas[spec.filaEncabezado - 1];
+  if (!encabezado) return cols;
+  const usadas = new Set<number>([
+    cols.codigo,
+    cols.nombre,
+    cols.saldoInicial,
+    cols.debitos,
+    cols.creditos,
+    cols.saldoFinal,
+    cols.saldoFinalDebito,
+    cols.saldoFinalCredito,
+    cols.tercero,
+    cols.tipoDocumentoTercero ?? 0,
+    cols.dvTercero ?? 0,
+    ...(cols.codigoFragmentos ?? []),
+  ]);
+  const candidatas: number[] = [];
+  for (let i = 0; i < encabezado.length; i++) {
+    const col = i + 1;
+    if (usadas.has(col)) continue;
+    if (ENCABEZADO_NOMBRE_TERCERO.test(texto(encabezado[i]))) candidatas.push(col);
+  }
+  return candidatas.length === 1 ? { ...cols, nombreTercero: candidatas[0] } : cols;
+}
+
 export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params: ParamsExtraccion): ResultadoTransform {
   const excepciones: Excepcion[] = [...spec.excepciones];
   const cabecera = resolverCabecera({ ...spec }, params);
@@ -329,7 +372,7 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
     spec = { ...spec, primeraFilaDatos: primeraAjustada };
   }
 
-  const cols = spec.columnas;
+  const cols = resolverColumnaNombreTercero(spec, hoja);
   const tieneInicial = cols.saldoInicial > 0;
   const tieneMovimientos = cols.debitos > 0 || cols.creditos > 0;
   const validarControl = tieneInicial && tieneMovimientos;
@@ -440,7 +483,15 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
     let terceros = 0;
     let cuentaBold = "";
     for (let r = spec.primeraFilaDatos - 1; r < hoja.filas.length; r++) {
-      const code = normalizarCodigo(celdaCodigo(hoja.filas[r] ?? [], cols));
+      const codigoCrudo = celdaCodigo(hoja.filas[r] ?? [], cols);
+      // Zeus y otros reportes paginados imprimen «TOTAL 110505» al PIE del
+      // detalle. Su negrita identifica un subtotal, no la cabecera de terceros
+      // de la siguiente cuenta. No aporta evidencia ni deja contexto abierto.
+      if (/^\s*(?:sub)?total\s*:?\s*\d/i.test(String(codigoCrudo ?? ""))) {
+        cuentaBold = "";
+        continue;
+      }
+      const code = normalizarCodigo(codigoCrudo);
       if (!/^\d+$/.test(code)) continue;
       if (filaEnNegrita(hoja.negrita[r], cols.codigo, cols.nombre)) { cuentas++; cuentaBold = code; }
       else if (cuentaBold && !code.startsWith(cuentaBold)) terceros++;
@@ -475,6 +526,35 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
   let filasTerceroNegritaExcluidas = 0; // detalle por tercero descartado por negrita
   let cuentaNegritaActual = ""; // código de la última cuenta EN NEGRITA (contexto del descarte)
   let nombreCuentaNegritaActual = "";
+  let filasTerceroGuionCapturadas = 0; // detalle "-NIT" (guion inicial) capturado por tercero
+  // Confirma bloques completos antes de interpretar un número negativo como NIT:
+  // cuenta sin valores propios, detalle «-documento» y TOTAL de esa misma cuenta.
+  // Los encabezados de página no cortan el bloque; otra cuenta o un subtotal sí.
+  const cuentaPorFilaGuion = new Map<number, { codigo: string; nombre: string }>();
+  let bloqueGuion: { codigo: string; nombre: string; filas: number[] } | null = null;
+  for (let r = spec.primeraFilaDatos - 1; r < hoja.filas.length; r++) {
+    const fila = hoja.filas[r] ?? [];
+    const crudo = texto(celdaCodigo(fila, cols));
+    const codigo = normalizarCodigo(celdaCodigo(fila, cols));
+    if (/^\s*(?:sub)?total\b/i.test(crudo)) {
+      if (bloqueGuion && codigo === bloqueGuion.codigo) {
+        for (const indice of bloqueGuion.filas) cuentaPorFilaGuion.set(indice, { codigo, nombre: bloqueGuion.nombre });
+      }
+      bloqueGuion = null;
+    } else if (/^\d+$/.test(codigo)) {
+      const sinValoresPropios = [cols.saldoInicial, cols.debitos, cols.creditos, cols.saldoFinal, cols.saldoFinalDebito, cols.saldoFinalCredito]
+        .filter((columna) => columna > 0)
+        .every((columna) => {
+          const valor = cell(fila, columna);
+          return texto(valor) === "" || normalizarMonto(valor) === 0;
+        });
+      if (codigo.length >= LONGITUD_MIN_IMPUTABLE && sinValoresPropios && texto(cell(fila, cols.nombre))) {
+        bloqueGuion = { codigo, nombre: texto(cell(fila, cols.nombre)), filas: [] };
+      } else bloqueGuion = null;
+    } else if (/^-[A-Z0-9][A-Z0-9./_-]*$/i.test(crudo) && texto(cell(fila, cols.nombre))) {
+      bloqueGuion?.filas.push(r);
+    }
+  }
   // Detalle por tercero del spec: se acumula aquí porque tras `agregarPorCuenta`
   // (o el descarte por negrita) el desglose individual ya no existe.
   const filasTercero: FilaTerceroCruda[] = [];
@@ -538,22 +618,36 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
     // Captura una fila (cuenta × tercero) para el staging paralelo. El NIT queda en
     // su clave canónica (la misma bajo la que cruzan los módulos); sin NIT ni nombre
     // reconocibles queda como tercero «Genérico».
-    const capturarTercero = (codigoCuenta: string, nombreCuenta: string, terceroRaw: string, m: { si: number; db: number; cr: number; saldo: number }): void => {
+    const capturarTercero = (codigoCuenta: string, nombreCuenta: string, terceroRaw: string, m: { si: number; db: number; cr: number; saldo: number }, identidadExplicita?: { documento: string; nombre: string }): void => {
       if (!codigoCuenta) return;
-      const t = normalizarTerceroModulo(terceroRaw);
+      const t = normalizarTerceroModulo(identidadExplicita?.documento ?? terceroRaw);
+      const nitTercero = identidadExplicita && /[a-z]/i.test(identidadExplicita.documento) ? null : t.nitCanonico;
+      // El archivo puede traer el nombre del tercero en su PROPIA columna
+      // (separada de la de identificación): es la fuente más confiable, mejor
+      // que el resto que `normalizarTerceroModulo` intenta desprender de la
+      // celda de documento (que aquí solo trae el número).
+      const nombreColumna = cols.nombreTercero ? texto(cell(fila, cols.nombreTercero)) : "";
+      const nombreTercero = identidadExplicita?.nombre || nombreColumna || t.nombre;
+      const identidadTercero = reconocerIdentidadTercero({
+        documento: identidadExplicita?.documento ?? (cols.tercero > 0 ? cell(fila, cols.tercero) : terceroRaw),
+        nombre: identidadExplicita?.nombre ?? cell(fila, cols.nombreTercero ?? 0),
+        tipo: cell(fila, cols.tipoDocumentoTercero ?? 0),
+        dv: cell(fila, cols.dvTercero ?? 0),
+      });
+      if (identidadExplicita && !identidadTercero.numeroDocumento && /^[a-z]+$/i.test(identidadExplicita.documento)) {
+        // En este bloque la columna separada identifica al tercero, incluso
+        // cuando su código contiene solo letras. Se conserva sin deducir tipo.
+        identidadTercero.numeroDocumento = identidadExplicita.documento;
+        identidadTercero.observaciones.push("Identificación alfabética del archivo; tipo de documento por revisar.");
+      }
       filasTercero.push({
         filaNum,
         codigo: codigoCuenta,
         codigoCrudo: codigoCrudo || null,
         nombreCuenta: nombreCuenta || null,
-        nitTercero: t.nitCanonico,
-        nombreTercero: t.nitCanonico === null && t.nombre === null ? "Genérico" : t.nombre,
-        identidadTercero: reconocerIdentidadTercero({
-          documento: cols.tercero > 0 ? cell(fila, cols.tercero) : terceroRaw,
-          nombre: cell(fila, cols.nombreTercero ?? 0),
-          tipo: cell(fila, cols.tipoDocumentoTercero ?? 0),
-          dv: cell(fila, cols.dvTercero ?? 0),
-        }),
+        nitTercero,
+        nombreTercero: nitTercero === null && nombreTercero === null ? "Genérico" : nombreTercero,
+        identidadTercero,
         saldoInicial: m.si,
         debitos: m.db,
         creditos: m.cr,
@@ -561,6 +655,42 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
       });
     };
 
+    // El detalle confirmado conserva la cuenta del bloque y la identidad del
+    // tercero por separado. Sus importes no se duplican en el balance por cuenta:
+    // el TOTAL del bloque sigue siendo la fuente de ese consolidado.
+    if (cuentaPorFilaGuion.has(r) || /^-\d+$/.test(code)) {
+      filasExcluidas++;
+      const cuenta = cuentaPorFilaGuion.get(r);
+      if (cuenta) {
+        filasTerceroGuionCapturadas++;
+        const documento = codigoCrudo.slice(1);
+        capturarTercero(cuenta.codigo, cuenta.nombre, `${documento} ${name}`.trim(), { si: si ?? 0, db: db ?? 0, cr: cr ?? 0, saldo: saldo ?? 0 }, { documento, nombre: name });
+      }
+      registrar("total", { si: si ?? 0, db: db ?? 0, cr: cr ?? 0, saldo: saldo ?? 0 });
+      continue;
+    }
+    // Balance por tercero con cuentas EN NEGRITA — detalle con documento
+    // ALFANUMÉRICO (activo fijo, factura del exterior: «OTE2003102G1»,
+    // «PD-506»): falla el filtro numérico de abajo y, sin este bloque, caería
+    // al cajón genérico de "totales/secciones" perdiendo la cuenta padre y los
+    // cuatro importes. Se evalúa ANTES del filtro `!esNum` con las mismas
+    // garantías que el bloque de detalle numérico (solo dentro de un bloque de
+    // cuenta en negrita abierto): exige un NOMBRE no vacío y descarta
+    // explícitamente cualquier rótulo TOTAL/SUBTOTAL para no arrastrarlo como
+    // tercero ni modificar el cuadre. Sin dígito en el código tampoco captura
+    // (evita encabezados de página repetidos, p. ej. "CÓDIGO CONTABLE").
+    if (descartarTerceroNegrita && !esNum && cuentaNegritaActual && name && /\d/.test(codigoCrudo) && !/^\s*(?:sub)?total\b/i.test(codigoCrudo)) {
+      filasExcluidas++;
+      filasTerceroNegritaExcluidas++;
+      capturarTercero(
+        cuentaNegritaActual,
+        nombreCuentaNegritaActual,
+        `${codigoCrudo} ${name}`.trim(),
+        { si: si ?? 0, db: db ?? 0, cr: cr ?? 0, saldo: saldo ?? 0 },
+        { documento: codigoCrudo, nombre: name },
+      );
+      continue;
+    }
     // Totales/secciones: código no numérico.
     if (!esNum) {
       filasExcluidas++;
@@ -760,6 +890,16 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
       valor: `${filasTerceroNegritaExcluidas} fila(s)`,
       regla: "Detalle por tercero descartado (sin negrita)",
       accion: "Balance abierto por tercero: se conservaron solo las cuentas en negrita (que ya traen el total consolidado) y se descartó el detalle por tercero.",
+    });
+  }
+  if (filasTerceroGuionCapturadas > 0) {
+    excepciones.push({
+      hoja: hoja.nombre,
+      fila: null,
+      campo: "tercero",
+      valor: `${filasTerceroGuionCapturadas} fila(s)`,
+      regla: "Detalle por tercero capturado (código con guion inicial)",
+      accion: "Se conservaron las identificaciones y valores de terceros en bloques cerrados por el total de su cuenta; el consolidado contable no cambia.",
     });
   }
 

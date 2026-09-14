@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { detectarAnomaliasMapeo, type CuentaMapeo } from "./anomalias-mapeo";
+import { detectarAnomaliasMapeo, planAlinearConGrupo, type CuentaMapeo } from "./anomalias-mapeo";
 
 const cuenta = (
   code: string,
@@ -116,5 +116,57 @@ describe("detectarAnomaliasMapeo", () => {
       cuenta("729910", "720540", "manual"), cuenta("72991001", "260595", "manual"),   // cruza de clase, manual
     ]);
     expect(r.map((a) => a.code)).toEqual(["72991001", "12053506"]);
+  });
+});
+
+describe("planAlinearConGrupo", () => {
+  it("copia la regla MANUAL del grupo como manual al 100%, igual que propaga una regla de grupo", () => {
+    // El caso de operación: 616560 → 151605 y 61656010 → 152005. Alinear deja la
+    // auxiliar exactamente como sus hermanas.
+    const plan = planAlinearConGrupo([
+      cuenta("616560", "151605", "manual"),
+      cuenta("61656010", "152005", "manual"),
+    ], "61656010");
+    expect(plan).toEqual({ cuenta6Russell: "151605", coincidencia: 100, origenMapeo: "manual", reglaCode: "616560" });
+  });
+
+  it("bajo un grupo AUTOMÁTICO queda automática con la coincidencia del grupo, nunca manual", () => {
+    // Una fila `manual` aquí ganaría la elección del grupo (manual > automático) y
+    // congelaría a todas sus hermanas en el estándar viejo: la trampa que se evita.
+    const plan = planAlinearConGrupo([
+      cuenta("120535", "120595", "automatico", { coincidencia: 92 }),
+      cuenta("12053506", "129905", "automatico", { coincidencia: 60 }),
+    ], "12053506");
+    expect(plan).toEqual({ cuenta6Russell: "120595", coincidencia: 92, origenMapeo: "automatico", reglaCode: "120535" });
+  });
+
+  it("usa la misma regla canónica que la detección aunque no exista fila de nivel 6", () => {
+    const cuentas = [
+      cuenta("12053501", "120595", "automatico", { coincidencia: 90, actualizadoEn: "2026-01-01T12:00:00.000Z" }),
+      cuenta("12053502", "129905", "automatico", { coincidencia: 10, actualizadoEn: "2026-02-01T12:00:00.000Z" }),
+    ];
+    const anomalia = detectarAnomaliasMapeo(cuentas)[0];
+    const plan = planAlinearConGrupo(cuentas, anomalia.code);
+    expect(anomalia.code).toBe("12053501");
+    expect(plan?.cuenta6Russell).toBe(anomalia.cuenta6RussellDelGrupo);
+    expect(plan).toMatchObject({ coincidencia: 10, origenMapeo: "automatico", reglaCode: "12053502" });
+  });
+
+  it("ignora excepciones y automáticas que cruzan de clase al elegir la regla del grupo", () => {
+    const plan = planAlinearConGrupo([
+      cuenta("416005", "616005", "automatico"),           // cruza de clase: no gobierna
+      cuenta("41600501", "410530", "manual_cuenta"),     // excepción: no participa
+      cuenta("41600502", "410505", "automatico", { coincidencia: 70 }),
+      cuenta("41600503", "410595", "automatico", { coincidencia: 40 }),
+    ], "41600503");
+    expect(plan).toEqual({ cuenta6Russell: "410505", coincidencia: 70, origenMapeo: "automatico", reglaCode: "41600502" });
+  });
+
+  it("devuelve null cuando el grupo no tiene regla vigente", () => {
+    expect(planAlinearConGrupo([cuenta("110505", null), cuenta("11050501", "110599")], "11050599")).toEqual({
+      cuenta6Russell: "110599", coincidencia: null, origenMapeo: "automatico", reglaCode: "11050501",
+    });
+    expect(planAlinearConGrupo([cuenta("110505", null)], "11050501")).toBeNull();
+    expect(planAlinearConGrupo([], "11050501")).toBeNull();
   });
 });

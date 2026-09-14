@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { normalizarEncabezado, calcularHuella, huellasCandidatas, detectarNit } from "./huella";
+import { normalizarEncabezado, calcularHuella, huellasCandidatas, huellasCandidatasBalance, detectarNit } from "./huella";
 import type { GridHoja } from "./ingesta";
 
 describe("normalizarEncabezado", () => {
@@ -61,6 +61,20 @@ describe("huellasCandidatas", () => {
     const cand = huellasCandidatas([hoja("B", filas)], 15);
     expect(cand).toHaveLength(15);
     expect(cand.at(-1)?.fila).toBe(15);
+  });
+
+  it("encuentra un perfil detrás del bloque técnico de SAP sin recorrer el libro completo", () => {
+    const encabezado = ["Sociedad", "Nombre sociedad", "Cuenta", "Descripción", "Saldo inicial", "Débitos", "Créditos", "Saldo final"];
+    const filas = [
+      ...Array.from({ length: 23 }, (_, i) => [`Parámetro ${i + 1}`, "Filtro"]),
+      encabezado,
+      ...Array.from({ length: 100 }, (_, i) => [`${11050500 + i}`, "Cuenta"]),
+    ];
+    const candidatas = huellasCandidatasBalance([hoja("Sheet1", filas)]);
+    expect(candidatas).toContainEqual({
+      hoja: "Sheet1", fila: 24, huella: calcularHuella("Sheet1", encabezado),
+    });
+    expect(candidatas.every((c) => c.fila <= 60)).toBe(true);
   });
 });
 

@@ -51,7 +51,7 @@ import { getCuentasEstandar } from "@/lib/balance/cuentas-estandar";
 import { TIPO_BALANCE_CARGA } from "@/lib/balance/tipo-balance";
 import { extraerBalance } from "@/lib/balance/extraccion/extraer";
 import { ingerir, type Ingesta } from "@/lib/balance/extraccion/ingesta";
-import { huellasCandidatas, detectarNit, calcularHuella } from "@/lib/balance/extraccion/huella";
+import { huellasCandidatasBalance, detectarNit, calcularHuella } from "@/lib/balance/extraccion/huella";
 import { aplanarSpec, normalizarCodigoFragmentos, specDesdePerfil, specCargaDesdePerfil, type PerfilPlano } from "@/lib/balance/extraccion/perfil";
 import { esTransformacionAceptable } from "@/lib/balance/extraccion/validacion";
 import { mapearPorIA } from "@/lib/balance/mapeo-ia";
@@ -92,7 +92,7 @@ import { iaBalanceDisponible, proveedorIABalance, type ProveedorIABalance } from
 import { proveedorIABalanceSesion } from "@/lib/ia/proveedor-balance-sesion";
 import { registrarConsumoIA, type UsoIA } from "@/lib/ia/uso";
 import { aplicarPreferenciasCarga } from "@/lib/balance/preferencias-carga";
-import { construirConfigMapeoCliente, esPendiente, esPendienteCodigo, esProtegidoDeAutomatico, nivelPorCodigo, ORIGEN_PENDIENTE, resolverMapeoCliente } from "@/lib/balance/mapeo-cliente-config";
+import { construirConfigMapeoCliente, esCodigoCuentaCliente, esPendiente, esPendienteCodigo, esProtegidoDeAutomatico, nivelPorCodigo, ORIGEN_PENDIENTE, resolverMapeoCliente } from "@/lib/balance/mapeo-cliente-config";
 import { cruzaClaseContable } from "@/lib/balance/clase-contable";
 import {
   contextoAccesoBorradorActual,
@@ -1781,6 +1781,154 @@ export async function quitarPendiente(formData: FormData): Promise<ActionState> 
   }
 }
 
+/** Plan estándar tokenizado una sola vez por operación: lo comparten todos los balances re-homologados. */
+type PlanEstandarCargado = Awaited<ReturnType<typeof getCuentasEstandar>>;
+type ContextoRehomologacion = {
+  cuentasEstandar: PlanEstandarCargado;
+  stdByCode: Map<string, PlanEstandarCargado[number]>;
+  hayDescripcion: boolean;
+  planTok: ReturnType<typeof tokenizarPlan>;
+};
+
+async function contextoRehomologacion(): Promise<ContextoRehomologacion> {
+  const cuentasEstandar = await getCuentasEstandar();
+  return {
+    cuentasEstandar,
+    stdByCode: new Map(cuentasEstandar.map((s) => [s.code, s])),
+    hayDescripcion: cuentasEstandar.some((s) => s.possibleAccounts || s.name),
+    planTok: tokenizarPlan(cuentasEstandar),
+  };
+}
+
+type ResultadoRehomologacion =
+  | { ok: false; message: string }
+  | { ok: true; clienteId: number; rehomologadas: number; retiradas: number; sinMapear: number };
+
+/**
+ * Re-homologa el detalle de UN balance dentro de su propia transacción serializable,
+ * con el mismo candado por período que congelar y homologar. Lo comparten
+ * `reaplicarMapeoBalance` (un balance) y `reaplicarMapeoBalancesCliente` (todos los
+ * del cliente); la autorización la hace cada action antes de llegar aquí.
+ *
+ * Tres desenlaces por cuenta, en orden:
+ *  1. la memoria del cliente manda (incluye lo confirmado a mano en /config/mapeo);
+ *  2. si no hay memoria, decide la cascada determinista, que respeta la clase;
+ *  3. si tampoco resuelve, se CONSERVA el mapeo actual salvo que cruce de clase
+ *     contable, en cuyo caso se retira: una cuenta visiblemente sin homologar es
+ *     preferible a una homologada en silencio a otro estado financiero.
+ * Nunca inventa un mapeo nuevo con IA ni escribe memoria: solo la consume.
+ */
+async function rehomologarBalance(id: number, ctx: ContextoRehomologacion): Promise<ResultadoRehomologacion> {
+  const { cuentasEstandar, stdByCode, hayDescripcion, planTok } = ctx;
+  return transaccionSerializable(async (tx) => {
+    const referencia = await tx.balancePruebaEncabezado.findUnique({
+      where: { id },
+      select: { clienteId: true, periodo: true },
+    });
+    if (!referencia) return { ok: false as const, message: "Balance inexistente." };
+    // Mismo candado que congelar y homologar: el detalle no puede cambiar de
+    // manos mientras se reescribe.
+    await tomarCandadoTransaccion(tx, `balance-oficial:${referencia.clienteId}:${referencia.periodo}`);
+
+    const encabezado = await tx.balancePruebaEncabezado.findUnique({
+      where: { id },
+      select: { clienteId: true, periodo: true, estaCongelado: true },
+    });
+    if (!encabezado) return { ok: false as const, message: "Balance inexistente." };
+    if (encabezado.clienteId !== referencia.clienteId || encabezado.periodo !== referencia.periodo) {
+      return { ok: false as const, message: "El balance cambió mientras se preparaba la operación. Vuelve a intentarlo." };
+    }
+    if (encabezado.estaCongelado) {
+      return { ok: false as const, message: "No se puede re-homologar un balance congelado." };
+    }
+
+    const [configRows, detalles] = await Promise.all([
+      tx.clientAccount.findMany({
+        where: { clienteId: encabezado.clienteId, cuenta6Russell: { not: null } },
+        select: { id: true, code: true, cuenta6Russell: true, coincidencia: true, origenMapeo: true, actualizadoEn: true },
+      }),
+      tx.balancePruebaDetalle.findMany({
+        where: { encabezadoId: id },
+        select: { id: true, cuenta8: true, nombreCuenta: true, cuenta6Russell: true },
+      }),
+    ]);
+    const configCliente = construirConfigMapeoCliente(configRows);
+
+    // Las filas que cambian se agrupan por destino: un balance grande cabe en
+    // unos pocos `updateMany` en vez de una sentencia por cuenta.
+    const porDestino = new Map<string, { std: string | null; coincidencia: number | null; ids: number[]; cuentas: string[] }>();
+    let rehomologadas = 0;
+    let retiradas = 0;
+    for (const d of detalles) {
+      const cfg = resolverMapeoCliente(configCliente, d.cuenta8);
+      let std: string | null;
+      let coincidencia: number | null;
+      if (cfg?.std) {
+        std = cfg.std;
+        coincidencia = cfg.coincidencia ?? 100;
+      } else {
+        const mp = mapearCuenta(d.cuenta8, d.nombreCuenta, stdByCode, cuentasEstandar, hayDescripcion, planTok);
+        if (mp.mapped) {
+          std = mp.std;
+          coincidencia = mp.coincidencia;
+        } else if (cruzaClaseContable(d.cuenta8, d.cuenta6Russell)) {
+          std = null; // se retira el mapeo cruzado que dejó un barrido anterior
+          coincidencia = null;
+        } else {
+          continue; // sin memoria ni cascada: se conserva el mapeo vigente
+        }
+      }
+      if (std === d.cuenta6Russell) continue;
+      if (std == null) retiradas++;
+      else rehomologadas++;
+      const clave = `${std ?? ""}|${coincidencia ?? ""}`;
+      const grupo = porDestino.get(clave);
+      if (grupo) {
+        grupo.ids.push(d.id);
+        grupo.cuentas.push(d.cuenta8);
+      } else porDestino.set(clave, { std, coincidencia, ids: [d.id], cuentas: [d.cuenta8] });
+    }
+
+    // Conciliación EN FIRME: la re-homologación no puede tocar cuentas conciliadas.
+    const cuentasQueCambian = [...porDestino.values()].flatMap((g) => g.cuentas);
+    const enFirme = await cuentasBloqueadas(encabezado.clienteId, encabezado.periodo, { cuentas: cuentasQueCambian }, tx);
+    if (enFirme.length > 0) {
+      const cierres = [...new Map(enFirme.map((b) => [b.cierre.id, b.cierre])).values()];
+      await registrarIntentoBloqueado({ clienteId: encabezado.clienteId, entidad: String(id), operacion: "Re-homologar balance", cierres, detalle: enFirme.slice(0, 5).map((b) => b.cuenta8).join(", ") });
+      return { ok: false as const, message: mensajeConciliacionEnFirme(cierres, enFirme.slice(0, 3).map((b) => ({ cuenta8: b.cuenta8, motivo: "homologacion" as const, detalle: `${b.cuenta8} está conciliada` }))) };
+    }
+
+    for (const { std, coincidencia, ids } of porDestino.values()) {
+      await tx.balancePruebaDetalle.updateMany({
+        where: { id: { in: ids } },
+        data: { cuenta6Russell: std, coincidencia },
+      });
+    }
+    // Propaga la re-homologación (solo lo que cambió) al cargue por tercero ligado.
+    const terceroId = await encabezadoTerceroLigado(tx, id);
+    if (terceroId !== null) {
+      for (const { std, coincidencia, cuentas } of porDestino.values()) {
+        await tx.balanceTerceroDetalle.updateMany({
+          where: { encabezadoId: terceroId, cuenta8: { in: cuentas } },
+          data: { cuenta6Russell: std, coincidencia },
+        });
+      }
+    }
+
+    // Contadores del encabezado, dentro del mismo commit (igual que al homologar).
+    const [total, mapeadas] = await Promise.all([
+      tx.balancePruebaDetalle.count({ where: { encabezadoId: id } }),
+      tx.balancePruebaDetalle.count({ where: { encabezadoId: id, cuenta6Russell: { not: null } } }),
+    ]);
+    await tx.balancePruebaEncabezado.update({
+      where: { id },
+      data: { mapeadas, sinMapear: total - mapeadas, completitud: total > 0 ? Math.round((mapeadas / total) * 100) : 100 },
+    });
+
+    return { ok: true as const, clienteId: encabezado.clienteId, rehomologadas, retiradas, sinMapear: total - mapeadas };
+  });
+}
+
 /**
  * Vuelve a homologar el detalle de un balance YA cargado con la cascada
  * determinista vigente (memoria del cliente → exacto → descripción), sin IA y
@@ -1790,15 +1938,7 @@ export async function quitarPendiente(formData: FormData): Promise<ActionState> 
  * las pantallas lo leen tal cual (`reconstruirBalance`): corregir el mapeo en
  * `/config/mapeo` alimenta la memoria para las cargas siguientes, pero no toca
  * los balances ya cargados. Sin esta acción, el único camino para arreglar un
- * balance mal homologado era volver a cargar el archivo.
- *
- * Tres desenlaces por cuenta, en orden:
- *  1. la memoria del cliente manda (incluye lo confirmado a mano en /config/mapeo);
- *  2. si no hay memoria, decide la cascada determinista, que respeta la clase;
- *  3. si tampoco resuelve, se CONSERVA el mapeo actual salvo que cruce de clase
- *     contable, en cuyo caso se retira: una cuenta visiblemente sin homologar es
- *     preferible a una homologada en silencio a otro estado financiero.
- * Nunca inventa un mapeo nuevo con IA ni escribe memoria: solo la consume.
+ * balance mal homologado era volver a cargar el archivo. Reglas en `rehomologarBalance`.
  */
 export async function reaplicarMapeoBalance(formData: FormData): Promise<ActionState> {
   const authz = await authorizePermiso("balance:crear");
@@ -1809,118 +1949,8 @@ export async function reaplicarMapeoBalance(formData: FormData): Promise<ActionS
   if (!alcance.ok) return { ok: false, message: alcance.message };
 
   try {
-    const [user, cuentasEstandar] = await Promise.all([getCurrentUser(), getCuentasEstandar()]);
-    const stdByCode = new Map(cuentasEstandar.map((s) => [s.code, s]));
-    const hayDescripcion = cuentasEstandar.some((s) => s.possibleAccounts || s.name);
-    const planTok = tokenizarPlan(cuentasEstandar);
-
-    const resultado = await transaccionSerializable(async (tx) => {
-      const referencia = await tx.balancePruebaEncabezado.findUnique({
-        where: { id },
-        select: { clienteId: true, periodo: true },
-      });
-      if (!referencia) return { ok: false as const, message: "Balance inexistente." };
-      // Mismo candado que congelar y homologar: el detalle no puede cambiar de
-      // manos mientras se reescribe.
-      await tomarCandadoTransaccion(tx, `balance-oficial:${referencia.clienteId}:${referencia.periodo}`);
-
-      const encabezado = await tx.balancePruebaEncabezado.findUnique({
-        where: { id },
-        select: { clienteId: true, periodo: true, estaCongelado: true },
-      });
-      if (!encabezado) return { ok: false as const, message: "Balance inexistente." };
-      if (encabezado.clienteId !== referencia.clienteId || encabezado.periodo !== referencia.periodo) {
-        return { ok: false as const, message: "El balance cambió mientras se preparaba la operación. Vuelve a intentarlo." };
-      }
-      if (encabezado.estaCongelado) {
-        return { ok: false as const, message: "No se puede re-homologar un balance congelado." };
-      }
-
-      const [configRows, detalles] = await Promise.all([
-        tx.clientAccount.findMany({
-          where: { clienteId: encabezado.clienteId, cuenta6Russell: { not: null } },
-          select: { id: true, code: true, cuenta6Russell: true, coincidencia: true, origenMapeo: true, actualizadoEn: true },
-        }),
-        tx.balancePruebaDetalle.findMany({
-          where: { encabezadoId: id },
-          select: { id: true, cuenta8: true, nombreCuenta: true, cuenta6Russell: true },
-        }),
-      ]);
-      const configCliente = construirConfigMapeoCliente(configRows);
-
-      // Las filas que cambian se agrupan por destino: un balance grande cabe en
-      // unos pocos `updateMany` en vez de una sentencia por cuenta.
-      const porDestino = new Map<string, { std: string | null; coincidencia: number | null; ids: number[]; cuentas: string[] }>();
-      let rehomologadas = 0;
-      let retiradas = 0;
-      for (const d of detalles) {
-        const cfg = resolverMapeoCliente(configCliente, d.cuenta8);
-        let std: string | null;
-        let coincidencia: number | null;
-        if (cfg?.std) {
-          std = cfg.std;
-          coincidencia = cfg.coincidencia ?? 100;
-        } else {
-          const mp = mapearCuenta(d.cuenta8, d.nombreCuenta, stdByCode, cuentasEstandar, hayDescripcion, planTok);
-          if (mp.mapped) {
-            std = mp.std;
-            coincidencia = mp.coincidencia;
-          } else if (cruzaClaseContable(d.cuenta8, d.cuenta6Russell)) {
-            std = null; // se retira el mapeo cruzado que dejó un barrido anterior
-            coincidencia = null;
-          } else {
-            continue; // sin memoria ni cascada: se conserva el mapeo vigente
-          }
-        }
-        if (std === d.cuenta6Russell) continue;
-        if (std == null) retiradas++;
-        else rehomologadas++;
-        const clave = `${std ?? ""}|${coincidencia ?? ""}`;
-        const grupo = porDestino.get(clave);
-        if (grupo) {
-          grupo.ids.push(d.id);
-          grupo.cuentas.push(d.cuenta8);
-        } else porDestino.set(clave, { std, coincidencia, ids: [d.id], cuentas: [d.cuenta8] });
-      }
-
-      // Conciliación EN FIRME: la re-homologación no puede tocar cuentas conciliadas.
-      const cuentasQueCambian = [...porDestino.values()].flatMap((g) => g.cuentas);
-      const enFirme = await cuentasBloqueadas(encabezado.clienteId, encabezado.periodo, { cuentas: cuentasQueCambian }, tx);
-      if (enFirme.length > 0) {
-        const cierres = [...new Map(enFirme.map((b) => [b.cierre.id, b.cierre])).values()];
-        await registrarIntentoBloqueado({ clienteId: encabezado.clienteId, entidad: String(id), operacion: "Re-homologar balance", cierres, detalle: enFirme.slice(0, 5).map((b) => b.cuenta8).join(", ") });
-        return { ok: false as const, message: mensajeConciliacionEnFirme(cierres, enFirme.slice(0, 3).map((b) => ({ cuenta8: b.cuenta8, motivo: "homologacion" as const, detalle: `${b.cuenta8} está conciliada` }))) };
-      }
-
-      for (const { std, coincidencia, ids } of porDestino.values()) {
-        await tx.balancePruebaDetalle.updateMany({
-          where: { id: { in: ids } },
-          data: { cuenta6Russell: std, coincidencia },
-        });
-      }
-      // Propaga la re-homologación (solo lo que cambió) al cargue por tercero ligado.
-      const terceroId = await encabezadoTerceroLigado(tx, id);
-      if (terceroId !== null) {
-        for (const { std, coincidencia, cuentas } of porDestino.values()) {
-          await tx.balanceTerceroDetalle.updateMany({
-            where: { encabezadoId: terceroId, cuenta8: { in: cuentas } },
-            data: { cuenta6Russell: std, coincidencia },
-          });
-        }
-      }
-
-      // Contadores del encabezado, dentro del mismo commit (igual que al homologar).
-      const [total, mapeadas] = await Promise.all([
-        tx.balancePruebaDetalle.count({ where: { encabezadoId: id } }),
-        tx.balancePruebaDetalle.count({ where: { encabezadoId: id, cuenta6Russell: { not: null } } }),
-      ]);
-      await tx.balancePruebaEncabezado.update({
-        where: { id },
-        data: { mapeadas, sinMapear: total - mapeadas, completitud: total > 0 ? Math.round((mapeadas / total) * 100) : 100 },
-      });
-
-      return { ok: true as const, clienteId: encabezado.clienteId, rehomologadas, retiradas, sinMapear: total - mapeadas };
-    });
+    const [user, ctx] = await Promise.all([getCurrentUser(), contextoRehomologacion()]);
+    const resultado = await rehomologarBalance(id, ctx);
     if (!resultado.ok) return resultado;
 
     const cambios = resultado.rehomologadas + resultado.retiradas;
@@ -1939,6 +1969,98 @@ export async function reaplicarMapeoBalance(formData: FormData): Promise<ActionS
     };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("reaplicarMapeoBalance", e) };
+  }
+}
+
+/**
+ * Re-homologa TODOS los balances cargados de un cliente (los no congelados) con su
+ * memoria vigente. Cierra el ciclo de `/config/mapeo`: corregir la memoria allí no
+ * toca lo ya cargado y, sin esto, había que abrir cada balance y re-homologarlo uno
+ * por uno. Un balance por transacción —mismo candado por período— para no retener
+ * un candado de todo el cliente durante el recorrido; los congelados se omiten y se
+ * informan, nunca se tocan.
+ */
+export async function reaplicarMapeoBalancesCliente(formData: FormData): Promise<ActionState> {
+  const authz = await authorizePermiso("balance:crear");
+  if (!authz.ok) return { ok: false, message: authz.message };
+  const clienteId = parseId(formData.get("clienteId"));
+  if (!clienteId) return { ok: false, message: "Cliente inexistente." };
+  const alcance = await authorizePermiso("balance:crear", { clientId: clienteId });
+  if (!alcance.ok) return { ok: false, message: alcance.message };
+
+  try {
+    const [user, ctx, encabezados] = await Promise.all([
+      getCurrentUser(),
+      contextoRehomologacion(),
+      prisma.balancePruebaEncabezado.findMany({
+        where: { clienteId },
+        select: { id: true, estaCongelado: true },
+        orderBy: { id: "asc" },
+      }),
+    ]);
+    const congelados = encabezados.filter((e) => e.estaCongelado).length;
+    const objetivo = encabezados.filter((e) => !e.estaCongelado);
+    const notaCongelados = congelados > 0 ? ` ${congelados} balance(s) congelado(s) no se modifican.` : "";
+    if (objetivo.length === 0) {
+      return {
+        ok: true,
+        message: encabezados.length === 0 ? "Este cliente no tiene balances cargados." : `No hay balances por re-homologar.${notaCongelados}`,
+      };
+    }
+
+    let rehomologadas = 0;
+    let retiradas = 0;
+    let conCambios = 0;
+    const fallidos: string[] = [];
+    for (const e of objetivo) {
+      // Cada balance es su propia transacción: un fallo (conflicto de serialización
+      // agotado, caída de conexión…) se anota y se sigue con el resto, en vez de
+      // abortar el lote y perder el rastro de auditoría de lo ya confirmado.
+      let r: ResultadoRehomologacion;
+      try {
+        r = await rehomologarBalance(e.id, ctx);
+      } catch (err) {
+        fallidos.push(`#${e.id}: ${mensajeErrorBD("reaplicarMapeoBalancesCliente", err)}`);
+        continue;
+      }
+      if (!r.ok) {
+        fallidos.push(`#${e.id}: ${r.message}`);
+        continue;
+      }
+      if (r.rehomologadas + r.retiradas > 0) {
+        conCambios++;
+        revalidatePath(`/balance/${e.id}`);
+      }
+      rehomologadas += r.rehomologadas;
+      retiradas += r.retiradas;
+    }
+    const cambios = rehomologadas + retiradas;
+    if (cambios > 0 || fallidos.length > 0) {
+      await logAudit({
+        user: user?.name ?? "Sistema",
+        action: "RE-HOMOLOGÓ BALANCES DEL CLIENTE",
+        entity: String(clienteId),
+        detail: `${objetivo.length} balance(s) revisado(s) · ${conCambios} con cambios · ${rehomologadas} re-homologada(s) · ${retiradas} mapeo(s) fuera de clase retirado(s)${congelados > 0 ? ` · ${congelados} congelado(s) omitido(s)` : ""}${fallidos.length > 0 ? ` · ${fallidos.length} con error` : ""}`,
+        clientId: clienteId,
+      });
+    }
+    revalidatePath("/balance");
+    revalidatePath("/config/mapeo-cliente");
+    if (fallidos.length > 0) {
+      return {
+        ok: false,
+        message: `Se re-homologaron ${objetivo.length - fallidos.length} de ${objetivo.length} balance(s); fallaron ${fallidos.length}: ${fallidos.join("; ")}`,
+      };
+    }
+    if (cambios === 0) {
+      return { ok: true, message: `Los ${objetivo.length} balance(s) cargados ya coinciden con la memoria vigente del cliente.${notaCongelados}` };
+    }
+    return {
+      ok: true,
+      message: `${objetivo.length} balance(s) revisado(s): ${rehomologadas} cuenta(s) re-homologada(s) y ${retiradas} mapeo(s) fuera de clase retirado(s) en ${conCambios} balance(s).${notaCongelados}`,
+    };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("reaplicarMapeoBalancesCliente", e) };
   }
 }
 
@@ -2231,6 +2353,9 @@ async function persistirCargue(p: {
     // rótulo REAL del PUC si ya existe; nunca el nombre del estándar Russell.
     const rows = new Map<string, { code: string; level: number; name: string; std: string | null; coincidencia: number | null }>();
     for (const f of filasDet) {
+      // Un pie de archivo sin código («Total general», «Procesado en: …») no es una
+      // cuenta del PUC: no se memoriza aunque hubiera llegado al detalle.
+      if (!esCodigoCuentaCliente(f.cuenta8)) continue;
       const grupo = mapeoGrupo.get(f.cuenta6);
       const std = grupo?.std ?? f.cuenta6Russell;
       const coincidencia = grupo?.coincidencia ?? (f.coincidencia != null ? Number(f.coincidencia) : null);
@@ -2868,7 +2993,7 @@ export async function leerBalance(
       // estricta al cliente detectado. Nunca se reutiliza el perfil de otra empresa:
       // dos archivos con el mismo encabezado pueden tener convenciones distintas.
       const hojasLookup = hoja ? ingesta.hojas.filter((h) => h.nombre === hoja) : ingesta.hojas;
-      const candidatas = huellasCandidatas(hojasLookup.length > 0 ? hojasLookup : ingesta.hojas);
+      const candidatas = huellasCandidatasBalance(hojasLookup.length > 0 ? hojasLookup : ingesta.hojas);
       if (clienteDetectadoId != null && candidatas.length > 0) {
         const perfil = await prisma.perfilCargaBalance.findFirst({
           where: {
