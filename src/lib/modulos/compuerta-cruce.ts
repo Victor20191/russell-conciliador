@@ -104,10 +104,17 @@ function moduloUsaMovimiento(
   );
 }
 
+/** El oficial (congelado) del período si lo hay; si no, el primero en el orden recibido (la versión más reciente). */
+function preferirOficial<T extends CandidatoBalanceCruce>(candidatos: readonly T[]): T | null {
+  return candidatos.find((c) => c.esOficial) ?? candidatos[0] ?? null;
+}
+
 /**
- * Conserva el orden recibido (normalmente oficial y versión más reciente), salvo
- * para módulos de movimiento: si existe un balance oficial, congelado y del mes
- * calendario exacto, lo antepone a cualquier acumulado/YTD que termine ese mes.
+ * Balance del período contra el que cruza un cargue. Congelar NO es requisito: se usa el
+ * balance oficial (congelado) del período si existe y, si no, la versión más reciente
+ * confirmada (los candidatos llegan con el oficial primero y luego por recencia). Para
+ * módulos de movimiento antepone el que cubre el mes calendario exacto (o el rango del
+ * cargue) a cualquier acumulado/YTD que termine ese mes.
  */
 export function seleccionarBalanceCruceModulo<T extends CandidatoBalanceCruce>(
   candidatos: readonly T[],
@@ -118,20 +125,16 @@ export function seleccionarBalanceCruceModulo<T extends CandidatoBalanceCruce>(
 ): T | null {
   const delPeriodo = candidatos.filter((candidato) => balanceTerminaEnPeriodo(candidato.periodoFin, periodoModulo));
   if (delPeriodo.length === 0) return null;
-  if (!moduloUsaMovimiento(catalogo, moduloCodigo)) return delPeriodo[0] ?? null;
+  if (!moduloUsaMovimiento(catalogo, moduloCodigo)) return preferirOficial(delPeriodo);
 
   // Con rango (Nómina): primero el que lo cubre exacto, luego el del mes final leído por saldo.
   if (rango) {
-    const oficiales = delPeriodo.filter((c) => c.esOficial && c.estaCongelado);
-    return oficiales.find((c) => baseBalanceParaRango(c.periodoInicio, c.periodoFin, rango) === "movimiento")
-      ?? oficiales.find((c) => baseBalanceParaRango(c.periodoInicio, c.periodoFin, rango) === "saldo_acumulado")
-      ?? delPeriodo[0] ?? null;
+    return preferirOficial(delPeriodo.filter((c) => baseBalanceParaRango(c.periodoInicio, c.periodoFin, rango) === "movimiento"))
+      ?? preferirOficial(delPeriodo.filter((c) => baseBalanceParaRango(c.periodoInicio, c.periodoFin, rango) === "saldo_acumulado"))
+      ?? preferirOficial(delPeriodo);
   }
-  return delPeriodo.find(
-    (candidato) => candidato.esOficial
-      && candidato.estaCongelado
-      && balanceCubreMesExacto(candidato.periodoInicio, candidato.periodoFin, periodoModulo),
-  ) ?? delPeriodo[0] ?? null;
+  return preferirOficial(delPeriodo.filter((c) => balanceCubreMesExacto(c.periodoInicio, c.periodoFin, periodoModulo)))
+    ?? preferirOficial(delPeriodo);
 }
 
 /** Códigos de agrupadoras que el prevalidador ya excluyó para evitar doble conteo. */
@@ -146,7 +149,14 @@ export function cuentasAgrupadorasExcluidas(
   );
 }
 
-/** Compuerta compartida por el conciliador formal y el cruce dentro del módulo. */
+/**
+ * Compuerta compartida por el conciliador formal y el cruce dentro del módulo.
+ *
+ * Congelar el balance NO es requisito para conciliar: lo que queda en firme son las
+ * cuentas del módulo, y eso lo hace el CIERRE de la conciliación (`cerrarConciliacionModulo`),
+ * no un congelado previo de toda la versión. La compuerta solo exige que el balance sea del
+ * cliente, que el prevalidador esté listo para el módulo y que conserve una aprobación vigente.
+ */
 export function validarCompuertaPrevalidador(
   contexto: ContextoCompuertaCruce,
   clientId: number,
@@ -154,9 +164,6 @@ export function validarCompuertaPrevalidador(
 ): string | null {
   if (contexto.balance.clienteId !== clientId) {
     return "El balance seleccionado no pertenece al cliente de la conciliación.";
-  }
-  if (!contexto.balance.esOficial || !contexto.balance.estaCongelado) {
-    return "La conciliación exige un balance oficial y congelado del período exacto.";
   }
   if (contexto.prevalidador.estado === "sin_catalogo") {
     return "No hay cuentas activas configuradas para el prevalidador.";

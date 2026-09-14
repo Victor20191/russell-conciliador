@@ -6,8 +6,9 @@ import "server-only";
  * Es el cálculo de la pestaña «Cruce por tercero» de `/modulos/[codigo]/[id]`, de su
  * exportación y el que verifican las Server Actions al marcar, emparejar y CERRAR la
  * conciliación. Se apoya en lo que ya resolvió el cruce contable (`cruce-contable-servidor.ts`):
- * el MISMO balance de comprobación del período y sus MISMAS compuertas (oficial, congelado,
- * prevalidador, verificaciones críticas). Del balance toma el detalle por tercero LIGADO por
+ * el MISMO balance de comprobación del período (el oficial o, si no lo hay, la versión más
+ * reciente: congelar no es requisito) y sus MISMAS compuertas
+ * (prevalidador, verificaciones críticas). Del balance toma el detalle por tercero LIGADO por
  * `loteId` —la captura que se hizo al confirmarlo—, nunca uno parecido del mismo mes.
  *
  * El lado del módulo sale de los saldos materializados (`cartera_saldo_tercero`) en Cartera y

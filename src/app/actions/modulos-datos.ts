@@ -89,6 +89,7 @@ import {
 import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
 import { tomarCandadoTransaccion, transaccionSerializable, type TransactionClient } from "@/lib/concurrency";
 import { cargarInsumosCruceModulo, construirCruceContableModulo } from "@/lib/modulos/cruce-contable-servidor";
+import { cargarContextoPrevalidadorBalance } from "@/lib/balance/prevalidador/servidor";
 import { cruceTerceroDeCargue } from "@/lib/modulos/cruce-tercero-servidor";
 import { validarEmparejamientoTercero } from "@/lib/modulos/cartera/cruce-tercero-cartera";
 import { evidenciaCruceTercero } from "@/lib/conciliacion/evidencia-cruce-tercero";
@@ -3155,10 +3156,19 @@ export async function cerrarConciliacionModulo(input: { encabezadoId: number }):
           where: { encabezadoId: balance.id },
           select: { cuenta8: true, cuenta6Russell: true, saldoInicial: true, debitos: true, creditos: true, saldoFinal: true },
         }),
-        tx.balancePruebaEncabezado.findUnique({ where: { id: balance.id }, select: { loteId: true, estaCongelado: true, esOficial: true } }),
+        tx.balancePruebaEncabezado.findUnique({ where: { id: balance.id }, select: { loteId: true } }),
       ]);
-      if (!terceroLigado || !terceroLigado.esOficial || !terceroLigado.estaCongelado) {
-        return { ok: false as const, message: "El balance del período dejó de ser oficial y congelado. Vuelve a abrir el cruce." };
+      if (!terceroLigado) {
+        return { ok: false as const, message: "El balance del período ya no existe. Vuelve a abrir el cruce." };
+      }
+      // Congelar el balance NO es requisito para conciliar: lo que vuelve inmutables las
+      // cuentas del módulo es ESTE cierre. Como la versión sigue editable entre que se
+      // calculó el cruce y este commit, se releen bajo el candado el prevalidador y su
+      // huella (detalle, homologación, catálogo y overrides) y se exige que sean los mismos
+      // que vio el usuario, con la aprobación todavía vigente.
+      const contextoActual = await cargarContextoPrevalidadorBalance(balance.id, tx);
+      if (cruce.huellaBalance == null || contextoActual.huella !== cruce.huellaBalance || !contextoActual.revision.vigente) {
+        return { ok: false as const, message: "El balance del período cambió mientras se cerraba la conciliación. Vuelve a abrir el cruce." };
       }
       const filasTercero = terceroLigado.loteId
         ? await tx.balanceTerceroDetalle.findMany({

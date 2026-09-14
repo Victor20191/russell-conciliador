@@ -20,6 +20,7 @@ import type { SpecModulo } from "./esquema";
 import { norm, puntajeRol } from "./sugerir";
 import { coincideMarcaSubtotal, columnasDetalle, detectarSubtotales, esRotuloTotal, motivoDe } from "../subtotales";
 import { archivoConDocumentos, esIdentificadorVacio, esNumeroDocumento, rolDeCeldaCompartida } from "../cartera/identificador-compartido";
+import { esPieDeReporte } from "./pie-reporte";
 import { aPesos, esMonedaExtranjera, montoConDivisa } from "../cartera/moneda";
 import { evaluarFilaNomina, nombreSinCedula, normalizarCedula } from "../nomina/valor-nomina";
 import { codigoConceptoCanonico } from "../nomina/homologacion";
@@ -337,6 +338,9 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
   for (let r = inicio; r < hoja.filas.length; r++) {
     const fila = hoja.filas[r] ?? [];
     const filaNum = filaFisicaDe(r);
+    // Pie de página del ERP («Siesa Enterprise Net 1.25.0 · Pág. 1 / 1»): nunca es un ítem, aunque su
+    // texto caiga en la columna del identificador y el número de página en la del saldo.
+    const esPieErp = esPieDeReporte(fila);
     const marcaManualExacta = colMarcaSubtotal >= 1 && spec.subtotalesFila === filaNum;
 
     // Nómina: el ERP repite el encabezado al cambiar de página (o el auditor pegó dos reportes
@@ -573,11 +577,11 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
       : null;
     const rotuloDeFila = rotuloClasificadorCrudo ?? claveEnLaFila ?? rotuloTotalSuelto;
     const esFilaDeTotal = rotuloDeFila != null && esTotal(rotuloDeFila);
-    const esCabeceraTercero = modoCabecera && !esFilaDeTotal && claveEnLaFila != null && documentoEnLaFila == null;
+    const esCabeceraTercero = modoCabecera && !esFilaDeTotal && !esPieErp && claveEnLaFila != null && documentoEnLaFila == null;
     for (const rol of rolesArrastrados) {
       const propio = aTexto(datos[rol]);
       if (propio != null) {
-        if (!esFilaDeTotal) ultimoPorRol.set(rol, propio);
+        if (!esFilaDeTotal && !esPieErp) ultimoPorRol.set(rol, propio);
       } else {
         const heredado = ultimoPorRol.get(rol);
         if (heredado != null) datos[rol] = heredado;
@@ -728,7 +732,7 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     //      del total) pero visibles en el borrador, para que se puedan rescatar si la
     //      detección se equivoca.
     // Una SECCIÓN de cuenta de SIESA entra por la misma puerta: tampoco es de ningún tercero.
-    if (esSeccionCuenta || (exigeIdentidad && !esFilaDeTotal && !tieneIdentidadPropia)) {
+    if (esSeccionCuenta || esPieErp || (exigeIdentidad && !esFilaDeTotal && !tieneIdentidadPropia)) {
       filasExcluidas++;
       filas.push({
         filaNum,

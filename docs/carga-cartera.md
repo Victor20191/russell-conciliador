@@ -14,7 +14,8 @@ que dicen el origen.
    tercero (columna, cabecera SAP/SIESA, fila rotulada SEVEN), el saldo del bloque de SIIGO y la
    convención de signo. Todo se memoriza en el perfil del cliente.
 3. **Qué es cada fila.** Un tercero (resumen por edades) o un documento. Un período suma por un
-   solo nivel; el otro entra como control.
+   solo nivel; el otro entra como control. El pie de página del ERP («Siesa Enterprise Net 1.25.0 ·
+   Pág. 1 / 1») nunca entra como ítem, aunque su texto caiga en la columna del identificador.
 4. **Origen.** Nacional, exterior o mixto (lo decide la cuenta de cada fila).
 5. **Moneda, TRM de cierre y fecha de corte.**
    - Una hoja en divisa (el sugeridor la propone por el nombre «USD»/«EUR») se lee en la divisa y
@@ -41,7 +42,10 @@ que dicen el origen.
   archivo (SIESA), las filas de porcentajes y los pies también se ocultan: el total que el archivo
   imprime para la cuenta queda en el encabezado del grupo con «cuadra» o la diferencia, y los
   encabezados de tercero se ven en cursiva, rotulados «no suma».
-- **Cruce contable.** Por cuenta Russell de 4 dígitos, con el signo del módulo (Cartera débito, CxP
+- **Consolidado.** Cada cuenta del archivo se asigna a una cuenta Russell de 6 dígitos del módulo
+  (Cartera: 130505, 130510, 280505; CxP: las 12 de su descriptor). Las asignaciones guardadas a 4
+  dígitos antes de este cambio quedan «sin cuenta» y se vuelven a asignar.
+- **Cruce contable.** Por cuenta Russell de 6 dígitos, con el signo del módulo (Cartera débito, CxP
   crédito): un anticipo resta en los dos lados, como en el auxiliar (la 2805 en Cartera, la 1330 en
   CxP), en vez de mostrarse con la naturaleza de su propia cuenta.
 - **Cruce por tercero.** El mismo balance y las mismas compuertas del cruce contable, contra el

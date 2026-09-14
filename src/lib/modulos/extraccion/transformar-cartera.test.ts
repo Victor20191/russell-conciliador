@@ -407,6 +407,20 @@ describe("filas que NO son cartera", () => {
     expect(r.filas.find((f) => f.motivo === "sin_identificador")?.valor).toBe(0);
   });
 
+  it("el pie de página del ERP no suma aunque caiga en el identificador y el número de página en el saldo", () => {
+    // CxP de Aceros Mapa y Mineralin: «Siesa Enterprise Net 1.25.0 · Pág. 1 / 1» sumaba $1 al módulo.
+    const h = hoja("H", [
+      ["NIT", "NOMBRE", "SALDO", null, null, null],
+      ["800197463", "UNO", 1_000_000, null, null, null],
+      ["Siesa Enterprise Net 1.25.0", null, 1, "Pág.", "/", 1],
+      ["900123456", "DOS", 500, null, null, null],
+      ["SBS 1.25.0", null, null, 1, "/", 1],
+    ]);
+    const r = transformarModulo(CAR, specDe(h), h);
+    expect(movimientos(r).map((f) => [f.datos.nit, f.valor])).toEqual([["800197463", 1_000_000], ["900123456", 500]]);
+    expect(r.filas.filter((f) => f.motivo === "sin_identificador").map((f) => [f.filaNum, f.valor])).toEqual([[3, 0], [5, 0]]);
+  });
+
   it("el pie NO se salva por heredar el tercero de la fila anterior", () => {
     // Con el arrastre activo, la última fila heredaría el NIT del último tercero. Lo que la
     // delata es que no trae identidad PROPIA: ni identificador, ni nombre, ni documento.

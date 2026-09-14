@@ -812,7 +812,7 @@ function ConsolidadoTab({
                             value={nuevos[c.clasificador] ?? ""}
                             onChange={(e) => setNuevos((p) => ({ ...p, [c.clasificador]: e.target.value }))}
                             onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); agregarCuenta(c.clasificador); } }}
-                            placeholder={nivelCruce === 6 ? "510506 o 51050601" : "1435 o 143505"}
+                            placeholder={nivelCruce === 6 ? `${cuentas[0]?.codigo ?? "510506"} o ${cuentas[0]?.codigo ?? "510506"}01` : "1435 o 143505"}
                             inputMode="numeric"
                             title={`Escribe la cuenta Russell de ${nivelCruce} dígitos o la cuenta del cliente: se resuelve por su homologación`}
                             className="w-24 rounded-md border border-ink-200 bg-white px-2 py-1 text-[12px] tabular-nums text-ink-700 outline-none focus:border-blue-400"
@@ -1321,8 +1321,9 @@ function CruceContableTab({
             balance {cruceContable.balanceFuente.version} · {cruceContable.balanceFuente.periodoInicio} a {cruceContable.balanceFuente.periodoFin}
           </Link>
           {cruceContable.balanceFuente.esOficial && cruceContable.balanceFuente.estaCongelado
-            ? " · oficial y congelado · prevalidador aprobado"
-            : ""}
+            ? " · oficial y congelado"
+            : " · versión más reciente del período (sin congelar)"}
+          {cruceContable.bloqueo ? "" : " · prevalidador aprobado"}
           .
         </p>
       )}

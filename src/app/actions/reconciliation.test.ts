@@ -228,22 +228,18 @@ describe("executeReconciliation · compuerta del prevalidador", () => {
     expect(mocks.createProcessNotification).not.toHaveBeenCalled();
   });
 
-  it.each([
-    [false, true],
-    [true, false],
-  ])("rechaza un balance no oficial o no congelado (%s/%s)", async (esOficial, estaCongelado) => {
+  it("acepta un balance sin congelar: congelar no es requisito para conciliar", async () => {
+    // Las cuentas del módulo quedan en firme al cerrar la conciliación, no por un congelado
+    // previo de toda la versión: la compuerta solo exige el prevalidador aprobado y vigente.
     const contexto = contextoListo();
-    contexto.balance.esOficial = esOficial;
-    contexto.balance.estaCongelado = estaCongelado;
+    contexto.balance.esOficial = false;
+    contexto.balance.estaCongelado = false;
     mocks.cargarContexto.mockResolvedValue(contexto);
 
-    const resultado = await executeReconciliation(undefined, formulario());
+    const ejecucion = executeReconciliation(undefined, formulario());
 
-    expect(resultado).toEqual({
-      ok: false,
-      message: "La conciliación exige un balance oficial y congelado del período exacto.",
-    });
-    expect(mocks.reconciliationCreate).not.toHaveBeenCalled();
+    await expect(ejecucion).rejects.toThrow("REDIRECT:/conciliacion/resultados/44?ejecutada=1");
+    expect(mocks.reconciliationCreate).toHaveBeenCalledTimes(1);
   });
 
   it("rechaza un prevalidador bloqueado por cuentas sin homologar", async () => {

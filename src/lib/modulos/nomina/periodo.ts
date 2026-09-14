@@ -54,7 +54,8 @@ function anioCompleto(v: string): number {
  * «1/15/2026 12:00:00 AM» (formato anglosajón de la planilla PILA) y el SERIAL de Excel
  * cuando el libro perdió los estilos y la fecha llega como número (45687).
  *
- * Con «a/b/yyyy» ambiguo (ambos ≤ 12) se asume día/mes: es la convención de Colombia.
+ * Con «a/b/yyyy» ambiguo (ambos ≤ 12) se asume día/mes: es la convención de Colombia. El mes también
+ * puede venir en letras: «DIC/30/2025» (Metroplus), «30-dic-2025», «Ene 5, 2026».
  */
 export function parsearFechaCelda(v: unknown): string | null {
   if (v == null || v === "") return null;
@@ -77,6 +78,18 @@ export function parsearFechaCelda(v: unknown): string | null {
     const [dia, mes] = a > 12 && b <= 12 ? [a, b] : b > 12 && a <= 12 ? [b, a] : [a, b];
     if (!mesValido(anio, mes) || dia < 1 || dia > 31) return null;
     return `${anio}-${dos(mes)}-${dos(dia)}`;
+  }
+  // Mes en letras, antes o después del día.
+  const t = normalizar(s);
+  const mesPrimero = /^([a-z]{3,10})\.?[\s/.-]+(\d{1,2}),?[\s/.-]+(\d{2}|\d{4})$/.exec(t);
+  const diaPrimero = mesPrimero ? null : /^(\d{1,2})[\s/.-]+([a-z]{3,10})\.?[\s/.-]+(\d{2}|\d{4})$/.exec(t);
+  const partes = mesPrimero
+    ? { mes: MESES[mesPrimero[1]], dia: Number(mesPrimero[2]), anio: anioCompleto(mesPrimero[3]) }
+    : diaPrimero
+      ? { mes: MESES[diaPrimero[2]], dia: Number(diaPrimero[1]), anio: anioCompleto(diaPrimero[3]) }
+      : null;
+  if (partes?.mes && mesValido(partes.anio, partes.mes) && partes.dia >= 1 && partes.dia <= 31) {
+    return `${partes.anio}-${dos(partes.mes)}-${dos(partes.dia)}`;
   }
   return null;
 }

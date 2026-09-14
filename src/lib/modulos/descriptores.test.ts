@@ -86,10 +86,17 @@ describe("descriptores de módulos", () => {
     expect(MODULOS_IMPORT.NOM.crucePorTercero.rolNombre).toBe("empleado");
   });
 
+  it("Cartera y CxP concilian a 6 dígitos contra las cuentas Russell de su módulo", () => {
+    expect([nivelCruceModulo(MODULOS_IMPORT.CAR), nivelCruceModulo(MODULOS_IMPORT.CXP)]).toEqual([6, 6]);
+    expect(MODULOS_IMPORT.CAR.crucePorTercero.cuentasRussell6).toEqual(["130505", "130510", "280505"]);
+    expect(MODULOS_IMPORT.CXP.crucePorTercero.cuentasRussell6).toHaveLength(12);
+  });
+
   it("Nómina cruza a 6 dígitos contra las 25 cuentas de gasto y costo de personal (RF-NOM-05)", () => {
     expect(nivelCruceModulo(MODULOS_IMPORT.NOM)).toBe(6);
+    // Nómina, Cartera y CxP concilian por cuenta Russell de 6 dígitos; los demás, por subgrupo.
     for (const d of Object.values(MODULOS_IMPORT)) {
-      if (d.codigo !== "NOM") expect(nivelCruceModulo(d), d.codigo).toBe(4);
+      expect(nivelCruceModulo(d), d.codigo).toBe(["NOM", "CAR", "CXP"].includes(d.codigo) ? 6 : 4);
     }
     expect(CUENTAS_RUSSELL_NOMINA).toHaveLength(25);
     expect(new Set(CUENTAS_RUSSELL_NOMINA).size).toBe(25);

@@ -20,6 +20,14 @@ describe("parsearFechaCelda", () => {
     expect(parsearFechaCelda("5/3/25")).toBe("2025-03-05"); // ambiguo: día/mes (Colombia)
   });
 
+  it("lee el mes escrito en letras («DIC/30/2025» de Metroplus)", () => {
+    expect(parsearFechaCelda("DIC/30/2025")).toBe("2025-12-30");
+    expect(parsearFechaCelda("30-dic-2025")).toBe("2025-12-30");
+    expect(parsearFechaCelda("Ene 5, 2026")).toBe("2026-01-05");
+    expect(parsearFechaCelda("Cancelado en Julio")).toBeNull();
+    expect(parsearFechaCelda("FOO/30/2025")).toBeNull();
+  });
+
   it("convierte el serial de Excel cuando el libro perdió los estilos", () => {
     expect(parsearFechaCelda(45687)).toBe("2025-01-30");
     expect(parsearFechaCelda(41386)).toBe("2013-04-22"); // Kakaraka: «Fecha Ing» sin estilo

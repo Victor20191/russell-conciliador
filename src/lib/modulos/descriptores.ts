@@ -198,7 +198,8 @@ export type DescriptorModulo = {
   /**
    * Nivel de la cuenta Russell contra la que cruza la cédula contable: 4 dígitos (el de
    * siempre: la fila del cruce es un subgrupo, 1435) o 6 (Nómina, RF-NOM-05: 510506 y
-   * 720505 son renglones distintos aunque compartan la 5105/7205). A 6 la homologación del
+   * 720505 son renglones distintos aunque compartan la 5105/7205; Cartera y CxP, que concilian
+   * contra sus `cuentasRussell6`: 130505 y 130510 no son la misma cartera). A 6 la homologación del
    * cliente guarda la cuenta completa (`consolidacion_modulo_cliente.cuenta_6`), las marcas
    * y el cierre en firme se llavean por ella y el lado contable se agrega por
    * `cuenta_6_russell`. Ausente = 4.
@@ -363,6 +364,9 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     // RF-CXC-06/09: si el archivo no trae total, el saldo es la suma de las edades; si trae
     // ambos y difieren, manda la suma de las edades y la diferencia se alerta.
     valorDerivado: { deFamilia: "edades", prevalece: "familia" },
+    // Se concilia por cuenta Russell de 6 dígitos (130505 nacional, 130510 exterior, 280505
+    // anticipos), no por subgrupo: el resto del grupo 13/28 se informa «fuera del módulo».
+    nivelCruce: 6,
     // Sin `noNegativos`: un saldo negativo es un anticipo o una nota crédito sin cruzar —se
     // alerta como «naturaleza contraria», nunca se rechaza el cargue.
     arrastrables: ["nit", "nombre", "cuenta"],
@@ -386,11 +390,8 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
       naturaleza: "D",
       detalleTercero: true,
     },
-    verificaciones: [
-      { id: "car_anticipos", texto: "Confirme si la cartera incluye saldos a favor de clientes (anticipos)." },
-      { id: "car_vencida", texto: "Verifique la existencia de cartera vencida mayor a 360 días." },
-      { id: "car_vinculados", texto: "Confirme si existen cuentas por cobrar a vinculados económicos." },
-    ],
+    // Sin verificaciones manuales al cargar: el borrador no pide confirmar anticipos, cartera
+    // vencida ni vinculados (los cargues anteriores conservan las respuestas que guardaron).
   },
 
   // ===== Cuentas por Pagar (CXP) → 2205/2210/2335 y anticipos 1330 =====
@@ -437,6 +438,8 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     // D2 (12/Sep/2026): manda el saldo de la columna. Las edades dan el valor solo cuando la
     // columna no viene o viene en cero (SIESA Zarzal); si ambas vienen y difieren, se alerta.
     valorDerivado: { deFamilia: "edades", prevalece: "columna" },
+    // Se concilia por cuenta Russell de 6 dígitos (las 12 de `cuentasRussell6`), no por subgrupo.
+    nivelCruce: 6,
     // Sin «noNegativos»: un anticipo o una nota a favor es un saldo negativo legítimo.
     arrastrables: ["nit", "nombre", "cuenta"],
     rolesLlaveItem: ["nit", "documento"],

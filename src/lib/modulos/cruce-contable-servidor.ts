@@ -89,6 +89,13 @@ export type BalanceFuenteCruce = {
 export type ResultadoCruceModulo = {
   balanceEmparejado: BalanceFuenteCruce | null;
   bloqueo: string | null;
+  /**
+   * Huella del prevalidador del balance emparejado (detalle, homologación, catálogo y
+   * overrides) tal como se calculó el cruce. El cierre la relee bajo candado: como el
+   * balance NO tiene que estar congelado, es la prueba de que no cambió entre el cruce que
+   * vio el usuario y el commit. `null` si no hubo balance o la compuerta lo bloqueó antes.
+   */
+  huellaBalance: string | null;
   cruceContable: ResumenCruceContable | null;
   /** Cuentas del cliente que aportan a cada fila del cruce (el desglose al expandir). */
   detalleContablePorCuenta: Record<string, HijoContableCruce[]>;
@@ -237,8 +244,9 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
   const formalNomina = consolidadoNomina && insumosNomina ? entradasCruceFormalNomina(consolidadoNomina.renglones, insumosNomina.repartos) : null;
   const consolidado = consolidarPorClasificador(encabezado.detalles.map((d) => ({ clasificador: d.clasificador, valor: d.valor })));
 
-  // Para módulos de movimiento se prioriza el balance oficial y congelado que cubra
-  // exactamente el mes calendario; después, la compuerta común exige que ese balance
+  // Balance del período: el oficial si existe y, si no, la versión más reciente (congelar
+  // NO es requisito para conciliar); en módulos de movimiento se antepone el que cubre
+  // exactamente el mes calendario. Después, la compuerta común exige que ese balance
   // conserve una aprobación vigente del prevalidador.
   const balancesConfirmados = await prisma.balancePruebaEncabezado.findMany({
     where: { clienteId: encabezado.clienteId },
@@ -397,6 +405,7 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
   return {
     balanceEmparejado,
     bloqueo,
+    huellaBalance: contextoBalance && !bloqueo ? contextoBalance.huella : null,
     cruceContable,
     detalleContablePorCuenta,
     sinMapeoContable,
@@ -419,6 +428,7 @@ function vacio(balanceEmparejado: BalanceFuenteCruce | null, bloqueo: string | n
   return {
     balanceEmparejado,
     bloqueo,
+    huellaBalance: null,
     cruceContable: null,
     detalleContablePorCuenta: {},
     sinMapeoContable: null,
