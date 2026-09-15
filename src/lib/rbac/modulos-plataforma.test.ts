@@ -36,12 +36,20 @@ describe("Publicación de módulos por rol", () => {
     expect(moduloPublicadoParaRol("Staff", "externo", [])).toBe(true);
   });
 
-  test("conexiones existe en el catálogo y es visible para roles administrativos", () => {
+  test("conexiones existe en el catálogo y es publicable por el Superadministrador", () => {
     const conexiones = MODULOS_PLATAFORMA.find((m) => m.key === "conexiones");
     expect(conexiones).toBeDefined();
-    // Admin-only: la visibilidad la gobiernan los permisos conexiones:*.
-    expect(conexiones!.configurableForNonAdmins).toBe(false);
-    expect(moduloPublicadoParaRol("Administrador", "conexiones", MODULOS_PLATAFORMA)).toBe(true);
+    // Publicable: el Superadministrador puede dejarlo «En desarrollo» para
+    // ocultárselo a los Administradores (los demás roles nunca lo ven).
+    expect(conexiones!.configurableForNonAdmins).toBe(true);
     expect(moduloPublicadoParaRol("Superadministrador", "conexiones", MODULOS_PLATAFORMA)).toBe(true);
+    expect(moduloPublicadoParaRol("Administrador", "conexiones", MODULOS_PLATAFORMA)).toBe(true);
+
+    const apagado: EstadoModulo[] = [
+      { key: "conexiones", enabledForNonAdmins: false, configurableForNonAdmins: true },
+    ];
+    expect(moduloPublicadoParaRol("Administrador", "conexiones", apagado)).toBe(false);
+    // El Superadministrador lo ve incluso «En desarrollo».
+    expect(moduloPublicadoParaRol("Superadministrador", "conexiones", apagado)).toBe(true);
   });
 });

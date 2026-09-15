@@ -14,7 +14,9 @@ import {
 // el sidebar lo ocultaba (el filtro `moduleset.has(modulo)` fallaba) aunque el
 // permiso ya estuviera sembrado.
 // v5: retirar el módulo `entorno` (su pantalla se consolidó en conexiones).
-export const PUBLICACION_MODULOS_CACHE_TAG = "publicacion-modulos-v5";
+// v6: `conexiones` pasa a ser publicable (el Superadministrador puede dejarlo
+// «En desarrollo» para ocultárselo a los Administradores).
+export const PUBLICACION_MODULOS_CACHE_TAG = "publicacion-modulos-v6";
 
 async function leerPublicacionBD(): Promise<PlatformModuleState[]> {
   const filas = await prisma.platformModule.findMany({
@@ -42,7 +44,7 @@ async function leerPublicacionBD(): Promise<PlatformModuleState[]> {
 
 const getPublicacionCached = unstable_cache(
   leerPublicacionBD,
-  ["publicacion-modulos-v5"],
+  ["publicacion-modulos-v6"],
   { tags: [PUBLICACION_MODULOS_CACHE_TAG], revalidate: 3600 },
 );
 

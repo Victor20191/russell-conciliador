@@ -258,17 +258,18 @@ export const MODULOS_PLATAFORMA: PlatformModuleDefinition[] = [
     configurableForNonAdmins: true,
   },
   {
-    // Admin-only: la visibilidad la gobiernan los permisos conexiones:ver /
-    // conexiones:administrar (SOLO_ADMIN); la publicación de módulos queda
-    // inerte (configurable=false ⇒ moduloPublicadoParaRol devuelve true).
+    // Admin-only por permiso (conexiones:ver / conexiones:administrar →
+    // SOLO_ADMIN), pero PUBLICABLE: el Superadministrador puede dejarlo «En
+    // desarrollo» para ocultárselo a los Administradores mientras la
+    // integración se termina. Los demás roles nunca lo ven (no tienen permiso).
     key: "conexiones",
     label: "Conexiones e integraciones",
     description: "Credenciales externas por conexión (correo, almacenamiento, API, webhook) con prueba y ejecución.",
     group: "Configuración",
     icon: "link",
     order: 226,
-    enabledForNonAdmins: false,
-    configurableForNonAdmins: false,
+    enabledForNonAdmins: true,
+    configurableForNonAdmins: true,
   },
   {
     // Visible para todos los roles con `soporte:ver`. La publicación queda
