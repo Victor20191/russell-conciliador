@@ -237,7 +237,12 @@ export async function extraerBalance(
     // (~2,1-2,5K tokens) SÍ se cachea entre cargas; con Opus (mínimo 4096) queda
     // corto y no se cachea (sin coste extra). El grueso de la entrada es la vista
     // previa del archivo: cambia por carga y no es cacheable.
-    const promptTexto = await getPromptContenido(CLAVE_EXTRACCION);
+    // El contrato vigente se adjunta también a los prompts personalizados de
+    // BD: algunos todavía llaman «tercero» indistintamente al NIT o al nombre.
+    const promptTexto = [
+      await getPromptContenido(CLAVE_EXTRACCION),
+      "Contrato vigente de columnas de identidad: columnas.tercero es la columna del documento (Identificación, NIT, cédula o Código SN); columnas.nombreTercero es la columna del nombre o razón social (Tercero si contiene nombres, Nombre NIT, Nombre SN o Razón social). Si ambas existen, mapea ambas por separado; columnas.nombre sigue siendo el nombre de la cuenta. Usa 0 para un rol ausente. Si documento y nombre comparten celda, mapea esa celda en tercero y deja nombreTercero=0. Un nombre con documento vacío sigue siendo un tercero.",
+    ].join("\n\n");
     const system = [{ type: "text" as const, text: promptTexto, cache_control: { type: "ephemeral" as const } }];
 
     // Hoja elegida por el usuario: solo la mandamos a la IA (y luego la forzamos

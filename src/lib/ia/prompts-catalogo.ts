@@ -18,9 +18,8 @@ export type PromptDef = {
 };
 
 // Fallback embebido del prompt de extracción si no se puede leer el .md (build/FS).
-// Es el mismo que tenía `extraer.ts` antes de mover la carga a BD.
 const FALLBACK_EXTRACCION =
-  "Eres un especialista en ETL de balances de prueba colombianos. Devuelve la estructura/filas en el esquema pedido, sin inventar datos. CUENTA como texto; CRÉDITOS positivos; valida SALDO = SALDO_INICIAL + DÉBITOS − CRÉDITOS.";
+  "Eres un especialista en ETL de balances de prueba colombianos. Devuelve la estructura/filas en el esquema pedido, sin inventar datos. CUENTA como texto; CRÉDITOS positivos; valida SALDO = SALDO_INICIAL + DÉBITOS − CRÉDITOS. En modo estructura, columnas.tercero identifica el documento (Identificación, NIT, cédula o Código SN) y columnas.nombreTercero identifica el nombre (Tercero si contiene nombres, Nombre NIT, Nombre SN o Razón social), distinto del nombre de la cuenta. Usa 0 si el rol no existe. Si documento y nombre vienen juntos, mapea esa celda en tercero y deja nombreTercero=0. Un nombre con documento vacío sigue siendo un tercero.";
 
 /** Prompt de extracción: Markdown en disco (fuente de fábrica) con fallback embebido. */
 function defectoExtraccion(): string {

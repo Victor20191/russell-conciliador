@@ -78,12 +78,16 @@ export const ColumnasSchema = z
     // …o partido en débito/crédito (saldo = débito − crédito).
     saldoFinalDebito: z.number().int(),
     saldoFinalCredito: z.number().int(),
-    // Tercero (si existe → puede requerir agregación por cuenta).
-    tercero: z.number().int(),
+    // Documento y nombre son roles separados, incluso si el ERP llama
+    // «Tercero» a la columna que solo contiene nombres.
+    tercero: z.number().int().describe("Columna del documento del tercero: Identificación, NIT, cédula o Código SN. Si hay Identificación y Tercero (nombres) separados, usa Identificación aquí. 0 si no existe documento."),
+    nombreTercero: z.number().int().min(0).describe("Columna del nombre o razón social del tercero: Nombre tercero, Nombre NIT, Razón social, Nombre SN o Tercero cuando contiene nombres. Es distinta del nombre de la cuenta. 0 si no hay una columna separada; si documento y nombre vienen juntos, mapea esa celda en tercero."),
   })
   .describe("Índices de columna 1-based (A=1). Usa 0 cuando la columna no exista (no null).");
-// Complementos del editor/perfil. El contrato de IA permanece igual; estos roles
-// no participan en detección, agregación ni validación contable.
+// Los perfiles/specs guardados antes de reconocer el nombre separado siguen
+// siendo válidos. La IA nueva debe declarar el rol (0 = ausente); la lectura de
+// layouts históricos permite que falte. Tipo y DV siguen siendo complementos
+// del editor/perfil.
 export const ColumnasCargaSchema = ColumnasSchema.extend({
   nombreTercero: z.number().int().min(0).optional(),
   tipoDocumentoTercero: z.number().int().min(0).optional(),

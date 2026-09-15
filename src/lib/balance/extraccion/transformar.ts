@@ -288,7 +288,7 @@ type FilaParcial = { code: string; name: string; si: number; db: number; cr: num
 // tercero (razón social), distinta de "Nombre cuenta contable" (no trae
 // tercero/proveedor/cliente) y de dimensiones sin identidad propia como
 // "Sucursal"/"Centro de costo".
-const ENCABEZADO_NOMBRE_TERCERO = /(nombre|raz[oó]n)\s*(de\s*|del\s*)?(tercero|proveedor|cliente|acreedor|deudor|social)/i;
+const ENCABEZADO_NOMBRE_TERCERO = /(nombre|raz[oó]n)\s*(de\s*|del\s*)?(tercero|proveedor|cliente|acreedor|deudor|social|nit|sn)\b/i;
 
 /**
  * Sana en LECTURA (sin tocar el perfil guardado) un spec que mapeó la columna
@@ -296,8 +296,9 @@ const ENCABEZADO_NOMBRE_TERCERO = /(nombre|raz[oó]n)\s*(de\s*|del\s*)?(tercero|
  * (`nombreTercero`): algunos perfiles quedaron guardados así porque el modelo
  * no marcó esa columna al crear el perfil. Busca en la fila de encabezado
  * declarada (`spec.filaEncabezado`) una columna aún sin uso cuyo rótulo
- * identifique el nombre del tercero. Sin exactamente una coincidencia no
- * resuelve nada (no adivina entre "Nombre cuenta contable" y "Sucursal").
+ * identifique el nombre del tercero. Si no hay rótulo, admite la columna
+ * adyacente solo con pares consistentes en filas que heredan la cuenta.
+ * Las coincidencias ambiguas y las dimensiones con rótulo no se reinterpretan.
  */
 export function resolverColumnaNombreTercero(spec: MappingSpec, hoja: GridHoja): MappingSpec["columnas"] {
   const cols = spec.columnas;
@@ -319,12 +320,27 @@ export function resolverColumnaNombreTercero(spec: MappingSpec, hoja: GridHoja):
     ...(cols.codigoFragmentos ?? []),
   ]);
   const candidatas: number[] = [];
+  const documentoExplicito = /^(?:identificaci[oó]n|nit|documento|c[oó]digo sn)$/i.test(texto(cell(encabezado, cols.tercero)));
   for (let i = 0; i < encabezado.length; i++) {
     const col = i + 1;
     if (usadas.has(col)) continue;
-    if (ENCABEZADO_NOMBRE_TERCERO.test(texto(encabezado[i]))) candidatas.push(col);
+    const rotulo = texto(encabezado[i]);
+    if (ENCABEZADO_NOMBRE_TERCERO.test(rotulo) || (documentoExplicito && /^tercero$/i.test(rotulo))) candidatas.push(col);
   }
-  return candidatas.length === 1 ? { ...cols, nombreTercero: candidatas[0] } : cols;
+  if (candidatas.length === 1) return { ...cols, nombreTercero: candidatas[0] };
+  if (candidatas.length > 1) return cols;
+  // CIB deja sin rótulo el nombre, inmediatamente después del documento.
+  // Exige pares consistentes; nunca sustituye una dimensión con encabezado.
+  const adyacente = cols.tercero + 1;
+  if (usadas.has(adyacente) || texto(cell(encabezado, adyacente))) return cols;
+  let documentos = 0, nombres = 0;
+  for (const fila of hoja.filas.slice(spec.primeraFilaDatos - 1, spec.primeraFilaDatos + 499)) {
+    if (!/^\d[\d. -]*$/.test(texto(cell(fila, cols.tercero)))) continue;
+    documentos++;
+    if (!texto(celdaCodigo(fila, cols)) && !texto(cell(fila, cols.nombre))
+      && /[a-záéíóúñ]/i.test(texto(cell(fila, adyacente)))) nombres++;
+  }
+  return nombres >= 3 && nombres / documentos >= 0.8 ? { ...cols, nombreTercero: adyacente } : cols;
 }
 
 export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params: ParamsExtraccion): ResultadoTransform {
@@ -373,6 +389,7 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
   }
 
   const cols = resolverColumnaNombreTercero(spec, hoja);
+  const tieneColumnaTercero = cols.tercero > 0 || (cols.nombreTercero ?? 0) > 0;
   const tieneInicial = cols.saldoInicial > 0;
   const tieneMovimientos = cols.debitos > 0 || cols.creditos > 0;
   const validarControl = tieneInicial && tieneMovimientos;
@@ -391,7 +408,7 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
   // omiten únicamente las vistas alternativas sin tercero y sin esa marca. Sin
   // ninguna marca autoritativa se preservan todas las filas vacías (fail-safe).
   const filasConsolidadasMarcadasPorCodigo = new Map<string, Set<number>>();
-  if (cols.tercero > 0) {
+  if (tieneColumnaTercero) {
     for (let r = spec.primeraFilaDatos - 1; r < hoja.filas.length; r++) {
       const fila = hoja.filas[r] ?? [];
       const code = normalizarCodigo(celdaCodigo(fila, cols));
@@ -401,7 +418,7 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
         marcadas.add(r);
         filasConsolidadasMarcadasPorCodigo.set(code, marcadas);
       }
-      if (texto(cell(fila, cols.tercero)) === "") {
+      if (!tieneIdentidadTercero(fila, cols)) {
         codigosConConsolidado.add(code);
       } else {
         codigosConDetalleTercero.add(code);
@@ -414,15 +431,15 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
   // es consolidado; una fila NIT con tercero vacío no puede usarse para descartar
   // las demás porque puede ser una contraparte legítima sin código de tercero.
   const omitirDetalleTerceroPorConsolidadoInferido = (code: string, fila: CeldaCruda[]): boolean =>
-    cols.tercero > 0 &&
+    tieneColumnaTercero &&
     spec.reglaDetalle.tipo !== "columna" &&
     codigosConConsolidado.has(code) &&
     codigosConDetalleTercero.has(code) &&
-    texto(cell(fila, cols.tercero)) !== "";
+    tieneIdentidadTercero(fila, cols);
   // Renglones de DETALLE bajo el total de su tercero (p. ej. el mismo tercero
   // partido por centro de costo): se omiten para no sumar dos veces al tercero
   // ni a la cuenta. Ver `detectarDetalleBajoTotalTercero`.
-  const detalleBajoTotalTercero = detectarDetalleBajoTotalTercero(hoja, spec, cols);
+  const detalleBajoTotalTercero = detectarDetalleBajoTotalTercero(hoja, spec, cols, excepciones);
   // Pasada 1 (jerarquía por PREFIJO): reúne TODOS los códigos numéricos de la
   // hoja. Una cuenta es HOJA (movimiento real) si su código no es prefijo de
   // ningún otro más largo del archivo; es AGRUPADORA si tiene hijos debajo. Esto
@@ -570,6 +587,7 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
   // las que no cuadren tras la agregación.
   const crudasPorCodigo = new Map<string, number[]>();
 
+  let cuentaHeredada: { codigo: string; nombre: string } | null = null;
   for (let r = spec.primeraFilaDatos - 1; r < hoja.filas.length; r++) {
     const fila = hoja.filas[r] ?? [];
     const filaNum = r + 1;
@@ -590,7 +608,17 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
       }
       name = emb[2].trim();
     }
-    if (!code && !name) continue; // fila vacía
+    const encabezadoRepetido = esEncabezadoRepetido(fila, hoja.filas[spec.filaEncabezado - 1] ?? []);
+    const identidadPresente = tieneIdentidadTercero(fila, cols);
+    const heredaCuenta = !code && !name && identidadPresente && cuentaHeredada !== null;
+    if ((code || name) && !encabezadoRepetido) {
+      cuentaHeredada = /^\d+$/.test(code) && code.length >= LONGITUD_MIN_IMPUTABLE && !identidadPresente
+        ? { codigo: code, nombre: name } : null;
+    }
+    if (!code && !name && !heredaCuenta) {
+      if (identidadPresente) excepciones.push({ hoja: hoja.nombre, fila: filaNum, campo: "tercero", valor: texto(cell(fila, cols.tercero)), regla: "Tercero sin cuenta de referencia", accion: "Revisar la cuenta que corresponde a esta fila; no se incorpora el tercero." });
+      continue;
+    }
     filasLeidas++;
 
     const esNum = /^\d+$/.test(code);
@@ -667,6 +695,35 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
       });
     };
 
+    if (heredaCuenta && cuentaHeredada) {
+      filasExcluidas++;
+      filasDetalleTerceroExcluidas++;
+      if (si === null || db === null || cr === null || saldo === null) {
+        excepciones.push({ hoja: hoja.nombre, fila: filaNum, campo: "monto", valor: null, regla: "Monto no numérico", accion: "Corregir el importe del tercero en el archivo." });
+      } else {
+        capturarTercero(cuentaHeredada.codigo, cuentaHeredada.nombre, texto(cell(fila, cols.tercero)), { si, db, cr, saldo });
+      }
+      registrar("total", { si: si ?? 0, db: db ?? 0, cr: cr ?? 0, saldo: saldo ?? 0 });
+      continue;
+    }
+
+    // En este formato confirmado, el documento y el nombre pueden compartir A.
+    // Se separan ANTES de normalizar códigos: los números de «T3 TEXTILES»
+    // pertenecen al nombre, y «Genérico» también es una contraparte válida.
+    const terceroEmbebido = /^\s*(\d[\d.,-]*|gen[eé]rico)\s+(.+)$/i.exec(codigoCrudo);
+    const generico = /^gen[eé]rico$/i.test(codigoCrudo);
+    if (descartarTerceroNegrita && cuentaNegritaActual && !filaEnNegrita(hoja.negrita?.[r], cols.codigo, cols.nombre)
+      && (generico || (terceroEmbebido && !normalizarCodigo(terceroEmbebido[1]).startsWith(cuentaNegritaActual)))) {
+      const documento = terceroEmbebido?.[1] ?? "";
+      const nombre = terceroEmbebido?.[2].trim() || name || "Genérico";
+      filasExcluidas++;
+      filasTerceroNegritaExcluidas++;
+      capturarTercero(cuentaNegritaActual, nombreCuentaNegritaActual, codigoCrudo,
+        { si: si ?? 0, db: db ?? 0, cr: cr ?? 0, saldo: saldo ?? 0 },
+        { documento: /^gen[eé]rico$/i.test(documento) ? "" : documento, nombre });
+      continue;
+    }
+
     // El detalle confirmado conserva la cuenta del bloque y la identidad del
     // tercero por separado. Sus importes no se duplican en el balance por cuenta:
     // el TOTAL del bloque sigue siendo la fuente de ese consolidado.
@@ -691,7 +748,7 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
     // explícitamente cualquier rótulo TOTAL/SUBTOTAL para no arrastrarlo como
     // tercero ni modificar el cuadre. Sin dígito en el código tampoco captura
     // (evita encabezados de página repetidos, p. ej. "CÓDIGO CONTABLE").
-    if (descartarTerceroNegrita && !esNum && cuentaNegritaActual && name && /\d/.test(codigoCrudo) && !/^\s*(?:sub)?total\b/i.test(codigoCrudo)) {
+    if (descartarTerceroNegrita && !esNum && cuentaNegritaActual && !filaEnNegrita(hoja.negrita?.[r], cols.codigo, cols.nombre) && name && /\d/.test(codigoCrudo) && !/^\s*(?:sub)?total\b/i.test(codigoCrudo)) {
       filasExcluidas++;
       filasTerceroNegritaExcluidas++;
       capturarTercero(
@@ -705,6 +762,10 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
     }
     // Totales/secciones: código no numérico.
     if (!esNum) {
+      if (!encabezadoRepetido) {
+        cuentaNegritaActual = "";
+        nombreCuentaNegritaActual = "";
+      }
       filasExcluidas++;
       registrar("total", { si: si ?? 0, db: db ?? 0, cr: cr ?? 0, saldo: saldo ?? 0 });
       continue;
@@ -734,7 +795,7 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
     // todas y solo se excluyen las filas no marcadas. Si no existe ninguna marca,
     // las repeticiones se conservan para no borrar movimientos reales.
     const consolidadasMarcadas = filasConsolidadasMarcadasPorCodigo.get(code) ?? new Set<number>();
-    if (cols.tercero > 0 && consolidadasMarcadas.size > 0 && !consolidadasMarcadas.has(r)) {
+    if (tieneColumnaTercero && consolidadasMarcadas.size > 0 && !consolidadasMarcadas.has(r)) {
       filasExcluidas++;
       if (filaEsDetalleTercero(fila, spec, cols)) {
         filasDetalleTerceroExcluidas++;
@@ -755,7 +816,7 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
     // las filas NIT son el movimiento autoritativo: se conservan todas y la
     // agregación posterior suma las cuatro columnas sin perder movimientos.
     const detalleTerceroSinCuenta =
-      cols.tercero > 0 &&
+      tieneColumnaTercero &&
       consolidadasMarcadas.size === 0 &&
       code.length >= LONGITUD_MIN_IMPUTABLE &&
       filaEsDetalleTercero(fila, spec, cols);
@@ -802,9 +863,9 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
     // Movimiento que ES una fila de detalle por tercero (celda Tercero con valor):
     // se conserva y se agrega por cuenta más abajo, pero su desglose individual solo
     // sobrevive aquí — se captura para el staging paralelo.
-    if (cols.tercero > 0) {
+    if (tieneColumnaTercero) {
       const terceroCelda = texto(cell(fila, cols.tercero));
-      if (terceroCelda !== "") capturarTercero(code, name, terceroCelda, { si, db: mov.db, cr: mov.cr, saldo });
+      if (identidadPresente) capturarTercero(code, name, terceroCelda, { si, db: mov.db, cr: mov.cr, saldo });
     }
     (crudasPorCodigo.get(code) ?? crudasPorCodigo.set(code, []).get(code)!).push(idx);
     parciales.push({
@@ -821,7 +882,7 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
   // varias filas pueden representar el mismo código; se agregan aunque el modelo
   // no active explícitamente `agregarPorTercero`, para que el borrador coincida
   // con la promoción final (que también agrupa staging por cuenta).
-  const agregadas = (spec.agregarPorTercero || cols.tercero > 0) ? agregarPorCuenta(parciales) : parciales;
+  const agregadas = (spec.agregarPorTercero || tieneColumnaTercero) ? agregarPorCuenta(parciales) : parciales;
 
   const importReady: CuentaCruda[] = [];
   let filasDescuadre = 0;
@@ -891,7 +952,7 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
       campo: "tercero",
       valor: `${filasDetalleBajoTotalTercero} fila(s)`,
       regla: "Detalle omitido bajo el total de su tercero",
-      accion: "Cada tercero traía un renglón de total y renglones de detalle que lo suman; se conservó solo el total para no duplicar.",
+      accion: "Cada tercero traía un renglón de total y renglones de desglose; se conservó solo el total para no duplicar.",
     });
   }
   if (filasResumenTerceroExcluidas > 0) {
@@ -1056,25 +1117,28 @@ export function validarDirecta(extr: ExtraccionDirecta, params: ParamsExtraccion
 // Mínimo de bloques «total + detalle» que cuadran para detectarlo SOLO («auto»).
 const MIN_BLOQUES_TOTAL_TERCERO = 20;
 
-/**
- * Balance por tercero con «Un renglón con Total de Tercero + otro renglón para
- * detalle» (p. ej. el tercero y, debajo, el mismo tercero por centro de costo).
- * Dentro de un bloque CONSECUTIVO del mismo código y el mismo tercero, si el
- * primer renglón iguala en sus cuatro importes la suma de los siguientes, esos
- * siguientes son detalle: se devuelven sus índices (0-based) para omitirlos.
- * `total_mas_detalle` aplica la regla; `auto` solo si el patrón domina el
- * archivo (≥80% de los bloques de tercero); `tercero_totalizado` nunca.
- */
-export function detectarDetalleBajoTotalTercero(hoja: GridHoja, spec: MappingSpec, cols: MappingSpec["columnas"]): Set<number> {
+/** Omite el desglose de un total de tercero. La columna Centro de costo aporta
+ * evidencia estructural (total vacío seguido de centros informados). Sin ella,
+ * exige igualdad de los cuatro importes y, en modo auto, un patrón dominante. */
+export function detectarDetalleBajoTotalTercero(
+  hoja: GridHoja, spec: MappingSpec, cols: MappingSpec["columnas"], excepciones: Excepcion[] = [],
+): Set<number> {
   const omitir = new Set<number>();
   const modo = normalizarSubtotalesTercero(spec.subtotalesTercero);
-  if (cols.tercero <= 0 || modo === "tercero_totalizado") return omitir;
+  if ((cols.tercero <= 0 && !cols.nombreTercero) || modo === "tercero_totalizado") return omitir;
+  const usadas = new Set(Object.values(cols).flat().filter((v): v is number => typeof v === "number"));
+  const centros = (hoja.filas[spec.filaEncabezado - 1] ?? []).flatMap((v, i) =>
+    !usadas.has(i + 1) && /^centro\s*(?:de\s*)?costos?$/i.test(texto(v)) ? [i + 1] : []);
+  const colCentro = centros.length === 1 ? centros[0] : 0;
+  const centro = (r: number) => texto(cell(hoja.filas[r] ?? [], colCentro));
   type Importes = [number, number, number, number];
-  const importes = (fila: CeldaCruda[]): Importes => {
-    const si = cols.saldoInicial > 0 ? normalizarMonto(cell(fila, cols.saldoInicial)) ?? 0 : 0;
-    const db = cols.debitos > 0 ? normalizarMonto(cell(fila, cols.debitos)) ?? 0 : 0;
-    const cr = cols.creditos > 0 ? normalizarMonto(cell(fila, cols.creditos)) ?? 0 : 0;
-    return [si, db, cr, leerSaldoFinal(fila, cols, si, db, cr) ?? 0];
+  const importes = (fila: CeldaCruda[]): Importes | null => {
+    const si = cols.saldoInicial > 0 ? normalizarMonto(cell(fila, cols.saldoInicial)) : 0;
+    const db = cols.debitos > 0 ? normalizarMonto(cell(fila, cols.debitos)) : 0;
+    const cr = cols.creditos > 0 ? normalizarMonto(cell(fila, cols.creditos)) : 0;
+    if (si === null || db === null || cr === null) return null;
+    const sf = leerSaldoFinal(fila, cols, si, db, cr);
+    return sf === null ? null : [si, db, cr, sf];
   };
   const bloques: number[][] = [];
   let actual: number[] = [];
@@ -1083,23 +1147,57 @@ export function detectarDetalleBajoTotalTercero(hoja: GridHoja, spec: MappingSpe
   for (let r = spec.primeraFilaDatos - 1; r < hoja.filas.length; r++) {
     const fila = hoja.filas[r] ?? [];
     const code = normalizarCodigo(celdaCodigo(fila, cols));
-    const tercero = texto(cell(fila, cols.tercero));
-    if (!/^\d+$/.test(code) || tercero === "") { cerrar(); continue; }
-    const k = `${code}|${tercero}|${cols.nombreTercero ? texto(cell(fila, cols.nombreTercero)) : ""}`;
-    if (k !== clave) { cerrar(); clave = k; }
+    if (!/^\d+$/.test(code) || !tieneIdentidadTercero(fila, cols)) { cerrar(); continue; }
+    const k = JSON.stringify([code, texto(cell(fila, cols.tercero)), texto(cell(fila, cols.nombreTercero ?? 0))]);
+    // Un nuevo total sin centro abre otro bloque, incluso para la misma identidad.
+    if (k !== clave || (colCentro > 0 && !centro(r))) { cerrar(); clave = k; }
     actual.push(r);
   }
   cerrar();
-  const cuadran = bloques.filter((b) => {
-    if (b.length < 2) return false;
-    const [total, ...detalle] = b.map((r) => importes(hoja.filas[r] ?? []));
-    const suma = detalle.reduce<Importes>((s, d) => [s[0] + d[0], s[1] + d[1], s[2] + d[2], s[3] + d[3]], [0, 0, 0, 0]);
-    return total.every((v, i) => Math.abs(v - suma[i]) <= 0.5);
-  });
+  const aritmeticos: number[][] = [];
+  const estructurales: { filas: number[]; cuadra: boolean; diferencia: string }[] = [];
+  for (const b of bloques) {
+    if (b.length < 2) continue;
+    const valores = b.map(r => importes(hoja.filas[r] ?? []));
+    const total = valores[0];
+    if (!total) continue; // Un total inválido nunca autoriza descartar el detalle.
+    const detalle = valores.slice(1);
+    const suma = detalle.reduce<Importes>((s, d) => d ? [s[0] + d[0], s[1] + d[1], s[2] + d[2], s[3] + d[3]] : s, [0, 0, 0, 0]);
+    const cuadra = detalle.every(d => d !== null) && total.every((v, i) => Math.abs(v - suma[i]) <= 0.5);
+    if (colCentro > 0) {
+      // Dos centros independientes no son total + detalle aunque sumen igual.
+      if (centro(b[0]) || !b.slice(1).every(r => centro(r))) continue;
+      estructurales.push({ filas: b, cuadra,
+        diferencia: detalle.some(d => d === null) ? "El desglose contiene importes no numéricos" : `Diferencias SI/D/C/SF: ${total.map((v, i) => (v - suma[i]).toFixed(2)).join(" / ")}`,
+      });
+    } else if (cuadra) aritmeticos.push(b);
+  }
+  // Un centro vacío también puede ser un movimiento sin asignar. En auto,
+  // confirma el patrón en el archivo antes de tratarlo como total autoritativo.
+  const confirmados = estructurales.filter(b => b.cuadra).length;
+  const aplicarEstructura = modo === "total_mas_detalle"
+    || (confirmados >= MIN_BLOQUES_TOTAL_TERCERO && confirmados / bloques.length >= 0.8);
+  if (aplicarEstructura) for (const b of estructurales) {
+    for (const r of b.filas.slice(1)) omitir.add(r);
+    if (!b.cuadra) excepciones.push({
+      hoja: hoja.nombre, fila: b.filas[0] + 1, campo: "tercero", valor: b.diferencia,
+      regla: "Desglose por centro de costo no coincide con el total del tercero",
+      accion: "Se conserva el total del tercero una sola vez. Revisar la diferencia en el archivo original.",
+    });
+  }
   const aplicar = modo === "total_mas_detalle"
-    || (cuadran.length >= MIN_BLOQUES_TOTAL_TERCERO && cuadran.length / bloques.length >= 0.8);
-  if (aplicar) for (const b of cuadran) for (const r of b.slice(1)) omitir.add(r);
+    || (aritmeticos.length >= MIN_BLOQUES_TOTAL_TERCERO && aritmeticos.length / bloques.length >= 0.8);
+  if (aplicar) for (const b of aritmeticos) for (const r of b.slice(1)) omitir.add(r);
   return omitir;
+}
+
+function esEncabezadoRepetido(fila: CeldaCruda[], encabezado: CeldaCruda[]): boolean {
+  const rotulos = encabezado.map((v, i) => ({ valor: texto(v).toLocaleLowerCase("es"), i })).filter(v => v.valor);
+  return rotulos.length >= 2 && rotulos.every(v => texto(fila[v.i]).toLocaleLowerCase("es") === v.valor);
+}
+
+function tieneIdentidadTercero(fila: CeldaCruda[], cols: MappingSpec["columnas"]): boolean {
+  return texto(cell(fila, cols.tercero)) !== "" || texto(cell(fila, cols.nombreTercero ?? 0)) !== "";
 }
 
 function cell(fila: CeldaCruda[], col1: number | null): CeldaCruda {
@@ -1186,8 +1284,8 @@ function filaEsDetalleTercero(
   spec: MappingSpec,
   cols: MappingSpec["columnas"],
 ): boolean {
-  if (cols.tercero <= 0) return false;
-  if (texto(cell(fila, cols.tercero)) !== "") return true;
+  if (cols.tercero <= 0 && !cols.nombreTercero) return false;
+  if (tieneIdentidadTercero(fila, cols)) return true;
   if (spec.reglaDetalle.tipo !== "columna" || spec.reglaDetalle.columna == null) return false;
   const marcador = texto(cell(fila, spec.reglaDetalle.columna))
     .normalize("NFD")

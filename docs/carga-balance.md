@@ -2,7 +2,7 @@
 
 Guía funcional de la sección **Balance de comprobación** y, en especial, de la **carga de balances asistida por inteligencia artificial**. Documento de negocio: describe **qué** hace la funcionalidad y **cómo trabaja la IA**, sin entrar en detalles técnicos.
 
-> Actualización: 21-jun-2026
+> Actualización: 15-sep-2026
 
 ---
 
@@ -57,7 +57,7 @@ Cada cargue del mismo cliente y período genera una **versión nueva** (v1, v2, 
 La inteligencia artificial actúa como un **asistente contable experto en lectura de balances**. Su trabajo, en lenguaje sencillo:
 
 1. **Lee el archivo en el formato en que venga.** No exige una plantilla; se adapta a cómo cada sistema contable exporta el balance.
-2. **Reconoce la estructura automáticamente.** Identifica cuál es la hoja del balance (ignora hojas de filtros, retenciones, instrucciones o reportes por tercero), dónde están los encabezados —incluso cuando están repartidos en varias filas— y qué significa cada columna (código, nombre, saldo inicial, débitos, créditos, saldo final).
+2. **Reconoce la estructura automáticamente.** Identifica cuál es la hoja del balance (incluidos balances abiertos por tercero), dónde están los encabezados —incluso cuando están repartidos en varias filas— y qué significa cada columna (código, nombre, identificación y nombre del tercero, saldo inicial, débitos, créditos, saldo final).
 3. **Extrae las cuentas con sus cifras**, interpretando correctamente los distintos formatos de números (separadores de miles y decimales colombianos o internacionales, símbolos de moneda, valores negativos entre paréntesis, etc.).
 4. **Identifica los datos de cabecera sin inventarlos:** el NIT de la empresa (nunca el de un tercero) y el período. Si un dato no está, lo deja vacío en lugar de suponerlo; si hay información contradictoria (por ejemplo, fechas que no coinciden), lo reporta como excepción en vez de elegir por su cuenta.
 5. **Distingue las cuentas de detalle de las cuentas “padre” y los totales**, para no duplicar cifras. Excluye filas de totales, subtotales y encabezados repetidos.
@@ -67,6 +67,14 @@ La inteligencia artificial actúa como un **asistente contable experto en lectur
 Sobre lo que la IA interpreta, la plataforma aplica además **controles automáticos** (descritos en el punto 7) para asegurar que la carga sea correcta y no dependa solo del criterio del modelo.
 
 El cargador admite también Excel binario (`.xlsb`), con selección de hoja y lectura de los valores guardados. En este formato no recupera la negrita; sus perfiles deben distinguir las cuentas por códigos, columnas o niveles. La búsqueda de perfiles de balance considera las primeras 60 filas no vacías, para reconocer reportes que empiezan con parámetros del sistema contable. Los rótulos `TOTAL` y `SUBTOTAL` seguidos de una cuenta al pie del detalle no se usan como evidencia de cabeceras de terceros por su negrita.
+
+### Lectura de balances por tercero
+
+- La identificación y el nombre del tercero se conservan por separado. Se reconocen encabezados como **Nombre NIT** y **Nombre tercero**; cuando existen **Identificación** y **Tercero**, este último puede contener el nombre. Un tercero con nombre y sin documento se conserva con identificación vacía.
+- En reportes con el detalle debajo de la cuenta, las filas que dejan vacíos el código y nombre de cuenta heredan la cuenta del bloque. En reportes con cuentas en negrita, se conservan **Genérico** y los nombres con números, como **T3 TEXTILES**, aunque documento y nombre compartan celda.
+- Cuando se confirma el formato **total de tercero + desglose por centro de costo**, se conserva el total una sola vez. Si el desglose difiere, se muestra una excepción para revisar el archivo. El modo automático exige evidencia repetida del patrón; una fila con centro vacío por sí sola no basta. El modo **tercero totalizado** conserva las filas independientes.
+
+Estas correcciones se aplican al leer o reprocesar el archivo. Para corregir un borrador previo, revisar las columnas de identificación y nombre en el editor de estructura, adjuntar nuevamente el original y pulsar **Reprocesar sin IA**. Los balances ya guardados no se recalculan automáticamente.
 
 ### Por qué es eficiente y confiable
 
