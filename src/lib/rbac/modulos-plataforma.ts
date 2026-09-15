@@ -21,7 +21,6 @@ export type PlatformModuleKey =
   | "parametros"
   | "perfiles_carga"
   | "soporte"
-  | "entorno"
   | "conexiones";
 
 export type PlatformModuleDefinition = {
@@ -257,16 +256,6 @@ export const MODULOS_PLATAFORMA: PlatformModuleDefinition[] = [
     order: 220,
     enabledForNonAdmins: false,
     configurableForNonAdmins: true,
-  },
-  {
-    key: "entorno",
-    label: "Variables de entorno e Integraciones",
-    description: "Configuración operativa de la plataforma (S3, IA, SMTP).",
-    group: "Configuración",
-    icon: "settings",
-    order: 225,
-    enabledForNonAdmins: false,
-    configurableForNonAdmins: false,
   },
   {
     // Admin-only: la visibilidad la gobiernan los permisos conexiones:ver /
