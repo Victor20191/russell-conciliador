@@ -218,6 +218,21 @@ describe("ubicarCeldaArchivoModulo", () => {
     );
   });
 
+  it("suma las columnas vacías con que empieza la hoja para leer y rotular la celda de Excel", async () => {
+    await expect(ubicarCeldaArchivoModulo({ ...entrada, columnaInicial: 2 })).resolves.toEqual({
+      ok: true,
+      direccion: "O1347",
+      valor: 1_200_978_578.51,
+    });
+    expect(mocks.leerCeldaFisicaArchivo).toHaveBeenCalledWith(
+      expect.any(ArrayBuffer),
+      "inventario.xlsx",
+      "Inventario",
+      1347,
+      15,
+    );
+  });
+
   it("rechaza el objeto cuando su contenido no coincide con la metadata durable", async () => {
     mocks.obtenerObjeto.mockResolvedValue({ cuerpo: new Uint8Array([...BYTES, 99]), contentType: "application/octet-stream" });
 

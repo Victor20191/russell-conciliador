@@ -383,6 +383,7 @@ function CargarModal({
           recepcionLoteId,
           hoja: analisis.hoja!,
           columna,
+          columnaInicial: analisis.columnaInicial ?? 0,
           fila,
         });
         if (solicitud !== solicitudCeldaRef.current) return;
@@ -406,13 +407,14 @@ function CargarModal({
     });
   };
 
-  // Etiqueta de cada columna para los selectores: «C · Encabezado».
+  // Etiqueta de cada columna para los selectores: «C · Encabezado». La letra es la de Excel:
+  // suma las columnas vacías con que empieza la hoja, que la grilla no trae.
   const opcionesColumna = (): { index1: number; label: string }[] => {
     if (!analisis) return [];
     const ancho = analisis.ancho ?? analisis.encabezado?.length ?? 0;
     return Array.from({ length: ancho }, (_, c) => {
       const enc = celdaTxt(analisis.encabezado?.[c] ?? null);
-      return { index1: c + 1, label: `${columnaLetra(c)}${enc ? ` · ${enc.slice(0, 28)}` : ""}` };
+      return { index1: c + 1, label: `${columnaLetra(c + (analisis.columnaInicial ?? 0))}${enc ? ` · ${enc.slice(0, 28)}` : ""}` };
     });
   };
 

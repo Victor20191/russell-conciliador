@@ -316,6 +316,7 @@ export default async function DatoModuloPage({
     sinMapeoContable: cruce.sinMapeoContable,
     sinReglaContableFilas: cruce.sinReglaContableFilas,
     bloqueo: cruce.bloqueo,
+    avisoBalance: cruce.avisoBalance,
     balanceFuente: balanceEmparejado
       ? {
           id: balanceEmparejado.id,
@@ -324,6 +325,7 @@ export default async function DatoModuloPage({
           periodoFin: balanceEmparejado.periodoFin,
           esOficial: balanceEmparejado.esOficial,
           estaCongelado: balanceEmparejado.estaCongelado,
+          descripcion: balanceEmparejado.descripcion,
         }
       : null,
     filasMarcadas: cruce.filasMarcadas,
@@ -347,6 +349,7 @@ export default async function DatoModuloPage({
     nombreCliente: encabezado.nombreCliente,
     estado: cruceTercero?.estado ?? "sin_balance",
     mensaje: cruceTercero?.mensaje ?? null,
+    avisoBalance: cruce.avisoBalance,
     balance: balanceEmparejado
       ? {
           id: balanceEmparejado.id,
@@ -354,6 +357,7 @@ export default async function DatoModuloPage({
           periodoFin: balanceEmparejado.periodoFin,
           esOficial: balanceEmparejado.esOficial,
           estaCongelado: balanceEmparejado.estaCongelado,
+          descripcion: balanceEmparejado.descripcion,
         }
       : null,
     balanceTercero: cruceTercero?.balanceTercero ?? null,

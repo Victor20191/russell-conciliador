@@ -278,6 +278,11 @@ export type AnalisisModulo = {
   hojas?: string[];
   totalFilas?: number;
   ancho?: number;
+  /**
+   * Columnas vacías con que empieza la hoja (`GridHoja.columnaInicial`). Las columnas del spec son
+   * relativas a la grilla; el asistente suma este desplazamiento para mostrar la letra de Excel.
+   */
+  columnaInicial?: number;
   encabezado?: CeldaMuestra[];
   muestraFilas?: CeldaMuestra[][];
   /**
@@ -757,6 +762,7 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
       ...(periodosDetectados?.length ? { periodosDetectados } : {}),
       totalFilas: hoja.filasFisicas?.at(-1) ?? hoja.filas.length,
       ancho,
+      ...(hoja.columnaInicial ? { columnaInicial: hoja.columnaInicial } : {}),
       encabezado,
       muestraFilas,
       muestraCola,
@@ -798,7 +804,9 @@ const UbicarCeldaArchivoModuloSchema = z.object({
   clienteId: z.number().int().positive(),
   recepcionLoteId: z.string().uuid(),
   hoja: z.string().trim().min(1).max(200),
+  /** Columna de la GRILLA (la del spec); con `columnaInicial` se vuelve la columna física. */
   columna: z.number().int().min(1).max(16_384),
+  columnaInicial: z.number().int().min(0).max(16_383).default(0),
   fila: z.number().int().min(1).max(1_048_576),
 });
 
@@ -876,6 +884,10 @@ export async function ubicarCeldaArchivoModulo(
       return { ok: false, message: "El archivo original no supera la verificación de integridad." };
     }
 
+    // La grilla de SheetJS empieza en la primera columna usada: la O del asistente es la Q de
+    // Excel si la hoja trae A y B vacías. Aquí se lee y se rotula la celda real.
+    const columnaFisica = datos.columna + datos.columnaInicial;
+    if (columnaFisica > 16_384) return { ok: false, message: "Indica una columna y un número de fila válidos." };
     let celdaFisica: Awaited<ReturnType<typeof leerCeldaFisicaArchivo>>;
     try {
       const bytes = objeto.cuerpo.slice();
@@ -884,14 +896,14 @@ export async function ubicarCeldaArchivoModulo(
         original.nombreArchivo,
         datos.hoja,
         datos.fila,
-        datos.columna,
+        columnaFisica,
       );
     } catch (error) {
       return { ok: false, message: mensajeErrorLecturaArchivoModulo("ubicarCeldaArchivoModulo.leerCeldaFisica", error) };
     }
     if (!celdaFisica.hojaExiste) return { ok: false, message: "La hoja seleccionada ya no existe en el archivo." };
 
-    const direccion = `${letraColumnaModulo(datos.columna)}${datos.fila}`;
+    const direccion = `${letraColumnaModulo(columnaFisica)}${datos.fila}`;
     if (!celdaFisica.filaExiste) {
       return { ok: false, message: `La fila ${datos.fila} no existe en la hoja «${datos.hoja}».` };
     }
@@ -1214,10 +1226,10 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
       const valorUbicado = indiceFila >= 0 ? aCeldaMuestra(hoja.filas[indiceFila]?.[columna - 1] ?? null) : null;
       const textoUbicado = textoCeldaMuestra(valorUbicado);
       if (!textoUbicado) {
-        return marcarNoProcesable(`La celda ${letraColumnaModulo(columna)}${fila} no existe o está vacía en este archivo.`);
+        return marcarNoProcesable(`La celda ${letraColumnaModulo(columna + (hoja.columnaInicial ?? 0))}${fila} no existe o está vacía en este archivo.`);
       }
       if (textoUbicado.length > 80) {
-        return marcarNoProcesable(`La celda ${letraColumnaModulo(columna)}${fila} no puede usarse como total porque supera 80 caracteres.`);
+        return marcarNoProcesable(`La celda ${letraColumnaModulo(columna + (hoja.columnaInicial ?? 0))}${fila} no puede usarse como total porque supera 80 caracteres.`);
       }
       spec = { ...spec, subtotalesColumna: columna, subtotalesFila: fila, subtotalesTexto: textoUbicado };
     }

@@ -5,6 +5,7 @@ import {
   baseBalanceParaRango,
   cuentasAgrupadorasExcluidas,
   seleccionarBalanceCruceModulo,
+  avisoSeleccionBalance,
   validarCompuertaPrevalidador,
   validarRangoBalanceModulo,
   type ContextoCompuertaCruce,
@@ -201,5 +202,39 @@ describe("rango del cargue (Nómina, D7)", () => {
     expect(validarRangoBalanceModulo({ ...base, balance: { ...base.balance, periodoInicio: nov1, periodoFin: dic31 } }, "NOM", "2025-12", bimestre)).toBeNull();
     // Rango de un mes = comportamiento de siempre.
     expect(validarRangoBalanceModulo(dic, "NOM", "2025-12", { desde: "2025-12", hasta: "2025-12" })).toBeNull();
+  });
+});
+
+describe("balance con detalle por tercero (Cartera y CxP)", () => {
+  const catalogo = [{ moduloCodigo: "CAR", baseCalculo: "saldo" as const, activa: true }];
+  const diciembre = { periodoInicio: new Date("2025-12-01T00:00:00.000Z"), periodoFin: new Date("2025-12-31T00:00:00.000Z"), version: "v1" };
+  // Mineralin: la oficial congelada es «Por cuenta»; la «Por terceros» llegó después sin congelar.
+  const porCuentaOficial = { ...diciembre, id: 10, esOficial: true, estaCongelado: true, aperturaBalance: "cuenta", conDetalleTercero: false };
+  const porTerceros = { ...diciembre, id: 11, esOficial: false, estaCongelado: false, aperturaBalance: "tercero", conDetalleTercero: true };
+
+  it("prefiere la versión que conserva el detalle por tercero aunque la oficial sea «Por cuenta»", () => {
+    const candidatos = [porCuentaOficial, porTerceros];
+    expect(seleccionarBalanceCruceModulo(candidatos, catalogo, "CAR", "2025-12", null, { preferirDetalleTercero: true })?.id).toBe(11);
+    expect(seleccionarBalanceCruceModulo(candidatos, catalogo, "CAR", "2025-12")?.id).toBe(10);
+    expect(avisoSeleccionBalance(candidatos, porTerceros, "2025-12")).toBe(
+      "Se cruza contra el balance v1 «Por terceros» (2025-12-01 a 2025-12-31) porque conserva el detalle por tercero; el oficial del período, v1 «Por cuenta» (2025-12-01 a 2025-12-31), no lo trae.",
+    );
+  });
+
+  it("sin ninguna versión con detalle conserva la oficial y no avisa", () => {
+    const sinDetalle = { ...porTerceros, conDetalleTercero: false };
+    expect(seleccionarBalanceCruceModulo([porCuentaOficial, sinDetalle], catalogo, "CAR", "2025-12", null, { preferirDetalleTercero: true })?.id).toBe(10);
+    expect(avisoSeleccionBalance([porCuentaOficial, sinDetalle], porCuentaOficial, "2025-12")).toBeNull();
+  });
+
+  it("avisa cuando el mes tiene dos oficiales de distinto rango (KP Empaques)", () => {
+    const mensual = { ...porCuentaOficial, id: 30 };
+    const anual = { ...porTerceros, id: 26, esOficial: true, estaCongelado: true, periodoInicio: new Date("2025-01-01T00:00:00.000Z") };
+    const candidatos = [mensual, anual]; // orden de la consulta: oficiales, fin de período, id descendente
+    const elegido = seleccionarBalanceCruceModulo(candidatos, catalogo, "CAR", "2025-12", null, { preferirDetalleTercero: true });
+    expect(elegido?.id).toBe(26);
+    expect(avisoSeleccionBalance(candidatos, elegido, "2025-12")).toBe(
+      "Hay 2 balances oficiales que terminan en 2025-12: v1 «Por cuenta» (2025-12-01 a 2025-12-31), v1 «Por terceros» (2025-01-01 a 2025-12-31). Se cruza contra el v1 «Por terceros» (2025-01-01 a 2025-12-31), el que conserva el detalle por tercero.",
+    );
   });
 });

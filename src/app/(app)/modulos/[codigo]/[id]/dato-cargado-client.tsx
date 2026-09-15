@@ -80,6 +80,8 @@ export type CruceContableVm = {
   resumen: ResumenCruceContable | null;
   sinMapeoContable: { total: number; filas: number } | null;
   bloqueo: string | null;
+  /** Cartera y CxP: por qué se cruza contra esta versión del balance (no es la oficial, o hay varias). */
+  avisoBalance: string | null;
   balanceFuente: {
     id: number;
     version: string;
@@ -87,6 +89,7 @@ export type CruceContableVm = {
     periodoFin: string;
     esOficial: boolean;
     estaCongelado: boolean;
+    descripcion: string;
   } | null;
   /** Filas contables omitidas conservadoramente porque no resolvieron una regla activa. */
   sinReglaContableFilas: number;
@@ -1272,12 +1275,13 @@ function CruceContableTab({
       <Card className="flex flex-col items-center gap-2 p-8 text-center">
         <div className="text-[13px] font-semibold text-ink-800">Cruce contable no habilitado</div>
         <p className="max-w-2xl text-[12.5px] text-warn-700">{cruceContable.bloqueo}</p>
+        {cruceContable.avisoBalance && <p className="max-w-2xl text-[12px] text-ink-600">{cruceContable.avisoBalance}</p>}
         {cruceContable.balanceFuente && (
           <Link
             href={`/balance/${cruceContable.balanceFuente.id}`}
             className="mt-1 text-[12.5px] font-semibold text-blue-700 hover:underline"
           >
-            Revisar balance {cruceContable.balanceFuente.version} ({cruceContable.balanceFuente.periodoInicio} a {cruceContable.balanceFuente.periodoFin}) →
+            Revisar balance {cruceContable.balanceFuente.descripcion} →
           </Link>
         )}
       </Card>
@@ -1324,14 +1328,17 @@ function CruceContableTab({
             href={`/balance/${cruceContable.balanceFuente.id}`}
             className="font-semibold text-blue-600 hover:underline"
           >
-            balance {cruceContable.balanceFuente.version} · {cruceContable.balanceFuente.periodoInicio} a {cruceContable.balanceFuente.periodoFin}
+            balance {cruceContable.balanceFuente.descripcion}
           </Link>
           {cruceContable.balanceFuente.esOficial && cruceContable.balanceFuente.estaCongelado
             ? " · oficial y congelado"
-            : " · versión más reciente del período (sin congelar)"}
+            : cruceContable.balanceFuente.esOficial ? " · oficial" : " · sin congelar"}
           {cruceContable.bloqueo ? "" : " · prevalidador aprobado"}
           .
         </p>
+      )}
+      {cruceContable.avisoBalance && (
+        <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[12px] leading-snug text-warn-700">{cruceContable.avisoBalance}</div>
       )}
       {cruceContable.nomina && (
         <p className="text-[11.5px] text-ink-500">

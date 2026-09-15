@@ -78,6 +78,13 @@ export interface ConfiguracionCrucePorTercero {
   /** El cierre en firme del módulo exige además que el cruce por tercero esté resuelto. */
   exigidoParaCierre?: boolean;
   /**
+   * Entre las versiones del balance que terminan en el mes del cargue, cruzar contra la que
+   * conserva el detalle por tercero aunque la oficial sea «Por cuenta» (Cartera y CxP). El cruce
+   * contable y el por tercero usan ese mismo balance. Ausente = la oficial y, si no hay, la más
+   * reciente.
+   */
+  preferirBalanceConTerceros?: boolean;
+  /**
    * Naturaleza del MÓDULO para el lado contable del cruce por tercero: «D» (cartera) lee
    * todas sus cuentas con el signo del balance (débito +, crédito −) y «C» (cuentas por
    * pagar) con el signo invertido. El factor por cuenta del prevalidador muestra positiva
@@ -389,6 +396,7 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
       exigidoParaCierre: true,
       naturaleza: "D",
       detalleTercero: true,
+      preferirBalanceConTerceros: true,
     },
     // Sin verificaciones manuales al cargar: el borrador no pide confirmar anticipos, cartera
     // vencida ni vinculados (los cargues anteriores conservan las respuestas que guardaron).
@@ -460,6 +468,7 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
       exigidoParaCierre: true,
       naturaleza: "C",
       detalleTercero: true,
+      preferirBalanceConTerceros: true,
     },
     // Sin verificaciones manuales al cargar: el borrador no pide confirmar vinculados, moneda
     // extranjera ni partidas conciliatorias (los cargues anteriores conservan sus respuestas).
