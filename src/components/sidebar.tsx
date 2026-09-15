@@ -21,7 +21,7 @@ function BotonCerrarSesion() {
       title="Cerrar sesión"
       aria-busy={pending}
       disabled={pending}
-      className="rounded p-1.5 text-[#A9B6C8] transition hover:bg-white/10 hover:text-white disabled:opacity-60"
+      className="sidebar-logout inline-flex h-8 w-8 shrink-0 items-center justify-center rounded text-[#A9B6C8] transition enabled:hover:bg-white/10 enabled:hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#A9B6C8]"
     >
       {pending ? (
         <EstadoProcesando etiqueta="Cerrando sesión" />
@@ -54,6 +54,7 @@ export default function Sidebar({
   mobileOpen = false,
   onCloseMobile,
   desktopCollapsed = false,
+  onExpandDesktop,
 }: {
   user: { name: string; role: string; initials: string; avatarUrl?: string | null } | null;
   permisos: string[];
@@ -64,6 +65,7 @@ export default function Sidebar({
   mobileOpen?: boolean;
   onCloseMobile?: () => void;
   desktopCollapsed?: boolean;
+  onExpandDesktop?: () => void;
 }) {
   const pathname = usePathname();
 
@@ -129,9 +131,16 @@ export default function Sidebar({
       )}
       <aside
         id="app-sidebar"
+        onClickCapture={(event) => {
+          if (!desktopCollapsed || !onExpandDesktop || !window.matchMedia("(min-width: 1024px)").matches) return;
+          // El primer clic abre el menú; la opción se elige con el menú visible.
+          event.preventDefault();
+          event.stopPropagation();
+          onExpandDesktop();
+        }}
         className={`fixed inset-y-0 left-0 z-50 flex h-dvh w-[232px] shrink-0 flex-col border-r border-navy-900 bg-navy-800 text-[#C9D4E2] transition-[transform,width] duration-200 lg:sticky lg:top-0 lg:z-auto lg:translate-x-0 ${
           mobileOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full lg:translate-x-0"
-        } ${desktopCollapsed ? "lg:w-14" : "lg:w-[232px]"}`}
+        } ${desktopCollapsed ? "lg:w-14 lg:cursor-pointer" : "lg:w-[232px]"}`}
       >
       {/* Marca + versión de la plataforma */}
       <div className={`border-b border-white/10 px-[18px] py-3.5 ${desktopCollapsed ? "lg:px-3.5" : ""}`}>
@@ -181,7 +190,7 @@ export default function Sidebar({
         )}
       </div>
 
-      <div data-scroll-app className="min-h-0 flex-1 overflow-y-auto pb-2 [color-scheme:dark] [scrollbar-color:var(--color-navy-500)_var(--color-navy-800)]">
+      <div data-scroll-app className={`min-h-0 flex-1 overflow-y-auto pb-2 [color-scheme:dark] [scrollbar-color:var(--color-navy-500)_var(--color-navy-800)] ${desktopCollapsed ? "sidebar-scroll-collapsed lg:pt-2" : ""}`}>
         <SectionLabel collapsed={desktopCollapsed}>Trabajo</SectionLabel>
         <nav className="flex flex-col gap-1 px-2">
           {visibleWork.map((it) => (
@@ -214,7 +223,7 @@ export default function Sidebar({
       </div>
 
       {/* Usuario + logout */}
-      <div className={`flex items-center gap-2.5 border-t border-white/10 px-[18px] py-3 ${desktopCollapsed ? "lg:gap-0 lg:px-1 lg:pr-5" : "lg:pr-8"}`}>
+      <div className={`flex items-center gap-2.5 border-t border-white/10 px-[18px] py-3 ${desktopCollapsed ? "lg:justify-center lg:gap-0 lg:px-2 lg:pb-9" : "lg:pr-8"}`}>
         <Link
           href="/perfil"
           onClick={onCloseMobile}
@@ -272,7 +281,7 @@ function NavGroupItem({
           href={item.href}
           title={item.label}
           aria-label={item.label}
-          className={`hidden w-full items-center justify-center rounded px-2 py-2 transition lg:flex ${
+          className={`mx-auto hidden h-9 w-9 items-center justify-center rounded-md transition lg:flex lg:[&_svg]:size-4 ${
             active ? "bg-white/10 text-white" : "hover:bg-white/5"
           }`}
         >
@@ -344,7 +353,7 @@ function TopLink({
       href={item.href}
       title={item.label}
       aria-label={desktopCollapsed ? item.label : undefined}
-      className={`flex items-center gap-2.5 rounded px-3 py-2 text-[13px] transition ${desktopCollapsed ? "lg:justify-center lg:gap-0 lg:px-2" : ""} ${
+      className={`flex items-center gap-2.5 rounded px-3 py-2 text-[13px] transition ${desktopCollapsed ? "lg:h-9 lg:w-9 lg:self-center lg:justify-center lg:gap-0 lg:rounded-md lg:p-0 lg:[&_svg]:size-4" : ""} ${
         active ? "bg-white/10 text-white" : "hover:bg-white/5"
       }`}
     >

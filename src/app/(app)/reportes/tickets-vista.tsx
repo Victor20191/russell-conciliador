@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo, useState, useSyncExternalStore } from "react";
+import { useMemo, useState, useSyncExternalStore, useTransition } from "react";
 import { Chip, EmptyState } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { fmtDateTime } from "@/lib/format";
-import { etiquetaEstadoTicket, tonoEstadoTicket } from "@/lib/soporte-estados";
+import { ESTADOS_TICKET, etiquetaEstadoTicket, tonoEstadoTicket, esEstadoTicket, type EstadoTicket } from "@/lib/soporte-estados";
 import { filtrarTicketsKanbanPorBusqueda, type TicketKanban } from "@/lib/soporte-kanban";
 import {
   contarPorDominio,
@@ -17,9 +17,12 @@ import {
 } from "@/lib/soporte-dominios";
 import KanbanTablero from "./kanban-tablero";
 import TicketDetalleModal from "./ticket-detalle-modal";
+import FiltroEstadosTickets from "./filtro-estados-tickets";
+import { guardarEstadosOcultosTickets } from "@/app/actions/soporte-preferencias";
 
 const CLAVE_VISTA = "reportes:vista";
 type Vista = "tabla" | "kanban";
+const SIN_ESTADOS_OCULTOS: EstadoTicket[] = [];
 
 function esVista(valor: string | null): valor is Vista {
   return valor === "tabla" || valor === "kanban";
@@ -79,16 +82,29 @@ export default function TicketsVista({
   tickets,
   puedeMover,
   puedeEliminar,
+  estadosOcultosIniciales = SIN_ESTADOS_OCULTOS,
 }: {
+  estadosOcultosIniciales?: EstadoTicket[];
   tickets: TicketKanban[];
   puedeMover: boolean;
   puedeEliminar: boolean;
 }) {
   const vista = useSyncExternalStore(suscribirVista, leerVista, (): Vista => "tabla");
   const [abierto, setAbierto] = useState<number | null>(null);
-  // El origen y la búsqueda NO se recuerdan entre visitas, a diferencia de la
-  // vista: un conmutador Tabla/Kanban solo cambia la presentación, pero un
-  // filtro guardado escondería novedades y haría creer que dejaron de llegar.
+  const [ocultos, setOcultos] = useState(estadosOcultosIniciales);
+  const [preferenciaAnterior, setPreferenciaAnterior] = useState(estadosOcultosIniciales);
+  const [mostrarTodos, setMostrarTodos] = useState(false);
+  const [guardando, startTransition] = useTransition();
+  const [errorGuardado, setErrorGuardado] = useState<string | null>(null);
+  const [avisoGuardado, setAvisoGuardado] = useState(false);
+  // Una revalidación actualiza la preferencia guardada, sin convertir «Mostrar
+  // todos» (consulta temporal) en una escritura permanente.
+  if (preferenciaAnterior !== estadosOcultosIniciales) {
+    setPreferenciaAnterior(estadosOcultosIniciales);
+    setOcultos(estadosOcultosIniciales);
+  }
+  // Solo los estados elegidos explícitamente son persistentes. La búsqueda y
+  // el origen siguen siendo filtros temporales y siempre visibles.
   const [dominio, setDominio] = useState<FiltroDominioReporte>(FILTRO_DOMINIO_TODOS);
   const [busqueda, setBusqueda] = useState("");
 
@@ -99,18 +115,39 @@ export default function TicketsVista({
   // Memoizado a la fuerza: el tablero descarta su estado optimista cuando
   // cambia la IDENTIDAD del arreglo, así que recrearlo en cada render
   // revertiría en pantalla el arrastre que está confirmándose.
-  const visibles = useMemo(
+  const coincidentes = useMemo(
     () => filtrarTicketsKanbanPorBusqueda(filtrarPorDominio(tickets, dominio), busqueda),
     [tickets, dominio, busqueda],
   );
+  const ocultosEfectivos = mostrarTodos ? SIN_ESTADOS_OCULTOS : ocultos;
+  const visibles = useMemo(
+    () => coincidentes.filter(ticket => !ocultosEfectivos.includes(esEstadoTicket(ticket.status) ? ticket.status : "abierto")),
+    [coincidentes, ocultosEfectivos],
+  );
 
-  if (tickets.length === 0) {
-    return (
-      <div className="rounded-lg border border-dashed border-ink-200 bg-paper px-6 py-12 text-center text-sm text-ink-500">
-        Todavía no hay novedades reportadas en la plataforma.
-      </div>
-    );
+
+  function cambiarVisibilidad(estado: EstadoTicket, visible: boolean) {
+    const anteriores = ocultos;
+    const consultaTemporal = mostrarTodos;
+    const siguientes = ESTADOS_TICKET.filter(valor => valor === estado ? !visible : ocultosEfectivos.includes(valor));
+    setOcultos(siguientes);
+    setMostrarTodos(false);
+    setAvisoGuardado(false);
+    setErrorGuardado(null);
+    startTransition(async () => {
+      try {
+        const resultado = await guardarEstadosOcultosTickets(siguientes);
+        if (!resultado.ok) throw new Error(resultado.message || "No se pudo guardar la selección.");
+        setOcultos(resultado.estadosOcultos ?? siguientes);
+        setAvisoGuardado(true);
+      } catch {
+        setOcultos(anteriores);
+        setMostrarTodos(consultaTemporal);
+        setErrorGuardado("No se pudo guardar tu selección. Restauramos la vista anterior; vuelve a intentarlo.");
+      }
+    });
   }
+
 
   return (
     <div className="flex flex-col gap-3">
@@ -171,11 +208,30 @@ export default function TicketsVista({
             ))}
           </select>
         </label>
+        <FiltroEstadosTickets
+          ocultos={ocultos}
+          mostrarTodos={mostrarTodos}
+          guardando={guardando}
+          avisoGuardado={avisoGuardado}
+          onCambiar={cambiarVisibilidad}
+          onAlternarTodos={() => setMostrarTodos(actual => !actual)}
+        />
       </div>
 
-      {visibles.length === 0 ? (
+      {errorGuardado && <p role="alert" className="text-[12px] text-err-700">{errorGuardado}</p>}
+
+      {visibles.length === 0 && (vista !== "kanban" || coincidentes.length === 0 || ocultosEfectivos.length === ESTADOS_TICKET.length) ? (
         <div className="rounded-lg border border-dashed border-ink-200 bg-paper">
-          {hayBusqueda ? (
+          {tickets.length === 0 ? (
+            <EmptyState icon="msg" title="Todavía no hay novedades reportadas en la plataforma" />
+          ) : coincidentes.length > 0 ? (
+            <EmptyState
+              icon="filter"
+              title="Los tickets coincidentes están en estados ocultos"
+              description="Puedes mostrarlos temporalmente o cambiar los estados visibles."
+              action={<button type="button" disabled={guardando} onClick={() => setMostrarTodos(true)} className="rounded-md border border-ink-200 bg-white px-3.5 py-2 text-[12.5px] font-semibold text-ink-700 hover:bg-ink-50">Mostrar todos temporalmente</button>}
+            />
+          ) : hayBusqueda ? (
             // La búsqueda corre sobre lo ya filtrado por origen: con ambas
             // puertas activas el vacío se explica por las dos y el botón las
             // abre juntas, para no dejar al usuario en un callejón sin salida.
@@ -221,16 +277,19 @@ export default function TicketsVista({
             />
           )}
         </div>
-      ) : vista === "kanban" ? (
+      ) : null}
+
+      {vista === "kanban" && coincidentes.length > 0 ? (
         <KanbanTablero
-          tickets={visibles}
+          tickets={coincidentes}
+          estadosOcultos={ocultosEfectivos}
           puedeMover={puedeMover}
           puedeEliminar={puedeEliminar}
           onAbrir={setAbierto}
         />
-      ) : (
+      ) : visibles.length > 0 ? (
         <TablaTickets tickets={visibles} onAbrir={setAbierto} />
-      )}
+      ) : null}
 
       <TicketDetalleModal
         ticketId={abierto}

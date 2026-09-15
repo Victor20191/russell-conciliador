@@ -38,6 +38,7 @@ model User {
   lastLoginAt         DateTime?        @map("ultimo_inicio_sesion") @db.Timestamptz(3)
   comments            Comment[]        @relation("ComentariosAutor")
   mentions            CommentMention[] @relation("MencionesUsuario")
+  supportPreference   SupportUserPreference?
   createdAt           DateTime         @default(now()) @map("creado_en") @db.Timestamptz(3)
   updatedAt           DateTime         @updatedAt @map("actualizado_en") @db.Timestamptz(3)
 
@@ -2132,6 +2133,18 @@ model UmbralAlerta {
 }
 
 // ===== Reportes internos (antes mesa de ayuda publica) =====
+// Preferencia personal compartida entre dispositivos. Sin fila se usan los
+// estados iniciales; un arreglo vacio guardado significa no ocultar ninguno.
+model SupportUserPreference {
+  userId         Int      @id @map("usuario_id")
+  hiddenStatuses String[] @default(["resuelto", "cerrado"]) @map("estados_ocultos")
+  createdAt      DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade, map: "preferencias_soporte_usuario_usuario_fkey")
+
+  @@map("preferencias_soporte_usuario")
+}
+
 // Cualquier usuario autenticado puede crear una novedad. El portal publico
 // `/soporte` se conserva para reportes sin sesion. `creadoPorId` y
 // `resueltoPorId` son FK logicas a User (sin @relation): el nombre del

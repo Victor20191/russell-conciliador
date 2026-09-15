@@ -54,6 +54,7 @@ export default function AppShell({
         mobileOpen={mobileNavOpen}
         onCloseMobile={() => setMobileNavOpen(false)}
         desktopCollapsed={desktopNavCollapsed}
+        onExpandDesktop={() => setDesktopNavCollapsed(false)}
       />
       <button
         type="button"
@@ -62,8 +63,8 @@ export default function AppShell({
         aria-controls="app-sidebar"
         aria-expanded={!desktopNavCollapsed}
         onClick={() => setDesktopNavCollapsed((collapsed) => !collapsed)}
-        className={`fixed bottom-0 z-30 hidden w-5 items-center justify-center border-l border-navy-800 bg-navy-800 text-[#A9B6C8] transition-colors hover:bg-[color-mix(in_srgb,var(--color-navy-800),white_6%)] hover:text-white focus-visible:bg-navy-800 focus-visible:text-white focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue-400 lg:flex ${
-          desktopNavCollapsed ? "left-9 h-[57px] border-t border-t-white/10" : "left-[212px] h-[57px] border-t border-t-white/10"
+        className={`fixed bottom-0 z-30 hidden items-center justify-center border-l border-navy-800 bg-navy-800 text-[#A9B6C8] transition-[left,width,height,background-color,color] duration-200 hover:bg-[color-mix(in_srgb,var(--color-navy-800),white_6%)] hover:text-white focus-visible:bg-navy-800 focus-visible:text-white focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-blue-400 lg:flex ${
+          desktopNavCollapsed ? "left-0 h-7 w-14 border-t border-t-white/10" : "left-[212px] h-[57px] w-5 border-t border-t-white/10"
         }`}
       >
         <Icon name={desktopNavCollapsed ? "chev-r" : "chev-l"} size={14} />

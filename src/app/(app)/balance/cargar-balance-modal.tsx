@@ -1406,7 +1406,7 @@ function ContextoTerceros({
               {selectColumna(colDv, setColDv)}
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-[11px] font-medium text-ink-600">¿El documento trae letras pegadas al número?</span>
+              <span className="text-[11px] font-medium text-ink-600">¿El NIT trae letras pegadas al número?</span>
               <select
                 value={letrasPegadas ? "si" : "no"}
                 onChange={(e) => setLetrasPegadas(e.target.value === "si")}

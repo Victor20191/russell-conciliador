@@ -118,6 +118,27 @@ button:disabled {
   filter: none;
 }
 
+/* El cierre de sesión conserva el contraste del menú oscuro mientras espera. */
+button.sidebar-logout:disabled {
+  border-color: transparent !important;
+  color: #a9b6c8 !important;
+  background-color: rgb(255 255 255 / 10%) !important;
+  cursor: wait;
+}
+
+/* En la barra compacta, el canal de scroll no desplaza los iconos del centro.
+   Se conserva el desplazamiento con rueda, trackpad y teclado. */
+@media (min-width: 1024px) {
+  .sidebar-scroll-collapsed {
+    scrollbar-gutter: auto;
+    scrollbar-width: none;
+  }
+
+  .sidebar-scroll-collapsed::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 @keyframes processing-dot-bounce {
   0%,
   60%,

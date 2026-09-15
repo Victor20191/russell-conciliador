@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   getPublicacionModulos: vi.fn(),
   requirePermiso: vi.fn(),
   userFindMany: vi.fn(),
+  preferenceFindUnique: vi.fn(),
 }));
 
 vi.mock("@/lib/prisma", () => ({
@@ -21,6 +22,7 @@ vi.mock("@/lib/prisma", () => ({
     user: {
       findMany: mocks.userFindMany,
     },
+    supportUserPreference: { findUnique: mocks.preferenceFindUnique },
   },
 }));
 
@@ -44,7 +46,7 @@ vi.mock("@/lib/soporte-rutas", () => ({
 vi.mock("./nueva-novedad-form", () => ({ default: () => "Nueva novedad" }));
 // La vista es un componente cliente; aquí solo interesa QUÉ filas recibe.
 vi.mock("./tickets-vista", () => ({
-  default: (props: { tickets: { dominio: string }[] }) => {
+  default: (props: { tickets: { dominio: string }[]; estadosOcultosIniciales: string[] }) => {
     propsVista = props;
     return "Listado";
   },
@@ -52,7 +54,7 @@ vi.mock("./tickets-vista", () => ({
 
 import ReportesPage from "./page";
 
-let propsVista: { tickets: { dominio: string }[] } | null = null;
+let propsVista: { tickets: { dominio: string }[]; estadosOcultosIniciales: string[] } | null = null;
 const vistaRecibida = () => propsVista;
 
 function ticketBD(parcial: { id: number; createdById: number | null }) {
@@ -81,6 +83,7 @@ describe("encabezado de reportes", () => {
     mocks.getPublicacionModulos.mockResolvedValue({});
     mocks.findMany.mockResolvedValue([]);
     mocks.userFindMany.mockResolvedValue([]);
+    mocks.preferenceFindUnique.mockResolvedValue(null);
     propsVista = null;
   });
 
@@ -142,5 +145,25 @@ describe("encabezado de reportes", () => {
     renderToStaticMarkup(await ReportesPage());
 
     expect(mocks.userFindMany).not.toHaveBeenCalled();
+  });
+
+  test("carga únicamente la preferencia del actor y aplica los estados iniciales si no existe", async () => {
+    renderToStaticMarkup(await ReportesPage());
+    expect(mocks.preferenceFindUnique).toHaveBeenCalledWith({
+      where: { userId: 7 }, select: { hiddenStatuses: true },
+    });
+    expect(vistaRecibida()?.estadosOcultosIniciales).toEqual(["resuelto", "cerrado"]);
+  });
+
+  test.each([{ estados: [] }, { estados: ["en_proceso"] }])("respeta la selección guardada al cargar desde otro dispositivo: $estados", async ({ estados }) => {
+    mocks.preferenceFindUnique.mockResolvedValue({ hiddenStatuses: estados });
+    renderToStaticMarkup(await ReportesPage());
+    expect(vistaRecibida()?.estadosOcultosIniciales).toEqual(estados);
+  });
+
+  test("no consulta preferencias sin un actor autenticado", async () => {
+    mocks.getCurrentUser.mockResolvedValue(null);
+    expect(await ReportesPage()).toBeNull();
+    expect(mocks.preferenceFindUnique).not.toHaveBeenCalled();
   });
 });

@@ -57,3 +57,19 @@ describe("KanbanTablero", () => {
     }
   });
 });
+
+
+it("oculta columnas completas y adapta el ancho sin quitar destinos del selector", () => {
+  const html = renderToStaticMarkup(createElement(KanbanTablero, {
+    tickets: [TICKET, { ...TICKET, id: 2, subject: "Finalizado", status: "cerrado" }],
+    puedeMover: true, puedeEliminar: false, onAbrir: () => undefined,
+    estadosOcultos: ["resuelto", "cerrado"],
+  }));
+  expect(html).not.toContain('aria-label="Cerrado (1)"');
+  expect(html).not.toContain('aria-label="Resuelto (0)"');
+  expect(html).not.toContain("Finalizado");
+  expect(html).toContain("lg:grid-cols-3");
+  expect(html).not.toContain("xl:grid-cols-5");
+  expect(html).toContain('value="cerrado"');
+  expect(html).toContain('value="resuelto"');
+});

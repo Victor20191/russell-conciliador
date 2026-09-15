@@ -18,6 +18,8 @@ import {
   type TicketKanban,
 } from "@/lib/soporte-kanban";
 
+const SIN_ESTADOS_OCULTOS: readonly EstadoTicket[] = [];
+
 const TONO_COLUMNA: Record<string, { punto: string; conteo: string; zona: string }> = {
   warn: { punto: "bg-warn-500", conteo: "bg-warn-100 text-warn-700", zona: "border-warn-500 bg-warn-100/50" },
   ai: { punto: "bg-ai-500", conteo: "bg-ai-100 text-ai-700", zona: "border-ai-500 bg-ai-100/50" },
@@ -49,7 +51,9 @@ export default function KanbanTablero({
   puedeMover,
   puedeEliminar,
   onAbrir,
+  estadosOcultos = SIN_ESTADOS_OCULTOS,
 }: {
+  estadosOcultos?: readonly EstadoTicket[];
   tickets: TicketKanban[];
   puedeMover: boolean;
   puedeEliminar: boolean;
@@ -80,6 +84,8 @@ export default function KanbanTablero({
   }
 
   const columnas = useMemo(() => agruparTicketsKanban(filas), [filas]);
+  const columnasVisibles = COLUMNAS_KANBAN.filter(columna => !estadosOcultos.includes(columna.estado));
+  const distribucion = ["", "", "md:grid-cols-2", "md:grid-cols-2 lg:grid-cols-3", "md:grid-cols-2 xl:grid-cols-4", "md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5"][columnasVisibles.length] ?? "";
 
   const confirmar = (ticket: TicketKanban, destino: EstadoTicket, texto?: string) => {
     const origen = ticket.status as EstadoTicket;
@@ -90,7 +96,11 @@ export default function KanbanTablero({
       datos.set("updatedAt", ticket.updatedAt);
       datos.set("status", destino);
       if (texto) datos.set("solution", texto);
-      const resultado = await cambiarEstadoTicket(undefined, datos);
+      const resultado = await cambiarEstadoTicket(undefined, datos).catch(() => ({
+        ok: false as const,
+        message: "No se pudo conectar para guardar el cambio. La tarjeta vuelve a su estado anterior.",
+        errors: undefined,
+      }));
       if (resultado?.ok) {
         notifySuccess(
           `${ticket.code} → ${ETIQUETA_ESTADO_TICKET[destino]}`,
@@ -163,8 +173,8 @@ export default function KanbanTablero({
           : "Vista de solo lectura: solo Xentria puede mover las novedades entre columnas."}
       </p>
 
-      <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-        {COLUMNAS_KANBAN.map((columna) => {
+      <div className={`grid gap-3 ${distribucion}`}>
+        {columnasVisibles.map((columna) => {
           const tono = TONO_COLUMNA[columna.tono]!;
           const enZona = zonaActiva === columna.estado;
           const cartas = columnas[columna.estado];

@@ -7,6 +7,7 @@ import { almacenamientoEvidenciasTicketsDisponible } from "@/lib/storage/evidenc
 import { catalogoUbicacionesNovedad, etiquetaUbicacionNovedad } from "@/lib/soporte-rutas";
 import type { TicketKanban } from "@/lib/soporte-kanban";
 import { clasificarDominioReporte } from "@/lib/soporte-dominios";
+import { resolverEstadosOcultosTickets } from "@/lib/soporte-preferencias";
 import { getPublicacionModulos } from "@/lib/rbac/publicacion";
 import { getMatriz } from "@/lib/rbac/contexto";
 import NuevaNovedadForm from "./nueva-novedad-form";
@@ -40,27 +41,33 @@ export default async function ReportesPage() {
   // lo que se ve es «las 200 novedades más recientes», y filtrar por Russell o
   // Xentria reparte esas 200, no rebusca más atrás en el histórico.
   const whereBandejaInterna = { createdById: { not: null } };
-  const tickets = await prisma.supportTicket.findMany({
-    where: whereBandejaInterna,
-    orderBy: { createdAt: "desc" },
-    take: 200,
-    select: {
-      id: true,
-      code: true,
-      createdById: true,
-      reporterFirstName: true,
-      reporterLastName: true,
-      subject: true,
-      routeLabel: true,
-      menuLabel: true,
-      status: true,
-      createdAt: true,
-      // El tablero mueve tickets y `cambiarEstadoTicket` compara `updatedAt`
-      // para no pisar el cambio de otra persona.
-      updatedAt: true,
-      _count: { select: { attachments: true } },
-    },
-  });
+  const [tickets, preferencia] = await Promise.all([
+    prisma.supportTicket.findMany({
+      where: whereBandejaInterna,
+      orderBy: { createdAt: "desc" },
+      take: 200,
+      select: {
+        id: true,
+        code: true,
+        createdById: true,
+        reporterFirstName: true,
+        reporterLastName: true,
+        subject: true,
+        routeLabel: true,
+        menuLabel: true,
+        status: true,
+        createdAt: true,
+        // El tablero mueve tickets y `cambiarEstadoTicket` compara `updatedAt`
+        // para no pisar el cambio de otra persona.
+        updatedAt: true,
+        _count: { select: { attachments: true } },
+      },
+    }),
+    prisma.supportUserPreference.findUnique({
+      where: { userId: actor.id },
+      select: { hiddenStatuses: true },
+    }),
+  ]);
 
   // El ticket guarda quién lo creó, no su correo, y `createdById` es una FK
   // SUAVE (sin @relation), así que el dominio del reportante no se puede pedir
@@ -120,7 +127,12 @@ export default async function ReportesPage() {
         }
       />
 
-      <TicketsVista tickets={filas} puedeMover={admin.ok} puedeEliminar={puedeEliminar.ok} />
+      <TicketsVista
+        tickets={filas}
+        puedeMover={admin.ok}
+        puedeEliminar={puedeEliminar.ok}
+        estadosOcultosIniciales={resolverEstadosOcultosTickets(preferencia?.hiddenStatuses)}
+      />
     </div>
   );
 }
