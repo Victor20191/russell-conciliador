@@ -89,6 +89,7 @@ import {
 import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
 import { tomarCandadoTransaccion, transaccionSerializable, type TransactionClient } from "@/lib/concurrency";
 import { cargarInsumosCruceModulo, construirCruceContableModulo } from "@/lib/modulos/cruce-contable-servidor";
+import { normalizarClaveCruce } from "@/lib/modulos/cruce-contable";
 import { cargarContextoPrevalidadorBalance } from "@/lib/balance/prevalidador/servidor";
 import { cruceTerceroDeCargue } from "@/lib/modulos/cruce-tercero-servidor";
 import { validarEmparejamientoTercero } from "@/lib/modulos/cartera/cruce-tercero-cartera";
@@ -1971,10 +1972,9 @@ export async function actualizarDocumentacionArchivoModulo(input: {
 // cruzan a ese nivel (Nómina, `nivelCruce: 6`): ahí `cuenta_4` conserva el prefijo y
 // `cuenta_6` la cuenta entera.
 // ============================================================
-/** Cuenta de una marca de la cédula: la clave del renglón, de 4 o de 6 dígitos según el módulo. */
+/** Clave de una fila del cruce contable: una cuenta de 4/6 díg. o una fila agrupada («130505+280505»). */
 function cuentaMarcable(v: string): string {
-  const digitos = String(v ?? "").replace(/\D/g, "");
-  return digitos.length === 4 || digitos.length === 6 ? digitos : "";
+  return normalizarClaveCruce(v);
 }
 
 // Normaliza + deduplica un conjunto de cuentas de un clasificador, al nivel del módulo.

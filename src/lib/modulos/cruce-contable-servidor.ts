@@ -358,7 +358,17 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
         ? formalNomina.entradas
         : consolidado.map((c) => ({ clasificador: c.clasificador, total: c.total, cuentas4: cuentasPorClasificador.get(c.clasificador) ?? [] })),
       nombrePorCuenta: (cod) => nombrePorCuenta.get(cod) ?? null,
+      // Nómina reparte sus conceptos multiasignados; los demás módulos los cruzan contra la
+      // suma de las cuentas en una fila agrupada.
+      agruparMultiAsignados: !formalNomina,
     });
+    // El desglose de una fila agrupada son las cuentas del cliente de todas sus cuentas Russell.
+    for (const fila of cruceContable.filas) {
+      if (!fila.cuentas) continue;
+      detalleContablePorCuenta[fila.cuenta4] = fila.cuentas
+        .flatMap((c) => detalleContablePorCuenta[c] ?? [])
+        .sort((a, b) => a.cuenta8.localeCompare(b.cuenta8));
+    }
     // Nómina: vista por subcuenta PUC sumando clases, control de deducciones y repartos
     // sugeridos (proporcionales al movimiento contable de las cuentas candidatas, D4).
     if (consolidadoNomina && formalNomina && insumosNomina && baseNomina) {

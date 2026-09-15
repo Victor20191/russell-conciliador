@@ -12,7 +12,7 @@
  * La persistencia (`conciliacion_modulo_cierre` + `cuenta_bloqueada_conciliacion`) y
  * los gates viven en `verificar-bloqueo.ts` (server-only) y en las Server Actions.
  */
-import type { ResumenCruceContable } from "@/lib/modulos/cruce-contable";
+import { cuentasDeClaveCruce, type ResumenCruceContable } from "@/lib/modulos/cruce-contable";
 import type { ResumenMarcas } from "@/lib/modulos/marcas-cruce";
 
 export const ESTADO_CIERRE_FIRME = "firme";
@@ -47,7 +47,8 @@ export function cuenta4Russell(cuenta6Russell: string | null | undefined): strin
  * que acotan el bloqueo viajan aparte en `cuentasRussell6`.
  */
 export function cuentasRussellDelCruce(cruce: Pick<ResumenCruceContable, "filas">): string[] {
-  return [...new Set(cruce.filas.map((f) => f.cuenta4.replace(/\D/g, "").slice(0, 4)).filter((c) => c.length === 4))].sort();
+  // Una fila agrupada («130505+280505») aporta todas sus cuentas.
+  return [...new Set(cruce.filas.flatMap((f) => cuentasDeClaveCruce(f.cuenta4)).map((c) => c.replace(/\D/g, "").slice(0, 4)).filter((c) => c.length === 4))].sort();
 }
 
 /**
