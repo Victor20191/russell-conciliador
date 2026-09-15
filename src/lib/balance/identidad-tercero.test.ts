@@ -4,8 +4,10 @@ import {
   completarNombresDelMismoArchivo,
   diagnosticarIdentidadTerceros,
   estadoIdentidadTercero,
+  PREFIJO_LETRAS_PEGADAS,
   reconocerIdentidadTercero,
 } from "./identidad-tercero";
+import { normalizarTerceroModulo } from "@/lib/modulos/tercero";
 
 describe("reconocerIdentidadTercero", () => {
   it("conserva completa una cédula de diez dígitos y no la confunde con un NIT", () => {
@@ -59,6 +61,14 @@ describe("reconocerIdentidadTercero", () => {
     const identidad = reconocerIdentidadTercero({ documento: "C1000016474" }, "C");
     expect(identidad.numeroDocumento).toBe("1000016474");
     expect(identidad.observaciones).toHaveLength(0);
+  });
+
+  it("«letras pegadas: Sí» quita cualquier letra al inicio sin escribirla", () => {
+    expect(reconocerIdentidadTercero({ documento: "C0709802" }, PREFIJO_LETRAS_PEGADAS).numeroDocumento).toBe("0709802");
+    expect(reconocerIdentidadTercero({ documento: "NIT900123456" }, PREFIJO_LETRAS_PEGADAS).numeroDocumento).toBe("900123456");
+    // Con espacio no está pegada: la etiqueta habitual sigue funcionando.
+    expect(reconocerIdentidadTercero({ documento: "CC 43590224" }, PREFIJO_LETRAS_PEGADAS)).toMatchObject({ numeroDocumento: "43590224", tipoDocumento: "CC" });
+    expect(normalizarTerceroModulo("AB900123456 PEREZ JUAN", { prefijo: PREFIJO_LETRAS_PEGADAS })).toEqual({ nitCanonico: "900123456", nombre: "PEREZ JUAN" });
   });
 
   it("el prefijo no afecta documentos que ya empiezan por dígito", () => {

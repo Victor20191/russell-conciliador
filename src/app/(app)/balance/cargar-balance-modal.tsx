@@ -51,6 +51,7 @@ import {
   type ArchivoSnapshotCliente,
 } from "@/lib/balance/archivo-snapshot-cliente";
 import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
+import { PREFIJO_LETRAS_PEGADAS } from "@/lib/balance/identidad-tercero";
 import { mensajeTamanoBalanceNoPermitido } from "@/lib/balance/limites-archivo";
 import {
   cancelarArchivoBalanceTemporal,
@@ -189,6 +190,12 @@ function CargarBalanceModal({
   const [sugLocal, setSugLocal] = useState<SugerenciaBalance | null>(null);
   const [reprocesando, startReproceso] = useTransition();
   const [releyendoContexto, startReleerContexto] = useTransition();
+  // «Ajustar lectura terceros»: si el usuario tocó el panel, «Ir al borrador» se
+  // bloquea hasta releer con IA (así el borrador nunca ignora esos ajustes).
+  // `relecturasIA` remonta la revisión tras cada relectura para limpiar el panel.
+  const [ajusteTercerosEditado, setAjusteTercerosEditado] = useState(false);
+  const [ajusteTercerosSinIA, setAjusteTercerosSinIA] = useState(false);
+  const [relecturasIA, setRelecturasIA] = useState(0);
   const [asignandoCliente, startAsignarCliente] = useTransition();
   const [clienteManual, setClienteManual] = useState<{ loteId: string; clientId: number } | null>(null);
   // APERTURA declarada en la revisión (`cuenta` | `tercero`). Se guarda suelta —no
@@ -421,6 +428,9 @@ function CargarBalanceModal({
       if (res.ok && res.sugerencia) {
         reprocesoSolicitudRef.current = null;
         setSugLocal(res.sugerencia);
+        setAjusteTercerosEditado(false);
+        setAjusteTercerosSinIA(false);
+        setRelecturasIA((n) => n + 1);
         notifySuccess("Archivo releído con IA usando el contexto indicado.");
       } else if (res.errorProveedorIA && res.message) {
         notifyError(`${res.message} Es un inconveniente del proveedor de IA, no del aplicativo.`);
@@ -682,6 +692,15 @@ function CargarBalanceModal({
               {progresoSubida != null ? `Subiendo ${progresoSubida}%` : "Vinculando cliente"}
             </EstadoProcesando>
           </button>
+        ) : sug && clienteRevisionId != null && aperturaEfectiva === "tercero" && (ajusteTercerosEditado || ajusteTercerosSinIA) ? (
+          <button
+            type="button"
+            disabled
+            title="Ajustaste la lectura de terceros: relee el archivo con IA para continuar"
+            className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white opacity-60"
+          >
+            <Icon name="doc" size={13} /> Ir al borrador
+          </button>
         ) : sug && clienteRevisionId != null ? (
           <Link
             href={`/balance/borradores/${sug.payload.loteId}`}
@@ -754,7 +773,7 @@ function CargarBalanceModal({
     <Modal open onClose={onClose} title="Cargar balance de comprobación" size="2xl" footer={footer}>
       {fase === "revisar" && sug ? (
         <FormRevisar
-          key={sug.payload.loteId}
+          key={`${sug.payload.loteId}:${relecturasIA}`}
           sug={sug}
           clients={clients}
           excepciones={leerState?.excepciones ?? []}
@@ -770,6 +789,8 @@ function CargarBalanceModal({
           onElegirApertura={setAperturaRevision}
           releyendoContexto={releyendoContexto || progresoSubida != null}
           onReleerConContexto={releerConContexto}
+          onAjusteTercerosEditado={setAjusteTercerosEditado}
+          onAjusteTercerosSinIA={() => setAjusteTercerosSinIA(true)}
         />
       ) : (
         <form id="leer-form" onSubmit={onLeerSubmit} className="flex flex-col gap-3.5">
@@ -936,6 +957,8 @@ function FormRevisar({
   onElegirApertura,
   releyendoContexto,
   onReleerConContexto,
+  onAjusteTercerosEditado,
+  onAjusteTercerosSinIA,
 }: {
   sug: SugerenciaBalance;
   clients: ClienteOpcion[];
@@ -962,6 +985,8 @@ function FormRevisar({
     proveedorIA?: ProveedorIABalance,
     clientId?: number | null,
   ) => void;
+  onAjusteTercerosEditado: (editado: boolean) => void;
+  onAjusteTercerosSinIA: () => void;
 }) {
   // El editor de estructura solo aplica si conservamos el snapshot (reproceso) y
   // la lectura produjo un spec (tabular). PDF/plantilla no traen spec.
@@ -1022,8 +1047,9 @@ function FormRevisar({
           clienteId={clienteId}
           reprocesando={reprocesando}
           releyendo={releyendoContexto}
-          onAplicarSinIA={(s) => onReprocesar(s, sug.payload.loteId, sug.payload.proveedorIA, clienteId)}
+          onAplicarSinIA={(s) => { onAjusteTercerosSinIA(); onReprocesar(s, sug.payload.loteId, sug.payload.proveedorIA, clienteId); }}
           onReleerConIA={(contexto) => onReleerConContexto(contexto, sug.payload.loteId, sug.payload.proveedorIA, clienteId)}
+          onEditado={onAjusteTercerosEditado}
         />
       )}
 
@@ -1266,6 +1292,7 @@ function ContextoTerceros({
   releyendo,
   onAplicarSinIA,
   onReleerConIA,
+  onEditado,
 }: {
   spec: SpecCarga;
   encabezados: string[];
@@ -1276,18 +1303,38 @@ function ContextoTerceros({
   releyendo: boolean;
   onAplicarSinIA: (spec: SpecCarga) => void;
   onReleerConIA: (contexto: ContextoTercerosPanel) => void;
+  /** Avisa si algún campo difiere de lo leído (bloquea «Ir al borrador»). */
+  onEditado: (editado: boolean) => void;
 }) {
   const hayProblema = !!diagnostico && (diagnostico.sinDocumento > 0 || diagnostico.sinNombre > 0);
   const [abierto, setAbierto] = useState(hayProblema);
-  const [colDocumento, setColDocumento] = useState(spec.columnas.tercero || 0);
-  const [colNombre, setColNombre] = useState(spec.columnas.nombreTercero ?? 0);
-  const [colTipoDocumento, setColTipoDocumento] = useState(spec.columnas.tipoDocumentoTercero ?? 0);
-  const [colDv, setColDv] = useState(spec.columnas.dvTercero ?? 0);
-  const [prefijo, setPrefijo] = useState(spec.prefijoDocumentoTercero ?? "");
-  const [subtotales, setSubtotales] = useState<SubtotalesTerceroUI>(spec.subtotalesTercero ?? "auto");
+  const inicial = {
+    colDocumento: spec.columnas.tercero || 0,
+    colNombre: spec.columnas.nombreTercero ?? 0,
+    colDv: spec.columnas.dvTercero ?? 0,
+    letrasPegadas: !!spec.prefijoDocumentoTercero,
+    subtotales: (spec.subtotalesTercero ?? "auto") as SubtotalesTerceroUI,
+    indicaciones: (indicacionesPrecargadas ?? "").trim(),
+  };
+  const [colDocumento, setColDocumento] = useState(inicial.colDocumento);
+  const [colNombre, setColNombre] = useState(inicial.colNombre);
+  const [colDv, setColDv] = useState(inicial.colDv);
+  const [letrasPegadas, setLetrasPegadas] = useState(inicial.letrasPegadas);
+  const [subtotales, setSubtotales] = useState<SubtotalesTerceroUI>(inicial.subtotales);
   const [indicaciones, setIndicaciones] = useState(indicacionesPrecargadas ?? "");
 
-  const maxCol = Math.max(encabezados.length, colDocumento, colNombre, colTipoDocumento, colDv, 6);
+  const editado =
+    colDocumento !== inicial.colDocumento
+    || colNombre !== inicial.colNombre
+    || colDv !== inicial.colDv
+    || letrasPegadas !== inicial.letrasPegadas
+    || subtotales !== inicial.subtotales
+    || indicaciones.trim() !== inicial.indicaciones;
+  useEffect(() => { onEditado(editado); }, [editado, onEditado]);
+  useEffect(() => () => onEditado(false), [onEditado]);
+  const prefijo = letrasPegadas ? PREFIJO_LETRAS_PEGADAS : null;
+
+  const maxCol = Math.max(encabezados.length, colDocumento, colNombre, colDv, 6);
   const opciones = Array.from({ length: maxCol }, (_, i) => i + 1);
   const etiquetaCol = (n: number) => {
     const enc = encabezados[n - 1];
@@ -1318,7 +1365,7 @@ function ContextoTerceros({
         className="flex w-full items-center justify-between px-3 py-2 text-[12px] font-semibold text-ink-600 hover:bg-ink-50"
       >
         <span className="inline-flex items-center gap-1.5">
-          <Icon name="users" size={13} /> Reconocer terceros
+          <Icon name="users" size={13} /> Ajustar lectura terceros (opcional)
           {hayProblema && (
             <span className="rounded-full bg-warn-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-warn-700">
               {(diagnostico?.sinDocumento ?? 0) + (diagnostico?.sinNombre ?? 0)}
@@ -1354,24 +1401,20 @@ function ContextoTerceros({
               {selectColumna(colNombre, setColNombre)}
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-[11px] font-medium text-ink-600">Columna de tipo de documento</span>
-              {selectColumna(colTipoDocumento, setColTipoDocumento)}
-            </label>
-            <label className="flex flex-col gap-1">
               <span className="text-[11px] font-medium text-ink-600">Columna del DV (si está separado)</span>
               {selectColumna(colDv, setColDv)}
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-[11px] font-medium text-ink-600">Prefijo de letras pegado al documento</span>
-              <input
-                type="text"
-                value={prefijo}
-                onChange={(e) => setPrefijo(e.target.value)}
-                placeholder="Ej.: C"
-                maxLength={10}
-                className="rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700"
-              />
-              <span className="text-[10.5px] text-ink-400">Se quita solo cuando va pegado a un número (p. ej. «C0709802» → 0709802).</span>
+              <span className="text-[11px] font-medium text-ink-600">¿El documento trae letras pegadas al número?</span>
+              <select
+                value={letrasPegadas ? "si" : "no"}
+                onChange={(e) => setLetrasPegadas(e.target.value === "si")}
+                className="rounded-md border border-ink-200 bg-white px-2 py-1.5 text-[12px] text-ink-700"
+              >
+                <option value="no">No</option>
+                <option value="si">Sí</option>
+              </select>
+              <span className="text-[10.5px] text-ink-400">Si es Sí, se quitan las letras del inicio (p. ej. «C0709802» → 0709802).</span>
             </label>
             <label className="flex flex-col gap-1">
               <span className="text-[11px] font-medium text-ink-600">¿Cómo vienen los totales por tercero?</span>
@@ -1381,8 +1424,8 @@ function ContextoTerceros({
                 className="rounded-md border border-ink-200 bg-white px-2 py-1.5 text-[12px] text-ink-700"
               >
                 <option value="auto">Automático (detección actual)</option>
-                <option value="por_cuenta">Cada cuenta trae su propio total; el detalle por tercero es solo información</option>
-                <option value="ninguno">El archivo no trae total por cuenta: sumar todo el detalle</option>
+                <option value="por_cuenta">Un renglón por Tercero (totalizado)</option>
+                <option value="ninguno">Un renglón con Total de Tercero + otro renglón para detalle</option>
               </select>
             </label>
           </div>
@@ -1411,10 +1454,9 @@ function ContextoTerceros({
                     ...spec.columnas,
                     tercero: colDocumento,
                     ...(colNombre ? { nombreTercero: colNombre } : {}),
-                    ...(colTipoDocumento ? { tipoDocumentoTercero: colTipoDocumento } : {}),
                     ...(colDv ? { dvTercero: colDv } : {}),
                   },
-                  prefijoDocumentoTercero: prefijo.trim() || null,
+                  prefijoDocumentoTercero: prefijo,
                   subtotalesTercero: subtotales,
                 })
               }
@@ -1427,8 +1469,8 @@ function ContextoTerceros({
               disabled={disabled}
               onClick={() =>
                 onReleerConIA({
-                  colDocumento, colNombre, colTipoDocumento, colDv,
-                  prefijoDocumento: prefijo.trim() || null,
+                  colDocumento, colNombre, colDv,
+                  prefijoDocumento: prefijo,
                   subtotales,
                   indicaciones: indicaciones.trim() || null,
                 })

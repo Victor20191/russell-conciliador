@@ -80,7 +80,11 @@ export function construirArbolVisorTerceros(
     }
     const fila = porCuenta.get(n.code)!;
     const { terceros, ...comparacion } = fila;
-    const hijos = agruparMovimientosTercero(fila).map((g): NodoVisorTerceros => {
+    // Una cuenta sin terceros reales (solo la fila propia) no despliega hijos: la
+    // cuenta ya lleva «Sin desagregar» y sus importes; repetirlos en una fila
+    // «Sin documento» sugería un tercero faltante que el archivo nunca tuvo.
+    const grupos = agruparMovimientosTercero(fila);
+    const hijos = (grupos.every((g) => g.propia) ? [] : grupos).map((g): NodoVisorTerceros => {
       const key = `${n.key}/tercero/${encodeURIComponent(g.clave)}`;
       const diferencia = g.inconsistente || (fila.enBalance && g.mapeo !== fila.cuenta6RussellBalance);
       return {

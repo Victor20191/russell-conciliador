@@ -4,6 +4,7 @@
 // con distinto DV para el mismo tercero crucen bajo la misma clave. Reúsa `nucleoNit`
 // de `src/lib/nit.ts`: NO duplica la lógica de comparación de NIT.
 import { nucleoNit } from "@/lib/nit";
+import { quitarPrefijoDocumento } from "@/lib/balance/identidad-tercero";
 
 export type TerceroNormalizado = { nitCanonico: string | null; nombre: string | null };
 
@@ -31,11 +32,7 @@ export function normalizarTerceroModulo(
   if (terceroRaw === null || terceroRaw === undefined) return { nitCanonico: null, nombre: null };
   let texto = String(terceroRaw).trim();
   if (!texto) return { nitCanonico: null, nombre: null };
-  const prefijo = (opciones?.prefijo ?? "").trim();
-  if (prefijo) {
-    const re = new RegExp(`^${prefijo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\d)`, "i");
-    texto = re.test(texto) ? texto.replace(re, "$1") : texto;
-  }
+  texto = quitarPrefijoDocumento(texto, opciones?.prefijo);
 
   const match = TOKEN_NIT.exec(texto);
   if (!match) {

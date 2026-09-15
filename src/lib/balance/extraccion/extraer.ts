@@ -18,6 +18,7 @@ import { MappingSpecSchema, ExtraccionDirectaSchema } from "./esquema";
 import { transformarTabular, validarDirecta, type ParamsExtraccion, type ResultadoTransform } from "./transformar";
 import { esTransformacionAceptable, debeEscalarExtraccion } from "./validacion";
 import { veredictoOrientacion, invertirColumnasMovimiento } from "./verificacion";
+import { PREFIJO_LETRAS_PEGADAS } from "@/lib/balance/identidad-tercero";
 import type { GridHoja } from "./ingesta";
 import type { MappingSpec, SubtotalesTercero } from "./esquema";
 import type { UsoIA } from "@/lib/ia/uso";
@@ -49,7 +50,9 @@ export function bloqueIndicacionesTerceros(ctx: ContextoUsuarioTerceros | undefi
   if (!ctx) return null;
   const partes: string[] = [];
   if (ctx.indicaciones) partes.push(ctx.indicaciones);
-  if (ctx.prefijoDocumento) {
+  if (ctx.prefijoDocumento === PREFIJO_LETRAS_PEGADAS) {
+    partes.push("El documento del tercero puede traer letras pegadas al inicio del número (p. ej. \"C0709802\"): no son parte del número, la plataforma las separa sola.");
+  } else if (ctx.prefijoDocumento) {
     partes.push(
       `El documento del tercero trae pegado el prefijo de letras "${ctx.prefijoDocumento}" (p. ej. "${ctx.prefijoDocumento}0709802"): no es parte del número, la plataforma lo separa sola.`,
     );

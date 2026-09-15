@@ -52,8 +52,10 @@ describe("árbol de terceros coherente con balance", () => {
 
   it("conserva una cuenta sin desagregar sin inventar un NIT ni un tercero real", () => {
     const arbol = crear([cuenta()], [propia()]);
-    expect(plana(arbol).find((n) => n.tipo === "tercero")).toMatchObject({ code: "Sin documento", name: "Sin desagregar por tercero", esFilaPropia: true, balance: 100 });
-    expect(plana(arbol).find((n) => n.comparacion)?.esFilaPropia).toBe(true);
+    // Sin terceros reales no se pinta una fila «Sin documento» que repita la cuenta.
+    expect(plana(arbol).some((n) => n.tipo === "tercero")).toBe(false);
+    const cuentaSinDesglose = plana(arbol).find((n) => n.comparacion)!;
+    expect(cuentaSinDesglose).toMatchObject({ esFilaPropia: true, hijos: [], balance: 100, diferencias: 0 });
   });
 
   it("sin NIT agrupa por nombre y mantiene separados los nombres distintos", () => {

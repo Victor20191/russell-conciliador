@@ -29,12 +29,19 @@ const claveTexto = (v: string) => v.normalize("NFD").replace(/[\u0300-\u036f]/g,
  * INMEDIATAMENTE seguido de d\u00edgitos (no separa "NIT 123", que ya maneja la
  * etiqueta habitual m\u00e1s abajo).
  */
-function quitarPrefijoDocumento(raw: string, prefijo: string | null | undefined): string {
+export function quitarPrefijoDocumento(raw: string, prefijo: string | null | undefined): string {
   const p = (prefijo ?? "").trim();
   if (!p) return raw;
+  // «Sí, trae letras pegadas» (panel de carga): cualquier letra al inicio,
+  // pegada al número, sin que el usuario tenga que escribirla.
+  if (p === PREFIJO_LETRAS_PEGADAS) return raw.replace(/^(\s*)[A-Za-zÁÉÍÓÚÑáéíóúñ]+(?=\d)/, "$1");
   const re = new RegExp(`^${p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\d)`, "i");
   return re.test(raw) ? raw.replace(re, "$1") : raw;
 }
+
+/** Valor de `prefijoDocumentoTercero` para «el documento trae letras pegadas»
+ * (cualquiera). Los perfiles antiguos con una letra concreta siguen valiendo. */
+export const PREFIJO_LETRAS_PEGADAS = "*";
 const tipos: Record<string, NonNullable<IdentidadTercero["tipoDocumento"]>> = {
   NIT: "NIT", CC: "CC", CEDULA: "CC", CEDULADECIUDADANIA: "CC",
   CE: "CE", CEDULADEEXTRANJERIA: "CE", TI: "TI", TARJETADEIDENTIDAD: "TI",
