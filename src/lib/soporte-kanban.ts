@@ -155,3 +155,23 @@ export function filtrarCartasKanbanPorAsunto(
   if (!termino) return [...cartas];
   return cartas.filter((carta) => normalizarTextoKanban(carta.subject).includes(termino));
 }
+
+/**
+ * Buscador global de `/reportes`: encuentra CUALQUIER ticket sin importar su
+ * columna ni su estado. A diferencia del buscador por columna —que mira solo el
+ * asunto visible—, aquí el término se compara contra el código, el asunto, el
+ * reportante y la ubicación, que es lo que el usuario tiene a mano para
+ * reconocer una novedad. No reordena: conserva el orden de llegada.
+ */
+export function filtrarTicketsKanbanPorBusqueda(
+  filas: readonly TicketKanban[],
+  busqueda: string,
+): TicketKanban[] {
+  const termino = normalizarTextoKanban(busqueda);
+  if (!termino) return [...filas];
+  return filas.filter((fila) =>
+    [fila.code, fila.subject, fila.reportante, fila.ubicacion ?? ""].some((campo) =>
+      normalizarTextoKanban(campo).includes(termino),
+    ),
+  );
+}

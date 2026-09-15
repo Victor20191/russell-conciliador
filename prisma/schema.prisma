@@ -1106,7 +1106,8 @@ model PerfilCargaBalance {
   agregarPorTercero       Boolean   @default(false) @map("agregar_por_tercero")
   // Contexto de terceros memorizado del panel «Reconocer terceros» (carga de
   // balance por tercero): prefijo de letras pegado al documento y cómo vienen
-  // los subtotales por cuenta. Ver `SubtotalesTerceroSchema` (auto|por_cuenta|ninguno).
+  // los renglones de cada tercero. Ver `SubtotalesTerceroSchema`
+  // (auto|tercero_totalizado|total_mas_detalle; valores antiguos se leen como auto).
   prefijoDocumentoTercero String?   @map("prefijo_documento_tercero")
   subtotalesTercero       String    @default("auto") @map("subtotales_tercero")
   // ---- metadatos del perfil ----

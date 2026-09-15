@@ -1265,56 +1265,51 @@ describe("transformarTabular — detalle por tercero con código «-NIT» (guion
 // Panel «Reconocer terceros» del modal de carga: override EXPLÍCITO del usuario
 // sobre cómo vienen los subtotales por tercero, sin tocar los patrones
 // especializados (negrita, guion) que tienen su propia evidencia estructural.
-describe("subtotalesTercero (panel «Reconocer terceros»)", () => {
+describe("subtotalesTercero (panel «Ajustar lectura terceros»)", () => {
   const colsConTercero = { ...spec().columnas, tercero: 7 };
+  // Formato CORPO LA MUJER: por cada tercero, un renglón de TOTAL y debajo el
+  // mismo tercero por centro de costo (que lo suma).
+  const totalMasDetalle = (terceros: number): GridHoja => {
+    const filas: (string | number)[][] = [["Código", "Nombre", "SI", "DB", "CR", "Saldo", "Tercero"], ["110505", "Caja", 0, terceros * 30, 0, terceros * 30, ""]];
+    for (let i = 0; i < terceros; i++) {
+      const nit = String(900000000 + i);
+      filas.push(["110505", "Caja", 0, 30, 0, 30, nit], ["110505", "Caja", 0, 10, 0, 10, nit], ["110505", "Caja", 0, 20, 0, 20, nit]);
+    }
+    return { nombre: "Balance", filas };
+  };
 
-  it('"ninguno": sin fila consolidada real, suma TODO movimiento con tercero por cuenta (auto perdería el detalle por error)', () => {
-    const hoja: GridHoja = {
-      nombre: "Balance",
-      filas: [
-        ["Código", "Nombre", "SI", "DB", "CR", "Saldo", "Tercero"],
-        ["110505", "Caja", 0, 40, 0, 40, ""], // fila SIN tercero, pero no es un consolidado real
-        ["110505", "Caja", 0, 60, 0, 60, "900222222"],
-      ],
-    };
-    const auto = transformarTabular(spec({ columnas: colsConTercero }), [hoja], PARAMS);
-    // "auto" interpreta la fila sin tercero como el consolidado oficial y omite el
-    // detalle — en este archivo eso es incorrecto (no hay consolidado real).
-    expect(auto.importReady.find((c) => c.code === "110505")?.debitos).toBe(40);
-
-    const ninguno = transformarTabular(spec({ columnas: colsConTercero, subtotalesTercero: "ninguno" }), [hoja], PARAMS);
-    expect(ninguno.importReady.find((c) => c.code === "110505")?.debitos).toBe(100);
-    expect(ninguno.importReady.filter((c) => c.code === "110505")).toHaveLength(1); // sin doble conteo
+  it('"total_mas_detalle": conserva solo el total de cada tercero, sin duplicar tercero ni cuenta', () => {
+    const r = transformarTabular(spec({ columnas: colsConTercero, subtotalesTercero: "total_mas_detalle" }), [totalMasDetalle(2)], PARAMS);
+    expect(r.filasTercero).toHaveLength(2);
+    expect(r.filasTercero?.map((t) => t.debitos)).toEqual([30, 30]);
+    expect(r.importReady.find((c) => c.code === "110505")?.debitos).toBe(60);
+    expect(r.excepciones.some((e) => e.regla === "Detalle omitido bajo el total de su tercero")).toBe(true);
   });
 
-  it('"por_cuenta": la fila consolidada por cuenta manda y el detalle por tercero no se suma aparte', () => {
-    const hoja: GridHoja = {
-      nombre: "Balance",
-      filas: [
-        ["Código", "Nombre", "SI", "DB", "CR", "Saldo", "Tercero"],
-        ["110505", "Caja", 0, 100, 0, 100, ""], // consolidado
-        ["110505", "Caja", 0, 40, 0, 40, "900111111"], // detalle
-        ["110505", "Caja", 0, 60, 0, 60, "900222222"], // detalle
-      ],
-    };
-    const porCuenta = transformarTabular(spec({ columnas: colsConTercero, subtotalesTercero: "por_cuenta" }), [hoja], PARAMS);
-    expect(porCuenta.importReady.filter((c) => c.code === "110505")).toHaveLength(1);
-    expect(porCuenta.importReady.find((c) => c.code === "110505")?.debitos).toBe(100); // solo el consolidado, sin doble conteo
-    expect(porCuenta.filasTercero).toHaveLength(2); // el detalle se conserva como información, no como movimiento aparte
+  it('"auto" lo detecta solo cuando el patrón domina el archivo', () => {
+    const r = transformarTabular(spec({ columnas: colsConTercero }), [totalMasDetalle(25)], PARAMS);
+    expect(r.filasTercero).toHaveLength(25);
+    // Con pocos bloques no hay evidencia suficiente: «auto» no toca nada.
+    const pocos = transformarTabular(spec({ columnas: colsConTercero }), [totalMasDetalle(2)], PARAMS);
+    expect(pocos.filasTercero).toHaveLength(6);
   });
 
-  it('"por_cuenta" no cambia el resultado del caso estándar (auto ya evita el doble conteo cuando hay consolidado + detalle)', () => {
+  it('"tercero_totalizado": nunca omite renglones aunque cuadren', () => {
+    const r = transformarTabular(spec({ columnas: colsConTercero, subtotalesTercero: "tercero_totalizado" }), [totalMasDetalle(25)], PARAMS);
+    expect(r.filasTercero).toHaveLength(75);
+  });
+
+  it("no toma como detalle dos renglones del mismo tercero que no suman el primero", () => {
     const hoja: GridHoja = {
       nombre: "Balance",
       filas: [
         ["Código", "Nombre", "SI", "DB", "CR", "Saldo", "Tercero"],
         ["110505", "Caja", 0, 100, 0, 100, ""],
         ["110505", "Caja", 0, 40, 0, 40, "900111111"],
-        ["110505", "Caja", 0, 60, 0, 60, "900222222"],
+        ["110505", "Caja", 0, 60, 0, 60, "900111111"],
       ],
     };
-    const auto = transformarTabular(spec({ columnas: colsConTercero }), [hoja], PARAMS);
-    const porCuenta = transformarTabular(spec({ columnas: colsConTercero, subtotalesTercero: "por_cuenta" }), [hoja], PARAMS);
-    expect(porCuenta.importReady).toEqual(auto.importReady);
+    const r = transformarTabular(spec({ columnas: colsConTercero, subtotalesTercero: "total_mas_detalle" }), [hoja], PARAMS);
+    expect(r.filasTercero).toHaveLength(2);
   });
 });

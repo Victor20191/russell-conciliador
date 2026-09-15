@@ -1255,7 +1255,7 @@ function TipoBalanceRevision({
   );
 }
 
-type SubtotalesTerceroUI = "auto" | "por_cuenta" | "ninguno";
+type SubtotalesTerceroUI = "auto" | "tercero_totalizado" | "total_mas_detalle";
 
 export type ContextoTercerosPanel = {
   colDocumento?: number;
@@ -1307,7 +1307,8 @@ function ContextoTerceros({
   onEditado: (editado: boolean) => void;
 }) {
   const hayProblema = !!diagnostico && (diagnostico.sinDocumento > 0 || diagnostico.sinNombre > 0);
-  const [abierto, setAbierto] = useState(hayProblema);
+  // Siempre inicia colapsado: es opcional y no debe parecer un paso obligatorio.
+  const [abierto, setAbierto] = useState(false);
   const inicial = {
     colDocumento: spec.columnas.tercero || 0,
     colNombre: spec.columnas.nombreTercero ?? 0,
@@ -1424,8 +1425,8 @@ function ContextoTerceros({
                 className="rounded-md border border-ink-200 bg-white px-2 py-1.5 text-[12px] text-ink-700"
               >
                 <option value="auto">Automático (detección actual)</option>
-                <option value="por_cuenta">Un renglón por Tercero (totalizado)</option>
-                <option value="ninguno">Un renglón con Total de Tercero + otro renglón para detalle</option>
+                <option value="tercero_totalizado">Un renglón por Tercero (totalizado)</option>
+                <option value="total_mas_detalle">Un renglón con Total de Tercero + otro renglón para detalle</option>
               </select>
             </label>
           </div>

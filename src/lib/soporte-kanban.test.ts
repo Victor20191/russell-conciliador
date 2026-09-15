@@ -4,6 +4,7 @@ import {
   COLUMNAS_KANBAN,
   evaluarMovimientoKanban,
   filtrarCartasKanbanPorAsunto,
+  filtrarTicketsKanbanPorBusqueda,
   moverTicketKanban,
   type TicketKanban,
 } from "./soporte-kanban";
@@ -135,5 +136,67 @@ describe("filtrarCartasKanbanPorAsunto", () => {
     expect(filtrarCartasKanbanPorAsunto(cartas, "TKT-1")).toEqual([]);
     expect(filtrarCartasKanbanPorAsunto(cartas, "Cargar balance")).toEqual([]);
     expect(filtrarCartasKanbanPorAsunto(cartas, "Carlos Ruiz")).toEqual([]);
+  });
+});
+
+describe("filtrarTicketsKanbanPorBusqueda", () => {
+  // A propósito mezcla estados: el buscador global NO respeta columnas, debe
+  // encontrar el ticket esté donde esté.
+  const filas = [
+    ticket(1, "abierto", {
+      code: "TKT-72",
+      subject: "Conciliación de cuentas que no están en la 14",
+      reportante: "Yuli Atehortua Giraldo",
+      ubicacion: "Módulos de conciliación · Inventarios",
+    }),
+    ticket(2, "cerrado", {
+      code: "TKT-65",
+      subject: "Vista previa de archivos",
+      reportante: "Luisa Martínez",
+      ubicacion: "Módulos de conciliación · Inventarios",
+    }),
+    ticket(3, "resuelto", {
+      code: "TKT-57",
+      subject: "ERROR EN PÁGINA",
+      reportante: "Camilo Perez Roj",
+      ubicacion: "Balance de comprobación · Balance",
+    }),
+    // Sin ubicación: el buscador no puede romperse con el nulo.
+    ticket(4, "en_proceso", {
+      code: "TKT-70",
+      subject: "Ajuste de versiones en PREVALIDADOR",
+      reportante: "Yuli Atehortua Giraldo",
+      ubicacion: null,
+    }),
+  ];
+
+  it("sin término devuelve todo sin mutar el arreglo", () => {
+    const resultado = filtrarTicketsKanbanPorBusqueda(filas, "");
+    expect(resultado).toEqual(filas);
+    expect(resultado).not.toBe(filas);
+  });
+
+  it("un espacio en blanco cuenta como término vacío", () => {
+    expect(filtrarTicketsKanbanPorBusqueda(filas, "   ")).toEqual(filas);
+  });
+
+  it("encuentra por código aunque el ticket esté en otra columna", () => {
+    expect(filtrarTicketsKanbanPorBusqueda(filas, "TKT-65").map((t) => t.id)).toEqual([2]);
+    expect(filtrarTicketsKanbanPorBusqueda(filas, "tkt-5").map((t) => t.id)).toEqual([3]);
+  });
+
+  it("encuentra por asunto, reportante y ubicación", () => {
+    expect(filtrarTicketsKanbanPorBusqueda(filas, "PREVALIDADOR").map((t) => t.id)).toEqual([4]);
+    expect(filtrarTicketsKanbanPorBusqueda(filas, "atehortua").map((t) => t.id)).toEqual([1, 4]);
+    expect(filtrarTicketsKanbanPorBusqueda(filas, "Balance de comprobación").map((t) => t.id)).toEqual([3]);
+  });
+
+  it("ignora mayúsculas, acentos y espacios sobrantes", () => {
+    expect(filtrarTicketsKanbanPorBusqueda(filas, "  conciliacion  ").map((t) => t.id)).toEqual([1, 2]);
+    expect(filtrarTicketsKanbanPorBusqueda(filas, "PAGINA").map((t) => t.id)).toEqual([3]);
+  });
+
+  it("sin coincidencias devuelve un arreglo vacío", () => {
+    expect(filtrarTicketsKanbanPorBusqueda(filas, "inexistente")).toEqual([]);
   });
 });

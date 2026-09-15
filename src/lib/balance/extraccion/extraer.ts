@@ -57,10 +57,10 @@ export function bloqueIndicacionesTerceros(ctx: ContextoUsuarioTerceros | undefi
       `El documento del tercero trae pegado el prefijo de letras "${ctx.prefijoDocumento}" (p. ej. "${ctx.prefijoDocumento}0709802"): no es parte del número, la plataforma lo separa sola.`,
     );
   }
-  if (ctx.subtotales === "por_cuenta") {
-    partes.push("Cada cuenta trae su propia fila consolidada SIN tercero: es la oficial. El desglose por tercero debajo es solo detalle informativo; márcalo con la columna `tercero` pero no lo declares como el único movimiento de la cuenta.");
-  } else if (ctx.subtotales === "ninguno") {
-    partes.push("El archivo NO trae fila consolidada por cuenta: cada fila con tercero es un movimiento real que se debe sumar por cuenta.");
+  if (ctx.subtotales === "tercero_totalizado") {
+    partes.push("Cada tercero aparece en UN solo renglón por cuenta, ya totalizado.");
+  } else if (ctx.subtotales === "total_mas_detalle") {
+    partes.push("Cada tercero trae un renglón de TOTAL y debajo renglones de detalle del mismo tercero (p. ej. por centro de costo) que suman ese total: la plataforma conserva solo el total.");
   }
   if (partes.length === 0) return null;
   return [

@@ -309,7 +309,7 @@ export const ContextoTercerosCargaSchema = z.object({
   colTipoDocumento: z.number().int().min(0).optional(),
   colDv: z.number().int().min(0).optional(),
   prefijoDocumento: z.preprocess((v) => (typeof v === "string" && v.trim() ? v.trim() : null), z.string().max(10, { error: "El prefijo es demasiado largo." }).nullable()).optional(),
-  subtotales: z.enum(["auto", "por_cuenta", "ninguno"]).optional(),
+  subtotales: z.enum(["auto", "tercero_totalizado", "total_mas_detalle"]).optional(),
   indicaciones: z.preprocess((v) => (typeof v === "string" && v.trim() ? v.trim() : null), z.string().max(1000, { error: "Las indicaciones son demasiado largas (máx. 1000 caracteres)." }).nullable()).optional(),
 });
 export type ContextoTercerosCarga = z.infer<typeof ContextoTercerosCargaSchema>;

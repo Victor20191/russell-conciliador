@@ -2,6 +2,7 @@
 // (`perfiles_carga_balance`, spec aplanado en columnas tipadas). Puro y testeable:
 // no toca BD — la Server Action lee/escribe el modelo Prisma y usa estos helpers.
 import type { ConvencionSigno, MappingSpec, SpecCarga, SubtotalesTercero } from "./esquema";
+import { normalizarSubtotalesTercero } from "./esquema";
 
 // Espejo 1:1 de las columnas de layout del modelo Prisma `PerfilCargaBalance`
 // (sin id/clienteId/huella/metadatos): un objeto listo para esparcir en el upsert.
@@ -92,7 +93,7 @@ export function specCargaDesdePerfil(p: PerfilPlano): SpecCarga {
     // Perfiles guardados antes de esta migración no tienen estas columnas:
     // "auto"/null conserva su comportamiento exacto de antes.
     prefijoDocumentoTercero: p.prefijoDocumentoTercero ?? null,
-    subtotalesTercero: p.subtotalesTercero ?? "auto",
+    subtotalesTercero: normalizarSubtotalesTercero(p.subtotalesTercero),
   };
 }
 

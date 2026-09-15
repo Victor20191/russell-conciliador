@@ -30,17 +30,22 @@ export const CONVENCIONES_SIGNO = ["firmado", "magnitud"] as const;
 export const SignoSchema = z.enum(CONVENCIONES_SIGNO);
 export type ConvencionSigno = z.infer<typeof SignoSchema>;
 
-// Cómo vienen los SUBTOTALES por tercero de un balance abierto por tercero
-// (panel «Reconocer terceros» del modal de carga; ver `transformarTabular`):
-//   auto       → comportamiento actual (heurística: negrita/reglaDetalle/consolidado
-//                inferido por código con y sin tercero).
-//   por_cuenta → cada cuenta trae su fila consolidada SIN tercero (la oficial) y,
-//                debajo, el desglose por tercero es solo DETALLE (no se suma).
-//   ninguno    → el archivo NO trae fila consolidada: se suma por cuenta TODO
-//                movimiento con tercero (`agregarPorTercero`).
-export const SUBTOTALES_TERCERO = ["auto", "por_cuenta", "ninguno"] as const;
+// Cómo vienen los renglones de cada TERCERO en un balance abierto por tercero
+// (panel «Ajustar lectura terceros» del modal de carga; ver
+// `detectarDetalleBajoTotalTercero` en `transformar.ts`):
+//   auto               → detecta solo el patrón «total + detalle» cuando domina el archivo.
+//   tercero_totalizado → «Un renglón por Tercero (totalizado)»: cada renglón cuenta.
+//   total_mas_detalle  → «Un renglón con Total de Tercero + otro renglón para detalle»:
+//                        se conserva el total y se omite el detalle que lo suma.
+export const SUBTOTALES_TERCERO = ["auto", "tercero_totalizado", "total_mas_detalle"] as const;
 export const SubtotalesTerceroSchema = z.enum(SUBTOTALES_TERCERO);
 export type SubtotalesTercero = z.infer<typeof SubtotalesTerceroSchema>;
+
+/** Lee el valor persistido (perfil/lote). Los valores retirados («por_cuenta»,
+ * «ninguno») y cualquier otro desconocido vuelven a «auto». */
+export function normalizarSubtotalesTercero(valor: unknown): SubtotalesTercero {
+  return (SUBTOTALES_TERCERO as readonly string[]).includes(valor as string) ? (valor as SubtotalesTercero) : "auto";
+}
 
 // Excepción del ETL: fila no importable o conflicto de metadato (SALIDA B del prompt).
 export const ExcepcionSchema = z.object({

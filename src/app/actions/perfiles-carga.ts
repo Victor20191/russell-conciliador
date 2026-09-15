@@ -13,6 +13,7 @@ import {
   specCargaDesdePerfil,
 } from "@/lib/balance/extraccion/perfil";
 import type { SpecCarga } from "@/lib/balance/extraccion/esquema";
+import { normalizarSubtotalesTercero } from "@/lib/balance/extraccion/esquema";
 import { TIPO_BALANCE_CARGA } from "@/lib/balance/tipo-balance";
 
 // Gestión de la PERSONALIZACIÓN de carga de balances por cliente:
@@ -135,7 +136,7 @@ function estructuraDesdePerfil(p: {
     reglaDetalleValor: p.reglaDetalleValor,
     agregarPorTercero: p.agregarPorTercero,
     prefijoDocumentoTercero: p.prefijoDocumentoTercero ?? null,
-    subtotalesTercero: p.subtotalesTercero === "por_cuenta" || p.subtotalesTercero === "ninguno" ? p.subtotalesTercero : "auto",
+    subtotalesTercero: normalizarSubtotalesTercero(p.subtotalesTercero),
   });
 }
 

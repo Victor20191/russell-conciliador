@@ -3,7 +3,7 @@
 // modelo extrajo directamente (PDF). Normaliza montos multi-formato, conserva la
 // CUENTA como texto, filtra padres/totales, agrega por tercero y valida la
 // ecuación de control fila por fila. Es puro y testeable (`transformar.test.ts`).
-import { CUADRE_NO_APLICA } from "./esquema";
+import { CUADRE_NO_APLICA, normalizarSubtotalesTercero } from "./esquema";
 import type { CuadreTotales, Estandar, Excepcion, ExtraccionDirecta, MappingSpec, Origen, ResumenAuditoria } from "./esquema";
 import { conForzarHoja } from "@/lib/balance/calcular";
 import type { CuentaCruda } from "@/lib/balance/calcular";
@@ -413,25 +413,16 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
   // consolidado + detalle. Con `reglaDetalle=columna`, en cambio, solo `Cuenta`
   // es consolidado; una fila NIT con tercero vacío no puede usarse para descartar
   // las demás porque puede ser una contraparte legítima sin código de tercero.
-  //
-  // `subtotalesTercero` (panel «Reconocer terceros», override EXPLÍCITO del
-  // usuario sobre esta misma decisión — NO toca los patrones especializados de
-  // negrita/guion, que tienen su propia evidencia estructural):
-  //   - "por_cuenta": cualquier código con una fila SIN tercero se trata como
-  //     consolidado (la oficial), aunque el archivo no traiga también una fila
-  //     CON tercero para ese mismo código (se relaja `codigosConDetalleTercero`).
-  //   - "ninguno": nunca se omite el detalle por un consolidado inferido — el
-  //     archivo no trae filas consolidadas que deban preferirse.
-  //   - "auto" (default): comportamiento de siempre, sin cambios.
-  const forzarPorCuenta = spec.subtotalesTercero === "por_cuenta";
-  const forzarNinguno = spec.subtotalesTercero === "ninguno";
   const omitirDetalleTerceroPorConsolidadoInferido = (code: string, fila: CeldaCruda[]): boolean =>
     cols.tercero > 0 &&
-    !forzarNinguno &&
     spec.reglaDetalle.tipo !== "columna" &&
     codigosConConsolidado.has(code) &&
-    (forzarPorCuenta || codigosConDetalleTercero.has(code)) &&
+    codigosConDetalleTercero.has(code) &&
     texto(cell(fila, cols.tercero)) !== "";
+  // Renglones de DETALLE bajo el total de su tercero (p. ej. el mismo tercero
+  // partido por centro de costo): se omiten para no sumar dos veces al tercero
+  // ni a la cuenta. Ver `detectarDetalleBajoTotalTercero`.
+  const detalleBajoTotalTercero = detectarDetalleBajoTotalTercero(hoja, spec, cols);
   // Pasada 1 (jerarquía por PREFIJO): reúne TODOS los códigos numéricos de la
   // hoja. Una cuenta es HOJA (movimiento real) si su código no es prefijo de
   // ningún otro más largo del archivo; es AGRUPADORA si tiene hijos debajo. Esto
@@ -536,6 +527,7 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
   const parciales: FilaParcial[] = [];
   let filasDetalleTerceroExcluidas = 0;
   let filasResumenTerceroExcluidas = 0;
+  let filasDetalleBajoTotalTercero = 0;
   let filasTerceroNegritaExcluidas = 0; // detalle por tercero descartado por negrita
   let cuentaNegritaActual = ""; // código de la última cuenta EN NEGRITA (contexto del descarte)
   let nombreCuentaNegritaActual = "";
@@ -628,6 +620,12 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
       });
       return filasCrudas.length - 1;
     };
+    if (detalleBajoTotalTercero.has(r)) {
+      filasExcluidas++;
+      filasDetalleBajoTotalTercero++;
+      registrar("total", { si: si ?? 0, db: db ?? 0, cr: cr ?? 0, saldo: saldo ?? 0 });
+      continue;
+    }
     // Captura una fila (cuenta × tercero) para el staging paralelo. El NIT queda en
     // su clave canónica (la misma bajo la que cruzan los módulos); sin NIT ni nombre
     // reconocibles queda como tercero «Genérico».
@@ -886,6 +884,16 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
       accion: "Se usó la fila consolidada sin tercero del mismo código para evitar doble conteo.",
     });
   }
+  if (filasDetalleBajoTotalTercero > 0) {
+    excepciones.push({
+      hoja: hoja.nombre,
+      fila: null,
+      campo: "tercero",
+      valor: `${filasDetalleBajoTotalTercero} fila(s)`,
+      regla: "Detalle omitido bajo el total de su tercero",
+      accion: "Cada tercero traía un renglón de total y renglones de detalle que lo suman; se conservó solo el total para no duplicar.",
+    });
+  }
   if (filasResumenTerceroExcluidas > 0) {
     excepciones.push({
       hoja: hoja.nombre,
@@ -1044,6 +1052,55 @@ export function validarDirecta(extr: ExtraccionDirecta, params: ParamsExtraccion
 }
 
 // ---------------- Auxiliares ----------------
+
+// Mínimo de bloques «total + detalle» que cuadran para detectarlo SOLO («auto»).
+const MIN_BLOQUES_TOTAL_TERCERO = 20;
+
+/**
+ * Balance por tercero con «Un renglón con Total de Tercero + otro renglón para
+ * detalle» (p. ej. el tercero y, debajo, el mismo tercero por centro de costo).
+ * Dentro de un bloque CONSECUTIVO del mismo código y el mismo tercero, si el
+ * primer renglón iguala en sus cuatro importes la suma de los siguientes, esos
+ * siguientes son detalle: se devuelven sus índices (0-based) para omitirlos.
+ * `total_mas_detalle` aplica la regla; `auto` solo si el patrón domina el
+ * archivo (≥80% de los bloques de tercero); `tercero_totalizado` nunca.
+ */
+export function detectarDetalleBajoTotalTercero(hoja: GridHoja, spec: MappingSpec, cols: MappingSpec["columnas"]): Set<number> {
+  const omitir = new Set<number>();
+  const modo = normalizarSubtotalesTercero(spec.subtotalesTercero);
+  if (cols.tercero <= 0 || modo === "tercero_totalizado") return omitir;
+  type Importes = [number, number, number, number];
+  const importes = (fila: CeldaCruda[]): Importes => {
+    const si = cols.saldoInicial > 0 ? normalizarMonto(cell(fila, cols.saldoInicial)) ?? 0 : 0;
+    const db = cols.debitos > 0 ? normalizarMonto(cell(fila, cols.debitos)) ?? 0 : 0;
+    const cr = cols.creditos > 0 ? normalizarMonto(cell(fila, cols.creditos)) ?? 0 : 0;
+    return [si, db, cr, leerSaldoFinal(fila, cols, si, db, cr) ?? 0];
+  };
+  const bloques: number[][] = [];
+  let actual: number[] = [];
+  let clave = "";
+  const cerrar = () => { if (actual.length) bloques.push(actual); actual = []; clave = ""; };
+  for (let r = spec.primeraFilaDatos - 1; r < hoja.filas.length; r++) {
+    const fila = hoja.filas[r] ?? [];
+    const code = normalizarCodigo(celdaCodigo(fila, cols));
+    const tercero = texto(cell(fila, cols.tercero));
+    if (!/^\d+$/.test(code) || tercero === "") { cerrar(); continue; }
+    const k = `${code}|${tercero}|${cols.nombreTercero ? texto(cell(fila, cols.nombreTercero)) : ""}`;
+    if (k !== clave) { cerrar(); clave = k; }
+    actual.push(r);
+  }
+  cerrar();
+  const cuadran = bloques.filter((b) => {
+    if (b.length < 2) return false;
+    const [total, ...detalle] = b.map((r) => importes(hoja.filas[r] ?? []));
+    const suma = detalle.reduce<Importes>((s, d) => [s[0] + d[0], s[1] + d[1], s[2] + d[2], s[3] + d[3]], [0, 0, 0, 0]);
+    return total.every((v, i) => Math.abs(v - suma[i]) <= 0.5);
+  });
+  const aplicar = modo === "total_mas_detalle"
+    || (cuadran.length >= MIN_BLOQUES_TOTAL_TERCERO && cuadran.length / bloques.length >= 0.8);
+  if (aplicar) for (const b of cuadran) for (const r of b.slice(1)) omitir.add(r);
+  return omitir;
+}
 
 function cell(fila: CeldaCruda[], col1: number | null): CeldaCruda {
   if (col1 == null || col1 < 1) return null; // 0/negativo = columna ausente

@@ -5,7 +5,7 @@ import { Chip, EmptyState } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { fmtDateTime } from "@/lib/format";
 import { etiquetaEstadoTicket, tonoEstadoTicket } from "@/lib/soporte-estados";
-import type { TicketKanban } from "@/lib/soporte-kanban";
+import { filtrarTicketsKanbanPorBusqueda, type TicketKanban } from "@/lib/soporte-kanban";
 import {
   contarPorDominio,
   DOMINIOS_REPORTE,
@@ -86,16 +86,23 @@ export default function TicketsVista({
 }) {
   const vista = useSyncExternalStore(suscribirVista, leerVista, (): Vista => "tabla");
   const [abierto, setAbierto] = useState<number | null>(null);
-  // El origen NO se recuerda entre visitas, a diferencia de la vista: un
-  // conmutador Tabla/Kanban solo cambia la presentación, pero un filtro
-  // guardado escondería novedades y haría creer que dejaron de llegar.
+  // El origen y la búsqueda NO se recuerdan entre visitas, a diferencia de la
+  // vista: un conmutador Tabla/Kanban solo cambia la presentación, pero un
+  // filtro guardado escondería novedades y haría creer que dejaron de llegar.
   const [dominio, setDominio] = useState<FiltroDominioReporte>(FILTRO_DOMINIO_TODOS);
+  const [busqueda, setBusqueda] = useState("");
+
+  const termino = busqueda.trim();
+  const hayBusqueda = termino.length > 0;
 
   const conteo = useMemo(() => contarPorDominio(tickets), [tickets]);
   // Memoizado a la fuerza: el tablero descarta su estado optimista cuando
   // cambia la IDENTIDAD del arreglo, así que recrearlo en cada render
   // revertiría en pantalla el arrastre que está confirmándose.
-  const visibles = useMemo(() => filtrarPorDominio(tickets, dominio), [tickets, dominio]);
+  const visibles = useMemo(
+    () => filtrarTicketsKanbanPorBusqueda(filtrarPorDominio(tickets, dominio), busqueda),
+    [tickets, dominio, busqueda],
+  );
 
   if (tickets.length === 0) {
     return (
@@ -108,6 +115,36 @@ export default function TicketsVista({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-3">
+        <div className="flex min-w-[240px] flex-1 items-center gap-2 rounded-md border border-ink-200 bg-white px-3 py-2 text-ink-400 shadow-sm focus-within:border-blue-400">
+          <Icon name="search" size={15} />
+          <input
+            type="text"
+            value={busqueda}
+            onChange={(evento) => setBusqueda(evento.target.value)}
+            placeholder="Buscar por código, asunto, persona o ubicación…"
+            aria-label="Buscar tickets por código, asunto, persona o ubicación"
+            className="min-w-0 flex-1 bg-transparent text-[12.5px] text-ink-700 outline-none placeholder:text-ink-400"
+          />
+          {hayBusqueda && (
+            <>
+              {/* Mientras se busca, el conteo deja claro cuánto se está
+                  escondiendo: la lupa filtra el tablero entero, no una columna. */}
+              <span className="shrink-0 font-mono text-[11px] text-ink-400">
+                {visibles.length} de {tickets.length}
+              </span>
+              <button
+                type="button"
+                onClick={() => setBusqueda("")}
+                aria-label="Limpiar búsqueda"
+                title="Limpiar búsqueda"
+                className="shrink-0 rounded p-0.5 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700"
+              >
+                <Icon name="x" size={14} />
+              </button>
+            </>
+          )}
+        </div>
+
         <div className="flex items-center gap-1 rounded-md border border-ink-200 bg-paper p-0.5">
           <BotonVista actual={vista} valor="tabla" icono="log" etiqueta="Tabla" onClick={guardarVista} />
           <BotonVista actual={vista} valor="kanban" icono="box" etiqueta="Kanban" onClick={guardarVista} />
@@ -138,24 +175,51 @@ export default function TicketsVista({
 
       {visibles.length === 0 ? (
         <div className="rounded-lg border border-dashed border-ink-200 bg-paper">
-          <EmptyState
-            icon="filter"
-            title="Ningún reporte de ese origen"
-            description={
-              dominio === FILTRO_DOMINIO_TODOS
-                ? undefined
-                : `Ninguna de las ${tickets.length} novedades del listado la reportó alguien de ${ETIQUETA_DOMINIO[dominio]}.`
-            }
-            action={
-              <button
-                type="button"
-                onClick={() => setDominio(FILTRO_DOMINIO_TODOS)}
-                className="rounded-md border border-ink-200 bg-white px-3.5 py-2 text-[12.5px] font-semibold text-ink-700 transition hover:bg-ink-50"
-              >
-                Ver todas las novedades
-              </button>
-            }
-          />
+          {hayBusqueda ? (
+            // La búsqueda corre sobre lo ya filtrado por origen: con ambas
+            // puertas activas el vacío se explica por las dos y el botón las
+            // abre juntas, para no dejar al usuario en un callejón sin salida.
+            <EmptyState
+              icon="search"
+              title="Ningún ticket coincide con la búsqueda"
+              description={
+                dominio === FILTRO_DOMINIO_TODOS
+                  ? `Ninguna de las ${tickets.length} novedades del listado incluye «${termino}» en código, asunto, persona o ubicación.`
+                  : `Ninguna de las novedades de ${ETIQUETA_DOMINIO[dominio]} incluye «${termino}» en código, asunto, persona o ubicación.`
+              }
+              action={
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBusqueda("");
+                    setDominio(FILTRO_DOMINIO_TODOS);
+                  }}
+                  className="rounded-md border border-ink-200 bg-white px-3.5 py-2 text-[12.5px] font-semibold text-ink-700 transition hover:bg-ink-50"
+                >
+                  {dominio === FILTRO_DOMINIO_TODOS ? "Limpiar búsqueda" : "Limpiar búsqueda y filtro"}
+                </button>
+              }
+            />
+          ) : (
+            <EmptyState
+              icon="filter"
+              title="Ningún reporte de ese origen"
+              description={
+                dominio === FILTRO_DOMINIO_TODOS
+                  ? undefined
+                  : `Ninguna de las ${tickets.length} novedades del listado la reportó alguien de ${ETIQUETA_DOMINIO[dominio]}.`
+              }
+              action={
+                <button
+                  type="button"
+                  onClick={() => setDominio(FILTRO_DOMINIO_TODOS)}
+                  className="rounded-md border border-ink-200 bg-white px-3.5 py-2 text-[12.5px] font-semibold text-ink-700 transition hover:bg-ink-50"
+                >
+                  Ver todas las novedades
+                </button>
+              }
+            />
+          )}
         </div>
       ) : vista === "kanban" ? (
         <KanbanTablero

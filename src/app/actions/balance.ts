@@ -116,7 +116,7 @@ import {
 import { cargarContextoPrevalidadorBalance } from "@/lib/balance/prevalidador/servidor";
 import { construirCuadre, marcarSubtotalesDuplicados, reclasificarRepetidos, reclasificarNoImputables, transformarTabular } from "@/lib/balance/extraccion/transformar";
 import type { FilaCruda, ParamsExtraccion, ResultadoTransform, TipoFila } from "@/lib/balance/extraccion/transformar";
-import { CUADRE_NO_APLICA } from "@/lib/balance/extraccion/esquema";
+import { CUADRE_NO_APLICA, normalizarSubtotalesTercero } from "@/lib/balance/extraccion/esquema";
 import type { CuadreTotales, Excepcion, MappingSpec, Origen, ResumenAuditoria, SpecCarga } from "@/lib/balance/extraccion/esquema";
 import { z } from "zod";
 
@@ -401,7 +401,7 @@ function perfilPlanoDesdeFila(p: FilaPerfilCarga): PerfilPlano {
     reglaDetalleColumna: p.reglaDetalleColumna, reglaDetalleValor: p.reglaDetalleValor,
     agregarPorTercero: p.agregarPorTercero,
     prefijoDocumentoTercero: p.prefijoDocumentoTercero ?? null,
-    subtotalesTercero: p.subtotalesTercero === "por_cuenta" || p.subtotalesTercero === "ninguno" ? p.subtotalesTercero : "auto",
+    subtotalesTercero: normalizarSubtotalesTercero(p.subtotalesTercero),
   };
 }
 

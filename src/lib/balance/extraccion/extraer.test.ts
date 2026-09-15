@@ -39,25 +39,25 @@ describe("bloqueIndicacionesTerceros", () => {
     const ctx: ContextoUsuarioTerceros = {
       indicaciones: "El documento a veces viene sin ceros a la izquierda.",
       prefijoDocumento: "C",
-      subtotales: "por_cuenta",
+      subtotales: "total_mas_detalle",
     };
     const bloque = bloqueIndicacionesTerceros(ctx);
     expect(bloque).not.toBeNull();
     expect(bloque).toContain("INDICACIONES DEL USUARIO SOBRE TERCEROS");
     expect(bloque).toContain("El documento a veces viene sin ceros a la izquierda.");
     expect(bloque).toContain('prefijo de letras "C"');
-    expect(bloque).toContain("fila consolidada SIN tercero");
+    expect(bloque).toContain("renglón de TOTAL");
   });
 
-  it("subtotales=ninguno arma su propia frase", () => {
-    const bloque = bloqueIndicacionesTerceros({ subtotales: "ninguno" });
-    expect(bloque).toContain("NO trae fila consolidada por cuenta");
+  it("subtotales=tercero_totalizado arma su propia frase", () => {
+    const bloque = bloqueIndicacionesTerceros({ subtotales: "tercero_totalizado" });
+    expect(bloque).toContain("UN solo renglón");
   });
 });
 
 describe("forzarContextoTercerosEnSpec", () => {
   it("sin contexto neutraliza prefijo/subtotales a los valores por defecto (nunca confía en lo que adivinó la IA)", () => {
-    const specIA = spec({ prefijoDocumentoTercero: "X", subtotalesTercero: "por_cuenta" });
+    const specIA = spec({ prefijoDocumentoTercero: "X", subtotalesTercero: "total_mas_detalle" });
     const forzado = forzarContextoTercerosEnSpec(specIA, undefined);
     expect(forzado.prefijoDocumentoTercero).toBeNull();
     expect(forzado.subtotalesTercero).toBe("auto");
@@ -71,12 +71,12 @@ describe("forzarContextoTercerosEnSpec", () => {
       colDocumento: 9,
       colNombre: 10,
       prefijoDocumento: "C",
-      subtotales: "ninguno",
+      subtotales: "total_mas_detalle",
     };
     const forzado = forzarContextoTercerosEnSpec(specIA, ctx);
     expect(forzado.columnas.tercero).toBe(9);
     expect(forzado.columnas.nombreTercero).toBe(10);
     expect(forzado.prefijoDocumentoTercero).toBe("C");
-    expect(forzado.subtotalesTercero).toBe("ninguno");
+    expect(forzado.subtotalesTercero).toBe("total_mas_detalle");
   });
 });
