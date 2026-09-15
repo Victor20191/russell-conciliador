@@ -9,7 +9,11 @@ import {
   type PlatformModuleState,
 } from "@/lib/rbac/modulos-plataforma";
 
-export const PUBLICACION_MODULOS_CACHE_TAG = "publicacion-modulos-v3";
+// v4: agregar el módulo `conexiones` al catálogo. La clave versionada invalida
+// la entrada anterior del Data Cache, que no incluía el módulo nuevo y por eso
+// el sidebar lo ocultaba (el filtro `moduleset.has(modulo)` fallaba) aunque el
+// permiso ya estuviera sembrado.
+export const PUBLICACION_MODULOS_CACHE_TAG = "publicacion-modulos-v4";
 
 async function leerPublicacionBD(): Promise<PlatformModuleState[]> {
   const filas = await prisma.platformModule.findMany({
@@ -37,7 +41,7 @@ async function leerPublicacionBD(): Promise<PlatformModuleState[]> {
 
 const getPublicacionCached = unstable_cache(
   leerPublicacionBD,
-  ["publicacion-modulos-v3"],
+  ["publicacion-modulos-v4"],
   { tags: [PUBLICACION_MODULOS_CACHE_TAG], revalidate: 3600 },
 );
 

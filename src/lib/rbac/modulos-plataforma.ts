@@ -21,7 +21,8 @@ export type PlatformModuleKey =
   | "parametros"
   | "perfiles_carga"
   | "soporte"
-  | "entorno";
+  | "entorno"
+  | "conexiones";
 
 export type PlatformModuleDefinition = {
   key: PlatformModuleKey;
@@ -264,6 +265,19 @@ export const MODULOS_PLATAFORMA: PlatformModuleDefinition[] = [
     group: "Configuración",
     icon: "settings",
     order: 225,
+    enabledForNonAdmins: false,
+    configurableForNonAdmins: false,
+  },
+  {
+    // Admin-only: la visibilidad la gobiernan los permisos conexiones:ver /
+    // conexiones:administrar (SOLO_ADMIN); la publicación de módulos queda
+    // inerte (configurable=false ⇒ moduloPublicadoParaRol devuelve true).
+    key: "conexiones",
+    label: "Conexiones e integraciones",
+    description: "Credenciales externas por conexión (correo, almacenamiento, API, webhook) con prueba y ejecución.",
+    group: "Configuración",
+    icon: "link",
+    order: 226,
     enabledForNonAdmins: false,
     configurableForNonAdmins: false,
   },

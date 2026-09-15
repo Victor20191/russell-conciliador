@@ -729,6 +729,9 @@ model BalancePruebaEncabezado {
   // Catálogo original (incluye agrupadoras). El detalle contable conserva solo
   // imputables; este snapshot evita perder los nombres del PUC al purgar staging.
   pucCliente               Json?     @map("puc_cliente")
+  // Archivos que componen este cargue cuando el balance llegó partido en varias
+  // partes (copia de `balance_importacion_lote.partes_archivo`). null = un archivo.
+  archivosCargue           Json?     @map("archivos_cargue")
   filasLeidas              Int?      @map("filas_leidas")
   filasExcluidas           Int?      @map("filas_excluidas")
   filasDescuadre           Int?      @map("filas_descuadre")
@@ -940,6 +943,10 @@ model BalanceImportacionLote {
   // antes del cálculo y lo revalida dentro del commit para no consumir cambios
   // concurrentes que no alcanzó a analizar.
   revisionContenido     Int       @default(0) @map("revision_contenido")
+  // PARTES del mismo balance cuando el ERP lo exportó en varios archivos
+  // (`ParteArchivoBalance[]`, `lib/balance/partes-archivo.ts`): nombre, tamaño y
+  // rango de `fila_num` que ocupa cada archivo en el staging. null = un solo archivo.
+  partesArchivo         Json?     @map("partes_archivo")
   creadoEn              DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   @@index([cargadoPorId])
@@ -1097,6 +1104,11 @@ model PerfilCargaBalance {
   reglaDetalleColumna     Int?      @map("regla_detalle_columna")
   reglaDetalleValor       String?   @map("regla_detalle_valor")
   agregarPorTercero       Boolean   @default(false) @map("agregar_por_tercero")
+  // Contexto de terceros memorizado del panel «Reconocer terceros» (carga de
+  // balance por tercero): prefijo de letras pegado al documento y cómo vienen
+  // los subtotales por cuenta. Ver `SubtotalesTerceroSchema` (auto|por_cuenta|ninguno).
+  prefijoDocumentoTercero String?   @map("prefijo_documento_tercero")
+  subtotalesTercero       String    @default("auto") @map("subtotales_tercero")
   // ---- metadatos del perfil ----
   origen                  String    @map("origen") // ia | manual (manual NUNCA se degrada a ia)
   vecesUsado              Int       @default(0) @map("veces_usado")
@@ -1136,6 +1148,11 @@ model AjustesCargaBalance {
   // que el analista quiere recordar (p. ej. "duplica renglones UC/CU — se omite uno").
   // Se muestran al cargar/revisar el balance de ese cliente. null/"" = sin notas.
   observaciones     String?  @map("observaciones") @db.Text
+  // Indicaciones LIBRES del cliente para la IA sobre terceros (panel «Reconocer
+  // terceros»): NO se reutiliza `observaciones` porque esas notas no se
+  // escribieron pensando en el modelo. Se inyectan en el prompt de extracción
+  // cuando hay que releer con IA. null/"" = sin indicaciones.
+  indicacionesIaTercero String? @map("indicaciones_ia_tercero") @db.Text
   actualizadoPor    String?  @map("actualizado_por")
   creadoEn          DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
   actualizadoEn     DateTime @updatedAt @map("actualizado_en") @db.Timestamptz(3)
@@ -2319,4 +2336,59 @@ model CuentaBloqueadaConciliacion {
   @@unique([cierreId, cuenta], map: "cuenta_bloqueada_conciliacion_unica")
   @@index([clienteId, periodo, cuenta], map: "cuenta_bloqueada_conciliacion_idx")
   @@map("cuenta_bloqueada_conciliacion")
+}
+
+// ===== Conexiones e integraciones =====
+// Credenciales externas administrables desde /config/conexiones: cada fila es una
+// CONEXIÓN con nombre propio (no una variable suelta como `variables_entorno`),
+// con categoría, proveedor, entorno y estado. La `configuracion` guarda los campos
+// no sensibles (host, bucket, endpoint, URL…) y `credenciales` los secretos, cada
+// valor cifrado con AES-256-GCM (`src/lib/crypto.ts`). La UI nunca recibe los
+// secretos descifrados: solo sabe qué campos están definidos.
+// El catálogo de categorías, proveedores y campos vive en `src/lib/conexiones/tipos.ts`.
+
+/// Una conexión externa (correo, almacenamiento, API o webhook).
+model ConexionIntegracion {
+  id                     Int                 @id @default(autoincrement()) @map("id")
+  codigo                 String              @unique @map("codigo") // identificador legible, p. ej. facturas_zarazal
+  nombre                 String              @map("nombre")
+  descripcion            String?             @map("descripcion")
+  categoria              String              @map("categoria") // CORREO, ALMACENAMIENTO, API, WEBHOOK
+  proveedor              String              @map("proveedor") // clave del catálogo (cloudflare_r2, microsoft365, …)
+  entorno                String              @default("PRODUCCION") @map("entorno") // PRODUCCION, PRUEBAS
+  activa                 Boolean             @default(true) @map("activa")
+  configuracion          Json?               @map("configuracion") // campos no secretos, por clave del proveedor
+  credenciales           Json?               @map("credenciales") // { campo: valor cifrado }
+  ultimaPruebaEn         DateTime?           @map("ultima_prueba_en") @db.Timestamptz(3)
+  ultimaPruebaOk         Boolean?            @map("ultima_prueba_ok")
+  ultimaPruebaMensaje    String?             @map("ultima_prueba_mensaje")
+  ultimaPruebaMs         Int?                @map("ultima_prueba_ms")
+  ultimoUsoEn            DateTime?           @map("ultimo_uso_en") @db.Timestamptz(3)
+  ultimaEjecucionEstado  String?             @map("ultima_ejecucion_estado") // ok | error | omitida
+  ultimaEjecucionMensaje String?             @map("ultima_ejecucion_mensaje")
+  creadoPor              String?             @map("creado_por")
+  actualizadoPor         String?             @map("actualizado_por")
+  createdAt              DateTime            @default(now()) @map("creado_en") @db.Timestamptz(3)
+  updatedAt              DateTime            @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+  ejecuciones            EjecucionConexion[]
+
+  @@index([categoria, activa], map: "conexiones_integracion_categoria_idx")
+  @@map("conexiones_integracion")
+}
+
+/// Historial de pruebas y ejecuciones de una conexión, para que la tarjeta y la
+/// auditoría puedan contar qué pasó sin depender solo del último estado.
+model EjecucionConexion {
+  id           Int                 @id @default(autoincrement()) @map("id")
+  conexionId   Int                 @map("conexion_id")
+  tipo         String              @map("tipo") // PRUEBA, EJECUCION
+  estado       String              @map("estado") // ok | error | omitida
+  mensaje      String?             @map("mensaje")
+  duracionMs   Int?                @map("duracion_ms")
+  ejecutadoPor String?             @map("ejecutado_por")
+  createdAt    DateTime            @default(now()) @map("creado_en") @db.Timestamptz(3)
+  conexion     ConexionIntegracion @relation(fields: [conexionId], references: [id], onDelete: Cascade)
+
+  @@index([conexionId, createdAt], map: "ejecuciones_conexion_conexion_idx")
+  @@map("ejecuciones_conexion")
 }

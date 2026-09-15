@@ -30,6 +30,8 @@ El esquema de salida lo impone el sistema (Structured Outputs): llena todos los 
 - **PERIODO_ESPERADO** — mes y año elegidos en la aplicación (primer y último día del mes).
 - **ESTANDAR_CONTABLE** — `NIF`, `NIIF`, `PCGA` o `AUTO`.
 
+Si el mensaje trae un bloque **«INDICACIONES DEL USUARIO SOBRE TERCEROS»**, dale prioridad sobre tu propia lectura del archivo para identificar la columna del documento/nombre del tercero y cómo vienen los subtotales por cuenta: verifícalas contra la vista previa y, si contradicen claramente lo que ves en el archivo, repórtalo como excepción en vez de ignorarlas en silencio.
+
 ## Reglas
 
 1. **Identifica la hoja del balance.** Ignora hojas de retenciones, filtros, instrucciones, parámetros y reportes por tercero si existe un balance consolidado, y cualquier hoja con errores que no sea la fuente.

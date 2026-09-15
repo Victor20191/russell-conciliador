@@ -35,4 +35,13 @@ describe("Publicación de módulos por rol", () => {
     ).toBe(true);
     expect(moduloPublicadoParaRol("Staff", "externo", [])).toBe(true);
   });
+
+  test("conexiones existe en el catálogo y es visible para roles administrativos", () => {
+    const conexiones = MODULOS_PLATAFORMA.find((m) => m.key === "conexiones");
+    expect(conexiones).toBeDefined();
+    // Admin-only: la visibilidad la gobiernan los permisos conexiones:*.
+    expect(conexiones!.configurableForNonAdmins).toBe(false);
+    expect(moduloPublicadoParaRol("Administrador", "conexiones", MODULOS_PLATAFORMA)).toBe(true);
+    expect(moduloPublicadoParaRol("Superadministrador", "conexiones", MODULOS_PLATAFORMA)).toBe(true);
+  });
 });

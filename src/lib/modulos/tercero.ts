@@ -18,11 +18,24 @@ const TOKEN_NIT = /(?<![A-Za-zÁÉÍÓÚÑ0-9])(\d[\d.]*-?\d?)(?![A-Za-zÁÉÍÓ
 /**
  * Extrae el NIT (clave canónica vía `nucleoNit`, sin DV) y el nombre de un texto libre
  * de tercero. No lanza: entrada vacía/no reconocible → `{ nitCanonico: null, nombre: null }`.
+ *
+ * `opciones.prefijo` (solo lo usa la captura por tercero del BALANCE, nunca
+ * Cartera/CxP): letra(s) pegadas al número que el usuario declaró como ajenas
+ * al documento (p. ej. «C» en `C0709802`). Sin prefijo, comportamiento idéntico
+ * al de siempre — el `TOKEN_NIT` sigue exigiendo un número NO pegado a letras.
  */
-export function normalizarTerceroModulo(terceroRaw: string | number | null | undefined): TerceroNormalizado {
+export function normalizarTerceroModulo(
+  terceroRaw: string | number | null | undefined,
+  opciones?: { prefijo?: string | null },
+): TerceroNormalizado {
   if (terceroRaw === null || terceroRaw === undefined) return { nitCanonico: null, nombre: null };
-  const texto = String(terceroRaw).trim();
+  let texto = String(terceroRaw).trim();
   if (!texto) return { nitCanonico: null, nombre: null };
+  const prefijo = (opciones?.prefijo ?? "").trim();
+  if (prefijo) {
+    const re = new RegExp(`^${prefijo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\d)`, "i");
+    texto = re.test(texto) ? texto.replace(re, "$1") : texto;
+  }
 
   const match = TOKEN_NIT.exec(texto);
   if (!match) {

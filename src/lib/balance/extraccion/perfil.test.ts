@@ -23,6 +23,8 @@ const SPEC: MappingSpec = {
   signoCredito: "magnitud",
   reglaDetalle: { tipo: "columna", columna: 7, valor: "I" },
   agregarPorTercero: false,
+  prefijoDocumentoTercero: null,
+  subtotalesTercero: "auto",
   nit: { valor: "890903938", fuente: "FUENTE" },
   periodoInicial: { valor: "2026-05-01", fuente: "PARAMETRO" },
   periodoFinal: { valor: "2026-05-31", fuente: "PARAMETRO" },
@@ -44,6 +46,8 @@ describe("aplanarSpec ↔ specCargaDesdePerfil", () => {
       signoCredito: SPEC.signoCredito,
       reglaDetalle: SPEC.reglaDetalle,
       agregarPorTercero: SPEC.agregarPorTercero,
+      prefijoDocumentoTercero: SPEC.prefijoDocumentoTercero,
+      subtotalesTercero: SPEC.subtotalesTercero,
     };
     expect(specCargaDesdePerfil(aplanarSpec(SPEC))).toEqual(esperado);
   });

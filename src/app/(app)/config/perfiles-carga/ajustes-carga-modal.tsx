@@ -466,6 +466,22 @@ export function AjustesCargaModal({
                     Texto libre. Aparecen como aviso al cargar y revisar el balance de este cliente. No cambian el cálculo; sirven de memoria para el equipo.
                   </span>
                 </label>
+                <label className="flex flex-col gap-1 sm:col-span-2">
+                  <span className="text-[11px] font-medium text-ink-600">Indicaciones para la IA sobre terceros</span>
+                  <textarea
+                    name="indicacionesIaTercero"
+                    defaultValue={data.ajustes?.indicacionesIaTercero ?? ""}
+                    rows={3}
+                    maxLength={1000}
+                    readOnly={soloLectura}
+                    disabled={soloLectura}
+                    placeholder="Instrucciones específicas para reconocer el NIT/nombre del tercero en balances por tercero (p. ej. «el documento trae una C pegada al número»)."
+                    className="resize-y rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] leading-relaxed text-ink-700 outline-none focus:border-blue-400 disabled:cursor-default disabled:bg-ink-50 disabled:text-ink-600"
+                  />
+                  <span className="text-[10.5px] leading-relaxed text-ink-400">
+                    Se inyectan en el prompt solo al releer con IA desde el panel «Reconocer terceros» de la carga. También se puede editar ahí.
+                  </span>
+                </label>
               </div>
               {!soloLectura && saveState?.message && !saveState.ok && (
                 <p className="text-[12px] font-medium text-err-700">{saveState.message}</p>

@@ -188,6 +188,7 @@ function CargarBalanceModal({
   // Sugerencia REPROCESADA con el editor (pisa a la de la lectura inicial).
   const [sugLocal, setSugLocal] = useState<SugerenciaBalance | null>(null);
   const [reprocesando, startReproceso] = useTransition();
+  const [releyendoContexto, startReleerContexto] = useTransition();
   const [asignandoCliente, startAsignarCliente] = useTransition();
   const [clienteManual, setClienteManual] = useState<{ loteId: string; clientId: number } | null>(null);
   // APERTURA declarada en la revisión (`cuenta` | `tercero`). Se guarda suelta —no
@@ -378,6 +379,53 @@ function CargarBalanceModal({
         notifyError(`${res.message} Es un inconveniente del proveedor de IA, no del aplicativo.`);
       } else {
         notifyError(res.message ?? "No se pudo reprocesar el archivo.");
+      }
+    });
+  };
+
+  // «Releer con IA usando este contexto» (panel «Reconocer terceros»): reenvía el
+  // archivo, ignora el perfil guardado (fue el que no reconoció bien los
+  // terceros) y pasa las columnas/prefijo/subtotales/indicaciones declarados a
+  // mano para que la IA los priorice. Misma idempotencia que `reprocesar`.
+  const releerConContexto = (
+    contexto: ContextoTercerosPanel,
+    loteIdAnterior: string,
+    proveedorIA?: ProveedorIABalance,
+    clientId?: number | null,
+  ) => {
+    const archivoFile = reconstruirArchivoRetenido();
+    if (!archivoFile) return;
+    startReleerContexto(async () => {
+      const fd = new FormData();
+      fd.set("archivo", archivoFile);
+      fd.set("loteIdAnterior", loteIdAnterior);
+      const loteIdSolicitudReleer = obtenerSolicitudReproceso();
+      if (!loteIdSolicitudReleer) return;
+      fd.set("loteIdSolicitud", loteIdSolicitudReleer);
+      fd.set("ignorarPerfil", "1");
+      fd.set("contextoTerceros", JSON.stringify(contexto));
+      if (hojaElegida) fd.set("hoja", hojaElegida);
+      if (proveedorIA) fd.set("modeloIA", proveedorIA);
+      if (clientId != null) fd.set("clienteId", String(clientId));
+      if (!await prepararArchivoTemporal(fd, archivoFile, loteIdSolicitudReleer)) return;
+      let res: LeerBalanceState;
+      try {
+        res = await leerBalanceRecuperable({}, fd);
+      } catch (error) {
+        if (esFalloTransporteCarga(error)) {
+          notifyError(MENSAJE_RECUPERAR_LECTURA);
+          return;
+        }
+        throw error;
+      }
+      if (res.ok && res.sugerencia) {
+        reprocesoSolicitudRef.current = null;
+        setSugLocal(res.sugerencia);
+        notifySuccess("Archivo releído con IA usando el contexto indicado.");
+      } else if (res.errorProveedorIA && res.message) {
+        notifyError(`${res.message} Es un inconveniente del proveedor de IA, no del aplicativo.`);
+      } else {
+        notifyError(res.message ?? "No se pudo releer el archivo con el contexto indicado.");
       }
     });
   };
@@ -720,6 +768,8 @@ function CargarBalanceModal({
           aperturaConfirmada={aperturaRevision != null}
           porTerceroDetectado={sug.render.porTercero}
           onElegirApertura={setAperturaRevision}
+          releyendoContexto={releyendoContexto || progresoSubida != null}
+          onReleerConContexto={releerConContexto}
         />
       ) : (
         <form id="leer-form" onSubmit={onLeerSubmit} className="flex flex-col gap-3.5">
@@ -884,6 +934,8 @@ function FormRevisar({
   aperturaConfirmada,
   porTerceroDetectado,
   onElegirApertura,
+  releyendoContexto,
+  onReleerConContexto,
 }: {
   sug: SugerenciaBalance;
   clients: ClienteOpcion[];
@@ -903,6 +955,13 @@ function FormRevisar({
   aperturaConfirmada: boolean;
   porTerceroDetectado: boolean;
   onElegirApertura: (apertura: AperturaBalance) => void;
+  releyendoContexto: boolean;
+  onReleerConContexto: (
+    contexto: ContextoTercerosPanel,
+    loteIdAnterior: string,
+    proveedorIA?: ProveedorIABalance,
+    clientId?: number | null,
+  ) => void;
 }) {
   // El editor de estructura solo aplica si conservamos el snapshot (reproceso) y
   // la lectura produjo un spec (tabular). PDF/plantilla no traen spec.
@@ -953,6 +1012,20 @@ function FormRevisar({
         loteId={sug.persistida ? sug.payload.loteId : null}
         onElegir={onElegirApertura}
       />
+
+      {apertura === "tercero" && puedeEditar && sug.render.spec && (
+        <ContextoTerceros
+          spec={sug.render.spec}
+          encabezados={sug.render.encabezados}
+          diagnostico={sug.render.diagnosticoTerceros}
+          indicacionesPrecargadas={sug.render.indicacionesTercero}
+          clienteId={clienteId}
+          reprocesando={reprocesando}
+          releyendo={releyendoContexto}
+          onAplicarSinIA={(s) => onReprocesar(s, sug.payload.loteId, sug.payload.proveedorIA, clienteId)}
+          onReleerConIA={(contexto) => onReleerConContexto(contexto, sug.payload.loteId, sug.payload.proveedorIA, clienteId)}
+        />
+      )}
 
       <DetalleMovimiento
         cuentas={sug.render.importReady}
@@ -1152,6 +1225,221 @@ function TipoBalanceRevision({
           </>
         )}
       </p>
+    </div>
+  );
+}
+
+type SubtotalesTerceroUI = "auto" | "por_cuenta" | "ninguno";
+
+export type ContextoTercerosPanel = {
+  colDocumento?: number;
+  colNombre?: number;
+  colTipoDocumento?: number;
+  colDv?: number;
+  prefijoDocumento?: string | null;
+  subtotales?: SubtotalesTerceroUI;
+  indicaciones?: string | null;
+};
+
+type DiagnosticoTercerosUI = {
+  totalFilas: number;
+  sinDocumento: number;
+  sinNombre: number;
+  ejemplos: string[];
+} | null;
+
+/**
+ * Panel «Reconocer terceros»: aparece en la revisión solo cuando la apertura
+ * declarada es «por tercero» y hay un spec editable (mismo requisito que el
+ * editor de estructura). Diagnostica cuántos terceros quedaron sin documento o
+ * sin nombre y permite corregir la columna del documento, un prefijo de letras
+ * pegado al número, cómo vienen los subtotales por cuenta e indicaciones libres
+ * para la IA — aplicables sin IA (reprocesa el spec ajustado) o releyendo con IA.
+ */
+function ContextoTerceros({
+  spec,
+  encabezados,
+  diagnostico,
+  indicacionesPrecargadas,
+  clienteId,
+  reprocesando,
+  releyendo,
+  onAplicarSinIA,
+  onReleerConIA,
+}: {
+  spec: SpecCarga;
+  encabezados: string[];
+  diagnostico: DiagnosticoTercerosUI;
+  indicacionesPrecargadas: string | null;
+  clienteId: number | null;
+  reprocesando: boolean;
+  releyendo: boolean;
+  onAplicarSinIA: (spec: SpecCarga) => void;
+  onReleerConIA: (contexto: ContextoTercerosPanel) => void;
+}) {
+  const hayProblema = !!diagnostico && (diagnostico.sinDocumento > 0 || diagnostico.sinNombre > 0);
+  const [abierto, setAbierto] = useState(hayProblema);
+  const [colDocumento, setColDocumento] = useState(spec.columnas.tercero || 0);
+  const [colNombre, setColNombre] = useState(spec.columnas.nombreTercero ?? 0);
+  const [colTipoDocumento, setColTipoDocumento] = useState(spec.columnas.tipoDocumentoTercero ?? 0);
+  const [colDv, setColDv] = useState(spec.columnas.dvTercero ?? 0);
+  const [prefijo, setPrefijo] = useState(spec.prefijoDocumentoTercero ?? "");
+  const [subtotales, setSubtotales] = useState<SubtotalesTerceroUI>(spec.subtotalesTercero ?? "auto");
+  const [indicaciones, setIndicaciones] = useState(indicacionesPrecargadas ?? "");
+
+  const maxCol = Math.max(encabezados.length, colDocumento, colNombre, colTipoDocumento, colDv, 6);
+  const opciones = Array.from({ length: maxCol }, (_, i) => i + 1);
+  const etiquetaCol = (n: number) => {
+    const enc = encabezados[n - 1];
+    return enc ? `${columnaLetra(n - 1)} — ${recortar(enc, 24)}` : columnaLetra(n - 1);
+  };
+  const selectColumna = (valor: number, onChange: (v: number) => void) => (
+    <select
+      value={valor}
+      onChange={(e) => onChange(Number(e.target.value))}
+      className="rounded-md border border-ink-200 bg-white px-2 py-1.5 text-[12px] text-ink-700"
+    >
+      <option value={0}>— no existe —</option>
+      {opciones.map((n) => (
+        <option key={n} value={n}>{etiquetaCol(n)}</option>
+      ))}
+    </select>
+  );
+
+  const disabled = reprocesando || releyendo;
+
+  return (
+    <div className="rounded-md border border-ink-150">
+      <button
+        type="button"
+        onClick={() => setAbierto((v) => !v)}
+        aria-expanded={abierto}
+        aria-controls="panel-reconocer-terceros"
+        className="flex w-full items-center justify-between px-3 py-2 text-[12px] font-semibold text-ink-600 hover:bg-ink-50"
+      >
+        <span className="inline-flex items-center gap-1.5">
+          <Icon name="users" size={13} /> Reconocer terceros
+          {hayProblema && (
+            <span className="rounded-full bg-warn-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-warn-700">
+              {(diagnostico?.sinDocumento ?? 0) + (diagnostico?.sinNombre ?? 0)}
+            </span>
+          )}
+        </span>
+        <Icon name={chevronDivulgacion(abierto)} size={12} className="text-ink-400" />
+      </button>
+      {abierto && (
+        <div id="panel-reconocer-terceros" className="flex flex-col gap-3 border-t border-ink-100 px-3 py-3">
+          {diagnostico && (
+            <p className={`text-[11.5px] leading-relaxed ${hayProblema ? "text-warn-700" : "text-ink-500"}`}>
+              {hayProblema ? (
+                <>
+                  De {diagnostico.totalFilas} terceros leídos, <span className="font-semibold">{diagnostico.sinDocumento}</span> quedaron sin documento reconocido
+                  {diagnostico.sinNombre > 0 && <> y <span className="font-semibold">{diagnostico.sinNombre}</span> sin nombre</>}.
+                  {diagnostico.ejemplos.length > 0 && (
+                    <> Ejemplos sin reconocer: <span className="font-mono">{diagnostico.ejemplos.join(", ")}</span>.</>
+                  )}
+                </>
+              ) : (
+                <>Los {diagnostico.totalFilas} terceros leídos quedaron identificados.</>
+              )}
+            </p>
+          )}
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+            <label className="flex flex-col gap-1">
+              <span className="text-[11px] font-medium text-ink-600">Columna del documento / NIT del tercero</span>
+              {selectColumna(colDocumento, setColDocumento)}
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-[11px] font-medium text-ink-600">Columna de nombre / razón social</span>
+              {selectColumna(colNombre, setColNombre)}
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-[11px] font-medium text-ink-600">Columna de tipo de documento</span>
+              {selectColumna(colTipoDocumento, setColTipoDocumento)}
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-[11px] font-medium text-ink-600">Columna del DV (si está separado)</span>
+              {selectColumna(colDv, setColDv)}
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-[11px] font-medium text-ink-600">Prefijo de letras pegado al documento</span>
+              <input
+                type="text"
+                value={prefijo}
+                onChange={(e) => setPrefijo(e.target.value)}
+                placeholder="Ej.: C"
+                maxLength={10}
+                className="rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700"
+              />
+              <span className="text-[10.5px] text-ink-400">Se quita solo cuando va pegado a un número (p. ej. «C0709802» → 0709802).</span>
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-[11px] font-medium text-ink-600">¿Cómo vienen los totales por tercero?</span>
+              <select
+                value={subtotales}
+                onChange={(e) => setSubtotales(e.target.value as SubtotalesTerceroUI)}
+                className="rounded-md border border-ink-200 bg-white px-2 py-1.5 text-[12px] text-ink-700"
+              >
+                <option value="auto">Automático (detección actual)</option>
+                <option value="por_cuenta">Cada cuenta trae su propio total; el detalle por tercero es solo información</option>
+                <option value="ninguno">El archivo no trae total por cuenta: sumar todo el detalle</option>
+              </select>
+            </label>
+          </div>
+          <label className="flex flex-col gap-1">
+            <span className="text-[11px] font-medium text-ink-600">Indicaciones adicionales para la IA</span>
+            <textarea
+              value={indicaciones}
+              onChange={(e) => setIndicaciones(e.target.value)}
+              maxLength={1000}
+              rows={3}
+              placeholder="Detalles del formato de este archivo que la IA debe tener en cuenta al identificar los terceros."
+              className="resize-y rounded-md border border-ink-200 bg-white px-2.5 py-2 text-[12.5px] leading-relaxed text-ink-700"
+            />
+            {clienteId != null && (
+              <span className="text-[10.5px] text-ink-400">Se memorizan para este cliente al releer con IA.</span>
+            )}
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() =>
+                onAplicarSinIA({
+                  ...spec,
+                  columnas: {
+                    ...spec.columnas,
+                    tercero: colDocumento,
+                    ...(colNombre ? { nombreTercero: colNombre } : {}),
+                    ...(colTipoDocumento ? { tipoDocumentoTercero: colTipoDocumento } : {}),
+                    ...(colDv ? { dvTercero: colDv } : {}),
+                  },
+                  prefijoDocumentoTercero: prefijo.trim() || null,
+                  subtotalesTercero: subtotales,
+                })
+              }
+              className="rounded-md border border-ink-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-ink-700 hover:bg-ink-50 disabled:opacity-60"
+            >
+              {reprocesando ? <EstadoProcesando>Aplicando</EstadoProcesando> : "Aplicar sin IA"}
+            </button>
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() =>
+                onReleerConIA({
+                  colDocumento, colNombre, colTipoDocumento, colDv,
+                  prefijoDocumento: prefijo.trim() || null,
+                  subtotales,
+                  indicaciones: indicaciones.trim() || null,
+                })
+              }
+              className="rounded-md bg-ai-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-ai-600 disabled:opacity-60"
+            >
+              {releyendo ? <EstadoProcesando>Releyendo</EstadoProcesando> : "Releer con IA usando este contexto"}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

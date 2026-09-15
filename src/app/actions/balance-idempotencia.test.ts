@@ -649,6 +649,8 @@ const SPEC_TRANSITORIO = {
     valor: null,
   },
   agregarPorTercero: false,
+  prefijoDocumentoTercero: null,
+  subtotalesTercero: "auto" as const,
 };
 
 function ingestaTabular(nit: string | null) {

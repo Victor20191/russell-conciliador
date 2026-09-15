@@ -21,6 +21,8 @@ const BASE: SpecCarga = {
   signoCredito: "magnitud",
   reglaDetalle: { tipo: "prefijo", columna: null, valor: null },
   agregarPorTercero: false,
+  prefijoDocumentoTercero: null,
+  subtotalesTercero: "auto",
 };
 
 const entrada = (estructura: SpecCarga) => ({

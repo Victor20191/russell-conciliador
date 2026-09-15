@@ -21,6 +21,8 @@ const spec: MappingSpec = {
   signoCredito: "firmado",
   reglaDetalle: { tipo: "prefijo", columna: null, valor: null },
   agregarPorTercero: false,
+  prefijoDocumentoTercero: null,
+  subtotalesTercero: "auto",
   nit: { valor: null, fuente: "NINGUNO" },
   periodoInicial: { valor: null, fuente: "NINGUNO" },
   periodoFinal: { valor: null, fuente: "NINGUNO" },

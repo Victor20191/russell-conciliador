@@ -249,6 +249,14 @@ export const PERMISOS: Permiso[] = [
   // Variables de entorno e integraciones (APIs, SMTP, S3).
   { code: "entorno:administrar", module: "entorno", action: "administrar", label: "Administrar variables de entorno", roles: SOLO_ADMIN },
 
+  // ===== Conexiones e integraciones — Administrador y Superadministrador =====
+  // Credenciales externas por CONEXIÓN nombrada (correo, almacenamiento, API,
+  // webhook) con categoría, entorno y estado, separadas de las variables de
+  // entorno sueltas. Probar y ejecutar van con `administrar`: es diagnóstico y
+  // operación de plataforma, no trabajo de auditoría sobre un cliente.
+  { code: "conexiones:ver", module: "conexiones", action: "ver", label: "Ver conexiones e integraciones", roles: SOLO_ADMIN },
+  { code: "conexiones:administrar", module: "conexiones", action: "administrar", label: "Administrar conexiones e integraciones", roles: SOLO_ADMIN },
+
   // ===== Perfiles de carga de balances — Administrador y Superadministrador =====
   // Formatos memorizados por huella, correcciones por cuenta y preferencias de
   // carga de CADA cliente. Determinan cómo la plataforma interpreta los archivos

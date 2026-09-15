@@ -27,8 +27,8 @@ import { esErrorDisponibilidadIA, mensajeErrorBD, mensajeErrorIA } from "@/lib/e
 import { fmt } from "@/lib/format";
 import { etiquetaPeriodo } from "@/lib/balance/periodo";
 import { siguienteVersionCargue } from "@/lib/balance/version-cargue";
-import { fechaCalendarioPrisma } from "@/lib/fecha-hora";
-import { ConfirmarBalanceSchema, SpecCargaBalanceSchema, type ActionState, type PayloadCargaBalance } from "@/lib/definitions";
+import { fechaCalendarioISO, fechaCalendarioPrisma } from "@/lib/fecha-hora";
+import { ConfirmarBalanceSchema, SpecCargaBalanceSchema, ContextoTercerosCargaSchema, type ActionState, type PayloadCargaBalance, type ContextoTercerosCarga } from "@/lib/definitions";
 import { nucleoNit } from "@/lib/nit";
 import { parseBalanceWorkbook, type ImportBalanceState } from "@/lib/import/balance";
 import {
@@ -53,7 +53,7 @@ import { extraerBalance } from "@/lib/balance/extraccion/extraer";
 import { ingerir, type Ingesta } from "@/lib/balance/extraccion/ingesta";
 import { huellasCandidatasBalance, detectarNit, calcularHuella } from "@/lib/balance/extraccion/huella";
 import { aplanarSpec, normalizarCodigoFragmentos, specDesdePerfil, specCargaDesdePerfil, type PerfilPlano } from "@/lib/balance/extraccion/perfil";
-import { esTransformacionAceptable } from "@/lib/balance/extraccion/validacion";
+import { esParteAceptable, esTransformacionAceptable } from "@/lib/balance/extraccion/validacion";
 import { mapearPorIA } from "@/lib/balance/mapeo-ia";
 import { construirVistaBorrador } from "@/lib/balance/borrador-vm";
 import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
@@ -71,10 +71,21 @@ import type { UmbralesAlertas } from "@/lib/balance/umbrales-alertas";
 import type { FilaDetalle } from "@/lib/balance/calcular";
 import { detectarManipulacionesRiesgosas, reclasificarHuerfanas, reclasificarSoloHojas, corregirCodigosPlaceholder, marcarNoContables, validarReubicacionesBorrador, type FilaBorrador } from "@/lib/balance/borrador";
 import { esBalancePorTercero, colapsarTerceros, esBalancePorTerceroSufijo, consolidarTercerosPorSufijo, marcarCuentaNit } from "@/lib/balance/terceros";
-import { leerIdentidadTercero } from "@/lib/balance/identidad-tercero";
+import { leerIdentidadTercero, diagnosticarIdentidadTerceros, type DiagnosticoIdentidadTerceros } from "@/lib/balance/identidad-tercero";
 import { claveTerceroDeCaptura, derivarStagingTercero, prepararCapturaTercero } from "@/lib/balance/staging-tercero";
 import { detectoDetallePorTercero, etiquetaApertura, parsearApertura, type AperturaBalance } from "@/lib/balance/apertura-balance";
 import { invalidarStagingBorrador, type RevisionReubicacionStaging } from "@/lib/balance/staging-borrador";
+import {
+  desplazarFilas,
+  leerPartesArchivo,
+  MAX_PARTES_BALANCE,
+  nombreArchivosCargue,
+  pareceArchivoRepetido,
+  partesDelLote,
+  tamanoArchivosCargue,
+  validarCoherenciaParte,
+  type ParteArchivoBalance,
+} from "@/lib/balance/partes-archivo";
 import { marcarRelistadoGuiones } from "@/lib/balance/relistado";
 import { mensajeTamanoBalanceNoPermitido } from "@/lib/balance/limites-archivo";
 import { consumirArchivoBalanceTemporal } from "@/lib/balance/archivo-temporal-servidor";
@@ -157,6 +168,13 @@ export type SugerenciaBalance = {
     // ¿La lectura detectó detalle por tercero? SOLO alimenta la sugerencia del
     // selector «Tipo de balance» de la revisión: la apertura la DECLARA el analista.
     porTercero: boolean;
+    // Diagnóstico de identidad de terceros (panel «Reconocer terceros»): cuántos
+    // quedaron sin documento/nombre y ejemplos crudos sin reconocer. null cuando
+    // la lectura no capturó detalle por tercero.
+    diagnosticoTerceros: DiagnosticoIdentidadTerceros | null;
+    // Indicaciones para la IA sobre terceros memorizadas del cliente (precarga
+    // del panel). null sin cliente resuelto o sin indicaciones guardadas.
+    indicacionesTercero: string | null;
   };
 };
 
@@ -321,14 +339,14 @@ async function clientePorNit(nit: string | null): Promise<number | null> {
   return clientes.find((c) => nucleoNit(c.nit) === core)?.id ?? null;
 }
 
-type AjustesCarga = { hojaPreferida: string | null; convencionCredito: string | null; estandar: string | null; agregarPorTercero: boolean | null; imputarSoloHojas: boolean | null; observaciones: string | null };
+type AjustesCarga = { hojaPreferida: string | null; convencionCredito: string | null; estandar: string | null; agregarPorTercero: boolean | null; imputarSoloHojas: boolean | null; observaciones: string | null; indicacionesIaTercero: string | null };
 
 /** Preferencias de carga guardadas del cliente (null si todavía no tiene perfil base). */
 async function ajustesCargaDeCliente(clienteId: number | null): Promise<AjustesCarga | null> {
   if (clienteId == null) return null;
   return prisma.ajustesCargaBalance.findUnique({
     where: { clienteId },
-    select: { hojaPreferida: true, convencionCredito: true, estandar: true, agregarPorTercero: true, imputarSoloHojas: true, observaciones: true },
+    select: { hojaPreferida: true, convencionCredito: true, estandar: true, agregarPorTercero: true, imputarSoloHojas: true, observaciones: true, indicacionesIaTercero: true },
   });
 }
 
@@ -363,6 +381,7 @@ type FilaPerfilCarga = {
   colSaldoFinal: number; colSaldoFinalDebito: number; colSaldoFinalCredito: number; colTercero: number; colNombreTercero?: number; colTipoDocumentoTercero?: number; colDvTercero?: number;
   signoCredito: string; reglaDetalleTipo: string; reglaDetalleColumna: number | null; reglaDetalleValor: string | null;
   agregarPorTercero: boolean;
+  prefijoDocumentoTercero?: string | null; subtotalesTercero?: string;
 };
 function perfilPlanoDesdeFila(p: FilaPerfilCarga): PerfilPlano {
   return {
@@ -381,6 +400,8 @@ function perfilPlanoDesdeFila(p: FilaPerfilCarga): PerfilPlano {
           : "prefijo",
     reglaDetalleColumna: p.reglaDetalleColumna, reglaDetalleValor: p.reglaDetalleValor,
     agregarPorTercero: p.agregarPorTercero,
+    prefijoDocumentoTercero: p.prefijoDocumentoTercero ?? null,
+    subtotalesTercero: p.subtotalesTercero === "por_cuenta" || p.subtotalesTercero === "ninguno" ? p.subtotalesTercero : "auto",
   };
 }
 
@@ -953,6 +974,8 @@ type MetaPromocion = {
   cuadreArchivo: { totalDebitos: number; totalCreditos: number } | null; // solo el modal lo trae
   proveedorIA?: ProveedorIABalance;
   comentarioPromocion?: string | null;
+  /** Archivos del balance cuando llegó partido en varias partes ([] = uno solo). */
+  archivosCargue?: ParteArchivoBalance[];
 };
 async function promoverStagingAOficial(p: MetaPromocion, contexto: string): Promise<ImportBalanceState> {
   // Análisis por cuentas sobre el staging del lote (MOVIMIENTO agregado por código).
@@ -1078,6 +1101,7 @@ async function promoverStagingAOficial(p: MetaPromocion, contexto: string): Prom
       revisionesReubicacion: revisionesFinales.revisionesAprobadas,
       nombresGrupoCliente,
       aperturaBalance: p.aperturaBalance,
+      archivosCargue: p.archivosCargue,
       meta: {
         estandar: TIPO_BALANCE_CARGA, convencionCredito: p.convencionCredito,
         filasLeidas: p.filasLeidas, filasExcluidas: p.filasExcluidas, filasDescuadre: p.filasDescuadre,
@@ -2248,6 +2272,8 @@ async function persistirCargue(p: {
   nombresGrupoCliente?: Map<string, string>;
   /** Apertura declarada del informe (`cuenta` | `tercero`): se copia del borrador. */
   aperturaBalance: AperturaBalance;
+  /** Partes del balance cuando llegó en varios archivos (se guardan solo si son 2+). */
+  archivosCargue?: ParteArchivoBalance[];
   /** Umbrales de alerta vigentes (/config/parametros): definen cuántas validaciones
    *  quedan en «warn» y, con ello, el estado y la nota del encabezado. */
   umbrales: UmbralesAlertas;
@@ -2598,6 +2624,9 @@ async function persistirCargue(p: {
         estandar: p.meta.estandar, convencionCredito: p.meta.convencionCredito,
         aperturaBalance: p.aperturaBalance,
         pucCliente,
+        ...(p.archivosCargue && p.archivosCargue.length > 1
+          ? { archivosCargue: p.archivosCargue as unknown as Prisma.InputJsonValue }
+          : {}),
         filasLeidas: p.meta.filasLeidas, filasExcluidas: p.meta.filasExcluidas, filasDescuadre: p.meta.filasDescuadre,
         ultimaCarga: ahora,
         detalles: {
@@ -2748,6 +2777,7 @@ function construirSugerenciaTransitoria(p: {
   loteIdSolicitud: string;
   origenExtraccion: OrigenExtraccion;
   proveedorIA: ProveedorIABalance;
+  ajustesCliente?: AjustesCarga | null;
 }): SugerenciaBalance {
   const { extr } = p;
   const nitFinal: Origen = p.nitDeterminista
@@ -2833,6 +2863,10 @@ function construirSugerenciaTransitoria(p: {
         esBalancePorTercero(extr.filasCrudas),
         extr.filasTercero?.length ?? 0,
       ),
+      diagnosticoTerceros: extr.filasTercero && extr.filasTercero.length > 0
+        ? diagnosticarIdentidadTerceros(extr.filasTercero)
+        : null,
+      indicacionesTercero: p.ajustesCliente?.indicacionesIaTercero ?? null,
     },
   };
 }
@@ -2953,6 +2987,23 @@ export async function leerBalance(
     const datosArchivo = await archivo.arrayBuffer();
     const usos: UsoIA[] = [];
 
+    // Panel «Reconocer terceros» («Releer con IA usando este contexto»): columnas
+    // de identidad, prefijo, subtotales e indicaciones libres declaradas a mano.
+    // `ignorarPerfil` es explícito porque releer con contexto nuevo debe usar la
+    // IA, no el perfil guardado (que fue el que no reconoció bien los terceros).
+    const ignorarPerfil = String(formData.get("ignorarPerfil") ?? "") === "1";
+    let contextoTerceros: ContextoTercerosCarga | null = null;
+    const contextoTercerosTexto = String(formData.get("contextoTerceros") ?? "").trim();
+    if (contextoTercerosTexto) {
+      try {
+        const parsedCtx = ContextoTercerosCargaSchema.safeParse(JSON.parse(contextoTercerosTexto));
+        if (parsedCtx.success) contextoTerceros = parsedCtx.data;
+      } catch {
+        // Contexto ilegible: se ignora silenciosamente (no bloquea la lectura;
+        // el panel siempre manda JSON válido, esto solo cubre una respuesta corrupta).
+      }
+    }
+
     // Ingesta ÚNICA (el orquestador la reutiliza). Si el formato es ilegible se
     // deja null: la ruta con IA re-lanza el error legible al re-ingerir; la de
     // plantilla sigue con su propio manejo de errores.
@@ -2994,7 +3045,7 @@ export async function leerBalance(
       // dos archivos con el mismo encabezado pueden tener convenciones distintas.
       const hojasLookup = hoja ? ingesta.hojas.filter((h) => h.nombre === hoja) : ingesta.hojas;
       const candidatas = huellasCandidatasBalance(hojasLookup.length > 0 ? hojasLookup : ingesta.hojas);
-      if (clienteDetectadoId != null && candidatas.length > 0) {
+      if (clienteDetectadoId != null && candidatas.length > 0 && !ignorarPerfil) {
         const perfil = await prisma.perfilCargaBalance.findFirst({
           where: {
             clienteId: clienteDetectadoId,
@@ -3011,6 +3062,13 @@ export async function leerBalance(
       }
     }
 
+    // Indicaciones libres del panel: si el usuario no escribió nada esta vez pero
+    // el cliente ya tiene indicaciones memorizadas, se inyectan solas (solo
+    // importa cuando de verdad se va a llamar a la IA con este contexto).
+    const contextoUsuarioIA = contextoTerceros
+      ? { ...contextoTerceros, indicaciones: contextoTerceros.indicaciones ?? ajustesCliente?.indicacionesIaTercero ?? null }
+      : undefined;
+
     let extr: ResultadoTransform | null = null;
     let spec: MappingSpec | null = null;
     let origenExtraccion: OrigenExtraccion = "plantilla";
@@ -3022,6 +3080,7 @@ export async function leerBalance(
         specGuardado,
         proveedorIA,
         agregarPorTercero: ajustesCliente?.agregarPorTercero,
+        contextoUsuario: contextoUsuarioIA,
       });
       extr = r.resultado;
       spec = r.spec;
@@ -3098,6 +3157,34 @@ export async function leerBalance(
         nitDetectado: nitExtraido,
       });
     }
+    // Memoriza las indicaciones libres del panel «Reconocer terceros» para el
+    // cliente (si ya se resolvió uno): best-effort, nunca bloquea la lectura.
+    if (clienteDetectadoId != null && contextoTerceros?.indicaciones !== undefined) {
+      try {
+        await prisma.ajustesCargaBalance.upsert({
+          where: { clienteId: clienteDetectadoId },
+          create: {
+            clienteId: clienteDetectadoId,
+            estandar: TIPO_BALANCE_CARGA,
+            indicacionesIaTercero: contextoTerceros.indicaciones,
+            actualizadoPor: usuario?.name ?? null,
+          },
+          update: {
+            indicacionesIaTercero: contextoTerceros.indicaciones,
+            actualizadoPor: usuario?.name ?? null,
+          },
+        });
+        await logAudit({
+          user: usuario?.name ?? "Sistema",
+          action: "GUARDÓ INDICACIONES IA de terceros (carga de balance)",
+          entity: `cliente ${clienteDetectadoId}`,
+          detail: contextoTerceros.indicaciones ? "con texto" : "vaciadas",
+          clientId: clienteDetectadoId,
+        });
+      } catch {
+        // No se bloquea la lectura por un fallo al memorizar la indicación.
+      }
+    }
     if (clienteDetectadoId == null) {
       if (extr.importReady.length === 0) {
         return {
@@ -3118,6 +3205,7 @@ export async function leerBalance(
         loteIdSolicitud,
         origenExtraccion,
         proveedorIA,
+        ajustesCliente,
       });
       return estadoClientePendiente(
         nitExtraido,
@@ -3313,7 +3401,11 @@ type LoteAnteriorAutorizado = {
   clienteId: number | null;
   cargadoPorId: number | null;
   nitDetectado: string | null;
+  partesArchivo: Prisma.JsonValue | null;
 };
+
+const MENSAJE_REPROCESO_CON_PARTES =
+  "Este borrador está formado por varios archivos: no se puede reprocesar solo uno. Descártalo y vuelve a cargar el balance con todas sus partes.";
 
 /**
  * Autoriza el borrador que se reemplazará antes de cualquier escritura. La
@@ -3326,7 +3418,7 @@ async function autorizarLoteAnterior(
   const [anterior, contexto] = await Promise.all([
     prisma.balanceImportacionLote.findUnique({
       where: { loteId: loteIdAnterior },
-      select: { clienteId: true, cargadoPorId: true, nitDetectado: true },
+      select: { clienteId: true, cargadoPorId: true, nitDetectado: true, partesArchivo: true },
     }),
     contextoAccesoBorradorActual(),
   ]);
@@ -3338,46 +3430,17 @@ async function autorizarLoteAnterior(
 }
 
 /**
- * Cola COMPARTIDA del paso 1 (lectura, continuación transitoria y reproceso):
- * valida el borrador, persiste el staging crudo + el encabezado de lote (con la
- * huella del layout, el origen de la extracción y el spec usado), garantiza el
- * perfil cuando ya hay cliente y arma la sugerencia compacta para la interfaz.
+ * Filas de una LECTURA listas para el staging: reclasificaciones deterministas,
+ * correcciones memorizadas del cliente y detalle paralelo por tercero. La comparten
+ * la creación del borrador y la incorporación de una parte adicional, para que cada
+ * archivo del mismo balance pase exactamente por el mismo pipeline.
+ * MUTA `extr.filasCrudas` y `extr.importReady`.
  */
-async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBalanceState> {
-  const { extr } = p;
-  if (p.loteIdAnterior === p.loteIdSolicitud) {
-    return { ok: false, message: "La nueva lectura debe usar un identificador distinto al borrador que reemplaza." };
-  }
-  // FAIL-CLOSED: sin cliente no se persiste NADA. Un borrador huérfano no puede
-  // crear el perfil de carga del layout ni re-aplicar correcciones memorizadas,
-  // así que se corta antes de escribir staging/lote.
-  if (p.clienteDetectadoId == null) {
-    return { ok: false, message: "No se puede crear el borrador sin cliente: selecciona la empresa (NIT) y vuelve a leer el archivo." };
-  }
-  if (extr.importReady.length === 0) {
-    return { ok: false, message: "No se leyó ninguna cuenta del archivo. Revisa las excepciones.", excepciones: extr.excepciones };
-  }
-  const loteAnteriorAutorizado = await autorizarLoteAnterior(p.loteIdAnterior);
-  if (
-    loteAnteriorAutorizado?.clienteId != null
-    && loteAnteriorAutorizado.clienteId !== p.clienteDetectadoId
-    && loteAnteriorAutorizado.nitDetectado != null
-  ) {
-    return {
-      ok: false,
-      message: "El cliente reconocido o seleccionado no corresponde al borrador que se va a reprocesar.",
-    };
-  }
-
-  // HUELLA DIAGNÓSTICA inicial (MEDICIÓN, no afecta la lectura). Se calcula sobre un
-  // CLON de las filas crudas ANTES de las reclasificaciones de abajo, para que las
-  // pasadas cuenten frescas. `construirVistaBorrador` MUTA su entrada → se clona.
-  const diagInicial = construirVistaBorrador(extr.filasCrudas.map((f) => ({ ...f }))).diagnostico;
-
-  // Validación contable del BORRADOR: totales A/P/Patrimonio CALCULADOS del
-  // detalle (calcularBalance no necesita el plan estándar para las sumas: son por
-  // clase) contra los que TRAE el archivo (filas clase 1/2/3), + la ecuación
-  // A = P + Patrimonio + Resultado. Todo con margen ±$1000.
+async function prepararFilasLectura(
+  extr: ResultadoTransform,
+  clienteId: number,
+  ajustesCliente: AjustesCarga | null,
+) {
   // Pie/total sin código («Total general», «Totales», marca del ERP) mal marcado
   // como movimiento → «total»: si no, se cuelga de la última agrupadora inflando su
   // Δ y se cuenta al cargar. MUTA `filasCrudas` (staging las guarda ya como total).
@@ -3388,9 +3451,9 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
   // anide el detalle por orden) y de calcBorrador (para que el snapshot del encabezado
   // no cuente doble). `importReady` se sincroniza quitando los códigos promovidos.
   const correccionesGuardadas = await prisma.correccionCargaBalance.findMany({
-    where: { clienteId: p.clienteDetectadoId },
+    where: { clienteId },
   });
-  if (p.ajustesCliente?.imputarSoloHojas) {
+  if (ajustesCliente?.imputarSoloHojas) {
     const promovidas = reclasificarSoloHojas(extr.filasCrudas);
     if (promovidas.length > 0) {
       const codigosProm = new Set(promovidas.map((f) => f.codigo));
@@ -3428,6 +3491,62 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
   // Un informe normal produce [] y no inserta nada.
   const stagingTercero = derivarStagingTercero(filasBorrador, extr.filasTercero ?? []);
   const importReadyBorrador = cuentasDesdeFilasStaging(filasBorrador);
+  return { preparacionCorrecciones, filasPersistencia, filasBorrador, stagingTercero, importReadyBorrador };
+}
+
+/**
+ * Cola COMPARTIDA del paso 1 (lectura, continuación transitoria y reproceso):
+ * valida el borrador, persiste el staging crudo + el encabezado de lote (con la
+ * huella del layout, el origen de la extracción y el spec usado), garantiza el
+ * perfil cuando ya hay cliente y arma la sugerencia compacta para la interfaz.
+ */
+async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBalanceState> {
+  const { extr } = p;
+  if (p.loteIdAnterior === p.loteIdSolicitud) {
+    return { ok: false, message: "La nueva lectura debe usar un identificador distinto al borrador que reemplaza." };
+  }
+  // FAIL-CLOSED: sin cliente no se persiste NADA. Un borrador huérfano no puede
+  // crear el perfil de carga del layout ni re-aplicar correcciones memorizadas,
+  // así que se corta antes de escribir staging/lote.
+  if (p.clienteDetectadoId == null) {
+    return { ok: false, message: "No se puede crear el borrador sin cliente: selecciona la empresa (NIT) y vuelve a leer el archivo." };
+  }
+  if (extr.importReady.length === 0) {
+    return { ok: false, message: "No se leyó ninguna cuenta del archivo. Revisa las excepciones.", excepciones: extr.excepciones };
+  }
+  const loteAnteriorAutorizado = await autorizarLoteAnterior(p.loteIdAnterior);
+  // Reprocesar reemplaza el borrador por UNA lectura: con varias partes se perderían
+  // las demás. Se exige volver a cargar el balance completo.
+  if (loteAnteriorAutorizado && leerPartesArchivo(loteAnteriorAutorizado.partesArchivo).length > 1) {
+    return { ok: false, message: MENSAJE_REPROCESO_CON_PARTES };
+  }
+  if (
+    loteAnteriorAutorizado?.clienteId != null
+    && loteAnteriorAutorizado.clienteId !== p.clienteDetectadoId
+    && loteAnteriorAutorizado.nitDetectado != null
+  ) {
+    return {
+      ok: false,
+      message: "El cliente reconocido o seleccionado no corresponde al borrador que se va a reprocesar.",
+    };
+  }
+
+  // HUELLA DIAGNÓSTICA inicial (MEDICIÓN, no afecta la lectura). Se calcula sobre un
+  // CLON de las filas crudas ANTES de las reclasificaciones de abajo, para que las
+  // pasadas cuenten frescas. `construirVistaBorrador` MUTA su entrada → se clona.
+  const diagInicial = construirVistaBorrador(extr.filasCrudas.map((f) => ({ ...f }))).diagnostico;
+
+  // Validación contable del BORRADOR: totales A/P/Patrimonio CALCULADOS del
+  // detalle (calcularBalance no necesita el plan estándar para las sumas: son por
+  // clase) contra los que TRAE el archivo (filas clase 1/2/3), + la ecuación
+  // A = P + Patrimonio + Resultado. Todo con margen ±$1000.
+  const {
+    preparacionCorrecciones,
+    filasPersistencia,
+    filasBorrador,
+    stagingTercero,
+    importReadyBorrador,
+  } = await prepararFilasLectura(extr, p.clienteDetectadoId, p.ajustesCliente);
   if (importReadyBorrador.length === 0) {
     return {
       ok: false,
@@ -3547,7 +3666,7 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
     if (p.loteIdAnterior) {
       const anterior = await tx.balanceImportacionLote.findUnique({
         where: { loteId: p.loteIdAnterior },
-        select: { clienteId: true, cargadoPorId: true, nitDetectado: true },
+        select: { clienteId: true, cargadoPorId: true, nitDetectado: true, partesArchivo: true },
       });
       if (!anterior) {
         throw new Error("El borrador que se iba a reemplazar ya no está disponible. Actualiza la página antes de reprocesar.");
@@ -3559,6 +3678,9 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
         anterior.nitDetectado !== loteAnteriorAutorizado.nitDetectado
       ) {
         throw new Error("El borrador que se iba a reemplazar cambió durante el reproceso.");
+      }
+      if (leerPartesArchivo(anterior.partesArchivo).length > 1) {
+        throw new Error(MENSAJE_REPROCESO_CON_PARTES);
       }
     }
 
@@ -3710,6 +3832,10 @@ async function persistirLoteYSugerencia(p: ParamsLoteSugerencia): Promise<LeerBa
         clienteDetectadoId: p.clienteDetectadoId,
         proveedorIA: p.origenExtraccion === "ia" ? p.proveedorIA : null,
         porTercero: detectoDetallePorTercero(diagFinal.porTercero, extr.filasTercero?.length ?? 0),
+        diagnosticoTerceros: extr.filasTercero && extr.filasTercero.length > 0
+          ? diagnosticarIdentidadTerceros(extr.filasTercero)
+          : null,
+        indicacionesTercero: p.ajustesCliente?.indicacionesIaTercero ?? null,
       },
     },
   };
@@ -4318,6 +4444,7 @@ export async function cargarBorrador(_prev: ImportBalanceState, formData: FormDa
       cuentasMovimiento: lote?.cuentasMovimiento ?? movEnStaging, cuentas: lote?.cuentasMovimiento ?? movEnStaging, cuentasAgrupadoras: 0,
       revisionContenido: lote.revisionContenido,
       aperturaBalance,
+      archivosCargue: leerPartesArchivo(lote.partesArchivo),
       cuadreArchivo: null,
       comentarioPromocion: comentarioValidado.comentario,
     },
@@ -4526,6 +4653,296 @@ export async function descartarBorrador(loteId: string): Promise<ActionState> {
     return { ok: true, message: "Borrador descartado." };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("descartarBorrador", e) };
+  }
+}
+
+/** Rechazo de negocio dentro de la transacción de «Agregar otra parte». */
+class ErrorParteBorrador extends Error {}
+
+/**
+ * AGREGA OTRA PARTE del mismo balance a un borrador: el ERP no siempre alcanza a
+ * generar el balance de un período en un solo archivo y lo entrega partido. La parte
+ * se lee con la MISMA estructura del borrador (su spec o, si el layout cambió, el
+ * perfil guardado del cliente para esa huella) y sin IA; pasa por el mismo pipeline
+ * de la lectura y sus filas entran al MISMO staging a continuación de las existentes
+ * (`filaNum` desplazado). Así el cuadre, la jerarquía y las validaciones se calculan
+ * sobre el balance completo y la confirmación genera UNA sola versión.
+ *
+ * Rechaza la parte si es de otro NIT o período, si parece un archivo ya agregado o si
+ * no se puede leer con esa estructura. Idempotente por `loteIdSolicitud`.
+ */
+export async function agregarParteBorrador(formData: FormData): Promise<ActionState & { parte?: number }> {
+  const authz = await authorizePermiso("balance:crear");
+  if (!authz.ok) return { ok: false, message: authz.message };
+  const loteId = String(formData.get("loteId") ?? "").trim();
+  if (!loteId) return { ok: false, message: "Borrador inválido." };
+  const solicitudId = loteIdSolicitudDesde(formData);
+  if (!solicitudId || solicitudId === loteId) {
+    return { ok: false, message: "La solicitud no tiene un identificador válido. Vuelve a seleccionar el archivo." };
+  }
+
+  let lote;
+  let contexto;
+  try {
+    [lote, contexto] = await Promise.all([
+      prisma.balanceImportacionLote.findUnique({
+        where: { loteId },
+        select: {
+          clienteId: true, cargadoPorId: true, nitDetectado: true, periodoInicial: true, periodoFinal: true,
+          specJson: true, huella: true, partesArchivo: true,
+        },
+      }),
+      contextoAccesoBorradorActual(),
+    ]);
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("agregarParteBorrador", e) };
+  }
+  if (!lote) return { ok: false, message: "El borrador ya no existe (fue cargado o descartado)." };
+  if (!puedeVerBorrador(lote, contexto)) return { ok: false, message: "No tienes permiso para modificar ese borrador." };
+  if (lote.clienteId == null) {
+    return { ok: false, message: "Vincula el cliente al borrador antes de agregar otra parte." };
+  }
+  const clienteId = lote.clienteId;
+  const scope = await authorizePermiso("balance:crear", { clientId: clienteId });
+  if (!scope.ok) return { ok: false, message: scope.message };
+
+  // Reintento tras perder la respuesta: la parte ya entró y su archivo temporal ya se
+  // consumió. Se resuelve ANTES de buscar el archivo.
+  const registroPrevio = leerPartesArchivo(lote.partesArchivo);
+  const yaAgregada = registroPrevio.find((parte) => parte.solicitudId === solicitudId);
+  if (yaAgregada) {
+    return { ok: true, parte: yaAgregada.numero, message: `La parte ${yaAgregada.numero} ya estaba agregada.` };
+  }
+  if (registroPrevio.length >= MAX_PARTES_BALANCE) {
+    return { ok: false, message: `Un borrador admite como máximo ${MAX_PARTES_BALANCE} archivos.` };
+  }
+  const specLote = SpecCargaBalanceSchema.safeParse(lote.specJson);
+  if (!specLote.success) {
+    return {
+      ok: false,
+      message: "Este borrador se leyó sin un mapa de columnas (PDF o plantilla), así que no admite partes adicionales. Descártalo y vuelve a cargar el balance.",
+    };
+  }
+
+  const archivoResuelto = await archivoBalanceDesdeFormulario(formData, solicitudId);
+  if (!archivoResuelto.ok) return archivoResuelto;
+  const archivo = archivoResuelto.archivo;
+
+  try {
+    let ingesta: Ingesta;
+    try {
+      ingesta = await ingerir(await archivo.arrayBuffer(), archivo.name);
+    } catch (e) {
+      return { ok: false, message: e instanceof Error ? e.message : "No se pudo leer el archivo." };
+    }
+    if (ingesta.modo !== "tabular") {
+      return { ok: false, message: "Las partes adicionales deben ser archivos tabulares (Excel, CSV o TXT) con la misma estructura que la primera." };
+    }
+    const hojas = ingesta.hojas;
+    const ajustesCliente = await ajustesCargaDeCliente(clienteId);
+    const params: ParamsExtraccion = { nit: null, periodoInicial: null, periodoFinal: null, estandar: TIPO_BALANCE_CARGA };
+    // La hoja del spec puede llamarse distinto en la otra parte; con una sola hoja o
+    // con la hoja preferida del cliente no hay ambigüedad.
+    const conHoja = (spec: MappingSpec): MappingSpec | null => {
+      if (hojas.some((h) => h.nombre === spec.hoja)) return spec;
+      const preferida = ajustesCliente?.hojaPreferida;
+      if (preferida && hojas.some((h) => h.nombre === preferida)) return { ...spec, hoja: preferida };
+      return hojas.length === 1 ? { ...spec, hoja: hojas[0].nombre } : null;
+    };
+    const intentar = (spec: MappingSpec | null): ResultadoTransform | null => {
+      if (!spec) return null;
+      const res = transformarTabular(spec, hojas, params);
+      return esParteAceptable(res) ? res : null;
+    };
+
+    let extr = intentar(conHoja(aplicarPreferenciasCarga(specDesdePerfil(aplanarSpec(specLote.data)), ajustesCliente)));
+    if (!extr) {
+      const candidatas = huellasCandidatasBalance(hojas).map((c) => c.huella).filter((h) => h !== lote.huella);
+      if (candidatas.length > 0) {
+        const perfil = await prisma.perfilCargaBalance.findFirst({
+          where: { clienteId, huella: { in: candidatas } },
+          orderBy: [{ ultimoUsoEn: { sort: "desc", nulls: "last" } }, { actualizadoEn: "desc" }],
+        });
+        if (perfil) {
+          extr = intentar(conHoja(aplicarPreferenciasCarga(specDesdePerfil(perfilPlanoDesdeFila(perfil)), ajustesCliente)));
+        }
+      }
+    }
+    if (!extr) {
+      return {
+        ok: false,
+        message: `No se pudo leer «${archivo.name}» con la estructura del borrador. Verifica que sea el mismo reporte del ERP (mismas columnas) que la primera parte.`,
+      };
+    }
+
+    const incoherencia = validarCoherenciaParte(
+      {
+        nit: lote.nitDetectado,
+        periodoInicial: lote.periodoInicial ? fechaCalendarioISO(lote.periodoInicial) : null,
+        periodoFinal: lote.periodoFinal ? fechaCalendarioISO(lote.periodoFinal) : null,
+      },
+      {
+        nit: detectarNit(hojas) ?? extr.cabecera.nit.valor,
+        periodoInicial: extr.cabecera.periodoInicial.valor,
+        periodoFinal: extr.cabecera.periodoFinal.valor,
+      },
+    );
+    if (incoherencia) return { ok: false, message: incoherencia };
+
+    const { preparacionCorrecciones, filasPersistencia, stagingTercero, importReadyBorrador } =
+      await prepararFilasLectura(extr, clienteId, ajustesCliente);
+    if (importReadyBorrador.length === 0) {
+      return { ok: false, message: "Las reglas guardadas del cliente excluyen todas las cuentas de esta parte." };
+    }
+    const filasExcluidasParte = extr.resumen.filasExcluidas;
+    const usuario = await getCurrentUser();
+
+    const resultado = await prisma.$transaction(async (tx) => {
+      await tomarCandadoTransaccion(tx, `balance-borrador:${loteId}`);
+      const actual = await tx.balanceImportacionLote.findUnique({
+        where: { loteId },
+        select: {
+          clienteId: true, cargadoPorId: true, cargadoPor: true, archivoNombre: true, archivoTam: true,
+          creadoEn: true, partesArchivo: true,
+        },
+      });
+      if (!actual || actual.clienteId !== clienteId || !puedeVerBorrador(actual, contexto)) {
+        throw new ErrorParteBorrador("El borrador cambió o ya no existe. Actualiza la página e inténtalo de nuevo.");
+      }
+      const registro = leerPartesArchivo(actual.partesArchivo);
+      const previa = registro.find((parte) => parte.solicitudId === solicitudId);
+      if (previa) return { numero: previa.numero, filas: previa.filas, nueva: false };
+      if (registro.length >= MAX_PARTES_BALANCE) {
+        throw new ErrorParteBorrador(`Un borrador admite como máximo ${MAX_PARTES_BALANCE} archivos.`);
+      }
+
+      const principal = await tx.balanceImportacionStaging.aggregate({
+        where: { loteId },
+        _max: { filaNum: true },
+        _count: { _all: true },
+      });
+      if (principal._count._all === 0) {
+        throw new ErrorParteBorrador("El borrador ya no tiene filas (fue cargado o descartado).");
+      }
+      const tercero = await tx.balanceImportacionStagingTercero.aggregate({
+        where: { loteId },
+        _max: { filaNum: true },
+      });
+      // Las filas por tercero también numeran con la fila del archivo: la parte nueva
+      // arranca después del mayor de los dos staging y de lo ya registrado.
+      const desplazamiento = Math.max(
+        principal._max.filaNum ?? 0,
+        tercero._max.filaNum ?? 0,
+        ...registro.map((parte) => parte.filaHasta),
+      );
+      const partesPrevias = registro.length > 0
+        ? registro
+        : partesDelLote(null, actual, { maxFilaNum: desplazamiento, filas: principal._count._all });
+
+      const movimientosExistentes = await tx.balanceImportacionStaging.findMany({
+        where: { loteId, tipoFila: "movimiento", OR: [{ omitida: null }, { omitida: false }] },
+        select: { codigo: true, debitos: true, creditos: true, saldoFinal: true },
+      });
+      const repetida = pareceArchivoRepetido(
+        movimientosExistentes.map((m) => ({
+          codigo: m.codigo, debitos: Number(m.debitos), creditos: Number(m.creditos), saldoFinal: Number(m.saldoFinal),
+        })),
+        filasPersistencia.filter((f) => f.tipoFila === "movimiento" && f.omitida !== true),
+      );
+      if (repetida) {
+        throw new ErrorParteBorrador(`«${archivo.name}» tiene las mismas cuentas e importes que el borrador: parece un archivo que ya está agregado.`);
+      }
+
+      const filasNuevas = desplazarFilas(filasPersistencia, desplazamiento);
+      const terceroNuevo = desplazarFilas(stagingTercero, desplazamiento);
+      for (let i = 0; i < filasNuevas.length; i += LOTE_STAGING) {
+        await tx.balanceImportacionStaging.createMany({
+          data: filasNuevas.slice(i, i + LOTE_STAGING).map((f) => ({
+            loteId, clienteId, hoja: f.hoja, filaNum: f.filaNum, codigoCrudo: f.codigoCrudo,
+            codigo: f.codigo, nombre: f.nombre, nivel: f.nivel, tipoFila: f.tipoFila,
+            tipoFilaForzado: f.tipoFilaForzado,
+            desacoplada: f.desacoplada,
+            omitida: f.omitida,
+            padreManual: f.padreManual,
+            saldoInicial: f.saldoInicial, debitos: f.debitos, creditos: f.creditos, saldoFinal: f.saldoFinal,
+          })),
+        });
+      }
+      for (let i = 0; i < terceroNuevo.length; i += LOTE_STAGING) {
+        await tx.balanceImportacionStagingTercero.createMany({
+          data: terceroNuevo.slice(i, i + LOTE_STAGING).map((t) => ({
+            loteId, filaNum: t.filaNum, codigo: t.codigo, codigoCrudo: t.codigoCrudo,
+            nombreCuenta: t.nombreCuenta, nitTercero: t.nitTercero, nombreTercero: t.nombreTercero,
+            identidadTercero: t.identidadTercero,
+            saldoInicial: t.saldoInicial, debitos: t.debitos, creditos: t.creditos, saldoFinal: t.saldoFinal,
+          })),
+        });
+      }
+
+      let filaHasta = desplazamiento;
+      for (const f of filasNuevas) if (f.filaNum > filaHasta) filaHasta = f.filaNum;
+      for (const t of terceroNuevo) if (t.filaNum > filaHasta) filaHasta = t.filaNum;
+      const numero = partesPrevias.length + 1;
+      const partes: ParteArchivoBalance[] = [
+        ...partesPrevias,
+        {
+          numero,
+          solicitudId,
+          archivoNombre: archivo.name,
+          archivoTam: tamArchivo(archivo.size),
+          filaDesde: desplazamiento + 1,
+          filaHasta,
+          filas: filasNuevas.length,
+          agregadoPor: usuario?.name ?? null,
+          agregadoEn: new Date().toISOString(),
+        },
+      ];
+      await tx.balanceImportacionLote.update({
+        where: { loteId },
+        data: {
+          partesArchivo: partes as unknown as Prisma.InputJsonValue,
+          archivoNombre: nombreArchivosCargue(partes),
+          archivoTam: tamanoArchivosCargue(partes) ?? actual.archivoTam,
+          filasExcluidas: { increment: filasExcluidasParte },
+          correccionesAplicadas: { increment: preparacionCorrecciones.cantidad },
+          // La promoción revalida este contador: una parte agregada mientras se
+          // confirma el borrador invalida esa confirmación en vez de perderse.
+          revisionContenido: { increment: 1 },
+        },
+      });
+      if (preparacionCorrecciones.cuentasAplicadas.length > 0) {
+        await tx.correccionCargaBalance.updateMany({
+          where: { clienteId, cuenta: { in: preparacionCorrecciones.cuentasAplicadas } },
+          data: { vecesAplicada: { increment: 1 }, ultimoUsoEn: new Date() },
+        });
+      }
+      await actualizarResumenLoteBorrador(loteId, tx);
+      return { numero, filas: filasNuevas.length, nueva: true };
+    }, {
+      maxWait: 5_000,
+      timeout: TIMEOUT_TRANSACCION_BORRADOR_MS,
+    });
+
+    invalidarStagingBorrador(loteId);
+    if (resultado.nueva) {
+      await logAudit({
+        user: usuario?.name ?? "—",
+        action: "AGREGÓ PARTE A BORRADOR de balance",
+        entity: loteId,
+        detail: `Parte ${resultado.numero} · ${archivo.name} · ${resultado.filas} filas`,
+        clientId: clienteId,
+      });
+    }
+    revalidatePath(`/balance/borradores/${loteId}`);
+    revalidatePath("/balance/borradores");
+    return {
+      ok: true,
+      parte: resultado.numero,
+      message: `Parte ${resultado.numero} agregada: ${resultado.filas} filas de «${archivo.name}».`,
+    };
+  } catch (e) {
+    if (e instanceof ErrorParteBorrador) return { ok: false, message: e.message };
+    return { ok: false, message: mensajeErrorBD("agregarParteBorrador", e) };
   }
 }
 

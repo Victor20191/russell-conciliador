@@ -115,6 +115,8 @@ import type { RevisionReubicacionStaging } from "@/lib/balance/staging-borrador"
 import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
 import { useHistorialCambios } from "@/lib/ui/use-historial-cambios";
 import { DescartarCambiosBoton } from "@/components/descartar-cambios-boton";
+import { detectarCuentasRepetidasEntrePartes, type ParteArchivoBalance } from "@/lib/balance/partes-archivo";
+import { AgregarParteBalance, CuentasRepetidasPartesAviso, PartesBalanceResumen } from "./partes-balance";
 
 /**
  * Fotografía de TODOS los cambios temporales de la pantalla (los que aún no se
@@ -630,10 +632,13 @@ function NotasCargaCliente({
 }
 
 export default function BorradorDetailClient({
-  loteId, archivoNombre, nitDetectado, periodoInicial, periodoFinal, aperturaGuardada = null, filasCompactas, porTerceroDetectado, revisionesReubicacion = [], clientes, clienteSugeridoId, clientePersistido = false, correccionesAplicadas, umbrales, version = null, hermanos = [],
+  loteId, archivoNombre, nitDetectado, periodoInicial, periodoFinal, aperturaGuardada = null, filasCompactas, porTerceroDetectado, revisionesReubicacion = [], clientes, clienteSugeridoId, clientePersistido = false, correccionesAplicadas, umbrales, version = null, hermanos = [], partes = [], archivoTam = null,
 }: {
   loteId: string;
   archivoNombre: string;
+  /** Archivos que forman el borrador cuando el balance llegó partido ([] = uno solo). */
+  partes?: Pick<ParteArchivoBalance, "numero" | "archivoNombre" | "archivoTam" | "filas" | "filaDesde" | "filaHasta">[];
+  archivoTam?: string | null;
   nitDetectado: string | null;
   periodoInicial: string | null;
   periodoFinal: string | null;
@@ -754,6 +759,12 @@ export default function BorradorDetailClient({
   const filasEditadas = useMemo(
     () => aplicarCambios(filas, overrideEfectivo, desacopladas, omitidas, padresVista),
     [filas, overrideEfectivo, desacopladas, omitidas, padresVista],
+  );
+  // Cuentas de movimiento repetidas entre partes del balance: se recalcula con los
+  // cambios temporales, así «Omitir» resuelve el aviso en pantalla.
+  const cuentasRepetidasPartes = useMemo(
+    () => detectarCuentasRepetidasEntrePartes(filasEditadas, partes),
+    [filasEditadas, partes],
   );
   // View-model recomputado LOCALMENTE con los cambios temporales (sin tocar la BD).
   const { arbol, validacion, partidaDoble, hallazgos, porTercero: porTerceroCalculado, relistadoGuiones, filasOcultas, clasesCorregidas, nitTachados, filasContabilizadas } = useMemo(
@@ -1249,6 +1260,19 @@ export default function BorradorDetailClient({
         subtitle="Estructura CRUDA extraída del Excel (sin homologación). Las agrupadoras cuyo total ≠ suma de sus cuentas aparecen subrayadas: ahí está el descuadre."
         actions={
           <div className="flex flex-wrap items-center justify-end gap-2">
+            <AgregarParteBalance
+              loteId={loteId}
+              partes={partes.length > 0 ? partes : [{ numero: 1, archivoNombre, archivoTam, filas: filas.length }]}
+              bloqueo={
+                clienteSelId == null
+                  ? "Elige el cliente del borrador antes de agregar otra parte"
+                  : hayCambios
+                    ? "Guarda o descarta tus cambios antes de agregar otra parte"
+                    : cargando
+                      ? "El balance se está cargando"
+                      : null
+              }
+            />
             {(nitTachados > 0 || filasOcultas > 0) && (
               // El detalle de por qué se tacharon/ocultaron filas es largo y solo se
               // consulta cuando algo no cuadra: vive tras este botón y el contenido
@@ -1265,6 +1289,11 @@ export default function BorradorDetailClient({
             )}
           </div>
         }
+      />
+      <PartesBalanceResumen partes={partes} />
+      <CuentasRepetidasPartesAviso
+        repetidas={cuentasRepetidasPartes}
+        onOmitir={(filaNum) => onOmitir(filaNum, false)}
       />
       {porTercero && (
         <div className="flex items-start gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">

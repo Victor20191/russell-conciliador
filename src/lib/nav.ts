@@ -111,6 +111,7 @@ export const configNav: NavItem[] = [
   { label: "Prompts de IA", href: "/config/prompts", icon: "ai", permiso: "prompts:administrar", modulo: "prompts" },
   { label: "Parámetros de alertas", href: "/config/parametros", icon: "settings", permiso: "parametros:administrar", modulo: "parametros" },
   { label: "Entorno e Integraciones", href: "/config/entorno", icon: "settings", permiso: "entorno:administrar", modulo: "entorno" },
+  { label: "Conexiones e integraciones", href: "/config/conexiones", icon: "link", permiso: "conexiones:ver", modulo: "conexiones" },
   // Comparte permiso y clave de módulo con «Parámetros de alertas»: ambos son
   // criterios de la firma que fija quien administra la herramienta.
   { label: "Cuentas del prevalidador", href: "/config/prevalidador", icon: "chart", permiso: "parametros:administrar", modulo: "parametros" },

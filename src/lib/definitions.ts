@@ -298,6 +298,22 @@ export const SpecPerfilCargaEditableSchema = SpecCargaBalanceSchema
     path: ["reglaDetalle"],
   });
 
+// Contexto declarado en el panel «Reconocer terceros» (fase de revisión del
+// modal de carga, balance por tercero): columnas de identidad, prefijo,
+// subtotales e indicaciones libres para la IA. Todo opcional — el panel solo
+// manda lo que el usuario efectivamente tocó. `leerBalance` lo pasa a
+// `extraerBalance` para "Releer con IA usando este contexto".
+export const ContextoTercerosCargaSchema = z.object({
+  colDocumento: z.number().int().min(0).optional(),
+  colNombre: z.number().int().min(0).optional(),
+  colTipoDocumento: z.number().int().min(0).optional(),
+  colDv: z.number().int().min(0).optional(),
+  prefijoDocumento: z.preprocess((v) => (typeof v === "string" && v.trim() ? v.trim() : null), z.string().max(10, { error: "El prefijo es demasiado largo." }).nullable()).optional(),
+  subtotales: z.enum(["auto", "por_cuenta", "ninguno"]).optional(),
+  indicaciones: z.preprocess((v) => (typeof v === "string" && v.trim() ? v.trim() : null), z.string().max(1000, { error: "Las indicaciones son demasiado largas (máx. 1000 caracteres)." }).nullable()).optional(),
+});
+export type ContextoTercerosCarga = z.infer<typeof ContextoTercerosCargaSchema>;
+
 export const EditarPerfilCargaSchema = z.object({
   id: z.coerce.number({ error: "Perfil inválido." }).int().positive({ error: "Perfil inválido." }),
   actualizadoEn: z.string().datetime({ offset: true, error: "La versión del perfil no es válida." }),
@@ -313,6 +329,7 @@ export const AjustesCargaSchema = z.object({
   agregarPorTercero: z.preprocess((v) => (v === "si" ? true : v === "no" ? false : null), z.boolean().nullable()),
   imputarSoloHojas: z.preprocess((v) => (v === "si" ? true : v === "no" ? false : null), z.boolean().nullable()),
   observaciones: z.preprocess((v) => (typeof v === "string" && v.trim() ? v.trim() : null), z.string().max(2000, { error: "Las notas son demasiado largas (máx. 2000 caracteres)." }).nullable()),
+  indicacionesIaTercero: z.preprocess((v) => (typeof v === "string" && v.trim() ? v.trim() : null), z.string().max(1000, { error: "Las indicaciones son demasiado largas (máx. 1000 caracteres)." }).nullable()),
 });
 
 // Preferencias por defecto de carga de un MÓDULO (Inventarios, Cartera, …) POR

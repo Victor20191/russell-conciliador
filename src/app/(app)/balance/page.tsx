@@ -16,6 +16,7 @@ import {
   periodoConAperturasParalelas,
 } from "@/lib/balance/agrupacion-aperturas";
 import { fmtDateTime } from "@/lib/format";
+import { leerPartesArchivo } from "@/lib/balance/partes-archivo";
 import { configuracionIABalanceUISesion } from "@/lib/ia/proveedor-balance-sesion";
 
 // La extracción asistida puede tardar hasta 10 minutos. Vercel usa este valor
@@ -41,6 +42,7 @@ export default async function BalancePage() {
         id: true, clienteId: true, nombreCliente: true, nit: true, periodo: true,
         esOficial: true, estado: true, completitud: true, ultimaCarga: true,
         mapeadas: true, sinMapear: true, filasTotales: true, aperturaBalance: true, creadoEn: true,
+        archivosCargue: true,
       },
     }),
     // Clientes de la cartera para el selector del modal de carga.
@@ -117,6 +119,8 @@ export default async function BalancePage() {
     const claveFila = claveRenglonApertura(claveP, apertura);
     // Marcado por el cruce de aperturas: este archivo no cuadra contra su contraparte.
     const inconsistente = b._count.crucesComoCuenta + b._count.crucesComoTercero > 0;
+    // Balance partido en varios archivos: nombres de las partes de ESTA versión.
+    const archivos = leerPartesArchivo(b.archivosCargue).map((parte) => parte.archivoNombre);
 
     let grupo = g.periods.get(b.periodo);
     if (!grupo) {
@@ -127,7 +131,7 @@ export default async function BalancePage() {
     const filas = filasPorPeriodo.get(claveP)!;
     let p = filas.get(claveFila);
     if (!p) {
-      p = { key: claveFila, period: b.periodo, apertura, versions: 0, officialId: null, status: b.estado, complete: b.completitud, lastUpload: b.ultimaCarga ? fmtDateTime(b.ultimaCarga) : "", mapped: b.mapeadas, unmapped: b.sinMapear, total: b.filasTotales, inconsistentes: 0 };
+      p = { key: claveFila, period: b.periodo, apertura, versions: 0, officialId: null, status: b.estado, complete: b.completitud, lastUpload: b.ultimaCarga ? fmtDateTime(b.ultimaCarga) : "", mapped: b.mapeadas, unmapped: b.sinMapear, total: b.filasTotales, inconsistentes: 0, archivos };
       filas.set(claveFila, p);
       grupo.rows.push(p);
     }
@@ -137,6 +141,7 @@ export default async function BalancePage() {
     if (b.esOficial) {
       p.officialId = b.id; p.status = b.estado; p.complete = b.completitud; p.lastUpload = b.ultimaCarga ? fmtDateTime(b.ultimaCarga) : p.lastUpload;
       p.mapped = b.mapeadas; p.unmapped = b.sinMapear; p.total = b.filasTotales; // mapeo de la versión oficial del renglón
+      p.archivos = archivos; // los archivos que se indican son los de la versión que abre el renglón
     }
     // `p.apertura` NO se repisa con la versión oficial: es la clave del renglón, y en un
     // período partido cada renglón tiene la suya por construcción.

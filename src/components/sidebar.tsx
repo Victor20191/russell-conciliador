@@ -129,15 +129,15 @@ export default function Sidebar({
       )}
       <aside
         id="app-sidebar"
-        className={`fixed inset-y-0 left-0 z-50 flex h-dvh w-[232px] shrink-0 flex-col border-r border-navy-900 bg-navy-800 text-[#C9D4E2] transition-transform duration-200 lg:sticky lg:top-0 lg:z-auto lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-50 flex h-dvh w-[232px] shrink-0 flex-col border-r border-navy-900 bg-navy-800 text-[#C9D4E2] transition-[transform,width] duration-200 lg:sticky lg:top-0 lg:z-auto lg:translate-x-0 ${
           mobileOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full lg:translate-x-0"
-        } ${desktopCollapsed ? "lg:hidden" : ""}`}
+        } ${desktopCollapsed ? "lg:w-14" : "lg:w-[232px]"}`}
       >
       {/* Marca + versión de la plataforma */}
-      <div className="border-b border-white/10 px-[18px] py-3.5">
-        <div className="flex items-center gap-2.5">
+      <div className={`border-b border-white/10 px-[18px] py-3.5 ${desktopCollapsed ? "lg:px-3.5" : ""}`}>
+        <div className={`flex items-center gap-2.5 ${desktopCollapsed ? "lg:justify-center lg:gap-0" : ""}`}>
           <BrandMark size={28} />
-          <div className="min-w-0 flex-1 font-serif text-sm font-medium leading-tight text-white">
+          <div className={`min-w-0 flex-1 font-serif text-sm font-medium leading-tight text-white ${desktopCollapsed ? "lg:sr-only" : ""}`}>
             Russell Bedford
             <small className="block font-sans text-[9.5px] font-medium uppercase tracking-[0.18em] text-[#7C8DA3]">
               Conciliador
@@ -153,7 +153,7 @@ export default function Sidebar({
           </button>
         </div>
         {etiquetaVer && (
-          <div className="mt-2.5">
+          <div className={`mt-2.5 ${desktopCollapsed ? "lg:hidden" : ""}`}>
             {puedeVerNovedades ? (
               <Link
                 href="/novedades"
@@ -182,7 +182,7 @@ export default function Sidebar({
       </div>
 
       <div data-scroll-app className="min-h-0 flex-1 overflow-y-auto pb-2 [color-scheme:dark] [scrollbar-color:var(--color-navy-500)_var(--color-navy-800)]">
-        <SectionLabel>Trabajo</SectionLabel>
+        <SectionLabel collapsed={desktopCollapsed}>Trabajo</SectionLabel>
         <nav className="flex flex-col gap-1 px-2">
           {visibleWork.map((it) => (
             <NavGroupItem
@@ -192,11 +192,12 @@ export default function Sidebar({
               open={openGroups[it.href] ?? false}
               onToggle={() => toggle(it.href)}
               developmentSet={developmentSet}
+              desktopCollapsed={desktopCollapsed}
             />
           ))}
         </nav>
 
-        <SectionLabel>Configuración</SectionLabel>
+        <SectionLabel collapsed={desktopCollapsed}>Configuración</SectionLabel>
         <nav className="flex flex-col gap-1 px-2">
           {visibleConfig.map((it) => (
             <NavGroupItem
@@ -206,18 +207,19 @@ export default function Sidebar({
               open={openGroups[it.href] ?? false}
               onToggle={() => toggle(it.href)}
               developmentSet={developmentSet}
+              desktopCollapsed={desktopCollapsed}
             />
           ))}
         </nav>
       </div>
 
       {/* Usuario + logout */}
-      <div className="flex items-center gap-2.5 border-t border-white/10 px-[18px] py-3 lg:pr-8">
+      <div className={`flex items-center gap-2.5 border-t border-white/10 px-[18px] py-3 ${desktopCollapsed ? "lg:gap-0 lg:px-1 lg:pr-5" : "lg:pr-8"}`}>
         <Link
           href="/perfil"
           onClick={onCloseMobile}
           title="Mi perfil"
-          className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md p-1 -m-1 transition hover:bg-white/5"
+          className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-md p-1 -m-1 transition hover:bg-white/5 ${desktopCollapsed ? "lg:m-0 lg:justify-center lg:gap-0 lg:p-0" : ""}`}
         >
           <Avatar
             src={user?.avatarUrl}
@@ -225,7 +227,7 @@ export default function Sidebar({
             name={user?.name}
             size={32}
           />
-          <div className="min-w-0 flex-1 leading-tight">
+          <div className={`min-w-0 flex-1 leading-tight ${desktopCollapsed ? "lg:hidden" : ""}`}>
             <div className="truncate text-[12.5px] font-semibold text-white">
               {user?.name ?? "Usuario"}
             </div>
@@ -234,7 +236,7 @@ export default function Sidebar({
             </div>
           </div>
         </Link>
-        <form action={logout}>
+        <form action={logout} className={desktopCollapsed ? "lg:hidden" : ""}>
           <BotonCerrarSesion />
         </form>
       </div>
@@ -249,24 +251,40 @@ function NavGroupItem({
   open,
   onToggle,
   developmentSet,
+  desktopCollapsed,
 }: {
   item: NavItem;
   pathname: string;
   open: boolean;
   onToggle: () => void;
   developmentSet: Set<string>;
+  desktopCollapsed: boolean;
 }) {
   const active = isGroupActive(pathname, item);
   if (!item.children) {
-    return <TopLink item={item} active={active} developmentSet={developmentSet} />;
+    return <TopLink item={item} active={active} developmentSet={developmentSet} desktopCollapsed={desktopCollapsed} />;
   }
   const inDevelopment = !!item.modulo && developmentSet.has(item.modulo);
   return (
     <div className="min-w-0">
+      {desktopCollapsed && (
+        <Link
+          href={item.href}
+          title={item.label}
+          aria-label={item.label}
+          className={`hidden w-full items-center justify-center rounded px-2 py-2 transition lg:flex ${
+            active ? "bg-white/10 text-white" : "hover:bg-white/5"
+          }`}
+        >
+          <span className="shrink-0 text-current"><Icon name={item.icon} /></span>
+        </Link>
+      )}
       <button
         type="button"
         onClick={onToggle}
-        className={`flex w-full items-center gap-2.5 rounded px-3 py-2 text-[13px] transition ${
+        title={item.label}
+        aria-expanded={open}
+        className={`flex w-full items-center gap-2.5 rounded px-3 py-2 text-[13px] transition ${desktopCollapsed ? "lg:hidden" : ""} ${
           active ? "bg-white/10 text-white" : "hover:bg-white/5"
         }`}
       >
@@ -279,7 +297,7 @@ function NavGroupItem({
         </span>
       </button>
       {open && (
-        <div className="mb-2 mt-1.5 ml-3 flex flex-col gap-1 border-l border-white/10 pl-2.5">
+        <div className={`mb-2 mt-1.5 ml-3 flex flex-col gap-1 border-l border-white/10 pl-2.5 ${desktopCollapsed ? "lg:hidden" : ""}`}>
           {item.children.map((ch) => {
             const childActive = isChildActive(pathname, ch.href);
             return (
@@ -313,23 +331,29 @@ function TopLink({
   item,
   active,
   developmentSet,
+  desktopCollapsed,
 }: {
   item: NavItem;
   active: boolean;
   developmentSet: Set<string>;
+  desktopCollapsed: boolean;
 }) {
   const inDevelopment = !!item.modulo && developmentSet.has(item.modulo);
   return (
     <Link
       href={item.href}
-      className={`flex items-center gap-2.5 rounded px-3 py-2 text-[13px] transition ${
+      title={item.label}
+      aria-label={desktopCollapsed ? item.label : undefined}
+      className={`flex items-center gap-2.5 rounded px-3 py-2 text-[13px] transition ${desktopCollapsed ? "lg:justify-center lg:gap-0 lg:px-2" : ""} ${
         active ? "bg-white/10 text-white" : "hover:bg-white/5"
       }`}
     >
-      <span><Icon name={item.icon} /></span>
-      <span className="truncate">{item.label}</span>
-      {inDevelopment && <DevBadge />}
-      {item.count != null && <Count n={item.count} />}
+      <span className="shrink-0"><Icon name={item.icon} /></span>
+      <span className={`truncate ${desktopCollapsed ? "lg:sr-only" : ""}`}>{item.label}</span>
+      <span className={desktopCollapsed ? "lg:hidden" : "contents"}>
+        {inDevelopment && <DevBadge />}
+        {item.count != null && <Count n={item.count} />}
+      </span>
     </Link>
   );
 }
@@ -350,9 +374,9 @@ function Count({ n }: { n: number }) {
   );
 }
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
+function SectionLabel({ children, collapsed }: { children: React.ReactNode; collapsed: boolean }) {
   return (
-    <div className="px-3.5 pb-1 pt-3.5 text-[9.5px] font-semibold uppercase tracking-[0.18em] text-[#7C8DA3]">
+    <div className={`px-3.5 pb-1 pt-3.5 text-[9.5px] font-semibold uppercase tracking-[0.18em] text-[#7C8DA3] ${collapsed ? "lg:sr-only" : ""}`}>
       {children}
     </div>
   );

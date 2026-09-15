@@ -256,3 +256,22 @@ describe("Roles de alcance global (no se filtran por cartera)", () => {
     }
   });
 });
+
+describe("Conexiones e integraciones", () => {
+  test("ver y administrar conexiones es de roles administrativos", () => {
+    for (const rol of ["Administrador", "Superadministrador"]) {
+      expect(tienePermiso(MATRIZ, rol, "conexiones:ver")).toBe(true);
+      expect(tienePermiso(MATRIZ, rol, "conexiones:administrar")).toBe(true);
+    }
+    for (const rol of ["Socio", "Gerente", "Senior", "Staff"]) {
+      expect(tienePermiso(MATRIZ, rol, "conexiones:ver")).toBe(false);
+      expect(tienePermiso(MATRIZ, rol, "conexiones:administrar")).toBe(false);
+    }
+  });
+
+  test("los permisos de conexiones existen en el catálogo", () => {
+    const codigos = PERMISOS.map((p) => p.code);
+    expect(codigos).toContain("conexiones:ver");
+    expect(codigos).toContain("conexiones:administrar");
+  });
+});

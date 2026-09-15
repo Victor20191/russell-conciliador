@@ -10,6 +10,7 @@ import {
 } from "@/lib/balance/autorizacion-borrador";
 import { asignarVersionesBorrador } from "@/lib/balance/versiones-borrador";
 import { fechaCalendarioISO } from "@/lib/fecha-hora";
+import { leerPartesArchivo } from "@/lib/balance/partes-archivo";
 import BorradoresIndexClient, { type BorradorRow } from "./borradores-index-client";
 
 export default async function BorradoresPage() {
@@ -40,6 +41,7 @@ export default async function BorradoresPage() {
         aperturaBalance: true,
         cargadoPor: true,
         creadoEn: true,
+        partesArchivo: true,
       },
     }),
     prisma.client.findMany({
@@ -101,6 +103,8 @@ export default async function BorradoresPage() {
     return {
       loteId,
       archivoNombre: h?.archivoNombre ?? "(sin encabezado)",
+      // Balance partido: los archivos que se unieron en este borrador (vacío = uno solo).
+      archivos: leerPartesArchivo(h?.partesArchivo).map((parte) => parte.archivoNombre),
       conEncabezado: !!h,
       nitDetectado: h?.nitDetectado ?? null,
       cliente,

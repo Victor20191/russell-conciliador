@@ -26,6 +26,9 @@ export type PeriodRow = {
   apertura: string | null;
   /** Versiones de ESTE renglón que el cruce marcó inconsistentes contra la otra apertura. */
   inconsistentes: number;
+  /** Archivos que formaron la versión listada cuando el ERP entregó el balance partido
+   *  (vacío o ausente = un solo archivo). */
+  archivos?: string[];
 };
 /**
  * Un período del cliente. Casi siempre trae un solo renglón; trae dos cuando el cliente
@@ -236,9 +239,18 @@ function FilaPeriodo({ p, colgada }: { p: PeriodRow; colgada: boolean }) {
   return (
     <tr className="border-b border-ink-50 last:border-0 hover:bg-ink-50">
       <td className={`px-4 py-2.5 font-medium text-ink-800 ${colgada ? "pl-9" : ""}`}>
-        {colgada
-          ? <><span aria-hidden className="text-ink-300">└</span><span className="sr-only">{p.period}</span></>
-          : p.period}
+        <span className="flex flex-wrap items-center gap-1.5">
+          {colgada
+            ? <><span aria-hidden className="text-ink-300">└</span><span className="sr-only">{p.period}</span></>
+            : p.period}
+          {/* AVISO de balance partido, igual que la carga fraccionada de los módulos:
+              la versión listada no salió de un solo archivo. */}
+          {(p.archivos?.length ?? 0) > 1 && (
+            <span title={`Balance partido: esta versión se armó con ${p.archivos!.length} archivos — ${p.archivos!.join(" + ")}.`}>
+              <Chip label={`${p.archivos!.length} archivos`} tone="warn" />
+            </span>
+          )}
+        </span>
       </td>
       <td className="px-4 py-2.5 text-right font-mono text-ink-600">
         {/* El conteo abre la bitácora de versiones del período, desde donde se entra y

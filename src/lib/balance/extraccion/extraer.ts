@@ -19,7 +19,7 @@ import { transformarTabular, validarDirecta, type ParamsExtraccion, type Resulta
 import { esTransformacionAceptable, debeEscalarExtraccion } from "./validacion";
 import { veredictoOrientacion, invertirColumnasMovimiento } from "./verificacion";
 import type { GridHoja } from "./ingesta";
-import type { MappingSpec } from "./esquema";
+import type { MappingSpec, SubtotalesTercero } from "./esquema";
 import type { UsoIA } from "@/lib/ia/uso";
 
 function bloqueParametros(params: ParamsExtraccion): string {
@@ -29,6 +29,62 @@ function bloqueParametros(params: ParamsExtraccion): string {
     `- PERIODO_ESPERADO: ${params.periodoInicial ?? "?"} a ${params.periodoFinal ?? "?"}`,
     `- ESTANDAR_CONTABLE: ${params.estandar}`,
   ].join("\n");
+}
+
+/** Contexto declarado por el usuario en el panel «Reconocer terceros» del
+ * modal de carga (o memorizado como indicación libre del cliente), para
+ * "Releer con IA usando este contexto". Todo opcional. */
+export type ContextoUsuarioTerceros = {
+  colDocumento?: number;
+  colNombre?: number;
+  colTipoDocumento?: number;
+  colDv?: number;
+  prefijoDocumento?: string | null;
+  subtotales?: SubtotalesTercero;
+  indicaciones?: string | null;
+};
+
+/** Bloque de instrucciones para el prompt; null si no hay nada que decir. */
+export function bloqueIndicacionesTerceros(ctx: ContextoUsuarioTerceros | undefined): string | null {
+  if (!ctx) return null;
+  const partes: string[] = [];
+  if (ctx.indicaciones) partes.push(ctx.indicaciones);
+  if (ctx.prefijoDocumento) {
+    partes.push(
+      `El documento del tercero trae pegado el prefijo de letras "${ctx.prefijoDocumento}" (p. ej. "${ctx.prefijoDocumento}0709802"): no es parte del número, la plataforma lo separa sola.`,
+    );
+  }
+  if (ctx.subtotales === "por_cuenta") {
+    partes.push("Cada cuenta trae su propia fila consolidada SIN tercero: es la oficial. El desglose por tercero debajo es solo detalle informativo; márcalo con la columna `tercero` pero no lo declares como el único movimiento de la cuenta.");
+  } else if (ctx.subtotales === "ninguno") {
+    partes.push("El archivo NO trae fila consolidada por cuenta: cada fila con tercero es un movimiento real que se debe sumar por cuenta.");
+  }
+  if (partes.length === 0) return null;
+  return [
+    "INDICACIONES DEL USUARIO SOBRE TERCEROS (verifícalas contra la vista previa; si contradicen el archivo, repórtalo en excepciones):",
+    ...partes.map((p) => `- ${p}`),
+  ].join("\n");
+}
+
+/**
+ * Fuerza sobre el spec de la IA las columnas de identidad, el prefijo y los
+ * subtotales que el usuario declaró — igual que se fuerza la hoja elegida.
+ * `prefijoDocumentoTercero`/`subtotalesTercero` NUNCA se toman de lo que la IA
+ * adivine: sin contexto explícito quedan en el valor neutro (null/"auto"), que
+ * es el comportamiento exacto de antes de este panel.
+ */
+export function forzarContextoTercerosEnSpec(spec: MappingSpec, ctx: ContextoUsuarioTerceros | undefined): MappingSpec {
+  const columnas = { ...spec.columnas };
+  if (ctx?.colDocumento != null) columnas.tercero = ctx.colDocumento;
+  if (ctx?.colNombre != null) columnas.nombreTercero = ctx.colNombre || undefined;
+  if (ctx?.colTipoDocumento != null) columnas.tipoDocumentoTercero = ctx.colTipoDocumento || undefined;
+  if (ctx?.colDv != null) columnas.dvTercero = ctx.colDv || undefined;
+  return {
+    ...spec,
+    columnas,
+    prefijoDocumentoTercero: ctx?.prefijoDocumento ?? null,
+    subtotalesTercero: ctx?.subtotales ?? "auto",
+  };
 }
 
 const MAX_TOKENS_ESTRUCTURA = 8000;
@@ -125,6 +181,13 @@ export type OpcionesExtraccion = {
   agregarPorTercero?: boolean | null;
   /** Proveedor elegido para esta carga (solo es seleccionable fuera de producción). */
   proveedorIA?: ProveedorIABalance;
+  /**
+   * Contexto del panel «Reconocer terceros» («Releer con IA usando este
+   * contexto»): columnas de identidad, prefijo, subtotales e indicaciones
+   * libres. Se agrega al prompt y se fuerza sobre el spec devuelto (modo
+   * tabular); en modo documento solo se usan las `indicaciones` libres.
+   */
+  contextoUsuario?: ContextoUsuarioTerceros;
 };
 
 export type ResultadoExtraccion = {
@@ -145,7 +208,7 @@ export async function extraerBalance(
   params: ParamsExtraccion,
   opciones: OpcionesExtraccion = {},
 ): Promise<ResultadoExtraccion> {
-  const { hojaElegida, usosOut, specGuardado } = opciones;
+  const { hojaElegida, usosOut, specGuardado, contextoUsuario } = opciones;
   // El proveedor llega YA autorizado por la frontera (`proveedorIABalanceSesion`:
   // dev local o usuario del dominio corporativo) — aquí no hay sesión que
   // consultar. Sin valor explícito cae a la compuerta estricta de entorno.
@@ -180,8 +243,10 @@ export async function extraerBalance(
     const hojasVista = soloElegida.length > 0 ? soloElegida : ingesta.hojas;
     const vista = construirVistaPrevia(hojasVista);
 
+    const bloqueTerceros = bloqueIndicacionesTerceros(contextoUsuario);
     const lineas = [
       bloqueParametros(params),
+      ...(bloqueTerceros ? ["", bloqueTerceros] : []),
       "",
       "Modo ESTRUCTURA: describe el mapa del balance (no transcribas filas). Índices de columna 1-based (A=1).",
     ];
@@ -215,7 +280,8 @@ export async function extraerBalance(
       const specTier = esBalancePorTerceroRecuperable(r.data)
         ? recuperarBalancePorTercero(r.data)
         : r.data;
-      const specInicial = elegida ? { ...specTier, hoja: elegida } : specTier;
+      const specConHoja = elegida ? { ...specTier, hoja: elegida } : specTier;
+      const specInicial = forzarContextoTercerosEnSpec(specConHoja, contextoUsuario);
       const { spec, resultado } = corregirOrientacionInvertida(
         specInicial,
         transformarTabular(specInicial, ingesta.hojas, params),
@@ -252,11 +318,13 @@ export async function extraerBalance(
       if (!crudo) continue; // sin spec en este tier → probar el siguiente
 
       const specTier = esBalancePorTerceroRecuperable(crudo) ? recuperarBalancePorTercero(crudo) : crudo;
-      // Forzamos la hoja elegida en el spec para que `transformarTabular` procese
-      // esa hoja (recibe todas las hojas para encontrarla completa). Se transforma
-      // SIEMPRE (con `importable: false` devuelve el resultado vacío con el motivo,
-      // igual que antes de la cascada).
-      const specInicial = elegida ? { ...specTier, hoja: elegida } : specTier;
+      // Forzamos la hoja elegida y el contexto de terceros del usuario en el spec
+      // para que `transformarTabular` procese esa hoja (recibe todas las hojas
+      // para encontrarla completa) con la identidad/subtotales declarados. Se
+      // transforma SIEMPRE (con `importable: false` devuelve el resultado vacío
+      // con el motivo, igual que antes de la cascada).
+      const specConHoja = elegida ? { ...specTier, hoja: elegida } : specTier;
+      const specInicial = forzarContextoTercerosEnSpec(specConHoja, contextoUsuario);
       // Corrige débitos↔créditos invertidos ANTES de evaluar aceptación/escalado.
       const { spec, resultado } = corregirOrientacionInvertida(
         specInicial,
@@ -290,8 +358,10 @@ export async function extraerBalance(
       throw new Error(`El PDF tiene ${paginas} páginas y el máximo que la IA puede leer es ${LIMITE_PAGINAS_PDF}. Divídelo o exporta el balance a Excel/CSV.`);
     }
   }
+  const bloqueTercerosDoc = bloqueIndicacionesTerceros(contextoUsuario);
   const instruccion = [
     bloqueParametros(params),
+    ...(bloqueTercerosDoc ? ["", bloqueTercerosDoc] : []),
     "",
     "Modo EXTRACCIÓN: devuelve las filas de detalle (cuentas imputables) ya normalizadas en el esquema pedido.",
     doc.tipo === "texto" ? `\nCONTENIDO:\n${doc.texto.slice(0, 200_000)}` : "",

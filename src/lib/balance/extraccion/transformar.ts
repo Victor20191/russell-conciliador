@@ -413,11 +413,24 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
   // consolidado + detalle. Con `reglaDetalle=columna`, en cambio, solo `Cuenta`
   // es consolidado; una fila NIT con tercero vacío no puede usarse para descartar
   // las demás porque puede ser una contraparte legítima sin código de tercero.
+  //
+  // `subtotalesTercero` (panel «Reconocer terceros», override EXPLÍCITO del
+  // usuario sobre esta misma decisión — NO toca los patrones especializados de
+  // negrita/guion, que tienen su propia evidencia estructural):
+  //   - "por_cuenta": cualquier código con una fila SIN tercero se trata como
+  //     consolidado (la oficial), aunque el archivo no traiga también una fila
+  //     CON tercero para ese mismo código (se relaja `codigosConDetalleTercero`).
+  //   - "ninguno": nunca se omite el detalle por un consolidado inferido — el
+  //     archivo no trae filas consolidadas que deban preferirse.
+  //   - "auto" (default): comportamiento de siempre, sin cambios.
+  const forzarPorCuenta = spec.subtotalesTercero === "por_cuenta";
+  const forzarNinguno = spec.subtotalesTercero === "ninguno";
   const omitirDetalleTerceroPorConsolidadoInferido = (code: string, fila: CeldaCruda[]): boolean =>
     cols.tercero > 0 &&
+    !forzarNinguno &&
     spec.reglaDetalle.tipo !== "columna" &&
     codigosConConsolidado.has(code) &&
-    codigosConDetalleTercero.has(code) &&
+    (forzarPorCuenta || codigosConDetalleTercero.has(code)) &&
     texto(cell(fila, cols.tercero)) !== "";
   // Pasada 1 (jerarquía por PREFIJO): reúne TODOS los códigos numéricos de la
   // hoja. Una cuenta es HOJA (movimiento real) si su código no es prefijo de
@@ -620,7 +633,8 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
     // reconocibles queda como tercero «Genérico».
     const capturarTercero = (codigoCuenta: string, nombreCuenta: string, terceroRaw: string, m: { si: number; db: number; cr: number; saldo: number }, identidadExplicita?: { documento: string; nombre: string }): void => {
       if (!codigoCuenta) return;
-      const t = normalizarTerceroModulo(identidadExplicita?.documento ?? terceroRaw);
+      const prefijoDocumento = spec.prefijoDocumentoTercero;
+      const t = normalizarTerceroModulo(identidadExplicita?.documento ?? terceroRaw, { prefijo: prefijoDocumento });
       const nitTercero = identidadExplicita && /[a-z]/i.test(identidadExplicita.documento) ? null : t.nitCanonico;
       // El archivo puede traer el nombre del tercero en su PROPIA columna
       // (separada de la de identificación): es la fuente más confiable, mejor
@@ -633,7 +647,7 @@ export function transformarTabular(spec: MappingSpec, hojas: GridHoja[], params:
         nombre: identidadExplicita?.nombre ?? cell(fila, cols.nombreTercero ?? 0),
         tipo: cell(fila, cols.tipoDocumentoTercero ?? 0),
         dv: cell(fila, cols.dvTercero ?? 0),
-      });
+      }, prefijoDocumento);
       if (identidadExplicita && !identidadTercero.numeroDocumento && /^[a-z]+$/i.test(identidadExplicita.documento)) {
         // En este bloque la columna separada identifica al tercero, incluso
         // cuando su código contiene solo letras. Se conserva sin deducir tipo.

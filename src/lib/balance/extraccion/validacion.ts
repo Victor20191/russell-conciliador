@@ -24,13 +24,27 @@ import { veredictoOrientacion, fraccionNaturalezaPUC, UMBRAL_NATURALEZA_PUC } fr
 export const MAX_FRACCION_DESCUADRE = 0.1;
 
 export function esTransformacionAceptable(res: ResultadoTransform): boolean {
+  if (!estructuraTransformacionAceptable(res)) return false;
+  return res.cuadre.detectado ? res.cuadre.cuadra : res.cuadre.partidaDobleCuadra;
+}
+
+/**
+ * Aceptación de una PARTE de un balance partido en varios archivos: las mismas
+ * señales estructurales, pero SIN exigir partida doble. Una parte sola no tiene por
+ * qué cuadrar (el ERP corta el informe en cualquier cuenta); el cuadre se valida en
+ * el borrador sobre la unión de todas las partes.
+ */
+export function esParteAceptable(res: ResultadoTransform): boolean {
+  return estructuraTransformacionAceptable(res);
+}
+
+function estructuraTransformacionAceptable(res: ResultadoTransform): boolean {
   if (res.importReady.length === 0) return false;
   if (veredictoOrientacion(res.orientacionControl) === "invertida") return false;
   const naturaleza = fraccionNaturalezaPUC(res.importReady, res.resumen.convencionCredito);
   if (naturaleza != null && naturaleza < UMBRAL_NATURALEZA_PUC) return false;
   const { filasImportables, filasDescuadre } = res.resumen;
-  if (filasDescuadre / (filasImportables + filasDescuadre) > MAX_FRACCION_DESCUADRE) return false;
-  return res.cuadre.detectado ? res.cuadre.cuadra : res.cuadre.partidaDobleCuadra;
+  return filasDescuadre / (filasImportables + filasDescuadre) <= MAX_FRACCION_DESCUADRE;
 }
 
 /**

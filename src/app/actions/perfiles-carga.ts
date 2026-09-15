@@ -48,6 +48,7 @@ export type AjustesCargaResumen = {
   agregarPorTercero: boolean | null;
   imputarSoloHojas: boolean | null;
   observaciones: string | null;
+  indicacionesIaTercero: string | null;
 };
 
 export type CorreccionCargaResumen = {
@@ -105,6 +106,8 @@ function estructuraDesdePerfil(p: {
   reglaDetalleColumna: number | null;
   reglaDetalleValor: string | null;
   agregarPorTercero: boolean;
+  prefijoDocumentoTercero?: string | null;
+  subtotalesTercero?: string;
 }): SpecCarga {
   return specCargaDesdePerfil({
     hoja: p.hoja,
@@ -131,6 +134,8 @@ function estructuraDesdePerfil(p: {
     reglaDetalleColumna: p.reglaDetalleColumna,
     reglaDetalleValor: p.reglaDetalleValor,
     agregarPorTercero: p.agregarPorTercero,
+    prefijoDocumentoTercero: p.prefijoDocumentoTercero ?? null,
+    subtotalesTercero: p.subtotalesTercero === "por_cuenta" || p.subtotalesTercero === "ninguno" ? p.subtotalesTercero : "auto",
   });
 }
 
@@ -178,7 +183,7 @@ export async function listarPerfilesCarga(clienteId: number): Promise<PerfilesCa
       }),
       prisma.ajustesCargaBalance.findUnique({
         where: { clienteId },
-        select: { hojaPreferida: true, convencionCredito: true, estandar: true, agregarPorTercero: true, imputarSoloHojas: true, observaciones: true },
+        select: { hojaPreferida: true, convencionCredito: true, estandar: true, agregarPorTercero: true, imputarSoloHojas: true, observaciones: true, indicacionesIaTercero: true },
       }),
       prisma.correccionCargaBalance.findMany({
         where: { clienteId },
@@ -483,9 +488,10 @@ export async function guardarAjustesCarga(_prev: ActionState | undefined, formDa
     agregarPorTercero: formData.get("agregarPorTercero"),
     imputarSoloHojas: formData.get("imputarSoloHojas"),
     observaciones: formData.get("observaciones"),
+    indicacionesIaTercero: formData.get("indicacionesIaTercero"),
   });
   if (!parsed.success) return { ok: false, message: parsed.error.issues[0]?.message ?? "Datos inválidos." };
-  const { clienteId, hojaPreferida, convencionCredito, agregarPorTercero, imputarSoloHojas, observaciones } = parsed.data;
+  const { clienteId, hojaPreferida, convencionCredito, agregarPorTercero, imputarSoloHojas, observaciones, indicacionesIaTercero } = parsed.data;
   const scope = await authorizePermiso("perfiles_carga:administrar", { clientId: clienteId });
   if (!scope.ok) return { ok: false, message: scope.message };
   try {
@@ -499,6 +505,7 @@ export async function guardarAjustesCarga(_prev: ActionState | undefined, formDa
       agregarPorTercero,
       imputarSoloHojas,
       observaciones,
+      indicacionesIaTercero,
       actualizadoPor: user?.name ?? null,
     };
     await prisma.ajustesCargaBalance.upsert({
@@ -517,6 +524,7 @@ export async function guardarAjustesCarga(_prev: ActionState | undefined, formDa
         agregarPorTercero != null ? `tercero ${agregarPorTercero ? "sí" : "no"}` : null,
         imputarSoloHojas != null ? `solo hojas ${imputarSoloHojas ? "sí" : "no"}` : null,
         observaciones ? "con notas" : null,
+        indicacionesIaTercero ? "con indicaciones IA de terceros" : null,
       ].filter(Boolean).join(" · ") || "todo en auto",
       clientId: clienteId,
     });

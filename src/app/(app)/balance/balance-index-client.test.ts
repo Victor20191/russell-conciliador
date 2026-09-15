@@ -38,6 +38,27 @@ const render = (clients: ClientGroup[]) =>
     clients, auditRows: [], auditClients: [], uploadClients: [], canUpload: false, configuracionIA: null,
   }));
 
+describe("listado de balances · balance partido en varios archivos", () => {
+  const partido = (archivos: string[] | undefined): ClientGroup => ({
+    clientId: 7, clientName: "EL ZARZAL S.A.", clientNit: "890920001",
+    periodList: [{
+      period: "Enero 2025 – Diciembre 2025", paralelo: false,
+      rows: [fila({ key: "7::2025::tercero", period: "Enero 2025 – Diciembre 2025", officialId: 900, archivos })],
+    }],
+  });
+
+  it("indica cuántos archivos formaron la versión y cuáles son", () => {
+    const html = render([partido(["Balance por tercero ESF.xls", "Balance por tercero ER.xls"])]);
+    expect(html).toContain(">2 archivos<");
+    expect(html).toContain("Balance por tercero ESF.xls + Balance por tercero ER.xls");
+  });
+
+  it("un balance de un solo archivo no muestra el indicador", () => {
+    expect(render([partido(undefined)])).not.toContain("archivos<");
+    expect(render([partido(["uno.xlsx"])])).not.toContain("archivos<");
+  });
+});
+
 describe("listado de balances · período con las dos aperturas", () => {
   it("muestra los DOS balances del período, no solo el último cargado", () => {
     const html = render([CLIENTE]);

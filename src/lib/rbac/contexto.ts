@@ -22,10 +22,13 @@ import type { Matriz, Asignacion } from "@/lib/rbac/permisos";
 
 // Bump de versión con cada cambio de la matriz (v7: restringir
 // `auditoria:reporte_ejecutivo` al Superadministrador; v8: abrir
-// `balance:editar`/`balance:revisar` a Administrador/Superadministrador): una
-// clave nueva evita que el despliegue siga sirviendo hasta una hora la matriz
-// anterior desde el Data Cache.
-export const RBAC_CACHE_TAG = "rbac-matriz-v8";
+// `balance:editar`/`balance:revisar` a Administrador/Superadministrador;
+// v9: agregar `conexiones:ver`/`conexiones:administrar`; v10: forzar la
+// recarga porque la entrada v9 quedó cacheada ANTES de sembrar los permisos de
+// conexiones en `roles_permisos` y los negaba hasta por una hora): una clave
+// nueva evita que el despliegue siga sirviendo la matriz anterior desde el
+// Data Cache.
+export const RBAC_CACHE_TAG = "rbac-matriz-v10";
 
 // La función interna que lee de BD (sin cache layer).
 async function leerMatrizDeBD(): Promise<Matriz> {

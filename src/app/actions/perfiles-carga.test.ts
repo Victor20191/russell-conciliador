@@ -62,6 +62,8 @@ const ESTRUCTURA: SpecCarga = {
   signoCredito: "magnitud",
   reglaDetalle: { tipo: "movimiento", columna: null, valor: null },
   agregarPorTercero: true,
+  prefijoDocumentoTercero: null,
+  subtotalesTercero: "auto",
 };
 
 describe("actualizarPerfilCarga", () => {

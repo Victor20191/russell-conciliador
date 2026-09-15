@@ -30,6 +30,18 @@ export const CONVENCIONES_SIGNO = ["firmado", "magnitud"] as const;
 export const SignoSchema = z.enum(CONVENCIONES_SIGNO);
 export type ConvencionSigno = z.infer<typeof SignoSchema>;
 
+// Cómo vienen los SUBTOTALES por tercero de un balance abierto por tercero
+// (panel «Reconocer terceros» del modal de carga; ver `transformarTabular`):
+//   auto       → comportamiento actual (heurística: negrita/reglaDetalle/consolidado
+//                inferido por código con y sin tercero).
+//   por_cuenta → cada cuenta trae su fila consolidada SIN tercero (la oficial) y,
+//                debajo, el desglose por tercero es solo DETALLE (no se suma).
+//   ninguno    → el archivo NO trae fila consolidada: se suma por cuenta TODO
+//                movimiento con tercero (`agregarPorTercero`).
+export const SUBTOTALES_TERCERO = ["auto", "por_cuenta", "ninguno"] as const;
+export const SubtotalesTerceroSchema = z.enum(SUBTOTALES_TERCERO);
+export type SubtotalesTercero = z.infer<typeof SubtotalesTerceroSchema>;
+
 // Excepción del ETL: fila no importable o conflicto de metadato (SALIDA B del prompt).
 export const ExcepcionSchema = z.object({
   hoja: z.string().nullable(),
@@ -102,6 +114,12 @@ export const MappingSpecSchema = z.object({
   signoCredito: SignoSchema,
   reglaDetalle: ReglaDetalleSchema,
   agregarPorTercero: z.boolean(),
+  // Contexto de terceros declarado por el usuario en el panel «Reconocer
+  // terceros» (o memorizado en el perfil del cliente). `null`/`"auto"` = sin
+  // indicación explícita; no participan en la detección de la IA, solo en la
+  // transformación determinista (`capturarTercero`/`transformarTabular`).
+  prefijoDocumentoTercero: z.string().nullable(),
+  subtotalesTercero: SubtotalesTerceroSchema,
   nit: OrigenSchema,
   periodoInicial: OrigenSchema, // ISO yyyy-mm-dd en `valor`, o null
   periodoFinal: OrigenSchema,
@@ -130,6 +148,8 @@ export const SpecCargaSchema = MappingSpecSchema.pick({
   signoCredito: true,
   reglaDetalle: true,
   agregarPorTercero: true,
+  prefijoDocumentoTercero: true,
+  subtotalesTercero: true,
 }).extend({ columnas: ColumnasCargaSchema });
 export type SpecCarga = z.infer<typeof SpecCargaSchema>;
 

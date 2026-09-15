@@ -20,6 +20,21 @@ export type EstadoIdentidadTercero = "identificado" | "sin_nombre" | "sin_docume
 
 const texto = (v: unknown) => v == null ? "" : String(v).trim();
 const claveTexto = (v: string) => v.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().replace(/[.\s_]/g, "");
+
+/**
+ * Quita un PREFIJO DE LETRAS configurado por el usuario, pegado al n\u00famero de
+ * documento (`C0709802` \u2192 `0709802` con prefijo `C`). Sin `prefijo` (null/"")
+ * el texto vuelve intacto: el comportamiento por defecto \u2014y el de Cartera/CxP,
+ * que nunca pasan este par\u00e1metro\u2014 no cambia. Solo act\u00faa si el prefijo va
+ * INMEDIATAMENTE seguido de d\u00edgitos (no separa "NIT 123", que ya maneja la
+ * etiqueta habitual m\u00e1s abajo).
+ */
+function quitarPrefijoDocumento(raw: string, prefijo: string | null | undefined): string {
+  const p = (prefijo ?? "").trim();
+  if (!p) return raw;
+  const re = new RegExp(`^${p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\d)`, "i");
+  return re.test(raw) ? raw.replace(re, "$1") : raw;
+}
 const tipos: Record<string, NonNullable<IdentidadTercero["tipoDocumento"]>> = {
   NIT: "NIT", CC: "CC", CEDULA: "CC", CEDULADECIUDADANIA: "CC",
   CE: "CE", CEDULADEEXTRANJERIA: "CE", TI: "TI", TARJETADEIDENTIDAD: "TI",
@@ -32,15 +47,18 @@ const nombreUtil = (v: unknown) => {
 
 /** Conserva identificaciones completas, ceros iniciales y la fuente. Solo separa
  * DV cuando viene separado en una columna o mediante un guion explícito de NIT.
- * No deduce NIT/cédula por longitud, no calcula DV, no busca números en nombres. */
-export function reconocerIdentidadTercero(entrada: { documento?: unknown; tipo?: unknown; dv?: unknown; nombre?: unknown }): IdentidadTercero {
+ * No deduce NIT/cédula por longitud, no calcula DV, no busca números en nombres.
+ * `prefijo` (opcional): letra(s) pegadas al número que el usuario identificó como
+ * no parte del documento (p. ej. «C» en `C0709802`). Sin `prefijo`, idéntico a
+ * antes. */
+export function reconocerIdentidadTercero(entrada: { documento?: unknown; tipo?: unknown; dv?: unknown; nombre?: unknown }, prefijo?: string | null): IdentidadTercero {
   const documentoOriginal = texto(entrada.documento);
   const tipoOriginal = texto(entrada.tipo);
   const dvOriginal = texto(entrada.dv);
   const observaciones: string[] = [];
   let tipoDocumento = tipos[claveTexto(tipoOriginal)] ?? null;
   if (tipoOriginal && !tipoDocumento) observaciones.push("Tipo de documento no reconocido: " + tipoOriginal);
-  let raw = documentoOriginal;
+  let raw = quitarPrefijoDocumento(documentoOriginal, prefijo);
   const etiqueta = /^(NIT|C\.?C\.?|C\.?E\.?|T\.?I\.?|C[EÉ]DULA|PASAPORTE)(?:\s*[:\-]\s*|\s+)(.*)$/i.exec(raw);
   if (etiqueta) {
     const tipoEtiqueta = tipos[claveTexto(etiqueta[1])];
@@ -142,4 +160,45 @@ export function completarNombresDelMismoArchivo<T extends { identidadTercero?: I
     if (nombres?.size !== 1) return f;
     return { ...f, identidadTercero: { ...i, nombre: [...nombres.values()][0], fuenteNombre: "Otra fila del mismo archivo con igual tipo y documento completo." } };
   });
+}
+
+export type DiagnosticoIdentidadTerceros = {
+  totalFilas: number;
+  /** Estado `sin_documento` o `revisar` (el documento no quedó limpio): incluye
+   * el caso típico de una letra pegada al número sin prefijo configurado. */
+  sinDocumento: number;
+  sinNombre: number;
+  /** Hasta 4 valores CRUDOS distintos sin documento reconocido, para que el
+   * usuario del panel «Reconocer terceros» vea el patrón (p. ej. `C0709802`). */
+  ejemplos: string[];
+};
+
+/** Resume, para el panel de revisión del modal de carga, cuántos terceros
+ * quedaron sin documento o sin nombre tras la lectura. Puro: opera sobre las
+ * filas ya capturadas (`filasTercero`/staging), no vuelve a tocar el archivo. */
+export function diagnosticarIdentidadTerceros(
+  filas: readonly { identidadTercero?: IdentidadTercero }[],
+): DiagnosticoIdentidadTerceros {
+  let sinDocumento = 0;
+  let sinNombre = 0;
+  let totalFilas = 0;
+  const ejemplos: string[] = [];
+  for (const f of filas) {
+    const i = f.identidadTercero;
+    if (!i) continue;
+    totalFilas++;
+    // Solo cuenta como «sin documento» lo que de verdad no se pudo leer: sin
+    // número o con un formato observado (p. ej. «C0709802» sin prefijo). Un NIT
+    // limpio sin columna de tipo queda `revisar` en el visor, pero SÍ se
+    // reconoció y no debe alarmar en el panel.
+    if (!i.numeroDocumento || i.observaciones.length > 0) {
+      sinDocumento++;
+      if (ejemplos.length < 4 && i.documentoOriginal && !ejemplos.includes(i.documentoOriginal)) {
+        ejemplos.push(i.documentoOriginal);
+      }
+    } else if (!i.nombre) {
+      sinNombre++;
+    }
+  }
+  return { totalFilas, sinDocumento, sinNombre, ejemplos };
 }

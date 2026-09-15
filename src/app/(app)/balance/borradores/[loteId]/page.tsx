@@ -13,6 +13,7 @@ import {
 } from "@/lib/balance/autorizacion-borrador";
 import { asignarVersionesBorrador } from "@/lib/balance/versiones-borrador";
 import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
+import { leerPartesArchivo } from "@/lib/balance/partes-archivo";
 import BorradorDetailClient from "./borrador-detail-client";
 
 // La homologación de un balance pesado puede incluir mapeo por IA y escritura
@@ -192,6 +193,10 @@ export default async function BorradorDetailPage({ params }: { params: Promise<{
         clienteSugeridoId={clienteSugeridoId}
         clientePersistido={clientePersistido}
         correccionesAplicadas={lote?.correccionesAplicadas ?? 0}
+        partes={leerPartesArchivo(lote?.partesArchivo).map(({ numero, archivoNombre, archivoTam, filas, filaDesde, filaHasta }) => ({
+          numero, archivoNombre, archivoTam, filas, filaDesde, filaHasta,
+        }))}
+        archivoTam={lote?.archivoTam ?? null}
         umbrales={umbrales}
         version={versionActual?.claveGrupo ? versionActual.version : null}
         hermanos={hermanosBorrador}

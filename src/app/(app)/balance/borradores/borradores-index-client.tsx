@@ -23,6 +23,9 @@ import { notifySuccess, notifyError } from "@/lib/client-notifications";
 export type BorradorRow = {
   loteId: string;
   archivoNombre: string;
+  /** Archivos unidos en el borrador cuando el ERP entregó el balance partido
+   *  (vacío o ausente = un solo archivo). */
+  archivos?: string[];
   conEncabezado: boolean;
   nitDetectado: string | null;
   cliente: VinculoClienteBorrador;
@@ -266,6 +269,52 @@ export function ClienteBorradorCelda({
   );
 }
 
+/**
+ * Archivo del borrador. Cuando el balance llegó PARTIDO en varios archivos se pinta
+ * igual que la carga fraccionada de los módulos: el archivo principal como enlace,
+ * el chip «N archivos» y cada parte adicional en su propia línea marcada «parte».
+ */
+export function ArchivosBorradorCelda({
+  loteId,
+  archivoNombre,
+  archivos,
+}: {
+  loteId: string;
+  archivoNombre: string;
+  archivos: string[];
+}) {
+  const fraccionado = archivos.length > 1;
+  const principal = fraccionado ? archivos[0] : archivoNombre;
+  return (
+    <>
+      <span className="flex flex-wrap items-center gap-1.5">
+        <Link
+          href={`/balance/borradores/${loteId}`}
+          className="font-medium text-blue-500 hover:underline"
+          title={principal}
+        >
+          {principal}
+        </Link>
+        {/* AVISO de balance partido: el período no salió de un solo archivo. Se
+            destaca aquí porque las líneas de abajo son fáciles de pasar por alto. */}
+        {fraccionado && (
+          <span title={`Balance partido: este borrador se armó con ${archivos.length} archivos — ${archivos.join(" + ")}.`}>
+            <Chip label={`${archivos.length} archivos`} tone="warn" />
+          </span>
+        )}
+      </span>
+      {fraccionado && archivos.slice(1).map((archivo, i) => (
+        <span key={`${archivo}-${i}`} className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] text-ink-500">
+          <span className="rounded bg-ink-100 px-1 text-[9.5px] font-medium uppercase tracking-wide text-ink-400">
+            parte {i + 2}
+          </span>
+          <span className="truncate" title={archivo}>{archivo}</span>
+        </span>
+      ))}
+    </>
+  );
+}
+
 /** Versión del borrador dentro de su (cliente, período). «—» cuando el lote aún
  *  no tiene cliente o período con qué agruparse. */
 export function VersionBorradorCelda({
@@ -482,9 +531,11 @@ export default function BorradoresIndexClient({ rows }: { rows: BorradorRow[] })
               {pg.pageItems.map((r) => (
                 <tr key={r.loteId} className="border-t border-ink-100 align-middle hover:bg-ink-50/50">
                   <td className="px-3 py-2">
-                    <Link href={`/balance/borradores/${r.loteId}`} className="font-medium text-blue-500 hover:underline">
-                      {r.archivoNombre}
-                    </Link>
+                    <ArchivosBorradorCelda
+                      loteId={r.loteId}
+                      archivoNombre={r.archivoNombre}
+                      archivos={r.archivos ?? []}
+                    />
                     {!r.conEncabezado && <span className="block text-[10.5px] text-ink-400">recuperado del staging (relee para el nombre)</span>}
                     {r.cargadoPor && <span className="block text-[10.5px] text-ink-400">por {r.cargadoPor}</span>}
                   </td>

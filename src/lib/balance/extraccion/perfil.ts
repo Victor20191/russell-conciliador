@@ -1,7 +1,7 @@
 // Conversión entre el MappingSpec del pipeline y el PERFIL de carga persistido
 // (`perfiles_carga_balance`, spec aplanado en columnas tipadas). Puro y testeable:
 // no toca BD — la Server Action lee/escribe el modelo Prisma y usa estos helpers.
-import type { ConvencionSigno, MappingSpec, SpecCarga } from "./esquema";
+import type { ConvencionSigno, MappingSpec, SpecCarga, SubtotalesTercero } from "./esquema";
 
 // Espejo 1:1 de las columnas de layout del modelo Prisma `PerfilCargaBalance`
 // (sin id/clienteId/huella/metadatos): un objeto listo para esparcir en el upsert.
@@ -27,6 +27,9 @@ export type PerfilPlano = {
   reglaDetalleColumna: number | null;
   reglaDetalleValor: string | null;
   agregarPorTercero: boolean;
+  // Contexto de terceros memorizado del panel «Reconocer terceros» (ver esquema.ts).
+  prefijoDocumentoTercero?: string | null;
+  subtotalesTercero?: SubtotalesTercero;
 };
 
 /** Aplana el spec (o un MappingSpec completo) a las columnas del perfil. */
@@ -53,6 +56,8 @@ export function aplanarSpec(spec: SpecCarga): PerfilPlano {
     reglaDetalleColumna: spec.reglaDetalle.columna,
     reglaDetalleValor: spec.reglaDetalle.valor,
     agregarPorTercero: spec.agregarPorTercero,
+    prefijoDocumentoTercero: spec.prefijoDocumentoTercero,
+    subtotalesTercero: spec.subtotalesTercero,
   };
 }
 
@@ -84,6 +89,10 @@ export function specCargaDesdePerfil(p: PerfilPlano): SpecCarga {
       valor: p.reglaDetalleValor,
     },
     agregarPorTercero: p.agregarPorTercero,
+    // Perfiles guardados antes de esta migración no tienen estas columnas:
+    // "auto"/null conserva su comportamiento exacto de antes.
+    prefijoDocumentoTercero: p.prefijoDocumentoTercero ?? null,
+    subtotalesTercero: p.subtotalesTercero ?? "auto",
   };
 }
 
