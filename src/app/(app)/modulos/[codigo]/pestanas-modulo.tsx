@@ -1,12 +1,11 @@
 import Link from "next/link";
 
-// Pestañas de un módulo: «Cargados» (`/modulos/[codigo]`, lo oficial) y
-// «Borradores» (lo pendiente de confirmar).
+// Pestañas de un módulo: «Cargados» (`/modulos/[codigo]`, lo oficial), «Borradores» (lo
+// pendiente de confirmar) y «Patrones de archivo» (cómo se lee el archivo de cada aplicativo).
 // Son enlaces reales —cada pestaña es su propia ruta con su `loading.tsx`— y
-// la activa la decide la página, no el pathname del cliente. La pestaña de
-// borradores exige `modulos_datos:crear`, igual que su pantalla: los roles de
-// consulta no la ven.
-export type PestanaModulo = "cargados" | "borradores";
+// la activa la decide la página, no el pathname del cliente. Borradores y patrones
+// exigen `modulos_datos:crear`, igual que sus pantallas: los roles de consulta no las ven.
+export type PestanaModulo = "cargados" | "borradores" | "patrones";
 
 export function PestanasModulo({
   moduloCodigo,
@@ -24,7 +23,10 @@ export function PestanasModulo({
   const pestanas: { id: PestanaModulo; label: string; href: string; contador?: number }[] = [
     { id: "cargados", label: "Cargados", href: ruta },
     ...(puedeVerBorradores
-      ? [{ id: "borradores" as const, label: "Borradores", href: `${ruta}/borradores`, contador: borradoresPendientes }]
+      ? [
+          { id: "borradores" as const, label: "Borradores", href: `${ruta}/borradores`, contador: borradoresPendientes },
+          { id: "patrones" as const, label: "Patrones de archivo", href: `${ruta}/patrones` },
+        ]
       : []),
   ];
 

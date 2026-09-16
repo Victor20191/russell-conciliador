@@ -1,37 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { resolverValorErpProceso } from "./erp-cliente";
-import { PROCESOS_ERP, PROCESOS_ERP_BASE, procesoErpDeModulo } from "./erp-procesos";
+import { aplicativosDelProceso } from "./erp-cliente";
+import { CODIGOS_ERP_BASE, ERP_MANUAL_CODE, PROCESOS_ERP, procesoErpDeModulo } from "./erp-procesos";
 
-describe("ERP por proceso", () => {
-  it("expone los siete procesos funcionales en el orden acordado", () => {
-    expect(PROCESOS_ERP.map((proceso) => proceso.codigo)).toEqual([
-      "CONT",
-      "NOM",
-      "INV",
-      "ING",
-      "CAR",
-      "CXP",
-      "AFI",
-    ]);
+describe("aplicativos por proceso", () => {
+  it("la ficha tiene cuatro campos fijos, en el orden acordado", () => {
+    expect(PROCESOS_ERP.map((proceso) => proceso.codigo)).toEqual(["CONT", "NOM", "INV", "AFI"]);
+    expect(CODIGOS_ERP_BASE).toEqual(["CONT", "NOM", "INV", "AFI"]);
+    expect(ERP_MANUAL_CODE).toBe("MANUAL");
   });
 
-  it("mantiene CONT, NOM e INV como procesos base de la ficha", () => {
-    expect(PROCESOS_ERP_BASE.map((proceso) => proceso.codigo)).toEqual(["CONT", "NOM", "INV"]);
-  });
-
-  it("solo usa el ERP legado cuando el consumidor CONT lo solicita", () => {
-    expect(resolverValorErpProceso(undefined, 7)).toBeNull();
-    expect(resolverValorErpProceso(undefined, 7, true)).toBe(7);
-    expect(resolverValorErpProceso({ valor: 11 }, 7)).toBe(11);
-  });
-
-  it("respeta un proceso explícitamente pendiente y no hereda el ERP contable", () => {
-    expect(resolverValorErpProceso({ valor: null }, 7)).toBeNull();
-  });
-
-  it("reconoce los códigos de módulos como procesos, pero no CONT", () => {
-    expect(procesoErpDeModulo("ing")).toBe("ING");
-    expect(procesoErpDeModulo("CONT")).toBeNull();
+  it("Cartera, CxP e Ingresos usan los aplicativos de Contabilidad", () => {
+    expect(["CAR", "cxp", "ING"].map(procesoErpDeModulo)).toEqual(["CONT", "CONT", "CONT"]);
+    expect(["NOM", "INV", "AFI"].map(procesoErpDeModulo)).toEqual(["NOM", "INV", "AFI"]);
     expect(procesoErpDeModulo("otro")).toBeNull();
+  });
+
+  it("un campo puede tener varios aplicativos, sin repetir", () => {
+    expect(aplicativosDelProceso(["SAP", "SIESA", "SAP"], null)).toEqual(["SAP", "SIESA"]);
+  });
+
+  it("solo usa el ERP legado cuando el consumidor de Contabilidad lo pide y el campo está vacío", () => {
+    expect(aplicativosDelProceso([], 7)).toEqual([]);
+    expect(aplicativosDelProceso([], 7, true)).toEqual([7]);
+    expect(aplicativosDelProceso([11], 7, true)).toEqual([11]);
+    expect(aplicativosDelProceso([null], null, true)).toEqual([]);
   });
 });

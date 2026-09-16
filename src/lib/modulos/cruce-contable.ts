@@ -64,6 +64,11 @@ export type InputCruceContable = {
    * conceptos se reparten entre cuentas (RF-NOM-12).
    */
   agruparMultiAsignados?: boolean;
+  /**
+   * Llave de orden de una fila por su clave. Ausente = por código. Activos fijos la usa para que
+   * cada depreciación 1592xx quede justo debajo de su activo (159205 tras 1516).
+   */
+  ordenCuenta?: (clave: string) => string;
 };
 
 const SEPARADOR_GRUPO = "+";
@@ -211,7 +216,10 @@ export function construirCruceContable(
       ),
     );
   }
-  filas.sort((a, b) => a.cuenta4.localeCompare(b.cuenta4));
+  const orden = input.ordenCuenta ?? ((clave: string) => clave);
+  // Comparación por código (no por idioma): las claves son dígitos y la del orden usa «~».
+  const comparar = (x: string, y: string) => (x < y ? -1 : x > y ? 1 : 0);
+  filas.sort((a, b) => comparar(orden(a.cuenta4), orden(b.cuenta4)) || comparar(a.cuenta4, b.cuenta4));
 
   const totales = filas.reduce(
     (acc, f) => ({

@@ -15,6 +15,7 @@ import {
 } from "@/lib/definitions";
 import { parseId } from "@/lib/ids";
 import { mensajeErrorBD } from "@/lib/errores";
+import { ERP_MANUAL_CODE } from "@/lib/erp-procesos";
 
 const PATH = "/config/maestros";
 const PATH_CLIENTES = "/config/clientes";
@@ -498,6 +499,11 @@ export async function updateMaestroCatalogo(
 
   try {
     if (parsed.data.tipo === "erp") {
+      // «Archivo manual» lo usa la carga de módulos: no se renombra de código ni se desactiva.
+      const actual = await prisma.erp.findUnique({ where: { id: parsed.data.id }, select: { code: true } });
+      if (actual?.code === ERP_MANUAL_CODE && (data.code !== ERP_MANUAL_CODE || !data.active)) {
+        return { ok: false, message: "«Archivo manual» es del sistema: no se puede desactivar ni cambiar su código." };
+      }
       await prisma.erp.update({ where: { id: parsed.data.id }, data });
     } else {
       await prisma.sector.update({ where: { id: parsed.data.id }, data });
@@ -530,12 +536,17 @@ export async function deleteMaestroCatalogo(
 
   try {
     if (tipoParsed.data === "erp") {
-      const [erp, clientesLegado, clientesProceso] = await Promise.all([
+      const [erp, clientesLegado, clientesProceso, versionesPatron] = await Promise.all([
         prisma.erp.findUnique({ where: { id }, select: { code: true, name: true } }),
         prisma.client.findMany({ where: { erpId: id }, select: { id: true } }),
         prisma.clientErpProcess.findMany({ where: { erpId: id }, select: { clientId: true }, distinct: ["clientId"] }),
+        prisma.versionPatronArchivoModulo.count({ where: { erpId: id } }),
       ]);
       if (!erp) return { ok: false, message: "El ERP no existe." };
+      if (erp.code === ERP_MANUAL_CODE) return { ok: false, message: "«Archivo manual» es del sistema: no se puede eliminar." };
+      if (versionesPatron > 0) {
+        return { ok: false, message: `Este ERP tiene ${versionesPatron} versión(es) de patrones de archivo. Desactívalo en lugar de eliminarlo.` };
+      }
       const clientes = new Set([
         ...clientesLegado.map((cliente) => cliente.id),
         ...clientesProceso.map((asignacion) => asignacion.clientId),

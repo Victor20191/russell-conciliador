@@ -1,12 +1,15 @@
 import ExcelJS from "exceljs";
-import { CODIGOS_ERP_BASE, type CodigoProcesoErp } from "@/lib/erp-procesos";
 import { celdaTexto, normalizar } from "./xlsx";
+
+/** Campos que trae el archivo histórico de ERP por cliente (Activos fijos no venía). */
+export const CODIGOS_ARCHIVO_ERPS = ["CONT", "NOM", "INV"] as const;
+type CodigoArchivo = (typeof CODIGOS_ARCHIVO_ERPS)[number];
 
 export type FilaErpsClienteExcel = {
   fila: number;
   nombre: string;
   nit: string;
-  erps: Record<(typeof CODIGOS_ERP_BASE)[number], string | null>;
+  erps: Record<CodigoArchivo, string | null>;
 };
 
 function esValorPendiente(valor: string): boolean {
@@ -18,7 +21,7 @@ export function normalizarValorErpExcel(valor: string): string | null {
   return esValorPendiente(valor) ? null : valor.trim();
 }
 
-function codigoProcesoEncabezado(valor: string): CodigoProcesoErp | null {
+function codigoProcesoEncabezado(valor: string): CodigoArchivo | null {
   const encabezado = normalizar(valor);
   if (/erp.*contab|contab.*erp/.test(encabezado)) return "CONT";
   if (/nomin/.test(encabezado)) return "NOM";
@@ -39,12 +42,12 @@ export async function leerErpsClientesExcel(buffer: Buffer): Promise<{
   let filaEncabezado = 0;
   let columnaCliente = 0;
   let columnaNit = 0;
-  const columnasProceso = new Map<CodigoProcesoErp, number>();
+  const columnasProceso = new Map<CodigoArchivo, number>();
 
   for (let fila = 1; fila <= Math.min(20, worksheet.rowCount); fila++) {
     let cliente = 0;
     let nit = 0;
-    const procesos = new Map<CodigoProcesoErp, number>();
+    const procesos = new Map<CodigoArchivo, number>();
     worksheet.getRow(fila).eachCell((celda, columna) => {
       const texto = celdaTexto(celda.value);
       const encabezado = normalizar(texto);
@@ -53,7 +56,7 @@ export async function leerErpsClientesExcel(buffer: Buffer): Promise<{
       const codigo = codigoProcesoEncabezado(texto);
       if (codigo) procesos.set(codigo, columna);
     });
-    if (cliente && nit && CODIGOS_ERP_BASE.every((codigo) => procesos.has(codigo))) {
+    if (cliente && nit && CODIGOS_ARCHIVO_ERPS.every((codigo) => procesos.has(codigo))) {
       filaEncabezado = fila;
       columnaCliente = cliente;
       columnaNit = nit;
@@ -72,7 +75,7 @@ export async function leerErpsClientesExcel(buffer: Buffer): Promise<{
     const nombre = celdaTexto(row.getCell(columnaCliente).value);
     const nit = celdaTexto(row.getCell(columnaNit).value);
     const valores = Object.fromEntries(
-      CODIGOS_ERP_BASE.map((codigo) => {
+      CODIGOS_ARCHIVO_ERPS.map((codigo) => {
         const texto = celdaTexto(row.getCell(columnasProceso.get(codigo)!).value);
         return [codigo, normalizarValorErpExcel(texto)];
       }),

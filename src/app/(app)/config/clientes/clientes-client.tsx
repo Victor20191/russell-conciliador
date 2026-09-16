@@ -22,13 +22,8 @@ import {
 import type { ActionState } from "@/lib/definitions";
 import { notifyActionState } from "@/lib/client-notifications";
 import { ImportClientesButton } from "./import-clientes-modal";
-import {
-  CODIGOS_ERP_BASE,
-  campoErpProceso,
-  esCodigoProcesoErp,
-  esProcesoErpBase,
-  type CodigoProcesoErp,
-} from "@/lib/erp-procesos";
+import type { CodigoProcesoErp } from "@/lib/erp-procesos";
+import { AplicativosPorProceso } from "./aplicativos-por-proceso";
 
 export type ModuleRef = { id: number; name: string };
 /** Catálogo de formatos DIAN seleccionables por cliente (IVA F-300…). */
@@ -402,39 +397,6 @@ function ClientModal({
   const [selectedDianFormIds, setSelectedDianFormIds] = useState<number[]>(
     () => (isEdit ? client.dianFormIds : dianForms.map((f) => f.id)),
   );
-  const [erpsAdicionales, setErpsAdicionales] = useState<
-    { code: CodigoProcesoErp; erpId: string }[]
-  >(() => {
-    if (!client) return [];
-    return client.erpsPorProceso.flatMap((asignacion) => {
-      if (
-        asignacion.erpId == null
-        || !esCodigoProcesoErp(asignacion.processCode)
-        || esProcesoErpBase(asignacion.processCode)
-      ) return [];
-      return [{ code: asignacion.processCode, erpId: String(asignacion.erpId) }];
-    });
-  });
-  const [agregandoErp, setAgregandoErp] = useState(false);
-  const [procesosRetirados, setProcesosRetirados] = useState<CodigoProcesoErp[]>([]);
-  const [nuevoProceso, setNuevoProceso] = useState<CodigoProcesoErp | "">("");
-  const [nuevoErpId, setNuevoErpId] = useState("");
-  const [errorNuevoErp, setErrorNuevoErp] = useState("");
-
-  const procesosBase = useMemo(
-    () => CODIGOS_ERP_BASE.flatMap((codigo) => {
-      const proceso = erpProcesses.find((item) => item.code === codigo);
-      return proceso ? [proceso] : [];
-    }),
-    [erpProcesses],
-  );
-  const procesosAdicionalesDisponibles = useMemo(() => {
-    const seleccionados = new Set(erpsAdicionales.map((item) => item.code));
-    return erpProcesses.filter(
-      (proceso) => !esProcesoErpBase(proceso.code) && !seleccionados.has(proceso.code),
-    );
-  }, [erpProcesses, erpsAdicionales]);
-
   // Responsables en CASCADA por jerarquía: el gerente acota los seniors
   // (sus subordinados) y el senior acota los staff. Si un responsable ya
   // asignado dejó de ser válido (inactivo o arista eliminada), el select
@@ -525,33 +487,6 @@ function ClientModal({
     );
   }
 
-  function agregarSistemaAdicional() {
-    if (!nuevoProceso || !nuevoErpId) {
-      setErrorNuevoErp("Selecciona el módulo y su ERP antes de agregarlo.");
-      return;
-    }
-    setErpsAdicionales((current) => [
-      ...current,
-      { code: nuevoProceso, erpId: nuevoErpId },
-    ]);
-    setProcesosRetirados((current) => current.filter((codigo) => codigo !== nuevoProceso));
-    setNuevoProceso("");
-    setNuevoErpId("");
-    setErrorNuevoErp("");
-    setAgregandoErp(false);
-  }
-
-  function actualizarErpAdicional(codigo: CodigoProcesoErp, erpId: string) {
-    setErpsAdicionales((current) =>
-      current.map((item) => item.code === codigo ? { ...item, erpId } : item),
-    );
-  }
-
-  function retirarSistemaAdicional(codigo: CodigoProcesoErp) {
-    setErpsAdicionales((current) => current.filter((item) => item.code !== codigo));
-    setProcesosRetirados((current) => current.includes(codigo) ? current : [...current, codigo]);
-  }
-
   // ----- DIAN: módulo padre + un checkbox por formato (sub-ítem) -----
   // "Activar DIAN" significa tener al menos un formato: guardar DIAN activo sin
   // formatos lo persistiría como desactivado (inconsistencia silenciosa). Se
@@ -604,9 +539,6 @@ function ClientModal({
       <form id="client-form" action={formAction} className="flex flex-col gap-3">
         {isEdit && <input type="hidden" name="id" value={client.id} />}
         <input type="hidden" name="syncErpsPorProceso" value="1" />
-        {procesosRetirados.map((codigo) => (
-          <input key={codigo} type="hidden" name="erpProcesoRetirados" value={codigo} />
-        ))}
         {/* Dos columnas (en ≥sm): Datos del cliente | Responsables. Aprovecha el
             ancho del modal y reduce el alto para que todo quepa sin scroll. */}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -783,222 +715,13 @@ function ClientModal({
           </div>
         </div>
 
-        <div className="rounded-md border border-ink-150 bg-ink-50/60 p-3 sm:col-span-2">
-          <div className="mb-2.5 flex flex-wrap items-start justify-between gap-2">
-            <div>
-              <div className="text-[11.5px] font-medium text-ink-700">Sistemas por proceso</div>
-              <p className="mt-0.5 text-[11px] text-ink-400">
-                CONT, NOM e INV son la base. Agrega otros procesos solo cuando el cliente los necesite.
-              </p>
-            </div>
-            <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
-              3 base{erpsAdicionales.length > 0 ? ` + ${erpsAdicionales.length} adicional${erpsAdicionales.length === 1 ? "" : "es"}` : ""}
-            </span>
-          </div>
-          {state?.errors?.erpProcesoCodigos?.map((error) => (
-            <div key={error} className="mb-2 rounded-md border border-err-100 bg-err-50 px-2.5 py-2 text-[11px] text-err-700">
-              {error}
-            </div>
-          ))}
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-            {procesosBase.map((proceso) => {
-              const asignacion = client?.erpsPorProceso.find(
-                (item) => item.processCode === proceso.code,
-              );
-              // El único dato legado confiable es CONT. Inferir los demás desde
-              // el ERP contable registraría información no confirmada como cierta.
-              const erpInicial = asignacion
-                ? asignacion.erpId
-                : proceso.code === "CONT"
-                  ? (client?.erpId ?? "")
-                  : "";
-              const fieldName = campoErpProceso(proceso.code);
-              return (
-                <label
-                  key={proceso.code}
-                  className="rounded-md border border-ink-150 bg-white p-2.5 transition focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-100"
-                >
-                  <span className="mb-1.5 flex items-center gap-1.5">
-                    <span className="rounded bg-navy-50 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-navy-700">
-                      {proceso.code}
-                    </span>
-                    <span className="truncate text-[11.5px] font-medium text-ink-700">
-                      {proceso.name}
-                    </span>
-                  </span>
-                  <select
-                    name={fieldName}
-                    defaultValue={erpInicial ?? ""}
-                    aria-label={`ERP de ${proceso.name}`}
-                    className="w-full rounded-md border border-ink-200 bg-white px-2 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400"
-                  >
-                    <option value="">Pendiente / sin definir</option>
-                    {erps.filter((erp) => erp.active || erp.id === erpInicial).map((erp) => (
-                      <option key={erp.id} value={erp.id}>
-                        {erp.name}{erp.active ? "" : " (inactivo)"}
-                      </option>
-                    ))}
-                  </select>
-                  {state?.errors?.[fieldName]?.map((error) => (
-                    <span key={error} className="mt-1 block text-[10.5px] text-err-600">{error}</span>
-                  ))}
-                  <input type="hidden" name="erpProcesoCodigos" value={proceso.code} />
-                </label>
-              );
-            })}
-          </div>
-
-          <div className="mt-3 border-t border-ink-150 pt-3">
-            <div className="mb-2 flex items-center justify-between gap-3">
-              <div>
-                <div className="text-[11.5px] font-medium text-ink-700">Procesos adicionales</div>
-                <p className="mt-0.5 text-[10.5px] text-ink-400">
-                  Cada proceso adicional debe tener un ERP definido.
-                </p>
-              </div>
-              {!agregandoErp && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAgregandoErp(true);
-                    setErrorNuevoErp("");
-                  }}
-                  disabled={procesosAdicionalesDisponibles.length === 0}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[11.5px] font-semibold text-navy-700 transition hover:border-blue-300 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-45"
-                >
-                  <Icon name="plus" size={12} /> Agregar módulo y ERP
-                </button>
-              )}
-            </div>
-
-            {erpsAdicionales.length > 0 && (
-              <div className="mb-2 flex flex-col gap-2">
-                {erpsAdicionales.map((asignacion) => {
-                  const proceso = erpProcesses.find((item) => item.code === asignacion.code);
-                  if (!proceso) return null;
-                  const fieldName = campoErpProceso(asignacion.code);
-                  return (
-                    <div
-                      key={asignacion.code}
-                      className="grid grid-cols-1 items-end gap-2 rounded-md border border-ink-150 bg-white p-2.5 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_auto]"
-                    >
-                      <div>
-                        <span className="mb-1 block text-[10.5px] font-medium text-ink-500">Módulo / proceso</span>
-                        <div className="flex min-h-8 items-center gap-2 rounded-md border border-ink-150 bg-ink-50 px-2.5 text-[12px] text-ink-700">
-                          <span className="rounded bg-navy-50 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-navy-700">
-                            {proceso.code}
-                          </span>
-                          <span className="truncate font-medium">{proceso.name}</span>
-                        </div>
-                      </div>
-                      <label>
-                        <span className="mb-1 block text-[10.5px] font-medium text-ink-500">ERP asignado</span>
-                        <select
-                          name={fieldName}
-                          required
-                          value={asignacion.erpId}
-                          onChange={(event) => actualizarErpAdicional(asignacion.code, event.target.value)}
-                          className="w-full rounded-md border border-ink-200 bg-white px-2 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400"
-                        >
-                          <option value="">Selecciona un ERP…</option>
-                          {erps.filter((erp) => erp.active || String(erp.id) === asignacion.erpId).map((erp) => (
-                            <option key={erp.id} value={erp.id}>
-                              {erp.name}{erp.active ? "" : " (inactivo)"}
-                            </option>
-                          ))}
-                        </select>
-                        {state?.errors?.[fieldName]?.map((error) => (
-                          <span key={error} className="mt-1 block text-[10.5px] text-err-600">{error}</span>
-                        ))}
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => retirarSistemaAdicional(asignacion.code)}
-                        title={`Retirar ${proceso.name}`}
-                        className="inline-flex h-8 items-center justify-center gap-1 rounded-md border border-err-100 px-2.5 text-[11px] font-semibold text-err-700 transition hover:bg-err-50"
-                      >
-                        <Icon name="x" size={12} /> Retirar
-                      </button>
-                      <input type="hidden" name="erpProcesoCodigos" value={asignacion.code} />
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {agregandoErp && (
-              <div className="rounded-md border border-blue-200 bg-blue-50/50 p-2.5">
-                <div className="grid grid-cols-1 items-end gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_auto]">
-                  <label>
-                    <span className="mb-1 block text-[10.5px] font-medium text-ink-600">Módulo / proceso</span>
-                    <select
-                      value={nuevoProceso}
-                      onChange={(event) => {
-                        const code = event.target.value;
-                        setNuevoProceso(esCodigoProcesoErp(code) ? code : "");
-                        setErrorNuevoErp("");
-                      }}
-                      className="w-full rounded-md border border-ink-200 bg-white px-2 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400"
-                    >
-                      <option value="">Selecciona el módulo…</option>
-                      {procesosAdicionalesDisponibles.map((proceso) => (
-                        <option key={proceso.code} value={proceso.code}>
-                          {proceso.code} · {proceso.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    <span className="mb-1 block text-[10.5px] font-medium text-ink-600">ERP</span>
-                    <select
-                      value={nuevoErpId}
-                      onChange={(event) => {
-                        setNuevoErpId(event.target.value);
-                        setErrorNuevoErp("");
-                      }}
-                      className="w-full rounded-md border border-ink-200 bg-white px-2 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400"
-                    >
-                      <option value="">Selecciona el ERP…</option>
-                      {erps.filter((erp) => erp.active).map((erp) => (
-                        <option key={erp.id} value={erp.id}>{erp.name}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <div className="flex gap-1.5">
-                    <button
-                      type="button"
-                      onClick={agregarSistemaAdicional}
-                      className="h-8 rounded-md bg-navy-700 px-3 text-[11px] font-semibold text-white transition hover:bg-navy-600"
-                    >
-                      Agregar
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAgregandoErp(false);
-                        setNuevoProceso("");
-                        setNuevoErpId("");
-                        setErrorNuevoErp("");
-                      }}
-                      className="h-8 rounded-md border border-ink-200 bg-white px-2.5 text-[11px] font-semibold text-ink-600 hover:bg-ink-50"
-                    >
-                      Cancelar
-                    </button>
-                  </div>
-                </div>
-                {errorNuevoErp && (
-                  <p className="mt-1.5 text-[10.5px] text-err-700">{errorNuevoErp}</p>
-                )}
-              </div>
-            )}
-
-            {erpsAdicionales.length === 0 && !agregandoErp && (
-              <div className="rounded-md border border-dashed border-ink-200 bg-white/70 px-3 py-2 text-[11px] text-ink-400">
-                Este cliente todavía no tiene procesos adicionales.
-              </div>
-            )}
-          </div>
-        </div>
+        <AplicativosPorProceso
+          erps={erps}
+          procesosActivos={erpProcesses.map((proceso) => proceso.code)}
+          asignaciones={client?.erpsPorProceso ?? []}
+          erpLegado={client?.erpId ?? null}
+          errores={state?.errors}
+        />
         </div>
 
         {((modules && modules.length > 0) || dianForms.length > 0) && (

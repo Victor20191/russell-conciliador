@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { construirCruceContable } from "@/lib/modulos/cruce-contable";
 import { anotarCruceConMarcas, type MarcaCruce, type ResumenMarcas } from "@/lib/modulos/marcas-cruce";
+import { cedulaModulo } from "@/lib/modulos/cuentas-modulo";
+import { MODULOS_IMPORT } from "@/lib/modulos/descriptores";
 import {
   alcanceDeCierres,
+  alcanceExplicitoDelCruce,
   entraEnAlcance,
   cuentasBloqueoDelModulo,
   cuentasRussellDelCruce,
@@ -329,5 +332,39 @@ describe("evaluarCierreConciliacion con cruce por tercero", () => {
 
   it("donde no se exige, el cruce por tercero no condiciona el cierre", () => {
     expect(evaluarCierreConciliacion(cuadra, null, { exigido: false, estado: "sin_balance", mensaje: null, resumenMarcas: null })).toEqual({ ok: true });
+  });
+});
+
+describe("alcance de una cédula mixta (Activos fijos, Ingresos)", () => {
+  const cedulaDe = (codigo: "AFI" | "ING" | "NOM" | "INV", prefijos: string[]) => cedulaModulo(MODULOS_IMPORT[codigo], prefijos);
+  const cruceCon = (claves: string[]) => ({ filas: claves.map((cuenta4) => ({ cuenta4 })) }) as unknown as Parameters<typeof alcanceExplicitoDelCruce>[1];
+
+  it("Ingresos deja en firme sus siete cuentas de la 41 y la 422005, sin arrastrar el resto de la 4220", () => {
+    const alcanceIng = alcanceExplicitoDelCruce(cedulaDe("ING", ["41"]), cruceCon(["410505", "422005"]));
+    expect(alcanceIng).toEqual(["410505", "410510", "410515", "410520", "410525", "410530", "417505", "422005"]);
+    const ingresos = [
+      fila("41050501", "410505", { saldoFinal: -100 }),
+      fila("41350501", "413505", { saldoFinal: -30 }),
+      fila("42200501", "422005", { saldoFinal: -50 }),
+      fila("42201001", "422010", { saldoFinal: -20 }),
+    ];
+    expect(cuentasBloqueoDelModulo(ingresos, ["4105", "4220"], alcanceIng).map((b) => b.cuenta8)).toEqual(["41050501", "42200501"]);
+    const alcance = alcanceDeCierres([{ cuentasRussell: ["4105", "4220"], cuentasRussell6: alcanceIng }]);
+    expect(entraEnAlcance("417505", alcance)).toBe(true);
+    expect(entraEnAlcance("413505", alcance)).toBe(false);
+    expect(entraEnAlcance("422005", alcance)).toBe(true);
+    expect(entraEnAlcance("422010", alcance)).toBe(false);
+  });
+
+  it("Activos fijos deja en firme sus subgrupos y cada depreciación de la cédula", () => {
+    const alcanceAfi = alcanceExplicitoDelCruce(cedulaDe("AFI", ["15"]), cruceCon(["1516", "159205", "1520+1528", "159210+159220"]));
+    expect(alcanceAfi).toEqual(["1516", "1520", "1528", "159205", "159210", "159220"]);
+  });
+
+  it("Nómina suma sus pasivos a la lista; un módulo sin ampliaciones cierra por cuenta de 4", () => {
+    const alcanceNom = alcanceExplicitoDelCruce(cedulaDe("NOM", ["5105"]), cruceCon(["510506"]));
+    expect(alcanceNom).toHaveLength(29);
+    expect(alcanceNom).toContain("251010");
+    expect(alcanceExplicitoDelCruce(cedulaDe("INV", ["14"]), cruceCon(["1435"]))).toBeNull();
   });
 });

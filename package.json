@@ -28,6 +28,7 @@
     "db:purgar:cuentas-sin-codigo": "tsx scripts/purgar-cuentas-cliente-sin-codigo.ts",
     "db:completar:jerarquia": "tsx scripts/completar_jerarquia.ts",
     "db:importar:erps-clientes": "tsx scripts/importar-erps-clientes-por-nit.ts",
+    "db:migrar:patrones": "tsx scripts/migrar-patrones-desde-perfiles.ts",
     "db:studio": "prisma studio"
   },
   "dependencies": {

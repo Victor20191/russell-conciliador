@@ -317,8 +317,9 @@ function pluralClasificador(etiqueta: string): string {
 
 // Conjunto INICIAL de cuentas por clasificador. Prefill: si no hay cuentas guardadas y el
 // clasificador ES un código de cuenta (≥ los dígitos del nivel), se propone su prefijo del
-// nivel de la cédula (queda «sin guardar»).
-function cuentasInicialesConsolidado(consolidado: ConsolidadoVm[], nivel: NivelCruce): Record<string, string[]> {
+// nivel de la cédula (queda «sin guardar»). Solo se propone una cuenta que el módulo ofrece: en
+// una cédula mixta primero la de 6 (422005) y luego el subgrupo; la 1592 de Activos fijos no.
+function cuentasInicialesConsolidado(consolidado: ConsolidadoVm[], nivel: NivelCruce, validas: ReadonlySet<string>): Record<string, string[]> {
   return Object.fromEntries(consolidado.map((c) => {
     const guardadas = c.cuentas4.map((x) => x.codigo);
     if (guardadas.length) return [c.clasificador, guardadas];
@@ -329,7 +330,10 @@ function cuentasInicialesConsolidado(consolidado: ConsolidadoVm[], nivel: NivelC
       return [c.clasificador, s.destino === "gasto" && s.via !== "multi" && s.cuentas.length === 1 ? [...s.cuentas] : []];
     }
     const digitos = c.clasificador.replace(/\D/g, "");
-    return [c.clasificador, digitos.length >= nivel ? [digitos.slice(0, nivel)] : []];
+    const candidatas = [digitos.length >= 6 ? digitos.slice(0, 6) : "", digitos.length >= nivel ? digitos.slice(0, nivel) : ""]
+      .filter((cuenta) => cuenta.length === nivel || (cuenta.length === 6 && validas.has(cuenta)));
+    const propuesta = validas.size > 0 ? candidatas.find((cuenta) => validas.has(cuenta)) : candidatas.find((cuenta) => cuenta.length === nivel);
+    return [c.clasificador, propuesta ? [propuesta] : []];
   }));
 }
 
@@ -489,19 +493,26 @@ function ConsolidadoTab({
     subgruposModulo: new Set(cuentas.map((c) => c.codigo)),
     homologacionCliente: new Map(Object.entries(resolucionCliente)),
   }), [cuentas, nivelCruce, resolucionCliente]);
+  // Cédula MIXTA: un módulo a 4 que además concilia cuentas de 6 (Ingresos 422005).
+  const cedulaMixta = nivelCruce === 4 && cuentas.some((c) => c.codigo.length === 6);
+  const etiquetaNivel = cedulaMixta ? "4 o 6" : String(nivelCruce);
   // Cuentas del CLIENTE que el desplegable ofrece: solo las que resuelven DENTRO del
   // módulo (las de fuera se rechazan al aceptarlas, no tiene sentido sugerirlas). A 6
   // dígitos la clave es la cuenta completa: una homologación solo al subgrupo no se ofrece.
   const opcionesCliente = useMemo(
     () => Object.entries(resolucionCliente)
-      .map(([codigo, d]) => ({ codigo, nombre: d.nombre, clave: nivelCruce === 6 ? d.cuenta6 ?? null : d.cuenta4 }))
+      .map(([codigo, d]) => ({
+        codigo,
+        nombre: d.nombre,
+        clave: d.cuenta6 && entornoResolucion.subgruposModulo.has(d.cuenta6) ? d.cuenta6 : nivelCruce === 6 ? d.cuenta6 ?? null : d.cuenta4,
+      }))
       .filter((d): d is { codigo: string; nombre: string; clave: string } => d.clave != null && entornoResolucion.subgruposModulo.has(d.clave))
       .map((d) => ({ codigo: d.codigo, etiqueta: `${d.codigo}${d.nombre ? ` · ${d.nombre}` : ""} → R-${d.clave}` }))
       .sort((a, b) => a.codigo.localeCompare(b.codigo)),
     [resolucionCliente, entornoResolucion, nivelCruce],
   );
   // Cuentas (1..N) por clasificador — conjunto EDITABLE y el último persistido (para «sucias»).
-  const [valores, setValores] = useState<Record<string, string[]>>(() => cuentasInicialesConsolidado(consolidado, nivelCruce));
+  const [valores, setValores] = useState<Record<string, string[]>>(() => cuentasInicialesConsolidado(consolidado, nivelCruce, new Set(cuentas.map((c) => c.codigo))));
   const [guardados, setGuardados] = useState<Record<string, string[]>>(() =>
     Object.fromEntries(consolidado.map((c) => [c.clasificador, c.cuentas4.map((x) => x.codigo)])),
   );
@@ -732,7 +743,7 @@ function ConsolidadoTab({
               <th className="px-3 py-2 font-semibold">{clasificadorEtiqueta}</th>
               <th className="px-3 py-2 text-right font-semibold">Filas</th>
               <th className="min-w-[140px] whitespace-nowrap px-3 py-2 text-right font-semibold">Total</th>
-              <th className="px-3 py-2 font-semibold">Cuentas ({nivelCruce} díg) — una o varias</th>
+              <th className="px-3 py-2 font-semibold">Cuentas ({etiquetaNivel} díg) — una o varias</th>
               <th className="px-3 py-2 text-center font-semibold">💬</th>
             </tr>
           </thead>
@@ -821,9 +832,9 @@ function ConsolidadoTab({
                             value={nuevos[c.clasificador] ?? ""}
                             onChange={(e) => setNuevos((p) => ({ ...p, [c.clasificador]: e.target.value }))}
                             onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); agregarCuenta(c.clasificador); } }}
-                            placeholder={nivelCruce === 6 ? `${cuentas[0]?.codigo ?? "510506"} o ${cuentas[0]?.codigo ?? "510506"}01` : "1435 o 143505"}
+                            placeholder={nivelCruce === 6 ? `${cuentas[0]?.codigo ?? "510506"} o ${cuentas[0]?.codigo ?? "510506"}01` : cedulaMixta ? `${cuentas.find((x) => x.codigo.length === 4)?.codigo ?? "4135"} o ${cuentas.find((x) => x.codigo.length === 6)?.codigo ?? "422005"}` : "1435 o 143505"}
                             inputMode="numeric"
-                            title={`Escribe la cuenta Russell de ${nivelCruce} dígitos o la cuenta del cliente: se resuelve por su homologación`}
+                            title={`Escribe la cuenta Russell de ${etiquetaNivel} dígitos o la cuenta del cliente: se resuelve por su homologación`}
                             className="w-24 rounded-md border border-ink-200 bg-white px-2 py-1 text-[12px] tabular-nums text-ink-700 outline-none focus:border-blue-400"
                           />
                           <button type="button" onClick={() => agregarCuenta(c.clasificador)} className="rounded-md border border-ink-300 bg-white px-2 py-1 text-[11px] font-semibold text-ink-600 hover:bg-blue-50 hover:text-blue-700">+ cuenta</button>
@@ -2524,6 +2535,7 @@ function NovedadesTab({ novedades, titulo }: { novedades: NovedadesVm; titulo?: 
 }
 
 const origenVersion = (origen: string | null): string => {
+  if (origen === "patron") return "Patrón de archivo";
   if (origen === "perfil") return "Perfil guardado";
   if (origen === "manual") return "Mapeo manual";
   if (origen === "ia") return "Sugerencia automática";

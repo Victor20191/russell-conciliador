@@ -21,7 +21,7 @@
 
 import type { RangoCargue } from "../compuerta-cruce";
 import { etiquetaSubcuentaPuc } from "./grupos-concepto";
-import { digitosCuenta, esClaseNomina } from "./homologacion";
+import { digitosCuenta, esClaseNomina, sinClaseDeGasto } from "./homologacion";
 import type { RenglonConsolidadoNomina } from "./consolidado-nomina";
 
 export type BaseContableNomina = "movimiento" | "saldo_acumulado";
@@ -125,6 +125,9 @@ export function construirVistaSubcuenta(input: {
   const sinSubcuenta: ConceptoSubcuenta[] = [];
   for (const r of input.renglones) {
     if (r.sugerencia.destino !== "gasto") continue;
+    // Los conceptos que cruzan contra un pasivo de la cédula (251010…) no son gasto de personal:
+    // la vista por subcuenta es el papel del gasto y los dejaría en el balde equivocado.
+    if (r.sugerencia.cuentas.length > 0 && r.sugerencia.cuentas.every(sinClaseDeGasto)) continue;
     const sub = r.sugerencia.subcuentaPuc;
     if (!sub) { sinSubcuenta.push(conceptoDe(r)); continue; }
     bucket(sub).conceptos.push(conceptoDe(r));

@@ -4,7 +4,7 @@ import { alcanceLecturaUsuario } from "@/lib/rbac/contexto";
 import { PageHeader } from "@/components/ui";
 import { MODULO_CONCEPTOS_NOMINA } from "@/lib/import/conceptos-nomina";
 import { descriptorModulo } from "@/lib/modulos/descriptores";
-import { cargarCuentasEstandarCruce } from "@/lib/modulos/cruce-contable-servidor";
+import { cargarCuentasEstandarDeCedula } from "@/lib/modulos/cruce-contable-servidor";
 import { grupoConcepto } from "@/lib/modulos/nomina/grupos-concepto";
 import ConceptosNominaClient, { type ConceptoRow } from "./conceptos-nomina-client";
 
@@ -45,7 +45,7 @@ export default async function ConceptosNominaPage() {
       orderBy: [{ clasificador: "asc" }, { agrupador: "asc" }, { cuenta6: "asc" }, { cuentaCliente: "asc" }],
     }),
     prisma.subgrupoEstandar.findMany({ select: { codigo: true, nombre: true } }),
-    cargarCuentasEstandarCruce(descriptorModulo(MODULO_CONCEPTOS_NOMINA)?.crucePorTercero.cuentasRussell6),
+    cargarCuentasEstandarDeCedula(descriptorModulo(MODULO_CONCEPTOS_NOMINA)),
   ]);
 
   const porCliente = new Map(clientes.map((c) => [c.id, c]));

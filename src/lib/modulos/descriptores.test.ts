@@ -3,13 +3,17 @@ import {
   bloqueoAnexoPorVerificacionesCriticasModulo,
   bloqueoCrucePorVerificacionesCriticasModulo,
   bloqueoVerificacionesCriticasModulo,
+  CUENTAS_PASIVO_NOMINA,
+  CUENTAS_RUSSELL_INGRESOS,
   CUENTAS_RUSSELL_NOMINA,
   MODULOS_IMPORT,
+  RELACION_DEPRECIACION_AFI,
   descriptorModulo,
   modulosSoportados,
   nivelCruceModulo,
 } from "./descriptores";
 import PUC_MAESTRO from "../../../prisma/data/puc-maestro-russell.json";
+import SUBGRUPOS from "../../../prisma/data/subgrupos-russell.json";
 
 describe("descriptores de módulos", () => {
   it("registra los 6 módulos de conciliación", () => {
@@ -89,14 +93,14 @@ describe("descriptores de módulos", () => {
   it("Cartera y CxP concilian a 6 dígitos contra las cuentas Russell de su módulo", () => {
     expect([nivelCruceModulo(MODULOS_IMPORT.CAR), nivelCruceModulo(MODULOS_IMPORT.CXP)]).toEqual([6, 6]);
     expect(MODULOS_IMPORT.CAR.crucePorTercero.cuentasRussell6).toEqual(["130505", "130510", "280505"]);
-    expect(MODULOS_IMPORT.CXP.crucePorTercero.cuentasRussell6).toHaveLength(12);
+    expect(MODULOS_IMPORT.CXP.crucePorTercero.cuentasRussell6).toHaveLength(13);
   });
 
   it("Nómina cruza a 6 dígitos contra las 25 cuentas de gasto y costo de personal (RF-NOM-05)", () => {
     expect(nivelCruceModulo(MODULOS_IMPORT.NOM)).toBe(6);
-    // Nómina, Cartera y CxP concilian por cuenta Russell de 6 dígitos; los demás, por subgrupo.
+    // Nómina, Cartera, CxP e Ingresos concilian por cuenta Russell de 6 dígitos; los demás, por subgrupo.
     for (const d of Object.values(MODULOS_IMPORT)) {
-      expect(nivelCruceModulo(d), d.codigo).toBe(["NOM", "CAR", "CXP"].includes(d.codigo) ? 6 : 4);
+      expect(nivelCruceModulo(d), d.codigo).toBe(["NOM", "CAR", "CXP", "ING"].includes(d.codigo) ? 6 : 4);
     }
     expect(CUENTAS_RUSSELL_NOMINA).toHaveLength(25);
     expect(new Set(CUENTAS_RUSSELL_NOMINA).size).toBe(25);
@@ -219,12 +223,67 @@ describe("contratos nuevos del descriptor (Cartera y Cuentas por Pagar)", () => 
     }
   });
 
-  it("Cuentas por Pagar concilia contra las doce cuentas depuradas de RF-CXP-06, con naturaleza crédito", () => {
+  it("Cuentas por Pagar concilia contra las trece cuentas de RF-CXP-06 (con 233505), con naturaleza crédito", () => {
     const CXP = MODULOS_IMPORT.CXP;
     expect(CXP.crucePorTercero).toMatchObject({ habilitado: true, rolClave: "nit", naturaleza: "C", detalleTercero: true, exigidoParaCierre: true });
-    expect(CXP.crucePorTercero.cuentasRussell6).toEqual(["220505", "221005", "233510", "233520", "233525", "233530", "233540", "233555", "233595", "133005", "133010", "133095"]);
+    expect(CXP.crucePorTercero.cuentasRussell6).toEqual(["220505", "221005", "233505", "233510", "233520", "233525", "233530", "233540", "233555", "233595", "133005", "133010", "133095"]);
     expect(CXP.valorDerivado).toEqual({ deFamilia: "edades", prevalece: "columna" });
     expect(CXP.noNegativos).toBeUndefined();
     expect(CXP.columnas.find((c) => c.nombre === "nit")?.requerido).toBe(true);
+  });
+});
+
+describe("ampliaciones de la cédula contable (16/Sep/2026)", () => {
+  const codigosPuc = new Set(PUC_MAESTRO.accounts.map((a) => a.code));
+  const subgrupos = new Set(SUBGRUPOS.subgrupos.map((s) => s.codigo));
+
+  it("Nómina suma por movimiento los cuatro pasivos laborales, sin tocar las 25 de gasto", () => {
+    expect(CUENTAS_PASIVO_NOMINA).toEqual(["251010", "251505", "252005", "252505"]);
+    expect(MODULOS_IMPORT.NOM.cedula?.cuentasAdicionales).toEqual(CUENTAS_PASIVO_NOMINA.map((cuenta) => ({ cuenta, baseCalculo: "movimiento" })));
+    expect(MODULOS_IMPORT.NOM.crucePorTercero.cuentasRussell6).toBe(CUENTAS_RUSSELL_NOMINA);
+    for (const cuenta of CUENTAS_PASIVO_NOMINA) expect(codigosPuc.has(cuenta), cuenta).toBe(true);
+  });
+
+  it("Ingresos concilia a 6 dígitos las siete cuentas de la 41 y suma la 422005 por movimiento", () => {
+    const ING = MODULOS_IMPORT.ING;
+    expect(nivelCruceModulo(ING)).toBe(6);
+    expect(CUENTAS_RUSSELL_INGRESOS).toEqual(["410505", "410510", "410515", "410520", "410525", "410530", "417505"]);
+    expect(ING.cedula).toEqual({
+      cuentas6: CUENTAS_RUSSELL_INGRESOS,
+      cuentasAdicionales: [{ cuenta: "422005", baseCalculo: "movimiento" }],
+    });
+    // La lista es solo de la cédula: el cruce por tercero de Ingresos no cambia.
+    expect(ING.crucePorTercero).toEqual({ habilitado: true });
+    for (const cuenta of [...CUENTAS_RUSSELL_INGRESOS, "422005"]) expect(codigosPuc.has(cuenta), cuenta).toBe(true);
+  });
+
+  it("Activos fijos abre la 1592 y cruza la depreciación contra la cuenta de cada activo", () => {
+    const AFI = MODULOS_IMPORT.AFI;
+    expect(nivelCruceModulo(AFI)).toBe(4);
+    expect(AFI.cedula?.subgruposAbiertos).toEqual([{ subgrupo: "1592", naturaleza: "C" }]);
+    expect(AFI.cedula?.valorRelacionado?.rol).toBe("depreciacion");
+    expect(AFI.columnas.map((c) => c.nombre)).toContain("depreciacion");
+    expect(RELACION_DEPRECIACION_AFI).toEqual([
+      { subgrupo: "1516", cuenta6: "159205" },
+      { subgrupo: "1520", cuenta6: "159210" },
+      { subgrupo: "1524", cuenta6: "159215" },
+      { subgrupo: "1528", cuenta6: "159220" },
+      { subgrupo: "1540", cuenta6: "159235" },
+      { subgrupo: "1584", cuenta6: "159280" },
+    ]);
+    for (const { subgrupo, cuenta6 } of RELACION_DEPRECIACION_AFI) {
+      expect(subgrupos.has(subgrupo), subgrupo).toBe(true);
+      expect(cuenta6.startsWith("1592"), cuenta6).toBe(true);
+    }
+  });
+
+  it("las cuentas adicionales caen en subgrupos del plan y los demás módulos no amplían su cédula", () => {
+    for (const d of Object.values(MODULOS_IMPORT)) {
+      for (const { cuenta } of d.cedula?.cuentasAdicionales ?? []) {
+        expect(cuenta, `${d.codigo} ${cuenta}`).toMatch(/^\d{6}$/);
+        expect(subgrupos.has(cuenta.slice(0, 4)), `${d.codigo} ${cuenta}`).toBe(true);
+      }
+      if (!["NOM", "ING", "AFI"].includes(d.codigo)) expect(d.cedula, d.codigo).toBeUndefined();
+    }
   });
 });

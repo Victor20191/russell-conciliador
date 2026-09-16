@@ -210,3 +210,20 @@ describe("construirCruceContable", () => {
     expect(r.filas.map((f) => f.cuenta4)).toEqual(["1430", "1499"]);
   });
 });
+
+describe("orden de la cédula", () => {
+  it("una llave de orden deja cada depreciación debajo de su activo", () => {
+    const orden = (clave: string) => ({ "159205": "1516~159205", "159210": "1520~159210" }[clave] ?? clave);
+    const consolidado: ClasificadorCruce[] = [
+      { clasificador: "EDIF", total: 10, cuentas4: ["1516"] },
+      { clasificador: "EDIF dep", total: 3, cuentas4: ["159205"] },
+      { clasificador: "MAQ", total: 20, cuentas4: ["1520"] },
+      { clasificador: "MAQ dep", total: 4, cuentas4: ["159210"] },
+    ];
+    const r = construirCruceContable({ contablePorCuenta: { "159299": 1 }, consolidado, nombrePorCuenta, ordenCuenta: orden });
+    expect(r.filas.map((f) => f.cuenta4)).toEqual(["1516", "159205", "1520", "159210", "159299"]);
+    // Sin llave, por código como siempre.
+    const s = construirCruceContable({ contablePorCuenta: { "159299": 1 }, consolidado, nombrePorCuenta });
+    expect(s.filas.map((f) => f.cuenta4)).toEqual(["1516", "1520", "159205", "159210", "159299"]);
+  });
+});

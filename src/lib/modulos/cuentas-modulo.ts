@@ -6,7 +6,9 @@
 import {
   normalizarPrefijo,
   PREVALIDADOR_CATALOGO_FABRICA,
+  type BaseCalculo,
 } from "@/lib/balance/prevalidador/catalogo";
+import type { ConfiguracionCedula } from "./descriptores";
 
 export type PrefijoModulo = { moduloCodigo: string; cuentaRussell: string; activa?: boolean };
 export type SubgrupoOpcion = { codigo: string; nombre: string };
@@ -104,4 +106,194 @@ export function filtrarCuentasEstandarPorModulo<T extends SubgrupoOpcion>(
   cuentasRussell6?: readonly string[] | null,
 ): T[] {
   return cuentas.filter((c) => cuentaDelModulo(c.codigo, 6, prefijos, cuentasRussell6));
+}
+
+// ===== Cédula contable resuelta: nivel, prefijos y ampliaciones del descriptor =====
+// La cédula ya no depende solo del prevalidador: el descriptor puede sumar cuentas de 6 fuera de
+// sus prefijos (Nómina 25xx, Ingresos 422005), abrir un subgrupo a 6 en una cédula a 4 (Activos
+// fijos 1592) y cruzar un segundo valor del archivo contra una cuenta relacionada (la depreciación
+// contra su 1592xx). Todo el que llavea la cédula (servidor, página, export, acciones, cierre)
+// pasa por `cedulaModulo` + `claveCedula` para que la clave de una fila sea la misma en todos.
+
+export type CedulaModulo = {
+  nivel: NivelCruce;
+  /** Prefijos del prevalidador (2 o 4 dígitos). */
+  prefijos: readonly string[];
+  /** Lista explícita de cuentas de 6 (`cedula.cuentas6` o `crucePorTercero.cuentasRussell6`); null = sin acotar. */
+  lista6: ReadonlySet<string> | null;
+  /** Cuenta de 6 adicional → su base de cálculo. */
+  adicionales: ReadonlyMap<string, BaseCalculo>;
+  /** Subgrupo abierto a 6 → naturaleza de presentación de sus cuentas. */
+  abiertos: ReadonlyMap<string, "D" | "C">;
+  /** Subgrupo del activo → cuenta de 6 donde cruza el valor relacionado. */
+  relacionPorSubgrupo: ReadonlyMap<string, string>;
+  /** Rol del archivo con el valor relacionado (`depreciacion`), o null. */
+  rolRelacionado: string | null;
+};
+
+/** Lo que `cedulaModulo` lee del descriptor (tipado estructural para no acoplar las pruebas). */
+export type DescriptorCedula = {
+  nivelCruce?: 4 | 6;
+  cedula?: ConfiguracionCedula;
+  crucePorTercero: { cuentasRussell6?: readonly string[] };
+};
+
+const seisDigitos = (v: string | null | undefined): string => {
+  const d = normalizarPrefijo(v);
+  return d.length >= 6 ? d.slice(0, 6) : "";
+};
+
+export function cedulaModulo(descriptor: DescriptorCedula | null | undefined, prefijos: readonly string[]): CedulaModulo {
+  const cfg = descriptor?.cedula;
+  const lista = cfg?.cuentas6 ?? descriptor?.crucePorTercero.cuentasRussell6;
+  return {
+    nivel: descriptor?.nivelCruce === 6 ? 6 : 4,
+    prefijos,
+    lista6: lista?.length ? new Set(lista) : null,
+    adicionales: new Map((cfg?.cuentasAdicionales ?? []).map((a) => [normalizarPrefijo(a.cuenta), a.baseCalculo])),
+    abiertos: new Map((cfg?.subgruposAbiertos ?? []).map((s) => [normalizarPrefijo(s.subgrupo), s.naturaleza])),
+    relacionPorSubgrupo: new Map((cfg?.valorRelacionado?.pares ?? []).map((p) => [normalizarPrefijo(p.subgrupo), normalizarPrefijo(p.cuenta6)])),
+    rolRelacionado: cfg?.valorRelacionado?.rol ?? null,
+  };
+}
+
+/**
+ * Cuentas de 6 que la cédula concilia por lista (`cedula.cuentas6` o `cuentasRussell6`) más las
+ * adicionales. Nómina lo usa para decidir si un concepto cruza (gasto 51/52/72/73 y pasivos 25xx).
+ */
+export function cuentasCedula6(descriptor: DescriptorCedula | null | undefined): string[] {
+  const lista = descriptor?.cedula?.cuentas6 ?? descriptor?.crucePorTercero.cuentasRussell6 ?? [];
+  const adicionales = (descriptor?.cedula?.cuentasAdicionales ?? []).map((a) => normalizarPrefijo(a.cuenta));
+  return [...new Set([...lista, ...adicionales])];
+}
+
+/** ¿La cédula mezcla claves de 4 y de 6 dígitos? (módulo a 4 con cuentas de 6). */
+export function cedulaMixta(cedula: CedulaModulo): boolean {
+  return cedula.nivel === 4 && (cedula.adicionales.size > 0 || cedula.abiertos.size > 0);
+}
+
+/**
+ * Clave de la cédula para una homologación (`cuenta6Russell` del balance, o `cuenta_6`/`cuenta_4`
+ * de la consolidación del módulo), o `null` si no entra a la cédula al nivel que le toca:
+ *  - una cuenta adicional es su propia clave, esté o no bajo los prefijos;
+ *  - a 6, la cuenta completa (la lista la aplica el llamador: lo de fuera se informa aparte);
+ *  - a 4, el subgrupo, salvo que esté abierto: ahí manda la cuenta de 6 y sin ella no hay clave.
+ * No decide si la cuenta es del módulo (eso lo hacen `subgruposCedula`/`cuentaAsignableCedula`):
+ * una asignación legada fuera del módulo conserva su clave, como antes.
+ */
+export function claveCedula(cedula: CedulaModulo, cuenta6: string | null | undefined, cuenta4?: string | null): string | null {
+  const c6 = seisDigitos(cuenta6);
+  if (c6 && cedula.adicionales.has(c6)) return c6;
+  const sub = c6 ? c6.slice(0, 4) : normalizarPrefijo(cuenta4).slice(0, 4) || normalizarPrefijo(cuenta6).slice(0, 4);
+  if (sub.length !== 4) return null;
+  if (cedula.nivel === 6 || cedula.abiertos.has(sub)) return c6 || null;
+  return normalizarPrefijo(cuenta4).slice(0, 4) || sub;
+}
+
+/** ¿La cuenta de 6 queda fuera de la lista explícita del módulo? (se informa «fuera del módulo»). */
+export function fueraDeListaCedula(cedula: CedulaModulo, cuenta6: string | null | undefined): boolean {
+  const c6 = seisDigitos(cuenta6);
+  if (!cedula.lista6 || !c6) return false;
+  return !cedula.lista6.has(c6) && !cedula.adicionales.has(c6);
+}
+
+/**
+ * ¿Es `codigo` una cuenta que el usuario puede asignarle a un clasificador? Las cuentas de un
+ * subgrupo abierto NO: en Activos fijos la 1592xx se deriva por la relación con el activo.
+ */
+export function cuentaAsignableCedula(cedula: CedulaModulo, codigo: string): boolean {
+  const c = normalizarPrefijo(codigo);
+  if (c.length === 6 && cedula.adicionales.has(c)) return true;
+  if (c.length !== cedula.nivel) return false;
+  const sub = c.slice(0, 4);
+  if (!cuenta4DelModulo(sub, cedula.prefijos)) return false;
+  if (cedula.nivel === 4) return !cedula.abiertos.has(sub);
+  return !cedula.lista6 || cedula.lista6.has(c);
+}
+
+/** Longitudes de cuenta que la cédula admite al asignar (4, 6 o ambas). */
+export function longitudesCedula(cedula: CedulaModulo): ReadonlySet<number> {
+  return new Set(cedula.nivel === 6 ? [6] : cedula.adicionales.size > 0 ? [4, 6] : [4]);
+}
+
+/**
+ * Subgrupos de 4 cuyas cuentas homologadas pueden entrar a la cédula: los de los prefijos más los
+ * de las cuentas adicionales (2510 en Nómina, 4220 en Ingresos).
+ */
+export function subgruposCedula(cedula: CedulaModulo, subgrupos: readonly SubgrupoOpcion[]): Set<string> {
+  const codigos = new Set(filtrarSubgruposPorModulo(subgrupos, cedula.prefijos).map((s) => s.codigo));
+  for (const c of cedula.adicionales.keys()) codigos.add(c.slice(0, 4));
+  return codigos;
+}
+
+/**
+ * Cuentas de 6 cuyos nombres necesita la cédula: `null` = todo el plan (un subgrupo abierto o una
+ * cédula a 6 sin lista), `[]` = ninguna (cédula a 4 sin ampliaciones).
+ */
+export function cuentas6ACargarCedula(cedula: CedulaModulo): readonly string[] | null {
+  if (cedula.abiertos.size > 0) return null;
+  if (cedula.nivel === 6) return cedula.lista6 ? [...new Set([...cedula.lista6, ...cedula.adicionales.keys()])] : null;
+  return [...cedula.adicionales.keys()];
+}
+
+/**
+ * Cuentas que el Consolidado ofrece para asignar (el datalist y la validación de la acción): a 6,
+ * las cuentas del plan de la lista; a 4, los subgrupos no abiertos; en ambos, las adicionales.
+ */
+export function opcionesCedula<T extends SubgrupoOpcion>(cedula: CedulaModulo, subgrupos: readonly T[], cuentasEstandar: readonly T[]): T[] {
+  const base = cedula.nivel === 6
+    ? cuentasEstandar.filter((c) => cuentaAsignableCedula(cedula, c.codigo))
+    : subgrupos.filter((s) => cuentaAsignableCedula(cedula, s.codigo));
+  const vistos = new Set(base.map((c) => c.codigo));
+  const extra = cuentasEstandar.filter((c) => cedula.adicionales.has(c.codigo) && !vistos.has(c.codigo));
+  return [...base, ...extra].sort((a, b) => (a.codigo < b.codigo ? -1 : a.codigo > b.codigo ? 1 : 0));
+}
+
+/**
+ * Llave de ORDEN de una clave de la cédula: la cuenta relacionada va justo debajo de su activo
+ * (159205 tras 1516), el resto por código.
+ */
+export function ordenClaveCedula(cedula: CedulaModulo, clave: string): string {
+  const primera = clave.split("+")[0] ?? clave;
+  for (const [sub, c6] of cedula.relacionPorSubgrupo) if (c6 === primera) return `${sub}~${primera}`;
+  return primera;
+}
+
+/**
+ * Entradas del lado módulo por el VALOR RELACIONADO del archivo (depreciación): por clasificador,
+ * suma en valor absoluto del rol hacia la cuenta de 6 relacionada con cada subgrupo asignado. Un
+ * clasificador con depreciación cuyas cuentas no tienen relación (terrenos 1504) queda sin cuenta:
+ * sale en el aviso «sin cuenta Russell» con el sufijo del rol, en vez de perderse.
+ */
+export function entradasValorRelacionado(
+  cedula: CedulaModulo,
+  detalles: readonly { clasificador: string | null; datos?: Record<string, unknown> | null }[],
+  cuentasPorClasificador: ReadonlyMap<string, readonly string[]>,
+  etiquetaRol: string,
+): { clasificador: string; total: number; cuentas4: string[] }[] {
+  const rol = cedula.rolRelacionado;
+  if (!rol) return [];
+  const suma = new Map<string, number>();
+  for (const d of detalles) {
+    const v = aNumero(d.datos?.[rol]);
+    if (v == null || v === 0) continue;
+    const clasificador = d.clasificador?.trim() || "(sin clasificar)";
+    suma.set(clasificador, (suma.get(clasificador) ?? 0) + v);
+  }
+  const salida: { clasificador: string; total: number; cuentas4: string[] }[] = [];
+  for (const [clasificador, bruto] of suma) {
+    const total = Math.round(Math.abs(bruto) * 100) / 100;
+    if (total === 0) continue;
+    const cuentas = [...new Set((cuentasPorClasificador.get(clasificador) ?? [])
+      .map((c) => cedula.relacionPorSubgrupo.get(c))
+      .filter((c): c is string => !!c))].sort();
+    salida.push({ clasificador: `${clasificador} · ${etiquetaRol}`, total, cuentas4: cuentas });
+  }
+  return salida.sort((a, b) => a.clasificador.localeCompare(b.clasificador));
+}
+
+// El transform guarda los roles monetarios como número; un texto solo cuenta si es un número limpio.
+function aNumero(v: unknown): number | null {
+  const n = typeof v === "number" ? v : typeof v === "string" && v.trim() ? Number(v.trim()) : NaN;
+  return Number.isFinite(n) ? n : null;
 }

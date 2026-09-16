@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import prisma from "@/lib/prisma";
 import { authorizePermiso } from "@/lib/rbac";
-import { descriptorModulo, nivelCruceModulo } from "@/lib/modulos/descriptores";
+import { descriptorModulo } from "@/lib/modulos/descriptores";
 import { consolidarPorClasificador } from "@/lib/modulos/promocion";
 import { crearExportacionModulo, type ColumnaExportModulo, type CruceNominaExportModulo, type CruceTerceroExportModulo } from "@/lib/export/modulo";
 import { columnasDetalleModulo } from "@/lib/modulos/cartera/columnas-cartera";
-import { cargarCuentasEstandarCruce, cargarInsumosCruceModulo, construirCruceContableModulo } from "@/lib/modulos/cruce-contable-servidor";
-import { claveCruceContable } from "@/lib/modulos/cuentas-modulo";
+import { cargarCuentasEstandarDeCedula, cargarInsumosCruceModulo, construirCruceContableModulo } from "@/lib/modulos/cruce-contable-servidor";
+import { cedulaModulo, claveCedula } from "@/lib/modulos/cuentas-modulo";
 import { claveConsolidado } from "@/lib/modulos/nomina/clave-consolidado";
 import { cruceTerceroDeCargue, etiquetasCruceTercero } from "@/lib/modulos/cruce-tercero-servidor";
 import { mensajeErrorBD } from "@/lib/errores";
@@ -35,15 +35,16 @@ export async function GET(_req: Request, { params }: { params: Promise<{ codigo:
     const scope = await authorizePermiso("modulos_datos:ver", { clientId: encabezado.clienteId });
     if (!scope.ok) return NextResponse.json({ message: scope.message }, { status: 403 });
 
-    // Misma clave que la pantalla: subgrupo de 4 dígitos, o la cuenta Russell completa en Nómina.
-    const nivel = nivelCruceModulo(descriptor);
+    // Misma clave que la pantalla: subgrupo de 4 dígitos, la cuenta Russell completa o una mezcla.
+    // La clave no depende de los prefijos del prevalidador, así que no se carga el catálogo.
+    const cedula = cedulaModulo(descriptor, []);
     const [consolidacionRows, subgrupos, cuentasEstandar] = await Promise.all([
       prisma.consolidacionModuloCliente.findMany({
         where: { clienteId: encabezado.clienteId, moduloCodigo },
         select: { clasificador: true, agrupador: true, descripcion: true, cuenta4: true, cuenta6: true },
       }),
       prisma.subgrupoEstandar.findMany({ select: { codigo: true, nombre: true } }),
-      nivel === 6 ? cargarCuentasEstandarCruce(descriptor.crucePorTercero.cuentasRussell6) : Promise.resolve([]),
+      cargarCuentasEstandarDeCedula(descriptor),
     ]);
     const nombrePorCuenta = new Map([...subgrupos, ...cuentasEstandar].map((s) => [s.codigo, s.nombre]));
     const cuentasPorClasificador = new Map<string, string[]>();
@@ -52,7 +53,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ codigo:
     // y la homologación se lee por esa misma clave («1 ∥ GYA»), con la base del concepto de respaldo.
     const porAgrupador = descriptor.nomina != null;
     for (const r of consolidacionRows) {
-      const clave = nivel === 6 ? claveCruceContable(r.cuenta6, 6) : r.cuenta4;
+      const clave = claveCedula(cedula, r.cuenta6, r.cuenta4);
       const llave = porAgrupador ? claveConsolidado(r.clasificador, r.agrupador) : r.clasificador;
       if (clave) cuentasPorClasificador.set(llave, [...(cuentasPorClasificador.get(llave) ?? []), clave]);
       if (r.descripcion && !descripcionPorClasificador.has(r.clasificador)) descripcionPorClasificador.set(r.clasificador, r.descripcion);

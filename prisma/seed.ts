@@ -43,6 +43,8 @@ async function main() {
   await prisma.module.deleteMany();
   await prisma.client.deleteMany();
   await prisma.erpProcess.deleteMany();
+  // Las versiones de patrón referencian `erps` con FK RESTRICT: van antes.
+  await prisma.versionPatronArchivoModulo.deleteMany();
   await prisma.erp.deleteMany();
   await prisma.sector.deleteMany();
   await prisma.user.deleteMany();
@@ -77,10 +79,11 @@ async function main() {
       { code: "CONT", name: "Contabilidad", order: 10 },
       { code: "NOM", name: "Nómina", order: 20 },
       { code: "INV", name: "Inventarios", order: 30 },
-      { code: "ING", name: "Ingresos", order: 40 },
-      { code: "CAR", name: "Cartera", order: 50 },
-      { code: "CXP", name: "Cuentas por pagar", order: 60 },
-      { code: "AFI", name: "Activos fijos", order: 70 },
+      { code: "AFI", name: "Activos fijos", order: 40 },
+      // Cartera, CxP e Ingresos usan los aplicativos de Contabilidad: sus procesos quedan inactivos.
+      { code: "ING", name: "Ingresos", order: 50, active: false },
+      { code: "CAR", name: "Cartera", order: 60, active: false },
+      { code: "CXP", name: "Cuentas por pagar", order: 70, active: false },
     ],
   });
   const procesoContable = await prisma.erpProcess.findUniqueOrThrow({
@@ -142,6 +145,8 @@ async function main() {
       { code: "SIIGO", name: "SIIGO" },
       { code: "SAP", name: "SAP" },
       { code: "OFIMATICA", name: "Ofimática" },
+      // Archivos que no salen de un ERP: se mapean a mano en cada carga (sin patrones).
+      { code: "MANUAL", name: "Archivo manual", order: 999 },
     ],
   });
   const erpIdByCode = new Map(

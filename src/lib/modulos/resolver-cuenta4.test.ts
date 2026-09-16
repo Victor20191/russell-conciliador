@@ -127,6 +127,34 @@ describe("resolverCuenta4 a 6 dígitos (Nómina)", () => {
     const { nivel: _nivel, ...sinNivel } = ENTORNO_NOM;
     void _nivel;
     expect(resolverCuentaRussell("510506", sinNivel, 6)).toMatchObject({ ok: true, cuenta4: "510506" });
-    expect(resolverCuentaRussell("510506", sinNivel, 4)).toMatchObject({ ok: false, motivo: "fuera-del-modulo" });
+    // A 4, las claves de 6 del entorno son las de una cédula mixta y se aceptan tal cual; el
+    // subgrupo, que no es clave del entorno, sigue rechazado.
+    expect(resolverCuentaRussell("510506", sinNivel, 4)).toMatchObject({ ok: true, cuenta4: "510506" });
+    expect(resolverCuentaRussell("5105", sinNivel, 4)).toMatchObject({ ok: false });
+  });
+});
+
+describe("resolverCuenta4 en una cédula mixta (Ingresos: 41xx + 422005)", () => {
+  const ENTORNO_ING: EntornoResolucion = {
+    nivel: 4,
+    subgruposModulo: new Set(["4135", "4175", "422005"]),
+    homologacionCliente: new Map([
+      ["42200501", { cuenta4: "4220", cuenta6: "422005", nombre: "ARRIENDOS" }],
+      ["42201001", { cuenta4: "4220", cuenta6: "422010", nombre: "OTROS ARRIENDOS" }],
+      ["41350501", { cuenta4: "4135", cuenta6: "413505", nombre: "VENTAS" }],
+    ]),
+  };
+
+  it("acepta la cuenta Russell de 6 que el módulo concilia", () => {
+    expect(resolverCuenta4("422005", ENTORNO_ING)).toMatchObject({ ok: true, cuenta4: "422005", via: "russell" });
+  });
+
+  it("una cuenta del cliente homologada a la 422005 resuelve a la de 6; el resto, al subgrupo", () => {
+    expect(resolverCuenta4("42200501", ENTORNO_ING)).toMatchObject({ ok: true, cuenta4: "422005", via: "cliente" });
+    expect(resolverCuenta4("41350501", ENTORNO_ING)).toMatchObject({ ok: true, cuenta4: "4135", via: "cliente" });
+  });
+
+  it("otra cuenta de la 4220 no es del módulo", () => {
+    expect(resolverCuenta4("42201001", ENTORNO_ING)).toMatchObject({ ok: false, motivo: "fuera-del-modulo", cuenta4Real: "4220" });
   });
 });

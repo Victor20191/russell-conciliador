@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { CUENTAS_RUSSELL_NOMINA } from "../descriptores";
+import { CUENTAS_RUSSELL_NOMINA, MODULOS_IMPORT } from "../descriptores";
+import { cuentasCedula6 } from "../cuentas-modulo";
 import {
   claseDeCuentaCliente,
   codigoConceptoCanonico,
@@ -9,6 +10,7 @@ import {
   esCuentaComodin,
   resolverCuentaClienteARussell,
   resolverCuentaConcepto,
+  sinClaseDeGasto,
   subcuentaPucDe,
   sugerirClaseAgrupador,
   sugerirReparto,
@@ -282,5 +284,55 @@ describe("destino «fuera» y memoria de otros centros", () => {
     expect(resolverCuentaConcepto({ clasificador: "23", agrupador: "100101 - DIRECTORES" }, ctx)).toMatchObject({ cuentas: ["510595"], via: "memoria_clase" });
     // Con regla y sin cuenta de esa clase en la memoria: se transpone.
     expect(resolverCuentaConcepto({ clasificador: "23", agrupador: "100602 - SELLADORES" }, ctx)).toMatchObject({ cuentas: ["720540"], via: "memoria_clase", clase: "72" });
+  });
+});
+
+describe("pasivos laborales en la cédula de Nómina (16/Sep/2026)", () => {
+  const cedula = cuentasCedula6(MODULOS_IMPORT.NOM);
+  const ctx: ContextoHomologacion = {
+    memoria: [],
+    cuentasRussell6: cedula,
+    mapeoCliente: new Map([["25101001", "251010"], ["23700501", "237005"]]),
+  };
+
+  it("una cuenta del archivo homologada a 251010 cruza en la cédula", () => {
+    const r = resolverCuentaConcepto({ clasificador: "40", nombre: "CESANTIAS", cuentaArchivo: "25101001" }, ctx);
+    expect(r).toMatchObject({ cuentas: ["251010"], via: "archivo", destino: "gasto", cuentaCliente: "25101001" });
+  });
+
+  it("los demás pasivos siguen en el control de deducciones", () => {
+    const r = resolverCuentaConcepto({ clasificador: "234", nombre: "LIBRANZA", cuentaArchivo: "23700501" }, ctx);
+    expect(r).toMatchObject({ destino: "control", cuentas: [] });
+    // Sin la cuenta en la cédula, la 251010 también sería control (comportamiento anterior).
+    const sinPasivos = resolverCuentaConcepto({ clasificador: "40", cuentaArchivo: "25101001" }, { ...ctx, cuentasRussell6: CUENTAS_RUSSELL_NOMINA });
+    expect(sinPasivos.destino).toBe("control");
+  });
+
+  it("la memoria con 251010 no se transpone de clase", () => {
+    const memoria = [
+      { clasificador: "40", agrupador: "", cuenta6: "251010", grupo: "cesantias" },
+      { clasificador: "41", agrupador: "", cuenta6: "510530", grupo: "cesantias" },
+    ];
+    const reglasClase = new Map([["MOD", "72" as const]]);
+    const r40 = resolverCuentaConcepto({ clasificador: "40", agrupador: "MOD" }, { ...ctx, memoria, reglasClase });
+    expect(r40).toMatchObject({ cuentas: ["251010"], destino: "gasto" });
+    const r41 = resolverCuentaConcepto({ clasificador: "41", agrupador: "MOD" }, { ...ctx, memoria, reglasClase });
+    expect(r41).toMatchObject({ cuentas: ["720510"], via: "memoria_clase" });
+  });
+
+  it("la memoria de otros centros conserva el pasivo junto a la cuenta de la clase", () => {
+    const memoria = [
+      { clasificador: "40", agrupador: "ADMON", cuenta6: "510530" },
+      { clasificador: "40", agrupador: "ADMON", cuenta6: "251010" },
+    ];
+    const r = resolverCuentaConcepto({ clasificador: "40", agrupador: "PLANTA" }, { ...ctx, memoria, reglasClase: new Map([["PLANTA", "72" as const]]) });
+    expect(r.cuentas.sort()).toEqual(["251010", "720510"]);
+    expect(r.via).toBe("multi");
+  });
+
+  it("sinClaseDeGasto distingue los pasivos de las cuentas de gasto", () => {
+    expect(sinClaseDeGasto("251010")).toBe(true);
+    expect(sinClaseDeGasto("510506")).toBe(false);
+    expect(sinClaseDeGasto("7305")).toBe(false);
   });
 });

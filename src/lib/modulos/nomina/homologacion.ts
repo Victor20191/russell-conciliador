@@ -120,6 +120,15 @@ export function transponerClase(cuenta6: string, clase: ClaseNomina): string | n
   return "730505";
 }
 
+/**
+ * ¿La cuenta Russell de 6 dígitos NO es de una clase de gasto de personal? Son los pasivos que la
+ * cédula de Nómina concilia (251010, 251505, 252005, 252505): no se transponen entre clases.
+ */
+export function sinClaseDeGasto(cuenta6: string): boolean {
+  const c = digitosCuenta(cuenta6);
+  return c.length === 6 && !esClaseNomina(c.slice(0, 2));
+}
+
 /** Clase Russell de una cuenta Russell de 6 dígitos (51/52/72/73), o null. */
 export function claseDeCuentaRussell(cuenta6: string | null | undefined): ClaseNomina | null {
   const c = digitosCuenta(cuenta6).slice(0, 2);
@@ -217,8 +226,9 @@ export type ResolucionConcepto = {
   cuentas: string[];
   via: ViaHomologacion;
   /**
-   * `gasto` cruza contra 51/52/72/73; `control` va al bloque de deducciones (pasivo/activo/
-   * ingreso); `fuera` es gasto/costo de una clase que el módulo no concilia (61 asistencial).
+   * `gasto` cruza contra la cédula (51/52/72/73 y los pasivos 25xx que Nómina concilia);
+   * `control` va al bloque de deducciones (los demás pasivos, activos e ingresos); `fuera` es
+   * gasto/costo de una clase que el módulo no concilia (61 asistencial).
    */
   destino: "gasto" | "control" | "fuera" | null;
   clase: ClaseNomina | null;
@@ -296,10 +306,12 @@ export function resolverCuentaConcepto(entrada: EntradaConcepto, ctx: ContextoHo
     const sub = subcuentaPucDe(d);
     const grupo = grupoPorSubcuentaPuc(sub) ?? sugerirGrupoConcepto(entrada.nombre);
     const destino = destinoDeCuentaCliente(d);
-    if (destino === "control") {
+    const r = resolverCuentaClienteARussell(d, ctx.mapeoCliente);
+    // Un pasivo que la cédula SÍ concilia (cesantías 251010, homologada en el balance) cruza como
+    // cualquier cuenta del módulo; el resto de pasivos va al control de deducciones.
+    if (destino === "control" && !(r && delModulo(r.cuenta6))) {
       return base({ via: "archivo", destino, cuentaCliente: d, subcuentaPuc: sub, grupo, motivo: `La cuenta ${d} del archivo no es de gasto: va al control de deducciones.` });
     }
-    const r = resolverCuentaClienteARussell(d, ctx.mapeoCliente);
     if (r && delModulo(r.cuenta6)) {
       return base({
         cuentas: [r.cuenta6],
@@ -379,7 +391,8 @@ function resolverDesdeMemoria(
     if (fueraBase) return base({ via: "memoria_exacta", destino: "fuera", ...meta, motivo: `Memoria del cliente: cuenta ${meta.cuentaCliente} de la clase ${fueraBase}, que Nómina no concilia.` });
     const cuentas = cuentasDe(filasBase);
     if (claseRegla) {
-      const transpuestas = [...new Set(cuentas.map((c) => transponerClase(c, claseRegla)).filter((c): c is string => !!c && delModulo(c)))];
+      // Los pasivos de la cédula (251010…) no tienen clase de gasto: se conservan tal cual.
+      const transpuestas = [...new Set(cuentas.map((c) => (sinClaseDeGasto(c) ? c : transponerClase(c, claseRegla))).filter((c): c is string => !!c && delModulo(c)))];
       if (transpuestas.length === 0 && meta.grupo) {
         const porGrupo = cuentaPorGrupo(meta.grupo, claseRegla);
         if (porGrupo && delModulo(porGrupo)) transpuestas.push(porGrupo);
@@ -410,8 +423,10 @@ function resolverDesdeMemoria(
     const meta = metaDe(otras);
     const cuentas = cuentasDe(otras).filter(delModulo);
     if (claseRegla) {
-      const deClase = [...new Set(cuentas.filter((c) => claseDeCuentaRussell(c) === claseRegla))];
-      const transpuestas = deClase.length > 0 ? deClase : [...new Set(cuentas.map((c) => transponerClase(c, claseRegla)).filter((c): c is string => !!c && delModulo(c)))];
+      const fijas = cuentas.filter(sinClaseDeGasto);
+      const deClase = cuentas.filter((c) => claseDeCuentaRussell(c) === claseRegla);
+      const deGasto = deClase.length > 0 ? deClase : cuentas.map((c) => transponerClase(c, claseRegla)).filter((c): c is string => !!c && delModulo(c));
+      const transpuestas = [...new Set([...deGasto, ...fijas])];
       if (transpuestas.length > 0) {
         return base({ cuentas: transpuestas, via: transpuestas.length > 1 ? "multi" : "memoria_clase", destino: "gasto", clase: claseRegla, ...meta, motivo: `Memoria del cliente en otros centros llevada a la clase ${claseRegla} de «${agrupador || "el agrupador"}».` });
       }

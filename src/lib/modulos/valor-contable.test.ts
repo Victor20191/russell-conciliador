@@ -149,3 +149,41 @@ describe("valor contable del cruce contable con la naturaleza del módulo", () =
     })?.valor).toBe(9_000);
   });
 });
+
+describe("cuentas de la cédula fuera del prevalidador", () => {
+  it("una cuenta adicional sin regla usa su propia base y el signo de su clase", () => {
+    // Nómina 251010 por movimiento: la provisión (crédito) se presenta positiva.
+    expect(calcularValorContableModulo({
+      moduloCodigo: "NOM",
+      cuentaRussell: "251010",
+      fila: { saldoFinal: -5_000, debitos: 200, creditos: 1_200 },
+      catalogo,
+      baseAdicional: "movimiento",
+    })).toEqual({ valor: 1_000, baseCalculo: "movimiento", cuentaRegla: "251010" });
+    // Ingresos 422005: el catálogo solo tiene la 41.
+    expect(calcularValorContableModulo({
+      moduloCodigo: "ING",
+      cuentaRussell: "422005",
+      fila: { saldoFinal: -3_000, debitos: 0, creditos: 450 },
+      catalogo,
+      baseAdicional: "movimiento",
+    })?.valor).toBe(450);
+  });
+
+  it("sin base adicional, la misma cuenta sigue sin regla", () => {
+    expect(calcularValorContableModulo({
+      moduloCodigo: "NOM",
+      cuentaRussell: "251010",
+      fila: { saldoFinal: 0, debitos: 0, creditos: 1 },
+      catalogo,
+    })).toBeNull();
+  });
+
+  it("la depreciación 1592 se presenta como crédito aunque la regla sea la del activo", () => {
+    const conAfi = [...catalogo, regla("AFI", "15", "saldo")];
+    const fila = { saldoFinal: -800, debitos: 0, creditos: 0 };
+    expect(calcularValorContableModulo({ moduloCodigo: "AFI", cuentaRussell: "159205", fila, catalogo: conAfi })?.valor).toBe(-800);
+    expect(calcularValorContableModulo({ moduloCodigo: "AFI", cuentaRussell: "159205", fila, catalogo: conAfi, naturalezaCuenta: "C" }))
+      .toEqual({ valor: 800, baseCalculo: "saldo", cuentaRegla: "15" });
+  });
+});

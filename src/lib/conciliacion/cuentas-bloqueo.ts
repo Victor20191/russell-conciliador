@@ -14,6 +14,7 @@
  */
 import { cuentasDeClaveCruce, type ResumenCruceContable } from "@/lib/modulos/cruce-contable";
 import type { ResumenMarcas } from "@/lib/modulos/marcas-cruce";
+import type { CedulaModulo } from "@/lib/modulos/cuentas-modulo";
 
 export const ESTADO_CIERRE_FIRME = "firme";
 export const ESTADO_CIERRE_DESBLOQUEADO = "desbloqueado";
@@ -52,6 +53,28 @@ export function cuentasRussellDelCruce(cruce: Pick<ResumenCruceContable, "filas"
 }
 
 /**
+ * Alcance EXPLÍCITO que guarda el cierre de un módulo (`cuentas_russell_6`), o `null` para cerrar
+ * por cuenta de 4 como siempre:
+ *  - a 6 con lista (Cartera, CxP, Nómina): la lista más las cuentas adicionales (25xx de Nómina);
+ *  - a 4 con cuentas de 6 (Activos fijos, Ingresos): las claves de la cédula, de 4 y de 6, para que
+ *    la 422005 quede en firme sin arrastrar el resto de la 4220.
+ */
+export function alcanceExplicitoDelCruce(
+  cedula: Pick<CedulaModulo, "nivel" | "lista6" | "adicionales" | "abiertos">,
+  cruce: Pick<ResumenCruceContable, "filas">,
+): string[] | null {
+  const ordenar = (lista: Iterable<string>) => [...new Set(lista)].sort();
+  if (cedula.nivel === 6) return cedula.lista6 ? ordenar([...cedula.lista6, ...cedula.adicionales.keys()]) : null;
+  if (cedula.adicionales.size === 0 && cedula.abiertos.size === 0) return null;
+  return ordenar(
+    cruce.filas
+      .flatMap((f) => cuentasDeClaveCruce(f.cuenta4))
+      .map((c) => c.replace(/\D/g, ""))
+      .filter((c) => c.length === 4 || c.length === 6),
+  );
+}
+
+/**
  * Lo que un conjunto de cierres deja en firme: por cuenta Russell de 6 dígitos cuando el cierre
  * las declara (módulos que concilian por tercero), por cuenta de 4 en los demás y en los cierres
  * anteriores a esa distinción.
@@ -64,10 +87,24 @@ export function alcanceDeCierres(
   const cuentas4 = new Set<string>();
   const cuentas6 = new Set<string>();
   for (const c of cierres) {
-    if (c.cuentasRussell6?.length) for (const cuenta of c.cuentasRussell6) cuentas6.add(cuenta);
+    if (c.cuentasRussell6?.length) agregarAlcanceExplicito(c.cuentasRussell6, cuentas4, cuentas6);
     else for (const cuenta of c.cuentasRussell) cuentas4.add(cuenta);
   }
   return { cuentas4, cuentas6 };
+}
+
+/**
+ * El alcance EXPLÍCITO de un cierre (`cuentas_russell_6`). Los cierres de Cartera y CxP solo traen
+ * cuentas de 6. Una cédula mixta (Activos fijos con la 1592 abierta, Ingresos con la 422005) guarda
+ * ahí también sus subgrupos de 4, que quedan en firme enteros; así no hace falta otra columna y los
+ * cierres anteriores se leen igual.
+ */
+function agregarAlcanceExplicito(lista: readonly string[], cuentas4: Set<string>, cuentas6: Set<string>): void {
+  for (const cuenta of lista) {
+    const digitos = String(cuenta).replace(/\D/g, "");
+    if (digitos.length === 4) cuentas4.add(digitos);
+    else if (digitos.length >= 6) cuentas6.add(digitos.slice(0, 6));
+  }
 }
 
 /** ¿Una cuenta homologada a `cuenta6Russell` cae en lo que el alcance deja en firme? */
@@ -92,7 +129,7 @@ export function cuentasBloqueoDelModulo(
   cuentasRussell6?: readonly string[] | null,
 ): CuentaBloqueada[] {
   const alcance: AlcanceCierres = cuentasRussell6?.length
-    ? { cuentas4: new Set(), cuentas6: new Set(cuentasRussell6) }
+    ? alcanceDeCierres([{ cuentasRussell: [], cuentasRussell6 }])
     : { cuentas4: cuentasRussellModulo instanceof Set ? cuentasRussellModulo : new Set(cuentasRussellModulo), cuentas6: new Set() };
   const porCuenta = new Map<string, CuentaBloqueada>();
   for (const fila of detalle) {

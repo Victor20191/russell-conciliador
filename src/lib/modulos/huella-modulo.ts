@@ -15,8 +15,8 @@ import type { CeldaCruda, GridHoja } from "@/lib/balance/extraccion/ingesta";
 import { calcularHuella, huellasCandidatas, type HuellaCandidata } from "@/lib/balance/extraccion/huella";
 import type { DescriptorModulo } from "./descriptores";
 
-/** Token que sustituye al rótulo literal de una columna de familia. */
-const TOKEN_FAMILIA = "«familia»";
+/** Token que sustituye al rótulo literal de una columna de familia (también lo usan los patrones). */
+export const TOKEN_FAMILIA = "«familia»";
 
 /** ¿El descriptor tiene columnas cuyo rótulo cambia entre archivos del mismo formato? */
 export function usaHuellaEstabilizada(descriptor: DescriptorModulo): boolean {
