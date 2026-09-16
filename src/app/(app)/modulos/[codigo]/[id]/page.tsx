@@ -4,11 +4,13 @@ import prisma from "@/lib/prisma";
 import { requirePermiso, authorizePermiso } from "@/lib/rbac";
 import { PageHeader, BackLink } from "@/components/ui";
 import Conversacion from "@/components/conversacion";
-import { CUENTAS_RUSSELL_NOMINA, descriptorModulo, nivelCruceModulo } from "@/lib/modulos/descriptores";
+import { descriptorModulo } from "@/lib/modulos/descriptores";
 import {
+  cedulaModulo,
+  claveCedula,
   claveCruceContable,
-  filtrarCuentasEstandarPorModulo,
-  filtrarSubgruposPorModulo,
+  cuentasCedula6,
+  opcionesCedula,
   prefijosCuentaModulo,
 } from "@/lib/modulos/cuentas-modulo";
 import { consolidarPorClasificador } from "@/lib/modulos/promocion";
@@ -17,7 +19,7 @@ import { detectarNegativos, detectarDescuadres } from "@/lib/modulos/validacione
 import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
 import { fmtDateTime } from "@/lib/format";
 import { columnasDetalleModulo } from "@/lib/modulos/cartera/columnas-cartera";
-import { cargarCuentasEstandarCruce, construirCruceContableModulo } from "@/lib/modulos/cruce-contable-servidor";
+import { cargarCuentasEstandarDeCedula, construirCruceContableModulo } from "@/lib/modulos/cruce-contable-servidor";
 import { construirCruceTerceroModulo, etiquetasCruceTercero } from "@/lib/modulos/cruce-tercero-servidor";
 import { validarAuxiliarTercero } from "@/lib/modulos/cartera/validaciones-tercero";
 import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
@@ -59,15 +61,13 @@ export default async function DatoModuloPage({
   // ¿Puede editar la consolidación de este cliente?
   const puedeEditar = (await authorizePermiso("modulos_datos:editar", { clientId: encabezado.clienteId })).ok;
 
-  // Nivel de la cédula contable: subgrupo de 4 dígitos, o la cuenta Russell completa en Nómina.
-  const nivel = nivelCruceModulo(descriptor);
   const [consolidacionRows, subgrupos, cuentasEstandar, catalogoPrevalidador, comentariosGrp, cuentasCliente, hermanos, reglasClaseRows] = await Promise.all([
     prisma.consolidacionModuloCliente.findMany({
       where: { clienteId: encabezado.clienteId, moduloCodigo },
       select: { clasificador: true, agrupador: true, descripcion: true, cuenta4: true, cuenta6: true, grupo: true, subcuentaPuc: true, cuentaCliente: true },
     }),
     prisma.subgrupoEstandar.findMany({ select: { codigo: true, nombre: true }, orderBy: { codigo: "asc" } }),
-    nivel === 6 ? cargarCuentasEstandarCruce(descriptor.crucePorTercero.cuentasRussell6) : Promise.resolve([]),
+    cargarCuentasEstandarDeCedula(descriptor),
     getCatalogoPrevalidador(),
     prisma.comment.groupBy({ by: ["anchor"], where: { entityType: "modulos_datos", entityId: encabezadoId }, _count: { _all: true } }),
     // Homologación del cliente: cuentas propias mapeadas al plan Russell (para detallar por subgrupo).
@@ -102,6 +102,11 @@ export default async function DatoModuloPage({
       ? prisma.claseAgrupadorModulo.findMany({ where: { clienteId: encabezado.clienteId, moduloCodigo }, select: { agrupador: true, clase: true } })
       : Promise.resolve([] as { agrupador: string; clase: string }[]),
   ]);
+  // Cédula contable: subgrupo de 4 dígitos, cuenta Russell completa (Nómina, Cartera, CxP) o una
+  // mezcla (Activos fijos abre la 1592; Ingresos suma la 422005).
+  const prefijosModulo = prefijosCuentaModulo(moduloCodigo, catalogoPrevalidador);
+  const cedula = cedulaModulo(descriptor, prefijosModulo);
+  const nivel = cedula.nivel;
   // Un clasificador puede tener 1..N cuentas: agrupamos en lista (ordenada).
   const cuentasPorClasificador = new Map<string, string[]>();
   // Nombre legible del clasificador cuando existe (Nómina: el clasificador es el CÓDIGO
@@ -110,7 +115,7 @@ export default async function DatoModuloPage({
   for (const r of consolidacionRows) {
     // A 6 dígitos solo cuenta la homologación completa: una fila con cuenta4 y sin cuenta6
     // (guardada antes de que el módulo cruzara a 6) deja el concepto «sin cuenta».
-    const clave = nivel === 6 ? claveCruceContable(r.cuenta6, 6) : r.cuenta4;
+    const clave = claveCedula(cedula, r.cuenta6, r.cuenta4);
     if (clave) {
       const lista = cuentasPorClasificador.get(r.clasificador) ?? [];
       lista.push(clave);
@@ -128,11 +133,9 @@ export default async function DatoModuloPage({
   ]);
   const comentariosPorAncla: Record<string, number> = {};
   for (const g of comentariosGrp) if (g.anchor) comentariosPorAncla[g.anchor] = g._count._all;
-  // El datalist solo ofrece cuentas Russell del módulo (p. ej. INV → 14xx; Nómina → 510506…).
-  const prefijosModulo = prefijosCuentaModulo(moduloCodigo, catalogoPrevalidador);
-  const cuentasModulo = nivel === 6
-    ? filtrarCuentasEstandarPorModulo(cuentasEstandar, prefijosModulo, descriptor.crucePorTercero.cuentasRussell6)
-    : filtrarSubgruposPorModulo(subgrupos, prefijosModulo);
+  // El datalist solo ofrece cuentas Russell del módulo (p. ej. INV → 14xx; Nómina → 510506…;
+  // Ingresos → 41xx y 422005). La 1592xx de Activos fijos no se asigna: sale de la relación.
+  const cuentasModulo = opcionesCedula(cedula, subgrupos, cuentasEstandar);
   // Cuentas del CLIENTE homologadas a cada cuenta Russell del módulo (14XX → [143505 «…»]).
   const codigosModulo = new Set(cuentasModulo.map((c) => c.codigo));
   const homologacionPorSubgrupo: Record<string, { codigo: string; nombre: string }[]> = {};
@@ -146,7 +149,7 @@ export default async function DatoModuloPage({
     const sub = (a.cuenta6Russell ?? "").replace(/\D/g, "").slice(0, 4);
     if (!sub) continue;
     resolucionCliente[a.code] = { cuenta4: sub, cuenta6: claveCruceContable(a.cuenta6Russell, 6), nombre: a.name };
-    const clave = nivel === 6 ? claveCruceContable(a.cuenta6Russell, 6) : sub;
+    const clave = claveCedula(cedula, a.cuenta6Russell);
     if (!clave || !codigosModulo.has(clave)) continue;
     (homologacionPorSubgrupo[clave] ??= []).push({ codigo: a.code, nombre: a.name });
   }
@@ -190,7 +193,7 @@ export default async function DatoModuloPage({
         memoria: consolidacionRows.map((r) => ({ ...r, cuenta6: r.cuenta6 ?? "" })),
         reglasClase,
         mapeoCliente: new Map([...construirConfigMapeoCliente(cuentasCliente).entries()].map(([k, v]) => [k, v.std])),
-        cuentasRussell6: descriptor.crucePorTercero.cuentasRussell6 ?? CUENTAS_RUSSELL_NOMINA,
+        cuentasRussell6: cuentasCedula6(descriptor),
       })
     : null;
   const consolidado = consolidarPorClasificador(detalleVm.map((d) => ({ clasificador: d.clasificador, valor: d.valor })));
@@ -224,7 +227,12 @@ export default async function DatoModuloPage({
       periodo: encabezado.periodo,
       periodoDesde: encabezado.periodoDesde,
       verificaciones: encabezado.verificaciones,
-      detalles: detalleVm.map((d) => ({ clasificador: d.clasificador, valor: d.valor, datos: d.datos })),
+      detalles: encabezado.detalles.map((d) => ({
+        clasificador: d.clasificador,
+        valor: Number(d.valor),
+        datos: (d.datos ?? {}) as Record<string, unknown>,
+        imputable: d.imputable,
+      })),
     },
     consolidacionRows,
     subgrupos,

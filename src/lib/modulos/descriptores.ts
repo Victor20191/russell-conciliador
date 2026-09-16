@@ -10,6 +10,7 @@
 // (INV, CAR, CXP, ING, AFI, NOM) para alinear con los «campos mínimos» y `ClientModule`.
 
 import { esRotuloEdad } from "./cartera/edades";
+import type { BaseCalculo } from "@/lib/balance/prevalidador/catalogo";
 
 // "numero" = cantidad/conteo (miles, sin $); "moneda" = monto en pesos (con $).
 export type TipoColumna = "texto" | "numero" | "moneda" | "fecha";
@@ -125,6 +126,44 @@ export type ValorDerivadoFamilia = {
   prevalece: "familia" | "columna";
 };
 
+/**
+ * Cuenta Russell de 6 dígitos que la cédula contable concilia aunque su subgrupo NO esté en los
+ * prefijos del prevalidador del módulo (Nómina 251010, Ingresos 422005). El prevalidador no se
+ * toca (su huella y sus aprobaciones siguen igual): la cuenta trae aquí su propia base de cálculo
+ * y el signo sale de su clase (crédito positivo).
+ */
+export type CuentaAdicionalCedula = { cuenta: string; baseCalculo: BaseCalculo };
+
+/**
+ * Subgrupo de 4 dígitos que, en una cédula a 4, se ABRE a sus cuentas de 6 (Activos fijos 1592:
+ * cada depreciación acumulada es su propio renglón). `naturaleza` fija el signo de presentación de
+ * esas cuentas: la 1592 es correctora del activo (crédito) aunque su clase sea débito.
+ */
+export type SubgrupoAbiertoCedula = { subgrupo: string; naturaleza: "D" | "C" };
+
+/**
+ * Segundo valor del archivo que cruza contra una cuenta RELACIONADA con la del clasificador:
+ * en Activos fijos, la depreciación acumulada de un activo de 1520 cruza contra la 159210.
+ */
+export type ValorRelacionadoCedula = {
+  /** Rol monetario del archivo (p. ej. `depreciacion`). Se suma en valor absoluto. */
+  rol: string;
+  /** Subgrupo del activo → cuenta de 6 donde cruza su valor relacionado. */
+  pares: readonly { subgrupo: string; cuenta6: string }[];
+};
+
+/** Lo que la cédula contable concilia además de los prefijos del prevalidador. */
+export interface ConfiguracionCedula {
+  /**
+   * Cuentas de 6 que acotan una cédula a 6 SOLO en la cédula (Ingresos: las siete de la 41). Manda
+   * sobre `crucePorTercero.cuentasRussell6` para la cédula y deja intacto el cruce por tercero.
+   */
+  cuentas6?: readonly string[];
+  cuentasAdicionales?: readonly CuentaAdicionalCedula[];
+  subgruposAbiertos?: readonly SubgrupoAbiertoCedula[];
+  valorRelacionado?: ValorRelacionadoCedula;
+}
+
 export type DescriptorModulo = {
   /** Código del módulo (= `Module.code`). */
   codigo: string;
@@ -213,6 +252,12 @@ export type DescriptorModulo = {
    */
   nivelCruce?: 4 | 6;
   /**
+   * Ampliaciones de la cédula contable que no dependen del prevalidador: cuentas de 6 adicionales,
+   * subgrupos abiertos a 6 y el valor relacionado del archivo (ver `ConfiguracionCedula`).
+   * Ausente = la cédula es exactamente la de `nivelCruce` y los prefijos del prevalidador.
+   */
+  cedula?: ConfiguracionCedula;
+  /**
    * Roles que hacen las veces de la columna de VALOR cuando el archivo no la trae: Nómina
    * separa devengos y deducciones (o débito y crédito) y el valor de la fila se deriva de
    * ellos (`valor-nomina.ts`). Con alguno mapeado, `valor` deja de contar como faltante.
@@ -259,6 +304,32 @@ export const CUENTAS_RUSSELL_NOMINA: readonly string[] = [
   "730505",
 ];
 
+/**
+ * Pasivos laborales que Nómina concilia en la cédula por MOVIMIENTO del período (16/Sep/2026):
+ * cesantías consolidadas, intereses sobre cesantías, prima de servicios y vacaciones consolidadas.
+ * Están fuera de los prefijos del prevalidador (5105/5205/7205/7305), que no cambia.
+ */
+export const CUENTAS_PASIVO_NOMINA: readonly string[] = ["251010", "251505", "252005", "252505"];
+
+/**
+ * Cuentas Russell de 6 dígitos de la 41 que concilia Ingresos (16/Sep/2026): los ingresos por
+ * tarifa, exentos, excluidos y las devoluciones. Son todas las de la 41 en el plan estándar.
+ */
+export const CUENTAS_RUSSELL_INGRESOS: readonly string[] = ["410505", "410510", "410515", "410520", "410525", "410530", "417505"];
+
+/**
+ * Activos fijos: cada subgrupo depreciable y la cuenta de depreciación acumulada contra la que
+ * cruza la depreciación del archivo. 1504, 1508 y 1512 no se deprecian.
+ */
+export const RELACION_DEPRECIACION_AFI: readonly { subgrupo: string; cuenta6: string }[] = [
+  { subgrupo: "1516", cuenta6: "159205" },
+  { subgrupo: "1520", cuenta6: "159210" },
+  { subgrupo: "1524", cuenta6: "159215" },
+  { subgrupo: "1528", cuenta6: "159220" },
+  { subgrupo: "1540", cuenta6: "159235" },
+  { subgrupo: "1584", cuenta6: "159280" },
+];
+
 /** Nivel de la cuenta Russell de la cédula contable del módulo (4 salvo que el descriptor diga 6). */
 export function nivelCruceModulo(descriptor: Pick<DescriptorModulo, "nivelCruce"> | null | undefined): 4 | 6 {
   return descriptor?.nivelCruce === 6 ? 6 : 4;
@@ -298,7 +369,9 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     ],
   },
 
-  // ===== Activos Fijos (AFI) → cuentas 15xx =====
+  // ===== Activos Fijos (AFI) → toda la 15 a 4 dígitos, la 1592 a 6 =====
+  // El costo de cada activo cruza contra su subgrupo (1520) y su depreciación acumulada contra la
+  // 1592xx relacionada (`RELACION_DEPRECIACION_AFI`). La 1592 no es renglón de 4: se abre a 6.
   AFI: {
     codigo: "AFI",
     label: "Activos Fijos",
@@ -314,6 +387,10 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     clasificador: "grupo",
     valor: "costo",
     noNegativos: ["costo"],
+    cedula: {
+      subgruposAbiertos: [{ subgrupo: "1592", naturaleza: "C" }],
+      valorRelacionado: { rol: "depreciacion", pares: RELACION_DEPRECIACION_AFI },
+    },
     crucePorTercero: { habilitado: false },
     verificaciones: [
       { id: "afi_leasing", texto: "Confirme si existen activos adquiridos mediante leasing financiero." },
@@ -446,7 +523,7 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     // D2 (12/Sep/2026): manda el saldo de la columna. Las edades dan el valor solo cuando la
     // columna no viene o viene en cero (SIESA Zarzal); si ambas vienen y difieren, se alerta.
     valorDerivado: { deFamilia: "edades", prevalece: "columna" },
-    // Se concilia por cuenta Russell de 6 dígitos (las 12 de `cuentasRussell6`), no por subgrupo.
+    // Se concilia por cuenta Russell de 6 dígitos (las 13 de `cuentasRussell6`), no por subgrupo.
     nivelCruce: 6,
     // Sin «noNegativos»: un anticipo o una nota a favor es un saldo negativo legítimo.
     arrastrables: ["nit", "nombre", "cuenta"],
@@ -462,7 +539,7 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
       rolDv: "dv",
       rolSucursal: "sucursal",
       // D1 (12/Sep/2026): RF-CXP-06 depurado contra el PUC Russell.
-      cuentasRussell6: ["220505", "221005", "233510", "233520", "233525", "233530", "233540", "233555", "233595", "133005", "133010", "133095"],
+      cuentasRussell6: ["220505", "221005", "233505", "233510", "233520", "233525", "233530", "233540", "233555", "233595", "133005", "133010", "133095"],
       cuentasNacional: ["220505"],
       cuentasExterior: ["221005"],
       exigidoParaCierre: true,
@@ -474,7 +551,7 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     // extranjera ni partidas conciliatorias (los cargues anteriores conservan sus respuestas).
   },
 
-  // ===== Ingresos / Facturación (ING) → cuentas 41xx =====
+  // ===== Ingresos / Facturación (ING) → la 41 a 6 dígitos + 422005 =====
   ING: {
     codigo: "ING",
     label: "Ingresos",
@@ -488,6 +565,15 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     clasificador: "concepto",
     valor: "valor",
     // Sin noNegativos: las devoluciones/notas crédito (valores negativos) son normales en ingresos.
+    // La cédula concilia por cuenta Russell de 6 dígitos (16/Sep/2026): las siete de la 41
+    // (`CUENTAS_RUSSELL_INGRESOS`) y los arrendamientos no operacionales (422005); el resto de la
+    // 4220 no es del módulo. La lista vive en `cedula.cuentas6`, no en `crucePorTercero`, para que
+    // el cruce por tercero siga como estaba (sobre toda la 41, sin asignación por cuenta).
+    nivelCruce: 6,
+    cedula: {
+      cuentas6: CUENTAS_RUSSELL_INGRESOS,
+      cuentasAdicionales: [{ cuenta: "422005", baseCalculo: "movimiento" }],
+    },
     crucePorTercero: { habilitado: true },
     verificaciones: [
       { id: "ing_sin_impuestos", texto: "Confirme que el valor cargado corresponde al ingreso neto sin IVA ni otros impuestos y que las devoluciones o notas crédito conservan signo negativo." },
@@ -507,9 +593,9 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
   //  - RF-NOM-03 la conciliación es POR CONCEPTO, no por tercero (el cruce por cédula queda
   //    apagado). RF-NOM-04 requiere el balance por cuenta.
   //  - RF-NOM-05 el módulo se maneja a 6 dígitos: las ocho 5105xx, las ocho 5205xx, las ocho
-  //    7205xx y la 730505 (`CUENTAS_RUSSELL_NOMINA`). Los pasivos laborales 25xx del documento
-  //    quedan fuera por decisión de la firma (13/Sep/2026): los conceptos que van a pasivo se
-  //    controlan aparte y no suman al gasto.
+  //    7205xx y la 730505 (`CUENTAS_RUSSELL_NOMINA`). De los pasivos laborales 25xx entran,
+  //    por movimiento, 251010, 251505, 252005 y 252505 (`CUENTAS_PASIVO_NOMINA`, 16/Sep/2026); los
+  //    demás conceptos de pasivo (libranzas, retenciones) siguen en el control de deducciones.
   //  - RF-NOM-06/07 el cliente trabaja con códigos de concepto propios y cada concepto tiene
   //    una cuenta contable del cliente; el cuadro de homologación lo entrega TI del cliente.
   //  - RF-NOM-08/09 carga masiva de la homologación (/config/conceptos-nomina), persistente,
@@ -578,6 +664,7 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     // Novasoft cierra cada empleado con «TOTALES» en negrita: es un subtotal, no un ítem.
     usarNegritaComoEstructura: true,
     nivelCruce: 6,
+    cedula: { cuentasAdicionales: CUENTAS_PASIVO_NOMINA.map((cuenta) => ({ cuenta, baseCalculo: "movimiento" as const })) },
     nomina: { periodoPorFila: true, valorPorNaturaleza: true, normalizarFechas: true },
     // El cruce por tercero queda apagado (RF-NOM-03); si se reactiva es contra la CÉDULA del
     // empleado. `cuentasRussell6` acota el lado contable a las cuentas de RF-NOM-05 aunque el

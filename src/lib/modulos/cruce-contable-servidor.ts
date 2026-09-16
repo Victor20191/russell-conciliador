@@ -12,8 +12,19 @@ import "server-only";
  */
 import prisma from "@/lib/prisma";
 import { fmtDateTime } from "@/lib/format";
-import { descriptorModulo, bloqueoCrucePorVerificacionesCriticasModulo, nivelCruceModulo } from "@/lib/modulos/descriptores";
-import { claveCruceContable, cuenta4DelModulo, filtrarSubgruposPorModulo, prefijosCuentaModulo } from "@/lib/modulos/cuentas-modulo";
+import { descriptorModulo, bloqueoCrucePorVerificacionesCriticasModulo, type DescriptorModulo } from "@/lib/modulos/descriptores";
+import {
+  cedulaModulo,
+  claveCedula,
+  cuentasCedula6,
+  cuenta4DelModulo,
+  cuentas6ACargarCedula,
+  entradasValorRelacionado,
+  fueraDeListaCedula,
+  ordenClaveCedula,
+  prefijosCuentaModulo,
+  subgruposCedula,
+} from "@/lib/modulos/cuentas-modulo";
 import { consolidarPorClasificador } from "@/lib/modulos/promocion";
 import { construirCruceContable, type HijoContableCruce, type ResumenCruceContable } from "@/lib/modulos/cruce-contable";
 import { anotarCruceConMarcas, type FilaCruceMarcada, type MarcaCruce, type ResumenMarcas } from "@/lib/modulos/marcas-cruce";
@@ -52,8 +63,11 @@ export type InsumosCruceModulo = {
     /** Nómina: mes inicial del rango del cargue (D7); null = un mes. */
     periodoDesde?: string | null;
     verificaciones: unknown;
-    /** `datos` solo hace falta en Nómina (agrupador, cuenta del archivo, subcuenta). */
-    detalles: { clasificador: string | null; valor: number; datos?: Record<string, unknown> }[];
+    /**
+     * `datos` solo hace falta en Nómina (agrupador, cuenta del archivo, subcuenta) y en los módulos
+     * con valor relacionado (la depreciación de Activos fijos). `imputable: false` no suma.
+     */
+    detalles: { clasificador: string | null; valor: number; datos?: Record<string, unknown>; imputable?: boolean }[];
   };
   /**
    * `cuenta6` solo importa en los módulos que cruzan a 6 dígitos (`nivelCruce: 6`); las demás
@@ -142,21 +156,22 @@ export async function cargarInsumosCruceModulo(encabezadoId: number): Promise<In
   const descriptor = descriptorModulo(encabezado.moduloCodigo);
   // El JSON de cada fila solo hace falta en Nómina (agrupador, cuenta del archivo): en
   // Cartera/CxP son cientos de miles de filas y no se lee.
-  const conDatos = descriptor?.nomina != null;
+  // La depreciación de Activos fijos (valor relacionado) también vive en `datos`.
+  const conDatos = descriptor?.nomina != null || descriptor?.cedula?.valorRelacionado != null;
   const [detalles, consolidacionRows, subgrupos, cuentasEstandar, catalogoPrevalidador] = await Promise.all([
-    prisma.moduloDatoDetalle.findMany({ where: { encabezadoId }, select: { clasificador: true, valor: true, datos: conDatos }, orderBy: { filaNum: "asc" } }),
+    prisma.moduloDatoDetalle.findMany({ where: { encabezadoId }, select: { clasificador: true, valor: true, datos: conDatos, imputable: true }, orderBy: { filaNum: "asc" } }),
     prisma.consolidacionModuloCliente.findMany({
       where: { clienteId: encabezado.clienteId, moduloCodigo: encabezado.moduloCodigo },
       select: { clasificador: true, cuenta4: true, cuenta6: true, agrupador: true, descripcion: true, grupo: true, subcuentaPuc: true, cuentaCliente: true },
     }),
     prisma.subgrupoEstandar.findMany({ select: { codigo: true, nombre: true }, orderBy: { codigo: "asc" } }),
-    nivelCruceModulo(descriptor) === 6 ? cargarCuentasEstandarCruce(descriptor?.crucePorTercero.cuentasRussell6) : Promise.resolve([]),
+    cargarCuentasEstandarDeCedula(descriptor),
     getCatalogoPrevalidador(),
   ]);
   return {
     encabezado: {
       ...encabezado,
-      detalles: detalles.map((d) => ({ clasificador: d.clasificador, valor: Number(d.valor), ...(conDatos ? { datos: (d.datos ?? {}) as Record<string, unknown> } : {}) })),
+      detalles: detalles.map((d) => ({ clasificador: d.clasificador, valor: Number(d.valor), imputable: d.imputable, ...(conDatos ? { datos: (d.datos ?? {}) as Record<string, unknown> } : {}) })),
     },
     consolidacionRows,
     subgrupos,
@@ -204,6 +219,17 @@ export async function cargarCuentasEstandarCruce(cuentasRussell6?: readonly stri
 }
 
 /**
+ * Cuentas de 6 que nombran los renglones de 6 de la cédula del módulo: su lista, sus adicionales
+ * o, con un subgrupo abierto, todo el plan. Una cédula solo de 4 no carga nada. Qué se carga no
+ * depende de los prefijos, así que se resuelve sin el catálogo.
+ */
+export async function cargarCuentasEstandarDeCedula(descriptor: DescriptorModulo | null | undefined): Promise<{ codigo: string; nombre: string }[]> {
+  const codigos = cuentas6ACargarCedula(cedulaModulo(descriptor, []));
+  if (codigos && codigos.length === 0) return [];
+  return cargarCuentasEstandarCruce(codigos);
+}
+
+/**
  * Cruce contable completo: selección del balance del período, compuerta del
  * prevalidador, agregado contable por cuenta Russell de 4 díg., cédula y marcas.
  */
@@ -214,14 +240,17 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
   if (!descriptor) {
     return vacio(null, `Módulo ${moduloCodigo} no reconocido.`);
   }
-  // Nivel de la cédula: el subgrupo (4) o, en Nómina, la cuenta Russell completa (6). Una
-  // homologación del cliente que no llegue al nivel (cuenta4 sin cuenta6 en un módulo a 6)
-  // deja el clasificador «sin cuenta»: no se adivina la cuenta completa a partir del subgrupo.
-  const nivel = nivelCruceModulo(descriptor);
+  // Clave de la cédula: el subgrupo (4), la cuenta Russell completa (6) o una mezcla (Activos
+  // fijos abre la 1592; Ingresos suma la 422005). Una homologación del cliente que no llegue al
+  // nivel (cuenta4 sin cuenta6 donde toca 6) deja el clasificador «sin cuenta»: no se adivina la
+  // cuenta completa a partir del subgrupo.
+  const prefijosModulo = prefijosCuentaModulo(moduloCodigo, catalogoPrevalidador);
+  const cedula = cedulaModulo(descriptor, prefijosModulo);
+  const nivel = cedula.nivel;
 
   const cuentasPorClasificador = new Map<string, string[]>();
   for (const r of consolidacionRows) {
-    const clave = nivel === 6 ? claveCruceContable(r.cuenta6, 6) : r.cuenta4;
+    const clave = claveCedula(cedula, r.cuenta6, r.cuenta4);
     if (!clave) continue;
     const lista = cuentasPorClasificador.get(r.clasificador) ?? [];
     lista.push(clave);
@@ -232,8 +261,9 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
     ...subgrupos.map((s) => [s.codigo, s.nombre] as const),
     ...(cuentasEstandar ?? []).map((c) => [c.codigo, c.nombre] as const),
   ]);
-  const prefijosModulo = prefijosCuentaModulo(moduloCodigo, catalogoPrevalidador);
-  const codigosModulo = new Set(filtrarSubgruposPorModulo(subgrupos, prefijosModulo).map((c) => c.codigo));
+  // Subgrupos cuyas cuentas homologadas pueden entrar: los del prevalidador más los de las
+  // cuentas adicionales (2510 en Nómina, 4220 en Ingresos).
+  const codigosModulo = subgruposCedula(cedula, subgrupos);
   const verifGuardadas = (encabezado.verificaciones ?? {}) as Record<string, { respuesta: "si" | "no" | "na"; nota?: string }>;
 
   // Nómina: rango del cargue (D7), consolidado por (concepto, centro) con la homologación
@@ -246,11 +276,19 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
         memoria: consolidacionRows.map((r) => ({ ...r, agrupador: r.agrupador ?? "", cuenta6: r.cuenta6 ?? "" })),
         reglasClase: insumosNomina.reglasClase,
         mapeoCliente: insumosNomina.mapeoCliente,
-        cuentasRussell6: descriptor.crucePorTercero.cuentasRussell6 ?? [],
+        cuentasRussell6: cuentasCedula6(descriptor),
       })
     : null;
   const formalNomina = consolidadoNomina && insumosNomina ? entradasCruceFormalNomina(consolidadoNomina.renglones, insumosNomina.repartos) : null;
   const consolidado = consolidarPorClasificador(encabezado.detalles.map((d) => ({ clasificador: d.clasificador, valor: d.valor })));
+  // Activos fijos: la depreciación del archivo cruza contra la 1592xx relacionada con el activo.
+  const etiquetaRelacionado = descriptor.columnas.find((c) => c.nombre === cedula.rolRelacionado)?.etiqueta ?? cedula.rolRelacionado ?? "";
+  const entradasRelacionadas = entradasValorRelacionado(
+    cedula,
+    encabezado.detalles.filter((d) => d.imputable !== false),
+    cuentasPorClasificador,
+    etiquetaRelacionado.toLowerCase(),
+  );
 
   // Balance del período: el oficial si existe y, si no, la versión más reciente (congelar
   // NO es requisito para conciliar); en módulos de movimiento se antepone el que cubre
@@ -294,7 +332,6 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
   let cruceContable: ResumenCruceContable | null = null;
   let sinMapeoContable: { total: number; filas: number } | null = null;
   let sinReglaContableFilas = 0;
-  const cuentasRussell6 = descriptor.crucePorTercero.cuentasRussell6?.length ? new Set(descriptor.crucePorTercero.cuentasRussell6) : null;
   const fuera = { total: 0, filas: 0, porCuenta: {} as Record<string, number> };
   let bloqueo = bloqueoCrucePorVerificacionesCriticasModulo(descriptor, verifGuardadas);
   let contextoBalance: Awaited<ReturnType<typeof cargarContextoPrevalidadorBalance>> | null = null;
@@ -339,15 +376,28 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
       // Cartera y CxP leen todas sus cuentas con la naturaleza del módulo, como el cruce por
       // tercero: el anticipo 2805 de Cartera resta en los dos lados (ver `valor-contable.ts`).
       if (d.cuenta6Russell) {
-        const sub4 = d.cuenta6Russell.replace(/\D/g, "").slice(0, 4);
-        if (!codigosModulo.has(sub4)) continue;
-        const calculo = calcularValorContableModulo({ moduloCodigo, cuentaRussell: d.cuenta6Russell, fila: filaContable, catalogo: contextoBalance.catalogo, baseEfectiva: baseNomina === "saldo_acumulado" ? "saldo" : undefined, naturaleza: descriptor.crucePorTercero.naturaleza });
+        const digitos = d.cuenta6Russell.replace(/\D/g, "");
+        const sub4 = digitos.slice(0, 4);
+        const russell6 = digitos.length >= 6 ? digitos.slice(0, 6) : "";
+        const baseAdicional = cedula.adicionales.get(russell6);
+        // Una cuenta adicional entra aunque su subgrupo no sea del prevalidador; el resto de ese
+        // subgrupo (422010 en Ingresos) no es del módulo y se ignora como siempre.
+        if (!codigosModulo.has(sub4) || (!baseAdicional && !cuenta4DelModulo(sub4, prefijosModulo))) continue;
+        const calculo = calcularValorContableModulo({
+          moduloCodigo,
+          cuentaRussell: d.cuenta6Russell,
+          fila: filaContable,
+          catalogo: contextoBalance.catalogo,
+          baseEfectiva: baseNomina === "saldo_acumulado" ? "saldo" : undefined,
+          naturaleza: descriptor.crucePorTercero.naturaleza,
+          baseAdicional,
+          naturalezaCuenta: cedula.abiertos.get(sub4),
+        });
         if (!calculo) {
           sinReglaContableFilas += 1;
           continue;
         }
-        const russell6 = d.cuenta6Russell.replace(/\D/g, "").slice(0, 6);
-        const fueraDeLaLista = cuentasRussell6 != null && !cuentasRussell6.has(russell6);
+        const fueraDeLaLista = fueraDeListaCedula(cedula, russell6);
         if (fueraDeLaLista) {
           fuera.total += calculo.valor;
           fuera.filas += 1;
@@ -355,9 +405,17 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
         }
         // Clave del renglón: a 4 la cédula compara el subgrupo entero (lo de fuera de la lista
         // se informa aparte); a 6 cada cuenta Russell es su propio renglón y lo que el módulo
-        // no concilia (510548) no entra a la cédula: solo se informa.
-        const clave = nivel === 6 ? claveCruceContable(d.cuenta6Russell, 6) : sub4;
-        if (!clave || (nivel === 6 && fueraDeLaLista)) continue;
+        // no concilia (510548) no entra a la cédula: solo se informa. Un subgrupo abierto (1592)
+        // homologado solo a 4 dígitos no tiene renglón: cuenta como homologación incompleta.
+        const clave = claveCedula(cedula, d.cuenta6Russell);
+        if (!clave) {
+          if (cedula.abiertos.has(sub4)) {
+            sinMapeoTotal += calculo.valor;
+            sinMapeoFilas += 1;
+          }
+          continue;
+        }
+        if (nivel === 6 && fueraDeLaLista) continue;
         contablePorCuenta[clave] = (contablePorCuenta[clave] ?? 0) + calculo.valor;
         // Desglose de la fila: qué cuentas del cliente la componen y cuáles quedaron
         // marcadas como no modulares (su valor se descuenta del lado contable).
@@ -365,7 +423,7 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
         (detalleContablePorCuenta[clave] ??= []).push({ cuenta8, nombre: d.nombreCuenta, valor: calculo.valor, noModular });
         if (noModular) noModularPorCuenta[clave] = (noModularPorCuenta[clave] ?? 0) + calculo.valor;
       } else if (cuenta4DelModulo(cuenta4, prefijosModulo)) {
-        const calculo = calcularValorContableModulo({ moduloCodigo, cuentaRussell: cuenta4, fila: filaContable, catalogo: contextoBalance.catalogo, baseEfectiva: baseNomina === "saldo_acumulado" ? "saldo" : undefined, naturaleza: descriptor.crucePorTercero.naturaleza });
+        const calculo = calcularValorContableModulo({ moduloCodigo, cuentaRussell: cuenta4, fila: filaContable, catalogo: contextoBalance.catalogo, baseEfectiva: baseNomina === "saldo_acumulado" ? "saldo" : undefined, naturaleza: descriptor.crucePorTercero.naturaleza, naturalezaCuenta: cedula.abiertos.get(cuenta4) });
         if (!calculo) {
           sinReglaContableFilas += 1;
           continue;
@@ -380,8 +438,12 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
       noModularPorCuenta,
       consolidado: formalNomina
         ? formalNomina.entradas
-        : consolidado.map((c) => ({ clasificador: c.clasificador, total: c.total, cuentas4: cuentasPorClasificador.get(c.clasificador) ?? [] })),
+        : [
+            ...consolidado.map((c) => ({ clasificador: c.clasificador, total: c.total, cuentas4: cuentasPorClasificador.get(c.clasificador) ?? [] })),
+            ...entradasRelacionadas,
+          ],
       nombrePorCuenta: (cod) => nombrePorCuenta.get(cod) ?? null,
+      ordenCuenta: (clave) => ordenClaveCedula(cedula, clave),
       // Nómina reparte sus conceptos multiasignados; los demás módulos los cruzan contra la
       // suma de las cuentas en una fila agrupada.
       agruparMultiAsignados: !formalNomina,

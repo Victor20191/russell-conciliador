@@ -2358,8 +2358,9 @@ model ConciliacionModuloCierre {
   moduloDatoEncabezadoId  Int                           @map("modulo_dato_encabezado_id") // FK suave a modulo_dato_encabezado
   balanceEncabezadoId     Int                           @map("balance_encabezado_id") // FK suave: balance conciliado
   cuentasRussell          Json                          @map("cuentas_russell") // cuentas Russell (4 díg.) del módulo conciliadas
-  /// Cuentas Russell de 6 dígitos cuando el módulo concilia por tercero (Cartera, CxP): el bloqueo se
-  /// limita a ellas. Null en los cierres anteriores, que siguen bloqueando por cuenta de 4.
+  /// Alcance explícito del bloqueo. Cartera, CxP y Nómina guardan sus cuentas Russell de 6 dígitos. Una
+  /// cédula mixta (Activos fijos, Ingresos) guarda también subgrupos de 4, que quedan en firme enteros.
+  /// Null en los cierres anteriores, que siguen bloqueando por cuenta de 4.
   cuentasRussell6         Json?                         @map("cuentas_russell_6")
   /// Evidencia del cruce por tercero al cerrar: totales, conteos y huella SHA-256 de clave → diferencia.
   resumenCruceTercero     Json?                         @map("resumen_cruce_tercero")

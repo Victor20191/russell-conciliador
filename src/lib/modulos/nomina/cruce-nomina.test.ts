@@ -154,3 +154,19 @@ describe("entradasCruceFormalNomina", () => {
     expect(validarReparto(1000, { a: Number.NaN })).toMatch(/números/);
   });
 });
+
+describe("vista por subcuenta con pasivos en la cédula", () => {
+  it("un concepto que cruza contra 251010 no entra a la vista del gasto; sí a la cédula formal", () => {
+    const renglones = [
+      renglon("1", 100, { cuentas: ["510506"], via: "memoria_exacta", subcuentaPuc: "06" }),
+      renglon("40", 30, { cuentas: ["251010"], via: "archivo", subcuentaPuc: "10", cuentaCliente: "25101001" }),
+    ];
+    const vista = construirVistaSubcuenta({ balance: [bal("510506", "SUELDOS", 100, 0, 100)], renglones, prefijos: PREFIJOS, base: "movimiento" });
+    expect(vista.filas.map((f) => [f.subcuenta, f.modulo])).toEqual([["06", 100]]);
+    expect(vista.sinSubcuenta).toEqual([]);
+    expect(entradasCruceFormalNomina(renglones, []).entradas).toEqual([
+      { clasificador: "1", total: 100, cuentas4: ["510506"] },
+      { clasificador: "40", total: 30, cuentas4: ["251010"] },
+    ]);
+  });
+});

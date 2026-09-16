@@ -44,7 +44,7 @@ import {
 } from "@/lib/import/conceptos-nomina";
 import { leerCatalogoConceptosErp } from "@/lib/import/conceptos-nomina-erp";
 import { construirConfigMapeoCliente } from "@/lib/balance/mapeo-cliente-config";
-import { cuentaDelModulo, prefijosCuentaModulo } from "@/lib/modulos/cuentas-modulo";
+import { cedulaModulo, cuentaAsignableCedula, cuentasCedula6, prefijosCuentaModulo } from "@/lib/modulos/cuentas-modulo";
 import { descriptorModulo } from "@/lib/modulos/descriptores";
 import { grupoPorSubcuentaPuc, sugerirGrupoConcepto } from "@/lib/modulos/nomina/grupos-concepto";
 import {
@@ -84,9 +84,12 @@ type FilaAEscribir = {
  */
 async function resolverEntradas(entradas: EntradaResuelta[]): Promise<{ filas: FilaAEscribir[]; problemas: ErrorImport[]; avisos: string[]; sinRussell: number }> {
   const descriptor = descriptorModulo(MODULO_CONCEPTOS_NOMINA);
-  const cuentasRussell6 = descriptor?.crucePorTercero.cuentasRussell6 ?? null;
   const prefijos = prefijosCuentaModulo(MODULO_CONCEPTOS_NOMINA, await getCatalogoPrevalidador());
-  const listado = cuentasRussell6?.length ? cuentasRussell6.join(", ") : prefijos.length ? prefijos.join(", ") : "—";
+  // Cuentas de la cédula de Nómina: las de gasto y los pasivos laborales que también concilia.
+  const cedula = cedulaModulo(descriptor, prefijos);
+  const cuentasRussell6 = cuentasCedula6(descriptor);
+  const delModulo = (cuenta: string) => cuentaAsignableCedula(cedula, cuenta);
+  const listado = cuentasRussell6.length ? cuentasRussell6.join(", ") : prefijos.length ? prefijos.join(", ") : "—";
 
   const clienteIds = [...new Set(entradas.map((e) => e.clienteId))];
   const mapeoPorCliente = new Map<number, Map<string, string>>();
@@ -99,7 +102,7 @@ async function resolverEntradas(entradas: EntradaResuelta[]): Promise<{ filas: F
     mapeoPorCliente.set(clienteId, new Map([...config.entries()].map(([k, v]) => [k, v.std])));
   }
   const codigosPlan = new Set(
-    (await prisma.standardAccount.findMany({ where: { code: { in: cuentasRussell6 ? [...cuentasRussell6] : [] } }, select: { code: true } })).map((c) => c.code),
+    (await prisma.standardAccount.findMany({ where: { code: { in: cuentasRussell6 } }, select: { code: true } })).map((c) => c.code),
   );
 
   const filas: FilaAEscribir[] = [];
@@ -129,7 +132,7 @@ async function resolverEntradas(entradas: EntradaResuelta[]): Promise<{ filas: F
         subcuentaPuc: sub,
       };
       // Russell de 6 escrita directamente (plantilla anterior / auditor).
-      if (cuenta.length === 6 && cuentaDelModulo(cuenta, 6, prefijos, cuentasRussell6)) {
+      if (cuenta.length === 6 && delModulo(cuenta)) {
         if (!codigosPlan.has(cuenta)) {
           problemas.push({ hoja: e.hoja, fila: e.fila, mensaje: `La cuenta ${cuenta} no existe en el plan estándar Russell.` });
           continue;
@@ -137,20 +140,21 @@ async function resolverEntradas(entradas: EntradaResuelta[]): Promise<{ filas: F
         filas.push({ ...base, cuentaCliente: "", cuenta4: cuenta.slice(0, 4), cuenta6: cuenta });
         continue;
       }
-      if (destino === "control") {
+      const r = resolverCuentaClienteARussell(cuenta, mapeo);
+      if (destino === "control" && !(r && delModulo(r.cuenta6))) {
         // Libranzas, retención, préstamos, intereses: no cruzan contra el gasto; se conservan
-        // con su cuenta del cliente para el control de deducciones (D1).
+        // con su cuenta del cliente para el control de deducciones (D1). Los pasivos que la
+        // cédula sí concilia (cesantías 251010, homologada en el balance) siguen abajo.
         filas.push({ ...base, cuentaCliente: cuenta, cuenta4: "", cuenta6: "" });
         sinRussell++;
         continue;
       }
-      const r = resolverCuentaClienteARussell(cuenta, mapeo);
-      if (r && cuentaDelModulo(r.cuenta6, 6, prefijos, cuentasRussell6)) {
+      if (r && delModulo(r.cuenta6)) {
         if (r.origen === "estructura") porEstructura++;
         filas.push({ ...base, cuentaCliente: cuenta, cuenta4: r.cuenta6.slice(0, 4), cuenta6: r.cuenta6 });
         continue;
       }
-      if (r && !cuentaDelModulo(r.cuenta6, 6, prefijos, cuentasRussell6)) {
+      if (r && !delModulo(r.cuenta6)) {
         // Homologada en el balance a una Russell fuera del módulo (510548, 519995…): se guarda
         // sin cuenta Russell —cruza por su subcuenta— y se avisa, sin bloquear la carga.
         fueraDelModulo.push(`${cuenta} → ${r.cuenta6}`);

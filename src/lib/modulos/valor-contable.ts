@@ -74,16 +74,26 @@ export function calcularValorContableModulo(args: {
    * 2805 resta en Cartera igual que en el auxiliar, en vez de mostrarse positivo por ser pasivo.
    */
   naturaleza?: "D" | "C";
+  /**
+   * Base propia de una cuenta ADICIONAL de la cédula (Nómina 251010, Ingresos 422005): manda sobre
+   * el catálogo, que no la cubre, y la cuenta misma hace de regla (su clase fija el signo).
+   */
+  baseAdicional?: BaseCalculo;
+  /**
+   * Naturaleza de presentación de la CUENTA cuando el módulo no fija una: la depreciación 1592 es
+   * crédito aunque la regla del activo (15) sea débito.
+   */
+  naturalezaCuenta?: "D" | "C";
 }): { valor: number; baseCalculo: BaseCalculo; cuentaRegla: string } | null {
-  const regla = resolverReglaContableModulo(
-    args.moduloCodigo,
-    args.cuentaRussell,
-    args.catalogo,
-  );
-  if (!regla) return null;
+  const regla: Pick<ReglaContableModulo, "cuentaRussell" | "baseCalculo"> | null = args.baseAdicional
+    ? { cuentaRussell: normalizarPrefijo(args.cuentaRussell), baseCalculo: args.baseAdicional }
+    : resolverReglaContableModulo(args.moduloCodigo, args.cuentaRussell, args.catalogo);
+  if (!regla || !regla.cuentaRussell) return null;
   const baseCalculo = args.baseEfectiva ?? regla.baseCalculo;
-  const valor = args.naturaleza
-    ? redondear((args.naturaleza === "C" ? -1 : 1) * (baseCalculo === "movimiento" ? args.fila.debitos - args.fila.creditos : args.fila.saldoFinal))
+  const bruto = baseCalculo === "movimiento" ? args.fila.debitos - args.fila.creditos : args.fila.saldoFinal;
+  const naturaleza = args.naturaleza ?? args.naturalezaCuenta;
+  const valor = naturaleza
+    ? redondear((naturaleza === "C" ? -1 : 1) * bruto)
     : valorPresentadoSegunRegla(args.fila, regla, args.baseEfectiva);
   return { valor, baseCalculo, cuentaRegla: normalizarPrefijo(regla.cuentaRussell) };
 }

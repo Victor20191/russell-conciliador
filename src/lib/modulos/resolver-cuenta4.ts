@@ -54,11 +54,15 @@ export type ResolucionCuenta4 =
 /** Deja solo dígitos; el resto (puntos, guiones, espacios) es ruido de copiar y pegar. */
 const soloDigitos = (v: string): string => String(v ?? "").replace(/\D/g, "");
 
-/** Clave del destino homologado al nivel pedido, o `null` si la homologación no llega a él. */
-function claveDestino(destino: DestinoCuentaCliente, nivel: NivelCruce): string | null {
-  if (nivel === 4) return destino.cuenta4;
+/**
+ * Clave del destino homologado al nivel pedido, o `null` si la homologación no llega a él. Una
+ * cédula a 4 puede tener claves de 6 (Ingresos 422005): si la cuenta completa es una de ellas, manda.
+ */
+function claveDestino(destino: DestinoCuentaCliente, nivel: NivelCruce, claves: ReadonlySet<string>): string | null {
   const seis = soloDigitos(destino.cuenta6 ?? "");
-  return seis.length >= 6 ? seis.slice(0, 6) : null;
+  const cuenta6 = seis.length >= 6 ? seis.slice(0, 6) : null;
+  if (nivel === 4) return cuenta6 && claves.has(cuenta6) ? cuenta6 : destino.cuenta4;
+  return cuenta6;
 }
 
 /**
@@ -74,7 +78,8 @@ export function resolverCuenta4(entrada: string, entorno: EntornoResolucion): Re
   const codigo = soloDigitos(entrada);
   if (!codigo) return { ok: false, motivo: "vacia" };
 
-  if (codigo.length === nivel && entorno.subgruposModulo.has(codigo)) {
+  // Las claves del módulo son del nivel del cruce y, en una cédula mixta, también de 6 dígitos.
+  if ((codigo.length === nivel || codigo.length === 6) && entorno.subgruposModulo.has(codigo)) {
     return { ok: true, cuenta4: codigo, via: "russell" };
   }
 
@@ -83,7 +88,7 @@ export function resolverCuenta4(entrada: string, entorno: EntornoResolucion): Re
   const destino = entorno.homologacionCliente.get(codigo);
   if (!destino) return { ok: false, motivo: "no-encontrada", entrada: codigo };
 
-  const clave = claveDestino(destino, nivel);
+  const clave = claveDestino(destino, nivel, entorno.subgruposModulo);
   if (clave == null) {
     return { ok: false, motivo: "sin-nivel", entrada: codigo, cuenta4Real: destino.cuenta4, nombreCliente: destino.nombre };
   }

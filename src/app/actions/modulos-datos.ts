@@ -19,14 +19,21 @@ import {
   bloqueoAnexoPorVerificacionesCriticasModulo,
   bloqueoVerificacionesCriticasModulo,
   descriptorModulo,
-  nivelCruceModulo,
+  type DescriptorModulo,
 } from "@/lib/modulos/descriptores";
 import {
   parseAlcanceEliminacionModulo,
   resolverAlcanceEliminacionModulo,
   type AlcanceEliminacionModulo,
 } from "@/lib/modulos/alcance-eliminacion";
-import { cuentaDelModulo, prefijosCuentaModulo, type NivelCruce } from "@/lib/modulos/cuentas-modulo";
+import {
+  cedulaModulo,
+  cuentaAsignableCedula,
+  cuentasCedula6,
+  longitudesCedula,
+  prefijosCuentaModulo,
+  type CedulaModulo,
+} from "@/lib/modulos/cuentas-modulo";
 import { SpecModuloSchema, type SpecModulo } from "@/lib/modulos/extraccion/esquema";
 import {
   encabezadoValorIngresoAmbiguo,
@@ -96,6 +103,7 @@ import { cruceTerceroDeCargue } from "@/lib/modulos/cruce-tercero-servidor";
 import { validarEmparejamientoTercero } from "@/lib/modulos/cartera/cruce-tercero-cartera";
 import { evidenciaCruceTercero } from "@/lib/conciliacion/evidencia-cruce-tercero";
 import {
+  alcanceExplicitoDelCruce,
   cuentasBloqueoDelModulo,
   cuentasRussellDelCruce,
   ESTADO_CIERRE_DESBLOQUEADO,
@@ -1974,30 +1982,41 @@ function cuentaMarcable(v: string): string {
   return normalizarClaveCruce(v);
 }
 
-// Normaliza + deduplica un conjunto de cuentas de un clasificador, al nivel del módulo.
-// NUNCA trunca: una cuenta de 6 en un módulo a 4 (o de 4 en uno a 6) se descarta y la
-// validación la delata, en vez de convertirla en silencio en otra cuenta.
-function normalizarCuentasCruce(cuentas: string[], nivel: NivelCruce): string[] {
-  return [...new Set((cuentas ?? []).map((c) => String(c ?? "").replace(/\D/g, "")).filter((c) => c.length === nivel))];
+// Cédula contable del módulo (nivel, prefijos del prevalidador y ampliaciones del descriptor).
+async function cedulaDelModulo(moduloCodigo: string, descriptor: DescriptorModulo): Promise<CedulaModulo> {
+  return cedulaModulo(descriptor, prefijosCuentaModulo(moduloCodigo, await getCatalogoPrevalidador()));
 }
 
-// Valida que TODAS las cuentas del conjunto sean del nivel y del módulo (una vez). A 6
-// dígitos exige además que la cuenta exista en el plan estándar y, si el descriptor acota
-// la lista (Nómina), que esté en ella.
-async function validarCuentasModulo(moduloCodigo: string, cuentas: string[], nivel: NivelCruce, entradas: number): Promise<ActionState | null> {
-  if (cuentas.length !== entradas) return { ok: false, message: `Cada cuenta debe ser Russell de ${nivel} dígitos.` };
-  const descriptor = descriptorModulo(moduloCodigo);
-  const cuentasRussell6 = descriptor?.crucePorTercero.cuentasRussell6 ?? null;
-  const prefijos = prefijosCuentaModulo(moduloCodigo, await getCatalogoPrevalidador());
-  const fuera = cuentas.find((c) => !cuentaDelModulo(c, nivel, prefijos, cuentasRussell6));
+// Normaliza + deduplica un conjunto de cuentas de un clasificador, a las longitudes que la
+// cédula admite (4, 6, o ambas en una cédula mixta como la de Ingresos). NUNCA trunca: una
+// cuenta de otra longitud se descarta y la validación la delata, en vez de convertirla en
+// silencio en otra cuenta.
+function normalizarCuentasCruce(cuentas: string[], cedula: CedulaModulo): string[] {
+  const longitudes = longitudesCedula(cedula);
+  return [...new Set((cuentas ?? []).map((c) => String(c ?? "").replace(/\D/g, "")).filter((c) => longitudes.has(c.length)))];
+}
+
+// Valida que TODAS las cuentas del conjunto sean asignables en la cédula del módulo (una vez).
+// Las de 6 dígitos tienen que existir además en el plan estándar.
+async function validarCuentasModulo(moduloCodigo: string, cuentas: string[], cedula: CedulaModulo, entradas: number): Promise<ActionState | null> {
+  const longitudes = [...longitudesCedula(cedula)].sort().join(" o ");
+  if (cuentas.length !== entradas) return { ok: false, message: `Cada cuenta debe ser Russell de ${longitudes} dígitos.` };
+  const fuera = cuentas.find((c) => !cuentaAsignableCedula(cedula, c));
   if (fuera) {
-    const listado = nivel === 6 && cuentasRussell6?.length ? cuentasRussell6.join(", ") : prefijos.length ? prefijos.join(", ") : "—";
-    return { ok: false, message: `La cuenta ${fuera} no pertenece al módulo ${moduloCodigo}. Usa una cuenta de ${nivel === 6 && cuentasRussell6?.length ? "estas" : "estos prefijos"}: ${listado}.` };
+    const adicionales = [...cedula.adicionales.keys()];
+    const listado = cedula.nivel === 6 && cedula.lista6
+      ? [...cedula.lista6, ...adicionales].join(", ")
+      : [...cedula.prefijos, ...adicionales].join(", ") || "—";
+    const abierto = cedula.abiertos.has(fuera.slice(0, 4))
+      ? ` Las cuentas de ${fuera.slice(0, 4)} no se asignan: salen de la relación con el activo.`
+      : "";
+    return { ok: false, message: `La cuenta ${fuera} no pertenece al módulo ${moduloCodigo}. Usa una cuenta de ${cedula.nivel === 6 && cedula.lista6 ? "estas" : "estos prefijos o cuentas"}: ${listado}.${abierto}` };
   }
-  if (nivel === 6) {
-    const existentes = await prisma.standardAccount.findMany({ where: { code: { in: cuentas } }, select: { code: true } });
+  const seis = cuentas.filter((c) => c.length === 6);
+  if (seis.length > 0) {
+    const existentes = await prisma.standardAccount.findMany({ where: { code: { in: seis } }, select: { code: true } });
     const conocidas = new Set(existentes.map((e) => e.code));
-    const inexistente = cuentas.find((c) => !conocidas.has(c));
+    const inexistente = seis.find((c) => !conocidas.has(c));
     if (inexistente) return { ok: false, message: `La cuenta ${inexistente} no existe en el plan estándar Russell.` };
   }
   return null;
@@ -2090,9 +2109,9 @@ export async function guardarConsolidacionModulo(input: { clienteId: number; mod
   // el agrupador queda vacío y el clasificador es la clave entera.
   const { clasificador, agrupador } = descriptor.nomina ? partirClaveConsolidado(clave) : { clasificador: clave, agrupador: "" };
   if (!clasificador) return { ok: false, message: "Indica el clasificador." };
-  const nivel = nivelCruceModulo(descriptor);
-  const cuentas4 = normalizarCuentasCruce(input.cuentas4, nivel);
-  const invalida = await validarCuentasModulo(moduloCodigo, cuentas4, nivel, new Set((input.cuentas4 ?? []).map((c) => String(c ?? "").replace(/\D/g, ""))).size);
+  const cedula = await cedulaDelModulo(moduloCodigo, descriptor);
+  const cuentas4 = normalizarCuentasCruce(input.cuentas4, cedula);
+  const invalida = await validarCuentasModulo(moduloCodigo, cuentas4, cedula, new Set((input.cuentas4 ?? []).map((c) => String(c ?? "").replace(/\D/g, ""))).size);
   if (invalida) return invalida;
   try {
     const user = await getCurrentUser();
@@ -2120,15 +2139,15 @@ export async function guardarConsolidacionModuloLote(input: {
   const authz = await authorizePermiso("modulos_datos:editar", { clientId: input.clienteId });
   if (!authz.ok) return { ok: false, message: authz.message };
 
-  const nivel = nivelCruceModulo(descriptor);
+  const cedula = await cedulaDelModulo(moduloCodigo, descriptor);
   const filas = (input.filas ?? [])
-    .map((f) => ({ clasificador: String(f.clasificador ?? "").trim(), cuentas4: normalizarCuentasCruce(f.cuentas4, nivel) }))
+    .map((f) => ({ clasificador: String(f.clasificador ?? "").trim(), cuentas4: normalizarCuentasCruce(f.cuentas4, cedula) }))
     .filter((f) => f.clasificador);
   const partir = (clave: string) => (descriptor.nomina ? partirClaveConsolidado(clave) : { clasificador: clave, agrupador: "" });
   if (filas.length === 0) return { ok: false, message: "No hay cambios para guardar." };
 
   const entradas = new Set((input.filas ?? []).flatMap((f) => (f.cuentas4 ?? []).map((c) => String(c ?? "").replace(/\D/g, "")))).size;
-  const invalida = await validarCuentasModulo(moduloCodigo, [...new Set(filas.flatMap((f) => f.cuentas4))], nivel, entradas);
+  const invalida = await validarCuentasModulo(moduloCodigo, [...new Set(filas.flatMap((f) => f.cuentas4))], cedula, entradas);
   if (invalida) return invalida;
 
   try {
@@ -2228,7 +2247,7 @@ export async function guardarRepartoCruce(input: { encabezadoId: number; clasifi
     if (Object.keys(limpios).length > 0) {
       const invalido = validarReparto(renglon.total, limpios);
       if (invalido) return { ok: false, message: invalido };
-      const cuentasRussell6 = descriptor.crucePorTercero.cuentasRussell6 ?? [];
+      const cuentasRussell6 = cuentasCedula6(descriptor);
       const fuera = Object.keys(limpios).find((c) => !cuentasRussell6.includes(c));
       if (fuera) return { ok: false, message: `La cuenta ${fuera} no pertenece al módulo de Nómina.` };
     }
@@ -3113,8 +3132,9 @@ export async function cerrarConciliacionModulo(input: { encabezadoId: number }):
     if (!evaluacion.ok) return { ok: false, message: `No se puede cerrar: ${evaluacion.motivo}` };
 
     const cuentasRussell = cuentasRussellDelCruce(cruce.cruceContable);
-    // Con las cuentas de 6 dígitos del módulo, el bloqueo se limita a ellas (130515 no).
-    const cuentasRussell6 = descriptor?.crucePorTercero.cuentasRussell6?.length ? [...descriptor.crucePorTercero.cuentasRussell6] : null;
+    // Con las cuentas de 6 dígitos del módulo, el bloqueo se limita a ellas (130515 no). Una
+    // cédula mixta guarda ahí sus claves de 4 y de 6 (la 422005 en firme, no toda la 4220).
+    const cuentasRussell6 = descriptor ? alcanceExplicitoDelCruce(await cedulaDelModulo(encabezado.moduloCodigo, descriptor), cruce.cruceContable) : null;
     const evidenciaTercero = tercero?.resumen ? evidenciaCruceTercero(tercero.resumen, tercero.resumenMarcas) : null;
     const balance = cruce.balanceEmparejado;
     const user = await getCurrentUser();
