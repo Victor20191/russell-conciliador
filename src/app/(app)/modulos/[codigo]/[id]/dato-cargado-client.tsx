@@ -180,7 +180,7 @@ const etiquetaRussell = (codigo: string, nombre?: string | null) => `R - ${codig
 const etiquetaFilaCruce = (fila: Pick<FilaCruceMarcada, "cuenta4" | "nombre" | "cuentas" | "clasificadores">) =>
   fila.cuentas && fila.cuentas.length > 1
     ? `${fila.cuentas.map((c) => `R - ${c}`).join(" + ")}${fila.clasificadores?.length ? ` · ${fila.clasificadores.join(", ")}` : ""}`
-    : etiquetaFilaCruce(fila);
+    : etiquetaRussell(fila.cuenta4, fila.nombre);
 
 const etiquetaResp = (r: "si" | "no" | "na" | null) => (r === "si" ? "Sí" : r === "no" ? "No" : r === "na" ? "N/A" : "—");
 
