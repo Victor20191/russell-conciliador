@@ -495,6 +495,39 @@ describe("ingerir Excel binario (.xlsb)", () => {
   });
 });
 
+describe("columnaInicial (hojas que empiezan con columnas vacías)", () => {
+  // CxP de Mineralin (SIESA .xls): la hoja usa C2:S…, con A y B vacías.
+  function libroDesdeC(bookType: "biff8" | "xlsb"): ArrayBuffer {
+    const ws: XLSX.WorkSheet = {};
+    XLSX.utils.sheet_add_aoa(ws, [["NIT", null, "TOTAL"], ["900123456", null, 5_000]], { origin: "C1" });
+    ws["!ref"] = "C1:E2";
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "CxP");
+    return XLSX.write(wb, { type: "array", bookType }) as ArrayBuffer;
+  }
+
+  it.each([["cxp.xls", "biff8"], ["cxp.xlsb", "xlsb"]] as const)("%s declara el desplazamiento y la celda física lo suma", async (nombre, bookType) => {
+    const data = libroDesdeC(bookType);
+    const ingesta = await ingerir(data, nombre);
+    expect(ingesta.modo).toBe("tabular");
+    if (ingesta.modo !== "tabular") return;
+    expect(ingesta.hojas[0].columnaInicial).toBe(2);
+    expect(ingesta.hojas[0].filas[1][2]).toBe(5_000);
+    // TOTAL es la columna 3 de la grilla y la E (5) de Excel.
+    await expect(leerCeldaFisicaArchivo(data, nombre, "CxP", 2, 3 + 2)).resolves.toEqual({
+      hojaExiste: true,
+      filaExiste: true,
+      valor: 5_000,
+    });
+  });
+
+  it("una hoja que empieza en A no declara desplazamiento", async () => {
+    const ingesta = await ingerir(libroXls({ Balance: [["Código", "Saldo"], ["1105", 10]] }), "balance.xls");
+    expect(ingesta.modo).toBe("tabular");
+    if (ingesta.modo === "tabular") expect(ingesta.hojas[0].columnaInicial).toBeUndefined();
+  });
+});
+
 describe("detectarDelimitador", () => {
   it("detecta tabulador", () => {
     const t = "CUENTA\tNOMBRE\tSALDO\n1105\tCAJA\t1.000,50\n1110\tBANCOS\t2.000,00";

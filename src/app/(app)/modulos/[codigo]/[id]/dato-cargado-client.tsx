@@ -80,6 +80,8 @@ export type CruceContableVm = {
   resumen: ResumenCruceContable | null;
   sinMapeoContable: { total: number; filas: number } | null;
   bloqueo: string | null;
+  /** Cartera y CxP: por qué se cruza contra esta versión del balance (no es la oficial, o hay varias). */
+  avisoBalance: string | null;
   balanceFuente: {
     id: number;
     version: string;
@@ -87,6 +89,7 @@ export type CruceContableVm = {
     periodoFin: string;
     esOficial: boolean;
     estaCongelado: boolean;
+    descripcion: string;
   } | null;
   /** Filas contables omitidas conservadoramente porque no resolvieron una regla activa. */
   sinReglaContableFilas: number;
@@ -172,6 +175,12 @@ export type HomologacionCliente = Record<string, CuentaCliente[]>;
 export type ResolucionCliente = Record<string, { cuenta4: string; cuenta6?: string | null; nombre: string }>;
 // Etiqueta de una cuenta Russell: «R - 1435 · Mercancías no fabricadas».
 const etiquetaRussell = (codigo: string, nombre?: string | null) => `R - ${codigo}${nombre ? ` · ${nombre}` : ""}`;
+
+/** Etiqueta de una fila del cruce contable; la agrupada nombra sus cuentas y los clasificadores que la originan. */
+const etiquetaFilaCruce = (fila: Pick<FilaCruceMarcada, "cuenta4" | "nombre" | "cuentas" | "clasificadores">) =>
+  fila.cuentas && fila.cuentas.length > 1
+    ? `${fila.cuentas.map((c) => `R - ${c}`).join(" + ")}${fila.clasificadores?.length ? ` · ${fila.clasificadores.join(", ")}` : ""}`
+    : etiquetaRussell(fila.cuenta4, fila.nombre);
 
 const etiquetaResp = (r: "si" | "no" | "na" | null) => (r === "si" ? "Sí" : r === "no" ? "No" : r === "na" ? "N/A" : "—");
 
@@ -1266,12 +1275,13 @@ function CruceContableTab({
       <Card className="flex flex-col items-center gap-2 p-8 text-center">
         <div className="text-[13px] font-semibold text-ink-800">Cruce contable no habilitado</div>
         <p className="max-w-2xl text-[12.5px] text-warn-700">{cruceContable.bloqueo}</p>
+        {cruceContable.avisoBalance && <p className="max-w-2xl text-[12px] text-ink-600">{cruceContable.avisoBalance}</p>}
         {cruceContable.balanceFuente && (
           <Link
             href={`/balance/${cruceContable.balanceFuente.id}`}
             className="mt-1 text-[12.5px] font-semibold text-blue-700 hover:underline"
           >
-            Revisar balance {cruceContable.balanceFuente.version} ({cruceContable.balanceFuente.periodoInicio} a {cruceContable.balanceFuente.periodoFin}) →
+            Revisar balance {cruceContable.balanceFuente.descripcion} →
           </Link>
         )}
       </Card>
@@ -1318,14 +1328,17 @@ function CruceContableTab({
             href={`/balance/${cruceContable.balanceFuente.id}`}
             className="font-semibold text-blue-600 hover:underline"
           >
-            balance {cruceContable.balanceFuente.version} · {cruceContable.balanceFuente.periodoInicio} a {cruceContable.balanceFuente.periodoFin}
+            balance {cruceContable.balanceFuente.descripcion}
           </Link>
           {cruceContable.balanceFuente.esOficial && cruceContable.balanceFuente.estaCongelado
             ? " · oficial y congelado"
-            : " · versión más reciente del período (sin congelar)"}
+            : cruceContable.balanceFuente.esOficial ? " · oficial" : " · sin congelar"}
           {cruceContable.bloqueo ? "" : " · prevalidador aprobado"}
           .
         </p>
+      )}
+      {cruceContable.avisoBalance && (
+        <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[12px] leading-snug text-warn-700">{cruceContable.avisoBalance}</div>
       )}
       {cruceContable.nomina && (
         <p className="text-[11.5px] text-ink-500">
@@ -1369,55 +1382,83 @@ function CruceContableTab({
                 const excluidas = new Set(hijos.filter((h) => h.noModular).map((h) => h.cuenta8));
                 return (
                   <Fragment key={f.cuenta4}>
-                    <tr className={`border-t border-ink-100 ${f.estado === "descuadre" ? "bg-err-100/30" : ""}`}>
-                      <td className="px-3 py-2 font-medium text-ink-800">
-                        <div className="flex items-center gap-1.5">
-                          {hijos.length > 0 ? (
-                            <button
-                              type="button"
-                              onClick={() => alternarFila(f.cuenta4)}
-                              aria-expanded={abierta}
-                              title={abierta ? "Contraer las cuentas del cliente" : "Ver las cuentas del cliente de esta fila"}
-                              className="rounded p-0.5 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700"
-                            >
-                              <Icon name={chevronDivulgacion(abierta)} size={13} />
-                            </button>
-                          ) : (
-                            <span className="inline-block w-[18px]" />
+                    {/* Una fila agrupada se pinta con un renglón por cuenta (su propio saldo contable y
+                        no modular); archivos, diferencias y marca son del grupo y ocupan todos sus renglones. */}
+                    {(f.desglose && f.desglose.length > 1
+                      ? f.desglose
+                      : [{ cuenta: f.cuenta4, nombre: f.nombre, contable: f.contable, noModular: f.noModular }]
+                    ).map((renglon, i, renglones) => {
+                      const agrupada = renglones.length > 1;
+                      const primero = i === 0;
+                      const alto = renglones.length;
+                      return (
+                        <tr
+                          key={renglon.cuenta}
+                          className={`${primero ? "border-t border-ink-100" : ""} ${f.estado === "descuadre" ? "bg-err-100/30" : ""}`}
+                        >
+                          <td className={`px-3 py-2 font-medium text-ink-800 ${agrupada ? "border-l-2 border-l-blue-300" : ""}`}>
+                            <div className="flex items-center gap-1.5">
+                              {primero && hijos.length > 0 ? (
+                                <button
+                                  type="button"
+                                  onClick={() => alternarFila(f.cuenta4)}
+                                  aria-expanded={abierta}
+                                  title={abierta ? "Contraer las cuentas del cliente" : "Ver las cuentas del cliente de esta fila"}
+                                  className="rounded p-0.5 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700"
+                                >
+                                  <Icon name={chevronDivulgacion(abierta)} size={13} />
+                                </button>
+                              ) : (
+                                <span className="inline-block w-[18px]" />
+                              )}
+                              {etiquetaRussell(renglon.cuenta, renglon.nombre)}
+                              {agrupada && (
+                                <span title={`Agrupada: ${f.clasificadores?.join(", ") ?? "el clasificador"} está asignado a varias cuentas y se concilia contra la suma de ellas.`}>
+                                  <Chip label={f.clasificadores?.length ? `Agrupada · ${f.clasificadores.join(", ")}` : "Agrupada"} tone="blue" />
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(renglon.contable)}</td>
+                          {primero && (
+                            <td rowSpan={alto} className={`px-3 py-2 text-right align-middle tabular-nums text-ink-700 ${agrupada ? "border-x border-ink-100 font-semibold" : ""}`}>
+                              {fmtContable(f.inventario)}
+                            </td>
                           )}
-                          {etiquetaRussell(f.cuenta4, f.nombre)}
-                        </div>
-                      </td>
-                      <td className="px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(f.contable)}</td>
-                      <td className="px-3 py-2 text-right tabular-nums text-ink-700">{fmtContable(f.inventario)}</td>
-                      <td className="px-3 py-2 text-right tabular-nums text-ink-500">{fmtContable(f.diferenciaBruta)}</td>
-                      <td className="px-3 py-2 text-right tabular-nums text-warn-700">
-                        {f.noModular === 0 ? <span className="text-ink-300">—</span> : fmtContable(-f.noModular)}
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          {f.estado === "solo_contable" && <Chip label={`Sin ${moduloEnMinuscula}`} tone="warn" />}
-                          {f.estado === "solo_inventario" && <Chip label="Sin contabilidad" tone="warn" />}
-                          <span className={`tabular-nums font-semibold ${f.cuadra ? "text-ok-700" : "text-err-700"}`}>{fmtContable(f.diferencia)}</span>
-                        </div>
-                      </td>
-                      <td className="whitespace-nowrap px-3 py-2 text-center align-middle">
-                        <CeldaMarca
-                          fila={f}
-                          encabezadoId={encabezadoId}
-                          comentarios={comentarios[anclaCruce(f.cuenta4)] ?? 0}
-                          puedeEditar={puedeEditar}
-                          onMarcar={() => setMarcando(f)}
-                        />
-                      </td>
-                    </tr>
+                          {primero && <td rowSpan={alto} className="px-3 py-2 text-right align-middle tabular-nums text-ink-500">{fmtContable(f.diferenciaBruta)}</td>}
+                          <td className="px-3 py-2 text-right tabular-nums text-warn-700">
+                            {renglon.noModular === 0 ? <span className="text-ink-300">—</span> : fmtContable(-renglon.noModular)}
+                          </td>
+                          {primero && (
+                            <td rowSpan={alto} className="px-3 py-2 text-right align-middle">
+                              <div className="flex items-center justify-end gap-1.5">
+                                {f.estado === "solo_contable" && <Chip label={`Sin ${moduloEnMinuscula}`} tone="warn" />}
+                                {f.estado === "solo_inventario" && <Chip label="Sin contabilidad" tone="warn" />}
+                                <span className={`tabular-nums font-semibold ${f.cuadra ? "text-ok-700" : "text-err-700"}`}>{fmtContable(f.diferencia)}</span>
+                              </div>
+                            </td>
+                          )}
+                          {primero && (
+                            <td rowSpan={alto} className="whitespace-nowrap px-3 py-2 text-center align-middle">
+                              <CeldaMarca
+                                fila={f}
+                                encabezadoId={encabezadoId}
+                                comentarios={comentarios[anclaCruce(f.cuenta4)] ?? 0}
+                                puedeEditar={puedeEditar}
+                                onMarcar={() => setMarcando(f)}
+                              />
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })}
                     {abierta && (
                       <tr className="border-t border-ink-100 bg-ink-50/60">
                         <td colSpan={7} className="px-3 py-2.5">
                           <div className="flex flex-col gap-2">
                             <div className="flex flex-wrap items-center justify-between gap-2">
                               <span className="text-[11.5px] font-semibold text-ink-600">
-                                Cuentas del cliente en {etiquetaRussell(f.cuenta4, f.nombre)}
+                                Cuentas del cliente en {etiquetaFilaCruce(f)}
                               </span>
                               {puedeEditar && (
                                 <button
@@ -2033,7 +2074,7 @@ function CeldaMarca({
       tipo="modulos_datos"
       entityId={encabezadoId}
       anchor={anclaCruce(fila.cuenta4)}
-      titulo={etiquetaRussell(fila.cuenta4, fila.nombre)}
+      titulo={etiquetaFilaCruce(fila)}
       count={comentarios}
     />
   );
@@ -2168,7 +2209,7 @@ function ObservacionMarca({
 
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <span className="text-[12.5px] font-semibold text-ink-800">{etiquetaRussell(fila.cuenta4, fila.nombre)}</span>
+          <span className="text-[12.5px] font-semibold text-ink-800">{etiquetaFilaCruce(fila)}</span>
           <span className={`text-[12px] font-semibold tabular-nums ${fila.cuadra ? "text-ok-700" : "text-err-700"}`}>
             {fmtContable(fila.diferencia)}
           </span>
@@ -2201,7 +2242,7 @@ function ObservacionMarca({
             tipo="modulos_datos"
             entityId={encabezadoId}
             anchor={anclaCruce(fila.cuenta4)}
-            titulo={etiquetaRussell(fila.cuenta4, fila.nombre)}
+            titulo={etiquetaFilaCruce(fila)}
             count={comentarios}
           />
         </div>
@@ -2293,8 +2334,8 @@ function ModalMarca({
   };
 
   const titulo = fila.marca
-    ? `${etiquetaMarca(fila.marca.numero)} · ${etiquetaRussell(fila.cuenta4, fila.nombre)}`
-    : `Nueva marca · ${etiquetaRussell(fila.cuenta4, fila.nombre)}`;
+    ? `${etiquetaMarca(fila.marca.numero)} · ${etiquetaFilaCruce(fila)}`
+    : `Nueva marca · ${etiquetaFilaCruce(fila)}`;
 
   return (
     <Modal

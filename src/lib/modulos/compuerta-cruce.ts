@@ -1,3 +1,4 @@
+import { etiquetaApertura, parsearApertura } from "@/lib/balance/apertura-balance";
 import type { BaseCalculo } from "@/lib/balance/prevalidador/catalogo";
 
 export type ContextoCompuertaCruce = {
@@ -33,6 +34,8 @@ export type CandidatoBalanceCruce = {
   periodoFin: Date;
   esOficial: boolean;
   estaCongelado: boolean;
+  /** El balance conserva su detalle por tercero (captura ligada por `loteId`). */
+  conDetalleTercero?: boolean;
 };
 
 type ReglaBaseModulo = {
@@ -115,6 +118,11 @@ function preferirOficial<T extends CandidatoBalanceCruce>(candidatos: readonly T
  * confirmada (los candidatos llegan con el oficial primero y luego por recencia). Para
  * módulos de movimiento antepone el que cubre el mes calendario exacto (o el rango del
  * cargue) a cualquier acumulado/YTD que termine ese mes.
+ *
+ * Con `preferirDetalleTercero` (Cartera y CxP) antes se queda con las versiones del mes que
+ * conservan el detalle por tercero, si alguna lo hace: el cruce por tercero solo lee el detalle
+ * LIGADO al balance elegido, y así las dos pestañas cruzan contra el mismo balance aunque la
+ * oficial sea «Por cuenta».
  */
 export function seleccionarBalanceCruceModulo<T extends CandidatoBalanceCruce>(
   candidatos: readonly T[],
@@ -122,9 +130,12 @@ export function seleccionarBalanceCruceModulo<T extends CandidatoBalanceCruce>(
   moduloCodigo: string,
   periodoModulo: string,
   rango?: RangoCargue | null,
+  opciones: { preferirDetalleTercero?: boolean } = {},
 ): T | null {
-  const delPeriodo = candidatos.filter((candidato) => balanceTerminaEnPeriodo(candidato.periodoFin, periodoModulo));
-  if (delPeriodo.length === 0) return null;
+  const terminanEnPeriodo = candidatos.filter((candidato) => balanceTerminaEnPeriodo(candidato.periodoFin, periodoModulo));
+  if (terminanEnPeriodo.length === 0) return null;
+  const conDetalle = opciones.preferirDetalleTercero ? terminanEnPeriodo.filter((c) => c.conDetalleTercero === true) : [];
+  const delPeriodo = conDetalle.length > 0 ? conDetalle : terminanEnPeriodo;
   if (!moduloUsaMovimiento(catalogo, moduloCodigo)) return preferirOficial(delPeriodo);
 
   // Con rango (Nómina): primero el que lo cubre exacto, luego el del mes final leído por saldo.
@@ -135,6 +146,41 @@ export function seleccionarBalanceCruceModulo<T extends CandidatoBalanceCruce>(
   }
   return preferirOficial(delPeriodo.filter((c) => balanceCubreMesExacto(c.periodoInicio, c.periodoFin, periodoModulo)))
     ?? preferirOficial(delPeriodo);
+}
+
+export type BalanceDescribible = CandidatoBalanceCruce & { id: unknown; version: string; aperturaBalance?: string | null };
+
+const fechaISO = (fecha: Date): string => fecha.toISOString().slice(0, 10);
+
+/** «v1 «Por terceros» (2025-01-01 a 2025-12-31)»: la versión sola no distingue dos aperturas del mes. */
+export function describirBalanceCruce(balance: Pick<BalanceDescribible, "version" | "aperturaBalance" | "periodoInicio" | "periodoFin">): string {
+  const apertura = parsearApertura(balance.aperturaBalance);
+  return `${balance.version}${apertura ? ` «${etiquetaApertura(apertura)}»` : ""} (${fechaISO(balance.periodoInicio)} a ${fechaISO(balance.periodoFin)})`;
+}
+
+/**
+ * Lo que hay que saber de la elección del balance (Cartera y CxP): que no se usó la oficial
+ * porque no trae el detalle por tercero, o que el mes tiene VARIAS oficiales. Lo segundo pasa
+ * porque congelar desmarca solo las versiones con el mismo TEXTO de período —«Diciembre 2025» y
+ * «Enero 2025 – Diciembre 2025» quedan oficiales las dos— mientras el cruce toma todo balance
+ * que termina en el mes. Sin nada que avisar devuelve null.
+ */
+export function avisoSeleccionBalance<T extends BalanceDescribible>(
+  candidatos: readonly T[],
+  elegido: T | null,
+  periodoModulo: string,
+): string | null {
+  if (!elegido) return null;
+  const oficiales = candidatos.filter((c) => c.esOficial && balanceTerminaEnPeriodo(c.periodoFin, periodoModulo));
+  const lista = oficiales.map((c) => describirBalanceCruce(c)).join(", ");
+  const porDetalle = elegido.conDetalleTercero === true && oficiales.some((c) => c.conDetalleTercero !== true);
+  if (oficiales.length > 1) {
+    return `Hay ${oficiales.length} balances oficiales que terminan en ${periodoModulo}: ${lista}. Se cruza contra el ${describirBalanceCruce(elegido)}, ${porDetalle ? "el que conserva el detalle por tercero" : "el cargado más recientemente"}.`;
+  }
+  if (!elegido.esOficial && oficiales.length === 1 && porDetalle) {
+    return `Se cruza contra el balance ${describirBalanceCruce(elegido)} porque conserva el detalle por tercero; el oficial del período, ${lista}, no lo trae.`;
+  }
+  return null;
 }
 
 /** Códigos de agrupadoras que el prevalidador ya excluyó para evitar doble conteo. */

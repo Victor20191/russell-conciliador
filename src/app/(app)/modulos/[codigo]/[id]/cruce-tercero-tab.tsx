@@ -25,7 +25,9 @@ export type CruceTerceroVm = {
   estado: "sin_balance" | "sin_detalle_tercero" | "bloqueado" | "listo";
   mensaje: string | null;
   /** Balance de comprobación del período (el mismo del cruce contable). */
-  balance: { id: number; version: string; periodoFin: string; esOficial: boolean; estaCongelado: boolean } | null;
+  balance: { id: number; version: string; periodoFin: string; esOficial: boolean; estaCongelado: boolean; descripcion: string } | null;
+  /** Cartera y CxP: por qué se cruza contra esta versión del balance (no es la oficial, o hay varias). */
+  avisoBalance: string | null;
   balanceTercero: { id: number; version: string } | null;
   resumen: ResumenCruceTerceroMarcado | null;
   /** Diferencias que exigen marca para cerrar, y cuántas la tienen. */
@@ -152,9 +154,10 @@ export function CruceTerceroTab({
     return (
       <EstadoVacio
         titulo={cruceTercero.estado === "bloqueado" ? "Cruce por tercero no habilitado" : "El balance del período no tiene detalle por tercero"}
-        enlace={{ href: `/balance/${balance.id}`, texto: `Revisar balance ${balance.version} →` }}
+        enlace={{ href: `/balance/${balance.id}`, texto: `Revisar balance ${balance.descripcion} →` }}
       >
         <span className={cruceTercero.estado === "bloqueado" ? "text-warn-700" : undefined}>{cruceTercero.mensaje}</span>
+        {cruceTercero.avisoBalance ? <span className="mt-1 block text-warn-700">{cruceTercero.avisoBalance}</span> : null}
       </EstadoVacio>
     );
   }
@@ -190,12 +193,15 @@ export function CruceTerceroTab({
   return (
     <div className="flex flex-col gap-4">
       <p className="text-[11.5px] text-ink-500">
-        Lado contable: balance <b className="text-ink-700">{balance.version}</b> al {balance.periodoFin}
+        Lado contable: balance <b className="text-ink-700">{balance.descripcion}</b>
         {balance.esOficial ? " · oficial" : ""}{balance.estaCongelado ? " · congelado" : ""}
         {cruceTercero.balanceTercero ? <> · detalle por tercero <b className="text-ink-700">{cruceTercero.balanceTercero.version}</b></> : null}
         {" · "}
         <Link href={`/balance/${balance.id}/terceros`} className="font-semibold text-blue-700 hover:underline">Ver por terceros</Link>
       </p>
+      {cruceTercero.avisoBalance && (
+        <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[12px] leading-snug text-warn-700">{cruceTercero.avisoBalance}</div>
+      )}
       {cruceTercero.parametros && (
         <ParametrosCargue parametros={cruceTercero.parametros} encabezadoId={encabezadoId} puedeEditar={puedeEditar} />
       )}

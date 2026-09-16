@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { construirCruceContable, type ClasificadorCruce } from "./cruce-contable";
+import { construirCruceContable, normalizarClaveCruce, type ClasificadorCruce } from "./cruce-contable";
 
 const nombrePorCuenta = (cod: string): string | null => ({ "1435": "Mercancías no fabricadas", "1430": "Materias primas" }[cod] ?? null);
 
@@ -53,6 +53,78 @@ describe("construirCruceContable", () => {
     const r = construirCruceContable({ contablePorCuenta: {}, consolidado, nombrePorCuenta });
     expect(r.filas).toEqual([]);
     expect(r.multiAsignado).toEqual([{ clasificador: "AMBIGUO", total: 700, cuentas4: ["1430", "1435"] }]);
+  });
+
+  describe("filas agrupadas (agruparMultiAsignados)", () => {
+    it("la bolsa asignada a dos cuentas se cruza contra la suma de ambas en una sola fila", () => {
+      const r = construirCruceContable({
+        contablePorCuenta: { "130505": 5_242_295_466.26, "280505": -55_478_114.75 },
+        consolidado: [{ clasificador: "GLOBAL", total: 5_187_695_453.24, cuentas4: ["130505", "280505"] }],
+        nombrePorCuenta: (c) => ({ "130505": "Clientes nacionales", "280505": "Anticipos" }[c] ?? null),
+        agruparMultiAsignados: true,
+      });
+      expect(r.multiAsignado).toEqual([]);
+      expect(r.filas).toEqual([
+        {
+          cuenta4: "130505+280505",
+          nombre: "Clientes nacionales + Anticipos",
+          cuentas: ["130505", "280505"],
+          clasificadores: ["GLOBAL"],
+          desglose: [
+            { cuenta: "130505", nombre: "Clientes nacionales", contable: 5_242_295_466.26, noModular: 0 },
+            { cuenta: "280505", nombre: "Anticipos", contable: -55_478_114.75, noModular: 0 },
+          ],
+          contable: 5_186_817_351.51,
+          inventario: 5_187_695_453.24,
+          noModular: 0,
+          diferenciaBruta: -878_101.73,
+          diferencia: -878_101.73,
+          cuadra: false,
+          estado: "descuadre",
+        },
+      ]);
+      expect(r.totales).toMatchObject({ contable: 5_186_817_351.51, inventario: 5_187_695_453.24, diferencia: -878_101.73 });
+    });
+
+    it("absorbe los clasificadores 1:1 de las cuentas del grupo y suma lo no modular", () => {
+      const r = construirCruceContable({
+        contablePorCuenta: { "1305": 1000, "2805": -100, "1330": 50 },
+        noModularPorCuenta: { "1305": 30 },
+        consolidado: [
+          { clasificador: "BOLSA", total: 800, cuentas4: ["1305", "2805"] },
+          { clasificador: "PROPIO", total: 70, cuentas4: ["1305"] },
+          { clasificador: "OTRO", total: 50, cuentas4: ["1330"] },
+        ],
+        nombrePorCuenta: () => null,
+        agruparMultiAsignados: true,
+      });
+      expect(r.filas.map((f) => f.cuenta4)).toEqual(["1305+2805", "1330"]);
+      expect(r.filas[0]).toMatchObject({ contable: 900, inventario: 870, noModular: 30, diferenciaBruta: 30, diferencia: 0, cuadra: true });
+      expect(r.filas[1]).toMatchObject({ cuenta4: "1330", estado: "cuadra" });
+      expect(r.filas[1].cuentas).toBeUndefined();
+    });
+
+    it("encadena grupos que comparten una cuenta", () => {
+      const r = construirCruceContable({
+        contablePorCuenta: { "1305": 10, "1310": 20, "2805": 30 },
+        consolidado: [
+          { clasificador: "A", total: 15, cuentas4: ["1305", "1310"] },
+          { clasificador: "B", total: 45, cuentas4: ["1310", "2805"] },
+        ],
+        nombrePorCuenta: () => null,
+        agruparMultiAsignados: true,
+      });
+      expect(r.filas).toHaveLength(1);
+      expect(r.filas[0]).toMatchObject({ cuenta4: "1305+1310+2805", clasificadores: ["A", "B"], contable: 60, inventario: 60, cuadra: true });
+    });
+  });
+
+  it("normalizarClaveCruce acepta cuentas y grupos, y rechaza lo demás", () => {
+    expect(normalizarClaveCruce("1435")).toBe("1435");
+    expect(normalizarClaveCruce("280505+130505")).toBe("130505+280505");
+    expect(normalizarClaveCruce("130505+130505")).toBe("");
+    expect(normalizarClaveCruce("13050+280505")).toBe("");
+    expect(normalizarClaveCruce("")).toBe("");
   });
 
   it("varios clasificadores 1:1 a la misma cuenta se suman", () => {

@@ -221,7 +221,8 @@ export async function construirCruceTerceroModulo(insumos: InsumosCruceTercero):
   if (!balanceTercero || balanceTercero.clienteId !== encabezado.clienteId) {
     return resultado(
       "sin_detalle_tercero",
-      `El balance ${balanceEmparejado.version} del período no conserva detalle por tercero. `
+      `El balance ${balanceEmparejado.descripcion} no conserva detalle por tercero. `
+        + (descriptor.crucePorTercero.preferirBalanceConTerceros ? "Ninguna otra versión del balance que termina en el período lo conserva. " : "")
         + "Se captura al confirmar el borrador del balance declarando la apertura «Por terceros»: vuelve a cargarlo así para cruzar por tercero.",
     );
   }

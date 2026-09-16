@@ -94,7 +94,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ codigo:
         cruceTercero = {
           resumen: tercero.resumen,
           ...etiquetasCruceTercero(descriptor),
-          fuente: `Balance ${cruce.balanceEmparejado.version} al ${cruce.balanceEmparejado.periodoFin}${tercero.balanceTercero ? ` · detalle por tercero ${tercero.balanceTercero.version}` : ""}`,
+          fuente: `Balance ${cruce.balanceEmparejado.descripcion}${tercero.balanceTercero ? ` · detalle por tercero ${tercero.balanceTercero.version}` : ""}`,
         };
       }
     }

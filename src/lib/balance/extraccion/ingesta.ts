@@ -25,6 +25,13 @@ export type GridHoja = {
   /** Número físico de cada fila en el archivo, alineado 1:1 con la grilla compacta. */
   filasFisicas?: number[];
   /**
+   * Columna física (0-based) donde empieza la grilla. SheetJS arma las filas desde la primera
+   * columna usada: un .xls con A y B vacías entrega la C como índice 0. Sirve para mostrar la
+   * letra real de Excel y para leer la celda física; las columnas del spec siguen siendo
+   * relativas a la grilla. Ausente = la grilla empieza en A (ExcelJS y texto plano).
+   */
+  columnaInicial?: number;
+  /**
    * La hoja está OCULTA en el libro (`state="hidden"`/`veryHidden`). Los libros de conciliación
    * del auditor esconden restos de la plantilla («Balance a Julio», «Hoja3») que no deben
    * proponerse como el auxiliar del módulo; se leen igual por si el usuario las pide.
@@ -276,6 +283,11 @@ async function leerLibroExcelDocumental(data: ArrayBuffer): Promise<GridHoja[]> 
   });
 }
 
+/** `GridHoja.columnaInicial` de una hoja leída con SheetJS (solo cuando no empieza en A). */
+function columnaInicialDe(rango: { s: { c: number } } | null): { columnaInicial?: number } {
+  return rango && rango.s.c > 0 ? { columnaInicial: rango.s.c } : {};
+}
+
 /**
  * Respaldo tolerante para OOXML producido por ERPs que Excel abre/repara, pero
  * cuya metadata no cumple estrictamente el esquema que espera ExcelJS. SheetJS
@@ -314,7 +326,7 @@ async function leerLibroExcelAlterno(data: ArrayBuffer): Promise<GridHoja[]> {
       filas.push(fila);
       filasFisicas.push((rango?.s.r ?? 0) + i + 1);
     }
-    return { nombre, filas, filasFisicas, ...oculta };
+    return { nombre, filas, filasFisicas, ...columnaInicialDe(rango), ...oculta };
   });
 }
 
@@ -613,7 +625,10 @@ async function leerLibroXls(data: ArrayBuffer): Promise<GridHoja[]> {
       if (flags.some(Boolean)) hayNegrita = true;
       negrita.push(flags);
     }
-    return hayNegrita ? { nombre, filas, negrita, filasFisicas, ...oculta } : { nombre, filas, filasFisicas, ...oculta };
+    const inicio = columnaInicialDe(rango);
+    return hayNegrita
+      ? { nombre, filas, negrita, filasFisicas, ...inicio, ...oculta }
+      : { nombre, filas, filasFisicas, ...inicio, ...oculta };
   });
 }
 
@@ -677,7 +692,7 @@ async function leerLibroXlsb(data: ArrayBuffer): Promise<GridHoja[]> {
       filas.push(fila);
       filasFisicas.push((rango?.s.r ?? 0) + i + 1);
     }
-    return { nombre, filas, filasFisicas };
+    return { nombre, filas, filasFisicas, ...columnaInicialDe(rango) };
   });
 }
 

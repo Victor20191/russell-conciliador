@@ -75,6 +75,16 @@ describe("cuentasRussellDelCruce", () => {
     });
     expect(cuentasRussellDelCruce(cruce)).toEqual(["5105", "7205"]);
   });
+
+  it("una fila agrupada aporta todas sus cuentas", () => {
+    const cruce = construirCruceContable({
+      contablePorCuenta: { "130505": 100, "280505": -10 },
+      consolidado: [{ clasificador: "GLOBAL", total: 90, cuentas4: ["130505", "280505"] }],
+      nombrePorCuenta: () => null,
+      agruparMultiAsignados: true,
+    });
+    expect(cuentasRussellDelCruce(cruce)).toEqual(["1305", "2805"]);
+  });
 });
 
 describe("evaluarCierreConciliacion", () => {

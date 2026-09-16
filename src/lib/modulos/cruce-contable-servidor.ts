@@ -24,6 +24,8 @@ import {
   baseBalanceParaRango,
   cuentasAgrupadorasExcluidas,
   seleccionarBalanceCruceModulo,
+  avisoSeleccionBalance,
+  describirBalanceCruce,
   validarCompuertaPrevalidador,
   validarRangoBalanceModulo,
   type RangoCargue,
@@ -84,11 +86,17 @@ export type BalanceFuenteCruce = {
   periodoFin: string;
   esOficial: boolean;
   estaCongelado: boolean;
+  /** Apertura declarada («cuenta» | «tercero»); null en cargues anteriores a ese dato. */
+  aperturaBalance: string | null;
+  /** Versión, apertura y fechas (`describirBalanceCruce`): «v1» solo no distingue dos aperturas del mes. */
+  descripcion: string;
 };
 
 export type ResultadoCruceModulo = {
   balanceEmparejado: BalanceFuenteCruce | null;
   bloqueo: string | null;
+  /** Cartera y CxP: por qué se cruza contra esta versión (no es la oficial, o el mes tiene varias). */
+  avisoBalance: string | null;
   /**
    * Huella del prevalidador del balance emparejado (detalle, homologación, catálogo y
    * overrides) tal como se calculó el cruce. El cierre la relee bajo candado: como el
@@ -248,12 +256,26 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
   // NO es requisito para conciliar); en módulos de movimiento se antepone el que cubre
   // exactamente el mes calendario. Después, la compuerta común exige que ese balance
   // conserve una aprobación vigente del prevalidador.
-  const balancesConfirmados = await prisma.balancePruebaEncabezado.findMany({
+  const balancesDelCliente = await prisma.balancePruebaEncabezado.findMany({
     where: { clienteId: encabezado.clienteId },
-    select: { id: true, periodo: true, periodoInicio: true, periodoFin: true, version: true, esOficial: true, estaCongelado: true },
+    select: { id: true, periodo: true, periodoInicio: true, periodoFin: true, version: true, esOficial: true, estaCongelado: true, loteId: true, aperturaBalance: true },
     orderBy: [{ esOficial: "desc" }, { periodoFin: "desc" }, { id: "desc" }],
   });
-  const emparejado = seleccionarBalanceCruceModulo(balancesConfirmados, catalogoPrevalidador, moduloCodigo, encabezado.periodo, rango);
+  // Cartera y CxP: gana la versión del mes con detalle por tercero (el cruce por tercero solo lee
+  // el LIGADO por `loteId`), y se avisa si con eso no es la oficial o si el mes tiene varias.
+  const preferirDetalleTercero = descriptor.crucePorTercero.habilitado && descriptor.crucePorTercero.preferirBalanceConTerceros === true;
+  const lotesConTerceros = new Set<string>();
+  const lotes = preferirDetalleTercero ? balancesDelCliente.map((b) => b.loteId).filter((l): l is string => l != null) : [];
+  if (lotes.length > 0) {
+    const capturas = await prisma.balanceTerceroEncabezado.findMany({
+      where: { clienteId: encabezado.clienteId, loteId: { in: lotes } },
+      select: { loteId: true },
+    });
+    for (const captura of capturas) if (captura.loteId) lotesConTerceros.add(captura.loteId);
+  }
+  const balancesConfirmados = balancesDelCliente.map((b) => ({ ...b, conDetalleTercero: b.loteId != null && lotesConTerceros.has(b.loteId) }));
+  const emparejado = seleccionarBalanceCruceModulo(balancesConfirmados, catalogoPrevalidador, moduloCodigo, encabezado.periodo, rango, { preferirDetalleTercero });
+  const avisoBalance = preferirDetalleTercero ? avisoSeleccionBalance(balancesConfirmados, emparejado, encabezado.periodo) : null;
   const baseNomina: BaseContableNomina | null = emparejado && rango ? baseBalanceParaRango(emparejado.periodoInicio, emparejado.periodoFin, rango) : null;
   const balanceEmparejado: BalanceFuenteCruce | null = emparejado
     ? {
@@ -264,6 +286,8 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
         periodoFin: emparejado.periodoFin.toISOString().slice(0, 10),
         esOficial: emparejado.esOficial,
         estaCongelado: emparejado.estaCongelado,
+        aperturaBalance: emparejado.aperturaBalance,
+        descripcion: describirBalanceCruce(emparejado),
       }
     : null;
 
@@ -358,7 +382,17 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
         ? formalNomina.entradas
         : consolidado.map((c) => ({ clasificador: c.clasificador, total: c.total, cuentas4: cuentasPorClasificador.get(c.clasificador) ?? [] })),
       nombrePorCuenta: (cod) => nombrePorCuenta.get(cod) ?? null,
+      // Nómina reparte sus conceptos multiasignados; los demás módulos los cruzan contra la
+      // suma de las cuentas en una fila agrupada.
+      agruparMultiAsignados: !formalNomina,
     });
+    // El desglose de una fila agrupada son las cuentas del cliente de todas sus cuentas Russell.
+    for (const fila of cruceContable.filas) {
+      if (!fila.cuentas) continue;
+      detalleContablePorCuenta[fila.cuenta4] = fila.cuentas
+        .flatMap((c) => detalleContablePorCuenta[c] ?? [])
+        .sort((a, b) => a.cuenta8.localeCompare(b.cuenta8));
+    }
     // Nómina: vista por subcuenta PUC sumando clases, control de deducciones y repartos
     // sugeridos (proporcionales al movimiento contable de las cuentas candidatas, D4).
     if (consolidadoNomina && formalNomina && insumosNomina && baseNomina) {
@@ -405,6 +439,7 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
   return {
     balanceEmparejado,
     bloqueo,
+    avisoBalance,
     huellaBalance: contextoBalance && !bloqueo ? contextoBalance.huella : null,
     cruceContable,
     detalleContablePorCuenta,
@@ -428,6 +463,7 @@ function vacio(balanceEmparejado: BalanceFuenteCruce | null, bloqueo: string | n
   return {
     balanceEmparejado,
     bloqueo,
+    avisoBalance: null,
     huellaBalance: null,
     cruceContable: null,
     detalleContablePorCuenta: {},
