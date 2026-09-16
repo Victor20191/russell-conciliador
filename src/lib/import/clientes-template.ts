@@ -1,5 +1,5 @@
 import ExcelJS from "exceljs";
-import { PROCESOS_ERP_BASE } from "@/lib/erp-procesos";
+import { PROCESOS_ERP } from "@/lib/erp-procesos";
 
 export type CatalogoPlantillaClientes = {
   modulos: { name: string }[];
@@ -18,7 +18,7 @@ const FIJAS = [
   "Razón social *",
   "NIT *",
   "Tipo de cliente *",
-  ...PROCESOS_ERP_BASE.map((proceso) => `ERP · ${proceso.codigo} · ${proceso.nombre}`),
+  ...PROCESOS_ERP.map((proceso) => `ERP · ${proceso.codigo} · ${proceso.nombre}`),
   "Sector",
   "Socio (firma) *",
   "Gerente (valida) *",
@@ -173,7 +173,7 @@ function agregarInstrucciones(wb: ExcelJS.Workbook) {
   ws.addRows([
     ["Uso", "Diligencia la hoja Clientes. Borra o reemplaza las filas que empiezan por EJEMPLO."],
     ["Campos obligatorios", "Razón social, NIT, tipo de cliente, socio, gerente, senior y al menos un staff."],
-    ["ERP y sector", "Opcionales al cargar. Registra un ERP distinto por proceso cuando aplique; CONT corresponde a contabilidad y balance."],
+    ["ERP y sector", "Opcionales al cargar. Registra los aplicativos de cada campo; si el cliente usa varios, sepáralos con punto y coma (;). CONT corresponde a contabilidad y balance, y también lo usan Cartera, Cuentas por pagar e Ingresos."],
     ["Tipo de cliente", "Usa A, B o C."],
     ["Responsables", "Escribe los nombres exactamente como aparecen en la hoja Referencias. Staff acepta uno o varios nombres separados con punto y coma (;)."],
     ["Módulos", "Marca Sí en los módulos que debe tener el cliente y No en los que no aplican. Si dejas todo el bloque de módulos en blanco, el sistema activará todos."],
@@ -258,7 +258,7 @@ export async function crearPlantillaImportacionClientes(
     to: `${columnaLetra(totalColumnas)}1`,
   };
 
-  const widths = [34, 18, 16, ...PROCESOS_ERP_BASE.map(() => 19), 22, 26, 26, 26, 42];
+  const widths = [34, 18, 16, ...PROCESOS_ERP.map(() => 19), 22, 26, 26, 26, 42];
   headers.forEach((_, i) => {
     ws.getColumn(i + 1).width = widths[i] ?? 18;
   });
@@ -287,7 +287,7 @@ export async function crearPlantillaImportacionClientes(
 
   aplicarValidacionLista(ws, 3, '"A,B,C"', "Tipo de cliente", "Selecciona A, B o C.");
 
-  const sectorCol = 4 + PROCESOS_ERP_BASE.length;
+  const sectorCol = 4 + PROCESOS_ERP.length;
   const socioCol = sectorCol + 1;
   const gerenteCol = socioCol + 1;
   const seniorCol = gerenteCol + 1;

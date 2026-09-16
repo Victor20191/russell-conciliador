@@ -20,7 +20,10 @@ export type FilaCliente = {
   name: string;
   nit: string;
   tipo: string;
-  /** ERP por proceso. `erp` se conserva como alias contable para consumidores legados. */
+  /**
+   * Aplicativos por campo, como vienen en la celda (varios separados con «;»). `erp` se conserva
+   * como alias contable para consumidores legados.
+   */
   erp: string;
   erps: Partial<Record<CodigoProcesoErp, string>>;
   sector: string;
@@ -54,7 +57,11 @@ function esSi(v: string): boolean {
 
 const FIJAS = ["name", "nit", "tipo", "erp", "sector", "socio", "gerente", "senior", "staff"] as const;
 
-function procesoDeEncabezadoErp(encabezadoNormalizado: string): CodigoProcesoErp | null {
+/**
+ * Campo de aplicativo de una columna «ERP …». Las columnas de Ingresos, Cartera o Cuentas por
+ * pagar de plantillas anteriores se DESCARTAN: esos módulos usan los aplicativos de Contabilidad.
+ */
+function procesoDeEncabezadoErp(encabezadoNormalizado: string): CodigoProcesoErp | "descartada" | null {
   if (!encabezadoNormalizado.includes("erp")) return null;
   const porCodigo = PROCESOS_ERP.find((proceso) =>
     new RegExp(`(^|\\s)${proceso.codigo.toLowerCase()}($|\\s)`).test(encabezadoNormalizado),
@@ -63,10 +70,8 @@ function procesoDeEncabezadoErp(encabezadoNormalizado: string): CodigoProcesoErp
   if (/contab|^erp\s*\*?$/.test(encabezadoNormalizado)) return "CONT";
   if (/nomin/.test(encabezadoNormalizado)) return "NOM";
   if (/inventar/.test(encabezadoNormalizado)) return "INV";
-  if (/ingres/.test(encabezadoNormalizado)) return "ING";
-  if (/cartera/.test(encabezadoNormalizado)) return "CAR";
-  if (/pagar|cxp/.test(encabezadoNormalizado)) return "CXP";
   if (/activo|afi/.test(encabezadoNormalizado)) return "AFI";
+  if (/(^|\s)(ing|car|cxp)(\s|$)|ingres|cartera|pagar/.test(encabezadoNormalizado)) return "descartada";
   return "CONT";
 }
 
@@ -107,6 +112,7 @@ export async function parseClientesWorkbook(data: ArrayBuffer | Buffer): Promise
       return;
     }
     const procesoErp = procesoDeEncabezadoErp(h);
+    if (procesoErp === "descartada") return;
     if (procesoErp) {
       if (erpCols.has(procesoErp)) {
         erroresEncabezado.push({

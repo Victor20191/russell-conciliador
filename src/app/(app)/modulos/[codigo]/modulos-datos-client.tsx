@@ -71,6 +71,7 @@ export default function ModulosDatosClient({
   gruposCargados,
   puedeCrear,
   puedeEliminar,
+  puedeAdministrarPatrones,
 }: {
   moduloCodigo: string;
   moduloLabel: string;
@@ -84,6 +85,8 @@ export default function ModulosDatosClient({
   puedeCrear: boolean;
   /** `modulos_datos:eliminar` (solo administradores): pinta la papelera del cargue. */
   puedeEliminar: boolean;
+  /** `perfiles_carga:administrar`: la carga ofrece «Crear patrón» cuando un archivo no coincide. */
+  puedeAdministrarPatrones: boolean;
 }) {
   const [busqueda, setBusqueda] = useState("");
   const [conversando, setConversando] = useState<{ tipo: string; entityId: number; titulo: string } | null>(null);
@@ -101,6 +104,7 @@ export default function ModulosDatosClient({
             clasificadorRol={clasificadorRol}
             conNivelCartera={conNivelCartera}
             clientes={clientes}
+            puedeAdministrarPatrones={puedeAdministrarPatrones}
           />
         )}
       </div>
@@ -127,6 +131,7 @@ export default function ModulosDatosClient({
         onConversar={setConversando}
         puedeCrear={puedeCrear}
         puedeEliminar={puedeEliminar}
+        puedeAdministrarPatrones={puedeAdministrarPatrones}
       />
     </div>
   );
@@ -145,6 +150,7 @@ function CargadosPorCliente({
   onConversar,
   puedeCrear,
   puedeEliminar,
+  puedeAdministrarPatrones,
 }: {
   grupos: GrupoClienteRow[];
   busqueda: string;
@@ -158,6 +164,7 @@ function CargadosPorCliente({
   onConversar: OnConversar;
   puedeCrear: boolean;
   puedeEliminar: boolean;
+  puedeAdministrarPatrones: boolean;
 }) {
   // El buscador de la pantalla filtra la tarjeta entera cuando identifica al
   // cliente y, si no, solo los períodos que coinciden.
@@ -386,6 +393,7 @@ function CargadosPorCliente({
                             conNivelCartera={conNivelCartera}
                             clasificadorRol={clasificadorRol}
                             clientes={clientes}
+                            puedeAdministrarPatrones={puedeAdministrarPatrones}
                             anexo={{
                               encabezadoId: p.id,
                               clienteId: grupo.clienteId,

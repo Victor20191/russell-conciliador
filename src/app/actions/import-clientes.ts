@@ -16,7 +16,7 @@ import { resolverErp, resolverSector, type CatalogoRef } from "@/lib/import/erp-
 import { normalizar } from "@/lib/import/xlsx";
 import type { ErrorImport } from "@/lib/import/maestros";
 import { claveNit } from "@/lib/nit";
-import { PROCESOS_ERP_BASE, type CodigoProcesoErp } from "@/lib/erp-procesos";
+import { PROCESOS_ERP, type CodigoProcesoErp } from "@/lib/erp-procesos";
 
 const PATH = "/config/clientes";
 const MAX_BYTES = 4 * 1024 * 1024; // 4 MB
@@ -26,7 +26,8 @@ type Resuelta = {
   name: string;
   nit: string;
   tipo: string;
-  erps: Partial<Record<CodigoProcesoErp, CatalogoRef | null>>;
+  /** Aplicativos por campo (la celda admite varios separados con «;»). */
+  erps: Partial<Record<CodigoProcesoErp, CatalogoRef[]>>;
   sector: CatalogoRef | null;
   socioId: number;
   gerenteId: number;
@@ -73,12 +74,12 @@ export async function importarClientes(
       prisma.dianForm.findMany({ select: { id: true, code: true } }),
       prisma.client.findMany({ select: { code: true, nit: true } }),
       prisma.erpProcess.findMany({
-        where: { active: true, code: { in: PROCESOS_ERP_BASE.map((proceso) => proceso.codigo) } },
+        where: { active: true, code: { in: PROCESOS_ERP.map((proceso) => proceso.codigo) } },
         select: { id: true, code: true },
       }),
     ]);
     const procesoIdPorCodigo = new Map(procesosErp.map((proceso) => [proceso.code, proceso.id]));
-    if (PROCESOS_ERP_BASE.some((proceso) => !procesoIdPorCodigo.has(proceso.codigo))) {
+    if (PROCESOS_ERP.some((proceso) => !procesoIdPorCodigo.has(proceso.codigo))) {
       return { ok: false, message: "El catálogo de procesos ERP no está completo. Aplica la migración pendiente." };
     }
 
@@ -185,11 +186,14 @@ export async function importarClientes(
         nit: f.nit,
         tipo: f.tipo,
         erps: Object.fromEntries(
-          PROCESOS_ERP_BASE.map((proceso) => [
+          PROCESOS_ERP.map((proceso) => [
             proceso.codigo,
-            resolverErp(f.erps[proceso.codigo] ?? ""),
+            (f.erps[proceso.codigo] ?? "")
+              .split(";")
+              .map((texto) => resolverErp(texto))
+              .filter((erp): erp is CatalogoRef => erp != null),
           ]),
-        ) as Partial<Record<CodigoProcesoErp, CatalogoRef | null>>,
+        ) as Partial<Record<CodigoProcesoErp, CatalogoRef[]>>,
         sector: resolverSector(f.sector),
         socioId: socio.id!,
         gerenteId: gerente.id!,
@@ -209,7 +213,7 @@ export async function importarClientes(
 
     const codigosErpImportados = [...new Set(
       resueltas.flatMap((cliente) =>
-        Object.values(cliente.erps).flatMap((erp) => erp ? [erp.code] : []),
+        Object.values(cliente.erps).flatMap((erps) => (erps ?? []).map((erp) => erp.code)),
       ),
     )];
     const erpsInactivos = codigosErpImportados.length > 0
@@ -234,8 +238,8 @@ export async function importarClientes(
       const erpsDistintos = new Map<string, string>();
       const sectoresDistintos = new Map<string, string>();
       for (const c of resueltas) {
-        for (const erp of Object.values(c.erps)) {
-          if (erp) erpsDistintos.set(erp.code, erp.name);
+        for (const erps of Object.values(c.erps)) {
+          for (const erp of erps ?? []) erpsDistintos.set(erp.code, erp.name);
         }
         if (c.sector) sectoresDistintos.set(c.sector.code, c.sector.name);
       }
@@ -255,7 +259,8 @@ export async function importarClientes(
         codigosUsados.push(code);
         codigosNuevos.push(code);
 
-        const erpContable = c.erps.CONT ? erpIdPorCode.get(c.erps.CONT.code)! : null;
+        const primeroContable = c.erps.CONT?.[0];
+        const erpContable = primeroContable ? erpIdPorCode.get(primeroContable.code)! : null;
         const cliente = await tx.client.create({
           data: {
             code,
@@ -273,18 +278,17 @@ export async function importarClientes(
               : undefined,
           },
         });
+        // Un campo sin aplicativos queda pendiente: no se crea ninguna fila.
         await tx.clientErpProcess.createMany({
-          data: PROCESOS_ERP_BASE.map((proceso) => {
-            const erp = c.erps[proceso.codigo];
-            const erpId = erp ? erpIdPorCode.get(erp.code)! : null;
-            return {
+          data: PROCESOS_ERP.flatMap((proceso) =>
+            [...new Set((c.erps[proceso.codigo] ?? []).map((erp) => erpIdPorCode.get(erp.code)!))].map((erpId) => ({
               clientId: cliente.id,
               processId: procesoIdPorCodigo.get(proceso.codigo)!,
               erpId,
-              status: erpId == null ? "pendiente" : "confirmado",
+              status: "confirmado",
               source: "importacion",
-            };
-          }),
+            })),
+          ),
         });
         await tx.clientAssignment.createMany({
           data: [

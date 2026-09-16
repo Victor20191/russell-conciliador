@@ -60,7 +60,6 @@ export default async function MaestrosPage() {
       _count: { _all: true },
     }),
     prisma.clientErpProcess.findMany({
-      where: { erpId: { not: null } },
       select: { clientId: true, erpId: true },
       distinct: ["clientId", "erpId"],
     }),

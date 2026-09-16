@@ -73,6 +73,7 @@ npm run dev            # http://localhost:3000
 | `npm run db:migrate` | Crear/aplicar migraciones Prisma |
 | `npm run db:seed` | Cargar datos de ejemplo |
 | `npm run db:studio` | Prisma Studio (explorador de BD) |
+| `npm run db:migrar:patrones` | Convierte los perfiles de carga de módulos en versiones pendientes de patrones por aplicativo (dry-run; `-- --aplicar`) |
 
 ## Rutas del menú
 

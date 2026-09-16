@@ -8,7 +8,6 @@ import { fmtDate, fmtHora12 } from "@/lib/format";
 import { agruparCargasModuloPorCliente } from "@/lib/modulos/versiones";
 import ModulosDatosClient, { type GrupoClienteRow } from "./modulos-datos-client";
 import { PestanasModulo } from "./pestanas-modulo";
-import { resolverValorErpProceso } from "@/lib/erp-cliente";
 
 export default async function ModuloDatosPage({ params }: { params: Promise<{ codigo: string }> }) {
   await requirePermiso("modulos_datos:ver");
@@ -23,16 +22,7 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
   const [clientes, borradoresPendientes, cargados] = await Promise.all([
     prisma.client.findMany({
       where: alc.todos ? {} : { id: { in: alc.clientIds } },
-      select: {
-        id: true,
-        name: true,
-        nit: true,
-        erp: { select: { name: true } },
-        erpsPorProceso: {
-          where: { process: { code: moduloCodigo } },
-          select: { erp: { select: { name: true } } },
-        },
-      },
+      select: { id: true, name: true, nit: true },
       orderBy: { name: "asc" },
     }),
     // Los borradores se listan en la pestaña «Borradores»; aquí solo se cuenta
@@ -66,7 +56,7 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
   // Conteo de comentarios por dato cargado (encabezado), más los alcances de la
   // eliminación: perfiles de formato aprendidos y marcas del cruce que caerían con
   // el período o con el cliente. Solo alimentan los conteos del modal.
-  const [comentCargados, perfilesPorCliente, marcasPorPeriodo, autorizacionEliminar, autorizacionCrear] = await Promise.all([
+  const [comentCargados, perfilesPorCliente, marcasPorPeriodo, autorizacionEliminar, autorizacionCrear, autorizacionPatrones] = await Promise.all([
     prisma.comment.groupBy({ by: ["entityId"], where: { entityType: "modulos_datos", entityId: { in: cargados.map((c) => c.id) } }, _count: { _all: true } }),
     prisma.perfilCargaModulo.groupBy({ by: ["clienteId"], where: { moduloCodigo, ...filtroCliente }, _count: { _all: true } }),
     prisma.marcaCruceModulo.groupBy({ by: ["clienteId", "periodo"], where: { moduloCodigo, ...filtroCliente }, _count: { _all: true } }),
@@ -75,6 +65,8 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
     authorizePermiso("modulos_datos:eliminar"),
     // Pestaña «Borradores»: mismo permiso que su pantalla.
     authorizePermiso("modulos_datos:crear"),
+    // Crear y aprobar patrones de archivo (Administrador).
+    authorizePermiso("perfiles_carga:administrar"),
   ]);
   const comentPorEnc = new Map(comentCargados.map((g) => [g.entityId, g._count._all]));
   const perfilesPorClienteId = new Map(perfilesPorCliente.map((g) => [g.clienteId, g._count._all]));
@@ -160,22 +152,11 @@ export default async function ModuloDatosPage({ params }: { params: Promise<{ co
         roles={descriptor.columnas.map((c) => ({ nombre: c.nombre, etiqueta: c.etiqueta, tipo: c.tipo, requerido: c.requerido }))}
         clasificadorRol={descriptor.clasificador}
         conNivelCartera={descriptor.crucePorTercero.detalleTercero === true}
-        clientes={clientes.map((cliente) => ({
-          id: cliente.id,
-          name: cliente.name,
-          nit: cliente.nit,
-          // Los módulos usan exclusivamente su asignación por proceso. Nunca
-          // se infiere el ERP contable como si fuera el sistema del módulo.
-          erp: resolverValorErpProceso(
-            cliente.erpsPorProceso[0]
-              ? { valor: cliente.erpsPorProceso[0].erp?.name ?? null }
-              : undefined,
-            cliente.erp?.name ?? null,
-          ),
-        }))}
+        clientes={clientes}
         gruposCargados={filasCargados}
         puedeCrear={autorizacionCrear.ok}
         puedeEliminar={autorizacionEliminar.ok}
+        puedeAdministrarPatrones={autorizacionPatrones.ok}
       />
     </div>
   );

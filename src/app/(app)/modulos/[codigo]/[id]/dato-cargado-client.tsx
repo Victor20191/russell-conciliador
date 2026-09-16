@@ -2524,6 +2524,7 @@ function NovedadesTab({ novedades, titulo }: { novedades: NovedadesVm; titulo?: 
 }
 
 const origenVersion = (origen: string | null): string => {
+  if (origen === "patron") return "Patrón de archivo";
   if (origen === "perfil") return "Perfil guardado";
   if (origen === "manual") return "Mapeo manual";
   if (origen === "ia") return "Sugerencia automática";

@@ -1,7 +1,8 @@
 "use server";
 
 import { randomUUID } from "node:crypto";
-import { resolverValorErpProceso } from "@/lib/erp-cliente";
+import { aplicativosDelProceso } from "@/lib/erp-cliente";
+import { procesoErpDeModulo } from "@/lib/erp-procesos";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import prisma from "@/lib/prisma";
@@ -161,14 +162,15 @@ export async function executeReconciliation(
       };
     }
 
-    const asignacionModulo = client.erpsPorProceso?.find(
-      (asignacion) => asignacion.process.code === mod.code.trim().toUpperCase(),
-    );
-    const erpModulo = resolverValorErpProceso(
-      asignacionModulo ? { valor: asignacionModulo.erp?.name ?? null } : undefined,
+    // Cartera, CxP e Ingresos usan los aplicativos de Contabilidad; el resto, el suyo.
+    const campoModulo = procesoErpDeModulo(mod.code) ?? mod.code.trim().toUpperCase();
+    const erpsModulo = aplicativosDelProceso(
+      (client.erpsPorProceso ?? [])
+        .filter((asignacion) => asignacion.process.code === campoModulo)
+        .map((asignacion) => asignacion.erp.name),
       client.erp?.name ?? null,
     );
-    if (!erpModulo) {
+    if (erpsModulo.length === 0) {
       return {
         ok: false,
         message: `El cliente no tiene un ERP definido para ${mod.name}. Asígnalo en Configuración › Clientes antes de iniciar la conciliación.`,
@@ -201,7 +203,7 @@ export async function executeReconciliation(
       const reconciliation = await tx.reconciliation.create({
         data: {
           code: temporalCode, clientName: client.name, clientId: client.id, module: mod.name, period: contexto.balance.periodo,
-          erp: erpModulo, status: "REVIEW", diff: fmtSigned(totalDiff), items: itemsDiff,
+          erp: erpsModulo.join(" · "), status: "REVIEW", diff: fmtSigned(totalDiff), items: itemsDiff,
           owner: user?.name ?? "Auditor", cutoff: contexto.balance.periodoFin, runAt: ahora, runBy: user?.name ?? "Auditor",
           balancePrevalidadoId: contexto.balance.id,
           materiality: 2000000, lastActivity: ahora,

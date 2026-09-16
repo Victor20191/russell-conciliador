@@ -10,9 +10,13 @@ que dicen el origen.
 1. **Hoja.** En un libro de varias hojas se propone la del auxiliar por su contenido
    (`seleccion-hoja.ts`): se descartan balances y hojas de trabajo. Un archivo que solo trae
    balances se rechaza («cárgalo en Balance»).
-2. **Mapeo.** El sugeridor (`extraccion/sugerir.ts`) reconoce roles, rangos de edad, la forma del
-   tercero (columna, cabecera SAP/SIESA, fila rotulada SEVEN), el saldo del bloque de SIIGO y la
-   convención de signo. Todo se memoriza en el perfil del cliente.
+2. **Aplicativo y mapeo.** El analista confirma el aplicativo de Contabilidad del cliente del que
+   sale el archivo (u «Otro», que se agrega a la ficha, o «Archivo manual»). Si el archivo coincide
+   en 80 % o más con un patrón de ese aplicativo (`/modulos/car/patrones`), se lee con él sin
+   configurar columnas; si no, la carga se detiene hasta que un administrador cree el patrón. Solo
+   con «Archivo manual» se mapea a mano: el sugeridor (`extraccion/sugerir.ts`) reconoce roles,
+   rangos de edad, la forma del tercero (columna, cabecera SAP/SIESA, fila rotulada SEVEN), el saldo
+   del bloque de SIIGO y la convención de signo, y el mapeo se memoriza en el perfil del cliente.
 3. **Qué es cada fila.** Un tercero (resumen por edades) o un documento. Un período suma por un
    solo nivel; el otro entra como control. El pie de página del ERP («Siesa Enterprise Net 1.25.0 ·
    Pág. 1 / 1») nunca entra como ítem, aunque su texto caiga en la columna del identificador.

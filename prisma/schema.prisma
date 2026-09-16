@@ -243,6 +243,7 @@ model Erp {
   order           Int                @default(0) @map("orden")
   clients         Client[]
   clientProcesses ClientErpProcess[]
+  versionesPatron VersionPatronArchivoModulo[]
   createdAt       DateTime           @default(now()) @map("creado_en") @db.Timestamptz(3)
 
   @@map("erps")
@@ -263,22 +264,24 @@ model ErpProcess {
   @@map("procesos_erp")
 }
 
-/// ERP utilizado por un cliente en un proceso específico. `erpId = null` junto
-/// con estado `pendiente` representa una decisión explícita aún sin documentar.
+/// Aplicativo (ERP) que usa un cliente en un campo de su ficha (CONT, NOM, INV, AFI). Un
+/// campo admite VARIOS aplicativos: una fila por (cliente, proceso, ERP). «Pendiente» es la
+/// ausencia de filas para ese (cliente, proceso).
 model ClientErpProcess {
   id        Int        @id @default(autoincrement()) @map("id")
   client    Client     @relation(fields: [clientId], references: [id], onDelete: Cascade)
   clientId  Int        @map("cliente_id")
   process   ErpProcess @relation(fields: [processId], references: [id], onDelete: Restrict)
   processId Int        @map("proceso_id")
-  erp       Erp?       @relation(fields: [erpId], references: [id], onDelete: Restrict)
-  erpId     Int?       @map("erp_id")
-  status    String     @default("pendiente") @map("estado") // confirmado | heredado | pendiente
-  source    String?    @map("origen") // manual | importacion | migracion
+  erp       Erp        @relation(fields: [erpId], references: [id], onDelete: Restrict)
+  erpId     Int        @map("erp_id")
+  status    String     @default("confirmado") @map("estado") // confirmado | heredado
+  source    String?    @map("origen") // manual | importacion | migracion | carga
   createdAt DateTime   @default(now()) @map("creado_en") @db.Timestamptz(3)
   updatedAt DateTime   @updatedAt @map("actualizado_en") @db.Timestamptz(3)
 
-  @@unique([clientId, processId], map: "erps_cliente_proceso_cliente_proceso_key")
+  @@unique([clientId, processId, erpId], map: "erps_cliente_proceso_cliente_proceso_erp_key")
+  @@index([clientId, processId], map: "erps_cliente_proceso_cliente_proceso_idx")
   @@index([processId, erpId], map: "erps_cliente_proceso_proceso_erp_idx")
   @@index([erpId], map: "erps_cliente_proceso_erp_idx")
   @@map("erps_cliente_proceso")
@@ -1216,8 +1219,11 @@ model ModuloImportacionLote {
   filasLeidas           Int       @default(0) @map("filas_leidas")
   filasExcluidas        Int       @default(0) @map("filas_excluidas")
   huella                String?   @map("huella")
-  origenExtraccion      String?   @map("origen_extraccion") // perfil | ia | plantilla | manual
+  origenExtraccion      String?   @map("origen_extraccion") // perfil | ia | plantilla | manual | patron
   specJson              Json?     @map("especificacion_json")
+  // Versión de patrón de archivo con que se leyó (FK suave) y su % de coincidencia.
+  patronVersionId       Int?      @map("patron_version_id")
+  patronCoincidencia    Int?      @map("patron_coincidencia")
   // ANEXO declarado por el usuario: encabezado ya cargado al que este archivo se suma
   // («Agregar archivo»). `null` = carga normal, que NUNCA anexa (versiona o crea registro
   // nuevo). FK suave: solo el Int, sin @relation — si el encabezado destino desaparece, la
@@ -1323,7 +1329,10 @@ model ModuloDatoEncabezado {
   // fraccionamiento va en la línea "Anexo: ... · hoja: ..." de `observaciones`).
   // Solo se registra de aquí en adelante: los cargues previos quedan en null.
   hoja               String?             @map("hoja")
-  origenExtraccion   String?             @map("origen_extraccion") // perfil | manual | ia
+  origenExtraccion   String?             @map("origen_extraccion") // perfil | manual | ia | patron
+  // Versión de patrón de archivo con que se leyó (FK suave) y su % de coincidencia.
+  patronVersionId    Int?                @map("patron_version_id")
+  patronCoincidencia Int?                @map("patron_coincidencia")
   // Novedades de la carga (estilo balance): observaciones libres + respuestas del checklist
   // de verificación (JSON id→{respuesta, nota}). Las alertas automáticas (p. ej. negativos)
   // NO se guardan: se recalculan al leer desde el detalle.
@@ -1560,9 +1569,51 @@ model SaldoTerceroModulo {
   @@map("cartera_saldo_tercero")
 }
 
+/// Versión de un PATRÓN DE ARCHIVO de un módulo para un aplicativo (ERP). El patrón es la pareja
+/// (erp, módulo); cada versión guarda el encabezado con que se reconoce el archivo, el mapeo
+/// reutilizable y la MUESTRA en el almacén. Numeración por (erp, módulo), sin reciclar.
+/// Estados: pendiente (solo sirve a `cliente_origen_id`, si lo tiene) | aprobada | inactiva.
+model VersionPatronArchivoModulo {
+  id                  Int       @id @default(autoincrement()) @map("id")
+  erp                 Erp       @relation(fields: [erpId], references: [id], onDelete: Restrict)
+  erpId               Int       @map("erp_id")
+  moduloCodigo        String    @map("modulo_codigo")
+  version             Int       @map("version")
+  estado              String    @default("pendiente") @map("estado")
+  hoja                String    @map("hoja")
+  filaEncabezado      Int       @map("fila_encabezado")
+  primeraFilaDatos    Int       @map("primera_fila_datos")
+  /// Rótulos CRUDOS del encabezado de la muestra, 1:1 con las columnas ("" = vacía).
+  encabezadoJson      Json      @map("encabezado_json")
+  /// Mapeo reutilizable (`normalizarSpecModulo`): sin datos del cargue.
+  specJson            Json      @map("especificacion_json")
+  muestraClaveObjeto  String?   @unique(map: "versiones_patron_muestra_clave_key") @map("muestra_clave_objeto")
+  muestraNombre       String?   @map("muestra_nombre_archivo")
+  muestraTamanoBytes  Int?      @map("muestra_tamano_bytes")
+  muestraSha256       String?   @map("muestra_sha256")
+  /// FK suave: solo las versiones migradas del perfil de un cliente.
+  clienteOrigenId     Int?      @map("cliente_origen_id")
+  clienteOrigenNombre String?   @map("cliente_origen_nombre")
+  nota                String?   @map("nota") @db.Text
+  vecesUsado          Int       @default(0) @map("veces_usado")
+  ultimoUsoEn         DateTime? @map("ultimo_uso_en") @db.Timestamptz(3)
+  creadoPor           String?   @map("creado_por")
+  creadoPorId         Int?      @map("creado_por_id")
+  aprobadoPor         String?   @map("aprobado_por")
+  aprobadoPorId       Int?      @map("aprobado_por_id")
+  aprobadoEn          DateTime? @map("aprobado_en") @db.Timestamptz(3)
+  creadoEn            DateTime  @default(now()) @map("creado_en") @db.Timestamptz(3)
+  actualizadoEn       DateTime  @updatedAt @map("actualizado_en") @db.Timestamptz(3)
+
+  @@unique([erpId, moduloCodigo, version], map: "versiones_patron_erp_modulo_version_key")
+  @@index([erpId, moduloCodigo, estado], map: "versiones_patron_erp_modulo_estado_idx")
+  @@index([clienteOrigenId], map: "versiones_patron_cliente_origen_idx")
+  @@map("versiones_patron_archivo_modulo")
+}
+
 // Perfil de CARGA por (cliente, módulo): memoria del mapeo de columnas del archivo,
-// llaveada por la HUELLA del layout. En cargas siguientes con la misma huella el spec se
-// aplica DETERMINISTA (0 IA). FK suave a `clientes` (Int, sin @relation).
+// llaveada por la HUELLA del layout. Desde los patrones por aplicativo solo la usa el camino
+// «Archivo manual». FK suave a `clientes` (Int, sin @relation).
 model PerfilCargaModulo {
   id             Int       @id @default(autoincrement()) @map("id")
   clienteId      Int       @map("cliente_id")

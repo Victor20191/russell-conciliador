@@ -4,12 +4,13 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { PrismaClient } from "../src/generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { CODIGOS_ERP_BASE } from "../src/lib/erp-procesos";
 import { resolverErp, type CatalogoRef } from "../src/lib/import/erp-sector-alias";
-import { leerErpsClientesExcel } from "../src/lib/import/erps-clientes-workbook";
+import { CODIGOS_ARCHIVO_ERPS, leerErpsClientesExcel } from "../src/lib/import/erps-clientes-workbook";
 import { claveNit, nucleoNit } from "../src/lib/nit";
 
-type CodigoBase = (typeof CODIGOS_ERP_BASE)[number];
+// El archivo trae UN aplicativo por campo (CONT, NOM, INV) y REEMPLAZA lo que el cliente tenga en
+// ese campo; Activos fijos no se toca.
+type CodigoBase = (typeof CODIGOS_ARCHIVO_ERPS)[number];
 
 function argumentos(argv: string[]): { archivo: string; aplicar: boolean } {
   const aplicar = argv.includes("--aplicar");
@@ -55,7 +56,7 @@ async function main() {
         nit: true,
         erp: { select: { id: true, code: true, name: true } },
         erpsPorProceso: {
-          where: { process: { code: { in: [...CODIGOS_ERP_BASE] } } },
+          where: { process: { code: { in: [...CODIGOS_ARCHIVO_ERPS] } } },
           select: {
             process: { select: { code: true } },
             erp: { select: { code: true, name: true } },
@@ -66,14 +67,14 @@ async function main() {
       },
     }),
     prisma.erpProcess.findMany({
-      where: { active: true, code: { in: [...CODIGOS_ERP_BASE] } },
+      where: { active: true, code: { in: [...CODIGOS_ARCHIVO_ERPS] } },
       select: { id: true, code: true },
     }),
     prisma.erp.findMany({ select: { id: true, code: true, name: true, active: true } }),
   ]);
 
   const procesoId = new Map(procesos.map((proceso) => [proceso.code, proceso.id]));
-  if (CODIGOS_ERP_BASE.some((codigo) => !procesoId.has(codigo))) {
+  if (CODIGOS_ARCHIVO_ERPS.some((codigo) => !procesoId.has(codigo))) {
     throw new Error("El catálogo activo de procesos no contiene CONT, NOM e INV.");
   }
 
@@ -107,7 +108,7 @@ async function main() {
       return [];
     }
     const erps = Object.fromEntries(
-      CODIGOS_ERP_BASE.map((codigo) => [
+      CODIGOS_ARCHIVO_ERPS.map((codigo) => [
         codigo,
         fila.erps[codigo] == null ? null : resolverErp(fila.erps[codigo]!),
       ]),
@@ -134,23 +135,23 @@ async function main() {
   }
 
   const resumenProceso = Object.fromEntries(
-    CODIGOS_ERP_BASE.map((codigo) => [codigo, { confirmados: 0, pendientes: 0, cambios: 0 }]),
+    CODIGOS_ARCHIVO_ERPS.map((codigo) => [codigo, { confirmados: 0, pendientes: 0, cambios: 0 }]),
   ) as Record<CodigoBase, { confirmados: number; pendientes: number; cambios: number }>;
   let cambiosLegadoCont = 0;
 
   for (const item of resueltas) {
-    const actualPorCodigo = new Map(item.cliente.erpsPorProceso.map((asignacion) => [asignacion.process.code, asignacion]));
-    for (const codigo of CODIGOS_ERP_BASE) {
+    for (const codigo of CODIGOS_ARCHIVO_ERPS) {
       const objetivo = item.erps[codigo]?.code ?? null;
-      const actual = actualPorCodigo.get(codigo);
-      const estadoObjetivo = objetivo == null ? "pendiente" : "confirmado";
+      const actuales = item.cliente.erpsPorProceso.filter((asignacion) => asignacion.process.code === codigo);
       if (objetivo == null) resumenProceso[codigo].pendientes++;
       else resumenProceso[codigo].confirmados++;
-      if (
-        (actual?.erp?.code ?? null) !== objetivo
-        || actual?.status !== estadoObjetivo
-        || actual?.source !== "importacion_excel"
-      ) resumenProceso[codigo].cambios++;
+      const coincide = objetivo == null
+        ? actuales.length === 0
+        : actuales.length === 1
+          && actuales[0].erp.code === objetivo
+          && actuales[0].status === "confirmado"
+          && actuales[0].source === "importacion_excel";
+      if (!coincide) resumenProceso[codigo].cambios++;
     }
     if ((item.cliente.erp?.code ?? null) !== (item.erps.CONT?.code ?? null)) cambiosLegadoCont++;
   }
@@ -159,7 +160,7 @@ async function main() {
   console.log(`Hoja: ${lectura.hoja} · encabezado: fila ${lectura.filaEncabezado}`);
   console.log(`SHA-256: ${huella}`);
   console.log(`Clientes leídos y conciliados por NIT: ${resueltas.length}`);
-  for (const codigo of CODIGOS_ERP_BASE) {
+  for (const codigo of CODIGOS_ARCHIVO_ERPS) {
     const r = resumenProceso[codigo];
     console.log(`${codigo}: ${r.confirmados} confirmados · ${r.pendientes} pendientes · ${r.cambios} filas por actualizar`);
   }
@@ -179,7 +180,7 @@ async function main() {
     return;
   }
 
-  const totalCambios = CODIGOS_ERP_BASE.reduce(
+  const totalCambios = CODIGOS_ARCHIVO_ERPS.reduce(
     (total, codigo) => total + resumenProceso[codigo].cambios,
     0,
   );
@@ -200,28 +201,19 @@ async function main() {
     }
 
     for (const item of resueltas) {
-      for (const codigo of CODIGOS_ERP_BASE) {
+      for (const codigo of CODIGOS_ARCHIVO_ERPS) {
         const objetivo = item.erps[codigo];
         const erpId = objetivo ? erpIdPorCodigo.get(objetivo.code)! : null;
+        const processId = procesoId.get(codigo)!;
+        // N/A o vacío deja el campo pendiente (sin filas); un aplicativo reemplaza los que hubiera.
+        await tx.clientErpProcess.deleteMany({
+          where: { clientId: item.cliente.id, processId, ...(erpId == null ? {} : { erpId: { not: erpId } }) },
+        });
+        if (erpId == null) continue;
         await tx.clientErpProcess.upsert({
-          where: {
-            clientId_processId: {
-              clientId: item.cliente.id,
-              processId: procesoId.get(codigo)!,
-            },
-          },
-          create: {
-            clientId: item.cliente.id,
-            processId: procesoId.get(codigo)!,
-            erpId,
-            status: erpId == null ? "pendiente" : "confirmado",
-            source: "importacion_excel",
-          },
-          update: {
-            erpId,
-            status: erpId == null ? "pendiente" : "confirmado",
-            source: "importacion_excel",
-          },
+          where: { clientId_processId_erpId: { clientId: item.cliente.id, processId, erpId } },
+          create: { clientId: item.cliente.id, processId, erpId, status: "confirmado", source: "importacion_excel" },
+          update: { status: "confirmado", source: "importacion_excel" },
         });
       }
       const erpContable = item.erps.CONT;

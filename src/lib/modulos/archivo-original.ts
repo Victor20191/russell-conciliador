@@ -122,6 +122,23 @@ export function claveArchivoOriginalModulo(args: {
   return `software/modulos/${modulo}/clientes/${args.clienteId}/originales/${args.loteId}/${nombre}`;
 }
 
+/**
+ * Clave de la MUESTRA de una versión de patrón de archivo (aplicativo + módulo). Cuelga del
+ * aplicativo, no de un cliente: la muestra la sube un administrador y la comparten todos los
+ * clientes de ese ERP.
+ */
+export function claveMuestraPatronModulo(args: {
+  moduloCodigo: string;
+  erpCode: string;
+  version: number;
+  nombreArchivo: string;
+}): string {
+  const modulo = segmentoRuta(args.moduloCodigo, "modulo");
+  const erp = segmentoRuta(args.erpCode, "erp");
+  const nombre = nombreArchivoOriginalSeguro(args.nombreArchivo);
+  return `software/modulos/${modulo}/patrones/${erp}/v${args.version}/${nombre}`;
+}
+
 export function tipoContenidoArchivo(nombre: string, declarado?: string | null): string {
   const tipo = String(declarado ?? "").trim();
   if (tipo) return tipo.slice(0, 160);

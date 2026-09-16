@@ -12,14 +12,7 @@ import { authorizePermiso } from "@/lib/rbac";
 import { ROL_POR_FUNCION, ROL_SOCIO } from "@/lib/rbac/jerarquia";
 import { mensajeErrorBD } from "@/lib/errores";
 import { claveNit } from "@/lib/nit";
-import {
-  CODIGOS_ERP_BASE,
-  PROCESOS_ERP,
-  campoErpProceso,
-  esCodigoProcesoErp,
-  esProcesoErpBase,
-  type CodigoProcesoErp,
-} from "@/lib/erp-procesos";
+import { PROCESOS_ERP, campoErpProceso, esCodigoProcesoErp, type CodigoProcesoErp } from "@/lib/erp-procesos";
 
 const PATH = "/config/clientes";
 
@@ -61,9 +54,11 @@ async function dianFormIdsExist(dianFormIds: number[]): Promise<boolean> {
   return existing.length === dianFormIds.length;
 }
 
-type ErpProcesoFormulario = { codigo: CodigoProcesoErp; erpId: number | null };
+/** Aplicativos elegidos para un campo de la ficha (lista vacía = pendiente). */
+type ErpProcesoFormulario = { codigo: CodigoProcesoErp; erpIds: number[] };
 type ErpProcesoPersistible = ErpProcesoFormulario & { processId: number };
-type ErpProcesoExistente = { erpId: number | null; status: string; source: string | null };
+/** Aplicativos que el cliente ya tiene en cada campo. */
+type ErpsExistentes = Map<CodigoProcesoErp, Set<number>>;
 
 /** Compatibilidad con consumidores anteriores al formulario por proceso. */
 async function erpValido(erpId: number): Promise<boolean> {
@@ -74,84 +69,38 @@ async function erpValido(erpId: number): Promise<boolean> {
   return erp?.active === true;
 }
 
+/**
+ * Los cuatro campos de aplicativo de la ficha: cada uno llega como varios `erpProceso_<COD>`
+ * (uno por aplicativo elegido). Ninguno es obligatorio: sin aplicativos el campo queda pendiente.
+ */
 function parseErpsPorProceso(
   formData: FormData,
-): { ok: true; asignaciones: ErpProcesoFormulario[]; retirados: CodigoProcesoErp[] } | { ok: false; errors: Record<string, string[]> } {
+): { ok: true; asignaciones: ErpProcesoFormulario[] } | { ok: false; errors: Record<string, string[]> } {
   const asignaciones: ErpProcesoFormulario[] = [];
   const errors: Record<string, string[]> = {};
-
-  const codigosRaw = formData.getAll("erpProcesoCodigos").map((value) =>
-    String(value).trim().toUpperCase(),
-  );
-  const codigosUnicos = [...new Set(codigosRaw)];
-
-  if (codigosRaw.length !== codigosUnicos.length || codigosUnicos.some((codigo) => !esCodigoProcesoErp(codigo))) {
-    return {
-      ok: false,
-      errors: { erpProcesoCodigos: ["La selección de procesos ERP no es válida."] },
-    };
-  }
-  const codigos = codigosUnicos as CodigoProcesoErp[];
-  if (CODIGOS_ERP_BASE.some((codigo) => !codigos.includes(codigo))) {
-    return {
-      ok: false,
-      errors: { erpProcesoCodigos: ["Contabilidad, Nómina e Inventarios son procesos obligatorios."] },
-    };
-  }
-
-  const retiradosRaw = formData.getAll("erpProcesoRetirados").map((value) =>
-    String(value).trim().toUpperCase(),
-  );
-  const retiradosUnicos = [...new Set(retiradosRaw)];
-  if (
-    retiradosRaw.length !== retiradosUnicos.length
-    || retiradosUnicos.some((codigo) =>
-      !esCodigoProcesoErp(codigo) || esProcesoErpBase(codigo) || codigos.includes(codigo as CodigoProcesoErp),
-    )
-  ) {
-    return {
-      ok: false,
-      errors: { erpProcesoCodigos: ["La lista de procesos retirados no es válida."] },
-    };
-  }
-  const retirados = retiradosUnicos as CodigoProcesoErp[];
-
-  for (const codigo of codigos) {
-    const proceso = PROCESOS_ERP.find((item) => item.codigo === codigo)!;
-    const campo = campoErpProceso(codigo);
-    const raw = formData.get(campo);
-    if (raw == null || raw === "") {
-      if (!esProcesoErpBase(codigo)) {
-        errors[campo] = [`Selecciona el ERP de ${proceso.nombre} o retira el proceso adicional.`];
-        continue;
-      }
-      asignaciones.push({ codigo, erpId: null });
+  for (const proceso of PROCESOS_ERP) {
+    const campo = campoErpProceso(proceso.codigo);
+    const ids = formData.getAll(campo).filter((valor) => String(valor).trim() !== "").map(parseId);
+    if (ids.some((id) => id == null)) {
+      errors[campo] = [`Selecciona aplicativos válidos para ${proceso.nombre}.`];
       continue;
     }
-    const erpId = parseId(raw);
-    if (erpId == null) {
-      errors[campo] = [`Selecciona un ERP válido para ${proceso.nombre}.`];
-      continue;
-    }
-    asignaciones.push({ codigo, erpId });
+    asignaciones.push({ codigo: proceso.codigo, erpIds: [...new Set(ids as number[])] });
   }
-
-  return Object.keys(errors).length > 0
-    ? { ok: false, errors }
-    : { ok: true, asignaciones, retirados };
+  return Object.keys(errors).length > 0 ? { ok: false, errors } : { ok: true, asignaciones };
 }
 
 async function validarErpsPorProceso(
   asignaciones: ErpProcesoFormulario[],
   opciones?: {
-    existentes?: Map<CodigoProcesoErp, ErpProcesoExistente>;
+    existentes?: ErpsExistentes;
     erpLegado?: number | null;
   },
 ): Promise<
   | { ok: true; asignaciones: ErpProcesoPersistible[] }
   | { ok: false; message: string }
 > {
-  const erpIds = [...new Set(asignaciones.flatMap((item) => item.erpId == null ? [] : [item.erpId]))];
+  const erpIds = [...new Set(asignaciones.flatMap((item) => item.erpIds))];
   const [procesos, erps] = await Promise.all([
     prisma.erpProcess.findMany({
       where: { active: true, code: { in: asignaciones.map((item) => item.codigo) } },
@@ -172,19 +121,20 @@ async function validarErpsPorProceso(
 
   const erpPorId = new Map(erps.map((item) => [item.id, item]));
   for (const asignacion of asignaciones) {
-    if (asignacion.erpId == null) continue;
-    const erp = erpPorId.get(asignacion.erpId);
-    if (!erp) return { ok: false, message: "Selecciona sistemas ERP válidos." };
-    if (erp.active) continue;
+    for (const erpId of asignacion.erpIds) {
+      const erp = erpPorId.get(erpId);
+      if (!erp) return { ok: false, message: "Selecciona aplicativos válidos." };
+      if (erp.active) continue;
 
-    // Un sistema que fue inactivado en el catálogo puede conservarse, pero no
-    // asignarse por primera vez ni trasladarse a otro proceso.
-    const existente = opciones?.existentes?.get(asignacion.codigo);
-    const heredadoLegado = asignacion.codigo === "CONT"
-      && !opciones?.existentes?.has(asignacion.codigo)
-      && opciones?.erpLegado === asignacion.erpId;
-    if (existente?.erpId !== asignacion.erpId && !heredadoLegado) {
-      return { ok: false, message: "No puedes asignar un ERP inactivo a un proceso nuevo." };
+      // Un aplicativo inactivado en el catálogo puede conservarse donde ya estaba, pero no
+      // asignarse por primera vez ni trasladarse a otro campo.
+      const yaEstaba = opciones?.existentes?.get(asignacion.codigo)?.has(erpId) === true;
+      const heredadoLegado = asignacion.codigo === "CONT"
+        && !opciones?.existentes?.has(asignacion.codigo)
+        && opciones?.erpLegado === erpId;
+      if (!yaEstaba && !heredadoLegado) {
+        return { ok: false, message: "No puedes asignar un aplicativo inactivo." };
+      }
     }
   }
 
@@ -368,7 +318,8 @@ export async function createClient(
     const syncErpsPorProceso = formData.get("syncErpsPorProceso") === "1";
     const erpsProceso = syncErpsPorProceso ? parseErpsPorProceso(formData) : null;
     if (erpsProceso && !erpsProceso.ok) return { ok: false, errors: erpsProceso.errors };
-    const erpContable = erpsProceso?.asignaciones.find((item) => item.codigo === "CONT")?.erpId;
+    // El ERP «único» legado del cliente es el primero de Contabilidad.
+    const erpContable = erpsProceso?.asignaciones.find((item) => item.codigo === "CONT")?.erpIds[0] ?? null;
 
     const parsed = ClientSchema.safeParse({
       code,
@@ -452,13 +403,15 @@ export async function createClient(
       });
       if (erpsValidados?.ok) {
         await tx.clientErpProcess.createMany({
-          data: erpsValidados.asignaciones.map((asignacion) => ({
-            clientId: cliente.id,
-            processId: asignacion.processId,
-            erpId: asignacion.erpId,
-            status: asignacion.erpId == null ? "pendiente" : "confirmado",
-            source: "manual",
-          })),
+          data: erpsValidados.asignaciones.flatMap((asignacion) =>
+            asignacion.erpIds.map((erpId) => ({
+              clientId: cliente.id,
+              processId: asignacion.processId,
+              erpId,
+              status: "confirmado",
+              source: "manual",
+            })),
+          ),
         });
       }
       await tx.clientAssignment.createMany({
@@ -527,7 +480,7 @@ export async function updateClient(
     }
     const erpsProceso = syncErpsPorProceso ? parseErpsPorProceso(formData) : null;
     if (erpsProceso && !erpsProceso.ok) return { ok: false, errors: erpsProceso.errors };
-    const erpContable = erpsProceso?.asignaciones.find((item) => item.codigo === "CONT")?.erpId;
+    const erpContable = erpsProceso?.asignaciones.find((item) => item.codigo === "CONT")?.erpIds[0] ?? null;
 
     const parsed = ClientSchema.safeParse({
       code: current.code,
@@ -546,16 +499,13 @@ export async function updateClient(
     const duplicado = await clienteConMismoNit(nit, id);
     if (duplicado) return errorNitDuplicado(duplicado);
 
-    const existentes = new Map<CodigoProcesoErp, ErpProcesoExistente>();
+    const existentes: ErpsExistentes = new Map();
     for (const asignacion of current.erpsPorProceso) {
-      const codigo = asignacion.process.code as CodigoProcesoErp;
-      if (PROCESOS_ERP.some((item) => item.codigo === codigo)) {
-        existentes.set(codigo, {
-          erpId: asignacion.erpId,
-          status: asignacion.status,
-          source: asignacion.source,
-        });
-      }
+      const codigo = asignacion.process.code;
+      if (!esCodigoProcesoErp(codigo)) continue;
+      const ids = existentes.get(codigo) ?? new Set<number>();
+      ids.add(asignacion.erpId);
+      existentes.set(codigo, ids);
     }
     const erpsValidados = erpsProceso
       ? await validarErpsPorProceso(erpsProceso.asignaciones, {
@@ -564,14 +514,6 @@ export async function updateClient(
         })
       : null;
     if (erpsValidados && !erpsValidados.ok) return { ok: false, message: erpsValidados.message };
-    const processIdsRetirados = syncErpsPorProceso
-      ? current.erpsPorProceso
-          .filter((asignacion) =>
-            !esProcesoErpBase(asignacion.process.code)
-            && erpsProceso?.retirados.includes(asignacion.process.code as CodigoProcesoErp),
-          )
-          .map((asignacion) => asignacion.processId)
-      : [];
     if (!syncErpsPorProceso && erpId != null && !(await erpValido(erpId))) {
       return { ok: false, message: "Selecciona un ERP válido." };
     }
@@ -621,35 +563,20 @@ export async function updateClient(
       await tx.client.update({ where: { id }, data: { name, nit, tipo, erpId: erpId ?? null, sectorId: sectorId ?? null, socioId } });
 
       if (erpsValidados?.ok) {
+        // Por campo: se retiran los aplicativos que ya no están y se agregan los nuevos; los que
+        // siguen conservan su estado y su origen (heredado, importación, carga…).
         for (const asignacion of erpsValidados.asignaciones) {
-          const existente = existentes.get(asignacion.codigo);
-          const sinCambio = existente?.erpId === asignacion.erpId;
-          const status = sinCambio
-            ? existente.status
-            : asignacion.erpId == null ? "pendiente" : "confirmado";
-          const source = sinCambio ? existente.source : "manual";
-          await tx.clientErpProcess.upsert({
-            where: {
-              clientId_processId: { clientId: id, processId: asignacion.processId },
-            },
-            create: {
-              clientId: id,
-              processId: asignacion.processId,
-              erpId: asignacion.erpId,
-              status,
-              source,
-            },
-            update: {
-              erpId: asignacion.erpId,
-              status,
-              source,
-            },
-          });
-        }
-        if (processIdsRetirados.length > 0) {
           await tx.clientErpProcess.deleteMany({
-            where: { clientId: id, processId: { in: processIdsRetirados } },
+            where: { clientId: id, processId: asignacion.processId, erpId: { notIn: asignacion.erpIds } },
           });
+          const previos = existentes.get(asignacion.codigo) ?? new Set<number>();
+          const nuevos = asignacion.erpIds.filter((erpId) => !previos.has(erpId));
+          if (nuevos.length > 0) {
+            await tx.clientErpProcess.createMany({
+              data: nuevos.map((erpId) => ({ clientId: id, processId: asignacion.processId, erpId, status: "confirmado", source: "manual" })),
+              skipDuplicates: true,
+            });
+          }
         }
       }
 
@@ -720,7 +647,7 @@ export async function updateClient(
       user: user?.name ?? "Sistema",
       action: "ACTUALIZÓ CLIENTE",
       entity: current.code,
-      detail: `${name} · ${nit} · tipo ${tipo} · socio ${socio.nombre} · staff ${validados.nombres.staffs.join(", ")} / senior ${validados.nombres.senior} / gerente ${validados.nombres.gerente}${erpsValidados?.ok ? ` · sistemas por proceso: ${erpsValidados.asignaciones.length}` : ""}${processIdsRetirados.length ? ` · procesos retirados: ${processIdsRetirados.length}` : ""}${moduleIds != null ? ` · módulos asignados: ${moduleIds.length}` : ""}${dianFormIds != null ? ` · formatos DIAN: ${dianFormIds.length}` : ""}`,
+      detail: `${name} · ${nit} · tipo ${tipo} · socio ${socio.nombre} · staff ${validados.nombres.staffs.join(", ")} / senior ${validados.nombres.senior} / gerente ${validados.nombres.gerente}${erpsValidados?.ok ? ` · aplicativos: ${erpsValidados.asignaciones.map((a) => `${a.codigo} ${a.erpIds.length}`).join(", ")}` : ""}${moduleIds != null ? ` · módulos asignados: ${moduleIds.length}` : ""}${dianFormIds != null ? ` · formatos DIAN: ${dianFormIds.length}` : ""}`,
     });
     revalidatePath(PATH);
     return { ok: true };

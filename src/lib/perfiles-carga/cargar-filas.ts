@@ -15,7 +15,8 @@ import {
   registrarPreferencias,
   type FilaMemoriaCarga,
 } from "./filas-memoria";
-import { resolverValorErpProceso } from "@/lib/erp-cliente";
+import { aplicativosDelProceso } from "@/lib/erp-cliente";
+import { procesoErpDeModulo } from "@/lib/erp-procesos";
 
 export type FilasMemoriaFuente = {
   rows: FilaMemoriaCarga[];
@@ -28,7 +29,7 @@ export type FilasMemoriaFuente = {
  * consideran todos los clientes.
  */
 export async function cargarFilasMemoria(fuente: string): Promise<FilasMemoriaFuente> {
-  const codigoProceso = fuente === FUENTE_BALANCE ? "CONT" : fuente.trim().toUpperCase();
+  const codigoProceso = fuente === FUENTE_BALANCE ? "CONT" : (procesoErpDeModulo(fuente) ?? fuente.trim().toUpperCase());
   const clientes = await prisma.client.findMany({
     orderBy: { name: "asc" },
     select: {
@@ -119,13 +120,11 @@ export async function cargarFilasMemoria(fuente: string): Promise<FilasMemoriaFu
       code: c.code,
       name: c.name,
       nit: c.nit,
-      erpName: resolverValorErpProceso(
-        c.erpsPorProceso[0]
-          ? { valor: c.erpsPorProceso[0].erp?.name ?? null }
-          : undefined,
+      erpName: aplicativosDelProceso(
+        c.erpsPorProceso.map((asignacion) => asignacion.erp.name),
         c.erp?.name ?? null,
         fuente === FUENTE_BALANCE,
-      ),
+      ).join(" · ") || null,
     })),
     acc,
   );

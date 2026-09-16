@@ -94,19 +94,22 @@ export default async function ClientesPage() {
   }
 
   const rows: ClientRow[] = clients.map((c) => {
-    const contabilidad = c.erpsPorProceso.find((asignacion) => asignacion.process.code === "CONT");
+    // Contabilidad puede tener varios aplicativos: la lista los muestra todos.
+    const contabilidad = c.erpsPorProceso.filter((asignacion) => asignacion.process.code === "CONT");
     return {
       id: c.id,
       code: c.code,
       name: c.name,
       nit: c.nit,
       tipo: c.tipo,
-      erpId: contabilidad ? contabilidad.erpId : c.erpId,
-      erpName: contabilidad ? (contabilidad.erp?.name ?? null) : (c.erp?.name ?? null),
+      erpId: contabilidad[0]?.erpId ?? c.erpId,
+      erpName: contabilidad.length > 0
+        ? contabilidad.map((asignacion) => asignacion.erp.name).join(" · ")
+        : (c.erp?.name ?? null),
       erpsPorProceso: c.erpsPorProceso.map((asignacion) => ({
         processCode: asignacion.process.code,
         erpId: asignacion.erpId,
-        erpName: asignacion.erp?.name ?? null,
+        erpName: asignacion.erp.name,
         status: asignacion.status,
       })),
       sectorId: c.sectorId,

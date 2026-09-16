@@ -1,47 +1,79 @@
 "use client";
 
-// Modal de carga del motor genérico de módulos (archivo → mapeo de columnas →
-// borrador). Vive aparte del listado, igual que `cargar-balance-modal.tsx` en Balance.
+// Modal de carga del motor genérico de módulos. El analista confirma de qué APLICATIVO es el
+// archivo (o elige otro, o «Archivo manual») y el período; el servidor compara el archivo con los
+// patrones de ese aplicativo:
+//  - coincide ≥ 80 %: confirmación breve (solo datos del cargue) y borrador, sin mapear columnas;
+//  - no coincide: la carga se detiene hasta que un administrador cree el patrón;
+//  - «Archivo manual»: mapeo de columnas a mano, memorizado por cliente.
 
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Modal } from "@/components/modal";
 import { Icon } from "@/components/icons";
 import { SelectorClienteBuscable } from "@/components/selector-cliente-buscable";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
-import { columnaLetra } from "@/lib/balance/extraccion/hojas-cliente";
 import type { SpecModulo } from "@/lib/modulos/extraccion/esquema";
-import type { ModoSubtotales } from "@/lib/modulos/subtotales";
 import { finDePeriodo } from "@/lib/modulos/cartera/fecha-corte";
+import { letraColumnaModulo } from "@/lib/modulos/perfil-modulo";
 import {
   leerDatosModulo,
   analizarArchivoModulo,
   preferenciasCargaModulo,
-  sugerirTrmCierre,
   ubicarCeldaArchivoModulo,
   type AnalisisModulo,
   type CeldaMuestra,
 } from "@/app/actions/modulos-datos";
+import {
+  confirmarAplicativoCargaModulo,
+  listarAplicativosCargaModulo,
+  type AplicativoOpcion,
+} from "@/app/actions/aplicativos-cliente";
 import { NotasCargaModulo } from "./notas-carga-modulo";
+import { CamposCargueCartera, EditorMapeoModulo, celdaTxt, type RolModulo } from "./editor-mapeo-modulo";
 
-export type ClienteModulo = { id: number; name: string; nit: string; erp?: string | null };
+export type { RolModulo };
+export type ClienteModulo = { id: number; name: string; nit: string };
 
 /**
  * Adición declarada a un cargue existente. Cuando viene, el modal fija cliente y período
- * (el archivo se suma a ESE cargue, no a otro) y solo pide el archivo y su mapeo.
+ * (el archivo se suma a ESE cargue, no a otro) y solo pide el aplicativo y el archivo.
  */
 export type AnexoModulo = { encabezadoId: number; clienteId: number; clienteNombre: string; periodo: string };
-export type RolModulo = { nombre: string; etiqueta: string; tipo: string; requerido: boolean };
 
-const celdaTxt = (v: CeldaMuestra): string => (v == null ? "" : typeof v === "number" ? String(v) : v);
+type PropsCarga = {
+  moduloCodigo: string;
+  moduloLabel: string;
+  roles: RolModulo[];
+  clasificadorRol: string;
+  conNivelCartera: boolean;
+  clientes: ClienteModulo[];
+  /** Muestra «Crear patrón» cuando un archivo no coincide (Administrador). */
+  puedeAdministrarPatrones: boolean;
+};
+
 const formatoNumeroMarca = new Intl.NumberFormat("es-CO", { maximumFractionDigits: 6 });
 const celdaTxtVisible = (v: CeldaMuestra): string => (
   typeof v === "number" ? formatoNumeroMarca.format(v) : celdaTxt(v)
 );
-const sinCoordenadaDeArchivo = (valor: SpecModulo): SpecModulo => ({
-  ...valor,
-  subtotalesFila: undefined,
-});
+const sinCoordenadaDeArchivo = (valor: SpecModulo): SpecModulo => ({ ...valor, subtotalesFila: undefined });
+
+/** «NIT / cédula C · Saldo Q · rangos de vencimiento L–P (5)», con letras de Excel. */
+function resumenMapeo(spec: SpecModulo, roles: RolModulo[], clasificadorRol: string, columnaInicial: number): string {
+  const letra = (columna: number) => letraColumnaModulo(columna + columnaInicial);
+  const partes = roles.flatMap((rol) => {
+    if (rol.nombre === clasificadorRol && spec.clasificadorModo === "global") return [`${rol.etiqueta} global`];
+    const columna = spec.columnas[rol.nombre] ?? 0;
+    return columna > 0 ? [`${rol.etiqueta} ${letra(columna)}`] : [];
+  });
+  const edades = spec.familias?.edades ?? [];
+  if (edades.length > 0) {
+    const rango = edades.length === 1 ? letra(edades[0].columna) : `${letra(edades[0].columna)}–${letra(edades[edades.length - 1].columna)}`;
+    partes.push(`rangos de vencimiento ${rango} (${edades.length})`);
+  }
+  return partes.join(" · ");
+}
 
 /**
  * Botón «Agregar archivo» de la columna Acciones: abre el MISMO modal en modo adición.
@@ -49,16 +81,7 @@ const sinCoordenadaDeArchivo = (valor: SpecModulo): SpecModulo => ({
  * deba inferir de los datos — inferirlo comparando llaves (clasificador, referencia) fue
  * la causa de que un módulo llegara a duplicarse.
  */
-export function AgregarArchivoButton(props: {
-  moduloCodigo: string;
-  moduloLabel: string;
-  roles: RolModulo[];
-  clasificadorRol: string;
-  conNivelCartera: boolean;
-  clientes: ClienteModulo[];
-  anexo: AnexoModulo;
-  className?: string;
-}) {
+export function AgregarArchivoButton(props: PropsCarga & { anexo: AnexoModulo; className?: string }) {
   const [abierto, setAbierto] = useState(false);
   return (
     <>
@@ -77,14 +100,7 @@ export function AgregarArchivoButton(props: {
 }
 
 /** Botón «Cargar <módulo>» + su modal. */
-export function CargarModuloButton(props: {
-  moduloCodigo: string;
-  moduloLabel: string;
-  roles: RolModulo[];
-  clasificadorRol: string;
-  conNivelCartera: boolean;
-  clientes: ClienteModulo[];
-}) {
+export function CargarModuloButton(props: PropsCarga) {
   const [abierto, setAbierto] = useState(false);
   return (
     <>
@@ -100,6 +116,13 @@ export function CargarModuloButton(props: {
   );
 }
 
+type Fase = "archivo" | "patron" | "sin_patron" | "mapeo";
+type AplicativosCliente = { campoNombre: string; delCliente: AplicativoOpcion[]; catalogo: AplicativoOpcion[] };
+type PrefsCarga = { hojaPreferida: string | null; observaciones: string | null };
+/** Elección del aplicativo: el id de uno del cliente, u «otro» (del catálogo o nuevo). */
+const OTRO = "otro";
+const NUEVO = "nuevo";
+
 function CargarModal({
   moduloCodigo,
   moduloLabel,
@@ -107,18 +130,10 @@ function CargarModal({
   conNivelCartera,
   clasificadorRol,
   clientes,
+  puedeAdministrarPatrones,
   anexo,
   onClose,
-}: {
-  moduloCodigo: string;
-  moduloLabel: string;
-  roles: RolModulo[];
-  clasificadorRol: string;
-  conNivelCartera: boolean;
-  clientes: ClienteModulo[];
-  anexo?: AnexoModulo;
-  onClose: () => void;
-}) {
+}: PropsCarga & { anexo?: AnexoModulo; onClose: () => void }) {
   const router = useRouter();
   // El archivo se conserva como File sin leer ni descomprimir en el navegador.
   // ExcelJS puede bloquear el hilo principal incluso con XLSX pequeños pero muy
@@ -127,13 +142,7 @@ function CargarModal({
   const [tieneArchivo, setTieneArchivo] = useState(false);
   const [nombreArchivo, setNombreArchivo] = useState("");
   const [clienteId, setClienteId] = useState<number | null>(anexo?.clienteId ?? null);
-  // El ERP ya forma parte del maestro del cliente: se conserva como metadato sin
-  // volver a pedírselo al usuario. La ubicación y el reflejo contable se documentan
-  // progresivamente en la Bitácora, donde siguen siendo editables.
-  const softwareOrigen = clienteId == null
-    ? ""
-    : clientes.find((cliente) => cliente.id === clienteId)?.erp ?? "";
-  const [fase, setFase] = useState<"archivo" | "mapeo">("archivo");
+  const [fase, setFase] = useState<Fase>("archivo");
   const [analisis, setAnalisis] = useState<AnalisisModulo | null>(null);
   const [recepcionLoteId, setRecepcionLoteId] = useState<string | null>(null);
   const [spec, setSpec] = useState<SpecModulo | null>(null);
@@ -141,93 +150,156 @@ function CargarModal({
   const [analizando, startAnalizar] = useTransition();
   const [leyendo, startLeer] = useTransition();
   const [ubicandoCelda, startUbicarCelda] = useTransition();
+  // Aplicativo del archivo: el analista lo confirma entre los del cliente o elige otro.
+  const [aplicativos, setAplicativos] = useState<AplicativosCliente | null>(null);
+  const [eleccion, setEleccion] = useState("");
+  const [otroElegido, setOtroElegido] = useState("");
+  const [nombreNuevo, setNombreNuevo] = useState("");
   // La fila solo sirve para resolver una coordenada de ESTE archivo (p. ej. M1347).
-  // El perfil conserva columna+contenido, nunca la fila, porque cambia en cada cargue.
   const [filaMarcaTotales, setFilaMarcaTotales] = useState("");
   const [direccionMarcaTotales, setDireccionMarcaTotales] = useState<string | null>(null);
   const [valorMarcaTotalesVisible, setValorMarcaTotalesVisible] = useState<CeldaMuestra>(null);
   const [marcaManualLista, setMarcaManualLista] = useState(false);
   const solicitudCeldaRef = useRef(0);
-  // Preferencias de carga del cliente en este módulo (Configuración › Perfiles de
-  // carga). Las notas se muestran aquí; la hoja preferida la resuelve el servidor
-  // durante el análisis, cuando ya conoce las hojas reales del libro.
-  type PrefsCarga = { hojaPreferida: string | null; observaciones: string | null };
+  // Preferencias de carga del cliente (Configuración › Perfiles de carga): se muestran las notas.
   const [prefs, setPrefs] = useState<PrefsCarga | null>(null);
-  const solicitudPrefsRef = useRef(0);
+  const solicitudClienteRef = useRef(0);
 
-  const elegirCliente = (id: number | null) => {
-    if (id !== clienteId) {
-      solicitudCeldaRef.current += 1;
-      setAnalisis(null);
-      setSpec(null);
-      setRecepcionLoteId(null);
-      setFilaMarcaTotales("");
-      setDireccionMarcaTotales(null);
-      setValorMarcaTotalesVisible(null);
-      setMarcaManualLista(false);
-      setFase("archivo");
-    }
-    setClienteId(id);
-    setPrefs(null);
-    const solicitud = ++solicitudPrefsRef.current;
-    if (id == null) return;
-    preferenciasCargaModulo(id, moduloCodigo)
-      .then((r) => {
-        if (solicitud !== solicitudPrefsRef.current) return; // llegó tarde: el cliente cambió
-        const p: PrefsCarga | null = r.ok ? { hojaPreferida: r.hojaPreferida, observaciones: r.observaciones } : null;
-        setPrefs(p);
-      })
-      .catch(() => { /* las preferencias son informativas; el análisis puede continuar */ });
-  };
-
-  const onArchivo = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    setTieneArchivo(false);
-    setAnalisis(null);
-    setSpec(null);
-    setRecepcionLoteId(null);
+  const reiniciarMarcaTotales = () => {
     solicitudCeldaRef.current += 1;
     setFilaMarcaTotales("");
     setDireccionMarcaTotales(null);
     setValorMarcaTotalesVisible(null);
     setMarcaManualLista(false);
+  };
+  const reiniciarAnalisis = () => {
+    reiniciarMarcaTotales();
+    setAnalisis(null);
+    setSpec(null);
+    setRecepcionLoteId(null);
     setFase("archivo");
+  };
+
+  /** Consulta notas y aplicativos del cliente; solo actualiza el estado cuando responden. */
+  const pedirDatosCliente = (id: number) => {
+    const solicitud = ++solicitudClienteRef.current;
+    preferenciasCargaModulo(id, moduloCodigo)
+      .then((r) => {
+        if (solicitud === solicitudClienteRef.current && r.ok) setPrefs({ hojaPreferida: r.hojaPreferida, observaciones: r.observaciones });
+      })
+      .catch(() => { /* las preferencias son informativas */ });
+    listarAplicativosCargaModulo(id, moduloCodigo)
+      .then((r) => {
+        if (solicitud !== solicitudClienteRef.current) return;
+        if (!r.ok) { notifyError(r.message ?? "No se pudieron consultar los aplicativos del cliente."); return; }
+        setAplicativos({ campoNombre: r.campoNombre ?? "", delCliente: r.delCliente, catalogo: r.catalogo });
+        // Sin aplicativos registrados no hay nada que confirmar: se elige directamente.
+        if (r.delCliente.length === 0) setEleccion(OTRO);
+      })
+      .catch(() => notifyError("No se pudieron consultar los aplicativos del cliente."));
+  };
+  const cargarDatosCliente = (id: number) => {
+    setPrefs(null);
+    setAplicativos(null);
+    setEleccion("");
+    setOtroElegido("");
+    setNombreNuevo("");
+    pedirDatosCliente(id);
+  };
+
+  // En «Agregar archivo» el cliente viene fijo: sus datos se piden al abrir.
+  const clienteAnexo = anexo?.clienteId ?? null;
+  useEffect(() => {
+    if (clienteAnexo != null) pedirDatosCliente(clienteAnexo);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- solo al abrir el modal
+  }, [clienteAnexo]);
+
+  const elegirCliente = (id: number | null) => {
+    if (id !== clienteId) reiniciarAnalisis();
+    setClienteId(id);
+    if (id == null) {
+      solicitudClienteRef.current += 1;
+      setPrefs(null);
+      setAplicativos(null);
+      return;
+    }
+    cargarDatosCliente(id);
+  };
+
+  const onArchivo = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    reiniciarAnalisis();
     archivoRef.current = f;
     setNombreArchivo(f.name);
     setTieneArchivo(true);
   };
 
+  const cambiarEleccion = (valor: string) => {
+    reiniciarAnalisis();
+    setEleccion(valor);
+  };
+
+  const eleccionLista = eleccion !== "" && (eleccion !== OTRO || (otroElegido !== "" && (otroElegido !== NUEVO || nombreNuevo.trim().length >= 2)));
+  const periodoListo = anexo != null || /^\d{4}-\d{2}$/.test(mes);
+
+  /** El aplicativo elegido; si no estaba en la ficha del cliente, se agrega (o se crea) primero. */
+  const resolverAplicativo = async (): Promise<AplicativoOpcion | null> => {
+    if (!aplicativos || clienteId == null) return null;
+    if (eleccion !== OTRO) return aplicativos.delCliente.find((a) => String(a.id) === eleccion) ?? null;
+    const entrada = otroElegido === NUEVO ? { erpNuevo: nombreNuevo.trim() } : { erpId: Number(otroElegido) };
+    const r = await confirmarAplicativoCargaModulo({ clienteId, moduloCodigo, ...entrada });
+    if (!r.ok || !r.aplicativo) {
+      notifyError(r.message ?? "No se pudo registrar el aplicativo del archivo.");
+      return null;
+    }
+    const nuevo = r.aplicativo;
+    if (r.agregado) notifySuccess(`${nuevo.nombre} se agregó a los aplicativos de ${aplicativos.campoNombre} del cliente.`);
+    setAplicativos((a) => a && {
+      ...a,
+      delCliente: a.delCliente.some((x) => x.id === nuevo.id) ? a.delCliente : [...a.delCliente, nuevo],
+      catalogo: a.catalogo.some((x) => x.id === nuevo.id) ? a.catalogo : [...a.catalogo, nuevo],
+    });
+    setEleccion(String(nuevo.id));
+    setOtroElegido("");
+    setNombreNuevo("");
+    return nuevo;
+  };
+
   const analizar = (hojaArg?: string) => {
     if (!archivoRef.current) { notifyError("Adjunta el archivo."); return; }
     if (clienteId == null) { notifyError("Selecciona el cliente."); return; }
-    const hojaElegida = hojaArg ?? "";
+    if (!periodoListo) { notifyError("Selecciona el período del archivo."); return; }
+    if (!eleccionLista) { notifyError("Confirma de qué aplicativo es el archivo."); return; }
     startAnalizar(async () => {
-      const fd = new FormData();
-      fd.set("moduloCodigo", moduloCodigo);
-      fd.set("clienteId", String(clienteId));
-      if (hojaElegida) fd.set("hoja", hojaElegida);
-      if (recepcionLoteId) fd.set("recepcionLoteId", recepcionLoteId);
-      fd.set("softwareOrigen", softwareOrigen);
-      fd.set("archivo", archivoRef.current!);
       try {
+        const aplicativo = await resolverAplicativo();
+        if (!aplicativo) return;
+        const fd = new FormData();
+        fd.set("moduloCodigo", moduloCodigo);
+        fd.set("clienteId", String(clienteId));
+        fd.set("erpId", String(aplicativo.id));
+        if (hojaArg) fd.set("hoja", hojaArg);
+        if (recepcionLoteId) fd.set("recepcionLoteId", recepcionLoteId);
+        fd.set("softwareOrigen", aplicativo.nombre);
+        fd.set("archivo", archivoRef.current!);
         const r = await analizarArchivoModulo(fd);
         if (r.recepcionLoteId) setRecepcionLoteId(r.recepcionLoteId);
-        if (r.ok && r.spec) {
-          setAnalisis(r);
-          // El perfil recuerda el formato, no una coordenada de un archivo anterior.
-          // Incluso si llegara un perfil legado contaminado, este cargue debe ubicarla otra vez.
-          setSpec(sinCoordenadaDeArchivo(r.spec));
-          solicitudCeldaRef.current += 1;
-          setFilaMarcaTotales("");
-          setDireccionMarcaTotales(null);
-          setValorMarcaTotalesVisible(null);
-          setMarcaManualLista(false);
-          setFase("mapeo");
-          if (r.origen === "perfil") notifySuccess("Se aplicó el perfil guardado de este cliente. Revisa y confirma.");
-        } else {
+        if (!r.ok) {
           notifyError(r.message ?? "No se pudo analizar el archivo.");
+          return;
         }
+        reiniciarMarcaTotales();
+        setAnalisis(r);
+        if (r.modo === "sin_patron" || !r.spec) {
+          setSpec(null);
+          setFase("sin_patron");
+          return;
+        }
+        // Ni el perfil ni el patrón traen la fila del total: se ubica de nuevo en cada archivo.
+        setSpec(sinCoordenadaDeArchivo(r.spec));
+        setFase(r.modo === "patron" ? "patron" : "mapeo");
+        if (r.origen === "perfil") notifySuccess("Se aplicó el perfil guardado de este cliente. Revisa y confirma.");
       } catch {
         notifyError("No se pudo enviar el archivo al servidor. Verifica la conexión e intenta nuevamente.");
       }
@@ -235,11 +307,16 @@ function CargarModal({
   };
 
   const leer = () => {
-    if (!archivoRef.current || !spec) { notifyError("Falta analizar el archivo."); return; }
+    const aplicativo = analisis?.aplicativo;
+    if (!archivoRef.current || !spec || !analisis || !aplicativo) { notifyError("Falta analizar el archivo."); return; }
     if (clienteId == null) { notifyError("Selecciona el cliente."); return; }
     if (!/^\d{4}-\d{2}$/.test(mes)) { notifyError("Selecciona el período del archivo."); return; }
-    const faltantes = roles.filter((rc) => rc.requerido && !(rc.nombre === clasificadorRol && modo === "global") && (spec.columnas[rc.nombre] ?? 0) < 1);
-    if (faltantes.length) { notifyError("Faltan columnas obligatorias: " + faltantes.map((f) => f.etiqueta).join(", ") + "."); return; }
+    const porPatron = analisis.modo === "patron" && analisis.coincidencia != null;
+    if (!porPatron) {
+      const modoClasificador = spec.clasificadorModo ?? (spec.arrastrarClasificador ? "arrastrar" : "columna");
+      const faltantes = roles.filter((rc) => rc.requerido && !(rc.nombre === clasificadorRol && modoClasificador === "global") && (spec.columnas[rc.nombre] ?? 0) < 1);
+      if (faltantes.length) { notifyError("Faltan columnas obligatorias: " + faltantes.map((f) => f.etiqueta).join(", ") + "."); return; }
+    }
     if (conNivelCartera && spec.monedaArchivo && spec.monedaArchivo !== "COP" && !(spec.trmCierre && spec.trmCierre > 0)) {
       notifyError(`Indica la TRM de cierre: los importes están en ${spec.monedaArchivo}.`);
       return;
@@ -247,25 +324,29 @@ function CargarModal({
     const filaManual = Number(filaMarcaTotales);
     if (
       spec.subtotales === "manual"
-      && (
-        (spec.subtotalesColumna ?? 0) < 1
-        || !marcaManualLista
-        || !Number.isInteger(filaManual)
-        || spec.subtotalesFila !== filaManual
-      )
+      && ((spec.subtotalesColumna ?? 0) < 1 || !marcaManualLista || !Number.isInteger(filaManual) || spec.subtotalesFila !== filaManual)
     ) {
-      notifyError("Selecciona la columna, escribe la fila y ubica la celda que marca el total.");
+      notifyError("Escribe la fila y ubica la celda que marca el total.");
       return;
     }
     startLeer(async () => {
       const fd = new FormData();
       fd.set("moduloCodigo", moduloCodigo);
       fd.set("clienteId", String(clienteId));
+      fd.set("erpId", String(aplicativo.id));
       fd.set("hoja", spec.hoja);
-      fd.set("specJson", JSON.stringify(spec));
-      fd.set("periodoInicio", mes ? `${mes}-01` : "");
-      fd.set("periodoFin", mes ? `${mes}-01` : "");
-      fd.set("softwareOrigen", softwareOrigen);
+      if (porPatron) {
+        // Con patrón el mapeo lo arma el servidor: solo viajan los datos de ESTE cargue.
+        fd.set("patronVersionId", String(analisis.coincidencia!.versionId));
+        fd.set("fechaCorte", spec.fechaCorte ?? (finDePeriodo(mes) ?? ""));
+        if (spec.trmCierre) fd.set("trmCierre", String(spec.trmCierre));
+        if (spec.subtotalesFila) fd.set("subtotalesFila", String(spec.subtotalesFila));
+      } else {
+        fd.set("specJson", JSON.stringify(spec));
+      }
+      fd.set("periodoInicio", `${mes}-01`);
+      fd.set("periodoFin", `${mes}-01`);
+      fd.set("softwareOrigen", aplicativo.nombre);
       if (recepcionLoteId) fd.set("recepcionLoteId", recepcionLoteId);
       if (anexo) fd.set("anexoEncabezadoId", String(anexo.encabezadoId));
       fd.set("archivo", archivoRef.current!);
@@ -283,87 +364,14 @@ function CargarModal({
     });
   };
 
-  const setCol = (rol: string, col: number) => setSpec((s) => (s ? { ...s, columnas: { ...s.columnas, [rol]: col } } : s));
-  const setEnc = (v: number) => setSpec((s) => (s ? { ...s, filaEncabezado: v } : s));
-  const setDat = (v: number) => setSpec((s) => (s ? { ...s, primeraFilaDatos: v } : s));
-  const modo: "columna" | "arrastrar" | "seccion" | "global" = spec?.clasificadorModo ?? (spec?.arrastrarClasificador ? "arrastrar" : "columna");
-  const setModo = (m: "columna" | "arrastrar" | "seccion" | "global") =>
-    setSpec((s) => (s ? { ...s, clasificadorModo: m, arrastrarClasificador: m === "arrastrar" ? true : undefined, seccionColumnaVaciaRol: m === "seccion" ? s.seccionColumnaVaciaRol ?? "descripcion" : undefined } : s));
-  // Selección del clasificador: -1 = un solo valor global; ≥1 = columna.
-  const onSelectClasificador = (v: number) => {
-    if (v === -1) { setModo("global"); return; }
-    setCol(clasificadorRol, v);
-    if (modo === "global") setModo("columna");
-  };
-  const setSeccionRol = (rol: string) => setSpec((s) => (s ? { ...s, seccionColumnaVaciaRol: rol } : s));
-  // Qué representa una fila de ESTE archivo y de dónde viene su cartera. Lo declara quien
-  // carga porque el archivo no siempre lo dice: un mismo cliente entrega un mes el resumen
-  // por tercero y otro el detalle por documento, y de eso depende qué suma y qué es control.
-  const nivelCartera = spec?.nivel ?? ((spec?.columnas.documento ?? 0) >= 1 ? "documento" : "tercero");
-  const setNivelCartera = (n: "tercero" | "documento") => setSpec((s) => (s ? { ...s, nivel: n } : s));
-  const origenCartera = spec?.origenCartera ?? "nacional";
-  const setOrigenCartera = (o: "nacional" | "exterior" | "mixta") => setSpec((s) => (s ? { ...s, origenCartera: o } : s));
-  // Moneda de los importes (del formato), TRM de cierre y fecha de corte (de ESTE cargue).
-  const monedaArchivo = spec?.monedaArchivo ?? "COP";
-  const setMonedaArchivo = (m: string) =>
-    setSpec((s) => (s ? { ...s, monedaArchivo: m === "COP" ? undefined : m, ...(m !== "COP" && !s.origenCartera ? { origenCartera: "exterior" as const } : {}) } : s));
-  const fechaCorte = spec?.fechaCorte ?? (mes ? finDePeriodo(mes) ?? "" : "");
-  const setFechaCorte = (f: string) => setSpec((s) => (s ? { ...s, fechaCorte: f || undefined } : s));
-  const setTrmCierre = (v: string) => setSpec((s) => (s ? { ...s, trmCierre: Number(v) > 0 ? Number(v) : undefined } : s));
-  const [consultandoTrm, startConsultarTrm] = useTransition();
-  const usarTrmOficial = () => {
-    if (!fechaCorte) return;
-    startConsultarTrm(async () => {
-      const r = await sugerirTrmCierre({ fecha: fechaCorte });
-      if (r.ok && r.trm) setSpec((s) => (s ? { ...s, trmCierre: Math.round((r.trm as number) * 100) / 100 } : s));
-      else notifyError(r.message ?? "No se pudo consultar la TRM oficial.");
-    });
-  };
-  const rangosDetectados = spec?.familias?.edades ?? [];
-  // Subtotales del archivo: cómo detectarlos (se excluyen del consolidado y se usan de control).
-  const modoSubtotales: ModoSubtotales = spec?.subtotales ?? "auto";
-  const setModoSubtotales = (m: ModoSubtotales) => {
-    solicitudCeldaRef.current += 1;
-    setFilaMarcaTotales("");
-    setDireccionMarcaTotales(null);
-    setValorMarcaTotalesVisible(null);
-    setMarcaManualLista(false);
-    setSpec((s) =>
-      s
-        ? {
-            ...s,
-            subtotales: m === "auto" ? undefined : m,
-            // La columna marcadora solo existe en el modo manual; al salir se retira para
-            // no dejar basura en el perfil que se guarda por huella.
-            subtotalesColumna: m === "manual" ? (s.subtotalesColumna ?? 0) : undefined,
-            subtotalesTexto: m === "manual" ? s.subtotalesTexto : undefined,
-            subtotalesFila: undefined,
-          }
-        : s,
-    );
-  };
-  const setColumnaMarcaTotales = (columna: number) => {
-    solicitudCeldaRef.current += 1;
-    setFilaMarcaTotales("");
-    setDireccionMarcaTotales(null);
-    setValorMarcaTotalesVisible(null);
-    setMarcaManualLista(false);
-    setSpec((s) => (s ? {
-      ...s,
-      subtotalesColumna: columna || undefined,
-      subtotalesFila: undefined,
-      subtotalesTexto: undefined,
-    } : s));
-  };
   const cambiarFilaMarcaTotales = (fila: string) => {
     solicitudCeldaRef.current += 1;
     setFilaMarcaTotales(fila);
     setDireccionMarcaTotales(null);
     setValorMarcaTotalesVisible(null);
     setMarcaManualLista(false);
-    // Una coordenada modificada todavía no está validada. Retirar el texto evita que
-    // «Leer» use accidentalmente el marcador anterior o el comodín «cualquier valor».
-    setSpec((s) => (s ? { ...s, subtotalesFila: undefined, subtotalesTexto: undefined } : s));
+    // Una coordenada modificada todavía no está validada: sin texto, «Leer» no usa el anterior.
+    setSpec((s) => (s ? { ...s, subtotalesFila: undefined, subtotalesTexto: analisis?.modo === "patron" ? s.subtotalesTexto : undefined } : s));
   };
   const ubicarMarcaTotales = () => {
     const columna = spec?.subtotalesColumna ?? 0;
@@ -392,11 +400,12 @@ function CargarModal({
           return;
         }
         const texto = celdaTxt(resultado.valor);
+        // Con patrón el texto del marcador es del formato: la celda solo confirma la fila.
         setSpec((s) => (s ? {
           ...s,
           subtotalesColumna: columna,
           subtotalesFila: fila,
-          subtotalesTexto: texto,
+          subtotalesTexto: analisis.modo === "patron" ? s.subtotalesTexto : texto,
         } : s));
         setDireccionMarcaTotales(resultado.direccion);
         setValorMarcaTotalesVisible(resultado.valor);
@@ -407,36 +416,79 @@ function CargarModal({
     });
   };
 
-  // Etiqueta de cada columna para los selectores: «C · Encabezado». La letra es la de Excel:
-  // suma las columnas vacías con que empieza la hoja, que la grilla no trae.
-  const opcionesColumna = (): { index1: number; label: string }[] => {
-    if (!analisis) return [];
-    const ancho = analisis.ancho ?? analisis.encabezado?.length ?? 0;
-    return Array.from({ length: ancho }, (_, c) => {
-      const enc = celdaTxt(analisis.encabezado?.[c] ?? null);
-      return { index1: c + 1, label: `${columnaLetra(c + (analisis.columnaInicial ?? 0))}${enc ? ` · ${enc.slice(0, 28)}` : ""}` };
-    });
-  };
-
-  const preview = (rol: string): string[] => {
-    if (!analisis || !spec) return [];
-    const col = spec.columnas[rol] ?? 0;
-    if (col < 1) return [];
-    return (analisis.muestraFilas ?? []).slice(0, 6).map((f) => celdaTxt(f[col - 1] ?? null));
-  };
-  // ¿La columna del clasificador viene mayormente vacía? (señal de agrupación → arrastrar).
-  const clasifEsparso = (() => {
-    if (!analisis || !spec) return false;
-    const col = spec.columnas[clasificadorRol] ?? 0;
-    if (col < 1) return false;
-    const vals = (analisis.muestraFilas ?? []).map((f) => celdaTxt(f[col - 1] ?? null));
-    if (vals.length < 3) return false;
-    const vacias = vals.filter((v) => !v).length;
-    return vacias / vals.length >= 0.3;
-  })();
-  const clasificadorEtiqueta = roles.find((rol) => rol.nombre === clasificadorRol)?.etiqueta ?? "clasificador";
-  // Modo manual de subtotales: columna marcadora elegida en el archivo.
   const colSubtotales = spec?.subtotalesColumna ?? 0;
+  const marcaTotalesCarga = (
+    <div className="flex flex-col gap-2">
+      <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[10rem_auto] sm:items-end">
+        <label className="flex min-w-0 flex-col gap-1">
+          <span className="text-[10.5px] text-ink-500">Número de fila del total en este archivo</span>
+          <input
+            type="number"
+            min={1}
+            step={1}
+            inputMode="numeric"
+            value={filaMarcaTotales}
+            onChange={(e) => cambiarFilaMarcaTotales(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                ubicarMarcaTotales();
+              }
+            }}
+            placeholder="1347"
+            className="w-full rounded-md border border-ink-200 bg-white px-2.5 py-1.5 tabular-nums text-[12px] text-ink-700 outline-none focus:border-blue-400"
+          />
+        </label>
+        <button
+          type="button"
+          onClick={ubicarMarcaTotales}
+          disabled={ubicandoCelda || colSubtotales < 1 || !filaMarcaTotales}
+          className="justify-self-start rounded-md border border-blue-300 bg-blue-50 px-3 py-1.5 text-[12px] font-semibold text-blue-800 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {ubicandoCelda ? "Ubicando…" : "Ubicar celda"}
+        </button>
+      </div>
+      <span className="text-[11px] leading-snug text-ink-500">
+        La plataforma lee la coordenada exacta —por ejemplo, columna M + fila 1347 = M1347— y la usa para reconocer el total.
+      </span>
+      {!marcaManualLista ? (
+        <span className="text-[11px] font-semibold leading-snug text-err-700">⚠ Ubica una celda con contenido antes de crear el borrador.</span>
+      ) : (
+        <span className="rounded-md border border-ok-500 bg-ok-100/40 px-2.5 py-1.5 text-[11px] font-medium leading-snug text-ok-700">
+          {direccionMarcaTotales} ubicada: «{celdaTxtVisible(valorMarcaTotalesVisible)}».
+        </span>
+      )}
+    </div>
+  );
+
+  const fechaCorteSugerida = mes ? finDePeriodo(mes) ?? "" : "";
+  const botonSecundario = "rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] font-semibold text-ink-600 hover:bg-ink-50";
+  const botonPrimario = "rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60";
+  const aplicativoAnalizado = analisis?.aplicativo;
+  const rutaPatrones = `/modulos/${moduloCodigo.toLowerCase()}/patrones`;
+
+  const footer = fase === "archivo" ? (
+    <>
+      <button type="button" onClick={onClose} className={botonSecundario}>Cancelar</button>
+      <button
+        type="button"
+        disabled={!tieneArchivo || clienteId == null || !eleccionLista || !periodoListo || analizando}
+        onClick={() => analizar()}
+        className={botonPrimario}
+      >
+        {analizando ? "Analizando…" : "Analizar archivo"}
+      </button>
+    </>
+  ) : fase === "sin_patron" ? (
+    <button type="button" onClick={() => setFase("archivo")} className={botonSecundario}>Atrás</button>
+  ) : (
+    <>
+      <button type="button" onClick={() => setFase("archivo")} className={botonSecundario}>Atrás</button>
+      <button type="button" disabled={leyendo || analizando} onClick={leer} className={botonPrimario}>
+        {leyendo ? "Leyendo…" : fase === "patron" ? "Crear borrador" : "Leer y crear borrador"}
+      </button>
+    </>
+  );
 
   return (
     <Modal
@@ -444,25 +496,9 @@ function CargarModal({
       onClose={onClose}
       title={anexo ? `Agregar archivo · ${moduloLabel.toLowerCase()} ${anexo.periodo}` : `Cargar ${moduloLabel.toLowerCase()}`}
       size={fase === "mapeo" ? "2xl" : "lg"}
-      footer={
-        fase === "archivo" ? (
-          <>
-            <button type="button" onClick={onClose} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] font-semibold text-ink-600 hover:bg-ink-50">Cancelar</button>
-            <button type="button" disabled={!tieneArchivo || clienteId == null || analizando} onClick={() => analizar()} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60">
-              {analizando ? "Analizando…" : "Analizar columnas"}
-            </button>
-          </>
-        ) : (
-          <>
-            <button type="button" onClick={() => setFase("archivo")} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12.5px] font-semibold text-ink-600 hover:bg-ink-50">Atrás</button>
-            <button type="button" disabled={leyendo || analizando || !mes} onClick={leer} title={!mes ? "Selecciona el período del archivo" : undefined} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60">
-              {leyendo ? "Leyendo…" : "Leer y crear borrador"}
-            </button>
-          </>
-        )
-      }
+      footer={footer}
     >
-      {fase === "archivo" ? (
+      {fase === "archivo" && (
         <div className="flex flex-col gap-3.5 text-[12.5px]">
           {anexo ? (
             <div className="rounded-md border border-navy-600 bg-blue-50 px-3 py-2 text-[11.5px] leading-relaxed text-navy-800">
@@ -473,315 +509,209 @@ function CargarModal({
               </span>
             </div>
           ) : (
-            <SelectorClienteBuscable
-              clients={clientes}
-              value={clienteId}
-              onChange={elegirCliente}
-            />
+            <SelectorClienteBuscable clients={clientes} value={clienteId} onChange={elegirCliente} />
+          )}
+
+          {clienteId != null && (
+            <fieldset className="flex flex-col gap-1.5">
+              <legend className="mb-1 text-[11px] font-medium text-ink-600">
+                ¿De qué aplicativo es este archivo? <span className="text-err-600">*</span>
+              </legend>
+              {aplicativos == null ? (
+                <span className="text-[11px] text-ink-400">Consultando los aplicativos del cliente…</span>
+              ) : (
+                <>
+                  {aplicativos.delCliente.length === 0 ? (
+                    <p className="rounded-md border border-warn-500 bg-warn-100/30 px-2.5 py-1.5 text-[11px] leading-snug text-warn-700">
+                      El cliente no tiene aplicativo de {aplicativos.campoNombre.toLowerCase()} registrado. El que elijas se agregará a su ficha.
+                    </p>
+                  ) : (
+                    <p className="text-[11px] text-ink-400">Aplicativos de {aplicativos.campoNombre.toLowerCase()} registrados para el cliente. Confirma el de este archivo.</p>
+                  )}
+                  {aplicativos.delCliente.map((a) => (
+                    <label key={a.id} className="flex items-center gap-2 text-[12.5px] text-ink-700">
+                      <input type="radio" name="aplicativo-archivo" checked={eleccion === String(a.id)} onChange={() => cambiarEleccion(String(a.id))} />
+                      {a.nombre}{a.manual ? <span className="text-[11px] text-ink-400">(se mapea a mano)</span> : null}
+                    </label>
+                  ))}
+                  {aplicativos.delCliente.length > 0 && (
+                    <label className="flex items-center gap-2 text-[12.5px] text-ink-700">
+                      <input type="radio" name="aplicativo-archivo" checked={eleccion === OTRO} onChange={() => cambiarEleccion(OTRO)} />
+                      Otro aplicativo…
+                    </label>
+                  )}
+                  {eleccion === OTRO && (
+                    <div className="flex flex-col gap-1.5 sm:ml-6">
+                      <select
+                        value={otroElegido}
+                        onChange={(e) => { reiniciarAnalisis(); setOtroElegido(e.target.value); }}
+                        className="w-full min-w-0 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400"
+                      >
+                        <option value="">— elige el aplicativo —</option>
+                        {aplicativos.catalogo
+                          .filter((a) => !a.manual && !aplicativos.delCliente.some((d) => d.id === a.id))
+                          .map((a) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+                        <option value={NUEVO}>Otro (escribir el nombre)…</option>
+                        {aplicativos.catalogo
+                          .filter((a) => a.manual && !aplicativos.delCliente.some((d) => d.id === a.id))
+                          .map((a) => <option key={a.id} value={a.id}>{a.nombre} (se mapea a mano)</option>)}
+                      </select>
+                      {otroElegido === NUEVO && (
+                        <input
+                          type="text"
+                          value={nombreNuevo}
+                          maxLength={80}
+                          onChange={(e) => setNombreNuevo(e.target.value)}
+                          placeholder="Nombre del aplicativo"
+                          className="w-full min-w-0 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400"
+                        />
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+            </fieldset>
           )}
 
           <label className="flex flex-col gap-1">
             <span className="text-[11px] font-medium text-ink-600">Archivo (Excel/CSV)</span>
-            <input type="file" accept=".xlsx,.xlsm,.xls,.csv,.txt" onChange={onArchivo} className="text-[12px] text-ink-600 file:mr-3 file:rounded-md file:border-0 file:bg-ink-100 file:px-3 file:py-1.5 file:text-[12px] file:font-semibold file:text-ink-700 hover:file:bg-ink-200" />
+            <input type="file" accept=".xlsx,.xlsm,.xls,.xlsb,.csv,.txt" onChange={onArchivo} className="text-[12px] text-ink-600 file:mr-3 file:rounded-md file:border-0 file:bg-ink-100 file:px-3 file:py-1.5 file:text-[12px] file:font-semibold file:text-ink-700 hover:file:bg-ink-200" />
             {tieneArchivo && <span className="text-[11px] text-ok-700">Listo: {nombreArchivo}</span>}
           </label>
 
+          {!anexo && (
+            <label className="flex w-full max-w-xs flex-col gap-1">
+              <span className="text-[11px] font-medium text-ink-600">Período de {moduloLabel.toLowerCase()} <span className="text-err-600">*</span></span>
+              <input type="month" value={mes} onChange={(e) => setMes(e.target.value)} className="w-full rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-ink-700 outline-none focus:border-blue-400" />
+            </label>
+          )}
+
           {prefs?.observaciones && <NotasCargaModulo notas={prefs.observaciones} />}
         </div>
-      ) : (
-        <div className="flex flex-col gap-4 text-[12.5px]">
-          {prefs?.observaciones && <NotasCargaModulo notas={prefs.observaciones} />}
-          {analisis?.origen === "perfil" && (
-            <p className="rounded-md border border-ok-500 bg-ok-100/40 px-3 py-1.5 text-[11.5px] text-ok-700">Perfil guardado aplicado. Ajusta si hace falta.</p>
-          )}
-          {/* La reutilización de una parametrización ya conocida es un mecanismo INTERNO:
-              se aplica sola cuando el layout coincide. No se le pregunta nada al usuario
-              ni se le nombra de qué cliente salió; solo se le pide que la revise. */}
-          {analisis?.origen === "sugerido" && (
-            <p className="rounded-md border border-blue-300 bg-blue-50 px-3 py-1.5 text-[11.5px] text-blue-800">
-              Mapeo prellenado a partir de un layout ya conocido — revísalo y ajusta si hace falta.
-            </p>
-          )}
-          {analisis?.advertenciaValor && (
-            <p className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[11.5px] font-medium leading-relaxed text-warn-700">
-              {analisis.advertenciaValor}
-            </p>
-          )}
-          {analisis?.advertenciaHojas && (
-            <p className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[11.5px] font-medium leading-relaxed text-warn-700">
-              {analisis.advertenciaHojas}
-            </p>
-          )}
-          {/* Nómina: los meses que trae el archivo, para declarar el período viendo lo que hay. Las
-              filas de otros meses no entran al cargue. */}
-          {analisis?.periodosDetectados && analisis.periodosDetectados.length > 0 && (
-            <p className="rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-[11.5px] leading-relaxed text-blue-800">
-              <b>Períodos en el archivo:</b>{" "}
-              {analisis.periodosDetectados.map((p) => `${p.periodo} (${p.filas.toLocaleString("es-CO")} filas · $ ${p.valor.toLocaleString("es-CO", { maximumFractionDigits: 0 })})`).join(" · ")}.
-              {analisis.periodosDetectados.length > 1 && " Solo entran al cargue las filas del período que declares abajo."}
-            </p>
-          )}
+      )}
 
-          {(analisis?.hojas?.length ?? 0) > 1 && (
+      {fase === "sin_patron" && analisis && (
+        <div className="flex flex-col gap-3 text-[12.5px]">
+          <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2.5 text-[12px] leading-relaxed text-warn-700">
+            <p className="font-semibold">
+              Este archivo no coincide con ningún patrón de {aplicativoAnalizado?.nombre ?? "este aplicativo"} para {moduloLabel.toLowerCase()}.
+            </p>
+            {analisis.sinPatron?.mejor ? (
+              <p className="mt-1">
+                La mejor coincidencia fue la versión {analisis.sinPatron.mejor.version} con {analisis.sinPatron.mejor.porcentaje} % (hoja «{analisis.sinPatron.mejor.hoja}»). Se necesita 80 % o más
+                {analisis.sinPatron.mejor.faltantesRequeridos.length > 0 ? " y todas las columnas obligatorias" : ""}.
+              </p>
+            ) : (
+              <p className="mt-1">
+                {(analisis.sinPatron?.totalVersiones ?? 0) === 0
+                  ? `Todavía no hay patrones de ${aplicativoAnalizado?.nombre ?? "este aplicativo"} para este módulo.`
+                  : "Ninguna versión del patrón se parece a este archivo."}
+              </p>
+            )}
+            {(analisis.sinPatron?.mejor?.faltantesRequeridos.length ?? 0) > 0 && (
+              <p className="mt-1">Columnas obligatorias que no aparecen: {analisis.sinPatron!.mejor!.faltantesRequeridos.join(", ")}.</p>
+            )}
+            {(analisis.sinPatron?.mejor?.faltantes.length ?? 0) > 0 && (
+              <p className="mt-1">Rótulos del patrón que no están en el archivo: {analisis.sinPatron!.mejor!.faltantes.join(", ")}.</p>
+            )}
+            <p className="mt-1.5">
+              Un administrador debe crear el patrón para este formato; después vuelve a cargar el archivo. No se creó ningún borrador
+              y el original quedó conservado.
+            </p>
+          </div>
+          {analisis.advertenciaValor && (
+            <p className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[11.5px] font-medium leading-relaxed text-warn-700">{analisis.advertenciaValor}</p>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <Link href={rutaPatrones} className="rounded-md border border-ink-200 px-3 py-1.5 text-[12px] font-semibold text-ink-700 hover:bg-ink-50">
+              Ver patrones de archivo
+            </Link>
+            {puedeAdministrarPatrones && aplicativoAnalizado && (
+              <Link
+                href={`${rutaPatrones}/nueva?erp=${aplicativoAnalizado.id}${recepcionLoteId ? `&recepcion=${recepcionLoteId}` : ""}`}
+                className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600"
+              >
+                Crear patrón
+              </Link>
+            )}
+          </div>
+        </div>
+      )}
+
+      {fase === "patron" && analisis?.coincidencia && spec && (
+        <div className="flex flex-col gap-3 text-[12.5px]">
+          {prefs?.observaciones && <NotasCargaModulo notas={prefs.observaciones} />}
+          <div className="rounded-md border border-ok-500 bg-ok-100/40 px-3 py-2.5 text-ok-700">
+            <p className="text-[12.5px] font-semibold">
+              Patrón {aplicativoAnalizado?.nombre} · versión {analisis.coincidencia.version} · {analisis.coincidencia.porcentaje} % de coincidencia
+            </p>
+            <p className="mt-0.5 text-[11.5px] leading-snug">
+              El archivo se leerá con este patrón, sin configurar columnas.
+              {analisis.coincidencia.estado === "pendiente" ? " Es una versión pendiente de aprobación: por ahora solo sirve para este cliente." : ""}
+            </p>
+          </div>
+          {analisis.coincidencia.advertencias.length > 0 && (
+            <ul className="list-disc rounded-md border border-warn-500 bg-warn-100/30 py-2 pl-7 pr-3 text-[11.5px] leading-relaxed text-warn-700">
+              {analisis.coincidencia.advertencias.map((a) => <li key={a}>{a}</li>)}
+            </ul>
+          )}
+          {analisis.advertenciaHojas && (
+            <p className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[11.5px] leading-relaxed text-warn-700">{analisis.advertenciaHojas}</p>
+          )}
+          {(analisis.hojas?.length ?? 0) > 1 && (
             <label className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
               <span className="shrink-0 text-[11px] font-medium text-ink-600">Hoja</span>
-              <select value={spec?.hoja ?? ""} onChange={(e) => analizar(e.target.value)} className="min-w-0 max-w-full rounded-md border border-ink-200 bg-white px-2 py-1.5 text-ink-700 outline-none focus:border-blue-400">
-                {analisis?.hojas?.map((h) => <option key={h} value={h}>{h}</option>)}
+              <select value={spec.hoja} onChange={(e) => analizar(e.target.value)} className="min-w-0 max-w-full rounded-md border border-ink-200 bg-white px-2 py-1.5 text-ink-700 outline-none focus:border-blue-400">
+                {analisis.hojas?.map((h) => <option key={h} value={h}>{h}</option>)}
               </select>
-              <span className="shrink-0 text-[11px] text-ink-400">{analisis?.totalFilas} filas</span>
             </label>
           )}
-
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <label className="flex min-w-0 flex-col gap-1">
-              <span className="text-[11px] font-medium text-ink-600">Fila de encabezado</span>
-              <input type="number" min={1} value={spec?.filaEncabezado ?? 1} onChange={(e) => setEnc(Math.max(1, Number(e.target.value) || 1))} className="w-full rounded-md border border-ink-200 bg-white px-2.5 py-1.5 tabular-nums text-ink-700 outline-none focus:border-blue-400" />
-            </label>
-            <label className="flex min-w-0 flex-col gap-1">
-              <span className="text-[11px] font-medium text-ink-600">Primera fila de datos</span>
-              <input type="number" min={1} value={spec?.primeraFilaDatos ?? 2} onChange={(e) => setDat(Math.max(1, Number(e.target.value) || 1))} className="w-full rounded-md border border-ink-200 bg-white px-2.5 py-1.5 tabular-nums text-ink-700 outline-none focus:border-blue-400" />
-            </label>
-          </div>
-
-          <div className="overflow-hidden rounded-md border border-ink-150">
-            <div className="border-b border-ink-100 bg-ink-50 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Mapeo de columnas</div>
-            <div className="flex flex-col divide-y divide-ink-100">
-              {roles.map((rc) => {
-                const muestras = preview(rc.nombre);
-                const muestraTxt = muestras.filter(Boolean).slice(0, 2).join(" · ") || "—";
-                return (
-                  <div key={rc.nombre} className="flex flex-col gap-1.5 px-3 py-2.5">
-                    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                      <span className="text-[12px] font-medium leading-snug text-ink-700">
-                        {rc.etiqueta}
-                        {rc.requerido && <span className="text-err-700"> *</span>}
-                      </span>
-                      {rc.nombre === clasificadorRol && (
-                        <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide text-blue-700">
-                          clasifica
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex min-w-0 flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2">
-                      <select
-                        value={rc.nombre === clasificadorRol && modo === "global" ? -1 : spec?.columnas[rc.nombre] ?? 0}
-                        onChange={(e) => (rc.nombre === clasificadorRol ? onSelectClasificador(Number(e.target.value)) : setCol(rc.nombre, Number(e.target.value)))}
-                        className="w-full min-w-0 flex-1 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400"
-                      >
-                        <option value={0}>— sin mapear —</option>
-                        {rc.nombre === clasificadorRol && <option value={-1}>🌐 Un único clasificador para todo el archivo</option>}
-                        {opcionesColumna().map((o) => (
-                          <option key={o.index1} value={o.index1}>{o.label}</option>
-                        ))}
-                      </select>
-                      <span
-                        className="min-w-0 truncate text-[11px] leading-snug text-ink-400 sm:w-36 sm:shrink-0"
-                        title={muestras.join(" · ")}
-                      >
-                        {muestraTxt}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {conNivelCartera && (
-            <div className="mb-2 flex flex-col gap-2 rounded-md border border-ink-150 bg-ink-50 px-3 py-2.5">
-              <label className="flex min-w-0 flex-col gap-1">
-                <span className="text-[11px] font-medium text-ink-600">¿Qué es cada fila de este archivo?</span>
-                <select value={nivelCartera} onChange={(e) => setNivelCartera(e.target.value as "tercero" | "documento")} className="w-full min-w-0 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400">
-                  <option value="tercero">Un tercero con su saldo (resumen por edades)</option>
-                  <option value="documento">Un documento (factura, nota) del tercero</option>
-                </select>
-                <span className="text-[11px] leading-snug text-ink-500">Un período suma por UN solo nivel. Si además cargas el otro, entra como control y se compara tercero por tercero.</span>
-              </label>
-              <label className="flex min-w-0 flex-col gap-1">
-                <span className="text-[11px] font-medium text-ink-600">¿De dónde es esta cartera?</span>
-                <select value={origenCartera} onChange={(e) => setOrigenCartera(e.target.value as "nacional" | "exterior" | "mixta")} className="w-full min-w-0 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400">
-                  <option value="nacional">Nacional</option>
-                  <option value="exterior">Del exterior (se factura en divisa)</option>
-                  <option value="mixta">Mixta: lo dice la cuenta de cada fila</option>
-                </select>
-              </label>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                <label className="flex min-w-0 flex-col gap-1">
-                  <span className="text-[11px] font-medium text-ink-600">Moneda de los importes</span>
-                  <select value={monedaArchivo} onChange={(e) => setMonedaArchivo(e.target.value)} className="w-full min-w-0 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400">
-                    <option value="COP">Pesos (COP)</option>
-                    <option value="USD">Dólares (USD)</option>
-                    <option value="EUR">Euros (EUR)</option>
-                  </select>
-                </label>
-                <label className="flex min-w-0 flex-col gap-1">
-                  <span className="text-[11px] font-medium text-ink-600">TRM de cierre{monedaArchivo !== "COP" ? " (obligatoria)" : ""}</span>
-                  <span className="flex min-w-0 gap-1">
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={spec?.trmCierre ?? ""}
-                      onChange={(e) => setTrmCierre(e.target.value)}
-                      placeholder="Pesos por unidad"
-                      className="w-full min-w-0 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400"
-                    />
-                    <button
-                      type="button"
-                      onClick={usarTrmOficial}
-                      disabled={consultandoTrm || !fechaCorte}
-                      title="Consultar la TRM oficial de la fecha de corte"
-                      className="shrink-0 rounded-md border border-ink-200 bg-white px-2 text-[11px] font-semibold text-ink-600 hover:border-navy-700 hover:text-navy-700 disabled:opacity-50"
-                    >
-                      {consultandoTrm ? "…" : "Oficial"}
-                    </button>
-                  </span>
-                </label>
-                <label className="flex min-w-0 flex-col gap-1">
-                  <span className="text-[11px] font-medium text-ink-600">Fecha de corte</span>
-                  <input
-                    type="date"
-                    value={fechaCorte}
-                    onChange={(e) => setFechaCorte(e.target.value)}
-                    className="w-full min-w-0 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400"
-                  />
-                </label>
-              </div>
-              <span className="text-[11px] leading-snug text-ink-500">
-                {monedaArchivo !== "COP"
-                  ? `Los importes se leen en ${monedaArchivo} y se convierten a pesos con la TRM de cierre; la divisa queda en cada fila.`
-                  : "La TRM de cierre solo se usa si el archivo trae importes con su divisa escrita («USD (54,323.40)»). Contra la fecha de corte se miden los días vencidos y las edades."}
+          <dl className="grid grid-cols-1 gap-x-4 gap-y-1 rounded-md border border-ink-150 bg-ink-50 px-3 py-2 text-[11.5px] text-ink-600 sm:grid-cols-[auto_1fr]">
+            <dt className="font-medium text-ink-700">Hoja</dt>
+            <dd>«{spec.hoja}» · encabezado en la fila {spec.filaEncabezado} · datos desde la fila {spec.primeraFilaDatos} · {analisis.totalFilas} filas</dd>
+            <dt className="font-medium text-ink-700">Columnas</dt>
+            <dd>{resumenMapeo(spec, roles, clasificadorRol, analisis.columnaInicial ?? 0) || "—"}</dd>
+          </dl>
+          {analisis.periodosDetectados && analisis.periodosDetectados.length > 0 && (
+            <p className="rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-[11.5px] leading-relaxed text-blue-800">
+              <b>Períodos en el archivo:</b>{" "}
+              {analisis.periodosDetectados.map((p) => `${p.periodo} (${p.filas.toLocaleString("es-CO")} filas)`).join(" · ")}.
+              {analisis.periodosDetectados.length > 1 && ` Solo entran las filas de ${mes}.`}
+            </p>
+          )}
+          {conNivelCartera && <CamposCargueCartera spec={spec} setSpec={setSpec} fechaCorteSugerida={fechaCorteSugerida} />}
+          {spec.subtotales === "manual" && (
+            <div className="flex flex-col gap-2 rounded-md border border-ink-200 bg-white px-3 py-2.5">
+              <span className="text-[11px] font-medium text-ink-600">
+                Fila del total <span className="text-err-600">*</span> · el patrón lo marca en la columna {letraColumnaModulo(colSubtotales + (analisis.columnaInicial ?? 0))}
+                {spec.subtotalesTexto ? ` con «${spec.subtotalesTexto}»` : ""}
               </span>
-              <div className="border-t border-ink-150 pt-2">
-                <span className="text-[11px] font-medium text-ink-600">Rangos de vencimiento detectados</span>
-                {rangosDetectados.length === 0 ? (
-                  <p className="mt-1 text-[11px] leading-snug text-ink-500">Ninguno. El saldo saldrá de la columna de total.</p>
-                ) : (
-                  <>
-                    <ul className="mt-1 flex flex-wrap gap-1">
-                      {rangosDetectados.map((r) => (
-                        <li key={r.columna} className={`rounded border px-1.5 py-0.5 text-[10.5px] ${r.clase === "excluir" ? "border-warn-500 bg-warn-100/40 text-warn-700" : "border-ink-200 bg-white text-ink-600"}`}>
-                          {r.etiqueta}{r.clase === "excluir" ? " · no suma" : ""}
-                        </li>
-                      ))}
-                    </ul>
-                    <p className="mt-1 text-[11px] leading-snug text-ink-500">El saldo de cada fila es la SUMA de estos rangos; si el archivo trae además una columna de total y no coincide, manda la suma y la diferencia se avisa.</p>
-                  </>
-                )}
-              </div>
+              {marcaTotalesCarga}
             </div>
           )}
-          <div className="flex flex-col gap-2 rounded-md border border-ink-150 bg-ink-50 px-3 py-2.5">
-            {modo === "global" ? (
-              <span className="text-[11.5px] leading-snug text-ink-600">🌐 <b>Clasificador global</b>: todo el archivo se carga bajo un único valor de {clasificadorEtiqueta.toLowerCase()}. En el consolidado le asignas una cuenta.</span>
-            ) : (
-              <label className="flex min-w-0 flex-col gap-1">
-                <span className="text-[11px] font-medium text-ink-600">¿Cómo viene el {roles.find((r) => r.nombre === clasificadorRol)?.etiqueta.toLowerCase() ?? "tipo"}?</span>
-                <select value={modo} onChange={(e) => setModo(e.target.value as typeof modo)} className="w-full min-w-0 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400">
-                  <option value="columna">En su propia columna, en cada fila</option>
-                  <option value="arrastrar">Agrupado en su columna (una vez por bloque; se arrastra){clasifEsparso ? " · recomendado" : ""}</option>
-                  <option value="seccion">En renglones de sección (encabezados de grupo) intercalados con los ítems</option>
-                </select>
-              </label>
-            )}
-            {modo === "seccion" && (
-              <label className="flex min-w-0 flex-col gap-1">
-                <span className="text-[11px] font-medium text-ink-600">El renglón de sección se reconoce porque está vacía la columna:</span>
-                <select value={spec?.seccionColumnaVaciaRol ?? "descripcion"} onChange={(e) => setSeccionRol(e.target.value)} className="w-full min-w-0 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400">
-                  {roles.filter((r) => r.nombre !== clasificadorRol).map((r) => <option key={r.nombre} value={r.nombre}>{r.etiqueta}</option>)}
-                </select>
-                <span className="text-[11px] leading-snug text-ink-500">El tipo va en la misma columna que otro campo (p. ej. el código): mapea ese campo a la misma columna del tipo. Si el archivo trae negrita, también se detecta por negrita.</span>
-                {(() => {
-                  const rolSenal = spec?.seccionColumnaVaciaRol ?? "descripcion";
-                  const colSenal = spec?.columnas[rolSenal] ?? 0;
-                  const colTipo = spec?.columnas[clasificadorRol] ?? 0;
-                  if (colSenal < 1)
-                    return <span className="text-[11px] font-semibold leading-snug text-err-700">⚠ Esa columna está «sin mapear»: mapéala arriba, o elige otra que esté vacía en los renglones de sección. Si no, no se detectaría ninguna sección.</span>;
-                  if (colSenal === colTipo)
-                    return <span className="text-[11px] font-semibold leading-snug text-err-700">⚠ Esa es la MISMA columna del tipo (nunca está vacía): elige otra —normalmente la Descripción— que sí venga vacía en los renglones de sección.</span>;
-                  return null;
-                })()}
-              </label>
-            )}
-            <label className="flex min-w-0 flex-col gap-1 border-t border-ink-150 pt-2">
-              <span className="text-[11px] font-medium text-ink-600">¿El archivo trae filas de TOTAL (al pie, o por {roles.find((r) => r.nombre === clasificadorRol)?.etiqueta.toLowerCase() ?? "tipo"})?</span>
-              <select value={modoSubtotales} onChange={(e) => setModoSubtotales(e.target.value as ModoSubtotales)} className="w-full min-w-0 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400">
-                <option value="auto">Detectarlas automáticamente (rótulo «Total», cuadro de cierre al pie, o suma del bloque + fila sin detalle / en negrita)</option>
-                <option value="rotulo">Solo las que digan «Total» / «Subtotal»</option>
-                <option value="nunca">No trae totales: no detectar ninguna</option>
-                <option value="manual">Indicarlas yo: señalo la celda del archivo que las marca</option>
-              </select>
-              <span className="text-[11px] leading-snug text-ink-500">Las filas de total NO se cargan: el borrador las compara con la suma de los movimientos y avisa si no cuadran. El perfil recuerda el modo y la columna; la fila exacta se ubica de nuevo en cada archivo.</span>
-            </label>
-            {modoSubtotales === "manual" && (
-              <div className="flex flex-col gap-2 rounded-md border border-ink-200 bg-white px-3 py-2.5">
-                <span className="text-[11px] font-medium text-ink-600">Celda que marca la fila de total <span className="text-err-600">*</span></span>
-                <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_8rem_auto] sm:items-end">
-                  <label className="flex min-w-0 flex-col gap-1">
-                    <span className="text-[10.5px] text-ink-500">Columna del dato</span>
-                    <select
-                      value={colSubtotales}
-                      onChange={(e) => setColumnaMarcaTotales(Number(e.target.value))}
-                      className="w-full min-w-0 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400"
-                    >
-                      <option value={0}>— elige —</option>
-                      {opcionesColumna().map((opcion) => (
-                        <option key={opcion.index1} value={opcion.index1}>{opcion.label}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="flex min-w-0 flex-col gap-1">
-                    <span className="text-[10.5px] text-ink-500">Número de fila</span>
-                    <input
-                      type="number"
-                      min={1}
-                      step={1}
-                      inputMode="numeric"
-                      value={filaMarcaTotales}
-                      onChange={(e) => cambiarFilaMarcaTotales(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          e.preventDefault();
-                          ubicarMarcaTotales();
-                        }
-                      }}
-                      placeholder="1347"
-                      className="w-full rounded-md border border-ink-200 bg-white px-2.5 py-1.5 tabular-nums text-[12px] text-ink-700 outline-none focus:border-blue-400"
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    onClick={ubicarMarcaTotales}
-                    disabled={ubicandoCelda || colSubtotales < 1 || !filaMarcaTotales}
-                    className="rounded-md border border-blue-300 bg-blue-50 px-3 py-1.5 text-[12px] font-semibold text-blue-800 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {ubicandoCelda ? "Ubicando…" : "Ubicar celda"}
-                  </button>
-                </div>
-                <span className="text-[11px] leading-snug text-ink-500">
-                  Selecciona la columna y escribe la fila. La plataforma leerá la coordenada exacta —por ejemplo, columna M + fila 1347 = M1347— y usará su contenido para reconocer el total.
-                </span>
-                {!marcaManualLista ? (
-                  <span className="text-[11px] font-semibold leading-snug text-err-700">⚠ Ubica una celda con contenido antes de crear el borrador.</span>
-                ) : (
-                  <span className="rounded-md border border-ok-500 bg-ok-100/40 px-2.5 py-1.5 text-[11px] font-medium leading-snug text-ok-700">
-                    {direccionMarcaTotales} ubicada: «{celdaTxtVisible(valorMarcaTotalesVisible)}».
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
+        </div>
+      )}
 
-          <label className="flex w-full max-w-xs flex-col gap-1">
-            <span className="text-[11px] font-medium text-ink-600">Período de {moduloLabel.toLowerCase()} <span className="text-err-600">*</span></span>
-            {anexo ? (
-              <span className="w-full rounded-md border border-ink-200 bg-ink-50 px-2.5 py-1.5 font-semibold text-ink-700" title="Fijo: el archivo se agrega a este período">
-                {anexo.periodo}
-              </span>
-            ) : (
-              <input type="month" value={mes} onChange={(e) => setMes(e.target.value)} className="w-full rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-ink-700 outline-none focus:border-blue-400" />
-            )}
-          </label>
+      {fase === "mapeo" && analisis && spec && (
+        <div className="flex flex-col gap-3 text-[12.5px]">
+          {prefs?.observaciones && <NotasCargaModulo notas={prefs.observaciones} />}
+          <p className="rounded-md border border-blue-300 bg-blue-50 px-3 py-1.5 text-[11.5px] text-blue-800">
+            Archivo manual: indica qué es cada columna. El mapeo se recuerda para los próximos archivos manuales de este cliente.
+            {analisis.origen === "perfil" ? " Se aplicó el mapeo guardado; ajústalo si hace falta." : ""}
+          </p>
+          <EditorMapeoModulo
+            analisis={analisis}
+            spec={spec}
+            setSpec={setSpec}
+            roles={roles}
+            clasificadorRol={clasificadorRol}
+            conNivelCartera={conNivelCartera}
+            modo="carga"
+            onCambiarHoja={(hoja) => analizar(hoja)}
+            fechaCorteSugerida={fechaCorteSugerida}
+            onCambioMarcaTotales={reiniciarMarcaTotales}
+            marcaTotalesCarga={marcaTotalesCarga}
+          />
         </div>
       )}
     </Modal>

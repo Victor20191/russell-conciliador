@@ -60,6 +60,7 @@ export const BOTON_ACCION =
   "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border transition";
 
 export const etiquetaOrigen = (origen: string | null): string => {
+  if (origen === "patron") return "Patrón de archivo";
   if (origen === "perfil") return "Perfil guardado";
   if (origen === "manual") return "Mapeo manual";
   if (origen === "ia") return "Sugerencia automática";

@@ -15,8 +15,13 @@ const mocks = vi.hoisted(() => ({
   leerCeldaFisicaArchivo: vi.fn(),
   revalidatePath: vi.fn(),
   registrarError: vi.fn(),
+  aplicativoConfirmadoDeCarga: vi.fn(),
 }));
 
+vi.mock("@/lib/modulos/patrones/servidor", () => ({
+  aplicativoConfirmadoDeCarga: mocks.aplicativoConfirmadoDeCarga,
+  versionesPatronCandidatas: vi.fn(async () => ({ versiones: [], total: 0 })),
+}));
 vi.mock("next/cache", () => ({
   revalidatePath: mocks.revalidatePath,
   unstable_cache: <T extends (...args: never[]) => unknown>(fn: T) => fn,
@@ -58,6 +63,7 @@ function formulario(recepcionLoteId?: string): FormData {
   const datos = new FormData();
   datos.set("moduloCodigo", "ING");
   datos.set("clienteId", "17");
+  datos.set("erpId", "3");
   datos.set("archivo", new File([BYTES], "facturacion-corrupta.xlsx", {
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   }));
@@ -72,6 +78,10 @@ describe("analizarArchivoModulo · recepción durable", () => {
     mocks.authorizePermiso.mockResolvedValue({ ok: true });
     mocks.getCurrentUser.mockResolvedValue({ id: 9, name: "Analista" });
     mocks.clientFindUnique.mockResolvedValue({ name: "Cliente prueba", nit: "900123456" });
+    mocks.aplicativoConfirmadoDeCarga.mockResolvedValue({
+      ok: true,
+      aplicativo: { id: 3, code: "SIESA", name: "SIESA", manual: false },
+    });
     mocks.originalFindUnique.mockResolvedValue(null);
     mocks.originalCreate.mockImplementation(async () => {
       mocks.eventos.push("fila");
@@ -108,7 +118,7 @@ describe("analizarArchivoModulo · recepción durable", () => {
       huellaSha256: SHA,
       estado: "recibido",
       disponible: false,
-      softwareOrigen: null,
+      softwareOrigen: "SIESA",
       ubicacionOrigen: null,
       reflejoContableEsperado: null,
     });
@@ -145,7 +155,18 @@ describe("analizarArchivoModulo · recepción durable", () => {
     expect(resultado.message).toContain("original no está disponible");
   });
 
-  it("un reintento que solo envía el ERP conserva ubicación y reflejo ya documentados", async () => {
+  it("sin aplicativo confirmado no conserva nada", async () => {
+    mocks.aplicativoConfirmadoDeCarga.mockResolvedValue({ ok: false, message: "Confirma de qué aplicativo es el archivo." });
+
+    const resultado = await analizarArchivoModulo(formulario());
+
+    expect(resultado).toEqual({ ok: false, message: "Confirma de qué aplicativo es el archivo." });
+    expect(mocks.aplicativoConfirmadoDeCarga).toHaveBeenCalledWith(17, "ING", "3");
+    expect(mocks.originalCreate).not.toHaveBeenCalled();
+    expect(mocks.subirObjeto).not.toHaveBeenCalled();
+  });
+
+  it("un reintento registra el aplicativo confirmado y conserva ubicación y reflejo ya documentados", async () => {
     const loteId = "d20810cb-ec7e-43a5-8fd7-a25a86646bbf";
     mocks.originalFindUnique.mockResolvedValue({
       loteId,
@@ -163,7 +184,8 @@ describe("analizarArchivoModulo · recepción durable", () => {
     datos.set("softwareOrigen", "SIIGO");
     await analizarArchivoModulo(datos);
 
-    expect(mocks.originalUpdateMany.mock.calls[0][0].data).toEqual({ estado: "recibido", softwareOrigen: "SIIGO" });
+    // Manda el aplicativo confirmado contra la ficha, no el texto que envió el navegador.
+    expect(mocks.originalUpdateMany.mock.calls[0][0].data).toEqual({ estado: "recibido", softwareOrigen: "SIESA" });
     expect(mocks.originalUpdateMany.mock.calls[0][0].data).not.toHaveProperty("ubicacionOrigen");
     expect(mocks.originalUpdateMany.mock.calls[0][0].data).not.toHaveProperty("reflejoContableEsperado");
   });

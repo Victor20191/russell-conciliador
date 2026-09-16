@@ -50,3 +50,11 @@ Estado: **Pendiente por implementar**.
 20. **Reunión con Ricardo el miércoles 3–4 pm** para levantar alcance y cotización en firme.
 21. **Mostrar las plataformas actuales** durante la reunión.
 22. **Involucrar a Cristian** en ese desarrollo junto con Víctor.
+
+### Patrones de archivo por aplicativo (16/Sep/2026)
+
+Fuera del alcance de la primera versión:
+
+- **Umbral de coincidencia parametrizable:** hoy es fijo en código (`UMBRAL_COINCIDENCIA_PATRON = 80`).
+- **Letras de Excel en la lista de patrones:** la versión no guarda las columnas vacías con que empieza la hoja de la muestra, así que el resumen de columnas cuenta desde la primera columna con datos.
+- **Aplicativo principal:** un campo con varios aplicativos no marca uno como principal; el ERP legado del cliente es el primero de Contabilidad.

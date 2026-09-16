@@ -7,14 +7,13 @@ import { revalidatePath } from "next/cache";
 import { randomUUID } from "crypto";
 import * as z from "zod";
 import prisma from "@/lib/prisma";
-import { resolverValorErpProceso } from "@/lib/erp-cliente";
 import { Prisma } from "@/generated/prisma/client";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
 import { authorizePermiso } from "@/lib/rbac";
 import { mensajeErrorBD, registrarError } from "@/lib/errores";
 import type { ActionState } from "@/lib/definitions";
-import { ingerir, leerCeldaFisicaArchivo, type CeldaCruda } from "@/lib/balance/extraccion/ingesta";
+import { ingerir, leerCeldaFisicaArchivo, type GridHoja } from "@/lib/balance/extraccion/ingesta";
 import { calcularHuella, huellasCandidatas } from "@/lib/balance/extraccion/huella";
 import {
   bloqueoAnexoPorVerificacionesCriticasModulo,
@@ -34,10 +33,13 @@ import {
   invalidarValorAmbiguoIngresos,
   sugerirSpec,
 } from "@/lib/modulos/extraccion/sugerir";
-import { seleccionarPerfilExacto, type PerfilCandidato } from "@/lib/modulos/sugerencias-perfil";
 import { letraColumnaModulo, normalizarSpecModulo, normalizarSpecModuloArchivo } from "@/lib/modulos/perfil-modulo";
 import { transformarModulo, resultadoAReconciliacion } from "@/lib/modulos/extraccion/transformar";
-import { resumirPeriodos, type ResumenPeriodo } from "@/lib/modulos/nomina/periodo";
+import { aCeldaMuestra, textoCeldaMuestra, vistaAnalisisHoja, type CeldaMuestra } from "@/lib/modulos/extraccion/vista-analisis";
+import { aplicarPatronASpec } from "@/lib/modulos/patrones/aplicar";
+import { mejorVersion } from "@/lib/modulos/patrones/mejor-version";
+import { aplicativoConfirmadoDeCarga, versionesPatronCandidatas } from "@/lib/modulos/patrones/servidor";
+import type { ResumenPeriodo } from "@/lib/modulos/nomina/periodo";
 import { claveConsolidado, partirClaveConsolidado } from "@/lib/modulos/nomina/clave-consolidado";
 import { CLASES_NOMINA } from "@/lib/modulos/nomina/homologacion";
 import { validarReparto } from "@/lib/modulos/nomina/cruce-nomina";
@@ -50,8 +52,7 @@ import { fechaCalendarioISO, fechaCalendarioPrisma } from "@/lib/fecha-hora";
 import { getTRM } from "@/lib/ia/trm";
 import { materializarSaldosTercero, type NivelCartera } from "@/lib/modulos/cartera/saldos-tercero";
 import { normalizarTerceroCartera } from "@/lib/modulos/cartera/tercero-cartera";
-import { avisoHojasGemelas, hojasConMismoEncabezado } from "@/lib/modulos/hojas-gemelas";
-import { avisoSeleccionHoja, seleccionarHojaModulo } from "@/lib/modulos/extraccion/seleccion-hoja";
+import { seleccionarHojaModulo } from "@/lib/modulos/extraccion/seleccion-hoja";
 import { controlSubtotales } from "@/lib/modulos/subtotales";
 import {
   anclaCruce,
@@ -251,24 +252,13 @@ function mensajeErrorLecturaArchivoModulo(contexto: string, e: unknown): string 
   return "No se pudo leer el archivo. Si es un Excel, ábrelo, guárdalo nuevamente como .xlsx e intenta otra vez.";
 }
 
-/** Cuántas filas del final se devuelven al editor para señalar la fila de total. */
-const FILAS_MUESTRA_COLA = 12;
+// Datos para el editor de mapeo (`vistaAnalisisHoja`): encabezado + filas de muestra alineadas por
+// columna, de la MISMA grilla del servidor.
+export type { CeldaMuestra };
 
-// Datos para el editor de mapeo: encabezado + filas de muestra (alineadas por columna)
-// de la MISMA grilla del servidor, para etiquetar los selectores y previsualizar el mapeo.
-export type CeldaMuestra = string | number | null;
-const aCeldaMuestra = (valor: CeldaCruda): CeldaMuestra => (
-  valor == null
-    ? null
-    : typeof valor === "number"
-      ? valor
-      : typeof valor === "boolean"
-        ? (valor ? 1 : 0)
-        : String(valor).replace(/\s+/g, " ").trim() || null
-);
-const textoCeldaMuestra = (valor: CeldaMuestra): string => (
-  valor == null ? "" : typeof valor === "number" ? String(valor) : valor
-);
+const ADVERTENCIA_VALOR_AMBIGUO =
+  "El mapeo guardado apuntaba a un total de factura ambiguo. Selecciona una columna de ingreso neto sin IVA/impuestos, subtotal o base gravable.";
+
 export type AnalisisModulo = {
   ok: boolean;
   message?: string;
@@ -293,11 +283,27 @@ export type AnalisisModulo = {
    */
   muestraCola?: { filaNum: number; celdas: CeldaMuestra[] }[];
   spec?: SpecModulo;
-  // "sugerido" = spec exacto de otro cliente del mismo ERP (huella idéntica), NO propio.
-  // La reutilización entre clientes es un mecanismo INTERNO: se aplica sola cuando el
-  // layout coincide y no se le pregunta nada al usuario. Al navegador viaja únicamente
-  // el spec ya aplicado, sin nombre de cliente, archivo, huella, lista ni atribución.
-  origen?: "perfil" | "sugerido" | "ia";
+  // «patron»: el mapeo sale de la versión del patrón del aplicativo que coincidió con el archivo.
+  // «perfil» / «ia»: archivo manual, con el perfil del cliente o la heurística.
+  origen?: "perfil" | "ia" | "patron";
+  /**
+   * Camino de la carga: «patron» (el archivo coincide con un patrón del aplicativo y se lee sin
+   * mapear), «sin_patron» (no coincide: la carga se detiene hasta que un administrador cree el
+   * patrón) o «manual» (aplicativo «Archivo manual»: se mapea a mano y se memoriza por cliente).
+   */
+  modo?: "patron" | "sin_patron" | "manual";
+  aplicativo?: { id: number; nombre: string; manual: boolean };
+  coincidencia?: {
+    versionId: number;
+    version: number;
+    porcentaje: number;
+    estado: "aprobada" | "pendiente";
+    advertencias: string[];
+  };
+  sinPatron?: {
+    totalVersiones: number;
+    mejor: { version: number; porcentaje: number; hoja: string; faltantes: string[]; faltantesRequeridos: string[] } | null;
+  };
   advertenciaValor?: string;
   /**
    * El libro trae otra hoja con exactamente el mismo formato que la elegida. No se bloquea
@@ -336,63 +342,6 @@ async function specPerfilModulo(
 
 const mismoSpecModulo = (a: SpecModulo, b: SpecModulo): boolean =>
   JSON.stringify(a) === JSON.stringify(b);
-
-/**
- * Parametrización reutilizable de OTRO cliente del MISMO ERP, para cuando este cliente
- * no tiene perfil propio guardado en el módulo. Devuelve SOLO la de huella idéntica: es
- * un mecanismo interno que se aplica solo, sin preguntarle nada al usuario, y por eso no
- * sale de aquí ningún dato de esos otros clientes.
- *
- * Los perfiles de layout DISTINTO se descartan a propósito: aplicar uno arriesgaría un
- * mapeo de columnas equivocado, y la heurística sobre el encabezado real de este archivo
- * es mejor punto de partida que el layout de otra empresa.
- *
- * `null` si no hay ERP, no hay otros clientes con ese ERP, o ninguno coincide en huella.
- */
-async function specReutilizablePorErp(
-  clienteId: number,
-  erpId: number,
-  moduloCodigo: string,
-  candidatas: { huella: string }[],
-): Promise<SpecModulo | null> {
-  const otrosClientes = await prisma.client.findMany({
-    where: {
-      id: { not: clienteId },
-      OR: [
-        {
-          erpsPorProceso: {
-            some: { process: { code: moduloCodigo }, erpId },
-          },
-        },
-        {
-          AND: [
-            { erpsPorProceso: { none: { process: { code: moduloCodigo } } } },
-            { erpId },
-          ],
-        },
-      ],
-    },
-    select: { id: true },
-  });
-  if (otrosClientes.length === 0) return null;
-
-  const perfiles = await prisma.perfilCargaModulo.findMany({
-    where: { moduloCodigo, clienteId: { in: otrosClientes.map((c) => c.id) } },
-    select: { clienteId: true, huella: true, specJson: true, vecesUsado: true },
-  });
-  if (perfiles.length === 0) return null;
-
-  const candidatosPerfil: PerfilCandidato[] = perfiles.map((p) => ({
-    clienteId: p.clienteId,
-    huella: p.huella,
-    spec: p.specJson,
-    vecesUsado: p.vecesUsado,
-  }));
-  const exacto = seleccionarPerfilExacto(candidatosPerfil, candidatas.map((c) => c.huella));
-  if (!exacto) return null;
-  const parsed = SpecModuloSchema.safeParse(exacto.spec);
-  return parsed.success ? parsed.data : null;
-}
 
 /**
  * Hoja a importar: la elegida explícitamente por el usuario; si no eligió ninguna,
@@ -493,6 +442,10 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
       getCurrentUser(),
     ]);
     if (!cliente) return { ok: false, message: "El cliente seleccionado ya no existe." };
+    // El aplicativo que confirmó el analista decide el camino; debe estar en la ficha del cliente.
+    const aplicativoValidado = await aplicativoConfirmadoDeCarga(clienteId, moduloCodigo, formData.get("erpId"));
+    if (!aplicativoValidado.ok) return { ok: false, message: aplicativoValidado.message };
+    const aplicativo = aplicativoValidado.aplicativo;
 
     let contenidoOriginal: Uint8Array;
     try {
@@ -548,6 +501,8 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
         data: {
           estado: "recibido",
           ...cambiosDocumentacionPresentes(formData, documentacion.data),
+          // El software de origen es el aplicativo que el analista confirmó.
+          softwareOrigen: aplicativo.name,
         },
       });
       if (recepcionActualizada.count !== 1) {
@@ -575,7 +530,7 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
             clienteId,
             nitCliente: cliente.nit,
           }),
-          softwareOrigen: documentacion.data.softwareOrigen,
+          softwareOrigen: aplicativo.name,
           ubicacionOrigen: documentacion.data.ubicacionOrigen,
           reflejoContableEsperado: documentacion.data.reflejoContableEsperado,
           ...datosArchivoOriginalRecibido(),
@@ -659,120 +614,97 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
     const hoja = ingesta.hojas.find((h) => h.nombre === nombreHoja);
     if (!hoja) return noProcesable("El archivo no tiene hojas legibles.");
 
-    // Spec de partida: perfil PROPIO por huella si existe; si no, sugerencia INDICATIVA de
-    // otro cliente del mismo ERP (huella exacta) o, en último caso, el heurístico de IA.
-    const candidatas = huellasCandidatas([hoja]);
-    const perfilSpec = await specPerfilModulo(clienteId, descriptor, candidatas);
-    let spec: SpecModulo;
-    let origen: "perfil" | "sugerido" | "ia";
-    let valorAmbiguoInvalidado = false;
-    const sanearValorInicial = (candidato: SpecModulo): SpecModulo => {
-      const normalizado = normalizarSpecModulo(descriptor, candidato);
-      const saneado = invalidarValorAmbiguoIngresos(descriptor, hoja, normalizado);
-      if (saneado.invalidado) valorAmbiguoInvalidado = true;
-      return saneado.spec;
-    };
-    if (perfilSpec) {
-      spec = sanearValorInicial(perfilSpec);
-      origen = "perfil";
-    } else {
-      const cliente = await prisma.client.findUnique({
-        where: { id: clienteId },
-        select: {
-          erpId: true,
-          erpsPorProceso: {
-            where: { process: { code: moduloCodigo } },
-            select: { erpId: true },
-          },
-        },
-      });
-      const asignacionProceso = cliente?.erpsPorProceso[0];
-      const erpIdProceso = resolverValorErpProceso(
-        asignacionProceso ? { valor: asignacionProceso.erpId } : undefined,
-        cliente?.erpId ?? null,
-      );
-      const reutilizable = erpIdProceso
-        ? await specReutilizablePorErp(clienteId, erpIdProceso, moduloCodigo, candidatas)
-        : null;
-      if (reutilizable) {
-        spec = sanearValorInicial(reutilizable);
-        origen = "sugerido";
+    const aplicativoVm = { id: aplicativo.id, nombre: aplicativo.name, manual: aplicativo.manual };
+
+    // ARCHIVO MANUAL: el analista mapea las columnas y el mapeo se memoriza por cliente (perfil
+    // por huella). Es el único camino que usa la memoria por cliente.
+    if (aplicativo.manual) {
+      const perfilSpec = await specPerfilModulo(clienteId, descriptor, huellasCandidatas([hoja]));
+      let spec: SpecModulo;
+      let origen: "perfil" | "ia";
+      let valorAmbiguoInvalidado: boolean;
+      if (perfilSpec) {
+        const saneado = invalidarValorAmbiguoIngresos(descriptor, hoja, normalizarSpecModulo(descriptor, perfilSpec));
+        spec = saneado.spec;
+        origen = "perfil";
+        valorAmbiguoInvalidado = saneado.invalidado;
       } else {
         spec = sugerirSpec(descriptor, hoja);
         origen = "ia";
-        if (
-          moduloCodigo === "ING"
+        valorAmbiguoInvalidado = moduloCodigo === "ING"
           && (spec.columnas[descriptor.valor] ?? 0) < 1
-          && (hoja.filas[spec.filaEncabezado - 1] ?? []).some(encabezadoValorIngresoAmbiguo)
-        ) {
-          valorAmbiguoInvalidado = true;
-        }
+          && (hoja.filas[spec.filaEncabezado - 1] ?? []).some(encabezadoValorIngresoAmbiguo);
+      }
+      revalidarListadosModulo(moduloCodigo);
+      return {
+        ok: true,
+        recepcionLoteId: loteId,
+        modo: "manual",
+        aplicativo: aplicativoVm,
+        ...vistaAnalisisHoja(descriptor, ingesta.hojas, hoja, spec, seleccionHoja),
+        spec,
+        origen,
+        ...(valorAmbiguoInvalidado ? { advertenciaValor: ADVERTENCIA_VALOR_AMBIGUO } : {}),
+      };
+    }
+
+    // PATRÓN DEL APLICATIVO: la versión que mejor coincide con el archivo. Con 80 % o más (y sin
+    // columnas obligatorias faltantes) el archivo se lee sin mapear; si no, la carga se detiene
+    // hasta que un administrador cree el patrón.
+    const { versiones, total } = await versionesPatronCandidatas(descriptor, aplicativo.id, clienteId);
+    const ubicacion = mejorVersion(descriptor, ingesta.hojas, versiones, {
+      hojaElegida: hojaElegida || null,
+      hojaPropuesta: hoja.nombre,
+    });
+    const hojaPatron = ubicacion ? ingesta.hojas.find((h) => h.nombre === ubicacion.hoja) : undefined;
+    let valorAmbiguoPatron = false;
+    if (ubicacion && hojaPatron && ubicacion.coincidencia.elegible) {
+      const aplicado = aplicarPatronASpec(descriptor, ubicacion);
+      const saneado = invalidarValorAmbiguoIngresos(descriptor, hojaPatron, aplicado.spec);
+      valorAmbiguoPatron = saneado.invalidado;
+      if (!saneado.invalidado) {
+        revalidarListadosModulo(moduloCodigo);
+        return {
+          ok: true,
+          recepcionLoteId: loteId,
+          modo: "patron",
+          origen: "patron",
+          aplicativo: aplicativoVm,
+          ...vistaAnalisisHoja(descriptor, ingesta.hojas, hojaPatron, saneado.spec, seleccionHoja),
+          spec: saneado.spec,
+          coincidencia: {
+            versionId: ubicacion.version.id,
+            version: ubicacion.version.version,
+            porcentaje: ubicacion.coincidencia.porcentaje,
+            estado: ubicacion.version.estado,
+            advertencias: aplicado.advertencias,
+          },
+        };
       }
     }
-
-    // Encabezado + primeras filas de datos (todas las columnas) para el editor y el preview.
-    const ancho = hoja.filas.reduce((m, f) => Math.max(m, f?.length ?? 0), 0);
-    const rellena = (fila: CeldaCruda[] | undefined): CeldaMuestra[] => Array.from({ length: ancho }, (_, c) => aCeldaMuestra(fila?.[c] ?? null));
-    const encabezado = rellena(hoja.filas[spec.filaEncabezado - 1]);
-    const muestraFilas = hoja.filas.slice(spec.primeraFilaDatos - 1, spec.primeraFilaDatos - 1 + 12).map(rellena);
-    // Cola: las últimas filas CON contenido (saltando los blancos del final), que es donde
-    // el archivo pone su total y su cuadro de cierre.
-    const muestraCola: { filaNum: number; celdas: CeldaMuestra[] }[] = [];
-    for (let r = hoja.filas.length - 1; r >= spec.primeraFilaDatos - 1 && muestraCola.length < FILAS_MUESTRA_COLA; r--) {
-      const celdas = rellena(hoja.filas[r]);
-      if (celdas.every((c) => c == null || c === "")) continue;
-      muestraCola.unshift({ filaNum: hoja.filasFisicas?.[r] ?? r + 1, celdas });
-    }
-
-    // HOJAS GEMELAS: otra hoja del libro con exactamente el mismo formato. No se bloquea
-    // —a veces es legítimo—, pero se avisa: si es la misma cartera exportada en otro
-    // momento, cada hoja cuadra consigo misma y ningún control delataría la equivocada.
-    // El encabezado de cada hoja se ubica con el mismo sugeridor que la hoja elegida (en
-    // Cartera y CxP ya lo ubicó la selección de hoja).
-    const encabezadoSeleccion = new Map(seleccionHoja?.puntajes.map((p) => [p.nombre, p.filaEncabezado]) ?? []);
-    const avisoGemelas = ingesta.hojas.length > 1
-      ? avisoHojasGemelas(
-        hojasConMismoEncabezado(ingesta.hojas.map((h) => {
-          const filaEncabezado = h.nombre === hoja.nombre
-            ? spec.filaEncabezado
-            : encabezadoSeleccion.get(h.nombre) ?? sugerirSpec(descriptor, h).filaEncabezado;
-          return { nombre: h.nombre, encabezado: h.filas[filaEncabezado - 1] ?? [] };
-        })),
-        hoja.nombre,
-      )
-      : null;
-    const avisoHoja = seleccionHoja ? avisoSeleccionHoja(seleccionHoja.puntajes, hoja.nombre) : null;
-    const advertenciaHojas = [avisoHoja, avisoGemelas].filter((aviso): aviso is string => aviso != null).join(" ") || null;
-
-    // Nómina: qué meses trae el archivo (con el mapeo propuesto), para que el usuario declare
-    // el rango del cargue viendo lo que hay: un acumulado anual, una quincena o un mes.
-    const periodosDetectados = descriptor.nomina?.periodoPorFila
-      ? resumirPeriodos(transformarModulo(descriptor, spec, hoja).filas.map((f) => ({
-          periodoDesde: f.datos.periodoDesde, periodoHasta: f.datos.periodoHasta, valor: f.valor, tipoFila: f.tipoFila,
-        })))
-      : null;
 
     revalidarListadosModulo(moduloCodigo);
     return {
       ok: true,
       recepcionLoteId: loteId,
+      modo: "sin_patron",
+      aplicativo: aplicativoVm,
       hoja: hoja.nombre,
       hojas: ingesta.hojas.map((h) => h.nombre),
-      ...(advertenciaHojas ? { advertenciaHojas } : {}),
-      ...(periodosDetectados?.length ? { periodosDetectados } : {}),
-      totalFilas: hoja.filasFisicas?.at(-1) ?? hoja.filas.length,
-      ancho,
-      ...(hoja.columnaInicial ? { columnaInicial: hoja.columnaInicial } : {}),
-      encabezado,
-      muestraFilas,
-      muestraCola,
-      spec,
-      origen,
-      ...(valorAmbiguoInvalidado
-        ? {
-            advertenciaValor:
-              "El mapeo guardado apuntaba a un total de factura ambiguo. Selecciona una columna de ingreso neto sin IVA/impuestos, subtotal o base gravable.",
-          }
+      sinPatron: {
+        totalVersiones: total,
+        mejor: ubicacion
+          ? {
+              version: ubicacion.version.version,
+              porcentaje: ubicacion.coincidencia.porcentaje,
+              hoja: ubicacion.hoja,
+              faltantes: ubicacion.coincidencia.faltantes.map((f) => f.rotulo).filter(Boolean).slice(0, 8),
+              faltantesRequeridos: ubicacion.coincidencia.faltantesRequeridos,
+            }
+          : null,
+      },
+      ...(valorAmbiguoPatron
+        ? { advertenciaValor: "El patrón apunta a un total de factura con impuestos como valor del ingreso. Un administrador debe corregirlo antes de cargar." }
         : {}),
     };
   } catch (e) {
@@ -963,6 +895,9 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
       select: { name: true, nit: true },
     });
     if (!cliente) return { ok: false, message: "El cliente seleccionado ya no existe." };
+    const aplicativoValidado = await aplicativoConfirmadoDeCarga(clienteId, moduloCodigo, formData.get("erpId"));
+    if (!aplicativoValidado.ok) return { ok: false, message: aplicativoValidado.message };
+    const aplicativo = aplicativoValidado.aplicativo;
 
     let anexoEncabezadoId: number | null = null;
     if (anexoPedido != null) {
@@ -1064,6 +999,8 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
           estado: "recibido",
           esAnexo: anexoEncabezadoId != null,
           ...cambiosDocumentacionPresentes(formData, documentacion.data),
+          // El software de origen es el aplicativo que el analista confirmó.
+          softwareOrigen: aplicativo.name,
         },
       });
       if (recepcionActualizada.count !== 1) {
@@ -1087,7 +1024,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
           huellaSha256: huellaOriginal,
           claveObjeto,
           ubicacionCarpeta,
-          softwareOrigen: documentacion.data.softwareOrigen,
+          softwareOrigen: aplicativo.name,
           ubicacionOrigen: documentacion.data.ubicacionOrigen,
           reflejoContableEsperado: documentacion.data.reflejoContableEsperado,
           ...datosArchivoOriginalRecibido(),
@@ -1153,37 +1090,76 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
       return marcarNoProcesable("Por ahora solo se admiten archivos tabulares (Excel/CSV) para módulos.");
     }
     const hojaElegida = String(formData.get("hoja") ?? "").trim();
-    const nombreHoja = await resolverHojaModulo(ingesta.hojas, hojaElegida, clienteId, moduloCodigo);
-    const hoja = ingesta.hojas.find((h) => h.nombre === nombreHoja);
-    if (!hoja) return marcarNoProcesable("El archivo no tiene hojas legibles.");
+    type Lectura = {
+      hoja: GridHoja;
+      spec: SpecModulo;
+      origen: "manual" | "perfil" | "ia" | "patron";
+      patron: { versionId: number; version: number; porcentaje: number } | null;
+    };
 
-    // Spec: (1) editado a mano → manual · (2) perfil por huella → perfil · (3) heurístico → auto.
-    const specEditadoRaw = formData.get("specJson");
-    let spec: SpecModulo;
-    let origen: "manual" | "perfil" | "ia";
-    if (typeof specEditadoRaw === "string" && specEditadoRaw.trim()) {
-      let specEditado: unknown;
-      try {
-        specEditado = JSON.parse(specEditadoRaw);
-      } catch {
-        return marcarNoProcesable("El mapeo de columnas no es válido.");
+    // ARCHIVO MANUAL: (1) editado a mano → manual · (2) perfil por huella → perfil · (3) heurístico → ia.
+    const lecturaManual = async (): Promise<Lectura | string> => {
+      const nombreHoja = await resolverHojaModulo(ingesta.hojas, hojaElegida, clienteId, moduloCodigo);
+      const hoja = ingesta.hojas.find((h) => h.nombre === nombreHoja);
+      if (!hoja) return "El archivo no tiene hojas legibles.";
+      const specEditadoRaw = formData.get("specJson");
+      if (typeof specEditadoRaw === "string" && specEditadoRaw.trim()) {
+        let specEditado: unknown;
+        try {
+          specEditado = JSON.parse(specEditadoRaw);
+        } catch {
+          return "El mapeo de columnas no es válido.";
+        }
+        const parsed = SpecModuloSchema.safeParse(specEditado);
+        if (!parsed.success) return "El mapeo de columnas no es válido.";
+        // El origen es metadata de auditoría: se recompone contra fuentes del
+        // servidor y nunca se acepta una etiqueta arbitraria enviada por el navegador.
+        const spec = normalizarSpecModuloArchivo(descriptor, parsed.data);
+        const specReutilizable = normalizarSpecModulo(descriptor, spec);
+        const perfilSpec = await specPerfilModulo(clienteId, descriptor, huellasCandidatas([hoja]));
+        const origen = perfilSpec && mismoSpecModulo(specReutilizable, perfilSpec)
+          ? "perfil"
+          : mismoSpecModulo(specReutilizable, normalizarSpecModulo(descriptor, sugerirSpec(descriptor, hoja))) ? "ia" : "manual";
+        return { hoja, spec, origen, patron: null };
       }
-      const parsed = SpecModuloSchema.safeParse(specEditado);
-      if (!parsed.success) return marcarNoProcesable("El mapeo de columnas no es válido.");
-      // El origen es metadata de auditoría: se recompone contra fuentes del
-      // servidor y nunca se acepta una etiqueta arbitraria enviada por el navegador.
-      spec = normalizarSpecModuloArchivo(descriptor, parsed.data);
-      const specReutilizable = normalizarSpecModulo(descriptor, spec);
       const perfilSpec = await specPerfilModulo(clienteId, descriptor, huellasCandidatas([hoja]));
-      if (perfilSpec && mismoSpecModulo(specReutilizable, perfilSpec)) origen = "perfil";
-      else if (mismoSpecModulo(specReutilizable, normalizarSpecModulo(descriptor, sugerirSpec(descriptor, hoja)))) origen = "ia";
-      else origen = "manual";
-    } else {
-      const candidatas = huellasCandidatas([hoja]);
-      const perfilSpec = await specPerfilModulo(clienteId, descriptor, candidatas);
-      if (perfilSpec) { spec = perfilSpec; origen = "perfil"; }
-      else { spec = sugerirSpec(descriptor, hoja); origen = "ia"; }
-    }
+      return perfilSpec
+        ? { hoja, spec: perfilSpec, origen: "perfil", patron: null }
+        : { hoja, spec: sugerirSpec(descriptor, hoja), origen: "ia", patron: null };
+    };
+
+    // PATRÓN DEL APLICATIVO: el navegador solo dice qué versión confirmó; el servidor vuelve a
+    // comprobar que el archivo coincide y arma el mapeo. Del navegador solo llegan los datos de
+    // ESTE cargue (fecha de corte, TRM, fila del total), nunca columnas.
+    const lecturaPorPatron = async (): Promise<Lectura | string> => {
+      const versionId = Number(formData.get("patronVersionId"));
+      if (!Number.isInteger(versionId) || versionId <= 0) return "Vuelve a analizar el archivo: falta el patrón con que se leerá.";
+      const { versiones } = await versionesPatronCandidatas(descriptor, aplicativo.id, clienteId, versionId);
+      const ubicacion = mejorVersion(descriptor, ingesta.hojas, versiones, { hojaElegida: hojaElegida || null });
+      if (!ubicacion || !ubicacion.coincidencia.elegible) {
+        return "El archivo ya no coincide con el patrón del aplicativo. Vuelve a analizarlo.";
+      }
+      const hoja = ingesta.hojas.find((h) => h.nombre === ubicacion.hoja);
+      if (!hoja) return "El archivo no tiene hojas legibles.";
+      let spec = aplicarPatronASpec(descriptor, ubicacion).spec;
+      const fechaCorte = String(formData.get("fechaCorte") ?? "").trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(fechaCorte)) spec = { ...spec, fechaCorte };
+      const trm = Number(String(formData.get("trmCierre") ?? "").trim());
+      if (Number.isFinite(trm) && trm > 0) spec = { ...spec, trmCierre: trm };
+      const filaTotal = Number(formData.get("subtotalesFila"));
+      if (spec.subtotales === "manual" && Number.isInteger(filaTotal) && filaTotal > 0) spec = { ...spec, subtotalesFila: filaTotal };
+      return {
+        hoja,
+        spec: normalizarSpecModuloArchivo(descriptor, spec),
+        origen: "patron",
+        patron: { versionId: ubicacion.version.id, version: ubicacion.version.version, porcentaje: ubicacion.coincidencia.porcentaje },
+      };
+    };
+
+    const lectura = aplicativo.manual ? await lecturaManual() : await lecturaPorPatron();
+    if (typeof lectura === "string") return marcarNoProcesable(lectura);
+    const { hoja, origen, patron } = lectura;
+    let spec = lectura.spec;
 
     // Defensa en profundidad: perfiles antiguos, sugerencias ERP o un specJson
     // manipulado solo conservan roles vigentes del descriptor. Después se aplica la
@@ -1259,6 +1235,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
     // La columna y el patrón pertenecen al formato; la fila física pertenece solo a este
     // lote. La normalización reutilizable la retira antes de guardar/actualizar el perfil.
     const specPerfil = normalizarSpecModulo(descriptor, spec);
+    const detallePatron = patron ? ` · patrón ${aplicativo.name} v${patron.version} (${patron.porcentaje} %)` : ` · ${aplicativo.name}`;
 
     try {
       await prisma.$transaction(async (tx) => {
@@ -1285,6 +1262,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
             anexoEncabezadoId,
             filasLeidas: resultado.filasLeidas, filasExcluidas: resultado.filasExcluidas,
             huella, origenExtraccion: origen, specJson: specConReconciliacion,
+            patronVersionId: patron?.versionId ?? null, patronCoincidencia: patron?.porcentaje ?? null,
             cargadoPor: user?.name ?? null, cargadoPorId: user?.id ?? null,
           },
         });
@@ -1295,8 +1273,15 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
         if (originalActualizado.count !== 1) {
           throw new Error("La bitácora durable del original no está disponible; no se creó el borrador.");
         }
+        // Con patrón se cuenta el uso de la versión; la memoria por cliente es solo del archivo manual.
+        if (patron) {
+          await tx.versionPatronArchivoModulo.update({
+            where: { id: patron.versionId },
+            data: { vecesUsado: { increment: 1 }, ultimoUsoEn: new Date() },
+          });
+        }
         // Perfil del layout por cliente+módulo: se guarda/actualiza para las próximas cargas.
-        if (huella) {
+        if (huella && aplicativo.manual) {
           await tx.perfilCargaModulo.upsert({
             where: { clienteId_moduloCodigo_huella: { clienteId, moduloCodigo, huella } },
             create: { clienteId, moduloCodigo, huella, specJson: specPerfil, origen, vecesUsado: 1, ultimoUsoEn: new Date(), archivoEjemplo: archivo.name, creadoPor: user?.name ?? null, creadoPorId: user?.id ?? null },
@@ -1318,7 +1303,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
       user: user?.name ?? "Sistema",
       action: `LEYÓ archivo de ${descriptor.label}`,
       entity: cliente.name,
-      detail: `${resultado.filas.length} filas · ${archivo.name} · original conservado · SHA-256 ${huellaOriginal.slice(0, 12)}…`,
+      detail: `${resultado.filas.length} filas · ${archivo.name}${detallePatron} · original conservado · SHA-256 ${huellaOriginal.slice(0, 12)}…`,
       clientId: clienteId,
     });
     revalidarListadosModulo(moduloCodigo);

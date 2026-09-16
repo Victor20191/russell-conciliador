@@ -32,6 +32,7 @@ test("genera una plantilla compatible con el parser de clientes", async () => {
   expect(headers).toContain("Inventarios");
   expect(headers).toContain("ERP · CONT · Contabilidad");
   expect(headers).toContain("ERP · NOM · Nómina");
+  expect(headers).toContain("ERP · AFI · Activos fijos");
   expect(headers).toContain("DIAN · IVA (F-300)");
   expect(headers).toContain("DIAN · Retención en la fuente (F-350)");
 
@@ -39,7 +40,8 @@ test("genera una plantilla compatible con el parser de clientes", async () => {
     "Cliente Real S.A.S.",
     "900100200-3",
     "A",
-    "SIESA",
+    "SIESA; SAP",
+    "",
     "",
     "",
     "Comercio",
@@ -58,5 +60,7 @@ test("genera una plantilla compatible con el parser de clientes", async () => {
   expect(errores).toEqual([]);
   expect(filas).toHaveLength(1);
   expect(filas[0].modulos).toEqual(["Cartera"]);
+  // Un campo admite varios aplicativos separados con «;»: la acción los separa.
+  expect(filas[0].erps.CONT).toBe("SIESA; SAP");
   expect(filas[0].dianCodes).toEqual(["F-300"]);
 });
