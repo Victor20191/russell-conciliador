@@ -35,7 +35,8 @@ que dicen el origen.
    - Una hoja en divisa (el sugeridor la propone por el nombre «USD»/«EUR») se lee en la divisa y
      se convierte a pesos con la TRM de cierre, que es obligatoria. «Oficial» consulta la TRM de
      la fecha de corte.
-   - Un importe con su divisa escrita en la celda («USD (54,323.40)») se convierte con la misma
+   - Un importe con su divisa escrita en la celda («USD (54,323.40)», el paréntesis es el signo), en el
+     saldo o en un rango de edades, se convierte con la misma
      TRM; sin ella queda como excepción del borrador.
    - La fecha de corte es por defecto el fin del período.
    - La divisa queda en cada fila (`_saldoDivisa`, `_moneda`, `_trm`). La TRM y la fecha son del

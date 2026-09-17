@@ -324,6 +324,24 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
       mensaje: `Los importes están en ${monedaArchivo} y falta la TRM de cierre: se leyeron sin convertir a pesos.`,
     });
   }
+  /**
+   * Importe escrito con su divisa («USD (27,322.40)», SAP), en el saldo o en un rango de edades:
+   * el paréntesis es el signo y la convención del archivo se aplica igual que a los pesos. En una
+   * hoja en divisa queda en la divisa (el paso 4.7 convierte la fila entera); en una hoja en pesos
+   * se convierte ya con la TRM. `undefined` = no es un importe con divisa; `null` = lo es, pero sin
+   * TRM (o ilegible) no se lee.
+   */
+  const importeConDivisa = (raw: CeldaCruda): { valor: number; divisa: { moneda: string; valor: number } } | null | undefined => {
+    if (!conDetalleTercero || typeof raw !== "string" || !MONTO_EN_DIVISA.test(raw.trim())) return undefined;
+    const enDivisa = montoConDivisa(raw);
+    if (!enDivisa || !trmCierre) return null;
+    const divisa = conSigno(enDivisa.valor) ?? 0;
+    return { valor: monedaArchivo ? divisa : aPesos(divisa, trmCierre), divisa: { moneda: enDivisa.moneda, valor: divisa } };
+  };
+  const avisoSinTrm = (filaNum: number, etiqueta: string, raw: string) => excepciones.push({
+    filaNum,
+    mensaje: "Importe en moneda extranjera sin convertir en «" + etiqueta + "»: " + raw.trim() + ". Indica la TRM de cierre para convertirlo a pesos.",
+  });
 
   // ===== NÓMINA (ver `ConfiguracionNomina`) =====
   const nomina = descriptor.nomina ?? null;
@@ -366,16 +384,15 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
       // Importe en moneda extranjera escrito como texto («USD (54,323.40)», SAP): con la TRM de
       // cierre se convierte a pesos y la divisa queda como constancia; sin ella no se lee como
       // pesos, pero se avisa para que no desaparezca en silencio.
-      if (conDetalleTercero && rc.tipo === "moneda" && typeof raw === "string" && MONTO_EN_DIVISA.test(raw.trim())) {
-        const enDivisa = montoConDivisa(raw);
-        if (enDivisa && trmCierre) {
-          const divisa = conSigno(enDivisa.valor) ?? 0;
-          datos[rc.nombre] = aPesos(divisa, trmCierre);
-          if (rc.nombre === descriptor.valor || !divisaFila) divisaFila = { moneda: enDivisa.moneda, valor: divisa };
-          continue;
+      const conDivisa = rc.tipo === "moneda" ? importeConDivisa(raw) : undefined;
+      if (conDivisa !== undefined) {
+        if (conDivisa) {
+          datos[rc.nombre] = conDivisa.valor;
+          if (rc.nombre === descriptor.valor || !divisaFila) divisaFila = conDivisa.divisa;
+        } else {
+          datos[rc.nombre] = null;
+          avisoSinTrm(filaNum, rc.etiqueta, String(raw));
         }
-        datos[rc.nombre] = null;
-        excepciones.push({ filaNum, mensaje: "Importe en moneda extranjera sin convertir en «" + rc.etiqueta + "»: " + raw.trim() + ". Indica la TRM de cierre para convertirlo a pesos." });
         continue;
       }
       datos[rc.nombre] = rc.tipo === "moneda" ? conSigno(aNumero(raw)) : aNumero(raw);
@@ -493,7 +510,13 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
       for (const f of familiasSpec) {
         const baldes: Record<string, number> = {};
         for (const c of f.columnas) {
-          const v = conSigno(aNumero(celda(fila, c.columna)));
+          const raw = celda(fila, c.columna);
+          // Un rango con su divisa escrita se lee como el saldo: con su signo y en pesos. Sin
+          // esto, «USD (27,322.40)» perdía el paréntesis y quedaba en dólares con el signo al revés.
+          const conDivisa = importeConDivisa(raw);
+          if (conDivisa === null) avisoSinTrm(filaNum, c.etiqueta, String(raw));
+          const v = conDivisa !== undefined ? (conDivisa?.valor ?? null) : conSigno(aNumero(raw));
+          if (conDivisa && !divisaFila) divisaFila = conDivisa.divisa;
           baldes[c.etiqueta] = v == null ? 0 : v;
           if (v != null && c.clase !== "excluir") suma += v;
         }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { GridHoja } from "@/lib/balance/extraccion/ingesta";
 import { descriptorModulo } from "../descriptores";
+import type { SpecModulo } from "./esquema";
 import { sugerirSpec } from "./sugerir";
 import { transformarModulo } from "./transformar";
 
@@ -78,5 +79,67 @@ describe("importe con su divisa escrita en la celda (SAP en Redplas)", () => {
   it("sin TRM queda como excepción que pide la TRM", () => {
     const r = transformarModulo(CXP, sugerirSpec(CXP, h), h);
     expect(r.excepciones.map((e) => e.mensaje)).toEqual([expect.stringContaining("Indica la TRM de cierre")]);
+  });
+});
+
+describe("rangos de edades con su divisa escrita (CxP de Redplas, deuda en negativo)", () => {
+  const columnasCxp = (mapa: Record<string, number>) => Object.fromEntries(CXP.columnas.map((rol) => [rol.nombre, mapa[rol.nombre] ?? 0]));
+  const h: GridHoja = {
+    nombre: "MODULO",
+    filas: [
+      ["Código de proveedor", "Nombre de acreedor", "Tipo", "Nº documento", "Saldo vencido", "0 - 30", "31 - 60", "121+"],
+      ["P890900841", "COMFAMA", "AS", 29579, -284700, -284700, null, null],
+      ["P890903938", "BANCOLOMBIA SA", "PR", 4106, "USD (27,001.00)", null, "USD (27,001.00)", null],
+      ["P890903938", "BANCOLOMBIA SA", "PR", 3701, "USD (27,322.40)", null, null, "USD (27,322.40)"],
+    ],
+  };
+  const spec: SpecModulo = {
+    hoja: "MODULO",
+    filaEncabezado: 1,
+    primeraFilaDatos: 2,
+    columnas: columnasCxp({ nit: 1, nombre: 2, tipoDocumento: 3, documento: 4, total: 5 }),
+    familias: {
+      edades: [
+        { columna: 6, etiqueta: "0 - 30", clase: "vencido" },
+        { columna: 7, etiqueta: "31 - 60", clase: "vencido" },
+        { columna: 8, etiqueta: "121+", clase: "vencido" },
+      ],
+    },
+    invertirSigno: true,
+    trmCierre: 3757.08,
+  };
+
+  it("el rango se lee como el saldo: con el signo del paréntesis, la convención del archivo y en pesos", () => {
+    const r = transformarModulo(CXP, spec, h);
+    expect(r.excepciones).toEqual([]);
+    const [comfama, giro1, giro2] = movimientos(r);
+    // La deuda en pesos del archivo es negativa: se guarda positiva…
+    expect(comfama).toMatchObject({ valor: 284_700, sumaFamilia: 284_700 });
+    // …y la deuda en dólares, entre paréntesis, también: saldo y rango cuadran en pesos.
+    expect(giro1).toMatchObject({ valor: 101_444_917.08, sumaFamilia: 101_444_917.08, valorReportado: 101_444_917.08, saldoDivisa: 27_001, moneda: "USD" });
+    expect(giro1.familias?.edades).toEqual({ "0 - 30": 0, "31 - 60": 101_444_917.08, "121+": 0 });
+    expect(giro2).toMatchObject({ valor: 102_652_442.59, sumaFamilia: 102_652_442.59, saldoDivisa: 27_322.4 });
+  });
+
+  it("sin TRM el rango tampoco se lee como pesos y se avisa", () => {
+    const r = transformarModulo(CXP, { ...spec, trmCierre: undefined }, h);
+    const [, giro1] = movimientos(r);
+    expect(giro1.familias?.edades?.["31 - 60"]).toBe(0);
+    expect(r.excepciones.map((e) => e.mensaje)).toContain("Importe en moneda extranjera sin convertir en «31 - 60»: USD (27,001.00). Indica la TRM de cierre para convertirlo a pesos.");
+  });
+
+  it("en una hoja que ya está en divisa no convierte dos veces", () => {
+    const usd: GridHoja = {
+      nombre: "USD",
+      filas: [["NIT", "Nombre", "Documento", "Saldo", "1 a 30"], ["900123456", "ACME", "F-1", "USD (10.00)", "USD (10.00)"]],
+    };
+    const specUsd: SpecModulo = {
+      hoja: "USD", filaEncabezado: 1, primeraFilaDatos: 2, monedaArchivo: "USD", trmCierre: 4_000,
+      columnas: columnasCxp({ nit: 1, nombre: 2, documento: 3, total: 4 }),
+      familias: { edades: [{ columna: 5, etiqueta: "1 a 30", clase: "vencido" }] },
+    };
+    const [fila] = movimientos(transformarModulo(CXP, specUsd, usd));
+    expect(fila).toMatchObject({ valor: -40_000, saldoDivisa: -10, moneda: "USD" });
+    expect(fila.familias?.edades).toEqual({ "1 a 30": -40_000 });
   });
 });
