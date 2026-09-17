@@ -19,7 +19,8 @@ import "server-only";
 import prisma from "@/lib/prisma";
 import { fmtDateTime } from "@/lib/format";
 import { descriptorModulo, nivelCruceModulo, type DescriptorModulo } from "@/lib/modulos/descriptores";
-import { claveCruceContable, cuenta4DelModulo, filtrarSubgruposPorModulo, prefijosCuentaModulo } from "@/lib/modulos/cuentas-modulo";
+import { baseDelPeriodo, claveCruceContable, cuenta4DelModulo, filtrarSubgruposPorModulo } from "@/lib/modulos/cuentas-modulo";
+import { cedulaDelCargue } from "@/lib/modulos/asignacion-periodo";
 import { calcularValorContableTercero } from "@/lib/modulos/valor-contable";
 import { esFilaPropiaDeCuenta, filasEfectivasTercero } from "@/lib/balance/staging-tercero";
 import { leerIdentidadTercero } from "@/lib/balance/identidad-tercero";
@@ -74,6 +75,11 @@ export type InsumosCruceTercero = {
    * del auxiliar entran al cruce y su origen nacional/exterior; la homologación del balance no interviene.
    */
   consolidacionRows: InsumosCruceModulo["consolidacionRows"];
+  /**
+   * Asignación del período: sus cuentas fuera de la cédula entran también a este cruce (sus
+   * terceros del balance y los saldos del auxiliar asignados a ellas), solo para este período.
+   */
+  asignacionesPeriodo: InsumosCruceModulo["asignacionesPeriodo"];
   /** Umbral de descuadre ya resuelto por quien llama; sin él se lee de `/config/parametros`. */
   umbralDescuadre?: number;
 };
@@ -230,14 +236,21 @@ export async function construirCruceTerceroModulo(insumos: InsumosCruceTercero):
   if (insumos.bloqueo) return resultado("bloqueado", insumos.bloqueo, ref);
 
   const conDetalle = descriptor.crucePorTercero.detalleTercero === true;
-  const prefijos = prefijosCuentaModulo(encabezado.moduloCodigo, insumos.catalogoPrevalidador);
+  // La cédula del período: las cuentas que el usuario asignó solo para este período también cruzan.
+  const { cedula, extras: cuentasPeriodo } = cedulaDelCargue(descriptor, encabezado.moduloCodigo, insumos.catalogoPrevalidador, insumos.asignacionesPeriodo);
+  const prefijos = cedula.prefijos;
   const codigosModulo = new Set(filtrarSubgruposPorModulo([...insumos.subgrupos], prefijos).map((s) => s.codigo));
+  const cuentasPeriodo6 = cuentasPeriodo.filter((c) => c.length === 6);
+  const baseDe = (russell: string) => baseDelPeriodo(cedula, russell.slice(0, 6), russell.slice(0, 4));
 
   const [crudas, emparejamientos, marcas, umbrales, noModularesRows] = await Promise.all([
     prisma.balanceTerceroDetalle.findMany({
       where: {
         encabezadoId: balanceTercero.id,
-        OR: prefijos.flatMap((p) => [{ cuenta6Russell: { startsWith: p } }, { cuenta4: { startsWith: p } }]),
+        OR: [
+          ...prefijos.flatMap((p) => [{ cuenta6Russell: { startsWith: p } }, { cuenta4: { startsWith: p } }]),
+          ...cuentasPeriodo.map((c) => ({ cuenta6Russell: { startsWith: c } })),
+        ],
       },
       select: {
         cuenta4: true, cuenta8: true, cuenta6Russell: true,
@@ -271,6 +284,7 @@ export async function construirCruceTerceroModulo(insumos: InsumosCruceTercero):
       fila: { debitos: Number(d.debitos), creditos: Number(d.creditos), saldoFinal: Number(d.saldoFinal) },
       catalogo: insumos.catalogoPrevalidador,
       naturaleza: descriptor.crucePorTercero.naturaleza,
+      baseAdicional: baseDe(d.cuenta6Russell.replace(/\D/g, "")),
     });
     if (calculo) contableNoModular.total += calculo.valor;
   }
@@ -281,13 +295,15 @@ export async function construirCruceTerceroModulo(insumos: InsumosCruceTercero):
       continue;
     }
     const russell = d.cuenta6Russell.replace(/\D/g, "");
-    if (!codigosModulo.has(russell.slice(0, 4))) continue;
+    const baseAdicional = baseDe(russell);
+    if (!codigosModulo.has(russell.slice(0, 4)) && !baseAdicional) continue;
     const calculo = calcularValorContableTercero({
       moduloCodigo: encabezado.moduloCodigo,
       cuentaRussell: d.cuenta6Russell,
       fila: { debitos: Number(d.debitos), creditos: Number(d.creditos), saldoFinal: Number(d.saldoFinal) },
       catalogo: insumos.catalogoPrevalidador,
       naturaleza: descriptor.crucePorTercero.naturaleza,
+      baseAdicional,
     });
     if (!calculo) {
       contableExcluidoFilas += 1;
@@ -313,7 +329,7 @@ export async function construirCruceTerceroModulo(insumos: InsumosCruceTercero):
     // Qué cuentas del módulo tiene asignadas en el Consolidado cada cuenta del archivo. La cuenta del
     // archivo solo IDENTIFICA el renglón del Consolidado (misma clave que `consolidarPorClasificador`);
     // lo que decide si el saldo entra, y su origen nacional/exterior, es la cuenta asignada.
-    const listaModulo = new Set(descriptor.crucePorTercero.cuentasRussell6 ?? []);
+    const listaModulo = new Set([...(descriptor.crucePorTercero.cuentasRussell6 ?? []), ...cuentasPeriodo6]);
     const porAsignacion = nivelCruceModulo(descriptor) === 6 && listaModulo.size > 0;
     const asignadas = new Map<string, string[]>();
     for (const r of insumos.consolidacionRows) {
@@ -364,7 +380,7 @@ export async function construirCruceTerceroModulo(insumos: InsumosCruceTercero):
   const cruce = construirCruceTerceroCartera({
     contable: movimientos,
     modulo: saldosModulo,
-    cuentasModulo: descriptor.crucePorTercero.cuentasRussell6?.length ? descriptor.crucePorTercero.cuentasRussell6 : null,
+    cuentasModulo: descriptor.crucePorTercero.cuentasRussell6?.length ? [...descriptor.crucePorTercero.cuentasRussell6, ...cuentasPeriodo6] : null,
     emparejamientos,
   });
   const anotado = anotarCruceTerceroConMarcas(cruce.filas, marcas, { umbralDescuadre: umbrales.descuadre });
@@ -428,5 +444,6 @@ export async function cruceTerceroDeCargue(
     subgrupos: insumos.subgrupos,
     catalogoPrevalidador: insumos.catalogoPrevalidador,
     consolidacionRows: insumos.consolidacionRows,
+    asignacionesPeriodo: insumos.asignacionesPeriodo,
   });
 }

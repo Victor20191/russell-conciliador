@@ -129,6 +129,12 @@ export type CedulaModulo = {
   relacionPorSubgrupo: ReadonlyMap<string, string>;
   /** Rol del archivo con el valor relacionado (`depreciacion`), o null. */
   rolRelacionado: string | null;
+  /**
+   * Cuentas Russell que el usuario asignó SOLO para un período (fuera de la cédula) → la base
+   * del módulo. Claves del nivel de la cédula (6 díg., o subgrupos de 4 en las cédulas a 4).
+   * Vacío en la cédula del descriptor; la amplía `cedulaDelPeriodo`.
+   */
+  delPeriodo: ReadonlyMap<string, BaseCalculo>;
 };
 
 /** Lo que `cedulaModulo` lee del descriptor (tipado estructural para no acoplar las pruebas). */
@@ -154,17 +160,53 @@ export function cedulaModulo(descriptor: DescriptorCedula | null | undefined, pr
     abiertos: new Map((cfg?.subgruposAbiertos ?? []).map((s) => [normalizarPrefijo(s.subgrupo), s.naturaleza])),
     relacionPorSubgrupo: new Map((cfg?.valorRelacionado?.pares ?? []).map((p) => [normalizarPrefijo(p.subgrupo), normalizarPrefijo(p.cuenta6)])),
     rolRelacionado: cfg?.valorRelacionado?.rol ?? null,
+    delPeriodo: new Map(),
   };
+}
+
+/**
+ * ¿Puede `codigo` entrar como cuenta DEL PERÍODO? Tiene la longitud de la cédula, la cédula no la
+ * concilia ya y no es de un subgrupo abierto (la 1592xx de Activos fijos se deriva del activo).
+ */
+export function esCuentaExtraPosible(cedula: CedulaModulo, codigo: string): boolean {
+  const c = normalizarPrefijo(codigo);
+  if (c.length !== cedula.nivel) return false;
+  if (cedula.abiertos.has(c.slice(0, 4))) return false;
+  return !cuentaAsignableBase(cedula, c);
+}
+
+/**
+ * La cédula de UN período: la del módulo más las cuentas que el usuario asignó solo para ese
+ * cliente y período, con la base del módulo. Lo que la cédula ya concilia no se duplica.
+ */
+export function cedulaDelPeriodo(cedula: CedulaModulo, extras: readonly string[], base: BaseCalculo): CedulaModulo {
+  const delPeriodo = new Map(cedula.delPeriodo);
+  for (const codigo of extras) {
+    const c = normalizarPrefijo(codigo);
+    if (esCuentaExtraPosible(cedula, c)) delPeriodo.set(c, base);
+  }
+  return { ...cedula, delPeriodo };
+}
+
+/** Las cuentas del período (ya validadas), en orden. */
+export function cuentasDelPeriodo(cedula: CedulaModulo): string[] {
+  return [...cedula.delPeriodo.keys()].sort();
+}
+
+/** Base de una cuenta del período por su código de 6 o, en las cédulas a 4, por su subgrupo. */
+export function baseDelPeriodo(cedula: CedulaModulo, cuenta6: string, sub4: string): BaseCalculo | undefined {
+  return cedula.delPeriodo.get(cuenta6) ?? (cedula.nivel === 4 ? cedula.delPeriodo.get(sub4) : undefined);
 }
 
 /**
  * Cuentas de 6 que la cédula concilia por lista (`cedula.cuentas6` o `cuentasRussell6`) más las
  * adicionales. Nómina lo usa para decidir si un concepto cruza (gasto 51/52/72/73 y pasivos 25xx).
  */
-export function cuentasCedula6(descriptor: DescriptorCedula | null | undefined): string[] {
+export function cuentasCedula6(descriptor: DescriptorCedula | null | undefined, delPeriodo: readonly string[] = []): string[] {
   const lista = descriptor?.cedula?.cuentas6 ?? descriptor?.crucePorTercero.cuentasRussell6 ?? [];
   const adicionales = (descriptor?.cedula?.cuentasAdicionales ?? []).map((a) => normalizarPrefijo(a.cuenta));
-  return [...new Set([...lista, ...adicionales])];
+  const extras = delPeriodo.map((c) => normalizarPrefijo(c)).filter((c) => c.length === 6);
+  return [...new Set([...lista, ...adicionales, ...extras])];
 }
 
 /** ¿La cédula mezcla claves de 4 y de 6 dígitos? (módulo a 4 con cuentas de 6). */
@@ -179,11 +221,12 @@ export function cedulaMixta(cedula: CedulaModulo): boolean {
  *  - a 6, la cuenta completa (la lista la aplica el llamador: lo de fuera se informa aparte);
  *  - a 4, el subgrupo, salvo que esté abierto: ahí manda la cuenta de 6 y sin ella no hay clave.
  * No decide si la cuenta es del módulo (eso lo hacen `subgruposCedula`/`cuentaAsignableCedula`):
- * una asignación legada fuera del módulo conserva su clave, como antes.
+ * una asignación legada fuera del módulo conserva su clave, como antes. Una cuenta de 6 del
+ * período es su propia clave, como las adicionales.
  */
 export function claveCedula(cedula: CedulaModulo, cuenta6: string | null | undefined, cuenta4?: string | null): string | null {
   const c6 = seisDigitos(cuenta6);
-  if (c6 && cedula.adicionales.has(c6)) return c6;
+  if (c6 && (cedula.adicionales.has(c6) || cedula.delPeriodo.has(c6))) return c6;
   const sub = c6 ? c6.slice(0, 4) : normalizarPrefijo(cuenta4).slice(0, 4) || normalizarPrefijo(cuenta6).slice(0, 4);
   if (sub.length !== 4) return null;
   if (cedula.nivel === 6 || cedula.abiertos.has(sub)) return c6 || null;
@@ -194,7 +237,7 @@ export function claveCedula(cedula: CedulaModulo, cuenta6: string | null | undef
 export function fueraDeListaCedula(cedula: CedulaModulo, cuenta6: string | null | undefined): boolean {
   const c6 = seisDigitos(cuenta6);
   if (!cedula.lista6 || !c6) return false;
-  return !cedula.lista6.has(c6) && !cedula.adicionales.has(c6);
+  return !cedula.lista6.has(c6) && !cedula.adicionales.has(c6) && !cedula.delPeriodo.has(c6);
 }
 
 /**
@@ -203,6 +246,12 @@ export function fueraDeListaCedula(cedula: CedulaModulo, cuenta6: string | null 
  */
 export function cuentaAsignableCedula(cedula: CedulaModulo, codigo: string): boolean {
   const c = normalizarPrefijo(codigo);
+  if (cedula.delPeriodo.has(c)) return true;
+  return cuentaAsignableBase(cedula, c);
+}
+
+/** Lo que la cédula del descriptor admite, sin las cuentas del período. */
+function cuentaAsignableBase(cedula: CedulaModulo, c: string): boolean {
   if (c.length === 6 && cedula.adicionales.has(c)) return true;
   if (c.length !== cedula.nivel) return false;
   const sub = c.slice(0, 4);
@@ -223,6 +272,7 @@ export function longitudesCedula(cedula: CedulaModulo): ReadonlySet<number> {
 export function subgruposCedula(cedula: CedulaModulo, subgrupos: readonly SubgrupoOpcion[]): Set<string> {
   const codigos = new Set(filtrarSubgruposPorModulo(subgrupos, cedula.prefijos).map((s) => s.codigo));
   for (const c of cedula.adicionales.keys()) codigos.add(c.slice(0, 4));
+  for (const c of cedula.delPeriodo.keys()) codigos.add(c.slice(0, 4));
   return codigos;
 }
 
@@ -232,18 +282,20 @@ export function subgruposCedula(cedula: CedulaModulo, subgrupos: readonly Subgru
  */
 export function cuentas6ACargarCedula(cedula: CedulaModulo): readonly string[] | null {
   if (cedula.abiertos.size > 0) return null;
-  if (cedula.nivel === 6) return cedula.lista6 ? [...new Set([...cedula.lista6, ...cedula.adicionales.keys()])] : null;
-  return [...cedula.adicionales.keys()];
+  const delPeriodo6 = [...cedula.delPeriodo.keys()].filter((c) => c.length === 6);
+  if (cedula.nivel === 6) return cedula.lista6 ? [...new Set([...cedula.lista6, ...cedula.adicionales.keys(), ...delPeriodo6])] : null;
+  return [...new Set([...cedula.adicionales.keys(), ...delPeriodo6])];
 }
 
 /**
  * Cuentas que el Consolidado ofrece para asignar (el datalist y la validación de la acción): a 6,
- * las cuentas del plan de la lista; a 4, los subgrupos no abiertos; en ambos, las adicionales.
+ * las cuentas del plan de la lista; a 4, los subgrupos no abiertos; en ambos, las adicionales. Las
+ * cuentas del período NO se listan aquí: son de ese período y la pantalla las muestra aparte.
  */
 export function opcionesCedula<T extends SubgrupoOpcion>(cedula: CedulaModulo, subgrupos: readonly T[], cuentasEstandar: readonly T[]): T[] {
   const base = cedula.nivel === 6
-    ? cuentasEstandar.filter((c) => cuentaAsignableCedula(cedula, c.codigo))
-    : subgrupos.filter((s) => cuentaAsignableCedula(cedula, s.codigo));
+    ? cuentasEstandar.filter((c) => cuentaAsignableBase(cedula, normalizarPrefijo(c.codigo)))
+    : subgrupos.filter((s) => cuentaAsignableBase(cedula, normalizarPrefijo(s.codigo)));
   const vistos = new Set(base.map((c) => c.codigo));
   const extra = cuentasEstandar.filter((c) => cedula.adicionales.has(c.codigo) && !vistos.has(c.codigo));
   return [...base, ...extra].sort((a, b) => (a.codigo < b.codigo ? -1 : a.codigo > b.codigo ? 1 : 0));

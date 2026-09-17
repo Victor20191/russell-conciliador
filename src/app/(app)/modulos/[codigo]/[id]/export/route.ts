@@ -7,6 +7,7 @@ import { crearExportacionModulo, type ColumnaExportModulo, type CruceNominaExpor
 import { columnasDetalleModulo } from "@/lib/modulos/cartera/columnas-cartera";
 import { cargarCuentasEstandarDeCedula, cargarInsumosCruceModulo, construirCruceContableModulo } from "@/lib/modulos/cruce-contable-servidor";
 import { cedulaModulo, claveCedula } from "@/lib/modulos/cuentas-modulo";
+import { cargarConsolidacionDelPeriodo } from "@/lib/modulos/asignacion-periodo-servidor";
 import { claveConsolidado } from "@/lib/modulos/nomina/clave-consolidado";
 import { cruceTerceroDeCargue, etiquetasCruceTercero } from "@/lib/modulos/cruce-tercero-servidor";
 import { mensajeErrorBD } from "@/lib/errores";
@@ -38,14 +39,13 @@ export async function GET(_req: Request, { params }: { params: Promise<{ codigo:
     // Misma clave que la pantalla: subgrupo de 4 dígitos, la cuenta Russell completa o una mezcla.
     // La clave no depende de los prefijos del prevalidador, así que no se carga el catálogo.
     const cedula = cedulaModulo(descriptor, []);
-    const [consolidacionRows, subgrupos, cuentasEstandar] = await Promise.all([
-      prisma.consolidacionModuloCliente.findMany({
-        where: { clienteId: encabezado.clienteId, moduloCodigo },
-        select: { clasificador: true, agrupador: true, descripcion: true, cuenta4: true, cuenta6: true },
-      }),
+    // El Consolidado DEL PERÍODO: la memoria del cliente con la asignación solo de este período.
+    const [consolidacion, subgrupos] = await Promise.all([
+      cargarConsolidacionDelPeriodo(encabezado.clienteId, moduloCodigo, encabezado.periodo),
       prisma.subgrupoEstandar.findMany({ select: { codigo: true, nombre: true } }),
-      cargarCuentasEstandarDeCedula(descriptor),
     ]);
+    const consolidacionRows = consolidacion.filas;
+    const cuentasEstandar = await cargarCuentasEstandarDeCedula(descriptor, consolidacion.filasPeriodo.map((f) => f.cuenta6));
     const nombrePorCuenta = new Map([...subgrupos, ...cuentasEstandar].map((s) => [s.codigo, s.nombre]));
     const cuentasPorClasificador = new Map<string, string[]>();
     const descripcionPorClasificador = new Map<string, string>();

@@ -85,6 +85,7 @@ function EstadoVacio({ titulo, children, enlace }: { titulo: string; children: R
 export function CruceTerceroTab({
   cruceTercero,
   referenciasMarcas = [],
+  cuentasPeriodo = [],
   encabezadoId,
   comentarios,
   puedeEditar,
@@ -92,6 +93,8 @@ export function CruceTerceroTab({
   cruceTercero: CruceTerceroVm;
   /** Todas las marcas del período (numeración compartida con el cruce contable). */
   referenciasMarcas?: ReferenciaMarcaVm[];
+  /** Cuentas fuera de la cédula que el Consolidado asignó solo para este período. */
+  cuentasPeriodo?: string[];
   encabezadoId: number;
   comentarios: Record<string, number>;
   puedeEditar: boolean;
@@ -168,6 +171,8 @@ export function CruceTerceroTab({
 
   const { conteo, totales, cuentas } = resumen;
   const mostrarCuentas = cuentas.length > 1;
+  const delPeriodo = new Set(cuentasPeriodo);
+  const cuentasDelPeriodo = cuentas.filter((c) => delPeriodo.has(c));
   const sumaDe = (estado: EstadoCruceTercero, lado: (f: FilaCruceTerceroMarcada) => number) =>
     resumen.filas.filter((f) => f.estado === estado).reduce((suma, f) => suma + lado(f), 0);
   const porMarcar = resumenMarcas ? resumenMarcas.pendientes + resumenMarcas.desactualizadas : 0;
@@ -205,6 +210,13 @@ export function CruceTerceroTab({
       </p>
       {cruceTercero.avisoBalance && (
         <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[12px] leading-snug text-warn-700">{cruceTercero.avisoBalance}</div>
+      )}
+      {cuentasDelPeriodo.length > 0 && (
+        <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[12px] leading-snug text-warn-700">
+          {cuentasDelPeriodo.length === 1 ? "La cuenta" : "Las cuentas"} <b>{cuentasDelPeriodo.map((c) => `R - ${c}`).join(", ")}</b>{" "}
+          {cuentasDelPeriodo.length === 1 ? "no es" : "no son"} de la cédula del módulo: el Consolidado {cuentasDelPeriodo.length === 1 ? "la asignó" : "las asignó"} solo
+          para {cruceTercero.periodo}, así que sus terceros entran a este cruce únicamente en ese período.
+        </div>
       )}
       {cruceTercero.parametros && (
         <ParametrosCargue parametros={cruceTercero.parametros} encabezadoId={encabezadoId} puedeEditar={puedeEditar} />
@@ -279,7 +291,12 @@ export function CruceTerceroTab({
               <tr>
                 <th className="px-3 py-2 font-semibold">{cruceTercero.etiquetaClave}</th>
                 <th className="px-3 py-2 font-semibold">{cruceTercero.etiquetaNombre}</th>
-                {mostrarCuentas && cuentas.map((c) => <th key={c} className="px-3 py-2 text-right font-semibold">{c}</th>)}
+                {mostrarCuentas && cuentas.map((c) => (
+                  <th key={c} className="px-3 py-2 text-right font-semibold" title={delPeriodo.has(c) ? `Fuera de la cédula: vale solo para ${cruceTercero.periodo}` : undefined}>
+                    {c}
+                    {delPeriodo.has(c) && <span className="block text-[10px] font-semibold uppercase tracking-wide text-warn-700">solo {cruceTercero.periodo}</span>}
+                  </th>
+                ))}
                 <th className="px-3 py-2 text-right font-semibold">Contabilidad</th>
                 <th className="px-3 py-2 text-right font-semibold">Auxiliar (módulo)</th>
                 <th className="px-3 py-2 text-right font-semibold">Diferencia</th>

@@ -58,13 +58,16 @@ export function cuentasRussellDelCruce(cruce: Pick<ResumenCruceContable, "filas"
  *  - a 6 con lista (Cartera, CxP, Nómina): la lista más las cuentas adicionales (25xx de Nómina);
  *  - a 4 con cuentas de 6 (Activos fijos, Ingresos): las claves de la cédula, de 4 y de 6, para que
  *    la 422005 quede en firme sin arrastrar el resto de la 4220.
+ * Las cuentas que el usuario asignó solo para el período (`cedulaDelPeriodo`) entran igual: a 6 se
+ * suman a la lista; a 4 ya llegan como clave de su renglón.
  */
 export function alcanceExplicitoDelCruce(
-  cedula: Pick<CedulaModulo, "nivel" | "lista6" | "adicionales" | "abiertos">,
+  cedula: Pick<CedulaModulo, "nivel" | "lista6" | "adicionales" | "abiertos"> & { delPeriodo?: ReadonlyMap<string, unknown> },
   cruce: Pick<ResumenCruceContable, "filas">,
 ): string[] | null {
   const ordenar = (lista: Iterable<string>) => [...new Set(lista)].sort();
-  if (cedula.nivel === 6) return cedula.lista6 ? ordenar([...cedula.lista6, ...cedula.adicionales.keys()]) : null;
+  const delPeriodo6 = [...(cedula.delPeriodo?.keys() ?? [])].filter((c) => c.length === 6);
+  if (cedula.nivel === 6) return cedula.lista6 ? ordenar([...cedula.lista6, ...cedula.adicionales.keys(), ...delPeriodo6]) : null;
   if (cedula.adicionales.size === 0 && cedula.abiertos.size === 0) return null;
   return ordenar(
     cruce.filas

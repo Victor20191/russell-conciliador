@@ -6,12 +6,10 @@ import { PageHeader, BackLink } from "@/components/ui";
 import Conversacion from "@/components/conversacion";
 import { descriptorModulo } from "@/lib/modulos/descriptores";
 import {
-  cedulaModulo,
   claveCedula,
   claveCruceContable,
   cuentasCedula6,
   opcionesCedula,
-  prefijosCuentaModulo,
 } from "@/lib/modulos/cuentas-modulo";
 import { consolidarPorClasificador } from "@/lib/modulos/promocion";
 import { validacionDelCargue } from "@/lib/modulos/validacion-cargue";
@@ -19,6 +17,8 @@ import { detectarNegativos, detectarDescuadres } from "@/lib/modulos/validacione
 import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
 import { fmtDateTime } from "@/lib/format";
 import type { MarcaPeriodo } from "@/lib/modulos/marcas-cruce";
+import { cedulaDelCargue, llaveAsignacion } from "@/lib/modulos/asignacion-periodo";
+import { cargarConsolidacionDelPeriodo } from "@/lib/modulos/asignacion-periodo-servidor";
 import { columnasDetalleModulo } from "@/lib/modulos/cartera/columnas-cartera";
 import { cargarCuentasEstandarDeCedula, construirCruceContableModulo } from "@/lib/modulos/cruce-contable-servidor";
 import { construirCruceTerceroModulo, etiquetasCruceTercero } from "@/lib/modulos/cruce-tercero-servidor";
@@ -63,13 +63,10 @@ export default async function DatoModuloPage({
   // ¿Puede editar la consolidación de este cliente?
   const puedeEditar = (await authorizePermiso("modulos_datos:editar", { clientId: encabezado.clienteId })).ok;
 
-  const [consolidacionRows, subgrupos, cuentasEstandar, catalogoPrevalidador, comentariosGrp, cuentasCliente, hermanos, reglasClaseRows, marcasPeriodoRows] = await Promise.all([
-    prisma.consolidacionModuloCliente.findMany({
-      where: { clienteId: encabezado.clienteId, moduloCodigo },
-      select: { clasificador: true, agrupador: true, descripcion: true, cuenta4: true, cuenta6: true, grupo: true, subcuentaPuc: true, cuentaCliente: true },
-    }),
+  // Consolidado DEL PERÍODO: la memoria del cliente con la asignación solo de este período encima.
+  const [consolidacion, subgrupos, catalogoPrevalidador, comentariosGrp, cuentasCliente, hermanos, reglasClaseRows, marcasPeriodoRows] = await Promise.all([
+    cargarConsolidacionDelPeriodo(encabezado.clienteId, moduloCodigo, encabezado.periodo),
     prisma.subgrupoEstandar.findMany({ select: { codigo: true, nombre: true }, orderBy: { codigo: "asc" } }),
-    cargarCuentasEstandarDeCedula(descriptor),
     getCatalogoPrevalidador(),
     prisma.comment.groupBy({ by: ["anchor"], where: { entityType: "modulos_datos", entityId: encabezadoId }, _count: { _all: true } }),
     // Homologación del cliente: cuentas propias mapeadas al plan Russell (para detallar por subgrupo).
@@ -121,11 +118,15 @@ export default async function DatoModuloPage({
     marcadoEn: fmtDateTime(m.marcadoEn),
     soportes: m._count.adjuntos,
   }));
+  const consolidacionRows = consolidacion.filas;
+  const cuentasEstandar = await cargarCuentasEstandarDeCedula(descriptor, consolidacion.filasPeriodo.map((f) => f.cuenta6));
   // Cédula contable: subgrupo de 4 dígitos, cuenta Russell completa (Nómina, Cartera, CxP) o una
-  // mezcla (Activos fijos abre la 1592; Ingresos suma la 422005).
-  const prefijosModulo = prefijosCuentaModulo(moduloCodigo, catalogoPrevalidador);
-  const cedula = cedulaModulo(descriptor, prefijosModulo);
+  // mezcla (Activos fijos abre la 1592; Ingresos suma la 422005). Es la del PERÍODO: incluye las
+  // cuentas que el usuario asignó solo para este cliente y período.
+  const { cedula, extras: cuentasPeriodo } = cedulaDelCargue(descriptor, moduloCodigo, catalogoPrevalidador, consolidacion.filasPeriodo);
   const nivel = cedula.nivel;
+  // Renglones del Consolidado cuya asignación vale solo para este período.
+  const renglonesSoloPeriodo = new Set(consolidacion.filasPeriodo.map((f) => llaveAsignacion(f.clasificador, f.agrupador)));
   // Un clasificador puede tener 1..N cuentas: agrupamos en lista (ordenada).
   const cuentasPorClasificador = new Map<string, string[]>();
   // Nombre legible del clasificador cuando existe (Nómina: el clasificador es el CÓDIGO
@@ -155,8 +156,10 @@ export default async function DatoModuloPage({
   // El datalist solo ofrece cuentas Russell del módulo (p. ej. INV → 14xx; Nómina → 510506…;
   // Ingresos → 41xx y 422005). La 1592xx de Activos fijos no se asigna: sale de la relación.
   const cuentasModulo = opcionesCedula(cedula, subgrupos, cuentasEstandar);
+  // Cuentas del plan Russell que el usuario agregó solo para este período, con su nombre.
+  const cuentasPeriodoVm = cuentasPeriodo.map((codigo) => ({ codigo, nombre: nombrePorCuenta.get(codigo) ?? "" }));
   // Cuentas del CLIENTE homologadas a cada cuenta Russell del módulo (14XX → [143505 «…»]).
-  const codigosModulo = new Set(cuentasModulo.map((c) => c.codigo));
+  const codigosModulo = new Set([...cuentasModulo.map((c) => c.codigo), ...cuentasPeriodo]);
   const homologacionPorSubgrupo: Record<string, { codigo: string; nombre: string }[]> = {};
   // Índice INVERSO (cuenta del cliente → su cuenta Russell de 4 y de 6 díg) para que el campo
   // rápido del cruce acepte que el usuario escriba su propia cuenta. Va SIN filtrar por
@@ -212,7 +215,7 @@ export default async function DatoModuloPage({
         memoria: consolidacionRows.map((r) => ({ ...r, cuenta6: r.cuenta6 ?? "" })),
         reglasClase,
         mapeoCliente: new Map([...construirConfigMapeoCliente(cuentasCliente).entries()].map(([k, v]) => [k, v.std])),
-        cuentasRussell6: cuentasCedula6(descriptor),
+        cuentasRussell6: cuentasCedula6(descriptor, cuentasPeriodo),
       })
     : null;
   const consolidado = consolidarPorClasificador(detalleVm.map((d) => ({ clasificador: d.clasificador, valor: d.valor })));
@@ -226,6 +229,7 @@ export default async function DatoModuloPage({
         filas: c.filas,
         cuentas4: c.cuentas.map((cod) => ({ codigo: cod, nombre: nombrePorCuenta.get(cod) ?? null })),
         sugerencia: c.sugerencia,
+        soloPeriodo: renglonesSoloPeriodo.has(llaveAsignacion(c.codigo, c.agrupador)),
       }))
     : consolidado.map((c) => ({
         clasificador: c.clasificador,
@@ -233,6 +237,7 @@ export default async function DatoModuloPage({
         total: c.total,
         filas: c.filas,
         cuentas4: (cuentasPorClasificador.get(c.clasificador) ?? []).map((cod) => ({ codigo: cod, nombre: nombrePorCuenta.get(cod) ?? null })),
+        soloPeriodo: renglonesSoloPeriodo.has(llaveAsignacion(c.clasificador, "")),
       }));
   const agrupadoresVm: AgrupadorVm[] = consolidadoNomina?.agrupadores ?? [];
   // Cruce contable (balance vs. archivos del módulo): el MISMO cálculo que verifica
@@ -254,6 +259,7 @@ export default async function DatoModuloPage({
       })),
     },
     consolidacionRows,
+    asignacionesPeriodo: consolidacion.filasPeriodo,
     subgrupos,
     cuentasEstandar,
     catalogoPrevalidador,
@@ -287,6 +293,7 @@ export default async function DatoModuloPage({
         subgrupos,
         catalogoPrevalidador,
         consolidacionRows,
+        asignacionesPeriodo: consolidacion.filasPeriodo,
       })
     : null;
 
@@ -361,6 +368,7 @@ export default async function DatoModuloPage({
     fueraDelModulo: cruce.fueraDelModulo,
     conciliacion: cierreVm,
     nomina: cruce.nomina,
+    cuentasPeriodo: cruce.cuentasPeriodo,
   };
 
   // Fecha de corte y divisa del cargue (Cartera, CxP): contra la fecha se miden días y edades.
@@ -493,6 +501,7 @@ export default async function DatoModuloPage({
         marcasPeriodo={marcasPeriodo}
         novedades={novedadesVm}
         cuentas={cuentasModulo.map((s) => ({ codigo: s.codigo, nombre: s.nombre }))}
+        cuentasPeriodo={cuentasPeriodoVm}
         nivelCruce={nivel}
         homologacionCliente={homologacionPorSubgrupo}
         resolucionCliente={resolucionCliente}

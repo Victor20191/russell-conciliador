@@ -108,6 +108,8 @@ export function calcularValorContableTercero(args: {
   fila: MovimientoContableModulo;
   catalogo: readonly ReglaContableModulo[];
   naturaleza?: "D" | "C";
+  /** Base de una cuenta que el catálogo no cubre (una cuenta del período). */
+  baseAdicional?: BaseCalculo;
 }): { valor: number; baseCalculo: BaseCalculo; cuentaRegla: string } | null {
   return calcularValorContableModulo(args);
 }

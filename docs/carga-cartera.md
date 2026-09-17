@@ -60,6 +60,13 @@ que dicen el origen.
 - **Consolidado.** Cada cuenta del archivo se asigna a una cuenta Russell de 6 dígitos del módulo
   (Cartera: 130505, 130510, 280505; CxP: las 12 de su descriptor). Las asignaciones guardadas a 4
   dígitos antes de este cambio quedan «sin cuenta» y se vuelven a asignar.
+  **Cuenta fuera de la cédula, solo para el período.** El campo y «Buscar…» siguen ofreciendo la
+  cédula, pero también se puede escribir cualquier cuenta de 6 dígitos del plan estándar Russell (o
+  buscarla en «Otras cuentas del plan Russell»): la asignación de ese renglón vale solo para este
+  cliente y este período, con el distintivo «Solo 2025-12». Entra al cruce contable como un renglón
+  más (con el saldo de Contabilidad de esa cuenta) y al cruce por tercero (los NIT de esa cuenta en el
+  balance y los saldos del auxiliar asignados a ella). Los demás meses siguen con la memoria del
+  cliente y la cédula no cambia. Con la conciliación del período en firme no se agregan ni quitan.
 - **Cruce contable.** Por cuenta Russell de 6 dígitos, con el signo del módulo (Cartera débito, CxP
   crédito): un anticipo resta en los dos lados, como en el auxiliar (la 2805 en Cartera, la 1330 en
   CxP), en vez de mostrarse con la naturaleza de su propia cuenta.

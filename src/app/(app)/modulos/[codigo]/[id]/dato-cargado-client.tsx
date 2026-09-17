@@ -19,9 +19,10 @@ import {
   quitarMarcaCruce,
   cerrarConciliacionModulo,
   desbloquearConciliacion,
+  consultarCuentasRussell,
 } from "@/app/actions/modulos-datos";
 import { aplicarAsignacionMasiva, contarConCuentas, type ModoAsignacionMasiva } from "@/lib/modulos/consolidacion-masiva";
-import { resolverCuenta4, mensajeResolucion } from "@/lib/modulos/resolver-cuenta4";
+import { resolverCuenta4, mensajeResolucion, type ResolucionCuenta4 } from "@/lib/modulos/resolver-cuenta4";
 import type { NivelCruce } from "@/lib/modulos/cuentas-modulo";
 import type { SugerenciaConsolidado } from "@/lib/modulos/nomina/consolidado-nomina";
 import { CLASES_NOMINA, type ClaseNomina } from "@/lib/modulos/nomina/homologacion";
@@ -71,6 +72,8 @@ export type ConsolidadoVm = {
   agrupador?: string;
   /** Homologación sugerida cuando no hay memoria exacta (o la misma memoria, ya guardada). */
   sugerencia?: SugerenciaConsolidado;
+  /** Sus cuentas valen solo para el período del cargue (llevan una cuenta fuera de la cédula). */
+  soloPeriodo?: boolean;
 };
 /** Nómina: centros de costo / clases del archivo con su clase contable (panel del consolidado). */
 export type AgrupadorVm = { agrupador: string; filas: number; total: number; clase: ClaseNomina | null; sugerida: ClaseNomina | null };
@@ -107,6 +110,8 @@ export type CruceContableVm = {
   conciliacion: CierreConciliacionVm;
   /** Solo Nómina: rango, base contable, repartos, vista por subcuenta y control de deducciones. */
   nomina?: ResultadoCruceNomina | null;
+  /** Cuentas fuera de la cédula que el Consolidado asignó solo para este período. */
+  cuentasPeriodo?: string[];
 };
 export type CierreConciliacionVm = {
   cierre: {
@@ -169,6 +174,8 @@ type Columna = {
   familia?: { clave: string; etiqueta: string };
 };
 type CuentaOpt = { codigo: string; nombre: string };
+/** Cuenta del plan estándar Russell hallada en el servidor; `deCedula` = ya es del módulo. */
+type CuentaPlan = CuentaOpt & { deCedula: boolean };
 type CuentaCliente = { codigo: string; nombre: string };
 // Cuentas del cliente homologadas a cada subgrupo Russell (14XX → [{143505, "…"}]).
 export type HomologacionCliente = Record<string, CuentaCliente[]>;
@@ -184,6 +191,15 @@ const etiquetaFilaCruce = (fila: Pick<FilaCruceMarcada, "cuenta4" | "nombre" | "
   fila.cuentas && fila.cuentas.length > 1
     ? `${fila.cuentas.map((c) => `R - ${c}`).join(" + ")}${fila.clasificadores?.length ? ` · ${fila.clasificadores.join(", ")}` : ""}`
     : etiquetaRussell(fila.cuenta4, fila.nombre);
+
+/** Distintivo de una cuenta que no es de la cédula y vale solo para el período del cargue. */
+function ChipSoloPeriodo({ periodo }: { periodo: string }) {
+  return (
+    <span title={`Cuenta fuera de la cédula del módulo: vale solo para ${periodo}; los demás meses no la usan.`}>
+      <Chip label={`Solo ${periodo}`} tone="warn" />
+    </span>
+  );
+}
 
 const etiquetaResp = (r: "si" | "no" | "na" | null) => (r === "si" ? "Sí" : r === "no" ? "No" : r === "na" ? "N/A" : "—");
 
@@ -203,6 +219,7 @@ export default function DatoCargadoClient({
   marcasPeriodo = [],
   novedades,
   cuentas,
+  cuentasPeriodo = [],
   nivelCruce,
   homologacionCliente,
   resolucionCliente,
@@ -228,6 +245,8 @@ export default function DatoCargadoClient({
   marcasPeriodo?: MarcaPeriodo[];
   novedades: NovedadesVm;
   cuentas: CuentaOpt[];
+  /** Cuentas del plan Russell fuera de la cédula asignadas solo para este período, con su nombre. */
+  cuentasPeriodo?: CuentaOpt[];
   /** Nivel de la cuenta Russell de la cédula: subgrupo (4) o cuenta completa (6, Nómina). */
   nivelCruce: NivelCruce;
   homologacionCliente: HomologacionCliente;
@@ -312,7 +331,7 @@ export default function DatoCargadoClient({
       </div>
 
       {tab === "consolidado" ? (
-        <ConsolidadoTab key={moduloCodigo === "INV" ? encabezadoId : undefined} comprobarSalidaRef={comprobarSalidaConsolidado} moduloCodigo={moduloCodigo} clienteId={clienteId} clasificadorEtiqueta={clasificadorEtiqueta} consolidado={consolidado} cuentas={cuentas} nivelCruce={nivelCruce} homologacionCliente={homologacionCliente} resolucionCliente={resolucionCliente} agrupadores={agrupadores} moduloLabel={moduloLabel} puedeEditar={puedeEditar} encabezadoId={encabezadoId} comentarios={comentarios} />
+        <ConsolidadoTab key={moduloCodigo === "INV" ? encabezadoId : undefined} comprobarSalidaRef={comprobarSalidaConsolidado} moduloCodigo={moduloCodigo} clienteId={clienteId} clasificadorEtiqueta={clasificadorEtiqueta} consolidado={consolidado} cuentas={cuentas} cuentasPeriodo={cuentasPeriodo} periodo={cruceContable.periodo} nivelCruce={nivelCruce} homologacionCliente={homologacionCliente} resolucionCliente={resolucionCliente} agrupadores={agrupadores} moduloLabel={moduloLabel} puedeEditar={puedeEditar} encabezadoId={encabezadoId} comentarios={comentarios} />
       ) : tab === "detalle" ? (
         <DetalleTab columnas={columnas} clasificadorEtiqueta={clasificadorEtiqueta} detalle={detalle} negativosFilas={filasNovedad} encabezadoId={encabezadoId} comentarios={comentarios} />
       ) : tab === "cruce" ? (
@@ -322,7 +341,7 @@ export default function DatoCargadoClient({
           {cruceContable.balanceEncontrado && (
             <ConciliacionEnFirmePanel conciliacion={cruceContable.conciliacion} encabezadoId={encabezadoId} moduloLabel={moduloLabel} />
           )}
-          <CruceTerceroTab cruceTercero={cruceTercero} referenciasMarcas={referenciasMarcas} encabezadoId={encabezadoId} comentarios={comentarios} puedeEditar={puedeEditar} />
+          <CruceTerceroTab cruceTercero={cruceTercero} cuentasPeriodo={cruceContable.cuentasPeriodo ?? []} referenciasMarcas={referenciasMarcas} encabezadoId={encabezadoId} comentarios={comentarios} puedeEditar={puedeEditar} />
         </div>
       ) : tab === "novedades" ? (
         <NovedadesTab novedades={novedades} titulo={tituloPanelNovedades} />
@@ -486,6 +505,8 @@ function ConsolidadoTab({
   clasificadorEtiqueta,
   consolidado,
   cuentas,
+  cuentasPeriodo,
+  periodo,
   nivelCruce,
   homologacionCliente,
   resolucionCliente,
@@ -500,7 +521,12 @@ function ConsolidadoTab({
   clienteId: number;
   clasificadorEtiqueta: string;
   consolidado: ConsolidadoVm[];
+  /** Cuentas de la cédula: lo que el selector ofrece. */
   cuentas: CuentaOpt[];
+  /** Cuentas del plan Russell fuera de la cédula ya asignadas solo para este período. */
+  cuentasPeriodo: CuentaOpt[];
+  /** Período del cargue: el único en que valen las cuentas de fuera de la cédula. */
+  periodo: string;
   nivelCruce: NivelCruce;
   homologacionCliente: HomologacionCliente;
   resolucionCliente: ResolucionCliente;
@@ -515,13 +541,24 @@ function ConsolidadoTab({
   // ahora; los demás módulos conservan el guardado manual explícito sin ningún cambio.
   const esInventarios = moduloCodigo === "INV";
   const [buscando, setBuscando] = useState<string | null>(null); // clasificador cuyo selector de cuenta está abierto
-  // Entorno para resolver lo que el usuario escribe: los subgrupos válidos del módulo y la
-  // homologación del cliente (sin filtrar, para poder avisar cuando cae fuera del módulo).
+  // Cuentas del plan Russell fuera de la cédula que valen solo para este período: las ya
+  // guardadas (servidor) y las que el usuario agrega aquí antes de guardarlas.
+  const [extrasNuevas, setExtrasNuevas] = useState<CuentaOpt[]>([]);
+  const cuentasExtra = useMemo(() => {
+    const porCodigo = new Map(cuentasPeriodo.map((c) => [c.codigo, c]));
+    for (const c of extrasNuevas) if (!porCodigo.has(c.codigo)) porCodigo.set(c.codigo, c);
+    return [...porCodigo.values()];
+  }, [cuentasPeriodo, extrasNuevas]);
+  const codigosExtra = useMemo(() => new Set(cuentasExtra.map((c) => c.codigo)), [cuentasExtra]);
+  const codigosConocidos = useMemo(() => new Set([...cuentas, ...cuentasPeriodo].map((c) => c.codigo)), [cuentas, cuentasPeriodo]);
+  const [consultando, setConsultando] = useState<string | null>(null); // clasificador cuya cuenta se busca en el plan
+  // Entorno para resolver lo que el usuario escribe: las cuentas válidas del módulo (cédula +
+  // las del período) y la homologación del cliente (sin filtrar, para avisar cuando cae fuera).
   const entornoResolucion = useMemo(() => ({
     nivel: nivelCruce,
-    subgruposModulo: new Set(cuentas.map((c) => c.codigo)),
+    subgruposModulo: new Set([...cuentas, ...cuentasExtra].map((c) => c.codigo)),
     homologacionCliente: new Map(Object.entries(resolucionCliente)),
-  }), [cuentas, nivelCruce, resolucionCliente]);
+  }), [cuentas, cuentasExtra, nivelCruce, resolucionCliente]);
   // Cédula MIXTA: un módulo a 4 que además concilia cuentas de 6 (Ingresos 422005).
   const cedulaMixta = nivelCruce === 4 && cuentas.some((c) => c.codigo.length === 6);
   const etiquetaNivel = cedulaMixta ? "4 o 6" : String(nivelCruce);
@@ -552,7 +589,10 @@ function ConsolidadoTab({
   const [seleccion, setSeleccion] = useState<Set<string>>(new Set());
   const [masivoAbierto, setMasivoAbierto] = useState(false);
   const [, startGuardar] = useTransition();
-  const nombrePorCuenta = useMemo(() => new Map(cuentas.map((c) => [c.codigo, c.nombre])), [cuentas]);
+  const nombrePorCuenta = useMemo(() => new Map([...cuentas, ...cuentasExtra].map((c) => [c.codigo, c.nombre])), [cuentas, cuentasExtra]);
+  // Lo último que se ve de las asignaciones, para lo que se agrega tras consultar el servidor.
+  const valoresRef = useRef(valores);
+  useEffect(() => { valoresRef.current = valores; }, [valores]);
 
   // Filtro de VISTA «Todas / Sin cuenta asignada» (solo Inventarios): se basa en la
   // asignación GUARDADA (`guardados`), nunca en la sugerencia de prefill sin confirmar
@@ -586,9 +626,12 @@ function ConsolidadoTab({
   // guardar» hasta que el usuario los toque).
   const autosave = useAutoguardadoConsolidacion(
     async (filas) => {
-      const r = await guardarConsolidacionModuloLote({ clienteId, moduloCodigo, filas });
-      if (r.ok) marcarGuardadas(filas);
-      else notifyError(r.message ?? "No se pudieron guardar los cambios de inventarios.");
+      const r = await guardarConsolidacionModuloLote({ clienteId, moduloCodigo, filas, encabezadoId });
+      if (r.ok) {
+        marcarGuardadas(filas);
+        // Una cuenta del período recién guardada entra al cruce y trae su homologación al recargar.
+        if (filas.some((f) => f.cuentas4.some((c) => !codigosConocidos.has(c)))) router.refresh();
+      } else notifyError(r.message ?? "No se pudieron guardar los cambios de inventarios.");
       return { ok: r.ok === true, message: r.message };
     },
     esInventarios && puedeEditar,
@@ -641,14 +684,56 @@ function ConsolidadoTab({
   // El campo acepta la cuenta Russell (1435) o la del cliente (143505), que se resuelve
   // por su homologación — NUNCA truncando, que es lo que hacía antes y daba otra cuenta
   // en el 25,9% de las homologadas de inventario.
-  const agregarCuenta = (clasificador: string) => {
-    const r = resolverCuenta4(nuevos[clasificador] ?? "", entornoResolucion);
-    if (!r.ok) { notifyError(mensajeResolucion(r, moduloLabel, nivelCruce)); return; }
-    const nuevasCuentas = [...new Set([...(valores[clasificador] ?? []), r.cuenta4])].sort();
+  //
+  // Un código Russell que no es de la cédula ya no se rechaza aquí: se busca en el plan estándar
+  // y, si existe, se asigna solo para el período de este cargue (la cédula no cambia).
+  const sumarCuenta = (clasificador: string, cuenta: string) => {
+    const nuevasCuentas = [...new Set([...(valoresRef.current[clasificador] ?? []), cuenta])].sort();
     setValores((p) => ({ ...p, [clasificador]: nuevasCuentas }));
     anotarAutoguardado(clasificador, nuevasCuentas);
-    setNuevos((p) => ({ ...p, [clasificador]: "" }));
-    if (r.via === "cliente") notifyInfo(`${r.cuentaCliente}${r.nombreCliente ? ` ${r.nombreCliente}` : ""} → R-${r.cuenta4}`);
+  };
+  const registrarCuentaDelPlan = (cuenta: CuentaPlan) => {
+    if (cuenta.deCedula) return;
+    setExtrasNuevas((p) => (p.some((c) => c.codigo === cuenta.codigo) ? p : [...p, { codigo: cuenta.codigo, nombre: cuenta.nombre }]));
+  };
+  const avisoSoloPeriodo = (cuenta: CuentaOpt) =>
+    notifyInfo(
+      `${etiquetaRussell(cuenta.codigo, cuenta.nombre)} no es de la cédula de ${moduloLabel}: vale solo para ${periodo}.`
+      + (esInventarios ? "" : " Pulsa «Guardar» para asignarla."),
+    );
+  const agregarCuenta = (clasificador: string) => {
+    const r = resolverCuenta4(nuevos[clasificador] ?? "", entornoResolucion);
+    if (r.ok) {
+      sumarCuenta(clasificador, r.cuenta4);
+      setNuevos((p) => ({ ...p, [clasificador]: "" }));
+      if (r.via === "cliente") notifyInfo(`${r.cuentaCliente}${r.nombreCliente ? ` ${r.nombreCliente}` : ""} → R-${r.cuenta4}`);
+      return;
+    }
+    const codigo = codigoDelPlanPorConsultar(r, nivelCruce);
+    if (!codigo) {
+      const pista = r.motivo !== "vacia" && r.entrada.length === nivelCruce
+        ? ` Si es la cuenta Russell ${r.entrada}, elígela en «Buscar…» › «Otras cuentas del plan Russell».`
+        : "";
+      notifyError(mensajeResolucion(r, moduloLabel, nivelCruce) + pista);
+      return;
+    }
+    setConsultando(clasificador);
+    void consultarCuentasRussell({ encabezadoId, texto: codigo }).then((res) => {
+      setConsultando(null);
+      if (!res.ok) { notifyError(res.message); return; }
+      const hallada = res.cuentas.find((c) => c.codigo === codigo);
+      if (!hallada) {
+        notifyError(`La cuenta ${codigo} no está en el plan estándar Russell o no se puede asignar en ${moduloLabel}.`);
+        return;
+      }
+      registrarCuentaDelPlan(hallada);
+      sumarCuenta(clasificador, hallada.codigo);
+      setNuevos((p) => ({ ...p, [clasificador]: "" }));
+      if (!hallada.deCedula) avisoSoloPeriodo(hallada);
+    }, () => {
+      setConsultando(null);
+      notifyError("No se pudo consultar el plan estándar Russell. Intenta de nuevo.");
+    });
   };
   const quitarCuenta = (clasificador: string, cod: string) => {
     const nuevasCuentas = (valores[clasificador] ?? []).filter((x) => x !== cod);
@@ -660,7 +745,7 @@ function ConsolidadoTab({
     const cuentas4 = valores[clasificador] ?? [];
     setGuardandoClave(clasificador);
     startGuardar(async () => {
-      const r = await guardarConsolidacionModulo({ clienteId, moduloCodigo, clasificador, cuentas4 });
+      const r = await guardarConsolidacionModulo({ clienteId, moduloCodigo, clasificador, cuentas4, encabezadoId });
       setGuardandoClave(null);
       if (r.ok) {
         marcarGuardadas([{ clasificador, cuentas4 }]);
@@ -675,7 +760,7 @@ function ConsolidadoTab({
     const filas = filasSucias.map((c) => ({ clasificador: c.clasificador, cuentas4: valores[c.clasificador] ?? [] }));
     setGuardandoTodo(true);
     startGuardar(async () => {
-      const r = await guardarConsolidacionModuloLote({ clienteId, moduloCodigo, filas });
+      const r = await guardarConsolidacionModuloLote({ clienteId, moduloCodigo, filas, encabezadoId });
       setGuardandoTodo(false);
       if (r.ok) {
         marcarGuardadas(filas);
@@ -789,6 +874,7 @@ function ConsolidadoTab({
               const sucia = claveSet(asignadas) !== claveSet(guardados[c.clasificador] ?? []);
               const guardandoEsta = guardandoClave === c.clasificador;
               const marcada = seleccion.has(c.clasificador);
+              const conCuentaDelPeriodo = asignadas.some((cod) => codigosExtra.has(cod));
               return (
                 <tr key={c.clasificador} className={`border-t border-ink-100 align-top ${sucia ? "bg-warn-100/20" : marcada ? "bg-blue-50/50" : ""}`}>
                   {puedeEditar && (
@@ -821,16 +907,33 @@ function ConsolidadoTab({
                         {asignadas.length === 0 && <span className="text-[11.5px] font-medium text-warn-700">sin cuenta</span>}
                         {asignadas.map((cod) => {
                           const ctas = homologacionCliente[cod] ?? [];
+                          const delPeriodo = codigosExtra.has(cod);
                           return (
-                            <span key={cod} className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[11.5px] text-blue-800" title={etiquetaRussell(cod, nombrePorCuenta.get(cod))}>
+                            <span
+                              key={cod}
+                              className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11.5px] ${delPeriodo ? "border-warn-500 bg-warn-100/40 text-warn-700" : "border-blue-200 bg-blue-50 text-blue-800"}`}
+                              title={`${etiquetaRussell(cod, nombrePorCuenta.get(cod))}${delPeriodo ? ` · solo ${periodo}` : ""}`}
+                            >
                               <span className="font-semibold">R - {cod}</span>
-                              {nombrePorCuenta.get(cod) && <span className="max-w-[120px] truncate text-blue-600">{nombrePorCuenta.get(cod)}</span>}
-                              {ctas.length === 0 && <span className="font-bold text-warn-700" title="El cliente no tiene cuentas homologadas a este subgrupo">⚠</span>}
-                              {puedeEditar && <button type="button" onClick={() => quitarCuenta(c.clasificador, cod)} className="text-blue-400 hover:text-err-700" title="Quitar">×</button>}
+                              {nombrePorCuenta.get(cod) && <span className={`max-w-[120px] truncate ${delPeriodo ? "" : "text-blue-600"}`}>{nombrePorCuenta.get(cod)}</span>}
+                              {delPeriodo && <span className="text-[10px] font-semibold uppercase tracking-wide">solo {periodo}</span>}
+                              {ctas.length === 0 && codigosConocidos.has(cod) && <span className="font-bold text-warn-700" title="El cliente no tiene cuentas homologadas a este subgrupo">⚠</span>}
+                              {puedeEditar && <button type="button" onClick={() => quitarCuenta(c.clasificador, cod)} className={`${delPeriodo ? "text-warn-700/60" : "text-blue-400"} hover:text-err-700`} title="Quitar">×</button>}
                             </span>
                           );
                         })}
                       </div>
+                      {conCuentaDelPeriodo ? (
+                        <div className="text-[10.5px] leading-snug text-warn-700">
+                          Esta asignación vale solo para {periodo}; los demás meses siguen con la memoria del cliente.
+                        </div>
+                      ) : c.soloPeriodo ? (
+                        <div className="text-[10.5px] leading-snug text-warn-700">
+                          {sucia
+                            ? "Sin cuentas de fuera de la cédula, al guardar esta asignación pasa a la memoria del cliente y vale para todos los meses."
+                            : `Asignación guardada solo para ${periodo}.`}
+                        </div>
+                      ) : null}
                       {c.sugerencia && (
                         <SugerenciaConcepto
                           s={c.sugerencia}
@@ -850,7 +953,9 @@ function ConsolidadoTab({
                             <span className="font-semibold text-ink-600">R-{cod} →</span>{" "}
                             {ctas.length
                               ? ctas.map((x) => `${x.codigo} ${x.nombre}`).join("  ·  ")
-                              : <span className="font-medium text-warn-700">el cliente no tiene cuentas homologadas a esta cuenta Russell</span>}
+                              : codigosConocidos.has(cod)
+                                ? <span className="font-medium text-warn-700">el cliente no tiene cuentas homologadas a esta cuenta Russell</span>
+                                : <span className="italic">las cuentas del cliente se ven al guardar</span>}
                           </div>
                         );
                       })}
@@ -863,10 +968,12 @@ function ConsolidadoTab({
                             onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); agregarCuenta(c.clasificador); } }}
                             placeholder={nivelCruce === 6 ? `${cuentas[0]?.codigo ?? "510506"} o ${cuentas[0]?.codigo ?? "510506"}01` : cedulaMixta ? `${cuentas.find((x) => x.codigo.length === 4)?.codigo ?? "4135"} o ${cuentas.find((x) => x.codigo.length === 6)?.codigo ?? "422005"}` : "1435 o 143505"}
                             inputMode="numeric"
-                            title={`Escribe la cuenta Russell de ${etiquetaNivel} dígitos o la cuenta del cliente: se resuelve por su homologación`}
+                            title={`Escribe la cuenta Russell de ${etiquetaNivel} dígitos o la cuenta del cliente: se resuelve por su homologación. Una cuenta Russell de fuera de la cédula vale solo para ${periodo}.`}
                             className="w-24 rounded-md border border-ink-200 bg-white px-2 py-1 text-[12px] tabular-nums text-ink-700 outline-none focus:border-blue-400"
                           />
-                          <button type="button" onClick={() => agregarCuenta(c.clasificador)} className="rounded-md border border-ink-300 bg-white px-2 py-1 text-[11px] font-semibold text-ink-600 hover:bg-blue-50 hover:text-blue-700">+ cuenta</button>
+                          <button type="button" disabled={consultando === c.clasificador} onClick={() => agregarCuenta(c.clasificador)} className="rounded-md border border-ink-300 bg-white px-2 py-1 text-[11px] font-semibold text-ink-600 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-wait disabled:opacity-60">
+                            {consultando === c.clasificador ? "Buscando…" : "+ cuenta"}
+                          </button>
                           <button type="button" onClick={() => setBuscando(c.clasificador)} className="rounded-md border border-blue-300 bg-white px-2 py-1 text-[11px] font-semibold text-blue-700 hover:bg-blue-50">Buscar…</button>
                           {esInventarios ? (
                             // Inventarios se autoguarda: sin botón manual. El estado global
@@ -906,6 +1013,15 @@ function ConsolidadoTab({
           cuentas={cuentas}
           homologacionCliente={homologacionCliente}
           asignadas={new Set(valores[buscando] ?? [])}
+          delPlan={{
+            encabezadoId,
+            periodo,
+            cuentasExtra,
+            onRegistrar: (cuenta) => {
+              registrarCuentaDelPlan(cuenta);
+              if (!cuenta.deCedula) avisoSoloPeriodo(cuenta);
+            },
+          }}
           onToggle={(cod) => {
             const set = new Set(valores[buscando] ?? []);
             if (set.has(cod)) set.delete(cod); else set.add(cod);
@@ -1004,6 +1120,128 @@ function TodasLasCuentas({ cuentas, marcadas, onTodas }: { cuentas: CuentaOpt[];
   );
 }
 
+/**
+ * Qué hace falta para ofrecer, además de la cédula, cualquier cuenta del plan estándar Russell
+ * (solo para el período del cargue).
+ */
+type DelPlanRussell = {
+  encabezadoId: number;
+  periodo: string;
+  /** Cuentas de fuera de la cédula ya en uso este período (guardadas o recién agregadas). */
+  cuentasExtra: CuentaOpt[];
+  /** Registra una cuenta hallada en el plan antes de marcarla. */
+  onRegistrar: (cuenta: CuentaPlan) => void;
+};
+
+// Código que vale la pena buscar en el plan estándar Russell cuando el resolutor no lo halló en la
+// cédula: solo lo que el usuario escribió como cuenta Russell del nivel del módulo. Una cuenta del
+// cliente homologada a otra cuenta NO se convierte sola en cuenta del período (así se evita cruzar
+// contra otra clase contable en silencio); esa se elige a mano en «Buscar…».
+function codigoDelPlanPorConsultar(r: Extract<ResolucionCuenta4, { ok: false }>, nivel: NivelCruce): string | null {
+  if (r.motivo === "no-encontrada") return r.entrada.length === nivel ? r.entrada : null;
+  if (r.motivo === "fuera-del-modulo") return r.entrada.length === nivel && r.cuenta4Real === r.entrada ? r.entrada : null;
+  return null;
+}
+
+// Búsqueda en el plan estándar Russell, fuera de la cédula: lo elegido vale solo para el período.
+function OtrasCuentasPlan({
+  delPlan,
+  homologacionCliente,
+  asignadas,
+  onToggle,
+}: {
+  delPlan: DelPlanRussell;
+  homologacionCliente: HomologacionCliente;
+  asignadas: Set<string>;
+  onToggle: (codigo: string) => void;
+}) {
+  const [q, setQ] = useState("");
+  const [resultado, setResultado] = useState<{ texto: string; cuentas: CuentaPlan[] } | null>(null);
+  const [buscando, startBuscar] = useTransition();
+  const buscar = () => {
+    const texto = q.trim();
+    const soloDigitos = /^\d+$/.test(texto.replace(/\s/g, ""));
+    if (soloDigitos ? texto.replace(/\D/g, "").length < 2 : texto.length < 3) {
+      notifyError("Escribe al menos 2 dígitos del código o 3 letras del nombre.");
+      return;
+    }
+    startBuscar(async () => {
+      const r = await consultarCuentasRussell({ encabezadoId: delPlan.encabezadoId, texto });
+      if (!r.ok) { notifyError(r.message); return; }
+      setResultado({ texto, cuentas: r.cuentas });
+    });
+  };
+  const codigosExtra = new Set(delPlan.cuentasExtra.map((c) => c.codigo));
+  // Primero las de fuera de la cédula que ya usa este renglón; luego lo hallado (sin repetir).
+  const enUso = delPlan.cuentasExtra.filter((c) => asignadas.has(c.codigo));
+  const halladas = (resultado?.cuentas ?? []).filter((c) => !c.deCedula && !(asignadas.has(c.codigo) && codigosExtra.has(c.codigo)));
+  const deCedula = (resultado?.cuentas ?? []).filter((c) => c.deCedula).length;
+  const fila = (c: CuentaOpt, alMarcar: () => void) => {
+    const on = asignadas.has(c.codigo);
+    const ctas = homologacionCliente[c.codigo] ?? [];
+    return (
+      <label key={c.codigo} className={`flex cursor-pointer items-start gap-2.5 border-b border-ink-50 px-3 py-2 last:border-0 ${on ? "bg-warn-100/30" : "hover:bg-ink-50"}`}>
+        <input type="checkbox" checked={on} onChange={alMarcar} className="mt-0.5 h-4 w-4 shrink-0" />
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-1.5 text-[12.5px] font-semibold text-ink-800">
+            R - {c.codigo}{c.nombre ? ` · ${c.nombre}` : ""}
+            <ChipSoloPeriodo periodo={delPlan.periodo} />
+          </div>
+          {ctas.length > 0 && (
+            <div className="text-[11px] leading-snug text-ink-500">
+              <span className="font-medium text-ink-600">Cliente:</span> {ctas.map((x) => `${x.codigo} ${x.nombre}`).join("  ·  ")}
+            </div>
+          )}
+        </div>
+      </label>
+    );
+  };
+  return (
+    <div className="mt-2 flex flex-col gap-2 border-t border-ink-100 pt-3">
+      <div>
+        <div className="text-[12.5px] font-semibold text-ink-800">Otras cuentas del plan Russell (solo {delPlan.periodo})</div>
+        <p className="text-[11px] leading-snug text-ink-500">
+          Una cuenta que no está en la cédula del módulo se asigna solo para este cliente y este período: entra al cruce
+          contable y al cruce por tercero de {delPlan.periodo}. La cédula y los demás meses no cambian.
+        </p>
+      </div>
+      <div className="flex gap-2">
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); buscar(); } }}
+          placeholder="Código o nombre de la cuenta Russell…"
+          className="min-w-0 flex-1 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12.5px] text-ink-700 outline-none focus:border-blue-400"
+        />
+        <button
+          type="button"
+          onClick={buscar}
+          disabled={buscando}
+          className="rounded-md border border-blue-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-blue-700 hover:bg-blue-50 disabled:cursor-wait disabled:opacity-60"
+        >
+          {buscando ? "Buscando…" : "Buscar en el plan"}
+        </button>
+      </div>
+      {(enUso.length > 0 || resultado) && (
+        <div className="max-h-[40vh] overflow-y-auto rounded-md border border-ink-150">
+          {enUso.map((c) => fila(c, () => onToggle(c.codigo)))}
+          {halladas.map((c) => fila(c, () => {
+            if (!asignadas.has(c.codigo)) delPlan.onRegistrar(c);
+            onToggle(c.codigo);
+          }))}
+          {resultado && halladas.length === 0 && (
+            <div className="px-3 py-3 text-center text-[12px] text-ink-400">
+              {deCedula > 0
+                ? `Lo hallado para «${resultado.texto}» ya es de la cédula: márcalo en la lista de arriba.`
+                : `Sin cuentas del plan Russell para «${resultado.texto}».`}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Selector de cuenta Russell del módulo para UNA fila (edita el conjunto en vivo).
 function ModalCuentas({
   clasificador,
@@ -1011,6 +1249,7 @@ function ModalCuentas({
   cuentas,
   homologacionCliente,
   asignadas,
+  delPlan,
   onToggle,
   onTodas,
   onClose,
@@ -1020,6 +1259,8 @@ function ModalCuentas({
   cuentas: CuentaOpt[];
   homologacionCliente: HomologacionCliente;
   asignadas: Set<string>;
+  /** Búsqueda en el plan Russell fuera de la cédula (solo para el período). */
+  delPlan: DelPlanRussell;
   onToggle: (codigo: string) => void;
   onTodas: (activar: boolean) => void;
   onClose: () => void;
@@ -1033,6 +1274,7 @@ function ModalCuentas({
           <TodasLasCuentas cuentas={cuentas} marcadas={todasMarcadas} onTodas={onTodas} />
         )}
         <ListaCuentasRussell cuentas={cuentas} homologacionCliente={homologacionCliente} asignadas={asignadas} onToggle={onToggle} />
+        <OtrasCuentasPlan delPlan={delPlan} homologacionCliente={homologacionCliente} asignadas={asignadas} onToggle={onToggle} />
         <p className="text-[11px] text-ink-400">Al cerrar, recuerda pulsar «Guardar» en la fila para persistir los cambios.</p>
       </div>
     </Modal>
@@ -1305,6 +1547,8 @@ function CruceContableTab({
     });
   const [quitando, startQuitar] = useTransition();
   const moduloEnMinuscula = moduloLabel.toLocaleLowerCase("es");
+  // Cuentas fuera de la cédula que el Consolidado asignó solo para este período.
+  const cuentasPeriodo = new Set(cruceContable.cuentasPeriodo ?? []);
 
   const panelFirme = cruceContable.conciliacion.cierre?.enFirme
     ? <ConciliacionEnFirmePanel conciliacion={cruceContable.conciliacion} encabezadoId={encabezadoId} moduloLabel={moduloLabel} />
@@ -1454,6 +1698,7 @@ function CruceContableTab({
                                 <span className="inline-block w-[18px]" />
                               )}
                               {etiquetaRussell(renglon.cuenta, renglon.nombre)}
+                              {cuentasPeriodo.has(renglon.cuenta) && <ChipSoloPeriodo periodo={cruceContable.periodo} />}
                               {agrupada && (
                                 <span title={`Agrupada: ${f.clasificadores?.join(", ") ?? "el clasificador"} está asignado a varias cuentas y se concilia contra la suma de ellas.`}>
                                   <Chip label={f.clasificadores?.length ? `Agrupada · ${f.clasificadores.join(", ")}` : "Agrupada"} tone="blue" />

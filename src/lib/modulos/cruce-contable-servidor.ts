@@ -14,6 +14,7 @@ import prisma from "@/lib/prisma";
 import { fmtDateTime } from "@/lib/format";
 import { descriptorModulo, bloqueoCrucePorVerificacionesCriticasModulo, type DescriptorModulo } from "@/lib/modulos/descriptores";
 import {
+  baseDelPeriodo,
   cedulaModulo,
   claveCedula,
   cuentasCedula6,
@@ -22,9 +23,10 @@ import {
   entradasValorRelacionado,
   fueraDeListaCedula,
   ordenClaveCedula,
-  prefijosCuentaModulo,
   subgruposCedula,
 } from "@/lib/modulos/cuentas-modulo";
+import { cedulaDelCargue, type FilaAsignacionPeriodo } from "@/lib/modulos/asignacion-periodo";
+import { cargarConsolidacionDelPeriodo } from "@/lib/modulos/asignacion-periodo-servidor";
 import { consolidarPorClasificador } from "@/lib/modulos/promocion";
 import { construirCruceContable, type HijoContableCruce, type ResumenCruceContable } from "@/lib/modulos/cruce-contable";
 import { anotarCruceConMarcas, type FilaCruceMarcada, type MarcaCruce, type ResumenMarcas } from "@/lib/modulos/marcas-cruce";
@@ -71,7 +73,9 @@ export type InsumosCruceModulo = {
   };
   /**
    * `cuenta6` solo importa en los módulos que cruzan a 6 dígitos (`nivelCruce: 6`); las demás
-   * columnas (agrupador, grupo, subcuenta, cuenta del cliente) solo las usa Nómina.
+   * columnas (agrupador, grupo, subcuenta, cuenta del cliente) solo las usa Nómina. Es el
+   * Consolidado DEL PERÍODO: la memoria del cliente con la asignación del período encima
+   * (`cargarConsolidacionDelPeriodo`).
    */
   consolidacionRows: {
     clasificador: string;
@@ -82,7 +86,13 @@ export type InsumosCruceModulo = {
     grupo?: string | null;
     subcuentaPuc?: string | null;
     cuentaCliente?: string | null;
+    soloPeriodo?: boolean;
   }[];
+  /**
+   * Asignación del período (`asignacion_periodo_modulo`): sus cuentas fuera de la cédula la amplían
+   * solo para este cliente y período (`cedulaDelCargue`).
+   */
+  asignacionesPeriodo: readonly FilaAsignacionPeriodo[];
   subgrupos: { codigo: string; nombre: string }[];
   /**
    * Cuentas estándar de 6 dígitos (nombre de cada renglón de una cédula a ese nivel).
@@ -135,6 +145,8 @@ export type ResultadoCruceModulo = {
   fueraDelModulo: { total: number; filas: number; porCuenta: Record<string, number> } | null;
   /** Solo Nómina: rango, base contable, vista por subcuenta, control de deducciones y repartos. */
   nomina: ResultadoCruceNomina | null;
+  /** Cuentas que el usuario agregó solo para este período (fuera de la cédula del módulo). */
+  cuentasPeriodo: string[];
 };
 
 export type { ResultadoCruceNomina, RepartoPendienteVm } from "@/lib/modulos/nomina/cruce-nomina";
@@ -158,22 +170,20 @@ export async function cargarInsumosCruceModulo(encabezadoId: number): Promise<In
   // Cartera/CxP son cientos de miles de filas y no se lee.
   // La depreciación de Activos fijos (valor relacionado) también vive en `datos`.
   const conDatos = descriptor?.nomina != null || descriptor?.cedula?.valorRelacionado != null;
-  const [detalles, consolidacionRows, subgrupos, cuentasEstandar, catalogoPrevalidador] = await Promise.all([
+  const [detalles, consolidacion, subgrupos, catalogoPrevalidador] = await Promise.all([
     prisma.moduloDatoDetalle.findMany({ where: { encabezadoId }, select: { clasificador: true, valor: true, datos: conDatos, imputable: true }, orderBy: { filaNum: "asc" } }),
-    prisma.consolidacionModuloCliente.findMany({
-      where: { clienteId: encabezado.clienteId, moduloCodigo: encabezado.moduloCodigo },
-      select: { clasificador: true, cuenta4: true, cuenta6: true, agrupador: true, descripcion: true, grupo: true, subcuentaPuc: true, cuentaCliente: true },
-    }),
+    cargarConsolidacionDelPeriodo(encabezado.clienteId, encabezado.moduloCodigo, encabezado.periodo),
     prisma.subgrupoEstandar.findMany({ select: { codigo: true, nombre: true }, orderBy: { codigo: "asc" } }),
-    cargarCuentasEstandarDeCedula(descriptor),
     getCatalogoPrevalidador(),
   ]);
+  const cuentasEstandar = await cargarCuentasEstandarDeCedula(descriptor, consolidacion.filasPeriodo.map((f) => f.cuenta6));
   return {
     encabezado: {
       ...encabezado,
       detalles: detalles.map((d) => ({ clasificador: d.clasificador, valor: Number(d.valor), imputable: d.imputable, ...(conDatos ? { datos: (d.datos ?? {}) as Record<string, unknown> } : {}) })),
     },
-    consolidacionRows,
+    consolidacionRows: consolidacion.filas,
+    asignacionesPeriodo: consolidacion.filasPeriodo,
     subgrupos,
     cuentasEstandar,
     catalogoPrevalidador,
@@ -221,10 +231,16 @@ export async function cargarCuentasEstandarCruce(cuentasRussell6?: readonly stri
 /**
  * Cuentas de 6 que nombran los renglones de 6 de la cédula del módulo: su lista, sus adicionales
  * o, con un subgrupo abierto, todo el plan. Una cédula solo de 4 no carga nada. Qué se carga no
- * depende de los prefijos, así que se resuelve sin el catálogo.
+ * depende de los prefijos, así que se resuelve sin el catálogo. `delPeriodo` suma las cuentas de 6
+ * que el usuario asignó solo para el período (sin ellas, sus renglones saldrían sin nombre).
  */
-export async function cargarCuentasEstandarDeCedula(descriptor: DescriptorModulo | null | undefined): Promise<{ codigo: string; nombre: string }[]> {
-  const codigos = cuentas6ACargarCedula(cedulaModulo(descriptor, []));
+export async function cargarCuentasEstandarDeCedula(
+  descriptor: DescriptorModulo | null | undefined,
+  delPeriodo: readonly string[] = [],
+): Promise<{ codigo: string; nombre: string }[]> {
+  const base = cuentas6ACargarCedula(cedulaModulo(descriptor, []));
+  const extras = delPeriodo.map((c) => c.replace(/\D/g, "")).filter((c) => c.length === 6);
+  const codigos = base ? [...new Set([...base, ...extras])] : null;
   if (codigos && codigos.length === 0) return [];
   return cargarCuentasEstandarCruce(codigos);
 }
@@ -234,7 +250,7 @@ export async function cargarCuentasEstandarDeCedula(descriptor: DescriptorModulo
  * prevalidador, agregado contable por cuenta Russell de 4 díg., cédula y marcas.
  */
 export async function construirCruceContableModulo(insumos: InsumosCruceModulo): Promise<ResultadoCruceModulo> {
-  const { encabezado, consolidacionRows, subgrupos, cuentasEstandar, catalogoPrevalidador } = insumos;
+  const { encabezado, consolidacionRows, asignacionesPeriodo, subgrupos, cuentasEstandar, catalogoPrevalidador } = insumos;
   const moduloCodigo = encabezado.moduloCodigo;
   const descriptor = descriptorModulo(moduloCodigo);
   if (!descriptor) {
@@ -243,9 +259,10 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
   // Clave de la cédula: el subgrupo (4), la cuenta Russell completa (6) o una mezcla (Activos
   // fijos abre la 1592; Ingresos suma la 422005). Una homologación del cliente que no llegue al
   // nivel (cuenta4 sin cuenta6 donde toca 6) deja el clasificador «sin cuenta»: no se adivina la
-  // cuenta completa a partir del subgrupo.
-  const prefijosModulo = prefijosCuentaModulo(moduloCodigo, catalogoPrevalidador);
-  const cedula = cedulaModulo(descriptor, prefijosModulo);
+  // cuenta completa a partir del subgrupo. Es la cédula DEL PERÍODO: la del módulo más las cuentas
+  // que el usuario asignó solo para este cliente y período, con la base del módulo.
+  const { cedula, extras: cuentasPeriodo } = cedulaDelCargue(descriptor, moduloCodigo, catalogoPrevalidador, asignacionesPeriodo);
+  const prefijosModulo = cedula.prefijos;
   const nivel = cedula.nivel;
 
   const cuentasPorClasificador = new Map<string, string[]>();
@@ -276,7 +293,7 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
         memoria: consolidacionRows.map((r) => ({ ...r, agrupador: r.agrupador ?? "", cuenta6: r.cuenta6 ?? "" })),
         reglasClase: insumosNomina.reglasClase,
         mapeoCliente: insumosNomina.mapeoCliente,
-        cuentasRussell6: cuentasCedula6(descriptor),
+        cuentasRussell6: cuentasCedula6(descriptor, cuentasPeriodo),
       })
     : null;
   const formalNomina = consolidadoNomina && insumosNomina ? entradasCruceFormalNomina(consolidadoNomina.renglones, insumosNomina.repartos) : null;
@@ -379,9 +396,10 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
         const digitos = d.cuenta6Russell.replace(/\D/g, "");
         const sub4 = digitos.slice(0, 4);
         const russell6 = digitos.length >= 6 ? digitos.slice(0, 6) : "";
-        const baseAdicional = cedula.adicionales.get(russell6);
-        // Una cuenta adicional entra aunque su subgrupo no sea del prevalidador; el resto de ese
-        // subgrupo (422010 en Ingresos) no es del módulo y se ignora como siempre.
+        // Una cuenta adicional (o del período) entra aunque su subgrupo no sea del prevalidador y se
+        // lee con su propia base; el resto de ese subgrupo (422010 en Ingresos) no es del módulo y
+        // se ignora como siempre.
+        const baseAdicional = cedula.adicionales.get(russell6) ?? baseDelPeriodo(cedula, russell6, sub4);
         if (!codigosModulo.has(sub4) || (!baseAdicional && !cuenta4DelModulo(sub4, prefijosModulo))) continue;
         const calculo = calcularValorContableModulo({
           moduloCodigo,
@@ -518,6 +536,7 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
         }
       : null,
     nomina: nomina ?? (consolidadoNomina && rango ? { rango, base: baseNomina, vistaSubcuenta: null, control: null, repartosPendientes: [], repartos: insumosNomina?.repartos ?? [], repartidos: 0, renglones: consolidadoNomina.renglones } : null),
+    cuentasPeriodo,
   };
 }
 
@@ -536,5 +555,6 @@ function vacio(balanceEmparejado: BalanceFuenteCruce | null, bloqueo: string | n
     resumenMarcas: null,
     fueraDelModulo: null,
     nomina: null,
+    cuentasPeriodo: [],
   };
 }

@@ -1720,6 +1720,34 @@ model ConsolidacionModuloCliente {
   @@map("consolidacion_modulo_cliente")
 }
 
+/// ASIGNACIÓN DEL PERÍODO de un clasificador del Consolidado que incluye al menos una cuenta
+/// Russell FUERA de la cédula del módulo (p. ej. un giro financiado de CxP contra 210510). Vale
+/// solo para (cliente, módulo, período): para ese período reemplaza la memoria del cliente de
+/// ese clasificador (`consolidacion_modulo_cliente`) y los demás meses siguen con la memoria.
+/// Las cuentas fuera de la cédula que aparecen aquí amplían la cédula SOLO de ese período
+/// (`cedulaDelPeriodo`): el cruce contable trae su saldo, el cruce por tercero sus terceros y
+/// el cierre las deja en firme. Ni la cédula del descriptor ni el prevalidador cambian.
+model AsignacionPeriodoModulo {
+  id           Int      @id @default(autoincrement()) @map("id")
+  clienteId    Int      @map("cliente_id") // FK suave → clientes
+  moduloCodigo String   @map("modulo_codigo")
+  /// Etiqueta del período, la misma de `modulo_dato_encabezado.periodo` («2025-12»).
+  periodo      String   @map("periodo")
+  clasificador String   @map("clasificador")
+  /// Centro de costo / grupo del archivo (Nómina); '' en los demás módulos.
+  agrupador    String   @default("") @map("agrupador")
+  cuenta4      String   @map("cuenta_4")
+  /// Cuenta de 6 dígitos en los módulos que cruzan a ese nivel; '' en los de 4.
+  cuenta6      String   @default("") @map("cuenta_6")
+  creadoPor    String?  @map("creado_por")
+  creadoPorId  Int?     @map("creado_por_id") // FK suave → usuarios
+  creadoEn     DateTime @default(now()) @map("creado_en") @db.Timestamptz(3)
+
+  @@unique([clienteId, moduloCodigo, periodo, clasificador, agrupador, cuenta4, cuenta6], map: "asignacion_periodo_modulo_unica")
+  @@index([clienteId, moduloCodigo, periodo], map: "asignacion_periodo_modulo_periodo_idx")
+  @@map("asignacion_periodo_modulo")
+}
+
 /// CLASE contable por AGRUPADOR del archivo de un módulo (Nómina): «GYA → 51, MOD → 72, MOI → 73»
 /// (Buk), «CP → 72, GV → 52, GA → 51» (SIESA). El agrupador decide la clase de gasto (51
 /// administración, 52 ventas, 72 mano de obra directa, 73 indirecta) y el concepto homologado

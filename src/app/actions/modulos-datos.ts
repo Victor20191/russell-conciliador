@@ -34,6 +34,12 @@ import {
   prefijosCuentaModulo,
   type CedulaModulo,
 } from "@/lib/modulos/cuentas-modulo";
+import {
+  cedulaDelCargue,
+  filasPeriodoDeCuentas,
+  llaveAsignacion,
+  separarCuentasCedula,
+} from "@/lib/modulos/asignacion-periodo";
 import { SpecModuloSchema, type SpecModulo } from "@/lib/modulos/extraccion/esquema";
 import {
   encabezadoValorIngresoAmbiguo,
@@ -2035,15 +2041,6 @@ async function cedulaDelModulo(moduloCodigo: string, descriptor: DescriptorModul
   return cedulaModulo(descriptor, prefijosCuentaModulo(moduloCodigo, await getCatalogoPrevalidador()));
 }
 
-// Normaliza + deduplica un conjunto de cuentas de un clasificador, a las longitudes que la
-// cédula admite (4, 6, o ambas en una cédula mixta como la de Ingresos). NUNCA trunca: una
-// cuenta de otra longitud se descarta y la validación la delata, en vez de convertirla en
-// silencio en otra cuenta.
-function normalizarCuentasCruce(cuentas: string[], cedula: CedulaModulo): string[] {
-  const longitudes = longitudesCedula(cedula);
-  return [...new Set((cuentas ?? []).map((c) => String(c ?? "").replace(/\D/g, "")).filter((c) => longitudes.has(c.length)))];
-}
-
 // Valida que TODAS las cuentas del conjunto sean asignables en la cédula del módulo (una vez).
 // Las de 6 dígitos tienen que existir además en el plan estándar.
 async function validarCuentasModulo(moduloCodigo: string, cuentas: string[], cedula: CedulaModulo, entradas: number): Promise<ActionState | null> {
@@ -2129,8 +2126,14 @@ async function memoriaGuardada(clienteId: number, moduloCodigo: string, claves: 
 }
 
 // Bitácora de la consolidación: una sola pulsación puede reescribir decenas de
-// clasificadores (asignación masiva), así que queda registrado el alcance.
-async function auditarConsolidacion(clienteId: number, moduloCodigo: string, filas: { cuentas4: string[] }[]) {
+// clasificadores (asignación masiva), así que queda registrado el alcance. Las cuentas que
+// quedan solo para el período se nombran con su período.
+async function auditarConsolidacion(
+  clienteId: number,
+  moduloCodigo: string,
+  filas: { cuentas4: string[] }[],
+  delPeriodo: { periodo: string; cuentas: string[] } | null = null,
+) {
   const [user, cliente] = await Promise.all([
     getCurrentUser(),
     prisma.client.findUnique({ where: { id: clienteId }, select: { name: true } }),
@@ -2140,13 +2143,154 @@ async function auditarConsolidacion(clienteId: number, moduloCodigo: string, fil
     user: user?.name ?? "Sistema",
     action: "ACTUALIZÓ consolidación de módulo",
     entity: cliente?.name ?? `Cliente ${clienteId}`,
-    detail: `${moduloCodigo} · ${filas.length} clasificador(es) · ${cuentas} cuenta(s)`,
+    detail: `${moduloCodigo} · ${filas.length} clasificador(es) · ${cuentas} cuenta(s)`
+      + (delPeriodo && delPeriodo.cuentas.length ? ` · solo ${delPeriodo.periodo}: ${delPeriodo.cuentas.join(", ")}` : ""),
     clientId: clienteId,
   });
 }
 
-/** Guarda el conjunto de cuentas (1..N) de UN clasificador (reemplaza lo anterior). */
-export async function guardarConsolidacionModulo(input: { clienteId: number; moduloCodigo: string; clasificador: string; cuentas4: string[] }): Promise<ActionState> {
+/**
+ * Período del cargue desde el que se guarda el Consolidado. Sale del encabezado, nunca del
+ * navegador; `null` cuando no se indica cargue (entonces no se admiten cuentas del período).
+ */
+async function periodoDelCargue(
+  encabezadoId: number | null | undefined,
+  clienteId: number,
+  moduloCodigo: string,
+): Promise<{ ok: true; periodo: string | null } | { ok: false; message: string }> {
+  if (encabezadoId == null) return { ok: true, periodo: null };
+  if (!Number.isInteger(encabezadoId) || encabezadoId <= 0) return { ok: false, message: "Cargue inválido." };
+  const encabezado = await prisma.moduloDatoEncabezado.findUnique({
+    where: { id: encabezadoId },
+    select: { clienteId: true, moduloCodigo: true, periodo: true },
+  });
+  if (!encabezado || encabezado.clienteId !== clienteId || encabezado.moduloCodigo !== moduloCodigo) {
+    return { ok: false, message: "El cargue no corresponde a este cliente y módulo. Recarga la página." };
+  }
+  return { ok: true, periodo: encabezado.periodo };
+}
+
+type FilaConsolidacionGuardar = { clave: string; clasificador: string; agrupador: string; cuentas: string[] };
+
+/**
+ * Guarda las cuentas de varios renglones del Consolidado. Por renglón:
+ *  - solo cuentas de la cédula → memoria del cliente (todos los períodos), como siempre, y se
+ *    retira la asignación del período que tuviera (vuelve a regir la memoria);
+ *  - alguna cuenta del plan Russell fuera de la cédula → asignación SOLO del período del cargue
+ *    (`asignacion_periodo_modulo`) con todas sus cuentas; la memoria del cliente no se toca.
+ * Con la conciliación del período en firme no se crean, cambian ni quitan asignaciones del período.
+ */
+async function guardarConsolidacion(args: {
+  clienteId: number;
+  moduloCodigo: string;
+  descriptor: DescriptorModulo;
+  periodo: string | null;
+  filas: FilaConsolidacionGuardar[];
+  contexto: string;
+}): Promise<ActionState> {
+  const { clienteId, moduloCodigo, descriptor, periodo, filas } = args;
+  const cedula = await cedulaDelModulo(moduloCodigo, descriptor);
+  const longitudes = [...longitudesCedula(cedula)].sort().join(" o ");
+  const separadas = filas.map((f) => ({ ...f, ...separarCuentasCedula(cedula, f.cuentas) }));
+
+  const invalida = separadas.flatMap((f) => f.invalidas)[0];
+  if (invalida) {
+    return {
+      ok: false,
+      message: cedula.abiertos.has(invalida.slice(0, 4))
+        ? `Las cuentas de ${invalida.slice(0, 4)} no se asignan: salen de la relación con el activo.`
+        : `La cuenta ${invalida} no sirve: usa una cuenta Russell de ${longitudes} dígitos.`,
+    };
+  }
+  const extras = [...new Set(separadas.flatMap((f) => f.extras))].sort();
+  if (extras.length > 0 && !periodo) {
+    return { ok: false, message: `La cuenta ${extras[0]} no es de la cédula de ${descriptor.label}: asígnala desde el cargue del período, donde vale solo para ese período.` };
+  }
+  const deCedula = [...new Set(separadas.flatMap((f) => f.deCedula))];
+  const invalidaCedula = await validarCuentasModulo(moduloCodigo, deCedula, cedula, deCedula.length);
+  if (invalidaCedula) return invalidaCedula;
+  if (extras.length > 0) {
+    const seis = extras.filter((c) => c.length === 6);
+    const cuatro = extras.filter((c) => c.length === 4);
+    const [plan, subgrupos] = await Promise.all([
+      seis.length ? prisma.standardAccount.findMany({ where: { code: { in: seis } }, select: { code: true } }) : Promise.resolve([]),
+      cuatro.length ? prisma.subgrupoEstandar.findMany({ where: { codigo: { in: cuatro } }, select: { codigo: true } }) : Promise.resolve([]),
+    ]);
+    const conocidas = new Set([...plan.map((p) => p.code), ...subgrupos.map((s) => s.codigo)]);
+    const inexistente = extras.find((c) => !conocidas.has(c));
+    if (inexistente) return { ok: false, message: `La cuenta ${inexistente} no existe en el plan estándar Russell.` };
+  }
+
+  try {
+    const user = await getCurrentUser();
+    const actor = user?.name ?? null;
+    // Renglones que tocan la asignación del período: los que la crean o cambian, y los que la tenían.
+    const conPeriodoPrevio = periodo
+      ? await prisma.asignacionPeriodoModulo.findMany({
+          where: { clienteId, moduloCodigo, periodo, OR: filas.map((f) => ({ clasificador: f.clasificador, agrupador: f.agrupador })) },
+          select: { clasificador: true, agrupador: true },
+        })
+      : [];
+    const previos = new Set(conPeriodoPrevio.map((p) => llaveAsignacion(p.clasificador, p.agrupador)));
+    const tocanPeriodo = separadas.some((f) => f.extras.length > 0 || previos.has(llaveAsignacion(f.clasificador, f.agrupador)));
+    if (periodo && tocanPeriodo) {
+      const cierre = await prisma.conciliacionModuloCierre.findFirst({
+        where: { clienteId, moduloCodigo, periodo, estado: ESTADO_CIERRE_FIRME },
+        select: { id: true },
+      });
+      if (cierre) return { ok: false, message: `La conciliación de ${periodo} está en firme: desbloquéala para cambiar las cuentas que valen solo para ese período.` };
+    }
+
+    const memoria = await memoriaGuardada(clienteId, moduloCodigo, filas.map((f) => f.clave));
+    await prisma.$transaction(
+      separadas.flatMap((f) => {
+        const delRenglon = periodo ? { clienteId, moduloCodigo, periodo, clasificador: f.clasificador, agrupador: f.agrupador } : null;
+        if (f.extras.length === 0) {
+          return [
+            ...reemplazarCuentasTx(prisma, clienteId, moduloCodigo, f.clasificador, f.deCedula, actor, memoria.get(f.clave) ?? null, f.agrupador),
+            ...(delRenglon && previos.has(llaveAsignacion(f.clasificador, f.agrupador)) ? [prisma.asignacionPeriodoModulo.deleteMany({ where: delRenglon })] : []),
+          ];
+        }
+        return [
+          prisma.asignacionPeriodoModulo.deleteMany({ where: delRenglon! }),
+          prisma.asignacionPeriodoModulo.createMany({
+            data: filasPeriodoDeCuentas(f.clasificador, f.agrupador, [...f.deCedula, ...f.extras]).map((fila) => ({
+              ...fila,
+              clienteId,
+              moduloCodigo,
+              periodo: periodo!,
+              creadoPor: actor,
+              creadoPorId: user?.id ?? null,
+            })),
+          }),
+        ];
+      }),
+    );
+    await auditarConsolidacion(
+      clienteId,
+      moduloCodigo,
+      separadas.map((f) => ({ cuentas4: [...f.deCedula, ...f.extras] })),
+      periodo ? { periodo, cuentas: extras } : null,
+    );
+    revalidatePath(rutaModulo(moduloCodigo));
+    const base = filas.length === 1 ? "Consolidación guardada." : `${filas.length} consolidaciones guardadas.`;
+    const aviso = extras.length === 0
+      ? ""
+      : ` ${extras.length === 1 ? `La cuenta ${extras[0]} vale` : `Las cuentas ${extras.join(", ")} valen`} solo para ${periodo}.`;
+    return { ok: true, message: base + aviso };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD(args.contexto, e) };
+  }
+}
+
+const digitosCuentas = (cuentas: readonly unknown[] | null | undefined): string[] =>
+  [...new Set((cuentas ?? []).map((c) => String(c ?? "").replace(/\D/g, "")).filter(Boolean))];
+
+/**
+ * Guarda el conjunto de cuentas (1..N) de UN clasificador (reemplaza lo anterior). Con
+ * `encabezadoId`, una cuenta del plan Russell fuera de la cédula vale solo para su período.
+ */
+export async function guardarConsolidacionModulo(input: { clienteId: number; moduloCodigo: string; clasificador: string; cuentas4: string[]; encabezadoId?: number | null }): Promise<ActionState> {
   const moduloCodigo = String(input.moduloCodigo ?? "").trim().toUpperCase();
   const descriptor = descriptorModulo(moduloCodigo);
   if (!descriptor) return { ok: false, message: "Módulo no soportado." };
@@ -2157,22 +2301,16 @@ export async function guardarConsolidacionModulo(input: { clienteId: number; mod
   // el agrupador queda vacío y el clasificador es la clave entera.
   const { clasificador, agrupador } = descriptor.nomina ? partirClaveConsolidado(clave) : { clasificador: clave, agrupador: "" };
   if (!clasificador) return { ok: false, message: "Indica el clasificador." };
-  const cedula = await cedulaDelModulo(moduloCodigo, descriptor);
-  const cuentas4 = normalizarCuentasCruce(input.cuentas4, cedula);
-  const invalida = await validarCuentasModulo(moduloCodigo, cuentas4, cedula, new Set((input.cuentas4 ?? []).map((c) => String(c ?? "").replace(/\D/g, ""))).size);
-  if (invalida) return invalida;
-  try {
-    const user = await getCurrentUser();
-    const memoria = await memoriaGuardada(input.clienteId, moduloCodigo, [clave]);
-    await prisma.$transaction(
-      reemplazarCuentasTx(prisma, input.clienteId, moduloCodigo, clasificador, cuentas4, user?.name ?? null, memoria.get(clave) ?? null, agrupador),
-    );
-    await auditarConsolidacion(input.clienteId, moduloCodigo, [{ cuentas4 }]);
-    revalidatePath(rutaModulo(moduloCodigo));
-    return { ok: true, message: "Consolidación guardada." };
-  } catch (e) {
-    return { ok: false, message: mensajeErrorBD("guardarConsolidacionModulo", e) };
-  }
+  const periodo = await periodoDelCargue(input.encabezadoId, input.clienteId, moduloCodigo);
+  if (!periodo.ok) return periodo;
+  return guardarConsolidacion({
+    clienteId: input.clienteId,
+    moduloCodigo,
+    descriptor,
+    periodo: periodo.periodo,
+    filas: [{ clave, clasificador, agrupador, cuentas: digitosCuentas(input.cuentas4) }],
+    contexto: "guardarConsolidacionModulo",
+  });
 }
 
 /** Guarda de una vez el conjunto de cuentas de varios clasificadores (reemplaza cada uno). */
@@ -2180,6 +2318,7 @@ export async function guardarConsolidacionModuloLote(input: {
   clienteId: number;
   moduloCodigo: string;
   filas: { clasificador: string; cuentas4: string[] }[];
+  encabezadoId?: number | null;
 }): Promise<ActionState> {
   const moduloCodigo = String(input.moduloCodigo ?? "").trim().toUpperCase();
   const descriptor = descriptorModulo(moduloCodigo);
@@ -2187,32 +2326,74 @@ export async function guardarConsolidacionModuloLote(input: {
   const authz = await authorizePermiso("modulos_datos:editar", { clientId: input.clienteId });
   if (!authz.ok) return { ok: false, message: authz.message };
 
-  const cedula = await cedulaDelModulo(moduloCodigo, descriptor);
-  const filas = (input.filas ?? [])
-    .map((f) => ({ clasificador: String(f.clasificador ?? "").trim(), cuentas4: normalizarCuentasCruce(f.cuentas4, cedula) }))
-    .filter((f) => f.clasificador);
   const partir = (clave: string) => (descriptor.nomina ? partirClaveConsolidado(clave) : { clasificador: clave, agrupador: "" });
+  const filas = (input.filas ?? [])
+    .map((f) => {
+      const clave = String(f.clasificador ?? "").trim();
+      return { clave, ...partir(clave), cuentas: digitosCuentas(f.cuentas4) };
+    })
+    .filter((f) => f.clave && f.clasificador);
   if (filas.length === 0) return { ok: false, message: "No hay cambios para guardar." };
+  const periodo = await periodoDelCargue(input.encabezadoId, input.clienteId, moduloCodigo);
+  if (!periodo.ok) return periodo;
+  return guardarConsolidacion({
+    clienteId: input.clienteId,
+    moduloCodigo,
+    descriptor,
+    periodo: periodo.periodo,
+    filas,
+    contexto: "guardarConsolidacionModuloLote",
+  });
+}
 
-  const entradas = new Set((input.filas ?? []).flatMap((f) => (f.cuentas4 ?? []).map((c) => String(c ?? "").replace(/\D/g, "")))).size;
-  const invalida = await validarCuentasModulo(moduloCodigo, [...new Set(filas.flatMap((f) => f.cuentas4))], cedula, entradas);
-  if (invalida) return invalida;
-
+/**
+ * Busca en el plan estándar Russell (por código o nombre) las cuentas que se pueden asignar en el
+ * Consolidado de un cargue: las de la longitud de su cédula. Marca las que ya son de la cédula;
+ * las demás valdrían solo para el período del cargue.
+ */
+export async function consultarCuentasRussell(input: { encabezadoId: number; texto: string }): Promise<
+  { ok: true; cuentas: { codigo: string; nombre: string; deCedula: boolean }[] } | { ok: false; message: string }
+> {
+  const encabezadoId = Number(input?.encabezadoId);
+  if (!Number.isInteger(encabezadoId) || encabezadoId <= 0) return { ok: false, message: "Cargue inválido." };
+  const encabezado = await prisma.moduloDatoEncabezado.findUnique({ where: { id: encabezadoId }, select: { clienteId: true, moduloCodigo: true } });
+  if (!encabezado) return { ok: false, message: "El cargue ya no existe." };
+  const authz = await authorizePermiso("modulos_datos:ver", { clientId: encabezado.clienteId });
+  if (!authz.ok) return { ok: false, message: authz.message };
+  const descriptor = descriptorModulo(encabezado.moduloCodigo);
+  if (!descriptor) return { ok: false, message: "Módulo no soportado." };
+  const texto = String(input?.texto ?? "").trim().slice(0, 60);
+  const digitos = texto.replace(/\D/g, "");
+  const porCodigo = digitos.length >= 2 && digitos.length === texto.replace(/\s/g, "").length;
+  if (!porCodigo && texto.length < 3) return { ok: true, cuentas: [] };
   try {
-    const user = await getCurrentUser();
-    const actor = user?.name ?? null;
-    const memoria = await memoriaGuardada(input.clienteId, moduloCodigo, filas.map((f) => f.clasificador));
-    await prisma.$transaction(
-      filas.flatMap((f) => {
-        const { clasificador, agrupador } = partir(f.clasificador);
-        return reemplazarCuentasTx(prisma, input.clienteId, moduloCodigo, clasificador, f.cuentas4, actor, memoria.get(f.clasificador) ?? null, agrupador);
-      }),
-    );
-    await auditarConsolidacion(input.clienteId, moduloCodigo, filas);
-    revalidatePath(rutaModulo(moduloCodigo));
-    return { ok: true, message: filas.length === 1 ? "Consolidación guardada." : `${filas.length} consolidaciones guardadas.` };
+    const cedula = await cedulaDelModulo(encabezado.moduloCodigo, descriptor);
+    const LIMITE = 30;
+    const filas = cedula.nivel === 6
+      ? (await prisma.standardAccount.findMany({
+          where: porCodigo ? { code: { startsWith: digitos } } : { name: { contains: texto, mode: "insensitive" } },
+          select: { code: true, name: true },
+          orderBy: { code: "asc" },
+          take: LIMITE * 2,
+        })).map((c) => ({ codigo: c.code.replace(/\D/g, ""), nombre: c.name }))
+      : (await prisma.subgrupoEstandar.findMany({
+          where: porCodigo ? { codigo: { startsWith: digitos } } : { nombre: { contains: texto, mode: "insensitive" } },
+          select: { codigo: true, nombre: true },
+          orderBy: { codigo: "asc" },
+          take: LIMITE * 2,
+        }));
+    const cuentas = filas
+      .filter((c) => c.codigo.length === cedula.nivel)
+      .map((c) => {
+        const { deCedula, extras } = separarCuentasCedula(cedula, [c.codigo]);
+        return { ...c, deCedula: deCedula.length > 0, asignable: deCedula.length > 0 || extras.length > 0 };
+      })
+      .filter((c) => c.asignable)
+      .slice(0, LIMITE)
+      .map(({ codigo, nombre, deCedula }) => ({ codigo, nombre, deCedula }));
+    return { ok: true, cuentas };
   } catch (e) {
-    return { ok: false, message: mensajeErrorBD("guardarConsolidacionModuloLote", e) };
+    return { ok: false, message: mensajeErrorBD("consultarCuentasRussell", e) };
   }
 }
 
@@ -2295,7 +2476,8 @@ export async function guardarRepartoCruce(input: { encabezadoId: number; clasifi
     if (Object.keys(limpios).length > 0) {
       const invalido = validarReparto(renglon.total, limpios);
       if (invalido) return { ok: false, message: invalido };
-      const cuentasRussell6 = cuentasCedula6(descriptor);
+      // Las cuentas del período (fuera de la cédula) también se pueden repartir en ese período.
+      const cuentasRussell6 = cuentasCedula6(descriptor, cruce?.cuentasPeriodo ?? []);
       const fuera = Object.keys(limpios).find((c) => !cuentasRussell6.includes(c));
       if (fuera) return { ok: false, message: `La cuenta ${fuera} no pertenece al módulo de Nómina.` };
     }
@@ -3167,7 +3349,10 @@ export async function cerrarConciliacionModulo(input: { encabezadoId: number }):
     const cuentasRussell = cuentasRussellDelCruce(cruce.cruceContable);
     // Con las cuentas de 6 dígitos del módulo, el bloqueo se limita a ellas (130515 no). Una
     // cédula mixta guarda ahí sus claves de 4 y de 6 (la 422005 en firme, no toda la 4220).
-    const cuentasRussell6 = descriptor ? alcanceExplicitoDelCruce(await cedulaDelModulo(encabezado.moduloCodigo, descriptor), cruce.cruceContable) : null;
+    // Es la cédula DEL PERÍODO: las cuentas asignadas solo para este período también quedan en firme.
+    const cuentasRussell6 = descriptor
+      ? alcanceExplicitoDelCruce(cedulaDelCargue(descriptor, encabezado.moduloCodigo, insumos.catalogoPrevalidador, insumos.asignacionesPeriodo).cedula, cruce.cruceContable)
+      : null;
     const evidenciaTercero = tercero?.resumen ? evidenciaCruceTercero(tercero.resumen, tercero.resumenMarcas) : null;
     const balance = cruce.balanceEmparejado;
     const user = await getCurrentUser();
