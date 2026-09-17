@@ -11,6 +11,7 @@ import type { EstadoCruceTercero } from "@/lib/modulos/cartera/cruce-tercero-car
 import { anclaCruceTercero, type FilaCruceTerceroMarcada, type ResumenMarcas } from "@/lib/modulos/marcas-cruce";
 import type { EmparejamientoTerceroVm, ResumenCruceTerceroMarcado } from "@/lib/modulos/cruce-tercero-servidor";
 import { CeldaMarcaTercero, ModalMarcaTercero, ObservacionesMarcasTercero } from "./marca-tercero";
+import type { ReferenciaMarcaVm } from "./soportes-marca";
 import { ModalEmparejarTercero } from "./emparejar-tercero";
 import { ParametrosCargue, type ParametrosCargueVm } from "./parametros-cargue";
 
@@ -83,11 +84,14 @@ function EstadoVacio({ titulo, children, enlace }: { titulo: string; children: R
 
 export function CruceTerceroTab({
   cruceTercero,
+  referenciasMarcas = [],
   encabezadoId,
   comentarios,
   puedeEditar,
 }: {
   cruceTercero: CruceTerceroVm;
+  /** Todas las marcas del período (numeración compartida con el cruce contable). */
+  referenciasMarcas?: ReferenciaMarcaVm[];
   encabezadoId: number;
   comentarios: Record<string, number>;
   puedeEditar: boolean;
@@ -389,9 +393,10 @@ export function CruceTerceroTab({
         )}
       </Card>
 
-      {(observaciones.length > 0 || (resumenMarcas?.conDiferencia ?? 0) > 0) && (
+      {(observaciones.length > 0 || referenciasMarcas.length > 0 || (resumenMarcas?.conDiferencia ?? 0) > 0) && (
         <ObservacionesMarcasTercero
           observaciones={observaciones}
+          referencias={referenciasMarcas}
           encabezadoId={encabezadoId}
           comentarios={comentarios}
           puedeEditar={puedeEditar}

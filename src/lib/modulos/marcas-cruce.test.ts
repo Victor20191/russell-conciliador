@@ -11,6 +11,7 @@ import {
   anotarCruceTerceroConMarcas,
   diferenciaAjustada,
   etiquetaMarca,
+  intercalarObservaciones,
   normalizarCuenta4,
   observacionesDeMarcas,
   siguienteNumeroMarca,
@@ -18,6 +19,7 @@ import {
   validarNotaMarca,
   validarReferenciaAnexo,
   type MarcaCruce,
+  type MarcaPeriodo,
 } from "./marcas-cruce";
 
 const cruce = () =>
@@ -272,5 +274,28 @@ describe("marcas del cruce por tercero", () => {
 
   it("ancla del hilo de un tercero", () => {
     expect(anclaCruceTercero("~CONSUMIDOR FINAL")).toBe("tercero:~CONSUMIDOR FINAL");
+  });
+});
+
+describe("intercalarObservaciones (numeración compartida entre pestañas)", () => {
+  const periodo = (numero: number, dimension: "cuenta4" | "tercero", llave: string): MarcaPeriodo => ({
+    numero, dimension, llave, nota: `nota ${numero}`, diferencia: -numero, marcadoPor: "Ana", marcadoEn: "17/Sep/2026", soportes: 0,
+  });
+  const todas = [periodo(1, "cuenta4", "133005"), periodo(2, "tercero", "890903938"), periodo(3, "cuenta4", "220505+221005"), periodo(4, "cuenta4", "2335")];
+
+  it("la pestaña contable lista la marca 2 del cruce por tercero y la que perdió su renglón", () => {
+    const propias = [{ n: 3 }, { n: 1 }];
+    const r = intercalarObservaciones(propias, (p) => p.n, todas);
+    expect(r.map((e) => [e.numero, e.tipo])).toEqual([[1, "propia"], [2, "referencia"], [3, "propia"], [4, "referencia"]]);
+    expect(r[1]).toMatchObject({ marca: { dimension: "tercero", llave: "890903938" } });
+  });
+
+  it("la pestaña por tercero lista las de cuenta como referencia", () => {
+    const r = intercalarObservaciones([{ n: 2 }], (p) => p.n, todas);
+    expect(r.map((e) => [e.numero, e.tipo])).toEqual([[1, "referencia"], [2, "propia"], [3, "referencia"], [4, "referencia"]]);
+  });
+
+  it("sin marcas del período quedan solo las propias", () => {
+    expect(intercalarObservaciones([{ n: 5 }], (p) => p.n, [])).toEqual([{ tipo: "propia", numero: 5, item: { n: 5 } }]);
   });
 });

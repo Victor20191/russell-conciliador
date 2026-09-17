@@ -63,8 +63,6 @@ import { normalizarTerceroCartera } from "@/lib/modulos/cartera/tercero-cartera"
 import { seleccionarHojaModulo } from "@/lib/modulos/extraccion/seleccion-hoja";
 import { controlSubtotales } from "@/lib/modulos/subtotales";
 import {
-  anclaCruce,
-  anclaCruceTercero,
   diferenciaAjustada,
   MAX_NOTA_MARCA,
   normalizarClaveTercero,
@@ -2541,28 +2539,13 @@ export async function guardarMarcaCruce(formData: FormData): Promise<ActionState
     if (!preparados.ok) return { ok: false, message: preparados.message };
 
     const user = await getCurrentUser();
-    // El rastro en el hilo va primero: si falla, no se guarda una marca que dice apuntar a un
-    // comentario inexistente. Las cuentas excluidas quedan escritas en el hilo: sin eso, la
-    // conversación no explicaría por qué bajó la diferencia.
-    const lineaNoModulares = excluidas.length
-      ? `\n\nCuentas no modulares: ${excluidas.map((h) => `${h.cuenta8} ${h.nombre} (${h.valor.toFixed(2)})`).join(" · ")}`
-      : "";
-    const comentario = await prisma.comment.create({
-      data: {
-        entityType: "modulos_datos",
-        entityId: encabezado.id,
-        anchor: llaveMarca.dimension === "cuenta4" ? anclaCruce(llaveMarca.cuenta4) : anclaCruceTercero(llaveMarca.clave),
-        authorId: ctx.userId,
-        body: `${nota.nota}${anexo.referencia ? `\n\nAnexo: ${anexo.referencia}` : ""}${lineaNoModulares}`,
-      },
-      select: { id: true },
-    });
-
+    // La marca NO publica un comentario en la conversación del renglón (decisión 17/Sep/2026):
+    // su texto, su anexo, sus soportes y las cuentas no modulares viven en Observaciones, y la
+    // conversación queda para lo que se escribe a mano. Las marcas anteriores conservan el suyo.
     const datosComunes = {
       nota: nota.nota,
       referenciaAnexo: anexo.referencia,
       diferencia: new Prisma.Decimal(diferencia.toFixed(2)),
-      comentarioId: comentario.id,
       marcadoPor: user?.name ?? null,
       marcadoPorId: ctx.userId,
       marcadoEn: new Date(),
@@ -2669,7 +2652,7 @@ async function persistirSoportesMarca(
   }
 }
 
-/** Retira la marca de una cuenta o de un tercero y sus soportes. El comentario del hilo se conserva. */
+/** Retira la marca de una cuenta o de un tercero y sus soportes. Los comentarios del renglón no se tocan. */
 export async function quitarMarcaCruce(input: {
   encabezadoId: number;
   cuenta4?: string;

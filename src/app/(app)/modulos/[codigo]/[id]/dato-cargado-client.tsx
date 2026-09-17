@@ -37,7 +37,8 @@ import type { HijoContableCruce, ResumenCruceContable } from "@/lib/modulos/cruc
 import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
 import { ListaNoModulares, ResumenNoModulares } from "../lista-no-modulares";
 import { CruceTerceroTab, type CruceTerceroVm } from "./cruce-tercero-tab";
-import { EditorSoportesMarca, InsigniaMarca, ListaSoportesMarca } from "./soportes-marca";
+import { EditorSoportesMarca, InsigniaMarca, ListaSoportesMarca, ReferenciaMarca, type ReferenciaMarcaVm } from "./soportes-marca";
+import { etiquetaTercero } from "./marca-tercero";
 import { ValidacionesTerceroPanel } from "./validaciones-tercero-panel";
 import type { ValidacionesTercero } from "@/lib/modulos/cartera/validaciones-tercero";
 import type { ValidacionCargue } from "@/lib/modulos/validacion-cargue";
@@ -49,6 +50,8 @@ import {
   MAX_NOTA_MARCA,
   MAX_REFERENCIA_ANEXO,
   observacionesDeMarcas,
+  intercalarObservaciones,
+  type MarcaPeriodo,
   type FilaCruceMarcada,
   type ResumenMarcas,
 } from "@/lib/modulos/marcas-cruce";
@@ -197,6 +200,7 @@ export default function DatoCargadoClient({
   consolidado,
   cruceContable,
   cruceTercero,
+  marcasPeriodo = [],
   novedades,
   cuentas,
   nivelCruce,
@@ -220,6 +224,8 @@ export default function DatoCargadoClient({
   consolidado: ConsolidadoVm[];
   cruceContable: CruceContableVm;
   cruceTercero: CruceTerceroVm;
+  /** Todas las marcas del período: cuenta y tercero comparten la numeración. */
+  marcasPeriodo?: MarcaPeriodo[];
   novedades: NovedadesVm;
   cuentas: CuentaOpt[];
   /** Nivel de la cuenta Russell de la cédula: subgrupo (4) o cuenta completa (6, Nómina). */
@@ -256,6 +262,29 @@ export default function DatoCargadoClient({
     : t === "cruceTercero" ? "Cruce por tercero"
     : t === "novedades" ? "Novedades"
     : "Versiones";
+  const irATab = (t: TabId) => { if (comprobarSalidaConsolidado.current?.() !== false) setTab(t); };
+
+  // Las marcas del período con el nombre de su renglón y la pestaña donde viven: cada pestaña del
+  // cruce cita las de la otra para que la numeración compartida se lea sin huecos.
+  const filasCuentaMarcadas = new Map(cruceContable.filasMarcadas.map((f) => [f.cuenta4, f]));
+  const filasTerceroMarcadas = new Map((cruceTercero.resumen?.filas ?? []).map((f) => [f.clave, f]));
+  const referenciasMarcas: ReferenciaMarcaVm[] = marcasPeriodo.map((m) => {
+    if (m.dimension === "tercero") {
+      const fila = filasTerceroMarcadas.get(m.llave);
+      return {
+        ...m,
+        etiqueta: fila ? etiquetaTercero(fila) : m.llave.startsWith("~") ? `${m.llave.slice(1)} (sin NIT)` : m.llave,
+        // Sin cruce por tercero disponible, la pestaña explica por qué; con cruce, solo si el tercero sigue en él.
+        destino: cruceTercero.aplica && (fila || !cruceTercero.resumen) ? { etiqueta: "Cruce por tercero", ir: () => irATab("cruceTercero") } : null,
+      };
+    }
+    const fila = filasCuentaMarcadas.get(m.llave);
+    return {
+      ...m,
+      etiqueta: fila ? etiquetaFilaCruce(fila) : m.llave.split("+").map((c) => `R - ${c}`).join(" + "),
+      destino: fila || !cruceContable.resumen ? { etiqueta: "Cruce contable", ir: () => irATab("cruce") } : null,
+    };
+  });
 
   return (
     <div className="flex flex-col gap-4">
@@ -287,13 +316,13 @@ export default function DatoCargadoClient({
       ) : tab === "detalle" ? (
         <DetalleTab columnas={columnas} clasificadorEtiqueta={clasificadorEtiqueta} detalle={detalle} negativosFilas={filasNovedad} encabezadoId={encabezadoId} comentarios={comentarios} />
       ) : tab === "cruce" ? (
-        <CruceContableTab moduloLabel={moduloLabel} nivelCruce={nivelCruce} cruceContable={cruceContable} encabezadoId={encabezadoId} comentarios={comentarios} puedeEditar={puedeEditar} />
+        <CruceContableTab moduloLabel={moduloLabel} nivelCruce={nivelCruce} cruceContable={cruceContable} referenciasMarcas={referenciasMarcas} encabezadoId={encabezadoId} comentarios={comentarios} puedeEditar={puedeEditar} />
       ) : tab === "cruceTercero" ? (
         <div className="flex flex-col gap-4">
           {cruceContable.balanceEncontrado && (
             <ConciliacionEnFirmePanel conciliacion={cruceContable.conciliacion} encabezadoId={encabezadoId} moduloLabel={moduloLabel} />
           )}
-          <CruceTerceroTab cruceTercero={cruceTercero} encabezadoId={encabezadoId} comentarios={comentarios} puedeEditar={puedeEditar} />
+          <CruceTerceroTab cruceTercero={cruceTercero} referenciasMarcas={referenciasMarcas} encabezadoId={encabezadoId} comentarios={comentarios} puedeEditar={puedeEditar} />
         </div>
       ) : tab === "novedades" ? (
         <NovedadesTab novedades={novedades} titulo={tituloPanelNovedades} />
@@ -1249,6 +1278,7 @@ function CruceContableTab({
   moduloLabel,
   nivelCruce,
   cruceContable,
+  referenciasMarcas,
   encabezadoId,
   comentarios,
   puedeEditar,
@@ -1256,6 +1286,7 @@ function CruceContableTab({
   moduloLabel: string;
   nivelCruce: NivelCruce;
   cruceContable: CruceContableVm;
+  referenciasMarcas: ReferenciaMarcaVm[];
   encabezadoId: number;
   comentarios: Record<string, number>;
   puedeEditar: boolean;
@@ -1517,6 +1548,7 @@ function CruceContableTab({
 
       <ObservacionesMarcas
         observaciones={observaciones}
+        referencias={referenciasMarcas}
         encabezadoId={encabezadoId}
         comentarios={comentarios}
         puedeEditar={puedeEditar}
@@ -2139,6 +2171,7 @@ function CeldaMarca({
  */
 function ObservacionesMarcas({
   observaciones,
+  referencias,
   encabezadoId,
   comentarios,
   puedeEditar,
@@ -2147,6 +2180,8 @@ function ObservacionesMarcas({
   onQuitar,
 }: {
   observaciones: FilaCruceMarcada[];
+  /** Las demás marcas del período (cruce por tercero, o sin renglón), citadas en su lugar. */
+  referencias: ReferenciaMarcaVm[];
   encabezadoId: number;
   comentarios: Record<string, number>;
   puedeEditar: boolean;
@@ -2154,33 +2189,37 @@ function ObservacionesMarcas({
   onEditar: (fila: FilaCruceMarcada) => void;
   onQuitar: (fila: FilaCruceMarcada) => void;
 }) {
+  const entradas = intercalarObservaciones(observaciones, (f) => f.marca!.numero, referencias);
   return (
     <Card className="p-0">
       <div className="flex items-center justify-between gap-2 border-b border-ink-100 px-3 py-2">
         <h3 className="text-[12.5px] font-semibold text-ink-800">Observaciones · marcas de auditoría</h3>
-        {observaciones.length > 0 && (
+        {entradas.length > 0 && (
           <span className="text-[11px] text-ink-400">
-            {observaciones.length} {observaciones.length === 1 ? "marca" : "marcas"} en este período
+            {entradas.length} {entradas.length === 1 ? "marca" : "marcas"} en este período
+            {entradas.length > observaciones.length ? ` · ${observaciones.length} de este cruce` : ""}
           </span>
         )}
       </div>
 
-      {observaciones.length === 0 ? (
+      {entradas.length === 0 ? (
         <p className="px-3 py-5 text-center text-[12px] text-ink-400">
           Sin marcas todavía. Pon una marca a una diferencia de la tabla y su detalle aparecerá aquí.
         </p>
       ) : (
         <ol className="divide-y divide-ink-100">
-          {observaciones.map((fila) => (
+          {entradas.map((entrada) => entrada.tipo === "referencia" ? (
+            <ReferenciaMarca key={`ref-${entrada.numero}`} referencia={entrada.marca} />
+          ) : (
             <ObservacionMarca
-              key={fila.cuenta4}
-              fila={fila}
+              key={entrada.item.cuenta4}
+              fila={entrada.item}
               encabezadoId={encabezadoId}
-              comentarios={comentarios[anclaCruce(fila.cuenta4)] ?? 0}
+              comentarios={comentarios[anclaCruce(entrada.item.cuenta4)] ?? 0}
               puedeEditar={puedeEditar}
               ocupado={ocupado}
-              onEditar={() => onEditar(fila)}
-              onQuitar={() => onQuitar(fila)}
+              onEditar={() => onEditar(entrada.item)}
+              onQuitar={() => onQuitar(entrada.item)}
             />
           ))}
         </ol>
@@ -2432,7 +2471,7 @@ function ModalMarca({
         <EditorSoportesMarca encabezadoId={encabezadoId} yaGuardados={fila.marca?.adjuntos ?? []} nuevos={nuevos} onCambiarNuevos={setNuevos} />
 
         <p className="text-[11.5px] text-ink-500">
-          La marca queda numerada en la cédula, su detalle en observaciones y el texto en el hilo de la cuenta. Se conserva al cargar versiones nuevas de este período.
+          La marca queda numerada en la cédula y su detalle en observaciones. La numeración es la misma del cruce por tercero. Se conserva al cargar versiones nuevas de este período.
         </p>
       </div>
     </Modal>

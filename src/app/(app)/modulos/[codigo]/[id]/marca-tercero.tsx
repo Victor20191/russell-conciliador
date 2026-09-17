@@ -12,14 +12,15 @@ import {
   anclaCruceTercero,
   anclaObservacionMarca,
   etiquetaMarca,
+  intercalarObservaciones,
   MAX_NOTA_MARCA,
   MAX_REFERENCIA_ANEXO,
   type FilaCruceTerceroMarcada,
 } from "@/lib/modulos/marcas-cruce";
-import { EditorSoportesMarca, InsigniaMarca, ListaSoportesMarca } from "./soportes-marca";
+import { EditorSoportesMarca, InsigniaMarca, ListaSoportesMarca, ReferenciaMarca, type ReferenciaMarcaVm } from "./soportes-marca";
 
 // Marcas de auditoría del cruce por tercero: la misma gramática de la cédula contable —el
-// número en la tabla, el detalle al pie y el texto en el hilo— con un tercero en lugar de una cuenta.
+// número en la tabla y el detalle al pie— con un tercero en lugar de una cuenta.
 
 /** Cómo se nombra un tercero en la marca, en su hilo y al emparejarlo. */
 export function etiquetaTercero(fila: Pick<FilaCruceTerceroMarcada, "clave" | "nombre" | "sinNit">): string {
@@ -99,6 +100,7 @@ export function CeldaMarcaTercero({
 /** Las observaciones del cruce por tercero: el detalle numerado de cada marca, al pie. */
 export function ObservacionesMarcasTercero({
   observaciones,
+  referencias,
   encabezadoId,
   comentarios,
   puedeEditar,
@@ -107,6 +109,8 @@ export function ObservacionesMarcasTercero({
   onQuitar,
 }: {
   observaciones: FilaCruceTerceroMarcada[];
+  /** Las demás marcas del período (cruce contable, o sin renglón), citadas en su lugar. */
+  referencias: ReferenciaMarcaVm[];
   encabezadoId: number;
   comentarios: Record<string, number>;
   puedeEditar: boolean;
@@ -114,24 +118,28 @@ export function ObservacionesMarcasTercero({
   onEditar: (fila: FilaCruceTerceroMarcada) => void;
   onQuitar: (fila: FilaCruceTerceroMarcada) => void;
 }) {
+  const entradas = intercalarObservaciones(observaciones, (f) => f.marca!.numero, referencias);
   return (
     <Card className="p-0">
       <div className="flex items-center justify-between gap-2 border-b border-ink-100 px-3 py-2">
         <h3 className="text-[12.5px] font-semibold text-ink-800">Observaciones · marcas del cruce por tercero</h3>
-        {observaciones.length > 0 && (
+        {entradas.length > 0 && (
           <span className="text-[11px] text-ink-400">
-            {observaciones.length} {observaciones.length === 1 ? "marca" : "marcas"} en este período
+            {entradas.length} {entradas.length === 1 ? "marca" : "marcas"} en este período
+            {entradas.length > observaciones.length ? ` · ${observaciones.length} de este cruce` : ""}
           </span>
         )}
       </div>
 
-      {observaciones.length === 0 ? (
+      {entradas.length === 0 ? (
         <p className="px-3 py-5 text-center text-[12px] text-ink-400">
           Sin marcas todavía. Pon una marca a una diferencia de la tabla y su detalle aparecerá aquí.
         </p>
       ) : (
         <ol className="divide-y divide-ink-100">
-          {observaciones.map((fila) => {
+          {entradas.map((entrada) => {
+            if (entrada.tipo === "referencia") return <ReferenciaMarca key={`ref-${entrada.numero}`} referencia={entrada.marca} />;
+            const fila = entrada.item;
             const marca = fila.marca!;
             return (
               <li key={fila.clave} id={anclaObservacionMarca(marca.numero)} className="flex scroll-mt-24 gap-3 px-3 py-3">
@@ -328,7 +336,7 @@ export function ModalMarcaTercero({
         <EditorSoportesMarca encabezadoId={encabezadoId} yaGuardados={fila.marca?.adjuntos ?? []} nuevos={nuevos} onCambiarNuevos={setNuevos} />
 
         <p className="text-[11.5px] text-ink-500">
-          La marca queda numerada en el cruce por tercero, su detalle en observaciones y el texto en el hilo del tercero. Se conserva al cargar versiones nuevas de este período.
+          La marca queda numerada en el cruce por tercero y su detalle en observaciones. La numeración es la misma del cruce contable. Se conserva al cargar versiones nuevas de este período.
         </p>
       </div>
     </Modal>

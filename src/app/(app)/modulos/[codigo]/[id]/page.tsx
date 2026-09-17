@@ -18,6 +18,7 @@ import { validacionDelCargue } from "@/lib/modulos/validacion-cargue";
 import { detectarNegativos, detectarDescuadres } from "@/lib/modulos/validaciones";
 import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
 import { fmtDateTime } from "@/lib/format";
+import type { MarcaPeriodo } from "@/lib/modulos/marcas-cruce";
 import { columnasDetalleModulo } from "@/lib/modulos/cartera/columnas-cartera";
 import { cargarCuentasEstandarDeCedula, construirCruceContableModulo } from "@/lib/modulos/cruce-contable-servidor";
 import { construirCruceTerceroModulo, etiquetasCruceTercero } from "@/lib/modulos/cruce-tercero-servidor";
@@ -62,7 +63,7 @@ export default async function DatoModuloPage({
   // ¿Puede editar la consolidación de este cliente?
   const puedeEditar = (await authorizePermiso("modulos_datos:editar", { clientId: encabezado.clienteId })).ok;
 
-  const [consolidacionRows, subgrupos, cuentasEstandar, catalogoPrevalidador, comentariosGrp, cuentasCliente, hermanos, reglasClaseRows] = await Promise.all([
+  const [consolidacionRows, subgrupos, cuentasEstandar, catalogoPrevalidador, comentariosGrp, cuentasCliente, hermanos, reglasClaseRows, marcasPeriodoRows] = await Promise.all([
     prisma.consolidacionModuloCliente.findMany({
       where: { clienteId: encabezado.clienteId, moduloCodigo },
       select: { clasificador: true, agrupador: true, descripcion: true, cuenta4: true, cuenta6: true, grupo: true, subcuentaPuc: true, cuentaCliente: true },
@@ -102,7 +103,24 @@ export default async function DatoModuloPage({
     descriptor.nomina
       ? prisma.claseAgrupadorModulo.findMany({ where: { clienteId: encabezado.clienteId, moduloCodigo }, select: { agrupador: true, clase: true } })
       : Promise.resolve([] as { agrupador: string; clase: string }[]),
+    // Todas las marcas del período (cuenta y tercero comparten la numeración): cada pestaña del
+    // cruce lista también las de la otra para que la secuencia se lea completa.
+    prisma.marcaCruceModulo.findMany({
+      where: { clienteId: encabezado.clienteId, moduloCodigo, periodo: encabezado.periodo },
+      orderBy: { numero: "asc" },
+      select: { numero: true, dimension: true, cuenta4: true, clave: true, nota: true, diferencia: true, marcadoPor: true, marcadoEn: true, _count: { select: { adjuntos: true } } },
+    }),
   ]);
+  const marcasPeriodo: MarcaPeriodo[] = marcasPeriodoRows.map((m) => ({
+    numero: m.numero,
+    dimension: m.dimension === "tercero" ? "tercero" : "cuenta4",
+    llave: (m.dimension === "tercero" ? m.clave : m.cuenta4) ?? "",
+    nota: m.nota,
+    diferencia: Number(m.diferencia),
+    marcadoPor: m.marcadoPor,
+    marcadoEn: fmtDateTime(m.marcadoEn),
+    soportes: m._count.adjuntos,
+  }));
   // Cédula contable: subgrupo de 4 dígitos, cuenta Russell completa (Nómina, Cartera, CxP) o una
   // mezcla (Activos fijos abre la 1592; Ingresos suma la 422005).
   const prefijosModulo = prefijosCuentaModulo(moduloCodigo, catalogoPrevalidador);
@@ -472,6 +490,7 @@ export default async function DatoModuloPage({
         consolidado={consolidadoVm}
         cruceContable={cruceContableVm}
         cruceTercero={cruceTerceroVm}
+        marcasPeriodo={marcasPeriodo}
         novedades={novedadesVm}
         cuentas={cuentasModulo.map((s) => ({ codigo: s.codigo, nombre: s.nombre }))}
         nivelCruce={nivel}

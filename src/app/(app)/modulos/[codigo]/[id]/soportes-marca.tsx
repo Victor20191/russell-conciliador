@@ -6,7 +6,8 @@ import { Icon } from "@/components/icons";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import { eliminarSoporteMarca } from "@/app/actions/modulos-datos";
 import { SOPORTES_MARCA_MAX, tamanoLegible, urlSoporteMarca } from "@/lib/modulos/marcas-adjuntos";
-import type { AdjuntoMarca } from "@/lib/modulos/marcas-cruce";
+import { fmtContable } from "@/lib/format";
+import { anclaObservacionMarca, type AdjuntoMarca, type MarcaPeriodo } from "@/lib/modulos/marcas-cruce";
 
 // Piezas de las marcas de auditoría que comparten la cédula contable y el cruce por tercero.
 
@@ -17,10 +18,12 @@ export function InsigniaMarca({
   titulo,
 }: {
   numero: number;
-  tono: "ok" | "warn";
+  tono: "ok" | "warn" | "ink";
   titulo: string;
 }) {
-  const colores = tono === "warn" ? "border-warn-500 bg-warn-100 text-warn-700" : "border-navy-700 bg-white text-navy-700";
+  const colores = tono === "warn"
+    ? "border-warn-500 bg-warn-100 text-warn-700"
+    : tono === "ink" ? "border-ink-300 bg-white text-ink-500" : "border-navy-700 bg-white text-navy-700";
   return (
     <span
       title={titulo}
@@ -167,5 +170,47 @@ export function EditorSoportesMarca({
         <span className="text-[11px] text-ink-400">Alcanzaste el máximo de {SOPORTES_MARCA_MAX} soportes.</span>
       )}
     </div>
+  );
+}
+
+/** Otra marca del período, citada en las observaciones de una pestaña que no es la suya. */
+export type ReferenciaMarcaVm = MarcaPeriodo & {
+  /** Cuenta(s) o tercero, como los nombra su propia pestaña. */
+  etiqueta: string;
+  /** Pestaña donde se ve y se edita; null si su renglón ya no aparece en el cruce. */
+  destino: { etiqueta: string; ir: () => void } | null;
+};
+
+/**
+ * La numeración de las marcas es una sola para el cruce contable y el cruce por tercero: cada
+ * pestaña cita las de la otra, en su lugar, para que la secuencia 1, 2, 3… se lea sin huecos.
+ * Se edita solo en su pestaña.
+ */
+export function ReferenciaMarca({ referencia }: { referencia: ReferenciaMarcaVm }) {
+  const { destino } = referencia;
+  return (
+    <li id={anclaObservacionMarca(referencia.numero)} className="flex gap-3 bg-ink-50/60 px-3 py-2.5 scroll-mt-24">
+      <div className="pt-0.5">
+        <InsigniaMarca numero={referencia.numero} tono="ink" titulo={`Marca ${referencia.numero}`} />
+      </div>
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px]">
+          <span className="font-semibold text-ink-700">{referencia.etiqueta}</span>
+          <span className="tabular-nums text-ink-500" title="Diferencia cuando se escribió la marca">{fmtContable(referencia.diferencia)}</span>
+          {destino ? (
+            <button type="button" onClick={destino.ir} className="rounded-full border border-ink-200 bg-white px-2 py-0.5 text-[10.5px] font-semibold text-blue-700 hover:border-blue-300 hover:bg-blue-50">
+              Ver en {destino.etiqueta} →
+            </button>
+          ) : (
+            <span className="rounded-full border border-ink-200 bg-white px-2 py-0.5 text-[10.5px] text-ink-500">Su renglón ya no aparece en el cruce</span>
+          )}
+        </div>
+        <p className="whitespace-pre-wrap break-words text-[11.5px] text-ink-600">{referencia.nota}</p>
+        <span className="text-[10.5px] text-ink-400">
+          {referencia.marcadoPor ? `${referencia.marcadoPor} · ` : ""}{referencia.marcadoEn}
+          {referencia.soportes > 0 ? ` · ${referencia.soportes} soporte${referencia.soportes === 1 ? "" : "s"}` : ""}
+        </span>
+      </div>
+    </li>
   );
 }

@@ -322,3 +322,46 @@ export function anotarCruceTerceroConMarcas(
 
   return { filas: anotadas, resumen };
 }
+
+/**
+ * Una marca del período tal como la conocen las dos pestañas del cruce. La numeración es una
+ * sola para las marcas de cuenta y las de tercero, así que cada pestaña lista también las de la
+ * otra (como referencia) para que la secuencia 1, 2, 3… se lea completa.
+ */
+export type MarcaPeriodo = {
+  numero: number;
+  dimension: DimensionMarca;
+  /** Cuenta (o grupo «130505+280505») en las de cuenta; clave del tercero en las de tercero. */
+  llave: string;
+  nota: string;
+  /** Diferencia cuando se escribió la marca. */
+  diferencia: number;
+  marcadoPor: string | null;
+  /** Fecha ya formateada para la UI. */
+  marcadoEn: string;
+  soportes: number;
+};
+
+export type EntradaObservacion<T, M extends MarcaPeriodo = MarcaPeriodo> =
+  | { tipo: "propia"; numero: number; item: T }
+  | { tipo: "referencia"; numero: number; marca: M };
+
+/**
+ * Intercala, por número, las observaciones propias de una pestaña con las demás marcas del
+ * período (las de la otra pestaña y las que ya no tienen renglón en el cruce). Una marca propia
+ * nunca se repite como referencia.
+ */
+export function intercalarObservaciones<T, M extends MarcaPeriodo>(
+  propias: readonly T[],
+  numeroDe: (item: T) => number,
+  delPeriodo: readonly M[],
+): EntradaObservacion<T, M>[] {
+  const numerosPropios = new Set(propias.map(numeroDe));
+  const entradas: EntradaObservacion<T, M>[] = [
+    ...propias.map((item) => ({ tipo: "propia" as const, numero: numeroDe(item), item })),
+    ...delPeriodo
+      .filter((m) => !numerosPropios.has(m.numero))
+      .map((marca) => ({ tipo: "referencia" as const, numero: marca.numero, marca })),
+  ];
+  return entradas.sort((a, b) => a.numero - b.numero || (a.tipo === b.tipo ? 0 : a.tipo === "propia" ? -1 : 1));
+}
