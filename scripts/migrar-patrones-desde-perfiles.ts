@@ -10,12 +10,19 @@
 // El perfil no guarda los rótulos del encabezado (solo su huella), así que se reconstruyen con el
 // original conservado del cliente: hoja y fila del perfil, aceptados solo si su huella coincide.
 //
+// Sin original en el almacén, `--carpeta <ruta>` (repetible) busca en disco un archivo con el mismo
+// nombre que el perfil recuerda (`archivo_ejemplo`, sin los sufijos « (1)» de las copias) y lo acepta
+// con la misma regla: la huella de su encabezado debe coincidir con la del perfil.
+//
 // Ejecutar (antes, `npx prisma migrate deploy`; .env apunta a PRODUCCIÓN):
 //   npm run db:migrar:patrones                 # dry-run: informe, no escribe
 //   npm run db:migrar:patrones -- --aplicar    # crea las versiones pendientes
+//   npm run db:migrar:patrones -- --carpeta "C:/ruta/de/archivos" [--aplicar]
 // ============================================================
 
 import "dotenv/config";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import path from "node:path";
 import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Prisma, PrismaClient } from "../src/generated/prisma/client";
@@ -31,6 +38,51 @@ import { siguienteVersionPatron } from "../src/lib/modulos/patrones/version";
 
 const APLICAR = process.argv.includes("--aplicar");
 const MAX_ORIGINALES_POR_PERFIL = 25;
+const MAX_BYTES_LOCAL = 30 * 1024 * 1024;
+const CARPETAS = process.argv.flatMap((valor, i, todos) => (valor === "--carpeta" && todos[i + 1] ? [todos[i + 1]] : []));
+
+/** Nombre comparable: sin tildes ni mayúsculas y sin los sufijos « (1)» que agregan las copias. */
+function nombreComparable(nombre: string): string {
+  const base = path.basename(nombre).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const extension = path.extname(base);
+  return base.slice(0, base.length - extension.length).replace(/(\s*\(\d+\))+$/g, "").trim() + extension;
+}
+
+/** Archivos de hoja de cálculo de las carpetas locales, por nombre comparable. */
+function indiceLocal(): Map<string, string[]> {
+  const indice = new Map<string, string[]>();
+  const recorrer = (carpeta: string) => {
+    let entradas: string[] = [];
+    try { entradas = readdirSync(carpeta); } catch { return; }
+    for (const nombre of entradas) {
+      const ruta = path.join(carpeta, nombre);
+      let info;
+      try { info = statSync(ruta); } catch { continue; }
+      if (info.isDirectory()) { if (nombre !== "node_modules") recorrer(ruta); continue; }
+      if (nombre.startsWith("~$") || !/\.(xlsx|xlsm|xls|xlsb|csv)$/i.test(nombre) || info.size > MAX_BYTES_LOCAL) continue;
+      const clave = nombreComparable(nombre);
+      indice.set(clave, [...(indice.get(clave) ?? []), ruta]);
+    }
+  };
+  for (const carpeta of CARPETAS) recorrer(carpeta);
+  return indice;
+}
+
+const hojasPorRuta = new Map<string, GridHoja[] | null>();
+async function hojasDelArchivoLocal(ruta: string): Promise<GridHoja[] | null> {
+  if (hojasPorRuta.has(ruta)) return hojasPorRuta.get(ruta)!;
+  let hojas: GridHoja[] | null = null;
+  try {
+    const buf = readFileSync(ruta);
+    const ingesta = await ingerir(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer, path.basename(ruta));
+    hojas = ingesta.modo === "tabular" ? ingesta.hojas : null;
+  } catch {
+    hojas = null;
+  }
+  if (hojasPorRuta.size > 30) hojasPorRuta.clear();
+  hojasPorRuta.set(ruta, hojas);
+  return hojas;
+}
 
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }) });
 const BUCKET = process.env.S3_BUCKET ?? "";
@@ -92,6 +144,8 @@ async function main() {
   });
   const clientePorId = new Map(clientes.map((c) => [c.id, c]));
 
+  const locales = CARPETAS.length > 0 ? indiceLocal() : new Map<string, string[]>();
+  if (CARPETAS.length > 0) console.log(`Carpetas locales: ${CARPETAS.join(" · ")} (${[...locales.values()].reduce((n, l) => n + l.length, 0)} archivos)`);
   const informe = { creadas: [] as string[], sinErp: [] as string[], ambiguos: [] as string[], sinOriginal: [] as string[], duplicadas: [] as string[], invalidos: [] as string[] };
   const nuevas: Nueva[] = [];
 
@@ -122,16 +176,26 @@ async function main() {
       select: { nombreArchivo: true, claveObjeto: true },
     });
     originales.sort((a, b) => Number(b.nombreArchivo === perfil.archivoEjemplo) - Number(a.nombreArchivo === perfil.archivoEjemplo));
-    let encabezado: string[] | null = null;
-    for (const original of originales) {
-      const hojas = await hojasDelOriginal(original.claveObjeto!, original.nombreArchivo);
+    const encabezadoSiCoincide = (hojas: GridHoja[] | null): string[] | null => {
       const hoja = hojas?.find((h) => h.nombre === spec.hoja);
       const fila = hoja?.filas[spec.filaEncabezado - 1];
-      if (!hoja || !fila) continue;
+      if (!hoja || !fila) return null;
       const huellas = new Set([calcularHuella(hoja.nombre, [...fila]), ...huellasDeEncabezado(descriptor, hoja.nombre, fila)]);
-      if (huellas.has(perfil.huella)) { encabezado = encabezadoParaGuardar(fila); break; }
+      return huellas.has(perfil.huella) ? encabezadoParaGuardar(fila) : null;
+    };
+    let encabezado: string[] | null = null;
+    let fuente = "";
+    for (const original of originales) {
+      encabezado = encabezadoSiCoincide(await hojasDelOriginal(original.claveObjeto!, original.nombreArchivo));
+      if (encabezado) break;
     }
-    if (!encabezado) { informe.sinOriginal.push(etiqueta); continue; }
+    if (!encabezado && perfil.archivoEjemplo) {
+      for (const ruta of locales.get(nombreComparable(perfil.archivoEjemplo)) ?? []) {
+        encabezado = encabezadoSiCoincide(await hojasDelArchivoLocal(ruta));
+        if (encabezado) { fuente = `, encabezado tomado de ${ruta}`; break; }
+      }
+    }
+    if (!encabezado) { informe.sinOriginal.push(`${etiqueta} (${perfil.archivoEjemplo ?? "sin nombre de archivo"})`); continue; }
 
     const claves = JSON.stringify(clavesEncabezado(descriptor, encabezado));
     const repetida = [...versiones.map((v) => ({ ...v, encabezado: v.encabezadoJson as unknown[], spec: v.specJson })), ...nuevas.map((n) => ({ erpId: n.erpId, moduloCodigo: n.moduloCodigo, version: 0, encabezado: n.encabezado, spec: n.spec }))]
@@ -145,7 +209,7 @@ async function main() {
     if (repetida) { informe.duplicadas.push(`${etiqueta}: igual a una versión de ${erp.name}`); continue; }
 
     nuevas.push({ erpId: erp.id, erpNombre: erp.name, moduloCodigo: perfil.moduloCodigo, clienteId: cliente.id, clienteNombre: cliente.name, perfilId: perfil.id, hoja: spec.hoja, spec, encabezado });
-    informe.creadas.push(`${etiqueta} → ${erp.name} (hoja «${spec.hoja}», ${encabezado.filter(Boolean).length} rótulos)`);
+    informe.creadas.push(`${etiqueta} → ${erp.name} (hoja «${spec.hoja}», ${encabezado.filter(Boolean).length} rótulos${fuente})`);
   }
 
   const imprimir = (titulo: string, lista: string[]) => {
