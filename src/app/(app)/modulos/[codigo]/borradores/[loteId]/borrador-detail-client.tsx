@@ -19,8 +19,9 @@ import type { ReconciliacionModulo } from "@/lib/modulos/extraccion/transformar"
 import { aplicarCambiosBorradorModulo, cargarBorradorModulo, descartarBorradorModulo } from "@/app/actions/modulos-datos";
 import { NotasCargaModulo } from "../../notas-carga-modulo";
 import { ValidacionArchivo } from "../../validacion-archivo";
-import { compararSaldosTercero, materializarSaldosTercero, type NivelCartera } from "@/lib/modulos/cartera/saldos-tercero";
-import { filaCarteraDesdeDetalle, leerSaldoDeclarado } from "@/lib/modulos/cartera/detalle-cartera";
+import type { NivelCartera } from "@/lib/modulos/cartera/saldos-tercero";
+import { controlesFormatoCartera } from "@/lib/modulos/cartera/controles-formato";
+import type { FormatoArchivoCartera } from "@/lib/modulos/cartera/tipo-formato";
 
 export type FilaBorradorModulo = {
   filaNum: number;
@@ -106,6 +107,7 @@ export default function BorradorModuloClient({
   periodoSugerido,
   columnas: columnasDelCargue,
   nivelCartera,
+  formatoCartera,
   clasificadorRol,
   valorRol,
   noNegativos,
@@ -127,6 +129,8 @@ export default function BorradorModuloClient({
   columnas: Columna[];
   /** Qué representa una fila de este archivo (lo declara el wizard). */
   nivelCartera: NivelCartera;
+  /** Cartera y CxP: tipo de formato del archivo (null en los demás módulos). */
+  formatoCartera: FormatoArchivoCartera | null;
   clasificadorRol: string;
   valorRol: string;
   noNegativos: string[];
@@ -193,25 +197,23 @@ export default function BorradorModuloClient({
     [filas],
   );
 
-  // Control por TERCERO: solo tiene sentido cuando el archivo declara un saldo por cada
-  // uno (las cabeceras de un reporte jerárquico). Se calcula aquí, sobre las filas ya
-  // editadas, para que omitir o rescatar una fila se refleje al instante.
-  const controlTercero = useMemo(() => {
-    if (!efectivas.some((f) => leerSaldoDeclarado(f.datos) != null)) return null;
-    const { saldos } = materializarSaldosTercero(
-      efectivas.map((f) => filaCarteraDesdeDetalle(
-        {
-          filaNum: f.filaNum,
-          valor: f.valor,
-          datos: f.datos,
-          imputable: f.tipoFila === "movimiento" && f.omitida !== true,
-        },
-        nivelCartera,
-      )),
-      { loteId, nivelImputable: nivelCartera },
-    );
-    return compararSaldosTercero(saldos);
-  }, [efectivas, loteId, nivelCartera]);
+  // Controles del TIPO DE FORMATO (Cartera y CxP): la suma de los documentos contra el total
+  // de cada cliente y la de las edades contra el total. Se calculan sobre las filas ya editadas,
+  // para que omitir o rescatar una fila se refleje al instante.
+  const controlesFormato = useMemo(() => {
+    if (!formatoCartera) return null;
+    return controlesFormatoCartera({
+      filas: efectivas.map((f) => ({
+        filaNum: f.filaNum,
+        valor: f.valor,
+        datos: f.datos,
+        imputable: f.tipoFila === "movimiento" && f.omitida !== true,
+      })),
+      nivelImputable: nivelCartera,
+      formatos: [formatoCartera],
+      tipoDeducido: formatoCartera.tipo,
+    });
+  }, [efectivas, formatoCartera, nivelCartera]);
 
   const hayCambiosFilas = Object.keys(overrideOmit).length + Object.keys(overrideClasif).length + Object.keys(overrideTipo).length > 0;
   const periodoCambiado = periodo !== periodoSugerido;
@@ -464,7 +466,7 @@ export default function BorradorModuloClient({
             <span className="ml-1">Se está sumando al total: si es el gran total del ERP, omítela con «Omitir» o el módulo quedará al doble.</span>
           </div>
         )}
-        <ValidacionArchivo control={control} resumen={resumenValidacion} controlTercero={controlTercero} />
+        <ValidacionArchivo control={control} resumen={resumenValidacion} controlesFormato={controlesFormato} />
         {negativos.length > 0 && (
           <div className="rounded-md border border-err-500 bg-err-100 px-3 py-2 text-[12px] text-err-700">
             <span className="font-semibold">⚠ {new Set(negativos.map((n) => n.filaNum)).size} ítem(s) con existencias o costos negativos.</span>

@@ -51,7 +51,8 @@ import { claveConsolidado, partirClaveConsolidado } from "@/lib/modulos/nomina/c
 import { CLASES_NOMINA } from "@/lib/modulos/nomina/homologacion";
 import { validarReparto } from "@/lib/modulos/nomina/cruce-nomina";
 import { esImputable, promoverStaging, type FilaStagingModulo } from "@/lib/modulos/promocion";
-import { CLAVE_MONEDA, datosConExtrasCartera, filaCarteraDesdeDetalle, rotulosDeEdades } from "@/lib/modulos/cartera/detalle-cartera";
+import { CLAVE_MONEDA, datosConExtrasCartera, filaCarteraDesdeDetalle, leerSaldoDeclarado, rotulosDeEdades } from "@/lib/modulos/cartera/detalle-cartera";
+import { esTipoFormatoCartera, formatoArchivoCartera, leerFormatosCartera, nivelCarteraDeSpec } from "@/lib/modulos/cartera/tipo-formato";
 import { esMonedaExtranjera, validarTrm } from "@/lib/modulos/cartera/moneda";
 import { fechaISO as fechaDeCelda, finDePeriodo } from "@/lib/modulos/cartera/fecha-corte";
 import { resolverOrigenCartera } from "@/lib/modulos/cartera/origen-cartera";
@@ -1556,11 +1557,22 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
       const cartera = descriptor.crucePorTercero.detalleTercero ? (() => {
         const specLote = (loteActual.specJson ?? {}) as Record<string, unknown>;
         const columnasSpec = (specLote.columnas ?? {}) as Record<string, number>;
-        const nivel: NivelCartera = specLote.nivel === "tercero" || specLote.nivel === "documento"
-          ? specLote.nivel
-          // Sin declaración explícita: si el archivo mapea una columna de documento, cada
-          // fila es un documento; si no, cada fila es el resumen de un tercero.
-          : (columnasSpec.documento ?? 0) >= 1 ? "documento" : "tercero";
+        // El tipo de formato declarado; si no, el nivel declarado; y, sin nada, una columna de
+        // documento mapeada dice que cada fila es un documento.
+        const specFormato = {
+          tipoFormato: esTipoFormatoCartera(specLote.tipoFormato) ? specLote.tipoFormato : undefined,
+          nivel: SpecModuloSchema.shape.nivel.safeParse(specLote.nivel).data,
+          columnas: columnasSpec,
+          familias: SpecModuloSchema.shape.familias.safeParse(specLote.familias).data,
+          edadesModo: SpecModuloSchema.shape.edadesModo.safeParse(specLote.edadesModo).data,
+        };
+        const nivel: NivelCartera = nivelCarteraDeSpec(specFormato);
+        // Qué controles se podían validar con este archivo (se congela en el encabezado).
+        const formato = formatoArchivoCartera(specFormato, {
+          loteId,
+          archivo: loteActual.archivoNombre,
+          rolTotal: descriptor.valor,
+        });
         const origenDeclarado = specLote.origenCartera === "nacional" || specLote.origenCartera === "exterior"
           ? specLote.origenCartera
           : null;
@@ -1568,9 +1580,15 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
         // en el detalle: su saldo declarado es la contraparte del control que certifica que
         // el archivo se leyó bien. Conservarlas aquí, y no solo en el agregado, es lo que
         // permite reconstruir ese agregado desde el detalle.
-        const cabeceras = filas.filter((f) => f.motivo === "subtotal_tercero:cabecera");
+        // Igual el «Total <cliente>» debajo de sus documentos: el transform le dejó el saldo
+        // declarado (`totalesPorTercero`); los demás totales no lo traen.
+        const cabeceras = filas.filter((f) => (
+          f.motivo === "subtotal_tercero:cabecera"
+          || (f.tipoFila === "total" && leerSaldoDeclarado(f.datos) != null)
+        ));
         return {
           nivel,
+          formato,
           origenDeclarado,
           cabeceras,
           fechaCorte: fechaDeCelda(specLote.fechaCorte),
@@ -1625,6 +1643,7 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
           archivosConTotal: true,
           trmCierre: true,
           fechaCorte: true,
+          formatosCartera: true,
         },
       });
       // El anexo solo procede sobre el MISMO encabezado que el usuario eligió. Si entre la
@@ -1734,6 +1753,10 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
             ...(cartera
               ? { rangosEdades: rotulosDeEdades([...promocion.detalle]) as Prisma.InputJsonValue }
               : {}),
+            // Un cargue anterior (sin formatos) sigue sin ellos: su primer archivo es desconocido.
+            ...(cartera && leerFormatosCartera(vigente.formatosCartera)
+              ? { formatosCartera: [...leerFormatosCartera(vigente.formatosCartera)!, cartera.formato] as Prisma.InputJsonValue }
+              : {}),
           },
         });
 
@@ -1826,6 +1849,7 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
               // Los rótulos de los baldes se congelan aquí para que la pantalla sepa qué
               // columnas pintar sin abrir el JSON de cada una de las filas.
               rangosEdades: rotulosDeEdades(promocion.detalle) as Prisma.InputJsonValue,
+              formatosCartera: [cartera.formato] as Prisma.InputJsonValue,
             }
             : {}),
           cargadoPor: user?.name ?? null,

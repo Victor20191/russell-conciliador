@@ -1,8 +1,10 @@
 // Cuál versión de patrón corresponde a un archivo, y dónde está su encabezado — puro.
 //
 // El archivo no dice en qué fila está su encabezado ni cuál de sus hojas es el auxiliar. Se
-// prueba cada versión aplicable contra las primeras filas de cada hoja visible y gana la de mayor
-// coincidencia; se devuelve aunque no alcance el umbral, para explicar por qué no se leyó.
+// prueba cada versión aplicable contra las primeras filas de cada hoja visible y gana la que sirve
+// y reconoce más columnas del archivo (ver `mejorQue`); se devuelve aunque no alcance el umbral,
+// para explicar por qué no se leyó. Un aplicativo puede tener varias versiones aprobadas a la vez
+// (p. ej. Cartera por edades y por documento).
 import type { CeldaCruda, GridHoja } from "@/lib/balance/extraccion/ingesta";
 import type { DescriptorModulo } from "../descriptores";
 import type { SpecModulo } from "../extraccion/esquema";
@@ -65,11 +67,23 @@ type Opciones = {
   filasBusqueda?: number;
 };
 
-/** ¿`a` es mejor candidata que `b`? En empate total se queda la primera encontrada. */
+/** Peso de las columnas del ARCHIVO que la versión reconoce (las que lee pesan doble). */
+const pesoReconocido = (u: UbicacionPatron): number =>
+  u.coincidencia.encontradas.reduce((suma, columna) => suma + columna.peso, 0);
+
+/**
+ * ¿`a` es mejor candidata que `b`? En empate total se queda la primera encontrada.
+ *
+ * Una versión que sirve gana siempre a una que no (una con más % pero sin una columna
+ * obligatoria no debe detener la carga). Entre las que sirven gana la que explica MÁS columnas
+ * del archivo: las columnas de más no descuentan del %, así que un formato por edades cuyos
+ * rótulos también trae el detallado coincidiría al 100 % con un archivo por documento.
+ */
 function mejorQue(a: UbicacionPatron, b: UbicacionPatron, hojaPropuesta: string | null): boolean {
   const criterios: [number, number][] = [
-    [a.coincidencia.porcentaje, b.coincidencia.porcentaje],
     [Number(a.coincidencia.elegible), Number(b.coincidencia.elegible)],
+    [pesoReconocido(a), pesoReconocido(b)],
+    [a.coincidencia.porcentaje, b.coincidencia.porcentaje],
     [Number(a.version.estado === "aprobada"), Number(b.version.estado === "aprobada")],
     [Number(a.hoja === hojaPropuesta), Number(b.hoja === hojaPropuesta)],
     [

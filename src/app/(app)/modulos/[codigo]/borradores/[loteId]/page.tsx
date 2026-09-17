@@ -10,6 +10,8 @@ import { clavesDeDetalle, itemsRepetidos, llaveItem, rolesLlaveItemDe } from "@/
 import { esImputable } from "@/lib/modulos/promocion";
 import { columnasDetalleModulo } from "@/lib/modulos/cartera/columnas-cartera";
 import type { ReconciliacionModulo } from "@/lib/modulos/extraccion/transformar";
+import { SpecModuloSchema } from "@/lib/modulos/extraccion/esquema";
+import { formatoArchivoCartera, nivelCarteraDeSpec } from "@/lib/modulos/cartera/tipo-formato";
 import BorradorModuloClient, { type FilaBorradorModulo } from "./borrador-detail-client";
 
 export default async function BorradorModuloPage({ params }: { params: Promise<{ codigo: string; loteId: string }> }) {
@@ -119,10 +121,12 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
   // Los rangos de vencimiento que detectó la lectura viven en el spec del LOTE (aquí el
   // cargue todavía no existe), y de ahí salen las columnas por archivo de la tabla.
   const familiasDelLote = ((lote.specJson ?? {}) as { familias?: Record<string, { etiqueta: string }[]> }).familias;
-  const specDelLote = (lote.specJson ?? {}) as { nivel?: string; columnas?: Record<string, number> };
-  const nivelDelLote: "tercero" | "documento" = specDelLote.nivel === "tercero" || specDelLote.nivel === "documento"
-    ? specDelLote.nivel
-    : (specDelLote.columnas?.documento ?? 0) >= 1 ? "documento" : "tercero";
+  // Tipo de formato del archivo (Cartera y CxP): fija el nivel de la fila y qué controles aplican.
+  const specDelLote = SpecModuloSchema.safeParse(lote.specJson).data;
+  const nivelDelLote = nivelCarteraDeSpec(specDelLote ?? {});
+  const formatoDelLote = descriptor.crucePorTercero.detalleTercero && specDelLote
+    ? formatoArchivoCartera(specDelLote, { loteId, archivo: lote.archivoNombre, rolTotal: descriptor.valor })
+    : null;
   const columnasDelBorrador = columnasDetalleModulo(
     descriptor,
     (familiasDelLote?.edades ?? []).map((e) => e.etiqueta),
@@ -154,6 +158,7 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
         periodoSugerido={periodoSugerido}
         columnas={columnasDelBorrador}
         nivelCartera={nivelDelLote}
+        formatoCartera={formatoDelLote}
         clasificadorRol={descriptor.clasificador}
         valorRol={descriptor.valor}
         noNegativos={descriptor.noNegativos ?? []}

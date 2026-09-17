@@ -10,6 +10,7 @@ import type { DescriptorModulo } from "./descriptores";
 import type { SpecModulo } from "./extraccion/esquema";
 export { MODOS_SUBTOTALES, descripcionModoSubtotales, type ModoSubtotales } from "./subtotales";
 import { descripcionModoSubtotales } from "./subtotales";
+import { esTipoFormatoCartera, faltantesTipoFormato, nivelDeTipoFormato } from "./cartera/tipo-formato";
 
 /** Modo EFECTIVO del clasificador de un spec (resuelve el legado `arrastrarClasificador`). */
 export type ModoClasificador = NonNullable<SpecModulo["clasificadorModo"]>;
@@ -139,6 +140,11 @@ function normalizarSpecModuloInterno(
   // conciliación es por tercero con detalle (Cartera, CxP).
   if (descriptor.crucePorTercero.detalleTercero) {
     if (spec.nivel) normalizado.nivel = spec.nivel;
+    // El tipo de formato declarado manda sobre el nivel: son la misma decisión.
+    if (esTipoFormatoCartera(spec.tipoFormato)) {
+      normalizado.tipoFormato = spec.tipoFormato;
+      normalizado.nivel = nivelDeTipoFormato(spec.tipoFormato);
+    }
     if (spec.origenCartera) normalizado.origenCartera = spec.origenCartera;
     if (spec.invertirSigno === true) normalizado.invertirSigno = true;
     if (spec.filaTercero?.texto.trim()) normalizado.filaTercero = { ...spec.filaTercero, texto: spec.filaTercero.texto.trim() };
@@ -229,6 +235,10 @@ export function validarSpecModulo(descriptor: DescriptorModulo, spec: SpecModulo
   }
   const errorFamilias = validarFamiliasSpec(descriptor, spec);
   if (errorFamilias) return errorFamilias;
+  if (descriptor.crucePorTercero.detalleTercero) {
+    const [faltaFormato] = faltantesTipoFormato(spec);
+    if (faltaFormato) return faltaFormato;
+  }
   return null;
 }
 

@@ -28,6 +28,32 @@ const SPEC_SIESA: SpecModulo = {
 };
 const SIESA = { encabezado: ENCABEZADO_SIESA, spec: SPEC_SIESA };
 
+describe("coincidenciaPatron · tipo de formato declarado", () => {
+  it("un formato por edades exige que el archivo traiga algún rango", () => {
+    const declarado = { encabezado: ENCABEZADO_SIESA, spec: { ...SPEC_SIESA, tipoFormato: "edades" as const } };
+    const sinRangos = ["Código", null, null, null, null, null, null, "#Ter.", null, null, null, null, null, null, "Total"];
+    // Sin declarar: faltan rótulos pero ninguna columna obligatoria.
+    expect(coincidenciaPatron(CXP, SIESA, sinRangos).faltantesRequeridos).toEqual([]);
+    expect(coincidenciaPatron(CXP, declarado, sinRangos).faltantesRequeridos).toEqual(["Rangos de vencimiento"]);
+    expect(coincidenciaPatron(CXP, declarado, ENCABEZADO_SIESA)).toMatchObject({ faltantesRequeridos: [], elegible: true });
+  });
+
+  it("un formato por documento exige la columna del documento", () => {
+    const encabezado = ["NIT", "Nombre", "Documento", "Saldo", "Ciudad", "Zona", "Vendedor", "Plazo"];
+    const spec: SpecModulo = {
+      hoja: "CxP", filaEncabezado: 1, primeraFilaDatos: 2, tipoFormato: "documento",
+      columnas: columnasEn(CXP, { nit: 1, nombre: 2, documento: 3, total: 4 }),
+    };
+    const sinDocumento = ["NIT", "Nombre", "Saldo", "Ciudad", "Zona", "Vendedor", "Plazo"];
+    const r = coincidenciaPatron(CXP, { encabezado, spec }, sinDocumento);
+    expect(r.faltantesRequeridos).toEqual(["Documento / factura"]);
+    expect(r.elegible).toBe(false);
+    // En otro módulo el campo no significa nada.
+    const inv: SpecModulo = { hoja: "Inv", filaEncabezado: 1, primeraFilaDatos: 2, tipoFormato: "documento", columnas: columnasEn(INV, { tipo: 1, valorTotal: 2 }) };
+    expect(coincidenciaPatron(INV, { encabezado: ["Tipo", "Valor total"], spec: inv }, ["Tipo", "Valor total"]).faltantesRequeridos).toEqual([]);
+  });
+});
+
 describe("coincidenciaPatron", () => {
   it("el mismo encabezado coincide al 100 %", () => {
     const r = coincidenciaPatron(CXP, SIESA, ENCABEZADO_SIESA);

@@ -17,13 +17,14 @@
 // NO bloquea la carga: es un control de auditoría. El consolidado sale SIEMPRE de los
 // movimientos, nunca de las filas de total.
 import { useState } from "react";
-import type { ResumenControlTercero } from "@/lib/modulos/cartera/saldos-tercero";
+import type { ControlesFormatoCartera } from "@/lib/modulos/cartera/controles-formato";
 import { Chip } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { Modal } from "@/components/modal";
 import { fmtContable, fmtNum } from "@/lib/format";
 import { TOLERANCIA_CONTROL, type ControlSubtotales } from "@/lib/modulos/subtotales";
 import type { OrigenTotalDeclarado } from "@/lib/modulos/validacion-cargue";
+import { ControlesFormato } from "./controles-formato";
 
 /** Lo que el borrador va a cargar, para contrastarlo con lo que declara el archivo. */
 export type ResumenValidacionArchivo = {
@@ -68,6 +69,14 @@ function ModalAyuda({ onClose }: { onClose: () => void }) {
           de subtotal por cada agrupador, cada uno se compara contra la suma de su propio bloque. Solo se listan los que
           no cuadran.
         </p>
+        <p>
+          <span className="font-semibold text-ink-800">«Formato»</span> (Cartera y CxP) — el tipo de archivo que declara el
+          patrón decide qué más se revisa: <span className="font-semibold">por documento</span>, que la suma de los
+          documentos de cada cliente dé el total que el archivo imprime para ese cliente;{" "}
+          <span className="font-semibold">por edades</span>, que la suma de las edades dé el total de la fila;{" "}
+          <span className="font-semibold">por documento y edades</span>, las dos. Si el archivo no trae con qué comparar,
+          el control queda «sin validar».
+        </p>
         <p className="rounded-md border border-ink-150 bg-ink-50 px-3 py-2">
           Ninguno de estos controles <span className="font-semibold">bloquea la carga</span>: son papel de trabajo. El
           consolidado del módulo se calcula siempre desde los movimientos, nunca desde las filas de total.
@@ -82,7 +91,7 @@ export function ValidacionArchivo({
   resumen,
   modo = "borrador",
   origen,
-  controlTercero,
+  controlesFormato,
 }: {
   control: ControlSubtotales;
   resumen: ResumenValidacionArchivo;
@@ -91,12 +100,11 @@ export function ValidacionArchivo({
   /** Solo en un cargue: de cuántos archivos salió el total (los anexos pueden no traerlo). */
   origen?: OrigenTotalDeclarado;
   /**
-   * Control por TERCERO, cuando el archivo declara un saldo por cada uno (la cabecera de
-   * un reporte jerárquico, o un segundo archivo cargado como control). Es un contraste
-   * distinto del total al pie: verifica que el detalle se repartió bien entre terceros,
-   * no solo que suma lo mismo.
+   * Cartera y CxP: los controles que pide el TIPO DE FORMATO del archivo (documentos contra el
+   * total del cliente, edades contra el total). Son contrastes distintos del total al pie:
+   * verifican que el detalle se repartió bien, no solo que suma lo mismo.
    */
-  controlTercero?: ResumenControlTercero | null;
+  controlesFormato?: ControlesFormatoCartera | null;
 }) {
   const [ayuda, setAyuda] = useState(false);
   const gran = control.granTotal;
@@ -168,33 +176,7 @@ export function ValidacionArchivo({
         )}
       </div>
 
-      {controlTercero && controlTercero.filas.length > 0 && (() => {
-        const cuadra = controlTercero.conDiferencia === 0;
-        const tono: Estado = cuadra ? "cuadra" : "descuadre";
-        const peores = controlTercero.filas
-          .filter((f) => f.estado !== "cuadra")
-          .sort((a, b) => Math.abs(b.diferencia) - Math.abs(a.diferencia))
-          .slice(0, 4);
-        return (
-          <div className={`rounded-md border px-3 py-2 text-[12px] ${TONO[tono]}`}>
-            {cuadra ? (
-              <>
-                <span className="font-semibold">Cuadra por tercero:</span> lo que el archivo declara para cada uno de sus{" "}
-                {fmtNum(controlTercero.filas.length)} terceros coincide con la suma de su detalle{" "}
-                (<span className="font-semibold">{fmtContable(controlTercero.totales.declarado)}</span>).
-              </>
-            ) : (
-              <>
-                <span className="font-semibold">No coincide por tercero:</span>{" "}
-                {fmtNum(controlTercero.conDiferencia)} de {fmtNum(controlTercero.filas.length)} terceros difieren
-                {" "}(Δ <span className="font-semibold">{fmtContable(controlTercero.totales.diferencia)}</span>).{" "}
-                {peores.map((f) => `${f.nombre ?? f.claveTercero}: declara ${fmtContable(f.declarado)} vs ${fmtContable(f.calculado)}`).join("; ")}
-                {controlTercero.conDiferencia > peores.length ? "…" : "."}
-              </>
-            )}
-          </div>
-        );
-      })()}
+      {controlesFormato && <ControlesFormato controles={controlesFormato} />}
 
       {gruposDescuadrados.length > 0 && (
         <div className="rounded-md border border-err-200 bg-err-50 px-3 py-2 text-[11.5px] text-err-700">

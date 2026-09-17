@@ -18,10 +18,13 @@
 //    la del cargue, los documentos cuyos días no corresponden al corte, los que están en un
 //    balde de edad que no es el suyo y los vencimientos imposibles.
 import { claveNit } from "@/lib/nit";
-import { CLAVE_SALDO_REPORTADO, CLAVE_SUMA_EDADES, leerEdades } from "./detalle-cartera";
+import { controlesFormatoCartera, diferenciaEdadesDeFila, nivelDeFilas, tipoFormatoDeFilas, type ControlesFormatoCartera, type DiferenciaEdadesFila } from "./controles-formato";
+import { leerEdades } from "./detalle-cartera";
 import { esRotuloEdad, type RotuloEdad } from "./edades";
 import { deducirFechaCorte, diasEntre, fechaISO, type CorteDeducido } from "./fecha-corte";
 import { claveSinNit } from "./tercero-cartera";
+import type { NivelCartera } from "./saldos-tercero";
+import type { FormatoArchivoCartera, TipoFormatoCartera } from "./tipo-formato";
 import { nombreComparable, type ResumenCruceTerceroCartera } from "./cruce-tercero-cartera";
 
 /** Filas que se listan por validación; el conteo sí es completo. */
@@ -35,16 +38,10 @@ export type FilaValidacionTercero = {
   imputable: boolean;
   nitCanonico: string | null;
   datos: Record<string, unknown>;
+  nivel?: string | null;
 };
 
-export type DiferenciaEdades = {
-  filaNum: number;
-  tercero: string;
-  documento: string | null;
-  total: number;
-  sumaEdades: number;
-  diferencia: number;
-};
+export type DiferenciaEdades = DiferenciaEdadesFila;
 
 export type DocumentoRepetido = {
   documento: string;
@@ -83,6 +80,8 @@ export type VencimientoAtipico = { filaNum: number; tercero: string; documento: 
 type Lista<T> = { cantidad: number; filas: T[] };
 
 export type ValidacionesTercero = {
+  /** Controles que pide el tipo de formato del cargue (por documento, por edades o ambos). */
+  formato: ControlesFormatoCartera;
   edadesVsTotal: Lista<DiferenciaEdades>;
   documentosRepetidos: { cantidad: number; grupos: DocumentoRepetido[] };
   posiblesColisiones: PosibleColision[];
@@ -150,20 +149,30 @@ export function validarAuxiliarTercero(input: {
   umbralNaturaleza: number;
   /** Fecha de corte del cargue (AAAA-MM-DD); sin ella no se evalúan los días. */
   fechaCorte?: string | null;
+  /** Nivel que imputa en el cargue y formatos de sus archivos (`formatos_cartera`). */
+  /** Sin él, el del nivel de las filas (tercero si no dicen nada). */
+  nivelImputable?: NivelCartera;
+  /** null o ausente = cargue anterior: el tipo se deduce de las filas. */
+  formatos?: readonly FormatoArchivoCartera[] | null;
+  tipoDeducido?: TipoFormatoCartera;
 }): ValidacionesTercero {
   const imputables = input.filas.filter((f) => f.imputable);
   const terceroDe = (f: FilaValidacionTercero) => texto(f.datos.nombre) ?? f.nitCanonico ?? texto(f.datos.nit) ?? "—";
 
-  // ===== Edades vs total =====
+  // ===== Controles del tipo de formato =====
+  const nivelImputable = input.nivelImputable ?? nivelDeFilas(input.filas);
+  const formato = controlesFormatoCartera({
+    filas: input.filas,
+    nivelImputable,
+    formatos: input.formatos ?? null,
+    tipoDeducido: input.tipoDeducido ?? tipoFormatoDeFilas(input.filas, nivelImputable),
+  });
+
+  // ===== Edades vs total ===== (en cualquier archivo que traiga las dos cifras)
   const edades = nuevaLista<DiferenciaEdades>();
   for (const f of imputables) {
-    const total = numero(f.datos[CLAVE_SALDO_REPORTADO]);
-    const suma = numero(f.datos[CLAVE_SUMA_EDADES]);
-    // Solo cuando vienen las dos: un documento por vencer sin balde no es una diferencia.
-    if (total == null || total === 0 || suma == null || suma === 0) continue;
-    const diferencia = redondear(total - suma);
-    if (Math.abs(diferencia) <= Math.max(1, Math.abs(total) * 0.001)) continue;
-    agregar(edades, { filaNum: f.filaNum, tercero: terceroDe(f), documento: texto(f.datos.documento), total, sumaEdades: suma, diferencia });
+    const diferencia = diferenciaEdadesDeFila(f);
+    if (diferencia) agregar(edades, diferencia);
   }
 
   // ===== Documento repetido entre terceros =====
@@ -269,6 +278,7 @@ export function validarAuxiliarTercero(input: {
   const corteDeducido = fechaCorte && deducido && deducido.fecha !== fechaCorte ? deducido : null;
 
   return {
+    formato,
     edadesVsTotal: edades,
     documentosRepetidos: { cantidad: repetidos.length, grupos: repetidos.slice(0, MAX_FILAS) },
     posiblesColisiones: colisiones,
@@ -277,7 +287,7 @@ export function validarAuxiliarTercero(input: {
     diasVsCorte,
     edadVsCorte,
     vencimientosAtipicos: atipicos,
-    total: edades.cantidad + repetidos.length + colisiones.length + contrarios.length
+    total: edades.cantidad + (formato.documentosVsCliente?.diferencias.cantidad ?? 0) + repetidos.length + colisiones.length + contrarios.length
       + (corteDeducido ? 1 : 0) + diasVsCorte.cantidad + edadVsCorte.cantidad + atipicos.cantidad,
   };
 }

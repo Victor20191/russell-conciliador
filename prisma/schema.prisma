@@ -1365,6 +1365,10 @@ model ModuloDatoEncabezado {
   /// `[{ etiqueta, clase, orden }]`. Los pone el ERP (de 4 a 9 baldes, distintos en cada
   /// uno), así que las columnas de la pantalla salen de aquí y no del código.
   rangosEdades       Json?               @map("rangos_edades")
+  /// Tipo de formato de cada archivo del cargue (Cartera y CxP), para saber qué controles se
+  /// podían validar: `[{ loteId, archivo, tipo, declarado, conColumnaTotal }]`. Los anexos
+  /// agregan el suyo. Null = cargue anterior (el tipo se deduce de las filas).
+  formatosCartera    Json?               @map("formatos_cartera")
   /// TRM de cierre con la que se convirtió a pesos la cartera en divisa (130510).
   trmCierre          Decimal?            @map("trm_cierre") @db.Decimal(12, 4)
   cargadoPor         String?             @map("cargado_por")

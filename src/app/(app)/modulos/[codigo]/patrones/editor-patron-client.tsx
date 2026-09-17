@@ -132,6 +132,11 @@ export default function EditorPatronClient({
 
   const guardar = (aprobar: boolean) => {
     if (!spec) return;
+    // Cartera y CxP: el tipo de formato decide qué se valida en cada cargue (el servidor también lo exige).
+    if (conNivelCartera && !spec.tipoFormato) {
+      notifyError("Elige el tipo de formato del archivo: por documento, por edades o por documento y edades.");
+      return;
+    }
     startGuardar(async () => {
       if (edicion) {
         const r = await actualizarVersionPatron({ id: edicion.id, actualizadoEn: edicion.actualizadoEn, specJson: JSON.stringify(spec), nota });

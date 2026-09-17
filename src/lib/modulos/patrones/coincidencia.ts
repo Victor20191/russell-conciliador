@@ -10,6 +10,7 @@
 // Las columnas encontradas en otra letra se RE-MAPEAN al aplicar el patrón (ver `aplicar.ts`).
 import type { DescriptorModulo } from "../descriptores";
 import type { SpecModulo } from "../extraccion/esquema";
+import { esTipoFormatoCartera, tipoConDocumento, tipoConEdades } from "../cartera/tipo-formato";
 import { modoClasificadorDe } from "../perfil-modulo";
 import { clavesEncabezado } from "./rotulos";
 
@@ -76,6 +77,38 @@ function ubicarSinRotulo(
   return null;
 }
 
+/**
+ * Lo que el TIPO DE FORMATO declarado exige y el archivo no trae (Cartera y CxP): la columna del
+ * documento en los formatos por documento y algún rango de edades en los formatos por edades.
+ * Así un archivo por edades no se lee con una versión por documento, ni al revés.
+ */
+function faltantesDelTipoFormato(
+  descriptor: DescriptorModulo,
+  spec: SpecModulo,
+  mapaColumnas: Readonly<Record<number, number>>,
+): string[] {
+  if (!descriptor.crucePorTercero.detalleTercero || !esTipoFormatoCartera(spec.tipoFormato)) return [];
+  const faltan: string[] = [];
+  const etiquetaDe = (rol: string) => descriptor.columnas.find((c) => c.nombre === rol)?.etiqueta ?? rol;
+  const ubicada = (rol: string) => {
+    const columna = spec.columnas[rol] ?? 0;
+    return columna >= 1 && mapaColumnas[columna] != null;
+  };
+  if (tipoConDocumento(spec.tipoFormato) && !ubicada("documento")) faltan.push(etiquetaDe("documento"));
+  if (tipoConEdades(spec.tipoFormato)) {
+    const rangos = spec.familias?.edades ?? [];
+    const conEdades = rangos.length > 0
+      ? rangos.some((r) => mapaColumnas[r.columna] != null)
+      : ubicada("edadEtiqueta");
+    if (!conEdades) {
+      faltan.push(rangos.length > 0
+        ? descriptor.familiasDinamicas?.find((f) => f.nombre === "edades")?.etiqueta ?? "Rangos de vencimiento"
+        : etiquetaDe("edadEtiqueta"));
+    }
+  }
+  return faltan;
+}
+
 export function coincidenciaPatron(
   descriptor: DescriptorModulo,
   patron: PatronComparable,
@@ -131,6 +164,7 @@ export function coincidenciaPatron(
       return columna < 1 || mapaColumnas[columna] == null;
     })
     .map((rol) => rol.etiqueta);
+  faltantesRequeridos.push(...faltantesDelTipoFormato(descriptor, patron.spec, mapaColumnas));
 
   const porcentaje = total > 0 ? Math.round((100 * logrado) / total) : 0;
   return {

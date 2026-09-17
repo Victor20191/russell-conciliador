@@ -393,6 +393,38 @@ describe("reportes jerárquicos de SIESA: secciones de cuenta e identificador co
   });
 });
 
+describe("por documento con «Total <cliente>» debajo de sus documentos", () => {
+  const h = hoja("Cartera", [
+    ["NIT", "Nombre", "Documento", "Saldo"],
+    ["900123456", "ACME S.A.S.", "F-1", 100_000],
+    ["900123456", "ACME S.A.S.", "F-2", 50_000],
+    [null, "Total ACME S.A.S.", null, 150_000],
+    ["800111222", "BETA LTDA", "F-9", 70_000],
+    ["800111222", "BETA LTDA", "F-10", 30_000],
+    ["800111222", "Total BETA LTDA", null, 90_000],
+    [null, "Total general", null, 240_000],
+  ]);
+  const spec = (): SpecModulo => ({ ...specDe(h), tipoFormato: "documento" });
+
+  it("el total de cada cliente queda como su saldo declarado, sin imputar", () => {
+    const r = transformarModulo(CAR, spec(), h);
+    expect(movimientos(r).map((f) => f.valor)).toEqual([100_000, 50_000, 70_000, 30_000]);
+    const declarados = r.filas.filter((f) => f.saldoDeclarado != null);
+    expect(declarados.map((f) => ({ fila: f.filaNum, tipo: f.tipoFila, saldo: f.saldoDeclarado, nit: f.datos.nit }))).toEqual([
+      { fila: 4, tipo: "total", saldo: 150_000, nit: "900123456" },
+      { fila: 7, tipo: "total", saldo: 90_000, nit: "800111222" },
+    ]);
+    // El rótulo del total se conserva; el gran total no declara el saldo de nadie.
+    expect(r.filas.find((f) => f.filaNum === 4)?.datos.nombre).toBe("Total ACME S.A.S.");
+    expect(r.filas.find((f) => f.filaNum === 8)?.saldoDeclarado).toBeUndefined();
+  });
+
+  it("un archivo por edades no usa sus totales como saldo de un cliente", () => {
+    const r = transformarModulo(CAR, { ...specDe(h), tipoFormato: "edades" }, h);
+    expect(r.filas.some((f) => f.saldoDeclarado != null)).toBe(false);
+  });
+});
+
 describe("filas que NO son cartera", () => {
   it("un pie del ERP con importe pero sin identidad no suma", () => {
     // Mismo defecto que la fila de «clase 0» del balance: plata que no es de nadie. Queda

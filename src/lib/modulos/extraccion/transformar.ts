@@ -22,6 +22,8 @@ import { coincideMarcaSubtotal, columnasDetalle, detectarSubtotales, esRotuloTot
 import { archivoConDocumentos, esIdentificadorVacio, esNumeroDocumento, rolDeCeldaCompartida } from "../cartera/identificador-compartido";
 import { esPieDeReporte } from "./pie-reporte";
 import { aPesos, esMonedaExtranjera, montoConDivisa } from "../cartera/moneda";
+import { nivelCarteraDeSpec } from "../cartera/tipo-formato";
+import { totalesPorTercero } from "../cartera/total-tercero";
 import { evaluarFilaNomina, nombreSinCedula, normalizarCedula } from "../nomina/valor-nomina";
 import { codigoConceptoCanonico } from "../nomina/homologacion";
 import { parsearAnio, parsearFechaCelda, rangoDeFila, rangoDentroDelCargue, type RangoMeses } from "../nomina/periodo";
@@ -839,6 +841,21 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
       tipoFila: "total",
       motivo: motivoDe(d),
     };
+  }
+
+  // TOTAL POR CLIENTE («Total <cliente>» debajo de sus documentos): el subtotal de un bloque que
+  // es de UN solo tercero declara su saldo, igual que una cabecera, y entra al control «Σ de los
+  // documentos contra el total del cliente». Sigue siendo total: no imputa.
+  if (conDetalleTercero && nivelCarteraDeSpec(spec) === "documento") {
+    for (const [indice, identidad] of totalesPorTercero(filas, detecciones)) {
+      const f = filas[indice];
+      if (f.tipoFila !== "total") continue;
+      // La identidad sale de `datos` de otra fila del mismo archivo: ya tiene el tipo de una celda.
+      const completar = Object.fromEntries(
+        Object.entries(identidad).filter(([, v]) => v != null && String(v).trim() !== ""),
+      ) as typeof f.datos;
+      filas[indice] = { ...f, datos: { ...f.datos, ...completar }, saldoDeclarado: redondear(f.valor) };
+    }
   }
 
   // NEGRITA DIFERIDA: la fila en negrita que la detección NO reconoció como subtotal

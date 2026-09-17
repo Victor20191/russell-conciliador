@@ -36,6 +36,7 @@ import {
   tipoContenidoArchivo,
 } from "@/lib/modulos/archivo-original";
 import { almacenamientoDisponible, eliminarObjeto, obtenerObjeto, subirObjeto } from "@/lib/storage/objetos";
+import { INFO_TIPO_FORMATO, nivelCarteraDeSpec, tipoFormatoCartera } from "@/lib/modulos/cartera/tipo-formato";
 import type { ActionState } from "@/lib/definitions";
 import type { AnalisisModulo } from "@/app/actions/modulos-datos";
 
@@ -149,12 +150,23 @@ function analisisDeHojas(
   };
 }
 
+const MENSAJE_TIPO_FORMATO = "Elige el tipo de formato del archivo: por documento, por edades o por documento y edades.";
+
 /**
  * Valida un mapeo contra la muestra y devuelve lo que se guarda: el mapeo reutilizable y los
  * rótulos del encabezado con que se reconocerán los archivos.
  */
-function prepararVersion(descriptor: DescriptorModulo, hojas: GridHoja[], specEntrada: SpecModulo) {
+function prepararVersion(
+  descriptor: DescriptorModulo,
+  hojas: GridHoja[],
+  specEntrada: SpecModulo,
+  opciones: { exigirTipoFormato: boolean },
+) {
   const spec = normalizarSpecModulo(descriptor, specEntrada);
+  // Cartera y CxP: el tipo de formato decide qué controles se validan en cada cargue.
+  if (opciones.exigirTipoFormato && descriptor.crucePorTercero.detalleTercero && !spec.tipoFormato) {
+    throw new ErrorPatron(MENSAJE_TIPO_FORMATO);
+  }
   const error = validarSpecModulo(descriptor, spec);
   if (error) throw new ErrorPatron(error);
   const hoja = hojas.find((h) => h.nombre === spec.hoja);
@@ -279,7 +291,7 @@ export async function crearVersionPatron(formData: FormData): Promise<ActionStat
     if (!nota.success) throw new ErrorPatron(nota.error.issues[0]?.message ?? "La nota no es válida.");
     const aprobar = formData.get("aprobar") === "1";
     const hojas = await hojasDe(bytes, archivo.name);
-    const { spec, encabezado } = prepararVersion(descriptor, hojas, specEntrada);
+    const { spec, encabezado } = prepararVersion(descriptor, hojas, specEntrada, { exigirTipoFormato: true });
     const user = await getCurrentUser();
 
     const creada = await transaccionSerializable(async (tx) => {
@@ -355,7 +367,8 @@ export async function subirMuestraVersionPatron(formData: FormData): Promise<Act
     if (!ubicacion?.coincidencia.elegible) {
       throw new ErrorPatron(`La muestra no coincide con esta versión (${ubicacion?.coincidencia.porcentaje ?? 0} %). Para ese formato crea una versión nueva.`);
     }
-    const { spec, encabezado } = prepararVersion(descriptor, hojas, aplicarPatronASpec(descriptor, ubicacion).spec);
+    // Una versión migrada puede no declarar aún su tipo: se declara al editarla o al aprobarla.
+    const { spec, encabezado } = prepararVersion(descriptor, hojas, aplicarPatronASpec(descriptor, ubicacion).spec, { exigirTipoFormato: false });
     const clave = claveMuestraPatronModulo({ moduloCodigo: version.moduloCodigo, erpCode: version.erp.code, version: version.version, nombreArchivo: archivo.name });
     await subirObjeto({ key: clave, cuerpo: bytes, contentType: tipoContenidoArchivo(archivo.name, archivo.type) });
     const actualizada = await prisma.versionPatronArchivoModulo.updateMany({
@@ -418,7 +431,7 @@ export async function actualizarVersionPatron(input: z.input<typeof ActualizarVe
       throw new ErrorPatron("La muestra de la versión no está disponible o no supera la verificación de integridad.");
     }
     const hojas = await hojasDe(objeto.cuerpo, version.muestraNombre ?? "muestra.xlsx");
-    const { spec, encabezado } = prepararVersion(descriptor, hojas, specEntrada);
+    const { spec, encabezado } = prepararVersion(descriptor, hojas, specEntrada, { exigirTipoFormato: true });
     const actualizada = await prisma.versionPatronArchivoModulo.updateMany({
       where: { id: datos.id, estado: "pendiente", actualizadoEn: version.actualizadoEn },
       data: {
@@ -445,6 +458,69 @@ export async function actualizarVersionPatron(input: z.input<typeof ActualizarVe
   }
 }
 
+const DeclararTipoSchema = z.object({
+  id: z.number().int().positive(),
+  actualizadoEn: z.string().min(1),
+  tipoFormato: z.enum(["documento", "edades", "documento_edades"]),
+});
+
+/**
+ * Declara el TIPO DE FORMATO de una versión de Cartera o CxP sin tocar su mapeo de columnas. En
+ * una pendiente se puede cambiar cuantas veces haga falta; en una aprobada o inactiva solo se
+ * declara si aún no lo tenía (las versiones anteriores a la declaración): para cambiarlo después
+ * se crea una versión nueva. Los cargues ya hechos conservan su propio mapeo; lo declarado rige
+ * desde el próximo archivo (qué se valida y, si el nivel cambia, cómo se lee cada fila).
+ */
+export async function declararTipoFormatoVersion(input: z.input<typeof DeclararTipoSchema>): Promise<ActionState> {
+  const permiso = await authorizePermiso(PERMISO);
+  if (!permiso.ok) return { ok: false, message: permiso.message };
+  const validacion = DeclararTipoSchema.safeParse(input);
+  if (!validacion.success) return { ok: false, message: "Elige un tipo de formato válido." };
+  try {
+    const datos = validacion.data;
+    const version = await prisma.versionPatronArchivoModulo.findUnique({ where: { id: datos.id }, include: { erp: { select: { name: true } } } });
+    if (!version) throw new ErrorPatron("La versión ya no existe.");
+    const descriptor = descriptorDe(version.moduloCodigo);
+    if (!descriptor.crucePorTercero.detalleTercero) throw new ErrorPatron("El tipo de formato solo aplica a Cartera y Cuentas por pagar.");
+    if (version.actualizadoEn.toISOString() !== datos.actualizadoEn) throw new ErrorPatron("La versión cambió desde que la abriste. Recarga la página.");
+    const guardado = SpecModuloSchema.safeParse(version.specJson);
+    if (!guardado.success) throw new ErrorPatron("El mapeo guardado de la versión es ilegible.");
+    const anterior = tipoFormatoCartera(guardado.data);
+    if (anterior.declarado && anterior.tipo === datos.tipoFormato) {
+      return { ok: true, message: `La versión ${version.version} ya es ${INFO_TIPO_FORMATO[datos.tipoFormato].etiqueta.toLowerCase()}.` };
+    }
+    if (anterior.declarado && !esVersionEditable(version)) {
+      throw new ErrorPatron("Esta versión ya tiene su tipo declarado y no está pendiente: para cambiarlo crea una versión nueva a partir de ella.");
+    }
+    const spec = normalizarSpecModulo(descriptor, { ...guardado.data, tipoFormato: datos.tipoFormato });
+    const error = validarSpecModulo(descriptor, spec);
+    if (error) throw new ErrorPatron(error);
+    const actualizada = await prisma.versionPatronArchivoModulo.updateMany({
+      where: { id: datos.id, estado: version.estado, actualizadoEn: version.actualizadoEn },
+      data: { specJson: spec as Prisma.InputJsonValue },
+    });
+    if (actualizada.count !== 1) throw new ErrorPatron("La versión cambió desde que la abriste. Recarga la página.");
+
+    const nivelAntes = nivelCarteraDeSpec(guardado.data);
+    const nivelAhora = nivelCarteraDeSpec(spec);
+    const antes = anterior.declarado
+      ? INFO_TIPO_FORMATO[anterior.tipo].etiqueta
+      : `sin declarar (parecía ${INFO_TIPO_FORMATO[anterior.tipo].etiqueta.toLowerCase()})`;
+    const user = await getCurrentUser();
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: "DECLARÓ TIPO DE FORMATO DEL PATRÓN",
+      entity: `${descriptor.label} · ${version.erp.name} v${version.version}`,
+      detail: `${INFO_TIPO_FORMATO[datos.tipoFormato].etiqueta} · antes: ${antes} · versión ${version.estado}`
+        + (nivelAntes !== nivelAhora ? ` · cada fila pasa de ${nivelAntes} a ${nivelAhora}` : ""),
+    });
+    revalidatePath(rutaPatrones(version.moduloCodigo));
+    return { ok: true, message: `Versión ${version.version}: ${INFO_TIPO_FORMATO[datos.tipoFormato].etiqueta.toLowerCase()}.` };
+  } catch (e) {
+    return respuestaError("declararTipoFormatoVersion", e);
+  }
+}
+
 const EstadoSchema = z.object({
   id: z.number().int().positive(),
   estado: z.enum(["aprobada", "inactiva"]),
@@ -466,6 +542,10 @@ export async function cambiarEstadoVersionPatron(input: z.input<typeof EstadoSch
     if (estado === "aprobada") {
       const motivo = motivoNoAprobable(version);
       if (motivo) throw new ErrorPatron(motivo);
+      if (version.estado === "pendiente" && descriptorDe(version.moduloCodigo).crucePorTercero.detalleTercero) {
+        const spec = SpecModuloSchema.safeParse(version.specJson);
+        if (!spec.success || !spec.data.tipoFormato) throw new ErrorPatron(`${MENSAJE_TIPO_FORMATO} Edita la versión antes de aprobarla.`);
+      }
     }
     const user = await getCurrentUser();
     const actualizada = await prisma.versionPatronArchivoModulo.updateMany({

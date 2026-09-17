@@ -1,6 +1,7 @@
 import { Card } from "@/components/ui";
 import { fmtContable } from "@/lib/format";
 import type { ValidacionesTercero } from "@/lib/modulos/cartera/validaciones-tercero";
+import { ControlesFormato } from "../controles-formato";
 
 const encabezadoTabla = "bg-ink-50 text-left text-ink-500";
 const celda = "px-2.5 py-1.5";
@@ -13,13 +14,18 @@ function Mas({ cantidad, mostradas }: { cantidad: number; mostradas: number }) {
 
 /** Novedades de Cartera y CxP: lo que el auxiliar por tercero muestra que hay que revisar. */
 export function ValidacionesTerceroPanel({ validaciones }: { validaciones: ValidacionesTercero }) {
-  const { edadesVsTotal, documentosRepetidos, posiblesColisiones, saldosContrarios, corte, diasVsCorte, edadVsCorte, vencimientosAtipicos } = validaciones;
+  const { formato, documentosRepetidos, posiblesColisiones, saldosContrarios, corte, diasVsCorte, edadVsCorte, vencimientosAtipicos } = validaciones;
+  // Las diferencias del formato (edades y documentos contra el total) se ven en su bloque.
+  const otras = validaciones.total - validaciones.edadesVsTotal.cantidad - (formato.documentosVsCliente?.diferencias.cantidad ?? 0);
   return (
     <Card className="p-4">
       <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Validaciones del auxiliar por tercero</div>
-      {validaciones.total === 0 ? (
+      <div className="mb-4">
+        <ControlesFormato controles={formato} detalle />
+      </div>
+      {otras === 0 ? (
         <div className="rounded-md border border-ok-500 bg-ok-100/30 px-3 py-1.5 text-[12px] text-ok-700">
-          ✓ Las edades cuadran con el total y con la fecha de corte, no hay documentos repetidos entre terceros ni claves que colisionen, y la contabilidad de los terceros no tiene saldos contrarios a su naturaleza por encima del umbral.
+          ✓ Las edades cuadran con la fecha de corte, no hay documentos repetidos entre terceros ni claves que colisionen, y la contabilidad de los terceros no tiene saldos contrarios a su naturaleza por encima del umbral.
         </div>
       ) : (
         <div className="flex flex-col gap-4">
@@ -27,34 +33,6 @@ export function ValidacionesTerceroPanel({ validaciones }: { validaciones: Valid
             <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[12px] text-warn-700">
               Los días vencidos del archivo están calculados al <b>{fechaLegible(corte.deducido.fecha)}</b> ({corte.deducido.coincidencias} de {corte.deducido.filasConDias} documentos con días), no al corte del cargue ({fechaLegible(corte.fecha)}): sus edades están corridas. Pide el reporte al corte o ajusta la fecha de corte del cargue.
             </div>
-          )}
-
-          {edadesVsTotal.cantidad > 0 && (
-            <section>
-              <div className="mb-1 text-[12.5px] font-semibold text-err-700">
-                ⚠ {edadesVsTotal.cantidad.toLocaleString("es-CO")} {edadesVsTotal.cantidad === 1 ? "fila" : "filas"} donde la suma de las edades no coincide con el total
-              </div>
-              <div className="overflow-x-auto rounded-md border border-ink-150">
-                <table className="w-full text-[12px]">
-                  <thead className={encabezadoTabla}>
-                    <tr><th className={`${celda} font-semibold`}>Fila</th><th className={`${celda} font-semibold`}>Tercero</th><th className={`${celda} font-semibold`}>Documento</th><th className={`${celda} text-right font-semibold`}>Total</th><th className={`${celda} text-right font-semibold`}>Σ edades</th><th className={`${celda} text-right font-semibold`}>Diferencia</th></tr>
-                  </thead>
-                  <tbody>
-                    {edadesVsTotal.filas.map((f) => (
-                      <tr key={f.filaNum} className="border-t border-ink-100">
-                        <td className={`${celda} tabular-nums text-ink-500`}>{f.filaNum}</td>
-                        <td className={`${celda} text-ink-700`}>{f.tercero}</td>
-                        <td className={`${celda} text-ink-700`}>{f.documento ?? "—"}</td>
-                        <td className={`${celda} text-right tabular-nums text-ink-700`}>{fmtContable(f.total)}</td>
-                        <td className={`${celda} text-right tabular-nums text-ink-700`}>{fmtContable(f.sumaEdades)}</td>
-                        <td className={`${celda} text-right font-semibold tabular-nums text-err-700`}>{fmtContable(f.diferencia)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <Mas cantidad={edadesVsTotal.cantidad} mostradas={edadesVsTotal.filas.length} />
-            </section>
           )}
 
           {diasVsCorte.cantidad > 0 && (

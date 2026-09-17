@@ -9,6 +9,9 @@ import { SpecModuloSchema } from "../extraccion/esquema";
 import { descripcionSubtotalesModulo, normalizarSpecModulo, resumenColumnasModulo } from "../perfil-modulo";
 import { versionesAplicables, type VersionCandidata } from "./mejor-version";
 import { esEstadoPatron, type EstadoPatron } from "./version";
+import { INFO_TIPO_FORMATO, nivelCarteraDeSpec, tipoFormatoCartera, type TipoFormatoCartera } from "../cartera/tipo-formato";
+import type { NivelCartera } from "../cartera/saldos-tercero";
+import type { SpecModulo } from "../extraccion/esquema";
 
 export type VersionPatronVm = {
   id: number;
@@ -21,6 +24,8 @@ export type VersionPatronVm = {
   rotulos: string[];
   resumenColumnas: string;
   totales: string;
+  /** Cartera y CxP: tipo de formato de la versión (null en los demás módulos). */
+  formato: FormatoVersionVm | null;
   muestra: { nombre: string; tamanoBytes: number | null } | null;
   vecesUsado: number;
   ultimoUsoEn: string | null;
@@ -39,6 +44,20 @@ export type PatronAplicativoVm = {
   clientes: number;
   versiones: VersionPatronVm[];
 };
+
+/** Tipo de formato de una versión: el declarado o el que se deduce de su mapeo. */
+export type FormatoVersionVm = {
+  tipo: TipoFormatoCartera;
+  etiqueta: string;
+  declarado: boolean;
+  /** Cómo se lee hoy cada fila de un archivo con esta versión. */
+  nivel: NivelCartera;
+};
+
+function formatoDeVersion(spec: SpecModulo): FormatoVersionVm {
+  const { tipo, declarado } = tipoFormatoCartera(spec);
+  return { tipo, etiqueta: INFO_TIPO_FORMATO[tipo].etiqueta, declarado, nivel: nivelCarteraDeSpec(spec) };
+}
 
 /** Patrones de un módulo agrupados por aplicativo, con sus versiones de la más nueva a la más vieja. */
 export async function listarPatronesDeModulo(descriptor: DescriptorModulo): Promise<PatronAplicativoVm[]> {
@@ -76,6 +95,7 @@ export async function listarPatronesDeModulo(descriptor: DescriptorModulo): Prom
       rotulos,
       resumenColumnas: spec ? resumenColumnasModulo(descriptor, spec) : "Mapeo ilegible",
       totales: spec ? descripcionSubtotalesModulo(spec) : "—",
+      formato: spec && descriptor.crucePorTercero.detalleTercero ? formatoDeVersion(spec) : null,
       muestra: fila.muestraClaveObjeto ? { nombre: fila.muestraNombre ?? "muestra", tamanoBytes: fila.muestraTamanoBytes } : null,
       vecesUsado: fila.vecesUsado,
       ultimoUsoEn: fila.ultimoUsoEn?.toISOString() ?? null,

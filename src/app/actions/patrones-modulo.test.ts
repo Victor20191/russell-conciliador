@@ -37,7 +37,7 @@ vi.mock("@/lib/prisma", () => ({
   },
 }));
 
-import { cambiarEstadoVersionPatron, crearVersionPatron } from "./patrones-modulo";
+import { cambiarEstadoVersionPatron, crearVersionPatron, declararTipoFormatoVersion } from "./patrones-modulo";
 
 const HOJA = {
   nombre: "Inventario",
@@ -121,5 +121,91 @@ describe("patrones de archivo", () => {
     mocks.versionUpdateMany.mockResolvedValue({ count: 1 });
     expect(await cambiarEstadoVersionPatron({ id: 7, estado: "inactiva" })).toEqual({ ok: true, message: "Versión 2 desactivada." });
     expect(mocks.versionUpdateMany).toHaveBeenCalledWith({ where: { id: 7, estado: "pendiente" }, data: { estado: "inactiva" } });
+  });
+
+  it("Cartera y CxP exigen declarar el tipo de formato para crear y para aprobar", async () => {
+    mocks.ingerir.mockResolvedValue({
+      modo: "tabular",
+      hojas: [{ nombre: "CxP", filas: [["NIT", "Nombre", "Documento", "Saldo"], ["900123456", "ACME", "F-1", 100], ["800111222", "BETA", "F-2", 50]] }],
+    });
+    const specCxp = { hoja: "CxP", filaEncabezado: 1, primeraFilaDatos: 2, columnas: { nit: 1, nombre: 2, documento: 3, total: 4 } };
+    const sinTipo = formulario({ moduloCodigo: "CXP", specJson: JSON.stringify(specCxp) });
+    expect(await crearVersionPatron(sinTipo)).toEqual({ ok: false, message: "Elige el tipo de formato del archivo: por documento, por edades o por documento y edades." });
+
+    const porEdades = formulario({ moduloCodigo: "CXP", specJson: JSON.stringify({ ...specCxp, tipoFormato: "edades" }) });
+    expect(await crearVersionPatron(porEdades)).toEqual({ ok: false, message: "El formato por edades necesita los rangos de vencimiento." });
+
+    const porDocumento = formulario({ moduloCodigo: "CXP", specJson: JSON.stringify({ ...specCxp, tipoFormato: "documento" }) });
+    expect(await crearVersionPatron(porDocumento)).toMatchObject({ ok: true });
+    const data = mocks.tx.versionPatronArchivoModulo.create.mock.calls.at(-1)?.[0].data;
+    expect(data.specJson).toMatchObject({ tipoFormato: "documento", nivel: "documento" });
+
+    mocks.versionFindUnique.mockResolvedValue({
+      id: 8, version: 3, estado: "pendiente", muestraClaveObjeto: "software/x.xlsx", moduloCodigo: "CXP",
+      specJson: specCxp, erp: { name: "SIESA" },
+    });
+    expect(await cambiarEstadoVersionPatron({ id: 8, estado: "aprobada" })).toEqual({
+      ok: false,
+      message: "Elige el tipo de formato del archivo: por documento, por edades o por documento y edades. Edita la versión antes de aprobarla.",
+    });
+  });
+});
+
+describe("declarar el tipo de formato de una versión", () => {
+  const ACTUALIZADO = new Date("2026-09-17T10:00:00.000Z");
+  const RANGOS = [{ columna: 3, etiqueta: "Corriente", clase: "corriente" }, { columna: 4, etiqueta: "De 1 a 30", clase: "vencido" }];
+  const specEdades = { hoja: "CxP", filaEncabezado: 1, primeraFilaDatos: 2, columnas: { nit: 1, nombre: 2, total: 5 }, familias: { edades: RANGOS } };
+  const version = (extra: Record<string, unknown> = {}) => ({
+    id: 9, version: 2, estado: "aprobada", moduloCodigo: "CXP", specJson: specEdades,
+    actualizadoEn: ACTUALIZADO, erp: { name: "SIESA" }, ...extra,
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.authorizePermiso.mockResolvedValue({ ok: true });
+    mocks.versionUpdateMany.mockResolvedValue({ count: 1 });
+  });
+
+  it("declara el tipo de una aprobada que no lo tenía, sin tocar sus columnas", async () => {
+    mocks.versionFindUnique.mockResolvedValue(version());
+    const r = await declararTipoFormatoVersion({ id: 9, actualizadoEn: ACTUALIZADO.toISOString(), tipoFormato: "edades" });
+    expect(r).toEqual({ ok: true, message: "Versión 2: por edades." });
+    expect(mocks.authorizePermiso).toHaveBeenCalledWith("perfiles_carga:administrar");
+    const llamada = mocks.versionUpdateMany.mock.calls[0][0];
+    expect(llamada.where).toEqual({ id: 9, estado: "aprobada", actualizadoEn: ACTUALIZADO });
+    expect(llamada.data.specJson).toMatchObject({ tipoFormato: "edades", nivel: "tercero", columnas: { nit: 1, nombre: 2, total: 5 } });
+    expect(mocks.logAudit.mock.calls[0][0]).toMatchObject({
+      action: "DECLARÓ TIPO DE FORMATO DEL PATRÓN",
+      entity: "Cuentas por Pagar · SIESA v2",
+      detail: "Por edades · antes: sin declarar (parecía por edades) · versión aprobada",
+    });
+  });
+
+  it("avisa cuando el tipo cambia cómo se lee cada fila y exige su columna", async () => {
+    mocks.versionFindUnique.mockResolvedValue(version({ estado: "pendiente" }));
+    expect(await declararTipoFormatoVersion({ id: 9, actualizadoEn: ACTUALIZADO.toISOString(), tipoFormato: "documento_edades" }))
+      .toEqual({ ok: false, message: "El formato por documento y edades necesita la columna del documento." });
+    expect(mocks.versionUpdateMany).not.toHaveBeenCalled();
+
+    mocks.versionFindUnique.mockResolvedValue(version({ estado: "pendiente", specJson: { ...specEdades, columnas: { ...specEdades.columnas, documento: 6 } } }));
+    expect(await declararTipoFormatoVersion({ id: 9, actualizadoEn: ACTUALIZADO.toISOString(), tipoFormato: "edades" })).toMatchObject({ ok: true });
+    expect(mocks.logAudit.mock.calls.at(-1)?.[0].detail).toBe("Por edades · antes: sin declarar (parecía por documento y edades) · versión pendiente · cada fila pasa de documento a tercero");
+  });
+
+  it("una aprobada con tipo declarado no se cambia; tampoco una versión que cambió o de otro módulo", async () => {
+    mocks.versionFindUnique.mockResolvedValue(version({ specJson: { ...specEdades, tipoFormato: "edades" } }));
+    expect(await declararTipoFormatoVersion({ id: 9, actualizadoEn: ACTUALIZADO.toISOString(), tipoFormato: "edades" }))
+      .toEqual({ ok: true, message: "La versión 2 ya es por edades." });
+    expect(await declararTipoFormatoVersion({ id: 9, actualizadoEn: ACTUALIZADO.toISOString(), tipoFormato: "documento" }))
+      .toEqual({ ok: false, message: "Esta versión ya tiene su tipo declarado y no está pendiente: para cambiarlo crea una versión nueva a partir de ella." });
+
+    mocks.versionFindUnique.mockResolvedValue(version());
+    expect(await declararTipoFormatoVersion({ id: 9, actualizadoEn: "2026-01-01T00:00:00.000Z", tipoFormato: "edades" }))
+      .toEqual({ ok: false, message: "La versión cambió desde que la abriste. Recarga la página." });
+
+    mocks.versionFindUnique.mockResolvedValue(version({ moduloCodigo: "INV" }));
+    expect(await declararTipoFormatoVersion({ id: 9, actualizadoEn: ACTUALIZADO.toISOString(), tipoFormato: "edades" }))
+      .toEqual({ ok: false, message: "El tipo de formato solo aplica a Cartera y Cuentas por pagar." });
+    expect(mocks.versionUpdateMany).not.toHaveBeenCalled();
   });
 });

@@ -17,8 +17,18 @@ que dicen el origen.
    con «Archivo manual» se mapea a mano: el sugeridor (`extraccion/sugerir.ts`) reconoce roles,
    rangos de edad, la forma del tercero (columna, cabecera SAP/SIESA, fila rotulada SEVEN), el saldo
    del bloque de SIIGO y la convención de signo, y el mapeo se memoriza en el perfil del cliente.
-3. **Qué es cada fila.** Un tercero (resumen por edades) o un documento. Un período suma por un
-   solo nivel; el otro entra como control. El pie de página del ERP («Siesa Enterprise Net 1.25.0 ·
+3. **Tipo de formato.** Lo declara el administrador en cada versión del patrón (y el analista en
+   «Archivo manual»); un aplicativo puede tener varias versiones aprobadas, p. ej. una por edades y
+   otra por documento, y la carga usa la que reconoce más columnas del archivo:
+   - **Por documento**: cada fila es un documento; se valida que la suma de los documentos de cada
+     cliente dé el total que el archivo imprime para ese cliente (renglón del cliente, columna
+     «Saldo del proveedor» o fila «Total <cliente>» debajo de sus documentos).
+   - **Por edades**: cada fila es un tercero; se valida que la suma de sus edades dé su total.
+   - **Por documento y edades**: los dos controles, las edades documento por documento.
+
+   Si el archivo no trae con qué comparar, el control queda «sin validar» y lo dice. Las versiones
+   anteriores sin tipo lo deducen del mapeo. Un período suma por un solo nivel (tercero o
+   documento); el otro entra como control. El pie de página del ERP («Siesa Enterprise Net 1.25.0 ·
    Pág. 1 / 1») nunca entra como ítem, aunque su texto caiga en la columna del identificador.
 4. **Origen.** Nacional, exterior o mixto (lo decide la cuenta de cada fila).
 5. **Moneda, TRM de cierre y fecha de corte.**
@@ -63,7 +73,9 @@ que dicen el origen.
   del balance; hay sugerencias por nombre. Vale para todos los períodos o solo para el del cargue.
 - **Marcas.** Toda diferencia por tercero admite marca; desde el umbral de descuadre de
   `/config/parametros` la exige el cierre.
-- **Novedades.** Edades vs total, documentos repetidos por el mismo valor entre terceros, colisión
+- **Novedades.** Arriba, los controles del tipo de formato (documentos contra el total de cada
+  cliente, edades contra el total) con sus diferencias o el motivo por el que no se validaron;
+  lo mismo se ve, resumido, en «Validación del archivo» del borrador. Después, documentos repetidos por el mismo valor entre terceros, colisión
   de claves, saldos contrarios a la naturaleza, días vencidos y rangos de edad contra la fecha de
   corte (en los saldos a cargo del tercero: una nota crédito o un anticipo no envejece), vencimientos
   imposibles y la fecha a la que el archivo calculó sus días cuando no es la

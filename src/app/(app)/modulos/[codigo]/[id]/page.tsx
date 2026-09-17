@@ -22,6 +22,7 @@ import { columnasDetalleModulo } from "@/lib/modulos/cartera/columnas-cartera";
 import { cargarCuentasEstandarDeCedula, construirCruceContableModulo } from "@/lib/modulos/cruce-contable-servidor";
 import { construirCruceTerceroModulo, etiquetasCruceTercero } from "@/lib/modulos/cruce-tercero-servidor";
 import { validarAuxiliarTercero } from "@/lib/modulos/cartera/validaciones-tercero";
+import { leerFormatosCartera } from "@/lib/modulos/cartera/tipo-formato";
 import { getUmbralesAlertas } from "@/lib/parametros/umbrales";
 import { finDePeriodo } from "@/lib/modulos/cartera/fecha-corte";
 import { CLAVE_MONEDA } from "@/lib/modulos/cartera/detalle-cartera";
@@ -410,11 +411,16 @@ export default async function DatoModuloPage({
             imputable: d.imputable,
             nitCanonico: d.nitCanonico,
             datos: (d.datos ?? {}) as Record<string, unknown>,
+            nivel: d.nivel,
           })),
           cruce: cruceTercero?.resumen ?? null,
           naturaleza: descriptor.crucePorTercero.naturaleza,
           umbralNaturaleza: (await getUmbralesAlertas()).naturaleza,
           fechaCorte,
+          // Tipo de formato de cada archivo: decide qué controles aplican y cuáles no se
+          // pudieron validar. Los cargues anteriores (null) se deducen de sus filas.
+          nivelImputable: encabezado.nivelSaldo === "documento" || encabezado.nivelSaldo === "tercero" ? encabezado.nivelSaldo : undefined,
+          formatos: leerFormatosCartera(encabezado.formatosCartera),
         }),
       }
     : novedades;

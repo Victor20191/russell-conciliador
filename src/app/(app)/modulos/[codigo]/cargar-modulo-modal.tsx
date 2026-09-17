@@ -17,6 +17,7 @@ import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import type { SpecModulo } from "@/lib/modulos/extraccion/esquema";
 import { finDePeriodo } from "@/lib/modulos/cartera/fecha-corte";
 import { letraColumnaModulo } from "@/lib/modulos/perfil-modulo";
+import { INFO_TIPO_FORMATO, tipoFormatoCartera } from "@/lib/modulos/cartera/tipo-formato";
 import {
   leerDatosModulo,
   analizarArchivoModulo,
@@ -820,6 +821,19 @@ function CargarModal({
             <dd>«{spec.hoja}» · encabezado en la fila {spec.filaEncabezado} · datos desde la fila {spec.primeraFilaDatos} · {analisis.totalFilas} filas</dd>
             <dt className="font-medium text-ink-700">Columnas</dt>
             <dd>{resumenMapeo(spec, roles, clasificadorRol, analisis.columnaInicial ?? 0) || "—"}</dd>
+            {conNivelCartera && (() => {
+              const { tipo, declarado } = tipoFormatoCartera(spec);
+              return (
+                <>
+                  <dt className="font-medium text-ink-700">Formato</dt>
+                  <dd>
+                    {INFO_TIPO_FORMATO[tipo].etiqueta}
+                    {declarado ? "" : " (deducido: el patrón no lo declara)"} · se validará{" "}
+                    {INFO_TIPO_FORMATO[tipo].controles.join(" y ").toLowerCase()}
+                  </dd>
+                </>
+              );
+            })()}
           </dl>
           {analisis.periodosDetectados && analisis.periodosDetectados.length > 0 && (
             <p className="rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-[11.5px] leading-relaxed text-blue-800">

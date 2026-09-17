@@ -10,7 +10,9 @@ import { fmtDate, fmtDateTime } from "@/lib/format";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import type { PatronAplicativoVm, VersionPatronVm } from "@/lib/modulos/patrones/servidor";
 import { ETIQUETA_ESTADO_PATRON } from "@/lib/modulos/patrones/version";
-import { cambiarEstadoVersionPatron, subirMuestraVersionPatron } from "@/app/actions/patrones-modulo";
+import { cambiarEstadoVersionPatron, declararTipoFormatoVersion, subirMuestraVersionPatron } from "@/app/actions/patrones-modulo";
+import { Modal } from "@/components/modal";
+import { INFO_TIPO_FORMATO, nivelDeTipoFormato, TIPOS_FORMATO_CARTERA, type TipoFormatoCartera } from "@/lib/modulos/cartera/tipo-formato";
 
 const TONO_ESTADO = { aprobada: "ok", pendiente: "warn", inactiva: "ink" } as const;
 
@@ -132,6 +134,74 @@ function GrupoAplicativo({ patron, ruta, puedeAdministrar }: { patron: PatronApl
   );
 }
 
+const NIVEL_FILA = { documento: "un documento", tercero: "un tercero" } as const;
+
+/**
+ * Declara el tipo de formato de una versión sin tocar sus columnas. En una aprobada solo se declara
+ * una vez (la versión se creó antes de que existiera el tipo); para cambiarlo, versión nueva.
+ */
+function DeclararTipoModal({ version, onClose }: { version: VersionPatronVm; onClose: () => void }) {
+  const router = useRouter();
+  const formato = version.formato!;
+  const [tipo, setTipo] = useState<TipoFormatoCartera>(formato.tipo);
+  const [guardando, startGuardar] = useTransition();
+  const nivelNuevo = nivelDeTipoFormato(tipo);
+  const cambiaNivel = nivelNuevo !== formato.nivel;
+  const guardar = () => {
+    startGuardar(async () => {
+      const r = await declararTipoFormatoVersion({ id: version.id, actualizadoEn: version.actualizadoEn, tipoFormato: tipo });
+      if (!r.ok) { notifyError(r.message ?? "No se pudo declarar el tipo de formato."); return; }
+      notifySuccess(r.message ?? "Tipo de formato declarado.");
+      onClose();
+      router.refresh();
+    });
+  };
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={`Tipo de formato · v${version.version}`}
+      size="md"
+      footer={
+        <button type="button" disabled={guardando} onClick={guardar} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60">
+          {guardando ? "Guardando…" : formato.declarado ? "Cambiar tipo" : "Declarar tipo"}
+        </button>
+      }
+    >
+      <div className="flex flex-col gap-3 text-[12.5px] text-ink-700">
+        <p className="text-[12px] leading-relaxed text-ink-600">
+          {formato.declarado
+            ? <>Hoy es <b>{formato.etiqueta.toLowerCase()}</b>.</>
+            : <>La versión no lo declara; por su mapeo parece <b>{formato.etiqueta.toLowerCase()}</b>.</>}{" "}
+          Las columnas no cambian. Lo que declares rige desde el próximo archivo: los cargues ya hechos conservan su lectura.
+          {version.estado !== "pendiente" && " En una versión aprobada o inactiva el tipo se declara una sola vez."}
+        </p>
+        <fieldset className="flex flex-col gap-2">
+          {TIPOS_FORMATO_CARTERA.map((t) => (
+            <label key={t} className={`flex cursor-pointer items-start gap-2 rounded-md border px-3 py-2 ${tipo === t ? "border-blue-400 bg-blue-50" : "border-ink-150"}`}>
+              <input type="radio" name={`tipo-${version.id}`} checked={tipo === t} onChange={() => setTipo(t)} className="mt-0.5" />
+              <span className="flex min-w-0 flex-col">
+                <span className="font-semibold">
+                  {INFO_TIPO_FORMATO[t].etiqueta}
+                  {t === formato.tipo && !formato.declarado && <span className="ml-1 text-[11px] font-normal text-ink-400">(sugerido)</span>}
+                </span>
+                <span className="text-[11.5px] text-ink-500">{INFO_TIPO_FORMATO[t].fila}.</span>
+                <span className="text-[11.5px] text-ink-500">Se valida: {INFO_TIPO_FORMATO[t].controles.join("; ").toLowerCase()}.</span>
+              </span>
+            </label>
+          ))}
+        </fieldset>
+        {cambiaNivel && (
+          <p className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[11.5px] leading-relaxed text-warn-700">
+            Hoy cada fila de este formato se lee como {NIVEL_FILA[formato.nivel]}; con este tipo se leerá como {NIVEL_FILA[nivelNuevo]}.
+            Cambia qué suma en el período y qué entra como control. Confírmalo con la muestra antes de guardar.
+          </p>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 function FilaVersion({
   version,
   erpId,
@@ -150,6 +220,7 @@ function FilaVersion({
   const router = useRouter();
   const [ocupado, startAccion] = useTransition();
   const archivoRef = useRef<HTMLInputElement>(null);
+  const [declarando, setDeclarando] = useState(false);
 
   const cambiarEstado = (estado: "aprobada" | "inactiva") => {
     startAccion(async () => {
@@ -172,6 +243,8 @@ function FilaVersion({
   };
 
   const pendiente = version.estado === "pendiente";
+  // Una pendiente cambia su tipo cuando quiera; las demás solo lo declaran si no lo tenían.
+  const puedeDeclararTipo = version.formato != null && (pendiente || !version.formato.declarado);
   return (
     <tr className="border-t border-ink-100 align-top">
       <td className="px-3 py-2.5">
@@ -185,6 +258,14 @@ function FilaVersion({
       </td>
       <td className="px-3 py-2.5 text-ink-600">
         <div>Hoja «{version.hoja}» · encabezado fila {version.filaEncabezado} · datos desde fila {version.primeraFilaDatos}</div>
+        {version.formato && (
+          <div className="mt-1">
+            <Chip
+              label={version.formato.declarado ? version.formato.etiqueta : `Sin declarar · parece ${version.formato.etiqueta.toLowerCase()}`}
+              tone={version.formato.declarado ? "blue" : "warn"}
+            />
+          </div>
+        )}
         <div className="mt-0.5 text-[11px] text-ink-500">{version.resumenColumnas || "—"}</div>
       </td>
       <td className="px-3 py-2.5">
@@ -214,6 +295,11 @@ function FilaVersion({
                 className={`${botonAccion} border-ok-500 text-ok-700 hover:bg-ok-100/40`}
               >
                 <Icon name="check" size={11} />{version.estado === "inactiva" ? "Reactivar" : "Aprobar"}
+              </button>
+            )}
+            {puedeDeclararTipo && (
+              <button type="button" disabled={ocupado} onClick={() => setDeclarando(true)} className={`${botonAccion} ${version.formato?.declarado ? "border-ink-200 text-ink-700 hover:bg-ink-50" : "border-warn-500 text-warn-700 hover:bg-warn-100/40"}`}>
+                <Icon name="edit" size={11} />{version.formato?.declarado ? "Cambiar tipo" : "Declarar tipo"}
               </button>
             )}
             {pendiente && version.muestra && (
@@ -253,6 +339,7 @@ function FilaVersion({
         ) : (
           <span className="block text-right text-[11px] text-ink-400">—</span>
         )}
+        {declarando && <DeclararTipoModal version={version} onClose={() => setDeclarando(false)} />}
       </td>
     </tr>
   );

@@ -8,6 +8,15 @@ import { notifyError } from "@/lib/client-notifications";
 import { columnaLetra } from "@/lib/balance/extraccion/hojas-cliente";
 import type { SpecModulo } from "@/lib/modulos/extraccion/esquema";
 import type { ModoSubtotales } from "@/lib/modulos/subtotales";
+import {
+  esTipoFormatoCartera,
+  faltantesTipoFormato,
+  INFO_TIPO_FORMATO,
+  nivelCarteraDeSpec,
+  nivelDeTipoFormato,
+  tipoFormatoSugerido,
+  TIPOS_FORMATO_CARTERA,
+} from "@/lib/modulos/cartera/tipo-formato";
 import { sugerirTrmCierre, type AnalisisModulo, type CeldaMuestra } from "@/app/actions/modulos-datos";
 
 export type RolModulo = { nombre: string; etiqueta: string; tipo: string; requerido: boolean };
@@ -135,7 +144,16 @@ export function EditorMapeoModulo({
   // Qué representa una fila de ESTE archivo y de dónde viene su cartera. El archivo no siempre
   // lo dice: un mismo cliente entrega un mes el resumen por tercero y otro el detalle por
   // documento, y de eso depende qué suma y qué es control.
-  const nivelCartera = spec.nivel ?? ((spec.columnas.documento ?? 0) >= 1 ? "documento" : "tercero");
+  const nivelCartera = nivelCarteraDeSpec(spec);
+  // El tipo de formato fija el nivel y decide qué controles se validan en cada cargue.
+  const tipoSugerido = tipoFormatoSugerido(spec);
+  const faltanTipo = faltantesTipoFormato(spec);
+  const setTipoFormato = (valor: string) =>
+    setSpec((s) => {
+      if (!s) return s;
+      if (!esTipoFormatoCartera(valor)) return { ...s, tipoFormato: undefined };
+      return { ...s, tipoFormato: valor, nivel: nivelDeTipoFormato(valor) };
+    });
   const origenCartera = spec.origenCartera ?? "nacional";
   const monedaArchivo = spec.monedaArchivo ?? "COP";
   const setMonedaArchivo = (m: string) =>
@@ -263,12 +281,26 @@ export function EditorMapeoModulo({
       {conNivelCartera && (
         <div className="flex flex-col gap-2 rounded-md border border-ink-150 bg-ink-50 px-3 py-2.5">
           <label className="flex min-w-0 flex-col gap-1">
-            <span className="text-[11px] font-medium text-ink-600">¿Qué es cada fila de este archivo?</span>
-            <select value={nivelCartera} onChange={(e) => setSpec((s) => (s ? { ...s, nivel: e.target.value as "tercero" | "documento" } : s))} className={claseCampo}>
-              <option value="tercero">Un tercero con su saldo (resumen por edades)</option>
-              <option value="documento">Un documento (factura, nota) del tercero</option>
+            <span className="text-[11px] font-medium text-ink-600">
+              Tipo de formato{modoEditor === "patron" && <span className="text-err-600"> *</span>}
+            </span>
+            <select value={spec.tipoFormato ?? ""} onChange={(e) => setTipoFormato(e.target.value)} className={claseCampo}>
+              {!spec.tipoFormato && (
+                <option value="">
+                  {modoEditor === "patron" ? "— elige el tipo —" : "Sin declarar"} (sugerido: {INFO_TIPO_FORMATO[tipoSugerido].etiqueta.toLowerCase()})
+                </option>
+              )}
+              {TIPOS_FORMATO_CARTERA.map((t) => (
+                <option key={t} value={t}>{INFO_TIPO_FORMATO[t].etiqueta} — {INFO_TIPO_FORMATO[t].fila.toLowerCase()}</option>
+              ))}
             </select>
-            <span className="text-[11px] leading-snug text-ink-500">Un período suma por UN solo nivel. Si además cargas el otro, entra como control y se compara tercero por tercero.</span>
+            <span className="text-[11px] leading-snug text-ink-500">
+              {spec.tipoFormato
+                ? `Se valida: ${INFO_TIPO_FORMATO[spec.tipoFormato].controles.join("; ").toLowerCase()}.`
+                : `Cada fila se toma como ${nivelCartera === "documento" ? "un documento" : "un tercero"}.`}
+              {" "}Un período suma por UN solo nivel: si además cargas el otro, entra como control y se compara tercero por tercero.
+            </span>
+            {faltanTipo.length > 0 && <span className="text-[11px] font-medium leading-snug text-err-700">{faltanTipo.join(" ")}</span>}
           </label>
           <label className="flex min-w-0 flex-col gap-1">
             <span className="text-[11px] font-medium text-ink-600">¿De dónde es esta cartera?</span>
