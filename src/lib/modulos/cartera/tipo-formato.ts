@@ -1,11 +1,14 @@
 // TIPO DE FORMATO de un archivo de Cartera o CxP — puro.
 //
-// La firma distingue tres formatos y cada uno se valida distinto:
+// La firma distingue cuatro formatos y cada uno se valida distinto:
 //  - por documento: cada fila es un documento; el control es que la Σ de los documentos de un
 //    cliente dé el total que el archivo declara para ese cliente;
 //  - por edades: cada fila es un tercero con su deuda repartida por edades; el control es que la
 //    Σ de las edades dé el total de la fila;
-//  - por documento y edades: documentos con sus edades; aplican los dos controles.
+//  - por documento y edades: documentos con sus edades; aplican los dos controles;
+//  - por cuenta y NIT: cada fila es un tercero con su saldo, colgando de la cuenta que lo
+//    agrupa, sin documento ni edades (SIESA «Reporte de estado de cuentas»); el control es que
+//    la Σ de los terceros de cada cuenta dé el total que el archivo imprime para esa cuenta.
 // El administrador lo declara en el patrón (`SpecModulo.tipoFormato`). Los specs anteriores no lo
 // traen: se DEDUCE del nivel de la fila y de los rangos de edades, y se rotula como deducido.
 import type { SpecModulo } from "../extraccion/esquema";
@@ -13,7 +16,7 @@ import type { NivelCartera } from "./saldos-tercero";
 
 export type TipoFormatoCartera = NonNullable<SpecModulo["tipoFormato"]>;
 
-export const TIPOS_FORMATO_CARTERA: readonly TipoFormatoCartera[] = ["documento", "edades", "documento_edades"];
+export const TIPOS_FORMATO_CARTERA: readonly TipoFormatoCartera[] = ["documento", "edades", "documento_edades", "cuenta_tercero"];
 
 export const INFO_TIPO_FORMATO: Record<TipoFormatoCartera, { etiqueta: string; fila: string; controles: string[] }> = {
   documento: {
@@ -34,6 +37,11 @@ export const INFO_TIPO_FORMATO: Record<TipoFormatoCartera, { etiqueta: string; f
       "La suma de las edades contra el total de cada documento",
     ],
   },
+  cuenta_tercero: {
+    etiqueta: "Por cuenta y NIT",
+    fila: "Cada fila es un tercero con su saldo, bajo la cuenta que lo agrupa; sin documento ni edades",
+    controles: ["La suma de los terceros de cada cuenta contra el total de la cuenta"],
+  },
 };
 
 export function esTipoFormatoCartera(valor: unknown): valor is TipoFormatoCartera {
@@ -41,13 +49,15 @@ export function esTipoFormatoCartera(valor: unknown): valor is TipoFormatoCarter
 }
 
 /** ¿El tipo trae un documento por fila? */
-export const tipoConDocumento = (tipo: TipoFormatoCartera): boolean => tipo !== "edades";
+export const tipoConDocumento = (tipo: TipoFormatoCartera): boolean => tipo === "documento" || tipo === "documento_edades";
 /** ¿El tipo reparte el saldo por edades? */
-export const tipoConEdades = (tipo: TipoFormatoCartera): boolean => tipo !== "documento";
+export const tipoConEdades = (tipo: TipoFormatoCartera): boolean => tipo === "edades" || tipo === "documento_edades";
+/** ¿El tipo cuelga los terceros de la cuenta que los agrupa (su control es por cuenta)? */
+export const tipoPorCuentaYTercero = (tipo: TipoFormatoCartera): boolean => tipo === "cuenta_tercero";
 
 /** Nivel de la fila que corresponde al tipo. */
 export function nivelDeTipoFormato(tipo: TipoFormatoCartera): NivelCartera {
-  return tipo === "edades" ? "tercero" : "documento";
+  return tipoConDocumento(tipo) ? "documento" : "tercero";
 }
 
 type SpecFormato = Pick<SpecModulo, "tipoFormato" | "nivel" | "columnas" | "familias" | "edadesModo">;
@@ -68,10 +78,14 @@ export function nivelCarteraDeSpec(spec: Partial<SpecFormato>): NivelCartera {
   return (spec.columnas?.documento ?? 0) >= 1 ? "documento" : "tercero";
 }
 
-/** Tipo que sugiere el mapeo (para specs sin tipo y para proponerlo en el editor). */
+/**
+ * Tipo que sugiere el mapeo (para specs sin tipo y para proponerlo en el editor). Sin documento,
+ * lo que separa «por edades» de «por cuenta y NIT» es que el mapeo lea la antigüedad: un archivo
+ * que solo trae cuenta, NIT y saldo no es un reporte de edades sin baldes, es otro formato.
+ */
 export function tipoFormatoSugerido(spec: SpecFormato): TipoFormatoCartera {
   const documento = nivelCarteraDeSpec({ ...spec, tipoFormato: undefined }) === "documento";
-  if (!documento) return "edades";
+  if (!documento) return specConEdades(spec) ? "edades" : "cuenta_tercero";
   return specConEdades(spec) ? "documento_edades" : "documento";
 }
 
@@ -114,7 +128,11 @@ export function leerFormatosCartera(json: unknown): FormatoArchivoCartera[] | nu
   return salida;
 }
 
-/** Lo que el tipo exige del mapeo, con el mensaje para quien configura el patrón. */
+/**
+ * Lo que el tipo exige del mapeo, además de las columnas obligatorias del módulo (el tercero y el
+ * saldo ya lo son), con el mensaje para quien configura el patrón. El formato por cuenta y NIT no
+ * pide nada más: es el archivo que no trae ni documento ni edades.
+ */
 export function faltantesTipoFormato(spec: SpecFormato): string[] {
   if (!esTipoFormatoCartera(spec.tipoFormato)) return [];
   const faltan: string[] = [];

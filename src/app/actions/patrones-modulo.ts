@@ -36,7 +36,7 @@ import {
   tipoContenidoArchivo,
 } from "@/lib/modulos/archivo-original";
 import { almacenamientoDisponible, eliminarObjeto, obtenerObjeto, subirObjeto } from "@/lib/storage/objetos";
-import { INFO_TIPO_FORMATO, nivelCarteraDeSpec, tipoFormatoCartera } from "@/lib/modulos/cartera/tipo-formato";
+import { INFO_TIPO_FORMATO, nivelCarteraDeSpec, tipoFormatoCartera, TIPOS_FORMATO_CARTERA, type TipoFormatoCartera } from "@/lib/modulos/cartera/tipo-formato";
 import type { ActionState } from "@/lib/definitions";
 import type { AnalisisModulo } from "@/app/actions/modulos-datos";
 
@@ -461,7 +461,7 @@ export async function actualizarVersionPatron(input: z.input<typeof ActualizarVe
 const DeclararTipoSchema = z.object({
   id: z.number().int().positive(),
   actualizadoEn: z.string().min(1),
-  tipoFormato: z.enum(["documento", "edades", "documento_edades"]),
+  tipoFormato: z.enum(TIPOS_FORMATO_CARTERA as readonly [string, ...string[]]).transform((t) => t as TipoFormatoCartera),
 });
 
 /**

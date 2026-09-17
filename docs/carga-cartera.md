@@ -25,6 +25,11 @@ que dicen el origen.
      «Saldo del proveedor» o fila «Total <cliente>» debajo de sus documentos).
    - **Por edades**: cada fila es un tercero; se valida que la suma de sus edades dé su total.
    - **Por documento y edades**: los dos controles, las edades documento por documento.
+   - **Por cuenta y NIT**: cada fila es un tercero con su saldo, colgando de la cuenta que lo
+     agrupa, sin documento ni edades (el «Reporte de estado de cuentas» de SIESA); se valida que la
+     suma de los terceros de cada cuenta dé el total que el archivo imprime para esa cuenta. Como el
+     archivo es jerárquico y cada nivel trae su total, solo se compara la cuenta que tiene terceros
+     debajo; los niveles de agregación no se comparan (los cubre el total del archivo).
 
    Si el archivo no trae con qué comparar, el control queda «sin validar» y lo dice. Las versiones
    anteriores sin tipo lo deducen del mapeo. Un período suma por un solo nivel (tercero o

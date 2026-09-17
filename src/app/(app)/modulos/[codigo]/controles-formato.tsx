@@ -1,7 +1,8 @@
 // CONTROLES DEL FORMATO (Cartera y CxP): una barra por control que pide el tipo del archivo —
-// documentos contra el total del cliente, edades contra el total— con su veredicto, o «sin
-// validar» y el porqué cuando el archivo no trae con qué comparar. Lo usan el borrador (resumen,
-// dentro de «Validación del archivo») y las Novedades del dato cargado (con las tablas).
+// documentos contra el total del cliente, edades contra el total, terceros contra el total de su
+// cuenta— con su veredicto, o «sin validar» y el porqué cuando el archivo no trae con qué
+// comparar. Lo usan el borrador (resumen, dentro de «Validación del archivo») y las Novedades del
+// dato cargado (con las tablas).
 import { fmtContable, fmtNum } from "@/lib/format";
 import type { ControlesFormatoCartera, EstadoControlFormato } from "@/lib/modulos/cartera/controles-formato";
 import { INFO_TIPO_FORMATO } from "@/lib/modulos/cartera/tipo-formato";
@@ -36,7 +37,7 @@ export function ControlesFormato({
   /** Con tablas de diferencias (Novedades); sin él, un resumen de una línea (borrador). */
   detalle?: boolean;
 }) {
-  const { documentosVsCliente: docs, edadesVsTotal: edades } = controles;
+  const { documentosVsCliente: docs, edadesVsTotal: edades, tercerosVsCuenta: porCuenta } = controles;
   const formato = controles.tipos.map((t) => INFO_TIPO_FORMATO[t].etiqueta).join(" + ");
   return (
     <div className="flex flex-col gap-1.5" aria-label="Controles del formato">
@@ -100,6 +101,64 @@ export function ControlesFormato({
             </table>
           </div>
           <Mas cantidad={docs.diferencias.cantidad} mostradas={docs.diferencias.filas.length} />
+        </div>
+      )}
+
+      {porCuenta && (
+        <div className={`rounded-md border px-3 py-2 text-[12px] ${TONO[porCuenta.estado]}`}>
+          <span className="font-semibold">Terceros vs total de la cuenta — {VEREDICTO[porCuenta.estado]}:</span>{" "}
+          {porCuenta.estado === "no_validado" ? (
+            porCuenta.motivo
+          ) : porCuenta.estado === "cuadra" ? (
+            <>
+              {porCuenta.comparadas === 1 ? "la cuenta con total coincide" : `las ${fmtNum(porCuenta.comparadas)} cuentas con total coinciden`} con la
+              suma de sus terceros (<span className="font-semibold">{fmtContable(porCuenta.totales.declarado)}</span>).
+            </>
+          ) : (
+            <>
+              {plural(porCuenta.diferencias.cantidad, "cuenta difiere", "cuentas difieren")} de la suma de sus terceros
+              {" "}(Δ total <span className="font-semibold">{fmtContable(porCuenta.totales.diferencia)}</span>).
+              {!detalle && (
+                <>
+                  {" "}
+                  {porCuenta.diferencias.filas.slice(0, EN_RESUMEN).map((f) => `${f.cuenta}: total ${fmtContable(f.declarado)} vs Σ ${fmtContable(f.calculado)}`).join("; ")}
+                  {porCuenta.diferencias.cantidad > EN_RESUMEN ? "…" : "."}
+                </>
+              )}
+            </>
+          )}
+          {porCuenta.sinTotal > 0 && (
+            <span className="ml-1 opacity-80">{plural(porCuenta.sinTotal, "cuenta no trae", "cuentas no traen")} total en el archivo.</span>
+          )}
+        </div>
+      )}
+      {detalle && porCuenta && porCuenta.diferencias.cantidad > 0 && (
+        <div>
+          <div className="overflow-x-auto rounded-md border border-ink-150">
+            <table className="w-full text-[12px]">
+              <thead className={encabezadoTabla}>
+                <tr>
+                  <th className={`${celda} font-semibold`}>Cuenta</th>
+                  <th className={`${celda} font-semibold`}>Descripción</th>
+                  <th className={`${celda} text-right font-semibold`}>Total del archivo</th>
+                  <th className={`${celda} text-right font-semibold`}>Σ terceros</th>
+                  <th className={`${celda} text-right font-semibold`}>Diferencia</th>
+                </tr>
+              </thead>
+              <tbody>
+                {porCuenta.diferencias.filas.map((f) => (
+                  <tr key={f.cuenta} className="border-t border-ink-100">
+                    <td className={`${celda} tabular-nums text-ink-700`}>{f.cuenta}</td>
+                    <td className={`${celda} text-ink-700`}>{f.nombre ?? "—"}</td>
+                    <td className={`${celda} text-right tabular-nums text-ink-700`}>{fmtContable(f.declarado)}</td>
+                    <td className={`${celda} text-right tabular-nums text-ink-700`}>{fmtContable(f.calculado)}</td>
+                    <td className={`${celda} text-right font-semibold tabular-nums text-err-700`}>{fmtContable(f.diferencia)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <Mas cantidad={porCuenta.diferencias.cantidad} mostradas={porCuenta.diferencias.filas.length} />
         </div>
       )}
 

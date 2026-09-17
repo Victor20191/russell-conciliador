@@ -91,7 +91,9 @@ export const SpecModuloSchema = z.object({
   //  - "documento"        : un documento por fila → Σ documentos vs total del cliente.
   //  - "edades"           : un tercero por fila con sus edades → Σ edades vs total.
   //  - "documento_edades" : documentos con sus edades → los dos controles.
-  tipoFormato: z.enum(["documento", "edades", "documento_edades"]).optional(),
+  //  - "cuenta_tercero"   : un tercero por fila bajo la cuenta que lo agrupa, sin documento ni
+  //                         edades → Σ terceros de cada cuenta vs el total de la cuenta.
+  tipoFormato: z.enum(["documento", "edades", "documento_edades", "cuenta_tercero"]).optional(),
   origenCartera: z.enum(["nacional", "exterior", "mixta"]).optional(),
   // Convención de signo del archivo: true cuando el ERP imprime la deuda en NEGATIVO (SAP
   // Business One, ILIMITADA). El módulo guarda siempre deuda +, anticipo −; se sugiere por

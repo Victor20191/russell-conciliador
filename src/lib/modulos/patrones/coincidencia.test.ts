@@ -52,6 +52,16 @@ describe("coincidenciaPatron · tipo de formato declarado", () => {
     const inv: SpecModulo = { hoja: "Inv", filaEncabezado: 1, primeraFilaDatos: 2, tipoFormato: "documento", columnas: columnasEn(INV, { tipo: 1, valorTotal: 2 }) };
     expect(coincidenciaPatron(INV, { encabezado: ["Tipo", "Valor total"], spec: inv }, ["Tipo", "Valor total"]).faltantesRequeridos).toEqual([]);
   });
+
+  it("un formato por cuenta y NIT no exige documento ni rangos", () => {
+    // SIESA «Reporte de estado de cuentas»: código (cuenta o NIT), descripción, #Ter. y saldo.
+    const encabezado = ["Código", null, "Descripción", null, null, null, null, "#Ter.", null, "Programado", "Orden de pago", null, "Pronto pago", "Saldo"];
+    const spec: SpecModulo = {
+      hoja: "Hoja 1", filaEncabezado: 15, primeraFilaDatos: 18, tipoFormato: "cuenta_tercero",
+      columnas: columnasEn(CXP, { nit: 1, total: 14, marcaSeccion: 8 }),
+    };
+    expect(coincidenciaPatron(CXP, { encabezado, spec }, encabezado)).toMatchObject({ faltantesRequeridos: [], elegible: true });
+  });
 });
 
 describe("coincidenciaPatron", () => {

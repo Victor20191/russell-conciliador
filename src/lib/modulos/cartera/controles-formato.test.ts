@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { controlesFormatoCartera, nivelDeFilas, tipoFormatoDeFilas, type FilaControlFormato } from "./controles-formato";
-import { CLAVE_EDADES, CLAVE_SALDO_DECLARADO, CLAVE_SALDO_REPORTADO, CLAVE_SUMA_EDADES } from "./detalle-cartera";
+import { CLAVE_EDADES, CLAVE_SALDO_DECLARADO, CLAVE_SALDO_DIVISA, CLAVE_SALDO_REPORTADO, CLAVE_SUMA_EDADES, CLAVE_TRM } from "./detalle-cartera";
 
 let fila = 0;
 const documento = (nit: string, valor: number, extra: Record<string, unknown> = {}): FilaControlFormato => ({
@@ -93,6 +93,98 @@ describe("controles por tipo de formato", () => {
     expect(tipoFormatoDeFilas(filas, "documento")).toBe("documento_edades");
     expect(tipoFormatoDeFilas([documento("1", 10)], "documento")).toBe("documento");
     expect(nivelDeFilas([{ imputable: true, nivel: null }])).toBe("tercero");
-    expect(tipoFormatoDeFilas([], "tercero")).toBe("edades");
+    // Un renglón por tercero sin edades es el formato por cuenta y NIT.
+    expect(tipoFormatoDeFilas([], "tercero")).toBe("cuenta_tercero");
+    const porTercero = (datos: Record<string, unknown>): FilaControlFormato => ({ filaNum: ++fila, valor: 10, imputable: true, nivel: "tercero", datos });
+    expect(tipoFormatoDeFilas([porTercero({ nit: "1" })], "tercero")).toBe("cuenta_tercero");
+    expect(tipoFormatoDeFilas([porTercero({ nit: "1", ...conEdades(10, 10) })], "tercero")).toBe("edades");
+  });
+});
+
+// Por cuenta y NIT (SIESA «Reporte de estado de cuentas»): la cuenta encabeza el bloque con su
+// total y debajo cuelga un renglón por tercero.
+const cuenta = (codigo: string, total: number, nombre: string | null = null): FilaControlFormato => ({
+  filaNum: ++fila, valor: 0, imputable: false, nivel: "tercero",
+  datos: { cuenta: codigo, nombre, total },
+});
+const terceroDeCuenta = (codigo: string, nit: string, valor: number, extra: Record<string, unknown> = {}): FilaControlFormato => ({
+  filaNum: ++fila, valor, imputable: true, nivel: "tercero",
+  datos: { cuenta: codigo, nit, nombre: `T ${nit}`, total: valor, ...extra },
+});
+const porCuenta = (conColumnaTotal = true) => [{ tipo: "cuenta_tercero" as const, declarado: true, conColumnaTotal }];
+
+describe("control del formato por cuenta y NIT", () => {
+  it("la suma de los terceros de cada cuenta contra el total de la cuenta", () => {
+    const filas = [
+      cuenta("241205", 320648000, "INDUSTRIA Y COMERCIO"),
+      terceroDeCuenta("241205", "890399011", 49249000),
+      terceroDeCuenta("241205", "890980093", 231649000),
+      terceroDeCuenta("241205", "899999061", 39750000),
+      cuenta("233545", 1000000, "TRANSPORTE"),
+      terceroDeCuenta("233545", "900111222", 900000),
+      terceroDeCuenta("235505", "17114775", 1621579), // cuenta sin total impreso: solo se informa
+    ];
+    const r = controlesFormatoCartera({ filas, nivelImputable: "tercero", formatos: porCuenta(), tipoDeducido: "cuenta_tercero" });
+    expect(r.tipos).toEqual(["cuenta_tercero"]);
+    expect(r.documentosVsCliente).toBeNull();
+    expect(r.edadesVsTotal).toBeNull();
+    expect(r.tercerosVsCuenta).toMatchObject({ estado: "descuadre", comparadas: 2, sinTotal: 1 });
+    expect(r.tercerosVsCuenta?.diferencias.filas).toEqual([
+      expect.objectContaining({ cuenta: "233545", nombre: "TRANSPORTE", declarado: 1000000, calculado: 900000, diferencia: 100000 }),
+    ]);
+    expect(r.alertas).toBe(1);
+  });
+
+  it("el total repetido en la cabecera y en el pie del bloque cuenta una sola vez", () => {
+    const filas = [
+      cuenta("241205", 320648000),
+      terceroDeCuenta("241205", "890399011", 49249000),
+      terceroDeCuenta("241205", "890980093", 231649000),
+      terceroDeCuenta("241205", "899999061", 39750000),
+      cuenta("241205", 320648000), // «Total 241205» al pie del bloque
+    ];
+    const r = controlesFormatoCartera({ filas, nivelImputable: "tercero", formatos: porCuenta(), tipoDeducido: "cuenta_tercero" });
+    expect(r.tercerosVsCuenta).toMatchObject({ estado: "cuadra", comparadas: 1, sinTotal: 0 });
+    expect(r.tercerosVsCuenta?.totales).toEqual({ declarado: 320648000, calculado: 320648000, diferencia: 0 });
+  });
+
+  it("los niveles de agregación no se comparan: solo la cuenta con terceros debajo", () => {
+    // Jerarquía de SIESA: clase, grupo y hasta dos cabeceras de cuenta seguidas antes del detalle.
+    const filas = [
+      cuenta("2", 8000000), cuenta("22", 8000000), cuenta("221005", 8000000), cuenta("221006", 8000000),
+      terceroDeCuenta("221006", "900111222", 5000000),
+      terceroDeCuenta("221006", "900333444", 3000000),
+    ];
+    const r = controlesFormatoCartera({ filas, nivelImputable: "tercero", formatos: porCuenta(), tipoDeducido: "cuenta_tercero" });
+    expect(r.tercerosVsCuenta).toMatchObject({ estado: "cuadra", comparadas: 1, sinTotal: 0 });
+    expect(r.tercerosVsCuenta?.totales).toEqual({ declarado: 8000000, calculado: 8000000, diferencia: 0 });
+
+    // Una cuenta con terceros propios Y subcuentas debajo tampoco se compara contra su total.
+    const conSubcuentas = controlesFormatoCartera({
+      filas: [cuenta("2205", 300), terceroDeCuenta("2205", "1", 100), cuenta("220505", 200), terceroDeCuenta("220505", "2", 200)],
+      nivelImputable: "tercero", formatos: porCuenta(), tipoDeducido: "cuenta_tercero",
+    });
+    expect(conSubcuentas.tercerosVsCuenta).toMatchObject({ estado: "cuadra", comparadas: 1 });
+  });
+
+  it("sin ningún total con que comparar, no validado", () => {
+    const sinTotales = controlesFormatoCartera({
+      filas: [terceroDeCuenta("241205", "890399011", 49249000)],
+      nivelImputable: "tercero", formatos: porCuenta(false), tipoDeducido: "cuenta_tercero",
+    });
+    expect(sinTotales.tercerosVsCuenta).toMatchObject({ estado: "no_validado", comparadas: 0, sinTotal: 1 });
+    expect(sinTotales.tercerosVsCuenta?.motivo).toContain("no trae el total de cada cuenta");
+    expect(sinTotales.alertas).toBe(0);
+  });
+
+  it("en una hoja en divisa el total de la cuenta se compara con la misma TRM de sus terceros", () => {
+    const filas = [
+      cuenta("221005", 10000),
+      terceroDeCuenta("221005", "900999888", 24000000, { [CLAVE_TRM]: 4000, [CLAVE_SALDO_DIVISA]: 6000 }),
+      terceroDeCuenta("221005", "900777666", 16000000, { [CLAVE_TRM]: 4000, [CLAVE_SALDO_DIVISA]: 4000 }),
+    ];
+    const r = controlesFormatoCartera({ filas, nivelImputable: "tercero", formatos: porCuenta(), tipoDeducido: "cuenta_tercero" });
+    expect(r.tercerosVsCuenta).toMatchObject({ estado: "cuadra", comparadas: 1 });
+    expect(r.tercerosVsCuenta?.totales.declarado).toBe(40000000);
   });
 });
