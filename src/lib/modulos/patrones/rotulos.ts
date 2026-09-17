@@ -28,12 +28,14 @@ export function claveRotulo(descriptor: DescriptorModulo, celda: unknown): strin
 
 /** Claves de una fila de encabezado, 1:1 con sus columnas. */
 export function clavesEncabezado(descriptor: DescriptorModulo, fila: readonly unknown[]): string[] {
-  return fila.map((celda) => claveRotulo(descriptor, celda));
+  // Array.from recorre también los huecos de una fila dispersa (celdas nunca escritas).
+  return Array.from(fila, (celda) => claveRotulo(descriptor, celda));
 }
 
 /** Rótulos CRUDOS que se guardan con la versión: texto recortado, "" en las celdas vacías. */
 export function encabezadoParaGuardar(fila: readonly unknown[]): string[] {
-  const salida = fila.map((celda) => (celda == null ? "" : String(celda).replace(/\s+/g, " ").trim().slice(0, 200)));
+  // Una fila dispersa trae huecos que `map` conservaría como `undefined` (Prisma no los acepta).
+  const salida = Array.from(fila, (celda) => (celda == null ? "" : String(celda).replace(/\s+/g, " ").trim().slice(0, 200)));
   while (salida.length > 0 && salida[salida.length - 1] === "") salida.pop();
   return salida;
 }
