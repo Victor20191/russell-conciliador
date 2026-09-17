@@ -9,6 +9,7 @@ import { esEntidadComentable, etiquetaEntidad } from "@/lib/comentarios";
 import { fmtDateTime, fmtNum, fmtContable } from "@/lib/format";
 import { descriptorModulo, type DescriptorModulo } from "@/lib/modulos/descriptores";
 import { mensajeErrorBD, registrarError } from "@/lib/errores";
+import { logAudit } from "@/lib/audit";
 
 // ============================================================
 // Server actions de CONVERSACIONES (comentarios polimórficos).
@@ -16,6 +17,7 @@ import { mensajeErrorBD, registrarError } from "@/lib/errores";
 // Autorización en dos capas + alcance por cartera de la entidad padre:
 //   - leer la conversación  → "<tipo>:ver"      (+ alcance de lectura)
 //   - publicar / mencionar  → "<tipo>:comentar" (+ alcance de lectura)
+//   - editar / eliminar     → "<tipo>:comentar" (+ alcance) y SOLO el autor
 // El alcance se resuelve por tipo (alcanceDeEntidad): balance/conciliación
 // cuelgan de un cliente; DIAN es global (sin cliente, sin alcance extra).
 // ============================================================
@@ -54,6 +56,8 @@ export type ComentarioDTO = {
   authorInitials: string;
   isAI: boolean;
   createdAt: string;
+  /** El autor lo cambió después de publicarlo. */
+  editado: boolean;
   mine: boolean;
   mentions: { userId: number; name: string }[];
 };
@@ -119,6 +123,7 @@ export async function listarComentarios(
         authorId: true,
         isAI: true,
         createdAt: true,
+        editedAt: true,
         author: { select: { name: true, initials: true } },
         mentions: { select: { userId: true, user: { select: { name: true } } } },
       },
@@ -132,6 +137,7 @@ export async function listarComentarios(
       authorInitials: r.author.initials,
       isAI: r.isAI,
       createdAt: stamp(r.createdAt),
+      editado: r.editedAt != null,
       mine: r.authorId === ver.userId,
       mentions: r.mentions.map((m) => ({ userId: m.userId, name: m.user.name })),
     }));
@@ -298,11 +304,159 @@ export async function publicarComentario(input: {
         authorInitials: creado.author.initials,
         isAI: creado.isAI,
         createdAt: stamp(creado.createdAt),
+        editado: false,
         mine: true,
         mentions: creado.mentions.map((m) => ({ userId: m.userId, name: m.user.name })),
       },
     };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("publicarComentario", e) };
+  }
+}
+
+/**
+ * El comentario que el usuario quiere cambiar, si puede: existe, lo escribió él (no la IA) y
+ * sigue pudiendo comentar en la entidad (permiso de rol + alcance sobre el cliente).
+ */
+async function comentarioPropio(id: number) {
+  if (!Number.isSafeInteger(id) || id <= 0) return { ok: false as const, message: "Comentario inválido." };
+  const comentario = await prisma.comment.findUnique({
+    where: { id },
+    select: {
+      id: true, entityType: true, entityId: true, authorId: true, isAI: true, body: true,
+      mentions: { select: { userId: true } },
+      _count: { select: { replies: true, validaciones: true } },
+    },
+  });
+  if (!comentario) return { ok: false as const, message: "El comentario ya no existe." };
+  const tipo = comentario.entityType;
+  if (!esEntidadComentable(tipo)) return { ok: false as const, message: "Entidad inválida." };
+  const authz = await authorizePermiso(`${tipo}:comentar`);
+  if (!authz.ok) return { ok: false as const, message: authz.message };
+  const alc = await alcanceDeEntidad(tipo, comentario.entityId);
+  if (alc.scoped && !(await authorizePermiso(`${tipo}:comentar`, { clientId: alc.clientId })).ok) {
+    return { ok: false as const, message: "No tienes alcance sobre este cliente." };
+  }
+  if (comentario.isAI || comentario.authorId !== authz.userId) {
+    return { ok: false as const, message: "Solo quien escribió el comentario puede editarlo o eliminarlo." };
+  }
+  return { ok: true as const, comentario, userId: authz.userId, clientId: alc.scoped ? alc.clientId : null };
+}
+
+const resumenTexto = (texto: string) => (texto.length > 120 ? `${texto.slice(0, 117)}…` : texto);
+
+/**
+ * Cambia el texto de un comentario propio. Las menciones que siguen en el texto se conservan y
+ * las nuevas avisan a su destinatario, igual que al publicar.
+ */
+export async function editarComentario(input: { id: number; body: string; menciones?: number[] }): Promise<PublicarResult> {
+  const propio = await comentarioPropio(Number(input.id));
+  if (!propio.ok) return propio;
+  const { comentario, userId, clientId } = propio;
+  const tipo = comentario.entityType;
+
+  const body = (input.body ?? "").trim();
+  if (!body) return { ok: false, message: "El comentario está vacío." };
+  if (body.length > 5000) return { ok: false, message: "El comentario es demasiado largo." };
+
+  try {
+    const idsValidos = new Set((await mencionablesInternos(tipo)).map((u) => u.id));
+    const menciones = [...new Set(input.menciones ?? [])].filter((id) => idsValidos.has(id) && id !== userId);
+    const anteriores = new Set(comentario.mentions.map((m) => m.userId));
+    const nuevas = menciones.filter((id) => !anteriores.has(id));
+    const ahora = new Date();
+
+    const editado = await prisma.$transaction(async (tx) => {
+      await tx.commentMention.deleteMany({ where: { commentId: comentario.id, userId: { notIn: menciones } } });
+      if (nuevas.length) {
+        await tx.commentMention.createMany({ data: nuevas.map((uid) => ({ commentId: comentario.id, userId: uid })), skipDuplicates: true });
+      }
+      return tx.comment.update({
+        where: { id: comentario.id },
+        data: { body, editedAt: ahora },
+        select: {
+          id: true,
+          body: true,
+          authorId: true,
+          isAI: true,
+          createdAt: true,
+          author: { select: { name: true, initials: true } },
+          mentions: { select: { userId: true, user: { select: { name: true } } } },
+        },
+      });
+    });
+
+    const actor = await getCurrentUser();
+    const quien = actor?.name ?? "Alguien";
+    if (nuevas.length) {
+      await prisma.notification.createMany({
+        data: nuevas.map(() => ({
+          kind: "comment",
+          who: quien,
+          text: `${quien} te mencionó en ${etiquetaEntidad(tipo)} #${comentario.entityId}`,
+          target: `${tipo}:${comentario.entityId}`,
+          time: stamp(ahora),
+        })),
+      });
+    }
+    await logAudit({
+      user: quien,
+      action: "EDITÓ un comentario",
+      entity: `${etiquetaEntidad(tipo)} #${comentario.entityId}`,
+      detail: `comentario #${comentario.id} · antes: «${resumenTexto(comentario.body)}»`,
+      clientId,
+    });
+
+    return {
+      ok: true,
+      comentario: {
+        id: editado.id,
+        body: editado.body,
+        authorId: editado.authorId,
+        authorName: editado.author.name,
+        authorInitials: editado.author.initials,
+        isAI: editado.isAI,
+        createdAt: stamp(editado.createdAt),
+        editado: true,
+        mine: true,
+        mentions: editado.mentions.map((m) => ({ userId: m.userId, name: m.user.name })),
+      },
+    };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("editarComentario", e) };
+  }
+}
+
+/**
+ * Elimina un comentario propio. No se elimina el que sustenta la validación de una alerta del
+ * balance (la validación caería con él) ni uno con respuestas. Una marca de auditoría que lo
+ * citaba pierde la referencia; la marca sigue en Observaciones.
+ */
+export async function eliminarComentario(input: { id: number }): Promise<{ ok: boolean; message: string }> {
+  const propio = await comentarioPropio(Number(input.id));
+  if (!propio.ok) return propio;
+  const { comentario, clientId } = propio;
+  if (comentario._count.validaciones > 0) {
+    return { ok: false, message: "Este comentario sustenta la validación de una alerta del balance: retira la validación antes de eliminarlo." };
+  }
+  if (comentario._count.replies > 0) {
+    return { ok: false, message: "Este comentario tiene respuestas: no se puede eliminar." };
+  }
+  try {
+    await prisma.$transaction([
+      prisma.marcaCruceModulo.updateMany({ where: { comentarioId: comentario.id }, data: { comentarioId: null } }),
+      prisma.comment.delete({ where: { id: comentario.id } }),
+    ]);
+    const actor = await getCurrentUser();
+    await logAudit({
+      user: actor?.name ?? "Sistema",
+      action: "ELIMINÓ un comentario",
+      entity: `${etiquetaEntidad(comentario.entityType)} #${comentario.entityId}`,
+      detail: `comentario #${comentario.id}: «${resumenTexto(comentario.body)}»`,
+      clientId,
+    });
+    return { ok: true, message: "Comentario eliminado." };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("eliminarComentario", e) };
   }
 }

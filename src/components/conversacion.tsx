@@ -7,6 +7,8 @@ import { Icon } from "@/components/icons";
 import { etiquetaEntidad } from "@/lib/comentarios";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import {
+  editarComentario,
+  eliminarComentario,
   listarComentarios,
   publicarComentario,
   usuariosMencionables,
@@ -38,8 +40,8 @@ export default function Conversacion({
   anchor?: string | null;
   titulo?: string;
   className?: string;
-  // Se invoca tras publicar un comentario con éxito (p. ej. para refrescar la
-  // página y actualizar el badge de comentarios del informe).
+  // Se invoca tras publicar, editar o eliminar un comentario (p. ej. para refrescar
+  // la página y actualizar el badge de comentarios del informe).
   onPublicado?: () => void;
 }) {
   const [comentarios, setComentarios] = useState<ComentarioDTO[]>([]);
@@ -168,7 +170,21 @@ export default function Conversacion({
             Sin comentarios todavía. {puedeComentar ? "Sé el primero en escribir." : ""}
           </p>
         ) : (
-          comentarios.map((c) => <Mensaje key={c.id} c={c} />)
+          comentarios.map((c) => (
+            <Mensaje
+              key={c.id}
+              c={c}
+              puedeCambiar={puedeComentar}
+              onEditado={(editado) => {
+                setComentarios((prev) => prev.map((x) => (x.id === editado.id ? editado : x)));
+                onPublicado?.();
+              }}
+              onEliminado={(id) => {
+                setComentarios((prev) => prev.filter((x) => x.id !== id));
+                onPublicado?.();
+              }}
+            />
+          ))
         )}
         <div ref={finRef} />
       </div>
@@ -234,23 +250,121 @@ export default function Conversacion({
   );
 }
 
-function Mensaje({ c }: { c: ComentarioDTO }) {
+/**
+ * Un comentario. Quien lo escribió (y puede comentar aquí) lo edita en el mismo lugar o lo
+ * elimina; el servidor vuelve a comprobar que es suyo.
+ */
+function Mensaje({
+  c,
+  puedeCambiar,
+  onEditado,
+  onEliminado,
+}: {
+  c: ComentarioDTO;
+  puedeCambiar: boolean;
+  onEditado: (comentario: ComentarioDTO) => void;
+  onEliminado: (id: number) => void;
+}) {
+  const [editando, setEditando] = useState(false);
+  const [borrador, setBorrador] = useState(c.body);
+  const [ocupado, startAccion] = useTransition();
+  const propio = puedeCambiar && c.mine && !c.isAI;
+
+  const guardar = () => {
+    const body = borrador.trim();
+    if (!body || ocupado) return;
+    // Las menciones que siguen escritas en el texto se conservan.
+    const menciones = c.mentions.filter((m) => body.includes(`@${m.name}`)).map((m) => m.userId);
+    startAccion(async () => {
+      const r = await editarComentario({ id: c.id, body, menciones });
+      if (!r.ok) { notifyError(r.message); return; }
+      onEditado(r.comentario);
+      setEditando(false);
+      notifySuccess("Comentario actualizado.");
+    });
+  };
+  const eliminar = () => {
+    if (ocupado || !confirm("¿Eliminar este comentario? No se puede deshacer.")) return;
+    startAccion(async () => {
+      const r = await eliminarComentario({ id: c.id });
+      if (!r.ok) { notifyError(r.message); return; }
+      onEliminado(c.id);
+      notifySuccess(r.message);
+    });
+  };
+
   return (
-    <div className="flex gap-2.5">
+    <div className="group flex gap-2.5">
       <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-full bg-navy-700 text-[11px] font-semibold text-white">
         {c.authorInitials}
       </span>
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="text-[12.5px] font-semibold text-ink-800">{c.authorName}</span>
           {c.isAI && (
             <span className="rounded-full bg-ai-100 px-1.5 py-0.5 text-[10px] font-semibold text-ai-700">IA</span>
           )}
           <span className="text-[11px] text-ink-400">{c.createdAt}</span>
+          {c.editado && <span className="text-[10.5px] italic text-ink-400">(editado)</span>}
+          {propio && !editando && (
+            <span className="ml-auto flex shrink-0 items-center gap-0.5">
+              <button
+                type="button"
+                onClick={() => { setBorrador(c.body); setEditando(true); }}
+                disabled={ocupado}
+                title="Editar el comentario"
+                aria-label="Editar el comentario"
+                className="rounded p-1 text-ink-400 transition hover:bg-ink-100 hover:text-ink-700 disabled:opacity-50"
+              >
+                <Icon name="edit" size={13} />
+              </button>
+              <button
+                type="button"
+                onClick={eliminar}
+                disabled={ocupado}
+                title="Eliminar el comentario"
+                aria-label="Eliminar el comentario"
+                className="rounded p-1 text-err-500 transition hover:bg-err-50 hover:text-err-700 disabled:opacity-50"
+              >
+                <Icon name="trash" size={13} />
+              </button>
+            </span>
+          )}
         </div>
-        <p className="mt-0.5 whitespace-pre-wrap break-words text-[12.5px] text-ink-700">
-          {resaltarMenciones(c.body, c.mentions)}
-        </p>
+        {editando ? (
+          <div className="mt-1 flex flex-col gap-1.5">
+            <textarea
+              value={borrador}
+              onChange={(e) => setBorrador(e.target.value)}
+              rows={3}
+              maxLength={5000}
+              aria-label="Texto del comentario"
+              className="min-h-[60px] w-full resize-y rounded-md border border-ink-200 px-3 py-2 text-[12.5px] focus:outline-none focus:ring-2 focus:ring-navy-600"
+            />
+            <div className="flex justify-end gap-1.5">
+              <button
+                type="button"
+                onClick={() => setEditando(false)}
+                disabled={ocupado}
+                className="rounded-md border border-ink-200 px-2.5 py-1 text-[12px] font-semibold text-ink-600 hover:bg-ink-50 disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={guardar}
+                disabled={ocupado || !borrador.trim() || borrador.trim() === c.body}
+                className="rounded-md bg-navy-700 px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-navy-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {ocupado ? <EstadoProcesando>Guardando</EstadoProcesando> : "Guardar"}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <p className="mt-0.5 whitespace-pre-wrap break-words text-[12.5px] text-ink-700">
+            {resaltarMenciones(c.body, c.mentions)}
+          </p>
+        )}
       </div>
     </div>
   );

@@ -101,7 +101,7 @@ En `src/app/actions/*.ts`. El orden es: `"use server"` → autorizar (`authorize
 - Cliente generado en `src/generated/prisma` (importar desde ahí, no de `@prisma/client`). Singleton en `src/lib/prisma.ts` con driver adapter `@prisma/adapter-pg` y pool configurable.
 - **IDs numéricos autoincrementales** en todos los modelos; los códigos de negocio (`C-1042`, `IVA`…) son columnas `@unique`.
 - **FK suaves** hacia `User` y `Client`: solo el `Int` mapeado, SIN `@relation` (no hay cascada física → al borrar un usuario hay que limpiar jerarquía y asignaciones a mano, ver `deleteUser`). Las demás relaciones sí son FK duras con `onDelete`.
-- Comentarios polimórficos (`Comment`): anclados por `(entityType, entityId)` donde `entityType` reutiliza los códigos de módulo del RBAC.
+- Comentarios polimórficos (`Comment`): anclados por `(entityType, entityId)` donde `entityType` reutiliza los códigos de módulo del RBAC. Solo el AUTOR edita o elimina los suyos (`editarComentario`/`eliminarComentario` en `comentarios.ts`, mismo permiso `<tipo>:comentar` + alcance; la conversación los muestra con «(editado)» por `editado_en`). Al editar se conservan las menciones que siguen en el texto y solo las nuevas notifican. No se elimina el comentario que sustenta una `ValidacionAlerta` (caería en cascada) ni uno con respuestas; una marca del cruce que lo citaba queda con `comentario_id` nulo. Ambas acciones quedan en la auditoría con el texto anterior.
 
 ### Balance de prueba: modelo normalizado (encabezado + detalle)
 
