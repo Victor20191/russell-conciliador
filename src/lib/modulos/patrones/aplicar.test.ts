@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { descriptorModulo } from "../descriptores";
 import type { SpecModulo } from "../extraccion/esquema";
-import { aplicarPatronASpec } from "./aplicar";
+import { aplicarClasificadorDeCarga, aplicarPatronASpec, CLASIFICADOR_GLOBAL_CARGA } from "./aplicar";
 import { coincidenciaPatron } from "./coincidencia";
 import type { UbicacionPatron, VersionCandidata } from "./mejor-version";
 
@@ -85,5 +85,70 @@ describe("aplicarPatronASpec", () => {
     const { spec } = aplicarPatronASpec(CXP, ubicar(["Nombre", "Código", "Corriente", "Total"], 1, version(conModos)));
     expect(spec).toMatchObject({ subtotales: "rotulo", clasificadorModo: "seccion", seccionColumnaVaciaRol: "nombre", invertirSigno: true });
     expect(spec.familias?.edades).toEqual([{ columna: 3, etiqueta: "Corriente", clase: "excluir" }]);
+  });
+});
+
+describe("aplicarClasificadorDeCarga (tipo de inventario confirmado en el cargue)", () => {
+  const INV = descriptorModulo("INV")!;
+  const SPEC_INV: SpecModulo = {
+    hoja: "Kardex",
+    filaEncabezado: 1,
+    primeraFilaDatos: 2,
+    columnas: { tipo: 1, referencia: 2, descripcion: 3, cantidad: 4, valorUnitario: 5, valorTotal: 6 },
+    clasificadorModo: "columna",
+  };
+
+  it("el descriptor de Inventarios pide la confirmación y los demás no", () => {
+    expect(INV.confirmarClasificadorEnCarga).toBe(true);
+    expect(CXP.confirmarClasificadorEnCarga).toBeFalsy();
+  });
+
+  it("la misma columna no es un cambio", () => {
+    const r = aplicarClasificadorDeCarga(INV, SPEC_INV, { columna: 1 }, 6);
+    expect(r).toMatchObject({ ok: true, cambio: false });
+  });
+
+  it("otra columna cambia solo el clasificador y conserva el modo", () => {
+    const arrastrar = { ...SPEC_INV, clasificadorModo: "arrastrar" as const };
+    const r = aplicarClasificadorDeCarga(INV, arrastrar, { columna: 3 }, 6);
+    expect(r.ok && r.cambio).toBe(true);
+    if (!r.ok) return;
+    expect(r.spec.columnas).toMatchObject({ tipo: 3, referencia: 2, valorTotal: 6 });
+    expect(r.spec.clasificadorModo).toBe("arrastrar");
+    // El spec de entrada (el de la versión) no se toca.
+    expect(arrastrar.columnas.tipo).toBe(1);
+  });
+
+  it("el analista puede pedir otro modo al elegir la columna", () => {
+    const r = aplicarClasificadorDeCarga(INV, SPEC_INV, { columna: 1, modo: "arrastrar" }, 6);
+    expect(r).toMatchObject({ ok: true, cambio: true, spec: { clasificadorModo: "arrastrar" } });
+  });
+
+  it("global y de vuelta a una columna", () => {
+    const global = aplicarClasificadorDeCarga(INV, SPEC_INV, { columna: CLASIFICADOR_GLOBAL_CARGA }, 6);
+    expect(global).toMatchObject({ ok: true, cambio: true, spec: { clasificadorModo: "global" } });
+    if (!global.ok) return;
+    const columna = aplicarClasificadorDeCarga(INV, global.spec, { columna: 2 }, 6);
+    expect(columna).toMatchObject({ ok: true, cambio: true, spec: { clasificadorModo: "columna", columnas: { tipo: 2 } } });
+  });
+
+  it("sección solo se conserva si el patrón ya la usaba", () => {
+    const r = aplicarClasificadorDeCarga(INV, SPEC_INV, { columna: 1, modo: "seccion" }, 6);
+    expect(r).toMatchObject({ ok: true, cambio: false, spec: { clasificadorModo: "columna" } });
+  });
+
+  it("rechaza columnas fuera del archivo o sin elegir", () => {
+    for (const columna of [0, 7, 1.5, Number.NaN, -2]) {
+      expect(aplicarClasificadorDeCarga(INV, SPEC_INV, { columna }, 6)).toEqual({
+        ok: false,
+        message: "Confirma la columna de «Tipo de inventario» de este archivo.",
+      });
+    }
+  });
+
+  it("conserva los datos del cargue ya puestos (fila del total)", () => {
+    const manual: SpecModulo = { ...SPEC_INV, subtotales: "manual", subtotalesColumna: 6, subtotalesFila: 40 };
+    const r = aplicarClasificadorDeCarga(INV, manual, { columna: 2 }, 6);
+    expect(r).toMatchObject({ ok: true, spec: { subtotalesFila: 40, subtotalesColumna: 6 } });
   });
 });

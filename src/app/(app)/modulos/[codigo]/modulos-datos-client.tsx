@@ -72,6 +72,7 @@ export default function ModulosDatosClient({
   puedeCrear,
   puedeEliminar,
   puedeAdministrarPatrones,
+  confirmarClasificador,
 }: {
   moduloCodigo: string;
   moduloLabel: string;
@@ -87,6 +88,7 @@ export default function ModulosDatosClient({
   puedeEliminar: boolean;
   /** `perfiles_carga:administrar`: la carga ofrece «Crear patrón» cuando un archivo no coincide. */
   puedeAdministrarPatrones: boolean;
+  confirmarClasificador: boolean;
 }) {
   const [busqueda, setBusqueda] = useState("");
   const [conversando, setConversando] = useState<{ tipo: string; entityId: number; titulo: string } | null>(null);
@@ -105,6 +107,7 @@ export default function ModulosDatosClient({
             conNivelCartera={conNivelCartera}
             clientes={clientes}
             puedeAdministrarPatrones={puedeAdministrarPatrones}
+            confirmarClasificador={confirmarClasificador}
           />
         )}
       </div>
@@ -132,6 +135,7 @@ export default function ModulosDatosClient({
         puedeCrear={puedeCrear}
         puedeEliminar={puedeEliminar}
         puedeAdministrarPatrones={puedeAdministrarPatrones}
+        confirmarClasificador={confirmarClasificador}
       />
     </div>
   );
@@ -151,6 +155,7 @@ function CargadosPorCliente({
   puedeCrear,
   puedeEliminar,
   puedeAdministrarPatrones,
+  confirmarClasificador,
 }: {
   grupos: GrupoClienteRow[];
   busqueda: string;
@@ -165,6 +170,7 @@ function CargadosPorCliente({
   puedeCrear: boolean;
   puedeEliminar: boolean;
   puedeAdministrarPatrones: boolean;
+  confirmarClasificador: boolean;
 }) {
   // El buscador de la pantalla filtra la tarjeta entera cuando identifica al
   // cliente y, si no, solo los períodos que coinciden.
@@ -394,6 +400,7 @@ function CargadosPorCliente({
                             clasificadorRol={clasificadorRol}
                             clientes={clientes}
                             puedeAdministrarPatrones={puedeAdministrarPatrones}
+                            confirmarClasificador={confirmarClasificador}
                             anexo={{
                               encabezadoId: p.id,
                               clienteId: grupo.clienteId,

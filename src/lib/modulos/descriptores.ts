@@ -193,6 +193,12 @@ export type DescriptorModulo = {
    *    negrita tanto el gran total como ítems corrientes.
    */
   negritaComoOmitida?: boolean;
+  /**
+   * Con un patrón de archivo, la carga pide SIEMPRE confirmar la columna del clasificador
+   * (Inventarios: «Tipo de inventario»), igual que la fila del total. La respuesta vale solo
+   * para ese cargue: la versión del patrón no cambia (`aplicarClasificadorDeCarga`).
+   */
+  confirmarClasificadorEnCarga?: boolean;
   /** Preguntas de verificación manual que el usuario responde al confirmar la carga. */
   verificaciones?: Verificacion[];
   /** Verificaciones que obligatoriamente deben responderse «Sí» para promover. */
@@ -362,6 +368,9 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     // La negrita en los inventarios NO es confiable como «es un subtotal»: se omite por
     // defecto (excluida del total) pero queda rescatable desde el borrador.
     negritaComoOmitida: true,
+    // Con patrón, el analista confirma el tipo de inventario en cada cargue (otra columna o uno
+    // global) sin tocar la versión.
+    confirmarClasificadorEnCarga: true,
     crucePorTercero: { habilitado: false },
     verificaciones: [
       { id: "consignacion_recibida", texto: "Confirme si la compañía maneja mercancías recibidas en consignación." },

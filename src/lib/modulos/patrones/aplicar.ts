@@ -6,7 +6,7 @@
 import type { DescriptorModulo } from "../descriptores";
 import type { SpecModulo } from "../extraccion/esquema";
 import { detectarFamilias } from "../extraccion/sugerir";
-import { normalizarSpecModuloArchivo } from "../perfil-modulo";
+import { modoClasificadorDe, normalizarSpecModuloArchivo, validarSpecModulo } from "../perfil-modulo";
 import type { UbicacionPatron } from "./mejor-version";
 import { esRotuloFamilia, normalizarRotulo } from "./rotulos";
 
@@ -116,4 +116,53 @@ export function aplicarPatronASpec(descriptor: DescriptorModulo, ubicacion: Ubic
   }
 
   return { spec: normalizarSpecModuloArchivo(descriptor, spec), advertencias };
+}
+
+/** Columna del clasificador que el analista confirmó al cargar: -1 = un único valor para todo el archivo. */
+export const CLASIFICADOR_GLOBAL_CARGA = -1;
+
+export type EleccionClasificador = { columna: number; modo?: string | null };
+
+export type ClasificadorDeCarga =
+  | { ok: true; spec: SpecModulo; cambio: boolean }
+  | { ok: false; message: string };
+
+/**
+ * Aplica al spec de ESTE archivo la columna del clasificador que el analista confirmó al cargar
+ * con un patrón (Inventarios: «Tipo de inventario», `confirmarClasificadorEnCarga`). Es un dato
+ * del cargue, como la fila del total: la versión del patrón no cambia.
+ *
+ * Una columna nueva conserva el modo del patrón (con uno global pasa a «columna») salvo que el
+ * analista pida «columna» o «arrastrar»; «sección» solo se mantiene si el patrón ya lo usaba,
+ * porque depende de otros ajustes que la confirmación no pide.
+ */
+export function aplicarClasificadorDeCarga(
+  descriptor: DescriptorModulo,
+  spec: SpecModulo,
+  eleccion: EleccionClasificador,
+  anchoHoja: number,
+): ClasificadorDeCarga {
+  const rol = descriptor.clasificador;
+  const etiqueta = descriptor.columnas.find((c) => c.nombre === rol)?.etiqueta ?? "clasificador";
+  const modoActual = modoClasificadorDe(spec);
+  const columnaActual = spec.columnas[rol] ?? 0;
+  let siguiente: SpecModulo;
+  if (eleccion.columna === CLASIFICADOR_GLOBAL_CARGA) {
+    siguiente = { ...spec, clasificadorModo: "global" };
+  } else if (Number.isInteger(eleccion.columna) && eleccion.columna >= 1 && eleccion.columna <= anchoHoja) {
+    const pedido = eleccion.modo === "columna" || eleccion.modo === "arrastrar"
+      ? eleccion.modo
+      : eleccion.modo === "seccion" && modoActual === "seccion" ? "seccion" : null;
+    const modo = pedido ?? (modoActual === "global" ? "columna" : modoActual);
+    siguiente = { ...spec, columnas: { ...spec.columnas, [rol]: eleccion.columna }, clasificadorModo: modo };
+  } else {
+    return { ok: false, message: `Confirma la columna de «${etiqueta}» de este archivo.` };
+  }
+  delete siguiente.arrastrarClasificador;
+  const normalizado = normalizarSpecModuloArchivo(descriptor, siguiente);
+  const error = validarSpecModulo(descriptor, normalizado);
+  if (error) return { ok: false, message: error };
+  const modoNuevo = modoClasificadorDe(normalizado);
+  const cambio = modoNuevo !== modoActual || (modoNuevo !== "global" && normalizado.columnas[rol] !== columnaActual);
+  return { ok: true, spec: normalizado, cambio };
 }

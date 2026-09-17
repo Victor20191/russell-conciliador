@@ -40,10 +40,10 @@ import {
   invalidarValorAmbiguoIngresos,
   sugerirSpec,
 } from "@/lib/modulos/extraccion/sugerir";
-import { letraColumnaModulo, normalizarSpecModulo, normalizarSpecModuloArchivo } from "@/lib/modulos/perfil-modulo";
+import { letraColumnaModulo, modoClasificadorDe, normalizarSpecModulo, normalizarSpecModuloArchivo } from "@/lib/modulos/perfil-modulo";
 import { transformarModulo, resultadoAReconciliacion } from "@/lib/modulos/extraccion/transformar";
 import { aCeldaMuestra, textoCeldaMuestra, vistaAnalisisHoja, type CeldaMuestra } from "@/lib/modulos/extraccion/vista-analisis";
-import { aplicarPatronASpec } from "@/lib/modulos/patrones/aplicar";
+import { aplicarClasificadorDeCarga, aplicarPatronASpec } from "@/lib/modulos/patrones/aplicar";
 import { mejorVersion } from "@/lib/modulos/patrones/mejor-version";
 import { aplicativoConfirmadoDeCarga, versionesPatronCandidatas } from "@/lib/modulos/patrones/servidor";
 import type { ResumenPeriodo } from "@/lib/modulos/nomina/periodo";
@@ -1102,7 +1102,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
       hoja: GridHoja;
       spec: SpecModulo;
       origen: "manual" | "perfil" | "ia" | "patron";
-      patron: { versionId: number; version: number; porcentaje: number } | null;
+      patron: { versionId: number; version: number; porcentaje: number; clasificadorCambiado: boolean } | null;
     };
 
     // ARCHIVO MANUAL: (1) editado a mano → manual · (2) perfil por huella → perfil · (3) heurístico → ia.
@@ -1156,11 +1156,30 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
       if (Number.isFinite(trm) && trm > 0) spec = { ...spec, trmCierre: trm };
       const filaTotal = Number(formData.get("subtotalesFila"));
       if (spec.subtotales === "manual" && Number.isInteger(filaTotal) && filaTotal > 0) spec = { ...spec, subtotalesFila: filaTotal };
+      // Inventarios: el analista confirma el clasificador en cada cargue. Vale solo para este
+      // archivo (queda en el spec del lote); la versión del patrón no se toca.
+      let clasificadorCambiado = false;
+      if (descriptor.confirmarClasificadorEnCarga) {
+        // Sin respuesta, `Number("")` es 0 y el helper la rechaza con su mensaje.
+        const ancho = hoja.filas.reduce((max, fila) => Math.max(max, fila?.length ?? 0), 0);
+        const eleccion = aplicarClasificadorDeCarga(
+          descriptor,
+          spec,
+          {
+            columna: Number(String(formData.get("clasificadorColumna") ?? "").trim()),
+            modo: String(formData.get("clasificadorModo") ?? "").trim() || null,
+          },
+          ancho,
+        );
+        if (!eleccion.ok) return eleccion.message;
+        spec = eleccion.spec;
+        clasificadorCambiado = eleccion.cambio;
+      }
       return {
         hoja,
         spec: normalizarSpecModuloArchivo(descriptor, spec),
         origen: "patron",
-        patron: { versionId: ubicacion.version.id, version: ubicacion.version.version, porcentaje: ubicacion.coincidencia.porcentaje },
+        patron: { versionId: ubicacion.version.id, version: ubicacion.version.version, porcentaje: ubicacion.coincidencia.porcentaje, clasificadorCambiado },
       };
     };
 
@@ -1243,7 +1262,14 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
     // La columna y el patrón pertenecen al formato; la fila física pertenece solo a este
     // lote. La normalización reutilizable la retira antes de guardar/actualizar el perfil.
     const specPerfil = normalizarSpecModulo(descriptor, spec);
-    const detallePatron = patron ? ` · patrón ${aplicativo.name} v${patron.version} (${patron.porcentaje} %)` : ` · ${aplicativo.name}`;
+    const clasificadorDelCargue = patron?.clasificadorCambiado
+      ? ` · ${descriptor.columnas.find((c) => c.nombre === descriptor.clasificador)?.etiqueta ?? "Clasificador"} solo para este cargue: ${
+          modoClasificadorDe(spec) === "global"
+            ? "único para todo el archivo"
+            : `columna ${letraColumnaModulo((spec.columnas[descriptor.clasificador] ?? 0) + (hoja.columnaInicial ?? 0))}`
+        }`
+      : "";
+    const detallePatron = patron ? ` · patrón ${aplicativo.name} v${patron.version} (${patron.porcentaje} %)${clasificadorDelCargue}` : ` · ${aplicativo.name}`;
 
     try {
       await prisma.$transaction(async (tx) => {

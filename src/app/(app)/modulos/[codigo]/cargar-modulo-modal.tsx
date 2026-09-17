@@ -7,7 +7,7 @@
 //  - no coincide: la carga se detiene hasta que un administrador cree el patrón;
 //  - «Archivo manual»: mapeo de columnas a mano, memorizado por cliente.
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition, type Dispatch, type SetStateAction } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Modal } from "@/components/modal";
@@ -31,7 +31,7 @@ import {
   type AplicativoOpcion,
 } from "@/app/actions/aplicativos-cliente";
 import { NotasCargaModulo } from "./notas-carga-modulo";
-import { CamposCargueCartera, EditorMapeoModulo, celdaTxt, type RolModulo } from "./editor-mapeo-modulo";
+import { CamposCargueCartera, EditorMapeoModulo, celdaTxt, opcionesColumnaAnalisis, type RolModulo } from "./editor-mapeo-modulo";
 
 export type { RolModulo };
 export type ClienteModulo = { id: number; name: string; nit: string };
@@ -51,7 +51,130 @@ type PropsCarga = {
   clientes: ClienteModulo[];
   /** Muestra «Crear patrón» cuando un archivo no coincide (Administrador). */
   puedeAdministrarPatrones: boolean;
+  /** Con patrón, pide confirmar la columna del clasificador en cada cargue (Inventarios). */
+  confirmarClasificador: boolean;
 };
+
+type ModoClasificador = NonNullable<SpecModulo["clasificadorModo"]>;
+type ClasificadorPatron = { columna: number; modo: ModoClasificador };
+const modoClasificadorSpec = (s: SpecModulo): ModoClasificador => s.clasificadorModo ?? (s.arrastrarClasificador ? "arrastrar" : "columna");
+/** Valor del selector para «un único valor para todo el archivo» (el servidor lo lee igual). */
+const CLASIFICADOR_GLOBAL = -1;
+
+/**
+ * Confirmación del clasificador en una carga con patrón (Inventarios: «Tipo de inventario»).
+ * Viene con lo que dice el patrón; lo que el analista cambie vale solo para este cargue.
+ */
+function ConfirmarClasificadorCarga({
+  analisis,
+  spec,
+  setSpec,
+  clasificadorRol,
+  etiqueta,
+  patron,
+  confirmado,
+  onConfirmar,
+}: {
+  analisis: AnalisisModulo;
+  spec: SpecModulo;
+  setSpec: Dispatch<SetStateAction<SpecModulo | null>>;
+  clasificadorRol: string;
+  etiqueta: string;
+  patron: ClasificadorPatron;
+  confirmado: boolean;
+  onConfirmar: (valor: boolean) => void;
+}) {
+  const modo = modoClasificadorSpec(spec);
+  const columna = spec.columnas[clasificadorRol] ?? 0;
+  const letra = (c: number) => letraColumnaModulo(c + (analisis.columnaInicial ?? 0));
+  const describir = ({ columna: c, modo: m }: ClasificadorPatron) =>
+    m === "global"
+      ? "un único valor para todo el archivo"
+      : `la columna ${c > 0 ? letra(c) : "sin definir"}${m === "arrastrar" ? " (agrupado, se arrastra)" : m === "seccion" ? " (renglones de sección)" : ""}`;
+  const cambiado = modo !== patron.modo || (modo !== "global" && columna !== patron.columna);
+  const valores = modo === "global" || columna < 1
+    ? []
+    : [...new Set((analisis.muestraFilas ?? []).map((f) => celdaTxt(f[columna - 1] ?? null).trim()).filter(Boolean))];
+  const elegirColumna = (valor: number) => {
+    onConfirmar(true);
+    setSpec((s) => {
+      if (!s) return s;
+      if (valor === CLASIFICADOR_GLOBAL) return { ...s, clasificadorModo: "global", arrastrarClasificador: undefined };
+      const actual = modoClasificadorSpec(s);
+      const modoNuevo = actual !== "global" ? actual : patron.modo !== "global" ? patron.modo : "columna";
+      return { ...s, columnas: { ...s.columnas, [clasificadorRol]: valor }, clasificadorModo: modoNuevo, arrastrarClasificador: undefined };
+    });
+  };
+  const elegirModo = (valor: ModoClasificador) => {
+    onConfirmar(true);
+    setSpec((s) => (s ? { ...s, clasificadorModo: valor, arrastrarClasificador: undefined } : s));
+  };
+  const usarDelPatron = () => {
+    onConfirmar(true);
+    setSpec((s) => (s ? {
+      ...s,
+      columnas: { ...s.columnas, [clasificadorRol]: patron.columna },
+      clasificadorModo: patron.modo,
+      arrastrarClasificador: undefined,
+    } : s));
+  };
+  const campo = "w-full min-w-0 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400";
+  const nombre = etiqueta.toLowerCase();
+
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-blue-300 bg-blue-50/40 px-3 py-2.5">
+      <span className="text-[11px] font-medium text-ink-600">
+        {etiqueta} <span className="text-err-600">*</span> · el patrón lo lee en {describir(patron)}
+      </span>
+      <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2">
+        <select
+          aria-label={`Columna de ${nombre}`}
+          value={modo === "global" ? CLASIFICADOR_GLOBAL : columna}
+          onChange={(e) => elegirColumna(Number(e.target.value))}
+          className={campo}
+        >
+          {modo !== "global" && columna < 1 && <option value={0}>— elige la columna —</option>}
+          <option value={CLASIFICADOR_GLOBAL}>🌐 Un único {nombre} para todo el archivo</option>
+          {opcionesColumnaAnalisis(analisis).map((o) => <option key={o.index1} value={o.index1}>{o.label}</option>)}
+        </select>
+        {modo !== "global" && (
+          <select
+            aria-label={`Cómo viene el ${nombre}`}
+            value={modo}
+            onChange={(e) => elegirModo(e.target.value as ModoClasificador)}
+            className={campo}
+          >
+            <option value="columna">Con valor en cada fila</option>
+            <option value="arrastrar">Agrupado: una vez por bloque (se arrastra)</option>
+            {patron.modo === "seccion" && <option value="seccion">En renglones de sección</option>}
+          </select>
+        )}
+      </div>
+      {valores.length > 0 && (
+        <span className="min-w-0 break-words text-[11px] leading-snug text-ink-500">
+          En las primeras filas: {valores.slice(0, 5).join(" · ")}{valores.length > 5 ? " …" : ""}
+        </span>
+      )}
+      {modo !== "global" && modo !== "seccion" && columna >= 1 && valores.length === 0 && (
+        <span className="text-[11px] font-medium leading-snug text-warn-700">Esa columna viene vacía en las primeras filas de datos.</span>
+      )}
+      <label className="flex items-start gap-2 text-[12px] text-ink-700">
+        <input type="checkbox" checked={confirmado} onChange={(e) => onConfirmar(e.target.checked)} className="mt-0.5" />
+        <span>Confirmo el {nombre} de este archivo.</span>
+      </label>
+      <span className="text-[11px] leading-snug text-ink-500">
+        {cambiado ? (
+          <>
+            Cambiado solo para este cargue: el patrón del aplicativo no se modifica.{" "}
+            <button type="button" onClick={usarDelPatron} className="font-semibold text-blue-700 hover:underline">Usar el del patrón</button>
+          </>
+        ) : (
+          "Si lo cambias, el cambio vale solo para este cargue: el patrón del aplicativo no se modifica."
+        )}
+      </span>
+    </div>
+  );
+}
 
 const formatoNumeroMarca = new Intl.NumberFormat("es-CO", { maximumFractionDigits: 6 });
 const celdaTxtVisible = (v: CeldaMuestra): string => (
@@ -131,6 +254,7 @@ function CargarModal({
   clasificadorRol,
   clientes,
   puedeAdministrarPatrones,
+  confirmarClasificador,
   anexo,
   onClose,
 }: PropsCarga & { anexo?: AnexoModulo; onClose: () => void }) {
@@ -161,6 +285,10 @@ function CargarModal({
   const [valorMarcaTotalesVisible, setValorMarcaTotalesVisible] = useState<CeldaMuestra>(null);
   const [marcaManualLista, setMarcaManualLista] = useState(false);
   const solicitudCeldaRef = useRef(0);
+  // Clasificador que trae el patrón y la confirmación del analista (solo para este cargue).
+  const [clasificadorPatron, setClasificadorPatron] = useState<ClasificadorPatron | null>(null);
+  const [clasificadorConfirmado, setClasificadorConfirmado] = useState(false);
+  const etiquetaClasificador = roles.find((rol) => rol.nombre === clasificadorRol)?.etiqueta ?? "Clasificador";
   // Preferencias de carga del cliente (Configuración › Perfiles de carga): se muestran las notas.
   const [prefs, setPrefs] = useState<PrefsCarga | null>(null);
   const solicitudClienteRef = useRef(0);
@@ -177,6 +305,8 @@ function CargarModal({
     setAnalisis(null);
     setSpec(null);
     setRecepcionLoteId(null);
+    setClasificadorPatron(null);
+    setClasificadorConfirmado(false);
     setFase("archivo");
   };
 
@@ -298,6 +428,9 @@ function CargarModal({
         }
         // Ni el perfil ni el patrón traen la fila del total: se ubica de nuevo en cada archivo.
         setSpec(sinCoordenadaDeArchivo(r.spec));
+        // Cada análisis (también al cambiar de hoja) vuelve a pedir la confirmación del clasificador.
+        setClasificadorPatron({ columna: r.spec.columnas[clasificadorRol] ?? 0, modo: modoClasificadorSpec(r.spec) });
+        setClasificadorConfirmado(false);
         setFase(r.modo === "patron" ? "patron" : "mapeo");
         if (r.origen === "perfil") notifySuccess("Se aplicó el perfil guardado de este cliente. Revisa y confirma.");
       } catch {
@@ -312,6 +445,18 @@ function CargarModal({
     if (clienteId == null) { notifyError("Selecciona el cliente."); return; }
     if (!/^\d{4}-\d{2}$/.test(mes)) { notifyError("Selecciona el período del archivo."); return; }
     const porPatron = analisis.modo === "patron" && analisis.coincidencia != null;
+    const pedirClasificador = porPatron && confirmarClasificador;
+    const modoClasificadorCargue = modoClasificadorSpec(spec);
+    if (pedirClasificador) {
+      if (modoClasificadorCargue !== "global" && (spec.columnas[clasificadorRol] ?? 0) < 1) {
+        notifyError(`Elige la columna de ${etiquetaClasificador.toLowerCase()} de este archivo.`);
+        return;
+      }
+      if (!clasificadorConfirmado) {
+        notifyError(`Confirma el ${etiquetaClasificador.toLowerCase()} de este archivo.`);
+        return;
+      }
+    }
     if (!porPatron) {
       const modoClasificador = spec.clasificadorModo ?? (spec.arrastrarClasificador ? "arrastrar" : "columna");
       const faltantes = roles.filter((rc) => rc.requerido && !(rc.nombre === clasificadorRol && modoClasificador === "global") && (spec.columnas[rc.nombre] ?? 0) < 1);
@@ -341,6 +486,10 @@ function CargarModal({
         fd.set("fechaCorte", spec.fechaCorte ?? (finDePeriodo(mes) ?? ""));
         if (spec.trmCierre) fd.set("trmCierre", String(spec.trmCierre));
         if (spec.subtotalesFila) fd.set("subtotalesFila", String(spec.subtotalesFila));
+        if (pedirClasificador) {
+          fd.set("clasificadorColumna", String(modoClasificadorCargue === "global" ? CLASIFICADOR_GLOBAL : spec.columnas[clasificadorRol] ?? 0));
+          fd.set("clasificadorModo", modoClasificadorCargue);
+        }
       } else {
         fd.set("specJson", JSON.stringify(spec));
       }
@@ -678,6 +827,18 @@ function CargarModal({
               {analisis.periodosDetectados.map((p) => `${p.periodo} (${p.filas.toLocaleString("es-CO")} filas)`).join(" · ")}.
               {analisis.periodosDetectados.length > 1 && ` Solo entran las filas de ${mes}.`}
             </p>
+          )}
+          {confirmarClasificador && clasificadorPatron && (
+            <ConfirmarClasificadorCarga
+              analisis={analisis}
+              spec={spec}
+              setSpec={setSpec}
+              clasificadorRol={clasificadorRol}
+              etiqueta={etiquetaClasificador}
+              patron={clasificadorPatron}
+              confirmado={clasificadorConfirmado}
+              onConfirmar={setClasificadorConfirmado}
+            />
           )}
           {conNivelCartera && <CamposCargueCartera spec={spec} setSpec={setSpec} fechaCorteSugerida={fechaCorteSugerida} />}
           {spec.subtotales === "manual" && (
