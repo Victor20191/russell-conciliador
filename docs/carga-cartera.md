@@ -72,6 +72,12 @@ que dicen el origen.
   más (con el saldo de Contabilidad de esa cuenta) y al cruce por tercero (los NIT de esa cuenta en el
   balance y los saldos del auxiliar asignados a ella). Los demás meses siguen con la memoria del
   cliente y la cédula no cambia. Con la conciliación del período en firme no se agregan ni quitan.
+  **Archivo sin cuenta.** Si el archivo no trae la columna de la cuenta, sus filas quedan
+  «(sin clasificar)». En el borrador, antes de confirmar, se les pone un nombre (p. ej. «COP» y
+  «USD» para las dos hojas de OFIMATICA) y cada nombre es un renglón del Consolidado con su propia
+  cuenta. Con «Agregar archivo», el borrador ofrece los nombres que ya usa la versión vigente: el
+  mismo nombre junta las filas en ese renglón; uno nuevo abre otro. Un nombre usado en meses
+  anteriores trae su cuenta sola.
 - **Cruce contable.** Por cuenta Russell de 6 dígitos, con el signo del módulo (Cartera débito, CxP
   crédito): un anticipo resta en los dos lados, como en el auxiliar (la 2805 en Cartera, la 1330 en
   CxP), en vez de mostrarse con la naturaleza de su propia cuenta.

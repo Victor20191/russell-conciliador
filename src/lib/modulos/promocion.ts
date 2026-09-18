@@ -82,6 +82,9 @@ export type ConsolidadoClasificador = {
  * `claveConsolidado` para que la pestaña, sus acciones y las anclas sigan llaveando por un
  * solo string.
  */
+/** Renglón de las filas sin clasificador (el archivo no trae la columna o la celda viene vacía). */
+export const SIN_CLASIFICAR = "(sin clasificar)";
+
 export function consolidarPorClasificador(
   filas: Array<{ clasificador: string | null; valor: number; tipoFila?: string; agrupador?: string | null }>,
   opciones?: { porAgrupador?: boolean },
@@ -90,7 +93,7 @@ export function consolidarPorClasificador(
   const m = new Map<string, { total: number; filas: number; codigo: string; agrupador: string }>();
   for (const f of filas) {
     if (f.tipoFila && f.tipoFila !== "movimiento") continue;
-    const codigo = f.clasificador?.trim() || "(sin clasificar)";
+    const codigo = f.clasificador?.trim() || SIN_CLASIFICAR;
     const agrupador = porAgrupador ? String(f.agrupador ?? "").trim() : "";
     const k = porAgrupador ? claveConsolidado(codigo, agrupador) : codigo;
     const b = m.get(k) ?? { total: 0, filas: 0, codigo, agrupador };

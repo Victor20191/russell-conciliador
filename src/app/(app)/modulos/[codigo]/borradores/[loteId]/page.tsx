@@ -12,6 +12,7 @@ import { columnasDetalleModulo } from "@/lib/modulos/cartera/columnas-cartera";
 import type { ReconciliacionModulo } from "@/lib/modulos/extraccion/transformar";
 import { SpecModuloSchema } from "@/lib/modulos/extraccion/esquema";
 import { formatoArchivoCartera, nivelCarteraDeSpec } from "@/lib/modulos/cartera/tipo-formato";
+import { grupoSinNombreDe, opcionesNombreClasificador, type GrupoSinNombre } from "@/lib/modulos/nombre-clasificador";
 import BorradorModuloClient, { type FilaBorradorModulo } from "./borrador-detail-client";
 
 export default async function BorradorModuloPage({ params }: { params: Promise<{ codigo: string; loteId: string }> }) {
@@ -90,15 +91,20 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
   // «Agregar archivo». Se resuelve aquí para avisar ANTES de confirmar si trae ítems que
   // ese cargue ya tiene — avisar, no bloquear: la llave (clasificador, referencia) depende
   // del mapeo de columnas y un falso positivo dejaría sin salida a un anexo legítimo.
+  const columnasNumericas = descriptor.columnas.filter((c) => c.tipo === "numero" || c.tipo === "moneda").map((c) => c.nombre);
   let anexo: { version: number; periodo: string; repetidos: string[]; vigente: boolean } | null = null;
+  // Agrupadores del cargue al que se suma el anexo: se ofrecen como nombre para las filas sin él.
+  let nombresDestino: { version: number; nombres: string[] } | null = null;
   if (lote.anexoEncabezadoId != null) {
     const destino = await prisma.moduloDatoEncabezado.findUnique({
       where: { id: lote.anexoEncabezadoId },
       select: { id: true, version: true, periodo: true, esOficial: true, detalles: { select: { clasificador: true, datos: true } } },
     });
     if (destino) {
+      if (destino.esOficial) {
+        nombresDestino = { version: destino.version, nombres: [...new Set(destino.detalles.map((d) => d.clasificador?.trim() ?? "").filter(Boolean))] };
+      }
       const rolesLlave = rolesLlaveItemDe(descriptor);
-      const columnasNumericas = descriptor.columnas.filter((c) => c.tipo === "numero" || c.tipo === "moneda").map((c) => c.nombre);
       const existentes = clavesDeDetalle(
         destino.detalles.map((d) => ({ clasificador: d.clasificador, datos: (d.datos ?? {}) as Record<string, unknown> })),
         rolesLlave,
@@ -117,6 +123,35 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
       };
     }
   }
+
+  // Grupos que nombra el sistema y no el archivo — «(sin clasificar)» y «GLOBAL» —: el usuario
+  // les puede poner nombre antes de confirmar. Cuentan las filas que se promoverían. Nómina no
+  // aplica: su clasificador es el código del concepto.
+  const gruposSinNombre = new Map<GrupoSinNombre, { filas: number; total: number }>();
+  if (!descriptor.nomina) {
+    for (const f of filas) {
+      const grupo = grupoSinNombreDe(f.clasificador);
+      if (!grupo || !esImputable(f, columnasNumericas)) continue;
+      const previo = gruposSinNombre.get(grupo) ?? { filas: 0, total: 0 };
+      gruposSinNombre.set(grupo, { filas: previo.filas + 1, total: previo.total + Number(f.valor) });
+    }
+  }
+  // Nombres que ya tienen cuenta en la memoria del cliente: usar el mismo trae su cuenta sola.
+  const memoria = gruposSinNombre.size > 0
+    ? await prisma.consolidacionModuloCliente.findMany({
+        where: { clienteId: lote.clienteId, moduloCodigo },
+        select: { clasificador: true, cuenta4: true, cuenta6: true },
+      })
+    : [];
+  const cuentasPorNombre = new Map<string, string[]>();
+  for (const m of memoria) cuentasPorNombre.set(m.clasificador, [...(cuentasPorNombre.get(m.clasificador) ?? []), m.cuenta6 || m.cuenta4]);
+  const opcionesNombre = gruposSinNombre.size > 0
+    ? opcionesNombreClasificador({
+        destino: nombresDestino,
+        memoria: [...cuentasPorNombre].map(([nombre, cuentas]) => ({ nombre, cuentas })),
+        delBorrador: filas.map((f) => f.clasificador),
+      })
+    : [];
 
   // Los rangos de vencimiento que detectó la lectura viven en el spec del LOTE (aquí el
   // cargue todavía no existe), y de ahí salen las columnas por archivo de la tabla.
@@ -167,6 +202,8 @@ export default async function BorradorModuloPage({ params }: { params: Promise<{
         filas={filasVm}
         reconciliacion={reconciliacion}
         anexo={anexo}
+        sinNombre={[...gruposSinNombre].map(([grupo, g]) => ({ grupo, filas: g.filas, total: Math.round(g.total * 100) / 100 }))}
+        opcionesNombre={opcionesNombre}
         version={versionActual}
         notasCliente={ajustesCarga?.observaciones?.trim() || null}
         hermanos={hermanosVersionados.map((hermano) => ({

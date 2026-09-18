@@ -47,7 +47,8 @@ import {
   sugerirSpec,
 } from "@/lib/modulos/extraccion/sugerir";
 import { letraColumnaModulo, modoClasificadorDe, normalizarSpecModulo, normalizarSpecModuloArchivo } from "@/lib/modulos/perfil-modulo";
-import { transformarModulo, resultadoAReconciliacion } from "@/lib/modulos/extraccion/transformar";
+import { CLASIFICADOR_GLOBAL, transformarModulo, resultadoAReconciliacion } from "@/lib/modulos/extraccion/transformar";
+import { ETIQUETA_GRUPO_SIN_NOMBRE, esGrupoSinNombre, normalizarNombreClasificador, type GrupoSinNombre } from "@/lib/modulos/nombre-clasificador";
 import { aCeldaMuestra, textoCeldaMuestra, vistaAnalisisHoja, type CeldaMuestra } from "@/lib/modulos/extraccion/vista-analisis";
 import { aplicarClasificadorDeCarga, aplicarPatronASpec } from "@/lib/modulos/patrones/aplicar";
 import { mejorVersion } from "@/lib/modulos/patrones/mejor-version";
@@ -1364,6 +1365,20 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
   }
 }
 
+/**
+ * Reasigna el agrupador (clasificador) de filas del staging en la COLUMNA y en `datos[rol]`, en
+ * una sola sentencia. Las dos copias tienen que ir juntas: en Cartera y CxP la cuenta del archivo
+ * que usa el cruce por tercero sale de `datos.cuenta` (la promoción la copia a `cuentaCliente`),
+ * no de la columna; cambiar solo la columna dejaría la fila «sin clasificar» en ese cruce.
+ */
+function asignarAgrupadorStaging(loteId: string, rol: string, valor: string | null, filtro: Prisma.Sql) {
+  return prisma.$executeRaw`
+    UPDATE "modulo_importacion_staging"
+    SET "clasificador" = ${valor},
+        "datos" = jsonb_set(COALESCE("datos", '{}'::jsonb), ARRAY[${rol}]::text[], COALESCE(to_jsonb(${valor}::text), 'null'::jsonb), true)
+    WHERE "lote_id" = ${loteId} AND ${filtro}`;
+}
+
 // ============================================================
 // EDITAR el borrador: marcar agrupador / subtotal / omitir por fila (se guarda en el staging).
 // ============================================================
@@ -1385,21 +1400,34 @@ export async function aplicarCambiosBorradorModulo(
     if (periodo !== undefined && !/^\d{4}-\d{2}$/.test(periodoNormalizado)) {
       return { ok: false, message: "Indica el período en formato AAAA-MM." };
     }
+    const descriptor = descriptorModulo(lote.moduloCodigo);
+    const validos = cambios.filter((c) => Number.isInteger(c.filaNum));
+    // Agrupador manual: reasigna el clasificador de las filas (vacío → sin clasificar), agrupado
+    // por valor para escribirlo en una sola sentencia por agrupador.
+    const porAgrupador = new Map<string | null, number[]>();
+    for (const c of validos) {
+      if (c.clasificador === undefined) continue;
+      const valor = c.clasificador?.trim() ? c.clasificador.trim() : null;
+      porAgrupador.set(valor, [...(porAgrupador.get(valor) ?? []), c.filaNum]);
+    }
     await prisma.$transaction([
-      ...cambios.filter((c) => Number.isInteger(c.filaNum)).map((c) =>
-        prisma.moduloImportacionStaging.updateMany({
-          where: { loteId: id, filaNum: c.filaNum },
-          data: {
-            // `total` = subtotal del archivo (control). Al cambiar de tipo se limpia el
-            // tri-estado `omitida` para no dejar estados mixtos (un total nunca se «omite»).
-            ...(c.tipoFila === "agrupadora" || c.tipoFila === "movimiento" || c.tipoFila === "total"
-              ? { tipoFila: c.tipoFila, tipoFilaForzado: c.tipoFila, omitida: null }
-              : {}),
-            ...(c.omitida !== undefined ? { omitida: c.omitida } : {}),
-            // Agrupador manual: reasigna el clasificador de la fila (vacío → sin clasificar).
-            ...(c.clasificador !== undefined ? { clasificador: c.clasificador?.trim() ? c.clasificador.trim() : null } : {}),
-          },
-        }),
+      ...validos.flatMap((c) => {
+        const data = {
+          // `total` = subtotal del archivo (control). Al cambiar de tipo se limpia el
+          // tri-estado `omitida` para no dejar estados mixtos (un total nunca se «omite»).
+          ...(c.tipoFila === "agrupadora" || c.tipoFila === "movimiento" || c.tipoFila === "total"
+            ? { tipoFila: c.tipoFila, tipoFilaForzado: c.tipoFila, omitida: null }
+            : {}),
+          ...(c.omitida !== undefined ? { omitida: c.omitida } : {}),
+        };
+        return Object.keys(data).length > 0
+          ? [prisma.moduloImportacionStaging.updateMany({ where: { loteId: id, filaNum: c.filaNum }, data })]
+          : [];
+      }),
+      ...[...porAgrupador].map(([valor, filas]) =>
+        descriptor && !descriptor.nomina
+          ? asignarAgrupadorStaging(id, descriptor.clasificador, valor, Prisma.sql`"fila_num" IN (${Prisma.join(filas)})`)
+          : prisma.moduloImportacionStaging.updateMany({ where: { loteId: id, filaNum: { in: filas } }, data: { clasificador: valor } }),
       ),
       ...(periodo !== undefined
         ? [
@@ -1422,6 +1450,64 @@ export async function aplicarCambiosBorradorModulo(
     return { ok: true, message: "Cambios guardados." };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("aplicarCambiosBorradorModulo", e) };
+  }
+}
+
+/**
+ * Le pone NOMBRE a uno de los dos grupos del borrador que nombra el sistema y no el archivo: las
+ * filas «(sin clasificar)» (el archivo no trae la columna del clasificador) o las «GLOBAL» (modo
+ * «único para todo el archivo»). Con un nombre propio se concilian como un renglón más del
+ * Consolidado; en un anexo, un nombre que ya usa el cargue destino junta las filas en ese renglón.
+ * Nómina no aplica: su clasificador es el código del concepto y de él depende la homologación.
+ */
+export async function nombrarAgrupadorBorrador(input: { loteId: string; grupo: GrupoSinNombre; nombre: string }): Promise<ActionState> {
+  const authz = await authorizePermiso("modulos_datos:crear");
+  if (!authz.ok) return { ok: false, message: authz.message };
+  const id = String(input?.loteId ?? "").trim();
+  if (!id) return { ok: false, message: "Borrador inválido." };
+  if (!esGrupoSinNombre(input?.grupo)) return { ok: false, message: "Agrupador inválido." };
+  const grupo = input.grupo;
+  const nombre = normalizarNombreClasificador(input?.nombre);
+  if (!nombre.ok) return nombre;
+  if (grupo === "global" && nombre.nombre === CLASIFICADOR_GLOBAL) return { ok: false, message: `Ya se llama «${CLASIFICADOR_GLOBAL}».` };
+  try {
+    const lote = await prisma.moduloImportacionLote.findUnique({
+      where: { loteId: id },
+      select: { clienteId: true, moduloCodigo: true, anexoEncabezadoId: true },
+    });
+    if (!lote?.clienteId) return { ok: false, message: "El borrador ya no existe o no tiene cliente." };
+    const scope = await authorizePermiso("modulos_datos:crear", { clientId: lote.clienteId });
+    if (!scope.ok) return { ok: false, message: scope.message };
+    const descriptor = descriptorModulo(lote.moduloCodigo);
+    if (!descriptor) return { ok: false, message: "Módulo no soportado." };
+    if (descriptor.nomina) return { ok: false, message: "En Nómina el agrupador es el código del concepto: no se renombra." };
+
+    const filtro = grupo === "global"
+      ? Prisma.sql`"clasificador" = ${CLASIFICADOR_GLOBAL}`
+      : Prisma.sql`("clasificador" IS NULL OR btrim("clasificador") = '')`;
+    const filas = await asignarAgrupadorStaging(id, descriptor.clasificador, nombre.nombre, filtro);
+    const etiqueta = ETIQUETA_GRUPO_SIN_NOMBRE[grupo];
+    if (filas === 0) return { ok: false, message: `No hay filas «${etiqueta}» en este borrador.` };
+
+    const [user, cliente, destino] = await Promise.all([
+      getCurrentUser(),
+      prisma.client.findUnique({ where: { id: lote.clienteId }, select: { name: true } }),
+      lote.anexoEncabezadoId != null
+        ? prisma.moduloDatoEncabezado.findUnique({ where: { id: lote.anexoEncabezadoId }, select: { version: true, periodo: true } })
+        : Promise.resolve(null),
+    ]);
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: "NOMBRÓ agrupador del borrador",
+      entity: cliente?.name ?? `Cliente ${lote.clienteId}`,
+      detail: `${lote.moduloCodigo} · ${filas} fila(s) «${etiqueta}» → «${nombre.nombre}»`
+        + (destino ? ` · anexo a la v${destino.version} de ${destino.periodo}` : ""),
+      clientId: lote.clienteId,
+    });
+    revalidatePath(`${rutaModulo(lote.moduloCodigo)}/borradores/${id}`);
+    return { ok: true, message: `${filas === 1 ? "La fila quedó" : `Las ${filas} filas quedaron`} como «${nombre.nombre}».` };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("nombrarAgrupadorBorrador", e) };
   }
 }
 

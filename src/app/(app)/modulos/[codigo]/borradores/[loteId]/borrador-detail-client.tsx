@@ -22,6 +22,8 @@ import { ValidacionArchivo } from "../../validacion-archivo";
 import type { NivelCartera } from "@/lib/modulos/cartera/saldos-tercero";
 import { controlesFormatoCartera } from "@/lib/modulos/cartera/controles-formato";
 import type { FormatoArchivoCartera } from "@/lib/modulos/cartera/tipo-formato";
+import type { OpcionNombreClasificador } from "@/lib/modulos/nombre-clasificador";
+import { NombreAgrupador, type GrupoSinNombreVm } from "./nombre-agrupador";
 
 export type FilaBorradorModulo = {
   filaNum: number;
@@ -116,6 +118,8 @@ export default function BorradorModuloClient({
   filas,
   reconciliacion,
   anexo,
+  sinNombre = [],
+  opcionesNombre = [],
   version,
   hermanos,
   notasCliente = null,
@@ -140,6 +144,10 @@ export default function BorradorModuloClient({
   reconciliacion: ReconciliacionModulo | null;
   /** Anexo declarado con «Agregar archivo»: a qué cargue se suma y qué ítems repite. */
   anexo: { version: number; periodo: string; repetidos: string[]; vigente: boolean } | null;
+  /** Filas «(sin clasificar)» y «GLOBAL» (nombradas por el sistema), a las que se les puede poner nombre. */
+  sinNombre?: GrupoSinNombreVm[];
+  /** Nombres que se ofrecen: los del cargue destino del anexo y los de la memoria del cliente. */
+  opcionesNombre?: OpcionNombreClasificador[];
   version: number | null;
   hermanos: VersionHermanaBorradorModulo[];
   /** Notas de carga del cliente para este módulo (Configuración › Perfiles de carga). */
@@ -572,6 +580,14 @@ export default function BorradorModuloClient({
             );
           })}
         </div>
+        <NombreAgrupador
+          loteId={loteId}
+          grupos={sinNombre}
+          opciones={opcionesNombre}
+          clasificadorEtiqueta={clasificadorEtiqueta}
+          anexo={anexo}
+          bloqueado={hayCambios}
+        />
       </Card>
 
       {/* Barra de acciones EN BLOQUE (visible al seleccionar filas) */}

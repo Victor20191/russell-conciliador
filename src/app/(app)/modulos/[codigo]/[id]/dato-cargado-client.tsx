@@ -1009,7 +1009,9 @@ function ConsolidadoTab({
       {buscando != null && (
         <ModalCuentas
           clasificador={buscando}
-          esGlobal={buscando === "GLOBAL"}
+          // El atajo «Todas las cuentas» nació para el renglón «GLOBAL»; como ese agrupador se puede
+          // renombrar en el borrador, se ofrece en cualquier renglón de Inventarios.
+          esGlobal={buscando === "GLOBAL" || esInventarios}
           cuentas={cuentas}
           homologacionCliente={homologacionCliente}
           asignadas={new Set(valores[buscando] ?? [])}
