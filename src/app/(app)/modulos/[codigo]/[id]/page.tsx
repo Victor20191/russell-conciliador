@@ -365,6 +365,7 @@ export default async function DatoModuloPage({
     filasMarcadas: cruce.filasMarcadas,
     resumenMarcas: cruce.resumenMarcas,
     detalleContablePorCuenta: cruce.detalleContablePorCuenta,
+    detalleSinCuenta: cruce.detalleSinCuenta,
     fueraDelModulo: cruce.fueraDelModulo,
     conciliacion: cierreVm,
     nomina: cruce.nomina,

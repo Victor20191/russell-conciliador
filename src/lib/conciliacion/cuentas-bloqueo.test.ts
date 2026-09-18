@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { construirCruceContable } from "@/lib/modulos/cruce-contable";
+import { CLAVE_SIN_CUENTA, construirCruceContable } from "@/lib/modulos/cruce-contable";
 import { anotarCruceConMarcas, type MarcaCruce, type ResumenMarcas } from "@/lib/modulos/marcas-cruce";
 import { cedulaModulo } from "@/lib/modulos/cuentas-modulo";
 import { MODULOS_IMPORT } from "@/lib/modulos/descriptores";
@@ -131,6 +131,24 @@ describe("evaluarCierreConciliacion", () => {
   it("no cierra un cruce vacío", () => {
     expect(evaluarCierreConciliacion(null, null).ok).toBe(false);
     expect(evaluarCierreConciliacion({ filas: [] }, null).ok).toBe(false);
+  });
+
+  it("el saldo sin cuenta es una diferencia que exige marca, pero no una cuenta que bloquear", () => {
+    const cruce = construirCruceContable({
+      contablePorCuenta: { "220505": 100 },
+      consolidado: [
+        { clasificador: "NAC", total: 100, cuentas4: ["220505"] },
+        { clasificador: "241205", total: 40, cuentas4: [] },
+      ],
+      nombrePorCuenta: () => null,
+    });
+    expect(cruce.filas.map((f) => f.cuenta4)).toEqual(["220505", CLAVE_SIN_CUENTA]);
+    expect(evaluarCierreConciliacion(cruce, anotarCruceConMarcas(cruce.filas, []).resumen).ok).toBe(false);
+    expect(evaluarCierreConciliacion(cruce, anotarCruceConMarcas(cruce.filas, [marca(CLAVE_SIN_CUENTA, -40)]).resumen)).toEqual({ ok: true });
+    // El cierre solo deja en firme cuentas Russell: la clave del saldo sin cuenta no entra.
+    expect(cuentasRussellDelCruce(cruce)).toEqual(["2205"]);
+    const cedula = cedulaModulo(MODULOS_IMPORT.AFI, ["15"]);
+    expect(alcanceExplicitoDelCruce(cedula, cruce)).not.toContain(CLAVE_SIN_CUENTA);
   });
 });
 

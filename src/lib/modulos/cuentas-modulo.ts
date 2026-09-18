@@ -315,14 +315,15 @@ export function ordenClaveCedula(cedula: CedulaModulo, clave: string): string {
  * Entradas del lado módulo por el VALOR RELACIONADO del archivo (depreciación): por clasificador,
  * suma en valor absoluto del rol hacia la cuenta de 6 relacionada con cada subgrupo asignado. Un
  * clasificador con depreciación cuyas cuentas no tienen relación (terrenos 1504) queda sin cuenta:
- * sale en el aviso «sin cuenta Russell» con el sufijo del rol, en vez de perderse.
+ * sale en el aviso del valor relacionado sin cuenta con el sufijo del rol, en vez de perderse; va
+ * marcado `relacionado` para que NO sume en el renglón del saldo sin cuenta (es valor absoluto).
  */
 export function entradasValorRelacionado(
   cedula: CedulaModulo,
   detalles: readonly { clasificador: string | null; datos?: Record<string, unknown> | null }[],
   cuentasPorClasificador: ReadonlyMap<string, readonly string[]>,
   etiquetaRol: string,
-): { clasificador: string; total: number; cuentas4: string[] }[] {
+): { clasificador: string; total: number; cuentas4: string[]; relacionado: true }[] {
   const rol = cedula.rolRelacionado;
   if (!rol) return [];
   const suma = new Map<string, number>();
@@ -332,14 +333,14 @@ export function entradasValorRelacionado(
     const clasificador = d.clasificador?.trim() || "(sin clasificar)";
     suma.set(clasificador, (suma.get(clasificador) ?? 0) + v);
   }
-  const salida: { clasificador: string; total: number; cuentas4: string[] }[] = [];
+  const salida: { clasificador: string; total: number; cuentas4: string[]; relacionado: true }[] = [];
   for (const [clasificador, bruto] of suma) {
     const total = Math.round(Math.abs(bruto) * 100) / 100;
     if (total === 0) continue;
     const cuentas = [...new Set((cuentasPorClasificador.get(clasificador) ?? [])
       .map((c) => cedula.relacionPorSubgrupo.get(c))
       .filter((c): c is string => !!c))].sort();
-    salida.push({ clasificador: `${clasificador} · ${etiquetaRol}`, total, cuentas4: cuentas });
+    salida.push({ clasificador: `${clasificador} · ${etiquetaRol}`, total, cuentas4: cuentas, relacionado: true });
   }
   return salida.sort((a, b) => a.clasificador.localeCompare(b.clasificador));
 }

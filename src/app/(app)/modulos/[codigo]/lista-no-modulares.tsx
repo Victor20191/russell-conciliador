@@ -3,7 +3,7 @@
 import { fmtContable } from "@/lib/format";
 import { Chip } from "@/components/ui";
 import type { HijoContableCruce } from "@/lib/modulos/cruce-contable";
-import type { CuentaNoModular } from "@/lib/modulos/marcas-cruce";
+import type { ClasificadorNoModular, CuentaNoModular, HijoModuloSinCuenta } from "@/lib/modulos/marcas-cruce";
 
 /**
  * Las cuentas del cliente que componen una fila del cruce, con la opción de marcarlas
@@ -82,6 +82,73 @@ export function ResumenNoModulares({ cuentas }: { cuentas: readonly CuentaNoModu
             <span className="font-mono text-ink-600">{c.cuenta8}</span>
             <span className="min-w-0 flex-1 truncate" title={c.nombre}>{c.nombre}</span>
             <span className="shrink-0 tabular-nums">{fmtContable(c.valorAlMarcar)}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * Los clasificadores del renglón del SALDO SIN CUENTA, con la opción de marcarlos NO MODULARES:
+ * su total se descuenta del lado del módulo. Gemela de `ListaNoModulares` (que excluye cuentas del
+ * cliente del lado contable).
+ */
+export function ListaSinCuentaNoModulares({
+  hijos,
+  seleccion,
+  onAlternar,
+}: {
+  hijos: readonly HijoModuloSinCuenta[];
+  seleccion: ReadonlySet<string>;
+  /** Ausente → solo lectura (sin checkboxes). */
+  onAlternar?: (clasificador: string) => void;
+}) {
+  if (hijos.length === 0) return <p className="text-[11.5px] text-ink-400">No hay saldo del módulo sin cuenta.</p>;
+  return (
+    <ul className="flex flex-col divide-y divide-ink-100 rounded-md border border-ink-150">
+      {hijos.map((h) => {
+        const marcado = seleccion.has(h.clasificador);
+        const contenido = (
+          <>
+            <span className="min-w-0 flex-1 truncate text-[12px] text-ink-700" title={h.clasificador}>{h.clasificador}</span>
+            <span className={`shrink-0 tabular-nums text-[12px] ${marcado ? "text-ink-400 line-through" : "text-ink-800"}`}>{fmtContable(h.total)}</span>
+          </>
+        );
+        if (!onAlternar) {
+          return (
+            <li key={h.clasificador} className="flex items-center gap-2 px-2.5 py-1.5">
+              {contenido}
+              {marcado && <Chip label="No modular" tone="warn" />}
+            </li>
+          );
+        }
+        return (
+          <li key={h.clasificador}>
+            <label className="flex cursor-pointer items-center gap-2 px-2.5 py-1.5 transition hover:bg-ink-50">
+              <input type="checkbox" checked={marcado} onChange={() => onAlternar(h.clasificador)} className="size-3.5 shrink-0 accent-navy-700" />
+              {contenido}
+            </label>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/** Los clasificadores sin cuenta que una marca ya excluyó, tal como quedaron registrados. */
+export function ResumenClasificadoresNoModulares({ clasificadores }: { clasificadores: readonly ClasificadorNoModular[] }) {
+  if (clasificadores.length === 0) return null;
+  return (
+    <div className="flex flex-col gap-1 rounded-md border border-warn-500/40 bg-warn-100/20 px-2.5 py-1.5">
+      <span className="text-[11px] font-semibold text-warn-700">
+        {clasificadores.length === 1 ? "Saldo sin cuenta no modular restado" : `${clasificadores.length} saldos sin cuenta no modulares restados`}
+      </span>
+      <ul className="flex flex-col gap-0.5">
+        {clasificadores.map((c) => (
+          <li key={c.clasificador} className="flex items-baseline gap-2 text-[11.5px] text-ink-700">
+            <span className="min-w-0 flex-1 truncate" title={c.clasificador}>{c.clasificador}</span>
+            <span className="shrink-0 tabular-nums">{fmtContable(c.totalAlMarcar)}</span>
           </li>
         ))}
       </ul>

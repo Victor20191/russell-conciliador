@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { construirCruceContable, normalizarClaveCruce, type ClasificadorCruce } from "./cruce-contable";
+import { CLAVE_SIN_CUENTA, NOMBRE_SIN_CUENTA, construirCruceContable, normalizarClaveCruce, type ClasificadorCruce } from "./cruce-contable";
 
 const nombrePorCuenta = (cod: string): string | null => ({ "1435": "Mercancías no fabricadas", "1430": "Materias primas" }[cod] ?? null);
 
@@ -8,7 +8,7 @@ describe("construirCruceContable", () => {
     const consolidado: ClasificadorCruce[] = [{ clasificador: "MP", total: 1000, cuentas4: ["1435"] }];
     const r = construirCruceContable({ contablePorCuenta: { "1435": 1000 }, consolidado, nombrePorCuenta });
     expect(r.filas).toEqual([
-      { cuenta4: "1435", nombre: "Mercancías no fabricadas", contable: 1000, inventario: 1000, noModular: 0, diferenciaBruta: 0, diferencia: 0, cuadra: true, estado: "cuadra" },
+      { cuenta4: "1435", nombre: "Mercancías no fabricadas", contable: 1000, inventario: 1000, noModular: 0, noModularModulo: 0, diferenciaBruta: 0, diferencia: 0, cuadra: true, estado: "cuadra" },
     ]);
   });
 
@@ -29,7 +29,7 @@ describe("construirCruceContable", () => {
   it("solo_contable: saldo en el balance sin inventario en archivos", () => {
     const r = construirCruceContable({ contablePorCuenta: { "1435": 500 }, consolidado: [], nombrePorCuenta });
     expect(r.filas).toEqual([
-      { cuenta4: "1435", nombre: "Mercancías no fabricadas", contable: 500, inventario: 0, noModular: 0, diferenciaBruta: 500, diferencia: 500, cuadra: false, estado: "solo_contable" },
+      { cuenta4: "1435", nombre: "Mercancías no fabricadas", contable: 500, inventario: 0, noModular: 0, noModularModulo: 0, diferenciaBruta: 500, diferencia: 500, cuadra: false, estado: "solo_contable" },
     ]);
   });
 
@@ -37,14 +37,19 @@ describe("construirCruceContable", () => {
     const consolidado: ClasificadorCruce[] = [{ clasificador: "PT", total: 300, cuentas4: ["1430"] }];
     const r = construirCruceContable({ contablePorCuenta: {}, consolidado, nombrePorCuenta });
     expect(r.filas).toEqual([
-      { cuenta4: "1430", nombre: "Materias primas", contable: 0, inventario: 300, noModular: 0, diferenciaBruta: -300, diferencia: -300, cuadra: false, estado: "solo_inventario" },
+      { cuenta4: "1430", nombre: "Materias primas", contable: 0, inventario: 300, noModular: 0, noModularModulo: 0, diferenciaBruta: -300, diferencia: -300, cuadra: false, estado: "solo_inventario" },
     ]);
   });
 
-  it("clasificador sin cuenta asignada va a sinCuenta y no entra en las filas", () => {
+  it("lo sin cuenta asignada forma el renglón del saldo sin cuenta, contra un contable en cero", () => {
     const consolidado: ClasificadorCruce[] = [{ clasificador: "SIN-CTA", total: 250, cuentas4: [] }];
     const r = construirCruceContable({ contablePorCuenta: {}, consolidado, nombrePorCuenta });
-    expect(r.filas).toEqual([]);
+    expect(r.filas).toEqual([
+      {
+        cuenta4: CLAVE_SIN_CUENTA, nombre: NOMBRE_SIN_CUENTA, clasificadores: ["SIN-CTA"],
+        contable: 0, inventario: 250, noModular: 0, noModularModulo: 0, diferenciaBruta: -250, diferencia: -250, cuadra: false, estado: "solo_inventario",
+      },
+    ]);
     expect(r.sinCuenta).toEqual([{ clasificador: "SIN-CTA", total: 250 }]);
   });
 
@@ -77,6 +82,7 @@ describe("construirCruceContable", () => {
           contable: 5_186_817_351.51,
           inventario: 5_187_695_453.24,
           noModular: 0,
+          noModularModulo: 0,
           diferenciaBruta: -878_101.73,
           diferencia: -878_101.73,
           cuadra: false,
@@ -99,7 +105,7 @@ describe("construirCruceContable", () => {
         agruparMultiAsignados: true,
       });
       expect(r.filas.map((f) => f.cuenta4)).toEqual(["1305+2805", "1330"]);
-      expect(r.filas[0]).toMatchObject({ contable: 900, inventario: 870, noModular: 30, diferenciaBruta: 30, diferencia: 0, cuadra: true });
+      expect(r.filas[0]).toMatchObject({ contable: 900, inventario: 870, noModular: 30, noModularModulo: 0, diferenciaBruta: 30, diferencia: 0, cuadra: true });
       expect(r.filas[1]).toMatchObject({ cuenta4: "1330", estado: "cuadra" });
       expect(r.filas[1].cuentas).toBeUndefined();
     });
@@ -136,7 +142,7 @@ describe("construirCruceContable", () => {
     expect(r.filas[0]).toMatchObject({ cuenta4: "1435", contable: 700, inventario: 700, estado: "cuadra" });
   });
 
-  it("totales suman solo las filas (no sinCuenta ni multiAsignado)", () => {
+  it("totales suman las filas y el saldo sin cuenta (no multiAsignado)", () => {
     const consolidado: ClasificadorCruce[] = [
       { clasificador: "MP", total: 1000, cuentas4: ["1435"] },
       { clasificador: "PT", total: 300, cuentas4: ["1430"] },
@@ -144,7 +150,8 @@ describe("construirCruceContable", () => {
       { clasificador: "AMBIGUO", total: 700, cuentas4: ["1430", "1435"] },
     ];
     const r = construirCruceContable({ contablePorCuenta: { "1435": 1000, "1430": 250 }, consolidado, nombrePorCuenta });
-    expect(r.totales).toEqual({ contable: 1250, inventario: 1300, noModular: 0, diferenciaBruta: -50, diferencia: -50 });
+    expect(r.totales).toEqual({ contable: 1250, inventario: 1550, noModular: 0, noModularModulo: 0, diferenciaBruta: -300, diferencia: -300 });
+    expect(r.filas.at(-1)).toMatchObject({ cuenta4: CLAVE_SIN_CUENTA, inventario: 250 });
     expect(r.sinCuenta).toEqual([{ clasificador: "SIN-CTA", total: 250 }]);
     expect(r.multiAsignado).toEqual([{ clasificador: "AMBIGUO", total: 700, cuentas4: ["1430", "1435"] }]);
   });
@@ -158,8 +165,8 @@ describe("construirCruceContable", () => {
       consolidado: [{ clasificador: "NO FABRICADAS", total: 300, cuentas4: ["1435"] }],
       nombrePorCuenta,
     });
-    expect(r.filas[0]).toMatchObject({ noModular: 0, diferenciaBruta: 200, diferencia: 200, cuadra: false });
-    expect(r.totales).toMatchObject({ noModular: 0, diferenciaBruta: 200, diferencia: 200 });
+    expect(r.filas[0]).toMatchObject({ noModular: 0, noModularModulo: 0, diferenciaBruta: 200, diferencia: 200, cuadra: false });
+    expect(r.totales).toMatchObject({ noModular: 0, noModularModulo: 0, diferenciaBruta: 200, diferencia: 200 });
   });
 
   it("descuenta lo no modular de la diferencia y conserva la bruta", () => {
@@ -169,7 +176,7 @@ describe("construirCruceContable", () => {
       consolidado: [{ clasificador: "NO FABRICADAS", total: 300, cuentas4: ["1435"] }],
       nombrePorCuenta,
     });
-    expect(r.filas[0]).toMatchObject({ contable: 500, inventario: 300, noModular: 150, diferenciaBruta: 200, diferencia: 50 });
+    expect(r.filas[0]).toMatchObject({ contable: 500, inventario: 300, noModular: 150, noModularModulo: 0, diferenciaBruta: 200, diferencia: 50 });
   });
 
   it("una exclusión que explica toda la diferencia deja la fila cuadrada", () => {
@@ -201,7 +208,7 @@ describe("construirCruceContable", () => {
       consolidado: [{ clasificador: "NO FABRICADAS", total: 200, cuentas4: ["1435"] }],
       nombrePorCuenta,
     });
-    expect(r.totales).toMatchObject({ contable: 800, inventario: 200, noModular: 400, diferenciaBruta: 600, diferencia: 200 });
+    expect(r.totales).toMatchObject({ contable: 800, inventario: 200, noModular: 400, noModularModulo: 0, diferenciaBruta: 600, diferencia: 200 });
   });
 
   it("ordena las filas por cuenta4", () => {
@@ -225,5 +232,57 @@ describe("orden de la cédula", () => {
     // Sin llave, por código como siempre.
     const s = construirCruceContable({ contablePorCuenta: { "159299": 1 }, consolidado, nombrePorCuenta });
     expect(s.filas.map((f) => f.cuenta4)).toEqual(["1516", "1520", "159205", "159210", "159299"]);
+  });
+});
+
+// SALDO SIN CUENTA: lo del módulo sin cuenta asignada en el Consolidado es un renglón más, al
+// final, contra un contable en cero; lo que no deba contar se marca no modular por clasificador.
+describe("renglón del saldo sin cuenta", () => {
+  const consolidado: ClasificadorCruce[] = [
+    { clasificador: "220505", total: 11_388_561_892, cuentas4: ["220505"] },
+    { clasificador: "241205", total: 320_648_000, cuentas4: [] },
+    { clasificador: "212020", total: 87_000_000, cuentas4: [] },
+    { clasificador: "233535", total: 29_989_957, cuentas4: [] },
+  ];
+
+  it("va al final, suma en el lado del módulo y entra a los totales", () => {
+    const r = construirCruceContable({ contablePorCuenta: { "220505": 11_388_561_892 }, consolidado, nombrePorCuenta });
+    expect(r.filas.map((f) => f.cuenta4)).toEqual(["220505", CLAVE_SIN_CUENTA]);
+    expect(r.filas[1]).toMatchObject({ contable: 0, inventario: 437_637_957, diferencia: -437_637_957, cuadra: false, clasificadores: ["241205", "212020", "233535"] });
+    expect(r.totales).toMatchObject({ inventario: 11_826_199_849, diferencia: -437_637_957 });
+  });
+
+  it("los clasificadores no modulares se descuentan del lado del módulo; todos fuera → cuadra", () => {
+    const parcial = construirCruceContable({ contablePorCuenta: {}, consolidado, nombrePorCuenta, noModularSinCuenta: new Set(["212020"]) });
+    const fila = parcial.filas.find((f) => f.cuenta4 === CLAVE_SIN_CUENTA)!;
+    expect(fila).toMatchObject({ inventario: 437_637_957, noModularModulo: 87_000_000, diferenciaBruta: -437_637_957, diferencia: -350_637_957 });
+    expect(parcial.totales.noModularModulo).toBe(87_000_000);
+
+    const total = construirCruceContable({
+      contablePorCuenta: {},
+      consolidado,
+      nombrePorCuenta,
+      noModularSinCuenta: new Set(["241205", "212020", "233535"]),
+    });
+    expect(total.filas.find((f) => f.cuenta4 === CLAVE_SIN_CUENTA)).toMatchObject({ diferencia: 0, cuadra: true, estado: "solo_inventario" });
+  });
+
+  it("sin clasificadores sin cuenta no hay renglón; el valor relacionado sin cuenta solo se informa", () => {
+    const r = construirCruceContable({
+      contablePorCuenta: { "1504": 900 },
+      consolidado: [
+        { clasificador: "TERRENOS", total: 900, cuentas4: ["1504"] },
+        { clasificador: "TERRENOS · Depreciación", total: 50, cuentas4: [], relacionado: true },
+      ],
+      nombrePorCuenta,
+    });
+    expect(r.filas.map((f) => f.cuenta4)).toEqual(["1504"]);
+    expect(r.sinCuenta).toEqual([]);
+    expect(r.sinCuentaRelacionado).toEqual([{ clasificador: "TERRENOS · Depreciación", total: 50 }]);
+  });
+
+  it("la clave del renglón se acepta como llave de marca", () => {
+    expect(normalizarClaveCruce(CLAVE_SIN_CUENTA)).toBe(CLAVE_SIN_CUENTA);
+    expect(normalizarClaveCruce("SIN_CUENTAS")).toBe("");
   });
 });

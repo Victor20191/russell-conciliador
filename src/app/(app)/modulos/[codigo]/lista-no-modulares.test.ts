@@ -1,7 +1,7 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { ListaNoModulares, ResumenNoModulares } from "./lista-no-modulares";
+import { ListaNoModulares, ListaSinCuentaNoModulares, ResumenClasificadoresNoModulares, ResumenNoModulares } from "./lista-no-modulares";
 import type { HijoContableCruce } from "@/lib/modulos/cruce-contable";
 // El runner sin plugin React transforma JSX con el runtime clásico.
 vi.stubGlobal("React", React);
@@ -60,5 +60,26 @@ describe("ResumenNoModulares", () => {
       ],
     }));
     expect(dos).toContain("2 cuentas no modulares restadas");
+  });
+});
+
+describe("ListaSinCuentaNoModulares y su resumen", () => {
+  const sinCuenta = [
+    { clasificador: "241205", total: 320_648_000, noModular: false },
+    { clasificador: "COP", total: 87_000_000, noModular: true },
+  ];
+
+  it("lista los clasificadores sin cuenta y tacha los no modulares", () => {
+    const html = renderToStaticMarkup(React.createElement(ListaSinCuentaNoModulares, { hijos: sinCuenta, seleccion: new Set(["COP"]) }));
+    expect(html).toContain("241205");
+    expect(html).toContain("COP");
+    expect(html).toContain("line-through");
+    expect(html).toContain("No modular");
+  });
+
+  it("el resumen de la marca nombra el saldo sin cuenta restado", () => {
+    const html = renderToStaticMarkup(React.createElement(ResumenClasificadoresNoModulares, { clasificadores: [{ clasificador: "COP", totalAlMarcar: 87_000_000 }] }));
+    expect(html).toContain("Saldo sin cuenta no modular restado");
+    expect(renderToStaticMarkup(React.createElement(ResumenClasificadoresNoModulares, { clasificadores: [] }))).toBe("");
   });
 });

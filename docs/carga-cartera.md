@@ -80,7 +80,11 @@ que dicen el origen.
   anteriores trae su cuenta sola.
 - **Cruce contable.** Por cuenta Russell de 6 dígitos, con el signo del módulo (Cartera débito, CxP
   crédito): un anticipo resta en los dos lados, como en el auxiliar (la 2805 en Cartera, la 1330 en
-  CxP), en vez de mostrarse con la naturaleza de su propia cuenta.
+  CxP), en vez de mostrarse con la naturaleza de su propia cuenta. Lo que en el Consolidado quedó
+  sin cuenta suma al final en el renglón «Saldo del módulo sin cuenta asignada» (contra una
+  contabilidad en cero), así el total de archivos es el del archivo y la diferencia es la real. Para
+  cerrar hay que asignarle cuenta, marcarlo o excluir lo que no aplique con «Marcar saldos no
+  modulares» (se resta del lado de archivos).
 - **Cruce por tercero.** Del auxiliar entran los NIT de las cuentas del archivo asignadas en
   Consolidado a una cuenta del módulo; del balance, los NIT de esas cuentas sin las marcadas no
   modulares en el cruce contable. El mismo balance y las mismas compuertas del cruce contable, contra el

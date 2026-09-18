@@ -28,8 +28,8 @@ import {
 import { cedulaDelCargue, type FilaAsignacionPeriodo } from "@/lib/modulos/asignacion-periodo";
 import { cargarConsolidacionDelPeriodo } from "@/lib/modulos/asignacion-periodo-servidor";
 import { consolidarPorClasificador } from "@/lib/modulos/promocion";
-import { construirCruceContable, type HijoContableCruce, type ResumenCruceContable } from "@/lib/modulos/cruce-contable";
-import { anotarCruceConMarcas, type FilaCruceMarcada, type MarcaCruce, type ResumenMarcas } from "@/lib/modulos/marcas-cruce";
+import { CLAVE_SIN_CUENTA, construirCruceContable, type HijoContableCruce, type ResumenCruceContable } from "@/lib/modulos/cruce-contable";
+import { anotarCruceConMarcas, type FilaCruceMarcada, type HijoModuloSinCuenta, type MarcaCruce, type ResumenMarcas } from "@/lib/modulos/marcas-cruce";
 import { calcularValorContableModulo } from "@/lib/modulos/valor-contable";
 import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
 import { cargarContextoPrevalidadorBalance } from "@/lib/balance/prevalidador/servidor";
@@ -131,6 +131,8 @@ export type ResultadoCruceModulo = {
   cruceContable: ResumenCruceContable | null;
   /** Cuentas del cliente que aportan a cada fila del cruce (el desglose al expandir). */
   detalleContablePorCuenta: Record<string, HijoContableCruce[]>;
+  /** Clasificadores del renglón del saldo sin cuenta (`CLAVE_SIN_CUENTA`), con los no modulares. */
+  detalleSinCuenta: HijoModuloSinCuenta[];
   sinMapeoContable: { total: number; filas: number } | null;
   sinReglaContableFilas: number;
   marcas: MarcaCruce[];
@@ -373,9 +375,14 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
       cuenta4: true, numero: true, nota: true, referenciaAnexo: true, diferencia: true, comentarioId: true, marcadoPor: true, marcadoEn: true,
       adjuntos: { orderBy: { id: "asc" }, select: { id: true, nombreArchivo: true, tipoContenido: true, tamanoBytes: true } },
       noModulares: { orderBy: { cuenta8: "asc" }, select: { cuenta8: true, nombreCuenta: true, valorAlMarcar: true } },
+      clasificadoresNoModulares: { orderBy: { clasificador: "asc" }, select: { clasificador: true, totalAlMarcar: true } },
     },
   });
   const excluidas = new Set(marcasPeriodo.flatMap((m) => m.noModulares.map((n) => n.cuenta8)));
+  // Del saldo sin cuenta: los clasificadores que su marca excluyó del lado del módulo.
+  const excluidosSinCuenta = new Set(
+    marcasPeriodo.filter((m) => m.cuenta4 === CLAVE_SIN_CUENTA).flatMap((m) => m.clasificadoresNoModulares.map((c) => c.clasificador)),
+  );
 
   const detalleContablePorCuenta: Record<string, HijoContableCruce[]> = {};
   let nomina: ResultadoCruceNomina | null = null;
@@ -454,6 +461,7 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
     cruceContable = construirCruceContable({
       contablePorCuenta,
       noModularPorCuenta,
+      noModularSinCuenta: excluidosSinCuenta,
       consolidado: formalNomina
         ? formalNomina.entradas
         : [
@@ -513,6 +521,7 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
     marcadoEn: fmtDateTime(m.marcadoEn),
     adjuntos: m.adjuntos,
     noModulares: m.noModulares.map((n) => ({ cuenta8: n.cuenta8, nombre: n.nombreCuenta, valorAlMarcar: Number(n.valorAlMarcar) })),
+    clasificadoresNoModulares: m.clasificadoresNoModulares.map((c) => ({ clasificador: c.clasificador, totalAlMarcar: Number(c.totalAlMarcar) })),
   }));
   const anotado = cruceContable ? anotarCruceConMarcas(cruceContable.filas, marcas) : null;
 
@@ -523,6 +532,7 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
     huellaBalance: contextoBalance && !bloqueo ? contextoBalance.huella : null,
     cruceContable,
     detalleContablePorCuenta,
+    detalleSinCuenta: (cruceContable?.sinCuenta ?? []).map((s) => ({ ...s, noModular: excluidosSinCuenta.has(s.clasificador) })),
     sinMapeoContable,
     sinReglaContableFilas,
     marcas,
@@ -548,6 +558,7 @@ function vacio(balanceEmparejado: BalanceFuenteCruce | null, bloqueo: string | n
     huellaBalance: null,
     cruceContable: null,
     detalleContablePorCuenta: {},
+    detalleSinCuenta: [],
     sinMapeoContable: null,
     sinReglaContableFilas: 0,
     marcas: [],

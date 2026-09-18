@@ -22,9 +22,14 @@ export type FilaCruceContable = {
   inventario: number; // suma de clasificadores con asignación 1:1 a esta cuenta
   /** Parte de `contable` que corresponde a cuentas marcadas NO MODULARES (no se concilia). */
   noModular: number;
+  /**
+   * Parte de `inventario` (lado módulo) marcada NO MODULAR. Solo en el renglón del saldo sin
+   * cuenta (`CLAVE_SIN_CUENTA`): allí lo que se excluye son clasificadores, no cuentas del cliente.
+   */
+  noModularModulo: number;
   /** contable - inventario, SIN descontar lo no modular. Es la cifra de control. */
   diferenciaBruta: number;
-  diferencia: number; // (contable - noModular) - inventario → la que se concilia
+  diferencia: number; // (contable - noModular) - (inventario - noModularModulo) → la que se concilia
   cuadra: boolean; // |diferencia| <= tolerancia
   estado: "cuadra" | "descuadre" | "solo_contable" | "solo_inventario";
 };
@@ -42,12 +47,32 @@ export type HijoContableCruce = {
 
 export type ResumenCruceContable = {
   filas: FilaCruceContable[];
-  totales: { contable: number; inventario: number; noModular: number; diferenciaBruta: number; diferencia: number };
-  sinCuenta: { clasificador: string; total: number }[]; // clasificadores sin cuenta asignada
+  totales: { contable: number; inventario: number; noModular: number; noModularModulo: number; diferenciaBruta: number; diferencia: number };
+  /** Clasificadores sin cuenta asignada: forman el renglón `CLAVE_SIN_CUENTA`. */
+  sinCuenta: { clasificador: string; total: number }[];
+  /**
+   * Valor RELACIONADO sin cuenta (la depreciación del terreno en Activos fijos): no entra al
+   * renglón — viene en valor absoluto y sumarlo con el costo mezclaría signos —; solo se informa.
+   */
+  sinCuentaRelacionado: { clasificador: string; total: number }[];
   multiAsignado: { clasificador: string; total: number; cuentas4: string[] }[]; // asignados a >1 cuenta (ambiguo)
 };
 
-export type ClasificadorCruce = { clasificador: string; total: number; cuentas4: string[] };
+export type ClasificadorCruce = {
+  clasificador: string;
+  total: number;
+  cuentas4: string[];
+  /** Entrada del valor relacionado de un activo (depreciación), no del valor del archivo. */
+  relacionado?: boolean;
+};
+
+/**
+ * Clave del renglón del saldo del módulo SIN CUENTA asignada en el Consolidado. Sin dígitos ni
+ * «+»: `cuentasRussellDelCruce` y `alcanceExplicitoDelCruce` la descartan solas, así que el
+ * cierre nunca la trata como una cuenta que bloquear. Es también la llave de su marca.
+ */
+export const CLAVE_SIN_CUENTA = "SIN_CUENTA";
+export const NOMBRE_SIN_CUENTA = "Saldo del módulo sin cuenta asignada";
 
 export type InputCruceContable = {
   contablePorCuenta: Record<string, number>;
@@ -56,6 +81,8 @@ export type InputCruceContable = {
    * que `contablePorCuenta` (ya incluido en él). Ausente o 0 → el cruce es el de siempre.
    */
   noModularPorCuenta?: Record<string, number>;
+  /** Clasificadores sin cuenta marcados NO MODULARES: se descuentan del renglón `CLAVE_SIN_CUENTA`. */
+  noModularSinCuenta?: ReadonlySet<string>;
   consolidado: ClasificadorCruce[];
   nombrePorCuenta: (cod: string) => string | null;
   /**
@@ -88,6 +115,7 @@ export function cuentasDeClaveCruce(clave: string): string[] {
  * dígitos, o un grupo de al menos dos. Devuelve "" si no es válida.
  */
 export function normalizarClaveCruce(valor: string): string {
+  if (String(valor ?? "").trim() === CLAVE_SIN_CUENTA) return CLAVE_SIN_CUENTA;
   const partes = String(valor ?? "").split(SEPARADOR_GRUPO).map((p) => p.replace(/\D/g, ""));
   if (partes.some((p) => p.length !== 4 && p.length !== 6)) return "";
   const clave = claveGrupoCruce(partes);
@@ -98,9 +126,11 @@ export function normalizarClaveCruce(valor: string): string {
  * Cruza el saldo contable (balance de comprobación) contra el valor cargado en los
  * archivos del módulo, cuenta Russell de 4 dígitos por cuenta de 4 dígitos.
  *
- * El lado "inventario" (archivos del módulo) SOLO suma clasificadores con exactamente
- * una cuenta asignada: los que no tienen cuenta o tienen varias quedan aparte
- * (`sinCuenta`/`multiAsignado`) para no repartir un valor ambiguo entre cuentas.
+ * El lado "inventario" (archivos del módulo) de cada cuenta SOLO suma clasificadores con
+ * exactamente una cuenta asignada: los que tienen varias quedan aparte (`multiAsignado`) para no
+ * repartir un valor ambiguo entre cuentas. Los que no tienen ninguna forman el renglón del SALDO
+ * SIN CUENTA (`CLAVE_SIN_CUENTA`), al final: suman en el lado del módulo contra un contable en cero,
+ * así la diferencia total es la real; lo que no deba contar se marca no modular por clasificador.
  *
  * FILAS AGRUPADAS (`agruparMultiAsignados`): asignar un clasificador a varias cuentas dice que
  * su total se concilia contra la SUMA de ellas (la bolsa GLOBAL de Cartera contra 130505 y
@@ -128,6 +158,7 @@ export function construirCruceContable(
 
   const inventarioPorCuenta = new Map<string, number>();
   const sinCuenta: { clasificador: string; total: number }[] = [];
+  const sinCuentaRelacionado: { clasificador: string; total: number }[] = [];
   const multiAsignado: { clasificador: string; total: number; cuentas4: string[] }[] = [];
 
   // Grupos: unión de las cuentas que comparte cada clasificador multiasignado.
@@ -143,7 +174,7 @@ export function construirCruceContable(
 
   for (const c of input.consolidado) {
     if (c.cuentas4.length === 0) {
-      sinCuenta.push({ clasificador: c.clasificador, total: c.total });
+      (c.relacionado ? sinCuentaRelacionado : sinCuenta).push({ clasificador: c.clasificador, total: c.total });
     } else if (c.cuentas4.length > 1) {
       if (!agrupar) {
         multiAsignado.push({ clasificador: c.clasificador, total: c.total, cuentas4: c.cuentas4 });
@@ -168,19 +199,30 @@ export function construirCruceContable(
     }
   }
 
-  const construirFila = (base: Pick<FilaCruceContable, "cuenta4" | "nombre" | "cuentas" | "clasificadores" | "desglose">, miembros: readonly string[], extraInventario: number): FilaCruceContable => {
-    const sumar = (valorDe: (c: string) => number) => miembros.reduce((s, c) => s + valorDe(c), 0);
-    const contable = redondear(sumar((c) => input.contablePorCuenta[c] ?? 0));
-    const inventario = redondear(sumar((c) => inventarioPorCuenta.get(c) ?? 0) + extraInventario);
-    const noModular = redondear(sumar((c) => input.noModularPorCuenta?.[c] ?? 0));
+  // Una fila a partir de sus cifras: la diferencia que se concilia descuenta lo no modular de
+  // cada lado (cuentas del cliente del contable; clasificadores del módulo en el saldo sin cuenta).
+  const filaDeCifras = (
+    base: Pick<FilaCruceContable, "cuenta4" | "nombre" | "cuentas" | "clasificadores" | "desglose">,
+    cifras: { contable: number; inventario: number; noModular: number; noModularModulo: number },
+  ): FilaCruceContable => {
+    const { contable, inventario, noModular, noModularModulo } = cifras;
     const diferenciaBruta = redondear(contable - inventario);
-    const diferencia = redondear(contable - noModular - inventario);
+    const diferencia = redondear(contable - noModular - (inventario - noModularModulo));
     const cuadra = Math.abs(diferencia) <= tolerancia;
     let estado: FilaCruceContable["estado"];
     if (inventario === 0 && contable !== 0) estado = "solo_contable";
     else if (contable === 0 && inventario !== 0) estado = "solo_inventario";
     else estado = cuadra ? "cuadra" : "descuadre";
-    return { ...base, contable, inventario, noModular, diferenciaBruta, diferencia, cuadra, estado };
+    return { ...base, contable, inventario, noModular, noModularModulo, diferenciaBruta, diferencia, cuadra, estado };
+  };
+  const construirFila = (base: Pick<FilaCruceContable, "cuenta4" | "nombre" | "cuentas" | "clasificadores" | "desglose">, miembros: readonly string[], extraInventario: number): FilaCruceContable => {
+    const sumar = (valorDe: (c: string) => number) => miembros.reduce((s, c) => s + valorDe(c), 0);
+    return filaDeCifras(base, {
+      contable: redondear(sumar((c) => input.contablePorCuenta[c] ?? 0)),
+      inventario: redondear(sumar((c) => inventarioPorCuenta.get(c) ?? 0) + extraInventario),
+      noModular: redondear(sumar((c) => input.noModularPorCuenta?.[c] ?? 0)),
+      noModularModulo: 0,
+    });
   };
 
   const cuentas = new Set<string>([...Object.keys(input.contablePorCuenta), ...inventarioPorCuenta.keys(), ...padre.keys()]);
@@ -221,15 +263,32 @@ export function construirCruceContable(
   const comparar = (x: string, y: string) => (x < y ? -1 : x > y ? 1 : 0);
   filas.sort((a, b) => comparar(orden(a.cuenta4), orden(b.cuenta4)) || comparar(a.cuenta4, b.cuenta4));
 
+  // SALDO SIN CUENTA: lo del módulo que no tiene cuenta asignada en el Consolidado también es
+  // parte del módulo; dejarlo fuera escondía la diferencia real. Va al final, contra un contable
+  // en cero, y lo que no deba contar se marca no modular por clasificador.
+  if (sinCuenta.length > 0) {
+    const excluidos = input.noModularSinCuenta ?? new Set<string>();
+    filas.push(filaDeCifras(
+      { cuenta4: CLAVE_SIN_CUENTA, nombre: NOMBRE_SIN_CUENTA, clasificadores: sinCuenta.map((s) => s.clasificador) },
+      {
+        contable: 0,
+        inventario: redondear(sinCuenta.reduce((s, c) => s + c.total, 0)),
+        noModular: 0,
+        noModularModulo: redondear(sinCuenta.reduce((s, c) => (excluidos.has(c.clasificador) ? s + c.total : s), 0)),
+      },
+    ));
+  }
+
   const totales = filas.reduce(
     (acc, f) => ({
       contable: acc.contable + f.contable,
       inventario: acc.inventario + f.inventario,
       noModular: acc.noModular + f.noModular,
+      noModularModulo: acc.noModularModulo + f.noModularModulo,
       diferenciaBruta: acc.diferenciaBruta + f.diferenciaBruta,
       diferencia: acc.diferencia + f.diferencia,
     }),
-    { contable: 0, inventario: 0, noModular: 0, diferenciaBruta: 0, diferencia: 0 },
+    { contable: 0, inventario: 0, noModular: 0, noModularModulo: 0, diferenciaBruta: 0, diferencia: 0 },
   );
 
   return {
@@ -238,10 +297,12 @@ export function construirCruceContable(
       contable: redondear(totales.contable),
       inventario: redondear(totales.inventario),
       noModular: redondear(totales.noModular),
+      noModularModulo: redondear(totales.noModularModulo),
       diferenciaBruta: redondear(totales.diferenciaBruta),
       diferencia: redondear(totales.diferencia),
     },
     sinCuenta,
+    sinCuentaRelacionado,
     multiAsignado,
   };
 }

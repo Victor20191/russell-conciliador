@@ -10,12 +10,14 @@ import {
   anotarCruceConMarcas,
   anotarCruceTerceroConMarcas,
   diferenciaAjustada,
+  diferenciaAjustadaModulo,
   etiquetaMarca,
   intercalarObservaciones,
   normalizarCuenta4,
   observacionesDeMarcas,
   siguienteNumeroMarca,
   validarNoModulares,
+  validarClasificadoresNoModulares,
   validarNotaMarca,
   validarReferenciaAnexo,
   type MarcaCruce,
@@ -297,5 +299,26 @@ describe("intercalarObservaciones (numeración compartida entre pestañas)", () 
 
   it("sin marcas del período quedan solo las propias", () => {
     expect(intercalarObservaciones([{ n: 5 }], (p) => p.n, [])).toEqual([{ tipo: "propia", numero: 5, item: { n: 5 } }]);
+  });
+});
+
+describe("no modulares del saldo sin cuenta (lado del módulo)", () => {
+  const hijos = [
+    { clasificador: "241205", total: 320_648_000, noModular: false },
+    { clasificador: "212020", total: 87_000_000, noModular: false },
+  ];
+
+  it("valida los clasificadores contra el renglón vigente, sin normalizarlos a dígitos", () => {
+    expect(validarClasificadoresNoModulares(["212020", " 212020 ", ""], hijos)).toEqual({ ok: true, clasificadores: ["212020"] });
+    expect(validarClasificadoresNoModulares([], hijos)).toEqual({ ok: true, clasificadores: [] });
+    const r = validarClasificadoresNoModulares(["233535"], hijos);
+    expect(r.ok).toBe(false);
+  });
+
+  it("la diferencia congelada descuenta lo excluido del lado del módulo", () => {
+    const fila = { contable: 0, noModular: 0, inventario: 407_648_000 };
+    expect(diferenciaAjustadaModulo(fila, hijos, [])).toBe(-407_648_000);
+    expect(diferenciaAjustadaModulo(fila, hijos, ["212020"])).toBe(-320_648_000);
+    expect(diferenciaAjustadaModulo(fila, hijos, ["241205", "212020"])).toBe(0);
   });
 });

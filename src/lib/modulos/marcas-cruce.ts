@@ -62,7 +62,17 @@ export type MarcaCruce = {
   adjuntos: AdjuntoMarca[];
   /** Cuentas del cliente que esta marca excluyó de la conciliación (puede estar vacío). */
   noModulares: CuentaNoModular[];
+  /**
+   * Solo la marca del renglón del saldo sin cuenta (`CLAVE_SIN_CUENTA`): los clasificadores que
+   * excluyó del lado del módulo, con su total cuando se marcaron.
+   */
+  clasificadoresNoModulares?: ClasificadorNoModular[];
 };
+
+export type ClasificadorNoModular = { clasificador: string; totalAlMarcar: number };
+
+/** Clasificador del renglón del saldo sin cuenta: lo que se ve al expandirlo. */
+export type HijoModuloSinCuenta = { clasificador: string; total: number; noModular: boolean };
 
 export type FilaCruceMarcada = FilaCruceContable & {
   /** Solo las filas que NO cuadran admiten marca. */
@@ -218,6 +228,42 @@ export function diferenciaAjustada(
   const elegidas = new Set(seleccion);
   const excluido = hijos.reduce((suma, h) => (elegidas.has(h.cuenta8) ? suma + h.valor : suma), 0);
   return redondear(fila.contable - excluido - fila.inventario);
+}
+
+/**
+ * Gemela de `validarNoModulares` para el renglón del saldo sin cuenta: lo que se excluye son
+ * CLASIFICADORES del módulo (tal cual, sin normalizar a dígitos) y cada uno tiene que seguir sin
+ * cuenta en el cruce vigente — si entretanto se le asignó cuenta, ya no está en el renglón.
+ */
+export function validarClasificadoresNoModulares(
+  seleccion: readonly string[],
+  hijos: readonly Pick<HijoModuloSinCuenta, "clasificador">[],
+): { ok: true; clasificadores: string[] } | { ok: false; message: string } {
+  const validos = new Set(hijos.map((h) => h.clasificador));
+  const elegidos = new Set<string>();
+  for (const crudo of seleccion) {
+    const clasificador = String(crudo ?? "").trim();
+    if (!clasificador) continue;
+    if (!validos.has(clasificador)) {
+      return { ok: false, message: `«${clasificador}» ya no está sin cuenta en este cruce. Recarga la pantalla e inténtalo de nuevo.` };
+    }
+    elegidos.add(clasificador);
+  }
+  return { ok: true, clasificadores: [...elegidos].sort() };
+}
+
+/**
+ * Diferencia del renglón del saldo sin cuenta una vez excluidos los clasificadores elegidos: lo
+ * excluido se descuenta del lado del MÓDULO. Es la cifra que se congela en su marca.
+ */
+export function diferenciaAjustadaModulo(
+  fila: Pick<FilaCruceContable, "contable" | "noModular" | "inventario">,
+  hijos: readonly Pick<HijoModuloSinCuenta, "clasificador" | "total">[],
+  seleccion: readonly string[],
+): number {
+  const elegidos = new Set(seleccion);
+  const excluido = hijos.reduce((suma, h) => (elegidos.has(h.clasificador) ? suma + h.total : suma), 0);
+  return redondear(fila.contable - fila.noModular - (fila.inventario - excluido));
 }
 
 export const MAX_NOTA_MARCA = 2000;

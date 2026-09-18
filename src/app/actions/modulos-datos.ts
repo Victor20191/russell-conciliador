@@ -71,11 +71,13 @@ import { seleccionarHojaModulo } from "@/lib/modulos/extraccion/seleccion-hoja";
 import { controlSubtotales } from "@/lib/modulos/subtotales";
 import {
   diferenciaAjustada,
+  diferenciaAjustadaModulo,
   MAX_NOTA_MARCA,
   normalizarClaveTercero,
   siguienteNumeroMarca,
   type DimensionMarca,
   validarNoModulares,
+  validarClasificadoresNoModulares,
   validarNotaMarca,
   validarReferenciaAnexo,
 } from "@/lib/modulos/marcas-cruce";
@@ -103,7 +105,7 @@ import {
 import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
 import { tomarCandadoTransaccion, transaccionSerializable, type TransactionClient } from "@/lib/concurrency";
 import { cargarInsumosCruceModulo, construirCruceContableModulo } from "@/lib/modulos/cruce-contable-servidor";
-import { normalizarClaveCruce } from "@/lib/modulos/cruce-contable";
+import { CLAVE_SIN_CUENTA, normalizarClaveCruce } from "@/lib/modulos/cruce-contable";
 import { cargarContextoPrevalidadorBalance } from "@/lib/balance/prevalidador/servidor";
 import { cruceTerceroDeCargue } from "@/lib/modulos/cruce-tercero-servidor";
 import { validarEmparejamientoTercero } from "@/lib/modulos/cartera/cruce-tercero-cartera";
@@ -2119,7 +2121,7 @@ export async function actualizarDocumentacionArchivoModulo(input: {
 // cruzan a ese nivel (Nómina, `nivelCruce: 6`): ahí `cuenta_4` conserva el prefijo y
 // `cuenta_6` la cuenta entera.
 // ============================================================
-/** Clave de una fila del cruce contable: una cuenta de 4/6 díg. o una fila agrupada («130505+280505»). */
+/** Clave de una fila del cruce contable: una cuenta de 4/6 díg., una fila agrupada («130505+280505») o el saldo sin cuenta. */
 function cuentaMarcable(v: string): string {
   return normalizarClaveCruce(v);
 }
@@ -2766,17 +2768,29 @@ export async function guardarMarcaCruce(formData: FormData): Promise<ActionState
   const cruceVigente = await construirCruceContableModulo(insumosMarca);
   let diferencia: number;
   let excluidas: { cuenta8: string; nombre: string; valor: number }[] = [];
+  // Saldo sin cuenta: lo que se excluye son clasificadores del lado del MÓDULO, no cuentas del cliente.
+  let clasificadoresExcluidos: { clasificador: string; total: number }[] = [];
   if (cuenta4) {
     if (!cruceVigente.cruceContable) {
       return { ok: false, message: cruceVigente.bloqueo ?? "El cruce contable no está disponible en este momento." };
     }
     const filaVigente = cruceVigente.cruceContable.filas.find((f) => f.cuenta4 === cuenta4);
-    if (!filaVigente) return { ok: false, message: "Esa cuenta ya no aparece en el cruce. Recarga la pantalla." };
-    const hijos = cruceVigente.detalleContablePorCuenta[cuenta4] ?? [];
-    const noModulares = validarNoModulares(seleccionNoModular, hijos);
-    if (!noModulares.ok) return { ok: false, message: noModulares.message };
-    excluidas = hijos.filter((h) => noModulares.cuentas8.includes(h.cuenta8));
-    diferencia = diferenciaAjustada(filaVigente, hijos, noModulares.cuentas8);
+    if (!filaVigente) {
+      return { ok: false, message: cuenta4 === CLAVE_SIN_CUENTA ? "Ya no hay saldo sin cuenta en el cruce. Recarga la pantalla." : "Esa cuenta ya no aparece en el cruce. Recarga la pantalla." };
+    }
+    if (cuenta4 === CLAVE_SIN_CUENTA) {
+      const hijos = cruceVigente.detalleSinCuenta;
+      const noModulares = validarClasificadoresNoModulares(seleccionNoModular, hijos);
+      if (!noModulares.ok) return { ok: false, message: noModulares.message };
+      clasificadoresExcluidos = hijos.filter((h) => noModulares.clasificadores.includes(h.clasificador));
+      diferencia = diferenciaAjustadaModulo(filaVigente, hijos, noModulares.clasificadores);
+    } else {
+      const hijos = cruceVigente.detalleContablePorCuenta[cuenta4] ?? [];
+      const noModulares = validarNoModulares(seleccionNoModular, hijos);
+      if (!noModulares.ok) return { ok: false, message: noModulares.message };
+      excluidas = hijos.filter((h) => noModulares.cuentas8.includes(h.cuenta8));
+      diferencia = diferenciaAjustada(filaVigente, hijos, noModulares.cuentas8);
+    }
   } else {
     const tercero = await cruceTerceroDeCargue(insumosMarca, cruceVigente);
     if (!tercero?.resumen) {
@@ -2790,7 +2804,7 @@ export async function guardarMarcaCruce(formData: FormData): Promise<ActionState
   const llaveMarca = cuenta4
     ? { dimension: "cuenta4" as const, cuenta4, clave: null }
     : { dimension: "tercero" as const, cuenta4: null, clave: clave as string };
-  const objetivo = cuenta4 ? `cuenta ${cuenta4}` : `tercero ${clave}`;
+  const objetivo = cuenta4 === CLAVE_SIN_CUENTA ? "saldo sin cuenta" : cuenta4 ? `cuenta ${cuenta4}` : `tercero ${clave}`;
   const cruceDeLaMarca = cuenta4 ? "cruce contable" : "cruce por tercero";
 
   try {
@@ -2866,6 +2880,16 @@ export async function guardarMarcaCruce(formData: FormData): Promise<ActionState
           data: filasNoModulares.map((f) => ({ ...f, marcaId: guardada.id })),
         });
       }
+      await tx.clasificadorNoModularCruce.deleteMany({ where: { marcaId: guardada.id } });
+      if (clasificadoresExcluidos.length > 0) {
+        await tx.clasificadorNoModularCruce.createMany({
+          data: clasificadoresExcluidos.map((c) => ({
+            marcaId: guardada.id,
+            clasificador: c.clasificador,
+            totalAlMarcar: new Prisma.Decimal(c.total.toFixed(2)),
+          })),
+        });
+      }
       return guardada;
     });
 
@@ -2875,7 +2899,7 @@ export async function guardarMarcaCruce(formData: FormData): Promise<ActionState
       encabezado,
       existente ? `EDITÓ la marca del ${cruceDeLaMarca}` : `MARCÓ una diferencia del ${cruceDeLaMarca}`,
       objetivo,
-      ` · marca ${marca.numero} · ${diferencia.toFixed(2)}${subidos ? ` · ${subidos} soporte(s)` : ""}${excluidas.length ? ` · ${excluidas.length} cuenta(s) no modular(es)` : ""}`,
+      ` · marca ${marca.numero} · ${diferencia.toFixed(2)}${subidos ? ` · ${subidos} soporte(s)` : ""}${excluidas.length ? ` · ${excluidas.length} cuenta(s) no modular(es)` : ""}${clasificadoresExcluidos.length ? ` · ${clasificadoresExcluidos.length} saldo(s) sin cuenta no modular(es)` : ""}`,
     );
     revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
     return {
@@ -2947,7 +2971,7 @@ export async function quitarMarcaCruce(input: {
         periodo: encabezado.periodo,
         ...(clave ? { dimension: "tercero", clave } : { dimension: "cuenta4", cuenta4: cuenta4 ?? undefined }),
       },
-      select: { id: true, numero: true, adjuntos: { select: { claveObjeto: true } }, _count: { select: { noModulares: true } } },
+      select: { id: true, numero: true, adjuntos: { select: { claveObjeto: true } }, _count: { select: { noModulares: true, clasificadoresNoModulares: true } } },
     });
     if (!marca) return { ok: false, message: "Esa diferencia ya no estaba marcada." };
 
@@ -2961,8 +2985,9 @@ export async function quitarMarcaCruce(input: {
     await auditarMarcaCruce(
       encabezado,
       clave ? "RETIRÓ la marca del cruce por tercero" : "RETIRÓ la marca del cruce contable",
-      clave ? `tercero ${clave}` : `cuenta ${cuenta4}`,
-      ` · marca ${marca.numero}${marca._count.noModulares ? ` · liberó ${marca._count.noModulares} cuenta(s) no modular(es)` : ""}`,
+      clave ? `tercero ${clave}` : cuenta4 === CLAVE_SIN_CUENTA ? "saldo sin cuenta" : `cuenta ${cuenta4}`,
+      ` · marca ${marca.numero}${marca._count.noModulares ? ` · liberó ${marca._count.noModulares} cuenta(s) no modular(es)` : ""}`
+        + (marca._count.clasificadoresNoModulares ? ` · liberó ${marca._count.clasificadoresNoModulares} saldo(s) sin cuenta no modular(es)` : ""),
     );
     revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
     return { ok: true, message: `Marca ${marca.numero} retirada.` };

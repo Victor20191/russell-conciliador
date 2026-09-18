@@ -225,11 +225,11 @@ describe("cédula contable con ampliaciones del descriptor", () => {
       ["SIN DEP", ["1524"]],
     ]);
     expect(entradasValorRelacionado(afi, detalles, cuentas, "depreciación")).toEqual([
-      { clasificador: "EDIFICIOS · depreciación", total: 1_000, cuentas4: ["159205"] },
-      { clasificador: "MAQUINARIA · depreciación", total: 500, cuentas4: ["159210"] },
-      { clasificador: "MIXTO · depreciación", total: 70, cuentas4: ["159210", "159220"] },
+      { clasificador: "EDIFICIOS · depreciación", total: 1_000, cuentas4: ["159205"], relacionado: true },
+      { clasificador: "MAQUINARIA · depreciación", total: 500, cuentas4: ["159210"], relacionado: true },
+      { clasificador: "MIXTO · depreciación", total: 70, cuentas4: ["159210", "159220"], relacionado: true },
       // Terrenos no se deprecian: queda sin cuenta y sale en el aviso.
-      { clasificador: "TERRENOS · depreciación", total: 50, cuentas4: [] },
+      { clasificador: "TERRENOS · depreciación", total: 50, cuentas4: [], relacionado: true },
     ]);
     expect(entradasValorRelacionado(ing, detalles, cuentas, "x")).toEqual([]);
   });
