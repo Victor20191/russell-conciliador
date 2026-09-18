@@ -17,7 +17,8 @@ import {
   tipoFormatoSugerido,
   TIPOS_FORMATO_CARTERA,
 } from "@/lib/modulos/cartera/tipo-formato";
-import { sugerirTrmCierre, type AnalisisModulo, type CeldaMuestra } from "@/app/actions/modulos-datos";
+import { sugerirTrmCierre, type AnalisisModulo } from "@/app/actions/modulos-datos";
+import type { CeldaMuestra } from "@/lib/modulos/extraccion/vista-analisis";
 
 export type RolModulo = { nombre: string; etiqueta: string; tipo: string; requerido: boolean };
 type ModoClasificador = "columna" | "arrastrar" | "seccion" | "global";

@@ -266,8 +266,10 @@ function mensajeErrorLecturaArchivoModulo(contexto: string, e: unknown): string 
 }
 
 // Datos para el editor de mapeo (`vistaAnalisisHoja`): encabezado + filas de muestra alineadas por
-// columna, de la MISMA grilla del servidor.
-export type { CeldaMuestra };
+// columna, de la MISMA grilla del servidor. `CeldaMuestra` se importa desde
+// `@/lib/modulos/extraccion/vista-analisis`: un archivo "use server" NO debe re-exportar tipos
+// (`export type { X }`), porque el build con Turbopack lo trata como export en runtime y el módulo
+// revienta al cargar («CeldaMuestra is not defined»), tumbando TODAS las acciones de la página.
 
 const ADVERTENCIA_VALOR_AMBIGUO =
   "El mapeo guardado apuntaba a un total de factura ambiguo. Selecciona una columna de ingreso neto sin IVA/impuestos, subtotal o base gravable.";

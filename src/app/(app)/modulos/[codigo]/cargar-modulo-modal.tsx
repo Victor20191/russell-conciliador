@@ -9,7 +9,7 @@
 
 import { useEffect, useRef, useState, useTransition, type Dispatch, type SetStateAction } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { unstable_isUnrecognizedActionError, useRouter } from "next/navigation";
 import { Modal } from "@/components/modal";
 import { Icon } from "@/components/icons";
 import { SelectorClienteBuscable } from "@/components/selector-cliente-buscable";
@@ -24,8 +24,8 @@ import {
   preferenciasCargaModulo,
   ubicarCeldaArchivoModulo,
   type AnalisisModulo,
-  type CeldaMuestra,
 } from "@/app/actions/modulos-datos";
+import type { CeldaMuestra } from "@/lib/modulos/extraccion/vista-analisis";
 import {
   confirmarAplicativoCargaModulo,
   listarAplicativosCargaModulo,
@@ -327,7 +327,12 @@ function CargarModal({
         // Sin aplicativos registrados no hay nada que confirmar: se elige directamente.
         if (r.delCliente.length === 0) setEleccion(OTRO);
       })
-      .catch(() => notifyError("No se pudieron consultar los aplicativos del cliente."));
+      .catch((e) => {
+        // Pestaña abierta con un build anterior al del servidor: la acción ya no existe con ese ID.
+        if (unstable_isUnrecognizedActionError(e)) { notifyError("La plataforma se actualizó. Recarga la página (Ctrl+Shift+R) e intenta de nuevo."); return; }
+        console.error("listarAplicativosCargaModulo", e);
+        notifyError("No se pudieron consultar los aplicativos del cliente.");
+      });
   };
   const cargarDatosCliente = (id: number) => {
     setPrefs(null);
