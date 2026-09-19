@@ -406,6 +406,20 @@ export function conForzarHoja(cuentas: CuentaCruda[]): CuentaCruda[] {
  * se descarta y se conserva el detalle. Solo aplica a montos idénticos, así que es
  * casi imposible que afecte a cuentas genuinamente distintas.
  */
+/**
+ * ¿El texto que distingue a dos cuentas con el mismo saldo DESCRIBE (encabezado vs detalle:
+ * «PROVEEDORES INTERNACIONALES» → «… USD») o solo ENUMERA hermanas («BASE RAPIDAN» → «… 2»,
+ * «… N°2», «… No. 3», «… #4», «… (2)», «… II»)? Una enumeración trae letras («N°», «No»,
+ * romanos) pero no describe: tratarla como descriptor descartaba una cuenta real (TKT-71:
+ * «CAJA GENERAL BASE RAPIDAN ITAGUI» y «… N°2», 200.000 cada una).
+ */
+export function esSufijoDescriptor(sufijo: string): boolean {
+  const s = sufijo.trim();
+  if (!/[a-záéíóúüñ]/i.test(s)) return false;
+  const enumeracion = /^[-.,:;(\[]*\s*(?:(?:N[°ºo]?|NO|NRO|NUM|NUMERO|NÚMERO)\.?\s*|#\s*)?(?:\d+|[IVX]{1,4})\s*[)\]]?\.?$/i;
+  return !enumeracion.test(s);
+}
+
 export function quitarPadresRedundantes(cuentas: CuentaCruda[]): CuentaCruda[] {
   const norm = (s: string) => (s ?? "").trim().toUpperCase().replace(/\s+/g, " ");
   const trivial = (c: CuentaCruda) => c.prevBalance === 0 && c.balance === 0 && (c.debitos ?? 0) === 0 && (c.creditos ?? 0) === 0;
@@ -430,7 +444,7 @@ export function quitarPadresRedundantes(cuentas: CuentaCruda[]): CuentaCruda[] {
         // una mera enumeración: "BASE RAPIDAN" vs "BASE RAPIDAN 2" son cuentas
         // HERMANAS distintas (mismo saldo por coincidencia), no encabezado/detalle,
         // y NO deben deduplicarse. "PROVEEDORES INTERNACIONALES" vs "… USD" sí.
-        if (na.length > 0 && nb.length > na.length && nb.startsWith(na) && /[a-záéíóúüñ]/i.test(nb.slice(na.length))) {
+        if (na.length > 0 && nb.length > na.length && nb.startsWith(na) && esSufijoDescriptor(nb.slice(na.length))) {
           descartar.add(a);
         }
       }

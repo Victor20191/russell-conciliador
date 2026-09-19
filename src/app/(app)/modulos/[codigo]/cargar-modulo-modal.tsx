@@ -730,6 +730,7 @@ function CargarModal({
 
           <label className="flex flex-col gap-1">
             <span className="text-[11px] font-medium text-ink-600">Archivo (Excel/CSV)</span>
+            <span className="text-[11px] text-ink-500">Selecciónalo con el botón o arrástralo y suéltalo sobre este campo.</span>
             <input type="file" accept=".xlsx,.xlsm,.xls,.xlsb,.csv,.txt" onChange={onArchivo} className="text-[12px] text-ink-600 file:mr-3 file:rounded-md file:border-0 file:bg-ink-100 file:px-3 file:py-1.5 file:text-[12px] file:font-semibold file:text-ink-700 hover:file:bg-ink-200" />
             {tieneArchivo && <span className="text-[11px] text-ok-700">Listo: {nombreArchivo}</span>}
           </label>

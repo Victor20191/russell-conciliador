@@ -7,6 +7,7 @@ import { Card, Chip } from "@/components/ui";
 import { Icon } from "@/components/icons";
 import { fmtContable } from "@/lib/format";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
+import { useAvisoSalidaSinGuardar } from "@/lib/usar-aviso-salida";
 import ComentarioAncla from "@/components/comentario-ancla";
 import { consolidarPorClasificador, esImputable } from "@/lib/modulos/promocion";
 import { esDescuadreProducto } from "@/lib/modulos/validaciones";
@@ -226,6 +227,7 @@ export default function BorradorModuloClient({
   const hayCambiosFilas = Object.keys(overrideOmit).length + Object.keys(overrideClasif).length + Object.keys(overrideTipo).length > 0;
   const periodoCambiado = periodo !== periodoSugerido;
   const hayCambios = hayCambiosFilas || periodoCambiado;
+  useAvisoSalidaSinGuardar(hayCambios, "Tienes cambios sin guardar en el borrador: pulsa «Guardar cambios» o «Descartar» antes de salir.");
   // MISMA regla que la promoción, llamando a la misma función: lo que el usuario aprueba
   // aquí tiene que ser exactamente lo que se carga. Duplicar el criterio ya se pagó una vez
   // —una fila cuyo importe vive en un balde de vencimiento cuenta para la carga pero no

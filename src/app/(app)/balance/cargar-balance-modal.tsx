@@ -832,13 +832,14 @@ function CargarBalanceModal({
               {!segundoPasoCliente && (
                 <label className="flex flex-col gap-1.5">
                   <span className="text-[11.5px] font-medium text-ink-600">Archivo (Excel, CSV, TXT, JSON o PDF)</span>
+                  <span className="text-[11.5px] text-ink-500">Selecciónalo con el botón o arrástralo desde tu carpeta y suéltalo sobre este campo.</span>
                   <input
                     type="file"
                     name="archivo"
                     accept=".xlsx,.xlsm,.xls,.xlsb,.csv,.txt,.json,.pdf,text/plain,application/pdf,application/vnd.ms-excel,application/vnd.ms-excel.sheet.binary.macroEnabled.12,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     required
                     onChange={onArchivoChange}
-                    className="rounded-md border border-ink-200 bg-white text-[12.5px] text-ink-700 file:mr-3 file:cursor-pointer file:border-0 file:bg-navy-700 file:px-3 file:py-2 file:text-[12.5px] file:font-semibold file:text-white"
+                    className="rounded-md border border-dashed border-ink-300 bg-white p-1.5 text-[12.5px] text-ink-700 file:mr-3 file:cursor-pointer file:border-0 file:bg-navy-700 file:px-3 file:py-2 file:text-[12.5px] file:font-semibold file:text-white"
                   />
                 </label>
               )}

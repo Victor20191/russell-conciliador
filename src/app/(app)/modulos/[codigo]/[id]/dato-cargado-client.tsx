@@ -987,7 +987,9 @@ function ConsolidadoTab({
                           ) : (
                             <>
                               <button type="button" disabled={ocupado || !sucia} onClick={() => guardar(c.clasificador)} className="rounded-md border border-ok-500 bg-ok-100/40 px-2 py-1 text-[11px] font-semibold text-ok-700 hover:bg-ok-100 disabled:cursor-not-allowed disabled:opacity-50">
-                                {guardandoEsta ? "…" : "Guardar"}
+                                {/* Gris sin cambios pendientes: si la fila tiene cuentas, dice que YA están
+                                    guardadas (TKT-75: «Guardar» apagado se leía como «no se guardó»). */}
+                                {guardandoEsta ? "…" : !sucia && asignadas.length > 0 ? "✓ Guardado" : "Guardar"}
                               </button>
                               {sucia && <span className="text-[10.5px] font-semibold uppercase tracking-wide text-warn-700">sin guardar</span>}
                             </>
@@ -1017,6 +1019,7 @@ function ConsolidadoTab({
           // El atajo «Todas las cuentas» nació para el renglón «GLOBAL»; como ese agrupador se puede
           // renombrar en el borrador, se ofrece en cualquier renglón de Inventarios.
           esGlobal={buscando === "GLOBAL" || esInventarios}
+          autoguardado={esInventarios}
           cuentas={cuentas}
           homologacionCliente={homologacionCliente}
           asignadas={new Set(valores[buscando] ?? [])}
@@ -1031,10 +1034,15 @@ function ConsolidadoTab({
           }}
           onToggle={(cod) => {
             const set = new Set(valores[buscando] ?? []);
-            if (set.has(cod)) set.delete(cod); else set.add(cod);
+            const agrega = !set.has(cod);
+            if (agrega) set.add(cod); else set.delete(cod);
             const nuevasCuentas = [...set].sort();
             setValores((p) => ({ ...p, [buscando]: nuevasCuentas }));
             anotarAutoguardado(buscando, nuevasCuentas);
+            // Elegir una cuenta la asigna y cierra el buscador (TKT-56): lo común es una cuenta
+            // por renglón. Otra cuenta se agrega volviendo a «Buscar…»; quitar una deja la
+            // ventana abierta para seguir ajustando.
+            if (agrega) setBuscando(null);
           }}
           onTodas={(on) => {
             const nuevasCuentas = on ? cuentas.map((cc) => cc.codigo).sort() : [];
@@ -1260,9 +1268,12 @@ function ModalCuentas({
   onToggle,
   onTodas,
   onClose,
+  autoguardado,
 }: {
   clasificador: string;
   esGlobal: boolean;
+  /** El Consolidado se guarda solo (Inventarios): no hay que pulsar «Guardar» en la fila. */
+  autoguardado: boolean;
   cuentas: CuentaOpt[];
   homologacionCliente: HomologacionCliente;
   asignadas: Set<string>;
@@ -1282,7 +1293,10 @@ function ModalCuentas({
         )}
         <ListaCuentasRussell cuentas={cuentas} homologacionCliente={homologacionCliente} asignadas={asignadas} onToggle={onToggle} />
         <OtrasCuentasPlan delPlan={delPlan} homologacionCliente={homologacionCliente} asignadas={asignadas} onToggle={onToggle} />
-        <p className="text-[11px] text-ink-400">Al cerrar, recuerda pulsar «Guardar» en la fila para persistir los cambios.</p>
+        <p className="text-[11px] text-ink-400">
+          Al elegir una cuenta queda asignada y esta ventana se cierra; para agregar otra, vuelve a pulsar «Buscar…».
+          {autoguardado ? " Los cambios se guardan solos." : " Luego pulsa «Guardar» en la fila para conservar los cambios."}
+        </p>
       </div>
     </Modal>
   );

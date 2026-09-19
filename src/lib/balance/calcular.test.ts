@@ -9,6 +9,7 @@ import {
   consolidarPorCodigo,
   conForzarHoja,
   quitarPadresRedundantes,
+  esSufijoDescriptor,
   descomponerCuenta,
   aFilasDetalle,
   reconstruirBalance,
@@ -818,6 +819,23 @@ describe("quitarPadresRedundantes — jerarquía de código hermano (no anida po
       { code: "11050503", name: "CAJA GENERAL BASE RAPIDAN 2", prevBalance: 100000, balance: 100000, debitos: 0, creditos: 0 },
     ];
     expect(quitarPadresRedundantes(cuentas).map((c) => c.code).sort()).toEqual(["11050502", "11050503"]);
+  });
+
+  it("NO deduplica hermanas enumeradas con «N°2» (TKT-71: el activo perdía 200.000)", () => {
+    const cuentas: CuentaCruda[] = [
+      { code: "11050501", name: "CAJA GENERAL BASE RAPIDAN ITAGUI", prevBalance: 200000, balance: 200000, debitos: 0, creditos: 0 },
+      { code: "11050505", name: "CAJA GENERAL BASE RAPIDAN ITAGUI N°2", prevBalance: 200000, balance: 200000, debitos: 0, creditos: 0 },
+    ];
+    expect(quitarPadresRedundantes(cuentas).map((c) => c.code).sort()).toEqual(["11050501", "11050505"]);
+  });
+});
+
+describe("esSufijoDescriptor", () => {
+  it.each([" 2", " N°2", " Nº 2", " No. 3", " NO 3", " NRO. 4", " #5", " (2)", " II", "-2"])("«%s» es enumeración", (s) => {
+    expect(esSufijoDescriptor(s)).toBe(false);
+  });
+  it.each([" USD", " NACIONALES", " INTERNACIONALES", " NORTE", " NOMINA", " IVA 19"])("«%s» describe", (s) => {
+    expect(esSufijoDescriptor(s)).toBe(true);
   });
 });
 

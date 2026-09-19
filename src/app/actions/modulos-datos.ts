@@ -135,6 +135,15 @@ const marcaAnexoModulo = (loteId: string) => `[lote:${loteId}]`;
 const LOTE_STAGING_MODULO = 2_000;
 
 /**
+ * Rechazo DELIBERADO de la confirmación de un borrador (regla de negocio, no fallo de BD): su
+ * mensaje ya le dice al usuario qué corregir y se muestra tal cual. Se lanza dentro de la
+ * transacción para revertirla; sin esta clase el `catch` lo traducía con `mensajeErrorBD` y el
+ * usuario solo veía «Ocurrió un error al procesar la operación en la base de datos» (TKT-77: un
+ * borrador de CxP sin filas imputables).
+ */
+class ErrorCargueModulo extends Error {}
+
+/**
  * Un cargue de cartera solo se promueve si TODO su saldo quedó atribuido a algún tercero.
  *
  * La conciliación de este módulo es por NIT: un cargue cuyo total cuadra pero cuyo detalle
@@ -146,7 +155,7 @@ const LOTE_STAGING_MODULO = 2_000;
 function exigirCarteraAtribuida(sinAtribuir: { filas: number; monto: number }) {
   if (sinAtribuir.monto === 0) return;
   const monto = sinAtribuir.monto.toLocaleString("es-CO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  throw new Error(
+  throw new ErrorCargueModulo(
     `No se pudo identificar el tercero de ${sinAtribuir.filas} fila(s) por $ ${monto}. `
     + "La conciliación de cartera es por NIT, así que el cargue se revirtió: revisa el mapeo "
     + "de la columna del NIT en el borrador y vuelve a cargarlo.",
@@ -1251,6 +1260,18 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
     if (resultado.filas.length === 0) {
       return marcarNoProcesable("No se leyeron filas con el mapeo actual. Ajusta las columnas.");
     }
+    // Un patrón puede coincidir en los rótulos y aun así no leer ningún ítem: el mismo reporte
+    // exportado con las columnas corridas (TKT-76/77, SIESA «por edades» con el tercero y el
+    // documento en columnas distintas a las de la muestra) dejaba TODAS las filas como
+    // agrupadoras y un borrador que no se podía confirmar. Se detiene aquí, al leer.
+    if (patron && !resultado.filas.some((fila) => fila.tipoFila === "movimiento")) {
+      return marcarNoProcesable(
+        `El archivo coincide en los títulos con el patrón ${aplicativo.name} v${patron.version} (${patron.porcentaje} %), `
+        + `pero con él no se leyó ningún ítem: todas las filas quedaron como encabezados o totales. `
+        + "Las columnas de este reporte están ubicadas distinto a las de la muestra del patrón; "
+        + "pide a un administrador que cree una versión nueva del patrón con este archivo.",
+      );
+    }
     if (
       spec.subtotales === "manual"
       && !resultado.filas.some((fila) => (
@@ -1613,11 +1634,11 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
         },
       });
       if (!loteActual || loteActual.clienteId == null || loteActual.clienteId !== lote.clienteId || loteActual.moduloCodigo !== lote.moduloCodigo) {
-        throw new Error("El borrador cambió durante la carga o ya no existe; no se creó ninguna versión.");
+        throw new ErrorCargueModulo("El borrador cambió durante la carga o ya no existe; no se creó ninguna versión.");
       }
 
       const filasBD = await tx.moduloImportacionStaging.findMany({ where: { loteId }, orderBy: { filaNum: "asc" } });
-      if (filasBD.length === 0) throw new Error("El borrador no tiene filas.");
+      if (filasBD.length === 0) throw new ErrorCargueModulo("El borrador no tiene filas.");
       const filas: FilaStagingModulo[] = filasBD.map((f) => ({
         filaNum: f.filaNum,
         clasificador: f.clasificador,
@@ -1642,7 +1663,7 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
         (f) => esImputable({ tipoFila: f.tipoFila, omitida: f.omitida ?? null, datos: f.datos } as FilaStagingModulo, columnasNumericas),
       ).granTotal;
       if (promocion.filas === 0) {
-        throw new Error("No hay filas imputables para cargar (todas omitidas, agrupadoras o en cero).");
+        throw new ErrorCargueModulo("No hay filas imputables para cargar (todas omitidas, agrupadoras o en cero).");
       }
 
       // ===== CARTERA: nivel de la fila, identidad del tercero y saldo materializado =====
@@ -1746,7 +1767,7 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
       const anexoSolicitado = lote.anexoEncabezadoId != null && vigente?.id === lote.anexoEncabezadoId;
       if (lote.anexoEncabezadoId != null && descriptor.verificacionesCriticasSi?.length) {
         if (!anexoSolicitado || !vigente) {
-          throw new Error(
+          throw new ErrorCargueModulo(
             `El cargue elegido de ${descriptor.label} dejó de ser la versión vigente. El archivo no se anexó: se requiere una recarga completa como nueva versión.`,
           );
         }
@@ -1754,7 +1775,7 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
           descriptor,
           (vigente.verificaciones ?? {}) as Record<string, { respuesta: "si" | "no" | "na" } | undefined>,
         );
-        if (bloqueoAnexo) throw new Error(bloqueoAnexo);
+        if (bloqueoAnexo) throw new ErrorCargueModulo(bloqueoAnexo);
       }
       const rolesLlave = rolesLlaveItemDe(descriptor);
       const clavesNuevas = clavesDeDetalle(promocion.detalle, rolesLlave);
@@ -1783,7 +1804,7 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
         // Todo el período se convierte con UNA TRM de cierre: un anexo con otra tasa dejaría pesos
         // de dos tasas distintas en el mismo cargue.
         if (cartera?.trmCierre != null && vigente.trmCierre != null && Math.abs(Number(vigente.trmCierre) - cartera.trmCierre) > 0.00005) {
-          throw new Error(`El cargue de ${periodo} ya usa una TRM de cierre de ${Number(vigente.trmCierre)} y este archivo trae ${cartera.trmCierre}. Usa la misma TRM para que todo el período quede en la misma tasa.`);
+          throw new ErrorCargueModulo(`El cargue de ${periodo} ya usa una TRM de cierre de ${Number(vigente.trmCierre)} y este archivo trae ${cartera.trmCierre}. Usa la misma TRM para que todo el período quede en la misma tasa.`);
         }
         const { filas: detalleRemapeado, remap } = remapFilas(promocion.detalle, maxFilaExistente);
         await tx.moduloDatoDetalle.createMany({
@@ -2013,6 +2034,7 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
     revalidarListadosModulo(lote.moduloCodigo);
     return { ok: true, encabezadoId: resultado.encabezadoId, modo: resultado.modo, message: mensaje };
   } catch (e) {
+    if (e instanceof ErrorCargueModulo) return { ok: false, message: e.message };
     return { ok: false, message: mensajeErrorBD("cargarBorradorModulo", e) };
   }
 }
