@@ -42,6 +42,30 @@ export function quitarPrefijoDocumento(raw: string, prefijo: string | null | und
 /** Valor de `prefijoDocumentoTercero` para «el documento trae letras pegadas»
  * (cualquiera). Los perfiles antiguos con una letra concreta siguen valiendo. */
 export const PREFIJO_LETRAS_PEGADAS = "*";
+
+// Código de socio de negocio con letras PEGADAS al documento (SAP Business One:
+// «C1065880120» cliente, «P900962785» proveedor): 1–3 letras + ≥5 dígitos, sin nada más.
+const DOCUMENTO_CON_LETRAS_PEGADAS = /^[A-Za-z]{1,3}\d{5,}$/;
+
+/**
+ * ¿La columna de documento del tercero trae, de forma DOMINANTE, letras pegadas al
+ * número? Evita depender de que el analista abra el panel «Reconocer terceros» y marque
+ * la casilla: sin el prefijo retirado TODOS los terceros quedan sin NIT (IGB: 306 mil
+ * filas) y el cruce por tercero no tiene con qué llavear. Conservador: mínimo de
+ * documentos DISTINTOS y mayoría clara; un archivo con NIT limpios y unos pocos
+ * documentos del exterior («EU826015023») no se toca.
+ */
+export function detectarLetrasPegadasDocumento(documentos: Iterable<unknown>): boolean {
+  const distintos = new Set<string>();
+  for (const d of documentos) {
+    const t = texto(d);
+    if (t) distintos.add(t);
+  }
+  if (distintos.size < 20) return false;
+  let pegadas = 0;
+  for (const d of distintos) if (DOCUMENTO_CON_LETRAS_PEGADAS.test(d)) pegadas++;
+  return pegadas / distintos.size >= 0.6;
+}
 const tipos: Record<string, NonNullable<IdentidadTercero["tipoDocumento"]>> = {
   NIT: "NIT", CC: "CC", CEDULA: "CC", CEDULADECIUDADANIA: "CC",
   CE: "CE", CEDULADEEXTRANJERIA: "CE", TI: "TI", TARJETADEIDENTIDAD: "TI",

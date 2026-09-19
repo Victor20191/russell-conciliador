@@ -72,7 +72,7 @@ import type { FilaDetalle } from "@/lib/balance/calcular";
 import { detectarManipulacionesRiesgosas, reclasificarHuerfanas, reclasificarSoloHojas, corregirCodigosPlaceholder, marcarNoContables, validarReubicacionesBorrador, type FilaBorrador } from "@/lib/balance/borrador";
 import { esBalancePorTercero, colapsarTerceros, esBalancePorTerceroSufijo, consolidarTercerosPorSufijo, marcarCuentaNit } from "@/lib/balance/terceros";
 import { leerIdentidadTercero, diagnosticarIdentidadTerceros, type DiagnosticoIdentidadTerceros } from "@/lib/balance/identidad-tercero";
-import { claveTerceroDeCaptura, derivarStagingTercero, prepararCapturaTercero } from "@/lib/balance/staging-tercero";
+import { claveTerceroDeCaptura, derivarStagingTercero, evaluarCoberturaTercero, prepararCapturaTercero, PREFIJOS_TERCERO_OBLIGATORIO, type CoberturaTercero } from "@/lib/balance/staging-tercero";
 import { detectoDetallePorTercero, etiquetaApertura, parsearApertura, type AperturaBalance } from "@/lib/balance/apertura-balance";
 import { invalidarStagingBorrador, type RevisionReubicacionStaging } from "@/lib/balance/staging-borrador";
 import {
@@ -2094,7 +2094,7 @@ export async function reaplicarMapeoBalancesCliente(formData: FormData): Promise
  * de agregados, comparativo de cambios y bitácora. Única ruta de persistencia,
  * invocada solo al promover un borrador. No congela: eso lo hace `freezeBalance`.
  */
-type ResultadoCapturaTercero = { filas: number; terceros: number; cuentasConDetalle: number; version: string };
+type ResultadoCapturaTercero = { filas: number; terceros: number; cuentasConDetalle: number; version: string; cobertura: CoberturaTercero };
 
 /**
  * id del cargue por tercero LIGADO a un balance oficial (mismo `loteId`).
@@ -2237,7 +2237,7 @@ async function capturarBalanceTerceroEnTransaccion(tx: TransactionClient, p: {
       })),
     });
   }
-  return { filas: captura.filas.length, terceros: captura.terceros, cuentasConDetalle: captura.cuentasConDetalle, version };
+  return { filas: captura.filas.length, terceros: captura.terceros, cuentasConDetalle: captura.cuentasConDetalle, version, cobertura: evaluarCoberturaTercero(captura.filas) };
 }
 
 async function persistirCargue(p: {
@@ -2737,6 +2737,28 @@ async function persistirCargue(p: {
           text: "capturó el balance por tercero de",
           target: `${p.clienteName} · ${p.period} · ${creado.capturaTercero.version}`,
         });
+        // Control de cobertura: un detalle PARCIAL (Σ terceros ≠ total de la cuenta) o una
+        // cuenta de detalle obligatorio sin terceros no bloquea, pero nunca pasa en silencio.
+        const { incompletas, clavesSinDetalle } = creado.capturaTercero.cobertura;
+        if (incompletas.length > 0 || clavesSinDetalle.length > 0) {
+          const listar = (cuentas: { cuenta8: string }[]) => `${cuentas.slice(0, 8).map((c) => c.cuenta8).join(", ")}${cuentas.length > 8 ? "…" : ""}`;
+          const partes = [
+            incompletas.length > 0 ? `${incompletas.length} cuenta(s) con terceros que no suman su total (${listar(incompletas)})` : "",
+            clavesSinDetalle.length > 0 ? `${clavesSinDetalle.length} cuenta(s) de ${PREFIJOS_TERCERO_OBLIGATORIO.join("/")} sin terceros (${listar(clavesSinDetalle)})` : "",
+          ].filter(Boolean).join(" · ");
+          await logAudit({
+            user: p.uploadedBy,
+            action: "DETALLE POR TERCERO INCOMPLETO",
+            entity: `${p.clienteName} · ${p.period}`,
+            detail: `${creado.capturaTercero.version} · ${partes}`,
+            clientId: p.clientId,
+          });
+          await createProcessNotification({
+            actor: "Sistema",
+            text: "encontró detalle por tercero incompleto en el balance de",
+            target: `${p.clienteName} · ${p.period} · ${creado.capturaTercero.version} — ${partes}. Revísalo en «Ver por terceros»`,
+          });
+        }
       } else {
         // Apertura declarada «tercero» pero sin detalle utilizable (p. ej. SIIGO
         // «Cuenta+NIT» sin la columna Rompimiento mapeada): el balance se promueve

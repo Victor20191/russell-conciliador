@@ -261,3 +261,28 @@ describe("filtrarComparacionTerceros", () => {
     expect(filtrarComparacionTerceros(base, { q: "no existe" })).toHaveLength(0);
   });
 });
+
+describe("redondeo acumulado y cuentas de detalle obligatorio", () => {
+  it("una diferencia que cabe en el redondeo de miles de terceros se informa sin alertar (IGB)", () => {
+    const terceros = Array.from({ length: 2000 }, (_, i) => filaTercero({ nitTercero: String(900000000 + i), nombreTercero: `T${i}`, debitos: 0.5, saldoFinal: 0.5 }));
+    const [c] = construirComparacionCuentasTerceros([cuentaBalance({ debitos: 1003.5, saldoFinal: 1003.5 })], [filaPropia({ debitos: 1003.5, saldoFinal: 1003.5 }), ...terceros]);
+    expect(c.diferenciasMontos.saldoFinal).toBe(3.5);
+    expect(c).toMatchObject({ tieneDiferenciaImportes: false, diferenciaPorRedondeo: true, diferenciaSaldo: false, tieneDiferencia: false });
+  });
+
+  it("con pocos terceros un peso de diferencia sigue siendo diferencia", () => {
+    const [c] = construirComparacionCuentasTerceros([cuentaBalance({ debitos: 1001, saldoFinal: 1001 })], [filaPropia({ debitos: 1001, saldoFinal: 1001 }), filaTercero()]);
+    expect(c).toMatchObject({ tieneDiferenciaImportes: true, diferenciaPorRedondeo: false, tieneDiferencia: true });
+  });
+
+  it("una cuenta 13/21/22/23/28 con saldo y sin terceros queda como diferencia; una 11 no", () => {
+    const filas = construirComparacionCuentasTerceros(
+      [cuentaBalance(), cuentaBalance({ cuenta8: "11050501", nombreCuenta: "Caja" }), cuentaBalance({ cuenta8: "23359501", debitos: 0, saldoFinal: 0 })],
+      [filaPropia(), filaPropia({ cuenta8: "11050501" }), filaPropia({ cuenta8: "23359501", debitos: 0, saldoFinal: 0 })],
+    );
+    expect(filas.map((f) => [f.cuenta8, f.faltaDetalleTercero, f.tieneDiferencia])).toEqual([
+      ["11050501", false, false], ["13050501", true, true], ["23359501", false, false],
+    ]);
+    expect(resumirComparacionTerceros(filas).sinDetalleObligatorio).toBe(1);
+  });
+});

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { claveTerceroDeCaptura, derivarStagingTercero, filasEfectivasTercero, prepararCapturaTercero, type FilaTerceroCruda } from "./staging-tercero";
+import { claveTerceroDeCaptura, derivarStagingTercero, evaluarCoberturaTercero, filasEfectivasTercero, prepararCapturaTercero, type FilaTerceroCruda } from "./staging-tercero";
 import { dvNit } from "@/lib/nit";
 import type { IdentidadTercero } from "./identidad-tercero";
 import type { FilaDetalle } from "./calcular";
@@ -237,5 +237,33 @@ describe("claveTerceroDeCaptura", () => {
   it("sin identidad usa el NIT guardado; la fila propia de la cuenta no tiene clave", () => {
     expect(claveTerceroDeCaptura({ nitTercero: "900123456" })).toBe("900123456");
     expect(claveTerceroDeCaptura({ nitTercero: null })).toBeNull();
+  });
+});
+
+describe("evaluarCoberturaTercero", () => {
+  const f = (cuenta8: string, nitTercero: string | null, saldoFinal: number, debitos = 0) =>
+    ({ cuenta8, nombreCuenta: "Cuenta", nitTercero, nombreTercero: nitTercero ? "Tercero" : null, saldoInicial: 0, debitos, creditos: 0, saldoFinal });
+
+  it("detecta el detalle parcial y las cuentas de detalle obligatorio sin terceros", () => {
+    const r = evaluarCoberturaTercero([
+      f("23359501", null, -500), f("23359501", "830078512", 0), f("23359501", "901353526", 0), // bloque cortado
+      f("13050501", null, 300), f("13050501", "900111222", 100), f("13050501", "900333444", 200), // completo
+      f("22050501", null, 900), // obligatorio, sin terceros
+      f("28050501", null, 0), // obligatorio pero sin saldo ni movimiento
+      f("11050501", null, 50), // no obligatorio
+    ]);
+    expect(r.incompletas).toEqual([{ cuenta8: "23359501", nombreCuenta: "Cuenta", terceros: 2, diferenciaSaldoFinal: -500 }]);
+    expect(r.clavesSinDetalle.map((c) => c.cuenta8)).toEqual(["22050501"]);
+  });
+
+  it("mira los cuatro importes: el saldo puede cuadrar con débitos duplicados", () => {
+    const r = evaluarCoberturaTercero([f("13300505", null, 100, 400), f("13300505", "800200000", 100, 800)]);
+    expect(r.incompletas.map((c) => c.cuenta8)).toEqual(["13300505"]);
+  });
+
+  it("tolera el redondeo de miles de terceros e ignora cargues legados sin fila propia", () => {
+    const muchos = Array.from({ length: 4000 }, (_, i) => f("41350505", String(900000000 + i), 1));
+    expect(evaluarCoberturaTercero([f("41350505", null, 4005), ...muchos]).incompletas).toEqual([]);
+    expect(evaluarCoberturaTercero([f("13050501", "900111222", 100)])).toEqual({ incompletas: [], clavesSinDetalle: [] });
   });
 });

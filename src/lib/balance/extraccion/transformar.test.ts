@@ -14,6 +14,7 @@ import {
 } from "./transformar";
 import type { MappingSpec } from "./esquema";
 import type { GridHoja } from "./ingesta";
+import { reclasificarHuerfanas } from "../borrador";
 
 describe("subtotales al pie en negrita", () => {
   it("conserva las cuentas de un reporte paginado y no las captura como terceros", () => {
@@ -1284,6 +1285,16 @@ describe("subtotalesTercero (panel «Ajustar lectura terceros»)", () => {
     expect(r.filasTercero?.map((t) => t.debitos)).toEqual([30, 30]);
     expect(r.importReady.find((c) => c.code === "110505")?.debitos).toBe(60);
     expect(r.excepciones.some((e) => e.regla === "Detalle omitido bajo el total de su tercero")).toBe(true);
+  });
+
+  it("el desglose omitido no queda en el staging: el borrador no lo revive como movimiento (Corpo Mujer 370505)", () => {
+    const r = transformarTabular(spec({ columnas: colsConTercero, subtotalesTercero: "total_mas_detalle" }), [totalMasDetalle(2)], PARAMS);
+    // Solo la fila de la cuenta: ni los totales por tercero ni su desglose llevan el código.
+    expect(r.filasCrudas.filter((f) => f.codigo === "110505").map((f) => f.tipoFila)).toEqual(["movimiento"]);
+    const filas = r.filasCrudas.map((f) => ({ ...f, tipoFilaForzado: null, desacoplada: false, padreManual: null }));
+    reclasificarHuerfanas(filas);
+    const movimientos = filas.filter((f) => f.codigo === "110505" && f.tipoFila === "movimiento");
+    expect(movimientos.reduce((a, f) => a + f.saldoFinal, 0)).toBe(60);
   });
 
   it('"auto" lo detecta solo cuando el patrón domina el archivo', () => {

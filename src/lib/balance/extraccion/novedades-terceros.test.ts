@@ -167,3 +167,106 @@ describe("documento y nombre juntos en una celda (Karibik y Zarzal)", () => {
     expect(filasEfectivasTercero(filasVista).reduce((s, f) => s + f.saldoFinal, 0)).toBe(577295796.64);
   });
 });
+
+describe("bloque de terceros que no se corta (Karibik 23359501, Aceros Mapa 143501)", () => {
+  const base = () => {
+    const filas: GridHoja["filas"] = [["Código", "Cuenta", "SI", "D", "C", "SF"]];
+    const negrita: boolean[][] = [Array(6).fill(true)];
+    const add = (fila: GridHoja["filas"][number], bold: boolean) => { filas.push(fila); negrita.push(Array(6).fill(bold)); };
+    for (let i = 0; i < 22; i++) {
+      add([String(11050500 + i), "Cuenta", 0, 100, 0, 100], true);
+      add(["900111111 PROVEEDOR SAS", "", 0, 100, 0, 100], false);
+    }
+    return { filas, negrita, add };
+  };
+  const s = spec({ columnas: { ...spec().columnas, tercero: 0, nombreTercero: 0, saldoInicial: 3, debitos: 4, creditos: 5, saldoFinal: 6 } });
+
+  it("un tercero del exterior con documento alfanumérico no cierra el bloque de la cuenta", () => {
+    const { filas, negrita, add } = base();
+    add(["23359501", "OTRAS CXP", 0, 0, 600, 600], true);
+    add([" 830078512           ACH COLOMBIA SAS", "", 0, 0, 100, 100], false);
+    add([" IE6364992H          ADOBE SYSTEMS SOFTWARE", "", 0, 0, 200, 200], false);
+    add([" 1092345461          AGUDELO AGUDELO MIGUEL ANDRES", "", 0, 0, 300, 300], false);
+    add(["23359502", "OTRA", 0, 0, 50, 50], true);
+    const r = transformarTabular(s, [{ nombre: "Balance", filas, negrita }], params);
+    const detalle = (r.filasTercero ?? []).filter(t => t.codigo === "23359501");
+    expect(detalle.map(t => t.saldoFinal)).toEqual([100, 200, 300]);
+    expect(detalle[1]).toMatchObject({ nitTercero: null, nombreTercero: "ADOBE SYSTEMS SOFTWARE" });
+    expect(detalle[2]).toMatchObject({ nitTercero: "109234546", nombreTercero: "AGUDELO AGUDELO MIGUEL ANDRES" });
+    // Los terceros posteriores al corte ya no entran como cuentas con código de NIT.
+    expect(r.importReady.some(c => c.code === "1092345461")).toBe(false);
+    expect(r.importReady.find(c => c.code === "23359501")).toMatchObject({ balance: 600 });
+  });
+
+  it("una fila sin documento dentro del bloque se conserva como tercero y un pie de página no lo cierra", () => {
+    const { filas, negrita, add } = base();
+    add(["13050501", "CLIENTES", 0, 600, 0, 600], true);
+    add([" 900111222           CLIENTE UNO SAS", "", 0, 100, 0, 100], false);
+    add([" VENTAS MOSTRADOR", "", 0, 200, 0, 200], false);
+    add(["Página 2 de 9", "", 0, 0, 0, 0], false);
+    add([" 900333444           CLIENTE DOS SAS", "", 0, 300, 0, 300], false);
+    add(["TOTAL GENERAL", "", 0, 600, 0, 600], false);
+    const r = transformarTabular(s, [{ nombre: "Balance", filas, negrita }], params);
+    const detalle = (r.filasTercero ?? []).filter(t => t.codigo === "13050501");
+    expect(detalle.map(t => [t.nombreTercero, t.saldoFinal])).toEqual([["CLIENTE UNO SAS", 100], ["VENTAS MOSTRADOR", 200], ["CLIENTE DOS SAS", 300]]);
+  });
+
+  it("con el bloque ya explicado por sus terceros, una fila suelta con importes no se toma como tercero", () => {
+    const { filas, negrita, add } = base();
+    add(["13050501", "CLIENTES", 0, 100, 0, 100], true);
+    add([" 900111222           CLIENTE UNO SAS", "", 0, 100, 0, 100], false);
+    add(["SALDO CONTABILIDAD", "", 0, 999, 0, 999], false);
+    const r = transformarTabular(s, [{ nombre: "Balance", filas, negrita }], params);
+    expect((r.filasTercero ?? []).filter(t => t.codigo === "13050501")).toHaveLength(1);
+  });
+});
+
+describe("documento del tercero en SAP Business One (IGB)", () => {
+  const encabezadoSap = ["Rompimiento", "CardCode", "CardName", "Cuenta", "Nombre cuenta", "InfoCo01", "SI", "D", "C", "SF"];
+  const specSap = (over: Partial<MappingSpec> = {}) => spec({
+    columnas: { codigo: 4, codigoFragmentos: [], nombre: 5, tercero: 2, nombreTercero: 3, saldoInicial: 7, debitos: 8, creditos: 9, saldoFinal: 10, saldoFinalDebito: 0, saldoFinalCredito: 0 },
+    reglaDetalle: { tipo: "columna", columna: 1, valor: "Cuenta" }, ...over,
+  });
+  const archivo = (): GridHoja["filas"] => {
+    const filas: GridHoja["filas"] = [encabezadoSap, ["Cuenta", "", "", "13050505", "CLIENTES", "", 0, 2600, 0, 2600]];
+    for (let i = 0; i < 25; i++) filas.push(["NIT", `C${900100000 + i}`, `CLIENTE ${i}`, "13050505", "CLIENTES", `${900100000 + i}-${i % 10}`, 0, 100, 0, 100]);
+    // Tercero que no es socio de negocio: sin CardCode, con nombre y NIT en la otra columna.
+    filas.push(["NIT", "", "CLIENTE SIN CODIGO", "13050505", "CLIENTES", "1000634478", 0, 100, 0, 100]);
+    return filas;
+  };
+
+  it("retira solo las letras pegadas cuando dominan la columna y toma el documento de la columna alterna", () => {
+    const r = transformarTabular(specSap(), [{ nombre: "Balance", filas: archivo() }], params);
+    const t = r.filasTercero ?? [];
+    expect(t).toHaveLength(26);
+    expect(t[0]).toMatchObject({ nitTercero: "900100000", nombreTercero: "CLIENTE 0" });
+    expect(t[25]).toMatchObject({ nitTercero: "100063447", nombreTercero: "CLIENTE SIN CODIGO", identidadTercero: { numeroDocumento: "1000634478" } });
+    expect(r.excepciones.map(e => e.regla)).toEqual(expect.arrayContaining(["Letras pegadas al documento del tercero retiradas", "Documento del tercero tomado de una columna alterna"]));
+  });
+
+  it("no toca un archivo de NIT limpios con unos pocos documentos del exterior", () => {
+    const filas = archivo().map((f, i) => i >= 2 && i < 27 ? [f[0], String(f[1]).slice(1), ...f.slice(2)] : f);
+    filas[5] = ["NIT", "EU826015023", "ELEGANT THEMES", "13050505", "CLIENTES", "", 0, 100, 0, 100];
+    const r = transformarTabular(specSap(), [{ nombre: "Balance", filas }], params);
+    expect(r.excepciones.some(e => e.regla === "Letras pegadas al documento del tercero retiradas")).toBe(false);
+    expect(r.filasTercero?.[3]).toMatchObject({ nombreTercero: "ELEGANT THEMES" });
+  });
+
+  it("los asientos bajo el total de cada tercero no duplican débitos ni créditos", () => {
+    const filas: GridHoja["filas"] = [encabezadoSap, ["Cuenta", "", "", "13300505", "ANTICIPOS", "", 1000, 2200, 2200, 1000]];
+    for (let i = 0; i < 22; i++) {
+      const doc = `P${800200000 + i}`;
+      // El total puede venir SIN código de socio de negocio: lo identifica la columna alterna.
+      filas.push(["NIT", i === 0 ? "" : doc, `PROVEEDOR ${i}`, "13300505", "ANTICIPOS", `${800200000 + i}-1`, i === 0 ? 1000 : 0, 100, 100, i === 0 ? 1000 : 0]);
+      filas.push(["", doc, `PROVEEDOR ${i}`, "13300505", "ANTICIPOS", `${800200000 + i}-1`, 0, 100, 0, ""]);
+      filas.push(["", doc, `PROVEEDOR ${i}`, "13300505", "ANTICIPOS", `${800200000 + i}-1`, 0, 0, 100, ""]);
+    }
+    for (let i = 0; i < 20; i++) filas.push(["NIT", `P${800300000 + i}`, `SIN MOVIMIENTO ${i}`, "13300505", "ANTICIPOS", `${800300000 + i}-1`, 0, 0, 0, 0]);
+    const r = transformarTabular(specSap(), [{ nombre: "Balance", filas }], params);
+    const t = r.filasTercero ?? [];
+    expect(t).toHaveLength(42);
+    expect(t.reduce((a, f) => a + f.debitos, 0)).toBe(2200);
+    expect(t.reduce((a, f) => a + f.creditos, 0)).toBe(2200);
+    expect(t.reduce((a, f) => a + f.saldoFinal, 0)).toBe(1000);
+  });
+});

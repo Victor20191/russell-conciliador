@@ -8,9 +8,9 @@
 // (`src/lib/balance/prevalidador/`): NO propone ni corrige, solo agrega y avisa.
 //
 // Sin BD ni `server-only`: recibe filas ya resueltas por el loader del servidor.
-import { filasEfectivasTercero, esFilaPropiaDeCuenta } from "./staging-tercero";
+import { filasEfectivasTercero, esFilaPropiaDeCuenta, exigeDetalleTercero, toleranciaRedondeoTerceros } from "./staging-tercero";
 import type { IdentidadTercero } from "./identidad-tercero";
-import { MONTOS_CERO, sumarMontos, diferenciasMontos as calcularDiferenciasMontos, montosCuadran, type Montos4 } from "./montos-cruce";
+import { CAMPOS_MONTOS, MONTOS_CERO, sumarMontos, diferenciasMontos as calcularDiferenciasMontos, montosCuadran, type Montos4 } from "./montos-cruce";
 
 /** Tolerancia numérica para comparar montos (redondeos de Decimal→number). */
 const EPSILON_SALDO = 0.01;
@@ -85,8 +85,12 @@ export type ComparacionCuentaTerceros = {
   diferenciaHomologacion: boolean;
   /** El saldo final del balance no coincide con el consolidado efectivo del lado tercero (tolerancia de redondeo). Conservado por compatibilidad; el saldo final es uno de los cuatro componentes de `diferenciasMontos`/`tieneDiferenciaImportes`, que NO toleran redondeo. */
   diferenciaSaldo: boolean;
-  /** Cualquiera de los cuatro componentes (SI/Db/Cr/SF) difiere, aunque sea en un centavo: sin umbral de materialidad. */
+  /** Alguno de los cuatro componentes (SI/Db/Cr/SF) difiere MÁS que el redondeo acumulado de sus terceros (`toleranciaRedondeoTerceros`): sin umbral de materialidad. */
   tieneDiferenciaImportes: boolean;
+  /** Hay diferencia, pero cabe en el redondeo a centavos de cada tercero (cuentas con miles de terceros): se muestra, no alerta. */
+  diferenciaPorRedondeo: boolean;
+  /** Cuenta de detalle OBLIGATORIO (13/21/22/23/28) con saldo o movimiento y SIN ningún tercero capturado. */
+  faltaDetalleTercero: boolean;
   /** Falta un lado completo: la cuenta no aparece en el balance o no aparece en el detalle por tercero. */
   incompleto: boolean;
   /** Resumen para filtrar: incompleto o alguna diferencia (homologación o cualquier componente de importes). */
@@ -154,12 +158,20 @@ export function construirComparacionCuentasTerceros(
       : MONTOS_CERO;
     // Sin datos de un lado no se inventa una diferencia (mismo criterio que diferenciaHomologacion).
     const diferencias = enBalance && enTercero ? calcularDiferenciasMontos(montosBalance, montosTercero) : MONTOS_CERO;
-    const tieneDiferenciaImportes = enBalance && enTercero && !montosCuadran(diferencias);
+    // El redondeo a centavos de cada tercero se acumula: con `n` terceros reales la Σ puede
+    // apartarse del total unos pesos sin que falte nada. Sin terceros (fila propia) es exacto.
+    const tercerosReales = efectivas.filter((t) => !esFilaPropiaDeCuenta(t)).length;
+    const tolerancia = toleranciaRedondeoTerceros(tercerosReales) - 0.01;
+    const hayDiferencia = enBalance && enTercero && !montosCuadran(diferencias);
+    const tieneDiferenciaImportes = hayDiferencia && CAMPOS_MONTOS.some((campo) => Math.abs(diferencias[campo]) > tolerancia);
+    const diferenciaPorRedondeo = hayDiferencia && !tieneDiferenciaImportes;
+    const faltaDetalleTercero = enBalance && enTercero && tercerosReales === 0 && exigeDetalleTercero(cuenta8)
+      && CAMPOS_MONTOS.some((campo) => Math.abs(montosBalance[campo]) > 0.005);
 
     const diferenciaHomologacion =
       enBalance && enTercero && (homologacionInconsistente || (homologacionesBalance.get(cuenta8)?.size ?? 0) > 1 || b!.cuenta6Russell !== cuenta6RussellTercero);
     const diferenciaSaldo =
-      enBalance && enTercero && Math.abs(b!.saldoFinal - saldoConsolidadoTercero) > EPSILON_SALDO;
+      enBalance && enTercero && Math.abs(b!.saldoFinal - saldoConsolidadoTercero) > Math.max(EPSILON_SALDO, tolerancia);
 
     out.push({
       cuenta8,
@@ -191,8 +203,10 @@ export function construirComparacionCuentasTerceros(
       diferenciaHomologacion,
       diferenciaSaldo,
       tieneDiferenciaImportes,
+      diferenciaPorRedondeo,
+      faltaDetalleTercero,
       incompleto,
-      tieneDiferencia: incompleto || diferenciaHomologacion || diferenciaSaldo || tieneDiferenciaImportes,
+      tieneDiferencia: incompleto || diferenciaHomologacion || diferenciaSaldo || tieneDiferenciaImportes || faltaDetalleTercero,
     });
   }
 
@@ -205,6 +219,8 @@ export type ResumenComparacionTerceros = {
   totalCuentas: number;
   conDiferencia: number;
   incompletas: number;
+  /** Cuentas de detalle obligatorio (13/21/22/23/28) con saldo o movimiento y sin terceros. */
+  sinDetalleObligatorio: number;
   saldoBalance: number;
   saldoTercero: number;
 };
@@ -212,15 +228,17 @@ export type ResumenComparacionTerceros = {
 export function resumirComparacionTerceros(filas: readonly ComparacionCuentaTerceros[]): ResumenComparacionTerceros {
   let conDiferencia = 0;
   let incompletas = 0;
+  let sinDetalleObligatorio = 0;
   let saldoBalance = 0;
   let saldoTercero = 0;
   for (const f of filas) {
     if (f.tieneDiferencia) conDiferencia++;
     if (f.incompleto) incompletas++;
+    if (f.faltaDetalleTercero) sinDetalleObligatorio++;
     saldoBalance += f.saldoFinalBalance;
     saldoTercero += f.saldoConsolidadoTercero;
   }
-  return { totalCuentas: filas.length, conDiferencia, incompletas, saldoBalance, saldoTercero };
+  return { totalCuentas: filas.length, conDiferencia, incompletas, sinDetalleObligatorio, saldoBalance, saldoTercero };
 }
 
 export type FiltroComparacionTerceros = {

@@ -278,3 +278,83 @@ export function filasEfectivasTercero<T extends { cuenta8: string; nitTercero: s
 export function claveTerceroDeCaptura(fila: Pick<FilaCapturaTercero, "identidadTercero" | "nitTercero">): string | null {
   return claveTerceroCanonica(fila.identidadTercero?.numeroDocumento ?? fila.nitTercero);
 }
+
+// ===== Cobertura del detalle por tercero (control, nunca bloquea) =====
+
+/**
+ * Cuentas cuyo detalle por tercero es OBLIGATORIO para la auditoría (deudores, obligaciones
+ * financieras, proveedores, cuentas por pagar y otros pasivos): si una de ellas trae saldo
+ * o movimiento y quedó sin terceros, es una novedad que se avisa — no un «sin desagregar»
+ * neutro como en el resto del balance.
+ */
+export const PREFIJOS_TERCERO_OBLIGATORIO = ["13", "21", "22", "23", "28"] as const;
+
+export function exigeDetalleTercero(cuenta: string): boolean {
+  return PREFIJOS_TERCERO_OBLIGATORIO.some((p) => cuenta.startsWith(p));
+}
+
+/**
+ * Tolerancia al comparar el total de una cuenta contra la Σ de sus `n` terceros: cada
+ * renglón llega redondeado a centavos por su cuenta (hasta ½ centavo de error cada uno),
+ * así que una cuenta con 14 mil terceros difiere legítimamente en unos pesos.
+ */
+export function toleranciaRedondeoTerceros(n: number): number {
+  return 0.01 + 0.005 * Math.max(0, n);
+}
+
+export type CuentaCoberturaTercero = {
+  cuenta8: string;
+  nombreCuenta: string;
+  terceros: number;
+  /** Total de la cuenta − Σ de sus terceros, en saldo final (0 en las «sin detalle»). */
+  diferenciaSaldoFinal: number;
+};
+
+export type CoberturaTercero = {
+  /** Cuentas CON terceros cuya Σ no explica el total de la cuenta (en alguno de los 4 importes). */
+  incompletas: CuentaCoberturaTercero[];
+  /** Cuentas de detalle obligatorio, con saldo o movimiento, que quedaron SIN terceros. */
+  clavesSinDetalle: CuentaCoberturaTercero[];
+};
+
+type FilaCobertura = Pick<FilaCapturaTercero, "cuenta8" | "nombreCuenta" | "nitTercero" | "nombreTercero" | "saldoInicial" | "debitos" | "creditos" | "saldoFinal">;
+const IMPORTES = ["saldoInicial", "debitos", "creditos", "saldoFinal"] as const;
+
+/**
+ * Control de cobertura sobre las filas de una captura (fila propia + terceros por cuenta):
+ * detecta el detalle PARCIAL — el síntoma de un bloque de terceros cortado al leer el
+ * archivo — y las cuentas de detalle obligatorio que quedaron sin ningún tercero. Puro;
+ * lo usan la promoción (aviso + auditoría) y sirve para verificar cargues existentes.
+ */
+export function evaluarCoberturaTercero(filas: readonly FilaCobertura[]): CoberturaTercero {
+  const porCuenta = new Map<string, { propia: FilaCobertura | null; terceros: FilaCobertura[] }>();
+  for (const f of filas) {
+    const g = porCuenta.get(f.cuenta8) ?? { propia: null, terceros: [] };
+    if (esFilaPropiaDeCuenta(f)) g.propia ??= f;
+    else g.terceros.push(f);
+    porCuenta.set(f.cuenta8, g);
+  }
+  const incompletas: CuentaCoberturaTercero[] = [];
+  const clavesSinDetalle: CuentaCoberturaTercero[] = [];
+  for (const [cuenta8, { propia, terceros }] of porCuenta) {
+    if (!propia) continue; // cargue legado sin fila propia: no hay total contra el cual medir
+    if (terceros.length === 0) {
+      if (exigeDetalleTercero(cuenta8) && IMPORTES.some((c) => Math.abs(propia[c]) > 0.005)) {
+        clavesSinDetalle.push({ cuenta8, nombreCuenta: propia.nombreCuenta, terceros: 0, diferenciaSaldoFinal: 0 });
+      }
+      continue;
+    }
+    const tolerancia = Math.max(1, toleranciaRedondeoTerceros(terceros.length));
+    const difiere = IMPORTES.some((c) => Math.abs(propia[c] - terceros.reduce((s, t) => s + t[c], 0)) > tolerancia);
+    if (difiere) {
+      incompletas.push({
+        cuenta8,
+        nombreCuenta: propia.nombreCuenta,
+        terceros: terceros.length,
+        diferenciaSaldoFinal: propia.saldoFinal - terceros.reduce((s, t) => s + t.saldoFinal, 0),
+      });
+    }
+  }
+  const porCodigo = (a: CuentaCoberturaTercero, b: CuentaCoberturaTercero) => a.cuenta8.localeCompare(b.cuenta8, undefined, { numeric: true });
+  return { incompletas: incompletas.sort(porCodigo), clavesSinDetalle: clavesSinDetalle.sort(porCodigo) };
+}

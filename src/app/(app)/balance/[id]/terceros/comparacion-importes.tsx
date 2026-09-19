@@ -17,7 +17,7 @@ const ETIQUETAS_MONTO: Record<(typeof CAMPOS_MONTOS)[number], string> = {
 };
 
 /** Comparación de los cuatro componentes de una cuenta. `null` cuando no hay nada que mostrar. */
-export function ComparacionImportes({ montosBalance, montosTercero, diferenciasMontos, enBalance, enTercero, sinDesglose }: {
+export function ComparacionImportes({ montosBalance, montosTercero, diferenciasMontos, enBalance, enTercero, sinDesglose, porRedondeo }: {
   montosBalance: Montos4;
   montosTercero: Montos4;
   diferenciasMontos: Montos4;
@@ -25,6 +25,8 @@ export function ComparacionImportes({ montosBalance, montosTercero, diferenciasM
   enTercero: boolean;
   /** La cuenta no tiene terceros reales (solo la fila «propia»): no hay nada que desglosar. */
   sinDesglose?: boolean;
+  /** La diferencia cabe en el redondeo a centavos de cada tercero: se informa sin alertar. */
+  porRedondeo?: boolean;
 }) {
   if (!enBalance || !enTercero) return null; // el estado "incompleto" ya se señala aparte
   const componentesConDiferencia = CAMPOS_MONTOS.filter((campo) => diferenciasMontos[campo] !== 0);
@@ -33,7 +35,8 @@ export function ComparacionImportes({ montosBalance, montosTercero, diferenciasM
     return null;
   }
   return (
-    <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] font-normal text-warn-700">
+    <div className={`mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] font-normal ${porRedondeo ? "text-ink-400" : "text-warn-700"}`}>
+      {porRedondeo && <span>Redondeo de los terceros:</span>}
       {componentesConDiferencia.map((campo) => (
         <span key={campo} title={`${ETIQUETAS_MONTO[campo]} — balance: ${fmt(montosBalance[campo])} · terceros: ${fmt(montosTercero[campo])}`}>
           {ETIQUETAS_MONTO[campo]} difiere: {fmt(diferenciasMontos[campo])}

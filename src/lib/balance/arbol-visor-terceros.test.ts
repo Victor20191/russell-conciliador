@@ -9,7 +9,7 @@ const estandar: CuentaEstandar[] = [{ code: "130505", name: "Clientes", nature: 
 const nombres = { nombre2: new Map([["13", "Deudores"]]), nombre4: new Map([["1305", "Nacionales"]]) };
 const cuenta = (extra: Partial<FilaCuentaBalanceVisor> = {}): FilaCuentaBalanceVisor => ({ cuenta8: "13050501010101", nombreCuenta: "Cartera nacional", cuenta6Russell: "130505", saldoInicial: 30, debitos: 80, creditos: 10, saldoFinal: 100, ...extra });
 const tercero = (extra: Partial<FilaDetalleTerceroVisor> = {}): FilaDetalleTerceroVisor => ({ ...cuenta(), nitTercero: "900111222", nombreTercero: "Álvarez SAS", ...extra });
-const propia = (): FilaDetalleTerceroVisor => tercero({ nitTercero: null, nombreTercero: null });
+const propia = (extra: Partial<FilaDetalleTerceroVisor> = {}): FilaDetalleTerceroVisor => tercero({ nitTercero: null, nombreTercero: null, ...extra });
 const plana = (nodos: NodoVisorTerceros[]): NodoVisorTerceros[] => nodos.flatMap((n) => [n, ...plana(n.hijos)]);
 function crear(balance = [cuenta()], terceros = [propia(), tercero()]) {
   return construirArbolVisorTerceros(construirComparacionCuentasTerceros(balance, terceros), estandar, nombres);
@@ -51,11 +51,15 @@ describe("árbol de terceros coherente con balance", () => {
   });
 
   it("conserva una cuenta sin desagregar sin inventar un NIT ni un tercero real", () => {
-    const arbol = crear([cuenta()], [propia()]);
+    const caja = { cuenta8: "11050501", nombreCuenta: "Caja", cuenta6Russell: "110505" };
+    const arbol = crear([cuenta(caja)], [propia(caja)]);
     // Sin terceros reales no se pinta una fila «Sin documento» que repita la cuenta.
     expect(plana(arbol).some((n) => n.tipo === "tercero")).toBe(false);
     const cuentaSinDesglose = plana(arbol).find((n) => n.comparacion)!;
     expect(cuentaSinDesglose).toMatchObject({ esFilaPropia: true, hijos: [], balance: 100, diferencias: 0 });
+    // En una cuenta de detalle obligatorio (13/21/22/23/28) la misma situación SÍ es novedad.
+    const cartera = plana(crear([cuenta()], [propia()])).find((n) => n.comparacion)!;
+    expect(cartera).toMatchObject({ esFilaPropia: true, diferencias: 1, comparacion: { faltaDetalleTercero: true } });
   });
 
   it("sin NIT agrupa por nombre y mantiene separados los nombres distintos", () => {

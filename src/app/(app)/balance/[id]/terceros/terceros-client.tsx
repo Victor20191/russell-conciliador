@@ -12,6 +12,7 @@ import type { ResumenComparacionTerceros } from "@/lib/balance/visor-terceros";
 import { useSeleccionFilaTabla } from "../../use-seleccion-fila-tabla";
 import { chevronDivulgacion } from "@/lib/ui/chevron-divulgacion";
 import { ETIQUETAS_IDENTIDAD, estadoIdentidadTercero, type EstadoIdentidadTercero } from "@/lib/balance/identidad-tercero";
+import { PREFIJOS_TERCERO_OBLIGATORIO } from "@/lib/balance/staging-tercero";
 import { ComparacionImportes } from "./comparacion-importes";
 
 export type FuenteTercero = { version: string; archivo: string; filas: number; origen: string };
@@ -65,6 +66,10 @@ export default function TercerosClient({ arbol, resumen, fuenteTercero }: {
       <StatCard label="Incompletas" value={fmtNum(resumen.incompletas)} tone={resumen.incompletas ? "err" : "ok"} />
       <StatCard label="Saldo balance / Σ terceros" value={`${fmt(resumen.saldoBalance)} / ${fmt(resumen.saldoTercero)}`} tone={Math.abs(resumen.saldoBalance - resumen.saldoTercero) > 0.01 ? "warn" : "blue"} valueClassName="text-[14px]" />
     </div>
+    {resumen.sinDetalleObligatorio > 0 && <p className="mb-4 flex items-start gap-2 rounded-md border border-warn-300 bg-warn-100 px-3 py-2 text-[12px] text-warn-700">
+      <Icon name="warn" size={13} className="mt-0.5 shrink-0" />
+      <span><span className="font-semibold">{fmtNum(resumen.sinDetalleObligatorio)} cuenta(s) de {PREFIJOS_TERCERO_OBLIGATORIO.join(", ")} con saldo o movimiento no traen terceros.</span> En esas cuentas el detalle por tercero es obligatorio: usa «Solo con diferencia» para verlas y revisa si el archivo las trae desagregadas.</span>
+    </p>}
     <div role="region" aria-label="Detalle del balance por terceros" {...propsRegionPantallaCompleta(pantallaCompleta, CLASE_TARJETA)}>
       <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-ink-100 bg-white px-4 py-2.5">
         <div className="mr-1 flex items-center gap-2 rounded-md border border-ink-200 bg-ink-50 px-2.5 py-1.5 text-ink-400">
@@ -140,7 +145,7 @@ function Fila({ nodo: n, profundidad, abiertos, toggle, seleccionada }: {
         </div>}
         {n.tipo === "tercero" && (n.movimientos ?? 0) > 1 && <span className="ml-2 whitespace-nowrap text-[10.5px] text-ink-400">{n.movimientos} movimientos</span>}
         {c && !c.enBalance && <div className="mt-0.5 text-[11px] font-normal text-warn-700">Σ terceros: {fmt(c.saldoConsolidadoTercero)} · Sin cuenta en el balance</div>}
-        {c && <ComparacionImportes montosBalance={c.montosBalance} montosTercero={c.montosTercero} diferenciasMontos={c.diferenciasMontos} enBalance={c.enBalance} enTercero={c.enTercero} sinDesglose={n.esFilaPropia} />}
+        {c && <ComparacionImportes montosBalance={c.montosBalance} montosTercero={c.montosTercero} diferenciasMontos={c.diferenciasMontos} enBalance={c.enBalance} enTercero={c.enTercero} sinDesglose={n.esFilaPropia} porRedondeo={c.diferenciaPorRedondeo} />}
       </td>
       <td className="px-4 py-2">
         {n.mapeoInconsistente ? <Chip label="Inconsistente" tone="warn" /> : grupo ? n.nivel === 6 ? <Chip label={n.mapped ? "Russell" : "Sin mapeo"} tone={n.mapped ? "ok" : "warn"} /> : null : n.std ? <span className="inline-flex items-center gap-1.5 font-mono text-[11.5px] text-blue-500">→ {n.std}</span> : <Chip label="Sin mapeo" tone="warn" />}
@@ -162,6 +167,7 @@ function Estado({ nodo: n }: { nodo: NodoVisorTerceros }) {
     if (c.diferenciaHomologacion && c.tieneDiferenciaImportes) return <Chip label="Mapeo e importes difieren" tone="err" />;
     if (c.diferenciaHomologacion) return <Chip label="Mapeo difiere" tone="warn" />;
     if (c.tieneDiferenciaImportes) return <Chip label="Importes difieren" tone="warn" />;
+    if (c.faltaDetalleTercero) return <Chip label="Falta detalle por tercero" tone="warn" />;
     return <Chip label={n.esFilaPropia ? "Sin desagregar" : "OK"} tone={n.esFilaPropia ? "ink" : "ok"} />;
   }
   if (n.tipo === "cuenta") return n.diferencias ? <Chip label={`${n.diferencias} con diferencia`} tone="warn" /> : n.nivel === 6 ? <Chip label="OK" tone="ok" /> : null;
