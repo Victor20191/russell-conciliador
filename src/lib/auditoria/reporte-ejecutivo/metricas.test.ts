@@ -318,3 +318,49 @@ describe("correo del usuario", () => {
     expect(resumen.detalleUsuarios.find((u) => u.usuario === "Sin cuenta")?.correo).toBe(null);
   });
 });
+
+describe("solo usuarios creados en la app", () => {
+  const eventos = [
+    { user: "Ana", action: "CARGÓ BALANCE", entity: "", detail: "", clientId: 1, createdAt: "2026-08-10T10:00:00.000Z" },
+    { user: "Codex", action: "EDITÓ PROMPT IA", entity: "", detail: "", clientId: 2, createdAt: "2026-08-10T11:00:00.000Z" },
+    { user: "Sistema", action: "EJECUTÓ", entity: "", detail: "", clientId: null, createdAt: "2026-08-10T12:00:00.000Z" },
+  ];
+
+  test("descarta del reporte completo a quien no tiene cuenta en la plataforma", () => {
+    const resumen = calcularResumenUso({
+      eventos,
+      conexiones: [
+        { usuario: "Ana", total: 3 },
+        { usuario: "Codex", total: 9 },
+      ],
+      periodoDesde: "2026-08-01T00:00:00.000Z",
+      periodoHasta: "2026-08-31T23:59:59.999Z",
+      usuariosRegistrados: ["Ana"],
+    });
+
+    expect(resumen.totalAcciones).toBe(1);
+    expect(resumen.totalUsuarios).toBe(1);
+    // Ni en los tops, ni en el detalle, ni en los clientes tocados, ni en las conexiones.
+    expect(resumen.topUsuarios.map((u) => u.usuario)).toEqual(["Ana"]);
+    expect(resumen.detalleUsuarios.map((u) => u.usuario)).toEqual(["Ana"]);
+    expect(resumen.topClientes.map((c) => c.clienteId)).toEqual([1]);
+    expect(resumen.totalConexiones).toBe(3);
+  });
+
+  test("sin la lista de cuentas no filtra nada (compatibilidad)", () => {
+    const resumen = calcularResumenUso({
+      eventos,
+      periodoDesde: "2026-08-01T00:00:00.000Z",
+      periodoHasta: "2026-08-31T23:59:59.999Z",
+    });
+    // «Sistema» se sigue excluyendo aparte, como siempre.
+    expect(resumen.totalUsuarios).toBe(2);
+  });
+
+  test("conteosPorFamiliaCanon aplica la misma regla", () => {
+    const eventosCanon = eventos.map((e) => ({ ...e, createdAt: new Date(e.createdAt) }));
+    expect(conteosPorFamiliaCanon(eventosCanon).administracion).toBe(1);
+    expect(conteosPorFamiliaCanon(eventosCanon, ["Ana"]).administracion).toBe(0);
+    expect(conteosPorFamiliaCanon(eventosCanon, ["Ana"]).balance).toBe(1);
+  });
+});

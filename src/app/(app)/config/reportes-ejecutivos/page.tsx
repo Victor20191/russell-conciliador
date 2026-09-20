@@ -10,6 +10,7 @@ import {
 import {
   filtrarCambiosPublicados,
   filtrarEventosPublicados,
+  filtrarNavegacionesPublicadas,
   type FiltroPublicacion,
 } from "@/lib/auditoria/reporte-ejecutivo/alcance";
 import { modulosPublicadosParaTodos } from "@/lib/rbac/publicacion";
@@ -20,6 +21,7 @@ import {
 } from "@/lib/auditoria/reporte-ejecutivo/adopcion";
 import { listarEnviosReporteEjecutivo } from "@/app/actions/auditoria-reporte";
 import { resumirPendienteDeEnvio } from "@/lib/auditoria/reporte-ejecutivo/envios";
+import { construirComparativoUso } from "@/lib/auditoria/reporte-ejecutivo/comparativo-servidor";
 import {
   ReporteEjecutivoClient,
   type KpisIniciales,
@@ -47,7 +49,7 @@ export default async function ReportesEjecutivosPage() {
   const defaultDesde = aYYYYMMDD(desde);
   const defaultHasta = aYYYYMMDD(hasta);
 
-  const [eventosRaw, versiones, clientes, usuarios, modulosPublicados, envios] = await Promise.all([
+  const [eventosRaw, conexionesRaw, navegacionesRaw, versiones, clientes, usuarios, modulosPublicados, envios] = await Promise.all([
     prisma.auditEntry.findMany({
       where: { createdAt: { gte: desde, lte: hasta } },
       orderBy: { createdAt: "desc" },
@@ -60,6 +62,20 @@ export default async function ReportesEjecutivosPage() {
         clientId: true,
         createdAt: true,
       },
+    }),
+    // Inicios de sesión y visitas: se cuentan aparte de las operaciones, y el
+    // comparativo las necesita para no leer un período sin medir como una caída.
+    prisma.accessLog.groupBy({
+      by: ["userName"],
+      where: { kind: "ingreso", createdAt: { gte: desde, lte: hasta } },
+      _count: { userName: true },
+      orderBy: { userName: "asc" },
+    }),
+    prisma.accessLog.groupBy({
+      by: ["path"],
+      where: { kind: "navegacion", createdAt: { gte: desde, lte: hasta } },
+      _count: { path: true },
+      orderBy: { path: "asc" },
     }),
     prisma.platformVersion.findMany({
       where: { status: "publicada" },
@@ -105,12 +121,33 @@ export default async function ReportesEjecutivosPage() {
   }).eventos;
 
   const nombresClientes = new Map(clientes.map((c) => [c.id, c.name]));
+  const correosUsuarios = new Map(usuarios.map((u) => [u.name, u.email]));
+  // Solo cuentas existentes en la plataforma: el tablero mide el uso de los
+  // usuarios de Russell, no el de actores técnicos que quedaron en la bitácora.
+  const usuariosRegistrados = usuarios.map((u) => u.name);
   const uso = calcularResumenUso({
     eventos,
+    conexiones: conexionesRaw.map((c) => ({ usuario: c.userName, total: c._count.userName })),
+    navegaciones: filtrarNavegacionesPublicadas({
+      navegaciones: navegacionesRaw.map((n) => ({ ruta: n.path, total: n._count.path })),
+      filtro,
+    }).navegaciones,
     periodoDesde: desde,
     periodoHasta: hasta,
     nombresClientes,
-    correosUsuarios: new Map(usuarios.map((u) => [u.name, u.email])),
+    correosUsuarios,
+    usuariosRegistrados,
+  });
+
+  // ¿Subió o bajó el uso frente al último reporte generado?
+  const comparativo = await construirComparativoUso({
+    usoActual: uso,
+    desde,
+    hasta,
+    filtro,
+    usuariosRegistrados,
+    nombresClientes,
+    correosUsuarios,
   });
 
   const cambiosPublicadosPorVersion = new Map<number, number>();
@@ -144,7 +181,7 @@ export default async function ReportesEjecutivosPage() {
 
   const adopcion = evaluarAdopcion({
     cambios: planos,
-    conteosPorFamilia: conteosPorFamiliaCanon(eventos),
+    conteosPorFamilia: conteosPorFamiliaCanon(eventos, usuariosRegistrados),
   });
 
   const versions: VersionOpcion[] = versiones.map((v) => ({
@@ -163,6 +200,7 @@ export default async function ReportesEjecutivosPage() {
   });
 
   const kpis: KpisIniciales = {
+    comparativo,
     totalAcciones: uso.totalAcciones,
     totalUsuarios: uso.totalUsuarios,
     totalClientes: uso.totalClientes,

@@ -354,6 +354,13 @@ export function calcularResumenUso(params: {
   nombresClientes?: Map<number, string> | Record<number, string>;
   /** nombre de usuario (como queda en la bitácora) → correo. */
   correosUsuarios?: Map<string, string> | Record<string, string>;
+  /**
+   * Nombres de las cuentas que EXISTEN en la plataforma (`User.name`). Cuando se
+   * pasa, la bitácora se acota a ellas: el reporte mide el uso de los usuarios
+   * de Russell, no el de actores técnicos o cuentas ya borradas que quedaron en
+   * el histórico. Sin este parámetro no se filtra nada (compatibilidad).
+   */
+  usuariosRegistrados?: Iterable<string> | null;
   maxTopAcciones?: number;
   maxTopUsuarios?: number;
   maxTopClientes?: number;
@@ -398,8 +405,14 @@ export function calcularResumenUso(params: {
   let primera: string | null = null;
   let ultima: string | null = null;
 
+  // Cuentas vigentes de la plataforma. Si no se declaran, no se filtra por esto.
+  const registrados = params.usuariosRegistrados
+    ? new Set(Array.from(params.usuariosRegistrados, (nombre) => nombre.trim()).filter(Boolean))
+    : null;
+  const esUsuarioDeLaApp = (usuario: string): boolean => !registrados || registrados.has(usuario.trim());
+
   const ordenados = params.eventos
-    .filter((e) => !esActorSistema(e.user) && e.action !== "GENERÓ REPORTE IA")
+    .filter((e) => !esActorSistema(e.user) && esUsuarioDeLaApp(e.user) && e.action !== "GENERÓ REPORTE IA")
     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
   for (const e of ordenados) {
@@ -454,7 +467,8 @@ export function calcularResumenUso(params: {
   const conexionesPorUsuario = new Map<string, number>();
   for (const conexion of params.conexiones ?? []) {
     const usuario = conexion.usuario.trim();
-    if (!usuario || esActorSistema(usuario) || !Number.isFinite(conexion.total) || conexion.total <= 0) continue;
+    if (!usuario || esActorSistema(usuario) || !esUsuarioDeLaApp(usuario)) continue;
+    if (!Number.isFinite(conexion.total) || conexion.total <= 0) continue;
     conexionesPorUsuario.set(
       usuario,
       (conexionesPorUsuario.get(usuario) ?? 0) + Math.floor(conexion.total),
@@ -565,7 +579,10 @@ function recortar(texto: string, max: number): string {
 }
 
 /** Conteos por familia de proceso (clave canónica, no etiqueta). */
-export function conteosPorFamiliaCanon(eventos: EventoAuditoria[]): Record<FamiliaProceso, number> {
+export function conteosPorFamiliaCanon(
+  eventos: EventoAuditoria[],
+  usuariosRegistrados?: Iterable<string> | null,
+): Record<FamiliaProceso, number> {
   const out: Record<FamiliaProceso, number> = {
     balance: 0,
     inventarios: 0,
@@ -577,8 +594,12 @@ export function conteosPorFamiliaCanon(eventos: EventoAuditoria[]): Record<Famil
     administracion: 0,
     otros: 0,
   };
+  const registrados = usuariosRegistrados
+    ? new Set(Array.from(usuariosRegistrados, (nombre) => nombre.trim()).filter(Boolean))
+    : null;
   for (const e of eventos) {
     if (esActorSistema(e.user) || e.action === "GENERÓ REPORTE IA") continue;
+    if (registrados && !registrados.has(e.user.trim())) continue;
     const f = clasificarFamilia(e.action, e.entity, e.detail);
     out[f] += 1;
   }

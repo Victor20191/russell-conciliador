@@ -3,6 +3,7 @@ import { calcularResumenUso, conteosPorFamiliaCanon } from "./metricas";
 import { evaluarAdopcion } from "./adopcion";
 import { construirDocumentoConsistente, construirPromptLecturaConsistente, parsearLecturaConsistente } from "./documento";
 import type { NovedadReporteEjecutivoContexto } from "./prompt";
+import { compararUso } from "./comparativo";
 
 const uso = calcularResumenUso({
   eventos: [{ user: "Ana <script>", action: "CARGÓ BALANCE", entity: "", detail: "", clientId: 7, createdAt: "2026-09-01T10:00:00Z" }],
@@ -57,5 +58,58 @@ describe("documento consistente", () => {
     expect(construirPromptLecturaConsistente(contexto)).toContain("No agregues cifras");
     expect(construirPromptLecturaConsistente(contexto)).not.toContain("Ana");
     expect(parsearLecturaConsistente(JSON.stringify({ ...parsed, extra: true }))).toBeNull();
+  });
+});
+
+describe("sección de comparativo", () => {
+  const usoPrevio = calcularResumenUso({
+    eventos: Array.from({ length: 10 }, (_, i) => ({
+      user: "Ana", action: "CARGÓ BALANCE", entity: "", detail: "", clientId: 7,
+      createdAt: `2026-08-2${i % 8}T10:00:00Z`,
+    })),
+    periodoDesde: "2026-08-25T00:00:00Z", periodoHasta: "2026-08-31T23:59:59Z",
+  });
+  const comparativo = compararUso({ actual: uso, previo: usoPrevio, base: "reporte_anterior", generadoEn: "2026-09-01T08:00:00Z" });
+
+  test("sin comparativo el documento no cambia", () => {
+    expect(construirDocumentoConsistente({ ...contexto, comparativo: null })).toEqual(
+      construirDocumentoConsistente(contexto),
+    );
+  });
+
+  test("con comparativo agrega la sección y la alerta visible antes de los indicadores", () => {
+    const doc = construirDocumentoConsistente({ ...contexto, comparativo });
+    expect(doc.html).toContain('id="comparativo"');
+    expect(doc.html).toContain("¿Subió o bajó el uso?");
+    // La alerta describe la caída (1 operación contra 10 del período previo).
+    expect(doc.html).toContain("El uso bajó");
+    expect(doc.html.indexOf('id="comparativo"')).toBeLessThan(doc.html.indexOf('id="indicadores"'));
+    // Y queda resumida en «Lo más importante».
+    expect(doc.html.indexOf("Frente al reporte anterior")).toBeLessThan(doc.html.indexOf('id="comparativo"'));
+  });
+});
+
+describe("colores del comparativo", () => {
+  const usoPrevioAlto = calcularResumenUso({
+    eventos: Array.from({ length: 10 }, (_, i) => ({
+      user: "Ana", action: "CARGÓ BALANCE", entity: "", detail: "", clientId: 7,
+      createdAt: `2026-08-2${i % 8}T10:00:00Z`,
+    })),
+    periodoDesde: "2026-08-25T00:00:00Z", periodoHasta: "2026-08-31T23:59:59Z",
+  });
+
+  test("pinta cada variación con su color: verde sube, rojo baja", () => {
+    const baja = compararUso({ actual: uso, previo: usoPrevioAlto, base: "reporte_anterior" });
+    const html = construirDocumentoConsistente({ ...contexto, comparativo: baja }).html;
+    expect(html).toContain("#9a2a22"); // rojo en la caída y en el banner
+    const sube = compararUso({ actual: usoPrevioAlto, previo: uso, base: "reporte_anterior" });
+    expect(construirDocumentoConsistente({ ...contexto, comparativo: sube }).html).toContain("#2f6b3f");
+  });
+
+  test("el banner usa la flecha del nivel, no la de la medida", () => {
+    // Variación del 0 %: «estable» aunque la medida no tenga dirección de caída.
+    const igual = compararUso({ actual: uso, previo: { ...uso, periodoDesde: "2026-08-25T00:00:00Z", periodoHasta: "2026-08-31T23:59:59Z" }, base: "reporte_anterior" });
+    const html = construirDocumentoConsistente({ ...contexto, comparativo: igual }).html;
+    expect(html).toContain("= El uso se mantuvo estable");
   });
 });

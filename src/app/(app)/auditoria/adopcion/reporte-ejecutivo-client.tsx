@@ -27,6 +27,7 @@ import {
   type BarraUso,
   type SerieDiaUso,
 } from "./indicadores-uso";
+import type { ComparativoUso } from "@/lib/auditoria/reporte-ejecutivo/comparativo";
 
 export type VersionOpcion = {
   id: number;
@@ -38,6 +39,8 @@ export type VersionOpcion = {
 };
 
 export type KpisIniciales = {
+  /** Variación del uso frente al reporte anterior; null cuando no hay con qué comparar. */
+  comparativo?: ComparativoUso | null;
   totalAcciones: number;
   totalUsuarios: number;
   totalClientes: number;
@@ -485,6 +488,7 @@ export function ReporteEjecutivoClient({
         topClientes={kpis.topClientes ?? []}
         serieDiaria={kpis.serieDiaria ?? []}
         adopcion={kpis.adopcionBarras ?? []}
+        comparativo={kpis.comparativo ?? null}
       />
 
       <Card className="overflow-hidden">

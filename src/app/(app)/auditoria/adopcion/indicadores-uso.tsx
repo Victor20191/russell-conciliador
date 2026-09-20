@@ -3,6 +3,11 @@
 import { useId, useState } from "react";
 import { Card } from "@/components/ui";
 import { fmtNum } from "@/lib/format";
+import {
+  alertaComparativo,
+  type ComparativoUso,
+  type VariacionUso,
+} from "@/lib/auditoria/reporte-ejecutivo/comparativo";
 
 export type BarraUso = {
   etiqueta: string;
@@ -166,6 +171,131 @@ function RitmoDiario({ serie }: { serie?: SerieDiaUso[] | null }) {
   );
 }
 
+const TONO_ALERTA: Record<"alza" | "baja" | "estable", string> = {
+  alza: "border-ok-500/30 bg-ok-100 text-ok-700",
+  baja: "border-err-500/30 bg-err-100 text-err-700",
+  estable: "border-ink-150 bg-ink-50 text-ink-700",
+};
+
+const ICONO_ALERTA: Record<"alza" | "baja" | "estable", string> = {
+  alza: "▲",
+  baja: "▼",
+  estable: "=",
+};
+
+/** Signo y color de una variación. Una caída no es «malo» por sí sola: solo se señala. */
+function Delta({ v }: { v: VariacionUso }) {
+  const tono =
+    v.direccion === "subio"
+      ? "text-ok-700"
+      : v.direccion === "bajo"
+        ? "text-err-700"
+        : "text-ink-500";
+  const flecha = v.direccion === "subio" ? "▲" : v.direccion === "bajo" ? "▼" : "=";
+  const pct = v.variacionPct == null ? "nuevo" : `${Math.abs(v.variacionPct)} %`;
+  return (
+    <span className={`font-mono text-[11.5px] font-semibold tabular-nums ${tono}`}>
+      {flecha} {pct}
+    </span>
+  );
+}
+
+function FilaVariacion({ v }: { v: VariacionUso }) {
+  return (
+    <li className="flex items-baseline justify-between gap-3 border-b border-ink-100 py-1.5 last:border-b-0">
+      <span className="min-w-0 truncate text-[12.5px] text-ink-800">{v.etiqueta}</span>
+      <span className="flex shrink-0 items-baseline gap-2">
+        <span className="font-mono text-[12.5px] tabular-nums text-ink-400">{fmtNum(v.previo)}</span>
+        <span className="text-[11px] text-ink-300">→</span>
+        <span className="font-mono text-[12.5px] font-semibold tabular-nums text-navy-700">{fmtNum(v.actual)}</span>
+        <Delta v={v} />
+      </span>
+    </li>
+  );
+}
+
+/**
+ * Comparativo del período actual contra el del reporte anterior. Responde la
+ * pregunta de gerencia: ¿el equipo usó más o menos la plataforma?
+ */
+export function ComparativoUsoCard({ comparativo }: { comparativo?: ComparativoUso | null }) {
+  if (!comparativo) return null;
+  const c = comparativo;
+  const alerta = alertaComparativo(c);
+  const origen =
+    c.base === "reporte_anterior"
+      ? `Reporte anterior (${c.previo.desde} → ${c.previo.hasta}${
+          c.generadoEn ? `, generado el ${c.generadoEn.slice(0, 10)}` : ""
+        })`
+      : `Período anterior (${c.previo.desde} → ${c.previo.hasta})`;
+
+  return (
+    <Card className="p-4">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <div>
+          <h2 className="text-[13px] font-semibold text-ink-800">¿Subió o bajó el uso?</h2>
+          <p className="mt-0.5 text-[11.5px] text-ink-500">
+            {origen} vs. actual ({c.actual.desde} → {c.actual.hasta})
+          </p>
+        </div>
+      </div>
+
+      {/* Alerta visible: el dato que gerencia mira primero. */}
+      <div
+        role="alert"
+        className={`mt-3 flex items-start gap-2.5 rounded-md border px-3 py-2.5 ${TONO_ALERTA[alerta.nivel]}`}
+      >
+        <span aria-hidden className="text-[15px] leading-none">
+          {ICONO_ALERTA[alerta.nivel]}
+        </span>
+        <div className="min-w-0">
+          <p className="text-[13px] font-semibold">{alerta.titulo}</p>
+          <p className="mt-0.5 text-[11.5px] opacity-90">{alerta.mensaje}</p>
+        </div>
+      </div>
+
+      {!c.comparable && (
+        <p className="mt-2 rounded-md bg-warn-100 px-2.5 py-1.5 text-[11.5px] text-warn-700">
+          Los períodos no miden lo mismo ({c.previo.dias} días frente a {c.actual.dias}). Compara el
+          promedio diario, no los totales.
+        </p>
+      )}
+
+      <ul className="mt-3">
+        {c.totales.map((v) => (
+          <FilaVariacion key={v.etiqueta} v={v} />
+        ))}
+        <FilaVariacion v={c.promedioDiario} />
+      </ul>
+
+      {c.porFamilia.length > 0 && (
+        <>
+          <h3 className="mt-4 text-[12px] font-semibold text-ink-700">Por módulo o proceso</h3>
+          <ul className="mt-1">
+            {c.porFamilia.slice(0, 8).map((v) => (
+              <FilaVariacion key={v.etiqueta} v={v} />
+            ))}
+          </ul>
+        </>
+      )}
+
+      {c.porUsuario.length > 0 && (
+        <>
+          <h3 className="mt-4 text-[12px] font-semibold text-ink-700">Por usuario</h3>
+          <p className="text-[11px] text-ink-400">
+            Solo entre los usuarios más activos de cada período.
+          </p>
+          <ul className="mt-1">
+            {c.porUsuario.slice(0, 8).map((v) => (
+              <FilaVariacion key={v.etiqueta} v={v} />
+            ))}
+          </ul>
+        </>
+      )}
+    </Card>
+  );
+}
+
 /**
  * Panel permanente de indicadores de uso de la plataforma.
  * Siempre visible en Configuración › Reportes ejecutivos (con o sin reporte IA).
@@ -178,8 +308,10 @@ export function IndicadoresUso({
   topClientes,
   serieDiaria,
   adopcion,
+  comparativo,
 }: {
   periodoLabel: string;
+  comparativo?: ComparativoUso | null;
   porFamilia?: BarraUso[] | null;
   topUsuarios?: BarraUso[] | null;
   topAcciones?: BarraUso[] | null;
@@ -198,6 +330,8 @@ export function IndicadoresUso({
           </p>
         </div>
       </div>
+
+      <ComparativoUsoCard comparativo={comparativo} />
 
       <div className="grid gap-3 lg:grid-cols-2">
         <ListaBarras

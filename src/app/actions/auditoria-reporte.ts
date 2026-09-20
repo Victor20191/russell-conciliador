@@ -24,6 +24,8 @@ import {
   filtrarNavegacionesPublicadas,
   type FiltroPublicacion,
 } from "@/lib/auditoria/reporte-ejecutivo/alcance";
+import { construirComparativoUso } from "@/lib/auditoria/reporte-ejecutivo/comparativo-servidor";
+import type { ComparativoUso } from "@/lib/auditoria/reporte-ejecutivo/comparativo";
 import { modulosPublicadosParaTodos } from "@/lib/rbac/publicacion";
 import { MODULOS_PLATAFORMA_KEYS } from "@/lib/rbac/modulos-plataforma";
 import { construirDocumentoConsistente, construirPromptLecturaConsistente, parsearLecturaConsistente } from "@/lib/auditoria/reporte-ejecutivo/documento";
@@ -436,6 +438,8 @@ export async function generarReporteEjecutivoUso(
 
     const nombresClientes = new Map(clientes.map((c) => [c.id, c.name]));
     const correosUsuarios = new Map(usuarios.map((u) => [u.name, u.email]));
+    // El reporte mide el uso de las cuentas que existen en la plataforma.
+    const usuariosRegistrados = usuarios.map((u) => u.name);
     const uso = calcularResumenUso({
       eventos,
       conexiones: conexionesRaw.map((conexion) => ({
@@ -445,6 +449,18 @@ export async function generarReporteEjecutivoUso(
       navegaciones: alcanceNavegaciones.navegaciones,
       periodoDesde: rango.desde,
       periodoHasta: rango.hasta,
+      nombresClientes,
+      correosUsuarios,
+      usuariosRegistrados,
+    });
+
+    // Comparativo contra el último reporte generado (o el período anterior).
+    const comparativo = await construirComparativoUso({
+      usoActual: uso,
+      desde: rango.desde,
+      hasta: rango.hasta,
+      filtro,
+      usuariosRegistrados,
       nombresClientes,
       correosUsuarios,
     });
@@ -458,7 +474,7 @@ export async function generarReporteEjecutivoUso(
       planos,
     } = crearContextoNovedades(versiones, filtro);
 
-    const conteos = conteosPorFamiliaCanon(eventos);
+    const conteos = conteosPorFamiliaCanon(eventos, usuariosRegistrados);
     const adopcion = evaluarAdopcion({ cambios: planos, conteosPorFamilia: conteos });
     const prompt = construirPromptLecturaConsistente({ uso, adopcion, novedades });
     const system = "Selecciona únicamente interpretaciones prudentes permitidas. No calcules cifras ni generes HTML.";
@@ -497,7 +513,7 @@ export async function generarReporteEjecutivoUso(
 
     signal?.throwIfAborted();
     const report = normalizarReporteHtml(construirDocumentoConsistente({
-      uso, adopcion, novedades, lecturaIA: parsearLecturaConsistente(completion.text),
+      uso, adopcion, novedades, comparativo, lecturaIA: parsearLecturaConsistente(completion.text),
       corte: corte.toISOString(),
     }).html);
 
@@ -513,7 +529,7 @@ export async function generarReporteEjecutivoUso(
       totalAcciones: uso.totalAcciones, totalUsuarios: uso.totalUsuarios,
       totalNovedades: adopcion.totalCambios, porcentajeAdopcion: adopcion.porcentajeAdopcion,
       versionIdsIncluidos, corte: corte.toISOString(),
-      fuente: { uso, adopcion, novedades }, userId: user?.id ?? null,
+      fuente: { uso, adopcion, novedades, comparativo }, userId: user?.id ?? null,
     });
     signal?.throwIfAborted();
     await logAudit({
@@ -542,6 +558,7 @@ export async function obtenerResumenUsoAdopcion(opciones: {
       ok: true;
       uso: ReturnType<typeof calcularResumenUso>;
       adopcion: ReturnType<typeof evaluarAdopcion>;
+      comparativo: ComparativoUso | null;
       totalVersionesPublicadas: number;
     }
   | { ok: false; message: string }
@@ -630,17 +647,28 @@ export async function obtenerResumenUsoAdopcion(opciones: {
       periodoHasta: rango.hasta,
       nombresClientes,
       correosUsuarios: new Map(usuarios.map((u) => [u.name, u.email])),
+      usuariosRegistrados: usuarios.map((u) => u.name),
     });
     const { planos } = crearContextoNovedades(versiones, filtro);
     const adopcion = evaluarAdopcion({
       cambios: planos,
-      conteosPorFamilia: conteosPorFamiliaCanon(eventos),
+      conteosPorFamilia: conteosPorFamiliaCanon(eventos, usuarios.map((u) => u.name)),
+    });
+    const comparativo = await construirComparativoUso({
+      usoActual: uso,
+      desde: rango.desde,
+      hasta: rango.hasta,
+      filtro,
+      usuariosRegistrados: usuarios.map((u) => u.name),
+      nombresClientes,
+      correosUsuarios: new Map(usuarios.map((u) => [u.name, u.email])),
     });
 
     return {
       ok: true,
       uso,
       adopcion,
+      comparativo,
       totalVersionesPublicadas: versiones.length,
     };
   } catch {
