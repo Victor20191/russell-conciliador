@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   alertaComparativo,
+  alertaUsuarios,
+  alertasComparativo,
   compararUso,
   diasDePeriodo,
   variacion,
@@ -175,5 +177,69 @@ describe("soloFecha", () => {
     // 2026-09-20 23:59:59 en Colombia = 2026-09-21T04:59:59Z: la etiqueta sigue siendo el día 20.
     expect(soloFecha("2026-09-21T04:59:59.999Z")).toBe("2026-09-20");
     expect(soloFecha("2026-08-22T05:00:00.000Z")).toBe("2026-08-22");
+  });
+});
+
+describe("cuántos usuarios operaron", () => {
+  const conDetalle = (periodo: { desde: string; hasta: string }, usuarios: Array<[string, number]>) =>
+    resumen({
+      periodoDesde: periodo.desde,
+      periodoHasta: periodo.hasta,
+      totalAcciones: usuarios.reduce((s, [, n]) => s + n, 0),
+      totalUsuarios: usuarios.filter(([, n]) => n > 0).length,
+      detalleUsuarios: usuarios.map(([usuario, total]) => ({
+        usuario,
+        correo: null,
+        conexiones: 1,
+        totalAcciones: total,
+        accionesPrincipales: [],
+        porFamilia: [],
+      })),
+    });
+
+  const antes = conDetalle({ desde: "2026-08-01T00:00:00Z", hasta: "2026-08-31T23:59:59Z" }, [
+    ["Ana", 100],
+    ["Luis", 100],
+    ["Sara", 100],
+    ["Solo entró", 0], // inició sesión pero no operó: no cuenta como operador
+  ]);
+  const ahora = conDetalle({ desde: "2026-09-01T00:00:00Z", hasta: "2026-09-30T23:59:59Z" }, [
+    ["Ana", 400],
+    ["Nuevo", 50],
+  ]);
+  const c = compararUso({ actual: ahora, previo: antes, base: "reporte_anterior" });
+
+  it("nombra quién entró, quién dejó de operar y cuántos siguieron", () => {
+    expect(c.usuarios).toEqual({
+      activosActual: 2,
+      activosPrevio: 3,
+      nuevos: ["Nuevo"],
+      salieron: ["Luis", "Sara"],
+      continuaron: 1,
+    });
+  });
+
+  it("compara las operaciones por usuario, no solo el total", () => {
+    const porUsuario = c.totales.find((t) => t.etiqueta === "Operaciones por usuario");
+    expect(porUsuario).toMatchObject({ previo: 100, actual: 225, direccion: "subio" });
+  });
+
+  it("alerta en baja cuando opera menos gente, aunque el volumen suba", () => {
+    const operaciones = alertaComparativo(c);
+    const usuarios = alertaUsuarios(c);
+    expect(operaciones.nivel).toBe("alza"); // 300 → 450 operaciones
+    expect(usuarios.nivel).toBe("baja"); // 3 → 2 personas
+    expect(usuarios.titulo).toContain("menos usuarios");
+    expect(usuarios.mensaje).toContain("Entraron 1 y dejaron de operar 2");
+  });
+
+  it("las dos alertas viajan juntas y etiquetadas", () => {
+    expect(alertasComparativo(c).map((a) => a.clave)).toEqual(["operaciones", "usuarios"]);
+  });
+
+  it("sin rotación lo dice explícitamente", () => {
+    const igual = compararUso({ actual: ahora, previo: { ...ahora, periodoDesde: "2026-08-01T00:00:00Z", periodoHasta: "2026-08-31T23:59:59Z" }, base: "reporte_anterior" });
+    expect(igual.usuarios).toMatchObject({ nuevos: [], salieron: [], continuaron: 2 });
+    expect(alertaUsuarios(igual).nivel).toBe("estable");
   });
 });

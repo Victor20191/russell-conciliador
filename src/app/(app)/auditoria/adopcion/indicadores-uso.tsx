@@ -4,7 +4,7 @@ import { useId, useState } from "react";
 import { Card } from "@/components/ui";
 import { fmtNum } from "@/lib/format";
 import {
-  alertaComparativo,
+  alertasComparativo,
   type ComparativoUso,
   type VariacionUso,
 } from "@/lib/auditoria/reporte-ejecutivo/comparativo";
@@ -221,7 +221,7 @@ function FilaVariacion({ v }: { v: VariacionUso }) {
 export function ComparativoUsoCard({ comparativo }: { comparativo?: ComparativoUso | null }) {
   if (!comparativo) return null;
   const c = comparativo;
-  const alerta = alertaComparativo(c);
+  const alertas = alertasComparativo(c);
   const origen =
     c.base === "reporte_anterior"
       ? `Reporte anterior (${c.previo.desde} → ${c.previo.hasta}${
@@ -240,19 +240,22 @@ export function ComparativoUsoCard({ comparativo }: { comparativo?: ComparativoU
         </div>
       </div>
 
-      {/* Alerta visible: el dato que gerencia mira primero. */}
-      <div
-        role="alert"
-        className={`mt-3 flex items-start gap-2.5 rounded-md border px-3 py-2.5 ${TONO_ALERTA[alerta.nivel]}`}
-      >
-        <span aria-hidden className="text-[15px] leading-none">
-          {ICONO_ALERTA[alerta.nivel]}
-        </span>
-        <div className="min-w-0">
-          <p className="text-[13px] font-semibold">{alerta.titulo}</p>
-          <p className="mt-0.5 text-[11.5px] opacity-90">{alerta.mensaje}</p>
+      {/* Dos alertas: cuánto se operó y cuánta gente operó. */}
+      {alertas.map((alerta) => (
+        <div
+          key={alerta.clave}
+          role="alert"
+          className={`mt-2 flex items-start gap-2.5 rounded-md border px-3 py-2.5 ${TONO_ALERTA[alerta.nivel]}`}
+        >
+          <span aria-hidden className="text-[15px] leading-none">
+            {ICONO_ALERTA[alerta.nivel]}
+          </span>
+          <div className="min-w-0">
+            <p className="text-[13px] font-semibold">{alerta.titulo}</p>
+            <p className="mt-0.5 text-[11.5px] opacity-90">{alerta.mensaje}</p>
+          </div>
         </div>
-      </div>
+      ))}
 
       {!c.comparable && (
         <p className="mt-2 rounded-md bg-warn-100 px-2.5 py-1.5 text-[11.5px] text-warn-700">
@@ -279,11 +282,28 @@ export function ComparativoUsoCard({ comparativo }: { comparativo?: ComparativoU
         </>
       )}
 
+      {(c.usuarios.nuevos.length > 0 || c.usuarios.salieron.length > 0) && (
+        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+          {c.usuarios.nuevos.length > 0 && (
+            <p className="rounded-md bg-ok-100 px-2.5 py-2 text-[11.5px] text-ok-700">
+              <strong>Empezaron a operar ({c.usuarios.nuevos.length}):</strong>{" "}
+              {c.usuarios.nuevos.join(", ")}
+            </p>
+          )}
+          {c.usuarios.salieron.length > 0 && (
+            <p className="rounded-md bg-err-100 px-2.5 py-2 text-[11.5px] text-err-700">
+              <strong>Dejaron de operar ({c.usuarios.salieron.length}):</strong>{" "}
+              {c.usuarios.salieron.join(", ")}
+            </p>
+          )}
+        </div>
+      )}
+
       {c.porUsuario.length > 0 && (
         <>
           <h3 className="mt-4 text-[12px] font-semibold text-ink-700">Por usuario</h3>
           <p className="text-[11px] text-ink-400">
-            Solo entre los usuarios más activos de cada período.
+            Operaciones de cada persona; {c.usuarios.continuaron} operaron en ambos períodos.
           </p>
           <ul className="mt-1">
             {c.porUsuario.slice(0, 8).map((v) => (

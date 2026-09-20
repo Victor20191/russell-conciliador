@@ -25,6 +25,7 @@ import {
   type FiltroPublicacion,
 } from "@/lib/auditoria/reporte-ejecutivo/alcance";
 import { construirComparativoUso } from "@/lib/auditoria/reporte-ejecutivo/comparativo-servidor";
+import { correosDelReporte, nombresDelReporte } from "@/lib/auditoria/reporte-ejecutivo/usuarios-reporte";
 import type { ComparativoUso } from "@/lib/auditoria/reporte-ejecutivo/comparativo";
 import { modulosPublicadosParaTodos } from "@/lib/rbac/publicacion";
 import { MODULOS_PLATAFORMA_KEYS } from "@/lib/rbac/modulos-plataforma";
@@ -437,9 +438,10 @@ export async function generarReporteEjecutivoUso(
     });
 
     const nombresClientes = new Map(clientes.map((c) => [c.id, c.name]));
-    const correosUsuarios = new Map(usuarios.map((u) => [u.name, u.email]));
-    // El reporte mide el uso de las cuentas que existen en la plataforma.
-    const usuariosRegistrados = usuarios.map((u) => u.name);
+    // El reporte mide el uso del equipo de Russell: fuera los actores técnicos
+    // y las cuentas internas de Xentria (ver `usuarios-reporte.ts`).
+    const correosUsuarios = correosDelReporte(usuarios);
+    const usuariosRegistrados = nombresDelReporte(usuarios);
     const uso = calcularResumenUso({
       eventos,
       conexiones: conexionesRaw.map((conexion) => ({
@@ -646,22 +648,22 @@ export async function obtenerResumenUsoAdopcion(opciones: {
       periodoDesde: rango.desde,
       periodoHasta: rango.hasta,
       nombresClientes,
-      correosUsuarios: new Map(usuarios.map((u) => [u.name, u.email])),
-      usuariosRegistrados: usuarios.map((u) => u.name),
+      correosUsuarios: correosDelReporte(usuarios),
+      usuariosRegistrados: nombresDelReporte(usuarios),
     });
     const { planos } = crearContextoNovedades(versiones, filtro);
     const adopcion = evaluarAdopcion({
       cambios: planos,
-      conteosPorFamilia: conteosPorFamiliaCanon(eventos, usuarios.map((u) => u.name)),
+      conteosPorFamilia: conteosPorFamiliaCanon(eventos, nombresDelReporte(usuarios)),
     });
     const comparativo = await construirComparativoUso({
       usoActual: uso,
       desde: rango.desde,
       hasta: rango.hasta,
       filtro,
-      usuariosRegistrados: usuarios.map((u) => u.name),
+      usuariosRegistrados: nombresDelReporte(usuarios),
       nombresClientes,
-      correosUsuarios: new Map(usuarios.map((u) => [u.name, u.email])),
+      correosUsuarios: correosDelReporte(usuarios),
     });
 
     return {

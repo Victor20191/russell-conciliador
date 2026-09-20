@@ -27,6 +27,10 @@ import {
   sugerirPeriodoReporte,
 } from "@/lib/auditoria/reporte-ejecutivo/periodo-sugerido";
 import {
+  correosDelReporte,
+  nombresDelReporte,
+} from "@/lib/auditoria/reporte-ejecutivo/usuarios-reporte";
+import {
   ReporteEjecutivoClient,
   type KpisIniciales,
   type VersionOpcion,
@@ -139,10 +143,11 @@ export default async function ReportesEjecutivosPage() {
   }).eventos;
 
   const nombresClientes = new Map(clientes.map((c) => [c.id, c.name]));
-  const correosUsuarios = new Map(usuarios.map((u) => [u.name, u.email]));
-  // Solo cuentas existentes en la plataforma: el tablero mide el uso de los
-  // usuarios de Russell, no el de actores técnicos que quedaron en la bitácora.
-  const usuariosRegistrados = usuarios.map((u) => u.name);
+  // Solo cuentas existentes en la plataforma y del cliente: el tablero mide el
+  // uso del equipo de Russell, no el de actores técnicos de la bitácora ni el
+  // de las cuentas de Xentria que construyen y operan la plataforma.
+  const correosUsuarios = correosDelReporte(usuarios);
+  const usuariosRegistrados = nombresDelReporte(usuarios);
   const uso = calcularResumenUso({
     eventos,
     conexiones: conexionesRaw.map((c) => ({ usuario: c.userName, total: c._count.userName })),

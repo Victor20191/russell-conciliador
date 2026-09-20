@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { ResumenAdopcion } from "./adopcion";
 import { construirSeccionGraficosHtml } from "./graficos";
 import type { ResumenUsoFactual } from "./metricas";
-import { alertaComparativo, type ComparativoUso, type VariacionUso } from "./comparativo";
+import { alertasComparativo, type AlertaUso, type ComparativoUso, type VariacionUso } from "./comparativo";
 import type { NovedadReporteEjecutivoContexto } from "./prompt";
 import type { ReporteEjecutivoUso } from "./reportes";
 
@@ -80,6 +80,23 @@ function filaVariacion(v: VariacionUso): string {
   return `<tr><td>${escapeHtml(v.etiqueta)}</td><td>${numero(v.previo)}</td><td style="color:${color};font-weight:600">${numero(v.actual)}</td><td style="color:${color};font-weight:600;white-space:nowrap">${SIGNO[v.direccion]} ${escapeHtml(pct)}</td></tr>`;
 }
 
+function bannerAlerta(a: AlertaUso): string {
+  return `<div style="${ESTILO_ALERTA[a.nivel]};padding:12px 14px;margin:12px 0;border-radius:4px"><strong style="display:block;font-size:15px">${SIGNO_ALERTA[a.nivel]} ${escapeHtml(a.titulo)}</strong><span style="font-size:12px">${escapeHtml(a.mensaje)}</span></div>`;
+}
+
+/** Quién entró y quién dejó de operar: el total de usuarios puede tapar una rotación completa. */
+function detalleUsuarios(c: ComparativoUso): string {
+  const { nuevos, salieron, continuaron } = c.usuarios;
+  if (nuevos.length === 0 && salieron.length === 0) {
+    return `<p class="nota">Operaron las mismas ${numero(continuaron)} personas en ambos períodos.</p>`;
+  }
+  const linea = (titulo: string, nombres: string[], color: string) =>
+    nombres.length === 0
+      ? ""
+      : `<li><strong style="color:${color}">${escapeHtml(titulo)} (${numero(nombres.length)}):</strong> ${escapeHtml(nombres.join(", "))}</li>`;
+  return `<ul>${linea("Empezaron a operar", c.usuarios.nuevos, COLOR_VARIACION.subio)}${linea("Dejaron de operar", c.usuarios.salieron, COLOR_VARIACION.bajo)}<li>Siguieron operando: <strong>${numero(continuaron)}</strong>.</li></ul>`;
+}
+
 /**
  * Sección «¿Subió o bajó el uso?»: alerta visible arriba y el detalle debajo.
  * Todo se calcula en código; la IA no interviene en estas cifras.
@@ -87,7 +104,7 @@ function filaVariacion(v: VariacionUso): string {
 function seccionComparativo(comparativo?: ComparativoUso | null): string {
   if (!comparativo) return "";
   const c = comparativo;
-  const alerta = alertaComparativo(c);
+  const alertas = alertasComparativo(c);
   const referencia = c.base === "reporte_anterior"
     ? `reporte anterior (${c.previo.desde} → ${c.previo.hasta}${c.generadoEn ? `, generado el ${c.generadoEn.slice(0, 10)}` : ""})`
     : `período anterior (${c.previo.desde} → ${c.previo.hasta})`;
@@ -96,9 +113,11 @@ function seccionComparativo(comparativo?: ComparativoUso | null): string {
     : `<p class="nota">Los períodos no miden lo mismo (${numero(c.previo.dias)} días frente a ${numero(c.actual.dias)}): la comparación se lee sobre el promedio diario, no sobre los totales.</p>`;
   const familias = c.porFamilia.slice(0, 8).map(filaVariacion).join("");
   return `<section id="comparativo"><h2>¿Subió o bajó el uso?</h2>
-<div style="${ESTILO_ALERTA[alerta.nivel]};padding:12px 14px;margin:12px 0;border-radius:4px"><strong style="display:block;font-size:15px">${SIGNO_ALERTA[alerta.nivel]} ${escapeHtml(alerta.titulo)}</strong><span style="font-size:12px">${escapeHtml(alerta.mensaje)}</span></div>
+${alertas.map(bannerAlerta).join("")}
 <p>Comparación del período actual (${escapeHtml(c.actual.desde)} → ${escapeHtml(c.actual.hasta)}) contra el ${escapeHtml(referencia)}.</p>${aviso}
 <table><thead><tr><th>Indicador</th><th>Anterior</th><th>Actual</th><th>Variación</th></tr></thead><tbody>${[...c.totales, c.promedioDiario].map(filaVariacion).join("")}</tbody></table>
+<h2 style="font-size:15px">Quiénes operaron</h2>${detalleUsuarios(c)}
+${c.porUsuario.length ? `<table><thead><tr><th>Usuario</th><th>Anterior</th><th>Actual</th><th>Variación</th></tr></thead><tbody>${c.porUsuario.map(filaVariacion).join("")}</tbody></table>` : ""}
 ${familias ? `<h2 style="font-size:15px">Por módulo o proceso</h2><table><thead><tr><th>Módulo o proceso</th><th>Anterior</th><th>Actual</th><th>Variación</th></tr></thead><tbody>${familias}</tbody></table>` : ""}
 <p class="nota">Una variación describe el volumen de operaciones registradas; no mide por sí sola productividad ni calidad del trabajo.</p></section>
 `;
@@ -123,7 +142,7 @@ export function construirDocumentoConsistente({ uso, adopcion, novedades, compar
     html: `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><title>${titulo}</title><style>
 @page{size:letter;margin:16mm}*{box-sizing:border-box}body{margin:0;background:#fff;color:#1a2330;font:13px/1.55 'Helvetica Neue',Helvetica,Arial,sans-serif}main{max-width:920px;margin:auto;padding:32px}header{border-bottom:2px solid #142b4a;padding-bottom:16px;margin-bottom:24px}.marca{font-size:11px;letter-spacing:2px;color:#142b4a;font-weight:bold}h1,h2{font-family:Georgia,'Times New Roman',serif;color:#142b4a}h1{font-size:28px;margin:8px 0}h2{font-size:20px;margin:24px 0 12px;break-after:avoid}p{margin:8px 0}section{margin:20px 0}table{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed}th,td{padding:9px;text-align:left;vertical-align:top;border-bottom:1px solid #dbe2ea;overflow-wrap:anywhere}th{background:#eef2f6}th:first-child{width:16%}tr{break-inside:avoid}li{margin:5px 0}.nota{color:#566273;font-size:11px}footer{border-top:1px solid #dbe2ea;margin-top:24px;padding-top:10px}@media print{main{max-width:none;padding:0}thead{display:table-header-group}}@media(max-width:600px){main{padding:16px}}
 </style></head><body><main><header><div class="marca">RUSSELL DIAGNÓSTICO</div><h1>${titulo}</h1><p>Período: ${escapeHtml(uso.periodoDesde.slice(0, 10))} → ${escapeHtml(uso.periodoHasta.slice(0, 10))}</p><p class="nota">Alcance temporal UTC: ${escapeHtml(uso.periodoDesde)} → ${escapeHtml(uso.periodoHasta)}</p>${corte ? `<p class="nota">Fecha de corte: ${escapeHtml(corte)}</p>` : ""}</header>
-<section id="lo-mas-importante"><h2>Lo más importante</h2><ul><li>Operaciones registradas: <strong>${numero(uso.totalAcciones)}</strong>.</li><li>Usuarios con operaciones: <strong>${numero(uso.totalUsuarios)}</strong>; clientes con operaciones: <strong>${numero(uso.totalClientes)}</strong>.</li><li>Visitas a módulos operativos: <strong>${numero(uso.totalNavegaciones)}</strong>; inicios de sesión: <strong>${numero(uso.totalConexiones)}</strong>. Se contabilizan por separado.</li><li>Funcionalidades con actividad relacionada: <strong>${numero(adopcion.usadas)}</strong>; sin actividad relacionada: <strong>${numero(adopcion.sinEvidencia)}</strong>.</li>${comparativo ? (() => { const a = alertaComparativo(comparativo); return `<li>Frente al ${comparativo.base === "reporte_anterior" ? "reporte anterior" : "período anterior"}: <strong style="color:${COLOR_ALERTA[a.nivel]}">${SIGNO_ALERTA[a.nivel]} ${escapeHtml(a.titulo)}</strong>.</li>`; })() : ""}</ul>${orientacion}</section>
+<section id="lo-mas-importante"><h2>Lo más importante</h2><ul><li>Operaciones registradas: <strong>${numero(uso.totalAcciones)}</strong>.</li><li>Usuarios con operaciones: <strong>${numero(uso.totalUsuarios)}</strong>; clientes con operaciones: <strong>${numero(uso.totalClientes)}</strong>.</li><li>Visitas a módulos operativos: <strong>${numero(uso.totalNavegaciones)}</strong>; inicios de sesión: <strong>${numero(uso.totalConexiones)}</strong>. Se contabilizan por separado.</li><li>Funcionalidades con actividad relacionada: <strong>${numero(adopcion.usadas)}</strong>; sin actividad relacionada: <strong>${numero(adopcion.sinEvidencia)}</strong>.</li>${comparativo ? alertasComparativo(comparativo).map((a) => `<li>Frente al ${comparativo.base === "reporte_anterior" ? "reporte anterior" : "período anterior"}: <strong style="color:${COLOR_ALERTA[a.nivel]}">${SIGNO_ALERTA[a.nivel]} ${escapeHtml(a.titulo)}</strong>.</li>`).join("") : ""}</ul>${orientacion}</section>
 <section id="decisiones"><h2>Decisiones y asuntos por atender</h2><p>${decision}</p><p>La actividad de un módulo no confirma el uso de una funcionalidad individual ni permite atribuirlo a una persona concreta.</p></section>
 ${seccionComparativo(comparativo)}<section id="indicadores"><h2>Indicadores de uso</h2>${graficos}</section>
 <section id="avances"><h2>Avances publicados</h2>${filas ? `<table><thead><tr><th>Versión</th><th>Avance</th><th>Descripción</th></tr></thead><tbody>${filas}</tbody></table>` : "<p>No hay avances publicados en el alcance seleccionado.</p>"}</section>

@@ -49,8 +49,26 @@ export type ComparativoUso = {
   /** Operaciones por día: la lectura honesta cuando los períodos no miden igual. */
   promedioDiario: VariacionUso;
   porFamilia: VariacionUso[];
-  /** Solo entre los usuarios más activos de cada período. */
+  /** Un renglón por persona que operó en alguno de los dos períodos. */
   porUsuario: VariacionUso[];
+  /** Quiénes operan la plataforma, no solo cuánto se operó. */
+  usuarios: CambioUsuarios;
+};
+
+/**
+ * El detalle de PERSONAS detrás de «usuarios que operaron». El total puede
+ * quedar igual y haber rotado el equipo entero, que para gerencia no es lo
+ * mismo: por eso se nombran los que entraron y los que dejaron de operar.
+ */
+export type CambioUsuarios = {
+  activosActual: number;
+  activosPrevio: number;
+  /** Operaron ahora y no antes. */
+  nuevos: string[];
+  /** Operaban antes y ahora no. */
+  salieron: string[];
+  /** Operaron en los dos períodos. */
+  continuaron: number;
 };
 
 const DIA_MS = 24 * 60 * 60 * 1000;
@@ -100,6 +118,11 @@ export function diasDePeriodo(desdeIso: string, hastaIso: string): number {
 
 const redondear2 = (n: number): number => Math.round(n * 100) / 100;
 
+/** Operaciones por persona: distingue «más gente» de «la misma gente trabajando más». */
+function promedioPorUsuario(r: ResumenUsoFactual): number {
+  return r.totalUsuarios > 0 ? r.totalAcciones / r.totalUsuarios : 0;
+}
+
 const formatoNumero = new Intl.NumberFormat("es-CO", { maximumFractionDigits: 2 });
 /** Número en formato colombiano (coma decimal), para los textos de la alerta. */
 const num = (n: number): string => formatoNumero.format(n);
@@ -147,13 +170,23 @@ export function compararUso(params: {
   const totales = [
     variacion("Operaciones registradas", actual.totalAcciones, previo.totalAcciones),
     variacion("Usuarios que operaron", actual.totalUsuarios, previo.totalUsuarios),
+    variacion("Operaciones por usuario", promedioPorUsuario(actual), promedioPorUsuario(previo)),
     variacion("Inicios de sesión", actual.totalConexiones, previo.totalConexiones),
     variacion("Visitas a módulos", actual.totalNavegaciones, previo.totalNavegaciones),
     variacion("Clientes con operaciones", actual.totalClientes, previo.totalClientes),
   ];
 
-  const usuariosActual = actual.topUsuarios.map((u) => ({ nombre: u.usuario, total: u.total }));
-  const usuariosPrevio = previo.topUsuarios.map((u) => ({ nombre: u.usuario, total: u.total }));
+  // `detalleUsuarios` es la lista COMPLETA (el top viene recortado a 12), así que
+  // es la única fuente que permite decir quién entró y quién dejó de operar.
+  // Solo cuenta quien dejó operaciones: en ese detalle también hay gente que
+  // únicamente inició sesión.
+  const operadores = (r: ResumenUsoFactual): ConteoNombrado[] =>
+    (r.detalleUsuarios?.length ? r.detalleUsuarios.filter((u) => u.totalAcciones > 0).map((u) => ({ nombre: u.usuario, total: u.totalAcciones })) : r.topUsuarios.map((u) => ({ nombre: u.usuario, total: u.total })));
+  const usuariosActual = operadores(actual);
+  const usuariosPrevio = operadores(previo);
+  const nombresActual = new Set(usuariosActual.map((u) => u.nombre));
+  const nombresPrevio = new Set(usuariosPrevio.map((u) => u.nombre));
+  const ordenar = (nombres: string[]) => nombres.sort((a, b) => a.localeCompare(b, "es"));
 
   return {
     base: params.base,
@@ -168,7 +201,14 @@ export function compararUso(params: {
       previo.totalAcciones / diasPrevio,
     ),
     porFamilia: unirConteos(actual.porFamilia, previo.porFamilia),
-    porUsuario: unirConteos(usuariosActual, usuariosPrevio).slice(0, params.maxUsuarios ?? 10),
+    porUsuario: unirConteos(usuariosActual, usuariosPrevio).slice(0, params.maxUsuarios ?? 12),
+    usuarios: {
+      activosActual: usuariosActual.length,
+      activosPrevio: usuariosPrevio.length,
+      nuevos: ordenar([...nombresActual].filter((n) => !nombresPrevio.has(n))),
+      salieron: ordenar([...nombresPrevio].filter((n) => !nombresActual.has(n))),
+      continuaron: [...nombresActual].filter((n) => nombresPrevio.has(n)).length,
+    },
   };
 }
 
@@ -192,6 +232,8 @@ export function titularComparativo(c: ComparativoUso): string {
 export type NivelAlertaUso = "alza" | "baja" | "estable";
 
 export type AlertaUso = {
+  /** Qué mide: el volumen de operaciones o cuánta gente operó. */
+  clave: "operaciones" | "usuarios";
   nivel: NivelAlertaUso;
   /** Titular corto para el banner. */
   titulo: string;
@@ -223,6 +265,7 @@ export function alertaComparativo(c: ComparativoUso, umbralPct: number = UMBRAL_
 
   if (pct != null && Math.abs(pct) < umbralPct) {
     return {
+      clave: "operaciones",
       nivel: "estable",
       titulo: "El uso se mantuvo estable",
       mensaje: `La variación frente ${referencia} (${ventana}) es de ${magnitud}, por debajo del umbral de ${num(umbralPct)} % que se considera relevante.`,
@@ -231,6 +274,7 @@ export function alertaComparativo(c: ComparativoUso, umbralPct: number = UMBRAL_
   }
   if (medida.direccion === "bajo") {
     return {
+      clave: "operaciones",
       nivel: "baja",
       titulo: `El uso bajó ${magnitud}`,
       mensaje: `${c.comparable ? "Las operaciones registradas" : "Las operaciones por día"} cayeron ${magnitud} frente ${referencia} (${ventana}). Conviene revisar con el equipo qué cambió en el período antes de concluir.`,
@@ -239,6 +283,7 @@ export function alertaComparativo(c: ComparativoUso, umbralPct: number = UMBRAL_
   }
   if (medida.direccion === "subio") {
     return {
+      clave: "operaciones",
       nivel: "alza",
       titulo: `El uso subió ${magnitud}`,
       mensaje: `${c.comparable ? "Las operaciones registradas" : "Las operaciones por día"} crecieron ${magnitud} frente ${referencia} (${ventana}).`,
@@ -246,9 +291,59 @@ export function alertaComparativo(c: ComparativoUso, umbralPct: number = UMBRAL_
     };
   }
   return {
+    clave: "operaciones",
     nivel: "estable",
     titulo: "El uso se mantuvo estable",
     mensaje: `No hubo variación frente ${referencia} (${ventana}).`,
     medida,
   };
+}
+
+/**
+ * Alerta de CUÁNTA GENTE operó. Va aparte de la de operaciones porque responde
+ * otra pregunta: el volumen puede subir porque dos personas trabajaron el doble
+ * mientras la mitad del equipo dejó de entrar, y eso no es más adopción.
+ *
+ * Como es un conteo de personas, no se normaliza por días: se compara tal cual.
+ */
+export function alertaUsuarios(c: ComparativoUso, umbralPct: number = UMBRAL_ALERTA_USO_PCT): AlertaUso {
+  const medida = c.totales.find((t) => t.etiqueta === "Usuarios que operaron") ?? c.totales[1];
+  const referencia = c.base === "reporte_anterior" ? "al reporte anterior" : "al período anterior";
+  const cuantos = `${num(medida.previo)} → ${num(medida.actual)}`;
+  const pct = medida.variacionPct;
+  const magnitud = pct == null ? `${num(Math.abs(medida.diferencia))}` : `${num(Math.abs(pct))} %`;
+  const rotacion = c.usuarios.nuevos.length > 0 || c.usuarios.salieron.length > 0
+    ? ` Entraron ${c.usuarios.nuevos.length} y dejaron de operar ${c.usuarios.salieron.length}.`
+    : "";
+
+  if (medida.direccion === "igual" || (pct != null && Math.abs(pct) < umbralPct)) {
+    return {
+      clave: "usuarios",
+      nivel: "estable",
+      titulo: `Operaron ${num(medida.actual)} usuarios, igual que antes`,
+      mensaje: `La cantidad de personas que operó la plataforma se mantuvo (${cuantos}) frente ${referencia}.${rotacion}`,
+      medida,
+    };
+  }
+  if (medida.direccion === "bajo") {
+    return {
+      clave: "usuarios",
+      nivel: "baja",
+      titulo: `Operaron ${magnitud} menos usuarios`,
+      mensaje: `Pasaron de ${cuantos} personas operando la plataforma frente ${referencia}.${rotacion} Menos gente usando la herramienta merece revisarse aunque el volumen de operaciones no baje.`,
+      medida,
+    };
+  }
+  return {
+    clave: "usuarios",
+    nivel: "alza",
+    titulo: `Operaron ${magnitud} más usuarios`,
+    mensaje: `Pasaron de ${cuantos} personas operando la plataforma frente ${referencia}.${rotacion}`,
+    medida,
+  };
+}
+
+/** Las dos alertas del comparativo: volumen de operaciones y cuánta gente operó. */
+export function alertasComparativo(c: ComparativoUso, umbralPct: number = UMBRAL_ALERTA_USO_PCT): AlertaUso[] {
+  return [alertaComparativo(c, umbralPct), alertaUsuarios(c, umbralPct)];
 }
