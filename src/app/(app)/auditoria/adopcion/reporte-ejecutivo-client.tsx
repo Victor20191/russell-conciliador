@@ -224,13 +224,20 @@ export function ReporteEjecutivoClient({
   kpis,
   defaultDesde,
   defaultHasta,
+  periodoTablero,
+  notaPeriodo,
   envios,
   pendiente,
 }: {
   versions: VersionOpcion[];
   kpis: KpisIniciales;
+  /** Período PRELLENADO del modal: continúa donde terminó el último reporte. */
   defaultDesde: string;
   defaultHasta: string;
+  /** Ventana que leen los indicadores del tablero (últimos 30 días). */
+  periodoTablero?: string;
+  /** Explicación de por qué el modal propone ese período. */
+  notaPeriodo?: string | null;
   envios: EnvioReportePrevio[];
   pendiente: ResumenPendienteEnvio;
 }) {
@@ -481,7 +488,7 @@ export function ReporteEjecutivoClient({
 
       {/* Indicadores permanentes: siempre visibles en la plataforma (sin depender del reporte IA). */}
       <IndicadoresUso
-        periodoLabel={`${defaultDesde} → ${defaultHasta}`}
+        periodoLabel={periodoTablero ?? `${defaultDesde} → ${defaultHasta}`}
         porFamilia={kpis.porFamilia ?? []}
         topUsuarios={kpis.topUsuarios ?? []}
         topAcciones={kpis.topAcciones ?? []}
@@ -501,7 +508,7 @@ export function ReporteEjecutivoClient({
               <div className="flex flex-wrap items-center gap-2">
                 <Chip label="Reporte para gerencia" tone="ai" />
                 <span className="text-[11.5px] text-ink-500">
-                  {defaultDesde} → {defaultHasta}
+                  {periodoTablero ?? `${defaultDesde} → ${defaultHasta}`}
                 </span>
               </div>
               <h2 className="mt-1 font-serif text-lg text-ink-900">
@@ -686,6 +693,9 @@ export function ReporteEjecutivoClient({
                 />
               </label>
             </div>
+            {notaPeriodo && desde === defaultDesde && hasta === defaultHasta && (
+              <p className="mt-1.5 text-[11.5px] text-ink-500">{notaPeriodo}</p>
+            )}
           </div>
 
           <div>

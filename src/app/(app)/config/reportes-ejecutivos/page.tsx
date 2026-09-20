@@ -23,6 +23,10 @@ import { listarEnviosReporteEjecutivo } from "@/app/actions/auditoria-reporte";
 import { resumirPendienteDeEnvio } from "@/lib/auditoria/reporte-ejecutivo/envios";
 import { construirComparativoUso } from "@/lib/auditoria/reporte-ejecutivo/comparativo-servidor";
 import {
+  explicarPeriodoSugerido,
+  sugerirPeriodoReporte,
+} from "@/lib/auditoria/reporte-ejecutivo/periodo-sugerido";
+import {
   ReporteEjecutivoClient,
   type KpisIniciales,
   type VersionOpcion,
@@ -46,8 +50,21 @@ export default async function ReportesEjecutivosPage() {
   desde.setHours(0, 0, 0, 0);
   hasta.setHours(23, 59, 59, 999);
 
-  const defaultDesde = aYYYYMMDD(desde);
-  const defaultHasta = aYYYYMMDD(hasta);
+  // El tablero sigue leyendo los últimos 30 días; el MODAL propone continuar
+  // donde terminó el último reporte, para que los períodos no se traslapen.
+  const ultimoReporte = await prisma.reporteEjecutivoUsoIA.findFirst({
+    orderBy: [{ periodoHasta: "desc" }, { creadoEn: "desc" }, { id: "desc" }],
+    select: { periodoDesde: true, periodoHasta: true },
+  });
+  const periodoSugerido = sugerirPeriodoReporte({
+    hoy: aYYYYMMDD(hasta),
+    ultimoReporte: ultimoReporte
+      ? { desde: aYYYYMMDD(ultimoReporte.periodoDesde), hasta: aYYYYMMDD(ultimoReporte.periodoHasta) }
+      : null,
+  });
+  const defaultDesde = periodoSugerido.desde;
+  const defaultHasta = periodoSugerido.hasta;
+  const periodoTablero = `${aYYYYMMDD(desde)} → ${aYYYYMMDD(hasta)}`;
 
   const [eventosRaw, conexionesRaw, navegacionesRaw, versiones, clientes, usuarios, modulosPublicados, envios] = await Promise.all([
     prisma.auditEntry.findMany({
@@ -250,6 +267,8 @@ export default async function ReportesEjecutivosPage() {
         kpis={kpis}
         defaultDesde={defaultDesde}
         defaultHasta={defaultHasta}
+        periodoTablero={periodoTablero}
+        notaPeriodo={explicarPeriodoSugerido(periodoSugerido)}
         envios={envios}
         pendiente={pendiente}
       />
