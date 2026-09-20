@@ -1,12 +1,12 @@
 import { generarReporteEjecutivoUso } from "@/app/actions/auditoria-reporte";
 import { registrarError } from "@/lib/errores";
+import { esMismoOrigen } from "@/lib/http/origen";
 
 export const runtime = "nodejs";
 export const maxDuration = 360;
 
 export async function POST(request: Request): Promise<Response> {
-  const origin = request.headers.get("origin");
-  if (origin && origin !== new URL(request.url).origin) {
+  if (!esMismoOrigen(request)) {
     return Response.json({ ok: false, message: "Origen de solicitud no permitido." }, { status: 403 });
   }
 
