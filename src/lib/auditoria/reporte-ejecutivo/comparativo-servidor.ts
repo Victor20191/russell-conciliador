@@ -1,9 +1,11 @@
 // De dónde sale el período con el que se compara el uso actual.
 //
-// Prioridad 1: el ÚLTIMO reporte generado. Cada instantánea guarda en
-// `metadatos.fuente.uso` el resumen factual completo con el que se construyó, así
-// que el comparativo usa exactamente las cifras que gerencia ya vio, sin
-// recalcular nada y sin que un cambio posterior de la bitácora las mueva.
+// Prioridad 1: el último reporte cuyo período TERMINA antes de que empiece el
+// actual —comparar contra uno que se traslapa (o que contiene al período nuevo)
+// no dice nada—. Cada instantánea guarda en `metadatos.fuente.uso` el resumen
+// factual completo con el que se construyó, así que el comparativo usa
+// exactamente las cifras que gerencia ya vio, sin recalcular nada y sin que un
+// cambio posterior de la bitácora las mueva.
 //
 // Prioridad 2 (respaldo): el período inmediatamente anterior de IGUAL duración,
 // calculado en vivo con los mismos filtros de publicación y de usuarios que el
@@ -112,15 +114,19 @@ export async function construirComparativoUso(params: {
   correosUsuarios: Map<string, string>;
 }): Promise<ComparativoUso | null> {
   try {
-    // 1) El último reporte generado para un período DISTINTO del actual. Se
-    // miran varios porque las instantáneas antiguas no guardaban la fuente: se
-    // toma la más reciente que SÍ la tenga, en vez de renunciar a comparar.
+    // 1) El último reporte cuyo período TERMINA antes de que empiece el actual.
+    //
+    // La condición de no traslape es lo que hace legible la comparación: un
+    // reporte de 09-01 a 09-20 CONTIENE al período 09-12 → 09-20, así que
+    // compararlos mide lo mismo contra sí mismo. Se ordena por fin de período
+    // —no por fecha de generación— porque lo que interesa es el tramo anterior
+    // inmediato, aunque se haya generado después de otro más reciente.
+    //
+    // Se miran varios porque las instantáneas antiguas no guardaban la fuente:
+    // se toma la primera que SÍ la tenga, en vez de renunciar a comparar.
     const candidatos = await prisma.reporteEjecutivoUsoIA.findMany({
-      where: {
-        NOT: { AND: [{ periodoDesde: params.desde }, { periodoHasta: params.hasta }] },
-        periodoHasta: { lte: params.hasta },
-      },
-      orderBy: [{ creadoEn: "desc" }, { id: "desc" }],
+      where: { periodoHasta: { lt: params.desde } },
+      orderBy: [{ periodoHasta: "desc" }, { creadoEn: "desc" }, { id: "desc" }],
       take: 10,
       select: { metadatos: true, creadoEn: true },
     });
