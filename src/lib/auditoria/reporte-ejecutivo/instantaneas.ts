@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import prisma from "@/lib/prisma";
 import type { ReporteEjecutivoUso } from "./reportes";
+import { METODOLOGIA_USO_VIGENTE } from "./metodologia";
 
 const Metadatos = z.object({
   porcentajeAdopcion: z.number().nullable(),
@@ -60,8 +61,11 @@ export async function guardarInstantanea(params: {
   try {
     const row = await prisma.reporteEjecutivoUsoIA.create({ data: {
       huellaContexto: huella, claveAlcance: params.clave,
+      // `metodologia` marca con qué reglas se calcularon estas cifras: el
+      // comparativo descarta las instantáneas viejas en vez de mezclarlas.
       metadatos: JSON.parse(JSON.stringify({ porcentajeAdopcion: params.porcentajeAdopcion,
-        versionIdsIncluidos: params.versionIdsIncluidos, corte: params.corte, fuente: params.fuente })),
+        versionIdsIncluidos: params.versionIdsIncluidos, corte: params.corte,
+        metodologia: METODOLOGIA_USO_VIGENTE, fuente: params.fuente })),
       modelo: params.modelo, titulo: params.report.titulo, html: params.report.html,
       periodoDesde: params.desde, periodoHasta: params.hasta,
       totalAcciones: params.totalAcciones, totalUsuarios: params.totalUsuarios,

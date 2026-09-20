@@ -16,6 +16,7 @@ import prisma from "@/lib/prisma";
 import { compararUso, type ComparativoUso } from "./comparativo";
 import { filtrarEventosPublicados, filtrarNavegacionesPublicadas, type FiltroPublicacion } from "./alcance";
 import { calcularResumenUso, clasificarFamilia, type EventoAuditoria, type ResumenUsoFactual } from "./metricas";
+import { metodologiaAlDia } from "./metodologia";
 
 /** Tope de eventos del período de respaldo (el actual tiene el suyo en cada llamador). */
 const MAX_EVENTOS_PREVIOS = 25_000;
@@ -133,9 +134,19 @@ export async function construirComparativoUso(params: {
     for (const candidato of candidatos) {
       const usoPrevio = leerUsoDeInstantanea(candidato.metadatos);
       if (!usoPrevio) continue;
+      // Una instantánea calculada con reglas viejas no es comparable: se
+      // conserva su VENTANA, pero las cifras se recalculan con las de hoy. Sin
+      // esto, el equipo excluido después aparecía «cayendo a cero».
+      const previo = metodologiaAlDia(candidato.metadatos)
+        ? usoPrevio
+        : await resumirRango({
+            ...params,
+            desde: new Date(usoPrevio.periodoDesde),
+            hasta: new Date(usoPrevio.periodoHasta),
+          });
       return compararUso({
         actual: params.usoActual,
-        previo: usoPrevio,
+        previo,
         base: "reporte_anterior",
         generadoEn: candidato.creadoEn.toISOString(),
       });
