@@ -19,7 +19,7 @@ import {
   evaluarAdopcion,
   type CambioNovedadContexto,
 } from "@/lib/auditoria/reporte-ejecutivo/adopcion";
-import { listarEnviosReporteEjecutivo } from "@/app/actions/auditoria-reporte";
+import { listarEnviosReporteEjecutivo, listarReportesGenerados } from "@/app/actions/auditoria-reporte";
 import { resumirPendienteDeEnvio } from "@/lib/auditoria/reporte-ejecutivo/envios";
 import { construirComparativoUso } from "@/lib/auditoria/reporte-ejecutivo/comparativo-servidor";
 import {
@@ -66,7 +66,7 @@ export default async function ReportesEjecutivosPage() {
   const defaultHasta = periodoSugerido.hasta;
   const periodoTablero = `${aYYYYMMDD(desde)} → ${aYYYYMMDD(hasta)}`;
 
-  const [eventosRaw, conexionesRaw, navegacionesRaw, versiones, clientes, usuarios, modulosPublicados, envios] = await Promise.all([
+  const [eventosRaw, conexionesRaw, navegacionesRaw, versiones, clientes, usuarios, modulosPublicados, envios, generados] = await Promise.all([
     prisma.auditEntry.findMany({
       where: { createdAt: { gte: desde, lte: hasta } },
       orderBy: { createdAt: "desc" },
@@ -118,6 +118,7 @@ export default async function ReportesEjecutivosPage() {
     prisma.user.findMany({ select: { name: true, email: true } }),
     modulosPublicadosParaTodos(),
     listarEnviosReporteEjecutivo(50),
+    listarReportesGenerados(50),
   ]);
 
   // Alcance del tablero y del reporte: solo módulos publicados para todos los
@@ -271,6 +272,7 @@ export default async function ReportesEjecutivosPage() {
         notaPeriodo={explicarPeriodoSugerido(periodoSugerido)}
         envios={envios}
         pendiente={pendiente}
+        generados={generados}
       />
     </div>
   );

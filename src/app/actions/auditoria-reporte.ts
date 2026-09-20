@@ -839,3 +839,100 @@ export async function eliminarEnvioReporteEjecutivo(
     return { ok: false, message: mensajeErrorBD("eliminarEnvioReporteEjecutivo", e) };
   }
 }
+
+/* ===== Historial de reportes GENERADOS (instantáneas) ===== */
+//
+// Existe para poder reiniciar la serie: el período que propone el modal y el
+// comparativo de uso se apoyan en el último reporte generado, así que borrar
+// una instantánea mueve ambos hacia atrás. Es distinto del registro de ENVÍOS,
+// que controla qué avances ya se le contaron al cliente.
+
+export type ReporteGeneradoPrevio = {
+  id: number;
+  titulo: string;
+  modelo: string;
+  periodoDesde: string;
+  periodoHasta: string;
+  generadoEn: string;
+  totalAcciones: number;
+  totalUsuarios: number;
+  totalNovedades: number;
+};
+
+/** Historial de reportes generados, del más reciente al más antiguo. */
+export async function listarReportesGenerados(limite = 50): Promise<ReporteGeneradoPrevio[]> {
+  const authz = await authorizeReporteEjecutivo();
+  if (!authz.ok) return [];
+
+  try {
+    const filas = await prisma.reporteEjecutivoUsoIA.findMany({
+      orderBy: [{ periodoHasta: "desc" }, { creadoEn: "desc" }, { id: "desc" }],
+      take: Math.min(Math.max(1, limite), 200),
+      select: {
+        id: true, titulo: true, modelo: true, periodoDesde: true, periodoHasta: true,
+        creadoEn: true, totalAcciones: true, totalUsuarios: true, totalNovedades: true,
+      },
+    });
+    return filas.map((f) => ({
+      id: f.id,
+      titulo: f.titulo,
+      modelo: f.modelo,
+      periodoDesde: f.periodoDesde.toISOString(),
+      periodoHasta: f.periodoHasta.toISOString(),
+      generadoEn: f.creadoEn.toISOString(),
+      totalAcciones: f.totalAcciones,
+      totalUsuarios: f.totalUsuarios,
+      totalNovedades: f.totalNovedades,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+export type EliminarReporteGeneradoResult = { ok: true; eliminados: number } | { ok: false; message: string };
+
+/** Borra UNA instantánea. El período sugerido y el comparativo retroceden a la anterior. */
+export async function eliminarReporteGenerado(id: number): Promise<EliminarReporteGeneradoResult> {
+  const authz = await authorizeReporteEjecutivo();
+  if (!authz.ok) return { ok: false, message: authz.message };
+  if (!Number.isInteger(id) || id <= 0) return { ok: false, message: "El reporte indicado no es válido." };
+
+  try {
+    const user = await getCurrentUser();
+    const fila = await prisma.reporteEjecutivoUsoIA.delete({
+      where: { id },
+      select: { periodoDesde: true, periodoHasta: true },
+    });
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: "ELIMINÓ REPORTE GENERADO",
+      entity: "Uso y adopción",
+      detail: `Borró el reporte #${id} del período ${fila.periodoDesde.toISOString().slice(0, 10)} → ${fila.periodoHasta.toISOString().slice(0, 10)}. El período sugerido y el comparativo vuelven al reporte anterior.`,
+    });
+    revalidatePath(RUTA_REPORTES);
+    return { ok: true, eliminados: 1 };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("eliminarReporteGenerado", e) };
+  }
+}
+
+/** Vacía el historial completo: la próxima generación arranca sin serie previa. */
+export async function eliminarTodosLosReportesGenerados(): Promise<EliminarReporteGeneradoResult> {
+  const authz = await authorizeReporteEjecutivo();
+  if (!authz.ok) return { ok: false, message: authz.message };
+
+  try {
+    const user = await getCurrentUser();
+    const { count } = await prisma.reporteEjecutivoUsoIA.deleteMany({});
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: "VACIÓ EL HISTORIAL DE REPORTES GENERADOS",
+      entity: "Uso y adopción",
+      detail: `Borró ${count} reporte(s) generados. El modal vuelve a proponer los últimos 30 días y el comparativo se calcula contra el período anterior.`,
+    });
+    revalidatePath(RUTA_REPORTES);
+    return { ok: true, eliminados: count };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("eliminarTodosLosReportesGenerados", e) };
+  }
+}

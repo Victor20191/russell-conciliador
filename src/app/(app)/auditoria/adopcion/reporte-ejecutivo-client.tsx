@@ -4,7 +4,10 @@ import { EstadoProcesando } from "@/components/estado-procesando";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
   eliminarEnvioReporteEjecutivo,
+  eliminarReporteGenerado,
+  eliminarTodosLosReportesGenerados,
   type GenerarReporteEjecutivoResult,
+  type ReporteGeneradoPrevio,
   registrarEnvioReporteEjecutivo,
 } from "@/app/actions/auditoria-reporte";
 import { Card, Chip, StatCard } from "@/components/ui";
@@ -228,6 +231,7 @@ export function ReporteEjecutivoClient({
   notaPeriodo,
   envios,
   pendiente,
+  generados = [],
 }: {
   versions: VersionOpcion[];
   kpis: KpisIniciales;
@@ -240,6 +244,8 @@ export function ReporteEjecutivoClient({
   notaPeriodo?: string | null;
   envios: EnvioReportePrevio[];
   pendiente: ResumenPendienteEnvio;
+  /** Historial de reportes generados; borrarlos reinicia el período sugerido. */
+  generados?: ReporteGeneradoPrevio[];
 }) {
   const [, startTransition] = useTransition();
   const [generando, setGenerando] = useState(false);
@@ -442,6 +448,37 @@ export function ReporteEjecutivoClient({
     });
   };
 
+  // Confirmación en dos pasos: el borrado del historial mueve hacia atrás el
+  // período sugerido y la base del comparativo, así que no basta un clic.
+  const [confirmarBorrado, setConfirmarBorrado] = useState<number | "todos" | null>(null);
+
+  const borrarGenerado = (id: number) => {
+    setConfirmarBorrado(null);
+    startTransition(async () => {
+      const res = await eliminarReporteGenerado(id);
+      if (!res.ok) {
+        notifyError("No se pudo eliminar", res.message);
+        return;
+      }
+      notifySuccess("Reporte eliminado", "El período sugerido y el comparativo vuelven al reporte anterior.");
+    });
+  };
+
+  const borrarTodosGenerados = () => {
+    setConfirmarBorrado(null);
+    startTransition(async () => {
+      const res = await eliminarTodosLosReportesGenerados();
+      if (!res.ok) {
+        notifyError("No se pudo vaciar el historial", res.message);
+        return;
+      }
+      notifySuccess(
+        "Historial vaciado",
+        `Se borraron ${res.eliminados} reporte(s). El modal vuelve a proponer los últimos 30 días.`,
+      );
+    });
+  };
+
   const deshacerEnvio = (id: number) => {
     startTransition(async () => {
       const res = await eliminarEnvioReporteEjecutivo(id);
@@ -553,6 +590,99 @@ export function ReporteEjecutivoClient({
             "El reporte para gerencia se genera bajo demanda. Elige el período de uso y las versiones de Novedades a incluir."
           )}
         </div>
+      </Card>
+
+      <Card className="overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-100 px-4 py-3 lg:px-5">
+          <div className="min-w-0">
+            <h2 className="text-[13px] font-semibold text-ink-800">Reportes generados</h2>
+            <p className="text-[11.5px] text-ink-500">
+              Historial de la plataforma. Al borrar uno, el período sugerido y el comparativo de uso
+              vuelven al reporte anterior.
+            </p>
+          </div>
+          {generados.length > 0 &&
+            (confirmarBorrado === "todos" ? (
+              <span className="flex shrink-0 items-center gap-2 text-[11.5px] text-ink-600">
+                ¿Borrar los {generados.length}?
+                <button
+                  type="button"
+                  onClick={borrarTodosGenerados}
+                  className="rounded-md border border-err-500/40 bg-err-100 px-2 py-1 text-[11px] font-semibold text-err-700 transition hover:bg-err-100/70"
+                >
+                  Sí, vaciar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmarBorrado(null)}
+                  className="rounded-md border border-ink-150 px-2 py-1 text-[11px] font-medium text-ink-600 transition hover:bg-ink-50"
+                >
+                  No
+                </button>
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setConfirmarBorrado("todos")}
+                className="shrink-0 rounded-md border border-ink-150 px-2 py-1 text-[11px] font-medium text-ink-600 transition hover:bg-ink-50"
+                title="Vacía el historial: el modal vuelve a proponer los últimos 30 días"
+              >
+                Borrar todos
+              </button>
+            ))}
+        </div>
+        {generados.length === 0 ? (
+          <p className="px-4 py-4 text-[12.5px] text-ink-500 lg:px-5">
+            Aún no se ha generado ningún reporte. El primero tomará los últimos 30 días.
+          </p>
+        ) : (
+          <ul className="divide-y divide-ink-100">
+            {generados.map((reporte) => (
+              <li
+                key={reporte.id}
+                className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-[12.5px] lg:px-5"
+              >
+                <span className="font-medium text-ink-800">{fmtDate(reporte.generadoEn)}</span>
+                <span className="text-ink-500">
+                  {fmtDate(reporte.periodoDesde)} → {fmtDate(reporte.periodoHasta)}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-ink-600">
+                  {fmtNum(reporte.totalAcciones)} acciones · {fmtNum(reporte.totalUsuarios)} usuarios ·{" "}
+                  {fmtNum(reporte.totalNovedades)} novedades
+                </span>
+                <span className="text-ink-400">{reporte.modelo}</span>
+                {confirmarBorrado === reporte.id ? (
+                  <span className="flex shrink-0 items-center gap-2 text-[11.5px] text-ink-600">
+                    ¿Eliminar?
+                    <button
+                      type="button"
+                      onClick={() => borrarGenerado(reporte.id)}
+                      className="rounded-md border border-err-500/40 bg-err-100 px-2 py-1 text-[11px] font-semibold text-err-700 transition hover:bg-err-100/70"
+                    >
+                      Sí
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmarBorrado(null)}
+                      className="rounded-md border border-ink-150 px-2 py-1 text-[11px] font-medium text-ink-600 transition hover:bg-ink-50"
+                    >
+                      No
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmarBorrado(reporte.id)}
+                    className="shrink-0 rounded-md border border-ink-150 px-2 py-1 text-[11px] font-medium text-ink-600 transition hover:bg-ink-50"
+                    title="Eliminar del historial"
+                  >
+                    Eliminar
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
       </Card>
 
       <Card className="overflow-hidden">
