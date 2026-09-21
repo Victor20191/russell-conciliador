@@ -600,3 +600,37 @@ describe("subtotales en modo MANUAL (columna marcadora)", () => {
     expect(controlSubtotales(r.filas).granTotal?.estado).toBe("descuadre");
   });
 });
+
+// Cargue con patrón de Inventarios: «¿El archivo trae el valor total? Sí» fija la celda aunque la
+// versión del patrón detecte los totales sola («auto»). La celda es el gran total; los subtotales
+// rotulados por tipo se siguen reconociendo y nada se imputa dos veces.
+describe("celda del total del cargue con detección automática", () => {
+  const grid: CeldaCruda[][] = [
+    ENC,
+    ["Materia prima", "R1", "Tornillo", 1, 100, 100],
+    ["Materia prima", "R2", "Tuerca", 1, 200, 200],
+    ["Total Materia prima", null, null, null, null, 300],
+    ["Producto terminado", "R3", "Mesa", 1, 50, 50],
+    ["Total Producto terminado", null, null, null, null, 50],
+    [null, null, null, null, null, 350],
+  ];
+
+  it("la celda ubicada es el gran total y los subtotales por tipo siguen fuera del detalle", () => {
+    const spec: SpecModulo = { ...SPEC, subtotalesColumna: 6, subtotalesFila: 7, subtotalesTexto: "350" };
+    const r = transformarModulo(INV, spec, hoja(grid));
+    expect(r.filas.filter((f) => f.tipoFila === "movimiento").map((f) => f.filaNum)).toEqual([2, 3, 5]);
+    expect(r.filas.find((f) => f.filaNum === 7)).toMatchObject({ tipoFila: "total", motivo: "gran_total:marca_manual" });
+    expect(r.filas.filter((f) => f.tipoFila === "total").map((f) => f.filaNum)).toEqual([4, 6, 7]);
+    expect(controlSubtotales(r.filas).granTotal).toMatchObject({ filaNum: 7, subtotalArchivo: 350, sumaMovimientos: 350, estado: "cuadra" });
+  });
+
+  it("una fila que no es la ubicada no se vuelve el gran total por estar en la columna", () => {
+    const spec: SpecModulo = { ...SPEC, subtotalesColumna: 6, subtotalesFila: 6, subtotalesTexto: "50" };
+    const r = transformarModulo(INV, spec, hoja(grid));
+    expect(r.filas.find((f) => f.filaNum === 6)).toMatchObject({ tipoFila: "total", motivo: "gran_total:marca_manual" });
+    // Lo que sigue a la celda sin columnas de detalle es cuadro de control: fuera, nunca un ítem.
+    expect(r.filas.find((f) => f.filaNum === 7)).toMatchObject({ tipoFila: "agrupadora", motivo: "cola_control:cola,sin_detalle" });
+    expect(r.filas.filter((f) => f.tipoFila === "movimiento").map((f) => f.filaNum)).toEqual([2, 3, 5]);
+    expect(controlSubtotales(r.filas).granTotal?.estado).toBe("descuadre");
+  });
+});

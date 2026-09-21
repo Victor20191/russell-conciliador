@@ -361,9 +361,10 @@ export function resolverGranTotalUnico(
  *  - "auto"   → lo anterior, o aritmética + (sin detalle | negrita). Un candidato con
  *               clasificador propio distinto al del bloque y sin rótulo NO es subtotal
  *               (es la primera fila del grupo siguiente).
- *  - "manual" → con coordenada exacta, ESA fila es el gran total y solo el sufijo posterior
- *               sin columnas de detalle se excluye como cuadro de control. Sin coordenada
- *               conserva el legado por patrón (`marcaManual`) para perfiles administrados.
+ *  - "manual" → solo la coordenada exacta (abajo). Sin coordenada conserva el legado por
+ *               patrón (`marcaManual`) para perfiles administrados.
+ * Coordenada exacta (`marcaManualExacta`, en cualquier modo, también «nunca»): ESA fila es el
+ * gran total y solo el sufijo posterior sin columnas de detalle se excluye como cuadro de control.
  * Un rótulo fuerte que NO cuadra sigue siendo subtotal: ese es justamente el descuadre a reportar.
  */
 export function detectarSubtotales(
@@ -376,11 +377,12 @@ export function detectarSubtotales(
   const marcados = new Set<number>();
   const esMarcado = (i: number) => marcados.has(i);
   const resultado: DeteccionSubtotal[] = [];
-  if (modo === "nunca") return resultado;
 
   // La coordenada que el usuario ubicó contra el original íntegro es autoridad para ESTE
   // archivo: nunca se degrada a subtotal de grupo aunque también cuadre con el bloque previo.
-  if (modo === "manual") {
+  // Vale en CUALQUIER modo (el cargue con patrón de Inventarios la pide aunque el patrón detecte
+  // solo): marca el gran total y lo demás sigue con el criterio del modo (subtotales por grupo).
+  {
     const indiceExacto = filas.findIndex((f) => f.marcaManualExacta === true);
     if (indiceExacto >= 0) {
       const exacta = filas[indiceExacto];
@@ -408,6 +410,7 @@ export function detectarSubtotales(
       }
     }
   }
+  if (modo === "nunca") return resultado;
 
   // FASE 0 — bloque de control al pie (solo en "auto": es aritmética, no rótulo, y los modos
   // "rotulo"/"manual" prometen que nada se marca fuera de su criterio). Sus filas quedan
@@ -419,6 +422,8 @@ export function detectarSubtotales(
     // aritmética sola), así que se deja pasar. Las demás filas del cierre igual se excluyen.
     const conRotulo = textosDeFila(filas[cola.indiceGranTotal], descriptor).some(esRotuloTotal);
     for (const i of cola.indices) {
+      // Lo que ya marcó la coordenada del usuario no se vuelve a marcar.
+      if (marcados.has(i)) continue;
       const esGran = i === cola.indiceGranTotal;
       if (esGran && conRotulo) continue;
       marcados.add(i);

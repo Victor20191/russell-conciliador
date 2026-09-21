@@ -158,6 +158,19 @@ describe("normalizarSpecModulo · subtotales", () => {
     expect(normalizarSpecModulo(INV, specInv({ subtotales: "rotulo", subtotalesColumna: 7 })).subtotalesColumna).toBeUndefined();
   });
 
+  it("celda del total de ESTE archivo con otro modo (cargue con patrón): va al lote, nunca al perfil", () => {
+    const conCelda = specInv({ subtotalesColumna: 6, subtotalesFila: 91, subtotalesTexto: "420" });
+    expect(normalizarSpecModuloArchivo(INV, conCelda)).toMatchObject({ subtotalesColumna: 6, subtotalesFila: 91, subtotalesTexto: "420" });
+    expect(normalizarSpecModuloArchivo(INV, conCelda).subtotales).toBeUndefined();
+    const perfil = normalizarSpecModulo(INV, conCelda);
+    expect(perfil.subtotalesColumna).toBeUndefined();
+    expect(perfil.subtotalesFila).toBeUndefined();
+    expect(perfil.subtotalesTexto).toBeUndefined();
+    // Columna sin fila (o al revés) no es una celda: no se conserva.
+    expect(normalizarSpecModuloArchivo(INV, specInv({ subtotales: "rotulo", subtotalesColumna: 6 })).subtotalesColumna).toBeUndefined();
+    expect(normalizarSpecModuloArchivo(INV, specInv({ subtotalesFila: 91 })).subtotalesFila).toBeUndefined();
+  });
+
   it("modo MANUAL: exige la columna marcadora", () => {
     expect(validarSpecModulo(INV, normalizarSpecModulo(INV, specInv({ subtotales: "manual" }))))
       .toBe("Indica la columna del archivo que marca las filas de subtotal.");

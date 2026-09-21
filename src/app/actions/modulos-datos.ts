@@ -50,7 +50,7 @@ import { letraColumnaModulo, modoClasificadorDe, normalizarSpecModulo, normaliza
 import { CLASIFICADOR_GLOBAL, transformarModulo, resultadoAReconciliacion } from "@/lib/modulos/extraccion/transformar";
 import { ETIQUETA_GRUPO_SIN_NOMBRE, esGrupoSinNombre, normalizarNombreClasificador, type GrupoSinNombre } from "@/lib/modulos/nombre-clasificador";
 import { aCeldaMuestra, textoCeldaMuestra, vistaAnalisisHoja, type CeldaMuestra } from "@/lib/modulos/extraccion/vista-analisis";
-import { aplicarClasificadorDeCarga, aplicarPatronASpec } from "@/lib/modulos/patrones/aplicar";
+import { aplicarClasificadorDeCarga, aplicarPatronASpec, aplicarTotalDeCarga } from "@/lib/modulos/patrones/aplicar";
 import { mejorVersion } from "@/lib/modulos/patrones/mejor-version";
 import { aplicativoConfirmadoDeCarga, versionesPatronCandidatas } from "@/lib/modulos/patrones/servidor";
 import type { ResumenPeriodo } from "@/lib/modulos/nomina/periodo";
@@ -1121,7 +1121,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
       hoja: GridHoja;
       spec: SpecModulo;
       origen: "manual" | "perfil" | "ia" | "patron";
-      patron: { versionId: number; version: number; porcentaje: number; clasificadorCambiado: boolean } | null;
+      patron: { versionId: number; version: number; porcentaje: number; clasificadorCambiado: boolean; totalDelCargue: string | null } | null;
     };
 
     // ARCHIVO MANUAL: (1) editado a mano → manual · (2) perfil por huella → perfil · (3) heurístico → ia.
@@ -1174,13 +1174,15 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
       const trm = Number(String(formData.get("trmCierre") ?? "").trim());
       if (Number.isFinite(trm) && trm > 0) spec = { ...spec, trmCierre: trm };
       const filaTotal = Number(formData.get("subtotalesFila"));
-      if (spec.subtotales === "manual" && Number.isInteger(filaTotal) && filaTotal > 0) spec = { ...spec, subtotalesFila: filaTotal };
+      if (!descriptor.confirmarTotalEnCarga && spec.subtotales === "manual" && Number.isInteger(filaTotal) && filaTotal > 0) {
+        spec = { ...spec, subtotalesFila: filaTotal };
+      }
+      const ancho = hoja.filas.reduce((max, fila) => Math.max(max, fila?.length ?? 0), 0);
       // Inventarios: el analista confirma el clasificador en cada cargue. Vale solo para este
       // archivo (queda en el spec del lote); la versión del patrón no se toca.
       let clasificadorCambiado = false;
       if (descriptor.confirmarClasificadorEnCarga) {
         // Sin respuesta, `Number("")` es 0 y el helper la rechaza con su mensaje.
-        const ancho = hoja.filas.reduce((max, fila) => Math.max(max, fila?.length ?? 0), 0);
         const eleccion = aplicarClasificadorDeCarga(
           descriptor,
           spec,
@@ -1194,11 +1196,32 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
         spec = eleccion.spec;
         clasificadorCambiado = eleccion.cambio;
       }
+      // Inventarios: «¿El archivo trae el valor total?» — Sí con su celda (columna + fila), o No.
+      // También es de este cargue; la celda se vuelve a leer del original más abajo.
+      let totalDelCargue: string | null = null;
+      if (descriptor.confirmarTotalEnCarga) {
+        const respuesta = String(formData.get("totalArchivo") ?? "").trim();
+        const total = aplicarTotalDeCarga(
+          descriptor,
+          spec,
+          {
+            trae: respuesta === "si" ? true : respuesta === "no" ? false : null,
+            columna: Number(String(formData.get("subtotalesColumna") ?? "").trim()),
+            fila: filaTotal,
+          },
+          ancho,
+        );
+        if (!total.ok) return total.message;
+        spec = total.spec;
+        totalDelCargue = spec.subtotalesFila != null
+          ? `total del archivo en ${letraColumnaModulo((spec.subtotalesColumna ?? 0) + (hoja.columnaInicial ?? 0))}${spec.subtotalesFila}`
+          : "el archivo no trae total";
+      }
       return {
         hoja,
         spec: normalizarSpecModuloArchivo(descriptor, spec),
         origen: "patron",
-        patron: { versionId: ubicacion.version.id, version: ubicacion.version.version, porcentaje: ubicacion.coincidencia.porcentaje, clasificadorCambiado },
+        patron: { versionId: ubicacion.version.id, version: ubicacion.version.version, porcentaje: ubicacion.coincidencia.porcentaje, clasificadorCambiado, totalDelCargue },
       };
     };
 
@@ -1234,8 +1257,9 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
 
     // La coordenada manual es autoridad solo para ESTE original. Nunca se acepta una fila
     // heredada del perfil ni se confía en el texto enviado por el navegador: se vuelve a
-    // resolver contra la grilla íntegra y el servidor fija el patrón real de esa celda.
-    if (spec.subtotales === "manual") {
+    // resolver contra la grilla íntegra y el servidor fija el patrón real de esa celda. Con
+    // patrón en Inventarios la coordenada puede venir con otro modo de detección (Sí al total).
+    if (spec.subtotales === "manual" || spec.subtotalesFila != null) {
       const columna = spec.subtotalesColumna ?? 0;
       const fila = spec.subtotalesFila ?? 0;
       if (columna < 1) return marcarNoProcesable("Indica la columna del archivo donde está el total.");
@@ -1273,7 +1297,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
       );
     }
     if (
-      spec.subtotales === "manual"
+      (spec.subtotales === "manual" || spec.subtotalesFila != null)
       && !resultado.filas.some((fila) => (
         fila.filaNum === spec.subtotalesFila
         && fila.tipoFila === "total"
@@ -1300,7 +1324,9 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
             : `columna ${letraColumnaModulo((spec.columnas[descriptor.clasificador] ?? 0) + (hoja.columnaInicial ?? 0))}`
         }`
       : "";
-    const detallePatron = patron ? ` · patrón ${aplicativo.name} v${patron.version} (${patron.porcentaje} %)${clasificadorDelCargue}` : ` · ${aplicativo.name}`;
+    const detallePatron = patron
+      ? ` · patrón ${aplicativo.name} v${patron.version} (${patron.porcentaje} %)${clasificadorDelCargue}${patron.totalDelCargue ? ` · ${patron.totalDelCargue}` : ""}`
+      : ` · ${aplicativo.name}`;
 
     try {
       await prisma.$transaction(async (tx) => {

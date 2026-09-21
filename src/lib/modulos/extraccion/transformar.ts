@@ -379,7 +379,9 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     // Pie de página del ERP («Siesa Enterprise Net 1.25.0 · Pág. 1 / 1»): nunca es un ítem, aunque su
     // texto caiga en la columna del identificador y el número de página en la del saldo.
     const esPieErp = esPieDeReporte(fila);
-    const marcaManualExacta = colMarcaSubtotal >= 1 && spec.subtotalesFila === filaNum;
+    // La coordenada del total que ubicó el usuario vale en cualquier modo de subtotales (con
+    // patrón, Inventarios la pide aunque la versión detecte sola); el legado por texto, solo en «manual».
+    const marcaManualExacta = (spec.subtotalesColumna ?? 0) >= 1 && spec.subtotalesFila === filaNum;
 
     // Nómina: el ERP repite el encabezado al cambiar de página (o el auditor pegó dos reportes
     // uno debajo del otro). Se reconoce por contenido y no entra como dato.

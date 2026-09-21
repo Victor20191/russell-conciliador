@@ -166,3 +166,52 @@ export function aplicarClasificadorDeCarga(
   const cambio = modoNuevo !== modoActual || (modoNuevo !== "global" && normalizado.columnas[rol] !== columnaActual);
   return { ok: true, spec: normalizado, cambio };
 }
+
+/** Respuesta a «¿El archivo trae el valor total?» al cargar con patrón (`confirmarTotalEnCarga`). */
+export type EleccionTotal = { trae: boolean | null; columna?: number; fila?: number };
+
+export type TotalDeCarga = { ok: true; spec: SpecModulo } | { ok: false; message: string };
+
+/** Última fila de una hoja de Excel: el mismo tope que el esquema del spec. */
+const MAX_FILA_HOJA = 1_048_576;
+
+/**
+ * Aplica al spec de ESTE archivo la respuesta del analista sobre el valor total (Inventarios). Es
+ * un dato del cargue, como el tipo de inventario: la versión del patrón no cambia.
+ *
+ * - **Sí**: la celda (columna + fila) que ubicó el analista es el gran total del archivo. El modo
+ *   de detección del patrón se conserva, así los subtotales por grupo se siguen reconociendo; el
+ *   servidor vuelve a leer esa celda del original antes de transformar.
+ * - **No**: sin coordenada ni control del total. Un patrón «manual» exige coordenada, así que ese
+ *   cargue se lee «por rótulo»: solo las filas rotuladas «Total/Subtotal» salen del detalle, para
+ *   no contarlas dos veces.
+ */
+export function aplicarTotalDeCarga(
+  descriptor: DescriptorModulo,
+  spec: SpecModulo,
+  eleccion: EleccionTotal,
+  anchoHoja: number,
+): TotalDeCarga {
+  if (eleccion.trae == null) return { ok: false, message: "Indica si el archivo trae el valor total." };
+  const siguiente: SpecModulo = { ...spec };
+  delete siguiente.subtotalesFila;
+  if (!eleccion.trae) {
+    if (siguiente.subtotales === "manual") {
+      siguiente.subtotales = "rotulo";
+      delete siguiente.subtotalesColumna;
+      delete siguiente.subtotalesTexto;
+    }
+    return { ok: true, spec: normalizarSpecModuloArchivo(descriptor, siguiente) };
+  }
+  const columna = Number(eleccion.columna);
+  const fila = Number(eleccion.fila);
+  if (!Number.isInteger(columna) || columna < 1 || columna > anchoHoja) {
+    return { ok: false, message: "Elige la columna donde está el valor total." };
+  }
+  if (!Number.isInteger(fila) || fila < 1 || fila > MAX_FILA_HOJA) {
+    return { ok: false, message: "Ubica la fila del valor total en este archivo." };
+  }
+  siguiente.subtotalesColumna = columna;
+  siguiente.subtotalesFila = fila;
+  return { ok: true, spec: normalizarSpecModuloArchivo(descriptor, siguiente) };
+}

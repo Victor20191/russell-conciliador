@@ -199,6 +199,11 @@ export type DescriptorModulo = {
    * para ese cargue: la versión del patrón no cambia (`aplicarClasificadorDeCarga`).
    */
   confirmarClasificadorEnCarga?: boolean;
+  /**
+   * Con un patrón de archivo, la carga pregunta SIEMPRE «¿El archivo trae el valor total?»: Sí
+   * con su ubicación (columna y fila) o No. Vale solo para ese cargue (`aplicarTotalDeCarga`).
+   */
+  confirmarTotalEnCarga?: boolean;
   /** Preguntas de verificación manual que el usuario responde al confirmar la carga. */
   verificaciones?: Verificacion[];
   /** Verificaciones que obligatoriamente deben responderse «Sí» para promover. */
@@ -371,6 +376,8 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     // Con patrón, el analista confirma el tipo de inventario en cada cargue (otra columna o uno
     // global) sin tocar la versión.
     confirmarClasificadorEnCarga: true,
+    // Y si el archivo trae el valor total (Sí con su celda, o No), sin tocar la versión.
+    confirmarTotalEnCarga: true,
     crucePorTercero: { habilitado: false },
     verificaciones: [
       { id: "consignacion_recibida", texto: "Confirme si la compañía maneja mercancías recibidas en consignación." },

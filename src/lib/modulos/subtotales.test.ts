@@ -363,6 +363,62 @@ describe("modo manual (columna marcadora)", () => {
   });
 });
 
+// Cargue con patrón de Inventarios: «¿El archivo trae el valor total? Sí» fija la celda aunque la
+// versión detecte los totales sola. La coordenada es el gran total; lo demás sigue el modo.
+describe("coordenada exacta del total en cualquier modo", () => {
+  it("en «auto» la coordenada es el gran total y los subtotales por grupo se siguen detectando", () => {
+    reset();
+    const filas = [
+      item("MP", "R1", 100),
+      item("MP", "R2", 200),
+      sub("MP", 300, "Total MP"),
+      item("PT", "R3", 50),
+      item("PT", "R4", 70),
+      sub("PT", 120, "Total PT"),
+      item("", "", 420, { marcaManualExacta: true }),
+    ];
+
+    const det = detectarSubtotales(filas, INV, { modo: "auto" });
+
+    expect(det.map((d) => [d.filaNum, d.clase])).toEqual([[3, "subtotal"], [6, "subtotal"], [7, "gran_total"]]);
+    expect(det.find((d) => d.filaNum === 7)?.senales).toEqual(["marca_manual"]);
+  });
+
+  it("gana sobre otra fila que la aritmética habría tomado por gran total", () => {
+    reset();
+    const filas = [
+      item("A", "R1", 100),
+      item("A", "R2", 200),
+      item("", "", 300, { negrita: true }),
+      item("", "", 300, { marcaManualExacta: true }),
+    ];
+
+    const det = detectarSubtotales(filas, INV, { modo: "auto" });
+
+    expect(det.filter((d) => d.clase === "gran_total").map((d) => d.filaNum)).toEqual([4]);
+  });
+
+  it("en «nunca» la coordenada igual es el gran total y nada más se marca", () => {
+    reset();
+    const filas = [
+      item("A", "R1", 100),
+      sub("A", 100, "Total A"),
+      item("", "", 100, { marcaManualExacta: true }),
+    ];
+
+    const det = detectarSubtotales(filas, INV, { modo: "nunca" });
+
+    expect(det.map((d) => [d.filaNum, d.clase])).toEqual([[3, "gran_total"]]);
+  });
+
+  it("sin coordenada, «auto» y «nunca» no cambian", () => {
+    reset();
+    const filas = [item("A", "R1", 100), item("A", "R2", 200), sub("A", 300, "Total A")];
+    expect(detectarSubtotales(filas, INV, { modo: "nunca" })).toEqual([]);
+    expect(detectarSubtotales(filas, INV, { modo: "auto" }).map((d) => d.filaNum)).toEqual([3]);
+  });
+});
+
 // Cierre al pie SIN rótulos: el caso de los inventarios reales, que terminan con un cuadro
 // de conciliación («SALDO INVENTARIO…», «BALANCE DEL INVENTARIO», «SALDO CONTABILIDAD» y sus
 // diferencias). Ninguna fila dice «total» y las cifras son casi iguales entre sí, así que ni

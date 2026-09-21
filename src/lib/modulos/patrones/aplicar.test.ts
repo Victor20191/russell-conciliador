@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { descriptorModulo } from "../descriptores";
 import type { SpecModulo } from "../extraccion/esquema";
-import { aplicarClasificadorDeCarga, aplicarPatronASpec, CLASIFICADOR_GLOBAL_CARGA } from "./aplicar";
+import { aplicarClasificadorDeCarga, aplicarPatronASpec, aplicarTotalDeCarga, CLASIFICADOR_GLOBAL_CARGA } from "./aplicar";
 import { coincidenciaPatron } from "./coincidencia";
 import type { UbicacionPatron, VersionCandidata } from "./mejor-version";
 
@@ -150,5 +150,58 @@ describe("aplicarClasificadorDeCarga (tipo de inventario confirmado en el cargue
     const manual: SpecModulo = { ...SPEC_INV, subtotales: "manual", subtotalesColumna: 6, subtotalesFila: 40 };
     const r = aplicarClasificadorDeCarga(INV, manual, { columna: 2 }, 6);
     expect(r).toMatchObject({ ok: true, spec: { subtotalesFila: 40, subtotalesColumna: 6 } });
+  });
+});
+
+describe("aplicarTotalDeCarga («¿El archivo trae el valor total?» en el cargue)", () => {
+  const INV = descriptorModulo("INV")!;
+  const SPEC_INV: SpecModulo = {
+    hoja: "Kardex",
+    filaEncabezado: 1,
+    primeraFilaDatos: 2,
+    columnas: { tipo: 1, referencia: 2, descripcion: 3, cantidad: 4, valorUnitario: 5, valorTotal: 6 },
+    clasificadorModo: "columna",
+  };
+  const MANUAL: SpecModulo = { ...SPEC_INV, subtotales: "manual", subtotalesColumna: 6, subtotalesTexto: "2653737498.78" };
+
+  it("solo Inventarios hace la pregunta", () => {
+    expect(INV.confirmarTotalEnCarga).toBe(true);
+    expect(CXP.confirmarTotalEnCarga).toBeFalsy();
+  });
+
+  it("sin respuesta no se crea el borrador", () => {
+    expect(aplicarTotalDeCarga(INV, SPEC_INV, { trae: null }, 6)).toEqual({ ok: false, message: "Indica si el archivo trae el valor total." });
+  });
+
+  it("Sí fija la celda del total y conserva el modo de detección del patrón", () => {
+    const r = aplicarTotalDeCarga(INV, SPEC_INV, { trae: true, columna: 6, fila: 91 }, 6);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.spec).toMatchObject({ subtotalesColumna: 6, subtotalesFila: 91 });
+    expect(r.spec.subtotales).toBeUndefined();
+  });
+
+  it("Sí sobre un patrón manual cambia la celda de este archivo y sigue en manual", () => {
+    const r = aplicarTotalDeCarga(INV, MANUAL, { trae: true, columna: 3, fila: 1347 }, 6);
+    expect(r.ok && r.spec).toMatchObject({ subtotales: "manual", subtotalesColumna: 3, subtotalesFila: 1347 });
+  });
+
+  it("Sí exige una columna de la hoja y una fila válida", () => {
+    expect(aplicarTotalDeCarga(INV, SPEC_INV, { trae: true, columna: 0, fila: 5 }, 6)).toEqual({ ok: false, message: "Elige la columna donde está el valor total." });
+    expect(aplicarTotalDeCarga(INV, SPEC_INV, { trae: true, columna: 7, fila: 5 }, 6)).toEqual({ ok: false, message: "Elige la columna donde está el valor total." });
+    expect(aplicarTotalDeCarga(INV, SPEC_INV, { trae: true, columna: 6, fila: 0 }, 6)).toEqual({ ok: false, message: "Ubica la fila del valor total en este archivo." });
+    expect(aplicarTotalDeCarga(INV, SPEC_INV, { trae: true, columna: 6, fila: Number.NaN }, 6).ok).toBe(false);
+  });
+
+  it("No deja el spec sin coordenada y un patrón manual se lee por rótulo", () => {
+    const auto = aplicarTotalDeCarga(INV, { ...SPEC_INV, subtotalesFila: 12 }, { trae: false }, 6);
+    expect(auto.ok && auto.spec.subtotalesFila).toBeUndefined();
+    const manual = aplicarTotalDeCarga(INV, { ...MANUAL, subtotalesFila: 12 }, { trae: false, columna: 6, fila: 12 }, 6);
+    expect(manual.ok).toBe(true);
+    if (!manual.ok) return;
+    expect(manual.spec.subtotales).toBe("rotulo");
+    expect(manual.spec.subtotalesColumna).toBeUndefined();
+    expect(manual.spec.subtotalesFila).toBeUndefined();
+    expect(manual.spec.subtotalesTexto).toBeUndefined();
   });
 });

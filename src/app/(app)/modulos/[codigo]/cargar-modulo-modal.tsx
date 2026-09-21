@@ -54,6 +54,11 @@ type PropsCarga = {
   puedeAdministrarPatrones: boolean;
   /** Con patrón, pide confirmar la columna del clasificador en cada cargue (Inventarios). */
   confirmarClasificador: boolean;
+  /**
+   * Con patrón, pregunta en cada cargue si el archivo trae el valor total (Inventarios); con
+   * «Sí» propone la columna del rol de valor. null = no se pregunta.
+   */
+  confirmarTotal: { rolValor: string } | null;
 };
 
 type ModoClasificador = NonNullable<SpecModulo["clasificadorModo"]>;
@@ -256,6 +261,7 @@ function CargarModal({
   clientes,
   puedeAdministrarPatrones,
   confirmarClasificador,
+  confirmarTotal,
   anexo,
   onClose,
 }: PropsCarga & { anexo?: AnexoModulo; onClose: () => void }) {
@@ -289,6 +295,8 @@ function CargarModal({
   // Clasificador que trae el patrón y la confirmación del analista (solo para este cargue).
   const [clasificadorPatron, setClasificadorPatron] = useState<ClasificadorPatron | null>(null);
   const [clasificadorConfirmado, setClasificadorConfirmado] = useState(false);
+  // «¿El archivo trae el valor total?» (solo este cargue): sin respuesta hasta que el analista elija.
+  const [totalArchivo, setTotalArchivo] = useState<"si" | "no" | null>(null);
   const etiquetaClasificador = roles.find((rol) => rol.nombre === clasificadorRol)?.etiqueta ?? "Clasificador";
   // Preferencias de carga del cliente (Configuración › Perfiles de carga): se muestran las notas.
   const [prefs, setPrefs] = useState<PrefsCarga | null>(null);
@@ -308,6 +316,7 @@ function CargarModal({
     setRecepcionLoteId(null);
     setClasificadorPatron(null);
     setClasificadorConfirmado(false);
+    setTotalArchivo(null);
     setFase("archivo");
   };
 
@@ -437,6 +446,7 @@ function CargarModal({
         // Cada análisis (también al cambiar de hoja) vuelve a pedir la confirmación del clasificador.
         setClasificadorPatron({ columna: r.spec.columnas[clasificadorRol] ?? 0, modo: modoClasificadorSpec(r.spec) });
         setClasificadorConfirmado(false);
+        setTotalArchivo(null);
         setFase(r.modo === "patron" ? "patron" : "mapeo");
         if (r.origen === "perfil") notifySuccess("Se aplicó el perfil guardado de este cliente. Revisa y confirma.");
       } catch {
@@ -473,10 +483,12 @@ function CargarModal({
       return;
     }
     const filaManual = Number(filaMarcaTotales);
-    if (
-      spec.subtotales === "manual"
-      && ((spec.subtotalesColumna ?? 0) < 1 || !marcaManualLista || !Number.isInteger(filaManual) || spec.subtotalesFila !== filaManual)
-    ) {
+    const celdaTotalLista = (spec.subtotalesColumna ?? 0) >= 1 && marcaManualLista && Number.isInteger(filaManual) && spec.subtotalesFila === filaManual;
+    const pedirTotal = porPatron && confirmarTotal != null;
+    if (pedirTotal) {
+      if (totalArchivo == null) { notifyError("Indica si el archivo trae el valor total."); return; }
+      if (totalArchivo === "si" && !celdaTotalLista) { notifyError("Ubica la celda del valor total: columna y fila."); return; }
+    } else if (spec.subtotales === "manual" && !celdaTotalLista) {
       notifyError("Escribe la fila y ubica la celda que marca el total.");
       return;
     }
@@ -491,7 +503,13 @@ function CargarModal({
         fd.set("patronVersionId", String(analisis.coincidencia!.versionId));
         fd.set("fechaCorte", spec.fechaCorte ?? (finDePeriodo(mes) ?? ""));
         if (spec.trmCierre) fd.set("trmCierre", String(spec.trmCierre));
-        if (spec.subtotalesFila) fd.set("subtotalesFila", String(spec.subtotalesFila));
+        if (pedirTotal) {
+          fd.set("totalArchivo", totalArchivo!);
+          if (totalArchivo === "si") {
+            fd.set("subtotalesColumna", String(spec.subtotalesColumna));
+            fd.set("subtotalesFila", String(spec.subtotalesFila));
+          }
+        } else if (spec.subtotalesFila) fd.set("subtotalesFila", String(spec.subtotalesFila));
         if (pedirClasificador) {
           fd.set("clasificadorColumna", String(modoClasificadorCargue === "global" ? CLASIFICADOR_GLOBAL : spec.columnas[clasificadorRol] ?? 0));
           fd.set("clasificadorModo", modoClasificadorCargue);
@@ -527,6 +545,24 @@ function CargarModal({
     setMarcaManualLista(false);
     // Una coordenada modificada todavía no está validada: sin texto, «Leer» no usa el anterior.
     setSpec((s) => (s ? { ...s, subtotalesFila: undefined, subtotalesTexto: analisis?.modo === "patron" ? s.subtotalesTexto : undefined } : s));
+  };
+  /** «¿El archivo trae el valor total?»: con Sí propone la columna; con No no queda coordenada. */
+  const responderTotal = (respuesta: "si" | "no") => {
+    reiniciarMarcaTotales();
+    setTotalArchivo(respuesta);
+    setSpec((s) => {
+      if (!s) return s;
+      if (respuesta === "no") return { ...s, subtotalesFila: undefined };
+      // La columna que el patrón ya usaba para marcar el total; si no, la del valor.
+      const propuesta = s.subtotales === "manual" && (s.subtotalesColumna ?? 0) >= 1
+        ? s.subtotalesColumna
+        : (s.columnas[confirmarTotal?.rolValor ?? ""] ?? 0) || undefined;
+      return { ...s, subtotalesColumna: propuesta, subtotalesFila: undefined };
+    });
+  };
+  const cambiarColumnaTotal = (columna: number) => {
+    reiniciarMarcaTotales();
+    setSpec((s) => (s ? { ...s, subtotalesColumna: columna >= 1 ? columna : undefined, subtotalesFila: undefined } : s));
   };
   const ubicarMarcaTotales = () => {
     const columna = spec?.subtotalesColumna ?? 0;
@@ -861,7 +897,47 @@ function CargarModal({
             />
           )}
           {conNivelCartera && <CamposCargueCartera spec={spec} setSpec={setSpec} fechaCorteSugerida={fechaCorteSugerida} />}
-          {spec.subtotales === "manual" && (
+          {confirmarTotal ? (
+            <div className="flex flex-col gap-2 rounded-md border border-blue-300 bg-blue-50/40 px-3 py-2.5">
+              <span className="text-[11px] font-medium text-ink-600">
+                ¿El archivo trae el valor total? <span className="text-err-600">*</span>
+              </span>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-ink-700" role="radiogroup" aria-label="¿El archivo trae el valor total?">
+                <label className="inline-flex items-center gap-1.5">
+                  <input type="radio" name="total-archivo" checked={totalArchivo === "si"} onChange={() => responderTotal("si")} />
+                  Sí, confirmo su ubicación
+                </label>
+                <label className="inline-flex items-center gap-1.5">
+                  <input type="radio" name="total-archivo" checked={totalArchivo === "no"} onChange={() => responderTotal("no")} />
+                  No trae total
+                </label>
+              </div>
+              {totalArchivo === "si" && (
+                <>
+                  <label className="flex min-w-0 flex-col gap-1 sm:max-w-xs">
+                    <span className="text-[10.5px] text-ink-500">Columna del valor total</span>
+                    <select
+                      aria-label="Columna del valor total"
+                      value={colSubtotales}
+                      onChange={(e) => cambiarColumnaTotal(Number(e.target.value))}
+                      className="w-full min-w-0 rounded-md border border-ink-200 bg-white px-2.5 py-1.5 text-[12px] text-ink-700 outline-none focus:border-blue-400"
+                    >
+                      {colSubtotales < 1 && <option value={0}>— elige la columna —</option>}
+                      {opcionesColumnaAnalisis(analisis).map((o) => <option key={o.index1} value={o.index1}>{o.label}</option>)}
+                    </select>
+                  </label>
+                  {marcaTotalesCarga}
+                </>
+              )}
+              {totalArchivo === "no" && (
+                <span className="text-[11px] leading-snug text-ink-500">
+                  El borrador no tendrá control del total del archivo.
+                  {spec.subtotales !== "nunca" && " Las filas rotuladas «Total» o «Subtotal» igual se excluyen del detalle."}
+                </span>
+              )}
+              <span className="text-[11px] leading-snug text-ink-500">Vale solo para este cargue: el patrón del aplicativo no se modifica.</span>
+            </div>
+          ) : spec.subtotales === "manual" && (
             <div className="flex flex-col gap-2 rounded-md border border-ink-200 bg-white px-3 py-2.5">
               <span className="text-[11px] font-medium text-ink-600">
                 Fila del total <span className="text-err-600">*</span> · el patrón lo marca en la columna {letraColumnaModulo(colSubtotales + (analisis.columnaInicial ?? 0))}

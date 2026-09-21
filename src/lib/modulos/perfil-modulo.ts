@@ -170,6 +170,17 @@ function normalizarSpecModuloInterno(
       const fila = spec.subtotalesFila;
       if (Number.isInteger(fila) && (fila as number) > 0) normalizado.subtotalesFila = fila;
     }
+  } else if (conservarCoordenadaArchivo) {
+    // Coordenada del total que el usuario ubicó en ESTE archivo con otro modo de detección
+    // (cargue con patrón de Inventarios): columna y fila van juntas y nunca llegan al perfil.
+    const columna = spec.subtotalesColumna;
+    const fila = spec.subtotalesFila;
+    if (Number.isInteger(columna) && (columna as number) > 0 && Number.isInteger(fila) && (fila as number) > 0) {
+      normalizado.subtotalesColumna = columna;
+      normalizado.subtotalesFila = fila;
+      const texto = spec.subtotalesTexto?.trim();
+      if (texto) normalizado.subtotalesTexto = texto;
+    }
   }
   return normalizado;
 }
