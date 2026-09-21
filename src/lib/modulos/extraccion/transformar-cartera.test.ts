@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { GridHoja } from "@/lib/balance/extraccion/ingesta";
 import { descriptorModulo } from "../descriptores";
 import type { SpecModulo } from "./esquema";
+import { normalizarSpecModulo } from "../perfil-modulo";
 import { sugerirSpec } from "./sugerir";
 import { transformarModulo } from "./transformar";
 
@@ -390,6 +391,60 @@ describe("reportes jerárquicos de SIESA: secciones de cuenta e identificador co
     expect(pie?.tipoFila).toBe("agrupadora");
     expect(pie?.motivo).toBe("sin_identificador");
     expect(movimientos(r).map((f) => f.valor)).toEqual([100, 200]);
+  });
+});
+
+describe("SIESA sin «#Ter.» (detalle de Mineralin, sep/2026): la cuenta va DEBAJO de su tercero", () => {
+  // El export trae el tercero, debajo el renglón de su cuenta y debajo sus documentos; la columna
+  // «#Ter.» existe pero no trae nada. El NIT y la cuenta comparten la columna C; el nombre, la
+  // cuenta y el documento, la D. Los documentos traen el «Total» en 0: manda la suma de edades.
+  const filas: (string | number | null)[][] = [
+    [null, null, "Documento", null, "Fecha", "F.Vcto.", "Venc.", "#Ter.", "Corriente", "De 1 a 30", "Total"],
+    [null, null, "1039886129", "CORREA ANDRES", null, null, null, null, 100, 200, 300],
+    [null, null, "13050502", "CLIENTES NACIONALES PASAJEROS", null, null, null, null, 100, 200, 300],
+    [null, null, null, "001-FNC-00002429-000", 45900, 45930, 0, null, 100, 0, 0],
+    [null, null, null, "001-FNC-00002430-000", 45870, 45900, 20, null, 0, 200, 0],
+    // Una cédula que empieza por 1305: va seguida de su renglón de cuenta, no de documentos.
+    [null, null, "1305123456", "PEREZ GOMEZ LUIS", null, null, null, null, 50, 0, 50],
+    [null, null, "13050501", "CLIENTES NACIONALES", null, null, null, null, 50, 0, 50],
+    [null, null, null, "001-FVM-00735278-000", 45920, 45950, 0, null, 50, 0, 0],
+    [null, null, "Total", null, null, null, null, null, 150, 200, 350],
+  ];
+  const specSinTer = (h: GridHoja): SpecModulo => {
+    const base = sugerirSpec(CAR, h);
+    const columnas = Object.fromEntries(CAR.columnas.map((c) => [c.nombre, 0])) as Record<string, number>;
+    Object.assign(columnas, { nit: 3, documento: 4, fecha: 5, vencimiento: 6, diasVencidos: 7, marcaSeccion: 8, total: 11 });
+    // Con el archivo real el wizard propone NIT y documento en la columna C, y por eso tercero en
+    // cabecera con arrastre del NIT; mover el documento a la D conserva ambos.
+    return normalizarSpecModulo(CAR, { ...base, columnas, terceroModo: "cabecera", arrastrarRoles: ["nit"], tipoFormato: "documento_edades", clasificadorModo: "columna" });
+  };
+  const esperar = (h: GridHoja) => {
+    const r = transformarModulo(CAR, specSinTer(h), h);
+    expect(movimientos(r).map((f) => [f.datos.documento, f.datos.nit, f.datos.nombre, f.clasificador, f.valor])).toEqual([
+      ["001-FNC-00002429-000", "1039886129", "CORREA ANDRES", "13050502", 100],
+      ["001-FNC-00002430-000", "1039886129", "CORREA ANDRES", "13050502", 200],
+      ["001-FVM-00735278-000", "1305123456", "PEREZ GOMEZ LUIS", "13050501", 50],
+    ]);
+    // El renglón de cuenta es estructura: no imputa, no inventa un tercero con su código y sigue
+    // siendo del tercero de encima (es su subtotal en esa cuenta).
+    const secciones = r.filas.filter((f) => f.motivo === "seccion_cuenta");
+    expect(secciones.map((f) => [f.clasificador, f.tipoFila, f.datos.nit])).toEqual([
+      ["13050502", "agrupadora", "1039886129"],
+      ["13050501", "agrupadora", "1305123456"],
+    ]);
+    // La cabecera del tercero declara su total para el control por cliente.
+    const cabeceras = r.filas.filter((f) => f.motivo === "subtotal_tercero:cabecera");
+    expect(cabeceras.map((f) => [f.datos.nit, f.saldoDeclarado])).toEqual([["1039886129", 300], ["1305123456", 50]]);
+    expect(r.filas.find((f) => f.filaNum === 9)?.tipoFila).toBe("total");
+  };
+
+  it("con la negrita del archivo (tercero y cuenta en negrita)", () => {
+    const negrita = filas.map((f, i) => (i === 0 ? [] : f.map(() => typeof f[2] === "string" && /^d+$/.test(f[2]))));
+    esperar(hoja("Hoja 1", filas, negrita));
+  });
+
+  it("sin negrita: el tercero no depende de ella", () => {
+    esperar(hoja("Hoja 1", filas));
   });
 });
 

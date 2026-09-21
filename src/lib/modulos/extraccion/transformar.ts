@@ -19,7 +19,7 @@ import type { DescriptorModulo } from "../descriptores";
 import type { SpecModulo } from "./esquema";
 import { norm, puntajeRol } from "./sugerir";
 import { coincideMarcaSubtotal, columnasDetalle, detectarSubtotales, esRotuloTotal, motivoDe } from "../subtotales";
-import { archivoConDocumentos, esIdentificadorVacio, esNumeroDocumento, rolDeCeldaCompartida } from "../cartera/identificador-compartido";
+import { archivoConDocumentos, esIdentificadorVacio, esNumeroDocumento, prefijosCuentaDeCedula, rolDeCeldaCompartida } from "../cartera/identificador-compartido";
 import { esPieDeReporte } from "./pie-reporte";
 import { aPesos, esMonedaExtranjera, montoConDivisa } from "../cartera/moneda";
 import { nivelCarteraDeSpec } from "../cartera/tipo-formato";
@@ -276,6 +276,24 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
   // «identificador-compartido.ts»): se decide una vez, mirando la columna del documento.
   const hayDocumentos = formatoSiesa && colDocumento >= 1
     && archivoConDocumentos(hoja.filas.slice(inicio).map((f) => celda(f ?? [], colDocumento)));
+  // Export SIN «#Ter.» (el detalle de Mineralin de sep/2026): la columna de la marca está mapeada
+  // pero no trae nada. Ahí la cuenta va DEBAJO de su tercero y justo encima de sus documentos: se
+  // reconoce por el prefijo de las cuentas del módulo y por los documentos que la siguen, y NO
+  // reinicia al tercero (con «#Ter.» la cuenta va ARRIBA y sí lo reinicia).
+  const sinMarcaSeccion = hayDocumentos
+    && !hoja.filas.slice(inicio).some((f) => !esIdentificadorVacio(celda(f ?? [], colMarcaSeccion)));
+  const prefijosCuenta = sinMarcaSeccion ? prefijosCuentaDeCedula(descriptor.crucePorTercero.cuentasRussell6 ?? []) : [];
+  // ¿El siguiente renglón con identidad (identificador o documento) es un documento?
+  const siguenDocumentos: boolean[] = [];
+  if (sinMarcaSeccion) {
+    let proximoEsDocumento = false;
+    for (let r = hoja.filas.length - 1; r >= inicio; r--) {
+      siguenDocumentos[r] = proximoEsDocumento;
+      const filaR = hoja.filas[r] ?? [];
+      if (esNumeroDocumento(celda(filaR, colDocumento))) proximoEsDocumento = true;
+      else if (!esIdentificadorVacio(celda(filaR, colIdentidad))) proximoEsDocumento = false;
+    }
+  }
   // Lo que la sección y la cabecera del tercero declaran una vez y sus filas heredan.
   let ultimaCuentaSeccion: string | null = null;
   let ultimoNombreTercero: string | null = null;
@@ -417,6 +435,7 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
         negrita: negritaIdentificador,
         marcaSeccion: celda(fila, colMarcaSeccion),
         hayDocumentos,
+        sinMarcaSeccion: sinMarcaSeccion ? { prefijosCuenta, siguenDocumentos: siguenDocumentos[r] === true } : undefined,
       });
       // Con documentos, la negrita sin «#Ter.» marca al tercero aunque su identificador no sea
       // solo dígitos (pasaportes, códigos del exterior): perderlo haría que sus documentos
@@ -427,13 +446,19 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
         // Encabezado de sección: fija la cuenta de lo que sigue y no es de ningún tercero.
         esSeccionCuenta = true;
         ultimaCuentaSeccion = identificador;
-        ultimoNombreTercero = null;
-        ultimoPorRol.delete(rolIdentificador);
-        ultimoPorRol.delete(rolNombre);
+        // Sin «#Ter.» la cuenta es un subnivel del tercero de encima: sus documentos siguen siendo
+        // de ese tercero. Con «#Ter.» abre una sección nueva y reinicia al tercero.
+        if (!sinMarcaSeccion) {
+          ultimoNombreTercero = null;
+          ultimoPorRol.delete(rolIdentificador);
+          ultimoPorRol.delete(rolNombre);
+        }
         datos[rolIdentificador] = null;
         if (colDocumento >= 1) datos.documento = null;
         datos[descriptor.clasificador] = identificador;
       } else {
+        // Sin «#Ter.» un tercero nuevo abre su bloque: su cuenta viene debajo, no es la anterior.
+        if (sinMarcaSeccion && rolCelda === "tercero") ultimaCuentaSeccion = null;
         // Con documentos, la columna solo identifica al tercero en su cabecera; en el resumen
         // (sin documentos) el tercero va en letra normal y cualquier texto puede serlo.
         if (rolCelda === "vacia" || (hayDocumentos && rolCelda !== "tercero")) datos[rolIdentificador] = null;

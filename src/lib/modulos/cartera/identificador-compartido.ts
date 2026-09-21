@@ -71,6 +71,28 @@ export function archivoConDocumentos(celdas: readonly unknown[], umbral = 0.05):
   return conValor > 0 && documentos / conValor >= umbral;
 }
 
+/** Prefijos (4 dígitos) de las cuentas que concilia el módulo: 130505 → 1305. */
+export function prefijosCuentaDeCedula(cuentas: readonly string[]): string[] {
+  return [...new Set(cuentas.map((c) => String(c).replace(/\D/g, "").slice(0, 4)).filter((c) => c.length === 4))];
+}
+
+/** Cuenta del PUC del cliente en un export SIN «#Ter.»: de 6 a 10 dígitos. */
+const PATRON_CUENTA_SIN_MARCA = /^\d{6,10}$/;
+
+/**
+ * Export SIN «#Ter.» (el detalle de Mineralin de sep/2026): la cuenta no trae marca y va DEBAJO
+ * de su tercero, justo encima de sus documentos, y en negrita como él. Es cuenta el código que
+ * empieza por un prefijo de las cuentas del módulo (13050502 en Cartera) Y que va seguido de
+ * documentos: así una cédula que empiece por 1305 sigue siendo tercero, porque debajo de ella va
+ * su renglón de cuenta y no sus documentos.
+ */
+export function esCuentaSinMarca(valor: unknown, contexto: { prefijosCuenta: readonly string[]; siguenDocumentos: boolean }): boolean {
+  const t = limpio(valor);
+  return contexto.siguenDocumentos
+    && PATRON_CUENTA_SIN_MARCA.test(t)
+    && contexto.prefijosCuenta.some((p) => t.startsWith(p));
+}
+
 /**
  * Rol de una celda de la columna compartida.
  *
@@ -83,9 +105,21 @@ export function rolDeCeldaCompartida(celda: {
   /** La celda de «#Ter.» (cantidad de terceros de la sección), si el archivo la trae. */
   marcaSeccion: unknown;
   hayDocumentos: boolean;
+  /**
+   * El archivo no trae «#Ter.» en ninguna fila: la cuenta se reconoce por su código y por los
+   * documentos que la siguen (`esCuentaSinMarca`), y el tercero no depende de la negrita (en este
+   * export la cuenta también va en negrita).
+   */
+  sinMarcaSeccion?: { prefijosCuenta: readonly string[]; siguenDocumentos: boolean };
 }): RolCeldaCompartida {
   const t = limpio(celda.valor);
   if (esIdentificadorVacio(t)) return "vacia";
+
+  if (celda.sinMarcaSeccion && celda.hayDocumentos) {
+    if (esNumeroDocumento(t)) return "documento";
+    if (esCuentaSinMarca(t, celda.sinMarcaSeccion)) return "cuenta";
+    return PATRON_TERCERO.test(t) ? "tercero" : "otro";
+  }
 
   // «#Ter.» lleno: es el encabezado de una sección de cuenta, venga o no en negrita.
   if (!esIdentificadorVacio(celda.marcaSeccion) && PATRON_CUENTA.test(t)) return "cuenta";

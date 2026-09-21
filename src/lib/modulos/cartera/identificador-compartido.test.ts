@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   archivoConDocumentos,
+  esCuentaSinMarca,
   esIdentificadorVacio,
   esNumeroDocumento,
+  prefijosCuentaDeCedula,
   rolDeCeldaCompartida,
 } from "./identificador-compartido";
 
@@ -108,5 +110,44 @@ describe("documentos del auxiliar de CxP (SIESA Zarzal)", () => {
 
   it("una fecha no es un documento", () => {
     expect(esNumeroDocumento("2025-12-31")).toBe(false);
+  });
+});
+
+describe("export SIN «#Ter.» (detalle de Mineralin, sep/2026): la cuenta va debajo del tercero", () => {
+  // Cartera: 130505, 130510 y 280505 → prefijos 1305 y 2805.
+  const prefijosCuenta = prefijosCuentaDeCedula(["130505", "130510", "280505"]);
+  const sinMarca = (valor: string, siguenDocumentos: boolean, negrita = true) =>
+    rolDeCeldaCompartida({ valor, negrita, marcaSeccion: null, hayDocumentos: true, sinMarcaSeccion: { prefijosCuenta, siguenDocumentos } });
+
+  it("prefijosCuentaDeCedula deja los prefijos de cuatro dígitos, sin repetir", () => {
+    expect(prefijosCuenta).toEqual(["1305", "2805"]);
+    expect(prefijosCuentaDeCedula(["220505", "221005", "233505", "233510", "133005"])).toEqual(["2205", "2210", "2335", "1330"]);
+  });
+
+  it("es cuenta el código del módulo seguido de sus documentos", () => {
+    expect(sinMarca("13050502", true)).toBe("cuenta");
+    expect(sinMarca("28050501", true)).toBe("cuenta");
+    expect(esCuentaSinMarca("130505", { prefijosCuenta, siguenDocumentos: true })).toBe(true);
+  });
+
+  it("una cédula que empieza por 1305 sigue siendo tercero: debajo va su cuenta, no sus documentos", () => {
+    expect(sinMarca("1305123456", false)).toBe("tercero");
+  });
+
+  it("el tercero no depende de la negrita (en este export la cuenta también va en negrita)", () => {
+    expect(sinMarca("1039886129", false, true)).toBe("tercero");
+    expect(sinMarca("1039886129", false, false)).toBe("tercero");
+    // Un NIT seguido de documentos que no empieza por un prefijo del módulo tampoco es cuenta.
+    expect(sinMarca("900123456", true)).toBe("tercero");
+  });
+
+  it("documentos, relleno y rótulos se leen igual que con «#Ter.»", () => {
+    expect(sinMarca("001-FNC-00002429-000", false, false)).toBe("documento");
+    expect(sinMarca("*", true, false)).toBe("vacia");
+    expect(sinMarca("Total", false)).toBe("otro");
+  });
+
+  it("sin prefijos del módulo no hay cuenta que reconocer", () => {
+    expect(esCuentaSinMarca("13050502", { prefijosCuenta: [], siguenDocumentos: true })).toBe(false);
   });
 });
