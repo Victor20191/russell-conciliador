@@ -79,6 +79,60 @@ export function hacerBarrasCompatiblesCorreo(html: string): string {
 }
 
 /**
+ * Color explícito del atributo `style` de un elemento (el último que declare).
+ * Solo mira el propio elemento: la herencia la resuelve el recorrido.
+ */
+function colorPropio(el: Element): string | null {
+  const declaraciones = parsearDeclaraciones(el.getAttribute("style") ?? "");
+  for (let i = declaraciones.length - 1; i >= 0; i--) {
+    if (declaraciones[i].propiedad === "color") return declaraciones[i].valor;
+  }
+  return null;
+}
+
+/**
+ * Baja el color del texto hasta el propio texto.
+ *
+ * Outlook (web y escritorio) conserva al pegar el fondo y el borde de celdas y
+ * bloques, pero DESCARTA el `color` declarado en `td`, `div`, `p` o `li`: el
+ * texto llega negro aunque el HTML diga rojo o verde. Lo único que respeta de
+ * forma fiable es el color sobre un `span` que envuelve el texto —que es lo
+ * que produce su propio editor—. Por eso cada trozo de texto cuyo color viene
+ * de un ancestro se envuelve en `<span style="color:…">` con ese color.
+ */
+export function fijarColorEnTexto(raiz: Element): void {
+  const doc = raiz.ownerDocument;
+  // El color base (casi negro) no se envuelve: es lo que el correo pinta solo, y
+  // envolver cada texto del documento casi duplicaba su tamaño —y con él el
+  // riesgo de que Gmail lo recorte—.
+  const base = colorPropio(raiz)?.toLowerCase() ?? null;
+  const recorrido = doc.createTreeWalker(raiz, 4 /* NodeFilter.SHOW_TEXT */);
+  const textos: Text[] = [];
+  for (let nodo = recorrido.nextNode(); nodo; nodo = recorrido.nextNode()) {
+    if ((nodo.textContent ?? "").trim()) textos.push(nodo as Text);
+  }
+
+  for (const texto of textos) {
+    const padre = texto.parentElement;
+    if (!padre || padre.closest("style,script")) continue;
+
+    let color: string | null = null;
+    for (let el: Element | null = padre; el && el !== raiz.parentElement; el = el.parentElement) {
+      color = colorPropio(el);
+      if (color) break;
+    }
+    if (!color || color.toLowerCase() === base) continue;
+    // Ya está envuelto en un span con ese mismo color: nada que hacer.
+    if (padre.tagName === "SPAN" && colorPropio(padre) === color && padre.childNodes.length === 1) continue;
+
+    const span = doc.createElement("span");
+    span.setAttribute("style", `color:${color}`);
+    texto.replaceWith(span);
+    span.appendChild(texto);
+  }
+}
+
+/**
  * Devuelve un fragmento autocontenido con TODO el CSS volcado a `style="..."`.
  * Es lo que hace el navegador al copiar una página ya renderizada, y lo único
  * que Gmail respeta: sus etiquetas <style> se descartan al pegar.
@@ -112,7 +166,14 @@ export function htmlConEstilosEnLinea(htmlCompleto: string): string {
     ? `\n<style type="text/css">${cssRestante.trim()}</style>`
     : "";
 
-  const cuerpo = hacerBarrasCompatiblesCorreo(doc.body.innerHTML.trim());
+  // El color base del documento va en el contenedor, así que también baja al texto.
+  const envoltorio = doc.createElement("div");
+  envoltorio.setAttribute("style", contenedor);
+  while (doc.body.firstChild) envoltorio.appendChild(doc.body.firstChild);
+  doc.body.appendChild(envoltorio);
+  fijarColorEnTexto(envoltorio);
+
+  const cuerpo = hacerBarrasCompatiblesCorreo(envoltorio.innerHTML.trim());
 
   return `<div style="${contenedor}">${estilosResiduales}\n${cuerpo}\n</div>`;
 }
