@@ -8,8 +8,8 @@
 // liquidado en un mes por días de otro va al mes de LIQUIDACIÓN, así que la fecha de
 // liquidación/pago manda sobre cualquier período impreso.
 //
-// Aquí solo se interpreta el texto/número de la celda; quién decide el rango del cargue y qué
-// se hace con las filas fuera de él vive en `transformar.ts` (`fuera_de_periodo`).
+// Aquí solo se interpreta el texto/número de la celda; qué se hace con las filas posteriores al
+// mes de corte del cargue vive en `transformar.ts` (`fuera_de_periodo`).
 
 /** Mes calendario «YYYY-MM». */
 export type Mes = string;
@@ -196,9 +196,14 @@ export function esMes(v: unknown): v is Mes {
   return typeof v === "string" && ES_MES.test(v);
 }
 
-/** ¿El rango de la fila toca el rango del cargue? (meses inclusive, comparación lexicográfica). */
-export function rangoDentroDelCargue(fila: RangoMeses, cargue: RangoMeses): boolean {
-  return fila.desde <= cargue.hasta && fila.hasta >= cargue.desde;
+/**
+ * ¿La fila entra a un cargue con corte en `corte`? El cruce compara contra el SALDO FINAL del
+ * balance al corte, y las cuentas de resultado acumulan el AÑO: entra lo del año del corte hasta
+ * el mes de corte inclusive. Queda fuera lo posterior (un acumulado «De 202501 A 202512» no entra
+ * a un corte de junio) y lo de años anteriores (la hoja 2023 de Motozone en un cargue de 2025).
+ */
+export function filaHastaElCorte(fila: RangoMeses, corte: Mes): boolean {
+  return fila.hasta <= corte && fila.desde >= `${corte.slice(0, 4)}-01`;
 }
 
 /** Etiqueta de un rango para el usuario: «2025-03» o «2025-01 → 2025-12». */

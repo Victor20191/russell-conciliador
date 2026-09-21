@@ -26,10 +26,9 @@ const renglon = (codigo: string, total: number, s: Partial<RenglonConsolidadoNom
 const PREFIJOS = ["5105", "5205", "7205", "7305"];
 
 describe("valorContableNomina", () => {
-  it("movimiento = débitos − créditos; saldo acumulado = saldo final", () => {
+  it("es el SALDO FINAL del balance al corte, no el movimiento del mes", () => {
     const f = bal("510506", "SUELDOS", 47130400, 0, 545050894);
-    expect(valorContableNomina(f, "movimiento")).toBe(47130400);
-    expect(valorContableNomina(f, "saldo_acumulado")).toBe(545050894);
+    expect(valorContableNomina(f)).toBe(545050894);
   });
 });
 
@@ -56,7 +55,7 @@ describe("vista por subcuenta PUC sumando clases (Kakaraka)", () => {
     renglon("224", -672007, { via: "memoria_exacta", destino: "control", cuentaCliente: "2370300100" }),
     renglon("99", 500, { via: "sin_cuenta" }),
   ];
-  const vista = construirVistaSubcuenta({ balance, renglones, prefijos: PREFIJOS, base: "saldo_acumulado" });
+  const vista = construirVistaSubcuenta({ balance, renglones, prefijos: PREFIJOS });
 
   it("SALARIOS: 510506 + 520506 + 720506 contra conceptos 1, 207 y 6 cuadra al peso", () => {
     const f = vista.filas.find((x) => x.subcuenta === "06")!;
@@ -96,7 +95,7 @@ describe("control de deducciones", () => {
     expect(emparejarCuentaControl("2370250000", balance).map((f) => f.cuenta8)).toEqual(["237025"]);
     expect(emparejarCuentaControl("9999990000", balance)).toEqual([]);
   });
-  it("un renglón por cuenta del cliente, contable por saldo acumulado, sin bloquear nada", () => {
+  it("un renglón por cuenta del cliente, contable por saldo final, sin bloquear nada", () => {
     const renglones: RenglonConsolidadoNomina[] = [
       renglon("224", -672007, { destino: "control", cuentaCliente: "2370300100" }),
       renglon("225", -37896344, { destino: "control", cuentaCliente: "2370300200" }),
@@ -105,7 +104,7 @@ describe("control de deducciones", () => {
       renglon("300", -1000, { destino: "control", cuentaCliente: "9999990000" }),
       renglon("1", 100, { destino: "gasto", via: "memoria_exacta", cuentas: ["510506"] }),
     ];
-    const c = construirControlDeducciones({ balance, renglones, base: "saldo_acumulado" });
+    const c = construirControlDeducciones({ balance, renglones });
     const por = new Map(c.filas.map((f) => [f.cuentaCliente, f]));
     expect(por.get("2370300100")).toMatchObject({ nombre: "COMFAMA", contable: -672008, modulo: -672007, diferencia: -1, cuadra: false });
     expect(por.get("2370300200")).toMatchObject({ contable: -37896344, modulo: -37896344, cuadra: true });
@@ -115,9 +114,10 @@ describe("control de deducciones", () => {
     expect(c.filas).toHaveLength(5);
     expect(c.totales.modulo).toBe(-672007 - 37896344 - 401580 - 852943 - 1000);
   });
-  it("con base movimiento el contable es débitos − créditos", () => {
-    const c = construirControlDeducciones({ balance, renglones: [renglon("216", -267720, { destino: "control", cuentaCliente: "237025" })], base: "movimiento" });
-    expect(c.filas[0]).toMatchObject({ contable: -267720, cuadra: true });
+  it("no usa el movimiento del mes: el embargo compara su saldo final", () => {
+    // Débitos − créditos de 237025 serían −267.720; su saldo final es −401.580.
+    const c = construirControlDeducciones({ balance, renglones: [renglon("216", -267720, { destino: "control", cuentaCliente: "237025" })] });
+    expect(c.filas[0]).toMatchObject({ contable: -401580, diferencia: -133860, cuadra: false });
   });
 });
 
@@ -161,7 +161,7 @@ describe("vista por subcuenta con pasivos en la cédula", () => {
       renglon("1", 100, { cuentas: ["510506"], via: "memoria_exacta", subcuentaPuc: "06" }),
       renglon("40", 30, { cuentas: ["251010"], via: "archivo", subcuentaPuc: "10", cuentaCliente: "25101001" }),
     ];
-    const vista = construirVistaSubcuenta({ balance: [bal("510506", "SUELDOS", 100, 0, 100)], renglones, prefijos: PREFIJOS, base: "movimiento" });
+    const vista = construirVistaSubcuenta({ balance: [bal("510506", "SUELDOS", 100, 0, 100)], renglones, prefijos: PREFIJOS });
     expect(vista.filas.map((f) => [f.subcuenta, f.modulo])).toEqual([["06", 100]]);
     expect(vista.sinSubcuenta).toEqual([]);
     expect(entradasCruceFormalNomina(renglones, []).entradas).toEqual([

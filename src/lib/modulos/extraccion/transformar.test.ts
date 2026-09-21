@@ -462,6 +462,30 @@ describe("transformarModulo (NOM)", () => {
     expect(r.filas.map((f) => f.clasificador)).toEqual(["1", "Cesantías"]);
   });
 
+  it("con corte en diciembre entran los meses del año hasta el corte; lo posterior y lo de otros años queda fuera", () => {
+    // El cruce compara contra el SALDO FINAL del balance al corte (21/Sep/2026): un archivo anual
+    // cargado a diciembre entra completo, un mes de 2026 o una hoja de 2024 no.
+    const spec: SpecModulo = { ...SPEC_NOM, columnas: { ...SPEC_NOM.columnas, periodo: 7 }, periodoHasta: "2025-12" };
+    const r = transformarModulo(NOM, spec, hojaNom([
+      [...ENC_NOM, "Período"],
+      ["001", "Sueldo", "1", "Ana", "A", 100, "202501"],
+      ["001", "Sueldo", "1", "Ana", "A", 200, "202506"],
+      ["001", "Sueldo", "1", "Ana", "A", 300, "202512"],
+      ["001", "Sueldo", "1", "Ana", "A", 400, "202601"],
+      ["001", "Sueldo", "1", "Ana", "A", 500, "202412"],
+    ]));
+    expect(r.filas.filter((f) => f.tipoFila === "movimiento").map((f) => f.valor)).toEqual([100, 200, 300]);
+    expect(r.filas.filter((f) => f.motivo === "fuera_de_periodo").map((f) => f.filaNum)).toEqual([5, 6]);
+    // Con corte en junio, lo de julio en adelante queda fuera.
+    const junio = transformarModulo(NOM, { ...spec, periodoHasta: "2025-06" }, hojaNom([
+      [...ENC_NOM, "Período"],
+      ["001", "Sueldo", "1", "Ana", "A", 100, "202501"],
+      ["001", "Sueldo", "1", "Ana", "A", 200, "202506"],
+      ["001", "Sueldo", "1", "Ana", "A", 300, "202507"],
+    ]));
+    expect(junio.filas.filter((f) => f.tipoFila === "movimiento").map((f) => f.valor)).toEqual([100, 200]);
+  });
+
   it("el sugeridor mapea «Código del concepto» sin robarse la columna del concepto", () => {
     const h = hojaNom([
       ["Código del concepto", "Concepto", "Cédula", "Empleado", "Centro de costo", "Valor"],

@@ -6,7 +6,7 @@ import {
   parsearFechaCelda,
   parsearPeriodo,
   rangoDeFila,
-  rangoDentroDelCargue,
+  filaHastaElCorte,
   resumirPeriodos,
 } from "./periodo";
 
@@ -104,13 +104,16 @@ describe("rangoDeFila", () => {
   });
 });
 
-describe("rango del cargue", () => {
-  it("una fila entra si su rango toca el del cargue (inclusive)", () => {
-    const cargue = { desde: "2025-12", hasta: "2025-12" };
-    expect(rangoDentroDelCargue({ desde: "2025-12", hasta: "2025-12" }, cargue)).toBe(true);
-    expect(rangoDentroDelCargue({ desde: "2025-01", hasta: "2025-12" }, cargue)).toBe(true); // acumulado anual
-    expect(rangoDentroDelCargue({ desde: "2025-11", hasta: "2025-11" }, cargue)).toBe(false);
-    expect(rangoDentroDelCargue({ desde: "2023-01", hasta: "2023-12" }, { desde: "2025-01", hasta: "2025-12" })).toBe(false); // hoja 2023 de Motozone
+describe("filas que entran a un cargue (saldo final al corte)", () => {
+  it("entra lo del año del corte hasta el mes de corte; queda fuera lo posterior y lo de otros años", () => {
+    expect(filaHastaElCorte({ desde: "2025-12", hasta: "2025-12" }, "2025-12")).toBe(true);
+    expect(filaHastaElCorte({ desde: "2025-01", hasta: "2025-12" }, "2025-12")).toBe(true); // acumulado anual
+    expect(filaHastaElCorte({ desde: "2025-11", hasta: "2025-11" }, "2025-12")).toBe(true); // mes anterior del año
+    expect(filaHastaElCorte({ desde: "2025-01", hasta: "2025-01" }, "2025-06")).toBe(true);
+    expect(filaHastaElCorte({ desde: "2025-07", hasta: "2025-07" }, "2025-06")).toBe(false); // posterior al corte
+    expect(filaHastaElCorte({ desde: "2025-01", hasta: "2025-12" }, "2025-06")).toBe(false); // acumulado que pasa del corte
+    expect(filaHastaElCorte({ desde: "2023-01", hasta: "2023-12" }, "2025-12")).toBe(false); // hoja 2023 de Motozone
+    expect(filaHastaElCorte({ desde: "2024-12", hasta: "2024-12" }, "2025-01")).toBe(false); // diciembre del año anterior
   });
 
   it("resume los meses del archivo con filas y valor, ignorando lo que no es movimiento", () => {

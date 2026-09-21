@@ -459,7 +459,7 @@ export function CruceTerceroTab({
         )}
         {cruceTercero.contableExcluidoFilas > 0 && (
           <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">
-            Se excluyeron <b>{contar(cruceTercero.contableExcluidoFilas)}</b> {cruceTercero.contableExcluidoFilas === 1 ? "fila contable" : "filas contables"} del cruce por falta de homologación Russell o de una regla activa de base de cálculo. No se usó el saldo final como sustituto.
+            Se excluyeron <b>{contar(cruceTercero.contableExcluidoFilas)}</b> {cruceTercero.contableExcluidoFilas === 1 ? "fila contable" : "filas contables"} del cruce por falta de homologación Russell o de una regla activa del prevalidador para el módulo.
           </div>
         )}
         {cruceTercero.moduloDerivadoDelDetalle && (

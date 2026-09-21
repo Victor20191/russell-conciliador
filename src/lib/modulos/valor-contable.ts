@@ -1,9 +1,16 @@
+// VALOR CONTABLE del lado del balance en el cruce de un módulo — puro.
+//
+// Todos los módulos se concilian contra el SALDO FINAL del balance (confirmado con los usuarios el
+// 21/Sep/2026, también Ingresos y Nómina): el balance que termina en el mes de corte del cargue se
+// lee por su saldo final, sin importar desde cuándo arranca ni sus débitos y créditos. La base de
+// cálculo del catálogo del prevalidador (saldo | movimiento) rige solo el INFORME del prevalidador;
+// aquí la regla activa del módulo sigue siendo obligatoria (sin ella la fila no se valora) pero solo
+// aporta el signo de presentación de su prefijo.
 import {
   factorPresentacion,
 } from "@/lib/balance/prevalidador/calcular";
 import {
   normalizarPrefijo,
-  type BaseCalculo,
   type FilaCatalogoPrevalidador,
 } from "@/lib/balance/prevalidador/catalogo";
 
@@ -15,7 +22,7 @@ export type MovimientoContableModulo = {
 
 export type ReglaContableModulo = Pick<
   FilaCatalogoPrevalidador,
-  "moduloCodigo" | "cuentaRussell" | "baseCalculo" | "activa"
+  "moduloCodigo" | "cuentaRussell" | "activa"
 >;
 
 /**
@@ -41,21 +48,14 @@ export function resolverReglaContableModulo(
 }
 
 /**
- * Convención de presentación del prevalidador aplicada al lado contable del
- * cruce de módulos. Ingresos y nómina usan movimiento del período; activos,
- * cartera, inventarios y pasivos usan saldo. Las naturalezas crédito se muestran
- * positivas mediante el mismo factor que el prevalidador.
+ * Saldo final de la fila con la convención de presentación del prevalidador: las naturalezas
+ * crédito (pasivos, ingresos) se muestran positivas con el mismo factor por prefijo.
  */
 export function valorPresentadoSegunRegla(
-  fila: MovimientoContableModulo,
-  regla: Pick<ReglaContableModulo, "cuentaRussell" | "baseCalculo">,
-  baseEfectiva?: BaseCalculo,
+  fila: Pick<MovimientoContableModulo, "saldoFinal">,
+  regla: Pick<ReglaContableModulo, "cuentaRussell">,
 ): number {
-  const base = baseEfectiva ?? regla.baseCalculo;
-  const bruto = base === "movimiento"
-    ? fila.debitos - fila.creditos
-    : fila.saldoFinal;
-  return redondear(factorPresentacion(regla.cuentaRussell) * bruto);
+  return redondear(factorPresentacion(regla.cuentaRussell) * fila.saldoFinal);
 }
 
 export function calcularValorContableModulo(args: {
@@ -64,38 +64,31 @@ export function calcularValorContableModulo(args: {
   fila: MovimientoContableModulo;
   catalogo: readonly ReglaContableModulo[];
   /**
-   * Base que MANDA sobre la del catálogo: Nómina lee por saldo el balance del mes final de un
-   * rango que arranca en enero (D7), aunque su regla sea de movimiento.
-   */
-  baseEfectiva?: BaseCalculo;
-  /**
    * Naturaleza del módulo (Cartera «D», CxP «C»). Con ella todas sus cuentas se leen con el MISMO
    * factor —«D» con el signo del balance, «C» invertido— y no con el de cada cuenta: un anticipo
    * 2805 resta en Cartera igual que en el auxiliar, en vez de mostrarse positivo por ser pasivo.
    */
   naturaleza?: "D" | "C";
   /**
-   * Base propia de una cuenta ADICIONAL de la cédula (Nómina 251010, Ingresos 422005): manda sobre
-   * el catálogo, que no la cubre, y la cuenta misma hace de regla (su clase fija el signo).
+   * La cuenta es ADICIONAL a la cédula (Nómina 251010, Ingresos 422005) o del período: el catálogo
+   * no la cubre y la cuenta misma hace de regla (su clase fija el signo).
    */
-  baseAdicional?: BaseCalculo;
+  adicional?: boolean;
   /**
    * Naturaleza de presentación de la CUENTA cuando el módulo no fija una: la depreciación 1592 es
    * crédito aunque la regla del activo (15) sea débito.
    */
   naturalezaCuenta?: "D" | "C";
-}): { valor: number; baseCalculo: BaseCalculo; cuentaRegla: string } | null {
-  const regla: Pick<ReglaContableModulo, "cuentaRussell" | "baseCalculo"> | null = args.baseAdicional
-    ? { cuentaRussell: normalizarPrefijo(args.cuentaRussell), baseCalculo: args.baseAdicional }
+}): { valor: number; cuentaRegla: string } | null {
+  const regla: Pick<ReglaContableModulo, "cuentaRussell"> | null = args.adicional
+    ? { cuentaRussell: normalizarPrefijo(args.cuentaRussell) }
     : resolverReglaContableModulo(args.moduloCodigo, args.cuentaRussell, args.catalogo);
   if (!regla || !regla.cuentaRussell) return null;
-  const baseCalculo = args.baseEfectiva ?? regla.baseCalculo;
-  const bruto = baseCalculo === "movimiento" ? args.fila.debitos - args.fila.creditos : args.fila.saldoFinal;
   const naturaleza = args.naturaleza ?? args.naturalezaCuenta;
   const valor = naturaleza
-    ? redondear((naturaleza === "C" ? -1 : 1) * bruto)
-    : valorPresentadoSegunRegla(args.fila, regla, args.baseEfectiva);
-  return { valor, baseCalculo, cuentaRegla: normalizarPrefijo(regla.cuentaRussell) };
+    ? redondear((naturaleza === "C" ? -1 : 1) * args.fila.saldoFinal)
+    : valorPresentadoSegunRegla(args.fila, regla);
+  return { valor, cuentaRegla: normalizarPrefijo(regla.cuentaRussell) };
 }
 
 /**
@@ -108,9 +101,9 @@ export function calcularValorContableTercero(args: {
   fila: MovimientoContableModulo;
   catalogo: readonly ReglaContableModulo[];
   naturaleza?: "D" | "C";
-  /** Base de una cuenta que el catálogo no cubre (una cuenta del período). */
-  baseAdicional?: BaseCalculo;
-}): { valor: number; baseCalculo: BaseCalculo; cuentaRegla: string } | null {
+  /** Cuenta que el catálogo no cubre (una cuenta del período). */
+  adicional?: boolean;
+}): { valor: number; cuentaRegla: string } | null {
   return calcularValorContableModulo(args);
 }
 

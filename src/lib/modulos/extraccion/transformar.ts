@@ -26,7 +26,7 @@ import { nivelCarteraDeSpec } from "../cartera/tipo-formato";
 import { totalesPorTercero } from "../cartera/total-tercero";
 import { evaluarFilaNomina, nombreSinCedula, normalizarCedula } from "../nomina/valor-nomina";
 import { codigoConceptoCanonico } from "../nomina/homologacion";
-import { parsearAnio, parsearFechaCelda, rangoDeFila, rangoDentroDelCargue, type RangoMeses } from "../nomina/periodo";
+import { filaHastaElCorte, parsearAnio, parsearFechaCelda, rangoDeFila, type Mes } from "../nomina/periodo";
 
 export type TipoFilaModulo = "movimiento" | "agrupadora" | "total";
 export type ValorCelda = string | number | null;
@@ -367,11 +367,10 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
   // del valor mira los primeros y el pie repetido del ERP los segundos.
   const rolesMapeados = new Set(descriptor.columnas.filter((rc) => (spec.columnas[rc.nombre] ?? 0) >= 1).map((rc) => rc.nombre));
   const rolesTextoMapeados = descriptor.columnas.filter((rc) => rc.tipo === "texto" && rolesMapeados.has(rc.nombre)).map((rc) => rc.nombre);
-  // Rango de meses del cargue y año de contexto para los períodos que no lo traen («PERIODO 3»).
-  const rangoCargue: RangoMeses | null = nomina?.periodoPorFila && (spec.periodoDesde || spec.periodoHasta)
-    ? { desde: spec.periodoDesde ?? spec.periodoHasta!, hasta: spec.periodoHasta ?? spec.periodoDesde! }
-    : null;
-  const anioCargue = rangoCargue ? parsearAnio(rangoCargue.hasta.slice(0, 4)) : null;
+  // Mes de corte del cargue y año de contexto para los períodos que no lo traen («PERIODO 3»). El
+  // cruce compara contra el saldo final del balance al corte: entran las filas del año hasta ese mes.
+  const corteCargue: Mes | null = nomina?.periodoPorFila ? spec.periodoHasta ?? spec.periodoDesde ?? null : null;
+  const anioCargue = corteCargue ? parsearAnio(corteCargue.slice(0, 4)) : null;
 
   for (let r = inicio; r < hoja.filas.length; r++) {
     const fila = hoja.filas[r] ?? [];
@@ -721,10 +720,10 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
         if (rango) {
           datos.periodoDesde = rango.desde;
           datos.periodoHasta = rango.hasta;
-          if (rangoCargue && !rangoDentroDelCargue(rango, rangoCargue)) exclusionNomina ??= "fuera_de_periodo";
+          if (corteCargue && !filaHastaElCorte(rango, corteCargue)) exclusionNomina ??= "fuera_de_periodo";
         } else {
-          datos.periodoDesde = rangoCargue?.desde ?? null;
-          datos.periodoHasta = rangoCargue?.hasta ?? null;
+          datos.periodoDesde = corteCargue;
+          datos.periodoHasta = corteCargue;
         }
       }
     }

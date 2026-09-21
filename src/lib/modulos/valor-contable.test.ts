@@ -7,11 +7,16 @@ import {
 } from "./valor-contable";
 import { descriptorModulo } from "./descriptores";
 
+// La base del catálogo (saldo | movimiento) rige solo el informe del prevalidador: el cruce de los
+// módulos lee SIEMPRE el saldo final. Las reglas la conservan para probar que no se usa.
 const regla = (
   moduloCodigo: string,
   cuentaRussell: string,
   baseCalculo: "saldo" | "movimiento",
-): ReglaContableModulo => ({ moduloCodigo, cuentaRussell, baseCalculo, activa: true });
+): ReglaContableModulo => {
+  const fila = { moduloCodigo, cuentaRussell, baseCalculo, activa: true };
+  return fila;
+};
 
 const catalogo: ReglaContableModulo[] = [
   regla("ING", "41", "movimiento"),
@@ -22,13 +27,13 @@ const catalogo: ReglaContableModulo[] = [
 ];
 
 describe("valor contable para cruces de módulos", () => {
-  it("ING 41 usa créditos menos débitos y no el saldo acumulado", () => {
+  it("ING 41 se lee por SALDO FINAL aunque su regla del prevalidador sea de movimiento", () => {
     expect(calcularValorContableModulo({
       moduloCodigo: "ING",
       cuentaRussell: "413505",
       fila: { saldoFinal: -7_000, debitos: 100, creditos: 900 },
       catalogo,
-    })).toEqual({ valor: 800, baseCalculo: "movimiento", cuentaRegla: "41" });
+    })).toEqual({ valor: 7_000, cuentaRegla: "41" });
   });
 
   it("CXP 22 presenta el saldo crédito como magnitud positiva", () => {
@@ -64,13 +69,13 @@ describe("valor contable para cruces de módulos", () => {
     })?.valor).toBe(-200);
   });
 
-  it("NOM 5105 usa débitos menos créditos con naturaleza débito", () => {
+  it("NOM 5105 se lee por su saldo final débito (acumula el año al corte)", () => {
     expect(calcularValorContableModulo({
       moduloCodigo: "NOM",
       cuentaRussell: "510506",
       fila: { saldoFinal: 8_000, debitos: 950, creditos: 50 },
       catalogo,
-    })?.valor).toBe(900);
+    })?.valor).toBe(8_000);
   });
 
   it("elige el prefijo activo más específico y falla cerrado sin regla", () => {
@@ -139,38 +144,39 @@ describe("valor contable del cruce contable con la naturaleza del módulo", () =
     expect(cxp("133005", 300)).toBe(-300);
   });
 
-  it("la base efectiva de Nómina manda con o sin naturaleza", () => {
-    expect(calcularValorContableModulo({
+  it("Nómina lee el saldo final con o sin naturaleza del módulo", () => {
+    const nom = (naturaleza?: "D" | "C") => calcularValorContableModulo({
       moduloCodigo: "NOM",
       cuentaRussell: "510506",
       fila: { saldoFinal: 9_000, debitos: 700, creditos: 100 },
       catalogo: catalogoModulos,
-      baseEfectiva: "saldo",
-    })?.valor).toBe(9_000);
+      naturaleza,
+    })?.valor;
+    expect([nom(), nom("D")]).toEqual([9_000, 9_000]);
   });
 });
 
 describe("cuentas de la cédula fuera del prevalidador", () => {
-  it("una cuenta adicional sin regla usa su propia base y el signo de su clase", () => {
-    // Nómina 251010 por movimiento: la provisión (crédito) se presenta positiva.
+  it("una cuenta adicional sin regla hace de su regla: saldo final con el signo de su clase", () => {
+    // Nómina 251010: la cesantía consolidada (crédito) se presenta positiva.
     expect(calcularValorContableModulo({
       moduloCodigo: "NOM",
       cuentaRussell: "251010",
       fila: { saldoFinal: -5_000, debitos: 200, creditos: 1_200 },
       catalogo,
-      baseAdicional: "movimiento",
-    })).toEqual({ valor: 1_000, baseCalculo: "movimiento", cuentaRegla: "251010" });
+      adicional: true,
+    })).toEqual({ valor: 5_000, cuentaRegla: "251010" });
     // Ingresos 422005: el catálogo solo tiene la 41.
     expect(calcularValorContableModulo({
       moduloCodigo: "ING",
       cuentaRussell: "422005",
       fila: { saldoFinal: -3_000, debitos: 0, creditos: 450 },
       catalogo,
-      baseAdicional: "movimiento",
-    })?.valor).toBe(450);
+      adicional: true,
+    })?.valor).toBe(3_000);
   });
 
-  it("sin base adicional, la misma cuenta sigue sin regla", () => {
+  it("sin marcarla adicional, la misma cuenta sigue sin regla", () => {
     expect(calcularValorContableModulo({
       moduloCodigo: "NOM",
       cuentaRussell: "251010",
@@ -184,6 +190,6 @@ describe("cuentas de la cédula fuera del prevalidador", () => {
     const fila = { saldoFinal: -800, debitos: 0, creditos: 0 };
     expect(calcularValorContableModulo({ moduloCodigo: "AFI", cuentaRussell: "159205", fila, catalogo: conAfi })?.valor).toBe(-800);
     expect(calcularValorContableModulo({ moduloCodigo: "AFI", cuentaRussell: "159205", fila, catalogo: conAfi, naturalezaCuenta: "C" }))
-      .toEqual({ valor: 800, baseCalculo: "saldo", cuentaRegla: "15" });
+      .toEqual({ valor: 800, cuentaRegla: "15" });
   });
 });

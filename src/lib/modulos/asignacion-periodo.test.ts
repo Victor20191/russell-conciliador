@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { catalogoPrevalidadorDeFabrica } from "@/lib/balance/prevalidador/catalogo";
 import { alcanceExplicitoDelCruce } from "@/lib/conciliacion/cuentas-bloqueo";
 import {
-  baseDelModulo,
   cedulaDelCargue,
   extrasDelPeriodo,
   filasPeriodoDeCuentas,
@@ -10,12 +9,12 @@ import {
   separarCuentasCedula,
 } from "./asignacion-periodo";
 import {
-  baseDelPeriodo,
   cedulaModulo,
   claveCedula,
   cuentaAsignableCedula,
   cuentas6ACargarCedula,
   cuentasCedula6,
+  esCuentaDelPeriodo,
   fueraDeListaCedula,
   opcionesCedula,
   prefijosCuentaModulo,
@@ -29,17 +28,6 @@ const INV = descriptorModulo("INV")!;
 const AFI = descriptorModulo("AFI")!;
 const NOM = descriptorModulo("NOM")!;
 const cedulaDe = (d: typeof CXP, codigo: string) => cedulaModulo(d, prefijosCuentaModulo(codigo, catalogo));
-
-describe("base del módulo", () => {
-  it("saldo en los de balance y movimiento en Ingresos y Nómina", () => {
-    expect(baseDelModulo(catalogo, "CXP")).toBe("saldo");
-    expect(baseDelModulo(catalogo, "INV")).toBe("saldo");
-    expect(baseDelModulo(catalogo, "ING")).toBe("movimiento");
-    expect(baseDelModulo(catalogo, "NOM")).toBe("movimiento");
-    // Sin reglas vivas del módulo, la de fábrica.
-    expect(baseDelModulo([], "NOM")).toBe("movimiento");
-  });
-});
 
 describe("separar las cuentas elegidas", () => {
   it("a 6: lo de la lista es de la cédula; lo demás del plan, del período", () => {
@@ -68,10 +56,10 @@ describe("cédula del período", () => {
     ...filasPeriodoDeCuentas("OTRO", "", ["233550"]),
   ];
 
-  it("amplía la cédula solo con lo que no concilia, con la base del módulo", () => {
+  it("amplía la cédula solo con lo que no concilia", () => {
     const { base, cedula, extras } = cedulaDelCargue(CXP, "CXP", catalogo, filas);
     expect(extras).toEqual(["210510", "233550"]);
-    expect([...cedula.delPeriodo]).toEqual([["210510", "saldo"], ["233550", "saldo"]]);
+    expect([...cedula.delPeriodo]).toEqual(["210510", "233550"]);
     expect(base.delPeriodo.size).toBe(0);
     // La cuenta del período es su propia clave, no queda «fuera de la lista» y se puede asignar.
     expect(claveCedula(cedula, "210510")).toBe("210510");
@@ -81,8 +69,8 @@ describe("cédula del período", () => {
     expect(cuentaAsignableCedula(base, "210510")).toBe(false);
     expect(subgruposCedula(cedula, [])).toContain("2105");
     expect(cuentas6ACargarCedula(cedula)).toEqual(expect.arrayContaining(["210510", "233550"]));
-    expect(baseDelPeriodo(cedula, "210510", "2105")).toBe("saldo");
-    expect(baseDelPeriodo(cedula, "210505", "2105")).toBeUndefined();
+    expect(esCuentaDelPeriodo(cedula, "210510", "2105")).toBe(true);
+    expect(esCuentaDelPeriodo(cedula, "210505", "2105")).toBe(false);
     // Las opciones del selector siguen siendo las de la cédula.
     const plan = [{ codigo: "210510", nombre: "Giros" }, { codigo: "220505", nombre: "Nacionales" }];
     expect(opcionesCedula(cedula, [], plan).map((c) => c.codigo)).toEqual(["220505"]);
@@ -99,14 +87,14 @@ describe("cédula del período", () => {
     const { cedula, extras } = cedulaDelCargue(INV, "INV", catalogo, filasPeriodoDeCuentas("MUEBLES", "", ["1524"]));
     expect(extras).toEqual(["1524"]);
     expect(claveCedula(cedula, "152405", "1524")).toBe("1524");
-    expect(baseDelPeriodo(cedula, "152405", "1524")).toBe("saldo");
+    expect(esCuentaDelPeriodo(cedula, "152405", "1524")).toBe(true);
     expect(subgruposCedula(cedula, [])).toContain("1524");
   });
 
-  it("Nómina: las cuentas del período cruzan como las de la lista, por movimiento", () => {
+  it("Nómina: las cuentas del período cruzan como las de la lista (por saldo final, como todo el cruce)", () => {
     const { cedula, extras } = cedulaDelCargue(NOM, "NOM", catalogo, filasPeriodoDeCuentas("99", "GYA", ["513505"]));
     expect(extras).toEqual(["513505"]);
-    expect(cedula.delPeriodo.get("513505")).toBe("movimiento");
+    expect(cedula.delPeriodo.has("513505")).toBe(true);
     expect(cuentasCedula6(NOM, extras)).toContain("513505");
     expect(cuentasCedula6(NOM)).not.toContain("513505");
   });

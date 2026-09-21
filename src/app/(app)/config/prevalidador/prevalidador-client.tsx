@@ -157,7 +157,7 @@ function FilaEditor({
 
         <Campo
           etiqueta="Base de cálculo"
-          ayuda={sugerida ? `Por la clase le corresponde: ${sugerida === "saldo" ? "saldo final" : "movimiento"}` : undefined}
+          ayuda={`${sugerida ? `Por la clase le corresponde: ${sugerida === "saldo" ? "saldo final" : "movimiento"}. ` : ""}Rige solo el informe del prevalidador: el cruce de los módulos compara siempre saldos finales.`}
         >
           <select
             name="baseCalculo"

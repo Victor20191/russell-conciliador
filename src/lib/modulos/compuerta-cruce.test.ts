@@ -1,13 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
-  balanceCubreMesExacto,
-  balanceCubreRangoExacto,
-  baseBalanceParaRango,
+  balanceTerminaEnPeriodo,
   cuentasAgrupadorasExcluidas,
   seleccionarBalanceCruceModulo,
   avisoSeleccionBalance,
   validarCompuertaPrevalidador,
-  validarRangoBalanceModulo,
   type ContextoCompuertaCruce,
 } from "./compuerta-cruce";
 
@@ -20,7 +17,6 @@ function contexto(overrides: Partial<ContextoCompuertaCruce> = {}): ContextoComp
       esOficial: true,
       estaCongelado: true,
     },
-    catalogo: [{ moduloCodigo: "ING", baseCalculo: "movimiento", activa: true }],
     prevalidador: { estado: "listo", modulos: [{ codigo: "ING" }], anidamientos: [] },
     revision: { estado: "aprobada", vigente: true },
     ...overrides,
@@ -43,95 +39,23 @@ describe("compuerta del cruce de módulos", () => {
     }), 7, "ING")).toContain("desactualizada");
   });
 
-  it("reconoce el primer y último día del mes, incluido febrero bisiesto", () => {
-    expect(balanceCubreMesExacto(
-      new Date("2026-08-01T00:00:00.000Z"),
-      new Date("2026-08-31T00:00:00.000Z"),
-      "2026-08",
-    )).toBe(true);
-    expect(balanceCubreMesExacto(
-      new Date("2024-02-01T00:00:00.000Z"),
-      new Date("2024-02-29T00:00:00.000Z"),
-      "2024-02",
-    )).toBe(true);
+  it("un balance YTD o trimestral de Ingresos o Nómina que termina en el mes pasa la compuerta (saldo final)", () => {
+    // Antes Ingresos y Nómina exigían un balance del mes exacto (cruzaban por movimiento). Todos
+    // los módulos comparan ahora saldos finales: sirve cualquier balance que termine en el corte.
+    const ytd = contexto({ balance: { ...contexto().balance, periodoInicio: new Date("2026-01-01T00:00:00.000Z") } });
+    expect(validarCompuertaPrevalidador(ytd, 7, "ING")).toBeNull();
+    const nomina = contexto({ ...ytd, prevalidador: { estado: "listo", modulos: [{ codigo: "NOM" }], anidamientos: [] } });
+    expect(validarCompuertaPrevalidador(nomina, 7, "NOM")).toBeNull();
   });
 
-  it("bloquea ING con un balance YTD/trimestral y permite saldo acumulado", () => {
-    const ytd = contexto({
-      balance: {
-        ...contexto().balance,
-        periodoInicio: new Date("2026-01-01T00:00:00.000Z"),
-      },
-    });
-    expect(validarRangoBalanceModulo(ytd, "ING", "2026-08")).toContain("exactamente el mes");
-    expect(validarRangoBalanceModulo({
-      ...ytd,
-      catalogo: [{ moduloCodigo: "CAR", baseCalculo: "saldo", activa: true }],
-    }, "CAR", "2026-08")).toBeNull();
+  it("el balance tiene que terminar en el mes de corte, incluido febrero bisiesto", () => {
+    expect(balanceTerminaEnPeriodo(new Date("2026-08-31T00:00:00.000Z"), "2026-08")).toBe(true);
+    expect(balanceTerminaEnPeriodo(new Date("2024-02-29T00:00:00.000Z"), "2024-02")).toBe(true);
+    expect(balanceTerminaEnPeriodo(new Date("2026-07-31T00:00:00.000Z"), "2026-08")).toBe(false);
+    expect(balanceTerminaEnPeriodo(new Date("2026-08-31T00:00:00.000Z"), "agosto")).toBe(false);
   });
 
-  it("prioriza el balance mensual exacto oficial y congelado aunque un YTD venga primero", () => {
-    const ytd = {
-      id: 91,
-      periodoInicio: new Date("2026-01-01T00:00:00.000Z"),
-      periodoFin: new Date("2026-08-31T00:00:00.000Z"),
-      esOficial: true,
-      estaCongelado: true,
-    };
-    const mensualExacto = {
-      id: 87,
-      periodoInicio: new Date("2026-08-01T00:00:00.000Z"),
-      periodoFin: new Date("2026-08-31T00:00:00.000Z"),
-      esOficial: true,
-      estaCongelado: true,
-    };
-
-    expect(seleccionarBalanceCruceModulo(
-      [ytd, mensualExacto],
-      contexto().catalogo,
-      "ING",
-      "2026-08",
-    )?.id).toBe(87);
-  });
-
-  it("prefiere el oficial del período sobre un mensual no oficial", () => {
-    const noOficial = {
-      id: 92,
-      periodoInicio: new Date("2026-08-01T00:00:00.000Z"),
-      periodoFin: new Date("2026-08-31T00:00:00.000Z"),
-      esOficial: false,
-      estaCongelado: false,
-    };
-    const valido = { ...noOficial, id: 88, esOficial: true, estaCongelado: true };
-
-    expect(seleccionarBalanceCruceModulo(
-      [noOficial, valido],
-      contexto().catalogo,
-      "ING",
-      "2026-08",
-    )?.id).toBe(88);
-  });
-
-  it("sin balance oficial, cruza contra la versión sin congelar del período (la primera en el orden recibido)", () => {
-    const v2 = {
-      id: 95,
-      periodoInicio: new Date("2026-08-01T00:00:00.000Z"),
-      periodoFin: new Date("2026-08-31T00:00:00.000Z"),
-      esOficial: false,
-      estaCongelado: false,
-    };
-    const v1 = { ...v2, id: 94 };
-    // Módulo de movimiento (ING) y módulo de saldo (CAR): ninguno exige congelado.
-    expect(seleccionarBalanceCruceModulo([v2, v1], contexto().catalogo, "ING", "2026-08")?.id).toBe(95);
-    expect(seleccionarBalanceCruceModulo(
-      [v2, v1],
-      [{ moduloCodigo: "CAR", baseCalculo: "saldo", activa: true }],
-      "CAR",
-      "2026-08",
-    )?.id).toBe(95);
-  });
-
-  it("en un módulo de movimiento antepone el mensual exacto sin congelar a un YTD oficial", () => {
+  it("un YTD oficial gana a un mensual sin congelar: ya no se antepone el mes exacto", () => {
     const ytdOficial = {
       id: 91,
       periodoInicio: new Date("2026-01-01T00:00:00.000Z"),
@@ -146,7 +70,34 @@ describe("compuerta del cruce de módulos", () => {
       esOficial: false,
       estaCongelado: false,
     };
-    expect(seleccionarBalanceCruceModulo([ytdOficial, mensualSinCongelar], contexto().catalogo, "ING", "2026-08")?.id).toBe(96);
+    expect(seleccionarBalanceCruceModulo([ytdOficial, mensualSinCongelar], "2026-08")?.id).toBe(91);
+    // Un balance que termina en otro mes nunca sirve, aunque sea oficial.
+    const julio = { ...ytdOficial, id: 80, periodoFin: new Date("2026-07-31T00:00:00.000Z") };
+    expect(seleccionarBalanceCruceModulo([julio], "2026-08")).toBeNull();
+  });
+
+  it("prefiere el oficial del período sobre un mensual no oficial", () => {
+    const noOficial = {
+      id: 92,
+      periodoInicio: new Date("2026-08-01T00:00:00.000Z"),
+      periodoFin: new Date("2026-08-31T00:00:00.000Z"),
+      esOficial: false,
+      estaCongelado: false,
+    };
+    const valido = { ...noOficial, id: 88, esOficial: true, estaCongelado: true };
+    expect(seleccionarBalanceCruceModulo([noOficial, valido], "2026-08")?.id).toBe(88);
+  });
+
+  it("sin balance oficial, cruza contra la versión sin congelar del período (la primera en el orden recibido)", () => {
+    const v2 = {
+      id: 95,
+      periodoInicio: new Date("2026-08-01T00:00:00.000Z"),
+      periodoFin: new Date("2026-08-31T00:00:00.000Z"),
+      esOficial: false,
+      estaCongelado: false,
+    };
+    const v1 = { ...v2, id: 94 };
+    expect(seleccionarBalanceCruceModulo([v2, v1], "2026-08")?.id).toBe(95);
   });
 
   it("expone solo las agrupadoras del prevalidador listo y normaliza sus códigos", () => {
@@ -159,54 +110,7 @@ describe("compuerta del cruce de módulos", () => {
   });
 });
 
-describe("rango del cargue (Nómina, D7)", () => {
-  const ene = new Date("2025-01-01T00:00:00.000Z");
-  const dic31 = new Date("2025-12-31T00:00:00.000Z");
-  const dic1 = new Date("2025-12-01T00:00:00.000Z");
-  const nov1 = new Date("2025-11-01T00:00:00.000Z");
-  const anual = { desde: "2025-01", hasta: "2025-12" };
-  const bimestre = { desde: "2025-11", hasta: "2025-12" };
-
-  it("balanceCubreRangoExacto y baseBalanceParaRango", () => {
-    expect(balanceCubreRangoExacto(ene, dic31, anual)).toBe(true);
-    expect(balanceCubreRangoExacto(dic1, dic31, anual)).toBe(false);
-    expect(balanceCubreRangoExacto(nov1, dic31, bimestre)).toBe(true);
-    expect(balanceCubreRangoExacto(ene, dic31, { desde: "2025-12", hasta: "2025-01" })).toBe(false);
-    expect(baseBalanceParaRango(ene, dic31, anual)).toBe("movimiento");
-    // Kakaraka: balance mensual de diciembre frente al acumulado enero–diciembre → saldo.
-    expect(baseBalanceParaRango(dic1, dic31, anual)).toBe("saldo_acumulado");
-    // Un bimestre que no arranca en enero no se puede leer por saldo.
-    expect(baseBalanceParaRango(dic1, dic31, bimestre)).toBeNull();
-    // Rango de un solo mes: solo el mes exacto.
-    expect(baseBalanceParaRango(dic1, dic31, { desde: "2025-12", hasta: "2025-12" })).toBe("movimiento");
-    expect(baseBalanceParaRango(nov1, dic31, { desde: "2025-12", hasta: "2025-12" })).toBeNull();
-  });
-
-  it("seleccionarBalanceCruceModulo prefiere el que cubre el rango exacto y luego el del mes final por saldo", () => {
-    const catalogo = [{ moduloCodigo: "NOM", baseCalculo: "movimiento" as const, activa: true }];
-    const mensual = { id: "dic", periodoInicio: dic1, periodoFin: dic31, esOficial: true, estaCongelado: true };
-    const anualB = { id: "anual", periodoInicio: ene, periodoFin: dic31, esOficial: true, estaCongelado: true };
-    const anualSinCongelar = { id: "anual-v2", periodoInicio: ene, periodoFin: dic31, esOficial: false, estaCongelado: false };
-    expect(seleccionarBalanceCruceModulo([anualSinCongelar, mensual, anualB], catalogo, "NOM", "2025-12", anual)?.id).toBe("anual");
-    expect(seleccionarBalanceCruceModulo([anualSinCongelar, mensual], catalogo, "NOM", "2025-12", anual)?.id).toBe("anual-v2");
-    expect(seleccionarBalanceCruceModulo([anualSinCongelar], catalogo, "NOM", "2025-12", anual)?.id).toBe("anual-v2");
-    // Sin rango, la regla de siempre (mes exacto).
-    expect(seleccionarBalanceCruceModulo([anualB, mensual], catalogo, "NOM", "2025-12")?.id).toBe("dic");
-  });
-
-  it("validarRangoBalanceModulo acepta el balance del mes final por saldo y rechaza el resto", () => {
-    const base = contexto({ catalogo: [{ moduloCodigo: "NOM", baseCalculo: "movimiento", activa: true }] });
-    const dic = { ...base, balance: { ...base.balance, periodoInicio: dic1, periodoFin: dic31 } };
-    expect(validarRangoBalanceModulo(dic, "NOM", "2025-12", anual)).toBeNull();
-    expect(validarRangoBalanceModulo(dic, "NOM", "2025-12", bimestre)).toContain("2025-11 a 2025-12");
-    expect(validarRangoBalanceModulo({ ...base, balance: { ...base.balance, periodoInicio: nov1, periodoFin: dic31 } }, "NOM", "2025-12", bimestre)).toBeNull();
-    // Rango de un mes = comportamiento de siempre.
-    expect(validarRangoBalanceModulo(dic, "NOM", "2025-12", { desde: "2025-12", hasta: "2025-12" })).toBeNull();
-  });
-});
-
 describe("balance con detalle por tercero (Cartera y CxP)", () => {
-  const catalogo = [{ moduloCodigo: "CAR", baseCalculo: "saldo" as const, activa: true }];
   const diciembre = { periodoInicio: new Date("2025-12-01T00:00:00.000Z"), periodoFin: new Date("2025-12-31T00:00:00.000Z"), version: "v1" };
   // Mineralin: la oficial congelada es «Por cuenta»; la «Por terceros» llegó después sin congelar.
   const porCuentaOficial = { ...diciembre, id: 10, esOficial: true, estaCongelado: true, aperturaBalance: "cuenta", conDetalleTercero: false };
@@ -214,8 +118,8 @@ describe("balance con detalle por tercero (Cartera y CxP)", () => {
 
   it("prefiere la versión que conserva el detalle por tercero aunque la oficial sea «Por cuenta»", () => {
     const candidatos = [porCuentaOficial, porTerceros];
-    expect(seleccionarBalanceCruceModulo(candidatos, catalogo, "CAR", "2025-12", null, { preferirDetalleTercero: true })?.id).toBe(11);
-    expect(seleccionarBalanceCruceModulo(candidatos, catalogo, "CAR", "2025-12")?.id).toBe(10);
+    expect(seleccionarBalanceCruceModulo(candidatos, "2025-12", { preferirDetalleTercero: true })?.id).toBe(11);
+    expect(seleccionarBalanceCruceModulo(candidatos, "2025-12")?.id).toBe(10);
     expect(avisoSeleccionBalance(candidatos, porTerceros, "2025-12")).toBe(
       "Se cruza contra el balance v1 «Por terceros» (2025-12-01 a 2025-12-31) porque conserva el detalle por tercero; el oficial del período, v1 «Por cuenta» (2025-12-01 a 2025-12-31), no lo trae.",
     );
@@ -223,7 +127,7 @@ describe("balance con detalle por tercero (Cartera y CxP)", () => {
 
   it("sin ninguna versión con detalle conserva la oficial y no avisa", () => {
     const sinDetalle = { ...porTerceros, conDetalleTercero: false };
-    expect(seleccionarBalanceCruceModulo([porCuentaOficial, sinDetalle], catalogo, "CAR", "2025-12", null, { preferirDetalleTercero: true })?.id).toBe(10);
+    expect(seleccionarBalanceCruceModulo([porCuentaOficial, sinDetalle], "2025-12", { preferirDetalleTercero: true })?.id).toBe(10);
     expect(avisoSeleccionBalance([porCuentaOficial, sinDetalle], porCuentaOficial, "2025-12")).toBeNull();
   });
 
@@ -231,10 +135,20 @@ describe("balance con detalle por tercero (Cartera y CxP)", () => {
     const mensual = { ...porCuentaOficial, id: 30 };
     const anual = { ...porTerceros, id: 26, esOficial: true, estaCongelado: true, periodoInicio: new Date("2025-01-01T00:00:00.000Z") };
     const candidatos = [mensual, anual]; // orden de la consulta: oficiales, fin de período, id descendente
-    const elegido = seleccionarBalanceCruceModulo(candidatos, catalogo, "CAR", "2025-12", null, { preferirDetalleTercero: true });
+    const elegido = seleccionarBalanceCruceModulo(candidatos, "2025-12", { preferirDetalleTercero: true });
     expect(elegido?.id).toBe(26);
     expect(avisoSeleccionBalance(candidatos, elegido, "2025-12")).toBe(
       "Hay 2 balances oficiales que terminan en 2025-12: v1 «Por cuenta» (2025-12-01 a 2025-12-31), v1 «Por terceros» (2025-01-01 a 2025-12-31). Se cruza contra el v1 «Por terceros» (2025-01-01 a 2025-12-31), el que conserva el detalle por tercero.",
+    );
+  });
+
+  it("también en Ingresos y Nómina avisa de dos oficiales que terminan en el mes", () => {
+    const mensual = { ...porCuentaOficial, id: 30, aperturaBalance: null, conDetalleTercero: false };
+    const anual = { ...mensual, id: 26, periodoInicio: new Date("2025-01-01T00:00:00.000Z") };
+    const elegido = seleccionarBalanceCruceModulo([mensual, anual], "2025-12");
+    expect(elegido?.id).toBe(30);
+    expect(avisoSeleccionBalance([mensual, anual], elegido, "2025-12")).toBe(
+      "Hay 2 balances oficiales que terminan en 2025-12: v1 (2025-12-01 a 2025-12-31), v1 (2025-01-01 a 2025-12-31). Se cruza contra el v1 (2025-12-01 a 2025-12-31), el cargado más recientemente.",
     );
   });
 });

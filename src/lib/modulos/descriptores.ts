@@ -10,7 +10,6 @@
 // (INV, CAR, CXP, ING, AFI, NOM) para alinear con los «campos mínimos» y `ClientModule`.
 
 import { esRotuloEdad } from "./cartera/edades";
-import type { BaseCalculo } from "@/lib/balance/prevalidador/catalogo";
 
 // "numero" = cantidad/conteo (miles, sin $); "moneda" = monto en pesos (con $).
 export type TipoColumna = "texto" | "numero" | "moneda" | "fecha";
@@ -129,10 +128,10 @@ export type ValorDerivadoFamilia = {
 /**
  * Cuenta Russell de 6 dígitos que la cédula contable concilia aunque su subgrupo NO esté en los
  * prefijos del prevalidador del módulo (Nómina 251010, Ingresos 422005). El prevalidador no se
- * toca (su huella y sus aprobaciones siguen igual): la cuenta trae aquí su propia base de cálculo
- * y el signo sale de su clase (crédito positivo).
+ * toca (su huella y sus aprobaciones siguen igual): la cuenta se lee por su saldo final, como toda
+ * la cédula, y el signo sale de su clase (crédito positivo).
  */
-export type CuentaAdicionalCedula = { cuenta: string; baseCalculo: BaseCalculo };
+export type CuentaAdicionalCedula = { cuenta: string };
 
 /**
  * Subgrupo de 4 dígitos que, en una cédula a 4, se ABRE a sus cuentas de 6 (Activos fijos 1592:
@@ -285,9 +284,10 @@ export type DescriptorModulo = {
 export interface ConfiguracionNomina {
   /**
    * Cada fila recibe su período (`datos.periodoDesde`/`periodoHasta`, «YYYY-MM») a partir de
-   * la fecha de liquidación, el período impreso o el rango del acumulado (`nomina/periodo.ts`),
-   * y las filas fuera del rango del cargue (`spec.periodoDesde`/`periodoHasta`) quedan como
-   * agrupadora con motivo `fuera_de_periodo`.
+   * la fecha de liquidación, el período impreso o el rango del acumulado (`nomina/periodo.ts`).
+   * Como el cruce compara contra el SALDO FINAL del balance al corte, entran las filas del año del
+   * corte hasta su mes (`spec.periodoHasta`); las posteriores y las de años anteriores quedan
+   * como agrupadora con motivo `fuera_de_periodo`.
    */
   periodoPorFila: boolean;
   /**
@@ -316,7 +316,7 @@ export const CUENTAS_RUSSELL_NOMINA: readonly string[] = [
 ];
 
 /**
- * Pasivos laborales que Nómina concilia en la cédula por MOVIMIENTO del período (16/Sep/2026):
+ * Pasivos laborales que Nómina concilia en la cédula por su saldo final (16/Sep/2026):
  * cesantías consolidadas, intereses sobre cesantías, prima de servicios y vacaciones consolidadas.
  * Están fuera de los prefijos del prevalidador (5105/5205/7205/7305), que no cambia.
  */
@@ -588,7 +588,7 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     nivelCruce: 6,
     cedula: {
       cuentas6: CUENTAS_RUSSELL_INGRESOS,
-      cuentasAdicionales: [{ cuenta: "422005", baseCalculo: "movimiento" }],
+      cuentasAdicionales: [{ cuenta: "422005" }],
     },
     crucePorTercero: { habilitado: true },
     verificaciones: [
@@ -610,7 +610,7 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
   //    apagado). RF-NOM-04 requiere el balance por cuenta.
   //  - RF-NOM-05 el módulo se maneja a 6 dígitos: las ocho 5105xx, las ocho 5205xx, las ocho
   //    7205xx y la 730505 (`CUENTAS_RUSSELL_NOMINA`). De los pasivos laborales 25xx entran,
-  //    por movimiento, 251010, 251505, 252005 y 252505 (`CUENTAS_PASIVO_NOMINA`, 16/Sep/2026); los
+  //    por saldo final, 251010, 251505, 252005 y 252505 (`CUENTAS_PASIVO_NOMINA`, 16/Sep/2026); los
   //    demás conceptos de pasivo (libranzas, retenciones) siguen en el control de deducciones.
   //  - RF-NOM-06/07 el cliente trabaja con códigos de concepto propios y cada concepto tiene
   //    una cuenta contable del cliente; el cuadro de homologación lo entrega TI del cliente.
@@ -680,7 +680,7 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
     // Novasoft cierra cada empleado con «TOTALES» en negrita: es un subtotal, no un ítem.
     usarNegritaComoEstructura: true,
     nivelCruce: 6,
-    cedula: { cuentasAdicionales: CUENTAS_PASIVO_NOMINA.map((cuenta) => ({ cuenta, baseCalculo: "movimiento" as const })) },
+    cedula: { cuentasAdicionales: CUENTAS_PASIVO_NOMINA.map((cuenta) => ({ cuenta })) },
     nomina: { periodoPorFila: true, valorPorNaturaleza: true, normalizarFechas: true },
     // El cruce por tercero queda apagado (RF-NOM-03); si se reactiva es contra la CÉDULA del
     // empleado. `cuentasRussell6` acota el lado contable a las cuentas de RF-NOM-05 aunque el

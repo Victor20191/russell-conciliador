@@ -338,8 +338,6 @@ function hojaCruceTercero(wb: ExcelJS.Workbook, cruce: CruceTerceroExportModulo,
 export type CruceNominaExportModulo = {
   vistaSubcuenta: VistaSubcuentaNomina | null;
   control: ControlDeduccionesNomina | null;
-  rango: { desde: string; hasta: string };
-  base: string | null;
 };
 
 function hojaCruceSubcuenta(wb: ExcelJS.Workbook, nomina: CruceNominaExportModulo, meta: MetaExportModulo) {
@@ -359,7 +357,7 @@ function hojaCruceSubcuenta(wb: ExcelJS.Workbook, nomina: CruceNominaExportModul
   ws.spliceRows(1, 0, [], [], []);
   ws.getCell("A1").value = `${meta.modulo} · ${meta.cliente} · Cruce por subcuenta PUC sumando clases`;
   ws.getCell("A1").font = { bold: true, size: 13 };
-  ws.getCell("A2").value = `Rango ${nomina.rango.desde} a ${nomina.rango.hasta} · v${meta.version} · base ${nomina.base === "saldo_acumulado" ? "saldo acumulado" : "movimiento"}`;
+  ws.getCell("A2").value = `Corte ${meta.periodo} · v${meta.version} · saldo final del balance`;
   ws.getCell("A2").font = { color: { argb: "FF6B7280" } };
   const HEADER_ROW = 4;
   ws.getRow(HEADER_ROW).font = { bold: true };
@@ -412,7 +410,7 @@ function hojaControlDeducciones(wb: ExcelJS.Workbook, nomina: CruceNominaExportM
   ws.spliceRows(1, 0, [], [], []);
   ws.getCell("A1").value = `${meta.modulo} · ${meta.cliente} · Control de deducciones`;
   ws.getCell("A1").font = { bold: true, size: 13 };
-  ws.getCell("A2").value = `Rango ${nomina.rango.desde} a ${nomina.rango.hasta} · v${meta.version} · solo informa, no suma al gasto`;
+  ws.getCell("A2").value = `Corte ${meta.periodo} · v${meta.version} · saldo final del balance · solo informa, no suma al gasto`;
   ws.getCell("A2").font = { color: { argb: "FF6B7280" } };
   const HEADER_ROW = 4;
   ws.getRow(HEADER_ROW).font = { bold: true };

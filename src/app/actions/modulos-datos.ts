@@ -342,7 +342,7 @@ export type AnalisisModulo = {
   advertenciaHojas?: string;
   /**
    * Nómina: meses (o rangos, en un acumulado) que trae el archivo con el mapeo propuesto,
-   * con filas y valor de cada uno. Guía el rango del cargue que declara el usuario.
+   * con filas y valor de cada uno. Muestra qué entra al corte que declara el usuario.
    */
   periodosDetectados?: ResumenPeriodo[];
 };
@@ -1242,12 +1242,13 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
     }
     spec = valorSeguro.spec;
 
-    // Nómina: el rango de meses del cargue viaja en el spec de ESTE archivo (nunca al perfil):
-    // las filas de otros meses quedan fuera del cargue y se avisan.
-    if (descriptor.nomina?.periodoPorFila) {
-      const desde = periodoInicial?.toISOString().slice(0, 7);
-      const hasta = periodoFinal?.toISOString().slice(0, 7);
-      spec = { ...spec, ...(desde ? { periodoDesde: desde } : {}), ...(hasta ? { periodoHasta: hasta } : {}) };
+    // Nómina: el mes de corte del cargue viaja en el spec de ESTE archivo (nunca al perfil). El
+    // cruce compara contra el saldo final del balance al corte: entran las filas del año hasta ese
+    // mes; las posteriores y las de años anteriores quedan fuera y se avisan.
+    if (descriptor.nomina?.periodoPorFila && periodoArchivo) {
+      const { periodoDesde: _desde, ...resto } = spec;
+      void _desde;
+      spec = { ...resto, periodoHasta: periodoArchivo };
     }
 
     // Importes en divisa: sin la TRM de cierre se leerían dólares como si fueran pesos.
@@ -1564,15 +1565,6 @@ export async function nombrarAgrupadorBorrador(input: { loteId: string; grupo: G
 // ============================================================
 // PROMOVER el borrador a oficial (staging → detalle) + purga.
 // ============================================================
-/**
- * Mes inicial del rango del cargue (`periodo_desde`), solo en Nómina y solo cuando el
- * rango declarado en el wizard arranca antes del mes final; null = un solo mes.
- */
-function periodoDesdeDelLote(moduloCodigo: string, periodoInicial: Date | null | undefined, periodo: string): string | null {
-  if (!descriptorModulo(moduloCodigo)?.nomina || !periodoInicial) return null;
-  const desde = periodoInicial.toISOString().slice(0, 7);
-  return /^d{4}-d{2}$/.test(desde) && desde < periodo ? desde : null;
-}
 export async function cargarBorradorModulo(_prev: ActionState | undefined, formData: FormData): Promise<ActionState & { encabezadoId?: number; modo?: "agregar" | "version" }> {
   const authz = await authorizePermiso("modulos_datos:crear");
   if (!authz.ok) return { ok: false, message: authz.message };
@@ -1656,8 +1648,6 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
           // El spec dice qué representa una fila de ESTE archivo (por tercero o por
           // documento) y de dónde viene la cartera; ambos se persisten en el cargue.
           specJson: true,
-          // Nómina: el rango declarado del cargue (D7) se congela en el encabezado.
-          periodoInicial: true,
         },
       });
       if (!loteActual || loteActual.clienteId == null || loteActual.clienteId !== lote.clienteId || loteActual.moduloCodigo !== lote.moduloCodigo) {
@@ -1967,8 +1957,6 @@ export async function cargarBorradorModulo(_prev: ActionState | undefined, formD
           clienteId: loteActual.clienteId,
           nombreCliente: cliente.name,
           periodo,
-          // Nómina (D7): mes inicial del rango del cargue cuando no es el mismo mes final.
-          periodoDesde: periodoDesdeDelLote(loteActual.moduloCodigo, loteActual.periodoInicial, periodo),
           version,
           esOficial: true,
           filas: promocion.filas,

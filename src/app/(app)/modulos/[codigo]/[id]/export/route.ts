@@ -82,7 +82,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ codigo:
       const insumos = await cargarInsumosCruceModulo(encabezado.id);
       const cruce = insumos ? await construirCruceContableModulo(insumos) : null;
       if (cruce?.nomina && (cruce.nomina.vistaSubcuenta || cruce.nomina.control)) {
-        cruceNomina = { vistaSubcuenta: cruce.nomina.vistaSubcuenta, control: cruce.nomina.control, rango: cruce.nomina.rango, base: cruce.nomina.base };
+        cruceNomina = { vistaSubcuenta: cruce.nomina.vistaSubcuenta, control: cruce.nomina.control };
       }
     }
     // Cruce por tercero: el mismo cálculo de la pestaña, con sus marcas y emparejamientos.

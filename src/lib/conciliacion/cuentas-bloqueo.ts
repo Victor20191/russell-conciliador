@@ -62,7 +62,7 @@ export function cuentasRussellDelCruce(cruce: Pick<ResumenCruceContable, "filas"
  * suman a la lista; a 4 ya llegan como clave de su renglón.
  */
 export function alcanceExplicitoDelCruce(
-  cedula: Pick<CedulaModulo, "nivel" | "lista6" | "adicionales" | "abiertos"> & { delPeriodo?: ReadonlyMap<string, unknown> },
+  cedula: Pick<CedulaModulo, "nivel" | "lista6" | "adicionales" | "abiertos"> & { delPeriodo?: ReadonlySet<string> },
   cruce: Pick<ResumenCruceContable, "filas">,
 ): string[] | null {
   const ordenar = (lista: Iterable<string>) => [...new Set(lista)].sort();

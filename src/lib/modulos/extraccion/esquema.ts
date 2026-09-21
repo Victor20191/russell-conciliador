@@ -114,9 +114,11 @@ export const SpecModuloSchema = z.object({
     columnaClave: z.number().int().positive(),
     columnaNombre: z.number().int().positive().optional(),
   }).optional(),
-  // ===== Nómina: rango de meses del CARGUE («YYYY-MM»), declarado por el usuario =====
-  // Las filas cuyo período no toca el rango quedan fuera (`fuera_de_periodo`). Es del cargue,
-  // no del formato: nunca se guarda en el perfil del cliente.
+  // ===== Nómina: mes de CORTE del cargue («YYYY-MM») =====
+  // `periodoHasta` es el mes de corte: entran las filas del año del corte hasta ese mes, y las
+  // posteriores o de años anteriores quedan fuera (`fuera_de_periodo`), porque el cruce compara
+  // contra el saldo final del balance al corte. `periodoDesde` solo sobrevive en specs de lotes anteriores. Es del
+  // cargue, no del formato: nunca se guarda en el perfil del cliente.
   periodoDesde: z.string().regex(/^\d{4}-\d{2}$/).optional(),
   periodoHasta: z.string().regex(/^\d{4}-\d{2}$/).optional(),
 });

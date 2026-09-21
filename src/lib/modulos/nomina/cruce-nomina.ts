@@ -11,20 +11,17 @@
 //  2. CONTROL DE DEDUCCIONES — los conceptos cuya cuenta del cliente es de pasivo/activo/
 //     ingreso (libranzas 2370, retención 2365, embargos 237025, préstamos 1365, intereses
 //     4210): un renglón por cuenta del cliente con la Σ del módulo (negativa) contra el
-//     movimiento de esa cuenta en el balance. Solo informa: no suma al gasto ni bloquea.
+//     saldo final de esa cuenta en el balance. Solo informa: no suma al gasto ni bloquea.
 //
-// BASE CONTABLE (D7): `movimiento` = débitos − créditos del balance que cubre exactamente el
-// rango del cargue; `saldo_acumulado` = saldo final del balance del mes final cuando el rango
-// arranca en enero (las cuentas de resultado acumulan el año). Se recibe ya decidida.
+// BASE CONTABLE: el SALDO FINAL del balance que termina en el mes de corte del cargue (21/Sep/2026,
+// todos los módulos). Las cuentas de resultado acumulan el año, así que el archivo de nómina
+// tiene que traer lo acumulado del año hasta el corte: entran sus filas de ese año hasta el corte.
 //
 // Puro: sin BD. Pruebas en `cruce-nomina.test.ts`.
 
-import type { RangoCargue } from "../compuerta-cruce";
 import { etiquetaSubcuentaPuc } from "./grupos-concepto";
 import { digitosCuenta, esClaseNomina, sinClaseDeGasto } from "./homologacion";
 import type { RenglonConsolidadoNomina } from "./consolidado-nomina";
-
-export type BaseContableNomina = "movimiento" | "saldo_acumulado";
 
 /** Fila IMPUTABLE del balance (las agrupadoras ya vienen excluidas por el prevalidador). */
 export type FilaBalanceNomina = {
@@ -51,7 +48,6 @@ export type FilaSubcuentaNomina = {
 };
 
 export type VistaSubcuentaNomina = {
-  base: BaseContableNomina;
   filas: FilaSubcuentaNomina[];
   totales: { contable: number; modulo: number; diferencia: number };
   /** Conceptos de gasto cuya subcuenta no se conoce (sin cuenta del cliente ni memoria). */
@@ -72,7 +68,6 @@ export type FilaControlDeducciones = {
 };
 
 export type ControlDeduccionesNomina = {
-  base: BaseContableNomina;
   filas: FilaControlDeducciones[];
   totales: { contable: number; modulo: number; diferencia: number };
 };
@@ -80,12 +75,12 @@ export type ControlDeduccionesNomina = {
 const redondear = (v: number): number => Math.round(v * 100) / 100 + 0 || 0;
 
 /**
- * Valor contable de una fila en la convención del balance (débito positivo, crédito negativo):
- * el gasto queda positivo y las deducciones acreditadas a pasivo quedan negativas, igual que
- * las deducciones del módulo.
+ * Valor contable de una fila: su SALDO FINAL en la convención del balance (débito positivo,
+ * crédito negativo): el gasto queda positivo y las deducciones acreditadas a pasivo quedan
+ * negativas, igual que las deducciones del módulo.
  */
-export function valorContableNomina(fila: Pick<FilaBalanceNomina, "debitos" | "creditos" | "saldoFinal">, base: BaseContableNomina): number {
-  return redondear(base === "movimiento" ? fila.debitos - fila.creditos : fila.saldoFinal);
+export function valorContableNomina(fila: Pick<FilaBalanceNomina, "saldoFinal">): number {
+  return redondear(fila.saldoFinal);
 }
 
 /** ¿La cuenta del cliente es del gasto/costo de personal que concilia el módulo (51/52/72/73 + prefijos)? */
@@ -107,7 +102,6 @@ export function construirVistaSubcuenta(input: {
   renglones: readonly RenglonConsolidadoNomina[];
   /** Prefijos del módulo en el prevalidador (5105, 5205, 7205, 7305). */
   prefijos: readonly string[];
-  base: BaseContableNomina;
   tolerancia?: number;
 }): VistaSubcuentaNomina {
   const tolerancia = input.tolerancia ?? 0.01;
@@ -120,7 +114,7 @@ export function construirVistaSubcuenta(input: {
   for (const f of input.balance) {
     const cuenta8 = digitosCuenta(f.cuenta8);
     if (cuenta8.length < 6 || !esCuentaGastoPersonal(cuenta8, input.prefijos)) continue;
-    bucket(cuenta8.slice(4, 6)).cuentas.push({ cuenta8, nombre: f.nombreCuenta, clase: cuenta8.slice(0, 2), valor: valorContableNomina(f, input.base) });
+    bucket(cuenta8.slice(4, 6)).cuentas.push({ cuenta8, nombre: f.nombreCuenta, clase: cuenta8.slice(0, 2), valor: valorContableNomina(f) });
   }
   const sinSubcuenta: ConceptoSubcuenta[] = [];
   for (const r of input.renglones) {
@@ -160,7 +154,6 @@ export function construirVistaSubcuenta(input: {
     { contable: 0, modulo: 0, diferencia: 0 },
   );
   return {
-    base: input.base,
     filas,
     totales: { contable: redondear(totales.contable), modulo: redondear(totales.modulo), diferencia: redondear(totales.diferencia) },
     sinSubcuenta,
@@ -189,7 +182,6 @@ export function emparejarCuentaControl(cuentaCliente: string, balance: readonly 
 export function construirControlDeducciones(input: {
   balance: readonly FilaBalanceNomina[];
   renglones: readonly RenglonConsolidadoNomina[];
-  base: BaseContableNomina;
   tolerancia?: number;
 }): ControlDeduccionesNomina {
   const tolerancia = input.tolerancia ?? 0.01;
@@ -204,7 +196,7 @@ export function construirControlDeducciones(input: {
     .map(([cuentaCliente, conceptos]) => {
       const modulo = redondear(conceptos.reduce((s, c) => s + c.total, 0));
       const emparejadas = cuentaCliente === "?" ? [] : emparejarCuentaControl(cuentaCliente, input.balance);
-      const contable = emparejadas.length > 0 ? redondear(emparejadas.reduce((s, f) => s + valorContableNomina(f, input.base), 0)) : null;
+      const contable = emparejadas.length > 0 ? redondear(emparejadas.reduce((s, f) => s + valorContableNomina(f), 0)) : null;
       const diferencia = contable == null ? null : redondear(contable - modulo);
       return {
         cuentaCliente,
@@ -222,7 +214,6 @@ export function construirControlDeducciones(input: {
     { contable: 0, modulo: 0, diferencia: 0 },
   );
   return {
-    base: input.base,
     filas,
     totales: { contable: redondear(totales.contable), modulo: redondear(totales.modulo), diferencia: redondear(totales.diferencia) },
   };
@@ -237,14 +228,12 @@ export type RepartoPendienteVm = {
   total: number;
   cuentas: string[];
   sugerido: Record<string, number>;
-  /** Movimiento contable de cada cuenta candidata (para el editor). */
+  /** Saldo contable de cada cuenta candidata (para el editor). */
   contablePorCuenta: Record<string, number>;
 };
 
 /** Lo que el cruce de Nómina añade al resultado común (pestaña, exportación y cierre). */
 export type ResultadoCruceNomina = {
-  rango: RangoCargue;
-  base: BaseContableNomina | null;
   vistaSubcuenta: VistaSubcuentaNomina | null;
   control: ControlDeduccionesNomina | null;
   repartosPendientes: RepartoPendienteVm[];

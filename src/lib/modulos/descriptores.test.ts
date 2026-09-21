@@ -237,20 +237,20 @@ describe("ampliaciones de la cédula contable (16/Sep/2026)", () => {
   const codigosPuc = new Set(PUC_MAESTRO.accounts.map((a) => a.code));
   const subgrupos = new Set(SUBGRUPOS.subgrupos.map((s) => s.codigo));
 
-  it("Nómina suma por movimiento los cuatro pasivos laborales, sin tocar las 25 de gasto", () => {
+  it("Nómina suma los cuatro pasivos laborales (por saldo final), sin tocar las 25 de gasto", () => {
     expect(CUENTAS_PASIVO_NOMINA).toEqual(["251010", "251505", "252005", "252505"]);
-    expect(MODULOS_IMPORT.NOM.cedula?.cuentasAdicionales).toEqual(CUENTAS_PASIVO_NOMINA.map((cuenta) => ({ cuenta, baseCalculo: "movimiento" })));
+    expect(MODULOS_IMPORT.NOM.cedula?.cuentasAdicionales).toEqual(CUENTAS_PASIVO_NOMINA.map((cuenta) => ({ cuenta })));
     expect(MODULOS_IMPORT.NOM.crucePorTercero.cuentasRussell6).toBe(CUENTAS_RUSSELL_NOMINA);
     for (const cuenta of CUENTAS_PASIVO_NOMINA) expect(codigosPuc.has(cuenta), cuenta).toBe(true);
   });
 
-  it("Ingresos concilia a 6 dígitos las siete cuentas de la 41 y suma la 422005 por movimiento", () => {
+  it("Ingresos concilia a 6 dígitos las siete cuentas de la 41 y suma la 422005", () => {
     const ING = MODULOS_IMPORT.ING;
     expect(nivelCruceModulo(ING)).toBe(6);
     expect(CUENTAS_RUSSELL_INGRESOS).toEqual(["410505", "410510", "410515", "410520", "410525", "410530", "417505"]);
     expect(ING.cedula).toEqual({
       cuentas6: CUENTAS_RUSSELL_INGRESOS,
-      cuentasAdicionales: [{ cuenta: "422005", baseCalculo: "movimiento" }],
+      cuentasAdicionales: [{ cuenta: "422005" }],
     });
     // La lista es solo de la cédula: el cruce por tercero de Ingresos no cambia.
     expect(ING.crucePorTercero).toEqual({ habilitado: true });

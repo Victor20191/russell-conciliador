@@ -88,7 +88,7 @@ export function vistaAnalisisHoja(
   const avisoHoja = seleccion ? avisoSeleccionHoja(seleccion.puntajes, hoja.nombre) : null;
   const advertenciaHojas = [avisoHoja, avisoGemelas].filter((aviso): aviso is string => aviso != null).join(" ");
 
-  // Nómina: qué meses trae el archivo con este mapeo, para declarar el rango del cargue.
+  // Nómina: qué meses trae el archivo con este mapeo, para que el usuario vea qué entra al corte.
   const periodosDetectados = descriptor.nomina?.periodoPorFila
     ? resumirPeriodos(transformarModulo(descriptor, spec, hoja).filas.map((f) => ({
         periodoDesde: f.datos.periodoDesde, periodoHasta: f.datos.periodoHasta, valor: f.valor, tipoFila: f.tipoFila,

@@ -215,7 +215,7 @@ export function EditorMapeoModulo({
         <p className="rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-[11.5px] leading-relaxed text-blue-800">
           <b>Períodos en el archivo:</b>{" "}
           {analisis.periodosDetectados.map((p) => `${p.periodo} (${p.filas.toLocaleString("es-CO")} filas · $ ${p.valor.toLocaleString("es-CO", { maximumFractionDigits: 0 })})`).join(" · ")}.
-          {esCarga && analisis.periodosDetectados.length > 1 && " Solo entran al cargue las filas del período declarado."}
+          {esCarga && analisis.periodosDetectados.length > 1 && " Entran al cargue las filas del año hasta el período declarado; las posteriores y las de años anteriores quedan fuera."}
         </p>
       )}
 

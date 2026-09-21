@@ -6,7 +6,6 @@
 import {
   normalizarPrefijo,
   PREVALIDADOR_CATALOGO_FABRICA,
-  type BaseCalculo,
 } from "@/lib/balance/prevalidador/catalogo";
 import type { ConfiguracionCedula } from "./descriptores";
 
@@ -121,8 +120,8 @@ export type CedulaModulo = {
   prefijos: readonly string[];
   /** Lista explícita de cuentas de 6 (`cedula.cuentas6` o `crucePorTercero.cuentasRussell6`); null = sin acotar. */
   lista6: ReadonlySet<string> | null;
-  /** Cuenta de 6 adicional → su base de cálculo. */
-  adicionales: ReadonlyMap<string, BaseCalculo>;
+  /** Cuentas de 6 adicionales (fuera de los prefijos del prevalidador). */
+  adicionales: ReadonlySet<string>;
   /** Subgrupo abierto a 6 → naturaleza de presentación de sus cuentas. */
   abiertos: ReadonlyMap<string, "D" | "C">;
   /** Subgrupo del activo → cuenta de 6 donde cruza el valor relacionado. */
@@ -130,11 +129,11 @@ export type CedulaModulo = {
   /** Rol del archivo con el valor relacionado (`depreciacion`), o null. */
   rolRelacionado: string | null;
   /**
-   * Cuentas Russell que el usuario asignó SOLO para un período (fuera de la cédula) → la base
-   * del módulo. Claves del nivel de la cédula (6 díg., o subgrupos de 4 en las cédulas a 4).
-   * Vacío en la cédula del descriptor; la amplía `cedulaDelPeriodo`.
+   * Cuentas Russell que el usuario asignó SOLO para un período (fuera de la cédula). Claves del
+   * nivel de la cédula (6 díg., o subgrupos de 4 en las cédulas a 4). Vacío en la cédula del
+   * descriptor; la amplía `cedulaDelPeriodo`. Como toda la cédula, se leen por saldo final.
    */
-  delPeriodo: ReadonlyMap<string, BaseCalculo>;
+  delPeriodo: ReadonlySet<string>;
 };
 
 /** Lo que `cedulaModulo` lee del descriptor (tipado estructural para no acoplar las pruebas). */
@@ -156,11 +155,11 @@ export function cedulaModulo(descriptor: DescriptorCedula | null | undefined, pr
     nivel: descriptor?.nivelCruce === 6 ? 6 : 4,
     prefijos,
     lista6: lista?.length ? new Set(lista) : null,
-    adicionales: new Map((cfg?.cuentasAdicionales ?? []).map((a) => [normalizarPrefijo(a.cuenta), a.baseCalculo])),
+    adicionales: new Set((cfg?.cuentasAdicionales ?? []).map((a) => normalizarPrefijo(a.cuenta))),
     abiertos: new Map((cfg?.subgruposAbiertos ?? []).map((s) => [normalizarPrefijo(s.subgrupo), s.naturaleza])),
     relacionPorSubgrupo: new Map((cfg?.valorRelacionado?.pares ?? []).map((p) => [normalizarPrefijo(p.subgrupo), normalizarPrefijo(p.cuenta6)])),
     rolRelacionado: cfg?.valorRelacionado?.rol ?? null,
-    delPeriodo: new Map(),
+    delPeriodo: new Set(),
   };
 }
 
@@ -177,25 +176,25 @@ export function esCuentaExtraPosible(cedula: CedulaModulo, codigo: string): bool
 
 /**
  * La cédula de UN período: la del módulo más las cuentas que el usuario asignó solo para ese
- * cliente y período, con la base del módulo. Lo que la cédula ya concilia no se duplica.
+ * cliente y período. Lo que la cédula ya concilia no se duplica.
  */
-export function cedulaDelPeriodo(cedula: CedulaModulo, extras: readonly string[], base: BaseCalculo): CedulaModulo {
-  const delPeriodo = new Map(cedula.delPeriodo);
+export function cedulaDelPeriodo(cedula: CedulaModulo, extras: readonly string[]): CedulaModulo {
+  const delPeriodo = new Set(cedula.delPeriodo);
   for (const codigo of extras) {
     const c = normalizarPrefijo(codigo);
-    if (esCuentaExtraPosible(cedula, c)) delPeriodo.set(c, base);
+    if (esCuentaExtraPosible(cedula, c)) delPeriodo.add(c);
   }
   return { ...cedula, delPeriodo };
 }
 
 /** Las cuentas del período (ya validadas), en orden. */
 export function cuentasDelPeriodo(cedula: CedulaModulo): string[] {
-  return [...cedula.delPeriodo.keys()].sort();
+  return [...cedula.delPeriodo].sort();
 }
 
-/** Base de una cuenta del período por su código de 6 o, en las cédulas a 4, por su subgrupo. */
-export function baseDelPeriodo(cedula: CedulaModulo, cuenta6: string, sub4: string): BaseCalculo | undefined {
-  return cedula.delPeriodo.get(cuenta6) ?? (cedula.nivel === 4 ? cedula.delPeriodo.get(sub4) : undefined);
+/** ¿Es una cuenta del período? Por su código de 6 o, en las cédulas a 4, por su subgrupo. */
+export function esCuentaDelPeriodo(cedula: CedulaModulo, cuenta6: string, sub4: string): boolean {
+  return cedula.delPeriodo.has(cuenta6) || (cedula.nivel === 4 && cedula.delPeriodo.has(sub4));
 }
 
 /**

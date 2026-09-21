@@ -249,7 +249,6 @@ export default async function DatoModuloPage({
       nombreCliente: encabezado.nombreCliente,
       moduloCodigo,
       periodo: encabezado.periodo,
-      periodoDesde: encabezado.periodoDesde,
       verificaciones: encabezado.verificaciones,
       detalles: encabezado.detalles.map((d) => ({
         clasificador: d.clasificador,

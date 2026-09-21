@@ -19,7 +19,7 @@ import "server-only";
 import prisma from "@/lib/prisma";
 import { fmtDateTime } from "@/lib/format";
 import { descriptorModulo, nivelCruceModulo, type DescriptorModulo } from "@/lib/modulos/descriptores";
-import { baseDelPeriodo, claveCruceContable, cuenta4DelModulo, filtrarSubgruposPorModulo } from "@/lib/modulos/cuentas-modulo";
+import { claveCruceContable, cuenta4DelModulo, esCuentaDelPeriodo, filtrarSubgruposPorModulo } from "@/lib/modulos/cuentas-modulo";
 import { cedulaDelCargue } from "@/lib/modulos/asignacion-periodo";
 import { calcularValorContableTercero } from "@/lib/modulos/valor-contable";
 import { esFilaPropiaDeCuenta, filasEfectivasTercero } from "@/lib/balance/staging-tercero";
@@ -241,7 +241,7 @@ export async function construirCruceTerceroModulo(insumos: InsumosCruceTercero):
   const prefijos = cedula.prefijos;
   const codigosModulo = new Set(filtrarSubgruposPorModulo([...insumos.subgrupos], prefijos).map((s) => s.codigo));
   const cuentasPeriodo6 = cuentasPeriodo.filter((c) => c.length === 6);
-  const baseDe = (russell: string) => baseDelPeriodo(cedula, russell.slice(0, 6), russell.slice(0, 4));
+  const delPeriodo = (russell: string) => esCuentaDelPeriodo(cedula, russell.slice(0, 6), russell.slice(0, 4));
 
   const [crudas, emparejamientos, marcas, umbrales, noModularesRows] = await Promise.all([
     prisma.balanceTerceroDetalle.findMany({
@@ -284,7 +284,7 @@ export async function construirCruceTerceroModulo(insumos: InsumosCruceTercero):
       fila: { debitos: Number(d.debitos), creditos: Number(d.creditos), saldoFinal: Number(d.saldoFinal) },
       catalogo: insumos.catalogoPrevalidador,
       naturaleza: descriptor.crucePorTercero.naturaleza,
-      baseAdicional: baseDe(d.cuenta6Russell.replace(/\D/g, "")),
+      adicional: delPeriodo(d.cuenta6Russell.replace(/\D/g, "")),
     });
     if (calculo) contableNoModular.total += calculo.valor;
   }
@@ -295,15 +295,15 @@ export async function construirCruceTerceroModulo(insumos: InsumosCruceTercero):
       continue;
     }
     const russell = d.cuenta6Russell.replace(/\D/g, "");
-    const baseAdicional = baseDe(russell);
-    if (!codigosModulo.has(russell.slice(0, 4)) && !baseAdicional) continue;
+    const adicional = delPeriodo(russell);
+    if (!codigosModulo.has(russell.slice(0, 4)) && !adicional) continue;
     const calculo = calcularValorContableTercero({
       moduloCodigo: encabezado.moduloCodigo,
       cuentaRussell: d.cuenta6Russell,
       fila: { debitos: Number(d.debitos), creditos: Number(d.creditos), saldoFinal: Number(d.saldoFinal) },
       catalogo: insumos.catalogoPrevalidador,
       naturaleza: descriptor.crucePorTercero.naturaleza,
-      baseAdicional,
+      adicional,
     });
     if (!calculo) {
       contableExcluidoFilas += 1;

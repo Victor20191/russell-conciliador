@@ -1739,14 +1739,8 @@ function CruceContableTab({
       {cruceContable.avisoBalance && (
         <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[12px] leading-snug text-warn-700">{cruceContable.avisoBalance}</div>
       )}
-      {cruceContable.nomina && (
-        <p className="text-[11.5px] text-ink-500">
-          Rango del cargue: <b className="text-ink-700">{cruceContable.nomina.rango.desde}{cruceContable.nomina.rango.desde !== cruceContable.nomina.rango.hasta ? ` a ${cruceContable.nomina.rango.hasta}` : ""}</b>
-          {cruceContable.nomina.base === "saldo_acumulado"
-            ? " · el balance del mes final se lee por SALDO ACUMULADO (las cuentas de resultado acumulan el año)."
-            : cruceContable.nomina.base === "movimiento" ? " · el balance cubre el rango exacto: se lee por movimiento (débitos − créditos)." : ""}
-          {cruceContable.nomina.repartidos > 0 && ` · ${cruceContable.nomina.repartidos} concepto(s) cruzan por reparto.`}
-        </p>
+      {cruceContable.nomina && cruceContable.nomina.repartidos > 0 && (
+        <p className="text-[11.5px] text-ink-500">{cruceContable.nomina.repartidos} concepto(s) cruzan por reparto.</p>
       )}
       {resumenMarcas && resumenMarcas.conDiferencia > 0 && <ResumenMarcasBanner resumen={resumenMarcas} />}
 
@@ -1999,7 +1993,7 @@ function CruceContableTab({
           )}
           {sinReglaContableFilas > 0 && (
             <div className="rounded-md border border-warn-500 bg-warn-100/30 px-3 py-2 text-[12px] text-warn-700">
-              Se omitieron <b>{sinReglaContableFilas}</b> {sinReglaContableFilas === 1 ? "fila contable" : "filas contables"} porque no fue posible resolver una regla activa de base de cálculo y presentación para {moduloEnMinuscula}. No se usó el saldo final como sustituto.
+              Se omitieron <b>{sinReglaContableFilas}</b> {sinReglaContableFilas === 1 ? "fila contable" : "filas contables"} porque no tienen una regla activa del prevalidador para {moduloEnMinuscula}: sin ella no se sabe si la cuenta es del módulo.
             </div>
           )}
         </div>
@@ -2089,7 +2083,7 @@ function RepartosPendientesNomina({ pendientes, encabezadoId, puedeEditar }: { p
                   <td className="px-3 py-1.5">
                     <div className="flex flex-wrap gap-1.5">
                       {p.cuentas.map((c) => (
-                        <span key={c} className="rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[11px] text-blue-800" title={`Movimiento contable: ${fmtContable(p.contablePorCuenta[c] ?? 0)}`}>
+                        <span key={c} className="rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[11px] text-blue-800" title={`Saldo contable: ${fmtContable(p.contablePorCuenta[c] ?? 0)}`}>
                           <span className="font-semibold">{c}</span> · {fmtContable(p.sugerido[c] ?? 0)}
                         </span>
                       ))}
@@ -2231,7 +2225,7 @@ function ControlDeduccionesCard({ control, moduloLabel }: { control: NonNullable
       <div className="border-b border-ink-100 px-3 py-2">
         <div className="text-[12.5px] font-semibold text-ink-800">Control de deducciones</div>
         <p className="text-[11px] text-ink-500">
-          Conceptos cuya cuenta del cliente es de pasivo, activo o ingreso (libranzas, retención, embargos, préstamos, intereses): la Σ de {moduloLabel.toLocaleLowerCase("es")} contra {control.base === "saldo_acumulado" ? "el saldo final" : "el movimiento (débitos − créditos)"} de esa cuenta en el balance. No suma al gasto ni bloquea el cierre.
+          Conceptos cuya cuenta del cliente es de pasivo, activo o ingreso (libranzas, retención, embargos, préstamos, intereses): la Σ de {moduloLabel.toLocaleLowerCase("es")} contra el saldo final de esa cuenta en el balance. No suma al gasto ni bloquea el cierre.
         </p>
       </div>
       <div className="overflow-x-auto">

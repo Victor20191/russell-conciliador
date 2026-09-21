@@ -881,7 +881,7 @@ function CargarModal({
             <p className="rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-[11.5px] leading-relaxed text-blue-800">
               <b>Períodos en el archivo:</b>{" "}
               {analisis.periodosDetectados.map((p) => `${p.periodo} (${p.filas.toLocaleString("es-CO")} filas)`).join(" · ")}.
-              {analisis.periodosDetectados.length > 1 && ` Solo entran las filas de ${mes}.`}
+              {analisis.periodosDetectados.length > 1 && ` Entran las filas de ${mes.slice(0, 4)} hasta ${mes}; las posteriores y las de años anteriores quedan fuera (se concilia contra el saldo final del balance a ese corte).`}
             </p>
           )}
           {confirmarClasificador && clasificadorPatron && (
