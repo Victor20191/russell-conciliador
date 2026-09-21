@@ -2,51 +2,14 @@ import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { authorizePermiso } from "@/lib/rbac";
 import { registrarError } from "@/lib/errores";
-import {
-  huellaSha256Archivo,
-  nombreArchivoOriginalSeguro,
-  tipoContenidoArchivo,
-} from "@/lib/modulos/archivo-original";
+import { huellaSha256Archivo } from "@/lib/modulos/archivo-original";
+import { contentDispositionSeguro, cuerpoBinario, tipoContenidoRespuesta } from "@/lib/modulos/respuesta-archivo";
 import { obtenerObjeto } from "@/lib/storage/objetos";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const RUTA_LOG = "GET /api/modulos/archivos-originales/[id]";
-
-/** Copia propia del binario para que `Response` no reciba un buffer compartido. */
-function cuerpoBinario(bytes: Uint8Array): ArrayBuffer {
-  return bytes.slice().buffer as ArrayBuffer;
-}
-
-function codificarRfc5987(valor: string): string {
-  return encodeURIComponent(valor).replace(/[!'()*]/g, (caracter) =>
-    `%${caracter.charCodeAt(0).toString(16).toUpperCase()}`,
-  );
-}
-
-function contentDispositionSeguro(nombreOriginal: string): string {
-  const nombreSeguro = nombreArchivoOriginalSeguro(nombreOriginal);
-  const nombreAscii = nombreSeguro
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^\x20-\x7e]/g, "_")
-    .replace(/["\\]/g, "_")
-    .trim() || "archivo-original";
-
-  return `attachment; filename="${nombreAscii}"; filename*=UTF-8''${codificarRfc5987(nombreSeguro)}`;
-}
-
-function tipoContenidoRespuesta(
-  nombreArchivo: string,
-  almacenado: string | null,
-  objeto: string,
-): string {
-  const candidatos = [almacenado, objeto, tipoContenidoArchivo(nombreArchivo)];
-  const tipoValido = /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*(?:;\s*charset=[a-z0-9._-]+)?$/i;
-  return candidatos.find((tipo) => tipo && tipoValido.test(tipo.trim()))?.trim()
-    ?? "application/octet-stream";
-}
 
 export async function GET(
   _request: Request,

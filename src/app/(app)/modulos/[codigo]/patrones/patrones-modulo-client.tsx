@@ -317,7 +317,16 @@ function FilaVersion({
       <td className="px-3 py-2.5">
         {version.muestra ? (
           <span className="text-ink-600" title={version.muestra.nombre}>
-            {version.muestra.nombre.length > 28 ? `${version.muestra.nombre.slice(0, 27)}…` : version.muestra.nombre}
+            {/* La descarga quien ve la lista, no solo el administrador. */}
+            <a
+              href={`/api/modulos/patrones/muestras/${version.id}`}
+              download
+              title={`Descargar la muestra · ${version.muestra.nombre}`}
+              className="inline-flex items-center gap-1 font-medium text-blue-700 hover:underline"
+            >
+              <Icon name="download" size={11} />
+              {version.muestra.nombre.length > 28 ? `${version.muestra.nombre.slice(0, 27)}…` : version.muestra.nombre}
+            </a>
             <span className="ml-1 text-[10.5px] text-ink-400">{tamano(version.muestra.tamanoBytes)}</span>
           </span>
         ) : (
