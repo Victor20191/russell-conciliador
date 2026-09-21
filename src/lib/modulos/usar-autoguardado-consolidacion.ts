@@ -20,7 +20,18 @@ const SNAPSHOT_INACTIVO: SnapshotAutoguardadoConsolidacion = { estado: "inactivo
  *    (nunca se oculta la falla: `beforeunload` pregunta en vez de perder la edición), y
  *  - intenta un envío inmediato cuando la pestaña se oculta (mejor esfuerzo, no bloqueante).
  */
-export function useAutoguardadoConsolidacion(guardarLote: GuardarLoteConsolidacion, activo: boolean) {
+export function useAutoguardadoConsolidacion(
+  guardarLote: GuardarLoteConsolidacion,
+  activo: boolean,
+  opciones?: {
+    /**
+     * false = no frena la salida (ni `beforeunload` ni los enlaces): quien lo usa ya tiene su
+     * propio aviso de salida —el modal del Consolidado, que también cubre las propuestas—.
+     */
+    interceptarSalida?: boolean;
+  },
+) {
+  const interceptarSalida = opciones?.interceptarSalida !== false;
   const controlador = useMemo(
     () => activo ? crearAutoguardadoConsolidacion({ guardarLote: async () => ({ ok: false, message: "Preparando el guardado." }) }) : null,
     [activo],
@@ -41,13 +52,19 @@ export function useAutoguardadoConsolidacion(guardarLote: GuardarLoteConsolidaci
 
   useEffect(() => {
     if (!controlador) return;
+    const alOcultarPestana = () => {
+      if (document.visibilityState === "hidden") controlador.intentarAhora();
+    };
+    document.addEventListener("visibilitychange", alOcultarPestana);
+    return () => document.removeEventListener("visibilitychange", alOcultarPestana);
+  }, [controlador]);
+
+  useEffect(() => {
+    if (!controlador || !interceptarSalida) return;
     const avisarSiHayPendientes = (event: BeforeUnloadEvent) => {
       if (controlador.obtenerSnapshot().pendientes === 0) return;
       event.preventDefault();
       event.returnValue = "";
-    };
-    const alOcultarPestana = () => {
-      if (document.visibilityState === "hidden") controlador.intentarAhora();
     };
     const antesDeNavegar = (event: MouseEvent) => {
       if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -57,13 +74,11 @@ export function useAutoguardadoConsolidacion(guardarLote: GuardarLoteConsolidaci
     };
     document.addEventListener("click", antesDeNavegar, true);
     window.addEventListener("beforeunload", avisarSiHayPendientes);
-    document.addEventListener("visibilitychange", alOcultarPestana);
     return () => {
       document.removeEventListener("click", antesDeNavegar, true);
       window.removeEventListener("beforeunload", avisarSiHayPendientes);
-      document.removeEventListener("visibilitychange", alOcultarPestana);
     };
-  }, [controlador, puedeSalir]);
+  }, [controlador, puedeSalir, interceptarSalida]);
 
   const snapshot = useSyncExternalStore(
     (onStoreChange) => (controlador ? controlador.suscribir(onStoreChange) : () => {}),
