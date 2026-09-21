@@ -24,6 +24,7 @@ import {
 } from "@/lib/auditoria/reporte-ejecutivo/alcance";
 import { construirComparativoUso } from "@/lib/auditoria/reporte-ejecutivo/comparativo-servidor";
 import { correosDelReporte, nombresDelReporte } from "@/lib/auditoria/reporte-ejecutivo/usuarios-reporte";
+import { descripcionAvance, tituloAvance } from "@/lib/auditoria/reporte-ejecutivo/texto-avances";
 import type { ComparativoUso } from "@/lib/auditoria/reporte-ejecutivo/comparativo";
 import { modulosPublicadosParaTodos } from "@/lib/rbac/publicacion";
 import { MODULOS_PLATAFORMA_KEYS } from "@/lib/rbac/modulos-plataforma";
@@ -150,14 +151,16 @@ function crearContextoNovedades(
         return true;
       })
       .map((change) => {
+        // Al cliente no se le nombra el proveedor ni el modelo, y la
+        // descripción termina en oración completa (ver `texto-avances.ts`).
         const item = {
           tipo: change.type,
-          titulo: recortarTexto(change.title, 180) ?? "",
-          descripcion: recortarTexto(change.description, 700) ?? "",
+          titulo: tituloAvance(change.title),
+          descripcion: descripcionAvance(change.description),
           modulo: recortarTexto(change.moduleKey, 80),
           ruta: recortarTexto(change.route, 120),
-          comoOperar: recortarTexto(change.howTo, 450),
-          ejemplo: recortarTexto(change.example, 450),
+          comoOperar: descripcionAvance(change.howTo, 450) || null,
+          ejemplo: descripcionAvance(change.example, 450) || null,
           estadoFuncionalidad: change.featureStatus,
         };
         planos.push({
@@ -177,8 +180,8 @@ function crearContextoNovedades(
 
     return {
       numero: version.number,
-      titulo: recortarTexto(version.title, 180) ?? "",
-      resumen: recortarTexto(version.summary, 500),
+      titulo: tituloAvance(version.title),
+      resumen: version.summary ? descripcionAvance(version.summary, 500) : null,
       estado: version.status,
       publicadoEn: version.releasedAt ? version.releasedAt.toISOString() : null,
       cambios,
