@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   erpFindUnique: vi.fn(),
   versionFindUnique: vi.fn(),
   versionUpdateMany: vi.fn(),
+  versionDeleteMany: vi.fn(),
   tx: {
     versionPatronArchivoModulo: { findMany: vi.fn(), create: vi.fn() },
   },
@@ -33,11 +34,11 @@ vi.mock("@/lib/storage/objetos", () => ({
 vi.mock("@/lib/prisma", () => ({
   default: {
     erp: { findUnique: mocks.erpFindUnique },
-    versionPatronArchivoModulo: { findUnique: mocks.versionFindUnique, updateMany: mocks.versionUpdateMany },
+    versionPatronArchivoModulo: { findUnique: mocks.versionFindUnique, updateMany: mocks.versionUpdateMany, deleteMany: mocks.versionDeleteMany },
   },
 }));
 
-import { cambiarEstadoVersionPatron, crearVersionPatron, declararTipoFormatoVersion } from "./patrones-modulo";
+import { borrarVersionPatron, cambiarEstadoVersionPatron, crearVersionPatron, declararTipoFormatoVersion } from "./patrones-modulo";
 
 const HOJA = {
   nombre: "Inventario",
@@ -207,5 +208,61 @@ describe("declarar el tipo de formato de una versión", () => {
     expect(await declararTipoFormatoVersion({ id: 9, actualizadoEn: ACTUALIZADO.toISOString(), tipoFormato: "edades" }))
       .toEqual({ ok: false, message: "El tipo de formato solo aplica a Cartera y Cuentas por pagar." });
     expect(mocks.versionUpdateMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("borrar una versión", () => {
+  const version = (extra: Record<string, unknown> = {}) => ({
+    id: 11, version: 4, estado: "inactiva", moduloCodigo: "CAR", vecesUsado: 1,
+    muestraClaveObjeto: "software/modulos/car/patrones/siesa/v4/Detalle.xls", muestraNombre: "Detalle.xls",
+    clienteOrigenNombre: null, erp: { name: "SIESA" }, ...extra,
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.authorizePermiso.mockResolvedValue({ ok: true });
+    mocks.versionDeleteMany.mockResolvedValue({ count: 1 });
+    mocks.eliminarObjeto.mockResolvedValue(undefined);
+  });
+
+  it("borra una inactiva ya usada, retira su muestra y lo deja en la auditoría", async () => {
+    mocks.versionFindUnique.mockResolvedValue(version());
+    expect(await borrarVersionPatron({ id: 11 })).toEqual({ ok: true, message: "Versión 4 borrada." });
+    expect(mocks.versionDeleteMany).toHaveBeenCalledWith({ where: { id: 11, estado: "inactiva" } });
+    expect(mocks.eliminarObjeto).toHaveBeenCalledWith("software/modulos/car/patrones/siesa/v4/Detalle.xls");
+    expect(mocks.logAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: "BORRÓ PATRÓN DE ARCHIVO", entity: "CAR · SIESA v4", detail: "inactiva · 1 uso · muestra Detalle.xls",
+    }));
+  });
+
+  it("borra una pendiente sin muestra de un solo cliente", async () => {
+    mocks.versionFindUnique.mockResolvedValue(version({ estado: "pendiente", vecesUsado: 0, muestraClaveObjeto: null, muestraNombre: null, clienteOrigenNombre: "DARROW" }));
+    expect((await borrarVersionPatron({ id: 11 })).ok).toBe(true);
+    expect(mocks.eliminarObjeto).not.toHaveBeenCalled();
+    expect(mocks.logAudit.mock.calls[0][0].detail).toBe("pendiente · 0 usos · sin muestra · solo para DARROW");
+  });
+
+  it("una aprobada no se borra: primero se desactiva", async () => {
+    mocks.versionFindUnique.mockResolvedValue(version({ estado: "aprobada" }));
+    const r = await borrarVersionPatron({ id: 11 });
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/^Desactiva la versión antes de borrarla/);
+    expect(mocks.versionDeleteMany).not.toHaveBeenCalled();
+  });
+
+  it("si cambió entretanto (la aprobaron o ya no existe) no borra ni toca la muestra", async () => {
+    mocks.versionFindUnique.mockResolvedValue(version());
+    mocks.versionDeleteMany.mockResolvedValue({ count: 0 });
+    expect(await borrarVersionPatron({ id: 11 })).toEqual({ ok: false, message: "La versión cambió mientras se borraba. Recarga la página." });
+    expect(mocks.eliminarObjeto).not.toHaveBeenCalled();
+
+    mocks.versionFindUnique.mockResolvedValue(null);
+    expect(await borrarVersionPatron({ id: 11 })).toEqual({ ok: false, message: "La versión ya no existe." });
+  });
+
+  it("exige el permiso de administrar", async () => {
+    mocks.authorizePermiso.mockResolvedValue({ ok: false, message: "Sin permiso." });
+    expect(await borrarVersionPatron({ id: 11 })).toEqual({ ok: false, message: "Sin permiso." });
+    expect(mocks.versionFindUnique).not.toHaveBeenCalled();
   });
 });

@@ -9,8 +9,8 @@ import { Icon } from "@/components/icons";
 import { fmtDate, fmtDateTime } from "@/lib/format";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import type { PatronAplicativoVm, VersionPatronVm } from "@/lib/modulos/patrones/servidor";
-import { ETIQUETA_ESTADO_PATRON } from "@/lib/modulos/patrones/version";
-import { cambiarEstadoVersionPatron, declararTipoFormatoVersion, subirMuestraVersionPatron } from "@/app/actions/patrones-modulo";
+import { ETIQUETA_ESTADO_PATRON, motivoNoBorrable } from "@/lib/modulos/patrones/version";
+import { borrarVersionPatron, cambiarEstadoVersionPatron, declararTipoFormatoVersion, subirMuestraVersionPatron } from "@/app/actions/patrones-modulo";
 import { Modal } from "@/components/modal";
 import { INFO_TIPO_FORMATO, nivelDeTipoFormato, TIPOS_FORMATO_CARTERA, type TipoFormatoCartera } from "@/lib/modulos/cartera/tipo-formato";
 
@@ -104,6 +104,7 @@ function GrupoAplicativo({ patron, ruta, puedeAdministrar }: { patron: PatronApl
                 <FilaVersion
                   version={version}
                   erpId={patron.erp.id}
+                  erpNombre={patron.erp.nombre}
                   ruta={ruta}
                   puedeAdministrar={puedeAdministrar}
                   abierta={abierta === version.id}
@@ -202,9 +203,52 @@ function DeclararTipoModal({ version, onClose }: { version: VersionPatronVm; onC
   );
 }
 
+/** Confirma el borrado de una versión pendiente o inactiva. Se cierra solo con la X. */
+function BorrarVersionModal({ version, erpNombre, onClose }: { version: VersionPatronVm; erpNombre: string; onClose: () => void }) {
+  const router = useRouter();
+  const [borrando, startBorrar] = useTransition();
+  const borrar = () => {
+    startBorrar(async () => {
+      const r = await borrarVersionPatron({ id: version.id });
+      if (!r.ok) { notifyError(r.message ?? "No se pudo borrar la versión."); return; }
+      notifySuccess(r.message ?? "Versión borrada.");
+      onClose();
+      router.refresh();
+    });
+  };
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={`Borrar versión · ${erpNombre} v${version.version}`}
+      size="md"
+      footer={
+        <button type="button" disabled={borrando} onClick={borrar} className="inline-flex items-center gap-1.5 rounded-md bg-err-700 px-3 py-1.5 text-[12.5px] font-semibold text-white hover:bg-err-700/90 disabled:opacity-60">
+          <Icon name="trash" size={12} />{borrando ? "Borrando…" : "Borrar versión"}
+        </button>
+      }
+    >
+      <div className="flex flex-col gap-2 text-[12.5px] leading-relaxed text-ink-700">
+        <p>
+          Se borra la versión <b>v{version.version}</b> ({ETIQUETA_ESTADO_PATRON[version.estado].toLowerCase()}
+          {version.clienteOrigenNombre && version.estado === "pendiente" ? <>, solo para {version.clienteOrigenNombre}</> : null})
+          {version.muestra ? <> y su muestra <b>{version.muestra.nombre}</b></> : null}. No se puede deshacer.
+        </p>
+        <p className="text-[12px] text-ink-600">
+          {version.vecesUsado > 0
+            ? <>Se usó en {version.vecesUsado === 1 ? "un cargue" : `${version.vecesUsado} cargues`}: esos datos no cambian, porque cada cargue guarda su propio mapeo. </>
+            : null}
+          Los próximos archivos con este formato ya no se reconocerán con esta versión.
+        </p>
+      </div>
+    </Modal>
+  );
+}
+
 function FilaVersion({
   version,
   erpId,
+  erpNombre,
   ruta,
   puedeAdministrar,
   abierta,
@@ -212,6 +256,7 @@ function FilaVersion({
 }: {
   version: VersionPatronVm;
   erpId: number;
+  erpNombre: string;
   ruta: string;
   puedeAdministrar: boolean;
   abierta: boolean;
@@ -221,6 +266,7 @@ function FilaVersion({
   const [ocupado, startAccion] = useTransition();
   const archivoRef = useRef<HTMLInputElement>(null);
   const [declarando, setDeclarando] = useState(false);
+  const [borrandoVersion, setBorrandoVersion] = useState(false);
 
   const cambiarEstado = (estado: "aprobada" | "inactiva") => {
     startAccion(async () => {
@@ -335,11 +381,17 @@ function FilaVersion({
                 <Icon name="x" size={11} />Desactivar
               </button>
             )}
+            {motivoNoBorrable(version) == null && (
+              <button type="button" disabled={ocupado} onClick={() => setBorrandoVersion(true)} className={`${botonAccion} border-err-100 text-err-700 hover:bg-err-50`}>
+                <Icon name="trash" size={11} />Borrar
+              </button>
+            )}
           </div>
         ) : (
           <span className="block text-right text-[11px] text-ink-400">—</span>
         )}
         {declarando && <DeclararTipoModal version={version} onClose={() => setDeclarando(false)} />}
+        {borrandoVersion && <BorrarVersionModal version={version} erpNombre={erpNombre} onClose={() => setBorrandoVersion(false)} />}
       </td>
     </tr>
   );

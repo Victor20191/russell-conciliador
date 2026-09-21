@@ -1339,8 +1339,9 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
           throw new Error("La bitácora durable del original no está disponible; no se creó el borrador.");
         }
         // Con patrón se cuenta el uso de la versión; la memoria por cliente es solo del archivo manual.
+        // `updateMany`: si la borraron en este instante, el cargue sigue (ya se leyó con ella).
         if (patron) {
-          await tx.versionPatronArchivoModulo.update({
+          await tx.versionPatronArchivoModulo.updateMany({
             where: { id: patron.versionId },
             data: { vecesUsado: { increment: 1 }, ultimoUsoEn: new Date() },
           });

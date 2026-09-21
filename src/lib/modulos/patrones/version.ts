@@ -2,7 +2,8 @@
 //
 // Una versión nace PENDIENTE (la crea un administrador, o la migración desde el perfil de un
 // cliente). Para APROBARLA —y ofrecerla a todos los clientes del aplicativo— necesita su archivo
-// de muestra. Una aprobada no se edita: se crea otra versión. INACTIVA deja de ofrecerse.
+// de muestra. Una aprobada no se edita: se crea otra versión. INACTIVA deja de ofrecerse. Una
+// pendiente o inactiva se puede BORRAR; la aprobada se desactiva primero.
 
 export const ESTADOS_PATRON = ["pendiente", "aprobada", "inactiva"] as const;
 export type EstadoPatron = (typeof ESTADOS_PATRON)[number];
@@ -17,7 +18,10 @@ export function esEstadoPatron(valor: unknown): valor is EstadoPatron {
   return typeof valor === "string" && (ESTADOS_PATRON as readonly string[]).includes(valor);
 }
 
-/** Siguiente número de versión del (aplicativo, módulo): máximo + 1, nunca el conteo. */
+/**
+ * Siguiente número de versión del (aplicativo, módulo): máximo + 1, nunca el conteo. Borrar una
+ * versión intermedia no libera su número; borrar la más reciente, sí.
+ */
 export function siguienteVersionPatron(numeros: readonly number[]): number {
   return numeros.reduce((max, n) => (Number.isInteger(n) && n > max ? n : max), 0) + 1;
 }
@@ -44,4 +48,14 @@ export function transicionPatronPermitida(actual: string, destino: EstadoPatron)
 /** Solo una versión pendiente se edita en sitio: la aprobada ya pudo leer archivos. */
 export function esVersionEditable(version: { estado: string }): boolean {
   return version.estado === "pendiente";
+}
+
+/**
+ * Por qué no se puede borrar la versión; null si se puede. La aprobada se ofrece a todos los
+ * clientes del aplicativo: primero se desactiva, para que borrarla sea una decisión aparte.
+ */
+export function motivoNoBorrable(version: { estado: string }): string | null {
+  if (version.estado === "aprobada") return "Desactiva la versión antes de borrarla: mientras está aprobada se ofrece a todos los clientes del aplicativo.";
+  if (!esEstadoPatron(version.estado)) return "La versión tiene un estado desconocido.";
+  return null;
 }

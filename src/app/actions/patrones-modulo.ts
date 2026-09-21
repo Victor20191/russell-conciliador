@@ -27,6 +27,7 @@ import { encabezadoParaGuardar, normalizarRotulo } from "@/lib/modulos/patrones/
 import {
   esVersionEditable,
   motivoNoAprobable,
+  motivoNoBorrable,
   siguienteVersionPatron,
   transicionPatronPermitida,
 } from "@/lib/modulos/patrones/version";
@@ -566,5 +567,48 @@ export async function cambiarEstadoVersionPatron(input: z.input<typeof EstadoSch
     return { ok: true, message: estado === "aprobada" ? `Versión ${version.version} aprobada.` : `Versión ${version.version} desactivada.` };
   } catch (e) {
     return respuestaError("cambiarEstadoVersionPatron", e);
+  }
+}
+
+const BorrarSchema = z.object({ id: z.number().int().positive() });
+
+/**
+ * Borra una versión PENDIENTE o INACTIVA y su muestra del almacén. Los cargues ya hechos con ella
+ * no cambian: guardan su propio mapeo (`patron_version_id` es solo una referencia informativa). Un
+ * archivo que se analizó con ella y aún no se carga pide volver a analizarlo.
+ */
+export async function borrarVersionPatron(input: z.input<typeof BorrarSchema>): Promise<ActionState> {
+  const permiso = await authorizePermiso(PERMISO);
+  if (!permiso.ok) return { ok: false, message: permiso.message };
+  const validacion = BorrarSchema.safeParse(input);
+  if (!validacion.success) return { ok: false, message: "Datos inválidos." };
+  try {
+    const { id } = validacion.data;
+    const version = await prisma.versionPatronArchivoModulo.findUnique({ where: { id }, include: { erp: { select: { name: true } } } });
+    if (!version) throw new ErrorPatron("La versión ya no existe.");
+    const motivo = motivoNoBorrable(version);
+    if (motivo) throw new ErrorPatron(motivo);
+    // Solo si sigue en el estado que se vio: si alguien la aprobó entretanto, no se borra.
+    const borrada = await prisma.versionPatronArchivoModulo.deleteMany({ where: { id, estado: version.estado } });
+    if (borrada.count !== 1) throw new ErrorPatron("La versión cambió mientras se borraba. Recarga la página.");
+    if (version.muestraClaveObjeto) {
+      await eliminarObjeto(version.muestraClaveObjeto).catch((error) => registrarError("borrarVersionPatron.muestra", error));
+    }
+    const user = await getCurrentUser();
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: "BORRÓ PATRÓN DE ARCHIVO",
+      entity: `${version.moduloCodigo} · ${version.erp.name} v${version.version}`,
+      detail: [
+        version.estado,
+        `${version.vecesUsado} ${version.vecesUsado === 1 ? "uso" : "usos"}`,
+        version.muestraNombre ? `muestra ${version.muestraNombre}` : "sin muestra",
+        ...(version.clienteOrigenNombre ? [`solo para ${version.clienteOrigenNombre}`] : []),
+      ].join(" · "),
+    });
+    revalidatePath(rutaPatrones(version.moduloCodigo));
+    return { ok: true, message: `Versión ${version.version} borrada.` };
+  } catch (e) {
+    return respuestaError("borrarVersionPatron", e);
   }
 }

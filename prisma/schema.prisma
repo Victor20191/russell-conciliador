@@ -1594,8 +1594,9 @@ model SaldoTerceroModulo {
 
 /// Versión de un PATRÓN DE ARCHIVO de un módulo para un aplicativo (ERP). El patrón es la pareja
 /// (erp, módulo); cada versión guarda el encabezado con que se reconoce el archivo, el mapeo
-/// reutilizable y la MUESTRA en el almacén. Numeración por (erp, módulo), sin reciclar.
+/// reutilizable y la MUESTRA en el almacén. Numeración por (erp, módulo): máximo + 1.
 /// Estados: pendiente (solo sirve a `cliente_origen_id`, si lo tiene) | aprobada | inactiva.
+/// Pendiente e inactiva se pueden borrar (con su muestra); la aprobada se desactiva primero.
 model VersionPatronArchivoModulo {
   id                  Int       @id @default(autoincrement()) @map("id")
   erp                 Erp       @relation(fields: [erpId], references: [id], onDelete: Restrict)

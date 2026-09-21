@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { claveMuestraPatronModulo } from "../archivo-original";
-import { esVersionEditable, motivoNoAprobable, siguienteVersionPatron, transicionPatronPermitida } from "./version";
+import { esVersionEditable, motivoNoAprobable, motivoNoBorrable, siguienteVersionPatron, transicionPatronPermitida } from "./version";
 
 describe("versiones de patrón", () => {
-  it("numera con el máximo + 1 y nunca recicla un número", () => {
+  it("numera con el máximo + 1, nunca con el conteo", () => {
     expect(siguienteVersionPatron([])).toBe(1);
     expect(siguienteVersionPatron([1, 2, 4])).toBe(5);
   });
@@ -24,6 +24,13 @@ describe("versiones de patrón", () => {
     expect(transicionPatronPermitida("aprobada", "aprobada")).toBe(false);
     expect(esVersionEditable({ estado: "pendiente" })).toBe(true);
     expect(esVersionEditable({ estado: "aprobada" })).toBe(false);
+  });
+
+  it("borra la pendiente y la inactiva; la aprobada se desactiva primero", () => {
+    expect(motivoNoBorrable({ estado: "pendiente" })).toBeNull();
+    expect(motivoNoBorrable({ estado: "inactiva" })).toBeNull();
+    expect(motivoNoBorrable({ estado: "aprobada" })).toMatch(/^Desactiva la versión antes de borrarla/);
+    expect(motivoNoBorrable({ estado: "otro" })).toBe("La versión tiene un estado desconocido.");
   });
 
   it("la muestra cuelga del aplicativo, no de un cliente", () => {
