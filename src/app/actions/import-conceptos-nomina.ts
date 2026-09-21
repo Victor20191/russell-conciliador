@@ -37,9 +37,11 @@ import type { ErrorImport } from "@/lib/import/maestros";
 import { ingerir } from "@/lib/balance/extraccion/ingesta";
 import {
   parseConceptosNominaWorkbook,
+  planEscrituraConceptos,
   HOJA_CONCEPTOS,
   MODULO_CONCEPTOS_NOMINA,
   type ConceptoCatalogoEntrada,
+  type FilaConceptoAEscribir,
   type ImportConceptosNominaState,
 } from "@/lib/import/conceptos-nomina";
 import { leerCatalogoConceptosErp } from "@/lib/import/conceptos-nomina-erp";
@@ -59,24 +61,14 @@ import { getCatalogoPrevalidador } from "@/lib/parametros/prevalidador";
 const PATH = "/config/conceptos-nomina";
 const RUTA_MODULO = `/modulos/${MODULO_CONCEPTOS_NOMINA.toLowerCase()}`;
 const MAX_BYTES = 12 * 1024 * 1024; // 12 MB (los libros de conciliación traen más hojas que el catálogo)
-
-// Sin `export`: un archivo "use server" solo puede exportar funciones async.
-const ORIGEN_CARGA_MASIVA = "carga_masiva";
+// Tandas de la escritura: el `OR` del borrado y el `createMany` no crecen sin límite.
+const CLAVES_POR_BORRADO = 500;
+const FILAS_POR_INSERCION = 1_000;
+/** Tiempo de la transacción de escritura: el predeterminado de Prisma (5 s) no alcanza con la BD remota. */
+const TIMEOUT_ESCRITURA_MS = 60_000;
 
 type EntradaResuelta = ConceptoCatalogoEntrada & { clienteId: number; nombreCliente: string; hoja: string };
-
-/** Una fila lista para `consolidacion_modulo_cliente`. */
-type FilaAEscribir = {
-  clienteId: number;
-  clasificador: string;
-  descripcion: string;
-  agrupador: string;
-  grupo: string | null;
-  subcuentaPuc: string | null;
-  cuentaCliente: string;
-  cuenta4: string;
-  cuenta6: string;
-};
+type FilaAEscribir = FilaConceptoAEscribir;
 
 /**
  * Resuelve cada cuenta de cada entrada a su fila de BD y valida lo que impide la carga. La
@@ -195,52 +187,33 @@ async function clientesSinAlcance(clienteIds: number[]): Promise<Set<number>> {
   return new Set(alcance.filter((a) => !a.ok).map((a) => a.clienteId));
 }
 
-/** Escribe las filas: cada (cliente, concepto, agrupador) reemplaza su conjunto anterior. */
+/**
+ * Escribe las filas: cada (cliente, concepto, agrupador) reemplaza su conjunto anterior. Todo en UNA
+ * transacción con pocas sentencias (un borrado y una inserción por tanda): antes eran dos por
+ * concepto y un catálogo de 67 conceptos pasaba del tiempo de la transacción (P2028).
+ */
 async function escribirFilas(filas: FilaAEscribir[], actor: string | null): Promise<{ actualizados: number }> {
-  const grupos = new Map<string, FilaAEscribir[]>();
-  for (const f of filas) {
-    const k = `${f.clienteId}|${f.clasificador}|${f.agrupador}`;
-    grupos.set(k, [...(grupos.get(k) ?? []), f]);
-  }
-  const clienteIds = [...new Set(filas.map((f) => f.clienteId))];
+  const { claves, data } = planEscrituraConceptos(filas, actor);
+  const clienteIds = [...new Set(claves.map((c) => c.clienteId))];
   const previas = await prisma.consolidacionModuloCliente.findMany({
-    where: { moduloCodigo: MODULO_CONCEPTOS_NOMINA, clienteId: { in: clienteIds }, clasificador: { in: [...new Set(filas.map((f) => f.clasificador))] } },
+    where: { moduloCodigo: MODULO_CONCEPTOS_NOMINA, clienteId: { in: clienteIds }, clasificador: { in: [...new Set(claves.map((c) => c.clasificador))] } },
     select: { clienteId: true, clasificador: true, agrupador: true },
   });
   const yaExistian = new Set(previas.map((p) => `${p.clienteId}|${p.clasificador}|${p.agrupador}`));
-  const actualizados = [...grupos.keys()].filter((k) => yaExistian.has(k)).length;
+  const actualizados = claves.filter((c) => yaExistian.has(`${c.clienteId}|${c.clasificador}|${c.agrupador}`)).length;
 
   await prisma.$transaction(
-    [...grupos.values()].flatMap((lista) => {
-      const [{ clienteId, clasificador, agrupador }] = lista;
-      // Dos filas iguales (misma cuenta del cliente) no se escriben dos veces.
-      const vistas = new Set<string>();
-      const data = lista
-        .filter((f) => {
-          const k = `${f.cuenta6}|${f.cuentaCliente}`;
-          if (vistas.has(k)) return false;
-          vistas.add(k);
-          return true;
-        })
-        .map((f) => ({
-          clienteId,
-          moduloCodigo: MODULO_CONCEPTOS_NOMINA,
-          clasificador,
-          agrupador,
-          descripcion: f.descripcion,
-          grupo: f.grupo,
-          subcuentaPuc: f.subcuentaPuc,
-          cuentaCliente: f.cuentaCliente,
-          cuenta4: f.cuenta4,
-          cuenta6: f.cuenta6,
-          origen: ORIGEN_CARGA_MASIVA,
-          actualizadoPor: actor,
-        }));
-      return [
-        prisma.consolidacionModuloCliente.deleteMany({ where: { clienteId, moduloCodigo: MODULO_CONCEPTOS_NOMINA, clasificador, agrupador } }),
-        prisma.consolidacionModuloCliente.createMany({ data }),
-      ];
-    }),
+    async (tx) => {
+      for (let i = 0; i < claves.length; i += CLAVES_POR_BORRADO) {
+        await tx.consolidacionModuloCliente.deleteMany({
+          where: { moduloCodigo: MODULO_CONCEPTOS_NOMINA, OR: claves.slice(i, i + CLAVES_POR_BORRADO) },
+        });
+      }
+      for (let i = 0; i < data.length; i += FILAS_POR_INSERCION) {
+        await tx.consolidacionModuloCliente.createMany({ data: data.slice(i, i + FILAS_POR_INSERCION) });
+      }
+    },
+    { maxWait: 5_000, timeout: TIMEOUT_ESCRITURA_MS },
   );
   return { actualizados };
 }

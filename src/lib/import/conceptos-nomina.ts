@@ -244,3 +244,45 @@ export async function parseConceptosNominaWorkbook(
 
   return { filas, errores };
 }
+
+/** Una fila lista para `consolidacion_modulo_cliente` (ya resuelta la cuenta Russell). */
+export type FilaConceptoAEscribir = {
+  clienteId: number;
+  clasificador: string;
+  descripcion: string;
+  agrupador: string;
+  grupo: string | null;
+  subcuentaPuc: string | null;
+  cuentaCliente: string;
+  cuenta4: string;
+  cuenta6: string;
+};
+
+/** Origen con que la carga masiva deja sus filas en la memoria del cliente. */
+export const ORIGEN_CARGA_MASIVA = "carga_masiva";
+
+/**
+ * Qué escribe la carga masiva, en DOS sentencias y no dos por concepto: las claves
+ * (cliente, concepto, centro) cuyas cuentas se reemplazan —lo que el archivo no menciona queda
+ * intacto— y todas las filas nuevas. Dentro de cada clave una misma cuenta no se repite.
+ */
+export function planEscrituraConceptos(
+  filas: readonly FilaConceptoAEscribir[],
+  actor: string | null,
+): {
+  claves: { clienteId: number; clasificador: string; agrupador: string }[];
+  data: (Omit<FilaConceptoAEscribir, "clienteId"> & { clienteId: number; moduloCodigo: string; origen: string; actualizadoPor: string | null })[];
+} {
+  const claves = new Map<string, { clienteId: number; clasificador: string; agrupador: string }>();
+  const vistas = new Set<string>();
+  const data: ReturnType<typeof planEscrituraConceptos>["data"] = [];
+  for (const f of filas) {
+    const clave = `${f.clienteId}|${f.clasificador}|${f.agrupador}`;
+    if (!claves.has(clave)) claves.set(clave, { clienteId: f.clienteId, clasificador: f.clasificador, agrupador: f.agrupador });
+    const cuenta = `${clave}|${f.cuenta6}|${f.cuentaCliente}`;
+    if (vistas.has(cuenta)) continue;
+    vistas.add(cuenta);
+    data.push({ ...f, moduloCodigo: MODULO_CONCEPTOS_NOMINA, origen: ORIGEN_CARGA_MASIVA, actualizadoPor: actor });
+  }
+  return { claves: [...claves.values()], data };
+}

@@ -1,6 +1,6 @@
 import { test, expect } from "vitest";
 import ExcelJS from "exceljs";
-import { parseConceptosNominaWorkbook, partirCuentas, HOJA_CONCEPTOS } from "./conceptos-nomina";
+import { parseConceptosNominaWorkbook, partirCuentas, planEscrituraConceptos, HOJA_CONCEPTOS, type FilaConceptoAEscribir } from "./conceptos-nomina";
 
 /** Encabezados de la plantilla RF-NOM-08 (cliente / grupo / código / nombre / cuenta del cliente + centro opcional). */
 const HEADERS = [
@@ -169,4 +169,35 @@ test("un archivo que no es .xlsx devuelve el error de archivo", async () => {
   const { filas, errores } = await parseConceptosNominaWorkbook(Buffer.from("no soy un excel"));
   expect(filas).toEqual([]);
   expect(errores[0].hoja).toBe("Archivo");
+});
+
+// La escritura de la carga masiva: dos sentencias en total (borrar las claves, insertar las
+// filas), no dos por concepto; con 67 conceptos la transacción se pasaba de tiempo (P2028).
+test("planEscrituraConceptos: una clave por (cliente, concepto, centro) y sin cuentas repetidas", () => {
+  const fila = (extra: Partial<FilaConceptoAEscribir>): FilaConceptoAEscribir => ({
+    clienteId: 7, clasificador: "1", descripcion: "SALARIO BASICO", agrupador: "", grupo: "sueldos",
+    subcuentaPuc: "06", cuentaCliente: "0005060000", cuenta4: "", cuenta6: "", ...extra,
+  });
+  const { claves, data } = planEscrituraConceptos([
+    fila({}),
+    fila({}), // la misma cuenta repetida en el archivo
+    fila({ cuentaCliente: "51050601", cuenta4: "5105", cuenta6: "510506" }),
+    fila({ agrupador: "MOD", cuentaCliente: "72050601", cuenta4: "7205", cuenta6: "720506" }),
+    fila({ clasificador: "4", descripcion: "PRESTAMO EMPLEADOS", grupo: null, subcuentaPuc: "95", cuentaCliente: "1365950000" }),
+    fila({ clienteId: 8 }),
+  ], "Victor");
+  expect(claves).toEqual([
+    { clienteId: 7, clasificador: "1", agrupador: "" },
+    { clienteId: 7, clasificador: "1", agrupador: "MOD" },
+    { clienteId: 7, clasificador: "4", agrupador: "" },
+    { clienteId: 8, clasificador: "1", agrupador: "" },
+  ]);
+  expect(data.map((d) => [d.clienteId, d.clasificador, d.agrupador, d.cuentaCliente])).toEqual([
+    [7, "1", "", "0005060000"],
+    [7, "1", "", "51050601"],
+    [7, "1", "MOD", "72050601"],
+    [7, "4", "", "1365950000"],
+    [8, "1", "", "0005060000"],
+  ]);
+  expect(data[0]).toMatchObject({ moduloCodigo: "NOM", origen: "carga_masiva", actualizadoPor: "Victor", grupo: "sueldos", subcuentaPuc: "06" });
 });
