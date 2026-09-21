@@ -42,6 +42,13 @@ export type ComparativoUso = {
   generadoEn: string | null;
   actual: PeriodoComparado;
   previo: PeriodoComparado;
+  /**
+   * Ventana exacta del período previo, en ISO. `previo` trae las fechas ya
+   * legibles (y traducidas a la zona de la operación); esto conserva los
+   * extremos tal como se midieron, para que otra sección del reporte —el costo
+   * de IA— pueda consultar EXACTAMENTE el mismo tramo y no uno corrido por horas.
+   */
+  ventanaPrevia: { desde: string; hasta: string };
   /** false cuando las duraciones difieren > 10 %: las cifras absolutas no son equiparables. */
   comparable: boolean;
   /** Operaciones, usuarios, conexiones, visitas y clientes. */
@@ -193,6 +200,7 @@ export function compararUso(params: {
     generadoEn: params.generadoEn ?? null,
     actual: { desde: soloFecha(actual.periodoDesde), hasta: soloFecha(actual.periodoHasta), dias: diasActual },
     previo: { desde: soloFecha(previo.periodoDesde), hasta: soloFecha(previo.periodoHasta), dias: diasPrevio },
+    ventanaPrevia: { desde: previo.periodoDesde, hasta: previo.periodoHasta },
     comparable: desvio <= TOLERANCIA_DURACION,
     totales,
     promedioDiario: variacion(

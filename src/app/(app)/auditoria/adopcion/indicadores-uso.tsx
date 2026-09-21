@@ -2,12 +2,13 @@
 
 import { useId, useState } from "react";
 import { Card } from "@/components/ui";
-import { fmtNum } from "@/lib/format";
+import { fmt, fmtNum } from "@/lib/format";
 import {
   alertasComparativo,
   type ComparativoUso,
   type VariacionUso,
 } from "@/lib/auditoria/reporte-ejecutivo/comparativo";
+import { hayConsumoIA, type CostosIA } from "@/lib/auditoria/reporte-ejecutivo/costos-ia";
 
 export type BarraUso = {
   etiqueta: string;
@@ -316,6 +317,105 @@ export function ComparativoUsoCard({ comparativo }: { comparativo?: ComparativoU
   );
 }
 
+
+/**
+ * Costos de IA del período. Va aparte del comparativo de uso porque responde
+ * otra pregunta —cuánto cuesta operar— y porque su variación NO se pinta de
+ * verde o rojo: que el gasto suba suele significar que se usó más la
+ * plataforma, así que el juicio lo pone quien lee, no la tarjeta.
+ */
+export function CostosIACard({ costos }: { costos?: CostosIA | null }) {
+  if (!hayConsumoIA(costos) || !costos) return null;
+  const { actual, previo, mes } = costos;
+  const fecha = (iso: string) => iso.slice(0, 10);
+
+  return (
+    <Card className="p-4">
+      <h2 className="text-[13px] font-semibold text-ink-800">Costos de IA</h2>
+      <p className="mt-0.5 text-[11.5px] text-ink-500">
+        Consumo de las funciones con IA entre {fecha(actual.desde)} y {fecha(actual.hasta)}.
+      </p>
+
+      <div className="mt-3 grid grid-cols-3 gap-3">
+        <div>
+          <p className="font-mono text-[17px] font-semibold tabular-nums text-navy-700">{fmt(actual.costoCop)}</p>
+          <p className="text-[11px] text-ink-500">Gasto del período</p>
+        </div>
+        <div>
+          <p className="font-mono text-[17px] font-semibold tabular-nums text-ink-800">{fmtNum(actual.tokens)}</p>
+          <p className="text-[11px] text-ink-500">Tokens</p>
+        </div>
+        <div>
+          <p className="font-mono text-[17px] font-semibold tabular-nums text-ink-800">{fmtNum(actual.llamadas)}</p>
+          <p className="text-[11px] text-ink-500">Operaciones con IA</p>
+        </div>
+      </div>
+
+      {previo && (
+        <ul className="mt-3">
+          {costos.variaciones.map((v) => {
+            const enPesos = v.etiqueta.includes("pesos");
+            return (
+              <li
+                key={v.etiqueta}
+                className="flex items-baseline justify-between gap-3 border-b border-ink-100 py-1.5 last:border-b-0"
+              >
+                <span className="min-w-0 truncate text-[12.5px] text-ink-800">{v.etiqueta}</span>
+                <span className="flex shrink-0 items-baseline gap-2">
+                  <span className="font-mono text-[12.5px] tabular-nums text-ink-400">
+                    {enPesos ? fmt(v.previo) : fmtNum(v.previo)}
+                  </span>
+                  <span className="text-[11px] text-ink-300">→</span>
+                  <span className="font-mono text-[12.5px] font-semibold tabular-nums text-navy-700">
+                    {enPesos ? fmt(v.actual) : fmtNum(v.actual)}
+                  </span>
+                  <span className="font-mono text-[11.5px] font-semibold tabular-nums text-ink-500">
+                    {v.direccion === "subio" ? "▲" : v.direccion === "bajo" ? "▼" : "="}{" "}
+                    {v.variacionPct == null ? "nuevo" : `${Math.abs(v.variacionPct)} %`}
+                  </span>
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {previo && (
+        <p className="mt-1 text-[11px] text-ink-400">
+          Comparado con {costos.base === "reporte_anterior" ? "el reporte anterior" : "el período anterior"} (
+          {fecha(previo.desde)} → {fecha(previo.hasta)}).
+        </p>
+      )}
+
+      {mes && costos.mesEtiqueta && (
+        <p className="mt-2 rounded-md bg-ink-100 px-2.5 py-2 text-[11.5px] text-ink-700">
+          Acumulado de {costos.mesEtiqueta}: <strong>{fmt(mes.costoCop)}</strong> en {fmtNum(mes.tokens)}{" "}
+          tokens y {fmtNum(mes.llamadas)} operaciones.
+        </p>
+      )}
+
+      {actual.porOperacion.length > 1 && (
+        <ul className="mt-3">
+          {actual.porOperacion.map((o) => (
+            <li
+              key={o.nombre}
+              className="flex items-baseline justify-between gap-3 border-b border-ink-100 py-1.5 last:border-b-0"
+            >
+              <span className="min-w-0 truncate text-[12.5px] text-ink-800">
+                {o.nombre}
+                <span className="ml-1.5 text-[11px] text-ink-400">{fmtNum(o.llamadas)} operación(es)</span>
+              </span>
+              <span className="shrink-0 font-mono text-[12px] font-semibold tabular-nums text-ink-700">
+                {fmt(o.costoCop)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
 /**
  * Panel permanente de indicadores de uso de la plataforma.
  * Siempre visible en Configuración › Reportes ejecutivos (con o sin reporte IA).
@@ -329,9 +429,11 @@ export function IndicadoresUso({
   serieDiaria,
   adopcion,
   comparativo,
+  costos,
 }: {
   periodoLabel: string;
   comparativo?: ComparativoUso | null;
+  costos?: CostosIA | null;
   porFamilia?: BarraUso[] | null;
   topUsuarios?: BarraUso[] | null;
   topAcciones?: BarraUso[] | null;
@@ -352,6 +454,7 @@ export function IndicadoresUso({
       </div>
 
       <ComparativoUsoCard comparativo={comparativo} />
+      <CostosIACard costos={costos} />
 
       <div className="grid gap-3 lg:grid-cols-2">
         <ListaBarras

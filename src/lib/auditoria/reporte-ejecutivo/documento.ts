@@ -2,7 +2,8 @@ import { z } from "zod";
 import type { ResumenAdopcion } from "./adopcion";
 import { construirSeccionGraficosHtml } from "./graficos";
 import type { ResumenUsoFactual } from "./metricas";
-import { alertasComparativo, type AlertaUso, type ComparativoUso, type VariacionUso } from "./comparativo";
+import { alertasComparativo, soloFecha, type AlertaUso, type ComparativoUso, type VariacionUso } from "./comparativo";
+import { hayConsumoIA, type CostosIA } from "./costos-ia";
 import type { NovedadReporteEjecutivoContexto } from "./prompt";
 import type { ReporteEjecutivoUso } from "./reportes";
 
@@ -30,6 +31,8 @@ type Contexto = {
   novedades: NovedadReporteEjecutivoContexto[];
   /** Variación frente al reporte anterior; ausente cuando no hay con qué comparar. */
   comparativo?: ComparativoUso | null;
+  /** Gasto de IA del período; ausente cuando no hubo consumo. */
+  costos?: CostosIA | null;
 };
 
 /**
@@ -68,6 +71,10 @@ function escapeHtml(valor: string): string {
   return valor.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
 }
 const numero = (valor: number) => new Intl.NumberFormat("es-CO").format(valor);
+/** Pesos sin decimales: el gasto de una llamada es de centavos, el del período se lee redondo. */
+const pesos = (valor: number) => `$ ${new Intl.NumberFormat("es-CO").format(Math.round(valor))}`;
+const dolares = (valor: number) =>
+  `US$ ${new Intl.NumberFormat("es-CO", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(valor)}`;
 
 /** Colores del banner de alerta, en línea porque el HTML viaja suelto (correo/PDF). */
 const ESTILO_ALERTA = {
@@ -86,10 +93,16 @@ const COLOR_ALERTA = { alza: "#2f6b3f", baja: "#9a2a22", estable: "#566273" } as
 /** Flecha del banner: la del NIVEL, no la de la medida (un alza del 2 % es «estable»). */
 const SIGNO_ALERTA = { alza: "▲", baja: "▼", estable: "=" } as const;
 
-function filaVariacion(v: VariacionUso): string {
+/**
+ * Una fila comparada. `formato` la escribe en su unidad (pesos, tokens) y
+ * `colorFijo` desactiva el verde/rojo: en el uso, subir es buena noticia, pero
+ * en un COSTO no lo es, y pintar de verde un gasto que creció sería un juicio
+ * que el reporte no debe emitir.
+ */
+function filaVariacion(v: VariacionUso, formato: (n: number) => string = numero, colorFijo?: string): string {
   const pct = v.variacionPct == null ? "—" : `${v.variacionPct > 0 ? "+" : ""}${numero(v.variacionPct)} %`;
-  const color = COLOR_VARIACION[v.direccion];
-  return `<tr><td>${escapeHtml(v.etiqueta)}</td><td>${numero(v.previo)}</td><td style="color:${color};font-weight:600">${numero(v.actual)}</td><td style="color:${color};font-weight:600;white-space:nowrap">${SIGNO[v.direccion]} ${escapeHtml(pct)}</td></tr>`;
+  const color = colorFijo ?? COLOR_VARIACION[v.direccion];
+  return `<tr><td>${escapeHtml(v.etiqueta)}</td><td>${formato(v.previo)}</td><td style="color:${color};font-weight:600">${formato(v.actual)}</td><td style="color:${color};font-weight:600;white-space:nowrap">${SIGNO[v.direccion]} ${escapeHtml(pct)}</td></tr>`;
 }
 
 /**
@@ -97,11 +110,16 @@ function filaVariacion(v: VariacionUso): string {
  * anterior o, cuando no había ninguno, el período anterior— con sus fechas
  * debajo: leídas sueltas, «Anterior» y «Actual» no decían contra qué.
  */
+function columnaFechas(titulo: string, p: { desde: string; hasta: string }): string {
+  return `<th>${escapeHtml(titulo)}<br><span style="font-weight:normal;font-size:10px;color:#566273">${escapeHtml(p.desde)} → ${escapeHtml(p.hasta)}</span></th>`;
+}
+
+function encabezadosComparados(que: string, previo: { desde: string; hasta: string }, actual: { desde: string; hasta: string }): string {
+  return `${columnaFechas(`${que} anterior`, previo)}${columnaFechas(`${que} actual`, actual)}<th>Variación</th>`;
+}
+
 function encabezadosComparativo(c: ComparativoUso): string {
-  const que = c.base === "reporte_anterior" ? "Reporte" : "Período";
-  const columna = (titulo: string, p: { desde: string; hasta: string }) =>
-    `<th>${escapeHtml(titulo)}<br><span style="font-weight:normal;font-size:10px;color:#566273">${escapeHtml(p.desde)} → ${escapeHtml(p.hasta)}</span></th>`;
-  return `${columna(`${que} anterior`, c.previo)}${columna(`${que} actual`, c.actual)}<th>Variación</th>`;
+  return encabezadosComparados(c.base === "reporte_anterior" ? "Reporte" : "Período", c.previo, c.actual);
 }
 
 function bannerAlerta(a: AlertaUso): string {
@@ -135,19 +153,58 @@ function seccionComparativo(comparativo?: ComparativoUso | null): string {
   const aviso = c.comparable
     ? ""
     : `<p class="nota">Los períodos no miden lo mismo (${numero(c.previo.dias)} días frente a ${numero(c.actual.dias)}): la comparación se lee sobre el promedio diario, no sobre los totales.</p>`;
-  const familias = c.porFamilia.slice(0, 8).map(filaVariacion).join("");
+  const familias = c.porFamilia.slice(0, 8).map((v) => filaVariacion(v)).join("");
   return `<section id="comparativo"><h2>¿Subió o bajó el uso?</h2>
 ${alertas.map(bannerAlerta).join("")}
 <p>Comparación del período actual (${escapeHtml(c.actual.desde)} → ${escapeHtml(c.actual.hasta)}) contra el ${escapeHtml(referencia)}.</p>${aviso}
-<table><thead><tr><th>Indicador</th>${encabezadosComparativo(c)}</tr></thead><tbody>${[...c.totales, c.promedioDiario].map(filaVariacion).join("")}</tbody></table>
+<table><thead><tr><th>Indicador</th>${encabezadosComparativo(c)}</tr></thead><tbody>${[...c.totales, c.promedioDiario].map((v) => filaVariacion(v)).join("")}</tbody></table>
 <h2 style="font-size:15px">Quiénes operaron</h2>${detalleUsuarios(c)}
-${c.porUsuario.length ? `<table><thead><tr><th>Usuario</th>${encabezadosComparativo(c)}</tr></thead><tbody>${c.porUsuario.map(filaVariacion).join("")}</tbody></table>` : ""}
+${c.porUsuario.length ? `<table><thead><tr><th>Usuario</th>${encabezadosComparativo(c)}</tr></thead><tbody>${c.porUsuario.map((v) => filaVariacion(v)).join("")}</tbody></table>` : ""}
 ${familias ? `<h2 style="font-size:15px">Por módulo o proceso</h2><table><thead><tr><th>Módulo o proceso</th>${encabezadosComparativo(c)}</tr></thead><tbody>${familias}</tbody></table>` : ""}
 <p class="nota">Una variación describe el volumen de operaciones registradas; no mide por sí sola productividad ni calidad del trabajo.</p></section>
 `;
 }
 
-export function construirDocumentoConsistente({ uso, adopcion, novedades, comparativo, corte }: Contexto & {
+
+/** Gris para todo el bloque de costos: un gasto que sube no es «bueno» ni «malo». */
+const COLOR_COSTO = "#2a3441";
+
+/**
+ * Sección «Costos de IA»: qué costó el período, cómo se compara con el reporte
+ * anterior y cuánto va corrido del mes. Deliberadamente breve —tres cifras y
+ * una tabla—: es un dato de contexto, no el tema del reporte.
+ */
+function seccionCostosIA(costos?: CostosIA | null): string {
+  if (!hayConsumoIA(costos) || !costos) return "";
+  const { actual, previo, mes } = costos;
+  const rango = `${escapeHtml(soloFecha(actual.desde))} → ${escapeHtml(soloFecha(actual.hasta))}`;
+  const resumen = actual.llamadas === 0
+    ? `<p>En el período (${rango}) no se registró consumo de IA.</p>`
+    : `<p>Las funciones con IA del período (${rango}) costaron <strong>${pesos(actual.costoCop)}</strong> (${escapeHtml(dolares(actual.costoUsd))}) en <strong>${numero(actual.tokens)}</strong> tokens y <strong>${numero(actual.llamadas)}</strong> operaciones.</p>`;
+
+  const que = costos.base === "reporte_anterior" ? "Reporte" : "Período";
+  const comparativo = previo
+    ? `<table><thead><tr><th>Concepto</th>${encabezadosComparados(que, { desde: soloFecha(previo.desde), hasta: soloFecha(previo.hasta) }, { desde: soloFecha(actual.desde), hasta: soloFecha(actual.hasta) })}</tr></thead><tbody>${costos.variaciones
+        .map((v) => filaVariacion(v, v.etiqueta.includes("pesos") ? pesos : numero, COLOR_COSTO))
+        .join("")}</tbody></table>`
+    : "";
+
+  const acumulado = mes && costos.mesEtiqueta
+    ? `<p>Acumulado de ${escapeHtml(costos.mesEtiqueta)} (${escapeHtml(soloFecha(mes.desde))} → ${escapeHtml(soloFecha(mes.hasta))}): <strong>${pesos(mes.costoCop)}</strong> en ${numero(mes.tokens)} tokens y ${numero(mes.llamadas)} operaciones.</p>`
+    : "";
+
+  const detalle = actual.porOperacion.length > 1
+    ? `<table><thead><tr><th>Operación</th><th>Operaciones</th><th>Tokens</th><th>Gasto</th></tr></thead><tbody>${actual.porOperacion
+        .map((o) => `<tr><td>${escapeHtml(o.nombre)}</td><td>${numero(o.llamadas)}</td><td>${numero(o.tokens)}</td><td>${pesos(o.costoCop)}</td></tr>`)
+        .join("")}</tbody></table>`
+    : "";
+
+  return `<section id="costos-ia"><h2>Costos de IA</h2>
+${resumen}${comparativo}${acumulado}${detalle}
+<p class="nota">Corresponde al consumo generado por los usuarios de la plataforma en el alcance de este reporte. El valor en pesos es el de cada operación al momento de ejecutarse, con la tasa de cambio oficial de ese día.</p></section>`;
+}
+
+export function construirDocumentoConsistente({ uso, adopcion, novedades, comparativo, costos, corte }: Contexto & {
   corte?: string | null;
 }): ReporteEjecutivoUso {
   const titulo = "Resumen de uso y avances";
@@ -167,7 +224,7 @@ export function construirDocumentoConsistente({ uso, adopcion, novedades, compar
 </style></head><body><main><header><div class="marca">RUSSELL DIAGNÓSTICO</div><h1>${titulo}</h1><p>Período: ${escapeHtml(uso.periodoDesde.slice(0, 10))} → ${escapeHtml(uso.periodoHasta.slice(0, 10))}</p><p class="nota">Alcance temporal UTC: ${escapeHtml(uso.periodoDesde)} → ${escapeHtml(uso.periodoHasta)}</p>${corte ? `<p class="nota">Fecha de corte: ${escapeHtml(corte)}</p>` : ""}</header>
 <section id="lo-mas-importante"><h2>Lo más importante</h2><ul><li>Operaciones registradas: <strong>${numero(uso.totalAcciones)}</strong>.</li><li>Usuarios con operaciones: <strong>${numero(uso.totalUsuarios)}</strong>; clientes con operaciones: <strong>${numero(uso.totalClientes)}</strong>.</li><li>Visitas a módulos operativos: <strong>${numero(uso.totalNavegaciones)}</strong>; inicios de sesión: <strong>${numero(uso.totalConexiones)}</strong>. Se contabilizan por separado.</li><li>Funcionalidades con actividad relacionada: <strong>${numero(adopcion.usadas)}</strong>; sin actividad relacionada: <strong>${numero(adopcion.sinEvidencia)}</strong>.</li>${comparativo ? alertasComparativo(comparativo).map((a) => `<li>Frente al ${comparativo.base === "reporte_anterior" ? "reporte anterior" : "período anterior"}: <strong style="color:${COLOR_ALERTA[a.nivel]}">${SIGNO_ALERTA[a.nivel]} ${escapeHtml(a.titulo)}</strong>.</li>`).join("") : ""}</ul>${orientacion}</section>
 <section id="decisiones"><h2>Decisiones y asuntos por atender</h2><p>${decision}</p><p>La actividad de un módulo no confirma el uso de una funcionalidad individual ni permite atribuirlo a una persona concreta.</p></section>
-${seccionComparativo(comparativo)}<section id="indicadores"><h2>Indicadores de uso</h2>${graficos}</section>
+${seccionComparativo(comparativo)}${seccionCostosIA(costos)}<section id="indicadores"><h2>Indicadores de uso</h2>${graficos}</section>
 <section id="avances"><h2>Avances publicados</h2>${filas ? `<table><thead><tr><th>Versión</th><th>Avance</th><th>Descripción</th></tr></thead><tbody>${filas}</tbody></table>` : "<p>No hay avances publicados en el alcance seleccionado.</p>"}</section>
 <section id="proximos-pasos"><h2>Próximos pasos</h2><ul><li>Revisar los indicadores con el contexto operativo del período.</li>${adopcion.sinEvidencia > 0 ? "<li>Consultar con el equipo las funcionalidades sin actividad relacionada antes de definir acompañamiento.</li>" : ""}${uso.totalAcciones === 0 ? "<li>Comprobar el alcance y la disponibilidad de registros antes de interpretar la ausencia de operaciones.</li>" : ""}${recomendaciones.map((texto) => `<li>${escapeHtml(texto)}</li>`).join("")}</ul></section><footer class="nota">Fuente: registros de actividad y novedades incluidas en el alcance del reporte.</footer></main></body></html>`,
   };

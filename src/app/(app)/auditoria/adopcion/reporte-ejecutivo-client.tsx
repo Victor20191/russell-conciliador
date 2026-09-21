@@ -31,6 +31,7 @@ import {
   type SerieDiaUso,
 } from "./indicadores-uso";
 import type { ComparativoUso } from "@/lib/auditoria/reporte-ejecutivo/comparativo";
+import type { CostosIA } from "@/lib/auditoria/reporte-ejecutivo/costos-ia";
 
 export type VersionOpcion = {
   id: number;
@@ -44,6 +45,8 @@ export type VersionOpcion = {
 export type KpisIniciales = {
   /** Variación del uso frente al reporte anterior; null cuando no hay con qué comparar. */
   comparativo?: ComparativoUso | null;
+  /** Gasto de IA del período; null cuando no hubo consumo. */
+  costos?: CostosIA | null;
   totalAcciones: number;
   totalUsuarios: number;
   totalClientes: number;
@@ -533,6 +536,7 @@ export function ReporteEjecutivoClient({
         serieDiaria={kpis.serieDiaria ?? []}
         adopcion={kpis.adopcionBarras ?? []}
         comparativo={kpis.comparativo ?? null}
+        costos={kpis.costos ?? null}
       />
 
       <Card className="overflow-hidden">

@@ -22,6 +22,7 @@ import {
 import { listarEnviosReporteEjecutivo, listarReportesGenerados } from "@/app/actions/auditoria-reporte";
 import { resumirPendienteDeEnvio } from "@/lib/auditoria/reporte-ejecutivo/envios";
 import { construirComparativoUso } from "@/lib/auditoria/reporte-ejecutivo/comparativo-servidor";
+import { construirCostosIAReporte } from "@/lib/auditoria/reporte-ejecutivo/costos-ia-servidor";
 import {
   explicarPeriodoSugerido,
   sugerirPeriodoReporte,
@@ -173,6 +174,16 @@ export default async function ReportesEjecutivosPage() {
     correosUsuarios,
   });
 
+  // Cuánto costó la IA en la misma ventana, contra el mismo tramo anterior.
+  const costos = await construirCostosIAReporte({
+    desde,
+    hasta,
+    corte: new Date(),
+    ventanaPrevia: comparativo?.ventanaPrevia ?? null,
+    base: comparativo?.base ?? null,
+    usuariosRegistrados,
+  });
+
   const cambiosPublicadosPorVersion = new Map<number, number>();
   const planos: CambioNovedadContexto[] = [];
   for (const v of versiones) {
@@ -224,6 +235,7 @@ export default async function ReportesEjecutivosPage() {
 
   const kpis: KpisIniciales = {
     comparativo,
+    costos,
     totalAcciones: uso.totalAcciones,
     totalUsuarios: uso.totalUsuarios,
     totalClientes: uso.totalClientes,

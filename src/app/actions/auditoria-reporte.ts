@@ -23,6 +23,8 @@ import {
   type FiltroPublicacion,
 } from "@/lib/auditoria/reporte-ejecutivo/alcance";
 import { construirComparativoUso } from "@/lib/auditoria/reporte-ejecutivo/comparativo-servidor";
+import { construirCostosIAReporte } from "@/lib/auditoria/reporte-ejecutivo/costos-ia-servidor";
+import type { CostosIA } from "@/lib/auditoria/reporte-ejecutivo/costos-ia";
 import { correosDelReporte, nombresDelReporte } from "@/lib/auditoria/reporte-ejecutivo/usuarios-reporte";
 import { descripcionAvance, tituloAvance } from "@/lib/auditoria/reporte-ejecutivo/texto-avances";
 import type { ComparativoUso } from "@/lib/auditoria/reporte-ejecutivo/comparativo";
@@ -442,6 +444,16 @@ export async function generarReporteEjecutivoUso(
       correosUsuarios,
     });
 
+    // Costos de IA del período, contra el mismo tramo anterior que el uso.
+    const costos = await construirCostosIAReporte({
+      desde: rango.desde,
+      hasta: rango.hasta,
+      corte,
+      ventanaPrevia: comparativo?.ventanaPrevia ?? null,
+      base: comparativo?.base ?? null,
+      usuariosRegistrados,
+    });
+
     const {
       contexto: novedades,
       totalChanges,
@@ -460,7 +472,7 @@ export async function generarReporteEjecutivoUso(
     // temperatura 0, cambiaba entre corridas sin que cambiaran los datos.
     signal?.throwIfAborted();
     const report = normalizarReporteHtml(construirDocumentoConsistente({
-      uso, adopcion, novedades, comparativo,
+      uso, adopcion, novedades, comparativo, costos,
       corte: corte.toISOString(),
     }).html);
 
@@ -476,7 +488,7 @@ export async function generarReporteEjecutivoUso(
       totalAcciones: uso.totalAcciones, totalUsuarios: uso.totalUsuarios,
       totalNovedades: adopcion.totalCambios, porcentajeAdopcion: adopcion.porcentajeAdopcion,
       versionIdsIncluidos, corte: corte.toISOString(),
-      fuente: { uso, adopcion, novedades, comparativo }, userId: user?.id ?? null,
+      fuente: { uso, adopcion, novedades, comparativo, costos }, userId: user?.id ?? null,
     });
     signal?.throwIfAborted();
     await logAudit({
@@ -506,6 +518,7 @@ export async function obtenerResumenUsoAdopcion(opciones: {
       uso: ReturnType<typeof calcularResumenUso>;
       adopcion: ReturnType<typeof evaluarAdopcion>;
       comparativo: ComparativoUso | null;
+      costos: CostosIA | null;
       totalVersionesPublicadas: number;
     }
   | { ok: false; message: string }
@@ -611,11 +624,21 @@ export async function obtenerResumenUsoAdopcion(opciones: {
       correosUsuarios: correosDelReporte(usuarios),
     });
 
+    const costos = await construirCostosIAReporte({
+      desde: rango.desde,
+      hasta: rango.hasta,
+      corte: new Date(),
+      ventanaPrevia: comparativo?.ventanaPrevia ?? null,
+      base: comparativo?.base ?? null,
+      usuariosRegistrados: nombresDelReporte(usuarios),
+    });
+
     return {
       ok: true,
       uso,
       adopcion,
       comparativo,
+      costos,
       totalVersionesPublicadas: versiones.length,
     };
   } catch {
