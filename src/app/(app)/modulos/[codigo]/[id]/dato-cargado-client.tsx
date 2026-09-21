@@ -2987,7 +2987,11 @@ function NovedadesTab({ novedades, titulo }: { novedades: NovedadesVm; titulo?: 
         </>
       )}
 
+      {/* Módulos sin verificaciones (Cartera, Nómina): la tarjeta solo aparece con observaciones. */}
+      {(novedades.verificaciones.length > 0 || novedades.observaciones) && (
       <Card className="p-4">
+        {novedades.verificaciones.length > 0 && (
+        <>
         <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-ink-500">Verificaciones</div>
         <div className="flex flex-col divide-y divide-ink-100">
           {novedades.verificaciones.map((v, i) => (
@@ -3000,13 +3004,16 @@ function NovedadesTab({ novedades, titulo }: { novedades: NovedadesVm; titulo?: 
             </div>
           ))}
         </div>
+        </>
+        )}
         {novedades.observaciones && (
-          <div className="mt-3 border-t border-ink-100 pt-2.5">
+          <div className={novedades.verificaciones.length > 0 ? "mt-3 border-t border-ink-100 pt-2.5" : ""}>
             <div className="text-[11px] font-medium text-ink-600">Observaciones generales</div>
             <p className="mt-1 whitespace-pre-wrap text-[12.5px] text-ink-700">{novedades.observaciones}</p>
           </div>
         )}
       </Card>
+      )}
     </div>
   );
 }

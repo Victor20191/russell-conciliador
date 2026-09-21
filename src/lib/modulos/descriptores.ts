@@ -691,12 +691,9 @@ export const MODULOS_IMPORT: Record<string, DescriptorModulo> = {
       rolNombre: "empleado",
       cuentasRussell6: CUENTAS_RUSSELL_NOMINA,
     },
-    verificaciones: [
-      { id: "nom_aportes", texto: "¿El archivo de nómina trae los aportes patronales y las provisiones (cesantías, intereses, prima, vacaciones, ARL, EPS, pensión, parafiscales)? Si no, márquelos como no modulares en el cruce." },
-      { id: "nom_contratistas", texto: "Confirme si la nómina incluye pagos a contratistas por prestación de servicios." },
-      { id: "nom_prestaciones", texto: "Verifique la provisión de prestaciones sociales del período." },
-      { id: "nom_seguridad", texto: "Confirme la conciliación de aportes a seguridad social y parafiscales." },
-    ],
+    // Sin verificaciones manuales al cargar (21/Sep/2026): el borrador ya no pregunta por aportes,
+    // contratistas, provisiones ni seguridad social (los cargues anteriores conservan las
+    // respuestas que guardaron). Los aportes no traídos se siguen marcando no modulares en el cruce.
   },
 };
 
