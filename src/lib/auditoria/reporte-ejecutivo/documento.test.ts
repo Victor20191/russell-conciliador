@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { calcularResumenUso, conteosPorFamiliaCanon } from "./metricas";
 import { evaluarAdopcion } from "./adopcion";
-import { construirDocumentoConsistente, construirPromptLecturaConsistente, parsearLecturaConsistente } from "./documento";
+import { construirDocumentoConsistente, elegirLecturaConsistente } from "./documento";
 import type { NovedadReporteEjecutivoContexto } from "./prompt";
 import { compararUso } from "./comparativo";
 
@@ -42,22 +42,25 @@ describe("documento consistente", () => {
     expect(completo).toContain("Avance-84");
   });
 
-  test("JSON no válido, HTML, cifras o nombres nuevos caen a documento factual", () => {
-    for (const texto of ["no JSON", "<html>texto</html>", '{"lectura":"Subió 50%","recomendaciones":[]}', '{"lectura":"Pedro lideró el equipo","recomendaciones":[]}']) {
-      expect(parsearLecturaConsistente(texto)).toBeNull();
-      expect(construirDocumentoConsistente({ ...contexto, lecturaIA: parsearLecturaConsistente(texto) }))
-        .toEqual(construirDocumentoConsistente(contexto));
-    }
+  test("la lectura editorial sale del vocabulario cerrado y va en el documento", () => {
+    const lectura = elegirLecturaConsistente(contexto);
+    expect(lectura.lectura).toContain("La actividad");
+    expect(construirDocumentoConsistente(contexto).html).toContain(lectura.lectura);
+    for (const r of lectura.recomendaciones) expect(construirDocumentoConsistente(contexto).html).toContain(r);
   });
 
-  test("acepta exclusivamente orientación editorial sin hechos nuevos", () => {
-    const lectura = "La actividad de un módulo ofrece evidencia relacionada, pero no confirma el uso de cada funcionalidad individual.";
-    const parsed = parsearLecturaConsistente(JSON.stringify({ lectura, recomendaciones: ["Revisar el detalle de actividad junto con el contexto operativo del equipo."] }));
-    expect(parsed).not.toBeNull();
-    expect(construirDocumentoConsistente({ ...contexto, lecturaIA: parsed }).html).toContain(lectura);
-    expect(construirPromptLecturaConsistente(contexto)).toContain("No agregues cifras");
-    expect(construirPromptLecturaConsistente(contexto)).not.toContain("Ana");
-    expect(parsearLecturaConsistente(JSON.stringify({ ...parsed, extra: true }))).toBeNull();
+  test("la lectura depende de las señales del período, y siempre es la misma para las mismas", () => {
+    const sinEvidencia = evaluarAdopcion({
+      cambios: [{ versionNumero: "1.0", versionTitulo: "v", tipo: "mejora", titulo: "X", descripcion: "d", modulo: "dian", ruta: null, comoOperar: null, ejemplo: null, estadoFuncionalidad: "disponible" }],
+      conteosPorFamilia: conteosPorFamiliaCanon([]),
+    });
+    const conPendientes = elegirLecturaConsistente({ ...contexto, adopcion: sinEvidencia });
+    expect(conPendientes.lectura).toContain("no confirma el uso de cada funcionalidad");
+    expect(conPendientes.recomendaciones).toHaveLength(3);
+
+    // Mismas señales, misma salida: el documento no cambia entre generaciones.
+    expect(elegirLecturaConsistente(contexto)).toEqual(elegirLecturaConsistente(contexto));
+    expect(construirDocumentoConsistente(contexto).html).toBe(construirDocumentoConsistente(contexto).html);
   });
 });
 
@@ -111,5 +114,33 @@ describe("colores del comparativo", () => {
     const igual = compararUso({ actual: uso, previo: { ...uso, periodoDesde: "2026-08-25T00:00:00Z", periodoHasta: "2026-08-31T23:59:59Z" }, base: "reporte_anterior" });
     const html = construirDocumentoConsistente({ ...contexto, comparativo: igual }).html;
     expect(html).toContain("= El uso se mantuvo estable");
+  });
+});
+
+describe("encabezados del comparativo", () => {
+  const previo15 = calcularResumenUso({
+    eventos: [{ user: "Ana", action: "CARGÓ BALANCE", entity: "", detail: "", clientId: 7, createdAt: "2026-08-28T10:00:00Z" }],
+    periodoDesde: "2026-08-28T00:00:00Z", periodoHasta: "2026-09-11T23:59:59Z",
+  });
+
+  test("las columnas dicen contra qué se compara, con sus fechas", () => {
+    const html = construirDocumentoConsistente({
+      ...contexto,
+      comparativo: compararUso({ actual: uso, previo: previo15, base: "reporte_anterior" }),
+    }).html;
+    expect(html).toContain("Reporte anterior");
+    expect(html).toContain("Reporte actual");
+    expect(html).toContain("2026-08-28 → 2026-09-11");
+    expect(html).not.toContain("<th>Anterior</th>");
+  });
+
+  test("sin reporte previo habla de períodos, no de reportes", () => {
+    const html = construirDocumentoConsistente({
+      ...contexto,
+      comparativo: compararUso({ actual: uso, previo: previo15, base: "periodo_anterior" }),
+    }).html;
+    expect(html).toContain("Período anterior");
+    expect(html).toContain("Período actual");
+    expect(html).not.toContain("Reporte anterior");
   });
 });

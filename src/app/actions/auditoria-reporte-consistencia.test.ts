@@ -59,14 +59,15 @@ describe("consistencia de generación del reporte", () => {
     const result = await generarReporteEjecutivoUso({ ...scope, actualizar: true });
     expect(result).toMatchObject({ ok: true, desdeCache: false });
     expect(mocks.eventos).toHaveBeenCalledTimes(1);
-    expect(mocks.ia).toHaveBeenCalledTimes(1);
+    // El documento se arma entero en código: ninguna generación llama a la IA.
+    expect(mocks.ia).not.toHaveBeenCalled();
     expect(mocks.guardar).toHaveBeenCalledWith(expect.objectContaining({
       anteriorId: 9, totalAcciones: 0, totalUsuarios: 0,
       report: expect.objectContaining({ html: expect.stringContaining('id="lo-mas-importante"') }),
     }));
   });
 
-  test("rechaza versiones seleccionadas ausentes o no publicadas antes de llamar IA", async () => {
+  test("rechaza versiones seleccionadas ausentes o no publicadas antes de construir el documento", async () => {
     mocks.leer.mockResolvedValue(null);
     mocks.versiones.mockResolvedValue([{ id: 3 }]);
     const result = await generarReporteEjecutivoUso({ ...scope, versionIds: [3, 5] });
@@ -78,9 +79,9 @@ describe("consistencia de generación del reporte", () => {
     expect(mocks.guardar).not.toHaveBeenCalled();
   });
 
-  test("cancelar durante IA evita auditoría y guardado", async () => {
+  test("cancelar mientras se consulta la actividad evita auditoría y guardado", async () => {
     const controller = new AbortController();
-    mocks.ia.mockImplementation(async () => { controller.abort(); return { text: "{}" }; });
+    mocks.eventos.mockImplementation(async () => { controller.abort(); return []; });
     expect(await generarReporteEjecutivoUso({ ...scope, actualizar: true }, controller.signal))
       .toEqual({ ok: false, message: "Generación cancelada." });
     expect(mocks.audit).not.toHaveBeenCalled();

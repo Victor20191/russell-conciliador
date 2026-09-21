@@ -32,24 +32,36 @@ type Contexto = {
   comparativo?: ComparativoUso | null;
 };
 
-export function construirPromptLecturaConsistente({ uso, adopcion }: Contexto): string {
-  return [
-    "Selecciona una lectura editorial y hasta tres recomendaciones pertinentes. Devuelve exclusivamente JSON estricto con las claves lectura y recomendaciones.",
-    "Copia literalmente los textos permitidos. No agregues cifras, porcentajes, nombres de personas, HTML, conclusiones causales ni texto nuevo.",
-    `Lecturas permitidas: ${JSON.stringify(LECTURAS)}`,
-    `Recomendaciones permitidas: ${JSON.stringify(RECOMENDACIONES)}`,
-    `Contexto: ${JSON.stringify({ hayOperaciones: uso.totalAcciones > 0, hayNavegaciones: uso.totalNavegaciones > 0, hayFuncionalidadesSinEvidencia: adopcion.sinEvidencia > 0 })}`,
-  ].join("\n");
-}
+/**
+ * Lectura editorial y recomendaciones, elegidas EN CÓDIGO.
+ *
+ * Antes las escogía un modelo entre este mismo vocabulario cerrado, a partir de
+ * tres señales que ya se calculan aquí. Con temperatura 0 igual variaba: tres
+ * generaciones del mismo período devolvieron dos frases distintas, y un reporte
+ * que cambia de texto sin que cambien los datos le resta credibilidad a las
+ * cifras. La selección con las MISMAS señales es determinista, instantánea y
+ * gratis; el vocabulario sigue siendo cerrado, así que nada se puede inventar.
+ */
+export function elegirLecturaConsistente({ uso, adopcion }: Contexto): LecturaConsistente {
+  const hayFuncionalidadesSinEvidencia = adopcion.sinEvidencia > 0;
+  const hayNavegaciones = uso.totalNavegaciones > 0;
 
-export function parsearLecturaConsistente(texto: string): LecturaConsistente | null {
-  if (texto.length > 2500 || /[\d%<>]/u.test(texto)) return null;
-  try {
-    const parsed = LecturaSchema.safeParse(JSON.parse(texto));
-    return parsed.success ? parsed.data : null;
-  } catch {
-    return null;
+  // La lectura habla de lo que el reporte va a mostrar más abajo.
+  const lectura = hayFuncionalidadesSinEvidencia
+    ? LECTURAS[2] // hay funcionalidades sin actividad relacionada
+    : hayNavegaciones
+      ? LECTURAS[1] // conviven operaciones, visitas e inicios de sesión
+      : LECTURAS[0];
+
+  const recomendaciones: LecturaConsistente["recomendaciones"] = [RECOMENDACIONES[0]];
+  if (hayFuncionalidadesSinEvidencia) {
+    recomendaciones.push(RECOMENDACIONES[1], RECOMENDACIONES[2]);
+  } else if (uso.totalAcciones === 0) {
+    // Sin operaciones registradas, lo que toca es no confundir ausencia de
+    // evidencia con ausencia de uso.
+    recomendaciones.push(RECOMENDACIONES[2]);
   }
+  return { lectura, recomendaciones };
 }
 
 function escapeHtml(valor: string): string {
@@ -78,6 +90,18 @@ function filaVariacion(v: VariacionUso): string {
   const pct = v.variacionPct == null ? "—" : `${v.variacionPct > 0 ? "+" : ""}${numero(v.variacionPct)} %`;
   const color = COLOR_VARIACION[v.direccion];
   return `<tr><td>${escapeHtml(v.etiqueta)}</td><td>${numero(v.previo)}</td><td style="color:${color};font-weight:600">${numero(v.actual)}</td><td style="color:${color};font-weight:600;white-space:nowrap">${SIGNO[v.direccion]} ${escapeHtml(pct)}</td></tr>`;
+}
+
+/**
+ * Encabezados de las columnas comparadas. Dicen QUÉ se compara —el reporte
+ * anterior o, cuando no había ninguno, el período anterior— con sus fechas
+ * debajo: leídas sueltas, «Anterior» y «Actual» no decían contra qué.
+ */
+function encabezadosComparativo(c: ComparativoUso): string {
+  const que = c.base === "reporte_anterior" ? "Reporte" : "Período";
+  const columna = (titulo: string, p: { desde: string; hasta: string }) =>
+    `<th>${escapeHtml(titulo)}<br><span style="font-weight:normal;font-size:10px;color:#566273">${escapeHtml(p.desde)} → ${escapeHtml(p.hasta)}</span></th>`;
+  return `${columna(`${que} anterior`, c.previo)}${columna(`${que} actual`, c.actual)}<th>Variación</th>`;
 }
 
 function bannerAlerta(a: AlertaUso): string {
@@ -115,20 +139,19 @@ function seccionComparativo(comparativo?: ComparativoUso | null): string {
   return `<section id="comparativo"><h2>¿Subió o bajó el uso?</h2>
 ${alertas.map(bannerAlerta).join("")}
 <p>Comparación del período actual (${escapeHtml(c.actual.desde)} → ${escapeHtml(c.actual.hasta)}) contra el ${escapeHtml(referencia)}.</p>${aviso}
-<table><thead><tr><th>Indicador</th><th>Anterior</th><th>Actual</th><th>Variación</th></tr></thead><tbody>${[...c.totales, c.promedioDiario].map(filaVariacion).join("")}</tbody></table>
+<table><thead><tr><th>Indicador</th>${encabezadosComparativo(c)}</tr></thead><tbody>${[...c.totales, c.promedioDiario].map(filaVariacion).join("")}</tbody></table>
 <h2 style="font-size:15px">Quiénes operaron</h2>${detalleUsuarios(c)}
-${c.porUsuario.length ? `<table><thead><tr><th>Usuario</th><th>Anterior</th><th>Actual</th><th>Variación</th></tr></thead><tbody>${c.porUsuario.map(filaVariacion).join("")}</tbody></table>` : ""}
-${familias ? `<h2 style="font-size:15px">Por módulo o proceso</h2><table><thead><tr><th>Módulo o proceso</th><th>Anterior</th><th>Actual</th><th>Variación</th></tr></thead><tbody>${familias}</tbody></table>` : ""}
+${c.porUsuario.length ? `<table><thead><tr><th>Usuario</th>${encabezadosComparativo(c)}</tr></thead><tbody>${c.porUsuario.map(filaVariacion).join("")}</tbody></table>` : ""}
+${familias ? `<h2 style="font-size:15px">Por módulo o proceso</h2><table><thead><tr><th>Módulo o proceso</th>${encabezadosComparativo(c)}</tr></thead><tbody>${familias}</tbody></table>` : ""}
 <p class="nota">Una variación describe el volumen de operaciones registradas; no mide por sí sola productividad ni calidad del trabajo.</p></section>
 `;
 }
 
-export function construirDocumentoConsistente({ uso, adopcion, novedades, comparativo, lecturaIA, corte }: Contexto & {
-  lecturaIA?: LecturaConsistente | null;
+export function construirDocumentoConsistente({ uso, adopcion, novedades, comparativo, corte }: Contexto & {
   corte?: string | null;
 }): ReporteEjecutivoUso {
   const titulo = "Resumen de uso y avances";
-  const lectura = LecturaSchema.safeParse(lecturaIA);
+  const lectura = LecturaSchema.safeParse(elegirLecturaConsistente({ uso, adopcion, novedades }));
   const cambios = novedades.flatMap((version) => version.cambios.map((cambio) => ({ version: version.numero, ...cambio })));
   const filas = cambios.map((cambio) => `<tr><td>${escapeHtml(cambio.version)}</td><td>${escapeHtml(cambio.titulo)}</td><td>${escapeHtml(cambio.descripcion)}</td></tr>`).join("");
   const decision = adopcion.sinEvidencia > 0

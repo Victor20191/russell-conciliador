@@ -1,13 +1,11 @@
 "use server";
 
-import { randomUUID } from "node:crypto";
-import { setTimeout as esperarAbortable } from "node:timers/promises";
 import prisma from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/dal";
 import { logAudit } from "@/lib/audit";
 import { mensajeErrorBD } from "@/lib/errores";
 import { authorizeReporteEjecutivo } from "@/lib/rbac/reporte-ejecutivo";
-import { completarTextoOpenCode, mensajeErrorOpenCode } from "@/lib/opencode";
+import { mensajeErrorOpenCode } from "@/lib/opencode";
 import {
   evaluarAdopcion,
   type CambioNovedadContexto,
@@ -29,13 +27,10 @@ import { correosDelReporte, nombresDelReporte } from "@/lib/auditoria/reporte-ej
 import type { ComparativoUso } from "@/lib/auditoria/reporte-ejecutivo/comparativo";
 import { modulosPublicadosParaTodos } from "@/lib/rbac/publicacion";
 import { MODULOS_PLATAFORMA_KEYS } from "@/lib/rbac/modulos-plataforma";
-import { construirDocumentoConsistente, construirPromptLecturaConsistente, parsearLecturaConsistente } from "@/lib/auditoria/reporte-ejecutivo/documento";
+import { construirDocumentoConsistente } from "@/lib/auditoria/reporte-ejecutivo/documento";
 import { claveAlcanceReporte, leerInstantanea, guardarInstantanea } from "@/lib/auditoria/reporte-ejecutivo/instantaneas";
 import {
-  MODELO_REPORTE_EJECUTIVO_USO,
-  MAX_TOKENS_REPORTE_EJECUTIVO_USO,
-  MAX_TOKENS_REPORTE_EJECUTIVO_USO_REINTENTO,
-  TEMPERATURA_REPORTE_EJECUTIVO_USO,
+  MODELO_REPORTE_DETERMINISTA,
   type ReporteEjecutivoUso,
 } from "@/lib/auditoria/reporte-ejecutivo/reportes";
 import {
@@ -199,29 +194,6 @@ function crearContextoNovedades(
     excluidosNoPublicados,
     planos,
   };
-}
-
-/**
- * Causas por las que vale la pena repetir la llamada con menos salida: el
- * proveedor está saturado, o tardó tanto que venció el timeout (el modelo se
- * alarga razonando y un tope de salida menor lo acota).
- */
-function esSaturacionProveedor(e: unknown): boolean {
-  const status = e && typeof e === "object" && "status" in e ? (e as { status?: unknown }).status : undefined;
-  const msg = e instanceof Error ? e.message : "";
-  return (
-    status === 429 ||
-    status === 502 ||
-    status === 503 ||
-    status === 408 ||
-    /ResourceExhausted|request limit reached|rate limit|quota|overloaded|unavailable|temporarily|tardó demasiado/i.test(
-      msg,
-    )
-  );
-}
-
-async function esperar(ms: number, signal?: AbortSignal): Promise<void> {
-  await esperarAbortable(ms, undefined, { signal });
 }
 
 function limpiarCercasCodigo(texto: string): string {
@@ -478,44 +450,14 @@ export async function generarReporteEjecutivoUso(
 
     const conteos = conteosPorFamiliaCanon(eventos, usuariosRegistrados);
     const adopcion = evaluarAdopcion({ cambios: planos, conteosPorFamilia: conteos });
-    const prompt = construirPromptLecturaConsistente({ uso, adopcion, novedades });
-    const system = "Selecciona únicamente interpretaciones prudentes permitidas. No calcules cifras ni generes HTML.";
 
-    signal?.throwIfAborted();
-    const sessionId = randomUUID();
-    let completion: Awaited<ReturnType<typeof completarTextoOpenCode>>;
-    try {
-      completion = await completarTextoOpenCode({
-        sessionId,
-        signal,
-        model: MODELO_REPORTE_EJECUTIVO_USO,
-        maxTokens: MAX_TOKENS_REPORTE_EJECUTIVO_USO,
-        temperature: TEMPERATURA_REPORTE_EJECUTIVO_USO,
-        topP: 1,
-        timeoutMs: 200_000,
-        system,
-        prompt,
-      });
-    } catch (e) {
-      signal?.throwIfAborted();
-      if (!esSaturacionProveedor(e)) throw e;
-      await esperar(1500, signal);
-      completion = await completarTextoOpenCode({
-        sessionId,
-        signal,
-        model: MODELO_REPORTE_EJECUTIVO_USO,
-        maxTokens: MAX_TOKENS_REPORTE_EJECUTIVO_USO_REINTENTO,
-        temperature: TEMPERATURA_REPORTE_EJECUTIVO_USO,
-        topP: 1,
-        timeoutMs: 150_000,
-        system,
-        prompt,
-      });
-    }
-
+    // El documento se arma ENTERO en código —cifras y lectura editorial—, así
+    // que dos generaciones del mismo período son idénticas. Antes la frase
+    // editorial la elegía un modelo entre un vocabulario cerrado y, aun con
+    // temperatura 0, cambiaba entre corridas sin que cambiaran los datos.
     signal?.throwIfAborted();
     const report = normalizarReporteHtml(construirDocumentoConsistente({
-      uso, adopcion, novedades, comparativo, lecturaIA: parsearLecturaConsistente(completion.text),
+      uso, adopcion, novedades, comparativo,
       corte: corte.toISOString(),
     }).html);
 
@@ -526,7 +468,7 @@ export async function generarReporteEjecutivoUso(
     signal?.throwIfAborted();
     const final = await guardarInstantanea({
       clave, anteriorId: anterior?.id ?? null, report,
-      modelo: MODELO_REPORTE_EJECUTIVO_USO,
+      modelo: MODELO_REPORTE_DETERMINISTA,
       desde: rango.desde, hasta: rango.hasta,
       totalAcciones: uso.totalAcciones, totalUsuarios: uso.totalUsuarios,
       totalNovedades: adopcion.totalCambios, porcentajeAdopcion: adopcion.porcentajeAdopcion,
@@ -538,7 +480,7 @@ export async function generarReporteEjecutivoUso(
       user: user?.name ?? "Sistema",
       action: "GENERÓ REPORTE IA",
       entity: "Uso y adopción",
-      detail: `Generó reporte para gerencia con ${MODELO_REPORTE_EJECUTIVO_USO} (${uso.totalAcciones} acciones, ${uso.totalUsuarios} usuarios, ${includedChanges}/${totalChanges} novedades, ${
+      detail: `Generó reporte para gerencia (documento ${MODELO_REPORTE_DETERMINISTA}: ${uso.totalAcciones} acciones, ${uso.totalUsuarios} usuarios, ${includedChanges}/${totalChanges} novedades, ${
         versionIds ? `${versiones.length} versiones` : "versiones publicadas"
       }). Registró ${uso.totalNavegaciones} navegaciones separadas de las operaciones. Alcance solo publicado: excluyó ${alcanceUso.descartados} acciones de módulos no publicados y ${alcanceNavegaciones.descartadas} navegaciones fuera de familias operativas publicadas, ${excluidosEnDesarrollo} novedades en desarrollo y ${excluidosNoPublicados} de módulos no publicados.`,
     });

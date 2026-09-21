@@ -1,8 +1,17 @@
 /**
- * El reporte ejecutivo de uso y adopción se genera con OpenCode Go
- * (Kimi K3, endpoint `/zen/go/v1/chat/completions`). Es el ÚNICO flujo de la plataforma que usa este
- * proveedor; balances y novedades siguen con Anthropic/Gemini/OpenRouter.
+ * El reporte ejecutivo de uso y adopción se construye ENTERO en código: cifras,
+ * tablas y la lectura editorial (`elegirLecturaConsistente`). Ya no llama a
+ * ningún proveedor de IA —lo hacía con OpenCode Go/Kimi K3— porque el modelo
+ * elegía la frase editorial entre un vocabulario cerrado y, aun con
+ * temperatura 0, cambiaba entre generaciones del MISMO período.
+ *
+ * Las constantes de OpenCode se conservan para no romper configuraciones ni
+ * otros usos del cliente, pero este flujo ya no las usa.
  */
+
+/** Queda en la instantánea, en lugar del modelo, para saber cómo se produjo. */
+export const MODELO_REPORTE_DETERMINISTA = "determinista";
+
 export const MODELO_REPORTE_EJECUTIVO_USO =
   process.env.OPENCODE_MODEL?.trim() || "kimi-k3";
 const TEMPERATURA_ENV = Number(process.env.OPENCODE_TEMPERATURE ?? "0");
