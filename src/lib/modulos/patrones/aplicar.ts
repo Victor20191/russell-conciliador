@@ -3,10 +3,11 @@
 // La versión guarda el mapeo con las columnas de su muestra. El archivo puede traer las mismas
 // columnas en otra letra, otra fila de encabezado u otros rangos de vencimiento: aquí se trasladan
 // por el rótulo que las ubicó (`coincidenciaPatron`). Lo que no se pudo ubicar se avisa.
+import type { GridHoja } from "@/lib/balance/extraccion/ingesta";
 import type { DescriptorModulo } from "../descriptores";
 import type { SpecModulo } from "../extraccion/esquema";
 import { detectarFamilias } from "../extraccion/sugerir";
-import { modoClasificadorDe, normalizarSpecModuloArchivo, validarSpecModulo } from "../perfil-modulo";
+import { letraColumnaModulo, modoClasificadorDe, normalizarSpecModuloArchivo, validarSpecModulo } from "../perfil-modulo";
 import type { UbicacionPatron } from "./mejor-version";
 import { esRotuloFamilia, normalizarRotulo } from "./rotulos";
 
@@ -50,7 +51,101 @@ function familiasDelArchivo(
   return Object.keys(salida).length > 0 ? salida : undefined;
 }
 
-export function aplicarPatronASpec(descriptor: DescriptorModulo, ubicacion: UbicacionPatron): SpecAplicado {
+/** Fracción mínima de filas que debe cumplir una señal para mover una columna. */
+const UMBRAL_IDENTIFICADOR = 0.9;
+const PATRON_IDENTIFICACION = /^\d[\d.\-]{4,}$/;
+
+const textoCelda = (valor: unknown): string => String(valor ?? "").trim();
+
+/**
+ * Identificador compartido de la muestra que en ESTE archivo viene repartido en columnas.
+ *
+ * La muestra de SIESA «por edades» trae en UNA columna el NIT del tercero (su fila de cabecera)
+ * y el número del documento (las filas de abajo), así que el patrón mapea `nit` y `documento` a
+ * la misma columna. El mismo reporte llega también con el documento en la columna de al lado sin
+ * rótulo, o con el NIT repetido en cada fila en otra columna, el nombre bajo «Documento» y el
+ * documento en la columna siguiente (TKT CxP Transportes Gómez / María Salomé). Los rótulos
+ * coinciden al 100 % y aun así no se leía ningún documento. Aquí se decide por los DATOS: en las
+ * filas de documento (las que traen fecha o vencimiento) la columna compartida viene vacía o
+ * repite lo de su cabecera; el documento es la columna vecina a la derecha que cambia fila a fila
+ * y el NIT, la vecina que tiene forma de identificación. Sin evidencia clara no se toca nada.
+ */
+function reubicarIdentificadorCompartido(
+  descriptor: DescriptorModulo,
+  spec: SpecModulo,
+  hoja: GridHoja,
+): { spec: SpecModulo; advertencia?: string } {
+  const col = spec.columnas;
+  const compartida = col.documento ?? 0;
+  if (compartida < 1 || (col.nit ?? 0) !== compartida) return { spec };
+  const anclas = [col.fecha ?? 0, col.vencimiento ?? 0].filter((c) => c > 0 && c !== compartida);
+  if (anclas.length === 0) return { spec };
+
+  const ocupadas = new Set<number>([
+    ...Object.values(col).filter((c) => c > 0),
+    ...Object.values(spec.familias ?? {}).flatMap((cols) => cols.map((c) => c.columna)),
+  ]);
+  ocupadas.delete(compartida);
+  const celda = (fila: readonly unknown[], columna: number) => textoCelda(fila[columna - 1]);
+
+  // Filas de documento con su cabecera (la fila no vacía anterior sin fecha ni vencimiento).
+  const detalle: { fila: readonly unknown[]; cabecera: readonly unknown[] | null }[] = [];
+  const cabeceras: (readonly unknown[])[] = [];
+  let cabecera: readonly unknown[] | null = null;
+  for (const fila of hoja.filas.slice(Math.max(0, spec.primeraFilaDatos - 1))) {
+    if (!fila || fila.every((c) => textoCelda(c) === "")) continue;
+    if (anclas.some((c) => celda(fila, c) !== "")) detalle.push({ fila, cabecera });
+    else {
+      cabecera = fila;
+      cabeceras.push(fila);
+    }
+  }
+  if (detalle.length === 0) return { spec };
+  const cumple = (n: number, total: number) => total > 0 && n / total >= UMBRAL_IDENTIFICADOR;
+
+  // ¿La columna compartida trae el documento? Si en las filas de documento viene vacía o repite
+  // lo de su cabecera, no.
+  const noEsDocumento = detalle.filter(({ fila, cabecera: cab }) => {
+    const v = celda(fila, compartida);
+    return v === "" || (cab != null && v === celda(cab, compartida));
+  }).length;
+  if (!cumple(noEsDocumento, detalle.length)) return { spec };
+
+  const libre = (c: number) => c >= 1 && !ocupadas.has(c);
+  const documento = [compartida + 1, compartida + 2].filter(libre).find((c) => cumple(
+    detalle.filter(({ fila, cabecera: cab }) => {
+      const v = celda(fila, c);
+      return v !== "" && (cab == null || v !== celda(cab, c));
+    }).length,
+    detalle.length,
+  ));
+  if (documento == null) return { spec };
+
+  const pareceIdentificacion = (c: number) => {
+    const conValor = cabeceras.filter((f) => celda(f, c) !== "");
+    return cumple(conValor.filter((f) => PATRON_IDENTIFICACION.test(celda(f, c))).length, conValor.length);
+  };
+  let nit = compartida;
+  let nombre = col.nombre ?? 0;
+  if (!pareceIdentificacion(compartida)) {
+    const vecina = [compartida - 1, compartida - 2].filter((c) => libre(c) && c !== documento).find(pareceIdentificacion);
+    if (vecina != null) {
+      nit = vecina;
+      if (nombre < 1 && descriptor.columnas.some((r) => r.nombre === "nombre")) nombre = compartida;
+    }
+  }
+
+  const letra = (c: number) => letraColumnaModulo(c + (hoja.columnaInicial ?? 0));
+  const partes = [`documento en ${letra(documento)}`];
+  if (nit !== compartida) partes.unshift(`NIT en ${letra(nit)}`);
+  if (nombre !== (col.nombre ?? 0)) partes.push(`nombre en ${letra(nombre)}`);
+  return {
+    spec: { ...spec, columnas: { ...col, nit, documento, ...(nombre > 0 ? { nombre } : {}) } },
+    advertencia: `El tercero y el documento vienen en columnas distintas a las de la muestra del patrón: se leen ${partes.join(", ")}.`,
+  };
+}
+
+export function aplicarPatronASpec(descriptor: DescriptorModulo, ubicacion: UbicacionPatron, hoja?: GridHoja): SpecAplicado {
   const { version, coincidencia } = ubicacion;
   const base = version.spec;
   const mapa = coincidencia.mapaColumnas;
@@ -115,7 +210,14 @@ export function aplicarPatronASpec(descriptor: DescriptorModulo, ubicacion: Ubic
     }
   }
 
-  return { spec: normalizarSpecModuloArchivo(descriptor, spec), advertencias };
+  let final = spec;
+  if (hoja) {
+    const reubicado = reubicarIdentificadorCompartido(descriptor, spec, hoja);
+    final = reubicado.spec;
+    if (reubicado.advertencia) advertencias.push(reubicado.advertencia);
+  }
+
+  return { spec: normalizarSpecModuloArchivo(descriptor, final), advertencias };
 }
 
 /** Columna del clasificador que el analista confirmó al cargar: -1 = un único valor para todo el archivo. */

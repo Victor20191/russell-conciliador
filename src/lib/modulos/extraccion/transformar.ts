@@ -645,7 +645,13 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     // Los valores PROPIOS de la fila, antes de heredar nada: son los que distinguen una
     // cabecera de tercero (identificador sí, documento no) de uno de sus documentos.
     const claveEnLaFila = rolClave ? aTexto(datos[rolClave]) : null;
-    const documentoEnLaFila = aTexto(datos.documento);
+    // SIESA con el NIT repetido en cada fila imprime en la cabecera del tercero su NOMBRE también
+    // bajo «Documento»: un «documento» igual al nombre de la misma fila no es un documento.
+    const documentoCrudo = aTexto(datos.documento);
+    const nombreEnLaFila = rolNombre && (spec.columnas[rolNombre] ?? 0) >= 1 ? aTexto(datos[rolNombre]) : null;
+    const documentoEnLaFila = documentoCrudo != null && nombreEnLaFila != null && norm(documentoCrudo) === norm(nombreEnLaFila)
+      ? null
+      : documentoCrudo;
     // Identidad PROPIA: la que la fila trae antes de heredar nada. Un pie de página del ERP
     // que quede debajo del último tercero heredaría su NIT y pasaría por cartera; lo que lo
     // delata es que no trae identidad suya.

@@ -687,7 +687,7 @@ export async function analizarArchivoModulo(formData: FormData): Promise<Analisi
     const hojaPatron = ubicacion ? ingesta.hojas.find((h) => h.nombre === ubicacion.hoja) : undefined;
     let valorAmbiguoPatron = false;
     if (ubicacion && hojaPatron && ubicacion.coincidencia.elegible) {
-      const aplicado = aplicarPatronASpec(descriptor, ubicacion);
+      const aplicado = aplicarPatronASpec(descriptor, ubicacion, hojaPatron);
       const saneado = invalidarValorAmbiguoIngresos(descriptor, hojaPatron, aplicado.spec);
       valorAmbiguoPatron = saneado.invalidado;
       if (!saneado.invalidado) {
@@ -1169,7 +1169,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
       }
       const hoja = ingesta.hojas.find((h) => h.nombre === ubicacion.hoja);
       if (!hoja) return "El archivo no tiene hojas legibles.";
-      let spec = aplicarPatronASpec(descriptor, ubicacion).spec;
+      let spec = aplicarPatronASpec(descriptor, ubicacion, hoja).spec;
       const fechaCorte = String(formData.get("fechaCorte") ?? "").trim();
       if (/^\d{4}-\d{2}-\d{2}$/.test(fechaCorte)) spec = { ...spec, fechaCorte };
       const trm = Number(String(formData.get("trmCierre") ?? "").trim());

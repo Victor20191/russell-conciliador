@@ -91,6 +91,95 @@ describe("aplicarPatronASpec", () => {
   });
 });
 
+describe("aplicarPatronASpec con el identificador compartido de SIESA", () => {
+  // La muestra trae el NIT (cabecera) y el documento (filas de abajo) en la MISMA columna.
+  const SPEC_SIESA: SpecModulo = {
+    hoja: "Hoja 1",
+    filaEncabezado: 1,
+    primeraFilaDatos: 2,
+    columnas: columnas({ nit: 2, documento: 2, fecha: 3, vencimiento: 4, marcaSeccion: 5, total: 8 }),
+    familias: {
+      edades: [
+        { columna: 6, etiqueta: "Corriente", clase: "corriente" },
+        { columna: 7, etiqueta: "De 1 a 30", clase: "vencido" },
+      ],
+    },
+    edadesModo: "ancho",
+    terceroModo: "cabecera",
+    arrastrarRoles: ["nit"],
+    nivel: "documento",
+    tipoFormato: "documento_edades",
+  };
+  const ENCABEZADO_SIESA = ["", "Documento", "Fecha", "F.Vcto.", "#Ter.", "Corriente", "De 1 a 30", "Total"];
+  const vSiesa = version(SPEC_SIESA, ENCABEZADO_SIESA);
+  const ubicarSiesa = (filas: CeldaCruda[][]) => {
+    const hoja = { nombre: "Hoja 1", filas };
+    const ubicacion: UbicacionPatron = {
+      version: vSiesa,
+      hoja: "Hoja 1",
+      filaEncabezado: 1,
+      encabezadoArchivo: filas[0],
+      coincidencia: coincidenciaPatron(CXP, { encabezado: vSiesa.encabezado, spec: vSiesa.spec }, filas[0]),
+    };
+    return { hoja, ubicacion };
+  };
+
+  it("NIT repetido en cada fila, nombre bajo «Documento» y el documento al lado: los reubica y lee los documentos", () => {
+    const filas: CeldaCruda[][] = [
+      [null, "Documento", "Documento", "Fecha", "F.Vcto.", "#Ter.", "Corriente", "De 1 a 30", "Total"],
+      ["900123456", "PROVEEDOR UNO", "PROVEEDOR UNO", null, null, null, 100, 50, 150],
+      ["900123456", "PROVEEDOR UNO", "001-FC-1", "2025-12-01", "2025-12-31", null, 100, 0, 0],
+      ["900123456", "PROVEEDOR UNO", "001-FC-2", "2025-11-01", "2025-11-30", null, 0, 50, 0],
+      ["800555111", "PROVEEDOR DOS", "PROVEEDOR DOS", null, null, null, 0, 70, 70],
+      ["800555111", "PROVEEDOR DOS", "001-FC-3", "2025-10-01", "2025-10-31", null, 0, 70, 0],
+    ];
+    const { hoja, ubicacion } = ubicarSiesa(filas);
+    expect(ubicacion.coincidencia.porcentaje).toBe(100);
+    // Sin la grilla, el patrón deja NIT y documento en la columna del nombre.
+    expect(aplicarPatronASpec(CXP, ubicacion).spec.columnas).toMatchObject({ nit: 2, documento: 2 });
+
+    const { spec, advertencias } = aplicarPatronASpec(CXP, ubicacion, hoja);
+    expect(spec.columnas).toMatchObject({ nit: 1, nombre: 2, documento: 3 });
+    expect(advertencias).toEqual([expect.stringContaining("NIT en A, documento en C, nombre en B")]);
+
+    const resultado = transformarModulo(CXP, spec, hoja);
+    const movimientos = resultado.filas.filter((f) => f.tipoFila === "movimiento");
+    expect(movimientos.map((f) => f.datos.documento)).toEqual(["001-FC-1", "001-FC-2", "001-FC-3"]);
+    expect(movimientos.map((f) => f.datos.nit)).toEqual(["900123456", "900123456", "800555111"]);
+    // La cabecera del tercero (su nombre repetido bajo «Documento») no imputa: declara el saldo.
+    const cabeceras = resultado.filas.filter((f) => f.motivo === "subtotal_tercero:cabecera");
+    expect(cabeceras).toHaveLength(2);
+    expect(Math.abs(movimientos.reduce((a, f) => a + f.valor, 0))).toBe(220);
+  });
+
+  it("el documento en la columna de al lado sin rótulo: solo mueve el documento", () => {
+    const filas: CeldaCruda[][] = [
+      ["Documento", null, "Fecha", "F.Vcto.", "#Ter.", "Corriente", "De 1 a 30", "Total"],
+      ["900123456", "PROVEEDOR UNO", null, null, null, 100, 50, 150],
+      [null, "001-FC-1", "2025-12-01", "2025-12-31", null, 100, 0, 0],
+      [null, "001-FC-2", "2025-11-01", "2025-11-30", null, 0, 50, 0],
+    ];
+    const { hoja, ubicacion } = ubicarSiesa(filas);
+    const { spec } = aplicarPatronASpec(CXP, ubicacion, hoja);
+    expect(spec.columnas).toMatchObject({ nit: 1, documento: 2, nombre: 0 });
+    const movimientos = transformarModulo(CXP, spec, hoja).filas.filter((f) => f.tipoFila === "movimiento");
+    expect(movimientos.map((f) => f.datos.documento)).toEqual(["001-FC-1", "001-FC-2"]);
+  });
+
+  it("el archivo con el mismo formato de la muestra queda igual", () => {
+    const filas: CeldaCruda[][] = [
+      [null, "Documento", "Fecha", "F.Vcto.", "#Ter.", "Corriente", "De 1 a 30", "Total"],
+      [null, "900123456", null, null, null, 100, 50, 150],
+      [null, "001-FC-1", "2025-12-01", "2025-12-31", null, 100, 0, 0],
+      [null, "001-FC-2", "2025-11-01", "2025-11-30", null, 0, 50, 0],
+    ];
+    const { hoja, ubicacion } = ubicarSiesa(filas);
+    const { spec, advertencias } = aplicarPatronASpec(CXP, ubicacion, hoja);
+    expect(spec.columnas).toMatchObject({ nit: 2, documento: 2 });
+    expect(advertencias).toEqual([]);
+  });
+});
+
 describe("aplicarClasificadorDeCarga (tipo de inventario confirmado en el cargue)", () => {
   const INV = descriptorModulo("INV")!;
   const SPEC_INV: SpecModulo = {
