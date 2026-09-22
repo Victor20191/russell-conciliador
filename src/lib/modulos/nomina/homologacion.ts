@@ -13,6 +13,9 @@
 //  3b. `memoria_clase`  la memoria tiene el concepto solo en OTROS agrupadores (el catálogo
 //                       del ERP viene por área y el archivo trae el centro): con regla de clase
 //                       se toma la cuenta de esa clase; con una sola cuenta distinta se usa.
+//  3c. `memoria_centros` renglón SIN centro (el cargue no se separó por centro de costo) cuyo
+//                       concepto no tiene cuenta Russell guardada sin centro pero sí en los
+//                       centros: se PROPONE lo asignado ahí; no cruza hasta que se guarde.
 //  4. `multi`           la memoria tiene el concepto con varias cuentas y no hay regla: la
 //                       porción de cada lado la decide el auditor (reparto, RF-NOM-12).
 //  5. `sugerido_nombre` sin memoria: el grupo RF-NOM-02 que sugiere el nombre + la clase del
@@ -184,7 +187,7 @@ export function sugerirClaseAgrupador(agrupador: unknown): ClaseNomina | null {
 
 // ===== Resolución =====
 
-export type ViaHomologacion = "archivo" | "memoria_exacta" | "memoria_clase" | "multi" | "sugerido_nombre" | "sin_cuenta";
+export type ViaHomologacion = "archivo" | "memoria_exacta" | "memoria_clase" | "memoria_centros" | "multi" | "sugerido_nombre" | "sin_cuenta";
 
 /** Fila de la memoria del cliente (`consolidacion_modulo_cliente` del módulo NOM). */
 export type FilaHomologacion = {
@@ -384,6 +387,29 @@ function resolverDesdeMemoria(
     if (fueraExacta) return base({ via: "memoria_exacta", destino: "fuera", ...meta, motivo: `Memoria del cliente para «${agrupador}»: cuenta ${meta.cuentaCliente} de la clase ${fueraExacta}, que Nómina no concilia.` });
     if (cuentas.length > 0) {
       return base({ cuentas, via: cuentas.length > 1 ? "multi" : "memoria_exacta", destino: "gasto", clase: cuentas.length === 1 ? claseDeCuentaRussell(cuentas[0]) : claseRegla, ...meta, motivo: cuentas.length > 1 ? `Memoria del cliente para «${agrupador}» con ${cuentas.length} cuentas: la porción de cada una la define el auditor.` : `Memoria del cliente para «${agrupador}».` });
+    }
+  }
+
+  // 3c) Renglón SIN centro cuyo concepto no tiene cuenta Russell guardada sin centro (a lo sumo
+  //     la fila del catálogo con la cuenta del cliente) pero sí en los centros: se PROPONE lo que
+  //     el auditor asignó ahí —memoria y «Solo {período}»—, porque un cargue sin separar por centro
+  //     no encuentra el par (concepto, centro) (Kakaraka: 1 → 510506/520506/720505 en los centros
+  //     1, 5, 10 y 20). Gana a la fila del catálogo, que sin cuenta Russell solo listaría las clases
+  //     posibles o la marcaría de control. No cruza hasta que se guarde.
+  if (!agrupador && cuentasDe(filasBase).length === 0) {
+    const enCentros = (idx.get(claveMemoria(clasificador, "*")) ?? []).filter((f) => (f.agrupador ?? "").trim() !== "");
+    const cuentas = cuentasDe(enCentros).filter(delModulo);
+    if (cuentas.length > 0) {
+      const centros = [...new Set(enCentros.filter((f) => cuentas.includes(digitosCuenta(f.cuenta6))).map((f) => String(f.agrupador).trim()))]
+        .sort((a, b) => a.localeCompare(b, "es", { numeric: true }));
+      return base({
+        cuentas,
+        via: "memoria_centros",
+        destino: "gasto",
+        clase: cuentas.length === 1 ? claseDeCuentaRussell(cuentas[0]) : null,
+        ...metaDe(filasBase, enCentros),
+        motivo: `Lo que asignaste a este concepto en ${centros.length === 1 ? "el centro" : "los centros"} ${centros.join(", ")}. Guárdalo para usarlo sin centro${cuentas.length > 1 ? "; la porción de cada cuenta se reparte en el cruce" : ""}.`,
+      });
     }
   }
 

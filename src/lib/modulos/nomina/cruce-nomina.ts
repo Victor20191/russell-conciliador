@@ -21,7 +21,8 @@
 
 import { factorPresentacion } from "@/lib/balance/prevalidador/calcular";
 import { etiquetaSubcuentaPuc } from "./grupos-concepto";
-import { digitosCuenta, esClaseNomina, sinClaseDeGasto } from "./homologacion";
+import { partirClaveConsolidado } from "./clave-consolidado";
+import { codigoConceptoCanonico, digitosCuenta, esClaseNomina, sinClaseDeGasto } from "./homologacion";
 import type { RenglonConsolidadoNomina } from "./consolidado-nomina";
 
 /** Fila IMPUTABLE del balance (las agrupadoras ya vienen excluidas por el prevalidador). */
@@ -229,6 +230,8 @@ export type RepartoPendienteVm = {
   total: number;
   cuentas: string[];
   sugerido: Record<string, number>;
+  /** De dónde sale `sugerido`: lo repartido en los centros del concepto o el saldo del balance. */
+  origenSugerido: "centros" | "saldo";
   /** Saldo contable de cada cuenta candidata (para el editor). */
   contablePorCuenta: Record<string, number>;
 };
@@ -302,6 +305,32 @@ export type ResultadoCruceNomina = {
 export type RepartoConcepto = { clasificador: string; valores: Record<string, number> };
 
 export type EntradaCruceFormal = { clasificador: string; total: number; cuentas4: string[] };
+
+/**
+ * Pesos para sugerir el reparto de un concepto SIN centro con lo que el auditor ya repartió en
+ * sus centros en el mismo período (claves «código ∥ centro»): Σ por cuenta candidata. Un cargue
+ * que no se separa por centro vuelve a pedir el reparto del concepto entero; así se propone el
+ * mismo que decidió por centro (`sugerirReparto` lo ajusta en proporción si el total cambió).
+ * null si el renglón tiene centro o ningún reparto por centro toca sus cuentas.
+ */
+export function pesosRepartoDeCentros(
+  renglon: { codigo: string; agrupador: string },
+  cuentas: readonly string[],
+  repartos: readonly RepartoConcepto[],
+): Record<string, number> | null {
+  if (renglon.agrupador.trim()) return null;
+  const codigo = codigoConceptoCanonico(renglon.codigo);
+  const candidatas = new Set(cuentas);
+  const pesos: Record<string, number> = Object.fromEntries(cuentas.map((c) => [c, 0]));
+  for (const rep of repartos) {
+    const { clasificador, agrupador } = partirClaveConsolidado(rep.clasificador);
+    if (!agrupador || codigoConceptoCanonico(clasificador) !== codigo) continue;
+    for (const [cuenta, valor] of Object.entries(rep.valores)) {
+      if (candidatas.has(cuenta) && Number.isFinite(valor)) pesos[cuenta] = redondear(pesos[cuenta] + valor);
+    }
+  }
+  return Object.values(pesos).some((v) => v !== 0) ? pesos : null;
+}
 
 /**
  * Valor con que un concepto entra a la fila de SU cuenta en la cédula. El archivo de nómina firma

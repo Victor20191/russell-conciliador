@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { descriptorModulo } from "../descriptores";
 import type { SpecModulo } from "../extraccion/esquema";
-import { aplicarClasificadorDeCarga, aplicarPatronASpec, aplicarTotalDeCarga, CLASIFICADOR_GLOBAL_CARGA } from "./aplicar";
+import type { CeldaCruda } from "@/lib/balance/extraccion/ingesta";
+import { transformarModulo } from "../extraccion/transformar";
+import { consolidarPorClasificador } from "../promocion";
+import { aplicarAgrupadorDeCarga, aplicarClasificadorDeCarga, aplicarPatronASpec, aplicarTotalDeCarga, CLASIFICADOR_GLOBAL_CARGA } from "./aplicar";
 import { coincidenciaPatron } from "./coincidencia";
 import type { UbicacionPatron, VersionCandidata } from "./mejor-version";
 
@@ -203,5 +206,63 @@ describe("aplicarTotalDeCarga («¿El archivo trae el valor total?» en el cargu
     expect(manual.spec.subtotalesColumna).toBeUndefined();
     expect(manual.spec.subtotalesFila).toBeUndefined();
     expect(manual.spec.subtotalesTexto).toBeUndefined();
+  });
+});
+
+describe("aplicarAgrupadorDeCarga («¿Separar por centro de costo?» en el cargue)", () => {
+  const NOM = descriptorModulo("NOM")!;
+  const SPEC_NOM: SpecModulo = {
+    hoja: "ACUMULADOS DE NOMINA",
+    filaEncabezado: 1,
+    primeraFilaDatos: 2,
+    columnas: { codigo: 1, concepto: 2, cedula: 3, empleado: 4, agrupador: 5, valor: 6 },
+  };
+  const ENCABEZADO: CeldaCruda[] = ["Código", "Concepto", "Cédula", "Empleado", "Centro de costo", "Valor"];
+  const FILAS: CeldaCruda[][] = [
+    ENCABEZADO,
+    ["8", "Bonificación", "1144", "Ana Ruiz", "GYA", 100],
+    ["8", "Bonificación", "2255", "Luis Gil", "MOD", 50],
+    ["1", "Sueldo", "1144", "Ana Ruiz", "GYA", 1000],
+  ];
+
+  it("solo Nómina hace la pregunta", () => {
+    expect(NOM.confirmarAgrupadorEnCarga).toBe(true);
+    expect(CXP.confirmarAgrupadorEnCarga).toBeFalsy();
+    expect(descriptorModulo("INV")!.confirmarAgrupadorEnCarga).toBeFalsy();
+  });
+
+  it("si el patrón no lee el centro no pregunta ni cambia el spec", () => {
+    const sinCentro: SpecModulo = { ...SPEC_NOM, columnas: { ...SPEC_NOM.columnas, agrupador: 0 } };
+    expect(aplicarAgrupadorDeCarga(NOM, sinCentro, null)).toEqual({ ok: true, spec: sinCentro, separado: false });
+    // Otro módulo nunca pregunta, aunque su spec tenga una columna con ese nombre.
+    expect(aplicarAgrupadorDeCarga(CXP, SPEC_NOM, null)).toEqual({ ok: true, spec: SPEC_NOM, separado: false });
+  });
+
+  it("sin respuesta no se crea el borrador", () => {
+    expect(aplicarAgrupadorDeCarga(NOM, SPEC_NOM, null)).toEqual({ ok: false, message: "Indica si este cargue se separa por centro de costo." });
+  });
+
+  it("Sí conserva el centro: un renglón por concepto y centro", () => {
+    const r = aplicarAgrupadorDeCarga(NOM, SPEC_NOM, true);
+    expect(r).toEqual({ ok: true, spec: SPEC_NOM, separado: true });
+  });
+
+  it("No deja de leer el centro: el Consolidado queda por concepto", () => {
+    const r = aplicarAgrupadorDeCarga(NOM, SPEC_NOM, false);
+    expect(r.ok && r.separado).toBe(false);
+    if (!r.ok) return;
+    expect(r.spec.columnas.agrupador ?? 0).toBe(0);
+    expect(r.spec.columnas).toMatchObject({ codigo: 1, concepto: 2, valor: 6 });
+
+    const leer = (spec: SpecModulo) => {
+      const { filas } = transformarModulo(NOM, spec, { nombre: "ACUMULADOS DE NOMINA", filas: FILAS });
+      return consolidarPorClasificador(
+        filas.map((f) => ({ clasificador: f.clasificador, valor: f.valor, tipoFila: f.tipoFila, agrupador: String(f.datos.agrupador ?? "") })),
+        { porAgrupador: true },
+      ).map((c) => [c.clasificador, c.total]);
+    };
+    expect(leer(SPEC_NOM)).toEqual(expect.arrayContaining([["8 ∥ GYA", 100], ["8 ∥ MOD", 50], ["1 ∥ GYA", 1000]]));
+    expect(leer(r.spec)).toEqual(expect.arrayContaining([["8", 150], ["1", 1000]]));
+    expect(leer(r.spec)).toHaveLength(2);
   });
 });

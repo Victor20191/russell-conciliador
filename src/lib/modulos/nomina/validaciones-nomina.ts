@@ -74,7 +74,7 @@ export function validarNomina(input: { detalle: readonly FilaDetalleValidacion[]
     if (s.destino === "control") { controlConceptos++; controlTotal += r.total; continue; }
     if (s.destino !== "gasto") continue;
     if (s.via === "multi") multi.push({ clasificador: r.clasificador, descripcion: r.descripcion, total: r.total, cuentas: [...s.cuentas] });
-    else if (s.via === "sin_cuenta" || s.via === "sugerido_nombre") sinCuenta.push({ clasificador: r.clasificador, descripcion: r.descripcion, total: r.total });
+    else if (s.via === "sin_cuenta" || s.via === "sugerido_nombre" || s.via === "memoria_centros") sinCuenta.push({ clasificador: r.clasificador, descripcion: r.descripcion, total: r.total });
   }
   return {
     netos,

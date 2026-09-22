@@ -47,6 +47,7 @@ import {
   construirControlDeducciones,
   construirVistaSubcuenta,
   entradasCruceFormalNomina,
+  pesosRepartoDeCentros,
   repartosAplicadosNomina,
   type RepartoConcepto,
   type ResultadoCruceNomina,
@@ -471,7 +472,8 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
         .sort((a, b) => a.cuenta8.localeCompare(b.cuenta8));
     }
     // Nómina: vista por subcuenta PUC sumando clases, control de deducciones y repartos
-    // sugeridos (proporcionales al saldo contable de las cuentas candidatas, D4).
+    // sugeridos: lo repartido en los centros del concepto en el período (un cargue sin centro) y,
+    // si no hay, proporcionales al saldo contable de las cuentas candidatas (D4).
     if (consolidadoNomina && formalNomina && insumosNomina) {
       const balanceNomina = contextoBalance.filas
         .filter((d) => !cuentasAgrupadoras.has(d.cuenta8.replace(/\D/g, "")))
@@ -484,7 +486,18 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
         control: construirControlDeducciones({ balance: balanceNomina, renglones: consolidadoNomina.renglones }),
         repartosPendientes: formalNomina.pendientesReparto.map((r) => {
           const porCuenta = Object.fromEntries(r.sugerencia.cuentas.map((c) => [c, contablePorCuenta[c] ?? 0]));
-          return { clasificador: r.clasificador, codigo: r.codigo, agrupador: r.agrupador, descripcion: r.descripcion, total: r.total, cuentas: [...r.sugerencia.cuentas], sugerido: sugerirReparto(r.total, porCuenta), contablePorCuenta: porCuenta };
+          const deCentros = pesosRepartoDeCentros(r, r.sugerencia.cuentas, insumosNomina.repartos);
+          return {
+            clasificador: r.clasificador,
+            codigo: r.codigo,
+            agrupador: r.agrupador,
+            descripcion: r.descripcion,
+            total: r.total,
+            cuentas: [...r.sugerencia.cuentas],
+            sugerido: sugerirReparto(r.total, deCentros ?? porCuenta),
+            origenSugerido: deCentros ? "centros" as const : "saldo" as const,
+            contablePorCuenta: porCuenta,
+          };
         }),
         repartos: insumosNomina.repartos,
         repartidos: formalNomina.repartidos,

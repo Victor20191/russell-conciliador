@@ -5,6 +5,7 @@ import {
   construirVistaSubcuenta,
   emparejarCuentaControl,
   entradasCruceFormalNomina,
+  pesosRepartoDeCentros,
   repartoQuedaViejo,
   repartosAplicadosNomina,
   repartoVigente,
@@ -246,5 +247,34 @@ describe("vista por subcuenta con pasivos en la cédula", () => {
       { clasificador: "1", total: 100, cuentas4: ["510506"] },
       { clasificador: "40", total: 30, cuentas4: ["251010"] },
     ]);
+  });
+});
+
+describe("cargue SIN centro: la propuesta de los centros y su reparto", () => {
+  it("lo propuesto desde los centros no cruza hasta que se guarde", () => {
+    const r = entradasCruceFormalNomina([
+      renglon("10", 5000, { via: "memoria_centros", cuentas: ["720515"] }),
+      renglon("1", 9000, { via: "memoria_centros", cuentas: ["510506", "720505"] }),
+    ], []);
+    expect(r.entradas).toEqual([
+      { clasificador: "10", total: 5000, cuentas4: [] },
+      { clasificador: "1", total: 9000, cuentas4: [] },
+    ]);
+    expect(r.pendientesReparto).toEqual([]);
+  });
+
+  it("pesosRepartoDeCentros suma por cuenta lo repartido en los centros del concepto", () => {
+    const repartos: { clasificador: string; valores: Record<string, number> }[] = [
+      { clasificador: "1 ∥ 1", valores: { "510506": 600, "520506": 0, "720505": 400 } },
+      { clasificador: "1 ∥ 10", valores: { "510506": 100, "720505": 900 } },
+      { clasificador: "01 ∥ 5", valores: { "510506": 50, "730505": 999 } }, // 730505 no es candidata
+      { clasificador: "2 ∥ 1", valores: { "510506": 7777 } }, // otro concepto
+      { clasificador: "1", valores: { "510506": 1 } }, // reparto sin centro: no cuenta
+    ];
+    const cuentas = ["510506", "520506", "720505"];
+    expect(pesosRepartoDeCentros({ codigo: "1", agrupador: "" }, cuentas, repartos)).toEqual({ "510506": 750, "520506": 0, "720505": 1300 });
+    expect(pesosRepartoDeCentros({ codigo: "1", agrupador: "10" }, cuentas, repartos)).toBeNull();
+    expect(pesosRepartoDeCentros({ codigo: "29", agrupador: "" }, cuentas, repartos)).toBeNull();
+    expect(pesosRepartoDeCentros({ codigo: "1", agrupador: "" }, ["730506"], repartos)).toBeNull();
   });
 });

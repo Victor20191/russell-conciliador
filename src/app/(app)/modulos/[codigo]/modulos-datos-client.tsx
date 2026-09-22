@@ -74,6 +74,7 @@ export default function ModulosDatosClient({
   puedeAdministrarPatrones,
   confirmarClasificador,
   confirmarTotal,
+  confirmarAgrupador,
 }: {
   moduloCodigo: string;
   moduloLabel: string;
@@ -91,6 +92,7 @@ export default function ModulosDatosClient({
   puedeAdministrarPatrones: boolean;
   confirmarClasificador: boolean;
   confirmarTotal: { rolValor: string } | null;
+  confirmarAgrupador: boolean;
 }) {
   const [busqueda, setBusqueda] = useState("");
   const [conversando, setConversando] = useState<{ tipo: string; entityId: number; titulo: string } | null>(null);
@@ -111,6 +113,7 @@ export default function ModulosDatosClient({
             puedeAdministrarPatrones={puedeAdministrarPatrones}
             confirmarClasificador={confirmarClasificador}
             confirmarTotal={confirmarTotal}
+            confirmarAgrupador={confirmarAgrupador}
           />
         )}
       </div>
@@ -140,6 +143,7 @@ export default function ModulosDatosClient({
         puedeAdministrarPatrones={puedeAdministrarPatrones}
         confirmarClasificador={confirmarClasificador}
         confirmarTotal={confirmarTotal}
+        confirmarAgrupador={confirmarAgrupador}
       />
     </div>
   );
@@ -161,6 +165,7 @@ function CargadosPorCliente({
   puedeAdministrarPatrones,
   confirmarClasificador,
   confirmarTotal,
+  confirmarAgrupador,
 }: {
   grupos: GrupoClienteRow[];
   busqueda: string;
@@ -177,6 +182,7 @@ function CargadosPorCliente({
   puedeAdministrarPatrones: boolean;
   confirmarClasificador: boolean;
   confirmarTotal: { rolValor: string } | null;
+  confirmarAgrupador: boolean;
 }) {
   // El buscador de la pantalla filtra la tarjeta entera cuando identifica al
   // cliente y, si no, solo los períodos que coinciden.
@@ -408,6 +414,7 @@ function CargadosPorCliente({
                             puedeAdministrarPatrones={puedeAdministrarPatrones}
                             confirmarClasificador={confirmarClasificador}
                             confirmarTotal={confirmarTotal}
+                            confirmarAgrupador={confirmarAgrupador}
                             anexo={{
                               encabezadoId: p.id,
                               clienteId: grupo.clienteId,

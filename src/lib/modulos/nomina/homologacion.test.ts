@@ -363,3 +363,48 @@ describe("pasivos laborales en la cédula de Nómina (16/Sep/2026)", () => {
     expect(sinClaseDeGasto("7305")).toBe(false);
   });
 });
+
+describe("cargue SIN centro con lo asignado en los centros (Kakaraka, 22/Sep/2026)", () => {
+  // Cédula del período: la del módulo + las cuentas asignadas «Solo 2025-12» (519505, 237030).
+  const cedula = [...cuentasCedula6(MODULOS_IMPORT.NOM), "519505", "237030"];
+  const ctx: ContextoHomologacion = {
+    cuentasRussell6: cedula,
+    memoria: [
+      // Fila del catálogo (carga masiva): solo la cuenta del cliente, clase «00» de SIIGO.
+      { clasificador: "1", agrupador: "", cuenta6: "", cuentaCliente: "0005060000", grupo: "sueldos", subcuentaPuc: "06" },
+      ...["1", "5", "10", "20"].flatMap((centro) => ["510506", "520506", "720505"].map((cuenta6) => ({ clasificador: "1", agrupador: centro, cuenta6 }))),
+      { clasificador: "10", agrupador: "", cuenta6: "", cuentaCliente: "0005150000", subcuentaPuc: "15" },
+      ...["5", "10", "20"].map((centro) => ({ clasificador: "10", agrupador: centro, cuenta6: "720515" })),
+      { clasificador: "8", agrupador: "", cuenta6: "", cuentaCliente: "0005180000", subcuentaPuc: "18" },
+      { clasificador: "8", agrupador: "1", cuenta6: "519505" }, // «Solo 2025-12»
+      // Deducción: el catálogo la deja de control, pero el auditor la llevó a 237030 en cada centro.
+      { clasificador: "225", agrupador: "", cuenta6: "", cuentaCliente: "2370300200", subcuentaPuc: "30" },
+      ...["1", "5", "10", "20"].map((centro) => ({ clasificador: "225", agrupador: centro, cuenta6: "237030" })),
+      // Concepto con cuenta Russell guardada sin centro: manda esa.
+      { clasificador: "2", agrupador: "", cuenta6: "510527" },
+      { clasificador: "2", agrupador: "1", cuenta6: "720540" },
+    ],
+  };
+
+  it("propone lo asignado en los centros, con una o varias cuentas, y conserva la subcuenta del catálogo", () => {
+    expect(resolverCuentaConcepto({ clasificador: "1" }, ctx)).toMatchObject({
+      cuentas: ["510506", "520506", "720505"], via: "memoria_centros", destino: "gasto", subcuentaPuc: "06", cuentaCliente: "0005060000", grupo: "sueldos",
+    });
+    expect(resolverCuentaConcepto({ clasificador: "1" }, ctx).motivo).toContain("los centros 1, 5, 10, 20");
+    expect(resolverCuentaConcepto({ clasificador: "10" }, ctx)).toMatchObject({ cuentas: ["720515"], via: "memoria_centros", clase: "72", subcuentaPuc: "15" });
+    expect(resolverCuentaConcepto({ clasificador: "8" }, ctx)).toMatchObject({ cuentas: ["519505"], via: "memoria_centros", subcuentaPuc: "18" });
+    expect(resolverCuentaConcepto({ clasificador: "8" }, ctx).motivo).toContain("el centro 1.");
+    expect(resolverCuentaConcepto({ clasificador: "225" }, ctx)).toMatchObject({ cuentas: ["237030"], via: "memoria_centros", destino: "gasto" });
+  });
+
+  it("no aplica con una cuenta Russell guardada sin centro ni en un renglón con centro", () => {
+    expect(resolverCuentaConcepto({ clasificador: "2" }, ctx)).toMatchObject({ cuentas: ["510527"], via: "memoria_exacta" });
+    expect(resolverCuentaConcepto({ clasificador: "1", agrupador: "5" }, ctx)).toMatchObject({ cuentas: ["510506", "520506", "720505"], via: "multi" });
+    expect(resolverCuentaConcepto({ clasificador: "225", agrupador: "10" }, ctx)).toMatchObject({ cuentas: ["237030"], via: "memoria_exacta" });
+  });
+
+  it("sin la asignación del período, la cuenta de fuera de la cédula no se propone", () => {
+    const otroMes: ContextoHomologacion = { ...ctx, cuentasRussell6: cuentasCedula6(MODULOS_IMPORT.NOM) };
+    expect(resolverCuentaConcepto({ clasificador: "8" }, otroMes).via).not.toBe("memoria_centros");
+  });
+});

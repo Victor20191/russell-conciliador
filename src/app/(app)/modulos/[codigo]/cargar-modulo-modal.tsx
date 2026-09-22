@@ -59,6 +59,8 @@ type PropsCarga = {
    * «Sí» propone la columna del rol de valor. null = no se pregunta.
    */
   confirmarTotal: { rolValor: string } | null;
+  /** Con patrón que lee el centro de costo, pregunta si el cargue se separa por centro (Nómina). */
+  confirmarAgrupador: boolean;
 };
 
 type ModoClasificador = NonNullable<SpecModulo["clasificadorModo"]>;
@@ -182,6 +184,61 @@ function ConfirmarClasificadorCarga({
   );
 }
 
+/** Rol del centro de costo que pregunta «¿Separar por centro de costo?» (el servidor usa el mismo). */
+const ROL_CENTRO = "agrupador";
+const sinCentro = (s: SpecModulo): SpecModulo => {
+  const columnas = { ...s.columnas };
+  delete columnas[ROL_CENTRO];
+  return { ...s, columnas };
+};
+
+/**
+ * «¿Separar por centro de costo?» en una carga con patrón (Nómina). Con «No» este cargue no lee la
+ * columna del centro y el Consolidado queda por concepto; el patrón no cambia.
+ */
+function ConfirmarCentroCarga({
+  analisis,
+  columna,
+  respuesta,
+  onResponder,
+}: {
+  analisis: AnalisisModulo;
+  columna: number;
+  respuesta: "si" | "no" | null;
+  onResponder: (valor: "si" | "no") => void;
+}) {
+  const valores = [...new Set((analisis.muestraFilas ?? []).map((f) => celdaTxt(f[columna - 1] ?? null).trim()).filter(Boolean))];
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-blue-300 bg-blue-50/40 px-3 py-2.5">
+      <span className="text-[11px] font-medium text-ink-600">
+        ¿Separar por centro de costo? <span className="text-err-600">*</span> · el patrón lo lee en la columna{" "}
+        {letraColumnaModulo(columna + (analisis.columnaInicial ?? 0))}
+      </span>
+      {valores.length > 0 && (
+        <span className="min-w-0 break-words text-[11px] leading-snug text-ink-500">
+          En las primeras filas: {valores.slice(0, 5).join(" · ")}{valores.length > 5 ? " …" : ""}
+        </span>
+      )}
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-ink-700" role="radiogroup" aria-label="¿Separar por centro de costo?">
+        <label className="inline-flex items-center gap-1.5">
+          <input type="radio" name="separar-centro" checked={respuesta === "si"} onChange={() => onResponder("si")} />
+          Sí, un renglón por concepto y centro
+        </label>
+        <label className="inline-flex items-center gap-1.5">
+          <input type="radio" name="separar-centro" checked={respuesta === "no"} onChange={() => onResponder("no")} />
+          No, solo por concepto
+        </label>
+      </div>
+      {respuesta === "no" && (
+        <span className="text-[11px] leading-snug text-ink-500">
+          El Consolidado tendrá un renglón por concepto. Las asignaciones guardadas sin centro valen para todos los centros.
+        </span>
+      )}
+      <span className="text-[11px] leading-snug text-ink-500">Vale solo para este cargue: el patrón del aplicativo no se modifica.</span>
+    </div>
+  );
+}
+
 const formatoNumeroMarca = new Intl.NumberFormat("es-CO", { maximumFractionDigits: 6 });
 const celdaTxtVisible = (v: CeldaMuestra): string => (
   typeof v === "number" ? formatoNumeroMarca.format(v) : celdaTxt(v)
@@ -262,6 +319,7 @@ function CargarModal({
   puedeAdministrarPatrones,
   confirmarClasificador,
   confirmarTotal,
+  confirmarAgrupador,
   anexo,
   onClose,
 }: PropsCarga & { anexo?: AnexoModulo; onClose: () => void }) {
@@ -297,6 +355,8 @@ function CargarModal({
   const [clasificadorConfirmado, setClasificadorConfirmado] = useState(false);
   // «¿El archivo trae el valor total?» (solo este cargue): sin respuesta hasta que el analista elija.
   const [totalArchivo, setTotalArchivo] = useState<"si" | "no" | null>(null);
+  // «¿Separar por centro de costo?» (solo este cargue, Nómina): sin respuesta hasta que el analista elija.
+  const [separarCentro, setSepararCentro] = useState<"si" | "no" | null>(null);
   const etiquetaClasificador = roles.find((rol) => rol.nombre === clasificadorRol)?.etiqueta ?? "Clasificador";
   // Preferencias de carga del cliente (Configuración › Perfiles de carga): se muestran las notas.
   const [prefs, setPrefs] = useState<PrefsCarga | null>(null);
@@ -317,6 +377,7 @@ function CargarModal({
     setClasificadorPatron(null);
     setClasificadorConfirmado(false);
     setTotalArchivo(null);
+    setSepararCentro(null);
     setFase("archivo");
   };
 
@@ -447,6 +508,7 @@ function CargarModal({
         setClasificadorPatron({ columna: r.spec.columnas[clasificadorRol] ?? 0, modo: modoClasificadorSpec(r.spec) });
         setClasificadorConfirmado(false);
         setTotalArchivo(null);
+        setSepararCentro(null);
         setFase(r.modo === "patron" ? "patron" : "mapeo");
         if (r.origen === "perfil") notifySuccess("Se aplicó el perfil guardado de este cliente. Revisa y confirma.");
       } catch {
@@ -484,6 +546,8 @@ function CargarModal({
     }
     const filaManual = Number(filaMarcaTotales);
     const celdaTotalLista = (spec.subtotalesColumna ?? 0) >= 1 && marcaManualLista && Number.isInteger(filaManual) && spec.subtotalesFila === filaManual;
+    const pedirCentro = porPatron && confirmarAgrupador && (spec.columnas[ROL_CENTRO] ?? 0) >= 1;
+    if (pedirCentro && separarCentro == null) { notifyError("Indica si este cargue se separa por centro de costo."); return; }
     const pedirTotal = porPatron && confirmarTotal != null;
     if (pedirTotal) {
       if (totalArchivo == null) { notifyError("Indica si el archivo trae el valor total."); return; }
@@ -510,6 +574,7 @@ function CargarModal({
             fd.set("subtotalesFila", String(spec.subtotalesFila));
           }
         } else if (spec.subtotalesFila) fd.set("subtotalesFila", String(spec.subtotalesFila));
+        if (pedirCentro) fd.set("separarAgrupador", separarCentro!);
         if (pedirClasificador) {
           fd.set("clasificadorColumna", String(modoClasificadorCargue === "global" ? CLASIFICADOR_GLOBAL : spec.columnas[clasificadorRol] ?? 0));
           fd.set("clasificadorModo", modoClasificadorCargue);
@@ -862,7 +927,7 @@ function CargarModal({
             <dt className="font-medium text-ink-700">Hoja</dt>
             <dd>«{spec.hoja}» · encabezado en la fila {spec.filaEncabezado} · datos desde la fila {spec.primeraFilaDatos} · {analisis.totalFilas} filas</dd>
             <dt className="font-medium text-ink-700">Columnas</dt>
-            <dd>{resumenMapeo(spec, roles, clasificadorRol, analisis.columnaInicial ?? 0) || "—"}</dd>
+            <dd>{resumenMapeo(separarCentro === "no" ? sinCentro(spec) : spec, roles, clasificadorRol, analisis.columnaInicial ?? 0) || "—"}</dd>
             {conNivelCartera && (() => {
               const { tipo, declarado } = tipoFormatoCartera(spec);
               return (
@@ -894,6 +959,14 @@ function CargarModal({
               patron={clasificadorPatron}
               confirmado={clasificadorConfirmado}
               onConfirmar={setClasificadorConfirmado}
+            />
+          )}
+          {confirmarAgrupador && (spec.columnas[ROL_CENTRO] ?? 0) >= 1 && (
+            <ConfirmarCentroCarga
+              analisis={analisis}
+              columna={spec.columnas[ROL_CENTRO] ?? 0}
+              respuesta={separarCentro}
+              onResponder={setSepararCentro}
             />
           )}
           {conNivelCartera && <CamposCargueCartera spec={spec} setSpec={setSpec} fechaCorteSugerida={fechaCorteSugerida} />}

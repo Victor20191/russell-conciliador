@@ -406,9 +406,11 @@ function cuentasInicialesConsolidado(consolidado: ConsolidadoVm[], nivel: NivelC
     const guardadas = c.cuentas4.map((x) => x.codigo);
     if (guardadas.length) return [c.clasificador, guardadas];
     // Nómina: la homologación sugerida (cuenta del archivo, memoria + clase, grupo por nombre)
-    // se propone cuando es UNA cuenta de gasto; «multi» y control no se proponen.
+    // se propone cuando es UNA cuenta de gasto; «multi» y control no se proponen. Lo asignado en
+    // los centros (un cargue sin centro) se propone entero, con una o varias cuentas.
     if (c.sugerencia) {
       const s = c.sugerencia;
+      if (s.destino === "gasto" && s.via === "memoria_centros") return [c.clasificador, [...s.cuentas]];
       return [c.clasificador, s.destino === "gasto" && s.via !== "multi" && s.cuentas.length === 1 ? [...s.cuentas] : []];
     }
     const digitos = c.clasificador.replace(/\D/g, "");
@@ -423,6 +425,7 @@ const ETIQUETA_VIA: Record<SugerenciaConsolidado["via"], string> = {
   archivo: "cuenta del archivo",
   memoria_exacta: "memoria del cliente",
   memoria_clase: "memoria + clase del centro",
+  memoria_centros: "lo asignado en los centros",
   multi: "varias cuentas",
   sugerido_nombre: "sugerida por el nombre",
   sin_cuenta: "sin cuenta",
@@ -2207,7 +2210,10 @@ function RepartosPendientesNomina({ pendientes, encabezadoId, puedeEditar }: { p
     <Card className="p-0">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-100 bg-warn-100/30 px-3 py-2 text-[12px]">
         <div className="text-warn-700">
-          <b>{pendientes.length}</b> concepto{pendientes.length === 1 ? "" : "s"} ({fmtContable(total)}) {pendientes.length === 1 ? "cruza" : "cruzan"} contra varias cuentas Russell y la porción de cada una la define el auditor (RF-NOM-12). Mientras tanto quedan fuera de la cédula por cuenta. La sugerencia reparte proporcionalmente al saldo final del balance en las cuentas candidatas.
+          <b>{pendientes.length}</b> concepto{pendientes.length === 1 ? "" : "s"} ({fmtContable(total)}) {pendientes.length === 1 ? "cruza" : "cruzan"} contra varias cuentas Russell y la porción de cada una la define el auditor (RF-NOM-12). Mientras tanto quedan fuera de la cédula por cuenta.{" "}
+          {pendientes.some((p) => p.origenSugerido === "centros")
+            ? "La sugerencia repite lo que repartiste por centro en este período (marcada «como por centro»; se ajusta en proporción si el total cambió) y, donde no hay, reparte proporcionalmente al saldo final del balance."
+            : "La sugerencia reparte proporcionalmente al saldo final del balance en las cuentas candidatas."}
         </div>
         {puedeEditar && (
           <button type="button" disabled={pending} onClick={aplicarTodos} className="rounded-md bg-navy-700 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-navy-600 disabled:opacity-60">
@@ -2232,7 +2238,10 @@ function RepartosPendientesNomina({ pendientes, encabezadoId, puedeEditar }: { p
                   <td className="px-3 py-1.5 text-ink-800"><ConceptoReparto codigo={p.codigo} agrupador={p.agrupador} descripcion={p.descripcion} /></td>
                   <td className="px-3 py-1.5 text-right tabular-nums font-semibold text-ink-800">{fmtContable(p.total)}</td>
                   <td className="px-3 py-1.5">
-                    <div className="flex flex-wrap gap-1.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {p.origenSugerido === "centros" && (
+                        <span className="rounded bg-ink-100 px-1.5 py-0.5 text-[10.5px] font-semibold text-ink-600" title="El sugerido suma lo que repartiste en los centros de este concepto en el período.">como por centro</span>
+                      )}
                       {p.cuentas.map((c) => (
                         <span key={c} className="rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[11px] text-blue-800" title={`Saldo contable: ${fmtContable(p.contablePorCuenta[c] ?? 0)}`}>
                           <span className="font-semibold">{c}</span> · {fmtContable(p.sugerido[c] ?? 0)}
