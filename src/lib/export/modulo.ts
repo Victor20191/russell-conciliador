@@ -7,6 +7,7 @@
 // Puro (sin BD): recibe los view-models ya resueltos por el loader RSC.
 import ExcelJS from "exceljs";
 import type { EstadoCruceTercero, FilaCruceTerceroCartera, ResumenCruceTerceroCartera } from "@/lib/modulos/cartera/cruce-tercero-cartera";
+import { describirSenales } from "@/lib/modulos/cartera/coherencia-tercero";
 import type { ControlDeduccionesNomina, VistaSubcuentaNomina } from "@/lib/modulos/nomina/cruce-nomina";
 import { fechaDeCelda, valorColumnaDetalle } from "@/lib/modulos/celda-detalle-modulo";
 
@@ -297,11 +298,13 @@ function hojaCruceTercero(wb: ExcelJS.Workbook, cruce: CruceTerceroExportModulo,
       estado: ESTADO_CRUCE_TERCERO[f.estado],
       observacion: [
         f.sinNit ? "Sin NIT" : null,
+        f.claveModuloPorDv ? `Emparejado por DV con ${f.claveModuloPorDv} del auxiliar` : null,
         f.claveModuloPorNucleo ? `Emparejado por núcleo con ${f.claveModuloPorNucleo}` : null,
-        f.sugerenciaPorNombre
-          ? `Mismo nombre que ${f.sugerenciaPorNombre.clave.startsWith("~") ? "un tercero sin NIT" : f.sugerenciaPorNombre.clave} del otro lado`
+        f.sugerencia
+          ? `Posible: ${f.sugerencia.clave.startsWith("~") ? "un tercero sin NIT" : f.sugerencia.clave} del otro lado (${describirSenales(f.sugerencia.senales)}; confianza ${f.sugerencia.confianza})`
           : null,
         f.emparejadoDesde.length > 0 ? `Emparejado con ${f.emparejadoDesde.join(", ")} del auxiliar` : null,
+        f.separadoDe.length > 0 ? `Separado por el auditor de ${f.separadoDe.join(", ")} del auxiliar` : null,
         f.marca ? `Marca ${f.marca.numero}: ${f.marca.nota}` : null,
       ].filter(Boolean).join(" · ") || null,
     });

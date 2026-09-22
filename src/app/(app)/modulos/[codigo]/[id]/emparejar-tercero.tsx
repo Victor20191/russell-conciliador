@@ -7,12 +7,13 @@ import { fmtContable } from "@/lib/format";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
 import { emparejarTerceroCruce } from "@/app/actions/modulos-datos";
 import { MAX_NOTA_MARCA, type FilaCruceTerceroMarcada } from "@/lib/modulos/marcas-cruce";
+import { describirSenales } from "@/lib/modulos/cartera/coherencia-tercero";
 import { etiquetaTercero } from "./marca-tercero";
 
 /**
  * Emparejar un tercero que solo está en el auxiliar con uno de la contabilidad: «el X del
  * auxiliar es el Y del balance». Queda en la memoria del cliente (por defecto para todos sus
- * períodos). Cuando hay una sugerencia por nombre, se parte de ella.
+ * períodos). Cuando la validación de coherencia propone un tercero, se parte de él.
  */
 export function ModalEmparejarTercero({
   fila,
@@ -28,7 +29,7 @@ export function ModalEmparejarTercero({
   onClose: () => void;
   onGuardado: () => void;
 }) {
-  const sugerida = fila.sugerenciaPorNombre?.clave ?? "";
+  const sugerida = fila.sugerencia?.clave ?? "";
   const [claveBalance, setClaveBalance] = useState(sugerida);
   const [alcance, setAlcance] = useState<"todos" | "periodo">("todos");
   const [nota, setNota] = useState("");
@@ -46,7 +47,7 @@ export function ModalEmparejarTercero({
         claveModulo: fila.clave,
         claveBalance,
         alcance,
-        origen: claveBalance === sugerida ? "sugerido_nombre" : "manual",
+        origen: claveBalance === sugerida ? "sugerido_coherencia" : "manual",
         nota: nota.trim() || undefined,
       });
       if (r.ok) {
@@ -80,9 +81,9 @@ export function ModalEmparejarTercero({
           Este tercero está en el auxiliar por <b>{fmtContable(fila.modulo.total)}</b> y no aparece en la contabilidad del período. Elige a qué tercero del balance corresponde: su saldo pasará a cruzarse con el de ese tercero.
         </p>
 
-        {fila.sugerenciaPorNombre && (
+        {fila.sugerencia && (
           <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-[12px] text-blue-800">
-            Sugerencia por nombre: <b>{fila.sugerenciaPorNombre.nombre ?? fila.sugerenciaPorNombre.clave}</b> ({fila.sugerenciaPorNombre.clave}). Confírmala o elige otro tercero.
+            Propuesta de la validación de coherencia (confianza {fila.sugerencia.confianza}): <b>{fila.sugerencia.nombre ?? fila.sugerencia.clave}</b> ({fila.sugerencia.clave}) — {describirSenales(fila.sugerencia.senales)}. Confírmala o elige otro tercero.
           </div>
         )}
 

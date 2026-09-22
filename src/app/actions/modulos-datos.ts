@@ -109,6 +109,7 @@ import { CLAVE_SIN_CUENTA, normalizarClaveCruce } from "@/lib/modulos/cruce-cont
 import { cargarContextoPrevalidadorBalance } from "@/lib/balance/prevalidador/servidor";
 import { cruceTerceroDeCargue } from "@/lib/modulos/cruce-tercero-servidor";
 import { validarEmparejamientoTercero } from "@/lib/modulos/cartera/cruce-tercero-cartera";
+import { ETIQUETA_SENAL, notaDeSugerencia, type SugerenciaEmparejamiento } from "@/lib/modulos/cartera/coherencia-tercero";
 import { evidenciaCruceTercero } from "@/lib/conciliacion/evidencia-cruce-tercero";
 import {
   alcanceExplicitoDelCruce,
@@ -3133,20 +3134,44 @@ export async function actualizarFechaCorteModulo(input: { encabezadoId: number; 
 }
 
 // ============================================================
-// EMPAREJAMIENTO MANUAL de terceros del cruce por tercero (RF-CXC-12; D4 de CxP).
+// EMPAREJAMIENTO de terceros del cruce por tercero (RF-CXC-12; D4 de CxP).
 //
 // «El tercero X del auxiliar es el Y del balance». Es memoria del cliente: por defecto vale
 // para todos sus períodos y se puede acotar al del cargue. Se valida contra el cruce vigente y
 // no se toca donde la conciliación del módulo está en firme: cambiaría lo que se cerró.
+//
+// Tres caminos a la misma tabla: el emparejamiento de UN tercero (modal «Emparejar…», con o sin
+// sugerencia precargada), la APLICACIÓN EN LOTE de las propuestas de la validación de coherencia
+// (el servidor recalcula el cruce y solo acepta pares que él mismo propone: la evidencia no se
+// confía al navegador) y la SEPARACIÓN de un par que el cruce unió solo por DV o por núcleo
+// (`tipo = separacion`: no se vuelve a unir ni a proponer, hasta que el auditor la retire).
 // ============================================================
+
+const OrigenEmparejamiento = z.enum(["manual", "sugerido_nombre", "sugerido_coherencia"]);
 
 const EmparejarTerceroSchema = z.object({
   encabezadoId: z.coerce.number().int().positive(),
   claveModulo: z.string(),
   claveBalance: z.string(),
   alcance: z.enum(["todos", "periodo"]),
-  origen: z.enum(["manual", "sugerido_nombre"]),
+  origen: OrigenEmparejamiento,
   nota: z.string().optional(),
+});
+
+/** Cuántas propuestas se aplican de una vez, como mucho (una pantalla de propuestas, no un volcado). */
+const MAX_PARES_LOTE = 500;
+
+const AplicarSugeridosSchema = z.object({
+  encabezadoId: z.coerce.number().int().positive(),
+  pares: z.array(z.object({ claveModulo: z.string(), claveBalance: z.string() })).min(1).max(MAX_PARES_LOTE),
+  alcance: z.enum(["todos", "periodo"]),
+});
+
+const SepararTerceroSchema = z.object({
+  encabezadoId: z.coerce.number().int().positive(),
+  claveModulo: z.string(),
+  claveBalance: z.string(),
+  alcance: z.enum(["todos", "periodo"]),
 });
 
 /** Períodos en firme que el emparejamiento alteraría: el mensaje para quien empareja, o null. */
@@ -3171,6 +3196,53 @@ async function cierreQueImpideEmparejar(
     : `La conciliación de ${lista} está en firme y un emparejamiento para todos los períodos también la cambiaría: acótalo a este período o desbloquea esos períodos.`;
 }
 
+/** El cruce por tercero vigente del cargue, recalculado (lo que ve la pantalla en este momento). */
+async function cruceTerceroVigente(encabezadoId: number) {
+  const insumos = await cargarInsumosCruceModulo(encabezadoId);
+  if (!insumos) return { ok: false as const, message: "El cargue ya no existe." };
+  const tercero = await cruceTerceroDeCargue(insumos, await construirCruceContableModulo(insumos));
+  if (!tercero?.resumen) {
+    return { ok: false as const, message: tercero?.mensaje ?? "El cruce por tercero no está disponible en este momento." };
+  }
+  return { ok: true as const, resumen: tercero.resumen };
+}
+
+type DatosEmparejamiento = {
+  claveBalance: string;
+  nombreModulo: string | null;
+  nombreBalance: string | null;
+  tipo: "union" | "separacion";
+  origen: string;
+  nota: string | null;
+  creadoPor: string | null;
+  creadoPorId: number | null;
+  creadoEn: Date;
+};
+
+/** Crea o reemplaza la fila de una clave del auxiliar (unión o separación) en su alcance. */
+function upsertEmparejamiento(
+  tx: Prisma.TransactionClient | typeof prisma,
+  encabezado: { clienteId: number; moduloCodigo: string },
+  periodo: string,
+  claveModulo: string,
+  datos: DatosEmparejamiento,
+) {
+  return tx.emparejamientoTerceroModulo.upsert({
+    where: {
+      clienteId_moduloCodigo_periodo_claveModulo: {
+        clienteId: encabezado.clienteId,
+        moduloCodigo: encabezado.moduloCodigo,
+        periodo,
+        claveModulo,
+      },
+    },
+    create: { clienteId: encabezado.clienteId, moduloCodigo: encabezado.moduloCodigo, periodo, claveModulo, ...datos },
+    update: datos,
+  });
+}
+
+const describirTercero = (clave: string, nombre: string | null) => `${clave}${nombre ? ` (${nombre})` : ""}`;
+
 /** Empareja un tercero que solo está en el auxiliar con uno del balance (N:1). */
 export async function emparejarTerceroCruce(input: z.input<typeof EmparejarTerceroSchema>): Promise<ActionState> {
   const parsed = EmparejarTerceroSchema.safeParse(input);
@@ -3189,46 +3261,32 @@ export async function emparejarTerceroCruce(input: z.input<typeof EmparejarTerce
     const bloqueo = await cierreQueImpideEmparejar(encabezado, periodo);
     if (bloqueo) return { ok: false, message: bloqueo };
 
-    const insumos = await cargarInsumosCruceModulo(encabezado.id);
-    if (!insumos) return { ok: false, message: "El cargue ya no existe." };
-    const tercero = await cruceTerceroDeCargue(insumos, await construirCruceContableModulo(insumos));
-    if (!tercero?.resumen) {
-      return { ok: false, message: tercero?.mensaje ?? "El cruce por tercero no está disponible en este momento." };
-    }
-    const valido = validarEmparejamientoTercero(tercero.resumen, claveModulo, claveBalance);
+    const vigente = await cruceTerceroVigente(encabezado.id);
+    if (!vigente.ok) return { ok: false, message: vigente.message };
+    const valido = validarEmparejamientoTercero(vigente.resumen, claveModulo, claveBalance);
     if (!valido.ok) return { ok: false, message: valido.message };
-    const nombreModulo = tercero.resumen.filas.find((f) => f.clave === claveModulo)?.nombre ?? null;
-    const nombreBalance = tercero.resumen.filas.find((f) => f.clave === claveBalance)?.nombre ?? null;
+    const nombreModulo = vigente.resumen.filas.find((f) => f.clave === claveModulo)?.nombre ?? null;
+    const nombreBalance = vigente.resumen.filas.find((f) => f.clave === claveBalance)?.nombre ?? null;
 
     const user = await getCurrentUser();
-    const datos = {
+    await upsertEmparejamiento(prisma, encabezado, periodo, claveModulo, {
       claveBalance,
       nombreModulo,
       nombreBalance,
+      tipo: "union",
       origen: parsed.data.origen,
       nota: nota || null,
       creadoPor: user?.name ?? null,
       creadoPorId: ctx.userId,
       creadoEn: new Date(),
-    };
-    await prisma.emparejamientoTerceroModulo.upsert({
-      where: {
-        clienteId_moduloCodigo_periodo_claveModulo: {
-          clienteId: encabezado.clienteId,
-          moduloCodigo: encabezado.moduloCodigo,
-          periodo,
-          claveModulo,
-        },
-      },
-      create: { clienteId: encabezado.clienteId, moduloCodigo: encabezado.moduloCodigo, periodo, claveModulo, ...datos },
-      update: datos,
     });
 
+    const porQue = parsed.data.origen === "sugerido_nombre" ? " · sugerido por nombre" : parsed.data.origen === "sugerido_coherencia" ? " · propuesto por la validación de coherencia" : "";
     await logAudit({
       user: user?.name ?? "Sistema",
       action: "EMPAREJÓ un tercero del cruce por tercero",
       entity: encabezado.nombreCliente,
-      detail: `${encabezado.moduloCodigo} · ${periodo || "todos los períodos"} · ${claveModulo}${nombreModulo ? ` (${nombreModulo})` : ""} → ${claveBalance}${nombreBalance ? ` (${nombreBalance})` : ""}${parsed.data.origen === "sugerido_nombre" ? " · sugerido por nombre" : ""}${nota ? ` · ${nota}` : ""}`,
+      detail: `${encabezado.moduloCodigo} · ${periodo || "todos los períodos"} · ${describirTercero(claveModulo, nombreModulo)} → ${describirTercero(claveBalance, nombreBalance)}${porQue}${nota ? ` · ${nota}` : ""}`,
       clientId: encabezado.clienteId,
     });
     revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
@@ -3238,7 +3296,142 @@ export async function emparejarTerceroCruce(input: z.input<typeof EmparejarTerce
   }
 }
 
-/** Deshace un emparejamiento: los dos terceros vuelven a verse por separado en el cruce. */
+/**
+ * Aplica en lote las propuestas de la validación de coherencia que el auditor marcó. Cada par
+ * tiene que seguir siendo una propuesta del cruce VIGENTE (recalculado aquí) y pasar la misma
+ * validación que un emparejamiento a mano; los que no, se informan y no se escriben. Todo o
+ * nada por transacción: o quedan todos los válidos o ninguno.
+ */
+export async function aplicarEmparejamientosSugeridos(input: z.input<typeof AplicarSugeridosSchema>): Promise<ActionState> {
+  const parsed = AplicarSugeridosSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, message: "Datos inválidos." };
+  const ctx = await contextoMarcaCruce(parsed.data.encabezadoId);
+  if (!ctx.ok) return { ok: false, message: ctx.message };
+  const { encabezado } = ctx;
+  const periodo = parsed.data.alcance === "todos" ? "" : encabezado.periodo;
+  try {
+    const bloqueo = await cierreQueImpideEmparejar(encabezado, periodo);
+    if (bloqueo) return { ok: false, message: bloqueo };
+
+    const vigente = await cruceTerceroVigente(encabezado.id);
+    if (!vigente.ok) return { ok: false, message: vigente.message };
+    const propuestas = new Map(vigente.resumen.sugerencias.map((s) => [`${s.claveModulo}\u0000${s.claveBalance}`, s]));
+
+    const aceptados: SugerenciaEmparejamiento[] = [];
+    const rechazados: string[] = [];
+    const vistos = new Set<string>();
+    for (const par of parsed.data.pares) {
+      const claveModulo = normalizarClaveTercero(par.claveModulo);
+      const claveBalance = normalizarClaveTercero(par.claveBalance);
+      if (!claveModulo || !claveBalance || vistos.has(claveModulo)) continue;
+      vistos.add(claveModulo);
+      const propuesta = propuestas.get(`${claveModulo}\u0000${claveBalance}`);
+      if (!propuesta) {
+        rechazados.push(`${claveModulo}: ya no es una propuesta del cruce`);
+        continue;
+      }
+      const valido = validarEmparejamientoTercero(vigente.resumen, claveModulo, claveBalance);
+      if (!valido.ok) {
+        rechazados.push(`${claveModulo}: ${valido.message}`);
+        continue;
+      }
+      aceptados.push(propuesta);
+    }
+    if (aceptados.length === 0) {
+      return { ok: false, message: rechazados.length > 0 ? `No se aplicó ninguno. ${rechazados.join(" · ")}` : "No hay propuestas que aplicar." };
+    }
+
+    const user = await getCurrentUser();
+    const creadoEn = new Date();
+    await prisma.$transaction(async (tx) => {
+      for (const s of aceptados) {
+        await upsertEmparejamiento(tx, encabezado, periodo, s.claveModulo, {
+          claveBalance: s.claveBalance,
+          nombreModulo: s.nombreModulo,
+          nombreBalance: s.nombreBalance,
+          tipo: "union",
+          origen: "sugerido_coherencia",
+          nota: notaDeSugerencia(s),
+          creadoPor: user?.name ?? null,
+          creadoPorId: ctx.userId,
+          creadoEn,
+        });
+      }
+    });
+
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: `EMPAREJÓ ${aceptados.length} ${aceptados.length === 1 ? "tercero" : "terceros"} por validación de coherencia`,
+      entity: encabezado.nombreCliente,
+      detail: `${encabezado.moduloCodigo} · ${periodo || "todos los períodos"} · ${aceptados
+        .map((s) => `${describirTercero(s.claveModulo, s.nombreModulo)} → ${describirTercero(s.claveBalance, s.nombreBalance)} [${s.senales.map((x) => ETIQUETA_SENAL[x]).join(", ")}]`)
+        .join("; ")}${rechazados.length > 0 ? ` · no aplicados: ${rechazados.join("; ")}` : ""}`,
+      clientId: encabezado.clienteId,
+    });
+    revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
+    const resumen = `${aceptados.length === 1 ? "Se emparejó 1 tercero" : `Se emparejaron ${aceptados.length} terceros`}.`;
+    return {
+      ok: true,
+      message: rechazados.length > 0 ? `${resumen} No se aplicaron ${rechazados.length}: ${rechazados.join(" · ")}` : resumen,
+    };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("aplicarEmparejamientosSugeridos", e) };
+  }
+}
+
+/**
+ * Separa un par que el cruce unió solo (por DV o por núcleo): «no son el mismo tercero». Queda
+ * como memoria del cliente (`tipo = separacion`) y el cruce los vuelve a mostrar por separado sin
+ * proponerlos; se retira con `quitarEmparejamientoTercero`.
+ */
+export async function separarTerceroAutomatico(input: z.input<typeof SepararTerceroSchema>): Promise<ActionState> {
+  const parsed = SepararTerceroSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, message: "Datos inválidos." };
+  const ctx = await contextoMarcaCruce(parsed.data.encabezadoId);
+  if (!ctx.ok) return { ok: false, message: ctx.message };
+  const claveModulo = normalizarClaveTercero(parsed.data.claveModulo);
+  const claveBalance = normalizarClaveTercero(parsed.data.claveBalance);
+  if (!claveModulo || !claveBalance) return { ok: false, message: "Tercero inválido." };
+
+  const { encabezado } = ctx;
+  const periodo = parsed.data.alcance === "todos" ? "" : encabezado.periodo;
+  try {
+    const bloqueo = await cierreQueImpideEmparejar(encabezado, periodo);
+    if (bloqueo) return { ok: false, message: bloqueo };
+
+    const vigente = await cruceTerceroVigente(encabezado.id);
+    if (!vigente.ok) return { ok: false, message: vigente.message };
+    const fila = vigente.resumen.filas.find((f) => f.clave === claveBalance);
+    const como = fila?.claveModuloPorDv === claveModulo ? "DV" : fila?.claveModuloPorNucleo === claveModulo ? "núcleo" : null;
+    if (!como) return { ok: false, message: "Ese par ya no está unido automáticamente. Recarga la pantalla." };
+
+    const user = await getCurrentUser();
+    await upsertEmparejamiento(prisma, encabezado, periodo, claveModulo, {
+      claveBalance,
+      nombreModulo: fila?.nombre ?? null,
+      nombreBalance: fila?.nombre ?? null,
+      tipo: "separacion",
+      origen: "manual",
+      nota: null,
+      creadoPor: user?.name ?? null,
+      creadoPorId: ctx.userId,
+      creadoEn: new Date(),
+    });
+    await logAudit({
+      user: user?.name ?? "Sistema",
+      action: "SEPARÓ un tercero unido automáticamente en el cruce por tercero",
+      entity: encabezado.nombreCliente,
+      detail: `${encabezado.moduloCodigo} · ${periodo || "todos los períodos"} · ${claveModulo} ≠ ${describirTercero(claveBalance, fila?.nombre ?? null)} · estaban unidos por ${como}`,
+      clientId: encabezado.clienteId,
+    });
+    revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
+    return { ok: true, message: `Separados: ${claveModulo} ya no se une con ${claveBalance}.` };
+  } catch (e) {
+    return { ok: false, message: mensajeErrorBD("separarTerceroAutomatico", e) };
+  }
+}
+
+/** Deshace un emparejamiento (o retira una separación): los dos terceros vuelven a verse como antes. */
 export async function quitarEmparejamientoTercero(input: { encabezadoId: number; emparejamientoId: number }): Promise<ActionState> {
   const ctx = await contextoMarcaCruce(Number(input?.encabezadoId));
   if (!ctx.ok) return { ok: false, message: ctx.message };
@@ -3262,16 +3455,17 @@ export async function quitarEmparejamientoTercero(input: { encabezadoId: number;
     if (bloqueo) return { ok: false, message: bloqueo };
 
     await prisma.emparejamientoTerceroModulo.delete({ where: { id: emparejamientoId } });
+    const esSeparacion = emparejamiento.tipo === "separacion";
     const user = await getCurrentUser();
     await logAudit({
       user: user?.name ?? "Sistema",
-      action: "DESHIZO el emparejamiento de un tercero",
+      action: esSeparacion ? "RETIRÓ la separación de un tercero (vuelven a unirse solos)" : "DESHIZO el emparejamiento de un tercero",
       entity: encabezado.nombreCliente,
-      detail: `${encabezado.moduloCodigo} · ${emparejamiento.periodo || "todos los períodos"} · ${emparejamiento.claveModulo} → ${emparejamiento.claveBalance}`,
+      detail: `${encabezado.moduloCodigo} · ${emparejamiento.periodo || "todos los períodos"} · ${emparejamiento.claveModulo} ${esSeparacion ? "≠" : "→"} ${emparejamiento.claveBalance}`,
       clientId: encabezado.clienteId,
     });
     revalidatePath(`${rutaModulo(encabezado.moduloCodigo)}/${encabezado.id}`);
-    return { ok: true, message: "Emparejamiento deshecho." };
+    return { ok: true, message: esSeparacion ? "Separación retirada: vuelven a unirse." : "Emparejamiento deshecho." };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD("quitarEmparejamientoTercero", e) };
   }

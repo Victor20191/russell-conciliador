@@ -125,6 +125,8 @@ const TIMEOUT_TRANSACCION_PROMOCION_MS = 5 * 60 * 1000;
 // de 65.535 parámetros de PostgreSQL y reduce los viajes de archivos grandes.
 const LOTE_STAGING = 2_000;
 const TIMEOUT_TRANSACCION_BORRADOR_MS = 15 * 60 * 1000;
+// Filas por sentencia al capturar el balance por tercero (un solo parámetro jsonb).
+const LOTE_CAPTURA_TERCERO = 20_000;
 const MAX_CUENTAS_REVISION_MODAL = 200;
 const LoteIdSolicitudSchema = z.string().uuid();
 const ContinuarBalanceTransitorioSchema = z.object({
@@ -2165,9 +2167,16 @@ async function capturarBalanceTerceroEnTransaccion(tx: TransactionClient, p: {
   if (existente) return null;
 
   const [paralelo, omitidas] = await Promise.all([
+    // Solo las columnas que usa la captura: un balance por tercero grande
+    // (IGB: 306 mil filas) se lee entero dentro de la transacción.
     tx.balanceImportacionStagingTercero.findMany({
       where: { loteId: p.loteId },
       orderBy: { filaNum: "asc" },
+      select: {
+        filaNum: true, codigo: true, codigoCrudo: true, nombreCuenta: true,
+        nitTercero: true, nombreTercero: true, identidadTercero: true,
+        saldoInicial: true, debitos: true, creditos: true, saldoFinal: true,
+      },
     }),
     tx.balanceImportacionStaging.findMany({
       where: { loteId: p.loteId, omitida: true },
@@ -2223,19 +2232,36 @@ async function capturarBalanceTerceroEnTransaccion(tx: TransactionClient, p: {
     },
     select: { id: true },
   });
-  // createMany troceado (no nested create): un balance por tercero puede traer 20k+ filas.
-  for (let i = 0; i < captura.filas.length; i += LOTE_STAGING) {
-    await tx.balanceTerceroDetalle.createMany({
-      data: captura.filas.slice(i, i + LOTE_STAGING).map((f) => ({
-        encabezadoId: encabezado.id,
-        cuenta2: f.cuenta2, cuenta4: f.cuenta4, cuenta6: f.cuenta6, cuenta8: f.cuenta8,
-        nombreCuenta: f.nombreCuenta, cuenta6Russell: f.cuenta6Russell, coincidencia: f.coincidencia,
-        nitTercero: f.nitTercero, nombreTercero: f.nombreTercero,
-        identidadTercero: f.identidadTercero,
-        claveTercero: claveTerceroDeCaptura(f),
-        saldoInicial: f.saldoInicial, debitos: f.debitos, creditos: f.creditos, saldoFinal: f.saldoFinal,
-      })),
-    });
+  // Inserción masiva con `jsonb_to_recordset` (un parámetro por tanda), no
+  // `createMany`: un balance por tercero puede traer 300k+ filas y con tandas de
+  // 2.000 eran ~150 viajes parametrizados que agotaban el tiempo de la
+  // transacción de promoción (P2028, IGB 09/2026).
+  for (let i = 0; i < captura.filas.length; i += LOTE_CAPTURA_TERCERO) {
+    const tanda = JSON.stringify(captura.filas.slice(i, i + LOTE_CAPTURA_TERCERO).map((f) => ({
+      cuenta_2: f.cuenta2, cuenta_4: f.cuenta4, cuenta_6: f.cuenta6, cuenta_8: f.cuenta8,
+      nombre_cuenta: f.nombreCuenta, cuenta_6_russell: f.cuenta6Russell, porcentaje_coincidencia: f.coincidencia,
+      nit_tercero: f.nitTercero, nombre_tercero: f.nombreTercero,
+      identidad_tercero: f.identidadTercero ?? null,
+      clave_tercero: claveTerceroDeCaptura(f),
+      saldo_inicial: f.saldoInicial, debitos: f.debitos, creditos: f.creditos, saldo_final: f.saldoFinal,
+    })));
+    await tx.$executeRaw(Prisma.sql`
+      INSERT INTO "balance_tercero_detalle" (
+        "encabezado_id", "cuenta_2", "cuenta_4", "cuenta_6", "cuenta_8", "nombre_cuenta",
+        "cuenta_6_russell", "porcentaje_coincidencia", "nit_tercero", "nombre_tercero",
+        "identidad_tercero", "clave_tercero", "saldo_inicial", "debitos", "creditos", "saldo_final"
+      )
+      SELECT
+        ${encabezado.id}, d.cuenta_2, d.cuenta_4, d.cuenta_6, d.cuenta_8, d.nombre_cuenta,
+        d.cuenta_6_russell, d.porcentaje_coincidencia, d.nit_tercero, d.nombre_tercero,
+        d.identidad_tercero, d.clave_tercero, d.saldo_inicial, d.debitos, d.creditos, d.saldo_final
+      FROM jsonb_to_recordset(${tanda}::jsonb) AS d(
+        cuenta_2 text, cuenta_4 text, cuenta_6 text, cuenta_8 text, nombre_cuenta text,
+        cuenta_6_russell text, porcentaje_coincidencia numeric, nit_tercero text, nombre_tercero text,
+        identidad_tercero jsonb, clave_tercero text,
+        saldo_inicial numeric, debitos numeric, creditos numeric, saldo_final numeric
+      )
+    `);
   }
   return { filas: captura.filas.length, terceros: captura.terceros, cuentasConDetalle: captura.cuentasConDetalle, version, cobertura: evaluarCoberturaTercero(captura.filas) };
 }
@@ -2680,7 +2706,11 @@ async function persistirCargue(p: {
     }
 
     return { id: balance.id, version, reutilizado: false, capturaTercero };
-  }, { timeoutMs: TIMEOUT_TRANSACCION_PROMOCION_MS }).catch(async (e: unknown) => {
+  }, {
+    // La captura por tercero mueve cientos de miles de filas en el mismo commit:
+    // usa el margen del borrador en vez del de la promoción por cuenta.
+    timeoutMs: p.aperturaBalance === "tercero" ? TIMEOUT_TRANSACCION_BORRADOR_MS : TIMEOUT_TRANSACCION_PROMOCION_MS,
+  }).catch(async (e: unknown) => {
     if (e instanceof ErrorConciliacionEnFirme) {
       await registrarIntentoBloqueado({
         clienteId: p.clientId,

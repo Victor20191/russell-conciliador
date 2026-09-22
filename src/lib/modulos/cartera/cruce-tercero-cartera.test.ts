@@ -26,9 +26,11 @@ describe("construirCruceTerceroCartera", () => {
       clave: "900123456",
       nombre: "CLIENTE UNO",
       sinNit: false,
+      claveModuloPorDv: null,
       claveModuloPorNucleo: null,
-      sugerenciaPorNombre: null,
+      sugerencia: null,
       emparejadoDesde: [],
+      separadoDe: [],
       contable: { porCuenta: { "130505": 1_000_000, "280505": -200_000 }, total: 800_000 },
       modulo: { nacional: 800_000, exterior: 0, sinOrigen: 0, total: 800_000 },
       diferencia: 0,
@@ -150,6 +152,69 @@ describe("construirCruceTerceroCartera", () => {
     expect(ambiguo.filas).toHaveLength(3);
   });
 
+  it("une por DV el NIT del auxiliar con el mismo NIT más su dígito de verificación en el balance, y lo marca", () => {
+    // Captura real: el auxiliar trae 41954149 (con nombre) y el balance 419541491 (sin nombre), mismo saldo.
+    const r = construirCruceTerceroCartera({
+      contable: [contable("419541491", "130505", 13_162_956), contable("717448229", "130505", 7_280_668)],
+      modulo: [modulo("41954149", 13_162_956, { nombre: "RACING MOSTER/GAITAN REYES LINA MARCELA" }), modulo("71744822", 7_280_668)],
+      cuentasModulo: CAR,
+    });
+    expect(r.filas.map((f) => [f.clave, f.claveModuloPorDv, f.estado, f.nombre])).toEqual([
+      ["419541491", "41954149", "cuadra", "RACING MOSTER/GAITAN REYES LINA MARCELA"],
+      ["717448229", "71744822", "cuadra", null],
+    ]);
+    expect(r.porDv).toBe(2);
+    expect(r.porNucleo).toBe(0);
+    expect(r.sugerencias).toEqual([]);
+  });
+
+  it("une por DV también cuando el dígito de verificación viene en el auxiliar", () => {
+    const r = construirCruceTerceroCartera({
+      contable: [contable("41954149", "130505", 100)],
+      modulo: [modulo("419541491", 100)],
+      cuentasModulo: CAR,
+    });
+    expect(r.filas).toEqual([expect.objectContaining({ clave: "41954149", claveModuloPorDv: "419541491", estado: "cuadra" })]);
+  });
+
+  it("no une por DV cuando el dígito de más no es el DV válido ni cuando hay varios candidatos", () => {
+    const invalido = construirCruceTerceroCartera({
+      contable: [contable("419541495", "130505", 100)], // el DV de 41954149 es 1, no 5
+      modulo: [modulo("41954149", 100)],
+      cuentasModulo: CAR,
+    });
+    expect(invalido.porDv).toBe(0);
+    expect(invalido.filas.map((f) => f.estado).sort()).toEqual(["solo_contable", "solo_modulo"]);
+
+    const ambiguo = construirCruceTerceroCartera({
+      contable: [contable("419541491", "130505", 100), contable("41954149", "130505", 50)],
+      modulo: [modulo("41954149", 100)],
+      cuentasModulo: CAR,
+    });
+    // 41954149 cruza exacto con el balance; 419541491 queda suelto y no se une con una clave que ya cruza.
+    expect(ambiguo.porDv).toBe(0);
+    expect(ambiguo.filas.map((f) => [f.clave, f.estado])).toEqual([["419541491", "solo_contable"], ["41954149", "descuadre"]]);
+  });
+
+  it("respeta la separación del auditor: el par separado no se une por DV ni por núcleo y queda anotado", () => {
+    const r = construirCruceTerceroCartera({
+      contable: [contable("419541491", "130505", 100), contable("112838597", "130505", 300)],
+      modulo: [modulo("41954149", 100), modulo("1128385972", 300)],
+      cuentasModulo: CAR,
+      separaciones: [
+        { claveModulo: "41954149", claveBalance: "419541491" },
+        { claveModulo: "1128385972", claveBalance: "112838597" },
+      ],
+    });
+    expect(r.porDv).toBe(0);
+    expect(r.porNucleo).toBe(0);
+    expect(r.filas).toHaveLength(4);
+    const porClave = Object.fromEntries(r.filas.map((f) => [f.clave, f]));
+    expect(porClave["419541491"]).toMatchObject({ estado: "solo_contable", separadoDe: ["41954149"], sugerencia: null });
+    expect(porClave["112838597"]).toMatchObject({ estado: "solo_contable", separadoDe: ["1128385972"], sugerencia: null });
+    expect(r.sugerencias).toEqual([]);
+  });
+
   it("sin cuentas del módulo declaradas, todas las del grupo entran al cruce", () => {
     const r = construirCruceTerceroCartera({
       contable: [contable("900123456", "413595", -500)],
@@ -173,11 +238,11 @@ describe("sugerencias por nombre", () => {
       modulo: [modulo("~APORTES EN LINEA SA", 80_794_100, { nombre: "APORTES EN LINEA SA" })],
       cuentasModulo: CXP,
     });
-    expect(r.sugerenciasPorNombre).toBe(1);
-    const porClave = Object.fromEntries(r.filas.map((f) => [f.clave, f.sugerenciaPorNombre]));
+    expect(r.sugerencias).toEqual([expect.objectContaining({ claveModulo: "~APORTES EN LINEA SA", claveBalance: "900123456", senales: ["saldo", "nombre"], confianza: "alta" })]);
+    const porClave = Object.fromEntries(r.filas.map((f) => [f.clave, f.sugerencia]));
     expect(porClave).toEqual({
-      "900123456": { clave: "~APORTES EN LINEA SA", nombre: "APORTES EN LINEA SA" },
-      "~APORTES EN LINEA SA": { clave: "900123456", nombre: "APORTES EN LÍNEA S.A." },
+      "900123456": { clave: "~APORTES EN LINEA SA", nombre: "APORTES EN LINEA SA", senales: ["saldo", "nombre"], confianza: "alta" },
+      "~APORTES EN LINEA SA": { clave: "900123456", nombre: "APORTES EN LÍNEA S.A.", senales: ["saldo", "nombre"], confianza: "alta" },
     });
   });
 
@@ -191,8 +256,8 @@ describe("sugerencias por nombre", () => {
       modulo: [modulo("~BANCOLOMBIA", 30, { nombre: "BANCOLOMBIA" }), modulo("900000003", 30, { nombre: "UNO" }), modulo("~UNO", 5, { nombre: "UNO" })],
       cuentasModulo: CXP,
     });
-    expect(r.sugerenciasPorNombre).toBe(0);
-    expect(r.filas.every((f) => f.sugerenciaPorNombre === null)).toBe(true);
+    expect(r.sugerencias).toEqual([]);
+    expect(r.filas.every((f) => f.sugerencia === null)).toBe(true);
   });
 });
 

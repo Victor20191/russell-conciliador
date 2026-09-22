@@ -6,19 +6,23 @@ import { useRouter } from "next/navigation";
 import { Card, Chip } from "@/components/ui";
 import { fmtContable } from "@/lib/format";
 import { notifyError, notifySuccess } from "@/lib/client-notifications";
-import { quitarEmparejamientoTercero, quitarMarcaCruce } from "@/app/actions/modulos-datos";
+import { quitarEmparejamientoTercero, quitarMarcaCruce, separarTerceroAutomatico } from "@/app/actions/modulos-datos";
 import type { EstadoCruceTercero } from "@/lib/modulos/cartera/cruce-tercero-cartera";
+import { describirSenales } from "@/lib/modulos/cartera/coherencia-tercero";
 import { anclaCruceTercero, type FilaCruceTerceroMarcada, type ResumenMarcas } from "@/lib/modulos/marcas-cruce";
 import type { EmparejamientoTerceroVm, ResumenCruceTerceroMarcado } from "@/lib/modulos/cruce-tercero-servidor";
 import { CeldaMarcaTercero, ModalMarcaTercero, ObservacionesMarcasTercero } from "./marca-tercero";
 import type { ReferenciaMarcaVm } from "./soportes-marca";
 import { ModalEmparejarTercero } from "./emparejar-tercero";
+import { ModalValidarCoherencia } from "./validar-coherencia-tercero";
 import { ParametrosCargue, type ParametrosCargueVm } from "./parametros-cargue";
 
 // Cruce por tercero: el balance por terceros ligado al balance del período contra el auxiliar
 // del módulo, un renglón por tercero. Lo calcula `cruce-tercero-servidor.ts` con el mismo
 // balance y las mismas compuertas del cruce contable. Las diferencias se explican con marcas
-// y los terceros que el auxiliar trae con otra identificación se emparejan a mano.
+// y los terceros que el auxiliar trae con otra identificación se emparejan: solos cuando la
+// diferencia es el dígito de verificación (reversible con «Separar»), y a mano —uno a uno o en
+// lote desde «Validar coherencia…»— cuando la evidencia es el saldo, un sufijo o el nombre.
 export type CruceTerceroVm = {
   aplica: boolean;
   periodo: string;
@@ -48,7 +52,7 @@ export type CruceTerceroVm = {
   etiquetaNombre: string;
 };
 
-type Filtro = "todos" | EstadoCruceTercero | "sin_nit" | "por_nucleo" | "sugeridos" | "pendientes";
+type Filtro = "todos" | EstadoCruceTercero | "sin_nit" | "por_dv" | "por_nucleo" | "sugeridos" | "pendientes";
 
 const PAGINA = 200;
 
@@ -66,8 +70,9 @@ const contar = (n: number) => n.toLocaleString("es-CO");
 function cumpleFiltro(fila: FilaCruceTerceroMarcada, filtro: Filtro): boolean {
   if (filtro === "todos") return true;
   if (filtro === "sin_nit") return fila.sinNit;
+  if (filtro === "por_dv") return fila.claveModuloPorDv != null;
   if (filtro === "por_nucleo") return fila.claveModuloPorNucleo != null;
-  if (filtro === "sugeridos") return fila.sugerenciaPorNombre != null;
+  if (filtro === "sugeridos") return fila.sugerencia != null;
   if (filtro === "pendientes") return fila.requiereMarca && (!fila.marca || fila.desactualizada);
   return fila.estado === filtro;
 }
@@ -108,6 +113,7 @@ export function CruceTerceroTab({
   const [verSinSaldo, setVerSinSaldo] = useState(false);
   const [marcando, setMarcando] = useState<FilaCruceTerceroMarcada | null>(null);
   const [emparejando, setEmparejando] = useState<FilaCruceTerceroMarcada | null>(null);
+  const [validando, setValidando] = useState(false);
   const [ocupado, startAccion] = useTransition();
 
   const filtradas = useMemo(() => {
@@ -129,7 +135,11 @@ export function CruceTerceroTab({
     [resumen],
   );
   const emparejamientoPorClave = useMemo(
-    () => new Map(cruceTercero.emparejamientos.map((e) => [e.claveModulo, e])),
+    () => new Map(cruceTercero.emparejamientos.filter((e) => e.tipo === "union").map((e) => [e.claveModulo, e])),
+    [cruceTercero.emparejamientos],
+  );
+  const separacionPorClave = useMemo(
+    () => new Map(cruceTercero.emparejamientos.filter((e) => e.tipo === "separacion").map((e) => [e.claveModulo, e])),
     [cruceTercero.emparejamientos],
   );
 
@@ -146,6 +156,16 @@ export function CruceTerceroTab({
       const r = await quitarEmparejamientoTercero({ encabezadoId, emparejamientoId: emparejamiento.id });
       if (r.ok) notifySuccess(r.message ?? "Emparejamiento deshecho.");
       else notifyError(r.message ?? "No se pudo deshacer el emparejamiento.");
+      router.refresh();
+    });
+  };
+  // Separar un par unido solo (por DV o por núcleo): memoria del cliente para todos sus períodos,
+  // porque la forma en que cada lado escribe el NIT es del ERP, no del mes.
+  const separar = (fila: FilaCruceTerceroMarcada, claveModulo: string) => {
+    startAccion(async () => {
+      const r = await separarTerceroAutomatico({ encabezadoId, claveModulo, claveBalance: fila.clave, alcance: "todos" });
+      if (r.ok) notifySuccess(r.message ?? "Terceros separados.");
+      else notifyError(r.message ?? "No se pudieron separar.");
       router.refresh();
     });
   };
@@ -185,8 +205,9 @@ export function CruceTerceroTab({
       ? [{ filtro: "pendientes" as const, titulo: "Por marcar para cerrar", cantidad: porMarcar, monto: porMarcar > 0 ? resumenMarcas.montoPendiente : null, tono: porMarcar > 0 ? "text-err-700" : "text-ok-700" }]
       : []),
     ...(resumen.sinNit > 0 ? [{ filtro: "sin_nit" as const, titulo: "Sin NIT", cantidad: resumen.sinNit, monto: null, tono: "text-ink-700" }] : []),
+    ...(resumen.porDv > 0 ? [{ filtro: "por_dv" as const, titulo: "Emparejados por DV", cantidad: resumen.porDv, monto: null, tono: "text-warn-700" }] : []),
     ...(resumen.porNucleo > 0 ? [{ filtro: "por_nucleo" as const, titulo: "Emparejados por núcleo", cantidad: resumen.porNucleo, monto: null, tono: "text-warn-700" }] : []),
-    ...(resumen.sugerenciasPorNombre > 0 ? [{ filtro: "sugeridos" as const, titulo: "Mismo nombre en el otro lado", cantidad: resumen.sugerenciasPorNombre * 2, monto: null, tono: "text-blue-700" }] : []),
+    ...(resumen.sugerencias.length > 0 ? [{ filtro: "sugeridos" as const, titulo: "Coincidencias por validar", cantidad: resumen.sugerencias.length * 2, monto: null, tono: "text-blue-700" }] : []),
     ...(cantidadSinSaldo > 0 ? [{ filtro: "sin_saldo" as const, titulo: "Sin saldo", cantidad: cantidadSinSaldo, monto: null, tono: "text-ink-500" }] : []),
   ];
   const elegir = (siguiente: Filtro) => {
@@ -282,6 +303,16 @@ export function CruceTerceroTab({
             <button type="button" onClick={() => elegir(filtro)} className="ml-2 font-semibold text-blue-700 hover:underline">Quitar filtro</button>
           )}
         </span>
+        {puedeEditar && resumen.sugerencias.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setValidando(true)}
+            className="ml-auto rounded-md border border-navy-700 bg-white px-3 py-1.5 text-[12.5px] font-semibold text-navy-700 transition hover:bg-blue-50"
+            title="Revisa y aplica en lote las coincidencias entre terceros sueltos: mismo saldo, NIT con sufijo o nombre parecido."
+          >
+            Validar coherencia… ({contar(resumen.sugerencias.length)})
+          </button>
+        )}
       </div>
 
       <Card className="p-0">
@@ -329,14 +360,48 @@ export function CruceTerceroTab({
                     <div className="flex flex-wrap items-center gap-1">
                       <Chip label={ESTADO[f.estado].label} tone={ESTADO[f.estado].tone} />
                       {f.sinNit && <Chip label="Sin NIT" tone="ink" />}
-                      {f.claveModuloPorNucleo && (
-                        <span title={`Emparejado con ${f.claveModuloPorNucleo} del auxiliar por sus nueve primeros dígitos: revisa que sea el mismo tercero.`}>
-                          <Chip label="Por núcleo" tone="warn" />
+                      {f.claveModuloPorDv && (
+                        <span className="inline-flex items-center gap-1" title={`Unido con ${f.claveModuloPorDv} del auxiliar: su NIT más el dígito de verificación es este. Si no es el mismo tercero, sepáralos.`}>
+                          <Chip label="Por DV" tone="warn" />
+                          {puedeEditar && (
+                            <button type="button" onClick={() => separar(f, f.claveModuloPorDv!)} disabled={ocupado} className="text-[11px] font-semibold text-blue-700 hover:underline disabled:opacity-50">
+                              Separar
+                            </button>
+                          )}
                         </span>
                       )}
-                      {f.sugerenciaPorNombre && (
-                        <span title={`Mismo nombre que «${f.sugerenciaPorNombre.nombre ?? f.sugerenciaPorNombre.clave}», que solo está en ${f.estado === "solo_modulo" ? "la contabilidad" : "el auxiliar"}: probablemente es el mismo tercero.`}>
-                          <Chip label={f.sugerenciaPorNombre.clave.startsWith("~") ? "Posible: sin NIT" : `Posible: ${f.sugerenciaPorNombre.clave}`} tone="blue" />
+                      {f.claveModuloPorNucleo && (
+                        <span className="inline-flex items-center gap-1" title={`Emparejado con ${f.claveModuloPorNucleo} del auxiliar por sus nueve primeros dígitos: revisa que sea el mismo tercero.`}>
+                          <Chip label="Por núcleo" tone="warn" />
+                          {puedeEditar && (
+                            <button type="button" onClick={() => separar(f, f.claveModuloPorNucleo!)} disabled={ocupado} className="text-[11px] font-semibold text-blue-700 hover:underline disabled:opacity-50">
+                              Separar
+                            </button>
+                          )}
+                        </span>
+                      )}
+                      {f.separadoDe.map((claveModulo) => {
+                        const separacion = separacionPorClave.get(claveModulo);
+                        return (
+                          <span
+                            key={claveModulo}
+                            className="inline-flex items-center gap-1"
+                            title={separacion
+                              ? `Separado por ${separacion.creadoPor ?? "—"} · ${separacion.creadoEn} · ${separacion.periodo ? `solo ${separacion.periodo}` : "todos los períodos"}: no se une solo con ${claveModulo}.`
+                              : `No se une solo con ${claveModulo}.`}
+                          >
+                            <Chip label={`Separado de ${claveModulo}`} tone="ink" />
+                            {puedeEditar && separacion && (
+                              <button type="button" onClick={() => deshacerEmparejamiento(separacion)} disabled={ocupado} className="text-[11px] font-semibold text-blue-700 hover:underline disabled:opacity-50">
+                                Volver a unir
+                              </button>
+                            )}
+                          </span>
+                        );
+                      })}
+                      {f.sugerencia && (
+                        <span title={`Posible ${f.sugerencia.nombre ? `«${f.sugerencia.nombre}»` : f.sugerencia.clave}, que solo está en ${f.estado === "solo_modulo" ? "la contabilidad" : "el auxiliar"}: ${describirSenales(f.sugerencia.senales)} (confianza ${f.sugerencia.confianza}). Confírmalo con «Emparejar…» o en «Validar coherencia…».`}>
+                          <Chip label={f.sugerencia.clave.startsWith("~") ? "Posible: sin NIT" : `Posible: ${f.sugerencia.clave}`} tone={f.sugerencia.confianza === "alta" ? "blue" : "ink"} />
                         </span>
                       )}
                       {f.emparejadoDesde.map((claveModulo) => {
@@ -476,6 +541,18 @@ export function CruceTerceroTab({
           onClose={() => setMarcando(null)}
           onGuardado={() => {
             setMarcando(null);
+            router.refresh();
+          }}
+        />
+      )}
+      {validando && (
+        <ModalValidarCoherencia
+          sugerencias={resumen.sugerencias}
+          encabezadoId={encabezadoId}
+          etiquetaClave={cruceTercero.etiquetaClave}
+          onClose={() => setValidando(false)}
+          onGuardado={() => {
+            setValidando(false);
             router.refresh();
           }}
         />

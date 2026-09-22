@@ -10,12 +10,28 @@
 //  - Nada se descarta en silencio. Lo que está en el grupo contable pero en cuentas que no
 //    son del módulo, y lo que no tiene tercero (la fila propia de una cuenta sin detalle), se
 //    devuelve aparte: es lo que explica el total del grupo.
-//  - La segunda pasada por NÚCLEO de nueve dígitos existe para no perder los cruces contra
-//    capturas antiguas, que truncaban el documento. Solo empareja cuando uno de los dos lados
-//    es un núcleo (nueve dígitos o menos) y hay un único candidato en cada lado. El renglón
-//    queda marcado, porque dos cédulas de diez dígitos pueden compartir los nueve primeros.
-import { nucleoNit } from "@/lib/nit";
+//  - Dos pasadas AUTOMÁTICAS sobre lo que la clave exacta dejó suelto, ambas marcadas en el
+//    renglón y ambas reversibles con una SEPARACIÓN del auditor:
+//      · por DV: un lado trae el NIT y el otro el mismo NIT con su dígito de verificación
+//        pegado (el auxiliar «41954149», el balance «419541491»). Se une solo cuando el dígito
+//        de más es el DV válido (módulo 11) y hay un único candidato en cada lado.
+//      · por NÚCLEO de nueve dígitos: para no perder los cruces contra capturas antiguas, que
+//        truncaban el documento. Solo cuando uno de los dos lados es un núcleo (nueve dígitos
+//        o menos) y hay un único candidato en cada lado, porque dos cédulas de diez dígitos
+//        pueden compartir los nueve primeros.
+//  - Lo que sigue suelto pasa por la validación de coherencia (`coherencia-tercero.ts`), que
+//    solo PROPONE: saldo idéntico, NIT con sufijo, nombre parecido.
+import { dvValido, nucleoNit } from "@/lib/nit";
+import {
+  claveParSeparado,
+  nombreComparable,
+  sugerirEmparejamientosTercero,
+  type SugerenciaEmparejamiento,
+  type SugerenciaFila,
+} from "./coherencia-tercero";
 import { esClaveSinNit } from "./tercero-cartera";
+
+export { nombreComparable };
 
 export type MovimientoContableTercero = {
   /** Cuenta Russell de seis dígitos de la cuenta del cliente. */
@@ -48,15 +64,20 @@ export type FilaCruceTerceroCartera = {
   nombre: string | null;
   /** Tercero sin identificador numérico, agrupado por nombre (`~NOMBRE`). */
   sinNit: boolean;
+  /** Clave del módulo que se unió a este renglón por NIT + dígito de verificación (revisar). */
+  claveModuloPorDv: string | null;
   /** Clave del módulo que se unió a este renglón por núcleo de nueve dígitos (revisar). */
   claveModuloPorNucleo: string | null;
   /**
-   * Tercero del OTRO lado con el mismo nombre, cuando es el único candidato en cada lado. Es
-   * una sugerencia: nunca se aplica sola, el auditor confirma el emparejamiento.
+   * Tercero del OTRO lado que la validación de coherencia propone como el mismo (saldo idéntico,
+   * NIT con sufijo, nombre parecido…). Es una sugerencia: nunca se aplica sola, el auditor la
+   * confirma (una a una o en lote).
    */
-  sugerenciaPorNombre: { clave: string; nombre: string | null } | null;
+  sugerencia: SugerenciaFila | null;
   /** Claves del auxiliar que un emparejamiento manual unió a este tercero del balance. */
   emparejadoDesde: string[];
+  /** Claves del auxiliar que el auditor SEPARÓ de este tercero del balance (no se unen solas). */
+  separadoDe: string[];
   contable: { porCuenta: Record<string, number>; total: number };
   modulo: { nacional: number; exterior: number; sinOrigen: number; total: number };
   /** Contabilidad − módulo. */
@@ -75,9 +96,10 @@ export type ResumenCruceTerceroCartera = {
   totales: { contable: number; modulo: number; diferencia: number; porCuenta: Record<string, number> };
   conteo: Record<EstadoCruceTercero, number>;
   sinNit: number;
+  porDv: number;
   porNucleo: number;
-  /** Pares de terceros sueltos (uno en cada lado) con el mismo nombre. */
-  sugerenciasPorNombre: number;
+  /** Propuestas de la validación de coherencia entre terceros sueltos (uno en cada lado). */
+  sugerencias: SugerenciaEmparejamiento[];
   /** Del grupo contable, cuentas que no son del módulo: se informan, no se concilian. */
   contableFueraDelModulo: AcumuladoCuentas;
   /** Filas propias de las cuentas del módulo que no tienen detalle por tercero. */
@@ -106,12 +128,51 @@ function redondearCuentas(porCuenta: Record<string, number>): Record<string, num
 
 const cerrar = (a: AcumuladoCuentas): AcumuladoCuentas => ({ total: redondear(a.total), filas: a.filas, porCuenta: redondearCuentas(a.porCuenta) });
 
-/** Pares clave contable → clave del módulo que la pasada exacta dejó sueltos y comparten núcleo. */
-function emparejarPorNucleo(contables: readonly string[], modulos: readonly string[]): Map<string, string> {
+const esNumerica = (clave: string) => /^\d{5,}$/.test(clave);
+
+/** Un par (contable, módulo) que el auditor separó no se une solo por ninguna pasada. */
+type EstaSeparado = (claveBalance: string, claveModulo: string) => boolean;
+
+/**
+ * Pares clave contable → clave del módulo que la pasada exacta dejó sueltos y donde una clave es
+ * la otra más su dígito de verificación DIAN (en cualquiera de los dos lados). Solo 1:1: una base
+ * con dos candidatos en el otro lado no se une.
+ */
+function emparejarPorDv(contables: readonly string[], modulos: readonly string[], separado: EstaSeparado): Map<string, string> {
+  const modulosExactos = new Set(modulos.filter(esNumerica));
+  const modulosPorBase = new Map<string, string[]>();
+  for (const m of modulosExactos) {
+    if (m.length <= 5) continue;
+    const base = m.slice(0, -1);
+    if (dvValido(base, m[m.length - 1])) modulosPorBase.set(base, [...(modulosPorBase.get(base) ?? []), m]);
+  }
+  const candidatos: [string, string][] = [];
+  for (const c of contables) {
+    if (!esNumerica(c)) continue;
+    // El balance trae el DV y el auxiliar no («419541491» ↔ «41954149»).
+    if (c.length > 5) {
+      const base = c.slice(0, -1);
+      if (modulosExactos.has(base) && dvValido(base, c[c.length - 1])) candidatos.push([c, base]);
+    }
+    // El auxiliar trae el DV y el balance no.
+    for (const m of modulosPorBase.get(c) ?? []) candidatos.push([c, m]);
+  }
+  const vivos = candidatos.filter(([c, m]) => !separado(c, m));
+  const vecesContable = new Map<string, number>();
+  const vecesModulo = new Map<string, number>();
+  for (const [c, m] of vivos) {
+    vecesContable.set(c, (vecesContable.get(c) ?? 0) + 1);
+    vecesModulo.set(m, (vecesModulo.get(m) ?? 0) + 1);
+  }
+  return new Map(vivos.filter(([c, m]) => vecesContable.get(c) === 1 && vecesModulo.get(m) === 1));
+}
+
+/** Pares clave contable → clave del módulo que las pasadas anteriores dejaron sueltos y comparten núcleo. */
+function emparejarPorNucleo(contables: readonly string[], modulos: readonly string[], separado: EstaSeparado): Map<string, string> {
   const agrupar = (claves: readonly string[]) => {
     const grupos = new Map<string, string[]>();
     for (const clave of claves) {
-      if (!/^\d{5,}$/.test(clave)) continue;
+      if (!esNumerica(clave)) continue;
       const nucleo = nucleoNit(clave);
       grupos.set(nucleo, [...(grupos.get(nucleo) ?? []), clave]);
     }
@@ -126,26 +187,10 @@ function emparejarPorNucleo(contables: readonly string[], modulos: readonly stri
     const [modulo] = clavesModulo;
     // Dos documentos completos distintos no son el mismo tercero aunque compartan los 9 primeros.
     if (contable.length > 9 && modulo.length > 9) continue;
+    if (separado(contable, modulo)) continue;
     pares.set(contable, modulo);
   }
   return pares;
-}
-
-/** Formas societarias que el balance y el auxiliar escriben distinto («S.A.S.», «SAS», «LTDA»…). */
-const FORMA_SOCIETARIA = /\b(?:S A S|SAS|S A|SA|LTDA|LIMITADA|S EN C S|S EN C|SCA|E U|EU|Y CIA|CIA|INC|LLC|CORP|BIC|EN LIQUIDACION)\b/g;
-
-/** Nombre comparable entre el balance y el auxiliar: sin tildes, puntuación ni forma societaria. */
-export function nombreComparable(nombre: string | null | undefined): string | null {
-  const limpio = String(nombre ?? "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toUpperCase()
-    .replace(/&/g, " Y ")
-    .replace(/[^A-Z0-9]+/g, " ")
-    .replace(FORMA_SOCIETARIA, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  return limpio || null;
 }
 
 export function construirCruceTerceroCartera(input: {
@@ -155,10 +200,14 @@ export function construirCruceTerceroCartera(input: {
   cuentasModulo: readonly string[] | null;
   /** Emparejamientos manuales: la clave del auxiliar se lee como la del balance (N:1). */
   emparejamientos?: readonly { claveModulo: string; claveBalance: string }[];
+  /** Pares que el auditor separó: no se unen por DV ni por núcleo, ni se vuelven a proponer. */
+  separaciones?: readonly { claveModulo: string; claveBalance: string }[];
   tolerancia?: number;
 }): ResumenCruceTerceroCartera {
   const tolerancia = input.tolerancia ?? 0.01;
   const delModulo = input.cuentasModulo ? new Set(input.cuentasModulo) : null;
+  const separadas = new Set((input.separaciones ?? []).map((s) => claveParSeparado(s.claveModulo, s.claveBalance)));
+  const separado: EstaSeparado = (claveBalance, claveModulo) => separadas.has(claveParSeparado(claveModulo, claveBalance));
 
   const contable = new Map<string, { porCuenta: Record<string, number>; total: number; nombre: string | null }>();
   const modulo = new Map<string, { nacional: number; exterior: number; sinOrigen: number; total: number; nombre: string | null }>();
@@ -208,18 +257,30 @@ export function construirCruceTerceroCartera(input: {
     modulo.set(clave, lado);
   }
 
+  const contablesSueltas = [...contable.keys()].filter((clave) => !modulo.has(clave));
+  const modulosSueltas = [...modulo.keys()].filter((clave) => !contable.has(clave));
+  const porDv = emparejarPorDv(contablesSueltas, modulosSueltas, separado);
+  const unidasPorDv = new Set(porDv.values());
   const porNucleo = emparejarPorNucleo(
-    [...contable.keys()].filter((clave) => !modulo.has(clave)),
-    [...modulo.keys()].filter((clave) => !contable.has(clave)),
+    contablesSueltas.filter((clave) => !porDv.has(clave)),
+    modulosSueltas.filter((clave) => !unidasPorDv.has(clave)),
+    separado,
   );
   const unidasPorNucleo = new Set(porNucleo.values());
+  // Separaciones vigentes entre terceros que están los dos en el cruce: se pintan en el renglón del balance.
+  const separadoDe = new Map<string, string[]>();
+  for (const s of input.separaciones ?? []) {
+    if (!contable.has(s.claveBalance) || !modulo.has(s.claveModulo)) continue;
+    separadoDe.set(s.claveBalance, [...(separadoDe.get(s.claveBalance) ?? []), s.claveModulo]);
+  }
 
   const filas: FilaCruceTerceroCartera[] = [];
-  const claves = new Set([...contable.keys(), ...[...modulo.keys()].filter((clave) => !unidasPorNucleo.has(clave))]);
+  const claves = new Set([...contable.keys(), ...[...modulo.keys()].filter((clave) => !unidasPorDv.has(clave) && !unidasPorNucleo.has(clave))]);
   for (const clave of claves) {
     const c = contable.get(clave);
+    const claveModuloPorDv = porDv.get(clave) ?? null;
     const claveModuloPorNucleo = porNucleo.get(clave) ?? null;
-    const m = modulo.get(claveModuloPorNucleo ?? clave);
+    const m = modulo.get(claveModuloPorDv ?? claveModuloPorNucleo ?? clave);
     const totalContable = redondear(c?.total ?? 0);
     const totalModulo = redondear(m?.total ?? 0);
     const diferencia = redondear(totalContable - totalModulo);
@@ -232,9 +293,11 @@ export function construirCruceTerceroCartera(input: {
       clave,
       nombre: c?.nombre ?? m?.nombre ?? null,
       sinNit: esClaveSinNit(clave),
+      claveModuloPorDv,
       claveModuloPorNucleo,
-      sugerenciaPorNombre: null,
+      sugerencia: null,
       emparejadoDesde: [...(emparejadas.get(clave) ?? [])].sort(),
+      separadoDe: [...(separadoDe.get(clave) ?? [])].sort(),
       contable: { porCuenta: redondearCuentas(c?.porCuenta ?? {}), total: totalContable },
       modulo: {
         nacional: redondear(m?.nacional ?? 0),
@@ -247,27 +310,10 @@ export function construirCruceTerceroCartera(input: {
     });
   }
 
-  // Sugerencias por nombre (D4 de CxP): un tercero que solo está en un lado y cuyo nombre
-  // coincide con UNO solo del otro lado —típicamente el proveedor que el auxiliar trae sin NIT.
-  const sueltosPorNombre = (estado: EstadoCruceTercero) => {
-    const porNombre = new Map<string, FilaCruceTerceroCartera[]>();
-    for (const f of filas) {
-      const nombre = f.estado === estado ? nombreComparable(f.nombre) : null;
-      if (nombre) porNombre.set(nombre, [...(porNombre.get(nombre) ?? []), f]);
-    }
-    return porNombre;
-  };
-  const soloEnContabilidad = sueltosPorNombre("solo_contable");
-  let sugerenciasPorNombre = 0;
-  for (const [nombre, delModulo] of sueltosPorNombre("solo_modulo")) {
-    const delBalance = soloEnContabilidad.get(nombre);
-    if (delModulo.length !== 1 || delBalance?.length !== 1) continue;
-    const [m] = delModulo;
-    const [c] = delBalance;
-    m.sugerenciaPorNombre = { clave: c.clave, nombre: c.nombre };
-    c.sugerenciaPorNombre = { clave: m.clave, nombre: m.nombre };
-    sugerenciasPorNombre += 1;
-  }
+  // Validación de coherencia: propuestas (nunca aplicadas solas) entre lo que quedó suelto en
+  // cada lado —típicamente el proveedor que el auxiliar trae sin NIT o con un sufijo, o el
+  // mismo saldo al centavo bajo otro identificador. Anota `sugerencia` en los dos renglones.
+  const sugerencias = sugerirEmparejamientosTercero(filas, { tolerancia, separadas });
 
   filas.sort((a, b) =>
     PRIORIDAD[a.estado] - PRIORIDAD[b.estado]
@@ -297,8 +343,9 @@ export function construirCruceTerceroCartera(input: {
     },
     conteo,
     sinNit: filas.filter((f) => f.sinNit).length,
+    porDv: porDv.size,
     porNucleo: porNucleo.size,
-    sugerenciasPorNombre,
+    sugerencias,
     contableFueraDelModulo: cerrar(contableFuera),
     contableSinTercero: cerrar(contableSinTercero),
     moduloFueraDelModulo: cerrar(moduloFuera),

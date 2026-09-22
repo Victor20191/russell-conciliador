@@ -1432,6 +1432,9 @@ model MarcaCruceModulo {
 /// terceros (RF-CXC-12; D4 de CxP): «el tercero X del auxiliar es el Y del balance». Es memoria del
 /// cliente, no dato de un cargue: con `periodo` vacío vale para todos los períodos, y uno del
 /// período prevalece sobre el general. N:1: varias claves del auxiliar pueden ir al mismo tercero.
+/// Con `tipo = separacion` es lo contrario: el auditor SEPARÓ un par que el cruce unía solo (por
+/// DV o por núcleo) y no se vuelve a unir ni a proponer. Una clave del auxiliar está unida a algo
+/// o separada de su unión automática, nunca ambas (misma llave única).
 model EmparejamientoTerceroModulo {
   id            Int      @id @default(autoincrement()) @map("id")
   clienteId     Int      @map("cliente_id") // FK suave a clientes
@@ -1442,7 +1445,10 @@ model EmparejamientoTerceroModulo {
   claveBalance  String   @map("clave_balance")
   nombreModulo  String?  @map("nombre_modulo")
   nombreBalance String?  @map("nombre_balance")
-  /// `manual` | `sugerido_nombre` (el usuario confirmó una sugerencia por nombre).
+  /// `union` | `separacion` (CHECK en BD).
+  tipo          String   @default("union") @map("tipo")
+  /// `manual` | `sugerido_nombre` (sugerencia por nombre, histórico) | `sugerido_coherencia` (el
+  /// usuario aplicó una propuesta de la validación de coherencia: saldo, NIT con sufijo, nombre).
   origen        String   @default("manual") @map("origen")
   nota          String?  @map("nota")
   creadoPor     String?  @map("creado_por")

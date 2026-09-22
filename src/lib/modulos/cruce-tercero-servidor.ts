@@ -95,6 +95,8 @@ export type EmparejamientoTerceroVm = {
   nombreBalance: string | null;
   /** `null` = vale para todos los períodos del cliente. */
   periodo: string | null;
+  /** `union`: X del auxiliar es Y del balance. `separacion`: X NO se une solo con Y (por DV ni por núcleo). */
+  tipo: "union" | "separacion";
   origen: string;
   nota: string | null;
   creadoPor: string | null;
@@ -175,6 +177,7 @@ async function emparejamientosDelPeriodo(clienteId: number, moduloCodigo: string
     nombreModulo: f.nombreModulo,
     nombreBalance: f.nombreBalance,
     periodo: f.periodo || null,
+    tipo: f.tipo === "separacion" ? "separacion" : "union",
     origen: f.origen,
     nota: f.nota,
     creadoPor: f.creadoPor,
@@ -381,7 +384,8 @@ export async function construirCruceTerceroModulo(insumos: InsumosCruceTercero):
     contable: movimientos,
     modulo: saldosModulo,
     cuentasModulo: descriptor.crucePorTercero.cuentasRussell6?.length ? [...descriptor.crucePorTercero.cuentasRussell6, ...cuentasPeriodo6] : null,
-    emparejamientos,
+    emparejamientos: emparejamientos.filter((e) => e.tipo === "union"),
+    separaciones: emparejamientos.filter((e) => e.tipo === "separacion"),
   });
   const anotado = anotarCruceTerceroConMarcas(cruce.filas, marcas, { umbralDescuadre: umbrales.descuadre });
 
