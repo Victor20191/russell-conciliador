@@ -47,6 +47,7 @@ import {
   construirControlDeducciones,
   construirVistaSubcuenta,
   entradasCruceFormalNomina,
+  repartosAplicadosNomina,
   type RepartoConcepto,
   type ResultadoCruceNomina,
 } from "@/lib/modulos/nomina/cruce-nomina";
@@ -475,7 +476,10 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
       const balanceNomina = contextoBalance.filas
         .filter((d) => !cuentasAgrupadoras.has(d.cuenta8.replace(/\D/g, "")))
         .map((d) => ({ cuenta8: d.cuenta8, nombreCuenta: d.nombreCuenta, debitos: d.debitos, creditos: d.creditos, saldoFinal: d.saldoFinal }));
+      const repartosVm = repartosAplicadosNomina(consolidadoNomina.renglones, insumosNomina.repartos, contablePorCuenta);
       nomina = {
+        repartosAplicados: repartosVm.aplicados,
+        repartosIgnorados: repartosVm.ignorados,
         vistaSubcuenta: construirVistaSubcuenta({ balance: balanceNomina, renglones: consolidadoNomina.renglones, prefijos: prefijosModulo }),
         control: construirControlDeducciones({ balance: balanceNomina, renglones: consolidadoNomina.renglones }),
         repartosPendientes: formalNomina.pendientesReparto.map((r) => {
@@ -531,7 +535,7 @@ export async function construirCruceContableModulo(insumos: InsumosCruceModulo):
           porCuenta: Object.fromEntries(Object.entries(fuera.porCuenta).sort(([a], [b]) => a.localeCompare(b)).map(([c, v]) => [c, Math.round(v * 100) / 100])),
         }
       : null,
-    nomina: nomina ?? (consolidadoNomina ? { vistaSubcuenta: null, control: null, repartosPendientes: [], repartos: insumosNomina?.repartos ?? [], repartidos: 0, renglones: consolidadoNomina.renglones } : null),
+    nomina: nomina ?? (consolidadoNomina ? { vistaSubcuenta: null, control: null, repartosPendientes: [], repartosAplicados: [], repartosIgnorados: 0, repartos: insumosNomina?.repartos ?? [], repartidos: 0, renglones: consolidadoNomina.renglones } : null),
     cuentasPeriodo,
   };
 }

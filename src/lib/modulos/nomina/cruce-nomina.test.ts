@@ -6,7 +6,9 @@ import {
   emparejarCuentaControl,
   entradasCruceFormalNomina,
   repartoQuedaViejo,
+  repartosAplicadosNomina,
   repartoVigente,
+  valorConceptoEnCuenta,
   validarReparto,
   valorContableNomina,
   type FilaBalanceNomina,
@@ -161,6 +163,57 @@ describe("entradasCruceFormalNomina", () => {
     const r2 = entradasCruceFormalNomina(otras, [{ clasificador: "8 ∥ 1", valores: { "510506": 400, "520506": 600 } }]);
     expect(r2.entradas).toEqual([{ clasificador: "8 ∥ 1", total: 1000, cuentas4: ["510518", "520518"] }]);
     expect(r2.pendientesReparto.map((p) => p.clasificador)).toEqual(["8 ∥ 1"]);
+  });
+  it("una deducción contra una cuenta crédito entra en positivo, como la presenta la contabilidad (Kakaraka)", () => {
+    const r = entradasCruceFormalNomina([
+      renglon("216 ∥ 20", -401580, { via: "memoria_exacta", cuentas: ["237025"] }),
+      renglon("225 ∥ 1", -38568351, { via: "memoria_exacta", cuentas: ["237030"] }),
+      renglon("221 ∥ 10", -852943, { via: "memoria_exacta", cuentas: ["421005"] }),
+      renglon("30 ∥ 1", 5000, { via: "memoria_exacta", cuentas: ["251010"] }), // pasivo laboral: devengo, no cambia
+      renglon("1 ∥ 1", 1000, { via: "memoria_exacta", cuentas: ["510506"] }), // gasto: no cambia
+      renglon("90 ∥ 1", -200, { via: "memoria_exacta", cuentas: ["510506"] }), // un descuento del gasto sigue restando
+      renglon("220 ∥ 10", -8295486, { via: "memoria_exacta", cuentas: ["136595"] }), // activo (débito): no cambia
+    ], []);
+    expect(r.entradas.map((e) => [e.cuentas4[0], e.total])).toEqual([
+      ["237025", 401580],
+      ["237030", 38568351],
+      ["421005", 852943],
+      ["251010", 5000],
+      ["510506", 1000],
+      ["510506", -200],
+      ["136595", -8295486],
+    ]);
+    // El reparto de una deducción entre cuentas crédito también entra en positivo.
+    const rep = entradasCruceFormalNomina(
+      [renglon("211 ∥ 1", -300, { via: "multi", cuentas: ["236505", "237025"] })],
+      [{ clasificador: "211 ∥ 1", valores: { "236505": -100, "237025": -200 } }],
+    );
+    expect(rep.entradas.map((e) => [e.cuentas4[0], e.total])).toEqual([["236505", 100], ["237025", 200]]);
+    expect(valorConceptoEnCuenta("237025", 401580)).toBe(401580);
+  });
+  it("repartosAplicadosNomina lista cómo quedó cada reparto que rige y cuenta los que ya no aplican", () => {
+    const renglones = [
+      renglon("1", 1000, { via: "multi", cuentas: ["510506", "520506", "720505"] }, "20"),
+      renglon("1", 50, { via: "multi", cuentas: ["510506", "520506"] }, "10"),
+      renglon("8", 300, { via: "memoria_exacta", cuentas: ["519505"] }, "1"),
+    ];
+    const repartos: { clasificador: string; valores: Record<string, number> }[] = [
+      { clasificador: "1 ∥ 10", valores: { "510506": 20, "520506": 30 } },
+      { clasificador: "1 ∥ 20", valores: { "510506": 100, "720505": 900 } },
+      { clasificador: "8 ∥ 1", valores: { "510506": 300 } }, // el concepto ya tiene una sola cuenta
+      { clasificador: "99 ∥ 5", valores: { "510506": 1 } }, // no está en este cargue
+    ];
+    const { aplicados, ignorados } = repartosAplicadosNomina(renglones, repartos, { "510506": 5000, "720505": 7000 });
+    expect(ignorados).toBe(2);
+    expect(aplicados.map((a) => a.clasificador)).toEqual(["1 ∥ 20", "1 ∥ 10"]); // por total, de mayor a menor
+    expect(aplicados[0]).toMatchObject({
+      codigo: "1",
+      agrupador: "20",
+      total: 1000,
+      cuentas: ["510506", "520506", "720505"],
+      valores: { "510506": 100, "520506": 0, "720505": 900 },
+      contablePorCuenta: { "510506": 5000, "520506": 0, "720505": 7000 },
+    });
   });
   it("repartoVigente y repartoQuedaViejo", () => {
     expect(repartoVigente({ via: "multi", cuentas: ["510506", "520506"] }, { "510506": 1, "520506": 2 })).toBe(true);
