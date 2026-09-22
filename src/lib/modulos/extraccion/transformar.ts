@@ -22,6 +22,7 @@ import { coincideMarcaSubtotal, columnasDetalle, detectarSubtotales, esRotuloTot
 import { archivoConDocumentos, esIdentificadorVacio, esNumeroDocumento, prefijosCuentaDeCedula, rolDeCeldaCompartida } from "../cartera/identificador-compartido";
 import { esPieDeReporte } from "./pie-reporte";
 import { aPesos, esMonedaExtranjera, montoConDivisa } from "../cartera/moneda";
+import { saldoFavorRedundante, type FilaMuestraEdades } from "../cartera/edades";
 import { nivelCarteraDeSpec } from "../cartera/tipo-formato";
 import { totalesPorTercero } from "../cartera/total-tercero";
 import { evaluarFilaNomina, nombreSinCedula, normalizarCedula } from "../nomina/valor-nomina";
@@ -78,6 +79,8 @@ export type ResultadoTransformModulo = {
   // sigue perdiendo datos y hay que avisarlo (no descartarlo en silencio).
   filasOmitidasArriba: number;
   omitidasMuestra: FilaOmitidaModulo[]; // hasta 8 referencias (filaNum + valor) para el mensaje
+  /** Baldes de saldo a favor que el archivo imprime como desglose y NO suman (`saldoFavorRedundante`). */
+  edadesNoSumadas?: string[];
 };
 
 /**
@@ -185,7 +188,7 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
   // la primera fila en blanco/título (valor no numérico) o de encabezado. Si `primeraFilaDatos`
   // ya era correcto, la fila anterior es justo el encabezado o está en blanco → no sube nada.
   // Columnas de cada FAMILIA declarada por el descriptor y presentes en el spec.
-  const familiasSpec = (descriptor.familiasDinamicas ?? [])
+  let familiasSpec = (descriptor.familiasDinamicas ?? [])
     .map((f) => ({ nombre: f.nombre, columnas: spec.familias?.[f.nombre] ?? [] }))
     .filter((f) => f.columnas.length > 0);
   const hayFamilias = familiasSpec.length > 0;
@@ -371,6 +374,35 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
   // cruce compara contra el saldo final del balance al corte: entran las filas del año hasta ese mes.
   const corteCargue: Mes | null = nomina?.periodoPorFila ? spec.periodoHasta ?? spec.periodoDesde ?? null : null;
   const anioCargue = corteCargue ? parsearAnio(corteCargue.slice(0, 4)) : null;
+
+  // Saldo a favor impreso como DESGLOSE («Anticipos» de CEMCO SAFIX): el mismo crédito ya está
+  // en otro balde y la columna de total no lo cuenta dos veces. Se decide una vez por archivo,
+  // con la columna de total como evidencia (`saldoFavorRedundante`), y ese balde deja de sumar.
+  const colTotal = spec.columnas[descriptor.valor] ?? 0;
+  const edadesNoSumadas: string[] = [];
+  if (conDetalleTercero && descriptor.valorDerivado && colTotal >= 1) {
+    const leerImporte = (raw: CeldaCruda): number | null => {
+      const conDivisa = importeConDivisa(raw);
+      return conDivisa !== undefined ? (conDivisa?.valor ?? null) : conSigno(aNumero(raw));
+    };
+    for (const f of familiasSpec) {
+      const muestra: FilaMuestraEdades[] = [];
+      for (let r = inicio; r < hoja.filas.length; r++) {
+        const fila = hoja.filas[r] ?? [];
+        const baldes: Record<string, number | null> = {};
+        for (const c of f.columnas) baldes[c.etiqueta] = leerImporte(celda(fila, c.columna));
+        muestra.push({ total: leerImporte(celda(fila, colTotal)), baldes });
+      }
+      edadesNoSumadas.push(...saldoFavorRedundante(muestra, f.columnas));
+    }
+    if (edadesNoSumadas.length > 0) {
+      const noSuman = new Set(edadesNoSumadas);
+      familiasSpec = familiasSpec.map((f) => ({
+        nombre: f.nombre,
+        columnas: f.columnas.map((c) => (noSuman.has(c.etiqueta) ? { ...c, clase: "excluir" as const } : c)),
+      }));
+    }
+  }
 
   for (let r = inicio; r < hoja.filas.length; r++) {
     const fila = hoja.filas[r] ?? [];
@@ -943,5 +975,5 @@ export function transformarModulo(descriptor: DescriptorModulo, spec: SpecModulo
     }
   }
 
-  return { filas, filasLeidas, filasExcluidas, excepciones, filasOmitidasArriba, omitidasMuestra };
+  return { filas, filasLeidas, filasExcluidas, excepciones, filasOmitidasArriba, omitidasMuestra, ...(edadesNoSumadas.length > 0 ? { edadesNoSumadas } : {}) };
 }

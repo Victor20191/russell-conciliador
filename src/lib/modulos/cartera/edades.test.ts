@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { claseSuma, esRotuloEdad, ordenarRotulos, type RotuloEdad } from "./edades";
+import { claseSuma, esRotuloEdad, ordenarRotulos, saldoFavorRedundante, type RotuloEdad } from "./edades";
 import encabezados from "./__fixtures__/encabezados-cxc.json";
 
 /**
@@ -165,5 +165,41 @@ describe("rótulos de los auxiliares de CxP", () => {
 
   it("«Total No Vencido» no es un balde: sumarlo duplicaría lo por vencer", () => {
     expect(esRotuloEdad("Total No Vencido")).toBeNull();
+  });
+});
+
+describe("saldoFavorRedundante", () => {
+  const columnas = [
+    { etiqueta: "Anticipos", clase: "saldo_favor" as const },
+    { etiqueta: "no vencido", clase: "corriente" as const },
+  ];
+
+  it("delata el balde que el total no cuenta: ya está en otro", () => {
+    const filas = [
+      { total: 100, baldes: { Anticipos: 0, "no vencido": 100 } },
+      { total: -40, baldes: { Anticipos: -40, "no vencido": -40 } },
+    ];
+    expect(saldoFavorRedundante(filas, columnas)).toEqual(["Anticipos"]);
+  });
+
+  it("una sola fila donde suma de verdad basta para no tocarlo", () => {
+    const filas = [
+      { total: -40, baldes: { Anticipos: -40, "no vencido": -40 } },
+      { total: -30, baldes: { Anticipos: -30, "no vencido": 0 } },
+    ];
+    expect(saldoFavorRedundante(filas, columnas)).toEqual([]);
+  });
+
+  it("sin total (o en cero, como los documentos de SIESA) no hay evidencia", () => {
+    const filas = [
+      { total: null, baldes: { Anticipos: -40, "no vencido": -40 } },
+      { total: 0, baldes: { Anticipos: -40, "no vencido": -40 } },
+    ];
+    expect(saldoFavorRedundante(filas, columnas)).toEqual([]);
+  });
+
+  it("un balde ya excluido o de otra clase no se evalúa", () => {
+    const filas = [{ total: -40, baldes: { Anticipos: -40, "no vencido": -40 } }];
+    expect(saldoFavorRedundante(filas, [{ etiqueta: "Anticipos", clase: "excluir" }, columnas[1]])).toEqual([]);
   });
 });

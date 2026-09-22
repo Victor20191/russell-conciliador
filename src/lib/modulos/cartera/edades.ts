@@ -134,3 +134,45 @@ export function ordenarRotulos<T extends { rotulo: RotuloEdad }>(items: readonly
 export function claseSuma(clase: ClaseEdad): boolean {
   return clase !== "excluir";
 }
+
+/** Importes de una fila para `saldoFavorRedundante`: la columna de total y cada balde por rótulo. */
+export type FilaMuestraEdades = { total: number | null; baldes: Readonly<Record<string, number | null>> };
+
+/** Holgura del cotejo contra la columna de total: redondeo a centavos del ERP. */
+const HOLGURA_TOTAL = 0.5;
+
+/**
+ * Columnas de saldo a favor («Anticipos») que el archivo imprime como DESGLOSE de un importe ya
+ * contado en otro balde, no como un balde más. CEMCO SAFIX pone cada recibo y cada nota crédito
+ * en «no vencido» (o en su rango) y además en «Anticipos»: sumar las dos contaba el crédito dos
+ * veces y el auxiliar de EQUIELECT quedó 364 M por debajo de su propio total.
+ *
+ * La evidencia es la columna de total del archivo, en cada fila donde la de saldo a favor trae
+ * importe: la Σ de los baldes NO cuadra con el total, y sin esa columna SÍ. Basta una fila que
+ * cuadre con la columna sumada (SIIGO Nube, donde «Saldo a favor» es un balde de verdad) para
+ * no tocarla; sin columna de total (o en cero, como los documentos de SIESA) no hay evidencia y
+ * tampoco se toca. Devuelve los rótulos que no deben sumar.
+ */
+export function saldoFavorRedundante(
+  filas: readonly FilaMuestraEdades[],
+  columnas: readonly { etiqueta: string; clase?: ClaseEdad }[],
+): string[] {
+  const sumables = columnas.filter((c) => c.clase == null || claseSuma(c.clase));
+  const candidatas = sumables.filter((c) => c.clase === "saldo_favor");
+  if (candidatas.length === 0) return [];
+  const redundantes: string[] = [];
+  for (const candidata of candidatas) {
+    let apoyos = 0;
+    let contras = 0;
+    for (const fila of filas) {
+      const propio = fila.baldes[candidata.etiqueta] ?? 0;
+      if (propio === 0 || fila.total == null || fila.total === 0) continue;
+      let suma = 0;
+      for (const c of sumables) suma += fila.baldes[c.etiqueta] ?? 0;
+      if (Math.abs(suma - fila.total) <= HOLGURA_TOTAL) contras++;
+      else if (Math.abs(suma - propio - fila.total) <= HOLGURA_TOTAL) apoyos++;
+    }
+    if (apoyos > 0 && contras === 0) redundantes.push(candidata.etiqueta);
+  }
+  return redundantes;
+}

@@ -3,7 +3,7 @@
 // encabezado. Da un punto de partida para el wizard; el usuario lo corrige a mano.
 import type { GridHoja } from "@/lib/balance/extraccion/ingesta";
 import type { DescriptorModulo, RolColumna } from "../descriptores";
-import { esRotuloEdad } from "../cartera/edades";
+import { esRotuloEdad, saldoFavorRedundante } from "../cartera/edades";
 import { esIdentificadorVacio } from "../cartera/identificador-compartido";
 import { monedaPorNombreHoja } from "../cartera/moneda";
 import type { SpecModulo } from "./esquema";
@@ -526,9 +526,42 @@ export function sugerirSpec(descriptor: DescriptorModulo, hoja: GridHoja): SpecM
     }
   }
 
+  // «Anticipos» impreso como desglose de otro balde (CEMCO SAFIX): se propone sin sumar cuando la
+  // muestra lo demuestra contra su columna de total. El transform lo vuelve a comprobar al leer.
+  if (descriptor.crucePorTercero.detalleTercero && descriptor.valorDerivado) {
+    marcarSaldoFavorRedundante(hoja, base, descriptor.valor);
+  }
+
   if (descriptor.nomina) ajustarRolesNomina(descriptor, hoja, base);
 
   return invalidarValorAmbiguoIngresos(descriptor, hoja, base).spec;
+}
+
+/** Importe de una celda cruda para cotejar baldes contra el total. Solo números: el transform,
+ *  que lee también los importes escritos como texto, lo vuelve a comprobar con el archivo real. */
+const importeCelda = (x: unknown): number | null => (typeof x === "number" ? x : null);
+
+/**
+ * Pasa a `excluir` los baldes de saldo a favor que la muestra delata como desglose de otro balde
+ * (`saldoFavorRedundante`). El signo del archivo no importa: se cotejan baldes contra total.
+ */
+export function marcarSaldoFavorRedundante(hoja: GridHoja, spec: SpecModulo, rolValor: string, maxFilas = 5000): void {
+  const colTotal = spec.columnas[rolValor] ?? 0;
+  const baldes = spec.familias?.edades ?? [];
+  if (colTotal < 1 || !baldes.some((c) => c.clase === "saldo_favor")) return;
+  const desde = Math.max(0, spec.primeraFilaDatos - 1);
+  const hasta = Math.min(hoja.filas.length, desde + maxFilas);
+  const muestra = [];
+  for (let r = desde; r < hasta; r++) {
+    const fila = hoja.filas[r] ?? [];
+    muestra.push({
+      total: importeCelda(fila[colTotal - 1]),
+      baldes: Object.fromEntries(baldes.map((c) => [c.etiqueta, importeCelda(fila[c.columna - 1])])),
+    });
+  }
+  const noSuman = new Set(saldoFavorRedundante(muestra, baldes));
+  if (noSuman.size === 0) return;
+  spec.familias = { ...spec.familias, edades: baldes.map((c) => (noSuman.has(c.etiqueta) ? { ...c, clase: "excluir" as const } : c)) };
 }
 
 /**

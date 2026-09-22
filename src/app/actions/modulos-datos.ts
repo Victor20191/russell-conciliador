@@ -1283,6 +1283,18 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
     }
 
     const resultado = transformarModulo(descriptor, spec, hoja);
+    // Un saldo a favor que el archivo imprime como desglose de otro balde no suma: el lote lo
+    // guarda así para que el borrador y cualquier reproceso lean lo mismo que esta lectura.
+    const edadesNoSumadas = resultado.edadesNoSumadas ?? [];
+    if (edadesNoSumadas.length > 0 && spec.familias?.edades) {
+      spec = {
+        ...spec,
+        familias: {
+          ...spec.familias,
+          edades: spec.familias.edades.map((c) => (edadesNoSumadas.includes(c.etiqueta) ? { ...c, clase: "excluir" as const } : c)),
+        },
+      };
+    }
     if (resultado.filas.length === 0) {
       return marcarNoProcesable("No se leyeron filas con el mapeo actual. Ajusta las columnas.");
     }
@@ -1397,7 +1409,7 @@ export async function leerDatosModulo(_prev: ActionState | undefined, formData: 
       user: user?.name ?? "Sistema",
       action: `LEYÓ archivo de ${descriptor.label}`,
       entity: cliente.name,
-      detail: `${resultado.filas.length} filas · ${archivo.name}${detallePatron} · original conservado · SHA-256 ${huellaOriginal.slice(0, 12)}…`,
+      detail: `${resultado.filas.length} filas · ${archivo.name}${detallePatron}${edadesNoSumadas.length > 0 ? ` · sin sumar (repiten otro rango): ${edadesNoSumadas.join(", ")}` : ""} · original conservado · SHA-256 ${huellaOriginal.slice(0, 12)}…`,
       clientId: clienteId,
     });
     revalidarListadosModulo(moduloCodigo);

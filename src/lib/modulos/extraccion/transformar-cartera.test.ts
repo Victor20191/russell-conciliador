@@ -71,6 +71,44 @@ describe("edades en columnas: el saldo sale de los baldes", () => {
     expect(fila.valor).toBe(1_300_000);
   });
 
+  describe("«Anticipos» impreso como desglose de otro balde (CEMCO SAFIX, EQUIELECT)", () => {
+    // El recibo RF y la nota crédito van en «no vencido» Y en «Anticipos»; el «Total» los cuenta
+    // una vez. Sumar los dos baldes dejaba el auxiliar de EQUIELECT 364 M por debajo del archivo.
+    const safix = hoja("CARTERA AL 31 DIC 2025", [
+      ["Nit", "Nombre", "Documento", "Total", "Anticipos", "no vencido", "90-180"],
+      ["900491846", "AZIMUT ENERGIA SAS", "AR 1353175", 4_196_772, 0, 4_196_772, 0],
+      ["900491846", "AZIMUT ENERGIA SAS", "RF 452130", -39_623_194, -39_623_194, -39_623_194, 0],
+      ["890900841", "COMFAMA", "NC 1", -50_176.35, -50_176.35, 0, -50_176.35],
+    ]);
+    /** Spec como el de los patrones v2/v3 aprobados: «Anticipos» como balde que suma. */
+    const specPatron = (): SpecModulo => {
+      const spec = specDe(safix);
+      return { ...spec, familias: { edades: (spec.familias?.edades ?? []).map((c) => (c.etiqueta === "Anticipos" ? { ...c, clase: "saldo_favor" as const } : c)) } };
+    };
+
+    it("el transform no la suma aunque el patrón la declare saldo a favor", () => {
+      const r = transformarModulo(CAR, specPatron(), safix);
+      expect(r.edadesNoSumadas).toEqual(["Anticipos"]);
+      expect(movimientos(r).map((f) => f.valor)).toEqual([4_196_772, -39_623_194, -50_176.35]);
+      expect(movimientos(r)[1].familias?.edades.Anticipos).toBe(-39_623_194); // se conserva
+    });
+
+    it("el asistente la propone sin sumar", () => {
+      expect(specDe(safix).familias?.edades.find((c) => c.etiqueta === "Anticipos")?.clase).toBe("excluir");
+    });
+
+    it("SIIGO Nube: si el total sí la incluye, sigue sumando", () => {
+      const nube = hoja("cartera", [
+        ["Nit", "Nombre", "Total", "Saldo a favor", "Vencido 1 a 30"],
+        ["800197463", "CLIENTE UNO", 700_000, -300_000, 1_000_000],
+        ["890904478", "CLIENTE DOS", -200_000, -200_000, 0],
+      ]);
+      const r = transformarModulo(CAR, specDe(nube), nube);
+      expect(r.edadesNoSumadas).toBeUndefined();
+      expect(movimientos(r).map((f) => f.valor)).toEqual([700_000, -200_000]);
+    });
+  });
+
   it("un documento cuyo importe solo vive en el balde NO se pierde", () => {
     // SIESA Zarzal imprime «Total» en cero en las filas de documento: 7.908 de sus 10.131
     // documentos entran por aquí. Antes, «fila vacía» los descartaba.
