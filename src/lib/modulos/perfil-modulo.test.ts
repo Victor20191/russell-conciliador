@@ -343,8 +343,11 @@ describe("validarSpecModulo · familias", () => {
     expect(validarSpecModulo(CAR, base({ edades: [{ columna: 3, etiqueta: "1 - 30 DIAS" }, { columna: 4, etiqueta: "31 - 60 DIAS" }] }))).toBeNull();
   });
 
-  it("sin familia también pasa: hay reportes de cartera sin antigüedad", () => {
-    expect(validarSpecModulo(CAR, base(undefined))).toBeNull();
+  it("sin edades pasa si cada fila es un documento, y sin ninguna de las dos ya no (22/Sep/2026)", () => {
+    const porDocumento = { ...base(undefined), columnas: { nit: 1, total: 2, documento: 5 } };
+    expect(validarSpecModulo(CAR, porDocumento)).toBeNull();
+    // Sin documento y sin edades el archivo es el de por cuenta y NIT: no sirve para conciliar.
+    expect(validarSpecModulo(CAR, base(undefined))).toContain("solo concilian auxiliares");
   });
 });
 

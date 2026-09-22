@@ -53,14 +53,20 @@ describe("coincidenciaPatron · tipo de formato declarado", () => {
     expect(coincidenciaPatron(INV, { encabezado: ["Tipo", "Valor total"], spec: inv }, ["Tipo", "Valor total"]).faltantesRequeridos).toEqual([]);
   });
 
-  it("un formato por cuenta y NIT no exige documento ni rangos", () => {
+  it("una versión por cuenta y NIT ya no lee ningún archivo (22/Sep/2026)", () => {
     // SIESA «Reporte de estado de cuentas»: código (cuenta o NIT), descripción, #Ter. y saldo.
     const encabezado = ["Código", null, "Descripción", null, null, null, null, "#Ter.", null, "Programado", "Orden de pago", null, "Pronto pago", "Saldo"];
     const spec: SpecModulo = {
       hoja: "Hoja 1", filaEncabezado: 15, primeraFilaDatos: 18, tipoFormato: "cuenta_tercero",
       columnas: columnasEn(CXP, { nit: 1, total: 14, marcaSeccion: 8 }),
     };
-    expect(coincidenciaPatron(CXP, { encabezado, spec }, encabezado)).toMatchObject({ faltantesRequeridos: [], elegible: true });
+    expect(coincidenciaPatron(CXP, { encabezado, spec }, encabezado)).toMatchObject({
+      faltantesRequeridos: ["Documento o rangos de vencimiento"],
+      elegible: false,
+    });
+    // Lo mismo si el tipo no está declarado y el mapeo lo deduce (versiones anteriores).
+    const sinDeclarar: SpecModulo = { ...spec, tipoFormato: undefined };
+    expect(coincidenciaPatron(CXP, { encabezado, spec: sinDeclarar }, encabezado).elegible).toBe(false);
   });
 });
 
