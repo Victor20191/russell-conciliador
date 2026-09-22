@@ -138,21 +138,21 @@ describe("derivarStagingTercero — sin detalle por tercero", () => {
 
 describe("prepararCapturaTercero — herencia de ajustes y fila propia", () => {
   const staging: FilaTerceroCruda[] = [
-    { filaNum: 2, codigo: "11050501", codigoCrudo: null, nombreCuenta: "CAJA", nitTercero: "890903938", nombreTercero: null, saldoInicial: 0, debitos: 0, creditos: 0, saldoFinal: 100 },
-    { filaNum: 3, codigo: "11050501", codigoCrudo: null, nombreCuenta: "CAJA", nitTercero: "901427659", nombreTercero: "MELONN", saldoInicial: 0, debitos: 0, creditos: 0, saldoFinal: 200 },
+    { filaNum: 2, codigo: "22050501", codigoCrudo: null, nombreCuenta: "PROVEEDORES", nitTercero: "890903938", nombreTercero: null, saldoInicial: 0, debitos: 0, creditos: 0, saldoFinal: 100 },
+    { filaNum: 3, codigo: "22050501", codigoCrudo: null, nombreCuenta: "PROVEEDORES", nitTercero: "901427659", nombreTercero: "MELONN", saldoInicial: 0, debitos: 0, creditos: 0, saldoFinal: 200 },
     { filaNum: 6, codigo: "13050501", codigoCrudo: null, nombreCuenta: "CLIENTES", nitTercero: "800011002", nombreTercero: null, saldoInicial: 0, debitos: 0, creditos: 0, saldoFinal: 500 },
   ];
 
   it("sintetiza la fila propia, copia la homologación y agrupa por cuenta", () => {
     const dets = [
-      detalle({ cuenta8: "11050501", cuenta6Russell: "110505", coincidencia: 100, saldoFinal: 300 }),
+      detalle({ cuenta8: "22050501", cuenta6Russell: "220505", coincidencia: 100, saldoFinal: 300 }),
       detalle({ cuenta8: "14350101", saldoFinal: 900 }),
     ];
     const r = prepararCapturaTercero(staging, dets, new Set());
-    // propia 1105 + 2 terceros + propia 1435 (sin terceros pero presente)
+    // propia 2205 + 2 terceros + propia 1435 (sin terceros pero presente)
     expect(r.filas).toHaveLength(4);
-    expect(r.filas[0]).toMatchObject({ cuenta8: "11050501", nitTercero: null, nombreTercero: null, saldoFinal: 300, cuenta6Russell: "110505" });
-    expect(r.filas[1]).toMatchObject({ nitTercero: "890903938", cuenta6Russell: "110505", coincidencia: 100 });
+    expect(r.filas[0]).toMatchObject({ cuenta8: "22050501", nitTercero: null, nombreTercero: null, saldoFinal: 300, cuenta6Russell: "220505" });
+    expect(r.filas[1]).toMatchObject({ nitTercero: "890903938", cuenta6Russell: "220505", coincidencia: 100 });
     expect(r.filas[3]).toMatchObject({ cuenta8: "14350101", nitTercero: null, saldoFinal: 900 });
     expect(r.terceros).toBe(2);
     expect(r.cuentasConDetalle).toBe(1);
@@ -163,38 +163,53 @@ describe("prepararCapturaTercero — herencia de ajustes y fila propia", () => {
     // en el detalle oficial. Sin factor, la fila propia y sus terceros tendrían signos opuestos.
     const conMov: FilaTerceroCruda[] = staging.map((t) => ({ ...t, saldoInicial: 50, debitos: 30, creditos: 10 }));
     const dets = [
-      detalle({ cuenta8: "11050501", cuenta6Russell: "110505", coincidencia: 100, saldoInicial: -50, saldoFinal: -300 }),
+      detalle({ cuenta8: "22050501", cuenta6Russell: "220505", coincidencia: 100, saldoInicial: -50, saldoFinal: -300 }),
       detalle({ cuenta8: "13050501", saldoFinal: 500 }),
     ];
-    const r = prepararCapturaTercero(conMov, dets, new Set(), new Map([["11050501", -1], ["13050501", 1]]));
-    const t1105 = r.filas.filter((f) => f.cuenta8 === "11050501" && f.nitTercero !== null);
-    expect(t1105.map((f) => [f.saldoInicial, f.saldoFinal])).toEqual([[-50, -100], [-50, -200]]);
-    expect(t1105.every((f) => f.debitos === 30 && f.creditos === 10)).toBe(true); // movimientos: magnitud, sin factor
-    expect(r.filas[0]).toMatchObject({ cuenta8: "11050501", nitTercero: null, saldoFinal: -300 }); // propia: ya firmada del detalle
+    const r = prepararCapturaTercero(conMov, dets, new Set(), new Map([["22050501", -1], ["13050501", 1]]));
+    const t2205 = r.filas.filter((f) => f.cuenta8 === "22050501" && f.nitTercero !== null);
+    expect(t2205.map((f) => [f.saldoInicial, f.saldoFinal])).toEqual([[-50, -100], [-50, -200]]);
+    expect(t2205.every((f) => f.debitos === 30 && f.creditos === 10)).toBe(true); // movimientos: magnitud, sin factor
+    expect(r.filas[0]).toMatchObject({ cuenta8: "22050501", nitTercero: null, saldoFinal: -300 }); // propia: ya firmada del detalle
     expect(r.filas.find((f) => f.cuenta8 === "13050501" && f.nitTercero !== null)?.saldoFinal).toBe(500); // factor +1: intacto
   });
 
   it("sin factores —cargues legados, archivo ya firmado— la captura es idéntica a la de antes", () => {
-    const dets = [detalle({ cuenta8: "11050501" })];
+    const dets = [detalle({ cuenta8: "22050501" })];
     const sinFactor = prepararCapturaTercero(staging, dets, new Set());
-    const conUnos = prepararCapturaTercero(staging, dets, new Set(), new Map([["11050501", 1]]));
+    const conUnos = prepararCapturaTercero(staging, dets, new Set(), new Map([["22050501", 1]]));
     expect(conUnos).toEqual(sinFactor);
   });
 
   it("una cuenta que no quedó en el balance excluye a sus terceros", () => {
-    const dets = [detalle({ cuenta8: "11050501" })];
+    const dets = [detalle({ cuenta8: "22050501" })];
     const r = prepararCapturaTercero(staging, dets, new Set());
-    expect(r.filas.every((f) => f.cuenta8 === "11050501")).toBe(true);
+    expect(r.filas.every((f) => f.cuenta8 === "22050501")).toBe(true);
     expect(r.filas).toHaveLength(3);
   });
 
   it("una fila tachada a mano (omitida por filaNum) no entra", () => {
-    const dets = [detalle({ cuenta8: "11050501" })];
+    const dets = [detalle({ cuenta8: "22050501" })];
     const r = prepararCapturaTercero(staging, dets, new Set([3]));
     expect(r.filas.filter((f) => f.nitTercero !== null)).toHaveLength(1);
     expect(r.filas[1].nitTercero).toBe("890903938");
   });
+
+  it("solo conserva los terceros de 13, 21, 22, 23, 28 y 41; el resto queda con su fila propia", () => {
+    const cuentas = ["11050501", "13050501", "14350101", "21050501", "23350501", "28050501", "41350501", "51050601"];
+    const stg: FilaTerceroCruda[] = cuentas.map((codigo, i) => (
+      { filaNum: i + 1, codigo, codigoCrudo: null, nombreCuenta: null, nitTercero: `90000000${i}`, nombreTercero: null, saldoInicial: 0, debitos: 0, creditos: 0, saldoFinal: 10 }
+    ));
+    const r = prepararCapturaTercero(stg, cuentas.map((cuenta8) => detalle({ cuenta8, saldoFinal: 10 })), new Set());
+    const conTerceros = [...new Set(r.filas.filter((f) => f.nitTercero !== null).map((f) => f.cuenta8))];
+    expect(conTerceros).toEqual(["13050501", "21050501", "23350501", "28050501", "41350501"]);
+    // Toda cuenta conserva su fila propia con el saldo oficial.
+    expect(r.filas.filter((f) => f.nitTercero === null).map((f) => f.cuenta8)).toEqual(cuentas);
+    expect(r.cuentasConDetalle).toBe(5);
+    expect(r.terceros).toBe(5);
+  });
 });
+
 
 describe("filasEfectivasTercero — dedup de la fila propia", () => {
   const fp = (cuenta8: string, nit: string | null, nombre: string | null, saldo = 0) =>

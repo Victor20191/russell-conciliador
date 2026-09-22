@@ -164,6 +164,8 @@ function derivarFormatoSufijo(filas: readonly FilaStagingEntrada[]): FilaTercero
  * de CADA cuenta del balance (sin NIT ni nombre de tercero, montos oficiales): así el
  * dataset cubre TODAS las cuentas (una 14xx sin terceros existe para el cruce de
  * Inventarios) y el árbol por tercero puede exponer el descuadre declarado − Σ.
+ * Los terceros solo se conservan en las cuentas de `PREFIJOS_TERCERO_CONSERVADOS`
+ * (por el código del cliente, `cuenta8`); las demás quedan únicamente con su fila propia.
  */
 /**
  * Firma un saldo de tercero con el factor de su cuenta. `-v || 0` evita persistir
@@ -217,7 +219,9 @@ export function prepararCapturaTercero(
       creditos: det.creditos,
       saldoFinal: det.saldoFinal,
     });
-    const terceros = tercerosPorCuenta.get(det.cuenta8);
+    // Solo las cuentas de `PREFIJOS_TERCERO_CONSERVADOS` guardan sus terceros; el
+    // resto queda con su fila propia (el saldo oficial), así los totales no cambian.
+    const terceros = conservaDetalleTercero(det.cuenta8) ? tercerosPorCuenta.get(det.cuenta8) : undefined;
     if (!terceros) continue;
     cuentasConDetalle++;
     const factor = signoPorCuenta?.get(det.cuenta8) ?? 1;
@@ -291,6 +295,18 @@ export const PREFIJOS_TERCERO_OBLIGATORIO = ["13", "21", "22", "23", "28"] as co
 
 export function exigeDetalleTercero(cuenta: string): boolean {
   return PREFIJOS_TERCERO_OBLIGATORIO.some((p) => cuenta.startsWith(p));
+}
+
+/**
+ * Cuentas del cliente cuyo detalle por tercero se GUARDA al promover (22/Sep/2026): las de
+ * detalle obligatorio más los ingresos (41), que usa el cruce por tercero de Ingresos. El
+ * resto del balance no tiene consumidor del detalle y solo inflaba la captura (IGB: 306 mil
+ * filas); queda con su fila propia. No afecta la homologación ni el balance oficial.
+ */
+export const PREFIJOS_TERCERO_CONSERVADOS = [...PREFIJOS_TERCERO_OBLIGATORIO, "41"] as const;
+
+export function conservaDetalleTercero(cuenta: string): boolean {
+  return PREFIJOS_TERCERO_CONSERVADOS.some((p) => cuenta.startsWith(p));
 }
 
 /**
