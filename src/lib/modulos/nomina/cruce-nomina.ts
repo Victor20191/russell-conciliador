@@ -251,10 +251,39 @@ export type RepartoConcepto = { clasificador: string; valores: Record<string, nu
 export type EntradaCruceFormal = { clasificador: string; total: number; cuentas4: string[] };
 
 /**
+ * ¿El reparto guardado de un concepto sigue rigiendo? Solo mientras el concepto siga «asignado a
+ * varias» (`multi`) y el reparto use solo esas cuentas. Si el auditor le asignó después UNA cuenta
+ * (o cambió las candidatas), manda su última decisión: el reparto viejo ya no resuelve nada y
+ * aplicarlo llevaba el valor a cuentas que el concepto dejó de tener (Kakaraka, concepto 8 → 519505).
+ */
+export function repartoVigente(
+  sugerencia: Pick<RenglonConsolidadoNomina["sugerencia"], "via" | "cuentas">,
+  reparto: Record<string, number> | undefined,
+): reparto is Record<string, number> {
+  if (!reparto || Object.keys(reparto).length === 0 || sugerencia.via !== "multi") return false;
+  const candidatas = new Set(sugerencia.cuentas);
+  // Una cuenta en cero no reparte nada: no hace falta que siga entre las candidatas.
+  return Object.entries(reparto).every(([cuenta, valor]) => valor === 0 || candidatas.has(cuenta));
+}
+
+/**
+ * Al guardar las cuentas de un renglón del Consolidado, ¿su reparto del período queda viejo? Sí si
+ * el renglón queda con menos de dos cuentas o con otras cuentas que las del reparto.
+ */
+export function repartoQuedaViejo(cuentasGuardadas: readonly string[], cuentasReparto: readonly string[]): boolean {
+  const guardadas = new Set(cuentasGuardadas);
+  if (guardadas.size < 2) return true;
+  const reparto = new Set(cuentasReparto);
+  return guardadas.size !== reparto.size || [...reparto].some((c) => !guardadas.has(c));
+}
+
+/**
  * Lo que entra a la cédula Russell 6 desde el consolidado de Nómina. Solo cuentan las vías
  * DETERMINISTAS (cuenta del archivo, memoria exacta, memoria + clase); una sugerencia por
  * nombre no cruza hasta que el auditor la guarde. Los `multi` cruzan por su REPARTO (RF-NOM-12)
- * y, sin reparto, quedan como «asignado a varias» (ambiguo). Control y fuera no entran.
+ * y, sin reparto, quedan como «asignado a varias» (ambiguo). Un reparto que ya no rige
+ * (`repartoVigente`: el concepto tiene hoy una sola cuenta u otras candidatas) se ignora. Control
+ * y fuera no entran.
  */
 export function entradasCruceFormalNomina(renglones: readonly RenglonConsolidadoNomina[], repartos: readonly RepartoConcepto[]): {
   entradas: EntradaCruceFormal[];
@@ -271,7 +300,7 @@ export function entradasCruceFormalNomina(renglones: readonly RenglonConsolidado
     const s = r.sugerencia;
     if (s.destino !== "gasto") continue;
     const reparto = repartoPor.get(r.clasificador);
-    if (reparto && Object.keys(reparto).length > 0) {
+    if (repartoVigente(s, reparto)) {
       repartidos++;
       for (const [cuenta, valor] of Object.entries(reparto)) {
         if (valor === 0) continue;

@@ -56,7 +56,7 @@ import { aplicativoConfirmadoDeCarga, versionesPatronCandidatas } from "@/lib/mo
 import type { ResumenPeriodo } from "@/lib/modulos/nomina/periodo";
 import { claveConsolidado, partirClaveConsolidado } from "@/lib/modulos/nomina/clave-consolidado";
 import { CLASES_NOMINA } from "@/lib/modulos/nomina/homologacion";
-import { validarReparto } from "@/lib/modulos/nomina/cruce-nomina";
+import { repartoQuedaViejo, validarReparto } from "@/lib/modulos/nomina/cruce-nomina";
 import { esImputable, promoverStaging, type FilaStagingModulo } from "@/lib/modulos/promocion";
 import { CLAVE_MONEDA, datosConExtrasCartera, filaCarteraDesdeDetalle, leerSaldoDeclarado, rotulosDeEdades } from "@/lib/modulos/cartera/detalle-cartera";
 import { esTipoFormatoCartera, formatoArchivoCartera, leerFormatosCartera, nivelCarteraDeSpec } from "@/lib/modulos/cartera/tipo-formato";
@@ -2261,6 +2261,7 @@ async function auditarConsolidacion(
   moduloCodigo: string,
   filas: { cuentas4: string[] }[],
   delPeriodo: { periodo: string; cuentas: string[] } | null = null,
+  repartosDescartados: readonly string[] = [],
 ) {
   const [user, cliente] = await Promise.all([
     getCurrentUser(),
@@ -2272,7 +2273,8 @@ async function auditarConsolidacion(
     action: "ACTUALIZÓ consolidación de módulo",
     entity: cliente?.name ?? `Cliente ${clienteId}`,
     detail: `${moduloCodigo} · ${filas.length} clasificador(es) · ${cuentas} cuenta(s)`
-      + (delPeriodo && delPeriodo.cuentas.length ? ` · solo ${delPeriodo.periodo}: ${delPeriodo.cuentas.join(", ")}` : ""),
+      + (delPeriodo && delPeriodo.cuentas.length ? ` · solo ${delPeriodo.periodo}: ${delPeriodo.cuentas.join(", ")}` : "")
+      + (repartosDescartados.length ? ` · reparto descartado: ${repartosDescartados.join(", ")}` : ""),
     clientId: clienteId,
   });
 }
@@ -2370,8 +2372,24 @@ async function guardarConsolidacion(args: {
     }
 
     const memoria = await memoriaGuardada(clienteId, moduloCodigo, filas.map((f) => f.clave));
-    await prisma.$transaction(
-      separadas.flatMap((f) => {
+    // Nómina: un reparto del período que ya no corresponde a las cuentas guardadas del renglón (se
+    // le asignó una sola cuenta, u otras) se descarta; si no, seguía mandando en el cruce.
+    const repartosPrevios = descriptor.nomina && periodo
+      ? await prisma.repartoCruceModulo.findMany({
+          where: { clienteId, moduloCodigo, periodo, clasificador: { in: filas.map((f) => f.clave) } },
+          select: { clasificador: true, cuentaRussell: true },
+        })
+      : [];
+    const cuentasReparto = new Map<string, string[]>();
+    for (const r of repartosPrevios) cuentasReparto.set(r.clasificador, [...(cuentasReparto.get(r.clasificador) ?? []), r.cuentaRussell]);
+    const repartosViejos = separadas
+      .filter((f) => cuentasReparto.has(f.clave) && repartoQuedaViejo([...f.deCedula, ...f.extras], cuentasReparto.get(f.clave)!))
+      .map((f) => f.clave);
+    await prisma.$transaction([
+      ...(repartosViejos.length > 0
+        ? [prisma.repartoCruceModulo.deleteMany({ where: { clienteId, moduloCodigo, periodo: periodo!, clasificador: { in: repartosViejos } } })]
+        : []),
+      ...separadas.flatMap((f) => {
         const delRenglon = periodo ? { clienteId, moduloCodigo, periodo, clasificador: f.clasificador, agrupador: f.agrupador } : null;
         if (f.extras.length === 0) {
           return [
@@ -2393,19 +2411,23 @@ async function guardarConsolidacion(args: {
           }),
         ];
       }),
-    );
+    ]);
     await auditarConsolidacion(
       clienteId,
       moduloCodigo,
       separadas.map((f) => ({ cuentas4: [...f.deCedula, ...f.extras] })),
       periodo ? { periodo, cuentas: extras } : null,
+      repartosViejos,
     );
     revalidatePath(rutaModulo(moduloCodigo));
     const base = filas.length === 1 ? "Consolidación guardada." : `${filas.length} consolidaciones guardadas.`;
     const aviso = extras.length === 0
       ? ""
       : ` ${extras.length === 1 ? `La cuenta ${extras[0]} vale` : `Las cuentas ${extras.join(", ")} valen`} solo para ${periodo}.`;
-    return { ok: true, message: base + aviso };
+    const avisoReparto = repartosViejos.length === 0
+      ? ""
+      : ` Se descartó el reparto del cruce que tenía${repartosViejos.length === 1 ? "" : `n ${repartosViejos.length} conceptos`}: ya no corresponde a sus cuentas.`;
+    return { ok: true, message: base + aviso + avisoReparto };
   } catch (e) {
     return { ok: false, message: mensajeErrorBD(args.contexto, e) };
   }
@@ -2633,7 +2655,7 @@ export async function guardarRepartoCruce(input: { encabezadoId: number; clasifi
 }
 
 /**
- * Aplica de una vez el reparto SUGERIDO (proporcional al movimiento del balance, D4) a todos
+ * Aplica de una vez el reparto SUGERIDO (proporcional al saldo final del balance, D4) a todos
  * los conceptos del cargue que cruzan contra varias cuentas y aún no tienen reparto.
  */
 export async function aplicarRepartosSugeridos(input: { encabezadoId: number }): Promise<ActionState & { aplicados?: number }> {

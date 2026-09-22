@@ -355,10 +355,15 @@ function resolverDesdeMemoria(
 ): ResolucionConcepto {
   const delModulo = (c: string) => ctx.cuentasRussell6.includes(c);
   const cuentasDe = (filas: FilaHomologacion[]) => [...new Set(filas.map((f) => digitosCuenta(f.cuenta6)).filter((c) => c.length === 6))];
-  const metaDe = (filas: FilaHomologacion[]) => ({
-    grupo: filas.find((f) => f.grupo)?.grupo ?? null,
-    subcuentaPuc: filas.find((f) => f.subcuentaPuc)?.subcuentaPuc ?? null,
-    cuentaCliente: filas.find((f) => f.cuentaCliente)?.cuentaCliente ?? null,
+  // Lo descriptivo (grupo, subcuenta PUC, cuenta del cliente) sale de las filas del renglón y, si
+  // ahí falta, de la fila BASE del concepto (agrupador vacío = todos los centros). Una cuenta asignada
+  // «solo para el período» a un centro no trae esos datos: sin el respaldo, el concepto quedaba sin
+  // subcuenta y fuera de la vista por subcuenta (Kakaraka, concepto 8 → 519505 en la subcuenta 18).
+  const filasBase = idx.get(claveMemoria(clasificador, "")) ?? [];
+  const metaDe = (filas: FilaHomologacion[], respaldo: FilaHomologacion[] = []) => ({
+    grupo: filas.find((f) => f.grupo)?.grupo ?? respaldo.find((f) => f.grupo)?.grupo ?? null,
+    subcuentaPuc: filas.find((f) => f.subcuentaPuc)?.subcuentaPuc ?? respaldo.find((f) => f.subcuentaPuc)?.subcuentaPuc ?? null,
+    cuentaCliente: filas.find((f) => f.cuentaCliente)?.cuentaCliente ?? respaldo.find((f) => f.cuentaCliente)?.cuentaCliente ?? null,
   });
   const esControl = (filas: FilaHomologacion[]) => filas.length > 0 && cuentasDe(filas).length === 0 && filas.every((f) => destinoDeCuentaCliente(f.cuentaCliente) === "control");
   // Memoria sin Russell cuya cuenta del cliente es gasto de una clase ajena al módulo (61…).
@@ -373,7 +378,7 @@ function resolverDesdeMemoria(
   const exacta = agrupador ? idx.get(claveMemoria(clasificador, agrupador)) ?? [] : [];
   if (exacta.length > 0) {
     const cuentas = cuentasDe(exacta);
-    const meta = metaDe(exacta);
+    const meta = metaDe(exacta, filasBase);
     if (esControl(exacta)) return base({ via: "memoria_exacta", destino: "control", ...meta, motivo: `Memoria del cliente para «${agrupador}»: cuenta ${meta.cuentaCliente} de control.` });
     const fueraExacta = claseFuera(exacta);
     if (fueraExacta) return base({ via: "memoria_exacta", destino: "fuera", ...meta, motivo: `Memoria del cliente para «${agrupador}»: cuenta ${meta.cuentaCliente} de la clase ${fueraExacta}, que Nómina no concilia.` });
@@ -383,7 +388,6 @@ function resolverDesdeMemoria(
   }
 
   // 3/4) Memoria base (concepto sin agrupador).
-  const filasBase = idx.get(claveMemoria(clasificador, "")) ?? [];
   if (filasBase.length > 0) {
     const meta = metaDe(filasBase);
     if (esControl(filasBase)) return base({ via: "memoria_exacta", destino: "control", ...meta, motivo: `Memoria del cliente: cuenta ${meta.cuentaCliente} de control.` });
