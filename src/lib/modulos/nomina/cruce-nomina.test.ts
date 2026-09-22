@@ -5,6 +5,8 @@ import {
   construirVistaSubcuenta,
   emparejarCuentaControl,
   entradasCruceFormalNomina,
+  repartoQuedaViejo,
+  repartoVigente,
   validarReparto,
   valorContableNomina,
   type FilaBalanceNomina,
@@ -146,6 +148,29 @@ describe("entradasCruceFormalNomina", () => {
     ]);
     expect(con.repartidos).toBe(1);
     expect(con.pendientesReparto).toEqual([]);
+  });
+  it("un reparto viejo no le gana a la cuenta que el auditor asignó después (Kakaraka, concepto 8)", () => {
+    // El concepto estuvo «asignado a varias» y se repartió; luego se le asignó la 519505 sola.
+    const conCuenta = [renglon("8 ∥ 1", 116031665, { via: "memoria_exacta", cuentas: ["519505"] })];
+    const reparto = [{ clasificador: "8 ∥ 1", valores: { "510506": 2152559, "520506": 2026533, "720505": 11848733, "730505": 100003840 } }];
+    const r = entradasCruceFormalNomina(conCuenta, reparto);
+    expect(r.entradas).toEqual([{ clasificador: "8 ∥ 1", total: 116031665, cuentas4: ["519505"] }]);
+    expect(r.repartidos).toBe(0);
+    // Sigue «multi» pero con otras candidatas: el reparto tampoco rige y queda pendiente.
+    const otras = [renglon("8 ∥ 1", 1000, { via: "multi", cuentas: ["510518", "520518"] })];
+    const r2 = entradasCruceFormalNomina(otras, [{ clasificador: "8 ∥ 1", valores: { "510506": 400, "520506": 600 } }]);
+    expect(r2.entradas).toEqual([{ clasificador: "8 ∥ 1", total: 1000, cuentas4: ["510518", "520518"] }]);
+    expect(r2.pendientesReparto.map((p) => p.clasificador)).toEqual(["8 ∥ 1"]);
+  });
+  it("repartoVigente y repartoQuedaViejo", () => {
+    expect(repartoVigente({ via: "multi", cuentas: ["510506", "520506"] }, { "510506": 1, "520506": 2 })).toBe(true);
+    expect(repartoVigente({ via: "multi", cuentas: ["510506", "520506"] }, { "510506": 3, "720505": 0 })).toBe(true);
+    expect(repartoVigente({ via: "memoria_exacta", cuentas: ["519505"] }, { "510506": 3 })).toBe(false);
+    expect(repartoVigente({ via: "multi", cuentas: ["510506"] }, undefined)).toBe(false);
+    // Al guardar el renglón: una sola cuenta u otras cuentas dejan el reparto viejo; el mismo juego no.
+    expect(repartoQuedaViejo(["519505"], ["510506", "520506"])).toBe(true);
+    expect(repartoQuedaViejo(["510506", "720505"], ["510506", "520506"])).toBe(true);
+    expect(repartoQuedaViejo(["520506", "510506"], ["510506", "520506"])).toBe(false);
   });
   it("validarReparto exige que la suma cierre", () => {
     expect(validarReparto(1000, { a: 300, b: 700 })).toBeNull();
